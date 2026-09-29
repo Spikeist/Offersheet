@@ -1,4 +1,6 @@
-# CLAUDE.md — Fantasy Trade Finder (working name)
+# CLAUDE.md — Offer Sheet
+
+The product is called **Offer Sheet**. Its first working name was Fantasy Trade Finder, which is why the project folder is still called `fantasy-trade-finder`. Don't rename the folder.
 
 This is the complete spec for the project. The planner wrote it on 2026-09-29. The planner is a separate Claude chat that Parker works with. Parker owns the project and passes your checkpoint reports to the planner. The planner then sends back approvals and changes.
 
@@ -101,6 +103,8 @@ A web app that works on phones and desktops. It does five things:
 5. **Explains each suggestion** in plain English and offers a copy-ready message to send the other manager.
 
 The app is **read-only**. It never sends offers or changes anything on any platform.
+
+**Who it's for:** Parker's own leagues first, then anyone. It becomes a free public website that can also be installed on a phone's home screen (a PWA). It stays free and non-commercial: no ads, no payments and no paywalls (see Section 19). A native app-store version is out of scope unless Parker asks for one later.
 
 ---
 
@@ -215,6 +219,11 @@ The planner verified this on 2026-09-29. Phase 0 re-verifies it.
 
 **My team**
 - The roster whose `owner_id` or `co_owners` matches the user_id.
+
+**Browser fetching (check in Phase 1)**
+- Find out whether `api.sleeper.app` sends CORS headers.
+- If it does, fetch Sleeper data from the user's browser in production. Each user's requests then count against their own IP, not against our server's shared limit.
+- Keep the normalizer code shared between browser and server.
 
 ### 2.4 Yahoo (gated — Phase 5, behind `FEATURE_YAHOO`)
 
@@ -372,6 +381,14 @@ The planner verified this on 2026-09-29. Phase 0 re-verifies it.
 - Build a `Cache` interface.
 - For development, implement it with files in `.cache/` (git-ignored).
 - A KV-store version can be added when we deploy.
+
+**Built for public use**
+- The engine runs in the browser, so trade searches cost the server nothing.
+- Server routes only fetch and normalize data. In production they need:
+  - a shared cache store (for example Upstash Redis's free tier)
+  - per-IP rate limits
+  - friendly "this data source is down" messages
+- ESPN, Yahoo and private MFL requests must stay on the server, because they carry cookies or secrets.
 
 **Folder layout**
 
@@ -895,6 +912,10 @@ With the default coefficients, unit tests must hit these values within ±1 point
    - untouchables
    - include K/DEF and draft picks
 
+**Home page and privacy**
+- A placeholder landing page for Offer Sheet is already live (Section 17, Phase 7). The app's home page should carry over its wording: what the app does, how it works, and the platforms it supports.
+- The privacy policy lives at `/privacy`. It must match what the app actually does, so update it whenever data handling changes.
+
 **Footer and layout**
 - The footer shows:
   - "Trade values: FantasyCalc" with a link
@@ -1090,14 +1111,25 @@ This is the single source of truth. Every number listed here must be read from c
 
 **Then:** Checkpoint 6.
 
-### Phase 7 — Deploy, only when Parker asks
+### Phase 7 — Public launch, only when Parker asks
 
-**Deploy** on the Vercel free tier with:
-- environment variables
-- a session secret
-- a cache store
-- a privacy page
-- an attribution check
+**Hosting**
+- Use Vercel's free Hobby plan. It only allows non-commercial use: ads or payments would break its terms, but asking for donations doesn't.
+- A placeholder landing page is already live on Parker's Vercel project, `offersheet`. Deploy the app to **that same project** so the web address doesn't change, and move the landing page's copy into the app's home page.
+- A custom domain is optional. offersheet.app was unregistered on 2026-09-29.
+
+**Add before going public**
+- a privacy policy at `/privacy` and terms of use at `/terms`
+- environment variables and the session secret in Vercel
+- a shared cache store and per-IP rate limits on server routes
+- error logging that never records credentials or league data
+- installable PWA support: a manifest and icons
+- a feedback link
+- basic SEO: title, description and an Open Graph image
+- an attribution check: FantasyCalc everywhere values show, and Yahoo everywhere Yahoo data shows
+
+**Load test**
+- 50 league imports at the same time, without hitting any platform's rate limits.
 
 **Don't deploy before Parker asks.**
 
@@ -1136,12 +1168,12 @@ Status: ✅ Done | ⚠️ Done with issues | ❌ Blocked
 
 ## 19. Terms, attribution and privacy
 
-- **Personal, free use is fine.** Charging money would require:
-  - a Sleeper license, because their API is non-commercial only
-  - FantasyCalc's permission, because their terms are non-commercial
-  - a careful look at ESPN, whose API is unofficial and comes with no license at all
+- **The plan is a free public app, and it must stay non-commercial.** Ads, payments or paywalls would break:
+  - Vercel Hobby's terms (non-commercial only)
+  - Sleeper's API terms (non-commercial only)
+  - FantasyCalc's terms (non-commercial only)
 
-  So don't add payments, ads or paywalls.
+  They'd also make ESPN's unofficial API a bigger risk. Don't add any of them unless Parker and the planner decide to, and get the licenses first.
 - **ESPN:** the API is unofficial and can change or break at any time. Keep it isolated behind its adapter, and fail loudly with a clear message.
 - **Yahoo:** follow the API Access and Use Agreement and the attribution rules. Read-only.
 - **FantasyCalc:** show a link on every page that shows values, and fetch at most once per day per format.
