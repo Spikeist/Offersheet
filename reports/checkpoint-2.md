@@ -104,7 +104,7 @@ Status: ⚠️ Done with issues. Every Phase 2 build item and every Checkpoint 1
 - **ESPN:** no extra ESPN request. Its league-scored projections are read from the import.
 
 ## Numbers
-- 1,589 tests pass (120 files); typecheck and lint clean; `check:leaks` 0 hard, 16 soft (the two new ones are the ordinary word "Whatever"); `next build` OK.
+- 1,589 tests pass (120 files); typecheck and lint clean; `check:leaks` 0 hard, 16 soft (the two new ones are one ordinary English word in code that happens to be a stranger's league name); `next build` OK.
 - **Adversarial review** (7 lenses; a skeptic tried to refute each finding): 39 findings, 37 confirmed, all fixed; an independent check re-verified them. The biggest: game-day skew, a Sleeper outage stalling the page, partner fit double-counting, and surplus without trade values.
 - **Lineup solver:** 30 tests, 2,440 brute-force comparisons, 2,400 fast-path equivalence checks, 14/15 mutants caught (the 15th was unreachable and removed).
 - **Browser check at 375×812** (headless Edge, production build, your league through the public-link flow):
