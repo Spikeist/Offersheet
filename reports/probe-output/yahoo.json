@@ -1,0 +1,289 @@
+{
+  "platform": "yahoo",
+  "generatedAt": "2026-09-29T23:44:40.903Z",
+  "runtimeSeconds": 0.2,
+  "meta": {
+    "leagues": [
+      {
+        "label": "none: awaiting Yahoo approval",
+        "access": "unauthenticated host check only",
+        "source": "YAHOO_CLIENT_ID / YAHOO_CLIENT_SECRET blank"
+      }
+    ],
+    "env": {
+      "YAHOO_CLIENT_ID": "blank",
+      "YAHOO_CLIENT_SECRET": "blank",
+      "YAHOO_AUTH_CODE": "blank",
+      "YAHOO_REFRESH_TOKEN": "blank"
+    },
+    "timingsMs": {
+      "unauthenticated game/nfl": 216,
+      "Yahoo OAuth guide": 1
+    },
+    "requestCount": 2
+  },
+  "itemStatus": {
+    "API": "ok",
+    "DOCS": "ok",
+    "AUTH": "na",
+    "A": "na",
+    "B": "na",
+    "C": "na",
+    "D": "na",
+    "E": "na",
+    "F": "na",
+    "G": "na",
+    "H": "na",
+    "I": "na",
+    "J": "na",
+    "K": "na",
+    "L": "na",
+    "M": "na"
+  },
+  "counts": {
+    "ok": 2,
+    "warn": 0,
+    "fail": 0,
+    "na": 14
+  },
+  "checks": [
+    {
+      "item": "API",
+      "key": "API.hostUnauthenticated",
+      "title": "API host answers without credentials",
+      "status": "ok",
+      "summary": "HTTP 401 as expected: the Fantasy API is up and requires OAuth",
+      "evidence": [
+        {
+          "url": "https://fantasysports.yahooapis.com/fantasy/v2/game/nfl?format=json",
+          "status": 401,
+          "path": "HTTP status + Content-Type header",
+          "sample": {
+            "contentType": "application/json"
+          }
+        }
+      ]
+    },
+    {
+      "item": "DOCS",
+      "key": "DOCS.oauthGuide",
+      "title": "Yahoo OAuth guide: authorize parameters",
+      "status": "ok",
+      "summary": "request_auth parameters: client_id, redirect_uri, response_type, state, language (no scope parameter); Step 1 lists scopes among the settings of the app project; a newly issued refresh token revokes the old one",
+      "evidence": [
+        {
+          "url": "https://developer.yahoo.com/oauth2/guide/flows_authcode/",
+          "status": 200,
+          "path": "Table 1 Request Authorization URL (/request_auth) Call Request; Step 1",
+          "sample": [
+            "client_id",
+            "redirect_uri",
+            "response_type",
+            "state",
+            "language"
+          ],
+          "note": "7-day docs cache"
+        }
+      ]
+    },
+    {
+      "item": "AUTH",
+      "key": "AUTH.credentials",
+      "title": "OAuth app credentials",
+      "status": "na",
+      "summary": "untested: awaiting Yahoo approval (YAHOO_CLIENT_ID / YAHOO_CLIENT_SECRET blank); OAuth steps skipped",
+      "evidence": [
+        {
+          "path": ".env.local YAHOO_CLIENT_ID / YAHOO_CLIENT_SECRET (set/blank only)",
+          "note": "after approval: 1) At developer.yahoo.com create a NEW app after Yahoo enables access (apps made earlier can't be switched over); 2) redirect URI https://localhost:3000/api/auth/yahoo/callback; 3) API permissions: Fantasy Sports → Read (fspt-r); Yahoo sets scopes on the app, not in the authorize URL; 4) send Yahoo that app's Client ID if they ask for it; 5) fill YAHOO_CLIENT_ID and YAHOO_CLIENT_SECRET in .env.local (never paste them into chat), then run npm run probe:yahoo"
+        }
+      ]
+    },
+    {
+      "item": "A",
+      "key": "A.status",
+      "title": "League basics",
+      "status": "na",
+      "summary": "untested: awaiting Yahoo approval (YAHOO_CLIENT_ID / YAHOO_CLIENT_SECRET blank)",
+      "evidence": [
+        {
+          "url": "https://fantasysports.yahooapis.com/fantasy/v2/league/{league_key}/settings?format=json",
+          "path": "planned: settings playoff_start_week, num_playoff_teams, trade_end_date, uses_faab; season from game/nfl"
+        }
+      ]
+    },
+    {
+      "item": "B",
+      "key": "B.status",
+      "title": "Lineup",
+      "status": "na",
+      "summary": "untested: awaiting Yahoo approval (YAHOO_CLIENT_ID / YAHOO_CLIENT_SECRET blank)",
+      "evidence": [
+        {
+          "url": "https://fantasysports.yahooapis.com/fantasy/v2/league/{league_key}/settings?format=json",
+          "path": "planned: settings.roster_positions"
+        }
+      ]
+    },
+    {
+      "item": "C",
+      "key": "C.status",
+      "title": "Scoring",
+      "status": "na",
+      "summary": "untested: awaiting Yahoo approval (YAHOO_CLIENT_ID / YAHOO_CLIENT_SECRET blank)",
+      "evidence": [
+        {
+          "url": "https://fantasysports.yahooapis.com/fantasy/v2/league/{league_key}/settings?format=json",
+          "path": "planned: settings.stat_categories + settings.stat_modifiers"
+        }
+      ]
+    },
+    {
+      "item": "D",
+      "key": "D.status",
+      "title": "Teams",
+      "status": "na",
+      "summary": "untested: awaiting Yahoo approval (YAHOO_CLIENT_ID / YAHOO_CLIENT_SECRET blank)",
+      "evidence": [
+        {
+          "url": "https://fantasysports.yahooapis.com/fantasy/v2/league/{league_key}/teams?format=json",
+          "path": "planned: teams (names, managers); my team via users;use_login=1/games;game_keys={game_key}/leagues"
+        }
+      ]
+    },
+    {
+      "item": "E",
+      "key": "E.status",
+      "title": "Rosters",
+      "status": "na",
+      "summary": "untested: awaiting Yahoo approval (YAHOO_CLIENT_ID / YAHOO_CLIENT_SECRET blank)",
+      "evidence": [
+        {
+          "url": "https://fantasysports.yahooapis.com/fantasy/v2/league/{league_key}/teams/roster?format=json",
+          "path": "planned: team.roster.players"
+        }
+      ]
+    },
+    {
+      "item": "F",
+      "key": "F.status",
+      "title": "Schedule",
+      "status": "na",
+      "summary": "untested: awaiting Yahoo approval (YAHOO_CLIENT_ID / YAHOO_CLIENT_SECRET blank)",
+      "evidence": [
+        {
+          "url": "https://fantasysports.yahooapis.com/fantasy/v2/league/{league_key}/scoreboard;week={n}?format=json",
+          "path": "planned: scoreboard matchups; W-L-T from /standings"
+        }
+      ]
+    },
+    {
+      "item": "G",
+      "key": "G.status",
+      "title": "Transactions",
+      "status": "na",
+      "summary": "untested: awaiting Yahoo approval (YAHOO_CLIENT_ID / YAHOO_CLIENT_SECRET blank)",
+      "evidence": [
+        {
+          "url": "https://fantasysports.yahooapis.com/fantasy/v2/league/{league_key}/transactions;types=trade?format=json",
+          "path": "planned: transactions (plus add/drop types)"
+        }
+      ]
+    },
+    {
+      "item": "H",
+      "key": "H.status",
+      "title": "Free agents",
+      "status": "na",
+      "summary": "untested: awaiting Yahoo approval (YAHOO_CLIENT_ID / YAHOO_CLIENT_SECRET blank)",
+      "evidence": [
+        {
+          "url": "https://fantasysports.yahooapis.com/fantasy/v2/league/{league_key}/players;status=A;start={n};count=25?format=json",
+          "path": "planned: players, paginated"
+        }
+      ]
+    },
+    {
+      "item": "I",
+      "key": "I.status",
+      "title": "Draft picks",
+      "status": "na",
+      "summary": "untested: awaiting Yahoo approval (YAHOO_CLIENT_ID / YAHOO_CLIENT_SECRET blank)",
+      "evidence": [
+        {
+          "path": "planned: unknown whether Yahoo exposes traded future picks; check once live"
+        }
+      ]
+    },
+    {
+      "item": "J",
+      "key": "J.status",
+      "title": "Projections",
+      "status": "na",
+      "summary": "untested: awaiting Yahoo approval (YAHOO_CLIENT_ID / YAHOO_CLIENT_SECRET blank)",
+      "evidence": [
+        {
+          "path": "planned: §2.4 lists no Yahoo projections resource; Sleeper projections × league scoring (§6)"
+        }
+      ]
+    },
+    {
+      "item": "K",
+      "key": "K.status",
+      "title": "Completed weeks",
+      "status": "na",
+      "summary": "untested: awaiting Yahoo approval (YAHOO_CLIENT_ID / YAHOO_CLIENT_SECRET blank)",
+      "evidence": [
+        {
+          "url": "https://fantasysports.yahooapis.com/fantasy/v2/league/{league_key}/players;player_keys={player_keys}/stats;type=week;week={n}?format=json",
+          "path": "planned: weekly player stats + league points; verify once live"
+        }
+      ]
+    },
+    {
+      "item": "L",
+      "key": "L.status",
+      "title": "NFL schedule",
+      "status": "na",
+      "summary": "not applicable: the NFL schedule and byes come from the shared sources (probe-shared), not from Yahoo",
+      "evidence": [
+        {
+          "path": "shared sources"
+        }
+      ]
+    },
+    {
+      "item": "M",
+      "key": "M.status",
+      "title": "FantasyCalc match rate",
+      "status": "na",
+      "summary": "untested: awaiting Yahoo approval (YAHOO_CLIENT_ID / YAHOO_CLIENT_SECRET blank)",
+      "evidence": [
+        {
+          "path": "planned: Yahoo player_id → DynastyProcess yahoo_id → sleeper_id → FantasyCalc sleeperId (§2.9)",
+          "note": "Yahoo id coverage from probe-shared XWALK.yahoo (warn, run 2026-09-29): FantasyCalc QB/RB/WR/TE → DynastyProcess yahoo_id: 2382/2786 (85.5%). Top-250 Sleeper players: DynastyProcess yahoo_id 178/250, Sleeper's own yahoo_id 66/250, either 178/250 (71.2%); all 818 active on a team: 509 (62.2%). 72/72 of the top-250 gaps have years_exp 0 or 1 ({\"0\":31,\"1\":41}). Fallback for players without a Yahoo id: match on name + position + NFL team, then the user confirms (like manual import, §2.8)"
+        }
+      ]
+    }
+  ],
+  "issues": [
+    "§2.4 lists \"Scope: fspt-r\" under OAuth 2.0, but Yahoo's guide documents no scope parameter for request_auth — https://developer.yahoo.com/oauth2/guide/flows_authcode/ HTTP 200, \"Table 1 Request Authorization URL\": client_id, redirect_uri, response_type, state, language; Step 1 has scopes chosen on the app project — options: (a) reword §2.4: fspt-r (\"Fantasy Sports: Read\") is the API permission to tick when creating the app, and the authorize URL sends no scope (what the probe does); (b) also send scope=fspt-r (undocumented; Yahoo may ignore or reject it).",
+    "Yahoo items A–M are unverified; state: awaiting Yahoo approval (YAHOO_CLIENT_ID / YAHOO_CLIENT_SECRET blank) — https://fantasysports.yahooapis.com/fantasy/v2/game/nfl?format=json without credentials: HTTP 401 — even after approval this probe checks OAuth and the game key only; the A–M league checks are Phase 5 work — options: (a) write the Yahoo A–M checks together with the Phase 5 adapter (behind FEATURE_YAHOO); (b) extend probe-yahoo with them as soon as approval lands, before Phase 5."
+  ],
+  "decisions": [
+    "Yahoo OAuth plan once YAHOO_CLIENT_ID / YAHOO_CLIENT_SECRET exist: 3-legged OAuth needs a browser and an HTTPS redirect, https://localhost:3000/api/auth/yahoo/callback (served by `npm run dev -- --experimental-https` once the Phase 5 route exists). Until then the probe does the browser-free steps: it writes the authorize URL to .cache\\yahoo-oauth\\authorize-url.txt (git-ignored; not printed because it contains the client ID), takes the code Parker copies from the redirect via YAHOO_AUTH_CODE, exchanges it once (no retries: codes are single-use) and writes YAHOO_REFRESH_TOKEN straight into .env.local without printing it. Later runs use the stored refresh token for a 1-hour access token, then look up the current NFL game key with game/nfl (never hardcoded): 200 = access is live, 403 = not enabled yet (probe once a day).",
+    "Scope of this probe after approval: it verifies OAuth (consent → code → refresh token) and the current NFL game key only, and does not check items A–M. The Yahoo league checklist (league list via users;use_login=1/games;game_keys={game_key}/leagues, then league settings, teams/roster, standings, scoreboard;week={n}, transactions and players;status=A, with the Redactor registering team names, manager nicknames, guids, emails and image URLs) is Phase 5 work and still has to be written.",
+    "The authorize URL sends only the parameters Yahoo's guide documents for request_auth (client_id, redirect_uri, response_type, state, language; DOCS.oauthGuide): no scope parameter. fspt-r (\"Fantasy Sports: Read\") is the API permission chosen when the app is created.",
+    "Added YAHOO_AUTH_CODE and YAHOO_REFRESH_TOKEN for the manual OAuth steps; they are not in CLAUDE.md §0.5's variable list. In scripts/lib/env.ts (so every output scrubber hides them): both; in .env.example: both. The code is single-use; the refresh token is written into .env.local by the probe and never printed."
+  ],
+  "questions": [
+    "Has Yahoo replied to your API application yet (DocuSign agreement or a request for a Client ID)?"
+  ],
+  "requests": {
+    "total": 2,
+    "live": 1,
+    "fromCache": 1,
+    "retried": 0,
+    "slowestMs": 216
+  }
+}

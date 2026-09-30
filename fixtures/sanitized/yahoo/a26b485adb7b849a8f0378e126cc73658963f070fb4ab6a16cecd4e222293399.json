@@ -1,0 +1,6 @@
+{
+  "error": {
+    "lang": "en-US",
+    "description": "Please provide valid credentials. OAuth oauth_problem=\"unable_to_determine_oauth_type\", realm=\"yahooapis.com\""
+  }
+}

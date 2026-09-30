@@ -1,0 +1,63 @@
+{
+  "platform": "espn",
+  "season": 2026,
+  "espnApi": {
+    "repo": "cwendt94/espn-api",
+    "commit": "663d726c82acdcd1e1f42ecaef35b993ce9ce455"
+  },
+  "leagues": [
+    {
+      "label": "Parker's league",
+      "leagueId": 1000000001,
+      "isPublic": true,
+      "myTeamId": 3,
+      "mySwid": "{00000000-0000-4000-8000-000000000001}",
+      "numTeams": 10,
+      "currentWeek": 4,
+      "fixtureLabelPrefix": "league/{leagueId}/"
+    },
+    {
+      "label": "public test league",
+      "leagueId": 100002,
+      "isPublic": true,
+      "myTeamId": null,
+      "numTeams": 10,
+      "fixtureLabelPrefix": "public-league/{publicLeagueId}/"
+    }
+  ],
+  "fixtures": [
+    "espn-api/663d726/constant.py (parsed tables)",
+    "seasons/{season}/view=proTeamSchedules_wl",
+    "league/{leagueId}/view=mSettings+mTeam+mRoster+mMatchup+mStatus",
+    "league/{leagueId}/seasons={season+1}/view=mSettings (error body)",
+    "league/{leagueId}/view=mTransactions2 (no scoringPeriodId, no filter)",
+    "league/{leagueId}/view=mTransactions2&scoringPeriodId=1 (filter: FA, waiver and trade types)",
+    "league/{leagueId}/view=mTransactions2&scoringPeriodId=2 (filter: FA, waiver and trade types)",
+    "league/{leagueId}/view=mTransactions2&scoringPeriodId=3 (filter: FA, waiver and trade types)",
+    "league/{leagueId}/view=mTransactions2&scoringPeriodId=4 (filter: FA, waiver and trade types)",
+    "league/{leagueId}/view=mTransactions2&scoringPeriodId=3 (no filter)",
+    "league/{leagueId}/communication/view=kona_league_communication (recent activity page 0)",
+    "league/{leagueId}/communication/view=kona_league_communication (recent activity page 1)",
+    "league/{leagueId}/view=mDraftDetail",
+    "league/{leagueId}/view=mMatchupScore",
+    "league/{leagueId}/view=mStandings",
+    "league/{leagueId}/view=kona_player_info&scoringPeriodId={current} (free agents QB, limit 500; 50 most-owned + top 50 by projection)",
+    "league/{leagueId}/view=kona_player_info&scoringPeriodId={current} (free agents RB, limit 500; 50 most-owned + top 50 by projection)",
+    "league/{leagueId}/view=kona_player_info&scoringPeriodId={current} (free agents WR, limit 500; 50 most-owned + top 50 by projection)",
+    "league/{leagueId}/view=kona_player_info&scoringPeriodId={current} (free agents TE, limit 500; 50 most-owned + top 50 by projection)",
+    "league/{leagueId}/view=kona_player_info&scoringPeriodId={current} (free agents K, limit 500; 50 most-owned + top 50 by projection)",
+    "league/{leagueId}/view=kona_player_info&scoringPeriodId={current} (free agents D/ST, limit 500; 50 most-owned + top 50 by projection)",
+    "league/{leagueId}/view=mRoster&scoringPeriodId=2",
+    "league/{leagueId}/view=mRoster&scoringPeriodId=3",
+    "league/{leagueId}/view=kona_player_info&scoringPeriodId=5 (player pool, top 500 by % owned; that week's stat lines only)",
+    "league/{leagueId}/view=kona_playercard (rostered players batch 1)",
+    "league/{leagueId}/view=kona_playercard (rostered players batch 2)",
+    "league/{leagueId}/view=kona_playercard (rostered players batch 3)",
+    "league/{leagueId}/view=kona_playercard (rostered players batch 4)",
+    "league/{leagueId}/view=kona_playercard (rostered players batch 5)",
+    "seasons/{season}/players?view=players_wl (active; QB/RB/WR/TE/K/D/ST plus up to 5 per other position)",
+    "public-league/{publicLeagueId}/view=kona_player_info&scoringPeriodId=3 (player pool, top 250 by % owned)",
+    "public-league/{publicLeagueId}/view=mSettings+mTeam+mRoster+mStatus"
+  ],
+  "notes": "Owner placeholders follow team ids (Owner 3 owns Team 3). Parker's SWID placeholder is always {00000000-0000-4000-8000-000000000001}."
+}

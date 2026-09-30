@@ -1,0 +1,74 @@
+{
+  "a6e4ae65ba18e78eb86949805dc3940d396f90ac274b1e53491134e91380bd9a.csv": {
+    "label": "dynastyprocess/db_playerids (rows for active Sleeper QB/RB/WR/TE/K)",
+    "captured": "2026-09-29"
+  },
+  "c26fe89c662d331d980f160005980de153227a0f6613d13182604b05fe6b1012.json": {
+    "label": "espn/leaguedefaults/3?scoringPeriodId=4&view=kona_player_info (top 100, trimmed stats)",
+    "url": "https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/2026/segments/0/leaguedefaults/3?scoringPeriodId=4&view=kona_player_info",
+    "status": 200,
+    "contentType": "application/json;charset=utf-8",
+    "captured": "2026-09-29"
+  },
+  "6f28b031c885a113ce81a90c0e4fec0e362099e4a11ee96c6aae64d562580721.json": {
+    "label": "espn/seasons/2026?view=proTeamSchedules_wl",
+    "url": "https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/2026?view=proTeamSchedules_wl",
+    "status": 200,
+    "contentType": "application/json;charset=utf-8",
+    "captured": "2026-09-29"
+  },
+  "8d48feb800f799c462456f30a91a2b29e4a9f24e7e14e31603e9d706afc76491.json": {
+    "label": "nfl/byes 2026 (derived)",
+    "captured": "2026-09-29"
+  },
+  "069743ce1ae8d1d26f42080543f92ffa3f4d27ea0aefff137abe4324972b6cc0.json": {
+    "label": "nflverse/games 2026 REG",
+    "url": "https://raw.githubusercontent.com/nflverse/nfldata/master/data/games.csv",
+    "status": 200,
+    "contentType": "text/plain; charset=utf-8",
+    "captured": "2026-09-29"
+  },
+  "016865b7a87353ce6cfc3a413ad6611a415a5c099481316a8f7e9afcce99ae4e.json": {
+    "label": "sleeper/projections/2026?position=QB (season, top 40)",
+    "url": "https://api.sleeper.app/projections/nfl/2026?season_type=regular&position=QB",
+    "status": 200,
+    "contentType": "application/json; charset=utf-8",
+    "captured": "2026-09-29"
+  },
+  "9a9316738faa4bf0e57cd4704f59b7298f5b4cab4b7ea3ed789c607462d66d51.json": {
+    "label": "sleeper/projections/2026/10 (top 150 QB/RB/WR/TE + 6 per K/DEF/IDP)",
+    "captured": "2026-09-29"
+  },
+  "d817183dcf556ecf25387cec83b98efb98e9f64986e1ff00bf5f2b9aba12490e.json": {
+    "label": "sleeper/projections/2026/15 (top 150 QB/RB/WR/TE + 6 per K/DEF/IDP)",
+    "captured": "2026-09-29"
+  },
+  "b70850686c8a5fd5286a824a07d3aec0b9c0884a15982c7d1ec19dcc6761f213.json": {
+    "label": "sleeper/projections/2026/17 (top 150 QB/RB/WR/TE + 6 per K/DEF/IDP)",
+    "captured": "2026-09-29"
+  },
+  "839ab567ef593146cd22b39da580e090ae5e661b1e7d8b86f8ffa44e35fddc8e.json": {
+    "label": "sleeper/projections/2026/18 (top 150 QB/RB/WR/TE + 6 per K/DEF/IDP)",
+    "captured": "2026-09-29"
+  },
+  "38f828eceefda89e6ea4d475539155bd7efeb5232a5874a00ba8fa3c899631ea.json": {
+    "label": "sleeper/projections/2026/4 (top 150 QB/RB/WR/TE + 6 per K/DEF/IDP)",
+    "captured": "2026-09-29"
+  },
+  "0431cec5b7f6b70dd9f6bab2081cf4529fd9f31434ab442fbc624e846460752b.json": {
+    "label": "sleeper/projections/2026/5 (top 150 QB/RB/WR/TE + 6 per K/DEF/IDP)",
+    "captured": "2026-09-29"
+  },
+  "201710455dd47ae132e17fb7bac7db7678bf8b1615924776c4bcf02251ff3ade.json": {
+    "label": "sleeper/stats/2026/1 (top 150 QB/RB/WR/TE + 6 per K/DEF/IDP)",
+    "captured": "2026-09-29"
+  },
+  "57950a1837ae56b73532e96ab127ec0f313b0cd9a1f5e49628ad835f9de69ede.json": {
+    "label": "sleeper/stats/2026/2 (top 150 QB/RB/WR/TE + 6 per K/DEF/IDP)",
+    "captured": "2026-09-29"
+  },
+  "5ccc0980b3662431d30d23561391ee8915dd88ab490f85a712e6a59c2a5026c3.json": {
+    "label": "sleeper/stats/2026/3 (top 150 QB/RB/WR/TE + 6 per K/DEF/IDP)",
+    "captured": "2026-09-29"
+  }
+}

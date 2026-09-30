@@ -40,6 +40,10 @@ yarn-error.log*
 # data crawled from other people's leagues stays local
 /data-local/
 
+# Windows device names: `> NUL` in Git Bash creates a real file (check:leaks also flags these)
+NUL
+nul
+
 # vercel
 .vercel
 

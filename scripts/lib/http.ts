@@ -2,8 +2,9 @@
  * Polite HTTP client for probe scripts (CLAUDE.md §0.9, §2.10).
  *
  * - One request at a time per host, with a minimum gap between requests (no parallel floods).
+ *   All *.myfantasyleague.com hosts share one pacing bucket: MFL's 1-second rule is per client.
  * - Exponential backoff with jitter on 429 / 5xx / network errors; honours Retry-After.
- *   401/403/404 and HTML login pages are NOT retried — they are reported as-is.
+ *   401/403/404 and HTML login pages are NOT retried — they are reported as-is. MFL: no retries.
  * - Optional file cache with TTL and cross-process single-flight (see cache.ts).
  * - Cookies and request headers are never logged; URLs in results and errors are scrubbed.
  */
@@ -22,12 +23,28 @@ const HOST_GAP_MS: Record<string, number> = {
   "api.fantasycalc.com": 1500,
   "raw.githubusercontent.com": 300,
   "www.fleaflicker.com": 600,
-  "api.myfantasyleague.com": 1200,
+  "myfantasyleague.com": 1200, // shared bucket for api.* and every wwwNN league host
   "www.fantrax.com": 1200,
   "fantasysports.yahooapis.com": 1500,
 };
 const DEFAULT_GAP_MS = 800;
 const MYFANTASYLEAGUE_HOST = /(^|\.)myfantasyleague\.com$/;
+
+/** Hosts that must be paced together (MFL: "wait one second between making requests", per client). */
+function bucketFor(host: string): string {
+  return MYFANTASYLEAGUE_HOST.test(host) ? "myfantasyleague.com" : host;
+}
+
+/** MFL's api_info: "If a request fails, don't retry". Callers can still override per request. */
+function defaultRetriesFor(host: string): number {
+  return MYFANTASYLEAGUE_HOST.test(host) ? 0 : 4;
+}
+
+/** Slow a host down further for this process (e.g. a crawler sharing Sleeper's rate limit). Never lowers the gap. */
+export function setHostGap(host: string, ms: number): void {
+  const bucket = bucketFor(host);
+  HOST_GAP_MS[bucket] = Math.max(ms, HOST_GAP_MS[bucket] ?? DEFAULT_GAP_MS);
+}
 
 export interface RequestOptions {
   method?: "GET" | "POST";
@@ -36,13 +53,27 @@ export interface RequestOptions {
   cookie?: string;
   body?: string;
   timeoutMs?: number;
-  /** Max retries for 429/5xx/network errors (default 4). */
+  /** Max retries for 429/5xx/network errors (default 4; 0 for MFL hosts). */
   retries?: number;
-  /** Cache the response body when status is 200 and it isn't an HTML page. */
+  /** Cache the response body (by default only when status is 200 and it isn't an HTML page). */
   cache?: { key: string; ttlMs: number; namespace?: string };
+  /**
+   * Decide whether a live response may be cached. Default: status 200 and not HTML. Use it to cache
+   * docs/HTML pages or a known 404, or to refuse caching HTTP-200 error bodies (Fantrax, MFL).
+   */
+  cacheIf?: (res: HttpResult) => boolean;
+  /** Parse integers with 16+ digits as strings (Sleeper sends some 19-digit IDs as bare numbers). */
+  bigIntsAsStrings?: boolean;
+  /**
+   * "manual" returns 3xx responses as-is (Location is in headers). Needed when a cookie must
+   * survive a cross-host redirect: Node's fetch drops the Cookie header on cross-origin redirects.
+   */
+  redirect?: "follow" | "manual";
   /** Label used in the request log instead of the URL (useful when the URL has private parts). */
   label?: string;
 }
+
+const defaultCacheIf = (res: HttpResult) => res.status === 200 && !res.isHtml;
 
 export interface HttpResult {
   /** Scrubbed request URL (safe to print). */
@@ -60,6 +91,8 @@ export interface HttpResult {
   headers: Record<string, string>;
   elapsedMs: number;
   fromCache: boolean;
+  /** When a cached response was originally fetched (epoch ms); undefined for live responses. */
+  cachedAt?: number;
   attempts: number;
 }
 
@@ -75,30 +108,89 @@ export interface RequestLogEntry {
 /** Every request made by this process (scrubbed), for timing and evidence in reports. */
 export const requestLog: RequestLogEntry[] = [];
 
-const SAFE_RESPONSE_HEADERS = ["content-type", "content-length", "retry-after", "x-ratelimit-limit", "x-ratelimit-remaining", "x-ratelimit-reset", "last-modified", "etag", "age", "cache-control"];
+// "location" is kept for manual redirects; it may contain league IDs, so scrub before printing.
+const SAFE_RESPONSE_HEADERS = ["content-type", "content-length", "retry-after", "x-ratelimit-limit", "x-ratelimit-remaining", "x-ratelimit-reset", "last-modified", "etag", "age", "cache-control", "location"];
 
 const hostChains = new Map<string, Promise<void>>();
 const hostLast = new Map<string, number>();
 
-function gapFor(host: string): number {
-  if (HOST_GAP_MS[host] !== undefined) return HOST_GAP_MS[host];
-  if (MYFANTASYLEAGUE_HOST.test(host)) return 1200;
-  return DEFAULT_GAP_MS;
+function gapFor(bucket: string): number {
+  return HOST_GAP_MS[bucket] ?? DEFAULT_GAP_MS;
 }
 
-/** Serialize requests per host and enforce the minimum gap. */
+/** Serialize requests per host bucket and enforce the minimum gap. */
 async function acquireHost(host: string): Promise<() => void> {
-  const previous = hostChains.get(host) ?? Promise.resolve();
+  const bucket = bucketFor(host);
+  const previous = hostChains.get(bucket) ?? Promise.resolve();
   let release!: () => void;
   const mine = new Promise<void>((r) => (release = r));
-  hostChains.set(host, previous.then(() => mine));
+  hostChains.set(bucket, previous.then(() => mine));
   await previous;
-  const wait = (hostLast.get(host) ?? 0) + gapFor(host) - Date.now();
+  const wait = (hostLast.get(bucket) ?? 0) + gapFor(bucket) - Date.now();
   if (wait > 0) await sleep(wait);
   return () => {
-    hostLast.set(host, Date.now());
+    hostLast.set(bucket, Date.now());
     release();
   };
+}
+
+function isDigit(code: number): boolean {
+  return code >= 48 && code <= 57;
+}
+
+/**
+ * Wrap bare integers of `minDigits`+ digits (outside strings) in quotes so JSON.parse keeps every
+ * digit. Plain JSON.parse rounds Sleeper's 19-digit draft IDs to the nearest double.
+ */
+export function quoteBigInts(text: string, minDigits = 16): string {
+  let out = "";
+  let last = 0;
+  let inString = false;
+  for (let i = 0; i < text.length; ) {
+    const c = text.charCodeAt(i);
+    if (inString) {
+      if (c === 92) i += 2; // backslash escape
+      else {
+        if (c === 34) inString = false;
+        i++;
+      }
+      continue;
+    }
+    if (c === 34) {
+      inString = true;
+      i++;
+      continue;
+    }
+    if (c === 45 || (c >= 48 && c <= 57)) {
+      // Consume the whole number token -?int(.frac)?([eE][+-]?exp)? so a long fraction such as
+      // 0.0303030303030303 is never mistaken for a big integer.
+      const start = i;
+      let j = c === 45 ? i + 1 : i;
+      const intStart = j;
+      while (j < text.length && isDigit(text.charCodeAt(j))) j++;
+      const intDigits = j - intStart;
+      let integer = true;
+      if (text[j] === ".") {
+        integer = false;
+        j++;
+        while (j < text.length && isDigit(text.charCodeAt(j))) j++;
+      }
+      if (text[j] === "e" || text[j] === "E") {
+        integer = false;
+        j++;
+        if (text[j] === "+" || text[j] === "-") j++;
+        while (j < text.length && isDigit(text.charCodeAt(j))) j++;
+      }
+      if (integer && intDigits >= minDigits) {
+        out += `${text.slice(last, start)}"${text.slice(start, j)}"`;
+        last = j;
+      }
+      i = Math.max(j, i + 1);
+      continue;
+    }
+    i++;
+  }
+  return last === 0 ? text : out + text.slice(last);
 }
 
 function sleep(ms: number): Promise<void> {
@@ -119,11 +211,11 @@ function looksLikeHtml(contentType: string, text: string): boolean {
   return head.startsWith("<!doctype html") || head.startsWith("<html");
 }
 
-function tryParseJson(text: string): unknown {
+function tryParseJson(text: string, bigIntsAsStrings = false): unknown {
   const t = text.trimStart();
   if (!(t.startsWith("{") || t.startsWith("["))) return undefined;
   try {
-    return JSON.parse(text);
+    return JSON.parse(bigIntsAsStrings ? quoteBigInts(text) : text);
   } catch {
     return undefined;
   }
@@ -155,10 +247,11 @@ export async function request(url: string, opts: RequestOptions = {}): Promise<H
       contentType: r.contentType,
       isHtml: looksLikeHtml(r.contentType, r.text),
       text: r.text,
-      json: tryParseJson(r.text),
+      json: tryParseJson(r.text, opts.bigIntsAsStrings),
       headers: r.headers,
       elapsedMs: Date.now() - started,
       fromCache: true,
+      cachedAt: hit.storedAt,
       attempts: 0,
     };
     requestLog.push({ url: safeUrl, status: r.status, ms: result.elapsedMs, fromCache: true, attempts: 0, label: opts.label });
@@ -173,7 +266,7 @@ export async function request(url: string, opts: RequestOptions = {}): Promise<H
     const again = await fromCache(); // another process may have filled it while we waited
     if (again) return again;
     const live = await fetchLive(url, safeUrl, opts, started);
-    if (live.status === 200 && !live.isHtml && opts.cache) {
+    if (opts.cache && (opts.cacheIf ?? defaultCacheIf)(live)) {
       await writeCache<CachedResponse>(cacheNs, opts.cache.key, {
         status: live.status,
         contentType: live.contentType,
@@ -188,7 +281,7 @@ export async function request(url: string, opts: RequestOptions = {}): Promise<H
 
 async function fetchLive(url: string, safeUrl: string, opts: RequestOptions, started: number): Promise<HttpResult> {
   const host = new URL(url).host;
-  const maxRetries = opts.retries ?? 4;
+  const maxRetries = opts.retries ?? defaultRetriesFor(host);
   const headers: Record<string, string> = { "User-Agent": USER_AGENT, Accept: "application/json, text/plain, */*", ...opts.headers };
   if (opts.cookie) headers.Cookie = opts.cookie;
 
@@ -204,7 +297,7 @@ async function fetchLive(url: string, safeUrl: string, opts: RequestOptions, sta
         method: opts.method ?? "GET",
         headers,
         body: opts.body,
-        redirect: "follow",
+        redirect: opts.redirect ?? "follow",
         signal: AbortSignal.timeout(opts.timeoutMs ?? 60_000),
       });
       text = await res.text();
@@ -242,7 +335,7 @@ async function fetchLive(url: string, safeUrl: string, opts: RequestOptions, sta
       contentType,
       isHtml: looksLikeHtml(contentType, text),
       text,
-      json: tryParseJson(text),
+      json: tryParseJson(text, opts.bigIntsAsStrings),
       headers: safeHeaders,
       elapsedMs: Date.now() - started,
       fromCache: false,

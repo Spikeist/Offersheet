@@ -1,0 +1,17 @@
+{
+  "82ebbcf9a2b080f2696e73d24bef1e92a8b0456a9729b0af246733ecae3ab7d3.json": {
+    "label": "schedule/nfl/regular/2026",
+    "url": "https://api.sleeper.app/schedule/nfl/regular/2026",
+    "status": 200,
+    "contentType": "application/json; charset=utf-8",
+    "note": "undocumented endpoint",
+    "captured": "2026-09-29"
+  },
+  "a7bde651dcd78a4ec42c0fc8e43b9437e2541fe113b856bfe92e150ad4bc633e.json": {
+    "label": "state/nfl",
+    "url": "https://api.sleeper.app/v1/state/nfl",
+    "status": 200,
+    "contentType": "application/json; charset=utf-8",
+    "captured": "2026-09-29"
+  }
+}

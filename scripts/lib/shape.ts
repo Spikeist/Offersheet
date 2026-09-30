@@ -51,12 +51,20 @@ export function describeShape(json: unknown, maxDepth = 12): Map<string, Stat> {
   return stats;
 }
 
+/**
+ * Integers of 5+ digits are often IDs (team, league, draft, user IDs; epoch times): show only their
+ * size, never the value. Small counts and decimals stay readable.
+ */
+function showNumber(n: number): string {
+  return Number.isInteger(n) && Math.abs(n) >= 10_000 ? `<${String(Math.abs(n)).length}-digit>` : String(n);
+}
+
 export function formatShape(stats: Map<string, Stat>): string {
   const lines: string[] = [];
   for (const [p, s] of stats) {
     let detail = "";
     if (s.types.has("string")) detail += ` strings: ${s.strings.size} distinct, len ${s.minLen}–${s.maxLen}, ${[...s.hints].join("/")}`;
-    if (s.types.has("number")) detail += ` numbers: ${s.numMin}…${s.numMax}`;
+    if (s.types.has("number")) detail += ` numbers: ${showNumber(s.numMin)}…${showNumber(s.numMax)}`;
     lines.push(`${p}  <${[...s.types].join("|")}> ×${s.count}${detail}`);
   }
   return lines.join("\n");

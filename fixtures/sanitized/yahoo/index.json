@@ -1,0 +1,9 @@
+{
+  "a26b485adb7b849a8f0378e126cc73658963f070fb4ab6a16cecd4e222293399.json": {
+    "label": "game/nfl?format=json (no credentials)",
+    "url": "https://fantasysports.yahooapis.com/fantasy/v2/game/nfl?format=json",
+    "status": 401,
+    "contentType": "application/json",
+    "captured": "2026-09-29"
+  }
+}

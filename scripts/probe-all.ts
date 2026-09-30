@@ -12,7 +12,8 @@ import path from "node:path";
 import { ROOT } from "./lib/env";
 import { updateDataAccessMatrix } from "./lib/matrix";
 
-const ALL = ["shared", "espn", "sleeper", "fleaflicker", "mfl", "yahoo", "fantrax"];
+// Order matters: probe:sleeper reads the outputs of probe:shared and probe:sleeper-codes.
+const ALL = ["shared", "espn", "sleeper-codes", "sleeper", "fleaflicker", "mfl", "yahoo", "fantrax"];
 
 async function main() {
   const onlyArg = process.argv.find((a) => a.startsWith("--only="));

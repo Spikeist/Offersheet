@@ -65,7 +65,20 @@ export async function writeFileAtomic(file: string, data: string): Promise<void>
   await mkdir(path.dirname(file), { recursive: true });
   const tmp = `${file}.tmp-${process.pid}-${Math.random().toString(36).slice(2)}`;
   await writeFile(tmp, data, "utf8");
-  await rename(tmp, file);
+  // Windows: antivirus/indexers or a concurrent reader can briefly lock the target (EPERM/EBUSY).
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await rename(tmp, file);
+      return;
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (attempt >= 6 || !(code === "EPERM" || code === "EBUSY" || code === "EACCES")) {
+        await rm(tmp, { force: true });
+        throw err;
+      }
+      await new Promise((r) => setTimeout(r, 50 * 2 ** attempt));
+    }
+  }
 }
 
 const inProcess = new Map<string, Promise<unknown>>();

@@ -1,0 +1,2243 @@
+{
+  "platform": "mfl",
+  "generatedAt": "2026-09-29T23:44:40.334Z",
+  "runtimeSeconds": 30,
+  "meta": {
+    "leagues": [
+      {
+        "label": "public MFL test league",
+        "access": "public, no login",
+        "source": "public test league (MFL_LEAGUE_ID is blank)",
+        "notes": "a public, in-season 10-team dynasty league found once via TYPE=leagueSearch; how it was picked (a random salt and the candidate log) stays in the git-ignored fixtures/raw/mfl/test-league.json"
+      }
+    ],
+    "timingsMs": {},
+    "requestCount": 42
+  },
+  "itemStatus": {
+    "DOCS": "ok",
+    "A": "warn",
+    "B": "warn",
+    "C": "warn",
+    "D": "warn",
+    "E": "warn",
+    "F": "warn",
+    "G": "ok",
+    "H": "ok",
+    "I": "warn",
+    "X": "warn",
+    "J": "warn",
+    "K": "warn",
+    "L": "ok",
+    "M": "warn"
+  },
+  "counts": {
+    "ok": 66,
+    "warn": 17,
+    "fail": 0,
+    "na": 2
+  },
+  "checks": [
+    {
+      "item": "DOCS",
+      "key": "DOCS.format",
+      "title": "Export URL format",
+      "status": "ok",
+      "summary": "https://{host}/{year}/export?TYPE={type}&L={leagueId}&JSON=1; XML is the default",
+      "evidence": [
+        {
+          "url": "https://api.myfantasyleague.com/2026/api_info",
+          "sample": "protocol://host/year/command?args"
+        }
+      ]
+    },
+    {
+      "item": "DOCS",
+      "key": "DOCS.hosts",
+      "title": "Hosts and redirects",
+      "status": "ok",
+      "summary": "league requests belong on the league's wwwNN host (api.* normally redirects there, 'may be delayed … or denied' under load); non-league requests must use api.myfantasyleague.com",
+      "evidence": [
+        {
+          "url": "https://api.myfantasyleague.com/2026/api_info",
+          "sample": "if you send a request to the wrong host, the system will normally redirect"
+        }
+      ]
+    },
+    {
+      "item": "DOCS",
+      "key": "DOCS.rate",
+      "title": "Rate limits",
+      "status": "ok",
+      "summary": "unpublished per-IP limits; wait ≥ 1 s between requests; don't retry failures; 429 = throttled",
+      "evidence": [
+        {
+          "url": "https://api.myfantasyleague.com/2026/api_info",
+          "sample": "Wait one second between making requests"
+        }
+      ]
+    },
+    {
+      "item": "DOCS",
+      "key": "DOCS.client",
+      "title": "API client registration",
+      "status": "ok",
+      "summary": "registering (MFL account + SMS validation) gives ~2.5× the limits; then send the registered User-Agent",
+      "evidence": [
+        {
+          "url": "https://api.myfantasyleague.com/2026/api_info",
+          "sample": "Registered clients will have higher limits, about 2.5X"
+        }
+      ]
+    },
+    {
+      "item": "DOCS",
+      "key": "DOCS.auth",
+      "title": "Login and private leagues",
+      "status": "ok",
+      "summary": "private leagues need the owner's MFL_USER_ID cookie (POST /login) or the owner's APIKEY query parameter (export only)",
+      "evidence": [
+        {
+          "url": "https://api.myfantasyleague.com/2026/api_info",
+          "sample": "Data from leagues that are marked as PRIVATE are no longer accessible by users not in the league"
+        }
+      ]
+    },
+    {
+      "item": "DOCS",
+      "key": "DOCS.cookie",
+      "title": "Login cookie encoding",
+      "status": "ok",
+      "summary": "the MFL_USER_ID value is Base64 and may hold '+', '/', '='; the client URL-escapes exactly those three before sending it back",
+      "evidence": [
+        {
+          "url": "https://api.myfantasyleague.com/2026/api_info",
+          "sample": "the cookie value is a Base64 string"
+        }
+      ]
+    },
+    {
+      "item": "DOCS",
+      "key": "DOCS.rawStats",
+      "title": "Raw NFL stats",
+      "status": "ok",
+      "summary": "MFL never exposes raw stats (licensing) — the scoring oracle must use Sleeper or nflverse stats",
+      "evidence": [
+        {
+          "url": "https://api.myfantasyleague.com/2026/api_info",
+          "sample": "We can not and will not under any circumstance make raw NFL player stats available"
+        }
+      ]
+    },
+    {
+      "item": "DOCS",
+      "key": "DOCS.terms",
+      "title": "Terms of use",
+      "status": "ok",
+      "summary": "forbidden: harvesting league/user data, overloading the service, browser JavaScript calls from other domains (so all MFL calls must be server-side)",
+      "evidence": [
+        {
+          "url": "https://api.myfantasyleague.com/2026/api_info",
+          "sample": "Harvesting league and/or user data"
+        }
+      ]
+    },
+    {
+      "item": "DOCS",
+      "key": "DOCS.search",
+      "title": "leagueSearch parameters",
+      "status": "ok",
+      "summary": "SEARCH (≥ 3 chars, name match) or ID (4–5 digits), not both; YEAR optional",
+      "evidence": [
+        {
+          "url": "https://api.myfantasyleague.com/2026/api_info?STATE=details",
+          "sample": "Must be at least 3 characters long"
+        }
+      ]
+    },
+    {
+      "item": "DOCS",
+      "key": "DOCS.types",
+      "title": "Access note per TYPE (docs)",
+      "status": "ok",
+      "summary": "10 with no access note (not the same as public: the general page says private leagues are closed to non-members), 12 \"Private league access restricted to league owners\", 3 \"Access restricted to league owners\"; \"standings\" is not documented",
+      "evidence": [
+        {
+          "url": "https://api.myfantasyleague.com/2026/api_info?STATE=details",
+          "sample": {
+            "league": "no access note",
+            "rules": "no access note",
+            "rosters": "no access note",
+            "players": "no access note",
+            "injuries": "no access note",
+            "allRules": "no access note",
+            "nflSchedule": "no access note",
+            "nflByeWeeks": "no access note",
+            "liveScoring": "no access note",
+            "leagueSearch": "no access note",
+            "leagueStandings": "private leagues: owners only",
+            "schedule": "private leagues: owners only",
+            "weeklyResults": "private leagues: owners only",
+            "playerScores": "private leagues: owners only",
+            "projectedScores": "private leagues: owners only",
+            "transactions": "private leagues: owners only",
+            "freeAgents": "private leagues: owners only",
+            "futureDraftPicks": "private leagues: owners only",
+            "draftResults": "private leagues: owners only",
+            "playoffBrackets": "private leagues: owners only",
+            "tradeBait": "private leagues: owners only",
+            "calendar": "owners only",
+            "pendingTrades": "owners only",
+            "assets": "owners only",
+            "myleagues": "private leagues: owners only",
+            "standings": "not documented"
+          }
+        }
+      ]
+    },
+    {
+      "item": "A",
+      "key": "A.season",
+      "title": "Season",
+      "status": "ok",
+      "summary": "2026 (URL year); mfl_status.year=2026; league.history has earlier seasons too (years not reported: they help identify a league)",
+      "evidence": [
+        {
+          "url": "https://api.myfantasyleague.com/fflnetdynamic2026/mfl_status.json",
+          "status": 200,
+          "path": "mfl_status.year",
+          "sample": "2026"
+        },
+        {
+          "url": "https://{leagueHost}/2026/export?TYPE=league&L={leagueId}&JSON=1",
+          "status": 200,
+          "path": "league.history.league[].year",
+          "sample": "(earlier seasons present; withheld)"
+        }
+      ]
+    },
+    {
+      "item": "A",
+      "key": "A.currentWeek",
+      "title": "Current week",
+      "status": "ok",
+      "summary": "CurrentWeek=4, CompletedWeek=3; the NFL week from this run's TYPE=nflSchedule kickoff times is 4 (agrees); rosters[].week=4",
+      "evidence": [
+        {
+          "url": "https://api.myfantasyleague.com/fflnetdynamic2026/mfl_status.json",
+          "status": 200,
+          "path": "mfl_status.weeks",
+          "sample": {
+            "CompletedWeek": "3",
+            "CurrentWeek": "4",
+            "LineupWeek": "4",
+            "LiveScoringWeek": "3",
+            "UpcomingWeek": "4"
+          }
+        },
+        {
+          "url": "https://api.myfantasyleague.com/2026/export?TYPE=nflSchedule&W=ALL&JSON=1",
+          "status": 200,
+          "path": "fullNflSchedule.nflSchedule[].matchup[].kickoff (first week whose last game hasn't ended)",
+          "sample": 4
+        }
+      ]
+    },
+    {
+      "item": "A",
+      "key": "A.numTeams",
+      "title": "Number of teams",
+      "status": "ok",
+      "summary": "10 franchises",
+      "evidence": [
+        {
+          "url": "https://{leagueHost}/2026/export?TYPE=league&L={leagueId}&JSON=1",
+          "status": 200,
+          "path": "league.franchises.count",
+          "sample": 10
+        }
+      ]
+    },
+    {
+      "item": "A",
+      "key": "A.regularSeason",
+      "title": "Regular-season weeks",
+      "status": "ok",
+      "summary": "weeks 1–14; the fantasy schedule has matchups in weeks 1–14 (14 weeks)",
+      "evidence": [
+        {
+          "url": "https://{leagueHost}/2026/export?TYPE=league&L={leagueId}&JSON=1",
+          "status": 200,
+          "path": "league.startWeek / league.lastRegularSeasonWeek",
+          "sample": {
+            "startWeek": 1,
+            "lastRegularSeasonWeek": 14
+          }
+        },
+        {
+          "url": "https://{leagueHost}/2026/export?TYPE=schedule&L={leagueId}&JSON=1",
+          "status": 200,
+          "path": "schedule.weeklySchedule[].matchup",
+          "sample": "14 weeks with matchups"
+        }
+      ]
+    },
+    {
+      "item": "A",
+      "key": "A.playoffStart",
+      "title": "Playoff start week and playoff weeks",
+      "status": "ok",
+      "summary": "bracket starts week 15 (lastRegularSeasonWeek+1 = 15); bracket 1 rounds are played in weeks 15, 16, 17, so the last fantasy week is 17; league.endWeek=18 (later than the final — endWeek alone isn't the fantasy final)",
+      "evidence": [
+        {
+          "url": "https://{leagueHost}/2026/export?TYPE=playoffBrackets&L={leagueId}&JSON=1",
+          "status": 200,
+          "path": "playoffBrackets.playoffBracket[].startWeek",
+          "sample": [
+            15,
+            15
+          ]
+        },
+        {
+          "url": "https://{leagueHost}/2026/export?TYPE=playoffBracket&L={leagueId}&BRACKET_ID=1&JSON=1",
+          "status": 200,
+          "path": "playoffBracket.playoffRound[].week",
+          "sample": [
+            15,
+            16,
+            17
+          ]
+        },
+        {
+          "url": "https://{leagueHost}/2026/export?TYPE=league&L={leagueId}&JSON=1",
+          "status": 200,
+          "path": "league.endWeek",
+          "sample": 18
+        }
+      ]
+    },
+    {
+      "item": "A",
+      "key": "A.playoffTeams",
+      "title": "Playoff teams and byes",
+      "status": "warn",
+      "summary": "2 bracket(s); bracket 1: 6 teams, 2 games in its first week → 2 bye(s); rounds by week [{\"week\":\"15\",\"games\":2},{\"week\":\"16\",\"games\":2},{\"week\":\"17\",\"games\":1}]. Which bracket is the championship is inferred (lowest id; names are commissioner text)",
+      "evidence": [
+        {
+          "url": "https://{leagueHost}/2026/export?TYPE=playoffBrackets&L={leagueId}&JSON=1",
+          "status": 200,
+          "path": "playoffBrackets.playoffBracket[] {id,startWeek,teamsInvolved,startWeekGames}",
+          "sample": [
+            {
+              "id": "1",
+              "startWeek": 15,
+              "teams": 6,
+              "firstWeekGames": 2
+            },
+            {
+              "id": "2",
+              "startWeek": 15,
+              "teams": 6,
+              "firstWeekGames": 2
+            }
+          ]
+        },
+        {
+          "url": "https://{leagueHost}/2026/export?TYPE=playoffBracket&L={leagueId}&BRACKET_ID=1&JSON=1",
+          "status": 200,
+          "path": "playoffBracket.playoffRound[].week / playoffGame[]",
+          "sample": [
+            {
+              "week": "15",
+              "games": 2
+            },
+            {
+              "week": "16",
+              "games": 2
+            },
+            {
+              "week": "17",
+              "games": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "item": "A",
+      "key": "A.tradeDeadline",
+      "title": "Trade deadline",
+      "status": "warn",
+      "summary": "TYPE=league has no deadline field (trade-related keys: [\"defaultTradeExpirationDays\"]); TYPE=calendar (owners only per api_info) returned \"API requires logged in user in league ID 10001 - Please be sure to pass the proper MFL_USER_ID cookie or APIKEY parameter\" as a guest; owner login: the calendarEvent import docs list EVENT_TYPE \"TRADE\" (for trade deadline), so TYPE=calendar should carry the deadline — untested (no MFL login in .env.local). Fallback: the Import Report asks the user",
+      "evidence": [
+        {
+          "url": "https://{leagueHost}/2026/export?TYPE=league&L={leagueId}&JSON=1",
+          "status": 200,
+          "path": "league.* keys matching /trade/i",
+          "sample": [
+            "defaultTradeExpirationDays"
+          ]
+        },
+        {
+          "url": "https://{leagueHost}/2026/export?TYPE=calendar&L={leagueId}&JSON=1",
+          "status": 200,
+          "path": "error (HTTP 200 error body)",
+          "sample": "API requires logged in user in league ID 10001 - Please be sure to pass the proper MFL_USER_ID cookie or APIKEY parameter"
+        },
+        {
+          "url": "https://api.myfantasyleague.com/2026/api_info?STATE=details",
+          "path": "calendarEvent → EVENT_TYPE",
+          "sample": "\"TRADE\" (for trade deadline)"
+        }
+      ]
+    },
+    {
+      "item": "A",
+      "key": "A.tradeReview",
+      "title": "Trade review / veto",
+      "status": "warn",
+      "summary": "no trade-approval or veto setting in TYPE=league (guest) and none documented for any TYPE; api_info shows commissioner review exists only indirectly (pendingTrades, owners only: \"Pass in '0000' to get trades pending commissioner action\"). This season's trades carry by_commish {\"1\":2} — meaning unverified (commissioner-entered or commissioner-approved); a candidate review signal to test with an owner login. Fallback: the Import Report asks the user",
+      "evidence": [
+        {
+          "url": "https://{leagueHost}/2026/export?TYPE=league&L={leagueId}&JSON=1",
+          "status": 200,
+          "path": "league.* (no review/veto field)",
+          "sample": [
+            "defaultTradeExpirationDays"
+          ]
+        },
+        {
+          "url": "https://{leagueHost}/2026/export?TYPE=transactions&L={leagueId}&TRANS_TYPE=*&JSON=1",
+          "status": 200,
+          "path": "transactions.transaction[type=TRADE].by_commish",
+          "sample": {
+            "1": 2
+          }
+        },
+        {
+          "url": "https://api.myfantasyleague.com/2026/api_info?STATE=details",
+          "path": "pendingTrades → FRANCHISE_ID",
+          "sample": "Pass in '0000' to get trades pending commissioner action"
+        }
+      ]
+    },
+    {
+      "item": "A",
+      "key": "A.leagueType",
+      "title": "League type",
+      "status": "warn",
+      "summary": "no explicit redraft/keeper/dynasty field; the signals point to dynasty (future picks: 80 for 2027/2028, taxi slots: 3, keeper fields: 0) — inferred (rule: future picks or a taxi squad → dynasty; keeper fields → keeper; else redraft), the user should confirm",
+      "evidence": [
+        {
+          "url": "https://{leagueHost}/2026/export?TYPE=league&L={leagueId}&JSON=1",
+          "status": 200,
+          "path": "league.{taxiSquad,draftPlayerPool,loadRosters,usesContractYear,usesSalaries,history}",
+          "sample": {
+            "futureDraftPicks": 80,
+            "taxiSquad": "3",
+            "draftPlayerPool": "Both",
+            "loadRosters": "live_draft",
+            "usesContractYear": "0",
+            "usesSalaries": "0",
+            "earlierSeasons": true,
+            "keeperFields": []
+          }
+        },
+        {
+          "url": "https://{leagueHost}/2026/export?TYPE=futureDraftPicks&L={leagueId}&JSON=1",
+          "status": 200,
+          "path": "futureDraftPicks.franchise[].futureDraftPick[]",
+          "sample": "80 picks"
+        }
+      ]
+    },
+    {
+      "item": "A",
+      "key": "A.pointsOnly",
+      "title": "Head-to-head vs points-only",
+      "status": "ok",
+      "summary": "h2h=YES → head-to-head; the schedule lists matchups in 14 weeks",
+      "evidence": [
+        {
+          "url": "https://{leagueHost}/2026/export?TYPE=league&L={leagueId}&JSON=1",
+          "status": 200,
+          "path": "league.h2h",
+          "sample": "YES"
+        }
+      ]
+    },
+    {
+      "item": "A",
+      "key": "A.medianGame",
+      "title": "Median game",
+      "status": "warn",
+      "summary": "no median/all-play setting in TYPE=league; standings columns [\"h2hwlt\",\"h2hpct\",\"strk\",\"pf\",\"avgpf\",\"pa\",\"avgpa\",\"divwlt\",\"h2hw\",\"h2hl\",\"h2ht\",\"divpct\"] have no median record — assume off, unverified (no league with a median game was checked)",
+      "evidence": [
+        {
+          "url": "https://{leagueHost}/2026/export?TYPE=leagueStandings&L={leagueId}&COLUMN_NAMES=1&ALL=1&JSON=1",
+          "status": 200,
+          "path": "leagueStandings.column_names.column[].id",
+          "sample": [
+            "h2hwlt",
+            "h2hpct",
+            "strk",
+            "pf",
+            "avgpf",
+            "pa",
+            "avgpa",
+            "divwlt",
+            "h2hw",
+            "h2hl",
+            "h2ht",
+            "divpct"
+          ]
+        }
+      ]
+    },
+    {
+      "item": "A",
+      "key": "A.divisions",
+      "title": "Divisions",
+      "status": "ok",
+      "summary": "2 divisions; every franchise has a division id (10/10); names sanitized",
+      "evidence": [
+        {
+          "url": "https://{leagueHost}/2026/export?TYPE=league&L={leagueId}&JSON=1",
+          "status": 200,
+          "path": "league.divisions.division[].id / league.franchises.franchise[].division",
+          "sample": {
+            "00": 5,
+            "01": 5
+          }
+        }
+      ]
+    },
+    {
+      "item": "A",
+      "key": "A.tiebreakers",
+      "title": "Standings tiebreakers",
+      "status": "ok",
+      "summary": "standingsSort=PCT,H2H,DIVPCT,PTS, (usable for playoff seeding); game tiebreaker setting \"commish\" (meaning unverified)",
+      "evidence": [
+        {
+          "url": "https://{leagueHost}/2026/export?TYPE=league&L={leagueId}&JSON=1",
+          "status": 200,
+          "path": "league.standingsSort / league.tiebreaker",
+          "sample": {
+            "standingsSort": "PCT,H2H,DIVPCT,PTS,",
+            "tiebreaker": "commish"
+          }
+        }
+      ]
+    },
+    {
+      "item": "A",
+      "key": "A.faab",
+      "title": "Waivers / FAAB",
+      "status": "ok",
+      "summary": "currentWaiverType=WAIVERS_FCFS (no blind-bid budget → no FAAB)",
+      "evidence": [
+        {
+          "url": "https://{leagueHost}/2026/export?TYPE=league&L={leagueId}&JSON=1",
+          "status": 200,
+          "path": "league.currentWaiverType / league.bbidSeasonLimit",
+          "sample": {
+            "currentWaiverType": "WAIVERS_FCFS",
+            "bbidSeasonLimit": null
+          }
+        }
+      ]
+    },
+    {
+      "item": "B",
+      "key": "B.starters",
+      "title": "Starting slots",
+      "status": "ok",
+      "summary": "14 starters from per-position ranges: QB 1-2, RB 0-4, WR 0-5, TE 1-3, PK 1, DT+DE 1-3, LB 1-3, CB+S 1-3 (idp_starters=5)",
+      "evidence": [
+        {
+          "url": "https://{leagueHost}/2026/export?TYPE=league&L={leagueId}&JSON=1",
+          "status": 200,
+          "path": "league.starters.{count,idp_starters,position[].{name,limit}}",
+          "sample": {
+            "count": "14",
+            "idp_starters": "5",
+            "position": [
+              "QB 1-2",
+              "RB 0-4",
+              "WR 0-5",
+              "TE 1-3",
+              "PK 1",
+              "DT+DE 1-3",
+              "LB 1-3",
+              "CB+S 1-3"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "item": "B",
+      "key": "B.flex",
+      "title": "Flex / SUPER_FLEX / IDP flex",
+      "status": "warn",
+      "summary": "converted: QB×1, TE×1, K×1, SUPER_FLEX×6, DL×1, LB×1, DB×1, IDP_FLEX×2 — NOT exact: offense: 4 position range(s) cap the 6 flex spots (QB ≤ 1 extra, RB ≤ 4 extra, WR ≤ 5 extra, TE ≤ 2 extra) and their caps add up to 12 > 6, which no SlotDef set can express; SlotDefs alone over-allow them, so the solver needs starterCaps",
+      "evidence": [
+        {
+          "path": "derived from league.starters",
+          "sample": {
+            "lineup": [
+              {
+                "slot": "QB",
+                "count": 1,
+                "eligible": [
+                  "QB"
+                ]
+              },
+              {
+                "slot": "TE",
+                "count": 1,
+                "eligible": [
+                  "TE"
+                ]
+              },
+              {
+                "slot": "K",
+                "count": 1,
+                "eligible": [
+                  "K"
+                ]
+              },
+              {
+                "slot": "SUPER_FLEX",
+                "count": 6,
+                "eligible": [
+                  "QB",
+                  "RB",
+                  "WR",
+                  "TE"
+                ]
+              },
+              {
+                "slot": "DL",
+                "count": 1,
+                "eligible": [
+                  "DL"
+                ]
+              },
+              {
+                "slot": "LB",
+                "count": 1,
+                "eligible": [
+                  "LB"
+                ]
+              },
+              {
+                "slot": "DB",
+                "count": 1,
+                "eligible": [
+                  "DB"
+                ]
+              },
+              {
+                "slot": "IDP_FLEX",
+                "count": 2,
+                "eligible": [
+                  "DL",
+                  "LB",
+                  "DB"
+                ]
+              }
+            ],
+            "starterCaps": {
+              "QB": 2,
+              "RB": 4,
+              "WR": 5,
+              "TE": 3,
+              "K": 1,
+              "DL": 3,
+              "LB": 3,
+              "DB": 3
+            },
+            "pools": [
+              {
+                "pool": "offense",
+                "count": 9,
+                "mins": 3,
+                "flex": 6,
+                "binding": [
+                  "QB ≤ 1 extra",
+                  "RB ≤ 4 extra",
+                  "WR ≤ 5 extra",
+                  "TE ≤ 2 extra"
+                ]
+              },
+              {
+                "pool": "idp",
+                "count": 5,
+                "mins": 3,
+                "flex": 2,
+                "binding": []
+              }
+            ]
+          }
+        },
+        {
+          "note": "starters.idp_starters=5 read as the IDP share of starters.count=14 (inferred; not documented)"
+        }
+      ]
+    },
+    {
+      "item": "B",
+      "key": "B.roster",
+      "title": "Max roster size and bench",
+      "status": "warn",
+      "summary": "rosterSize=47 → bench 33 after 14 starters; largest active roster 37, largest incl. IR/taxi 43 — can't yet confirm rosterSize excludes IR/taxi (no team is over it when they're counted)",
+      "evidence": [
+        {
+          "url": "https://{leagueHost}/2026/export?TYPE=league&L={leagueId}&JSON=1",
+          "status": 200,
+          "path": "league.rosterSize",
+          "sample": 47
+        },
+        {
+          "url": "https://{leagueHost}/2026/export?TYPE=rosters&L={leagueId}&JSON=1",
+          "status": 200,
+          "path": "rosters.franchise[].player[].status (per team)",
+          "sample": {
+            "maxActive": 37,
+            "maxTotal": 43
+          }
+        }
+      ]
+    },
+    {
+      "item": "B",
+      "key": "B.ir",
+      "title": "IR slots",
+      "status": "ok",
+      "summary": "4 IR slots; 23 players on IR now",
+      "evidence": [
+        {
+          "url": "https://{leagueHost}/2026/export?TYPE=league&L={leagueId}&JSON=1",
+          "status": 200,
+          "path": "league.injuredReserve",
+          "sample": 4
+        }
+      ]
+    },
+    {
+      "item": "B",
+      "key": "B.taxi",
+      "title": "Taxi slots",
+      "status": "ok",
+      "summary": "3 taxi slots; 14 players on taxi now",
+      "evidence": [
+        {
+          "url": "https://{leagueHost}/2026/export?TYPE=league&L={leagueId}&JSON=1",
+          "status": 200,
+          "path": "league.taxiSquad",
+          "sample": 3
+        }
+      ]
+    },
+    {
+      "item": "B",
+      "key": "B.positionLimits",
+      "title": "Position limits",
+      "status": "ok",
+      "summary": "max per position {\"QB\":25,\"RB\":25,\"WR\":25,\"TE\":25,\"K\":25,\"DL\":25,\"LB\":15,\"DB\":15}; MFL also sets minimums {\"QB\":1,\"RB\":1,\"WR\":1,\"TE\":1,\"K\":1,\"DL\":1,\"LB\":1,\"DB\":1} (the model has no field for minimums)",
+      "evidence": [
+        {
+          "url": "https://{leagueHost}/2026/export?TYPE=league&L={leagueId}&JSON=1",
+          "status": 200,
+          "path": "league.rosterLimits.position[].{name,limit}",
+          "sample": [
+            "QB 1-25",
+            "RB 1-25",
+            "WR 1-25",
+            "TE 1-25",
+            "PK 1-25",
+            "DT+DE 1-25",
+            "LB 1-15",
+            "CB+S 1-15"
+          ]
+        }
+      ]
+    },
+    {
+      "item": "B",
+      "key": "B.kDefIdp",
+      "title": "K, DEF and IDP slots",
+      "status": "ok",
+      "summary": "K: 1, DEF: 0, IDP: 5 starter spot(s)",
+      "evidence": [
+        {
+          "path": "league.starters.position[].name",
+          "sample": [
+            "QB",
+            "RB",
+            "WR",
+            "TE",
+            "PK",
+            "DT+DE",
+            "LB",
+            "CB+S"
+          ],
+          "note": "MFL → model positions: QB→QB, RB→RB, WR→WR, TE→TE, PK→K, Def→DEF, DT→DL, DE→DL, LB→LB, CB→DB, S→DB"
+        }
+      ]
+    },
+    {
+      "item": "C",
+      "key": "C.rules",
+      "title": "Scoring rules",
+      "status": "ok",
+      "summary": "98 rules in 8 position groups (CB|S; DT|DE; LB; PK; QB; RB; TE; WR)",
+      "evidence": [
+        {
+          "url": "https://{leagueHost}/2026/export?TYPE=rules&L={leagueId}&JSON=1",
+          "status": 200,
+          "path": "rules.positionRules[].{positions, rule[].{event.$t, range.$t, points.$t}}",
+          "sample": [
+            "CB|S: #DR 0-10 *6",
+            "CB|S: ASD 0-99 *0.5",
+            "CB|S: BF 1-110 6"
+          ]
+        }
+      ]
+    },
+    {
+      "item": "C",
+      "key": "C.pointsFormats",
+      "title": "Points formats",
+      "status": "ok",
+      "summary": "\"*N\" per unit: 67; \"a/b\" stepped every-b: 3; flat \"N\": 27; formula (thresholdPoints): 1; unparsed: 0",
+      "evidence": [
+        {
+          "url": "https://{leagueHost}/2026/export?TYPE=rules&L={leagueId}&JSON=1",
+          "status": 200,
+          "path": "rules.positionRules[].rule[].points.$t (+ thresholdPoints.$t)",
+          "sample": [
+            "PK: MG 17-49 \"-1/49\" thresholdPoints=-1"
+          ]
+        }
+      ]
+    },
+    {
+      "item": "C",
+      "key": "C.receptions",
+      "title": "Receptions (incl. position-specific)",
+      "status": "ok",
+      "summary": "points per reception by position {\"QB\":0.5,\"RB\":0.5,\"WR\":0.5,\"TE\":1} → TE premium; the compiler adds rules from overlapping position groups (MFL Scoring Rules Setup help) — untested here: every position is in exactly one rule group in this league",
+      "evidence": [
+        {
+          "url": "https://{leagueHost}/2026/export?TYPE=rules&L={leagueId}&JSON=1",
+          "status": 200,
+          "path": "CC rules per position group",
+          "sample": [
+            0.5,
+            0.5,
+            0.5,
+            1
+          ]
+        }
+      ]
+    },
+    {
+      "item": "C",
+      "key": "C.passing",
+      "title": "Passing",
+      "status": "ok",
+      "summary": "QB: {\"pass_yd\":{\"QB\":0.02},\"pass_td\":{\"QB\":6},\"pass_int\":{\"QB\":-1},\"pass_2pt\":{\"QB\":1},\"pass_td_40p\":{\"QB\":0},\"pass_td_50p\":{\"QB\":0}}",
+      "evidence": [
+        {
+          "path": "compiled from PY, PS/#P, IN, P2",
+          "sample": [
+            "IN 1-99 *-1 → pass_int ×-1",
+            "P2 1-99 *1 → pass_2pt ×1",
+            "PS 1-110 6 → pass_td 6 per TD",
+            "PY -50-999 *.02 → pass_yd ×0.02"
+          ]
+        }
+      ]
+    },
+    {
+      "item": "C",
+      "key": "C.rushRec",
+      "title": "Rushing and receiving",
+      "status": "ok",
+      "summary": "{\"rush_yd\":{\"QB\":0.1,\"RB\":0.1,\"WR\":0.1,\"TE\":0.1},\"rush_td\":{\"QB\":6,\"RB\":6,\"WR\":6,\"TE\":6},\"rec_yd\":{\"QB\":0.1,\"RB\":0.1,\"WR\":0.1,\"TE\":0.1},\"rec_td\":{\"QB\":6,\"RB\":6,\"WR\":6,\"TE\":6},\"rush_2pt\":{\"QB\":1,\"RB\":1,\"WR\":1,\"TE\":1},\"rec_2pt\":{\"QB\":1,\"RB\":1,\"WR\":1,\"TE\":1}}",
+      "evidence": [
+        {
+          "path": "compiled from RY, RS/#R, CY, RC/#C, R2, C2"
+        }
+      ]
+    },
+    {
+      "item": "C",
+      "key": "C.turnovers",
+      "title": "Interceptions and fumbles",
+      "status": "ok",
+      "summary": "{\"pass_int\":{\"QB\":-1,\"RB\":0,\"WR\":-1,\"TE\":0},\"fum_lost\":{\"QB\":-1,\"RB\":-1,\"WR\":-1,\"TE\":-1},\"fum\":{\"QB\":0,\"RB\":0,\"WR\":0,\"TE\":0}}",
+      "evidence": [
+        {
+          "path": "compiled from IN, FL/FLO, FU"
+        }
+      ]
+    },
+    {
+      "item": "C",
+      "key": "C.firstDowns",
+      "title": "First downs",
+      "status": "ok",
+      "summary": "not scored in this league (MFL codes FD, 1P, 1R, 1C map to pass_fd/rush_fd/rec_fd)",
+      "evidence": [
+        {
+          "path": "FD / 1P / 1R / 1C rules"
+        }
+      ]
+    },
+    {
+      "item": "C",
+      "key": "C.bonuses",
+      "title": "Bonuses",
+      "status": "ok",
+      "summary": "no yardage/threshold bonuses in this league (flat-range rules would become stat ≥ threshold bonuses)",
+      "evidence": [
+        {
+          "path": "flat-points rules on per-game totals",
+          "sample": []
+        }
+      ]
+    },
+    {
+      "item": "C",
+      "key": "C.kickers",
+      "title": "Kickers",
+      "status": "ok",
+      "summary": "PK rates {\"xpmiss\":-1,\"xpm\":1,\"fgm_0_19\":3,\"fgm_20_29\":3,\"fgm_30_39\":3,\"fgm_40_49\":4,\"fgm_50_59\":5,\"fgm_60p\":6,\"fum_lost\":-1,\"fgmiss_0_19\":-1,\"fgmiss_20_29\":-1,\"fgmiss_30_39\":-1,\"fgmiss_40_49\":-1,\"pass_td\":6}",
+      "evidence": [
+        {
+          "path": "FG / MG / EP / EM / #F / #M rules (PK group)",
+          "sample": [
+            "EM 1-99 *-1 → xpmiss ×-1",
+            "EP 1-99 *1 → xpm ×1",
+            "FG 17-39 3 → fgm distance buckets 0_19:3 20_29:3 30_39:3 40_49:4 50_59:5 60p:6",
+            "FG 40-49 4 → fgm distance buckets 0_19:3 20_29:3 30_39:3 40_49:4 50_59:5 60p:6",
+            "FG 50-59 5 → fgm distance buckets 0_19:3 20_29:3 30_39:3 40_49:4 50_59:5 60p:6",
+            "FG 60-110 6 → fgm distance buckets 0_19:3 20_29:3 30_39:3 40_49:4 50_59:5 60p:6",
+            "FL 1-99 *-1 → fum_lost ×-1",
+            "MG 17-49 -1/49 (formula: -1 at range low) → fgmiss distance buckets 0_19:-1 20_29:-1 30_39:-1 40_49:-1 50_59:0 60p:0",
+            "MG 50-110 0 → fgmiss distance buckets 0_19:-1 20_29:-1 30_39:-1 40_49:-1 50_59:0 60p:0",
+            "PS 0-39 6 → pass_td 6 per TD",
+            "PS 40-110 6 → pass_td 6 per TD"
+          ]
+        }
+      ]
+    },
+    {
+      "item": "C",
+      "key": "C.defense",
+      "title": "Team defense (DEF)",
+      "status": "na",
+      "summary": "no team-defense rules or starter in this league (TPA/TYA map to Sleeper pts_allow_*/yds_allow_* buckets)",
+      "evidence": [
+        {
+          "path": "Def group"
+        }
+      ]
+    },
+    {
+      "item": "C",
+      "key": "C.idp",
+      "title": "IDP",
+      "status": "ok",
+      "summary": "rates per MFL position {\"DT\":{\"idp_tkl_ast\":0.5,\"idp_fum_rec\":2,\"idp_ff\":2,\"idp_int\":2,\"idp_pass_def\":0.5,\"idp_safe\":2,\"idp_sack\":3,\"idp_tkl_solo\":1,\"idp_def_td\":6,\"idp_blk_kick\":2},\"DE\":{\"idp_tkl_ast\":0.5,\"idp_fum_rec\":2,\"idp_ff\":2,\"idp_int\":2,\"idp_pass_def\":0.5,\"idp_safe\":2,\"idp_sack\":3,\"idp_tkl_solo\":1,\"idp_def_td\":6,\"idp_blk_kick\":2},\"LB\":{\"idp_tkl_ast\":0.5,\"idp_fum_rec\":2,\"idp_ff\":2,\"idp_int\":2,\"idp_pass_def\":0.5,\"idp_safe\":2,\"idp_sack\":2,\"idp_tkl_solo\":1,\"idp_def_td\":6,\"idp_blk_kick\":2},\"CB\":{\"idp_tkl_ast\":0.5,\"idp_fum_rec\":2,\"idp_ff\":2,\"idp_int\":2,\"idp_pass_def\":0.5,\"idp_safe\":2,\"idp_sack\":2,\"idp_tkl_solo\":1,\"idp_def_td\":6,\"idp_blk_kick\":2},\"S\":{\"idp_tkl_ast\":0.5,\"idp_fum_rec\":2,\"idp_ff\":2,\"idp_int\":2,\"idp_pass_def\":0.5,\"idp_safe\":2,\"idp_sack\":2,\"idp_tkl_solo\":1,\"idp_def_td\":6,\"idp_blk_kick\":2}}; DT=DE true, CB=S true (the model's DL/DB can't hold different rates)",
+      "evidence": [
+        {
+          "path": "IDP groups",
+          "sample": {
+            "DT": {
+              "idp_tkl_ast": 0.5,
+              "idp_fum_rec": 2,
+              "idp_ff": 2,
+              "idp_int": 2,
+              "idp_pass_def": 0.5,
+              "idp_safe": 2,
+              "idp_sack": 3,
+              "idp_tkl_solo": 1,
+              "idp_def_td": 6,
+              "idp_blk_kick": 2
+            },
+            "DE": {
+              "idp_tkl_ast": 0.5,
+              "idp_fum_rec": 2,
+              "idp_ff": 2,
+              "idp_int": 2,
+              "idp_pass_def": 0.5,
+              "idp_safe": 2,
+              "idp_sack": 3,
+              "idp_tkl_solo": 1,
+              "idp_def_td": 6,
+              "idp_blk_kick": 2
+            },
+            "LB": {
+              "idp_tkl_ast": 0.5,
+              "idp_fum_rec": 2,
+              "idp_ff": 2,
+              "idp_int": 2,
+              "idp_pass_def": 0.5,
+              "idp_safe": 2,
+              "idp_sack": 2,
+              "idp_tkl_solo": 1,
+              "idp_def_td": 6,
+              "idp_blk_kick": 2
+            },
+            "CB": {
+              "idp_tkl_ast": 0.5,
+              "idp_fum_rec": 2,
+              "idp_ff": 2,
+              "idp_int": 2,
+              "idp_pass_def": 0.5,
+              "idp_safe": 2,
+              "idp_sack": 2,
+              "idp_tkl_solo": 1,
+              "idp_def_td": 6,
+              "idp_blk_kick": 2
+            },
+            "S": {
+              "idp_tkl_ast": 0.5,
+              "idp_fum_rec": 2,
+              "idp_ff": 2,
+              "idp_int": 2,
+              "idp_pass_def": 0.5,
+              "idp_safe": 2,
+              "idp_sack": 2,
+              "idp_tkl_solo": 1,
+              "idp_def_td": 6,
+              "idp_blk_kick": 2
+            }
+          }
+        }
+      ]
+    },
+    {
+      "item": "C",
+      "key": "C.mapping",
+      "title": "Rules → Sleeper stat keys",
+      "status": "ok",
+      "summary": "per position × rule: 128 exact, 0 approximate, 0 unmapped of 128",
+      "evidence": [
+        {
+          "path": "compiled",
+          "sample": {
+            "approximate": [],
+            "unmapped": []
+          }
+        }
+      ]
+    },
+    {
+      "item": "C",
+      "key": "C.allRules",
+      "title": "All MFL rule codes vs the map",
+      "status": "warn",
+      "summary": "96 of 153 MFL rule codes have a Sleeper key in lib/mfl/scoringMap.ts; the other 57 would be reported as unmapped (list in the evidence)",
+      "evidence": [
+        {
+          "url": "https://api.myfantasyleague.com/2026/export?TYPE=allRules&JSON=1",
+          "status": 200,
+          "path": "allRules.rule[].abbreviation",
+          "sample": [
+            "APY (Average Yards per Pass Completion)",
+            "PCP (Pass Completion Percentage)",
+            "RATE (Passer Rating)",
+            "P20 (Long Passing Plays of 20+ Yards)",
+            "P30 (Long Passing Plays of 30+ Yards)",
+            "P50 (Long Passing Plays of 50+ Yards)",
+            "ARY (Average Yards per Rush)",
+            "R20 (Long Rushing Plays of 20+ Yards)",
+            "ACY (Average Yards per Reception)",
+            "#TD (Total Touchdowns)",
+            "FGP (Field Goal Percentage)",
+            "EPP (Extra Point Percentage)",
+            "ANY (Average Yards per Punt)",
+            "HBP (Punts Had Blocked)",
+            "AUY (Average Yards per Punt Return)",
+            "U40 (Long Punt Returns of 40+ Yards)",
+            "AKY (Average Yards per Kickoff Return)",
+            "K40 (Long Kickoff Returns of 40+ Yards)",
+            "FUO (Fumbles on Offense)",
+            "FUS (Fumbles on Special Teams)",
+            "FUD (Fumbles on Defense)",
+            "FLS (Fumbles Lost on Special Teams)",
+            "FLD (Fumbles Lost on Defense)",
+            "FCD (Fumble Recoveries on Defense)",
+            "FCS (Fumble Recoveries on Special Teams)",
+            "#FT (Number of Fumbles Lost Returned for a TD)",
+            "FT (Length of Lost Fumble Returned for a TD)",
+            "OFC (Number of Own Fumble Recoveries)",
+            "OFCY (Own Fumble Recovery Yardage)",
+            "STPA (Special Teams Points Against)",
+            "OPA (Offensive Points Against)",
+            "TYP (Passing Yards Allowed)",
+            "TYR (Rushing Yards Allowed)",
+            "STTA (Number of Special Teams TDs Allowed)",
+            "OTA (Number of Offensive TDs Allowed)",
+            "D2 (Defensive Conversion Returns)",
+            "SF1 (Safeties for 1 Point)",
+            "M2 (Successful 2 Point Conversions)",
+            "F2 (Failed 2 Point Conversions)",
+            "F (Penalties)",
+            "FY (Penalty Yards)",
+            "TIME (Time of Possession (in Minutes))",
+            "TPS (Total Points Scored)",
+            "DIF (Point Differential)",
+            "OPS (Offensive Points Only)",
+            "1F (Penalty First Downs)",
+            "3D (Third Down Conversions)",
+            "3F (Third Downs Failed)",
+            "4D (Fourth Down Conversions)",
+            "4F (Fourth Downs Failed)",
+            "W (Games Won)",
+            "L (Games Lost)",
+            "T (Games Tied)",
+            "APYAG (Average Passing Yards Allowed per Game)",
+            "APYAR (Passing Defense Rank)",
+            "ARYAG (Average Rushing Yards Allowed per Game)",
+            "ARYAR (Rushing Defense Rank)"
+          ]
+        }
+      ]
+    },
+    {
+      "item": "C",
+      "key": "C.list",
+      "title": "Every rule (positions: code range points)",
+      "status": "ok",
+      "summary": "98 rules; full list in the evidence (JSON output)",
+      "evidence": [
+        {
+          "url": "https://{leagueHost}/2026/export?TYPE=rules&L={leagueId}&JSON=1",
+          "status": 200,
+          "path": "rules.positionRules[].rule[]",
+          "sample": [
+            "CB|S: #DR 0-10 *6",
+            "CB|S: ASD 0-99 *0.5",
+            "CB|S: BF 1-110 6",
+            "CB|S: BLE 1-99 *2",
+            "CB|S: BLF 1-99 *2",
+            "CB|S: BLP 1-99 *2",
+            "CB|S: BP 1-110 6",
+            "CB|S: FC 1-99 *2",
+            "CB|S: FF 1-99 *2",
+            "CB|S: IC 1-93 *2",
+            "CB|S: IR 1-110 6",
+            "CB|S: PD 0-99 *0.5",
+            "CB|S: SF 1-99 *2",
+            "CB|S: SK 0.5-20.0 1/0.5",
+            "CB|S: TKD 0-99 *1",
+            "DT|DE: #DR 0-10 *6",
+            "DT|DE: ASD 0-99 *0.5",
+            "DT|DE: BF 1-110 6",
+            "DT|DE: BLE 1-99 *2",
+            "DT|DE: BLF 1-99 *2",
+            "DT|DE: BLP 1-99 *2",
+            "DT|DE: BP 1-110 6",
+            "DT|DE: FC 1-99 *2",
+            "DT|DE: FF 1-99 *2",
+            "DT|DE: IC 1-99 *2",
+            "DT|DE: IR 1-110 6",
+            "DT|DE: PD 0-99 *0.5",
+            "DT|DE: SF 1-99 *2",
+            "DT|DE: SK 0.5-20.0 1.5/0.5",
+            "DT|DE: TKD 0-99 *1",
+            "LB: #DR 0-10 *6",
+            "LB: ASD 0-99 *0.5",
+            "LB: BF 1-110 6",
+            "LB: BLE 1-99 *2",
+            "LB: BLF 1-99 *2",
+            "LB: BLP 1-99 *2",
+            "LB: BP 1-110 6",
+            "LB: FC 1-99 *2",
+            "LB: FF 1-99 *2",
+            "LB: IC 1-99 *2",
+            "LB: IR 1-110 6",
+            "LB: PD 0-99 *0.5",
+            "LB: SF 1-99 *2",
+            "LB: SK 0.5-20.0 1/0.5",
+            "LB: TKD 0-99 *1",
+            "PK: EM 1-99 *-1",
+            "PK: EP 1-99 *1",
+            "PK: FG 17-39 3",
+            "PK: FG 40-49 4",
+            "PK: FG 50-59 5",
+            "PK: FG 60-110 6",
+            "PK: FL 1-99 *-1",
+            "PK: MG 17-49 -1/49 [thresholdPoints -1]",
+            "PK: MG 50-110 0",
+            "PK: PS 0-39 6",
+            "PK: PS 40-110 6",
+            "QB: C2 1-99 *1",
+            "QB: CC 1-99 *.5",
+            "QB: CY -50-999 *.1",
+            "QB: FL 1-99 *-1",
+            "QB: IN 1-99 *-1",
+            "QB: P2 1-99 *1",
+            "QB: PS 1-110 6",
+            "QB: PY -50-999 *.02",
+            "QB: R2 1-99 *1",
+            "QB: RC 1-110 6",
+            "QB: RS 1-110 6",
+            "QB: RY -50-999 *.1",
+            "RB: C2 1-99 *1",
+            "RB: CC 1-99 *.5",
+            "RB: CY -50-999 *.1",
+            "RB: FL 1-99 *-1",
+            "RB: PS 1-110 6",
+            "RB: PY -50-999 *.02",
+            "RB: R2 1-99 *1",
+            "RB: RC 1-110 6",
+            "RB: RS 1-110 6",
+            "RB: RY -50-999 *.1",
+            "TE: C2 1-99 *1",
+            "TE: CC 1-99 *1",
+            "TE: CY -50-999 *.1",
+            "TE: FL 1-99 *-1",
+            "TE: PY -50-999 *.02",
+            "TE: R2 1-99 *1",
+            "TE: RC 1-110 6",
+            "TE: RS 1-110 6",
+            "TE: RY -50-999 *.1",
+            "WR: C2 1-99 *1",
+            "WR: CC 1-99 *.5",
+            "WR: CY -50-999 *.1",
+            "WR: FL 1-99 *-1",
+            "WR: IN 0-10 *-1",
+            "WR: PS 1-110 6",
+            "WR: PY -50-999 *.02",
+            "WR: R2 1-99 *1",
+            "WR: RC 1-110 6",
+            "WR: RS 1-110 6",
+            "WR: RY -50-999 *.1"
+          ]
+        }
+      ]
+    },
+    {
+      "item": "D",
+      "key": "D.ids",
+      "title": "Team IDs",
+      "status": "ok",
+      "summary": "10 franchises with ids 0001, 0002, 0003, 0004, 0005, 0006, 0007, 0008, 0009, 0010 (4-digit strings)",
+      "evidence": [
+        {
+          "url": "https://{leagueHost}/2026/export?TYPE=league&L={leagueId}&JSON=1",
+          "status": 200,
+          "path": "league.franchises.franchise[].id",
+          "sample": [
+            "0001",
+            "0002",
+            "0003",
+            "0004",
+            "0005",
+            "0006",
+            "0007",
+            "0008",
+            "0009",
+            "0010"
+          ]
+        }
+      ]
+    },
+    {
+      "item": "D",
+      "key": "D.names",
+      "title": "Team names",
+      "status": "ok",
+      "summary": "10/10 have a name (sanitized to \"Team N\"); abbrev on 5, logo/icon on 10",
+      "evidence": [
+        {
+          "url": "https://{leagueHost}/2026/export?TYPE=league&L={leagueId}&JSON=1",
+          "status": 200,
+          "path": "league.franchises.franchise[].name",
+          "sample": [
+            "Team 1",
+            "Team 2",
+            "Team 3",
+            "Team 4",
+            "Team 5",
+            "Team 6",
+            "Team 7",
+            "Team 8",
+            "Team 9",
+            "Team 10"
+          ]
+        }
+      ]
+    },
+    {
+      "item": "D",
+      "key": "D.owners",
+      "title": "Owner display names",
+      "status": "warn",
+      "summary": "not returned to a guest (franchise fields: abbrev, division, icon, id, logo, name, stadium, waiverSortOrder); api_info: \"Personal user information, like name and email addresses only returned to league owners\" — an owner login would show them",
+      "evidence": [
+        {
+          "url": "https://{leagueHost}/2026/export?TYPE=league&L={leagueId}&JSON=1",
+          "status": 200,
+          "path": "league.franchises.franchise[].owner_name",
+          "sample": "absent"
+        }
+      ]
+    },
+    {
+      "item": "D",
+      "key": "D.myTeam",
+      "title": "Which team is the user's",
+      "status": "warn",
+      "summary": "test league, no login: the user would pick a team. With an owner login, TYPE=myleagues lists the user's leagues (api_info: \"All of the leagues of the current user. Test it!\"); api_info does not document a franchise_id field there — that it carries the user's franchise_id is community knowledge, unverified (untested here: no MFL account in .env.local)",
+      "evidence": [
+        {
+          "url": "https://api.myfantasyleague.com/2026/export?TYPE=myleagues&JSON=1",
+          "path": "leagues.league[].franchise_id (not in api_info; unverified)"
+        }
+      ]
+    },
+    {
+      "item": "E",
+      "key": "E.rosters",
+      "title": "Every player on every team",
+      "status": "ok",
+      "summary": "397 roster entries across 10 teams; status codes {\"TAXI_SQUAD\":14,\"ROSTER\":360,\"INJURED_RESERVE\":23}",
+      "evidence": [
+        {
+          "url": "https://{leagueHost}/2026/export?TYPE=rosters&L={leagueId}&JSON=1",
+          "status": 200,
+          "path": "rosters.franchise[].player[].{id,status}",
+          "sample": {
+            "TAXI_SQUAD": 14,
+            "ROSTER": 360,
+            "INJURED_RESERVE": 23
+          }
+        }
+      ]
+    },
+    {
+      "item": "E",
+      "key": "E.position",
+      "title": "Position",
+      "status": "ok",
+      "summary": "383/397 rostered ids are in the global TYPE=players DB; positions {\"WR\":118,\"QB\":49,\"PK\":18,\"TE\":43,\"S\":21,\"LB\":42,\"DE\":25,\"RB\":72,\"CB\":6,\"DT\":3}",
+      "evidence": [
+        {
+          "url": "https://api.myfantasyleague.com/2026/export?TYPE=players&DETAILS=1&JSON=1",
+          "status": 200,
+          "path": "players.player[].position",
+          "sample": {
+            "WR": 118,
+            "QB": 49,
+            "PK": 18,
+            "TE": 43,
+            "S": 21,
+            "LB": 42,
+            "DE": 25,
+            "RB": 72,
+            "CB": 6,
+            "DT": 3
+          }
+        }
+      ]
+    },
+    {
+      "item": "E",
+      "key": "E.customPlayers",
+      "title": "League-specific custom players",
+      "status": "warn",
+      "summary": "14 rostered ids aren't in MFL's player DB: 14 distinct 4-digit ids from 0800 to 0814 (leading zeros kept); TYPE=players with L= returns them (positions {\"WR\":8,\"RB\":3,\"QB\":3}, team FA, roster status {\"TAXI_SQUAD\":14}) — commissioner-created (likely college prospects). No projections, crosswalk or FantasyCalc value; names are commissioner text, sanitized",
+      "evidence": [
+        {
+          "url": "https://{leagueHost}/2026/export?TYPE=players&L={leagueId}&PLAYERS={playerIds}&DETAILS=1&JSON=1",
+          "status": 200,
+          "path": "players.player[].{id,name,position,team,status} (L= only)",
+          "sample": [
+            "0800",
+            "0801",
+            "0802",
+            "0803",
+            "0804",
+            "0805",
+            "0806",
+            "0807",
+            "0808",
+            "0809",
+            "0810",
+            "0811",
+            "0812",
+            "0814"
+          ]
+        }
+      ]
+    },
+    {
+      "item": "E",
+      "key": "E.nflTeam",
+      "title": "NFL team",
+      "status": "ok",
+      "summary": "MFL's own codes (TBB→TB, JAC→JAX, LVR→LV, NEP→NE, NOS→NO, GBP→GB, SFO→SF, KCC→KC); FA = no team",
+      "evidence": [
+        {
+          "url": "https://api.myfantasyleague.com/2026/export?TYPE=players&DETAILS=1&JSON=1",
+          "status": 200,
+          "path": "players.player[].team",
+          "sample": 33
+        }
+      ]
+    },
+    {
+      "item": "E",
+      "key": "E.injury",
+      "title": "Injury status (and return week)",
+      "status": "ok",
+      "summary": "TYPE=injuries (week 4): 66 rostered players listed, statuses {\"Out\":7,\"Questionable\":25,\"Suspended\":2,\"IR\":21,\"IR-PUP\":3,\"RETIRED\":1,\"Doubtful\":4,\"IR-R\":3}; 66 have an exp_return date, which gives a 2026 NFL week for 57 (via kickoff times; the rest fall after the season)",
+      "evidence": [
+        {
+          "url": "https://api.myfantasyleague.com/2026/export?TYPE=injuries&JSON=1",
+          "status": 200,
+          "path": "injuries.injury[].{id,status,details,exp_return}",
+          "sample": [
+            {
+              "player": "Mayfield, Baker",
+              "status": "Out",
+              "exp_return": "Oct 25, 2026",
+              "returnWeek": 7
+            },
+            {
+              "player": "Love, Julian",
+              "status": "Questionable",
+              "exp_return": "Oct 4, 2026",
+              "returnWeek": 4
+            },
+            {
+              "player": "Jefferson, Justin",
+              "status": "Questionable",
+              "exp_return": "Oct 4, 2026",
+              "returnWeek": 4
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "item": "E",
+      "key": "E.platformId",
+      "title": "Platform player ID",
+      "status": "ok",
+      "summary": "MFL ids are digit strings ({\"4-digit\":406,\"5-digit\":2264}; 384 start with 0, so keep them as strings, e.g. team DEF 0501–0532); TYPE=players DETAILS=1 also gives the other-site ids counted in the evidence — but no sleeper_id",
+      "evidence": [
+        {
+          "url": "https://api.myfantasyleague.com/2026/export?TYPE=players&DETAILS=1&JSON=1",
+          "status": 200,
+          "path": "players.player[].{id,espn_id,rotowire_id,sportsdata_id,stats_id,…}",
+          "sample": {
+            "espn_id": 2211,
+            "rotowire_id": 2255,
+            "sportsdata_id": 1906,
+            "stats_id": 2251,
+            "fleaflicker_id": 39,
+            "cbs_id": 2297,
+            "nfl_id": 89,
+            "sleeper_id": 0
+          }
+        }
+      ]
+    },
+    {
+      "item": "E",
+      "key": "E.age",
+      "title": "Age",
+      "status": "ok",
+      "summary": "birthdate is a unix timestamp; age derivable for 383/397 rostered players (custom players with a birthdate: 0/14)",
+      "evidence": [
+        {
+          "url": "https://api.myfantasyleague.com/2026/export?TYPE=players&DETAILS=1&JSON=1",
+          "status": 200,
+          "path": "players.player[].birthdate",
+          "sample": [
+            {
+              "player": "Stafford, Matthew",
+              "birthdate": "571208400",
+              "age": 38
+            },
+            {
+              "player": "Myers, Jason",
+              "birthdate": "674024400",
+              "age": 35
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "item": "F",
+      "key": "F.matchups",
+      "title": "Fantasy matchups for remaining regular-season weeks",
+      "status": "ok",
+      "summary": "weeks 4,5,6,7,8,9,10,11,12,13,14 each have 5 matchups (franchise fields id, isHome, result, score, spread); the 4 listed weeks after week 14 hold 0 matchups, so playoff games come from TYPE=playoffBracket",
+      "evidence": [
+        {
+          "url": "https://{leagueHost}/2026/export?TYPE=schedule&L={leagueId}&JSON=1",
+          "status": 200,
+          "path": "schedule.weeklySchedule[].matchup[].franchise[]",
+          "sample": {
+            "weeksWithMatchups": 14,
+            "weeksListed": 18
+          }
+        }
+      ]
+    },
+    {
+      "item": "F",
+      "key": "F.records",
+      "title": "Current W-L-T and points for/against",
+      "status": "ok",
+      "summary": "leagueStandings gives avgpa, avgpf, divpct, divwlt, h2hl, h2hpct, h2ht, h2hw, h2hwlt, pa, pf, strk; W-L-T and pf match the completed schedule weeks for 10/10 teams",
+      "evidence": [
+        {
+          "url": "https://{leagueHost}/2026/export?TYPE=leagueStandings&L={leagueId}&COLUMN_NAMES=1&ALL=1&JSON=1",
+          "status": 200,
+          "path": "leagueStandings.franchise[].{h2hw,h2hl,h2ht,pf,pa}",
+          "sample": [
+            {
+              "team": "Team 9",
+              "w": 3,
+              "l": 0,
+              "t": 0,
+              "pf": 536.02,
+              "pa": 378.4
+            },
+            {
+              "team": "Team 2",
+              "w": 3,
+              "l": 0,
+              "t": 0,
+              "pf": 495.74,
+              "pa": 376.62
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "item": "F",
+      "key": "F.futureResult",
+      "title": "Unplayed weeks' result field",
+      "status": "warn",
+      "summary": "unplayed matchups carry result \"T\" (110 franchise-weeks) — a tie only counts when the week is completed (CompletedWeek) or has scores",
+      "evidence": [
+        {
+          "url": "https://{leagueHost}/2026/export?TYPE=schedule&L={leagueId}&JSON=1",
+          "status": 200,
+          "path": "schedule.weeklySchedule[week>3].matchup[].franchise[].result",
+          "sample": {
+            "T": 110
+          }
+        }
+      ]
+    },
+    {
+      "item": "G",
+      "key": "G.trades",
+      "title": "This season's trades",
+      "status": "ok",
+      "summary": "2 trades (fields by_commish, expires, franchise, franchise1_gave_up, franchise2, franchise2_gave_up, timestamp, type); *_gave_up lists parse into player ids, FP_ future picks, DP_ current picks and BB_ blind-bid dollars (format from the tradeBait docs); no week field, so the week is derived from the unix timestamp and NFL kickoff times",
+      "evidence": [
+        {
+          "url": "https://{leagueHost}/2026/export?TYPE=transactions&L={leagueId}&TRANS_TYPE=*&JSON=1",
+          "status": 200,
+          "path": "transactions.transaction[type=TRADE].{franchise,franchise2,franchise1_gave_up,franchise2_gave_up,timestamp}",
+          "sample": [
+            {
+              "week": "3",
+              "teams": [
+                "Team 1",
+                "Team 7"
+              ],
+              "gave": [
+                {
+                  "players": 1,
+                  "futurePicks": [],
+                  "currentPicks": 0,
+                  "blindBid": 0,
+                  "unknown": []
+                },
+                {
+                  "players": 1,
+                  "futurePicks": [],
+                  "currentPicks": 0,
+                  "blindBid": 0,
+                  "unknown": []
+                }
+              ]
+            },
+            {
+              "week": "preseason",
+              "teams": [
+                "Team 5",
+                "Team 6"
+              ],
+              "gave": [
+                {
+                  "players": 1,
+                  "futurePicks": [
+                    "2027 R2 (orig Team 5)"
+                  ],
+                  "currentPicks": 0,
+                  "blindBid": 0,
+                  "unknown": []
+                },
+                {
+                  "players": 1,
+                  "futurePicks": [],
+                  "currentPicks": 0,
+                  "blindBid": 0,
+                  "unknown": []
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "item": "G",
+      "key": "G.addDrop",
+      "title": "Add/drop counts per team",
+      "status": "ok",
+      "summary": "transaction types {\"IR\":19,\"FREE_AGENT\":55,\"LOCK_ALL_PLAYERS\":3,\"TRADE\":2,\"WAIVER\":17,\"AUTO_PROCESS_WAIVERS\":2,\"TAXI\":8,\"LOAD_ROSTERS\":27}; fields per type (besides type/timestamp/franchise) {\"AUTO_PROCESS_WAIVERS\":[\"transaction\"],\"FREE_AGENT\":[\"transaction\"],\"IR\":[\"activated\",\"deactivated\"],\"LOAD_ROSTERS\":[\"by_commish\",\"transaction\"],\"LOCK_ALL_PLAYERS\":[\"transaction\"],\"TAXI\":[\"by_commish\",\"demoted\",\"promoted\"],\"TRADE\":[\"by_commish\",\"expires\",\"franchise1_gave_up\",\"franchise2\",\"franchise2_gave_up\"],\"WAIVER\":[\"added\",\"dropped\"]}; adds/drops counted from FREE_AGENT/BBID_WAIVER \"transaction\" strings and WAIVER added/dropped",
+      "evidence": [
+        {
+          "url": "https://{leagueHost}/2026/export?TYPE=transactions&L={leagueId}&TRANS_TYPE=*&JSON=1",
+          "status": 200,
+          "path": "transactions.transaction[].{type,franchise,transaction|added|dropped,timestamp}",
+          "sample": {
+            "Team 1": {
+              "adds": 14,
+              "drops": 15
+            },
+            "Team 10": {
+              "adds": 1,
+              "drops": 6
+            },
+            "Team 2": {
+              "adds": 4,
+              "drops": 7
+            },
+            "Team 3": {
+              "adds": 9,
+              "drops": 13
+            },
+            "Team 4": {
+              "adds": 0,
+              "drops": 2
+            },
+            "Team 5": {
+              "adds": 12,
+              "drops": 16
+            },
+            "Team 6": {
+              "adds": 8,
+              "drops": 15
+            },
+            "Team 7": {
+              "adds": 2,
+              "drops": 4
+            },
+            "Team 8": {
+              "adds": 2,
+              "drops": 9
+            },
+            "Team 9": {
+              "adds": 0,
+              "drops": 9
+            }
+          }
+        }
+      ]
+    },
+    {
+      "item": "G",
+      "key": "G.week",
+      "title": "Transaction week",
+      "status": "ok",
+      "summary": "no week field; rule tested: a move belongs to the next week to kick off (after week n−1's first kickoff, before week n's). MFL's own TYPE=transactions&W=2 lists 30 moves; the rule gives 30; 30 in both — identical, so the rule reproduces MFL's weeks. A \"last game ended\" rule would file 14 of 133 moves in another week. Activity weeks (moves before the first kickoff kept apart as preseason; MFL files those under W=1): {\"2\":30,\"3\":28,\"4\":12,\"preseason\":63}",
+      "evidence": [
+        {
+          "url": "https://{leagueHost}/2026/export?TYPE=transactions&L={leagueId}&TRANS_TYPE=*&JSON=1",
+          "status": 200,
+          "path": "transactions.transaction[].timestamp → activity week",
+          "sample": {
+            "2": 30,
+            "3": 28,
+            "4": 12,
+            "preseason": 63
+          }
+        },
+        {
+          "url": "https://{leagueHost}/2026/export?TYPE=transactions&L={leagueId}&TRANS_TYPE=*&W=2&JSON=1",
+          "status": 200,
+          "path": "transactions.transaction[] (W=2) vs the rule",
+          "sample": {
+            "mfl": 30,
+            "rule": 30,
+            "both": 30
+          }
+        }
+      ]
+    },
+    {
+      "item": "H",
+      "key": "H.freeAgents",
+      "title": "Available players",
+      "status": "ok",
+      "summary": "TYPE=freeAgents lists 1824 players (statuses {\"locked\":1824}; private leagues: owners only); also derivable as TYPE=players minus rostered; api_info: projectedScores/playerScores take STATUS=freeagent",
+      "evidence": [
+        {
+          "url": "https://{leagueHost}/2026/export?TYPE=freeAgents&L={leagueId}&JSON=1",
+          "status": 200,
+          "path": "freeAgents.leagueUnit.player[].{id,status}",
+          "sample": 1824
+        }
+      ]
+    },
+    {
+      "item": "I",
+      "key": "I.future",
+      "title": "Future pick ownership",
+      "status": "ok",
+      "summary": "80 picks: years {\"2027\":40,\"2028\":40}, rounds {\"1\":20,\"2\":20,\"3\":20,\"4\":20}; 1 held by a team other than the original (owner = franchise id, original = originalPickFor)",
+      "evidence": [
+        {
+          "url": "https://{leagueHost}/2026/export?TYPE=futureDraftPicks&L={leagueId}&JSON=1",
+          "status": 200,
+          "path": "futureDraftPicks.franchise[].futureDraftPick[].{year,round,originalPickFor}",
+          "sample": [
+            {
+              "owner": "Team 6",
+              "orig": "Team 5",
+              "year": "2027",
+              "round": "2"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "item": "I",
+      "key": "I.current",
+      "title": "Current-year draft",
+      "status": "warn",
+      "summary": "draftResults has no picks for 2026 (draftType SDRAFT; 27 LOAD_ROSTERS transactions suggest the commissioner loaded rosters). Traded current-year picks would appear as DP_<round-1>_<pick-1> in trades (api_info, tradeBait)",
+      "evidence": [
+        {
+          "url": "https://{leagueHost}/2026/export?TYPE=draftResults&L={leagueId}&JSON=1",
+          "status": 200,
+          "path": "draftResults.draftUnit.{draftType,draftPick[]}",
+          "sample": 0
+        }
+      ]
+    },
+    {
+      "item": "X",
+      "key": "X.crosswalk",
+      "title": "MFL id → Sleeper id (canonical id) for rostered players",
+      "status": "ok",
+      "summary": "383/383 rostered players from MFL's player DB (100.0%) via {\"dynastyprocess\":378,\"rotowire_id\":5}; 14 custom players have no crosswalk by design — their ids collide with MFL's global id space: DynastyProcess maps 2 of them (as mfl_id) to other, real players, so custom ids must never be joined. Where DynastyProcess and an ID join both answer, they agree: {\"espn_id\":{\"agree\":674,\"disagree\":2},\"sportradar_id\":{\"agree\":1880,\"disagree\":1},\"rotowire_id\":{\"agree\":2102,\"disagree\":13},\"stats_id\":{\"agree\":0,\"disagree\":0}}",
+      "evidence": [
+        {
+          "url": "https://raw.githubusercontent.com/dynastyprocess/data/master/files/db_playerids.csv",
+          "status": 200,
+          "path": "db_playerids.csv mfl_id→sleeper_id; Sleeper players DB espn_id/sportradar_id/rotowire_id/stats_id",
+          "sample": {
+            "dynastyprocess": 378,
+            "rotowire_id": 5
+          }
+        }
+      ]
+    },
+    {
+      "item": "J",
+      "key": "J.current",
+      "title": "Current-week projections (league-scored)",
+      "status": "ok",
+      "summary": "W=4: 1033 players; rostered covered 337/397, rostered QB/RB/WR/TE 233/282 (no projection, by roster status: {\"CUSTOM\":14,\"ROSTER\":16,\"INJURED_RESERVE\":19}). api_info: \"calculate the expected fantasy points, using that league's scoring system … raw stats that fantasysharks.com projects\" (checked against Sleeper in J.agreement); 1 empty {\"id\":\"\",\"score\":\"\"} row(s) to skip",
+      "evidence": [
+        {
+          "url": "https://{leagueHost}/2026/export?TYPE=projectedScores&L={leagueId}&W=4&JSON=1",
+          "status": 200,
+          "path": "projectedScores.playerScore[].{id,score} (top 3)",
+          "sample": [
+            [
+              "16162",
+              21.029
+            ],
+            [
+              "16185",
+              20.923
+            ],
+            [
+              "16161",
+              20.861
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "item": "J",
+      "key": "J.future",
+      "title": "Future-week projections",
+      "status": "ok",
+      "summary": "W=5: 1053 players (rostered 329/397); W=17 (the last fantasy playoff week — bracket 1's final): 1175 players (rostered 362/397); 11/1175 week-17 values equal week 4's (so far weeks are not simple copies)",
+      "evidence": [
+        {
+          "url": "https://{leagueHost}/2026/export?TYPE=projectedScores&L={leagueId}&W=5&JSON=1",
+          "status": 200,
+          "path": "projectedScores.playerScore[] (W=next)",
+          "sample": 1053
+        },
+        {
+          "url": "https://{leagueHost}/2026/export?TYPE=projectedScores&L={leagueId}&W=17&JSON=1",
+          "status": 200,
+          "path": "projectedScores.playerScore[] (W=last fantasy week)",
+          "sample": 1175
+        }
+      ]
+    },
+    {
+      "item": "J",
+      "key": "J.byes",
+      "title": "Bye weeks in projections",
+      "status": "ok",
+      "summary": "23 rostered players are on bye in week 5; 0 of them have a projection > 0 there (23 absent)",
+      "evidence": [
+        {
+          "url": "https://{leagueHost}/2026/export?TYPE=projectedScores&L={leagueId}&W=5&JSON=1",
+          "status": 200,
+          "path": "projectedScores.playerScore[] for teams on bye",
+          "sample": {
+            "onBye": 23,
+            "projectedAboveZero": 0
+          }
+        }
+      ]
+    },
+    {
+      "item": "J",
+      "key": "J.agreement",
+      "title": "MFL projections vs Sleeper stats × league rules (CLAUDE.md §6)",
+      "status": "warn",
+      "summary": "week 4, rostered QB/RB/WR/TE with both projections > 3 pts: n=179 of 233 pairs; median MFL ÷ ours = 0.812 (MFL runs 19% below Sleeper × league rules); 12/179 differ by more than 40% (MFL ÷ ours outside 0.6–1.4; §6 logs these). By position: {\"QB\":{\"n\":30,\"medianRatio\":0.788,\"disagreeOver40pct\":0,\"medianVsHalfPpr\":0.721},\"RB\":{\"n\":44,\"medianRatio\":0.775,\"disagreeOver40pct\":7,\"medianVsHalfPpr\":0.777},\"TE\":{\"n\":33,\"medianRatio\":0.801,\"disagreeOver40pct\":1,\"medianVsHalfPpr\":0.998},\"WR\":{\"n\":72,\"medianRatio\":0.863,\"disagreeOver40pct\":4,\"medianVsHalfPpr\":0.861}}. League-scored check: median MFL ÷ Sleeper pts_half_ppr is 0.998 for TE vs 0.861 for WR — with this league's TE premium (TE 1 vs WR 0.5 per catch) a higher TE ratio is what league-scored projections should show (it is)",
+      "evidence": [
+        {
+          "url": "https://{leagueHost}/2026/export?TYPE=projectedScores&L={leagueId}&W=4&JSON=1",
+          "status": 200,
+          "path": "projectedScores.playerScore[].score",
+          "sample": 179
+        },
+        {
+          "url": "https://api.sleeper.app/projections/nfl/2026/4?season_type=regular&position={position}",
+          "status": 200,
+          "path": "[].stats × compiled MFL rules (lib/mfl/rules.ts scoreStats); [].stats.pts_half_ppr",
+          "sample": {
+            "QB": {
+              "n": 30,
+              "medianRatio": 0.788,
+              "disagreeOver40pct": 0,
+              "medianVsHalfPpr": 0.721
+            },
+            "RB": {
+              "n": 44,
+              "medianRatio": 0.775,
+              "disagreeOver40pct": 7,
+              "medianVsHalfPpr": 0.777
+            },
+            "TE": {
+              "n": 33,
+              "medianRatio": 0.801,
+              "disagreeOver40pct": 1,
+              "medianVsHalfPpr": 0.998
+            },
+            "WR": {
+              "n": 72,
+              "medianRatio": 0.863,
+              "disagreeOver40pct": 4,
+              "medianVsHalfPpr": 0.861
+            }
+          }
+        }
+      ]
+    },
+    {
+      "item": "K",
+      "key": "K.leagueScored",
+      "title": "League-scored points for completed weeks",
+      "status": "ok",
+      "summary": "playerScores W=3: 1177 players, W=2: 1182 (rostered and free agents: fields id, isAvailable, score, week); rostered with a score in week 3: 310/397",
+      "evidence": [
+        {
+          "url": "https://{leagueHost}/2026/export?TYPE=playerScores&L={leagueId}&W=3&JSON=1",
+          "status": 200,
+          "path": "playerScores.playerScore[].{id,score} (top 3)",
+          "sample": [
+            [
+              "16162",
+              37.9
+            ],
+            [
+              "16161",
+              34.3
+            ],
+            [
+              "15698",
+              33.34
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "item": "K",
+      "key": "K.weeklyResults",
+      "title": "Per-starter results (weeklyResults)",
+      "status": "ok",
+      "summary": "weeklyResults W=YTD: per franchise-week the players (fields id, score, shouldStart, status); 30 franchise-weeks also carry optimal/opt_pts (the best possible lineup); week 3: 310/310 player scores equal playerScores",
+      "evidence": [
+        {
+          "url": "https://{leagueHost}/2026/export?TYPE=weeklyResults&L={leagueId}&W=YTD&JSON=1",
+          "status": 200,
+          "path": "allWeeklyResults.weeklyResults[].matchup[].franchise[].player[]",
+          "sample": {
+            "compared": 310,
+            "equal": 310
+          }
+        }
+      ]
+    },
+    {
+      "item": "K",
+      "key": "K.oracle",
+      "title": "Scoring oracle dry run (MFL points vs Sleeper stats × mapped rules)",
+      "status": "ok",
+      "summary": "weeks 2, 3: 604/604 rostered player-weeks within 0.05 (100.0%; target ≥ 99%). By position: {\"CB\":\"8/8 (100.0%)\",\"DE\":\"40/40 (100.0%)\",\"DT\":\"6/6 (100.0%)\",\"LB\":\"74/74 (100.0%)\",\"PK\":\"34/34 (100.0%)\",\"QB\":\"63/63 (100.0%)\",\"RB\":\"112/112 (100.0%)\",\"S\":\"35/35 (100.0%)\",\"TE\":\"66/66 (100.0%)\",\"WR\":\"166/166 (100.0%)\"}. Skipped: {\"noCrosswalk\":28,\"noCompiledScoring\":0,\"bothZero\":162}",
+      "evidence": [
+        {
+          "url": "https://api.sleeper.app/stats/nfl/2026/2?season_type=regular",
+          "path": "playerScores (MFL) vs Sleeper stats[] × compiled rules",
+          "sample": []
+        }
+      ]
+    },
+    {
+      "item": "K",
+      "key": "K.rawStats",
+      "title": "Raw stats",
+      "status": "warn",
+      "summary": "MFL publishes no raw stats (api_info: \"We can not and will not under any circumstance make raw NFL player stats available\"); workaround in use: Sleeper's /stats endpoint joined through DynastyProcess mfl_id→sleeper_id (+ Sleeper-DB ID joins) — it covers the oracle: 604/604 rostered player-weeks within 0.05 (K.oracle)",
+      "evidence": [
+        {
+          "url": "https://api.myfantasyleague.com/2026/api_info",
+          "path": "no raw-stats TYPE in the Request Reference",
+          "sample": "We can not and will not under any circumstance make raw NFL player stats available"
+        },
+        {
+          "url": "https://api.sleeper.app/stats/nfl/2026/3?season_type=regular",
+          "path": "[].stats (Sleeper, joined by crosswalk)",
+          "sample": "604/604"
+        }
+      ]
+    },
+    {
+      "item": "L",
+      "key": "L.byes",
+      "title": "Bye weeks",
+      "status": "ok",
+      "summary": "TYPE=nflByeWeeks: 32 teams, bye weeks 5,6,7,8,9,10,11,13,14 (MFL team codes)",
+      "evidence": [
+        {
+          "url": "https://api.myfantasyleague.com/2026/export?TYPE=nflByeWeeks&JSON=1",
+          "status": 200,
+          "path": "nflByeWeeks.team[].{id,bye_week}",
+          "sample": [
+            "ARI=14",
+            "ATL=11",
+            "BAL=13"
+          ]
+        }
+      ]
+    },
+    {
+      "item": "L",
+      "key": "L.schedule",
+      "title": "NFL schedule",
+      "status": "ok",
+      "summary": "TYPE=nflSchedule W=ALL: 272 games over 18 weeks (22 weeks listed); game fields gameSecondsRemaining, kickoff, team, team fields hasPossession, id, inRedZone, isHome, passDefenseRank, passOffenseRank, rushDefenseRank, rushOffenseRank, score, spread",
+      "evidence": [
+        {
+          "url": "https://api.myfantasyleague.com/2026/export?TYPE=nflSchedule&W=ALL&JSON=1",
+          "status": 200,
+          "path": "fullNflSchedule.nflSchedule[].matchup[].{kickoff,team[]}",
+          "sample": {
+            "games": 272,
+            "weeks": 18
+          }
+        }
+      ]
+    },
+    {
+      "item": "M",
+      "key": "M.matchRate",
+      "title": "FantasyCalc match rate (rostered QB/RB/WR/TE by mflId)",
+      "status": "warn",
+      "summary": "value rows: 258/268 = 96.3% (target ≥ 98%); ID level (value rows + /players): 268/268 = 100.0%, not counting 14 custom players; misses: Austin III, Calvin (WR), Mixon, Joe (RB), Conklin, Tyler (TE), White, Zamir (RB), Tillman, Cedric (WR), Burks, Deion (WR), Huntley, Tyler (QB), Hooper, Austin (TE), Hill, Taysom (TE), Ott, Jaydn (RB). In FantasyCalc's /players list by mflId: 10 of 10 (so they just have no value in this format → valueFloor); unknown there: 0",
+      "evidence": [
+        {
+          "url": "https://api.fantasycalc.com/values/current?isDynasty=true&numQbs=2&numTeams=10&ppr=0.5",
+          "status": 200,
+          "path": "[].player.mflId",
+          "sample": [
+            {
+              "id": "15777",
+              "name": "Austin III, Calvin",
+              "pos": "WR"
+            },
+            {
+              "id": "13131",
+              "name": "Mixon, Joe",
+              "pos": "RB"
+            },
+            {
+              "id": "13675",
+              "name": "Conklin, Tyler",
+              "pos": "TE"
+            },
+            {
+              "id": "15714",
+              "name": "White, Zamir",
+              "pos": "RB"
+            },
+            {
+              "id": "16191",
+              "name": "Tillman, Cedric",
+              "pos": "WR"
+            },
+            {
+              "id": "17510",
+              "name": "Burks, Deion",
+              "pos": "WR"
+            },
+            {
+              "id": "14789",
+              "name": "Huntley, Tyler",
+              "pos": "QB"
+            },
+            {
+              "id": "12677",
+              "name": "Hooper, Austin",
+              "pos": "TE"
+            },
+            {
+              "id": "13424",
+              "name": "Hill, Taysom",
+              "pos": "TE"
+            },
+            {
+              "id": "17480",
+              "name": "Ott, Jaydn",
+              "pos": "RB"
+            }
+          ]
+        },
+        {
+          "url": "https://api.fantasycalc.com/players",
+          "path": "[].mflId (misses found)",
+          "sample": [
+            "Austin III, Calvin",
+            "Mixon, Joe",
+            "Conklin, Tyler",
+            "White, Zamir",
+            "Tillman, Cedric",
+            "Burks, Deion",
+            "Huntley, Tyler",
+            "Hooper, Austin",
+            "Hill, Taysom",
+            "Ott, Jaydn"
+          ]
+        }
+      ]
+    },
+    {
+      "item": "X",
+      "key": "X.standingsAlias",
+      "title": "TYPE=standings (in CLAUDE.md §2.6)",
+      "status": "warn",
+      "summary": "api_info: not documented; the server answers it like leagueStandings ([\"encoding\",\"leagueStandings\",\"version\"]) — use the documented TYPE=leagueStandings",
+      "evidence": [
+        {
+          "url": "https://{leagueHost}/2026/export?TYPE=standings&L={leagueId}&JSON=1",
+          "status": 200,
+          "path": "(root)",
+          "sample": [
+            "encoding",
+            "leagueStandings",
+            "version"
+          ]
+        }
+      ]
+    },
+    {
+      "item": "X",
+      "key": "X.redirect",
+      "title": "api host vs league host",
+      "status": "ok",
+      "summary": "league request to api.myfantasyleague.com: answered HTTP 200 itself (no redirect this run); 0 of the league-host requests were redirected. The probe sends league requests to the league's host (league.baseURL / leagueSearch homeURL), as the docs ask; redirects are followed manually and only to https *.myfantasyleague.com",
+      "evidence": [
+        {
+          "url": "https://api.myfantasyleague.com/2026/export?TYPE=league&L={leagueId}&JSON=1",
+          "status": 200,
+          "path": "redirect hops (hosts templated)",
+          "sample": "none"
+        }
+      ]
+    },
+    {
+      "item": "X",
+      "key": "X.homeUrl",
+      "title": "leagueSearch homeURL quirk",
+      "status": "ok",
+      "summary": "in the leagueSearch capture of 2026-09-29 (git-ignored): 100.0% of homeURLs start \"https//\" (no colon) — parse the host leniently (lib/mfl/search.ts hostFromHomeUrl); the lenient parser handles it; the chosen league's homeURL host equals its league.baseURL host",
+      "evidence": [
+        {
+          "url": "https://api.myfantasyleague.com/2026/export?TYPE=leagueSearch&SEARCH={term}&JSON=1",
+          "status": 200,
+          "path": "leagues.league[].homeURL (scheme prefix counts)",
+          "sample": {
+            "https//": "100.0%"
+          }
+        }
+      ]
+    },
+    {
+      "item": "X",
+      "key": "X.ownerView",
+      "title": "Logged-in response has owner-only fields",
+      "status": "na",
+      "summary": "untested: no MFL login this run (MFL_LEAGUE_ID blank; a login is only used with it)",
+      "evidence": []
+    },
+    {
+      "item": "X",
+      "key": "X.tradeBait",
+      "title": "Trade bait (bonus for Phase 4)",
+      "status": "ok",
+      "summary": "5 franchises list trade bait (fields franchise_id, inExchangeFor, timestamp, willGiveUp; inExchangeFor is free text, sanitized) — a candidate acceptance signal for Phase 4",
+      "evidence": [
+        {
+          "url": "https://{leagueHost}/2026/export?TYPE=tradeBait&L={leagueId}&INCLUDE_DRAFT_PICKS=1&JSON=1",
+          "status": 200,
+          "path": "tradeBaits.tradeBait[].{franchise_id,willGiveUp,inExchangeFor,timestamp}",
+          "sample": 5
+        }
+      ]
+    },
+    {
+      "item": "X",
+      "key": "X.liveScoring",
+      "title": "Live scoring",
+      "status": "ok",
+      "summary": "W=4: 5 matchups; franchise fields gameSecondsRemaining, id, isHome, players, playersCurrentlyPlaying, playersYetToPlay, score; api_info gives liveScoring no access note — for a private league the general rule applies (\"Data from leagues that are marked as PRIVATE are no longer accessible by users not in the league\")",
+      "evidence": [
+        {
+          "url": "https://{leagueHost}/2026/export?TYPE=liveScoring&L={leagueId}&W=4&DETAILS=1&JSON=1",
+          "status": 200,
+          "path": "liveScoring.matchup[].franchise[].players.player[]",
+          "sample": 5
+        }
+      ]
+    },
+    {
+      "item": "X",
+      "key": "X.requests",
+      "title": "Requests",
+      "status": "ok",
+      "summary": "32 MFL requests this run (21 live, 11 from cache; by kind {\"page\":2,\"file\":1,\"export\":29}); retries: 0 on every MFL request; no 429; 5 free-text values registered for redaction; errors: calendar: API requires logged in user in league ID 10001 - Please be sure to pass the proper MFL_USER_ID cookie or APIKEY parameter",
+      "evidence": [
+        {
+          "path": "MflClient.log",
+          "sample": {
+            "page HTTP 200 (cache)": 2,
+            "file HTTP 200": 1,
+            "export HTTP 200": 20,
+            "export HTTP 200 (cache)": 9
+          }
+        }
+      ]
+    },
+    {
+      "item": "X",
+      "key": "X.fixtures",
+      "title": "Sanitized fixtures",
+      "status": "ok",
+      "summary": "31 fixtures written; 0 stale fixture(s) removed; every index entry's file name = sha256(label); privacy shaping: league host → www00.myfantasyleague.com, league.history cut to 2026, leagueSearch sample synthesized (ids from 90001); franchise fields replaced by path: stadium",
+      "evidence": [
+        {
+          "path": "fixtures/sanitized/mfl/index.json"
+        }
+      ]
+    }
+  ],
+  "issues": [
+    "MFL league.endWeek (18) is not the last fantasy week: championship bracket 1's rounds are weeks 15/16/17 — evidence A.playoffStart (GET https://{leagueHost}/2026/export?TYPE=playoffBracket&L={leagueId}&BRACKET_ID=1&JSON=1 → HTTP 200, playoffBracket.playoffRound[].week) — options: derive LeagueSettings.playoffWeeks from TYPE=playoffBracket rounds (recommended); fall back to lastRegularSeasonWeek+1 … endWeek only when no bracket exists.",
+    "Trade deadline and trade review/veto aren't readable as a guest (A.tradeDeadline, A.tradeReview): TYPE=league has only [\"defaultTradeExpirationDays\"]; TYPE=calendar is \"owners only\" in api_info and answers a guest with HTTP 200 + error \"API requires logged in user in league ID 10001 - Please be sure to pass the proper MFL_USER_ID cookie or APIKEY parameter\"; the calendarEvent import docs name EVENT_TYPE \"TRADE\" (for trade deadline). Options: (a) ask the user on the Import Report (works for every MFL league); (b) with an owner login, read the deadline from TYPE=calendar and test whether by_commish or pendingTrades FRANCHISE_ID=0000 reveal commissioner review — untested.",
+    "MFL lineups are a starter total plus a min–max range per position, not slots. This league (QB 1-2, RB 0-4, WR 0-5, TE 1-3, PK 1, DT+DE 1-3, LB 1-3, CB+S 1-3; 14 starters, 5 of them IDP) can't be expressed exactly as SlotDef[] — offense: 4 position range(s) cap the 6 flex spots (QB ≤ 1 extra, RB ≤ 4 extra, WR ≤ 5 extra, TE ≤ 2 extra) and their caps add up to 12 > 6, which no SlotDef set can express; SlotDefs alone over-allow them, so the solver needs starterCaps (evidence B.flex). Options: (a) add optional per-position starter caps (min/max) to LeagueSettings and solve lineups with a flow network that honours them; (b) approximate with SlotDefs and warn on the Import Report.",
+    "MFL roster limits carry minimums as well as maximums (QB ≥ 1, RB ≥ 1, WR ≥ 1, TE ≥ 1, K ≥ 1, DL ≥ 1, LB ≥ 1, DB ≥ 1) but CLAUDE.md §4 positionLimits holds maximums only — evidence B.positionLimits (GET https://{leagueHost}/2026/export?TYPE=league&L={leagueId}&JSON=1 → HTTP 200, league.rosterLimits.position[].limit) — options: (a) add optional positionMinimums and make auto-drops respect them; (b) ignore minimums (a trade could leave a roster illegal on MFL) and warn on the trade card.",
+    "The rule compiler adds up rules from overlapping MFL position groups (e.g. \"QB|RB|WR|TE\" plus \"TE\"), as MFL's scoring help describes, but this league has no overlapping groups (C.receptions), so the 100% oracle does not validate that path — options: re-run the oracle on an MFL league with overlapping groups in Phase 5 before relying on it.",
+    "MFL range rules don't all fit the Scoring model: per-unit rates that apply only inside a range (tiered), stepped \"a/b\" awards (floor — \"1 pt every 10 yds\" gives 12 for 128 yds) and formula rules (thresholdPoints). This league: 0 tiered/formula rule-position pair(s) unmapped, 0 stepped pair(s) approximated as linear, 1 formula pair(s) that still compile exactly (evidence C.mapping). Options: (a) extend Scoring with generic range rules {stat, min, max, kind: each|every|flat|formula, points, per} evaluated as expected values like bonuses; (b) approximate and list them in scoring.unmapped.",
+    "Owner display names aren't returned to a guest (§17 D): league.franchises.franchise[] has only [\"abbrev\",\"division\",\"icon\",\"id\",\"logo\",\"name\",\"stadium\",\"waiverSortOrder\"] — evidence D.owners (GET https://{leagueHost}/2026/export?TYPE=league&L={leagueId}&JSON=1 → HTTP 200) — options: (a) with an owner login, read owner_name (untested); (b) show team names only on the Import Report and trade cards for public MFL leagues.",
+    "MFL gives expected return dates: 66 of 66 rostered injured players have injuries.injury[].exp_return, 57 of them inside the 2026 season — CLAUDE.md §6 assumes platforms rarely give a return week and falls back to fixed injury tables (evidence E.injury, GET https://api.myfantasyleague.com/2026/export?TYPE=injuries&JSON=1 → HTTP 200) — options: (a) use exp_return as injuryReturnWeek for MFL leagues (recommended; the date → week mapping uses NFL kickoff times); (b) ignore it and keep the §6 defaults.",
+    "TYPE=schedule marks unplayed matchups as ties: 110 franchise-weeks after CompletedWeek 3 carry result \"T\" (F.futureResult; GET https://{leagueHost}/2026/export?TYPE=schedule&L={leagueId}&JSON=1 → HTTP 200) — options: count results only for weeks ≤ mfl_status CompletedWeek (recommended; the probe's standings cross-check does this and matches 10/10 teams).",
+    "MFL transactions have no week field (unix timestamps only) and include types the TRANS_TYPE docs don't list (AUTO_PROCESS_WAIVERS ×2, LOAD_ROSTERS ×27, LOCK_ALL_PLAYERS ×3; documented: WAIVER, BBID_WAIVER, FREE_AGENT, WAIVER_REQUEST, BBID_WAIVER_REQUEST, TRADE, IR, TAXI, AUCTION_INIT, AUCTION_BID, AUCTION_WON, SURVIVOR_PICK, POOL_PICK) — evidence G.addDrop / G.week (GET https://{leagueHost}/2026/export?TYPE=transactions&L={leagueId}&TRANS_TYPE=*&JSON=1 → HTTP 200) — options: derive the week as MFL's W= filter does (the next week to kick off; lib/mfl/derive.ts nextKickoffWeek, checked against MFL in G.week) and keep moves before the first kickoff apart as preseason (txWeek); treat unknown types as non-roster events and list them in the Import Report warnings.",
+    "MFL has no Sleeper ids (TYPE=players DETAILS=1 carries no sleeper_id): canonical ids need the DynastyProcess crosswalk (mfl_id→sleeper_id) plus ID joins through the Sleeper players DB — 383/383 rostered players matched (X.crosswalk); league-specific custom player ids (14 here) come back only from TYPE=players with L= and 2 of them collide with DynastyProcess rows for other players, so they must never be crosswalked — options: (a) DynastyProcess first, then Sleeper-DB ID joins (implemented in lib/mfl/oracle.ts); (b) treat custom players as league-only players with no projections or market value.",
+    "MFL's league-scored projections and Sleeper's stat projections × this league's rules disagree systematically: median MFL ÷ Sleeper×rules = 0.812 in week 4 (n=179; 12 players differ by > 40%) — evidence J.agreement (GET https://{leagueHost}/2026/export?TYPE=projectedScores&L={leagueId}&W=4&JSON=1 → HTTP 200; GET https://api.sleeper.app/projections/nfl/2026/4?season_type=regular&position={position} → HTTP 200). §6 averages the two sources for MFL leagues, which shifts MFL players' base rates by about half that gap and logs every > 40% disagreement — options: (a) average as specified and log the disagreements; (b) rescale MFL projections to Sleeper's level (or tune a per-source weight) in the Phase 6 backtest before averaging; (c) use Sleeper × league rules only, like the other platforms.",
+    "MFL never publishes raw stats (K.rawStats; api_info), so the §5 scoring oracle for MFL recomputes playerScores from Sleeper's undocumented /stats endpoint joined by the crosswalk: 604/604 rostered player-weeks within 0.05 in weeks 2–3 (K.oracle; skipped {\"noCrosswalk\":28,\"noCompiledScoring\":0,\"bothZero\":162}) — options: keep Sleeper stats as the MFL oracle source (recommended while the endpoint works); fall back to nflverse weekly stats if it breaks.",
+    "§17 M target missed for this MFL league: 258/268 = 96.3% of rostered QB/RB/WR/TE have a FantasyCalc value row by mflId (target ≥ 98%); 10 of the 10 misses are in FantasyCalc's /players list, i.e. they exist but have no value in this format (isDynasty=true&numQbs=2&numTeams=10&ppr=0.5) — evidence M.matchRate — options: (a) count ID-level coverage (100.0%) and give value-less players config.valueFloor (as §9 already says); (b) keep the 98% target on value rows and accept deep-bench misses.",
+    "CLAUDE.md §2.6 lists TYPE=standings, but api_info?STATE=details doesn't document it; the live server still answers it (HTTP 200, root keys [\"encoding\",\"leagueStandings\",\"version\"]) — evidence X.standingsAlias (GET https://{leagueHost}/2026/export?TYPE=standings&L={leagueId}&JSON=1) — options: use the documented TYPE=leagueStandings (recommended); keep \"standings\" only as an undocumented alias.",
+    "CLAUDE.md §2.6 says \"Follow redirects to the league's wwwNN host\", but (1) api_info warns a wrong-host redirect \"may be delayed, or if the system is under too much stress, it may be denied\", (2) this run's api-host league request was answered directly (HTTP 200, no redirect), and (3) Node's fetch drops the Cookie header on a cross-host redirect, so a private league would silently answer as a guest — evidence X.redirect, DOCS.hosts — options: (a) send league requests to league.baseURL's host (implemented); (b) follow redirects by hand, re-attaching the cookie only for https *.myfantasyleague.com (implemented in lib/mfl/client.ts; offline-tested, untested live: no MFL login).",
+    "MFL reports errors as HTTP 200 with an \"error\" object (like §2.7 says for Fantrax; §2.6 doesn't mention it): TYPE=calendar as a guest → HTTP 200, body error \"API requires logged in user in league ID 10001 - Please be sure to pass the proper MFL_USER_ID cookie or APIKEY parameter\" — evidence A.tradeDeadline — options: treat any MFL body with an \"error\" key as a failure and never cache it (implemented in lib/mfl/client.ts).",
+    "CLAUDE.md §0.9 says to back off exponentially on 429/5xx, but api_info says \"If a request fails, don't retry\" and \"Wait one second between making requests\" (DOCS.rate) — the probe follows MFL for MFL hosts (no retries; a 429 stops MFL calls for the run) — options: (a) keep MFL's rule as a documented exception to §0.9 (recommended); (b) allow one delayed retry on 5xx only."
+  ],
+  "decisions": [
+    "FantasyCalc format for this league: isDynasty=true (assumed from the A.leagueType signals: dynasty), numQbs=2 (QB range allows 2 starters), numTeams=10, ppr=0.5; the TE premium (TE 1 per catch) is not passed — the tep parameter is still unverified (shared probe).",
+    "League requests go to the league's own host (league.baseURL for MFL_LEAGUE_ID, the search hit's homeURL for the test league); non-league TYPEs to api.myfantasyleague.com — as api_info asks. Redirects are followed by hand (redirect: \"manual\") and only to https *.myfantasyleague.com, so a login cookie survives an api → wwwNN hop.",
+    "Pacing: every *.myfantasyleague.com request (api host, league hosts, docs pages, redirect hops) shares one bucket in lib/http.ts, ≥ 1.2 s apart; retries: 0 on every MFL request; one 429 stops further MFL calls for the run (api_info: \"If a request fails, don't retry\").",
+    "Cache: league data 10 min, league-scored projections 6 h, players DB 24 h (api_info: \"no more than once per day\"), allRules 7 days, docs pages 7 days (HTML cached on purpose), NFL schedule/byes 7 days, injuries 6 h, the leagueSearch result 24 h plus the saved test-league choice; MFL HTTP-200 error bodies are never cached.",
+    "Private leagues: log in with MFL_USERNAME/MFL_PASSWORD via POST and send the MFL_USER_ID cookie; the APIKEY alternative is not used because it travels in the URL query string.",
+    "Test league (MFL_LEAGUE_ID blank): one public TYPE=leagueSearch, then a few candidates in a random order keyed by a salt that lives only in the git-ignored choice file, until a public, in-season 10–12 team league with IR and taxi slots in use (this one: dynasty); the IDs and names of the leagues looked at go to the git-ignored watch list for check:leaks.",
+    "MFL responses are put in canonical order (sorted keys; id-keyed arrays sorted — lib/mfl/canonical.ts) before identities are registered and fixtures saved, so placeholders and committed fixtures stay stable run to run; fixtures/raw keeps MFL's exact bytes.",
+    "Scoring semantics taken from MFL's Scoring Rules Setup help: *N per unit, a/b stepped every-b, plain N flat award in range, thresholdPoints = formula scoring; rules in overlapping position groups add up. lib/mfl/rules.ts compiles them to Sleeper-key rates + stat ≥ threshold bonuses and reports what doesn't fit."
+  ],
+  "questions": [
+    "Do you have an MFL league? If so, fill in MFL_LEAGUE_ID (and MFL_USERNAME + MFL_PASSWORD if it's private) in .env.local.",
+    "Should we register an MFL API client (needs your MFL account and an SMS code) for ~2.5× higher rate limits before launch? Not needed for development.",
+    "MFL lineups use min–max ranges per position: OK to add optional per-position starter caps to LeagueSettings (Phase 5) instead of approximating with flex slots?",
+    "OK to follow MFL's own \"don't retry\" rule for MFL hosts as an exception to §0.9's exponential backoff?"
+  ],
+  "requests": {
+    "total": 42,
+    "live": 21,
+    "fromCache": 21,
+    "retried": 0,
+    "slowestMs": 1931
+  }
+}

@@ -18,6 +18,7 @@
     "check:leaks": "tsx scripts/check-leaks.ts",
     "probe:espn": "tsx scripts/probe-espn.ts",
     "probe:sleeper": "tsx scripts/probe-sleeper.ts",
+    "probe:sleeper-codes": "tsx scripts/probe-sleeper-codes.ts",
     "probe:shared": "tsx scripts/probe-shared.ts",
     "probe:fleaflicker": "tsx scripts/probe-fleaflicker.ts",
     "probe:mfl": "tsx scripts/probe-mfl.ts",

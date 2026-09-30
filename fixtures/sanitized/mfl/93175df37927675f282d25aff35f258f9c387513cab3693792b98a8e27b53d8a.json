@@ -1,0 +1,27 @@
+{
+  "encoding": "utf-8",
+  "leagues": {
+    "league": [
+      {
+        "homeURL": "https//www00.myfantasyleague.com/2026/home/90001",
+        "id": "90001",
+        "name": "Search result 1",
+        "year": "2026"
+      },
+      {
+        "homeURL": "https//www00.myfantasyleague.com/2026/home/90002",
+        "id": "90002",
+        "name": "Search result 2",
+        "year": "2026"
+      },
+      {
+        "homeURL": "https//www00.myfantasyleague.com/2026/home/90003",
+        "id": "90003",
+        "name": "Search result 3",
+        "year": "2026"
+      }
+    ]
+  },
+  "note": "synthesized: key names and the homeURL scheme prefix (\"https//\") copied from the live response; every value is a placeholder",
+  "version": "1.0"
+}

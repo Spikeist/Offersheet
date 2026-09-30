@@ -42,6 +42,9 @@ export const ENV_VARS = [
   "MFL_PASSWORD",
   "YAHOO_CLIENT_ID",
   "YAHOO_CLIENT_SECRET",
+  // Not in the spec's list: written/read by probe-yahoo.ts once Yahoo approves the app (Phase 5).
+  "YAHOO_AUTH_CODE",
+  "YAHOO_REFRESH_TOKEN",
   "SESSION_SECRET",
 ] as const;
 export type EnvVar = (typeof ENV_VARS)[number];

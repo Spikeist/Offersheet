@@ -1,0 +1,3545 @@
+{
+  "platform": "sleeper-codes",
+  "generatedAt": "2026-09-29T23:42:24.348Z",
+  "runtimeSeconds": 10.2,
+  "meta": {
+    "leagues": [
+      {
+        "label": "Crawled public Sleeper leagues (250 for 2026, 43 previous seasons, 18 with 2026 rosters)",
+        "access": "public, no login",
+        "source": "snowball crawl: league members → their 2026 leagues, in a salted order; seeds: docs.sleeper.com example IDs (4 leagues, 2 users; HTTP 200)",
+        "notes": "aggregate numbers only; names and IDs never leave data-local/ and fixtures/raw/ (git-ignored)"
+      }
+    ],
+    "crawl": {
+      "seedSources": [
+        "docs.sleeper.com example IDs (4 leagues, 2 users; HTTP 200)"
+      ],
+      "usersFetched": 176,
+      "usersWithNewLeagues": 96,
+      "usersQueued": 207,
+      "leagueUserLists": 31,
+      "draftsSeen": 519,
+      "stoppedBy": "target",
+      "picksRequested": 48,
+      "currentRequested": 18,
+      "prevRequested": 45,
+      "calls": 880,
+      "live": 0,
+      "cached": 880,
+      "statusCounts": {
+        "200": 879,
+        "404": 1
+      },
+      "byTemplate": {
+        "state/nfl": 1,
+        "league/{leagueId}/users": 31,
+        "user/{userId}/leagues/nfl/{season}": 176,
+        "user/{userId}/drafts/nfl/{season}": 96,
+        "league/0": 1,
+        "draft/{draftId}/picks": 45,
+        "league/{leagueId}/rosters": 18,
+        "league/{previousLeagueId}": 45,
+        "league/{previousLeagueId}/rosters": 45,
+        "league/{previousLeagueId}/winners_bracket": 39,
+        "league/{previousLeagueId}/losers_bracket": 39,
+        "league/{previousLeagueId}/matchups/{week}": 159,
+        "league/{previousLeagueId}/transactions/{week}": 185
+      }
+    },
+    "sample": {
+      "leagues2026": 250,
+      "hops": {
+        "0": 5,
+        "1": 60,
+        "2": 85,
+        "3": 100
+      },
+      "previousLeagueIdForm": {
+        "id": 125,
+        "null": 122,
+        "zero": 3
+      },
+      "previousSeasonsRequested": 43,
+      "previousSeasonsFound": 43,
+      "olderSeasonsForRareCodes": {
+        "2024": 2
+      },
+      "previousSeasonStatus": {
+        "complete": 45
+      },
+      "current2026Rosters": {
+        "best_ball=1": 6,
+        "control": 6,
+        "position_limit_*": 6,
+        "start_week>1": 3
+      },
+      "draftsMatched": 232,
+      "pickListsFetched": 45,
+      "nflState": {
+        "week": 4,
+        "season": "2026",
+        "displayWeek": 3,
+        "seasonType": "regular",
+        "weekday": "Tuesday (US Eastern)"
+      }
+    },
+    "distributions2026": {
+      "bench_lock": {
+        "0": 189,
+        "1": 61
+      },
+      "best_ball": {
+        "0": 170,
+        "1": 8,
+        "absent": 72
+      },
+      "capacity_override": {
+        "0": 222,
+        "1": 22,
+        "absent": 6
+      },
+      "commissioner_direct_invite": {
+        "0": 234,
+        "1": 2,
+        "absent": 14
+      },
+      "daily_waivers": {
+        "0": 207,
+        "1": 37,
+        "absent": 6
+      },
+      "daily_waivers_base": {
+        "4": 14,
+        "absent": 236
+      },
+      "daily_waivers_days": {
+        "0": 1,
+        "3": 1,
+        "40": 1,
+        "940": 1,
+        "1093": 17,
+        "1364": 3,
+        "1367": 1,
+        "2155": 1,
+        "2384": 1,
+        "2388": 2,
+        "2391": 3,
+        "2411": 1,
+        "2752": 1,
+        "2816": 2,
+        "3072": 1,
+        "5120": 1,
+        "5460": 2,
+        "5461": 136,
+        "5631": 1,
+        "6143": 3,
+        "9557": 1,
+        "9872": 1,
+        "10666": 1,
+        "10859": 1,
+        "10986": 1,
+        "12042": 1,
+        "12290": 1,
+        "13648": 1,
+        "absent": 60,
+        "other values": 2
+      },
+      "daily_waivers_hour": {
+        "0": 217,
+        "1": 2,
+        "3": 2,
+        "5": 4,
+        "6": 2,
+        "7": 2,
+        "8": 2,
+        "9": 7,
+        "12": 2,
+        "14": 1,
+        "18": 1,
+        "21": 1,
+        "23": 1,
+        "absent": 6
+      },
+      "daily_waivers_last_ran": {
+        "1": 7,
+        "2": 5,
+        "3": 8,
+        "4": 5,
+        "5": 5,
+        "6": 11,
+        "7": 10,
+        "8": 9,
+        "9": 6,
+        "10": 2,
+        "11": 2,
+        "13": 1,
+        "14": 1,
+        "15": 2,
+        "16": 4,
+        "17": 2,
+        "18": 1,
+        "21": 2,
+        "22": 2,
+        "23": 4,
+        "24": 5,
+        "25": 3,
+        "26": 2,
+        "27": 3,
+        "28": 5,
+        "29": 43,
+        "30": 19,
+        "31": 7,
+        "absent": 72,
+        "other values": 2
+      },
+      "disable_adds": {
+        "0": 238,
+        "1": 6,
+        "absent": 6
+      },
+      "disable_elimination": {
+        "0": 22,
+        "1": 2,
+        "absent": 226
+      },
+      "disable_trades": {
+        "0": 203,
+        "1": 32,
+        "absent": 15
+      },
+      "divisions": {
+        "0": 17,
+        "2": 13,
+        "3": 2,
+        "4": 3,
+        "8": 1,
+        "absent": 214
+      },
+      "draft_rounds": {
+        "3": 207,
+        "4": 24,
+        "5": 8,
+        "6": 2,
+        "7": 2,
+        "8": 1,
+        "absent": 6
+      },
+      "faab_suggestions": {
+        "0": 104,
+        "1": 118,
+        "absent": 28
+      },
+      "last_chopped_leg": {
+        "3": 21,
+        "absent": 229
+      },
+      "last_report": {
+        "3": 155,
+        "absent": 95
+      },
+      "last_scored_leg": {
+        "3": 178,
+        "absent": 72
+      },
+      "league_average_match": {
+        "0": 232,
+        "1": 12,
+        "absent": 6
+      },
+      "leg": {
+        "1": 69,
+        "2": 1,
+        "3": 172,
+        "4": 8
+      },
+      "max_keepers": {
+        "1": 233,
+        "2": 6,
+        "3": 5,
+        "absent": 6
+      },
+      "max_subs": {
+        "0": 150,
+        "1": 9,
+        "2": 35,
+        "3": 34,
+        "absent": 22
+      },
+      "num_teams": {
+        "4": 15,
+        "6": 5,
+        "8": 19,
+        "10": 96,
+        "12": 72,
+        "13": 1,
+        "14": 13,
+        "16": 6,
+        "18": 15,
+        "19": 1,
+        "20": 2,
+        "31": 1,
+        "32": 4
+      },
+      "offseason_adds": {
+        "0": 228,
+        "1": 16,
+        "absent": 6
+      },
+      "pick_timer": {
+        "120": 28,
+        "absent": 222
+      },
+      "pick_trading": {
+        "0": 59,
+        "1": 191
+      },
+      "playoff_round_type": {
+        "0": 229,
+        "1": 8,
+        "2": 6,
+        "absent": 7
+      },
+      "playoff_seed_type": {
+        "0": 213,
+        "1": 27,
+        "absent": 10
+      },
+      "playoff_teams": {
+        "4": 32,
+        "5": 1,
+        "6": 179,
+        "7": 6,
+        "8": 4,
+        "absent": 28
+      },
+      "playoff_type": {
+        "0": 214,
+        "1": 32,
+        "absent": 4
+      },
+      "playoff_week_start": {
+        "0": 29,
+        "14": 13,
+        "15": 188,
+        "16": 20
+      },
+      "position_limit_def": {
+        "1": 2,
+        "2": 2,
+        "3": 4,
+        "4": 1,
+        "absent": 241
+      },
+      "position_limit_k": {
+        "1": 1,
+        "2": 3,
+        "3": 1,
+        "4": 1,
+        "absent": 244
+      },
+      "position_limit_qb": {
+        "1": 2,
+        "3": 3,
+        "4": 5,
+        "5": 1,
+        "absent": 239
+      },
+      "position_limit_rb": {
+        "5": 1,
+        "6": 1,
+        "absent": 248
+      },
+      "position_limit_te": {
+        "3": 5,
+        "4": 1,
+        "5": 1,
+        "absent": 243
+      },
+      "position_limit_wr": {
+        "5": 1,
+        "7": 1,
+        "absent": 248
+      },
+      "reserve_allow_cov": {
+        "0": 168,
+        "1": 76,
+        "absent": 6
+      },
+      "reserve_allow_dnr": {
+        "0": 212,
+        "1": 32,
+        "absent": 6
+      },
+      "reserve_allow_doubtful": {
+        "0": 220,
+        "1": 24,
+        "absent": 6
+      },
+      "reserve_allow_na": {
+        "0": 217,
+        "1": 27,
+        "absent": 6
+      },
+      "reserve_allow_out": {
+        "0": 134,
+        "1": 110,
+        "absent": 6
+      },
+      "reserve_allow_sus": {
+        "0": 195,
+        "1": 49,
+        "absent": 6
+      },
+      "reserve_slots": {
+        "0": 93,
+        "1": 68,
+        "2": 58,
+        "3": 16,
+        "4": 7,
+        "5": 8
+      },
+      "squads": {
+        "1": 31,
+        "absent": 219
+      },
+      "start_week": {
+        "1": 185,
+        "2": 2,
+        "3": 2,
+        "absent": 61
+      },
+      "sub_lock_if_starter_active": {
+        "0": 216,
+        "absent": 34
+      },
+      "sub_start_time_eligibility": {
+        "0": 195,
+        "1": 26,
+        "absent": 29
+      },
+      "taxi_allow_vets": {
+        "0": 223,
+        "1": 21,
+        "absent": 6
+      },
+      "taxi_deadline": {
+        "0": 200,
+        "4": 44,
+        "absent": 6
+      },
+      "taxi_slots": {
+        "0": 195,
+        "1": 1,
+        "2": 2,
+        "3": 20,
+        "4": 17,
+        "5": 6,
+        "7": 3,
+        "absent": 6
+      },
+      "taxi_years": {
+        "0": 193,
+        "1": 28,
+        "2": 20,
+        "3": 3,
+        "absent": 6
+      },
+      "trade_deadline": {
+        "10": 12,
+        "11": 188,
+        "12": 22,
+        "13": 8,
+        "14": 8,
+        "99": 12
+      },
+      "trade_review_days": {
+        "0": 33,
+        "1": 40,
+        "2": 177
+      },
+      "type": {
+        "0": 149,
+        "1": 20,
+        "2": 53,
+        "3": 28
+      },
+      "veto_auto_poll": {
+        "0": 156,
+        "1": 19,
+        "absent": 75
+      },
+      "veto_show_votes": {
+        "0": 167,
+        "1": 8,
+        "absent": 75
+      },
+      "veto_votes_needed": {
+        "2": 3,
+        "3": 5,
+        "4": 15,
+        "5": 49,
+        "6": 66,
+        "7": 12,
+        "8": 5,
+        "9": 14,
+        "10": 2,
+        "12": 1,
+        "16": 3,
+        "absent": 75
+      },
+      "waiver_bid_min": {
+        "0": 198,
+        "1": 5,
+        "2": 1,
+        "absent": 46
+      },
+      "waiver_budget": {
+        "100": 197,
+        "120": 1,
+        "150": 1,
+        "170": 1,
+        "200": 12,
+        "222": 1,
+        "500": 2,
+        "1000": 32,
+        "1500": 2,
+        "2500": 1
+      },
+      "waiver_clear_days": {
+        "0": 5,
+        "1": 55,
+        "2": 189,
+        "3": 1
+      },
+      "waiver_day_of_week": {
+        "0": 3,
+        "1": 7,
+        "2": 237,
+        "3": 3
+      },
+      "waiver_type": {
+        "0": 116,
+        "1": 12,
+        "2": 122
+      }
+    },
+    "keyPresence2026": {
+      "bench_lock": 250,
+      "best_ball": 178,
+      "capacity_override": 244,
+      "commissioner_direct_invite": 236,
+      "daily_waivers": 244,
+      "daily_waivers_base": 14,
+      "daily_waivers_days": 190,
+      "daily_waivers_hour": 244,
+      "daily_waivers_last_ran": 178,
+      "disable_adds": 244,
+      "disable_elimination": 24,
+      "disable_trades": 235,
+      "divisions": 36,
+      "draft_rounds": 244,
+      "faab_suggestions": 222,
+      "last_chopped_leg": 21,
+      "last_report": 155,
+      "last_scored_leg": 178,
+      "league_average_match": 244,
+      "leg": 250,
+      "max_keepers": 244,
+      "max_subs": 228,
+      "num_teams": 250,
+      "offseason_adds": 244,
+      "pick_timer": 28,
+      "pick_trading": 250,
+      "playoff_round_type": 243,
+      "playoff_seed_type": 240,
+      "playoff_teams": 222,
+      "playoff_type": 246,
+      "playoff_week_start": 250,
+      "position_limit_def": 9,
+      "position_limit_k": 6,
+      "position_limit_qb": 11,
+      "position_limit_rb": 2,
+      "position_limit_te": 7,
+      "position_limit_wr": 2,
+      "reserve_allow_cov": 244,
+      "reserve_allow_dnr": 244,
+      "reserve_allow_doubtful": 244,
+      "reserve_allow_na": 244,
+      "reserve_allow_out": 244,
+      "reserve_allow_sus": 244,
+      "reserve_slots": 250,
+      "squads": 31,
+      "start_week": 189,
+      "sub_lock_if_starter_active": 216,
+      "sub_start_time_eligibility": 221,
+      "taxi_allow_vets": 244,
+      "taxi_deadline": 244,
+      "taxi_slots": 244,
+      "taxi_years": 244,
+      "trade_deadline": 250,
+      "trade_review_days": 250,
+      "type": 250,
+      "veto_auto_poll": 175,
+      "veto_show_votes": 175,
+      "veto_votes_needed": 175,
+      "waiver_bid_min": 204,
+      "waiver_budget": 250,
+      "waiver_clear_days": 250,
+      "waiver_day_of_week": 250,
+      "waiver_type": 250
+    },
+    "settingsChanged2025to2026": {
+      "bench_lock": "2/43",
+      "capacity_override": "2/43",
+      "daily_waivers": "2/43",
+      "daily_waivers_days": "6/43",
+      "daily_waivers_hour": "5/43",
+      "daily_waivers_last_ran": "37/40",
+      "disable_adds": "2/43",
+      "faab_suggestions": "1/33",
+      "last_chopped_leg": "6/6",
+      "last_report": "35/35",
+      "last_scored_leg": "41/41",
+      "league_average_match": "1/43",
+      "leg": "41/43",
+      "max_subs": "4/35",
+      "num_teams": "2/43",
+      "offseason_adds": "2/43",
+      "playoff_seed_type": "1/43",
+      "playoff_teams": "1/37",
+      "playoff_type": "1/43",
+      "playoff_week_start": "1/43",
+      "position_limit_def": "1/5",
+      "reserve_allow_out": "1/43",
+      "reserve_allow_sus": "1/43",
+      "reserve_slots": "4/43",
+      "start_week": "1/43",
+      "sub_lock_if_starter_active": "1/34",
+      "sub_start_time_eligibility": "2/35",
+      "taxi_allow_vets": "1/43",
+      "taxi_deadline": "1/43",
+      "taxi_slots": "1/43",
+      "taxi_years": "2/43",
+      "trade_deadline": "2/43",
+      "trade_review_days": "1/43",
+      "veto_votes_needed": "1/36",
+      "waiver_bid_min": "2/31",
+      "waiver_budget": "1/43",
+      "waiver_clear_days": "1/43",
+      "waiver_day_of_week": "1/43",
+      "waiver_type": "2/43"
+    },
+    "crossTabs": {
+      "type × taxi_slots": {
+        "0": {
+          "0": 143,
+          "absent": 6
+        },
+        "1": {
+          "0": 20
+        },
+        "2": {
+          "0": 4,
+          "1": 1,
+          "2": 2,
+          "3": 20,
+          "4": 17,
+          "5": 6,
+          "7": 3
+        },
+        "3": {
+          "0": 28
+        }
+      },
+      "type × max_keepers": {
+        "0": {
+          "1": 139,
+          "2": 2,
+          "3": 2,
+          "absent": 6
+        },
+        "1": {
+          "1": 14,
+          "2": 4,
+          "3": 2
+        },
+        "2": {
+          "1": 52,
+          "3": 1
+        },
+        "3": {
+          "1": 28
+        }
+      },
+      "type × best_ball": {
+        "0": {
+          "0": 88,
+          "1": 5,
+          "absent": 56
+        },
+        "1": {
+          "0": 15,
+          "1": 1,
+          "absent": 4
+        },
+        "2": {
+          "0": 45,
+          "absent": 8
+        },
+        "3": {
+          "0": 22,
+          "1": 2,
+          "absent": 4
+        }
+      },
+      "type × previous_league_id form": {
+        "0": {
+          "id": 64,
+          "null": 83,
+          "zero": 2
+        },
+        "1": {
+          "id": 12,
+          "null": 7,
+          "zero": 1
+        },
+        "2": {
+          "id": 42,
+          "null": 11
+        },
+        "3": {
+          "id": 7,
+          "null": 21
+        }
+      },
+      "type × draft.player_type": {
+        "0": {
+          "0": 89,
+          "absent": 48
+        },
+        "1": {
+          "0": 15,
+          "absent": 3
+        },
+        "2": {
+          "0": 19,
+          "1": 24,
+          "absent": 7
+        },
+        "3": {
+          "0": 20,
+          "absent": 7
+        }
+      },
+      "type × draft.metadata.league_type": {
+        "0": {
+          "0": 57,
+          "absent": 80
+        },
+        "1": {
+          "0": 1,
+          "1": 4,
+          "absent": 13
+        },
+        "2": {
+          "0": 1,
+          "1": 1,
+          "2": 9,
+          "absent": 39
+        },
+        "3": {
+          "0": 2,
+          "3": 19,
+          "absent": 6
+        }
+      },
+      "type × status": {
+        "0": {
+          "drafting": 3,
+          "in_season": 94,
+          "pre_draft": 52
+        },
+        "1": {
+          "drafting": 1,
+          "in_season": 14,
+          "pre_draft": 5
+        },
+        "2": {
+          "in_season": 47,
+          "pre_draft": 6
+        },
+        "3": {
+          "in_season": 23,
+          "pre_draft": 5
+        }
+      },
+      "veto_auto_poll × trade_review_days": {
+        "0": {
+          "0": 32,
+          "1": 27,
+          "2": 97
+        },
+        "1": {
+          "1": 12,
+          "2": 7
+        },
+        "absent": {
+          "0": 1,
+          "1": 1,
+          "2": 73
+        }
+      },
+      "trade_review_days × veto_votes_needed present": {
+        "0": {
+          "absent": 1,
+          "present": 32
+        },
+        "1": {
+          "absent": 1,
+          "present": 39
+        },
+        "2": {
+          "absent": 73,
+          "present": 104
+        }
+      },
+      "waiver_type × waiver_budget": {
+        "0": {
+          "100": 116
+        },
+        "1": {
+          "100": 12
+        },
+        "2": {
+          "100": 69,
+          "120": 1,
+          "150": 1,
+          "170": 1,
+          "200": 12,
+          "222": 1,
+          "500": 2,
+          "1000": 32,
+          "1500": 2,
+          "2500": 1
+        }
+      },
+      "playoff_round_type × playoff_week_start": {
+        "0": {
+          "0": 25,
+          "14": 4,
+          "15": 181,
+          "16": 19
+        },
+        "1": {
+          "14": 1,
+          "15": 6,
+          "16": 1
+        },
+        "2": {
+          "14": 5,
+          "15": 1
+        },
+        "absent": {
+          "0": 4,
+          "14": 3
+        }
+      },
+      "playoff_teams × playoff_week_start": {
+        "4": {
+          "14": 5,
+          "15": 7,
+          "16": 20
+        },
+        "5": {
+          "15": 1
+        },
+        "6": {
+          "14": 7,
+          "15": 172
+        },
+        "7": {
+          "0": 1,
+          "15": 5
+        },
+        "8": {
+          "14": 1,
+          "15": 3
+        },
+        "absent": {
+          "0": 28
+        }
+      },
+      "disable_trades × type": {
+        "0": {
+          "0": 137,
+          "1": 18,
+          "2": 46,
+          "3": 2
+        },
+        "1": {
+          "0": 5,
+          "1": 1,
+          "3": 26
+        },
+        "absent": {
+          "0": 7,
+          "1": 1,
+          "2": 7
+        }
+      },
+      "pick_trading × type": {
+        "0": {
+          "0": 36,
+          "1": 2,
+          "3": 21
+        },
+        "1": {
+          "0": 113,
+          "1": 18,
+          "2": 53,
+          "3": 7
+        }
+      }
+    },
+    "rosterPositions": {
+      "leaguesWithSlot": {
+        "BN": 248,
+        "DB": 3,
+        "DEF": 178,
+        "DL": 3,
+        "FLEX": 245,
+        "IDP_FLEX": 5,
+        "K": 165,
+        "LB": 3,
+        "QB": 250,
+        "RB": 248,
+        "REC_FLEX": 1,
+        "SUPER_FLEX": 39,
+        "TE": 240,
+        "WR": 248,
+        "WRRB_FLEX": 6
+      },
+      "benchSlots": {
+        "0": 2,
+        "1": 3,
+        "2": 7,
+        "3": 6,
+        "4": 14,
+        "5": 113,
+        "6": 40,
+        "7": 9,
+        "8": 7,
+        "9": 3,
+        "10": 13,
+        "11": 4,
+        "12": 5,
+        "13": 2,
+        "14": 5,
+        "15": 6,
+        "16": 2,
+        "17": 1,
+        "18": 2,
+        "19": 1,
+        "20": 2,
+        "31": 3
+      },
+      "superflexOr2QB": 46,
+      "idp": 5,
+      "noKicker": 85,
+      "noDefense": 72
+    },
+    "scoringKeysNonzero": {
+      "fum_lost": 247,
+      "pass_2pt": 247,
+      "pass_int": 247,
+      "pass_td": 247,
+      "pass_yd": 247,
+      "rec_2pt": 247,
+      "rec_td": 247,
+      "rec_yd": 247,
+      "rush_2pt": 247,
+      "rush_td": 247,
+      "rush_yd": 247,
+      "fum_rec_td": 244,
+      "rec": 244,
+      "st_td": 244,
+      "def_td": 243,
+      "def_st_td": 242,
+      "blk_kick": 240,
+      "fum_rec": 240,
+      "int": 240,
+      "sack": 240,
+      "safe": 240,
+      "xpm": 240,
+      "pts_allow_0": 235,
+      "pts_allow_1_6": 235,
+      "pts_allow_35p": 235,
+      "pts_allow_7_13": 235,
+      "pts_allow_28_34": 234,
+      "pts_allow_14_20": 232,
+      "st_fum_rec": 232,
+      "def_st_fum_rec": 230,
+      "xpmiss": 229,
+      "fgm_0_19": 227,
+      "fgm_20_29": 227,
+      "fgm_30_39": 227,
+      "fgm_40_49": 227,
+      "st_ff": 223,
+      "fgmiss": 219,
+      "def_st_ff": 214,
+      "ff": 214,
+      "fgm_50_59": 153,
+      "fgm_60p": 153,
+      "fgm_50p": 74,
+      "def_2pt": 25,
+      "fum": 25,
+      "bonus_rec_te": 21,
+      "yds_allow_350_399": 20,
+      "yds_allow_500_549": 20,
+      "yds_allow_0_100": 19,
+      "yds_allow_100_199": 19,
+      "yds_allow_200_299": 19,
+      "yds_allow_550p": 19,
+      "yds_allow_450_499": 18,
+      "fgmiss_0_19": 17,
+      "fgmiss_20_29": 17,
+      "yds_allow_400_449": 17,
+      "bonus_rush_yd_100": 15,
+      "bonus_rush_yd_200": 15,
+      "fgmiss_30_39": 15,
+      "bonus_rec_yd_100": 14,
+      "bonus_rec_yd_200": 14,
+      "bonus_pass_yd_400": 13,
+      "pass_int_td": 12,
+      "fgmiss_40_49": 11,
+      "bonus_pass_yd_300": 10,
+      "def_4_and_stop": 10,
+      "rush_td_40p": 10,
+      "fgm": 9,
+      "fgm_yds_over_30": 9,
+      "pass_td_40p": 9,
+      "pass_td_50p": 9,
+      "pts_allow_21_27": 9,
+      "rec_40p": 9,
+      "rush_40p": 9,
+      "rush_fd": 9,
+      "rush_td_50p": 9,
+      "pass_cmp_40p": 8,
+      "pass_sack": 8,
+      "rec_fd": 8,
+      "rec_td_40p": 8,
+      "kr_yd": 7,
+      "pr_yd": 7,
+      "rec_td_50p": 7,
+      "fgm_yds": 5,
+      "idp_blk_kick": 5,
+      "idp_def_td": 5,
+      "idp_ff": 5,
+      "idp_fum_rec": 5,
+      "idp_int": 5,
+      "idp_sack": 5,
+      "idp_safe": 5,
+      "idp_tkl_solo": 5,
+      "tkl_loss": 5,
+      "yds_allow_300_349": 5,
+      "def_3_and_out": 4,
+      "idp_pass_def": 4,
+      "idp_qb_hit": 4,
+      "idp_tkl_ast": 4,
+      "idp_tkl_loss": 4,
+      "pts_allow": 4,
+      "rush_att": 4,
+      "bonus_rush_rec_yd_200": 3,
+      "def_kr_yd": 3,
+      "def_pr_yd": 3,
+      "fgmiss_50p": 3,
+      "idp_fum_ret_yd": 3,
+      "idp_int_ret_yd": 3,
+      "blk_kick_ret_yd": 2,
+      "bonus_def_int_td_50p": 2,
+      "bonus_pass_cmp_25": 2,
+      "bonus_rush_rec_yd_100": 2,
+      "def_kr_td": 2,
+      "def_pass_def": 2,
+      "def_pr_td": 2,
+      "fg_ret_yd": 2,
+      "fum_ret_yd": 2,
+      "idp_sack_yd": 2,
+      "int_ret_yd": 2,
+      "kr_td": 2,
+      "pass_cmp": 2,
+      "pass_fd": 2,
+      "pass_inc": 2,
+      "pr_td": 2,
+      "rec_0_4": 2,
+      "rec_10_19": 2,
+      "rec_20_29": 2,
+      "rec_30_39": 2,
+      "rec_5_9": 2,
+      "sack_yd": 2,
+      "st_tkl_solo": 2,
+      "bonus_def_fum_td_50p": 1,
+      "bonus_fd_qb": 1,
+      "bonus_fd_rb": 1,
+      "bonus_fd_te": 1,
+      "bonus_fd_wr": 1,
+      "bonus_rec_rb": 1,
+      "bonus_rec_wr": 1,
+      "bonus_rush_att_20": 1,
+      "bonus_sack_2p": 1,
+      "bonus_tkl_10p": 1,
+      "fgmiss_50_59": 1,
+      "idp_pass_def_3p": 1,
+      "idp_tkl": 1,
+      "qb_hit": 1,
+      "yds_allow": 1
+    },
+    "evidenceRule": "a code value is ✅ only with ≥ 3 independent leagues (distinct 2026 leagues; earlier seasons of the same league don't count) and none contradicting, or ≥ 10 with ≤ 10% contradicting; below that it is ⚠️",
+    "verification": {
+      "type": {
+        "0": {
+          "leagues": 149,
+          "renewed": 64,
+          "taxiSlotsAbove0": 0,
+          "maxKeepers": {
+            "1": 139,
+            "2": 2,
+            "3": 2,
+            "absent": 6
+          },
+          "pickTrading": {
+            "0": 36,
+            "1": 113
+          },
+          "nameKeywords": {
+            "bestBall": 2,
+            "guillotine": 1,
+            "keeper": 1,
+            "redraft": 4
+          },
+          "draftRoundsMedian": {
+            "renewed": 15,
+            "new": 15
+          },
+          "draftPlayerType": {
+            "0": 89,
+            "absent": 48
+          },
+          "draftScoringType": {
+            "2qb": 14,
+            "half_ppr": 21,
+            "idp_1qb": 1,
+            "ppr": 98,
+            "std": 3
+          },
+          "draftLeagueTypeMeta": {
+            "0": 57,
+            "absent": 80
+          },
+          "picksRenewed": {
+            "drafts": 7,
+            "withKeeperPicks": 0,
+            "rookieOnly": 0,
+            "rookieShareMedian": 0.06
+          },
+          "picksNew": {
+            "drafts": 7,
+            "withKeeperPicks": 0,
+            "rookieOnly": 0,
+            "rookieShareMedian": 0.05
+          },
+          "lastChoppedLeg": 0,
+          "disableElimination": 0,
+          "bestBall": {
+            "0": 88,
+            "1": 5,
+            "absent": 56
+          },
+          "status": {
+            "drafting": 3,
+            "in_season": 94,
+            "pre_draft": 52
+          }
+        },
+        "1": {
+          "leagues": 20,
+          "renewed": 12,
+          "taxiSlotsAbove0": 0,
+          "maxKeepers": {
+            "1": 14,
+            "2": 4,
+            "3": 2
+          },
+          "pickTrading": {
+            "0": 2,
+            "1": 18
+          },
+          "nameKeywords": {
+            "keeper": 1
+          },
+          "draftRoundsMedian": {
+            "renewed": 15,
+            "new": 15
+          },
+          "draftPlayerType": {
+            "0": 15,
+            "absent": 3
+          },
+          "draftScoringType": {
+            "2qb": 1,
+            "half_ppr": 5,
+            "ppr": 12
+          },
+          "draftLeagueTypeMeta": {
+            "0": 1,
+            "1": 4,
+            "absent": 13
+          },
+          "picksRenewed": {
+            "drafts": 7,
+            "withKeeperPicks": 6,
+            "rookieOnly": 0,
+            "rookieShareMedian": 0.08
+          },
+          "picksNew": {
+            "drafts": 3,
+            "withKeeperPicks": 0,
+            "rookieOnly": 0,
+            "rookieShareMedian": 0.09
+          },
+          "lastChoppedLeg": 0,
+          "disableElimination": 0,
+          "bestBall": {
+            "0": 15,
+            "1": 1,
+            "absent": 4
+          },
+          "status": {
+            "drafting": 1,
+            "in_season": 14,
+            "pre_draft": 5
+          }
+        },
+        "2": {
+          "leagues": 53,
+          "renewed": 42,
+          "taxiSlotsAbove0": 49,
+          "maxKeepers": {
+            "1": 52,
+            "3": 1
+          },
+          "pickTrading": {
+            "1": 53
+          },
+          "nameKeywords": {
+            "dynasty": 24
+          },
+          "draftRoundsMedian": {
+            "renewed": 4,
+            "new": 23
+          },
+          "draftPlayerType": {
+            "0": 19,
+            "1": 24,
+            "absent": 7
+          },
+          "draftScoringType": {
+            "dynasty_2qb": 25,
+            "dynasty_half_ppr": 4,
+            "dynasty_ppr": 16,
+            "dynasty_std": 1,
+            "idp": 2,
+            "idp_1qb": 2
+          },
+          "draftLeagueTypeMeta": {
+            "0": 1,
+            "1": 1,
+            "2": 9,
+            "absent": 39
+          },
+          "picksRenewed": {
+            "drafts": 7,
+            "withKeeperPicks": 0,
+            "rookieOnly": 5,
+            "rookieShareMedian": 1
+          },
+          "picksNew": {
+            "drafts": 2,
+            "withKeeperPicks": 0,
+            "rookieOnly": 0,
+            "rookieShareMedian": 0.04
+          },
+          "lastChoppedLeg": 0,
+          "disableElimination": 0,
+          "bestBall": {
+            "0": 45,
+            "absent": 8
+          },
+          "status": {
+            "in_season": 47,
+            "pre_draft": 6
+          }
+        },
+        "3": {
+          "leagues": 28,
+          "renewed": 7,
+          "taxiSlotsAbove0": 0,
+          "maxKeepers": {
+            "1": 28
+          },
+          "pickTrading": {
+            "0": 21,
+            "1": 7
+          },
+          "nameKeywords": {
+            "bestBall": 1,
+            "guillotine": 24
+          },
+          "draftRoundsMedian": {
+            "renewed": 12.5,
+            "new": 11
+          },
+          "draftPlayerType": {
+            "0": 20,
+            "absent": 7
+          },
+          "draftScoringType": {
+            "half_ppr": 3,
+            "ppr": 24
+          },
+          "draftLeagueTypeMeta": {
+            "0": 2,
+            "3": 19,
+            "absent": 6
+          },
+          "picksRenewed": {
+            "drafts": 5,
+            "withKeeperPicks": 0,
+            "rookieOnly": 0,
+            "rookieShareMedian": 0.11
+          },
+          "picksNew": {
+            "drafts": 7,
+            "withKeeperPicks": 0,
+            "rookieOnly": 0,
+            "rookieShareMedian": 0.1
+          },
+          "lastChoppedLeg": 21,
+          "disableElimination": 24,
+          "bestBall": {
+            "0": 22,
+            "1": 2,
+            "absent": 4
+          },
+          "status": {
+            "in_season": 23,
+            "pre_draft": 5
+          }
+        }
+      },
+      "tradeDeadline": {
+        "seasonsWithWeekDeadline": 36,
+        "seasons": {
+          "2025": 36
+        },
+        "tradingOn": 31,
+        "legsFetched": {
+          "D−1…D+1": 28,
+          "D−1…D+1 plus weeks 4–8": 8
+        },
+        "tradesInLegD": 7,
+        "leaguesWithTradesInLegD": 6,
+        "tradesInLegDMinus1": 14,
+        "leaguesWithTradesInLegDMinus1": 9,
+        "tradesInEarlierControlLegs": 9,
+        "tradesAfterLegD": 0,
+        "leaguesWithTradesAfterLegD": 0,
+        "legDCompletionTiming": {
+          "Wed–Sat of NFL week D": 3,
+          "Sunday of week D before 1 pm ET": 1,
+          "Sunday 1 pm ET – Monday of week D": 3
+        },
+        "nflWeekOfCompletionMinusLeg": {
+          "0": 29,
+          "1": 10
+        }
+      },
+      "tradeDeadlineNone": {
+        "latestWeekValue2026": 14,
+        "values": {
+          "99": {
+            "leagues": 5,
+            "leaguesWithTradesAfterLatestWeekValue": 1,
+            "tradesAfterLatestWeekValue": 2,
+            "legsFetched": {
+              "4": 2,
+              "5": 2,
+              "6": 2,
+              "7": 2,
+              "8": 2,
+              "15": 5,
+              "16": 5,
+              "17": 5
+            }
+          }
+        }
+      },
+      "playoffRoundType": {
+        "byCode": {
+          "0": {
+            "seasons": 29,
+            "leagues": 29,
+            "pattern": "1-week rounds",
+            "seasonsWithPattern": 29,
+            "contradictingLeagues": 0,
+            "verified": true,
+            "patterns": {
+              "1-week rounds": 29
+            }
+          },
+          "1": {
+            "seasons": 5,
+            "leagues": 5,
+            "pattern": "2-week final",
+            "seasonsWithPattern": 5,
+            "contradictingLeagues": 0,
+            "verified": true,
+            "patterns": {
+              "2-week final": 5
+            }
+          },
+          "2": {
+            "seasons": 3,
+            "leagues": 2,
+            "pattern": "2-week rounds",
+            "seasonsWithPattern": 3,
+            "contradictingLeagues": 0,
+            "verified": false,
+            "patterns": {
+              "2-week rounds": 3
+            }
+          }
+        },
+        "unclearSeasons": 0,
+        "weeksPerRound": {
+          "0: 1+1": 1,
+          "0: 1+1+1": 28,
+          "1: 1+1+2": 3,
+          "1: 1+2": 2,
+          "2: 2+2": 3
+        }
+      },
+      "playoffTeams": {
+        "teamsMatch": 35,
+        "leagues": 35,
+        "byesByPlayoffTeams": {
+          "4": {
+            "0": 5
+          },
+          "5": {
+            "3": 1
+          },
+          "6": {
+            "2": 21
+          },
+          "7": {
+            "1": 4
+          },
+          "8": {
+            "0": 4
+          }
+        },
+        "byeRuleContradictions": 0,
+        "unseen2026": [],
+        "winnersPlacements": {
+          "1": 35,
+          "3": 35,
+          "5": 29,
+          "7": 4
+        }
+      },
+      "medianGame": {
+        "0": {
+          "leagues": 31,
+          "leaguesBy": {
+            "once": 31
+          },
+          "teams": 350,
+          "recordLengthPerWeek": {
+            "1": 350
+          },
+          "contradicting": 0,
+          "exceptionsRecordLengthPerWeek": {},
+          "exceptions": {},
+          "verified": true
+        },
+        "1": {
+          "leagues": 4,
+          "leaguesBy": {
+            "twice": 4
+          },
+          "teams": 62,
+          "recordLengthPerWeek": {
+            "2": 62
+          },
+          "contradicting": 0,
+          "exceptionsRecordLengthPerWeek": {},
+          "exceptions": {},
+          "verified": true
+        }
+      },
+      "startWeek": {
+        "previousSeasons": {
+          "startAfterWeek1": 0,
+          "matched": 0,
+          "keyAbsent": 0,
+          "absentMatchedWeek1": 0
+        },
+        "season2026SoFar": {
+          "startAfterWeek1": 3,
+          "matched": 3,
+          "keyAbsent": 0,
+          "absentMatchedWeek1": 0,
+          "startWeeks": {
+            "2": 1,
+            "3": 2
+          }
+        }
+      },
+      "bestBall": {
+        "0": {
+          "leagues": 32,
+          "bySeason": {
+            "2025": 30,
+            "2026": 10
+          },
+          "teams": 480,
+          "optimal": 0,
+          "contradicting": 0,
+          "contradictingBySeason": {},
+          "contradictingTeamsAtPotential": [],
+          "verified": true
+        },
+        "1": {
+          "leagues": 6,
+          "bySeason": {
+            "2025": 1,
+            "2026": 6
+          },
+          "teams": 62,
+          "optimal": 54,
+          "contradicting": 1,
+          "contradictingBySeason": {
+            "2026": 1
+          },
+          "contradictingTeamsAtPotential": [
+            "0/8"
+          ],
+          "verified": false
+        },
+        "absent": {
+          "leagues": 5,
+          "bySeason": {
+            "2025": 4,
+            "2026": 2
+          },
+          "teams": 60,
+          "optimal": 0,
+          "contradicting": 0,
+          "contradictingBySeason": {},
+          "contradictingTeamsAtPotential": [],
+          "verified": true
+        }
+      },
+      "playoffType": {
+        "0": {
+          "leagues": 27,
+          "losersBracket": {
+            "losers advance (toilet bowl)": 26,
+            "no losers bracket": 1
+          },
+          "reading": "losers advance (toilet bowl)",
+          "informative": 26,
+          "contradicting": 0,
+          "verified": true,
+          "losersMatches": {
+            "0": 1,
+            "1": 2,
+            "4": 11,
+            "5": 2,
+            "7": 10,
+            "9": 1
+          },
+          "winnersPlacements": {
+            "1": 27,
+            "3": 27,
+            "5": 22,
+            "7": 3
+          },
+          "winnersBracketWinnerIsHigherScorer": "196/196 (100%)"
+        },
+        "1": {
+          "leagues": 8,
+          "losersBracket": {
+            "winners advance (consolation)": 8
+          },
+          "reading": "winners advance (consolation)",
+          "informative": 8,
+          "contradicting": 0,
+          "verified": true,
+          "losersMatches": {
+            "4": 2,
+            "7": 4,
+            "12": 2
+          },
+          "winnersPlacements": {
+            "1": 8,
+            "3": 8,
+            "5": 7,
+            "7": 1
+          },
+          "winnersBracketWinnerIsHigherScorer": "60/60 (100%)"
+        }
+      },
+      "divisionSeeding": {
+        "leaguesWithDivisions": 4,
+        "informative": 2,
+        "divisionWinnersFirstFits": 2,
+        "seedTypeOfInformative": {
+          "1": 2
+        }
+      },
+      "seedingMisfits": {
+        "unexplained": 0,
+        "unexplainedFitPointsOnly": 0,
+        "unexplainedWithMedianGame": 0,
+        "editedBrackets": 3,
+        "editedBracketsFittingARule": 1
+      },
+      "playoffSeedType": {
+        "0": {
+          "leagues": 18,
+          "evidence": {
+            "fixed": 9,
+            "same": 9
+          },
+          "fromGameByPlayoffTeams": {
+            "5": {
+              "4v5": 1
+            },
+            "6": {
+              "4v5": 14,
+              "bye": 1
+            },
+            "7": {
+              "4v5": 2
+            }
+          }
+        },
+        "1": {
+          "leagues": 6,
+          "evidence": {
+            "reseed": 3,
+            "same": 3
+          },
+          "fromGameByPlayoffTeams": {
+            "6": {
+              "3v6": 2,
+              "4v5": 2
+            },
+            "7": {
+              "2v7": 1,
+              "4v5": 1
+            }
+          }
+        }
+      },
+      "waiverType": {
+        "0": {
+          "leagues": 8,
+          "leaguesWithClaims": 6,
+          "leaguesWithBidlessClaims": 6,
+          "waiverClaims": 75,
+          "claimsWithBid": 0,
+          "claimSettingsKeys": {
+            "priority": 9,
+            "seq": 75
+          },
+          "waiverBudget": {
+            "100": 8
+          },
+          "waiverOrderVsStandingsRho": [
+            -0.72,
+            -0.59,
+            -0.57,
+            -0.42,
+            -0.39,
+            -0.2,
+            0.1,
+            0.29
+          ]
+        },
+        "1": {
+          "leagues": 6,
+          "leaguesWithClaims": 6,
+          "leaguesWithBidlessClaims": 6,
+          "waiverClaims": 87,
+          "claimsWithBid": 0,
+          "claimSettingsKeys": {
+            "priority": 14,
+            "seq": 87
+          },
+          "waiverBudget": {
+            "100": 6
+          },
+          "waiverOrderVsStandingsRho": [
+            -0.77,
+            -0.76,
+            -0.71,
+            -0.64,
+            -0.35,
+            -0.32
+          ]
+        },
+        "2": {
+          "leagues": 27,
+          "leaguesWithClaims": 26,
+          "leaguesWithBidlessClaims": 0,
+          "waiverClaims": 1099,
+          "claimsWithBid": 1099,
+          "claimSettingsKeys": {
+            "priority": 99,
+            "seq": 1099,
+            "waiver_bid": 1099
+          },
+          "waiverBudget": {
+            "100": 12,
+            "200": 6,
+            "500": 1,
+            "1000": 8
+          },
+          "waiverOrderVsStandingsRho": [
+            -0.99,
+            -0.99,
+            -0.98,
+            -0.97,
+            -0.96,
+            -0.91,
+            -0.9,
+            -0.83,
+            -0.79,
+            -0.68,
+            -0.64,
+            -0.58,
+            -0.43,
+            -0.39,
+            -0.37,
+            -0.35,
+            -0.35,
+            -0.28,
+            -0.22,
+            -0.22,
+            -0.19,
+            -0.18,
+            -0.14,
+            -0.06,
+            0.13,
+            0.19,
+            0.27
+          ]
+        }
+      },
+      "disableTrades": {
+        "bySetting": {
+          "0": {
+            "leagues": 33,
+            "leaguesWithTrades": 14,
+            "trades": 37,
+            "tradesWithPicks": 17,
+            "leagueWeeks": 124,
+            "withTrade": 26,
+            "types": {
+              "dynasty": 11,
+              "guillotine": 2,
+              "keeper": 5,
+              "redraft": 15
+            }
+          },
+          "1": {
+            "leagues": 5,
+            "leaguesWithTrades": 0,
+            "trades": 0,
+            "tradesWithPicks": 0,
+            "leagueWeeks": 40,
+            "withTrade": 0,
+            "types": {
+              "guillotine": 4,
+              "redraft": 1
+            }
+          },
+          "absent": {
+            "leagues": 3,
+            "leaguesWithTrades": 1,
+            "trades": 2,
+            "tradesWithPicks": 0,
+            "leagueWeeks": 9,
+            "withTrade": 1,
+            "types": {
+              "dynasty": 1,
+              "keeper": 1,
+              "redraft": 1
+            }
+          }
+        },
+        "byLeagueType": [
+          {
+            "type": "redraft",
+            "offSeasons": 1,
+            "offLeagueWeeks": 8,
+            "offTrades": 0,
+            "controlSeasons": 15,
+            "controlLeagueWeeks": 50,
+            "controlWeeksWithTrade": 9,
+            "chanceOfNoTrade": 0.2044
+          },
+          {
+            "type": "guillotine",
+            "offSeasons": 4,
+            "offLeagueWeeks": 32,
+            "offTrades": 0,
+            "controlSeasons": 2,
+            "controlLeagueWeeks": 16,
+            "controlWeeksWithTrade": 4,
+            "chanceOfNoTrade": 0.0001
+          }
+        ],
+        "chanceOfNoTradeIfTradingWereOn": 0
+      },
+      "pickTrading": {
+        "byCodeAndType": {
+          "0 × guillotine": "0/5 trades with picks (5 seasons)",
+          "0 × keeper": "0/2 trades with picks (1 season)",
+          "0 × redraft": "0/9 trades with picks (6 seasons)",
+          "1 × dynasty": "15/16 trades with picks (12 seasons)",
+          "1 × guillotine": "0/0 trades with picks (1 season)",
+          "1 × keeper": "2/5 trades with picks (5 seasons)",
+          "1 × redraft": "0/2 trades with picks (11 seasons)"
+        },
+        "typesWithPickTrades": [
+          "keeper",
+          "dynasty"
+        ],
+        "pickTrading0SeasonsWithTradesInThoseTypes": 1,
+        "pickTrading0In2026InThoseTypes": {
+          "keeper": 2
+        }
+      },
+      "tradeReview": {
+        "byVetoAutoPoll": {
+          "0": {
+            "leagues": 28,
+            "leaguesWithTrades": 12,
+            "trades": 34,
+            "withVetoPoll": 0,
+            "leaguesWithPolledTrades": 0,
+            "leaguesWithUnpolledTrades": 12,
+            "medianHours": 2,
+            "under24h": 26,
+            "atLeast48h": 3,
+            "byReviewDays": {
+              "0": {
+                "seasons": 7,
+                "trades": 10,
+                "medianHours": 0,
+                "minHours": 0,
+                "maxHours": 2,
+                "under24h": 10
+              },
+              "1": {
+                "seasons": 8,
+                "trades": 11,
+                "medianHours": 8.5,
+                "minHours": 0.1,
+                "maxHours": 48.3,
+                "under24h": 7
+              },
+              "2": {
+                "seasons": 13,
+                "trades": 13,
+                "medianHours": 2.5,
+                "minHours": 0,
+                "maxHours": 60.3,
+                "under24h": 9
+              }
+            }
+          },
+          "1": {
+            "leagues": 8,
+            "leaguesWithTrades": 2,
+            "trades": 3,
+            "withVetoPoll": 3,
+            "leaguesWithPolledTrades": 2,
+            "leaguesWithUnpolledTrades": 0,
+            "medianHours": 31.9,
+            "under24h": 0,
+            "atLeast48h": 1,
+            "byReviewDays": {
+              "1": {
+                "seasons": 4,
+                "trades": 2,
+                "medianHours": 30.9,
+                "minHours": 29.9,
+                "maxHours": 31.9,
+                "under24h": 0
+              },
+              "2": {
+                "seasons": 4,
+                "trades": 1,
+                "medianHours": 78.2,
+                "minHours": 78.2,
+                "maxHours": 78.2,
+                "under24h": 0
+              }
+            }
+          },
+          "absent": {
+            "leagues": 5,
+            "leaguesWithTrades": 1,
+            "trades": 2,
+            "withVetoPoll": 0,
+            "leaguesWithPolledTrades": 0,
+            "leaguesWithUnpolledTrades": 1,
+            "medianHours": 1.5,
+            "under24h": 2,
+            "atLeast48h": 0,
+            "byReviewDays": {
+              "1": {
+                "seasons": 1,
+                "trades": 0,
+                "under24h": 0
+              },
+              "2": {
+                "seasons": 4,
+                "trades": 2,
+                "medianHours": 1.5,
+                "minHours": 0.6,
+                "maxHours": 2.5,
+                "under24h": 2
+              }
+            }
+          }
+        },
+        "olderSeasonsOfTheSameLeagues": {
+          "0": {
+            "leagues": 1,
+            "leaguesWithTrades": 0,
+            "trades": 0,
+            "withVetoPoll": 0,
+            "leaguesWithPolledTrades": 0,
+            "leaguesWithUnpolledTrades": 0,
+            "under24h": 0,
+            "atLeast48h": 0,
+            "byReviewDays": {
+              "2": {
+                "seasons": 1,
+                "trades": 0,
+                "under24h": 0
+              }
+            }
+          },
+          "absent": {
+            "leagues": 1,
+            "leaguesWithTrades": 1,
+            "trades": 1,
+            "withVetoPoll": 0,
+            "leaguesWithPolledTrades": 0,
+            "leaguesWithUnpolledTrades": 1,
+            "medianHours": 59,
+            "under24h": 0,
+            "atLeast48h": 1,
+            "byReviewDays": {
+              "2": {
+                "seasons": 1,
+                "trades": 1,
+                "medianHours": 59,
+                "minHours": 59,
+                "maxHours": 59,
+                "under24h": 0
+              }
+            }
+          }
+        },
+        "tradeSettingsKeys": {
+          "expires_at": 2,
+          "is_counter": 7
+        },
+        "tradeMetadataKeys": {
+          "notes": 8,
+          "poll_id": 3,
+          "veto_msg_id": 3
+        }
+      },
+      "legByWaiverDay": {
+        "0": {
+          "4": 3
+        },
+        "1": {
+          "4": 5
+        },
+        "2": {
+          "3": 167
+        },
+        "3": {
+          "3": 3
+        }
+      },
+      "positionLimits": {
+        "leagues": 8,
+        "rosterSets": {
+          "2025": 6,
+          "2026 so far": 7
+        },
+        "limitsChecked": 38,
+        "exceededOnActiveRosters": 0,
+        "reachedOnActiveRosters": 21,
+        "exceededCountingReserveAndTaxi": 9,
+        "leaguesOverOnlyViaReserve": 5,
+        "leaguesOverOnlyViaTaxi": 2,
+        "reserveAndTaxiInPlayers": {
+          "reserve": 263,
+          "reserveInPlayers": 263,
+          "taxi": 313,
+          "taxiInPlayers": 313
+        }
+      }
+    },
+    "nflCalendar": {
+      "url": "https://raw.githubusercontent.com/nflverse/nfldata/master/data/games.csv",
+      "status": 200,
+      "fromCache": true,
+      "seasons": 28
+    },
+    "watchlist": {
+      "identities": 4021,
+      "added": 0,
+      "dropped": 0,
+      "byCategory": {
+        "draft-id": 322,
+        "league-id": 844,
+        "league-name": 567,
+        "other-id": 543,
+        "team-name": 184,
+        "user-id": 1244,
+        "username": 317
+      },
+      "rawCaptures": 1436
+    },
+    "timingsMs": {
+      "crawl 2026 leagues": 2761,
+      "draft picks": 427,
+      "current rosters": 156,
+      "previous seasons": 4533,
+      "extra evidence": 658,
+      "nfl calendar": 233,
+      "watch list": 1138
+    },
+    "requestCount": 883
+  },
+  "itemStatus": {
+    "CODES": "warn"
+  },
+  "counts": {
+    "ok": 24,
+    "warn": 9,
+    "fail": 0,
+    "na": 0
+  },
+  "checks": [
+    {
+      "item": "CODES",
+      "key": "CODES.sample",
+      "title": "Crawl sample",
+      "status": "ok",
+      "summary": "250 public 2026 leagues from 96 users (≤ 5 leagues per user, 0–3 hops from the seeds; stopped by target); previous_league_id: 125 real IDs, 122 null, 3 \"0\"; 43/43 previous seasons found (2 never played: no games or points; left out) plus 2 older seasons of 2 of those leagues (rare playoff codes only); 2026 rosters for 18 leagues; drafts matched for 232; 45 pick lists; 880 Sleeper calls (0 live, 880 cached)",
+      "evidence": [
+        {
+          "url": "https://api.sleeper.app/v1/user/{userId}/leagues/nfl/2026",
+          "status": 200,
+          "path": "[].settings, [].previous_league_id",
+          "sample": {
+            "leagues": 250,
+            "byStatus": {
+              "drafting": 4,
+              "in_season": 178,
+              "pre_draft": 68
+            },
+            "previousLeagueId": {
+              "id": 125,
+              "null": 122,
+              "zero": 3
+            }
+          }
+        },
+        {
+          "url": "https://api.sleeper.app/v1/league/{previousLeagueId}",
+          "status": 200,
+          "path": "season",
+          "sample": {
+            "2024": 2,
+            "2025": 43
+          },
+          "note": "HTTP status of previous-season requests (real IDs only): {\"200\":43}"
+        }
+      ]
+    },
+    {
+      "item": "CODES",
+      "key": "CODES.type",
+      "title": "settings.type → league type",
+      "status": "ok",
+      "summary": "Verified: 0 = redraft ✓, 1 = keeper ✓, 2 = dynasty ✓. type 2: rookie-only drafts in 5/7 (71%) renewed leagues (median 4 rounds), taxi slots in 49/53 (92%), 24/53 (45%) of names say \"dynasty\"; type 1: keeper picks in 6/7 (86%) renewed drafts, 1/20 (5%) of names say \"keeper\"; type 0: keeper picks in 0/7 (0%) renewed drafts, median rookie share 6%, median 15 rounds, 0/149 (0%) of names say \"dynasty\"",
+      "evidence": [
+        {
+          "url": "https://api.sleeper.app/v1/user/{userId}/leagues/nfl/2026",
+          "status": 200,
+          "path": "[].settings.type",
+          "sample": {
+            "0": 149,
+            "1": 20,
+            "2": 53,
+            "3": 28
+          }
+        },
+        {
+          "url": "https://api.sleeper.app/v1/draft/{draftId}/picks",
+          "status": 200,
+          "path": "[].is_keeper, [].metadata.years_exp",
+          "sample": {
+            "0": {
+              "drafts": 7,
+              "withKeeperPicks": 0,
+              "rookieOnly": 0,
+              "rookieShareMedian": 0.06
+            },
+            "1": {
+              "drafts": 7,
+              "withKeeperPicks": 6,
+              "rookieOnly": 0,
+              "rookieShareMedian": 0.08
+            },
+            "2": {
+              "drafts": 7,
+              "withKeeperPicks": 0,
+              "rookieOnly": 5,
+              "rookieShareMedian": 1
+            },
+            "3": {
+              "drafts": 5,
+              "withKeeperPicks": 0,
+              "rookieOnly": 0,
+              "rookieShareMedian": 0.11
+            }
+          }
+        },
+        {
+          "url": "https://api.sleeper.app/v1/user/{userId}/drafts/nfl/2026",
+          "status": 200,
+          "path": "[].settings.rounds, [].settings.player_type",
+          "sample": {
+            "0": {
+              "renewed": 15,
+              "new": 15
+            },
+            "1": {
+              "renewed": 15,
+              "new": 15
+            },
+            "2": {
+              "renewed": 4,
+              "new": 23
+            },
+            "3": {
+              "renewed": 12.5,
+              "new": 11
+            }
+          }
+        }
+      ]
+    },
+    {
+      "item": "CODES",
+      "key": "CODES.type3",
+      "title": "settings.type = 3",
+      "status": "ok",
+      "summary": "Verified: 3 = guillotine (\"chopped\") league — settings.last_chopped_leg present in 21/23 (91%) in-season type-3 leagues vs 0/155 (0%) of other in-season leagues; transactions of type \"chopped\": 47 in 6 finished type-3 seasons vs 0 elsewhere; teams left with an empty roster at season end: {\"11\":1,\"17\":5}; playoff_teams missing in 28/28; 24/28 (86%) names mention guillotine/chopped",
+      "evidence": [
+        {
+          "url": "https://api.sleeper.app/v1/user/{userId}/leagues/nfl/2026",
+          "status": 200,
+          "path": "[].settings.last_chopped_leg, [].settings.disable_elimination",
+          "sample": {
+            "leagues": 28,
+            "lastChoppedLeg": 21,
+            "disableElimination": 24,
+            "status": {
+              "in_season": 23,
+              "pre_draft": 5
+            }
+          }
+        },
+        {
+          "url": "https://api.sleeper.app/v1/league/{previousLeagueId}/transactions/{week}",
+          "status": 200,
+          "path": "[type=chopped]",
+          "sample": {
+            "typeT": 47,
+            "otherTypes": 0
+          }
+        }
+      ]
+    },
+    {
+      "item": "CODES",
+      "key": "CODES.tradeDeadline",
+      "title": "settings.trade_deadline (a week)",
+      "status": "ok",
+      "summary": "Verified: a value D in 1–17 is the last league week (transaction leg) in which trades complete — 36 finished seasons (36 from 2025), trading on in 31: 7 trades in leg D (6 leagues), 14 in leg D−1 (9 leagues), 9 in earlier control weeks, 0 after leg D (0 leagues). In real time (US Eastern, NFL weeks from nflverse games.csv) the 7 leg-D trades completed: {\"Wed–Sat of NFL week D\":3,\"Sunday of week D before 1 pm ET\":1,\"Sunday 1 pm ET – Monday of week D\":3}; NFL week of completion minus leg over 39 completed trades: {\"0\":29,\"1\":10}. 2026 values: {\"10\":12,\"11\":188,\"12\":22,\"13\":8,\"14\":8,\"99\":12}",
+      "evidence": [
+        {
+          "url": "https://api.sleeper.app/v1/user/{userId}/leagues/nfl/2026",
+          "status": 200,
+          "path": "[].settings.trade_deadline",
+          "sample": {
+            "10": 12,
+            "11": 188,
+            "12": 22,
+            "13": 8,
+            "14": 8,
+            "99": 12
+          }
+        },
+        {
+          "url": "https://api.sleeper.app/v1/league/{previousLeagueId}/transactions/{week}",
+          "status": 200,
+          "path": "[type=trade,status=complete].leg",
+          "sample": {
+            "dMinus1": 14,
+            "atD": 7,
+            "after": 0,
+            "earlier": 9
+          },
+          "note": "legs fetched per season: {\"D−1…D+1\":28,\"D−1…D+1 plus weeks 4–8\":8}"
+        },
+        {
+          "url": "https://raw.githubusercontent.com/nflverse/nfldata/master/data/games.csv",
+          "status": 200,
+          "path": "gameday by season/week → NFL week windows (Wednesday to Tuesday); [type=trade].status_updated",
+          "sample": {
+            "Wed–Sat of NFL week D": 3,
+            "Sunday of week D before 1 pm ET": 1,
+            "Sunday 1 pm ET – Monday of week D": 3
+          }
+        }
+      ]
+    },
+    {
+      "item": "CODES",
+      "key": "CODES.tradeDeadlineNone",
+      "title": "settings.trade_deadline (no deadline)",
+      "status": "warn",
+      "summary": "Inferred: 99 → trades completed after week 14 (the latest week value in the 2026 sample) in 1/5 finished seasons with that value (2 trades); below the 3-league minimum; reading: no trade deadline. Legs fetched for these seasons: [4,5,6,7,8,15,16,17]. 2026: 99 in 12 leagues",
+      "evidence": [
+        {
+          "url": "https://api.sleeper.app/v1/league/{previousLeagueId}/transactions/{week}",
+          "status": 200,
+          "path": "[type=trade,status=complete].leg > latest week value",
+          "sample": {
+            "99": {
+              "leagues": 5,
+              "leaguesWithTradesAfterLatestWeekValue": 1,
+              "tradesAfterLatestWeekValue": 2,
+              "legsFetched": {
+                "4": 2,
+                "5": 2,
+                "6": 2,
+                "7": 2,
+                "8": 2,
+                "15": 5,
+                "16": 5,
+                "17": 5
+              }
+            }
+          }
+        },
+        {
+          "url": "https://api.sleeper.app/v1/user/{userId}/leagues/nfl/2026",
+          "status": 200,
+          "path": "[].settings.trade_deadline",
+          "sample": {
+            "10": 12,
+            "11": 188,
+            "12": 22,
+            "13": 8,
+            "14": 8,
+            "99": 12
+          }
+        }
+      ]
+    },
+    {
+      "item": "CODES",
+      "key": "CODES.playoffRoundType",
+      "title": "settings.playoff_round_type",
+      "status": "warn",
+      "summary": "Partly verified from winners-bracket pairings vs weekly matchups: 0 → 1-week rounds (29/29 seasons from 29 leagues); 1 → 2-week final (5/5 seasons from 5 leagues); 2 → 2-week rounds (3/3 seasons from 2 leagues; below the 3-league minimum). 2026 values: {\"0\":229,\"1\":8,\"2\":6,\"absent\":7}",
+      "evidence": [
+        {
+          "url": "https://api.sleeper.app/v1/league/{previousLeagueId}/winners_bracket",
+          "status": 200,
+          "path": "[].r, [].t1, [].t2, [].p",
+          "sample": {
+            "0": {
+              "seasons": 29,
+              "leagues": 29,
+              "patterns": {
+                "1-week rounds": 29
+              }
+            },
+            "1": {
+              "seasons": 5,
+              "leagues": 5,
+              "patterns": {
+                "2-week final": 5
+              }
+            },
+            "2": {
+              "seasons": 3,
+              "leagues": 2,
+              "patterns": {
+                "2-week rounds": 3
+              }
+            }
+          }
+        },
+        {
+          "url": "https://api.sleeper.app/v1/league/{previousLeagueId}/matchups/{week}",
+          "status": 200,
+          "path": "[].matchup_id (pairs per week)",
+          "note": "a round lasts the weeks in which all its main-path pairings are matchups; older seasons of the same league count as seasons, not leagues"
+        }
+      ]
+    },
+    {
+      "item": "CODES",
+      "key": "CODES.playoffWeekStart",
+      "title": "settings.playoff_week_start",
+      "status": "warn",
+      "summary": "Round 1 of the winners bracket was played in week playoff_week_start in 35/35 (100%) finished seasons. The value 0 appears in 29 2026 leagues: {\"guillotine, in_season\":23,\"guillotine, pre_draft\":5,\"redraft, in_season, playoff_teams 7\":1} — 1 outside guillotine leagues, unexplained. 2026 values: {\"0\":29,\"14\":13,\"15\":188,\"16\":20}",
+      "evidence": [
+        {
+          "url": "https://api.sleeper.app/v1/user/{userId}/leagues/nfl/2026",
+          "status": 200,
+          "path": "[].settings.playoff_week_start",
+          "sample": {
+            "0": 29,
+            "14": 13,
+            "15": 188,
+            "16": 20
+          }
+        },
+        {
+          "url": "https://api.sleeper.app/v1/league/{previousLeagueId}/matchups/{week}",
+          "status": 200,
+          "path": "[].matchup_id",
+          "sample": {
+            "0": 35
+          },
+          "note": "first round-1 week minus playoff_week_start"
+        }
+      ]
+    },
+    {
+      "item": "CODES",
+      "key": "CODES.playoffTeams",
+      "title": "settings.playoff_teams",
+      "status": "ok",
+      "summary": "Distinct teams in the winners bracket = playoff_teams in 35/35 (100%) finished seasons; byes = next power of two − playoff_teams in 35/35 (100%) (byes by playoff_teams: {\"4\":{\"0\":5},\"5\":{\"3\":1},\"6\":{\"2\":21},\"7\":{\"1\":4},\"8\":{\"0\":4}}). 2026 values: {\"4\":32,\"5\":1,\"6\":179,\"7\":6,\"8\":4,\"absent\":28}",
+      "evidence": [
+        {
+          "url": "https://api.sleeper.app/v1/league/{previousLeagueId}/winners_bracket",
+          "status": 200,
+          "path": "[].t1, [].t2 (first round per team)",
+          "sample": {
+            "4": {
+              "0": 5
+            },
+            "5": {
+              "3": 1
+            },
+            "6": {
+              "2": 21
+            },
+            "7": {
+              "1": 4
+            },
+            "8": {
+              "0": 4
+            }
+          }
+        },
+        {
+          "url": "https://api.sleeper.app/v1/user/{userId}/leagues/nfl/2026",
+          "status": 200,
+          "path": "[].settings.playoff_teams",
+          "sample": {
+            "4": 32,
+            "5": 1,
+            "6": 179,
+            "7": 6,
+            "8": 4,
+            "absent": 28
+          }
+        }
+      ]
+    },
+    {
+      "item": "CODES",
+      "key": "CODES.medianGame",
+      "title": "settings.league_average_match",
+      "status": "ok",
+      "summary": "Verified: W+L+T per team vs regular-season weeks (playoff_week_start − start_week) in finished seasons: 0 → once per week in 31/31 (100%) leagues, twice in 0/31 (0%); 1 → once per week in 0/4 (0%) leagues, twice in 4/4 (100%). Reading: 1 = an extra game vs the league median each week; missing in 6 2026 leagues (not seen in finished seasons, so \"missing = 0\" is unverified). 2026 values: {\"0\":232,\"1\":12,\"absent\":6}",
+      "evidence": [
+        {
+          "url": "https://api.sleeper.app/v1/league/{previousLeagueId}/rosters",
+          "status": 200,
+          "path": "[].settings.wins + losses + ties; [].metadata.record length",
+          "sample": {
+            "0": {
+              "leagues": 31,
+              "leaguesBy": {
+                "once": 31
+              },
+              "teams": 350,
+              "recordLengthPerWeek": {
+                "1": 350
+              },
+              "contradicting": 0,
+              "exceptionsRecordLengthPerWeek": {},
+              "exceptions": {},
+              "verified": true
+            },
+            "1": {
+              "leagues": 4,
+              "leaguesBy": {
+                "twice": 4
+              },
+              "teams": 62,
+              "recordLengthPerWeek": {
+                "2": 62
+              },
+              "contradicting": 0,
+              "exceptionsRecordLengthPerWeek": {},
+              "exceptions": {},
+              "verified": true
+            }
+          }
+        },
+        {
+          "url": "https://api.sleeper.app/v1/user/{userId}/leagues/nfl/2026",
+          "status": 200,
+          "path": "[].settings.league_average_match",
+          "sample": {
+            "0": 232,
+            "1": 12,
+            "absent": 6
+          }
+        }
+      ]
+    },
+    {
+      "item": "CODES",
+      "key": "CODES.startWeek",
+      "title": "settings.start_week",
+      "status": "ok",
+      "summary": "First week of the fantasy season: games played (W+L+T) match start_week … playoff_week_start − 1 (finished seasons) or start_week … last_scored_leg (2026 so far) in 3/3 (100%) leagues starting after week 1; the key is missing in {\"drafting\":2,\"in_season (guillotine)\":3,\"pre_draft\":53,\"pre_draft (guillotine)\":3} 2026 leagues. 2026 values: {\"1\":185,\"2\":2,\"3\":2,\"absent\":61}",
+      "evidence": [
+        {
+          "url": "https://api.sleeper.app/v1/league/{leagueId}/rosters",
+          "status": 200,
+          "path": "[].settings.wins + losses + ties",
+          "sample": {
+            "previousSeasons": {
+              "startAfterWeek1": 0,
+              "matched": 0,
+              "keyAbsent": 0,
+              "absentMatchedWeek1": 0
+            },
+            "season2026SoFar": {
+              "startAfterWeek1": 3,
+              "matched": 3,
+              "keyAbsent": 0,
+              "absentMatchedWeek1": 0,
+              "startWeeks": {
+                "2": 1,
+                "3": 2
+              }
+            }
+          }
+        },
+        {
+          "url": "https://api.sleeper.app/v1/user/{userId}/leagues/nfl/2026",
+          "status": 200,
+          "path": "[].settings.start_week",
+          "sample": {
+            "1": 185,
+            "2": 2,
+            "3": 2,
+            "absent": 61
+          }
+        }
+      ]
+    },
+    {
+      "item": "CODES",
+      "key": "CODES.bestBall",
+      "title": "settings.best_ball",
+      "status": "warn",
+      "summary": "Partly verified: points scored = potential (optimal-lineup) points for 0 → 0/480 (0%) teams (32 leagues: 30 in 2025, 10 in 2026); 1 → 54/62 (87%) teams (6 leagues: 1 in 2025, 6 in 2026; 1 of 6 leagues contradict (1 in 2026, teams at potential there: 0/8)); absent → 0/60 (0%) teams (5 leagues: 4 in 2025, 2 in 2026). Reading: 1 = best ball (Sleeper sets the optimal lineup); missing behaves like 0 ✓. 2026 values: {\"0\":170,\"1\":8,\"absent\":72}",
+      "evidence": [
+        {
+          "url": "https://api.sleeper.app/v1/league/{previousLeagueId}/rosters",
+          "status": 200,
+          "path": "[].settings.fpts(+_decimal) vs [].settings.ppts(+_decimal)",
+          "sample": {
+            "0": {
+              "leagues": 32,
+              "bySeason": {
+                "2025": 30,
+                "2026": 10
+              },
+              "teams": 480,
+              "optimal": 0,
+              "contradicting": 0,
+              "contradictingBySeason": {},
+              "contradictingTeamsAtPotential": [],
+              "verified": true
+            },
+            "1": {
+              "leagues": 6,
+              "bySeason": {
+                "2025": 1,
+                "2026": 6
+              },
+              "teams": 62,
+              "optimal": 54,
+              "contradicting": 1,
+              "contradictingBySeason": {
+                "2026": 1
+              },
+              "contradictingTeamsAtPotential": [
+                "0/8"
+              ],
+              "verified": false
+            },
+            "absent": {
+              "leagues": 5,
+              "bySeason": {
+                "2025": 4,
+                "2026": 2
+              },
+              "teams": 60,
+              "optimal": 0,
+              "contradicting": 0,
+              "contradictingBySeason": {},
+              "contradictingTeamsAtPotential": [],
+              "verified": true
+            }
+          },
+          "note": "finished seasons and 2026 weeks so far (league/{leagueId}/rosters)"
+        },
+        {
+          "url": "https://api.sleeper.app/v1/user/{userId}/leagues/nfl/2026",
+          "status": 200,
+          "path": "[].settings.best_ball",
+          "sample": {
+            "0": 170,
+            "1": 8,
+            "absent": 72
+          }
+        }
+      ]
+    },
+    {
+      "item": "CODES",
+      "key": "CODES.playoffType",
+      "title": "settings.playoff_type",
+      "status": "ok",
+      "summary": "Verified from losers_bracket winners vs matchup points: 0 → losers advance (toilet bowl) (26/26 leagues with a decided consolation game); 1 → winners advance (consolation) (8/8 leagues with a decided consolation game). 2026 values: {\"0\":214,\"1\":32,\"absent\":4}",
+      "evidence": [
+        {
+          "url": "https://api.sleeper.app/v1/league/{previousLeagueId}/losers_bracket",
+          "status": 200,
+          "path": "[].w vs matchups[].points",
+          "sample": {
+            "0": {
+              "leagues": 27,
+              "losersBracket": {
+                "losers advance (toilet bowl)": 26,
+                "no losers bracket": 1
+              },
+              "reading": "losers advance (toilet bowl)",
+              "informative": 26,
+              "contradicting": 0,
+              "verified": true,
+              "losersMatches": {
+                "0": 1,
+                "1": 2,
+                "4": 11,
+                "5": 2,
+                "7": 10,
+                "9": 1
+              },
+              "winnersPlacements": {
+                "1": 27,
+                "3": 27,
+                "5": 22,
+                "7": 3
+              },
+              "winnersBracketWinnerIsHigherScorer": "196/196 (100%)"
+            },
+            "1": {
+              "leagues": 8,
+              "losersBracket": {
+                "winners advance (consolation)": 8
+              },
+              "reading": "winners advance (consolation)",
+              "informative": 8,
+              "contradicting": 0,
+              "verified": true,
+              "losersMatches": {
+                "4": 2,
+                "7": 4,
+                "12": 2
+              },
+              "winnersPlacements": {
+                "1": 8,
+                "3": 8,
+                "5": 7,
+                "7": 1
+              },
+              "winnersBracketWinnerIsHigherScorer": "60/60 (100%)"
+            }
+          }
+        },
+        {
+          "url": "https://api.sleeper.app/v1/user/{userId}/leagues/nfl/2026",
+          "status": 200,
+          "path": "[].settings.playoff_type",
+          "sample": {
+            "0": 214,
+            "1": 32,
+            "absent": 4
+          }
+        }
+      ]
+    },
+    {
+      "item": "CODES",
+      "key": "CODES.seeding",
+      "title": "Playoff seeding rule",
+      "status": "ok",
+      "summary": "Seeds = record (win %), then points for: teams, byes and round-1 pairings match in 28/28 (100%) complete brackets without divisions (settings.divisions 0 or missing; 3 commissioner-edited brackets left out). With divisions (4 leagues), division winners seeded first explained 2 of the 2 where the two rules differ (playoff_seed_type there: {\"1\":2})",
+      "evidence": [
+        {
+          "url": "https://api.sleeper.app/v1/league/{previousLeagueId}/winners_bracket",
+          "status": 200,
+          "path": "[r=1].t1/t2 and bye teams",
+          "sample": {
+            "noDivisions": {
+              "leagues": 28,
+              "fitsRecordThenPoints": 28
+            },
+            "withDivisions": {
+              "leaguesWithDivisions": 4,
+              "informative": 2,
+              "divisionWinnersFirstFits": 2,
+              "seedTypeOfInformative": {
+                "1": 2
+              }
+            },
+            "edited": 3
+          }
+        },
+        {
+          "url": "https://api.sleeper.app/v1/league/{previousLeagueId}/rosters",
+          "status": 200,
+          "path": "[].settings.wins/losses/ties/fpts/division"
+        }
+      ]
+    },
+    {
+      "item": "CODES",
+      "key": "CODES.playoffSeedType",
+      "title": "settings.playoff_seed_type",
+      "status": "ok",
+      "summary": "Verified from the top seed's round-2 opponent, in brackets where a fixed bracket and re-seeding predict different opponents (a lower seed won in round 1): 0 → fixed-bracket opponent in 9/9 (100%) leagues; 1 → lowest remaining seed in 3/3 (100%) leagues; uninformative brackets: 12. Reading: 0 = fixed bracket ✓, 1 = re-seed after each round ✓. 2026 values: {\"0\":213,\"1\":27,\"absent\":10}",
+      "evidence": [
+        {
+          "url": "https://api.sleeper.app/v1/league/{previousLeagueId}/winners_bracket",
+          "status": 200,
+          "path": "[r=2].t1/t2 vs seeds",
+          "sample": {
+            "0": {
+              "leagues": 18,
+              "evidence": {
+                "fixed": 9,
+                "same": 9
+              },
+              "fromGameByPlayoffTeams": {
+                "5": {
+                  "4v5": 1
+                },
+                "6": {
+                  "4v5": 14,
+                  "bye": 1
+                },
+                "7": {
+                  "4v5": 2
+                }
+              }
+            },
+            "1": {
+              "leagues": 6,
+              "evidence": {
+                "reseed": 3,
+                "same": 3
+              },
+              "fromGameByPlayoffTeams": {
+                "6": {
+                  "3v6": 2,
+                  "4v5": 2
+                },
+                "7": {
+                  "2v7": 1,
+                  "4v5": 1
+                }
+              }
+            }
+          }
+        },
+        {
+          "url": "https://api.sleeper.app/v1/user/{userId}/leagues/nfl/2026",
+          "status": 200,
+          "path": "[].settings.playoff_seed_type",
+          "sample": {
+            "0": 213,
+            "1": 27,
+            "absent": 10
+          }
+        }
+      ]
+    },
+    {
+      "item": "CODES",
+      "key": "CODES.waiverType",
+      "title": "settings.waiver_type",
+      "status": "warn",
+      "summary": "Partly verified: 0 → bids on 0/75 (0%) waiver claims (6 leagues), final waiver order vs standings rank ρ per league [-0.72, -0.59, -0.57, -0.42, -0.39, -0.2, 0.1, 0.29]; 1 → bids on 0/87 (0%) waiver claims (6 leagues), final waiver order vs standings rank ρ per league [-0.77, -0.76, -0.71, -0.64, -0.35, -0.32]; 2 → bids on 1099/1099 (100%) waiver claims (26 leagues), final waiver order vs standings rank ρ per league -0.99…0.27 (median -0.39). Reading: 2 = FAAB ✓; 1 = reverse standings and 0 = rolling are inferred (the final waiver order doesn't separate them: the ρ ranges overlap). 2026 values: {\"0\":116,\"1\":12,\"2\":122}",
+      "evidence": [
+        {
+          "url": "https://api.sleeper.app/v1/league/{previousLeagueId}/transactions/{week}",
+          "status": 200,
+          "path": "[type=waiver].settings.waiver_bid",
+          "sample": {
+            "0": {
+              "claims": 75,
+              "withBid": 0,
+              "leagues": 6
+            },
+            "1": {
+              "claims": 87,
+              "withBid": 0,
+              "leagues": 6
+            },
+            "2": {
+              "claims": 1099,
+              "withBid": 1099,
+              "leagues": 26
+            }
+          }
+        },
+        {
+          "url": "https://api.sleeper.app/v1/league/{previousLeagueId}/rosters",
+          "status": 200,
+          "path": "[].settings.waiver_position vs record rank (Spearman ρ)",
+          "sample": {
+            "0": [
+              -0.72,
+              -0.59,
+              -0.57,
+              -0.42,
+              -0.39,
+              -0.2,
+              0.1,
+              0.29
+            ],
+            "1": [
+              -0.77,
+              -0.76,
+              -0.71,
+              -0.64,
+              -0.35,
+              -0.32
+            ],
+            "2": [
+              -0.99,
+              -0.99,
+              -0.98,
+              -0.97,
+              -0.96,
+              -0.91,
+              -0.9,
+              -0.83,
+              -0.79,
+              -0.68,
+              -0.64,
+              -0.58,
+              -0.43,
+              -0.39,
+              -0.37,
+              -0.35,
+              -0.35,
+              -0.28,
+              -0.22,
+              -0.22,
+              -0.19,
+              -0.18,
+              -0.14,
+              -0.06,
+              0.13,
+              0.19,
+              0.27
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "item": "CODES",
+      "key": "CODES.waiverBudget",
+      "title": "settings.waiver_budget",
+      "status": "ok",
+      "summary": "FAAB budget per team for the season: in 27 finished FAAB seasons no team spent more than waiver_budget (0 over; highest share spent 100%), no single bid exceeded it (0 over), and some team spent at least half of it in 26. 2026 values in FAAB leagues: {\"100\":69,\"120\":1,\"150\":1,\"170\":1,\"200\":12,\"222\":1,\"500\":2,\"1000\":32,\"1500\":2,\"2500\":1}",
+      "evidence": [
+        {
+          "url": "https://api.sleeper.app/v1/league/{previousLeagueId}/rosters",
+          "status": 200,
+          "path": "[].settings.waiver_budget_used vs settings.waiver_budget",
+          "sample": {
+            "leagues": 27,
+            "spentOver": 0,
+            "halfSpent": 26
+          }
+        },
+        {
+          "url": "https://api.sleeper.app/v1/league/{previousLeagueId}/transactions/{week}",
+          "status": 200,
+          "path": "[type=waiver].settings.waiver_bid",
+          "sample": {
+            "bidOver": 0
+          }
+        }
+      ]
+    },
+    {
+      "item": "CODES",
+      "key": "CODES.divisions",
+      "title": "settings.divisions",
+      "status": "ok",
+      "summary": "Number of divisions: distinct rosters[].settings.division values = divisions in 4/4 (100%) finished seasons with divisions; with divisions 0 or missing, rosters still carry ≥ 2 division values in 2/37 (5%) seasons (stale numbers), so only settings.divisions > 0 means divisions. 2026 values: {\"0\":17,\"2\":13,\"3\":2,\"4\":3,\"8\":1,\"absent\":214}",
+      "evidence": [
+        {
+          "url": "https://api.sleeper.app/v1/league/{previousLeagueId}/rosters",
+          "status": 200,
+          "path": "[].settings.division",
+          "sample": {
+            "withDivisions": {
+              "2 set, 2 on rosters": 2,
+              "4 set, 4 on rosters": 1,
+              "8 set, 8 on rosters": 1
+            },
+            "divisionsOffWithRosterValues": {
+              "0": 35,
+              "2": 2
+            }
+          }
+        },
+        {
+          "url": "https://api.sleeper.app/v1/user/{userId}/leagues/nfl/2026",
+          "status": 200,
+          "path": "[].settings.divisions",
+          "sample": {
+            "0": 17,
+            "2": 13,
+            "3": 2,
+            "4": 3,
+            "8": 1,
+            "absent": 214
+          }
+        }
+      ]
+    },
+    {
+      "item": "CODES",
+      "key": "CODES.reserveSlots",
+      "title": "settings.reserve_slots",
+      "status": "ok",
+      "summary": "Max IR players per team: no team exceeded reserve_slots in 41/41 (100%) finished seasons; at least one team at the limit in 28; any reserve use in 29. 2026 values: {\"0\":93,\"1\":68,\"2\":58,\"3\":16,\"4\":7,\"5\":8}",
+      "evidence": [
+        {
+          "url": "https://api.sleeper.app/v1/league/{previousLeagueId}/rosters",
+          "status": 200,
+          "path": "[].reserve.length",
+          "sample": {
+            "leagues": 41,
+            "over": 0,
+            "atLimit": 28
+          }
+        },
+        {
+          "url": "https://api.sleeper.app/v1/user/{userId}/leagues/nfl/2026",
+          "status": 200,
+          "path": "[].settings.reserve_slots",
+          "sample": {
+            "0": 93,
+            "1": 68,
+            "2": 58,
+            "3": 16,
+            "4": 7,
+            "5": 8
+          }
+        }
+      ]
+    },
+    {
+      "item": "CODES",
+      "key": "CODES.taxiSlots",
+      "title": "settings.taxi_slots",
+      "status": "ok",
+      "summary": "Max taxi players per team: no team exceeded taxi_slots in 41/41 (100%) finished seasons; at least one team at the limit in 12; any taxi use in 12. 2026 values: {\"0\":195,\"1\":1,\"2\":2,\"3\":20,\"4\":17,\"5\":6,\"7\":3,\"absent\":6}",
+      "evidence": [
+        {
+          "url": "https://api.sleeper.app/v1/league/{previousLeagueId}/rosters",
+          "status": 200,
+          "path": "[].taxi.length",
+          "sample": {
+            "leagues": 41,
+            "over": 0,
+            "atLimit": 12
+          }
+        },
+        {
+          "url": "https://api.sleeper.app/v1/user/{userId}/leagues/nfl/2026",
+          "status": 200,
+          "path": "[].settings.taxi_slots",
+          "sample": {
+            "0": 195,
+            "1": 1,
+            "2": 2,
+            "3": 20,
+            "4": 17,
+            "5": 6,
+            "7": 3,
+            "absent": 6
+          }
+        }
+      ]
+    },
+    {
+      "item": "CODES",
+      "key": "CODES.numTeams",
+      "title": "settings.num_teams",
+      "status": "ok",
+      "summary": "num_teams = total_rosters in 250/250 (100%) 2026 leagues. Values: {\"4\":15,\"6\":5,\"8\":19,\"10\":96,\"12\":72,\"13\":1,\"14\":13,\"16\":6,\"18\":15,\"19\":1,\"20\":2,\"31\":1,\"32\":4}",
+      "evidence": [
+        {
+          "url": "https://api.sleeper.app/v1/user/{userId}/leagues/nfl/2026",
+          "status": 200,
+          "path": "[].settings.num_teams vs [].total_rosters",
+          "sample": {
+            "4": 15,
+            "6": 5,
+            "8": 19,
+            "10": 96,
+            "12": 72,
+            "13": 1,
+            "14": 13,
+            "16": 6,
+            "18": 15,
+            "19": 1,
+            "20": 2,
+            "31": 1,
+            "32": 4
+          }
+        }
+      ]
+    },
+    {
+      "item": "CODES",
+      "key": "CODES.maxKeepers",
+      "title": "settings.max_keepers",
+      "status": "ok",
+      "summary": "Keeper picks per team never exceeded max_keepers in 6/6 (100%) 2026 drafts with keepers; max_keepers by league type: {\"0\":{\"1\":139,\"2\":2,\"3\":2,\"absent\":6},\"1\":{\"1\":14,\"2\":4,\"3\":2},\"2\":{\"1\":52,\"3\":1},\"3\":{\"1\":28}}",
+      "evidence": [
+        {
+          "url": "https://api.sleeper.app/v1/draft/{draftId}/picks",
+          "status": 200,
+          "path": "[is_keeper=true] per roster_id",
+          "sample": {
+            "draftsWithKeepers": 6,
+            "overLimit": 0,
+            "maxPerTeam": {
+              "1": 4,
+              "2": 1,
+              "3": 1
+            }
+          }
+        },
+        {
+          "url": "https://api.sleeper.app/v1/user/{userId}/leagues/nfl/2026",
+          "status": 200,
+          "path": "[].settings.max_keepers",
+          "sample": {
+            "1": 233,
+            "2": 6,
+            "3": 5,
+            "absent": 6
+          }
+        }
+      ]
+    },
+    {
+      "item": "CODES",
+      "key": "CODES.disableTrades",
+      "title": "settings.disable_trades",
+      "status": "ok",
+      "summary": "Completed trades in the sampled weeks: 0 → 37 trades in 14/33 seasons (a trade in 26/124 league-weeks; {\"dynasty\":11,\"guillotine\":2,\"keeper\":5,\"redraft\":15}); 1 → 0 trades in 0/5 seasons (a trade in 0/40 league-weeks; {\"guillotine\":4,\"redraft\":1}); absent → 2 trades in 1/3 seasons (a trade in 1/9 league-weeks; {\"dynasty\":1,\"keeper\":1,\"redraft\":1}). Against seasons of the same league type with trading on: redraft: 0 trades in 8 league-weeks off vs a trade in 9/50 league-weeks in 15 seasons on (chance of no trade if trading were on: 20.4%); guillotine: 0 trades in 32 league-weeks off vs a trade in 4/16 league-weeks in 2 seasons on (chance of no trade if trading were on: < 0.1%); combined < 0.1%. 2026: disable_trades 1 in 32 leagues ({\"guillotine\":26,\"keeper\":1,\"redraft\":5}); 6 outside guillotine leagues, 1 of them with a previous season. Reading: 1 = trading turned off ✓",
+      "evidence": [
+        {
+          "url": "https://api.sleeper.app/v1/league/{previousLeagueId}/transactions/{week}",
+          "status": 200,
+          "path": "[type=trade,status=complete] per league-week",
+          "sample": [
+            {
+              "type": "redraft",
+              "offSeasons": 1,
+              "offLeagueWeeks": 8,
+              "offTrades": 0,
+              "controlSeasons": 15,
+              "controlLeagueWeeks": 50,
+              "controlWeeksWithTrade": 9,
+              "chanceOfNoTrade": 0.2044
+            },
+            {
+              "type": "guillotine",
+              "offSeasons": 4,
+              "offLeagueWeeks": 32,
+              "offTrades": 0,
+              "controlSeasons": 2,
+              "controlLeagueWeeks": 16,
+              "controlWeeksWithTrade": 4,
+              "chanceOfNoTrade": 0.0001
+            }
+          ],
+          "note": "weeks D−1…D+1 (or 15–17) for every season, plus weeks 4–8 for seasons with trading off and as many with it on (same league type first)"
+        },
+        {
+          "url": "https://api.sleeper.app/v1/user/{userId}/leagues/nfl/2026",
+          "status": 200,
+          "path": "[].settings.disable_trades × [].settings.type",
+          "sample": {
+            "0": {
+              "dynasty": 46,
+              "guillotine": 2,
+              "keeper": 18,
+              "redraft": 137
+            },
+            "1": {
+              "guillotine": 26,
+              "keeper": 1,
+              "redraft": 5
+            },
+            "absent": {
+              "dynasty": 7,
+              "keeper": 1,
+              "redraft": 7
+            }
+          }
+        }
+      ]
+    },
+    {
+      "item": "CODES",
+      "key": "CODES.pickTrading",
+      "title": "settings.pick_trading",
+      "status": "warn",
+      "summary": "Trades that include draft picks, by pick_trading × league type: {\"0 × guillotine\":\"0/5 trades with picks (5 seasons)\",\"0 × keeper\":\"0/2 trades with picks (1 season)\",\"0 × redraft\":\"0/9 trades with picks (6 seasons)\",\"1 × dynasty\":\"15/16 trades with picks (12 seasons)\",\"1 × guillotine\":\"0/0 trades with picks (1 season)\",\"1 × keeper\":\"2/5 trades with picks (5 seasons)\",\"1 × redraft\":\"0/2 trades with picks (11 seasons)\"}. Pick trades happen only in keeper and dynasty leagues; there, pick_trading 1 → pick trades in 6 seasons, pick_trading 0 → 0 of 1 season with trades had one; below the 3-league minimum. Reading: 1 = draft picks can be traded — inferred from the key name (2026: pick_trading 0 in 2 keeper/dynasty leagues). 2026 pick_trading × type: {\"0\":{\"guillotine\":21,\"keeper\":2,\"redraft\":36},\"1\":{\"dynasty\":53,\"guillotine\":7,\"keeper\":18,\"redraft\":113}}",
+      "evidence": [
+        {
+          "url": "https://api.sleeper.app/v1/league/{previousLeagueId}/transactions/{week}",
+          "status": 200,
+          "path": "[type=trade].draft_picks",
+          "sample": {
+            "0 × guillotine": "0/5 trades with picks (5 seasons)",
+            "0 × keeper": "0/2 trades with picks (1 season)",
+            "0 × redraft": "0/9 trades with picks (6 seasons)",
+            "1 × dynasty": "15/16 trades with picks (12 seasons)",
+            "1 × guillotine": "0/0 trades with picks (1 season)",
+            "1 × keeper": "2/5 trades with picks (5 seasons)",
+            "1 × redraft": "0/2 trades with picks (11 seasons)"
+          }
+        },
+        {
+          "url": "https://api.sleeper.app/v1/user/{userId}/leagues/nfl/2026",
+          "status": 200,
+          "path": "[].settings.pick_trading",
+          "sample": {
+            "0": 59,
+            "1": 191
+          }
+        }
+      ]
+    },
+    {
+      "item": "CODES",
+      "key": "CODES.tradeReview",
+      "title": "settings.veto_auto_poll / trade_review_days",
+      "status": "warn",
+      "summary": "Partly verified (hours from proposal to completion, which include the partner's time to accept): veto_auto_poll = 1 → 3/3 completed trades carried a veto poll (metadata.poll_id) in 2 leagues; below the 3-league minimum; 1 day(s): 0/2 within 24 h, 29.9–31.9 h; 2 day(s): 0/1 within 24 h, 78.2–78.2 h; 0 → 0/34 with a poll (12 leagues); with trade_review_days ≥ 1, 16/24 trades completed within 24 h, so no enforced hold was seen; 0 day(s): 10/10 within 24 h, 0–2 h; 1 day(s): 7/11 within 24 h, 0.1–48.3 h; 2 day(s): 9/13 within 24 h, 0–60.3 h; key missing → 0/2 with a poll in 1 league; 1 day(s): no trades; 2 day(s): 2/2 within 24 h, 0.6–2.5 h — unverified. trade_review_days as the length of the veto vote: 3 poll trades took at least that long, 0 finished sooner. Older seasons of the same leagues (not counted): {\"0\":{\"trades\":0,\"atLeast48h\":0},\"absent\":{\"trades\":1,\"atLeast48h\":1}}. 2026: veto_auto_poll {\"0\":156,\"1\":19,\"absent\":75}, trade_review_days {\"0\":33,\"1\":40,\"2\":177}; veto keys missing in 75 leagues (67 of them new)",
+      "evidence": [
+        {
+          "url": "https://api.sleeper.app/v1/league/{previousLeagueId}/transactions/{week}",
+          "status": 200,
+          "path": "[type=trade].metadata.poll_id; .status_updated − .created",
+          "sample": {
+            "0": {
+              "leagues": 12,
+              "trades": 34,
+              "withVetoPoll": 0,
+              "under24h": 26,
+              "atLeast48h": 3
+            },
+            "1": {
+              "leagues": 2,
+              "trades": 3,
+              "withVetoPoll": 3,
+              "under24h": 0,
+              "atLeast48h": 1
+            },
+            "absent": {
+              "leagues": 1,
+              "trades": 2,
+              "withVetoPoll": 0,
+              "under24h": 2,
+              "atLeast48h": 0
+            }
+          }
+        },
+        {
+          "url": "https://api.sleeper.app/v1/user/{userId}/leagues/nfl/2026",
+          "status": 200,
+          "path": "[].settings.veto_auto_poll, trade_review_days, veto_votes_needed, veto_show_votes",
+          "sample": {
+            "0": {
+              "0": 32,
+              "1": 27,
+              "2": 97
+            },
+            "1": {
+              "1": 12,
+              "2": 7
+            },
+            "absent": {
+              "0": 1,
+              "1": 1,
+              "2": 73
+            }
+          }
+        }
+      ]
+    },
+    {
+      "item": "CODES",
+      "key": "CODES.lastScoredLeg",
+      "title": "settings.last_scored_leg",
+      "status": "ok",
+      "summary": "last_scored_leg = the last completed NFL week (3; /state/nfl week is 4) in 178/178 (100%) in-season 2026 leagues",
+      "evidence": [
+        {
+          "url": "https://api.sleeper.app/v1/user/{userId}/leagues/nfl/2026",
+          "status": 200,
+          "path": "[].settings.last_scored_leg",
+          "sample": {
+            "3": 178
+          }
+        },
+        {
+          "url": "https://api.sleeper.app/v1/state/nfl",
+          "status": 200,
+          "path": "week, display_week",
+          "sample": {
+            "week": 4,
+            "display_week": 3
+          }
+        }
+      ]
+    },
+    {
+      "item": "CODES",
+      "key": "CODES.leg",
+      "title": "settings.leg / waiver_day_of_week",
+      "status": "warn",
+      "summary": "leg is the league's own current week, not the NFL week: on the probe day (Tuesday (US Eastern) of NFL week 4) it was 4 in 8/178 (4%) leagues and 3 in the rest. By waiver_day_of_week → leg: {\"0\":{\"4\":3},\"1\":{\"4\":5},\"2\":{\"3\":167},\"3\":{\"3\":3}} — each waiver day maps to one leg value, so leg advances when the league's weekly waivers run. Not verified: which weekday each waiver_day_of_week value means. Use /state/nfl week for the current week",
+      "evidence": [
+        {
+          "url": "https://api.sleeper.app/v1/user/{userId}/leagues/nfl/2026",
+          "status": 200,
+          "path": "[].settings.leg by [].settings.waiver_day_of_week",
+          "sample": {
+            "0": {
+              "4": 3
+            },
+            "1": {
+              "4": 5
+            },
+            "2": {
+              "3": 167
+            },
+            "3": {
+              "3": 3
+            }
+          }
+        },
+        {
+          "url": "https://api.sleeper.app/v1/state/nfl",
+          "status": 200,
+          "path": "week",
+          "sample": 4
+        }
+      ]
+    },
+    {
+      "item": "CODES",
+      "key": "CODES.status",
+      "title": "League status values",
+      "status": "ok",
+      "summary": "status: {\"drafting\":4,\"in_season\":178,\"pre_draft\":68}; season_type: {\"regular\":250}",
+      "evidence": [
+        {
+          "url": "https://api.sleeper.app/v1/user/{userId}/leagues/nfl/2026",
+          "status": 200,
+          "path": "[].status",
+          "sample": {
+            "drafting": 4,
+            "in_season": 178,
+            "pre_draft": 68
+          }
+        }
+      ]
+    },
+    {
+      "item": "CODES",
+      "key": "CODES.rosterPositions",
+      "title": "roster_positions slot names",
+      "status": "ok",
+      "summary": "15 slot names seen, all in the spec's list; superflex/2QB 46/250 (18%), IDP 5/250 (2%); bench sizes {\"0\":2,\"1\":3,\"2\":7,\"3\":6,\"4\":14,\"5\":113,\"6\":40,\"7\":9,\"8\":7,\"9\":3,\"10\":13,\"11\":4,\"12\":5,\"13\":2,\"14\":5,\"15\":6,\"16\":2,\"17\":1,\"18\":2,\"19\":1,\"20\":2,\"31\":3}",
+      "evidence": [
+        {
+          "url": "https://api.sleeper.app/v1/user/{userId}/leagues/nfl/2026",
+          "status": 200,
+          "path": "[].roster_positions[]",
+          "sample": {
+            "BN": 248,
+            "DB": 3,
+            "DEF": 178,
+            "DL": 3,
+            "FLEX": 245,
+            "IDP_FLEX": 5,
+            "K": 165,
+            "LB": 3,
+            "QB": 250,
+            "RB": 248,
+            "REC_FLEX": 1,
+            "SUPER_FLEX": 39,
+            "TE": 240,
+            "WR": 248,
+            "WRRB_FLEX": 6
+          }
+        }
+      ]
+    },
+    {
+      "item": "CODES",
+      "key": "CODES.scoringKeys",
+      "title": "scoring_settings keys in use",
+      "status": "ok",
+      "summary": "144 distinct scoring keys with a non-zero value across 250 leagues (full list with counts in meta.scoringKeysNonzero, for the Phase 1 scoring map)",
+      "evidence": [
+        {
+          "url": "https://api.sleeper.app/v1/user/{userId}/leagues/nfl/2026",
+          "status": 200,
+          "path": "[].scoring_settings",
+          "sample": {
+            "fum_lost": 247,
+            "pass_2pt": 247,
+            "pass_int": 247,
+            "pass_td": 247,
+            "pass_yd": 247,
+            "rec_2pt": 247,
+            "rec_td": 247,
+            "rec_yd": 247,
+            "rush_2pt": 247,
+            "rush_td": 247,
+            "rush_yd": 247,
+            "fum_rec_td": 244
+          }
+        }
+      ]
+    },
+    {
+      "item": "CODES",
+      "key": "CODES.draftPlayerType",
+      "title": "draft settings.player_type",
+      "status": "ok",
+      "summary": "Rookie share of picks by draft player_type: 0 → median 9%, rookie-only 0/35 drafts; 1 → median 100%, rookie-only 4/4 drafts; absent → median 2%, rookie-only 0/6 drafts. Reading: 1 = rookies only ✓, 0 = all players ✓. Draft types: {\"absent\":18,\"auction\":12,\"linear\":36,\"snake\":184}",
+      "evidence": [
+        {
+          "url": "https://api.sleeper.app/v1/draft/{draftId}/picks",
+          "status": 200,
+          "path": "[].metadata.years_exp",
+          "sample": {
+            "0": {
+              "drafts": 35,
+              "rookieShareMedian": 0.09,
+              "rookieOnly": 0,
+              "withVeterans": 35
+            },
+            "1": {
+              "drafts": 4,
+              "rookieShareMedian": 1,
+              "rookieOnly": 4,
+              "withVeterans": 0
+            },
+            "absent": {
+              "drafts": 6,
+              "rookieShareMedian": 0.02,
+              "rookieOnly": 0,
+              "withVeterans": 6
+            }
+          }
+        },
+        {
+          "url": "https://api.sleeper.app/v1/user/{userId}/drafts/nfl/2026",
+          "status": 200,
+          "path": "[].settings.player_type",
+          "sample": {
+            "0": 143,
+            "1": 24,
+            "absent": 83
+          }
+        }
+      ]
+    },
+    {
+      "item": "CODES",
+      "key": "CODES.positionLimits",
+      "title": "settings.position_limit_*",
+      "status": "ok",
+      "summary": "Keys seen: position_limit_def (9 leagues), position_limit_k (6 leagues), position_limit_qb (11 leagues), position_limit_rb (2 leagues), position_limit_te (7 leagues), position_limit_wr (2 leagues). Rosters vs the limit (38 limits in 8 leagues: 6 final 2025 rosters and 7 in-season 2026 rosters): on active rosters (players[] minus reserve and taxi) 0 exceeded and 21 were reached exactly; counting reserve and taxi too, 9 exceeded — over the limit only through IR (reserve) players in 5 leagues, only through taxi players in 2. players[] includes 263/263 reserve and 313/313 taxi players. Reading: a cap on the active roster ✓, IR exempt ✓",
+      "evidence": [
+        {
+          "url": "https://api.sleeper.app/v1/user/{userId}/leagues/nfl/2026",
+          "status": 200,
+          "path": "[].settings.position_limit_{pos}",
+          "sample": {
+            "position_limit_def": {
+              "1": 2,
+              "2": 2,
+              "3": 4,
+              "4": 1,
+              "absent": 241
+            },
+            "position_limit_k": {
+              "1": 1,
+              "2": 3,
+              "3": 1,
+              "4": 1,
+              "absent": 244
+            },
+            "position_limit_qb": {
+              "1": 2,
+              "3": 3,
+              "4": 5,
+              "5": 1,
+              "absent": 239
+            },
+            "position_limit_rb": {
+              "5": 1,
+              "6": 1,
+              "absent": 248
+            },
+            "position_limit_te": {
+              "3": 5,
+              "4": 1,
+              "5": 1,
+              "absent": 243
+            },
+            "position_limit_wr": {
+              "5": 1,
+              "7": 1,
+              "absent": 248
+            }
+          }
+        },
+        {
+          "url": "https://api.sleeper.app/v1/league/{previousLeagueId}/rosters",
+          "status": 200,
+          "path": "[].players[], [].reserve[], [].taxi[] (positions from /players/nfl); also league/{leagueId}/rosters for 2026",
+          "sample": {
+            "leagues": 8,
+            "rosterSets": {
+              "2025": 6,
+              "2026 so far": 7
+            },
+            "limitsChecked": 38,
+            "exceededOnActiveRosters": 0,
+            "reachedOnActiveRosters": 21,
+            "exceededCountingReserveAndTaxi": 9,
+            "leaguesOverOnlyViaReserve": 5,
+            "leaguesOverOnlyViaTaxi": 2,
+            "reserveAndTaxiInPlayers": {
+              "reserve": 263,
+              "reserveInPlayers": 263,
+              "taxi": 313,
+              "taxiInPlayers": 313
+            }
+          }
+        }
+      ]
+    },
+    {
+      "item": "CODES",
+      "key": "CODES.other",
+      "title": "Other numeric settings",
+      "status": "warn",
+      "summary": "29 more codes reported as distributions only (meaning not verified): bench_lock, capacity_override, commissioner_direct_invite, daily_waivers, daily_waivers_base, daily_waivers_days, daily_waivers_hour, daily_waivers_last_ran, disable_adds, draft_rounds, faab_suggestions, last_report, max_subs, offseason_adds, pick_timer, reserve_allow_cov, reserve_allow_dnr, reserve_allow_doubtful, reserve_allow_na, reserve_allow_out, reserve_allow_sus, squads, sub_lock_if_starter_active, sub_start_time_eligibility, taxi_allow_vets, taxi_deadline, taxi_years, waiver_bid_min, waiver_clear_days",
+      "evidence": [
+        {
+          "url": "https://api.sleeper.app/v1/user/{userId}/leagues/nfl/2026",
+          "status": 200,
+          "path": "[].settings.*",
+          "sample": {
+            "bench_lock": {
+              "0": 189,
+              "1": 61
+            },
+            "capacity_override": {
+              "0": 222,
+              "1": 22,
+              "absent": 6
+            },
+            "commissioner_direct_invite": {
+              "0": 234,
+              "1": 2,
+              "absent": 14
+            },
+            "daily_waivers": {
+              "0": 207,
+              "1": 37,
+              "absent": 6
+            },
+            "daily_waivers_base": {
+              "4": 14,
+              "absent": 236
+            },
+            "daily_waivers_days": {
+              "0": 1,
+              "3": 1,
+              "40": 1,
+              "940": 1,
+              "1093": 17,
+              "1364": 3,
+              "1367": 1,
+              "2155": 1,
+              "2384": 1,
+              "2388": 2,
+              "2391": 3,
+              "2411": 1,
+              "2752": 1,
+              "2816": 2,
+              "3072": 1,
+              "5120": 1,
+              "5460": 2,
+              "5461": 136,
+              "5631": 1,
+              "6143": 3,
+              "9557": 1,
+              "9872": 1,
+              "10666": 1,
+              "10859": 1,
+              "10986": 1,
+              "12042": 1,
+              "12290": 1,
+              "13648": 1,
+              "13655": 1,
+              "21845": 1,
+              "absent": 60
+            }
+          },
+          "note": "full distributions in meta.distributions2026"
+        }
+      ]
+    },
+    {
+      "item": "CODES",
+      "key": "CODES.privacy",
+      "title": "Report leak check",
+      "status": "ok",
+      "summary": "no crawled league, draft, team or user name (764 seen, ≥ 10 chars) appears in the report; watch list for check:leaks: 4021 identities (322 draft-id, 844 league-id, 567 league-name, 543 other-id, 184 team-name, 1244 user-id, 317 username) from 1436 raw captures, git-ignored",
+      "evidence": []
+    }
+  ],
+  "issues": [
+    "Sleeper sends previous_league_id as the string \"0\" (not null) in 3/250 sampled 2026 leagues, and that league doesn't exist (GET https://api.sleeper.app/v1/league/0 → HTTP 404) — evidence: https://api.sleeper.app/v1/user/{userId}/leagues/nfl/2026 → [].previous_league_id — options: treat \"0\" (and any all-zero ID) exactly like null, i.e. no previous season, in the Phase 1 adapter (this probe does).",
+    "Sleeper settings.type has a 4th value, 3 = guillotine (\"chopped\": the lowest scorer is eliminated each week), in 28/250 (11%) sampled 2026 leagues; CLAUDE.md §4 leagueType only has redraft, keeper and dynasty, and these leagues have no playoff_teams (28/28) — evidence: https://api.sleeper.app/v1/user/{userId}/leagues/nfl/2026 → [].settings.type, [].settings.last_chopped_leg; https://api.sleeper.app/v1/league/{previousLeagueId}/transactions/{week} → [type=chopped] (47 in 6 finished seasons) — options: (a) reject guillotine leagues at import for the MVP with a clear message; (b) import as redraft with a warning that weekly elimination isn't modeled.",
+    "Sleeper playoff_week_start is 0 in 1 sampled 2026 league(s) that aren't guillotine leagues ({\"redraft, in_season, playoff_teams 7\":1}), so their fantasy playoff weeks can't be read from settings — evidence: https://api.sleeper.app/v1/user/{userId}/leagues/nfl/2026 → [].settings.playoff_week_start — options: (a) treat 0 as \"not set\" and assume the most common start (week 15, 188/250 leagues) with an Import Report warning; (b) ask the user for the first playoff week.",
+    "Sleeper has best-ball leagues (settings.best_ball = 1 in 8/250 sampled 2026 leagues; points = potential points for 54/62 (87%) teams), which CLAUDE.md doesn't mention — evidence: https://api.sleeper.app/v1/league/{previousLeagueId}/rosters → [].settings.fpts vs ppts — options: (a) import them normally (the engine already values optimal lineups) and say \"best ball\" in the Import Report; (b) reject them for the MVP.",
+    "Sleeper supports playoff re-seeding (playoff_seed_type 1 in 27/250 sampled 2026 leagues; in 3/3 informative finished brackets seed 1 then played the lowest remaining seed), but CLAUDE.md §8 only says to seed by wins, then points-for — evidence: https://api.sleeper.app/v1/league/{previousLeagueId}/winners_bracket → [r=2] pairings vs seeds from https://api.sleeper.app/v1/league/{previousLeagueId}/rosters — options: (a) re-seed after each round in the simulator when playoff_seed_type = 1; (b) ignore it (it only changes who meets whom after round 1).",
+    "Sleeper rosters[].settings.division keeps division numbers after divisions are turned off: ≥ 2 distinct values in 2 of 37 finished seasons with settings.divisions 0 or missing — evidence: https://api.sleeper.app/v1/league/{previousLeagueId}/rosters → [].settings.division vs https://api.sleeper.app/v1/league/{previousLeagueId} → settings.divisions — options: read divisions (and division seeding) only when settings.divisions > 0 (this probe's seeding check does).",
+    "Sleeper position limits live in settings.position_limit_{pos} (position_limit_def, position_limit_k, position_limit_qb, position_limit_rb, position_limit_te, position_limit_wr; 13/250 sampled 2026 leagues), which CLAUDE.md §2.3's settings list doesn't mention; the rosters checked fit a cap on the active roster with IR exempt (0 of 38 limits exceeded on active rosters; 5 leagues over a limit only through IR players) — evidence: https://api.sleeper.app/v1/league/{previousLeagueId}/rosters and https://api.sleeper.app/v1/league/{leagueId}/rosters → [].players/reserve/taxi with positions from /players/nfl vs settings.position_limit_{pos} — options: (a) map them to LeagueSettings.positionLimits and enforce them on the active roster (IR and taxi exempt) per CLAUDE.md §7; (b) only warn on the trade card until more leagues confirm the IR exemption."
+  ],
+  "decisions": [
+    "Sleeper trade-deadline rule for Phase 1 (proposed): trades are open while the league's settings.leg ≤ trade_deadline, not the /state/nfl week — no trade completed after leg D in 6 leagues that traded at the deadline; 10/39 completed trades finished in the NFL week after their leg (a league's leg advances only at its weekly waiver run); 3 of 7 leg-D trades completed during week D's Sunday/Monday games (no lock at kickoff); on this probe's Tuesday run /state/nfl already said week 4 while last_scored_leg was 3 in every in-season league, so the /state/nfl week can run a week ahead of the league's leg.",
+    "Sleeper tradeReview mapping (proposed): 'league_vote' when settings.veto_auto_poll = 1 (3/3 such trades had a veto poll), otherwise 'none' (with the poll off, 16/24 trades in leagues with trade_review_days ≥ 1 completed within 24 h); veto keys missing (75 2026 leagues) → 'none' with an Import Report warning until verified; 'commissioner' is never produced (no approval step in the data).",
+    "Sleeper currentWeek comes from /state/nfl (week); settings.leg lags until the league's weekly waiver run, and settings.last_scored_leg is the last completed week.",
+    "Sleeper omits settings keys freely; Phase 1 defaults for missing keys (from this sample): league_average_match missing in 6 → unverified (assume 0); best_ball missing in 72 → 0 (verified); veto_auto_poll/veto_votes_needed missing in 75 → 'none' (unverified).",
+    "Evidence rule for this item: a code value is ✅ only with ≥ 3 independent leagues (distinct 2026 leagues; earlier seasons of the same league don't count) and none contradicting, or ≥ 10 with ≤ 10% contradicting; below that it is ⚠️.",
+    "Sampling: snowball through league member lists, at most 5 new leagues per user so a few very active accounts can't dominate; previous seasons chosen greedily so every value of each code is covered where available. Every ordering uses a random salt kept only in data-local/ (git-ignored), so the committed code can't reproduce which public leagues were sampled.",
+    "Crawled leaguemates' IDs (league, user, draft) are registered with the Redactor so no console line or report can show them; display names and league names are never stored in the trimmed records, only keyword flags; every identity in the raw captures goes to a git-ignored watch list that check:leaks loads; and the report is checked against every name seen before anything is printed."
+  ],
+  "questions": [
+    "Guillotine leagues (settings.type = 3, 28/250 (11%) of the sample) eliminate the lowest scorer each week: reject them at import for the MVP?",
+    "Sleeper's no-deadline value: trades after week 14 were seen in only 1 league(s) with trade_deadline 99: treat trade_deadline ≥ 18 as \"no deadline\"?",
+    "With divisions, Sleeper seeded division winners first in 2/2 informative league(s) (below the 3-league minimum): model seeding that way for leagues with divisions?",
+    "Reconcile with probe:sleeper A.tradeReview: should Phase 1 map Sleeper tradeReview from veto_auto_poll (1 → 'league_vote', else 'none') rather than from trade_review_days, given that with the poll off 16/24 trades with trade_review_days ≥ 1 completed within 24 h?",
+    "Sleeper position limits appear to exempt IR (seen in 5 leagues): enforce them on the active roster only (players minus reserve and taxi), per CLAUDE.md §7?"
+  ],
+  "requests": {
+    "total": 883,
+    "live": 0,
+    "fromCache": 883,
+    "retried": 0,
+    "slowestMs": 116
+  }
+}

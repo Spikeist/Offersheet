@@ -1,0 +1,6055 @@
+[
+  {
+    "ADP_PPR": 291.94,
+    "pos": "RB",
+    "name": "Abdullah, Ameer",
+    "id": "03oih"
+  },
+  {
+    "ADP_PPR": 293,
+    "pos": "CB",
+    "name": "Adebo, Paulson",
+    "id": "05rnx"
+  },
+  {
+    "ADP_PPR": 291.85,
+    "pos": "TE",
+    "name": "Adkins, Nate",
+    "id": "06bll"
+  },
+  {
+    "ADP_PPR": 292.35,
+    "pos": "RB",
+    "name": "Ahmed, Salvon",
+    "id": "05jqs"
+  },
+  {
+    "ADP_PPR": 294.11,
+    "pos": "LB",
+    "name": "Al-Shaair, Azeez",
+    "id": "05064"
+  },
+  {
+    "ADP_PPR": 397.72,
+    "pos": "CB",
+    "name": "Alford, DeAundre",
+    "id": "05yew"
+  },
+  {
+    "ADP_PPR": 293.34,
+    "pos": "TE",
+    "name": "Alie-Cox, Mo",
+    "id": "04c36"
+  },
+  {
+    "ADP_PPR": 292.12,
+    "pos": "TE",
+    "name": "All, Erick",
+    "id": "06l7k"
+  },
+  {
+    "ADP_PPR": 292.45,
+    "pos": "QB",
+    "name": "Allar, Drew",
+    "id": "073pw"
+  },
+  {
+    "ADP_PPR": 315.66,
+    "pos": "LB",
+    "name": "Allen, CJ",
+    "id": "074yr"
+  },
+  {
+    "ADP_PPR": 291.91,
+    "pos": "WR",
+    "name": "Allen, Floyd",
+    "id": "050qt"
+  },
+  {
+    "ADP_PPR": 323,
+    "pos": "DL",
+    "name": "Allen, Jonathan",
+    "id": "04caf"
+  },
+  {
+    "ADP_PPR": 292.01,
+    "pos": "QB",
+    "name": "Allen, Kyle",
+    "id": "04oma"
+  },
+  {
+    "ADP_PPR": 290.49,
+    "pos": "RB",
+    "name": "Allen, LeQuint",
+    "id": "06sy2"
+  },
+  {
+    "ADP_PPR": 328.28,
+    "pos": "DL",
+    "name": "Allen, Zach",
+    "id": "04yq9"
+  },
+  {
+    "ADP_PPR": 336.66,
+    "pos": "P",
+    "name": "Anderson, Ryan",
+    "id": "050ah"
+  },
+  {
+    "ADP_PPR": 371.67,
+    "pos": "P",
+    "name": "Anger, Bryan",
+    "id": "02j9r"
+  },
+  {
+    "ADP_PPR": 354.85,
+    "pos": "DE",
+    "name": "Anudike-Uzomah, Felix",
+    "id": "06aye"
+  },
+  {
+    "ADP_PPR": 281.78,
+    "pos": "LB",
+    "name": "Anzalone, Alex",
+    "id": "04ccz"
+  },
+  {
+    "ADP_PPR": 384,
+    "pos": "P",
+    "name": "Araiza, Matt",
+    "id": "06114"
+  },
+  {
+    "ADP_PPR": 344.87,
+    "pos": "DE",
+    "name": "Armstrong, Dorance",
+    "id": "04oh9"
+  },
+  {
+    "ADP_PPR": 292.95,
+    "pos": "TE",
+    "name": "Arroyo, Elijah",
+    "id": "06rpv"
+  },
+  {
+    "ADP_PPR": 293.04,
+    "pos": "WR",
+    "name": "Atwell, Tutu",
+    "id": "05rn3"
+  },
+  {
+    "ADP_PPR": 292.8,
+    "pos": "WR",
+    "name": "Austin III, Calvin",
+    "id": "060s1"
+  },
+  {
+    "ADP_PPR": 338.55,
+    "pos": "DE",
+    "name": "Bailey, David",
+    "id": "074xz"
+  },
+  {
+    "ADP_PPR": 434.67,
+    "pos": "P",
+    "name": "Bailey, Jake",
+    "id": "04zvy"
+  },
+  {
+    "ADP_PPR": 338.66,
+    "pos": "DE",
+    "name": "Bain, Rueben",
+    "id": "074y1"
+  },
+  {
+    "ADP_PPR": 339.66,
+    "pos": "P",
+    "name": "Baker, Toby",
+    "id": "04d7m"
+  },
+  {
+    "ADP_PPR": 437.5,
+    "pos": "DT",
+    "name": "Banks, Caleb",
+    "id": "074xt"
+  },
+  {
+    "ADP_PPR": 398.01,
+    "pos": "P",
+    "name": "Baringer, Bryce",
+    "id": "06b09"
+  },
+  {
+    "ADP_PPR": 356.18,
+    "pos": "DT",
+    "name": "Barmore, Christian",
+    "id": "05rmb"
+  },
+  {
+    "ADP_PPR": 374.21,
+    "pos": "LB",
+    "name": "Barnes, Derrick",
+    "id": "05rok"
+  },
+  {
+    "ADP_PPR": 372.55,
+    "pos": "LB",
+    "name": "Barton, Cody",
+    "id": "04zuw"
+  },
+  {
+    "ADP_PPR": 261,
+    "pos": "S",
+    "name": "Bates, Jessie",
+    "id": "04ogg"
+  },
+  {
+    "ADP_PPR": 292.63,
+    "pos": "TE",
+    "name": "Bellinger, Daniel",
+    "id": "060tb"
+  },
+  {
+    "ADP_PPR": 347.14,
+    "pos": "S",
+    "name": "Belton, Dane",
+    "id": "06102"
+  },
+  {
+    "ADP_PPR": 331,
+    "pos": "CB",
+    "name": "Benford, Christian",
+    "id": "06115"
+  },
+  {
+    "ADP_PPR": 292.43,
+    "pos": "WR",
+    "name": "Benson, Malik",
+    "id": "0752f"
+  },
+  {
+    "ADP_PPR": 292.84,
+    "pos": "RB",
+    "name": "Benson, Trey",
+    "id": "06jes"
+  },
+  {
+    "ADP_PPR": 399.33,
+    "pos": "DT",
+    "name": "Benton, Keeanu",
+    "id": "06ari"
+  },
+  {
+    "ADP_PPR": 293.78,
+    "pos": "LB",
+    "name": "Bernard, Terrel",
+    "id": "060zi"
+  },
+  {
+    "ADP_PPR": 357.99,
+    "pos": "LB",
+    "name": "Bethune, Tatum",
+    "id": "06lc6"
+  },
+  {
+    "ADP_PPR": 373.43,
+    "pos": "S",
+    "name": "Bishop, Cole",
+    "id": "06l6d"
+  },
+  {
+    "ADP_PPR": 294.43,
+    "pos": "S",
+    "name": "Blackmon, Julian",
+    "id": "05jb8"
+  },
+  {
+    "ADP_PPR": 328.57,
+    "pos": "CB",
+    "name": "Bland, DaRon",
+    "id": "0610f"
+  },
+  {
+    "ADP_PPR": 320.57,
+    "pos": "S",
+    "name": "Blankenship, Reed",
+    "id": "0619y"
+  },
+  {
+    "ADP_PPR": 444.33,
+    "pos": "P",
+    "name": "Bojorquez, Corey",
+    "id": "04p1l"
+  },
+  {
+    "ADP_PPR": 293.82,
+    "pos": "WR",
+    "name": "Bond, Isaiah",
+    "id": "06s79"
+  },
+  {
+    "ADP_PPR": 356.77,
+    "pos": "OLB",
+    "name": "Bonitto, Nik",
+    "id": "060re"
+  },
+  {
+    "ADP_PPR": 352.99,
+    "pos": "DT",
+    "name": "Booker, Thomas",
+    "id": "0610s"
+  },
+  {
+    "ADP_PPR": 347.87,
+    "pos": "CB",
+    "name": "Bowman, Billy",
+    "id": "06sv9"
+  },
+  {
+    "ADP_PPR": 308.86,
+    "pos": "DB",
+    "name": "Branch, Brian",
+    "id": "06and"
+  },
+  {
+    "ADP_PPR": 293.32,
+    "pos": "TE",
+    "name": "Bredeson, Max",
+    "id": "0751j"
+  },
+  {
+    "ADP_PPR": 279.29,
+    "pos": "DB",
+    "name": "Brisker, Jaquan",
+    "id": "060lz"
+  },
+  {
+    "ADP_PPR": 291.8,
+    "pos": "WR",
+    "name": "Brown, Barion",
+    "id": "0752h"
+  },
+  {
+    "ADP_PPR": 290.83,
+    "pos": "WR",
+    "name": "Brown, Camden",
+    "id": "075b6"
+  },
+  {
+    "ADP_PPR": 243.33,
+    "pos": "DT",
+    "name": "Brown, Derrick",
+    "id": "05j9p"
+  },
+  {
+    "ADP_PPR": 292.16,
+    "pos": "WR",
+    "name": "Brown, Dyami",
+    "id": "05rnu"
+  },
+  {
+    "ADP_PPR": 289.57,
+    "pos": "WR",
+    "name": "Brown, Marquise",
+    "id": "04yno"
+  },
+  {
+    "ADP_PPR": 406.99,
+    "pos": "CB",
+    "name": "Brown, Montaric",
+    "id": "0612a"
+  },
+  {
+    "ADP_PPR": 292.32,
+    "pos": "QB",
+    "name": "Browning, Jake",
+    "id": "04zcs"
+  },
+  {
+    "ADP_PPR": 292.2,
+    "pos": "WR",
+    "name": "Burks, Deion",
+    "id": "07544"
+  },
+  {
+    "ADP_PPR": 293.6,
+    "pos": "WR",
+    "name": "Burks, Treylon",
+    "id": "060k5"
+  },
+  {
+    "ADP_PPR": 241.78,
+    "pos": "OLB",
+    "name": "Burns, Brian",
+    "id": "04yqe"
+  },
+  {
+    "ADP_PPR": 239.78,
+    "pos": "LB",
+    "name": "Bush, Devin",
+    "id": "04yo4"
+  },
+  {
+    "ADP_PPR": 425.83,
+    "pos": "DT",
+    "name": "Butler, Adam",
+    "id": "04csz"
+  },
+  {
+    "ADP_PPR": 254,
+    "pos": "DB",
+    "name": "Byard, Kevin",
+    "id": "040f8"
+  },
+  {
+    "ADP_PPR": 382.42,
+    "pos": "S",
+    "name": "Bynum, Camryn",
+    "id": "05rox"
+  },
+  {
+    "ADP_PPR": 356.35,
+    "pos": "DT",
+    "name": "Caldwell, Jamaree",
+    "id": "06sty"
+  },
+  {
+    "ADP_PPR": 363.42,
+    "pos": "DL",
+    "name": "Campbell, Calais",
+    "id": "005ah"
+  },
+  {
+    "ADP_PPR": 283.43,
+    "pos": "CB",
+    "name": "Campbell, Tyson",
+    "id": "05rn1"
+  },
+  {
+    "ADP_PPR": 273.22,
+    "pos": "OLB",
+    "name": "Carter, Abdul",
+    "id": "06rpu"
+  },
+  {
+    "ADP_PPR": 285.56,
+    "pos": "LB",
+    "name": "Carter, Barrett",
+    "id": "06svq"
+  },
+  {
+    "ADP_PPR": 291.17,
+    "pos": "DT",
+    "name": "Carter, Jalen",
+    "id": "06an6"
+  },
+  {
+    "ADP_PPR": 292.38,
+    "pos": "RB",
+    "name": "Carter, Michael",
+    "id": "05roe"
+  },
+  {
+    "ADP_PPR": 393.55,
+    "pos": "LB",
+    "name": "Chaisson, K'Lavon",
+    "id": "05j9t"
+  },
+  {
+    "ADP_PPR": 370.66,
+    "pos": "LB",
+    "name": "Chenal, Leo",
+    "id": "060r1"
+  },
+  {
+    "ADP_PPR": 337.22,
+    "pos": "LB",
+    "name": "Cherelus, Claudin",
+    "id": "06bbp"
+  },
+  {
+    "ADP_PPR": 291.88,
+    "pos": "WR",
+    "name": "Chism, Efton",
+    "id": "06t7p"
+  },
+  {
+    "ADP_PPR": 286.51,
+    "pos": "RB",
+    "name": "Claiborne, Demond",
+    "id": "0752t"
+  },
+  {
+    "ADP_PPR": 419.49,
+    "pos": "DT",
+    "name": "Clark, Kenny",
+    "id": "040ed"
+  },
+  {
+    "ADP_PPR": 372.14,
+    "pos": "DE",
+    "name": "Clowney, Jadeveon",
+    "id": "03ccl"
+  },
+  {
+    "ADP_PPR": 400.33,
+    "pos": "P",
+    "name": "Cole, A.J.",
+    "id": "050am"
+  },
+  {
+    "ADP_PPR": 293.64,
+    "pos": "WR",
+    "name": "Coleman, Kevin",
+    "id": "07521"
+  },
+  {
+    "ADP_PPR": 474.83,
+    "pos": "DT",
+    "name": "Collins, Maliek",
+    "id": "040fd"
+  },
+  {
+    "ADP_PPR": 292.36,
+    "pos": "RB",
+    "name": "Connors, Dean",
+    "id": "075bu"
+  },
+  {
+    "ADP_PPR": 399.34,
+    "pos": "P",
+    "name": "Constantinou, Nik",
+    "id": "06lu4"
+  },
+  {
+    "ADP_PPR": 389.85,
+    "pos": "S",
+    "name": "Cook, Bryan",
+    "id": "060zf"
+  },
+  {
+    "ADP_PPR": 419.67,
+    "pos": "P",
+    "name": "Cooke, Logan",
+    "id": "04ojx"
+  },
+  {
+    "ADP_PPR": 235,
+    "pos": "LB",
+    "name": "Cooper, Edgerrin",
+    "id": "06l63"
+  },
+  {
+    "ADP_PPR": 361.2,
+    "pos": "OLB",
+    "name": "Cooper, Jonathon",
+    "id": "01lqn"
+  },
+  {
+    "ADP_PPR": 382.67,
+    "pos": "P",
+    "name": "Crawshaw, Jeremy",
+    "id": "06sx4"
+  },
+  {
+    "ADP_PPR": 292.28,
+    "pos": "QB",
+    "name": "Dalton, Andy",
+    "id": "026tl"
+  },
+  {
+    "ADP_PPR": 292.56,
+    "pos": "WR",
+    "name": "Daniels, CJ",
+    "id": "0752b"
+  },
+  {
+    "ADP_PPR": 292.12,
+    "pos": "QB",
+    "name": "Daniels, Jalon",
+    "id": "07552"
+  },
+  {
+    "ADP_PPR": 415.29,
+    "pos": "CB",
+    "name": "Davis, Carlton",
+    "id": "04mob"
+  },
+  {
+    "ADP_PPR": 254,
+    "pos": "LB",
+    "name": "Davis, Demario",
+    "id": "02j9v"
+  },
+  {
+    "ADP_PPR": 293.01,
+    "pos": "RB",
+    "name": "Davis, Isaiah",
+    "id": "06l8w"
+  },
+  {
+    "ADP_PPR": 303.89,
+    "pos": "LB",
+    "name": "Davis-Gaither, Akeem",
+    "id": "05jbq"
+  },
+  {
+    "ADP_PPR": 291.9,
+    "pos": "QB",
+    "name": "DeVito, Tommy",
+    "id": "06bb9"
+  },
+  {
+    "ADP_PPR": 270.11,
+    "pos": "LB",
+    "name": "Deablo, Divine",
+    "id": "05rng"
+  },
+  {
+    "ADP_PPR": 262.78,
+    "pos": "LB",
+    "name": "Dean, Nakobe",
+    "id": "060ke"
+  },
+  {
+    "ADP_PPR": 293.22,
+    "pos": "TE",
+    "name": "Delp, Oscar",
+    "id": "073pu"
+  },
+  {
+    "ADP_PPR": 313.43,
+    "pos": "S",
+    "name": "Delpit, Grant",
+    "id": "05jai"
+  },
+  {
+    "ADP_PPR": 349.66,
+    "pos": "LB",
+    "name": "Dennis, SirVocea",
+    "id": "06azr"
+  },
+  {
+    "ADP_PPR": 292.05,
+    "pos": "RB",
+    "name": "Desrosiers, Greg",
+    "id": "0755q"
+  },
+  {
+    "ADP_PPR": 360.86,
+    "pos": "DL",
+    "name": "Dexter, Gervon",
+    "id": "06ape"
+  },
+  {
+    "ADP_PPR": 341,
+    "pos": "P",
+    "name": "Diaz, Julian",
+    "id": "0680q"
+  },
+  {
+    "ADP_PPR": 347.67,
+    "pos": "P",
+    "name": "Dickson, Michael",
+    "id": "04oht"
+  },
+  {
+    "ADP_PPR": 292.38,
+    "pos": "RB",
+    "name": "Dillon, A.J.",
+    "id": "05ilk"
+  },
+  {
+    "ADP_PPR": 433.33,
+    "pos": "P",
+    "name": "Dixon, Riley",
+    "id": "040jw"
+  },
+  {
+    "ADP_PPR": 293.73,
+    "pos": "WR",
+    "name": "Dortch, Greg",
+    "id": "050gh"
+  },
+  {
+    "ADP_PPR": 291.77,
+    "pos": "WR",
+    "name": "Dotson, Jahan",
+    "id": "060ls"
+  },
+  {
+    "ADP_PPR": 376.14,
+    "pos": "CB",
+    "name": "Douglas, Rasul",
+    "id": "04cdn"
+  },
+  {
+    "ADP_PPR": 292.14,
+    "pos": "WR",
+    "name": "Dulin, Ashton",
+    "id": "0505u"
+  },
+  {
+    "ADP_PPR": 291.76,
+    "pos": "WR",
+    "name": "Duvernay, Devin",
+    "id": "05jbe"
+  },
+  {
+    "ADP_PPR": 347.73,
+    "pos": "DL",
+    "name": "Eboigbe, Justin",
+    "id": "06l7b"
+  },
+  {
+    "ADP_PPR": 192.33,
+    "pos": "LB",
+    "name": "Edmunds, Tremaine",
+    "id": "04mtd"
+  },
+  {
+    "ADP_PPR": 258.55,
+    "pos": "LB",
+    "name": "Edwards, T.J.",
+    "id": "04yph"
+  },
+  {
+    "ADP_PPR": 319.43,
+    "pos": "S",
+    "name": "Elliott, DeShon",
+    "id": "04mpb"
+  },
+  {
+    "ADP_PPR": 393.66,
+    "pos": "LB",
+    "name": "Elliss, Christian",
+    "id": "05rvg"
+  },
+  {
+    "ADP_PPR": 272.33,
+    "pos": "LB",
+    "name": "Elliss, Kaden",
+    "id": "04zxc"
+  },
+  {
+    "ADP_PPR": 274.72,
+    "pos": "S",
+    "name": "Emmanwori, Nick",
+    "id": "06ssw"
+  },
+  {
+    "ADP_PPR": 292.45,
+    "pos": "RB",
+    "name": "Estime, Audric",
+    "id": "06jer"
+  },
+  {
+    "ADP_PPR": 293.43,
+    "pos": "RB",
+    "name": "Etienne, Trevor",
+    "id": "06sfy"
+  },
+  {
+    "ADP_PPR": 421.33,
+    "pos": "P",
+    "name": "Evans, Ethan",
+    "id": "06b0s"
+  },
+  {
+    "ADP_PPR": 291.72,
+    "pos": "TE",
+    "name": "Evans, Mitchell",
+    "id": "06swp"
+  },
+  {
+    "ADP_PPR": 292.38,
+    "pos": "QB",
+    "name": "Ewers, Quinn",
+    "id": "06sys"
+  },
+  {
+    "ADP_PPR": 291.91,
+    "pos": "TE",
+    "name": "Faleye, Ademola",
+    "id": "075b4"
+  },
+  {
+    "ADP_PPR": 293.2,
+    "pos": "TE",
+    "name": "Fant, Noah",
+    "id": "04ynn"
+  },
+  {
+    "ADP_PPR": 409.72,
+    "pos": "DE",
+    "name": "Fiske, Braden",
+    "id": "06l5z"
+  },
+  {
+    "ADP_PPR": 321.29,
+    "pos": "S",
+    "name": "Fitzpatrick, Minkah",
+    "id": "04mny"
+  },
+  {
+    "ADP_PPR": 292.98,
+    "pos": "RB",
+    "name": "Ford, Jerome",
+    "id": "060rw"
+  },
+  {
+    "ADP_PPR": 342.01,
+    "pos": "DT",
+    "name": "Ford, Poona",
+    "id": "04ot5"
+  },
+  {
+    "ADP_PPR": 292.05,
+    "pos": "WR",
+    "name": "Foster, Montorie",
+    "id": "06tw0"
+  },
+  {
+    "ADP_PPR": 409.33,
+    "pos": "P",
+    "name": "Fox, Jack",
+    "id": "0507g"
+  },
+  {
+    "ADP_PPR": 244,
+    "pos": "LB",
+    "name": "Franklin, Zaire",
+    "id": "04ojg"
+  },
+  {
+    "ADP_PPR": 329.14,
+    "pos": "DL",
+    "name": "Franklin-Myers, John",
+    "id": "04ohi"
+  },
+  {
+    "ADP_PPR": 292.17,
+    "pos": "QB",
+    "name": "Gabriel, Dillon",
+    "id": "06stp"
+  },
+  {
+    "ADP_PPR": 436.44,
+    "pos": "CB",
+    "name": "Gardner, Ahmad",
+    "id": "060jy"
+  },
+  {
+    "ADP_PPR": 291.94,
+    "pos": "QB",
+    "name": "Garoppolo, Jimmy",
+    "id": "03ceh"
+  },
+  {
+    "ADP_PPR": 360.77,
+    "pos": "OLB",
+    "name": "Gary, Rashan",
+    "id": "04yn6"
+  },
+  {
+    "ADP_PPR": 445.67,
+    "pos": "P",
+    "name": "Gillikin, Blake",
+    "id": "05jku"
+  },
+  {
+    "ADP_PPR": 331.01,
+    "pos": "DE",
+    "name": "Gillotte, Ashton",
+    "id": "06stv"
+  },
+  {
+    "ADP_PPR": 376.28,
+    "pos": "S",
+    "name": "Gilman, Alohi",
+    "id": "05jdn"
+  },
+  {
+    "ADP_PPR": 304.43,
+    "pos": "CB",
+    "name": "Gonzalez, Christian",
+    "id": "06an0"
+  },
+  {
+    "ADP_PPR": 292.58,
+    "pos": "K",
+    "name": "Gonzalez, Zane",
+    "id": "04ch5"
+  },
+  {
+    "ADP_PPR": 349.71,
+    "pos": "DB",
+    "name": "Gordon, Kyler",
+    "id": "060rk"
+  },
+  {
+    "ADP_PPR": 292.01,
+    "pos": "RB",
+    "name": "Gore Jr., Frank",
+    "id": "06lfi"
+  },
+  {
+    "ADP_PPR": 327.83,
+    "pos": "DT",
+    "name": "Graham, Mason",
+    "id": "06src"
+  },
+  {
+    "ADP_PPR": 316.86,
+    "pos": "DE",
+    "name": "Granderson, Carl",
+    "id": "04yqj"
+  },
+  {
+    "ADP_PPR": 426.65,
+    "pos": "DT",
+    "name": "Grant, Kenneth",
+    "id": "06rq2"
+  },
+  {
+    "ADP_PPR": 211.22,
+    "pos": "LB",
+    "name": "Gray, Cedric",
+    "id": "06l7c"
+  },
+  {
+    "ADP_PPR": 293.71,
+    "pos": "TE",
+    "name": "Gray, Noah",
+    "id": "05rpy"
+  },
+  {
+    "ADP_PPR": 368.66,
+    "pos": "OLB",
+    "name": "Greenard, Jonathan",
+    "id": "05jbf"
+  },
+  {
+    "ADP_PPR": 388.55,
+    "pos": "LB",
+    "name": "Greenlaw, Dre",
+    "id": "04zvq"
+  },
+  {
+    "ADP_PPR": 292.56,
+    "pos": "RB",
+    "name": "Guerendo, Isaac",
+    "id": "06l7v"
+  },
+  {
+    "ADP_PPR": 338.33,
+    "pos": "P",
+    "name": "Haack, Matt",
+    "id": "04csk"
+  },
+  {
+    "ADP_PPR": 360.01,
+    "pos": "DT",
+    "name": "Hamilton, Davon",
+    "id": "05jb1"
+  },
+  {
+    "ADP_PPR": 377.71,
+    "pos": "DL",
+    "name": "Hand, Da'Shawn",
+    "id": "04mt2"
+  },
+  {
+    "ADP_PPR": 394.29,
+    "pos": "DL",
+    "name": "Hargrave, Javon",
+    "id": "040g6"
+  },
+  {
+    "ADP_PPR": 380.14,
+    "pos": "S",
+    "name": "Harris, Will",
+    "id": "04zuq"
+  },
+  {
+    "ADP_PPR": 349.43,
+    "pos": "DL",
+    "name": "Harrison, Zach",
+    "id": "06ar7"
+  },
+  {
+    "ADP_PPR": 423.29,
+    "pos": "S",
+    "name": "Haulcy, A.J.",
+    "id": "074ze"
+  },
+  {
+    "ADP_PPR": 373.28,
+    "pos": "S",
+    "name": "Hawkins, Jaylinn",
+    "id": "05jc5"
+  },
+  {
+    "ADP_PPR": 291.65,
+    "pos": "RB",
+    "name": "Heidenreich, Eli",
+    "id": "0753g"
+  },
+  {
+    "ADP_PPR": 452.33,
+    "pos": "P",
+    "name": "Hekker, Johnny",
+    "id": "02jqe"
+  },
+  {
+    "ADP_PPR": 273.78,
+    "pos": "DE",
+    "name": "Hendrickson, Trey",
+    "id": "04cds"
+  },
+  {
+    "ADP_PPR": 266.89,
+    "pos": "LB",
+    "name": "Henley, Daiyan",
+    "id": "06ao9"
+  },
+  {
+    "ADP_PPR": 291.75,
+    "pos": "LB",
+    "name": "Herman, DJ",
+    "id": "075so"
+  },
+  {
+    "ADP_PPR": 253.33,
+    "pos": "DT",
+    "name": "Heyward, Cameron",
+    "id": "026st"
+  },
+  {
+    "ADP_PPR": 293,
+    "pos": "TE",
+    "name": "Heyward, Connor",
+    "id": "0611h"
+  },
+  {
+    "ADP_PPR": 292.47,
+    "pos": "TE",
+    "name": "Hibner, Matthew",
+    "id": "0750u"
+  },
+  {
+    "ADP_PPR": 322,
+    "pos": "S",
+    "name": "Hickman, Ronnie",
+    "id": "06bd9"
+  },
+  {
+    "ADP_PPR": 293.09,
+    "pos": "TE",
+    "name": "Higbee, Tyler",
+    "id": "040gp"
+  },
+  {
+    "ADP_PPR": 333.11,
+    "pos": "LB",
+    "name": "Highsmith, Alex",
+    "id": "05jbo"
+  },
+  {
+    "ADP_PPR": 404.1,
+    "pos": "LB",
+    "name": "Hill, Anthony",
+    "id": "074yy"
+  },
+  {
+    "ADP_PPR": 357.16,
+    "pos": "DT",
+    "name": "Hill, B.J.",
+    "id": "04ogl"
+  },
+  {
+    "ADP_PPR": 316.43,
+    "pos": "CB",
+    "name": "Hill, Daxton",
+    "id": "060kl"
+  },
+  {
+    "ADP_PPR": 291.87,
+    "pos": "WR",
+    "name": "Hilton, Chris",
+    "id": "0757a"
+  },
+  {
+    "ADP_PPR": 229.57,
+    "pos": "DE",
+    "name": "Hines-Allen, Josh",
+    "id": "04yn5"
+  },
+  {
+    "ADP_PPR": 291.94,
+    "pos": "WR",
+    "name": "Hippenhammer, Mac",
+    "id": "06ba0"
+  },
+  {
+    "ADP_PPR": 441.72,
+    "pos": "S",
+    "name": "Holland, Jevon",
+    "id": "05rmx"
+  },
+  {
+    "ADP_PPR": 293.5,
+    "pos": "WR",
+    "name": "Hollins, Mack",
+    "id": "04ce6"
+  },
+  {
+    "ADP_PPR": 336.57,
+    "pos": "S",
+    "name": "Hooker, Amani",
+    "id": "04yql"
+  },
+  {
+    "ADP_PPR": 397.71,
+    "pos": "S",
+    "name": "Hooker, Malik",
+    "id": "04ca9"
+  },
+  {
+    "ADP_PPR": 293.7,
+    "pos": "TE",
+    "name": "Hooper, Austin",
+    "id": "040fx"
+  },
+  {
+    "ADP_PPR": 368.85,
+    "pos": "CB",
+    "name": "Horn, Jaycee",
+    "id": "05rm4"
+  },
+  {
+    "ADP_PPR": 290.96,
+    "pos": "WR",
+    "name": "Horton, Tory",
+    "id": "06sfm"
+  },
+  {
+    "ADP_PPR": 353.33,
+    "pos": "DE",
+    "name": "Houston, James",
+    "id": "0611l"
+  },
+  {
+    "ADP_PPR": 291.82,
+    "pos": "QB",
+    "name": "Howard, Will",
+    "id": "06sgo"
+  },
+  {
+    "ADP_PPR": 382.57,
+    "pos": "DE",
+    "name": "Howell, Cashius",
+    "id": "074yf"
+  },
+  {
+    "ADP_PPR": 338,
+    "pos": "P",
+    "name": "Hughes, A.J.",
+    "id": "04apn"
+  },
+  {
+    "ADP_PPR": 383.29,
+    "pos": "CB",
+    "name": "Hughes, Mike",
+    "id": "04mol"
+  },
+  {
+    "ADP_PPR": 292.57,
+    "pos": "WR",
+    "name": "Humphrey, Lil'Jordan",
+    "id": "04yoo"
+  },
+  {
+    "ADP_PPR": 279.29,
+    "pos": "CB",
+    "name": "Humphrey, Marlon",
+    "id": "04cab"
+  },
+  {
+    "ADP_PPR": 350.83,
+    "pos": "DT",
+    "name": "Hunter, Lee",
+    "id": "074yn"
+  },
+  {
+    "ADP_PPR": 293.04,
+    "pos": "WR",
+    "name": "Hutchinson, Xavier",
+    "id": "06ap2"
+  },
+  {
+    "ADP_PPR": 292.08,
+    "pos": "FB",
+    "name": "Ingold, Alec",
+    "id": "05075"
+  },
+  {
+    "ADP_PPR": 416.84,
+    "pos": "DT",
+    "name": "Jackson, Cam",
+    "id": "06swo"
+  },
+  {
+    "ADP_PPR": 379.99,
+    "pos": "LB",
+    "name": "Jackson, D'Marco",
+    "id": "0610v"
+  },
+  {
+    "ADP_PPR": 308.14,
+    "pos": "CB",
+    "name": "Jackson, Michael",
+    "id": "04zvw"
+  },
+  {
+    "ADP_PPR": 287.86,
+    "pos": "DL",
+    "name": "Jarrett, Grady",
+    "id": "03oks"
+  },
+  {
+    "ADP_PPR": 421.01,
+    "pos": "S",
+    "name": "Jefferson, Tony",
+    "id": "0304u"
+  },
+  {
+    "ADP_PPR": 350.3,
+    "pos": "S",
+    "name": "Johnson, Antonio",
+    "id": "06anw"
+  },
+  {
+    "ADP_PPR": 382.28,
+    "pos": "CB",
+    "name": "Johnson, Chris",
+    "id": "074y5"
+  },
+  {
+    "ADP_PPR": 290.53,
+    "pos": "RB",
+    "name": "Johnson, Roschon",
+    "id": "06az2"
+  },
+  {
+    "ADP_PPR": 293.22,
+    "pos": "WR",
+    "name": "Johnson, Tez",
+    "id": "06sfl"
+  },
+  {
+    "ADP_PPR": 292.24,
+    "pos": "TE",
+    "name": "Johnson, Theo",
+    "id": "06l7d"
+  },
+  {
+    "ADP_PPR": 291.93,
+    "pos": "RB",
+    "name": "Johnson, Ty",
+    "id": "04zec"
+  },
+  {
+    "ADP_PPR": 350.59,
+    "pos": "CB",
+    "name": "Johnson, Will",
+    "id": "06ssq"
+  },
+  {
+    "ADP_PPR": 438.67,
+    "pos": "P",
+    "name": "Johnston, Cameron",
+    "id": "04cww"
+  },
+  {
+    "ADP_PPR": 293.09,
+    "pos": "TE",
+    "name": "Joly, Justin",
+    "id": "0751c"
+  },
+  {
+    "ADP_PPR": 422.72,
+    "pos": "S",
+    "name": "Jones, Brandon",
+    "id": "05jay"
+  },
+  {
+    "ADP_PPR": 341.17,
+    "pos": "DT",
+    "name": "Jones, Chris",
+    "id": "040em"
+  },
+  {
+    "ADP_PPR": 414.87,
+    "pos": "DE",
+    "name": "Jones, Dre'Mont",
+    "id": "04yq3"
+  },
+  {
+    "ADP_PPR": 349.85,
+    "pos": "CB",
+    "name": "Jones, Marcus",
+    "id": "060zh"
+  },
+  {
+    "ADP_PPR": 366.28,
+    "pos": "DL",
+    "name": "Jones, Travis",
+    "id": "060lr"
+  },
+  {
+    "ADP_PPR": 332.28,
+    "pos": "DE",
+    "name": "Jordan, Cameron",
+    "id": "026sl"
+  },
+  {
+    "ADP_PPR": 293.25,
+    "pos": "RB",
+    "name": "Jordan, Jawhar",
+    "id": "06lau"
+  },
+  {
+    "ADP_PPR": 292.84,
+    "pos": "FB",
+    "name": "Juszczyk, Kyle",
+    "id": "02zvk"
+  },
+  {
+    "ADP_PPR": 292.95,
+    "pos": "TE",
+    "name": "Kacmarek, Will",
+    "id": "074zn"
+  },
+  {
+    "ADP_PPR": 352.86,
+    "pos": "DL",
+    "name": "Kancey, Calijah",
+    "id": "06anh"
+  },
+  {
+    "ADP_PPR": 384.28,
+    "pos": "S",
+    "name": "Kinchens, Kamren",
+    "id": "06jg1"
+  },
+  {
+    "ADP_PPR": 291.88,
+    "pos": "RB",
+    "name": "Kiner, Corey",
+    "id": "06ta6"
+  },
+  {
+    "ADP_PPR": 359.18,
+    "pos": "DT",
+    "name": "Kinlaw, Javon",
+    "id": "05j9q"
+  },
+  {
+    "ADP_PPR": 293.39,
+    "pos": "TE",
+    "name": "Klare, Max",
+    "id": "074yz"
+  },
+  {
+    "ADP_PPR": 292.08,
+    "pos": "TE",
+    "name": "Klein, Marlin",
+    "id": "074yx"
+  },
+  {
+    "ADP_PPR": 291.43,
+    "pos": "TE",
+    "name": "Kmet, Cole",
+    "id": "05guc"
+  },
+  {
+    "ADP_PPR": 331.89,
+    "pos": "LB",
+    "name": "Knight, Demetrius",
+    "id": "06st2"
+  },
+  {
+    "ADP_PPR": 291.94,
+    "pos": "TE",
+    "name": "Knox, Trey",
+    "id": "06lee"
+  },
+  {
+    "ADP_PPR": 292.31,
+    "pos": "TE",
+    "name": "Kolar, Charlie",
+    "id": "060sj"
+  },
+  {
+    "ADP_PPR": 292.53,
+    "pos": "TE",
+    "name": "Koziol, Tanner",
+    "id": "0751o"
+  },
+  {
+    "ADP_PPR": 350.33,
+    "pos": "P",
+    "name": "Kroeger, Kai",
+    "id": "06twg"
+  },
+  {
+    "ADP_PPR": 324,
+    "pos": "S",
+    "name": "Lake, Quentin",
+    "id": "0611n"
+  },
+  {
+    "ADP_PPR": 292.09,
+    "pos": "QB",
+    "name": "Lance, Trey",
+    "id": "05rm8"
+  },
+  {
+    "ADP_PPR": 218.89,
+    "pos": "LB",
+    "name": "Landman, Nathan",
+    "id": "0617k"
+  },
+  {
+    "ADP_PPR": 292.88,
+    "pos": "WR",
+    "name": "Lane, Jaylin",
+    "id": "06svj"
+  },
+  {
+    "ADP_PPR": 254.57,
+    "pos": "CB",
+    "name": "Lassiter, Kamari",
+    "id": "06jg5"
+  },
+  {
+    "ADP_PPR": 282.43,
+    "pos": "DE",
+    "name": "Latu, Laiatu",
+    "id": "06jfx"
+  },
+  {
+    "ADP_PPR": 343.33,
+    "pos": "DT",
+    "name": "Laulu, Jonah",
+    "id": "06lbp"
+  },
+  {
+    "ADP_PPR": 250.11,
+    "pos": "OLB",
+    "name": "Lawrence, Demarcus",
+    "id": "03cdr"
+  },
+  {
+    "ADP_PPR": 369.15,
+    "pos": "DL",
+    "name": "Lawrence, Dexter",
+    "id": "04yq8"
+  },
+  {
+    "ADP_PPR": 291.43,
+    "pos": "WR",
+    "name": "Legette, Xavier",
+    "id": "06je4"
+  },
+  {
+    "ADP_PPR": 385.85,
+    "pos": "DB",
+    "name": "Lenoir, Deommodore",
+    "id": "05rq7"
+  },
+  {
+    "ADP_PPR": 292.99,
+    "pos": "QB",
+    "name": "Leonard, Riley",
+    "id": "06sxn"
+  },
+  {
+    "ADP_PPR": 300.78,
+    "pos": "LB",
+    "name": "Lloyd, Devin",
+    "id": "060ka"
+  },
+  {
+    "ADP_PPR": 291.99,
+    "pos": "QB",
+    "name": "Lock, Drew",
+    "id": "04yn4"
+  },
+  {
+    "ADP_PPR": 285.29,
+    "pos": "DL",
+    "name": "London, Lacale",
+    "id": "05jms"
+  },
+  {
+    "ADP_PPR": 348.72,
+    "pos": "S",
+    "name": "Love, Julian",
+    "id": "04yo9"
+  },
+  {
+    "ADP_PPR": 292.12,
+    "pos": "RB",
+    "name": "Luepke, Hunter",
+    "id": "06brt"
+  },
+  {
+    "ADP_PPR": 349,
+    "pos": "LB",
+    "name": "Luvu, Frankie",
+    "id": "04oty"
+  },
+  {
+    "ADP_PPR": 360.22,
+    "pos": "OLB",
+    "name": "Mack, Khalil",
+    "id": "03ccq"
+  },
+  {
+    "ADP_PPR": 279.29,
+    "pos": "DL",
+    "name": "Madubuike, Justin",
+    "id": "05jb2"
+  },
+  {
+    "ADP_PPR": 291.85,
+    "pos": "RB",
+    "name": "Mafah, Phil",
+    "id": "06syh"
+  },
+  {
+    "ADP_PPR": 376.32,
+    "pos": "LB",
+    "name": "Mafe, Boye",
+    "id": "060zc"
+  },
+  {
+    "ADP_PPR": 444.01,
+    "pos": "P",
+    "name": "Mann, Braden",
+    "id": "05jdu"
+  },
+  {
+    "ADP_PPR": 292.47,
+    "pos": "QB",
+    "name": "Mariota, Marcus",
+    "id": "03kiy"
+  },
+  {
+    "ADP_PPR": 356.33,
+    "pos": "P",
+    "name": "Martin, Sam",
+    "id": "02zwh"
+  },
+  {
+    "ADP_PPR": 292.03,
+    "pos": "WR",
+    "name": "Martin, Tay",
+    "id": "0616a"
+  },
+  {
+    "ADP_PPR": 291.76,
+    "pos": "QB",
+    "name": "Martinez, Adrian",
+    "id": "06b1t"
+  },
+  {
+    "ADP_PPR": 291.27,
+    "pos": "TE",
+    "name": "Mayer, Michael",
+    "id": "06ann"
+  },
+  {
+    "ADP_PPR": 292.35,
+    "pos": "WR",
+    "name": "McCaffrey, Luke",
+    "id": "06l77"
+  },
+  {
+    "ADP_PPR": 341.72,
+    "pos": "CB",
+    "name": "McCollum, Zyon",
+    "id": "0610w"
+  },
+  {
+    "ADP_PPR": 388.57,
+    "pos": "DE",
+    "name": "McDonald IV, Will",
+    "id": "06ao0"
+  },
+  {
+    "ADP_PPR": 408.16,
+    "pos": "DT",
+    "name": "McDonald, Kayden",
+    "id": "074ya"
+  },
+  {
+    "ADP_PPR": 341.14,
+    "pos": "CB",
+    "name": "McDuffie, Trent",
+    "id": "060jz"
+  },
+  {
+    "ADP_PPR": 292.66,
+    "pos": "RB",
+    "name": "McIntosh, Kenny",
+    "id": "06aqw"
+  },
+  {
+    "ADP_PPR": 287.71,
+    "pos": "CB",
+    "name": "McKinstry, Kool-Aid",
+    "id": "06l60"
+  },
+  {
+    "ADP_PPR": 309.86,
+    "pos": "CB",
+    "name": "McMillian, Ja'Quan",
+    "id": "061cl"
+  },
+  {
+    "ADP_PPR": 291.63,
+    "pos": "RB",
+    "name": "McMillian, Travon",
+    "id": "04zf1"
+  },
+  {
+    "ADP_PPR": 329,
+    "pos": "P",
+    "name": "McNamara, Austin",
+    "id": "06lj5"
+  },
+  {
+    "ADP_PPR": 292.01,
+    "pos": "WR",
+    "name": "Meeks, Jackson",
+    "id": "06t6c"
+  },
+  {
+    "ADP_PPR": 293.27,
+    "pos": "WR",
+    "name": "Metchie III, John",
+    "id": "060rv"
+  },
+  {
+    "ADP_PPR": 308.14,
+    "pos": "S",
+    "name": "Metellus, Josh",
+    "id": "05je8"
+  },
+  {
+    "ADP_PPR": 291.98,
+    "pos": "WR",
+    "name": "Meyers, Dohnte",
+    "id": "072jq"
+  },
+  {
+    "ADP_PPR": 292.55,
+    "pos": "RB",
+    "name": "Miller, Jam",
+    "id": "0753v"
+  },
+  {
+    "ADP_PPR": 292.28,
+    "pos": "RB",
+    "name": "Miller, Kendre",
+    "id": "06aom"
+  },
+  {
+    "ADP_PPR": 385.21,
+    "pos": "LB",
+    "name": "Miller, Ventrell",
+    "id": "06az7"
+  },
+  {
+    "ADP_PPR": 292.32,
+    "pos": "QB",
+    "name": "Mills, Davis",
+    "id": "05rno"
+  },
+  {
+    "ADP_PPR": 291.42,
+    "pos": "WR",
+    "name": "Mims, Marvin",
+    "id": "06ayj"
+  },
+  {
+    "ADP_PPR": 291.82,
+    "pos": "WR",
+    "name": "Mingo, Jonathan",
+    "id": "06ao6"
+  },
+  {
+    "ADP_PPR": 292.58,
+    "pos": "QB",
+    "name": "Minshew, Gardner",
+    "id": "04zf5"
+  },
+  {
+    "ADP_PPR": 398.28,
+    "pos": "CB",
+    "name": "Mitchell, Quinyon",
+    "id": "06jg2"
+  },
+  {
+    "ADP_PPR": 292.49,
+    "pos": "RB",
+    "name": "Mixon, Joe",
+    "id": "04cc5"
+  },
+  {
+    "ADP_PPR": 382.14,
+    "pos": "DB",
+    "name": "Molden, Elijah",
+    "id": "05rnm"
+  },
+  {
+    "ADP_PPR": 292.28,
+    "pos": "K",
+    "name": "Moody, Jake",
+    "id": "06asj"
+  },
+  {
+    "ADP_PPR": 292.23,
+    "pos": "WR",
+    "name": "Moore, Elijah",
+    "id": "05rmw"
+  },
+  {
+    "ADP_PPR": 353.72,
+    "pos": "DB",
+    "name": "Moore, Malachi",
+    "id": "06svn"
+  },
+  {
+    "ADP_PPR": 292.09,
+    "pos": "WR",
+    "name": "Moore, Skyy",
+    "id": "060lq"
+  },
+  {
+    "ADP_PPR": 283.14,
+    "pos": "CB",
+    "name": "Moss, Riley",
+    "id": "06asr"
+  },
+  {
+    "ADP_PPR": 349.16,
+    "pos": "S",
+    "name": "Mukuba, Andrew",
+    "id": "06sss"
+  },
+  {
+    "ADP_PPR": 292.59,
+    "pos": "WR",
+    "name": "Mumpfield, Konata",
+    "id": "06sy7"
+  },
+  {
+    "ADP_PPR": 319.33,
+    "pos": "DT",
+    "name": "Murphy, Byron",
+    "id": "06jgb"
+  },
+  {
+    "ADP_PPR": 346.43,
+    "pos": "CB",
+    "name": "Murphy, Byron",
+    "id": "04yqb"
+  },
+  {
+    "ADP_PPR": 346.14,
+    "pos": "DE",
+    "name": "Murphy, Myles",
+    "id": "06ani"
+  },
+  {
+    "ADP_PPR": 350.87,
+    "pos": "S",
+    "name": "Murray, Eric",
+    "id": "040go"
+  },
+  {
+    "ADP_PPR": 293.2,
+    "pos": "TE",
+    "name": "Musgrave, Luke",
+    "id": "06aog"
+  },
+  {
+    "ADP_PPR": 313.72,
+    "pos": "S",
+    "name": "Mustapha, Malik",
+    "id": "06l7r"
+  },
+  {
+    "ADP_PPR": 293.17,
+    "pos": "RB",
+    "name": "Neal, Devin",
+    "id": "06s68"
+  },
+  {
+    "ADP_PPR": 336,
+    "pos": "P",
+    "name": "Newsome, Tyler",
+    "id": "050gz"
+  },
+  {
+    "ADP_PPR": 419.15,
+    "pos": "CB",
+    "name": "Nixon, Keisean",
+    "id": "05078"
+  },
+  {
+    "ADP_PPR": 359.85,
+    "pos": "DL",
+    "name": "Nolen, Walter",
+    "id": "06srb"
+  },
+  {
+    "ADP_PPR": 373.86,
+    "pos": "S",
+    "name": "Nubin, Tyler",
+    "id": "06jgf"
+  },
+  {
+    "ADP_PPR": 416.77,
+    "pos": "OLB",
+    "name": "Ojabo, David",
+    "id": "060jw"
+  },
+  {
+    "ADP_PPR": 292.89,
+    "pos": "LB",
+    "name": "Okereke, Bobby",
+    "id": "04zuu"
+  },
+  {
+    "ADP_PPR": 297.33,
+    "pos": "DT",
+    "name": "Oliver, Ed",
+    "id": "04ypy"
+  },
+  {
+    "ADP_PPR": 293.19,
+    "pos": "TE",
+    "name": "Oliver, Josh",
+    "id": "04zfd"
+  },
+  {
+    "ADP_PPR": 372,
+    "pos": "DL",
+    "name": "Onyemata, David",
+    "id": "040h6"
+  },
+  {
+    "ADP_PPR": 443.15,
+    "pos": "DE",
+    "name": "Ossai, Joseph",
+    "id": "05rn7"
+  },
+  {
+    "ADP_PPR": 335.22,
+    "pos": "LB",
+    "name": "Overshown, DeMarvion",
+    "id": "06apo"
+  },
+  {
+    "ADP_PPR": 326.66,
+    "pos": "OLB",
+    "name": "Oweh, Jayson",
+    "id": "05rld"
+  },
+  {
+    "ADP_PPR": 319.11,
+    "pos": "DE",
+    "name": "Parker, T.J.",
+    "id": "074y9"
+  },
+  {
+    "ADP_PPR": 415.58,
+    "pos": "CB",
+    "name": "Parrish, Jacob",
+    "id": "06su0"
+  },
+  {
+    "ADP_PPR": 306,
+    "pos": "DE",
+    "name": "Parsons, Micah",
+    "id": "05rln"
+  },
+  {
+    "ADP_PPR": 291.94,
+    "pos": "QB",
+    "name": "Pavia, Diego",
+    "id": "07587"
+  },
+  {
+    "ADP_PPR": 348.3,
+    "pos": "DE",
+    "name": "Paye, Kwity",
+    "id": "05rlm"
+  },
+  {
+    "ADP_PPR": 341.5,
+    "pos": "DT",
+    "name": "Payne, Daron",
+    "id": "04mo5"
+  },
+  {
+    "ADP_PPR": 313,
+    "pos": "DE",
+    "name": "Pearce, James",
+    "id": "06sr6"
+  },
+  {
+    "ADP_PPR": 303.22,
+    "pos": "LB",
+    "name": "Perryman, Denzel",
+    "id": "03oia"
+  },
+  {
+    "ADP_PPR": 339.43,
+    "pos": "DL",
+    "name": "Phillips, Harrison",
+    "id": "04mql"
+  },
+  {
+    "ADP_PPR": 360.22,
+    "pos": "OLB",
+    "name": "Phillips, Jaelan",
+    "id": "05rll"
+  },
+  {
+    "ADP_PPR": 406,
+    "pos": "P",
+    "name": "Pinion, Bradley",
+    "id": "03olr"
+  },
+  {
+    "ADP_PPR": 308.28,
+    "pos": "S",
+    "name": "Pitre, Jalen",
+    "id": "060z8"
+  },
+  {
+    "ADP_PPR": 391.15,
+    "pos": "S",
+    "name": "Pola-Mao, Isaiah",
+    "id": "061fp"
+  },
+  {
+    "ADP_PPR": 390.14,
+    "pos": "CB",
+    "name": "Porter Jr., Joey",
+    "id": "06ane"
+  },
+  {
+    "ADP_PPR": 291.86,
+    "pos": "K",
+    "name": "Potter, B.T.",
+    "id": "06b2r"
+  },
+  {
+    "ADP_PPR": 291.64,
+    "pos": "RB",
+    "name": "Price, D'vonte",
+    "id": "060s9"
+  },
+  {
+    "ADP_PPR": 291.88,
+    "pos": "WR",
+    "name": "Price, Myles",
+    "id": "06tbt"
+  },
+  {
+    "ADP_PPR": 266.55,
+    "pos": "LB",
+    "name": "Queen, Patrick",
+    "id": "05j9x"
+  },
+  {
+    "ADP_PPR": 255.29,
+    "pos": "CB",
+    "name": "Ramsey, Jalen",
+    "id": "040ds"
+  },
+  {
+    "ADP_PPR": 293.49,
+    "pos": "RB",
+    "name": "Randall, Adam",
+    "id": "0751y"
+  },
+  {
+    "ADP_PPR": 357.68,
+    "pos": "DT",
+    "name": "Rankins, Sheldon",
+    "id": "040e1"
+  },
+  {
+    "ADP_PPR": 405.57,
+    "pos": "S",
+    "name": "Ransom, Lathan",
+    "id": "06svm"
+  },
+  {
+    "ADP_PPR": 292.43,
+    "pos": "TE",
+    "name": "Raridon, Eli",
+    "id": "074zu"
+  },
+  {
+    "ADP_PPR": 292.09,
+    "pos": "WR",
+    "name": "Raymond, Kalif",
+    "id": "040pv"
+  },
+  {
+    "ADP_PPR": 349.3,
+    "pos": "DL",
+    "name": "Reader, D.J.",
+    "id": "040ii"
+  },
+  {
+    "ADP_PPR": 347.02,
+    "pos": "S",
+    "name": "Reaves, Jeremy",
+    "id": "04oxf"
+  },
+  {
+    "ADP_PPR": 266.72,
+    "pos": "DL",
+    "name": "Redmond, Jalen",
+    "id": "06bcm"
+  },
+  {
+    "ADP_PPR": 415.65,
+    "pos": "DT",
+    "name": "Reed, Jarran",
+    "id": "040cb"
+  },
+  {
+    "ADP_PPR": 349.56,
+    "pos": "LB",
+    "name": "Reese, Arvell",
+    "id": "074y2"
+  },
+  {
+    "ADP_PPR": 370.33,
+    "pos": "P",
+    "name": "Rehkow, Ryan",
+    "id": "06lmt"
+  },
+  {
+    "ADP_PPR": 359.29,
+    "pos": "S",
+    "name": "Reid, Justin",
+    "id": "04mof"
+  },
+  {
+    "ADP_PPR": 292.07,
+    "pos": "FB",
+    "name": "Ricard, Patrick",
+    "id": "04crd"
+  },
+  {
+    "ADP_PPR": 292.9,
+    "pos": "QB",
+    "name": "Richardson, Anthony",
+    "id": "06an4"
+  },
+  {
+    "ADP_PPR": 291.88,
+    "pos": "RB",
+    "name": "Rivers, Ronnie",
+    "id": "060tm"
+  },
+  {
+    "ADP_PPR": 349.33,
+    "pos": "DT",
+    "name": "Robinson, A'Shawn",
+    "id": "040et"
+  },
+  {
+    "ADP_PPR": 347.44,
+    "pos": "LB",
+    "name": "Robinson, Chop",
+    "id": "06l5s"
+  },
+  {
+    "ADP_PPR": 348,
+    "pos": "DL",
+    "name": "Robinson, Darius",
+    "id": "06l5u"
+  },
+  {
+    "ADP_PPR": 293.16,
+    "pos": "WR",
+    "name": "Robinson, Demarcus",
+    "id": "040h4"
+  },
+  {
+    "ADP_PPR": 341.16,
+    "pos": "CB",
+    "name": "Rodgers, Isaiah",
+    "id": "05je5"
+  },
+  {
+    "ADP_PPR": 342,
+    "pos": "CB",
+    "name": "Rodgers, Mekhi",
+    "id": "0788y"
+  },
+  {
+    "ADP_PPR": 408.66,
+    "pos": "LB",
+    "name": "Rodriguez, Jacob",
+    "id": "074yh"
+  },
+  {
+    "ADP_PPR": 386.71,
+    "pos": "DL",
+    "name": "Rodriguez, Levi Drake",
+    "id": "06lbn"
+  },
+  {
+    "ADP_PPR": 292.11,
+    "pos": "TE",
+    "name": "Roush, Sam",
+    "id": "074z8"
+  },
+  {
+    "ADP_PPR": 317.44,
+    "pos": "DE",
+    "name": "Rousseau, Gregory",
+    "id": "05rlj"
+  },
+  {
+    "ADP_PPR": 293.32,
+    "pos": "WR",
+    "name": "Royals, Jalen",
+    "id": "06s77"
+  },
+  {
+    "ADP_PPR": 355.55,
+    "pos": "LB",
+    "name": "Rozeboom, Christian",
+    "id": "05jp0"
+  },
+  {
+    "ADP_PPR": 292.18,
+    "pos": "QB",
+    "name": "Rudolph, Mason",
+    "id": "04mro"
+  },
+  {
+    "ADP_PPR": 323.86,
+    "pos": "CB",
+    "name": "Sainristil, Mike",
+    "id": "06l65"
+  },
+  {
+    "ADP_PPR": 431.33,
+    "pos": "P",
+    "name": "Sanchez, Rigoberto",
+    "id": "04cp9"
+  },
+  {
+    "ADP_PPR": 293.09,
+    "pos": "TE",
+    "name": "Sanders, Ja'Tavion",
+    "id": "06je8"
+  },
+  {
+    "ADP_PPR": 292,
+    "pos": "K",
+    "name": "Sanders, Jason",
+    "id": "04oja"
+  },
+  {
+    "ADP_PPR": 293.09,
+    "pos": "RB",
+    "name": "Sanders, Raheim",
+    "id": "06t1u"
+  },
+  {
+    "ADP_PPR": 406.57,
+    "pos": "S",
+    "name": "Sanker, Jonas",
+    "id": "06stn"
+  },
+  {
+    "ADP_PPR": 293.32,
+    "pos": "WR",
+    "name": "Sarratt, Elijah",
+    "id": "0750d"
+  },
+  {
+    "ADP_PPR": 380.33,
+    "pos": "P",
+    "name": "Scott, J.K.",
+    "id": "04oi3"
+  },
+  {
+    "ADP_PPR": 368.86,
+    "pos": "S",
+    "name": "Scott, Nick",
+    "id": "04zxa"
+  },
+  {
+    "ADP_PPR": 292.65,
+    "pos": "WR",
+    "name": "Shepard, Sterling",
+    "id": "040eo"
+  },
+  {
+    "ADP_PPR": 357.85,
+    "pos": "DT",
+    "name": "Shepherd, Nathan",
+    "id": "04ogn"
+  },
+  {
+    "ADP_PPR": 209.89,
+    "pos": "LB",
+    "name": "Sherwood, Jamien",
+    "id": "05rpi"
+  },
+  {
+    "ADP_PPR": 292.36,
+    "pos": "RB",
+    "name": "Shipley, Will",
+    "id": "06jev"
+  },
+  {
+    "ADP_PPR": 295.17,
+    "pos": "DT",
+    "name": "Sieler, Zach",
+    "id": "04ojy"
+  },
+  {
+    "ADP_PPR": 340.33,
+    "pos": "LB",
+    "name": "Simon, Cody",
+    "id": "06svh"
+  },
+  {
+    "ADP_PPR": 291.92,
+    "pos": "WR",
+    "name": "Slayton, Darius",
+    "id": "04zfx"
+  },
+  {
+    "ADP_PPR": 292.83,
+    "pos": "RB",
+    "name": "Smith, Brashard",
+    "id": "06sgh"
+  },
+  {
+    "ADP_PPR": 293.28,
+    "pos": "WR",
+    "name": "Smith, Xavier",
+    "id": "06b4h"
+  },
+  {
+    "ADP_PPR": 293.03,
+    "pos": "TE",
+    "name": "Smythe, Durham",
+    "id": "04msz"
+  },
+  {
+    "ADP_PPR": 346.71,
+    "pos": "CB",
+    "name": "Sneed, L'Jarius",
+    "id": "05jcc"
+  },
+  {
+    "ADP_PPR": 357.88,
+    "pos": "LB",
+    "name": "Speights, Omar",
+    "id": "06llc"
+  },
+  {
+    "ADP_PPR": 253.44,
+    "pos": "LB",
+    "name": "Spillane, Robert",
+    "id": "04p12"
+  },
+  {
+    "ADP_PPR": 380.14,
+    "pos": "S",
+    "name": "Starks, Malaki",
+    "id": "06sr8"
+  },
+  {
+    "ADP_PPR": 389.14,
+    "pos": "CB",
+    "name": "Stephens, Brandon",
+    "id": "05rn6"
+  },
+  {
+    "ADP_PPR": 355.28,
+    "pos": "DB",
+    "name": "Stevenson, Tyrique",
+    "id": "06anl"
+  },
+  {
+    "ADP_PPR": 383.99,
+    "pos": "DT",
+    "name": "Stewart, Grover",
+    "id": "04cf0"
+  },
+  {
+    "ADP_PPR": 291.84,
+    "pos": "QB",
+    "name": "Stidham, Jarrett",
+    "id": "04yp6"
+  },
+  {
+    "ADP_PPR": 397.57,
+    "pos": "CB",
+    "name": "Still, Tarheeb",
+    "id": "06l81"
+  },
+  {
+    "ADP_PPR": 428.01,
+    "pos": "CB",
+    "name": "Stingley Jr., Derek",
+    "id": "060k4"
+  },
+  {
+    "ADP_PPR": 394.42,
+    "pos": "S",
+    "name": "Stone, Geno",
+    "id": "05jel"
+  },
+  {
+    "ADP_PPR": 421.33,
+    "pos": "P",
+    "name": "Stout, Jordan",
+    "id": "060zz"
+  },
+  {
+    "ADP_PPR": 412.58,
+    "pos": "CB",
+    "name": "Stout, Upton",
+    "id": "06st5"
+  },
+  {
+    "ADP_PPR": 292.65,
+    "pos": "QB",
+    "name": "Strand, Jack",
+    "id": "0754x"
+  },
+  {
+    "ADP_PPR": 381.14,
+    "pos": "CB",
+    "name": "Stukes, Treydan",
+    "id": "074yc"
+  },
+  {
+    "ADP_PPR": 270,
+    "pos": "LB",
+    "name": "Styles, Sonny",
+    "id": "074xn"
+  },
+  {
+    "ADP_PPR": 343.86,
+    "pos": "CB",
+    "name": "Surtain, Patrick",
+    "id": "05rlr"
+  },
+  {
+    "ADP_PPR": 352.85,
+    "pos": "DL",
+    "name": "Tart, Teair",
+    "id": "05jwa"
+  },
+  {
+    "ADP_PPR": 277,
+    "pos": "CB",
+    "name": "Taylor, Alontae",
+    "id": "060z9"
+  },
+  {
+    "ADP_PPR": 425.33,
+    "pos": "P",
+    "name": "Taylor, Tory",
+    "id": "06l7q"
+  },
+  {
+    "ADP_PPR": 292.1,
+    "pos": "QB",
+    "name": "Taylor, Tyrod",
+    "id": "026xs"
+  },
+  {
+    "ADP_PPR": 292.6,
+    "pos": "TK",
+    "name": "Team K, Atlanta",
+    "id": "06fte"
+  },
+  {
+    "ADP_PPR": 261.6,
+    "pos": "TK",
+    "name": "Team K, Baltimore",
+    "id": "06fst"
+  },
+  {
+    "ADP_PPR": 255,
+    "pos": "TK",
+    "name": "Team K, Carolina",
+    "id": "06ftg"
+  },
+  {
+    "ADP_PPR": 237.2,
+    "pos": "TK",
+    "name": "Team K, Chicago",
+    "id": "06ftk"
+  },
+  {
+    "ADP_PPR": 294,
+    "pos": "TK",
+    "name": "Team K, Cleveland",
+    "id": "06fsv"
+  },
+  {
+    "ADP_PPR": 287,
+    "pos": "TK",
+    "name": "Team K, Denver",
+    "id": "06ft3"
+  },
+  {
+    "ADP_PPR": 291.6,
+    "pos": "TK",
+    "name": "Team K, Indianapolis",
+    "id": "06fsz"
+  },
+  {
+    "ADP_PPR": 194.4,
+    "pos": "TK",
+    "name": "Team K, LA Rams",
+    "id": "06ft5"
+  },
+  {
+    "ADP_PPR": 296.6,
+    "pos": "TK",
+    "name": "Team K, NY Giants",
+    "id": "06ftb"
+  },
+  {
+    "ADP_PPR": 294.8,
+    "pos": "TK",
+    "name": "Team K, NY Jets",
+    "id": "06fss"
+  },
+  {
+    "ADP_PPR": 247.4,
+    "pos": "TK",
+    "name": "Team K, Philadelphia",
+    "id": "06fta"
+  },
+  {
+    "ADP_PPR": 270.4,
+    "pos": "TK",
+    "name": "Team K, Pittsburgh",
+    "id": "06fsw"
+  },
+  {
+    "ADP_PPR": 215.4,
+    "pos": "TK",
+    "name": "Team K, Tampa Bay",
+    "id": "06ftf"
+  },
+  {
+    "ADP_PPR": 291.4,
+    "pos": "TK",
+    "name": "Team K, Tennessee",
+    "id": "06fsy"
+  },
+  {
+    "ADP_PPR": 270.4,
+    "pos": "TK",
+    "name": "Team K, Washington",
+    "id": "06ftc"
+  },
+  {
+    "ADP_PPR": 96,
+    "pos": "TQB",
+    "name": "Team QB, Arizona",
+    "id": "06fdr"
+  },
+  {
+    "ADP_PPR": 270,
+    "pos": "TQB",
+    "name": "Team QB, Atlanta",
+    "id": "06fdg"
+  },
+  {
+    "ADP_PPR": 55,
+    "pos": "TQB",
+    "name": "Team QB, Baltimore",
+    "id": "06fca"
+  },
+  {
+    "ADP_PPR": 26.5,
+    "pos": "TQB",
+    "name": "Team QB, Buffalo",
+    "id": "06f6f"
+  },
+  {
+    "ADP_PPR": 160,
+    "pos": "TQB",
+    "name": "Team QB, Carolina",
+    "id": "06fdi"
+  },
+  {
+    "ADP_PPR": 112.5,
+    "pos": "TQB",
+    "name": "Team QB, Chicago",
+    "id": "06fdk"
+  },
+  {
+    "ADP_PPR": 76.5,
+    "pos": "TQB",
+    "name": "Team QB, Cincinnati",
+    "id": "06fc9"
+  },
+  {
+    "ADP_PPR": 132,
+    "pos": "TQB",
+    "name": "Team QB, Dallas",
+    "id": "06fdf"
+  },
+  {
+    "ADP_PPR": 31.5,
+    "pos": "TQB",
+    "name": "Team QB, Denver",
+    "id": "06fch"
+  },
+  {
+    "ADP_PPR": 70,
+    "pos": "TQB",
+    "name": "Team QB, Detroit",
+    "id": "06fdn"
+  },
+  {
+    "ADP_PPR": 109,
+    "pos": "TQB",
+    "name": "Team QB, Green Bay",
+    "id": "06fdl"
+  },
+  {
+    "ADP_PPR": 203,
+    "pos": "TQB",
+    "name": "Team QB, Houston",
+    "id": "06fcc"
+  },
+  {
+    "ADP_PPR": 216,
+    "pos": "TQB",
+    "name": "Team QB, Indianapolis",
+    "id": "06fce"
+  },
+  {
+    "ADP_PPR": 123.5,
+    "pos": "TQB",
+    "name": "Team QB, Jacksonville",
+    "id": "06fcb"
+  },
+  {
+    "ADP_PPR": 50.5,
+    "pos": "TQB",
+    "name": "Team QB, Kansas City",
+    "id": "06fcf"
+  },
+  {
+    "ADP_PPR": 114,
+    "pos": "TQB",
+    "name": "Team QB, LA Chargers",
+    "id": "06fcg"
+  },
+  {
+    "ADP_PPR": 78,
+    "pos": "TQB",
+    "name": "Team QB, LA Rams",
+    "id": "06fdo"
+  },
+  {
+    "ADP_PPR": 183,
+    "pos": "TQB",
+    "name": "Team QB, Las Vegas",
+    "id": "06fci"
+  },
+  {
+    "ADP_PPR": 177,
+    "pos": "TQB",
+    "name": "Team QB, Miami",
+    "id": "06f78"
+  },
+  {
+    "ADP_PPR": 153,
+    "pos": "TQB",
+    "name": "Team QB, Minnesota",
+    "id": "06fdm"
+  },
+  {
+    "ADP_PPR": 165.5,
+    "pos": "TQB",
+    "name": "Team QB, NY Giants",
+    "id": "06fdc"
+  },
+  {
+    "ADP_PPR": 231,
+    "pos": "TQB",
+    "name": "Team QB, NY Jets",
+    "id": "06f79"
+  },
+  {
+    "ADP_PPR": 43,
+    "pos": "TQB",
+    "name": "Team QB, New England",
+    "id": "06f7a"
+  },
+  {
+    "ADP_PPR": 137.5,
+    "pos": "TQB",
+    "name": "Team QB, New Orleans",
+    "id": "06fdh"
+  },
+  {
+    "ADP_PPR": 72,
+    "pos": "TQB",
+    "name": "Team QB, Philadelphia",
+    "id": "06fdd"
+  },
+  {
+    "ADP_PPR": 175.5,
+    "pos": "TQB",
+    "name": "Team QB, Pittsburgh",
+    "id": "06fc8"
+  },
+  {
+    "ADP_PPR": 63.5,
+    "pos": "TQB",
+    "name": "Team QB, San Francisco",
+    "id": "06fdq"
+  },
+  {
+    "ADP_PPR": 127.5,
+    "pos": "TQB",
+    "name": "Team QB, Seattle",
+    "id": "06fdp"
+  },
+  {
+    "ADP_PPR": 160,
+    "pos": "TQB",
+    "name": "Team QB, Tampa Bay",
+    "id": "06fdj"
+  },
+  {
+    "ADP_PPR": 109.5,
+    "pos": "TQB",
+    "name": "Team QB, Washington",
+    "id": "06fde"
+  },
+  {
+    "ADP_PPR": 313.29,
+    "pos": "CB",
+    "name": "Terrell, A.J.",
+    "id": "05j9r"
+  },
+  {
+    "ADP_PPR": 384.85,
+    "pos": "S",
+    "name": "Thieneman, Dillon",
+    "id": "074xb"
+  },
+  {
+    "ADP_PPR": 317.56,
+    "pos": "LB",
+    "name": "Thomas, Drake",
+    "id": "06bmf"
+  },
+  {
+    "ADP_PPR": 289.6,
+    "pos": "WR",
+    "name": "Thomas, Zavion",
+    "id": "074zp"
+  },
+  {
+    "ADP_PPR": 423.29,
+    "pos": "S",
+    "name": "Thompson, Jalen",
+    "id": "0529i"
+  },
+  {
+    "ADP_PPR": 292.65,
+    "pos": "WR",
+    "name": "Thornton, Dont'e",
+    "id": "06svc"
+  },
+  {
+    "ADP_PPR": 342.55,
+    "pos": "LB",
+    "name": "To'oTo'o, Henry",
+    "id": "06azv"
+  },
+  {
+    "ADP_PPR": 369.83,
+    "pos": "DT",
+    "name": "Togiai, Tommy",
+    "id": "05rp4"
+  },
+  {
+    "ADP_PPR": 356.51,
+    "pos": "DT",
+    "name": "Tomlinson, Dalvin",
+    "id": "04cch"
+  },
+  {
+    "ADP_PPR": 309.33,
+    "pos": "P",
+    "name": "Townsend, Tommy",
+    "id": "05jgg"
+  },
+  {
+    "ADP_PPR": 395.42,
+    "pos": "S",
+    "name": "Trader, Dante",
+    "id": "06swk"
+  },
+  {
+    "ADP_PPR": 267.33,
+    "pos": "LB",
+    "name": "Tranquill, Drue",
+    "id": "04zvf"
+  },
+  {
+    "ADP_PPR": 293.62,
+    "pos": "TE",
+    "name": "Tremble, Tommy",
+    "id": "05ro1"
+  },
+  {
+    "ADP_PPR": 400.54,
+    "pos": "LB",
+    "name": "Trotter, Josiah",
+    "id": "074yk"
+  },
+  {
+    "ADP_PPR": 291.75,
+    "pos": "QB",
+    "name": "Trubisky, Mitchell",
+    "id": "04ca1"
+  },
+  {
+    "ADP_PPR": 322.66,
+    "pos": "OLB",
+    "name": "Tuipulotu, Tuli",
+    "id": "06anv"
+  },
+  {
+    "ADP_PPR": 405.88,
+    "pos": "OLB",
+    "name": "Turner, Dallas",
+    "id": "06jft"
+  },
+  {
+    "ADP_PPR": 336.85,
+    "pos": "DT",
+    "name": "Turner, Kobie",
+    "id": "06ayo"
+  },
+  {
+    "ADP_PPR": 383.55,
+    "pos": "OLB",
+    "name": "Uche, Josh",
+    "id": "05jar"
+  },
+  {
+    "ADP_PPR": 372.01,
+    "pos": "DL",
+    "name": "Uwazurike, Eyioma",
+    "id": "06105"
+  },
+  {
+    "ADP_PPR": 291.43,
+    "pos": "RB",
+    "name": "Vaki, Sione",
+    "id": "06l7y"
+  },
+  {
+    "ADP_PPR": 294.22,
+    "pos": "OLB",
+    "name": "Van Ginkel, Andrew",
+    "id": "04zvt"
+  },
+  {
+    "ADP_PPR": 344.57,
+    "pos": "DL",
+    "name": "Van Ness, Lukas",
+    "id": "06an7"
+  },
+  {
+    "ADP_PPR": 347.67,
+    "pos": "DT",
+    "name": "Vea, Vita",
+    "id": "04mo9"
+  },
+  {
+    "ADP_PPR": 342.33,
+    "pos": "P",
+    "name": "Vogel, Justin",
+    "id": "04cs0"
+  },
+  {
+    "ADP_PPR": 348.66,
+    "pos": "P",
+    "name": "Waitman, Corliss",
+    "id": "05jfz"
+  },
+  {
+    "ADP_PPR": 408.49,
+    "pos": "DT",
+    "name": "Walker, Deone",
+    "id": "06svx"
+  },
+  {
+    "ADP_PPR": 357.44,
+    "pos": "DE",
+    "name": "Walker, Jalon",
+    "id": "06rqi"
+  },
+  {
+    "ADP_PPR": 212.22,
+    "pos": "LB",
+    "name": "Walker, Quay",
+    "id": "060lh"
+  },
+  {
+    "ADP_PPR": 269.72,
+    "pos": "DE",
+    "name": "Walker, Travon",
+    "id": "060jt"
+  },
+  {
+    "ADP_PPR": 369.29,
+    "pos": "CB",
+    "name": "Walley, Justin",
+    "id": "06str"
+  },
+  {
+    "ADP_PPR": 400.01,
+    "pos": "CB",
+    "name": "Ward, Charvarius",
+    "id": "04om0"
+  },
+  {
+    "ADP_PPR": 389.42,
+    "pos": "CB",
+    "name": "Ward, Denzel",
+    "id": "04mo2"
+  },
+  {
+    "ADP_PPR": 291.84,
+    "pos": "WR",
+    "name": "Washington, Montrell",
+    "id": "0610o"
+  },
+  {
+    "ADP_PPR": 386.01,
+    "pos": "CB",
+    "name": "Watson, Jaylen",
+    "id": "06128"
+  },
+  {
+    "ADP_PPR": 293.56,
+    "pos": "LB",
+    "name": "Watt, T.J.",
+    "id": "04cap"
+  },
+  {
+    "ADP_PPR": 322.57,
+    "pos": "S",
+    "name": "Watts, Xavier",
+    "id": "06stf"
+  },
+  {
+    "ADP_PPR": 362.67,
+    "pos": "P",
+    "name": "Way, Tress",
+    "id": "0300z"
+  },
+  {
+    "ADP_PPR": 292.46,
+    "pos": "QB",
+    "name": "Wentz, Carson",
+    "id": "040dq"
+  },
+  {
+    "ADP_PPR": 355.88,
+    "pos": "LB",
+    "name": "Werner, Pete",
+    "id": "05rmp"
+  },
+  {
+    "ADP_PPR": 291.96,
+    "pos": "WR",
+    "name": "Wester, LaJohntay",
+    "id": "06sxd"
+  },
+  {
+    "ADP_PPR": 291.91,
+    "pos": "WR",
+    "name": "Wetjen, Kaden",
+    "id": "0750j"
+  },
+  {
+    "ADP_PPR": 457,
+    "pos": "P",
+    "name": "Whalen, Daniel",
+    "id": "06183"
+  },
+  {
+    "ADP_PPR": 356.99,
+    "pos": "DT",
+    "name": "Wharton, Tershawn",
+    "id": "05jg6"
+  },
+  {
+    "ADP_PPR": 279.11,
+    "pos": "LB",
+    "name": "White, Devin",
+    "id": "04yn8"
+  },
+  {
+    "ADP_PPR": 292.9,
+    "pos": "WR",
+    "name": "Whittington, Jordan",
+    "id": "06laf"
+  },
+  {
+    "ADP_PPR": 307.43,
+    "pos": "CB",
+    "name": "Wiggins, Nate",
+    "id": "06jfv"
+  },
+  {
+    "ADP_PPR": 345.72,
+    "pos": "S",
+    "name": "Williams, Evan",
+    "id": "06l7h"
+  },
+  {
+    "ADP_PPR": 291.7,
+    "pos": "WR",
+    "name": "Williams, Isaiah",
+    "id": "06llh"
+  },
+  {
+    "ADP_PPR": 292.54,
+    "pos": "RB",
+    "name": "Williams, Josh",
+    "id": "06t06"
+  },
+  {
+    "ADP_PPR": 340.51,
+    "pos": "DT",
+    "name": "Williams, Milton",
+    "id": "05ro7"
+  },
+  {
+    "ADP_PPR": 326.11,
+    "pos": "LB",
+    "name": "Williams, Quincy",
+    "id": "04zv0"
+  },
+  {
+    "ADP_PPR": 315.17,
+    "pos": "DT",
+    "name": "Williams, Quinnen",
+    "id": "04yn3"
+  },
+  {
+    "ADP_PPR": 293.23,
+    "pos": "WR",
+    "name": "Williams, Savion",
+    "id": "06sfn"
+  },
+  {
+    "ADP_PPR": 279.11,
+    "pos": "LB",
+    "name": "Wilson, Eric",
+    "id": "04cln"
+  },
+  {
+    "ADP_PPR": 266.22,
+    "pos": "LB",
+    "name": "Wilson, Mack",
+    "id": "04yni"
+  },
+  {
+    "ADP_PPR": 349.77,
+    "pos": "LB",
+    "name": "Wilson, Payton",
+    "id": "06l76"
+  },
+  {
+    "ADP_PPR": 335.33,
+    "pos": "P",
+    "name": "Wilson, Stone",
+    "id": "050et"
+  },
+  {
+    "ADP_PPR": 291.81,
+    "pos": "QB",
+    "name": "Wilson, Zach",
+    "id": "05rlh"
+  },
+  {
+    "ADP_PPR": 313.86,
+    "pos": "S",
+    "name": "Winfield, Antoine",
+    "id": "05jaj"
+  },
+  {
+    "ADP_PPR": 379.57,
+    "pos": "S",
+    "name": "Wingard, Andrew",
+    "id": "04zyr"
+  },
+  {
+    "ADP_PPR": 338.85,
+    "pos": "S",
+    "name": "Winston, Kevin",
+    "id": "06stt"
+  },
+  {
+    "ADP_PPR": 290.11,
+    "pos": "LB",
+    "name": "Winters, Dee",
+    "id": "06ars"
+  },
+  {
+    "ADP_PPR": 425.34,
+    "pos": "P",
+    "name": "Wishnowsky, Mitch",
+    "id": "04zv5"
+  },
+  {
+    "ADP_PPR": 375.33,
+    "pos": "OLB",
+    "name": "Wonnum, D.J.",
+    "id": "05jbz"
+  },
+  {
+    "ADP_PPR": 392.85,
+    "pos": "S",
+    "name": "Woodson, Craig",
+    "id": "06sva"
+  },
+  {
+    "ADP_PPR": 399.01,
+    "pos": "DE",
+    "name": "Wright, Alex",
+    "id": "060zp"
+  },
+  {
+    "ADP_PPR": 292.55,
+    "pos": "RB",
+    "name": "Wright, Jacardia",
+    "id": "06t9o"
+  },
+  {
+    "ADP_PPR": 349.86,
+    "pos": "CB",
+    "name": "Wright, Nahshon",
+    "id": "05rnc"
+  },
+  {
+    "ADP_PPR": 407,
+    "pos": "P",
+    "name": "Wright, Ryan",
+    "id": "06133"
+  },
+  {
+    "ADP_PPR": 371,
+    "pos": "DL",
+    "name": "Wyatt, Devonte",
+    "id": "060ln"
+  },
+  {
+    "ADP_PPR": 292.86,
+    "pos": "K",
+    "name": "York, Cade",
+    "id": "06107"
+  },
+  {
+    "ADP_PPR": 373.21,
+    "pos": "OLB",
+    "name": "Young, Byron",
+    "id": "06ark"
+  },
+  {
+    "ADP_PPR": 307,
+    "pos": "DT",
+    "name": "Young, Byron",
+    "id": "06as0"
+  },
+  {
+    "ADP_PPR": 244.71,
+    "pos": "DE",
+    "name": "Young, Chase",
+    "id": "05j9n"
+  },
+  {
+    "ADP_PPR": 291.64,
+    "pos": "WR",
+    "name": "Young, Colbie",
+    "id": "07511"
+  },
+  {
+    "ADP_PPR": 293.07,
+    "pos": "WR",
+    "name": "Zaccheaus, Olamide",
+    "id": "04zgs"
+  },
+  {
+    "ADP_PPR": 1.18,
+    "pos": "RB",
+    "name": "Gibbs, Jahmyr",
+    "id": "06anq",
+    "ADP": 1.23
+  },
+  {
+    "ADP_PPR": 2.04,
+    "pos": "RB",
+    "name": "Robinson, Bijan",
+    "id": "06anf",
+    "ADP": 2.02
+  },
+  {
+    "ADP_PPR": 3.45,
+    "pos": "WR",
+    "name": "Chase, Ja'Marr",
+    "id": "05rlf",
+    "ADP": 4.2
+  },
+  {
+    "ADP_PPR": 6.97,
+    "pos": "RB",
+    "name": "Taylor, Jonathan",
+    "id": "05gu7",
+    "ADP": 4.44
+  },
+  {
+    "ADP_PPR": 5.65,
+    "pos": "RB",
+    "name": "McCaffrey, Christian",
+    "id": "048xf",
+    "ADP": 6.48
+  },
+  {
+    "ADP_PPR": 4.98,
+    "pos": "WR",
+    "name": "Nacua, Puka",
+    "id": "06b03",
+    "ADP": 7.28
+  },
+  {
+    "ADP_PPR": 9.68,
+    "pos": "RB",
+    "name": "Cook, James",
+    "id": "060rf",
+    "ADP": 7.62
+  },
+  {
+    "ADP_PPR": 6.48,
+    "pos": "WR",
+    "name": "Smith-Njigba, Jaxon",
+    "id": "06an9",
+    "ADP": 8.13
+  },
+  {
+    "ADP_PPR": 7.96,
+    "pos": "WR",
+    "name": "St. Brown, Amon-Ra",
+    "id": "05roj",
+    "ADP": 10.77
+  },
+  {
+    "ADP_PPR": 14.61,
+    "pos": "RB",
+    "name": "Barkley, Saquon",
+    "id": "04mnp",
+    "ADP": 12.25
+  },
+  {
+    "ADP_PPR": 19.06,
+    "pos": "RB",
+    "name": "Henry, Derrick",
+    "id": "03wra",
+    "ADP": 12.61
+  },
+  {
+    "ADP_PPR": 12.29,
+    "pos": "RB",
+    "name": "Brown, Chase",
+    "id": "06aqy",
+    "ADP": 14.2
+  },
+  {
+    "ADP_PPR": 12.19,
+    "pos": "WR",
+    "name": "Lamb, CeeDee",
+    "id": "05gu3",
+    "ADP": 14.77
+  },
+  {
+    "ADP_PPR": 14.51,
+    "pos": "RB",
+    "name": "Achane, Devon",
+    "id": "06app",
+    "ADP": 14.98
+  },
+  {
+    "ADP_PPR": 16.75,
+    "pos": "RB",
+    "name": "Walker III, Kenneth",
+    "id": "060lt",
+    "ADP": 15.43
+  },
+  {
+    "ADP_PPR": 32.46,
+    "pos": "QB",
+    "name": "Allen, Josh",
+    "id": "04mnz",
+    "ADP": 16.46
+  },
+  {
+    "ADP_PPR": 16.22,
+    "pos": "RB",
+    "name": "Hampton, Omarion",
+    "id": "06s4s",
+    "ADP": 16.62
+  },
+  {
+    "ADP_PPR": 12.48,
+    "pos": "WR",
+    "name": "Jefferson, Justin",
+    "id": "05gu5",
+    "ADP": 16.77
+  },
+  {
+    "ADP_PPR": 17.81,
+    "pos": "WR",
+    "name": "Brown, A.J.",
+    "id": "04ynd",
+    "ADP": 18.96
+  },
+  {
+    "ADP_PPR": 19.05,
+    "pos": "RB",
+    "name": "Jeanty, Ashton",
+    "id": "06s4q",
+    "ADP": 21.02
+  },
+  {
+    "ADP_PPR": 26.66,
+    "pos": "RB",
+    "name": "Williams, Kyren",
+    "id": "060ry",
+    "ADP": 23.41
+  },
+  {
+    "ADP_PPR": 28.12,
+    "pos": "RB",
+    "name": "Williams, Javonte",
+    "id": "05rmz",
+    "ADP": 24.54
+  },
+  {
+    "ADP_PPR": 21.36,
+    "pos": "TE",
+    "name": "Bowers, Brock",
+    "id": "06je0",
+    "ADP": 24.59
+  },
+  {
+    "ADP_PPR": 23.91,
+    "pos": "WR",
+    "name": "Olave, Chris",
+    "id": "060kf",
+    "ADP": 25.82
+  },
+  {
+    "ADP_PPR": 23.71,
+    "pos": "WR",
+    "name": "Nabers, Malik",
+    "id": "06je1",
+    "ADP": 26.08
+  },
+  {
+    "ADP_PPR": 23,
+    "pos": "WR",
+    "name": "Collins, Nico",
+    "id": "05rnp",
+    "ADP": 26.75
+  },
+  {
+    "ADP_PPR": 22.15,
+    "pos": "WR",
+    "name": "London, Drake",
+    "id": "060jr",
+    "ADP": 28.82
+  },
+  {
+    "ADP_PPR": 26.95,
+    "pos": "WR",
+    "name": "Pickens, George",
+    "id": "060lg",
+    "ADP": 28.85
+  },
+  {
+    "ADP_PPR": 24.16,
+    "pos": "TE",
+    "name": "McBride, Trey",
+    "id": "060qz",
+    "ADP": 30.38
+  },
+  {
+    "ADP_PPR": 34.1,
+    "pos": "RB",
+    "name": "Hall, Breece",
+    "id": "060nv",
+    "ADP": 33.39
+  },
+  {
+    "ADP_PPR": 34.85,
+    "pos": "RB",
+    "name": "Love, Jeremiyah",
+    "id": "074xi",
+    "ADP": 35.12
+  },
+  {
+    "ADP_PPR": 43.95,
+    "pos": "RB",
+    "name": "Swift, D'Andre",
+    "id": "05gu2",
+    "ADP": 35.43
+  },
+  {
+    "ADP_PPR": 30.77,
+    "pos": "WR",
+    "name": "Rice, Rashee",
+    "id": "06aqv",
+    "ADP": 35.44
+  },
+  {
+    "ADP_PPR": 36.56,
+    "pos": "RB",
+    "name": "Etienne, Travis",
+    "id": "05rls",
+    "ADP": 35.75
+  },
+  {
+    "ADP_PPR": 29.43,
+    "pos": "WR",
+    "name": "Smith, DeVonta",
+    "id": "05rm7",
+    "ADP": 37.68
+  },
+  {
+    "ADP_PPR": 48.02,
+    "pos": "QB",
+    "name": "Jackson, Lamar",
+    "id": "04mog",
+    "ADP": 40.39
+  },
+  {
+    "ADP_PPR": 47.98,
+    "pos": "RB",
+    "name": "Judkins, Quinshon",
+    "id": "06s4w",
+    "ADP": 40.49
+  },
+  {
+    "ADP_PPR": 40.1,
+    "pos": "WR",
+    "name": "Higgins, Tee",
+    "id": "05gui",
+    "ADP": 40.84
+  },
+  {
+    "ADP_PPR": 38.79,
+    "pos": "WR",
+    "name": "McMillan, Tetairoa",
+    "id": "06s4t",
+    "ADP": 43.34
+  },
+  {
+    "ADP_PPR": 35.72,
+    "pos": "WR",
+    "name": "Flowers, Zay",
+    "id": "06anj",
+    "ADP": 43.57
+  },
+  {
+    "ADP_PPR": 43.54,
+    "pos": "TE",
+    "name": "Loveland, Colston",
+    "id": "06rpw",
+    "ADP": 44.59
+  },
+  {
+    "ADP_PPR": 48.89,
+    "pos": "RB",
+    "name": "Montgomery, David",
+    "id": "04ypi",
+    "ADP": 45.26
+  },
+  {
+    "ADP_PPR": 48.59,
+    "pos": "WR",
+    "name": "Adams, Davante",
+    "id": "03ce8",
+    "ADP": 45.7
+  },
+  {
+    "ADP_PPR": 42.3,
+    "pos": "RB",
+    "name": "Skattebo, Cameron",
+    "id": "06s66",
+    "ADP": 46.38
+  },
+  {
+    "ADP_PPR": 56.33,
+    "pos": "QB",
+    "name": "Burrow, Joe",
+    "id": "05gtu",
+    "ADP": 46.9
+  },
+  {
+    "ADP_PPR": 43.98,
+    "pos": "WR",
+    "name": "Burden, Luther",
+    "id": "06s4x",
+    "ADP": 48.76
+  },
+  {
+    "ADP_PPR": 42.91,
+    "pos": "WR",
+    "name": "Egbuka, Emeka",
+    "id": "06jeb",
+    "ADP": 49.13
+  },
+  {
+    "ADP_PPR": 42.86,
+    "pos": "WR",
+    "name": "Waddle, Jaylen",
+    "id": "05rlk",
+    "ADP": 49.75
+  },
+  {
+    "ADP_PPR": 40.28,
+    "pos": "WR",
+    "name": "Wilson, Garrett",
+    "id": "060k2",
+    "ADP": 50.93
+  },
+  {
+    "ADP_PPR": 53.48,
+    "pos": "WR",
+    "name": "Moore, D.J.",
+    "id": "04mp8",
+    "ADP": 53.33
+  },
+  {
+    "ADP_PPR": 47.63,
+    "pos": "WR",
+    "name": "Washington, Parker",
+    "id": "06arv",
+    "ADP": 53.54
+  },
+  {
+    "ADP_PPR": 58.34,
+    "pos": "QB",
+    "name": "Maye, Drake",
+    "id": "06jdy",
+    "ADP": 53.92
+  },
+  {
+    "ADP_PPR": 57.05,
+    "pos": "WR",
+    "name": "McConkey, Ladd",
+    "id": "06jef",
+    "ADP": 54.38
+  },
+  {
+    "ADP_PPR": 58.31,
+    "pos": "RB",
+    "name": "Irving, Bucky",
+    "id": "06l7s",
+    "ADP": 56.08
+  },
+  {
+    "ADP_PPR": 52.83,
+    "pos": "WR",
+    "name": "McLaurin, Terry",
+    "id": "04yp1",
+    "ADP": 56.11
+  },
+  {
+    "ADP_PPR": 59.47,
+    "pos": "RB",
+    "name": "Price, Jadarian",
+    "id": "074xo",
+    "ADP": 56.25
+  },
+  {
+    "ADP_PPR": 56.22,
+    "pos": "TE",
+    "name": "Warren, Tyler",
+    "id": "06s4v",
+    "ADP": 57.28
+  },
+  {
+    "ADP_PPR": 58.73,
+    "pos": "RB",
+    "name": "Tuten, Bhayshul",
+    "id": "06s78",
+    "ADP": 57.77
+  },
+  {
+    "ADP_PPR": 70.96,
+    "pos": "QB",
+    "name": "Daniels, Jayden",
+    "id": "060tq",
+    "ADP": 61.48
+  },
+  {
+    "ADP_PPR": 52.45,
+    "pos": "WR",
+    "name": "Williams, Jameson",
+    "id": "060kg",
+    "ADP": 61.74
+  },
+  {
+    "ADP_PPR": 71.35,
+    "pos": "QB",
+    "name": "Hurts, Jalen",
+    "id": "05gv4",
+    "ADP": 64.25
+  },
+  {
+    "ADP_PPR": 58.98,
+    "pos": "WR",
+    "name": "Watson, Christian",
+    "id": "060kh",
+    "ADP": 64.43
+  },
+  {
+    "ADP_PPR": 62.13,
+    "pos": "WR",
+    "name": "Odunze, Rome",
+    "id": "06je2",
+    "ADP": 66.26
+  },
+  {
+    "ADP_PPR": 75.29,
+    "pos": "QB",
+    "name": "Williams, Caleb",
+    "id": "06jdx",
+    "ADP": 67.69
+  },
+  {
+    "ADP_PPR": 107.5,
+    "pos": "DE",
+    "name": "Garrett, Myles",
+    "id": "04ca0",
+    "ADP": 68
+  },
+  {
+    "ADP_PPR": 65.13,
+    "pos": "RB",
+    "name": "Brooks, Jonathon",
+    "id": "06jeq",
+    "ADP": 69.05
+  },
+  {
+    "ADP_PPR": 59.24,
+    "pos": "RB",
+    "name": "Stevenson, Rhamondre",
+    "id": "05ror",
+    "ADP": 70.43
+  },
+  {
+    "ADP_PPR": 71.6,
+    "pos": "RB",
+    "name": "Warren, Jaylen",
+    "id": "0614z",
+    "ADP": 72.9
+  },
+  {
+    "ADP_PPR": 78.79,
+    "pos": "QB",
+    "name": "Prescott, Dak",
+    "id": "040ha",
+    "ADP": 72.93
+  },
+  {
+    "ADP_PPR": 66,
+    "pos": "WR",
+    "name": "Evans, Mike",
+    "id": "03ccu",
+    "ADP": 73.9
+  },
+  {
+    "ADP_PPR": 75.91,
+    "pos": "RB",
+    "name": "Pollard, Tony",
+    "id": "04zfm",
+    "ADP": 75.07
+  },
+  {
+    "ADP_PPR": 73.34,
+    "pos": "TE",
+    "name": "Kraft, Tucker",
+    "id": "06ap8",
+    "ADP": 75.31
+  },
+  {
+    "ADP_PPR": 69.02,
+    "pos": "RB",
+    "name": "Henderson, TreVeyon",
+    "id": "06s4u",
+    "ADP": 75.61
+  },
+  {
+    "ADP_PPR": 66.07,
+    "pos": "RB",
+    "name": "Lloyd, MarShawn",
+    "id": "06jex",
+    "ADP": 76.45
+  },
+  {
+    "ADP_PPR": 68.63,
+    "pos": "WR",
+    "name": "Stribling, De'Zhaun",
+    "id": "074y7",
+    "ADP": 76.81
+  },
+  {
+    "ADP_PPR": 98.9,
+    "pos": "QB",
+    "name": "Stafford, Matthew",
+    "id": "01cdj",
+    "ADP": 78
+  },
+  {
+    "ADP_PPR": 73.11,
+    "pos": "WR",
+    "name": "Wilson, Michael",
+    "id": "06ayr",
+    "ADP": 78.09
+  },
+  {
+    "ADP_PPR": 82.65,
+    "pos": "RB",
+    "name": "Dowdle, Rico",
+    "id": "05jkj",
+    "ADP": 78.59
+  },
+  {
+    "ADP_PPR": 81.04,
+    "pos": "TE",
+    "name": "Pitts, Kyle",
+    "id": "05rm3",
+    "ADP": 79.43
+  },
+  {
+    "ADP_PPR": 80.48,
+    "pos": "WR",
+    "name": "Metcalf, DK",
+    "id": "04ynh",
+    "ADP": 80.74
+  },
+  {
+    "ADP_PPR": 87.75,
+    "pos": "QB",
+    "name": "Herbert, Justin",
+    "id": "05gtw",
+    "ADP": 80.93
+  },
+  {
+    "ADP_PPR": 77.25,
+    "pos": "TE",
+    "name": "Fannin, Harold",
+    "id": "06sfk",
+    "ADP": 81.67
+  },
+  {
+    "ADP_PPR": 77.09,
+    "pos": "WR",
+    "name": "Sutton, Courtland",
+    "id": "04moc",
+    "ADP": 81.79
+  },
+  {
+    "ADP_PPR": 94.22,
+    "pos": "RB",
+    "name": "Dobbins, J.K.",
+    "id": "05gua",
+    "ADP": 83.3
+  },
+  {
+    "ADP_PPR": 73.44,
+    "pos": "WR",
+    "name": "Tate, Carnell",
+    "id": "074xr",
+    "ADP": 83.38
+  },
+  {
+    "ADP_PPR": 85.03,
+    "pos": "TE",
+    "name": "LaPorta, Sam",
+    "id": "06aod",
+    "ADP": 84.36
+  },
+  {
+    "ADP_PPR": 74.3,
+    "pos": "WR",
+    "name": "Harrison, Marvin",
+    "id": "06jdz",
+    "ADP": 85.25
+  },
+  {
+    "ADP_PPR": 77.05,
+    "pos": "WR",
+    "name": "Thomas, Brian",
+    "id": "06je3",
+    "ADP": 90.92
+  },
+  {
+    "ADP_PPR": 87.91,
+    "pos": "TE",
+    "name": "Kittle, George",
+    "id": "04cf1",
+    "ADP": 92.62
+  },
+  {
+    "ADP_PPR": 94.95,
+    "pos": "QB",
+    "name": "Lawrence, Trevor",
+    "id": "05rlt",
+    "ADP": 93.25
+  },
+  {
+    "ADP_PPR": 100.64,
+    "pos": "RB",
+    "name": "Mason, Jordan",
+    "id": "0616i",
+    "ADP": 93.57
+  },
+  {
+    "ADP_PPR": 81.39,
+    "pos": "RB",
+    "name": "Harvey, RJ",
+    "id": "06s76",
+    "ADP": 95.77
+  },
+  {
+    "ADP_PPR": 111.14,
+    "pos": "TE",
+    "name": "Kelce, Travis",
+    "id": "02ztg",
+    "ADP": 96.3
+  },
+  {
+    "ADP_PPR": 92.08,
+    "pos": "WR",
+    "name": "Johnston, Quentin",
+    "id": "06anb",
+    "ADP": 97.26
+  },
+  {
+    "ADP_PPR": 109.27,
+    "pos": "QB",
+    "name": "Mahomes, Patrick",
+    "id": "04ca6",
+    "ADP": 97.36
+  },
+  {
+    "ADP_PPR": 113.48,
+    "pos": "K",
+    "name": "Aubrey, Brandon",
+    "id": "06cpc",
+    "ADP": 99.26
+  },
+  {
+    "ADP_PPR": 84.36,
+    "pos": "WR",
+    "name": "Godwin, Chris",
+    "id": "04cdb",
+    "ADP": 100.2
+  },
+  {
+    "ADP_PPR": 96.94,
+    "pos": "RB",
+    "name": "Corum, Blake",
+    "id": "06jel",
+    "ADP": 101.25
+  },
+  {
+    "ADP_PPR": 109.56,
+    "pos": "WR",
+    "name": "Pierce, Alec",
+    "id": "060m1",
+    "ADP": 102.64
+  },
+  {
+    "ADP_PPR": 92.11,
+    "pos": "RB",
+    "name": "Hubbard, Chuba",
+    "id": "05roy",
+    "ADP": 102.69
+  },
+  {
+    "ADP_PPR": 90.02,
+    "pos": "RB",
+    "name": "White, Rachaad",
+    "id": "060ru",
+    "ADP": 103.33
+  },
+  {
+    "ADP_PPR": 116.41,
+    "pos": "QB",
+    "name": "Nix, Bo",
+    "id": "060ts",
+    "ADP": 103.48
+  },
+  {
+    "ADP_PPR": 109.51,
+    "pos": "RB",
+    "name": "Jacobs, Josh",
+    "id": "04ynf",
+    "ADP": 104.39
+  },
+  {
+    "ADP_PPR": 106.91,
+    "tmId": "TM_20090",
+    "name": "HOU",
+    "id": "20090",
+    "ADP": 105
+  },
+  {
+    "ADP_PPR": 81.37,
+    "pos": "WR",
+    "name": "Diggs, Stefon",
+    "id": "03ol4",
+    "ADP": 106.41
+  },
+  {
+    "ADP_PPR": 110.16,
+    "pos": "RB",
+    "name": "Croskey-Merritt, Jacory",
+    "id": "06sym",
+    "ADP": 106.56
+  },
+  {
+    "ADP_PPR": 102.75,
+    "pos": "RB",
+    "name": "Washington, Mike",
+    "id": "073py",
+    "ADP": 107.13
+  },
+  {
+    "ADP_PPR": 117.75,
+    "pos": "QB",
+    "name": "Purdy, Brock",
+    "id": "060tt",
+    "ADP": 109.13
+  },
+  {
+    "ADP_PPR": 123.81,
+    "pos": "TE",
+    "name": "Goedert, Dallas",
+    "id": "04mpp",
+    "ADP": 109.23
+  },
+  {
+    "ADP_PPR": 114.94,
+    "pos": "QB",
+    "name": "Dart, Jaxson",
+    "id": "06s74",
+    "ADP": 111.02
+  },
+  {
+    "ADP_PPR": 124.32,
+    "tmId": "TM_20295",
+    "name": "LAR",
+    "id": "20295",
+    "ADP": 111.88
+  },
+  {
+    "ADP_PPR": 126.72,
+    "tmId": "TM_20130",
+    "name": "DEN",
+    "id": "20130",
+    "ADP": 112.89
+  },
+  {
+    "ADP_PPR": 120.42,
+    "pos": "TE",
+    "name": "Likely, Isaiah",
+    "id": "060s4",
+    "ADP": 114.18
+  },
+  {
+    "ADP_PPR": 103.51,
+    "pos": "RB",
+    "name": "Gainwell, Kenneth",
+    "id": "05rpm",
+    "ADP": 114.41
+  },
+  {
+    "ADP_PPR": 122.77,
+    "pos": "QB",
+    "name": "Goff, Jared",
+    "id": "03wr8",
+    "ADP": 114.62
+  },
+  {
+    "ADP_PPR": 102.09,
+    "pos": "WR",
+    "name": "Downs, Josh",
+    "id": "06ap9",
+    "ADP": 115
+  },
+  {
+    "ADP_PPR": 122.5,
+    "pos": "LB",
+    "name": "Schwesinger, Carson",
+    "id": "06ssr",
+    "ADP": 115
+  },
+  {
+    "ADP_PPR": 110.91,
+    "pos": "RB",
+    "name": "Monangai, Kyle",
+    "id": "06sy1",
+    "ADP": 115.47
+  },
+  {
+    "ADP_PPR": 113.22,
+    "pos": "RB",
+    "name": "Jones, Aaron",
+    "id": "04cfu",
+    "ADP": 115.59
+  },
+  {
+    "ADP_PPR": 97.67,
+    "pos": "WR",
+    "name": "Pittman, Michael",
+    "id": "05gux",
+    "ADP": 118.61
+  },
+  {
+    "ADP_PPR": 136.95,
+    "tmId": "TM_20320",
+    "name": "SEA",
+    "id": "20320",
+    "ADP": 118.82
+  },
+  {
+    "ADP_PPR": 111.41,
+    "pos": "WR",
+    "name": "Addison, Jordan",
+    "id": "06anm",
+    "ADP": 118.87
+  },
+  {
+    "ADP_PPR": 109.76,
+    "pos": "WR",
+    "name": "Reed, Jayden",
+    "id": "060tw",
+    "ADP": 119.23
+  },
+  {
+    "ADP_PPR": 128.33,
+    "pos": "DE",
+    "name": "Crosby, Maxx",
+    "id": "04zv3",
+    "ADP": 122
+  },
+  {
+    "ADP_PPR": 105.4,
+    "pos": "WR",
+    "name": "Lemon, Makai",
+    "id": "074xl",
+    "ADP": 122.02
+  },
+  {
+    "ADP_PPR": 115.48,
+    "pos": "WR",
+    "name": "Concepcion, KC",
+    "id": "074xj",
+    "ADP": 125.87
+  },
+  {
+    "ADP_PPR": 134.97,
+    "pos": "QB",
+    "name": "Love, Jordan",
+    "id": "05gu9",
+    "ADP": 126.47
+  },
+  {
+    "ADP_PPR": 122.5,
+    "pos": "WR",
+    "name": "Golden, Matthew",
+    "id": "06s4y",
+    "ADP": 127.07
+  },
+  {
+    "ADP_PPR": 126.25,
+    "pos": "LB",
+    "name": "Campbell, Jack",
+    "id": "06ao1",
+    "ADP": 128
+  },
+  {
+    "ADP_PPR": 128.25,
+    "pos": "RB",
+    "name": "Rodriguez Jr., Chris",
+    "id": "06api",
+    "ADP": 128.25
+  },
+  {
+    "ADP_PPR": 129.35,
+    "pos": "TE",
+    "name": "Kincaid, Dalton",
+    "id": "06anp",
+    "ADP": 128.56
+  },
+  {
+    "ADP_PPR": 152.4,
+    "pos": "DT",
+    "name": "Simmons, Jeffery",
+    "id": "04yq1",
+    "ADP": 129
+  },
+  {
+    "ADP_PPR": 145.81,
+    "pos": "K",
+    "name": "Fairbairn, Ka'imi",
+    "id": "040uv",
+    "ADP": 130.97
+  },
+  {
+    "ADP_PPR": 134.94,
+    "pos": "QB",
+    "name": "Murray, Kyler",
+    "id": "04yna",
+    "ADP": 131.61
+  },
+  {
+    "ADP_PPR": 141.37,
+    "pos": "QB",
+    "name": "Mayfield, Baker",
+    "id": "04mo7",
+    "ADP": 133.52
+  },
+  {
+    "ADP_PPR": 119.87,
+    "pos": "WR",
+    "name": "Meyers, Jakobi",
+    "id": "04zf3",
+    "ADP": 133.77
+  },
+  {
+    "ADP_PPR": 126.07,
+    "pos": "WR",
+    "name": "Doubs, Romeo",
+    "id": "060sb",
+    "ADP": 134.03
+  },
+  {
+    "ADP_PPR": 106.54,
+    "pos": "WR",
+    "name": "Robinson, Wan'Dale",
+    "id": "060kj",
+    "ADP": 134.63
+  },
+  {
+    "ADP_PPR": 134.2,
+    "pos": "RB",
+    "name": "Allgeier, Tyler",
+    "id": "060rz",
+    "ADP": 136.05
+  },
+  {
+    "ADP_PPR": 129.69,
+    "pos": "WR",
+    "name": "Worthy, Xavier",
+    "id": "06jee",
+    "ADP": 137.1
+  },
+  {
+    "ADP_PPR": 141.8,
+    "pos": "TE",
+    "name": "Andrews, Mark",
+    "id": "04mot",
+    "ADP": 137.37
+  },
+  {
+    "ADP_PPR": 134,
+    "pos": "TK",
+    "name": "Team K, Dallas",
+    "id": "06ft9",
+    "ADP": 138
+  },
+  {
+    "ADP_PPR": 158.95,
+    "tmId": "TM_20190",
+    "name": "PHI",
+    "id": "20190",
+    "ADP": 138.67
+  },
+  {
+    "ADP_PPR": 141.87,
+    "pos": "WR",
+    "name": "Samuel, Deebo",
+    "id": "04yo1",
+    "ADP": 139.33
+  },
+  {
+    "ADP_PPR": 106.75,
+    "pos": "LB",
+    "name": "Brooks, Jordyn",
+    "id": "05j9w",
+    "ADP": 140
+  },
+  {
+    "ADP_PPR": 149.55,
+    "pos": "RB",
+    "name": "Charbonnet, Zach",
+    "id": "06aoz",
+    "ADP": 140.33
+  },
+  {
+    "ADP_PPR": 168.99,
+    "pos": "K",
+    "name": "Little, Cam",
+    "id": "06la8",
+    "ADP": 141.47
+  },
+  {
+    "ADP_PPR": 137.16,
+    "pos": "RB",
+    "name": "Marks, Woody",
+    "id": "06svi",
+    "ADP": 143.42
+  },
+  {
+    "ADP_PPR": 141.08,
+    "pos": "WR",
+    "name": "Tyson, Jordyn",
+    "id": "073nk",
+    "ADP": 143.97
+  },
+  {
+    "ADP_PPR": 179.93,
+    "tmId": "TM_20050",
+    "name": "BAL",
+    "id": "20050",
+    "ADP": 146.7
+  },
+  {
+    "ADP_PPR": 173.59,
+    "tmId": "TM_20080",
+    "name": "PIT",
+    "id": "20080",
+    "ADP": 146.82
+  },
+  {
+    "ADP_PPR": 139.08,
+    "pos": "WR",
+    "name": "Shakir, Khalil",
+    "id": "060s2",
+    "ADP": 146.95
+  },
+  {
+    "ADP_PPR": 144.62,
+    "pos": "RB",
+    "name": "Spears, Tyjae",
+    "id": "06avv",
+    "ADP": 147.95
+  },
+  {
+    "ADP_PPR": 146.17,
+    "pos": "TE",
+    "name": "Ferguson, Jake",
+    "id": "060su",
+    "ADP": 148.64
+  },
+  {
+    "ADP_PPR": 151.64,
+    "pos": "TE",
+    "name": "Johnson, Juwan",
+    "id": "05jkv",
+    "ADP": 149.67
+  },
+  {
+    "ADP_PPR": 146.34,
+    "pos": "WR",
+    "name": "Shaheed, Rashid",
+    "id": "06185",
+    "ADP": 150.52
+  },
+  {
+    "ADP_PPR": 148.37,
+    "pos": "WR",
+    "name": "Allen, Cyrus",
+    "id": "07520",
+    "ADP": 150.93
+  },
+  {
+    "ADP_PPR": 136.41,
+    "pos": "RB",
+    "name": "Mitchell, Keaton",
+    "id": "06bby",
+    "ADP": 150.96
+  },
+  {
+    "ADP_PPR": 147.64,
+    "pos": "QB",
+    "name": "Shough, Tyler",
+    "id": "06sgg",
+    "ADP": 152.09
+  },
+  {
+    "ADP_PPR": 175.7,
+    "tmId": "TM_20030",
+    "name": "NE",
+    "id": "20030",
+    "ADP": 152.7
+  },
+  {
+    "ADP_PPR": 163.78,
+    "pos": "K",
+    "name": "Myers, Jason",
+    "id": "03msl",
+    "ADP": 153.22
+  },
+  {
+    "ADP_PPR": 125.5,
+    "pos": "DE",
+    "name": "Hutchinson, Aidan",
+    "id": "060jq",
+    "ADP": 154
+  },
+  {
+    "ADP_PPR": 133.66,
+    "pos": "WR",
+    "name": "Coker, Jalen",
+    "id": "06lh9",
+    "ADP": 156.26
+  },
+  {
+    "ADP_PPR": 174.34,
+    "pos": "K",
+    "name": "Dicker, Cameron",
+    "id": "061b6",
+    "ADP": 156.9
+  },
+  {
+    "ADP_PPR": 163.38,
+    "pos": "WR",
+    "name": "Boutte, Kayshon",
+    "id": "06apw",
+    "ADP": 157.92
+  },
+  {
+    "ADP_PPR": 132.75,
+    "pos": "LB",
+    "name": "Cashman, Blake",
+    "id": "04zvu",
+    "ADP": 160
+  },
+  {
+    "ADP_PPR": 159.75,
+    "pos": "WR",
+    "name": "Allen, Keenan",
+    "id": "02ztv",
+    "ADP": 160.25
+  },
+  {
+    "ADP_PPR": 164.17,
+    "pos": "DE",
+    "name": "Hunter, Danielle",
+    "id": "03ojb",
+    "ADP": 161
+  },
+  {
+    "ADP_PPR": 160.8,
+    "pos": "TE",
+    "name": "Strange, Brenton",
+    "id": "06ayh",
+    "ADP": 161.09
+  },
+  {
+    "ADP_PPR": 184.7,
+    "pos": "LB",
+    "name": "Warner, Fred",
+    "id": "04ogm",
+    "ADP": 161.33
+  },
+  {
+    "ADP_PPR": 154.9,
+    "pos": "RB",
+    "name": "Tracy, Tyrone",
+    "id": "06l8p",
+    "ADP": 161.7
+  },
+  {
+    "ADP_PPR": 165.23,
+    "pos": "RB",
+    "name": "Kamara, Alvin",
+    "id": "04ccr",
+    "ADP": 162.96
+  },
+  {
+    "ADP_PPR": 156.42,
+    "pos": "QB",
+    "name": "Willis, Malik",
+    "id": "060k9",
+    "ADP": 163.79
+  },
+  {
+    "ADP_PPR": 182.54,
+    "tmId": "TM_20110",
+    "name": "JAX",
+    "id": "20110",
+    "ADP": 165.58
+  },
+  {
+    "ADP_PPR": 188.62,
+    "pos": "K",
+    "name": "Bates, Jake",
+    "id": "06ekh",
+    "ADP": 165.7
+  },
+  {
+    "ADP_PPR": 163.52,
+    "pos": "RB",
+    "name": "Bigsby, Tank",
+    "id": "06ayn",
+    "ADP": 166.47
+  },
+  {
+    "ADP_PPR": 160.57,
+    "pos": "WR",
+    "name": "Jennings, Jauan",
+    "id": "05jee",
+    "ADP": 166.57
+  },
+  {
+    "ADP_PPR": 158.25,
+    "pos": "WR",
+    "name": "Tucker, Tre",
+    "id": "06ayu",
+    "ADP": 166.92
+  },
+  {
+    "ADP_PPR": 184.97,
+    "tmId": "TM_20240",
+    "name": "MIN",
+    "id": "20240",
+    "ADP": 170.94
+  },
+  {
+    "ADP_PPR": 169.78,
+    "pos": "RB",
+    "name": "Robinson Jr., Brian",
+    "id": "060r4",
+    "ADP": 170.98
+  },
+  {
+    "ADP_PPR": 160.38,
+    "pos": "TE",
+    "name": "Ferguson, Terrance",
+    "id": "06sgd",
+    "ADP": 171.27
+  },
+  {
+    "ADP_PPR": 134.67,
+    "pos": "DE",
+    "name": "Anderson Jr., Will",
+    "id": "06an2",
+    "ADP": 173
+  },
+  {
+    "ADP_PPR": 188.9,
+    "tmId": "TM_20161",
+    "name": "LAC",
+    "id": "20161",
+    "ADP": 173.36
+  },
+  {
+    "ADP_PPR": 176.44,
+    "pos": "LB",
+    "name": "Jones, Ernest",
+    "id": "05rnw",
+    "ADP": 173.78
+  },
+  {
+    "ADP_PPR": 159.37,
+    "pos": "WR",
+    "name": "Boston, Denzel",
+    "id": "074yd",
+    "ADP": 174.02
+  },
+  {
+    "ADP_PPR": 162.27,
+    "pos": "RB",
+    "name": "Sampson, Dylan",
+    "id": "06s75",
+    "ADP": 175.57
+  },
+  {
+    "ADP_PPR": 183.94,
+    "pos": "TE",
+    "name": "Sadiq, Kenyon",
+    "id": "074xx",
+    "ADP": 176.99
+  },
+  {
+    "ADP_PPR": 193.98,
+    "pos": "K",
+    "name": "Mevis, Harrison",
+    "id": "06lhr",
+    "ADP": 177.75
+  },
+  {
+    "ADP_PPR": 190.1,
+    "pos": "K",
+    "name": "Loop, Tyler",
+    "id": "06sxa",
+    "ADP": 178.16
+  },
+  {
+    "ADP_PPR": 181.01,
+    "pos": "TE",
+    "name": "Schultz, Dalton",
+    "id": "04mpo",
+    "ADP": 178.26
+  },
+  {
+    "ADP_PPR": 183.15,
+    "pos": "RB",
+    "name": "Coleman, Jonah",
+    "id": "07506",
+    "ADP": 178.91
+  },
+  {
+    "ADP_PPR": 169.43,
+    "pos": "DB",
+    "name": "DeJean, Cooper",
+    "id": "06jg7",
+    "ADP": 182.29
+  },
+  {
+    "ADP_PPR": 205.43,
+    "pos": "S",
+    "name": "Cross, Nick",
+    "id": "060zk",
+    "ADP": 184.86
+  },
+  {
+    "ADP_PPR": 158.25,
+    "pos": "TK",
+    "name": "Team K, Houston",
+    "id": "06ft0",
+    "ADP": 185
+  },
+  {
+    "ADP_PPR": 196.07,
+    "pos": "TE",
+    "name": "Gadsden, Oronde",
+    "id": "06swt",
+    "ADP": 186.53
+  },
+  {
+    "ADP_PPR": 204.06,
+    "pos": "S",
+    "name": "Hamilton, Kyle",
+    "id": "060k0",
+    "ADP": 186.58
+  },
+  {
+    "ADP_PPR": 164.76,
+    "pos": "LB",
+    "name": "Bolton, Nick",
+    "id": "05rmh",
+    "ADP": 188
+  },
+  {
+    "ADP_PPR": 205.25,
+    "pos": "TK",
+    "name": "Team K, Cincinnati",
+    "id": "06fsu",
+    "ADP": 190
+  },
+  {
+    "ADP_PPR": 190.91,
+    "pos": "WR",
+    "name": "Washington, Malik",
+    "id": "06jf3",
+    "ADP": 191.42
+  },
+  {
+    "ADP_PPR": 132.5,
+    "pos": "TK",
+    "name": "Team K, Minnesota",
+    "id": "06ftj",
+    "ADP": 192
+  },
+  {
+    "ADP_PPR": 209.89,
+    "pos": "S",
+    "name": "Hufanga, Talanoa",
+    "id": "05rqf",
+    "ADP": 192.58
+  },
+  {
+    "ADP_PPR": 189.53,
+    "pos": "WR",
+    "name": "Nailor, Jalen",
+    "id": "0611u",
+    "ADP": 192.76
+  },
+  {
+    "ADP_PPR": 185.33,
+    "pos": "LB",
+    "name": "Baun, Zack",
+    "id": "05jaz",
+    "ADP": 193.33
+  },
+  {
+    "ADP_PPR": 190.52,
+    "pos": "RB",
+    "name": "Allen, Braelon",
+    "id": "06jep",
+    "ADP": 194.12
+  },
+  {
+    "ADP_PPR": 158.75,
+    "pos": "LB",
+    "name": "Oluokun, Foyesade",
+    "id": "04oio",
+    "ADP": 195
+  },
+  {
+    "ADP_PPR": 204.58,
+    "pos": "S",
+    "name": "Baker, Budda",
+    "id": "04cbx",
+    "ADP": 196
+  },
+  {
+    "ADP_PPR": 223.73,
+    "pos": "TK",
+    "name": "Team K, LA Chargers",
+    "id": "06ft1",
+    "ADP": 196.8
+  },
+  {
+    "ADP_PPR": 204.23,
+    "pos": "QB",
+    "name": "Stroud, C.J.",
+    "id": "06amy",
+    "ADP": 198.22
+  },
+  {
+    "ADP_PPR": 190.19,
+    "pos": "TE",
+    "name": "Okonkwo, Chigoziem",
+    "id": "060sy",
+    "ADP": 198.9
+  },
+  {
+    "ADP_PPR": 171,
+    "pos": "TK",
+    "name": "Team K, Detroit",
+    "id": "06fti",
+    "ADP": 199
+  },
+  {
+    "ADP_PPR": 219.14,
+    "pos": "DL",
+    "name": "Booker, Austin",
+    "id": "06l88",
+    "ADP": 199.14
+  },
+  {
+    "ADP_PPR": 188.01,
+    "pos": "RB",
+    "name": "Black, Kaelon",
+    "id": "074zq",
+    "ADP": 199.37
+  },
+  {
+    "ADP_PPR": 208.61,
+    "pos": "QB",
+    "name": "Jones, Daniel",
+    "id": "04ynb",
+    "ADP": 199.64
+  },
+  {
+    "ADP_PPR": 207.11,
+    "pos": "TE",
+    "name": "Henry, Hunter",
+    "id": "040ep",
+    "ADP": 200.87
+  },
+  {
+    "ADP_PPR": 242.97,
+    "pos": "S",
+    "name": "Battle, Jordan",
+    "id": "06asf",
+    "ADP": 201.15
+  },
+  {
+    "ADP_PPR": 201.84,
+    "pos": "RB",
+    "name": "Hill, Justice",
+    "id": "04yny",
+    "ADP": 201.88
+  },
+  {
+    "ADP_PPR": 217.78,
+    "pos": "DB",
+    "name": "Conner, Chamarri",
+    "id": "06az5",
+    "ADP": 202
+  },
+  {
+    "ADP_PPR": 195.41,
+    "pos": "WR",
+    "name": "McMillan, Jalen",
+    "id": "06jf2",
+    "ADP": 202.05
+  },
+  {
+    "ADP_PPR": 216.62,
+    "pos": "K",
+    "name": "Pineiro, Eddy",
+    "id": "04mtf",
+    "ADP": 202.6
+  },
+  {
+    "ADP_PPR": 182.13,
+    "pos": "TK",
+    "name": "Team K, Seattle",
+    "id": "06ft7",
+    "ADP": 203.2
+  },
+  {
+    "ADP_PPR": 200.8,
+    "pos": "WR",
+    "name": "Cooper Jr., Omar",
+    "id": "074xy",
+    "ADP": 203.21
+  },
+  {
+    "ADP_PPR": 193.87,
+    "pos": "TK",
+    "name": "Team K, Green Bay",
+    "id": "06fth",
+    "ADP": 204
+  },
+  {
+    "ADP_PPR": 208.99,
+    "pos": "RB",
+    "name": "Davis, Ray",
+    "id": "06l7u",
+    "ADP": 204.35
+  },
+  {
+    "ADP_PPR": 206.24,
+    "pos": "WR",
+    "name": "Wicks, Dontayvion",
+    "id": "06ar0",
+    "ADP": 204.85
+  },
+  {
+    "ADP_PPR": 211.65,
+    "pos": "QB",
+    "name": "Ward, Cam",
+    "id": "06jek",
+    "ADP": 205.08
+  },
+  {
+    "ADP_PPR": 222.87,
+    "tmId": "TM_20220",
+    "name": "DET",
+    "id": "20220",
+    "ADP": 206.26
+  },
+  {
+    "ADP_PPR": 210.43,
+    "pos": "RB",
+    "name": "Johnson, Emmett",
+    "id": "0751l",
+    "ADP": 206.58
+  },
+  {
+    "ADP_PPR": 256.64,
+    "pos": "S",
+    "name": "McKinney, Xavier",
+    "id": "05jad",
+    "ADP": 210.57
+  },
+  {
+    "ADP_PPR": 353.25,
+    "pos": "S",
+    "name": "Downs, Caleb",
+    "id": "074xh",
+    "ADP": 211.28
+  },
+  {
+    "ADP_PPR": 221.79,
+    "pos": "K",
+    "name": "McPherson, Evan",
+    "id": "05rpl",
+    "ADP": 211.61
+  },
+  {
+    "ADP_PPR": 196.46,
+    "pos": "LB",
+    "name": "Singleton, Alex",
+    "id": "03osn",
+    "ADP": 211.89
+  },
+  {
+    "ADP_PPR": 147.38,
+    "pos": "LB",
+    "name": "Smith, Roquan",
+    "id": "04mo3",
+    "ADP": 212
+  },
+  {
+    "ADP_PPR": 189.75,
+    "pos": "TK",
+    "name": "Team K, San Francisco",
+    "id": "06ft8",
+    "ADP": 212
+  },
+  {
+    "ADP_PPR": 207.33,
+    "pos": "WR",
+    "name": "Jeudy, Jerry",
+    "id": "05gu0",
+    "ADP": 213.37
+  },
+  {
+    "ADP_PPR": 219.51,
+    "pos": "QB",
+    "name": "Young, Bryce",
+    "id": "06amz",
+    "ADP": 214.59
+  },
+  {
+    "ADP_PPR": 259.5,
+    "pos": "S",
+    "name": "Moehrig, Trevon",
+    "id": "05rmf",
+    "ADP": 214.86
+  },
+  {
+    "ADP_PPR": 216.14,
+    "pos": "WR",
+    "name": "Lane, Ja'Kobi",
+    "id": "074zg",
+    "ADP": 216.13
+  },
+  {
+    "ADP_PPR": 212.98,
+    "pos": "TE",
+    "name": "Hockenson, T.J.",
+    "id": "04yne",
+    "ADP": 216.91
+  },
+  {
+    "ADP_PPR": 219.75,
+    "pos": "WR",
+    "name": "Williams, Antonio",
+    "id": "0754a",
+    "ADP": 218.01
+  },
+  {
+    "ADP_PPR": 219.74,
+    "pos": "WR",
+    "name": "Mitchell, Adonai",
+    "id": "06je6",
+    "ADP": 219.07
+  },
+  {
+    "ADP_PPR": 227.91,
+    "pos": "RB",
+    "name": "Vidal, Kimani",
+    "id": "06lb6",
+    "ADP": 219.66
+  },
+  {
+    "ADP_PPR": 218.97,
+    "pos": "RB",
+    "name": "Pacheco, Isiah",
+    "id": "060sn",
+    "ADP": 222.14
+  },
+  {
+    "ADP_PPR": 231.92,
+    "pos": "K",
+    "name": "Butker, Harrison",
+    "id": "04chj",
+    "ADP": 222.25
+  },
+  {
+    "ADP_PPR": 271.82,
+    "pos": "S",
+    "name": "Chinn, Jeremy",
+    "id": "05jaw",
+    "ADP": 223.43
+  },
+  {
+    "ADP_PPR": 227.12,
+    "pos": "WR",
+    "name": "Ridley, Calvin",
+    "id": "04mo8",
+    "ADP": 224.03
+  },
+  {
+    "ADP_PPR": 219.6,
+    "pos": "WR",
+    "name": "Flournoy, Ryan",
+    "id": "06lao",
+    "ADP": 224.27
+  },
+  {
+    "ADP_PPR": 239.49,
+    "tmId": "TM_20140",
+    "name": "KC",
+    "id": "20140",
+    "ADP": 226.1
+  },
+  {
+    "ADP_PPR": 233.46,
+    "pos": "DT",
+    "name": "Buckner, DeForest",
+    "id": "040dw",
+    "ADP": 226.17
+  },
+  {
+    "ADP_PPR": 233.39,
+    "tmId": "TM_20230",
+    "name": "GB",
+    "id": "20230",
+    "ADP": 226.93
+  },
+  {
+    "ADP_PPR": 290.96,
+    "pos": "DT",
+    "name": "Williams, Leonard",
+    "id": "03oh5",
+    "ADP": 227
+  },
+  {
+    "ADP_PPR": 234.2,
+    "pos": "WR",
+    "name": "Dell, Tank",
+    "id": "06ayk",
+    "ADP": 227.76
+  },
+  {
+    "ADP_PPR": 243.4,
+    "pos": "TK",
+    "name": "Team K, Jacksonville",
+    "id": "06fsx",
+    "ADP": 229
+  },
+  {
+    "ADP_PPR": 244,
+    "pos": "S",
+    "name": "Curl, Kamren",
+    "id": "05jeg",
+    "ADP": 229.43
+  },
+  {
+    "ADP_PPR": 237.31,
+    "pos": "WR",
+    "name": "Kupp, Cooper",
+    "id": "04ccp",
+    "ADP": 229.88
+  },
+  {
+    "ADP_PPR": 241.32,
+    "pos": "QB",
+    "name": "Brissett, Jacoby",
+    "id": "040g5",
+    "ADP": 230.11
+  },
+  {
+    "ADP_PPR": 240.21,
+    "pos": "K",
+    "name": "Bass, Tyler",
+    "id": "05jdc",
+    "ADP": 231.5
+  },
+  {
+    "ADP_PPR": 214.3,
+    "pos": "TK",
+    "name": "Team K, Kansas City",
+    "id": "06ft2",
+    "ADP": 233.2
+  },
+  {
+    "ADP_PPR": 199,
+    "pos": "DE",
+    "name": "Bosa, Nick",
+    "id": "04ymy",
+    "ADP": 235
+  },
+  {
+    "ADP_PPR": 240.86,
+    "pos": "TE",
+    "name": "Barner, AJ",
+    "id": "06l7p",
+    "ADP": 236.12
+  },
+  {
+    "ADP_PPR": 244.96,
+    "pos": "WR",
+    "name": "Douglas, Caleb",
+    "id": "074zc",
+    "ADP": 236.5
+  },
+  {
+    "ADP_PPR": 238.85,
+    "pos": "WR",
+    "name": "Harris, Tre",
+    "id": "06s5x",
+    "ADP": 237.05
+  },
+  {
+    "ADP_PPR": 251.45,
+    "tmId": "TM_20010",
+    "name": "BUF",
+    "id": "20010",
+    "ADP": 237.43
+  },
+  {
+    "ADP_PPR": 300.04,
+    "pos": "DE",
+    "name": "Karlaftis, George",
+    "id": "060k8",
+    "ADP": 237.71
+  },
+  {
+    "ADP_PPR": 223.3,
+    "pos": "TK",
+    "name": "Team K, New England",
+    "id": "06fsr",
+    "ADP": 238
+  },
+  {
+    "ADP_PPR": 209.72,
+    "pos": "DE",
+    "name": "Verse, Jared",
+    "id": "06jg3",
+    "ADP": 238
+  },
+  {
+    "ADP_PPR": 251.82,
+    "pos": "DL",
+    "name": "Sweat, Montez",
+    "id": "04yq0",
+    "ADP": 240.57
+  },
+  {
+    "ADP_PPR": 285.21,
+    "pos": "CB",
+    "name": "Witherspoon, Devon",
+    "id": "06ank",
+    "ADP": 241.28
+  },
+  {
+    "ADP_PPR": 257.45,
+    "pos": "CB",
+    "name": "Hunter, Travis",
+    "id": "06s4p",
+    "ADP": 241.86
+  },
+  {
+    "ADP_PPR": 274.08,
+    "pos": "DT",
+    "name": "Davis, Jordan",
+    "id": "060k1",
+    "ADP": 242.84
+  },
+  {
+    "ADP_PPR": 254.35,
+    "pos": "TE",
+    "name": "Dulcich, Greg",
+    "id": "060r3",
+    "ADP": 243.06
+  },
+  {
+    "ADP_PPR": 249.99,
+    "pos": "K",
+    "name": "Smack, Trey",
+    "id": "0752a",
+    "ADP": 244
+  },
+  {
+    "ADP_PPR": 242.67,
+    "pos": "WR",
+    "name": "TeSlaa, Isaac",
+    "id": "06sts",
+    "ADP": 244.72
+  },
+  {
+    "ADP_PPR": 261.35,
+    "tmId": "TM_20210",
+    "name": "CHI",
+    "id": "20210",
+    "ADP": 246.92
+  },
+  {
+    "ADP_PPR": 229.02,
+    "pos": "LB",
+    "name": "Dodson, Tyrel",
+    "id": "050d5",
+    "ADP": 247.56
+  },
+  {
+    "ADP_PPR": 255.63,
+    "pos": "RB",
+    "name": "Conner, James",
+    "id": "04cdt",
+    "ADP": 248.78
+  },
+  {
+    "ADP_PPR": 268.79,
+    "pos": "S",
+    "name": "Smith, Tykee",
+    "id": "06l6y",
+    "ADP": 249.14
+  },
+  {
+    "ADP_PPR": 254.37,
+    "pos": "QB",
+    "name": "Rodgers, Aaron",
+    "id": "001w1",
+    "ADP": 249.15
+  },
+  {
+    "ADP_PPR": 260.5,
+    "pos": "K",
+    "name": "Santos, Cairo",
+    "id": "03cx0",
+    "ADP": 249.66
+  },
+  {
+    "ADP_PPR": 254.22,
+    "pos": "RB",
+    "name": "Holani, George",
+    "id": "06lil",
+    "ADP": 249.76
+  },
+  {
+    "ADP_PPR": 274.63,
+    "pos": "QB",
+    "name": "Smith, Geno",
+    "id": "02zss",
+    "ADP": 250.48
+  },
+  {
+    "ADP_PPR": 260.54,
+    "tmId": "TM_20070",
+    "name": "CLE",
+    "id": "20070",
+    "ADP": 250.49
+  },
+  {
+    "ADP_PPR": 271.2,
+    "pos": "TK",
+    "name": "Team K, Buffalo",
+    "id": "06fsp",
+    "ADP": 250.8
+  },
+  {
+    "ADP_PPR": 259.68,
+    "pos": "K",
+    "name": "Reichard, Will",
+    "id": "06lb1",
+    "ADP": 252.36
+  },
+  {
+    "ADP_PPR": 250.56,
+    "pos": "RB",
+    "name": "Blue, Jaydon",
+    "id": "06swa",
+    "ADP": 254.11
+  },
+  {
+    "ADP_PPR": 257.06,
+    "pos": "WR",
+    "name": "Bell, Chris",
+    "id": "0737w",
+    "ADP": 254.17
+  },
+  {
+    "ADP_PPR": 223.96,
+    "pos": "S",
+    "name": "James, Derwin",
+    "id": "04mo4",
+    "ADP": 254.86
+  },
+  {
+    "ADP_PPR": 257.74,
+    "pos": "WR",
+    "name": "Fields, Malachi",
+    "id": "074zb",
+    "ADP": 254.92
+  },
+  {
+    "ADP_PPR": 266.8,
+    "pos": "TK",
+    "name": "Team K, New Orleans",
+    "id": "06ftd",
+    "ADP": 255.6
+  },
+  {
+    "ADP_PPR": 261.37,
+    "pos": "RB",
+    "name": "Harris, Najee",
+    "id": "05rlw",
+    "ADP": 256.78
+  },
+  {
+    "ADP_PPR": 268.81,
+    "tmId": "TM_20310",
+    "name": "SF",
+    "id": "20310",
+    "ADP": 257.04
+  },
+  {
+    "ADP_PPR": 265.96,
+    "tmId": "TM_20170",
+    "name": "DAL",
+    "id": "20170",
+    "ADP": 258.04
+  },
+  {
+    "ADP_PPR": 258.32,
+    "pos": "WR",
+    "name": "Mooney, Darnell",
+    "id": "05jd5",
+    "ADP": 258.05
+  },
+  {
+    "ADP_PPR": 261.19,
+    "pos": "RB",
+    "name": "Tucker, Sean",
+    "id": "06arx",
+    "ADP": 258.06
+  },
+  {
+    "ADP_PPR": 262.18,
+    "pos": "TE",
+    "name": "Engram, Evan",
+    "id": "04caj",
+    "ADP": 258.4
+  },
+  {
+    "ADP_PPR": 265.66,
+    "pos": "RB",
+    "name": "Perine, Samaje",
+    "id": "04cea",
+    "ADP": 259.97
+  },
+  {
+    "ADP_PPR": 266.25,
+    "pos": "RB",
+    "name": "James, Jordan",
+    "id": "06sge",
+    "ADP": 260.98
+  },
+  {
+    "ADP_PPR": 265.61,
+    "pos": "RB",
+    "name": "Wright, Jaylen",
+    "id": "06jf9",
+    "ADP": 261.45
+  },
+  {
+    "ADP_PPR": 269.42,
+    "pos": "QB",
+    "name": "Tagovailoa, Tua",
+    "id": "05gvp",
+    "ADP": 261.56
+  },
+  {
+    "ADP_PPR": 268.21,
+    "pos": "K",
+    "name": "McLaughlin, Chase",
+    "id": "050db",
+    "ADP": 261.71
+  },
+  {
+    "ADP_PPR": 271.43,
+    "tmId": "TM_20250",
+    "name": "ATL",
+    "id": "20250",
+    "ADP": 261.94
+  },
+  {
+    "ADP_PPR": 269.18,
+    "pos": "K",
+    "name": "Boswell, Chris",
+    "id": "03cvr",
+    "ADP": 262.25
+  },
+  {
+    "ADP_PPR": 265.75,
+    "pos": "TE",
+    "name": "Freiermuth, Pat",
+    "id": "05rn2",
+    "ADP": 264.01
+  },
+  {
+    "ADP_PPR": 261.27,
+    "pos": "RB",
+    "name": "Davis, Malik",
+    "id": "061e1",
+    "ADP": 264.25
+  },
+  {
+    "ADP_PPR": 270.65,
+    "pos": "TE",
+    "name": "Helm, Gunnar",
+    "id": "06sgn",
+    "ADP": 264.79
+  },
+  {
+    "ADP_PPR": 266,
+    "pos": "WR",
+    "name": "Branch, Zachariah",
+    "id": "074zf",
+    "ADP": 264.8
+  },
+  {
+    "ADP_PPR": 266.95,
+    "pos": "WR",
+    "name": "Franklin, Troy",
+    "id": "06jeo",
+    "ADP": 265.07
+  },
+  {
+    "ADP_PPR": 274.47,
+    "tmId": "TM_20280",
+    "name": "TB",
+    "id": "20280",
+    "ADP": 265.16
+  },
+  {
+    "ADP_PPR": 272.01,
+    "pos": "QB",
+    "name": "Mendoza, Fernando",
+    "id": "074xe",
+    "ADP": 266.71
+  },
+  {
+    "ADP_PPR": 273.89,
+    "pos": "TE",
+    "name": "Parkinson, Colby",
+    "id": "05gul",
+    "ADP": 267.72
+  },
+  {
+    "ADP_PPR": 274.03,
+    "pos": "TE",
+    "name": "Gesicki, Mike",
+    "id": "04mpt",
+    "ADP": 268.29
+  },
+  {
+    "ADP_PPR": 273.97,
+    "pos": "WR",
+    "name": "Bryant, Pat",
+    "id": "06sgm",
+    "ADP": 268.57
+  },
+  {
+    "ADP_PPR": 274.78,
+    "pos": "K",
+    "name": "Borregales, Andres",
+    "id": "06sx5",
+    "ADP": 268.85
+  },
+  {
+    "ADP_PPR": 385.5,
+    "pos": "DT",
+    "name": "Donald, Aaron",
+    "id": "03ccz",
+    "ADP": 269
+  },
+  {
+    "ADP_PPR": 278.86,
+    "tmId": "TM_20180",
+    "name": "NYG",
+    "id": "20180",
+    "ADP": 269.47
+  },
+  {
+    "ADP_PPR": 271.83,
+    "pos": "RB",
+    "name": "Allen, Kaytron",
+    "id": "0752m",
+    "ADP": 269.54
+  },
+  {
+    "ADP_PPR": 381.82,
+    "pos": "LB",
+    "name": "Campbell, Jihaad",
+    "id": "06rtf",
+    "ADP": 270.34
+  },
+  {
+    "ADP_PPR": 277.73,
+    "tmId": "TM_20270",
+    "name": "NO",
+    "id": "20270",
+    "ADP": 270.46
+  },
+  {
+    "ADP_PPR": 276.53,
+    "pos": "RB",
+    "name": "Johnson, Kaleb",
+    "id": "06s5w",
+    "ADP": 270.54
+  },
+  {
+    "ADP_PPR": 278.96,
+    "tmId": "TM_20100",
+    "name": "IND",
+    "id": "20100",
+    "ADP": 271.1
+  },
+  {
+    "ADP_PPR": 276.46,
+    "pos": "WR",
+    "name": "Hurst, Ted",
+    "id": "074zk",
+    "ADP": 271.28
+  },
+  {
+    "ADP_PPR": 277.97,
+    "pos": "RB",
+    "name": "Wilson, Emanuel",
+    "id": "06blc",
+    "ADP": 271.46
+  },
+  {
+    "ADP_PPR": 280.35,
+    "pos": "RB",
+    "name": "Brooks, Christopher",
+    "id": "06bg9",
+    "ADP": 271.93
+  },
+  {
+    "ADP_PPR": 279.05,
+    "tmId": "TM_20120",
+    "name": "TEN",
+    "id": "20120",
+    "ADP": 272.07
+  },
+  {
+    "ADP_PPR": 274.26,
+    "pos": "WR",
+    "name": "Bateman, Rashod",
+    "id": "05rle",
+    "ADP": 272.22
+  },
+  {
+    "ADP_PPR": 277.42,
+    "pos": "TE",
+    "name": "Njoku, David",
+    "id": "04can",
+    "ADP": 272.4
+  },
+  {
+    "ADP_PPR": 274.48,
+    "pos": "RB",
+    "name": "Singleton, Nicholas",
+    "id": "0751p",
+    "ADP": 272.49
+  },
+  {
+    "ADP_PPR": 270.29,
+    "pos": "TE",
+    "name": "Otton, Cade",
+    "id": "060te",
+    "ADP": 273.17
+  },
+  {
+    "ADP_PPR": 278.38,
+    "pos": "K",
+    "name": "Lutz, Wil",
+    "id": "040tm",
+    "ADP": 273.56
+  },
+  {
+    "ADP_PPR": 275.11,
+    "pos": "QB",
+    "name": "Cousins, Kirk",
+    "id": "02jak",
+    "ADP": 273.65
+  },
+  {
+    "ADP_PPR": 275.08,
+    "pos": "RB",
+    "name": "Demercado, Emari",
+    "id": "06b58",
+    "ADP": 273.71
+  },
+  {
+    "ADP_PPR": 383.84,
+    "pos": "LB",
+    "name": "Johnson, Jermaine",
+    "id": "060k6",
+    "ADP": 273.78
+  },
+  {
+    "ADP_PPR": 275.83,
+    "pos": "WR",
+    "name": "Vele, Devaughn",
+    "id": "06lbq",
+    "ADP": 274.35
+  },
+  {
+    "ADP_PPR": 282.33,
+    "pos": "QB",
+    "name": "Watson, Deshaun",
+    "id": "048vi",
+    "ADP": 274.96
+  },
+  {
+    "ADP_PPR": 278.19,
+    "pos": "WR",
+    "name": "Bernard, Germie",
+    "id": "074yl",
+    "ADP": 275.87
+  },
+  {
+    "ADP_PPR": 281.05,
+    "pos": "QB",
+    "name": "Penix Jr., Michael",
+    "id": "06jea",
+    "ADP": 277.1
+  },
+  {
+    "ADP_PPR": 283.76,
+    "pos": "QB",
+    "name": "Sanders, Shedeur",
+    "id": "06s5z",
+    "ADP": 277.55
+  },
+  {
+    "ADP_PPR": 288.64,
+    "pos": "WR",
+    "name": "Aiyuk, Brandon",
+    "id": "05guf",
+    "ADP": 279.07
+  },
+  {
+    "ADP_PPR": 283.29,
+    "pos": "WR",
+    "name": "Bech, Jack",
+    "id": "06r2d",
+    "ADP": 280.16
+  },
+  {
+    "ADP_PPR": 281.4,
+    "pos": "WR",
+    "name": "Hill, Tyreek",
+    "id": "040id",
+    "ADP": 280.95
+  },
+  {
+    "ADP_PPR": 285.32,
+    "pos": "K",
+    "name": "Elliott, Jake",
+    "id": "04cf5",
+    "ADP": 281.11
+  },
+  {
+    "ADP_PPR": 283.75,
+    "pos": "RB",
+    "name": "McGowan, Seth",
+    "id": "0753n",
+    "ADP": 281.21
+  },
+  {
+    "ADP_PPR": 286.82,
+    "pos": "WR",
+    "name": "Coleman, Keon",
+    "id": "06je7",
+    "ADP": 281.7
+  },
+  {
+    "ADP_PPR": 283.81,
+    "pos": "WR",
+    "name": "Noel, Jaylin",
+    "id": "06s65",
+    "ADP": 281.82
+  },
+  {
+    "ADP_PPR": 287.61,
+    "pos": "TE",
+    "name": "Stowers, Eli",
+    "id": "074ys",
+    "ADP": 281.87
+  },
+  {
+    "ADP_PPR": 285.42,
+    "tmId": "TM_20200",
+    "name": "WAS",
+    "id": "20200",
+    "ADP": 282.12
+  },
+  {
+    "ADP_PPR": 290.68,
+    "pos": "QB",
+    "name": "Darnold, Sam",
+    "id": "04mn9",
+    "ADP": 282.15
+  },
+  {
+    "ADP_PPR": 285.27,
+    "pos": "TE",
+    "name": "Tonges, Jake",
+    "id": "0619a",
+    "ADP": 282.53
+  },
+  {
+    "ADP_PPR": 287.32,
+    "pos": "WR",
+    "name": "Kirk, Christian",
+    "id": "04mou",
+    "ADP": 283.18
+  },
+  {
+    "ADP_PPR": 287.28,
+    "pos": "K",
+    "name": "Shrader, Spencer",
+    "id": "06lmz",
+    "ADP": 283.44
+  },
+  {
+    "ADP_PPR": 285.41,
+    "tmId": "TM_20151",
+    "name": "LV",
+    "id": "20151",
+    "ADP": 283.81
+  },
+  {
+    "ADP_PPR": 288.12,
+    "pos": "RB",
+    "name": "Gordon, Ollie",
+    "id": "06s7a",
+    "ADP": 284.01
+  },
+  {
+    "ADP_PPR": 285.35,
+    "pos": "RB",
+    "name": "Saylors, Jacob",
+    "id": "06b74",
+    "ADP": 284.29
+  },
+  {
+    "ADP_PPR": 287.87,
+    "tmId": "TM_20060",
+    "name": "CIN",
+    "id": "20060",
+    "ADP": 284.35
+  },
+  {
+    "ADP_PPR": 287.94,
+    "pos": "TE",
+    "name": "Waller, Darren",
+    "id": "03omz",
+    "ADP": 284.73
+  },
+  {
+    "ADP_PPR": 287.12,
+    "pos": "TE",
+    "name": "Taylor, Mason",
+    "id": "06sfj",
+    "ADP": 284.75
+  },
+  {
+    "ADP_PPR": 289.24,
+    "pos": "WR",
+    "name": "Iosivas, Andrei",
+    "id": "06aqx",
+    "ADP": 285.18
+  },
+  {
+    "ADP_PPR": 287.26,
+    "tmId": "TM_20260",
+    "name": "CAR",
+    "id": "20260",
+    "ADP": 285.62
+  },
+  {
+    "ADP_PPR": 290.35,
+    "pos": "RB",
+    "name": "Singletary, Devin",
+    "id": "04yp8",
+    "ADP": 286.02
+  },
+  {
+    "ADP_PPR": 289.34,
+    "pos": "WR",
+    "name": "Thornton, Tyquan",
+    "id": "060sa",
+    "ADP": 286.49
+  },
+  {
+    "ADP_PPR": 290.06,
+    "pos": "QB",
+    "name": "Beck, Carson",
+    "id": "074z4",
+    "ADP": 286.95
+  },
+  {
+    "ADP_PPR": 290.3,
+    "pos": "WR",
+    "name": "Walker, Devontez",
+    "id": "06jeu",
+    "ADP": 287.03
+  },
+  {
+    "ADP_PPR": 290.69,
+    "pos": "WR",
+    "name": "Ayomanor, Elic",
+    "id": "06s67",
+    "ADP": 287.51
+  },
+  {
+    "ADP_PPR": 290.82,
+    "pos": "K",
+    "name": "Folk, Nick",
+    "id": "001od",
+    "ADP": 287.7
+  },
+  {
+    "ADP_PPR": 291.24,
+    "pos": "TE",
+    "name": "Washington, Darnell",
+    "id": "06aok",
+    "ADP": 288.12
+  },
+  {
+    "ADP_PPR": 291.73,
+    "pos": "WR",
+    "name": "Bell, Skyler",
+    "id": "0750m",
+    "ADP": 288.23
+  },
+  {
+    "ADP_PPR": 291.27,
+    "pos": "QB",
+    "name": "McCarthy, J.J.",
+    "id": "06jec",
+    "ADP": 288.3
+  },
+  {
+    "ADP_PPR": 289.46,
+    "pos": "RB",
+    "name": "Knight, Zonovan",
+    "id": "060sd",
+    "ADP": 288.42
+  },
+  {
+    "ADP_PPR": 290.81,
+    "pos": "RB",
+    "name": "Giddens, DJ",
+    "id": "06s7c",
+    "ADP": 288.44
+  },
+  {
+    "ADP_PPR": 292.55,
+    "pos": "WR",
+    "name": "Tolbert, Jalen",
+    "id": "060rx",
+    "ADP": 288.6
+  },
+  {
+    "ADP_PPR": 292.35,
+    "pos": "WR",
+    "name": "Palmer, Josh",
+    "id": "05rni",
+    "ADP": 288.69
+  },
+  {
+    "ADP_PPR": 290.2,
+    "tmId": "TM_20040",
+    "name": "NYJ",
+    "id": "20040",
+    "ADP": 288.94
+  },
+  {
+    "ADP_PPR": 292.28,
+    "pos": "K",
+    "name": "Slye, Joey",
+    "id": "050ak",
+    "ADP": 289.03
+  },
+  {
+    "ADP_PPR": 290.73,
+    "pos": "K",
+    "name": "Stevens, Drew",
+    "id": "075ov",
+    "ADP": 289.03
+  },
+  {
+    "ADP_PPR": 292.19,
+    "pos": "WR",
+    "name": "Dike, Chimere",
+    "id": "06svl",
+    "ADP": 289.06
+  },
+  {
+    "ADP_PPR": 291.4,
+    "pos": "WR",
+    "name": "Williams, Kyle",
+    "id": "06sfp",
+    "ADP": 289.14
+  },
+  {
+    "ADP_PPR": 292,
+    "pos": "WR",
+    "name": "Douglas, Demario",
+    "id": "06b0j",
+    "ADP": 289.31
+  },
+  {
+    "ADP_PPR": 293.01,
+    "pos": "WR",
+    "name": "Turpin, KaVontae",
+    "id": "06350",
+    "ADP": 289.47
+  },
+  {
+    "ADP_PPR": 292.82,
+    "pos": "K",
+    "name": "Gay, Matt",
+    "id": "04zvr",
+    "ADP": 289.5
+  },
+  {
+    "ADP_PPR": 292.34,
+    "pos": "QB",
+    "name": "Fields, Justin",
+    "id": "05rlx",
+    "ADP": 289.58
+  },
+  {
+    "ADP_PPR": 292.3,
+    "pos": "RB",
+    "name": "Brooks, Tahj",
+    "id": "06sxx",
+    "ADP": 289.63
+  },
+  {
+    "ADP_PPR": 291.23,
+    "pos": "K",
+    "name": "Carlson, Daniel",
+    "id": "04mte",
+    "ADP": 289.68
+  },
+  {
+    "ADP_PPR": 289.17,
+    "pos": "WR",
+    "name": "Beckham, Odell",
+    "id": "03ccw",
+    "ADP": 289.74
+  },
+  {
+    "ADP_PPR": 291.81,
+    "pos": "TE",
+    "name": "Knox, Dawson",
+    "id": "04zeg",
+    "ADP": 289.89
+  },
+  {
+    "ADP_PPR": 292.22,
+    "pos": "QB",
+    "name": "Flacco, Joe",
+    "id": "0059l",
+    "ADP": 290.11
+  },
+  {
+    "ADP_PPR": 291.61,
+    "pos": "QB",
+    "name": "Simpson, Ty",
+    "id": "074xc",
+    "ADP": 290.16
+  },
+  {
+    "ADP_PPR": 293.07,
+    "pos": "K",
+    "name": "Grupe, Blake",
+    "id": "06b1s",
+    "ADP": 290.26
+  },
+  {
+    "ADP_PPR": 292.39,
+    "pos": "K",
+    "name": "Smyth, Charlie",
+    "id": "06kzc",
+    "ADP": 290.28
+  },
+  {
+    "ADP_PPR": 292.52,
+    "tmId": "TM_20020",
+    "name": "MIA",
+    "id": "20020",
+    "ADP": 290.29
+  },
+  {
+    "ADP_PPR": 291.09,
+    "pos": "QB",
+    "name": "Winston, Jameis",
+    "id": "03oh2",
+    "ADP": 290.43
+  },
+  {
+    "ADP_PPR": 292.94,
+    "pos": "WR",
+    "name": "Bourne, Kendrick",
+    "id": "04cpq",
+    "ADP": 290.45
+  },
+  {
+    "ADP_PPR": 292.37,
+    "pos": "QB",
+    "name": "Jones, Mac",
+    "id": "05rlg",
+    "ADP": 290.57
+  },
+  {
+    "ADP_PPR": 291.63,
+    "pos": "QB",
+    "name": "Huntley, Tyler",
+    "id": "05jhq",
+    "ADP": 290.68
+  },
+  {
+    "ADP_PPR": 292.34,
+    "pos": "K",
+    "name": "Patterson, Riley",
+    "id": "05rvh",
+    "ADP": 290.72
+  },
+  {
+    "ADP_PPR": 292.92,
+    "pos": "RB",
+    "name": "Hunt, Kareem",
+    "id": "04cd7",
+    "ADP": 290.79
+  },
+  {
+    "ADP_PPR": 290.88,
+    "pos": "K",
+    "name": "Zvada, Dominic",
+    "id": "075cp",
+    "ADP": 290.83
+  },
+  {
+    "ADP_PPR": 292.81,
+    "pos": "K",
+    "name": "Fitzgerald, Ryan",
+    "id": "06t6r",
+    "ADP": 290.89
+  },
+  {
+    "ADP_PPR": 292.28,
+    "pos": "WR",
+    "name": "Lance, Bryce",
+    "id": "0750x",
+    "ADP": 290.9
+  },
+  {
+    "ADP_PPR": 293.49,
+    "pos": "WR",
+    "name": "Westbrook-Ikhine, Nick",
+    "id": "05jwb",
+    "ADP": 290.94
+  },
+  {
+    "ADP_PPR": 292.52,
+    "pos": "K",
+    "name": "Szmyt, Andre",
+    "id": "06b9l",
+    "ADP": 291.05
+  },
+  {
+    "ADP_PPR": 292.99,
+    "pos": "WR",
+    "name": "Cameron, Josh",
+    "id": "07527",
+    "ADP": 291.13
+  },
+  {
+    "ADP_PPR": 292.12,
+    "pos": "K",
+    "name": "Sauls, Ben",
+    "id": "06ta2",
+    "ADP": 291.21
+  },
+  {
+    "ADP_PPR": 292.23,
+    "pos": "QB",
+    "name": "Klubnik, Cade",
+    "id": "07508",
+    "ADP": 291.26
+  },
+  {
+    "ADP_PPR": 292.02,
+    "pos": "K",
+    "name": "Ryland, Chad",
+    "id": "06az0",
+    "ADP": 291.26
+  },
+  {
+    "ADP_PPR": 293.06,
+    "tmId": "TM_20290",
+    "name": "ARI",
+    "id": "20290",
+    "ADP": 291.37
+  },
+  {
+    "ADP_PPR": 292.84,
+    "pos": "TE",
+    "name": "Boerkircher, Nate",
+    "id": "074yu",
+    "ADP": 291.41
+  },
+  {
+    "ADP_PPR": 293.79,
+    "pos": "RB",
+    "name": "McLaughlin, Jaleel",
+    "id": "06bks",
+    "ADP": 291.44
+  },
+  {
+    "pos": "RB",
+    "name": "Taylor, J'Mari",
+    "id": "0754d",
+    "ADP": 291.45
+  },
+  {
+    "ADP_PPR": 292.56,
+    "pos": "TE",
+    "name": "Tonyan, Robert",
+    "id": "04cz8",
+    "ADP": 291.48
+  },
+  {
+    "ADP_PPR": 293.91,
+    "pos": "TE",
+    "name": "Higgins, Elijah",
+    "id": "06as2",
+    "ADP": 291.5
+  },
+  {
+    "ADP_PPR": 291.8,
+    "pos": "QB",
+    "name": "Bagent, Tyson",
+    "id": "06b9s",
+    "ADP": 291.57
+  },
+  {
+    "pos": "K",
+    "name": "Matsuzawa, Kansei",
+    "id": "075bo",
+    "ADP": 291.63
+  },
+  {
+    "pos": "WR",
+    "name": "Sherfield, Trent",
+    "id": "04omq",
+    "ADP": 291.82
+  },
+  {
+    "pos": "TE",
+    "name": "Hill, Taysom",
+    "id": "04crt",
+    "ADP": 291.83
+  },
+  {
+    "pos": "QB",
+    "name": "McKee, Tanner",
+    "id": "06aob",
+    "ADP": 291.85
+  },
+  {
+    "pos": "TE",
+    "name": "Ertz, Zach",
+    "id": "02zsq",
+    "ADP": 291.86
+  },
+  {
+    "ADP_PPR": 999,
+    "pos": "WR",
+    "name": "Brazzell, Chris",
+    "id": "074zj",
+    "ADP": 999
+  },
+  {
+    "ADP_PPR": 999,
+    "pos": "WR",
+    "name": "Higgins, Jayden",
+    "id": "06s5y",
+    "ADP": 999
+  },
+  {
+    "ADP_PPR": 999,
+    "pos": "WR",
+    "name": "Pearsall, Ricky",
+    "id": "06jei",
+    "ADP": 999
+  },
+  {
+    "ADP_PPR": 999,
+    "pos": "QB",
+    "name": "Sorsby, Brendan",
+    "id": "076pa",
+    "ADP": 999
+  }
+]

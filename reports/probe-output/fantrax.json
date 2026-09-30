@@ -1,0 +1,797 @@
+{
+  "platform": "fantrax",
+  "generatedAt": "2026-09-29T23:44:42.347Z",
+  "runtimeSeconds": 1,
+  "meta": {
+    "leagues": [
+      {
+        "label": "none: FANTRAX_LEAGUE_ID blank",
+        "access": "league-independent endpoints only",
+        "source": "getPlayerIds, getAdp, and one invalid-ID getLeagueInfo call"
+      }
+    ],
+    "season": 2026,
+    "timingsMs": {
+      "go-fantrax README": 3,
+      "go-fantrax league_info.go": 2,
+      "go-fantrax repo tree": 2,
+      "getPlayerIds": 11,
+      "getAdp": 2,
+      "Sleeper players DB": 135,
+      "DynastyProcess ID map": 241,
+      "FantasyCalc": 2,
+      "getLeagueInfo (invalid id)": 246
+    },
+    "requestCount": 9
+  },
+  "itemStatus": {
+    "DOCS": "ok",
+    "API": "ok",
+    "A": "na",
+    "B": "na",
+    "C": "warn",
+    "D": "na",
+    "E": "na",
+    "F": "na",
+    "G": "warn",
+    "H": "na",
+    "I": "na",
+    "J": "warn",
+    "K": "warn",
+    "L": "na",
+    "M": "na",
+    "FIX": "ok"
+  },
+  "counts": {
+    "ok": 15,
+    "warn": 4,
+    "fail": 0,
+    "na": 9
+  },
+  "checks": [
+    {
+      "item": "DOCS",
+      "key": "DOCS.readme",
+      "title": "Documented endpoints (go-fantrax README)",
+      "status": "ok",
+      "summary": "README (current as of April 2025) documents getPlayerIds, getAdp, getLeagues, getLeagueInfo, getDraftPicks, getTeamRosters, getStandings; getAdp params: sport, position, showAllPositions, start, limit, order; Go example methods: GetDraftResults, GetLeagueInfo, GetTeamRosters, GetPlayerIds, GetPlayerInfo",
+      "evidence": [
+        {
+          "url": "https://raw.githubusercontent.com/pmurley/go-fantrax/HEAD/README.md",
+          "status": 200,
+          "path": "### <section> → - URL: …/fxea/general/<endpoint>, - `<param>`",
+          "sample": [
+            "getPlayerIds(sport)",
+            "getAdp(sport,position,showAllPositions,start,limit,order)",
+            "getLeagues(userSecretId)",
+            "getLeagueInfo()",
+            "getDraftPicks()",
+            "getTeamRosters(period)",
+            "getStandings()"
+          ],
+          "note": "7-day docs cache"
+        }
+      ]
+    },
+    {
+      "item": "DOCS",
+      "key": "DOCS.leagueInfo",
+      "title": "getLeagueInfo response struct (go-fantrax)",
+      "status": "ok",
+      "summary": "LeagueInfo keys: leagueName, draftSettings, matchups, rosterInfo, playerInfo, poolSettings, scoringSystem, teamInfo, draftType; none matches /playoff|trade|deadline|veto|keeper|dynasty|leaguetype|median|allplay|pointsonly/i (no playoff, trade-deadline, league-type or median settings); ScoringConfig {position, cumulative, scoringCategory, points}; ScoringCategories groups: HITTING, PITCHING",
+      "evidence": [
+        {
+          "url": "https://raw.githubusercontent.com/pmurley/go-fantrax/HEAD/league_info.go",
+          "status": 200,
+          "path": "type LeagueInfo struct json tags",
+          "sample": [
+            "leagueName",
+            "draftSettings",
+            "matchups",
+            "rosterInfo",
+            "playerInfo",
+            "poolSettings",
+            "scoringSystem",
+            "teamInfo",
+            "draftType"
+          ],
+          "note": "7-day docs cache"
+        }
+      ]
+    },
+    {
+      "item": "DOCS",
+      "key": "DOCS.tree",
+      "title": "Where go-fantrax reads transactions",
+      "status": "ok",
+      "summary": "7 transaction/trade source files (auth_client/ 4, examples/ 2, models/ 1); 0 among the root-level public-API bindings",
+      "evidence": [
+        {
+          "url": "https://api.github.com/repos/pmurley/go-fantrax/git/trees/HEAD?recursive=1",
+          "status": 200,
+          "path": "tree[].path matching /transaction|trade/",
+          "sample": [
+            "auth_client/commissioner_trade.go",
+            "auth_client/get_league_home_info_pending_trades_test.go",
+            "auth_client/get_transactions.go",
+            "auth_client/parser/transaction_parser.go",
+            "examples/auth_client_only/fetch_trades/main.go",
+            "examples/auth_client_only/fetch_transactions/main.go",
+            "models/transaction.go"
+          ],
+          "note": "7-day docs cache"
+        }
+      ]
+    },
+    {
+      "item": "API",
+      "key": "API.playerIds",
+      "title": "getPlayerIds?sport=NFL",
+      "status": "ok",
+      "summary": "7969 records: 7745 players + 64 team K/QB units with player-format ids (TK/TQB) + 160 '#' team units; served as text/plain; parse the body as JSON regardless (24 h cache)",
+      "evidence": [
+        {
+          "url": "https://www.fantrax.com/fxea/general/getPlayerIds?sport=NFL",
+          "status": 200,
+          "path": "{fantraxId} → {fantraxId, name, team, position, sportRadarId?, rotowireId?, statsIncId?}",
+          "sample": {
+            "fantraxId": "04ca6",
+            "name": "Mahomes, Patrick",
+            "position": "QB",
+            "team": "KC",
+            "sportRadarId": "11cad59d-90dd-449c-a839-dddaba4fe16c",
+            "rotowireId": 11839,
+            "statsIncId": 30123
+          },
+          "note": "every record matched the schema"
+        }
+      ]
+    },
+    {
+      "item": "API",
+      "key": "API.playerIds.idFormat",
+      "title": "Fantrax player ID format",
+      "status": "ok",
+      "summary": "players: 5 lowercase base-36 chars (04ca6); team units: \"<teamId>#<unitCode>\" (1060=TO, 1070=TmD, 1080=ST, 1090=DST, 1100=Tm), plus 64 team units that use player-format ids (TK 32, TQB 32; e.g. \"Team K, Minnesota\"; 0 with a vendor id): classify by position as well as by id; every key equals its fantraxId",
+      "evidence": [
+        {
+          "url": "https://www.fantrax.com/fxea/general/getPlayerIds?sport=NFL",
+          "status": 200,
+          "path": "keys of the root object; {fantraxId}.fantraxId",
+          "sample": {
+            "fantraxId": "20180#1090",
+            "name": "Defense/Special Teams",
+            "position": "DST",
+            "teamName": "New York Giants",
+            "teamShortName": "NYG",
+            "shortName": "DST"
+          },
+          "note": "'#' unit fields: teamName, name, fantraxId, teamShortName, position, shortName; player fields: statsIncId, rotowireId, sportRadarId, name, fantraxId, team, position"
+        },
+        {
+          "path": "TK/TQB records (player-format ids)",
+          "sample": {
+            "fantraxId": "06ftj",
+            "name": "Team K, Minnesota",
+            "position": "TK",
+            "team": "MIN"
+          }
+        }
+      ]
+    },
+    {
+      "item": "API",
+      "key": "API.playerIds.vendorIds",
+      "title": "Vendor IDs for crosswalks",
+      "status": "ok",
+      "summary": "QB/RB/WR/TE on NFL teams (761): sportRadarId 100.0%, rotowireId 99.7%, statsIncId 21.3%, none 0; all 7745 players (team units excluded): 88.6% / 82.4% / 44.7%",
+      "evidence": [
+        {
+          "url": "https://www.fantrax.com/fxea/general/getPlayerIds?sport=NFL",
+          "status": 200,
+          "path": "{fantraxId}.sportRadarId (GUID) / .rotowireId (int) / .statsIncId (int)",
+          "sample": {
+            "sportRadarId": "11cad59d-90dd-449c-a839-dddaba4fe16c",
+            "rotowireId": 11839,
+            "statsIncId": 30123
+          }
+        }
+      ]
+    },
+    {
+      "item": "API",
+      "key": "API.playerIds.fields",
+      "title": "Player fields",
+      "status": "ok",
+      "summary": "name is \"Last, First\" for 7745 of 7745 players; team is one of 32 NFL abbreviations or \"(N/A)\" (5248 players); 3 players have position \"Default\"; no injury, status, age or bye field (player fields: statsIncId, rotowireId, sportRadarId, name, fantraxId, team, position)",
+      "evidence": [
+        {
+          "url": "https://www.fantrax.com/fxea/general/getPlayerIds?sport=NFL",
+          "status": 200,
+          "path": "{fantraxId}.name / .team / .position",
+          "sample": "WR 1103, LB 853, CB 830, RB 582, S 562, DT 534, TE 494, OT 478, OL 444, DE 410, QB 266, OLB 205, C 199, DL 182, DB 121, K 114, P 91, G 85, LS 79, LOG 79, Tm 32, DST 32, TO 32, TmD 32, ST 32, TK 32, TQB 32, FB 27, NT 4, Default 3",
+          "note": "team-unit positions: TO, TmD, ST, DST, Tm ('#' ids) and TK, TQB (player-format ids)"
+        }
+      ]
+    },
+    {
+      "item": "API",
+      "key": "API.adp",
+      "title": "getAdp?sport=NFL",
+      "status": "ok",
+      "summary": "940 entries (849 players + 59 TK/TQB team units + 32 team defenses); ADP_PPR on 934 (930 real), ADP on 419 (415 real; 999 = none); order: no single order; served as text/plain; parse the body as JSON regardless",
+      "evidence": [
+        {
+          "url": "https://www.fantrax.com/fxea/general/getAdp?sport=NFL",
+          "status": 200,
+          "path": "[] {id, name, pos, ADP_PPR, ADP} (team defenses: {id, tmId, name}, no pos)",
+          "sample": [
+            {
+              "id": "06anq",
+              "name": "Gibbs, Jahmyr",
+              "pos": "RB",
+              "ADP": 1.23,
+              "ADP_PPR": 1.18
+            },
+            {
+              "id": "06anf",
+              "name": "Robinson, Bijan",
+              "pos": "RB",
+              "ADP": 2.02,
+              "ADP_PPR": 2.04
+            },
+            {
+              "id": "05rlf",
+              "name": "Chase, Ja'Marr",
+              "pos": "WR",
+              "ADP": 4.2,
+              "ADP_PPR": 3.45
+            }
+          ],
+          "note": "only sport=NFL sent; the call returned this many entries (documented params: sport, position, showAllPositions, start, limit, order)"
+        },
+        {
+          "path": "[] with tmId",
+          "sample": {
+            "id": "20090",
+            "name": "HOU",
+            "ADP": 105,
+            "ADP_PPR": 106.91,
+            "tmId": "TM_20090"
+          }
+        }
+      ]
+    },
+    {
+      "item": "API",
+      "key": "API.adp.join",
+      "title": "ADP ids join to getPlayerIds",
+      "status": "ok",
+      "summary": "players and TK/TQB units: 908/908 ids are getPlayerIds keys; team defenses: 32/32 match \"<id>#1090\" (DST unit)",
+      "evidence": [
+        {
+          "url": "https://www.fantrax.com/fxea/general/getAdp?sport=NFL",
+          "status": 200,
+          "path": "[].id → getPlayerIds key; [].tmId \"TM_<id>\"",
+          "sample": [],
+          "note": "sample = unmatched ids"
+        }
+      ]
+    },
+    {
+      "item": "API",
+      "key": "API.adp.names",
+      "title": "ADP names vs player-ID names",
+      "status": "ok",
+      "summary": "19 of 908 joined entries are spelled differently than in getPlayerIds (0 still differ after ignoring case and punctuation, e.g. apostrophes): join on id, never on name",
+      "evidence": [
+        {
+          "url": "https://www.fantrax.com/fxea/general/getAdp?sport=NFL",
+          "status": 200,
+          "path": "[].name vs getPlayerIds {id}.name",
+          "sample": [
+            {
+              "adp": "Chaisson, K'Lavon",
+              "ids": "Chaisson, KLavon"
+            },
+            {
+              "adp": "Hand, Da'Shawn",
+              "ids": "Hand, DaShawn"
+            },
+            {
+              "adp": "Humphrey, Lil'Jordan",
+              "ids": "Humphrey, LilJordan"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "item": "API",
+      "key": "API.idmap.dynastyprocess",
+      "title": "DynastyProcess crosswalk",
+      "status": "ok",
+      "summary": "no Fantrax column (35 columns checked); joinable through the vendor IDs: of 435 top-ADP QB/RB/WR/TE, 430 (98.9%) are in DynastyProcess and 426/435 (97.9%) get a sleeper_id through it",
+      "evidence": [
+        {
+          "url": "https://raw.githubusercontent.com/dynastyprocess/data/master/files/db_playerids.csv",
+          "status": 200,
+          "path": "db_playerids.csv header; join sportRadarId→sportradar_id, rotowireId→rotowire_id, statsIncId→stats_id",
+          "sample": [
+            "mfl_id",
+            "sportradar_id",
+            "fantasypros_id",
+            "gsis_id",
+            "pff_id",
+            "sleeper_id",
+            "nfl_id",
+            "espn_id",
+            "yahoo_id",
+            "fleaflicker_id",
+            "cbs_id",
+            "pfr_id",
+            "cfbref_id",
+            "rotowire_id",
+            "rotoworld_id",
+            "ktc_id",
+            "stats_id",
+            "stats_global_id",
+            "fantasy_data_id",
+            "swish_id"
+          ],
+          "note": "vendor ids on more than one row: sportradar_id 0, rotowire_id 1, stats_id 3"
+        }
+      ]
+    },
+    {
+      "item": "API",
+      "key": "API.idmap.sleeper",
+      "title": "Fantrax → Sleeper IDs",
+      "status": "ok",
+      "summary": "top-ADP QB/RB/WR/TE: 435/435 (100.0%) mapped to a Sleeper id (first hit: sleeper.sportradar_id 433, sleeper.rotowire_id 2); all QB/RB/WR/TE/K on NFL teams: 797/797 (100.0%); sanity check on 817 matches: Sleeper position agrees 99.3%, NFL team 99.8%; 3 players had more than one candidate id (0 through a vendor id on several rows); the kept id is the only plausible one (real row, position + team agree) in 3 of them",
+      "evidence": [
+        {
+          "url": "https://api.sleeper.app/v1/players/nfl",
+          "status": 200,
+          "path": "Sleeper players DB {id}.sportradar_id / .rotowire_id",
+          "sample": "Fantrax sportRadarId = Sleeper sportradar_id; Fantrax rotowireId = Sleeper rotowire_id"
+        },
+        {
+          "path": "conflicts (kept = most plausible candidate)",
+          "sample": [
+            {
+              "name": "Hartman, Sam",
+              "pos": "QB",
+              "team": "WAS",
+              "kept": {
+                "via": "sleeper.sportradar_id",
+                "agrees": true
+              },
+              "others": [
+                {
+                  "via": "dp.rotowire_id",
+                  "agrees": false,
+                  "placeholder": false
+                }
+              ]
+            },
+            {
+              "name": "Johnson, Amar",
+              "pos": "RB",
+              "team": "LAC",
+              "kept": {
+                "via": "sleeper.sportradar_id",
+                "agrees": true
+              },
+              "others": [
+                {
+                  "via": "sleeper.rotowire_id",
+                  "agrees": false,
+                  "placeholder": false
+                }
+              ]
+            },
+            {
+              "name": "Moore, Jordan",
+              "pos": "WR",
+              "team": "CIN",
+              "kept": {
+                "via": "sleeper.sportradar_id",
+                "agrees": true
+              },
+              "others": [
+                {
+                  "via": "sleeper.rotowire_id",
+                  "agrees": false,
+                  "placeholder": false
+                }
+              ]
+            }
+          ],
+          "note": "Sleeper ids on more than one row: sportradar_id 16, rotowire_id 24 (\"Duplicate Player\" / \"Player Invalid\" rows and true duplicates); every candidate is kept and ranked"
+        },
+        {
+          "path": "misses (top-ADP, then deep)",
+          "sample": []
+        },
+        {
+          "path": "position/team disagreements (sample)",
+          "sample": [
+            {
+              "name": "Beckham, Odell",
+              "pos": "WR",
+              "team": null,
+              "sleeperPositions": [
+                "WR"
+              ],
+              "sleeperTeam": "NYG"
+            },
+            {
+              "name": "Meeks, Jackson",
+              "pos": "WR",
+              "team": "DET",
+              "sleeperPositions": [
+                "TE"
+              ],
+              "sleeperTeam": "DET"
+            },
+            {
+              "name": "Heyward, Connor",
+              "pos": "TE",
+              "team": "LV",
+              "sleeperPositions": [
+                "RB"
+              ],
+              "sleeperTeam": "LV"
+            },
+            {
+              "name": "Bredeson, Max",
+              "pos": "TE",
+              "team": "MIN",
+              "sleeperPositions": [
+                "RB"
+              ],
+              "sleeperTeam": "MIN"
+            },
+            {
+              "name": "Ekeler, Austin",
+              "pos": "RB",
+              "team": "WAS",
+              "sleeperPositions": [
+                "RB"
+              ],
+              "sleeperTeam": null
+            },
+            {
+              "name": "Ismail, Qadir",
+              "pos": "TE",
+              "team": "CHI",
+              "sleeperPositions": [
+                "WR"
+              ],
+              "sleeperTeam": "CHI"
+            }
+          ],
+          "note": "6 position only, 2 NFL team only, 0 both; the vendor id names the same person either way, so lineup eligibility must come from the league platform, not Sleeper"
+        }
+      ]
+    },
+    {
+      "item": "API",
+      "key": "API.idmap.fantasycalc",
+      "title": "Fantrax → FantasyCalc (via Sleeper id)",
+      "status": "ok",
+      "summary": "no Fantrax id in FantasyCalc; joining on sleeperId reaches 198/198 (100.0%) of the players FantasyCalc values. This redraft format lists 198 players (RB 57, WR 78, QB 33, TE 30), so 174/200 of the top-200 Fantrax-ADP QB/RB/WR/TE have a value (9 of the 26 without one are injured or inactive per Sleeper; the other 17 rank #141–#200 among Fantrax-ADP QB/RB/WR/TE); uncovered players get config.valueFloor (§9)",
+      "evidence": [
+        {
+          "url": "https://api.fantasycalc.com/values/current?isDynasty=false&numQbs=1&numTeams=12&ppr=1",
+          "status": 200,
+          "path": "[].player.sleeperId",
+          "sample": [
+            "id",
+            "mflId",
+            "sleeperId",
+            "espnId",
+            "fleaflickerId",
+            "ffpcId"
+          ],
+          "note": "Trade values: FantasyCalc (https://fantasycalc.com); non-commercial, ≤ 1 fetch per format per day"
+        }
+      ]
+    },
+    {
+      "item": "API",
+      "key": "API.errors",
+      "title": "Error convention (invalid league ID)",
+      "status": "ok",
+      "summary": "confirmed: HTTP 200 (text/plain) with an error object at \"error\"; check the body, not the status",
+      "evidence": [
+        {
+          "url": "https://www.fantrax.com/fxea/general/getLeagueInfo?leagueId=probe-invalid-league-id-000",
+          "status": 200,
+          "path": "error {onScreen, code, message}",
+          "sample": {
+            "code": "WARNING",
+            "message": "Invalid 'leagueId' parameter - league ID: probe-invalid-league-id-000 not found"
+          },
+          "note": "content-type text/plain"
+        }
+      ]
+    },
+    {
+      "item": "A",
+      "key": "A.league",
+      "title": "League basics",
+      "status": "na",
+      "summary": "untested: no public league ID (set FANTRAX_LEAGUE_ID to test)",
+      "evidence": [
+        {
+          "url": "https://www.fantrax.com/fxea/general/getLeagueInfo?leagueId={leagueId}",
+          "path": "expected: teamInfo (count, division), matchups[].period",
+          "note": "expected per go-fantrax: getLeagueInfo keys leagueName, draftSettings, matchups, rosterInfo, playerInfo, poolSettings, scoringSystem, teamInfo, draftType; none for playoffs, trade deadline, league type or median games"
+        }
+      ]
+    },
+    {
+      "item": "B",
+      "key": "B.league",
+      "title": "Lineup",
+      "status": "na",
+      "summary": "untested: no public league ID (set FANTRAX_LEAGUE_ID to test)",
+      "evidence": [
+        {
+          "url": "https://www.fantrax.com/fxea/general/getLeagueInfo?leagueId={leagueId}",
+          "path": "expected: rosterInfo.positionConstraints.{POS}.maxActive, rosterInfo.maxTotalPlayers / maxTotalActivePlayers / maxTotalReservePlayers",
+          "note": "expected per go-fantrax: rosterInfo {positionConstraints, maxTotalPlayers, maxTotalActivePlayers, maxTotalReservePlayers}"
+        }
+      ]
+    },
+    {
+      "item": "C",
+      "key": "C.rules",
+      "title": "Scoring rules exposed",
+      "status": "warn",
+      "summary": "open question (§2.7), untested: no public league ID to check whether getLeagueInfo exposes a league's scoring rules. go-fantrax's LeagueInfo struct declares scoringSystem with configs {position, cumulative, scoringCategory, points}, so probably yes, but that struct was modelled on another sport (scoringCategories groups: HITTING, PITCHING). If they aren't exposed, the user picks a scoring preset (§2.7, §2.8)",
+      "evidence": [
+        {
+          "url": "https://www.fantrax.com/fxea/general/getLeagueInfo?leagueId={leagueId}",
+          "path": "scoringSystem.scoringCategorySettings[].configs[] {position, scoringCategory, points}"
+        },
+        {
+          "url": "https://raw.githubusercontent.com/pmurley/go-fantrax/HEAD/league_info.go",
+          "status": 200,
+          "path": "type LeagueInfo / ScoringConfig struct json tags",
+          "sample": {
+            "LeagueInfo": [
+              "leagueName",
+              "draftSettings",
+              "matchups",
+              "rosterInfo",
+              "playerInfo",
+              "poolSettings",
+              "scoringSystem",
+              "teamInfo",
+              "draftType"
+            ],
+            "ScoringConfig": [
+              "position",
+              "cumulative",
+              "scoringCategory",
+              "points"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "item": "D",
+      "key": "D.league",
+      "title": "Teams",
+      "status": "na",
+      "summary": "untested: no public league ID (set FANTRAX_LEAGUE_ID to test)",
+      "evidence": [
+        {
+          "url": "https://www.fantrax.com/fxea/general/getLeagueInfo?leagueId={leagueId}",
+          "path": "expected: teamInfo.{teamId} {id, name, division}",
+          "note": "expected per go-fantrax: TeamInfo {division, name, id}; 'my team' via getLeagues (params: userSecretId) or the user's pick"
+        }
+      ]
+    },
+    {
+      "item": "E",
+      "key": "E.league",
+      "title": "Rosters",
+      "status": "na",
+      "summary": "untested: no public league ID (set FANTRAX_LEAGUE_ID to test)",
+      "evidence": [
+        {
+          "url": "https://www.fantrax.com/fxea/general/getTeamRosters?leagueId={leagueId}",
+          "path": "expected: rosters.{teamId}.rosterItems[] {id, position, status}"
+        }
+      ]
+    },
+    {
+      "item": "F",
+      "key": "F.league",
+      "title": "Schedule",
+      "status": "na",
+      "summary": "untested: no public league ID (set FANTRAX_LEAGUE_ID to test)",
+      "evidence": [
+        {
+          "url": "https://www.fantrax.com/fxea/general/getLeagueInfo?leagueId={leagueId}",
+          "path": "expected: matchups[].matchupList[] {away, home}; getStandings for W-L-T and points"
+        }
+      ]
+    },
+    {
+      "item": "G",
+      "key": "G.transactions",
+      "title": "Transactions",
+      "status": "warn",
+      "summary": "no transactions endpoint in the documented public API (README (current as of April 2025) documents getPlayerIds, getAdp, getLeagues, getLeagueInfo, getDraftPicks, getTeamRosters, getStandings); go-fantrax's transaction code is all outside its root-level public-API bindings (auth_client/ 4, examples/ 2, models/ 1; e.g. auth_client/get_transactions.go), i.e. in the logged-in client; docs only, not probed live. Effect: the acceptance features a (activity) and hist (§11) can't be computed for Fantrax, so they'd default to 0 / unused",
+      "evidence": [
+        {
+          "url": "https://raw.githubusercontent.com/pmurley/go-fantrax/HEAD/README.md",
+          "status": 200,
+          "path": "### sections → - URL: …/fxea/general/<endpoint>",
+          "sample": [
+            "getPlayerIds",
+            "getAdp",
+            "getLeagues",
+            "getLeagueInfo",
+            "getDraftPicks",
+            "getTeamRosters",
+            "getStandings"
+          ]
+        },
+        {
+          "url": "https://api.github.com/repos/pmurley/go-fantrax/git/trees/HEAD?recursive=1",
+          "status": 200,
+          "path": "tree[].path matching /transaction|trade/",
+          "sample": [
+            "auth_client/commissioner_trade.go",
+            "auth_client/get_league_home_info_pending_trades_test.go",
+            "auth_client/get_transactions.go",
+            "auth_client/parser/transaction_parser.go",
+            "examples/auth_client_only/fetch_trades/main.go",
+            "examples/auth_client_only/fetch_transactions/main.go"
+          ]
+        }
+      ]
+    },
+    {
+      "item": "H",
+      "key": "H.league",
+      "title": "Free agents",
+      "status": "na",
+      "summary": "untested: no public league ID (set FANTRAX_LEAGUE_ID to test)",
+      "evidence": [
+        {
+          "url": "https://www.fantrax.com/fxea/general/getTeamRosters?leagueId={leagueId}",
+          "path": "expected: getPlayerIds minus rosters.{teamId}.rosterItems[].id; getLeagueInfo playerInfo.{playerId}.status"
+        }
+      ]
+    },
+    {
+      "item": "I",
+      "key": "I.league",
+      "title": "Draft pick ownership",
+      "status": "na",
+      "summary": "untested: no public league ID (set FANTRAX_LEAGUE_ID to test)",
+      "evidence": [
+        {
+          "url": "https://www.fantrax.com/fxea/general/getDraftPicks?leagueId={leagueId}",
+          "path": "expected: (shape undocumented)"
+        }
+      ]
+    },
+    {
+      "item": "J",
+      "key": "J.projections",
+      "title": "Projections",
+      "status": "warn",
+      "summary": "no projections endpoint in the documented public API (README (current as of April 2025) documents getPlayerIds, getAdp, getLeagues, getLeagueInfo, getDraftPicks, getTeamRosters, getStandings); docs only. Fallback: Sleeper projections × league scoring (§6), and the ID crosswalk maps 797/797 (100.0%) QB/RB/WR/TE/K on NFL teams to Sleeper ids (API.idmap.sleeper)",
+      "evidence": [
+        {
+          "url": "https://raw.githubusercontent.com/pmurley/go-fantrax/HEAD/README.md",
+          "status": 200,
+          "path": "### sections → - URL: …/fxea/general/<endpoint>",
+          "sample": [
+            "getPlayerIds",
+            "getAdp",
+            "getLeagues",
+            "getLeagueInfo",
+            "getDraftPicks",
+            "getTeamRosters",
+            "getStandings"
+          ]
+        }
+      ]
+    },
+    {
+      "item": "K",
+      "key": "K.completed",
+      "title": "Completed weeks (oracle)",
+      "status": "warn",
+      "summary": "no per-player weekly stats or points in the documented public API (README (current as of April 2025) documents getPlayerIds, getAdp, getLeagues, getLeagueInfo, getDraftPicks, getTeamRosters, getStandings); the getStandings section says \"Individual stats are not yet included\"; docs only, not probed live. Effect: the scoring oracle (§5) can't run for Fantrax; team totals from getStandings are the only league-scored numbers",
+      "evidence": [
+        {
+          "url": "https://raw.githubusercontent.com/pmurley/go-fantrax/HEAD/README.md",
+          "status": 200,
+          "path": "### sections → - URL: …/fxea/general/<endpoint>",
+          "sample": {
+            "endpoint": "getStandings",
+            "text": "Retrieve the current standings of the league. This includes basic standings data, such as the rank, points, W-L-T, games back, win %, etc. Individual stats are not yet included, but will be in a future release."
+          }
+        }
+      ]
+    },
+    {
+      "item": "L",
+      "key": "L.nflSchedule",
+      "title": "NFL schedule",
+      "status": "na",
+      "summary": "not applicable: the NFL schedule and byes come from the shared sources (probe-shared), not from Fantrax",
+      "evidence": [
+        {
+          "path": "(shared sources)"
+        }
+      ]
+    },
+    {
+      "item": "M",
+      "key": "M.league",
+      "title": "FantasyCalc match rate",
+      "status": "na",
+      "summary": "untested: no public league ID (set FANTRAX_LEAGUE_ID to test)",
+      "evidence": [
+        {
+          "url": "https://www.fantrax.com/fxea/general/getTeamRosters?leagueId={leagueId}",
+          "path": "expected: rosterItems[].id → getPlayerIds sportRadarId / rotowireId → Sleeper id → FantasyCalc player.sleeperId",
+          "note": "a league-free proxy is measured in API.idmap.fantasycalc"
+        }
+      ]
+    },
+    {
+      "item": "FIX",
+      "key": "FIX.public",
+      "title": "Committed fixtures: public data only",
+      "status": "ok",
+      "summary": "3 sanitized fixtures from league-independent public endpoints (no league ID or credentials sent; the error-convention call uses the made-up ID probe-invalid-league-id-000); 25 of 1206 player names in them aren't spelled as in Sleeper's DB (or the player isn't in it), so check:leaks' NFL-name discount can't recognize them: a real-name soft hit it lists in these files is a word inside a public player's name, not a leaguemate",
+      "evidence": [
+        {
+          "path": "fixtures/sanitized/fantrax/index.json labels",
+          "sample": [
+            "getAdp?sport=NFL",
+            "getPlayerIds?sport=NFL (trimmed: ADP players, QB/RB/WR/TE/K on NFL teams, team units)",
+            "getLeagueInfo?leagueId=probe-invalid-league-id-000 (error convention)"
+          ]
+        }
+      ]
+    }
+  ],
+  "issues": [
+    "FantasyCalc coverage (not Fantrax-specific) — https://api.fantasycalc.com/values/current?isDynasty=false&numQbs=1&numTeams=12&ppr=1 HTTP 200 — [].player has 198 entries (RB 57, WR 78, QB 33, TE 30); 26 of the top-200 Fantrax-ADP QB/RB/WR/TE have no value (9 injured or inactive per Sleeper; the other 17 rank #141–#200 among Fantrax-ADP QB/RB/WR/TE) — options: (a) treat uncovered players as config.valueFloor and measure item M only on covered starters, (b) fall back to dynasty values for redraft players missing from the redraft list, (c) keep the ≥ 98% target and report misses.",
+    "§2.9's crosswalk sources can't map Fantrax players — FantasyCalc https://api.fantasycalc.com/values/current?isDynasty=false&numQbs=1&numTeams=12&ppr=1 HTTP 200: [].player fields id, mflId, sleeperId, espnId, fleaflickerId, ffpcId (no Fantrax id); DynastyProcess https://raw.githubusercontent.com/dynastyprocess/data/master/files/db_playerids.csv: 35 columns, none for Fantrax — what works is getPlayerIds' vendor ids: 435/435 top-ADP QB/RB/WR/TE and 797/797 QB/RB/WR/TE/K on NFL teams map to a Sleeper id (sleeper.sportradar_id 433, sleeper.rotowire_id 2) — options: (a) the Phase 5 Fantrax adapter uses this vendor-id route (sportRadarId first, rotowireId fallback, duplicates ranked; scripts/lib/fantrax/crosswalk.ts); (b) name matching (rejected: getAdp and getPlayerIds already disagree on spellings).",
+    "§2.7's Fantrax endpoint list vs the documented API — https://raw.githubusercontent.com/pmurley/go-fantrax/HEAD/README.md HTTP 200 (current as of April 2025): getPlayerIds, getAdp, getLeagues, getLeagueInfo, getDraftPicks, getTeamRosters, getStandings — not in §2.7: getLeagues(userSecretId) (a per-user secret; the only documented way to find the user's own team); no transactions endpoint; go-fantrax's transaction code is all outside its root-level public-API bindings (auth_client/ 4, examples/ 2, models/ 1), so item G is unavailable for Fantrax (docs only, not probed live) — options: (a) 'my team': the user picks their team (no new secret); (b) accept userSecretId as a Phase 5 session-only credential (§3) to list the user's leagues and teams; (c) item G: the acceptance model's activity (a) and hist features default to 0 / unused for Fantrax.",
+    "§2.7's open question (are scoring rules exposed?) is unanswered: no public Fantrax league to test — https://www.fantrax.com/fxea/general/getLeagueInfo?leagueId={leagueId} — go-fantrax's LeagueInfo struct (https://raw.githubusercontent.com/pmurley/go-fantrax/HEAD/league_info.go HTTP 200) declares scoringSystem with configs {position, cumulative, scoringCategory, points} — options: (a) Parker supplies a public Fantrax NFL league ID (FANTRAX_LEAGUE_ID) and the probe answers it; (b) keep Fantrax a stretch goal with preset scoring (§2.8) until verified."
+  ],
+  "decisions": [
+    "Fantrax → canonical IDs: match on sportRadarId (Sleeper sportradar_id), then rotowireId (Sleeper rotowire_id), then DynastyProcess sportradar_id / rotowire_id / stats_id (= Fantrax statsIncId). A vendor id can sit on several rows, so every candidate is kept and the most plausible one wins (real row, active, position + NFL team agree). Never match on names: getAdp and getPlayerIds spell some names differently (API.adp.names).",
+    "getPlayerIds records are classified by position as well as by id (recordKind): TK/TQB (\"Team K, <city>\", \"Team QB, <city>\") use 5-char player ids but are team units, so they are counted and crosswalked apart from players (API.playerIds.idFormat).",
+    "Fantrax bodies are parsed as JSON whatever the Content-Type (getPlayerIds arrived as text/plain), and every body is checked for an error field before use, since errors can come back as HTTP 200 (API.errors).",
+    "Caching: getPlayerIds and getAdp 24 h like other player lists, league calls 10 min, docs 7 days. A Fantrax response is cached only when it is a JSON body without an error object (fantraxCacheable), so a transient HTTP-200 error is never replayed; the invalid-ID getLeagueInfo check runs once per run with no retries and keeps its expected error body in the 10-minute league cache.",
+    "Fantrax's API docs are read from pmurley/go-fantrax (README, league_info.go, repo tree; 7-day docs cache), so docs-based statements in this report (DOCS.*, G, J, K, C) are computed from those files each run.",
+    "Did not look for a public Fantrax league: CLAUDE.md §17 says to skip Fantrax unless someone has a public league ID."
+  ],
+  "questions": [
+    "Do you know any public Fantrax NFL league ID we could test with (FANTRAX_LEAGUE_ID)? If not, Fantrax stays a stretch goal."
+  ],
+  "requests": {
+    "total": 9,
+    "live": 1,
+    "fromCache": 8,
+    "retried": 0,
+    "slowestMs": 241
+  }
+}

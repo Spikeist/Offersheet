@@ -1,0 +1,23 @@
+{
+  "25b7db467166136fbd528886eeda85fd9354b70ec4bd3e621af1090d7f3b2605.json": {
+    "label": "getAdp?sport=NFL",
+    "url": "https://www.fantrax.com/fxea/general/getAdp?sport=NFL",
+    "status": 200,
+    "contentType": "text/plain",
+    "captured": "2026-09-29"
+  },
+  "95ae37e005bdec5be6d3b8a3a080cdf760c4b238eb516065d45ffe6f2bf21f75.json": {
+    "label": "getLeagueInfo?leagueId=probe-invalid-league-id-000 (error convention)",
+    "url": "https://www.fantrax.com/fxea/general/getLeagueInfo?leagueId=probe-invalid-league-id-000",
+    "status": 200,
+    "contentType": "text/plain",
+    "captured": "2026-09-29"
+  },
+  "72aaf7acd9fab4ad9b0c49e71854d28a74df3370da4365ae24897a56640917e2.json": {
+    "label": "getPlayerIds?sport=NFL (trimmed: ADP players, QB/RB/WR/TE/K on NFL teams, team units)",
+    "url": "https://www.fantrax.com/fxea/general/getPlayerIds?sport=NFL",
+    "status": 200,
+    "contentType": "text/plain",
+    "captured": "2026-09-29"
+  }
+}

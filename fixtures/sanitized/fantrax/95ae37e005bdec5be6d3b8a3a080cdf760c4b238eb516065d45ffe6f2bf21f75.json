@@ -1,0 +1,7 @@
+{
+  "error": {
+    "onScreen": false,
+    "code": "WARNING",
+    "message": "Invalid 'leagueId' parameter - league ID: probe-invalid-league-id-000 not found"
+  }
+}

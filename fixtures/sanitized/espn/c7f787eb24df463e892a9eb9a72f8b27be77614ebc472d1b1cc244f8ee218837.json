@@ -1,0 +1,714 @@
+{
+  "topics": [
+    {
+      "author": "id-1",
+      "creationInfo": {
+        "date": 1789543352515,
+        "source": "id-1"
+      },
+      "date": 1789543352515,
+      "dateEdited": 1789543352515,
+      "for": 18,
+      "id": "0549793a-eae5-4de7-8852-22077bc544f4",
+      "isDeleted": false,
+      "isEdited": true,
+      "lastUpdateInfo": {
+        "date": 1789543352515,
+        "source": "id-1"
+      },
+      "messages": [
+        {
+          "author": "id-1",
+          "creationInfo": {
+            "date": 1789543352515,
+            "source": "id-1"
+          },
+          "date": 1789543352515,
+          "for": 18,
+          "from": 0,
+          "id": "d35b16ae-cc9f-4422-9668-7de0768a7ac5",
+          "isAlternateFormat": false,
+          "isDeleted": false,
+          "isEdited": false,
+          "messageTypeId": 180,
+          "targetId": 3150744,
+          "to": 1,
+          "topicId": "0549793a-eae5-4de7-8852-22077bc544f4"
+        },
+        {
+          "author": "id-1",
+          "creationInfo": {
+            "date": 1789543352515,
+            "source": "id-1"
+          },
+          "date": 1789543352515,
+          "id": "fcfbf4c9-49e3-491e-983b-ab9ebf3acca6",
+          "isAlternateFormat": false,
+          "isDeleted": false,
+          "isEdited": false,
+          "messageTypeId": 181,
+          "targetId": 4567104,
+          "to": 1,
+          "topicId": "0549793a-eae5-4de7-8852-22077bc544f4"
+        }
+      ],
+      "totalMessageCount": 2,
+      "type": "ACTIVITY_TRANSACTIONS"
+    },
+    {
+      "author": "id-1",
+      "creationInfo": {
+        "date": 1789543352515,
+        "source": "id-1"
+      },
+      "date": 1789543352515,
+      "dateEdited": 1789543352515,
+      "for": 16,
+      "id": "7ef9d77c-9d09-42cc-a24c-3b09a5f0961e",
+      "isDeleted": false,
+      "isEdited": true,
+      "lastUpdateInfo": {
+        "date": 1789543352515,
+        "source": "id-1"
+      },
+      "messages": [
+        {
+          "author": "id-1",
+          "creationInfo": {
+            "date": 1789543352515,
+            "source": "id-1"
+          },
+          "date": 1789543352515,
+          "id": "6c4c8b76-9e41-463f-80ff-a836eef512c4",
+          "isAlternateFormat": false,
+          "isDeleted": false,
+          "isEdited": false,
+          "messageTypeId": 181,
+          "targetId": 4036133,
+          "to": 3,
+          "topicId": "7ef9d77c-9d09-42cc-a24c-3b09a5f0961e"
+        },
+        {
+          "author": "id-1",
+          "creationInfo": {
+            "date": 1789543352515,
+            "source": "id-1"
+          },
+          "date": 1789543352515,
+          "for": 16,
+          "from": 0,
+          "id": "ed9ff7ba-c349-473f-88d1-81b70224a974",
+          "isAlternateFormat": false,
+          "isDeleted": false,
+          "isEdited": false,
+          "messageTypeId": 180,
+          "targetId": 3929645,
+          "to": 3,
+          "topicId": "7ef9d77c-9d09-42cc-a24c-3b09a5f0961e"
+        }
+      ],
+      "totalMessageCount": 2,
+      "type": "ACTIVITY_TRANSACTIONS"
+    },
+    {
+      "author": "id-1",
+      "creationInfo": {
+        "date": 1789543352515,
+        "source": "id-1"
+      },
+      "date": 1789543352515,
+      "dateEdited": 1789543352515,
+      "for": 13,
+      "id": "c4c6df85-5447-4d55-9e87-22a79c2ae6a3",
+      "isDeleted": false,
+      "isEdited": true,
+      "lastUpdateInfo": {
+        "date": 1789543352515,
+        "source": "id-1"
+      },
+      "messages": [
+        {
+          "author": "id-1",
+          "creationInfo": {
+            "date": 1789543352515,
+            "source": "id-1"
+          },
+          "date": 1789543352515,
+          "for": 13,
+          "from": 0,
+          "id": "92635b22-46ea-4d13-bf2f-4732942e72d6",
+          "isAlternateFormat": false,
+          "isDeleted": false,
+          "isEdited": false,
+          "messageTypeId": 180,
+          "targetId": -16025,
+          "to": 1,
+          "topicId": "c4c6df85-5447-4d55-9e87-22a79c2ae6a3"
+        },
+        {
+          "author": "id-1",
+          "creationInfo": {
+            "date": 1789543352515,
+            "source": "id-1"
+          },
+          "date": 1789543352515,
+          "id": "e7084038-547c-4d9e-82d7-7368650e6fcf",
+          "isAlternateFormat": false,
+          "isDeleted": false,
+          "isEdited": false,
+          "messageTypeId": 181,
+          "targetId": 4702555,
+          "to": 1,
+          "topicId": "c4c6df85-5447-4d55-9e87-22a79c2ae6a3"
+        }
+      ],
+      "totalMessageCount": 2,
+      "type": "ACTIVITY_TRANSACTIONS"
+    },
+    {
+      "author": "id-1",
+      "creationInfo": {
+        "date": 1789543352515,
+        "source": "id-1"
+      },
+      "date": 1789543352515,
+      "dateEdited": 1789543352515,
+      "for": 10,
+      "id": "6296bb09-a36d-4f82-bb1f-c30a316d8152",
+      "isDeleted": false,
+      "isEdited": true,
+      "lastUpdateInfo": {
+        "date": 1789543352515,
+        "source": "id-1"
+      },
+      "messages": [
+        {
+          "author": "id-1",
+          "creationInfo": {
+            "date": 1789543352515,
+            "source": "id-1"
+          },
+          "date": 1789543352515,
+          "id": "d54c3ba1-0908-4522-987d-f7fe1a614d3e",
+          "isAlternateFormat": false,
+          "isDeleted": false,
+          "isEdited": false,
+          "messageTypeId": 181,
+          "targetId": 2577417,
+          "to": 7,
+          "topicId": "6296bb09-a36d-4f82-bb1f-c30a316d8152"
+        },
+        {
+          "author": "id-1",
+          "creationInfo": {
+            "date": 1789543352515,
+            "source": "id-1"
+          },
+          "date": 1789543352515,
+          "for": 10,
+          "from": 0,
+          "id": "ce210122-236d-4746-a188-61025c4cfab8",
+          "isAlternateFormat": false,
+          "isDeleted": false,
+          "isEdited": false,
+          "messageTypeId": 180,
+          "targetId": 4869645,
+          "to": 7,
+          "topicId": "6296bb09-a36d-4f82-bb1f-c30a316d8152"
+        }
+      ],
+      "totalMessageCount": 2,
+      "type": "ACTIVITY_TRANSACTIONS"
+    },
+    {
+      "author": "id-1",
+      "creationInfo": {
+        "date": 1789543352515,
+        "source": "id-1"
+      },
+      "date": 1789543352515,
+      "dateEdited": 1789543352515,
+      "for": 6,
+      "id": "062e4694-915d-4201-baf7-b5a01970659e",
+      "isDeleted": false,
+      "isEdited": true,
+      "lastUpdateInfo": {
+        "date": 1789543352515,
+        "source": "id-1"
+      },
+      "messages": [
+        {
+          "author": "id-1",
+          "creationInfo": {
+            "date": 1789543352515,
+            "source": "id-1"
+          },
+          "date": 1789543352515,
+          "for": 6,
+          "from": 0,
+          "id": "7f46c8f7-dea0-45ab-9ba4-dea3827e75e0",
+          "isAlternateFormat": false,
+          "isDeleted": false,
+          "isEdited": false,
+          "messageTypeId": 180,
+          "targetId": 4361432,
+          "to": 3,
+          "topicId": "062e4694-915d-4201-baf7-b5a01970659e"
+        },
+        {
+          "author": "id-1",
+          "creationInfo": {
+            "date": 1789543352515,
+            "source": "id-1"
+          },
+          "date": 1789543352515,
+          "id": "f6cd5d6d-6706-4b96-a455-70d9e3225903",
+          "isAlternateFormat": false,
+          "isDeleted": false,
+          "isEdited": false,
+          "messageTypeId": 181,
+          "targetId": 4373678,
+          "to": 3,
+          "topicId": "062e4694-915d-4201-baf7-b5a01970659e"
+        }
+      ],
+      "totalMessageCount": 2,
+      "type": "ACTIVITY_TRANSACTIONS"
+    },
+    {
+      "author": "id-1",
+      "creationInfo": {
+        "date": 1789543352515,
+        "source": "id-1"
+      },
+      "date": 1789543352515,
+      "dateEdited": 1789543352515,
+      "for": 4,
+      "id": "ba512a26-1e23-4cf5-a8be-37ec29599219",
+      "isDeleted": false,
+      "isEdited": true,
+      "lastUpdateInfo": {
+        "date": 1789543352515,
+        "source": "id-1"
+      },
+      "messages": [
+        {
+          "author": "id-1",
+          "creationInfo": {
+            "date": 1789543352515,
+            "source": "id-1"
+          },
+          "date": 1789543352515,
+          "for": 4,
+          "from": 0,
+          "id": "8110c6ae-c402-4972-9876-f2220b673474",
+          "isAlternateFormat": false,
+          "isDeleted": false,
+          "isEdited": false,
+          "messageTypeId": 180,
+          "targetId": -16027,
+          "to": 9,
+          "topicId": "ba512a26-1e23-4cf5-a8be-37ec29599219"
+        },
+        {
+          "author": "id-1",
+          "creationInfo": {
+            "date": 1789543352515,
+            "source": "id-1"
+          },
+          "date": 1789543352515,
+          "id": "7a1acd09-39b4-4acf-b4d9-de2d18cafdc0",
+          "isAlternateFormat": false,
+          "isDeleted": false,
+          "isEdited": false,
+          "messageTypeId": 181,
+          "targetId": -16024,
+          "to": 9,
+          "topicId": "ba512a26-1e23-4cf5-a8be-37ec29599219"
+        }
+      ],
+      "totalMessageCount": 2,
+      "type": "ACTIVITY_TRANSACTIONS"
+    },
+    {
+      "author": "id-1",
+      "creationInfo": {
+        "date": 1789543352515,
+        "source": "id-1"
+      },
+      "date": 1789543352515,
+      "dateEdited": 1789543352515,
+      "for": 3,
+      "id": "93700a13-9e33-4737-8e9c-bdb840b2c9ed",
+      "isDeleted": false,
+      "isEdited": true,
+      "lastUpdateInfo": {
+        "date": 1789543352515,
+        "source": "id-1"
+      },
+      "messages": [
+        {
+          "author": "id-1",
+          "creationInfo": {
+            "date": 1789543352515,
+            "source": "id-1"
+          },
+          "date": 1789543352515,
+          "for": 3,
+          "from": 0,
+          "id": "1691cb66-1dbe-46e9-8065-d4a9cf6583c0",
+          "isAlternateFormat": false,
+          "isDeleted": false,
+          "isEdited": false,
+          "messageTypeId": 180,
+          "targetId": 4569559,
+          "to": 4,
+          "topicId": "93700a13-9e33-4737-8e9c-bdb840b2c9ed"
+        },
+        {
+          "author": "id-1",
+          "creationInfo": {
+            "date": 1789543352515,
+            "source": "id-1"
+          },
+          "date": 1789543352515,
+          "id": "62bae774-e4c3-4a2d-a20a-30ae16aecfd5",
+          "isAlternateFormat": false,
+          "isDeleted": false,
+          "isEdited": false,
+          "messageTypeId": 181,
+          "targetId": 4870795,
+          "to": 4,
+          "topicId": "93700a13-9e33-4737-8e9c-bdb840b2c9ed"
+        }
+      ],
+      "totalMessageCount": 2,
+      "type": "ACTIVITY_TRANSACTIONS"
+    },
+    {
+      "author": "id-1",
+      "creationInfo": {
+        "date": 1789543352515,
+        "source": "id-1"
+      },
+      "date": 1789543352515,
+      "dateEdited": 1789543352515,
+      "for": 1,
+      "id": "d1e1e4e6-e04c-473f-b90e-c948d9b7bbc5",
+      "isDeleted": false,
+      "isEdited": true,
+      "lastUpdateInfo": {
+        "date": 1789543352515,
+        "source": "id-1"
+      },
+      "messages": [
+        {
+          "author": "id-1",
+          "creationInfo": {
+            "date": 1789543352515,
+            "source": "id-1"
+          },
+          "date": 1789543352515,
+          "for": 1,
+          "from": 0,
+          "id": "c4a0fa0b-9211-46b3-b857-9ba287be6d51",
+          "isAlternateFormat": false,
+          "isDeleted": false,
+          "isEdited": false,
+          "messageTypeId": 180,
+          "targetId": 4695883,
+          "to": 10,
+          "topicId": "d1e1e4e6-e04c-473f-b90e-c948d9b7bbc5"
+        },
+        {
+          "author": "id-1",
+          "creationInfo": {
+            "date": 1789543352515,
+            "source": "id-1"
+          },
+          "date": 1789543352515,
+          "id": "018c0bfc-a2ab-4c4f-962f-721e08598ef4",
+          "isAlternateFormat": false,
+          "isDeleted": false,
+          "isEdited": false,
+          "messageTypeId": 181,
+          "targetId": 4870653,
+          "to": 10,
+          "topicId": "d1e1e4e6-e04c-473f-b90e-c948d9b7bbc5"
+        }
+      ],
+      "totalMessageCount": 2,
+      "type": "ACTIVITY_TRANSACTIONS"
+    },
+    {
+      "author": "{00000000-0000-4000-8000-000000000009}",
+      "creationInfo": {
+        "date": 1789312738072,
+        "source": "{00000000-0000-4000-8000-000000000009}"
+      },
+      "date": 1789312738072,
+      "dateEdited": 1789312738072,
+      "id": "0f60a726-cff6-477f-8d48-4c9bb81864f1",
+      "isDeleted": false,
+      "isEdited": true,
+      "lastUpdateInfo": {
+        "date": 1789312738072,
+        "source": "{00000000-0000-4000-8000-000000000009}"
+      },
+      "messages": [
+        {
+          "author": "{00000000-0000-4000-8000-000000000009}",
+          "creationInfo": {
+            "date": 1789312738072,
+            "source": "{00000000-0000-4000-8000-000000000009}"
+          },
+          "date": 1789312738072,
+          "id": "51d888f2-120f-46ef-966c-50b715cc8205",
+          "isAlternateFormat": false,
+          "isDeleted": false,
+          "isEdited": false,
+          "messageTypeId": 178,
+          "targetId": 2985659,
+          "to": 9,
+          "topicId": "0f60a726-cff6-477f-8d48-4c9bb81864f1"
+        },
+        {
+          "author": "{00000000-0000-4000-8000-000000000009}",
+          "creationInfo": {
+            "date": 1789312738072,
+            "source": "{00000000-0000-4000-8000-000000000009}"
+          },
+          "date": 1789312738072,
+          "id": "3d89cd45-6586-4474-96d7-8495157a8571",
+          "isAlternateFormat": false,
+          "isDeleted": false,
+          "isEdited": false,
+          "messageTypeId": 179,
+          "targetId": 4697745,
+          "to": 9,
+          "topicId": "0f60a726-cff6-477f-8d48-4c9bb81864f1"
+        }
+      ],
+      "totalMessageCount": 2,
+      "type": "ACTIVITY_TRANSACTIONS"
+    },
+    {
+      "author": "{00000000-0000-4000-8000-000000000002}",
+      "creationInfo": {
+        "date": 1789097753158,
+        "source": "{00000000-0000-4000-8000-000000000002}"
+      },
+      "date": 1789097753158,
+      "dateEdited": 1789097753158,
+      "id": "3cb4fddd-3fb3-445b-b94f-a7ebec290655",
+      "isDeleted": false,
+      "isEdited": true,
+      "lastUpdateInfo": {
+        "date": 1789097753158,
+        "source": "{00000000-0000-4000-8000-000000000002}"
+      },
+      "messages": [
+        {
+          "author": "{00000000-0000-4000-8000-000000000002}",
+          "creationInfo": {
+            "date": 1789097753158,
+            "source": "{00000000-0000-4000-8000-000000000002}"
+          },
+          "date": 1789097753158,
+          "id": "7f9f074b-03c2-4574-9773-d063b90c418e",
+          "isAlternateFormat": false,
+          "isDeleted": false,
+          "isEdited": false,
+          "messageTypeId": 179,
+          "targetId": 3055899,
+          "to": 1,
+          "topicId": "3cb4fddd-3fb3-445b-b94f-a7ebec290655"
+        },
+        {
+          "author": "{00000000-0000-4000-8000-000000000002}",
+          "creationInfo": {
+            "date": 1789097753158,
+            "source": "{00000000-0000-4000-8000-000000000002}"
+          },
+          "date": 1789097753158,
+          "id": "6d808082-e47c-423a-b07b-e61efac6e5f5",
+          "isAlternateFormat": false,
+          "isDeleted": false,
+          "isEdited": false,
+          "messageTypeId": 178,
+          "targetId": 4567104,
+          "to": 1,
+          "topicId": "3cb4fddd-3fb3-445b-b94f-a7ebec290655"
+        }
+      ],
+      "totalMessageCount": 2,
+      "type": "ACTIVITY_TRANSACTIONS"
+    },
+    {
+      "author": "{00000000-0000-4000-8000-000000000001}",
+      "creationInfo": {
+        "date": 1789097585426,
+        "source": "{00000000-0000-4000-8000-000000000001}"
+      },
+      "date": 1789097585426,
+      "dateEdited": 1789097585426,
+      "id": "7a03a2a3-9057-42db-bc48-b74e97f375bd",
+      "isDeleted": false,
+      "isEdited": true,
+      "lastUpdateInfo": {
+        "date": 1789097585426,
+        "source": "{00000000-0000-4000-8000-000000000001}"
+      },
+      "messages": [
+        {
+          "author": "{00000000-0000-4000-8000-000000000001}",
+          "creationInfo": {
+            "date": 1789097585426,
+            "source": "{00000000-0000-4000-8000-000000000001}"
+          },
+          "date": 1789097585426,
+          "id": "3b2e6264-a444-4454-a901-92c8e98e59fe",
+          "isAlternateFormat": false,
+          "isDeleted": false,
+          "isEdited": false,
+          "messageTypeId": 178,
+          "targetId": 4036133,
+          "to": 3,
+          "topicId": "7a03a2a3-9057-42db-bc48-b74e97f375bd"
+        }
+      ],
+      "totalMessageCount": 1,
+      "type": "ACTIVITY_TRANSACTIONS"
+    },
+    {
+      "author": "{00000000-0000-4000-8000-000000000006}",
+      "creationInfo": {
+        "date": 1788900110590,
+        "source": "{00000000-0000-4000-8000-000000000006}"
+      },
+      "date": 1788900110590,
+      "dateEdited": 1788900110590,
+      "id": "21d68b44-fe9e-4d8e-b067-f7d3013a7693",
+      "isDeleted": false,
+      "isEdited": true,
+      "lastUpdateInfo": {
+        "date": 1788900110590,
+        "source": "{00000000-0000-4000-8000-000000000006}"
+      },
+      "messages": [
+        {
+          "author": "{00000000-0000-4000-8000-000000000006}",
+          "creationInfo": {
+            "date": 1788900110590,
+            "source": "{00000000-0000-4000-8000-000000000006}"
+          },
+          "date": 1788900110590,
+          "id": "01e11a0e-4728-460b-981f-15f45a72ff8e",
+          "isAlternateFormat": false,
+          "isDeleted": false,
+          "isEdited": false,
+          "messageTypeId": 178,
+          "targetId": 4373626,
+          "to": 6,
+          "topicId": "21d68b44-fe9e-4d8e-b067-f7d3013a7693"
+        },
+        {
+          "author": "{00000000-0000-4000-8000-000000000006}",
+          "creationInfo": {
+            "date": 1788900110590,
+            "source": "{00000000-0000-4000-8000-000000000006}"
+          },
+          "date": 1788900110590,
+          "id": "9e54b551-8c80-4614-9758-e010a46cd09b",
+          "isAlternateFormat": false,
+          "isDeleted": false,
+          "isEdited": false,
+          "messageTypeId": 179,
+          "targetId": 4832955,
+          "to": 6,
+          "topicId": "21d68b44-fe9e-4d8e-b067-f7d3013a7693"
+        }
+      ],
+      "totalMessageCount": 2,
+      "type": "ACTIVITY_TRANSACTIONS"
+    },
+    {
+      "author": "id-1",
+      "creationInfo": {
+        "date": 1788850831411,
+        "source": "id-1"
+      },
+      "date": 1788850831411,
+      "dateEdited": 1788850831411,
+      "for": 2,
+      "id": "dade920b-86d6-4887-9c39-dacfb2e98ed1",
+      "isDeleted": false,
+      "isEdited": true,
+      "lastUpdateInfo": {
+        "date": 1788850831411,
+        "source": "id-1"
+      },
+      "messages": [
+        {
+          "author": "id-1",
+          "creationInfo": {
+            "date": 1788850831411,
+            "source": "id-1"
+          },
+          "date": 1788850831411,
+          "for": 2,
+          "from": 0,
+          "id": "4b811d92-151a-45e3-95be-5971ceb0cf31",
+          "isAlternateFormat": false,
+          "isDeleted": false,
+          "isEdited": false,
+          "messageTypeId": 180,
+          "targetId": 4832955,
+          "to": 6,
+          "topicId": "dade920b-86d6-4887-9c39-dacfb2e98ed1"
+        }
+      ],
+      "totalMessageCount": 1,
+      "type": "ACTIVITY_TRANSACTIONS"
+    },
+    {
+      "author": "id-1",
+      "creationInfo": {
+        "date": 1788850831411,
+        "source": "id-1"
+      },
+      "date": 1788850831411,
+      "dateEdited": 1788850831411,
+      "for": 1,
+      "id": "ffac9853-4445-4dc5-8896-f7bc51236d96",
+      "isDeleted": false,
+      "isEdited": true,
+      "lastUpdateInfo": {
+        "date": 1788850831411,
+        "source": "id-1"
+      },
+      "messages": [
+        {
+          "author": "id-1",
+          "creationInfo": {
+            "date": 1788850831411,
+            "source": "id-1"
+          },
+          "date": 1788850831411,
+          "for": 1,
+          "from": 0,
+          "id": "48c7e308-e33c-4e93-abc6-08405abe93f5",
+          "isAlternateFormat": false,
+          "isDeleted": false,
+          "isEdited": false,
+          "messageTypeId": 180,
+          "targetId": -16008,
+          "to": 10,
+          "topicId": "ffac9853-4445-4dc5-8896-f7bc51236d96"
+        }
+      ],
+      "totalMessageCount": 1,
+      "type": "ACTIVITY_TRANSACTIONS"
+    }
+  ]
+}

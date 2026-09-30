@@ -1,6 +1,6 @@
-# Fantasy Trade Finder (working name)
+# Offer Sheet
 
-Finds and ranks fantasy football trades for your team. The full spec is in `CLAUDE.md`, and progress is tracked in `reports/STATUS.md`.
+Finds and ranks fantasy football trades for your team. The working name was Fantasy Trade Finder, which is why the folder and package are still called `fantasy-trade-finder`. The full spec is in `CLAUDE.md`, and progress is tracked in `reports/STATUS.md`.
 
 It's read-only: it never sends offers or changes anything on any platform.
 

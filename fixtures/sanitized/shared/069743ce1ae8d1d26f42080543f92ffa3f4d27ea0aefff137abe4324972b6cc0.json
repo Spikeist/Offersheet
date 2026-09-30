@@ -1,0 +1,2450 @@
+[
+  {
+    "gameId": "2026_01_NE_SEA",
+    "week": 1,
+    "gameday": "2026-09-09",
+    "gametime": "20:20",
+    "awayTeam": "NE",
+    "homeTeam": "SEA",
+    "espnEventId": "401872656"
+  },
+  {
+    "gameId": "2026_01_SF_LA",
+    "week": 1,
+    "gameday": "2026-09-10",
+    "gametime": "20:35",
+    "awayTeam": "SF",
+    "homeTeam": "LA",
+    "espnEventId": "401872657"
+  },
+  {
+    "gameId": "2026_01_CHI_CAR",
+    "week": 1,
+    "gameday": "2026-09-13",
+    "gametime": "13:00",
+    "awayTeam": "CHI",
+    "homeTeam": "CAR",
+    "espnEventId": "401872661"
+  },
+  {
+    "gameId": "2026_01_TB_CIN",
+    "week": 1,
+    "gameday": "2026-09-13",
+    "gametime": "13:00",
+    "awayTeam": "TB",
+    "homeTeam": "CIN",
+    "espnEventId": "401872925"
+  },
+  {
+    "gameId": "2026_01_NO_DET",
+    "week": 1,
+    "gameday": "2026-09-13",
+    "gametime": "13:00",
+    "awayTeam": "NO",
+    "homeTeam": "DET",
+    "espnEventId": "401872923"
+  },
+  {
+    "gameId": "2026_01_BUF_HOU",
+    "week": 1,
+    "gameday": "2026-09-13",
+    "gametime": "13:00",
+    "awayTeam": "BUF",
+    "homeTeam": "HOU",
+    "espnEventId": "401872660"
+  },
+  {
+    "gameId": "2026_01_BAL_IND",
+    "week": 1,
+    "gameday": "2026-09-13",
+    "gametime": "13:00",
+    "awayTeam": "BAL",
+    "homeTeam": "IND",
+    "espnEventId": "401872659"
+  },
+  {
+    "gameId": "2026_01_CLE_JAX",
+    "week": 1,
+    "gameday": "2026-09-13",
+    "gametime": "13:00",
+    "awayTeam": "CLE",
+    "homeTeam": "JAX",
+    "espnEventId": "401872922"
+  },
+  {
+    "gameId": "2026_01_ATL_PIT",
+    "week": 1,
+    "gameday": "2026-09-13",
+    "gametime": "13:00",
+    "awayTeam": "ATL",
+    "homeTeam": "PIT",
+    "espnEventId": "401872658"
+  },
+  {
+    "gameId": "2026_01_NYJ_TEN",
+    "week": 1,
+    "gameday": "2026-09-13",
+    "gametime": "13:00",
+    "awayTeam": "NYJ",
+    "homeTeam": "TEN",
+    "espnEventId": "401872924"
+  },
+  {
+    "gameId": "2026_01_ARI_LAC",
+    "week": 1,
+    "gameday": "2026-09-13",
+    "gametime": "16:25",
+    "awayTeam": "ARI",
+    "homeTeam": "LAC",
+    "espnEventId": "401872926"
+  },
+  {
+    "gameId": "2026_01_MIA_LV",
+    "week": 1,
+    "gameday": "2026-09-13",
+    "gametime": "16:25",
+    "awayTeam": "MIA",
+    "homeTeam": "LV",
+    "espnEventId": "401872928"
+  },
+  {
+    "gameId": "2026_01_GB_MIN",
+    "week": 1,
+    "gameday": "2026-09-13",
+    "gametime": "16:25",
+    "awayTeam": "GB",
+    "homeTeam": "MIN",
+    "espnEventId": "401872927"
+  },
+  {
+    "gameId": "2026_01_WAS_PHI",
+    "week": 1,
+    "gameday": "2026-09-13",
+    "gametime": "16:25",
+    "awayTeam": "WAS",
+    "homeTeam": "PHI",
+    "espnEventId": "401872929"
+  },
+  {
+    "gameId": "2026_01_DAL_NYG",
+    "week": 1,
+    "gameday": "2026-09-13",
+    "gametime": "20:20",
+    "awayTeam": "DAL",
+    "homeTeam": "NYG",
+    "espnEventId": "401872930"
+  },
+  {
+    "gameId": "2026_01_DEN_KC",
+    "week": 1,
+    "gameday": "2026-09-14",
+    "gametime": "20:15",
+    "awayTeam": "DEN",
+    "homeTeam": "KC",
+    "espnEventId": "401872931"
+  },
+  {
+    "gameId": "2026_02_DET_BUF",
+    "week": 2,
+    "gameday": "2026-09-17",
+    "gametime": "20:15",
+    "awayTeam": "DET",
+    "homeTeam": "BUF",
+    "espnEventId": "401872932"
+  },
+  {
+    "gameId": "2026_02_CAR_ATL",
+    "week": 2,
+    "gameday": "2026-09-20",
+    "gametime": "13:00",
+    "awayTeam": "CAR",
+    "homeTeam": "ATL",
+    "espnEventId": "401872933"
+  },
+  {
+    "gameId": "2026_02_NO_BAL",
+    "week": 2,
+    "gameday": "2026-09-20",
+    "gametime": "13:00",
+    "awayTeam": "NO",
+    "homeTeam": "BAL",
+    "espnEventId": "401872938"
+  },
+  {
+    "gameId": "2026_02_MIN_CHI",
+    "week": 2,
+    "gameday": "2026-09-20",
+    "gametime": "13:00",
+    "awayTeam": "MIN",
+    "homeTeam": "CHI",
+    "espnEventId": "401872937"
+  },
+  {
+    "gameId": "2026_02_CIN_HOU",
+    "week": 2,
+    "gameday": "2026-09-20",
+    "gametime": "13:00",
+    "awayTeam": "CIN",
+    "homeTeam": "HOU",
+    "espnEventId": "401872934"
+  },
+  {
+    "gameId": "2026_02_PIT_NE",
+    "week": 2,
+    "gameday": "2026-09-20",
+    "gametime": "13:00",
+    "awayTeam": "PIT",
+    "homeTeam": "NE",
+    "espnEventId": "401872946"
+  },
+  {
+    "gameId": "2026_02_GB_NYJ",
+    "week": 2,
+    "gameday": "2026-09-20",
+    "gametime": "13:00",
+    "awayTeam": "GB",
+    "homeTeam": "NYJ",
+    "espnEventId": "401872936"
+  },
+  {
+    "gameId": "2026_02_CLE_TB",
+    "week": 2,
+    "gameday": "2026-09-20",
+    "gametime": "13:00",
+    "awayTeam": "CLE",
+    "homeTeam": "TB",
+    "espnEventId": "401872935"
+  },
+  {
+    "gameId": "2026_02_PHI_TEN",
+    "week": 2,
+    "gameday": "2026-09-20",
+    "gametime": "13:00",
+    "awayTeam": "PHI",
+    "homeTeam": "TEN",
+    "espnEventId": "401872939"
+  },
+  {
+    "gameId": "2026_02_JAX_DEN",
+    "week": 2,
+    "gameday": "2026-09-20",
+    "gametime": "16:05",
+    "awayTeam": "JAX",
+    "homeTeam": "DEN",
+    "espnEventId": "401872940"
+  },
+  {
+    "gameId": "2026_02_LV_LAC",
+    "week": 2,
+    "gameday": "2026-09-20",
+    "gametime": "16:05",
+    "awayTeam": "LV",
+    "homeTeam": "LAC",
+    "espnEventId": "401872941"
+  },
+  {
+    "gameId": "2026_02_SEA_ARI",
+    "week": 2,
+    "gameday": "2026-09-20",
+    "gametime": "16:25",
+    "awayTeam": "SEA",
+    "homeTeam": "ARI",
+    "espnEventId": "401872943"
+  },
+  {
+    "gameId": "2026_02_WAS_DAL",
+    "week": 2,
+    "gameday": "2026-09-20",
+    "gametime": "16:25",
+    "awayTeam": "WAS",
+    "homeTeam": "DAL",
+    "espnEventId": "401872944"
+  },
+  {
+    "gameId": "2026_02_MIA_SF",
+    "week": 2,
+    "gameday": "2026-09-20",
+    "gametime": "16:25",
+    "awayTeam": "MIA",
+    "homeTeam": "SF",
+    "espnEventId": "401872942"
+  },
+  {
+    "gameId": "2026_02_IND_KC",
+    "week": 2,
+    "gameday": "2026-09-20",
+    "gametime": "20:20",
+    "awayTeam": "IND",
+    "homeTeam": "KC",
+    "espnEventId": "401872945"
+  },
+  {
+    "gameId": "2026_02_NYG_LA",
+    "week": 2,
+    "gameday": "2026-09-21",
+    "gametime": "20:15",
+    "awayTeam": "NYG",
+    "homeTeam": "LA",
+    "espnEventId": "401872947"
+  },
+  {
+    "gameId": "2026_03_ATL_GB",
+    "week": 3,
+    "gameday": "2026-09-24",
+    "gametime": "20:15",
+    "awayTeam": "ATL",
+    "homeTeam": "GB",
+    "espnEventId": "401872948"
+  },
+  {
+    "gameId": "2026_03_LAC_BUF",
+    "week": 3,
+    "gameday": "2026-09-27",
+    "gametime": "13:00",
+    "awayTeam": "LAC",
+    "homeTeam": "BUF",
+    "espnEventId": "401872953"
+  },
+  {
+    "gameId": "2026_03_CAR_CLE",
+    "week": 3,
+    "gameday": "2026-09-27",
+    "gametime": "13:00",
+    "awayTeam": "CAR",
+    "homeTeam": "CLE",
+    "espnEventId": "401872949"
+  },
+  {
+    "gameId": "2026_03_NYJ_DET",
+    "week": 3,
+    "gameday": "2026-09-27",
+    "gametime": "13:00",
+    "awayTeam": "NYJ",
+    "homeTeam": "DET",
+    "espnEventId": "401872954"
+  },
+  {
+    "gameId": "2026_03_HOU_IND",
+    "week": 3,
+    "gameday": "2026-09-27",
+    "gametime": "13:00",
+    "awayTeam": "HOU",
+    "homeTeam": "IND",
+    "espnEventId": "401872951"
+  },
+  {
+    "gameId": "2026_03_NE_JAX",
+    "week": 3,
+    "gameday": "2026-09-27",
+    "gametime": "13:00",
+    "awayTeam": "NE",
+    "homeTeam": "JAX",
+    "espnEventId": "401872957"
+  },
+  {
+    "gameId": "2026_03_KC_MIA",
+    "week": 3,
+    "gameday": "2026-09-27",
+    "gametime": "13:00",
+    "awayTeam": "KC",
+    "homeTeam": "MIA",
+    "espnEventId": "401872952"
+  },
+  {
+    "gameId": "2026_03_TEN_NYG",
+    "week": 3,
+    "gameday": "2026-09-27",
+    "gametime": "13:00",
+    "awayTeam": "TEN",
+    "homeTeam": "NYG",
+    "espnEventId": "401872956"
+  },
+  {
+    "gameId": "2026_03_CIN_PIT",
+    "week": 3,
+    "gameday": "2026-09-27",
+    "gametime": "13:00",
+    "awayTeam": "CIN",
+    "homeTeam": "PIT",
+    "espnEventId": "401872950"
+  },
+  {
+    "gameId": "2026_03_SEA_WAS",
+    "week": 3,
+    "gameday": "2026-09-27",
+    "gametime": "13:00",
+    "awayTeam": "SEA",
+    "homeTeam": "WAS",
+    "espnEventId": "401872955"
+  },
+  {
+    "gameId": "2026_03_ARI_SF",
+    "week": 3,
+    "gameday": "2026-09-27",
+    "gametime": "16:05",
+    "awayTeam": "ARI",
+    "homeTeam": "SF",
+    "espnEventId": "401872958"
+  },
+  {
+    "gameId": "2026_03_MIN_TB",
+    "week": 3,
+    "gameday": "2026-09-27",
+    "gametime": "16:05",
+    "awayTeam": "MIN",
+    "homeTeam": "TB",
+    "espnEventId": "401872959"
+  },
+  {
+    "gameId": "2026_03_BAL_DAL",
+    "week": 3,
+    "gameday": "2026-09-27",
+    "gametime": "16:25",
+    "awayTeam": "BAL",
+    "homeTeam": "DAL",
+    "espnEventId": "401872960"
+  },
+  {
+    "gameId": "2026_03_LV_NO",
+    "week": 3,
+    "gameday": "2026-09-27",
+    "gametime": "16:25",
+    "awayTeam": "LV",
+    "homeTeam": "NO",
+    "espnEventId": "401872961"
+  },
+  {
+    "gameId": "2026_03_LA_DEN",
+    "week": 3,
+    "gameday": "2026-09-27",
+    "gametime": "20:20",
+    "awayTeam": "LA",
+    "homeTeam": "DEN",
+    "espnEventId": "401872962"
+  },
+  {
+    "gameId": "2026_03_PHI_CHI",
+    "week": 3,
+    "gameday": "2026-09-28",
+    "gametime": "20:15",
+    "awayTeam": "PHI",
+    "homeTeam": "CHI",
+    "espnEventId": "401872963"
+  },
+  {
+    "gameId": "2026_04_PIT_CLE",
+    "week": 4,
+    "gameday": "2026-10-01",
+    "gametime": "20:15",
+    "awayTeam": "PIT",
+    "homeTeam": "CLE",
+    "espnEventId": "401872964"
+  },
+  {
+    "gameId": "2026_04_IND_WAS",
+    "week": 4,
+    "gameday": "2026-10-04",
+    "gametime": "09:30",
+    "awayTeam": "IND",
+    "homeTeam": "WAS",
+    "espnEventId": "401872965"
+  },
+  {
+    "gameId": "2026_04_TEN_BAL",
+    "week": 4,
+    "gameday": "2026-10-04",
+    "gametime": "13:00",
+    "awayTeam": "TEN",
+    "homeTeam": "BAL",
+    "espnEventId": "401872973"
+  },
+  {
+    "gameId": "2026_04_NE_BUF",
+    "week": 4,
+    "gameday": "2026-10-04",
+    "gametime": "13:00",
+    "awayTeam": "NE",
+    "homeTeam": "BUF",
+    "espnEventId": "401872971"
+  },
+  {
+    "gameId": "2026_04_NYJ_CHI",
+    "week": 4,
+    "gameday": "2026-10-04",
+    "gametime": "13:00",
+    "awayTeam": "NYJ",
+    "homeTeam": "CHI",
+    "espnEventId": "401872972"
+  },
+  {
+    "gameId": "2026_04_JAX_CIN",
+    "week": 4,
+    "gameday": "2026-10-04",
+    "gametime": "13:00",
+    "awayTeam": "JAX",
+    "homeTeam": "CIN",
+    "espnEventId": "401872969"
+  },
+  {
+    "gameId": "2026_04_DAL_HOU",
+    "week": 4,
+    "gameday": "2026-10-04",
+    "gametime": "13:00",
+    "awayTeam": "DAL",
+    "homeTeam": "HOU",
+    "espnEventId": "401872967"
+  },
+  {
+    "gameId": "2026_04_ARI_NYG",
+    "week": 4,
+    "gameday": "2026-10-04",
+    "gametime": "13:00",
+    "awayTeam": "ARI",
+    "homeTeam": "NYG",
+    "espnEventId": "401872966"
+  },
+  {
+    "gameId": "2026_04_LA_PHI",
+    "week": 4,
+    "gameday": "2026-10-04",
+    "gametime": "13:00",
+    "awayTeam": "LA",
+    "homeTeam": "PHI",
+    "espnEventId": "401872970"
+  },
+  {
+    "gameId": "2026_04_GB_TB",
+    "week": 4,
+    "gameday": "2026-10-04",
+    "gametime": "13:00",
+    "awayTeam": "GB",
+    "homeTeam": "TB",
+    "espnEventId": "401872968"
+  },
+  {
+    "gameId": "2026_04_MIA_MIN",
+    "week": 4,
+    "gameday": "2026-10-04",
+    "gametime": "16:05",
+    "awayTeam": "MIA",
+    "homeTeam": "MIN",
+    "espnEventId": "401872974"
+  },
+  {
+    "gameId": "2026_04_KC_LV",
+    "week": 4,
+    "gameday": "2026-10-04",
+    "gametime": "16:25",
+    "awayTeam": "KC",
+    "homeTeam": "LV",
+    "espnEventId": "401872976"
+  },
+  {
+    "gameId": "2026_04_LAC_SEA",
+    "week": 4,
+    "gameday": "2026-10-04",
+    "gametime": "16:25",
+    "awayTeam": "LAC",
+    "homeTeam": "SEA",
+    "espnEventId": "401872977"
+  },
+  {
+    "gameId": "2026_04_DEN_SF",
+    "week": 4,
+    "gameday": "2026-10-04",
+    "gametime": "16:25",
+    "awayTeam": "DEN",
+    "homeTeam": "SF",
+    "espnEventId": "401872975"
+  },
+  {
+    "gameId": "2026_04_DET_CAR",
+    "week": 4,
+    "gameday": "2026-10-04",
+    "gametime": "20:20",
+    "awayTeam": "DET",
+    "homeTeam": "CAR",
+    "espnEventId": "401872978"
+  },
+  {
+    "gameId": "2026_04_ATL_NO",
+    "week": 4,
+    "gameday": "2026-10-05",
+    "gametime": "20:15",
+    "awayTeam": "ATL",
+    "homeTeam": "NO",
+    "espnEventId": "401872979"
+  },
+  {
+    "gameId": "2026_05_TB_DAL",
+    "week": 5,
+    "gameday": "2026-10-08",
+    "gametime": "20:15",
+    "awayTeam": "TB",
+    "homeTeam": "DAL",
+    "espnEventId": "401872980"
+  },
+  {
+    "gameId": "2026_05_PHI_JAX",
+    "week": 5,
+    "gameday": "2026-10-11",
+    "gametime": "09:30",
+    "awayTeam": "PHI",
+    "homeTeam": "JAX",
+    "espnEventId": "401872981"
+  },
+  {
+    "gameId": "2026_05_CHI_GB",
+    "week": 5,
+    "gameday": "2026-10-11",
+    "gametime": "13:00",
+    "awayTeam": "CHI",
+    "homeTeam": "GB",
+    "espnEventId": "401872990"
+  },
+  {
+    "gameId": "2026_05_CIN_MIA",
+    "week": 5,
+    "gameday": "2026-10-11",
+    "gametime": "13:00",
+    "awayTeam": "CIN",
+    "homeTeam": "MIA",
+    "espnEventId": "401872982"
+  },
+  {
+    "gameId": "2026_05_LV_NE",
+    "week": 5,
+    "gameday": "2026-10-11",
+    "gametime": "13:00",
+    "awayTeam": "LV",
+    "homeTeam": "NE",
+    "espnEventId": "401872986"
+  },
+  {
+    "gameId": "2026_05_MIN_NO",
+    "week": 5,
+    "gameday": "2026-10-11",
+    "gametime": "13:00",
+    "awayTeam": "MIN",
+    "homeTeam": "NO",
+    "espnEventId": "401872987"
+  },
+  {
+    "gameId": "2026_05_CLE_NYJ",
+    "week": 5,
+    "gameday": "2026-10-11",
+    "gametime": "13:00",
+    "awayTeam": "CLE",
+    "homeTeam": "NYJ",
+    "espnEventId": "401872983"
+  },
+  {
+    "gameId": "2026_05_IND_PIT",
+    "week": 5,
+    "gameday": "2026-10-11",
+    "gametime": "13:00",
+    "awayTeam": "IND",
+    "homeTeam": "PIT",
+    "espnEventId": "401872985"
+  },
+  {
+    "gameId": "2026_05_HOU_TEN",
+    "week": 5,
+    "gameday": "2026-10-11",
+    "gametime": "13:00",
+    "awayTeam": "HOU",
+    "homeTeam": "TEN",
+    "espnEventId": "401872984"
+  },
+  {
+    "gameId": "2026_05_NYG_WAS",
+    "week": 5,
+    "gameday": "2026-10-11",
+    "gametime": "13:00",
+    "awayTeam": "NYG",
+    "homeTeam": "WAS",
+    "espnEventId": "401872988"
+  },
+  {
+    "gameId": "2026_05_DEN_LAC",
+    "week": 5,
+    "gameday": "2026-10-11",
+    "gametime": "16:05",
+    "awayTeam": "DEN",
+    "homeTeam": "LAC",
+    "espnEventId": "401872989"
+  },
+  {
+    "gameId": "2026_05_DET_ARI",
+    "week": 5,
+    "gameday": "2026-10-11",
+    "gametime": "16:25",
+    "awayTeam": "DET",
+    "homeTeam": "ARI",
+    "espnEventId": "401872991"
+  },
+  {
+    "gameId": "2026_05_SF_SEA",
+    "week": 5,
+    "gameday": "2026-10-11",
+    "gametime": "16:25",
+    "awayTeam": "SF",
+    "homeTeam": "SEA",
+    "espnEventId": "401872992"
+  },
+  {
+    "gameId": "2026_05_BAL_ATL",
+    "week": 5,
+    "gameday": "2026-10-11",
+    "gametime": "20:20",
+    "awayTeam": "BAL",
+    "homeTeam": "ATL",
+    "espnEventId": "401872993"
+  },
+  {
+    "gameId": "2026_05_BUF_LA",
+    "week": 5,
+    "gameday": "2026-10-12",
+    "gametime": "20:15",
+    "awayTeam": "BUF",
+    "homeTeam": "LA",
+    "espnEventId": "401872994"
+  },
+  {
+    "gameId": "2026_06_SEA_DEN",
+    "week": 6,
+    "gameday": "2026-10-15",
+    "gametime": "20:15",
+    "awayTeam": "SEA",
+    "homeTeam": "DEN",
+    "espnEventId": "401872995"
+  },
+  {
+    "gameId": "2026_06_HOU_JAX",
+    "week": 6,
+    "gameday": "2026-10-18",
+    "gametime": "09:30",
+    "awayTeam": "HOU",
+    "homeTeam": "JAX",
+    "espnEventId": "401872996"
+  },
+  {
+    "gameId": "2026_06_CHI_ATL",
+    "week": 6,
+    "gameday": "2026-10-18",
+    "gametime": "13:00",
+    "awayTeam": "CHI",
+    "homeTeam": "ATL",
+    "espnEventId": "401872999"
+  },
+  {
+    "gameId": "2026_06_BAL_CLE",
+    "week": 6,
+    "gameday": "2026-10-18",
+    "gametime": "13:00",
+    "awayTeam": "BAL",
+    "homeTeam": "CLE",
+    "espnEventId": "401872997"
+  },
+  {
+    "gameId": "2026_06_TEN_IND",
+    "week": 6,
+    "gameday": "2026-10-18",
+    "gametime": "13:00",
+    "awayTeam": "TEN",
+    "homeTeam": "IND",
+    "espnEventId": "401873003"
+  },
+  {
+    "gameId": "2026_06_NYJ_NE",
+    "week": 6,
+    "gameday": "2026-10-18",
+    "gametime": "13:00",
+    "awayTeam": "NYJ",
+    "homeTeam": "NE",
+    "espnEventId": "401873001"
+  },
+  {
+    "gameId": "2026_06_NO_NYG",
+    "week": 6,
+    "gameday": "2026-10-18",
+    "gametime": "13:00",
+    "awayTeam": "NO",
+    "homeTeam": "NYG",
+    "espnEventId": "401873000"
+  },
+  {
+    "gameId": "2026_06_CAR_PHI",
+    "week": 6,
+    "gameday": "2026-10-18",
+    "gametime": "13:00",
+    "awayTeam": "CAR",
+    "homeTeam": "PHI",
+    "espnEventId": "401872998"
+  },
+  {
+    "gameId": "2026_06_PIT_TB",
+    "week": 6,
+    "gameday": "2026-10-18",
+    "gametime": "13:00",
+    "awayTeam": "PIT",
+    "homeTeam": "TB",
+    "espnEventId": "401873002"
+  },
+  {
+    "gameId": "2026_06_ARI_LA",
+    "week": 6,
+    "gameday": "2026-10-18",
+    "gametime": "16:05",
+    "awayTeam": "ARI",
+    "homeTeam": "LA",
+    "espnEventId": "401873004"
+  },
+  {
+    "gameId": "2026_06_LAC_KC",
+    "week": 6,
+    "gameday": "2026-10-18",
+    "gametime": "16:25",
+    "awayTeam": "LAC",
+    "homeTeam": "KC",
+    "espnEventId": "401873006"
+  },
+  {
+    "gameId": "2026_06_BUF_LV",
+    "week": 6,
+    "gameday": "2026-10-18",
+    "gametime": "16:25",
+    "awayTeam": "BUF",
+    "homeTeam": "LV",
+    "espnEventId": "401873005"
+  },
+  {
+    "gameId": "2026_06_DAL_GB",
+    "week": 6,
+    "gameday": "2026-10-18",
+    "gametime": "20:20",
+    "awayTeam": "DAL",
+    "homeTeam": "GB",
+    "espnEventId": "401873007"
+  },
+  {
+    "gameId": "2026_06_WAS_SF",
+    "week": 6,
+    "gameday": "2026-10-19",
+    "gametime": "20:15",
+    "awayTeam": "WAS",
+    "homeTeam": "SF",
+    "espnEventId": "401873008"
+  },
+  {
+    "gameId": "2026_07_NE_CHI",
+    "week": 7,
+    "gameday": "2026-10-22",
+    "gametime": "20:15",
+    "awayTeam": "NE",
+    "homeTeam": "CHI",
+    "espnEventId": "401873010"
+  },
+  {
+    "gameId": "2026_07_PIT_NO",
+    "week": 7,
+    "gameday": "2026-10-25",
+    "gametime": "09:30",
+    "awayTeam": "PIT",
+    "homeTeam": "NO",
+    "espnEventId": "401873011"
+  },
+  {
+    "gameId": "2026_07_SF_ATL",
+    "week": 7,
+    "gameday": "2026-10-25",
+    "gametime": "13:00",
+    "awayTeam": "SF",
+    "homeTeam": "ATL",
+    "espnEventId": "401873017"
+  },
+  {
+    "gameId": "2026_07_CIN_BAL",
+    "week": 7,
+    "gameday": "2026-10-25",
+    "gametime": "13:00",
+    "awayTeam": "CIN",
+    "homeTeam": "BAL",
+    "espnEventId": "401873012"
+  },
+  {
+    "gameId": "2026_07_TB_CAR",
+    "week": 7,
+    "gameday": "2026-10-25",
+    "gametime": "13:00",
+    "awayTeam": "TB",
+    "homeTeam": "CAR",
+    "espnEventId": "401873018"
+  },
+  {
+    "gameId": "2026_07_NYG_HOU",
+    "week": 7,
+    "gameday": "2026-10-25",
+    "gametime": "13:00",
+    "awayTeam": "NYG",
+    "homeTeam": "HOU",
+    "espnEventId": "401873016"
+  },
+  {
+    "gameId": "2026_07_IND_MIN",
+    "week": 7,
+    "gameday": "2026-10-25",
+    "gametime": "13:00",
+    "awayTeam": "IND",
+    "homeTeam": "MIN",
+    "espnEventId": "401873014"
+  },
+  {
+    "gameId": "2026_07_MIA_NYJ",
+    "week": 7,
+    "gameday": "2026-10-25",
+    "gametime": "13:00",
+    "awayTeam": "MIA",
+    "homeTeam": "NYJ",
+    "espnEventId": "401873015"
+  },
+  {
+    "gameId": "2026_07_CLE_TEN",
+    "week": 7,
+    "gameday": "2026-10-25",
+    "gametime": "13:00",
+    "awayTeam": "CLE",
+    "homeTeam": "TEN",
+    "espnEventId": "401873013"
+  },
+  {
+    "gameId": "2026_07_DEN_ARI",
+    "week": 7,
+    "gameday": "2026-10-25",
+    "gametime": "16:05",
+    "awayTeam": "DEN",
+    "homeTeam": "ARI",
+    "espnEventId": "401873019"
+  },
+  {
+    "gameId": "2026_07_GB_DET",
+    "week": 7,
+    "gameday": "2026-10-25",
+    "gametime": "16:25",
+    "awayTeam": "GB",
+    "homeTeam": "DET",
+    "espnEventId": "401873020"
+  },
+  {
+    "gameId": "2026_07_LA_LV",
+    "week": 7,
+    "gameday": "2026-10-25",
+    "gametime": "16:25",
+    "awayTeam": "LA",
+    "homeTeam": "LV",
+    "espnEventId": "401873021"
+  },
+  {
+    "gameId": "2026_07_KC_SEA",
+    "week": 7,
+    "gameday": "2026-10-25",
+    "gametime": "20:20",
+    "awayTeam": "KC",
+    "homeTeam": "SEA",
+    "espnEventId": "401873022"
+  },
+  {
+    "gameId": "2026_07_DAL_PHI",
+    "week": 7,
+    "gameday": "2026-10-26",
+    "gametime": "20:15",
+    "awayTeam": "DAL",
+    "homeTeam": "PHI",
+    "espnEventId": "401873009"
+  },
+  {
+    "gameId": "2026_08_CAR_GB",
+    "week": 8,
+    "gameday": "2026-10-29",
+    "gametime": "20:15",
+    "awayTeam": "CAR",
+    "homeTeam": "GB",
+    "espnEventId": "401873023"
+  },
+  {
+    "gameId": "2026_08_BAL_BUF",
+    "week": 8,
+    "gameday": "2026-11-01",
+    "gametime": "13:00",
+    "awayTeam": "BAL",
+    "homeTeam": "BUF",
+    "espnEventId": "401873026"
+  },
+  {
+    "gameId": "2026_08_TEN_CIN",
+    "week": 8,
+    "gameday": "2026-11-01",
+    "gametime": "13:00",
+    "awayTeam": "TEN",
+    "homeTeam": "CIN",
+    "espnEventId": "401873031"
+  },
+  {
+    "gameId": "2026_08_ARI_DAL",
+    "week": 8,
+    "gameday": "2026-11-01",
+    "gametime": "13:00",
+    "awayTeam": "ARI",
+    "homeTeam": "DAL",
+    "espnEventId": "401873024"
+  },
+  {
+    "gameId": "2026_08_MIN_DET",
+    "week": 8,
+    "gameday": "2026-11-01",
+    "gametime": "13:00",
+    "awayTeam": "MIN",
+    "homeTeam": "DET",
+    "espnEventId": "401873030"
+  },
+  {
+    "gameId": "2026_08_IND_JAX",
+    "week": 8,
+    "gameday": "2026-11-01",
+    "gametime": "13:00",
+    "awayTeam": "IND",
+    "homeTeam": "JAX",
+    "espnEventId": "401873028"
+  },
+  {
+    "gameId": "2026_08_LV_NYJ",
+    "week": 8,
+    "gameday": "2026-11-01",
+    "gametime": "13:00",
+    "awayTeam": "LV",
+    "homeTeam": "NYJ",
+    "espnEventId": "401873029"
+  },
+  {
+    "gameId": "2026_08_CLE_PIT",
+    "week": 8,
+    "gameday": "2026-11-01",
+    "gametime": "13:00",
+    "awayTeam": "CLE",
+    "homeTeam": "PIT",
+    "espnEventId": "401873027"
+  },
+  {
+    "gameId": "2026_08_ATL_TB",
+    "week": 8,
+    "gameday": "2026-11-01",
+    "gametime": "13:00",
+    "awayTeam": "ATL",
+    "homeTeam": "TB",
+    "espnEventId": "401873025"
+  },
+  {
+    "gameId": "2026_08_LAC_LA",
+    "week": 8,
+    "gameday": "2026-11-01",
+    "gametime": "16:05",
+    "awayTeam": "LAC",
+    "homeTeam": "LA",
+    "espnEventId": "401873032"
+  },
+  {
+    "gameId": "2026_08_KC_DEN",
+    "week": 8,
+    "gameday": "2026-11-01",
+    "gametime": "16:25",
+    "awayTeam": "KC",
+    "homeTeam": "DEN",
+    "espnEventId": "401873033"
+  },
+  {
+    "gameId": "2026_08_NE_MIA",
+    "week": 8,
+    "gameday": "2026-11-01",
+    "gametime": "16:25",
+    "awayTeam": "NE",
+    "homeTeam": "MIA",
+    "espnEventId": "401873034"
+  },
+  {
+    "gameId": "2026_08_PHI_WAS",
+    "week": 8,
+    "gameday": "2026-11-01",
+    "gametime": "20:20",
+    "awayTeam": "PHI",
+    "homeTeam": "WAS",
+    "espnEventId": "401873035"
+  },
+  {
+    "gameId": "2026_08_CHI_SEA",
+    "week": 8,
+    "gameday": "2026-11-02",
+    "gametime": "20:15",
+    "awayTeam": "CHI",
+    "homeTeam": "SEA",
+    "espnEventId": "401873036"
+  },
+  {
+    "gameId": "2026_09_JAX_BAL",
+    "week": 9,
+    "gameday": "2026-11-05",
+    "gametime": "20:15",
+    "awayTeam": "JAX",
+    "homeTeam": "BAL",
+    "espnEventId": "401873037"
+  },
+  {
+    "gameId": "2026_09_CIN_ATL",
+    "week": 9,
+    "gameday": "2026-11-08",
+    "gametime": "09:30",
+    "awayTeam": "CIN",
+    "homeTeam": "ATL",
+    "espnEventId": "401873038"
+  },
+  {
+    "gameId": "2026_09_DEN_CAR",
+    "week": 9,
+    "gameday": "2026-11-08",
+    "gametime": "13:00",
+    "awayTeam": "DEN",
+    "homeTeam": "CAR",
+    "espnEventId": "401873041"
+  },
+  {
+    "gameId": "2026_09_DAL_IND",
+    "week": 9,
+    "gameday": "2026-11-08",
+    "gametime": "13:00",
+    "awayTeam": "DAL",
+    "homeTeam": "IND",
+    "espnEventId": "401873040"
+  },
+  {
+    "gameId": "2026_09_NYJ_KC",
+    "week": 9,
+    "gameday": "2026-11-08",
+    "gametime": "13:00",
+    "awayTeam": "NYJ",
+    "homeTeam": "KC",
+    "espnEventId": "401873045"
+  },
+  {
+    "gameId": "2026_09_DET_MIA",
+    "week": 9,
+    "gameday": "2026-11-08",
+    "gametime": "13:00",
+    "awayTeam": "DET",
+    "homeTeam": "MIA",
+    "espnEventId": "401873042"
+  },
+  {
+    "gameId": "2026_09_CLE_NO",
+    "week": 9,
+    "gameday": "2026-11-08",
+    "gametime": "13:00",
+    "awayTeam": "CLE",
+    "homeTeam": "NO",
+    "espnEventId": "401873039"
+  },
+  {
+    "gameId": "2026_09_NYG_PHI",
+    "week": 9,
+    "gameday": "2026-11-08",
+    "gametime": "13:00",
+    "awayTeam": "NYG",
+    "homeTeam": "PHI",
+    "espnEventId": "401873044"
+  },
+  {
+    "gameId": "2026_09_LA_WAS",
+    "week": 9,
+    "gameday": "2026-11-08",
+    "gametime": "13:00",
+    "awayTeam": "LA",
+    "homeTeam": "WAS",
+    "espnEventId": "401873043"
+  },
+  {
+    "gameId": "2026_09_HOU_LAC",
+    "week": 9,
+    "gameday": "2026-11-08",
+    "gametime": "16:05",
+    "awayTeam": "HOU",
+    "homeTeam": "LAC",
+    "espnEventId": "401873046"
+  },
+  {
+    "gameId": "2026_09_LV_SF",
+    "week": 9,
+    "gameday": "2026-11-08",
+    "gametime": "16:05",
+    "awayTeam": "LV",
+    "homeTeam": "SF",
+    "espnEventId": "401873047"
+  },
+  {
+    "gameId": "2026_09_GB_NE",
+    "week": 9,
+    "gameday": "2026-11-08",
+    "gametime": "16:25",
+    "awayTeam": "GB",
+    "homeTeam": "NE",
+    "espnEventId": "401873049"
+  },
+  {
+    "gameId": "2026_09_ARI_SEA",
+    "week": 9,
+    "gameday": "2026-11-08",
+    "gametime": "16:25",
+    "awayTeam": "ARI",
+    "homeTeam": "SEA",
+    "espnEventId": "401873048"
+  },
+  {
+    "gameId": "2026_09_TB_CHI",
+    "week": 9,
+    "gameday": "2026-11-08",
+    "gametime": "20:20",
+    "awayTeam": "TB",
+    "homeTeam": "CHI",
+    "espnEventId": "401873050"
+  },
+  {
+    "gameId": "2026_09_BUF_MIN",
+    "week": 9,
+    "gameday": "2026-11-09",
+    "gametime": "20:15",
+    "awayTeam": "BUF",
+    "homeTeam": "MIN",
+    "espnEventId": "401873051"
+  },
+  {
+    "gameId": "2026_10_WAS_NYG",
+    "week": 10,
+    "gameday": "2026-11-12",
+    "gametime": "20:15",
+    "awayTeam": "WAS",
+    "homeTeam": "NYG",
+    "espnEventId": "401873052"
+  },
+  {
+    "gameId": "2026_10_NE_DET",
+    "week": 10,
+    "gameday": "2026-11-15",
+    "gametime": "09:30",
+    "awayTeam": "NE",
+    "homeTeam": "DET",
+    "espnEventId": "401873053"
+  },
+  {
+    "gameId": "2026_10_KC_ATL",
+    "week": 10,
+    "gameday": "2026-11-15",
+    "gametime": "13:00",
+    "awayTeam": "KC",
+    "homeTeam": "ATL",
+    "espnEventId": "401873058"
+  },
+  {
+    "gameId": "2026_10_HOU_CLE",
+    "week": 10,
+    "gameday": "2026-11-15",
+    "gametime": "13:00",
+    "awayTeam": "HOU",
+    "homeTeam": "CLE",
+    "espnEventId": "401873056"
+  },
+  {
+    "gameId": "2026_10_MIN_GB",
+    "week": 10,
+    "gameday": "2026-11-15",
+    "gametime": "13:00",
+    "awayTeam": "MIN",
+    "homeTeam": "GB",
+    "espnEventId": "401873060"
+  },
+  {
+    "gameId": "2026_10_MIA_IND",
+    "week": 10,
+    "gameday": "2026-11-15",
+    "gametime": "13:00",
+    "awayTeam": "MIA",
+    "homeTeam": "IND",
+    "espnEventId": "401873059"
+  },
+  {
+    "gameId": "2026_10_CAR_NO",
+    "week": 10,
+    "gameday": "2026-11-15",
+    "gametime": "13:00",
+    "awayTeam": "CAR",
+    "homeTeam": "NO",
+    "espnEventId": "401873055"
+  },
+  {
+    "gameId": "2026_10_BUF_NYJ",
+    "week": 10,
+    "gameday": "2026-11-15",
+    "gametime": "13:00",
+    "awayTeam": "BUF",
+    "homeTeam": "NYJ",
+    "espnEventId": "401873054"
+  },
+  {
+    "gameId": "2026_10_JAX_TEN",
+    "week": 10,
+    "gameday": "2026-11-15",
+    "gametime": "13:00",
+    "awayTeam": "JAX",
+    "homeTeam": "TEN",
+    "espnEventId": "401873057"
+  },
+  {
+    "gameId": "2026_10_LA_ARI",
+    "week": 10,
+    "gameday": "2026-11-15",
+    "gametime": "16:05",
+    "awayTeam": "LA",
+    "homeTeam": "ARI",
+    "espnEventId": "401873061"
+  },
+  {
+    "gameId": "2026_10_SEA_LV",
+    "week": 10,
+    "gameday": "2026-11-15",
+    "gametime": "16:05",
+    "awayTeam": "SEA",
+    "homeTeam": "LV",
+    "espnEventId": "401873062"
+  },
+  {
+    "gameId": "2026_10_SF_DAL",
+    "week": 10,
+    "gameday": "2026-11-15",
+    "gametime": "16:25",
+    "awayTeam": "SF",
+    "homeTeam": "DAL",
+    "espnEventId": "401873063"
+  },
+  {
+    "gameId": "2026_10_PIT_CIN",
+    "week": 10,
+    "gameday": "2026-11-15",
+    "gametime": "20:20",
+    "awayTeam": "PIT",
+    "homeTeam": "CIN",
+    "espnEventId": "401873064"
+  },
+  {
+    "gameId": "2026_10_LAC_BAL",
+    "week": 10,
+    "gameday": "2026-11-16",
+    "gametime": "20:15",
+    "awayTeam": "LAC",
+    "homeTeam": "BAL",
+    "espnEventId": "401873065"
+  },
+  {
+    "gameId": "2026_11_IND_HOU",
+    "week": 11,
+    "gameday": "2026-11-19",
+    "gametime": "20:15",
+    "awayTeam": "IND",
+    "homeTeam": "HOU",
+    "espnEventId": "401873066"
+  },
+  {
+    "gameId": "2026_11_MIA_BUF",
+    "week": 11,
+    "gameday": "2026-11-22",
+    "gametime": "13:00",
+    "awayTeam": "MIA",
+    "homeTeam": "BUF",
+    "espnEventId": "401873070"
+  },
+  {
+    "gameId": "2026_11_BAL_CAR",
+    "week": 11,
+    "gameday": "2026-11-22",
+    "gametime": "13:00",
+    "awayTeam": "BAL",
+    "homeTeam": "CAR",
+    "espnEventId": "401873068"
+  },
+  {
+    "gameId": "2026_11_NO_CHI",
+    "week": 11,
+    "gameday": "2026-11-22",
+    "gametime": "13:00",
+    "awayTeam": "NO",
+    "homeTeam": "CHI",
+    "espnEventId": "401873071"
+  },
+  {
+    "gameId": "2026_11_TEN_DAL",
+    "week": 11,
+    "gameday": "2026-11-22",
+    "gametime": "13:00",
+    "awayTeam": "TEN",
+    "homeTeam": "DAL",
+    "espnEventId": "401873073"
+  },
+  {
+    "gameId": "2026_11_TB_DET",
+    "week": 11,
+    "gameday": "2026-11-22",
+    "gametime": "13:00",
+    "awayTeam": "TB",
+    "homeTeam": "DET",
+    "espnEventId": "401873072"
+  },
+  {
+    "gameId": "2026_11_ARI_KC",
+    "week": 11,
+    "gameday": "2026-11-22",
+    "gametime": "13:00",
+    "awayTeam": "ARI",
+    "homeTeam": "KC",
+    "espnEventId": "401873067"
+  },
+  {
+    "gameId": "2026_11_JAX_NYG",
+    "week": 11,
+    "gameday": "2026-11-22",
+    "gametime": "13:00",
+    "awayTeam": "JAX",
+    "homeTeam": "NYG",
+    "espnEventId": "401873069"
+  },
+  {
+    "gameId": "2026_11_NYJ_LAC",
+    "week": 11,
+    "gameday": "2026-11-22",
+    "gametime": "16:05",
+    "awayTeam": "NYJ",
+    "homeTeam": "LAC",
+    "espnEventId": "401873074"
+  },
+  {
+    "gameId": "2026_11_LV_DEN",
+    "week": 11,
+    "gameday": "2026-11-22",
+    "gametime": "16:25",
+    "awayTeam": "LV",
+    "homeTeam": "DEN",
+    "espnEventId": "401873075"
+  },
+  {
+    "gameId": "2026_11_PIT_PHI",
+    "week": 11,
+    "gameday": "2026-11-22",
+    "gametime": "16:25",
+    "awayTeam": "PIT",
+    "homeTeam": "PHI",
+    "espnEventId": "401873076"
+  },
+  {
+    "gameId": "2026_11_MIN_SF",
+    "week": 11,
+    "gameday": "2026-11-22",
+    "gametime": "20:20",
+    "awayTeam": "MIN",
+    "homeTeam": "SF",
+    "espnEventId": "401873077"
+  },
+  {
+    "gameId": "2026_11_CIN_WAS",
+    "week": 11,
+    "gameday": "2026-11-23",
+    "gametime": "20:15",
+    "awayTeam": "CIN",
+    "homeTeam": "WAS",
+    "espnEventId": "401873078"
+  },
+  {
+    "gameId": "2026_12_GB_LA",
+    "week": 12,
+    "gameday": "2026-11-25",
+    "gametime": "20:00",
+    "awayTeam": "GB",
+    "homeTeam": "LA",
+    "espnEventId": "401873079"
+  },
+  {
+    "gameId": "2026_12_CHI_DET",
+    "week": 12,
+    "gameday": "2026-11-26",
+    "gametime": "13:00",
+    "awayTeam": "CHI",
+    "homeTeam": "DET",
+    "espnEventId": "401873081"
+  },
+  {
+    "gameId": "2026_12_PHI_DAL",
+    "week": 12,
+    "gameday": "2026-11-26",
+    "gametime": "16:30",
+    "awayTeam": "PHI",
+    "homeTeam": "DAL",
+    "espnEventId": "401873080"
+  },
+  {
+    "gameId": "2026_12_KC_BUF",
+    "week": 12,
+    "gameday": "2026-11-26",
+    "gametime": "20:20",
+    "awayTeam": "KC",
+    "homeTeam": "BUF",
+    "espnEventId": "401873082"
+  },
+  {
+    "gameId": "2026_12_DEN_PIT",
+    "week": 12,
+    "gameday": "2026-11-27",
+    "gametime": "15:00",
+    "awayTeam": "DEN",
+    "homeTeam": "PIT",
+    "espnEventId": "401873083"
+  },
+  {
+    "gameId": "2026_12_NO_CIN",
+    "week": 12,
+    "gameday": "2026-11-29",
+    "gametime": "13:00",
+    "awayTeam": "NO",
+    "homeTeam": "CIN",
+    "espnEventId": "401873087"
+  },
+  {
+    "gameId": "2026_12_LV_CLE",
+    "week": 12,
+    "gameday": "2026-11-29",
+    "gametime": "13:00",
+    "awayTeam": "LV",
+    "homeTeam": "CLE",
+    "espnEventId": "401873086"
+  },
+  {
+    "gameId": "2026_12_BAL_HOU",
+    "week": 12,
+    "gameday": "2026-11-29",
+    "gametime": "13:00",
+    "awayTeam": "BAL",
+    "homeTeam": "HOU",
+    "espnEventId": "401873085"
+  },
+  {
+    "gameId": "2026_12_NYG_IND",
+    "week": 12,
+    "gameday": "2026-11-29",
+    "gametime": "13:00",
+    "awayTeam": "NYG",
+    "homeTeam": "IND",
+    "espnEventId": "401873088"
+  },
+  {
+    "gameId": "2026_12_NYJ_MIA",
+    "week": 12,
+    "gameday": "2026-11-29",
+    "gametime": "13:00",
+    "awayTeam": "NYJ",
+    "homeTeam": "MIA",
+    "espnEventId": "401873089"
+  },
+  {
+    "gameId": "2026_12_ATL_MIN",
+    "week": 12,
+    "gameday": "2026-11-29",
+    "gametime": "13:00",
+    "awayTeam": "ATL",
+    "homeTeam": "MIN",
+    "espnEventId": "401873084"
+  },
+  {
+    "gameId": "2026_12_TEN_JAX",
+    "week": 12,
+    "gameday": "2026-11-29",
+    "gametime": "16:05",
+    "awayTeam": "TEN",
+    "homeTeam": "JAX",
+    "espnEventId": "401873090"
+  },
+  {
+    "gameId": "2026_12_WAS_ARI",
+    "week": 12,
+    "gameday": "2026-11-29",
+    "gametime": "16:25",
+    "awayTeam": "WAS",
+    "homeTeam": "ARI",
+    "espnEventId": "401873092"
+  },
+  {
+    "gameId": "2026_12_SEA_SF",
+    "week": 12,
+    "gameday": "2026-11-29",
+    "gametime": "16:25",
+    "awayTeam": "SEA",
+    "homeTeam": "SF",
+    "espnEventId": "401873091"
+  },
+  {
+    "gameId": "2026_12_NE_LAC",
+    "week": 12,
+    "gameday": "2026-11-29",
+    "gametime": "20:20",
+    "awayTeam": "NE",
+    "homeTeam": "LAC",
+    "espnEventId": "401873093"
+  },
+  {
+    "gameId": "2026_12_CAR_TB",
+    "week": 12,
+    "gameday": "2026-11-30",
+    "gametime": "20:15",
+    "awayTeam": "CAR",
+    "homeTeam": "TB",
+    "espnEventId": "401873094"
+  },
+  {
+    "gameId": "2026_13_KC_LA",
+    "week": 13,
+    "gameday": "2026-12-03",
+    "gametime": "20:15",
+    "awayTeam": "KC",
+    "homeTeam": "LA",
+    "espnEventId": "401873096"
+  },
+  {
+    "gameId": "2026_13_DET_ATL",
+    "week": 13,
+    "gameday": "2026-12-06",
+    "gametime": "13:00",
+    "awayTeam": "DET",
+    "homeTeam": "ATL",
+    "espnEventId": "401873098"
+  },
+  {
+    "gameId": "2026_13_JAX_CHI",
+    "week": 13,
+    "gameday": "2026-12-06",
+    "gametime": "13:00",
+    "awayTeam": "JAX",
+    "homeTeam": "CHI",
+    "espnEventId": "401873100"
+  },
+  {
+    "gameId": "2026_13_CIN_CLE",
+    "week": 13,
+    "gameday": "2026-12-06",
+    "gametime": "13:00",
+    "awayTeam": "CIN",
+    "homeTeam": "CLE",
+    "espnEventId": "401873097"
+  },
+  {
+    "gameId": "2026_13_GB_NO",
+    "week": 13,
+    "gameday": "2026-12-06",
+    "gametime": "13:00",
+    "awayTeam": "GB",
+    "homeTeam": "NO",
+    "espnEventId": "401873099"
+  },
+  {
+    "gameId": "2026_13_SF_NYG",
+    "week": 13,
+    "gameday": "2026-12-06",
+    "gametime": "13:00",
+    "awayTeam": "SF",
+    "homeTeam": "NYG",
+    "espnEventId": "401873095"
+  },
+  {
+    "gameId": "2026_13_LAC_TB",
+    "week": 13,
+    "gameday": "2026-12-06",
+    "gametime": "13:00",
+    "awayTeam": "LAC",
+    "homeTeam": "TB",
+    "espnEventId": "401873101"
+  },
+  {
+    "gameId": "2026_13_WAS_TEN",
+    "week": 13,
+    "gameday": "2026-12-06",
+    "gametime": "13:00",
+    "awayTeam": "WAS",
+    "homeTeam": "TEN",
+    "espnEventId": "401873102"
+  },
+  {
+    "gameId": "2026_13_PHI_ARI",
+    "week": 13,
+    "gameday": "2026-12-06",
+    "gametime": "16:05",
+    "awayTeam": "PHI",
+    "homeTeam": "ARI",
+    "espnEventId": "401873104"
+  },
+  {
+    "gameId": "2026_13_MIA_DEN",
+    "week": 13,
+    "gameday": "2026-12-06",
+    "gametime": "16:05",
+    "awayTeam": "MIA",
+    "homeTeam": "DEN",
+    "espnEventId": "401873103"
+  },
+  {
+    "gameId": "2026_13_CAR_MIN",
+    "week": 13,
+    "gameday": "2026-12-06",
+    "gametime": "16:25",
+    "awayTeam": "CAR",
+    "homeTeam": "MIN",
+    "espnEventId": "401873106"
+  },
+  {
+    "gameId": "2026_13_BUF_NE",
+    "week": 13,
+    "gameday": "2026-12-06",
+    "gametime": "16:25",
+    "awayTeam": "BUF",
+    "homeTeam": "NE",
+    "espnEventId": "401873105"
+  },
+  {
+    "gameId": "2026_13_HOU_PIT",
+    "week": 13,
+    "gameday": "2026-12-06",
+    "gametime": "20:20",
+    "awayTeam": "HOU",
+    "homeTeam": "PIT",
+    "espnEventId": "401873107"
+  },
+  {
+    "gameId": "2026_13_DAL_SEA",
+    "week": 13,
+    "gameday": "2026-12-07",
+    "gametime": "20:15",
+    "awayTeam": "DAL",
+    "homeTeam": "SEA",
+    "espnEventId": "401873108"
+  },
+  {
+    "gameId": "2026_14_MIN_NE",
+    "week": 14,
+    "gameday": "2026-12-10",
+    "gametime": "20:15",
+    "awayTeam": "MIN",
+    "homeTeam": "NE",
+    "espnEventId": "401873109"
+  },
+  {
+    "gameId": "2026_14_TB_BAL",
+    "week": 14,
+    "gameday": "2026-12-13",
+    "gametime": "13:00",
+    "awayTeam": "TB",
+    "homeTeam": "BAL",
+    "espnEventId": "401873116"
+  },
+  {
+    "gameId": "2026_14_NO_CAR",
+    "week": 14,
+    "gameday": "2026-12-13",
+    "gametime": "13:00",
+    "awayTeam": "NO",
+    "homeTeam": "CAR",
+    "espnEventId": "401873115"
+  },
+  {
+    "gameId": "2026_14_ATL_CLE",
+    "week": 14,
+    "gameday": "2026-12-13",
+    "gametime": "13:00",
+    "awayTeam": "ATL",
+    "homeTeam": "CLE",
+    "espnEventId": "401873110"
+  },
+  {
+    "gameId": "2026_14_TEN_DET",
+    "week": 14,
+    "gameday": "2026-12-13",
+    "gametime": "13:00",
+    "awayTeam": "TEN",
+    "homeTeam": "DET",
+    "espnEventId": "401873117"
+  },
+  {
+    "gameId": "2026_14_CHI_MIA",
+    "week": 14,
+    "gameday": "2026-12-13",
+    "gametime": "13:00",
+    "awayTeam": "CHI",
+    "homeTeam": "MIA",
+    "espnEventId": "401873111"
+  },
+  {
+    "gameId": "2026_14_DEN_NYJ",
+    "week": 14,
+    "gameday": "2026-12-13",
+    "gametime": "13:00",
+    "awayTeam": "DEN",
+    "homeTeam": "NYJ",
+    "espnEventId": "401873112"
+  },
+  {
+    "gameId": "2026_14_IND_PHI",
+    "week": 14,
+    "gameday": "2026-12-13",
+    "gametime": "13:00",
+    "awayTeam": "IND",
+    "homeTeam": "PHI",
+    "espnEventId": "401873114"
+  },
+  {
+    "gameId": "2026_14_HOU_WAS",
+    "week": 14,
+    "gameday": "2026-12-13",
+    "gametime": "13:00",
+    "awayTeam": "HOU",
+    "homeTeam": "WAS",
+    "espnEventId": "401873113"
+  },
+  {
+    "gameId": "2026_14_LAC_LV",
+    "week": 14,
+    "gameday": "2026-12-13",
+    "gametime": "16:05",
+    "awayTeam": "LAC",
+    "homeTeam": "LV",
+    "espnEventId": "401873118"
+  },
+  {
+    "gameId": "2026_14_KC_CIN",
+    "week": 14,
+    "gameday": "2026-12-13",
+    "gametime": "16:25",
+    "awayTeam": "KC",
+    "homeTeam": "CIN",
+    "espnEventId": "401873119"
+  },
+  {
+    "gameId": "2026_14_NYG_SEA",
+    "week": 14,
+    "gameday": "2026-12-13",
+    "gametime": "16:25",
+    "awayTeam": "NYG",
+    "homeTeam": "SEA",
+    "espnEventId": "401873121"
+  },
+  {
+    "gameId": "2026_14_LA_SF",
+    "week": 14,
+    "gameday": "2026-12-13",
+    "gametime": "16:25",
+    "awayTeam": "LA",
+    "homeTeam": "SF",
+    "espnEventId": "401873120"
+  },
+  {
+    "gameId": "2026_14_BUF_GB",
+    "week": 14,
+    "gameday": "2026-12-13",
+    "gametime": "20:20",
+    "awayTeam": "BUF",
+    "homeTeam": "GB",
+    "espnEventId": "401873122"
+  },
+  {
+    "gameId": "2026_14_PIT_JAX",
+    "week": 14,
+    "gameday": "2026-12-14",
+    "gametime": "20:15",
+    "awayTeam": "PIT",
+    "homeTeam": "JAX",
+    "espnEventId": "401873123"
+  },
+  {
+    "gameId": "2026_15_SF_LAC",
+    "week": 15,
+    "gameday": "2026-12-17",
+    "gametime": "20:15",
+    "awayTeam": "SF",
+    "homeTeam": "LAC",
+    "espnEventId": "401873124"
+  },
+  {
+    "gameId": "2026_15_SEA_PHI",
+    "week": 15,
+    "gameday": "2026-12-19",
+    "gametime": "17:00",
+    "awayTeam": "SEA",
+    "homeTeam": "PHI",
+    "espnEventId": "401873125"
+  },
+  {
+    "gameId": "2026_15_CHI_BUF",
+    "week": 15,
+    "gameday": "2026-12-19",
+    "gametime": "20:20",
+    "awayTeam": "CHI",
+    "homeTeam": "BUF",
+    "espnEventId": "401873126"
+  },
+  {
+    "gameId": "2026_15_CIN_CAR",
+    "week": 15,
+    "gameday": "2026-12-20",
+    "gametime": "13:00",
+    "awayTeam": "CIN",
+    "homeTeam": "CAR",
+    "espnEventId": "401873129"
+  },
+  {
+    "gameId": "2026_15_MIA_GB",
+    "week": 15,
+    "gameday": "2026-12-20",
+    "gametime": "13:00",
+    "awayTeam": "MIA",
+    "homeTeam": "GB",
+    "espnEventId": "401873133"
+  },
+  {
+    "gameId": "2026_15_JAX_HOU",
+    "week": 15,
+    "gameday": "2026-12-20",
+    "gametime": "13:00",
+    "awayTeam": "JAX",
+    "homeTeam": "HOU",
+    "espnEventId": "401873132"
+  },
+  {
+    "gameId": "2026_15_CLE_NYG",
+    "week": 15,
+    "gameday": "2026-12-20",
+    "gametime": "13:00",
+    "awayTeam": "CLE",
+    "homeTeam": "NYG",
+    "espnEventId": "401873130"
+  },
+  {
+    "gameId": "2026_15_BAL_PIT",
+    "week": 15,
+    "gameday": "2026-12-20",
+    "gametime": "13:00",
+    "awayTeam": "BAL",
+    "homeTeam": "PIT",
+    "espnEventId": "401873128"
+  },
+  {
+    "gameId": "2026_15_NO_TB",
+    "week": 15,
+    "gameday": "2026-12-20",
+    "gametime": "13:00",
+    "awayTeam": "NO",
+    "homeTeam": "TB",
+    "espnEventId": "401873134"
+  },
+  {
+    "gameId": "2026_15_IND_TEN",
+    "week": 15,
+    "gameday": "2026-12-20",
+    "gametime": "13:00",
+    "awayTeam": "IND",
+    "homeTeam": "TEN",
+    "espnEventId": "401873131"
+  },
+  {
+    "gameId": "2026_15_ATL_WAS",
+    "week": 15,
+    "gameday": "2026-12-20",
+    "gametime": "13:00",
+    "awayTeam": "ATL",
+    "homeTeam": "WAS",
+    "espnEventId": "401873127"
+  },
+  {
+    "gameId": "2026_15_NYJ_ARI",
+    "week": 15,
+    "gameday": "2026-12-20",
+    "gametime": "16:05",
+    "awayTeam": "NYJ",
+    "homeTeam": "ARI",
+    "espnEventId": "401873135"
+  },
+  {
+    "gameId": "2026_15_DAL_LA",
+    "week": 15,
+    "gameday": "2026-12-20",
+    "gametime": "16:25",
+    "awayTeam": "DAL",
+    "homeTeam": "LA",
+    "espnEventId": "401873136"
+  },
+  {
+    "gameId": "2026_15_DEN_LV",
+    "week": 15,
+    "gameday": "2026-12-20",
+    "gametime": "16:25",
+    "awayTeam": "DEN",
+    "homeTeam": "LV",
+    "espnEventId": "401873137"
+  },
+  {
+    "gameId": "2026_15_DET_MIN",
+    "week": 15,
+    "gameday": "2026-12-20",
+    "gametime": "20:20",
+    "awayTeam": "DET",
+    "homeTeam": "MIN",
+    "espnEventId": "401873138"
+  },
+  {
+    "gameId": "2026_15_NE_KC",
+    "week": 15,
+    "gameday": "2026-12-21",
+    "gametime": "20:15",
+    "awayTeam": "NE",
+    "homeTeam": "KC",
+    "espnEventId": "401873139"
+  },
+  {
+    "gameId": "2026_16_HOU_PHI",
+    "week": 16,
+    "gameday": "2026-12-24",
+    "gametime": "20:15",
+    "awayTeam": "HOU",
+    "homeTeam": "PHI",
+    "espnEventId": "401873140"
+  },
+  {
+    "gameId": "2026_16_GB_CHI",
+    "week": 16,
+    "gameday": "2026-12-25",
+    "gametime": "13:00",
+    "awayTeam": "GB",
+    "homeTeam": "CHI",
+    "espnEventId": "401873141"
+  },
+  {
+    "gameId": "2026_16_BUF_DEN",
+    "week": 16,
+    "gameday": "2026-12-25",
+    "gametime": "16:30",
+    "awayTeam": "BUF",
+    "homeTeam": "DEN",
+    "espnEventId": "401873142"
+  },
+  {
+    "gameId": "2026_16_LA_SEA",
+    "week": 16,
+    "gameday": "2026-12-25",
+    "gametime": "20:15",
+    "awayTeam": "LA",
+    "homeTeam": "SEA",
+    "espnEventId": "401873143"
+  },
+  {
+    "gameId": "2026_16_TB_ATL",
+    "week": 16,
+    "gameday": "2026-12-27",
+    "gametime": "13:00",
+    "awayTeam": "TB",
+    "homeTeam": "ATL",
+    "espnEventId": "401873146"
+  },
+  {
+    "gameId": "2026_16_CLE_BAL",
+    "week": 16,
+    "gameday": "2026-12-27",
+    "gametime": "13:00",
+    "awayTeam": "CLE",
+    "homeTeam": "BAL",
+    "espnEventId": "401873149"
+  },
+  {
+    "gameId": "2026_16_CIN_IND",
+    "week": 16,
+    "gameday": "2026-12-27",
+    "gametime": "13:00",
+    "awayTeam": "CIN",
+    "homeTeam": "IND",
+    "espnEventId": "401873145"
+  },
+  {
+    "gameId": "2026_16_LAC_MIA",
+    "week": 16,
+    "gameday": "2026-12-27",
+    "gametime": "13:00",
+    "awayTeam": "LAC",
+    "homeTeam": "MIA",
+    "espnEventId": "401873150"
+  },
+  {
+    "gameId": "2026_16_WAS_MIN",
+    "week": 16,
+    "gameday": "2026-12-27",
+    "gametime": "13:00",
+    "awayTeam": "WAS",
+    "homeTeam": "MIN",
+    "espnEventId": "401873147"
+  },
+  {
+    "gameId": "2026_16_ARI_NO",
+    "week": 16,
+    "gameday": "2026-12-27",
+    "gametime": "13:00",
+    "awayTeam": "ARI",
+    "homeTeam": "NO",
+    "espnEventId": "401873148"
+  },
+  {
+    "gameId": "2026_16_NE_NYJ",
+    "week": 16,
+    "gameday": "2026-12-27",
+    "gametime": "13:00",
+    "awayTeam": "NE",
+    "homeTeam": "NYJ",
+    "espnEventId": "401873151"
+  },
+  {
+    "gameId": "2026_16_CAR_PIT",
+    "week": 16,
+    "gameday": "2026-12-27",
+    "gametime": "13:00",
+    "awayTeam": "CAR",
+    "homeTeam": "PIT",
+    "espnEventId": "401873144"
+  },
+  {
+    "gameId": "2026_16_TEN_LV",
+    "week": 16,
+    "gameday": "2026-12-27",
+    "gametime": "16:05",
+    "awayTeam": "TEN",
+    "homeTeam": "LV",
+    "espnEventId": "401873152"
+  },
+  {
+    "gameId": "2026_16_SF_KC",
+    "week": 16,
+    "gameday": "2026-12-27",
+    "gametime": "16:25",
+    "awayTeam": "SF",
+    "homeTeam": "KC",
+    "espnEventId": "401873153"
+  },
+  {
+    "gameId": "2026_16_JAX_DAL",
+    "week": 16,
+    "gameday": "2026-12-27",
+    "gametime": "20:20",
+    "awayTeam": "JAX",
+    "homeTeam": "DAL",
+    "espnEventId": "401873154"
+  },
+  {
+    "gameId": "2026_16_NYG_DET",
+    "week": 16,
+    "gameday": "2026-12-28",
+    "gametime": "20:15",
+    "awayTeam": "NYG",
+    "homeTeam": "DET",
+    "espnEventId": "401873155"
+  },
+  {
+    "gameId": "2026_17_BAL_CIN",
+    "week": 17,
+    "gameday": "2026-12-31",
+    "gametime": "20:15",
+    "awayTeam": "BAL",
+    "homeTeam": "CIN",
+    "espnEventId": "401873156"
+  },
+  {
+    "gameId": "2026_17_NO_ATL",
+    "week": 17,
+    "gameday": "2027-01-03",
+    "gametime": "13:00",
+    "awayTeam": "NO",
+    "homeTeam": "ATL",
+    "espnEventId": "401873164"
+  },
+  {
+    "gameId": "2026_17_SEA_CAR",
+    "week": 17,
+    "gameday": "2027-01-03",
+    "gametime": "13:00",
+    "awayTeam": "SEA",
+    "homeTeam": "CAR",
+    "espnEventId": "401873167"
+  },
+  {
+    "gameId": "2026_17_IND_CLE",
+    "week": 17,
+    "gameday": "2027-01-03",
+    "gametime": "13:00",
+    "awayTeam": "IND",
+    "homeTeam": "CLE",
+    "espnEventId": "401873162"
+  },
+  {
+    "gameId": "2026_17_NYG_DAL",
+    "week": 17,
+    "gameday": "2027-01-03",
+    "gametime": "13:00",
+    "awayTeam": "NYG",
+    "homeTeam": "DAL",
+    "espnEventId": "401873165"
+  },
+  {
+    "gameId": "2026_17_WAS_JAX",
+    "week": 17,
+    "gameday": "2027-01-03",
+    "gametime": "13:00",
+    "awayTeam": "WAS",
+    "homeTeam": "JAX",
+    "espnEventId": "401873160"
+  },
+  {
+    "gameId": "2026_17_KC_LAC",
+    "week": 17,
+    "gameday": "2027-01-03",
+    "gametime": "13:00",
+    "awayTeam": "KC",
+    "homeTeam": "LAC",
+    "espnEventId": "401873158"
+  },
+  {
+    "gameId": "2026_17_BUF_MIA",
+    "week": 17,
+    "gameday": "2027-01-03",
+    "gametime": "13:00",
+    "awayTeam": "BUF",
+    "homeTeam": "MIA",
+    "espnEventId": "401873161"
+  },
+  {
+    "gameId": "2026_17_DEN_NE",
+    "week": 17,
+    "gameday": "2027-01-03",
+    "gametime": "13:00",
+    "awayTeam": "DEN",
+    "homeTeam": "NE",
+    "espnEventId": "401873157"
+  },
+  {
+    "gameId": "2026_17_MIN_NYJ",
+    "week": 17,
+    "gameday": "2027-01-03",
+    "gametime": "13:00",
+    "awayTeam": "MIN",
+    "homeTeam": "NYJ",
+    "espnEventId": "401873163"
+  },
+  {
+    "gameId": "2026_17_LA_TB",
+    "week": 17,
+    "gameday": "2027-01-03",
+    "gametime": "13:00",
+    "awayTeam": "LA",
+    "homeTeam": "TB",
+    "espnEventId": "401873159"
+  },
+  {
+    "gameId": "2026_17_PIT_TEN",
+    "week": 17,
+    "gameday": "2027-01-03",
+    "gametime": "13:00",
+    "awayTeam": "PIT",
+    "homeTeam": "TEN",
+    "espnEventId": "401873166"
+  },
+  {
+    "gameId": "2026_17_LV_ARI",
+    "week": 17,
+    "gameday": "2027-01-03",
+    "gametime": "16:05",
+    "awayTeam": "LV",
+    "homeTeam": "ARI",
+    "espnEventId": "401873168"
+  },
+  {
+    "gameId": "2026_17_DET_CHI",
+    "week": 17,
+    "gameday": "2027-01-03",
+    "gametime": "16:25",
+    "awayTeam": "DET",
+    "homeTeam": "CHI",
+    "espnEventId": "401873169"
+  },
+  {
+    "gameId": "2026_17_PHI_SF",
+    "week": 17,
+    "gameday": "2027-01-03",
+    "gametime": "20:20",
+    "awayTeam": "PHI",
+    "homeTeam": "SF",
+    "espnEventId": "401873170"
+  },
+  {
+    "gameId": "2026_17_HOU_GB",
+    "week": 17,
+    "gameday": "2027-01-04",
+    "gametime": "20:15",
+    "awayTeam": "HOU",
+    "homeTeam": "GB",
+    "espnEventId": "401873171"
+  },
+  {
+    "gameId": "2026_18_SF_ARI",
+    "week": 18,
+    "gameday": "2027-01-10",
+    "gametime": "13:00",
+    "awayTeam": "SF",
+    "homeTeam": "ARI",
+    "espnEventId": "401873184"
+  },
+  {
+    "gameId": "2026_18_PIT_BAL",
+    "week": 18,
+    "gameday": "2027-01-10",
+    "gametime": "13:00",
+    "awayTeam": "PIT",
+    "homeTeam": "BAL",
+    "espnEventId": "401873183"
+  },
+  {
+    "gameId": "2026_18_NYJ_BUF",
+    "week": 18,
+    "gameday": "2027-01-10",
+    "gametime": "13:00",
+    "awayTeam": "NYJ",
+    "homeTeam": "BUF",
+    "espnEventId": "401873181"
+  },
+  {
+    "gameId": "2026_18_ATL_CAR",
+    "week": 18,
+    "gameday": "2027-01-10",
+    "gametime": "13:00",
+    "awayTeam": "ATL",
+    "homeTeam": "CAR",
+    "espnEventId": "401873172"
+  },
+  {
+    "gameId": "2026_18_CLE_CIN",
+    "week": 18,
+    "gameday": "2027-01-10",
+    "gametime": "13:00",
+    "awayTeam": "CLE",
+    "homeTeam": "CIN",
+    "espnEventId": "401873174"
+  },
+  {
+    "gameId": "2026_18_LAC_DEN",
+    "week": 18,
+    "gameday": "2027-01-10",
+    "gametime": "13:00",
+    "awayTeam": "LAC",
+    "homeTeam": "DEN",
+    "espnEventId": "401873179"
+  },
+  {
+    "gameId": "2026_18_DET_GB",
+    "week": 18,
+    "gameday": "2027-01-10",
+    "gametime": "13:00",
+    "awayTeam": "DET",
+    "homeTeam": "GB",
+    "espnEventId": "401873176"
+  },
+  {
+    "gameId": "2026_18_TEN_HOU",
+    "week": 18,
+    "gameday": "2027-01-10",
+    "gametime": "13:00",
+    "awayTeam": "TEN",
+    "homeTeam": "HOU",
+    "espnEventId": "401873187"
+  },
+  {
+    "gameId": "2026_18_JAX_IND",
+    "week": 18,
+    "gameday": "2027-01-10",
+    "gametime": "13:00",
+    "awayTeam": "JAX",
+    "homeTeam": "IND",
+    "espnEventId": "401873177"
+  },
+  {
+    "gameId": "2026_18_LV_KC",
+    "week": 18,
+    "gameday": "2027-01-10",
+    "gametime": "13:00",
+    "awayTeam": "LV",
+    "homeTeam": "KC",
+    "espnEventId": "401873178"
+  },
+  {
+    "gameId": "2026_18_SEA_LA",
+    "week": 18,
+    "gameday": "2027-01-10",
+    "gametime": "13:00",
+    "awayTeam": "SEA",
+    "homeTeam": "LA",
+    "espnEventId": "401873185"
+  },
+  {
+    "gameId": "2026_18_CHI_MIN",
+    "week": 18,
+    "gameday": "2027-01-10",
+    "gametime": "13:00",
+    "awayTeam": "CHI",
+    "homeTeam": "MIN",
+    "espnEventId": "401873173"
+  },
+  {
+    "gameId": "2026_18_MIA_NE",
+    "week": 18,
+    "gameday": "2027-01-10",
+    "gametime": "13:00",
+    "awayTeam": "MIA",
+    "homeTeam": "NE",
+    "espnEventId": "401873180"
+  },
+  {
+    "gameId": "2026_18_TB_NO",
+    "week": 18,
+    "gameday": "2027-01-10",
+    "gametime": "13:00",
+    "awayTeam": "TB",
+    "homeTeam": "NO",
+    "espnEventId": "401873186"
+  },
+  {
+    "gameId": "2026_18_PHI_NYG",
+    "week": 18,
+    "gameday": "2027-01-10",
+    "gametime": "13:00",
+    "awayTeam": "PHI",
+    "homeTeam": "NYG",
+    "espnEventId": "401873182"
+  },
+  {
+    "gameId": "2026_18_DAL_WAS",
+    "week": 18,
+    "gameday": "2027-01-10",
+    "gametime": "13:00",
+    "awayTeam": "DAL",
+    "homeTeam": "WAS",
+    "espnEventId": "401873175"
+  }
+]

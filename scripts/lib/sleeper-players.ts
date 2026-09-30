@@ -1,6 +1,7 @@
 /**
- * Sleeper players DB (~5 MB). CLAUDE.md §2.3: fetch at most once per day — the 24h cache and
- * cross-process lock make every probe share one download.
+ * Sleeper players DB. CLAUDE.md §2.3 says ~5 MB; Phase 0 measured 14.6 MB / 12,229 players
+ * (2026-09-29). Fetch at most once per day — the 24h cache and cross-process lock make every probe
+ * share one download. espn_id / yahoo_id are sparse numbers here; prefer the DynastyProcess map.
  */
 import { TTL } from "./cache";
 import { getJson, type HttpResult } from "./http";
@@ -15,7 +16,14 @@ export interface SleeperPlayer {
   team?: string | null;
   injury_status?: string | null;
   status?: string | null;
+  active?: boolean;
   age?: number | null;
+  years_exp?: number | null;
+  search_rank?: number | null;
+  depth_chart_order?: number | null;
+  college?: string | null;
+  sportradar_id?: string | null;
+  rotowire_id?: number | null;
   espn_id?: string | number | null;
   yahoo_id?: string | number | null;
   fantasy_data_id?: number | null;

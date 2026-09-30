@@ -11,8 +11,8 @@
  *
  * Rules:
  * - Exact matches are always replaced. "Token" entries are also replaced inside longer strings
- *   (URLs, free text). IDs are tokens; names only when ≥ 8 chars (short names like "Josh" would
- *   otherwise mangle player names such as "Josh Allen").
+ *   (URLs, free text). IDs are tokens; names only when ≥ 8 chars (short names like "Zorblax" would
+ *   otherwise mangle player names such as "Zorblax Quintavious").
  * - On protected paths (e.g. player objects) only ID-like categories are replaced, never names.
  * - Purely numeric values match whole numbers only.
  */
@@ -64,10 +64,15 @@ export interface LeakHit {
 
 export const SWID_RE = /^\{[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\}$/;
 
+/** Placeholder SWIDs produced by defaultPlaceholder("swid"): never register these as real values. */
+export const SWID_PLACEHOLDER_RE = /^\{00000000-0000-4000-8000-[0-9A-Fa-f]{12}\}$/;
+
 export class Redactor {
   private byRaw = new Map<string, Entry>();
   private seq = new Map<Category, number>();
   private tokens: Entry[] = [];
+  private placeholders = new Set<string>();
+  private sortedForText: Entry[] | null = null;
 
   constructor(readonly platform: string) {}
 
@@ -79,15 +84,19 @@ export class Redactor {
     if (raw === null || raw === undefined || typeof raw === "boolean" || typeof raw === "object") return undefined;
     const value = String(raw);
     if (value.trim() === "") return undefined;
-    // Short numbers (team ids 1-12, slot counts…) are everywhere; replacing them would corrupt the data.
-    if (/^\d+$/.test(value) && value.length < 4) return undefined;
+    // Short numbers (team ids 1-12, slot counts…) are everywhere: never treat them as IDs. A short
+    // numeric *name* (a team abbreviation "123") is still replaced, but only as an exact string.
+    const shortNumber = /^\d+$/.test(value) && value.length < 4;
+    if (shortNumber && ID_CATEGORIES.has(category)) return undefined;
     const existing = this.byRaw.get(value);
     if (existing) return existing.placeholder;
+    // Sweeping already-sanitized data (e.g. a manifest) must not remap placeholders.
+    if (this.placeholders.has(value) || SWID_PLACEHOLDER_RE.test(value)) return value;
     const n = (this.seq.get(category) ?? 0) + 1;
     this.seq.set(category, n);
     const ph = typeof placeholder === "function" ? placeholder(n) : (placeholder ?? defaultPlaceholder(category, value, n));
-    const numeric = /^\d+$/.test(value);
-    const token = opts.token ?? (ID_CATEGORIES.has(category) ? value.length >= 4 : value.length >= 8);
+    const numeric = /^\d+$/.test(value) && !shortNumber;
+    const token = shortNumber ? false : (opts.token ?? (ID_CATEGORIES.has(category) ? value.length >= 4 : value.length >= 8));
     const entry: Entry = { raw: value, placeholder: ph, category, token, numeric };
     this.byRaw.set(value, entry);
     // SWIDs show up in several spellings (braces stripped, lower case, URL-encoded).
@@ -106,11 +115,14 @@ export class Redactor {
           const e: Entry = { raw: v, placeholder: p, category, token: true, numeric: false };
           this.byRaw.set(v, e);
           this.tokens.push(e);
+          this.placeholders.add(p);
         }
       }
     }
     if (token) this.tokens.push(entry);
     this.tokens.sort((a, b) => b.raw.length - a.raw.length);
+    this.placeholders.add(ph);
+    this.sortedForText = null;
     return ph;
   }
 
@@ -152,7 +164,8 @@ export class Redactor {
       if (typeof v === "string") return this.replaceString(v, idsOnly);
       if (typeof v === "number") {
         const e = this.byRaw.get(String(v));
-        if (e && e.numeric && (!idsOnly || ID_CATEGORIES.has(e.category))) return /^\d+$/.test(e.placeholder) ? Number(e.placeholder) : e.placeholder;
+        // Placeholders beyond 2^53 would be rounded as numbers, so keep those as strings.
+        if (e && e.numeric && (!idsOnly || ID_CATEGORIES.has(e.category))) return /^\d{1,15}$/.test(e.placeholder) ? Number(e.placeholder) : e.placeholder;
         return v;
       }
       if (Array.isArray(v)) return v.map((x, i) => walk(x, [...p, i]));
@@ -184,8 +197,10 @@ export class Redactor {
    */
   scrubText(text: string): string {
     let out = text;
-    const all = [...this.byRaw.values()].filter((e) => e.raw.length >= 3).sort((a, b) => b.raw.length - a.raw.length);
-    for (const e of all) {
+    // Short numbers ("100" as a team abbrev) are replaced in fixture fields, never in free text,
+    // where they would turn "100.0%" into "T5.0%".
+    this.sortedForText ??= [...this.byRaw.values()].filter((e) => e.raw.length >= 3 && !/^\d{1,3}$/.test(e.raw)).sort((a, b) => b.raw.length - a.raw.length);
+    for (const e of this.sortedForText) {
       if (!out.includes(e.raw)) continue;
       out = e.numeric ? out.replace(new RegExp(`(?<!\\d)${e.raw}(?!\\d)`, "g"), e.placeholder) : out.replace(new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegExp(e.raw)}(?![\\p{L}\\p{N}])`, "gu"), e.placeholder);
     }
@@ -198,7 +213,7 @@ export class Redactor {
    */
   findLeaks(json: unknown, opts: ApplyOptions = {}): LeakHit[] {
     const hits: LeakHit[] = [];
-    const words = [...this.byRaw.values()].filter((e) => !e.token && !e.numeric && e.raw.length >= 3);
+    const words = [...this.byRaw.values()].filter((e) => !e.token && !e.numeric && e.raw.length >= 3 && !/^\d+$/.test(e.raw));
     const check = (s: string, p: JsonPath, idsOnly: boolean) => {
       const where = formatPath(p);
       const exact = this.byRaw.get(s);
