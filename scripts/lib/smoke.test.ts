@@ -1,6 +1,8 @@
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { cacheFile, credentialScope, sha256 } from "./cache";
+import { cacheFile, credentialScope, sha256, writeCache } from "./cache";
+import { isStrangerFixture } from "./fixtures";
+import { OfflineCacheMiss, request } from "./http";
 import { ICON, formatSample, rollup } from "./checklist";
 import { ROOT } from "./env";
 import { fantasyCalcUrl, matchRate, nearest, type FcEntry } from "./fantasycalc";
@@ -51,6 +53,26 @@ describe("probe library smoke test", () => {
     );
     expect(r).toMatchObject({ eligible: 2, matched: 1, rate: 0.5 });
     expect(r.misses.map((m) => m.id)).toEqual(["200"]);
+  });
+
+  it("routes strangers' league fixtures out of git (label-based cases)", () => {
+    expect(isStrangerFixture("espn", "public-league/{publicLeagueId}/view=mSettings")).toBe(true);
+    expect(isStrangerFixture("espn", "league/{leagueId}/view=mSettings")).toBe(false);
+    expect(isStrangerFixture("sleeper", "public-test-league/league/{leagueId}")).toBe(true);
+    expect(isStrangerFixture("sleeper", "state/nfl")).toBe(false);
+    expect(isStrangerFixture("fleaflicker", "oracle/FetchLeagueRules")).toBe(true);
+    expect(isStrangerFixture("mfl", "mfl/2026/export?TYPE=allRules&JSON=1")).toBe(false);
+    expect(isStrangerFixture("shared", "fantasycalc/redraft-1qb-12-ppr1")).toBe(false);
+  });
+
+  it("offline requests serve any cached copy and never touch the network", async () => {
+    const url = "https://example.invalid/offline-test";
+    const key = `smoke-offline:${Math.random()}`;
+    await writeCache("smoke-offline", key, { status: 200, contentType: "application/json", finalUrl: url, headers: {}, text: '{"ok":1}' }, 0);
+    const res = await request(url, { cache: { key, ttlMs: 1, namespace: "smoke-offline" }, offline: true });
+    expect(res.fromCache).toBe(true);
+    expect(res.json).toEqual({ ok: 1 });
+    await expect(request(url, { cache: { key: `${key}-missing`, ttlMs: 1, namespace: "smoke-offline" }, offline: true })).rejects.toBeInstanceOf(OfflineCacheMiss);
   });
 
   it("shape view never prints string values", () => {

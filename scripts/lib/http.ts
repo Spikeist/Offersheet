@@ -69,6 +69,12 @@ export interface RequestOptions {
    * survive a cross-host redirect: Node's fetch drops the Cookie header on cross-origin redirects.
    */
   redirect?: "follow" | "manual";
+  /**
+   * Never touch the network: serve the cached copy whatever its age, or throw OfflineCacheMiss.
+   * Used for strangers' leagues when crawling isn't allowed (CLAUDE.md §0.6: no new crawls
+   * without asking Parker first).
+   */
+  offline?: boolean;
   /** Label used in the request log instead of the URL (useful when the URL has private parts). */
   label?: string;
 }
@@ -236,7 +242,7 @@ export async function request(url: string, opts: RequestOptions = {}): Promise<H
 
   const fromCache = async (): Promise<HttpResult | null> => {
     if (!opts.cache) return null;
-    const hit = await readCache<CachedResponse>(cacheNs, opts.cache.key, opts.cache.ttlMs);
+    const hit = await readCache<CachedResponse>(cacheNs, opts.cache.key, opts.offline ? Number.POSITIVE_INFINITY : opts.cache.ttlMs);
     if (!hit) return null;
     const r = hit.value;
     const result: HttpResult = {
@@ -260,6 +266,7 @@ export async function request(url: string, opts: RequestOptions = {}): Promise<H
 
   const cached = await fromCache();
   if (cached) return cached;
+  if (opts.offline) throw new OfflineCacheMiss(opts.label ?? safeUrl);
   if (!opts.cache) return fetchLive(url, safeUrl, opts, started);
 
   return withLock(cacheNs, opts.cache.key, async () => {
@@ -361,6 +368,14 @@ export async function getJson<T = unknown>(url: string, opts: RequestOptions = {
   if (res.isHtml) throw new HttpError(res, "got an HTML page instead of JSON");
   if (res.json === undefined) throw new HttpError(res, "response body is not JSON");
   return { data: res.json as T, res };
+}
+
+/** An offline request had nothing cached (see RequestOptions.offline). */
+export class OfflineCacheMiss extends Error {
+  constructor(what: string) {
+    super(`offline: no cached copy of ${what} (re-run with --allow-crawl after asking Parker)`);
+    this.name = "OfflineCacheMiss";
+  }
 }
 
 export class HttpError extends Error {

@@ -44,6 +44,16 @@ export interface ProbeContext {
   timings: Record<string, number>;
 }
 
+/**
+ * Whether this run may crawl or discover strangers' leagues (snowball crawls, discovery walks,
+ * cross-league samples). CLAUDE.md §0.6: no new crawls without asking Parker first, so it's off
+ * unless the run passes --allow-crawl (or ALLOW_STRANGER_CRAWL=1). Refreshing an already pinned
+ * test league is not a crawl. Without permission, probes use cached data (http `offline`).
+ */
+export function crawlAllowed(): boolean {
+  return process.argv.includes("--allow-crawl") || process.env.ALLOW_STRANGER_CRAWL === "1";
+}
+
 function toMeta(res?: HttpResult | FixtureMeta): FixtureMeta {
   if (!res) return {};
   if ("finalUrl" in res) return { url: res.url, status: res.status, contentType: res.contentType };

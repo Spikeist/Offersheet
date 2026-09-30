@@ -50,6 +50,8 @@ This is the complete spec for the project. The planner wrote it on 2026-09-29. T
      - league IDs (anyone can look up a Sleeper league's members from its ID)
    - Reports follow the same rules.
    - Data crawled from other people's leagues (Phase 6) stays in git-ignored folders. Reports show only aggregate numbers.
+   - **Strangers' test leagues** (public leagues used when Parker has none on a platform): keep their full sanitized fixtures in git-ignored `data-local/`. Commit only minimized fixtures, in `fixtures/sanitized/min/`: just the fields the tests read, a subset of each roster, and shifted timestamps.
+   - **No new crawls of strangers' leagues without asking Parker first.**
 
 7. **Parker's machine:** Windows and PowerShell. The project lives at `D:\Source Code\VS Code\fantasy-trade-finder`, and that path contains spaces.
    - Quote paths.
@@ -71,6 +73,11 @@ This is the complete spec for the project. The planner wrote it on 2026-09-29. T
     - All randomness uses a seeded PRNG.
 
 11. **Dependencies:** pick boring, maintained libraries. No paid services, no AI API calls, and no payments, ads or accounts.
+
+12. **Keep the Phase 0 quality gates:**
+    - the pre-commit leak check (`npm run check:leaks`)
+    - the ✅/⚠️ rules: ✅ only when data verifies a claim; inferred, derived or small-sample results are ⚠️; a gap with a working workaround is ⚠️, not ❌
+    - an adversarial review pass before every checkpoint
 
 ---
 
@@ -95,9 +102,9 @@ A web app that works on phones and desktops. It does five things:
    - every roster
 3. **Works out needs and surplus.** It finds what the user's team needs, and what every other team needs and has to spare.
 4. **Searches and ranks trades.** It looks at possible trades with every other team. For each trade it computes:
-   - how much the trade helps the user's team: a **Trade Score from 0 to 100**, backed by the change in playoff odds, title odds and weekly points
-   - an **estimated chance the other manager accepts**
-   - a **ranking** that combines the two
+   - **Helps you:** how much the trade helps the user's team, a 0–100 score (the Trade Score), backed by the change in playoff odds, title odds and weekly points
+   - **Chance they accept:** an estimated chance the other manager accepts
+   - **Overall:** a 0–100 score that combines the two and ranks trades by default (Section 10)
 
    Everything is optimized for the user's team. The partner's side matters only because it affects whether they'll accept.
 5. **Explains each suggestion** in plain English and offers a copy-ready message to send the other manager.
@@ -137,20 +144,23 @@ The planner verified this on 2026-09-29. Phase 0 re-verifies it.
 - Add `scoringPeriodId={week}` when you need a specific week's player stats or projections.
 
 **Login**
+- ESPN leagues are **private by default**. Only the league manager can make one viewable, under League → Settings → Basic Settings → "Make League Viewable to Public". Section 14 describes how users connect.
 - Private leagues need the header `Cookie: espn_s2=<value>; SWID=<value>`. The SWID value includes its curly braces.
-- Public leagues need no cookies.
+- Public leagues need no cookies. Parker's league is viewable to the public, so it needs none. Test the private-league error paths with mocks until a real private league is available.
+- Never ask for ESPN passwords.
 - Verified 2026-09-29: public league 899513 returns 2026 `mSettings` with no login, including `settings.scoringSettings.scoringItems` and `settings.rosterSettings.lineupSlotCounts`. That league hasn't drafted for 2026, so its rosters are probably empty.
 - Other developers reported in September 2026 that private-league reads with the cookies still work.
 
 **Errors**
 - An HTML response (a login page), a 401 or a 403 means one of these:
   - the cookies are bad or expired
-  - the season is wrong
+  - the league is private and no cookies were sent
   - the league hasn't been activated for this season
+- A wrong season returns HTTP 404 JSON with `details[].type = "GENERAL_NOT_FOUND"` (verified in Phase 0). Show "League not found for that season."
 - Show a clear error to the user. Don't retry in a loop.
 
 **Key JSON paths**
-- **Scoring:** `settings.scoringSettings.scoringItems[]` holds `{statId, points, pointsOverrides}`. `pointsOverrides` maps a lineupSlotId to points and is how position-specific scoring works, such as a TE premium.
+- **Scoring:** `settings.scoringSettings.scoringItems[]` holds `{statId, points, pointsOverrides}`. `pointsOverrides` is how position-specific scoring works, such as a TE premium. It maps the player's **`defaultPositionId`** (not a lineupSlotId) to points that **replace** the base points (verified in Phase 0; see `reports/data-access.md`).
 - **Lineup and roster:** `settings.rosterSettings.lineupSlotCounts` (slotId → count) and `settings.rosterSettings.positionLimits`.
 - **Schedule settings:** `settings.scheduleSettings`, which includes `matchupPeriodCount`, `playoffTeamCount`, the `matchupPeriods` mapping from matchup period to scoring periods, and playoff round length.
 - **Trades:** `settings.tradeSettings`, which includes `deadlineDate` (epoch ms) and the veto and review settings.
@@ -160,6 +170,7 @@ The planner verified this on 2026-09-29. Phase 0 re-verifies it.
   - `teams[]`: `id`, the team name, `owners[]` (SWIDs), record and points
   - `members[]`: `id` (the SWID) and `displayName`
 - **Rosters:** `teams[].roster.entries[]` holds `lineupSlotId` and `playerPoolEntry.player`. The player object has `fullName`, `defaultPositionId`, `eligibleSlots`, `proTeamId`, `injuryStatus` and `stats[]`.
+- **Positions outside the usual set:** map TQB (team QB) to QB, with an Import Report warning. P maps to P. HC (head coach) is unmapped, with a warning.
 - **Schedule:** `schedule[]` holds `matchupPeriodId`, `home.teamId`, `away.teamId` and `playoffTierType`.
 - **Status:** `status.currentMatchupPeriod` and `status.latestScoringPeriod`.
 - **Stats entries:**
@@ -200,22 +211,28 @@ The planner verified this on 2026-09-29. Phase 0 re-verifies it.
   - future weeks of `/matchups/{week}` give the schedule through `matchup_id`
 - `/state/nfl` (verified 2026-09-29: week 4 of 2026)
 - `/players/nfl`
-  - about 5 MB, so fetch it **at most once per day**
+  - about 15 MB (14.7 MB measured in Phase 0), so fetch it **at most once per day**, with the `position` and `active` filters
   - it accepts `?position=QB&active=true` filters
+  - cache it for 24 hours on the server, and never send the whole thing to the browser
 
 **League fields**
 - `scoring_settings`: keys are Sleeper stat keys.
 - `roster_positions`: for example QB, RB, WR, TE, FLEX, SUPER_FLEX, REC_FLEX, WRRB_FLEX, K, DEF, DL, LB, DB, IDP_FLEX and BN.
 - `settings`: `playoff_week_start`, `playoff_teams`, `trade_deadline`, `type`, `reserve_slots`, `taxi_slots`, `waiver_budget`, `league_average_match`, `num_teams` and more.
 - **Check the meaning of every numeric code against real leagues in Phase 0** rather than assuming it: league type, the "no deadline" value for the trade deadline, playoff round type, and so on.
+- Phase 0 verified the codes against 250 public leagues (`reports/probe-output/sleeper-codes.md`). Decisions:
+  - **Trade review:** `veto_auto_poll = 1` → `league_vote`; anything else → `none`.
+  - **Position limits** (`position_limit_*`) apply to the active roster only; IR is exempt.
+  - **Guillotine leagues** (`type` 3): reject them at import for the MVP, with a friendly message.
+  - **Best-ball leagues** (`best_ball = 1`): allowed, with an Import Report note that lineups are set automatically.
 
 **Undocumented endpoints (verified live 2026-09-29, may change)**
 - **Weekly projections:** `GET https://api.sleeper.app/projections/nfl/{season}/{week}?season_type=regular&position=RB` returns an array of `{player_id, week, stats: {pass_yd, rush_yd, rec, rec_yd, rec_td, …, pts_ppr, pts_half_ppr, pts_std}, last_modified}`.
   - Future weeks exist (week 15 verified).
-  - Far-future weeks were last modified in the preseason (August 2026), so use them only for their *shape* (Section 6).
+  - Future weeks are refreshed in season (Phase 0: `last_modified` 2026-09-28 for weeks 5–18), and QB/RB/WR/TE values vary by opponent. Section 6 uses them for week shape.
 - **Season projections:** `/projections/nfl/{season}?season_type=regular&position=QB`.
 - **Multiple positions:** try `position[]=QB&position[]=RB`, and fall back to one call per position.
-- **Actual stats:** try `/stats/nfl/{season}/{week}?season_type=regular`. This one is unverified.
+- **Actual stats:** `/stats/nfl/{season}/{week}?season_type=regular`. Verified in Phase 0: with it, the scoring oracle reproduces league points exactly.
 
 **My team**
 - The roster whose `owner_id` or `co_owners` matches the user_id.
@@ -276,6 +293,7 @@ The planner verified this on 2026-09-29. Phase 0 re-verifies it.
   - `FetchPlayerListing` (free agents)
   - `FetchUserLeagues`
 - No login needed.
+- Some settings exist only on the league's public HTML rules page (`/nfl/leagues/{leagueId}/rules`): playoff teams, weeks and byes, trade deadline, review period, tiebreakers, seeding and roster minimums (Phase 0). Read that page with a tolerant parser and cache it for 24 hours. If parsing fails, the Import Report asks the user for those settings.
 
 ### 2.6 MyFantasyLeague (Phase 5)
 
@@ -287,6 +305,7 @@ The planner verified this on 2026-09-29. Phase 0 re-verifies it.
   - `schedule`, `standings`, `transactions`, `futureDraftPicks`, `injuries`
   - `leagueSearch`: use it to find public test leagues
 - Private leagues need the user's MFL login cookie (from the `login` request) or an API key.
+- The trade deadline and review settings are visible only to league owners (Phase 0). Without an owner login, show "unknown" in the Import Report and let the user fill them in.
 - Register a client User-Agent through MFL's API client program to get better rate limits.
 - Check every one of these details on api_info before writing code.
 
@@ -320,16 +339,17 @@ The planner verified this on 2026-09-29. Phase 0 re-verifies it.
 - There is **no Yahoo ID**. For Yahoo players, use the DynastyProcess map below.
 - Parameters:
   - `numQbs=2` if the league has a SUPER_FLEX or OP slot, or two or more QB slots.
-  - `numTeams`: use the nearest supported value. Known values are 8, 10, 12 and 14.
+  - `numTeams`: use the nearest supported value. Known values are 8, 10, 12 and 14. An unsupported value silently returns the 12-team values (Phase 0), so map it yourself (for example 16 → 14) and note the substitution in the Import Report.
   - `ppr`: the nearest of 0, 0.5 or 1, based on points per reception.
   - TE premium uses `tep`. Reported values are `te+` and `te++`. Leave the parameter out when there's no TE premium, and verify how it behaves.
 - Check whether dynasty results include rookie draft picks, and how they're named.
 - Terms:
   - non-commercial use only
   - fetch at most **once per day per format**
-  - show a **visible link to FantasyCalc.com** wherever values appear
+  - show a **visible link to FantasyCalc.com** wherever values appear. Their terms want it next to the values, so trade cards and the League table get a small "Values: FantasyCalc" link as well as the footer.
   - use only the documented endpoints (`/values/current` and `/players`)
   - never call the per-player history endpoints
+  - email FantasyCalc before a public launch (Phase 7)
 
 **DynastyProcess player ID crosswalk**
 - `https://raw.githubusercontent.com/dynastyprocess/data/master/files/db_playerids.csv` (verified 2026-09-29).
@@ -401,7 +421,8 @@ src/
   app/        # Next.js pages + route handlers
   components/
 scripts/      # probe-*.ts, backtests, calibration
-fixtures/raw/ (git-ignored)   fixtures/sanitized/
+fixtures/raw/ (git-ignored)   fixtures/sanitized/   fixtures/sanitized/min/ (minimized strangers' fixtures)
+data-local/   # git-ignored: strangers' full fixtures and crawl data
 reports/      # STATUS.md, checkpoint-N.md, data-access.md
 ```
 
@@ -411,7 +432,7 @@ reports/      # STATUS.md, checkpoint-N.md, data-access.md
 
 ```ts
 type Platform = 'espn'|'sleeper'|'yahoo'|'fleaflicker'|'mfl'|'fantrax'|'manual';
-type Pos = 'QB'|'RB'|'WR'|'TE'|'K'|'DEF'|'DL'|'LB'|'DB';
+type Pos = 'QB'|'RB'|'WR'|'TE'|'K'|'P'|'DEF'|'DL'|'LB'|'DB';
 
 interface LeagueSnapshot {
   platform: Platform; leagueId: string; season: number; name: string;
@@ -434,7 +455,10 @@ interface LeagueSettings {
   lineup: SlotDef[];                 // starting slots only
   benchSlots: number; irSlots: number; taxiSlots: number;
   maxRosterSize: number;             // active roster, excluding IR/taxi
-  positionLimits?: Partial<Record<Pos, number>>;
+  positionLimits?: Partial<Record<Pos, number>>;            // max per position on the active roster (IR exempt)
+  starterLimits?: Partial<Record<Pos, { min: number; max: number }>>; // per-position starter min–max (MFL); the lineup solver honors it
+  rosterMinimums?: Partial<Record<Pos, number>>;            // enforced roster minimums (trade legality)
+  bestBall?: boolean;                // the platform sets lineups automatically (Import Report note)
   scoring: Scoring;
   regularSeasonWeeks: number[];      // NFL weeks in the fantasy regular season
   playoffWeeks: number[];            // NFL weeks of fantasy playoffs, in order
@@ -443,6 +467,7 @@ interface LeagueSettings {
   medianGame: boolean;               // extra W/L vs the league median each week
   pointsOnly: boolean;               // no head-to-head
   divisions?: { id: string; teamIds: string[] }[];
+  playoffSeeding?: { reseed: boolean; divisionWinnersFirst: boolean }; // when the platform reports it (Section 8)
   tradeDeadline: { week?: number; date?: string } | null;
   tradeReview: 'none'|'commissioner'|'league_vote';
   faabBudget?: number;
@@ -451,11 +476,20 @@ interface LeagueSettings {
 interface SlotDef { slot: string; count: number; eligible: Pos[] } // e.g. { slot: 'FLEX', count: 1, eligible: ['RB','WR','TE'] }
 
 interface Scoring {
-  perStat: Record<string, number>;                              // canonical (Sleeper) stat key → points per unit
+  perStat: Record<string, number>;                              // per-unit: canonical (Sleeper) stat key → points per unit
   byPosition?: Partial<Record<Pos, Record<string, number>>>;    // per-position REPLACEMENT rate for a key (e.g. ESPN pointsOverrides: TE rec = 1.5)
-  bonuses: { stat: string; threshold: number; points: number; positions?: Pos[] }[]; // e.g. 100+ rush yds
+  rules: ScoringRule[];                                         // everything that isn't a plain per-unit rate (Section 5)
   unmapped: { platformKey: string; label: string; points: number }[];               // shown in the Import Report
 }
+
+type StatExpr = string | { sum: string[] };                     // one canonical key, or a composite stat such as pass_yd + rush_yd
+type ScoringRule = { positions?: Pos[] } & (
+  | { kind: 'threshold'; stat: StatExpr; min: number; points: number }            // stat ≥ min → points, e.g. 100+ rush yds
+  | { kind: 'range'; stat: StatExpr; min?: number; max?: number; points: number } // bucket min ≤ stat ≤ max → points, e.g. D/ST points allowed 14–17
+  | { kind: 'stepped'; stat: StatExpr; every: number; points: number; min?: number; max?: number } // points for every N units, counted within [min, max]
+  | { kind: 'perUnit'; stat: StatExpr; points: number; min?: number; max?: number } // per-unit rate on a composite stat, or only within bounds
+  | { kind: 'perGame'; points: number }                                            // constant per game played
+);
 
 interface Team {
   id: string; name: string; ownerName: string;
@@ -481,7 +515,7 @@ interface ImportWarning { code: string; message: string; platformPath?: string }
 
 // Outside the snapshot:
 type WeeklyProjection = Record<string /*playerId*/, Record<number /*week*/, number /*points*/>>;
-type MarketValues = Record<string /*playerId*/, { value: number; source: 'fantasycalc'|'floor' }>;
+type MarketValues = Record<string /*playerId*/, { value: number; source: 'fantasycalc'|'estimate'|'floor' }>;
 ```
 
 ---
@@ -499,13 +533,14 @@ type MarketValues = Record<string /*playerId*/, { value: number; source: 'fantas
 - Anything that doesn't map goes into `scoring.unmapped` and appears in the Import Report with its point value. Never drop a rule silently.
 
 **Points formula**
-- points = Σ rate(k, pos) × stat[k], plus threshold bonuses.
+- points = Σ rate(k, pos) × stat[k], plus Σ `rules` (Section 4).
   - rate(k, pos) = `byPosition[pos][k]` if it exists, otherwise `perStat[k]`.
-  - `byPosition` *replaces* the rate for that position. This is how ESPN's `pointsOverrides` work; confirm it with the oracle tests.
+  - `byPosition` *replaces* the rate for that position. This is how ESPN's `pointsOverrides` work (keyed by `defaultPositionId`; verified in Phase 0).
   - Sleeper's position bonus keys, such as `bonus_rec_te`, stay ordinary `perStat` keys, because Sleeper's projections carry them as stats of their own.
-- Projections are averages, not game logs, so compute threshold bonuses (such as 100+ rushing yards) as an expected value:
-  - P(stat ≥ threshold), assuming a normal distribution with mean = the projected value and SD = `config.bonusCv` × mean (default 0.5)
-  - multiplied by the bonus points
+  - Rule kinds: per-unit (optionally on a composite stat or within bounds), threshold bonus, range bucket (bounded min–max, such as D/ST points allowed 14–17), stepped tier (points for every N units), composite stats (a sum of keys) and per-game constants. A rule with `positions` applies only to players at those positions.
+- Projections are averages, not game logs, so evaluate threshold, range and stepped rules as **expected values**:
+  - over a normal distribution around the projected stat, with a per-stat SD from `config.statSd` (D/ST points allowed: about 9 points). Stats without an entry use SD = `config.bonusCv` × mean (default 0.5).
+  - Per-game constants count once per projected game.
 
 **Scoring oracle tests (required)**
 
@@ -516,6 +551,7 @@ This is how we prove we understood the league's scoring.
 - For those platforms, recompute points for every rostered player for the last 2 completed weeks.
 - Target: at least 99% of players within 0.05 points of the platform's number.
 - Report every mismatch along with its stat line.
+- The oracle tests must cover **every rule type**: per-unit, `byPosition` replacement, threshold, range, stepped, bounded, composite and per-game.
 
 ---
 
@@ -525,9 +561,9 @@ This covers every relevant player *i* (everyone rostered, plus the top 50 free a
 
 **1. Base rate b_i** (points per game in this league's scoring)
 
-- `proj_now_i` = this week's projection. If the player is on bye or out this week, use the next week that has a projection.
-  - **ESPN leagues:** average ESPN's league-scored `appliedTotal` (statSourceId 1, statSplitTypeId 1, current scoring period) with Sleeper's stat projection × league scoring, when both exist.
-  - **MFL leagues:** average MFL's `projectedScores` with Sleeper × league scoring.
+- `proj_now_i` = the player's most recent **healthy** projection: the latest week a source projected him while active. Fall back to his season projection per game. Never use an injury-zeroed projection as a base rate. That would make an injured star look worthless for the rest of the season, which is exactly the buy-low case we want to find.
+  - **ESPN leagues:** average ESPN's league-scored `appliedTotal` (statSourceId 1, statSplitTypeId 1) with Sleeper's stat projection × league scoring, but only if the two agree within 10% on average across the league's rostered players. Otherwise use Sleeper × league scoring and say so in the Import Report.
+  - **MFL leagues:** Sleeper × league scoring is the primary source (the scoring engine matched MFL 604/604 in Phase 0). Log MFL's own `projectedScores` only as a sanity check; they ran about 19% lower in Phase 0.
   - **All others:** Sleeper stat projection × league scoring.
   - Log any player whose two sources disagree by more than 40%.
 - `actual_ppg_i` = season-to-date points per game played, in league scoring. `g_i` = games played.
@@ -537,13 +573,15 @@ This covers every relevant player *i* (everyone rostered, plus the top 50 free a
 
 **2. Week shape m_{i,w}**
 
-- `m = clamp(S_{i,w} / mean_{w'} S_{i,w'}, 0.8, 1.2)`, where `S` is Sleeper's projection for that future week. This captures opponent strength.
-- Use 1 when data is missing.
+- `m = clamp(S_{i,w} / mean_{w'} S_{i,w'}, 0.8, 1.2)`, where `S` is Sleeper's projection for that future week, taken over the weeks he's projected healthy. This captures opponent strength.
+- Use 1 when data is missing, and in weeks where a source zeroes the player for injury.
 
 **3. Availability a_{i,w}**
 
-- 0 on bye weeks.
-- Injuries use `config.injury`:
+Keep *how good he is when he plays* (b and m) apart from *whether he plays* (a), so nothing is counted twice.
+- 0 on bye weeks. Byes come only from the NFL schedule; an empty ESPN projection entry doesn't mean a bye.
+- Map ESPN `DAY_TO_DAY` to QUESTIONABLE.
+- Injuries come only from `config.injury`, applied once:
   - **OUT:** 0 this week, 0.5 next week, 0.85 the week after, then 1
   - **DOUBTFUL:** 0.25 this week, then 1
   - **QUESTIONABLE:** 0.85 this week, then 1
@@ -569,8 +607,8 @@ This covers every relevant player *i* (everyone rostered, plus the top 50 free a
 ## 7. Lineups, team strength and needs
 
 **Weekly lineup value**
-- `LV(T, w)` = the highest total `p_{i,w}` over all legal assignments of team T's active roster (not IR or taxi) to the starting slots.
-- Use an **exact** solver: max-weight bipartite matching, either Hungarian or min-cost flow.
+- `LV(T, w)` = the highest total `p_{i,w}` over all legal assignments of team T's active roster (not IR or taxi) to the starting slots, honoring per-position starter min–max (`starterLimits`) when the league has them.
+- Use an **exact** solver: max-weight bipartite matching, either Hungarian or min-cost flow (with bounds when `starterLimits` apply).
 - A fast greedy method may be used **for screening only**, and only when the slot eligibility sets are nested (for example standard slots plus FLEX plus SUPER_FLEX). Greedy fills the most restrictive slots first.
 - Property-test both solvers against brute force on random rosters.
 
@@ -582,7 +620,7 @@ This covers every relevant player *i* (everyone rostered, plus the top 50 free a
 **Roster legality after a trade**
 - **Too many players** (above `maxRosterSize`, not counting IR and taxi): automatically drop the team's lowest "keep value" bench players. Keep value = marginal ROS contribution, plus normalized market value in dynasty leagues.
 - **Too few players:** automatically add the best available free agent, meaning the one who most improves LV.
-- Enforce `positionLimits`.
+- Enforce `positionLimits` (on the active roster; IR is exempt) and `rosterMinimums`.
 - Show any required drops and adds on the trade card.
 
 **Marginal values**
@@ -609,6 +647,7 @@ This covers every relevant player *i* (everyone rostered, plus the top 50 free a
 - Use the real remaining schedule. Add median games when `medianGame` is on.
 - Rank points-only leagues by total points.
 - Seed playoffs by wins, then points-for. Use divisions and tiebreakers when the platform reports them; otherwise warn.
+- Model re-seeding after each round (Sleeper `playoff_seed_type` 1) and division-winners-first seeding whenever the platform reports them (`playoffSeeding`). Otherwise use the default seeding and show a warning.
 - Give byes to top seeds when `playoffTeams` isn't a power of two.
 - Handle single-week rounds, and multi-week rounds when the platform reports them.
 - Outputs per team: P(playoffs), P(bye), P(title) and expected wins.
@@ -632,8 +671,11 @@ This covers every relevant player *i* (everyone rostered, plus the top 50 free a
   - redraft leagues: redraft values
   - dynasty leagues: dynasty values
   - keeper leagues: dynasty values for the future term, redraft values for perception
-- Players FantasyCalc doesn't cover (K, DEF, IDP, deep bench) get `config.valueFloor`, which is 1% of the top value.
-- Exclude K, DEF and IDP from trade search by default, with a toggle to include them.
+- Players FantasyCalc doesn't value (its redraft list holds only about 198 players; it has no K, DEF or IDP) get an **estimated** value:
+  - For each position, fit a monotone curve of FantasyCalc value against rest-of-season projected points, using the players who have values. Extrapolate to the unvalued players.
+  - Cap each estimate at the lowest real value at that position.
+  - If fewer than 10 players at a position have values, use min(`config.valueFloor`, the lowest real value at that position) instead. `valueFloor` is 1% of the top value.
+- Exclude P, K, DEF and IDP from trade search by default, with a toggle to include them. HC is unmapped (Section 2.2), so it never appears.
 
 **Package value: a waiver credit, the way FantasyCalc does it**
 - The side that receives fewer players gets a fixed **waiver credit** for each open roster spot.
@@ -692,7 +734,7 @@ B = (1 − λ) × B_win + λ × B_future
   - below 0.2 → 0.75
 - Keeper leagues default to λ = 0.2. Keeper costs aren't modeled, and the UI says so.
 
-**Trade Score**
+**Trade Score (shown as "Helps you")**
 - `Trade Score = round(100 × (1 − e^(−B / 5)))` when B > 0.
 - Trades with B ≤ 0 are hidden by default.
 - Sample values:
@@ -703,7 +745,27 @@ B = (1 − λ) × B_win + λ × B_future
 
 - **Planner's check:** in a 12-team toy simulation with 10 weeks left, +1 point per week of lineup gain gave B ≈ 1.7 (score about 29), +3 gave B ≈ 5 (about 63), and +6 gave B ≈ 10 (about 86).
 
-**Guards**
+**Three numbers on every trade**
+
+| Number | What it is | Formula |
+|---|---|---|
+| **Helps you** | How much the trade improves your team, 0–100 | The Trade Score above: round(100 × (1 − e^(−B/5))) |
+| **Chance they accept** | Estimated %, labeled "Est." | P_complete (Section 11) |
+| **Overall** | The expected gain, 0–100 | round(100 × (1 − e^(−(B × P_complete)/5))) |
+
+- Overall is how much a trade helps, discounted by the chance it actually happens. It's always at or below Helps you.
+- Sample values:
+
+  | Helps you (B) | Chance they accept | Overall |
+  |---|---|---|
+  | 63 (B = 5) | 50% | 39 |
+  | 86 (B = 10) | 30% | 45 |
+  | 45 (B = 3) | 80% | 38 |
+  | 80 (B = 8) | 60% | 62 |
+
+- **Don't add extra factors to Overall.** Trade-value fairness, injuries, the number of players, manager activity and season context already feed into B or P_complete. Counting them again would double count and make Overall harder to explain.
+
+**Guards** (shown as risk flags on the card, separate from the three numbers)
 - If `g_mkt(me)` < −0.15, add a "Market check" warning.
 - If `g_mkt(me)` < −0.35, hide the trade by default.
 - Flag any trade that depends on a player who is currently OUT or on IR.
@@ -796,10 +858,22 @@ With the default coefficients, unit tests must hit these values within ±1 point
 | 35–55% | Decent |
 | 55% and up | Likely |
 
-**Learning from outcomes**
-- Users can mark a suggestion Sent, Accepted, Rejected or Countered. Store this in the browser, together with the trade's features.
-- Settings has an "Export outcomes" button that downloads them as JSON.
-- Once there are at least 30 outcomes, a Node script reads that file and refits the β coefficients with logistic regression, using an L2 prior that pulls toward the defaults.
+**Feedback on every suggestion**
+
+The model will be wrong in places, especially the acceptance estimate until it has real results to learn from.
+- **On each trade card:**
+  - outcome buttons: **Sent**, **Accepted**, **Rejected**, **Countered**
+  - a **Report** button with these reasons: Doesn't help me · They'd never accept · Player info is wrong (injured, traded, wrong position) · League settings look wrong · Other, with an optional note
+- **Phase 4 (local only):** store each report and outcome in the browser, together with the trade's model inputs and scores. Settings has an "Export feedback" button that downloads them as JSON. A script summarizes reports by reason and by model part.
+- **Phase 7 (public launch):**
+  - Send reports and outcomes to a small server-side store on a free tier.
+  - Store only anonymized data: player IDs and positions, league format settings, model inputs and scores, and the reason and the outcome.
+  - Never store league IDs, team names, owner names, usernames, SWIDs or cookies.
+  - Say so plainly in the UI and in the privacy policy, give users an opt-out toggle, and rate-limit submissions.
+- **How the data is used:**
+  - "They'd never accept" and Rejected outcomes refit the acceptance coefficients. Once there are at least 30 outcomes, a Node script refits the β coefficients with logistic regression, using an L2 prior that pulls toward the defaults.
+  - "Doesn't help me" triggers a review of the benefit and projection logic for those cases.
+  - "Player info is wrong" and "League settings look wrong" go to a bug queue for the adapters.
 
 **Phase 6 sanity check**
 - Pull recent completed trades from public Sleeper leagues. Find leagues by snowballing through league member lists, and stay under the rate limits.
@@ -815,7 +889,7 @@ With the default coefficients, unit tests must hit these values within ±1 point
 - untouchables
 - must-include players
 - positions to target or avoid
-- include K/DEF
+- include P, K, DEF and IDP (excluded by default, Section 9)
 - include draft picks (dynasty leagues)
 
 **Steps**
@@ -854,12 +928,12 @@ With the default coefficients, unit tests must hit these values within ±1 point
 ## 13. Ranking, filters and explanations
 
 **Ranking**
-- Expected gain: `EG = B × P_complete`.
+- Expected gain: `EG = B × P_complete`, shown as **Overall** (Section 10).
 - Sort options:
-  - "Best overall" (EG): the default
-  - "Helps me most" (B)
-  - "Most likely" (P_complete, among trades with B > 0)
-- **Why EG is the default:** a great trade nobody accepts is useless, and a trade that's sure to be accepted but barely helps is noise.
+  - **Overall** (EG): the default
+  - **Helps you** (B)
+  - **Chance they accept** (P_complete, among trades with B > 0)
+- **Why Overall is the default:** a great trade nobody accepts is useless, and a trade that's sure to be accepted but barely helps is noise.
 
 **Diversity rules**
 - At most 3 trades per partner in the top 20.
@@ -868,10 +942,11 @@ With the default coefficients, unit tests must hit these values within ±1 point
 
 **Each trade card shows**
 - You give / You get
-- the Trade Score
-- the estimated acceptance % with its label
-- key numbers: ΔPPW, ΔPO, ΔCH, value given and value received
+- the three numbers: Helps you, Chance they accept (with its label) and Overall
+- risk flags, separately: "depends on an injured player", "Market check" (Section 10)
+- key numbers: ΔPPW, ΔPO, ΔCH, value given and value received, with a small "Values: FantasyCalc" link
 - any required drops and adds
+- the outcome and Report buttons (Section 11)
 - **plain-English reasons**, built from the features, such as:
   - "Your RB2 spot goes from 9.1 to 14.3 projected points per week"
   - "They're 11th of 12 at TE, and this gives them a starter"
@@ -887,6 +962,17 @@ With the default coefficients, unit tests must hit these values within ±1 point
 ## 14. UI (MVP)
 
 1. **Connect:** a platform picker, with the inputs and help text each platform needs. The ESPN cookie how-to must say plainly that the cookies work like a password and only stay in this browser session.
+
+   **How users connect ESPN leagues** (leagues are private by default, Section 2.2):
+   1. The user **pastes their ESPN league link** (or just the ID). If the league is viewable to the public, as Parker's is, they're done.
+   2. **If the league is private,** offer two choices:
+      - **Ask the commissioner** to turn on "Make League Viewable to Public". Give the user a copy-ready message to send. Once it's on, everyone in that league can connect with just the link, including on phones. Mention that it lets anyone with the link view league pages, but doesn't let them join.
+      - **Connect with ESPN cookies** (desktop only). Walk them through it step by step, following the credential rules (Section 0.5, Section 3 and Phase 1).
+   3. **Phase 7, before public launch:** build an Offer Sheet Chrome extension.
+      - It reads the two ESPN cookies with one click, using the `cookies` permission scoped to `*.espn.com` only.
+      - It sends them only to Offer Sheet's own site, over HTTPS, and only when the user explicitly clicks.
+      - Plan for the Chrome Web Store listing, which has a one-time developer fee.
+   4. **Never ask for ESPN passwords.**
 2. **Import Report ("Here's what we understood")**
    - scoring highlights: reception points, pass TD points, TE premium, bonuses
    - scoring rules we couldn't map
@@ -896,11 +982,16 @@ With the default coefficients, unit tests must hit these values within ±1 point
    - league type
    - teams and owners
    - "Your team", which the user can change
-   - data timestamps and warnings
+   - data timestamps and warnings, including platform notes such as:
+     - ESPN TQB mapped to QB, and HC not used
+     - "lineups are set automatically" in best-ball leagues
+     - a substituted FantasyCalc format (for example 16 teams → 14)
+     - settings the platform doesn't expose, marked "unknown" for the user to fill in (MFL deadline and review; Fleaflicker rules-page fallback)
+   - Sleeper guillotine leagues are rejected at import with a friendly message instead of a report.
 
    **The user must be able to tell at a glance whether we got their league right.**
 3. **League:**
-   - a team table: record, points-for, playoff odds, and needs and surplus chips
+   - a team table: record, points-for, playoff odds, and needs and surplus chips, with a small "Values: FantasyCalc" link
    - a positional strength heatmap
    - best trade partners
 4. **Trade Finder:** the controls and the ranked trade cards (Section 13).
@@ -910,7 +1001,8 @@ With the default coefficients, unit tests must hit these values within ±1 point
    - Win now ↔ Future
    - max players per side
    - untouchables
-   - include K/DEF and draft picks
+   - include P/K/DEF/IDP and draft picks
+   - "Export feedback" (Section 11)
 
 **Home page and privacy**
 - A placeholder landing page for Offer Sheet is already live (Section 17, Phase 7). The app's home page should carry over its wording: what the app does, how it works, and the platforms it supports.
@@ -936,17 +1028,21 @@ This is the single source of truth. Every number listed here must be read from c
 | injury table | see Section 6 | 6 |
 | sigma c/d by position | see Section 6 | 6 |
 | bonusCv | 0.5 | 5 |
+| statSd: per-stat SD for expected-value rules | D/ST points allowed ≈ 9; others fall back to bonusCv × mean | 5 |
+| ESPN / Sleeper projection agreement needed to average them | within 10% on average | 6 |
 | playoffWeight | 1.25 | 7 |
 | needZThreshold | −0.5 | 7 |
 | sims (final / screening) | 5000 / 1000 | 8 |
 | valueFloor | 1% of the top value | 9 |
+| unvalued-player estimate: minimum valued players per position for the curve | 10 | 9 |
+| trade-search default exclusions | P, K, DEF, IDP | 9 |
 | waiverCreditMin | 1% of the top value | 9 |
 | studExponent | 1.0 | 9 |
 | benefit weights (ΔPO / ΔCH) | 0.35 / 0.65 | 10 |
 | market sanity weight | 1.0 | 10 |
 | B_future scale | 40 | 10 |
 | λ defaults | 0.35 / 0.5 / 0.75; keeper 0.2 | 10 |
-| Trade Score B_ref | 5 | 10 |
+| Trade Score and Overall B_ref | 5 | 10 |
 | market check / hide thresholds | −0.15 / −0.35 | 10 |
 | acceptance β's | see Section 11 | 11 |
 | P_accept clamp | [0.02, 0.95] | 11 |
@@ -969,8 +1065,9 @@ This is the single source of truth. Every number listed here must be read from c
 
 - **Vitest unit tests** for every engine function, plus:
   - property tests of the lineup solver against brute force
-  - the scoring oracle tests (Section 5)
+  - the scoring oracle tests (Section 5), covering every rule type
   - the acceptance anchor tests (Section 11)
+  - ESPN private-league error paths (401, 403, HTML login page), tested with mocks until a real private league is available
 - **Simulation sanity tests:**
   - Σ P(title) = 1
   - Σ P(playoffs) = playoffTeams
@@ -1044,11 +1141,15 @@ This is the single source of truth. Every number listed here must be read from c
   - keep them only in an encrypted, httpOnly, **session-only** cookie (no Expires or Max-Age)
   - never put them in a URL, localStorage or logs
   - Parker's own credentials can still come from `.env.local` in development
+- the ESPN connect flow from Section 14 (public link first; for private leagues, ask the commissioner or use cookies)
+- the general scoring rules (Sections 4 and 5) and the model fields added after Checkpoint 0 (`P`, starter limits, roster minimums, best ball, playoff seeding)
+- the Sleeper decisions from Section 2.3 (trade review, position limits, guillotine rejection, best-ball note)
 
 **Checkpoint 1 includes**
 - the Import Report contents for Parker's leagues, described in words
-- the oracle results
+- the oracle results, per rule type
 - all warnings
+- every CLAUDE.md section changed since Checkpoint 0
 
 ### Phase 2 — Projections, lineup solver, market values, needs, League page
 
@@ -1078,6 +1179,8 @@ This is the single source of truth. Every number listed here must be read from c
 - the result of the common-random-numbers no-op check
 
 ### Phase 4 — Trade search, benefit, acceptance, Trade Finder and Analyzer
+
+**Build** includes the three numbers and their sort options (Sections 10 and 13), and the feedback buttons, stored locally with an export and a summary script (Section 11).
 
 **Checkpoint 4 includes**
 - the top 10 trades for Parker's team, with every number and explanation
@@ -1125,6 +1228,9 @@ This is the single source of truth. Every number listed here must be read from c
 - error logging that never records credentials or league data
 - installable PWA support: a manifest and icons
 - a feedback link
+- the server-side feedback store: anonymized, rate-limited, with an opt-out (Section 11)
+- the Offer Sheet Chrome extension for ESPN cookies (Section 14)
+- an email to FantasyCalc before launch (Section 2.9)
 - basic SEO: title, description and an Open Graph image
 - an attribution check: FantasyCalc everywhere values show, and Yahoo everywhere Yahoo data shows
 
@@ -1177,7 +1283,8 @@ Status: ✅ Done | ⚠️ Done with issues | ❌ Blocked
 - **ESPN:** the API is unofficial and can change or break at any time. Keep it isolated behind its adapter, and fail loudly with a clear message.
 - **Yahoo:** follow the API Access and Use Agreement and the attribution rules. Read-only.
 - **FantasyCalc:** show a link on every page that shows values, and fetch at most once per day per format.
-- **Credentials:** ESPN cookies and Yahoo tokens only ever go to their own platform. Never log them, and never store them on the server.
+- **Credentials:** ESPN cookies and Yahoo tokens only ever go to their own platform. Never log them, and never store them on the server. Never ask for ESPN passwords.
+- **Feedback data (Phase 7):** store only the anonymized fields in Section 11. Say so in the UI and the privacy policy, and offer an opt-out.
 
 ---
 
