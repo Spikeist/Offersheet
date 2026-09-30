@@ -203,7 +203,7 @@ function cleanCredential(value: string, name: string): string {
 }
 
 /** Injured first by how long they're likely out: the order player cards are requested in. */
-const CARD_PRIORITY: Readonly<Record<InjuryStatus, number>> = { IR: 0, PUP: 0, SUSPENDED: 1, OUT: 2, NA: 3, DOUBTFUL: 4, QUESTIONABLE: 5, ACTIVE: 9 };
+const CARD_PRIORITY: Readonly<Record<InjuryStatus, number>> = { IR: 0, PUP: 0, SUSPENDED: 1, OUT: 2, NA: 3, DOUBTFUL: 4, QUESTIONABLE: 5, PROBABLE: 6, ACTIVE: 9 };
 
 /** ESPN ids of rostered players with an injury status (not ACTIVE), most serious first. */
 export function injuredRosteredIds(L: Pick<EspnLeague, "teams">): number[] {

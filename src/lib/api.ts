@@ -4,6 +4,7 @@
  * never come back in any response.
  */
 import type { ImportResult } from "@/adapters/types";
+import type { ModelInputs } from "@/engine/inputs";
 import type { AppErrorCode } from "./errors";
 import { errorMessage } from "./errors";
 
@@ -20,7 +21,7 @@ export interface DataSourceStamp {
 
 /**
  * Where the ESPN cookies of an import came from: this browser session's sealed cookie, or (in
- * development only, for Parker's own league) .env.local.
+ * development only, for Parker's own league, with USE_ENV_COOKIES=1) .env.local.
  */
 export type EspnCookieSource = "session" | "dev-env";
 
@@ -84,10 +85,42 @@ export interface EspnSessionBody {
   swid: string;
 }
 
+/** POST /api/model/espn: the league again (served from the 10-minute cache) and its model inputs. */
+export interface EspnModelBody {
+  leagueId: string;
+  season: number;
+  /** The League page's Refresh button (league data cached over a minute ago is fetched again). */
+  refresh?: boolean;
+}
+
+/** POST /api/model/sleeper. */
+export interface SleeperModelBody {
+  season: number;
+  leagueId: string;
+  /** The Sleeper username the league was imported with, if any: the re-import then finds the user's team, as the import did. */
+  username?: string;
+  refresh?: boolean;
+}
+
+/**
+ * What the League page gets: the import (exactly what the import route returns, so the stored import
+ * can be refreshed with it) and the model inputs built for that snapshot (CLAUDE.md §6, §9).
+ */
+export interface ModelResponse {
+  import: ImportResponse;
+  model: ModelInputs;
+}
+
 export function isApiError(x: unknown): x is ApiErrorResponse {
   if (!x || typeof x !== "object" || !("error" in x)) return false;
   const e = (x as { error: unknown }).error;
   return !!e && typeof e === "object" && typeof (e as { code?: unknown }).code === "string" && typeof (e as { message?: unknown }).message === "string";
+}
+
+export function isModelResponse(x: unknown): x is ModelResponse {
+  if (!x || typeof x !== "object" || !("import" in x) || !("model" in x)) return false;
+  const { import: imp, model } = x as { import: unknown; model: unknown };
+  return !!imp && typeof imp === "object" && "snapshot" in imp && !!model && typeof model === "object" && (model as { version?: unknown }).version === 1;
 }
 
 export function isChooseLeague(x: unknown): x is SleeperChooseLeagueResponse {

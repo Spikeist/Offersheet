@@ -2,14 +2,16 @@
 /**
  * Import Report container (CLAUDE.md §14 item 2): reads the import the Connect page left in
  * sessionStorage, plus the stored "Your team" pick for this league (the user's own, or one taken
- * from a pasted ESPN team link), and renders the pure view model from src/lib/importReport.ts.
- * It owns the page's requests: Refresh, and "Forget my ESPN cookies".
+ * from a pasted ESPN team link) and, when the League page has loaded them, this league's model
+ * inputs (for the projection-source note), and renders the pure view model from
+ * src/lib/importReport.ts. It owns the page's requests: Refresh, and "Forget my ESPN cookies".
  */
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { callApi, isApiError, type EspnImportBody, type EspnSessionStatus, type ImportResponse, type SleeperImportBody } from "@/lib/api";
 import { buildImportReport, refreshOutcomeText } from "@/lib/importReport";
 import { IMPORT_STORAGE_KEY, myTeamKey, parseMyTeamPick, parseStoredImport, saveMyTeam, type StoredImport } from "@/lib/importStore";
+import { MODEL_STORAGE_KEY, parseStoredModel, storedModelForLeague } from "@/lib/modelStore";
 import { browserSessionStorage, notifySessionChange, useSessionValue } from "@/lib/useSessionValue";
 import { finishImport } from "../connect/finishImport";
 import { Card, Spinner, buttonClass } from "../ui";
@@ -47,10 +49,12 @@ function LoadedReport({ stored }: { stored: StoredImport }) {
   const snapshot = stored.response.snapshot;
   const pickRaw = useSessionValue(myTeamKey(snapshot));
   const pick = useMemo(() => parseMyTeamPick(pickRaw), [pickRaw]);
+  const modelRaw = useSessionValue(MODEL_STORAGE_KEY);
+  const model = useMemo(() => storedModelForLeague(parseStoredModel(modelRaw), snapshot)?.model ?? null, [modelRaw, snapshot]);
   const timeZone = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC", []);
   const view = useMemo(
-    () => buildImportReport(stored.response, { timeZone, myTeamId: pick?.teamId ?? null, ...(pick ? { myTeamSource: pick.source } : {}) }),
-    [stored.response, timeZone, pick],
+    () => buildImportReport(stored.response, { timeZone, myTeamId: pick?.teamId ?? null, ...(pick ? { myTeamSource: pick.source } : {}), model }),
+    [stored.response, timeZone, pick, model],
   );
 
   const [refreshing, setRefreshing] = useState(false);

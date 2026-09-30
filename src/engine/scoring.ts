@@ -7,17 +7,37 @@
  * Two modes:
  * - actualPoints(): a real stat line (one game). Every rule is evaluated exactly. The oracle tests
  *   compare this with the platform's own number.
- * - expectedPoints(): projected means. Linear parts are exact in expectation; threshold, range,
- *   stepped and bounded per-unit rules are expected values over Normal(mean, sd), with sd from
- *   config.statSd or bonusCv × mean. Bounds sit halfway between a stat's grid points
- *   (config.statGrid: counts 1, IDP sacks 0.5, ratios continuous) so adjacent buckets (14–17, 18–21)
- *   tile the line, and mass below a stat's floor (config.statFloor: points allowed ≥ 0) counts in the
- *   lowest bucket. A rule whose stats the projection doesn't carry scores 0. Per-game constants
- *   count once per projected game.
+ * - expectedPoints(): projected means. Linear parts (per-unit rates, unbounded per-unit rules) are
+ *   exact in expectation. Threshold, range, stepped and bounded per-unit rules are expected values
+ *   over a distribution around the projected stat (planner reply to Checkpoint 1, answer 3; the
+ *   math is in distributions.ts), chosen per stat key in this order:
+ *   1. a key in config.statSd → Normal with that fixed SD (completion % 10, D/ST points allowed 9,
+ *      D/ST yards allowed as measured);
+ *   2. a yardage key (config.yardageKeyPattern, never a bonus_* key) → Normal with the measured
+ *      model SD = max(yardageSdMin, a + b × mean) (config.yardageSd, `npm run measure:stat-sd`);
+ *   3. any other key is a count (TDs, receptions, interceptions, sacks, FGs made, 2-point
+ *      conversions, fumbles, attempts, tackles, …) → Poisson with mean = the projection, on the
+ *      stat's grid (IDP sacks in halves), so P(X ≥ k) is exact: a "2+ TD" bonus at 0.8 projected TDs
+ *      is worth 19% of its points, not ≈ 0. A continuous key (grid 0) outside statSd can't be a count
+ *      and falls back to Normal(mean, bonusCv × mean).
+ *   A composite stat (a sum of keys) is Poisson of the summed mean when every part is a count on one
+ *   grid (exact for independent counts); otherwise a normal with the summed mean and variance
+ *   (a count adds unit × mean), floored at the summed floors when every normal part has one (a
+ *   count's floor is 0).
+ *   Floors: config.statFloor (points and yards allowed ≥ 0) and yardageFloor (yards ≥ 0). The
+ *   floor's mass counts in the lowest bucket, and a floored normal is placed so its mean still equals
+ *   the projection. Bounds sit halfway between a stat's grid points (config.statGrid: counts 1, IDP
+ *   sacks 0.5, ratios continuous), which is exact for the lattice Poisson and makes adjacent buckets
+ *   (14–17, 18–21) tile the line. A projection with no spread (a zero mean count, a stat at its
+ *   floor) is scored exactly at its mean. A rule whose stats the projection doesn't carry scores 0.
+ *   Per-game constants count once per projected game.
  */
 import { config } from "./config";
 import type { ScoringConfig } from "./config";
+import { normalDist, poissonDist, type StatDist } from "./distributions";
 import type { Pos, Scoring, ScoringRule, StatExpr, StatLine } from "./model";
+
+export { normalCdf, normalPdf, type StatDist } from "./distributions";
 
 /** Value of a stat expression in a line; missing keys count as 0. */
 export function statValue(stats: StatLine, expr: StatExpr): number {
@@ -105,30 +125,10 @@ export function actualPoints(stats: StatLine, pos: Pos, scoring: Scoring): numbe
 // ---------------------------------------------------------------------------------------------
 // Expected points for projections
 
-/** Standard normal CDF (Abramowitz & Stegun 7.1.26; absolute error < 1.5e-7). */
-export function normalCdf(z: number): number {
-  if (z === Number.POSITIVE_INFINITY) return 1;
-  if (z === Number.NEGATIVE_INFINITY) return 0;
-  const x = Math.abs(z) / Math.SQRT2;
-  const t = 1 / (1 + 0.3275911 * x);
-  const poly = ((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t;
-  const erf = 1 - poly * Math.exp(-x * x);
-  return z >= 0 ? 0.5 * (1 + erf) : 0.5 * (1 - erf);
-}
-
-export function normalPdf(z: number): number {
-  if (!Number.isFinite(z)) return 0;
-  return Math.exp(-0.5 * z * z) / Math.sqrt(2 * Math.PI);
-}
-
-/** SD of a stat expression's projection; a composite sums independent component variances. */
-export function statSd(expr: StatExpr, proj: StatLine, cfg: ScoringConfig = config.scoring): number {
-  const sdOf = (key: string) => cfg.statSd[key] ?? cfg.bonusCv * Math.abs(proj[key] ?? 0);
-  if (typeof expr === "string") return sdOf(expr);
-  let variance = 0;
-  for (const k of expr.sum) variance += sdOf(k) ** 2;
-  return Math.sqrt(variance);
-}
+/** Tolerance for bounds that land on a grid point despite floating-point noise. */
+const EPS = 1e-9;
+/** Below this SD a projection is treated as exact (no spread). */
+const SD_EPS = 1e-9;
 
 /** A stat expression's grid (0 = continuous); a composite takes its finest component. */
 export function statGrid(expr: StatExpr, cfg: ScoringConfig = config.scoring): number {
@@ -138,7 +138,82 @@ export function statGrid(expr: StatExpr, cfg: ScoringConfig = config.scoring): n
   return grids.some((g) => !(g > 0)) ? 0 : Math.min(...grids);
 }
 
-const EPS = 1e-9;
+/** Whether a stat key is yardage (a normal with the measured SD model); bonus_* indicator keys never are. */
+export function isYardageKey(key: string, cfg: ScoringConfig = config.scoring): boolean {
+  return !key.startsWith("bonus_") && cfg.yardageKeyPattern.test(key);
+}
+
+/** The yardage SD model: max(yardageSdMin, a + b × mean), with {a, b} measured per stat (config.yardageSd, else its default). */
+export function yardageSd(key: string, mean: number, cfg: ScoringConfig = config.scoring): number {
+  const model = cfg.yardageSd[key] ?? cfg.yardageSd.default ?? { a: 0, b: cfg.bonusCv };
+  return Math.max(cfg.yardageSdMin, model.a + model.b * Math.max(0, mean));
+}
+
+/** One stat key's distribution family and parameters (the order is in the file header). */
+type KeyModel = { family: "normal"; mean: number; sd: number; floor: number | undefined } | { family: "poisson"; mean: number; unit: number };
+
+function keyModel(key: string, proj: StatLine, cfg: ScoringConfig): KeyModel {
+  const mean = proj[key] ?? 0;
+  const yardage = isYardageKey(key, cfg);
+  const floor = cfg.statFloor[key] ?? (yardage ? cfg.yardageFloor : undefined);
+  const fixed = cfg.statSd[key];
+  if (fixed !== undefined) return { family: "normal", mean, sd: fixed, floor };
+  if (yardage) return { family: "normal", mean, sd: yardageSd(key, mean, cfg), floor };
+  const grid = statGrid(key, cfg);
+  // A continuous ratio without a fixed SD can't be a count.
+  if (!(grid > 0)) return { family: "normal", mean, sd: cfg.bonusCv * Math.abs(mean), floor };
+  return { family: "poisson", mean, unit: grid };
+}
+
+const keysOf = (expr: StatExpr): readonly string[] => (typeof expr === "string" ? [expr] : expr.sum);
+
+/**
+ * A key's variance before any floor: unit × mean for a count, sd² for a normal — 0 for a floored
+ * stat projected at or below its floor (or not projected at all), which has no spread (the same
+ * reading a single key gets: scored exactly at its mean).
+ */
+function partVariance(m: KeyModel): number {
+  if (m.family === "poisson") return m.unit * Math.max(0, m.mean);
+  return m.floor !== undefined && !(m.mean > m.floor) ? 0 : m.sd ** 2;
+}
+
+/**
+ * SD of a stat expression's projection before any floor: the fixed or yardage-model SD of a normal
+ * key, √(unit × mean) of a count, 0 for a floored stat at its floor; a composite sums independent
+ * component variances (the measured RB rushing/receiving residual correlation is ≈ 0).
+ */
+export function statSd(expr: StatExpr, proj: StatLine, cfg: ScoringConfig = config.scoring): number {
+  let variance = 0;
+  for (const k of keysOf(expr)) variance += partVariance(keyModel(k, proj, cfg));
+  return Math.sqrt(variance);
+}
+
+/**
+ * The distribution a projected stat expression is evaluated over (see the file header). A point
+ * mass (family "point") means no spread: rules are then scored exactly at the projected means.
+ */
+export function statDistribution(expr: StatExpr, proj: StatLine, cfg: ScoringConfig = config.scoring): StatDist {
+  const parts = keysOf(expr).map((k) => keyModel(k, proj, cfg));
+  const first = parts[0];
+  if (first?.family === "poisson" && parts.every((p) => p.family === "poisson" && p.unit === first.unit)) {
+    // Independent counts on one grid: the sum is Poisson with the summed mean (exact).
+    return poissonDist(
+      parts.reduce((s, p) => s + Math.max(0, p.mean), 0),
+      first.unit,
+    );
+  }
+  // A normal key, or a composite matched on mean and variance (counts add unit × mean, floor 0).
+  let mean = 0;
+  let variance = 0;
+  let floor: number | undefined = 0;
+  for (const p of parts) {
+    mean += p.mean;
+    variance += partVariance(p);
+    if (p.family === "normal") floor = floor === undefined || p.floor === undefined ? undefined : floor + p.floor;
+  }
+  const sd = Math.sqrt(variance);
+  return sd > SD_EPS ? normalDist(mean, sd, floor) : normalDist(mean, 0);
+}
 
 /** "X ≥ b" on grid g: X ≥ ceil(b/g)·g − g/2 (b itself when continuous). A bound at or below the stat's floor is no bound. */
 function lowerBound(b: number | undefined, grid: number, floor: number | undefined): number {
@@ -156,36 +231,38 @@ function projected(expr: StatExpr, proj: StatLine): boolean {
   return typeof expr === "string" ? proj[expr] !== undefined : expr.sum.some((k) => proj[k] !== undefined);
 }
 
-/** P(lo ≤ X ≤ hi) for X ~ Normal(mu, sigma). */
-function probBetween(lo: number, hi: number, mu: number, sigma: number): number {
-  return Math.max(0, normalCdf((hi - mu) / sigma) - normalCdf((lo - mu) / sigma));
-}
-
 const STEPPED_MAX_TERMS = 10_000;
 
-/** Expected points of one rule for projected means. */
-export function expectedRulePoints(rule: ScoringRule, proj: StatLine, cfg: ScoringConfig = config.scoring): number {
+/** Distributions already built for one projected line, by stat expression (bucket rules share one). */
+type DistMemo = Map<string, StatDist>;
+
+function memoKey(expr: StatExpr): string {
+  return typeof expr === "string" ? expr : `\u0000${expr.sum.join("\u0000")}`;
+}
+
+function ruleExpectation(rule: ScoringRule, proj: StatLine, cfg: ScoringConfig, memo: DistMemo): number {
   if (rule.kind === "perGame") return rule.points; // once per projected game; availability applies later (§6)
   if (!projected(rule.stat, proj)) return 0; // e.g. a D/ST row without points allowed: no phantom shutout bonus
-  const mu = statValue(proj, rule.stat);
-  const sigma = statSd(rule.stat, proj, cfg);
-  if (!(sigma > 1e-9)) return rulePoints(rule, proj); // no spread: the projection is treated as exact
+  // An unbounded per-unit rule is linear: exact in expectation whatever the distribution.
+  if (rule.kind === "perUnit" && rule.min === undefined && rule.max === undefined) return rule.points * statValue(proj, rule.stat);
+  const key = memoKey(rule.stat);
+  let dist = memo.get(key);
+  if (!dist) {
+    dist = statDistribution(rule.stat, proj, cfg);
+    memo.set(key, dist);
+  }
+  if (dist.family === "point") return rulePoints(rule, proj); // no spread: the projection is treated as exact
   const grid = statGrid(rule.stat, cfg);
-  const floor = typeof rule.stat === "string" ? cfg.statFloor[rule.stat] : undefined;
+  const floor = dist.floor;
   const lower = (b: number | undefined) => lowerBound(b, grid, floor);
   const upper = (b: number | undefined) => upperBound(b, grid);
   switch (rule.kind) {
     case "threshold":
-      return rule.points * probBetween(lower(rule.min), Number.POSITIVE_INFINITY, mu, sigma);
+      return rule.points * dist.prob(lower(rule.min), Number.POSITIVE_INFINITY);
     case "range":
-      return rule.points * probBetween(lower(rule.min), upper(rule.max), mu, sigma);
-    case "perUnit": {
-      if (rule.min === undefined && rule.max === undefined) return rule.points * mu;
-      // Partial expectation E[X · 1{a ≤ X ≤ b}] = mu·(Φ(β) − Φ(α)) + sigma·(φ(α) − φ(β)).
-      const a = (lower(rule.min) - mu) / sigma;
-      const b = (upper(rule.max) - mu) / sigma;
-      return rule.points * (mu * (normalCdf(b) - normalCdf(a)) + sigma * (normalPdf(a) - normalPdf(b)));
-    }
+      return rule.points * dist.prob(lower(rule.min), upper(rule.max));
+    case "perUnit":
+      return rule.points * dist.partialMean(lower(rule.min), upper(rule.max));
     case "stepped": {
       // floor((min(X, hi) − lo) / every) ≥ k  ⇔  X ≥ lo + k·every (for lo + k·every ≤ hi),
       // so E[count] = Σ_k P(X ≥ lo + k·every).
@@ -195,13 +272,18 @@ export function expectedRulePoints(rule: ScoringRule, proj: StatLine, cfg: Scori
       for (let k = 1; k <= STEPPED_MAX_TERMS; k++) {
         const t = lo + k * rule.every;
         if (t > hi) break;
-        const p = probBetween(lower(t), Number.POSITIVE_INFINITY, mu, sigma);
+        const p = dist.prob(lower(t), Number.POSITIVE_INFINITY);
         expected += p;
-        if (p < 1e-12 && t > mu) break;
+        if (p < 1e-12 && t > dist.mean) break;
       }
       return rule.points * expected;
     }
   }
+}
+
+/** Expected points of one rule for projected means. */
+export function expectedRulePoints(rule: ScoringRule, proj: StatLine, cfg: ScoringConfig = config.scoring): number {
+  return ruleExpectation(rule, proj, cfg, new Map());
 }
 
 /** Expected fantasy points for one game from projected stat means. */
@@ -212,7 +294,8 @@ export function expectedPoints(proj: StatLine, pos: Pos, scoring: Scoring, cfg: 
     const rate = rateFor(scoring, key, pos);
     if (rate) total += rate * value;
   }
-  for (const rule of scoring.rules) if (ruleApplies(rule, pos)) total += expectedRulePoints(rule, proj, cfg);
+  const memo: DistMemo = new Map();
+  for (const rule of scoring.rules) if (ruleApplies(rule, pos)) total += ruleExpectation(rule, proj, cfg, memo);
   return total;
 }
 

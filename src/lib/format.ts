@@ -1,17 +1,29 @@
 /**
  * Display formatting shared by the pages (pure, client-safe). Numbers use a real minus sign (U+2212)
- * and trim trailing zeros, so 0.50 shows as "0.5" and −2.00 as "−2".
+ * and trim trailing zeros after the decimal point, so 0.50 shows as "0.5" and −2.00 as "−2".
  */
 
 const MINUS = "−";
 
-/** A number with at most `maxDecimals` decimals and no trailing zeros ("0.5", "−2", "0.04"). */
+/** A number with at most `maxDecimals` decimals and no trailing decimal zeros ("0.5", "−2", "0.04", "110"). */
 export function fmtNum(n: number, maxDecimals = 2): string {
   if (!Number.isFinite(n)) return String(n);
   const factor = 10 ** maxDecimals;
   const rounded = Math.round(Math.abs(n) * factor) / factor;
-  const text = rounded.toFixed(maxDecimals).replace(/\.?0+$/, "");
+  // Only zeros after a decimal point go ("2.50" → "2.5", "2.00" → "2"); an integer's own zeros stay ("110").
+  const text = rounded
+    .toFixed(maxDecimals)
+    .replace(/(\.\d*?)0+$/, "$1")
+    .replace(/\.$/, "");
   return n < 0 && rounded !== 0 ? `${MINUS}${text}` : text;
+}
+
+/** A whole number with thousands separators and a real minus sign, for season totals and trade values: "7,342", "110", "0", "−3". */
+export function fmtWhole(n: number): string {
+  if (!Number.isFinite(n)) return String(n);
+  const r = Math.round(n);
+  const text = Math.abs(r).toLocaleString("en-US");
+  return r < 0 ? `${MINUS}${text}` : text;
 }
 
 /** A signed number for bonuses and penalties: "+2", "−1.5", "0". */
@@ -69,6 +81,24 @@ export function formatDateTime(iso: string, timeZone: string): string {
     }).format(d);
   } catch {
     return d.toISOString();
+  }
+}
+
+/**
+ * A compact date and time in the given IANA time zone, e.g. "Thu, Nov 26, 3:55 PM": always the date,
+ * so an old timestamp never passes for today's. The year is added when it isn't the year of `nowIso`
+ * (always, without `nowIso`): "Wed, Dec 30, 2026, 9:00 PM".
+ */
+export function formatShortDateTime(iso: string, timeZone: string, nowIso?: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  try {
+    const yearOf = (x: Date) => new Intl.DateTimeFormat("en-US", { timeZone, year: "numeric" }).format(x);
+    const now = nowIso === undefined ? null : new Date(nowIso);
+    const withYear = now === null || Number.isNaN(now.getTime()) || yearOf(now) !== yearOf(d);
+    return new Intl.DateTimeFormat("en-US", { timeZone, weekday: "short", month: "short", day: "numeric", ...(withYear ? { year: "numeric" as const } : {}), hour: "numeric", minute: "2-digit" }).format(d);
+  } catch {
+    return d.toISOString().slice(0, 16).replace("T", " ");
   }
 }
 

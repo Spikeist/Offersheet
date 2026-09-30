@@ -174,7 +174,8 @@ export function EspnConnect() {
             </div>
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-[12rem_1fr] sm:items-end">
+          {/* Season and Import side by side at every width, so on a phone the button is on the first screen. */}
+          <div className="grid grid-cols-[minmax(0,7rem)_1fr] items-end gap-4 sm:grid-cols-[12rem_1fr]">
             <div>
               <label htmlFor="espn-season" className="mb-1 block text-sm font-bold">
                 Season

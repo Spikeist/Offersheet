@@ -68,7 +68,7 @@ describe("POST /api/import/espn", () => {
   });
 
   it("says when the cookies came from .env.local (development only), never the values", async () => {
-    const dev = { NODE_ENV: "development", ESPN_LEAGUE_ID: "4242", ESPN_S2: CREDS.espnS2, ESPN_SWID: CREDS.swid };
+    const dev = { NODE_ENV: "development", USE_ENV_COOKIES: "1", ESPN_LEAGUE_ID: "4242", ESPN_S2: CREDS.espnS2, ESPN_SWID: CREDS.swid };
     const { handler, calls } = setup(undefined, dev);
     const res = await handler(jsonRequest(URL, { leagueId: "4242", season: 2026 }));
     expect(calls[0]?.credentials).toEqual(CREDS);

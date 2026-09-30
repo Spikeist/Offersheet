@@ -1,13 +1,67 @@
 import { describe, expect, it } from "vitest";
 import { LeagueImportError } from "@/adapters/types";
+import { resolverFromData } from "@/data/crosswalk";
+import type { SleeperPlayerRecord } from "@/data/sleeperPlayers";
+import type { CrosswalkConflict, PlayerIdResolver } from "@/data/types";
 import type { LeagueSnapshot } from "@/engine/model";
 import { readMinFixture } from "@/test-utils/fixtures";
-import { FREE_AGENTS_PER_POSITION, normalizeEspnLeague, normalizeSwid, type EspnRawBundle } from "./normalize";
+import { FREE_AGENTS_PER_POSITION, idOverrideNote, normalizeEspnLeague, normalizeSwid, type EspnRawBundle } from "./normalize";
 import { FA_POSITIONS, LABELS, NOW, PARKER, PUBLIC, expectedTransactionTypes, fakeResolver, parkerBundle, readCross, readEspn } from "./test-helpers";
 
 type Json = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
 const clone = <T>(x: T): T => JSON.parse(JSON.stringify(x)) as T;
 const codes = (s: LeagueSnapshot) => s.warnings.map((w) => w.code);
+const idNotes = (notes: readonly string[]) => notes.filter((n) => n.startsWith("Player IDs:"));
+
+/** A conflict shaped like src/data's crosswalk builds it: "same player" overrides a DynastyProcess id that isn't an active player. */
+function conflictFor(platformId: string, chosen: string, resolvedBy: CrosswalkConflict["resolvedBy"], other = "999001"): CrosswalkConflict {
+  const same = resolvedBy === "same player";
+  return {
+    source: "espn",
+    platformId,
+    options: same
+      ? [
+          { sleeperId: other, from: ["dynastyProcess"], active: false },
+          { sleeperId: chosen, from: ["fantasyCalc"], active: true },
+        ]
+      : [
+          { sleeperId: chosen, from: ["dynastyProcess"], active: true },
+          { sleeperId: other, from: ["fantasyCalc"], active: true },
+        ],
+    chosen,
+    resolvedBy,
+    ...(same ? { sameBy: ["team"] as const } : {}),
+    withinSource: false,
+  };
+}
+
+/** A free-agent kicker in ESPN's pool (made-up player; ESPN ids far above real ones), ranked by `100 − i` projected points. */
+const poolKicker = (idBase: number, i: number, proTeamId = 9) => ({
+  id: idBase + i,
+  onTeamId: 0,
+  status: "FREEAGENT",
+  player: { id: idBase + i, fullName: `Zorblax Kickwell ${i}`, defaultPositionId: 5, eligibleSlots: [17, 20, 21], proTeamId, stats: [{ seasonId: 2026, scoringPeriodId: 4, statSourceId: 1, statSplitTypeId: 1, appliedTotal: 100 - i }] },
+});
+
+/** A Sleeper players-DB record for a real crosswalk built with resolverFromData. */
+const sleeperRecord = (id: string, name: string, position: string, team: string | null): SleeperPlayerRecord => ({
+  id,
+  name,
+  position,
+  fantasyPositions: [position],
+  team,
+  injuryStatus: null,
+  status: "Active",
+  age: 27,
+  active: true,
+  yearsExp: 2,
+  firstName: null,
+  lastName: null,
+  espnId: null,
+  yahooId: null,
+  sportradarId: null,
+  gsisId: null,
+});
 
 function parker(extra: Partial<Parameters<typeof normalizeEspnLeague>[1]> = {}, bundle: EspnRawBundle = parkerBundle()) {
   return normalizeEspnLeague(bundle, { leagueId: PARKER.leagueId, resolver: fakeResolver(), now: NOW, swid: PARKER.swid, ...extra });
@@ -422,14 +476,24 @@ describe("normalizeEspnLeague edge cases", () => {
     expect(s.settings.tradeDeadline).toEqual({ date: "2026-12-02T17:00:00.000Z" });
   });
 
-  it("keeps an ESPN id when the resolver maps two players to one Sleeper id, and takes ages from the resolver", () => {
+  it("keeps an ESPN id when the resolver maps two players to one Sleeper id, names him, and neither notes nor warns about a conflict on him; takes ages from the resolver", () => {
     const resolver = fakeResolver({ ages: { "4866": 27 } });
-    const clash = { ...resolver, canonical: (source: "espn", id: string) => (id === "3929630" || id === "3043078" ? "4866" : resolver.canonical(source, id)) };
-    const s = run(base(), {}, { resolver: clash }).snapshot;
+    const clash: PlayerIdResolver = {
+      ...resolver,
+      canonical: (source, id) => (id === "3929630" || id === "3043078" ? "4866" : resolver.canonical(source, id)),
+      // The player who loses the id also comes with an override: he doesn't keep 4866, so there's nothing to note.
+      conflict: (_source, id) => (id === "3043078" ? conflictFor(id, "4866", "same player") : undefined),
+    };
+    const { snapshot: s, notes } = run(base(), {}, { resolver: clash });
     const ids = ["3929630", "3043078"].map((e) => Object.values(s.players).find((p) => p.ids.espn === e));
     expect(ids.map((p) => p?.id).sort()).toEqual(["4866", "espn:3043078"].sort());
     expect(ids.find((p) => p?.id === "4866")?.age).toBe(27);
-    expect(codes(s)).toContain("ESPN_ID_COLLISION");
+    const loser = ids.find((p) => p?.id === "espn:3043078");
+    const collision = s.warnings.find((w) => w.code === "ESPN_ID_COLLISION")?.message;
+    expect(collision).toMatch(/^1 player matched a Sleeper id already used by another player, so he keeps his ESPN id: /);
+    expect(collision).toContain(`${loser?.name} (${loser?.pos}`);
+    expect(idNotes(notes)).toEqual([]);
+    expect(codes(s)).not.toContain("ESPN_ID_CONFLICT");
   });
 
   it("matches a player no ID source maps by exact name, position and NFL team, and says so", () => {
@@ -455,15 +519,143 @@ describe("normalizeEspnLeague edge cases", () => {
     expect(codes(plain)).not.toContain("ESPN_PLAYER_MATCHED_BY_NAME");
   });
 
-  it("warns about league players whose ESPN id the ID sources map to different players (resolver.conflict)", () => {
+  it("warns about league players whose ESPN id the ID sources map to different players, resolved by source order (resolver.conflict)", () => {
     const league = base();
     const rostered = league.teams[0].roster.entries[0].playerPoolEntry.player as Json;
     const resolver = fakeResolver();
-    const conflicted = { ...resolver, conflict: (source: "espn", id: string) => (source === "espn" && (id === String(rostered.id) || id === "99999999") ? { chosen: "1", options: [{ sleeperId: "1" }, { sleeperId: "2" }] } : undefined) };
-    const s = run(league, {}, { resolver: conflicted }).snapshot;
+    const conflicted: PlayerIdResolver = {
+      ...resolver,
+      conflict: (source, id) => (source === "espn" && (id === String(rostered.id) || id === "99999999") ? conflictFor(id, resolver.canonical(source, id) ?? "1", "source order") : undefined),
+    };
+    const { snapshot: s, notes } = run(league, {}, { resolver: conflicted });
     const w = s.warnings.find((x) => x.code === "ESPN_ID_CONFLICT");
     expect(w?.message).toContain(rostered.fullName);
-    expect(w?.message).toMatch(/^The player ID sources disagree about who 1 ESPN player id/);
+    expect(w?.message).toMatch(/^The player ID sources disagree about who 1 ESPN player id in this league belongs to/);
+    expect(idNotes(notes)).toEqual([]);
     expect(codes(run(base()).snapshot)).not.toContain("ESPN_ID_CONFLICT");
+  });
+
+  it("names every player matched by name in the snapshot: more than 10, none from the rest of ESPN's pool, none that collided (Checkpoint 1 answer 1)", () => {
+    const taken = run(base()).snapshot.teams.flatMap((t) => t.roster).find((id) => /^\d+$/.test(id)) as string; // a rostered player's Sleeper id
+    const pool = Array.from({ length: 55 }, (_, i) => poolKicker(96_000_000, i));
+    const resolver = fakeResolver();
+    const withNames: PlayerIdResolver = {
+      ...resolver,
+      matchByName: (q) => {
+        const m = /^Zorblax Kickwell (\d+)$/.exec(q.name);
+        if (!m || q.position !== "K" || q.team !== "GB") return undefined;
+        return m[1] === "3" ? taken : String(960_000 + Number(m[1]));
+      },
+    };
+    const s = run(base(), { freeAgents: [{ players: pool }] }, { resolver: withNames }).snapshot;
+    const w = s.warnings.find((x) => x.code === "ESPN_PLAYER_MATCHED_BY_NAME")?.message ?? "";
+    expect(w).toMatch(/^49 players aren't in any player ID source, so we matched each to the only active player with the same name, position and NFL team\. Free agents: Zorblax Kickwell 0 \(K, GB\); /);
+    for (let i = 0; i < FREE_AGENTS_PER_POSITION; i++) if (i !== 3) expect(w).toContain(`Zorblax Kickwell ${i} (K, GB)`);
+    expect(w).not.toContain("…");
+    // #50–#54 aren't among the 50 kept, so they're in neither the snapshot nor the warning.
+    for (let i = FREE_AGENTS_PER_POSITION; i < 55; i++) {
+      expect(w).not.toContain(`Zorblax Kickwell ${i} (`);
+      expect(s.players[String(960_000 + i)]).toBeUndefined();
+    }
+    // #3's match is a Sleeper id a rostered player holds: he keeps his ESPN id and is named as a collision, not as a match.
+    expect(w).not.toContain("Zorblax Kickwell 3 (");
+    expect(s.players["espn:96000003"]).toMatchObject({ name: "Zorblax Kickwell 3", ids: { espn: "96000003" } });
+    expect(s.warnings.find((x) => x.code === "ESPN_ID_COLLISION")?.message).toBe("1 player matched a Sleeper id already used by another player, so he keeps his ESPN id: Zorblax Kickwell 3 (K, GB).");
+  });
+
+  it("notes every same-player override on a player in the snapshot, uncapped, and warns only about the other conflicts (Checkpoint 1 answer 2)", () => {
+    // 55 free-agent kickers mapped with a conflict: overrides for #0–#11 and for #50–#54 (not kept), source order for #12–#14.
+    const BASE = 97_000_000;
+    const pool = Array.from({ length: 55 }, (_, i) => poolKicker(BASE, i));
+    const resolvedBy = (i: number): CrosswalkConflict["resolvedBy"] | undefined => (i < 0 || i >= 55 ? undefined : i < 12 || i >= 50 ? "same player" : i < 15 ? "source order" : undefined);
+    const resolver = fakeResolver();
+    const index = (id: string) => (Number(id) >= BASE && Number(id) < BASE + 1000 ? Number(id) - BASE : -1);
+    const withConflicts: PlayerIdResolver = {
+      ...resolver,
+      canonical: (source, id) => (index(id) >= 0 ? String(970_000 + index(id)) : resolver.canonical(source, id)),
+      conflict: (_source, id) => {
+        const by = resolvedBy(index(id));
+        return by ? conflictFor(id, String(970_000 + index(id)), by) : undefined;
+      },
+    };
+    const { snapshot: s, notes } = run(base(), { freeAgents: [{ players: pool }] }, { resolver: withConflicts });
+    const noted = idNotes(notes);
+    expect(noted).toHaveLength(12);
+    for (let i = 0; i < 12; i++) expect(noted[i]).toContain(`the ID sources disagree on Zorblax Kickwell ${i} (K, GB), ESPN id ${BASE + i}: DynastyProcess links Sleeper id 999001; FantasyCalc links ${970_000 + i}. We use ${970_000 + i}:`);
+    expect(noted.join("\n")).not.toMatch(/Kickwell 5[0-4] /);
+    const w = s.warnings.find((x) => x.code === "ESPN_ID_CONFLICT")?.message ?? "";
+    expect(w).toMatch(/^The player ID sources disagree about who 3 ESPN player ids in this league belong to; /);
+    for (const i of [12, 13, 14]) expect(w).toContain(`Zorblax Kickwell ${i} (K, GB)`);
+    expect(w).not.toMatch(/Kickwell (\d|1[01]) \(/); // the overrides are notes, not warnings
+    // Only overrides: notes, and no ESPN_ID_CONFLICT warning at all.
+    const onlyOverrides: PlayerIdResolver = { ...withConflicts, conflict: (source, id) => (index(id) >= 0 && index(id) < 12 ? withConflicts.conflict?.(source, id) : undefined) };
+    const o = run(base(), { freeAgents: [{ players: pool }] }, { resolver: onlyOverrides });
+    expect(idNotes(o.notes)).toHaveLength(12);
+    expect(codes(o.snapshot)).not.toContain("ESPN_ID_CONFLICT");
+  });
+});
+
+describe("player ids through the real crosswalk (src/data resolverFromData; CLAUDE.md §2.9 crosswalk rules)", () => {
+  const run = (freeAgents: unknown[], resolver: PlayerIdResolver) => normalizeEspnLeague({ league: clone(readEspn<Json>(LABELS.league)), freeAgents: [{ players: freeAgents }] }, { leagueId: "1", resolver, now: NOW });
+
+  it("turns the real Sam Hartman override (ESPN 4361994) on a kept free agent into one note and no warning", () => {
+    // The public rows behind it (crosswalk.test.ts has the full case): DynastyProcess links Sleeper
+    // 11376 (not an active fantasy player), FantasyCalc links his active record 11558.
+    const resolver = resolverFromData({
+      sleeperPlayers: [sleeperRecord("11558", "Sam Hartman", "QB", "WAS")],
+      dynastyRows: [{ sleeperId: "11376", espnId: "4361994", yahooId: null, mflId: "16587", fleaflickerId: null, sportradarId: "007971f0-f012-11ed-833c-ebfbb713adc7", gsisId: "00-0039677", name: "Sam Hartman", position: "QB", team: "WAS" }],
+      fantasyCalcPlayers: [{ fantasyCalcId: "11709", name: "Sam Hartman", position: "QB", sleeperId: "11558", espnId: "4361994", mflId: "16587", fleaflickerId: null, team: "WAS" }],
+    });
+    const hartman = { id: 4361994, onTeamId: 0, status: "FREEAGENT", player: { id: 4361994, fullName: "Sam Hartman", defaultPositionId: 1, eligibleSlots: [0, 7, 20, 21], proTeamId: 28, stats: [{ seasonId: 2026, scoringPeriodId: 4, statSourceId: 1, statSplitTypeId: 1, appliedTotal: 5 }] } };
+    const { snapshot: s, notes } = run([hartman], resolver);
+    expect(s.freeAgents).toContain("11558");
+    expect(s.players["11558"]).toMatchObject({ name: "Sam Hartman", pos: "QB", nflTeam: "WAS", age: 27, ids: { espn: "4361994", sleeper: "11558" } });
+    expect(idNotes(notes)).toEqual([
+      "Player IDs: the ID sources disagree on Sam Hartman (QB, WSH), ESPN id 4361994: DynastyProcess links Sleeper id 11376; FantasyCalc links 11558. We use 11558: 11376 isn't one of Sleeper's active fantasy players, and 11558 is an active player whose name, position and NFL team match DynastyProcess's record.",
+    ]);
+    expect(codes(s)).not.toContain("ESPN_ID_CONFLICT");
+  });
+
+  it("matches a kept free agent no source maps by name, position and NFL team, but never one without an NFL team (Checkpoint 1 answer 1)", () => {
+    const resolver = resolverFromData({ sleeperPlayers: [sleeperRecord("99101", "Zorblax Kickwell 0", "K", "GB"), sleeperRecord("99102", "Quennard Vasquel", "K", null)], dynastyRows: [], fantasyCalcPlayers: [] });
+    // The first plays for GB (proTeamId 9). The second has no NFL team (proTeamId 0) and is the only
+    // active kicker with his name, also without a team: still no match.
+    const teamless = poolKicker(98_000_000, 1, 0);
+    const { snapshot: s } = run([poolKicker(98_000_000, 0), { ...teamless, player: { ...teamless.player, fullName: "Quennard Vasquel" } }], resolver);
+    expect(s.players["99101"]).toMatchObject({ name: "Zorblax Kickwell 0", ids: { espn: "98000000", sleeper: "99101" } });
+    expect(s.players["espn:98000001"]).toMatchObject({ name: "Quennard Vasquel", nflTeam: null });
+    expect(s.players["99102"]).toBeUndefined();
+    expect(s.warnings.find((w) => w.code === "ESPN_PLAYER_MATCHED_BY_NAME")?.message).toBe(
+      "1 player isn't in any player ID source, so we matched him to the only active player with the same name, position and NFL team. Free agents: Zorblax Kickwell 0 (K, GB).",
+    );
+  });
+});
+
+describe("idOverrideNote (CLAUDE.md §2.9: log every override in the Import Report notes)", () => {
+  it("says which sources disagreed, which Sleeper id we use and why, for the two real overrides", () => {
+    expect(
+      idOverrideNote(
+        { espnId: 3116104, label: "Chris Jones (DB)" },
+        {
+          source: "espn",
+          platformId: "3116104",
+          options: [
+            { sleeperId: "2682", from: ["dynastyProcess", "fantasyCalc"], active: false },
+            { sleeperId: "5815", from: ["sleeper"], active: true },
+          ],
+          chosen: "5815",
+          resolvedBy: "same player",
+          sameBy: ["gsis"],
+          withinSource: false,
+        },
+      ),
+    ).toBe(
+      "Player IDs: the ID sources disagree on Chris Jones (DB), ESPN id 3116104: DynastyProcess and FantasyCalc link Sleeper id 2682; Sleeper's player database links 5815. We use 5815: 2682 isn't one of Sleeper's active fantasy players, and 5815 is an active player whose name, position and NFL player ID (GSIS) match DynastyProcess's record.",
+    );
+    // Both matched, and a resolver that doesn't say what matched.
+    const both = conflictFor("1", "970000", "same player");
+    expect(idOverrideNote({ espnId: 1, label: "Zorblax Kickwell 0 (K, GB)" }, { ...both, sameBy: ["team", "gsis"] })).toContain("whose name, position, NFL team and NFL player ID (GSIS) match DynastyProcess's record.");
+    const unsaid: CrosswalkConflict = { source: "espn", platformId: "1", options: both.options, chosen: "970000", resolvedBy: "same player", withinSource: false };
+    expect(idOverrideNote({ espnId: 1, label: "Zorblax Kickwell 0 (K, GB)" }, unsaid)).toContain("whose name and position, plus NFL team or NFL player ID (GSIS), match DynastyProcess's record.");
   });
 });

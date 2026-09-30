@@ -65,7 +65,11 @@ import {
 export const FREE_AGENTS_PER_POSITION = config.import.freeAgentsPerPosition;
 /** Last week of the NFL regular season; fantasy playoffs can't run past it. */
 export const LAST_NFL_WEEK = 18;
-/** Future seasons of draft picks assumed tradable when traded_picks doesn't reach further (inferred). */
+/**
+ * Tradable draft picks cover "the current season + up to 3 future years", and leagues can't change
+ * that (Sleeper's help center, support.sleeper.com/en/articles/4047901; planner reply to Checkpoint 1,
+ * answer 8) ✅.
+ */
 export const FUTURE_PICK_SEASONS = 3;
 
 /** The raw responses the fetch half collected (JSON as received; validated here). */
@@ -486,8 +490,8 @@ function buildTransactions(raw: Record<number, unknown>, warn: (w: ImportWarning
  * Future pick ownership for keeper/dynasty leagues: each team starts with its own pick in every
  * round of every open season, then traded_picks moves them (roster_id = original team, owner_id =
  * current owner). Open seasons: this season if its draft hasn't finished, else from next season,
- * through the last season traded_picks mentions (at least FUTURE_PICK_SEASONS; which seasons
- * Sleeper opens for trading isn't in the API — inferred).
+ * through season + FUTURE_PICK_SEASONS (Sleeper's documented window), or the last season
+ * traded_picks mentions if that is ever later.
  */
 function buildDraftPicks(league: SleeperLeague, rosterIds: number[], tradedRaw: unknown, draftsRaw: unknown, leagueType: LeagueSettings["leagueType"], warn: (w: ImportWarning) => void, notes: string[]): DraftPick[] | undefined {
   if (leagueType === "redraft" || num(league.settings, "pick_trading") === 0) return undefined;
@@ -499,7 +503,7 @@ function buildDraftPicks(league: SleeperLeague, rosterIds: number[], tradedRaw: 
   const thisDraftDone = drafts.some((d) => Number(d.season) === season && d.status === "complete") || ["in_season", "post_season", "complete"].includes(league.status ?? "");
   const firstOpen = thisDraftDone ? season + 1 : season;
   const lastTraded = traded.rows.reduce((mx, p) => Math.max(mx, Number(p.season)), 0);
-  const lastOpen = Math.max(firstOpen + FUTURE_PICK_SEASONS - 1, lastTraded);
+  const lastOpen = Math.max(season + FUTURE_PICK_SEASONS, lastTraded);
   let rounds = num(league.settings, "draft_rounds");
   if (!rounds) {
     rounds = traded.rows.reduce((mx, p) => Math.max(mx, p.round), 0);
@@ -518,7 +522,7 @@ function buildDraftPicks(league: SleeperLeague, rosterIds: number[], tradedRaw: 
     applied.set(k, p.owner_id);
     owner.set(k, p.owner_id);
   }
-  notes.push(`Draft picks: ${firstOpen}–${lastOpen} seasons, ${rounds} round(s) each. Sleeper doesn't say which future seasons can be traded, so every season up to the last one with a traded pick (at least ${FUTURE_PICK_SEASONS}) is included.`);
+  notes.push(`Draft picks: ${firstOpen}–${lastOpen} seasons, ${rounds} round(s) each (Sleeper lets leagues trade the current season's picks and up to ${FUTURE_PICK_SEASONS} future years).`);
   return [...owner]
     .map(([k, cur]) => {
       const [s, r, orig] = k.split("|").map(Number) as [number, number, number];

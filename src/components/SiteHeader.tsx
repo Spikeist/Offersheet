@@ -1,4 +1,15 @@
+/**
+ * The site header (CLAUDE.md §14: mobile-first, works at 375 px): the logo home link and the main
+ * nav in the order you use the pages (Connect, Import report, League). The page you're on is marked
+ * by NavLink.
+ *
+ * Fitting 375 px: below sm only the mark shows. The "Offer Sheet" wordmark text is visually hidden,
+ * but it stays the home link's accessible name, and the three links fit on one row. On narrower
+ * screens, or with larger text, the nav drops to a second row instead of pushing the page sideways.
+ * The home link and the nav links are 44 px tap targets.
+ */
 import Link from "next/link";
+import { NavLink } from "./NavLink";
 
 export function LogoMark({ className }: { className?: string }) {
   // A football on a gold tile.
@@ -15,18 +26,16 @@ export function LogoMark({ className }: { className?: string }) {
 export function SiteHeader() {
   return (
     <header className="bg-navy text-navy-contrast">
-      <div className="mx-auto flex max-w-5xl items-center justify-between gap-3 px-4 py-3">
-        <Link href="/" className="flex items-center gap-2 font-extrabold tracking-tight">
+      <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-x-3 px-4 py-2">
+        {/* The negative margin keeps the mark lined up with the page while the padding makes a 44 px target. */}
+        <Link href="/" className="-ml-1.5 flex min-h-11 items-center gap-2 rounded-lg px-1.5 font-extrabold tracking-tight">
           <LogoMark className="size-8" />
-          <span className="text-lg">Offer Sheet</span>
+          <span className="sr-only text-lg sm:not-sr-only">Offer Sheet</span>
         </Link>
-        <nav aria-label="Main" className="flex items-center gap-1 text-sm font-bold">
-          <Link href="/connect" className="rounded-lg px-2.5 py-2 hover:bg-white/10">
-            Connect
-          </Link>
-          <Link href="/import" className="rounded-lg px-2.5 py-2 hover:bg-white/10">
-            Import report
-          </Link>
+        <nav aria-label="Main" className="ml-auto flex flex-wrap items-center gap-1 text-sm font-bold">
+          <NavLink href="/connect">Connect</NavLink>
+          <NavLink href="/import">Import report</NavLink>
+          <NavLink href="/league">League</NavLink>
         </nav>
       </div>
     </header>

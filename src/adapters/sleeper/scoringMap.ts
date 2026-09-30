@@ -9,8 +9,10 @@
  *    every flag equals its rule on the raw stat. Tiers of one stat are EXCLUSIVE — a 410-yard passer
  *    carries bonus_pass_yd_400 but not bonus_pass_yd_300, a 213 rush+rec-yard back carries only
  *    bonus_rush_rec_yd_200 — so a lower tier is the bounded range [300, 399]. Exclusivity is seen in
- *    the data for pass_yd and rush_rec_yd; for rec_yd and rush_yd (no player had a 200-yard game in
- *    weeks 1–3) it is inferred from the same key pattern (⚠️).
+ *    the data for pass_yd and rush_rec_yd, and Sleeper's help center documents it for the rushing,
+ *    receiving and rush + rec yardage tiers ("100-199 Yard Rushing Game", "200+ Yard Rushing Game":
+ *    "The yard ranges are strict and do not stack", support.sleeper.com/en/articles/3998131) ✅,
+ *    though no player had a 200-yard rushing or receiving game in weeks 1–3.
  * 2. D/ST brackets (pts_allow_*, yds_allow_*) → range rules on pts_allow / yds_allow for DEF only
  *    (96/96 DEF rows: exactly one flag each, matching the bounds in the key names; seen boundaries
  *    6|7, 13|14, 20|21, 27|28, 34|35 points and 199|200, 300, 350 yards). yds_allow_0_100 overlaps

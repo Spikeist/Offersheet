@@ -153,6 +153,16 @@ describe("normalizeSleeperLeague: the public test league (minimized fixtures)", 
     expect(notes.some((n) => n.startsWith("Draft picks: 2027–2029"))).toBe(true);
   });
 
+  it("before this season's draft, opens the current season plus 3 future years (Sleeper's documented window)", () => {
+    const raw = rawOf(t);
+    // No traded pick beyond 2028, so 2029 can only come from the documented window, not from traded_picks.
+    const tradedPicks = t.tradedPicks.filter((p) => Number(p.season) <= 2028);
+    const preDraft = { ...raw, league: { ...(raw.league as object), status: "pre_draft" }, drafts: [], tradedPicks };
+    const { snapshot: pre, notes: preNotes } = normalizeSleeperLeague(preDraft, ctx(t, { userId: t.meta.me.userId }));
+    expect(new Set((pre.draftPicks ?? []).map((p) => p.season))).toEqual(new Set([2026, 2027, 2028, 2029]));
+    expect(preNotes.some((n) => n.startsWith("Draft picks: 2026–2029"))).toBe(true);
+  });
+
   it("knows every rostered player, mapping positions, DEF ids and injuries", () => {
     const rostered = snapshot.teams.flatMap((x) => [...x.roster, ...x.ir, ...x.taxi]);
     for (const id of rostered) expect(snapshot.players[id]?.id).toBe(id);

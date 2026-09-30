@@ -8,6 +8,8 @@ This is the complete spec for the project. The planner wrote it on 2026-09-29. T
 
 **Timing:** It's late September 2026, week 4 of the NFL season, and most fantasy trade deadlines fall in November. Getting a working ESPN + Sleeper version quickly matters more than supporting many platforms.
 
+**Priority (Checkpoint 1):** Parker's trade deadline is Wed Dec 2 (NFL week 13). Getting his ESPN league working end to end, through Phase 4 trade suggestions, comes before breadth. Aim to have Phase 4 running on his league by early November.
+
 ---
 
 ## 0. How to work on this project
@@ -39,8 +41,10 @@ This is the complete spec for the project. The planner wrote it on 2026-09-29. T
      MFL_LEAGUE_ID, MFL_USERNAME, MFL_PASSWORD   (the MFL login is only needed for private MFL leagues)
      YAHOO_CLIENT_ID, YAHOO_CLIENT_SECRET
      SESSION_SECRET   (you generate this one)
+     USE_ENV_COOKIES  (not a secret; development only: 1 = import Parker's ESPN league with the ESPN_S2/ESPN_SWID cookies above)
      ```
    - Mirror these names in `.env.example`, with no values.
+   - By default `npm run dev` imports Parker's league through the public-link flow, the same one a leaguemate gets. The `.env.local` ESPN cookies are used only with `USE_ENV_COOKIES=1`.
 
 6. **Leaguemates' privacy:**
    - Raw API captures go in `fixtures/raw/`, which is git-ignored.
@@ -147,6 +151,7 @@ The planner verified this on 2026-09-29. Phase 0 re-verifies it.
 - ESPN leagues are **private by default**. Only the league manager can make one viewable, under League → Settings → Basic Settings → "Make League Viewable to Public". Section 14 describes how users connect.
 - Private leagues need the header `Cookie: espn_s2=<value>; SWID=<value>`. The SWID value includes its curly braces.
 - Public leagues need no cookies. Parker's league is viewable to the public, so it needs none. Test the private-league error paths with mocks until a real private league is available.
+- ESPN leagues with rare settings (TE premium, IDP, keepers, "every N yards" scoring) will come from volunteer leagues during a beta. Don't block on them.
 - Never ask for ESPN passwords.
 - Verified 2026-09-29: public league 899513 returns 2026 `mSettings` with no login, including `settings.scoringSettings.scoringItems` and `settings.rosterSettings.lineupSlotCounts`. Phase 0 found it has drafted (rosters and weekly stat lines), so it also serves the scoring oracle.
 - Other developers reported in September 2026 that private-league reads with the cookies still work.
@@ -186,6 +191,7 @@ The planner verified this on 2026-09-29. Phase 0 re-verifies it.
 - Use `view=kona_player_info` on the league endpoint. It needs an `X-Fantasy-Filter` JSON header to raise the result limit and to filter by status (free agents and waivers).
 - Copy working filter payloads from `cwendt94/espn-api`, specifically `league.free_agents()` and `player_info()`. Don't invent them.
 - For a league-independent player pool, use `GET /seasons/{season}/segments/0/leaguedefaults/3?scoringPeriodId={week}&view=kona_player_info`. Verified 2026-09-29: it returns 2026 projected stats with statSourceId 1.
+- **League-scored weekly projections (Phase 2):** on the league endpoint, `kona_player_info` returns weekly lines only for the requested `scoringPeriodId`. The main league request's `mRoster` carries every rostered player's previous- and current-week projections (statSourceId 1, statSplitTypeId 1), and the free-agent calls carry the current week. Their `appliedTotal` is exactly Σ stat × the league's scoring items (0.000 difference on every line). An empty line (no stats) means "not projected". `leaguedefaults/3` returns weeks 1–18 in one call, but its `appliedTotal` uses ESPN's default scoring. The model therefore uses the current and previous week from the import itself and makes no extra ESPN request.
 
 **NFL bye weeks**
 - `GET /seasons/{season}?view=proTeamSchedules_wl` → `settings.proTeams[].byeWeek`. Verified 2026-09-29.
@@ -229,6 +235,8 @@ The planner verified this on 2026-09-29. Phase 0 re-verifies it.
   - **Best-ball leagues** (`best_ball = 1`): allowed, with an Import Report note that lineups are set automatically.
   - **Inferred readings, shown with a warning:** `trade_deadline` 99 = no deadline (1 of 5 leagues); division winners seeded first (2 of 2). Any other deadline code, or a missing one, is shown as unknown. A missing `playoff_round_type`, `league_average_match` or `playoff_seed_type` uses the default with a warning.
   - **The deadline week is a league week:** trades complete through league week (`settings.leg`) D, which can lag the NFL week by a day; the snapshot carries it as `leagueWeek`.
+  - **Yardage bonus tiers are exclusive** (✅ documented): Sleeper's help center labels them "100-199 Yard Rushing Game" and "200+ Yard Rushing Game" and says "The yard ranges are strict and do not stack" (`support.sleeper.com/en/articles/3998131`). The same holds for receiving and for combined rush + rec yards.
+  - **Tradable future picks** (✅ documented): "the current season + up to 3 future years", and leagues can't change that (`support.sleeper.com/en/articles/4047901`).
 
 **Undocumented endpoints (verified live 2026-09-29, may change)**
 - **Weekly projections:** `GET https://api.sleeper.app/projections/nfl/{season}/{week}?season_type=regular&position=RB` returns an array of `{player_id, week, stats: {pass_yd, rush_yd, rec, rec_yd, rec_td, …, pts_ppr, pts_half_ppr, pts_std}, last_modified}`.
@@ -236,7 +244,9 @@ The planner verified this on 2026-09-29. Phase 0 re-verifies it.
   - Future weeks are refreshed in season (Phase 0: `last_modified` 2026-09-28 for weeks 5–18), and QB/RB/WR/TE values vary by opponent. Section 6 uses them for week shape.
 - **Season projections:** `/projections/nfl/{season}?season_type=regular&position=QB`.
 - **Multiple positions:** try `position[]=QB&position[]=RB`, and fall back to one call per position.
-- **Actual stats:** `/stats/nfl/{season}/{week}?season_type=regular`. Verified in Phase 0: with it, the scoring oracle reproduces league points exactly.
+- **Actual stats:** `/stats/nfl/{season}/{week}?season_type=regular`. Verified in Phase 0: with it, the scoring oracle reproduces league points exactly. Rows carry `gp` 1 when the player played and no `gp` otherwise.
+- **Stubs (Phase 2):** a projection row without scorable stats is a stub (a bye, an injured or teamless player, or a backup Sleeper doesn't project). Only rows with stats count as projections. Season projections carry `gp` 18 on every row and their span is unverified (⚠️), so the model uses them only as a last-resort base rate, divided by 17 games.
+- **What the model fetches:** weekly projections from 3 weeks back (an injured player's most recent healthy projection) through the last fantasy week, and stats for every completed week, one request at a time, all cached 6 hours. If Sleeper stops answering (each request: 20 s timeout, 1 retry), the build stops asking for the rest (one warning) and remembers the outage in-process for 5, then 10, then at most 15 minutes, still reading copies the server cache holds, so a Sleeper outage can't stall the League page. A league renewed for next season (January–February) loads trade values only until its season starts.
 
 **My team**
 - The roster whose `owner_id` or `co_owners` matches the user_id.
@@ -347,6 +357,8 @@ The planner verified this on 2026-09-29. Phase 0 re-verifies it.
   - `ppr`: the nearest of 0, 0.5 or 1, based on points per reception.
   - TE premium uses `tep`. Reported values are `te+` and `te++`. Leave the parameter out when there's no TE premium, and verify how it behaves.
 - Check whether dynasty results include rookie draft picks, and how they're named.
+- **Which number (Phase 2):** a league's values are `value` from a request in the league's own format. `redraftValue` is FantasyCalc's baseline (12 teams, PPR, no TE premium) and is never used. Keeper leagues request both formats: dynasty values for the long term, redraft values for perception (Section 9).
+- **Our mapping (⚠️ FantasyCalc doesn't define it):** a TE premium (a TE's minus a WR's points per catch) below 0.75 asks for `te+`, 0.75 or more for `te++`. Ties in `numTeams` and `ppr` go to the larger option. Every substitution is noted in the Import Report.
 - Terms:
   - non-commercial use only
   - fetch at most **once per day per format**
@@ -360,8 +372,12 @@ The planner verified this on 2026-09-29. Phase 0 re-verifies it.
 - Columns include mfl_id, sportradar_id, fantasypros_id, gsis_id, sleeper_id, espn_id, yahoo_id, fleaflicker_id, cbs_id, ktc_id, name, merge_name, position, team and birthdate.
 - Refresh daily.
 
+**Player ID crosswalk rules** (Checkpoint 1 answers)
+- A player no ID source knows is matched on exact name + position + NFL team, but only when exactly one active player fits, and never when he has no NFL team. Flag each such match in the Import Report.
+- A lower-priority ID source may override the top source, when the top source links an id that isn't an active fantasy player (a stale or wrong link), only when the two agree on name and position, plus either NFL team or GSIS id. "The two" are the top source's own row and the active Sleeper record the lower source links. Log every override in the Import Report notes, and keep a test for the players it fixes (Phase 2: 5 platform ids of 2 players, Sam Hartman and Chris Jones; both are wrong links in DynastyProcess, not stale duplicates).
+
 **NFL schedule and bye weeks**
-- ESPN `proTeamSchedules_wl` for bye weeks.
+- ESPN `proTeamSchedules_wl` for bye weeks, and for kickoff times (`date`, epoch ms). Games marked `startTimeTBD` (weeks 16–18 until the NFL sets them) carry placeholder times and are treated as unknown. Byes and kickoffs are keyed by Sleeper team codes (WAS, LAR).
 - nflverse `https://raw.githubusercontent.com/nflverse/nfldata/master/data/games.csv`. Verified: it has all 272 regular-season games for 2026.
 
 ### 2.10 Cache rules
@@ -373,6 +389,7 @@ The planner verified this on 2026-09-29. Phase 0 re-verifies it.
 | DynastyProcess ID map | 24 h |
 | NFL schedule and byes | 7 days |
 | Projections (Sleeper and ESPN) | 6 h |
+| Sleeper actual stats | 6 h |
 | League data (settings, rosters, transactions) | 10 min, plus a manual "Refresh" button |
 
 - **Private-league data** (ESPN with cookies, MFL with a login, Yahoo) must be cached under a key that includes a hash of the user's credentials or session. Never key it by league ID alone, or anyone who enters that league ID would see the private data. Public data can be keyed by league ID.
@@ -400,7 +417,7 @@ The planner verified this on 2026-09-29. Phase 0 re-verifies it.
 - Keep credentials that users type in (ESPN cookies from Phase 1; MFL logins and Yahoo tokens from Phase 5) in an encrypted, httpOnly, **session-only** cookie, for example with iron-session.
   - Never store them on the server.
   - Offer a "Forget my credentials" button.
-- For Parker during development: use `.env.local`.
+- For Parker during development: use `.env.local`, only when `USE_ENV_COOKIES=1` (Section 0.5).
 
 **Cache**
 - Build a `Cache` interface.
@@ -507,7 +524,7 @@ interface Team {
 
 interface PlayerInfo {
   id: string; name: string; pos: Pos; eligible: Pos[]; nflTeam: string | null;
-  injury: 'ACTIVE'|'QUESTIONABLE'|'DOUBTFUL'|'OUT'|'IR'|'PUP'|'SUSPENDED'|'NA'; // NA = not an active NFL player (Sleeper's NA; retired or unsigned)
+  injury: 'ACTIVE'|'PROBABLE'|'QUESTIONABLE'|'DOUBTFUL'|'OUT'|'IR'|'PUP'|'SUSPENDED'|'NA'; // NA = not an active NFL player (Sleeper's NA; retired or unsigned)
   injuryReturnWeek?: number; age?: number;   // injuryReturnWeek = last NFL week + 1: not back this season
   ids: Partial<Record<Platform | 'fantasycalc' | 'gsis' | 'sportradar', string>>;
 }
@@ -545,9 +562,14 @@ type MarketValues = Record<string /*playerId*/, { value: number; source: 'fantas
   - `byPosition` *replaces* the rate for that position. This is how ESPN's `pointsOverrides` work (keyed by `defaultPositionId`; verified in Phase 0).
   - Sleeper's position bonus keys, such as `bonus_rec_te`, stay ordinary `perStat` keys, because Sleeper's projections carry them as stats of their own. Projections lack `bonus_fd_*`, so those are filled in from `pass_fd + rush_fd + rec_fd` for QB/RB/WR/TE (never fullbacks, whom Sleeper doesn't give the bonus).
   - Rule kinds: per-unit (optionally on a composite stat or within bounds), threshold bonus, range bucket (bounded min–max, such as D/ST points allowed 14–17), stepped tier (points for every N units), composite stats (a sum of keys) and per-game constants. A rule with `positions` applies only to players at those positions.
-- Projections are averages, not game logs, so evaluate threshold, range and stepped rules as **expected values**:
-  - over a normal distribution around the projected stat, with a per-stat SD from `config.statSd` (D/ST points allowed: about 9 points). Stats without an entry use SD = `config.bonusCv` × mean (default 0.5).
-  - Bounds sit halfway between a stat's possible values (`config.statGrid`: counts 1, IDP sacks 0.5, ratios such as completion % continuous), and a stat's floor (`config.statFloor`: points allowed ≥ 0) puts the mass below it in the lowest bucket. A rule whose stat the projection doesn't carry scores 0.
+- Projections are averages, not game logs, so evaluate threshold, range and stepped rules as **expected values** over a distribution around the projected stat (Checkpoint 1 answer; all of it in config, Section 15):
+  - **Count stats** (TDs, receptions, interceptions, sacks, FGs made, 2-point conversions, fumbles): a **Poisson** distribution with mean = the projected value, with P(X ≥ k) computed exactly. A "2+ TD" bonus then gets its true expected value. Every stat that isn't yardage or a fixed-SD normal counts as a count, on its own grid (half sacks: 0.5 × Poisson(2 × mean)).
+  - **Yardage stats:** a normal distribution with the **empirical SDs** from the stat-SD script (`npm run measure:stat-sd`), measured on every completed week so far rather than one week, floored at 0. Phase 2 fit SD = a + b × projected mean on weeks 1–3: pass_yd 0 + 0.341, rush_yd 3.9 + 0.48, rec_yd 8.8 + 0.50, kr_yd 20.2 + 0.56, pr_yd 3.7 + 1.45 (⚠️ Sleeper re-stamps past weeks' projections after the games, so these may understate forecast error until Phase 6 re-measures on pre-kickoff snapshots).
+  - **Completion %:** a normal distribution with SD 10.
+  - D/ST points allowed: a normal distribution with SD 9 (measured 9.7 on weeks 1–3); D/ST yards allowed: SD 77 (⚠️ measured on weeks 1–3). Any other continuous stat (none mapped today) uses SD = `config.bonusCv` × mean (default 0.5).
+  - A floored normal is placed so its floored mean equals the projection (flooring a normal at the projection would inflate small means).
+  - ⚠️ Volume counts are overdispersed relative to Poisson on weeks 1–3 (rush attempts 2.0, completions 1.9, receptions 1.3; TDs fit Poisson). Phase 6 may switch those keys to a negative binomial.
+  - For normal distributions, bounds sit halfway between a stat's possible values (`config.statGrid`: counts 1, IDP sacks 0.5, ratios such as completion % continuous), and a stat's floor (`config.statFloor`: points allowed ≥ 0) puts the mass below it in the lowest bucket. A rule whose stat the projection doesn't carry scores 0.
   - Per-game constants count once per projected game. On actual stat lines they need games played (`gp`): a line without it is a game not played.
 
 **Scoring oracle tests (required)**
@@ -574,6 +596,7 @@ This covers every relevant player *i* (everyone rostered, plus the top 50 free a
   - **MFL leagues:** Sleeper × league scoring is the primary source (the scoring engine matched MFL 604/604 in Phase 0). Log MFL's own `projectedScores` only as a sanity check; they ran about 19% lower in Phase 0.
   - **All others:** Sleeper stat projection × league scoring.
   - Log any player whose two sources disagree by more than 40%.
+  - Phase 2 details: proj_now is the latest week at or before the current week with a Sleeper projection (the model fetches 3 weeks back), else his nearest later projected week; ESPN's value for that same week is averaged in. "Agree within 10% on average" is measured as Σ|E − S| / Σ S over rostered players both sources project this week, a ratio of sums so bench players with tiny projections don't dominate.
 - `actual_ppg_i` = season-to-date points per game played, in league scoring. `g_i` = games played.
 - `b_i = (1 − α_i)·(proj_now_i / m_{i,now}) + α_i·actual_ppg_i`, where `α_i = config.actualWeight × min(1, g_i / config.actualFullGames)`.
   - `m_{i,now}` is the week-shape factor (step 2) for the week that `proj_now_i` came from. Dividing by it takes that week's matchup out of the base rate, so the matchup isn't counted twice.
@@ -588,15 +611,24 @@ This covers every relevant player *i* (everyone rostered, plus the top 50 free a
 
 Keep *how good he is when he plays* (b and m) apart from *whether he plays* (a), so nothing is counted twice.
 - 0 on bye weeks. Byes come only from the NFL schedule; an empty ESPN projection entry doesn't mean a bye.
-- Map ESPN `DAY_TO_DAY` to QUESTIONABLE.
+- Map ESPN `DAY_TO_DAY` to QUESTIONABLE. ESPN `PROBABLE` keeps its own status.
 - Injuries come only from `config.injury`, applied once:
   - **OUT:** 0 this week, 0.5 next week, 0.85 the week after, then 1
   - **DOUBTFUL:** 0.25 this week, then 1
   - **QUESTIONABLE:** 0.85 this week, then 1
+  - **PROBABLE:** 0.95 this week, then 1
   - **IR or PUP:** 0 until `injuryReturnWeek` if known. Otherwise 0 for 4 weeks, then 0.8, then 1.
   - **SUSPENDED:** 0 for the known suspension length. Otherwise 0 for 2 weeks.
   - **NA** (not an active NFL player: Sleeper's NA, or retired/unsigned): 0 every week.
   - Platforms rarely give a return week or suspension length. When they don't, use the defaults above. Don't scrape news for them.
+  - Phase 2 details: the tables are read as the cumulative chance he's back. A known return week R (ESPN's expected return date) spreads 25% / 50% / 25% over R − 1, R and R + 1 (the split is an assumption), never earlier than his status allows (OUT, IR, PUP and SUSPENDED miss this week); a suspension's return week is exact. A QUESTIONABLE, DOUBTFUL or PROBABLE player expected back 2+ weeks from now follows his return week, not the one-week table. ESPN's "out for season" (last NFL week + 1) means 0 every remaining week.
+  - A player whose game this week has already kicked off counts 0 for this week: rest-of-season numbers count remaining games only. A player without an NFL team never plays.
+- **Future injury risk** (new injuries to players who are healthy now; Checkpoint 1 addition). One two-state weekly model (healthy / out) serves both the expected values here and the availability scenarios in Section 7:
+  - Recovery rate `r = 1 / d`, where d is the mean length of an injury. Default d = 2.5 weeks.
+  - Weekly new-injury chance `h_pos = M_pos · r / (1 − M_pos)`, where `M_pos` is the long-run share of games missed.
+  - A player healthy now is out k weeks ahead with probability `P_out(k) = M_pos × (1 − (1 − h − r)^k)`. Multiply it in: `a_{i,w} ×= 1 − P_out(k)`.
+  - A player injured now starts the same model from his expected return week (ESPN gives it).
+  - Default `M_pos`: QB 0.06, RB 0.14, WR 0.12, TE 0.14, K 0.02, DEF 0, IDP 0.10. Sources disagree on how much positions differ: FantasySquawk (2015–2025, top-150 ADP) found games missed per season of RB 2.8, WR 2.0, TE 2.8 and QB 1.0; Fantasy Index (top 20 per position, last 5 years) found every position played about 84–85% of games.
 
 **4. Projected points**
 
@@ -606,10 +638,20 @@ Keep *how good he is when he plays* (b and m) apart from *whether he plays* (a),
 
 - `σ_{i,w} = c_pos × p_{i,w} + d_pos`
 - Defaults (c/d): QB 0.30/3, RB 0.45/2, WR 0.50/2, TE 0.55/1.5, K 0.35/2.5, DEF 0.50/3, IDP 0.50/2.
+- σ = 0 in a week he doesn't play (p = 0: a bye, a game already started, or no availability).
 
 **6. Tuning**
 
 - Phase 6 backtests these defaults on 2025 data (nflverse weekly stats) and tunes α and σ.
+- Phase 6 also estimates `M_pos` and d from nflverse weekly data (2018–2025) for fantasy-relevant players, and replaces the defaults.
+
+**7. Rest-of-season (ROS) points, shown to users** (Checkpoint 1 addition)
+
+- `ROS_i = Σ_w p_{i,w}` over the remaining weeks, from the current week through the last fantasy playoff week, with expected availability (step 3, including future injury risk).
+- Show it split into regular-season and playoff weeks, with games left and bye status (for example "bye done" or "bye wk 9"). Only remaining weeks count, so a player whose bye already passed automatically gets credit for one more game.
+- Show ROS points on:
+  - the League page roster tables, where tapping or hovering shows the week-by-week breakdown
+  - trade cards, for example "You get 142 ROS pts, give 118"
 
 ---
 
@@ -620,6 +662,18 @@ Keep *how good he is when he plays* (b and m) apart from *whether he plays* (a),
 - Use an **exact** solver: max-weight bipartite matching, either Hungarian or min-cost flow (with bounds when `starterLimits` apply).
 - A fast greedy method may be used **for screening only**, and only when the slot eligibility sets are nested (for example standard slots plus FLEX plus SUPER_FLEX). Greedy fills the most restrictive slots first.
 - Property-test both solvers against brute force on random rosters.
+- Phase 2: one exact solver serves both screening and exact evaluation, so there is no separate greedy. Points sit on players, so the players who can start together form a matroid, and taking players best first while re-seating starters along augmenting paths is exact; a min-cost-flow fallback handles mixed eligibility under starter limits. It is property-tested against brute force (2,440 cases) and runs about 1.5 million lineups a second. Starter limits count starters by primary position; the best `min` players at a limited position start even at 0 points; an unmet minimum is best effort.
+
+**Availability scenarios: credit for depth** (Checkpoint 1 addition)
+- Expected-value lineups undervalue depth. A bench RB never starts in the average-case lineup, but in real life he plays when a starter is hurt or on bye. Without this, the trade search overrates 2-for-1 consolidation trades that strip a team's depth.
+- For exact evaluation (Section 12 step 3) and the season sim, `LV(T, w)` is the average over S availability scenarios. Default S = 32, with common random numbers.
+- Draw each scenario from the Section 6 availability model:
+  - injuries persist across weeks
+  - currently injured players return around their expected week, give or take a week
+  - byes come from the NFL schedule
+- Solve the optimal lineup for each scenario.
+- Screening (Section 12 step 2) may keep the fast expected-value lineup.
+- Phase 2: scenario s of player i draws from a random stream keyed by (seed, player id, s), so his scenarios stay the same when he changes teams. Only active-roster players and free agents get scenarios; IR and taxi players never start.
 
 **Rest of season**
 - `ROS(T) = Σ_w ω_w × LV(T, w)` over the remaining weeks.
@@ -635,13 +689,21 @@ Keep *how good he is when he plays* (b and m) apart from *whether he plays* (a),
 **Marginal values**
 - `MV_add(T, j) = ROS(T + j − autoDrop) − ROS(T)`
 - `MV_lose(T, i) = ROS(T) − ROS(T − i + autoAdd)`
+- Phase 2 decision: measure MV_lose from the team after its best single free-agent move, `V(T)` = the best of T itself, T plus the best free agent when an active-roster spot is open, and every `T − i + autoAdd_i`. So `MV_lose(T, i) = V(T) − ROS(T − i + autoAdd_i)`, which is never negative. The formula as first written went negative for every bench player whenever a free agent beat one of the team's starters: 107 of 157 players in Parker's league, because a free-agent kicker beat several teams' kickers. The difference is one constant per team, so rankings within a roster (the surplus score) don't change. The team's best move (add, drop or an open spot, and its ROS gain) is shown on the League page, chosen by scenario ROS when scenarios ran, else by EV ROS. `MV_add` for "would he start for them" and partner fit leaves the auto drop out, since dropping the least valuable bench player doesn't change the best lineup.
 
 **Needs and surplus**
 - **Strength:** for each team and slot type, the average starter points at that slot over the next 4 weeks and over the rest of the season.
 - Compare strength to the league median as a z-score.
 - **Needs:** slots with z ≤ −0.5, ranked.
 - **Surplus:** players with high market value but low `MV_lose`. This is bench depth that would start for other teams.
+  - Phase 2 rule: a lineup cost below his roster's average (z within the roster < `surplusMaxCostZ` = 0), a surplus score z(value) − z(MV_lose) ≥ 1, and he'd add at least 1 point per week to another team's lineup over the next 4 weeks. Without the first condition, stars qualified too, because FantasyCalc values are convex (the live run flagged Ja'Marr Chase and Saquon Barkley).
 - **Best trade partners:** teams whose surplus matches my needs and whose needs match my surplus.
+  - Phase 2: mutual fits score sqrt(what their surplus adds to my lineup per week × what mine adds to theirs) and come first. Then come one-sided fits, where their surplus would start for me but I have no spare player they need (a trade would likely cost me a starter), ranked by what they'd add. Parker's roster has no surplus today, so all his partners are one-sided.
+- Strength uses slot instances (QB1, RB1, RB2, FLEX1 …: a slot's starters sorted by points), averaged over scenario lineups when they ran.
+- Phase 2 review decisions:
+  - **Game days:** once any game of the current week has kicked off, every team-level measure (ROS(T), PPW, strength, needs, lineup costs, the waiver move, "would start for", partner fit) skips that week: lineups are locking and its points are being scored. Players' own ROS points still count their games that haven't started.
+  - **Partner fit** uses each side's joint gain (all of their surplus added to my roster at once), so two spare players competing for one slot aren't counted twice.
+  - **No trade values** (FantasyCalc down): no surplus and no partners, with a warning, rather than picking surplus by lineup cost alone. The same holds for a roster whose players all have the same value (for example all at the value floor).
 
 ---
 
@@ -649,7 +711,7 @@ Keep *how good he is when he plays* (b and m) apart from *whether he plays* (a),
 
 **Weekly scores**
 - Run a Monte Carlo over the remaining regular-season weeks.
-- Each team's score is drawn from Normal(`LV(T,w)`, `σ_T,w`), where `σ_T,w = sqrt(Σ σ_{i,w}²)` over that week's optimal starters.
+- Each team's score is drawn from Normal(`LV(T,w)`, `σ_T,w`), where `σ_T,w = sqrt(Σ σ_{i,w}²)` over that week's optimal starters. `σ_T,w` also adds the spread of LV across the availability scenarios (Section 7).
 
 **Standings and playoffs**
 - Start from current records and points-for.
@@ -920,7 +982,7 @@ The model will be wrong in places, especially the acceptance estimate until it h
    - Drop any trade whose g_mkt(P) falls outside [−0.35, 0.6].
    - Keep this partner's top 30 by the screening objective.
 
-3. **Exact evaluation.** Take at most 200 trades across all partners, the best by screening objective. For each: check legality, work out drops and adds, solve exact lineups for both teams, then compute n, h and P_accept.
+3. **Exact evaluation.** Take at most 200 trades across all partners, the best by screening objective. For each: check legality, work out drops and adds, solve exact lineups for both teams over the availability scenarios (Section 7), then compute n, h and P_accept.
 
 4. **Screening simulation.** Run 1,000 simulations with common random numbers on every exactly-evaluated trade to get a first B.
 
@@ -954,6 +1016,7 @@ The model will be wrong in places, especially the acceptance estimate until it h
 - the three numbers: Helps you, Chance they accept (with its label) and Overall
 - risk flags, separately: "depends on an injured player", "Market check" (Section 10)
 - key numbers: ΔPPW, ΔPO, ΔCH, value given and value received, with a small "Values: FantasyCalc" link
+- ROS points given and received (Section 6), for example "You get 142 ROS pts, give 118"
 - any required drops and adds
 - the outcome and Report buttons (Section 11)
 - **plain-English reasons**, built from the features, such as:
@@ -970,7 +1033,7 @@ The model will be wrong in places, especially the acceptance estimate until it h
 
 ## 14. UI (MVP)
 
-1. **Connect:** a platform picker, with the inputs and help text each platform needs. The ESPN cookie how-to must say plainly that the cookies work like a password and only stay in this browser session.
+1. **Connect:** a platform picker, with the inputs and help text each platform needs. On phones the picker is compact (a segmented control or a select), so the league-link box and the Import button fit on the first screen. The ESPN cookie how-to must say plainly that the cookies work like a password and only stay in this browser session.
 
    **How users connect ESPN leagues** (leagues are private by default, Section 2.2):
    1. The user **pastes their ESPN league link** (or just the ID). If the league is viewable to the public, as Parker's is, they're done.
@@ -997,12 +1060,15 @@ The model will be wrong in places, especially the acceptance estimate until it h
      - a substituted FantasyCalc format (for example 16 teams → 14)
      - settings the platform doesn't expose, marked "unknown" for the user to fill in (MFL deadline and review; Fleaflicker rules-page fallback)
    - Sleeper guillotine leagues are rejected at import with a friendly message instead of a report.
+   - Phase 2: a "Trade values" row names the FantasyCalc format (for example "10 teams · half-PPR · 1 QB · redraft"), with a note for each substitution; once the League page has loaded the league's inputs, the notes also say whether ESPN's and Sleeper's projections were averaged (Section 6).
 
    **The user must be able to tell at a glance whether we got their league right.**
 3. **League:**
    - a team table: record, points-for, playoff odds, and needs and surplus chips, with a small "Values: FantasyCalc" link
    - a positional strength heatmap
    - best trade partners
+   - roster tables with each player's ROS points (Section 6), regular season and playoffs, games left and bye status; tapping or hovering shows the week-by-week breakdown
+   - Phase 2: each roster also shows the team's best free-agent move (Section 7), and the best available free agents by position. In keeper leagues the values shown are redraft (perception) values. Playoff-weighted numbers (lineup cost, the move's gain) are labeled "lineup pts (playoffs count 1.25×)", never "ROS pts". One-sided partners are badged "Would start for you". While a week is under way, the header, team note and heatmap captions say which weeks team numbers count. Stored model inputs are reused only while under 6 hours old (the projections TTL).
 4. **Trade Finder:** the controls and the ranked trade cards (Section 13).
 5. **Trade Analyzer.**
 6. **Settings:**
@@ -1037,14 +1103,25 @@ This is the single source of truth. Every number listed here must be read from c
 | injury table | see Section 6 | 6 |
 | sigma c/d by position | see Section 6; P uses K's (an assumption) | 6 |
 | NA availability | 0 every week | 6 |
+| future injury risk: M_pos (long-run share of games missed) | QB 0.06, RB 0.14, WR 0.12, TE 0.14, K 0.02, DEF 0, IDP 0.10 | 6 |
+| mean injury length d | 2.5 weeks | 6 |
 | free agents kept per position | 50 | 4 |
 | bonusCv | 0.5 | 5 |
-| statSd: per-stat SD for expected-value rules | D/ST points allowed ≈ 9, D/ST yards allowed ≈ 70 (⚠️ one week measured in Phase 1, `npm run measure:stat-sd`); others fall back to bonusCv × mean | 5 |
+| count-stat distribution (TDs, receptions, interceptions, sacks, FGs made, 2-point conversions, fumbles) | Poisson with mean = projection; exact P(X ≥ k) | 5 |
+| statSd: per-stat SD for normal expected-value rules | completion % 10; D/ST points allowed 9 (measured 9.7); D/ST yards allowed 77 (⚠️ measured on weeks 1–3) | 5 |
+| yardageSd: yardage SD = a + b × projected mean, at least 1 | pass_yd 0 + 0.341, rush_yd 3.9 + 0.48, rec_yd 8.8 + 0.50, kr_yd 20.2 + 0.56, pr_yd 3.7 + 1.45; other yardage 0.5 × mean (⚠️ measured on weeks 1–3, `npm run measure:stat-sd`) | 5 |
 | statGrid: stat resolution for expected-value bounds | counts 1; IDP sacks 0.5; completion % continuous | 5 |
-| statFloor | points and yards allowed ≥ 0 | 5 |
-| ESPN / Sleeper projection agreement needed to average them | within 10% on average | 6 |
+| statFloor | points and yards allowed ≥ 0; yardage ≥ 0; a floored normal keeps its mean at the projection | 5 |
+| ESPN / Sleeper projection agreement needed to average them | within 10% on average (Σ\|E − S\| / Σ S) | 6 |
+| projection lookback | 3 weeks | 6 |
+| season projection per game | ÷ 17 games (⚠️ the season line's span is unverified) | 6 |
+| P's injury risk and σ | K's (an assumption) | 6 |
 | playoffWeight | 1.25 | 7 |
 | needZThreshold | −0.5 | 7 |
+| availability scenarios S (common random numbers), seed | 32, 20260929 | 7 |
+| known return week R | 25% / 50% / 25% over R − 1, R, R + 1 (the split is an assumption), never earlier than the status allows | 6, 7 |
+| League page needs, surplus and partners | surplus: lineup-cost z < 0, surplus score ≥ 1, adds ≥ 1 pt/week to another lineup; 3 need and 3 surplus chips per team; 3 partners | 7 |
+| FantasyCalc TE premium → te++ | premium ≥ 0.75 per catch, else te+ (⚠️ our mapping) | 2.9 |
 | sims (final / screening) | 5000 / 1000 | 8 |
 | valueFloor | 1% of the top value | 9 |
 | unvalued-player estimate: minimum valued players per position for the curve | 10 | 9 |
@@ -1153,7 +1230,7 @@ This is the single source of truth. Every number listed here must be read from c
   - send them to the server in a POST body
   - keep them only in an encrypted, httpOnly, **session-only** cookie (no Expires or Max-Age)
   - never put them in a URL, localStorage or logs
-  - Parker's own credentials can still come from `.env.local` in development
+  - Parker's own credentials can still come from `.env.local` in development, only with `USE_ENV_COOKIES=1` (Section 0.5)
 - the ESPN connect flow from Section 14 (public link first; for private leagues, ask the commissioner or use cookies)
 - the general scoring rules (Sections 4 and 5) and the model fields added after Checkpoint 0 (`P`, starter limits, roster minimums, best ball, playoff seeding)
 - the Sleeper decisions from Section 2.3 (trade review, position limits, guillotine rejection, best-ball note)
@@ -1167,23 +1244,29 @@ This is the single source of truth. Every number listed here must be read from c
 ### Phase 2 — Projections, lineup solver, market values, needs, League page
 
 **Build**
-- the projection model
-- the lineup solver
+- the projection model, including future injury risk (Section 6, step 3)
+- rest-of-season points shown to users (Section 6, step 7)
+- the lineup solver, with availability scenarios for exact evaluation (Section 7)
 - FantasyCalc values
 - needs, surplus and best trade partners
 - the League page, without playoff odds (those arrive in Phase 3)
+- the FantasyCalc format note in the Import Report (Section 14), deferred from Phase 1
+- the Checkpoint 1 answers: count-stat distributions (Section 5), the PROBABLE status, the `USE_ENV_COOKIES` development default, the crosswalk rules (Section 2.9) and the compact phone picker (Section 14)
 
 **Checkpoint 2 includes**
 - Parker's projected points per week against the rest of the league
+- ROS points and projected points per week for every rostered player in Parker's league
 - the needs and surplus table for every team
-- the FantasyCalc match rate
+- the FantasyCalc has-a-value and ID match rates
 - lineup solver test results
-- timings
+- timings, including the runtime impact of the availability scenarios
+- a before/after example of a bench player's value to his team under expected-value lineups versus scenario lineups
+- every CLAUDE.md section changed since Checkpoint 1
 
 ### Phase 3 — Season simulator
 
 **Build**
-- the season simulator
+- the season simulator, with the weekly team σ adding the spread across availability scenarios (Section 8)
 - playoff and title odds on the League page
 
 **Checkpoint 3 includes**
@@ -1193,7 +1276,7 @@ This is the single source of truth. Every number listed here must be read from c
 
 ### Phase 4 — Trade search, benefit, acceptance, Trade Finder and Analyzer
 
-**Build** includes the three numbers and their sort options (Sections 10 and 13), and the feedback buttons, stored locally with an export and a summary script (Section 11).
+**Build** includes the three numbers and their sort options (Sections 10 and 13), and the feedback buttons, stored locally with an export and a summary script (Section 11). It also refills other teams' completed ESPN trades, which come without their players, from player cards (approved at Checkpoint 1).
 
 **Checkpoint 4 includes**
 - the top 10 trades for Parker's team, with every number and explanation
@@ -1210,6 +1293,7 @@ This is the single source of truth. Every number listed here must be read from c
 - manual import
 - the Yahoo adapter behind `FEATURE_YAHOO`, switched on when approval lands
 - session-only credentials for MFL logins and Yahoo tokens, with the same rules as ESPN in Phase 1
+- the exotic Fleaflicker keeper league's scoring, which stays a regression pin at 86% until then
 
 **Checkpoint 5 includes**
 - the data-checklist matrix for each new platform
@@ -1219,6 +1303,7 @@ This is the single source of truth. Every number listed here must be read from c
 
 **Build**
 - a projection backtest on 2025, comparing Sleeper's 2025 weekly projections (same endpoint, season 2025) with nflverse weekly actuals, to tune α and σ. If the 2025 projections aren't available, tune σ from actuals only and report that α couldn't be tuned.
+- estimates of the injury model's `M_pos` and d from nflverse weekly data (2018–2025) for fantasy-relevant players, replacing the defaults (Section 6)
 - the acceptance sanity check against real Sleeper trades
 - outcome feedback and the refit script
 - error and loading states

@@ -1,0 +1,403 @@
+/**
+ * Market value layer (CLAUDE.md §9; FantasyCalc parameters §2.9; config.market §15): how managers
+ * perceive a trade. Pure and deterministic: no I/O, and every tunable number comes from
+ * config.market.
+ *
+ * FantasyCalc format (§2.9; facts from the Phase 0 captures in reports/probe-output/shared.md):
+ * - numQbs is 2 when a slot takes a QB and another position (SUPER_FLEX, OP) or the league starts two
+ *   or more QB-only slots.
+ * - numTeams: FantasyCalc supports 8, 10, 12 and 14 teams and silently answers any other size with
+ *   its 12-team values, so we request the nearest supported size ourselves (a tie goes to the larger)
+ *   and the Import Report says so ("16 teams → FantasyCalc's 14-team values"; planner reply 1).
+ * - ppr: the nearest of 0, 0.5 and 1 to a WR's points per reception (a tie goes to the larger).
+ * - tep: te+ and te++ change only TE values (median ×1.149 and ×1.29 in the captures), and
+ *   FantasyCalc never says what they mean in points. Our mapping: a TE premium (a TE's minus a WR's
+ *   points per reception) above 0 and under 0.75 → te+, 0.75 or more → te++. The Import Report note
+ *   says the mapping is ours.
+ * - Redraft leagues use redraft values and dynasty leagues dynasty values. Keeper leagues use dynasty
+ *   values for the future term and redraft values for perception (§9), so the server requests both
+ *   formats: MarketInputs.values holds the dynasty values and MarketInputs.redraftValues the redraft
+ *   ones. Perception is what §11's g and the surplus score read.
+ *
+ * Player values v_i (§9; planner reply to Checkpoint 0, answer 7):
+ * - the FantasyCalc value, when FantasyCalc has one (a positive number);
+ * - otherwise, at a position with at least unvaluedCurveMinPlayers valued players, an estimate from
+ *   an isotonic (pool-adjacent-violators, non-decreasing) fit of value against rest-of-season
+ *   points: linear between the fitted points, proportional toward 0 below the lowest one, flat above
+ *   the highest, and capped at the lowest real value at that position. Every fitted value is an
+ *   average of real values, so it is never below the lowest one: the cap binds everywhere from the
+ *   lowest valued player's ROS points up, and only players below that range can get less;
+ * - otherwise (FantasyCalc values too few players there; it has no K, DEF or IDP at all) the floor:
+ *   min(valueFloor, the lowest real value at that position), or valueFloor when none has a value.
+ *   valueFloor = valueFloorFraction × the top value.
+ *
+ * Package value (§9): the side that receives fewer players gets the waiver credit W for each open
+ * roster spot, and g_mkt(X) = (PV_recv − PV_give) / PV_give. config.market.studExponent γ replaces
+ * every value with v^γ, W included (W is a player's value too).
+ */
+import { config } from "./config";
+import type { FantasyCalcFormat, MarketInputs } from "./inputs";
+import type { MarketSummary, ValueSource } from "./leagueModel";
+import type { LeagueSettings, MarketValues, Pos, Scoring, SlotDef } from "./model";
+import { rateFor, ruleApplies } from "./scoring";
+
+/** The config.market keys this module reads, widened so calibration and tests can pass other numbers. */
+export interface MarketConfig {
+  readonly valueFloorFraction: number;
+  readonly waiverCreditMinFraction: number;
+  readonly studExponent: number;
+  readonly unvaluedCurveMinPlayers: number;
+}
+
+/** League sizes FantasyCalc supports (§2.9). Any other size silently gets its 12-team values. */
+export const FANTASYCALC_TEAM_SIZES = [8, 10, 12, 14] as const;
+/** Points per reception FantasyCalc supports (§2.9). */
+export const FANTASYCALC_PPR = [0, 0.5, 1] as const;
+
+/** Tolerance for comparing scoring rates (sums of decimals such as 0.1 + 0.2). */
+const EPS = 1e-9;
+
+/** Which FantasyCalc list a request asks for. */
+export type FantasyCalcMode = "redraft" | "dynasty";
+
+/** §9: perception = how managers value a trade today; future = long-term (dynasty) value. */
+export type ValueTerm = "perception" | "future";
+
+// ---------------------------------------------------------------------------------------------
+// FantasyCalc format (§2.9)
+
+/** The list a league's `values` come from: dynasty for dynasty and keeper leagues (the future term), redraft otherwise. */
+export function defaultFantasyCalcMode(leagueType: LeagueSettings["leagueType"]): FantasyCalcMode {
+  return leagueType === "redraft" ? "redraft" : "dynasty";
+}
+
+/** The option closest to x; a tie goes to the larger option. */
+export function nearestOption<T extends number>(options: readonly T[], x: number): T {
+  let best = options[0] as T;
+  for (const o of options) {
+    const d = Math.abs(o - x);
+    const bestD = Math.abs(best - x);
+    if (d < bestD - EPS || (Math.abs(d - bestD) <= EPS && o > best)) best = o;
+  }
+  return best;
+}
+
+/**
+ * Points for one reception at a position: the reception rate (byPosition replaces perStat, as ESPN's
+ * pointsOverrides do), Sleeper's position bonus key (bonus_rec_te …, a stat of its own that equals
+ * receptions), and any plain unbounded per-unit rule on receptions. The Import Report's per-catch
+ * line counts the same parts.
+ */
+export function receptionRate(scoring: Scoring, pos: Pos): number {
+  let points = rateFor(scoring, "rec", pos) + rateFor(scoring, `bonus_rec_${pos.toLowerCase()}`, pos);
+  for (const rule of scoring.rules) {
+    if (rule.kind === "perUnit" && rule.stat === "rec" && rule.min === undefined && rule.max === undefined && ruleApplies(rule, pos)) points += rule.points;
+  }
+  return points;
+}
+
+/** QB starting spots: whether a slot takes a QB and another position, how many QB-only spots, and the total. */
+function qbSpots(lineup: readonly SlotDef[]): { superflex: boolean; qbOnly: number; total: number } {
+  let superflex = false;
+  let qbOnly = 0;
+  let total = 0;
+  for (const slot of lineup) {
+    if (!(slot.count > 0) || !slot.eligible.includes("QB")) continue;
+    total += slot.count;
+    if (slot.eligible.some((p) => p !== "QB")) superflex = true;
+    else qbOnly += slot.count;
+  }
+  return { superflex, qbOnly, total };
+}
+
+/** A number for a note: at most 3 decimals, no trailing zeros ("0.75", "1"). */
+function fmt(x: number): string {
+  return String(Math.round(x * 1000) / 1000);
+}
+
+function pprWords(ppr: number): string {
+  if (ppr === 1) return "PPR";
+  if (ppr === 0.5) return "half-PPR";
+  if (ppr === 0) return "non-PPR";
+  return `${fmt(ppr)} PPR`;
+}
+
+const tepWords = (tep: "te+" | "te++") => (tep === "te+" ? "TE+" : "TE++");
+
+/**
+ * The FantasyCalc /values/current format for a league (§2.9). `mode` defaults by league type
+ * (defaultFantasyCalcMode); for a keeper league the server also requests mode "redraft", whose values
+ * become MarketInputs.redraftValues (perception, §9). `substitutions` lists, in words for the Import
+ * Report, everywhere the request differs from the league. The size, PPR and TE notes are the same in
+ * both modes, so a caller showing both formats should show them once.
+ */
+export function fantasyCalcFormat(settings: LeagueSettings, mode: FantasyCalcMode = defaultFantasyCalcMode(settings.leagueType)): FantasyCalcFormat {
+  const substitutions: string[] = [];
+
+  if (settings.leagueType === "keeper") {
+    substitutions.push(mode === "dynasty" ? "keeper league → FantasyCalc's dynasty values for long-term worth" : "keeper league → FantasyCalc's redraft values for how managers see a trade this season");
+  } else if (settings.leagueType !== mode) {
+    substitutions.push(`${settings.leagueType} league → FantasyCalc's ${mode} values`);
+  }
+
+  const numTeams = nearestOption(FANTASYCALC_TEAM_SIZES, settings.numTeams);
+  if (numTeams !== settings.numTeams) substitutions.push(`${settings.numTeams} teams → FantasyCalc's ${numTeams}-team values`);
+
+  const qbs = qbSpots(settings.lineup);
+  const numQbs: 1 | 2 = qbs.superflex || qbs.qbOnly >= 2 ? 2 : 1;
+  if (qbs.total > 2) substitutions.push(`${qbs.total} QB starting spots → FantasyCalc's 2-QB values`);
+
+  const wr = receptionRate(settings.scoring, "WR");
+  const ppr = nearestOption(FANTASYCALC_PPR, wr);
+  if (Math.abs(ppr - wr) > EPS) substitutions.push(`${fmt(wr)} points per reception → FantasyCalc's ${pprWords(ppr)} values`);
+  const rb = receptionRate(settings.scoring, "RB");
+  if (Math.abs(rb - wr) > EPS) substitutions.push(`RBs get ${fmt(rb)} points per reception and WRs ${fmt(wr)}; FantasyCalc's values use one rate for both`);
+
+  const premium = receptionRate(settings.scoring, "TE") - wr;
+  let tep: "te+" | "te++" | undefined;
+  if (premium > EPS) {
+    tep = premium < config.market.tepPlusPlusAt - EPS ? "te+" : "te++";
+    substitutions.push(`TE premium +${fmt(premium)} per reception → FantasyCalc's ${tepWords(tep)} values (our mapping: FantasyCalc doesn't define TE+ or TE++ in points)`);
+  } else if (premium < -EPS) {
+    substitutions.push(`TEs get ${fmt(-premium)} fewer points per reception than WRs; FantasyCalc has no setting for that, so TE values assume the WR rate`);
+  }
+
+  return { isDynasty: mode === "dynasty", numQbs, numTeams, ppr, ...(tep ? { tep } : {}), substitutions };
+}
+
+/** "10 teams · half-PPR · 1 QB · redraft", plus " · TE+" or " · TE++" with a TE premium. */
+export function fantasyCalcFormatLabel(f: FantasyCalcFormat): string {
+  const parts = [`${f.numTeams} teams`, pprWords(f.ppr), `${f.numQbs} QB`, f.isDynasty ? "dynasty" : "redraft"];
+  if (f.tep) parts.push(tepWords(f.tep));
+  return parts.join(" · ");
+}
+
+// ---------------------------------------------------------------------------------------------
+// Isotonic curve (§9 "a monotone curve of value against rest-of-season points")
+
+export interface IsotonicCurve {
+  /** Distinct x values, ascending. */
+  xs: number[];
+  /** Fitted values at xs: non-decreasing, each the average of the observed values in its block. */
+  ys: number[];
+}
+
+/**
+ * Least-squares non-decreasing fit (pool adjacent violators). Points sharing an x are pooled first,
+ * so the input order never matters. Non-finite points are ignored.
+ */
+export function isotonicFit(points: ReadonlyArray<{ x: number; y: number }>): IsotonicCurve {
+  const sorted = points.filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y)).sort((a, b) => a.x - b.x || a.y - b.y);
+  const xs: number[] = [];
+  const sums: number[] = [];
+  const weights: number[] = [];
+  for (const p of sorted) {
+    const last = xs.length - 1;
+    if (last >= 0 && xs[last] === p.x) {
+      sums[last] = (sums[last] as number) + p.y;
+      weights[last] = (weights[last] as number) + 1;
+    } else {
+      xs.push(p.x);
+      sums.push(p.y);
+      weights.push(1);
+    }
+  }
+  // Blocks of consecutive xs whose means rise left to right; a new point merges back while it violates.
+  const blockSum: number[] = [];
+  const blockWeight: number[] = [];
+  const blockLength: number[] = [];
+  for (let i = 0; i < xs.length; i++) {
+    let s = sums[i] as number;
+    let w = weights[i] as number;
+    let length = 1;
+    while (blockSum.length > 0) {
+      const j = blockSum.length - 1;
+      // prev mean ≤ this mean ⇔ prevSum·w ≤ s·prevWeight (weights are positive)
+      if ((blockSum[j] as number) * w <= s * (blockWeight[j] as number)) break;
+      s += blockSum.pop() as number;
+      w += blockWeight.pop() as number;
+      length += blockLength.pop() as number;
+    }
+    blockSum.push(s);
+    blockWeight.push(w);
+    blockLength.push(length);
+  }
+  const ys: number[] = [];
+  for (let b = 0; b < blockSum.length; b++) {
+    const mean = (blockSum[b] as number) / (blockWeight[b] as number);
+    for (let k = 0; k < (blockLength[b] as number); k++) ys.push(mean);
+  }
+  return { xs, ys };
+}
+
+/**
+ * The curve at x: linear between fitted points, flat above the last, and proportional toward 0 below
+ * the first (y0 · x / x0; 0 when x0 ≤ 0 or x ≤ 0). An empty curve is 0 everywhere.
+ */
+export function curveValue(curve: IsotonicCurve, x: number): number {
+  const { xs, ys } = curve;
+  const n = xs.length;
+  if (n === 0) return 0;
+  const x0 = xs[0] as number;
+  if (x < x0) return x0 > 0 ? ((ys[0] as number) * Math.max(0, x)) / x0 : 0;
+  if (x >= (xs[n - 1] as number)) return ys[n - 1] as number;
+  let lo = 0; // xs[lo] ≤ x < xs[hi]
+  let hi = n - 1;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if ((xs[mid] as number) <= x) lo = mid;
+    else hi = mid;
+  }
+  const xl = xs[lo] as number;
+  const yl = ys[lo] as number;
+  return yl + ((x - xl) / ((xs[hi] as number) - xl)) * ((ys[hi] as number) - yl);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Player values (§9)
+
+export interface MarketPlayer {
+  readonly id: string;
+  readonly pos: Pos;
+}
+
+/**
+ * The value table and top value for a term (§9). Perception reads MarketInputs.redraftValues when it
+ * holds any value (the server sets it for keeper leagues only), else `values`; the future term always
+ * reads `values`. MarketInputs carries one topValue, the one for `format`, so the perception table's
+ * top is its own largest value: the list's top in practice, since FantasyCalc's top redraft player is
+ * rostered in any league.
+ */
+export function valuesForTerm(market: MarketInputs, term: ValueTerm = "perception"): { values: Readonly<Record<string, number>>; topValue: number } {
+  if (term === "perception" && market.redraftValues) {
+    let top = 0;
+    for (const v of Object.values(market.redraftValues)) if (Number.isFinite(v) && v > top) top = v;
+    if (top > 0) return { values: market.redraftValues, topValue: top };
+  }
+  return { values: market.values, topValue: market.topValue };
+}
+
+/** A FantasyCalc value counts only when it is a positive, finite number. */
+function realValue(v: number | undefined): number | undefined {
+  return v !== undefined && Number.isFinite(v) && v > 0 ? v : undefined;
+}
+
+const finiteOrUndefined = (x: number | undefined): number | undefined => (x !== undefined && Number.isFinite(x) ? x : undefined);
+
+/**
+ * v_i for every player (§9): the FantasyCalc value, else a curve estimate from his rest-of-season
+ * points (`rosPoints`, the ROS total in league points), else the floor (see the file header). The
+ * lowest real value and the curve use the valued players in `players` at the same position (our
+ * position, not FantasyCalc's). A player at a curve position without ROS points gets no estimate and
+ * is left out, as is everyone when there are no market values (FantasyCalc down).
+ *
+ * `term` picks the table (valuesForTerm): perception (the default: the League page, the surplus score
+ * and §11's g) or future (§10's ΔDyn). The two differ only in keeper leagues.
+ */
+export function marketValues(players: readonly MarketPlayer[], rosPoints: Readonly<Record<string, number>>, market: MarketInputs | null, cfg: MarketConfig = config.market, term: ValueTerm = "perception"): MarketValues {
+  const out: MarketValues = {};
+  if (!market) return out;
+  const { values, topValue } = valuesForTerm(market, term);
+  const valueFloor = cfg.valueFloorFraction * (Number.isFinite(topValue) && topValue > 0 ? topValue : 0);
+
+  const byPos = new Map<Pos, { valued: { x: number | undefined; v: number }[]; unvalued: MarketPlayer[] }>();
+  const seen = new Set<string>();
+  for (const p of players) {
+    if (seen.has(p.id)) continue;
+    seen.add(p.id);
+    let group = byPos.get(p.pos);
+    if (!group) byPos.set(p.pos, (group = { valued: [], unvalued: [] }));
+    const v = realValue(values[p.id]);
+    if (v === undefined) {
+      group.unvalued.push(p);
+      continue;
+    }
+    out[p.id] = { value: v, source: "fantasycalc" };
+    group.valued.push({ x: finiteOrUndefined(rosPoints[p.id]), v });
+  }
+
+  for (const group of byPos.values()) {
+    if (group.unvalued.length === 0) continue;
+    let lowest = Number.POSITIVE_INFINITY;
+    for (const { v } of group.valued) if (v < lowest) lowest = v;
+    const points: { x: number; y: number }[] = [];
+    for (const { x, v } of group.valued) if (x !== undefined) points.push({ x, y: v });
+
+    if (points.length < Math.max(1, cfg.unvaluedCurveMinPlayers)) {
+      const floor = Number.isFinite(lowest) ? Math.min(valueFloor, lowest) : valueFloor;
+      for (const p of group.unvalued) out[p.id] = { value: floor, source: "floor" };
+      continue;
+    }
+    const curve = isotonicFit(points);
+    for (const p of group.unvalued) {
+      const x = finiteOrUndefined(rosPoints[p.id]);
+      if (x === undefined) continue; // no ROS points: no estimate can be made
+      out[p.id] = { value: Math.min(lowest, Math.max(0, curveValue(curve, x))), source: "estimate" };
+    }
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Waiver credit and package value (§9)
+
+/** Player id → value, as a plain number or a MarketValues entry. A missing id is worth 0. */
+export type ValueLookup = Readonly<Record<string, number | { readonly value: number } | undefined>>;
+
+function valueOf(entry: number | { readonly value: number } | undefined): number {
+  const v = typeof entry === "number" ? entry : entry?.value;
+  return v !== undefined && Number.isFinite(v) ? v : 0;
+}
+
+/**
+ * W (§9): the value of the best available free agent, at least waiverCreditMinFraction × topValue.
+ * Pass the value table and top value of the term being compared (perception for §11's g).
+ */
+export function waiverCredit(values: ValueLookup, freeAgentIds: readonly string[], topValue: number, cfg: MarketConfig = config.market): number {
+  let best = 0;
+  for (const id of freeAgentIds) {
+    const v = valueOf(values[id]);
+    if (v > best) best = v;
+  }
+  return Math.max(best, cfg.waiverCreditMinFraction * (Number.isFinite(topValue) && topValue > 0 ? topValue : 0));
+}
+
+/** v^γ (config.market.studExponent; γ = 1 is off). Values below 0 count as 0. */
+function studValue(v: number, gamma: number): number {
+  const x = Math.max(0, v);
+  return gamma === 1 ? x : x ** gamma;
+}
+
+/**
+ * PV_recv and PV_give for the side that receives `recv` and gives `give` (§9): the sum of values
+ * (each v^γ), plus W^γ per open roster spot on the side that receives fewer players.
+ */
+export function packageValues(recv: readonly string[], give: readonly string[], values: ValueLookup, W: number, cfg: MarketConfig = config.market): { recv: number; give: number } {
+  const gamma = cfg.studExponent;
+  let pvRecv = 0;
+  for (const id of recv) pvRecv += studValue(valueOf(values[id]), gamma);
+  let pvGive = 0;
+  for (const id of give) pvGive += studValue(valueOf(values[id]), gamma);
+  const credit = studValue(W, gamma);
+  pvRecv += Math.max(0, give.length - recv.length) * credit;
+  pvGive += Math.max(0, recv.length - give.length) * credit;
+  return { recv: pvRecv, give: pvGive };
+}
+
+/**
+ * g_mkt for the side that receives `recv` and gives `give` (§9): (PV_recv − PV_give) / PV_give, as a
+ * fraction (+0.04 = +4%). For my side pass (what I get, what I give); for the partner, swap them.
+ * A side that gives nothing of value gains +Infinity when it receives something, else 0.
+ */
+export function marketGain(recv: readonly string[], give: readonly string[], values: ValueLookup, W: number, cfg: MarketConfig = config.market): number {
+  const pv = packageValues(recv, give, values, W, cfg);
+  if (pv.give > 0) return (pv.recv - pv.give) / pv.give;
+  return pv.recv > 0 ? Number.POSITIVE_INFINITY : 0;
+}
+
+/** The League page's market summary: the format, W, the top value and players by value source (an id without a value counts as "none"). */
+export function marketSummary(playerIds: readonly string[], values: MarketValues, market: MarketInputs | null, W: number): MarketSummary {
+  const counts: Record<ValueSource | "none", number> = { fantasycalc: 0, estimate: 0, floor: 0, none: 0 };
+  for (const id of new Set(playerIds)) counts[values[id]?.source ?? "none"] += 1;
+  return { format: market?.format ?? null, waiverCredit: market ? W : 0, topValue: market?.topValue ?? 0, counts };
+}

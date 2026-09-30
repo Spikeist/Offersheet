@@ -1,9 +1,9 @@
 /**
  * Human labels for the normalized model (pure, client-safe): platforms, league types, trade review,
- * positions and canonical (Sleeper) stat keys (CLAUDE.md §5). Unknown stat keys get a readable
- * fallback built from the key's parts, so a new key never shows up blank.
+ * positions, injury statuses (CLAUDE.md §6 step 3) and canonical (Sleeper) stat keys (§5). Unknown
+ * stat keys get a readable fallback built from the key's parts, so a new key never shows up blank.
  */
-import type { LeagueSettings, Platform, Pos } from "@/engine/model";
+import type { InjuryStatus, LeagueSettings, Platform, Pos } from "@/engine/model";
 
 export const PLATFORM_LABEL: Record<Platform, string> = {
   espn: "ESPN",
@@ -32,6 +32,22 @@ export function posLabel(pos: Pos, platform?: Platform): string {
   if (pos === "DEF") return platform === "espn" ? "D/ST" : "DEF";
   return pos;
 }
+
+/**
+ * Injury status badges for roster tables (CLAUDE.md §6 step 3): a short tag and the words behind it.
+ * ACTIVE (healthy) has no badge. PROBABLE is ESPN's own status (planner reply to Checkpoint 1).
+ */
+export const INJURY_LABEL: Record<InjuryStatus, { short: string; long: string } | null> = {
+  ACTIVE: null,
+  PROBABLE: { short: "P", long: "Probable" },
+  QUESTIONABLE: { short: "Q", long: "Questionable" },
+  DOUBTFUL: { short: "D", long: "Doubtful" },
+  OUT: { short: "O", long: "Out" },
+  IR: { short: "IR", long: "Injured reserve" },
+  PUP: { short: "PUP", long: "Physically unable to perform" },
+  SUSPENDED: { short: "SUS", long: "Suspended" },
+  NA: { short: "NA", long: "Not an active NFL player" },
+};
 
 const STAT_LABELS: Record<string, string> = {
   gp: "Games played",

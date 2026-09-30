@@ -27,6 +27,21 @@
   --danger-line: #f2b3b1;
   --ok-bg: #e3f5ec;
   --ok-fg: #0a5534;
+  /*
+   * League page strength heatmap: a diverging blue ↔ gray ↔ red scale (not green ↔ red, which
+   * red-green colorblind readers can't tell apart), a fill and an ink per step. Ink contrast:
+   * strong 6.6, above 8.2, average 15.0, below 7.9, weak 7.0 : 1.
+   */
+  --heat-strong: #1c5cab;
+  --heat-strong-ink: #ffffff;
+  --heat-above: #86b6ef;
+  --heat-above-ink: #0f1b2d;
+  --heat-average: #f0efec;
+  --heat-average-ink: #0f1b2d;
+  --heat-below: #ea9a93;
+  --heat-below-ink: #0f1b2d;
+  --heat-weak: #9e3432;
+  --heat-weak-ink: #ffffff;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -52,6 +67,17 @@
     --danger-line: #5f2323;
     --ok-bg: #0f2d1f;
     --ok-fg: #86e2b3;
+    /* Heatmap, dark. Ink contrast: strong 5.2, above 6.8, average 9.8, below 7.2, weak 4.9 : 1. */
+    --heat-strong: #3987e5;
+    --heat-strong-ink: #0a111e;
+    --heat-above: #184f95;
+    --heat-above-ink: #e5ebf3;
+    --heat-average: #383835;
+    --heat-average-ink: #e5ebf3;
+    --heat-below: #892b2a;
+    --heat-below-ink: #e5ebf3;
+    --heat-weak: #d75853;
+    --heat-weak-ink: #0a111e;
   }
 }
 
@@ -77,6 +103,16 @@
   --color-danger-line: var(--danger-line);
   --color-ok-bg: var(--ok-bg);
   --color-ok-fg: var(--ok-fg);
+  --color-heat-strong: var(--heat-strong);
+  --color-heat-strong-ink: var(--heat-strong-ink);
+  --color-heat-above: var(--heat-above);
+  --color-heat-above-ink: var(--heat-above-ink);
+  --color-heat-average: var(--heat-average);
+  --color-heat-average-ink: var(--heat-average-ink);
+  --color-heat-below: var(--heat-below);
+  --color-heat-below-ink: var(--heat-below-ink);
+  --color-heat-weak: var(--heat-weak);
+  --color-heat-weak-ink: var(--heat-weak-ink);
   --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, "Cascadia Mono", Menlo, Consolas, monospace;
 }
@@ -90,8 +126,8 @@ body {
   color: var(--foreground);
 }
 
-/* Visible keyboard focus everywhere. */
-:where(a, button, input, select, textarea, summary):focus-visible {
+/* Visible keyboard focus everywhere, a scroll region the keyboard can reach (tabindex="0") included. */
+:where(a, button, input, select, textarea, summary, [tabindex="0"]):focus-visible {
   outline: 3px solid var(--accent);
   outline-offset: 2px;
   border-radius: 6px;

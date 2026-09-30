@@ -3,7 +3,8 @@
  *
  * A factory with injected dependencies, so it's tested without the network or the real adapter.
  * ESPN cookies are never part of this request: they come from the sealed session cookie (or, in
- * development only, from .env.local for Parker's own league) and go only to ESPN, via the adapter.
+ * development only, with USE_ENV_COOKIES=1, from .env.local for Parker's own league) and go only to
+ * ESPN, via the adapter.
  * The response says which of the two it was (espnCookieSource), never the values.
  */
 import type { EspnImportRequest, ImportDeps, ImportResult } from "@/adapters/types";

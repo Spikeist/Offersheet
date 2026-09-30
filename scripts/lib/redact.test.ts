@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Scrubber } from "./redact";
+import { Scrubber, scrubKeeping } from "./redact";
 
 describe("Scrubber", () => {
   it("replaces a SWID in every common spelling", () => {
@@ -39,5 +39,17 @@ describe("Scrubber", () => {
     const s = new Scrubber();
     s.add("123456789", "[ID]");
     expect(s.scrubDeep({ id: 123456789, url: "x/123456789", "123456789": true, n: 42 })).toEqual({ id: "[ID]", url: "x/[ID]", "[ID]": true, n: 42 });
+  });
+});
+
+describe("scrubKeeping (public phrases survive the scrubber)", () => {
+  const scrub = (t: string) => t.replace(/Drake/g, "First 6").replace(/Brown/g, "Last 9");
+  it("keeps whole public phrases, still scrubs the same words elsewhere", () => {
+    const text = "Drake London (WR) and Amon-Ra St. Brown; a note naming Drake Brown the leaguemate.";
+    expect(scrubKeeping(text, ["Drake London", "Amon-Ra St. Brown"], scrub)).toBe("Drake London (WR) and Amon-Ra St. Brown; a note naming First 6 Last 9 the leaguemate.");
+  });
+  it("prefers the longest phrase and ignores tiny ones", () => {
+    expect(scrubKeeping("Chase Brown Jr. and Chase Brown", ["Chase Brown", "Chase Brown Jr.", "Br"], scrub)).toBe("Chase Brown Jr. and Chase Brown");
+    expect(scrubKeeping("Brown", ["Br"], scrub)).toBe("Last 9");
   });
 });

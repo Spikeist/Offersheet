@@ -16,6 +16,8 @@ function textOf(html: string): string {
     .replace(/&#x27;/g, "'")
     .replace(/&quot;/g, '"')
     .replace(/&amp;/g, "&")
+    .replace(/&ldquo;/g, "“")
+    .replace(/&rdquo;/g, "”")
     .replace(/\s+/g, " ");
 }
 
@@ -30,8 +32,10 @@ describe("home page", () => {
     expect(why.match(/Coming soon/g)).toHaveLength(2);
   });
 
-  it("says what's available today, and lists Fantrax (public leagues) as Later", () => {
-    expect(text).toContain("Available now: connect an ESPN or Sleeper league and check what Offer Sheet understood about it. Trade ideas are coming soon.");
+  it("says what's available today, the League page included, and lists Fantrax (public leagues) as Later", () => {
+    expect(text).toContain(
+      "Available now: connect an ESPN or Sleeper league, check what Offer Sheet understood about it, and see every team's needs, surplus and rest-of-season projections on the League page. Trade ideas are coming soon.",
+    );
     expect(text).toMatch(/Fantrax Public leagues only\. Later/);
   });
 });
@@ -39,8 +43,30 @@ describe("home page", () => {
 describe("privacy page", () => {
   const text = textOf(renderToStaticMarkup(createElement(PrivacyPage)));
 
-  it("is dated September 29, 2026", () => {
-    expect(text).toContain("Last updated September 29, 2026");
+  it("is dated September 30, 2026", () => {
+    expect(text).toContain("Last updated September 30, 2026");
+  });
+
+  it("says what the League page keeps and sends: projections in session storage, scored on the server, math in the browser, only the format to FantasyCalc", () => {
+    expect(text).toContain("Your imported league, and the League page's projections for it, live in this browser tab and are gone when you close it.");
+    expect(text).toContain("Our server fetches the data and scores each player's projections with your league's rules. The League page's math (lineups, needs, trade partners) runs in your browser.");
+    expect(text).toContain("and scores the projections with your league's scoring rules.");
+    expect(text).toContain("under “offersheet:model:v1”, for the league you imported");
+    expect(text).toContain("The FantasyCalc request carries only your league's format");
+    expect(text).toContain("player lists, projections and stats, FantasyCalc trade values, player ID maps and the NFL schedule");
+    // The server does more than fetch (src/server/modelInputs.ts scores projections with the league's rules).
+    expect(text).not.toContain("Our server only fetches the data");
+  });
+
+  it("says exactly what the Sleeper requests carry: they're shaped by the league's season length and lineup (src/server/modelInputs.ts), never by names or IDs", () => {
+    expect(text).toContain(
+      "Sleeper's projection and stats requests carry only the season, week numbers up to your league's last playoff week, and the positions your league starts (for example, whether it uses a kicker or IDP).",
+    );
+    expect(text).toContain(
+      "They never carry names or IDs. The other requests (player lists, player ID maps and the NFL schedule) don't depend on your league at all (the schedule only on the season), so nothing about you or your league is sent with them.",
+    );
+    expect(text).not.toContain("aren't about any league.");
+    expect(text).not.toMatch(/Nothing about you or your league is sent with the other requests/);
   });
 
   it("says how long each kind of data is kept, and that it's then deleted", () => {

@@ -4,12 +4,18 @@
  * as plain text, for checkpoint reports (Checkpoint 1: "the Import Report contents for Parker's
  * leagues").
  *
- *   npm run import:report                 Parker's ESPN league (and Sleeper league, if set) from .env.local
- *   npm run import:report -- --no-cookies     import the ESPN league without the .env.local cookies
- *                                         (the public-link path a leaguemate gets: "pick your team")
+ *   npm run import:report                 Parker's ESPN league (and Sleeper league, if set) from .env.local,
+ *                                         through the public-link path a leaguemate gets ("pick your team")
+ *   npm run import:report -- --cookies    use the .env.local ESPN cookies (also the default when
+ *                                         USE_ENV_COOKIES=1, like `npm run dev`; CLAUDE.md §0.5)
+ *   npm run import:report -- --no-cookies never use the cookies, even with USE_ENV_COOKIES=1
  *   npm run import:report -- --test-leagues   also the pinned public Sleeper test league (no per-team table)
  *   npm run import:report -- --response-out <file>   also save the placeholder-only ESPN import as the
  *                                         sessionStorage record the Import Report page reads (UI checks)
+ *
+ * The report ends with every player ID override in the whole crosswalk (CLAUDE.md §2.9 crosswalk
+ * rules: "log every override"), not just the ones on the imported leagues' players, which the
+ * leagues' own notes list. It names NFL players only.
  *
  * Privacy (CLAUDE.md §0.5, §0.6): team, owner and league names and the league ID are replaced with
  * placeholders BEFORE the report is built, then everything is scrubbed again with the .env.local
@@ -23,6 +29,7 @@ import { dataSourceStamps } from "@/app/api/_lib/respond";
 import { importSleeperLeague } from "@/adapters/sleeper";
 import type { ImportDeps, ImportResult } from "@/adapters/types";
 import { loadPlayerIdResolver } from "@/data";
+import type { CrosswalkConflict, CrosswalkSourceKey, IdSource, SleeperPlayerLite } from "@/data/types";
 import type { LeagueSnapshot } from "@/engine/model";
 import type { ImportResponse } from "@/lib/api";
 import { buildImportReport, type ImportReportView } from "@/lib/importReport";
@@ -32,14 +39,32 @@ import { ROOT, env, loadEnv } from "./lib/env";
 import { redactorFromMap } from "./lib/minimize";
 import { installConsoleScrubber, registerScrubber, scrubEverything } from "./lib/redact";
 
-loadEnv();
-installConsoleScrubber();
+const ID_KIND_LABELS: Readonly<Record<IdSource, string>> = { espn: "ESPN", mfl: "MFL", fleaflicker: "Fleaflicker", yahoo: "Yahoo", fantrax: "Fantrax", sportradar: "Sportradar", gsis: "GSIS" };
+const SOURCE_LABELS: Readonly<Record<CrosswalkSourceKey, string>> = { dynastyProcess: "DynastyProcess", fantasyCalc: "FantasyCalc", sleeper: "Sleeper DB" };
 
-const withTestLeagues = process.argv.includes("--test-leagues");
-const noCookies = process.argv.includes("--no-cookies");
-const responseOutIndex = process.argv.indexOf("--response-out");
-const responseOut = responseOutIndex > 0 ? process.argv[responseOutIndex + 1] : undefined;
-const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+/**
+ * The crosswalk's "same player" overrides (PlayerIdCrosswalk.overrides()) as a report section: the
+ * count, then one line per platform id with the player (from his chosen Sleeper record: an NFL
+ * player's name, position and team), each source's Sleeper id and what matched. Pure.
+ */
+export function renderOverrides(overrides: readonly CrosswalkConflict[], playerOf: (sleeperId: string) => SleeperPlayerLite | undefined): string {
+  const n = overrides.length;
+  const L = [
+    "## Player ID overrides (the whole crosswalk)",
+    "",
+    `${n === 1 ? "1 platform id" : `${n} platform ids`} where a lower-priority ID source's Sleeper id replaced the top source's (CLAUDE.md §2.9: the top source's id isn't an active fantasy player, and the other is an active player whose name and position, plus NFL team or GSIS id, match the top source's row). Each import notes the ones on its league's players; this lists all of them.`,
+    "",
+  ];
+  for (const c of overrides) {
+    const p = playerOf(c.chosen);
+    const who = p ? `${p.name} (${[p.position, p.team].filter(Boolean).join(", ")})` : `Sleeper id ${c.chosen}`;
+    const links = c.options.map((o) => `${o.from.map((f) => SOURCE_LABELS[f]).join(" + ")} → ${o.sleeperId}${o.active ? "" : " (not an active fantasy player)"}`).join("; ");
+    const by = c.sameBy?.length ? c.sameBy.map((b) => (b === "team" ? "NFL team" : "GSIS id")).join(" and ") : "NFL team or GSIS id";
+    L.push(`- ${who}, ${ID_KIND_LABELS[c.source]} id ${c.platformId}: ${links}. Using ${c.chosen} (same name, position and ${by}).`);
+  }
+  if (!n) L.push("- none");
+  return `${L.join("\n")}\n`;
+}
 
 /** Replace every identifying name with a placeholder, before anything is rendered. */
 function placeholders(result: ImportResult, label: string): ImportResponse {
@@ -80,6 +105,7 @@ function render(view: ImportReportView, heading: string, opts: { aggregatesOnly?
   const se = view.season;
   L.push("**Season and playoffs**", "", `- Regular season: ${se.regularSeason}`, `- Playoffs: ${se.playoffs} · ${se.playoffTeams} teams · byes: ${se.byes}${se.rounds ? ` · rounds: ${se.rounds}` : ""}`, `- Seeding: ${se.seeding}`, `- Median game: ${se.medianGame ? "yes" : "no"} · points only: ${se.pointsOnly ? "yes" : "no"} · divisions: ${se.divisions.length || "none"}`, "");
   L.push("**Trades**", "", `- Deadline: ${view.trades.deadline}`, `- Review: ${view.trades.review}`, `- FAAB: ${view.trades.faab}`, "");
+  L.push("**Trade values**", "", `- ${view.values.text}`, "");
   const t = view.teams;
   L.push("**Teams** (names replaced with placeholders)", "", `- ${t.rows.length} teams; your team: ${t.myTeamId ? `Team ${t.myTeamId} (${t.myTeamSource === "platform" ? "found by the platform" : "picked"})` : "not identified: the user picks it"}`);
   if (!opts.aggregatesOnly) {
@@ -96,6 +122,14 @@ function render(view: ImportReportView, heading: string, opts: { aggregatesOnly?
 }
 
 async function main(): Promise<void> {
+  loadEnv();
+  installConsoleScrubber();
+  const withTestLeagues = process.argv.includes("--test-leagues");
+  // Checkpoint 1 answer 6: the public-link path by default; the .env.local cookies only on request.
+  const noCookies = process.argv.includes("--no-cookies") || !(process.argv.includes("--cookies") || env("USE_ENV_COOKIES") === "1");
+  const responseOutIndex = process.argv.indexOf("--response-out");
+  const responseOut = responseOutIndex > 0 ? process.argv[responseOutIndex + 1] : undefined;
+  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
   for (const platform of ["espn", "sleeper"]) registerScrubber(await redactorFromMap(platform));
   const http = createHttpClient({ cache: new FileCache() });
   const started = Date.now();
@@ -138,6 +172,8 @@ async function main(): Promise<void> {
     } else sections.push("## Sleeper\n\nNo pinned public test league (run the Sleeper probe first).\n");
   } else sections.push("## Sleeper\n\nSLEEPER_USERNAME and SLEEPER_LEAGUE_ID are blank in .env.local, so Parker has no Sleeper league to import. The Sleeper adapter is tested on the public test league's minimized fixtures; `-- --test-leagues` also imports that league live.\n");
 
+  sections.push(renderOverrides(resolver.overrides(), (id) => resolver.sleeperPlayer(id)));
+
   const doc = [
     "# Import Report contents",
     "",
@@ -150,7 +186,11 @@ async function main(): Promise<void> {
   console.log(safe);
 }
 
-main().catch((err: unknown) => {
-  console.error(err instanceof Error ? `${err.name}: ${err.message}` : String(err));
-  process.exit(1);
-});
+// Run only as a script (`npm run import:report`), so renderOverrides can be imported without side effects.
+const isMain = process.argv[1] !== undefined && /import-report\.ts$/.test(process.argv[1]);
+if (isMain) {
+  main().catch((err: unknown) => {
+    console.error(err instanceof Error ? `${err.name}: ${err.message}` : String(err));
+    process.exit(1);
+  });
+}

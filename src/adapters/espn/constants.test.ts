@@ -125,6 +125,7 @@ describe("positions and slots → Pos", () => {
   it("maps injury statuses per the planner (DAY_TO_DAY → QUESTIONABLE; unknown → healthy, flagged)", () => {
     expect(mapInjury("INJURY_RESERVE")).toEqual({ injury: "IR", known: true });
     expect(mapInjury("DAY_TO_DAY")).toEqual({ injury: "QUESTIONABLE", known: true });
+    expect(mapInjury("PROBABLE")).toEqual({ injury: "PROBABLE", known: true }); // Checkpoint 1 answer 5
     expect(mapInjury("SUSPENSION")).toEqual({ injury: "SUSPENDED", known: true });
     expect(mapInjury(undefined)).toEqual({ injury: "ACTIVE", known: true });
     // "NA" means "not an active NFL player" in the model; an unknown ESPN status doesn't say that.

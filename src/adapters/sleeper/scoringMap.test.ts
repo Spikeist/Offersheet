@@ -158,10 +158,11 @@ describe("flag == rule(raw) on committed public /stats rows", () => {
     expect(fixture.rows.some((r) => (r.stats.rush_yd ?? 0) + (r.stats.rec_yd ?? 0) >= 200 && r.stats.bonus_rush_rec_yd_200 === 1 && !r.stats.bonus_rush_rec_yd_100)).toBe(true);
   });
 
-  it("leaves only these flags unchecked on the side where they fire (no such game in weeks 1–3: ⚠️)", () => {
+  it("leaves only these flags unchecked on the side where they fire (no such game in weeks 1–3)", () => {
     // No player had 200 rushing or receiving yards, no defense a shutout or under 100 yards allowed
-    // (COMP-16): for these keys only "doesn't fire" is verified, and the rec_yd / rush_yd 200 tiers'
-    // exclusivity is inferred from the key pattern. Any other key must fire somewhere.
+    // (COMP-16): for these keys only "doesn't fire" is verified in the data. The rec_yd / rush_yd 200
+    // tiers' exclusivity is documented by Sleeper ("The yard ranges are strict and do not stack",
+    // support.sleeper.com/en/articles/3998131). Any other key must fire somewhere.
     const neverFired = keys.filter((k) => !fixture.rows.some((r) => r.stats[k]));
     expect(["bonus_rec_yd_200", "bonus_rush_yd_200", "pts_allow_0", "yds_allow_0_100"]).toEqual(expect.arrayContaining(neverFired));
   });

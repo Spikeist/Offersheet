@@ -7,8 +7,9 @@
  * - TQB ("team QB") maps to QB, with an Import Report warning. HC (head coach) is unmapped.
  * - ESPN's DT/DE share Pos DL and CB/S share Pos DB (Pos has no finer IDP positions).
  * - DAY_TO_DAY → QUESTIONABLE; INJURY_RESERVE → IR; SUSPENSION → SUSPENDED; no status (team
- *   D/ST) → ACTIVE. PROBABLE → QUESTIONABLE follows the Phase 0 proposal (not seen live). A status
- *   we don't know → ACTIVE with an Import Report warning (like the Sleeper adapter).
+ *   D/ST) → ACTIVE. PROBABLE keeps its own status (planner reply to Checkpoint 1, answer 5: 0.95
+ *   availability this week, then 1). A status we don't know → ACTIVE with an Import Report warning
+ *   (like the Sleeper adapter).
  */
 import type { InjuryStatus, Pos } from "@/engine/model";
 import { ESPN_DEFAULT_POSITIONS, ESPN_LINEUP_SLOTS, ESPN_LINEUP_SLOT_IDS } from "./constants";
@@ -135,7 +136,7 @@ const INJURY: Readonly<Record<string, InjuryStatus>> = {
   INJURY_RESERVE: "IR",
   SUSPENSION: "SUSPENDED",
   DAY_TO_DAY: "QUESTIONABLE",
-  PROBABLE: "QUESTIONABLE",
+  PROBABLE: "PROBABLE",
 };
 
 /**

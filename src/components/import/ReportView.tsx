@@ -2,12 +2,14 @@
 /**
  * "Here's what we understood" (CLAUDE.md §14 item 2): lays out the view model. Every word and
  * number comes from buildImportReport(); this file only arranges it for phones (375 px) and up.
+ * The FantasyCalc format sits in "Where this came from" with the "Values: FantasyCalc" link (§2.9).
  */
 import Link from "next/link";
 import { useEffect, useRef } from "react";
 import type { UnknownSetting } from "@/engine/model";
 import { fmtSigned, plural } from "@/lib/format";
 import type { ImportReportView } from "@/lib/importReport";
+import { ValuesCredit } from "../league/ValuesCredit";
 import { Badge, Callout, Card, CardTitle, FOCUS_TARGET, Facts, buttonClass, cx, inputClass } from "../ui";
 
 type ViewProps = { view: ImportReportView };
@@ -78,10 +80,13 @@ function ReportHeader({ view }: ViewProps) {
         {l.bestBall ? <Badge tone="accent">Best ball</Badge> : null}
       </div>
       <p className="mt-4 max-w-2xl text-sm leading-relaxed text-navy-contrast/80">
-        Check that this matches your league. Everything Offer Sheet suggests later is built on these settings. Trade ideas arrive in a later update.
+        Check that this matches your league. Everything Offer Sheet suggests is built on these settings. Trade ideas come in a later update.
       </p>
-      <div className="mt-4">
-        <Link href="/connect" className="inline-flex min-h-10 items-center rounded-xl border border-white/25 px-4 text-sm font-bold hover:bg-white/10">
+      <div className="mt-4 flex flex-wrap gap-2">
+        <Link href="/league" className="inline-flex min-h-11 items-center rounded-xl bg-accent px-4 text-sm font-bold text-navy hover:brightness-95">
+          See your league&apos;s needs and projections{"\u00a0"}→
+        </Link>
+        <Link href="/connect" className="inline-flex min-h-11 items-center rounded-xl border border-white/25 px-4 text-sm font-bold hover:bg-white/10">
           Import another league
         </Link>
       </div>
@@ -445,14 +450,16 @@ function TeamsCard({ view }: ViewProps) {
 }
 
 function WarningsCard({ view }: ViewProps) {
-  const none = !view.warnings.length && !view.notes.length;
+  // The platform's notes, then the trade-value format notes (§14) and the League page's (projection source).
+  const notes = [...new Set([...view.notes, ...view.valueNotes, ...view.modelNotes])];
+  const none = !view.warnings.length && !notes.length;
   return (
     <Card id="warnings">
       <CardTitle eyebrow="Warnings and notes">Anything we weren&apos;t sure about</CardTitle>
       {none ? <Callout tone="ok">No warnings. Everything we read mapped cleanly.</Callout> : null}
-      {view.notes.length ? (
+      {notes.length ? (
         <ul className="mb-3 space-y-2">
-          {view.notes.map((n) => (
+          {notes.map((n) => (
             <li key={n} className="rounded-xl bg-surface-muted px-3 py-2 text-sm">
               {n}
             </li>
@@ -487,7 +494,19 @@ function DataCard({ view, refresh, forget }: ViewProps & { refresh?: RefreshCont
   return (
     <Card>
       <CardTitle eyebrow="Data">Where this came from</CardTitle>
-      <Facts items={view.timestamps.map((t) => ({ label: t.label, value: t.value }))} />
+      <Facts
+        items={[
+          ...view.timestamps.map((t) => ({ label: t.label, value: t.value })),
+          {
+            label: "Trade values",
+            value: (
+              <>
+                {view.values.text} · <ValuesCredit />
+              </>
+            ),
+          },
+        ]}
+      />
       {view.league.cookieNote || forget ? (
         <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
           {view.league.cookieNote ? <p className="text-sm text-muted">{view.league.cookieNote}</p> : null}
@@ -510,7 +529,15 @@ function DataCard({ view, refresh, forget }: ViewProps & { refresh?: RefreshCont
       </p>
       <div className="mt-3 flex flex-wrap items-center gap-2">
         {refresh ? (
-          <button type="button" onClick={refresh.onRefresh} disabled={refresh.refreshing} className={buttonClass("secondary", "sm")}>
+          // aria-disabled, not disabled: a disabled button drops keyboard focus to the page while it works (review UI-9).
+          <button
+            type="button"
+            onClick={() => {
+              if (!refresh.refreshing) refresh.onRefresh();
+            }}
+            aria-disabled={refresh.refreshing || undefined}
+            className={cx(buttonClass("secondary", "sm"), "aria-disabled:cursor-not-allowed aria-disabled:opacity-60")}
+          >
             {refresh.refreshing ? "Refreshing…" : "Refresh league data"}
           </button>
         ) : null}

@@ -4,14 +4,22 @@
  * wording is unit-tested. Time zone is passed in (no clock reads here).
  *
  * The goal: a user can tell at a glance whether we got their league right. So everything shown is
- * read straight from the normalized snapshot; nothing is guessed or back-filled.
+ * read straight from the normalized snapshot; nothing is guessed or back-filled. Two additions come
+ * from Phase 2: the FantasyCalc format the league's trade values use (§2.9, with a note for each
+ * substitution) and, once the League page has loaded this league's model inputs, which projections
+ * are used (§6: ESPN's are averaged with Sleeper's only when the two agree).
  */
+import { config } from "@/engine/config";
+import type { ModelInputs } from "@/engine/inputs";
+import { fantasyCalcFormat, fantasyCalcFormatLabel } from "@/engine/market";
 import { POSITIONS, type ImportWarning, type LeagueSettings, type LeagueSnapshot, type Platform, type Pos, type Scoring, type ScoringRule, type StatExpr, type Team, type UnknownSetting } from "@/engine/model";
+import { espnSleeperAgreement } from "@/engine/projections";
 import { rateFor, ruleApplies } from "@/engine/scoring";
 import type { EspnCookieSource, ImportResponse } from "./api";
 import { fmtNum, fmtPoints, fmtSigned, formatDate, formatDateTime, formatTime, plural, recordText, weeksText } from "./format";
 import type { MyTeamPickSource } from "./importStore";
 import { LEAGUE_TYPE_LABEL, PLATFORM_LABEL, TRADE_REVIEW_LABEL, posLabel, statGroup, statLabel } from "./labels";
+import { resolveMyTeam, type MyTeamSource } from "./myTeam";
 
 /** How a setting the platform doesn't expose (or we couldn't read) is shown (§14 item 2). */
 export const UNKNOWN_SETTING_TEXT = "Unknown — check your league's settings";
@@ -122,7 +130,7 @@ export interface ImportReportView {
      * Where "my team" came from: the platform (ESPN cookies / Sleeper username), the user's pick, the
      * teamId of a pasted ESPN team link (to confirm: ESPN uses such links for every team), or nowhere yet.
      */
-    myTeamSource: "platform" | "you" | "link" | "none";
+    myTeamSource: MyTeamSource;
     /** One sentence for the "Your team" card. */
     explain: string;
   };
@@ -137,7 +145,14 @@ export interface ImportReportView {
   };
   schedule: { matchups: number; weeks: string; missingRegularWeeks: number[]; thisWeek?: string };
   activity: { trades: number; adds: number; drops: number; waivers: number; tradedPicks?: number };
+  /** The platform's notes, passed through. */
   notes: string[];
+  /** FantasyCalc trade values (§2.9): the format(s) requested for this league, in words. */
+  values: { text: string; formats: string[] };
+  /** One note per place the FantasyCalc format differs from the league (§14: "a substituted FantasyCalc format"). */
+  valueNotes: string[];
+  /** From this league's stored model inputs, once the League page has loaded them: the projection source, then the inputs' own notes. */
+  modelNotes: string[];
   warnings: ImportWarning[];
   timestamps: LabeledValue[];
 }
@@ -149,6 +164,8 @@ export interface ReportOptions {
   myTeamId?: string | null;
   /** Where the stored pick came from (default "you"). */
   myTeamSource?: MyTeamPickSource;
+  /** This league's model inputs, stored by the League page (sessionStorage), for the projection-source note. */
+  model?: ModelInputs | null;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -575,22 +592,6 @@ function buildSchedule(snapshot: LeagueSnapshot, myTeamId: string | null, teamNa
 
 // ---------------------------------------------------------------------------------------------
 
-type MyTeamSource = ImportReportView["teams"]["myTeamSource"];
-
-/**
- * "My team": the user's own pick beats the platform's; the platform's (a cookie SWID or Sleeper
- * username match) beats a team taken from a pasted link, which is only a guess to confirm.
- */
-function resolveMyTeam(snapshot: LeagueSnapshot, opts: ReportOptions, isTeam: (id: string) => boolean): { myTeamId: string | null; source: MyTeamSource } {
-  const picked = opts.myTeamId && isTeam(opts.myTeamId) ? opts.myTeamId : null;
-  const pickSource = opts.myTeamSource ?? "you";
-  const fromPlatform = snapshot.myTeamId && isTeam(snapshot.myTeamId) ? snapshot.myTeamId : null;
-  if (picked && pickSource === "you" && picked !== fromPlatform) return { myTeamId: picked, source: "you" };
-  if (fromPlatform) return { myTeamId: fromPlatform, source: "platform" };
-  if (picked) return { myTeamId: picked, source: pickSource };
-  return { myTeamId: null, source: "none" };
-}
-
 function myTeamExplain(source: MyTeamSource, platformLabel: string): string {
   switch (source) {
     case "platform":
@@ -613,8 +614,62 @@ const MY_TEAM_DETAIL: Record<MyTeamSource, (platformLabel: string) => string> = 
 
 function cookieNote(response: ImportResponse): { note?: string; canForget: boolean } {
   if (!response.usedEspnCookies) return { canForget: false };
-  if (response.espnCookieSource === "dev-env") return { note: "Imported with ESPN cookies from .env.local (development only).", canForget: false };
+  if (response.espnCookieSource === "dev-env") return { note: "Imported with ESPN cookies from .env.local (USE_ENV_COOKIES=1, development only).", canForget: false };
   return { note: "Imported with your ESPN cookies from this browser session.", canForget: true };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Trade values and projections (Phase 2)
+
+/**
+ * The FantasyCalc format(s) for this league (§2.9). Keeper leagues use two: dynasty values for
+ * long-term worth and redraft values for how managers see a trade (§9); their size, PPR and TE
+ * notes are the same, so each note is listed once.
+ */
+function tradeValues(settings: LeagueSettings): { values: ImportReportView["values"]; notes: string[] } {
+  const formats = settings.leagueType === "keeper" ? [fantasyCalcFormat(settings, "dynasty"), fantasyCalcFormat(settings, "redraft")] : [fantasyCalcFormat(settings)];
+  const labels = formats.map(fantasyCalcFormatLabel);
+  const text = `FantasyCalc · ${labels[0] ?? ""}${labels.length > 1 ? " (long-term), plus redraft values for this season" : ""}`;
+  const notes = [...new Set(formats.flatMap((f) => f.substitutions))].map((sub) => `Trade values: ${sub}.`);
+  return { values: { text, formats: labels }, notes };
+}
+
+const pct = (x: number) => `${Math.round(x * 100)}%`;
+
+/**
+ * Which projections the League page uses (§6): Sleeper's × league scoring; in ESPN leagues averaged
+ * with ESPN's own league-scored projections only when the two agree within
+ * config.projections.espnSleeperAgreement on average over rostered players in the inputs' week
+ * (the engine's espnSleeperAgreement: the same test the League model runs).
+ */
+function projectionNote(snapshot: LeagueSnapshot, model: ModelInputs): string | null {
+  if (model.currentWeek > model.lastWeek) return null; // the season is over: nothing is projected
+  const sleeperOnly = "Projection source: Sleeper's projections, scored with your league's rules";
+  const hasSleeper = Object.values(model.players).some((p) => Object.values(p.sleeper).some((v) => v !== null && v !== undefined));
+  if (!hasSleeper) {
+    // Review PERF-3: name the source that actually loaded.
+    if (snapshot.platform === "espn" && model.espnProjections) return "Projection source: ESPN's own league-scored projections. Sleeper's didn't load, so they aren't averaged in.";
+    if (Object.values(model.players).some((p) => typeof p.sleeperSeasonPerGame === "number")) return "Projection source: Sleeper's season projections per game, scored with your league's rules (its weekly projections didn't load).";
+    return "Projections didn't load from Sleeper, so players are rated on their season so far.";
+  }
+  if (snapshot.platform !== "espn") return `${sleeperOnly}.`;
+  if (!model.espnProjections) return `${sleeperOnly}. ESPN's own projections didn't load, so they aren't averaged in.`;
+  const rostered = snapshot.teams.flatMap((t) => [...t.roster, ...t.ir, ...t.taxi]);
+  const { agree, agreement } = espnSleeperAgreement(rostered, model.players, model.currentWeek);
+  const limit = pct(config.projections.espnSleeperAgreement);
+  if (!agreement) return `${sleeperOnly}. No rostered player had both ESPN's and Sleeper's projection in week ${model.currentWeek}, so they aren't averaged.`;
+  const measured = `in week ${agreement.week} (${plural(agreement.players, "rostered player")})`;
+  if (agree) return `Projection source: ESPN's and Sleeper's projections, averaged. They differ by ${pct(agreement.meanRelDiff)} on average ${measured}, within the ${limit} we allow.`;
+  return `${sleeperOnly}. ESPN's own projections differ from them by ${pct(agreement.meanRelDiff)} on average ${measured}, more than the ${limit} we allow, so we don't average them in.`;
+}
+
+/** The projection-source note, then the inputs' own notes minus what the "Trade values" row and its notes already say. */
+function modelNotes(snapshot: LeagueSnapshot, model: ModelInputs | null | undefined, values: ImportReportView["values"], valueNotes: readonly string[]): string[] {
+  if (!model) return [];
+  const said = [...values.formats, ...valueNotes.map((n) => n.replace(/^Trade values: /, "").replace(/[.]$/, ""))].filter(Boolean);
+  const own = model.notes.filter((n) => !said.some((s) => n.includes(s)));
+  const source = projectionNote(snapshot, model);
+  return [...new Set([...(source ? [source] : []), ...own])];
 }
 
 export function buildImportReport(response: ImportResponse, opts: ReportOptions): ImportReportView {
@@ -624,7 +679,8 @@ export function buildImportReport(response: ImportResponse, opts: ReportOptions)
   const teamById = new Map(snapshot.teams.map((t) => [t.id, t]));
   const teamName = (id: string) => teamById.get(id)?.name ?? `Team ${id}`;
 
-  const { myTeamId, source: myTeamSource } = resolveMyTeam(snapshot, opts, (id) => teamById.has(id));
+  // "My team" (src/lib/myTeam.ts, shared with the League page): the user's own pick beats the platform's, which beats a link guess.
+  const { myTeamId, source: myTeamSource } = resolveMyTeam(snapshot, { teamId: opts.myTeamId ?? null, ...(opts.myTeamSource ? { source: opts.myTeamSource } : {}) });
   const fromPlatform = snapshot.myTeamId && teamById.has(snapshot.myTeamId) ? snapshot.myTeamId : null;
 
   const unknownSet = new Set(settings.unknownSettings ?? []);
@@ -635,6 +691,7 @@ export function buildImportReport(response: ImportResponse, opts: ReportOptions)
 
   const hasDefSlot = settings.lineup.some((s) => s.eligible.includes("DEF"));
   const scoring = buildScoring(settings, platform, hasDefSlot);
+  const market = tradeValues(settings);
   const lineup = buildLineup(settings, platform);
   const season = buildSeason(snapshot, teamName, unknownSet);
   const players = buildPlayers(snapshot);
@@ -757,6 +814,9 @@ export function buildImportReport(response: ImportResponse, opts: ReportOptions)
     schedule: buildSchedule(snapshot, myTeamId, teamName),
     activity,
     notes: response.notes,
+    values: market.values,
+    valueNotes: market.notes,
+    modelNotes: modelNotes(snapshot, opts.model, market.values, market.notes),
     warnings,
     timestamps,
   };

@@ -46,11 +46,13 @@ export const ENV_VARS = [
   "YAHOO_AUTH_CODE",
   "YAHOO_REFRESH_TOKEN",
   "SESSION_SECRET",
+  // Not a secret (CLAUDE.md §0.5): 1 = development imports Parker's ESPN league with the .env.local cookies.
+  "USE_ENV_COOKIES",
 ] as const;
 export type EnvVar = (typeof ENV_VARS)[number];
 
 /** Variables whose values must never appear in any output (secrets, private IDs, usernames). */
-export const SENSITIVE_ENV_VARS: readonly EnvVar[] = ENV_VARS.filter((v) => v !== "ESPN_SEASON");
+export const SENSITIVE_ENV_VARS: readonly EnvVar[] = ENV_VARS.filter((v) => v !== "ESPN_SEASON" && v !== "USE_ENV_COOKIES");
 
 let loaded = false;
 export function loadEnv(): void {

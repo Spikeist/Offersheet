@@ -70,7 +70,7 @@ export const DERIVATIONS: readonly Derivation[] = [
   {
     test: /^bonus_(pass|rush|rec|rush_rec)_yd_\d+p?$|^bonus_pass_cmp_\d+|^bonus_rush_att_\d+|^bonus_(sack_2p|tkl_10p)$|^idp_pass_def_3p$/,
     kind: "expected-value",
-    how: "§5 threshold bonus: P(stat ≥ threshold) under Normal(mean = projected stat, sd = bonusCv × mean) × points",
+    how: "§5 threshold bonus: P(stat ≥ threshold) × points under the stat's distribution (yardage: Normal(mean = projected stat, measured SD model), floored at 0; counts: Poisson(mean = projected stat))",
   },
   { test: /^bonus_fd_(qb|rb|wr|te)$/, kind: "derive", how: "projected rush_fd + rec_fd (+ pass_fd for QBs) of players at that position" },
   { test: /^bonus_rec_(qb|rb|wr|te)$/, kind: "derive", how: "projected rec of players at that position" },

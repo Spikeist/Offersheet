@@ -25,6 +25,8 @@ const sleeperUsername = z.string().transform((v, ctx) => {
   if (!name) ctx.addIssue({ code: "custom", message: SLEEPER_USERNAME_INVALID });
   return name ?? "";
 });
+/** An optional username (trimmed, without a leading @); a blank one counts as not given. */
+const optionalSleeperUsername = z.preprocess(blankToUndefined, sleeperUsername.optional());
 
 const sleeperLeagueId = z.coerce.string().transform((v, ctx) => {
   const parsed = parseSleeperLeagueInput(v);
@@ -36,12 +38,31 @@ const sleeperLeagueId = z.coerce.string().transform((v, ctx) => {
 export const sleeperImportBodySchema = z
   .object({
     season: seasonField,
-    username: z.preprocess(blankToUndefined, sleeperUsername.optional()),
+    username: optionalSleeperUsername,
     leagueId: z.preprocess(blankToUndefined, sleeperLeagueId.optional()),
     chooseLeagueId: z.preprocess(blankToUndefined, z.coerce.string().trim().regex(/^\d{5,25}$/, "Pick one of your leagues.").optional()),
     refresh: refreshField,
   })
   .refine((b) => Boolean(b.username) || Boolean(b.leagueId), { message: "Enter your Sleeper username or a league ID." });
+
+/**
+ * POST /api/model/espn (src/lib/api.ts EspnModelBody): the import's league ID, season and Refresh.
+ * The League page never sends a team; a myTeamId in the body is ignored like any unknown field.
+ */
+export const espnModelBodySchema = espnImportBodySchema.pick({ leagueId: true, season: true, refresh: true });
+
+/**
+ * POST /api/model/sleeper (SleeperModelBody): the league ID is required here (the League page sends
+ * the imported league's), with the Connect page's checks and messages; a missing one reads as blank.
+ * The username the league was imported with is optional, checked as on the import route: with it the
+ * re-import finds the user's team, as the import did.
+ */
+export const sleeperModelBodySchema = z.object({
+  season: seasonField,
+  leagueId: z.preprocess((v) => blankToUndefined(v) ?? "", sleeperLeagueId),
+  username: optionalSleeperUsername,
+  refresh: refreshField,
+});
 
 /** Raw strings only; src/lib/espnCredentials.ts does the real checks (and the same ones in the browser). */
 export const espnSessionBodySchema = z.object({

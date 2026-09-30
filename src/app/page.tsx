@@ -91,7 +91,8 @@ export default function Home() {
           ))}
         </ul>
         <p className="mt-4 max-w-2xl text-sm leading-relaxed text-navy-contrast/85">
-          Available now: connect an ESPN or Sleeper league and check what Offer Sheet understood about it. Trade ideas are coming soon.
+          Available now: connect an ESPN or Sleeper league, check what Offer Sheet understood about it, and see every team&apos;s needs, surplus and rest-of-season
+          projections on the League page. Trade ideas are coming soon.
         </p>
       </section>
 

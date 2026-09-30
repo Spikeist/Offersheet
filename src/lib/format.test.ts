@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fmtNum, fmtPoints, fmtSigned, formatDate, formatDateTime, formatTime, plural, recordText, weekRuns, weeksText } from "./format";
+import { fmtNum, fmtPoints, fmtSigned, fmtWhole, formatDate, formatDateTime, formatShortDateTime, formatTime, plural, recordText, weekRuns, weeksText } from "./format";
 import { statLabel } from "./labels";
 
 describe("number formatting", () => {
@@ -10,6 +10,33 @@ describe("number formatting", () => {
     expect(fmtNum(-2)).toBe("−2");
     expect(fmtNum(-0.001)).toBe("0");
     expect(fmtNum(123.456, 1)).toBe("123.5");
+    expect(fmtNum(100, 2)).toBe("100");
+    expect(fmtNum(10.1, 2)).toBe("10.1");
+    expect(fmtNum(1210.25, 1)).toBe("1210.3");
+  });
+
+  it("strips zeros only after a decimal point, so whole numbers keep theirs (maxDecimals 0)", () => {
+    expect(fmtNum(110, 0)).toBe("110");
+    expect(fmtNum(0, 0)).toBe("0");
+    expect(fmtNum(100.4, 0)).toBe("100");
+    expect(fmtNum(99.5, 0)).toBe("100");
+    expect(fmtNum(-20, 0)).toBe("−20");
+    expect(fmtNum(-0.4, 0)).toBe("0");
+    expect(fmtNum(0, 2)).toBe("0");
+    expect(fmtNum(Number.NaN)).toBe("NaN");
+    expect(fmtSigned(10, 0)).toBe("+10");
+    expect(fmtPoints(10, 0)).toBe("10 pts");
+  });
+
+  it("prints whole numbers with thousands separators and a real minus sign", () => {
+    expect(fmtWhole(7342)).toBe("7,342");
+    expect(fmtWhole(110)).toBe("110");
+    expect(fmtWhole(1479.6)).toBe("1,480");
+    expect(fmtWhole(0)).toBe("0");
+    expect(fmtWhole(-0.4)).toBe("0");
+    expect(fmtWhole(-3)).toBe("−3");
+    expect(fmtWhole(-12345.6)).toBe("−12,346");
+    expect(fmtWhole(Number.POSITIVE_INFINITY)).toBe("Infinity");
   });
 
   it("signs bonuses and pluralizes points", () => {
@@ -44,6 +71,23 @@ describe("dates", () => {
     expect(formatDate("not a date", "UTC")).toBe("not a date");
     expect(formatTime("2026-09-30T02:08:00.000Z", "America/Chicago")).toBe("9:08 PM");
     expect(formatTime("not a date", "UTC")).toBe("not a date");
+  });
+
+  it("gives a compact timestamp that always has the date, and the year when it isn't this year", () => {
+    const now = "2026-11-27T12:00:00.000Z";
+    expect(formatShortDateTime("2026-11-26T21:55:00.000Z", "America/Chicago", now)).toBe("Thu, Nov 26, 3:55 PM");
+    // The day is the viewer's own: 9:55 PM UTC is still Thursday, 4:55 AM in Tokyo is Friday.
+    expect(formatShortDateTime("2026-11-26T21:55:00.000Z", "UTC", now)).toBe("Thu, Nov 26, 9:55 PM");
+    expect(formatShortDateTime("2026-11-26T19:55:00.000Z", "Asia/Tokyo", now)).toBe("Fri, Nov 27, 4:55 AM");
+    // A week-old copy says so: never a bare weekday that passes for this week's.
+    expect(formatShortDateTime("2026-11-19T21:55:00.000Z", "America/Chicago", now)).toBe("Thu, Nov 19, 3:55 PM");
+    // Another year (in the viewer's zone), or no "now" to compare with: the year too.
+    expect(formatShortDateTime("2025-12-31T23:30:00.000Z", "America/Chicago", "2026-01-01T12:00:00.000Z")).toBe("Wed, Dec 31, 2025, 5:30 PM");
+    expect(formatShortDateTime("2026-01-01T03:30:00.000Z", "America/Chicago", "2026-01-01T12:00:00.000Z")).toBe("Wed, Dec 31, 2025, 9:30 PM");
+    expect(formatShortDateTime("2026-11-26T21:55:00.000Z", "America/Chicago")).toBe("Thu, Nov 26, 2026, 3:55 PM");
+    expect(formatShortDateTime("2026-11-26T21:55:00.000Z", "America/Chicago", "not a date")).toBe("Thu, Nov 26, 2026, 3:55 PM");
+    expect(formatShortDateTime("not a date", "UTC", now)).toBe("not a date");
+    expect(formatShortDateTime("2026-11-26T21:55:00.000Z", "Not/AZone", now)).toBe("2026-11-26 21:55");
   });
 
   it("formats records", () => {

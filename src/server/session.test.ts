@@ -129,7 +129,7 @@ describe("the ESPN credentials cookie", () => {
 });
 
 describe("development fallback to .env.local", () => {
-  const dev = { NODE_ENV: "development", ESPN_LEAGUE_ID: "4242", ESPN_S2: CREDS.espnS2, ESPN_SWID: CREDS.swid };
+  const dev = { NODE_ENV: "development", USE_ENV_COOKIES: "1", ESPN_LEAGUE_ID: "4242", ESPN_S2: CREDS.espnS2, ESPN_SWID: CREDS.swid };
 
   it("applies only in development, only to the configured league, only with both values", () => {
     expect(devFallbackEspnCredentials("4242", dev)).toEqual(CREDS);
@@ -138,6 +138,10 @@ describe("development fallback to .env.local", () => {
     expect(devFallbackEspnCredentials("4242", { ...dev, NODE_ENV: "production" })).toBeUndefined();
     expect(devFallbackEspnCredentials("4242", { ...dev, NODE_ENV: "test" })).toBeUndefined();
     expect(devFallbackEspnCredentials("4242", { ...dev, ESPN_SWID: "" })).toBeUndefined();
+    // Opt-in only (Checkpoint 1 answer 6): without USE_ENV_COOKIES=1, dev uses the public-link flow.
+    expect(devFallbackEspnCredentials("4242", { ...dev, USE_ENV_COOKIES: undefined })).toBeUndefined();
+    expect(devFallbackEspnCredentials("4242", { ...dev, USE_ENV_COOKIES: "0" })).toBeUndefined();
+    expect(devFallbackEspnCredentials("4242", { ...dev, USE_ENV_COOKIES: "true" })).toBeUndefined();
   });
 
   it("prefers the browser session's cookies over .env.local", async () => {

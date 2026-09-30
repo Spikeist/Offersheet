@@ -21,20 +21,30 @@
  * When sources give one platform id different Sleeper ids, the priority order above decides. (Phase 1
  * review: FantasyCalc gives some retired players' old ESPN ids to active namesakes, e.g. a retired CB's
  * id to an active RB, so preferring the active player picked the wrong man in 8 of 10 ESPN cases.)
- * Two narrow exceptions pick an active Sleeper player over the top source's inactive one:
- * - the top source lists the id twice (its own tie);
- * - a lower source's player is the same person: same name and position, and the same NFL team or
- *   GSIS id. Sleeper then has two records for him and the top source links the stale one (2026-09-29:
- *   an active QB and an active CB; same-position namesakes such as a retired and a rookie RB share
- *   neither team nor GSIS id, so they stay apart).
- * Every conflict is kept in conflicts() and exposed through PlayerIdResolver.conflict(), for adapters
- * to warn about the players in their league.
+ * Two narrow exceptions pick an active Sleeper player when the top source's pick isn't an active
+ * fantasy player (not in Sleeper's fantasy-position lists):
+ * - "active player": the top source lists the id twice (its own tie) and a later option is active;
+ * - "same player", an override (CLAUDE.md §2.9 crosswalk rules, Checkpoint 1 answer 2): a lower
+ *   source links an active player whose Sleeper record matches the top source's own row on name and
+ *   position, plus NFL team or GSIS id. Same-position namesakes such as a retired and a rookie RB
+ *   share neither team nor GSIS id, so they stay apart.
+ * The real overrides (2026-09-30: 5 platform ids, 2 players) fix wrong links in DynastyProcess, not
+ * stale records of the same person: its row for Sam Hartman (QB, WAS) carries Sleeper id 11376, an
+ * offensive lineman (Richard Gouraige), and its row for Chris Jones (CB) carries 2682, an inactive
+ * receiver (Christion Jones). Links no competing source contradicts stay as they are (crosswalk.test.ts
+ * pins them). Every conflict is kept in conflicts(), overrides also in overrides(), and each is exposed
+ * through PlayerIdResolver.conflict() so adapters can note the overrides and warn about the other
+ * conflicts on the players in their league.
+ *
+ * Name matching (matchByName, Checkpoint 1 answer 1) is a last resort for players no source maps:
+ * exact name, position and NFL team, only when exactly one active player fits; never for a player
+ * with no NFL team.
  *
  * Players missing from Sleeper's active lists (retired, unsigned) get DynastyProcess's name and
  * position through sleeperPlayer(): `active: false` only when every Sleeper player list loaded fully,
  * else `active: null` (unknown), so a failed or partial list never labels active players retired.
  */
-import type { IdSource, PlayerIdResolver, SleeperPlayerLite } from "@/data/types";
+import type { CrosswalkConflict, CrosswalkSourceKey, IdSource, PlayerIdResolver, SleeperPlayerLite } from "@/data/types";
 import type { ImportWarning } from "@/engine/model";
 import type { DynastyRow } from "./dynastyProcess";
 import type { FantasyCalcPlayerIds } from "./fantasyCalcPlayers";
@@ -42,7 +52,7 @@ import { normalizeId, type IdKind } from "./ids";
 import { SLEEPER_PLAYER_POSITIONS, toLite, type SleeperPlayerRecord } from "./sleeperPlayers";
 import { buildTeamCodeIndex, cleanTeamCode, SLEEPER_TEAM_CODES, type DerivedTeamAlias, type TeamCodeObservation, type TeamName } from "./teamCodes";
 
-export type CrosswalkSourceKey = "sleeper" | "dynastyProcess" | "fantasyCalc";
+export type { CrosswalkConflict, CrosswalkSourceKey } from "@/data/types";
 
 export const CROSSWALK_SOURCES: readonly { key: CrosswalkSourceKey; name: string }[] = [
   { key: "sleeper", name: "Sleeper players" },
@@ -96,28 +106,14 @@ export interface CrosswalkSourceStatus {
   note?: string;
 }
 
-export interface CrosswalkConflict {
-  source: IdSource;
-  platformId: string;
-  /** Distinct Sleeper ids offered, in priority order, with the sources offering each. */
-  options: { sleeperId: string; from: CrosswalkSourceKey[]; active: boolean }[];
-  chosen: string;
-  /**
-   * "source order": the highest-priority source's id. "active player": that source listed the id
-   * twice, its first option wasn't an active Sleeper player and a later one was. "same player": the
-   * top source's Sleeper id isn't an active player and a lower source's is an active record of the
-   * same person (same name and position, and the same NFL team or GSIS id).
-   */
-  resolvedBy: "active player" | "same player" | "source order";
-  /** One source offered two Sleeper ids (a duplicate inside that source). */
-  withinSource: boolean;
-}
-
 /** PlayerIdResolver plus the details the Import Report and the probes want. */
 export interface PlayerIdCrosswalk extends PlayerIdResolver {
   status(): CrosswalkSourceStatus[];
+  /** Every platform id the sources map to two or more Sleeper ids, across all id kinds. */
   conflicts(): readonly CrosswalkConflict[];
-  /** The conflict behind one platform id, when there was one (adapters turn it into an ImportWarning). */
+  /** The "same player" overrides among conflicts(): a lower-priority source's id replaced the top source's (CLAUDE.md §2.9). */
+  overrides(): readonly CrosswalkConflict[];
+  /** The conflict behind one platform id, when there was one (adapters turn it into a note or an ImportWarning). */
   conflict(source: IdSource, platformId: string): CrosswalkConflict | undefined;
   /** ImportWarnings for sources that were unavailable or only partly loaded. */
   warnings(): ImportWarning[];
@@ -127,8 +123,8 @@ export interface PlayerIdCrosswalk extends PlayerIdResolver {
   teamAliases(): readonly DerivedTeamAlias[];
   /**
    * Fallback for a player no source maps (Phase 0: a few rookie kickers): the Sleeper id of the ONLY
-   * active Sleeper player with this name, position and NFL team, else undefined. Never a first
-   * choice; adapters should add an ImportWarning for players matched this way.
+   * active Sleeper player with this name, position and NFL team, else undefined. A player with no
+   * NFL team never matches. Never a first choice; adapters flag every player matched this way.
    */
   matchByName(query: { name: string; position: string; team: string | null }): string | undefined;
 }
@@ -208,15 +204,19 @@ function pairsFrom(data: CrosswalkData, key: CrosswalkSourceKey, source: MappedS
   return field ? (data.sleeperPlayers ?? []).map((p) => ({ raw: p[field], sleeperId: normalizeId("sleeper", p.id) })) : [];
 }
 
+/** What besides name and position shows a Sleeper record is the person a source row describes. */
+type SameBy = ("team" | "gsis")[];
+
 /**
  * Candidates arrive in priority order (source by source), so each id's options do too.
- * `samePerson(facts, sleeperId)`: the active Sleeper record `sleeperId` is the person a source row describes.
+ * `samePerson(facts, sleeperId)`: how the active Sleeper record `sleeperId` matches the person a
+ * source row describes (see resolverFromData), or undefined when it doesn't.
  */
 function resolveSource(
   source: MappedSource,
   candidates: Candidate[],
   isActive: (sleeperId: string) => boolean,
-  samePerson: (facts: PersonFacts | undefined, sleeperId: string) => boolean,
+  samePerson: (facts: PersonFacts | undefined, sleeperId: string) => SameBy | undefined,
 ): { map: Map<string, string>; conflicts: CrosswalkConflict[] } {
   const groups = new Map<string, Candidate[]>();
   for (const c of candidates) {
@@ -227,7 +227,7 @@ function resolveSource(
   const map = new Map<string, string>();
   const conflicts: CrosswalkConflict[] = [];
   for (const [platformId, list] of groups) {
-    const options: CrosswalkConflict["options"] = [];
+    const options: { sleeperId: string; from: CrosswalkSourceKey[]; active: boolean }[] = [];
     for (const c of list) {
       const o = options.find((x) => x.sleeperId === c.sleeperId);
       if (o) {
@@ -240,23 +240,29 @@ function resolveSource(
       map.set(platformId, first.sleeperId);
       continue;
     }
-    // Across sources the priority order decides; the active player only breaks a tie inside the top
-    // source, or stands in for the top source's stale record of the same person.
+    // Across sources the priority order decides. An active player only breaks a tie inside the top
+    // source, or overrides a top-source pick that isn't an active fantasy player when his Sleeper
+    // record matches the top source's own row (the "same player" rule; often a wrong link in the top source).
     const top = list[0]?.from;
     const topOptions = options.filter((o) => top !== undefined && o.from.includes(top));
     let pick = (topOptions.length > 1 ? topOptions.find((o) => o.active) : undefined) ?? first;
     let resolvedBy: CrosswalkConflict["resolvedBy"] = pick === first ? "source order" : "active player";
+    let sameBy: SameBy | undefined;
     if (!pick.active) {
       const facts = factsOf(list.find((c) => c.sleeperId === pick.sleeperId && c.from === top)?.source);
-      const same = options.find((o) => o.active && samePerson(facts, o.sleeperId));
-      if (same) {
-        pick = same;
+      for (const o of options) {
+        const by = o.active ? samePerson(facts, o.sleeperId) : undefined;
+        if (!by) continue;
+        pick = o;
         resolvedBy = "same player";
+        sameBy = by;
+        break;
       }
     }
     const perSource = new Map<CrosswalkSourceKey, Set<string>>();
     for (const c of list) perSource.set(c.from, (perSource.get(c.from) ?? new Set<string>()).add(c.sleeperId));
-    conflicts.push({ source, platformId, options, chosen: pick.sleeperId, resolvedBy, withinSource: [...perSource.values()].some((s) => s.size > 1) });
+    const withinSource = [...perSource.values()].some((s) => s.size > 1);
+    conflicts.push({ source, platformId, options, chosen: pick.sleeperId, resolvedBy, ...(sameBy ? { sameBy } : {}), withinSource });
     map.set(platformId, pick.sleeperId);
   }
   return { map, conflicts };
@@ -336,14 +342,22 @@ export function resolverFromData(data: CrosswalkData): PlayerIdCrosswalk {
   const teams = buildTeamCodeIndex({ sleeperCodes, teamNames, observations, teamOfPlayer });
 
   // ---- platform id → Sleeper id, per id kind
-  /** The active Sleeper record `sleeperId` is the person a source row describes: same name and position, and the same NFL team or GSIS id. */
-  const samePerson = (facts: PersonFacts | undefined, sleeperId: string): boolean => {
+  /**
+   * The active Sleeper record `sleeperId` is the person a source row describes when the two agree on
+   * name (playerNameKey) and position (fantasy level: CB = S = DB), plus NFL team (a real team on
+   * both) or GSIS id. Returns what matched besides name and position, else undefined.
+   */
+  const samePerson = (facts: PersonFacts | undefined, sleeperId: string): SameBy | undefined => {
     const rec = sleeperById.get(sleeperId);
-    if (!facts || !rec || rec.active !== true || !facts.position || !facts.name) return false;
-    if (playerNameKey(facts.name) !== playerNameKey(rec.name)) return false;
-    if (rec.position !== facts.position && !rec.fantasyPositions.includes(facts.position)) return false;
+    if (!facts || !rec || rec.active !== true || !facts.position) return undefined;
+    const key = playerNameKey(facts.name);
+    if (!key || key !== playerNameKey(rec.name)) return undefined;
+    if (rec.position !== facts.position && !rec.fantasyPositions.includes(facts.position)) return undefined;
     const team = facts.team ? teams.toSleeper(facts.team) : undefined;
-    return (team !== undefined && team === rec.team) || (facts.gsis !== null && facts.gsis === rec.gsisId);
+    const by: SameBy = [];
+    if (team !== undefined && team === rec.team) by.push("team");
+    if (facts.gsis !== null && facts.gsis === rec.gsisId) by.push("gsis");
+    return by.length ? by : undefined;
   };
   const maps = new Map<MappedSource, Map<string, string>>();
   const conflictList: CrosswalkConflict[] = [];
@@ -363,6 +377,7 @@ export function resolverFromData(data: CrosswalkData): PlayerIdCrosswalk {
       conflictIndex.set(`${source}\u0000${c.platformId}`, c);
     }
   }
+  const overrideList = conflictList.filter((c) => c.resolvedBy === "same player");
 
   /** Built on the first matchByName() call. */
   let byName: Map<string, SleeperPlayerRecord[]> | undefined;
@@ -432,6 +447,9 @@ export function resolverFromData(data: CrosswalkData): PlayerIdCrosswalk {
     conflicts() {
       return conflictList;
     },
+    overrides() {
+      return overrideList;
+    },
     conflict(source: IdSource, platformId: string) {
       if (source === "fantrax") return undefined;
       const id = normalizeId(KIND[source], platformId);
@@ -451,14 +469,15 @@ export function resolverFromData(data: CrosswalkData): PlayerIdCrosswalk {
       return teams.derived;
     },
     matchByName(query: { name: string; position: string; team: string | null }): string | undefined {
-      byName ??= indexByName(sleeperById.values());
       const key = playerNameKey(query.name);
       const pos = query.position.trim().toUpperCase();
-      // null, "", "FA" … mean a free agent (Sleeper team null); an unknown code matches nobody.
+      // Name + position + NFL team (Checkpoint 1 answer 1): no team (null, "", "FA" …) never matches,
+      // since a name and position alone don't tell namesakes apart; an unknown code matches nobody.
       const code = cleanTeamCode(query.team);
-      const team = code === null ? null : teams.toSleeper(code);
-      if (!key || team === undefined) return undefined;
-      const found = (byName.get(key) ?? []).filter((p) => p.active && p.team === team && (p.position === pos || p.fantasyPositions.includes(pos)));
+      const team = code === null ? undefined : teams.toSleeper(code);
+      if (!key || !pos || team === undefined) return undefined;
+      byName ??= indexByName(sleeperById.values());
+      const found = (byName.get(key) ?? []).filter((p) => p.active === true && p.team === team && (p.position === pos || p.fantasyPositions.includes(pos)));
       return found.length === 1 ? found[0]?.id : undefined;
     },
   };

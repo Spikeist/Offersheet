@@ -25,8 +25,13 @@
  * - Injury return weeks: kona_playercard injuryDetails.expectedReturnDate → NFL week (weeks.ts).
  * - SWIDs: the fetch step replaced them with pseudonyms (fetch.ts); owners and members are matched
  *   in that form, and ctx.swid is the cookie holder's pseudonym. None reaches the snapshot.
+ * - Player ids (§2.9 "Player ID crosswalk rules", Checkpoint 1 answers 1 and 2): for the players in
+ *   the snapshot (rostered and kept free agents), each crosswalk override ("same player") becomes
+ *   one Import Report note, every name match is named in ESPN_PLAYER_MATCHED_BY_NAME, and the other
+ *   ID conflicts are named in ESPN_ID_CONFLICT. A player is listed only when he keeps the Sleeper id
+ *   (not after a collision, ESPN_ID_COLLISION).
  */
-import type { PlayerIdResolver } from "@/data/types";
+import type { CrosswalkConflict, CrosswalkSourceKey, PlayerIdResolver } from "@/data/types";
 import { config } from "@/engine/config";
 import type { ImportWarning, LeagueSettings, LeagueSnapshot, Matchup, PlayerInfo, Pos, SlotDef, Team, Transaction, UnknownSetting } from "@/engine/model";
 import { ESPN_PRO_TEAMS } from "./constants";
@@ -127,29 +132,61 @@ function rowsOf<T>(responses: unknown[] | undefined, rowsIn: (r: unknown) => unk
 // ---------------------------------------------------------------------------------------------
 // Players
 
+/** A player the Import Report names: "Name (POS, TEAM)" and his ESPN id. */
+interface NamedPlayer {
+  espnId: number;
+  label: string;
+}
+
 interface PlayerMapper {
   info(p: EspnPlayer): PlayerInfo | null;
   /** Canonical id for an ESPN player id seen only in a transaction. */
   idForEspnId(espnId: number): string;
+  /** byName, conflicts and overrides hold a player only when he keeps the Sleeper id (claim() succeeded); collisions hold the ones who don't. */
   skipped: {
     hc: number;
     unknown: Map<number, number>;
     unknownInjury: Map<string, number>;
-    collisions: number;
+    /** Matched a Sleeper id another ESPN player already holds, so they keep their ESPN id. */
+    collisions: NamedPlayer[];
     tqb: number;
-    byName: Array<{ espnId: number; label: string }>;
-    /** ESPN ids the ID sources map to different Sleeper players (resolver.conflict). */
-    conflicts: Array<{ espnId: number; label: string }>;
+    /** Matched by name, position and NFL team (resolver.matchByName): no ID source maps them. */
+    byName: NamedPlayer[];
+    /** ESPN ids the ID sources map to different Sleeper players, resolved by source order or a tie inside one source (resolver.conflict). */
+    conflicts: Array<NamedPlayer & { conflict: CrosswalkConflict }>;
+    /** "Same player" overrides: a lower-priority source's Sleeper id replaced the top source's (one note each). */
+    overrides: Array<NamedPlayer & { conflict: CrosswalkConflict }>;
   };
 }
 
 /** ESPN team defenses have id −(16000 + proTeamId) (Phase 0 E.playerIds; asserted in normalize.test.ts). */
 const DST_ID_BASE = 16000;
 
+/** The ID sources as the Import Report names them. */
+const ID_SOURCE_LABELS: Readonly<Record<CrosswalkSourceKey, string>> = { dynastyProcess: "DynastyProcess", fantasyCalc: "FantasyCalc", sleeper: "Sleeper's player database" };
+
+/** "a", "a and b", "a, b and c". */
+function joinAnd(xs: readonly string[]): string {
+  return xs.length > 1 ? `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}` : (xs[0] ?? "");
+}
+
+/**
+ * The Import Report note for one "same player" override (CLAUDE.md §2.9: log every override): which
+ * sources disagreed, which Sleeper id we use and why.
+ */
+export function idOverrideNote(p: { espnId: number; label: string }, c: CrosswalkConflict): string {
+  const links = c.options.map((o, i) => `${joinAnd(o.from.map((f) => ID_SOURCE_LABELS[f]))} link${o.from.length === 1 ? "s" : ""} ${i === 0 ? "Sleeper id " : ""}${o.sleeperId}`);
+  const top = c.options[0];
+  const topSource = top?.from[0];
+  const matched = c.sameBy?.length ? joinAnd(["name", "position", ...c.sameBy.map((b) => (b === "team" ? "NFL team" : "NFL player ID (GSIS)"))]) : "name and position, plus NFL team or NFL player ID (GSIS),";
+  const why = top && topSource && top.sleeperId !== c.chosen ? `${top.sleeperId} isn't one of Sleeper's active fantasy players, and ${c.chosen} is an active player whose ${matched} match ${ID_SOURCE_LABELS[topSource]}'s record` : "the crosswalk's same-player rule";
+  return `Player IDs: the ID sources disagree on ${p.label}, ESPN id ${p.espnId}: ${links.join("; ")}. We use ${c.chosen}: ${why}.`;
+}
+
 function playerMapper(resolver: PlayerIdResolver, returnWeekOf: (espnId: number) => number | undefined): PlayerMapper {
   const byEspnId = new Map<number, PlayerInfo | null>();
   const owner = new Map<string, number>();
-  const skipped: PlayerMapper["skipped"] = { hc: 0, unknown: new Map(), unknownInjury: new Map(), collisions: 0, tqb: 0, byName: [], conflicts: [] };
+  const skipped: PlayerMapper["skipped"] = { hc: 0, unknown: new Map(), unknownInjury: new Map(), collisions: [], tqb: 0, byName: [], conflicts: [], overrides: [] };
 
   const teamCode = (proTeamId: number): string | null => {
     const abbr = ESPN_PRO_TEAMS[proTeamId];
@@ -164,21 +201,29 @@ function playerMapper(resolver: PlayerIdResolver, returnWeekOf: (espnId: number)
   };
   const canonical = (espnId: number, pos: Pos | null, proTeamId: number, name?: string): { id: string; sleeper?: string } => {
     let sleeper: string | undefined;
+    let byName = false;
+    let conflict: CrosswalkConflict | undefined;
     const abbr = ESPN_PRO_TEAMS[proTeamId];
     const team = abbr && abbr !== "None" ? abbr : null;
     if (pos === "DEF") sleeper = team ? resolver.defenseId(team) : undefined;
     else {
       sleeper = resolver.canonical("espn", String(espnId));
-      if (sleeper && resolver.conflict?.("espn", String(espnId))) skipped.conflicts.push({ espnId, label: `${name ?? `ESPN player ${espnId}`}${pos ? ` (${pos})` : ""}` });
-      // Last resort for a player no ID source maps (a rookie kicker in Phase 1): the only active
-      // player with this exact name, position and NFL team. Every such match is reported.
-      if (!sleeper && name && pos && espnId > 0 && resolver.matchByName) {
+      if (sleeper) conflict = resolver.conflict?.("espn", String(espnId));
+      // Last resort for a player no ID source maps (a rookie kicker in Phase 1): the only active player
+      // with this exact name, position and NFL team (the resolver never matches a player without a team).
+      else if (name && pos && espnId > 0 && resolver.matchByName) {
         sleeper = resolver.matchByName({ name, position: pos, team });
-        if (sleeper) skipped.byName.push({ espnId, label: `${name} (${pos}${team ? `, ${team}` : ""})` });
+        byName = sleeper !== undefined;
       }
     }
-    if (sleeper && claim(sleeper, espnId)) return { id: sleeper, sleeper };
-    if (sleeper) skipped.collisions++;
+    const label = `${name ?? `ESPN player ${espnId}`}${pos ? ` (${pos}${team ? `, ${team}` : ""})` : ""}`;
+    if (sleeper && claim(sleeper, espnId)) {
+      // Recorded only now: after a collision the player keeps his ESPN id, so he isn't matched or overridden.
+      if (byName) skipped.byName.push({ espnId, label });
+      if (conflict) (conflict.resolvedBy === "same player" ? skipped.overrides : skipped.conflicts).push({ espnId, label, conflict });
+      return { id: sleeper, sleeper };
+    }
+    if (sleeper) skipped.collisions.push({ espnId, label });
     const fallback = `espn:${espnId}`;
     claim(fallback, espnId);
     return { id: fallback };
@@ -704,17 +749,33 @@ export function normalizeEspnLeague(raw: EspnRawBundle, ctx: EspnNormalizeContex
   if (sk.hc) warnings.push({ code: "ESPN_HC_UNMAPPED", message: `${sk.hc} head coach${sk.hc > 1 ? "es" : ""} (HC) left out${hcByTeam.length ? ` (on ${hcByTeam.join(", ")})` : ""}: head coaches aren't supported.`, platformPath: "player.defaultPositionId = 14" });
   for (const [id, n] of sk.unknown) warnings.push({ code: "ESPN_POSITION_UNKNOWN", message: `${n} player(s) have an ESPN position we don't know (defaultPositionId ${id}) and were left out.`, platformPath: "player.defaultPositionId" });
   for (const [status, n] of sk.unknownInjury) warnings.push({ code: "ESPN_INJURY_UNKNOWN", message: `${n} player(s) have an ESPN injury status we don't map (${status}); they're treated as healthy.`, platformPath: "player.injuryStatus" });
-  const list = (xs: ReadonlyArray<{ label: string }>) => `${xs.slice(0, 10).map((x) => x.label).join("; ")}${xs.length > 10 ? "; …" : ""}`;
-  if (sk.byName.length) {
-    const onRosters = sk.byName.filter((x) => rostered.has(x.espnId));
-    const freeAgentsByName = sk.byName.filter((x) => !rostered.has(x.espnId));
-    const where = [onRosters.length ? `On rosters: ${list(onRosters)}.` : "", freeAgentsByName.length ? `Free agents: ${list(freeAgentsByName)}.` : ""].filter(Boolean).join(" ");
-    warnings.push({ code: "ESPN_PLAYER_MATCHED_BY_NAME", message: `${sk.byName.length} player(s) aren't in any player ID source, so each was matched to the only active player with the same name, position and NFL team. ${where}`, platformPath: "player.id" });
+  // Player-id flags cover the players in the snapshot only (rostered and kept free agents, not the
+  // rest of ESPN's free-agent pool), and name every one of them (§2.9 crosswalk rules).
+  const inSnapshot = new Set(Object.values(playerInfos).map((p) => Number(p.ids.espn)));
+  const snapshotOnly = <T extends NamedPlayer>(xs: readonly T[]): T[] => {
+    const seen = new Set<number>();
+    const out: T[] = [];
+    for (const x of xs)
+      if (inSnapshot.has(x.espnId) && !seen.has(x.espnId)) {
+        seen.add(x.espnId);
+        out.push(x);
+      }
+    return out;
+  };
+  const names = (xs: readonly NamedPlayer[]) => xs.map((x) => x.label).join("; ");
+  const byName = snapshotOnly(sk.byName);
+  if (byName.length) {
+    const onRosters = byName.filter((x) => rostered.has(x.espnId));
+    const freeAgentsByName = byName.filter((x) => !rostered.has(x.espnId));
+    const where = [onRosters.length ? `On rosters: ${names(onRosters)}.` : "", freeAgentsByName.length ? `Free agents: ${names(freeAgentsByName)}.` : ""].filter(Boolean).join(" ");
+    const one = byName.length === 1;
+    warnings.push({ code: "ESPN_PLAYER_MATCHED_BY_NAME", message: `${plural(byName.length, "player")} ${one ? "isn't" : "aren't"} in any player ID source, so we matched ${one ? "him" : "each"} to the only active player with the same name, position and NFL team. ${where}`, platformPath: "player.id" });
   }
-  const inLeague = new Set([...rostered, ...Object.values(playerInfos).map((p) => Number(p.ids.espn))]);
-  const conflicts = sk.conflicts.filter((c) => inLeague.has(c.espnId));
-  if (conflicts.length) warnings.push({ code: "ESPN_ID_CONFLICT", message: `The player ID sources disagree about who ${plural(conflicts.length, "ESPN player id")} in this league belong${conflicts.length === 1 ? "s" : ""} to; each was matched by the crosswalk's tie-break, so check: ${list(conflicts)}.`, platformPath: "player.id" });
-  if (sk.collisions) warnings.push({ code: "ESPN_ID_COLLISION", message: `${sk.collisions} player(s) matched a Sleeper id already used by another player; they keep their ESPN id.`, platformPath: "player.id" });
+  const conflicts = snapshotOnly(sk.conflicts);
+  if (conflicts.length) warnings.push({ code: "ESPN_ID_CONFLICT", message: `The player ID sources disagree about who ${plural(conflicts.length, "ESPN player id")} in this league belong${conflicts.length === 1 ? "s" : ""} to; each was matched by the crosswalk's tie-break, so check: ${names(conflicts)}.`, platformPath: "player.id" });
+  for (const o of snapshotOnly(sk.overrides)) notes.push(idOverrideNote(o, o.conflict));
+  const collisions = snapshotOnly(sk.collisions);
+  if (collisions.length) warnings.push({ code: "ESPN_ID_COLLISION", message: `${plural(collisions.length, "player")} matched a Sleeper id already used by another player, so ${collisions.length === 1 ? "he keeps his" : "they keep their"} ESPN id: ${names(collisions)}.`, platformPath: "player.id" });
   if (L.teams.every((t) => !(t.roster?.entries ?? []).length))
     warnings.push({ code: "ESPN_EMPTY_ROSTERS", message: "Every roster is empty (the league may not have drafted yet).", platformPath: "teams[].roster.entries" });
 

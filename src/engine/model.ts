@@ -126,7 +126,7 @@ export interface Team {
 }
 
 /** NA = not an active NFL player right now (Sleeper's NA; retired or unsigned): availability config.projections.injury.notActive. */
-export type InjuryStatus = "ACTIVE" | "QUESTIONABLE" | "DOUBTFUL" | "OUT" | "IR" | "PUP" | "SUSPENDED" | "NA";
+export type InjuryStatus = "ACTIVE" | "PROBABLE" | "QUESTIONABLE" | "DOUBTFUL" | "OUT" | "IR" | "PUP" | "SUSPENDED" | "NA";
 
 export interface PlayerInfo {
   id: string;

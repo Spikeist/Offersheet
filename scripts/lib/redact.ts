@@ -133,6 +133,34 @@ export function scrubEverything(text: string): string {
   loadSecretsIntoScrubber();
   return extraScrubbers.reduce((t, x) => x.scrubText(t), secrets.scrub(text));
 }
+/**
+ * scrubEverything, except inside `keep`: public phrases such as NFL player names. A leaguemate's first
+ * or last name can also be a word of a public player's name ("Drake" in "Drake London"); scrubbing it
+ * there would print "First 6 London", and the placeholder next to the rest of a public name would
+ * reveal the leaguemate's name. Each kept phrase (longest first) is swapped for one private-use
+ * character that no scrubber can match, the text is scrubbed, and the phrases are put back. Only pass
+ * phrases that are public by themselves; names of leaguemates must never be kept.
+ */
+export function scrubEverythingExcept(text: string, keep: Iterable<string>): string {
+  return scrubKeeping(text, keep, scrubEverything);
+}
+
+/** scrubEverythingExcept with the scrub function passed in (tests use a fake one). */
+export function scrubKeeping(text: string, keep: Iterable<string>, scrub: (text: string) => string): string {
+  const phrases = [...new Set([...keep].map((k) => k.trim()).filter((k) => k.length >= 3))].sort((a, b) => b.length - a.length);
+  if (phrases.length > 6400) throw new Error("scrubEverythingExcept: too many kept phrases");
+  const tokens = phrases.map((_, i) => String.fromCharCode(0xe000 + i));
+  let out = text;
+  phrases.forEach((phrase, i) => {
+    out = out.split(phrase).join(tokens[i] as string);
+  });
+  out = scrub(out);
+  tokens.forEach((token, i) => {
+    out = out.split(token).join(phrases[i] as string);
+  });
+  return out;
+}
+
 /** Register an extra scrubber (e.g. a platform Redactor) for console output and reports. */
 export function registerScrubber(x: TextScrubber): void {
   if (!extraScrubbers.includes(x)) extraScrubbers.push(x);

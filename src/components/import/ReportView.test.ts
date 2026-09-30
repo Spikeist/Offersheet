@@ -63,8 +63,41 @@ function render(response: ImportResponse, opts: Partial<ReportOptions> = {}, con
 const noop = () => {};
 
 describe("ReportView", () => {
-  it("says trade ideas come later", () => {
-    expect(render({ snapshot: snapshot(), notes: [] })).toContain("Trade ideas arrive in a later update.");
+  it("links to the League page, and says trade ideas come later", () => {
+    const html = render({ snapshot: snapshot(), notes: [] });
+    expect(html).toMatch(/<a class="[^"]*min-h-11[^"]*" href="\/league">See your league&#x27;s needs and projections\u00a0→<\/a>/);
+    expect(html).toContain("Trade ideas come in a later update.");
+    expect(html).not.toContain("Trade ideas arrive in a later update.");
+  });
+
+  it("names the FantasyCalc format next to a 'Values: FantasyCalc' link (§2.9), and notes each substitution", () => {
+    const html = render({ snapshot: snapshot(), notes: [] });
+    // Two teams → FantasyCalc's smallest supported size (8).
+    expect(html).toMatch(
+      /<dt[^>]*>Trade values<\/dt><dd[^>]*>FantasyCalc · 8 teams · non-PPR · 1 QB · redraft · <a href="https:\/\/fantasycalc\.com" target="_blank" rel="noopener noreferrer"[^>]*>Values: FantasyCalc<span class="sr-only"> \(opens in a new tab\)<\/span><\/a><\/dd>/,
+    );
+    expect(html).toMatch(/<li class="rounded-xl bg-surface-muted[^"]*">Trade values: 2 teams → FantasyCalc&#x27;s 8-team values\.<\/li>/);
+    expect(html).not.toContain("No warnings. Everything we read mapped cleanly.");
+  });
+
+  it("adds the League page's projection source to the notes once its inputs are stored", () => {
+    const model = {
+      version: 1 as const,
+      season: 2026,
+      currentWeek: 4,
+      lastWeek: 17,
+      builtAt: "2026-09-30T02:00:00.000Z",
+      nfl: { byeWeek: {}, kickoffs: {} },
+      // Sleeper's projections loaded (one projected player), ESPN's didn't.
+      players: { "9001": { sleeper: { 4: 18 }, actual: {} } },
+      espnProjections: false,
+      market: null,
+      sources: [],
+      warnings: [],
+      notes: [],
+    };
+    const html = render({ snapshot: snapshot({}, { numTeams: 10 }), notes: [] }, { model });
+    expect(html).toContain("Projection source: Sleeper&#x27;s projections, scored with your league&#x27;s rules. ESPN&#x27;s own projections didn&#x27;t load, so they aren&#x27;t averaged in.");
   });
 
   it("shows a team from a pasted link as one to check, never as found by ESPN", () => {
@@ -102,6 +135,15 @@ describe("ReportView", () => {
       expect(html.match(/role="status"/g)).toHaveLength(2);
     });
 
+    it("keeps Refresh focusable while it works: aria-disabled, never disabled (review UI-9)", () => {
+      const idle = render({ snapshot: snapshot(), notes: [] }, {}, { refresh });
+      expect(idle).toMatch(/<button type="button"[^>]*>Refresh league data<\/button>/);
+      expect(idle).not.toMatch(/aria-disabled="true"[^>]*>Refresh league data/);
+      const busy = render({ snapshot: snapshot(), notes: [] }, {}, { refresh: { ...refresh, refreshing: true } });
+      expect(busy).toMatch(/<button type="button" aria-disabled="true"[^>]*>Refreshing…<\/button>/);
+      expect(busy).not.toMatch(/<button[^>]*disabled=""[^>]*>Refreshing…/);
+    });
+
     it("replaces the Forget button with the confirmation", () => {
       const forget: ForgetControl = { onForget: noop, forgetting: false, done: true, note: "Done. Your ESPN cookies are gone from this browser session." };
       const html = render({ snapshot: snapshot(), notes: [], usedEspnCookies: true, espnCookieSource: "session" }, {}, { refresh, forget });
@@ -111,7 +153,7 @@ describe("ReportView", () => {
 
     it("credits .env.local for development cookies, with nothing to forget", () => {
       const html = render({ snapshot: snapshot(), notes: [], usedEspnCookies: true, espnCookieSource: "dev-env" }, {}, { refresh });
-      expect(html).toContain("Imported with ESPN cookies from .env.local (development only).");
+      expect(html).toContain("Imported with ESPN cookies from .env.local (USE_ENV_COOKIES=1, development only).");
       expect(html).not.toContain("from this browser session");
       expect(html).not.toContain("Forget my ESPN cookies");
     });

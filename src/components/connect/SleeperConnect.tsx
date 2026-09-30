@@ -202,7 +202,8 @@ export function SleeperConnect() {
             </p>
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-[12rem_1fr] sm:items-end">
+          {/* Season and the button side by side at every width, as in the ESPN form. */}
+          <div className="grid grid-cols-[minmax(0,7rem)_1fr] items-end gap-4 sm:grid-cols-[12rem_1fr]">
             <div>
               <label htmlFor="sleeper-season" className="mb-1 block text-sm font-bold">
                 Season

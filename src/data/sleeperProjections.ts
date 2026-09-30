@@ -1,0 +1,469 @@
+/**
+ * Sleeper projections and stats for the projection model (CLAUDE.md §2.3, §5, §6, §2.10). Server-side.
+ *
+ * Undocumented endpoints, verified live in Phase 0 (reports/probe-output/shared.md PROJ-S, STATS-S):
+ *   weekly projections  /projections/nfl/{season}/{week}?season_type=regular&position[]=QB&position[]=RB…
+ *   season projections  /projections/nfl/{season}?season_type=regular&position[]=…
+ *   actual stats        /stats/nfl/{season}/{week}?season_type=regular&position[]=…
+ * Repeated position[] combines positions, and the filter matches fantasy_positions (FB and CB rows come
+ * back too). P is never requested: Sleeper doesn't project punters, and punting stats have no canonical
+ * keys (src/adapters/espn/scoringMap.ts).
+ *
+ * - The weekly URLs and cache entries are the Sleeper adapter's (sleeperUrls.projections, key
+ *   `sleeper:${url}`, PROJECTIONS_POLICY: served and kept 6 hours, an empty list never cached), and the
+ *   positions go in the adapter's order, so an import's projection weeks aren't fetched twice. Season
+ *   projections and stats are cached the same way.
+ * - One request at a time (await in a loop), through a SleeperGate that one model build's three loads
+ *   share, so a Sleeper outage costs a build 2 requests and seconds, not 84 requests and minutes
+ *   (review DATA-1, PERF-1):
+ *   - a live request gets SLEEPER_MODEL_TIMEOUT_MS and one retry (the client's defaults: 30 s and 3);
+ *   - after the first request Sleeper doesn't answer (no response or a timeout, 429, 5xx, or an HTML page,
+ *     after its retry), nothing more is asked of Sleeper in that build;
+ *   - the outage is remembered per HttpClient for SLEEPER_OUTAGE_HOLD_MS, doubling while it lasts (at
+ *     most SLEEPER_OUTAGE_MAX_HOLD_MS), so the builds in between ask nothing either (measured from each
+ *     build's own time, passed in); a later build then asks again, and one answer ends the outage;
+ *   - while Sleeper isn't asked, a list the server cache is known to hold (one this process read, still
+ *     inside its 6 hours) is read from the cache anyway: an outage only costs what the cache doesn't hold.
+ *   Each week or list left out that way is a SLEEPER_DOWN warning (src/server/modelInputs.ts merges them
+ *   into one line). A 404 or an empty list is an answer: that week gets its own warning and the rest is
+ *   still asked for.
+ * - Nothing here throws for a source failure: a week (or the season line) that can't be read is left
+ *   out of the result with a warning. So is a week without a single usable row (not posted yet).
+ * - Projection rows: REAL projections only (hasProjection; an ADP-only stub is a bye, an injury, a
+ *   depth player or a player without a team, Phase 0 J.endpoint), deduped by player_id (the first real
+ *   row), in the stat keys league scoring uses (normalizeProjectionStats).
+ * - Season projections are season totals: every stat is divided by config.projections.seasonGames
+ *   BEFORE any scoring, so nonlinear rules see one game's mean instead of firing every game (⚠️ the
+ *   totals' span is unverified: season / 17 ÷ the weekly mean was 0.905 for 28 QBs; a last-resort rate).
+ * - Stats rows: players with gp > 0 only (gp is 1 or absent on /stats, never 0; Phase 0 cache check), in
+ *   raw /stats keys, which are the canonical keys.
+ */
+import { PROJECTIONS_POLICY, SLEEPER_PROJECTIONS, sleeperUrls } from "@/adapters/sleeper/fetch";
+import { hasProjection, LAST_NFL_WEEK } from "@/adapters/sleeper/normalize";
+import { normalizeProjectionStats } from "@/adapters/sleeper/scoringMap";
+import { parseArrayLenient, StatRowSchema, type SleeperStatRow } from "@/adapters/sleeper/schemas";
+import type { HttpClient, HttpRequestOptions, HttpResponse } from "@/adapters/types";
+import { config } from "@/engine/config";
+import { POSITIONS, type ImportWarning, type Pos, type StatLine } from "@/engine/model";
+import { MINUTE } from "@/server/cache";
+
+export const SLEEPER_STATS = "https://api.sleeper.app/stats/nfl";
+
+function positionQuery(positions: readonly string[]): string {
+  return positions.map((p) => `position[]=${encodeURIComponent(p)}`).join("&");
+}
+
+/** Season projections (totals for the regular season) for several positions. */
+export function sleeperSeasonProjectionsUrl(season: number, positions: readonly string[]): string {
+  return `${SLEEPER_PROJECTIONS}/${season}?season_type=regular&${positionQuery(positions)}`;
+}
+
+/** One week's actual stats for several positions. */
+export function sleeperStatsUrl(season: number, week: number, positions: readonly string[]): string {
+  return `${SLEEPER_STATS}/${season}/${week}?season_type=regular&${positionQuery(positions)}`;
+}
+
+/** The Sleeper adapter's cache key scheme (src/adapters/sleeper/fetch.ts getter): the public URL itself. */
+export function sleeperCacheKey(url: string): string {
+  return `sleeper:${url}`;
+}
+
+/**
+ * Positions to request: the given ones (the league's startable positions) minus P, in canonical order,
+ * the order the Sleeper adapter uses, so the same league asks for the same URLs.
+ */
+export function sleeperRequestPositions(positions: Iterable<Pos>): Pos[] {
+  const wanted = new Set(positions);
+  return POSITIONS.filter((p) => p !== "P" && wanted.has(p));
+}
+
+/** Distinct NFL regular-season weeks, in order. */
+function requestWeeks(weeks: Iterable<number>): number[] {
+  return [...new Set(weeks)].filter((w) => Number.isInteger(w) && w >= 1 && w <= LAST_NFL_WEEK).sort((a, b) => a - b);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Requests: one model build's gate to Sleeper (review DATA-1, PERF-1; see the header)
+
+/**
+ * Per-attempt timeout of a live request. One week of a league's startable positions is 2–3 MB (about
+ * 7 MB with IDP), a few seconds on a working connection; the client's default is 30 s.
+ */
+export const SLEEPER_MODEL_TIMEOUT_MS = 20_000;
+
+/** Retries of a live request on no response, 429 or 5xx (the client's default is 3): a failing URL costs 2 attempts. */
+export const SLEEPER_MODEL_MAX_RETRIES = 1;
+
+/**
+ * How long an outage is remembered (Sleeper isn't asked meanwhile), doubling while it lasts, up to
+ * SLEEPER_OUTAGE_MAX_HOLD_MS: a long outage costs a probe (2 requests) every 15 minutes, and a recovered
+ * Sleeper is noticed within 15 minutes.
+ */
+export const SLEEPER_OUTAGE_HOLD_MS = 5 * MINUTE;
+export const SLEEPER_OUTAGE_MAX_HOLD_MS = 15 * MINUTE;
+
+/** The hold after `outages` outages in a row (no outage: 0). */
+export function sleeperOutageHoldMs(outages: number): number {
+  if (outages <= 0) return 0;
+  return Math.min(SLEEPER_OUTAGE_MAX_HOLD_MS, SLEEPER_OUTAGE_HOLD_MS * 2 ** (outages - 1));
+}
+
+/** Warning code of a week or list left out because Sleeper stopped answering (one per item; src/server/modelInputs.ts merges them). */
+export const SLEEPER_DOWN = "SLEEPER_DOWN";
+
+/** Options of every request here: the adapter's cache entry for projections (PROJECTIONS_POLICY), with this module's timeout. */
+function requestOptions(url: string, maxRetries: number): HttpRequestOptions {
+  const p = PROJECTIONS_POLICY;
+  return {
+    cache: { key: sleeperCacheKey(url), ttlMs: p.ttlMs, retainMs: p.retainMs },
+    bigIntsAsStrings: true,
+    ...(p.cacheIf ? { cacheIf: p.cacheIf } : {}),
+    timeoutMs: SLEEPER_MODEL_TIMEOUT_MS,
+    maxRetries,
+  };
+}
+
+/** Why a response can't be used, or undefined when it's a JSON list. */
+function unusable(res: HttpResponse): string | undefined {
+  if (res.status === 0) return "no response";
+  if (!res.ok) return `HTTP ${res.status}`;
+  if (res.isHtml) return "a web page instead of data";
+  if (!Array.isArray(res.json)) return "not a list";
+  return undefined;
+}
+
+/**
+ * Sleeper isn't serving data: no response (a network error or a timeout), 429, 5xx or an HTML page, after
+ * the client's retries (the same test as the players DB's breaker, src/data/sleeperPlayers.ts). A 404 or
+ * an empty list is an answer; a cached copy never counts.
+ */
+function notAnswering(res: HttpResponse): boolean {
+  return !res.fromCache && (res.status === 0 || res.status === 429 || res.status >= 500 || res.isHtml);
+}
+
+/** One list's rows, or why it wasn't used (`down`: Sleeper stopped answering, at this request or an earlier one). */
+export type SleeperRows = { rows: SleeperStatRow[]; bad: number; firstBadPath?: string; res: HttpResponse } | { why: string; down?: true };
+
+function rowsOf(res: HttpResponse): SleeperRows {
+  const why = unusable(res);
+  if (why) return { why };
+  const { rows, bad, firstBadPath } = parseArrayLenient(StatRowSchema, res.json);
+  return { rows: rows as SleeperStatRow[], bad, ...(firstBadPath ? { firstBadPath } : {}), res };
+}
+
+/** What the process remembers about Sleeper, per HttpClient (reuse one client per server process, src/app/api/_lib/deps.ts). */
+interface SleeperHealth {
+  /** Sleeper isn't asked before this (epoch ms). */
+  downUntil: number;
+  /** Why: the failure that started the hold ("HTTP 503", "no response" …). */
+  reason: string;
+  /** Outages in a row: each doubles the next hold; back to 0 once Sleeper answers. */
+  outages: number;
+  /** URL → when the copy the server cache keeps for it was fetched (epoch ms): lists this process read, dropped once past the cache's TTL. */
+  cached: Map<string, number>;
+}
+
+const healthByClient = new WeakMap<HttpClient, SleeperHealth>();
+
+/** One model build's way to Sleeper's projections and stats (see the header). */
+export interface SleeperGate {
+  /** Why Sleeper isn't asked (it stopped answering in this build, or an outage is remembered); undefined while it is. */
+  down(): string | undefined;
+  /** One projections or stats list: from the server cache or Sleeper, or why not. Never throws. */
+  rows(url: string): Promise<SleeperRows>;
+}
+
+/**
+ * A gate for one model build at `now` (the build's time: holds and cache ages are measured from it).
+ * Builds on the same HttpClient share what it remembers, so a build running alongside one that finds
+ * Sleeper down stops at its next request too.
+ */
+export function sleeperGate(http: HttpClient, now: Date): SleeperGate {
+  const at = now.getTime();
+  let health = healthByClient.get(http);
+  if (!health) {
+    health = { downUntil: Number.NEGATIVE_INFINITY, reason: "", outages: 0, cached: new Map() };
+    healthByClient.set(http, health);
+  }
+  const h = health;
+  const inCache = (fetchedAt: number | undefined): boolean => fetchedAt !== undefined && fetchedAt + PROJECTIONS_POLICY.ttlMs > at;
+  for (const [url, fetchedAt] of h.cached) if (!inCache(fetchedAt)) h.cached.delete(url);
+  /** Why Sleeper stopped answering in this build. */
+  let tripped: string | undefined;
+
+  const down = (): string | undefined => tripped ?? (h.downUntil > at ? h.reason : undefined);
+
+  const request = async (url: string, maxRetries: number): Promise<HttpResponse | undefined> => {
+    try {
+      return await http.get(url, requestOptions(url, maxRetries));
+    } catch {
+      return undefined; // the real client never throws; any other client's failure is no response
+    }
+  };
+
+  /** Notes a list the server cache keeps (a 200 non-empty list, PROJECTIONS_POLICY.cacheIf), so a later outage can still read it. */
+  const remember = (url: string, res: HttpResponse): void => {
+    const fetchedAt = res.fetchedAt;
+    const kept = res.status === 200 && !res.isHtml && !res.stale && (PROJECTIONS_POLICY.cacheIf?.(res) ?? true);
+    if (kept && fetchedAt !== undefined && inCache(fetchedAt)) h.cached.set(url, fetchedAt);
+  };
+
+  return {
+    down,
+    async rows(url) {
+      const why = down();
+      if (why !== undefined) {
+        // Sleeper isn't asked: only a list the server cache holds is read (a cache hit makes no request).
+        if (!inCache(h.cached.get(url))) return { why, down: true };
+        const res = await request(url, 0);
+        // The cache didn't hold it after all, and a live attempt went out: stop counting on the others.
+        if (!res?.fromCache) h.cached.clear();
+        if (!res || notAnswering(res)) return { why, down: true };
+        remember(url, res);
+        return rowsOf(res);
+      }
+      const res = await request(url, SLEEPER_MODEL_MAX_RETRIES);
+      if (!res || notAnswering(res)) {
+        const reason = (res && unusable(res)) || "no response";
+        tripped = reason;
+        // A build running alongside may have started the hold already: one outage, one doubling.
+        if (!(h.downUntil > at)) {
+          h.outages += 1;
+          h.downUntil = at + sleeperOutageHoldMs(h.outages);
+          h.reason = reason;
+        }
+        return { why: reason, down: true };
+      }
+      if (!res.fromCache) {
+        // Sleeper answered: any outage is over.
+        h.outages = 0;
+        h.downUntil = Number.NEGATIVE_INFINITY;
+      }
+      remember(url, res);
+      return rowsOf(res);
+    },
+  };
+}
+
+/** A week or list left out because Sleeper stopped answering (SLEEPER_DOWN; `what` is plural: "projections for week 5"). */
+function downWarning(what: string, why: string, path: string): ImportWarning {
+  return { code: SLEEPER_DOWN, message: `Sleeper's ${what} are left out: Sleeper stopped answering (${why}).`, platformPath: path };
+}
+
+// ---------------------------------------------------------------------------------------------
+// What every load reports
+
+/** What every load reports besides its data. */
+export interface SleeperLoadMeta {
+  /** Weeks (or the season line) left out, and rows skipped. */
+  warnings: ImportWarning[];
+  /** Every response used came from the server cache (true when none was used). */
+  fromCache: boolean;
+  /** A response used was a saved copy standing in for a failed request. */
+  stale: boolean;
+  /** When the oldest response used was fetched from Sleeper (epoch ms), when the client reports it. */
+  fetchedAt?: number;
+}
+
+function tracker(): { meta: SleeperLoadMeta; used(res: HttpResponse): void } {
+  const meta: SleeperLoadMeta = { warnings: [], fromCache: true, stale: false };
+  return {
+    meta,
+    used(res) {
+      meta.fromCache &&= res.fromCache;
+      if (res.stale) meta.stale = true;
+      if (res.fetchedAt !== undefined) meta.fetchedAt = Math.min(meta.fetchedAt ?? res.fetchedAt, res.fetchedAt);
+    },
+  };
+}
+
+function rowsSkipped(code: string, what: string, path: string, got: { bad: number; firstBadPath?: string }): ImportWarning {
+  return { code, message: `${what}: ${got.bad} row(s) didn't have the expected shape and were skipped.`, platformPath: `${path}${got.firstBadPath ?? ""}` };
+}
+
+const TEAM_DEFENSE_ID = /^[A-Z]{2,3}$/;
+
+/** Sleeper's position for a row's player ("DEF" for a team defense); "" when the row doesn't say. */
+function sleeperPositionOf(row: SleeperStatRow): string {
+  return row.player?.position?.trim() || (TEAM_DEFENSE_ID.test(row.player_id) ? "DEF" : "");
+}
+
+// ---------------------------------------------------------------------------------------------
+// Weekly projections
+
+export interface SleeperProjectionLine {
+  /** Projected stat means for one game, in the keys league scoring uses (normalizeProjectionStats). */
+  stats: StatLine;
+  /** Sleeper's position for the player ("QB", "FB", "CB", "DEF", …); "" when the row doesn't say. */
+  sleeperPosition: string;
+}
+
+/** The real projections in one week's rows (pure): stubs dropped, the first real row per player kept, stats normalized. */
+export function projectionLines(rows: readonly SleeperStatRow[]): Map<string, SleeperProjectionLine> {
+  const out = new Map<string, SleeperProjectionLine>();
+  for (const row of rows) {
+    if (out.has(row.player_id) || !hasProjection(row.stats)) continue;
+    const sleeperPosition = sleeperPositionOf(row);
+    out.set(row.player_id, { stats: normalizeProjectionStats(row.stats, sleeperPosition), sleeperPosition });
+  }
+  return out;
+}
+
+export interface SleeperWeeklyProjectionsLoad extends SleeperLoadMeta {
+  /** NFL week → Sleeper id → his real projection. A week that couldn't be read is missing (not empty). */
+  weeks: Map<number, Map<string, SleeperProjectionLine>>;
+}
+
+/**
+ * Sleeper's weekly projections for `weeks` (1–18; others are ignored) at the league's startable
+ * `positions`, through the build's gate. A week that fails, or has no real projection, gets a
+ * PROJECTIONS_WEEK_UNAVAILABLE warning (SLEEPER_DOWN when Sleeper stopped answering) and is missing from
+ * `weeks`.
+ */
+export async function loadSleeperWeeklyProjections(gate: SleeperGate, season: number, weeks: Iterable<number>, positions: Iterable<Pos>): Promise<SleeperWeeklyProjectionsLoad> {
+  const t = tracker();
+  const out = new Map<number, Map<string, SleeperProjectionLine>>();
+  const pos = sleeperRequestPositions(positions);
+  if (!pos.length) return { weeks: out, ...t.meta };
+  for (const week of requestWeeks(weeks)) {
+    const path = `projections/${week}`;
+    const got = await gate.rows(sleeperUrls.projections(season, week, pos));
+    const unavailable = (why: string) =>
+      t.meta.warnings.push({ code: "PROJECTIONS_WEEK_UNAVAILABLE", message: `Sleeper's projections for week ${week} couldn't be read (${why}), so that week is left out.`, platformPath: path });
+    if ("why" in got) {
+      if (got.down) t.meta.warnings.push(downWarning(`projections for week ${week}`, got.why, path));
+      else unavailable(got.why);
+      continue;
+    }
+    if (got.bad) t.meta.warnings.push(rowsSkipped("PROJECTION_ROWS_UNREADABLE", `Week ${week} projections`, path, got));
+    const lines = projectionLines(got.rows);
+    if (!lines.size) {
+      unavailable("no projections in it");
+      continue;
+    }
+    out.set(week, lines);
+    t.used(got.res);
+  }
+  return { weeks: out, ...t.meta };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Season projections
+
+/** ADP ranks ride along on season rows; they aren't stats. */
+const ADP_KEY = /^(pos_)?adp_/;
+
+/**
+ * One game's share of a season projection row (pure): the normalized stats (normalizeProjectionStats)
+ * each divided by `games`, ADP keys dropped, and gp = 1 (Sleeper writes gp 18 on every season row,
+ * projected or not, so it isn't a games count; the line now stands for one game).
+ */
+export function seasonPerGameLine(stats: Record<string, unknown> | null | undefined, sleeperPosition: string, games: number = config.projections.seasonGames): StatLine {
+  const out: StatLine = {};
+  for (const [key, value] of Object.entries(normalizeProjectionStats(stats, sleeperPosition))) {
+    if (key === "gp" || ADP_KEY.test(key)) continue;
+    out[key] = value / games;
+  }
+  out.gp = 1;
+  return out;
+}
+
+/** Per-game season lines for the real projections in the rows (pure; the first real row per player). */
+export function seasonPerGameLines(rows: readonly SleeperStatRow[], games: number = config.projections.seasonGames): Map<string, StatLine> {
+  const out = new Map<string, StatLine>();
+  for (const row of rows) {
+    if (out.has(row.player_id) || !hasProjection(row.stats)) continue;
+    out.set(row.player_id, seasonPerGameLine(row.stats, sleeperPositionOf(row), games));
+  }
+  return out;
+}
+
+export interface SleeperSeasonProjectionsLoad extends SleeperLoadMeta {
+  /** Sleeper id → his season projection per game (every stat ÷ config.projections.seasonGames). Empty when it couldn't be read. */
+  perGame: Map<string, StatLine>;
+}
+
+/**
+ * Sleeper's season projections, per game (§6's last-resort base rate), through the build's gate. A
+ * failure is a SEASON_PROJECTIONS_UNAVAILABLE warning (SLEEPER_DOWN when Sleeper stopped answering).
+ */
+export async function loadSleeperSeasonProjections(gate: SleeperGate, season: number, positions: Iterable<Pos>): Promise<SleeperSeasonProjectionsLoad> {
+  const t = tracker();
+  const pos = sleeperRequestPositions(positions);
+  if (!pos.length) return { perGame: new Map(), ...t.meta };
+  const path = "projections/season";
+  const got = await gate.rows(sleeperSeasonProjectionsUrl(season, pos));
+  const unavailable = (why: string) =>
+    t.meta.warnings.push({ code: "SEASON_PROJECTIONS_UNAVAILABLE", message: `Sleeper's season projections couldn't be read (${why}), so players without a weekly projection have no fallback rate.`, platformPath: path });
+  if ("why" in got) {
+    if (got.down) t.meta.warnings.push(downWarning("season projections", got.why, path));
+    else unavailable(got.why);
+    return { perGame: new Map(), ...t.meta };
+  }
+  if (got.bad) t.meta.warnings.push(rowsSkipped("PROJECTION_ROWS_UNREADABLE", "Season projections", path, got));
+  const perGame = seasonPerGameLines(got.rows);
+  if (!perGame.size) {
+    unavailable("no projections in it");
+    return { perGame, ...t.meta };
+  }
+  t.used(got.res);
+  return { perGame, ...t.meta };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Actual stats
+
+/** One game's numbers (non-numbers dropped). */
+function numericStats(stats: Record<string, unknown> | null | undefined): StatLine {
+  const out: StatLine = {};
+  for (const [key, value] of Object.entries(stats ?? {})) if (typeof value === "number" && Number.isFinite(value)) out[key] = value;
+  return out;
+}
+
+/** The stat lines of players who played (gp > 0), the first such row per player (pure). */
+export function playedStatLines(rows: readonly SleeperStatRow[]): Map<string, StatLine> {
+  const out = new Map<string, StatLine>();
+  for (const row of rows) {
+    if (out.has(row.player_id)) continue;
+    const line = numericStats(row.stats);
+    if ((line.gp ?? 0) > 0) out.set(row.player_id, line);
+  }
+  return out;
+}
+
+export interface SleeperStatsLoad extends SleeperLoadMeta {
+  /** NFL week → Sleeper id → his stat line, for players who played (gp > 0). A week that couldn't be read is missing. */
+  weeks: Map<number, Map<string, StatLine>>;
+}
+
+/**
+ * Sleeper's actual stats for completed `weeks` at the league's startable `positions`, through the
+ * build's gate. A week that fails, or in which no player has a game, gets a STATS_WEEK_UNAVAILABLE
+ * warning (SLEEPER_DOWN when Sleeper stopped answering) and is missing.
+ */
+export async function loadSleeperStats(gate: SleeperGate, season: number, weeks: Iterable<number>, positions: Iterable<Pos>): Promise<SleeperStatsLoad> {
+  const t = tracker();
+  const out = new Map<number, Map<string, StatLine>>();
+  const pos = sleeperRequestPositions(positions);
+  if (!pos.length) return { weeks: out, ...t.meta };
+  for (const week of requestWeeks(weeks)) {
+    const path = `stats/${week}`;
+    const got = await gate.rows(sleeperStatsUrl(season, week, pos));
+    const unavailable = (why: string) =>
+      t.meta.warnings.push({ code: "STATS_WEEK_UNAVAILABLE", message: `Sleeper's stats for week ${week} couldn't be read (${why}), so that week's points are left out.`, platformPath: path });
+    if ("why" in got) {
+      if (got.down) t.meta.warnings.push(downWarning(`stats for week ${week}`, got.why, path));
+      else unavailable(got.why);
+      continue;
+    }
+    if (got.bad) t.meta.warnings.push(rowsSkipped("STATS_ROWS_UNREADABLE", `Week ${week} stats`, path, got));
+    const lines = playedStatLines(got.rows);
+    if (!lines.size) {
+      unavailable("no player with a game in it");
+      continue;
+    }
+    out.set(week, lines);
+    t.used(got.res);
+  }
+  return { weeks: out, ...t.meta };
+}

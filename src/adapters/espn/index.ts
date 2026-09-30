@@ -2,12 +2,24 @@
  * ESPN adapter (CLAUDE.md §2.2; Phase 1): fetch (server-side, through the injected HttpClient) +
  * normalize (pure) → LeagueSnapshot. ESPN's API is unofficial: it can change or break at any time,
  * so everything ESPN-specific stays behind this module and fails loudly with a clear message.
+ * Phase 2: importEspnLeagueForModel adds ESPN's league-scored weekly projections (§6 step 1, "ESPN
+ * leagues"; projections.ts), read from the same responses.
  */
 import type { EspnImportRequest, ImportDeps, ImportResult } from "@/adapters/types";
 import { fetchEspnLeague } from "./fetch";
-import { normalizeEspnLeague } from "./normalize";
+import { normalizeEspnLeague, type EspnRawBundle } from "./normalize";
+import { espnProjectionsFrom, type EspnProjections } from "./projections";
 
-export async function importEspnLeague(req: EspnImportRequest, deps: ImportDeps): Promise<ImportResult> {
+/** What the projection model needs from an ESPN import (the /api/model/espn route). */
+export interface EspnModelImport {
+  /** Exactly what importEspnLeague returns. */
+  result: ImportResult;
+  /** ESPN's league-scored weekly projections by canonical id and NFL week (ModelInputs players[].espn). */
+  espn: EspnProjections;
+}
+
+/** Fetch + normalize, shared by both imports; also hands back the raw responses. */
+async function fetchAndNormalize(req: EspnImportRequest, deps: ImportDeps): Promise<{ raw: EspnRawBundle; result: ImportResult }> {
   const fetched = await fetchEspnLeague(req, deps.http, deps.now);
   const { snapshot, notes } = normalizeEspnLeague(fetched.raw, {
     leagueId: fetched.leagueId,
@@ -21,10 +33,25 @@ export async function importEspnLeague(req: EspnImportRequest, deps: ImportDeps)
   });
   // The Import Report shows when ESPN served the data (a cached copy is up to 10 minutes old).
   if (fetched.fetchedAt !== undefined) snapshot.fetchedAt = new Date(fetched.fetchedAt).toISOString();
-  return { snapshot, notes };
+  return { raw: fetched.raw, result: { snapshot, notes } };
+}
+
+export async function importEspnLeague(req: EspnImportRequest, deps: ImportDeps): Promise<ImportResult> {
+  return (await fetchAndNormalize(req, deps)).result;
+}
+
+/**
+ * importEspnLeague plus ESPN's league-scored weekly projections, read from the responses the import
+ * already fetched (no extra ESPN request). Import errors are the same; the extraction itself skips
+ * anything it can't read instead of failing.
+ */
+export async function importEspnLeagueForModel(req: EspnImportRequest, deps: ImportDeps): Promise<EspnModelImport> {
+  const { raw, result } = await fetchAndNormalize(req, deps);
+  return { result, espn: espnProjectionsFrom(raw, result.snapshot) };
 }
 
 export { normalizeEspnLeague, normalizeSwid, FREE_AGENTS_PER_POSITION, type EspnNormalizeContext, type EspnNormalized, type EspnRawBundle } from "./normalize";
 export { classifyEspnResponse, fetchEspnLeague, pseudonymizeSwids, requireEspnLeagueId, swidPseudonym, type EspnFetchResult } from "./fetch";
 export { buildEspnScoring, toCanonicalStats, ESPN_READINGS, type EspnReading, type EspnScoringItem, type ScoringContext } from "./scoringMap";
 export { positionOf, slotInfo, mapInjury } from "./positions";
+export { espnProjectionsFrom, type EspnProjections } from "./projections";

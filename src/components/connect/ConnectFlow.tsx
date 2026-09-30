@@ -1,61 +1,104 @@
 "use client";
+/**
+ * The Connect page: a platform picker plus the form for the chosen platform (CLAUDE.md §14 item 1).
+ *
+ * The picker is one group of native radios, styled differently by screen width. The planner's reply
+ * to Checkpoint 1 asked for a compact picker on phones, so the league-link box and the Import button
+ * fit on the first screen.
+ * - Phones (below sm): a two-segment control (ESPN | Sleeper) with 44 px targets, and one muted line
+ *   naming the platforms that are coming. The unavailable options are hidden there.
+ * - From sm up: a card per platform with its note, as before. The unavailable cards are disabled and
+ *   badged.
+ *
+ * One group (not a phone copy plus a desktop copy) keeps the same inputs, names and keyboard behavior
+ * at every width. Arrow keys move between the available platforms, and turning a phone sideways
+ * doesn't lose focus. The radios are visually hidden, so their label shows the keyboard focus ring.
+ */
 import { useState } from "react";
 import { Badge, cx } from "../ui";
 import { EspnConnect } from "./EspnConnect";
 import { SleeperConnect } from "./SleeperConnect";
 
-type Choice = "espn" | "sleeper";
+export type PlatformChoice = "espn" | "sleeper";
 
-const OPTIONS: { id: string; name: string; note: string; enabled: boolean; badge?: string }[] = [
+type PlatformOption =
+  | { id: PlatformChoice; name: string; note: string; enabled: true }
+  | { id: "yahoo" | "other" | "manual"; name: string; note: string; enabled: false; badge: string; badgeTone: "warn" | "muted" };
+
+const OPTIONS: readonly PlatformOption[] = [
   { id: "espn", name: "ESPN", note: "League link or ID", enabled: true },
   { id: "sleeper", name: "Sleeper", note: "Username or league ID", enabled: true },
-  { id: "yahoo", name: "Yahoo", note: "Waiting on Yahoo's approval", enabled: false, badge: "Coming soon" },
-  { id: "other", name: "Fleaflicker, MFL, Fantrax", note: "Fantrax: public leagues", enabled: false, badge: "Later" },
-  { id: "manual", name: "Manual entry", note: "NFL.com, CBS and others", enabled: false, badge: "Later" },
+  { id: "yahoo", name: "Yahoo", note: "Waiting on Yahoo's approval", enabled: false, badge: "Coming soon", badgeTone: "warn" },
+  { id: "other", name: "Fleaflicker, MFL, Fantrax", note: "Fantrax: public leagues", enabled: false, badge: "Later", badgeTone: "muted" },
+  { id: "manual", name: "Manual entry", note: "NFL.com, CBS and others", enabled: false, badge: "Later", badgeTone: "muted" },
 ];
 
-/** Platform picker plus the form for the chosen platform (CLAUDE.md §14 item 1). */
+/** What phones show instead of the unavailable cards. Keep it in step with OPTIONS. */
+const COMING_LINE = "Yahoo, Fleaflicker, MFL, Fantrax and manual entry are coming.";
+
+/** Phones: a segmented-control track around the two available platforms. From sm up: a row of five cards. */
+const TRACK = "grid grid-cols-2 gap-1 rounded-xl border border-line bg-surface-muted p-1 sm:grid-cols-5 sm:gap-2 sm:rounded-none sm:border-0 sm:bg-transparent sm:p-0";
+/**
+ * Every option. The radio itself is visually hidden, so the label shows the keyboard focus ring. The
+ * transition leaves out outline-color, so the ring appears in gold at once, as it does everywhere else.
+ */
+const OPTION =
+  "relative rounded-lg transition-[color,background-color,border-color] has-[:focus-visible]:outline-3 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-accent";
+/** Phones: a segment at least 44 px tall. */
+const SEGMENT = "min-h-11 items-center justify-center px-3 text-center";
+/** From sm up: a card, as before the compact phone picker. */
+const CARD = "sm:min-h-20 sm:flex-col sm:items-stretch sm:justify-between sm:rounded-2xl sm:border sm:p-3 sm:text-left";
+/** Selected: tinted, with a ring (a shape, not only a color change). */
+const SELECTED = "bg-brand-soft ring-2 ring-brand sm:border-brand";
+const UNSELECTED = "text-muted hover:text-foreground sm:border-line sm:bg-surface sm:text-foreground sm:hover:bg-surface-muted";
+
+/** The platform radios. Presentational and hook-free: connect.test.ts calls it directly to reach the radios' onChange. */
+export function PlatformPicker({ value, onChange }: { value: PlatformChoice; onChange: (platform: PlatformChoice) => void }) {
+  return (
+    <fieldset>
+      <legend className="mb-2 text-sm font-bold text-muted">Platform</legend>
+      <div className={TRACK}>
+        {OPTIONS.map((o) => {
+          const selected = o.id === value;
+          return (
+            <label
+              key={o.id}
+              className={cx(OPTION, SEGMENT, CARD, o.enabled ? "flex cursor-pointer" : "hidden cursor-not-allowed opacity-60 sm:flex", selected ? SELECTED : UNSELECTED)}
+            >
+              <input
+                type="radio"
+                name="platform"
+                value={o.id}
+                checked={selected}
+                disabled={!o.enabled}
+                onChange={() => {
+                  if (o.enabled) onChange(o.id);
+                }}
+                className="sr-only"
+              />
+              <span className="font-extrabold leading-tight">{o.name}</span>
+              {/* On phones the segment is just the name; the note returns with the cards. */}
+              <span className={cx("mt-1 text-xs text-muted", o.enabled && "hidden sm:block")}>{o.note}</span>
+              {o.enabled ? null : (
+                <Badge tone={o.badgeTone} className="mt-2 self-start">
+                  {o.badge}
+                </Badge>
+              )}
+            </label>
+          );
+        })}
+      </div>
+      <p className="mt-2 text-sm text-muted sm:hidden">{COMING_LINE}</p>
+    </fieldset>
+  );
+}
+
 export function ConnectFlow() {
-  const [platform, setPlatform] = useState<Choice>("espn");
+  const [platform, setPlatform] = useState<PlatformChoice>("espn");
 
   return (
-    <div className="space-y-6">
-      <fieldset>
-        <legend className="mb-2 text-sm font-bold text-muted">Platform</legend>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
-          {OPTIONS.map((o) => {
-            const selected = o.id === platform;
-            return (
-              <label
-                key={o.id}
-                className={cx(
-                  "relative flex min-h-20 flex-col justify-between rounded-2xl border p-3 transition-colors has-[:focus-visible]:outline-3 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-accent",
-                  o.enabled ? "cursor-pointer" : "cursor-not-allowed opacity-60",
-                  selected ? "border-brand bg-brand-soft ring-2 ring-brand" : "border-line bg-surface hover:bg-surface-muted",
-                )}
-              >
-                <input
-                  type="radio"
-                  name="platform"
-                  value={o.id}
-                  checked={selected}
-                  disabled={!o.enabled}
-                  onChange={() => o.enabled && setPlatform(o.id as Choice)}
-                  className="sr-only"
-                />
-                <span className="font-extrabold leading-tight">{o.name}</span>
-                <span className="mt-1 text-xs text-muted">{o.note}</span>
-                {o.badge ? (
-                  <Badge tone={o.id === "yahoo" ? "warn" : "muted"} className="mt-2 self-start">
-                    {o.badge}
-                  </Badge>
-                ) : null}
-              </label>
-            );
-          })}
-        </div>
-      </fieldset>
-
+    <div className="space-y-4 sm:space-y-6">
+      <PlatformPicker value={platform} onChange={setPlatform} />
       {platform === "espn" ? <EspnConnect /> : <SleeperConnect />}
     </div>
   );

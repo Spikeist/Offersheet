@@ -20,7 +20,7 @@
  *              → a perUnit rule on { sum: [...] }
  *   range      a 0/1 flag for "raw stat within ESPN's bounds" (D/ST 14–17 points allowed, 300–399 yard
  *              passing game) → range / threshold rules with ESPN's own bounds, parsed from espn-api's
- *              labels, so projections can take expected values (config.scoring.statSd)
+ *              labels, so projections can take expected values (§5 distributions, engine/scoring.ts)
  *   every      floor(max(0, raw) / N) ("Every 5 passing yards") → a stepped rule
  *   perGame    points per game played (stat 210 GP) → a perGame rule
  *   none       no canonical equivalent → scoring.unmapped + an ImportWarning (never dropped silently;

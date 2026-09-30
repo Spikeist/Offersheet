@@ -8,7 +8,7 @@ export const metadata: Metadata = {
 };
 
 /** When this policy last changed (Parker's local date). Update it with every change below. */
-const LAST_UPDATED = "September 29, 2026";
+const LAST_UPDATED = "September 30, 2026";
 
 /**
  * CLAUDE.md §14: the privacy policy must match what the app actually does. Update it whenever data
@@ -18,6 +18,16 @@ const LAST_UPDATED = "September 29, 2026";
  *   - src/adapters/espn: member IDs (SWIDs) are replaced by one-way pseudonyms before a body is cached;
  *     private-league cache keys carry a one-way fingerprint of the cookies (credentialScope).
  *   - src/server/session.ts: the sealed, httpOnly, session-only cookie; 12-hour seal.
+ *   - src/lib/modelStore.ts: the League page keeps the league's model inputs in sessionStorage
+ *     ("offersheet:model:v1"); src/workers/engine.worker.ts: the League math runs in the browser.
+ *   - src/server/modelInputs.ts assembleModelInputs: the server scores every player's projections and
+ *     stats with the league's scoring rules and joins FantasyCalc values to the league's players.
+ *   - The FantasyCalc values request carries only the league's format (src/engine/market.ts
+ *     fantasyCalcFormat). Sleeper's projection and stats requests are shaped by the league: its season,
+ *     week numbers through its last playoff week (modelWeekPlan: completed weeks' stats, projections
+ *     from a few weeks back) and the positions its lineup starts (startablePositions), never names or
+ *     IDs. The player lists and ID maps requests don't depend on the league; the NFL schedule's only
+ *     on its season.
  */
 export default function PrivacyPage() {
   return (
@@ -33,7 +43,11 @@ export default function PrivacyPage() {
         <ul className="mt-2 list-disc space-y-1.5 pl-5 text-sm leading-relaxed">
           <li>No accounts, no ads and no tracking or analytics. We don&apos;t sell or share your data, and we don&apos;t build profiles of you or your leaguemates.</li>
           <li>Offer Sheet only reads your league. It can&apos;t send offers or change anything.</li>
-          <li>Your imported league lives in this browser tab and is gone when you close it.</li>
+          <li>Your imported league, and the League page&apos;s projections for it, live in this browser tab and are gone when you close it.</li>
+          <li>
+            Our server fetches the data and scores each player&apos;s projections with your league&apos;s rules. The League page&apos;s math (lineups, needs, trade partners)
+            runs in your browser.
+          </li>
           <li>Our server keeps a short-lived copy of what it fetches (league data for about 10 minutes), then deletes it.</li>
           <li>If you connect with ESPN cookies, they&apos;re kept only in an encrypted cookie in your browser for this session, and only ever sent to ESPN.</li>
         </ul>
@@ -45,6 +59,12 @@ export default function PrivacyPage() {
           When you connect, our server fetches your league from ESPN or Sleeper, turns it into the Import Report, and sends it to your browser. Your browser keeps it in this
           tab&apos;s session storage (not local storage) until you close the tab. Your pick of &ldquo;Your team&rdquo; is kept the same way.
         </p>
+        <p className="mt-2 text-sm leading-relaxed">
+          When you open the League page, our server fetches your league again (usually from its short-lived copy) along with the projections and trade values for its
+          players, and scores the projections with your league&apos;s scoring rules. Your browser keeps those projections and values in session storage too (under
+          &ldquo;offersheet:model:v1&rdquo;, for the league you imported), so they&apos;re gone when you close the tab. The League page&apos;s math (lineups, needs,
+          trade partners) runs in your browser; your league isn&apos;t sent to anyone else to be analyzed.
+        </p>
         <p className="mt-2 text-sm leading-relaxed">To go easy on ESPN and Sleeper, our server keeps a copy of what it fetched for a short time, then deletes it:</p>
         <ul className="mt-2 list-disc space-y-1.5 pl-5 text-sm leading-relaxed">
           <li>
@@ -53,7 +73,8 @@ export default function PrivacyPage() {
           </li>
           <li>A Sleeper username lookup (which leagues that username is in): 10 minutes.</li>
           <li>
-            Public data that isn&apos;t about any league (player lists, player ID maps and the NFL schedule): up to a week, so a saved copy can stand in if a source is down.
+            Public data that isn&apos;t about any league (player lists, projections and stats, FantasyCalc trade values, player ID maps and the NFL schedule): up to a
+            week, so a saved copy can stand in if a source is down.
           </li>
         </ul>
         <p className="mt-2 text-sm leading-relaxed">
@@ -99,8 +120,22 @@ export default function PrivacyPage() {
       <Card>
         <h2 className="text-lg font-extrabold">Other sources</h2>
         <p className="mt-2 text-sm leading-relaxed">
-          Our server also downloads public player data from Sleeper, FantasyCalc and DynastyProcess, and the NFL schedule. Nothing about you or your league is sent with those
-          requests.
+          Our server also downloads public data: player lists and weekly projections and stats from Sleeper, player ID maps from DynastyProcess, trade values from
+          FantasyCalc, and the NFL schedule. Some of these requests are shaped by your league&apos;s settings:
+        </p>
+        <ul className="mt-2 list-disc space-y-1.5 pl-5 text-sm leading-relaxed">
+          <li>
+            Sleeper&apos;s projection and stats requests carry only the season, week numbers up to your league&apos;s last playoff week, and the positions your league
+            starts (for example, whether it uses a kicker or IDP).
+          </li>
+          <li>
+            The FantasyCalc request carries only your league&apos;s format: the number of teams, points per catch, how many quarterbacks start, dynasty or not, and any
+            tight-end premium.
+          </li>
+        </ul>
+        <p className="mt-2 text-sm leading-relaxed">
+          They never carry names or IDs. The other requests (player lists, player ID maps and the NFL schedule) don&apos;t depend on your league at all (the schedule only
+          on the season), so nothing about you or your league is sent with them.
         </p>
       </Card>
 

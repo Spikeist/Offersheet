@@ -7,8 +7,9 @@ import { SLEEPER_TEAM_CODES } from "./teamCodes";
 import { fixtureDynastyRows, fixtureEspnProTeams, fixtureEspnRostered, fixtureFantasyCalcPlayers, fixtureSleeperPlayers } from "./testSupport";
 import type { PlayerIdResolver } from "./types";
 
-// Fictional players throughout; ids are made up.
-const S = (id: string, over: Partial<SleeperPlayerRecord> = {}): SleeperPlayerRecord => ({
+// Fictional players with made-up ids, except the block on the two real players the same-player
+// override fixes (public NFL player records and ids; CLAUDE.md §2.9 asks for a test on them).
+const S =(id: string, over: Partial<SleeperPlayerRecord> = {}): SleeperPlayerRecord => ({
   id,
   name: `Player ${id}`,
   position: "WR",
@@ -158,7 +159,7 @@ describe("resolverFromData: platform ids → Sleeper ids", () => {
     expect(namesake.sleeperPlayer("71583")).toMatchObject({ name: "Brontis Vellamo", position: "CB", active: false, team: null });
   });
 
-  it("takes the active record when the top source links a stale Sleeper id of the SAME person (same name, position and team, or GSIS id)", () => {
+  it("overrides the top source when it links a Sleeper id that isn't an active player and a lower source's player matches its row (name, position, and team or GSIS id; §2.9)", () => {
     const ALL = ["QB", "RB", "WR", "TE", "K", "P", "DEF", "DL", "LB", "DB"];
     const dup = resolverFromData(
       data({
@@ -171,7 +172,8 @@ describe("resolverFromData: platform ids → Sleeper ids", () => {
         ],
         sleeperCompletePositions: ALL,
         dynastyRows: [
-          // Sleeper has two records for each of the first two players; DynastyProcess links the stale one.
+          // DynastyProcess's rows describe the first two players but carry Sleeper ids that aren't active
+          // fantasy players (wrong links; the real cases are in the block below).
           D({ sleeperId: "71376", espnId: "94361994", mflId: "96587", name: "Tavish Morrow", position: "QB", team: "WAS" }),
           D({ sleeperId: "72682", espnId: "93116104", yahooId: "91636", name: "Kellan Oduya", position: "CB", team: null, gsisId: "00-0099641" }),
           // A retired back and a rookie namesake at the same position, no shared team or GSIS id: different people.
@@ -189,15 +191,47 @@ describe("resolverFromData: platform ids → Sleeper ids", () => {
     // Same name, position and team.
     expect(dup.canonical("espn", "94361994")).toBe("71558");
     expect(dup.canonical("mfl", "96587")).toBe("71558");
-    expect(dup.conflict("espn", "94361994")).toMatchObject({ chosen: "71558", resolvedBy: "same player", options: [{ sleeperId: "71376", active: false }, { sleeperId: "71558", active: true }] });
+    expect(dup.conflict("espn", "94361994")).toMatchObject({ chosen: "71558", resolvedBy: "same player", sameBy: ["team"], options: [{ sleeperId: "71376", active: false }, { sleeperId: "71558", active: true }] });
     // Same name and position, same GSIS id (no team): picks the record with that GSIS id, not the namesake record 75816.
     expect(dup.canonical("yahoo", "91636")).toBe("75815");
-    expect(dup.conflict("yahoo", "91636")?.resolvedBy).toBe("same player");
+    expect(dup.conflict("yahoo", "91636")).toMatchObject({ resolvedBy: "same player", sameBy: ["gsis"] });
     // Same name and position, nothing else shared: source order keeps the retired player.
     expect(dup.canonical("espn", "98417")).toBe("70258");
     expect(dup.conflict("espn", "98417")?.resolvedBy).toBe("source order");
+    expect(dup.conflict("espn", "98417")?.sameBy).toBeUndefined();
     // Same name and team, different position: source order.
     expect(dup.canonical("espn", "97000")).toBe("73000");
+    // overrides() lists exactly the "same player" resolutions.
+    expect(dup.overrides().map((c) => `${c.source} ${c.platformId}`)).toEqual(["espn 94361994", "mfl 96587", "yahoo 91636", "gsis 00-0099641"]);
+    expect(dup.overrides().every((c) => c.resolvedBy === "same player")).toBe(true);
+  });
+
+  it("never overrides when the top source's row differs on team and GSIS id, has no fantasy position, or spells the name differently", () => {
+    const ALL = ["QB", "RB", "WR", "TE", "K", "P", "DEF", "DL", "LB", "DB"];
+    const r2 = resolverFromData(
+      data({
+        sleeperPlayers: [S("81558", { name: "Tavish Morrow", position: "QB", fantasyPositions: ["QB"], team: "WAS", gsisId: "00-0098001" }), S("81999", { team: "DAL" })],
+        sleeperCompletePositions: ALL,
+        dynastyRows: [
+          // Same name and position, another team and no GSIS id.
+          D({ sleeperId: "81376", espnId: "84000001", name: "Tavish Morrow", position: "QB", team: "DAL" }),
+          // Same team and GSIS id, but DynastyProcess's position code is unknown ("XX").
+          D({ sleeperId: "81377", espnId: "84000002", name: "Tavish Morrow", position: "XX", team: "WAS", gsisId: "00-0098001" }),
+          // A different name (nickname) with the same team.
+          D({ sleeperId: "81378", espnId: "84000003", name: "Tav Morrow", position: "QB", team: "WAS" }),
+        ],
+        fantasyCalcPlayers: ["84000001", "84000002", "84000003"].map((espnId) => F({ sleeperId: "81558", espnId, name: "Tavish Morrow", position: "QB", team: "WAS" })),
+      }),
+    );
+    for (const [espnId, top] of [
+      ["84000001", "81376"],
+      ["84000002", "81377"],
+      ["84000003", "81378"],
+    ] as const) {
+      expect(r2.canonical("espn", espnId), espnId).toBe(top);
+      expect(r2.conflict("espn", espnId)?.resolvedBy, espnId).toBe("source order");
+    }
+    expect(r2.overrides()).toEqual([]);
   });
 
   it("falls back to source order when the Sleeper DB is unavailable", () => {
@@ -215,6 +249,112 @@ describe("resolverFromData: platform ids → Sleeper ids", () => {
   it("counts mapped ids per kind", () => {
     expect(r.mappedCount("espn")).toBe(6); // 100 200 300 400 500 600
     expect(r.mappedCount("fantrax")).toBe(0);
+  });
+});
+
+describe("the real players the same-player override fixes (Checkpoint 1 answer 2; public records)", () => {
+  // Minimal copies of the public rows behind the 5 overrides found when the crosswalk was rebuilt
+  // from the cached sources (Sleeper lists 2026-09-30, DynastyProcess and FantasyCalc 2026-09-29):
+  // Sleeper records 11558, 5815 and 2110; DynastyProcess rows for Sleeper 11376, 2682 and 2110;
+  // FantasyCalc rows 11709 and 8340. Neither case is a stale record of the same person. In Sleeper's
+  // full DB, 11376 is Richard Gouraige (OL, so not in the fantasy-position lists; born 1998-10-15,
+  // the birthdate on DynastyProcess's "Sam Hartman" row) and 2682 is Christion Jones (WR, inactive):
+  // DynastyProcess links both players to another man. (nflverse's 2025 rosters also give Sam Hartman
+  // sleeper_id 11376, with ESPN id 4361994 and GSIS id 00-0039677.)
+  const ALL = ["QB", "RB", "WR", "TE", "K", "P", "DEF", "DL", "LB", "DB"];
+  const real = resolverFromData({
+    // In the order the lists load (QB … LB, DB).
+    sleeperPlayers: [
+      S("11558", { name: "Sam Hartman", position: "QB", fantasyPositions: ["QB"], team: "WAS", age: 27, yearsExp: 2, sportradarId: "7e65f950-06ee-11ef-82bc-b549600b8321" }),
+      // Christian Jones (LB): Sleeper gives him Chris Jones's GSIS id too (DynastyProcess has 00-0031130 for him).
+      S("2110", { name: "Christian Jones", position: "LB", fantasyPositions: ["LB"], team: null, age: 31, yearsExp: 8, espnId: "17070", yahooId: "27839", sportradarId: "10d49d75-aa4a-4d26-b9b5-c74f4e3c9ac8", gsisId: "00-0034641" }),
+      S("5815", { name: "Chris Jones", position: "CB", fantasyPositions: ["DB"], team: null, age: 27, yearsExp: 4, espnId: "3116104", yahooId: "31636", sportradarId: "351963c7-bdc1-4966-bed2-845ccddfdfbf", gsisId: "00-0034641" }),
+    ],
+    sleeperCompletePositions: ALL,
+    dynastyRows: [
+      D({ sleeperId: "11376", espnId: "4361994", mflId: "16587", sportradarId: "007971f0-f012-11ed-833c-ebfbb713adc7", gsisId: "00-0039677", name: "Sam Hartman", position: "QB", team: "WAS" }),
+      D({ sleeperId: "2682", espnId: "3116104", yahooId: "31636", mflId: "14683", sportradarId: "351963c7-bdc1-4966-bed2-845ccddfdfbf", gsisId: "00-0034641", name: "Chris Jones", position: "CB", team: null }),
+      D({ sleeperId: "2110", espnId: "17070", yahooId: "27839", mflId: "11724", sportradarId: "10d49d75-aa4a-4d26-b9b5-c74f4e3c9ac8", gsisId: "00-0031130", name: "Christian Jones", position: "LB", team: null }),
+    ],
+    fantasyCalcPlayers: [
+      F({ fantasyCalcId: "11709", sleeperId: "11558", espnId: "4361994", mflId: "16587", name: "Sam Hartman", position: "QB", team: "WAS" }),
+      // FantasyCalc names its 2682 row "Christion Jones" (WR) but gives it Chris Jones's ESPN and MFL ids.
+      F({ fantasyCalcId: "8340", sleeperId: "2682", espnId: "3116104", mflId: "14683", name: "Christion Jones", position: "WR", team: null }),
+    ],
+    fetchedAt: null,
+  });
+  const HARTMAN_OPTIONS = [
+    { sleeperId: "11376", from: ["dynastyProcess"], active: false },
+    { sleeperId: "11558", from: ["fantasyCalc"], active: true },
+  ];
+
+  it("maps Sam Hartman's ESPN and MFL ids to his active record 11558: same name, position and NFL team", () => {
+    expect(real.canonical("espn", "4361994")).toBe("11558");
+    expect(real.canonical("mfl", "16587")).toBe("11558");
+    expect(real.conflict("espn", "4361994")).toEqual({ source: "espn", platformId: "4361994", options: HARTMAN_OPTIONS, chosen: "11558", resolvedBy: "same player", sameBy: ["team"], withinSource: false });
+    expect(real.conflict("mfl", "16587")).toEqual({ source: "mfl", platformId: "16587", options: HARTMAN_OPTIONS, chosen: "11558", resolvedBy: "same player", sameBy: ["team"], withinSource: false });
+    expect(real.sleeperPlayer("11558")).toMatchObject({ name: "Sam Hartman", position: "QB", team: "WAS", active: true });
+  });
+
+  it("maps Chris Jones's ESPN, Yahoo and GSIS ids to his active record 5815: same name, position (CB = DB) and GSIS id; not the LB who shares that GSIS id in Sleeper", () => {
+    for (const [kind, id] of [
+      ["espn", "3116104"],
+      ["yahoo", "31636"],
+      ["gsis", "00-0034641"],
+    ] as const)
+      expect(real.canonical(kind, id), `${kind} ${id}`).toBe("5815");
+    expect(real.conflict("espn", "3116104")).toEqual({
+      source: "espn",
+      platformId: "3116104",
+      options: [
+        { sleeperId: "2682", from: ["dynastyProcess", "fantasyCalc"], active: false },
+        { sleeperId: "5815", from: ["sleeper"], active: true },
+      ],
+      chosen: "5815",
+      resolvedBy: "same player",
+      sameBy: ["gsis"],
+      withinSource: false,
+    });
+    expect(real.conflict("yahoo", "31636")).toMatchObject({ options: [{ sleeperId: "2682", from: ["dynastyProcess"] }, { sleeperId: "5815", from: ["sleeper"] }], chosen: "5815", resolvedBy: "same player", sameBy: ["gsis"] });
+    expect(real.conflict("gsis", "00-0034641")).toEqual({
+      source: "gsis",
+      platformId: "00-0034641",
+      options: [
+        { sleeperId: "2682", from: ["dynastyProcess"], active: false },
+        { sleeperId: "2110", from: ["sleeper"], active: true },
+        { sleeperId: "5815", from: ["sleeper"], active: true },
+      ],
+      chosen: "5815",
+      resolvedBy: "same player",
+      sameBy: ["gsis"],
+      withinSource: true,
+    });
+    // His Sportradar id: the Sleeper DB is the top source there and links 5815 itself (source order, not an override).
+    expect(real.conflict("sportradar", "351963c7-bdc1-4966-bed2-845ccddfdfbf")).toMatchObject({ chosen: "5815", resolvedBy: "source order" });
+  });
+
+  it("lists exactly those 5 platform ids as overrides, and nothing else as one", () => {
+    expect(real.overrides().map((c) => `${c.source} ${c.platformId} → ${c.chosen}`)).toEqual(["espn 4361994 → 11558", "espn 3116104 → 5815", "mfl 16587 → 11558", "yahoo 31636 → 5815", "gsis 00-0034641 → 5815"]);
+    expect(real.conflicts()).toHaveLength(6); // the 5 overrides + the Sportradar id above
+    // Ids the sources agree on stay out of both lists.
+    expect(real.canonical("espn", "17070")).toBe("2110");
+    expect(real.conflict("espn", "17070")).toBeUndefined();
+  });
+
+  it("pins the links the rule can't fix, because no other source contradicts them (Phase 5 MFL IDP and Fleaflicker Sportradar joins, Phase 6 nflverse GSIS joins)", () => {
+    // MFL 14683 is Chris Jones, CB (MFL's 2019 player list), but DynastyProcess and FantasyCalc both
+    // link it to Christion Jones: no conflict, so it stays wrong.
+    expect(real.canonical("mfl", "14683")).toBe("2682");
+    expect(real.conflict("mfl", "14683")).toBeUndefined();
+    // GSIS 00-0039677 is Sam Hartman's (nflverse 2025 rosters); only DynastyProcess links it, to 11376.
+    expect(real.canonical("gsis", "00-0039677")).toBe("11376");
+    expect(real.conflict("gsis", "00-0039677")).toBeUndefined();
+    // The Sportradar id on DynastyProcess's row is disputed: Sleeper's full DB gives it to the lineman
+    // (11376), nflverse to Sam Hartman. The crosswalk loads no linemen, so only DynastyProcess links it.
+    expect(real.canonical("sportradar", "007971f0-f012-11ed-833c-ebfbb713adc7")).toBe("11376");
+    // What those links resolve to: DynastyProcess's own rows, so a "Sam Hartman" and a "Chris Jones" who aren't active players.
+    expect(real.sleeperPlayer("11376")).toMatchObject({ name: "Sam Hartman", position: "QB", active: false, team: null });
+    expect(real.sleeperPlayer("2682")).toMatchObject({ name: "Chris Jones", position: "CB", fantasyPositions: ["DB"], active: false });
   });
 });
 
@@ -341,8 +481,15 @@ describe("matchByName (fallback)", () => {
   it("returns the only active player with that name, position and team", () => {
     expect(r.matchByName({ name: "Zorblax Quintavious", position: "K", team: "GB" })).toBe("31");
     expect(r.matchByName({ name: "Zorblax Quintavious Jr.", position: "k", team: "gb" })).toBe("31");
-    expect(r.matchByName({ name: "Vexmund Orr", position: "TE", team: null })).toBe("34");
-    expect(r.matchByName({ name: "Vexmund Orr", position: "TE", team: "FA" })).toBe("34"); // ESPN's free-agent "team"
+  });
+
+  it("never matches a player with no NFL team, even when exactly one active player fits (Checkpoint 1 answer 1: name + position + NFL team)", () => {
+    // 34 is the only active TE with this name, and he's a free agent too: still no match.
+    expect(r.matchByName({ name: "Vexmund Orr", position: "TE", team: null })).toBeUndefined();
+    expect(r.matchByName({ name: "Vexmund Orr", position: "TE", team: "FA" })).toBeUndefined(); // ESPN's free-agent "team"
+    expect(r.matchByName({ name: "Vexmund Orr", position: "TE", team: "" })).toBeUndefined();
+    expect(r.matchByName({ name: "Zorblax Quintavious", position: "K", team: null })).toBeUndefined();
+    expect(r.matchByName({ name: "Zorblax Quintavious", position: "", team: "GB" })).toBeUndefined();
   });
 
   it("refuses ambiguous, mismatched or inactive candidates", () => {

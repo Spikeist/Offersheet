@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import type { ModelInputs, PlayerInputs } from "@/engine/inputs";
+import { fantasyCalcFormat } from "@/engine/market";
 import type { LeagueSettings, LeagueSnapshot, PlayerInfo, Scoring, Team } from "@/engine/model";
 import type { ImportResponse } from "./api";
 import { UNKNOWN_SETTING_TEXT, buildImportReport, refreshOutcomeText, ruleText } from "./importReport";
@@ -430,7 +432,7 @@ describe("buildImportReport: ESPN cookies", () => {
     expect(session.league).toMatchObject({ cookieNote: "Imported with your ESPN cookies from this browser session.", canForgetEspnCookies: true, espnCookieSource: "session" });
 
     const dev = buildImportReport(response(snapshot(), { usedEspnCookies: true, espnCookieSource: "dev-env" }), { timeZone: TZ });
-    expect(dev.league).toMatchObject({ cookieNote: "Imported with ESPN cookies from .env.local (development only).", canForgetEspnCookies: false });
+    expect(dev.league).toMatchObject({ cookieNote: "Imported with ESPN cookies from .env.local (USE_ENV_COOKIES=1, development only).", canForgetEspnCookies: false });
 
     const none = buildImportReport(response(snapshot(), { usedEspnCookies: false }), { timeZone: TZ });
     expect(none.league.cookieNote).toBeUndefined();
@@ -511,5 +513,84 @@ describe("buildImportReport: players, schedule, activity, notes and timestamps",
       { label: "FantasyCalc players", value: "Unavailable: timed out" },
       { label: "Sleeper projections", value: "Tue, Sep 29, 2026, 4:30 AM EDT" },
     ]);
+  });
+});
+
+describe("buildImportReport: trade values (§2.9, §14: a substituted FantasyCalc format)", () => {
+  it("names the league's FantasyCalc format, with no notes when FantasyCalc has it exactly", () => {
+    const plain = snapshot({}, { numTeams: 10, scoring: { ...espnScoring, byPosition: { DEF: espnScoring.byPosition?.DEF ?? {} } } });
+    const v = buildImportReport(response(plain), { timeZone: TZ });
+    expect(v.values).toEqual({ text: "FantasyCalc · 10 teams · half-PPR · 1 QB · redraft", formats: ["10 teams · half-PPR · 1 QB · redraft"] });
+    expect(v.valueNotes).toEqual([]);
+  });
+
+  it("notes every substitution (here: 4 teams, and the TE premium), apart from the platform's notes", () => {
+    const v = buildImportReport(response(snapshot()), { timeZone: TZ });
+    expect(v.values.text).toBe("FantasyCalc · 8 teams · half-PPR · 1 QB · redraft · TE+");
+    expect(v.valueNotes).toEqual(fantasyCalcFormat(snapshot().settings).substitutions.map((s) => `Trade values: ${s}.`));
+    expect(v.valueNotes[0]).toBe("Trade values: 4 teams → FantasyCalc's 8-team values.");
+    expect(v.notes).toEqual(["Rosters include 1 player on IR."]);
+  });
+
+  it("uses dynasty values for the long term and redraft values for this season in keeper leagues, listing shared notes once", () => {
+    const v = buildImportReport(response(snapshot({}, { leagueType: "keeper" })), { timeZone: TZ });
+    expect(v.values.formats).toEqual(["8 teams · half-PPR · 1 QB · dynasty · TE+", "8 teams · half-PPR · 1 QB · redraft · TE+"]);
+    expect(v.values.text).toBe("FantasyCalc · 8 teams · half-PPR · 1 QB · dynasty · TE+ (long-term), plus redraft values for this season");
+    expect(v.valueNotes.filter((n) => n.includes("4 teams"))).toHaveLength(1);
+    expect(v.valueNotes.some((n) => n.includes("dynasty values for long-term worth"))).toBe(true);
+    expect(v.valueNotes.some((n) => n.includes("redraft values for how managers see a trade"))).toBe(true);
+  });
+});
+
+describe("buildImportReport: the League page's projection source (§6)", () => {
+  function inputs(players: Record<string, PlayerInputs>, extra: Partial<ModelInputs> = {}): ModelInputs {
+    return {
+      version: 1,
+      season: 2026,
+      currentWeek: 4,
+      lastWeek: 17,
+      builtAt: "2026-09-30T02:00:00.000Z",
+      nfl: { byeWeek: {}, kickoffs: {} },
+      players,
+      espnProjections: true,
+      market: null,
+      sources: [],
+      warnings: [],
+      notes: [],
+      ...extra,
+    };
+  }
+  const notesFor = (model: ModelInputs | null, snap = snapshot()) => buildImportReport(response(snap), { timeZone: TZ, model }).modelNotes;
+
+  it("says nothing until the League page has loaded this league's inputs", () => {
+    expect(notesFor(null)).toEqual([]);
+    expect(buildImportReport(response(snapshot()), { timeZone: TZ }).modelNotes).toEqual([]);
+  });
+
+  it("averages ESPN's projections with Sleeper's only when they agree within 10% on rostered players", () => {
+    const agree = inputs({ "9001": { sleeper: { 4: 20 }, espn: { 4: 21 }, actual: {} }, "9004": { sleeper: { 4: 10 }, espn: { 4: 10.5 }, actual: {} }, "9100": { sleeper: { 4: 5 }, espn: { 4: 50 }, actual: {} } });
+    expect(notesFor(agree)).toEqual(["Projection source: ESPN's and Sleeper's projections, averaged. They differ by 5% on average in week 4 (2 rostered players), within the 10% we allow."]);
+    const disagree = inputs({ "9001": { sleeper: { 4: 20 }, espn: { 4: 30 }, actual: {} }, "9004": { sleeper: { 4: 10 }, espn: { 4: 10 }, actual: {} } });
+    expect(notesFor(disagree)).toEqual([
+      "Projection source: Sleeper's projections, scored with your league's rules. ESPN's own projections differ from them by 33% on average in week 4 (2 rostered players), more than the 10% we allow, so we don't average them in.",
+    ]);
+  });
+
+  it("says why ESPN's projections weren't averaged when they're missing", () => {
+    expect(notesFor(inputs({ "9001": { sleeper: { 4: 20 }, actual: {} } }, { espnProjections: false }))[0]).toBe("Projection source: Sleeper's projections, scored with your league's rules. ESPN's own projections didn't load, so they aren't averaged in.");
+    expect(notesFor(inputs({ "9001": { sleeper: { 4: 20 }, actual: {} } }))[0]).toMatch(/No rostered player had both ESPN's and Sleeper's projection in week 4/);
+  });
+
+  it("uses Sleeper's alone in Sleeper leagues, and passes the inputs' own notes through without repeating the format", () => {
+    const own = inputs({ "9001": { sleeper: { 4: 20 }, actual: {} } }, { notes: ["FantasyCalc values: 8 teams · half-PPR · 1 QB · redraft · TE+", "FantasyCalc: 4 teams → FantasyCalc's 8-team values", "Sleeper's week 17 projections didn't load."] });
+    expect(notesFor(own, snapshot({ platform: "sleeper" }))).toEqual(["Projection source: Sleeper's projections, scored with your league's rules.", "Sleeper's week 17 projections didn't load."]);
+  });
+
+  it("names the source that actually loaded, and says nothing about sources once the season is over (review PERF-3)", () => {
+    const espnOnly = inputs({ "9001": { sleeper: { 4: null }, espn: { 4: 21 }, actual: {} } });
+    expect(notesFor(espnOnly)[0]).toBe("Projection source: ESPN's own league-scored projections. Sleeper's didn't load, so they aren't averaged in.");
+    expect(notesFor(inputs({ "9001": { sleeper: {}, actual: { 3: 12 } } }, { espnProjections: false }))[0]).toBe("Projections didn't load from Sleeper, so players are rated on their season so far.");
+    expect(notesFor(inputs({ "9001": { sleeper: {}, sleeperSeasonPerGame: 11, actual: {} } }, { espnProjections: false }))[0]).toBe("Projection source: Sleeper's season projections per game, scored with your league's rules (its weekly projections didn't load).");
+    expect(notesFor(inputs({ "9001": { sleeper: { 4: 20 }, espn: { 4: 21 }, actual: {} } }, { currentWeek: 18, lastWeek: 17 }))).toEqual([]);
   });
 });

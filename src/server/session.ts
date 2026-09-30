@@ -14,7 +14,8 @@ import "server-only";
  * - httpOnly, SameSite=Lax, Path=/, Secure in production.
  * - Never logged, never echoed back, never in a URL, localStorage or an error message.
  *
- * Development only: Parker's own ESPN cookies can come from .env.local for his league (Phase 1).
+ * Development only, with USE_ENV_COOKIES=1: Parker's own ESPN cookies can come from .env.local for
+ * his league (Phase 1; opt-in since Checkpoint 1).
  */
 import { getIronSession, webCookies, type CookieJar, type IronSession, type SessionOptions } from "iron-session";
 import { z } from "zod";
@@ -114,14 +115,16 @@ export async function forgetEspnCredentials(request: Request, responseHeaders: H
 }
 
 /**
- * Development only: Parker's own cookies from .env.local, for his own league (CLAUDE.md Phase 1).
+ * Development only, and only with USE_ENV_COOKIES=1 in .env.local: Parker's own cookies from
+ * .env.local, for his own league (CLAUDE.md §0.5; planner reply to Checkpoint 1, answer 6). By
+ * default `npm run dev` imports his league through the public-link flow a leaguemate gets.
  * Never in production or tests, and never for any other league ID. `npm run dev` binds 127.0.0.1,
  * so other devices on the network can't reach it (a request URL or Host check couldn't tell them
  * apart). The import response says the cookies came from here (espnCookieSource "dev-env"), and
  * the Import Report says so instead of "this browser session".
  */
 export function devFallbackEspnCredentials(leagueId: string, env: EnvLike = process.env): EspnCredentials | undefined {
-  if (env.NODE_ENV !== "development") return undefined;
+  if (env.NODE_ENV !== "development" || env.USE_ENV_COOKIES?.trim() !== "1") return undefined;
   const ownLeague = env.ESPN_LEAGUE_ID?.trim();
   const espnS2 = env.ESPN_S2?.trim();
   const swid = env.ESPN_SWID?.trim();
