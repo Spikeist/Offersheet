@@ -1,4 +1,7 @@
 /**
+ * FROZEN PHASE 0 EVIDENCE: the probes still use this copy; the app uses src/adapters/mfl/rules.ts. A fix here doesn't
+ * reach the app (and the reverse); `npm run import:report` is the live check of the shipped adapters.
+ *
  * MFL scoring rules (TYPE=rules) → per-position Sleeper-key rates and threshold bonuses (CLAUDE.md §5).
  *
  * Semantics, from MFL's "Scoring Rules Setup" help (read 2026-09-29):

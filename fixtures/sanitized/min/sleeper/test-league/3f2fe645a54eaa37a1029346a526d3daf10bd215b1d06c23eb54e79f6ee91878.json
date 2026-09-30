@@ -1,0 +1,19 @@
+{
+ "season": 2026,
+ "currentWeek": 4,
+ "lastScoredWeek": 3,
+ "oracleWeeks": [
+  2,
+  3
+ ],
+ "projectionWeek": 4,
+ "me": {
+  "userId": "2000000000000000010",
+  "rosterId": 10,
+  "via": "owner_id"
+ },
+ "txLegs": [
+  2,
+  3
+ ]
+}

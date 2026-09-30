@@ -1,7 +1,7 @@
 {
   "platform": "fleaflicker",
-  "generatedAt": "2026-09-29T23:44:10.018Z",
-  "runtimeSeconds": 88.2,
+  "generatedAt": "2026-09-30T01:41:50.917Z",
+  "runtimeSeconds": 4.4,
   "meta": {
     "season": 2026,
     "oracle": {
@@ -4843,6 +4843,7 @@
         ]
       }
     },
+    "crawlGate": "no --allow-crawl: only the pinned test league is requested live; other strangers' leagues come from the HTTP cache, and no new league is discovered",
     "leagueSelection": {
       "log": [
         "FLEAFLICKER_LEAGUE_ID is blank: using a public test league."
@@ -4865,17 +4866,34 @@
       },
       {
         "label": "second public test league (scoring oracle only)",
-        "access": "public API, no login",
+        "access": "public API, no login; read from the HTTP cache this run (no --allow-crawl)",
         "source": "pinned public test league (how it was found is recorded only in the git-ignored pin file)",
         "notes": "8-team league, used for the scoring-oracle preview only"
       }
     ],
     "fixtures": {
       "sanitizedFiles": 91,
-      "sanitizedBytes": 4919709,
+      "sanitizedBytes": 4919738,
       "largestBytes": 312034,
+      "byFolder": [
+        {
+          "folder": "fixtures/sanitized/fleaflicker",
+          "files": 0,
+          "bytes": 0
+        },
+        {
+          "folder": "data-local/fixtures-sanitized/fleaflicker",
+          "files": 91,
+          "bytes": 4919738
+        }
+      ],
+      "savedThisRun": {
+        "committed": 0,
+        "gitIgnored": 91
+      },
       "leakErrors": 0,
       "prunedStale": 0,
+      "keptUnrefreshedOracleFixtures": false,
       "skippedNames": 3,
       "shortOwnerIds": 0
     },
@@ -4891,13 +4909,13 @@
       "withoutAdjustments": 77.31
     },
     "timingsMs": {
-      "Sleeper players DB": 121,
-      "resolve league": 394,
-      "load primary league": 64366,
-      "load oracle league": 11759,
-      "Sleeper weekly stats": 146,
-      "rule coverage (other leagues)": 10551,
-      "DynastyProcess id map": 258,
+      "Sleeper players DB": 117,
+      "resolve league": 30,
+      "load primary league": 2515,
+      "load oracle league": 779,
+      "Sleeper weekly stats": 112,
+      "rule coverage (other leagues)": 29,
+      "DynastyProcess id map": 266,
       "API docs": 17
     },
     "requestCount": 137
@@ -5236,7 +5254,7 @@
       "key": "A.inactiveLeague",
       "title": "League not active this season",
       "status": "warn",
-      "summary": "1 of 7 other public leagues screened are not active for 2026 (league.activeForCurrentSeason omitted = false). FetchLeagueStandings?season=2026 still answers HTTP 200 with season = 2026 and teams with up to 13 decided games (1 of those leagues with postseason records) — last season's final standings, not 2026's. Adapter: check activeForCurrentSeason and show a clear error",
+      "summary": "1 of 7 other public leagues screened are not active for 2026 (league.activeForCurrentSeason omitted = false). FetchLeagueStandings?season=2026 still answers HTTP 200 with season = 2026 and teams with up to 13 decided games (1 of those leagues with postseason records) — last season's final standings, not 2026's. Adapter: check activeForCurrentSeason and show a clear error (read from the HTTP cache without --allow-crawl, copies from 2026-09-29 on; nothing requested)",
       "evidence": [
         {
           "url": "https://www.fleaflicker.com/api/FetchLeagueStandings?sport=NFL&league_id={otherLeagueId}&season=2026",
@@ -6412,7 +6430,7 @@
       "key": "C.otherLeagues",
       "title": "Rule coverage across other public leagues",
       "status": "warn",
-      "summary": "7 more public leagues, 366 rules, 65 categories: bonus 24, per-unit 183, unmapped 85, distance 21, partial 14, inactive 4, tier 35. Unmapped (category: reason ×rules): ROTY (Offensive Fumble Recovery TD): per-TD length bonus; no Sleeper equivalent ×10; TY (Defensive TD): per-TD length bonus; Sleeper has only bonus_def_int_td_50p-style keys ×9; O-Pts (Offensive Point Allowed (FG, Pass TD, Rush TD)): Sleeper pts_allow counts all points, including return and defensive TDs ×7; TY (Passing TD): distance range 80–∞ yds doesn't match Sleeper's buckets ×4; TY (Rushing TD): distance range 80–∞ yds doesn't match Sleeper's buckets ×4; TY (Receiving TD): distance range 80–∞ yds doesn't match Sleeper's buckets ×4; CR (Conversion Return): no Sleeper key for offense/idp players ×4; TY (Passing TD): distance range 40–79 yds doesn't match Sleeper's buckets ×3; TY (Rushing TD): distance range 40–79 yds doesn't match Sleeper's buckets ×3; TY (Receiving TD): distance range 40–79 yds doesn't match Sleeper's buckets ×3 … (36 kinds; all in JSON). Category ids not in the mapping table: none",
+      "summary": "7 more public leagues (read from the HTTP cache without --allow-crawl, copies from 2026-09-29 on; nothing requested), 366 rules, 65 categories: bonus 24, per-unit 183, unmapped 85, distance 21, partial 14, inactive 4, tier 35. Unmapped (category: reason ×rules): ROTY (Offensive Fumble Recovery TD): per-TD length bonus; no Sleeper equivalent ×10; TY (Defensive TD): per-TD length bonus; Sleeper has only bonus_def_int_td_50p-style keys ×9; O-Pts (Offensive Point Allowed (FG, Pass TD, Rush TD)): Sleeper pts_allow counts all points, including return and defensive TDs ×7; TY (Passing TD): distance range 80–∞ yds doesn't match Sleeper's buckets ×4; TY (Rushing TD): distance range 80–∞ yds doesn't match Sleeper's buckets ×4; TY (Receiving TD): distance range 80–∞ yds doesn't match Sleeper's buckets ×4; CR (Conversion Return): no Sleeper key for offense/idp players ×4; TY (Passing TD): distance range 40–79 yds doesn't match Sleeper's buckets ×3; TY (Rushing TD): distance range 40–79 yds doesn't match Sleeper's buckets ×3; TY (Receiving TD): distance range 40–79 yds doesn't match Sleeper's buckets ×3 … (36 kinds; all in JSON). Category ids not in the mapping table: none",
       "evidence": [
         {
           "url": "https://www.fleaflicker.com/api/FetchLeagueRules?sport=NFL&league_id={leagueId}",
@@ -7168,7 +7186,7 @@
           "url": "https://www.fleaflicker.com/api/FetchLeagueScoreboard?sport=NFL&league_id={leagueId}&season=2026&scoring_period=4",
           "status": 200,
           "path": "games[].homeScore.projected.value",
-          "sample": 243.45001
+          "sample": 243.32999
         }
       ]
     },
@@ -7511,7 +7529,7 @@
       "key": "C.oracleLeague",
       "title": "Second league's rules",
       "status": "ok",
-      "summary": "45 rules: per-unit 21, bonus 1, tier 1, inactive 22; unmapped: none",
+      "summary": "45 rules (read from the HTTP cache without --allow-crawl): per-unit 21, bonus 1, tier 1, inactive 22; unmapped: none",
       "evidence": [
         {
           "url": "https://www.fleaflicker.com/api/FetchLeagueRules?sport=NFL&league_id={leagueId}",
@@ -7545,7 +7563,7 @@
       "key": "K.oraclePreview2",
       "title": "Scoring oracle preview (second league)",
       "status": "ok",
-      "summary": "PREVIEW: recomputed 500 player-weeks (weeks 2, 3) from Sleeper weekly stats × the converted rules: 497 (99.4%) within 0.05 pts (target 99%); leaving out the 105 rows where both sides are 0 (mostly players who didn't play): 392/395 (99.2%). By position: QB 75/75, RB 152/152, WR 202/205, TE 68/68. Skipped: none. 3 mismatches: 0 explained exactly by unmapped rules (estimated from Sleeper's *_td_lng / _40p, fgm_lng / fgm_yds / buckets, pass_lng), 0 consistent only with rules Sleeper's stats can't resolve, 3 unexplained. Differences (recomputed − Fleaflicker): -0.25×2, 0.25×1",
+      "summary": "PREVIEW (read from the HTTP cache without --allow-crawl, copies from 2026-09-29 on): recomputed 500 player-weeks (weeks 2, 3) from Sleeper weekly stats × the converted rules: 497 (99.4%) within 0.05 pts (target 99%); leaving out the 105 rows where both sides are 0 (mostly players who didn't play): 392/395 (99.2%). By position: QB 75/75, RB 152/152, WR 202/205, TE 68/68. Skipped: none. 3 mismatches: 0 explained exactly by unmapped rules (estimated from Sleeper's *_td_lng / _40p, fgm_lng / fgm_yds / buckets, pass_lng), 0 consistent only with rules Sleeper's stats can't resolve, 3 unexplained. Differences (recomputed − Fleaflicker): -0.25×2, 0.25×1",
       "evidence": [
         {
           "url": "https://www.fleaflicker.com/api/FetchLeagueBoxscore?sport=NFL&league_id={leagueId}&fantasy_game_id={gameId}&scoring_period={week}",
@@ -7731,10 +7749,10 @@
       "key": "FIX.sanitized",
       "title": "Sanitized fixtures",
       "status": "ok",
-      "summary": "91 files, 4.92 MB (largest 0.31 MB); every one passed the leak check. Owners → Owner N, teams → Team N (id 400000N), divisions → Division N (id 500000N), leagues → League N; free text and initials replaced; bulky keys trimmed (listed in each index entry). Strangers' leagues read but not saved: 304 identities in the git-ignored watch list for check:leaks",
+      "summary": "91 saved this run: 91 in data-local/fixtures-sanitized/fleaflicker (git-ignored: strangers' public leagues; tests use minimized copies in fixtures/sanitized/min/fleaflicker/); 91 indexed files in all, 4.92 MB (largest 0.31 MB); every one passed the leak check. Owners → Owner N, teams → Team N (id 400000N), divisions → Division N (id 500000N), leagues → League N; free text and initials replaced; bulky keys trimmed (listed in each index entry). Strangers' leagues read but not saved: 304 identities in the git-ignored watch list for check:leaks",
       "evidence": [
         {
-          "path": "fixtures/sanitized/fleaflicker/index.json",
+          "path": "fixtures/sanitized/fleaflicker/index.json, data-local/fixtures-sanitized/fleaflicker/index.json",
           "sample": 91
         }
       ]
@@ -7782,9 +7800,9 @@
   ],
   "requests": {
     "total": 137,
-    "live": 127,
-    "fromCache": 10,
+    "live": 0,
+    "fromCache": 137,
     "retried": 0,
-    "slowestMs": 764
+    "slowestMs": 117
   }
 }

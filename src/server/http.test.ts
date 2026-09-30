@@ -1,27 +1,48 @@
-import { describe, expect, it } from "vitest";
-import { MemoryCache, credentialScope } from "./cache";
-import { createHttpClient, quoteBigInts } from "./http";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { HOUR, MemoryCache, MINUTE, TTL, credentialScope, leagueTtl, type Cache } from "./cache";
+import { createHttpClient, quoteBigInts, retryAfterMs } from "./http";
 
-function fakeFetch(responses: Array<{ status: number; body: string; type?: string }>) {
-  const calls: { url: string; cookie?: string }[] = [];
+type FakeAnswer = { status: number; body: string; type?: string; headers?: Record<string, string> } | "network error";
+
+function fakeFetch(responses: FakeAnswer[]) {
+  const calls: { url: string; cookie?: string; at: number }[] = [];
   const impl = (async (url: string | URL, init?: RequestInit) => {
     const headers = (init?.headers ?? {}) as Record<string, string>;
-    calls.push({ url: String(url), cookie: headers.Cookie });
+    calls.push({ url: String(url), cookie: headers.Cookie, at: Date.now() });
     const r = responses[Math.min(calls.length - 1, responses.length - 1)]!;
-    return new Response(r.body, { status: r.status, headers: { "content-type": r.type ?? "application/json" } });
+    if (r === "network error") throw new TypeError("fetch failed");
+    return new Response(r.body, { status: r.status, headers: { "content-type": r.type ?? "application/json", ...r.headers } });
   }) as typeof fetch;
   return { impl, calls };
 }
 
+const T0 = Date.UTC(2026, 8, 29, 21, 0, 0);
+
+/** Runs the fake clock until the promise settles (backoff and pacing sleeps). */
+async function settle<T>(p: Promise<T>): Promise<T> {
+  let done = false;
+  void p.then(
+    () => (done = true),
+    () => (done = true),
+  );
+  for (let i = 0; i < 1_000 && !done; i++) await vi.advanceTimersByTimeAsync(100);
+  return p;
+}
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 describe("server HttpClient", () => {
   it("retries 5xx, then returns the success", async () => {
+    vi.useFakeTimers({ now: T0 });
     const f = fakeFetch([{ status: 503, body: "" }, { status: 200, body: '{"a":1}' }]);
     const http = createHttpClient({ fetchImpl: f.impl, maxRetries: 2 });
-    const res = await http.get("https://example.invalid/x");
+    const res = await settle(http.get("https://example.invalid/x"));
     expect(res.status).toBe(200);
     expect(res.json).toEqual({ a: 1 });
     expect(f.calls).toHaveLength(2);
-  }, 15_000);
+  });
 
   it("never retries 403 or HTML login pages", async () => {
     const f = fakeFetch([{ status: 403, body: "<html>login</html>", type: "text/html" }]);
@@ -44,6 +65,23 @@ describe("server HttpClient", () => {
     expect(f.calls).toHaveLength(1);
   });
 
+  it("reports when a body was really fetched, also for a cached copy", async () => {
+    const f = fakeFetch([{ status: 200, body: '{"n":8}' }]);
+    const http = createHttpClient({ fetchImpl: f.impl, cache: new MemoryCache() });
+    const first = await http.get("https://example.invalid/t", { cache: { key: "t", ttlMs: 60_000 } });
+    expect(typeof first.fetchedAt).toBe("number");
+    const again = await http.get("https://example.invalid/t", { cache: { key: "t", ttlMs: 60_000 } });
+    expect(again.fromCache).toBe(true);
+    expect(again.fetchedAt).toBe(first.fetchedAt);
+  });
+
+  it("uses the 10-minute league TTL, or 1 minute after Refresh", () => {
+    expect(leagueTtl()).toBe(TTL.league);
+    expect(leagueTtl(false)).toBe(10 * 60_000);
+    expect(leagueTtl(true)).toBe(TTL.leagueRefresh);
+    expect(TTL.leagueRefresh).toBe(60_000);
+  });
+
   it("does not retry MFL hosts at all", async () => {
     const f = fakeFetch([{ status: 500, body: "" }, { status: 200, body: "{}" }]);
     const http = createHttpClient({ fetchImpl: f.impl, maxRetries: 3 });
@@ -58,5 +96,237 @@ describe("server HttpClient", () => {
     const res = await http.get("https://example.invalid/d", { bigIntsAsStrings: true });
     expect(res.json).toEqual([{ draft_id: "1234567890123456789", rate: 0.030303030303030304 }]);
     expect(quoteBigInts("[1.5e+25]")).toBe("[1.5e+25]");
+  });
+});
+
+describe("HttpClient retries (review HTTP-4, HTTP-6)", () => {
+  it("retries a 429 after its Retry-After", async () => {
+    vi.useFakeTimers({ now: T0 });
+    const f = fakeFetch([{ status: 429, body: "", headers: { "retry-after": "2" } }, { status: 200, body: '{"ok":true}' }]);
+    const http = createHttpClient({ fetchImpl: f.impl, maxRetries: 1 });
+    const res = await settle(http.get("https://example.invalid/limited"));
+    expect(res.status).toBe(200);
+    expect(f.calls.map((c) => c.at - T0)).toEqual([0, 2000]);
+  });
+
+  it("returns a 429 at once when Retry-After asks for more than a minute (seconds or an HTTP date), instead of retrying early", async () => {
+    vi.useFakeTimers({ now: T0 });
+    for (const retryAfter of ["120", new Date(T0 + 90_000).toUTCString()]) {
+      const f = fakeFetch([{ status: 429, body: "", headers: { "retry-after": retryAfter } }, { status: 200, body: "{}" }]);
+      const http = createHttpClient({ fetchImpl: f.impl, maxRetries: 3 });
+      const res = await settle(http.get("https://example.invalid/limited"));
+      expect(res.status, retryAfter).toBe(429);
+      expect(f.calls).toHaveLength(1);
+    }
+  });
+
+  it("honours an HTTP-date Retry-After under a minute", async () => {
+    vi.useFakeTimers({ now: T0 });
+    const f = fakeFetch([{ status: 503, body: "", headers: { "retry-after": new Date(T0 + 5_000).toUTCString() } }, { status: 200, body: "{}" }]);
+    const http = createHttpClient({ fetchImpl: f.impl, maxRetries: 1 });
+    expect((await settle(http.get("https://example.invalid/busy"))).status).toBe(200);
+    expect(f.calls.map((c) => c.at - T0)).toEqual([0, 5_000]);
+  });
+
+  it("parses Retry-After values", () => {
+    expect(retryAfterMs("5", T0)).toBe(5_000);
+    expect(retryAfterMs("0", T0)).toBe(0);
+    expect(retryAfterMs(new Date(T0 + 30_000).toUTCString(), T0)).toBe(30_000);
+    expect(retryAfterMs(new Date(T0 - 30_000).toUTCString(), T0)).toBe(0);
+    expect(retryAfterMs("soon", T0)).toBeUndefined();
+    expect(retryAfterMs(null, T0)).toBeUndefined();
+  });
+
+  it("turns a network error into status 0 after its retries", async () => {
+    vi.useFakeTimers({ now: T0 });
+    const f = fakeFetch(["network error"]);
+    const http = createHttpClient({ fetchImpl: f.impl, maxRetries: 1 });
+    const res = await settle(http.get("https://example.invalid/down"));
+    expect(res).toMatchObject({ status: 0, ok: false, fromCache: false, text: "" });
+    expect(f.calls).toHaveLength(2);
+    // The retry waited out the exponential backoff (1 s plus up to 300 ms of jitter).
+    const gap = (f.calls[1]?.at ?? 0) - (f.calls[0]?.at ?? 0);
+    expect(gap).toBeGreaterThanOrEqual(1000);
+    expect(gap).toBeLessThan(1300);
+  });
+
+  it("treats a timeout as a network error", async () => {
+    const impl = ((_url: string | URL, init?: RequestInit) =>
+      new Promise<Response>((_, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+      })) as typeof fetch;
+    const http = createHttpClient({ fetchImpl: impl });
+    await expect(http.get("https://example.invalid/hang", { timeoutMs: 20, maxRetries: 0 })).resolves.toMatchObject({ status: 0, ok: false });
+  });
+
+  it("lets a request set its own retry count over the client's", async () => {
+    vi.useFakeTimers({ now: T0 });
+    const none = fakeFetch([{ status: 503, body: "" }, { status: 200, body: "{}" }]);
+    expect((await settle(createHttpClient({ fetchImpl: none.impl, maxRetries: 3 }).get("https://example.invalid/a", { maxRetries: 0 }))).status).toBe(503);
+    expect(none.calls).toHaveLength(1);
+    const one = fakeFetch([{ status: 503, body: "" }, { status: 503, body: "" }, { status: 200, body: "{}" }]);
+    expect((await settle(createHttpClient({ fetchImpl: one.impl, maxRetries: 3 }).get("https://example.invalid/b", { maxRetries: 1 }))).status).toBe(503);
+    expect(one.calls).toHaveLength(2);
+  });
+
+  it("paces requests per host, with all MFL hosts in one bucket", async () => {
+    vi.useFakeTimers({ now: T0 });
+    const f = fakeFetch([{ status: 200, body: "{}" }]);
+    const http = createHttpClient({ fetchImpl: f.impl });
+    await settle(Promise.all([http.get("https://api.sleeper.app/v1/a"), http.get("https://api.sleeper.app/v1/b"), http.get("https://lm-api-reads.fantasy.espn.com/x")]));
+    const at = (host: string) => f.calls.filter((c) => new URL(c.url).host === host).map((c) => c.at - T0);
+    expect(at("api.sleeper.app")).toEqual([0, 120]);
+    expect(at("lm-api-reads.fantasy.espn.com")).toEqual([0]); // another host doesn't wait
+    await settle(Promise.all([http.get("https://www66.myfantasyleague.com/2026/export?TYPE=league"), http.get("https://api.myfantasyleague.com/2026/export?TYPE=players")]));
+    const mfl = f.calls.filter((c) => c.url.includes("myfantasyleague.com")).map((c) => c.at);
+    expect((mfl[1] ?? 0) - (mfl[0] ?? 0)).toBe(1200);
+  });
+});
+
+describe("HttpClient cache options (review HTTP-1, HTTP-3, HTTP-5)", () => {
+  it("caches only bodies cacheIf accepts; a rejected body is still returned", async () => {
+    vi.useFakeTimers({ now: T0 });
+    const f = fakeFetch([{ status: 200, body: "[]" }, { status: 200, body: "[1,2,3]" }]);
+    const cache = new MemoryCache();
+    const http = createHttpClient({ fetchImpl: f.impl, cache });
+    const opts = { cache: { key: "list", ttlMs: HOUR }, cacheIf: (r: { json: unknown }) => Array.isArray(r.json) && r.json.length > 0 };
+    const empty = await settle(http.get("https://example.invalid/list", opts));
+    expect(empty).toMatchObject({ status: 200, json: [], fromCache: false });
+    expect(cache.keys()).toEqual([]);
+    const full = await settle(http.get("https://example.invalid/list", opts));
+    expect(full.json).toEqual([1, 2, 3]);
+    expect(cache.keys()).toEqual(["list"]);
+    expect((await settle(http.get("https://example.invalid/list", opts))).fromCache).toBe(true);
+    expect(f.calls).toHaveLength(2);
+  });
+
+  it("never caches an HTML page or an error status", async () => {
+    vi.useFakeTimers({ now: T0 });
+    const f = fakeFetch([
+      { status: 200, body: "<!DOCTYPE html><html>login</html>", type: "text/html" },
+      { status: 404, body: '{"error":"nope"}' },
+    ]);
+    const cache = new MemoryCache();
+    const http = createHttpClient({ fetchImpl: f.impl, cache });
+    expect((await settle(http.get("https://example.invalid/p", { cache: { key: "p", ttlMs: HOUR } }))).isHtml).toBe(true);
+    expect((await settle(http.get("https://example.invalid/p", { cache: { key: "p", ttlMs: HOUR } }))).status).toBe(404);
+    expect(cache.keys()).toEqual([]);
+  });
+
+  it("with staleIfError, serves a retained copy (marked stale, with its original fetch time) when the live fetch fails or its body is rejected", async () => {
+    vi.useFakeTimers({ now: T0 });
+    let answer: FakeAnswer = { status: 200, body: '{"v":1}' };
+    const calls: number[] = [];
+    const impl = (async () => {
+      calls.push(Date.now());
+      if (answer === "network error") throw new TypeError("fetch failed");
+      return new Response(answer.body, { status: answer.status, headers: { "content-type": answer.type ?? "application/json" } });
+    }) as typeof fetch;
+    const http = createHttpClient({ fetchImpl: impl, cache: new MemoryCache() });
+    const opts = { cache: { key: "src", ttlMs: MINUTE, retainMs: HOUR, staleIfError: true }, cacheIf: (r: { json: unknown }) => (r.json as { v?: unknown } | undefined)?.v !== "bad", maxRetries: 0 };
+    const url = "https://example.invalid/src";
+    const fresh = await settle(http.get(url, opts));
+    expect(fresh).toMatchObject({ json: { v: 1 }, fromCache: false, fetchedAt: T0 });
+    expect(fresh.stale).toBeUndefined();
+
+    vi.setSystemTime(T0 + 2 * MINUTE); // past the TTL, within the retention
+    for (const failure of [{ status: 503, body: "" }, { status: 429, body: "" }, "network error", { status: 200, body: "<html>maintenance</html>", type: "text/html" }, { status: 200, body: '{"v":"bad"}' }] as FakeAnswer[]) {
+      answer = failure;
+      const res = await settle(http.get(url, opts));
+      expect(res, JSON.stringify(failure)).toMatchObject({ status: 200, json: { v: 1 }, fromCache: true, stale: true, fetchedAt: T0 });
+    }
+    // A 404 is an answer, not an outage: returned as is.
+    answer = { status: 404, body: "{}" };
+    expect(await settle(http.get(url, opts))).toMatchObject({ status: 404, fromCache: false });
+    // Without staleIfError the failure comes back.
+    answer = { status: 503, body: "" };
+    expect(await settle(http.get(url, { ...opts, cache: { key: "src", ttlMs: MINUTE, retainMs: HOUR } }))).toMatchObject({ status: 503 });
+    // Past the retention the copy is gone.
+    vi.setSystemTime(T0 + HOUR);
+    expect(await settle(http.get(url, opts))).toMatchObject({ status: 503, fromCache: false });
+    expect(calls.length).toBe(9);
+  });
+
+  it("keeps a fresh copy for retainMs even when a Refresh asks for a shorter TTL", async () => {
+    vi.useFakeTimers({ now: T0 });
+    const f = fakeFetch([{ status: 200, body: '{"v":1}' }]);
+    const cache = new MemoryCache();
+    const http = createHttpClient({ fetchImpl: f.impl, cache });
+    await settle(http.get("https://example.invalid/l", { cache: { key: "l", ttlMs: MINUTE, retainMs: 10 * MINUTE } }));
+    expect(await cache.get("l", Number.POSITIVE_INFINITY, T0 + 9 * MINUTE)).toBeDefined();
+    expect(await cache.get("l", Number.POSITIVE_INFINITY, T0 + 10 * MINUTE)).toBeUndefined();
+  });
+
+  it("applies transformText before the body is parsed or cached", async () => {
+    const f = fakeFetch([{ status: 200, body: '{"owner":"secret-ABC123","n":1}' }]);
+    const cache = new MemoryCache();
+    const http = createHttpClient({ fetchImpl: f.impl, cache });
+    const opts = { cache: { key: "tx", ttlMs: HOUR }, transformText: (t: string) => t.replace(/secret-\w+/g, "pseudonym-1") };
+    const res = await http.get("https://example.invalid/tx", opts);
+    expect(res.json).toEqual({ owner: "pseudonym-1", n: 1 });
+    expect(res.text).not.toContain("secret-");
+    expect(JSON.stringify(cache.values())).not.toContain("secret-");
+    expect((await http.get("https://example.invalid/tx", opts)).json).toEqual({ owner: "pseudonym-1", n: 1 });
+  });
+
+  it("serves the fresh response when the cache write fails, logging only the error's name", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const failing: Cache = {
+      get: async () => undefined,
+      set: async () => {
+        throw Object.assign(new Error("ENOSPC: no space left, writing .cache/app/secret-key.json"), { name: "DiskFullError" });
+      },
+    };
+    const f = fakeFetch([{ status: 200, body: '{"ok":1}' }]);
+    const http = createHttpClient({ fetchImpl: f.impl, cache: failing });
+    const res = await http.get("https://example.invalid/leagues/123456", { cache: { key: "espn:cred-abc:league-123456", ttlMs: HOUR } });
+    expect(res).toMatchObject({ status: 200, json: { ok: 1 }, fromCache: false });
+    expect(spy).toHaveBeenCalledTimes(1);
+    const logged = String(spy.mock.calls[0]?.[0]);
+    expect(logged).toContain("DiskFullError");
+    for (const secret of ["123456", "secret-key", "cred-abc", "example.invalid", "ENOSPC"]) expect(logged).not.toContain(secret);
+  });
+
+  it("treats a cache that can't be read as a miss", async () => {
+    const broken: Cache = {
+      get: async () => {
+        throw new Error("EACCES");
+      },
+      set: async () => {},
+    };
+    const f = fakeFetch([{ status: 200, body: '{"ok":2}' }]);
+    const res = await createHttpClient({ fetchImpl: f.impl, cache: broken }).get("https://example.invalid/r", { cache: { key: "r", ttlMs: HOUR } });
+    expect(res).toMatchObject({ status: 200, json: { ok: 2 } });
+  });
+
+  it("reports a cached body's original fetch time, or when it was stored for entries that lack one", async () => {
+    const cache = new MemoryCache();
+    const storedAt = Date.now() - 5 * MINUTE;
+    await cache.set("with", { status: 200, contentType: "application/json", text: '{"a":1}', fetchedAt: storedAt - 1_000 }, HOUR, storedAt);
+    await cache.set("without", { status: 200, contentType: "application/json", text: '{"a":2}' }, HOUR, storedAt);
+    const http = createHttpClient({ fetchImpl: fakeFetch([{ status: 500, body: "" }]).impl, cache });
+    expect(await http.get("https://example.invalid/with", { cache: { key: "with", ttlMs: HOUR } })).toMatchObject({ fromCache: true, json: { a: 1 }, fetchedAt: storedAt - 1_000 });
+    expect(await http.get("https://example.invalid/without", { cache: { key: "without", ttlMs: HOUR } })).toMatchObject({ fromCache: true, json: { a: 2 }, fetchedAt: storedAt });
+  });
+});
+
+describe("HTML detection (review HTTP-6)", () => {
+  const get = async (body: string, type: string) => {
+    const f = fakeFetch([{ status: 200, body, type }]);
+    return createHttpClient({ fetchImpl: f.impl }).get("https://example.invalid/h");
+  };
+
+  it("detects XHTML and pages that start with an XML prolog or a comment", async () => {
+    expect((await get('<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html><html><body>Sign in</body></html>', "application/xhtml+xml")).isHtml).toBe(true);
+    expect((await get('<?xml version="1.0"?>\n<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"><html>', "text/plain")).isHtml).toBe(true);
+    expect((await get("<!-- served by edge-7 -->\n<html><body>login</body></html>", "text/plain")).isHtml).toBe(true);
+    expect((await get("  <HTML lang=en>", "application/octet-stream")).isHtml).toBe(true);
+    expect((await get("<html>", "text/html; charset=utf-8")).isHtml).toBe(true);
+  });
+
+  it("doesn't mistake JSON data for HTML", async () => {
+    expect((await get('[{"note":"<html> in a string"}]', "text/plain")).isHtml).toBe(false);
+    expect((await get('{"page":"<!DOCTYPE html>"}', "application/json")).isHtml).toBe(false);
+    expect((await get("sleeper_id,name\n1,Zorblax Quintavious", "text/csv")).isHtml).toBe(false);
   });
 });

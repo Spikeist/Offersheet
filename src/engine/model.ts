@@ -16,6 +16,8 @@ export interface LeagueSnapshot {
   fetchedAt: string;
   /** NFL week. */
   currentWeek: number;
+  /** The platform's own league week when it can lag the NFL week (Sleeper settings.leg: trades complete through leg D). */
+  leagueWeek?: number;
   settings: LeagueSettings;
   teams: Team[];
   myTeamId: string | null;
@@ -70,7 +72,11 @@ export interface LeagueSettings {
   tradeDeadline: { week?: number; date?: string } | null;
   tradeReview: "none" | "commissioner" | "league_vote";
   faabBudget?: number;
+  /** Settings the platform doesn't expose or we couldn't read: the Import Report shows them as unknown (§14). */
+  unknownSettings?: UnknownSetting[];
 }
+
+export type UnknownSetting = "tradeDeadline" | "tradeReview" | "playoffs" | "playoffSeeding";
 
 /** e.g. { slot: 'FLEX', count: 1, eligible: ['RB','WR','TE'] } */
 export interface SlotDef {
@@ -119,6 +125,7 @@ export interface Team {
   divisionId?: string;
 }
 
+/** NA = not an active NFL player right now (Sleeper's NA; retired or unsigned): availability config.projections.injury.notActive. */
 export type InjuryStatus = "ACTIVE" | "QUESTIONABLE" | "DOUBTFUL" | "OUT" | "IR" | "PUP" | "SUSPENDED" | "NA";
 
 export interface PlayerInfo {

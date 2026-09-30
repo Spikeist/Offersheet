@@ -100,6 +100,71 @@
     },
     {
       "bidAmount": 0,
+      "executionType": "CANCEL",
+      "id": "95950601-70d2-4e60-809c-f31d61d01373",
+      "isActingAsTeamOwner": false,
+      "isLeagueManager": false,
+      "isPending": false,
+      "items": [
+        {
+          "fromLineupSlotId": -1,
+          "fromTeamId": 0,
+          "isKeeper": false,
+          "overallPickNumber": 0,
+          "playerId": 4569587,
+          "toLineupSlotId": -1,
+          "toTeamId": 1,
+          "type": "ADD"
+        },
+        {
+          "fromLineupSlotId": 17,
+          "fromTeamId": 1,
+          "isKeeper": false,
+          "overallPickNumber": 0,
+          "playerId": 3150744,
+          "toLineupSlotId": -1,
+          "toTeamId": 0,
+          "type": "DROP"
+        }
+      ],
+      "memberId": "{00000000-0000-4000-8000-000000000002}",
+      "proposedDate": 1790729344658,
+      "rating": 0,
+      "relatedTransactionId": "c3108951-5782-4633-8243-13bb42ff81d9",
+      "scoringPeriodId": 4,
+      "status": "CANCELED",
+      "teamId": 1,
+      "type": "WAIVER"
+    },
+    {
+      "bidAmount": 0,
+      "executionType": "EXECUTE",
+      "id": "7253e3d7-5177-4e38-8bbd-1113ef3d3322",
+      "isActingAsTeamOwner": false,
+      "isLeagueManager": false,
+      "isPending": false,
+      "items": [
+        {
+          "fromLineupSlotId": 20,
+          "fromTeamId": 10,
+          "isKeeper": false,
+          "overallPickNumber": 0,
+          "playerId": 4429160,
+          "toLineupSlotId": -1,
+          "toTeamId": 0,
+          "type": "DROP"
+        }
+      ],
+      "memberId": "{00000000-0000-4000-8000-00000000000A}",
+      "proposedDate": 1790726893951,
+      "rating": 0,
+      "relatedTransactionId": "f990cf74-255c-4841-8e53-d4f234c16cd4",
+      "scoringPeriodId": 4,
+      "teamId": 10,
+      "type": "TRADE_ACCEPT"
+    },
+    {
+      "bidAmount": 0,
       "executionType": "EXECUTE",
       "id": "b65c3f6f-e5bc-4197-972d-de3b851aada8",
       "isActingAsTeamOwner": false,

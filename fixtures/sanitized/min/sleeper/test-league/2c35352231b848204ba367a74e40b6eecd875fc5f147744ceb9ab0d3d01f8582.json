@@ -1,0 +1,356 @@
+[
+ {
+  "roster_id": 1,
+  "owner_id": "200000000000000001",
+  "co_owners": null,
+  "players": [
+   "4984",
+   "12507",
+   "11646",
+   "7526",
+   "12517",
+   "12711",
+   "12469",
+   "12497"
+  ],
+  "reserve": [
+   "12469"
+  ],
+  "taxi": [
+   "12497"
+  ],
+  "settings": {
+   "wins": 2,
+   "losses": 1,
+   "ties": 0,
+   "fpts": 352,
+   "fpts_decimal": 34,
+   "fpts_against": 310,
+   "fpts_against_decimal": 35
+  }
+ },
+ {
+  "roster_id": 2,
+  "owner_id": "200000000000000002",
+  "co_owners": null,
+  "players": [
+   "3294",
+   "8228",
+   "12526",
+   "6786",
+   "13330",
+   "SEA",
+   "5022",
+   "12510"
+  ],
+  "reserve": [
+   "5022"
+  ],
+  "taxi": [
+   "12510"
+  ],
+  "settings": {
+   "wins": 3,
+   "losses": 0,
+   "ties": 0,
+   "fpts": 253,
+   "fpts_decimal": 33,
+   "fpts_against": 250,
+   "fpts_against_decimal": 95
+  }
+ },
+ {
+  "roster_id": 3,
+  "owner_id": "2000000000000000003",
+  "co_owners": null,
+  "players": [
+   "4892",
+   "12481",
+   "7547",
+   "8144",
+   "10859",
+   "2747",
+   "13293",
+   "12483"
+  ],
+  "reserve": [
+   "13293"
+  ],
+  "taxi": [
+   "12483"
+  ],
+  "settings": {
+   "wins": 1,
+   "losses": 2,
+   "ties": 0,
+   "fpts": 304,
+   "fpts_decimal": 28,
+   "fpts_against": 336,
+   "fpts_against_decimal": 19
+  }
+ },
+ {
+  "roster_id": 4,
+  "owner_id": "2000000000000000004",
+  "co_owners": null,
+  "players": [
+   "11563",
+   "4199",
+   "7564",
+   "8137",
+   "11604",
+   "PIT",
+   "10222",
+   "13269"
+  ],
+  "reserve": [
+   "10222"
+  ],
+  "taxi": [
+   "13269"
+  ],
+  "settings": {
+   "wins": 2,
+   "losses": 1,
+   "ties": 0,
+   "fpts": 330,
+   "fpts_decimal": 63,
+   "fpts_against": 325,
+   "fpts_against_decimal": 5
+  }
+ },
+ {
+  "roster_id": 5,
+  "owner_id": "2000000000000000005",
+  "co_owners": null,
+  "players": [
+   "4046",
+   "6813",
+   "5846",
+   "7525",
+   "9484",
+   "12713",
+   "12508"
+  ],
+  "reserve": [
+   "12508"
+  ],
+  "taxi": null,
+  "settings": {
+   "wins": 2,
+   "losses": 1,
+   "ties": 0,
+   "fpts": 321,
+   "fpts_decimal": 93,
+   "fpts_against": 378,
+   "fpts_against_decimal": 3
+  }
+ },
+ {
+  "roster_id": 6,
+  "owner_id": "200000000000000006",
+  "co_owners": null,
+  "players": [
+   "12545",
+   "6790",
+   "10229",
+   "6801",
+   "7553",
+   "CIN",
+   "9502",
+   "11557"
+  ],
+  "reserve": [
+   "9502"
+  ],
+  "taxi": [
+   "11557"
+  ],
+  "settings": {
+   "wins": 1,
+   "losses": 2,
+   "ties": 0,
+   "fpts": 368,
+   "fpts_decimal": 21,
+   "fpts_against": 341,
+   "fpts_against_decimal": 73
+  }
+ },
+ {
+  "roster_id": 7,
+  "owner_id": "2000000000000000007",
+  "co_owners": null,
+  "players": [
+   "4881",
+   "12490",
+   "11635",
+   "2449",
+   "8131",
+   "5189",
+   "13345",
+   "13303"
+  ],
+  "reserve": [
+   "13345"
+  ],
+  "taxi": [
+   "13303"
+  ],
+  "settings": {
+   "wins": 2,
+   "losses": 1,
+   "ties": 0,
+   "fpts": 362,
+   "fpts_decimal": 47,
+   "fpts_against": 320,
+   "fpts_against_decimal": 2
+  }
+ },
+ {
+  "roster_id": 8,
+  "owner_id": "2000000000000000008",
+  "co_owners": null,
+  "players": [
+   "421",
+   "11584",
+   "6794",
+   "9487",
+   "1466",
+   "HOU",
+   "11586"
+  ],
+  "reserve": null,
+  "taxi": [
+   "11586"
+  ],
+  "settings": {
+   "wins": 2,
+   "losses": 1,
+   "ties": 0,
+   "fpts": 338,
+   "fpts_decimal": 89,
+   "fpts_against": 268,
+   "fpts_against_decimal": 69
+  }
+ },
+ {
+  "roster_id": 9,
+  "owner_id": "2000000000000000009",
+  "co_owners": null,
+  "players": [
+   "11564",
+   "12527",
+   "11628",
+   "2133",
+   "10236",
+   "8259",
+   "13281",
+   "13288"
+  ],
+  "reserve": [
+   "13281"
+  ],
+  "taxi": [
+   "13288"
+  ],
+  "settings": {
+   "wins": 1,
+   "losses": 2,
+   "ties": 0,
+   "fpts": 315,
+   "fpts_decimal": 64,
+   "fpts_against": 265,
+   "fpts_against_decimal": 5
+  }
+ },
+ {
+  "roster_id": 10,
+  "owner_id": "2000000000000000010",
+  "co_owners": null,
+  "players": [
+   "11256",
+   "13287",
+   "10213",
+   "9504",
+   "2505",
+   "PHI",
+   "13417",
+   "11565"
+  ],
+  "reserve": [
+   "13417"
+  ],
+  "taxi": [
+   "11565"
+  ],
+  "settings": {
+   "wins": 1,
+   "losses": 2,
+   "ties": 0,
+   "fpts": 304,
+   "fpts_decimal": 71,
+   "fpts_against": 259,
+   "fpts_against_decimal": 41
+  }
+ },
+ {
+  "roster_id": 11,
+  "owner_id": "200000000000000011",
+  "co_owners": null,
+  "players": [
+   "1373",
+   "13286",
+   "11632",
+   "11834",
+   "5012",
+   "4227",
+   "8205",
+   "12471"
+  ],
+  "reserve": [
+   "8205"
+  ],
+  "taxi": [
+   "12471"
+  ],
+  "settings": {
+   "wins": 1,
+   "losses": 2,
+   "ties": 0,
+   "fpts": 357,
+   "fpts_decimal": 8,
+   "fpts_against": 270,
+   "fpts_against_decimal": 22
+  }
+ },
+ {
+  "roster_id": 12,
+  "owner_id": "200000000000000012",
+  "co_owners": null,
+  "players": [
+   "6797",
+   "12529",
+   "2216",
+   "8121",
+   "8130",
+   "BAL",
+   "11583",
+   "12503"
+  ],
+  "reserve": [
+   "11583"
+  ],
+  "taxi": [
+   "12503"
+  ],
+  "settings": {
+   "wins": 0,
+   "losses": 3,
+   "ties": 0,
+   "fpts": 356,
+   "fpts_decimal": 22,
+   "fpts_against": 377,
+   "fpts_against_decimal": 77
+  }
+ }
+]

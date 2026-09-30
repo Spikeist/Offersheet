@@ -1,0 +1,32 @@
+[
+ {
+  "transaction_id": "9000000000000000003",
+  "type": "waiver",
+  "status": "failed",
+  "leg": 2,
+  "created": 1789567200000,
+  "roster_ids": [
+   6
+  ],
+  "adds": {
+   "2307": 6
+  },
+  "drops": null,
+  "draft_picks": []
+ },
+ {
+  "transaction_id": "9000000000000000005",
+  "type": "free_agent",
+  "status": "complete",
+  "leg": 2,
+  "created": 1789563600000,
+  "roster_ids": [
+   10
+  ],
+  "adds": {
+   "6130": 10
+  },
+  "drops": null,
+  "draft_picks": []
+ }
+]

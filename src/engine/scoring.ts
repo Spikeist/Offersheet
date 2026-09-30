@@ -9,8 +9,11 @@
  *   compare this with the platform's own number.
  * - expectedPoints(): projected means. Linear parts are exact in expectation; threshold, range,
  *   stepped and bounded per-unit rules are expected values over Normal(mean, sd), with sd from
- *   config.statSd or bonusCv × mean. Integer bounds get a continuity correction so adjacent buckets
- *   (14–17, 18–21) tile the line. Per-game constants count once per projected game.
+ *   config.statSd or bonusCv × mean. Bounds sit halfway between a stat's grid points
+ *   (config.statGrid: counts 1, IDP sacks 0.5, ratios continuous) so adjacent buckets (14–17, 18–21)
+ *   tile the line, and mass below a stat's floor (config.statFloor: points allowed ≥ 0) counts in the
+ *   lowest bucket. A rule whose stats the projection doesn't carry scores 0. Per-game constants
+ *   count once per projected game.
  */
 import { config } from "./config";
 import type { ScoringConfig } from "./config";
@@ -34,9 +37,12 @@ export function ruleApplies(rule: ScoringRule, pos: Pos): boolean {
   return !rule.positions || rule.positions.includes(pos);
 }
 
-/** Exact points for one rule on an actual stat line. */
+/**
+ * Exact points for one rule on an actual stat line. A per-game constant needs games played: platforms
+ * leave gp out of the line of a player who didn't play (Sleeper, ESPN stat 210), and he scores 0.
+ */
 export function rulePoints(rule: ScoringRule, stats: StatLine): number {
-  if (rule.kind === "perGame") return rule.points * (stats.gp ?? 1);
+  if (rule.kind === "perGame") return rule.points * (stats.gp ?? 0);
   const x = statValue(stats, rule.stat);
   switch (rule.kind) {
     case "threshold":
@@ -61,9 +67,19 @@ export interface PointsBreakdown {
   rules: { index: number; kind: ScoringRule["kind"]; points: number }[];
 }
 
+/**
+ * Whether an actual stat line is a game played. Platforms leave gp out of the line of a player who
+ * didn't play (Sleeper, ESPN stat 210), and score him 0: no rule fires on an empty line (a "≤ 50%
+ * completions" tier or a "0 points allowed" bucket would otherwise pay out for a bye).
+ */
+export function playedGame(stats: StatLine): boolean {
+  return (stats.gp ?? 0) > 0;
+}
+
 /** Actual points with a per-key and per-rule breakdown (used to explain oracle mismatches). */
 export function pointsBreakdown(stats: StatLine, pos: Pos, scoring: Scoring): PointsBreakdown {
   const out: PointsBreakdown = { total: 0, perStat: [], rules: [] };
+  const played = playedGame(stats);
   for (const [key, value] of Object.entries(stats)) {
     if (!value) continue;
     const rate = rateFor(scoring, key, pos);
@@ -73,7 +89,7 @@ export function pointsBreakdown(stats: StatLine, pos: Pos, scoring: Scoring): Po
     out.total += points;
   }
   scoring.rules.forEach((rule, index) => {
-    if (!ruleApplies(rule, pos)) return;
+    if (!played || !ruleApplies(rule, pos)) return;
     const points = rulePoints(rule, stats);
     if (points) out.rules.push({ index, kind: rule.kind, points });
     out.total += points;
@@ -114,14 +130,30 @@ export function statSd(expr: StatExpr, proj: StatLine, cfg: ScoringConfig = conf
   return Math.sqrt(variance);
 }
 
-/** Integer bounds get the continuity correction: "≥ b" means X ≥ b − cc, "≤ b" means X ≤ b + cc. */
-function lowerBound(b: number | undefined, cc: number): number {
-  if (b === undefined) return Number.NEGATIVE_INFINITY;
-  return Number.isInteger(b) ? b - cc : b;
+/** A stat expression's grid (0 = continuous); a composite takes its finest component. */
+export function statGrid(expr: StatExpr, cfg: ScoringConfig = config.scoring): number {
+  const gridOf = (key: string) => cfg.statGrid[key] ?? cfg.defaultStatGrid;
+  if (typeof expr === "string") return gridOf(expr);
+  const grids = expr.sum.map(gridOf);
+  return grids.some((g) => !(g > 0)) ? 0 : Math.min(...grids);
 }
-function upperBound(b: number | undefined, cc: number): number {
+
+const EPS = 1e-9;
+
+/** "X ≥ b" on grid g: X ≥ ceil(b/g)·g − g/2 (b itself when continuous). A bound at or below the stat's floor is no bound. */
+function lowerBound(b: number | undefined, grid: number, floor: number | undefined): number {
+  if (b === undefined || (floor !== undefined && b <= floor)) return Number.NEGATIVE_INFINITY;
+  return grid > 0 ? Math.ceil(b / grid - EPS) * grid - grid / 2 : b;
+}
+/** "X ≤ b" on grid g: X ≤ floor(b/g)·g + g/2 (b itself when continuous). */
+function upperBound(b: number | undefined, grid: number): number {
   if (b === undefined) return Number.POSITIVE_INFINITY;
-  return Number.isInteger(b) ? b + cc : b;
+  return grid > 0 ? Math.floor(b / grid + EPS) * grid + grid / 2 : b;
+}
+
+/** Whether the projection carries any of the expression's stats (a missing stat is unknown, not 0). */
+function projected(expr: StatExpr, proj: StatLine): boolean {
+  return typeof expr === "string" ? proj[expr] !== undefined : expr.sum.some((k) => proj[k] !== undefined);
 }
 
 /** P(lo ≤ X ≤ hi) for X ~ Normal(mu, sigma). */
@@ -134,20 +166,24 @@ const STEPPED_MAX_TERMS = 10_000;
 /** Expected points of one rule for projected means. */
 export function expectedRulePoints(rule: ScoringRule, proj: StatLine, cfg: ScoringConfig = config.scoring): number {
   if (rule.kind === "perGame") return rule.points; // once per projected game; availability applies later (§6)
+  if (!projected(rule.stat, proj)) return 0; // e.g. a D/ST row without points allowed: no phantom shutout bonus
   const mu = statValue(proj, rule.stat);
   const sigma = statSd(rule.stat, proj, cfg);
   if (!(sigma > 1e-9)) return rulePoints(rule, proj); // no spread: the projection is treated as exact
-  const cc = cfg.continuityCorrection;
+  const grid = statGrid(rule.stat, cfg);
+  const floor = typeof rule.stat === "string" ? cfg.statFloor[rule.stat] : undefined;
+  const lower = (b: number | undefined) => lowerBound(b, grid, floor);
+  const upper = (b: number | undefined) => upperBound(b, grid);
   switch (rule.kind) {
     case "threshold":
-      return rule.points * probBetween(lowerBound(rule.min, cc), Number.POSITIVE_INFINITY, mu, sigma);
+      return rule.points * probBetween(lower(rule.min), Number.POSITIVE_INFINITY, mu, sigma);
     case "range":
-      return rule.points * probBetween(lowerBound(rule.min, cc), upperBound(rule.max, cc), mu, sigma);
+      return rule.points * probBetween(lower(rule.min), upper(rule.max), mu, sigma);
     case "perUnit": {
       if (rule.min === undefined && rule.max === undefined) return rule.points * mu;
       // Partial expectation E[X · 1{a ≤ X ≤ b}] = mu·(Φ(β) − Φ(α)) + sigma·(φ(α) − φ(β)).
-      const a = (lowerBound(rule.min, cc) - mu) / sigma;
-      const b = (upperBound(rule.max, cc) - mu) / sigma;
+      const a = (lower(rule.min) - mu) / sigma;
+      const b = (upper(rule.max) - mu) / sigma;
       return rule.points * (mu * (normalCdf(b) - normalCdf(a)) + sigma * (normalPdf(a) - normalPdf(b)));
     }
     case "stepped": {
@@ -159,7 +195,7 @@ export function expectedRulePoints(rule: ScoringRule, proj: StatLine, cfg: Scori
       for (let k = 1; k <= STEPPED_MAX_TERMS; k++) {
         const t = lo + k * rule.every;
         if (t > hi) break;
-        const p = probBetween(lowerBound(t, cc), Number.POSITIVE_INFINITY, mu, sigma);
+        const p = probBetween(lower(t), Number.POSITIVE_INFINITY, mu, sigma);
         expected += p;
         if (p < 1e-12 && t > mu) break;
       }

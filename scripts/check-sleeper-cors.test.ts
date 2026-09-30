@@ -1,0 +1,53 @@
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import { allowsOrigin, endpointsToCheck, pinnedLeagueId, renderReport } from "./check-sleeper-cors";
+
+const LEAGUE = "1234567890123456789"; // made up
+
+describe("check-sleeper-cors (no network)", () => {
+  let dir: string | undefined;
+  afterEach(() => {
+    if (dir) rmSync(dir, { recursive: true, force: true });
+    dir = undefined;
+  });
+
+  it("reads the pinned league ID only when it is plain digits", () => {
+    dir = mkdtempSync(path.join(tmpdir(), "cors-"));
+    const file = path.join(dir, "fallback-league.json");
+    expect(pinnedLeagueId(file)).toBeUndefined(); // no file
+    writeFileSync(file, JSON.stringify({ leagueId: LEAGUE }));
+    expect(pinnedLeagueId(file)).toBe(LEAGUE);
+    writeFileSync(file, JSON.stringify({ leagueId: "../etc" }));
+    expect(pinnedLeagueId(file)).toBeUndefined();
+  });
+
+  it("checks the league endpoints only with a pinned league, and shows its ID as a placeholder", () => {
+    expect(endpointsToCheck(undefined).map((e) => e.shown)).toHaveLength(2);
+    const all = endpointsToCheck(LEAGUE);
+    expect(all.map((e) => e.shown)).toEqual([
+      "https://api.sleeper.app/v1/state/nfl",
+      "https://api.sleeper.app/projections/nfl/2026/4?season_type=regular&position[]=K",
+      "https://api.sleeper.app/v1/league/{leagueId}",
+      "https://api.sleeper.app/v1/league/{leagueId}/rosters",
+    ]);
+    expect(all.slice(2).every((e) => e.url.includes(LEAGUE) && !e.shown.includes(LEAGUE))).toBe(true);
+  });
+
+  it("writes a report without the league ID", () => {
+    const results = endpointsToCheck(LEAGUE).map((endpoint) => ({ endpoint, status: 200, contentType: "application/json", bytes: 10, headers: { "access-control-allow-origin": "*" }, allowed: true }));
+    const md = renderReport(results, "2026-09-30", true);
+    expect(md).not.toContain(LEAGUE);
+    expect(md).toContain("`https://api.sleeper.app/v1/league/{leagueId}/rosters`");
+    expect(md).toContain("the league endpoints included");
+    expect(md).toContain("deferred to Phase 7");
+  });
+
+  it("reads Access-Control-Allow-Origin", () => {
+    expect(allowsOrigin("*", "https://a.example")).toBe(true);
+    expect(allowsOrigin("https://b.example, https://a.example", "https://a.example")).toBe(true);
+    expect(allowsOrigin(null, "https://a.example")).toBe(false);
+    expect(allowsOrigin("https://b.example", "https://a.example")).toBe(false);
+  });
+});

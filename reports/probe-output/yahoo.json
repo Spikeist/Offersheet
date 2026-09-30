@@ -1,7 +1,7 @@
 {
   "platform": "yahoo",
-  "generatedAt": "2026-09-29T23:44:40.903Z",
-  "runtimeSeconds": 0.2,
+  "generatedAt": "2026-09-30T01:41:53.200Z",
+  "runtimeSeconds": 0.3,
   "meta": {
     "leagues": [
       {
@@ -17,7 +17,7 @@
       "YAHOO_REFRESH_TOKEN": "blank"
     },
     "timingsMs": {
-      "unauthenticated game/nfl": 216,
+      "unauthenticated game/nfl": 233,
       "Yahoo OAuth guide": 1
     },
     "requestCount": 2
@@ -261,7 +261,7 @@
       "evidence": [
         {
           "path": "planned: Yahoo player_id → DynastyProcess yahoo_id → sleeper_id → FantasyCalc sleeperId (§2.9)",
-          "note": "Yahoo id coverage from probe-shared XWALK.yahoo (warn, run 2026-09-29): FantasyCalc QB/RB/WR/TE → DynastyProcess yahoo_id: 2382/2786 (85.5%). Top-250 Sleeper players: DynastyProcess yahoo_id 178/250, Sleeper's own yahoo_id 66/250, either 178/250 (71.2%); all 818 active on a team: 509 (62.2%). 72/72 of the top-250 gaps have years_exp 0 or 1 ({\"0\":31,\"1\":41}). Fallback for players without a Yahoo id: match on name + position + NFL team, then the user confirms (like manual import, §2.8)"
+          "note": "Yahoo id coverage from probe-shared XWALK.yahoo (warn, run 2026-09-30): FantasyCalc QB/RB/WR/TE → DynastyProcess yahoo_id: 2382/2786 (85.5%). Top-250 Sleeper players: DynastyProcess yahoo_id 178/250, Sleeper's own yahoo_id 66/250, either 178/250 (71.2%); all 818 active on a team: 509 (62.2%). 72/72 of the top-250 gaps have years_exp 0 or 1 ({\"0\":31,\"1\":41}). Fallback for players without a Yahoo id: match on name + position + NFL team, then the user confirms (like manual import, §2.8)"
         }
       ]
     }
@@ -284,6 +284,6 @@
     "live": 1,
     "fromCache": 1,
     "retried": 0,
-    "slowestMs": 216
+    "slowestMs": 233
   }
 }

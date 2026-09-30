@@ -1,6 +1,6 @@
 {
   "platform": "shared",
-  "generatedAt": "2026-09-29T23:41:37.224Z",
+  "generatedAt": "2026-09-30T01:42:25.657Z",
   "runtimeSeconds": 2.9,
   "meta": {
     "leagues": [
@@ -34,7 +34,7 @@
         17,
         18
       ],
-      "source": "Sleeper /state/nfl (HTTP 200, from 10-min cache (fetched 2026-09-29 23:33 UTC))"
+      "source": "Sleeper /state/nfl (HTTP 200, from 10-min cache (fetched 2026-09-30 01:34 UTC))"
     },
     "fixturesPruned": {
       "removed": [],
@@ -42,14 +42,14 @@
       "indexEntriesWithoutFile": 0
     },
     "timingsMs": {
-      "sleeper-state": 2,
-      "fantasycalc": 36,
-      "fantasycalc-docs": 5,
-      "idmap": 7,
-      "sleeper-players": 112,
-      "nfl": 8,
-      "sleeper-projections": 463,
-      "espn-projections": 269
+      "sleeper-state": 3,
+      "fantasycalc": 28,
+      "fantasycalc-docs": 1,
+      "idmap": 6,
+      "sleeper-players": 113,
+      "nfl": 6,
+      "sleeper-projections": 428,
+      "espn-projections": 257
     },
     "requestCount": 48
   },
@@ -1341,7 +1341,7 @@
       "key": "NFL.currentWeek",
       "title": "Current week (Sleeper vs schedule)",
       "status": "ok",
-      "summary": "Sleeper: season 2026, week 4, season_type \"regular\", display_week 3; nflverse: the first week with a game on or after 2026-09-29 is 4 — they agree. Plan: current week 4, completed 1–3, sampled future weeks 5, 10, 15, 17, 18",
+      "summary": "Sleeper: season 2026, week 4, season_type \"regular\", display_week 3; nflverse: the first week with a game on or after 2026-09-30 is 4 — they agree. Plan: current week 4, completed 1–3, sampled future weeks 5, 10, 15, 17, 18",
       "evidence": [
         {
           "path": "season, week, season_type, display_week",
@@ -1351,7 +1351,7 @@
             "seasonType": "regular",
             "displayWeek": 3
           },
-          "note": "HTTP 200, from 10-min cache (fetched 2026-09-29 23:33 UTC)",
+          "note": "HTTP 200, from 10-min cache (fetched 2026-09-30 01:34 UTC)",
           "url": "https://api.sleeper.app/v1/state/nfl"
         }
       ]
@@ -3390,6 +3390,6 @@
     "live": 0,
     "fromCache": 48,
     "retried": 0,
-    "slowestMs": 184
+    "slowestMs": 178
   }
 }

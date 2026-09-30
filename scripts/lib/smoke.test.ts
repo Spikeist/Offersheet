@@ -67,7 +67,7 @@ describe("probe library smoke test", () => {
 
   it("offline requests serve any cached copy and never touch the network", async () => {
     const url = "https://example.invalid/offline-test";
-    const key = `smoke-offline:${Math.random()}`;
+    const key = "smoke-offline:fixed"; // one fixed key: the test rewrites the same cache file every run
     await writeCache("smoke-offline", key, { status: 200, contentType: "application/json", finalUrl: url, headers: {}, text: '{"ok":1}' }, 0);
     const res = await request(url, { cache: { key, ttlMs: 1, namespace: "smoke-offline" }, offline: true });
     expect(res.fromCache).toBe(true);

@@ -1,26 +1,115 @@
 @import "tailwindcss";
 
+/*
+ * Offer Sheet theme: navy scoreboard header, turf-green actions, gold highlights.
+ * Tokens live on :root and switch for dark mode; Tailwind utilities read them through @theme
+ * (bg-surface, text-muted, border-line, bg-brand …).
+ */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #f2f5f3;
+  --foreground: #0f1b2d;
+  --surface: #ffffff;
+  --surface-muted: #eaf0ed;
+  --line: #d3dcd8;
+  --muted: #526071;
+  --brand: #0d7a4e;
+  --brand-strong: #095c3a;
+  --brand-contrast: #ffffff;
+  --brand-soft: #e2f4ea;
+  --accent: #f2b705;
+  --navy: #0b1f33;
+  --navy-contrast: #f4f7fb;
+  --warn-bg: #fff6dc;
+  --warn-fg: #6e4a00;
+  --warn-line: #f0d27f;
+  --danger-bg: #fdeceb;
+  --danger-fg: #971b1b;
+  --danger-line: #f2b3b1;
+  --ok-bg: #e3f5ec;
+  --ok-fg: #0a5534;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a111e;
+    --foreground: #e5ebf3;
+    --surface: #111b2d;
+    --surface-muted: #162238;
+    --line: #25344f;
+    --muted: #9dabbf;
+    --brand: #34c282;
+    --brand-strong: #2aa46c;
+    --brand-contrast: #04140c;
+    --brand-soft: #12301f;
+    --accent: #f5c542;
+    --navy: #060d18;
+    --navy-contrast: #eef3fa;
+    --warn-bg: #33280a;
+    --warn-fg: #f6d67f;
+    --warn-line: #5a4713;
+    --danger-bg: #3a1515;
+    --danger-fg: #f6a9a6;
+    --danger-line: #5f2323;
+    --ok-bg: #0f2d1f;
+    --ok-fg: #86e2b3;
+  }
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-surface: var(--surface);
+  --color-surface-muted: var(--surface-muted);
+  --color-line: var(--line);
+  --color-muted: var(--muted);
+  --color-brand: var(--brand);
+  --color-brand-strong: var(--brand-strong);
+  --color-brand-contrast: var(--brand-contrast);
+  --color-brand-soft: var(--brand-soft);
+  --color-accent: var(--accent);
+  --color-navy: var(--navy);
+  --color-navy-contrast: var(--navy-contrast);
+  --color-warn-bg: var(--warn-bg);
+  --color-warn-fg: var(--warn-fg);
+  --color-warn-line: var(--warn-line);
+  --color-danger-bg: var(--danger-bg);
+  --color-danger-fg: var(--danger-fg);
+  --color-danger-line: var(--danger-line);
+  --color-ok-bg: var(--ok-bg);
+  --color-ok-fg: var(--ok-fg);
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "Cascadia Mono", Menlo, Consolas, monospace;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+}
+
+/* Visible keyboard focus everywhere. */
+:where(a, button, input, select, textarea, summary):focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* A result or status line that script moves focus to (tabindex="-1"): the same ring, keyboard users only. */
+:where([tabindex="-1"]):focus {
+  outline: none;
+}
+:where([tabindex="-1"]):focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}
+
+details > summary {
+  cursor: pointer;
+  list-style: none;
+}
+details > summary::-webkit-details-marker {
+  display: none;
 }

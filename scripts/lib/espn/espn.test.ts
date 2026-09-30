@@ -1,3 +1,6 @@
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { sha256 } from "../cache";
 import { Redactor, SWID_RE } from "../sanitize";
@@ -7,7 +10,7 @@ import { parseEspnConstants, positionFromEligibleSlots, slotIdForPosition } from
 import { classifyEspnResponse } from "./errors";
 import { freeAgentFilter, sourceHasMarker, transactionsFilter } from "./filters";
 import { isDict, isSet, parsePyAssignments, parsePyLiteral } from "./pyliteral";
-import { planPrune } from "./fixtureIndex";
+import { planPrune, pruneFixtures } from "./fixtureIndex";
 import { maskIdentityFields, maskOwnMember, registerLeagueIdentities, replaceIdDeep, sweepIds, trimForFixture } from "./sanitize";
 import type { ScoringItem } from "./schema";
 import { diffPerStat, recompute } from "./scoring";
@@ -334,6 +337,26 @@ describe("fixture index pruning", () => {
     expect(plan.misnamed).toEqual(["misnamed"]);
     expect(plan.missingFiles).toEqual(["misnamed"]);
     expect(plan.unindexed).toEqual(["orphan.json"]);
+  });
+
+  it("applies the plan without touching subfolders or non-fixture files, and skips a folder without an index", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "espn-prune-"));
+    try {
+      expect(await pruneFixtures(path.join(dir, "missing"), new Set())).toEqual({ removed: [], misnamed: [], unindexed: [], missingFiles: [] });
+      const keep = "league/{leagueId}/view=mSettings";
+      const stale = "public-league/{publicLeagueId}/view=mSettings";
+      for (const l of [keep, stale]) writeFileSync(path.join(dir, `${sha256(l)}.json`), "{}");
+      writeFileSync(path.join(dir, `${sha256("orphan")}.json`), "{}");
+      writeFileSync(path.join(dir, "notes.txt"), "x");
+      mkdirSync(path.join(dir, "min"));
+      writeFileSync(path.join(dir, "index.json"), JSON.stringify({ [`${sha256(keep)}.json`]: { label: keep }, [`${sha256(stale)}.json`]: { label: stale } }));
+      const out = await pruneFixtures(dir, new Set([keep]));
+      expect(out.removed).toEqual([stale]);
+      expect(out.unindexed).toEqual([`${sha256("orphan")}.json`]);
+      expect(readdirSync(dir).sort()).toEqual([`${sha256(keep)}.json`, "index.json", "min", "notes.txt"].sort());
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

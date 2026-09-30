@@ -148,7 +148,7 @@ The planner verified this on 2026-09-29. Phase 0 re-verifies it.
 - Private leagues need the header `Cookie: espn_s2=<value>; SWID=<value>`. The SWID value includes its curly braces.
 - Public leagues need no cookies. Parker's league is viewable to the public, so it needs none. Test the private-league error paths with mocks until a real private league is available.
 - Never ask for ESPN passwords.
-- Verified 2026-09-29: public league 899513 returns 2026 `mSettings` with no login, including `settings.scoringSettings.scoringItems` and `settings.rosterSettings.lineupSlotCounts`. That league hasn't drafted for 2026, so its rosters are probably empty.
+- Verified 2026-09-29: public league 899513 returns 2026 `mSettings` with no login, including `settings.scoringSettings.scoringItems` and `settings.rosterSettings.lineupSlotCounts`. Phase 0 found it has drafted (rosters and weekly stat lines), so it also serves the scoring oracle.
 - Other developers reported in September 2026 that private-league reads with the cookies still work.
 
 **Errors**
@@ -165,7 +165,7 @@ The planner verified this on 2026-09-29. Phase 0 re-verifies it.
 - **Schedule settings:** `settings.scheduleSettings`, which includes `matchupPeriodCount`, `playoffTeamCount`, the `matchupPeriods` mapping from matchup period to scoring periods, and playoff round length.
 - **Trades:** `settings.tradeSettings`, which includes `deadlineDate` (epoch ms) and the veto and review settings.
 - **FAAB:** `settings.acquisitionSettings`.
-- **Keepers:** `settings.draftSettings.keeperCount`.
+- **Keepers:** `settings.draftSettings.keeperCount`, and `keeperCountFuture` for next season (the league type uses the larger; its meaning is inferred).
 - **Teams:**
   - `teams[]`: `id`, the team name, `owners[]` (SWIDs), record and points
   - `members[]`: `id` (the SWID) and `displayName`
@@ -173,6 +173,8 @@ The planner verified this on 2026-09-29. Phase 0 re-verifies it.
 - **Positions outside the usual set:** map TQB (team QB) to QB, with an Import Report warning. P maps to P. HC (head coach) is unmapped, with a warning.
 - **Schedule:** `schedule[]` holds `matchupPeriodId`, `home.teamId`, `away.teamId` and `playoffTierType`.
 - **Status:** `status.currentMatchupPeriod` and `status.latestScoringPeriod`.
+- **Transactions** (`mTransactions2`): a trade still in its review period comes back as `TRADE_ACCEPT` with no `status` and without the other side's players (seen live in Phase 1). Count only `EXECUTED` rows as completed. `teams[].transactionCounter.trades` counts every team's trades, including ones in review.
+- **Injury return dates:** `view=kona_playercard` (espn-api's `get_player_card` filter) gives `injuryDetails.expectedReturnDate` for injured players (22 of 22 in Parker's league); fetch it for injured rostered players and map it to `injuryReturnWeek`.
 - **Stats entries:**
   - `statSourceId`: 0 = actual, 1 = projected
   - `statSplitTypeId`: 0 = season, 1 = single week
@@ -225,6 +227,8 @@ The planner verified this on 2026-09-29. Phase 0 re-verifies it.
   - **Position limits** (`position_limit_*`) apply to the active roster only; IR is exempt.
   - **Guillotine leagues** (`type` 3): reject them at import for the MVP, with a friendly message.
   - **Best-ball leagues** (`best_ball = 1`): allowed, with an Import Report note that lineups are set automatically.
+  - **Inferred readings, shown with a warning:** `trade_deadline` 99 = no deadline (1 of 5 leagues); division winners seeded first (2 of 2). Any other deadline code, or a missing one, is shown as unknown. A missing `playoff_round_type`, `league_average_match` or `playoff_seed_type` uses the default with a warning.
+  - **The deadline week is a league week:** trades complete through league week (`settings.leg`) D, which can lag the NFL week by a day; the snapshot carries it as `leagueWeek`.
 
 **Undocumented endpoints (verified live 2026-09-29, may change)**
 - **Weekly projections:** `GET https://api.sleeper.app/projections/nfl/{season}/{week}?season_type=regular&position=RB` returns an array of `{player_id, week, stats: {pass_yd, rush_yd, rec, rec_yd, rec_td, …, pts_ppr, pts_half_ppr, pts_std}, last_modified}`.
@@ -238,7 +242,7 @@ The planner verified this on 2026-09-29. Phase 0 re-verifies it.
 - The roster whose `owner_id` or `co_owners` matches the user_id.
 
 **Browser fetching (check in Phase 1)**
-- Find out whether `api.sleeper.app` sends CORS headers.
+- Find out whether `api.sleeper.app` sends CORS headers. Verified in Phase 1 (`npm run check:sleeper-cors`, `reports/probe-output/sleeper-cors.md`): `/v1/state/nfl`, `/projections`, `/v1/league/{id}` and `/v1/league/{id}/rosters` all answer a cross-origin GET with `Access-Control-Allow-Origin: *`; the other league endpoints are inferred to match. Browser fetching itself is deferred to Phase 7.
 - If it does, fetch Sleeper data from the user's browser in production. Each user's requests then count against their own IP, not against our server's shared limit.
 - Keep the normalizer code shared between browser and server.
 
@@ -372,6 +376,7 @@ The planner verified this on 2026-09-29. Phase 0 re-verifies it.
 | League data (settings, rosters, transactions) | 10 min, plus a manual "Refresh" button |
 
 - **Private-league data** (ESPN with cookies, MFL with a login, Yahoo) must be cached under a key that includes a hash of the user's credentials or session. Never key it by league ID alone, or anyone who enters that league ID would see the private data. Public data can be keyed by league ID.
+- Cached entries are **deleted** when their retention ends: league data after 10 minutes (Refresh shortens how old a copy may be, not how long it's kept); public league-independent data (player lists, ID maps, the NFL schedule) after up to 7 days, so a saved copy can stand in while a source is down. ESPN member IDs (SWIDs) are replaced by one-way pseudonyms before anything is cached.
 
 ---
 
@@ -438,6 +443,7 @@ interface LeagueSnapshot {
   platform: Platform; leagueId: string; season: number; name: string;
   fetchedAt: string;                 // ISO timestamp
   currentWeek: number;               // NFL week
+  leagueWeek?: number;               // the platform's own league week when it can lag the NFL week (Sleeper settings.leg)
   settings: LeagueSettings;
   teams: Team[];
   myTeamId: string | null;
@@ -471,6 +477,7 @@ interface LeagueSettings {
   tradeDeadline: { week?: number; date?: string } | null;
   tradeReview: 'none'|'commissioner'|'league_vote';
   faabBudget?: number;
+  unknownSettings?: ('tradeDeadline'|'tradeReview'|'playoffs'|'playoffSeeding')[]; // not exposed or unreadable: the Import Report says "unknown"
 }
 
 interface SlotDef { slot: string; count: number; eligible: Pos[] } // e.g. { slot: 'FLEX', count: 1, eligible: ['RB','WR','TE'] }
@@ -500,9 +507,9 @@ interface Team {
 
 interface PlayerInfo {
   id: string; name: string; pos: Pos; eligible: Pos[]; nflTeam: string | null;
-  injury: 'ACTIVE'|'QUESTIONABLE'|'DOUBTFUL'|'OUT'|'IR'|'PUP'|'SUSPENDED'|'NA';
-  injuryReturnWeek?: number; age?: number;
-  ids: Partial<Record<Platform | 'fantasycalc' | 'gsis', string>>;
+  injury: 'ACTIVE'|'QUESTIONABLE'|'DOUBTFUL'|'OUT'|'IR'|'PUP'|'SUSPENDED'|'NA'; // NA = not an active NFL player (Sleeper's NA; retired or unsigned)
+  injuryReturnWeek?: number; age?: number;   // injuryReturnWeek = last NFL week + 1: not back this season
+  ids: Partial<Record<Platform | 'fantasycalc' | 'gsis' | 'sportradar', string>>;
 }
 
 interface Matchup { week: number; teamA: string; teamB: string | null; isPlayoff: boolean }
@@ -536,11 +543,12 @@ type MarketValues = Record<string /*playerId*/, { value: number; source: 'fantas
 - points = Σ rate(k, pos) × stat[k], plus Σ `rules` (Section 4).
   - rate(k, pos) = `byPosition[pos][k]` if it exists, otherwise `perStat[k]`.
   - `byPosition` *replaces* the rate for that position. This is how ESPN's `pointsOverrides` work (keyed by `defaultPositionId`; verified in Phase 0).
-  - Sleeper's position bonus keys, such as `bonus_rec_te`, stay ordinary `perStat` keys, because Sleeper's projections carry them as stats of their own.
+  - Sleeper's position bonus keys, such as `bonus_rec_te`, stay ordinary `perStat` keys, because Sleeper's projections carry them as stats of their own. Projections lack `bonus_fd_*`, so those are filled in from `pass_fd + rush_fd + rec_fd` for QB/RB/WR/TE (never fullbacks, whom Sleeper doesn't give the bonus).
   - Rule kinds: per-unit (optionally on a composite stat or within bounds), threshold bonus, range bucket (bounded min–max, such as D/ST points allowed 14–17), stepped tier (points for every N units), composite stats (a sum of keys) and per-game constants. A rule with `positions` applies only to players at those positions.
 - Projections are averages, not game logs, so evaluate threshold, range and stepped rules as **expected values**:
   - over a normal distribution around the projected stat, with a per-stat SD from `config.statSd` (D/ST points allowed: about 9 points). Stats without an entry use SD = `config.bonusCv` × mean (default 0.5).
-  - Per-game constants count once per projected game.
+  - Bounds sit halfway between a stat's possible values (`config.statGrid`: counts 1, IDP sacks 0.5, ratios such as completion % continuous), and a stat's floor (`config.statFloor`: points allowed ≥ 0) puts the mass below it in the lowest bucket. A rule whose stat the projection doesn't carry scores 0.
+  - Per-game constants count once per projected game. On actual stat lines they need games played (`gp`): a line without it is a game not played.
 
 **Scoring oracle tests (required)**
 
@@ -587,6 +595,7 @@ Keep *how good he is when he plays* (b and m) apart from *whether he plays* (a),
   - **QUESTIONABLE:** 0.85 this week, then 1
   - **IR or PUP:** 0 until `injuryReturnWeek` if known. Otherwise 0 for 4 weeks, then 0.8, then 1.
   - **SUSPENDED:** 0 for the known suspension length. Otherwise 0 for 2 weeks.
+  - **NA** (not an active NFL player: Sleeper's NA, or retired/unsigned): 0 every week.
   - Platforms rarely give a return week or suspension length. When they don't, use the defaults above. Don't scrape news for them.
 
 **4. Projected points**
@@ -1026,9 +1035,13 @@ This is the single source of truth. Every number listed here must be read from c
 | actualWeight / actualFullGames | 0.25 / 6 | 6 |
 | weekShapeClamp | [0.8, 1.2] | 6 |
 | injury table | see Section 6 | 6 |
-| sigma c/d by position | see Section 6 | 6 |
+| sigma c/d by position | see Section 6; P uses K's (an assumption) | 6 |
+| NA availability | 0 every week | 6 |
+| free agents kept per position | 50 | 4 |
 | bonusCv | 0.5 | 5 |
-| statSd: per-stat SD for expected-value rules | D/ST points allowed ≈ 9; others fall back to bonusCv × mean | 5 |
+| statSd: per-stat SD for expected-value rules | D/ST points allowed ≈ 9, D/ST yards allowed ≈ 70 (⚠️ one week measured in Phase 1, `npm run measure:stat-sd`); others fall back to bonusCv × mean | 5 |
+| statGrid: stat resolution for expected-value bounds | counts 1; IDP sacks 0.5; completion % continuous | 5 |
+| statFloor | points and yards allowed ≥ 0 | 5 |
 | ESPN / Sleeper projection agreement needed to average them | within 10% on average | 6 |
 | playoffWeight | 1.25 | 7 |
 | needZThreshold | −0.5 | 7 |
@@ -1098,7 +1111,7 @@ This is the single source of truth. Every number listed here must be read from c
    - Add `npm run probe:all`.
 
 3. **Pick test leagues.** Use Parker's leagues from `.env.local` first. For any platform where he has no league:
-   - **ESPN:** public league **899513**, season 2026. It's good for settings only, because it hasn't drafted.
+   - **ESPN:** public league **899513**, season 2026. (Phase 0 found it has drafted, so it also serves the scoring oracle.)
    - **Sleeper:** ask Parker for any league ID or username.
    - **MFL:** find one with `leagueSearch`.
    - **Fleaflicker:** ask Parker, or try a known public league.

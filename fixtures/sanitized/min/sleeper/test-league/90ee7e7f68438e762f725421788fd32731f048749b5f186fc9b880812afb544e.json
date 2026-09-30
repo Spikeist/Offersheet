@@ -1,0 +1,781 @@
+[
+ {
+  "player_id": "10213",
+  "stats": {
+   "gp": 1,
+   "rec_td": 1,
+   "rec": 5,
+   "rec_yd": 119
+  }
+ },
+ {
+  "player_id": "10222",
+  "stats": {
+   "gp": 1,
+   "rec": 1,
+   "rec_yd": 4
+  }
+ },
+ {
+  "player_id": "10229",
+  "stats": {
+   "gp": 1,
+   "rec": 4,
+   "rec_yd": 83
+  }
+ },
+ {
+  "player_id": "10236",
+  "stats": {
+   "gp": 1,
+   "rec": 7,
+   "rec_td": 1,
+   "rec_yd": 95
+  }
+ },
+ {
+  "player_id": "10859",
+  "stats": {
+   "gp": 1,
+   "rec": 6,
+   "rec_td": 1,
+   "rec_yd": 52
+  }
+ },
+ {
+  "player_id": "11533",
+  "stats": {
+   "fgm_20_29": 1,
+   "fgm_40_49": 1,
+   "fgm_50p": 1,
+   "gp": 1,
+   "xpm": 4
+  }
+ },
+ {
+  "player_id": "11557",
+  "stats": {}
+ },
+ {
+  "player_id": "11560",
+  "stats": {
+   "pass_int": 1,
+   "gp": 1,
+   "pass_sack": 3,
+   "pass_yd": 138,
+   "rush_yd": 42
+  }
+ },
+ {
+  "player_id": "11563",
+  "stats": {
+   "pass_int": 1,
+   "gp": 1,
+   "pass_yd": 288,
+   "pass_td": 1,
+   "rush_yd": 6
+  }
+ },
+ {
+  "player_id": "11564",
+  "stats": {
+   "pass_int": 1,
+   "gp": 1,
+   "pass_sack": 3,
+   "pass_yd": 208,
+   "rush_yd": 17
+  }
+ },
+ {
+  "player_id": "11565",
+  "stats": {}
+ },
+ {
+  "player_id": "11583",
+  "stats": {
+   "gp": 1,
+   "rec": 1,
+   "rec_yd": -5,
+   "rush_yd": 16
+  }
+ },
+ {
+  "player_id": "11584",
+  "stats": {
+   "gp": 1,
+   "rec": 4,
+   "rush_yd": 89,
+   "rec_yd": 1
+  }
+ },
+ {
+  "player_id": "11586",
+  "stats": {
+   "gp": 1,
+   "rec": 1,
+   "rush_yd": 79,
+   "rec_yd": 13
+  }
+ },
+ {
+  "player_id": "11628",
+  "stats": {
+   "gp": 1
+  }
+ },
+ {
+  "player_id": "11632",
+  "stats": {
+   "gp": 1,
+   "rec": 1,
+   "rec_yd": 1
+  }
+ },
+ {
+  "player_id": "11635",
+  "stats": {
+   "gp": 1,
+   "rec": 3,
+   "rec_yd": 35
+  }
+ },
+ {
+  "player_id": "11646",
+  "stats": {
+   "gp": 1,
+   "rec": 8,
+   "rec_yd": 66
+  }
+ },
+ {
+  "player_id": "11786",
+  "stats": {
+   "fgm_20_29": 1,
+   "fgm_40_49": 1,
+   "fgmiss": 1,
+   "gp": 1,
+   "xpm": 1
+  }
+ },
+ {
+  "player_id": "11834",
+  "stats": {
+   "gp": 1,
+   "rec": 5,
+   "rec_yd": 64
+  }
+ },
+ {
+  "player_id": "12185",
+  "stats": {
+   "fgm_30_39": 1,
+   "fgm_40_49": 2,
+   "gp": 1,
+   "xpm": 3
+  }
+ },
+ {
+  "player_id": "12469",
+  "stats": {}
+ },
+ {
+  "player_id": "12481",
+  "stats": {
+   "gp": 1,
+   "rec": 4,
+   "rush_yd": 36,
+   "rec_yd": 19
+  }
+ },
+ {
+  "player_id": "12483",
+  "stats": {
+   "gp": 1,
+   "rec": 2,
+   "rec_yd": 25
+  }
+ },
+ {
+  "player_id": "12490",
+  "stats": {
+   "gp": 1,
+   "rush_td": 1,
+   "rec": 2,
+   "rush_yd": 65,
+   "rec_yd": -3
+  }
+ },
+ {
+  "player_id": "12497",
+  "stats": {
+   "gp": 1
+  }
+ },
+ {
+  "player_id": "12503",
+  "stats": {
+   "gp": 1,
+   "rec": 1,
+   "rec_yd": 10
+  }
+ },
+ {
+  "player_id": "12507",
+  "stats": {
+   "gp": 1,
+   "rush_td": 1,
+   "rec": 2,
+   "fum_lost": 1,
+   "rush_yd": 94,
+   "rec_yd": 21
+  }
+ },
+ {
+  "player_id": "12508",
+  "stats": {
+   "gp": 1,
+   "pass_yd": 20
+  }
+ },
+ {
+  "player_id": "12510",
+  "stats": {}
+ },
+ {
+  "player_id": "12517",
+  "stats": {
+   "gp": 1,
+   "rec": 1,
+   "rec_yd": 3
+  }
+ },
+ {
+  "player_id": "12526",
+  "stats": {
+   "gp": 1,
+   "rec": 5,
+   "rec_yd": 101
+  }
+ },
+ {
+  "player_id": "12527",
+  "stats": {
+   "gp": 1,
+   "rec": 4,
+   "rush_yd": 48,
+   "rec_yd": 15
+  }
+ },
+ {
+  "player_id": "12529",
+  "stats": {
+   "gp": 1,
+   "rush_td": 1,
+   "rush_yd": 76
+  }
+ },
+ {
+  "player_id": "12545",
+  "stats": {
+   "gp": 1,
+   "rush_td": 1,
+   "pass_sack": 3,
+   "pass_yd": 252,
+   "pass_td": 1,
+   "rush_yd": 23
+  }
+ },
+ {
+  "player_id": "13269",
+  "stats": {}
+ },
+ {
+  "player_id": "13281",
+  "stats": {}
+ },
+ {
+  "player_id": "13286",
+  "stats": {
+   "gp": 1,
+   "rec": 1,
+   "fum_lost": 1,
+   "rush_yd": 52,
+   "rec_yd": 8
+  }
+ },
+ {
+  "player_id": "13287",
+  "stats": {
+   "gp": 1,
+   "rec": 3,
+   "rush_yd": 29,
+   "rec_yd": 16
+  }
+ },
+ {
+  "player_id": "13293",
+  "stats": {}
+ },
+ {
+  "player_id": "13303",
+  "stats": {}
+ },
+ {
+  "player_id": "13330",
+  "stats": {
+   "gp": 1,
+   "rec": 2,
+   "rec_yd": 17
+  }
+ },
+ {
+  "player_id": "13345",
+  "stats": {
+   "gp": 1,
+   "rush_td": 1,
+   "rec": 3,
+   "rush_yd": 39,
+   "rec_yd": 19
+  }
+ },
+ {
+  "player_id": "13417",
+  "stats": {}
+ },
+ {
+  "player_id": "1373",
+  "stats": {
+   "gp": 1,
+   "pass_sack": 4,
+   "pass_yd": 247,
+   "pass_td": 1,
+   "rush_yd": 17
+  }
+ },
+ {
+  "player_id": "1466",
+  "stats": {
+   "gp": 1,
+   "rec_td": 1,
+   "rec": 9,
+   "rec_yd": 101
+  }
+ },
+ {
+  "player_id": "1945",
+  "stats": {
+   "fgm_50p": 1,
+   "fgmiss": 1,
+   "gp": 1
+  }
+ },
+ {
+  "player_id": "2020",
+  "stats": {
+   "fgm_50p": 1,
+   "fgmiss": 1,
+   "gp": 1
+  }
+ },
+ {
+  "player_id": "2216",
+  "stats": {
+   "gp": 1,
+   "rec": 3,
+   "rec_yd": 54
+  }
+ },
+ {
+  "player_id": "2449",
+  "stats": {
+   "gp": 1,
+   "rec": 5,
+   "rec_td": 2,
+   "rec_yd": 47
+  }
+ },
+ {
+  "player_id": "2747",
+  "stats": {
+   "fgm_30_39": 1,
+   "gp": 1,
+   "xpm": 4
+  }
+ },
+ {
+  "player_id": "3198",
+  "stats": {
+   "gp": 1,
+   "rush_td": 1,
+   "rec": 3,
+   "rush_yd": 68,
+   "rec_yd": 19
+  }
+ },
+ {
+  "player_id": "3294",
+  "stats": {
+   "gp": 1,
+   "pass_sack": 2,
+   "pass_yd": 279,
+   "pass_td": 4,
+   "rush_yd": 26
+  }
+ },
+ {
+  "player_id": "3451",
+  "stats": {
+   "fgm_30_39": 1,
+   "fgm_40_49": 1,
+   "fgmiss": 1,
+   "gp": 1
+  }
+ },
+ {
+  "player_id": "4034",
+  "stats": {
+   "gp": 1,
+   "rush_td": 2,
+   "rec": 4,
+   "rush_yd": 23,
+   "rec_yd": 43
+  }
+ },
+ {
+  "player_id": "4046",
+  "stats": {
+   "gp": 1,
+   "pass_sack": 2,
+   "pass_yd": 382,
+   "pass_td": 3,
+   "rush_yd": 17
+  }
+ },
+ {
+  "player_id": "4195",
+  "stats": {
+   "fgm_50p": 1,
+   "gp": 1,
+   "xpm": 3
+  }
+ },
+ {
+  "player_id": "4199",
+  "stats": {
+   "gp": 1,
+   "rush_yd": 105
+  }
+ },
+ {
+  "player_id": "421",
+  "stats": {
+   "pass_int": 1,
+   "gp": 1,
+   "pass_sack": 1,
+   "pass_yd": 327,
+   "pass_td": 4,
+   "rush_yd": -1
+  }
+ },
+ {
+  "player_id": "4866",
+  "stats": {
+   "gp": 1,
+   "rec": 1,
+   "rec_yd": 11,
+   "rush_yd": 9
+  }
+ },
+ {
+  "player_id": "5022",
+  "stats": {
+   "gp": 1,
+   "rec": 1,
+   "rec_yd": 4
+  }
+ },
+ {
+  "player_id": "5846",
+  "stats": {
+   "gp": 1,
+   "rec": 4,
+   "rec_yd": 27
+  }
+ },
+ {
+  "player_id": "5892",
+  "stats": {
+   "gp": 1,
+   "rec": 2,
+   "rush_yd": 10,
+   "rec_yd": 14
+  }
+ },
+ {
+  "player_id": "6650",
+  "stats": {
+   "fgm_30_39": 2,
+   "fgm_40_49": 1,
+   "fgm_50p": 1,
+   "gp": 1,
+   "xpm": 1
+  }
+ },
+ {
+  "player_id": "6770",
+  "stats": {
+   "gp": 1,
+   "pass_sack": 5,
+   "pass_yd": 207,
+   "pass_td": 2,
+   "rush_yd": -1
+  }
+ },
+ {
+  "player_id": "6790",
+  "stats": {
+   "gp": 1,
+   "rec": 5,
+   "fum_lost": 1,
+   "rush_yd": 45,
+   "rec_yd": 54
+  }
+ },
+ {
+  "player_id": "6794",
+  "stats": {
+   "gp": 1,
+   "rec": 3,
+   "rec_yd": 55
+  }
+ },
+ {
+  "player_id": "6797",
+  "stats": {
+   "pass_int": 2,
+   "gp": 1,
+   "pass_sack": 3,
+   "pass_yd": 192,
+   "pass_td": 1,
+   "rush_yd": 2
+  }
+ },
+ {
+  "player_id": "6801",
+  "stats": {
+   "gp": 1,
+   "rec": 5,
+   "rec_yd": 95
+  }
+ },
+ {
+  "player_id": "6804",
+  "stats": {
+   "gp": 1,
+   "pass_sack": 3,
+   "pass_td": 2,
+   "pass_yd": 145
+  }
+ },
+ {
+  "player_id": "6813",
+  "stats": {
+   "gp": 1,
+   "rush_td": 2,
+   "rec": 4,
+   "rush_yd": 92,
+   "rec_yd": 40
+  }
+ },
+ {
+  "player_id": "6904",
+  "stats": {
+   "pass_int": 2,
+   "gp": 1,
+   "pass_sack": 3,
+   "pass_yd": 264,
+   "pass_td": 2,
+   "rush_yd": 16
+  }
+ },
+ {
+  "player_id": "7523",
+  "stats": {
+   "pass_int": 1,
+   "gp": 1,
+   "pass_sack": 2,
+   "pass_yd": 189,
+   "rush_yd": 6
+  }
+ },
+ {
+  "player_id": "7525",
+  "stats": {
+   "gp": 1,
+   "rec_td": 1,
+   "rec": 10,
+   "rec_yd": 117
+  }
+ },
+ {
+  "player_id": "7588",
+  "stats": {
+   "gp": 1,
+   "rec": 3,
+   "rush_yd": 30,
+   "rec_yd": 20
+  }
+ },
+ {
+  "player_id": "8161",
+  "stats": {
+   "gp": 1,
+   "pass_sack": 4,
+   "pass_yd": 197,
+   "pass_td": 1,
+   "rush_yd": 6
+  }
+ },
+ {
+  "player_id": "8183",
+  "stats": {
+   "gp": 1,
+   "rush_td": 1,
+   "pass_yd": 287,
+   "pass_td": 2,
+   "rush_yd": 30
+  }
+ },
+ {
+  "player_id": "9224",
+  "stats": {
+   "gp": 1,
+   "rec": 3,
+   "rush_yd": 80,
+   "rec_yd": 2
+  }
+ },
+ {
+  "player_id": "9226",
+  "stats": {
+   "gp": 1,
+   "rec": 3,
+   "rush_yd": 74,
+   "rec_yd": 19
+  }
+ },
+ {
+  "player_id": "9228",
+  "stats": {
+   "gp": 1,
+   "pass_sack": 2,
+   "pass_yd": 287,
+   "pass_td": 3,
+   "rush_yd": 6
+  }
+ },
+ {
+  "player_id": "9504",
+  "stats": {
+   "gp": 1,
+   "rec": 3,
+   "rec_yd": 37
+  }
+ },
+ {
+  "player_id": "9758",
+  "stats": {
+   "gp": 1,
+   "pass_sack": 4,
+   "pass_yd": 353,
+   "rush_yd": 29
+  }
+ },
+ {
+  "player_id": "DEN",
+  "stats": {
+   "sack": 2,
+   "gp": 1,
+   "pts_allow": 13,
+   "yds_allow_200_299": 1,
+   "int": 1,
+   "yds_allow": 268,
+   "pts_allow_7_13": 1
+  }
+ },
+ {
+  "player_id": "JAX",
+  "stats": {
+   "gp": 1,
+   "pts_allow": 20,
+   "yds_allow_350_399": 1,
+   "pts_allow_14_20": 1,
+   "int": 1,
+   "yds_allow": 392
+  }
+ },
+ {
+  "player_id": "KC",
+  "stats": {
+   "gp": 1,
+   "pts_allow": 30,
+   "int": 1,
+   "yds_allow": 329,
+   "pts_allow_28_34": 1
+  }
+ },
+ {
+  "player_id": "LAR",
+  "stats": {
+   "sack": 2,
+   "gp": 1,
+   "pts_allow": 6,
+   "ff": 1,
+   "int": 1,
+   "pts_allow_1_6": 1,
+   "yds_allow": 182,
+   "yds_allow_100_199": 1
+  }
+ },
+ {
+  "player_id": "NE",
+  "stats": {
+   "sack": 4,
+   "gp": 1,
+   "pts_allow": 3,
+   "ff": 2,
+   "yds_allow_200_299": 1,
+   "int": 1,
+   "pts_allow_1_6": 1,
+   "yds_allow": 235,
+   "fum_rec": 1,
+   "def_td": 1
+  }
+ },
+ {
+  "player_id": "NYG",
+  "stats": {
+   "sack": 1,
+   "gp": 1,
+   "yds_allow_450_499": 1,
+   "pts_allow": 28,
+   "ff": 2,
+   "int": 1,
+   "yds_allow": 481,
+   "fum_rec": 1,
+   "pts_allow_28_34": 1
+  }
+ },
+ {
+  "player_id": "SF",
+  "stats": {
+   "sack": 4,
+   "gp": 1,
+   "pts_allow": 13,
+   "ff": 1,
+   "yds_allow_200_299": 1,
+   "yds_allow": 284,
+   "pts_allow_7_13": 1
+  }
+ }
+]

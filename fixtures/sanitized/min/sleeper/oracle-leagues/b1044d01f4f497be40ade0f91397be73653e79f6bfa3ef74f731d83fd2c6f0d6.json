@@ -1,0 +1,1761 @@
+{
+ "scoring_settings": {
+  "sack": 1,
+  "fgm_40_49": 4,
+  "bonus_rec_te": 0.5,
+  "pass_int": -1,
+  "pts_allow_0": 10,
+  "pass_2pt": 2,
+  "st_td": 6,
+  "rec_td": 6,
+  "fgm_30_39": 3,
+  "xpmiss": -1,
+  "rush_td": 6,
+  "rec_2pt": 2,
+  "st_fum_rec": 1,
+  "fgmiss": -1,
+  "ff": 1,
+  "rec": 1,
+  "pts_allow_14_20": 1,
+  "fgm_0_19": 3,
+  "int": 2,
+  "def_st_fum_rec": 1,
+  "fum_lost": -2,
+  "pts_allow_1_6": 7,
+  "fgm_20_29": 3,
+  "xpm": 1,
+  "rush_2pt": 2,
+  "fum_rec": 2,
+  "def_st_td": 6,
+  "fgm_50p": 5,
+  "def_td": 6,
+  "safe": 2,
+  "pass_yd": 0.04,
+  "blk_kick": 2,
+  "pass_td": 6,
+  "rush_yd": 0.1,
+  "pts_allow_28_34": -1,
+  "pts_allow_35p": -4,
+  "fum_rec_td": 6,
+  "rec_yd": 0.1,
+  "def_st_ff": 1,
+  "pts_allow_7_13": 4,
+  "st_ff": 1
+ },
+ "roster_positions": [
+  "QB",
+  "RB",
+  "RB",
+  "WR",
+  "WR",
+  "TE",
+  "FLEX",
+  "FLEX",
+  "SUPER_FLEX",
+  "BN",
+  "BN",
+  "BN",
+  "BN",
+  "BN",
+  "BN",
+  "BN",
+  "BN",
+  "BN",
+  "BN",
+  "BN"
+ ],
+ "cases": [
+  {
+   "sleeperId": "10222",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 1,
+    "rec_yd": 4
+   },
+   "players_points": 1.4
+  },
+  {
+   "sleeperId": "10229",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 4,
+    "rec_yd": 83
+   },
+   "players_points": 12.3
+  },
+  {
+   "sleeperId": "10232",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 2,
+    "rec_yd": 18
+   },
+   "players_points": 3.8
+  },
+  {
+   "sleeperId": "10859",
+   "pos": "TE",
+   "week": 2,
+   "stats": {
+    "bonus_rec_te": 6,
+    "gp": 1,
+    "rec": 6,
+    "rec_td": 1,
+    "rec_yd": 52
+   },
+   "players_points": 20.2
+  },
+  {
+   "sleeperId": "11370",
+   "pos": "RB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 1,
+    "rush_yd": 11,
+    "rec_yd": 15
+   },
+   "players_points": 3.6
+  },
+  {
+   "sleeperId": "11435",
+   "pos": "RB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rush_yd": 92
+   },
+   "players_points": 9.2
+  },
+  {
+   "sleeperId": "11565",
+   "pos": "QB",
+   "week": 2,
+   "stats": {},
+   "players_points": 0
+  },
+  {
+   "sleeperId": "11566",
+   "pos": "QB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "pass_yd": 96,
+    "pass_td": 1,
+    "rush_yd": 69
+   },
+   "players_points": 16.74
+  },
+  {
+   "sleeperId": "11583",
+   "pos": "RB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 1,
+    "rec_yd": -5,
+    "rush_yd": 16
+   },
+   "players_points": 2.1
+  },
+  {
+   "sleeperId": "11618",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1
+   },
+   "players_points": 0
+  },
+  {
+   "sleeperId": "11620",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 3,
+    "rec_yd": 43
+   },
+   "players_points": 7.3
+  },
+  {
+   "sleeperId": "11627",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 1,
+    "rec_yd": 27
+   },
+   "players_points": 3.7
+  },
+  {
+   "sleeperId": "11637",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 6,
+    "rec_yd": 63
+   },
+   "players_points": 12.3
+  },
+  {
+   "sleeperId": "11647",
+   "pos": "RB",
+   "week": 2,
+   "stats": {
+    "gp": 1
+   },
+   "players_points": 0
+  },
+  {
+   "sleeperId": "12483",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 2,
+    "rec_yd": 25
+   },
+   "players_points": 4.5
+  },
+  {
+   "sleeperId": "12489",
+   "pos": "RB",
+   "week": 2,
+   "stats": {},
+   "players_points": 0
+  },
+  {
+   "sleeperId": "12492",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rush_yd": 16
+   },
+   "players_points": 1.6
+  },
+  {
+   "sleeperId": "12506",
+   "pos": "TE",
+   "week": 2,
+   "stats": {
+    "bonus_rec_te": 5,
+    "gp": 1,
+    "rec": 5,
+    "rec_yd": 54
+   },
+   "players_points": 12.9
+  },
+  {
+   "sleeperId": "12507",
+   "pos": "RB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rush_td": 1,
+    "rec": 2,
+    "fum_lost": 1,
+    "rush_yd": 94,
+    "rec_yd": 21
+   },
+   "players_points": 17.5
+  },
+  {
+   "sleeperId": "12514",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec_td": 1,
+    "rec": 3,
+    "rush_yd": -3,
+    "rec_yd": 16
+   },
+   "players_points": 10.3
+  },
+  {
+   "sleeperId": "12518",
+   "pos": "TE",
+   "week": 2,
+   "stats": {
+    "bonus_rec_te": 6,
+    "gp": 1,
+    "rec_td": 1,
+    "rec": 6,
+    "rush_yd": 3,
+    "rec_yd": 21
+   },
+   "players_points": 17.4
+  },
+  {
+   "sleeperId": "12519",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 3,
+    "rec_yd": 32
+   },
+   "players_points": 6.2
+  },
+  {
+   "sleeperId": "12521",
+   "pos": "TE",
+   "week": 2,
+   "stats": {
+    "bonus_rec_te": 1,
+    "gp": 1,
+    "rec": 1,
+    "rec_yd": 17
+   },
+   "players_points": 3.2
+  },
+  {
+   "sleeperId": "12522",
+   "pos": "QB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rush_td": 2,
+    "pass_yd": 183,
+    "rush_yd": 7
+   },
+   "players_points": 20.02
+  },
+  {
+   "sleeperId": "12526",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 5,
+    "rec_yd": 101
+   },
+   "players_points": 15.1
+  },
+  {
+   "sleeperId": "12527",
+   "pos": "RB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 4,
+    "rush_yd": 48,
+    "rec_yd": 15
+   },
+   "players_points": 10.3
+  },
+  {
+   "sleeperId": "12535",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 2,
+    "rec_yd": 26
+   },
+   "players_points": 4.6
+  },
+  {
+   "sleeperId": "12540",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1
+   },
+   "players_points": 0
+  },
+  {
+   "sleeperId": "12547",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 1,
+    "rec_yd": 10
+   },
+   "players_points": 2
+  },
+  {
+   "sleeperId": "13268",
+   "pos": "WR",
+   "week": 2,
+   "stats": {},
+   "players_points": 0
+  },
+  {
+   "sleeperId": "13269",
+   "pos": "QB",
+   "week": 2,
+   "stats": {},
+   "players_points": 0
+  },
+  {
+   "sleeperId": "13275",
+   "pos": "QB",
+   "week": 2,
+   "stats": {},
+   "players_points": 0
+  },
+  {
+   "sleeperId": "13281",
+   "pos": "WR",
+   "week": 2,
+   "stats": {},
+   "players_points": 0
+  },
+  {
+   "sleeperId": "13287",
+   "pos": "RB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 3,
+    "rush_yd": 29,
+    "rec_yd": 16
+   },
+   "players_points": 7.5
+  },
+  {
+   "sleeperId": "13293",
+   "pos": "WR",
+   "week": 2,
+   "stats": {},
+   "players_points": 0
+  },
+  {
+   "sleeperId": "13303",
+   "pos": "QB",
+   "week": 2,
+   "stats": {},
+   "players_points": 0
+  },
+  {
+   "sleeperId": "13320",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 2,
+    "rec_yd": 14
+   },
+   "players_points": 3.4
+  },
+  {
+   "sleeperId": "13330",
+   "pos": "TE",
+   "week": 2,
+   "stats": {
+    "bonus_rec_te": 2,
+    "gp": 1,
+    "rec": 2,
+    "rec_yd": 17
+   },
+   "players_points": 4.7
+  },
+  {
+   "sleeperId": "13347",
+   "pos": "RB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 1,
+    "rec_yd": 2
+   },
+   "players_points": 1.2
+  },
+  {
+   "sleeperId": "13349",
+   "pos": "TE",
+   "week": 2,
+   "stats": {},
+   "players_points": 0
+  },
+  {
+   "sleeperId": "13402",
+   "pos": "WR",
+   "week": 2,
+   "stats": {},
+   "players_points": 0
+  },
+  {
+   "sleeperId": "13423",
+   "pos": "RB",
+   "week": 2,
+   "stats": {
+    "gp": 1
+   },
+   "players_points": 0
+  },
+  {
+   "sleeperId": "2505",
+   "pos": "TE",
+   "week": 2,
+   "stats": {
+    "bonus_rec_te": 3,
+    "gp": 1,
+    "rec": 3,
+    "rec_td": 2,
+    "rec_yd": 33
+   },
+   "players_points": 19.8
+  },
+  {
+   "sleeperId": "3163",
+   "pos": "QB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "pass_yd": 327,
+    "pass_td": 4,
+    "rush_yd": 7
+   },
+   "players_points": 37.78
+  },
+  {
+   "sleeperId": "3198",
+   "pos": "RB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rush_td": 1,
+    "rec": 3,
+    "rush_yd": 68,
+    "rec_yd": 19
+   },
+   "players_points": 17.7
+  },
+  {
+   "sleeperId": "3294",
+   "pos": "QB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "pass_yd": 279,
+    "pass_td": 4,
+    "rush_yd": 26
+   },
+   "players_points": 37.76
+  },
+  {
+   "sleeperId": "3634",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 5,
+    "rec_yd": 40
+   },
+   "players_points": 9
+  },
+  {
+   "sleeperId": "4017",
+   "pos": "QB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "pass_yd": 238,
+    "pass_td": 2,
+    "rush_yd": 22
+   },
+   "players_points": 23.72
+  },
+  {
+   "sleeperId": "4033",
+   "pos": "TE",
+   "week": 2,
+   "stats": {
+    "bonus_rec_te": 1,
+    "gp": 1,
+    "rec": 1,
+    "rec_yd": 9
+   },
+   "players_points": 2.4
+  },
+  {
+   "sleeperId": "4034",
+   "pos": "RB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rush_td": 2,
+    "rec": 4,
+    "rush_yd": 23,
+    "rec_yd": 43
+   },
+   "players_points": 22.6
+  },
+  {
+   "sleeperId": "4046",
+   "pos": "QB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "pass_yd": 382,
+    "pass_td": 3,
+    "rush_yd": 17
+   },
+   "players_points": 34.98
+  },
+  {
+   "sleeperId": "4217",
+   "pos": "TE",
+   "week": 2,
+   "stats": {
+    "bonus_rec_te": 4,
+    "gp": 1,
+    "rec_td": 1,
+    "rec": 4,
+    "rec_yd": 80
+   },
+   "players_points": 20
+  },
+  {
+   "sleeperId": "4454",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 2,
+    "rec_yd": 11
+   },
+   "players_points": 3.1
+  },
+  {
+   "sleeperId": "4983",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rush_yd": -1
+   },
+   "players_points": -0.1
+  },
+  {
+   "sleeperId": "4993",
+   "pos": "TE",
+   "week": 2,
+   "stats": {
+    "gp": 1
+   },
+   "players_points": 0
+  },
+  {
+   "sleeperId": "5844",
+   "pos": "TE",
+   "week": 2,
+   "stats": {
+    "bonus_rec_te": 3,
+    "gp": 1,
+    "rec": 3,
+    "rec_yd": 29
+   },
+   "players_points": 7.4
+  },
+  {
+   "sleeperId": "5846",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 4,
+    "rec_yd": 27
+   },
+   "players_points": 6.7
+  },
+  {
+   "sleeperId": "5850",
+   "pos": "RB",
+   "week": 2,
+   "stats": {},
+   "players_points": 0
+  },
+  {
+   "sleeperId": "6783",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1
+   },
+   "players_points": 0
+  },
+  {
+   "sleeperId": "6794",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 3,
+    "rec_yd": 55
+   },
+   "players_points": 8.5
+  },
+  {
+   "sleeperId": "6865",
+   "pos": "TE",
+   "week": 2,
+   "stats": {
+    "bonus_rec_te": 2,
+    "gp": 1,
+    "rec": 2,
+    "rec_yd": 15
+   },
+   "players_points": 4.5
+  },
+  {
+   "sleeperId": "7021",
+   "pos": "RB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 2,
+    "rush_yd": 22,
+    "rec_yd": 22
+   },
+   "players_points": 6.4
+  },
+  {
+   "sleeperId": "7553",
+   "pos": "TE",
+   "week": 2,
+   "stats": {
+    "bonus_rec_te": 1,
+    "gp": 1,
+    "rec": 1,
+    "rec_yd": 15
+   },
+   "players_points": 3
+  },
+  {
+   "sleeperId": "7569",
+   "pos": "WR",
+   "week": 2,
+   "stats": {},
+   "players_points": 0
+  },
+  {
+   "sleeperId": "7571",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec_td": 1,
+    "rec": 7,
+    "rec_yd": 88
+   },
+   "players_points": 21.8
+  },
+  {
+   "sleeperId": "7611",
+   "pos": "RB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 1,
+    "fum_lost": 1,
+    "rush_yd": 43,
+    "rec_yd": 3
+   },
+   "players_points": 3.6
+  },
+  {
+   "sleeperId": "8110",
+   "pos": "TE",
+   "week": 2,
+   "stats": {
+    "bonus_rec_te": 4,
+    "gp": 1,
+    "rec": 4,
+    "rec_td": 2,
+    "rec_yd": 43
+   },
+   "players_points": 22.3
+  },
+  {
+   "sleeperId": "8121",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 3,
+    "rec_yd": 96
+   },
+   "players_points": 12.6
+  },
+  {
+   "sleeperId": "8131",
+   "pos": "TE",
+   "week": 2,
+   "stats": {
+    "bonus_rec_te": 5,
+    "gp": 1,
+    "rec": 5,
+    "rec_yd": 33
+   },
+   "players_points": 10.8
+  },
+  {
+   "sleeperId": "8132",
+   "pos": "RB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 2,
+    "rush_yd": 10,
+    "rec_yd": 9
+   },
+   "players_points": 3.9
+  },
+  {
+   "sleeperId": "8148",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 2,
+    "rec_yd": 33
+   },
+   "players_points": 5.3
+  },
+  {
+   "sleeperId": "8150",
+   "pos": "RB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec_td": 1,
+    "rec": 2,
+    "fum_lost": 1,
+    "rush_yd": 85,
+    "rec_yd": 12
+   },
+   "players_points": 15.7
+  },
+  {
+   "sleeperId": "8155",
+   "pos": "RB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 5,
+    "rush_yd": 29,
+    "rec_yd": 63
+   },
+   "players_points": 14.2
+  },
+  {
+   "sleeperId": "8180",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 1,
+    "rec_yd": 9
+   },
+   "players_points": 1.9
+  },
+  {
+   "sleeperId": "8205",
+   "pos": "RB",
+   "week": 2,
+   "stats": {},
+   "players_points": 0
+  },
+  {
+   "sleeperId": "8408",
+   "pos": "RB",
+   "week": 2,
+   "stats": {},
+   "players_points": 0
+  },
+  {
+   "sleeperId": "9221",
+   "pos": "RB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec_td": 1,
+    "rec": 6,
+    "rush_yd": 52,
+    "rec_yd": 61
+   },
+   "players_points": 23.3
+  },
+  {
+   "sleeperId": "9226",
+   "pos": "RB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 3,
+    "rush_yd": 74,
+    "rec_yd": 19
+   },
+   "players_points": 12.3
+  },
+  {
+   "sleeperId": "9228",
+   "pos": "QB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "pass_yd": 287,
+    "pass_td": 3,
+    "rush_yd": 6
+   },
+   "players_points": 30.08
+  },
+  {
+   "sleeperId": "9480",
+   "pos": "TE",
+   "week": 2,
+   "stats": {
+    "bonus_rec_te": 2,
+    "gp": 1,
+    "rec": 2,
+    "rec_yd": 17
+   },
+   "players_points": 4.7
+  },
+  {
+   "sleeperId": "9500",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 7,
+    "rec_yd": 72
+   },
+   "players_points": 14.2
+  },
+  {
+   "sleeperId": "9501",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 1,
+    "rec_yd": 9
+   },
+   "players_points": 1.9
+  },
+  {
+   "sleeperId": "9506",
+   "pos": "RB",
+   "week": 2,
+   "stats": {
+    "gp": 1
+   },
+   "players_points": 0
+  },
+  {
+   "sleeperId": "9754",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 1,
+    "rec_yd": 7,
+    "rush_yd": 7
+   },
+   "players_points": 2.4
+  },
+  {
+   "sleeperId": "10232",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 11,
+    "rec_td": 1,
+    "rec_yd": 89
+   },
+   "players_points": 25.9
+  },
+  {
+   "sleeperId": "10235",
+   "pos": "RB",
+   "week": 3,
+   "stats": {
+    "gp": 1
+   },
+   "players_points": 0
+  },
+  {
+   "sleeperId": "10236",
+   "pos": "TE",
+   "week": 3,
+   "stats": {
+    "bonus_rec_te": 2,
+    "fum_lost": 1,
+    "gp": 1,
+    "rec": 2,
+    "rec_yd": 38
+   },
+   "players_points": 4.8
+  },
+  {
+   "sleeperId": "11199",
+   "pos": "RB",
+   "week": 3,
+   "stats": {},
+   "players_points": 0
+  },
+  {
+   "sleeperId": "11237",
+   "pos": "RB",
+   "week": 3,
+   "stats": {
+    "gp": 1
+   },
+   "players_points": 0
+  },
+  {
+   "sleeperId": "11435",
+   "pos": "RB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rush_yd": 14
+   },
+   "players_points": 1.4
+  },
+  {
+   "sleeperId": "11565",
+   "pos": "QB",
+   "week": 3,
+   "stats": {},
+   "players_points": 0
+  },
+  {
+   "sleeperId": "11566",
+   "pos": "QB",
+   "week": 3,
+   "stats": {},
+   "players_points": 0
+  },
+  {
+   "sleeperId": "11576",
+   "pos": "RB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 3,
+    "rush_yd": 14,
+    "rec_yd": 3
+   },
+   "players_points": 4.7
+  },
+  {
+   "sleeperId": "11581",
+   "pos": "RB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 2,
+    "rush_yd": 11,
+    "rec_yd": 7
+   },
+   "players_points": 3.8
+  },
+  {
+   "sleeperId": "11586",
+   "pos": "RB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 2,
+    "rush_yd": 15
+   },
+   "players_points": 3.5
+  },
+  {
+   "sleeperId": "11597",
+   "pos": "TE",
+   "week": 3,
+   "stats": {
+    "gp": 1
+   },
+   "players_points": 0
+  },
+  {
+   "sleeperId": "11618",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1
+   },
+   "players_points": 0
+  },
+  {
+   "sleeperId": "11620",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 3,
+    "rec_yd": 44
+   },
+   "players_points": 7.4
+  },
+  {
+   "sleeperId": "11631",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 1,
+    "rec_yd": 8
+   },
+   "players_points": 1.8
+  },
+  {
+   "sleeperId": "11655",
+   "pos": "RB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rush_yd": 3
+   },
+   "players_points": 0.3
+  },
+  {
+   "sleeperId": "1166",
+   "pos": "QB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "pass_yd": 248,
+    "pass_td": 3,
+    "rush_yd": 3
+   },
+   "players_points": 28.22
+  },
+  {
+   "sleeperId": "12481",
+   "pos": "RB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 3,
+    "rush_yd": 60,
+    "rec_yd": 40
+   },
+   "players_points": 13
+  },
+  {
+   "sleeperId": "12483",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1
+   },
+   "players_points": 0
+  },
+  {
+   "sleeperId": "12490",
+   "pos": "RB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rush_td": 1,
+    "rec": 2,
+    "rush_yd": 73,
+    "rec_yd": 17
+   },
+   "players_points": 17
+  },
+  {
+   "sleeperId": "12495",
+   "pos": "RB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rush_td": 1,
+    "rec": 3,
+    "rush_yd": 41,
+    "rec_yd": 14
+   },
+   "players_points": 14.5
+  },
+  {
+   "sleeperId": "12497",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 3,
+    "rec_yd": 48
+   },
+   "players_points": 7.8
+  },
+  {
+   "sleeperId": "12498",
+   "pos": "TE",
+   "week": 3,
+   "stats": {},
+   "players_points": 0
+  },
+  {
+   "sleeperId": "12504",
+   "pos": "RB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 1,
+    "rec_yd": 10,
+    "rush_yd": 6
+   },
+   "players_points": 2.6
+  },
+  {
+   "sleeperId": "12505",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 1,
+    "rec_yd": 11
+   },
+   "players_points": 2.1
+  },
+  {
+   "sleeperId": "12506",
+   "pos": "TE",
+   "week": 3,
+   "stats": {
+    "bonus_rec_te": 7,
+    "gp": 1,
+    "rec_td": 2,
+    "rec": 7,
+    "rec_yd": 51
+   },
+   "players_points": 27.6
+  },
+  {
+   "sleeperId": "12514",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 5,
+    "rec_yd": 62
+   },
+   "players_points": 11.2
+  },
+  {
+   "sleeperId": "12529",
+   "pos": "RB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 1,
+    "rec_yd": 6,
+    "rush_yd": 23
+   },
+   "players_points": 3.9
+  },
+  {
+   "sleeperId": "12533",
+   "pos": "RB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 1,
+    "rush_yd": 36,
+    "rec_yd": 7
+   },
+   "players_points": 5.3
+  },
+  {
+   "sleeperId": "12545",
+   "pos": "QB",
+   "week": 3,
+   "stats": {
+    "pass_int": 1,
+    "gp": 1,
+    "fum_lost": 2,
+    "pass_yd": 255,
+    "pass_td": 4,
+    "rush_yd": 36
+   },
+   "players_points": 32.8
+  },
+  {
+   "sleeperId": "13268",
+   "pos": "WR",
+   "week": 3,
+   "stats": {},
+   "players_points": 0
+  },
+  {
+   "sleeperId": "13269",
+   "pos": "QB",
+   "week": 3,
+   "stats": {},
+   "players_points": 0
+  },
+  {
+   "sleeperId": "13276",
+   "pos": "WR",
+   "week": 3,
+   "stats": {},
+   "players_points": 0
+  },
+  {
+   "sleeperId": "13278",
+   "pos": "TE",
+   "week": 3,
+   "stats": {
+    "gp": 1
+   },
+   "players_points": 0
+  },
+  {
+   "sleeperId": "13281",
+   "pos": "WR",
+   "week": 3,
+   "stats": {},
+   "players_points": 0
+  },
+  {
+   "sleeperId": "13285",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 2,
+    "rec_yd": 19
+   },
+   "players_points": 3.9
+  },
+  {
+   "sleeperId": "13287",
+   "pos": "RB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec_td": 1,
+    "rec": 5,
+    "rush_yd": 90,
+    "rec_yd": 19
+   },
+   "players_points": 21.9
+  },
+  {
+   "sleeperId": "13288",
+   "pos": "RB",
+   "week": 3,
+   "stats": {
+    "gp": 1
+   },
+   "players_points": 0
+  },
+  {
+   "sleeperId": "13294",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 3,
+    "rec_yd": 29
+   },
+   "players_points": 5.9
+  },
+  {
+   "sleeperId": "13303",
+   "pos": "QB",
+   "week": 3,
+   "stats": {},
+   "players_points": 0
+  },
+  {
+   "sleeperId": "13333",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1
+   },
+   "players_points": 0
+  },
+  {
+   "sleeperId": "13337",
+   "pos": "RB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rush_yd": 17
+   },
+   "players_points": 1.7
+  },
+  {
+   "sleeperId": "13338",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 1,
+    "rec_yd": 3
+   },
+   "players_points": 1.3
+  },
+  {
+   "sleeperId": "13345",
+   "pos": "RB",
+   "week": 3,
+   "stats": {},
+   "players_points": 0
+  },
+  {
+   "sleeperId": "13402",
+   "pos": "WR",
+   "week": 3,
+   "stats": {},
+   "players_points": 0
+  },
+  {
+   "sleeperId": "13533",
+   "pos": "WR",
+   "week": 3,
+   "stats": {},
+   "players_points": 0
+  },
+  {
+   "sleeperId": "4177",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 6,
+    "rec_yd": 87
+   },
+   "players_points": 14.7
+  },
+  {
+   "sleeperId": "5012",
+   "pos": "TE",
+   "week": 3,
+   "stats": {
+    "bonus_rec_te": 3,
+    "gp": 1,
+    "rec": 3,
+    "rec_yd": 24
+   },
+   "players_points": 6.9
+  },
+  {
+   "sleeperId": "5022",
+   "pos": "TE",
+   "week": 3,
+   "stats": {},
+   "players_points": 0
+  },
+  {
+   "sleeperId": "5850",
+   "pos": "RB",
+   "week": 3,
+   "stats": {},
+   "players_points": 0
+  },
+  {
+   "sleeperId": "5967",
+   "pos": "RB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 4,
+    "rush_yd": 74,
+    "rec_yd": 22
+   },
+   "players_points": 13.6
+  },
+  {
+   "sleeperId": "6768",
+   "pos": "QB",
+   "week": 3,
+   "stats": {},
+   "players_points": 0
+  },
+  {
+   "sleeperId": "6786",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 7,
+    "rec_2pt": 1,
+    "rec_yd": 112
+   },
+   "players_points": 20.2
+  },
+  {
+   "sleeperId": "6806",
+   "pos": "RB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 1,
+    "rush_yd": 49,
+    "rec_yd": 4
+   },
+   "players_points": 6.3
+  },
+  {
+   "sleeperId": "7002",
+   "pos": "TE",
+   "week": 3,
+   "stats": {
+    "bonus_rec_te": 8,
+    "gp": 1,
+    "rec_td": 2,
+    "rec": 8,
+    "fum_lost": 1,
+    "rec_yd": 53
+   },
+   "players_points": 27.3
+  },
+  {
+   "sleeperId": "7090",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 2,
+    "rec_yd": 20,
+    "rush_yd": 9
+   },
+   "players_points": 4.9
+  },
+  {
+   "sleeperId": "7547",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 4,
+    "rec_td": 1,
+    "rec_yd": 19
+   },
+   "players_points": 11.9
+  },
+  {
+   "sleeperId": "7564",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec_td": 1,
+    "rec": 9,
+    "rec_yd": 98
+   },
+   "players_points": 24.8
+  },
+  {
+   "sleeperId": "7571",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 2,
+    "rec_yd": 37
+   },
+   "players_points": 5.7
+  },
+  {
+   "sleeperId": "8110",
+   "pos": "TE",
+   "week": 3,
+   "stats": {
+    "bonus_rec_te": 3,
+    "fum_lost": 1,
+    "gp": 1,
+    "rec": 3,
+    "rec_td": 1,
+    "rec_yd": 23
+   },
+   "players_points": 10.8
+  },
+  {
+   "sleeperId": "8119",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 1,
+    "rec_yd": 11
+   },
+   "players_points": 2.1
+  },
+  {
+   "sleeperId": "8134",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 1,
+    "rec_yd": 6
+   },
+   "players_points": 1.6
+  },
+  {
+   "sleeperId": "8136",
+   "pos": "RB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec_td": 1,
+    "rec": 1,
+    "rush_yd": 35,
+    "rec_yd": 6
+   },
+   "players_points": 11.1
+  },
+  {
+   "sleeperId": "8146",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec_td": 1,
+    "rec": 10,
+    "rec_yd": 107
+   },
+   "players_points": 26.7
+  },
+  {
+   "sleeperId": "8154",
+   "pos": "RB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rush_td": 1,
+    "rush_yd": 50
+   },
+   "players_points": 11
+  },
+  {
+   "sleeperId": "8155",
+   "pos": "RB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 3,
+    "rush_yd": 32,
+    "rec_yd": 23
+   },
+   "players_points": 8.5
+  },
+  {
+   "sleeperId": "8180",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 1,
+    "rec_yd": 16
+   },
+   "players_points": 2.6
+  },
+  {
+   "sleeperId": "8408",
+   "pos": "RB",
+   "week": 3,
+   "stats": {},
+   "players_points": 0
+  },
+  {
+   "sleeperId": "8698",
+   "pos": "TE",
+   "week": 3,
+   "stats": {},
+   "players_points": 0
+  },
+  {
+   "sleeperId": "9224",
+   "pos": "RB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 2,
+    "rush_yd": 61,
+    "rec_yd": 8
+   },
+   "players_points": 8.9
+  },
+  {
+   "sleeperId": "9228",
+   "pos": "QB",
+   "week": 3,
+   "stats": {
+    "pass_int": 1,
+    "gp": 1,
+    "pass_yd": 291,
+    "pass_td": 1
+   },
+   "players_points": 16.64
+  },
+  {
+   "sleeperId": "9482",
+   "pos": "TE",
+   "week": 3,
+   "stats": {
+    "bonus_rec_te": 3,
+    "gp": 1,
+    "rec": 3,
+    "rec_td": 1,
+    "rec_yd": 32
+   },
+   "players_points": 13.7
+  },
+  {
+   "sleeperId": "9502",
+   "pos": "WR",
+   "week": 3,
+   "stats": {},
+   "players_points": 0
+  },
+  {
+   "sleeperId": "9506",
+   "pos": "RB",
+   "week": 3,
+   "stats": {
+    "gp": 1
+   },
+   "players_points": 0
+  },
+  {
+   "sleeperId": "9509",
+   "pos": "RB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rush_td": 2,
+    "rec": 2,
+    "rush_yd": 194,
+    "rec_yd": 19
+   },
+   "players_points": 35.3
+  },
+  {
+   "sleeperId": "9997",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 5,
+    "rush_yd": 20,
+    "rec_yd": 84
+   },
+   "players_points": 15.4
+  }
+ ]
+}

@@ -657,6 +657,28 @@ describe("identities and fixture shaping", () => {
     }
   });
 
+  it("prunes only this probe's fixture files: never subfolders or other files, and a missing folder is fine", async () => {
+    const { createHash } = await import("node:crypto");
+    const { mkdir } = await import("node:fs/promises");
+    const h = (s: string) => createHash("sha256").update(s).digest("hex");
+    const dir = await mkdtemp(path.join(tmpdir(), "mfl-prune-safe-"));
+    try {
+      expect(await pruneSanitized(path.join(dir, "missing"), [])).toEqual({ removed: [], mismatched: [] });
+      const orphan = `${h("mfl/orphan")}.json`;
+      await writeFile(path.join(dir, orphan), "{}");
+      await writeFile(path.join(dir, "README.txt"), "notes");
+      await mkdir(path.join(dir, "min"));
+      await writeFile(path.join(dir, "min", `${h("nested")}.json`), "{}");
+      await writeFile(path.join(dir, "index.json"), "{}");
+      const out = await pruneSanitized(dir, []);
+      expect(out.removed).toEqual([orphan]);
+      expect((await readdir(dir)).sort()).toEqual(["README.txt", "index.json", "min"]);
+      expect(await readdir(path.join(dir, "min"))).toEqual([`${h("nested")}.json`]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it("merges watch-list entries without duplicates", async () => {
     const dir = await mkdtemp(path.join(tmpdir(), "mfl-watch-"));
     const file = path.join(dir, "watchlist.json");

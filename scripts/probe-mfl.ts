@@ -1,22 +1,28 @@
 /**
  * Phase 0 probe: MyFantasyLeague (CLAUDE.md §2.6, §17 Data Checklist A–M).
  *
- *   npm run probe:mfl                        league data cached 10 min (CLAUDE.md §2.10)
- *   npx tsx scripts/probe-mfl.ts --reuse     reuse cached league data for 24 h (development)
- *   npx tsx scripts/probe-mfl.ts --shapes    also print the shape of every response (no values)
+ *   npm run probe:mfl                            league data cached 10 min (CLAUDE.md §2.10)
+ *   npx tsx scripts/probe-mfl.ts --reuse         reuse cached league data for 24 h (development)
+ *   npx tsx scripts/probe-mfl.ts --shapes        also print the shape of every response (no values)
+ *   npx tsx scripts/probe-mfl.ts --allow-crawl   may search for a test league when none is pinned (ask Parker first)
  *
  * League: MFL_LEAGUE_ID from .env.local (MFL_USERNAME / MFL_PASSWORD only for private leagues);
- * otherwise a public test league found once with TYPE=leagueSearch (see lib/mfl/search.ts).
+ * otherwise the pinned public test league (git-ignored fixtures/raw/mfl/test-league.json), found once
+ * with TYPE=leagueSearch (see lib/mfl/search.ts). CLAUDE.md §0.6: no new crawls of strangers' leagues
+ * without asking Parker first, so that search runs only with --allow-crawl and only when nothing is
+ * pinned; refreshing the pinned league is not a crawl. A stranger's test league is saved sanitized to
+ * git-ignored data-local/fixtures-sanitized/mfl (tests use minimized copies in
+ * fixtures/sanitized/min/mfl/); league-independent public exports go to fixtures/sanitized/mfl.
  * About 30 MFL requests on a cold run, paced ≥ 1.2 s apart by lib/http.ts, never retried (MFL asks
  * clients not to retry). Every claim in the report is computed from this run's data or the docs text.
  */
-import path from "node:path";
 import { parse as parseCsv } from "csv-parse/sync";
 import { DAY, TTL, credentialScope } from "./lib/cache";
 import { FC_TEAM_SIZES, getFantasyCalc, matchRate, nearest, type FcFormat } from "./lib/fantasycalc";
-import { SANITIZED_DIR } from "./lib/fixtures";
 import { getJson, request } from "./lib/http";
-import { runProbe, type ProbeContext } from "./lib/probe";
+import { crawlAllowed, runProbe, type ProbeContext } from "./lib/probe";
+import { NEEDS_CRAWL, crawlGateNote } from "./lib/shared/crawl-gate";
+import { fixtureFolders, partitionPaths, whereSaved } from "./lib/shared/fixture-folders";
 import { describeShape, formatShape } from "./lib/shape";
 import { getSleeperPlayers } from "./lib/sleeper-players";
 import { MflClient, MflThrottledError, MFL_API_HOST, MFL_DOCS, mflLogin, type MflCall } from "./lib/mfl/client";
@@ -80,6 +86,7 @@ runProbe("mfl", async (p) => {
   const { cl } = p;
   const leagueTtl = REUSE ? DAY : TTL.league;
   const projTtl = REUSE ? DAY : TTL.projections;
+  cl.meta.crawlGate = crawlGateNote(crawlAllowed());
 
   // ── Credentials (a login is the only MFL request that may come before the docs) ─────────────────
   const envLeague = p.env("MFL_LEAGUE_ID");
@@ -112,7 +119,14 @@ runProbe("mfl", async (p) => {
     chosen = { id: envLeague, host: leagueHost, chosenAt: new Date().toISOString(), method: "MFL_LEAGUE_ID from .env.local" };
     source = "MFL_LEAGUE_ID in .env.local";
   } else {
+    // The pinned test league (git-ignored choice file) is refreshed live: that is not a crawl. Finding
+    // a new one searches and screens strangers' leagues, so it needs --allow-crawl (CLAUDE.md §0.6).
     chosen = await loadChosen();
+    if (!chosen && !crawlAllowed()) {
+      cl.na("A", "A.league", "Test league", `${NEEDS_CRAWL}: MFL_LEAGUE_ID is blank and no public test league is pinned; finding one runs TYPE=leagueSearch and screens strangers' leagues`);
+      cl.question("Do you have an MFL league? If so, fill in MFL_LEAGUE_ID in .env.local (and MFL_USERNAME / MFL_PASSWORD if it is private).");
+      return;
+    }
     if (!chosen) {
       const found = await findTestLeague(c, async (call) => {
         await p.saveRaw(searchRawKey(YEAR), call.rawJson ?? call.res.text, call.res);
@@ -267,8 +281,19 @@ runProbe("mfl", async (p) => {
     saved.push(await p.saveSanitized(`mfl/${YEAR}/export?TYPE=leagueSearch&SEARCH={term} (synthesized sample)`, synthesizeSearchSample(capture.json, YEAR), { url, status: capture.status, contentType: capture.contentType }));
   }
   // Remove fixtures this run no longer writes (relabelled or dropped), but only after a complete run.
+  // Both folders: public exports are committed, a stranger's test league is git-ignored
+  // (scripts/lib/fixtures.ts); each keeps exactly what this run saved there.
   const complete = !c.throttled && Object.values(everything).every((call) => call === undefined || call.json !== undefined);
-  const prune = complete ? await pruneSanitized(path.join(SANITIZED_DIR, "mfl"), saved) : undefined;
+  const split = partitionPaths("mfl", saved);
+  let prune: { removed: string[]; mismatched: string[] } | undefined;
+  if (complete) {
+    prune = { removed: [], mismatched: [] };
+    for (const f of fixtureFolders("mfl")) {
+      const r = await pruneSanitized(f.dir, f.committed ? split.committed : split.local);
+      prune.removed.push(...r.removed);
+      prune.mismatched.push(...r.mismatched);
+    }
+  }
 
   // ── Checks ───────────────────────────────────────────────────────────────────────────────────────
   const kick = kickoffs(calls.nflSchedule?.json);
@@ -288,7 +313,7 @@ runProbe("mfl", async (p) => {
   await checkK(ctx, compiled, players, xw);
   checkL(ctx);
   await checkM(ctx, compiled, players, leagueType);
-  extras(ctx, freeText, { saved: saved.length, prune, complete, leagueKeysRedacted: [...leagueKeysRedacted], franchiseKeysRedacted: [...franchiseKeysRedacted] });
+  extras(ctx, freeText, { saved: saved.length, where: whereSaved("mfl", split.committed.length, split.local.length), prune, complete, leagueKeysRedacted: [...leagueKeysRedacted], franchiseKeysRedacted: [...franchiseKeysRedacted] });
   decisionsAndQuestions(ctx, leagueType);
 
   const nTeams = num(at(lg, "franchises.count"));
@@ -985,7 +1010,7 @@ async function checkM(x: Ctx, compiled: Map<string, Compiled>, players: Map<stri
   cl.decision(`FantasyCalc format for this league: isDynasty=${format.isDynasty} (assumed from the A.leagueType signals: ${leagueType}), numQbs=${format.numQbs} (QB range allows ${qbMax} starters), numTeams=${format.numTeams}, ppr=${ppr}; the TE premium (TE ${compiled.get("TE")?.rates.rec ?? "?"} per catch) is not passed — the tep parameter is still unverified (shared probe).`);
 }
 
-function extras(x: Ctx, freeText: number, fx: { saved: number; prune?: { removed: string[]; mismatched: string[] }; complete: boolean; leagueKeysRedacted: string[]; franchiseKeysRedacted: string[] }): void {
+function extras(x: Ctx, freeText: number, fx: { saved: number; where: string; prune?: { removed: string[]; mismatched: string[] }; complete: boolean; leagueKeysRedacted: string[]; franchiseKeysRedacted: string[] }): void {
   const { cl } = x.p;
   const { calls } = x;
   const alias = calls.standingsAlias;
@@ -1039,7 +1064,7 @@ function extras(x: Ctx, freeText: number, fx: { saved: number; prune?: { removed
   // Old labels may hold values that are no longer allowed in reports (e.g. a search term): print only
   // the TYPE and week of each removed fixture.
   const describe = (label: string) => `${/TYPE=(\w+)/.exec(label)?.[1] ?? "file"}${/[?&]W=(\w+)/.exec(label) ? ` W=${/[?&]W=(\w+)/.exec(label)?.[1]}` : ""}${/synthesized/.test(label) ? " (synthesized sample)" : ""}`;
-  cl.add("X", "X.fixtures", "Sanitized fixtures", fx.prune?.mismatched.length ? "warn" : "ok", `${fx.saved} fixtures written; ${fx.prune ? `${fx.prune.removed.length} stale fixture(s) removed${fx.prune.removed.length ? ` (${fx.prune.removed.map(describe).join("; ")})` : ""}; ${fx.prune.mismatched.length ? `file name ≠ sha256(label) for ${fx.prune.mismatched.length}` : "every index entry's file name = sha256(label)"}` : "stale-fixture pruning skipped (incomplete run)"}; privacy shaping: league host → ${LEAGUE_HOST_PLACEHOLDER}, league.history cut to ${YEAR}, leagueSearch sample synthesized (ids from 90001)${fx.franchiseKeysRedacted.length ? `; franchise fields replaced by path: ${fx.franchiseKeysRedacted.join(", ")}` : ""}${fx.leagueKeysRedacted.length ? `; unknown league fields replaced by path (login): ${fx.leagueKeysRedacted.join(", ")}` : ""}`, { path: "fixtures/sanitized/mfl/index.json" });
+  cl.add("X", "X.fixtures", "Sanitized fixtures", fx.prune?.mismatched.length ? "warn" : "ok", `${fx.saved} fixtures written (${fx.where}); ${fx.prune ? `${fx.prune.removed.length} stale fixture(s) removed${fx.prune.removed.length ? ` (${fx.prune.removed.map(describe).join("; ")})` : ""}; ${fx.prune.mismatched.length ? `file name ≠ sha256(label) for ${fx.prune.mismatched.length}` : "every index entry's file name = sha256(label)"}` : "stale-fixture pruning skipped (incomplete run)"}; privacy shaping: league host → ${LEAGUE_HOST_PLACEHOLDER}, league.history cut to ${YEAR}, leagueSearch sample synthesized (ids from 90001)${fx.franchiseKeysRedacted.length ? `; franchise fields replaced by path: ${fx.franchiseKeysRedacted.join(", ")}` : ""}${fx.leagueKeysRedacted.length ? `; unknown league fields replaced by path (login): ${fx.leagueKeysRedacted.join(", ")}` : ""}`, { path: fixtureFolders("mfl").map((f) => `${f.rel}/index.json`).join(", ") });
 }
 
 function decisionsAndQuestions(x: Ctx, leagueType: LeagueType): void {

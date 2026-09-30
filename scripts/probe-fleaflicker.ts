@@ -2,23 +2,32 @@
  * Phase 0 probe: Fleaflicker (CLAUDE.md §2.5, §17 Data Checklist A–M).
  *
  *   npm run probe:fleaflicker
- *   npm run probe:fleaflicker -- --rediscover     (ignore the pinned public test league)
+ *   npx tsx scripts/probe-fleaflicker.ts --allow-crawl                 (only after Parker agreed)
+ *   npx tsx scripts/probe-fleaflicker.ts --rediscover --allow-crawl    (ignore the pinned test league)
  *
  * League: FLEAFLICKER_LEAGUE_ID from .env.local, else a pinned public test league (git-ignored,
  * see scripts/lib/fleaflicker/league-pick.ts). A second public league (pinned as "oracle") is used
- * only for the scoring-oracle preview. No login is needed; every request is a cached public GET.
- * Output: reports/probe-output/fleaflicker.{json,md}, fixtures/raw/fleaflicker (git-ignored),
- * fixtures/sanitized/fleaflicker (placeholders only).
+ * only for the scoring-oracle preview, and a few more public leagues only for rule coverage. No login
+ * is needed; every request is a cached public GET.
+ *
+ * CLAUDE.md §0.6: no new crawls of strangers' leagues without asking Parker first. Without
+ * --allow-crawl the pinned test league is the only league requested live: the second pinned league
+ * and the rule-coverage leagues are read from the HTTP cache only, no new league is discovered, and a
+ * check that lacks cached data says "untested: needs --allow-crawl (ask Parker first)".
+ *
+ * Output: reports/probe-output/fleaflicker.{json,md}, fixtures/raw/fleaflicker (git-ignored), and
+ * sanitized copies (placeholders only) in fixtures/sanitized/fleaflicker for Parker's league, or in
+ * git-ignored data-local/fixtures-sanitized/fleaflicker for strangers' test leagues (tests use
+ * minimized copies in fixtures/sanitized/min/fleaflicker/).
  */
-import { readFileSync, rmSync, statSync } from "node:fs";
-import path from "node:path";
-import { TTL, writeFileAtomic } from "./lib/cache";
+import { TTL } from "./lib/cache";
 import type { Evidence } from "./lib/checklist";
-import { ROOT } from "./lib/env";
 import { FC_TEAM_SIZES, fantasyCalcUrl, getFantasyCalc, matchRate, nearest, type FcFormat, type RosteredPlayer } from "./lib/fantasycalc";
 import { LeakError } from "./lib/fixtures";
-import type { HttpResult } from "./lib/http";
-import { runProbe, type ProbeContext } from "./lib/probe";
+import { OfflineCacheMiss, type HttpResult } from "./lib/http";
+import { crawlAllowed, runProbe, type ProbeContext } from "./lib/probe";
+import { NEEDS_CRAWL, crawlGateNote } from "./lib/shared/crawl-gate";
+import { folderStats, partitionPaths, pruneBothFolders, whereSaved } from "./lib/shared/fixture-folders";
 import { getSleeperPlayers } from "./lib/sleeper-players";
 import {
   ENUM_DEFAULTS,
@@ -56,7 +65,7 @@ import {
   type FfTrades,
   type FfTransactions,
 } from "./lib/fleaflicker/api";
-import { FfClient, cacheableStatus, type Fetched, type Role } from "./lib/fleaflicker/client";
+import { FfClient, OFFLINE_MISS_ERROR, cacheableStatus, type Fetched, type Role } from "./lib/fleaflicker/client";
 import { DOCS_URL, camelOf, parseDocs, snakeOf, type DocsFacts } from "./lib/fleaflicker/docs";
 import { parseEasternTime, parseRulesPage, type HtmlRules } from "./lib/fleaflicker/html-rules";
 import { FleaIdentities } from "./lib/fleaflicker/identities";
@@ -179,17 +188,21 @@ function round2(x: number): number {
 interface FixtureLog {
   /** Leak-check refusals (category + path only, never values). */
   errors: string[];
-  /** Sanitized files written by this run (older ones are pruned at the end). */
+  /** Sanitized files written by this run, repo-relative (older ones are pruned at the end, per folder). */
   saved: Set<string>;
 }
 
-async function loadLeague(p: ProbeContext, ids: FleaIdentities, pick: PickedLeague, full: boolean, fx: FixtureLog): Promise<LeagueData> {
+/**
+ * Load one league. `offline` (a stranger's league other than the pinned test league, when the run
+ * may not crawl) serves every call from the HTTP cache only; misses are counted on the client.
+ */
+async function loadLeague(p: ProbeContext, ids: FleaIdentities, pick: PickedLeague, full: boolean, fx: FixtureLog, opts: { offline?: boolean } = {}): Promise<LeagueData> {
   const role: Role = pick.role;
-  const c = new FfClient(p, ids, pick.id, role);
+  const c = new FfClient(p, ids, pick.id, role, { offline: opts.offline });
   const save = async (label: string, f: Fetched<unknown>, opts: { trim?: boolean; dropStats?: boolean; note?: string } = {}) => {
     try {
       const out = await c.fixture(label, f, opts);
-      if (out) fx.saved.add(path.basename(out));
+      if (out) fx.saved.add(out);
     } catch (err) {
       if (err instanceof LeakError) fx.errors.push(`${role}/${label}: ${err.message}`);
       else throw err;
@@ -289,11 +302,13 @@ async function loadLeague(p: ProbeContext, ids: FleaIdentities, pick: PickedLeag
   // with the league data (10 min), 4xx answers included.
   try {
     const url = webUrl(pick.id, "rules");
-    const res = await p.request(url, { label: `${role} league rules page (HTML)`, cache: p.leagueCache(url), cacheIf: cacheableStatus });
-    await p.saveRaw(`${role}:rules-page`, res.text, res, ".html");
+    const res = await p.request(url, { label: `${role} league rules page (HTML)`, cache: p.leagueCache(url), cacheIf: cacheableStatus, offline: c.offline });
+    c.noteCached(res);
+    if (!c.offline) await p.saveRaw(`${role}:rules-page`, res.text, res, ".html");
     data.html = { res, rules: res.ok && res.isHtml ? parseRulesPage(res.text) : null, error: res.ok ? undefined : `HTTP ${res.status}` };
   } catch (err) {
-    data.html = { res: null, rules: null, error: err instanceof Error ? err.message : String(err) };
+    if (err instanceof OfflineCacheMiss) c.misses++;
+    data.html = { res: null, rules: null, error: err instanceof OfflineCacheMiss ? OFFLINE_MISS_ERROR : err instanceof Error ? err.message : String(err) };
   }
   if (!full) return data;
 
@@ -810,9 +825,11 @@ function checkC(p: ProbeContext, L: LeagueData, conv: { scoring: ConvertedScorin
       "C.otherLeagues",
       "Rule coverage across other public leagues",
       coverage.unmappedCategories.length ? "warn" : "ok",
-      `${coverage.leagues} more public leagues, ${coverage.rules} rules, ${coverage.categories} categories: ${Object.entries(coverage.counts).filter(([, v]) => v).map(([k, v]) => `${k} ${v}`).join(", ")}. Unmapped (category: reason ×rules): ${coverage.unmappedCategories.slice(0, 10).join("; ") || "none"}${coverage.unmappedCategories.length > 10 ? ` … (${coverage.unmappedCategories.length} kinds; all in JSON)` : ""}. Category ids not in the mapping table: ${coverage.unknown.map((u) => `${u.id} ${u.name} (${u.abbreviation})`).join(", ") || "none"}`,
+      `${coverage.leagues} more public leagues${coverageCacheNote(coverage, coverage.rulesNotCached)}, ${coverage.rules} rules, ${coverage.categories} categories: ${Object.entries(coverage.counts).filter(([, v]) => v).map(([k, v]) => `${k} ${v}`).join(", ")}. Unmapped (category: reason ×rules): ${coverage.unmappedCategories.slice(0, 10).join("; ") || "none"}${coverage.unmappedCategories.length > 10 ? ` … (${coverage.unmappedCategories.length} kinds; all in JSON)` : ""}. Category ids not in the mapping table: ${coverage.unknown.map((u) => `${u.id} ${u.name} (${u.abbreviation})`).join(", ") || "none"}`,
       ev(apiUrl("FetchLeagueRules", { league_id: "{leagueId}" }), null, "groups[].scoringRules[].category.id/.nameSingular", { unknownCategories: coverage.unknown, unmapped: coverage.unmappedCategories }),
     );
+  } else if (coverage.rulesNotCached) {
+    p.cl.na("C", "C.otherLeagues", "Rule coverage across other public leagues", `${NEEDS_CRAWL}: none of the ${coverage.rulesNotCached} other public leagues' rules are in the HTTP cache, and without --allow-crawl this probe requests no stranger's league beyond the pinned test league`, ev(apiUrl("FetchLeagueRules", { league_id: "{leagueId}" }), null));
   }
 }
 
@@ -1346,7 +1363,9 @@ function analyzeOracle(L: LeagueData, o: OracleContext): OracleAnalysis | null {
 function reportOracle(p: ProbeContext, L: LeagueData, a: OracleAnalysis | null, key: string, title: string): void {
   const boxes = [...L.boxscores.values()].flat();
   if (!a) {
-    p.cl.fail("K", key, title, "no completed-week box scores", ev(undefined, null));
+    // A league read from the cache only (no --allow-crawl) may simply lack those weeks there.
+    if (L.c.offline && L.c.misses) p.cl.na("K", key, title, `${NEEDS_CRAWL}: this league's completed-week box scores aren't in the HTTP cache (${L.c.misses} call(s) not cached)`, ev(undefined, null));
+    else p.cl.fail("K", key, title, "no completed-week box scores", ev(undefined, null));
     return;
   }
   const { summary, baseline, explain } = a;
@@ -1355,12 +1374,13 @@ function reportOracle(p: ProbeContext, L: LeagueData, a: OracleAnalysis | null, 
   const v = explain.verdicts;
   const usedAdj = a.effects.filter((e) => e.rules > 0);
   const top = explain.explanations.slice(0, 8).map((x) => ({ week: x.row.week, player: x.row.name, pos: x.row.ffPos, fleaflicker: round2(x.row.actual), recomputed: x.row.computed, diff: x.row.diff, verdict: x.verdict, causes: x.causes.map((c) => `${c.rule}: ${c.points ?? `${c.min}…${c.max}`}`) }));
+  const cached = L.c.offline ? ` (read from the HTTP cache without --allow-crawl${L.c.oldestCachedAt !== undefined ? `, copies from ${new Date(L.c.oldestCachedAt).toISOString().slice(0, 10)} on` : ""}${L.c.misses ? `; ${L.c.misses} call(s) not cached` : ""})` : "";
   p.cl.add(
     "K",
     key,
     title,
     summary.rate >= 0.99 ? "ok" : "warn",
-    `PREVIEW: recomputed ${summary.compared} player-weeks (weeks ${L.oracleWeeks.join(", ")}) from Sleeper weekly stats × the converted rules: ${summary.within} (${pct(summary.within, summary.compared)}) within ${TOLERANCE} pts (target 99%); leaving out the ${summary.zeroZero} rows where both sides are 0 (mostly players who didn't play): ${summary.within - summary.zeroZero}/${summary.compared - summary.zeroZero} (${pct(summary.within - summary.zeroZero, summary.compared - summary.zeroZero)}).${usedAdj.length ? ` Without the definition adjustments: ${baseline.within} (${pct(baseline.within, baseline.compared)}).` : ""} By position: ${byPos}. Skipped: ${Object.entries(summary.skipped).map(([k, n]) => `${k} ${n}`).join(", ") || "none"}. ${summary.mismatches.length} mismatches: ${v.explained} explained exactly by unmapped rules (estimated from Sleeper's *_td_lng / _40p, fgm_lng / fgm_yds / buckets, pass_lng), ${v.consistent} consistent only with rules Sleeper's stats can't resolve, ${v.unexplained} unexplained. Differences (recomputed − Fleaflicker): ${hist.slice(0, 12).map((h) => `${h.diff}×${h.count}`).join(", ") || "none"}${hist.length > 12 ? ` … (${hist.length} values; full histogram in JSON)` : ""}`,
+    `PREVIEW${cached}: recomputed ${summary.compared} player-weeks (weeks ${L.oracleWeeks.join(", ")}) from Sleeper weekly stats × the converted rules: ${summary.within} (${pct(summary.within, summary.compared)}) within ${TOLERANCE} pts (target 99%); leaving out the ${summary.zeroZero} rows where both sides are 0 (mostly players who didn't play): ${summary.within - summary.zeroZero}/${summary.compared - summary.zeroZero} (${pct(summary.within - summary.zeroZero, summary.compared - summary.zeroZero)}).${usedAdj.length ? ` Without the definition adjustments: ${baseline.within} (${pct(baseline.within, baseline.compared)}).` : ""} By position: ${byPos}. Skipped: ${Object.entries(summary.skipped).map(([k, n]) => `${k} ${n}`).join(", ") || "none"}. ${summary.mismatches.length} mismatches: ${v.explained} explained exactly by unmapped rules (estimated from Sleeper's *_td_lng / _40p, fgm_lng / fgm_yds / buckets, pass_lng), ${v.consistent} consistent only with rules Sleeper's stats can't resolve, ${v.unexplained} unexplained. Differences (recomputed − Fleaflicker): ${hist.slice(0, 12).map((h) => `${h.diff}×${h.count}`).join(", ") || "none"}${hist.length > 12 ? ` … (${hist.length} values; full histogram in JSON)` : ""}`,
     ev(apiUrl("FetchLeagueBoxscore", { league_id: "{leagueId}", fantasy_game_id: "{gameId}", scoring_period: "{week}" }), boxes[0]?.res, "lineups[].slots[].home|away.viewingActualPoints vs Sleeper [].stats", top.slice(0, 3)),
   );
   (p.cl.meta.oracle as Record<string, unknown>)[key] = {
@@ -1646,20 +1666,43 @@ interface CoverageResult {
   dst: { leagues: number; rules: number; counts: Record<string, number> };
   /** FetchLeagueStandings?season=<this season> of the same leagues (aggregates only). */
   screens: Array<{ screen: Screen; url: string; status: number | undefined }>;
+  /** Read from the HTTP cache only (no --allow-crawl). */
+  offline: boolean;
+  /** Offline: leagues whose rules / standings weren't cached (nothing requested). */
+  rulesNotCached: number;
+  screensNotCached: number;
+  /** Oldest cached copy used (epoch ms). */
+  oldestCachedAt?: number;
+}
+
+/** " (read from the HTTP cache …)" for offline coverage summaries, else "". */
+function coverageCacheNote(c: CoverageResult, notCached: number): string {
+  if (!c.offline) return "";
+  return ` (read from the HTTP cache without --allow-crawl${c.oldestCachedAt !== undefined ? `, copies from ${new Date(c.oldestCachedAt).toISOString().slice(0, 10)} on` : ""}; nothing requested${notCached ? `; ${notCached} more league(s) not cached` : ""})`;
 }
 
 /**
  * Rules of other public leagues (coverage of the mapping table) and their standings screen (to see
  * what the API returns for leagues not active this season). Identities go to the watch list only.
+ * These are strangers' leagues beyond the pinned test league, so without --allow-crawl they are read
+ * from the HTTP cache only (CLAUDE.md §0.6).
  */
-async function ruleCoverage(p: ProbeContext, ids: FleaIdentities, exclude: string[], salt: string, watch: WatchList): Promise<CoverageResult> {
-  const out: CoverageResult = { leagues: 0, rules: 0, categories: 0, counts: {}, unmappedCategories: [], unknown: [], dst: { leagues: 0, rules: 0, counts: {} }, screens: [] };
+async function ruleCoverage(p: ProbeContext, ids: FleaIdentities, exclude: string[], salt: string, watch: WatchList, opts: { offline: boolean }): Promise<CoverageResult> {
+  const out: CoverageResult = { leagues: 0, rules: 0, categories: 0, counts: {}, unmappedCategories: [], unknown: [], dst: { leagues: 0, rules: 0, counts: {} }, screens: [], offline: opts.offline, rulesNotCached: 0, screensNotCached: 0 };
   const cats = new Set<number>();
   const unmapped = new Map<string, number>();
+  const noteCached = (c: FfClient) => {
+    if (c.oldestCachedAt !== undefined) out.oldestCachedAt = Math.min(out.oldestCachedAt ?? c.oldestCachedAt, c.oldestCachedAt);
+  };
   for (const id of coverageCandidates(exclude, salt).slice(0, COVERAGE_LEAGUES)) {
     ids.transientLeagueId(id);
-    const f = await new FfClient(p, ids, id, "coverage").get<FfRules>("FetchLeagueRules", {}, rulesSchema, { sweep: false });
-    const { screen, fetched } = await screenLeague(p, ids, id, SEASON);
+    const client = new FfClient(p, ids, id, "coverage", { offline: opts.offline });
+    const f = await client.get<FfRules>("FetchLeagueRules", {}, rulesSchema, { sweep: false });
+    noteCached(client);
+    const { screen, fetched } = await screenLeague(p, ids, id, SEASON, { offline: opts.offline });
+    if (fetched.res?.fromCache && fetched.res.cachedAt !== undefined) out.oldestCachedAt = Math.min(out.oldestCachedAt ?? fetched.res.cachedAt, fetched.res.cachedAt);
+    if (f.offlineMiss) out.rulesNotCached++;
+    if (fetched.offlineMiss) out.screensNotCached++;
     watch.addStandings(fetched.data, id);
     out.screens.push({ screen, url: fetched.url, status: fetched.res?.status });
     if (!f.data) continue;
@@ -1696,8 +1739,12 @@ function checkInactive(p: ProbeContext, coverage: CoverageResult): void {
   const answered = screens.filter((s) => s.status === 200);
   const inactive = answered.filter((s) => !s.screen.active);
   const url = apiUrl("FetchLeagueStandings", { league_id: "{otherLeagueId}", season: SEASON });
+  if (!answered.length && coverage.screensNotCached) {
+    p.cl.na("A", "A.inactiveLeague", "League not active this season", `${NEEDS_CRAWL}: none of the ${screens.length} other public leagues' standings are in the HTTP cache, and without --allow-crawl this probe requests no stranger's league beyond the pinned test league`, { url, path: "league.activeForCurrentSeason" });
+    return;
+  }
   if (!inactive.length) {
-    p.cl.na("A", "A.inactiveLeague", "League not active this season", `not tested: none of the ${answered.length} other public leagues screened this run is inactive for ${SEASON}, so the inactive-league behaviour is not verified in this run`, { url, status: answered.length ? 200 : undefined, path: "league.activeForCurrentSeason", sample: answered.length });
+    p.cl.na("A", "A.inactiveLeague", "League not active this season", `not tested: none of the ${answered.length} other public leagues screened this run is inactive for ${SEASON}, so the inactive-league behaviour is not verified in this run${coverageCacheNote(coverage, coverage.screensNotCached)}`, { url, status: answered.length ? 200 : undefined, path: "league.activeForCurrentSeason", sample: answered.length });
     return;
   }
   const seasons = [...new Set(inactive.map((s) => s.screen.season ?? "(omitted)"))];
@@ -1707,31 +1754,9 @@ function checkInactive(p: ProbeContext, coverage: CoverageResult): void {
     "A",
     "A.inactiveLeague",
     "League not active this season",
-    `${inactive.length} of ${answered.length} other public leagues screened are not active for ${SEASON} (league.activeForCurrentSeason omitted = false). FetchLeagueStandings?season=${SEASON} still answers HTTP 200 with season = ${seasons.join("/")} and teams with up to ${Math.min(...games) === Math.max(...games) ? Math.max(...games) : `${Math.min(...games)}–${Math.max(...games)}`} decided games${post ? ` (${post} of those leagues with postseason records)` : ""} — last season's final standings, not ${SEASON}'s. Adapter: check activeForCurrentSeason and show a clear error`,
+    `${inactive.length} of ${answered.length} other public leagues screened are not active for ${SEASON} (league.activeForCurrentSeason omitted = false). FetchLeagueStandings?season=${SEASON} still answers HTTP 200 with season = ${seasons.join("/")} and teams with up to ${Math.min(...games) === Math.max(...games) ? Math.max(...games) : `${Math.min(...games)}–${Math.max(...games)}`} decided games${post ? ` (${post} of those leagues with postseason records)` : ""} — last season's final standings, not ${SEASON}'s. Adapter: check activeForCurrentSeason and show a clear error${coverageCacheNote(coverage, coverage.screensNotCached)}`,
     { url, status: 200, path: "league.activeForCurrentSeason / season / divisions[].teams[].recordOverall / .recordPostseason", sample: { inactive: inactive.length, screened: answered.length, season: seasons, maxDecidedGames: games, withPostseason: post } },
   );
-}
-
-const SANITIZED_DIR = path.join(ROOT, "fixtures", "sanitized", "fleaflicker");
-
-/** Remove sanitized files (and index entries) this run didn't write. Returns how many. */
-async function pruneStaleFixtures(saved: ReadonlySet<string>): Promise<number> {
-  const indexPath = path.join(SANITIZED_DIR, "index.json");
-  let index: Record<string, unknown>;
-  try {
-    index = JSON.parse(readFileSync(indexPath, "utf8")) as Record<string, unknown>;
-  } catch {
-    return 0;
-  }
-  let removed = 0;
-  for (const file of Object.keys(index)) {
-    if (saved.has(file)) continue;
-    rmSync(path.join(SANITIZED_DIR, file), { force: true });
-    delete index[file];
-    removed++;
-  }
-  if (removed) await writeFileAtomic(indexPath, JSON.stringify(index, null, 2) + "\n");
-  return removed;
 }
 
 function inferLeagueType(L: LeagueData): string {
@@ -2008,22 +2033,37 @@ runProbe("fleaflicker", async (p) => {
   }
   ids.addPublicNames(publicNames);
 
-  const picked = await p.timed("resolve league", () => resolveLeagues(p, ids, { season: SEASON, rediscover, watch }));
+  // CLAUDE.md §0.6: no new crawls of strangers' leagues without asking Parker first.
+  const allowCrawl = crawlAllowed();
+  p.cl.meta.crawlGate = crawlGateNote(allowCrawl);
+  const picked = await p.timed("resolve league", () => resolveLeagues(p, ids, { season: SEASON, rediscover, watch, allowCrawl }));
   p.cl.meta.leagueSelection = { log: picked.log, screened: picked.screened.map((s) => ({ source: s.source, ok: s.screen.ok, teams: s.screen.teams, gamesPlayed: s.screen.gamesPlayed, reason: s.screen.reason })) };
   if (!picked.primary) {
-    p.cl.fail("A", "A.league", "League to probe", "no usable league: FLEAFLICKER_LEAGUE_ID is blank and no public test league passed screening", ev(undefined, null, undefined, picked.log));
+    if (picked.needsCrawl) p.cl.na("A", "A.league", "League to probe", `${NEEDS_CRAWL}: FLEAFLICKER_LEAGUE_ID is blank and ${picked.screened.length ? "the pinned public test league failed its screen" : "no public test league is pinned"}; picking one means screening strangers' public leagues`, ev(undefined, null, undefined, picked.log));
+    else p.cl.fail("A", "A.league", "League to probe", "no usable league: FLEAFLICKER_LEAGUE_ID is blank and no public test league passed screening", ev(undefined, null, undefined, picked.log));
     p.cl.question("Do you have a Fleaflicker league? If so, fill in FLEAFLICKER_LEAGUE_ID in .env.local.");
     await watch.save();
     return;
   }
 
+  // The pinned test league is refreshed live (not a crawl). The second pinned league is a stranger's
+  // league beyond that one, so without --allow-crawl it is read from the HTTP cache only.
   const L = await p.timed("load primary league", () => loadLeague(p, ids, picked.primary as PickedLeague, true, fx));
-  const O = picked.oracle ? await p.timed("load oracle league", () => loadLeague(p, ids, picked.oracle as PickedLeague, false, fx)) : null;
+  const oracleOffline = !allowCrawl;
+  let O = picked.oracle ? await p.timed("load oracle league", () => loadLeague(p, ids, picked.oracle as PickedLeague, false, fx, { offline: oracleOffline })) : null;
+  /** Why the second league's checks are untested this run (its data isn't cached), if they are. */
+  let oracleUntested: string | undefined;
+  if (O && (!O.standings.data || !O.rules.data) && (O.standings.offlineMiss || O.rules.offlineMiss)) {
+    oracleUntested = `${NEEDS_CRAWL}: the second pinned public league's standings and rules aren't in the HTTP cache, and without --allow-crawl this probe requests no stranger's league beyond the pinned test league`;
+    O = null;
+  }
+  /** The second league couldn't be fully read from the cache: keep its earlier fixtures (not stale, just not refreshed). */
+  const oracleIncomplete = Boolean(picked.oracle && (!O || O.c.misses > 0));
   const leagueType = inferLeagueType(L);
   const review = inferReview(L);
   p.cl.meta.leagues = [
     { label: L.pick.label, access: L.pick.access, source: L.pick.source, notes: describeLeague(L, leagueType) },
-    ...(O ? [{ label: O.pick.label, access: O.pick.access, source: O.pick.source, notes: `${teamsOf(O.standings.data).length}-team league, used for the scoring-oracle preview only` }] : []),
+    ...(O ? [{ label: O.pick.label, access: `${O.pick.access}${O.c.offline ? "; read from the HTTP cache this run (no --allow-crawl)" : ""}`, source: O.pick.source, notes: `${teamsOf(O.standings.data).length}-team league, used for the scoring-oracle preview only` }] : []),
   ];
 
   // Public weekly stats: every completed week (oracle, season totals, catch rates).
@@ -2034,7 +2074,7 @@ runProbe("fleaflicker", async (p) => {
   const fdEvidence = firstDownEvidence(statsByWeek);
 
   const conv = convertRules(L.rules.data?.groups ?? []);
-  const coverage = await p.timed("rule coverage (other leagues)", () => ruleCoverage(p, ids, [L.pick.id, picked.oracle?.id ?? ""], picked.salt, watch));
+  const coverage = await p.timed("rule coverage (other leagues)", () => ruleCoverage(p, ids, [L.pick.id, picked.oracle?.id ?? ""], picked.salt, watch, { offline: !allowCrawl }));
   const dp = await p.timed("DynastyProcess id map", () => dynastyProcessCrosswalk(L));
   const docs = await p.timed("API docs", () => loadDocs(p));
   const oracleCtx: OracleContext = { scoring: conv.scoring, mappings: conv.mappings, statsByWeek, sleeperBySr, sleeperDefs };
@@ -2061,8 +2101,11 @@ runProbe("fleaflicker", async (p) => {
   // Second league: scoring oracle only.
   if (O && oconv) {
     const oc = mappingCounts(oconv.mappings);
-    p.cl.add("C", "C.oracleLeague", "Second league's rules", oconv.mappings.length ? "ok" : "warn", `${oconv.mappings.length} rules: ${Object.entries(oc).filter(([, v]) => v).map(([k, v]) => `${k} ${v}`).join(", ")}; unmapped: ${oconv.scoring.unmapped.slice(0, 6).map((u) => u.label).join("; ") || "none"}`, ev(O.rules.url, O.rules.res, "groups[].scoringRules[]", oconv.scoring.perStat));
+    p.cl.add("C", "C.oracleLeague", "Second league's rules", oconv.mappings.length ? "ok" : "warn", `${oconv.mappings.length} rules${O.c.offline ? " (read from the HTTP cache without --allow-crawl)" : ""}: ${Object.entries(oc).filter(([, v]) => v).map(([k, v]) => `${k} ${v}`).join(", ")}; unmapped: ${oconv.scoring.unmapped.slice(0, 6).map((u) => u.label).join("; ") || "none"}`, ev(O.rules.url, O.rules.res, "groups[].scoringRules[]", oconv.scoring.perStat));
     reportOracle(p, O, oAnalysis, "K.oraclePreview2", "Scoring oracle preview (second league)");
+  } else if (oracleUntested) {
+    p.cl.na("C", "C.oracleLeague", "Second league's rules", oracleUntested);
+    p.cl.na("K", "K.oraclePreview2", "Scoring oracle preview (second league)", oracleUntested);
   }
 
   checkApiConventions(p, L, verifyOmittedTypeIsAdd(L), docs);
@@ -2088,47 +2131,42 @@ runProbe("fleaflicker", async (p) => {
       .map((id) => ({ player_id: id, week: w, stats: Object.fromEntries(Object.entries(ws.bySleeperId.get(id) ?? {}).filter(([k]) => keepKeys.has(k))) }));
     try {
       const out = await p.saveSanitized(`sleeper/stats/nfl/${SEASON}/${w}?season_type=regular (primary box-score players)`, subset, { url: SLEEPER_STATS_URL(SEASON, w), status: ws.res.status, contentType: ws.res.contentType, note: "public data; players in the primary league's box scores; only the stat keys its scoring reads, plus gp" }, { protect: () => true });
-      fx.saved.add(path.basename(out));
+      fx.saved.add(out);
     } catch (err) {
       if (err instanceof LeakError) fx.errors.push(`sleeper stats week ${w}: ${err.message}`);
       else throw err;
     }
   }
 
-  // Remove sanitized fixtures from earlier runs that this run no longer writes (only after a full load).
-  const pruned = L.standings.data ? await pruneStaleFixtures(fx.saved) : 0;
+  // Remove sanitized fixtures from earlier runs that this run no longer writes (only after a full
+  // load), in both folders: each keeps exactly the files saved there this run. A second league the
+  // cache couldn't fully serve keeps its earlier fixtures (not refreshed is not stale).
+  const prunes = L.standings.data ? await pruneBothFolders("fleaflicker", fx.saved, { owns: (label) => !(oracleIncomplete && label.startsWith("oracle/")) }) : [];
+  const pruned = prunes.reduce((n, r) => n + r.removed.length, 0);
 
-  // Fixtures: leak check results and size.
-  const index = (() => {
-    try {
-      return JSON.parse(readFileSync(path.join(SANITIZED_DIR, "index.json"), "utf8")) as Record<string, { label: string }>;
-    } catch {
-      return {} as Record<string, { label: string }>;
-    }
-  })();
-  const files = Object.keys(index);
-  let bytes = 0;
-  let largest = 0;
-  for (const f of files) {
-    try {
-      const s = statSync(path.join(SANITIZED_DIR, f)).size;
-      bytes += s;
-      largest = Math.max(largest, s);
-    } catch {
-      // listed but missing
-    }
-  }
+  // Fixtures: leak check results and size (both folders).
+  const folders = await folderStats("fleaflicker");
+  const files = folders.reduce((n, f) => n + f.files, 0);
+  const bytes = folders.reduce((n, f) => n + f.bytes, 0);
+  const largest = Math.max(0, ...folders.map((f) => f.largest));
+  const split = partitionPaths("fleaflicker", fx.saved);
 
   // Watch list (git-ignored) for strangers' leagues we read but never sanitize.
   for (const id of allCandidateIds()) if (id !== L.pick.id && id !== O?.pick.id) watch.addId(id, "league-id");
   const watchEntries = await watch.save();
-  p.cl.meta.fixtures = { sanitizedFiles: files.length, sanitizedBytes: bytes, largestBytes: largest, leakErrors: fx.errors.length, prunedStale: pruned, skippedNames: ids.skippedNames, shortOwnerIds: ids.shortUserIds };
+  p.cl.meta.fixtures = { sanitizedFiles: files, sanitizedBytes: bytes, largestBytes: largest, byFolder: folders.map((f) => ({ folder: f.rel, files: f.files, bytes: f.bytes })), savedThisRun: { committed: split.committed.length, gitIgnored: split.local.length }, leakErrors: fx.errors.length, prunedStale: pruned, keptUnrefreshedOracleFixtures: oracleIncomplete, skippedNames: ids.skippedNames, shortOwnerIds: ids.shortUserIds };
   p.cl.meta.watchList = { entries: watchEntries, idsShorterThan6DigitsLeftOut: watch.skippedShortIds, publicOrPlaceholderNamesLeftOut: watch.skippedNames };
   if (fx.errors.length) {
     p.cl.fail("FIX", "FIX.sanitized", "Sanitized fixtures", `${fx.errors.length} fixture(s) refused by the leak check: ${fx.errors.slice(0, 3).join(" | ")}`, ev(undefined, null));
     p.cl.issue(`Sanitizer: ${fx.errors.length} fixture(s) not saved (leak check). See the FIX check.`);
   } else {
-    p.cl.ok("FIX", "FIX.sanitized", "Sanitized fixtures", `${files.length} files, ${(bytes / 1e6).toFixed(2)} MB (largest ${(largest / 1e6).toFixed(2)} MB); every one passed the leak check. Owners → Owner N, teams → Team N (id 400000N), divisions → Division N (id 500000N), leagues → League N; free text and initials replaced; bulky keys trimmed (listed in each index entry). Strangers' leagues read but not saved: ${watchEntries} identities in the git-ignored watch list for check:leaks`, ev(undefined, null, "fixtures/sanitized/fleaflicker/index.json", files.length));
+    p.cl.ok(
+      "FIX",
+      "FIX.sanitized",
+      "Sanitized fixtures",
+      `${fx.saved.size} saved this run: ${whereSaved("fleaflicker", split.committed.length, split.local.length)}; ${files} indexed files in all, ${(bytes / 1e6).toFixed(2)} MB (largest ${(largest / 1e6).toFixed(2)} MB)${pruned ? `, ${pruned} stale one(s) removed` : ""}${oracleIncomplete ? "; the second league's earlier fixtures kept (not refreshable from the cache)" : ""}; every one passed the leak check. Owners → Owner N, teams → Team N (id 400000N), divisions → Division N (id 500000N), leagues → League N; free text and initials replaced; bulky keys trimmed (listed in each index entry). Strangers' leagues read but not saved: ${watchEntries} identities in the git-ignored watch list for check:leaks`,
+      ev(undefined, null, folders.map((f) => `${f.rel}/index.json`).join(", "), files),
+    );
   }
 
   reportFindings(p, { L, O, conv, leagueType, analysis, coverage, dp, format, statsByWeek, fdEvidence, docs });

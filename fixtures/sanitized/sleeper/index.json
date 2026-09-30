@@ -5,13 +5,13 @@
     "status": 200,
     "contentType": "application/json; charset=utf-8",
     "note": "undocumented endpoint",
-    "captured": "2026-09-29"
+    "captured": "2026-09-30"
   },
   "a7bde651dcd78a4ec42c0fc8e43b9437e2541fe113b856bfe92e150ad4bc633e.json": {
     "label": "state/nfl",
     "url": "https://api.sleeper.app/v1/state/nfl",
     "status": 200,
     "contentType": "application/json; charset=utf-8",
-    "captured": "2026-09-29"
+    "captured": "2026-09-30"
   }
 }

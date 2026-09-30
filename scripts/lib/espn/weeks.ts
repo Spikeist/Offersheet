@@ -1,4 +1,7 @@
 /**
+ * FROZEN PHASE 0 EVIDENCE: the probes still use this copy; the app uses src/adapters/espn/weeks.ts. A fix here doesn't
+ * reach the app (and the reverse); `npm run import:report` is the live check of the shipped adapters.
+ *
  * NFL week helpers built from ESPN's proTeamSchedules_wl (settings.proTeams[].proGamesByScoringPeriod).
  * A scoring period (NFL week) "owns" the time after the previous week's last game up to its own
  * last game, so an instant between Monday night and Thursday kickoff belongs to the coming week.

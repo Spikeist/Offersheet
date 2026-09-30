@@ -3,14 +3,23 @@
  *
  *   npm run probe:sleeper
  *
- * League: SLEEPER_LEAGUE_ID, else SLEEPER_USERNAME's leagues, else a public test league found by a
- * salted random walk (scripts/lib/sleeper/discover.ts). Every leaguemate identity is registered with
- * the Redactor before anything is printed; committed fixtures and reports contain placeholders only
- * ("Team 3", user 2000…03), and a stranger's test league is described only generically.
+ * League: SLEEPER_LEAGUE_ID, else SLEEPER_USERNAME's leagues, else the pinned public test league, else
+ * (only with --allow-crawl) a public test league found by a salted random walk
+ * (scripts/lib/sleeper/discover.ts). Every leaguemate identity is registered with the Redactor before
+ * anything is printed; reports contain placeholders only ("Team 3", user 2000…03), and a stranger's
+ * test league is described only generically. Its sanitized fixtures go to git-ignored
+ * data-local/fixtures-sanitized/sleeper (only minimized copies are committed, in
+ * fixtures/sanitized/min/sleeper/); Parker's league and public data go to fixtures/sanitized/sleeper.
  *
  * Code meanings are cross-checked against the crawl of public leagues (npm run probe:sleeper-codes,
  * reports/probe-output/sleeper-codes.json), and a few crawled leagues feed a cross-league scoring
- * oracle whose results are reported in aggregate only.
+ * oracle whose results are reported in aggregate only. CLAUDE.md §0.6: no new crawls of strangers'
+ * leagues without asking Parker first, so without --allow-crawl those leagues are read from the HTTP
+ * cache only (never from the network), and a check that needs data the cache lacks says
+ * "untested: needs --allow-crawl (ask Parker first)".
+ *
+ *   npm run probe:sleeper
+ *   npx tsx scripts/probe-sleeper.ts --allow-crawl     (only after Parker agreed to a new crawl)
  */
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -18,10 +27,10 @@ import type { ZodType } from "zod";
 import { writeFileAtomic } from "./lib/cache";
 import type { Evidence } from "./lib/checklist";
 import { FC_TEAM_SIZES, getFantasyCalc, matchRate, nearest, type FcEntry, type FcFormat } from "./lib/fantasycalc";
-import { LeakError, RAW_DIR, SANITIZED_DIR } from "./lib/fixtures";
+import { LeakError, RAW_DIR, sanitizedDirFor } from "./lib/fixtures";
 import { setHostGap } from "./lib/http";
 import type { ProbeContext } from "./lib/probe";
-import { runProbe } from "./lib/probe";
+import { crawlAllowed, runProbe } from "./lib/probe";
 import { registerScrubber } from "./lib/redact";
 import { Redactor, type JsonPath } from "./lib/sanitize";
 import { getSleeperPlayers, type SleeperPlayer } from "./lib/sleeper-players";
@@ -50,6 +59,8 @@ import { endpoints, fetchJson, type Fetched } from "./lib/sleeper/api";
 import { crawlGist, crawlValueClause, eligibleForOracle, firstClause, ORACLE_TARGETS, pickOneMore, pickOracleLeagues, readCrawlLeagues, readCrawlScoringKeys, readProbeChecks, type CrawlLeague, type ProbeChecks } from "./lib/sleeper/crawl";
 import { chooseLeague, rankUserLeagues, validLeagues, type LeagueChoice } from "./lib/sleeper/discover";
 import { pruneStaleFixtures } from "./lib/sleeper/fixturePrune";
+import { NEEDS_CRAWL, crawlGateNote } from "./lib/shared/crawl-gate";
+import { fixtureFolders, partitionLabels, whereSaved } from "./lib/shared/fixture-folders";
 import { placeholderCollisions, protectAll, protectDraftPicks, protectLeagueData, SleeperIdentities, structuralStrings } from "./lib/sleeper/identities";
 import { leaguePoints, round2, runOracle, type OracleResult, type OracleWeekInput, type StatLine } from "./lib/sleeper/oracle";
 import { newSalt } from "./lib/sleeper/salt";
@@ -259,12 +270,19 @@ async function probe(p: ProbeContext, disc: Redactor, oracleIds: Redactor, watch
   await saveClean(p, "state/nfl", stateF, stateF.data, protectAll);
 
   // ---- choose the league ----
-  const choice = await p.timed("choose league", () => chooseLeague(p, disc, watch, season, currentWeek));
+  const allowCrawl = crawlAllowed();
+  cl.meta.crawlGate = crawlGateNote(allowCrawl);
+  const choice = await p.timed("choose league", () => chooseLeague(p, disc, watch, season, currentWeek, { allowCrawl }));
   const role = choice.mode === "fallback" ? "public-test-league" : "parker-league";
   if (!choice.leagueId) {
-    cl.fail("A", "A.league", "League selected", `no league: ${choice.failure ?? "unknown"}`, { note: choice.notes.join("; ") || undefined });
+    if (choice.needsCrawl) cl.na("A", "A.league", "League selected", choice.failure ?? NEEDS_CRAWL, { note: choice.notes.join("; ") || undefined });
+    else cl.fail("A", "A.league", "League selected", `no league: ${choice.failure ?? "unknown"}`, { note: choice.notes.join("; ") || undefined });
     cl.question("Please fill SLEEPER_USERNAME (or SLEEPER_LEAGUE_ID) in .env.local so the probe can check your Sleeper league.");
     return;
+  }
+  if (choice.pinnedStale) {
+    cl.warn("A", "A.pinnedLeague", "Pinned test league", choice.pinnedStale);
+    cl.issue(`Sleeper test league: ${choice.pinnedStale}.`);
   }
 
   const d = await p.timed("league data", () => loadLeague(p, choice, role, season, currentWeek, stateF, state));
@@ -306,22 +324,32 @@ async function probe(p: ProbeContext, disc: Redactor, oracleIds: Redactor, watch
   checkI(d);
   checkJ(d, proj, statsWeeks);
   await p.timed("oracle", () => checkK(d, statsWeeks));
-  await p.timed("cross-league oracle", () => checkCrossLeagueOracle(d, statsWeeks, oracleIds, watch));
+  await p.timed("cross-league oracle", () => checkCrossLeagueOracle(d, statsWeeks, oracleIds, watch, allowCrawl));
   await checkL(d, proj);
   await p.timed("fantasycalc", () => checkM(d));
   await savePublicSubsets(d, proj);
-  const pruned = await pruneStaleFixtures(path.join(SANITIZED_DIR, "sleeper"), `${role}/`, savedLabels);
-  // Once Parker's own league is probed, a stranger's test-league fixtures are no longer needed.
-  const strangerPruned = role === "parker-league" ? await pruneStaleFixtures(path.join(SANITIZED_DIR, "sleeper"), "public-test-league/", new Set()) : [];
+  // Stale fixtures, in both folders: each keeps exactly the labels this run saved there, so a
+  // stranger's copy left in the committed folder is always removed (fixtures/sanitized/min/ is never touched).
+  const split = partitionLabels("sleeper", savedLabels);
+  const pruned: string[] = [];
+  const strangerPruned: string[] = [];
+  for (const f of fixtureFolders("sleeper")) {
+    const keep = new Set(f.committed ? split.committed : split.local);
+    pruned.push(...(await pruneStaleFixtures(f.dir, `${role}/`, keep)));
+    // The manifest lives in one folder (committed with Parker's league, else git-ignored): drop a copy in the other.
+    pruned.push(...(await pruneStaleFixtures(f.dir, SANITIZED_MANIFEST_LABEL, keep)));
+    // Once Parker's own league is probed, a stranger's test-league fixtures are no longer needed.
+    if (role === "parker-league") strangerPruned.push(...(await pruneStaleFixtures(f.dir, "public-test-league/", new Set())));
+  }
   const collisions = placeholderCollisions(p.redactor);
   cl.add(
     "FIX",
     "fixtures.sanitized",
     "Sanitized fixtures",
     collisions.length || fixtureStats.refused ? "fail" : "ok",
-    `${fixtureStats.saved} saved to fixtures/sanitized/sleeper, ${fixtureStats.refused} refused by the leak check, ${pruned.length} stale ${role} fixture(s) removed with their index entries${role === "parker-league" ? `, ${strangerPruned.length} public-test-league fixture(s) deleted (Parker's league replaces them)` : ""}; ${p.redactor.entries().length} identities registered, placeholders ${collisions.length ? `NOT unique: ${collisions.join(", ")}` : "unique"}`,
+    `${fixtureStats.saved} saved: ${whereSaved("sleeper", split.committed.length, split.local.length)}; ${fixtureStats.refused} refused by the leak check, ${pruned.length} stale fixture(s) removed with their index entries${role === "parker-league" ? `, ${strangerPruned.length} public-test-league fixture(s) deleted (Parker's league replaces them)` : ""}; ${p.redactor.entries().length} identities registered, placeholders ${collisions.length ? `NOT unique: ${collisions.join(", ")}` : "unique"}`,
   );
-  if (role === "parker-league") cl.decision("With Parker's own Sleeper league probed, the stranger's public-test-league fixtures and manifest entry are deleted, so no stranger's league stays committed.");
+  if (role === "parker-league") cl.decision("With Parker's own Sleeper league probed, the stranger's public-test-league fixtures and manifest entry are deleted from both fixture folders.");
 
   cl.meta.counts = {
     rosters: d.rosters.length,
@@ -1811,14 +1839,19 @@ async function checkK(d: Data, statsWeeks: StatsWeek[]): Promise<void> {
  * the sampled weeks), one more league covering it is tried, up to CROSS_ORACLE_MAX leagues. Only
  * aggregates are reported; no fixture of those leagues is written and their IDs are registered with
  * a separate Redactor (console scrubbing) and the watch list.
+ *
+ * These are strangers' leagues other than the pinned test league, so without --allow-crawl they are
+ * read from the HTTP cache only (CLAUDE.md §0.6), the remembered picks are left as they are, and a
+ * league the cache lacks counts as "not cached" rather than failed.
  */
-async function checkCrossLeagueOracle(d: Data, statsWeeks: StatsWeek[], oracleIds: Redactor, watch: Watchlist): Promise<void> {
+async function checkCrossLeagueOracle(d: Data, statsWeeks: StatsWeek[], oracleIds: Redactor, watch: Watchlist, allowCrawl: boolean): Promise<void> {
   const { p } = d;
   const { cl } = p;
+  const offline = !allowCrawl;
   const weeks = statsWeeks.filter((s) => s.f.ok).map((s) => s.week);
   const crawlLeagues = readCrawlLeagues();
   if (!crawlLeagues) {
-    cl.na("K", "K.oracleCrossLeague", "Scoring oracle, other leagues", "skipped: the probe:sleeper-codes crawl sample (data-local/sleeper-codes, git-ignored) isn't present; run npm run probe:sleeper-codes, then this probe");
+    cl.na("K", "K.oracleCrossLeague", "Scoring oracle, other leagues", `${allowCrawl ? "skipped" : NEEDS_CRAWL}: the probe:sleeper-codes crawl sample (data-local/sleeper-codes, git-ignored) isn't present; run npm run probe:sleeper-codes${allowCrawl ? "" : " -- --allow-crawl"}, then this probe`);
     return;
   }
   if (!weeks.length) {
@@ -1838,7 +1871,13 @@ async function checkCrossLeagueOracle(d: Data, statsWeeks: StatsWeek[], oracleId
   if (queue.length < CROSS_ORACLE_MIN) queue = pickOracleLeagues(crawlLeagues, weeks, salt, CROSS_ORACLE_MAX, CROSS_ORACLE_MIN);
 
   const statsByWeek = new Map(statsWeeks.filter((s) => s.f.ok).map((s) => [s.week, s.stats]));
-  const total = { leagues: 0, failed: 0, total: 0, within: 0, nonZeroTotal: 0, nonZeroWithin: 0 };
+  const total = { leagues: 0, failed: 0, notCached: 0, partial: 0, total: 0, within: 0, nonZeroTotal: 0, nonZeroWithin: 0 };
+  /** Oldest cached copy used (offline runs report how old the evidence is). */
+  let oldestCache: number | undefined;
+  const noteCache = (f: Fetched<unknown>) => {
+    const at = f.res?.cachedAt;
+    if (at !== undefined) oldestCache = Math.min(oldestCache ?? at, at);
+  };
   // The same leagues' rosters also exercise the §2.3 my-team rule (co-owners are rare in one league).
   const myTeam = { leagues: 0, owners: { total: 0, resolved: 0 }, coOwners: { total: 0, resolved: 0 }, onSeveralRosters: 0 };
   const byKey: Record<string, { exercised: number; within: number }> = {};
@@ -1852,16 +1891,19 @@ async function checkCrossLeagueOracle(d: Data, statsWeeks: StatsWeek[], oracleId
     tried.add(l.leagueId);
     oracleIds.register(l.leagueId, "league-id", `oracle-league-${tried.size}`);
     watch.add(l.leagueId, "league-id");
-    const leagueF = await fetchJson<unknown>(p, endpoints.league(l.leagueId));
+    const leagueF = await fetchJson<unknown>(p, endpoints.league(l.leagueId), "league", { offline });
+    noteCache(leagueF);
     watch.addLeague(leagueF.data);
     const lg = parseOne(LeagueSchema, leagueF.data).value;
     if (!lg) {
-      total.failed++;
+      if (leagueF.offlineMiss) total.notCached++;
+      else total.failed++;
       return;
     }
     // IDs are scrubbed from console output; names (never printed) are only on the watch list.
     oracleIds.register((lg as Record<string, unknown>).last_author_id, "user-id");
-    const rostersF = await fetchJson<unknown>(p, endpoints.rosters(l.leagueId));
+    const rostersF = await fetchJson<unknown>(p, endpoints.rosters(l.leagueId), "league", { offline });
+    noteCache(rostersF);
     const rosters = rostersF.ok ? parseArray(RosterSchema, rostersF.data).value : [];
     if (rosters.length) {
       for (const r of rosters) {
@@ -1878,16 +1920,21 @@ async function checkCrossLeagueOracle(d: Data, statsWeeks: StatsWeek[], oracleId
     }
     const positions = startablePositions(lg.roster_positions);
     const inputs: OracleWeekInput[] = [];
+    let weeksNotCached = 0;
     for (const w of weeks) {
-      const f = await fetchJson<unknown>(p, endpoints.matchups(l.leagueId, w));
+      const f = await fetchJson<unknown>(p, endpoints.matchups(l.leagueId, w), "league", { offline });
+      noteCache(f);
+      if (f.offlineMiss) weeksNotCached++;
       const rows = f.ok ? parseArray(MatchupSchema, f.data).value : [];
       if (!rows.length) continue;
       inputs.push({ week: w, entries: rows.map((m) => ({ rosterId: m.roster_id, players: m.players ?? [], playersPoints: m.players_points ?? {} })), stats: statsByWeek.get(w) ?? new Map() });
     }
     if (!inputs.length) {
-      total.failed++;
+      if (weeksNotCached) total.notCached++;
+      else total.failed++;
       return;
     }
+    if (weeksNotCached) total.partial++;
     const res = runOracle(lg.scoring_settings, inputs, (pid) => fantasyPos(d.players[pid], positions));
     used.push(l.leagueId);
     total.leagues++;
@@ -1914,7 +1961,16 @@ async function checkCrossLeagueOracle(d: Data, statsWeeks: StatsWeek[], oracleId
     if (!more) break;
     await evaluate(more);
   }
-  await writeFileAtomic(CROSS_ORACLE_FILE, JSON.stringify({ salt, leagueIds: used, chosenAt: new Date().toISOString() }, null, 2));
+  // Offline runs leave the remembered picks alone (a cache gap must not shrink them).
+  if (allowCrawl) await writeFileAtomic(CROSS_ORACLE_FILE, JSON.stringify({ salt, leagueIds: used, chosenAt: new Date().toISOString() }, null, 2));
+  if (!total.leagues && total.notCached) {
+    cl.na("K", "K.oracleCrossLeague", "Scoring oracle, other leagues", `${NEEDS_CRAWL}: none of the ${tried.size} picked leagues from the probe:sleeper-codes crawl sample is in the HTTP cache, and without --allow-crawl this probe requests no stranger's league other than the pinned test league`);
+    d.crossOracle = { leagues: 0, total: 0, within: 0, byKey: {} };
+    return;
+  }
+  const cacheNote = offline
+    ? `; offline (no --allow-crawl): read from cached copies${oldestCache !== undefined ? ` (oldest ${iso(oldestCache)})` : ""}, nothing requested${total.notCached ? `; ${total.notCached} more picked league(s) not in the cache` : ""}${total.partial ? `; ${total.partial} league(s) missing some weeks in the cache` : ""}`
+    : "";
 
   const rate = total.total ? total.within / total.total : 0;
   const targetStats = ORACLE_TARGETS.map((t) => {
@@ -1935,8 +1991,8 @@ async function checkCrossLeagueOracle(d: Data, statsWeeks: StatsWeek[], oracleId
     "Scoring oracle, other leagues",
     total.leagues >= CROSS_ORACLE_MIN && rate >= 0.99 && targetsFine ? "ok" : "warn",
     total.leagues
-      ? `${total.leagues} public in-season leagues from the probe:sleeper-codes crawl sample, picked (salted) to cover scoring this league lacks${total.failed ? ` (${total.failed} more couldn't be read)` : ""}; weeks ${weeks.join(", ")}: ${total.within}/${total.total} rostered player-weeks within ±0.05 (${pct(rate)}); non-zero only ${total.nonZeroWithin}/${total.nonZeroTotal}; ${Object.keys(byKey).length} distinct rules exercised; features (player-weeks matched/exercised): ${exercised.map((t) => `${t.name} ${t.within}/${t.exercised}`).join(", ") || "none"}${scoredIdle.length ? `; scored but not hit by any rostered player in these weeks: ${scoredIdle.join(", ")}` : ""}${notScored.length ? `; not scored by the leagues read: ${notScored.join(", ")}` : ""}; ${patternList.length ? `mismatch patterns: ${patternList.slice(0, 5).map(([k, v]) => `${k} ×${v}`).join("; ")}` : "0 mismatches"}`
-      : `none of the ${tried.size} picked crawl leagues could be read`,
+      ? `${total.leagues} public in-season leagues from the probe:sleeper-codes crawl sample, picked (salted) to cover scoring this league lacks${total.failed ? ` (${total.failed} more couldn't be read)` : ""}; weeks ${weeks.join(", ")}: ${total.within}/${total.total} rostered player-weeks within ±0.05 (${pct(rate)}); non-zero only ${total.nonZeroWithin}/${total.nonZeroTotal}; ${Object.keys(byKey).length} distinct rules exercised; features (player-weeks matched/exercised): ${exercised.map((t) => `${t.name} ${t.within}/${t.exercised}`).join(", ") || "none"}${scoredIdle.length ? `; scored but not hit by any rostered player in these weeks: ${scoredIdle.join(", ")}` : ""}${notScored.length ? `; not scored by the leagues read: ${notScored.join(", ")}` : ""}; ${patternList.length ? `mismatch patterns: ${patternList.slice(0, 5).map(([k, v]) => `${k} ×${v}`).join("; ")}` : "0 mismatches"}${cacheNote}`
+      : `none of the ${tried.size} picked crawl leagues could be read${cacheNote}`,
     { url: "https://api.sleeper.app/v1/league/{leagueId}  +  /v1/league/{leagueId}/matchups/{week}  vs  https://api.sleeper.app/stats/nfl/{season}/{week}?season_type=regular", status: 200, path: "Σ scoring_settings[k] × stats[k]  vs  players_points (aggregate over the picked leagues)", sample: Object.fromEntries(topKeys.slice(0, 40).map(([k, v]) => [k, `${v.within}/${v.exercised}`])) },
   );
   if (myTeam.leagues) {
@@ -2129,10 +2185,13 @@ async function savePublicSubsets(d: Data, proj: Proj): Promise<void> {
 
 const SANITIZED_MANIFEST_LABEL = "manifest";
 
-/** Read one of this probe's own sanitized fixtures back by label (placeholders only). */
+/**
+ * Read one of this probe's own sanitized fixtures back by label (placeholders only), from the folder
+ * that label is saved to (committed, or git-ignored data-local/ for a stranger's league).
+ */
 function readSanitizedFixture(label: string): unknown {
   try {
-    const dir = path.join(SANITIZED_DIR, "sleeper");
+    const dir = sanitizedDirFor("sleeper", label);
     const index = JSON.parse(readFileSync(path.join(dir, "index.json"), "utf8")) as Record<string, { label: string }>;
     const file = Object.entries(index).find(([, e]) => e.label === label)?.[0];
     return file ? (JSON.parse(readFileSync(path.join(dir, file), "utf8")) as unknown) : null;

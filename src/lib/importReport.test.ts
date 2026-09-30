@@ -1,0 +1,515 @@
+import { describe, expect, it } from "vitest";
+import type { LeagueSettings, LeagueSnapshot, PlayerInfo, Scoring, Team } from "@/engine/model";
+import type { ImportResponse } from "./api";
+import { UNKNOWN_SETTING_TEXT, buildImportReport, refreshOutcomeText, ruleText } from "./importReport";
+
+// A small synthetic league. Every name is made up.
+const TZ = "America/New_York";
+
+function team(id: string, name: string, owner: string, rec: [number, number, number], pf: number, roster: string[], extra: Partial<Team> = {}): Team {
+  return { id, name, ownerName: owner, roster, ir: [], taxi: [], record: { w: rec[0], l: rec[1], t: rec[2] }, pointsFor: pf, pointsAgainst: 300, ...extra };
+}
+
+function player(id: string, name: string, pos: PlayerInfo["pos"], nflTeam: string | null = "ZZZ"): PlayerInfo {
+  return { id, name, pos, eligible: [pos], nflTeam, injury: "ACTIVE", ids: {} };
+}
+
+/** ESPN-style scoring: half PPR, a TE premium through a byPosition replacement, D/ST through overrides and range rules. */
+const espnScoring: Scoring = {
+  perStat: { pass_yd: 0.04, pass_td: 4, pass_int: -2, rush_yd: 0.1, rush_td: 6, rec: 0.5, rec_yd: 0.1, rec_td: 6, fum_lost: -2, int: 0, sack: 0, fgm_50p: 5, pass_td_40p: 2 },
+  byPosition: { TE: { rec: 1 }, DEF: { int: 2, sack: 1, fum_rec: 2, def_td: 6, safe: 2, blk_kick: 2 } },
+  rules: [
+    { kind: "range", stat: "pts_allow", min: 14, max: 17, points: 1, positions: ["DEF"] },
+    { kind: "range", stat: "pts_allow", min: 0, max: 0, points: 5, positions: ["DEF"] },
+    { kind: "range", stat: "pts_allow", min: 46, points: -7, positions: ["DEF"] },
+    { kind: "threshold", stat: "rush_yd", min: 100, points: 2 },
+    { kind: "stepped", stat: "tkl", every: 10, points: 1, min: 0, max: 30 },
+    { kind: "perUnit", stat: { sum: ["pass_yd", "rush_yd"] }, points: 0.01, min: 400 },
+    { kind: "perGame", points: 1, positions: ["K"] },
+  ],
+  unmapped: [{ platformKey: "espn:209", label: "1-point safety", points: 1 }],
+};
+
+const settings: LeagueSettings = {
+  numTeams: 4,
+  leagueType: "redraft",
+  lineup: [
+    { slot: "QB", count: 1, eligible: ["QB"] },
+    { slot: "RB", count: 2, eligible: ["RB"] },
+    { slot: "WR", count: 2, eligible: ["WR"] },
+    { slot: "TE", count: 1, eligible: ["TE"] },
+    { slot: "FLEX", count: 1, eligible: ["RB", "WR", "TE"] },
+    { slot: "D/ST", count: 1, eligible: ["DEF"] },
+    { slot: "K", count: 1, eligible: ["K"] },
+  ],
+  benchSlots: 7,
+  irSlots: 1,
+  taxiSlots: 0,
+  maxRosterSize: 16,
+  positionLimits: { QB: 4, K: 3 },
+  scoring: espnScoring,
+  regularSeasonWeeks: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
+  playoffWeeks: [15, 16, 17],
+  playoffTeams: 4,
+  playoffByes: 0,
+  medianGame: false,
+  pointsOnly: false,
+  tradeDeadline: { week: 13, date: "2026-12-02T17:00:00.000Z" },
+  tradeReview: "league_vote",
+};
+
+function snapshot(overrides: Partial<LeagueSnapshot> = {}, settingsOverrides: Partial<LeagueSettings> = {}): LeagueSnapshot {
+  return {
+    platform: "espn",
+    leagueId: "4242",
+    season: 2026,
+    name: "The Gloopdorf Invitational",
+    fetchedAt: "2026-09-29T23:00:00.000Z",
+    currentWeek: 4,
+    settings: { ...settings, ...settingsOverrides },
+    teams: [
+      team("1", "Moonbeam Mudcats", "Zorblax Quintavious", [2, 1, 0], 350.25, ["9001", "9002"], { ir: ["9003"] }),
+      team("2", "Gravel Gophers", "Brumhilda Snarfwhistle", [3, 0, 0], 330, ["9004", "espn:31337"]),
+      team("3", "Quasar Quokkas", "Quenby Flapdoodle", [2, 1, 0], 360.5, ["9005", "ghost-id"]),
+      team("4", "Tundra Tortoises", "Thaddeus Wobblegong", [0, 3, 0], 280, ["9006"]),
+    ],
+    myTeamId: "1",
+    players: {
+      "9001": player("9001", "Fizzwick Pemberton", "QB"),
+      "9002": player("9002", "Glimmer Oddfellow", "TE"),
+      "9003": player("9003", "Bartleby Crumpet", "RB"),
+      "9004": player("9004", "Noodle McSprocket", "WR"),
+      "espn:31337": player("espn:31337", "Pip Wobbleton", "K", null),
+      "9005": player("9005", "Dorian Quibble", "RB"),
+      "9006": player("9006", "Humbert Fiddlesticks", "WR"),
+      "9100": player("9100", "Free Agent Floop", "WR"),
+    },
+    schedule: [
+      { week: 4, teamA: "1", teamB: "3", isPlayoff: false },
+      { week: 4, teamA: "2", teamB: "4", isPlayoff: false },
+      ...[1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12, 13].flatMap((w) => [
+        { week: w, teamA: "1", teamB: "2", isPlayoff: false },
+        { week: w, teamA: "3", teamB: "4", isPlayoff: false },
+      ]),
+    ],
+    transactions: [
+      { id: "t1", type: "trade", week: 2, timestamp: "2026-09-15T00:00:00Z", teams: ["1", "2"], moves: [] },
+      { id: "t2", type: "add", week: 3, timestamp: "2026-09-20T00:00:00Z", teams: ["3"], moves: [{ playerId: "9201", from: null, to: "3" }, { playerId: "9202", from: "3", to: null }] },
+      { id: "t3", type: "drop", week: 3, timestamp: "2026-09-20T00:00:00Z", teams: ["3"], moves: [{ playerId: "9203", from: "3", to: null }] },
+      { id: "t4", type: "waiver", week: 3, timestamp: "2026-09-21T00:00:00Z", teams: ["4"], moves: [{ playerId: "9204", from: null, to: "4" }] },
+    ],
+    freeAgents: ["9100"],
+    warnings: [{ code: "ESPN_TQB", message: "Team QB mapped to QB.", platformPath: "players[].defaultPositionId" }],
+    ...overrides,
+  };
+}
+
+function response(snap: LeagueSnapshot, extra: Partial<ImportResponse> = {}): ImportResponse {
+  return { snapshot: snap, notes: ["Rosters include 1 player on IR."], ...extra };
+}
+
+describe("buildImportReport: at a glance", () => {
+  const view = buildImportReport(response(snapshot()), { timeZone: TZ });
+  const tile = (id: string) => view.glance.find((t) => t.id === id);
+
+  it("summarizes the league in eight tiles", () => {
+    expect(view.glance.map((t) => t.id)).toEqual(["league", "scoring", "starters", "roster", "playoffs", "deadline", "myTeam", "warnings"]);
+    expect(tile("league")).toMatchObject({ value: "4 teams · Redraft", detail: "ESPN" });
+    expect(tile("scoring")).toMatchObject({ value: "Half-PPR", detail: "4-pt passing TD · TE premium +0.5" });
+    expect(tile("starters")?.value).toBe("QB, 2 RB, 2 WR, TE, FLEX, D/ST, K");
+    expect(tile("roster")).toMatchObject({ value: "7 bench · 1 IR", detail: "16 active roster spots" });
+    expect(tile("playoffs")).toMatchObject({ value: "4 teams", detail: "Weeks 15–17" });
+    expect(tile("deadline")).toMatchObject({ value: "Wed, Dec 2, 2026 (week 13)", detail: "League vote: managers can veto trades" });
+    expect(tile("myTeam")).toMatchObject({ value: "Moonbeam Mudcats", detail: "Found by ESPN", tone: "normal" });
+    expect(tile("warnings")).toMatchObject({ value: "2 items", detail: "1 scoring rule we couldn't map", tone: "warn" });
+  });
+
+  it("doesn't count an unmapped rule twice when the adapter also warned about it", () => {
+    const warned = snapshot({ warnings: [{ code: "ESPN_TQB", message: "Team QB mapped to QB." }, { code: "ESPN_SCORING_UNMAPPED", message: "1-point safety isn't counted." }] });
+    expect(buildImportReport(response(warned), { timeZone: TZ }).glance.find((t) => t.id === "warnings")).toMatchObject({ value: "2 items", detail: "1 scoring rule we couldn't map" });
+  });
+
+  it("describes the league header", () => {
+    expect(view.league).toMatchObject({ name: "The Gloopdorf Invitational", platformLabel: "ESPN", season: 2026, currentWeek: 4, numTeams: 4, leagueTypeLabel: "Redraft", bestBall: false });
+  });
+});
+
+describe("buildImportReport: scoring", () => {
+  const view = buildImportReport(response(snapshot()), { timeZone: TZ });
+
+  it("shows reception points by position, with the TE premium", () => {
+    expect(view.scoring.receptions).toEqual([
+      { pos: "RB", points: 0.5, text: "0.5 pts" },
+      { pos: "WR", points: 0.5, text: "0.5 pts" },
+      { pos: "TE", points: 1, text: "1 pt" },
+    ]);
+    expect(view.scoring.tePremium).toBe(0.5);
+    expect(view.scoring.formatLabel).toBe("Half-PPR");
+  });
+
+  it("shows passing, yardage and turnover rates", () => {
+    const h = Object.fromEntries(view.scoring.highlights.map((x) => [x.label, x.value]));
+    expect(h["Passing TD"]).toBe("4 pts");
+    expect(h["Passing yards"]).toBe("1 pt per 25 yds");
+    expect(h["Rushing yards"]).toBe("1 pt per 10 yds");
+    expect(h["Receiving yards"]).toBe("1 pt per 10 yds");
+    expect(h["Rushing or receiving TD"]).toBe("6 pts");
+    expect(h["Interception thrown"]).toBe("−2 pts");
+    expect(h["Fumble lost"]).toBe("−2 pts");
+  });
+
+  it("lists D/ST points-allowed buckets in order, apart from the other rules, with uncovered ranges at 0", () => {
+    expect(view.scoring.defenseBuckets).toEqual([
+      {
+        title: "Points allowed",
+        lines: [
+          { range: "0", points: 5, text: "0 points allowed: +5" },
+          { range: "1–13", points: 0, text: "1–13 points allowed: 0" },
+          { range: "14–17", points: 1, text: "14–17 points allowed: +1" },
+          { range: "18–45", points: 0, text: "18–45 points allowed: 0" },
+          { range: "46+", points: -7, text: "46+ points allowed: −7" },
+        ],
+      },
+    ]);
+    expect(view.scoring.defenseSummary).toBe("Sack 1 · INT 2 · Fumble recovery 2 · Defensive TD 6 · Safety 2 · Blocked kick 2");
+  });
+
+  it("writes every other rule in plain English", () => {
+    expect(view.scoring.bonuses).toEqual([
+      "100+ rushing yards in a game: +2",
+      "+1 for every 10 tackles (counting 0–30)",
+      "+0.01 per unit of (passing yards + rushing yards) when the total is 400+",
+      "+1 per game played (K only)",
+      "40+ yard TD passes: +2",
+    ]);
+  });
+
+  it("lists every per-unit rate, with position replacements", () => {
+    const rows = Object.fromEntries(view.scoring.allRules.map((r) => [r.key, r.value]));
+    expect(rows.rec).toBe("0.5 (TE: 1)");
+    expect(rows.int).toBe("D/ST: 2");
+    expect(rows.pass_yd).toBe("0.04");
+    expect(rows.fum_rec).toBe("D/ST: 2");
+    expect(view.scoring.allRules[0]?.key).toMatch(/^pass_/); // passing first
+  });
+
+  it("hides a D/ST 0 on a player-only stat (D/ST scores returns under its own key)", () => {
+    const scoring = { perStat: { kr_td: 6, rec: 1 }, byPosition: { DEF: { kr_td: 0, def_kr_td: 6 }, TE: { rec: 0 } }, rules: [], unmapped: [] };
+    const v = buildImportReport(response(snapshot({}, { scoring })), { timeZone: TZ });
+    const rows = Object.fromEntries(v.scoring.allRules.map((r) => [r.key, r.value]));
+    expect(rows.kr_td).toBe("6");
+    expect(rows.def_kr_td).toBe("D/ST: 6");
+    expect(rows.rec).toBe("1 (TE: 0)"); // a 0 for a player position is still shown
+  });
+
+  it("shows rules we couldn't map, with their points", () => {
+    expect(view.scoring.unmapped).toEqual([{ platformKey: "espn:209", label: "1-point safety", points: 1, text: "1-point safety: +1" }]);
+  });
+
+  it("reads Sleeper-style scoring: PPR, bonus keys and bucket keys", () => {
+    const sleeperScoring: Scoring = {
+      perStat: { rec: 1, bonus_rec_te: 0.5, pass_td: 6, pass_yd: 0.04, rush_yd: 0.1, rec_yd: 0.1, bonus_rush_yd_100: 3, pts_allow_0: 10, pts_allow_1_6: 7, pts_allow_35p: -4, sack: 1 },
+      rules: [],
+      unmapped: [],
+    };
+    const snap = snapshot({ platform: "sleeper" }, { scoring: sleeperScoring, lineup: [...settings.lineup.slice(0, 5), { slot: "DEF", count: 1, eligible: ["DEF"] }] });
+    const v = buildImportReport(response(snap), { timeZone: TZ });
+    expect(v.scoring.formatLabel).toBe("PPR");
+    expect(v.scoring.tePremium).toBe(0.5);
+    expect(v.scoring.receptions.find((r) => r.pos === "TE")?.points).toBe(1.5);
+    expect(v.scoring.bonuses).toContain("100+ yard rushing game: +3");
+    expect(v.scoring.defenseBuckets[0]?.lines.map((l) => l.range)).toEqual(["0", "1–6", "7–34", "35+"]);
+    expect(v.glance.find((t) => t.id === "starters")?.value).toBe("QB, 2 RB, 2 WR, TE, FLEX, DEF");
+    expect(v.glance.find((t) => t.id === "scoring")?.detail).toBe("6-pt passing TD · TE premium +0.5");
+  });
+
+  it("reads ESPN's real shapes: FG 0-39 as a per-unit rate on a sum of buckets, and 46+ points allowed as a threshold", () => {
+    const scoring: Scoring = {
+      perStat: { pass_td: 4, fgm_40_49: 4 },
+      rules: [
+        { kind: "perUnit", stat: { sum: ["fgm_0_19", "fgm_20_29", "fgm_30_39"] }, points: 3 },
+        { kind: "range", stat: "pts_allow", min: 35, max: 45, points: -5, positions: ["DEF"] },
+        { kind: "threshold", stat: "pts_allow", min: 46, points: -7, positions: ["DEF"] },
+        { kind: "perUnit", stat: { sum: ["pass_yd", "rush_yd"] }, points: 0.02 },
+        { kind: "perUnit", stat: { sum: ["rec_fd", "rec_td"] }, points: 1, positions: ["WR", "TE"] },
+      ],
+      unmapped: [],
+    };
+    const v = buildImportReport(response(snapshot({}, { scoring })), { timeZone: TZ });
+    // Plain per-unit rates on a sum of stats are rates, listed with the other rates, not bonuses.
+    expect(v.scoring.bonuses).toEqual([]);
+    const rows = v.scoring.allRules.map((r) => [r.label, r.value]);
+    expect(rows).toContainEqual(["Field goals made (0–39 yds)", "3"]);
+    expect(rows).toContainEqual(["Passing yards + rushing yards", "0.02"]);
+    expect(rows).toContainEqual(["Receiving first downs + receiving TDs (WR, TE only)", "1"]);
+    // Kicking rows sit together: the 0–39 sum next to the 40–49 rate.
+    const labels = v.scoring.allRules.map((r) => r.label);
+    expect(Math.abs(labels.indexOf("Field goals made (0–39 yds)") - labels.indexOf("Field goals made (40–49 yds)"))).toBe(1);
+    expect(new Set(v.scoring.allRules.map((r) => r.key)).size).toBe(v.scoring.allRules.length);
+    expect(v.scoring.defenseBuckets[0]?.lines.map((l) => l.text)).toEqual(["35–45 points allowed: −5", "46+ points allowed: −7"]);
+  });
+
+  it("labels standard scoring", () => {
+    const snap = snapshot({}, { scoring: { perStat: { pass_td: 4 }, rules: [], unmapped: [] } });
+    expect(buildImportReport(response(snap), { timeZone: TZ }).scoring.formatLabel).toBe("Standard (no points per catch)");
+  });
+});
+
+describe("ruleText", () => {
+  it("covers every rule kind", () => {
+    expect(ruleText({ kind: "range", stat: "pts_allow", max: 6, points: 4 }, "sleeper")).toBe("Up to 6 points allowed: +4");
+    expect(ruleText({ kind: "range", stat: "yds_allow", points: 1 }, "sleeper")).toBe("Any yards allowed: +1");
+    expect(ruleText({ kind: "stepped", stat: "pass_yd", every: 25, points: 1 }, "sleeper")).toBe("+1 for every 25 passing yards");
+    expect(ruleText({ kind: "perUnit", stat: "rec", points: 0.5, positions: ["TE"] }, "sleeper")).toBe("+0.5 per reception (TE only)");
+    expect(ruleText({ kind: "threshold", stat: { sum: ["rush_yd", "rec_yd"] }, min: 150, points: 3 }, "espn")).toBe("150+ rushing yards + receiving yards in a game: +3");
+    expect(ruleText({ kind: "perGame", points: -1, positions: ["DEF"] }, "espn")).toBe("−1 per game played (D/ST only)");
+  });
+});
+
+describe("buildImportReport: lineup, season and trades", () => {
+  it("shows roster rules and limits", () => {
+    const v = buildImportReport(response(snapshot({}, { starterLimits: { QB: { min: 1, max: 2 } }, rosterMinimums: { K: 1 } })), { timeZone: TZ });
+    expect(v.lineup.starters[5]).toEqual({ slot: "D/ST", count: 1, eligible: "D/ST" });
+    expect(v.lineup.starters[4]).toEqual({ slot: "FLEX", count: 1, eligible: "RB/WR/TE" });
+    expect(v.lineup.limits).toEqual([
+      { label: "Most players allowed per position", value: "QB 4 · K 3" },
+      { label: "Starters per position", value: "QB 1–2" },
+      { label: "Roster minimums", value: "K 1" },
+    ]);
+  });
+
+  it("describes the season, playoffs and seeding", () => {
+    const v = buildImportReport(response(snapshot()), { timeZone: TZ });
+    expect(v.season).toMatchObject({
+      regularSeason: "Weeks 1–14 (14 weeks)",
+      playoffs: "Weeks 15–17",
+      playoffTeams: 4,
+      byes: "No byes",
+      medianGame: false,
+      pointsOnly: false,
+      divisions: [],
+    });
+    expect(v.season.seeding).toMatch(/^Not reported/);
+    expect(v.season.rounds).toBeUndefined();
+
+    const v2 = buildImportReport(
+      response(
+        snapshot({}, {
+          playoffByes: 2,
+          playoffRoundWeeks: [1, 2],
+          playoffSeeding: { reseed: true, divisionWinnersFirst: true },
+          divisions: [
+            { id: "a", teamIds: ["1", "2"] },
+            { id: "b", teamIds: ["3", "4"] },
+          ],
+        }),
+      ),
+      { timeZone: TZ },
+    );
+    expect(v2.season.byes).toBe("2 byes for the top seeds");
+    expect(v2.season.rounds).toBe("Rounds last 1, 2 weeks");
+    expect(v2.season.seeding).toBe("Re-seeded after each round; division winners are seeded first");
+    expect(v2.season.divisions).toEqual([
+      { name: "Division 1", teams: ["Moonbeam Mudcats", "Gravel Gophers"] },
+      { name: "Division 2", teams: ["Quasar Quokkas", "Tundra Tortoises"] },
+    ]);
+    expect(v2.teams.rows.find((r) => r.id === "3")?.division).toBe("Division 2");
+  });
+
+  it("describes the trade deadline, review and FAAB", () => {
+    const v = buildImportReport(response(snapshot()), { timeZone: TZ });
+    expect(v.trades).toEqual({ deadline: "Wed, Dec 2, 2026, 12:00 PM EST (week 13)", review: "League vote: managers can veto trades", faab: "No FAAB budget reported" });
+    const none = buildImportReport(response(snapshot({}, { tradeDeadline: null, tradeReview: "none", faabBudget: 100 })), { timeZone: TZ });
+    expect(none.trades).toEqual({ deadline: "No trade deadline", review: "No review: accepted trades go through", faab: "$100 FAAB budget" });
+    const weekOnly = buildImportReport(response(snapshot({}, { tradeDeadline: { week: 11 } })), { timeZone: TZ });
+    expect(weekOnly.trades.deadline).toBe("Week 11");
+    expect(weekOnly.glance.find((t) => t.id === "deadline")?.value).toBe("Week 11");
+  });
+
+  it("notes best ball", () => {
+    const v = buildImportReport(response(snapshot({}, { bestBall: true, leagueType: "dynasty", taxiSlots: 3 })), { timeZone: TZ });
+    expect(v.league.bestBall).toBe(true);
+    expect(v.lineup.bestBall).toBe(true);
+    expect(v.glance.find((t) => t.id === "league")).toMatchObject({ value: "4 teams · Dynasty", detail: "Best ball" });
+    expect(v.glance.find((t) => t.id === "roster")?.value).toBe("7 bench · 1 IR · 3 taxi");
+  });
+});
+
+describe("buildImportReport: teams and my team", () => {
+  it("ranks teams by record, then points for", () => {
+    const v = buildImportReport(response(snapshot()), { timeZone: TZ });
+    expect(v.teams.rows.map((r) => [r.rank, r.name, r.record, r.pointsFor])).toEqual([
+      [1, "Gravel Gophers", "3–0", "330"],
+      [2, "Quasar Quokkas", "2–1", "360.5"],
+      [3, "Moonbeam Mudcats", "2–1", "350.3"],
+      [4, "Tundra Tortoises", "0–3", "280"],
+    ]);
+    expect(v.teams.rows.find((r) => r.isMine)?.name).toBe("Moonbeam Mudcats");
+    expect(v.teams.rows.find((r) => r.id === "1")).toMatchObject({ owner: "Zorblax Quintavious", rosterCount: 2, irCount: 1 });
+    expect(v.teams.options.map((o) => o.name)).toEqual(["Gravel Gophers", "Moonbeam Mudcats", "Quasar Quokkas", "Tundra Tortoises"]);
+  });
+
+  it("lets the user's own pick win, and ignores a pick that isn't a team here", () => {
+    const picked = buildImportReport(response(snapshot()), { timeZone: TZ, myTeamId: "4" });
+    expect(picked.teams).toMatchObject({ myTeamId: "4", myTeamSource: "you" });
+    expect(picked.glance.find((t) => t.id === "myTeam")).toMatchObject({ value: "Tundra Tortoises", detail: "Picked by you" });
+
+    const same = buildImportReport(response(snapshot()), { timeZone: TZ, myTeamId: "1" });
+    expect(same.teams.myTeamSource).toBe("platform");
+
+    const bogus = buildImportReport(response(snapshot()), { timeZone: TZ, myTeamId: "99" });
+    expect(bogus.teams.myTeamId).toBe("1");
+  });
+
+  it("asks the user to pick when the platform couldn't tell", () => {
+    const v = buildImportReport(response(snapshot({ myTeamId: null })), { timeZone: TZ });
+    expect(v.teams).toMatchObject({ myTeamId: null, myTeamSource: "none" });
+    expect(v.teams.explain).toMatch(/^We couldn't tell which team is yours/);
+    expect(v.glance.find((t) => t.id === "myTeam")).toMatchObject({ value: "Not picked yet", tone: "warn" });
+    expect(v.schedule.thisWeek).toBeUndefined();
+  });
+
+  it("marks the platform's team in the picker", () => {
+    const v = buildImportReport(response(snapshot()), { timeZone: TZ });
+    expect(v.teams.options.find((o) => o.id === "1")).toEqual({ id: "1", name: "Moonbeam Mudcats", note: "found by ESPN" });
+    expect(v.teams.options.find((o) => o.id === "2")).toEqual({ id: "2", name: "Gravel Gophers" });
+    expect(v.teams.explain).toBe("ESPN told us which team is yours. You can change it here if that's wrong.");
+  });
+
+  it("shows a team from a pasted link as a guess to check, never as found by ESPN", () => {
+    const v = buildImportReport(response(snapshot({ myTeamId: null })), { timeZone: TZ, myTeamId: "3", myTeamSource: "link" });
+    expect(v.teams).toMatchObject({ myTeamId: "3", myTeamSource: "link" });
+    expect(v.teams.explain).toMatch(/from the ESPN link you pasted.*check that it's yours/);
+    const tile = v.glance.find((t) => t.id === "myTeam");
+    expect(tile).toMatchObject({ value: "Quasar Quokkas", detail: "From your link — check it", tone: "warn" });
+    expect(JSON.stringify(v)).not.toMatch(/Found by ESPN|found by ESPN/);
+    expect(v.teams.options.find((o) => o.id === "3")?.note).toBe("from your link");
+    expect(v.schedule.thisWeek).toBe("Week 4: vs Moonbeam Mudcats");
+  });
+
+  it("lets the platform's team (ESPN cookies) beat a link guess, but not the user's own pick", () => {
+    const linkGuess = buildImportReport(response(snapshot()), { timeZone: TZ, myTeamId: "3", myTeamSource: "link" });
+    expect(linkGuess.teams).toMatchObject({ myTeamId: "1", myTeamSource: "platform" });
+    const ownPick = buildImportReport(response(snapshot()), { timeZone: TZ, myTeamId: "3", myTeamSource: "you" });
+    expect(ownPick.teams).toMatchObject({ myTeamId: "3", myTeamSource: "you" });
+  });
+});
+
+describe("buildImportReport: settings the platform doesn't expose", () => {
+  const unknownAll = snapshot({}, { unknownSettings: ["tradeDeadline", "tradeReview", "playoffs", "playoffSeeding"], tradeDeadline: null });
+
+  it("shows them as unknown, in the warn tone, instead of a guess such as 'No trade deadline'", () => {
+    const v = buildImportReport(response(unknownAll), { timeZone: TZ });
+    expect(v.unknown).toEqual(["tradeDeadline", "tradeReview", "playoffs", "playoffSeeding"]);
+    expect(v.trades.deadline).toBe(UNKNOWN_SETTING_TEXT);
+    expect(v.trades.review).toBe(UNKNOWN_SETTING_TEXT);
+    expect(JSON.stringify(v)).not.toContain("No trade deadline");
+    expect(v.glance.find((t) => t.id === "deadline")).toMatchObject({ value: "Unknown", detail: "Review unknown — check your league's settings", tone: "warn" });
+    expect(v.glance.find((t) => t.id === "playoffs")).toMatchObject({ value: "Unknown", detail: "Check your league's settings", tone: "warn" });
+    expect(v.season).toMatchObject({ playoffs: UNKNOWN_SETTING_TEXT, playoffTeamsText: UNKNOWN_SETTING_TEXT, byes: UNKNOWN_SETTING_TEXT });
+    expect(v.season.seeding).toBe("Unknown — check your league's settings. We'll assume standard seeding: wins, then points for.");
+  });
+
+  it("marks only the unknown ones", () => {
+    const v = buildImportReport(response(snapshot({}, { unknownSettings: ["tradeDeadline"], tradeDeadline: null })), { timeZone: TZ });
+    expect(v.unknown).toEqual(["tradeDeadline"]);
+    expect(v.trades.review).toBe("League vote: managers can veto trades");
+    expect(v.glance.find((t) => t.id === "deadline")).toMatchObject({ value: "Unknown", detail: "Check your league's settings · League vote: managers can veto trades", tone: "warn" });
+    expect(v.glance.find((t) => t.id === "playoffs")).toMatchObject({ value: "4 teams", tone: "normal" });
+    expect(v.season.playoffTeamsText).toBe("4");
+
+    const known = buildImportReport(response(snapshot()), { timeZone: TZ });
+    expect(known.unknown).toEqual([]);
+    expect(known.glance.find((t) => t.id === "deadline")?.tone).toBe("normal");
+  });
+});
+
+describe("buildImportReport: ESPN cookies", () => {
+  it("says where the cookies came from, and offers Forget only for this browser session's", () => {
+    const session = buildImportReport(response(snapshot(), { usedEspnCookies: true, espnCookieSource: "session" }), { timeZone: TZ });
+    expect(session.league).toMatchObject({ cookieNote: "Imported with your ESPN cookies from this browser session.", canForgetEspnCookies: true, espnCookieSource: "session" });
+
+    const dev = buildImportReport(response(snapshot(), { usedEspnCookies: true, espnCookieSource: "dev-env" }), { timeZone: TZ });
+    expect(dev.league).toMatchObject({ cookieNote: "Imported with ESPN cookies from .env.local (development only).", canForgetEspnCookies: false });
+
+    const none = buildImportReport(response(snapshot(), { usedEspnCookies: false }), { timeZone: TZ });
+    expect(none.league.cookieNote).toBeUndefined();
+    expect(none.league.canForgetEspnCookies).toBe(false);
+
+    // Imports stored before the source was reported came from the browser session.
+    const older = buildImportReport(response(snapshot(), { usedEspnCookies: true }), { timeZone: TZ });
+    expect(older.league).toMatchObject({ cookieNote: "Imported with your ESPN cookies from this browser session.", canForgetEspnCookies: true });
+  });
+});
+
+describe("refreshOutcomeText", () => {
+  const base = { platform: "espn" as const, timeZone: "America/Chicago" };
+
+  it("names the new data's time when Refresh fetched it again", () => {
+    expect(refreshOutcomeText({ ...base, before: "2026-09-30T01:55:00.000Z", after: "2026-09-30T02:08:00.000Z", now: new Date("2026-09-30T02:08:01.000Z") })).toBe(
+      "Refreshed: ESPN data from 9:08 PM",
+    );
+  });
+
+  it("says the data is already up to date when the server's copy is under a minute old", () => {
+    expect(refreshOutcomeText({ ...base, before: "2026-09-30T02:08:00.000Z", after: "2026-09-30T02:08:00.000Z", now: new Date("2026-09-30T02:08:42.000Z") })).toBe(
+      "Already up to date (fetched 42 s ago; Refresh works once a minute)",
+    );
+    expect(refreshOutcomeText({ ...base, platform: "sleeper", before: "2026-09-30T02:08:00.000Z", after: "2026-09-30T02:08:00.000Z", now: new Date("2026-09-30T02:05:00.000Z") })).toBe(
+      "Already up to date (fetched 0 s ago; Refresh works once a minute)",
+    );
+    expect(refreshOutcomeText({ ...base, before: "2026-09-30T02:00:00.000Z", after: "2026-09-30T02:00:00.000Z", now: new Date("2026-09-30T02:05:00.000Z") })).toBe(
+      "Already up to date (fetched 5 min ago; Refresh works once a minute)",
+    );
+  });
+});
+
+describe("buildImportReport: players, schedule, activity, notes and timestamps", () => {
+  const v = buildImportReport(
+    response(snapshot({ draftPicks: [{ season: 2027, round: 1, originalTeamId: "1", ownerTeamId: "2" }, { season: 2027, round: 2, originalTeamId: "3", ownerTeamId: "3" }] }), {
+      dataSources: [
+        { name: "Sleeper players", fetchedAt: "2026-09-29T22:00:00.000Z", fromCache: false, available: true },
+        { name: "DynastyProcess player IDs", fetchedAt: null, fromCache: true, available: true },
+        { name: "FantasyCalc players", fetchedAt: null, available: false, note: "timed out" },
+        // A server copy carries its original fetch time (the HTTP cache's storedAt for older entries).
+        { name: "Sleeper projections", fetchedAt: "2026-09-29T08:30:00.000Z", fromCache: true, available: true },
+      ],
+    }),
+    { timeZone: TZ },
+  );
+
+  it("counts players and flags anyone we couldn't match or describe", () => {
+    expect(v.players).toEqual({
+      total: 8,
+      rostered: 8,
+      onIr: 1,
+      onTaxi: 0,
+      freeAgents: 1,
+      unmatched: [{ name: "Pip Wobbleton", pos: "K", team: "FA" }],
+      missingDetails: 1,
+    });
+  });
+
+  it("summarizes the schedule and this week's matchup", () => {
+    expect(v.schedule).toEqual({ matchups: 26, weeks: "Weeks 1–13", missingRegularWeeks: [14], thisWeek: "Week 4: vs Quasar Quokkas" });
+  });
+
+  it("counts trades, players added and dropped (an add/drop pair counts both; a waiver claim is an add), and traded picks", () => {
+    expect(v.activity).toEqual({ trades: 1, adds: 2, drops: 2, waivers: 1, tradedPicks: 1 });
+  });
+
+  it("passes every warning and note through", () => {
+    expect(v.warnings).toEqual([{ code: "ESPN_TQB", message: "Team QB mapped to QB.", platformPath: "players[].defaultPositionId" }]);
+    expect(v.notes).toEqual(["Rosters include 1 player on IR."]);
+  });
+
+  it("shows when each data source was fetched", () => {
+    expect(v.timestamps).toEqual([
+      { label: "League data from ESPN", value: "Tue, Sep 29, 2026, 7:00 PM EDT" },
+      { label: "Sleeper players", value: "Tue, Sep 29, 2026, 6:00 PM EDT" },
+      { label: "DynastyProcess player IDs", value: "Our saved copy (fetch time not recorded)" },
+      { label: "FantasyCalc players", value: "Unavailable: timed out" },
+      { label: "Sleeper projections", value: "Tue, Sep 29, 2026, 4:30 AM EDT" },
+    ]);
+  });
+});

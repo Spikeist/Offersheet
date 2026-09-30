@@ -1,4 +1,7 @@
 /**
+ * FROZEN PHASE 0 EVIDENCE: the probes still use this copy; the app uses src/adapters/espn/schema.ts. A fix here doesn't
+ * reach the app (and the reverse); `npm run import:report` is the live check of the shipped adapters.
+ *
  * zod shapes for the parts of ESPN's league API the probe reads (verified live 2026-09-29).
  * Fields we don't read are ignored (z.object strips them). The probe validates with safeParse and
  * reports failing JSON paths as ❌/⚠️ instead of crashing; Phase 1 can reuse these at the adapter
@@ -243,7 +246,8 @@ export const TransactionItemSchema = z.object({
 export const TransactionSchema = z.object({
   id: z.string(),
   type: z.string(),
-  status: z.string(),
+  /** Absent on TRADE_ACCEPT rows (first seen 2026-09-29, when Parker's league had its first accepted trade). */
+  status: z.string().optional(),
   scoringPeriodId: z.number(),
   teamId: z.number(),
   proposedDate: z.number().optional(),

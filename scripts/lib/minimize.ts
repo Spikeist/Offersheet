@@ -4,8 +4,9 @@
  * only minimized copies committed in fixtures/sanitized/min/<platform>/:
  *   - just the fields the tests read
  *   - a subset of each roster
- *   - shifted timestamps (a secret offset, stored only in data-local/, so exact times can't be
- *     matched against the live league's activity feed)
+ *   - shifted timestamps (a secret whole-weeks offset, stored only in data-local/): this hides the
+ *     calendar dates, not weekdays, times of day or the gaps between events; minimizers that keep
+ *     activity times should synthesize them instead (scripts/minimize/sleeper.ts does)
  *
  * Minimizer scripts read the full copies with readLocalFixture(), trim, call shiftTimestamps(),
  * then saveMinimizedFixture(), which refuses to write anything that still leaks.

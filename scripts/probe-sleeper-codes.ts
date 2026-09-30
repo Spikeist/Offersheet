@@ -3,14 +3,21 @@
  * every numeric code against real leagues rather than assuming it"), from a bounded snowball crawl
  * of public leagues.
  *
- *   npm run probe:sleeper-codes
+ *   npm run probe:sleeper-codes                               offline: replays the last crawl
+ *   npx tsx scripts/probe-sleeper-codes.ts --allow-crawl       live crawl (only after Parker agreed)
  *
- * Bounds: ≤ 250 leagues for 2026 and ≤ 900 requests per run, ≥ 400 ms between requests (the main
- * Sleeper probe shares the 1,000 calls/minute limit), responses cached 24 h (7 days for finished
- * seasons, including their 404s). Output is aggregate numbers only (CLAUDE.md §0.6): no league
- * names, IDs or usernames are printed or committed, and no sanitized fixtures of crawled leagues are
- * saved. Trimmed records (codes and counts, plus IDs so a rerun hits the cache), the sampling salt
- * and the identity watch list for `npm run check:leaks` stay in data-local/sleeper-codes/
+ * CLAUDE.md §0.6: no new crawls of strangers' leagues without asking Parker first. Without
+ * --allow-crawl (or ALLOW_STRANGER_CRAWL=1) no league, user or draft is requested: the same salted
+ * walk is replayed from the HTTP cache whatever its age (lib/sleeper-codes/client.ts offline mode),
+ * and the analysis runs on the trimmed records the last crawl left in data-local/sleeper-codes/
+ * (lib/sleeper-codes/offline.ts). With neither, the checks say "untested: needs --allow-crawl".
+ *
+ * Bounds of a live crawl: ≤ 250 leagues for 2026 and ≤ 900 requests per run, ≥ 400 ms between
+ * requests (the main Sleeper probe shares the 1,000 calls/minute limit), responses cached 24 h (7 days
+ * for finished seasons, including their 404s). Output is aggregate numbers only (CLAUDE.md §0.6): no
+ * league names, IDs or usernames are printed or committed, and no sanitized fixtures of crawled
+ * leagues are saved. Trimmed records (codes and counts, plus IDs so a rerun hits the cache), the
+ * sampling salt and the identity watch list for `npm run check:leaks` stay in data-local/sleeper-codes/
  * (git-ignored).
  */
 import { randomBytes } from "node:crypto";
@@ -18,8 +25,8 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { TTL, writeFileAtomic } from "./lib/cache";
 import { ROOT } from "./lib/env";
-import { request, setHostGap } from "./lib/http";
-import { runProbe } from "./lib/probe";
+import { OfflineCacheMiss, request, setHostGap, type HttpResult } from "./lib/http";
+import { crawlAllowed, runProbe, type ProbeContext } from "./lib/probe";
 import { getSleeperPlayers } from "./lib/sleeper-players";
 import { nflCalendar, type NflCalendar } from "./lib/sleeper-codes/calendar";
 import { CRAWL_GAP_MS, CRAWL_TTL, SLEEPER_HOST, SleeperCrawlClient } from "./lib/sleeper-codes/client";
@@ -38,13 +45,16 @@ import {
   selectPicksSample,
   selectPrevSample,
   selectTradeControlSample,
+  type CrawlResult,
   type Current2026,
   type Prev2025,
   type Register,
 } from "./lib/sleeper-codes/crawl";
-import { URLS, evaluateAll, type Dataset } from "./lib/sleeper-codes/evaluate";
+import { URLS, evaluateAll, type CrawlStats, type Dataset } from "./lib/sleeper-codes/evaluate";
+import { LOCAL_FILES, compareSamples, preferLocal, readCrawlMeta, readLocalSample, type CrawlMeta, type Sample } from "./lib/sleeper-codes/offline";
 import { removeStaleTempFiles, withFsRetry } from "./lib/sleeper-codes/retry";
 import { harvestFolder, redactedValues, writeWatchlist } from "./lib/sleeper-codes/watchlist";
+import { NEEDS_CRAWL } from "./lib/shared/crawl-gate";
 
 const SEASON = "2026";
 const MAX_REQUESTS = 900;
@@ -66,27 +76,14 @@ const DOCS_URL = "https://docs.sleeper.com/";
 const LOCAL_DIR = path.join(ROOT, "data-local", "sleeper-codes");
 const RAW_DIR = path.join(ROOT, "fixtures", "raw", "sleeper-codes");
 
-/** When the 2026 lists were fetched live (stored locally, so cached reruns report the crawl day). */
-async function crawlTimestamp(fetchedNow: boolean): Promise<Date> {
-  const file = path.join(LOCAL_DIR, "crawl-meta.json");
-  if (!fetchedNow) {
-    try {
-      const at = (JSON.parse(await readFile(file, "utf8")) as { crawledAt?: string }).crawledAt;
-      if (at && Number.isFinite(Date.parse(at))) return new Date(at);
-    } catch {
-      // first run, or the file was removed
-    }
-  }
-  const now = new Date();
-  await withFsRetry(() => writeFileAtomic(file, JSON.stringify({ crawledAt: now.toISOString() })));
-  return now;
-}
+type NflState = Dataset["state"];
 
 /**
  * The sampling salt: random, created once, kept only in data-local/ (git-ignored) and never printed.
- * Every candidate ordering uses it, so the committed code alone can't reproduce the sample.
+ * Every candidate ordering uses it, so the committed code alone can't reproduce the sample. Offline
+ * runs never create one (a new salt can't replay the old crawl): null when it's missing.
  */
-async function sampleSalt(): Promise<{ salt: string; created: boolean }> {
+async function sampleSalt(create: boolean): Promise<{ salt: string; created: boolean } | null> {
   const file = path.join(LOCAL_DIR, "sample-salt.json");
   try {
     const salt = (JSON.parse(await readFile(file, "utf8")) as { salt?: unknown }).salt;
@@ -94,6 +91,7 @@ async function sampleSalt(): Promise<{ salt: string; created: boolean }> {
   } catch {
     // first run
   }
+  if (!create) return null;
   const salt = randomBytes(16).toString("hex");
   await withFsRetry(() => writeFileAtomic(file, JSON.stringify({ salt, createdAt: new Date().toISOString() })));
   return { salt, created: true };
@@ -109,68 +107,25 @@ async function loadCalendar(): Promise<{ calendar?: NflCalendar; status: number;
   }
 }
 
-void runProbe("sleeper-codes", async (p) => {
-  // First: this crawler shares Sleeper's rate limit with the main Sleeper probe.
-  setHostGap(SLEEPER_HOST, CRAWL_GAP_MS);
-  // Raw responses go to fixtures/raw/sleeper-codes/ (git-ignored); labels are scrubbed to placeholders.
-  const client = new SleeperCrawlClient(MAX_REQUESTS - 2, async (apiPath, _template, res) => {
-    await withFsRetry(() => p.saveRaw(`crawl${apiPath}`, res.json ?? res.text, res));
-  });
-  const register: Register = (id, category) => {
-    if (id) p.redactor.register(id, category);
-  };
-  const names = new NameWatch();
-  const { salt, created: saltCreated } = await sampleSalt();
+interface Walk {
+  sample: Sample;
+  crawl: CrawlResult;
+  requested: { picks: number; current: number; prev: number };
+  zeroLinkStatus?: number;
+}
 
-  // ---- Seeds: Parker's league/user when set, else the example IDs in the public API docs
-  const seeds = { leagueIds: [] as string[], userIds: [] as string[] };
-  const seedSources: string[] = [];
-  const envLeague = p.env("SLEEPER_LEAGUE_ID");
-  const envUser = p.env("SLEEPER_USERNAME");
-  if (envLeague) {
-    seeds.leagueIds.push(envLeague);
-    seedSources.push("SLEEPER_LEAGUE_ID");
-  }
-  if (envUser) {
-    const r = await client.get<{ user_id?: string }>(`/user/${encodeURIComponent(envUser)}`, "user/{username}", CRAWL_TTL.crawl);
-    if (typeof r.data?.user_id === "string") {
-      register(r.data.user_id, "user-id");
-      seeds.userIds.push(r.data.user_id);
-      seedSources.push("SLEEPER_USERNAME");
-    }
-  }
-  if (!seeds.leagueIds.length && !seeds.userIds.length) {
-    // The docs page is HTML, which the HTTP cache skips by default: cache it explicitly (7 days).
-    const docs = await request(DOCS_URL, { cache: { key: "sleeper-codes:docs", ttlMs: CRAWL_TTL.docs, namespace: "sleeper-codes" }, cacheIf: (res) => res.status === 200, label: "Sleeper API docs" });
-    const docSeeds = docs.ok ? extractDocSeeds(docs.text) : { leagueIds: [], userIds: [] };
-    for (const id of docSeeds.leagueIds) register(id, "league-id");
-    for (const id of docSeeds.userIds) register(id, "user-id");
-    seeds.leagueIds.push(...docSeeds.leagueIds);
-    seeds.userIds.push(...docSeeds.userIds);
-    seedSources.push(`docs.sleeper.com example IDs (${docSeeds.leagueIds.length} leagues, ${docSeeds.userIds.length} users; HTTP ${docs.status})`);
-  }
-  if (!seeds.leagueIds.length && !seeds.userIds.length) p.cl.issue("No crawl seeds: SLEEPER_LEAGUE_ID / SLEEPER_USERNAME are blank and the docs page gave no example IDs.");
+const EMPTY_CRAWL: CrawlResult = { leagues: [], usersFetched: 0, usersWithNewLeagues: 0, usersQueued: 0, leagueUserLists: 0, draftsSeen: 0, stoppedBy: "no more users" };
 
-  // Same TTL as the league lists, so the NFL week and the leagues' week fields are one snapshot.
-  const stateRes = await client.get<{ week?: number; season?: string; display_week?: number; season_type?: string }>("/state/nfl", "state/nfl", CRAWL_TTL.crawl);
-
+/** The salted walk: 2026 snowball, then draft picks, 2026 rosters, previous seasons and extra evidence. */
+async function walk(p: ProbeContext, client: SleeperCrawlClient, seeds: { leagueIds: string[]; userIds: string[] }, salt: string, register: Register, names: NameWatch): Promise<Walk> {
   // ---- 2026 snowball
-  const liveBefore = client.live;
   const crawl = await p.timed("crawl 2026 leagues", () =>
     crawl2026(client, seeds, { season: SEASON, maxLeagues: MAX_LEAGUES, perUserCap: 5, minUserQueue: 30, callBudget: CRAWL_CALLS, salt }, register, names),
   );
   const leagues = crawl.leagues;
-  const crawledAt = await crawlTimestamp(client.live > liveBefore || saltCreated);
-  const state = {
-    week: stateRes.data?.week ?? 0,
-    season: stateRes.data?.season ?? SEASON,
-    displayWeek: stateRes.data?.display_week,
-    seasonType: stateRes.data?.season_type,
-    weekday: `${crawledAt.toLocaleDateString("en-US", { weekday: "long", timeZone: "America/New_York" })} (US Eastern)`,
-  };
 
   // previous_league_id "0" means "no previous season": check once that such a league doesn't exist.
-  const zeroLinkStatus = leagues.some((l) => l.previousLink === "zero") ? (await client.get("/league/0", "league/0", CRAWL_TTL.finished, { cacheNotFound: true })).status : undefined;
+  const zero = leagues.some((l) => l.previousLink === "zero") ? await client.get("/league/0", "league/0", CRAWL_TTL.finished, { cacheNotFound: true }) : undefined;
 
   // Budget left after the crawl: previous seasons get ~10 calls each (measured 9.5), picks and
   // current rosters take what's left above that reserve.
@@ -223,21 +178,138 @@ void runProbe("sleeper-codes", async (p) => {
       await fetchMoreTransactions(client, x, EXTRA_TRADE_LEGS);
     }
   });
+  return {
+    sample: { leagues, prev, current },
+    crawl,
+    requested: { picks: pickSample.length, current: currentSample.length, prev: prevSample.length },
+    zeroLinkStatus: zero && !zero.offlineMiss ? zero.status : undefined,
+  };
+}
 
-  // ---- Positions for the position-limit check (players DB is cached 24 h and shared)
-  let positionOf: Dataset["positionOf"];
-  if (prev.some((x) => x.rosterGroups?.length) || current.some((c) => c.rosterGroups?.length)) {
-    const players = await getSleeperPlayers().catch(() => undefined);
-    if (players) positionOf = (id) => players.data[id]?.position ?? undefined;
+void runProbe("sleeper-codes", async (p) => {
+  // First: this crawler shares Sleeper's rate limit with the main Sleeper probe.
+  setHostGap(SLEEPER_HOST, CRAWL_GAP_MS);
+  const allowCrawl = crawlAllowed();
+  const offline = !allowCrawl;
+  // Raw responses go to fixtures/raw/sleeper-codes/ (git-ignored); labels are scrubbed to placeholders.
+  // Offline runs fetch nothing, so there is nothing new to capture.
+  const sink = offline
+    ? undefined
+    : async (apiPath: string, _template: string, res: HttpResult) => {
+        await withFsRetry(() => p.saveRaw(`crawl${apiPath}`, res.json ?? res.text, res));
+      };
+  const client = new SleeperCrawlClient(MAX_REQUESTS - 2, sink, { offline });
+  const register: Register = (id, category) => {
+    if (id) p.redactor.register(id, category);
+  };
+  const names = new NameWatch();
+  const salted = await sampleSalt(allowCrawl);
+  const meta: CrawlMeta = await readCrawlMeta(LOCAL_DIR);
+
+  // ---- Seeds: Parker's league/user when set, else the example IDs in the public API docs
+  const seeds = { leagueIds: [] as string[], userIds: [] as string[] };
+  const seedSources: string[] = [];
+  const envLeague = p.env("SLEEPER_LEAGUE_ID");
+  const envUser = p.env("SLEEPER_USERNAME");
+  if (envLeague) {
+    seeds.leagueIds.push(envLeague);
+    seedSources.push("SLEEPER_LEAGUE_ID");
+  }
+  if (envUser) {
+    const r = await client.get<{ user_id?: string }>(`/user/${encodeURIComponent(envUser)}`, "user/{username}", CRAWL_TTL.crawl);
+    if (typeof r.data?.user_id === "string") {
+      register(r.data.user_id, "user-id");
+      seeds.userIds.push(r.data.user_id);
+      seedSources.push("SLEEPER_USERNAME");
+    }
+  }
+  if (!seeds.leagueIds.length && !seeds.userIds.length) {
+    // The docs page is HTML, which the HTTP cache skips by default: cache it explicitly (7 days).
+    let docs: HttpResult | undefined;
+    try {
+      docs = await request(DOCS_URL, { cache: { key: "sleeper-codes:docs", ttlMs: CRAWL_TTL.docs, namespace: "sleeper-codes" }, cacheIf: (res) => res.status === 200, label: "Sleeper API docs", offline });
+    } catch (err) {
+      if (!(err instanceof OfflineCacheMiss)) throw err;
+    }
+    const docSeeds = docs?.ok ? extractDocSeeds(docs.text) : { leagueIds: [], userIds: [] };
+    for (const id of docSeeds.leagueIds) register(id, "league-id");
+    for (const id of docSeeds.userIds) register(id, "user-id");
+    seeds.leagueIds.push(...docSeeds.leagueIds);
+    seeds.userIds.push(...docSeeds.userIds);
+    seedSources.push(`docs.sleeper.com example IDs (${docSeeds.leagueIds.length} leagues, ${docSeeds.userIds.length} users; ${docs ? `HTTP ${docs.status}` : "not in the cache"})`);
+  }
+  if (!seeds.leagueIds.length && !seeds.userIds.length) p.cl.issue("No crawl seeds: SLEEPER_LEAGUE_ID / SLEEPER_USERNAME are blank and the docs page gave no example IDs.");
+
+  // Same TTL as the league lists, so the NFL week and the leagues' week fields are one snapshot.
+  const stateRes = await client.get<{ week?: number; season?: string; display_week?: number; season_type?: string }>("/state/nfl", "state/nfl", CRAWL_TTL.crawl);
+
+  // ---- The walk: live with --allow-crawl, else replayed from the HTTP cache (needs the old salt)
+  const liveBefore = client.live;
+  const replay: Walk = salted ? await walk(p, client, seeds, salted.salt, register, names) : { sample: { leagues: [], prev: [], current: [] }, crawl: EMPTY_CRAWL, requested: { picks: 0, current: 0, prev: 0 } };
+
+  // Offline: the trimmed records of the last crawl are at least as complete as a replay (a cache gap
+  // only loses data), so they win ties; the replay restores them when they are missing.
+  const local = offline ? await readLocalSample(LOCAL_DIR) : null;
+  const useLocal = offline && preferLocal(replay.sample, local);
+  const sample: Sample = useLocal && local ? local : replay.sample;
+  /** The replay reproduced the local records' coverage, so its walk numbers describe them too. */
+  const replayMatches = local !== null && compareSamples(replay.sample, local) === 0;
+  if (useLocal) {
+    // Second line of defence for console output: the records' IDs (the report prints none).
+    for (const l of sample.leagues) {
+      register(l.leagueId, "league-id");
+      register(l.previousLeagueId, "league-id");
+      register(l.draftId, "draft-id");
+    }
+    for (const x of sample.prev) for (const id of [x.leagueId, x.fromLeagueId, x.previousLeagueId]) register(id, "league-id");
   }
 
-  // ---- NFL calendar for dating trades (nflverse, shared 7-day cache)
-  const cal = await p.timed("nfl calendar", loadCalendar);
+  // When the 2026 lists were fetched live (kept locally, so offline reruns report the crawl day).
+  const fetchedNow = client.live > liveBefore || (salted?.created ?? false);
+  const crawledAt = !fetchedNow && meta.crawledAt ? new Date(meta.crawledAt) : offline ? undefined : new Date();
+  const weekday = crawledAt ? `${crawledAt.toLocaleDateString("en-US", { weekday: "long", timeZone: "America/New_York" })} (US Eastern)` : undefined;
+  // The NFL state belongs to the crawl snapshot: offline it comes from the cache (same snapshot) or
+  // the crawl meta; a live run keeps the old behaviour (week 0 when /state/nfl fails).
+  const stateData = stateRes.offlineMiss ? undefined : stateRes.data;
+  const state: NflState | undefined =
+    stateData || !offline
+      ? { week: stateData?.week ?? 0, season: stateData?.season ?? SEASON, displayWeek: stateData?.display_week, seasonType: stateData?.season_type, weekday }
+      : meta.state;
 
-  // ---- Local records (git-ignored): IDs kept only so reruns reuse the cache
-  await withFsRetry(() => writeFileAtomic(path.join(LOCAL_DIR, "leagues-2026.json"), JSON.stringify(leagues, null, 1)));
-  await withFsRetry(() => writeFileAtomic(path.join(LOCAL_DIR, "previous-2025.json"), JSON.stringify(prev, null, 1)));
-  await withFsRetry(() => writeFileAtomic(path.join(LOCAL_DIR, "current-2026-rosters.json"), JSON.stringify(current, null, 1)));
+  const stats: CrawlStats = {
+    seedSources,
+    usersFetched: replay.crawl.usersFetched,
+    usersWithNewLeagues: replay.crawl.usersWithNewLeagues,
+    usersQueued: replay.crawl.usersQueued,
+    leagueUserLists: replay.crawl.leagueUserLists,
+    draftsSeen: replay.crawl.draftsSeen,
+    stoppedBy: replay.crawl.stoppedBy,
+    picksRequested: replay.requested.picks,
+    currentRequested: replay.requested.current,
+    prevRequested: replay.requested.prev,
+    calls: client.calls,
+    live: client.live,
+    cached: client.cached,
+    statusCounts: client.statusCounts,
+    byTemplate: client.byTemplate,
+  };
+  // The walk's numbers describe the analyzed sample when the walk produced it (or reproduced the
+  // records); otherwise the numbers saved with the records do, next to this run's call counts.
+  const walkDescribesSample = !useLocal || replayMatches;
+  const savedWalk = !walkDescribesSample && meta.stats ? meta.stats : undefined;
+  const crawlStats: CrawlStats = savedWalk ? { ...savedWalk, calls: client.calls, live: client.live, cached: client.cached, statusCounts: client.statusCounts, byTemplate: client.byTemplate } : stats;
+
+  // ---- Local records (git-ignored): IDs kept only so reruns reuse the cache. Never overwritten by a
+  // poorer offline sample; the crawl meta keeps the snapshot's NFL state and walk numbers.
+  if (!useLocal && sample.leagues.length) {
+    await withFsRetry(() => writeFileAtomic(path.join(LOCAL_DIR, LOCAL_FILES.leagues), JSON.stringify(sample.leagues, null, 1)));
+    await withFsRetry(() => writeFileAtomic(path.join(LOCAL_DIR, LOCAL_FILES.prev), JSON.stringify(sample.prev, null, 1)));
+    await withFsRetry(() => writeFileAtomic(path.join(LOCAL_DIR, LOCAL_FILES.current), JSON.stringify(sample.current, null, 1)));
+  }
+  if (sample.leagues.length && state) {
+    const next: CrawlMeta = { crawledAt: crawledAt?.toISOString() ?? meta.crawledAt, state, stats: walkDescribesSample ? stats : meta.stats };
+    await withFsRetry(() => writeFileAtomic(path.join(LOCAL_DIR, LOCAL_FILES.meta), JSON.stringify(next)));
+  }
   await removeStaleTempFiles(RAW_DIR);
 
   // ---- Watch list for check:leaks: every identity in the raw captures (values never printed)
@@ -247,7 +319,47 @@ void runProbe("sleeper-codes", async (p) => {
   for (const e of harvest.entries) if (e.category === "league-name" || e.category === "team-name" || e.category === "username") names.add(e.value);
   console.log(`  watch list: ${watch.total} identities (${watch.added} new, ${watch.dropped} dropped by the current rules) from ${harvest.files} raw captures, by category ${JSON.stringify(watch.byCategory)}`);
 
+  const crawlDay = meta.crawledAt ? `${meta.crawledAt.slice(0, 10)} ` : "";
+  const replayNote = replayMatches
+    ? ", which the HTTP-cache replay reproduced"
+    : !salted
+      ? " (the sampling salt is missing, so the crawl can't be replayed from the cache)"
+      : replay.sample.leagues.length
+        ? " (the HTTP-cache replay found less: part of that crawl is no longer cached)"
+        : " (the HTTP cache no longer holds that crawl)";
+  const mode = allowCrawl
+    ? "live crawl (--allow-crawl)"
+    : useLocal
+      ? `offline (no --allow-crawl): nothing requested; analysis on the trimmed records of the ${crawlDay}crawl in data-local/sleeper-codes/${replayNote}`
+      : `offline (no --allow-crawl): nothing requested; the ${crawlDay}crawl replayed from the HTTP cache`;
+  p.cl.meta.crawlGate = { allowCrawl, mode, offlineMisses: client.offlineMisses, liveRequests: client.live };
+  p.cl.decision(
+    allowCrawl
+      ? "This run was allowed to crawl strangers' public leagues (--allow-crawl): Parker agreed first (CLAUDE.md §0.6)."
+      : "No new crawl (CLAUDE.md §0.6: strangers' leagues are crawled only with --allow-crawl, after asking Parker): every league, user and draft request was served from the HTTP cache or skipped, and the analysis uses the last crawl's data.",
+  );
+
+  if (!sample.leagues.length || !state) {
+    const why = !sample.leagues.length
+      ? `no crawl data to analyze: neither the HTTP cache nor data-local/sleeper-codes/ holds an earlier crawl${salted ? "" : " (and the sampling salt is missing)"}`
+      : "the NFL state of the crawl snapshot (/state/nfl) is neither in the HTTP cache nor in data-local/sleeper-codes/crawl-meta.json";
+    p.cl.na("CODES", "CODES.sample", "Crawl sample", `${NEEDS_CRAWL}: ${why}`, { url: URLS.userLeagues });
+    p.cl.meta.leagues = [{ label: "Crawled public Sleeper leagues", access: "public, no login", source: mode, notes: "not analyzed this run" }];
+    return;
+  }
+
+  // ---- Positions for the position-limit check (players DB is cached 24 h and shared)
+  let positionOf: Dataset["positionOf"];
+  if (sample.prev.some((x) => x.rosterGroups?.length) || sample.current.some((c) => c.rosterGroups?.length)) {
+    const players = await getSleeperPlayers().catch(() => undefined);
+    if (players) positionOf = (id) => players.data[id]?.position ?? undefined;
+  }
+
+  // ---- NFL calendar for dating trades (nflverse, shared 7-day cache)
+  const cal = await p.timed("nfl calendar", loadCalendar);
+
   // ---- Evaluate and report (aggregates only)
+  const { leagues, prev, current } = sample;
   const result = evaluateAll({
     state,
     leagues,
@@ -256,29 +368,13 @@ void runProbe("sleeper-codes", async (p) => {
     positionOf,
     calendar: cal.calendar,
     calendarStatus: cal.status,
-    zeroLinkStatus,
-    crawl: {
-      seedSources,
-      usersFetched: crawl.usersFetched,
-      usersWithNewLeagues: crawl.usersWithNewLeagues,
-      usersQueued: crawl.usersQueued,
-      leagueUserLists: crawl.leagueUserLists,
-      draftsSeen: crawl.draftsSeen,
-      stoppedBy: crawl.stoppedBy,
-      picksRequested: pickSample.length,
-      currentRequested: currentSample.length,
-      prevRequested: prevSample.length,
-      calls: client.calls,
-      live: client.live,
-      cached: client.cached,
-      statusCounts: client.statusCounts,
-      byTemplate: client.byTemplate,
-    },
+    zeroLinkStatus: replay.zeroLinkStatus,
+    crawl: crawlStats,
   });
   const leagueLine = {
     label: `Crawled public Sleeper leagues (${leagues.length} for 2026, ${prev.filter((x) => x.found && x.depth === 1).length} previous seasons, ${current.length} with 2026 rosters)`,
     access: "public, no login",
-    source: `snowball crawl: league members → their ${SEASON} leagues, in a salted order; seeds: ${seedSources.join("; ")}`,
+    source: `snowball crawl: league members → their ${SEASON} leagues, in a salted order; seeds: ${crawlStats.seedSources.join("; ")}; this run: ${mode}`,
     notes: "aggregate numbers only; names and IDs never leave data-local/ and fixtures/raw/ (git-ignored)",
   };
 

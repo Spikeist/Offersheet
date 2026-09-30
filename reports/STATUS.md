@@ -1,28 +1,30 @@
 # Status: Offer Sheet (folder: fantasy-trade-finder)
 
-**Current phase:** 1, ESPN and Sleeper import. In progress.
+**Current phase:** 1 done. Checkpoint 1 written; waiting for Parker's go-ahead before Phase 2.
 **Last updated:** 2026-09-29
 
 | Phase | State |
 |---|---|
 | 0: Data access gate | ✅ approved. See `reports/checkpoint-0.md` and `reports/planner-reply-0.md`. |
-| 1: ESPN and Sleeper import, scoring engine, Import Report | 🔄 in progress |
+| 1: ESPN and Sleeper import, scoring engine, Import Report | ⚠️ done with issues, awaiting approval. See `reports/checkpoint-1.md`. |
 | 2–7 | ⏸ not started |
 
-## Done since Checkpoint 0
-- [x] Applied the planner's reply (`reports/planner-reply-0.md`) to CLAUDE.md. The changed sections will be listed in Checkpoint 1.
-- [x] Moved strangers' full sanitized fixtures to git-ignored `data-local/fixtures-sanitized/`, and rewrote local history so they appear in no commit.
-- [x] Library: fixtures from strangers' leagues are routed to `data-local/` automatically; `--allow-crawl` is required before crawling strangers' leagues; the HTTP client has an `offline` cache mode.
+## Phase 1 (done)
+- [x] Data model and scoring engine: the general rules, with expected values for projections
+- [x] Player ID crosswalk (DynastyProcess, FantasyCalc, Sleeper players DB)
+- [x] ESPN adapter: Parker's league; private-league error paths tested with mocks
+- [x] Sleeper adapter: public test league (`SLEEPER_*` still blank); guillotine and best-ball handling
+- [x] Oracle tests covering every rule type (`reports/oracle-results.md`); minimized stranger fixtures in `fixtures/sanitized/min/`
+- [x] Connect and Import Report pages; ESPN connect flow; session-only credential cookie
+- [x] Probe upkeep: the crawl gate is wired into the crawling probes
+- [x] Adversarial review (7 lenses, each checked by a skeptic): 73 confirmed findings, 0 blockers, all fixed or declined with a reason
+- [x] Gate green, committed, Checkpoint 1 written
 
-## Phase 1 plan
-- [ ] Data model and scoring engine: the general rules, with expected values for projections
-- [ ] Player ID crosswalk (DynastyProcess, FantasyCalc, Sleeper players DB)
-- [ ] ESPN adapter: Parker's league; private-league error paths tested with mocks
-- [ ] Sleeper adapter: public test league (`SLEEPER_*` still blank); guillotine and best-ball handling
-- [ ] Oracle tests covering every rule type; minimized stranger fixtures in `fixtures/sanitized/min/`
-- [ ] Connect and Import Report pages; ESPN connect flow; session-only credential cookie
-- [ ] Probe upkeep: wire the crawl gate into the crawling probes
-- [ ] Checkpoint 1
+## Where things are
+- Import Report for Parker's league: `reports/import-report.md` (`npm run import:report`)
+- Oracle results per suite and rule type: `reports/oracle-results.md` (`npm run oracle:report`)
+- Sleeper browser access (CORS): `reports/probe-output/sleeper-cors.md`
 
 ## Waiting on Parker
-- Nothing blocking. `SLEEPER_USERNAME` is still blank, so Phase 1 uses the public Sleeper test league (planner answer 1).
+- Approval of Checkpoint 1 and answers to its 9 questions.
+- `SLEEPER_USERNAME` is still blank, so Sleeper runs on the public test league (planner answer 1).

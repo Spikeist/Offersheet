@@ -2,13 +2,17 @@
  * Which Sleeper league the probe uses (re-read from .env.local on every run):
  *   1. SLEEPER_LEAGUE_ID → that league (my team needs SLEEPER_USERNAME too)
  *   2. SLEEPER_USERNAME  → /user/{username} → /user/{user_id}/leagues/nfl/{season} → pick one
- *   3. neither: a fallback public test league, found by a salted random walk over public member
- *      lists, seeded from the example IDs in Sleeper's API docs: their members → a salted sample of
- *      those users' leagues → a salted sample of those leagues' members → their leagues → the
- *      qualifying candidates in salted order. The salt is random and stored only in the git-ignored
- *      choice file (fixtures/raw/sleeper/fallback-league.json), so neither this code nor the
- *      committed fixtures can reproduce the choice. The choice is remembered so reruns use the same
- *      league. No league or user ID is hardcoded in source.
+ *   3. neither: the PINNED public test league from the git-ignored choice file
+ *      (fixtures/raw/sleeper/fallback-league.json). Refreshing it is not a crawl, so its requests stay
+ *      live; it is never swapped for another league automatically, even when it stops qualifying.
+ *   4. neither, and nothing pinned: a fallback public test league, found by a salted random walk
+ *      over public member lists — ONLY with --allow-crawl (CLAUDE.md §0.6: no new crawls of
+ *      strangers' leagues without asking Parker first; see crawlAllowed() in probe.ts). The walk is
+ *      seeded from the example IDs in Sleeper's API docs: their members → a salted sample of those
+ *      users' leagues → a salted sample of those leagues' members → their leagues → the qualifying
+ *      candidates in salted order. The salt is random and stored only in the choice file, so neither
+ *      this code nor the committed fixtures can reproduce the choice, and the choice is pinned so
+ *      reruns use the same league. No league or user ID is hardcoded in source.
  *
  * Every ID seen while choosing is registered with `disc` (a separate, ID-only Redactor that also
  * scrubs the console), and every identity seen (IDs, usernames, display names, league/team names)
@@ -21,6 +25,7 @@ import { writeFileAtomic } from "../cache";
 import { RAW_DIR } from "../fixtures";
 import type { ProbeContext } from "../probe";
 import type { Redactor } from "../sanitize";
+import { NEEDS_CRAWL } from "../shared/crawl-gate";
 import { DOCS_URL, endpoints, fetchJson, type Fetched } from "./api";
 import { registerDiscoveryId, registerLeagueListIdentities, registerUserIdentity } from "./identities";
 import { newSalt, saltedOrder } from "./salt";
@@ -40,8 +45,12 @@ export interface LeagueChoice {
   userLookup?: Fetched<SleeperUser>;
   /** Placeholder-only, qualifier-free notes about how the league was chosen (safe for reports). */
   notes: string[];
-  /** Placeholder-only reason selection failed (reported as ❌ by the probe). */
+  /** Placeholder-only reason selection failed (reported as ❌ by the probe, or as untested with needsCrawl). */
   failure?: string;
+  /** Choosing a league would need a walk over strangers' leagues, which this run may not do (no --allow-crawl). */
+  needsCrawl?: boolean;
+  /** Why the pinned test league no longer meets the fallback criteria (kept anyway: it is pinned). */
+  pinnedStale?: string;
 }
 
 export const FALLBACK_FILE = path.join(RAW_DIR, "sleeper", "fallback-league.json");
@@ -113,7 +122,7 @@ function why(f: Fetched<unknown>): string {
   return f.ok ? "empty (null) body" : f.status ? `HTTP ${f.status}${f.error && !f.error.startsWith("HTTP") ? `, ${f.error}` : ""}` : "network error";
 }
 
-export async function chooseLeague(p: ProbeContext, disc: Redactor, watch: Watchlist, season: number, currentWeek: number): Promise<LeagueChoice> {
+export async function chooseLeague(p: ProbeContext, disc: Redactor, watch: Watchlist, season: number, currentWeek: number, opts: { allowCrawl: boolean }): Promise<LeagueChoice> {
   const envLeague = p.env("SLEEPER_LEAGUE_ID");
   const envUser = p.env("SLEEPER_USERNAME");
 
@@ -150,26 +159,37 @@ export async function chooseLeague(p: ProbeContext, disc: Redactor, watch: Watch
     return { mode: "env-username", leagueId: pick.league_id, userId, userLookup, userLeagues, notes };
   }
 
-  return chooseFallback(p, disc, watch, season, currentWeek);
+  return chooseFallback(p, disc, watch, season, currentWeek, opts.allowCrawl);
 }
 
-async function chooseFallback(p: ProbeContext, disc: Redactor, watch: Watchlist, season: number, currentWeek: number): Promise<LeagueChoice> {
+/** Why the pinned league can't be used as is, or null when it still qualifies (pure; for the report). */
+export function pinnedLeagueProblem(league: SleeperLeague, season: number): string | null {
+  return isFallbackCandidate(league, season) ? null : "the pinned public test league no longer meets the fallback criteria (in season, 10–12 teams, not best ball or guillotine, full season, 3+ scored weeks)";
+}
+
+async function chooseFallback(p: ProbeContext, disc: Redactor, watch: Watchlist, season: number, currentWeek: number, allowCrawl: boolean): Promise<LeagueChoice> {
   const saved = readSaved();
+  const reselect = `delete the git-ignored choice file fixtures/raw/sleeper/fallback-league.json and re-run with --allow-crawl (ask Parker first)`;
   if (saved) {
     registerDiscoveryId(disc, saved.leagueId, "league");
     registerDiscoveryId(disc, saved.userId, "user");
     watch.add(saved.leagueId, "league-id");
     watch.add(saved.userId, "user-id");
-  }
-  if (saved?.salt && saved.method === METHOD) {
+    // The pinned test league (CLAUDE.md §0.6: refreshing it is not a crawl). A pin is never replaced
+    // automatically: a new pick would be a new walk over strangers' leagues.
     const league = await fetchJson<SleeperLeague>(p, endpoints.league(saved.leagueId));
-    if (league.ok && league.data && isFallbackCandidate(league.data, season)) {
+    if (league.ok && league.data) {
+      const notes = ["reused the pinned fallback league"];
+      if (!saved.salt || saved.method !== METHOD) notes.push("it was pinned before salted walks were used");
+      const problem = pinnedLeagueProblem(league.data, season);
       const userLookup = await lookupUser(p, disc, watch, saved.userId);
-      return { mode: "fallback", leagueId: saved.leagueId, userId: saved.userId, userLookup, notes: ["reused the remembered fallback league"] };
+      return { mode: "fallback", leagueId: saved.leagueId, userId: saved.userId, userLookup, notes, pinnedStale: problem ? `${problem}; it is kept because it is pinned — to pick another, ${reselect}` : undefined };
     }
-    console.log("  the remembered fallback league no longer qualifies; choosing again");
-  } else if (saved) {
-    console.log("  the remembered fallback league was chosen without a salt; choosing again with a salted walk");
+    if (league.ok) return { mode: "fallback", leagueId: "", userId: null, notes: [], needsCrawl: true, failure: `${NEEDS_CRAWL}: the pinned public test league no longer exists (HTTP 200 with a null body); to pick another, ${reselect}` };
+    return { mode: "fallback", leagueId: "", userId: null, notes: [], failure: `the pinned public test league couldn't be read (${why(league)})` };
+  }
+  if (!allowCrawl) {
+    return { mode: "fallback", leagueId: "", userId: null, notes: [], needsCrawl: true, failure: `${NEEDS_CRAWL}: SLEEPER_USERNAME and SLEEPER_LEAGUE_ID are blank and no public test league is pinned; picking one walks strangers' public leagues` };
   }
 
   const salt = newSalt();

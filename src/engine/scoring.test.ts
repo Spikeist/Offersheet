@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { config } from "./config";
 import type { Scoring, ScoringRule } from "./model";
-import { actualPoints, expectedPoints, expectedRulePoints, normalCdf, pointsBreakdown, rulePoints, scoringStatKeys, statValue } from "./scoring";
+import { actualPoints, expectedPoints, expectedRulePoints, normalCdf, normalPdf, pointsBreakdown, rateFor, ruleApplies, rulePoints, scoringStatKeys, statGrid, statValue } from "./scoring";
 
 const base: Scoring = {
   perStat: { pass_yd: 0.04, pass_td: 4, rec: 0.5, rec_yd: 0.1, rush_yd: 0.1, fum_lost: -2 },
@@ -13,15 +13,15 @@ const withRules = (rules: ScoringRule[]): Scoring => ({ ...base, rules });
 
 describe("actualPoints", () => {
   it("sums per-unit rates and lets byPosition REPLACE the base rate", () => {
-    const line = { rec: 5, rec_yd: 60 };
+    const line = { gp: 1, rec: 5, rec_yd: 60 };
     expect(actualPoints(line, "WR", base)).toBeCloseTo(5 * 0.5 + 6, 10);
     expect(actualPoints(line, "TE", base)).toBeCloseTo(5 * 1.5 + 6, 10); // replaced, not 0.5 + 1.5
   });
 
   it("threshold: stat ≥ min", () => {
     const s = withRules([{ kind: "threshold", stat: "rush_yd", min: 100, points: 3 }]);
-    expect(actualPoints({ rush_yd: 99 }, "RB", s)).toBeCloseTo(9.9, 10);
-    expect(actualPoints({ rush_yd: 100 }, "RB", s)).toBeCloseTo(13, 10);
+    expect(actualPoints({ gp: 1, rush_yd: 99 }, "RB", s)).toBeCloseTo(9.9, 10);
+    expect(actualPoints({ gp: 1, rush_yd: 100 }, "RB", s)).toBeCloseTo(13, 10);
   });
 
   it("range: inclusive buckets, open ends allowed", () => {
@@ -30,10 +30,10 @@ describe("actualPoints", () => {
       { kind: "range", stat: "pts_allow", min: 46, points: -7, positions: ["DEF"] },
       { kind: "range", stat: "pts_allow", max: 0, points: 5, positions: ["DEF"] },
     ]);
-    expect([13, 14, 17, 18].map((v) => actualPoints({ pts_allow: v }, "DEF", s))).toEqual([0, 1, 1, 0]);
-    expect(actualPoints({ pts_allow: 50 }, "DEF", s)).toBe(-7);
-    expect(actualPoints({ pts_allow: 0 }, "DEF", s)).toBe(5);
-    expect(actualPoints({ pts_allow: 14 }, "QB", s)).toBe(0); // positions filter
+    expect([13, 14, 17, 18].map((v) => actualPoints({ gp: 1, pts_allow: v }, "DEF", s))).toEqual([0, 1, 1, 0]);
+    expect(actualPoints({ gp: 1, pts_allow: 50 }, "DEF", s)).toBe(-7);
+    expect(actualPoints({ gp: 1, pts_allow: 0 }, "DEF", s)).toBe(5);
+    expect(actualPoints({ gp: 1, pts_allow: 14 }, "QB", s)).toBe(0); // positions filter
   });
 
   it("stepped: points for every N units within [min, max]", () => {
@@ -59,18 +59,41 @@ describe("actualPoints", () => {
     expect(statValue({ rec_fd: 3, rec_td: 1 }, { sum: ["rec_fd", "rec_td"] })).toBe(4);
   });
 
-  it("perGame: once per game played (gp), assumed played when gp is absent", () => {
+  it("perGame: once per game played (gp); a line without gp is a game not played", () => {
     const rule: ScoringRule = { kind: "perGame", points: 2, positions: ["QB", "K"] };
     const s = withRules([rule]);
     expect(actualPoints({ gp: 1 }, "QB", s)).toBe(2);
     expect(actualPoints({ gp: 0 }, "QB", s)).toBe(0);
-    expect(actualPoints({}, "K", s)).toBe(2);
+    expect(actualPoints({}, "K", s)).toBe(0); // Sleeper and ESPN leave gp out for players who didn't play
     expect(actualPoints({ gp: 1 }, "RB", s)).toBe(0);
+  });
+
+  it("no rule fires on the empty line of a player who didn't play (a '≤ 50%' tier or a shutout bucket)", () => {
+    const s = withRules([
+      { kind: "range", stat: "cmp_pct", max: 50, points: -2, positions: ["QB"] },
+      { kind: "range", stat: "pts_allow", max: 0, points: 10, positions: ["DEF"] },
+    ]);
+    expect(actualPoints({}, "QB", s)).toBe(0);
+    expect(actualPoints({}, "DEF", s)).toBe(0);
+    expect(actualPoints({ gp: 1, cmp_pct: 45 }, "QB", s)).toBe(-2);
+    expect(actualPoints({ gp: 1, pts_allow: 0 }, "DEF", s)).toBe(10);
+    // Per-unit stats on a line still count (platforms send stats only for games played anyway).
+    expect(actualPoints({ rec: 2 }, "WR", s)).toBe(1);
+  });
+
+  it("rateFor replaces the base rate per position; ruleApplies filters by position", () => {
+    expect(rateFor(base, "rec", "TE")).toBe(1.5);
+    expect(rateFor(base, "rec", "WR")).toBe(0.5);
+    expect(rateFor(base, "sack", "WR")).toBe(0);
+    expect(rateFor({ ...base, byPosition: { TE: { rec: 0 } } }, "rec", "TE")).toBe(0); // a zero override is still a replacement
+    expect(ruleApplies({ kind: "perGame", points: 1, positions: ["K"] }, "K")).toBe(true);
+    expect(ruleApplies({ kind: "perGame", points: 1, positions: ["K"] }, "QB")).toBe(false);
+    expect(ruleApplies({ kind: "perGame", points: 1 }, "QB")).toBe(true);
   });
 
   it("breakdown explains every point", () => {
     const s = withRules([{ kind: "threshold", stat: "rec_yd", min: 100, points: 3 }]);
-    const b = pointsBreakdown({ rec: 8, rec_yd: 120, fum_lost: 1 }, "WR", s);
+    const b = pointsBreakdown({ gp: 1, rec: 8, rec_yd: 120, fum_lost: 1 }, "WR", s);
     expect(b.total).toBeCloseTo(4 + 12 - 2 + 3, 10);
     expect(b.perStat.map((x) => x.key).sort()).toEqual(["fum_lost", "rec", "rec_yd"]);
     expect(b.rules).toEqual([{ index: 0, kind: "threshold", points: 3 }]);
@@ -83,10 +106,13 @@ describe("actualPoints", () => {
 });
 
 describe("expected points for projections", () => {
-  it("normal CDF is accurate", () => {
+  it("normal CDF and PDF are accurate", () => {
     expect(normalCdf(0)).toBeCloseTo(0.5, 7);
     expect(normalCdf(1.959964)).toBeCloseTo(0.975, 6);
     expect(normalCdf(-1)).toBeCloseTo(0.158655, 6);
+    expect(normalPdf(0)).toBeCloseTo(0.398942, 6);
+    expect(normalPdf(Number.POSITIVE_INFINITY)).toBe(0);
+    expect(normalPdf(Number.NaN)).toBe(0);
   });
 
   it("linear parts are exact in expectation", () => {
@@ -120,6 +146,39 @@ describe("expected points for projections", () => {
     const total = rules.reduce((s, r) => s + expectedRulePoints(r, { pts_allow: 20.75 }), 0);
     expect(total).toBeCloseTo(1, 6);
     expect(config.scoring.statSd.pts_allow).toBe(9);
+    // ESPN and Fleaflicker close the bottom bucket ("0 points allowed" = [0, 0]); Sleeper and MFL leave
+    // it open. Points allowed can't go below 0, so both readings give the same EV and still tile.
+    for (const mu of [3, 10, 14, 21]) {
+      const closed = rules.map((r, i) => (i === 0 ? { ...r, min: 0 } : r));
+      const sum = (rs: ScoringRule[]) => rs.reduce((s, r) => s + expectedRulePoints(r, { pts_allow: mu }), 0);
+      expect(sum(closed)).toBeCloseTo(1, 6);
+      expect(expectedRulePoints(closed[0] as ScoringRule, { pts_allow: mu })).toBeCloseTo(expectedRulePoints(rules[0] as ScoringRule, { pts_allow: mu }), 9);
+    }
+  });
+
+  it("bounds sit between a stat's grid points: half sacks, whole counts, continuous ratios", () => {
+    // MFL "1.5 points for every half sack" is linear on the half-sack grid: EV ≈ 3 × mean.
+    const halfSacks: ScoringRule = { kind: "stepped", stat: "idp_sack", every: 0.5, points: 1.5 };
+    expect(expectedRulePoints(halfSacks, { idp_sack: 0.3 })).toBeGreaterThan(0.85);
+    expect(expectedRulePoints(halfSacks, { idp_sack: 0.3 })).toBeLessThan(1.0);
+    // On the half grid "≥ 1.5" and "≥ 2" are different events.
+    const atLeast = (min: number): ScoringRule => ({ kind: "threshold", stat: "idp_sack", min, points: 1 });
+    const cfg = { ...config.scoring, statSd: { idp_sack: 0.5 } };
+    expect(expectedRulePoints(atLeast(1.5), { idp_sack: 1 }, cfg)).toBeGreaterThan(expectedRulePoints(atLeast(2), { idp_sack: 1 }, cfg) + 0.1);
+    expect(expectedRulePoints(atLeast(1.5), { idp_sack: 1 }, cfg)).toBeCloseTo(1 - normalCdf((1.25 - 1) / 0.5), 6);
+    // Completion percentage is continuous: "≥ 70" means X ≥ 70, with no correction.
+    const cmp: ScoringRule = { kind: "threshold", stat: "cmp_pct", min: 70, points: 1 };
+    expect(expectedRulePoints(cmp, { cmp_pct: 70 }, { ...config.scoring, statSd: { cmp_pct: 9 } })).toBeCloseTo(0.5, 6);
+    expect(statGrid("rush_yd")).toBe(1);
+    expect(statGrid({ sum: ["idp_sack", "idp_tkl"] })).toBe(0.5);
+    expect(statGrid({ sum: ["cmp_pct", "pass_yd"] })).toBe(0);
+  });
+
+  it("a rule whose stats the projection doesn't carry scores 0 (no phantom shutout bonus)", () => {
+    const shutout: ScoringRule = { kind: "range", stat: "pts_allow", max: 0, points: 10, positions: ["DEF"] };
+    expect(expectedRulePoints(shutout, {})).toBe(0);
+    expect(expectedPoints({ sack: 2.5 }, "DEF", withRules([shutout]))).toBe(0);
+    expect(expectedRulePoints(shutout, { pts_allow: 3 })).toBeGreaterThan(0);
   });
 
   it("stepped EV approaches the floor when spread is small relative to the step", () => {

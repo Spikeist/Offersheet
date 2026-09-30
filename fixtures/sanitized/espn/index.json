@@ -2,7 +2,7 @@
   "5a4cc6ff7fb07efe7de104b6994370f3d7dc648b400548717efd828e146adcb9.json": {
     "label": "espn-api/663d726/constant.py (parsed tables)",
     "note": "parsed by scripts/lib/espn/constants.ts",
-    "captured": "2026-09-29"
+    "captured": "2026-09-30"
   },
   "bbe3380386cc28e9953ea15c93c7ab30b5b9f8f7604e604b5f6dc4068ff555da.json": {
     "label": "league/{leagueId}/communication/view=kona_league_communication (recent activity page 0)",
@@ -10,7 +10,7 @@
     "status": 200,
     "contentType": "application/json;charset=utf-8",
     "note": "trimmed: members[].notificationSettings; player.seasonOutlook/outlooks/rankings/draftRanksByRankType; creationInfo/lastUpdateInfo.platform and clientAddress (which app a member used)",
-    "captured": "2026-09-29"
+    "captured": "2026-09-30"
   },
   "c7f787eb24df463e892a9eb9a72f8b27be77614ebc472d1b1cc244f8ee218837.json": {
     "label": "league/{leagueId}/communication/view=kona_league_communication (recent activity page 1)",
@@ -18,14 +18,14 @@
     "status": 200,
     "contentType": "application/json;charset=utf-8",
     "note": "trimmed: members[].notificationSettings; player.seasonOutlook/outlooks/rankings/draftRanksByRankType; creationInfo/lastUpdateInfo.platform and clientAddress (which app a member used)",
-    "captured": "2026-09-29"
+    "captured": "2026-09-30"
   },
   "3db120c94e1a7de291c2c1ce13fd4acdbf8055fda3c69855be94c7253d49c96d.json": {
     "label": "league/{leagueId}/seasons={season+1}/view=mSettings (error body)",
     "url": "https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/2027/segments/0/leagues/{leagueId}?view=mSettings",
     "status": 404,
     "contentType": "application/json;charset=utf-8",
-    "captured": "2026-09-29"
+    "captured": "2026-09-30"
   },
   "23012538a100a635696d595767076394b2dcc75bc014e644ccb28cda9c3fb781.json": {
     "label": "league/{leagueId}/view=kona_player_info&scoringPeriodId={current} (free agents D/ST, limit 500; 50 most-owned + top 50 by projection)",
@@ -33,7 +33,7 @@
     "status": 200,
     "contentType": "application/json;charset=utf-8",
     "note": "trimmed: members[].notificationSettings; player.seasonOutlook/outlooks/rankings/draftRanksByRankType; creationInfo/lastUpdateInfo.platform and clientAddress (which app a member used); players limited to the 50 most-owned plus the top 50 by week-4 projection (of a limit-500 response); previous seasons' stat lines dropped",
-    "captured": "2026-09-29"
+    "captured": "2026-09-30"
   },
   "94d6e8b8ad661f6956d5c9691b4f1e794f3f76368e496ceff90bf4832991a248.json": {
     "label": "league/{leagueId}/view=kona_player_info&scoringPeriodId={current} (free agents K, limit 500; 50 most-owned + top 50 by projection)",
@@ -41,7 +41,7 @@
     "status": 200,
     "contentType": "application/json;charset=utf-8",
     "note": "trimmed: members[].notificationSettings; player.seasonOutlook/outlooks/rankings/draftRanksByRankType; creationInfo/lastUpdateInfo.platform and clientAddress (which app a member used); players limited to the 50 most-owned plus the top 50 by week-4 projection (of a limit-500 response); previous seasons' stat lines dropped",
-    "captured": "2026-09-29"
+    "captured": "2026-09-30"
   },
   "0e23bcdad7c50bcd25f0018537896596be9f6742aa3ca12e41f09f449fa2f89c.json": {
     "label": "league/{leagueId}/view=kona_player_info&scoringPeriodId={current} (free agents QB, limit 500; 50 most-owned + top 50 by projection)",
@@ -49,7 +49,7 @@
     "status": 200,
     "contentType": "application/json;charset=utf-8",
     "note": "trimmed: members[].notificationSettings; player.seasonOutlook/outlooks/rankings/draftRanksByRankType; creationInfo/lastUpdateInfo.platform and clientAddress (which app a member used); players limited to the 50 most-owned plus the top 50 by week-4 projection (of a limit-500 response); previous seasons' stat lines dropped",
-    "captured": "2026-09-29"
+    "captured": "2026-09-30"
   },
   "2b59e6bae32ce43295b905886f012cdaeceb25685f0803ed633f67b90f0bb42a.json": {
     "label": "league/{leagueId}/view=kona_player_info&scoringPeriodId={current} (free agents RB, limit 500; 50 most-owned + top 50 by projection)",
@@ -57,7 +57,7 @@
     "status": 200,
     "contentType": "application/json;charset=utf-8",
     "note": "trimmed: members[].notificationSettings; player.seasonOutlook/outlooks/rankings/draftRanksByRankType; creationInfo/lastUpdateInfo.platform and clientAddress (which app a member used); players limited to the 50 most-owned plus the top 50 by week-4 projection (of a limit-500 response); previous seasons' stat lines dropped",
-    "captured": "2026-09-29"
+    "captured": "2026-09-30"
   },
   "28aa3ac26da468d72022dfc006e857f0c546e42fa85867b8e69e05aa1755bd4a.json": {
     "label": "league/{leagueId}/view=kona_player_info&scoringPeriodId={current} (free agents TE, limit 500; 50 most-owned + top 50 by projection)",
@@ -65,7 +65,7 @@
     "status": 200,
     "contentType": "application/json;charset=utf-8",
     "note": "trimmed: members[].notificationSettings; player.seasonOutlook/outlooks/rankings/draftRanksByRankType; creationInfo/lastUpdateInfo.platform and clientAddress (which app a member used); players limited to the 50 most-owned plus the top 50 by week-4 projection (of a limit-500 response); previous seasons' stat lines dropped",
-    "captured": "2026-09-29"
+    "captured": "2026-09-30"
   },
   "2f8ae6914124966cf3c1246f8d4d6d6576d3ce9a6d6c0af1c8ee18bc4b111f8b.json": {
     "label": "league/{leagueId}/view=kona_player_info&scoringPeriodId={current} (free agents WR, limit 500; 50 most-owned + top 50 by projection)",
@@ -73,7 +73,7 @@
     "status": 200,
     "contentType": "application/json;charset=utf-8",
     "note": "trimmed: members[].notificationSettings; player.seasonOutlook/outlooks/rankings/draftRanksByRankType; creationInfo/lastUpdateInfo.platform and clientAddress (which app a member used); players limited to the 50 most-owned plus the top 50 by week-4 projection (of a limit-500 response); previous seasons' stat lines dropped",
-    "captured": "2026-09-29"
+    "captured": "2026-09-30"
   },
   "efad3316c1b64d377306245811e547b11fe4f3d5f8a1e2752a26efe246c51a72.json": {
     "label": "league/{leagueId}/view=kona_player_info&scoringPeriodId=5 (player pool, top 500 by % owned; that week's stat lines only)",
@@ -81,7 +81,7 @@
     "status": 200,
     "contentType": "application/json;charset=utf-8",
     "note": "trimmed: members[].notificationSettings; player.seasonOutlook/outlooks/rankings/draftRanksByRankType; creationInfo/lastUpdateInfo.platform and clientAddress (which app a member used); stat lines limited to 2026 scoring period 5",
-    "captured": "2026-09-29"
+    "captured": "2026-09-30"
   },
   "55302a4bdff9d87a04090f55daa50d213c7e296e718ec16702edc2fb9d31af85.json": {
     "label": "league/{leagueId}/view=kona_playercard (rostered players batch 1)",
@@ -89,7 +89,7 @@
     "status": 200,
     "contentType": "application/json;charset=utf-8",
     "note": "trimmed: members[].notificationSettings; player.seasonOutlook/outlooks/rankings/draftRanksByRankType; creationInfo/lastUpdateInfo.platform and clientAddress (which app a member used); previous seasons' stat lines dropped",
-    "captured": "2026-09-29"
+    "captured": "2026-09-30"
   },
   "2f9b8073757ea6f1a26db304be5db21ce88939295ea920b5ae9ff9ed4475982d.json": {
     "label": "league/{leagueId}/view=kona_playercard (rostered players batch 2)",
@@ -97,7 +97,7 @@
     "status": 200,
     "contentType": "application/json;charset=utf-8",
     "note": "trimmed: members[].notificationSettings; player.seasonOutlook/outlooks/rankings/draftRanksByRankType; creationInfo/lastUpdateInfo.platform and clientAddress (which app a member used); previous seasons' stat lines dropped",
-    "captured": "2026-09-29"
+    "captured": "2026-09-30"
   },
   "107a2475504c96f299e55f3f33121f2c836fb34c37cd41b2efa28a5e37d4eaf5.json": {
     "label": "league/{leagueId}/view=kona_playercard (rostered players batch 3)",
@@ -105,7 +105,7 @@
     "status": 200,
     "contentType": "application/json;charset=utf-8",
     "note": "trimmed: members[].notificationSettings; player.seasonOutlook/outlooks/rankings/draftRanksByRankType; creationInfo/lastUpdateInfo.platform and clientAddress (which app a member used); previous seasons' stat lines dropped",
-    "captured": "2026-09-29"
+    "captured": "2026-09-30"
   },
   "e4195c3971389dc400ff42fdf566b9320cfdfd80de2a788ae09f4429eabffb9d.json": {
     "label": "league/{leagueId}/view=kona_playercard (rostered players batch 4)",
@@ -113,7 +113,7 @@
     "status": 200,
     "contentType": "application/json;charset=utf-8",
     "note": "trimmed: members[].notificationSettings; player.seasonOutlook/outlooks/rankings/draftRanksByRankType; creationInfo/lastUpdateInfo.platform and clientAddress (which app a member used); previous seasons' stat lines dropped",
-    "captured": "2026-09-29"
+    "captured": "2026-09-30"
   },
   "617d370c6e5d337d00cac0f5a33a8c10c19c5f6cbe89e7aeb6069231bafb8c51.json": {
     "label": "league/{leagueId}/view=kona_playercard (rostered players batch 5)",
@@ -121,7 +121,7 @@
     "status": 200,
     "contentType": "application/json;charset=utf-8",
     "note": "trimmed: members[].notificationSettings; player.seasonOutlook/outlooks/rankings/draftRanksByRankType; creationInfo/lastUpdateInfo.platform and clientAddress (which app a member used); previous seasons' stat lines dropped",
-    "captured": "2026-09-29"
+    "captured": "2026-09-30"
   },
   "d1b79302127e694ca6a3627d9cc6d9d2d6c943f5f2ad604767431cbcddf3ba18.json": {
     "label": "league/{leagueId}/view=mDraftDetail",
@@ -129,7 +129,7 @@
     "status": 200,
     "contentType": "application/json;charset=utf-8",
     "note": "trimmed: members[].notificationSettings; player.seasonOutlook/outlooks/rankings/draftRanksByRankType; creationInfo/lastUpdateInfo.platform and clientAddress (which app a member used)",
-    "captured": "2026-09-29"
+    "captured": "2026-09-30"
   },
   "a4b62e0cd1a683bd977f61827f86ad26101df08e82d9ca9f454787a77dc2906a.json": {
     "label": "league/{leagueId}/view=mMatchupScore",
@@ -137,7 +137,7 @@
     "status": 200,
     "contentType": "application/json;charset=utf-8",
     "note": "trimmed: members[].notificationSettings; player.seasonOutlook/outlooks/rankings/draftRanksByRankType; creationInfo/lastUpdateInfo.platform and clientAddress (which app a member used); previous seasons' stat lines dropped",
-    "captured": "2026-09-29"
+    "captured": "2026-09-30"
   },
   "96f793bdc1f1cc1296d40ef46537369b2d5632b3c311fc1afdc0321581434323.json": {
     "label": "league/{leagueId}/view=mRoster&scoringPeriodId=2",
@@ -145,7 +145,7 @@
     "status": 200,
     "contentType": "application/json;charset=utf-8",
     "note": "trimmed: members[].notificationSettings; player.seasonOutlook/outlooks/rankings/draftRanksByRankType; creationInfo/lastUpdateInfo.platform and clientAddress (which app a member used); stat lines limited to 2026 scoring period 2",
-    "captured": "2026-09-29"
+    "captured": "2026-09-30"
   },
   "766446bd00368a0651fcdc4d9c017f504df39a25729263f3e6b604c44114ecb5.json": {
     "label": "league/{leagueId}/view=mRoster&scoringPeriodId=3",
@@ -153,7 +153,7 @@
     "status": 200,
     "contentType": "application/json;charset=utf-8",
     "note": "trimmed: members[].notificationSettings; player.seasonOutlook/outlooks/rankings/draftRanksByRankType; creationInfo/lastUpdateInfo.platform and clientAddress (which app a member used); stat lines limited to 2026 scoring period 3",
-    "captured": "2026-09-29"
+    "captured": "2026-09-30"
   },
   "4780b0a48f2e5a3848419fa8ddbe05c271dcd4351ab5eee6fe3283b64fceefe5.json": {
     "label": "league/{leagueId}/view=mSettings+mTeam+mRoster+mMatchup+mStatus",
@@ -161,7 +161,7 @@
     "status": 200,
     "contentType": "application/json;charset=utf-8",
     "note": "trimmed: members[].notificationSettings; player.seasonOutlook/outlooks/rankings/draftRanksByRankType; creationInfo/lastUpdateInfo.platform and clientAddress (which app a member used); previous seasons' stat lines dropped",
-    "captured": "2026-09-29"
+    "captured": "2026-09-30"
   },
   "1252621c6e131d32ec024f7f11b9104dfc178499e8719d3b8903c2071b249f64.json": {
     "label": "league/{leagueId}/view=mStandings",
@@ -169,7 +169,7 @@
     "status": 200,
     "contentType": "application/json;charset=utf-8",
     "note": "trimmed: members[].notificationSettings; player.seasonOutlook/outlooks/rankings/draftRanksByRankType; creationInfo/lastUpdateInfo.platform and clientAddress (which app a member used)",
-    "captured": "2026-09-29"
+    "captured": "2026-09-30"
   },
   "341f4ac489360663478e8e5da301c5cfbc8bf648197e55240e386b9f031cae8e.json": {
     "label": "league/{leagueId}/view=mTransactions2 (no scoringPeriodId, no filter)",
@@ -177,7 +177,7 @@
     "status": 200,
     "contentType": "application/json;charset=utf-8",
     "note": "trimmed: members[].notificationSettings; player.seasonOutlook/outlooks/rankings/draftRanksByRankType; creationInfo/lastUpdateInfo.platform and clientAddress (which app a member used)",
-    "captured": "2026-09-29"
+    "captured": "2026-09-30"
   },
   "295ee689c6343e6639a6344b1e67b28ca787fbf0a2d2680ae42c542c4620d9c7.json": {
     "label": "league/{leagueId}/view=mTransactions2&scoringPeriodId=1 (filter: FA, waiver and trade types)",
@@ -185,7 +185,7 @@
     "status": 200,
     "contentType": "application/json;charset=utf-8",
     "note": "trimmed: members[].notificationSettings; player.seasonOutlook/outlooks/rankings/draftRanksByRankType; creationInfo/lastUpdateInfo.platform and clientAddress (which app a member used)",
-    "captured": "2026-09-29"
+    "captured": "2026-09-30"
   },
   "1c51379659834a8db2abcd95faa9bb5deebd5ae99c5de0994ffe155102421d12.json": {
     "label": "league/{leagueId}/view=mTransactions2&scoringPeriodId=2 (filter: FA, waiver and trade types)",
@@ -193,7 +193,7 @@
     "status": 200,
     "contentType": "application/json;charset=utf-8",
     "note": "trimmed: members[].notificationSettings; player.seasonOutlook/outlooks/rankings/draftRanksByRankType; creationInfo/lastUpdateInfo.platform and clientAddress (which app a member used)",
-    "captured": "2026-09-29"
+    "captured": "2026-09-30"
   },
   "a7a3fdce54940677417aa71794865454d23a1c95d43223be2b73fe7cdf50fc1e.json": {
     "label": "league/{leagueId}/view=mTransactions2&scoringPeriodId=3 (filter: FA, waiver and trade types)",
@@ -201,7 +201,7 @@
     "status": 200,
     "contentType": "application/json;charset=utf-8",
     "note": "trimmed: members[].notificationSettings; player.seasonOutlook/outlooks/rankings/draftRanksByRankType; creationInfo/lastUpdateInfo.platform and clientAddress (which app a member used)",
-    "captured": "2026-09-29"
+    "captured": "2026-09-30"
   },
   "61376de8543ad064ab18d362d9ee5842ad3e5a7d44b68580e37fa00e71c9dc7e.json": {
     "label": "league/{leagueId}/view=mTransactions2&scoringPeriodId=3 (no filter)",
@@ -209,7 +209,7 @@
     "status": 200,
     "contentType": "application/json;charset=utf-8",
     "note": "trimmed: members[].notificationSettings; player.seasonOutlook/outlooks/rankings/draftRanksByRankType; creationInfo/lastUpdateInfo.platform and clientAddress (which app a member used)",
-    "captured": "2026-09-29"
+    "captured": "2026-09-30"
   },
   "340f7e26a4bc6777e455eac6e2412a565cb762c0b768da65b1ab2f98ef29af7e.json": {
     "label": "league/{leagueId}/view=mTransactions2&scoringPeriodId=4 (filter: FA, waiver and trade types)",
@@ -217,12 +217,12 @@
     "status": 200,
     "contentType": "application/json;charset=utf-8",
     "note": "trimmed: members[].notificationSettings; player.seasonOutlook/outlooks/rankings/draftRanksByRankType; creationInfo/lastUpdateInfo.platform and clientAddress (which app a member used)",
-    "captured": "2026-09-29"
+    "captured": "2026-09-30"
   },
   "05b3abf2579a5eb66403cd78be557fd860633a1fe2103c7642030defe32c657f.json": {
     "label": "manifest",
     "note": "which placeholder SWID / team is Parker's",
-    "captured": "2026-09-29"
+    "captured": "2026-09-30"
   },
   "cf148db2986685b69de4a14e1c789ab1f0cb06aeb5f00d6466fb151ad0acb897.json": {
     "label": "seasons/{season}/players?view=players_wl (active; QB/RB/WR/TE/K/D/ST plus up to 5 per other position)",
@@ -230,13 +230,13 @@
     "status": 200,
     "contentType": "application/json;charset=utf-8",
     "note": "trimmed: members[].notificationSettings; player.seasonOutlook/outlooks/rankings/draftRanksByRankType; creationInfo/lastUpdateInfo.platform and clientAddress (which app a member used)",
-    "captured": "2026-09-29"
+    "captured": "2026-09-30"
   },
   "fd1fb06710e79bba1b163e33b6e966d9e7c66accf10612fe2b57f03e62d180e5.json": {
     "label": "seasons/{season}/view=proTeamSchedules_wl",
     "url": "https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/2026?view=proTeamSchedules_wl",
     "status": 200,
     "contentType": "application/json;charset=utf-8",
-    "captured": "2026-09-29"
+    "captured": "2026-09-30"
   }
 }

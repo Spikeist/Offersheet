@@ -6,16 +6,19 @@
  * Leagues: Parker's league (ESPN_LEAGUE_ID + ESPN_SEASON, cookies ESPN_S2 + ESPN_SWID) and the
  * public test league from §2.2 (no cookies; settings-level checks, plus its completed weeks as a
  * second scoring oracle). ID tables and X-Fantasy-Filter payloads come from cwendt94/espn-api (MIT).
- * Raw captures go to fixtures/raw/espn (git-ignored), sanitized copies to fixtures/sanitized/espn,
- * results to reports/probe-output/espn.{json,md}. Every claim in the report is computed from the
- * responses (or the upstream sources the probe fetched); inferred facts are ⚠️.
+ * Raw captures go to fixtures/raw/espn (git-ignored); sanitized copies of Parker's league and public
+ * data to fixtures/sanitized/espn, and of the public test league (a stranger's) to git-ignored
+ * data-local/fixtures-sanitized/espn (only minimized copies of it are committed, in
+ * fixtures/sanitized/min/espn/); results to reports/probe-output/espn.{json,md}. The public test league
+ * is the one pinned stranger's league (CLAUDE.md §2.2 names it); no other stranger's league is requested.
+ * Every claim in the report is computed from the responses (or the upstream sources the probe
+ * fetched); inferred facts are ⚠️.
  */
-import path from "node:path";
 import { parse as parseCsv } from "csv-parse/sync";
 import { TTL } from "./lib/cache";
 import type { Evidence, Status } from "./lib/checklist";
 import { FC_TEAM_SIZES, getFantasyCalc, matchRate, nearest, fantasyCalcUrl, type FcEntry, type FcFormat } from "./lib/fantasycalc";
-import { LeakError, SANITIZED_DIR, type FixtureMeta } from "./lib/fixtures";
+import { LeakError, type FixtureMeta } from "./lib/fixtures";
 import type { HttpResult } from "./lib/http";
 import { runProbe, type ProbeContext } from "./lib/probe";
 import { SWID_RE, collapsePath, formatPath, type JsonPath } from "./lib/sanitize";
@@ -24,7 +27,8 @@ import { bucketOf, bucketOverlaps, classifyRule, fmtRange, groupOf, mergeGroups,
 import { ESPN_READS_BASE, cookieHeader, espnGet, hasCookies, leagueCall, query, type ClientDeps, type EspnAuth, type EspnCall, type EspnResult, type Params } from "./lib/espn/client";
 import { ESPN_API_CONSTANT_PATH, ESPN_API_REPO, parseEspnConstants, positionFromEligibleSlots, slotIdForPosition, type EspnConstants } from "./lib/espn/constants";
 import { FILTER_SOURCE_MARKERS, freeAgentFilter, playerCardFilter, playerPoolFilter, proPlayersFilter, recentActivityFilter, sourceHasMarker, transactionsFilter } from "./lib/espn/filters";
-import { pruneFixtures } from "./lib/espn/fixtureIndex";
+import { pruneFixtures, type PruneResult } from "./lib/espn/fixtureIndex";
+import { fixtureFolders, partitionLabels, whereSaved } from "./lib/shared/fixture-folders";
 import { isPlayerPath, maskIdentityFields, maskOwnMember, protectAll, registerLeagueIdentities, replaceIdDeep, sweepIds, trimForFixture, TRIM_NOTE } from "./lib/espn/sanitize";
 import {
   DraftResponseSchema,
@@ -323,6 +327,9 @@ async function saveFixture(ctx: Ctx, label: string, raw: unknown, meta: FixtureM
 function metaOf(r: Got | undefined, note?: string): FixtureMeta {
   return r ? { url: r.call.template, status: r.res.status, contentType: r.res.contentType, note } : { note };
 }
+
+/** A transaction's status for counts: TRADE_ACCEPT rows come without one. */
+const statusOf = (t: Transaction): string => t.status ?? "(no status)";
 
 function parseTx(r: Got | undefined): Transaction[] | undefined {
   if (!r?.outcome.ok) return undefined;
@@ -1301,13 +1308,20 @@ function checkG(ctx: Ctx, L: League, f: Fetched) {
   const failed = weeks.filter((x) => !x.tx);
   // Dedupe by id: the same row must never be counted twice across period requests.
   const { rows: rawRows, unique: allTx } = dedupeById(weeks.map((x) => x.tx ?? []));
-  add(ctx, failed.length ? "fail" : "ok", "G", "G.perWeek", "Transactions per scoring period", `${weeks.map((x) => `sp${x.week}: ${x.tx ? x.tx.length : `HTTP ${x.r.res.status}`}`).join(", ")} → ${rawRows} rows, ${allTx.length} unique ids${rawRows !== allTx.length ? ` (${rawRows - allTx.length} rows came back from more than one period request: dedupe by id)` : " (no row came back twice)"}; X-Fantasy-Filter types ${TX_TYPES.length}; types ${fmtCounts(countBy(allTx, (t) => t.type))}; statuses ${fmtCounts(countBy(allTx, (t) => t.status))}; item types ${fmtCounts(countBy(allTx.flatMap((t) => t.items ?? []), (i) => i.type ?? "(null)"))}`, {
+  add(ctx, failed.length ? "fail" : "ok", "G", "G.perWeek", "Transactions per scoring period", `${weeks.map((x) => `sp${x.week}: ${x.tx ? x.tx.length : `HTTP ${x.r.res.status}`}`).join(", ")} → ${rawRows} rows, ${allTx.length} unique ids${rawRows !== allTx.length ? ` (${rawRows - allTx.length} rows came back from more than one period request: dedupe by id)` : " (no row came back twice)"}; X-Fantasy-Filter types ${TX_TYPES.length}; types ${fmtCounts(countBy(allTx, (t) => t.type))}; statuses ${fmtCounts(countBy(allTx, statusOf))}; item types ${fmtCounts(countBy(allTx.flatMap((t) => t.items ?? []), (i) => i.type ?? "(null)"))}`, {
     url: weeks[0]?.r.call.template,
     status: weeks[0]?.r.res.status,
     path: "transactions[].{id,type,status,scoringPeriodId,proposedDate,processDate,items[].{playerId,type,fromTeamId,toTeamId}}",
     sample: allTx[0] ? { type: allTx[0].type, status: allTx[0].status, scoringPeriodId: allTx[0].scoringPeriodId, items: allTx[0].items?.slice(0, 2) } : null,
     note: 'filter {"transactions":{"filterType":{"value":[…]}}} from espn-api League.transactions()',
   });
+  const noStatus = allTx.filter((t) => t.status === undefined);
+  if (noStatus.length) {
+    const periods = [...new Set(noStatus.map((t) => t.scoringPeriodId))].join(", ");
+    ctx.p.cl.issue(
+      `ESPN sends some transactions without a status field: ${noStatus.length} of ${allTx.length} rows (${fmtCounts(countBy(noStatus, (t) => t.type))}; scoring period ${periods}; with proposedDate ${noStatus.filter((t) => t.proposedDate !== undefined).length}, with processDate ${noStatus.filter((t) => t.processDate !== undefined).length}) — evidence: ${weeks[0]?.r.call.template ?? "mTransactions2"} (scoringPeriodId per period), HTTP 200, JSON path transactions[].status absent — options: the Phase 1 ESPN schema must treat transactions[].status as optional (the probe's does since 2026-09-29), and a TRADE_ACCEPT row counts as a completed trade whatever its status.`,
+    );
+  }
 
   const cur = weeks.find((x) => x.week === current)?.tx;
   const alias = parseTx(f.txAlias);
@@ -1330,7 +1344,7 @@ function checkG(ctx: Ctx, L: League, f: Fetched) {
       url: f.txAhead.r.call.template,
       status: f.txAhead.r.res.status,
       path: "transactions[].{id, scoringPeriodId, type, status}",
-      sample: { rows: ahead.length, overlapWithCurrent: overlap, types: countBy(ahead, (t) => `${t.type}/${t.status}`) },
+      sample: { rows: ahead.length, overlapWithCurrent: overlap, types: countBy(ahead, (t) => `${t.type}/${statusOf(t)}`) },
     });
   } else if (f.txAhead) failFetch(ctx, "G", "G.periodAhead", `scoringPeriodId=${f.txAhead.week} (next week)`, f.txAhead.r);
 
@@ -1364,7 +1378,7 @@ function checkG(ctx: Ctx, L: League, f: Fetched) {
     "G",
     "G.trades",
     "Trades this season",
-    `${accepted.length ? `${accepted.length} accepted/upheld trades` : `no completed trades yet (0 TRADE_ACCEPT/UPHOLD rows; Σ teams[].transactionCounter.trades = ${counterTrades}), so accepted-trade rows can't be verified live`}. Trade rows seen with the cookie holder's cookies: ${fmtCounts(countBy(trades, (t) => `${t.type}/${t.status}`)) || "none"}; ${withLegs.length}/${proposals.length} proposals list their legs (items[type=TRADE] playerId, fromTeamId → toTeamId); teamActions/expirationDate appear on ${withActions.length}/${proposals.length} proposals, ${withActionsMine.length === withActions.length ? "all" : withActionsMine.length} of them involving the cookie holder's team (Team ${my ?? "?"}); rows between other teams: ${fmtCounts(countBy(others, (t) => `${t.type}/${t.status}`)) || "none"}. PENDING proposals: ${pending.length}, ${stale.length} already past their expirationDate (PENDING can be stale: compare expirationDate with the current time). Without cookies sp${f.noCookieTxWeek ?? "?"} shows ${ncTrades ?? "?"} TRADE_* rows vs ${ckTrades ?? "?"} with cookies (AUTH.noCookies.mTransactions2). ${cite(ctx, leaguePy, ["TRADE_ACCEPT rows from mTransactions2 often have empty items except for", "the authenticated owner's deals"], "espn-api: TRADE_ACCEPT rows often lack items except for the authenticated owner's deals, and it refills them from player cards")}`,
+    `${accepted.length ? `${accepted.length} accepted/upheld trades` : `no completed trades yet (0 TRADE_ACCEPT/UPHOLD rows; Σ teams[].transactionCounter.trades = ${counterTrades}), so accepted-trade rows can't be verified live`}. Trade rows seen with the cookie holder's cookies: ${fmtCounts(countBy(trades, (t) => `${t.type}/${statusOf(t)}`)) || "none"}; ${withLegs.length}/${proposals.length} proposals list their legs (items[type=TRADE] playerId, fromTeamId → toTeamId); teamActions/expirationDate appear on ${withActions.length}/${proposals.length} proposals, ${withActionsMine.length === withActions.length ? "all" : withActionsMine.length} of them involving the cookie holder's team (Team ${my ?? "?"}); rows between other teams: ${fmtCounts(countBy(others, (t) => `${t.type}/${statusOf(t)}`)) || "none"}. PENDING proposals: ${pending.length}, ${stale.length} already past their expirationDate (PENDING can be stale: compare expirationDate with the current time). Without cookies sp${f.noCookieTxWeek ?? "?"} shows ${ncTrades ?? "?"} TRADE_* rows vs ${ckTrades ?? "?"} with cookies (AUTH.noCookies.mTransactions2). ${cite(ctx, leaguePy, ["TRADE_ACCEPT rows from mTransactions2 often have empty items except for", "the authenticated owner's deals"], "espn-api: TRADE_ACCEPT rows often lack items except for the authenticated owner's deals, and it refills them from player cards")}`,
     {
       path: "transactions[type=TRADE_*].{type,status,teamId,items[].{playerId,type,fromTeamId,toTeamId},teamActions,expirationDate,relatedTransactionId}",
       sample: legSample ? { type: "TRADE_PROPOSAL", leg: { playerId: legSample.playerId, fromTeamId: legSample.fromTeamId, toTeamId: legSample.toTeamId } } : { tradeRows: trades.length, counterTrades },
@@ -1804,7 +1818,7 @@ function compareNoCookie(ctx: Ctx, f: Fetched, view: string, r: Got): { status: 
       const explained = onlyNo.length === 0 && mine.length === onlyCookie.length;
       return {
         status: explained ? "ok" : "warn",
-        detail: `; sp${f.noCookieTxWeek}: ${nc.length} rows vs ${ck.length} with cookies; ${onlyCookie.length} only with cookies (${fmtCounts(countBy(onlyCookie, (t) => `${t.type}/${t.status}`)) || "none"}), ${mine.length} of them involving the cookie holder's team (Team ${ctx.myTeamId ?? "?"}): its own pending claims and offers are hidden from everyone else${onlyNo.length ? `; ${onlyNo.length} rows only WITHOUT cookies` : ""}`,
+        detail: `; sp${f.noCookieTxWeek}: ${nc.length} rows vs ${ck.length} with cookies; ${onlyCookie.length} only with cookies (${fmtCounts(countBy(onlyCookie, (t) => `${t.type}/${statusOf(t)}`)) || "none"}), ${mine.length} of them involving the cookie holder's team (Team ${ctx.myTeamId ?? "?"}): its own pending claims and offers are hidden from everyone else${onlyNo.length ? `; ${onlyNo.length} rows only WITHOUT cookies` : ""}`,
       };
     }
     case "kona_player_info": {
@@ -2108,12 +2122,19 @@ void runProbe("espn", async (p) => {
   };
   await saveFixture(ctx, "manifest", manifest, { note: "which placeholder SWID / team is Parker's" }, { trim: false, protect: protectAll, sweep: false });
   flush("FIX");
-  add(ctx, ctx.fixtureProblems ? "warn" : "ok", "FIX", "FIX.saved", "Sanitized fixtures", `${ctx.fixtures.length} saved under fixtures/sanitized/espn (index.json maps sha256(label) file names to labels)${ctx.fixtureProblems ? `; ${ctx.fixtureProblems} planned fixture(s) not saved this run` : ""}; raw captures in fixtures/raw/espn (git-ignored)`, { sample: ctx.fixtures.slice(0, 3) });
-  // Stale fixtures (labels this probe no longer produces) are removed only after a complete run.
+  // Parker's league and public data are committed; the public test league (a stranger's) goes to
+  // git-ignored data-local/ (scripts/lib/fixtures.ts), and only minimized copies of it are committed.
+  const split = partitionLabels("espn", ctx.fixtures);
+  add(ctx, ctx.fixtureProblems ? "warn" : "ok", "FIX", "FIX.saved", "Sanitized fixtures", `${ctx.fixtures.length} saved: ${whereSaved("espn", split.committed.length, split.local.length)}; each folder's index.json maps sha256(label) file names to labels${ctx.fixtureProblems ? `; ${ctx.fixtureProblems} planned fixture(s) not saved this run` : ""}; raw captures in fixtures/raw/espn (git-ignored)`, { sample: ctx.fixtures.slice(0, 3) });
+  // Stale fixtures (labels this probe no longer produces) are removed only after a complete run, in
+  // both folders, each keeping exactly the labels saved there (fixtures/sanitized/min/ is never touched).
   if (!ctx.fixtureProblems && L && PL) {
-    const pr = await pruneFixtures(path.join(SANITIZED_DIR, "espn"), new Set(ctx.fixtures));
-    const bad = pr.misnamed.length + pr.missingFiles.length;
-    add(ctx, bad ? "warn" : "ok", "FIX", "FIX.prune", "Stale fixtures", `removed ${pr.removed.length} fixture(s) this probe no longer produces${pr.removed.length ? ` (${pr.removed.join("; ")})` : ""} and ${pr.unindexed.length} unindexed file(s); every remaining file is named sha256(label): ${pr.misnamed.length ? `NO (${pr.misnamed.join("; ")})` : "yes"}; index entries without a file: ${pr.missingFiles.length}`, { path: "fixtures/sanitized/espn/index.json" });
+    const folders = fixtureFolders("espn");
+    const prs: PruneResult[] = [];
+    for (const f of folders) prs.push(await pruneFixtures(f.dir, new Set(f.committed ? split.committed : split.local)));
+    const all = (k: keyof PruneResult) => prs.flatMap((r) => r[k]);
+    const bad = all("misnamed").length + all("missingFiles").length;
+    add(ctx, bad ? "warn" : "ok", "FIX", "FIX.prune", "Stale fixtures", `removed ${all("removed").length} fixture(s) this probe no longer produces${all("removed").length ? ` (${all("removed").join("; ")})` : ""} and ${all("unindexed").length} unindexed file(s), across ${folders.map((f) => f.rel).join(" and ")}; every remaining file is named sha256(label): ${all("misnamed").length ? `NO (${all("misnamed").join("; ")})` : "yes"}; index entries without a file: ${all("missingFiles").length}`, { path: folders.map((f) => `${f.rel}/index.json`).join(", ") });
   } else add(ctx, "warn", "FIX", "FIX.prune", "Stale fixtures", "not pruned: this run was incomplete, so a missing fixture may just not have been refreshed");
 
   // Decisions and questions for the checkpoint report.

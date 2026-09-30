@@ -68,7 +68,7 @@ export function renderMatrix(outputs: Map<string, ProbeOutput>): string {
   }
   lines.push("");
   lines.push(
-    "Cells show the worst sub-check; \"(x of y)\" counts sub-checks that are ⚠️ or ❌. ➖ = not applicable on that platform; ⏸ = not tested yet (no credentials or no league; the reason is in the probe output). Details per platform: `reports/probe-output/<platform>.md`.",
+    "Cells show the worst sub-check; \"(x of y)\" counts sub-checks that are ⚠️ or ❌. ➖ = not applicable on that platform; ⏸ = not tested yet (no credentials, no league, or a check that would read strangers' leagues and needs `--allow-crawl`, which only runs after asking Parker; the reason is in the probe output). Details per platform: `reports/probe-output/<platform>.md`.",
   );
 
   // Checks outside A-M (auth, ID tables, API conventions, docs facts, Sleeper code meanings…).

@@ -1,0 +1,2673 @@
+{
+ "meta": {
+  "platform": "fleaflicker",
+  "league": "Phase 0 second public Fleaflicker test league (8 teams, conventional offensive scoring: 0.5 per catch, 6-pt pass TD)",
+  "season": 2026,
+  "weeks": [
+   2,
+   3
+  ],
+  "source": "Fleaflicker box-score points (FetchLeagueBoxscore viewingActualPoints) vs Sleeper's weekly actual stats × the scoring map; players joined through Sportradar ids",
+  "population": {
+   "cases": 500,
+   "within": 497,
+   "notPlayed": 86,
+   "notPlayedWithin": 86,
+   "byPos": {
+    "QB": {
+     "cases": 75,
+     "within": 75
+    },
+    "RB": {
+     "cases": 152,
+     "within": 152
+    },
+    "TE": {
+     "cases": 68,
+     "within": 68
+    },
+    "WR": {
+     "cases": 205,
+     "within": 202
+    }
+   },
+   "skipped": {}
+  },
+  "mismatchVerdicts": {
+   "explained": 0,
+   "consistent": 0,
+   "unexplained": 3
+  },
+  "selection": "every rule type the oracle counts as tested and per-game rules on players who didn't play (up to 15 player-weeks each), then 30% of each position-and-week stratum of players who played and 10% of those who didn't, in a fixed hash order; chosen without looking at whether a case matches",
+  "generatedBy": "scripts/minimize/fleaflicker-oracle.ts"
+ },
+ "rules": {
+  "groups": [
+   {
+    "label": "Passing",
+    "scoringRules": [
+     {
+      "category": {
+       "id": 12,
+       "abbreviation": "%",
+       "nameSingular": "Completion Percentage"
+      },
+      "points": {
+       "value": -2,
+       "formatted": "-2"
+      },
+      "boundUpper": 50,
+      "description": "-2 extra points when total Completion Percentage points is less than or equal to 50",
+      "applyTo": [
+       "QB"
+      ],
+      "isBonus": true,
+      "rangeType": "RANGE_UPPER_BOUND"
+     },
+     {
+      "category": {
+       "id": 12,
+       "abbreviation": "%",
+       "nameSingular": "Completion Percentage"
+      },
+      "points": {
+       "value": 2,
+       "formatted": "2"
+      },
+      "boundLower": 70,
+      "description": "2 extra points when total Completion Percentage points is greater than or equal to 70",
+      "applyTo": [
+       "QB"
+      ],
+      "isBonus": true,
+      "rangeType": "RANGE_LOWER_BOUND"
+     },
+     {
+      "category": {
+       "id": 3,
+       "abbreviation": "Yd",
+       "nameSingular": "Passing Yard"
+      },
+      "points": {
+       "value": 1,
+       "formatted": "1"
+      },
+      "forEvery": 20,
+      "description": "1 point for every 20 Passing Yards (0.05 per)",
+      "applyTo": [
+       "QB",
+       "RB",
+       "WR",
+       "TE"
+      ],
+      "applyToAll": true
+     },
+     {
+      "category": {
+       "id": 5,
+       "abbreviation": "TD",
+       "nameSingular": "Passing TD"
+      },
+      "points": {
+       "value": 6,
+       "formatted": "6"
+      },
+      "forEvery": 1,
+      "description": "6 points for every Passing TD",
+      "applyTo": [
+       "QB",
+       "RB",
+       "WR",
+       "TE"
+      ],
+      "applyToAll": true
+     },
+     {
+      "category": {
+       "id": 4,
+       "abbreviation": "2PC",
+       "nameSingular": "2 Pt Conversion Passing"
+      },
+      "points": {
+       "value": 2,
+       "formatted": "2"
+      },
+      "forEvery": 1,
+      "description": "2 points for every 2 Pt Conversion Passing",
+      "applyTo": [
+       "QB",
+       "RB",
+       "WR",
+       "TE"
+      ],
+      "applyToAll": true
+     },
+     {
+      "category": {
+       "id": 7,
+       "abbreviation": "INT",
+       "nameSingular": "Interception"
+      },
+      "points": {
+       "value": -4,
+       "formatted": "-4"
+      },
+      "forEvery": 1,
+      "description": "-4 points for every Interception",
+      "applyTo": [
+       "QB",
+       "RB",
+       "WR",
+       "TE"
+      ],
+      "applyToAll": true
+     },
+     {
+      "category": {
+       "id": 8,
+       "abbreviation": "IFT",
+       "nameSingular": "Interception For TD"
+      },
+      "points": {
+       "value": -2,
+       "formatted": "-2"
+      },
+      "forEvery": 1,
+      "description": "-2 points for every Interception For TD",
+      "applyTo": [
+       "QB",
+       "RB",
+       "WR",
+       "TE"
+      ],
+      "applyToAll": true
+     }
+    ]
+   },
+   {
+    "label": "Rushing",
+    "scoringRules": [
+     {
+      "category": {
+       "id": 21,
+       "abbreviation": "Att",
+       "nameSingular": "Rushing Attempt"
+      },
+      "points": {
+       "value": 1,
+       "formatted": "1"
+      },
+      "forEvery": 10,
+      "description": "1 point for every 10 Rushing Attempts (0.1 per)",
+      "applyTo": [
+       "RB",
+       "WR",
+       "TE"
+      ]
+     },
+     {
+      "category": {
+       "id": 22,
+       "abbreviation": "Yd",
+       "nameSingular": "Rushing Yard"
+      },
+      "points": {
+       "value": 1,
+       "formatted": "1"
+      },
+      "forEvery": 10,
+      "description": "1 point for every 10 Rushing Yards (0.1 per)",
+      "applyTo": [
+       "QB",
+       "RB",
+       "WR",
+       "TE"
+      ],
+      "applyToAll": true
+     },
+     {
+      "category": {
+       "id": 23,
+       "abbreviation": "2PC",
+       "nameSingular": "2 Pt Conversion Rushing"
+      },
+      "points": {
+       "value": 2,
+       "formatted": "2"
+      },
+      "forEvery": 1,
+      "description": "2 points for every 2 Pt Conversion Rushing",
+      "applyTo": [
+       "QB",
+       "RB",
+       "WR",
+       "TE"
+      ],
+      "applyToAll": true
+     },
+     {
+      "category": {
+       "id": 24,
+       "abbreviation": "TD",
+       "nameSingular": "Rushing TD"
+      },
+      "points": {
+       "value": 6,
+       "formatted": "6"
+      },
+      "forEvery": 1,
+      "description": "6 points for every Rushing TD",
+      "applyTo": [
+       "QB",
+       "RB",
+       "WR",
+       "TE"
+      ],
+      "applyToAll": true
+     }
+    ]
+   },
+   {
+    "label": "Receiving",
+    "scoringRules": [
+     {
+      "category": {
+       "id": 41,
+       "abbreviation": "Rec",
+       "nameSingular": "Catch"
+      },
+      "points": {
+       "value": 1,
+       "formatted": "1"
+      },
+      "forEvery": 2,
+      "description": "1 point for every 2 Catches (0.5 per)",
+      "applyTo": [
+       "QB",
+       "RB",
+       "WR",
+       "TE"
+      ],
+      "applyToAll": true
+     },
+     {
+      "category": {
+       "id": 144,
+       "abbreviation": "Drp",
+       "nameSingular": "Drop"
+      },
+      "points": {
+       "value": -1,
+       "formatted": "-1"
+      },
+      "forEvery": 4,
+      "description": "-1 point for every 4 Drops (-0.25 per)",
+      "applyTo": [
+       "RB",
+       "WR",
+       "TE"
+      ]
+     },
+     {
+      "category": {
+       "id": 42,
+       "abbreviation": "Yd",
+       "nameSingular": "Receiving Yard"
+      },
+      "points": {
+       "value": 1,
+       "formatted": "1"
+      },
+      "forEvery": 10,
+      "description": "1 point for every 10 Receiving Yards (0.1 per)",
+      "applyTo": [
+       "QB",
+       "RB",
+       "WR",
+       "TE"
+      ],
+      "applyToAll": true
+     },
+     {
+      "category": {
+       "id": 43,
+       "abbreviation": "2PC",
+       "nameSingular": "2 Pt Conversion Receiving"
+      },
+      "points": {
+       "value": 2,
+       "formatted": "2"
+      },
+      "forEvery": 1,
+      "description": "2 points for every 2 Pt Conversion Receiving",
+      "applyTo": [
+       "QB",
+       "RB",
+       "WR",
+       "TE"
+      ],
+      "applyToAll": true
+     },
+     {
+      "category": {
+       "id": 44,
+       "abbreviation": "TD",
+       "nameSingular": "Receiving TD"
+      },
+      "points": {
+       "value": 6,
+       "formatted": "6"
+      },
+      "forEvery": 1,
+      "description": "6 points for every Receiving TD",
+      "applyTo": [
+       "QB",
+       "RB",
+       "WR",
+       "TE"
+      ],
+      "applyToAll": true
+     }
+    ]
+   },
+   {
+    "label": "Misc",
+    "scoringRules": [
+     {
+      "category": {
+       "id": 26,
+       "abbreviation": "Fum",
+       "nameSingular": "Fumble"
+      },
+      "points": {
+       "value": -1,
+       "formatted": "-1"
+      },
+      "forEvery": 1,
+      "description": "-1 point for every Fumble",
+      "applyTo": [
+       "QB",
+       "RB",
+       "WR",
+       "TE"
+      ],
+      "applyToAll": true
+     },
+     {
+      "category": {
+       "id": 27,
+       "abbreviation": "Lost",
+       "nameSingular": "Fumble Lost"
+      },
+      "points": {
+       "value": -1,
+       "formatted": "-1"
+      },
+      "forEvery": 1,
+      "description": "-1 point for every Fumble Lost",
+      "applyTo": [
+       "QB",
+       "RB",
+       "WR",
+       "TE"
+      ],
+      "applyToAll": true
+     },
+     {
+      "category": {
+       "id": 118,
+       "abbreviation": "TD",
+       "nameSingular": "Offensive Fumble Recovery TD"
+      },
+      "points": {
+       "value": 6,
+       "formatted": "6"
+      },
+      "forEvery": 1,
+      "description": "6 points for every Offensive Fumble Recovery TD",
+      "applyTo": [
+       "QB",
+       "RB",
+       "WR",
+       "TE"
+      ],
+      "applyToAll": true
+     }
+    ]
+   },
+   {
+    "label": "Kicking",
+    "scoringRules": [
+     {
+      "category": {
+       "id": 101,
+       "abbreviation": "FG",
+       "nameSingular": "Field Goal Made"
+      },
+      "points": {
+       "value": 3,
+       "formatted": "3"
+      },
+      "forEvery": 1,
+      "description": "3 points for every Field Goal Made"
+     },
+     {
+      "category": {
+       "id": 102,
+       "abbreviation": "FY",
+       "nameSingular": "Field Goal Made",
+       "multiValue": true
+      },
+      "points": {
+       "value": 1,
+       "formatted": "1"
+      },
+      "forEvery": 10,
+      "boundLower": 30,
+      "description": "1 point for every 10 yards covered by a Field Goal Made after yard 30 (0.1 per)",
+      "rangeType": "RANGE_LOWER_BOUND"
+     },
+     {
+      "category": {
+       "id": 106,
+       "abbreviation": "FMY",
+       "nameSingular": "Field Goal Missed",
+       "multiValue": true
+      },
+      "points": {
+       "value": -2,
+       "formatted": "-2"
+      },
+      "boundUpper": 30,
+      "description": "-2 extra points for every Field Goal Missed of 30 or less yards",
+      "isBonus": true,
+      "rangeType": "RANGE_UPPER_BOUND"
+     },
+     {
+      "category": {
+       "id": 104,
+       "abbreviation": "XP",
+       "nameSingular": "XP"
+      },
+      "points": {
+       "value": 1,
+       "formatted": "1"
+      },
+      "forEvery": 1,
+      "description": "1 point for every XP"
+     },
+     {
+      "category": {
+       "id": 105,
+       "abbreviation": "XM",
+       "nameSingular": "XP Missed"
+      },
+      "points": {
+       "value": -2,
+       "formatted": "-2"
+      },
+      "forEvery": 1,
+      "description": "-2 points for every XP Missed"
+     }
+    ]
+   },
+   {
+    "label": "Returning",
+    "scoringRules": [
+     {
+      "category": {
+       "id": 62,
+       "abbreviation": "Yd",
+       "nameSingular": "Kick Return Yard"
+      },
+      "points": {
+       "value": 1,
+       "formatted": "1"
+      },
+      "forEvery": 25,
+      "description": "1 point for every 25 Kick Return Yards (0.04 per)",
+      "applyTo": [
+       "QB",
+       "RB",
+       "WR",
+       "TE"
+      ],
+      "applyToAll": true
+     },
+     {
+      "category": {
+       "id": 63,
+       "abbreviation": "TD",
+       "nameSingular": "Kick Return TD"
+      },
+      "points": {
+       "value": 6,
+       "formatted": "6"
+      },
+      "forEvery": 1,
+      "description": "6 points for every Kick Return TD",
+      "applyTo": [
+       "QB",
+       "RB",
+       "WR",
+       "TE"
+      ],
+      "applyToAll": true
+     },
+     {
+      "category": {
+       "id": 66,
+       "abbreviation": "Yd",
+       "nameSingular": "Punt Return Yard"
+      },
+      "points": {
+       "value": 1,
+       "formatted": "1"
+      },
+      "forEvery": 20,
+      "description": "1 point for every 20 Punt Return Yards (0.05 per)",
+      "applyTo": [
+       "QB",
+       "RB",
+       "WR",
+       "TE"
+      ],
+      "applyToAll": true
+     },
+     {
+      "category": {
+       "id": 67,
+       "abbreviation": "TD",
+       "nameSingular": "Punt Return TD"
+      },
+      "points": {
+       "value": 6,
+       "formatted": "6"
+      },
+      "forEvery": 1,
+      "description": "6 points for every Punt Return TD",
+      "applyTo": [
+       "QB",
+       "RB",
+       "WR",
+       "TE"
+      ],
+      "applyToAll": true
+     }
+    ]
+   },
+   {
+    "label": "Defense",
+    "scoringRules": [
+     {
+      "category": {
+       "id": 124,
+       "abbreviation": "TFL",
+       "nameSingular": "Tackle for Loss"
+      },
+      "points": {
+       "value": 1,
+       "formatted": "1"
+      },
+      "forEvery": 5,
+      "description": "1 point for every 5 Tackles for Loss (0.2 per)"
+     },
+     {
+      "category": {
+       "id": 84,
+       "abbreviation": "INT",
+       "nameSingular": "Interception"
+      },
+      "points": {
+       "value": 3,
+       "formatted": "3"
+      },
+      "forEvery": 1,
+      "description": "3 points for every Interception"
+     },
+     {
+      "category": {
+       "id": 85,
+       "abbreviation": "Sack",
+       "nameSingular": "Sack"
+      },
+      "points": {
+       "value": 2,
+       "formatted": "2"
+      },
+      "forEvery": 1,
+      "description": "2 points for every Sack"
+     },
+     {
+      "category": {
+       "id": 86,
+       "abbreviation": "FF",
+       "nameSingular": "Fumble Forced"
+      },
+      "points": {
+       "value": 1,
+       "formatted": "1"
+      },
+      "forEvery": 1,
+      "description": "1 point for every Fumble Forced"
+     },
+     {
+      "category": {
+       "id": 87,
+       "abbreviation": "FR",
+       "nameSingular": "Fumble Recovered"
+      },
+      "points": {
+       "value": 2,
+       "formatted": "2"
+      },
+      "forEvery": 1,
+      "description": "2 points for every Fumble Recovered"
+     },
+     {
+      "category": {
+       "id": 88,
+       "abbreviation": "Saf",
+       "nameSingular": "Safety"
+      },
+      "points": {
+       "value": 3,
+       "formatted": "3"
+      },
+      "forEvery": 1,
+      "description": "3 points for every Safety"
+     },
+     {
+      "category": {
+       "id": 89,
+       "abbreviation": "TD",
+       "nameSingular": "Defensive TD"
+      },
+      "points": {
+       "value": 6,
+       "formatted": "6"
+      },
+      "forEvery": 1,
+      "description": "6 points for every Defensive TD"
+     },
+     {
+      "category": {
+       "id": 117,
+       "abbreviation": "KB",
+       "nameSingular": "Blocked Kick"
+      },
+      "points": {
+       "value": 2,
+       "formatted": "2"
+      },
+      "forEvery": 1,
+      "description": "2 points for every Blocked Kick"
+     },
+     {
+      "category": {
+       "id": 125,
+       "abbreviation": "CR",
+       "nameSingular": "Conversion Return"
+      },
+      "points": {
+       "value": 2,
+       "formatted": "2"
+      },
+      "forEvery": 1,
+      "description": "2 points for every Conversion Return"
+     },
+     {
+      "category": {
+       "id": 94,
+       "abbreviation": "Pts",
+       "nameSingular": "Point Allowed"
+      },
+      "points": {
+       "value": 15,
+       "formatted": "15"
+      },
+      "description": "15 extra points when total Points Allowed is less than or equal to 0",
+      "isBonus": true,
+      "rangeType": "RANGE_UPPER_BOUND"
+     },
+     {
+      "category": {
+       "id": 94,
+       "abbreviation": "Pts",
+       "nameSingular": "Point Allowed"
+      },
+      "points": {
+       "value": 12,
+       "formatted": "12"
+      },
+      "boundLower": 1,
+      "boundUpper": 7,
+      "description": "12 extra points when total Points Allowed is between 1 and 7 (inclusive)",
+      "isBonus": true,
+      "rangeType": "RANGE_DOUBLE_BOUND"
+     },
+     {
+      "category": {
+       "id": 94,
+       "abbreviation": "Pts",
+       "nameSingular": "Point Allowed"
+      },
+      "points": {
+       "value": 9,
+       "formatted": "9"
+      },
+      "boundLower": 8,
+      "boundUpper": 14,
+      "description": "9 extra points when total Points Allowed is between 8 and 14 (inclusive)",
+      "isBonus": true,
+      "rangeType": "RANGE_DOUBLE_BOUND"
+     },
+     {
+      "category": {
+       "id": 94,
+       "abbreviation": "Pts",
+       "nameSingular": "Point Allowed"
+      },
+      "points": {
+       "value": 6,
+       "formatted": "6"
+      },
+      "boundLower": 15,
+      "boundUpper": 21,
+      "description": "6 extra points when total Points Allowed is between 15 and 21 (inclusive)",
+      "isBonus": true,
+      "rangeType": "RANGE_DOUBLE_BOUND"
+     },
+     {
+      "category": {
+       "id": 94,
+       "abbreviation": "Pts",
+       "nameSingular": "Point Allowed"
+      },
+      "points": {
+       "value": 3,
+       "formatted": "3"
+      },
+      "boundLower": 22,
+      "boundUpper": 28,
+      "description": "3 extra points when total Points Allowed is between 22 and 28 (inclusive)",
+      "isBonus": true,
+      "rangeType": "RANGE_DOUBLE_BOUND"
+     },
+     {
+      "category": {
+       "id": 94,
+       "abbreviation": "Pts",
+       "nameSingular": "Point Allowed"
+      },
+      "points": {
+       "value": -3,
+       "formatted": "-3"
+      },
+      "boundLower": 35,
+      "description": "-3 extra points when total Points Allowed is greater than or equal to 35",
+      "isBonus": true,
+      "rangeType": "RANGE_LOWER_BOUND"
+     },
+     {
+      "category": {
+       "id": 126,
+       "abbreviation": "4Stp",
+       "nameSingular": "Fourth-Down Stop"
+      },
+      "points": {
+       "value": 1,
+       "formatted": "1"
+      },
+      "forEvery": 2,
+      "description": "1 point for every 2 Fourth-Down Stops (0.5 per)"
+     },
+     {
+      "category": {
+       "id": 127,
+       "abbreviation": "3Out",
+       "nameSingular": "Three and Out"
+      },
+      "points": {
+       "value": 1,
+       "formatted": "1"
+      },
+      "forEvery": 2,
+      "description": "1 point for every 2 Three and Outs (0.5 per)"
+     }
+    ]
+   },
+   {
+    "label": "Punting",
+    "scoringRules": []
+   }
+  ]
+ },
+ "cases": [
+  {
+   "sleeperId": "11563",
+   "platformPos": "QB",
+   "pos": "QB",
+   "week": 2,
+   "stats": {
+    "cmp_pct": 70.97,
+    "gp": 1,
+    "pass_int": 1,
+    "pass_td": 1,
+    "pass_yd": 288,
+    "rush_att": 5,
+    "rush_yd": 6
+   },
+   "expected": 19
+  },
+  {
+   "sleeperId": "11564",
+   "platformPos": "QB",
+   "pos": "QB",
+   "week": 2,
+   "stats": {
+    "cmp_pct": 63.64,
+    "gp": 1,
+    "pass_int": 1,
+    "pass_yd": 208,
+    "rush_att": 4,
+    "rush_yd": 17
+   },
+   "expected": 8.1
+  },
+  {
+   "sleeperId": "11565",
+   "platformPos": "QB",
+   "pos": "QB",
+   "week": 2,
+   "stats": {},
+   "expected": 0
+  },
+  {
+   "sleeperId": "12545",
+   "platformPos": "QB",
+   "pos": "QB",
+   "week": 2,
+   "stats": {
+    "cmp_pct": 79.41,
+    "fum": 1,
+    "gp": 1,
+    "pass_td": 1,
+    "pass_yd": 252,
+    "rush_att": 9,
+    "rush_td": 1,
+    "rush_yd": 23
+   },
+   "expected": 27.9
+  },
+  {
+   "sleeperId": "3294",
+   "platformPos": "QB",
+   "pos": "QB",
+   "week": 2,
+   "stats": {
+    "cmp_pct": 83.87,
+    "gp": 1,
+    "pass_td": 4,
+    "pass_yd": 279,
+    "rush_att": 4,
+    "rush_yd": 26
+   },
+   "expected": 42.55
+  },
+  {
+   "sleeperId": "4017",
+   "platformPos": "QB",
+   "pos": "QB",
+   "week": 2,
+   "stats": {
+    "cmp_pct": 80,
+    "gp": 1,
+    "pass_td": 2,
+    "pass_yd": 238,
+    "rush_att": 7,
+    "rush_yd": 22
+   },
+   "expected": 28.1
+  },
+  {
+   "sleeperId": "421",
+   "platformPos": "QB",
+   "pos": "QB",
+   "week": 2,
+   "stats": {
+    "cmp_pct": 70.97,
+    "gp": 1,
+    "pass_int": 1,
+    "pass_td": 4,
+    "pass_yd": 327,
+    "rush_att": 4,
+    "rush_yd": -1
+   },
+   "expected": 38.25
+  },
+  {
+   "sleeperId": "5870",
+   "platformPos": "QB",
+   "pos": "QB",
+   "week": 2,
+   "stats": {
+    "cmp_pct": 70.97,
+    "gp": 1,
+    "pass_int": 1,
+    "pass_td": 1,
+    "pass_yd": 210,
+    "rush_att": 3,
+    "rush_yd": 10
+   },
+   "expected": 15.5
+  },
+  {
+   "sleeperId": "6904",
+   "platformPos": "QB",
+   "pos": "QB",
+   "week": 2,
+   "stats": {
+    "cmp_pct": 70.27,
+    "gp": 1,
+    "pass_int": 2,
+    "pass_td": 2,
+    "pass_yd": 264,
+    "rush_att": 5,
+    "rush_yd": 16
+   },
+   "expected": 20.8
+  },
+  {
+   "sleeperId": "8183",
+   "platformPos": "QB",
+   "pos": "QB",
+   "week": 2,
+   "stats": {
+    "cmp_pct": 90.91,
+    "gp": 1,
+    "pass_td": 2,
+    "pass_yd": 287,
+    "rush_att": 3,
+    "rush_td": 1,
+    "rush_yd": 30
+   },
+   "expected": 37.35
+  },
+  {
+   "sleeperId": "10219",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rush_att": 6,
+    "rush_yd": 13
+   },
+   "expected": 1.9
+  },
+  {
+   "sleeperId": "11575",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "kr_yd": 31
+   },
+   "expected": 1.24
+  },
+  {
+   "sleeperId": "11583",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 1,
+    "rec_yd": -5,
+    "rush_att": 5,
+    "rush_yd": 16
+   },
+   "expected": 2.1
+  },
+  {
+   "sleeperId": "11643",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "kr_yd": 79,
+    "rush_att": 2,
+    "rush_yd": 11
+   },
+   "expected": 4.46
+  },
+  {
+   "sleeperId": "11655",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "kr_yd": 52
+   },
+   "expected": 2.08
+  },
+  {
+   "sleeperId": "12490",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 2,
+    "rec_yd": -3,
+    "rush_att": 13,
+    "rush_td": 1,
+    "rush_yd": 65
+   },
+   "expected": 14.5
+  },
+  {
+   "sleeperId": "12507",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 2,
+   "stats": {
+    "fum": 1,
+    "fum_lost": 1,
+    "gp": 1,
+    "rec": 2,
+    "rec_yd": 21,
+    "rush_att": 23,
+    "rush_td": 1,
+    "rush_yd": 94
+   },
+   "expected": 18.8
+  },
+  {
+   "sleeperId": "12533",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 1,
+    "rec_yd": 5,
+    "rush_att": 12,
+    "rush_yd": 43
+   },
+   "expected": 6.5
+  },
+  {
+   "sleeperId": "13337",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "kr_yd": 34,
+    "rec": 2,
+    "rec_yd": 20,
+    "rush_att": 2,
+    "rush_yd": 15
+   },
+   "expected": 6.06
+  },
+  {
+   "sleeperId": "13405",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rush_att": 5,
+    "rush_yd": 24
+   },
+   "expected": 2.9
+  },
+  {
+   "sleeperId": "4035",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 5,
+    "rec_drop": 1,
+    "rec_yd": 7,
+    "rush_att": 9,
+    "rush_yd": 15
+   },
+   "expected": 5.35
+  },
+  {
+   "sleeperId": "4137",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 2,
+   "stats": {},
+   "expected": 0
+  },
+  {
+   "sleeperId": "4866",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 1,
+    "rec_yd": 11,
+    "rush_att": 4,
+    "rush_yd": 9
+   },
+   "expected": 2.9
+  },
+  {
+   "sleeperId": "7543",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 2,
+    "rec_yd": 6,
+    "rush_2pt": 1,
+    "rush_att": 8,
+    "rush_yd": 25
+   },
+   "expected": 6.9
+  },
+  {
+   "sleeperId": "7611",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 2,
+   "stats": {
+    "fum": 1,
+    "fum_lost": 1,
+    "gp": 1,
+    "rec": 1,
+    "rec_drop": 1,
+    "rec_yd": 3,
+    "rush_att": 6,
+    "rush_yd": 43
+   },
+   "expected": 3.45
+  },
+  {
+   "sleeperId": "8136",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 6,
+    "rec_yd": 40,
+    "rush_att": 7,
+    "rush_yd": 43
+   },
+   "expected": 12
+  },
+  {
+   "sleeperId": "8150",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 2,
+   "stats": {
+    "fum": 1,
+    "fum_lost": 1,
+    "gp": 1,
+    "rec": 2,
+    "rec_td": 1,
+    "rec_yd": 12,
+    "rush_att": 12,
+    "rush_yd": 85
+   },
+   "expected": 15.9
+  },
+  {
+   "sleeperId": "8151",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 6,
+    "rec_yd": 61,
+    "rush_att": 24,
+    "rush_yd": 117
+   },
+   "expected": 23.2
+  },
+  {
+   "sleeperId": "8155",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 5,
+    "rec_yd": 63,
+    "rush_att": 16,
+    "rush_yd": 29
+   },
+   "expected": 13.3
+  },
+  {
+   "sleeperId": "8408",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 2,
+   "stats": {},
+   "expected": 0
+  },
+  {
+   "sleeperId": "9224",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 3,
+    "rec_yd": 2,
+    "rush_att": 20,
+    "rush_yd": 80
+   },
+   "expected": 11.7
+  },
+  {
+   "sleeperId": "9226",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 3,
+    "rec_drop": 1,
+    "rec_yd": 19,
+    "rush_att": 20,
+    "rush_yd": 74
+   },
+   "expected": 12.55
+  },
+  {
+   "sleeperId": "10232",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 2,
+    "rec_yd": 18
+   },
+   "expected": 2.8
+  },
+  {
+   "sleeperId": "11625",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 6,
+    "rec_drop": 2,
+    "rec_yd": 63
+   },
+   "expected": 8.8
+  },
+  {
+   "sleeperId": "11637",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 6,
+    "rec_yd": 63
+   },
+   "expected": 9.3
+  },
+  {
+   "sleeperId": "11783",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 5,
+    "rec_yd": 23
+   },
+   "expected": 4.8
+  },
+  {
+   "sleeperId": "11834",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 5,
+    "rec_yd": 64
+   },
+   "expected": 8.9
+  },
+  {
+   "sleeperId": "12484",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 2,
+   "stats": {},
+   "expected": 0
+  },
+  {
+   "sleeperId": "12509",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 1,
+    "rec_yd": 53
+   },
+   "expected": 5.8
+  },
+  {
+   "sleeperId": "12536",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "kr_yd": 31,
+    "pr_yd": 32,
+    "rec": 1,
+    "rec_yd": 31,
+    "rush_att": 1,
+    "rush_yd": 13
+   },
+   "expected": 7.84
+  },
+  {
+   "sleeperId": "12547",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "kr_yd": 29,
+    "rec": 1,
+    "rec_yd": 10
+   },
+   "expected": 2.66
+  },
+  {
+   "sleeperId": "13281",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 2,
+   "stats": {},
+   "expected": 0
+  },
+  {
+   "sleeperId": "13285",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 2,
+    "rec_drop": 1,
+    "rec_yd": 30
+   },
+   "expected": 4
+  },
+  {
+   "sleeperId": "13317",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 2,
+    "rec_drop": 1,
+    "rec_yd": 27
+   },
+   "expected": 3.45
+  },
+  {
+   "sleeperId": "13346",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 5,
+    "rec_drop": 1,
+    "rec_td": 1,
+    "rec_yd": 95
+   },
+   "expected": 17.75
+  },
+  {
+   "sleeperId": "1479",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 1,
+    "rec_yd": 5
+   },
+   "expected": 1
+  },
+  {
+   "sleeperId": "2449",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 5,
+    "rec_td": 2,
+    "rec_yd": 47
+   },
+   "expected": 19.2
+  },
+  {
+   "sleeperId": "3286",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 3,
+    "rec_yd": 34
+   },
+   "expected": 4.9
+  },
+  {
+   "sleeperId": "4981",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 2,
+    "rec_yd": 35
+   },
+   "expected": 4.5
+  },
+  {
+   "sleeperId": "5846",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 4,
+    "rec_drop": 1,
+    "rec_yd": 27
+   },
+   "expected": 4.45
+  },
+  {
+   "sleeperId": "5927",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 2,
+    "rec_drop": 1,
+    "rec_yd": 50
+   },
+   "expected": 5.75
+  },
+  {
+   "sleeperId": "5947",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 1,
+    "rec_yd": 28
+   },
+   "expected": 3.3
+  },
+  {
+   "sleeperId": "6786",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 8,
+    "rec_td": 2,
+    "rec_yd": 153
+   },
+   "expected": 31.3
+  },
+  {
+   "sleeperId": "8134",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "kr_yd": 11,
+    "rec": 3,
+    "rec_drop": 1,
+    "rec_yd": 38
+   },
+   "expected": 5.49
+  },
+  {
+   "sleeperId": "8137",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 6,
+    "rec_yd": 40
+   },
+   "expected": 7
+  },
+  {
+   "sleeperId": "8167",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 4,
+    "rec_drop": 2,
+    "rec_td": 1,
+    "rec_yd": 41
+   },
+   "expected": 11.6
+  },
+  {
+   "sleeperId": "8180",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 1,
+    "rec_yd": 9
+   },
+   "expected": 1.4
+  },
+  {
+   "sleeperId": "9487",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "fum": 1,
+    "gp": 1,
+    "pr_yd": 12,
+    "rec": 7,
+    "rec_yd": 98
+   },
+   "expected": 12.9
+  },
+  {
+   "sleeperId": "9500",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 7,
+    "rec_yd": 72
+   },
+   "expected": 10.7
+  },
+  {
+   "sleeperId": "9504",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 3,
+    "rec_drop": 1,
+    "rec_yd": 37
+   },
+   "expected": 4.95
+  },
+  {
+   "sleeperId": "12502",
+   "platformPos": "TE",
+   "pos": "TE",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 2,
+    "rec_yd": 13
+   },
+   "expected": 2.3
+  },
+  {
+   "sleeperId": "12506",
+   "platformPos": "TE",
+   "pos": "TE",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 5,
+    "rec_drop": 1,
+    "rec_yd": 54
+   },
+   "expected": 7.65
+  },
+  {
+   "sleeperId": "13278",
+   "platformPos": "TE",
+   "pos": "TE",
+   "week": 2,
+   "stats": {
+    "gp": 1
+   },
+   "expected": 0
+  },
+  {
+   "sleeperId": "13330",
+   "platformPos": "TE",
+   "pos": "TE",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 2,
+    "rec_yd": 17
+   },
+   "expected": 2.7
+  },
+  {
+   "sleeperId": "13421",
+   "platformPos": "TE",
+   "pos": "TE",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 1,
+    "rec_yd": 30
+   },
+   "expected": 3.5
+  },
+  {
+   "sleeperId": "3214",
+   "platformPos": "TE",
+   "pos": "TE",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 3,
+    "rec_yd": 40
+   },
+   "expected": 5.5
+  },
+  {
+   "sleeperId": "4993",
+   "platformPos": "TE",
+   "pos": "TE",
+   "week": 2,
+   "stats": {
+    "gp": 1
+   },
+   "expected": 0
+  },
+  {
+   "sleeperId": "5022",
+   "platformPos": "TE",
+   "pos": "TE",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 1,
+    "rec_yd": 4
+   },
+   "expected": 0.9
+  },
+  {
+   "sleeperId": "8130",
+   "platformPos": "TE",
+   "pos": "TE",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 8,
+    "rec_td": 1,
+    "rec_yd": 41
+   },
+   "expected": 14.1
+  },
+  {
+   "sleeperId": "8210",
+   "platformPos": "TE",
+   "pos": "TE",
+   "week": 2,
+   "stats": {},
+   "expected": 0
+  },
+  {
+   "sleeperId": "11559",
+   "platformPos": "QB",
+   "pos": "QB",
+   "week": 3,
+   "stats": {
+    "cmp_pct": 72,
+    "gp": 1,
+    "pass_2pt": 1,
+    "pass_int": 1,
+    "pass_td": 1,
+    "pass_yd": 256,
+    "rush_att": 2,
+    "rush_yd": -2
+   },
+   "expected": 18.6
+  },
+  {
+   "sleeperId": "11563",
+   "platformPos": "QB",
+   "pos": "QB",
+   "week": 3,
+   "stats": {
+    "cmp_pct": 50,
+    "gp": 1,
+    "pass_2pt": 2,
+    "pass_int": 1,
+    "pass_td": 2,
+    "pass_yd": 186,
+    "rush_att": 4,
+    "rush_td": 1,
+    "rush_yd": 7
+   },
+   "expected": 26
+  },
+  {
+   "sleeperId": "11566",
+   "platformPos": "QB",
+   "pos": "QB",
+   "week": 3,
+   "stats": {},
+   "expected": 0
+  },
+  {
+   "sleeperId": "12524",
+   "platformPos": "QB",
+   "pos": "QB",
+   "week": 3,
+   "stats": {
+    "cmp_pct": 100,
+    "gp": 1
+   },
+   "expected": 2
+  },
+  {
+   "sleeperId": "1373",
+   "platformPos": "QB",
+   "pos": "QB",
+   "week": 3,
+   "stats": {
+    "cmp_pct": 83.78,
+    "fum": 1,
+    "fum_lost": 1,
+    "gp": 1,
+    "pass_2pt": 1,
+    "pass_td": 3,
+    "pass_yd": 321,
+    "rush_att": 2,
+    "rush_yd": 12
+   },
+   "expected": 37.25
+  },
+  {
+   "sleeperId": "3163",
+   "platformPos": "QB",
+   "pos": "QB",
+   "week": 3,
+   "stats": {
+    "cmp_pct": 78.13,
+    "gp": 1,
+    "pass_td": 2,
+    "pass_yd": 269,
+    "rush_att": 4,
+    "rush_yd": 6
+   },
+   "expected": 28.05
+  },
+  {
+   "sleeperId": "3257",
+   "platformPos": "QB",
+   "pos": "QB",
+   "week": 3,
+   "stats": {
+    "cmp_pct": 73.08,
+    "gp": 1,
+    "pass_td": 2,
+    "pass_yd": 280,
+    "rush_att": 4,
+    "rush_td": 1,
+    "rush_yd": 4
+   },
+   "expected": 34.4
+  },
+  {
+   "sleeperId": "3294",
+   "platformPos": "QB",
+   "pos": "QB",
+   "week": 3,
+   "stats": {
+    "cmp_pct": 62.5,
+    "gp": 1,
+    "pass_2pt": 1,
+    "pass_td": 1,
+    "pass_yd": 276,
+    "rush_att": 4,
+    "rush_yd": 19
+   },
+   "expected": 23.7
+  },
+  {
+   "sleeperId": "4046",
+   "platformPos": "QB",
+   "pos": "QB",
+   "week": 3,
+   "stats": {
+    "cmp_pct": 83.33,
+    "gp": 1,
+    "pass_int": 1,
+    "pass_td": 2,
+    "pass_yd": 246,
+    "rush_att": 1,
+    "rush_yd": 1
+   },
+   "expected": 22.4
+  },
+  {
+   "sleeperId": "4892",
+   "platformPos": "QB",
+   "pos": "QB",
+   "week": 3,
+   "stats": {
+    "cmp_pct": 50,
+    "gp": 1,
+    "pass_int": 1,
+    "pass_td": 1,
+    "pass_yd": 217,
+    "rush_att": 2,
+    "rush_yd": 6
+   },
+   "expected": 11.45
+  },
+  {
+   "sleeperId": "4943",
+   "platformPos": "QB",
+   "pos": "QB",
+   "week": 3,
+   "stats": {
+    "cmp_pct": 68.89,
+    "gp": 1,
+    "pass_int": 2,
+    "pass_int_td": 1,
+    "pass_td": 4,
+    "pass_yd": 379,
+    "rush_att": 1,
+    "rush_yd": 5
+   },
+   "expected": 33.45
+  },
+  {
+   "sleeperId": "6770",
+   "platformPos": "QB",
+   "pos": "QB",
+   "week": 3,
+   "stats": {
+    "cmp_pct": 75.68,
+    "fum": 1,
+    "fum_lost": 1,
+    "gp": 1,
+    "pass_td": 3,
+    "pass_yd": 282,
+    "rush_att": 2,
+    "rush_yd": 13
+   },
+   "expected": 33.4
+  },
+  {
+   "sleeperId": "11435",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rush_att": 9,
+    "rush_yd": 14
+   },
+   "expected": 2.3
+  },
+  {
+   "sleeperId": "11584",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 2,
+    "rec_drop": 1,
+    "rec_yd": 12,
+    "rush_att": 15,
+    "rush_yd": 46
+   },
+   "expected": 8.05
+  },
+  {
+   "sleeperId": "12507",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rush_att": 15,
+    "rush_yd": 56
+   },
+   "expected": 7.1
+  },
+  {
+   "sleeperId": "12527",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 3,
+    "rec_yd": 37,
+    "rush_att": 19,
+    "rush_yd": 56
+   },
+   "expected": 12.7
+  },
+  {
+   "sleeperId": "12533",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 1,
+    "rec_yd": 7,
+    "rush_att": 19,
+    "rush_yd": 36
+   },
+   "expected": 6.7
+  },
+  {
+   "sleeperId": "13287",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 5,
+    "rec_td": 1,
+    "rec_yd": 19,
+    "rush_att": 21,
+    "rush_yd": 90
+   },
+   "expected": 21.5
+  },
+  {
+   "sleeperId": "13305",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rush_att": 5,
+    "rush_td": 1,
+    "rush_yd": 54
+   },
+   "expected": 11.9
+  },
+  {
+   "sleeperId": "13424",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rush_att": 4,
+    "rush_yd": 14
+   },
+   "expected": 1.8
+  },
+  {
+   "sleeperId": "3198",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 1,
+    "rush_att": 26,
+    "rush_td": 2,
+    "rush_yd": 89
+   },
+   "expected": 24
+  },
+  {
+   "sleeperId": "4199",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 5,
+    "rec_yd": 34,
+    "rush_att": 17,
+    "rush_yd": 58
+   },
+   "expected": 13.4
+  },
+  {
+   "sleeperId": "5892",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 2,
+    "rec_yd": 15,
+    "rush_att": 11,
+    "rush_yd": 33
+   },
+   "expected": 6.9
+  },
+  {
+   "sleeperId": "6130",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 3,
+   "stats": {},
+   "expected": 0
+  },
+  {
+   "sleeperId": "6790",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 2,
+    "rec_yd": 4,
+    "rush_att": 20,
+    "rush_yd": 84
+   },
+   "expected": 11.8
+  },
+  {
+   "sleeperId": "7543",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 2,
+    "rec_yd": 13,
+    "rush_att": 13,
+    "rush_yd": 57
+   },
+   "expected": 9.3
+  },
+  {
+   "sleeperId": "7567",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "kr_yd": 160,
+    "rec": 2,
+    "rec_yd": 14,
+    "rush_att": 3,
+    "rush_yd": -4
+   },
+   "expected": 8.7
+  },
+  {
+   "sleeperId": "8150",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 6,
+    "rec_yd": 70,
+    "rush_att": 15,
+    "rush_yd": 88
+   },
+   "expected": 20.3
+  },
+  {
+   "sleeperId": "8154",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "kr_yd": 54,
+    "rush_att": 10,
+    "rush_td": 1,
+    "rush_yd": 50
+   },
+   "expected": 14.16
+  },
+  {
+   "sleeperId": "8155",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 3,
+    "rec_yd": 23,
+    "rush_att": 13,
+    "rush_yd": 32
+   },
+   "expected": 8.3
+  },
+  {
+   "sleeperId": "8408",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 3,
+   "stats": {},
+   "expected": 0
+  },
+  {
+   "sleeperId": "9226",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec_drop": 1,
+    "rush_att": 3,
+    "rush_yd": 17
+   },
+   "expected": 1.75
+  },
+  {
+   "sleeperId": "9508",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rush_att": 3,
+    "rush_yd": 5
+   },
+   "expected": 0.8
+  },
+  {
+   "sleeperId": "11620",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 3,
+    "rec_yd": 44
+   },
+   "expected": 5.9
+  },
+  {
+   "sleeperId": "11624",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 2,
+    "rec_yd": 20
+   },
+   "expected": 3
+  },
+  {
+   "sleeperId": "11631",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 1,
+    "rec_yd": 8
+   },
+   "expected": 1.3
+  },
+  {
+   "sleeperId": "11635",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 4,
+    "rec_yd": 66
+   },
+   "expected": 8.6
+  },
+  {
+   "sleeperId": "11646",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 2,
+    "rec_yd": 18
+   },
+   "expected": 2.8
+  },
+  {
+   "sleeperId": "11834",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 3,
+    "rec_yd": 39
+   },
+   "expected": 5.4
+  },
+  {
+   "sleeperId": "12519",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 7,
+    "rec_td": 1,
+    "rec_yd": 61,
+    "rush_att": 1,
+    "rush_yd": 7
+   },
+   "expected": 16.4
+  },
+  {
+   "sleeperId": "13274",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 1,
+    "rec_yd": 14
+   },
+   "expected": 1.9
+  },
+  {
+   "sleeperId": "13285",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 2,
+    "rec_yd": 19
+   },
+   "expected": 2.9
+  },
+  {
+   "sleeperId": "13317",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 1,
+    "rec_td": 1,
+    "rec_yd": 40
+   },
+   "expected": 10.5
+  },
+  {
+   "sleeperId": "13417",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 3,
+   "stats": {},
+   "expected": 0
+  },
+  {
+   "sleeperId": "4039",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 4,
+    "rec_td": 1,
+    "rec_yd": 46
+   },
+   "expected": 12.6
+  },
+  {
+   "sleeperId": "4950",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 3,
+   "stats": {},
+   "expected": 0
+  },
+  {
+   "sleeperId": "4981",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec_drop": 1
+   },
+   "expected": -0.25
+  },
+  {
+   "sleeperId": "5846",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 3,
+    "rec_td": 1,
+    "rec_yd": 31
+   },
+   "expected": 10.6
+  },
+  {
+   "sleeperId": "5927",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 6,
+    "rec_drop": 1,
+    "rec_td": 1,
+    "rec_yd": 77
+   },
+   "expected": 16.45
+  },
+  {
+   "sleeperId": "6783",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1
+   },
+   "expected": 0
+  },
+  {
+   "sleeperId": "6786",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 7,
+    "rec_2pt": 1,
+    "rec_yd": 112
+   },
+   "expected": 16.7
+  },
+  {
+   "sleeperId": "6801",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 6,
+    "rec_td": 1,
+    "rec_yd": 90
+   },
+   "expected": 18
+  },
+  {
+   "sleeperId": "7049",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 1,
+    "rec_yd": 1
+   },
+   "expected": 0.6
+  },
+  {
+   "sleeperId": "7571",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 2,
+    "rec_yd": 37
+   },
+   "expected": 4.7
+  },
+  {
+   "sleeperId": "8121",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 3,
+    "rec_yd": 49
+   },
+   "expected": 6.4
+  },
+  {
+   "sleeperId": "8126",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 7,
+    "rec_drop": 3,
+    "rec_td": 1,
+    "rec_yd": 57
+   },
+   "expected": 14.45
+  },
+  {
+   "sleeperId": "8134",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 1,
+    "rec_yd": 6
+   },
+   "expected": 1.1
+  },
+  {
+   "sleeperId": "8180",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 1,
+    "rec_yd": 16
+   },
+   "expected": 2.1
+  },
+  {
+   "sleeperId": "9500",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 5,
+    "rec_yd": 77
+   },
+   "expected": 10.2
+  },
+  {
+   "sleeperId": "9754",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 3,
+    "rec_drop": 1,
+    "rec_yd": 40
+   },
+   "expected": 5.25
+  },
+  {
+   "sleeperId": "9756",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 5,
+    "rec_td": 1,
+    "rec_yd": 90
+   },
+   "expected": 17.5
+  },
+  {
+   "sleeperId": "12502",
+   "platformPos": "TE",
+   "pos": "TE",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 2,
+    "rec_yd": 14
+   },
+   "expected": 2.4
+  },
+  {
+   "sleeperId": "12517",
+   "platformPos": "TE",
+   "pos": "TE",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 4,
+    "rec_yd": 31
+   },
+   "expected": 5.1
+  },
+  {
+   "sleeperId": "13278",
+   "platformPos": "TE",
+   "pos": "TE",
+   "week": 3,
+   "stats": {
+    "gp": 1
+   },
+   "expected": 0
+  },
+  {
+   "sleeperId": "13319",
+   "platformPos": "TE",
+   "pos": "TE",
+   "week": 3,
+   "stats": {
+    "gp": 1
+   },
+   "expected": 0
+  },
+  {
+   "sleeperId": "13349",
+   "platformPos": "TE",
+   "pos": "TE",
+   "week": 3,
+   "stats": {},
+   "expected": 0
+  },
+  {
+   "sleeperId": "1466",
+   "platformPos": "TE",
+   "pos": "TE",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 2,
+    "rec_td": 1,
+    "rec_yd": 59
+   },
+   "expected": 12.9
+  },
+  {
+   "sleeperId": "5012",
+   "platformPos": "TE",
+   "pos": "TE",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 3,
+    "rec_yd": 24
+   },
+   "expected": 3.9
+  },
+  {
+   "sleeperId": "8111",
+   "platformPos": "TE",
+   "pos": "TE",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 3,
+    "rec_yd": 56
+   },
+   "expected": 7.1
+  },
+  {
+   "sleeperId": "8130",
+   "platformPos": "TE",
+   "pos": "TE",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 9,
+    "rec_yd": 75
+   },
+   "expected": 12
+  },
+  {
+   "sleeperId": "9482",
+   "platformPos": "TE",
+   "pos": "TE",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 3,
+    "rec_td": 1,
+    "rec_yd": 32
+   },
+   "expected": 10.7
+  }
+ ]
+}

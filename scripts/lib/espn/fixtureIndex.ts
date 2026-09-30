@@ -1,12 +1,16 @@
 /**
- * Keeps fixtures/sanitized/espn tidy: after a COMPLETE probe run, fixtures this run no longer
+ * Keeps the ESPN fixture folders tidy: after a COMPLETE probe run, fixtures this run no longer
  * produces (a label changed or a capture was dropped) are deleted together with their index.json
- * entry, and every remaining file is checked to be named sha256(label) + extension.
- * Labels are placeholder-only (fixtures.ts refuses anything else), so they are safe to print.
+ * entry, and every remaining file is checked to be named sha256(label) + extension. The probe calls
+ * this for fixtures/sanitized/espn (Parker's league, public data) and for the git-ignored
+ * data-local/fixtures-sanitized/espn (the public test league: a stranger's), each with the labels it
+ * saved to that folder. Labels are placeholder-only (fixtures.ts refuses anything else), so they are
+ * safe to print. Subfolders and files not named like a fixture are never deleted.
  */
 import { readFile, readdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { sha256, writeFileAtomic } from "../cache";
+import { FIXTURE_FILE, assertPrunable, isPlainName } from "../shared/fixture-folders";
 
 interface IndexEntry {
   label: string;
@@ -43,22 +47,35 @@ export function planPrune(index: Record<string, IndexEntry>, keepLabels: Readonl
   return { keep, removed, misnamed, unindexed, missingFiles };
 }
 
-/** Apply planPrune() to a fixture folder. Returns the removed labels and any inconsistencies. */
+/**
+ * Apply planPrune() to a fixture folder. Returns the removed labels and any inconsistencies;
+ * `unindexed` lists the orphan files removed (named like a fixture). A folder without an index
+ * (never written, e.g. no stranger's league probed yet) is left alone.
+ */
 export async function pruneFixtures(dir: string, keepLabels: ReadonlySet<string>): Promise<PruneResult> {
+  assertPrunable(dir);
+  const none: PruneResult = { removed: [], misnamed: [], unindexed: [], missingFiles: [] };
   const indexPath = path.join(dir, "index.json");
-  const index = JSON.parse(await readFile(indexPath, "utf8")) as Record<string, IndexEntry>;
-  const files = await readdir(dir);
+  let index: Record<string, IndexEntry>;
+  let files: string[];
+  try {
+    index = JSON.parse(await readFile(indexPath, "utf8")) as Record<string, IndexEntry>;
+    files = (await readdir(dir, { withFileTypes: true })).filter((e) => e.isFile()).map((e) => e.name);
+  } catch {
+    return none;
+  }
   const plan = planPrune(index, keepLabels, files);
   const removedLabels: string[] = [];
   for (const file of plan.removed) {
     removedLabels.push(index[file]?.label ?? file);
-    await rm(path.join(dir, file), { force: true });
+    if (isPlainName(file) && file !== "index.json") await rm(path.join(dir, file), { force: true });
   }
   // Files without an index entry are orphans from earlier runs: nothing can find them by label.
-  for (const file of plan.unindexed) await rm(path.join(dir, file), { force: true });
+  const orphans = plan.unindexed.filter((f) => FIXTURE_FILE.test(f));
+  for (const file of orphans) await rm(path.join(dir, file), { force: true });
   if (plan.removed.length) {
     const sorted = Object.fromEntries(Object.entries(plan.keep).sort(([, a], [, b]) => a.label.localeCompare(b.label)));
     await writeFileAtomic(indexPath, JSON.stringify(sorted, null, 2) + "\n");
   }
-  return { removed: removedLabels, misnamed: plan.misnamed, unindexed: plan.unindexed, missingFiles: plan.missingFiles };
+  return { removed: removedLabels, misnamed: plan.misnamed, unindexed: orphans, missingFiles: plan.missingFiles };
 }

@@ -9,16 +9,38 @@ export const config = {
   scoring: {
     /** SD = bonusCv × mean for stats without a statSd entry (expected-value rules on projections). */
     bonusCv: 0.5,
-    /** Per-stat SD for expected-value rules (threshold, range, stepped). */
-    statSd: { pts_allow: 9 } as Readonly<Record<string, number>>,
     /**
-     * Stats are integer counts, so an integer bound b means "b or more" = X ≥ b − 0.5 under the
-     * normal approximation; adjacent integer buckets (14–17, 18–21) then tile the line.
+     * Per-stat SD for expected-value rules (threshold, range, stepped). pts_allow ≈ 9 is the
+     * planner's number. yds_allow 70 (⚠️ one week) is the residual SD of actual minus Sleeper's
+     * projection over 32 defenses in 2026 week 3 (npm run measure:stat-sd; bonusCv × mean would give
+     * about 165). Phase 6 re-tunes both on pre-kickoff projections.
      */
-    continuityCorrection: 0.5,
+    statSd: { pts_allow: 9, yds_allow: 70 } as Readonly<Record<string, number>>,
+    /**
+     * Resolution of a stat for expected-value bounds: counts move in whole units (default 1), IDP
+     * sacks in halves, and ratios such as completion percentage are continuous (0). A bound b on a
+     * grid g reads "≥ b" as X ≥ ceil(b/g)·g − g/2 and "≤ b" as X ≤ floor(b/g)·g + g/2, so adjacent
+     * buckets (14–17, 18–21) tile the line; a continuous stat gets no correction.
+     */
+    defaultStatGrid: 1,
+    statGrid: { idp_sack: 0.5, cmp_pct: 0 } as Readonly<Record<string, number>>,
+    /**
+     * Stats that can't go below a floor. The normal's mass below it belongs to the lowest bucket, so
+     * a closed "0 points allowed" bucket (ESPN, Fleaflicker) and an open bottom bracket (Sleeper,
+     * MFL) give the same expected value.
+     */
+    statFloor: { pts_allow: 0, yds_allow: 0 } as Readonly<Record<string, number>>,
     /** Oracle tolerance (§5): at least 99% of players within 0.05 points. */
     oracleTolerance: 0.05,
     oracleTarget: 0.99,
+  },
+
+  /** §4 Import: what every adapter keeps. */
+  import: {
+    /** LeagueSnapshot.freeAgents: the top N free agents per position by projection. */
+    freeAgentsPerPosition: 50,
+    /** Free agents are ranked by their mean projection over this many weeks from now, so a bye doesn't hide them. */
+    freeAgentRankWeeks: 3,
   },
 
   /** §6 Projection model. */
@@ -39,6 +61,8 @@ export const config = {
       irUnknown: { outWeeks: 4, after: [0.8] },
       /** SUSPENDED without a known length: 0 for this many weeks. */
       suspendedUnknownWeeks: 2,
+      /** NA: not an active NFL player (Sleeper's NA; retired or unsigned): this availability every week. */
+      notActive: 0,
     },
     /** Weekly SD σ = c × p + d. P follows K (assumption: §6 lists no P entry). */
     sigma: {

@@ -1,13 +1,19 @@
 {
   "platform": "sleeper-codes",
-  "generatedAt": "2026-09-29T23:42:24.348Z",
-  "runtimeSeconds": 10.2,
+  "generatedAt": "2026-09-30T01:41:31.428Z",
+  "runtimeSeconds": 2.6,
   "meta": {
+    "crawlGate": {
+      "allowCrawl": false,
+      "mode": "offline (no --allow-crawl): nothing requested; analysis on the trimmed records of the 2026-09-29 crawl in data-local/sleeper-codes/, which the HTTP-cache replay reproduced",
+      "offlineMisses": 0,
+      "liveRequests": 0
+    },
     "leagues": [
       {
         "label": "Crawled public Sleeper leagues (250 for 2026, 43 previous seasons, 18 with 2026 rosters)",
         "access": "public, no login",
-        "source": "snowball crawl: league members → their 2026 leagues, in a salted order; seeds: docs.sleeper.com example IDs (4 leagues, 2 users; HTTP 200)",
+        "source": "snowball crawl: league members → their 2026 leagues, in a salted order; seeds: docs.sleeper.com example IDs (4 leagues, 2 users; HTTP 200); this run: offline (no --allow-crawl): nothing requested; analysis on the trimmed records of the 2026-09-29 crawl in data-local/sleeper-codes/, which the HTTP-cache replay reproduced",
         "notes": "aggregate numbers only; names and IDs never leave data-local/ and fixtures/raw/ (git-ignored)"
       }
     ],
@@ -2036,13 +2042,13 @@
       "rawCaptures": 1436
     },
     "timingsMs": {
-      "crawl 2026 leagues": 2761,
-      "draft picks": 427,
-      "current rosters": 156,
-      "previous seasons": 4533,
-      "extra evidence": 658,
-      "nfl calendar": 233,
-      "watch list": 1138
+      "crawl 2026 leagues": 313,
+      "draft picks": 57,
+      "current rosters": 17,
+      "previous seasons": 372,
+      "extra evidence": 67,
+      "watch list": 1206,
+      "nfl calendar": 241
     },
     "requestCount": 883
   },
@@ -3520,6 +3526,7 @@
     "Sleeper position limits live in settings.position_limit_{pos} (position_limit_def, position_limit_k, position_limit_qb, position_limit_rb, position_limit_te, position_limit_wr; 13/250 sampled 2026 leagues), which CLAUDE.md §2.3's settings list doesn't mention; the rosters checked fit a cap on the active roster with IR exempt (0 of 38 limits exceeded on active rosters; 5 leagues over a limit only through IR players) — evidence: https://api.sleeper.app/v1/league/{previousLeagueId}/rosters and https://api.sleeper.app/v1/league/{leagueId}/rosters → [].players/reserve/taxi with positions from /players/nfl vs settings.position_limit_{pos} — options: (a) map them to LeagueSettings.positionLimits and enforce them on the active roster (IR and taxi exempt) per CLAUDE.md §7; (b) only warn on the trade card until more leagues confirm the IR exemption."
   ],
   "decisions": [
+    "No new crawl (CLAUDE.md §0.6: strangers' leagues are crawled only with --allow-crawl, after asking Parker): every league, user and draft request was served from the HTTP cache or skipped, and the analysis uses the last crawl's data.",
     "Sleeper trade-deadline rule for Phase 1 (proposed): trades are open while the league's settings.leg ≤ trade_deadline, not the /state/nfl week — no trade completed after leg D in 6 leagues that traded at the deadline; 10/39 completed trades finished in the NFL week after their leg (a league's leg advances only at its weekly waiver run); 3 of 7 leg-D trades completed during week D's Sunday/Monday games (no lock at kickoff); on this probe's Tuesday run /state/nfl already said week 4 while last_scored_leg was 3 in every in-season league, so the /state/nfl week can run a week ahead of the league's leg.",
     "Sleeper tradeReview mapping (proposed): 'league_vote' when settings.veto_auto_poll = 1 (3/3 such trades had a veto poll), otherwise 'none' (with the poll off, 16/24 trades in leagues with trade_review_days ≥ 1 completed within 24 h); veto keys missing (75 2026 leagues) → 'none' with an Import Report warning until verified; 'commissioner' is never produced (no approval step in the data).",
     "Sleeper currentWeek comes from /state/nfl (week); settings.leg lags until the league's weekly waiver run, and settings.last_scored_leg is the last completed week.",
@@ -3540,6 +3547,6 @@
     "live": 0,
     "fromCache": 883,
     "retried": 0,
-    "slowestMs": 116
+    "slowestMs": 151
   }
 }

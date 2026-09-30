@@ -1,0 +1,3571 @@
+{
+ "note": "public /stats rows (no player ids) at bonus/bracket boundaries, every flagged row and every fullback row with a first down",
+ "season": 2026,
+ "weeks": [
+  1,
+  2,
+  3
+ ],
+ "rows": [
+  {
+   "week": 1,
+   "position": "DB",
+   "stats": {
+    "gp": 1,
+    "idp_pass_def": 2,
+    "idp_tkl": 2
+   }
+  },
+  {
+   "week": 1,
+   "position": "CB",
+   "stats": {
+    "gp": 1,
+    "idp_pass_def": 2,
+    "idp_tkl": 6
+   }
+  },
+  {
+   "week": 1,
+   "position": "DE",
+   "stats": {
+    "gp": 1,
+    "idp_sack": 1,
+    "idp_tkl": 3
+   }
+  },
+  {
+   "week": 1,
+   "position": "LB",
+   "stats": {
+    "gp": 1,
+    "idp_tkl": 8
+   }
+  },
+  {
+   "week": 1,
+   "position": "LB",
+   "stats": {
+    "bonus_tkl_10p": 1,
+    "gp": 1,
+    "idp_tkl": 13
+   }
+  },
+  {
+   "week": 1,
+   "position": "DB",
+   "stats": {
+    "gp": 1,
+    "idp_pass_def": 1,
+    "idp_tkl": 6
+   }
+  },
+  {
+   "week": 1,
+   "position": "LB",
+   "stats": {
+    "gp": 1,
+    "idp_sack": 1,
+    "idp_tkl": 9
+   }
+  },
+  {
+   "week": 1,
+   "position": "DE",
+   "stats": {
+    "gp": 1,
+    "idp_sack": 1,
+    "idp_tkl": 2
+   }
+  },
+  {
+   "week": 1,
+   "position": "DB",
+   "stats": {
+    "gp": 1,
+    "idp_pass_def": 1,
+    "idp_tkl": 6
+   }
+  },
+  {
+   "week": 1,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 10,
+    "yds_allow_200_299": 1,
+    "yds_allow": 277,
+    "pts_allow_7_13": 1
+   }
+  },
+  {
+   "week": 1,
+   "position": "QB",
+   "stats": {
+    "gp": 1,
+    "rush_fd": 5,
+    "rush_att": 7,
+    "pass_cmp": 23,
+    "pass_fd": 8,
+    "pass_yd": 178,
+    "bonus_fd_qb": 13,
+    "rush_yd": 47
+   }
+  },
+  {
+   "week": 1,
+   "position": "WR",
+   "stats": {
+    "bonus_rec_yd_100": 1,
+    "gp": 1,
+    "bonus_fd_wr": 4,
+    "bonus_rush_rec_yd_100": 1,
+    "rec": 8,
+    "rec_fd": 4,
+    "rec_yd": 122
+   }
+  },
+  {
+   "week": 1,
+   "position": "DE",
+   "stats": {
+    "gp": 1,
+    "idp_sack": 1,
+    "idp_tkl": 2
+   }
+  },
+  {
+   "week": 1,
+   "position": "DE",
+   "stats": {
+    "gp": 1,
+    "idp_sack": 1,
+    "idp_tkl": 4
+   }
+  },
+  {
+   "week": 1,
+   "position": "LB",
+   "stats": {
+    "gp": 1,
+    "idp_pass_def": 1,
+    "idp_tkl": 5
+   }
+  },
+  {
+   "week": 1,
+   "position": "LB",
+   "stats": {
+    "gp": 1,
+    "idp_pass_def": 1,
+    "idp_tkl": 4
+   }
+  },
+  {
+   "week": 1,
+   "position": "RB",
+   "stats": {
+    "gp": 1,
+    "rush_fd": 2,
+    "rec": 5,
+    "rec_fd": 1,
+    "rush_att": 18,
+    "rush_yd": 51,
+    "rec_yd": 44,
+    "bonus_fd_rb": 3
+   }
+  },
+  {
+   "week": 1,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 13,
+    "yds_allow_200_299": 1,
+    "yds_allow": 285,
+    "pts_allow_7_13": 1
+   }
+  },
+  {
+   "week": 1,
+   "position": "LB",
+   "stats": {
+    "bonus_tkl_10p": 1,
+    "gp": 1,
+    "idp_pass_def": 1,
+    "idp_tkl": 11
+   }
+  },
+  {
+   "week": 1,
+   "position": "DB",
+   "stats": {
+    "gp": 1,
+    "idp_pass_def": 2
+   }
+  },
+  {
+   "week": 1,
+   "position": "DB",
+   "stats": {
+    "bonus_tkl_10p": 1,
+    "gp": 1,
+    "idp_pass_def": 3,
+    "idp_pass_def_3p": 1,
+    "idp_tkl": 10
+   }
+  },
+  {
+   "week": 1,
+   "position": "DB",
+   "stats": {
+    "gp": 1,
+    "idp_pass_def": 2,
+    "idp_tkl": 4
+   }
+  },
+  {
+   "week": 1,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 7,
+    "yds_allow_200_299": 1,
+    "yds_allow": 290,
+    "pts_allow_7_13": 1
+   }
+  },
+  {
+   "week": 1,
+   "position": "DB",
+   "stats": {
+    "gp": 1,
+    "idp_pass_def": 1,
+    "idp_tkl": 3
+   }
+  },
+  {
+   "week": 1,
+   "position": "QB",
+   "stats": {
+    "gp": 1,
+    "bonus_pass_cmp_25": 1,
+    "rush_fd": 4,
+    "rush_att": 5,
+    "pass_cmp": 25,
+    "pass_fd": 9,
+    "pass_yd": 205,
+    "bonus_fd_qb": 13,
+    "rush_yd": 29
+   }
+  },
+  {
+   "week": 1,
+   "position": "LB",
+   "stats": {
+    "gp": 1,
+    "idp_pass_def": 1,
+    "idp_tkl": 8
+   }
+  },
+  {
+   "week": 1,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 27,
+    "yds_allow_350_399": 1,
+    "yds_allow": 379,
+    "pts_allow_21_27": 1
+   }
+  },
+  {
+   "week": 1,
+   "position": "DB",
+   "stats": {
+    "gp": 1,
+    "idp_tkl": 9
+   }
+  },
+  {
+   "week": 1,
+   "position": "LB",
+   "stats": {
+    "gp": 1,
+    "idp_pass_def": 1,
+    "idp_tkl": 8
+   }
+  },
+  {
+   "week": 1,
+   "position": "DL",
+   "stats": {
+    "gp": 1,
+    "idp_sack": 1,
+    "idp_tkl": 4
+   }
+  },
+  {
+   "week": 1,
+   "position": "DL",
+   "stats": {
+    "gp": 1,
+    "idp_sack": 0.5,
+    "idp_tkl": 6
+   }
+  },
+  {
+   "week": 1,
+   "position": "DL",
+   "stats": {
+    "gp": 1,
+    "idp_sack": 1,
+    "idp_tkl": 1
+   }
+  },
+  {
+   "week": 1,
+   "position": "RB",
+   "stats": {
+    "bonus_rush_yd_100": 1,
+    "gp": 1,
+    "bonus_rush_rec_yd_100": 1,
+    "rush_fd": 7,
+    "rec": 6,
+    "rush_att": 23,
+    "bonus_rush_att_20": 1,
+    "rush_yd": 102,
+    "rec_yd": 45,
+    "bonus_fd_rb": 7
+   }
+  },
+  {
+   "week": 1,
+   "position": "DL",
+   "stats": {
+    "bonus_tkl_10p": 1,
+    "gp": 1,
+    "idp_sack": 0.5,
+    "idp_tkl": 10
+   }
+  },
+  {
+   "week": 1,
+   "position": "LB",
+   "stats": {
+    "gp": 1,
+    "idp_sack": 1,
+    "idp_tkl": 9
+   }
+  },
+  {
+   "week": 1,
+   "position": "DT",
+   "stats": {
+    "gp": 1,
+    "idp_sack": 1,
+    "idp_tkl": 6
+   }
+  },
+  {
+   "week": 1,
+   "position": "LB",
+   "stats": {
+    "gp": 1,
+    "idp_sack": 1,
+    "idp_tkl": 3
+   }
+  },
+  {
+   "week": 1,
+   "position": "LB",
+   "stats": {
+    "bonus_sack_2p": 1,
+    "gp": 1,
+    "idp_pass_def": 1,
+    "idp_sack": 2,
+    "idp_tkl": 4
+   }
+  },
+  {
+   "week": 1,
+   "position": "QB",
+   "stats": {
+    "gp": 1,
+    "rush_att": 5,
+    "pass_cmp": 23,
+    "pass_fd": 12,
+    "pass_yd": 216,
+    "bonus_fd_qb": 12,
+    "rush_yd": 30
+   }
+  },
+  {
+   "week": 1,
+   "position": "DB",
+   "stats": {
+    "bonus_tkl_10p": 1,
+    "gp": 1,
+    "idp_pass_def": 1,
+    "idp_tkl": 10
+   }
+  },
+  {
+   "week": 1,
+   "position": "DB",
+   "stats": {
+    "gp": 1,
+    "idp_tkl": 8
+   }
+  },
+  {
+   "week": 1,
+   "position": "LB",
+   "stats": {
+    "gp": 1,
+    "idp_tkl": 8
+   }
+  },
+  {
+   "week": 1,
+   "position": "DE",
+   "stats": {
+    "bonus_sack_2p": 1,
+    "gp": 1,
+    "idp_sack": 2,
+    "idp_tkl": 6
+   }
+  },
+  {
+   "week": 1,
+   "position": "LB",
+   "stats": {
+    "bonus_tkl_10p": 1,
+    "gp": 1,
+    "idp_tkl": 12
+   }
+  },
+  {
+   "week": 1,
+   "position": "DT",
+   "stats": {
+    "gp": 1,
+    "idp_pass_def": 3,
+    "idp_pass_def_3p": 1,
+    "idp_tkl": 3
+   }
+  },
+  {
+   "week": 1,
+   "position": "QB",
+   "stats": {
+    "gp": 1,
+    "bonus_pass_cmp_25": 1,
+    "rush_fd": 1,
+    "rush_att": 2,
+    "pass_cmp": 26,
+    "pass_fd": 9,
+    "pass_yd": 274,
+    "bonus_fd_qb": 10,
+    "rush_yd": 15
+   }
+  },
+  {
+   "week": 1,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 34,
+    "yds_allow_350_399": 1,
+    "yds_allow": 360,
+    "pts_allow_28_34": 1
+   }
+  },
+  {
+   "week": 1,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 27,
+    "yds_allow_350_399": 1,
+    "yds_allow": 351,
+    "pts_allow_21_27": 1
+   }
+  },
+  {
+   "week": 1,
+   "position": "FB",
+   "stats": {
+    "gp": 1,
+    "rush_att": 1,
+    "rush_fd": 1,
+    "rush_yd": 7
+   }
+  },
+  {
+   "week": 1,
+   "position": "LB",
+   "stats": {
+    "bonus_tkl_10p": 1,
+    "gp": 1,
+    "idp_pass_def": 2,
+    "idp_tkl": 16
+   }
+  },
+  {
+   "week": 1,
+   "position": "DB",
+   "stats": {
+    "bonus_tkl_10p": 1,
+    "gp": 1,
+    "idp_pass_def": 2,
+    "idp_tkl": 11
+   }
+  },
+  {
+   "week": 1,
+   "position": "LB",
+   "stats": {
+    "bonus_tkl_10p": 1,
+    "gp": 1,
+    "idp_pass_def": 1,
+    "idp_sack": 1,
+    "idp_tkl": 10
+   }
+  },
+  {
+   "week": 1,
+   "position": "QB",
+   "stats": {
+    "gp": 1,
+    "rush_fd": 2,
+    "rush_att": 7,
+    "bonus_pass_yd_300": 1,
+    "pass_cmp": 17,
+    "pass_fd": 10,
+    "pass_yd": 324,
+    "bonus_fd_qb": 12,
+    "rush_yd": 40
+   }
+  },
+  {
+   "week": 1,
+   "position": "WR",
+   "stats": {
+    "bonus_rec_yd_100": 1,
+    "gp": 1,
+    "bonus_fd_wr": 3,
+    "bonus_rush_rec_yd_100": 1,
+    "rec": 5,
+    "rec_fd": 3,
+    "rec_yd": 100
+   }
+  },
+  {
+   "week": 1,
+   "position": "QB",
+   "stats": {
+    "gp": 1,
+    "bonus_pass_cmp_25": 1,
+    "rush_fd": 4,
+    "rush_att": 5,
+    "pass_cmp": 25,
+    "pass_fd": 13,
+    "pass_yd": 254,
+    "bonus_fd_qb": 17,
+    "rush_yd": 20
+   }
+  },
+  {
+   "week": 1,
+   "position": "DE",
+   "stats": {
+    "bonus_sack_2p": 1,
+    "gp": 1,
+    "idp_pass_def": 1,
+    "idp_sack": 2,
+    "idp_tkl": 4
+   }
+  },
+  {
+   "week": 1,
+   "position": "RB",
+   "stats": {
+    "bonus_rush_yd_100": 1,
+    "gp": 1,
+    "bonus_rush_rec_yd_100": 1,
+    "rush_fd": 6,
+    "rec": 2,
+    "rush_att": 22,
+    "bonus_rush_att_20": 1,
+    "rush_yd": 102,
+    "rec_yd": 16,
+    "bonus_fd_rb": 6
+   }
+  },
+  {
+   "week": 1,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 14,
+    "yds_allow_200_299": 1,
+    "pts_allow_14_20": 1,
+    "yds_allow": 268
+   }
+  },
+  {
+   "week": 1,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 31,
+    "yds_allow_350_399": 1,
+    "yds_allow": 381,
+    "pts_allow_28_34": 1
+   }
+  },
+  {
+   "week": 1,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 59,
+    "yds_allow_550p": 1,
+    "yds_allow": 552,
+    "pts_allow_35p": 1
+   }
+  },
+  {
+   "week": 1,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 10,
+    "yds_allow_200_299": 1,
+    "yds_allow": 272,
+    "pts_allow_7_13": 1
+   }
+  },
+  {
+   "week": 1,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 26,
+    "yds_allow_350_399": 1,
+    "yds_allow": 393,
+    "pts_allow_21_27": 1
+   }
+  },
+  {
+   "week": 1,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "yds_allow_400_449": 1,
+    "pts_allow": 22,
+    "yds_allow": 419,
+    "pts_allow_21_27": 1
+   }
+  },
+  {
+   "week": 1,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 22,
+    "yds_allow_200_299": 1,
+    "yds_allow": 295,
+    "pts_allow_21_27": 1
+   }
+  },
+  {
+   "week": 1,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 23,
+    "yds_allow_350_399": 1,
+    "yds_allow": 367,
+    "pts_allow_21_27": 1
+   }
+  },
+  {
+   "week": 1,
+   "position": "RB",
+   "stats": {
+    "bonus_fd_rb": 5,
+    "gp": 1,
+    "rush_att": 18,
+    "rush_fd": 5,
+    "rush_yd": 81
+   }
+  },
+  {
+   "week": 1,
+   "position": "QB",
+   "stats": {
+    "gp": 1,
+    "rush_fd": 4,
+    "rush_att": 11,
+    "pass_cmp": 23,
+    "pass_fd": 11,
+    "pass_yd": 230,
+    "bonus_fd_qb": 15,
+    "rush_yd": 54
+   }
+  },
+  {
+   "week": 1,
+   "position": "DB",
+   "stats": {
+    "bonus_tkl_10p": 1,
+    "gp": 1,
+    "idp_tkl": 10
+   }
+  },
+  {
+   "week": 1,
+   "position": "LB",
+   "stats": {
+    "bonus_tkl_10p": 1,
+    "gp": 1,
+    "idp_tkl": 14
+   }
+  },
+  {
+   "week": 1,
+   "position": "QB",
+   "stats": {
+    "gp": 1,
+    "bonus_pass_cmp_25": 1,
+    "rush_fd": 3,
+    "rush_att": 6,
+    "pass_cmp": 27,
+    "pass_fd": 14,
+    "pass_yd": 277,
+    "bonus_fd_qb": 17,
+    "rush_yd": 14
+   }
+  },
+  {
+   "week": 1,
+   "position": "QB",
+   "stats": {
+    "gp": 1,
+    "rush_att": 6,
+    "bonus_pass_yd_300": 1,
+    "pass_cmp": 20,
+    "pass_fd": 11,
+    "pass_yd": 334,
+    "bonus_fd_qb": 11,
+    "rush_yd": 23
+   }
+  },
+  {
+   "week": 1,
+   "position": "CB",
+   "stats": {
+    "bonus_tkl_10p": 1,
+    "gp": 1,
+    "idp_pass_def": 1,
+    "idp_tkl": 10
+   }
+  },
+  {
+   "week": 1,
+   "position": "LB",
+   "stats": {
+    "bonus_tkl_10p": 1,
+    "gp": 1,
+    "idp_tkl": 13
+   }
+  },
+  {
+   "week": 1,
+   "position": "QB",
+   "stats": {
+    "gp": 1,
+    "rush_att": 2,
+    "bonus_pass_yd_300": 1,
+    "pass_cmp": 23,
+    "pass_fd": 14,
+    "pass_yd": 361,
+    "bonus_fd_qb": 14,
+    "rush_yd": 10
+   }
+  },
+  {
+   "week": 1,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "yds_allow_450_499": 1,
+    "pts_allow": 37,
+    "yds_allow": 478,
+    "pts_allow_35p": 1
+   }
+  },
+  {
+   "week": 1,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 10,
+    "yds_allow": 195,
+    "yds_allow_100_199": 1,
+    "pts_allow_7_13": 1
+   }
+  },
+  {
+   "week": 1,
+   "position": "QB",
+   "stats": {
+    "gp": 1,
+    "bonus_pass_cmp_25": 1,
+    "rush_att": 2,
+    "pass_cmp": 26,
+    "pass_fd": 8,
+    "pass_yd": 206,
+    "bonus_fd_qb": 8,
+    "rush_yd": 2
+   }
+  },
+  {
+   "week": 1,
+   "position": "RB",
+   "stats": {
+    "gp": 1,
+    "rush_fd": 2,
+    "rec": 3,
+    "rush_att": 20,
+    "bonus_rush_att_20": 1,
+    "rush_yd": 60,
+    "rec_yd": 19,
+    "bonus_fd_rb": 2
+   }
+  },
+  {
+   "week": 1,
+   "position": "RB",
+   "stats": {
+    "gp": 1,
+    "bonus_rush_rec_yd_100": 1,
+    "rush_fd": 5,
+    "rec": 3,
+    "rush_att": 19,
+    "rush_yd": 98,
+    "rec_yd": 23,
+    "bonus_fd_rb": 5
+   }
+  },
+  {
+   "week": 1,
+   "position": "WR",
+   "stats": {
+    "bonus_fd_wr": 7,
+    "bonus_rec_yd_100": 1,
+    "bonus_rush_rec_yd_100": 1,
+    "gp": 1,
+    "rec": 10,
+    "rec_fd": 7,
+    "rec_yd": 182
+   }
+  },
+  {
+   "week": 1,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 23,
+    "yds_allow_200_299": 1,
+    "yds_allow": 251,
+    "pts_allow_21_27": 1
+   }
+  },
+  {
+   "week": 1,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "yds_allow_400_449": 1,
+    "pts_allow": 36,
+    "yds_allow": 409,
+    "pts_allow_35p": 1
+   }
+  },
+  {
+   "week": 1,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 13,
+    "yds_allow_200_299": 1,
+    "yds_allow": 259,
+    "pts_allow_7_13": 1
+   }
+  },
+  {
+   "week": 1,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 24,
+    "yds_allow": 318,
+    "pts_allow_21_27": 1,
+    "yds_allow_300_349": 1
+   }
+  },
+  {
+   "week": 1,
+   "position": "TE",
+   "stats": {
+    "bonus_fd_te": 4,
+    "bonus_rec_yd_100": 1,
+    "bonus_rush_rec_yd_100": 1,
+    "gp": 1,
+    "rec": 5,
+    "rec_fd": 4,
+    "rec_yd": 130
+   }
+  },
+  {
+   "week": 1,
+   "position": "QB",
+   "stats": {
+    "gp": 1,
+    "bonus_pass_yd_400": 1,
+    "bonus_pass_cmp_25": 1,
+    "rush_fd": 1,
+    "rush_att": 4,
+    "pass_cmp": 35,
+    "pass_fd": 16,
+    "pass_yd": 410,
+    "bonus_fd_qb": 17,
+    "rush_yd": 8
+   }
+  },
+  {
+   "week": 1,
+   "position": "DB",
+   "stats": {
+    "bonus_tkl_10p": 1,
+    "gp": 1,
+    "idp_tkl": 10
+   }
+  },
+  {
+   "week": 1,
+   "position": "LB",
+   "stats": {
+    "bonus_tkl_10p": 1,
+    "gp": 1,
+    "idp_pass_def": 2,
+    "idp_tkl": 11
+   }
+  },
+  {
+   "week": 1,
+   "position": "LB",
+   "stats": {
+    "bonus_tkl_10p": 1,
+    "gp": 1,
+    "idp_pass_def": 2,
+    "idp_tkl": 12
+   }
+  },
+  {
+   "week": 1,
+   "position": "LB",
+   "stats": {
+    "bonus_sack_2p": 1,
+    "gp": 1,
+    "idp_sack": 2,
+    "idp_tkl": 3
+   }
+  },
+  {
+   "week": 1,
+   "position": "DL",
+   "stats": {
+    "bonus_sack_2p": 1,
+    "gp": 1,
+    "idp_sack": 2,
+    "idp_tkl": 5
+   }
+  },
+  {
+   "week": 1,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 14,
+    "yds_allow_200_299": 1,
+    "pts_allow_14_20": 1,
+    "yds_allow": 264
+   }
+  },
+  {
+   "week": 1,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 21,
+    "yds_allow_200_299": 1,
+    "yds_allow": 282,
+    "pts_allow_21_27": 1
+   }
+  },
+  {
+   "week": 1,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 28,
+    "yds_allow_350_399": 1,
+    "yds_allow": 394,
+    "pts_allow_28_34": 1
+   }
+  },
+  {
+   "week": 1,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "yds_allow_450_499": 1,
+    "pts_allow": 30,
+    "yds_allow": 469,
+    "pts_allow_28_34": 1
+   }
+  },
+  {
+   "week": 1,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 31,
+    "yds_allow_350_399": 1,
+    "yds_allow": 369,
+    "pts_allow_28_34": 1
+   }
+  },
+  {
+   "week": 1,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 20,
+    "yds_allow_200_299": 1,
+    "pts_allow_14_20": 1,
+    "yds_allow": 244
+   }
+  },
+  {
+   "week": 1,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 13,
+    "yds_allow_200_299": 1,
+    "yds_allow": 238,
+    "pts_allow_7_13": 1
+   }
+  },
+  {
+   "week": 1,
+   "position": "WR",
+   "stats": {
+    "bonus_rec_yd_100": 1,
+    "gp": 1,
+    "bonus_fd_wr": 4,
+    "bonus_rush_rec_yd_100": 1,
+    "rec": 8,
+    "rec_fd": 4,
+    "rec_yd": 138
+   }
+  },
+  {
+   "week": 1,
+   "position": "LB",
+   "stats": {
+    "bonus_tkl_10p": 1,
+    "gp": 1,
+    "idp_tkl": 12
+   }
+  },
+  {
+   "week": 1,
+   "position": "RB",
+   "stats": {
+    "bonus_rush_yd_100": 1,
+    "gp": 1,
+    "bonus_rush_rec_yd_100": 1,
+    "rush_fd": 1,
+    "rec": 2,
+    "rec_fd": 1,
+    "rush_att": 10,
+    "rush_yd": 100,
+    "rec_yd": 24,
+    "bonus_fd_rb": 2
+   }
+  },
+  {
+   "week": 1,
+   "position": "LB",
+   "stats": {
+    "bonus_tkl_10p": 1,
+    "gp": 1,
+    "idp_tkl": 10
+   }
+  },
+  {
+   "week": 1,
+   "position": "LB",
+   "stats": {
+    "bonus_sack_2p": 1,
+    "gp": 1,
+    "idp_sack": 2,
+    "idp_tkl": 3
+   }
+  },
+  {
+   "week": 1,
+   "position": "RB",
+   "stats": {
+    "bonus_rush_yd_100": 1,
+    "gp": 1,
+    "bonus_rush_rec_yd_100": 1,
+    "rush_fd": 4,
+    "rec": 1,
+    "rec_fd": 1,
+    "rush_att": 24,
+    "bonus_rush_att_20": 1,
+    "rush_yd": 144,
+    "rec_yd": 19,
+    "bonus_fd_rb": 5
+   }
+  },
+  {
+   "week": 1,
+   "position": "DB",
+   "stats": {
+    "bonus_tkl_10p": 1,
+    "gp": 1,
+    "idp_tkl": 10
+   }
+  },
+  {
+   "week": 1,
+   "position": "RB",
+   "stats": {
+    "bonus_rush_yd_100": 1,
+    "gp": 1,
+    "bonus_rush_rec_yd_100": 1,
+    "rush_fd": 2,
+    "rec": 1,
+    "rec_fd": 1,
+    "rush_att": 18,
+    "rush_yd": 124,
+    "rec_yd": 10,
+    "bonus_fd_rb": 3
+   }
+  },
+  {
+   "week": 1,
+   "position": "QB",
+   "stats": {
+    "gp": 1,
+    "idp_tkl": 1,
+    "rush_att": 1,
+    "bonus_pass_yd_300": 1,
+    "pass_cmp": 21,
+    "pass_fd": 14,
+    "pass_yd": 387,
+    "bonus_fd_qb": 14
+   }
+  },
+  {
+   "week": 1,
+   "position": "WR",
+   "stats": {
+    "bonus_rec_yd_100": 1,
+    "gp": 1,
+    "bonus_fd_wr": 3,
+    "bonus_rush_rec_yd_100": 1,
+    "rec": 6,
+    "rec_fd": 3,
+    "rec_yd": 147
+   }
+  },
+  {
+   "week": 1,
+   "position": "RB",
+   "stats": {
+    "bonus_rush_yd_100": 1,
+    "gp": 1,
+    "bonus_rush_rec_yd_100": 1,
+    "rush_fd": 12,
+    "rec": 5,
+    "rec_fd": 1,
+    "rush_att": 29,
+    "bonus_rush_att_20": 1,
+    "rush_yd": 156,
+    "rec_yd": 30,
+    "bonus_fd_rb": 13
+   }
+  },
+  {
+   "week": 1,
+   "position": "RB",
+   "stats": {
+    "gp": 1,
+    "bonus_rush_rec_yd_100": 1,
+    "rush_fd": 7,
+    "rec": 8,
+    "rec_fd": 1,
+    "rush_att": 21,
+    "bonus_rush_att_20": 1,
+    "rush_yd": 83,
+    "rec_yd": 90,
+    "bonus_fd_rb": 8
+   }
+  },
+  {
+   "week": 1,
+   "position": "QB",
+   "stats": {
+    "gp": 1,
+    "rush_att": 3,
+    "pass_cmp": 24,
+    "pass_fd": 9,
+    "pass_yd": 221,
+    "bonus_fd_qb": 9,
+    "rush_yd": -3
+   }
+  },
+  {
+   "week": 1,
+   "position": "WR",
+   "stats": {
+    "bonus_rec_yd_100": 1,
+    "gp": 1,
+    "bonus_fd_wr": 4,
+    "bonus_rush_rec_yd_100": 1,
+    "rec": 5,
+    "rec_fd": 4,
+    "rec_yd": 150
+   }
+  },
+  {
+   "week": 1,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 39,
+    "yds_allow_200_299": 1,
+    "yds_allow": 239,
+    "pts_allow_35p": 1
+   }
+  },
+  {
+   "week": 1,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 41,
+    "yds_allow": 506,
+    "yds_allow_500_549": 1,
+    "pts_allow_35p": 1
+   }
+  },
+  {
+   "week": 1,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 27,
+    "yds_allow_200_299": 1,
+    "yds_allow": 290,
+    "pts_allow_21_27": 1
+   }
+  },
+  {
+   "week": 1,
+   "position": "DE",
+   "stats": {
+    "bonus_sack_2p": 1,
+    "gp": 1,
+    "idp_sack": 2,
+    "idp_tkl": 5
+   }
+  },
+  {
+   "week": 1,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 31,
+    "yds_allow_350_399": 1,
+    "yds_allow": 392,
+    "pts_allow_28_34": 1
+   }
+  },
+  {
+   "week": 1,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 10,
+    "yds_allow": 176,
+    "yds_allow_100_199": 1,
+    "pts_allow_7_13": 1
+   }
+  },
+  {
+   "week": 1,
+   "position": "LB",
+   "stats": {
+    "bonus_tkl_10p": 1,
+    "gp": 1,
+    "idp_tkl": 16
+   }
+  },
+  {
+   "week": 1,
+   "position": "RB",
+   "stats": {
+    "bonus_rush_yd_100": 1,
+    "gp": 1,
+    "bonus_rush_rec_yd_100": 1,
+    "rush_fd": 7,
+    "rec": 3,
+    "rec_fd": 1,
+    "rush_att": 23,
+    "bonus_rush_att_20": 1,
+    "rush_yd": 173,
+    "rec_yd": 18,
+    "bonus_fd_rb": 8
+   }
+  },
+  {
+   "week": 2,
+   "position": "DT",
+   "stats": {
+    "gp": 1,
+    "idp_pass_def": 3,
+    "idp_pass_def_3p": 1,
+    "idp_tkl": 1
+   }
+  },
+  {
+   "week": 2,
+   "position": "DB",
+   "stats": {
+    "bonus_tkl_10p": 1,
+    "gp": 1,
+    "idp_tkl": 11
+   }
+  },
+  {
+   "week": 2,
+   "position": "RB",
+   "stats": {
+    "bonus_rush_yd_100": 1,
+    "gp": 1,
+    "bonus_rush_rec_yd_100": 1,
+    "rush_fd": 6,
+    "rec": 1,
+    "rush_att": 21,
+    "bonus_rush_att_20": 1,
+    "rush_yd": 135,
+    "rec_yd": 4,
+    "bonus_fd_rb": 6
+   }
+  },
+  {
+   "week": 2,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 31,
+    "yds_allow_350_399": 1,
+    "yds_allow": 355,
+    "pts_allow_28_34": 1
+   }
+  },
+  {
+   "week": 2,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "yds_allow_400_449": 1,
+    "pts_allow": 41,
+    "yds_allow": 446,
+    "pts_allow_35p": 1
+   }
+  },
+  {
+   "week": 2,
+   "position": "RB",
+   "stats": {
+    "gp": 1,
+    "bonus_rush_rec_yd_100": 1,
+    "rush_fd": 2,
+    "rec": 6,
+    "rec_fd": 4,
+    "rush_att": 16,
+    "rush_yd": 52,
+    "rec_yd": 61,
+    "bonus_fd_rb": 6
+   }
+  },
+  {
+   "week": 2,
+   "position": "WR",
+   "stats": {
+    "bonus_rec_yd_100": 1,
+    "gp": 1,
+    "bonus_fd_wr": 5,
+    "bonus_rush_rec_yd_100": 1,
+    "rec": 9,
+    "rec_fd": 5,
+    "rec_yd": 142
+   }
+  },
+  {
+   "week": 2,
+   "position": "DE",
+   "stats": {
+    "bonus_sack_2p": 1,
+    "gp": 1,
+    "idp_sack": 2,
+    "idp_tkl": 3
+   }
+  },
+  {
+   "week": 2,
+   "position": "QB",
+   "stats": {
+    "gp": 1,
+    "bonus_pass_cmp_25": 1,
+    "rush_att": 3,
+    "bonus_pass_yd_300": 1,
+    "pass_cmp": 26,
+    "pass_fd": 15,
+    "pass_yd": 327,
+    "bonus_fd_qb": 15,
+    "rush_yd": 7
+   }
+  },
+  {
+   "week": 2,
+   "position": "FB",
+   "stats": {
+    "gp": 1,
+    "rush_att": 1,
+    "rush_fd": 1,
+    "rush_yd": 1
+   }
+  },
+  {
+   "week": 2,
+   "position": "CB",
+   "stats": {
+    "bonus_tkl_10p": 1,
+    "gp": 1,
+    "idp_pass_def": 1,
+    "idp_tkl": 10
+   }
+  },
+  {
+   "week": 2,
+   "position": "RB",
+   "stats": {
+    "bonus_rush_yd_100": 1,
+    "gp": 1,
+    "bonus_rush_rec_yd_100": 1,
+    "rush_fd": 7,
+    "rec": 6,
+    "rec_fd": 2,
+    "rush_att": 24,
+    "bonus_rush_att_20": 1,
+    "rush_yd": 117,
+    "rec_yd": 61,
+    "bonus_fd_rb": 9
+   }
+  },
+  {
+   "week": 2,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 19,
+    "pts_allow_14_20": 1,
+    "yds_allow": 313,
+    "yds_allow_300_349": 1
+   }
+  },
+  {
+   "week": 2,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 17,
+    "yds_allow_200_299": 1,
+    "pts_allow_14_20": 1,
+    "yds_allow": 285
+   }
+  },
+  {
+   "week": 2,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 35,
+    "yds_allow_350_399": 1,
+    "yds_allow": 382,
+    "pts_allow_35p": 1
+   }
+  },
+  {
+   "week": 2,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 3,
+    "yds_allow_200_299": 1,
+    "pts_allow_1_6": 1,
+    "yds_allow": 235
+   }
+  },
+  {
+   "week": 2,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 17,
+    "pts_allow_14_20": 1,
+    "yds_allow": 312,
+    "yds_allow_300_349": 1
+   }
+  },
+  {
+   "week": 2,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 37,
+    "yds_allow": 332,
+    "yds_allow_300_349": 1,
+    "pts_allow_35p": 1
+   }
+  },
+  {
+   "week": 2,
+   "position": "DB",
+   "stats": {
+    "bonus_tkl_10p": 1,
+    "gp": 1,
+    "idp_tkl": 12
+   }
+  },
+  {
+   "week": 2,
+   "position": "LB",
+   "stats": {
+    "bonus_sack_2p": 1,
+    "gp": 1,
+    "idp_sack": 2,
+    "idp_tkl": 5
+   }
+  },
+  {
+   "week": 2,
+   "position": "WR",
+   "stats": {
+    "bonus_fd_wr": 4,
+    "bonus_rec_yd_100": 1,
+    "bonus_rush_rec_yd_100": 1,
+    "gp": 1,
+    "rec": 5,
+    "rec_fd": 4,
+    "rec_yd": 101
+   }
+  },
+  {
+   "week": 2,
+   "position": "QB",
+   "stats": {
+    "gp": 1,
+    "bonus_pass_cmp_25": 1,
+    "rush_fd": 2,
+    "rush_att": 9,
+    "pass_cmp": 27,
+    "pass_fd": 10,
+    "pass_yd": 252,
+    "bonus_fd_qb": 12,
+    "rush_yd": 23
+   }
+  },
+  {
+   "week": 2,
+   "position": "LB",
+   "stats": {
+    "bonus_tkl_10p": 1,
+    "gp": 1,
+    "idp_tkl": 12
+   }
+  },
+  {
+   "week": 2,
+   "position": "TE",
+   "stats": {
+    "bonus_rec_yd_100": 1,
+    "gp": 1,
+    "bonus_rush_rec_yd_100": 1,
+    "rec": 9,
+    "rec_fd": 6,
+    "rec_yd": 101,
+    "bonus_fd_te": 6
+   }
+  },
+  {
+   "week": 2,
+   "position": "LB",
+   "stats": {
+    "bonus_tkl_10p": 1,
+    "gp": 1,
+    "idp_tkl": 14
+   }
+  },
+  {
+   "week": 2,
+   "position": "QB",
+   "stats": {
+    "gp": 1,
+    "bonus_pass_cmp_25": 1,
+    "rush_fd": 2,
+    "rush_att": 5,
+    "pass_cmp": 26,
+    "pass_fd": 14,
+    "pass_yd": 264,
+    "bonus_fd_qb": 16,
+    "rush_yd": 16
+   }
+  },
+  {
+   "week": 2,
+   "position": "WR",
+   "stats": {
+    "bonus_rec_yd_100": 1,
+    "gp": 1,
+    "bonus_fd_wr": 5,
+    "bonus_rush_rec_yd_100": 1,
+    "rec": 9,
+    "rec_fd": 5,
+    "rec_yd": 155
+   }
+  },
+  {
+   "week": 2,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 9,
+    "yds_allow_200_299": 1,
+    "yds_allow": 246,
+    "pts_allow_7_13": 1
+   }
+  },
+  {
+   "week": 2,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 6,
+    "yds_allow_350_399": 1,
+    "pts_allow_1_6": 1,
+    "yds_allow": 374
+   }
+  },
+  {
+   "week": 2,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 3,
+    "yds_allow_200_299": 1,
+    "pts_allow_1_6": 1,
+    "yds_allow": 297
+   }
+  },
+  {
+   "week": 2,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 14,
+    "pts_allow_14_20": 1,
+    "yds_allow": 327,
+    "yds_allow_300_349": 1
+   }
+  },
+  {
+   "week": 2,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 23,
+    "yds_allow_200_299": 1,
+    "yds_allow": 267,
+    "pts_allow_21_27": 1
+   }
+  },
+  {
+   "week": 2,
+   "position": "LB",
+   "stats": {
+    "bonus_tkl_10p": 1,
+    "gp": 1,
+    "idp_tkl": 10
+   }
+  },
+  {
+   "week": 2,
+   "position": "FB",
+   "stats": {
+    "gp": 1,
+    "rec": 2,
+    "rec_fd": 1,
+    "rec_yd": 27
+   }
+  },
+  {
+   "week": 2,
+   "position": "QB",
+   "stats": {
+    "gp": 1,
+    "bonus_pass_cmp_25": 1,
+    "rush_fd": 1,
+    "rush_att": 2,
+    "bonus_pass_yd_300": 1,
+    "pass_cmp": 32,
+    "pass_fd": 16,
+    "pass_yd": 382,
+    "bonus_fd_qb": 17,
+    "rush_yd": 17
+   }
+  },
+  {
+   "week": 2,
+   "position": "LB",
+   "stats": {
+    "bonus_tkl_10p": 1,
+    "gp": 1,
+    "idp_sack": 1,
+    "idp_tkl": 10
+   }
+  },
+  {
+   "week": 2,
+   "position": "WR",
+   "stats": {
+    "bonus_rec_yd_100": 1,
+    "gp": 1,
+    "bonus_fd_wr": 6,
+    "bonus_rush_rec_yd_100": 1,
+    "rec": 8,
+    "rec_fd": 6,
+    "rec_yd": 138
+   }
+  },
+  {
+   "week": 2,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 31,
+    "yds_allow_350_399": 1,
+    "yds_allow": 381,
+    "pts_allow_28_34": 1
+   }
+  },
+  {
+   "week": 2,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 28,
+    "yds_allow": 340,
+    "yds_allow_300_349": 1,
+    "pts_allow_28_34": 1
+   }
+  },
+  {
+   "week": 2,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 20,
+    "yds_allow_350_399": 1,
+    "pts_allow_14_20": 1,
+    "yds_allow": 389
+   }
+  },
+  {
+   "week": 2,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 13,
+    "yds_allow_200_299": 1,
+    "yds_allow": 268,
+    "pts_allow_7_13": 1
+   }
+  },
+  {
+   "week": 2,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 20,
+    "yds_allow_350_399": 1,
+    "pts_allow_14_20": 1,
+    "yds_allow": 392
+   }
+  },
+  {
+   "week": 2,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 14,
+    "pts_allow_14_20": 1,
+    "yds_allow": 310,
+    "yds_allow_300_349": 1
+   }
+  },
+  {
+   "week": 2,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 20,
+    "pts_allow_14_20": 1,
+    "yds_allow": 199,
+    "yds_allow_100_199": 1
+   }
+  },
+  {
+   "week": 2,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 7,
+    "yds_allow": 151,
+    "yds_allow_100_199": 1,
+    "pts_allow_7_13": 1
+   }
+  },
+  {
+   "week": 2,
+   "position": "RB",
+   "stats": {
+    "bonus_fd_rb": 6,
+    "bonus_rush_att_20": 1,
+    "gp": 1,
+    "rush_att": 21,
+    "rush_fd": 6,
+    "rush_yd": 92
+   }
+  },
+  {
+   "week": 2,
+   "position": "RB",
+   "stats": {
+    "gp": 1,
+    "idp_tkl": 1,
+    "rush_fd": 1,
+    "rec": 4,
+    "rush_att": 21,
+    "bonus_rush_att_20": 1,
+    "rush_yd": 48,
+    "rec_yd": 15,
+    "bonus_fd_rb": 1
+   }
+  },
+  {
+   "week": 2,
+   "position": "QB",
+   "stats": {
+    "gp": 1,
+    "bonus_pass_cmp_25": 1,
+    "rush_fd": 1,
+    "rush_att": 5,
+    "pass_cmp": 27,
+    "pass_fd": 10,
+    "pass_yd": 247,
+    "bonus_fd_qb": 11,
+    "rush_yd": 17
+   }
+  },
+  {
+   "week": 2,
+   "position": "QB",
+   "stats": {
+    "gp": 1,
+    "bonus_pass_cmp_25": 1,
+    "rush_fd": 2,
+    "rush_att": 4,
+    "pass_cmp": 26,
+    "pass_fd": 12,
+    "pass_yd": 279,
+    "bonus_fd_qb": 14,
+    "rush_yd": 26
+   }
+  },
+  {
+   "week": 2,
+   "position": "TE",
+   "stats": {
+    "bonus_fd_te": 6,
+    "bonus_rec_yd_100": 1,
+    "bonus_rush_rec_yd_100": 1,
+    "gp": 1,
+    "rec": 12,
+    "rec_fd": 6,
+    "rec_yd": 140
+   }
+  },
+  {
+   "week": 2,
+   "position": "RB",
+   "stats": {
+    "gp": 1,
+    "rush_fd": 3,
+    "rec": 5,
+    "rec_fd": 2,
+    "rush_att": 16,
+    "rush_yd": 45,
+    "rec_yd": 54,
+    "bonus_fd_rb": 5
+   }
+  },
+  {
+   "week": 2,
+   "position": "RB",
+   "stats": {
+    "gp": 1,
+    "bonus_rush_rec_yd_100": 1,
+    "rush_fd": 4,
+    "rec": 4,
+    "rec_fd": 3,
+    "rush_att": 24,
+    "bonus_rush_att_20": 1,
+    "rush_yd": 92,
+    "rec_yd": 40,
+    "bonus_fd_rb": 7
+   }
+  },
+  {
+   "week": 2,
+   "position": "LB",
+   "stats": {
+    "bonus_tkl_10p": 1,
+    "gp": 1,
+    "idp_sack": 1,
+    "idp_tkl": 11
+   }
+  },
+  {
+   "week": 2,
+   "position": "LB",
+   "stats": {
+    "bonus_tkl_10p": 1,
+    "gp": 1,
+    "idp_sack": 1,
+    "idp_tkl": 12
+   }
+  },
+  {
+   "week": 2,
+   "position": "LB",
+   "stats": {
+    "bonus_tkl_10p": 1,
+    "gp": 1,
+    "idp_tkl": 12
+   }
+  },
+  {
+   "week": 2,
+   "position": "RB",
+   "stats": {
+    "gp": 1,
+    "rush_fd": 3,
+    "rec": 3,
+    "rush_att": 20,
+    "bonus_rush_att_20": 1,
+    "rush_yd": 80,
+    "rec_yd": 2,
+    "bonus_fd_rb": 3
+   }
+  },
+  {
+   "week": 2,
+   "position": "QB",
+   "stats": {
+    "gp": 1,
+    "bonus_pass_cmp_25": 1,
+    "rush_fd": 1,
+    "rush_att": 3,
+    "bonus_pass_yd_300": 1,
+    "pass_cmp": 30,
+    "pass_fd": 15,
+    "pass_yd": 353,
+    "bonus_fd_qb": 16,
+    "rush_yd": 29
+   }
+  },
+  {
+   "week": 2,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 24,
+    "yds_allow_200_299": 1,
+    "yds_allow": 298,
+    "pts_allow_21_27": 1
+   }
+  },
+  {
+   "week": 2,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 3,
+    "yds_allow_200_299": 1,
+    "pts_allow_1_6": 1,
+    "yds_allow": 286
+   }
+  },
+  {
+   "week": 2,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 20,
+    "yds_allow_200_299": 1,
+    "pts_allow_14_20": 1,
+    "yds_allow": 267
+   }
+  },
+  {
+   "week": 2,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 33,
+    "yds_allow": 523,
+    "yds_allow_500_549": 1,
+    "pts_allow_28_34": 1
+   }
+  },
+  {
+   "week": 2,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 13,
+    "yds_allow_200_299": 1,
+    "yds_allow": 284,
+    "pts_allow_7_13": 1
+   }
+  },
+  {
+   "week": 2,
+   "position": "WR",
+   "stats": {
+    "bonus_rec_yd_100": 1,
+    "gp": 1,
+    "bonus_fd_wr": 3,
+    "bonus_rush_rec_yd_100": 1,
+    "rec": 5,
+    "rec_fd": 3,
+    "rec_yd": 119
+   }
+  },
+  {
+   "week": 2,
+   "position": "DE",
+   "stats": {
+    "bonus_sack_2p": 1,
+    "gp": 1,
+    "idp_sack": 2,
+    "idp_tkl": 3
+   }
+  },
+  {
+   "week": 2,
+   "position": "LB",
+   "stats": {
+    "bonus_tkl_10p": 1,
+    "gp": 1,
+    "idp_tkl": 10
+   }
+  },
+  {
+   "week": 2,
+   "position": "LB",
+   "stats": {
+    "bonus_tkl_10p": 1,
+    "gp": 1,
+    "idp_tkl": 11
+   }
+  },
+  {
+   "week": 2,
+   "position": "DB",
+   "stats": {
+    "bonus_tkl_10p": 1,
+    "gp": 1,
+    "idp_pass_def": 1,
+    "idp_sack": 1,
+    "idp_tkl": 11
+   }
+  },
+  {
+   "week": 2,
+   "position": "RB",
+   "stats": {
+    "bonus_fd_rb": 3,
+    "bonus_rush_att_20": 1,
+    "bonus_rush_rec_yd_100": 1,
+    "bonus_rush_yd_100": 1,
+    "gp": 1,
+    "rush_att": 23,
+    "rush_fd": 3,
+    "rush_yd": 105
+   }
+  },
+  {
+   "week": 2,
+   "position": "WR",
+   "stats": {
+    "bonus_rec_yd_100": 1,
+    "gp": 1,
+    "bonus_fd_wr": 5,
+    "bonus_rush_rec_yd_100": 1,
+    "rec": 8,
+    "rec_fd": 5,
+    "rec_yd": 153
+   }
+  },
+  {
+   "week": 2,
+   "position": "LB",
+   "stats": {
+    "bonus_tkl_10p": 1,
+    "gp": 1,
+    "idp_tkl": 13
+   }
+  },
+  {
+   "week": 2,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 24,
+    "yds_allow": 305,
+    "pts_allow_21_27": 1,
+    "yds_allow_300_349": 1
+   }
+  },
+  {
+   "week": 2,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 20,
+    "yds_allow_200_299": 1,
+    "pts_allow_14_20": 1,
+    "yds_allow": 291
+   }
+  },
+  {
+   "week": 2,
+   "position": "DB",
+   "stats": {
+    "gp": 1,
+    "idp_pass_def": 3,
+    "idp_pass_def_3p": 1,
+    "idp_tkl": 2
+   }
+  },
+  {
+   "week": 2,
+   "position": "DB",
+   "stats": {
+    "bonus_tkl_10p": 1,
+    "gp": 1,
+    "idp_tkl": 10
+   }
+  },
+  {
+   "week": 2,
+   "position": "RB",
+   "stats": {
+    "gp": 1,
+    "bonus_rush_rec_yd_100": 1,
+    "rush_fd": 5,
+    "rec": 2,
+    "rec_fd": 1,
+    "rush_att": 23,
+    "bonus_rush_att_20": 1,
+    "rush_yd": 94,
+    "rec_yd": 21,
+    "bonus_fd_rb": 6
+   }
+  },
+  {
+   "week": 2,
+   "position": "LB",
+   "stats": {
+    "bonus_tkl_10p": 1,
+    "gp": 1,
+    "idp_tkl": 10
+   }
+  },
+  {
+   "week": 2,
+   "position": "LB",
+   "stats": {
+    "bonus_tkl_10p": 1,
+    "gp": 1,
+    "idp_tkl": 12
+   }
+  },
+  {
+   "week": 2,
+   "position": "WR",
+   "stats": {
+    "bonus_rec_yd_100": 1,
+    "gp": 1,
+    "bonus_fd_wr": 6,
+    "idp_tkl": 1,
+    "bonus_rush_rec_yd_100": 1,
+    "rec": 10,
+    "rec_fd": 6,
+    "rec_yd": 117
+   }
+  },
+  {
+   "week": 2,
+   "position": "LB",
+   "stats": {
+    "bonus_tkl_10p": 1,
+    "gp": 1,
+    "idp_tkl": 10
+   }
+  },
+  {
+   "week": 2,
+   "position": "DB",
+   "stats": {
+    "bonus_tkl_10p": 1,
+    "gp": 1,
+    "idp_pass_def": 4,
+    "idp_pass_def_3p": 1,
+    "idp_tkl": 10
+   }
+  },
+  {
+   "week": 2,
+   "position": "LB",
+   "stats": {
+    "gp": 1,
+    "idp_pass_def": 3,
+    "idp_pass_def_3p": 1,
+    "idp_sack": 1,
+    "idp_tkl": 9
+   }
+  },
+  {
+   "week": 2,
+   "position": "DB",
+   "stats": {
+    "bonus_tkl_10p": 1,
+    "gp": 1,
+    "idp_tkl": 13
+   }
+  },
+  {
+   "week": 2,
+   "position": "RB",
+   "stats": {
+    "gp": 1,
+    "rush_fd": 2,
+    "rec": 3,
+    "rec_fd": 1,
+    "rush_att": 20,
+    "bonus_rush_att_20": 1,
+    "rush_yd": 74,
+    "rec_yd": 19,
+    "bonus_fd_rb": 3
+   }
+  },
+  {
+   "week": 2,
+   "position": "WR",
+   "stats": {
+    "gp": 1,
+    "bonus_fd_wr": 3,
+    "idp_tkl": 1,
+    "rec": 7,
+    "rec_fd": 3,
+    "rec_yd": 98
+   }
+  },
+  {
+   "week": 2,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 30,
+    "yds_allow": 329,
+    "yds_allow_300_349": 1,
+    "pts_allow_28_34": 1
+   }
+  },
+  {
+   "week": 2,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 24,
+    "yds_allow": 341,
+    "pts_allow_21_27": 1,
+    "yds_allow_300_349": 1
+   }
+  },
+  {
+   "week": 2,
+   "position": "DB",
+   "stats": {
+    "gp": 1,
+    "idp_pass_def": 4,
+    "idp_pass_def_3p": 1,
+    "idp_tkl": 2
+   }
+  },
+  {
+   "week": 2,
+   "position": "DB",
+   "stats": {
+    "gp": 1,
+    "idp_pass_def": 3,
+    "idp_pass_def_3p": 1,
+    "idp_tkl": 6
+   }
+  },
+  {
+   "week": 2,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 6,
+    "pts_allow_1_6": 1,
+    "yds_allow": 182,
+    "yds_allow_100_199": 1
+   }
+  },
+  {
+   "week": 2,
+   "position": "QB",
+   "stats": {
+    "gp": 1,
+    "rush_att": 4,
+    "bonus_pass_yd_300": 1,
+    "pass_cmp": 22,
+    "pass_fd": 11,
+    "pass_yd": 327,
+    "bonus_fd_qb": 11,
+    "rush_yd": -1
+   }
+  },
+  {
+   "week": 2,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "yds_allow_450_499": 1,
+    "pts_allow": 28,
+    "yds_allow": 481,
+    "pts_allow_28_34": 1
+   }
+  },
+  {
+   "week": 2,
+   "position": "WR",
+   "stats": {
+    "bonus_rec_yd_100": 1,
+    "gp": 1,
+    "bonus_fd_wr": 5,
+    "idp_tkl": 1,
+    "bonus_rush_rec_yd_100": 1,
+    "rec": 8,
+    "rec_fd": 5,
+    "rec_yd": 195
+   }
+  },
+  {
+   "week": 3,
+   "position": "LB",
+   "stats": {
+    "bonus_tkl_10p": 1,
+    "gp": 1,
+    "idp_tkl": 10
+   }
+  },
+  {
+   "week": 3,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 14,
+    "pts_allow_14_20": 1,
+    "yds_allow": 328,
+    "yds_allow_300_349": 1
+   }
+  },
+  {
+   "week": 3,
+   "position": "WR",
+   "stats": {
+    "bonus_rec_yd_100": 1,
+    "gp": 1,
+    "bonus_fd_wr": 3,
+    "bonus_rush_rec_yd_100": 1,
+    "rec": 5,
+    "rec_fd": 3,
+    "rec_yd": 100
+   }
+  },
+  {
+   "week": 3,
+   "position": "WR",
+   "stats": {
+    "bonus_rec_yd_100": 1,
+    "gp": 1,
+    "bonus_fd_wr": 5,
+    "idp_tkl": 1,
+    "bonus_rush_rec_yd_100": 1,
+    "rec": 9,
+    "rec_fd": 5,
+    "rec_yd": 194
+   }
+  },
+  {
+   "week": 3,
+   "position": "CB",
+   "stats": {
+    "gp": 1,
+    "idp_pass_def": 3,
+    "idp_pass_def_3p": 1,
+    "idp_tkl": 8
+   }
+  },
+  {
+   "week": 3,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "yds_allow_450_499": 1,
+    "pts_allow": 35,
+    "yds_allow": 498,
+    "pts_allow_35p": 1
+   }
+  },
+  {
+   "week": 3,
+   "position": "DB",
+   "stats": {
+    "bonus_tkl_10p": 1,
+    "gp": 1,
+    "idp_tkl": 10
+   }
+  },
+  {
+   "week": 3,
+   "position": "RB",
+   "stats": {
+    "bonus_rush_yd_100": 1,
+    "gp": 1,
+    "rush_fd": 9,
+    "rec": 2,
+    "rec_fd": 1,
+    "rush_att": 29,
+    "bonus_rush_att_20": 1,
+    "rush_yd": 194,
+    "bonus_rush_rec_yd_200": 1,
+    "rec_yd": 19,
+    "bonus_fd_rb": 10
+   }
+  },
+  {
+   "week": 3,
+   "position": "QB",
+   "stats": {
+    "gp": 1,
+    "bonus_pass_cmp_25": 1,
+    "rush_att": 1,
+    "bonus_pass_yd_300": 1,
+    "pass_cmp": 28,
+    "pass_fd": 13,
+    "pass_yd": 312,
+    "bonus_fd_qb": 13
+   }
+  },
+  {
+   "week": 3,
+   "position": "DB",
+   "stats": {
+    "bonus_tkl_10p": 1,
+    "gp": 1,
+    "idp_pass_def": 1,
+    "idp_tkl": 13
+   }
+  },
+  {
+   "week": 3,
+   "position": "DL",
+   "stats": {
+    "bonus_sack_2p": 1,
+    "gp": 1,
+    "idp_sack": 2,
+    "idp_tkl": 7
+   }
+  },
+  {
+   "week": 3,
+   "position": "RB",
+   "stats": {
+    "gp": 1,
+    "bonus_rush_rec_yd_100": 1,
+    "rush_fd": 3,
+    "rec": 5,
+    "rec_fd": 1,
+    "rush_att": 21,
+    "bonus_rush_att_20": 1,
+    "rush_yd": 90,
+    "rec_yd": 19,
+    "bonus_fd_rb": 4
+   }
+  },
+  {
+   "week": 3,
+   "position": "WR",
+   "stats": {
+    "bonus_rec_yd_100": 1,
+    "gp": 1,
+    "bonus_fd_wr": 4,
+    "bonus_rush_rec_yd_100": 1,
+    "rec": 7,
+    "rec_fd": 4,
+    "rec_yd": 137
+   }
+  },
+  {
+   "week": 3,
+   "position": "LB",
+   "stats": {
+    "bonus_tkl_10p": 1,
+    "gp": 1,
+    "idp_pass_def": 1,
+    "idp_sack": 1.5,
+    "idp_tkl": 10
+   }
+  },
+  {
+   "week": 3,
+   "position": "LB",
+   "stats": {
+    "bonus_tkl_10p": 1,
+    "gp": 1,
+    "idp_pass_def": 1,
+    "idp_tkl": 10
+   }
+  },
+  {
+   "week": 3,
+   "position": "RB",
+   "stats": {
+    "gp": 1,
+    "rush_fd": 3,
+    "rec": 2,
+    "rush_att": 23,
+    "bonus_rush_att_20": 1,
+    "rush_yd": 68,
+    "rec_yd": 4,
+    "bonus_fd_rb": 3
+   }
+  },
+  {
+   "week": 3,
+   "position": "DB",
+   "stats": {
+    "bonus_tkl_10p": 1,
+    "gp": 1,
+    "idp_pass_def": 1,
+    "idp_tkl": 12
+   }
+  },
+  {
+   "week": 3,
+   "position": "DE",
+   "stats": {
+    "bonus_sack_2p": 1,
+    "gp": 1,
+    "idp_sack": 2,
+    "idp_tkl": 8
+   }
+  },
+  {
+   "week": 3,
+   "position": "RB",
+   "stats": {
+    "bonus_rush_yd_100": 1,
+    "gp": 1,
+    "bonus_rush_rec_yd_100": 1,
+    "rush_fd": 7,
+    "rush_att": 24,
+    "bonus_rush_att_20": 1,
+    "rush_yd": 154,
+    "bonus_fd_rb": 7
+   }
+  },
+  {
+   "week": 3,
+   "position": "WR",
+   "stats": {
+    "bonus_fd_wr": 7,
+    "bonus_rec_yd_100": 1,
+    "bonus_rush_rec_yd_100": 1,
+    "gp": 1,
+    "rec": 9,
+    "rec_fd": 7,
+    "rec_yd": 107
+   }
+  },
+  {
+   "week": 3,
+   "position": "WR",
+   "stats": {
+    "bonus_rec_yd_100": 1,
+    "gp": 1,
+    "bonus_fd_wr": 5,
+    "bonus_rush_rec_yd_100": 1,
+    "rec": 10,
+    "rec_fd": 5,
+    "rec_yd": 107
+   }
+  },
+  {
+   "week": 3,
+   "position": "RB",
+   "stats": {
+    "gp": 1,
+    "bonus_rush_rec_yd_100": 1,
+    "rush_fd": 4,
+    "rec": 6,
+    "rec_fd": 4,
+    "rush_att": 15,
+    "rush_yd": 88,
+    "rec_yd": 70,
+    "bonus_fd_rb": 8
+   }
+  },
+  {
+   "week": 3,
+   "position": "RB",
+   "stats": {
+    "bonus_rush_yd_100": 1,
+    "gp": 1,
+    "bonus_rush_rec_yd_100": 1,
+    "rush_fd": 5,
+    "rec": 3,
+    "rec_fd": 2,
+    "rush_att": 17,
+    "rush_yd": 127,
+    "rec_yd": 49,
+    "bonus_fd_rb": 7
+   }
+  },
+  {
+   "week": 3,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "yds_allow_400_449": 1,
+    "pts_allow": 36,
+    "yds_allow": 437,
+    "pts_allow_35p": 1
+   }
+  },
+  {
+   "week": 3,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "yds_allow_400_449": 1,
+    "pts_allow": 30,
+    "yds_allow": 411,
+    "pts_allow_28_34": 1
+   }
+  },
+  {
+   "week": 3,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 34,
+    "yds_allow_350_399": 1,
+    "yds_allow": 378,
+    "pts_allow_28_34": 1
+   }
+  },
+  {
+   "week": 3,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 35,
+    "yds_allow": 340,
+    "yds_allow_300_349": 1,
+    "pts_allow_35p": 1
+   }
+  },
+  {
+   "week": 3,
+   "position": "RB",
+   "stats": {
+    "gp": 1,
+    "bonus_rush_rec_yd_100": 1,
+    "rush_fd": 3,
+    "rec": 3,
+    "rec_fd": 1,
+    "rush_att": 20,
+    "bonus_rush_att_20": 1,
+    "rush_yd": 60,
+    "rec_yd": 40,
+    "bonus_fd_rb": 4
+   }
+  },
+  {
+   "week": 3,
+   "position": "LB",
+   "stats": {
+    "bonus_tkl_10p": 1,
+    "gp": 1,
+    "idp_tkl": 17
+   }
+  },
+  {
+   "week": 3,
+   "position": "DB",
+   "stats": {
+    "bonus_tkl_10p": 1,
+    "gp": 1,
+    "idp_tkl": 10
+   }
+  },
+  {
+   "week": 3,
+   "position": "RB",
+   "stats": {
+    "gp": 1,
+    "bonus_rush_rec_yd_100": 1,
+    "rush_fd": 5,
+    "rec": 7,
+    "rec_fd": 3,
+    "rush_att": 20,
+    "bonus_rush_att_20": 1,
+    "rush_yd": 99,
+    "rec_yd": 65,
+    "bonus_fd_rb": 8
+   }
+  },
+  {
+   "week": 3,
+   "position": "QB",
+   "stats": {
+    "gp": 1,
+    "bonus_pass_cmp_25": 1,
+    "pass_cmp": 26,
+    "pass_fd": 16,
+    "pass_yd": 291,
+    "bonus_fd_qb": 16
+   }
+  },
+  {
+   "week": 3,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "yds_allow_400_449": 1,
+    "pts_allow": 31,
+    "yds_allow": 415,
+    "pts_allow_28_34": 1
+   }
+  },
+  {
+   "week": 3,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 6,
+    "pts_allow_1_6": 1,
+    "yds_allow": 317,
+    "yds_allow_300_349": 1
+   }
+  },
+  {
+   "week": 3,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 16,
+    "yds_allow_200_299": 1,
+    "pts_allow_14_20": 1,
+    "yds_allow": 243
+   }
+  },
+  {
+   "week": 3,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 27,
+    "yds_allow_200_299": 1,
+    "yds_allow": 258,
+    "pts_allow_21_27": 1
+   }
+  },
+  {
+   "week": 3,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 30,
+    "yds_allow_350_399": 1,
+    "yds_allow": 365,
+    "pts_allow_28_34": 1
+   }
+  },
+  {
+   "week": 3,
+   "position": "DB",
+   "stats": {
+    "bonus_tkl_10p": 1,
+    "gp": 1,
+    "idp_pass_def": 1,
+    "idp_tkl": 11
+   }
+  },
+  {
+   "week": 3,
+   "position": "LB",
+   "stats": {
+    "bonus_tkl_10p": 1,
+    "gp": 1,
+    "idp_pass_def": 1,
+    "idp_tkl": 12
+   }
+  },
+  {
+   "week": 3,
+   "position": "DB",
+   "stats": {
+    "bonus_tkl_10p": 1,
+    "gp": 1,
+    "idp_pass_def": 1,
+    "idp_tkl": 10
+   }
+  },
+  {
+   "week": 3,
+   "position": "QB",
+   "stats": {
+    "gp": 1,
+    "bonus_pass_cmp_25": 1,
+    "rush_fd": 1,
+    "rush_att": 2,
+    "bonus_pass_yd_300": 1,
+    "pass_cmp": 31,
+    "pass_fd": 13,
+    "pass_yd": 321,
+    "bonus_fd_qb": 14,
+    "rush_yd": 12
+   }
+  },
+  {
+   "week": 3,
+   "position": "QB",
+   "stats": {
+    "gp": 1,
+    "bonus_pass_cmp_25": 1,
+    "rush_att": 4,
+    "pass_cmp": 25,
+    "pass_fd": 12,
+    "pass_yd": 269,
+    "bonus_fd_qb": 12,
+    "rush_yd": 6
+   }
+  },
+  {
+   "week": 3,
+   "position": "LB",
+   "stats": {
+    "bonus_tkl_10p": 1,
+    "gp": 1,
+    "idp_pass_def": 1,
+    "idp_tkl": 13
+   }
+  },
+  {
+   "week": 3,
+   "position": "RB",
+   "stats": {
+    "gp": 1,
+    "bonus_rush_rec_yd_100": 1,
+    "rush_fd": 3,
+    "rec": 4,
+    "rec_fd": 1,
+    "rush_att": 19,
+    "rush_yd": 82,
+    "rec_yd": 28,
+    "bonus_fd_rb": 4
+   }
+  },
+  {
+   "week": 3,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 16,
+    "pts_allow_14_20": 1,
+    "yds_allow": 348,
+    "yds_allow_300_349": 1
+   }
+  },
+  {
+   "week": 3,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 21,
+    "yds_allow_200_299": 1,
+    "yds_allow": 259,
+    "pts_allow_21_27": 1
+   }
+  },
+  {
+   "week": 3,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 24,
+    "yds_allow": 335,
+    "pts_allow_21_27": 1,
+    "yds_allow_300_349": 1
+   }
+  },
+  {
+   "week": 3,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 19,
+    "pts_allow_14_20": 1,
+    "yds_allow": 300,
+    "yds_allow_300_349": 1
+   }
+  },
+  {
+   "week": 3,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 10,
+    "yds_allow": 329,
+    "yds_allow_300_349": 1,
+    "pts_allow_7_13": 1
+   }
+  },
+  {
+   "week": 3,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 24,
+    "yds_allow_350_399": 1,
+    "yds_allow": 350,
+    "pts_allow_21_27": 1
+   }
+  },
+  {
+   "week": 3,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 27,
+    "yds_allow_350_399": 1,
+    "yds_allow": 381,
+    "pts_allow_21_27": 1
+   }
+  },
+  {
+   "week": 3,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 7,
+    "yds_allow_200_299": 1,
+    "yds_allow": 262,
+    "pts_allow_7_13": 1
+   }
+  },
+  {
+   "week": 3,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "yds_allow_400_449": 1,
+    "pts_allow": 31,
+    "yds_allow": 437,
+    "pts_allow_28_34": 1
+   }
+  },
+  {
+   "week": 3,
+   "position": "QB",
+   "stats": {
+    "gp": 1,
+    "bonus_pass_cmp_25": 1,
+    "rush_fd": 2,
+    "rush_att": 4,
+    "pass_cmp": 38,
+    "pass_fd": 16,
+    "pass_yd": 280,
+    "bonus_fd_qb": 18,
+    "rush_yd": 4
+   }
+  },
+  {
+   "week": 3,
+   "position": "QB",
+   "stats": {
+    "gp": 1,
+    "bonus_pass_cmp_25": 1,
+    "rush_fd": 1,
+    "rush_att": 4,
+    "pass_cmp": 25,
+    "pass_fd": 13,
+    "pass_yd": 276,
+    "bonus_fd_qb": 14,
+    "rush_yd": 19
+   }
+  },
+  {
+   "week": 3,
+   "position": "RB",
+   "stats": {
+    "gp": 1,
+    "bonus_rush_rec_yd_100": 1,
+    "rush_fd": 3,
+    "rec": 4,
+    "rec_fd": 3,
+    "rush_att": 15,
+    "rush_yd": 75,
+    "rec_yd": 41,
+    "bonus_fd_rb": 6
+   }
+  },
+  {
+   "week": 3,
+   "position": "QB",
+   "stats": {
+    "gp": 1,
+    "bonus_pass_cmp_25": 1,
+    "rush_fd": 2,
+    "rush_att": 2,
+    "bonus_pass_yd_300": 1,
+    "pass_cmp": 30,
+    "pass_fd": 17,
+    "pass_yd": 390,
+    "bonus_fd_qb": 19,
+    "rush_yd": 13
+   }
+  },
+  {
+   "week": 3,
+   "position": "QB",
+   "stats": {
+    "gp": 1,
+    "bonus_pass_cmp_25": 1,
+    "rush_fd": 1,
+    "rush_att": 1,
+    "bonus_pass_yd_300": 1,
+    "pass_cmp": 31,
+    "pass_fd": 17,
+    "pass_yd": 379,
+    "bonus_fd_qb": 18,
+    "rush_yd": 5
+   }
+  },
+  {
+   "week": 3,
+   "position": "DT",
+   "stats": {
+    "bonus_tkl_10p": 1,
+    "gp": 1,
+    "idp_sack": 1,
+    "idp_tkl": 10
+   }
+  },
+  {
+   "week": 3,
+   "position": "LB",
+   "stats": {
+    "bonus_tkl_10p": 1,
+    "gp": 1,
+    "idp_tkl": 11
+   }
+  },
+  {
+   "week": 3,
+   "position": "CB",
+   "stats": {
+    "gp": 1,
+    "idp_pass_def": 4,
+    "idp_pass_def_3p": 1,
+    "idp_tkl": 6
+   }
+  },
+  {
+   "week": 3,
+   "position": "LB",
+   "stats": {
+    "bonus_tkl_10p": 1,
+    "gp": 1,
+    "idp_tkl": 10
+   }
+  },
+  {
+   "week": 3,
+   "position": "LB",
+   "stats": {
+    "bonus_tkl_10p": 1,
+    "gp": 1,
+    "idp_pass_def": 1,
+    "idp_tkl": 12
+   }
+  },
+  {
+   "week": 3,
+   "position": "DB",
+   "stats": {
+    "gp": 1,
+    "idp_pass_def": 3,
+    "idp_pass_def_3p": 1,
+    "idp_tkl": 4
+   }
+  },
+  {
+   "week": 3,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 35,
+    "yds_allow": 315,
+    "yds_allow_300_349": 1,
+    "pts_allow_35p": 1
+   }
+  },
+  {
+   "week": 3,
+   "position": "DB",
+   "stats": {
+    "bonus_tkl_10p": 1,
+    "gp": 1,
+    "idp_tkl": 11
+   }
+  },
+  {
+   "week": 3,
+   "position": "QB",
+   "stats": {
+    "gp": 1,
+    "bonus_pass_cmp_25": 1,
+    "rush_fd": 1,
+    "rush_att": 1,
+    "pass_cmp": 29,
+    "pass_fd": 14,
+    "pass_yd": 255,
+    "bonus_fd_qb": 15,
+    "rush_yd": 36
+   }
+  },
+  {
+   "week": 3,
+   "position": "DT",
+   "stats": {
+    "bonus_sack_2p": 1,
+    "gp": 1,
+    "idp_sack": 2,
+    "idp_tkl": 4
+   }
+  },
+  {
+   "week": 3,
+   "position": "WR",
+   "stats": {
+    "bonus_fd_wr": 5,
+    "bonus_rec_yd_100": 1,
+    "bonus_rush_rec_yd_100": 1,
+    "gp": 1,
+    "rec": 7,
+    "rec_fd": 5,
+    "rec_yd": 112
+   }
+  },
+  {
+   "week": 3,
+   "position": "WR",
+   "stats": {
+    "gp": 1,
+    "bonus_fd_wr": 5,
+    "rec": 9,
+    "rec_fd": 5,
+    "rec_yd": 98
+   }
+  },
+  {
+   "week": 3,
+   "position": "RB",
+   "stats": {
+    "gp": 1,
+    "bonus_rush_rec_yd_100": 1,
+    "rush_fd": 6,
+    "rec": 2,
+    "rec_fd": 1,
+    "rush_att": 19,
+    "rush_yd": 98,
+    "rec_yd": 5,
+    "bonus_fd_rb": 7
+   }
+  },
+  {
+   "week": 3,
+   "position": "DB",
+   "stats": {
+    "gp": 1,
+    "idp_pass_def": 3,
+    "idp_pass_def_3p": 1,
+    "idp_sack": 1,
+    "idp_tkl": 5
+   }
+  },
+  {
+   "week": 3,
+   "position": "WR",
+   "stats": {
+    "gp": 1,
+    "bonus_fd_wr": 6,
+    "bonus_rush_rec_yd_100": 1,
+    "rush_fd": 1,
+    "rec": 5,
+    "rec_fd": 5,
+    "rush_att": 1,
+    "rush_yd": 20,
+    "rec_yd": 84
+   }
+  },
+  {
+   "week": 3,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "yds_allow_450_499": 1,
+    "pts_allow": 26,
+    "yds_allow": 482,
+    "pts_allow_21_27": 1
+   }
+  },
+  {
+   "week": 3,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 24,
+    "yds_allow": 334,
+    "pts_allow_21_27": 1,
+    "yds_allow_300_349": 1
+   }
+  },
+  {
+   "week": 3,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 31,
+    "yds_allow_350_399": 1,
+    "yds_allow": 381,
+    "pts_allow_28_34": 1
+   }
+  },
+  {
+   "week": 3,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 27,
+    "yds_allow_350_399": 1,
+    "yds_allow": 352,
+    "pts_allow_21_27": 1
+   }
+  },
+  {
+   "week": 3,
+   "position": "LB",
+   "stats": {
+    "bonus_tkl_10p": 1,
+    "gp": 1,
+    "idp_sack": 1,
+    "idp_tkl": 10
+   }
+  },
+  {
+   "week": 3,
+   "position": "DL",
+   "stats": {
+    "bonus_sack_2p": 1,
+    "gp": 1,
+    "idp_sack": 2.5,
+    "idp_tkl": 7
+   }
+  },
+  {
+   "week": 3,
+   "position": "TE",
+   "stats": {
+    "bonus_rec_yd_100": 1,
+    "gp": 1,
+    "bonus_rush_rec_yd_100": 1,
+    "rec": 10,
+    "rec_fd": 6,
+    "rec_yd": 116,
+    "bonus_fd_te": 6
+   }
+  },
+  {
+   "week": 3,
+   "position": "TE",
+   "stats": {
+    "bonus_rec_yd_100": 1,
+    "gp": 1,
+    "bonus_rush_rec_yd_100": 1,
+    "rec": 7,
+    "rec_fd": 3,
+    "rec_yd": 105,
+    "bonus_fd_te": 3
+   }
+  },
+  {
+   "week": 3,
+   "position": "RB",
+   "stats": {
+    "gp": 1,
+    "rush_fd": 2,
+    "rec": 1,
+    "rush_att": 26,
+    "bonus_rush_att_20": 1,
+    "rush_yd": 89,
+    "bonus_fd_rb": 2
+   }
+  },
+  {
+   "week": 3,
+   "position": "FB",
+   "stats": {
+    "gp": 1,
+    "rec": 3,
+    "rec_fd": 1,
+    "rec_yd": 35
+   }
+  },
+  {
+   "week": 3,
+   "position": "QB",
+   "stats": {
+    "gp": 1,
+    "bonus_pass_cmp_25": 1,
+    "rush_fd": 1,
+    "rush_att": 2,
+    "pass_cmp": 28,
+    "pass_fd": 11,
+    "pass_yd": 282,
+    "bonus_fd_qb": 12,
+    "rush_yd": 13
+   }
+  },
+  {
+   "week": 3,
+   "position": "DE",
+   "stats": {
+    "bonus_sack_2p": 1,
+    "gp": 1,
+    "idp_sack": 2,
+    "idp_tkl": 2
+   }
+  },
+  {
+   "week": 3,
+   "position": "DE",
+   "stats": {
+    "bonus_sack_2p": 1,
+    "gp": 1,
+    "idp_sack": 2,
+    "idp_tkl": 2
+   }
+  },
+  {
+   "week": 3,
+   "position": "LB",
+   "stats": {
+    "bonus_tkl_10p": 1,
+    "gp": 1,
+    "idp_pass_def": 1,
+    "idp_tkl": 11
+   }
+  },
+  {
+   "week": 3,
+   "position": "WR",
+   "stats": {
+    "bonus_rec_yd_100": 1,
+    "gp": 1,
+    "bonus_fd_wr": 8,
+    "bonus_rush_rec_yd_100": 1,
+    "rec": 10,
+    "rec_fd": 7,
+    "pass_cmp": 1,
+    "pass_fd": 1,
+    "pass_yd": 14,
+    "rec_yd": 128
+   }
+  },
+  {
+   "week": 3,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 18,
+    "yds_allow_350_399": 1,
+    "pts_allow_14_20": 1,
+    "yds_allow": 360
+   }
+  },
+  {
+   "week": 3,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 17,
+    "yds_allow_200_299": 1,
+    "pts_allow_14_20": 1,
+    "yds_allow": 223
+   }
+  },
+  {
+   "week": 3,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 24,
+    "yds_allow_200_299": 1,
+    "yds_allow": 257,
+    "pts_allow_21_27": 1
+   }
+  },
+  {
+   "week": 3,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 23,
+    "yds_allow_200_299": 1,
+    "yds_allow": 230,
+    "pts_allow_21_27": 1
+   }
+  },
+  {
+   "week": 3,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 12,
+    "yds_allow_200_299": 1,
+    "yds_allow": 238,
+    "pts_allow_7_13": 1
+   }
+  },
+  {
+   "week": 3,
+   "position": "LB",
+   "stats": {
+    "gp": 1,
+    "idp_pass_def": 3,
+    "idp_pass_def_3p": 1,
+    "idp_tkl": 3
+   }
+  },
+  {
+   "week": 3,
+   "position": "RB",
+   "stats": {
+    "gp": 1,
+    "rush_fd": 2,
+    "rec": 2,
+    "rec_fd": 1,
+    "rush_att": 20,
+    "bonus_rush_att_20": 1,
+    "rush_yd": 84,
+    "rec_yd": 4,
+    "bonus_fd_rb": 3
+   }
+  },
+  {
+   "week": 3,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 7,
+    "yds_allow_200_299": 1,
+    "yds_allow": 248,
+    "pts_allow_7_13": 1
+   }
+  },
+  {
+   "week": 3,
+   "position": "DEF",
+   "stats": {
+    "gp": 1,
+    "pts_allow": 27,
+    "yds_allow_350_399": 1,
+    "yds_allow": 375,
+    "pts_allow_21_27": 1
+   }
+  }
+ ]
+}

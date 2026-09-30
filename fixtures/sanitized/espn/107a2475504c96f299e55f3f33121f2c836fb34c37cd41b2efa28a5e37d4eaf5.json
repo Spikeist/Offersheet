@@ -31,13 +31,13 @@
         "lastVideoDate": 1790551208000,
         "laterality": "NONE",
         "ownership": {
-          "auctionValueAverage": 4.62,
-          "auctionValueAverageChange": 0.6,
-          "averageDraftPosition": 77.7,
-          "averageDraftPositionPercentChange": 2.8,
-          "percentChange": -0.01,
-          "percentOwned": 95.62,
-          "percentStarted": 70.01
+          "auctionValueAverage": 4.7,
+          "auctionValueAverageChange": 0.64,
+          "averageDraftPosition": 77.35,
+          "averageDraftPositionPercentChange": 2.86,
+          "percentChange": 0,
+          "percentOwned": 95.61,
+          "percentStarted": 70.05
         },
         "proTeamId": 25,
         "stance": "NONE",
@@ -432,11 +432,11 @@
         "ownership": {
           "auctionValueAverage": 0.72,
           "auctionValueAverageChange": 0,
-          "averageDraftPosition": 161.05,
+          "averageDraftPosition": 161.1,
           "averageDraftPositionPercentChange": -0.56,
-          "percentChange": -0.27,
-          "percentOwned": 47.27,
-          "percentStarted": 2.65
+          "percentChange": -0.29,
+          "percentOwned": 47.24,
+          "percentStarted": 2.67
         },
         "proTeamId": 10,
         "stance": "NONE",
@@ -751,12 +751,12 @@
         "laterality": "NONE",
         "ownership": {
           "auctionValueAverage": 4.02,
-          "auctionValueAverageChange": -0.05,
-          "averageDraftPosition": 82.56,
-          "averageDraftPositionPercentChange": -0.8,
-          "percentChange": -0.11,
-          "percentOwned": 96.14,
-          "percentStarted": 77.34
+          "auctionValueAverageChange": -0.01,
+          "averageDraftPosition": 82.74,
+          "averageDraftPositionPercentChange": -0.72,
+          "percentChange": -0.1,
+          "percentOwned": 96.13,
+          "percentStarted": 77.31
         },
         "proTeamId": 8,
         "stance": "NONE",
@@ -1045,12 +1045,12 @@
         "lastVideoDate": 1786548042000,
         "laterality": "NONE",
         "ownership": {
-          "auctionValueAverage": 0.57,
-          "auctionValueAverageChange": 0.02,
-          "averageDraftPosition": 162.42,
-          "averageDraftPositionPercentChange": 0.43,
-          "percentChange": -0.13,
-          "percentOwned": 50.37,
+          "auctionValueAverage": 0.58,
+          "auctionValueAverageChange": 0.03,
+          "averageDraftPosition": 162.41,
+          "averageDraftPositionPercentChange": 0.45,
+          "percentChange": -0.14,
+          "percentOwned": 50.35,
           "percentStarted": 0.14
         },
         "proTeamId": 26,
@@ -1270,13 +1270,13 @@
         "lastVideoDate": 1787260036000,
         "laterality": "NONE",
         "ownership": {
-          "auctionValueAverage": 20.7,
-          "auctionValueAverageChange": 0,
+          "auctionValueAverage": 20.74,
+          "auctionValueAverageChange": 0.19,
           "averageDraftPosition": 43.27,
-          "averageDraftPositionPercentChange": 0.78,
+          "averageDraftPositionPercentChange": 0.79,
           "percentChange": -0.03,
-          "percentOwned": 98.39,
-          "percentStarted": 84.87
+          "percentOwned": 98.38,
+          "percentStarted": 84.88
         },
         "proTeamId": 14,
         "stance": "NONE",
@@ -1652,12 +1652,12 @@
         "laterality": "NONE",
         "ownership": {
           "auctionValueAverage": 1.28,
-          "auctionValueAverageChange": 0.02,
-          "averageDraftPosition": 139.06,
-          "averageDraftPositionPercentChange": 1.26,
+          "auctionValueAverageChange": 0.03,
+          "averageDraftPosition": 139.07,
+          "averageDraftPositionPercentChange": 1.21,
           "percentChange": 0.03,
-          "percentOwned": 70.72,
-          "percentStarted": 13.31
+          "percentOwned": 70.71,
+          "percentStarted": 13.64
         },
         "proTeamId": 16,
         "stance": "NONE",
@@ -1941,13 +1941,13 @@
         "lastVideoDate": 1790693884000,
         "laterality": "NONE",
         "ownership": {
-          "auctionValueAverage": 6.71,
-          "auctionValueAverageChange": -0.27,
-          "averageDraftPosition": 89.49,
-          "averageDraftPositionPercentChange": -0.11,
-          "percentChange": -0.15,
-          "percentOwned": 92.12,
-          "percentStarted": 36.94
+          "auctionValueAverage": 6.73,
+          "auctionValueAverageChange": -0.16,
+          "averageDraftPosition": 89.65,
+          "averageDraftPositionPercentChange": -0.07,
+          "percentChange": -0.16,
+          "percentOwned": 92.1,
+          "percentStarted": 36.76
         },
         "proTeamId": 8,
         "stance": "NONE",
@@ -2247,13 +2247,13 @@
         "lastVideoDate": 1790259700000,
         "laterality": "NONE",
         "ownership": {
-          "auctionValueAverage": 51.63,
-          "auctionValueAverageChange": -0.63,
-          "averageDraftPosition": 9.28,
-          "averageDraftPositionPercentChange": -0.04,
+          "auctionValueAverage": 51.66,
+          "auctionValueAverageChange": -0.3,
+          "averageDraftPosition": 9.27,
+          "averageDraftPositionPercentChange": -0.01,
           "percentChange": -0.11,
           "percentOwned": 99.78,
-          "percentStarted": 35.05
+          "percentStarted": 36.55
         },
         "proTeamId": 14,
         "stance": "NONE",
@@ -2516,13 +2516,13 @@
         "lastVideoDate": 1790613913000,
         "laterality": "NONE",
         "ownership": {
-          "auctionValueAverage": 4.23,
-          "auctionValueAverageChange": -0.07,
-          "averageDraftPosition": 99.4,
-          "averageDraftPositionPercentChange": -1.66,
-          "percentChange": -0.14,
-          "percentOwned": 91.47,
-          "percentStarted": 64.48
+          "auctionValueAverage": 4.2,
+          "auctionValueAverageChange": -0.03,
+          "averageDraftPosition": 99.85,
+          "averageDraftPositionPercentChange": -1.61,
+          "percentChange": -0.15,
+          "percentOwned": 91.46,
+          "percentStarted": 64.04
         },
         "proTeamId": 2,
         "stance": "NONE",
@@ -2819,12 +2819,12 @@
         "laterality": "NONE",
         "ownership": {
           "auctionValueAverage": 29.33,
-          "auctionValueAverageChange": 0.17,
-          "averageDraftPosition": 27.73,
-          "averageDraftPositionPercentChange": 1.18,
+          "auctionValueAverageChange": 0.23,
+          "averageDraftPosition": 27.61,
+          "averageDraftPositionPercentChange": 1.17,
           "percentChange": -0.03,
           "percentOwned": 99.75,
-          "percentStarted": 76.76
+          "percentStarted": 77.52
         },
         "proTeamId": 13,
         "stance": "NONE",
@@ -3089,10 +3089,10 @@
         "lastVideoDate": 1789337187000,
         "laterality": "NONE",
         "ownership": {
-          "auctionValueAverage": 64.94,
-          "auctionValueAverageChange": 1.86,
-          "averageDraftPosition": 3.68,
-          "averageDraftPositionPercentChange": 0.18,
+          "auctionValueAverage": 64.96,
+          "auctionValueAverageChange": 1.7,
+          "averageDraftPosition": 3.67,
+          "averageDraftPositionPercentChange": 0.19,
           "percentChange": -0.01,
           "percentOwned": 99.9,
           "percentStarted": 99.68
@@ -3465,10 +3465,10 @@
         "lastVideoDate": 1789946220000,
         "laterality": "NONE",
         "ownership": {
-          "auctionValueAverage": 67.84,
-          "auctionValueAverageChange": 0.24,
-          "averageDraftPosition": 4.59,
-          "averageDraftPositionPercentChange": 0.02,
+          "auctionValueAverage": 67.86,
+          "auctionValueAverageChange": 0.41,
+          "averageDraftPosition": 4.58,
+          "averageDraftPositionPercentChange": 0.03,
           "percentChange": -0.01,
           "percentOwned": 99.92,
           "percentStarted": 99.77
@@ -3819,13 +3819,13 @@
         "lastVideoDate": 1790534015000,
         "laterality": "NONE",
         "ownership": {
-          "auctionValueAverage": 55.86,
-          "auctionValueAverageChange": -0.09,
+          "auctionValueAverage": 55.82,
+          "auctionValueAverageChange": -0.12,
           "averageDraftPosition": 8.4,
-          "averageDraftPositionPercentChange": 0,
-          "percentChange": -0.09,
+          "averageDraftPositionPercentChange": 0.02,
+          "percentChange": -0.08,
           "percentOwned": 99.85,
-          "percentStarted": 99.63
+          "percentStarted": 99.62
         },
         "proTeamId": 8,
         "stance": "NONE",
@@ -4139,13 +4139,13 @@
         "lastVideoDate": 1790546303000,
         "laterality": "NONE",
         "ownership": {
-          "auctionValueAverage": 9.49,
-          "auctionValueAverageChange": -0.06,
-          "averageDraftPosition": 62.8,
-          "averageDraftPositionPercentChange": -1.42,
-          "percentChange": -1.23,
-          "percentOwned": 97.4,
-          "percentStarted": 48.75
+          "auctionValueAverage": 9.48,
+          "auctionValueAverageChange": 0.02,
+          "averageDraftPosition": 63.04,
+          "averageDraftPositionPercentChange": -1.28,
+          "percentChange": -1.32,
+          "percentOwned": 97.31,
+          "percentStarted": 48.35
         },
         "proTeamId": 17,
         "stance": "NONE",
@@ -4538,13 +4538,13 @@
         "lastVideoDate": 1790693717000,
         "laterality": "NONE",
         "ownership": {
-          "auctionValueAverage": 1.67,
-          "auctionValueAverageChange": 0.05,
-          "averageDraftPosition": 130.65,
-          "averageDraftPositionPercentChange": 0.1,
-          "percentChange": -0.1,
-          "percentOwned": 78.65,
-          "percentStarted": 24.76
+          "auctionValueAverage": 1.66,
+          "auctionValueAverageChange": 0.04,
+          "averageDraftPosition": 130.68,
+          "averageDraftPositionPercentChange": 0.08,
+          "percentChange": -0.11,
+          "percentOwned": 78.63,
+          "percentStarted": 24.78
         },
         "proTeamId": 7,
         "stance": "NONE",
@@ -4945,13 +4945,13 @@
         "lastVideoDate": 1787884424000,
         "laterality": "NONE",
         "ownership": {
-          "auctionValueAverage": 1.17,
-          "auctionValueAverageChange": 0.01,
-          "averageDraftPosition": 151.99,
+          "auctionValueAverage": 1.18,
+          "auctionValueAverageChange": 0.03,
+          "averageDraftPosition": 152.08,
           "averageDraftPositionPercentChange": 0.1,
-          "percentChange": -0.32,
-          "percentOwned": 61.59,
-          "percentStarted": 6.51
+          "percentChange": -0.36,
+          "percentOwned": 61.54,
+          "percentStarted": 6.39
         },
         "proTeamId": 24,
         "stance": "NONE",
@@ -5243,13 +5243,13 @@
         "lastVideoDate": 1790172400000,
         "laterality": "NONE",
         "ownership": {
-          "auctionValueAverage": 1.42,
-          "auctionValueAverageChange": -0.01,
-          "averageDraftPosition": 132.85,
-          "averageDraftPositionPercentChange": 0.1,
-          "percentChange": -0.88,
-          "percentOwned": 66.95,
-          "percentStarted": 7.71
+          "auctionValueAverage": 1.43,
+          "auctionValueAverageChange": 0.01,
+          "averageDraftPosition": 132.99,
+          "averageDraftPositionPercentChange": 0.13,
+          "percentChange": -0.96,
+          "percentOwned": 66.86,
+          "percentStarted": 7.63
         },
         "proTeamId": 9,
         "stance": "NONE",
@@ -5592,13 +5592,13 @@
         "lastVideoDate": 1789343761000,
         "laterality": "NONE",
         "ownership": {
-          "auctionValueAverage": 22.57,
-          "auctionValueAverageChange": -0.29,
-          "averageDraftPosition": 41.48,
-          "averageDraftPositionPercentChange": -1.1,
+          "auctionValueAverage": 22.54,
+          "auctionValueAverageChange": -0.13,
+          "averageDraftPosition": 41.75,
+          "averageDraftPositionPercentChange": -1.06,
           "percentChange": -0.13,
-          "percentOwned": 98.82,
-          "percentStarted": 70.46
+          "percentOwned": 98.81,
+          "percentStarted": 68.64
         },
         "proTeamId": 20,
         "stance": "NONE",
@@ -5952,13 +5952,13 @@
         "lastVideoDate": 1790547819000,
         "laterality": "NONE",
         "ownership": {
-          "auctionValueAverage": 70.88,
-          "auctionValueAverageChange": 1.87,
+          "auctionValueAverage": 70.9,
+          "auctionValueAverageChange": 1.64,
           "averageDraftPosition": 1.79,
-          "averageDraftPositionPercentChange": 0.05,
+          "averageDraftPositionPercentChange": 0.06,
           "percentChange": -0.01,
           "percentOwned": 99.94,
-          "percentStarted": 99.81
+          "percentStarted": 99.8
         },
         "proTeamId": 8,
         "stance": "NONE",
@@ -6349,13 +6349,13 @@
         "lastVideoDate": 1789951116000,
         "laterality": "NONE",
         "ownership": {
-          "auctionValueAverage": 9.96,
-          "auctionValueAverageChange": -0.07,
-          "averageDraftPosition": 54.48,
-          "averageDraftPositionPercentChange": 0.12,
+          "auctionValueAverage": 9.98,
+          "auctionValueAverageChange": 0.04,
+          "averageDraftPosition": 54.45,
+          "averageDraftPositionPercentChange": 0.18,
           "percentChange": -0.05,
           "percentOwned": 98.68,
-          "percentStarted": 89.98
+          "percentStarted": 90.09
         },
         "proTeamId": 11,
         "stance": "NONE",
@@ -6673,13 +6673,13 @@
         "lastVideoDate": 1787260036000,
         "laterality": "NONE",
         "ownership": {
-          "auctionValueAverage": 0.99,
-          "auctionValueAverageChange": -0.02,
-          "averageDraftPosition": 142.45,
-          "averageDraftPositionPercentChange": 0.19,
-          "percentChange": -0.18,
-          "percentOwned": 75.08,
-          "percentStarted": 7.45
+          "auctionValueAverage": 0.98,
+          "auctionValueAverageChange": -0.01,
+          "averageDraftPosition": 142.64,
+          "averageDraftPositionPercentChange": 0.17,
+          "percentChange": -0.19,
+          "percentOwned": 75.06,
+          "percentStarted": 7.44
         },
         "proTeamId": 14,
         "stance": "NONE",
@@ -7006,13 +7006,13 @@
         "lastVideoDate": 1790348799000,
         "laterality": "NONE",
         "ownership": {
-          "auctionValueAverage": 38.15,
-          "auctionValueAverageChange": -0.75,
-          "averageDraftPosition": 22.24,
-          "averageDraftPositionPercentChange": -2,
-          "percentChange": -11.29,
-          "percentOwned": 88.54,
-          "percentStarted": 62.66
+          "auctionValueAverage": 38.09,
+          "auctionValueAverageChange": -0.46,
+          "averageDraftPosition": 22.67,
+          "averageDraftPositionPercentChange": -1.96,
+          "percentChange": -12.24,
+          "percentOwned": 87.59,
+          "percentStarted": 60.39
         },
         "proTeamId": 15,
         "stance": "NONE",
@@ -7195,7 +7195,7 @@
       },
       "rosterLocked": false,
       "status": "ONTEAM",
-      "tradeLocked": false,
+      "tradeLocked": true,
       "transactions": [
         {
           "bidAmount": 0,
@@ -7262,12 +7262,12 @@
         "laterality": "NONE",
         "ownership": {
           "auctionValueAverage": 0.99,
-          "auctionValueAverageChange": 0,
-          "averageDraftPosition": 142.83,
-          "averageDraftPositionPercentChange": -0.11,
-          "percentChange": -0.28,
-          "percentOwned": 67.02,
-          "percentStarted": 9.02
+          "auctionValueAverageChange": 0.01,
+          "averageDraftPosition": 142.96,
+          "averageDraftPositionPercentChange": -0.13,
+          "percentChange": -0.3,
+          "percentOwned": 66.99,
+          "percentStarted": 8.89
         },
         "proTeamId": 2,
         "stance": "NONE",
@@ -7656,13 +7656,13 @@
         "lastVideoDate": 1789942124000,
         "laterality": "NONE",
         "ownership": {
-          "auctionValueAverage": 9.14,
-          "auctionValueAverageChange": -0.14,
-          "averageDraftPosition": 70.38,
-          "averageDraftPositionPercentChange": 0.16,
-          "percentChange": -0.33,
-          "percentOwned": 85,
-          "percentStarted": 16.02
+          "auctionValueAverage": 9.15,
+          "auctionValueAverageChange": -0.02,
+          "averageDraftPosition": 70.42,
+          "averageDraftPositionPercentChange": 0.24,
+          "percentChange": -0.35,
+          "percentOwned": 84.98,
+          "percentStarted": 16
         },
         "proTeamId": 28,
         "stance": "NONE",
@@ -8010,13 +8010,13 @@
         "lastVideoDate": 1790537359000,
         "laterality": "NONE",
         "ownership": {
-          "auctionValueAverage": 8.13,
-          "auctionValueAverageChange": 0.47,
-          "averageDraftPosition": 82.62,
-          "averageDraftPositionPercentChange": 1.35,
+          "auctionValueAverage": 8.19,
+          "auctionValueAverageChange": 0.6,
+          "averageDraftPosition": 82.68,
+          "averageDraftPositionPercentChange": 1.43,
           "percentChange": -0.04,
-          "percentOwned": 93.59,
-          "percentStarted": 71.65
+          "percentOwned": 93.58,
+          "percentStarted": 71.72
         },
         "proTeamId": 30,
         "stance": "NONE",
@@ -8340,13 +8340,13 @@
         "lastVideoDate": 1790614835000,
         "laterality": "NONE",
         "ownership": {
-          "auctionValueAverage": 24.84,
-          "auctionValueAverageChange": -0.3,
-          "averageDraftPosition": 37.72,
-          "averageDraftPositionPercentChange": 0.19,
+          "auctionValueAverage": 24.85,
+          "auctionValueAverageChange": -0.08,
+          "averageDraftPosition": 37.67,
+          "averageDraftPositionPercentChange": 0.21,
           "percentChange": -0.04,
           "percentOwned": 98.9,
-          "percentStarted": 85.01
+          "percentStarted": 85.11
         },
         "proTeamId": 12,
         "stance": "NONE",
@@ -8577,7 +8577,7 @@
       },
       "rosterLocked": false,
       "status": "ONTEAM",
-      "tradeLocked": false,
+      "tradeLocked": true,
       "transactions": [
         {
           "bidAmount": 0,
@@ -8644,12 +8644,12 @@
         "laterality": "NONE",
         "ownership": {
           "auctionValueAverage": 25.66,
-          "auctionValueAverageChange": -0.25,
-          "averageDraftPosition": 33.52,
-          "averageDraftPositionPercentChange": -0.04,
+          "auctionValueAverageChange": -0.03,
+          "averageDraftPosition": 33.57,
+          "averageDraftPositionPercentChange": -0.05,
           "percentChange": -0.08,
           "percentOwned": 99.28,
-          "percentStarted": 87.95
+          "percentStarted": 87.93
         },
         "proTeamId": 6,
         "stance": "NONE",
@@ -8925,11 +8925,11 @@
         "ownership": {
           "auctionValueAverage": 0.35,
           "auctionValueAverageChange": -0.01,
-          "averageDraftPosition": 161.48,
-          "averageDraftPositionPercentChange": -0.16,
-          "percentChange": -0.32,
-          "percentOwned": 49.22,
-          "percentStarted": 11.62
+          "averageDraftPosition": 161.57,
+          "averageDraftPositionPercentChange": -0.18,
+          "percentChange": -0.35,
+          "percentOwned": 49.19,
+          "percentStarted": 11.4
         },
         "proTeamId": 21,
         "stance": "NONE",
@@ -9233,13 +9233,13 @@
         "lastVideoDate": 1790563570000,
         "laterality": "NONE",
         "ownership": {
-          "auctionValueAverage": 9.82,
-          "auctionValueAverageChange": -0.31,
-          "averageDraftPosition": 72.05,
-          "averageDraftPositionPercentChange": -0.95,
-          "percentChange": -0.14,
-          "percentOwned": 95.47,
-          "percentStarted": 64.98
+          "auctionValueAverage": 9.8,
+          "auctionValueAverageChange": -0.23,
+          "averageDraftPosition": 72.57,
+          "averageDraftPositionPercentChange": -1.04,
+          "percentChange": -0.15,
+          "percentOwned": 95.45,
+          "percentStarted": 63.85
         },
         "proTeamId": 7,
         "stance": "NONE",
@@ -9549,13 +9549,13 @@
         "lastVideoDate": 1789570514000,
         "laterality": "NONE",
         "ownership": {
-          "auctionValueAverage": 19.16,
-          "auctionValueAverageChange": -0.11,
-          "averageDraftPosition": 44.16,
-          "averageDraftPositionPercentChange": 1.72,
+          "auctionValueAverage": 19.17,
+          "auctionValueAverageChange": 0.05,
+          "averageDraftPosition": 44.07,
+          "averageDraftPositionPercentChange": 1.66,
           "percentChange": -0.04,
           "percentOwned": 98.41,
-          "percentStarted": 63.9
+          "percentStarted": 64.9
         },
         "proTeamId": 33,
         "stance": "NONE",
@@ -9865,13 +9865,13 @@
         "lastVideoDate": 1789486431000,
         "laterality": "NONE",
         "ownership": {
-          "auctionValueAverage": 35.58,
-          "auctionValueAverageChange": -0.38,
-          "averageDraftPosition": 24.01,
-          "averageDraftPositionPercentChange": -0.04,
-          "percentChange": -0.09,
+          "auctionValueAverage": 35.54,
+          "auctionValueAverageChange": -0.18,
+          "averageDraftPosition": 24.05,
+          "averageDraftPositionPercentChange": -0.03,
+          "percentChange": -0.1,
           "percentOwned": 99.41,
-          "percentStarted": 94.69
+          "percentStarted": 94.63
         },
         "proTeamId": 4,
         "stance": "NONE",
@@ -10222,12 +10222,12 @@
         "laterality": "NONE",
         "ownership": {
           "auctionValueAverage": 2.48,
-          "auctionValueAverageChange": -0.04,
-          "averageDraftPosition": 115.77,
-          "averageDraftPositionPercentChange": 0,
+          "auctionValueAverageChange": -0.03,
+          "averageDraftPosition": 115.86,
+          "averageDraftPositionPercentChange": 0.12,
           "percentChange": -0.18,
-          "percentOwned": 90.25,
-          "percentStarted": 5.39
+          "percentOwned": 90.23,
+          "percentStarted": 5.37
         },
         "proTeamId": 3,
         "stance": "NONE",
@@ -10593,11 +10593,11 @@
         "ownership": {
           "auctionValueAverage": 0.15,
           "auctionValueAverageChange": -0.01,
-          "averageDraftPosition": 164.83,
-          "averageDraftPositionPercentChange": -0.37,
-          "percentChange": -0.28,
-          "percentOwned": 38.97,
-          "percentStarted": 15.49
+          "averageDraftPosition": 164.88,
+          "averageDraftPositionPercentChange": -0.38,
+          "percentChange": -0.29,
+          "percentOwned": 38.95,
+          "percentStarted": 15.48
         },
         "proTeamId": 34,
         "stance": "NONE",
@@ -10993,12 +10993,12 @@
         "laterality": "NONE",
         "ownership": {
           "auctionValueAverage": 32.91,
-          "auctionValueAverageChange": -0.06,
-          "averageDraftPosition": 23.38,
-          "averageDraftPositionPercentChange": 0.69,
+          "auctionValueAverageChange": 0.08,
+          "averageDraftPosition": 23.34,
+          "averageDraftPositionPercentChange": 0.66,
           "percentChange": -0.02,
           "percentOwned": 99.25,
-          "percentStarted": 92.96
+          "percentStarted": 93.09
         },
         "proTeamId": 1,
         "stance": "NONE",
@@ -11320,13 +11320,13 @@
         "lastVideoDate": 1790261969000,
         "laterality": "NONE",
         "ownership": {
-          "auctionValueAverage": 4.3,
-          "auctionValueAverageChange": -0.29,
-          "averageDraftPosition": 101.6,
-          "averageDraftPositionPercentChange": -0.9,
-          "percentChange": -0.14,
-          "percentOwned": 90.59,
-          "percentStarted": 32.35
+          "auctionValueAverage": 4.29,
+          "auctionValueAverageChange": -0.23,
+          "averageDraftPosition": 101.89,
+          "averageDraftPositionPercentChange": -0.87,
+          "percentChange": -0.15,
+          "percentOwned": 90.58,
+          "percentStarted": 32.26
         },
         "proTeamId": 17,
         "stance": "NONE",
@@ -11630,12 +11630,12 @@
         "laterality": "NONE",
         "ownership": {
           "auctionValueAverage": 3.36,
-          "auctionValueAverageChange": -0.16,
-          "averageDraftPosition": 113.33,
-          "averageDraftPositionPercentChange": 0,
-          "percentChange": -0.28,
-          "percentOwned": 78.58,
-          "percentStarted": 6.79
+          "auctionValueAverageChange": -0.1,
+          "averageDraftPosition": 113.5,
+          "averageDraftPositionPercentChange": 0.06,
+          "percentChange": -0.3,
+          "percentOwned": 78.55,
+          "percentStarted": 6.76
         },
         "proTeamId": 22,
         "stance": "NONE",
@@ -12061,13 +12061,13 @@
         "lastVideoDate": 1789942368000,
         "laterality": "NONE",
         "ownership": {
-          "auctionValueAverage": 58.03,
-          "auctionValueAverageChange": 0.11,
-          "averageDraftPosition": 5.41,
-          "averageDraftPositionPercentChange": 0.07,
+          "auctionValueAverage": 57.95,
+          "auctionValueAverageChange": -0.04,
+          "averageDraftPosition": 5.4,
+          "averageDraftPositionPercentChange": 0.08,
           "percentChange": -0.03,
           "percentOwned": 99.89,
-          "percentStarted": 99.53
+          "percentStarted": 99.54
         },
         "proTeamId": 4,
         "stance": "NONE",
@@ -12374,12 +12374,12 @@
         "laterality": "NONE",
         "ownership": {
           "auctionValueAverage": 0.73,
-          "auctionValueAverageChange": -0.01,
-          "averageDraftPosition": 160.15,
-          "averageDraftPositionPercentChange": -0.03,
-          "percentChange": -0.11,
-          "percentOwned": 52.12,
-          "percentStarted": 4.09
+          "auctionValueAverageChange": 0,
+          "averageDraftPosition": 160.21,
+          "averageDraftPositionPercentChange": -0.06,
+          "percentChange": -0.12,
+          "percentOwned": 52.1,
+          "percentStarted": 4.16
         },
         "proTeamId": 34,
         "stance": "NONE",
@@ -12730,12 +12730,12 @@
         "laterality": "NONE",
         "ownership": {
           "auctionValueAverage": 5.76,
-          "auctionValueAverageChange": -0.31,
-          "averageDraftPosition": 96.88,
-          "averageDraftPositionPercentChange": 0.04,
+          "auctionValueAverageChange": -0.22,
+          "averageDraftPosition": 97.01,
+          "averageDraftPositionPercentChange": 0.1,
           "percentChange": -0.19,
-          "percentOwned": 90.71,
-          "percentStarted": 24.26
+          "percentOwned": 90.7,
+          "percentStarted": 24.22
         },
         "proTeamId": 3,
         "stance": "NONE",
@@ -13009,10 +13009,10 @@
         "lastVideoDate": 1790541864000,
         "laterality": "NONE",
         "ownership": {
-          "auctionValueAverage": 45.95,
-          "auctionValueAverageChange": -0.39,
-          "averageDraftPosition": 13.04,
-          "averageDraftPositionPercentChange": 0.04,
+          "auctionValueAverage": 45.91,
+          "auctionValueAverageChange": -0.13,
+          "averageDraftPosition": 13.03,
+          "averageDraftPositionPercentChange": 0.06,
           "percentChange": -0.03,
           "percentOwned": 99.87,
           "percentStarted": 98.5

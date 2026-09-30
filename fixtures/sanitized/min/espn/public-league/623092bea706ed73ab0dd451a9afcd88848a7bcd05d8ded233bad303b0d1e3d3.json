@@ -1,0 +1,2362 @@
+{
+ "id": 100002,
+ "seasonId": 2026,
+ "settings": {
+  "name": "Public test league",
+  "size": 10,
+  "isPublic": true,
+  "scoringSettings": {
+   "scoringItems": [
+    {
+     "statId": 133,
+     "points": 0,
+     "pointsOverrides": {
+      "16": -2
+     },
+     "isReverseItem": false
+    },
+    {
+     "statId": 134,
+     "points": 0,
+     "pointsOverrides": {
+      "16": -4
+     },
+     "isReverseItem": false
+    },
+    {
+     "statId": 72,
+     "points": -2,
+     "isReverseItem": false
+    },
+    {
+     "statId": 135,
+     "points": 0,
+     "pointsOverrides": {
+      "16": -5
+     },
+     "isReverseItem": false
+    },
+    {
+     "statId": 79,
+     "points": -2,
+     "isReverseItem": false
+    },
+    {
+     "statId": 136,
+     "points": 0,
+     "pointsOverrides": {
+      "16": -6
+     },
+     "isReverseItem": false
+    },
+    {
+     "statId": 26,
+     "points": 0,
+     "pointsOverrides": {
+      "1": 2,
+      "2": 2,
+      "3": 2,
+      "4": 2,
+      "15": 2
+     },
+     "isReverseItem": false
+    },
+    {
+     "statId": 214,
+     "points": 0.1,
+     "isReverseItem": false
+    },
+    {
+     "statId": 43,
+     "points": 6,
+     "isReverseItem": false
+    },
+    {
+     "statId": 102,
+     "points": 6,
+     "pointsOverrides": {
+      "16": 6
+     },
+     "isReverseItem": false
+    },
+    {
+     "statId": 4,
+     "points": 4,
+     "isReverseItem": false
+    },
+    {
+     "statId": 103,
+     "points": 6,
+     "pointsOverrides": {
+      "16": 6
+     },
+     "isReverseItem": false
+    },
+    {
+     "statId": 101,
+     "points": 6,
+     "pointsOverrides": {
+      "16": 6
+     },
+     "isReverseItem": false
+    },
+    {
+     "statId": 104,
+     "points": 6,
+     "pointsOverrides": {
+      "16": 6
+     },
+     "isReverseItem": false
+    },
+    {
+     "statId": 25,
+     "points": 0,
+     "pointsOverrides": {
+      "1": 6,
+      "2": 6,
+      "3": 6,
+      "4": 6,
+      "15": 6
+     },
+     "isReverseItem": false
+    },
+    {
+     "statId": 128,
+     "points": 0,
+     "pointsOverrides": {
+      "16": 5
+     },
+     "isReverseItem": false
+    },
+    {
+     "statId": 125,
+     "points": 0,
+     "pointsOverrides": {
+      "16": -4
+     },
+     "isReverseItem": false
+    },
+    {
+     "statId": 24,
+     "points": 0,
+     "pointsOverrides": {
+      "1": 0.1,
+      "2": 0.1,
+      "3": 0.1,
+      "4": 0.1,
+      "15": 0.1
+     },
+     "isReverseItem": false
+    },
+    {
+     "statId": 3,
+     "points": 0.04,
+     "isReverseItem": false
+    },
+    {
+     "statId": 86,
+     "points": 1,
+     "isReverseItem": false
+    },
+    {
+     "statId": 42,
+     "points": 0.1,
+     "isReverseItem": false
+    },
+    {
+     "statId": 88,
+     "points": -1,
+     "isReverseItem": false
+    },
+    {
+     "statId": 129,
+     "points": 0,
+     "pointsOverrides": {
+      "16": 3
+     },
+     "isReverseItem": false
+    },
+    {
+     "statId": 165,
+     "points": 2,
+     "pointsOverrides": {
+      "14": 0
+     },
+     "isReverseItem": false
+    },
+    {
+     "statId": 124,
+     "points": 0,
+     "pointsOverrides": {
+      "16": -2
+     },
+     "isReverseItem": false
+    },
+    {
+     "statId": 130,
+     "points": 0,
+     "pointsOverrides": {
+      "16": 2
+     },
+     "isReverseItem": false
+    },
+    {
+     "statId": 89,
+     "points": 0,
+     "pointsOverrides": {
+      "16": 5
+     },
+     "isReverseItem": false
+    },
+    {
+     "statId": 90,
+     "points": 0,
+     "pointsOverrides": {
+      "16": 4
+     },
+     "isReverseItem": false
+    },
+    {
+     "statId": 164,
+     "points": 4,
+     "pointsOverrides": {
+      "14": 0
+     },
+     "isReverseItem": false
+    },
+    {
+     "statId": 206,
+     "points": 2,
+     "pointsOverrides": {
+      "16": 2
+     },
+     "isReverseItem": false
+    },
+    {
+     "statId": 209,
+     "points": 1,
+     "pointsOverrides": {
+      "16": 1
+     },
+     "isReverseItem": false
+    },
+    {
+     "statId": 163,
+     "points": 6,
+     "pointsOverrides": {
+      "14": 0
+     },
+     "isReverseItem": false
+    },
+    {
+     "statId": 166,
+     "points": 1,
+     "pointsOverrides": {
+      "14": 0
+     },
+     "isReverseItem": false
+    },
+    {
+     "statId": 161,
+     "points": 10,
+     "pointsOverrides": {
+      "14": 0
+     },
+     "isReverseItem": false
+    },
+    {
+     "statId": 95,
+     "points": 0,
+     "pointsOverrides": {
+      "16": 2
+     },
+     "isReverseItem": false
+    },
+    {
+     "statId": 162,
+     "points": 8,
+     "pointsOverrides": {
+      "14": 0
+     },
+     "isReverseItem": false
+    },
+    {
+     "statId": 93,
+     "points": 6,
+     "pointsOverrides": {
+      "16": 6
+     },
+     "isReverseItem": false
+    },
+    {
+     "statId": 98,
+     "points": 0,
+     "pointsOverrides": {
+      "16": 2
+     },
+     "isReverseItem": false
+    },
+    {
+     "statId": 91,
+     "points": 0,
+     "pointsOverrides": {
+      "16": 3
+     },
+     "isReverseItem": false
+    },
+    {
+     "statId": 96,
+     "points": 0,
+     "pointsOverrides": {
+      "16": 2
+     },
+     "isReverseItem": false
+    },
+    {
+     "statId": 19,
+     "points": 2,
+     "isReverseItem": false
+    },
+    {
+     "statId": 97,
+     "points": 0,
+     "pointsOverrides": {
+      "16": 2
+     },
+     "isReverseItem": false
+    },
+    {
+     "statId": 20,
+     "points": -2,
+     "isReverseItem": false
+    },
+    {
+     "statId": 63,
+     "points": 6,
+     "isReverseItem": false
+    },
+    {
+     "statId": 82,
+     "points": -3,
+     "isReverseItem": false
+    },
+    {
+     "statId": 92,
+     "points": 0,
+     "pointsOverrides": {
+      "16": 1
+     },
+     "isReverseItem": false
+    },
+    {
+     "statId": 99,
+     "points": 0,
+     "pointsOverrides": {
+      "16": 1
+     },
+     "isReverseItem": false
+    },
+    {
+     "statId": 114,
+     "points": 0.02,
+     "pointsOverrides": {
+      "16": 0.02
+     },
+     "isReverseItem": false
+    },
+    {
+     "statId": 115,
+     "points": 0.02,
+     "pointsOverrides": {
+      "16": 0.02
+     },
+     "isReverseItem": false
+    },
+    {
+     "statId": 44,
+     "points": 2,
+     "isReverseItem": false
+    }
+   ],
+   "scoringType": "H2H_POINTS",
+   "scoringEnhancementType": "NONE",
+   "homeTeamBonus": 0,
+   "playoffHomeTeamBonus": 0
+  },
+  "rosterSettings": {
+   "lineupSlotCounts": {
+    "0": 0,
+    "1": 1,
+    "2": 0,
+    "3": 0,
+    "4": 0,
+    "5": 0,
+    "6": 0,
+    "7": 0,
+    "8": 0,
+    "9": 0,
+    "10": 0,
+    "11": 0,
+    "12": 0,
+    "13": 0,
+    "14": 0,
+    "15": 0,
+    "16": 1,
+    "17": 1,
+    "18": 0,
+    "19": 0,
+    "20": 7,
+    "21": 2,
+    "22": 0,
+    "23": 5,
+    "24": 0
+   },
+   "positionLimits": {
+    "0": 0,
+    "1": -1,
+    "2": 10,
+    "3": 10,
+    "4": 10,
+    "5": 2,
+    "6": 0,
+    "7": 0,
+    "8": 0,
+    "9": 0,
+    "10": 0,
+    "11": 0,
+    "12": 0,
+    "13": 0,
+    "14": 0,
+    "15": 2,
+    "16": 3,
+    "17": 0
+   },
+   "isBenchUnlimited": true
+  },
+  "scheduleSettings": {
+   "matchupPeriodCount": 15,
+   "matchupPeriods": {
+    "1": [
+     1
+    ],
+    "2": [
+     2
+    ],
+    "3": [
+     3
+    ],
+    "4": [
+     4
+    ],
+    "5": [
+     5
+    ],
+    "6": [
+     6
+    ],
+    "7": [
+     7
+    ],
+    "8": [
+     8
+    ],
+    "9": [
+     9
+    ],
+    "10": [
+     10
+    ],
+    "11": [
+     11
+    ],
+    "12": [
+     12
+    ],
+    "13": [
+     13
+    ],
+    "14": [
+     14
+    ],
+    "15": [
+     15
+    ],
+    "16": [
+     16
+    ],
+    "17": [
+     17
+    ]
+   },
+   "playoffTeamCount": 4,
+   "playoffMatchupPeriodLength": 1,
+   "variablePlayoffMatchupPeriodLength": false,
+   "playoffReseed": false,
+   "playoffSeedingRule": "TOTAL_POINTS_SCORED",
+   "divisions": [
+    {
+     "id": 0,
+     "size": 10
+    }
+   ]
+  },
+  "tradeSettings": {
+   "deadlineDate": 1794420000000,
+   "vetoVotesRequired": 0,
+   "revisionHours": 24
+  },
+  "draftSettings": {
+   "keeperCount": 0,
+   "keeperCountFuture": 0
+  },
+  "acquisitionSettings": {
+   "isUsingAcquisitionBudget": true,
+   "acquisitionBudget": 200
+  }
+ },
+ "status": {
+  "currentMatchupPeriod": 4,
+  "latestScoringPeriod": 4,
+  "firstScoringPeriod": 1,
+  "finalScoringPeriod": 17,
+  "isActive": true
+ },
+ "teams": [
+  {
+   "id": 1,
+   "name": "Team 1",
+   "divisionId": 0,
+   "roster": {
+    "entries": [
+     {
+      "playerId": -15030,
+      "lineupSlotId": 20,
+      "playerPoolEntry": {
+       "id": -15030,
+       "player": {
+        "id": -15030,
+        "fullName": "Jaguars TQB",
+        "defaultPositionId": 15,
+        "eligibleSlots": [
+         1,
+         20,
+         21
+        ],
+        "proTeamId": 30,
+        "stats": [
+         {
+          "seasonId": 2026,
+          "scoringPeriodId": 3,
+          "statSourceId": 0,
+          "statSplitTypeId": 1,
+          "appliedTotal": 19.78,
+          "stats": {
+           "3": 182,
+           "4": 3,
+           "5": 36,
+           "6": 18,
+           "7": 9,
+           "8": 7,
+           "9": 3,
+           "10": 1,
+           "11": 3,
+           "12": 1,
+           "13": 2,
+           "14": 1,
+           "20": 1,
+           "22": 182,
+           "24": 25,
+           "27": 5,
+           "28": 2,
+           "29": 1,
+           "30": 1,
+           "31": 0,
+           "32": 0,
+           "33": 0,
+           "34": 0,
+           "40": 25,
+           "79": 0,
+           "82": 0,
+           "88": 0,
+           "93": 0,
+           "94": 0,
+           "206": 0,
+           "210": 1
+          }
+         }
+        ]
+       }
+      }
+     },
+     {
+      "playerId": -16024,
+      "lineupSlotId": 20,
+      "playerPoolEntry": {
+       "id": -16024,
+       "player": {
+        "id": -16024,
+        "fullName": "Chargers D/ST",
+        "defaultPositionId": 16,
+        "eligibleSlots": [
+         16,
+         20,
+         21
+        ],
+        "proTeamId": 24,
+        "stats": [
+         {
+          "seasonId": 2026,
+          "scoringPeriodId": 3,
+          "statSourceId": 0,
+          "statSplitTypeId": 1,
+          "appliedTotal": 16.4,
+          "stats": {
+           "89": 0,
+           "90": 0,
+           "91": 0,
+           "92": 0,
+           "95": 2,
+           "96": 3,
+           "99": 4,
+           "114": 106,
+           "115": 14,
+           "120": 24,
+           "124": 0,
+           "127": 350,
+           "128": 0,
+           "129": 0,
+           "130": 0,
+           "133": 0,
+           "134": 0,
+           "135": 0,
+           "136": 0,
+           "187": 24,
+           "210": 1
+          }
+         }
+        ]
+       }
+      }
+     },
+     {
+      "playerId": -16012,
+      "lineupSlotId": 16,
+      "playerPoolEntry": {
+       "id": -16012,
+       "player": {
+        "id": -16012,
+        "fullName": "Chiefs D/ST",
+        "defaultPositionId": 16,
+        "eligibleSlots": [
+         16,
+         20,
+         21
+        ],
+        "proTeamId": 12,
+        "stats": [
+         {
+          "seasonId": 2026,
+          "scoringPeriodId": 3,
+          "statSourceId": 0,
+          "statSplitTypeId": 1,
+          "appliedTotal": 8.3,
+          "stats": {
+           "89": 0,
+           "90": 0,
+           "91": 1,
+           "92": 0,
+           "95": 1,
+           "96": 1,
+           "114": 65,
+           "120": 10,
+           "124": 0,
+           "127": 329,
+           "128": 0,
+           "129": 0,
+           "130": 0,
+           "133": 0,
+           "134": 0,
+           "135": 0,
+           "136": 0,
+           "187": 10,
+           "210": 1
+          }
+         }
+        ]
+       }
+      }
+     },
+     {
+      "playerId": -15018,
+      "lineupSlotId": 1,
+      "playerPoolEntry": {
+       "id": -15018,
+       "player": {
+        "id": -15018,
+        "fullName": "Saints TQB",
+        "defaultPositionId": 15,
+        "eligibleSlots": [
+         1,
+         20,
+         21
+        ],
+        "proTeamId": 18,
+        "stats": [
+         {
+          "seasonId": 2026,
+          "scoringPeriodId": 3,
+          "statSourceId": 0,
+          "statSplitTypeId": 1,
+          "appliedTotal": 23.8,
+          "stats": {
+           "3": 255,
+           "4": 4,
+           "5": 51,
+           "6": 25,
+           "7": 12,
+           "8": 10,
+           "9": 5,
+           "10": 2,
+           "11": 5,
+           "12": 2,
+           "13": 2,
+           "14": 1,
+           "20": 1,
+           "22": 255,
+           "24": 36,
+           "27": 7,
+           "28": 3,
+           "29": 1,
+           "30": 1,
+           "31": 0,
+           "32": 0,
+           "33": 0,
+           "34": 0,
+           "40": 36,
+           "72": 2,
+           "79": 0,
+           "82": 0,
+           "88": 0,
+           "93": 0,
+           "94": 0,
+           "206": 0,
+           "210": 1
+          }
+         }
+        ]
+       }
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 2,
+   "name": "Team 2",
+   "divisionId": 0,
+   "roster": {
+    "entries": [
+     {
+      "playerId": -15004,
+      "lineupSlotId": 20,
+      "playerPoolEntry": {
+       "id": -15004,
+       "player": {
+        "id": -15004,
+        "fullName": "Bengals TQB",
+        "defaultPositionId": 15,
+        "eligibleSlots": [
+         1,
+         20,
+         21
+        ],
+        "proTeamId": 4,
+        "stats": [
+         {
+          "seasonId": 2026,
+          "scoringPeriodId": 3,
+          "statSourceId": 0,
+          "statSplitTypeId": 1,
+          "appliedTotal": 22.58,
+          "stats": {
+           "3": 282,
+           "4": 3,
+           "5": 56,
+           "6": 28,
+           "7": 14,
+           "8": 11,
+           "9": 5,
+           "10": 2,
+           "11": 5,
+           "12": 2,
+           "13": 1,
+           "14": 0,
+           "22": 282,
+           "24": 13,
+           "27": 2,
+           "28": 1,
+           "29": 0,
+           "30": 0,
+           "31": 0,
+           "32": 0,
+           "33": 0,
+           "34": 0,
+           "40": 13,
+           "72": 1,
+           "79": 0,
+           "82": 0,
+           "88": 0,
+           "93": 0,
+           "94": 0,
+           "206": 0,
+           "210": 1
+          }
+         }
+        ]
+       }
+      }
+     },
+     {
+      "playerId": -15008,
+      "lineupSlotId": 1,
+      "playerPoolEntry": {
+       "id": -15008,
+       "player": {
+        "id": -15008,
+        "fullName": "Lions TQB",
+        "defaultPositionId": 15,
+        "eligibleSlots": [
+         1,
+         20,
+         21
+        ],
+        "proTeamId": 8,
+        "stats": [
+         {
+          "seasonId": 2026,
+          "scoringPeriodId": 3,
+          "statSourceId": 0,
+          "statSplitTypeId": 1,
+          "appliedTotal": 19.36,
+          "stats": {
+           "3": 269,
+           "4": 2,
+           "5": 53,
+           "6": 26,
+           "7": 13,
+           "8": 10,
+           "9": 5,
+           "10": 2,
+           "11": 5,
+           "12": 2,
+           "13": 1,
+           "14": 0,
+           "22": 269,
+           "24": 6,
+           "27": 1,
+           "28": 0,
+           "29": 0,
+           "30": 0,
+           "31": 0,
+           "32": 0,
+           "33": 0,
+           "34": 0,
+           "40": 6,
+           "79": 0,
+           "82": 0,
+           "88": 0,
+           "93": 0,
+           "94": 0,
+           "206": 0,
+           "210": 1
+          }
+         }
+        ]
+       }
+      }
+     },
+     {
+      "playerId": -16027,
+      "lineupSlotId": 16,
+      "playerPoolEntry": {
+       "id": -16027,
+       "player": {
+        "id": -16027,
+        "fullName": "Buccaneers D/ST",
+        "defaultPositionId": 16,
+        "eligibleSlots": [
+         16,
+         20,
+         21
+        ],
+        "proTeamId": 27,
+        "stats": [
+         {
+          "seasonId": 2026,
+          "scoringPeriodId": 3,
+          "statSourceId": 0,
+          "statSplitTypeId": 1,
+          "appliedTotal": 11,
+          "stats": {
+           "89": 0,
+           "90": 0,
+           "91": 0,
+           "92": 0,
+           "95": 1,
+           "99": 3,
+           "114": 160,
+           "115": 40,
+           "120": 23,
+           "124": 0,
+           "127": 230,
+           "128": 0,
+           "129": 0,
+           "130": 1,
+           "133": 0,
+           "134": 0,
+           "135": 0,
+           "136": 0,
+           "187": 23,
+           "210": 1
+          }
+         }
+        ]
+       }
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 3,
+   "name": "Team 3",
+   "divisionId": 0,
+   "roster": {
+    "entries": [
+     {
+      "playerId": -15014,
+      "lineupSlotId": 1,
+      "playerPoolEntry": {
+       "id": -15014,
+       "player": {
+        "id": -15014,
+        "fullName": "Rams TQB",
+        "defaultPositionId": 15,
+        "eligibleSlots": [
+         1,
+         20,
+         21
+        ],
+        "proTeamId": 14,
+        "stats": [
+         {
+          "seasonId": 2026,
+          "scoringPeriodId": 3,
+          "statSourceId": 0,
+          "statSplitTypeId": 1,
+          "appliedTotal": 20.9,
+          "stats": {
+           "3": 390,
+           "4": 2,
+           "5": 78,
+           "6": 39,
+           "7": 19,
+           "8": 15,
+           "9": 7,
+           "10": 3,
+           "11": 6,
+           "12": 3,
+           "13": 5,
+           "14": 2,
+           "20": 2,
+           "22": 390,
+           "24": 13,
+           "27": 2,
+           "28": 1,
+           "29": 0,
+           "30": 0,
+           "31": 0,
+           "32": 0,
+           "33": 0,
+           "34": 0,
+           "40": 13,
+           "79": 0,
+           "82": 0,
+           "88": 0,
+           "93": 0,
+           "94": 0,
+           "206": 0,
+           "210": 1
+          }
+         }
+        ]
+       }
+      }
+     },
+     {
+      "playerId": -15019,
+      "lineupSlotId": 20,
+      "playerPoolEntry": {
+       "id": -15019,
+       "player": {
+        "id": -15019,
+        "fullName": "Giants TQB",
+        "defaultPositionId": 15,
+        "eligibleSlots": [
+         1,
+         20,
+         21
+        ],
+        "proTeamId": 19,
+        "stats": [
+         {
+          "seasonId": 2026,
+          "scoringPeriodId": 3,
+          "statSourceId": 0,
+          "statSplitTypeId": 1,
+          "appliedTotal": 6.12,
+          "stats": {
+           "3": 118,
+           "5": 23,
+           "6": 11,
+           "7": 5,
+           "8": 4,
+           "9": 2,
+           "10": 1,
+           "11": 2,
+           "12": 1,
+           "13": 1,
+           "14": 0,
+           "22": 118,
+           "24": 14,
+           "27": 2,
+           "28": 1,
+           "29": 0,
+           "30": 0,
+           "31": 0,
+           "32": 0,
+           "33": 0,
+           "34": 0,
+           "40": 14,
+           "79": 0,
+           "82": 0,
+           "88": 0,
+           "93": 0,
+           "94": 0,
+           "206": 0,
+           "210": 1
+          }
+         }
+        ]
+       }
+      }
+     },
+     {
+      "playerId": -16030,
+      "lineupSlotId": 20,
+      "playerPoolEntry": {
+       "id": -16030,
+       "player": {
+        "id": -16030,
+        "fullName": "Jaguars D/ST",
+        "defaultPositionId": 16,
+        "eligibleSlots": [
+         16,
+         20,
+         21
+        ],
+        "proTeamId": 30,
+        "stats": [
+         {
+          "seasonId": 2026,
+          "scoringPeriodId": 3,
+          "statSourceId": 0,
+          "statSplitTypeId": 1,
+          "appliedTotal": 14.26,
+          "stats": {
+           "89": 0,
+           "90": 1,
+           "91": 0,
+           "92": 0,
+           "95": 2,
+           "96": 1,
+           "99": 3,
+           "114": 63,
+           "120": 6,
+           "124": 0,
+           "127": 317,
+           "128": 0,
+           "129": 0,
+           "130": 0,
+           "133": 0,
+           "134": 0,
+           "135": 0,
+           "136": 0,
+           "187": 6,
+           "210": 1
+          }
+         }
+        ]
+       }
+      }
+     },
+     {
+      "playerId": -16025,
+      "lineupSlotId": 16,
+      "playerPoolEntry": {
+       "id": -16025,
+       "player": {
+        "id": -16025,
+        "fullName": "49ers D/ST",
+        "defaultPositionId": 16,
+        "eligibleSlots": [
+         16,
+         20,
+         21
+        ],
+        "proTeamId": 25,
+        "stats": [
+         {
+          "seasonId": 2026,
+          "scoringPeriodId": 3,
+          "statSourceId": 0,
+          "statSplitTypeId": 1,
+          "appliedTotal": 3.72,
+          "stats": {
+           "89": 0,
+           "90": 0,
+           "91": 0,
+           "92": 0,
+           "99": 2,
+           "114": 79,
+           "115": 7,
+           "120": 30,
+           "124": 0,
+           "127": 365,
+           "128": 0,
+           "129": 0,
+           "130": 0,
+           "133": 0,
+           "134": 0,
+           "135": 0,
+           "136": 0,
+           "187": 30,
+           "210": 1
+          }
+         }
+        ]
+       }
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4,
+   "name": "Team 4",
+   "divisionId": 0,
+   "roster": {
+    "entries": [
+     {
+      "playerId": -15033,
+      "lineupSlotId": 1,
+      "playerPoolEntry": {
+       "id": -15033,
+       "player": {
+        "id": -15033,
+        "fullName": "Ravens TQB",
+        "defaultPositionId": 15,
+        "eligibleSlots": [
+         1,
+         20,
+         21
+        ],
+        "proTeamId": 33,
+        "stats": [
+         {
+          "seasonId": 2026,
+          "scoringPeriodId": 3,
+          "statSourceId": 0,
+          "statSplitTypeId": 1,
+          "appliedTotal": 20.44,
+          "stats": {
+           "3": 186,
+           "4": 2,
+           "5": 37,
+           "6": 18,
+           "7": 9,
+           "8": 7,
+           "9": 3,
+           "10": 1,
+           "11": 3,
+           "12": 1,
+           "13": 1,
+           "14": 0,
+           "22": 186,
+           "24": 50,
+           "27": 10,
+           "28": 5,
+           "29": 2,
+           "30": 2,
+           "31": 1,
+           "32": 0,
+           "33": 1,
+           "34": 0,
+           "40": 50,
+           "79": 0,
+           "82": 0,
+           "88": 0,
+           "93": 0,
+           "94": 0,
+           "206": 0,
+           "210": 1
+          }
+         }
+        ]
+       }
+      }
+     },
+     {
+      "playerId": -15025,
+      "lineupSlotId": 20,
+      "playerPoolEntry": {
+       "id": -15025,
+       "player": {
+        "id": -15025,
+        "fullName": "49ers TQB",
+        "defaultPositionId": 15,
+        "eligibleSlots": [
+         1,
+         20,
+         21
+        ],
+        "proTeamId": 25,
+        "stats": [
+         {
+          "seasonId": 2026,
+          "scoringPeriodId": 3,
+          "statSourceId": 0,
+          "statSplitTypeId": 1,
+          "appliedTotal": 31.28,
+          "stats": {
+           "3": 297,
+           "4": 4,
+           "5": 59,
+           "6": 29,
+           "7": 14,
+           "8": 11,
+           "9": 5,
+           "10": 2,
+           "11": 3,
+           "12": 1,
+           "13": 2,
+           "14": 1,
+           "22": 297,
+           "24": 34,
+           "27": 6,
+           "28": 3,
+           "29": 1,
+           "30": 1,
+           "31": 0,
+           "32": 0,
+           "33": 0,
+           "34": 0,
+           "40": 34,
+           "79": 0,
+           "82": 0,
+           "88": 0,
+           "93": 0,
+           "94": 0,
+           "206": 0,
+           "210": 1
+          }
+         }
+        ]
+       }
+      }
+     },
+     {
+      "playerId": -16033,
+      "lineupSlotId": 20,
+      "playerPoolEntry": {
+       "id": -16033,
+       "player": {
+        "id": -16033,
+        "fullName": "Ravens D/ST",
+        "defaultPositionId": 16,
+        "eligibleSlots": [
+         16,
+         20,
+         21
+        ],
+        "proTeamId": 33,
+        "stats": [
+         {
+          "seasonId": 2026,
+          "scoringPeriodId": 3,
+          "statSourceId": 0,
+          "statSplitTypeId": 1,
+          "appliedTotal": 4.26,
+          "stats": {
+           "89": 0,
+           "90": 0,
+           "91": 0,
+           "92": 0,
+           "96": 1,
+           "97": 1,
+           "99": 1,
+           "114": 39,
+           "115": 24,
+           "120": 31,
+           "124": 0,
+           "127": 415,
+           "128": 0,
+           "129": 0,
+           "130": 0,
+           "133": 1,
+           "134": 0,
+           "135": 0,
+           "136": 0,
+           "187": 31,
+           "210": 1
+          }
+         }
+        ]
+       }
+      }
+     },
+     {
+      "playerId": -16008,
+      "lineupSlotId": 16,
+      "playerPoolEntry": {
+       "id": -16008,
+       "player": {
+        "id": -16008,
+        "fullName": "Lions D/ST",
+        "defaultPositionId": 16,
+        "eligibleSlots": [
+         16,
+         20,
+         21
+        ],
+        "proTeamId": 8,
+        "stats": [
+         {
+          "seasonId": 2026,
+          "scoringPeriodId": 3,
+          "statSourceId": 0,
+          "statSplitTypeId": 1,
+          "appliedTotal": 9.3,
+          "stats": {
+           "89": 0,
+           "90": 0,
+           "91": 0,
+           "92": 0,
+           "96": 1,
+           "99": 5,
+           "114": 104,
+           "115": 11,
+           "120": 24,
+           "124": 0,
+           "127": 335,
+           "128": 0,
+           "129": 0,
+           "130": 0,
+           "133": 0,
+           "134": 0,
+           "135": 0,
+           "136": 0,
+           "187": 24,
+           "210": 1
+          }
+         }
+        ]
+       }
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 5,
+   "name": "Team 5",
+   "divisionId": 0,
+   "roster": {
+    "entries": [
+     {
+      "playerId": -15017,
+      "lineupSlotId": 1,
+      "playerPoolEntry": {
+       "id": -15017,
+       "player": {
+        "id": -15017,
+        "fullName": "Patriots TQB",
+        "defaultPositionId": 15,
+        "eligibleSlots": [
+         1,
+         20,
+         21
+        ],
+        "proTeamId": 17,
+        "stats": [
+         {
+          "seasonId": 2026,
+          "scoringPeriodId": 3,
+          "statSourceId": 0,
+          "statSplitTypeId": 1,
+          "appliedTotal": 5.16,
+          "stats": {
+           "3": 229,
+           "5": 45,
+           "6": 22,
+           "7": 11,
+           "8": 9,
+           "9": 4,
+           "10": 2,
+           "11": 3,
+           "12": 1,
+           "13": 2,
+           "14": 1,
+           "20": 2,
+           "22": 229,
+           "24": 20,
+           "27": 4,
+           "28": 2,
+           "29": 1,
+           "30": 0,
+           "31": 0,
+           "32": 0,
+           "33": 1,
+           "34": 0,
+           "40": 20,
+           "72": 1,
+           "79": 0,
+           "82": 0,
+           "88": 0,
+           "93": 0,
+           "94": 0,
+           "206": 0,
+           "210": 1
+          }
+         }
+        ]
+       }
+      }
+     },
+     {
+      "playerId": -16026,
+      "lineupSlotId": 16,
+      "playerPoolEntry": {
+       "id": -16026,
+       "player": {
+        "id": -16026,
+        "fullName": "Seahawks D/ST",
+        "defaultPositionId": 16,
+        "eligibleSlots": [
+         16,
+         20,
+         21
+        ],
+        "proTeamId": 26,
+        "stats": [
+         {
+          "seasonId": 2026,
+          "scoringPeriodId": 3,
+          "statSourceId": 0,
+          "statSplitTypeId": 1,
+          "appliedTotal": 6.42,
+          "stats": {
+           "89": 0,
+           "90": 0,
+           "91": 0,
+           "92": 0,
+           "99": 2,
+           "114": 92,
+           "115": 29,
+           "120": 27,
+           "124": 0,
+           "127": 258,
+           "128": 0,
+           "129": 0,
+           "130": 1,
+           "133": 0,
+           "134": 0,
+           "135": 0,
+           "136": 0,
+           "187": 27,
+           "210": 1
+          }
+         }
+        ]
+       }
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 6,
+   "name": "Team 6",
+   "divisionId": 0,
+   "roster": {
+    "entries": [
+     {
+      "playerId": -15002,
+      "lineupSlotId": 1,
+      "playerPoolEntry": {
+       "id": -15002,
+       "player": {
+        "id": -15002,
+        "fullName": "Bills TQB",
+        "defaultPositionId": 15,
+        "eligibleSlots": [
+         1,
+         20,
+         21
+        ],
+        "proTeamId": 2,
+        "stats": [
+         {
+          "seasonId": 2026,
+          "scoringPeriodId": 3,
+          "statSourceId": 0,
+          "statSplitTypeId": 1,
+          "appliedTotal": 16.46,
+          "stats": {
+           "3": 204,
+           "5": 40,
+           "6": 20,
+           "7": 10,
+           "8": 8,
+           "9": 4,
+           "10": 2,
+           "11": 3,
+           "12": 1,
+           "13": 2,
+           "14": 1,
+           "20": 2,
+           "22": 204,
+           "24": 22,
+           "25": 2,
+           "27": 4,
+           "28": 2,
+           "29": 1,
+           "30": 0,
+           "31": 0,
+           "32": 0,
+           "33": 1,
+           "34": 0,
+           "40": 22,
+           "42": 1,
+           "47": 0,
+           "48": 0,
+           "49": 0,
+           "50": 0,
+           "51": 0,
+           "52": 0,
+           "54": 0,
+           "55": 0,
+           "61": 1,
+           "72": 1,
+           "79": 0,
+           "82": 0,
+           "88": 0,
+           "93": 0,
+           "94": 0,
+           "206": 0,
+           "210": 1
+          }
+         }
+        ]
+       }
+      }
+     },
+     {
+      "playerId": -16007,
+      "lineupSlotId": 16,
+      "playerPoolEntry": {
+       "id": -16007,
+       "player": {
+        "id": -16007,
+        "fullName": "Broncos D/ST",
+        "defaultPositionId": 16,
+        "eligibleSlots": [
+         16,
+         20,
+         21
+        ],
+        "proTeamId": 7,
+        "stats": [
+         {
+          "seasonId": 2026,
+          "scoringPeriodId": 3,
+          "statSourceId": 0,
+          "statSplitTypeId": 1,
+          "appliedTotal": 12.92,
+          "stats": {
+           "89": 0,
+           "90": 0,
+           "91": 0,
+           "92": 0,
+           "94": 1,
+           "95": 2,
+           "99": 4,
+           "103": 1,
+           "114": 107,
+           "115": 39,
+           "120": 26,
+           "124": 0,
+           "127": 482,
+           "128": 0,
+           "129": 0,
+           "130": 0,
+           "133": 0,
+           "134": 1,
+           "135": 0,
+           "136": 0,
+           "187": 26,
+           "210": 1
+          }
+         }
+        ]
+       }
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 8,
+   "name": "Team 8",
+   "divisionId": 0,
+   "roster": {
+    "entries": [
+     {
+      "playerId": -15006,
+      "lineupSlotId": 1,
+      "playerPoolEntry": {
+       "id": -15006,
+       "player": {
+        "id": -15006,
+        "fullName": "Cowboys TQB",
+        "defaultPositionId": 15,
+        "eligibleSlots": [
+         1,
+         20,
+         21
+        ],
+        "proTeamId": 6,
+        "stats": [
+         {
+          "seasonId": 2026,
+          "scoringPeriodId": 3,
+          "statSourceId": 0,
+          "statSplitTypeId": 1,
+          "appliedTotal": 18.94,
+          "stats": {
+           "3": 276,
+           "4": 1,
+           "5": 55,
+           "6": 27,
+           "7": 13,
+           "8": 11,
+           "9": 5,
+           "10": 2,
+           "11": 5,
+           "12": 2,
+           "13": 3,
+           "14": 1,
+           "19": 1,
+           "22": 276,
+           "24": 19,
+           "27": 3,
+           "28": 1,
+           "29": 0,
+           "30": 0,
+           "31": 0,
+           "32": 0,
+           "33": 0,
+           "34": 0,
+           "40": 19,
+           "79": 0,
+           "82": 0,
+           "88": 0,
+           "93": 0,
+           "94": 0,
+           "206": 0,
+           "210": 1
+          }
+         }
+        ]
+       }
+      }
+     },
+     {
+      "playerId": -16034,
+      "lineupSlotId": 16,
+      "playerPoolEntry": {
+       "id": -16034,
+       "player": {
+        "id": -16034,
+        "fullName": "Texans D/ST",
+        "defaultPositionId": 16,
+        "eligibleSlots": [
+         16,
+         20,
+         21
+        ],
+        "proTeamId": 34,
+        "stats": [
+         {
+          "seasonId": 2026,
+          "scoringPeriodId": 3,
+          "statSourceId": 0,
+          "statSplitTypeId": 1,
+          "appliedTotal": 12.92,
+          "stats": {
+           "89": 0,
+           "90": 0,
+           "91": 0,
+           "92": 0,
+           "95": 1,
+           "96": 2,
+           "99": 4,
+           "114": 135,
+           "115": 11,
+           "120": 19,
+           "124": 0,
+           "127": 300,
+           "128": 0,
+           "129": 0,
+           "130": 0,
+           "133": 0,
+           "134": 0,
+           "135": 0,
+           "136": 0,
+           "187": 19,
+           "210": 1
+          }
+         }
+        ]
+       }
+      }
+     },
+     {
+      "playerId": -15003,
+      "lineupSlotId": 20,
+      "playerPoolEntry": {
+       "id": -15003,
+       "player": {
+        "id": -15003,
+        "fullName": "Bears TQB",
+        "defaultPositionId": 15,
+        "eligibleSlots": [
+         1,
+         20,
+         21
+        ],
+        "proTeamId": 3,
+        "stats": [
+         {
+          "seasonId": 2026,
+          "scoringPeriodId": 3,
+          "statSourceId": 0,
+          "statSplitTypeId": 1,
+          "appliedTotal": 24.48,
+          "stats": {
+           "3": 247,
+           "4": 2,
+           "5": 49,
+           "6": 24,
+           "7": 12,
+           "8": 9,
+           "9": 4,
+           "10": 2,
+           "11": 4,
+           "12": 2,
+           "13": 2,
+           "14": 1,
+           "22": 247,
+           "24": 6,
+           "25": 1,
+           "27": 1,
+           "28": 0,
+           "29": 0,
+           "30": 0,
+           "31": 0,
+           "32": 0,
+           "33": 0,
+           "34": 0,
+           "40": 6,
+           "79": 0,
+           "82": 0,
+           "88": 0,
+           "93": 0,
+           "94": 0,
+           "206": 0,
+           "210": 1
+          }
+         }
+        ]
+       }
+      }
+     },
+     {
+      "playerId": -16017,
+      "lineupSlotId": 20,
+      "playerPoolEntry": {
+       "id": -16017,
+       "player": {
+        "id": -16017,
+        "fullName": "Patriots D/ST",
+        "defaultPositionId": 16,
+        "eligibleSlots": [
+         16,
+         20,
+         21
+        ],
+        "proTeamId": 17,
+        "stats": [
+         {
+          "seasonId": 2026,
+          "scoringPeriodId": 3,
+          "statSourceId": 0,
+          "statSplitTypeId": 1,
+          "appliedTotal": 4.04,
+          "stats": {
+           "89": 0,
+           "90": 0,
+           "91": 0,
+           "92": 0,
+           "95": 1,
+           "99": 1,
+           "114": 133,
+           "115": 19,
+           "120": 35,
+           "124": 1,
+           "127": 315,
+           "128": 0,
+           "129": 0,
+           "130": 0,
+           "133": 0,
+           "134": 0,
+           "135": 0,
+           "136": 0,
+           "187": 35,
+           "210": 1
+          }
+         }
+        ]
+       }
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 9,
+   "name": "Team 9",
+   "divisionId": 0,
+   "roster": {
+    "entries": [
+     {
+      "playerId": -15021,
+      "lineupSlotId": 1,
+      "playerPoolEntry": {
+       "id": -15021,
+       "player": {
+        "id": -15021,
+        "fullName": "Eagles TQB",
+        "defaultPositionId": 15,
+        "eligibleSlots": [
+         1,
+         20,
+         21
+        ],
+        "proTeamId": 21,
+        "stats": [
+         {
+          "seasonId": 2026,
+          "scoringPeriodId": 3,
+          "statSourceId": 0,
+          "statSplitTypeId": 1,
+          "appliedTotal": 10.62,
+          "stats": {
+           "3": 153,
+           "5": 30,
+           "6": 15,
+           "7": 7,
+           "8": 6,
+           "9": 3,
+           "10": 1,
+           "11": 3,
+           "12": 1,
+           "13": 2,
+           "14": 1,
+           "20": 2,
+           "22": 153,
+           "24": 25,
+           "25": 1,
+           "27": 5,
+           "28": 2,
+           "29": 1,
+           "30": 1,
+           "31": 0,
+           "32": 0,
+           "33": 0,
+           "34": 0,
+           "40": 25,
+           "79": 0,
+           "82": 0,
+           "88": 0,
+           "93": 0,
+           "94": 0,
+           "206": 0,
+           "210": 1
+          }
+         }
+        ]
+       }
+      }
+     },
+     {
+      "playerId": 4431459,
+      "lineupSlotId": 23,
+      "playerPoolEntry": {
+       "id": 4431459,
+       "player": {
+        "id": 4431459,
+        "fullName": "Tyler Warren",
+        "defaultPositionId": 4,
+        "eligibleSlots": [
+         5,
+         6,
+         23,
+         7,
+         20,
+         21
+        ],
+        "proTeamId": 11,
+        "injuryStatus": "ACTIVE",
+        "stats": [
+         {
+          "seasonId": 2026,
+          "scoringPeriodId": 3,
+          "statSourceId": 0,
+          "statSplitTypeId": 1,
+          "appliedTotal": 5.7,
+          "stats": {
+           "24": 2,
+           "40": 2,
+           "42": 55,
+           "47": 11,
+           "48": 5,
+           "49": 2,
+           "50": 2,
+           "51": 1,
+           "54": 1,
+           "61": 55,
+           "210": 1
+          }
+         }
+        ]
+       }
+      }
+     },
+     {
+      "playerId": -16021,
+      "lineupSlotId": 16,
+      "playerPoolEntry": {
+       "id": -16021,
+       "player": {
+        "id": -16021,
+        "fullName": "Eagles D/ST",
+        "defaultPositionId": 16,
+        "eligibleSlots": [
+         16,
+         20,
+         21
+        ],
+        "proTeamId": 21,
+        "stats": [
+         {
+          "seasonId": 2026,
+          "scoringPeriodId": 3,
+          "statSourceId": 0,
+          "statSplitTypeId": 1,
+          "appliedTotal": 1.56,
+          "stats": {
+           "89": 0,
+           "90": 0,
+           "91": 0,
+           "92": 0,
+           "114": 70,
+           "115": 8,
+           "120": 27,
+           "124": 0,
+           "127": 375,
+           "128": 0,
+           "129": 0,
+           "130": 0,
+           "133": 0,
+           "134": 0,
+           "135": 0,
+           "136": 0,
+           "187": 27,
+           "210": 1
+          }
+         }
+        ]
+       }
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 10,
+   "name": "Team 10",
+   "divisionId": 0,
+   "roster": {
+    "entries": [
+     {
+      "playerId": -15024,
+      "lineupSlotId": 20,
+      "playerPoolEntry": {
+       "id": -15024,
+       "player": {
+        "id": -15024,
+        "fullName": "Chargers TQB",
+        "defaultPositionId": 15,
+        "eligibleSlots": [
+         1,
+         20,
+         21
+        ],
+        "proTeamId": 24,
+        "stats": [
+         {
+          "seasonId": 2026,
+          "scoringPeriodId": 3,
+          "statSourceId": 0,
+          "statSplitTypeId": 1,
+          "appliedTotal": 12.74,
+          "stats": {
+           "3": 226,
+           "4": 1,
+           "5": 45,
+           "6": 22,
+           "7": 11,
+           "8": 9,
+           "9": 4,
+           "10": 2,
+           "11": 4,
+           "12": 2,
+           "13": 2,
+           "14": 1,
+           "20": 1,
+           "22": 226,
+           "24": 17,
+           "27": 3,
+           "28": 1,
+           "29": 0,
+           "30": 0,
+           "31": 0,
+           "32": 0,
+           "33": 0,
+           "34": 0,
+           "40": 17,
+           "79": 0,
+           "82": 0,
+           "88": 0,
+           "93": 0,
+           "94": 0,
+           "206": 0,
+           "210": 1
+          }
+         }
+        ]
+       }
+      }
+     },
+     {
+      "playerId": -16014,
+      "lineupSlotId": 16,
+      "playerPoolEntry": {
+       "id": -16014,
+       "player": {
+        "id": -16014,
+        "fullName": "Rams D/ST",
+        "defaultPositionId": 16,
+        "eligibleSlots": [
+         16,
+         20,
+         21
+        ],
+        "proTeamId": 14,
+        "stats": [
+         {
+          "seasonId": 2026,
+          "scoringPeriodId": 3,
+          "statSourceId": 0,
+          "statSplitTypeId": 1,
+          "appliedTotal": 7.78,
+          "stats": {
+           "89": 0,
+           "90": 0,
+           "91": 0,
+           "92": 0,
+           "95": 1,
+           "99": 1,
+           "114": 113,
+           "115": 26,
+           "120": 24,
+           "124": 0,
+           "127": 257,
+           "128": 0,
+           "129": 0,
+           "130": 1,
+           "133": 0,
+           "134": 0,
+           "135": 0,
+           "136": 0,
+           "187": 24,
+           "210": 1
+          }
+         }
+        ]
+       }
+      }
+     },
+     {
+      "playerId": -15029,
+      "lineupSlotId": 1,
+      "playerPoolEntry": {
+       "id": -15029,
+       "player": {
+        "id": -15029,
+        "fullName": "Panthers TQB",
+        "defaultPositionId": 15,
+        "eligibleSlots": [
+         1,
+         20,
+         21
+        ],
+        "proTeamId": 29,
+        "stats": [
+         {
+          "seasonId": 2026,
+          "scoringPeriodId": 3,
+          "statSourceId": 0,
+          "statSplitTypeId": 1,
+          "appliedTotal": 13.64,
+          "stats": {
+           "3": 291,
+           "4": 1,
+           "5": 58,
+           "6": 29,
+           "7": 14,
+           "8": 11,
+           "9": 5,
+           "10": 2,
+           "11": 5,
+           "12": 2,
+           "13": 4,
+           "14": 2,
+           "20": 1,
+           "22": 291,
+           "79": 0,
+           "82": 0,
+           "88": 0,
+           "93": 0,
+           "94": 0,
+           "206": 0,
+           "210": 1
+          }
+         }
+        ]
+       }
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 11,
+   "name": "Team 11",
+   "divisionId": 0,
+   "roster": {
+    "entries": [
+     {
+      "playerId": -15028,
+      "lineupSlotId": 20,
+      "playerPoolEntry": {
+       "id": -15028,
+       "player": {
+        "id": -15028,
+        "fullName": "Commanders TQB",
+        "defaultPositionId": 15,
+        "eligibleSlots": [
+         1,
+         20,
+         21
+        ],
+        "proTeamId": 28,
+        "stats": [
+         {
+          "seasonId": 2026,
+          "scoringPeriodId": 3,
+          "statSourceId": 0,
+          "statSplitTypeId": 1,
+          "appliedTotal": 20.42,
+          "stats": {
+           "3": 183,
+           "4": 3,
+           "5": 36,
+           "6": 18,
+           "7": 9,
+           "8": 7,
+           "9": 3,
+           "10": 1,
+           "11": 3,
+           "12": 1,
+           "13": 2,
+           "14": 1,
+           "22": 183,
+           "24": 11,
+           "27": 2,
+           "28": 1,
+           "29": 0,
+           "30": 0,
+           "31": 0,
+           "32": 0,
+           "33": 1,
+           "34": 0,
+           "40": 11,
+           "79": 0,
+           "82": 0,
+           "88": 0,
+           "93": 0,
+           "94": 0,
+           "206": 0,
+           "210": 1
+          }
+         }
+        ]
+       }
+      }
+     },
+     {
+      "playerId": -15012,
+      "lineupSlotId": 1,
+      "playerPoolEntry": {
+       "id": -15012,
+       "player": {
+        "id": -15012,
+        "fullName": "Chiefs TQB",
+        "defaultPositionId": 15,
+        "eligibleSlots": [
+         1,
+         20,
+         21
+        ],
+        "proTeamId": 12,
+        "stats": [
+         {
+          "seasonId": 2026,
+          "scoringPeriodId": 3,
+          "statSourceId": 0,
+          "statSplitTypeId": 1,
+          "appliedTotal": 15.94,
+          "stats": {
+           "3": 246,
+           "4": 2,
+           "5": 49,
+           "6": 24,
+           "7": 12,
+           "8": 9,
+           "9": 4,
+           "10": 2,
+           "11": 4,
+           "12": 2,
+           "13": 0,
+           "14": 0,
+           "20": 1,
+           "22": 246,
+           "24": 1,
+           "27": 0,
+           "28": 0,
+           "29": 0,
+           "30": 0,
+           "31": 0,
+           "32": 0,
+           "33": 0,
+           "34": 0,
+           "40": 1,
+           "79": 0,
+           "82": 0,
+           "88": 0,
+           "93": 0,
+           "94": 0,
+           "206": 0,
+           "210": 1
+          }
+         }
+        ]
+       }
+      }
+     },
+     {
+      "playerId": -16023,
+      "lineupSlotId": 16,
+      "playerPoolEntry": {
+       "id": -16023,
+       "player": {
+        "id": -16023,
+        "fullName": "Steelers D/ST",
+        "defaultPositionId": 16,
+        "eligibleSlots": [
+         16,
+         20,
+         21
+        ],
+        "proTeamId": 23,
+        "stats": [
+         {
+          "seasonId": 2026,
+          "scoringPeriodId": 3,
+          "statSourceId": 0,
+          "statSplitTypeId": 1,
+          "appliedTotal": 7.14,
+          "stats": {
+           "89": 0,
+           "90": 0,
+           "91": 0,
+           "92": 0,
+           "96": 2,
+           "99": 1,
+           "114": 102,
+           "115": 5,
+           "120": 27,
+           "124": 0,
+           "127": 352,
+           "128": 0,
+           "129": 0,
+           "130": 0,
+           "133": 0,
+           "134": 0,
+           "135": 0,
+           "136": 0,
+           "187": 27,
+           "210": 1
+          }
+         }
+        ]
+       }
+      }
+     }
+    ]
+   }
+  }
+ ]
+}

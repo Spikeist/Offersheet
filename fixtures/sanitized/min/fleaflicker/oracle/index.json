@@ -1,0 +1,10 @@
+{
+  "4506c552a9099a2fe471efc4be3c951f48bd732788aa9580597552f69b4d882d.json": {
+    "label": "conventional-league",
+    "note": "scoring oracle: conventional-league rules and a subset of player-weeks (weeks 2–3); no identities"
+  },
+  "85a4054455c049bcafa7c45a6e609c7fe0d7e6a78c03e468e21f2f2179f2b6b4.json": {
+    "label": "keeper-league",
+    "note": "scoring oracle: keeper-league rules and a subset of player-weeks (weeks 2–3); no identities"
+  }
+}

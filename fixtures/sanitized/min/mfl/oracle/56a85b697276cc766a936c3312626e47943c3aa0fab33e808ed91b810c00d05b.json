@@ -1,0 +1,3870 @@
+{
+ "meta": {
+  "platform": "mfl",
+  "league": "Phase 0 public MFL test league (10-team dynasty, IDP, TE premium)",
+  "season": 2026,
+  "weeks": [
+   2,
+   3
+  ],
+  "source": "MFL playerScores (league-scored) vs Sleeper's weekly actual stats × the scoring map; players joined through DynastyProcess mfl_id → sleeper_id and Sleeper-DB id joins",
+  "population": {
+   "cases": 766,
+   "within": 766,
+   "notPlayed": 129,
+   "notPlayedWithin": 129,
+   "byPos": {
+    "CB": {
+     "cases": 12,
+     "within": 12
+    },
+    "DE": {
+     "cases": 50,
+     "within": 50
+    },
+    "DT": {
+     "cases": 6,
+     "within": 6
+    },
+    "LB": {
+     "cases": 84,
+     "within": 84
+    },
+    "PK": {
+     "cases": 36,
+     "within": 36
+    },
+    "QB": {
+     "cases": 92,
+     "within": 92
+    },
+    "RB": {
+     "cases": 138,
+     "within": 138
+    },
+    "S": {
+     "cases": 42,
+     "within": 42
+    },
+    "TE": {
+     "cases": 86,
+     "within": 86
+    },
+    "WR": {
+     "cases": 220,
+     "within": 220
+    }
+   },
+   "skipped": {
+    "custom player (not in MFL's player DB)": 28
+   }
+  },
+  "selection": "every rule type the oracle counts as tested (up to 15 player-weeks each), then 30% of each position-and-week stratum of players who played and 10% of those who didn't, in a fixed hash order; chosen without looking at whether a case matches",
+  "generatedBy": "scripts/minimize/mfl-oracle.ts"
+ },
+ "rules": {
+  "rules": {
+   "positionRules": [
+    {
+     "positions": "CB|S",
+     "rule": [
+      {
+       "event": {
+        "$t": "#DR"
+       },
+       "points": {
+        "$t": "*6"
+       },
+       "range": {
+        "$t": "0-10"
+       }
+      },
+      {
+       "event": {
+        "$t": "ASD"
+       },
+       "points": {
+        "$t": "*0.5"
+       },
+       "range": {
+        "$t": "0-99"
+       }
+      },
+      {
+       "event": {
+        "$t": "BF"
+       },
+       "points": {
+        "$t": "6"
+       },
+       "range": {
+        "$t": "1-110"
+       }
+      },
+      {
+       "event": {
+        "$t": "BLE"
+       },
+       "points": {
+        "$t": "*2"
+       },
+       "range": {
+        "$t": "1-99"
+       }
+      },
+      {
+       "event": {
+        "$t": "BLF"
+       },
+       "points": {
+        "$t": "*2"
+       },
+       "range": {
+        "$t": "1-99"
+       }
+      },
+      {
+       "event": {
+        "$t": "BLP"
+       },
+       "points": {
+        "$t": "*2"
+       },
+       "range": {
+        "$t": "1-99"
+       }
+      },
+      {
+       "event": {
+        "$t": "BP"
+       },
+       "points": {
+        "$t": "6"
+       },
+       "range": {
+        "$t": "1-110"
+       }
+      },
+      {
+       "event": {
+        "$t": "FC"
+       },
+       "points": {
+        "$t": "*2"
+       },
+       "range": {
+        "$t": "1-99"
+       }
+      },
+      {
+       "event": {
+        "$t": "FF"
+       },
+       "points": {
+        "$t": "*2"
+       },
+       "range": {
+        "$t": "1-99"
+       }
+      },
+      {
+       "event": {
+        "$t": "IC"
+       },
+       "points": {
+        "$t": "*2"
+       },
+       "range": {
+        "$t": "1-93"
+       }
+      },
+      {
+       "event": {
+        "$t": "IR"
+       },
+       "points": {
+        "$t": "6"
+       },
+       "range": {
+        "$t": "1-110"
+       }
+      },
+      {
+       "event": {
+        "$t": "PD"
+       },
+       "points": {
+        "$t": "*0.5"
+       },
+       "range": {
+        "$t": "0-99"
+       }
+      },
+      {
+       "event": {
+        "$t": "SF"
+       },
+       "points": {
+        "$t": "*2"
+       },
+       "range": {
+        "$t": "1-99"
+       }
+      },
+      {
+       "event": {
+        "$t": "SK"
+       },
+       "points": {
+        "$t": "1/0.5"
+       },
+       "range": {
+        "$t": "0.5-20.0"
+       }
+      },
+      {
+       "event": {
+        "$t": "TKD"
+       },
+       "points": {
+        "$t": "*1"
+       },
+       "range": {
+        "$t": "0-99"
+       }
+      }
+     ]
+    },
+    {
+     "positions": "DT|DE",
+     "rule": [
+      {
+       "event": {
+        "$t": "#DR"
+       },
+       "points": {
+        "$t": "*6"
+       },
+       "range": {
+        "$t": "0-10"
+       }
+      },
+      {
+       "event": {
+        "$t": "ASD"
+       },
+       "points": {
+        "$t": "*0.5"
+       },
+       "range": {
+        "$t": "0-99"
+       }
+      },
+      {
+       "event": {
+        "$t": "BF"
+       },
+       "points": {
+        "$t": "6"
+       },
+       "range": {
+        "$t": "1-110"
+       }
+      },
+      {
+       "event": {
+        "$t": "BLE"
+       },
+       "points": {
+        "$t": "*2"
+       },
+       "range": {
+        "$t": "1-99"
+       }
+      },
+      {
+       "event": {
+        "$t": "BLF"
+       },
+       "points": {
+        "$t": "*2"
+       },
+       "range": {
+        "$t": "1-99"
+       }
+      },
+      {
+       "event": {
+        "$t": "BLP"
+       },
+       "points": {
+        "$t": "*2"
+       },
+       "range": {
+        "$t": "1-99"
+       }
+      },
+      {
+       "event": {
+        "$t": "BP"
+       },
+       "points": {
+        "$t": "6"
+       },
+       "range": {
+        "$t": "1-110"
+       }
+      },
+      {
+       "event": {
+        "$t": "FC"
+       },
+       "points": {
+        "$t": "*2"
+       },
+       "range": {
+        "$t": "1-99"
+       }
+      },
+      {
+       "event": {
+        "$t": "FF"
+       },
+       "points": {
+        "$t": "*2"
+       },
+       "range": {
+        "$t": "1-99"
+       }
+      },
+      {
+       "event": {
+        "$t": "IC"
+       },
+       "points": {
+        "$t": "*2"
+       },
+       "range": {
+        "$t": "1-99"
+       }
+      },
+      {
+       "event": {
+        "$t": "IR"
+       },
+       "points": {
+        "$t": "6"
+       },
+       "range": {
+        "$t": "1-110"
+       }
+      },
+      {
+       "event": {
+        "$t": "PD"
+       },
+       "points": {
+        "$t": "*0.5"
+       },
+       "range": {
+        "$t": "0-99"
+       }
+      },
+      {
+       "event": {
+        "$t": "SF"
+       },
+       "points": {
+        "$t": "*2"
+       },
+       "range": {
+        "$t": "1-99"
+       }
+      },
+      {
+       "event": {
+        "$t": "SK"
+       },
+       "points": {
+        "$t": "1.5/0.5"
+       },
+       "range": {
+        "$t": "0.5-20.0"
+       }
+      },
+      {
+       "event": {
+        "$t": "TKD"
+       },
+       "points": {
+        "$t": "*1"
+       },
+       "range": {
+        "$t": "0-99"
+       }
+      }
+     ]
+    },
+    {
+     "positions": "LB",
+     "rule": [
+      {
+       "event": {
+        "$t": "#DR"
+       },
+       "points": {
+        "$t": "*6"
+       },
+       "range": {
+        "$t": "0-10"
+       }
+      },
+      {
+       "event": {
+        "$t": "ASD"
+       },
+       "points": {
+        "$t": "*0.5"
+       },
+       "range": {
+        "$t": "0-99"
+       }
+      },
+      {
+       "event": {
+        "$t": "BF"
+       },
+       "points": {
+        "$t": "6"
+       },
+       "range": {
+        "$t": "1-110"
+       }
+      },
+      {
+       "event": {
+        "$t": "BLE"
+       },
+       "points": {
+        "$t": "*2"
+       },
+       "range": {
+        "$t": "1-99"
+       }
+      },
+      {
+       "event": {
+        "$t": "BLF"
+       },
+       "points": {
+        "$t": "*2"
+       },
+       "range": {
+        "$t": "1-99"
+       }
+      },
+      {
+       "event": {
+        "$t": "BLP"
+       },
+       "points": {
+        "$t": "*2"
+       },
+       "range": {
+        "$t": "1-99"
+       }
+      },
+      {
+       "event": {
+        "$t": "BP"
+       },
+       "points": {
+        "$t": "6"
+       },
+       "range": {
+        "$t": "1-110"
+       }
+      },
+      {
+       "event": {
+        "$t": "FC"
+       },
+       "points": {
+        "$t": "*2"
+       },
+       "range": {
+        "$t": "1-99"
+       }
+      },
+      {
+       "event": {
+        "$t": "FF"
+       },
+       "points": {
+        "$t": "*2"
+       },
+       "range": {
+        "$t": "1-99"
+       }
+      },
+      {
+       "event": {
+        "$t": "IC"
+       },
+       "points": {
+        "$t": "*2"
+       },
+       "range": {
+        "$t": "1-99"
+       }
+      },
+      {
+       "event": {
+        "$t": "IR"
+       },
+       "points": {
+        "$t": "6"
+       },
+       "range": {
+        "$t": "1-110"
+       }
+      },
+      {
+       "event": {
+        "$t": "PD"
+       },
+       "points": {
+        "$t": "*0.5"
+       },
+       "range": {
+        "$t": "0-99"
+       }
+      },
+      {
+       "event": {
+        "$t": "SF"
+       },
+       "points": {
+        "$t": "*2"
+       },
+       "range": {
+        "$t": "1-99"
+       }
+      },
+      {
+       "event": {
+        "$t": "SK"
+       },
+       "points": {
+        "$t": "1/0.5"
+       },
+       "range": {
+        "$t": "0.5-20.0"
+       }
+      },
+      {
+       "event": {
+        "$t": "TKD"
+       },
+       "points": {
+        "$t": "*1"
+       },
+       "range": {
+        "$t": "0-99"
+       }
+      }
+     ]
+    },
+    {
+     "positions": "PK",
+     "rule": [
+      {
+       "event": {
+        "$t": "EM"
+       },
+       "points": {
+        "$t": "*-1"
+       },
+       "range": {
+        "$t": "1-99"
+       }
+      },
+      {
+       "event": {
+        "$t": "EP"
+       },
+       "points": {
+        "$t": "*1"
+       },
+       "range": {
+        "$t": "1-99"
+       }
+      },
+      {
+       "event": {
+        "$t": "FG"
+       },
+       "points": {
+        "$t": "3"
+       },
+       "range": {
+        "$t": "17-39"
+       }
+      },
+      {
+       "event": {
+        "$t": "FG"
+       },
+       "points": {
+        "$t": "4"
+       },
+       "range": {
+        "$t": "40-49"
+       }
+      },
+      {
+       "event": {
+        "$t": "FG"
+       },
+       "points": {
+        "$t": "5"
+       },
+       "range": {
+        "$t": "50-59"
+       }
+      },
+      {
+       "event": {
+        "$t": "FG"
+       },
+       "points": {
+        "$t": "6"
+       },
+       "range": {
+        "$t": "60-110"
+       }
+      },
+      {
+       "event": {
+        "$t": "FL"
+       },
+       "points": {
+        "$t": "*-1"
+       },
+       "range": {
+        "$t": "1-99"
+       }
+      },
+      {
+       "event": {
+        "$t": "MG"
+       },
+       "points": {
+        "$t": "-1/49"
+       },
+       "range": {
+        "$t": "17-49"
+       },
+       "thresholdPoints": {
+        "$t": "-1"
+       }
+      },
+      {
+       "event": {
+        "$t": "MG"
+       },
+       "points": {
+        "$t": "0"
+       },
+       "range": {
+        "$t": "50-110"
+       }
+      },
+      {
+       "event": {
+        "$t": "PS"
+       },
+       "points": {
+        "$t": "6"
+       },
+       "range": {
+        "$t": "0-39"
+       }
+      },
+      {
+       "event": {
+        "$t": "PS"
+       },
+       "points": {
+        "$t": "6"
+       },
+       "range": {
+        "$t": "40-110"
+       }
+      }
+     ]
+    },
+    {
+     "positions": "QB",
+     "rule": [
+      {
+       "event": {
+        "$t": "C2"
+       },
+       "points": {
+        "$t": "*1"
+       },
+       "range": {
+        "$t": "1-99"
+       }
+      },
+      {
+       "event": {
+        "$t": "CC"
+       },
+       "points": {
+        "$t": "*.5"
+       },
+       "range": {
+        "$t": "1-99"
+       }
+      },
+      {
+       "event": {
+        "$t": "CY"
+       },
+       "points": {
+        "$t": "*.1"
+       },
+       "range": {
+        "$t": "-50-999"
+       }
+      },
+      {
+       "event": {
+        "$t": "FL"
+       },
+       "points": {
+        "$t": "*-1"
+       },
+       "range": {
+        "$t": "1-99"
+       }
+      },
+      {
+       "event": {
+        "$t": "IN"
+       },
+       "points": {
+        "$t": "*-1"
+       },
+       "range": {
+        "$t": "1-99"
+       }
+      },
+      {
+       "event": {
+        "$t": "P2"
+       },
+       "points": {
+        "$t": "*1"
+       },
+       "range": {
+        "$t": "1-99"
+       }
+      },
+      {
+       "event": {
+        "$t": "PS"
+       },
+       "points": {
+        "$t": "6"
+       },
+       "range": {
+        "$t": "1-110"
+       }
+      },
+      {
+       "event": {
+        "$t": "PY"
+       },
+       "points": {
+        "$t": "*.02"
+       },
+       "range": {
+        "$t": "-50-999"
+       }
+      },
+      {
+       "event": {
+        "$t": "R2"
+       },
+       "points": {
+        "$t": "*1"
+       },
+       "range": {
+        "$t": "1-99"
+       }
+      },
+      {
+       "event": {
+        "$t": "RC"
+       },
+       "points": {
+        "$t": "6"
+       },
+       "range": {
+        "$t": "1-110"
+       }
+      },
+      {
+       "event": {
+        "$t": "RS"
+       },
+       "points": {
+        "$t": "6"
+       },
+       "range": {
+        "$t": "1-110"
+       }
+      },
+      {
+       "event": {
+        "$t": "RY"
+       },
+       "points": {
+        "$t": "*.1"
+       },
+       "range": {
+        "$t": "-50-999"
+       }
+      }
+     ]
+    },
+    {
+     "positions": "RB",
+     "rule": [
+      {
+       "event": {
+        "$t": "C2"
+       },
+       "points": {
+        "$t": "*1"
+       },
+       "range": {
+        "$t": "1-99"
+       }
+      },
+      {
+       "event": {
+        "$t": "CC"
+       },
+       "points": {
+        "$t": "*.5"
+       },
+       "range": {
+        "$t": "1-99"
+       }
+      },
+      {
+       "event": {
+        "$t": "CY"
+       },
+       "points": {
+        "$t": "*.1"
+       },
+       "range": {
+        "$t": "-50-999"
+       }
+      },
+      {
+       "event": {
+        "$t": "FL"
+       },
+       "points": {
+        "$t": "*-1"
+       },
+       "range": {
+        "$t": "1-99"
+       }
+      },
+      {
+       "event": {
+        "$t": "PS"
+       },
+       "points": {
+        "$t": "6"
+       },
+       "range": {
+        "$t": "1-110"
+       }
+      },
+      {
+       "event": {
+        "$t": "PY"
+       },
+       "points": {
+        "$t": "*.02"
+       },
+       "range": {
+        "$t": "-50-999"
+       }
+      },
+      {
+       "event": {
+        "$t": "R2"
+       },
+       "points": {
+        "$t": "*1"
+       },
+       "range": {
+        "$t": "1-99"
+       }
+      },
+      {
+       "event": {
+        "$t": "RC"
+       },
+       "points": {
+        "$t": "6"
+       },
+       "range": {
+        "$t": "1-110"
+       }
+      },
+      {
+       "event": {
+        "$t": "RS"
+       },
+       "points": {
+        "$t": "6"
+       },
+       "range": {
+        "$t": "1-110"
+       }
+      },
+      {
+       "event": {
+        "$t": "RY"
+       },
+       "points": {
+        "$t": "*.1"
+       },
+       "range": {
+        "$t": "-50-999"
+       }
+      }
+     ]
+    },
+    {
+     "positions": "TE",
+     "rule": [
+      {
+       "event": {
+        "$t": "C2"
+       },
+       "points": {
+        "$t": "*1"
+       },
+       "range": {
+        "$t": "1-99"
+       }
+      },
+      {
+       "event": {
+        "$t": "CC"
+       },
+       "points": {
+        "$t": "*1"
+       },
+       "range": {
+        "$t": "1-99"
+       }
+      },
+      {
+       "event": {
+        "$t": "CY"
+       },
+       "points": {
+        "$t": "*.1"
+       },
+       "range": {
+        "$t": "-50-999"
+       }
+      },
+      {
+       "event": {
+        "$t": "FL"
+       },
+       "points": {
+        "$t": "*-1"
+       },
+       "range": {
+        "$t": "1-99"
+       }
+      },
+      {
+       "event": {
+        "$t": "PY"
+       },
+       "points": {
+        "$t": "*.02"
+       },
+       "range": {
+        "$t": "-50-999"
+       }
+      },
+      {
+       "event": {
+        "$t": "R2"
+       },
+       "points": {
+        "$t": "*1"
+       },
+       "range": {
+        "$t": "1-99"
+       }
+      },
+      {
+       "event": {
+        "$t": "RC"
+       },
+       "points": {
+        "$t": "6"
+       },
+       "range": {
+        "$t": "1-110"
+       }
+      },
+      {
+       "event": {
+        "$t": "RS"
+       },
+       "points": {
+        "$t": "6"
+       },
+       "range": {
+        "$t": "1-110"
+       }
+      },
+      {
+       "event": {
+        "$t": "RY"
+       },
+       "points": {
+        "$t": "*.1"
+       },
+       "range": {
+        "$t": "-50-999"
+       }
+      }
+     ]
+    },
+    {
+     "positions": "WR",
+     "rule": [
+      {
+       "event": {
+        "$t": "C2"
+       },
+       "points": {
+        "$t": "*1"
+       },
+       "range": {
+        "$t": "1-99"
+       }
+      },
+      {
+       "event": {
+        "$t": "CC"
+       },
+       "points": {
+        "$t": "*.5"
+       },
+       "range": {
+        "$t": "1-99"
+       }
+      },
+      {
+       "event": {
+        "$t": "CY"
+       },
+       "points": {
+        "$t": "*.1"
+       },
+       "range": {
+        "$t": "-50-999"
+       }
+      },
+      {
+       "event": {
+        "$t": "FL"
+       },
+       "points": {
+        "$t": "*-1"
+       },
+       "range": {
+        "$t": "1-99"
+       }
+      },
+      {
+       "event": {
+        "$t": "IN"
+       },
+       "points": {
+        "$t": "*-1"
+       },
+       "range": {
+        "$t": "0-10"
+       }
+      },
+      {
+       "event": {
+        "$t": "PS"
+       },
+       "points": {
+        "$t": "6"
+       },
+       "range": {
+        "$t": "1-110"
+       }
+      },
+      {
+       "event": {
+        "$t": "PY"
+       },
+       "points": {
+        "$t": "*.02"
+       },
+       "range": {
+        "$t": "-50-999"
+       }
+      },
+      {
+       "event": {
+        "$t": "R2"
+       },
+       "points": {
+        "$t": "*1"
+       },
+       "range": {
+        "$t": "1-99"
+       }
+      },
+      {
+       "event": {
+        "$t": "RC"
+       },
+       "points": {
+        "$t": "6"
+       },
+       "range": {
+        "$t": "1-110"
+       }
+      },
+      {
+       "event": {
+        "$t": "RS"
+       },
+       "points": {
+        "$t": "6"
+       },
+       "range": {
+        "$t": "1-110"
+       }
+      },
+      {
+       "event": {
+        "$t": "RY"
+       },
+       "points": {
+        "$t": "*.1"
+       },
+       "range": {
+        "$t": "-50-999"
+       }
+      }
+     ]
+    }
+   ]
+  }
+ },
+ "cases": [
+  {
+   "sleeperId": "11563",
+   "platformPos": "QB",
+   "pos": "QB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "pass_int": 1,
+    "pass_td": 1,
+    "pass_yd": 288,
+    "rush_yd": 6
+   },
+   "expected": 11.36
+  },
+  {
+   "sleeperId": "12522",
+   "platformPos": "QB",
+   "pos": "QB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "pass_yd": 183,
+    "rush_td": 2,
+    "rush_yd": 7
+   },
+   "expected": 16.36
+  },
+  {
+   "sleeperId": "13272",
+   "platformPos": "QB",
+   "pos": "QB",
+   "week": 2,
+   "stats": {},
+   "expected": 0
+  },
+  {
+   "sleeperId": "1373",
+   "platformPos": "QB",
+   "pos": "QB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "pass_td": 1,
+    "pass_yd": 247,
+    "rush_yd": 17
+   },
+   "expected": 12.64
+  },
+  {
+   "sleeperId": "3294",
+   "platformPos": "QB",
+   "pos": "QB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "pass_td": 4,
+    "pass_yd": 279,
+    "rush_yd": 26
+   },
+   "expected": 32.18
+  },
+  {
+   "sleeperId": "4046",
+   "platformPos": "QB",
+   "pos": "QB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "pass_td": 3,
+    "pass_yd": 382,
+    "rush_yd": 17
+   },
+   "expected": 27.34
+  },
+  {
+   "sleeperId": "4943",
+   "platformPos": "QB",
+   "pos": "QB",
+   "week": 2,
+   "stats": {},
+   "expected": 0
+  },
+  {
+   "sleeperId": "5854",
+   "platformPos": "QB",
+   "pos": "QB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "pass_td": 3,
+    "pass_yd": 235
+   },
+   "expected": 22.7
+  },
+  {
+   "sleeperId": "6770",
+   "platformPos": "QB",
+   "pos": "QB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "pass_td": 2,
+    "pass_yd": 207,
+    "rush_yd": -1
+   },
+   "expected": 16.04
+  },
+  {
+   "sleeperId": "7527",
+   "platformPos": "QB",
+   "pos": "QB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rush_yd": -2
+   },
+   "expected": -0.2
+  },
+  {
+   "sleeperId": "8161",
+   "platformPos": "QB",
+   "pos": "QB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "pass_td": 1,
+    "pass_yd": 197,
+    "rush_yd": 6
+   },
+   "expected": 10.54
+  },
+  {
+   "sleeperId": "96",
+   "platformPos": "QB",
+   "pos": "QB",
+   "week": 2,
+   "stats": {
+    "fum_lost": 1,
+    "gp": 1,
+    "idp_tkl_solo": 1,
+    "pass_int": 1,
+    "pass_yd": 187,
+    "rush_yd": 5
+   },
+   "expected": 2.24
+  },
+  {
+   "sleeperId": "11435",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rush_yd": 92
+   },
+   "expected": 9.2
+  },
+  {
+   "sleeperId": "11575",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 2,
+   "stats": {
+    "gp": 1
+   },
+   "expected": 0
+  },
+  {
+   "sleeperId": "11576",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 1,
+    "rec_yd": 8,
+    "rush_td": 1,
+    "rush_yd": 7
+   },
+   "expected": 8
+  },
+  {
+   "sleeperId": "11581",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 2,
+   "stats": {
+    "fum_lost": 1,
+    "gp": 1,
+    "rec": 2,
+    "rec_td": 1,
+    "rec_yd": 6,
+    "rush_yd": 20
+   },
+   "expected": 8.6
+  },
+  {
+   "sleeperId": "11583",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 1,
+    "rec_yd": -5,
+    "rush_yd": 16
+   },
+   "expected": 1.6
+  },
+  {
+   "sleeperId": "11647",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "idp_tkl_solo": 1
+   },
+   "expected": 0
+  },
+  {
+   "sleeperId": "12481",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 4,
+    "rec_yd": 19,
+    "rush_yd": 36
+   },
+   "expected": 7.5
+  },
+  {
+   "sleeperId": "12490",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 2,
+    "rec_yd": -3,
+    "rush_td": 1,
+    "rush_yd": 65
+   },
+   "expected": 13.2
+  },
+  {
+   "sleeperId": "12504",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rush_yd": 32
+   },
+   "expected": 3.2
+  },
+  {
+   "sleeperId": "13288",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rush_yd": 10
+   },
+   "expected": 1
+  },
+  {
+   "sleeperId": "13337",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 2,
+    "rec_yd": 20,
+    "rush_yd": 15
+   },
+   "expected": 4.5
+  },
+  {
+   "sleeperId": "13345",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 3,
+    "rec_yd": 19,
+    "rush_td": 1,
+    "rush_yd": 39
+   },
+   "expected": 13.3
+  },
+  {
+   "sleeperId": "13419",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 2,
+   "stats": {},
+   "expected": 0
+  },
+  {
+   "sleeperId": "5967",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 1,
+    "rec_yd": 1,
+    "rush_yd": 64
+   },
+   "expected": 7
+  },
+  {
+   "sleeperId": "7021",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 2,
+    "rec_yd": 22,
+    "rush_yd": 22
+   },
+   "expected": 5.4
+  },
+  {
+   "sleeperId": "7543",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 2,
+    "rec_yd": 6,
+    "rush_2pt": 1,
+    "rush_yd": 25
+   },
+   "expected": 5.1
+  },
+  {
+   "sleeperId": "8138",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 1,
+    "rec_yd": 4,
+    "rush_td": 1,
+    "rush_yd": 135
+   },
+   "expected": 20.4
+  },
+  {
+   "sleeperId": "8228",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 2,
+    "rec_yd": 34,
+    "rush_yd": 43
+   },
+   "expected": 8.7
+  },
+  {
+   "sleeperId": "9221",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 6,
+    "rec_td": 1,
+    "rec_yd": 61,
+    "rush_yd": 52
+   },
+   "expected": 20.3
+  },
+  {
+   "sleeperId": "9509",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 3,
+    "rec_yd": 9,
+    "rush_yd": 72
+   },
+   "expected": 9.6
+  },
+  {
+   "sleeperId": "10222",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 1,
+    "rec_yd": 4
+   },
+   "expected": 0.9
+  },
+  {
+   "sleeperId": "10232",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 2,
+    "rec_yd": 18
+   },
+   "expected": 2.8
+  },
+  {
+   "sleeperId": "10444",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 2,
+   "stats": {},
+   "expected": 0
+  },
+  {
+   "sleeperId": "11610",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 4,
+    "rec_yd": 43,
+    "rush_yd": 4
+   },
+   "expected": 6.7
+  },
+  {
+   "sleeperId": "11626",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 2,
+    "rec_yd": 64
+   },
+   "expected": 7.4
+  },
+  {
+   "sleeperId": "11630",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 5,
+    "rec_yd": 28
+   },
+   "expected": 5.3
+  },
+  {
+   "sleeperId": "11638",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 2,
+   "stats": {},
+   "expected": 0
+  },
+  {
+   "sleeperId": "11834",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 5,
+    "rec_yd": 64
+   },
+   "expected": 8.9
+  },
+  {
+   "sleeperId": "12483",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 2,
+    "rec_yd": 25
+   },
+   "expected": 3.5
+  },
+  {
+   "sleeperId": "12499",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 2,
+    "rec_yd": 69
+   },
+   "expected": 7.9
+  },
+  {
+   "sleeperId": "12501",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 4,
+    "rec_yd": 58
+   },
+   "expected": 7.8
+  },
+  {
+   "sleeperId": "12526",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 5,
+    "rec_yd": 101
+   },
+   "expected": 12.6
+  },
+  {
+   "sleeperId": "13279",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 3,
+    "rec_yd": 27
+   },
+   "expected": 4.2
+  },
+  {
+   "sleeperId": "13298",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 6,
+    "rec_yd": 28,
+    "rush_yd": -6
+   },
+   "expected": 5.2
+  },
+  {
+   "sleeperId": "13301",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 3,
+    "rec_yd": 24
+   },
+   "expected": 3.9
+  },
+  {
+   "sleeperId": "13317",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "idp_tkl_solo": 1,
+    "rec": 2,
+    "rec_yd": 27
+   },
+   "expected": 3.7
+  },
+  {
+   "sleeperId": "13333",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rush_yd": 14
+   },
+   "expected": 1.4
+  },
+  {
+   "sleeperId": "4037",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 3,
+    "rec_yd": 46,
+    "rush_yd": 12
+   },
+   "expected": 7.3
+  },
+  {
+   "sleeperId": "4454",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 2,
+    "rec_yd": 11
+   },
+   "expected": 2.1
+  },
+  {
+   "sleeperId": "5846",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 4,
+    "rec_yd": 27
+   },
+   "expected": 4.7
+  },
+  {
+   "sleeperId": "6271",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 1,
+    "rec_yd": 3
+   },
+   "expected": 0.8
+  },
+  {
+   "sleeperId": "6794",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 3,
+    "rec_yd": 55
+   },
+   "expected": 7
+  },
+  {
+   "sleeperId": "7526",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 8,
+    "rec_yd": 138
+   },
+   "expected": 17.8
+  },
+  {
+   "sleeperId": "7571",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "idp_tkl_solo": 1,
+    "rec": 7,
+    "rec_td": 1,
+    "rec_yd": 88
+   },
+   "expected": 18.3
+  },
+  {
+   "sleeperId": "8121",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 3,
+    "rec_yd": 96
+   },
+   "expected": 11.1
+  },
+  {
+   "sleeperId": "8144",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 8,
+    "rec_td": 1,
+    "rec_yd": 86
+   },
+   "expected": 18.6
+  },
+  {
+   "sleeperId": "8146",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 5,
+    "rec_td": 1,
+    "rec_yd": 57
+   },
+   "expected": 14.2
+  },
+  {
+   "sleeperId": "9486",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 5,
+    "rec_yd": 74
+   },
+   "expected": 9.9
+  },
+  {
+   "sleeperId": "9500",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 7,
+    "rec_yd": 72
+   },
+   "expected": 10.7
+  },
+  {
+   "sleeperId": "9756",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 2,
+    "rec_yd": 21
+   },
+   "expected": 3.1
+  },
+  {
+   "sleeperId": "12487",
+   "platformPos": "TE",
+   "pos": "TE",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 6,
+    "rec_td": 1,
+    "rec_yd": 54
+   },
+   "expected": 17.4
+  },
+  {
+   "sleeperId": "12506",
+   "platformPos": "TE",
+   "pos": "TE",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 5,
+    "rec_yd": 54
+   },
+   "expected": 10.4
+  },
+  {
+   "sleeperId": "13319",
+   "platformPos": "TE",
+   "pos": "TE",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 1,
+    "rec_yd": 8
+   },
+   "expected": 1.8
+  },
+  {
+   "sleeperId": "13349",
+   "platformPos": "TE",
+   "pos": "TE",
+   "week": 2,
+   "stats": {},
+   "expected": 0
+  },
+  {
+   "sleeperId": "1466",
+   "platformPos": "TE",
+   "pos": "TE",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 9,
+    "rec_td": 1,
+    "rec_yd": 101
+   },
+   "expected": 25.1
+  },
+  {
+   "sleeperId": "3202",
+   "platformPos": "TE",
+   "pos": "TE",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 2,
+    "rec_yd": 20
+   },
+   "expected": 4
+  },
+  {
+   "sleeperId": "4144",
+   "platformPos": "TE",
+   "pos": "TE",
+   "week": 2,
+   "stats": {
+    "gp": 1
+   },
+   "expected": 0
+  },
+  {
+   "sleeperId": "4993",
+   "platformPos": "TE",
+   "pos": "TE",
+   "week": 2,
+   "stats": {
+    "gp": 1
+   },
+   "expected": 0
+  },
+  {
+   "sleeperId": "5022",
+   "platformPos": "TE",
+   "pos": "TE",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 1,
+    "rec_yd": 4
+   },
+   "expected": 1.4
+  },
+  {
+   "sleeperId": "5133",
+   "platformPos": "TE",
+   "pos": "TE",
+   "week": 2,
+   "stats": {
+    "gp": 1
+   },
+   "expected": 0
+  },
+  {
+   "sleeperId": "8110",
+   "platformPos": "TE",
+   "pos": "TE",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 4,
+    "rec_td": 2,
+    "rec_yd": 43
+   },
+   "expected": 20.3
+  },
+  {
+   "sleeperId": "8130",
+   "platformPos": "TE",
+   "pos": "TE",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 8,
+    "rec_td": 1,
+    "rec_yd": 41
+   },
+   "expected": 18.1
+  },
+  {
+   "sleeperId": "9480",
+   "platformPos": "TE",
+   "pos": "TE",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "rec": 2,
+    "rec_yd": 17
+   },
+   "expected": 3.7
+  },
+  {
+   "sleeperId": "11786",
+   "platformPos": "PK",
+   "pos": "K",
+   "week": 2,
+   "stats": {
+    "fgm_20_29": 1,
+    "fgm_40_49": 1,
+    "gp": 1,
+    "xpm": 1
+   },
+   "expected": 8
+  },
+  {
+   "sleeperId": "13545",
+   "platformPos": "PK",
+   "pos": "K",
+   "week": 2,
+   "stats": {
+    "fgm_20_29": 1,
+    "fgm_30_39": 1,
+    "gp": 1,
+    "xpm": 2
+   },
+   "expected": 8
+  },
+  {
+   "sleeperId": "4195",
+   "platformPos": "PK",
+   "pos": "K",
+   "week": 2,
+   "stats": {
+    "fgm_50_59": 1,
+    "gp": 1,
+    "xpm": 3
+   },
+   "expected": 8
+  },
+  {
+   "sleeperId": "4227",
+   "platformPos": "PK",
+   "pos": "K",
+   "week": 2,
+   "stats": {
+    "fgm_20_29": 1,
+    "fgm_30_39": 1,
+    "fgm_40_49": 2,
+    "gp": 1,
+    "xpm": 3
+   },
+   "expected": 17
+  },
+  {
+   "sleeperId": "4666",
+   "platformPos": "PK",
+   "pos": "K",
+   "week": 2,
+   "stats": {},
+   "expected": 0
+  },
+  {
+   "sleeperId": "6650",
+   "platformPos": "PK",
+   "pos": "K",
+   "week": 2,
+   "stats": {
+    "fgm_30_39": 2,
+    "fgm_40_49": 1,
+    "fgm_50_59": 1,
+    "gp": 1,
+    "xpm": 1
+   },
+   "expected": 16
+  },
+  {
+   "sleeperId": "8259",
+   "platformPos": "PK",
+   "pos": "K",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "xpm": 2
+   },
+   "expected": 2
+  },
+  {
+   "sleeperId": "10885",
+   "platformPos": "DE",
+   "pos": "DL",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "idp_sack": 1.5,
+    "idp_tkl_ast": 3,
+    "idp_tkl_solo": 6
+   },
+   "expected": 12
+  },
+  {
+   "sleeperId": "11665",
+   "platformPos": "DE",
+   "pos": "DL",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "idp_tkl_solo": 1
+   },
+   "expected": 1
+  },
+  {
+   "sleeperId": "2036",
+   "platformPos": "DE",
+   "pos": "DL",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "idp_sack": 1,
+    "idp_tkl_ast": 1,
+    "idp_tkl_solo": 2
+   },
+   "expected": 5.5
+  },
+  {
+   "sleeperId": "2393",
+   "platformPos": "DE",
+   "pos": "DL",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "idp_pass_def": 1,
+    "idp_sack": 1,
+    "idp_tkl_solo": 1
+   },
+   "expected": 4.5
+  },
+  {
+   "sleeperId": "3172",
+   "platformPos": "DT",
+   "pos": "DL",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "idp_pass_def": 1,
+    "idp_sack": 1,
+    "idp_tkl_ast": 4,
+    "idp_tkl_solo": 1
+   },
+   "expected": 6.5
+  },
+  {
+   "sleeperId": "3973",
+   "platformPos": "DE",
+   "pos": "DL",
+   "week": 2,
+   "stats": {},
+   "expected": 0
+  },
+  {
+   "sleeperId": "6118",
+   "platformPos": "DT",
+   "pos": "DL",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "idp_tkl_ast": 2,
+    "idp_tkl_solo": 2
+   },
+   "expected": 3
+  },
+  {
+   "sleeperId": "7113",
+   "platformPos": "DE",
+   "pos": "DL",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "idp_pass_def": 1,
+    "idp_sack": 1,
+    "idp_tkl_ast": 1,
+    "idp_tkl_solo": 2
+   },
+   "expected": 6
+  },
+  {
+   "sleeperId": "8289",
+   "platformPos": "DE",
+   "pos": "DL",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "idp_ff": 1,
+    "idp_sack": 1,
+    "idp_tkl_ast": 1,
+    "idp_tkl_solo": 2
+   },
+   "expected": 7.5
+  },
+  {
+   "sleeperId": "10880",
+   "platformPos": "LB",
+   "pos": "LB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "idp_tkl_ast": 4,
+    "idp_tkl_solo": 2
+   },
+   "expected": 4
+  },
+  {
+   "sleeperId": "10933",
+   "platformPos": "LB",
+   "pos": "LB",
+   "week": 2,
+   "stats": {},
+   "expected": 0
+  },
+  {
+   "sleeperId": "12617",
+   "platformPos": "LB",
+   "pos": "LB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "idp_tkl_ast": 8,
+    "idp_tkl_solo": 4
+   },
+   "expected": 8
+  },
+  {
+   "sleeperId": "13365",
+   "platformPos": "LB",
+   "pos": "LB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "idp_tkl_ast": 5,
+    "idp_tkl_solo": 5
+   },
+   "expected": 7.5
+  },
+  {
+   "sleeperId": "13377",
+   "platformPos": "LB",
+   "pos": "LB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "idp_tkl_ast": 4,
+    "idp_tkl_solo": 3
+   },
+   "expected": 5
+  },
+  {
+   "sleeperId": "5041",
+   "platformPos": "LB",
+   "pos": "LB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "idp_ff": 1,
+    "idp_sack": 0.5,
+    "idp_tkl_ast": 4,
+    "idp_tkl_solo": 1
+   },
+   "expected": 6
+  },
+  {
+   "sleeperId": "6131",
+   "platformPos": "LB",
+   "pos": "LB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "idp_tkl_ast": 5,
+    "idp_tkl_solo": 4
+   },
+   "expected": 6.5
+  },
+  {
+   "sleeperId": "6302",
+   "platformPos": "LB",
+   "pos": "LB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "idp_tkl_ast": 2,
+    "idp_tkl_solo": 4
+   },
+   "expected": 5
+  },
+  {
+   "sleeperId": "6860",
+   "platformPos": "LB",
+   "pos": "LB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "idp_tkl_ast": 7,
+    "idp_tkl_solo": 7
+   },
+   "expected": 10.5
+  },
+  {
+   "sleeperId": "7647",
+   "platformPos": "LB",
+   "pos": "LB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "idp_sack": 1,
+    "idp_tkl_ast": 3,
+    "idp_tkl_solo": 8
+   },
+   "expected": 11.5
+  },
+  {
+   "sleeperId": "7726",
+   "platformPos": "LB",
+   "pos": "LB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "idp_sack": 1,
+    "idp_tkl_ast": 2,
+    "idp_tkl_solo": 4
+   },
+   "expected": 7
+  },
+  {
+   "sleeperId": "7841",
+   "platformPos": "LB",
+   "pos": "LB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "idp_pass_def": 1,
+    "idp_tkl_ast": 3,
+    "idp_tkl_solo": 3
+   },
+   "expected": 5
+  },
+  {
+   "sleeperId": "8659",
+   "platformPos": "LB",
+   "pos": "LB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "idp_tkl_ast": 4,
+    "idp_tkl_solo": 3
+   },
+   "expected": 5
+  },
+  {
+   "sleeperId": "13371",
+   "platformPos": "S",
+   "pos": "DB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "idp_pass_def": 1,
+    "idp_tkl_ast": 4,
+    "idp_tkl_solo": 3
+   },
+   "expected": 5.5
+  },
+  {
+   "sleeperId": "3233",
+   "platformPos": "S",
+   "pos": "DB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "idp_tkl_ast": 2,
+    "idp_tkl_solo": 2
+   },
+   "expected": 3
+  },
+  {
+   "sleeperId": "4963",
+   "platformPos": "S",
+   "pos": "DB",
+   "week": 2,
+   "stats": {},
+   "expected": 0
+  },
+  {
+   "sleeperId": "5876",
+   "platformPos": "S",
+   "pos": "DB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "idp_int": 1,
+    "idp_pass_def": 2,
+    "idp_tkl_solo": 3
+   },
+   "expected": 6
+  },
+  {
+   "sleeperId": "6416",
+   "platformPos": "S",
+   "pos": "DB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "idp_tkl_ast": 3,
+    "idp_tkl_solo": 5
+   },
+   "expected": 6.5
+  },
+  {
+   "sleeperId": "7811",
+   "platformPos": "S",
+   "pos": "DB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "idp_tkl_ast": 1,
+    "idp_tkl_solo": 5
+   },
+   "expected": 5.5
+  },
+  {
+   "sleeperId": "8330",
+   "platformPos": "S",
+   "pos": "DB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "idp_ff": 1,
+    "idp_pass_def": 3,
+    "idp_tkl_ast": 1,
+    "idp_tkl_solo": 5
+   },
+   "expected": 9
+  },
+  {
+   "sleeperId": "8339",
+   "platformPos": "S",
+   "pos": "DB",
+   "week": 2,
+   "stats": {
+    "gp": 1,
+    "idp_tkl_ast": 6,
+    "idp_tkl_solo": 7
+   },
+   "expected": 10
+  },
+  {
+   "sleeperId": "11559",
+   "platformPos": "QB",
+   "pos": "QB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "pass_2pt": 1,
+    "pass_int": 1,
+    "pass_td": 1,
+    "pass_yd": 256,
+    "rush_yd": -2
+   },
+   "expected": 10.92
+  },
+  {
+   "sleeperId": "12545",
+   "platformPos": "QB",
+   "pos": "QB",
+   "week": 3,
+   "stats": {
+    "fum_lost": 2,
+    "gp": 1,
+    "pass_int": 1,
+    "pass_td": 4,
+    "pass_yd": 255,
+    "rush_yd": 36
+   },
+   "expected": 29.7
+  },
+  {
+   "sleeperId": "1373",
+   "platformPos": "QB",
+   "pos": "QB",
+   "week": 3,
+   "stats": {
+    "fum_lost": 1,
+    "gp": 1,
+    "pass_2pt": 1,
+    "pass_td": 3,
+    "pass_yd": 321,
+    "rush_yd": 12
+   },
+   "expected": 25.62
+  },
+  {
+   "sleeperId": "19",
+   "platformPos": "QB",
+   "pos": "QB",
+   "week": 3,
+   "stats": {},
+   "expected": 0
+  },
+  {
+   "sleeperId": "4017",
+   "platformPos": "QB",
+   "pos": "QB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "pass_2pt": 1,
+    "pass_td": 2,
+    "pass_yd": 144,
+    "rush_yd": 45
+   },
+   "expected": 20.38
+  },
+  {
+   "sleeperId": "421",
+   "platformPos": "QB",
+   "pos": "QB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "pass_int": 2,
+    "pass_td": 2,
+    "pass_yd": 390,
+    "rush_yd": 13
+   },
+   "expected": 19.1
+  },
+  {
+   "sleeperId": "4892",
+   "platformPos": "QB",
+   "pos": "QB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "pass_int": 1,
+    "pass_td": 1,
+    "pass_yd": 217,
+    "rush_yd": 6
+   },
+   "expected": 9.94
+  },
+  {
+   "sleeperId": "4943",
+   "platformPos": "QB",
+   "pos": "QB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "pass_int": 2,
+    "pass_td": 4,
+    "pass_yd": 379,
+    "rush_yd": 5
+   },
+   "expected": 30.08
+  },
+  {
+   "sleeperId": "5870",
+   "platformPos": "QB",
+   "pos": "QB",
+   "week": 3,
+   "stats": {
+    "fum_lost": 2,
+    "gp": 1,
+    "pass_int": 1,
+    "pass_td": 1,
+    "pass_yd": 235,
+    "rush_yd": 5
+   },
+   "expected": 8.2
+  },
+  {
+   "sleeperId": "6768",
+   "platformPos": "QB",
+   "pos": "QB",
+   "week": 3,
+   "stats": {},
+   "expected": 0
+  },
+  {
+   "sleeperId": "6804",
+   "platformPos": "QB",
+   "pos": "QB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "pass_int": 1,
+    "pass_td": 2,
+    "pass_yd": 312
+   },
+   "expected": 17.24
+  },
+  {
+   "sleeperId": "7523",
+   "platformPos": "QB",
+   "pos": "QB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "pass_int": 1,
+    "pass_td": 3,
+    "pass_yd": 182,
+    "rush_yd": 25
+   },
+   "expected": 23.14
+  },
+  {
+   "sleeperId": "11435",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rush_yd": 14
+   },
+   "expected": 1.4
+  },
+  {
+   "sleeperId": "11576",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "idp_tkl_solo": 1,
+    "rec": 3,
+    "rec_yd": 3,
+    "rush_yd": 14
+   },
+   "expected": 3.2
+  },
+  {
+   "sleeperId": "11581",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 2,
+    "rec_yd": 7,
+    "rush_yd": 11
+   },
+   "expected": 2.8
+  },
+  {
+   "sleeperId": "11584",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 2,
+    "rec_yd": 12,
+    "rush_yd": 46
+   },
+   "expected": 6.8
+  },
+  {
+   "sleeperId": "11643",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 3,
+   "stats": {},
+   "expected": 0
+  },
+  {
+   "sleeperId": "12474",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 1,
+    "rec_yd": 6,
+    "rush_td": 1,
+    "rush_yd": 15
+   },
+   "expected": 8.6
+  },
+  {
+   "sleeperId": "12481",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 3,
+    "rec_yd": 40,
+    "rush_yd": 60
+   },
+   "expected": 11.5
+  },
+  {
+   "sleeperId": "12489",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 6,
+    "rec_yd": 41,
+    "rush_yd": 6
+   },
+   "expected": 7.7
+  },
+  {
+   "sleeperId": "12490",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 2,
+    "rec_yd": 17,
+    "rush_td": 1,
+    "rush_yd": 73
+   },
+   "expected": 16
+  },
+  {
+   "sleeperId": "12529",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 1,
+    "rec_yd": 6,
+    "rush_yd": 23
+   },
+   "expected": 3.4
+  },
+  {
+   "sleeperId": "13288",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 3,
+   "stats": {
+    "gp": 1
+   },
+   "expected": 0
+  },
+  {
+   "sleeperId": "13305",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rush_td": 1,
+    "rush_yd": 54
+   },
+   "expected": 11.4
+  },
+  {
+   "sleeperId": "13337",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rush_yd": 17
+   },
+   "expected": 1.7
+  },
+  {
+   "sleeperId": "13414",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rush_yd": 17
+   },
+   "expected": 1.7
+  },
+  {
+   "sleeperId": "13419",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 3,
+   "stats": {},
+   "expected": 0
+  },
+  {
+   "sleeperId": "3198",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 1,
+    "rush_td": 2,
+    "rush_yd": 89
+   },
+   "expected": 21.4
+  },
+  {
+   "sleeperId": "4035",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 1,
+    "rec_yd": 5,
+    "rush_yd": 36
+   },
+   "expected": 4.6
+  },
+  {
+   "sleeperId": "7528",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rush_yd": 52
+   },
+   "expected": 5.2
+  },
+  {
+   "sleeperId": "8132",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 4,
+    "rec_yd": 10,
+    "rush_yd": -1
+   },
+   "expected": 2.9
+  },
+  {
+   "sleeperId": "9226",
+   "platformPos": "RB",
+   "pos": "RB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rush_yd": 17
+   },
+   "expected": 1.7
+  },
+  {
+   "sleeperId": "10213",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 4,
+    "rec_yd": 43
+   },
+   "expected": 6.3
+  },
+  {
+   "sleeperId": "11618",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1
+   },
+   "expected": 0
+  },
+  {
+   "sleeperId": "11626",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 3,
+   "stats": {},
+   "expected": 0
+  },
+  {
+   "sleeperId": "11631",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 1,
+    "rec_yd": 8
+   },
+   "expected": 1.3
+  },
+  {
+   "sleeperId": "11646",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 2,
+    "rec_yd": 18
+   },
+   "expected": 2.8
+  },
+  {
+   "sleeperId": "12483",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1
+   },
+   "expected": 0
+  },
+  {
+   "sleeperId": "12501",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 5,
+    "rec_td": 1,
+    "rec_yd": 100
+   },
+   "expected": 18.5
+  },
+  {
+   "sleeperId": "12514",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 5,
+    "rec_yd": 62
+   },
+   "expected": 8.7
+  },
+  {
+   "sleeperId": "12526",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 2,
+    "rec_yd": 17
+   },
+   "expected": 2.7
+  },
+  {
+   "sleeperId": "12536",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 2,
+    "rec_yd": 17,
+    "rush_yd": 8
+   },
+   "expected": 3.5
+  },
+  {
+   "sleeperId": "12547",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 1,
+    "rec_yd": 34
+   },
+   "expected": 3.9
+  },
+  {
+   "sleeperId": "13281",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 3,
+   "stats": {},
+   "expected": 0
+  },
+  {
+   "sleeperId": "13285",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 2,
+    "rec_yd": 19
+   },
+   "expected": 2.9
+  },
+  {
+   "sleeperId": "13317",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "idp_tkl_solo": 1,
+    "rec": 1,
+    "rec_td": 1,
+    "rec_yd": 40
+   },
+   "expected": 10.5
+  },
+  {
+   "sleeperId": "13333",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1
+   },
+   "expected": 0
+  },
+  {
+   "sleeperId": "13420",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1
+   },
+   "expected": 0
+  },
+  {
+   "sleeperId": "2133",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 7,
+    "rec_yd": 137
+   },
+   "expected": 17.2
+  },
+  {
+   "sleeperId": "6801",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 6,
+    "rec_td": 1,
+    "rec_yd": 90
+   },
+   "expected": 18
+  },
+  {
+   "sleeperId": "7547",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 4,
+    "rec_td": 1,
+    "rec_yd": 19
+   },
+   "expected": 9.9
+  },
+  {
+   "sleeperId": "7569",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 3,
+   "stats": {},
+   "expected": 0
+  },
+  {
+   "sleeperId": "7670",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1
+   },
+   "expected": 0
+  },
+  {
+   "sleeperId": "8112",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "idp_tkl_solo": 1,
+    "rec": 9,
+    "rec_yd": 194
+   },
+   "expected": 23.9
+  },
+  {
+   "sleeperId": "8121",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 3,
+    "rec_yd": 49
+   },
+   "expected": 6.4
+  },
+  {
+   "sleeperId": "8144",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 9,
+    "rec_yd": 107
+   },
+   "expected": 15.2
+  },
+  {
+   "sleeperId": "8148",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 4,
+    "rec_yd": 49
+   },
+   "expected": 6.9
+  },
+  {
+   "sleeperId": "8167",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 7,
+    "rec_td": 1,
+    "rec_yd": 96
+   },
+   "expected": 19.1
+  },
+  {
+   "sleeperId": "9504",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 2,
+    "rec_yd": 21
+   },
+   "expected": 3.1
+  },
+  {
+   "sleeperId": "9754",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 3,
+    "rec_yd": 40
+   },
+   "expected": 5.5
+  },
+  {
+   "sleeperId": "9756",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 5,
+    "rec_td": 1,
+    "rec_yd": 90
+   },
+   "expected": 17.5
+  },
+  {
+   "sleeperId": "9997",
+   "platformPos": "WR",
+   "pos": "WR",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 5,
+    "rec_yd": 84,
+    "rush_yd": 20
+   },
+   "expected": 12.9
+  },
+  {
+   "sleeperId": "10859",
+   "platformPos": "TE",
+   "pos": "TE",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 3,
+    "rec_yd": 44
+   },
+   "expected": 7.4
+  },
+  {
+   "sleeperId": "12487",
+   "platformPos": "TE",
+   "pos": "TE",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 1,
+    "rec_yd": 9
+   },
+   "expected": 1.9
+  },
+  {
+   "sleeperId": "13319",
+   "platformPos": "TE",
+   "pos": "TE",
+   "week": 3,
+   "stats": {
+    "gp": 1
+   },
+   "expected": 0
+  },
+  {
+   "sleeperId": "1466",
+   "platformPos": "TE",
+   "pos": "TE",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 2,
+    "rec_td": 1,
+    "rec_yd": 59
+   },
+   "expected": 13.9
+  },
+  {
+   "sleeperId": "3202",
+   "platformPos": "TE",
+   "pos": "TE",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 2,
+    "rec_td": 1,
+    "rec_yd": 11
+   },
+   "expected": 9.1
+  },
+  {
+   "sleeperId": "3214",
+   "platformPos": "TE",
+   "pos": "TE",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 1,
+    "rec_yd": 5
+   },
+   "expected": 1.5
+  },
+  {
+   "sleeperId": "4066",
+   "platformPos": "TE",
+   "pos": "TE",
+   "week": 3,
+   "stats": {
+    "gp": 1
+   },
+   "expected": 0
+  },
+  {
+   "sleeperId": "4381",
+   "platformPos": "TE",
+   "pos": "TE",
+   "week": 3,
+   "stats": {},
+   "expected": 0
+  },
+  {
+   "sleeperId": "5906",
+   "platformPos": "TE",
+   "pos": "TE",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "idp_tkl_solo": 1,
+    "rec": 1,
+    "rec_yd": 5
+   },
+   "expected": 1.5
+  },
+  {
+   "sleeperId": "7553",
+   "platformPos": "TE",
+   "pos": "TE",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 1,
+    "rec_yd": 5
+   },
+   "expected": 1.5
+  },
+  {
+   "sleeperId": "8131",
+   "platformPos": "TE",
+   "pos": "TE",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 2,
+    "rec_yd": 13
+   },
+   "expected": 3.3
+  },
+  {
+   "sleeperId": "9480",
+   "platformPos": "TE",
+   "pos": "TE",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "rec": 3,
+    "rec_yd": 32
+   },
+   "expected": 6.2
+  },
+  {
+   "sleeperId": "11533",
+   "platformPos": "PK",
+   "pos": "K",
+   "week": 3,
+   "stats": {
+    "fgm_20_29": 2,
+    "fgm_30_39": 1,
+    "gp": 1,
+    "xpm": 2
+   },
+   "expected": 11
+  },
+  {
+   "sleeperId": "3451",
+   "platformPos": "PK",
+   "pos": "K",
+   "week": 3,
+   "stats": {
+    "fgm_20_29": 1,
+    "gp": 1,
+    "xpm": 2
+   },
+   "expected": 5
+  },
+  {
+   "sleeperId": "4666",
+   "platformPos": "PK",
+   "pos": "K",
+   "week": 3,
+   "stats": {},
+   "expected": 0
+  },
+  {
+   "sleeperId": "5095",
+   "platformPos": "PK",
+   "pos": "K",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "xpm": 3,
+    "xpmiss": 1
+   },
+   "expected": 2
+  },
+  {
+   "sleeperId": "5189",
+   "platformPos": "PK",
+   "pos": "K",
+   "week": 3,
+   "stats": {
+    "fgm_50_59": 1,
+    "gp": 1,
+    "xpm": 3,
+    "xpmiss": 2
+   },
+   "expected": 6
+  },
+  {
+   "sleeperId": "6083",
+   "platformPos": "PK",
+   "pos": "K",
+   "week": 3,
+   "stats": {
+    "fgm_20_29": 1,
+    "fgm_30_39": 1,
+    "fgm_40_49": 1,
+    "gp": 1,
+    "xpm": 2
+   },
+   "expected": 12
+  },
+  {
+   "sleeperId": "6650",
+   "platformPos": "PK",
+   "pos": "K",
+   "week": 3,
+   "stats": {
+    "fgm_20_29": 1,
+    "fgm_30_39": 1,
+    "fgm_50_59": 1,
+    "gp": 1,
+    "xpm": 1
+   },
+   "expected": 12
+  },
+  {
+   "sleeperId": "10898",
+   "platformPos": "DE",
+   "pos": "DL",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "idp_sack": 1.5,
+    "idp_tkl_ast": 1,
+    "idp_tkl_solo": 5
+   },
+   "expected": 10
+  },
+  {
+   "sleeperId": "10917",
+   "platformPos": "DE",
+   "pos": "DL",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "idp_tkl_ast": 4
+   },
+   "expected": 2
+  },
+  {
+   "sleeperId": "12556",
+   "platformPos": "DE",
+   "pos": "DL",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "idp_tkl_ast": 1,
+    "idp_tkl_solo": 3
+   },
+   "expected": 3.5
+  },
+  {
+   "sleeperId": "2036",
+   "platformPos": "DE",
+   "pos": "DL",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "idp_sack": 1,
+    "idp_tkl_ast": 2,
+    "idp_tkl_solo": 1
+   },
+   "expected": 5
+  },
+  {
+   "sleeperId": "5991",
+   "platformPos": "DE",
+   "pos": "DL",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "idp_ff": 1,
+    "idp_fum_rec": 1,
+    "idp_pass_def": 1,
+    "idp_tkl_ast": 1,
+    "idp_tkl_solo": 1
+   },
+   "expected": 6
+  },
+  {
+   "sleeperId": "6124",
+   "platformPos": "DE",
+   "pos": "DL",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "idp_sack": 1,
+    "idp_tkl_solo": 1
+   },
+   "expected": 4
+  },
+  {
+   "sleeperId": "7633",
+   "platformPos": "DE",
+   "pos": "DL",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "idp_tkl_ast": 3
+   },
+   "expected": 1.5
+  },
+  {
+   "sleeperId": "7640",
+   "platformPos": "DE",
+   "pos": "DL",
+   "week": 3,
+   "stats": {},
+   "expected": 0
+  },
+  {
+   "sleeperId": "8265",
+   "platformPos": "DE",
+   "pos": "DL",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "idp_tkl_ast": 2,
+    "idp_tkl_solo": 1
+   },
+   "expected": 2
+  },
+  {
+   "sleeperId": "1052",
+   "platformPos": "LB",
+   "pos": "LB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "idp_sack": 1,
+    "idp_tkl_ast": 3,
+    "idp_tkl_solo": 7
+   },
+   "expected": 10.5
+  },
+  {
+   "sleeperId": "11701",
+   "platformPos": "LB",
+   "pos": "LB",
+   "week": 3,
+   "stats": {},
+   "expected": 0
+  },
+  {
+   "sleeperId": "11727",
+   "platformPos": "LB",
+   "pos": "LB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "idp_pass_def": 1,
+    "idp_tkl_ast": 6
+   },
+   "expected": 3.5
+  },
+  {
+   "sleeperId": "12578",
+   "platformPos": "LB",
+   "pos": "LB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "idp_tkl_ast": 5,
+    "idp_tkl_solo": 1
+   },
+   "expected": 3.5
+  },
+  {
+   "sleeperId": "13365",
+   "platformPos": "LB",
+   "pos": "LB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "idp_tkl_ast": 4,
+    "idp_tkl_solo": 4
+   },
+   "expected": 6
+  },
+  {
+   "sleeperId": "4960",
+   "platformPos": "LB",
+   "pos": "LB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "idp_ff": 1,
+    "idp_sack": 1,
+    "idp_tkl_ast": 6,
+    "idp_tkl_solo": 3
+   },
+   "expected": 10
+  },
+  {
+   "sleeperId": "5332",
+   "platformPos": "LB",
+   "pos": "LB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "idp_tkl_ast": 4,
+    "idp_tkl_solo": 2
+   },
+   "expected": 4
+  },
+  {
+   "sleeperId": "5944",
+   "platformPos": "LB",
+   "pos": "LB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "idp_tkl_ast": 3,
+    "idp_tkl_solo": 1
+   },
+   "expected": 2.5
+  },
+  {
+   "sleeperId": "6131",
+   "platformPos": "LB",
+   "pos": "LB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "idp_tkl_ast": 4,
+    "idp_tkl_solo": 2
+   },
+   "expected": 4
+  },
+  {
+   "sleeperId": "6860",
+   "platformPos": "LB",
+   "pos": "LB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "idp_pass_def": 1,
+    "idp_tkl_ast": 4,
+    "idp_tkl_solo": 3
+   },
+   "expected": 5.5
+  },
+  {
+   "sleeperId": "7672",
+   "platformPos": "LB",
+   "pos": "LB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "idp_pass_def": 1,
+    "idp_tkl_ast": 5,
+    "idp_tkl_solo": 3
+   },
+   "expected": 6
+  },
+  {
+   "sleeperId": "8659",
+   "platformPos": "LB",
+   "pos": "LB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "idp_tkl_ast": 2,
+    "idp_tkl_solo": 1
+   },
+   "expected": 2
+  },
+  {
+   "sleeperId": "10905",
+   "platformPos": "S",
+   "pos": "DB",
+   "week": 3,
+   "stats": {},
+   "expected": 0
+  },
+  {
+   "sleeperId": "12597",
+   "platformPos": "S",
+   "pos": "DB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "idp_tkl_solo": 2
+   },
+   "expected": 2
+  },
+  {
+   "sleeperId": "4081",
+   "platformPos": "S",
+   "pos": "DB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "idp_tkl_ast": 3,
+    "idp_tkl_solo": 1
+   },
+   "expected": 2.5
+  },
+  {
+   "sleeperId": "7715",
+   "platformPos": "S",
+   "pos": "DB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "idp_tkl_ast": 1,
+    "idp_tkl_solo": 1
+   },
+   "expected": 1.5
+  },
+  {
+   "sleeperId": "7811",
+   "platformPos": "S",
+   "pos": "DB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "idp_def_td": 1,
+    "idp_int": 2,
+    "idp_pass_def": 3,
+    "idp_sack": 1,
+    "idp_tkl_ast": 3,
+    "idp_tkl_solo": 2
+   },
+   "expected": 17
+  },
+  {
+   "sleeperId": "8314",
+   "platformPos": "S",
+   "pos": "DB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "idp_pass_def": 1,
+    "idp_tkl_ast": 2
+   },
+   "expected": 1.5
+  },
+  {
+   "sleeperId": "8339",
+   "platformPos": "S",
+   "pos": "DB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "idp_pass_def": 2,
+    "idp_tkl_ast": 4,
+    "idp_tkl_solo": 4
+   },
+   "expected": 7
+  },
+  {
+   "sleeperId": "8384",
+   "platformPos": "CB",
+   "pos": "DB",
+   "week": 3,
+   "stats": {
+    "gp": 1,
+    "idp_pass_def": 2,
+    "idp_tkl_solo": 1
+   },
+   "expected": 2
+  }
+ ]
+}

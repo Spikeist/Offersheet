@@ -1,8 +1,9 @@
 {
   "platform": "mfl",
-  "generatedAt": "2026-09-29T23:44:40.334Z",
-  "runtimeSeconds": 30,
+  "generatedAt": "2026-09-30T01:41:52.610Z",
+  "runtimeSeconds": 1.4,
   "meta": {
+    "crawlGate": "no --allow-crawl: only the pinned test league is requested live; other strangers' leagues come from the HTTP cache, and no new league is discovered",
     "leagues": [
       {
         "label": "public MFL test league",
@@ -12,7 +13,7 @@
       }
     ],
     "timingsMs": {},
-    "requestCount": 42
+    "requestCount": 43
   },
   "itemStatus": {
     "DOCS": "ok",
@@ -2101,13 +2102,19 @@
       "key": "X.redirect",
       "title": "api host vs league host",
       "status": "ok",
-      "summary": "league request to api.myfantasyleague.com: answered HTTP 200 itself (no redirect this run); 0 of the league-host requests were redirected. The probe sends league requests to the league's host (league.baseURL / leagueSearch homeURL), as the docs ask; redirects are followed manually and only to https *.myfantasyleague.com",
+      "summary": "league request to api.myfantasyleague.com: redirected HTTP 302 → {leagueHost} (followed by hand; a login cookie would be re-attached); 0 of the league-host requests were redirected. The probe sends league requests to the league's host (league.baseURL / leagueSearch homeURL), as the docs ask; redirects are followed manually and only to https *.myfantasyleague.com",
       "evidence": [
         {
           "url": "https://api.myfantasyleague.com/2026/export?TYPE=league&L={leagueId}&JSON=1",
           "status": 200,
           "path": "redirect hops (hosts templated)",
-          "sample": "none"
+          "sample": [
+            {
+              "status": 302,
+              "from": "api.myfantasyleague.com",
+              "to": "{leagueHost}"
+            }
+          ]
         }
       ]
     },
@@ -2171,15 +2178,17 @@
       "key": "X.requests",
       "title": "Requests",
       "status": "ok",
-      "summary": "32 MFL requests this run (21 live, 11 from cache; by kind {\"page\":2,\"file\":1,\"export\":29}); retries: 0 on every MFL request; no 429; 5 free-text values registered for redaction; errors: calendar: API requires logged in user in league ID 10001 - Please be sure to pass the proper MFL_USER_ID cookie or APIKEY parameter",
+      "summary": "33 MFL requests this run (1 live, 32 from cache; by kind {\"page\":2,\"file\":1,\"export\":29,\"redirect\":1}); retries: 0 on every MFL request; no 429; 5 free-text values registered for redaction; errors: calendar: API requires logged in user in league ID 10001 - Please be sure to pass the proper MFL_USER_ID cookie or APIKEY parameter",
       "evidence": [
         {
           "path": "MflClient.log",
           "sample": {
             "page HTTP 200 (cache)": 2,
-            "file HTTP 200": 1,
-            "export HTTP 200": 20,
-            "export HTTP 200 (cache)": 9
+            "file HTTP 200 (cache)": 1,
+            "export HTTP 302 (cache)": 1,
+            "redirect HTTP 200 (cache)": 1,
+            "export HTTP 200 (cache)": 27,
+            "export HTTP 200": 1
           }
         }
       ]
@@ -2189,10 +2198,10 @@
       "key": "X.fixtures",
       "title": "Sanitized fixtures",
       "status": "ok",
-      "summary": "31 fixtures written; 0 stale fixture(s) removed; every index entry's file name = sha256(label); privacy shaping: league host → www00.myfantasyleague.com, league.history cut to 2026, leagueSearch sample synthesized (ids from 90001); franchise fields replaced by path: stadium",
+      "summary": "31 fixtures written (6 in fixtures/sanitized/mfl (committed) and 25 in data-local/fixtures-sanitized/mfl (git-ignored: strangers' public leagues; tests use minimized copies in fixtures/sanitized/min/mfl/)); 0 stale fixture(s) removed; every index entry's file name = sha256(label); privacy shaping: league host → www00.myfantasyleague.com, league.history cut to 2026, leagueSearch sample synthesized (ids from 90001); franchise fields replaced by path: stadium",
       "evidence": [
         {
-          "path": "fixtures/sanitized/mfl/index.json"
+          "path": "fixtures/sanitized/mfl/index.json, data-local/fixtures-sanitized/mfl/index.json"
         }
       ]
     }
@@ -2213,7 +2222,7 @@
     "MFL never publishes raw stats (K.rawStats; api_info), so the §5 scoring oracle for MFL recomputes playerScores from Sleeper's undocumented /stats endpoint joined by the crosswalk: 604/604 rostered player-weeks within 0.05 in weeks 2–3 (K.oracle; skipped {\"noCrosswalk\":28,\"noCompiledScoring\":0,\"bothZero\":162}) — options: keep Sleeper stats as the MFL oracle source (recommended while the endpoint works); fall back to nflverse weekly stats if it breaks.",
     "§17 M target missed for this MFL league: 258/268 = 96.3% of rostered QB/RB/WR/TE have a FantasyCalc value row by mflId (target ≥ 98%); 10 of the 10 misses are in FantasyCalc's /players list, i.e. they exist but have no value in this format (isDynasty=true&numQbs=2&numTeams=10&ppr=0.5) — evidence M.matchRate — options: (a) count ID-level coverage (100.0%) and give value-less players config.valueFloor (as §9 already says); (b) keep the 98% target on value rows and accept deep-bench misses.",
     "CLAUDE.md §2.6 lists TYPE=standings, but api_info?STATE=details doesn't document it; the live server still answers it (HTTP 200, root keys [\"encoding\",\"leagueStandings\",\"version\"]) — evidence X.standingsAlias (GET https://{leagueHost}/2026/export?TYPE=standings&L={leagueId}&JSON=1) — options: use the documented TYPE=leagueStandings (recommended); keep \"standings\" only as an undocumented alias.",
-    "CLAUDE.md §2.6 says \"Follow redirects to the league's wwwNN host\", but (1) api_info warns a wrong-host redirect \"may be delayed, or if the system is under too much stress, it may be denied\", (2) this run's api-host league request was answered directly (HTTP 200, no redirect), and (3) Node's fetch drops the Cookie header on a cross-host redirect, so a private league would silently answer as a guest — evidence X.redirect, DOCS.hosts — options: (a) send league requests to league.baseURL's host (implemented); (b) follow redirects by hand, re-attaching the cookie only for https *.myfantasyleague.com (implemented in lib/mfl/client.ts; offline-tested, untested live: no MFL login).",
+    "CLAUDE.md §2.6 says \"Follow redirects to the league's wwwNN host\", but (1) api_info warns a wrong-host redirect \"may be delayed, or if the system is under too much stress, it may be denied\", (2) this run's api-host league request was redirected (HTTP 302), and (3) Node's fetch drops the Cookie header on a cross-host redirect, so a private league would silently answer as a guest — evidence X.redirect, DOCS.hosts — options: (a) send league requests to league.baseURL's host (implemented); (b) follow redirects by hand, re-attaching the cookie only for https *.myfantasyleague.com (implemented in lib/mfl/client.ts; offline-tested, untested live: no MFL login).",
     "MFL reports errors as HTTP 200 with an \"error\" object (like §2.7 says for Fantrax; §2.6 doesn't mention it): TYPE=calendar as a guest → HTTP 200, body error \"API requires logged in user in league ID 10001 - Please be sure to pass the proper MFL_USER_ID cookie or APIKEY parameter\" — evidence A.tradeDeadline — options: treat any MFL body with an \"error\" key as a failure and never cache it (implemented in lib/mfl/client.ts).",
     "CLAUDE.md §0.9 says to back off exponentially on 429/5xx, but api_info says \"If a request fails, don't retry\" and \"Wait one second between making requests\" (DOCS.rate) — the probe follows MFL for MFL hosts (no retries; a 429 stops MFL calls for the run) — options: (a) keep MFL's rule as a documented exception to §0.9 (recommended); (b) allow one delayed retry on 5xx only."
   ],
@@ -2234,10 +2243,10 @@
     "OK to follow MFL's own \"don't retry\" rule for MFL hosts as an exception to §0.9's exponential backoff?"
   ],
   "requests": {
-    "total": 42,
-    "live": 21,
-    "fromCache": 21,
+    "total": 43,
+    "live": 1,
+    "fromCache": 42,
     "retried": 0,
-    "slowestMs": 1931
+    "slowestMs": 200
   }
 }

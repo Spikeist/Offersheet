@@ -52,17 +52,31 @@ export interface HttpResponse {
   /** Raw text body (for HTML pages and error bodies). */
   text: string;
   fromCache: boolean;
+  /** When the body was fetched from its source (epoch ms); for a cached body, the original fetch time. */
+  fetchedAt?: number;
+  /** A live fetch failed and an older cached copy was served instead (cache.staleIfError). */
+  stale?: boolean;
 }
 
 export interface HttpRequestOptions {
   headers?: Record<string, string>;
   /** Cookie header value (never logged, never part of a cache key). */
   cookie?: string;
-  /** Cache key and TTL (§2.10). Keys of private data must include credentialScope. */
-  cache?: { key: string; ttlMs: number };
+  /**
+   * Cache key and TTL (§2.10). Keys of private data must include credentialScope. A copy younger than
+   * ttlMs is served; the stored copy is deleted after retainMs (default ttlMs; Refresh lowers ttlMs,
+   * not retainMs). With staleIfError, a failed live fetch serves a retained older copy (marked stale).
+   */
+  cache?: { key: string; ttlMs: number; retainMs?: number; staleIfError?: boolean };
+  /** Only bodies this accepts are cached (and count as a success for staleIfError); default: every 200 non-HTML body. */
+  cacheIf?: (res: HttpResponse) => boolean;
+  /** Rewrites a body before it is parsed or cached (e.g. ESPN SWIDs to one-way pseudonyms). */
+  transformText?: (text: string) => string;
   /** Parse 16+ digit integers as strings (Sleeper sends some 19-digit IDs as bare numbers). */
   bigIntsAsStrings?: boolean;
   timeoutMs?: number;
+  /** Retries on 429 / 5xx / network errors (default 3; MFL hosts never retry). */
+  maxRetries?: number;
 }
 
 /** Injected HTTP client: polite (per-host pacing, backoff on 429/5xx, no retry on 401/403/HTML). */
@@ -78,6 +92,8 @@ export interface EspnImportRequest {
   credentials?: { espnS2: string; swid: string };
   /** For public leagues without cookies the user picks their team (§2.2 My team). */
   myTeamId?: string;
+  /** The Import Report's Refresh button (§2.10): league data older than TTL.leagueRefresh is fetched again. */
+  refresh?: boolean;
 }
 
 export interface SleeperImportRequest {
@@ -86,6 +102,8 @@ export interface SleeperImportRequest {
   username?: string;
   /** Needed when a username has several leagues for the season. */
   chooseLeagueId?: string;
+  /** The Import Report's Refresh button (§2.10): league data older than TTL.leagueRefresh is fetched again. */
+  refresh?: boolean;
 }
 
 export interface ImportResult {

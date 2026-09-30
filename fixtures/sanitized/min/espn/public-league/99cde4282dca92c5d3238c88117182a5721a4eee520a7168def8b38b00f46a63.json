@@ -1,0 +1,7473 @@
+{
+ "week": 2,
+ "players": [
+  {
+   "id": 4429795,
+   "player": {
+    "id": 4429795,
+    "defaultPositionId": 2,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 17.3,
+      "stats": {
+       "24": 52,
+       "27": 10,
+       "28": 5,
+       "29": 2,
+       "30": 2,
+       "31": 1,
+       "33": 3,
+       "34": 1,
+       "40": 52,
+       "42": 61,
+       "43": 1,
+       "47": 12,
+       "48": 6,
+       "49": 3,
+       "50": 2,
+       "51": 1,
+       "54": 1,
+       "61": 61,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4430878,
+   "player": {
+    "id": 4430878,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 33.5,
+      "stats": {
+       "42": 155,
+       "43": 3,
+       "47": 31,
+       "48": 15,
+       "49": 7,
+       "50": 6,
+       "51": 3,
+       "52": 1,
+       "54": 1,
+       "61": 155,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4430807,
+   "player": {
+    "id": 4430807,
+    "defaultPositionId": 2,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 8.1,
+      "stats": {
+       "24": 72,
+       "27": 14,
+       "28": 7,
+       "29": 3,
+       "30": 2,
+       "31": 1,
+       "33": 3,
+       "34": 1,
+       "40": 72,
+       "42": 9,
+       "47": 1,
+       "61": 9,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 3117251,
+   "player": {
+    "id": 3117251,
+    "defaultPositionId": 2,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 18.6,
+      "stats": {
+       "24": 23,
+       "25": 2,
+       "27": 4,
+       "28": 2,
+       "29": 1,
+       "33": 2,
+       "34": 1,
+       "40": 23,
+       "42": 43,
+       "47": 8,
+       "48": 4,
+       "49": 2,
+       "50": 1,
+       "61": 43,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4362628,
+   "player": {
+    "id": 4362628,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 19.5,
+      "stats": {
+       "42": 75,
+       "43": 2,
+       "47": 15,
+       "48": 7,
+       "49": 3,
+       "50": 3,
+       "51": 1,
+       "54": 1,
+       "61": 75,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4241389,
+   "player": {
+    "id": 4241389,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 27.3,
+      "stats": {
+       "42": 153,
+       "43": 2,
+       "47": 30,
+       "48": 15,
+       "49": 7,
+       "50": 6,
+       "51": 3,
+       "52": 1,
+       "54": 1,
+       "61": 153,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4379399,
+   "player": {
+    "id": 4379399,
+    "defaultPositionId": 2,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 19.9,
+      "stats": {
+       "24": 135,
+       "25": 1,
+       "27": 27,
+       "28": 13,
+       "29": 6,
+       "30": 5,
+       "31": 2,
+       "32": 1,
+       "33": 4,
+       "34": 2,
+       "40": 135,
+       "42": 4,
+       "61": 4,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4374302,
+   "player": {
+    "id": 4374302,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 26.2,
+      "stats": {
+       "42": 142,
+       "43": 2,
+       "47": 28,
+       "48": 14,
+       "49": 7,
+       "50": 5,
+       "51": 2,
+       "52": 1,
+       "54": 1,
+       "61": 142,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 3043078,
+   "player": {
+    "id": 3043078,
+    "defaultPositionId": 2,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 14.7,
+      "stats": {
+       "24": 68,
+       "25": 1,
+       "27": 13,
+       "28": 6,
+       "29": 3,
+       "30": 2,
+       "31": 1,
+       "33": 3,
+       "34": 1,
+       "40": 68,
+       "42": 19,
+       "47": 3,
+       "48": 1,
+       "61": 19,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4361307,
+   "player": {
+    "id": 4361307,
+    "defaultPositionId": 4,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 10.1,
+      "stats": {
+       "42": 41,
+       "43": 1,
+       "47": 8,
+       "48": 4,
+       "49": 2,
+       "50": 1,
+       "54": 1,
+       "61": 41,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4242335,
+   "player": {
+    "id": 4242335,
+    "defaultPositionId": 2,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 25.2,
+      "stats": {
+       "24": 92,
+       "25": 2,
+       "27": 18,
+       "28": 9,
+       "29": 4,
+       "30": 3,
+       "31": 1,
+       "33": 4,
+       "34": 2,
+       "40": 92,
+       "42": 40,
+       "47": 8,
+       "48": 4,
+       "49": 2,
+       "50": 1,
+       "61": 40,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4426515,
+   "player": {
+    "id": 4426515,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 0,
+      "stats": {}
+     }
+    ]
+   }
+  },
+  {
+   "id": 4567048,
+   "player": {
+    "id": 4567048,
+    "defaultPositionId": 2,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 17.8,
+      "stats": {
+       "24": 117,
+       "27": 23,
+       "28": 11,
+       "29": 5,
+       "30": 4,
+       "31": 2,
+       "32": 1,
+       "33": 4,
+       "34": 2,
+       "40": 117,
+       "42": 61,
+       "47": 12,
+       "48": 6,
+       "49": 3,
+       "50": 2,
+       "51": 1,
+       "54": 1,
+       "61": 61,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4262921,
+   "player": {
+    "id": 4262921,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 5.5,
+      "stats": {
+       "42": 55,
+       "47": 11,
+       "48": 5,
+       "49": 2,
+       "50": 2,
+       "51": 1,
+       "61": 55,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4432665,
+   "player": {
+    "id": 4432665,
+    "defaultPositionId": 4,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 0,
+      "stats": {}
+     }
+    ]
+   }
+  },
+  {
+   "id": 4890973,
+   "player": {
+    "id": 4890973,
+    "defaultPositionId": 2,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 6.3,
+      "stats": {
+       "24": 48,
+       "27": 9,
+       "28": 4,
+       "29": 2,
+       "30": 1,
+       "33": 4,
+       "34": 2,
+       "40": 48,
+       "42": 15,
+       "47": 3,
+       "48": 1,
+       "61": 15,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 3929630,
+   "player": {
+    "id": 3929630,
+    "defaultPositionId": 2,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 2,
+      "stats": {
+       "24": 9,
+       "27": 1,
+       "40": 9,
+       "42": 11,
+       "47": 2,
+       "48": 1,
+       "61": 11,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4361370,
+   "player": {
+    "id": 4361370,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 14.6,
+      "stats": {
+       "42": 86,
+       "43": 1,
+       "47": 17,
+       "48": 8,
+       "49": 4,
+       "50": 3,
+       "51": 1,
+       "54": 1,
+       "61": 86,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 3953687,
+   "player": {
+    "id": 3953687,
+    "defaultPositionId": 5,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 16.9,
+      "stats": {
+       "86": 4,
+       "210": 1,
+       "214": 129,
+       "217": 25,
+       "218": 12,
+       "219": 6,
+       "220": 5,
+       "221": 2,
+       "222": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4362238,
+   "player": {
+    "id": 4362238,
+    "defaultPositionId": 2,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 8.2,
+      "stats": {
+       "24": 80,
+       "27": 16,
+       "28": 8,
+       "29": 4,
+       "30": 3,
+       "31": 1,
+       "33": 4,
+       "34": 2,
+       "40": 80,
+       "42": 2,
+       "61": 2,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": -15002,
+   "player": {
+    "id": -15002,
+    "defaultPositionId": 15,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 40.82,
+      "stats": {
+       "3": 248,
+       "4": 3,
+       "5": 49,
+       "6": 24,
+       "7": 12,
+       "8": 9,
+       "9": 4,
+       "10": 2,
+       "11": 4,
+       "12": 2,
+       "13": 2,
+       "14": 1,
+       "22": 248,
+       "24": 69,
+       "25": 2,
+       "27": 13,
+       "28": 6,
+       "29": 3,
+       "30": 2,
+       "31": 1,
+       "32": 0,
+       "33": 2,
+       "34": 1,
+       "40": 69,
+       "79": 0,
+       "82": 0,
+       "88": 0,
+       "93": 0,
+       "94": 0,
+       "206": 0,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4426354,
+   "player": {
+    "id": 4426354,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 4,
+      "stats": {
+       "42": 40,
+       "47": 8,
+       "48": 4,
+       "49": 2,
+       "50": 1,
+       "54": 1,
+       "61": 40,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4426502,
+   "player": {
+    "id": 4426502,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 4.9,
+      "stats": {
+       "24": -2,
+       "40": -2,
+       "42": 51,
+       "47": 10,
+       "48": 5,
+       "49": 2,
+       "50": 2,
+       "51": 1,
+       "61": 51,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4241478,
+   "player": {
+    "id": 4241478,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 17.7,
+      "stats": {
+       "42": 117,
+       "43": 1,
+       "47": 23,
+       "48": 11,
+       "49": 5,
+       "50": 4,
+       "51": 2,
+       "52": 1,
+       "54": 2,
+       "55": 1,
+       "61": 117,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4685382,
+   "player": {
+    "id": 4685382,
+    "defaultPositionId": 2,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 15.5,
+      "stats": {
+       "24": 94,
+       "25": 1,
+       "27": 18,
+       "28": 9,
+       "29": 4,
+       "30": 3,
+       "31": 1,
+       "33": 4,
+       "34": 2,
+       "40": 94,
+       "42": 21,
+       "47": 4,
+       "48": 2,
+       "49": 1,
+       "61": 21,
+       "72": 1,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": -15033,
+   "player": {
+    "id": -15033,
+    "defaultPositionId": 15,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 14.8,
+      "stats": {
+       "3": 235,
+       "4": 1,
+       "5": 47,
+       "6": 23,
+       "7": 11,
+       "8": 9,
+       "9": 4,
+       "10": 2,
+       "11": 4,
+       "12": 2,
+       "13": 2,
+       "14": 1,
+       "20": 1,
+       "22": 235,
+       "24": 34,
+       "27": 6,
+       "28": 3,
+       "29": 1,
+       "30": 1,
+       "31": 0,
+       "32": 0,
+       "33": 0,
+       "34": 0,
+       "40": 34,
+       "79": 0,
+       "82": 0,
+       "88": 0,
+       "93": 0,
+       "94": 0,
+       "206": 0,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 16800,
+   "player": {
+    "id": 16800,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 31.5,
+      "stats": {
+       "42": 195,
+       "43": 2,
+       "47": 39,
+       "48": 19,
+       "49": 9,
+       "50": 7,
+       "51": 3,
+       "52": 1,
+       "54": 1,
+       "61": 195,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4428331,
+   "player": {
+    "id": 4428331,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 8.3,
+      "stats": {
+       "42": 83,
+       "47": 16,
+       "48": 8,
+       "49": 4,
+       "50": 3,
+       "51": 1,
+       "61": 83,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4361579,
+   "player": {
+    "id": 4361579,
+    "defaultPositionId": 2,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 5,
+      "stats": {
+       "24": 30,
+       "27": 6,
+       "28": 3,
+       "29": 1,
+       "30": 1,
+       "33": 2,
+       "34": 1,
+       "40": 30,
+       "42": 20,
+       "47": 4,
+       "48": 2,
+       "49": 1,
+       "61": 20,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4569618,
+   "player": {
+    "id": 4569618,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 11.7,
+      "stats": {
+       "42": 57,
+       "43": 1,
+       "47": 11,
+       "48": 5,
+       "49": 2,
+       "50": 2,
+       "51": 1,
+       "54": 1,
+       "61": 57,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4427366,
+   "player": {
+    "id": 4427366,
+    "defaultPositionId": 2,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 9.2,
+      "stats": {
+       "24": 29,
+       "27": 5,
+       "28": 2,
+       "29": 1,
+       "30": 1,
+       "33": 3,
+       "34": 1,
+       "40": 29,
+       "42": 63,
+       "47": 12,
+       "48": 6,
+       "49": 3,
+       "50": 2,
+       "51": 1,
+       "54": 1,
+       "61": 63,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4431459,
+   "player": {
+    "id": 4431459,
+    "defaultPositionId": 4,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 8.4,
+      "stats": {
+       "24": 3,
+       "40": 3,
+       "42": 21,
+       "43": 1,
+       "47": 4,
+       "48": 2,
+       "49": 1,
+       "54": 1,
+       "61": 21,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4258173,
+   "player": {
+    "id": 4258173,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 0,
+      "stats": {}
+     }
+    ]
+   }
+  },
+  {
+   "id": -16026,
+   "player": {
+    "id": -16026,
+    "defaultPositionId": 16,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 11.52,
+      "stats": {
+       "89": 0,
+       "90": 0,
+       "91": 1,
+       "92": 0,
+       "95": 1,
+       "99": 2,
+       "114": 47,
+       "115": 29,
+       "120": 7,
+       "124": 0,
+       "127": 151,
+       "128": 0,
+       "129": 1,
+       "130": 0,
+       "133": 0,
+       "134": 0,
+       "135": 0,
+       "136": 0,
+       "187": 7,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": -15021,
+   "player": {
+    "id": -15021,
+    "defaultPositionId": 15,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 16.16,
+      "stats": {
+       "3": 264,
+       "4": 2,
+       "5": 52,
+       "6": 26,
+       "7": 13,
+       "8": 10,
+       "9": 5,
+       "10": 2,
+       "11": 5,
+       "12": 2,
+       "13": 2,
+       "14": 1,
+       "20": 2,
+       "22": 264,
+       "24": 16,
+       "27": 3,
+       "28": 1,
+       "29": 0,
+       "30": 0,
+       "31": 0,
+       "32": 0,
+       "33": 1,
+       "34": 0,
+       "40": 16,
+       "79": 0,
+       "82": 0,
+       "88": 0,
+       "93": 0,
+       "94": 0,
+       "206": 0,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4870808,
+   "player": {
+    "id": 4870808,
+    "defaultPositionId": 2,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 4.5,
+      "stats": {
+       "24": 29,
+       "27": 5,
+       "28": 2,
+       "29": 1,
+       "30": 1,
+       "33": 1,
+       "40": 29,
+       "42": 16,
+       "47": 3,
+       "48": 1,
+       "61": 16,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4595348,
+   "player": {
+    "id": 4595348,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 0.1,
+      "stats": {
+       "42": 1,
+       "61": 1,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4429615,
+   "player": {
+    "id": 4429615,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 0,
+      "stats": {}
+     }
+    ]
+   }
+  },
+  {
+   "id": 4430737,
+   "player": {
+    "id": 4430737,
+    "defaultPositionId": 2,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 13.7,
+      "stats": {
+       "24": 85,
+       "27": 17,
+       "28": 8,
+       "29": 4,
+       "30": 3,
+       "31": 1,
+       "33": 2,
+       "34": 1,
+       "40": 85,
+       "42": 12,
+       "43": 1,
+       "47": 2,
+       "48": 1,
+       "61": 12,
+       "72": 1,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4685472,
+   "player": {
+    "id": 4685472,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 10.1,
+      "stats": {
+       "42": 101,
+       "47": 20,
+       "48": 10,
+       "49": 5,
+       "50": 4,
+       "51": 2,
+       "52": 1,
+       "54": 1,
+       "61": 101,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4696981,
+   "player": {
+    "id": 4696981,
+    "defaultPositionId": 2,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 5.5,
+      "stats": {
+       "24": 36,
+       "27": 7,
+       "28": 3,
+       "29": 1,
+       "30": 1,
+       "33": 2,
+       "34": 1,
+       "40": 36,
+       "42": 19,
+       "47": 3,
+       "48": 1,
+       "61": 19,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": -15012,
+   "player": {
+    "id": -15012,
+    "defaultPositionId": 15,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 28.98,
+      "stats": {
+       "3": 382,
+       "4": 3,
+       "5": 76,
+       "6": 38,
+       "7": 19,
+       "8": 15,
+       "9": 7,
+       "10": 3,
+       "11": 6,
+       "12": 3,
+       "13": 3,
+       "14": 1,
+       "22": 382,
+       "24": 17,
+       "27": 3,
+       "28": 1,
+       "29": 0,
+       "30": 0,
+       "31": 0,
+       "32": 0,
+       "33": 0,
+       "34": 0,
+       "40": 17,
+       "79": 0,
+       "82": 0,
+       "88": 0,
+       "93": 0,
+       "94": 0,
+       "206": 0,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4567750,
+   "player": {
+    "id": 4567750,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 7.3,
+      "stats": {
+       "24": -3,
+       "40": -3,
+       "42": 16,
+       "43": 1,
+       "47": 3,
+       "48": 1,
+       "61": 16,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": -15025,
+   "player": {
+    "id": -15025,
+    "defaultPositionId": 15,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 28.28,
+      "stats": {
+       "3": 287,
+       "4": 2,
+       "5": 57,
+       "6": 28,
+       "7": 14,
+       "8": 11,
+       "9": 5,
+       "10": 2,
+       "11": 4,
+       "12": 2,
+       "13": 0,
+       "14": 0,
+       "22": 287,
+       "24": 28,
+       "25": 1,
+       "27": 5,
+       "28": 2,
+       "29": 1,
+       "30": 1,
+       "31": 0,
+       "32": 0,
+       "33": 1,
+       "34": 0,
+       "40": 28,
+       "79": 0,
+       "82": 0,
+       "88": 0,
+       "93": 0,
+       "94": 0,
+       "206": 0,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": -15004,
+   "player": {
+    "id": -15004,
+    "defaultPositionId": 15,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 16.18,
+      "stats": {
+       "3": 207,
+       "4": 2,
+       "5": 41,
+       "6": 20,
+       "7": 10,
+       "8": 8,
+       "9": 4,
+       "10": 2,
+       "11": 4,
+       "12": 2,
+       "13": 2,
+       "14": 1,
+       "22": 207,
+       "24": -1,
+       "33": 0,
+       "34": 0,
+       "40": -1,
+       "79": 0,
+       "82": 0,
+       "88": 0,
+       "93": 0,
+       "94": 0,
+       "206": 0,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4612826,
+   "player": {
+    "id": 4612826,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 3.5,
+      "stats": {
+       "42": 35,
+       "47": 7,
+       "48": 3,
+       "49": 1,
+       "50": 1,
+       "61": 35,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4596448,
+   "player": {
+    "id": 4596448,
+    "defaultPositionId": 2,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 9,
+      "stats": {
+       "24": 89,
+       "27": 17,
+       "28": 8,
+       "29": 4,
+       "30": 3,
+       "31": 1,
+       "33": 3,
+       "34": 1,
+       "40": 89,
+       "42": 1,
+       "61": 1,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4239993,
+   "player": {
+    "id": 4239993,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 9.5,
+      "stats": {
+       "42": 95,
+       "47": 19,
+       "48": 9,
+       "49": 4,
+       "50": 3,
+       "51": 1,
+       "54": 1,
+       "61": 95,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4259545,
+   "player": {
+    "id": 4259545,
+    "defaultPositionId": 2,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 7.9,
+      "stats": {
+       "24": 45,
+       "27": 9,
+       "28": 4,
+       "29": 2,
+       "30": 1,
+       "33": 3,
+       "34": 1,
+       "40": 45,
+       "42": 54,
+       "47": 10,
+       "48": 5,
+       "49": 2,
+       "50": 2,
+       "51": 1,
+       "54": 1,
+       "61": 54,
+       "72": 1,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4430027,
+   "player": {
+    "id": 4430027,
+    "defaultPositionId": 4,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 11.2,
+      "stats": {
+       "42": 52,
+       "43": 1,
+       "47": 10,
+       "48": 5,
+       "49": 2,
+       "50": 2,
+       "51": 1,
+       "54": 1,
+       "61": 52,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4239996,
+   "player": {
+    "id": 4239996,
+    "defaultPositionId": 2,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 5.1,
+      "stats": {
+       "24": 25,
+       "26": 1,
+       "27": 5,
+       "28": 2,
+       "29": 1,
+       "30": 1,
+       "33": 1,
+       "40": 25,
+       "42": 6,
+       "47": 1,
+       "61": 6,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": -15006,
+   "player": {
+    "id": -15006,
+    "defaultPositionId": 15,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 29.76,
+      "stats": {
+       "3": 279,
+       "4": 4,
+       "5": 55,
+       "6": 27,
+       "7": 13,
+       "8": 11,
+       "9": 5,
+       "10": 2,
+       "11": 5,
+       "12": 2,
+       "13": 1,
+       "14": 0,
+       "22": 279,
+       "24": 26,
+       "27": 5,
+       "28": 2,
+       "29": 1,
+       "30": 1,
+       "31": 0,
+       "32": 0,
+       "33": 0,
+       "34": 0,
+       "40": 26,
+       "79": 0,
+       "82": 0,
+       "88": 0,
+       "93": 0,
+       "94": 0,
+       "206": 0,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4047646,
+   "player": {
+    "id": 4047646,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 0,
+      "stats": {}
+     }
+    ]
+   }
+  },
+  {
+   "id": 3040151,
+   "player": {
+    "id": 3040151,
+    "defaultPositionId": 4,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 14,
+      "stats": {
+       "42": 80,
+       "43": 1,
+       "47": 16,
+       "48": 8,
+       "49": 4,
+       "50": 3,
+       "51": 1,
+       "61": 80,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4372016,
+   "player": {
+    "id": 4372016,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 13.8,
+      "stats": {
+       "42": 138,
+       "47": 27,
+       "48": 13,
+       "49": 6,
+       "50": 5,
+       "51": 2,
+       "52": 1,
+       "54": 1,
+       "61": 138,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": -15014,
+   "player": {
+    "id": -15014,
+    "defaultPositionId": 15,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 26.98,
+      "stats": {
+       "3": 327,
+       "4": 4,
+       "5": 65,
+       "6": 32,
+       "7": 16,
+       "8": 13,
+       "9": 6,
+       "10": 3,
+       "11": 4,
+       "12": 2,
+       "13": 1,
+       "14": 0,
+       "20": 1,
+       "22": 327,
+       "24": -1,
+       "33": 0,
+       "34": 0,
+       "40": -1,
+       "79": 0,
+       "82": 0,
+       "88": 0,
+       "93": 0,
+       "94": 0,
+       "206": 0,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 2473037,
+   "player": {
+    "id": 2473037,
+    "defaultPositionId": 5,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 7.3,
+      "stats": {
+       "86": 4,
+       "210": 1,
+       "214": 33,
+       "217": 6,
+       "218": 3,
+       "219": 1,
+       "220": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4035538,
+   "player": {
+    "id": 4035538,
+    "defaultPositionId": 2,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 2.4,
+      "stats": {
+       "24": 10,
+       "27": 2,
+       "28": 1,
+       "33": 1,
+       "40": 10,
+       "42": 14,
+       "47": 2,
+       "48": 1,
+       "61": 14,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 3915416,
+   "player": {
+    "id": 3915416,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": -0.1,
+      "stats": {
+       "24": -1,
+       "40": -1,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4685702,
+   "player": {
+    "id": 4685702,
+    "defaultPositionId": 2,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 4.8,
+      "stats": {
+       "24": 21,
+       "27": 4,
+       "28": 2,
+       "29": 1,
+       "33": 2,
+       "34": 1,
+       "40": 21,
+       "42": 27,
+       "47": 5,
+       "48": 2,
+       "49": 1,
+       "50": 1,
+       "54": 1,
+       "61": 27,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 15847,
+   "player": {
+    "id": 15847,
+    "defaultPositionId": 4,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 16.1,
+      "stats": {
+       "42": 101,
+       "43": 1,
+       "47": 20,
+       "48": 10,
+       "49": 5,
+       "50": 4,
+       "51": 2,
+       "52": 1,
+       "54": 1,
+       "61": 101,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4723086,
+   "player": {
+    "id": 4723086,
+    "defaultPositionId": 4,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 0.3,
+      "stats": {
+       "42": 3,
+       "61": 3,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4432620,
+   "player": {
+    "id": 4432620,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 10.04,
+      "stats": {
+       "42": 98,
+       "47": 19,
+       "48": 9,
+       "49": 4,
+       "50": 3,
+       "51": 1,
+       "54": 1,
+       "61": 98,
+       "115": 12,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": -15017,
+   "player": {
+    "id": -15017,
+    "defaultPositionId": 15,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 8.02,
+      "stats": {
+       "3": 208,
+       "5": 41,
+       "6": 20,
+       "7": 10,
+       "8": 8,
+       "9": 4,
+       "10": 2,
+       "11": 2,
+       "12": 1,
+       "13": 1,
+       "14": 0,
+       "20": 1,
+       "22": 208,
+       "24": 17,
+       "27": 3,
+       "28": 1,
+       "29": 0,
+       "30": 0,
+       "31": 0,
+       "32": 0,
+       "33": 0,
+       "34": 0,
+       "40": 17,
+       "79": 0,
+       "82": 0,
+       "88": 0,
+       "93": 0,
+       "94": 0,
+       "206": 0,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4248528,
+   "player": {
+    "id": 4248528,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 10.1,
+      "stats": {
+       "42": 41,
+       "43": 1,
+       "47": 8,
+       "48": 4,
+       "49": 2,
+       "50": 1,
+       "61": 41,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 3121422,
+   "player": {
+    "id": 3121422,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 5,
+      "stats": {
+       "42": 50,
+       "47": 10,
+       "48": 5,
+       "49": 2,
+       "50": 2,
+       "51": 1,
+       "61": 50,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": -16034,
+   "player": {
+    "id": -16034,
+    "defaultPositionId": 16,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 9.5,
+      "stats": {
+       "89": 0,
+       "90": 0,
+       "91": 0,
+       "92": 0,
+       "99": 5,
+       "114": 93,
+       "115": 32,
+       "120": 20,
+       "124": 0,
+       "127": 267,
+       "128": 0,
+       "129": 0,
+       "130": 1,
+       "133": 0,
+       "134": 0,
+       "135": 0,
+       "136": 0,
+       "187": 20,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 16737,
+   "player": {
+    "id": 16737,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 5.4,
+      "stats": {
+       "42": 54,
+       "47": 10,
+       "48": 5,
+       "49": 2,
+       "50": 2,
+       "51": 1,
+       "61": 54,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4426388,
+   "player": {
+    "id": 4426388,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 3.3,
+      "stats": {
+       "42": 33,
+       "47": 6,
+       "48": 3,
+       "49": 1,
+       "50": 1,
+       "61": 33,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 2971573,
+   "player": {
+    "id": 2971573,
+    "defaultPositionId": 5,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 8.2,
+      "stats": {
+       "210": 1,
+       "214": 82,
+       "217": 16,
+       "218": 8,
+       "219": 4,
+       "220": 3,
+       "221": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4882093,
+   "player": {
+    "id": 4882093,
+    "defaultPositionId": 2,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 12.2,
+      "stats": {
+       "24": 65,
+       "25": 1,
+       "27": 13,
+       "28": 6,
+       "29": 3,
+       "30": 2,
+       "31": 1,
+       "33": 2,
+       "34": 1,
+       "40": 65,
+       "42": -3,
+       "61": -3,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4241416,
+   "player": {
+    "id": 4241416,
+    "defaultPositionId": 2,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 12.4,
+      "stats": {
+       "24": 53,
+       "27": 10,
+       "28": 5,
+       "29": 2,
+       "30": 2,
+       "31": 1,
+       "33": 2,
+       "34": 1,
+       "40": 53,
+       "42": 11,
+       "43": 1,
+       "47": 2,
+       "48": 1,
+       "61": 11,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4685512,
+   "player": {
+    "id": 4685512,
+    "defaultPositionId": 2,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 4,
+      "stats": {
+       "24": 52,
+       "27": 10,
+       "28": 5,
+       "29": 2,
+       "30": 2,
+       "31": 1,
+       "33": 2,
+       "34": 1,
+       "40": 52,
+       "42": 8,
+       "47": 1,
+       "61": 8,
+       "72": 1,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4385690,
+   "player": {
+    "id": 4385690,
+    "defaultPositionId": 4,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 15.5,
+      "stats": {
+       "42": 95,
+       "43": 1,
+       "47": 19,
+       "48": 9,
+       "49": 4,
+       "50": 3,
+       "51": 1,
+       "54": 1,
+       "61": 95,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4431299,
+   "player": {
+    "id": 4431299,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 4.3,
+      "stats": {
+       "42": 43,
+       "47": 8,
+       "48": 4,
+       "49": 2,
+       "50": 1,
+       "61": 43,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4361050,
+   "player": {
+    "id": 4361050,
+    "defaultPositionId": 4,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 3.3,
+      "stats": {
+       "42": 33,
+       "47": 6,
+       "48": 3,
+       "49": 1,
+       "50": 1,
+       "54": 1,
+       "61": 33,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4432710,
+   "player": {
+    "id": 4432710,
+    "defaultPositionId": 2,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 13.6,
+      "stats": {
+       "24": 76,
+       "25": 1,
+       "27": 15,
+       "28": 7,
+       "29": 3,
+       "30": 3,
+       "31": 1,
+       "33": 3,
+       "34": 1,
+       "40": 76,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4569173,
+   "player": {
+    "id": 4569173,
+    "defaultPositionId": 2,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 2.6,
+      "stats": {
+       "24": 43,
+       "27": 8,
+       "28": 4,
+       "29": 2,
+       "30": 1,
+       "33": 1,
+       "40": 43,
+       "42": 3,
+       "61": 3,
+       "72": 1,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": -16023,
+   "player": {
+    "id": -16023,
+    "defaultPositionId": 16,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 10.78,
+      "stats": {
+       "89": 0,
+       "90": 0,
+       "91": 0,
+       "92": 1,
+       "95": 1,
+       "96": 1,
+       "99": 3,
+       "114": 118,
+       "115": 21,
+       "120": 14,
+       "124": 0,
+       "127": 327,
+       "128": 0,
+       "129": 0,
+       "130": 0,
+       "133": 0,
+       "134": 0,
+       "135": 0,
+       "136": 0,
+       "187": 14,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4685278,
+   "player": {
+    "id": 4685278,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 3.2,
+      "stats": {
+       "42": 32,
+       "47": 6,
+       "48": 3,
+       "49": 1,
+       "50": 1,
+       "61": 32,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": -15030,
+   "player": {
+    "id": -15030,
+    "defaultPositionId": 15,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 6.16,
+      "stats": {
+       "3": 189,
+       "5": 37,
+       "6": 18,
+       "7": 9,
+       "8": 7,
+       "9": 3,
+       "10": 1,
+       "11": 3,
+       "12": 1,
+       "13": 2,
+       "14": 1,
+       "20": 1,
+       "22": 189,
+       "24": 6,
+       "27": 1,
+       "28": 0,
+       "29": 0,
+       "30": 0,
+       "31": 0,
+       "32": 0,
+       "33": 0,
+       "34": 0,
+       "40": 6,
+       "79": 0,
+       "82": 0,
+       "88": 0,
+       "93": 0,
+       "94": 0,
+       "206": 0,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": -15008,
+   "player": {
+    "id": -15008,
+    "defaultPositionId": 15,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 29.78,
+      "stats": {
+       "3": 327,
+       "4": 4,
+       "5": 65,
+       "6": 32,
+       "7": 16,
+       "8": 13,
+       "9": 6,
+       "10": 3,
+       "11": 5,
+       "12": 2,
+       "13": 2,
+       "14": 1,
+       "22": 327,
+       "24": 7,
+       "27": 1,
+       "28": 0,
+       "29": 0,
+       "30": 0,
+       "31": 0,
+       "32": 0,
+       "33": 0,
+       "34": 0,
+       "40": 7,
+       "79": 0,
+       "82": 0,
+       "88": 0,
+       "93": 0,
+       "94": 0,
+       "206": 0,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4572680,
+   "player": {
+    "id": 4572680,
+    "defaultPositionId": 4,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 1.5,
+      "stats": {
+       "42": 15,
+       "47": 3,
+       "48": 1,
+       "61": 15,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4569987,
+   "player": {
+    "id": 4569987,
+    "defaultPositionId": 2,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 7.7,
+      "stats": {
+       "24": 43,
+       "27": 8,
+       "28": 4,
+       "29": 2,
+       "30": 1,
+       "33": 2,
+       "34": 1,
+       "40": 43,
+       "42": 34,
+       "47": 6,
+       "48": 3,
+       "49": 1,
+       "50": 1,
+       "61": 34,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4047650,
+   "player": {
+    "id": 4047650,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 2.7,
+      "stats": {
+       "42": 27,
+       "47": 5,
+       "48": 2,
+       "49": 1,
+       "50": 1,
+       "61": 27,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 5083076,
+   "player": {
+    "id": 5083076,
+    "defaultPositionId": 4,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 5.4,
+      "stats": {
+       "42": 54,
+       "47": 10,
+       "48": 5,
+       "49": 2,
+       "50": 2,
+       "51": 1,
+       "54": 1,
+       "61": 54,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4695883,
+   "player": {
+    "id": 4695883,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 7.58,
+      "stats": {
+       "42": 66,
+       "47": 13,
+       "48": 6,
+       "49": 3,
+       "50": 2,
+       "51": 1,
+       "54": 1,
+       "61": 66,
+       "115": 49,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4360248,
+   "player": {
+    "id": 4360248,
+    "defaultPositionId": 4,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 1.5,
+      "stats": {
+       "42": 15,
+       "47": 3,
+       "48": 1,
+       "61": 15,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4429160,
+   "player": {
+    "id": 4429160,
+    "defaultPositionId": 2,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 9.3,
+      "stats": {
+       "24": 74,
+       "27": 14,
+       "28": 7,
+       "29": 3,
+       "30": 2,
+       "31": 1,
+       "33": 4,
+       "34": 2,
+       "40": 74,
+       "42": 19,
+       "47": 3,
+       "48": 1,
+       "61": 19,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": -15003,
+   "player": {
+    "id": -15003,
+    "defaultPositionId": 15,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 9.88,
+      "stats": {
+       "3": 192,
+       "5": 38,
+       "6": 19,
+       "7": 9,
+       "8": 7,
+       "9": 3,
+       "10": 1,
+       "11": 4,
+       "12": 2,
+       "13": 3,
+       "14": 1,
+       "20": 1,
+       "22": 192,
+       "24": 42,
+       "27": 8,
+       "28": 4,
+       "29": 2,
+       "30": 1,
+       "31": 0,
+       "32": 0,
+       "33": 1,
+       "34": 0,
+       "40": 42,
+       "79": 0,
+       "82": 0,
+       "88": 0,
+       "93": 0,
+       "94": 0,
+       "206": 0,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": -16021,
+   "player": {
+    "id": -16021,
+    "defaultPositionId": 16,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 4.62,
+      "stats": {
+       "89": 0,
+       "90": 0,
+       "91": 0,
+       "92": 0,
+       "99": 2,
+       "115": 31,
+       "120": 20,
+       "124": 0,
+       "127": 291,
+       "128": 0,
+       "129": 0,
+       "130": 1,
+       "133": 0,
+       "134": 0,
+       "135": 0,
+       "136": 0,
+       "187": 20,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": -15018,
+   "player": {
+    "id": -15018,
+    "defaultPositionId": 15,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 22.38,
+      "stats": {
+       "3": 252,
+       "4": 1,
+       "5": 50,
+       "6": 25,
+       "7": 12,
+       "8": 10,
+       "9": 5,
+       "10": 2,
+       "11": 5,
+       "12": 2,
+       "13": 1,
+       "14": 0,
+       "22": 252,
+       "24": 23,
+       "25": 1,
+       "27": 4,
+       "28": 2,
+       "29": 1,
+       "30": 0,
+       "31": 0,
+       "32": 0,
+       "33": 1,
+       "34": 0,
+       "40": 23,
+       "79": 0,
+       "82": 0,
+       "88": 0,
+       "93": 0,
+       "94": 0,
+       "206": 0,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 3042519,
+   "player": {
+    "id": 3042519,
+    "defaultPositionId": 2,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 10.5,
+      "stats": {
+       "24": 105,
+       "27": 21,
+       "28": 10,
+       "29": 5,
+       "30": 4,
+       "31": 2,
+       "32": 1,
+       "33": 4,
+       "34": 2,
+       "40": 105,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4871023,
+   "player": {
+    "id": 4871023,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 2.7,
+      "stats": {
+       "42": 27,
+       "47": 5,
+       "48": 2,
+       "49": 1,
+       "50": 1,
+       "61": 27,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4362081,
+   "player": {
+    "id": 4362081,
+    "defaultPositionId": 5,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 2,
+      "stats": {
+       "86": 2,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 2976212,
+   "player": {
+    "id": 2976212,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 16.7,
+      "stats": {
+       "42": 47,
+       "43": 2,
+       "47": 9,
+       "48": 4,
+       "49": 2,
+       "50": 1,
+       "54": 1,
+       "61": 47,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": -15007,
+   "player": {
+    "id": -15007,
+    "defaultPositionId": 15,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 14.12,
+      "stats": {
+       "3": 288,
+       "4": 1,
+       "5": 57,
+       "6": 28,
+       "7": 14,
+       "8": 11,
+       "9": 5,
+       "10": 2,
+       "11": 4,
+       "12": 2,
+       "13": 1,
+       "14": 0,
+       "20": 1,
+       "22": 288,
+       "24": 6,
+       "27": 1,
+       "28": 0,
+       "29": 0,
+       "30": 0,
+       "31": 0,
+       "32": 0,
+       "33": 1,
+       "34": 0,
+       "40": 6,
+       "79": 0,
+       "82": 0,
+       "88": 0,
+       "93": 0,
+       "94": 0,
+       "206": 0,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4686361,
+   "player": {
+    "id": 4686361,
+    "defaultPositionId": 5,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 7.7,
+      "stats": {
+       "86": 1,
+       "210": 1,
+       "214": 67,
+       "217": 13,
+       "218": 6,
+       "219": 3,
+       "220": 2,
+       "221": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 3128429,
+   "player": {
+    "id": 3128429,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 2.5,
+      "stats": {
+       "42": 25,
+       "47": 5,
+       "48": 2,
+       "49": 1,
+       "50": 1,
+       "61": 25,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 3916148,
+   "player": {
+    "id": 3916148,
+    "defaultPositionId": 2,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 6.5,
+      "stats": {
+       "24": 64,
+       "27": 12,
+       "28": 6,
+       "29": 3,
+       "30": 2,
+       "31": 1,
+       "33": 2,
+       "34": 1,
+       "40": 64,
+       "42": 1,
+       "61": 1,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": -16014,
+   "player": {
+    "id": -16014,
+    "defaultPositionId": 16,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 12.22,
+      "stats": {
+       "89": 0,
+       "90": 1,
+       "91": 0,
+       "92": 0,
+       "95": 1,
+       "99": 2,
+       "114": 29,
+       "115": 32,
+       "120": 6,
+       "124": 0,
+       "127": 182,
+       "128": 0,
+       "129": 1,
+       "130": 0,
+       "133": 0,
+       "134": 0,
+       "135": 0,
+       "136": 0,
+       "187": 6,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 3126486,
+   "player": {
+    "id": 3126486,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 4.08,
+      "stats": {
+       "24": 4,
+       "40": 4,
+       "42": 31,
+       "47": 6,
+       "48": 3,
+       "49": 1,
+       "50": 1,
+       "61": 31,
+       "114": 29,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 3055899,
+   "player": {
+    "id": 3055899,
+    "defaultPositionId": 5,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 17.5,
+      "stats": {
+       "86": 3,
+       "210": 1,
+       "214": 145,
+       "217": 29,
+       "218": 14,
+       "219": 7,
+       "220": 5,
+       "221": 2,
+       "222": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4701936,
+   "player": {
+    "id": 4701936,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 5.8,
+      "stats": {
+       "42": 58,
+       "47": 11,
+       "48": 5,
+       "49": 2,
+       "50": 2,
+       "51": 1,
+       "61": 58,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4047365,
+   "player": {
+    "id": 4047365,
+    "defaultPositionId": 2,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 0,
+      "stats": {}
+     }
+    ]
+   }
+  },
+  {
+   "id": 4035687,
+   "player": {
+    "id": 4035687,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 0,
+      "stats": {}
+     }
+    ]
+   }
+  },
+  {
+   "id": 3121023,
+   "player": {
+    "id": 3121023,
+    "defaultPositionId": 4,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 0.4,
+      "stats": {
+       "42": 4,
+       "61": 4,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 3116365,
+   "player": {
+    "id": 3116365,
+    "defaultPositionId": 4,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 4.9,
+      "stats": {
+       "42": 49,
+       "47": 9,
+       "48": 4,
+       "49": 2,
+       "50": 1,
+       "54": 1,
+       "61": 49,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4034949,
+   "player": {
+    "id": 4034949,
+    "defaultPositionId": 5,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 5,
+      "stats": {
+       "86": 5,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": -16007,
+   "player": {
+    "id": -16007,
+    "defaultPositionId": 16,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 10.72,
+      "stats": {
+       "89": 0,
+       "90": 0,
+       "91": 1,
+       "92": 0,
+       "95": 1,
+       "99": 2,
+       "114": 84,
+       "115": 2,
+       "120": 13,
+       "124": 0,
+       "127": 268,
+       "128": 0,
+       "129": 0,
+       "130": 1,
+       "133": 0,
+       "134": 0,
+       "135": 0,
+       "136": 0,
+       "187": 13,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4242355,
+   "player": {
+    "id": 4242355,
+    "defaultPositionId": 4,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 16.3,
+      "stats": {
+       "42": 43,
+       "43": 2,
+       "47": 8,
+       "48": 4,
+       "49": 2,
+       "50": 1,
+       "61": 43,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4360761,
+   "player": {
+    "id": 4360761,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 1.8,
+      "stats": {
+       "42": 18,
+       "47": 3,
+       "48": 1,
+       "61": 18,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": -15024,
+   "player": {
+    "id": -15024,
+    "defaultPositionId": 15,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 7.88,
+      "stats": {
+       "3": 192,
+       "4": 1,
+       "5": 38,
+       "6": 19,
+       "7": 9,
+       "8": 7,
+       "9": 3,
+       "10": 1,
+       "11": 3,
+       "12": 1,
+       "13": 2,
+       "14": 1,
+       "20": 2,
+       "22": 192,
+       "24": 2,
+       "27": 0,
+       "28": 0,
+       "29": 0,
+       "30": 0,
+       "31": 0,
+       "32": 0,
+       "33": 0,
+       "34": 0,
+       "40": 2,
+       "79": 0,
+       "82": 0,
+       "88": 0,
+       "93": 0,
+       "94": 0,
+       "206": 0,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4241985,
+   "player": {
+    "id": 4241985,
+    "defaultPositionId": 2,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 3.6,
+      "stats": {
+       "24": 36,
+       "27": 7,
+       "28": 3,
+       "29": 1,
+       "30": 1,
+       "33": 2,
+       "34": 1,
+       "40": 36,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": -15028,
+   "player": {
+    "id": -15028,
+    "defaultPositionId": 15,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 23.48,
+      "stats": {
+       "3": 207,
+       "4": 2,
+       "5": 41,
+       "6": 20,
+       "7": 10,
+       "8": 8,
+       "9": 4,
+       "10": 2,
+       "11": 4,
+       "12": 2,
+       "13": 2,
+       "14": 1,
+       "22": 207,
+       "24": 72,
+       "27": 14,
+       "28": 7,
+       "29": 3,
+       "30": 2,
+       "31": 1,
+       "32": 0,
+       "33": 1,
+       "34": 0,
+       "40": 72,
+       "79": 0,
+       "82": 0,
+       "88": 0,
+       "93": 0,
+       "94": 0,
+       "206": 0,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4608686,
+   "player": {
+    "id": 4608686,
+    "defaultPositionId": 2,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 5.8,
+      "stats": {
+       "24": 47,
+       "27": 9,
+       "28": 4,
+       "29": 2,
+       "30": 1,
+       "33": 2,
+       "34": 1,
+       "40": 47,
+       "42": 11,
+       "47": 2,
+       "48": 1,
+       "61": 11,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4432708,
+   "player": {
+    "id": 4432708,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 0,
+      "stats": {
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": -15029,
+   "player": {
+    "id": -15029,
+    "defaultPositionId": 15,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 23.68,
+      "stats": {
+       "3": 287,
+       "4": 3,
+       "5": 57,
+       "6": 28,
+       "7": 14,
+       "8": 11,
+       "9": 5,
+       "10": 2,
+       "11": 4,
+       "12": 2,
+       "13": 2,
+       "14": 1,
+       "22": 287,
+       "24": 2,
+       "27": 0,
+       "28": 0,
+       "29": 0,
+       "30": 0,
+       "31": 0,
+       "32": 0,
+       "33": 0,
+       "34": 0,
+       "40": 2,
+       "79": 0,
+       "82": 0,
+       "88": 0,
+       "93": 0,
+       "94": 0,
+       "206": 0,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4038815,
+   "player": {
+    "id": 4038815,
+    "defaultPositionId": 2,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 4.4,
+      "stats": {
+       "24": 22,
+       "27": 4,
+       "28": 2,
+       "29": 1,
+       "33": 1,
+       "40": 22,
+       "42": 22,
+       "47": 4,
+       "48": 2,
+       "49": 1,
+       "61": 22,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4688813,
+   "player": {
+    "id": 4688813,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 7.2,
+      "stats": {
+       "42": 72,
+       "47": 14,
+       "48": 7,
+       "49": 3,
+       "50": 2,
+       "51": 1,
+       "54": 1,
+       "61": 72,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4683062,
+   "player": {
+    "id": 4683062,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 8.5,
+      "stats": {
+       "42": 25,
+       "43": 1,
+       "47": 5,
+       "48": 2,
+       "49": 1,
+       "50": 1,
+       "54": 1,
+       "61": 25,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4432773,
+   "player": {
+    "id": 4432773,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 4,
+      "stats": {
+       "42": 40,
+       "47": 8,
+       "48": 4,
+       "49": 2,
+       "50": 1,
+       "61": 40,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4429096,
+   "player": {
+    "id": 4429096,
+    "defaultPositionId": 2,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 9.2,
+      "stats": {
+       "24": 79,
+       "27": 15,
+       "28": 7,
+       "29": 3,
+       "30": 3,
+       "31": 1,
+       "33": 2,
+       "34": 1,
+       "40": 79,
+       "42": 13,
+       "47": 2,
+       "48": 1,
+       "61": 13,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": -16025,
+   "player": {
+    "id": -16025,
+    "defaultPositionId": 16,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 10.1,
+      "stats": {
+       "89": 0,
+       "90": 0,
+       "91": 1,
+       "92": 0,
+       "99": 4,
+       "114": 54,
+       "115": 1,
+       "120": 13,
+       "124": 0,
+       "127": 284,
+       "128": 0,
+       "129": 0,
+       "130": 1,
+       "133": 0,
+       "134": 0,
+       "135": 0,
+       "136": 0,
+       "187": 13,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": -16033,
+   "player": {
+    "id": -16033,
+    "defaultPositionId": 16,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 7.16,
+      "stats": {
+       "89": 0,
+       "90": 0,
+       "91": 0,
+       "92": 0,
+       "99": 3,
+       "114": 108,
+       "120": 24,
+       "124": 0,
+       "127": 298,
+       "128": 0,
+       "129": 0,
+       "130": 1,
+       "133": 0,
+       "134": 0,
+       "135": 0,
+       "136": 0,
+       "187": 24,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4574716,
+   "player": {
+    "id": 4574716,
+    "defaultPositionId": 5,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 2,
+      "stats": {
+       "79": 1,
+       "86": 4,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4371733,
+   "player": {
+    "id": 4371733,
+    "defaultPositionId": 2,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 3.06,
+      "stats": {
+       "24": 10,
+       "27": 2,
+       "28": 1,
+       "40": 10,
+       "42": 5,
+       "47": 1,
+       "61": 5,
+       "114": 78,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4832800,
+   "player": {
+    "id": 4832800,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 15.5,
+      "stats": {
+       "42": 95,
+       "43": 1,
+       "47": 19,
+       "48": 9,
+       "49": 4,
+       "50": 3,
+       "51": 1,
+       "54": 1,
+       "61": 95,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4575131,
+   "player": {
+    "id": 4575131,
+    "defaultPositionId": 2,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 4.8,
+      "stats": {
+       "24": 43,
+       "27": 8,
+       "28": 4,
+       "29": 2,
+       "30": 1,
+       "33": 2,
+       "34": 1,
+       "40": 43,
+       "42": 5,
+       "47": 1,
+       "61": 5,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4429205,
+   "player": {
+    "id": 4429205,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 2.1,
+      "stats": {
+       "42": 21,
+       "47": 4,
+       "48": 2,
+       "49": 1,
+       "61": 21,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 3916433,
+   "player": {
+    "id": 3916433,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 2.8,
+      "stats": {
+       "42": 28,
+       "47": 5,
+       "48": 2,
+       "49": 1,
+       "50": 1,
+       "61": 28,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": -15016,
+   "player": {
+    "id": -15016,
+    "defaultPositionId": 15,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 6.32,
+      "stats": {
+       "3": 143,
+       "5": 28,
+       "6": 14,
+       "7": 7,
+       "8": 5,
+       "9": 2,
+       "10": 1,
+       "11": 2,
+       "12": 1,
+       "13": 1,
+       "14": 0,
+       "22": 143,
+       "24": 6,
+       "27": 1,
+       "28": 0,
+       "29": 0,
+       "30": 0,
+       "31": 0,
+       "32": 0,
+       "33": 0,
+       "34": 0,
+       "40": 6,
+       "79": 0,
+       "82": 0,
+       "88": 0,
+       "93": 0,
+       "94": 0,
+       "206": 0,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 3116165,
+   "player": {
+    "id": 3116165,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 5.8,
+      "stats": {
+       "24": 12,
+       "27": 2,
+       "28": 1,
+       "40": 12,
+       "42": 46,
+       "47": 9,
+       "48": 4,
+       "49": 2,
+       "50": 1,
+       "61": 46,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4568490,
+   "player": {
+    "id": 4568490,
+    "defaultPositionId": 2,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 0,
+      "stats": {}
+     }
+    ]
+   }
+  },
+  {
+   "id": 4569559,
+   "player": {
+    "id": 4569559,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 6.4,
+      "stats": {
+       "42": 64,
+       "47": 12,
+       "48": 6,
+       "49": 3,
+       "50": 2,
+       "51": 1,
+       "54": 1,
+       "61": 64,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4360078,
+   "player": {
+    "id": 4360078,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 1.1,
+      "stats": {
+       "42": 11,
+       "47": 2,
+       "48": 1,
+       "61": 11,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4697815,
+   "player": {
+    "id": 4697815,
+    "defaultPositionId": 2,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 8.3,
+      "stats": {
+       "24": 43,
+       "27": 8,
+       "28": 4,
+       "29": 2,
+       "30": 1,
+       "33": 1,
+       "40": 43,
+       "42": 40,
+       "47": 8,
+       "48": 4,
+       "49": 2,
+       "50": 1,
+       "54": 1,
+       "61": 40,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": -15009,
+   "player": {
+    "id": -15009,
+    "defaultPositionId": 15,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 13.8,
+      "stats": {
+       "3": 145,
+       "4": 2,
+       "5": 29,
+       "6": 14,
+       "7": 7,
+       "8": 5,
+       "9": 2,
+       "10": 1,
+       "11": 3,
+       "12": 1,
+       "13": 2,
+       "14": 1,
+       "22": 145,
+       "79": 0,
+       "82": 0,
+       "88": 0,
+       "93": 0,
+       "94": 0,
+       "206": 0,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4373678,
+   "player": {
+    "id": 4373678,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 4.02,
+      "stats": {
+       "42": 38,
+       "47": 7,
+       "48": 3,
+       "49": 1,
+       "50": 1,
+       "61": 38,
+       "114": 11,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 3117256,
+   "player": {
+    "id": 3117256,
+    "defaultPositionId": 4,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 14,
+      "stats": {
+       "42": 140,
+       "47": 28,
+       "48": 14,
+       "49": 7,
+       "50": 5,
+       "51": 2,
+       "52": 1,
+       "54": 2,
+       "55": 1,
+       "61": 140,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4429023,
+   "player": {
+    "id": 4429023,
+    "defaultPositionId": 2,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 6.6,
+      "stats": {
+       "24": 20,
+       "27": 4,
+       "28": 2,
+       "29": 1,
+       "33": 1,
+       "40": 20,
+       "42": 6,
+       "43": 1,
+       "47": 1,
+       "61": 6,
+       "72": 1,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": -16012,
+   "player": {
+    "id": -16012,
+    "defaultPositionId": 16,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 5.5,
+      "stats": {
+       "89": 0,
+       "90": 0,
+       "91": 0,
+       "92": 0,
+       "95": 1,
+       "114": 167,
+       "115": 8,
+       "120": 30,
+       "124": 0,
+       "127": 329,
+       "128": 0,
+       "129": 0,
+       "130": 0,
+       "133": 0,
+       "134": 0,
+       "135": 0,
+       "136": 0,
+       "187": 30,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4361432,
+   "player": {
+    "id": 4361432,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 9.6,
+      "stats": {
+       "42": 96,
+       "47": 19,
+       "48": 9,
+       "49": 4,
+       "50": 3,
+       "51": 1,
+       "61": 96,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4689936,
+   "player": {
+    "id": 4689936,
+    "defaultPositionId": 5,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 7.1,
+      "stats": {
+       "86": 4,
+       "210": 1,
+       "214": 31,
+       "217": 6,
+       "218": 3,
+       "219": 1,
+       "220": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4569587,
+   "player": {
+    "id": 4569587,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 0.9,
+      "stats": {
+       "42": 9,
+       "47": 1,
+       "61": 9,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": -16017,
+   "player": {
+    "id": -16017,
+    "defaultPositionId": 16,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 21.38,
+      "stats": {
+       "89": 0,
+       "90": 1,
+       "91": 0,
+       "92": 0,
+       "94": 1,
+       "95": 1,
+       "96": 1,
+       "99": 4,
+       "104": 1,
+       "114": 29,
+       "115": 40,
+       "120": 3,
+       "124": 0,
+       "127": 235,
+       "128": 0,
+       "129": 0,
+       "130": 1,
+       "133": 0,
+       "134": 0,
+       "135": 0,
+       "136": 0,
+       "187": 3,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4429025,
+   "player": {
+    "id": 4429025,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 1.4,
+      "stats": {
+       "24": 7,
+       "27": 1,
+       "40": 7,
+       "42": 7,
+       "47": 1,
+       "61": 7,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4036133,
+   "player": {
+    "id": 4036133,
+    "defaultPositionId": 4,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 2.9,
+      "stats": {
+       "42": 29,
+       "47": 5,
+       "48": 2,
+       "49": 1,
+       "50": 1,
+       "61": 29,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4678008,
+   "player": {
+    "id": 4678008,
+    "defaultPositionId": 2,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 1.1,
+      "stats": {
+       "24": 16,
+       "27": 3,
+       "28": 1,
+       "33": 1,
+       "40": 16,
+       "42": -5,
+       "61": -5,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4360569,
+   "player": {
+    "id": 4360569,
+    "defaultPositionId": 2,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 0,
+      "stats": {}
+     }
+    ]
+   }
+  },
+  {
+   "id": -15027,
+   "player": {
+    "id": -15027,
+    "defaultPositionId": 15,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 12.18,
+      "stats": {
+       "3": 182,
+       "4": 1,
+       "5": 36,
+       "6": 18,
+       "7": 9,
+       "8": 7,
+       "9": 3,
+       "10": 1,
+       "11": 4,
+       "12": 2,
+       "13": 2,
+       "14": 1,
+       "20": 1,
+       "22": 182,
+       "24": 29,
+       "27": 5,
+       "28": 2,
+       "29": 1,
+       "30": 1,
+       "31": 0,
+       "32": 0,
+       "33": 0,
+       "34": 0,
+       "40": 29,
+       "79": 0,
+       "82": 0,
+       "88": 0,
+       "93": 0,
+       "94": 0,
+       "206": 0,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4870653,
+   "player": {
+    "id": 4870653,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 2.2,
+      "stats": {
+       "24": -6,
+       "40": -6,
+       "42": 28,
+       "47": 5,
+       "48": 2,
+       "49": 1,
+       "50": 1,
+       "54": 1,
+       "61": 28,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 3929645,
+   "player": {
+    "id": 3929645,
+    "defaultPositionId": 4,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 6.6,
+      "stats": {
+       "42": 66,
+       "47": 13,
+       "48": 6,
+       "49": 3,
+       "50": 2,
+       "51": 1,
+       "61": 66,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": -15026,
+   "player": {
+    "id": -15026,
+    "defaultPositionId": 15,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 21.4,
+      "stats": {
+       "3": 235,
+       "4": 3,
+       "5": 47,
+       "6": 23,
+       "7": 11,
+       "8": 9,
+       "9": 4,
+       "10": 2,
+       "11": 3,
+       "12": 1,
+       "13": 1,
+       "14": 0,
+       "22": 235,
+       "79": 0,
+       "82": 0,
+       "88": 0,
+       "93": 0,
+       "94": 0,
+       "206": 0,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4697745,
+   "player": {
+    "id": 4697745,
+    "defaultPositionId": 5,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 4.9,
+      "stats": {
+       "79": 1,
+       "86": 2,
+       "210": 1,
+       "214": 49,
+       "217": 9,
+       "218": 4,
+       "219": 2,
+       "220": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": -15019,
+   "player": {
+    "id": -15019,
+    "defaultPositionId": 15,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 3.34,
+      "stats": {
+       "3": 131,
+       "5": 26,
+       "6": 13,
+       "7": 6,
+       "8": 5,
+       "9": 2,
+       "10": 1,
+       "11": 2,
+       "12": 1,
+       "13": 3,
+       "14": 1,
+       "20": 1,
+       "22": 131,
+       "24": 1,
+       "27": 0,
+       "28": 0,
+       "29": 0,
+       "30": 0,
+       "31": 0,
+       "32": 0,
+       "33": 0,
+       "34": 0,
+       "40": 1,
+       "79": 0,
+       "82": 0,
+       "88": 0,
+       "93": 0,
+       "94": 0,
+       "206": 0,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4870795,
+   "player": {
+    "id": 4870795,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 0.9,
+      "stats": {
+       "24": -5,
+       "40": -5,
+       "42": 14,
+       "47": 2,
+       "48": 1,
+       "61": 14,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 3054850,
+   "player": {
+    "id": 3054850,
+    "defaultPositionId": 2,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 2.2,
+      "stats": {
+       "24": 15,
+       "27": 3,
+       "28": 1,
+       "33": 1,
+       "40": 15,
+       "42": 7,
+       "47": 1,
+       "54": 1,
+       "61": 7,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4429059,
+   "player": {
+    "id": 4429059,
+    "defaultPositionId": 2,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 4.3,
+      "stats": {
+       "24": 8,
+       "27": 1,
+       "33": 1,
+       "40": 8,
+       "42": 27,
+       "47": 5,
+       "48": 2,
+       "49": 1,
+       "50": 1,
+       "54": 1,
+       "61": 27,
+       "114": 40,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4362249,
+   "player": {
+    "id": 4362249,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 0.4,
+      "stats": {
+       "42": 4,
+       "61": 4,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 3046439,
+   "player": {
+    "id": 3046439,
+    "defaultPositionId": 4,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 4,
+      "stats": {
+       "42": 40,
+       "47": 8,
+       "48": 4,
+       "49": 2,
+       "50": 1,
+       "61": 40,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4426385,
+   "player": {
+    "id": 4426385,
+    "defaultPositionId": 2,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 0,
+      "stats": {}
+     }
+    ]
+   }
+  },
+  {
+   "id": 4428850,
+   "player": {
+    "id": 4428850,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 7.4,
+      "stats": {
+       "42": 74,
+       "47": 14,
+       "48": 7,
+       "49": 3,
+       "50": 2,
+       "51": 1,
+       "54": 1,
+       "61": 74,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": -16008,
+   "player": {
+    "id": -16008,
+    "defaultPositionId": 16,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 1.14,
+      "stats": {
+       "89": 0,
+       "90": 0,
+       "91": 0,
+       "92": 0,
+       "99": 2,
+       "114": 157,
+       "120": 41,
+       "124": 1,
+       "127": 446,
+       "128": 0,
+       "129": 0,
+       "130": 0,
+       "133": 1,
+       "134": 0,
+       "135": 0,
+       "136": 0,
+       "187": 41,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": -16029,
+   "player": {
+    "id": -16029,
+    "defaultPositionId": 16,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 26.04,
+      "stats": {
+       "89": 0,
+       "90": 1,
+       "91": 0,
+       "92": 0,
+       "94": 1,
+       "95": 3,
+       "96": 2,
+       "99": 2,
+       "103": 1,
+       "114": 53,
+       "115": 49,
+       "120": 3,
+       "124": 0,
+       "127": 286,
+       "128": 0,
+       "129": 0,
+       "130": 1,
+       "133": 0,
+       "134": 0,
+       "135": 0,
+       "136": 0,
+       "187": 3,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": -16016,
+   "player": {
+    "id": -16016,
+    "defaultPositionId": 16,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 17.06,
+      "stats": {
+       "89": 0,
+       "90": 1,
+       "91": 0,
+       "92": 0,
+       "95": 1,
+       "96": 1,
+       "97": 1,
+       "99": 4,
+       "114": 42,
+       "115": 11,
+       "120": 3,
+       "124": 0,
+       "127": 297,
+       "128": 0,
+       "129": 0,
+       "130": 1,
+       "133": 0,
+       "134": 0,
+       "135": 0,
+       "136": 0,
+       "187": 3,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4428557,
+   "player": {
+    "id": 4428557,
+    "defaultPositionId": 2,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 7,
+      "stats": {
+       "24": 41,
+       "27": 8,
+       "28": 4,
+       "29": 2,
+       "30": 1,
+       "33": 1,
+       "40": 41,
+       "42": 29,
+       "47": 5,
+       "48": 2,
+       "49": 1,
+       "50": 1,
+       "61": 29,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": -15034,
+   "player": {
+    "id": -15034,
+    "defaultPositionId": 15,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 17.02,
+      "stats": {
+       "3": 353,
+       "5": 70,
+       "6": 35,
+       "7": 17,
+       "8": 14,
+       "9": 7,
+       "10": 3,
+       "11": 6,
+       "12": 3,
+       "13": 5,
+       "14": 2,
+       "22": 353,
+       "24": 29,
+       "27": 5,
+       "28": 2,
+       "29": 1,
+       "30": 1,
+       "31": 0,
+       "32": 0,
+       "33": 0,
+       "34": 0,
+       "40": 29,
+       "79": 0,
+       "82": 0,
+       "88": 0,
+       "93": 0,
+       "94": 0,
+       "206": 0,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4685415,
+   "player": {
+    "id": 4685415,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 0,
+      "stats": {
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4696044,
+   "player": {
+    "id": 4696044,
+    "defaultPositionId": 2,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 2.5,
+      "stats": {
+       "24": 25,
+       "27": 5,
+       "28": 2,
+       "29": 1,
+       "30": 1,
+       "33": 1,
+       "40": 25,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4360234,
+   "player": {
+    "id": 4360234,
+    "defaultPositionId": 5,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 12.8,
+      "stats": {
+       "86": 2,
+       "210": 1,
+       "214": 108,
+       "217": 21,
+       "218": 10,
+       "219": 5,
+       "220": 4,
+       "221": 2,
+       "222": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4428718,
+   "player": {
+    "id": 4428718,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 17.9,
+      "stats": {
+       "42": 119,
+       "43": 1,
+       "47": 23,
+       "48": 11,
+       "49": 5,
+       "50": 4,
+       "51": 2,
+       "52": 1,
+       "54": 1,
+       "61": 119,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4032473,
+   "player": {
+    "id": 4032473,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 5.42,
+      "stats": {
+       "24": 4,
+       "40": 4,
+       "42": 35,
+       "47": 7,
+       "48": 3,
+       "49": 1,
+       "50": 1,
+       "61": 35,
+       "114": 47,
+       "115": 29,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": -15011,
+   "player": {
+    "id": -15011,
+    "defaultPositionId": 15,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 11.4,
+      "stats": {
+       "3": 210,
+       "4": 1,
+       "5": 42,
+       "6": 21,
+       "7": 10,
+       "8": 8,
+       "9": 4,
+       "10": 2,
+       "11": 4,
+       "12": 2,
+       "13": 1,
+       "14": 0,
+       "20": 1,
+       "22": 210,
+       "24": 10,
+       "27": 2,
+       "28": 1,
+       "29": 0,
+       "30": 0,
+       "31": 0,
+       "32": 0,
+       "33": 0,
+       "34": 0,
+       "40": 10,
+       "79": 0,
+       "82": 0,
+       "88": 0,
+       "93": 0,
+       "94": 0,
+       "206": 0,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": -16004,
+   "player": {
+    "id": -16004,
+    "defaultPositionId": 16,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 10.18,
+      "stats": {
+       "89": 0,
+       "90": 1,
+       "91": 0,
+       "92": 0,
+       "99": 4,
+       "114": 90,
+       "115": 19,
+       "120": 6,
+       "124": 0,
+       "127": 374,
+       "128": 0,
+       "129": 0,
+       "130": 0,
+       "133": 0,
+       "134": 0,
+       "135": 0,
+       "136": 0,
+       "187": 6,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4360939,
+   "player": {
+    "id": 4360939,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 14.8,
+      "stats": {
+       "42": 88,
+       "43": 1,
+       "47": 17,
+       "48": 8,
+       "49": 4,
+       "50": 3,
+       "51": 1,
+       "54": 1,
+       "61": 88,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4887558,
+   "player": {
+    "id": 4887558,
+    "defaultPositionId": 2,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 9.2,
+      "stats": {
+       "24": 92,
+       "27": 18,
+       "28": 9,
+       "29": 4,
+       "30": 3,
+       "31": 1,
+       "33": 4,
+       "34": 2,
+       "40": 92,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 5083315,
+   "player": {
+    "id": 5083315,
+    "defaultPositionId": 4,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 1.7,
+      "stats": {
+       "42": 17,
+       "47": 3,
+       "48": 1,
+       "61": 17,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4570037,
+   "player": {
+    "id": 4570037,
+    "defaultPositionId": 4,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 11.4,
+      "stats": {
+       "42": 54,
+       "43": 1,
+       "47": 10,
+       "48": 5,
+       "49": 2,
+       "50": 2,
+       "51": 1,
+       "54": 1,
+       "61": 54,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4597500,
+   "player": {
+    "id": 4597500,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 6.3,
+      "stats": {
+       "42": 63,
+       "47": 12,
+       "48": 6,
+       "49": 3,
+       "50": 2,
+       "51": 1,
+       "54": 1,
+       "61": 63,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4880281,
+   "player": {
+    "id": 4880281,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 0,
+      "stats": {}
+     }
+    ]
+   }
+  },
+  {
+   "id": 4373626,
+   "player": {
+    "id": 4373626,
+    "defaultPositionId": 2,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 1.9,
+      "stats": {
+       "24": 10,
+       "27": 2,
+       "28": 1,
+       "33": 1,
+       "40": 10,
+       "42": 9,
+       "47": 1,
+       "61": 9,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": -16005,
+   "player": {
+    "id": -16005,
+    "defaultPositionId": 16,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 7.86,
+      "stats": {
+       "89": 0,
+       "90": 0,
+       "91": 0,
+       "92": 0,
+       "95": 1,
+       "99": 3,
+       "114": 143,
+       "120": 19,
+       "124": 0,
+       "127": 313,
+       "128": 0,
+       "129": 0,
+       "130": 0,
+       "133": 0,
+       "134": 0,
+       "135": 0,
+       "136": 0,
+       "187": 19,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4710714,
+   "player": {
+    "id": 4710714,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 0,
+      "stats": {}
+     }
+    ]
+   }
+  },
+  {
+   "id": 4702555,
+   "player": {
+    "id": 4702555,
+    "defaultPositionId": 2,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 11.8,
+      "stats": {
+       "24": 39,
+       "25": 1,
+       "27": 7,
+       "28": 3,
+       "29": 1,
+       "30": 1,
+       "33": 2,
+       "34": 1,
+       "40": 39,
+       "42": 19,
+       "47": 3,
+       "48": 1,
+       "61": 19,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 17372,
+   "player": {
+    "id": 17372,
+    "defaultPositionId": 5,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 5.6,
+      "stats": {
+       "210": 1,
+       "214": 56,
+       "217": 11,
+       "218": 5,
+       "219": 2,
+       "220": 2,
+       "221": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 17427,
+   "player": {
+    "id": 17427,
+    "defaultPositionId": 5,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 2,
+      "stats": {
+       "82": 1,
+       "210": 1,
+       "214": 50,
+       "217": 10,
+       "218": 5,
+       "219": 2,
+       "220": 2,
+       "221": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4869461,
+   "player": {
+    "id": 4869461,
+    "defaultPositionId": 5,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 8,
+      "stats": {
+       "86": 2,
+       "210": 1,
+       "214": 60,
+       "217": 12,
+       "218": 6,
+       "219": 3,
+       "220": 2,
+       "221": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4366031,
+   "player": {
+    "id": 4366031,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 0,
+      "stats": {}
+     }
+    ]
+   }
+  },
+  {
+   "id": 4567104,
+   "player": {
+    "id": 4567104,
+    "defaultPositionId": 5,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 12.3,
+      "stats": {
+       "210": 1,
+       "214": 123,
+       "217": 24,
+       "218": 12,
+       "219": 6,
+       "220": 4,
+       "221": 2,
+       "222": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 3150744,
+   "player": {
+    "id": 3150744,
+    "defaultPositionId": 5,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 17.6,
+      "stats": {
+       "86": 1,
+       "210": 1,
+       "214": 166,
+       "217": 33,
+       "218": 16,
+       "219": 8,
+       "220": 6,
+       "221": 3,
+       "222": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": -16030,
+   "player": {
+    "id": -16030,
+    "defaultPositionId": 16,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 4.32,
+      "stats": {
+       "89": 0,
+       "90": 0,
+       "91": 0,
+       "92": 0,
+       "95": 1,
+       "114": 104,
+       "115": 12,
+       "120": 20,
+       "124": 0,
+       "127": 392,
+       "128": 0,
+       "129": 0,
+       "130": 0,
+       "133": 0,
+       "134": 0,
+       "135": 0,
+       "136": 0,
+       "187": 20,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": -16027,
+   "player": {
+    "id": -16027,
+    "defaultPositionId": 16,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 7.38,
+      "stats": {
+       "89": 0,
+       "90": 0,
+       "91": 0,
+       "92": 0,
+       "99": 2,
+       "114": 155,
+       "115": 14,
+       "120": 23,
+       "124": 0,
+       "127": 267,
+       "128": 0,
+       "129": 0,
+       "130": 1,
+       "133": 0,
+       "134": 0,
+       "135": 0,
+       "136": 0,
+       "187": 23,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4361529,
+   "player": {
+    "id": 4361529,
+    "defaultPositionId": 2,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 0,
+      "stats": {}
+     }
+    ]
+   }
+  },
+  {
+   "id": 4869645,
+   "player": {
+    "id": 4869645,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 1.9,
+      "stats": {
+       "42": 19,
+       "47": 3,
+       "48": 1,
+       "61": 19,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 15818,
+   "player": {
+    "id": 15818,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 0.5,
+      "stats": {
+       "42": 5,
+       "47": 1,
+       "61": 5,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4832955,
+   "player": {
+    "id": 4832955,
+    "defaultPositionId": 2,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 4.18,
+      "stats": {
+       "24": 15,
+       "27": 3,
+       "28": 1,
+       "40": 15,
+       "42": 20,
+       "47": 4,
+       "48": 2,
+       "49": 1,
+       "61": 20,
+       "114": 34,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": -15013,
+   "player": {
+    "id": -15013,
+    "defaultPositionId": 15,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 20.22,
+      "stats": {
+       "3": 253,
+       "4": 3,
+       "5": 50,
+       "6": 25,
+       "7": 12,
+       "8": 10,
+       "9": 5,
+       "10": 2,
+       "11": 3,
+       "12": 1,
+       "13": 2,
+       "14": 1,
+       "20": 1,
+       "22": 253,
+       "24": 1,
+       "27": 0,
+       "28": 0,
+       "29": 0,
+       "30": 0,
+       "31": 0,
+       "32": 0,
+       "33": 0,
+       "34": 0,
+       "40": 1,
+       "79": 0,
+       "82": 0,
+       "88": 0,
+       "93": 0,
+       "94": 0,
+       "206": 0,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4429013,
+   "player": {
+    "id": 4429013,
+    "defaultPositionId": 2,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 9.8,
+      "stats": {
+       "24": 33,
+       "25": 1,
+       "27": 6,
+       "28": 3,
+       "29": 1,
+       "30": 1,
+       "33": 2,
+       "34": 1,
+       "40": 33,
+       "42": 5,
+       "47": 1,
+       "61": 5,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4686658,
+   "player": {
+    "id": 4686658,
+    "defaultPositionId": 2,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 0.7,
+      "stats": {
+       "24": 7,
+       "27": 1,
+       "40": 7,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4241474,
+   "player": {
+    "id": 4241474,
+    "defaultPositionId": 2,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 6.7,
+      "stats": {
+       "24": 51,
+       "27": 10,
+       "28": 5,
+       "29": 2,
+       "30": 2,
+       "31": 1,
+       "33": 2,
+       "34": 1,
+       "40": 51,
+       "42": 16,
+       "47": 3,
+       "48": 1,
+       "61": 16,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4361411,
+   "player": {
+    "id": 4361411,
+    "defaultPositionId": 4,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 3.4,
+      "stats": {
+       "24": 2,
+       "40": 2,
+       "42": 32,
+       "47": 6,
+       "48": 3,
+       "49": 1,
+       "50": 1,
+       "61": 32,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4430834,
+   "player": {
+    "id": 4430834,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 0,
+      "stats": {
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": -16024,
+   "player": {
+    "id": -16024,
+    "defaultPositionId": 16,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 5.46,
+      "stats": {
+       "89": 0,
+       "90": 0,
+       "91": 0,
+       "92": 0,
+       "95": 1,
+       "99": 2,
+       "114": 73,
+       "120": 24,
+       "124": 0,
+       "127": 305,
+       "128": 0,
+       "129": 0,
+       "130": 0,
+       "133": 0,
+       "134": 0,
+       "135": 0,
+       "136": 0,
+       "187": 24,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4362619,
+   "player": {
+    "id": 4362619,
+    "defaultPositionId": 2,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 1.3,
+      "stats": {
+       "24": 13,
+       "27": 2,
+       "28": 1,
+       "33": 1,
+       "40": 13,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": -16009,
+   "player": {
+    "id": -16009,
+    "defaultPositionId": 16,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 11.16,
+      "stats": {
+       "89": 0,
+       "90": 0,
+       "91": 0,
+       "92": 1,
+       "99": 4,
+       "114": 116,
+       "115": 92,
+       "120": 17,
+       "124": 0,
+       "127": 285,
+       "128": 0,
+       "129": 0,
+       "130": 1,
+       "133": 0,
+       "134": 0,
+       "135": 0,
+       "136": 0,
+       "187": 17,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4430539,
+   "player": {
+    "id": 4430539,
+    "defaultPositionId": 4,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 1.7,
+      "stats": {
+       "42": 17,
+       "47": 3,
+       "48": 1,
+       "61": 17,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4241463,
+   "player": {
+    "id": 4241463,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 0,
+      "stats": {
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4429086,
+   "player": {
+    "id": 4429086,
+    "defaultPositionId": 4,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 2.3,
+      "stats": {
+       "42": 23,
+       "47": 4,
+       "48": 2,
+       "49": 1,
+       "61": 23,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4596334,
+   "player": {
+    "id": 4596334,
+    "defaultPositionId": 2,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 4.84,
+      "stats": {
+       "24": 24,
+       "27": 4,
+       "28": 2,
+       "29": 1,
+       "33": 1,
+       "40": 24,
+       "42": 15,
+       "47": 3,
+       "48": 1,
+       "61": 15,
+       "114": 47,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": -15015,
+   "player": {
+    "id": -15015,
+    "defaultPositionId": 15,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 12.48,
+      "stats": {
+       "3": 197,
+       "4": 1,
+       "5": 39,
+       "6": 19,
+       "7": 9,
+       "8": 7,
+       "9": 3,
+       "10": 1,
+       "11": 2,
+       "12": 1,
+       "13": 1,
+       "14": 0,
+       "22": 197,
+       "24": 6,
+       "27": 1,
+       "28": 0,
+       "29": 0,
+       "30": 0,
+       "31": 0,
+       "32": 0,
+       "33": 0,
+       "34": 0,
+       "40": 6,
+       "79": 0,
+       "82": 0,
+       "88": 0,
+       "93": 0,
+       "94": 0,
+       "206": 0,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4595342,
+   "player": {
+    "id": 4595342,
+    "defaultPositionId": 4,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 7.8,
+      "stats": {
+       "42": 18,
+       "43": 1,
+       "47": 3,
+       "48": 1,
+       "61": 18,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 3925357,
+   "player": {
+    "id": 3925357,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 3.5,
+      "stats": {
+       "42": 35,
+       "47": 7,
+       "48": 3,
+       "49": 1,
+       "50": 1,
+       "61": 35,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": -16019,
+   "player": {
+    "id": -16019,
+    "defaultPositionId": 16,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 3.1,
+      "stats": {
+       "89": 0,
+       "90": 0,
+       "91": 0,
+       "92": 0,
+       "95": 1,
+       "96": 1,
+       "99": 1,
+       "114": 105,
+       "120": 28,
+       "124": 0,
+       "127": 481,
+       "128": 0,
+       "129": 0,
+       "130": 0,
+       "133": 0,
+       "134": 1,
+       "135": 0,
+       "136": 0,
+       "187": 28,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4685247,
+   "player": {
+    "id": 4685247,
+    "defaultPositionId": 2,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 7.5,
+      "stats": {
+       "24": 7,
+       "25": 1,
+       "27": 1,
+       "33": 1,
+       "40": 7,
+       "42": 8,
+       "47": 1,
+       "61": 8,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 3149687,
+   "player": {
+    "id": 3149687,
+    "defaultPositionId": 2,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 2.6,
+      "stats": {
+       "24": 11,
+       "27": 2,
+       "28": 1,
+       "40": 11,
+       "42": 15,
+       "47": 3,
+       "48": 1,
+       "61": 15,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4038441,
+   "player": {
+    "id": 4038441,
+    "defaultPositionId": 2,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 1.8,
+      "stats": {
+       "24": 6,
+       "27": 1,
+       "40": 6,
+       "42": 12,
+       "47": 2,
+       "48": 1,
+       "61": 12,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4569603,
+   "player": {
+    "id": 4569603,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 6.22,
+      "stats": {
+       "24": 4,
+       "40": 4,
+       "42": 43,
+       "47": 8,
+       "48": 4,
+       "49": 2,
+       "50": 1,
+       "61": 43,
+       "114": 69,
+       "115": 7,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4429022,
+   "player": {
+    "id": 4429022,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 3.7,
+      "stats": {
+       "42": 37,
+       "47": 7,
+       "48": 3,
+       "49": 1,
+       "50": 1,
+       "61": 37,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 3917232,
+   "player": {
+    "id": 3917232,
+    "defaultPositionId": 5,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 4,
+      "stats": {
+       "86": 5,
+       "88": 1,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": -15023,
+   "player": {
+    "id": -15023,
+    "defaultPositionId": 15,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 4.28,
+      "stats": {
+       "3": 187,
+       "5": 37,
+       "6": 18,
+       "7": 9,
+       "8": 7,
+       "9": 3,
+       "10": 1,
+       "11": 4,
+       "12": 2,
+       "13": 3,
+       "14": 1,
+       "20": 1,
+       "22": 187,
+       "24": 8,
+       "27": 1,
+       "28": 0,
+       "29": 0,
+       "30": 0,
+       "31": 0,
+       "32": 0,
+       "33": 0,
+       "34": 0,
+       "40": 8,
+       "72": 1,
+       "79": 0,
+       "82": 0,
+       "88": 0,
+       "93": 0,
+       "94": 0,
+       "206": 0,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 5081397,
+   "player": {
+    "id": 5081397,
+    "defaultPositionId": 2,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 0,
+      "stats": {}
+     }
+    ]
+   }
+  },
+  {
+   "id": 2977187,
+   "player": {
+    "id": 2977187,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 2,
+      "stats": {
+       "42": 20,
+       "47": 4,
+       "48": 2,
+       "49": 1,
+       "61": 20,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 2576925,
+   "player": {
+    "id": 2576925,
+    "defaultPositionId": 4,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 15.3,
+      "stats": {
+       "42": 33,
+       "43": 2,
+       "47": 6,
+       "48": 3,
+       "49": 1,
+       "50": 1,
+       "61": 33,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": -15020,
+   "player": {
+    "id": -15020,
+    "defaultPositionId": 15,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 15.58,
+      "stats": {
+       "3": 247,
+       "4": 1,
+       "5": 49,
+       "6": 24,
+       "7": 12,
+       "8": 9,
+       "9": 4,
+       "10": 2,
+       "11": 5,
+       "12": 2,
+       "13": 2,
+       "14": 1,
+       "22": 247,
+       "24": 17,
+       "27": 3,
+       "28": 1,
+       "29": 0,
+       "30": 0,
+       "31": 0,
+       "32": 0,
+       "33": 1,
+       "34": 0,
+       "40": 17,
+       "79": 0,
+       "82": 0,
+       "88": 0,
+       "93": 0,
+       "94": 0,
+       "206": 0,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 2973405,
+   "player": {
+    "id": 2973405,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 4.6,
+      "stats": {
+       "42": 40,
+       "47": 8,
+       "48": 4,
+       "49": 2,
+       "50": 1,
+       "54": 1,
+       "61": 40,
+       "115": 30,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4682648,
+   "player": {
+    "id": 4682648,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 3,
+      "stats": {
+       "42": 30,
+       "47": 6,
+       "48": 3,
+       "49": 1,
+       "50": 1,
+       "61": 30,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4870847,
+   "player": {
+    "id": 4870847,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 0,
+      "stats": {}
+     }
+    ]
+   }
+  },
+  {
+   "id": -15022,
+   "player": {
+    "id": -15022,
+    "defaultPositionId": 15,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 6.5,
+      "stats": {
+       "3": 95,
+       "4": 1,
+       "5": 19,
+       "6": 9,
+       "7": 4,
+       "8": 3,
+       "9": 1,
+       "10": 0,
+       "11": 3,
+       "12": 1,
+       "13": 2,
+       "14": 1,
+       "20": 1,
+       "22": 95,
+       "24": 7,
+       "27": 1,
+       "28": 0,
+       "29": 0,
+       "30": 0,
+       "31": 0,
+       "32": 0,
+       "33": 0,
+       "34": 0,
+       "40": 7,
+       "79": 0,
+       "82": 0,
+       "88": 0,
+       "93": 0,
+       "94": 0,
+       "206": 0,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": -15005,
+   "player": {
+    "id": -15005,
+    "defaultPositionId": 15,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 19.72,
+      "stats": {
+       "3": 238,
+       "4": 2,
+       "5": 47,
+       "6": 23,
+       "7": 11,
+       "8": 9,
+       "9": 4,
+       "10": 2,
+       "11": 4,
+       "12": 2,
+       "13": 1,
+       "14": 0,
+       "22": 238,
+       "24": 22,
+       "27": 4,
+       "28": 2,
+       "29": 1,
+       "30": 0,
+       "31": 0,
+       "32": 0,
+       "33": 1,
+       "34": 0,
+       "40": 22,
+       "79": 0,
+       "82": 0,
+       "88": 0,
+       "93": 0,
+       "94": 0,
+       "206": 0,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4040761,
+   "player": {
+    "id": 4040761,
+    "defaultPositionId": 2,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 0.9,
+      "stats": {
+       "24": 9,
+       "27": 1,
+       "40": 9,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 3116389,
+   "player": {
+    "id": 3116389,
+    "defaultPositionId": 2,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 2.2,
+      "stats": {
+       "24": 6,
+       "27": 1,
+       "40": 6,
+       "42": 16,
+       "47": 3,
+       "48": 1,
+       "61": 16,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 3116164,
+   "player": {
+    "id": 3116164,
+    "defaultPositionId": 4,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 0,
+      "stats": {
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 5081432,
+   "player": {
+    "id": 5081432,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 2.4,
+      "stats": {
+       "42": 24,
+       "47": 4,
+       "48": 2,
+       "49": 1,
+       "61": 24,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": -16002,
+   "player": {
+    "id": -16002,
+    "defaultPositionId": 16,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 6.58,
+      "stats": {
+       "89": 0,
+       "90": 0,
+       "91": 0,
+       "92": 0,
+       "99": 4,
+       "114": 93,
+       "115": 36,
+       "120": 31,
+       "124": 0,
+       "127": 355,
+       "128": 0,
+       "129": 0,
+       "130": 0,
+       "133": 0,
+       "134": 0,
+       "135": 0,
+       "136": 0,
+       "187": 31,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4819231,
+   "player": {
+    "id": 4819231,
+    "defaultPositionId": 2,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 3.2,
+      "stats": {
+       "24": 32,
+       "27": 6,
+       "28": 3,
+       "29": 1,
+       "30": 1,
+       "33": 1,
+       "40": 32,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 3050478,
+   "player": {
+    "id": 3050478,
+    "defaultPositionId": 5,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 8.8,
+      "stats": {
+       "86": 3,
+       "210": 1,
+       "214": 58,
+       "217": 11,
+       "218": 5,
+       "219": 2,
+       "220": 2,
+       "221": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4382466,
+   "player": {
+    "id": 4382466,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 0.9,
+      "stats": {
+       "42": 9,
+       "47": 1,
+       "61": 9,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": -16003,
+   "player": {
+    "id": -16003,
+    "defaultPositionId": 16,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 9.96,
+      "stats": {
+       "89": 0,
+       "90": 0,
+       "91": 1,
+       "92": 0,
+       "99": 3,
+       "114": 68,
+       "115": 30,
+       "120": 9,
+       "124": 0,
+       "127": 246,
+       "128": 0,
+       "129": 0,
+       "130": 1,
+       "133": 0,
+       "134": 0,
+       "135": 0,
+       "136": 0,
+       "187": 9,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": -15010,
+   "player": {
+    "id": -15010,
+    "defaultPositionId": 15,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 20.02,
+      "stats": {
+       "3": 183,
+       "5": 36,
+       "6": 18,
+       "7": 9,
+       "8": 7,
+       "9": 3,
+       "10": 1,
+       "11": 2,
+       "12": 1,
+       "13": 1,
+       "14": 0,
+       "22": 183,
+       "24": 7,
+       "25": 2,
+       "27": 1,
+       "28": 0,
+       "29": 0,
+       "30": 0,
+       "31": 0,
+       "32": 0,
+       "33": 0,
+       "34": 0,
+       "40": 7,
+       "79": 0,
+       "82": 0,
+       "88": 0,
+       "93": 0,
+       "94": 0,
+       "206": 0,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": -15001,
+   "player": {
+    "id": -15001,
+    "defaultPositionId": 15,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": -0.6,
+      "stats": {
+       "3": 145,
+       "5": 29,
+       "6": 14,
+       "7": 7,
+       "8": 5,
+       "9": 2,
+       "10": 1,
+       "11": 3,
+       "12": 1,
+       "13": 2,
+       "14": 1,
+       "20": 3,
+       "22": 145,
+       "24": 36,
+       "27": 7,
+       "28": 3,
+       "29": 1,
+       "30": 1,
+       "31": 0,
+       "32": 0,
+       "33": 0,
+       "34": 0,
+       "40": 36,
+       "72": 2,
+       "79": 0,
+       "82": 0,
+       "88": 0,
+       "93": 0,
+       "94": 0,
+       "206": 0,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4686422,
+   "player": {
+    "id": 4686422,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 3.7,
+      "stats": {
+       "42": 37,
+       "47": 7,
+       "48": 3,
+       "49": 1,
+       "50": 1,
+       "61": 37,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": -16006,
+   "player": {
+    "id": -16006,
+    "defaultPositionId": 16,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 4.62,
+      "stats": {
+       "89": 0,
+       "90": 0,
+       "91": 0,
+       "92": 0,
+       "96": 1,
+       "114": 122,
+       "115": 9,
+       "120": 20,
+       "124": 0,
+       "127": 389,
+       "128": 0,
+       "129": 0,
+       "130": 0,
+       "133": 0,
+       "134": 0,
+       "135": 0,
+       "136": 0,
+       "187": 20,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4571557,
+   "player": {
+    "id": 4571557,
+    "defaultPositionId": 5,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 15.9,
+      "stats": {
+       "86": 3,
+       "210": 1,
+       "214": 129,
+       "217": 25,
+       "218": 12,
+       "219": 6,
+       "220": 5,
+       "221": 2,
+       "222": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4429501,
+   "player": {
+    "id": 4429501,
+    "defaultPositionId": 2,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 0.62,
+      "stats": {
+       "114": 31,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": -16018,
+   "player": {
+    "id": -16018,
+    "defaultPositionId": 16,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 10.08,
+      "stats": {
+       "89": 0,
+       "90": 0,
+       "91": 0,
+       "92": 1,
+       "95": 1,
+       "97": 1,
+       "99": 3,
+       "114": 91,
+       "115": 13,
+       "120": 17,
+       "124": 0,
+       "127": 312,
+       "128": 0,
+       "129": 0,
+       "130": 0,
+       "133": 0,
+       "134": 0,
+       "135": 0,
+       "136": 0,
+       "187": 17,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4241457,
+   "player": {
+    "id": 4241457,
+    "defaultPositionId": 2,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 0.6,
+      "stats": {
+       "24": 6,
+       "27": 1,
+       "40": 6,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4635008,
+   "player": {
+    "id": 4635008,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 6.3,
+      "stats": {
+       "42": 63,
+       "47": 12,
+       "48": 6,
+       "49": 3,
+       "50": 2,
+       "51": 1,
+       "54": 1,
+       "61": 63,
+       "210": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4586312,
+   "player": {
+    "id": 4586312,
+    "defaultPositionId": 3,
+    "stats": [
+     {
+      "seasonId": 2026,
+      "scoringPeriodId": 2,
+      "statSourceId": 0,
+      "statSplitTypeId": 1,
+      "appliedTotal": 5.66,
+      "stats": {
+       "24": 13,
+       "27": 2,
+       "28": 1,
+       "40": 13,
+       "42": 31,
+       "47": 6,
+       "48": 3,
+       "49": 1,
+       "50": 1,
+       "61": 31,
+       "114": 31,
+       "115": 32,
+       "210": 1
+      }
+     }
+    ]
+   }
+  }
+ ]
+}

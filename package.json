@@ -6,7 +6,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev -H 127.0.0.1",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
@@ -16,6 +16,7 @@
     "check-env": "tsx scripts/check-env.ts",
     "gen:secret": "tsx scripts/gen-session-secret.ts",
     "check:leaks": "tsx scripts/check-leaks.ts",
+    "check:sleeper-cors": "tsx scripts/check-sleeper-cors.ts",
     "probe:espn": "tsx scripts/probe-espn.ts",
     "probe:sleeper": "tsx scripts/probe-sleeper.ts",
     "probe:sleeper-codes": "tsx scripts/probe-sleeper-codes.ts",
@@ -24,7 +25,16 @@
     "probe:mfl": "tsx scripts/probe-mfl.ts",
     "probe:yahoo": "tsx scripts/probe-yahoo.ts",
     "probe:fantrax": "tsx scripts/probe-fantrax.ts",
-    "probe:all": "tsx scripts/probe-all.ts"
+    "probe:all": "tsx scripts/probe-all.ts",
+    "import:report": "tsx scripts/import-report.ts",
+    "oracle:report": "tsx scripts/oracle-report.ts",
+    "measure:stat-sd": "tsx scripts/measure-stat-sd.ts",
+    "gen:espn-constants": "tsx scripts/gen-espn-constants.ts",
+    "minimize:espn": "tsx scripts/minimize/espn-public-league.ts && tsx scripts/minimize/espn-sleeper-stats.ts",
+    "minimize:sleeper": "tsx scripts/minimize/sleeper.ts && tsx scripts/minimize/sleeper-flags.ts",
+    "minimize:mfl": "tsx scripts/minimize/mfl-oracle.ts",
+    "minimize:fleaflicker": "tsx scripts/minimize/fleaflicker-oracle.ts",
+    "prepare": "git config core.hooksPath .githooks || exit 0"
   },
   "dependencies": {
     "csv-parse": "^7.0.3",

@@ -1,13 +1,15 @@
 /**
  * Keep fixtures/sanitized/shared/ in step with what the probe produces: drop fixtures whose label
- * is no longer expected (and their index entries), files without an index entry, and index entries
- * without a file. Only this probe writes that folder.
+ * is no longer expected (and their index entries), fixture-named files (sha256 + ext) without an
+ * index entry, and index entries without a file. Only this probe writes fixtures there; any other
+ * file, and any subfolder, is left alone (see fixture-folders.ts).
  */
 import { existsSync } from "node:fs";
 import { readFile, readdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { sha256, writeFileAtomic } from "../cache";
 import { SANITIZED_DIR } from "../fixtures";
+import { FIXTURE_FILE, assertPrunable, isPlainName } from "./fixture-folders";
 
 export interface IndexEntry {
   label: string;
@@ -42,13 +44,17 @@ export function planPrune(index: Record<string, IndexEntry>, files: string[], ex
 
 export async function pruneSanitized(platform: string, expected: Set<string>): Promise<PrunePlan & { removedLabels: string[] }> {
   const dir = path.join(SANITIZED_DIR, platform);
+  assertPrunable(dir);
   const indexPath = path.join(dir, "index.json");
   if (!existsSync(indexPath)) return { dropEntries: [], orphanFiles: [], missingFiles: [], removedLabels: [] };
   const index = JSON.parse(await readFile(indexPath, "utf8")) as Record<string, IndexEntry>;
-  const files = (await readdir(dir)).filter((f) => /\.(json|csv|txt)$/.test(f));
+  const files = (await readdir(dir, { withFileTypes: true })).filter((e) => e.isFile() && /\.(json|csv|txt)$/.test(e.name)).map((e) => e.name);
   const plan = planPrune(index, files, expected);
+  // Orphans are deleted only when named like a probe fixture (sha256 + ext): a file another tool
+  // put here (a hand-made test fixture, say) is left alone. Subfolders are never touched.
+  plan.orphanFiles = plan.orphanFiles.filter((f) => FIXTURE_FILE.test(f));
   const removedLabels = plan.dropEntries.map((f) => index[f]?.label ?? f);
-  for (const f of [...plan.dropEntries, ...plan.orphanFiles]) await rm(path.join(dir, f), { force: true });
+  for (const f of [...plan.dropEntries, ...plan.orphanFiles]) if (isPlainName(f)) await rm(path.join(dir, f), { force: true });
   for (const f of [...plan.dropEntries, ...plan.missingFiles]) delete index[f];
   if (plan.dropEntries.length || plan.missingFiles.length) {
     const sorted = Object.fromEntries(Object.entries(index).sort(([, a], [, b]) => a.label.localeCompare(b.label)));

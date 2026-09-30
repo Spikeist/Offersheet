@@ -1,12 +1,13 @@
 {
   "platform": "sleeper",
-  "generatedAt": "2026-09-29T23:42:41.419Z",
-  "runtimeSeconds": 15.5,
+  "generatedAt": "2026-09-30T01:41:46.073Z",
+  "runtimeSeconds": 14,
   "meta": {
     "env": {
       "SLEEPER_USERNAME": "blank",
       "SLEEPER_LEAGUE_ID": "blank"
     },
+    "crawlGate": "no --allow-crawl: only the pinned test league is requested live; other strangers' leagues come from the HTTP cache, and no new league is discovered",
     "sanitizer": {
       "registered": 247,
       "skippedAsOrdinaryData": 13
@@ -29,13 +30,13 @@
     },
     "timingsMs": {
       "choose league": 6,
-      "league data": 222,
-      "fixtures": 1462,
-      "schedule": 2,
-      "projections": 344,
-      "stats": 121,
-      "oracle": 2611,
-      "cross-league oracle": 2751,
+      "league data": 294,
+      "fixtures": 1905,
+      "schedule": 3,
+      "projections": 359,
+      "stats": 133,
+      "oracle": 2728,
+      "cross-league oracle": 187,
       "fantasycalc": 4
     },
     "requestCount": 63
@@ -2287,7 +2288,7 @@
       "key": "K.oracleCrossLeague",
       "title": "Scoring oracle, other leagues",
       "status": "ok",
-      "summary": "4 public in-season leagues from the probe:sleeper-codes crawl sample, picked (salted) to cover scoring this league lacks; weeks 2, 3: 2807/2807 rostered player-weeks within ±0.05 (100.0%); non-zero only 2141/2141; 87 distinct rules exercised; features (player-weeks matched/exercised): rec (PPR) 1257/1257, bonus_rec_te (TE premium) 150/150, yardage bonuses (bonus_*_yd_*) 61/61, IDP (idp_*) 1389/1389, first downs (*_fd, bonus_fd_*) 567/567, long field goals (fgm_50_59, fgm_60p) 6/6, yards-allowed brackets (yds_allow_*) 18/18; 0 mismatches",
+      "summary": "4 public in-season leagues from the probe:sleeper-codes crawl sample, picked (salted) to cover scoring this league lacks; weeks 2, 3: 2807/2807 rostered player-weeks within ±0.05 (100.0%); non-zero only 2141/2141; 87 distinct rules exercised; features (player-weeks matched/exercised): rec (PPR) 1257/1257, bonus_rec_te (TE premium) 150/150, yardage bonuses (bonus_*_yd_*) 61/61, IDP (idp_*) 1389/1389, first downs (*_fd, bonus_fd_*) 567/567, long field goals (fgm_50_59, fgm_60p) 6/6, yards-allowed brackets (yds_allow_*) 18/18; 0 mismatches; offline (no --allow-crawl): read from cached copies (oldest 2026-09-29), nothing requested",
       "evidence": [
         {
           "url": "https://api.sleeper.app/v1/league/{leagueId}  +  /v1/league/{leagueId}/matchups/{week}  vs  https://api.sleeper.app/stats/nfl/{season}/{week}?season_type=regular",
@@ -2434,7 +2435,7 @@
       "key": "fixtures.sanitized",
       "title": "Sanitized fixtures",
       "status": "ok",
-      "summary": "49 saved to fixtures/sanitized/sleeper, 0 refused by the leak check, 0 stale public-test-league fixture(s) removed with their index entries; 247 identities registered, placeholders unique",
+      "summary": "49 saved: 2 in fixtures/sanitized/sleeper (committed) and 47 in data-local/fixtures-sanitized/sleeper (git-ignored: strangers' public leagues; tests use minimized copies in fixtures/sanitized/min/sleeper/); 0 refused by the leak check, 0 stale fixture(s) removed with their index entries; 247 identities registered, placeholders unique",
       "evidence": []
     }
   ],
@@ -2470,9 +2471,9 @@
   ],
   "requests": {
     "total": 63,
-    "live": 8,
-    "fromCache": 55,
+    "live": 0,
+    "fromCache": 63,
     "retried": 0,
-    "slowestMs": 382
+    "slowestMs": 160
   }
 }

@@ -70,7 +70,7 @@ Cells show the worst sub-check; "(x of y)" counts sub-checks that are ⚠️ or 
 | STATS-S | ✅ | ✅ Actual stats, weeks 1, 2, 3<br>✅ Stat keys<br>✅ pts_* on actual stats<br>✅ Position filters<br>✅ One row per player per week |
 | PROJ-E | ⚠️ | ✅ Player pool with X-Fantasy-Filter<br>✅ Week 4 projections (statSourceId 1)<br>✅ All weekly projections in one response<br>⚠️ statSplitTypeId 0 / 2 totals<br>✅ scoringPeriodId 5 / 10 / 15<br>✅ appliedTotal scoring (leaguedefaults/3)<br>⚠️ Empty projected entries and bye weeks<br>✅ ESPN vs Sleeper, week 4 (same rules) |
 
-_Generated from probe outputs; latest run 2026-09-29T23:44:42.347Z._
+_Generated from probe outputs; latest run 2026-09-30T01:41:54.424Z._
 <!-- END:matrix -->
 
 ## Scoring oracle preview (item K)

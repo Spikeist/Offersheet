@@ -5,7 +5,7 @@
  * never depends on the scrubber catching an ID.
  */
 import { TTL } from "../cache";
-import type { HttpResult } from "../http";
+import { OfflineCacheMiss, type HttpResult } from "../http";
 import type { ProbeContext } from "../probe";
 import { parseJsonKeepingBigInts } from "./json";
 
@@ -69,22 +69,34 @@ export interface Fetched<T> {
   error?: string;
   res?: HttpResult;
   template: string;
+  /** Offline request (see FetchOptions.offline) with no cached copy: nothing was sent. */
+  offlineMiss?: boolean;
+}
+
+export interface FetchOptions {
+  /**
+   * Serve only a cached copy, whatever its age, and never touch the network (http.ts `offline`).
+   * Used for strangers' leagues other than the pinned test league when crawling isn't allowed
+   * (CLAUDE.md §0.6: no new crawls without asking Parker first; see crawlAllowed() in probe.ts).
+   */
+  offline?: boolean;
 }
 
 /**
  * GET a Sleeper URL through the polite, cached client without throwing: failures come back as
  * { ok: false, error } so the probe can report them as ❌ with evidence. Sleeper answers unknown
- * IDs with HTTP 200 and a literal `null` body, which is returned as data = null.
+ * IDs with HTTP 200 and a literal `null` body, which is returned as data = null. An offline request
+ * with nothing cached comes back as { ok: false, status: 0, offlineMiss: true }.
  *
  * Some Sleeper responses carry 19-digit IDs as bare JSON numbers (e.g. /draft/{id}/traded_picks
  * draft_id, league lists' last_transaction_id), which plain JSON.parse rounds. Every body is parsed
  * with parseJsonKeepingBigInts (./json.ts), so integers of 16+ digits keep all their digits as
  * strings. (Not http.ts bigIntsAsStrings: it breaks floats with 16+ fractional digits.)
  */
-export async function fetchJson<T>(p: ProbeContext, e: Endpoint, kind: CacheKind = "league"): Promise<Fetched<T>> {
+export async function fetchJson<T>(p: ProbeContext, e: Endpoint, kind: CacheKind = "league", opts: FetchOptions = {}): Promise<Fetched<T>> {
   const cache = kind === "league" ? p.leagueCache(e.url) : { key: `sleeper:${e.url}`, ttlMs: TTL_BY_KIND[kind], namespace: `sleeper-${kind}` };
   try {
-    const res = await p.request(e.url, { cache, label: e.template, timeoutMs: 120_000 });
+    const res = await p.request(e.url, { cache, label: e.template, timeoutMs: 120_000, offline: opts.offline });
     if (!res.ok) return { ok: false, data: null, status: res.status, error: `HTTP ${res.status}`, res, template: e.template };
     if (res.isHtml) return { ok: false, data: null, status: res.status, error: "HTML page instead of JSON", res, template: e.template };
     if (res.text.trim() === "null") return { ok: true, data: null, status: res.status, res, template: e.template };
@@ -92,6 +104,7 @@ export async function fetchJson<T>(p: ProbeContext, e: Endpoint, kind: CacheKind
     if (json === undefined) return { ok: false, data: null, status: res.status, error: "body is not JSON", res, template: e.template };
     return { ok: true, data: json as T, status: res.status, res, template: e.template };
   } catch (err) {
+    if (err instanceof OfflineCacheMiss) return { ok: false, data: null, status: 0, error: "offline: not in the HTTP cache", template: e.template, offlineMiss: true };
     return { ok: false, data: null, status: 0, error: err instanceof Error ? err.message : String(err), template: e.template };
   }
 }

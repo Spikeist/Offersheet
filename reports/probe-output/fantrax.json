@@ -1,7 +1,7 @@
 {
   "platform": "fantrax",
-  "generatedAt": "2026-09-29T23:44:42.347Z",
-  "runtimeSeconds": 1,
+  "generatedAt": "2026-09-30T01:41:54.424Z",
+  "runtimeSeconds": 0.9,
   "meta": {
     "leagues": [
       {
@@ -12,15 +12,15 @@
     ],
     "season": 2026,
     "timingsMs": {
-      "go-fantrax README": 3,
+      "go-fantrax README": 1,
       "go-fantrax league_info.go": 2,
-      "go-fantrax repo tree": 2,
+      "go-fantrax repo tree": 1,
       "getPlayerIds": 11,
       "getAdp": 2,
-      "Sleeper players DB": 135,
-      "DynastyProcess ID map": 241,
+      "Sleeper players DB": 134,
+      "DynastyProcess ID map": 261,
       "FantasyCalc": 2,
-      "getLeagueInfo (invalid id)": 246
+      "getLeagueInfo (invalid id)": 185
     },
     "requestCount": 9
   },
@@ -792,6 +792,6 @@
     "live": 1,
     "fromCache": 8,
     "retried": 0,
-    "slowestMs": 241
+    "slowestMs": 182
   }
 }

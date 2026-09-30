@@ -1,0 +1,108 @@
+{
+  "aeada574854b3e9ef1e4d2354da2c9d678b3a8739a27bcf4136826303d51f0c7.json": {
+    "label": "drafts",
+    "note": "synthetic draft IDs"
+  },
+  "7ce9069101136d26d89874489f24f3d8c39b5528c2014877c1b8eb129d1175cd.json": {
+    "label": "league",
+    "note": "non-zero scoring_settings and the settings keys the adapter reads"
+  },
+  "fc0440a9c0f8a43d773a66ccfc3c04e67e8d150e61105dbeb2423ef19d17c7f5.json": {
+    "label": "matchups/1",
+    "note": "pairs only"
+  },
+  "c20a590dfa74eee26ea037fc512a768a77ddb10681b37defe866d2c39094ed4d.json": {
+    "label": "matchups/10",
+    "note": "pairs only"
+  },
+  "f07a38007738a1c377c8e72873d0babee46cdb5d5334847bf81149ec9971f2a4.json": {
+    "label": "matchups/11",
+    "note": "pairs only"
+  },
+  "7f98ed3f6b02365da4266fbbe9938e028448141ec265300868fec322808492e5.json": {
+    "label": "matchups/12",
+    "note": "pairs only"
+  },
+  "ceac7f63e659ae1e6bbad55851114a889d0d0499f8091a38db750fcacdd4c5f2.json": {
+    "label": "matchups/13",
+    "note": "pairs only"
+  },
+  "416b3892de3a8d90cae34c0914b7fd4c315f220cf16f90722f78ad9cad0616da.json": {
+    "label": "matchups/14",
+    "note": "pairs only"
+  },
+  "c863eec700999c55248147d80997e3c5061c554fb7dc95f0aff7913d2131ef57.json": {
+    "label": "matchups/15",
+    "note": "playoff week: regular-season placeholder pairs (ignored)"
+  },
+  "ca86bba60c655cf47797fc7fe48c2a081afbaeb86299177e6ac8cdac8271cc4e.json": {
+    "label": "matchups/2",
+    "note": "pairs + players_points for a subset"
+  },
+  "a6b2b5a88f7d71036e1d1bffa549a9bde05b211a3df1f4cd8c124e66f6ab1b77.json": {
+    "label": "matchups/3",
+    "note": "pairs + players_points for a subset"
+  },
+  "2487bf4856d33930e2e03b351d5807918c47db11918754caa7f190654f05cd39.json": {
+    "label": "matchups/4",
+    "note": "pairs only"
+  },
+  "cbfbb603e14a6a9fb91a83ba2dece733e0cabef213f94ad57c438991ed146706.json": {
+    "label": "matchups/5",
+    "note": "pairs only"
+  },
+  "bc89db55f3fa366e2c4c0cd5c4fb31eabeda29e024eabc35c77a1012b8e23e4c.json": {
+    "label": "matchups/6",
+    "note": "pairs only"
+  },
+  "9c20006c99a0e8dff490038752dca9d8af7d7c1cbed0343ed6f91b4330444973.json": {
+    "label": "matchups/7",
+    "note": "pairs only"
+  },
+  "10b394e161ea84e228ea4e7f2056c75168fbc0e1ef075d054824017fd615f94e.json": {
+    "label": "matchups/8",
+    "note": "pairs only"
+  },
+  "d37a48572e4df3f3f640fe718b6246c86ace96d17f72e3d7b6d6d3f7144f9cbe.json": {
+    "label": "matchups/9",
+    "note": "pairs only"
+  },
+  "3f2fe645a54eaa37a1029346a526d3daf10bd215b1d06c23eb54e79f6ee91878.json": {
+    "label": "meta"
+  },
+  "f34d937acc6835822036f47c014c2d4ee15c2ca287c65eb09bce5e1f518f35f3.json": {
+    "label": "players",
+    "note": "public Sleeper player facts (SleeperPlayerLite) for every referenced player"
+  },
+  "2161f6535cebb2371e6242f5e1a815caa845c443d80041f8ce0ab2aed5d65c96.json": {
+    "label": "projections/4",
+    "note": "public projections: free agents, ADP stubs and a few rostered players"
+  },
+  "2c35352231b848204ba367a74e40b6eecd875fc5f147744ceb9ab0d3d01f8582.json": {
+    "label": "rosters",
+    "note": "a subset of each roster: one IR and one taxi player where present, and a small starting core; synthetic points for/against"
+  },
+  "90ee7e7f68438e762f725421788fd32731f048749b5f186fc9b880812afb544e.json": {
+    "label": "stats/2",
+    "note": "public stats of the oracle subset, scored keys only"
+  },
+  "948f5daf163adb05aea0a26a580ad7909042602415e280d39ead131c1f656393.json": {
+    "label": "stats/3",
+    "note": "public stats of the oracle subset, scored keys only"
+  },
+  "476062179ce8bd24408eca14584d0ab7d0694290c944f341f6d70c715b74f8ca.json": {
+    "label": "traded_picks",
+    "note": "one traded pick of this season and three future ones"
+  },
+  "b487b12f8f72bdfb7648243b00a60bfcb1dc0c4d23c44ba56f4246b96d9eb84d.json": {
+    "label": "transactions/2",
+    "note": "the transactions the tests assert; synthetic IDs; synthetic times (real order kept)"
+  },
+  "e6b13dc4c4b22f0929dbdb330eb9812d82a56f2a4caea74031f8b81dbbd99272.json": {
+    "label": "transactions/3",
+    "note": "the transactions the tests assert; synthetic IDs; synthetic times (real order kept)"
+  },
+  "d01a20121da5fc006e549836fe3eb97e8390a90cd092a759932dab92e0adb464.json": {
+    "label": "users"
+  }
+}

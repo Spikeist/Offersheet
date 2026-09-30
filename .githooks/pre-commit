@@ -1,0 +1,8 @@
+#!/bin/sh
+# Pre-commit leak check (CLAUDE.md §0.12): block commits that would include secrets from .env.local
+# or leaguemates' identities recorded by the fixture sanitizers. Installed by `npm install`
+# ("prepare" sets git config core.hooksPath .githooks).
+npm run --silent check:leaks || {
+  echo "pre-commit: check:leaks found sensitive values - commit blocked (see output above)."
+  exit 1
+}

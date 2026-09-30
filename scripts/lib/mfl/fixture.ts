@@ -1,5 +1,7 @@
 /**
- * Shaping of committed MFL fixtures (CLAUDE.md §0.6) on top of the Redactor:
+ * Shaping of MFL sanitized fixtures (CLAUDE.md §0.6) on top of the Redactor. A stranger's test
+ * league is saved to git-ignored data-local/fixtures-sanitized/mfl (only minimized copies are
+ * committed); league-independent public exports stay in fixtures/sanitized/mfl (scripts/lib/fixtures.ts).
  * - trimLeagueHistory: league.history lists every season the league has existed; the founding year
  *   helps re-identify a stranger's public league, so only the current season is kept.
  * - synthesizeSearchSample: a leagueSearch sample built from the live KEY NAMES and homeURL format
@@ -11,6 +13,7 @@ import { createHash } from "node:crypto";
 import { readFile, readdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { writeFileAtomic } from "../cache";
+import { FIXTURE_FILE, assertPrunable } from "../shared/fixture-folders";
 import { LEAGUE_HOST_PLACEHOLDER } from "./identities";
 import { asArray, at, isRecord, text } from "./json";
 
@@ -70,12 +73,22 @@ interface IndexEntry {
 const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
 
 /**
- * Remove fixtures in `dir` that this run did not write (`keep` = repo-relative or bare file names),
- * drop their index entries, and check every remaining entry's file name = sha256(label) + ext.
- * Returns the labels removed (placeholder-only) and any name mismatches.
+ * Remove fixtures in `dir` that this run did not write (`keep` = repo-relative or bare file names of
+ * files saved to THIS folder), drop their index entries, and check every remaining entry's file
+ * name = sha256(label) + ext. Returns the labels removed (placeholder-only) and any name mismatches.
+ * Only index-listed files and unlisted files named like a fixture (sha256 + ext) are deleted — never
+ * subfolders or other files — and a missing folder is left alone. The probe calls this once for
+ * fixtures/sanitized/mfl and once for the git-ignored data-local/fixtures-sanitized/mfl.
  */
 export async function pruneSanitized(dir: string, keep: Iterable<string>): Promise<{ removed: string[]; mismatched: string[] }> {
   const keepNames = new Set([...keep].map((f) => path.basename(f)));
+  assertPrunable(dir);
+  let names: string[];
+  try {
+    names = (await readdir(dir, { withFileTypes: true })).filter((e) => e.isFile()).map((e) => e.name);
+  } catch {
+    return { removed: [], mismatched: [] }; // no folder: nothing written there yet
+  }
   const indexPath = path.join(dir, "index.json");
   let index: Record<string, IndexEntry> = {};
   try {
@@ -84,8 +97,9 @@ export async function pruneSanitized(dir: string, keep: Iterable<string>): Promi
     // no index yet
   }
   const removed: string[] = [];
-  for (const name of await readdir(dir)) {
+  for (const name of names) {
     if (name === "index.json" || keepNames.has(name)) continue;
+    if (!(name in index) && !FIXTURE_FILE.test(name)) continue; // not a fixture of this probe
     await rm(path.join(dir, name), { force: true });
     removed.push(index[name]?.label ?? name);
     delete index[name];

@@ -4,6 +4,6 @@
     "url": "https://fantasysports.yahooapis.com/fantasy/v2/game/nfl?format=json",
     "status": 401,
     "contentType": "application/json",
-    "captured": "2026-09-29"
+    "captured": "2026-09-30"
   }
 }

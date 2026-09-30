@@ -1,4 +1,7 @@
 /**
+ * FROZEN PHASE 0 EVIDENCE: the probes still use this copy; the app uses src/adapters/espn/scoringMap.ts. A fix here doesn't
+ * reach the app (and the reverse); `npm run import:report` is the live check of the shipped adapters.
+ *
  * ESPN scoring rule → canonical (Sleeper) stat key candidates, for the Phase 0 check C.canonical.
  * CLAUDE.md §5: Sleeper's stat keys are canonical; a rule that doesn't map goes to scoring.unmapped.
  * Phase 1 ports this to src/adapters/espn/scoringMap.ts and proves it with the scoring oracle.
@@ -16,7 +19,8 @@
 /**
  * Sleeper key names seen in Phase 0 (2026-09-29): the union of scoring_settings keys of the Sleeper
  * leagues and the stat keys of the Sleeper stats/projections responses the Sleeper probe captured
- * (fixtures/sanitized/sleeper). Names only; a rare key can be missing here without being wrong.
+ * (its sanitized fixtures; a stranger's test league's copies now live in git-ignored
+ * data-local/fixtures-sanitized/sleeper). Names only; a rare key can be missing here without being wrong.
  */
 export const SLEEPER_KEYS: ReadonlySet<string> = new Set([
   // scoring_settings keys

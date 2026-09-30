@@ -1,4 +1,7 @@
 /**
+ * FROZEN PHASE 0 EVIDENCE: the probes still use this copy; the app uses src/adapters/mfl/scoringMap.ts. A fix here doesn't
+ * reach the app (and the reverse); `npm run import:report` is the live check of the shipped adapters.
+ *
  * MFL scoring rule codes (TYPE=allRules abbreviations) → canonical Sleeper stat keys (CLAUDE.md §5).
  * Draft for Phase 0; Phase 5 moves it to src/adapters/mfl/scoringMap.ts. Codes not listed here are
  * reported as unmapped with their points (never dropped silently).

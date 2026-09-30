@@ -1,0 +1,14 @@
+{
+  "623092bea706ed73ab0dd451a9afcd88848a7bcd05d8ded233bad303b0d1e3d3.json": {
+    "label": "league: settings, scoring, roster subset",
+    "note": "settings + scoring + 32 roster entries (TQB, D/ST, rushing TEs); timestamps shifted"
+  },
+  "99cde4282dca92c5d3238c88117182a5721a4eee520a7168def8b38b00f46a63.json": {
+    "label": "player pool: week 2 actual lines",
+    "note": "249 week-2 actual lines, stats trimmed to 91 scored/source/every-N stat ids; no roster membership; read offline from the Phase 0 probe's cache"
+  },
+  "9e6fca2942916d04b5801f586cc912cb722ac9f924e5de74351c038bec34cd4e.json": {
+    "label": "player pool: week 3 actual lines",
+    "note": "249 week-3 actual lines, stats trimmed to 91 scored/source/every-N stat ids; no roster membership"
+  }
+}

@@ -4,8 +4,8 @@
  * and run them through runOracle(), so results and rule-type coverage are reported the same way.
  */
 import { config } from "./config";
-import type { Pos, Scoring, ScoringRule, StatLine } from "./model";
-import { pointsBreakdown, rateFor, ruleApplies, rulePoints, type PointsBreakdown } from "./scoring";
+import type { Pos, Scoring, StatLine } from "./model";
+import { playedGame, pointsBreakdown, rateFor, ruleApplies, rulePoints, statValue, type PointsBreakdown } from "./scoring";
 
 export interface OracleCase {
   /** e.g. "espn/parker-league" or "sleeper/cross-league-2". Placeholder-only. */
@@ -37,31 +37,63 @@ export interface OracleSummary {
   rate: number;
   passes: boolean;
   mismatches: OracleMismatch[];
-  /** Matched cases in which each rule type contributed non-zero points. */
+  /**
+   * Matched cases in which each rule type was actually TESTED: a wrong reading of that type would
+   * have changed the case's points (see ruleTypesIn).
+   */
   ruleTypesExercised: Record<RuleType, number>;
 }
 
-function isBounded(rule: ScoringRule): boolean {
-  if (rule.kind === "perUnit") return rule.min !== undefined || rule.max !== undefined;
-  if (rule.kind === "stepped") return rule.max !== undefined || (rule.min ?? 0) !== 0;
-  if (rule.kind === "range") return rule.min !== undefined && rule.max !== undefined;
-  return false;
-}
-
-/** Which rule types contributed non-zero points to this case. */
+/**
+ * Which rule types this case tests. A type counts only when a wrong reading of it would change the
+ * points, so a match is real evidence (Phase 1 review):
+ * - byPosition: a position rate that differs from a non-zero base rate (replace ≠ add);
+ * - stepped: the floor bites ((min(x, max) − min) / every isn't whole);
+ * - bounded: a per-unit or stepped rule's bound cut the stat (x outside [min, max]);
+ * - composite: at least two parts of a summed stat are non-zero and the rule scored;
+ * - perUnit, threshold, range, perGame: the rule scored.
+ */
 export function ruleTypesIn(c: OracleCase): Set<RuleType> {
   const out = new Set<RuleType>();
   for (const [key, value] of Object.entries(c.stats)) {
     if (!value) continue;
     const override = c.scoring.byPosition?.[c.pos]?.[key];
-    if (override !== undefined && override !== 0) out.add("byPosition");
+    const base = c.scoring.perStat[key] ?? 0;
+    if (override !== undefined && base !== 0 && override !== base) out.add("byPosition");
     else if (rateFor(c.scoring, key, c.pos)) out.add("perUnit");
   }
-  for (const rule of c.scoring.rules) {
-    if (!ruleApplies(rule, c.pos) || !rulePoints(rule, c.stats)) continue;
-    out.add(rule.kind === "perUnit" ? "perUnit" : rule.kind);
-    if (isBounded(rule)) out.add("bounded");
-    if (rule.kind !== "perGame" && typeof rule.stat !== "string") out.add("composite");
+  // A line without games played scores no rule (engine/scoring.ts playedGame), so it tests none.
+  for (const rule of playedGame(c.stats) ? c.scoring.rules : []) {
+    if (!ruleApplies(rule, c.pos)) continue;
+    const points = rulePoints(rule, c.stats);
+    if (rule.kind === "perGame") {
+      if (points) out.add("perGame");
+      continue;
+    }
+    const x = statValue(c.stats, rule.stat);
+    const max = "max" in rule ? rule.max : undefined;
+    // A bound is tested only when it cut a non-zero stat (cutting 0 changes nothing).
+    const outside = x !== 0 && ((rule.min !== undefined && x < rule.min) || (max !== undefined && x > max));
+    switch (rule.kind) {
+      case "threshold":
+      case "range":
+        if (points) out.add(rule.kind);
+        break;
+      case "perUnit":
+        if (rule.min === undefined && rule.max === undefined) {
+          if (points) out.add("perUnit");
+        } else if (outside) out.add("bounded");
+        else if (points) out.add("perUnit");
+        break;
+      case "stepped": {
+        const lo = rule.min ?? 0;
+        const steps = (Math.min(x, rule.max ?? Number.POSITIVE_INFINITY) - lo) / rule.every;
+        if (x >= lo && Math.abs(steps - Math.round(steps)) > 1e-9) out.add("stepped");
+        if (rule.max !== undefined && x > rule.max) out.add("bounded");
+        break;
+      }
+    }
+    if (points && typeof rule.stat !== "string" && rule.stat.sum.filter((k) => c.stats[k]).length >= 2) out.add("composite");
   }
   return out;
 }
