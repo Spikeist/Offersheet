@@ -69,6 +69,14 @@ export interface LeagueSettings {
   divisions?: { id: string; teamIds: string[] }[];
   /** When the platform reports it (§8). */
   playoffSeeding?: { reseed: boolean; divisionWinnersFirst: boolean };
+  /**
+   * The first tiebreaker after win percentage when seeding the standings (§8; planner, Checkpoint 2:
+   * use the league's own when the platform reports it). Absent = unknown: the platform doesn't report
+   * it (ESPN, when playoffSeedingRule is missing or its UNKNOWN placeholder; Sleeper always gets points
+   * for, its documented default) or reports one we don't model, and "seedingTiebreaker" is in
+   * unknownSettings; the simulator then breaks ties by points for.
+   */
+  seedingTiebreaker?: SeedingTiebreaker;
   tradeDeadline: { week?: number; date?: string } | null;
   tradeReview: "none" | "commissioner" | "league_vote";
   faabBudget?: number;
@@ -76,7 +84,13 @@ export interface LeagueSettings {
   unknownSettings?: UnknownSetting[];
 }
 
-export type UnknownSetting = "tradeDeadline" | "tradeReview" | "playoffs" | "playoffSeeding";
+export type UnknownSetting = "tradeDeadline" | "tradeReview" | "playoffs" | "playoffSeeding" | "seedingTiebreaker";
+
+/**
+ * How ties in win percentage are broken when seeding (§8): total points for, head-to-head record
+ * between the tied teams, or record within the division.
+ */
+export type SeedingTiebreaker = "pointsFor" | "headToHead" | "divisionRecord";
 
 /** e.g. { slot: 'FLEX', count: 1, eligible: ['RB','WR','TE'] } */
 export interface SlotDef {
@@ -141,10 +155,39 @@ export interface PlayerInfo {
 }
 
 export interface Matchup {
+  /** The NFL week the matchup starts in (its first week when it spans several). */
   week: number;
   teamA: string;
+  /** null = a bye. */
   teamB: string | null;
   isPlayoff: boolean;
+  /** NFL weeks the matchup spans when more than one (ESPN multi-week matchup periods), ascending; absent = [week]. */
+  weeks?: number[];
+  /**
+   * True once the platform reports the matchup decided (ESPN: any winner but UNDECIDED; Sleeper: a week
+   * it has scored, byes included). A decided game is already in the teams' records (Team.record,
+   * pointsFor, pointsAgainst), so the season simulation must not play it again: the games still to
+   * play are the ones without `decided`, never "the ones without a result". Absent = not decided yet
+   * (still to play, or under way).
+   */
+  decided?: boolean;
+  /**
+   * The platform's final result, set only on a decided matchup whose score we could read. winnerId null
+   * = a tie (or a bye: teamB null). A decided matchup without one (the adapter warns) still counts as
+   * played; only its outcome is unknown, so head-to-head records leave it out.
+   */
+  result?: MatchupResult;
+}
+
+/**
+ * A decided matchup's final score as the platform reports it: pointsA for teamA, pointsB for teamB
+ * (null for a bye), summed over all its weeks. winnerId is the platform's own verdict, so a tie its
+ * rules break (ESPN's matchup tie rule) still has a winner.
+ */
+export interface MatchupResult {
+  pointsA: number;
+  pointsB: number | null;
+  winnerId: string | null;
 }
 
 export interface Transaction {

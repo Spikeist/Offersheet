@@ -4,18 +4,20 @@ import type { SlotStrength } from "./leagueModel";
 import { lineupTotal, prepareRoster, prepareSlots } from "./lineup";
 import type { Pos, SlotDef } from "./model";
 import {
+  chipsTogether,
   findNeeds,
   helpfulPlayers,
   instanceIndex,
   instancePointsInto,
-  qualifyingSurplus,
   rankPartners,
   slotInstances,
   standardize,
   strengthTable,
   surplusScores,
+  tradeChips,
   windowAverage,
   zScores,
+  type SideChip,
 } from "./needs";
 import { TEST_LINEUP } from "./testLeague";
 
@@ -136,7 +138,7 @@ describe("strengthTable and findNeeds (§7: needs are slots with z ≤ needZThre
   });
 });
 
-describe("surplus (§7 high value, low MV_lose; §12 surplus score)", () => {
+describe("the surplus score (§12 step 2: kept for Phase 4's give pool)", () => {
   it("surplusScores = z(value) − z(MV_lose) within the roster", () => {
     const values = [9000, 8000, 500, 100];
     const mvLose = [120, 5, 60, 0];
@@ -148,44 +150,52 @@ describe("surplus (§7 high value, low MV_lose; §12 surplus score)", () => {
     expect(scores.indexOf(Math.max(...scores))).toBe(1);
   });
 
-  it("a surplus player needs the minimum score, a below-average lineup cost AND to start for another team; best first, ties by id", () => {
-    const got = qualifyingSurplus(
+  it("is 0 − z(MV_lose) when values don't tell the roster's players apart (all equal, or none loaded)", () => {
+    const mvLose = [30, 10, 0];
+    const zl = standardize(mvLose);
+    surplusScores([0, 0, 0], mvLose).forEach((s, i) => expect(s).toBeCloseTo(-(zl[i] as number), 12));
+    expect(standardize([40, 40, 40])).toEqual([0, 0, 0]);
+  });
+});
+
+describe("tradeChips (§7; planner reply to Checkpoint 2, answer 2)", () => {
+  const best = (value: number, teamId: string) => ({ value, teamId });
+
+  it("keeps players worth at least chipMinGap more to another team than to their own: gap = maxOther − cost, biggest first, ties by id", () => {
+    expect(config.needs.chipMinGap).toBe(10);
+    const got = tradeChips(
       [
-        { playerId: "a", score: 2, costZ: -1, startsFor: 0 },
-        { playerId: "b", score: 1.5, costZ: -0.4, startsFor: 2 },
-        { playerId: "c", score: 0.9, costZ: -1.2, startsFor: 5 },
-        { playerId: "e", score: 1.5, costZ: -0.9, startsFor: 1 },
-        { playerId: "d", score: 3, costZ: -0.1, startsFor: 1 },
+        { playerId: "nix", cost: 14, best: best(45, "6") }, // gap 31
+        { playerId: "starter", cost: 120, best: best(125, "6") }, // gap 5: his team needs him
+        { playerId: "b", cost: 0, best: best(31, "2") }, // gap 31: ties with nix, smaller id first
+        { playerId: "nobody", cost: 3, best: null }, // he'd add nothing anywhere
+        { playerId: "edge", cost: 5, best: best(15, "4") }, // gap exactly 10
       ],
       config.needs,
     );
-    expect(got.map((s) => s.playerId)).toEqual(["d", "b", "e"]);
-    expect(got[0]).toEqual({ playerId: "d", score: 3, startsFor: 1 });
+    expect(got.map((c) => c.playerId)).toEqual(["b", "nix", "edge"]);
+    expect(got[1]).toEqual({ playerId: "nix", gap: 31, cost: 14, maxOther: 45, bestTeamId: "6" });
   });
 
-  it("a star isn't surplus: convex values give him a high score, but his lineup cost is above the roster's average (§7: low MV_lose)", () => {
-    expect(config.needs.surplusMaxCostZ).toBe(0);
-    // A roster: a star (value 20,000; the biggest lineup cost), seven ordinary starters, and a valuable backup who costs nothing.
-    const values = [20_000, 2_000, 1_800, 1_500, 1_500, 1_200, 1_000, 900, 6_000];
-    const mvLose = [260, 200, 190, 180, 170, 150, 140, 120, 0];
-    const scores = surplusScores(values, mvLose);
-    const costZ = standardize(mvLose);
-    expect(scores[0]).toBeGreaterThanOrEqual(config.needs.surplusMinScore); // the old rule made the star a chip
-    expect(costZ[0]).toBeGreaterThan(0);
-    const got = qualifyingSurplus(
-      values.map((_, i) => ({ playerId: `p${i}`, score: scores[i] as number, costZ: costZ[i] as number, startsFor: 3 })),
+  it("equal gaps list the cheaper one to lose first, then the smaller id (D3: a starter and the backup who covers him share a gap)", () => {
+    const got = tradeChips(
+      [
+        { playerId: "a-starter", cost: 7 * 14.75, best: best(15 * 14.75, "2") }, // gap 8 × 14.75
+        { playerId: "z-backup", cost: 0, best: best(8 * 14.75, "2") }, // the same gap, nothing to lose
+        { playerId: "m-mid", cost: 3 * 14.75 + 1e-12, best: best(11 * 14.75 + 1e-12, "3") }, // the same gap summed another way
+        { playerId: "b-twin", cost: 3 * 14.75, best: best(11 * 14.75, "4") }, // an equal cost: the id decides
+      ],
       config.needs,
     );
-    expect(got.map((s) => s.playerId)).toEqual(["p8"]); // only the backup: depth that would start elsewhere
+    expect(got.map((c) => c.playerId)).toEqual(["z-backup", "b-twin", "m-mid", "a-starter"]);
   });
 
-  it("the cost cut is strict: an exactly average cost (z 0, or float noise around it) doesn't count as low; neither does a roster whose costs are all equal", () => {
-    const row = (costZ: number) => ({ playerId: "x", score: 2, costZ, startsFor: 1 });
-    expect(qualifyingSurplus([row(0)], config.needs)).toEqual([]);
-    expect(qualifyingSurplus([row(-1e-12)], config.needs)).toEqual([]);
-    expect(qualifyingSurplus([row(-0.01)], config.needs).map((s) => s.playerId)).toEqual(["x"]);
-    expect(qualifyingSurplus([row(0.5)], { surplusMinScore: 1, surplusMaxCostZ: 1 }).map((s) => s.playerId)).toEqual(["x"]); // the cut comes from config
-    expect(standardize([40, 40, 40])).toEqual([0, 0, 0]);
+  it("counts a gap within float noise of the cut as at it, reads the cut from config, and never keeps a non-finite gap", () => {
+    expect(tradeChips([{ playerId: "x", cost: 0.1 + 0.2, best: best(10.3, "2") }], config.needs).map((c) => c.playerId)).toEqual(["x"]); // 9.999999999999998
+    expect(tradeChips([{ playerId: "x", cost: 0, best: best(9.99, "2") }], config.needs)).toEqual([]);
+    expect(tradeChips([{ playerId: "x", cost: 0, best: best(9.99, "2") }], { chipMinGap: 5 }).map((c) => c.playerId)).toEqual(["x"]);
+    expect(tradeChips([{ playerId: "x", cost: Number.NaN, best: best(50, "2") }], config.needs)).toEqual([]);
+    expect(tradeChips([{ playerId: "x", cost: 0, best: best(Number.POSITIVE_INFINITY, "2") }], config.needs)).toEqual([]);
   });
 });
 
@@ -258,6 +268,42 @@ describe("rankPartners (§7 best trade partners; Phase 2 review: each side score
     expect(got[1]?.score).toBe(9); // one-sided: what they'd add to my lineup
     expect(got[2]?.score).toBe(5);
     expect(got[2]?.youCanGive).toEqual([]);
+  });
+
+  it("chipsTogether (D2): the first chip by own gain counts; each next one only while still a chip once the counted ones have left; at most maxPerSide", () => {
+    const side: SideChip[] = [
+      { playerId: "backup", ppw: 4, gap: 30 },
+      { playerId: "starter", ppw: 9, gap: 30 },
+      { playerId: "spare", ppw: 3, gap: 12 },
+      { playerId: "useless", ppw: 0, gap: 40 }, // adds nothing to the other lineup: never counted, never asked about
+    ];
+    const asked: [string, string[]][] = [];
+    // Once the starter has left, his backup is the starter: no longer a chip. The spare stays one.
+    const stillChip = (id: string, taken: readonly string[]) => {
+      asked.push([id, [...taken]]);
+      return !(id === "backup" && taken.includes("starter"));
+    };
+    expect(chipsTogether(side, 2, stillChip)).toEqual(["starter", "spare"]);
+    expect(asked).toEqual([
+      ["backup", ["starter"]],
+      ["spare", ["starter"]],
+    ]);
+    // maxPerSide caps the count (the first is never asked about); 3 lets a third one in when he stays a chip.
+    asked.length = 0;
+    expect(chipsTogether(side, 1, stillChip)).toEqual(["starter"]);
+    expect(asked).toEqual([]);
+    expect(chipsTogether(side, 3, () => true)).toEqual(["starter", "backup", "spare"]);
+    expect(chipsTogether(side, Number.NaN, () => true)).toEqual(["starter"]);
+    expect(chipsTogether([], 2, () => true)).toEqual([]);
+  });
+
+  it("chipsTogether orders equal gains (within float noise) by the larger gap, then the smaller id", () => {
+    const side: SideChip[] = [
+      { playerId: "c", ppw: 7, gap: 20 },
+      { playerId: "b", ppw: 7 + 1e-12, gap: 25 },
+      { playerId: "a", ppw: 7, gap: 20 },
+    ];
+    expect(chipsTogether(side, 3, () => true)).toEqual(["b", "a", "c"]);
   });
 
   it("helpfulPlayers keeps the players who add more than 0 (float noise aside), most first, ties by id", () => {

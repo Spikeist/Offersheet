@@ -11,7 +11,8 @@
  *   npm run import:report -- --no-cookies never use the cookies, even with USE_ENV_COOKIES=1
  *   npm run import:report -- --test-leagues   also the pinned public Sleeper test league (no per-team table)
  *   npm run import:report -- --response-out <file>   also save the placeholder-only ESPN import as the
- *                                         sessionStorage record the Import Report page reads (UI checks)
+ *                                         sessionStorage record the Import Report page reads (UI checks;
+ *                                         the app's current format, lib/importStore IMPORT_FORMAT_VERSION)
  *
  * The report ends with every player ID override in the whole crosswalk (CLAUDE.md §2.9 crosswalk
  * rules: "log every override"), not just the ones on the imported leagues' players, which the
@@ -33,6 +34,7 @@ import type { CrosswalkConflict, CrosswalkSourceKey, IdSource, SleeperPlayerLite
 import type { LeagueSnapshot } from "@/engine/model";
 import type { ImportResponse } from "@/lib/api";
 import { buildImportReport, type ImportReportView } from "@/lib/importReport";
+import { toStoredImport } from "@/lib/importStore";
 import { FileCache } from "@/server/cache";
 import { createHttpClient } from "@/server/http";
 import { ROOT, env, loadEnv } from "./lib/env";
@@ -103,7 +105,7 @@ function render(view: ImportReportView, heading: string, opts: { aggregatesOnly?
   if (lu.limits.length) L.push(`- Position limits: ${lu.limits.map((x) => `${x.label} ${x.value}`).join(", ")}`);
   L.push("");
   const se = view.season;
-  L.push("**Season and playoffs**", "", `- Regular season: ${se.regularSeason}`, `- Playoffs: ${se.playoffs} · ${se.playoffTeams} teams · byes: ${se.byes}${se.rounds ? ` · rounds: ${se.rounds}` : ""}`, `- Seeding: ${se.seeding}`, `- Median game: ${se.medianGame ? "yes" : "no"} · points only: ${se.pointsOnly ? "yes" : "no"} · divisions: ${se.divisions.length || "none"}`, "");
+  L.push("**Season and playoffs**", "", `- Regular season: ${se.regularSeason}`, `- Playoffs: ${se.playoffs} · ${se.playoffTeams} teams · byes: ${se.byes}${se.rounds ? ` · rounds: ${se.rounds}` : ""}`, `- Seeding: ${se.seeding}`, `- Ties in the standings: ${se.tiebreaker}`, `- Median game: ${se.medianGame ? "yes" : "no"} · points only: ${se.pointsOnly ? "yes" : "no"} · divisions: ${se.divisions.length || "none"}`, "");
   L.push("**Trades**", "", `- Deadline: ${view.trades.deadline}`, `- Review: ${view.trades.review}`, `- FAAB: ${view.trades.faab}`, "");
   L.push("**Trade values**", "", `- ${view.values.text}`, "");
   const t = view.teams;
@@ -114,7 +116,7 @@ function render(view: ImportReportView, heading: string, opts: { aggregatesOnly?
   }
   const p = view.players;
   L.push("", "**Players**", "", `- ${p.total} players known: ${p.rostered} rostered (${p.onIr} on IR, ${p.onTaxi} on taxi), ${p.freeAgents} free agents`, `- Not matched to the player database: ${p.unmatched.length ? p.unmatched.map((u) => `${u.name} (${u.pos}, ${u.team})`).join("; ") : "none"}`, `- Missing details: ${p.missingDetails}`);
-  L.push("", "**Schedule and activity**", "", `- ${view.schedule.matchups} matchups, weeks ${view.schedule.weeks}${view.schedule.missingRegularWeeks.length ? `; missing weeks ${view.schedule.missingRegularWeeks.join(", ")}` : ""}`, `- Trades ${view.activity.trades} · adds ${view.activity.adds} · drops ${view.activity.drops} · waiver claims ${view.activity.waivers}${view.activity.tradedPicks !== undefined ? ` · traded picks ${view.activity.tradedPicks}` : ""}`);
+  L.push("", "**Schedule and activity**", "", `- ${view.schedule.matchups} matchups (${view.schedule.weeks})${view.schedule.missingRegularWeeks.length ? `; missing weeks ${view.schedule.missingRegularWeeks.join(", ")}` : ""}`, `- Final scores: ${view.schedule.results}`, `- Trades ${view.activity.trades} · adds ${view.activity.adds} · drops ${view.activity.drops} · waiver claims ${view.activity.waivers}${view.activity.tradedPicks !== undefined ? ` · traded picks ${view.activity.tradedPicks}` : ""}`);
   L.push("", `**Notes (${view.notes.length})**`, "", ...view.notes.map((n) => `- ${n}`));
   L.push("", `**Warnings (${view.warnings.length})**`, "", ...view.warnings.map((w) => `- \`${w.code}\` ${w.message}${w.platformPath ? ` (${w.platformPath})` : ""}`));
   L.push("", "**Data timestamps**", "", ...view.timestamps.map((x) => `- ${x.label}: ${x.value}`), "");
@@ -148,7 +150,8 @@ async function main(): Promise<void> {
     const response = { ...placeholders(result, "League 1"), usedEspnCookies: Boolean(s2 && swid), ...(s2 && swid ? { espnCookieSource: "dev-env" as const } : {}), dataSources: dataSourceStamps(resolver) };
     sections.push(render(buildImportReport(response, { timeZone }), `ESPN: Parker's league${noCookies ? " (no cookies: the public-link path)" : ""}`));
     if (responseOut) {
-      const stored = { version: 1, savedAt: new Date().toISOString(), request: { platform: "espn", season: response.snapshot.season, leagueId: "{leagueId}" }, response };
+      // The app's own record, in its current format (IMPORT_FORMAT_VERSION), so the pages accept it.
+      const stored = toStoredImport({ request: { platform: "espn", season: response.snapshot.season, leagueId: "{leagueId}" }, response, savedAt: new Date().toISOString() });
       writeFileSync(responseOut, scrubEverything(JSON.stringify(stored)));
     }
   } else sections.push("## ESPN\n\nESPN_LEAGUE_ID is blank in .env.local.\n");

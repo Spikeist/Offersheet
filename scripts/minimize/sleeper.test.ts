@@ -1,5 +1,40 @@
 import { describe, expect, it } from "vitest";
-import { synthesizeCreated } from "./sleeper";
+import { standingsFrom, synthesizeCreated, syntheticScore } from "./sleeper";
+
+describe("synthetic scores and the standings rebuilt from them (review PRIV-3; Phase 3 matchup results)", () => {
+  it("gives each roster and week a fixed score of 70.00–159.99 in whole cents, not tied to the real one", () => {
+    const scores = [1, 2, 3, 12].flatMap((r) => [1, 2, 3].map((w) => syntheticScore(r, w)));
+    for (const s of scores) {
+      expect(s).toBeGreaterThanOrEqual(70);
+      expect(s).toBeLessThan(160);
+      expect(String(s)).toMatch(/^\d+(\.\d{1,2})?$/); // whole cents: prints without float noise
+    }
+    expect(syntheticScore(3, 2)).toBe(syntheticScore(3, 2));
+    expect(new Set(scores).size).toBeGreaterThan(scores.length - 2);
+  });
+
+  it("rebuilds W-L-T and points for/against from the scored weeks' pairs, ties included, and skips byes and unscored rows", () => {
+    const week1 = [
+      { roster_id: 1, matchup_id: 1, points: 100.5 },
+      { roster_id: 2, matchup_id: 1, points: 90.25 },
+      { roster_id: 3, matchup_id: 2, points: 80 },
+      { roster_id: 4, matchup_id: 2, points: 80 },
+      { roster_id: 5, matchup_id: null, points: 120 }, // a bye: no game
+    ];
+    const week2 = [
+      { roster_id: 1, matchup_id: 7, points: 70.1 },
+      { roster_id: 3, matchup_id: 7, points: 99.9 },
+      { roster_id: 2, matchup_id: 8, points: 88 },
+      { roster_id: 4, matchup_id: 8 }, // not scored: the game doesn't count
+    ];
+    const s = standingsFrom([week1, week2]);
+    expect(s.get(1)).toEqual({ wins: 1, losses: 1, ties: 0, forCents: 17060, againstCents: 19015 });
+    expect(s.get(2)).toEqual({ wins: 0, losses: 1, ties: 0, forCents: 9025, againstCents: 10050 });
+    expect(s.get(3)).toEqual({ wins: 1, losses: 0, ties: 1, forCents: 17990, againstCents: 15010 });
+    expect(s.get(4)).toEqual({ wins: 0, losses: 0, ties: 1, forCents: 8000, againstCents: 8000 });
+    expect(s.has(5)).toBe(false);
+  });
+});
 
 const HOUR = 3_600_000;
 const WEEK1 = Date.UTC(2026, 8, 9, 12); // the synthetic start of league week 1

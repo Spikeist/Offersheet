@@ -3,6 +3,7 @@ import { config } from "./config";
 import { lineupOrder, lineupTotal, prepareRoster, prepareSlots, solveLineup, type PreparedSlots } from "./lineup";
 import type { Pos, SlotDef } from "./model";
 import { instanceIndex, instancePointsInto, slotInstances } from "./needs";
+import { weeklySd } from "./projections";
 import { mulberry32 } from "./rng";
 import {
   addGainExact,
@@ -10,14 +11,22 @@ import {
   addUpperBound,
   bestFreeAgent,
   evLineups,
+  evRemovalCosts,
+  evScore,
+  lowestKeepValue,
   mvAddGroupPpw,
   mvAddPpw,
   mvLose,
   pickFreeAgent,
   positionAllows,
   ppw,
+  rosterScore,
   rosValue,
+  scenarioAddGain,
+  scenarioAddUpperBound,
   scenarioLineups,
+  scenarioRemovalCosts,
+  scenarioScore,
   scenarioValues,
   slotMask,
   solveEvWeeks,
@@ -28,19 +37,30 @@ import {
   windowWeights,
   type ProjectionTable,
   type RosterMove,
+  type ScenarioCells,
   type TableRow,
 } from "./teamValue";
 import { TEST_LINEUP } from "./testLeague";
 
 const slot = (name: string, count: number, eligible: Pos[]): SlotDef => ({ slot: name, count, eligible });
 
-/** A table row from per-week conditional points and availability (EV = c × a); flags S × W row-major. */
+/** A table row from per-week conditional points and availability (EV = c × a; SDs by §6 step 5, as league.ts builds them); flags S × W row-major. */
 function row(id: string, pos: Pos, cond: number[], opts: { a?: number[]; flags?: number[][]; eligible?: Pos[] } = {}): TableRow {
   const W = cond.length;
   const a = opts.a ?? cond.map(() => 1);
   const flags = opts.flags ? Uint8Array.from(opts.flags.flat()) : null;
   if (flags && flags.length % W !== 0) throw new Error("flags must be S × W");
-  return { id, pos, eligible: opts.eligible ?? [pos], cond: Float64Array.from(cond), ev: Float64Array.from(cond, (c, w) => c * (a[w] as number)), flags };
+  const ev = Float64Array.from(cond, (c, w) => c * (a[w] as number));
+  return {
+    id,
+    pos,
+    eligible: opts.eligible ?? [pos],
+    cond: Float64Array.from(cond),
+    ev,
+    condSd: Float64Array.from(cond, (c) => weeklySd(c, pos)),
+    evSd: Float64Array.from(ev, (p) => weeklySd(p, pos)),
+    flags,
+  };
 }
 
 function table(rows: TableRow[], weeks: number[], scenarios = 0): ProjectionTable {
@@ -152,16 +172,21 @@ describe("scenario lineups (planner reply to Checkpoint 1, addition C)", () => {
         return row(`p${k}`, pos, cond, { flags, eligible: pos === "RB" && rand() < 0.3 ? ["RB", "WR"] : [pos] });
       });
       const index = instanceIndex(slotInstances(lineup), slots);
-      const got = scenarioValues(teamEval(rows, slots), W, S, index);
+      const got = scenarioValues(teamEval(rows, slots), W, S, index, false, true);
       const naive = prepareRoster(rows, slots);
       for (let w = 0; w < W; w++) {
         const lvs: number[] = [];
+        let within = 0;
         const inst = new Float64Array(index.size);
         for (let s = 0; s < S; s++) {
           // Scenario s, week w: a player scores c_w when his flag is 1, else 0; one plain solve per scenario.
           const pts = Float64Array.from(rows, (r) => ((r.flags as Uint8Array)[s * W + w] === 1 ? (r.cond[w] as number) : 0));
           const seat = new Int32Array(n);
           lvs.push(lineupTotal(naive, pts, null, seat));
+          // The starters who play add their SD given they play: Σ condSd² (the law of total variance's within part).
+          rows.forEach((r, k) => {
+            if ((seat[k] as number) >= 0 && (r.flags as Uint8Array)[s * W + w] === 1) within += ((r.condSd[w] as number) ** 2) / S;
+          });
           const one = instancePointsInto(index, seat, pts, null, n, new Float64Array(index.size));
           for (let i = 0; i < index.size; i++) inst[i] = (inst[i] as number) + (one[i] as number) / S;
         }
@@ -169,6 +194,7 @@ describe("scenario lineups (planner reply to Checkpoint 1, addition C)", () => {
         const sd = Math.sqrt(lvs.reduce((x, y) => x + (y - mean) ** 2, 0) / S);
         expect(got.mean[w], `trial ${trial} week ${w}`).toBeCloseTo(mean, 9);
         expect(got.sd[w], `trial ${trial} week ${w}`).toBeCloseTo(sd, 9);
+        expect(got.within?.[w], `trial ${trial} week ${w}`).toBeCloseTo(within, 9);
         for (let i = 0; i < index.size; i++) expect(got.instances?.[w]?.[i], `trial ${trial} week ${w} instance ${i}`).toBeCloseTo(inst[i] as number, 9);
       }
       expect(got.solves).toBeLessThanOrEqual(S * W);
@@ -195,15 +221,26 @@ describe("scenario lineups (planner reply to Checkpoint 1, addition C)", () => {
         return row(`p${String(k).padStart(2, "0")}`, pos, cond, { flags });
       });
       const team = teamEval(rows, slots);
-      const got = scenarioValues(team, W, S);
+      const got = scenarioValues(team, W, S, null, false, trial % 2 === 0);
       const naive = prepareRoster(rows, slots);
       for (let w = 0; w < W; w++) {
         if (lineupOrder(team.prep, Float64Array.from(rows, (r) => r.cond[w] as number)).length > 30) deep++;
-        const lvs = Array.from({ length: S }, (_, s) => lineupTotal(naive, Float64Array.from(rows, (r) => ((r.flags as Uint8Array)[s * W + w] === 1 ? (r.cond[w] as number) : 0))));
+        let within = 0;
+        const lvs = Array.from({ length: S }, (_, s) => {
+          const seat = new Int32Array(n);
+          const lv = lineupTotal(naive, Float64Array.from(rows, (r) => ((r.flags as Uint8Array)[s * W + w] === 1 ? (r.cond[w] as number) : 0)), null, seat);
+          rows.forEach((r, k) => {
+            if ((seat[k] as number) >= 0 && (r.flags as Uint8Array)[s * W + w] === 1) within += ((r.condSd[w] as number) ** 2) / S;
+          });
+          return lv;
+        });
         const mean = lvs.reduce((x, y) => x + y, 0) / S;
         const sd = Math.sqrt(lvs.reduce((x, y) => x + (y - mean) ** 2, 0) / S);
         expect(got.mean[w], `trial ${trial} week ${w}`).toBeCloseTo(mean, 9);
         expect(got.sd[w], `trial ${trial} week ${w}`).toBeCloseTo(sd, 9);
+        // The within-lineup variance only when asked for (it needs every lineup's seats).
+        if (trial % 2 === 0) expect(got.within?.[w], `trial ${trial} week ${w}`).toBeCloseTo(within, 9);
+        else expect(got.within).toBeNull();
       }
     }
     expect(deep).toBeGreaterThan(40); // the string key really ran
@@ -224,6 +261,126 @@ describe("scenario lineups (planner reply to Checkpoint 1, addition C)", () => {
   it("a row without scenario flags never plays in scenarios (only IR and taxi players lack them)", () => {
     const t = table([row("a", "QB", [20], { flags: [[1], [1]] }), row("b", "QB", [30])], [5], 2);
     expect(scenarioLineups(["a", "b"], t, STANDARD).lv).toEqual([20]);
+  });
+});
+
+describe("the weekly score the season simulator draws (§8; TeamModel.score)", () => {
+  const QB_ONLY = prepareSlots([slot("QB", 1, ["QB"])]);
+
+  it("scenario lineups, by hand: one starter who plays in 3 of 4 scenarios has σ² = condSd² × P(plays) + the LV spread²", () => {
+    // σ given he plays: 0.3 × 20 + 3 = 9 (§6 step 5, QB). LV is 20 or 0: mean 15, spread² 0.75 × 0.25 × 20².
+    const qb = row("qb", "QB", [20], { flags: [[1], [1], [0], [1]] });
+    expect(qb.condSd[0]).toBe(9);
+    const v = scenarioValues(teamEval([qb], QB_ONLY), 1, 4, null, false, true);
+    expect(v.mean[0]).toBe(15);
+    expect(v.sd[0]).toBeCloseTo(Math.sqrt(0.75 * 0.25 * 400), 12);
+    expect(v.within?.[0]).toBeCloseTo(0.75 * 81, 12);
+    const score = scenarioScore(v);
+    expect(score.mean[0]).toBe(15);
+    expect(score.sd[0]).toBeCloseTo(Math.sqrt(0.75 * 81 + 0.75 * 0.25 * 400), 12);
+    // Without `spread` there's no within part to give (and scenarioScore refuses).
+    expect(() => scenarioScore(scenarioValues(teamEval([qb], QB_ONLY), 1, 4))).toThrow(/spread/);
+  });
+
+  it("scenario lineups: two independent starters add their variances; a bench player adds only when he starts", () => {
+    // Two RB slots: A (20, plays in scenario 0 only), B (15, always), C (8, bench unless A is out: scenario 1).
+    const a = row("a", "RB", [20], { flags: [[1], [0]] });
+    const b = row("b", "RB", [15], { flags: [[1], [1]] });
+    const c = row("c", "RB", [8], { flags: [[1], [1]] });
+    const v = scenarioValues(teamEval([a, b, c], prepareSlots([slot("RB", 2, ["RB"])])), 1, 2, null, false, true);
+    const sd = (x: number) => 0.45 * x + 2; // RB
+    // Scenario 0: A and B start; scenario 1: B and C.
+    expect(v.within?.[0]).toBeCloseTo((sd(20) ** 2 + sd(15) ** 2 + sd(15) ** 2 + sd(8) ** 2) / 2, 12);
+    expect(v.mean[0]).toBe((35 + 23) / 2);
+    expect(v.sd[0]).toBe(6);
+  });
+
+  it("EV lineups: the LV and sqrt(Σ σ²) over each week's starters (σ = c × p + d on expected points); the bench adds nothing", () => {
+    // QB expected 20 × 0.5 = 10 (σ 0.3 × 10 + 3 = 6); RB 15 (σ 0.45 × 15 + 2 = 8.75); a 5-point bench RB with one RB slot.
+    const rows = [row("qb", "QB", [20, 20], { a: [0.5, 1] }), row("rb", "RB", [15, 15]), row("rb2", "RB", [5, 5])];
+    const slots = prepareSlots([slot("QB", 1, ["QB"]), slot("RB", 1, ["RB"])]);
+    const score = evScore(solveEvWeeks(teamEval(rows, slots), 2));
+    expect([...score.mean]).toEqual([25, 35]);
+    expect(score.sd[0]).toBeCloseTo(Math.sqrt(6 ** 2 + 8.75 ** 2), 12);
+    expect(score.sd[1]).toBeCloseTo(Math.sqrt((0.3 * 20 + 3) ** 2 + 8.75 ** 2), 12);
+  });
+
+  it("a starter a minimum forces in without playing (a benched-out MFL TE) scores 0 and adds no spread", () => {
+    const slots = prepareSlots([slot("QB", 1, ["QB"]), slot("TE", 1, ["TE"])], { TE: { min: 1, max: 1 } });
+    const te = row("te", "TE", [10], { flags: [[0], [0]] }); // out in both scenarios, still forced into the TE spot
+    const qb = row("qb", "QB", [20], { flags: [[1], [1]] });
+    const v = scenarioValues(teamEval([qb, te], slots), 1, 2, null, true, true);
+    expect(v.cells?.seat[0]?.[0]?.[1]).toBeGreaterThanOrEqual(0); // the TE is seated…
+    expect(v.within?.[0]).toBeCloseTo(9 ** 2, 12); // …but only the QB's spread counts
+    expect(v.mean[0]).toBe(20);
+  });
+
+  it("rosterScore (scripts, Phase 4): scenario lineups when the table has scenarios, else EV; the first k weeks on request", () => {
+    const rows = [row("qb", "QB", [20, 18], { a: [0.5, 1], flags: [[1, 1], [0, 1]] }), row("rb", "RB", [15, 15], { flags: [[1, 1], [1, 0]] })];
+    const slots = prepareSlots([slot("QB", 1, ["QB"]), slot("RB", 1, ["RB"])]);
+    const withScenarios = table(rows, [5, 6], 2);
+    const expected = scenarioScore(scenarioValues(teamEval(rows, slots), 2, 2, null, false, true));
+    expect(rosterScore(["qb", "rb"], withScenarios, slots)).toEqual({ mean: [...expected.mean], sd: [...expected.sd] });
+    expect(rosterScore(["qb", "rb"], withScenarios, slots, 1)).toEqual({ mean: [expected.mean[0]], sd: [expected.sd[0]] });
+    const ev = evScore(solveEvWeeks(teamEval(rows, slots), 2));
+    expect(rosterScore(["qb", "rb"], table(rows, [5, 6], 0), slots)).toEqual({ mean: [...ev.mean], sd: [...ev.sd] });
+  });
+});
+
+describe("scenario flags have one stride, the row's own week count (solving fewer weeks or scenarios than the table holds)", () => {
+  it("the first k weeks solved alone equal the first k weeks of the full solve, for every reader of the flags: 100 random rosters", () => {
+    const rand = mulberry32(8484);
+    for (let trial = 0; trial < 100; trial++) {
+      const W = 2 + Math.floor(rand() * 4);
+      const S = 1 + Math.floor(rand() * 8);
+      const slots = trial % 2 === 0 ? STANDARD : SUPERFLEX;
+      const lineup = trial % 2 === 0 ? TEST_LINEUP : SUPERFLEX_LINEUP;
+      const index = instanceIndex(slotInstances(lineup), slots);
+      const rows = Array.from({ length: 2 + Math.floor(rand() * 12) }, (_, k) => scenarioRow(rand, `r${k}`, W, S));
+      const added = scenarioRow(rand, "new", W, S, 0.9);
+      const mask = slotMask(slots, added.pos, added.eligible);
+      const team = teamEval(rows, slots);
+      const full = scenarioValues(team, W, S, index, true, true);
+      for (let k = 1; k < W; k++) {
+        const part = scenarioValues(team, k, S, index, true, true);
+        for (let w = 0; w < k; w++) {
+          expect(part.mean[w], `trial ${trial}, ${k} of ${W} weeks, week ${w}`).toBe(full.mean[w]);
+          expect(part.sd[w], `trial ${trial}, ${k} of ${W} weeks, week ${w}`).toBe(full.sd[w]);
+          expect(part.within?.[w], `trial ${trial}, ${k} of ${W} weeks, week ${w}`).toBe(full.within?.[w]);
+          expect(part.instances?.[w], `trial ${trial}, ${k} of ${W} weeks, week ${w}`).toEqual(full.instances?.[w]);
+        }
+        // Adding and removing players on the k-week cells: the full cells with the later weeks weighted 0.
+        const weights = Float64Array.from({ length: W }, (_, w) => (w < k ? 1 + (w % 2) * 0.25 : 0));
+        const partCells = part.cells as ScenarioCells;
+        const fullCells = full.cells as ScenarioCells;
+        expect(scenarioAddGain(partCells, added, mask, weights), `trial ${trial}`).toBeCloseTo(scenarioAddGain(fullCells, added, mask, weights), 12);
+        expect(scenarioAddUpperBound(partCells, added, mask, weights), `trial ${trial}`).toBeCloseTo(scenarioAddUpperBound(fullCells, added, mask, weights), 12);
+        expect([...scenarioRemovalCosts(partCells, weights)].map((x) => x.toFixed(9)), `trial ${trial}`).toEqual([...scenarioRemovalCosts(fullCells, weights)].map((x) => x.toFixed(9)));
+      }
+    }
+  });
+
+  it("the first S′ scenarios of a table with more read the same flags as a table built with S′ (the stride isn't flags.length / S′)", () => {
+    const rand = mulberry32(5151);
+    for (let trial = 0; trial < 50; trial++) {
+      const W = 1 + Math.floor(rand() * 4);
+      const S = 4 + Math.floor(rand() * 6);
+      const Sp = 1 + Math.floor(rand() * (S - 1));
+      const rows = Array.from({ length: 2 + Math.floor(rand() * 10) }, (_, k) => scenarioRow(rand, `r${k}`, W, S));
+      const fewer = rows.map((r) => ({ ...r, flags: (r.flags as Uint8Array).slice(0, Sp * W) }));
+      const got = scenarioValues(teamEval(rows, STANDARD), W, Sp, null, true, true);
+      const want = scenarioValues(teamEval(fewer, STANDARD), W, Sp, null, true, true);
+      expect([...got.mean], `trial ${trial}`).toEqual([...want.mean]);
+      expect([...got.sd], `trial ${trial}`).toEqual([...want.sd]);
+      expect([...(got.within as Float64Array)], `trial ${trial}`).toEqual([...(want.within as Float64Array)]);
+      // A newcomer with the table's S scenarios, added to S′-scenario cells, reads his first S′.
+      const added = scenarioRow(rand, "new", W, S, 0.9);
+      const addedFewer = { ...added, flags: (added.flags as Uint8Array).slice(0, Sp * W) };
+      const mask = slotMask(STANDARD, added.pos, added.eligible);
+      const weights = Float64Array.from({ length: W }, () => 1);
+      expect(scenarioAddGain(got.cells as ScenarioCells, added, mask, weights), `trial ${trial}`).toBe(scenarioAddGain(want.cells as ScenarioCells, addedFewer, mask, weights));
+      expect(scenarioAddUpperBound(got.cells as ScenarioCells, added, mask, weights), `trial ${trial}`).toBe(scenarioAddUpperBound(want.cells as ScenarioCells, addedFewer, mask, weights));
+    }
   });
 });
 
@@ -470,6 +627,265 @@ describe("MV_lose (§7 marginal values; addition C: depth counts in scenario lin
     const t = table(rows, [5, 6]);
     const raw = mvLose(["rbA", "rbB", "rbC"], "rbC", ["faRB"], t, slots, { weights });
     expect(raw).toMatchObject({ ev: -2, autoAdd: "faRB" }); // T − C + fa = 20 + 19 twice, against T's 20 + 18
+  });
+});
+
+const SCENARIO_POSITIONS: Pos[] = ["QB", "RB", "RB", "WR", "WR", "TE", "K", "DEF"];
+/** A random row with S scenarios of flags (mostly available, so patterns repeat), and zero or bye weeks now and then. */
+function scenarioRow(rand: () => number, id: string, W: number, S: number, scale = 1, positions: readonly Pos[] = SCENARIO_POSITIONS, zero = 0.1): TableRow {
+  const pos = positions[Math.floor(rand() * positions.length)] as Pos;
+  const cond = Array.from({ length: W }, () => (rand() < zero ? 0 : Math.round(rand() * 250 * scale) / 10));
+  const flags = Array.from({ length: S }, () => Array.from({ length: W }, () => (rand() < 0.8 ? 1 : 0)));
+  return row(id, pos, cond, { flags, eligible: pos === "WR" && rand() < 0.25 ? ["WR", "RB"] : [pos] });
+}
+
+describe("adding a player in scenario lineups (trade chips, §7: ScenarioCells, scenarioAddUpperBound, scenarioAddGain)", () => {
+  /** Σ_w weights_w · (mean LV of base + added − mean LV of base): the brute-force scenario gain. */
+  function bruteGain(base: TableRow[], added: TableRow, slots: PreparedSlots, W: number, S: number, weights: ArrayLike<number>): number {
+    const before = scenarioValues(teamEval(base, slots), W, S).mean;
+    const after = scenarioValues(teamEval([...base, added], slots), W, S).mean;
+    let gain = 0;
+    for (let w = 0; w < W; w++) gain += (weights[w] as number) * ((after[w] as number) - (before[w] as number));
+    return gain;
+  }
+
+  it("keeps each week's patterns: every scenario's LV is its pattern's, and the mean is scenarioValues' own", () => {
+    const rand = mulberry32(515);
+    for (let trial = 0; trial < 60; trial++) {
+      const W = 1 + Math.floor(rand() * 4);
+      const S = 1 + Math.floor(rand() * 10);
+      const slots = trial % 2 === 0 ? STANDARD : SUPERFLEX;
+      const rows = Array.from({ length: 2 + Math.floor(rand() * 12) }, (_, k) => scenarioRow(rand, `p${k}`, W, S));
+      const team = teamEval(rows, slots);
+      const kept = scenarioValues(team, W, S, null, true);
+      const cells = kept.cells as ScenarioCells;
+      expect([...kept.mean]).toEqual([...scenarioValues(team, W, S).mean]);
+      expect(scenarioValues(team, W, S).cells).toBeNull();
+      const naive = prepareRoster(rows, slots);
+      for (let w = 0; w < W; w++) {
+        const pattern = cells.pattern[w] as Int32Array;
+        expect(pattern).toHaveLength(S);
+        for (let s = 0; s < S; s++) {
+          const pts = Float64Array.from(rows, (r) => ((r.flags as Uint8Array)[s * W + w] === 1 ? (r.cond[w] as number) : 0));
+          const p = pattern[s] as number;
+          expect(cells.lv[w]?.[p], `trial ${trial} week ${w} scenario ${s}`).toBeCloseTo(lineupTotal(naive, pts), 9);
+          // Who plays in the pattern: exactly the players who can score (points and a slot) and play in this scenario.
+          rows.forEach((r, k) => expect(cells.avail[w]?.[p]?.[k], `trial ${trial} week ${w} scenario ${s} player ${k}`).toBe((pts[k] as number) > 0 && slotMask(slots, r.pos, r.eligible) !== 0 ? 1 : 0));
+        }
+      }
+    }
+  });
+
+  it("the exact gain is the difference of the two rosters' scenario means (brute force); the bound is never below it, and a 0 bound means exactly 0: 300 random cases", () => {
+    const rand = mulberry32(4242);
+    let bounded = 0;
+    let positive = 0;
+    for (let trial = 0; trial < 300; trial++) {
+      const W = 1 + Math.floor(rand() * 4);
+      const S = 1 + Math.floor(rand() * 12);
+      const slots = trial % 2 === 0 ? STANDARD : SUPERFLEX;
+      const base = Array.from({ length: 2 + Math.floor(rand() * 14) }, (_, k) => scenarioRow(rand, `r${k}`, W, S));
+      const added = scenarioRow(rand, "new", W, S, 0.9);
+      const weights = Float64Array.from({ length: W }, () => (rand() < 0.2 ? 0 : rand() < 0.5 ? 1 : 1.25));
+      const cells = scenarioValues(teamEval(base, slots), W, S, null, true).cells as ScenarioCells;
+      const mask = slotMask(slots, added.pos, added.eligible);
+      const exact = scenarioAddGain(cells, added, mask, weights);
+      expect(exact, `trial ${trial}`).toBeCloseTo(bruteGain(base, added, slots, W, S, weights), 9);
+      const ub = scenarioAddUpperBound(cells, added, mask, weights);
+      expect(ub, `trial ${trial}`).toBeGreaterThanOrEqual(exact - 1e-9);
+      // Tight, in fact (the file header): every starter in a group he can reach is one he can push out.
+      expect(ub, `trial ${trial}`).toBeCloseTo(exact, 9);
+      if (ub === 0) {
+        expect(exact, `trial ${trial}`).toBe(0);
+        bounded++;
+      }
+      if (exact > 1e-9) positive++;
+      // The cells are cached per slot mask: asking again gives the same bound.
+      expect(scenarioAddUpperBound(cells, added, mask, weights)).toBe(ub);
+    }
+    expect(bounded).toBeGreaterThan(20); // the case that skips every solve does occur
+    expect(positive).toBeGreaterThan(50);
+  });
+
+  it("stays exact under starter minimums (MFL), where nothing is bounded (+Infinity) and a newcomer can even lower LV: 150 random cases", () => {
+    const slots = prepareSlots([slot("QB", 1, ["QB"]), slot("FLEX", 6, ["RB", "WR", "TE"]), slot("K", 1, ["K"])], { RB: { min: 2, max: 4 }, WR: { min: 2, max: 4 }, TE: { min: 1, max: 2 } });
+    const positions: Pos[] = ["QB", "RB", "RB", "WR", "WR", "TE", "K"];
+    const rand = mulberry32(8080);
+    let negative = 0;
+    for (let trial = 0; trial < 150; trial++) {
+      const W = 1 + Math.floor(rand() * 3);
+      const S = 1 + Math.floor(rand() * 8);
+      // Byes and zero weeks force 0-point starters into the minimums.
+      const base = Array.from({ length: 4 + Math.floor(rand() * 9) }, (_, k) => scenarioRow(rand, `r${k}`, W, S, 1, positions, 0.3));
+      const added = scenarioRow(rand, "new", W, S, 1, positions, 0.3);
+      const weights = Float64Array.from({ length: W }, () => 1);
+      const cells = scenarioValues(teamEval(base, slots), W, S, null, true).cells as ScenarioCells;
+      const mask = slotMask(slots, added.pos, added.eligible);
+      const exact = scenarioAddGain(cells, added, mask, weights);
+      expect(exact, `trial ${trial}`).toBeCloseTo(bruteGain(base, added, slots, W, S, weights), 9);
+      expect(scenarioAddUpperBound(cells, added, mask, weights)).toBe(Number.POSITIVE_INFINITY);
+      if (exact < -1e-9) negative++;
+    }
+    expect(negative).toBeGreaterThan(0);
+  });
+
+  it("a newcomer who never plays in scenarios (no flags) or fits no slot adds nothing; without scenarios nothing is added", () => {
+    const base = [row("qb", "QB", [20], { flags: [[1], [1]] })];
+    const cells = scenarioValues(teamEval(base, STANDARD), 1, 2, null, true).cells as ScenarioCells;
+    const noFlags = row("rb", "RB", [15]);
+    expect(scenarioAddGain(cells, noFlags, slotMask(STANDARD, "RB", ["RB"]), [1])).toBe(0);
+    expect(scenarioAddUpperBound(cells, noFlags, slotMask(STANDARD, "RB", ["RB"]), [1])).toBe(0);
+    const punter = row("p", "P", [9], { flags: [[1], [1]] });
+    expect(slotMask(STANDARD, "P", ["P"])).toBe(0);
+    expect(scenarioAddGain(cells, punter, 0, [1])).toBe(0);
+    // An RB into the empty RB slots: his whole 15 in the scenario he plays.
+    const rb = row("rb", "RB", [15], { flags: [[1], [0]] });
+    expect(scenarioAddGain(cells, rb, slotMask(STANDARD, "RB", ["RB"]), [1])).toBeCloseTo(7.5, 12);
+    expect(scenarioAddUpperBound(cells, rb, slotMask(STANDARD, "RB", ["RB"]), [1])).toBeCloseTo(7.5, 12);
+    const none = scenarioValues(teamEval(base, STANDARD), 1, 0, null, true).cells as ScenarioCells;
+    expect(scenarioAddGain(none, rb, slotMask(STANDARD, "RB", ["RB"]), [1])).toBe(0);
+    expect(scenarioAddUpperBound(none, rb, slotMask(STANDARD, "RB", ["RB"]), [1])).toBe(0);
+  });
+});
+
+describe("removing a player (§7 roster legality: keep value = marginal ROS contribution, which picks the player a full roster drops)", () => {
+  // One week, standard lineup: two equal QBs, a FLEX WR, a 9-point bench RB (who plays in the scenarios `rb3` says), no backup TE, K or D/ST.
+  const BOTH = [[1], [1]];
+  const handRows = (rb3: number[][] = BOTH): TableRow[] => [
+    row("qb", "QB", [20], { flags: BOTH }),
+    row("qb2", "QB", [20], { flags: BOTH }),
+    row("rb1", "RB", [15], { flags: BOTH }),
+    row("rb2", "RB", [13], { flags: BOTH }),
+    row("wr1", "WR", [15], { flags: BOTH }),
+    row("wr2", "WR", [13], { flags: BOTH }),
+    row("flex", "WR", [11], { flags: BOTH }),
+    row("te", "TE", [10], { flags: BOTH }),
+    row("k", "K", [8], { flags: BOTH }),
+    row("def", "DEF", [7], { flags: BOTH }),
+    row("rb3", "RB", [9], { flags: rb3 }),
+  ];
+  const byId = (team: { rows: readonly TableRow[] }, costs: Float64Array) => Object.fromEntries(team.rows.map((r, k) => [r.id, costs[k]]));
+
+  it("a starter nobody can replace costs all his points, one with an equal backup nothing, a bench player nothing; the bench RB covers a WR through the FLEX", () => {
+    const team = teamEval(handRows(), STANDARD);
+    const expected = {
+      qb: 0, // the other 20-point QB steps in
+      qb2: 0, // bench
+      rb1: 15 - 9, // the bench RB
+      rb2: 13 - 9,
+      wr1: 15 - 9, // the FLEX WR moves over and the bench RB takes the FLEX
+      wr2: 13 - 9,
+      flex: 11 - 9,
+      te: 10, // nobody else fits: his whole points
+      k: 8,
+      def: 7,
+      rb3: 0,
+    };
+    expect(byId(team, evRemovalCosts(solveEvWeeks(team, 1), [1]))).toEqual(expected);
+    // Scenario lineups: the same when everyone plays in every scenario, and weights scale it.
+    const cells = scenarioValues(team, 1, 2, null, true).cells as ScenarioCells;
+    expect(byId(team, scenarioRemovalCosts(cells, [1]))).toEqual(expected);
+    expect(byId(team, scenarioRemovalCosts(cells, [1.25]))).toEqual(Object.fromEntries(Object.entries(expected).map(([id, c]) => [id, c * 1.25])));
+    // The bench RB plays in one scenario of two: in the other nobody covers an RB, a WR or the FLEX.
+    const half = teamEval(handRows([[1], [0]]), STANDARD);
+    const halfCells = scenarioValues(half, 1, 2, null, true).cells as ScenarioCells;
+    expect(byId(half, scenarioRemovalCosts(halfCells, [1]))).toEqual({ ...expected, rb1: (6 + 15) / 2, rb2: (4 + 13) / 2, wr1: (6 + 15) / 2, wr2: (4 + 13) / 2, flex: (2 + 11) / 2 });
+  });
+
+  it("equals brute force (the roster without him solved on its own), EV and scenario lineups: 300 random rosters, three lineups", () => {
+    const rand = mulberry32(9191);
+    const lineups = [STANDARD, SUPERFLEX, prepareSlots(IDP_LINEUP)];
+    const idpPositions: Pos[] = [...SCENARIO_POSITIONS, "DL", "LB", "DB"];
+    let expensive = 0;
+    for (let trial = 0; trial < 300; trial++) {
+      const W = 1 + Math.floor(rand() * 4);
+      const S = 1 + Math.floor(rand() * 10);
+      const slots = lineups[trial % 3] as PreparedSlots;
+      const weights = Float64Array.from({ length: W }, () => (rand() < 0.2 ? 0 : rand() < 0.5 ? 1 : 1.25));
+      // EV: rows with random availability (so EV points ≠ conditional points), byes and zero weeks.
+      const { roster } = randomPool(rand, W, 1 + Math.floor(rand() * 16), 0);
+      const ev = evRemovalCosts(solveEvWeeks(teamEval(roster, slots), W), weights);
+      roster.forEach((r, k) => {
+        const minus = roster.filter((_, i) => i !== k);
+        let exact = 0;
+        for (let w = 0; w < W; w++) exact += (weights[w] as number) * (lv(roster, slots, (x) => x.ev[w] as number) - lv(minus, slots, (x) => x.ev[w] as number));
+        expect(ev[k], `trial ${trial} EV ${r.id}`).toBeCloseTo(exact, 9);
+      });
+      // Scenario lineups.
+      const rows = Array.from({ length: 1 + Math.floor(rand() * 16) }, (_, k) => scenarioRow(rand, `r${k}`, W, S, 1, trial % 3 === 2 ? idpPositions : SCENARIO_POSITIONS));
+      const team = teamEval(rows, slots);
+      const kept = scenarioValues(team, W, S, null, true);
+      const scen = scenarioRemovalCosts(kept.cells as ScenarioCells, weights);
+      const before = rosValue(kept.mean, weights);
+      rows.forEach((r, k) => {
+        const exact = before - rosValue(scenarioValues(teamEval(rows.filter((_, i) => i !== k), slots), W, S).mean, weights);
+        expect(scen[k], `trial ${trial} scenarios ${r.id}`).toBeCloseTo(exact, 9);
+        expect(scen[k] as number, `trial ${trial} scenarios ${r.id}`).toBeGreaterThanOrEqual(-1e-9);
+        if (exact > 1) expensive++;
+      });
+    }
+    expect(expensive).toBeGreaterThan(300); // starters who cost something do occur
+  });
+
+  it("stays exact under starter minimums (MFL), where each roster without him is solved again (his loss can even raise LV there): 100 random cases", () => {
+    const slots = prepareSlots([slot("QB", 1, ["QB"]), slot("FLEX", 6, ["RB", "WR", "TE"]), slot("K", 1, ["K"])], { RB: { min: 2, max: 4 }, WR: { min: 2, max: 4 }, TE: { min: 1, max: 2 } });
+    const positions: Pos[] = ["QB", "RB", "RB", "WR", "WR", "TE", "K"];
+    const rand = mulberry32(6262);
+    let raises = 0;
+    for (let trial = 0; trial < 100; trial++) {
+      const W = 1 + Math.floor(rand() * 3);
+      const S = 1 + Math.floor(rand() * 6);
+      const weights = Float64Array.from({ length: W }, () => 1);
+      // Byes and zero weeks force 0-point starters into the minimums.
+      const rows = Array.from({ length: 3 + Math.floor(rand() * 10) }, (_, k) => scenarioRow(rand, `r${k}`, W, S, 1, positions, 0.3));
+      const team = teamEval(rows, slots);
+      const ev = evRemovalCosts(solveEvWeeks(team, W), weights);
+      const kept = scenarioValues(team, W, S, null, true);
+      const scen = scenarioRemovalCosts(kept.cells as ScenarioCells, weights);
+      rows.forEach((r, k) => {
+        const minus = rows.filter((_, i) => i !== k);
+        let exactEv = 0;
+        for (let w = 0; w < W; w++) exactEv += lv(rows, slots, (x) => x.ev[w] as number) - lv(minus, slots, (x) => x.ev[w] as number);
+        expect(ev[k], `trial ${trial} EV ${r.id}`).toBeCloseTo(exactEv, 9);
+        const exactScen = rosValue(kept.mean, weights) - rosValue(scenarioValues(teamEval(minus, slots), W, S).mean, weights);
+        expect(scen[k], `trial ${trial} scenarios ${r.id}`).toBeCloseTo(exactScen, 9);
+        if (exactEv < -1e-9 || exactScen < -1e-9) raises++;
+      });
+    }
+    expect(raises).toBeGreaterThan(0); // a forced 0-point starter whose loss frees his slot for a better player
+  });
+
+  it("nothing to lose without scenarios, players or weight", () => {
+    const team = teamEval(handRows(), STANDARD);
+    expect([...scenarioRemovalCosts(scenarioValues(team, 1, 0, null, true).cells as ScenarioCells, [1])]).toEqual(new Array(11).fill(0));
+    expect([...evRemovalCosts(solveEvWeeks(team, 1), [0])]).toEqual(new Array(11).fill(0));
+    expect([...evRemovalCosts(solveEvWeeks(teamEval([], STANDARD), 2), [1, 1])]).toEqual([]);
+  });
+});
+
+describe("lowestKeepValue (§7 roster legality: the player a full roster drops)", () => {
+  it("drops the lowest keep value; ties within 1e-9 go to the lower market value, then the smaller id; null without candidates", () => {
+    expect(lowestKeepValue([])).toBeNull();
+    expect(
+      lowestKeepValue([
+        { id: "a", keep: 5, value: 100 },
+        { id: "b", keep: 0.4, value: 900 },
+        { id: "c", keep: 3, value: 10 },
+      ]),
+    ).toBe("b");
+    // Equal keep values (float noise included): the less valuable player goes, whatever the ids say.
+    expect(
+      lowestKeepValue([
+        { id: "a-pricey", keep: 0, value: 900 },
+        { id: "z-cheap", keep: 1e-12, value: 100 },
+      ]),
+    ).toBe("z-cheap");
+    expect(
+      lowestKeepValue([
+        { id: "y", keep: 0, value: 100 },
+        { id: "x", keep: 0, value: 100 },
+      ]),
+    ).toBe("x");
   });
 });
 

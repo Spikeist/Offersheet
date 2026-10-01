@@ -9,7 +9,7 @@
   },
   "fc0440a9c0f8a43d773a66ccfc3c04e67e8d150e61105dbeb2423ef19d17c7f5.json": {
     "label": "matchups/1",
-    "note": "pairs only"
+    "note": "pairs + synthetic team scores"
   },
   "c20a590dfa74eee26ea037fc512a768a77ddb10681b37defe866d2c39094ed4d.json": {
     "label": "matchups/10",
@@ -37,11 +37,11 @@
   },
   "ca86bba60c655cf47797fc7fe48c2a081afbaeb86299177e6ac8cdac8271cc4e.json": {
     "label": "matchups/2",
-    "note": "pairs + players_points for a subset"
+    "note": "pairs + players_points for a subset + synthetic team scores"
   },
   "a6b2b5a88f7d71036e1d1bffa549a9bde05b211a3df1f4cd8c124e66f6ab1b77.json": {
     "label": "matchups/3",
-    "note": "pairs + players_points for a subset"
+    "note": "pairs + players_points for a subset + synthetic team scores"
   },
   "2487bf4856d33930e2e03b351d5807918c47db11918754caa7f190654f05cd39.json": {
     "label": "matchups/4",
@@ -80,7 +80,7 @@
   },
   "2c35352231b848204ba367a74e40b6eecd875fc5f147744ceb9ab0d3d01f8582.json": {
     "label": "rosters",
-    "note": "a subset of each roster: one IR and one taxi player where present, and a small starting core; synthetic points for/against"
+    "note": "a subset of each roster: one IR and one taxi player where present, and a small starting core; records and points for/against rebuilt from the synthetic scores"
   },
   "90ee7e7f68438e762f725421788fd32731f048749b5f186fc9b880812afb544e.json": {
     "label": "stats/2",

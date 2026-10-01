@@ -10,9 +10,14 @@
  * keys (src/adapters/espn/scoringMap.ts).
  *
  * - The weekly URLs and cache entries are the Sleeper adapter's (sleeperUrls.projections, key
- *   `sleeper:${url}`, PROJECTIONS_POLICY: served and kept 6 hours, an empty list never cached), and the
- *   positions go in the adapter's order, so an import's projection weeks aren't fetched twice. Season
- *   projections and stats are cached the same way.
+ *   `sleeper:${url}`, projectionsPolicy: each NFL week its own entry, served 6 hours for the current
+ *   week, the next 2 and past weeks and 24 hours for later weeks, and kept 24 hours either way, §2.10;
+ *   an empty list never cached), and the positions go in the adapter's order, so an import's projection
+ *   weeks aren't fetched twice. Season projections and stats are served and kept 6 hours
+ *   (PROJECTIONS_POLICY).
+ * - Every week read with a real projection in it is handed to an optional onWeek hook: the pre-game
+ *   projection archive (§2.3 "Pre-game snapshots", src/server/projectionArchive.ts), which
+ *   buildModelInputs and `npm run snapshot:projections` wire in.
  * - One request at a time (await in a loop), through a SleeperGate that one model build's three loads
  *   share, so a Sleeper outage costs a build 2 requests and seconds, not 84 requests and minutes
  *   (review DATA-1, PERF-1):
@@ -22,8 +27,13 @@
  *   - the outage is remembered per HttpClient for SLEEPER_OUTAGE_HOLD_MS, doubling while it lasts (at
  *     most SLEEPER_OUTAGE_MAX_HOLD_MS), so the builds in between ask nothing either (measured from each
  *     build's own time, passed in); a later build then asks again, and one answer ends the outage;
- *   - while Sleeper isn't asked, a list the server cache is known to hold (one this process read, still
- *     inside its 6 hours) is read from the cache anyway: an outage only costs what the cache doesn't hold.
+ *   - while Sleeper isn't asked, a list the server cache is known to serve is read from the cache anyway
+ *     (a cache hit makes no request): one this process read, remembered per URL with its fetch time and
+ *     how long the cache keeps it, and still younger than this request's TTL (6 or 24 hours). An outage
+ *     only costs what the cache doesn't hold. How long the cache keeps a copy is its policy's retention,
+ *     the same for every request of the URL whichever build stored or read the copy (weekly projections:
+ *     24 hours, near week or later), never the reading request's TTL: builds at different current weeks
+ *     ask for the same week under different TTLs.
  *   Each week or list left out that way is a SLEEPER_DOWN warning (src/server/modelInputs.ts merges them
  *   into one line). A 404 or an empty list is an answer: that week gets its own warning and the rest is
  *   still asked for.
@@ -38,7 +48,7 @@
  * - Stats rows: players with gp > 0 only (gp is 1 or absent on /stats, never 0; Phase 0 cache check), in
  *   raw /stats keys, which are the canonical keys.
  */
-import { PROJECTIONS_POLICY, SLEEPER_PROJECTIONS, sleeperUrls } from "@/adapters/sleeper/fetch";
+import { PROJECTIONS_POLICY, projectionsPolicy, SLEEPER_PROJECTIONS, sleeperUrls, type CachePolicy } from "@/adapters/sleeper/fetch";
 import { hasProjection, LAST_NFL_WEEK } from "@/adapters/sleeper/normalize";
 import { normalizeProjectionStats } from "@/adapters/sleeper/scoringMap";
 import { parseArrayLenient, StatRowSchema, type SleeperStatRow } from "@/adapters/sleeper/schemas";
@@ -111,9 +121,11 @@ export function sleeperOutageHoldMs(outages: number): number {
 /** Warning code of a week or list left out because Sleeper stopped answering (one per item; src/server/modelInputs.ts merges them). */
 export const SLEEPER_DOWN = "SLEEPER_DOWN";
 
-/** Options of every request here: the adapter's cache entry for projections (PROJECTIONS_POLICY), with this module's timeout. */
-function requestOptions(url: string, maxRetries: number): HttpRequestOptions {
-  const p = PROJECTIONS_POLICY;
+/**
+ * Options of every request here: the adapter's cache entry for the URL (its cache policy: projectionsPolicy
+ * for a week's projections, PROJECTIONS_POLICY for the season list and stats), with this module's timeout.
+ */
+function requestOptions(url: string, maxRetries: number, p: CachePolicy): HttpRequestOptions {
   return {
     cache: { key: sleeperCacheKey(url), ttlMs: p.ttlMs, retainMs: p.retainMs },
     bigIntsAsStrings: true,
@@ -151,6 +163,24 @@ function rowsOf(res: HttpResponse): SleeperRows {
   return { rows: rows as SleeperStatRow[], bad, ...(firstBadPath ? { firstBadPath } : {}), res };
 }
 
+/** A list the server cache keeps: when its copy was fetched (epoch ms) and how long the cache keeps it. */
+interface CachedList {
+  fetchedAt: number;
+  /**
+   * The copy's retention (retentionOf its policy), which is the same for every request of the URL
+   * whichever build stored the copy or read it: weekly projections 24 hours, near week or later
+   * (projectionsPolicy); season projections and stats 6 hours. Not the reading request's TTL: a build at
+   * another current week can store a week under a 6-hour TTL and read it under a 24-hour one, or the
+   * other way round.
+   */
+  retainMs: number;
+}
+
+/** How long the server cache keeps a copy stored under `policy` (src/server/http.ts: at least as long as it is served). */
+function retentionOf(policy: CachePolicy): number {
+  return Math.max(policy.ttlMs, policy.retainMs);
+}
+
 /** What the process remembers about Sleeper, per HttpClient (reuse one client per server process, src/app/api/_lib/deps.ts). */
 interface SleeperHealth {
   /** Sleeper isn't asked before this (epoch ms). */
@@ -159,8 +189,8 @@ interface SleeperHealth {
   reason: string;
   /** Outages in a row: each doubles the next hold; back to 0 once Sleeper answers. */
   outages: number;
-  /** URL → when the copy the server cache keeps for it was fetched (epoch ms): lists this process read, dropped once past the cache's TTL. */
-  cached: Map<string, number>;
+  /** URL → the copy the server cache keeps for it: lists this process read, dropped once past their retention. */
+  cached: Map<string, CachedList>;
 }
 
 const healthByClient = new WeakMap<HttpClient, SleeperHealth>();
@@ -169,8 +199,12 @@ const healthByClient = new WeakMap<HttpClient, SleeperHealth>();
 export interface SleeperGate {
   /** Why Sleeper isn't asked (it stopped answering in this build, or an outage is remembered); undefined while it is. */
   down(): string | undefined;
-  /** One projections or stats list: from the server cache or Sleeper, or why not. Never throws. */
-  rows(url: string): Promise<SleeperRows>;
+  /**
+   * One projections or stats list: from the server cache or Sleeper, or why not. Never throws. `policy`
+   * is the URL's cache policy (default PROJECTIONS_POLICY, 6 hours; a week's projections:
+   * projectionsPolicy). Every request of one URL must use the same retention (see CachedList).
+   */
+  rows(url: string, policy?: CachePolicy): Promise<SleeperRows>;
 }
 
 /**
@@ -186,43 +220,55 @@ export function sleeperGate(http: HttpClient, now: Date): SleeperGate {
     healthByClient.set(http, health);
   }
   const h = health;
-  const inCache = (fetchedAt: number | undefined): boolean => fetchedAt !== undefined && fetchedAt + PROJECTIONS_POLICY.ttlMs > at;
-  for (const [url, fetchedAt] of h.cached) if (!inCache(fetchedAt)) h.cached.delete(url);
+  /** The server cache still holds the copy: it isn't past its retention (the cache deletes it then). */
+  const held = (copy: CachedList): boolean => copy.fetchedAt + copy.retainMs > at;
+  /**
+   * The server cache serves the copy to a request with TTL `ttlMs` (FileCache.get): it still holds it,
+   * and the copy is younger than that TTL (a week that moved from "later" to "near" is served 6 hours,
+   * not 24). Ages count from the fetch, which is at or before the time the copy was stored.
+   */
+  const servable = (copy: CachedList | undefined, ttlMs: number): boolean => copy !== undefined && copy.fetchedAt + Math.min(copy.retainMs, ttlMs) > at;
+  for (const [url, copy] of h.cached) if (!held(copy)) h.cached.delete(url);
   /** Why Sleeper stopped answering in this build. */
   let tripped: string | undefined;
 
   const down = (): string | undefined => tripped ?? (h.downUntil > at ? h.reason : undefined);
 
-  const request = async (url: string, maxRetries: number): Promise<HttpResponse | undefined> => {
+  const request = async (url: string, maxRetries: number, policy: CachePolicy): Promise<HttpResponse | undefined> => {
     try {
-      return await http.get(url, requestOptions(url, maxRetries));
+      return await http.get(url, requestOptions(url, maxRetries, policy));
     } catch {
       return undefined; // the real client never throws; any other client's failure is no response
     }
   };
 
-  /** Notes a list the server cache keeps (a 200 non-empty list, PROJECTIONS_POLICY.cacheIf), so a later outage can still read it. */
-  const remember = (url: string, res: HttpResponse): void => {
+  /**
+   * Notes a list the server cache keeps (a 200 list the policy's cacheIf accepts), so a later outage can
+   * still read it. A cache hit or a single-flight join may be a copy another request stored: the
+   * policy's retention is the copy's all the same (one retention per URL, see CachedList).
+   */
+  const remember = (url: string, res: HttpResponse, policy: CachePolicy): void => {
     const fetchedAt = res.fetchedAt;
-    const kept = res.status === 200 && !res.isHtml && !res.stale && (PROJECTIONS_POLICY.cacheIf?.(res) ?? true);
-    if (kept && fetchedAt !== undefined && inCache(fetchedAt)) h.cached.set(url, fetchedAt);
+    const kept = res.status === 200 && !res.isHtml && !res.stale && (policy.cacheIf?.(res) ?? true);
+    const copy = fetchedAt !== undefined ? { fetchedAt, retainMs: retentionOf(policy) } : undefined;
+    if (kept && copy && held(copy)) h.cached.set(url, copy);
   };
 
   return {
     down,
-    async rows(url) {
+    async rows(url, policy = PROJECTIONS_POLICY) {
       const why = down();
       if (why !== undefined) {
         // Sleeper isn't asked: only a list the server cache holds is read (a cache hit makes no request).
-        if (!inCache(h.cached.get(url))) return { why, down: true };
-        const res = await request(url, 0);
+        if (!servable(h.cached.get(url), policy.ttlMs)) return { why, down: true };
+        const res = await request(url, 0, policy);
         // The cache didn't hold it after all, and a live attempt went out: stop counting on the others.
         if (!res?.fromCache) h.cached.clear();
         if (!res || notAnswering(res)) return { why, down: true };
-        remember(url, res);
+        remember(url, res, policy);
         return rowsOf(res);
       }
-      const res = await request(url, SLEEPER_MODEL_MAX_RETRIES);
+      const res = await request(url, SLEEPER_MODEL_MAX_RETRIES, policy);
       if (!res || notAnswering(res)) {
         const reason = (res && unusable(res)) || "no response";
         tripped = reason;
@@ -239,7 +285,7 @@ export function sleeperGate(http: HttpClient, now: Date): SleeperGate {
         h.outages = 0;
         h.downUntil = Number.NEGATIVE_INFINITY;
       }
-      remember(url, res);
+      remember(url, res, policy);
       return rowsOf(res);
     },
   };
@@ -281,10 +327,11 @@ function rowsSkipped(code: string, what: string, path: string, got: { bad: numbe
   return { code, message: `${what}: ${got.bad} row(s) didn't have the expected shape and were skipped.`, platformPath: `${path}${got.firstBadPath ?? ""}` };
 }
 
-const TEAM_DEFENSE_ID = /^[A-Z]{2,3}$/;
+/** A team defense's Sleeper id: its team code. */
+export const TEAM_DEFENSE_ID = /^[A-Z]{2,3}$/;
 
 /** Sleeper's position for a row's player ("DEF" for a team defense); "" when the row doesn't say. */
-function sleeperPositionOf(row: SleeperStatRow): string {
+export function sleeperPositionOf(row: SleeperStatRow): string {
   return row.player?.position?.trim() || (TEAM_DEFENSE_ID.test(row.player_id) ? "DEF" : "");
 }
 
@@ -314,20 +361,51 @@ export interface SleeperWeeklyProjectionsLoad extends SleeperLoadMeta {
   weeks: Map<number, Map<string, SleeperProjectionLine>>;
 }
 
+/** One week of projections as Sleeper served it (what the onWeek hook gets; the pre-game archive's input). */
+export interface SleeperProjectionWeek {
+  season: number;
+  week: number;
+  /** The positions the request asked for (Sleeper's position[] filter), in request order. */
+  positions: readonly Pos[];
+  /** Every row that fit the schema, stubs included, in Sleeper's order. */
+  rows: readonly SleeperStatRow[];
+  /** The response: fetchedAt (a cached copy keeps its original fetch time), fromCache, and the raw rows in json. */
+  res: HttpResponse;
+}
+
+export interface WeeklyProjectionOptions {
+  /**
+   * The current NFL week, which picks each week's cache policy (projectionsPolicy: served 6 hours through
+   * two weeks after it, 24 hours later; kept 24 hours either way). Absent: every week is served 6 hours.
+   */
+  currentWeek?: number;
+  /**
+   * Called with every week read that holds a real projection, right after it is read (not awaited). A
+   * hook that throws is ignored: it can't fail the load.
+   */
+  onWeek?: (week: SleeperProjectionWeek) => void;
+}
+
 /**
  * Sleeper's weekly projections for `weeks` (1–18; others are ignored) at the league's startable
- * `positions`, through the build's gate. A week that fails, or has no real projection, gets a
- * PROJECTIONS_WEEK_UNAVAILABLE warning (SLEEPER_DOWN when Sleeper stopped answering) and is missing from
- * `weeks`.
+ * `positions`, through the build's gate, each week under its own cache policy (opts.currentWeek). A week
+ * that fails, or has no real projection, gets a PROJECTIONS_WEEK_UNAVAILABLE warning (SLEEPER_DOWN when
+ * Sleeper stopped answering) and is missing from `weeks`; every other week also goes to opts.onWeek.
  */
-export async function loadSleeperWeeklyProjections(gate: SleeperGate, season: number, weeks: Iterable<number>, positions: Iterable<Pos>): Promise<SleeperWeeklyProjectionsLoad> {
+export async function loadSleeperWeeklyProjections(
+  gate: SleeperGate,
+  season: number,
+  weeks: Iterable<number>,
+  positions: Iterable<Pos>,
+  opts: WeeklyProjectionOptions = {},
+): Promise<SleeperWeeklyProjectionsLoad> {
   const t = tracker();
   const out = new Map<number, Map<string, SleeperProjectionLine>>();
   const pos = sleeperRequestPositions(positions);
   if (!pos.length) return { weeks: out, ...t.meta };
   for (const week of requestWeeks(weeks)) {
     const path = `projections/${week}`;
-    const got = await gate.rows(sleeperUrls.projections(season, week, pos));
+    const got = await gate.rows(sleeperUrls.projections(season, week, pos), projectionsPolicy(week, opts.currentWeek ?? week));
     const unavailable = (why: string) =>
       t.meta.warnings.push({ code: "PROJECTIONS_WEEK_UNAVAILABLE", message: `Sleeper's projections for week ${week} couldn't be read (${why}), so that week is left out.`, platformPath: path });
     if ("why" in got) {
@@ -343,6 +421,13 @@ export async function loadSleeperWeeklyProjections(gate: SleeperGate, season: nu
     }
     out.set(week, lines);
     t.used(got.res);
+    if (opts.onWeek) {
+      try {
+        opts.onWeek({ season, week, positions: pos, rows: got.rows, res: got.res });
+      } catch {
+        // The hook's own failure (the archive never throws); the projections are loaded either way.
+      }
+    }
   }
   return { weeks: out, ...t.meta };
 }

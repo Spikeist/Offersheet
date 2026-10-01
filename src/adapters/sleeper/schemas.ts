@@ -82,7 +82,10 @@ export type SleeperRoster = z.infer<typeof RosterSchema>;
 export const MatchupSchema = z.object({
   roster_id: z.number(),
   matchup_id: z.number().nullish(),
+  /** The team's score that week (the starters' points); 0 for weeks not played yet. */
   points: z.number().nullish(),
+  /** An override of `points`, used instead of it when it's a number (read as a commissioner's manual score; null in every captured league). */
+  custom_points: z.number().nullish(),
   players: z.array(id).nullish(),
   players_points: nullishRecord(z.number()),
 });

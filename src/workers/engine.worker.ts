@@ -1,8 +1,8 @@
 /**
  * The engine's Web Worker (CLAUDE.md §3: the engine runs in a Web Worker in the browser, so the math
  * never blocks the page and costs our server nothing). Today it answers one request: build the
- * League model (§6 projections, §7 lineups, needs and partners, §9 values) from a snapshot and its
- * model inputs. Trade search (Phase 4, §12) adds its own request type here.
+ * League model (§6 projections, §7 lineups, needs and partners, §8 playoff odds, §9 values) from a
+ * snapshot and its model inputs. Trade search (Phase 4, §12) adds its own request type here.
  *
  * The message handler is a plain exported function, so tests run it without a real Worker, and the
  * page can run it on its main thread when the browser has no Worker support (src/lib/engineClient.ts).

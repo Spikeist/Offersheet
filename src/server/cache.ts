@@ -23,7 +23,13 @@ export const TTL = {
   fantasyCalc: DAY,
   idMap: DAY,
   nflSchedule: 7 * DAY,
+  /**
+   * Weekly projections of past weeks, the current NFL week and the next PROJECTIONS_NEAR_WEEKS; also
+   * Sleeper's season projections and actual stats (§2.10).
+   */
   projections: 6 * HOUR,
+  /** Weekly projections of later NFL weeks (§2.10, Checkpoint 2: each week is its own cache entry). */
+  projectionsLater: DAY,
   league: 10 * MINUTE,
   /** League data when the user presses Refresh: still at most one fetch a minute, so the button can't flood a platform. */
   leagueRefresh: MINUTE,
@@ -32,6 +38,12 @@ export const TTL = {
   /** Fleaflicker's public HTML rules page (planner reply 13). */
   rulesPage: DAY,
 } as const;
+
+/**
+ * Weeks after the current NFL week whose projections still refresh every TTL.projections (§2.10: "the
+ * current NFL week and the next 2"); later weeks refresh every TTL.projectionsLater.
+ */
+export const PROJECTIONS_NEAR_WEEKS = 2;
 
 /**
  * Public, league-independent sources (player lists, ID maps, the NFL schedule) are kept this long so

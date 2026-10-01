@@ -1,50 +1,62 @@
 [
  {
   "roster_id": 1,
-  "matchup_id": 5
+  "matchup_id": 5,
+  "points": 140.48
  },
  {
   "roster_id": 2,
-  "matchup_id": 3
+  "matchup_id": 3,
+  "points": 136.02
  },
  {
   "roster_id": 3,
-  "matchup_id": 6
+  "matchup_id": 6,
+  "points": 105.07
  },
  {
   "roster_id": 4,
-  "matchup_id": 3
+  "matchup_id": 3,
+  "points": 92.57
  },
  {
   "roster_id": 5,
-  "matchup_id": 2
+  "matchup_id": 2,
+  "points": 143.24
  },
  {
   "roster_id": 6,
-  "matchup_id": 4
+  "matchup_id": 4,
+  "points": 98.98
  },
  {
   "roster_id": 7,
-  "matchup_id": 2
+  "matchup_id": 2,
+  "points": 148.52
  },
  {
   "roster_id": 8,
-  "matchup_id": 1
+  "matchup_id": 1,
+  "points": 111.16
  },
  {
   "roster_id": 9,
-  "matchup_id": 6
+  "matchup_id": 6,
+  "points": 143.17
  },
  {
   "roster_id": 10,
-  "matchup_id": 1
+  "matchup_id": 1,
+  "points": 157.92
  },
  {
   "roster_id": 11,
-  "matchup_id": 5
+  "matchup_id": 5,
+  "points": 159.56
  },
  {
   "roster_id": 12,
-  "matchup_id": 4
+  "matchup_id": 4,
+  "points": 90.49
  }
 ]

@@ -3,7 +3,7 @@ import type { ModelInputs } from "@/engine/inputs";
 import type { LeagueSnapshot } from "@/engine/model";
 import { TTL } from "@/server/cache";
 import type { ModelResponse } from "./api";
-import { IMPORT_STORAGE_KEY, myTeamKey, parseMyTeamPick, parseStoredImport, saveImport, saveMyTeam, type StorageLike, type StoredImport } from "./importStore";
+import { IMPORT_FORMAT_VERSION, IMPORT_STORAGE_KEY, myTeamKey, parseMyTeamPick, parseStoredImport, saveImport, saveMyTeam, type StorageLike, type StoredImport } from "./importStore";
 import { MODEL_REUSE_MAX_AGE_MS, MODEL_STORAGE_KEY, keepModelResponse, modelForSnapshot, modelKey, modelRequest, parseStoredModel, saveModel, storedModelForLeague, withImportedTeam } from "./modelStore";
 
 class FakeStorage implements StorageLike {
@@ -178,7 +178,7 @@ describe("model store (sessionStorage offersheet:model:v1)", () => {
     const leagueSnap = (fetchedAt: string) =>
       ({ platform: "espn", leagueId: "4242", season: 2026, fetchedAt, name: "Fictional League", teams: [{ id: "1" }, { id: "2" }], settings: {}, myTeamId: null }) as unknown as LeagueSnapshot;
     const T0 = "2026-09-30T01:00:00.000Z";
-    const storedImport = (fetchedAt: string): StoredImport => ({ version: 1, savedAt: T0, request: { platform: "espn", season: 2026, leagueId: "4242" }, response: { snapshot: leagueSnap(fetchedAt), notes: [] } });
+    const storedImport = (fetchedAt: string): StoredImport => ({ version: IMPORT_FORMAT_VERSION, savedAt: T0, request: { platform: "espn", season: 2026, leagueId: "4242" }, response: { snapshot: leagueSnap(fetchedAt), notes: [] } });
     const reply = (fetchedAt: string): ModelResponse => ({ import: { snapshot: leagueSnap(fetchedAt), notes: ["fresh"] }, model: inputs({ builtAt: fetchedAt }) });
 
     it("stores the inputs for the same league data, leaving the import alone", () => {

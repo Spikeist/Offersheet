@@ -12,9 +12,19 @@
  * - position_limit_<pos> caps the ACTIVE roster (IR exempt).
  * - playoff_teams; byes = next power of two − playoff_teams; playoff_round_type 0 one-week rounds,
  *   1 two-week final, 2 two-week rounds (inferred: 2 leagues); missing → one-week rounds (defaulted).
- * - playoff_seed_type 1 = re-seed, 0 = fixed bracket; missing → playoffSeeding left out (§8: the
- *   default seeding, with a warning). With divisions, division winners are seeded first (inferred:
- *   2/2 informative leagues), set only when the rosters actually name their divisions.
+ * - playoff_seed_type 1 = re-seed, 0 = fixed bracket; any other code → a fixed bracket, with a warning.
+ *   Missing → the default seeding (§8: a fixed bracket), with a SETTING_DEFAULTED warning at
+ *   settings.playoff_seed_type: playoffSeeding is left out, unless division winners take the top seeds
+ *   (below; that rule doesn't depend on the seed type), when it is { reseed: false, divisionWinnersFirst:
+ *   true } and the warning is what says the re-seeding is assumed.
+ * - Division winners take the top playoff seeds, set only when the rosters actually name 2+ divisions
+ *   (with one division the rule changes nothing). Documented for 4 divisions and for 2 divisions in a
+ *   6-team playoff (✅ divisionSeedingDocumented: Sleeper's help center; a note says so); anywhere else
+ *   Sleeper documents only that every division winner makes the playoffs, so seeding them first is
+ *   inferred (⚠️ Phase 0 saw it hold in 2/2 informative leagues), with a warning.
+ * - Seeding tiebreaker (§8): points for, Sleeper's documented default (✅ SEEDING_TIEBREAKER), always
+ *   set. A commissioner can also seed the playoffs by hand, which the API doesn't show: a note says
+ *   the odds follow the standings.
  * - trade_deadline D in 1–17 = trades complete through LEAGUE week (leg) D, not NFL week D: on the
  *   Tuesday after NFL week D, trades still go through until the league's waivers run. So
  *   snapshot.leagueWeek carries settings.leg, and trades are open while leagueWeek ≤ D. 99 = no
@@ -23,7 +33,17 @@
  * - waiver_type 2 = FAAB (waiver_budget is then the budget).
  * - Matchups of weeks ≥ playoff_week_start are regular-season placeholders until the playoffs start,
  *   so the schedule holds regular-season weeks only; once the playoffs start, a warning says the
- *   playoff matchups aren't imported yet (Phase 3 reads the bracket).
+ *   playoff matchups aren't imported yet (the winners_bracket isn't read).
+ * - Results (§4 Matchup.decided and result): a week is decided through settings.last_scored_leg, the
+ *   last week Sleeper has scored (Phase 0 ✅: the last completed NFL week in 178/178 in-season leagues;
+ *   in the test league, captured on a Tuesday with leg still 3, matchups have points exactly for weeks
+ *   ≤ last_scored_leg = 3, and every team's W+L+T is 3). On the Tuesday and Wednesday before the
+ *   league's waivers run, the league week (leg) still names the finished week, so "weeks before leg"
+ *   would miss a week the records already count. Without last_scored_leg: the weeks before leg, else
+ *   before the NFL week. Every matchup of a decided week is `decided`, byes included (the records
+ *   count that week). A decided pair's scores are custom_points when it's a number, else points (to
+ *   cents); the higher wins, equal = a tie. A decided pair without both scores stays decided but gets
+ *   no result, with a warning.
  *
  * Players: Sleeper's players-DB record (via the resolver) for active players, with injury status
  * and NFL team from the projection rows (at most 6 hours old, the DB up to a day); else the player
@@ -34,7 +54,7 @@
 import { LeagueImportError, type ImportResult } from "@/adapters/types";
 import type { PlayerIdResolver, SleeperPlayerLite } from "@/data/types";
 import { config } from "@/engine/config";
-import { POSITIONS, type DraftPick, type ImportWarning, type InjuryStatus, type LeagueSettings, type LeagueSnapshot, type Matchup, type PlayerInfo, type Pos, type Scoring, type SlotDef, type Team, type Transaction, type UnknownSetting } from "@/engine/model";
+import { POSITIONS, type DraftPick, type ImportWarning, type InjuryStatus, type LeagueSettings, type LeagueSnapshot, type Matchup, type MatchupResult, type PlayerInfo, type Pos, type Scoring, type SeedingTiebreaker, type SlotDef, type Team, type Transaction, type UnknownSetting } from "@/engine/model";
 import { expectedPoints } from "@/engine/scoring";
 import { mapSleeperScoring, normalizeProjectionStats } from "./scoringMap";
 import {
@@ -71,6 +91,39 @@ export const LAST_NFL_WEEK = 18;
  * answer 8) ✅.
  */
 export const FUTURE_PICK_SEASONS = 3;
+/**
+ * How Sleeper breaks ties in the standings (§8) ✅: "If two or more teams finish with the same record,
+ * the default standings tiebreakers are: Points For, Higher Points Against. The team with more Points
+ * For will rank higher. If that is also tied, the team with the higher Points Against will advance." A
+ * tie left after both is a coin flip unless the commissioner seeds by hand, and "If any playoff
+ * matchups end with a tie score, the winner is automatically the higher seed" (Sleeper's help center,
+ * "Can I set tiebreakers?", support.sleeper.com/en/articles/4238872; lead decision D4, Phase 3). The
+ * API doesn't show hand seeding, so the Import Report notes it. The simulator's points-for order (win
+ * %, points for, head-to-head, division record, then more points against first) differs from
+ * Sleeper's only when points for tie to the cent, and it settles a tied playoff game for the higher
+ * seed too.
+ */
+export const SEEDING_TIEBREAKER: SeedingTiebreaker = "pointsFor";
+/**
+ * Whether Sleeper documents that division winners take the top playoff seeds (✅), for a league with
+ * `divisions` divisions (2+) and `playoffTeams` playoff teams. Sleeper's help center, "How do playoff
+ * teams get determined?" (support.sleeper.com/en/articles/2203518), under "Leagues with divisions":
+ * "In leagues with divisions, the winners of each division automatically make the playoffs." Then,
+ * under "6-Team Playoff Leagues": "The bye week goes to the 2 division winners with the best record,
+ * based on Overall Record > Points For > Points Against. Any remaining playoff slots are filled by teams
+ * that did not win the division, and seeding is sorted by Overall Record > Points For > Points
+ * Against." And under "4 Division League": "The top 4 seeds will always be given to division winners,
+ * while the remaining bottom seeds will be filled with non-division winners." So it's documented with 4
+ * divisions (the rule names no playoff size) and with 2 divisions in a 6-team playoff (both winners get
+ * the byes, seeds 1 and 2). Anywhere else the article says only that every division winner makes the
+ * playoffs, and seeding them first is inferred (⚠️): a 2-division league with a 4- or 8-team playoff,
+ * or 3 divisions, where a 6-team playoff's byes go to the 2 best winners but the third's seed isn't
+ * given. Lead decision D4, Phase 3, read against the article's text: its 2-division rule is the
+ * 6-team one.
+ */
+export function divisionSeedingDocumented(divisions: number, playoffTeams: number): boolean {
+  return divisions === 4 || (divisions === 2 && playoffTeams === 6);
+}
 
 /** The raw responses the fetch half collected (JSON as received; validated here). */
 export interface SleeperRawLeague {
@@ -248,6 +301,36 @@ function buildDivisions(divisionsCount: number, rosters: SleeperRoster[], warn: 
   return [...byDivision].sort((a, b) => Number(a[0]) - Number(b[0])).map(([id, teamIds]) => ({ id, teamIds }));
 }
 
+/**
+ * Whether division winners take the top playoff seeds, from the number of divisions the rosters name:
+ * only with 2 or more (with one, its winner is the top team anyway). Where Sleeper documents it
+ * (divisionSeedingDocumented) a note says so. Elsewhere Sleeper documents only that every division
+ * winner makes the playoffs; seeding them first is the closest reading (it puts them in whenever the
+ * playoffs have a spot for each), so it's inferred, with a warning (§0.12: never shown as a fact).
+ */
+function divisionWinnersFirst(divisionCount: number, playoffTeams: number, notes: string[], warn: (w: ImportWarning) => void): boolean {
+  if (divisionCount < 2) return false;
+  if (divisionSeedingDocumented(divisionCount, playoffTeams))
+    notes.push(`Playoff seeding: the ${divisionCount} division winners take the top seeds, then the other teams by the standings (Sleeper's help center says so for ${divisionCount === 4 ? "leagues with 4 divisions" : "6-team playoffs with 2 divisions"}).`);
+  else
+    warn(
+      inferred(
+        `Division winners are assumed to take the top playoff seeds. Sleeper's help center says every division winner makes the playoffs, but it gives them the top seeds only in leagues with 4 divisions and in 6-team playoffs with 2 divisions (this league: ${divisionCount} divisions, ${playoffTeams} playoff ${playoffTeams === 1 ? "team" : "teams"}), so check your league's playoff settings.`,
+        "settings.divisions",
+      ),
+    );
+  return true;
+}
+
+/**
+ * The note on Sleeper's standings tiebreaker (SEEDING_TIEBREAKER: more points for ranks higher, then
+ * more points against) and, when the league has playoffs, on hand seeding, which the API doesn't show.
+ */
+function tiebreakerNote(hasPlayoffs: boolean): string {
+  const ties = "Ties in the standings: more points for, then more points against (Sleeper's default tiebreakers, from its help center).";
+  return hasPlayoffs ? `${ties} A commissioner can also set the playoff seeds by hand, which Sleeper's API doesn't show; Offer Sheet seeds by the standings.` : ties;
+}
+
 function buildSettings(league: SleeperLeague, rosters: SleeperRoster[], scoring: Scoring, warn: (w: ImportWarning) => void): SettingsResult {
   const s = league.settings;
   const notes: string[] = [];
@@ -292,15 +375,20 @@ function buildSettings(league: SleeperLeague, rosters: SleeperRoster[], scoring:
 
   const divisions = buildDivisions(num(s, "divisions") ?? 0, rosters, warn);
 
+  // Division winners first depends on the divisions and the playoff size, not on the seed type (review
+  // ADAPT-1): Sleeper's help center gives it whatever playoff_seed_type says, so a league that doesn't
+  // report its seed type keeps it, and only re-seeding falls back to the default (the warning says so).
+  const seedingNotes: string[] = [];
+  const divisionsFirst = divisionWinnersFirst(divisions?.length ?? 0, playoffTeams, seedingNotes, warn);
   const seedType = num(s, "playoff_seed_type");
   let playoffSeeding: LeagueSettings["playoffSeeding"];
   if (seedType === undefined) {
-    warn(defaulted("The league doesn't say how its playoff bracket is seeded; standard seeding is assumed: by record, then points for, with no re-seeding.", "settings.playoff_seed_type"));
+    const standard = "standard seeding is assumed: by record, with ties going to points for (Sleeper's default), and no re-seeding.";
+    warn(defaulted(`The league doesn't say how its playoff bracket is seeded; ${divisionsFirst ? `after the division winners, ${standard}` : standard}`, "settings.playoff_seed_type"));
+    if (divisionsFirst) playoffSeeding = { reseed: false, divisionWinnersFirst: true };
   } else {
     if (seedType !== 0 && seedType !== 1) warn({ code: "PLAYOFF_SEED_TYPE_UNKNOWN", message: `Unknown playoff seeding code ${seedType}; assumed a fixed bracket (no re-seeding).`, platformPath: "settings.playoff_seed_type" });
-    const divisionWinnersFirst = !!divisions?.length;
-    if (divisionWinnersFirst) warn(inferred("Division winners are assumed to take the top playoff seeds. Sleeper doesn't say so; it held in the 2 leagues with divisions we could check.", "settings.divisions"));
-    playoffSeeding = { reseed: seedType === 1, divisionWinnersFirst };
+    playoffSeeding = { reseed: seedType === 1, divisionWinnersFirst: divisionsFirst };
   }
 
   const deadline = num(s, "trade_deadline");
@@ -327,6 +415,9 @@ function buildSettings(league: SleeperLeague, rosters: SleeperRoster[], scoring:
   const bestBall = num(s, "best_ball") === 1;
   if (bestBall) notes.push("Best-ball league: lineups are set automatically (Sleeper starts each team's best lineup every week). Offer Sheet values every team by its best possible lineup, which is how best ball scores.");
 
+  // Division seeding, then how ties in the standings are broken (§8: Sleeper's documented default).
+  notes.push(...seedingNotes, tiebreakerNote(playoffTeams > 0));
+
   const settings: LeagueSettings = {
     numTeams,
     leagueType,
@@ -347,6 +438,7 @@ function buildSettings(league: SleeperLeague, rosters: SleeperRoster[], scoring:
     pointsOnly: false,
     ...(divisions ? { divisions } : {}),
     ...(playoffSeeding ? { playoffSeeding } : {}),
+    seedingTiebreaker: SEEDING_TIEBREAKER,
     tradeDeadline,
     tradeReview,
     ...(num(s, "waiver_type") === 2 && num(s, "waiver_budget") !== undefined ? { faabBudget: num(s, "waiver_budget") } : {}),
@@ -410,36 +502,87 @@ export function findMyRosterId(rosters: SleeperRoster[], userId: string): { rost
 // ---------------------------------------------------------------------------------------------
 // Schedule, transactions, picks
 
-function buildSchedule(weeks: number[], raw: Record<number, unknown>, warn: (w: ImportWarning) => void): Matchup[] {
+/**
+ * The last week whose matchups are decided (see the header, "Results"): settings.last_scored_leg,
+ * else the week before the league week (leg), else the week before the NFL week.
+ */
+export function lastDecidedWeek(leagueSettings: Record<string, unknown>, currentWeek: number): number {
+  const scored = num(leagueSettings, "last_scored_leg");
+  if (scored !== undefined) return scored;
+  return (num(leagueSettings, "leg") ?? currentWeek) - 1;
+}
+
+/**
+ * The regular-season schedule. An already-scored matchup without both teams' points stays decided
+ * without a result (MATCHUP_RESULT_MISSING, worded by what that changes: the records still count it,
+ * the head-to-head tiebreaker and, with 2+ divisions, the division-record one leave it out).
+ */
+function buildSchedule(weeks: number[], raw: Record<number, unknown>, decidedThrough: number, hasDivisions: boolean, warn: (w: ImportWarning) => void): Matchup[] {
   const out: Matchup[] = [];
+  const unscored: number[] = [];
   for (const week of weeks) {
     const data = raw[week];
     if (data === undefined) continue; // the fetch half already warned
     const { rows, bad, firstBadPath } = parseArrayLenient(MatchupSchema, data);
     if (bad) warn({ code: "MATCHUPS_UNREADABLE", message: `Week ${week}: ${bad} matchup row(s) didn't have the expected shape and were skipped.`, platformPath: `matchups/${week}${firstBadPath ?? ""}` });
-    out.push(...weekMatchups(week, rows, warn));
+    const matchups = weekMatchups(week, rows, week <= decidedThrough, warn);
+    out.push(...matchups.list);
+    for (let i = 0; i < matchups.unscored; i++) unscored.push(week);
+  }
+  if (unscored.length) {
+    const [they, them] = unscored.length === 1 ? ["it has", "it"] : ["they have", "them"];
+    const tiebreakers = hasDivisions ? "head-to-head and division-record tiebreakers" : "head-to-head tiebreakers";
+    warn({
+      code: "MATCHUP_RESULT_MISSING",
+      message: `${unscored.length} already-scored matchup(s) (${weeksText([...new Set(unscored)])}) came without both teams' points, so ${they} no result: Sleeper's standings still count ${them} as played, but ${tiebreakers} leave ${them} out.`,
+      platformPath: `matchups/${unscored[0]}[].points`,
+    });
   }
   return out;
 }
 
-function weekMatchups(week: number, rows: SleeperMatchup[], warn: (w: ImportWarning) => void): Matchup[] {
-  const byId = new Map<number, number[]>();
+/** A team's score in one week's row: custom_points when it's a number (an override), else points, to cents. */
+function scoreOf(row: SleeperMatchup): number | undefined {
+  const pts = typeof row.custom_points === "number" ? row.custom_points : row.points;
+  return typeof pts === "number" && Number.isFinite(pts) ? round2(pts) : undefined;
+}
+
+/** A decided pair's result (teamA = the lower roster id): the higher score wins; equal scores are a tie. */
+function pairResult(a: SleeperMatchup, b: SleeperMatchup): MatchupResult | undefined {
+  const pa = scoreOf(a);
+  const pb = scoreOf(b);
+  if (pa === undefined || pb === undefined) return undefined;
+  return { pointsA: pa, pointsB: pb, winnerId: pa > pb ? String(a.roster_id) : pb > pa ? String(b.roster_id) : null };
+}
+
+/**
+ * One week's matchups (pairs by matchup_id), every one marked decided when the week is; `unscored`
+ * counts decided pairs without both scores.
+ */
+function weekMatchups(week: number, rows: SleeperMatchup[], decided: boolean, warn: (w: ImportWarning) => void): { list: Matchup[]; unscored: number } {
+  const byId = new Map<number, SleeperMatchup[]>();
   const loose: number[] = [];
   for (const r of rows) {
-    if (typeof r.matchup_id === "number") byId.set(r.matchup_id, [...(byId.get(r.matchup_id) ?? []), r.roster_id]);
+    if (typeof r.matchup_id === "number") byId.set(r.matchup_id, [...(byId.get(r.matchup_id) ?? []), r]);
     else loose.push(r.roster_id);
   }
-  const out: Matchup[] = [];
-  for (const [mid, ids] of [...byId].sort((a, b) => a[0] - b[0])) {
-    const sorted = [...ids].sort((a, b) => a - b);
-    if (sorted.length === 2) out.push({ week, teamA: String(sorted[0]), teamB: String(sorted[1]), isPlayoff: false });
-    else {
+  const done = decided ? { decided: true } : {};
+  const list: Matchup[] = [];
+  let unscored = 0;
+  for (const [mid, group] of [...byId].sort((a, b) => a[0] - b[0])) {
+    const sorted = [...group].sort((a, b) => a.roster_id - b.roster_id);
+    const [a, b] = sorted;
+    if (sorted.length === 2 && a && b) {
+      const result = decided ? pairResult(a, b) : undefined;
+      if (decided && !result) unscored++;
+      list.push({ week, teamA: String(a.roster_id), teamB: String(b.roster_id), isPlayoff: false, ...done, ...(result ? { result } : {}) });
+    } else {
       warn({ code: "MATCHUP_ODD", message: `Week ${week}: matchup ${mid} has ${sorted.length} team(s) instead of 2.`, platformPath: `matchups/${week}[].matchup_id` });
-      for (const t of sorted) out.push({ week, teamA: String(t), teamB: null, isPlayoff: false });
+      for (const t of sorted) list.push({ week, teamA: String(t.roster_id), teamB: null, isPlayoff: false, ...done });
     }
   }
-  for (const t of loose.sort((a, b) => a - b)) out.push({ week, teamA: String(t), teamB: null, isPlayoff: false });
-  return out;
+  for (const t of loose.sort((a, b) => a - b)) list.push({ week, teamA: String(t), teamB: null, isPlayoff: false, ...done });
+  return { list, unscored };
 }
 
 function toPick(p: SleeperTradedPick): DraftPick {
@@ -675,6 +818,8 @@ export function normalizeSleeperLeague(raw: SleeperRawLeague, ctx: SleeperNormal
   const schedule = buildSchedule(
     settings.regularSeasonWeeks.filter((w) => w < playoffStart),
     raw.matchups,
+    lastDecidedWeek(league.settings, currentWeek),
+    (settings.divisions?.length ?? 0) >= 2,
     warn,
   );
   const transactions = buildTransactions(raw.transactions, warn);

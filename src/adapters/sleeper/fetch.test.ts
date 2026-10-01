@@ -67,7 +67,7 @@ describe("fetchSleeperLeague by league ID", () => {
       const projections = url.includes("/projections/");
       const want = projections ? TTL.projections : closedWeek(url) ? TTL.closedTransactions : TTL.league;
       expect(opts?.cache?.ttlMs).toBe(want);
-      expect(opts?.cache?.retainMs).toBe(want);
+      expect(opts?.cache?.retainMs).toBe(projections ? TTL.projectionsLater : want); // every week's projections are kept 24 hours (projectionsPolicy)
       expect(opts?.cacheIf !== undefined).toBe(projections); // an empty projections list isn't cached
     }
     expect([...byUrl.keys()].filter(closedWeek)).toHaveLength(2); // leg 3 now: week 1's matchups and transactions are closed
@@ -83,7 +83,7 @@ describe("fetchSleeperLeague by league ID", () => {
       // Closed weeks keep their 6 hours: Refresh only re-reads the live part of the league.
       expect(c.opts?.cache?.ttlMs).toBe(projections ? TTL.projections : closedWeek(c.url) ? TTL.closedTransactions : TTL.leagueRefresh);
       // Refresh can't shorten how long a copy is kept (the privacy page's "about 10 minutes").
-      expect(c.opts?.cache?.retainMs).toBe(projections ? TTL.projections : closedWeek(c.url) ? TTL.closedTransactions : TTL.league);
+      expect(c.opts?.cache?.retainMs).toBe(projections ? TTL.projectionsLater : closedWeek(c.url) ? TTL.closedTransactions : TTL.league);
     }
   });
 

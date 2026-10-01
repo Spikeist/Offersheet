@@ -1,22 +1,31 @@
 /**
- * Best trade partners for the user's team (CLAUDE.md §7, §14 item 3): teams whose spare players
- * would start for the user while the user's spare players would start for them; then one-sided fits,
- * badged by what was measured ("Would start for you"), not by the user's needs.
+ * Best trade partners for the user's team (CLAUDE.md §7, §14 item 3): teams whose trade chips would
+ * start for the user while the user's trade chips would start for them; then one-sided fits, badged by
+ * what was measured ("Would start for you"), not by the user's needs. Each side lists its first few
+ * chips by what they'd add per week, and says how many more there are (hover lists them; screen
+ * readers hear them).
  */
 import Link from "next/link";
-import type { LeagueView, PartnerPlayer } from "@/lib/leagueView";
+import type { LeagueView, PartnerSide } from "@/lib/leagueView";
 import { Badge, Card, CardTitle } from "../ui";
 
-function PlayerList({ label, players }: { label: string; players: PartnerPlayer[] }) {
+function PlayerList({ label, side }: { label: string; side: PartnerSide }) {
   return (
     <p className="mt-1.5 text-sm leading-relaxed">
       <span className="font-semibold text-muted">{label}</span>{" "}
-      {players.map((p, i) => (
+      {side.players.map((p, i) => (
         <span key={p.id} title={p.title}>
           {i ? ", " : ""}
           {p.text}
         </span>
       ))}
+      {side.more ? (
+        <span title={side.more.title} className="text-muted">
+          {" "}
+          <span aria-hidden>{side.more.text}</span>
+          <span className="sr-only">{side.more.srText}</span>
+        </span>
+      ) : null}
     </p>
   );
 }
@@ -44,25 +53,27 @@ export function TradePartners({ view }: { view: LeagueView }) {
             {cards.map((c) => (
               <li key={c.teamId} className="rounded-xl border border-line p-3">
                 <div className="flex items-start justify-between gap-2">
-                  <h3 className="font-extrabold break-words">{c.name}</h3>
+                  {/* min-w-0 + wrap-anywhere: a long one-word team name wraps instead of widening the card past a phone's edge. */}
+                  <h3 className="min-w-0 font-extrabold wrap-anywhere">{c.name}</h3>
                   <Badge tone="brand" className="shrink-0">
                     {c.fitText}
                   </Badge>
                 </div>
-                <PlayerList label="They could give:" players={c.theyCanGive} />
-                {c.youCanGive.length ? (
-                  <PlayerList label="You could give:" players={c.youCanGive} />
+                <PlayerList label="They could give:" side={c.theyCanGive} />
+                {c.youCanGive.players.length ? (
+                  <PlayerList label="You could give:" side={c.youCanGive} />
                 ) : (
                   <p className="mt-1.5 text-sm leading-relaxed text-muted">
-                    <span className="font-semibold">You could give:</span> no spare player they need, so a trade would likely cost you a starter.
+                    <span className="font-semibold">You could give:</span> no trade chip that would start for them, so a trade would likely cost you a starter.
                   </p>
                 )}
               </li>
             ))}
           </ul>
           <p className="mt-3 text-xs text-muted">
-            Points per week are what each player would add to the other team&apos;s starting lineup. Fit combines both directions; teams with a spare player who would start for
-            you, but who need nothing you can spare, come last. Trade ideas with acceptance odds come in a later update.
+            Points per week are what each trade chip would add to the other team&apos;s starting lineup, after that team&apos;s best free-agent move. Fit combines both
+            directions; teams with a trade chip who would start for you, when none of yours would start for them, come last. Trade ideas with acceptance odds come in a
+            later update.
           </p>
         </>
       )}

@@ -6,6 +6,7 @@ import {
   injuryRisk,
   pOut,
   pRecover,
+  returnDateConflict,
   returnWeekDistribution,
   scenarioAvailability,
   type AvailabilityConfig,
@@ -109,6 +110,23 @@ describe("returnWeekDistribution: the first week he can play again (CLAUDE.md §
     expectDist(dist("QUESTIONABLE", 6), [[5, 0.25], [6, 0.5], [7, 0.25]]);
     expectDist(dist("DOUBTFUL", 8), [[7, 0.25], [8, 0.5], [9, 0.25]]);
     expectDist(dist("PROBABLE", 6), [[5, 0.25], [6, 0.5], [7, 0.25]]);
+  });
+
+  it("returnDateConflict names the conflicting ESPN signals (§6 step 3): a game-time tag with a return week 2+ weeks out", () => {
+    expect(returnDateConflict(player("QUESTIONABLE", 8), W0)).toEqual({ status: "QUESTIONABLE", returnWeek: 8 }); // Josh Jacobs' case
+    expect(returnDateConflict(player("DOUBTFUL", 6), W0)).toEqual({ status: "DOUBTFUL", returnWeek: 6 });
+    expect(returnDateConflict(player("PROBABLE", 19), W0)).toEqual({ status: "PROBABLE", returnWeek: 19 }); // "out for the season" too
+    expect(returnDateConflict(player("QUESTIONABLE", 6.4), W0)).toEqual({ status: "QUESTIONABLE", returnWeek: 6 }); // whole weeks, as returnWeekDistribution reads it
+    // A date within a week of now, no date, or a status the date doesn't contradict: no conflict.
+    for (const p of [player("QUESTIONABLE", 5), player("QUESTIONABLE", 4), player("QUESTIONABLE"), player("OUT", 8), player("IR", 8), player("ACTIVE", 8), player("SUSPENDED", 8), player("QUESTIONABLE", Number.NaN)]) {
+      expect(returnDateConflict(p, W0), JSON.stringify(p)).toBeNull();
+    }
+  });
+
+  it("a conflicted player follows his return week; passed without it (a stale date, dropped by league.ts) he gets his tag's one-week table", () => {
+    expectDist(dist("QUESTIONABLE", 8), [[7, 0.25], [8, 0.5], [9, 0.25]]);
+    expectDist(returnWeekDistribution("QUESTIONABLE", undefined, W0), [[4, 0.85], [5, 0.15]]);
+    expectClose(expectedAvailability(player("QUESTIONABLE"), "RB", ctx(), noRisk), [0.85, ...new Array<number>(13).fill(1)]);
   });
 
   it("OUT with a return date that has already passed falls back to the table", () => {

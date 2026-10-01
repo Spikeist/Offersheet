@@ -97,6 +97,13 @@ export const config = {
     lookbackWeeks: 3,
     /** Games in the NFL regular season: a season projection is divided by this for a per-game rate (⚠️ its span is unverified). */
     seasonGames: 17,
+    /**
+     * Conflicting ESPN signals (CLAUDE.md §6 step 3; planner reply to Checkpoint 2, answer 6): a PROBABLE,
+     * QUESTIONABLE or DOUBTFUL player whose ESPN return week is 2+ weeks away follows the one-week table
+     * (the date is stale) when Sleeper projects him this week at this share or more of his healthy base
+     * rate; otherwise he follows the return week.
+     */
+    staleReturnShare: 0.5,
     /** Availability multipliers by weeks from now (index 0 = this week), then 1. */
     injury: {
       OUT: [0, 0.5, 0.85],
@@ -159,20 +166,22 @@ export const config = {
     scenarioSeed: 20_260_929,
   },
 
-  /** §7 Needs, surplus and best trade partners (League page). */
+  /** §7 Needs, trade chips and best trade partners (League page). */
   needs: {
-    /** Surplus: surplus score z(value) − z(MV_lose) within the team's roster at least this (§12 uses the same score). */
-    surplusMinScore: 1,
     /**
-     * …and "low MV_lose" (§7): a lineup cost below his roster's average, i.e. z(MV_lose) within the
-     * roster below this. Keeps stars out of the surplus chips: convex market values give them a high
-     * surplus score too.
+     * Trade chips (CLAUDE.md §7; planner reply to Checkpoint 2, answer 2): gap = the most he'd add to
+     * another team's lineup − what his own team would lose (ROS lineup points, free-agent-adjusted
+     * baselines); a chip when the gap is at least this.
      */
-    surplusMaxCostZ: 0,
-    /** …and he would add at least this many points per week to another team's lineup over the next strengthWeeks. */
-    surplusStartMinPpw: 1,
-    /** Chips shown per team. */
-    surplusShown: 3,
+    chipMinGap: 10,
+    /** Chips shown per team on the League page (every chip joins the §12 give pool). */
+    chipsShown: 3,
+    /**
+     * Performance knob for chip gains: when exact scenario lineups for every (player, other team) pair are
+     * too slow, only this many other teams per player (the best by exact expected-value gain) get them.
+     */
+    chipScreenTeams: 3,
+    /** Need chips shown per team. */
     needsShown: 3,
     /** Best trade partners shown for my team. */
     partnersShown: 3,
@@ -182,6 +191,20 @@ export const config = {
   simulation: {
     finalSims: 5000,
     screeningSims: 1000,
+    /** Seed of the common-random-numbers score matrix (§8): the "before" and every "after" run share it. */
+    seed: 20_260_930,
+  },
+
+  /**
+   * §8 and §14 "League": the League page's remaining schedule ("show each remaining week's risk", §8)
+   * flags a week as risky, in words, when my chance to win its matchup is under riskyWinChance (as the
+   * page prints it; head-to-head leagues only), or when riskyByes or more of my likely starters are on
+   * bye that week (Parker's week 13 bye crunch, planner reply to Checkpoint 2). Display thresholds only:
+   * no odds or projection depends on them.
+   */
+  leaguePage: {
+    riskyWinChance: 0.4,
+    riskyByes: 3,
   },
 
   /** §9 Market value layer. */

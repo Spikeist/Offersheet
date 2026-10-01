@@ -1,6 +1,21 @@
 import { describe, expect, it } from "vitest";
 import type { LeagueSnapshot } from "@/engine/model";
-import { IMPORT_STORAGE_KEY, myTeamKey, parseMyTeamPick, parseStoredImport, recordImport, saveImport, saveMyTeam, type StorageLike, type StoredImport } from "./importStore";
+import {
+  IMPORT_FORMAT_VERSION,
+  IMPORT_STORAGE_KEY,
+  OUTDATED_IMPORT_TEXT,
+  OUTDATED_IMPORT_TITLE,
+  myTeamKey,
+  parseMyTeamPick,
+  parseStoredImport,
+  readStoredImport,
+  recordImport,
+  saveImport,
+  saveMyTeam,
+  toStoredImport,
+  type StorageLike,
+  type StoredImport,
+} from "./importStore";
 
 class FakeStorage implements StorageLike {
   data = new Map<string, string>();
@@ -38,7 +53,7 @@ const snap = {
 } as unknown as LeagueSnapshot;
 
 const stored: StoredImport = {
-  version: 1,
+  version: IMPORT_FORMAT_VERSION,
   savedAt: "2026-09-29T23:00:00.000Z",
   request: { platform: "sleeper", season: 2026, username: "zorblax_q" },
   response: { snapshot: snap, notes: [] },
@@ -62,9 +77,57 @@ describe("import store", () => {
   it("ignores values that aren't ours", () => {
     expect(parseStoredImport(null)).toBeUndefined();
     expect(parseStoredImport("not json")).toBeUndefined();
-    expect(parseStoredImport(JSON.stringify({ version: 2 }))).toBeUndefined();
+    expect(parseStoredImport(JSON.stringify({ version: IMPORT_FORMAT_VERSION }))).toBeUndefined();
     expect(parseStoredImport(JSON.stringify({ ...stored, response: { snapshot: { platform: "espn" }, notes: [] } }))).toBeUndefined();
     expect(parseStoredImport(JSON.stringify({ ...stored, response: { snapshot: snap } }))).toBeUndefined();
+  });
+
+  it("saves this version's format: 2 since Phase 3, whose snapshots carry matchup results (lead decision D8)", () => {
+    expect(IMPORT_FORMAT_VERSION).toBe(2);
+    const { version, ...rest } = stored;
+    expect(version).toBe(IMPORT_FORMAT_VERSION);
+    expect(toStoredImport(rest)).toEqual(stored);
+    const s = new FakeStorage();
+    recordImport(s, { request: stored.request, response: stored.response, savedAt: SAVED_AT });
+    expect(JSON.parse(s.getItem(IMPORT_STORAGE_KEY) ?? "{}")).toMatchObject({ version: IMPORT_FORMAT_VERSION });
+  });
+
+  it("ignores an import saved in another format, e.g. before Phase 3 (matchups without decided or result), so the pages ask for a new import", () => {
+    // A version-1 record: otherwise the right shape, with a finished week that doesn't say it's decided.
+    const old = { ...stored, version: 1, response: { ...stored.response, snapshot: { ...snap, schedule: [{ week: 1, teamA: "1", teamB: "2", isPlayoff: false }] } } };
+    expect(parseStoredImport(JSON.stringify(old))).toBeUndefined();
+    expect(parseStoredImport(JSON.stringify({ ...old, version: IMPORT_FORMAT_VERSION }))).toBeDefined(); // only the version stops it
+    // Any other version too (a newer tab's), or the right number as a string.
+    expect(parseStoredImport(JSON.stringify({ ...stored, version: IMPORT_FORMAT_VERSION + 1 }))).toBeUndefined();
+    expect(parseStoredImport(JSON.stringify({ ...stored, version: String(IMPORT_FORMAT_VERSION) }))).toBeUndefined();
+    expect(parseStoredImport(JSON.stringify({ ...stored, version: undefined }))).toBeUndefined();
+  });
+
+  it("tells an import saved by an earlier version apart from none at all, so the pages can say Offer Sheet was updated", () => {
+    // A version-1 record, as Phases 1–2 saved it (matchups without decided or result).
+    const v1 = { ...stored, version: 1, response: { ...stored.response, snapshot: { ...snap, schedule: [{ week: 1, teamA: "1", teamB: "2", isPlayoff: false }] } } };
+    expect(readStoredImport(JSON.stringify(v1))).toEqual({ kind: "outdated" });
+    expect(readStoredImport(JSON.stringify({ ...v1, response: { snapshot: v1.response.snapshot } }))).toEqual({ kind: "outdated" }); // notes aren't needed to know it's ours
+    expect(readStoredImport(JSON.stringify(stored))).toEqual({ kind: "ok", stored });
+    // Nothing, or nothing that is an import: no league imported.
+    for (const raw of [null, undefined, "", "not json", "42", JSON.stringify({ version: 1 }), JSON.stringify({ ...v1, request: undefined }), JSON.stringify({ ...v1, response: { snapshot: { platform: "espn" }, notes: [] } })])
+      expect(readStoredImport(raw), String(raw)).toEqual({ kind: "none" });
+    // Only an earlier version is outdated: a newer tab's record, or a version that isn't a whole number from 1 up, isn't ours to judge.
+    for (const version of [IMPORT_FORMAT_VERSION + 1, 0, -1, 1.5, "1", null]) expect(readStoredImport(JSON.stringify({ ...stored, version })), String(version)).toEqual({ kind: "none" });
+    // parseStoredImport reads only this version's records.
+    expect(parseStoredImport(JSON.stringify(v1))).toBeUndefined();
+    expect(parseStoredImport(JSON.stringify(stored))).toEqual(stored);
+    expect(OUTDATED_IMPORT_TITLE).toBe("Offer Sheet was updated");
+    expect(OUTDATED_IMPORT_TEXT).toBe("Import your league again to see the new numbers.");
+  });
+
+  it("replaces an old-format record in place when the league is imported again (same key: sessionStorage never holds both)", () => {
+    const s = new FakeStorage();
+    s.setItem(IMPORT_STORAGE_KEY, JSON.stringify({ ...stored, version: 1, savedAt: "2026-09-20T12:00:00.000Z" }));
+    expect(parseStoredImport(s.getItem(IMPORT_STORAGE_KEY))).toBeUndefined();
+    expect(recordImport(s, { request: stored.request, response: stored.response, savedAt: SAVED_AT })).toEqual({ ok: true });
+    expect(parseStoredImport(s.getItem(IMPORT_STORAGE_KEY))).toEqual(stored);
+    expect([...s.data.keys()]).toEqual([IMPORT_STORAGE_KEY]);
   });
 
   it("reports a full or blocked storage instead of throwing", () => {

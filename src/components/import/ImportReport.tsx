@@ -4,17 +4,19 @@
  * sessionStorage, plus the stored "Your team" pick for this league (the user's own, or one taken
  * from a pasted ESPN team link) and, when the League page has loaded them, this league's model
  * inputs (for the projection-source note), and renders the pure view model from
- * src/lib/importReport.ts. It owns the page's requests: Refresh, and "Forget my ESPN cookies".
+ * src/lib/importReport.ts. It owns the page's requests: Refresh, and "Forget my ESPN cookies". An
+ * import saved by an earlier version of Offer Sheet isn't read: the page says Offer Sheet was updated
+ * and asks for the league again (NoImportCard).
  */
-import Link from "next/link";
 import { useMemo, useState } from "react";
 import { callApi, isApiError, type EspnImportBody, type EspnSessionStatus, type ImportResponse, type SleeperImportBody } from "@/lib/api";
 import { buildImportReport, refreshOutcomeText } from "@/lib/importReport";
-import { IMPORT_STORAGE_KEY, myTeamKey, parseMyTeamPick, parseStoredImport, saveMyTeam, type StoredImport } from "@/lib/importStore";
+import { IMPORT_STORAGE_KEY, myTeamKey, parseMyTeamPick, readStoredImport, saveMyTeam, type StoredImport } from "@/lib/importStore";
 import { MODEL_STORAGE_KEY, parseStoredModel, storedModelForLeague } from "@/lib/modelStore";
 import { browserSessionStorage, notifySessionChange, useSessionValue } from "@/lib/useSessionValue";
+import { NoImportCard } from "../NoImportCard";
 import { finishImport } from "../connect/finishImport";
-import { Card, Spinner, buttonClass } from "../ui";
+import { Spinner } from "../ui";
 import { ReportView, type ForgetControl, type RefreshControl } from "./ReportView";
 
 const COOKIES_FORGOTTEN =
@@ -22,27 +24,24 @@ const COOKIES_FORGOTTEN =
 
 export function ImportReport() {
   const raw = useSessionValue(IMPORT_STORAGE_KEY);
-  const stored = useMemo(() => (raw === undefined ? undefined : (parseStoredImport(raw) ?? null)), [raw]);
+  const read = useMemo(() => (raw === undefined ? undefined : readStoredImport(raw)), [raw]);
 
-  if (stored === undefined) {
+  if (read === undefined) {
     return (
       <div className="flex items-center gap-3 py-16 text-muted" role="status">
         <Spinner /> Loading your league…
       </div>
     );
   }
-  if (stored === null) {
+  if (read.kind !== "ok") {
     return (
-      <Card className="mx-auto max-w-xl text-center">
-        <h1 className="text-2xl font-black tracking-tight">No league imported yet</h1>
-        <p className="mt-2 text-muted">Connect your ESPN or Sleeper league and we&apos;ll show you everything we understood about it. Imports stay in this browser tab only.</p>
-        <Link href="/connect" className={`${buttonClass("primary")} mt-5`}>
-          Connect your league
-        </Link>
-      </Card>
+      <NoImportCard
+        outdated={read.kind === "outdated"}
+        text="Connect your ESPN or Sleeper league and we'll show you everything we understood about it. Imports stay in this browser tab only."
+      />
     );
   }
-  return <LoadedReport stored={stored} />;
+  return <LoadedReport stored={read.stored} />;
 }
 
 function LoadedReport({ stored }: { stored: StoredImport }) {

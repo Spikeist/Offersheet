@@ -166,9 +166,72 @@ describe("normalizeEspnLeague on Parker's league (sanitized fixtures)", () => {
 
   it("lists every regular-season matchup in its NFL week", () => {
     expect(s.schedule).toHaveLength(70);
-    expect(s.schedule.every((m) => !m.isPlayoff && m.teamB !== null)).toBe(true);
+    expect(s.schedule.every((m) => !m.isPlayoff && m.teamB !== null && m.weeks === undefined)).toBe(true); // one-week periods: no `weeks`
     for (let w = 1; w <= 14; w++) expect(s.schedule.filter((m) => m.week === w)).toHaveLength(5);
-    expect(s.schedule[0]).toEqual({ week: 1, teamA: "6", teamB: "8", isPlayoff: false });
+    // Week 1 is long final: ESPN's scores and winner (home team 6).
+    expect(s.schedule[0]).toEqual({ week: 1, teamA: "6", teamB: "8", isPlayoff: false, decided: true, result: { pointsA: 138.9, pointsB: 104.86, winnerId: "6" } });
+  });
+
+  it("marks each matchup decided, with its result, once ESPN has decided it (winner HOME / AWAY / TIE), and neither while UNDECIDED", () => {
+    // Live data (the probe refreshes the fixture): compare with the raw schedule itself.
+    const raw = readEspn<Json>(LABELS.league).schedule as Json[];
+    expect(raw).toHaveLength(s.schedule.length);
+    raw.forEach((m, i) => {
+      const got = s.schedule[i];
+      expect(got).toMatchObject({ teamA: String(m.home.teamId), teamB: String(m.away.teamId) });
+      if (m.winner === "UNDECIDED") {
+        expect(got?.decided).toBeUndefined();
+        expect(got?.result).toBeUndefined();
+      } else {
+        expect(got?.decided).toBe(true);
+        expect(got?.result).toEqual({
+          pointsA: Math.round(m.home.totalPoints * 100) / 100,
+          pointsB: Math.round(m.away.totalPoints * 100) / 100,
+          winnerId: m.winner === "HOME" ? String(m.home.teamId) : m.winner === "AWAY" ? String(m.away.teamId) : null,
+        });
+      }
+    });
+    // Captured on the Tuesday of week 4: every week before it decided (weeks 1–3), none after.
+    expect([...new Set(s.schedule.filter((m) => m.result).map((m) => m.week))]).toEqual(s.settings.regularSeasonWeeks.filter((w) => w < s.currentWeek));
+    expect(s.schedule.filter((m) => m.week < s.currentWeek).every((m) => m.result)).toBe(true);
+  });
+
+  it("marks decided exactly the games ESPN's records count, so the games still to play are the ones without `decided`", () => {
+    for (const t of s.teams) {
+      const decided = s.schedule.filter((m) => m.decided && !m.isPlayoff && (m.teamA === t.id || m.teamB === t.id));
+      expect(decided).toHaveLength(t.record.w + t.record.l + t.record.t);
+    }
+    expect(s.schedule.every((m) => !m.result || m.decided)).toBe(true); // every result is on a decided matchup
+  });
+
+  it("has results that rebuild ESPN's own standings exactly: every team's W-L-T, points for and points against", () => {
+    for (const t of s.teams) {
+      const rec = { w: 0, l: 0, t: 0, pf: 0, pa: 0 };
+      for (const m of s.schedule) {
+        if (!m.result || (m.teamA !== t.id && m.teamB !== t.id)) continue;
+        const home = m.teamA === t.id;
+        rec.pf += home ? m.result.pointsA : (m.result.pointsB as number);
+        rec.pa += home ? (m.result.pointsB as number) : m.result.pointsA;
+        if (m.result.winnerId === null) rec.t++;
+        else if (m.result.winnerId === t.id) rec.w++;
+        else rec.l++;
+      }
+      expect({ w: rec.w, l: rec.l, t: rec.t }).toEqual(t.record);
+      expect(rec.pf).toBeCloseTo(t.pointsFor, 2);
+      expect(rec.pa).toBeCloseTo(t.pointsAgainst, 2);
+    }
+  });
+
+  it("reads the league's seeding tiebreaker: TOTAL_POINTS_SCORED is points for, with no warning or note", () => {
+    expect(s.settings.seedingTiebreaker).toBe("pointsFor");
+    expect(notes.join("\n")).not.toMatch(/tiebreaker/i);
+    // ESPN's own current seeds (teams[].playoffSeed, not imported) bear the reading out: win
+    // percentage, then points for (three 2–1 teams and three 1–2 teams on the fixture's day).
+    const seedOf = new Map((readEspn<Json>(LABELS.league).teams as Json[]).map((t) => [String(t.id), t.playoffSeed as number]));
+    const winPct = (t: (typeof s.teams)[number]) => (t.record.w + t.record.t / 2) / Math.max(1, t.record.w + t.record.l + t.record.t);
+    const bySeed = [...s.teams].sort((a, b) => (seedOf.get(a.id) as number) - (seedOf.get(b.id) as number)).map((t) => t.id);
+    const byRule = [...s.teams].sort((a, b) => winPct(b) - winPct(a) || b.pointsFor - a.pointsFor).map((t) => t.id);
+    expect(bySeed).toEqual(byRule);
   });
 
   it("keeps only executed adds, drops and waiver claims, deduped across per-period requests", () => {
@@ -216,10 +279,23 @@ describe("normalizeEspnLeague on Parker's league (sanitized fixtures)", () => {
     expect(injured.every((p) => p.injuryReturnWeek !== undefined)).toBe(true);
     expect(Object.values(s.players).filter((p) => p.injury === "ACTIVE").every((p) => p.injuryReturnWeek === undefined)).toBe(true);
     expect(notes).toContain("Expected return weeks come from ESPN's player cards for 22 of 22 injured rostered players.");
-    expect(notes.find((n) => n.startsWith("ESPN expects 1 player listed as questionable"))).toMatch(/back week 8/);
+    expect(notes.find((n) => n.startsWith("ESPN expects 1 player listed as probable, questionable, doubtful or day-to-day"))).toMatch(/back week 8/);
     // Without cards (or when they failed) nothing is set.
     const bare = parker({}, { ...parkerBundle(), playerCards: [] }).snapshot;
     expect(Object.values(bare.players).some((p) => p.injuryReturnWeek !== undefined)).toBe(false);
+  });
+
+  it("lists a PROBABLE player whose return date is 2+ weeks out among those ESPN expects out longer, as the League page's note does (review AVAIL-5)", () => {
+    const bundle = parkerBundle();
+    const entry = (bundle.league as Json).teams.flatMap((t: Json) => t.roster?.entries ?? []).find((e: Json) => e.playerPoolEntry.player.id === 4047365) as Json;
+    expect(entry.playerPoolEntry.player.injuryStatus).toBe("DAY_TO_DAY");
+    entry.playerPoolEntry.player.injuryStatus = "PROBABLE";
+    const { snapshot, notes: probableNotes } = parker({}, bundle);
+    const player = Object.values(snapshot.players).find((p) => p.ids.espn === "4047365");
+    expect(player).toMatchObject({ injury: "PROBABLE", injuryReturnWeek: 8 });
+    expect(probableNotes.find((n) => n.startsWith("ESPN expects"))).toBe(
+      `ESPN expects 1 player listed as probable, questionable, doubtful or day-to-day to be out longer than that status suggests: ${player?.name} (back week 8).`,
+    );
   });
 });
 
@@ -327,7 +403,10 @@ describe("normalizeEspnLeague edge cases", () => {
       { id: "1", teamIds: ["2", "4", "6", "8", "10"] },
     ]);
     expect(s.teams[0]?.divisionId).toBe("0");
-    expect(codes(s)).toContain("ESPN_SEEDING_DIVISIONS_UNKNOWN");
+    // Division winners take the top seeds: ESPN's documented rule (review ADAPT-3), a note, not a warning.
+    expect(s.settings.playoffSeeding).toEqual({ reseed: false, divisionWinnersFirst: true });
+    expect(notes).toContain("Playoff seeding: the 2 division winners take the top seeds, then the other teams by the standings (ESPN's help center says division winners always occupy the top seeds).");
+    expect(codes(s)).not.toContain("ESPN_SEEDING_DIVISIONS_UNKNOWN");
     expect(s.settings).toMatchObject({ leagueType: "keeper", pointsOnly: true, tradeDeadline: null, tradeReview: "none" });
     expect(notes.join("\n")).toMatch(/keeper count \(keeperCount 3\)/);
     league.settings.draftSettings.keeperCount = 16;
@@ -387,9 +466,34 @@ describe("normalizeEspnLeague edge cases", () => {
     expect(codes(s)).toContain("ESPN_SEEDING_UNKNOWN");
   });
 
-  it("lists multi-week playoff rounds, skips consolation games, and warns about multi-week regular-season periods", () => {
+  it("seeds division winners first in a league with divisions, whatever ESPN says about re-seeding: ESPN's documented rule (review ADAPT-3)", () => {
+    const divided = (reseed: boolean | undefined) => {
+      const league = base();
+      league.settings.scheduleSettings.divisions = [
+        { id: 0, size: 5 },
+        { id: 1, size: 5 },
+      ];
+      (league.teams as Json[]).forEach((t, i) => (t.divisionId = i % 2));
+      if (reseed === undefined) delete league.settings.scheduleSettings.playoffReseed;
+      else league.settings.scheduleSettings.playoffReseed = reseed;
+      return run(league);
+    };
+    for (const reseed of [false, true]) {
+      const { snapshot, notes } = divided(reseed);
+      expect(snapshot.settings.playoffSeeding).toEqual({ reseed, divisionWinnersFirst: true });
+      expect(notes.filter((n) => n.startsWith("Playoff seeding:"))).toEqual(["Playoff seeding: the 2 division winners take the top seeds, then the other teams by the standings (ESPN's help center says division winners always occupy the top seeds)."]);
+      expect(codes(snapshot)).not.toContain("ESPN_SEEDING_DIVISIONS_UNKNOWN");
+    }
+    // Re-seeding not reported: the division rule still holds; the fixed bracket is the assumption (still warned, still unknown).
+    const unknown = divided(undefined).snapshot;
+    expect(unknown.settings.playoffSeeding).toEqual({ reseed: false, divisionWinnersFirst: true });
+    expect(unknown.settings.unknownSettings).toEqual(["playoffSeeding"]);
+    expect(unknown.warnings.filter((w) => w.platformPath === "settings.scheduleSettings.playoffReseed").map((w) => w.code)).toEqual(["ESPN_SEEDING_UNKNOWN"]);
+  });
+
+  it("lists multi-week matchups once with all their weeks (regular season and playoffs), skips consolation games, and warns about multi-week regular-season periods", () => {
     const league = base();
-    league.settings.scheduleSettings.matchupPeriods = { ...league.settings.scheduleSettings.matchupPeriods, "14": [14, 15], "15": [16], "16": [17, 18] };
+    league.settings.scheduleSettings.matchupPeriods = { ...league.settings.scheduleSettings.matchupPeriods, "14": [15, 14], "15": [16], "16": [17, 18] };
     delete league.settings.scheduleSettings.matchupPeriods["17"];
     league.settings.scheduleSettings.playoffTeamCount = 4;
     league.schedule.push({ matchupPeriodId: 15, home: { teamId: 1 }, away: { teamId: 2 }, playoffTierType: "WINNERS_BRACKET" }, { matchupPeriodId: 15, home: { teamId: 3 }, away: { teamId: 4 }, playoffTierType: "LOSERS_CONSOLATION_LADDER" }, { matchupPeriodId: 16, home: { teamId: 1 } });
@@ -398,10 +502,151 @@ describe("normalizeEspnLeague edge cases", () => {
     expect(s.settings.playoffRoundWeeks).toEqual([1, 2]);
     expect(s.schedule.filter((m) => m.isPlayoff)).toEqual([
       { week: 16, teamA: "1", teamB: "2", isPlayoff: true },
-      { week: 17, teamA: "1", teamB: null, isPlayoff: true },
+      { week: 17, teamA: "1", teamB: null, isPlayoff: true, weeks: [17, 18] },
     ]);
+    // Period 14 (weeks 14 and 15, listed out of order): its five matchups sit in week 14 with both weeks, ascending.
+    const period14 = s.schedule.filter((m) => m.weeks);
+    expect(period14.filter((m) => !m.isPlayoff)).toHaveLength(5);
+    expect(period14.filter((m) => !m.isPlayoff).every((m) => m.week === 14 && m.weeks?.join() === "14,15")).toBe(true);
+    expect(s.schedule.filter((m) => m.week === 15)).toEqual([]);
     expect(notes.join("\n")).toMatch(/1 consolation-bracket game/);
-    expect(codes(s)).toContain("ESPN_MULTIWEEK_MATCHUPS");
+    expect(s.warnings.find((w) => w.code === "ESPN_MULTIWEEK_MATCHUPS")?.message).toBe("Some regular-season matchups span several NFL weeks (period 14: weeks 14+15); each is listed once, with all its weeks.");
+  });
+
+  it("reads results: HOME, AWAY and TIE (ESPN's verdict, also when its tie rule broke a tie), UNDECIDED or missing → neither decided nor a result, a multi-week period's total, a bye never won", () => {
+    const league = base();
+    const rows = league.schedule as Json[];
+    const decided = rows.filter((m) => m.matchupPeriodId === 3);
+    // A tie ESPN's matchup tie rule broke (equal scores, winner HOME); a real tie; float noise to cents.
+    Object.assign(decided[0] as Json, { winner: "HOME", home: { ...decided[0]?.home, totalPoints: 101.5 }, away: { ...decided[0]?.away, totalPoints: 101.5 } });
+    Object.assign(decided[1] as Json, { winner: "TIE", home: { ...decided[1]?.home, totalPoints: 99.2 }, away: { ...decided[1]?.away, totalPoints: 99.2 } });
+    Object.assign(decided[2] as Json, { winner: "AWAY", home: { ...decided[2]?.home, totalPoints: 88.30000000000001 }, away: { ...decided[2]?.away, totalPoints: 120.09999999999998 } });
+    delete (decided[3] as Json).winner; // no verdict at all: no result
+    // A two-week playoff round, decided, and a bye in it (ESPN's bye row says HOME: still not a win).
+    league.settings.scheduleSettings.matchupPeriods = { ...league.settings.scheduleSettings.matchupPeriods, "15": [15, 16] };
+    delete league.settings.scheduleSettings.matchupPeriods["16"];
+    delete league.settings.scheduleSettings.matchupPeriods["17"];
+    league.settings.scheduleSettings.playoffTeamCount = 2;
+    rows.push({ matchupPeriodId: 15, home: { teamId: 1, totalPoints: 250.75 }, away: { teamId: 2, totalPoints: 240 }, winner: "HOME", playoffTierType: "WINNERS_BRACKET" }, { matchupPeriodId: 15, home: { teamId: 3, totalPoints: 0 }, winner: "HOME", playoffTierType: "WINNERS_BRACKET" });
+    const s = run(league).snapshot;
+    const week3 = s.schedule.filter((m) => m.week === 3);
+    const id = (m: Json | undefined, side: "home" | "away") => String(m?.[side].teamId);
+    expect(week3[0]?.result).toEqual({ pointsA: 101.5, pointsB: 101.5, winnerId: id(decided[0], "home") });
+    expect(week3[1]?.result).toEqual({ pointsA: 99.2, pointsB: 99.2, winnerId: null });
+    expect(week3[2]?.result).toEqual({ pointsA: 88.3, pointsB: 120.1, winnerId: id(decided[2], "away") });
+    expect(week3[3]?.result).toBeUndefined();
+    expect(week3.map((m) => m.decided)).toEqual([true, true, true, undefined, true]); // no verdict: not decided either
+    expect(s.schedule.filter((m) => m.isPlayoff)).toEqual([
+      { week: 15, teamA: "1", teamB: "2", isPlayoff: true, weeks: [15, 16], decided: true, result: { pointsA: 250.75, pointsB: 240, winnerId: "1" } },
+      { week: 15, teamA: "3", teamB: null, isPlayoff: true, weeks: [15, 16], decided: true, result: { pointsA: 0, pointsB: null, winnerId: null } },
+    ]);
+    expect(codes(s)).not.toContain("ESPN_MATCHUP_RESULT_UNREADABLE");
+  });
+
+  it("keeps decided matchups it can't read (a winner value ESPN adds later, a winner without a score) decided, without a result, and warns", () => {
+    const league = base();
+    const week1 = (league.schedule as Json[]).filter((m) => m.matchupPeriodId === 1);
+    (week1[0] as Json).winner = "FORFEIT";
+    (week1[1] as Json).winner = "FORFEIT";
+    delete (week1[2] as Json).away.totalPoints;
+    const s = run(league).snapshot;
+    const games = s.schedule.filter((m) => m.week === 1);
+    expect(games.map((m) => m.result !== undefined)).toEqual([false, false, false, true, true]);
+    // Still decided: ESPN's records count them, so the season simulation mustn't play them again.
+    expect(games.every((m) => m.decided === true)).toBe(true);
+    expect(s.warnings.find((w) => w.code === "ESPN_MATCHUP_RESULT_UNREADABLE")).toEqual({
+      code: "ESPN_MATCHUP_RESULT_UNREADABLE",
+      message: '3 decided matchups came back in a shape we can\'t read (2 with winner "FORFEIT"; 1 with a winner but no score), so they have no result: ESPN\'s standings still count them as played, but head-to-head tiebreakers leave them out.',
+      platformPath: "schedule[].winner",
+    });
+    // One alone reads in the singular.
+    const one = base();
+    ((one.schedule as Json[]).find((m) => m.matchupPeriodId === 2) as Json).winner = "FORFEIT";
+    expect(run(one).snapshot.warnings.find((w) => w.code === "ESPN_MATCHUP_RESULT_UNREADABLE")?.message).toBe(
+      '1 decided matchup came back in a shape we can\'t read (1 with winner "FORFEIT"), so it has no result: ESPN\'s standings still count it as played, but head-to-head tiebreakers leave it out.',
+    );
+  });
+
+  it("words each unreadable result by what it changes: a playoff game makes bye and title odds unknown, a regular-season one leaves the tiebreakers (division record too, with divisions), a bye isn't warned (review ADAPT-2)", () => {
+    const league = base();
+    const rows = league.schedule as Json[];
+    (rows.find((m) => m.matchupPeriodId === 2) as Json).winner = "FORFEIT";
+    // A decided playoff round: a game and a bye, both with a verdict we don't know.
+    league.settings.scheduleSettings.matchupPeriods = { ...league.settings.scheduleSettings.matchupPeriods, "15": [15, 16] };
+    delete league.settings.scheduleSettings.matchupPeriods["16"];
+    delete league.settings.scheduleSettings.matchupPeriods["17"];
+    league.settings.scheduleSettings.playoffTeamCount = 2;
+    rows.push(
+      { matchupPeriodId: 15, home: { teamId: 1, totalPoints: 250.75 }, away: { teamId: 2, totalPoints: 240 }, winner: "FORFEIT", playoffTierType: "WINNERS_BRACKET" },
+      { matchupPeriodId: 15, home: { teamId: 3, totalPoints: 0 }, winner: "FORFEIT", playoffTierType: "WINNERS_BRACKET" },
+    );
+    const s = run(league).snapshot;
+    expect(s.warnings.filter((w) => w.code === "ESPN_MATCHUP_RESULT_UNREADABLE")).toEqual([
+      {
+        code: "ESPN_MATCHUP_RESULT_UNREADABLE",
+        message: '1 decided matchup came back in a shape we can\'t read (1 with winner "FORFEIT"), so it has no result: ESPN\'s standings still count it as played, but head-to-head tiebreakers leave it out.',
+        platformPath: "schedule[].winner",
+      },
+      {
+        code: "ESPN_MATCHUP_RESULT_UNREADABLE",
+        message: '1 decided playoff game came back in a shape we can\'t read (1 with winner "FORFEIT"), so it has no result: without its winner the playoff bracket can\'t be replayed, so bye and title odds show as unknown.',
+        platformPath: "schedule[].winner",
+      },
+    ]);
+    // Both playoff rows stay decided, without a result (the bye isn't in the warnings: nothing reads its result).
+    expect(s.schedule.filter((m) => m.isPlayoff)).toEqual([
+      { week: 15, teamA: "1", teamB: "2", isPlayoff: true, weeks: [15, 16], decided: true },
+      { week: 15, teamA: "3", teamB: null, isPlayoff: true, weeks: [15, 16], decided: true },
+    ]);
+    // Two playoff games read in the plural; with divisions, the regular-season wording names division records too.
+    rows.push({ matchupPeriodId: 15, home: { teamId: 4, totalPoints: 90 }, away: { teamId: 5, totalPoints: 80 }, playoffTierType: "WINNERS_BRACKET", winner: "HOME" });
+    (rows.at(-1) as Json).home = { teamId: 4 }; // a winner but no score
+    league.settings.scheduleSettings.divisions = [
+      { id: 0, size: 5 },
+      { id: 1, size: 5 },
+    ];
+    (league.teams as Json[]).forEach((t, i) => (t.divisionId = i % 2));
+    const divisional = run(league).snapshot.warnings.filter((w) => w.code === "ESPN_MATCHUP_RESULT_UNREADABLE").map((w) => w.message);
+    expect(divisional).toEqual([
+      '1 decided matchup came back in a shape we can\'t read (1 with winner "FORFEIT"), so it has no result: ESPN\'s standings still count it as played, but head-to-head and division-record tiebreakers leave it out.',
+      '2 decided playoff games came back in a shape we can\'t read (1 with winner "FORFEIT"; 1 with a winner but no score), so they have no result: without their winners the playoff bracket can\'t be replayed, so bye and title odds show as unknown.',
+    ]);
+  });
+
+  it("maps ESPN's seeding tiebreaker: head-to-head and division record with a note (names only, not seen live); anything else unknown, warned, points for assumed", () => {
+    const withRule = (rule: string | undefined) => {
+      const league = base();
+      if (rule === undefined) delete league.settings.scheduleSettings.playoffSeedingRule;
+      else league.settings.scheduleSettings.playoffSeedingRule = rule;
+      return run(league);
+    };
+    const h2h = withRule("H2H_RECORD");
+    expect(h2h.snapshot.settings.seedingTiebreaker).toBe("headToHead");
+    expect(h2h.snapshot.settings.unknownSettings).toBeUndefined();
+    expect(h2h.notes).toContain("Ties in the standings: ESPN's seeding tiebreaker H2H_RECORD is read as head-to-head record. That's ESPN's own name for it, but no league with this setting has been checked yet.");
+    expect(codes(h2h.snapshot)).not.toContain("ESPN_SEEDING_TIEBREAKER_UNKNOWN");
+    const division = withRule("INTRA_DIVISION_RECORD");
+    expect(division.snapshot.settings.seedingTiebreaker).toBe("divisionRecord");
+    expect(division.notes.join("\n")).toMatch(/INTRA_DIVISION_RECORD is read as record within the division/);
+    const notReported = "ESPN didn't say how ties in the standings are broken; the season simulation breaks them by points for.";
+    for (const [rule, message] of [
+      ["TOTAL_POINTS_AGAINST", "ESPN breaks ties in the standings by TOTAL_POINTS_AGAINST, which Offer Sheet doesn't model yet; the season simulation breaks them by points for instead."],
+      [undefined, notReported],
+      // ESPN's own placeholder (the first of recordSeedingRuleTypes) reports no rule, like a missing one.
+      ["UNKNOWN", notReported],
+      // A value that names an Object.prototype key isn't a rule we model.
+      ["constructor", "ESPN breaks ties in the standings by constructor, which Offer Sheet doesn't model yet; the season simulation breaks them by points for instead."],
+    ] as const) {
+      const r = withRule(rule);
+      expect(r.snapshot.settings.seedingTiebreaker).toBeUndefined();
+      expect(r.snapshot.settings.unknownSettings).toEqual(["seedingTiebreaker"]);
+      expect(r.snapshot.warnings.find((w) => w.code === "ESPN_SEEDING_TIEBREAKER_UNKNOWN")).toEqual({ code: "ESPN_SEEDING_TIEBREAKER_UNKNOWN", message, platformPath: "settings.scheduleSettings.playoffSeedingRule" });
+    }
+    // Both seeding settings unknown: in the Import Report's order.
+    const both = base();
+    delete both.settings.scheduleSettings.playoffReseed;
+    delete both.settings.scheduleSettings.playoffSeedingRule;
+    expect(run(both).snapshot.settings.unknownSettings).toEqual(["playoffSeeding", "seedingTiebreaker"]);
   });
 
   it("counts a completed trade once (accept + uphold) and warns that ESPN trade rows are unverified", () => {

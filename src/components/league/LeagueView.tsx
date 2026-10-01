@@ -1,11 +1,14 @@
 "use client";
 /**
- * The League page, ready (CLAUDE.md §14 item 3): the header, the team table with needs and surplus,
+ * The League page, ready (CLAUDE.md §14 item 3): the header, the standings with playoff, bye and title
+ * odds and my remaining schedule with each week's risk (§8), the team table with needs and trade chips,
  * the positional strength heatmap, best trade partners, every roster (headed by the team's best
  * free-agent move, §7) with rest-of-season points and a week-by-week breakdown (§6 step 7), the best
  * free agents, and "how these numbers work". Every word and number comes from buildLeagueView();
  * this file only arranges it, mobile-first (375 px). Every set of values carries its own
- * "Values: FantasyCalc" link (§2.9): the header, the team table, the rosters and the free agents.
+ * "Values: FantasyCalc" link (§2.9): the header, the team table, the rosters and the free agents (the
+ * odds and the schedule show no trade values). When my team is certainly out in a redraft league, the
+ * page says "Your season's over — no trade helps this year." (§8) right under the header.
  *
  * Refresh stays focusable while it works (aria-disabled, clicks ignored), so keyboard focus never
  * drops to the page; `headingRef` lets the page move focus to the league's name after a Try again.
@@ -16,6 +19,8 @@ import { FREE_AGENT_MOVE_LABEL, type FreeAgentMove, type LeagueView as LeagueVie
 import type { RefreshControl } from "../import/ReportView";
 import { Badge, Callout, Card, CardTitle, FOCUS_TARGET, Facts, cx } from "../ui";
 import { PlayerTable } from "./PlayerTable";
+import { RemainingSchedule } from "./RemainingSchedule";
+import { StandingsOdds } from "./StandingsOdds";
 import { StrengthHeatmap } from "./StrengthHeatmap";
 import { TeamTable } from "./TeamTable";
 import { TradePartners } from "./TradePartners";
@@ -37,6 +42,7 @@ export function LeagueView({ view, refresh, headingRef }: ViewProps & { refresh?
           </Link>
         </Callout>
       ) : null}
+      {view.eliminated ? <Callout>{view.eliminated}</Callout> : null}
       {view.over ? <Callout title="The season is over">There are no weeks left to project for this league.</Callout> : null}
       {view.warnings.length ? (
         <Callout tone="warn" title="Some data is missing">
@@ -47,6 +53,8 @@ export function LeagueView({ view, refresh, headingRef }: ViewProps & { refresh?
           </ul>
         </Callout>
       ) : null}
+      <StandingsOdds view={view} />
+      <RemainingSchedule view={view} />
       <TeamTable view={view} />
       <StrengthHeatmap heatmap={view.heatmap} />
       <TradePartners view={view} />

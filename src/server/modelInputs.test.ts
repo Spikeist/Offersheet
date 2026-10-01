@@ -2,6 +2,9 @@
  * Model inputs (CLAUDE.md §3, §5, §6, §9, §2.10): the pure assembly on hand-built loads and on Parker's
  * sanitized fixtures, and the loader sequence on fake HTTP clients. No network.
  */
+import { mkdtemp, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { performance } from "node:perf_hooks";
 import { describe, expect, it, vi } from "vitest";
 import { normalizeEspnLeague } from "@/adapters/espn/normalize";
@@ -12,7 +15,7 @@ import type { SleeperStatRow } from "@/adapters/sleeper/schemas";
 import type { HttpClient, HttpRequestOptions, HttpResponse } from "@/adapters/types";
 import { FANTASYCALC_PLAYERS_URL, type FantasyCalcPlayerIds } from "@/data/fantasyCalcPlayers";
 import { FANTASYCALC_DYNASTY_MIN_PLAYERS, FANTASYCALC_REDRAFT_MIN_PLAYERS, fantasyCalcValuesUrl, type FantasyCalcValueRow, type FantasyCalcValuesLoad } from "@/data/fantasyCalcValues";
-import { nflScheduleUrl, type NflSchedule } from "@/data/nflSchedule";
+import { nflScheduleUrl, reduceNflSchedule, type NflSchedule, type NflScheduleResponse } from "@/data/nflSchedule";
 import {
   playedStatLines,
   projectionLines,
@@ -32,9 +35,10 @@ import { fantasyCalcFormatLabel } from "@/engine/market";
 import type { LeagueSettings, LeagueSnapshot, PlayerInfo, Pos, Scoring, StatLine, Team } from "@/engine/model";
 import { actualPoints, expectedPoints } from "@/engine/scoring";
 import { isModelResponse } from "@/lib/api";
-import { MemoryCache } from "@/server/cache";
+import { MemoryCache, TTL } from "@/server/cache";
 import { createHttpClient } from "@/server/http";
 import { readSanitizedFixture } from "@/test-utils/fixtures";
+import { createProjectionArchiver, firstKickoffOf, projectionSnapshotFile, readProjectionSnapshot, type ArchiveOutcome, type ProjectionArchiveInput, type ProjectionArchiver } from "./projectionArchive";
 import {
   assembleModelInputs,
   buildModelInputs,
@@ -1024,5 +1028,119 @@ describe("buildModelInputs (loading: §0.9 politeness, §2.10 caching)", () => {
     expect(out.market?.format.isDynasty).toBe(true);
     expect(out.market?.redraftValues?.["9221"]).toBeGreaterThan(0);
     expect(out.warnings).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// Per-week projection caching and the pre-game projection archive (CLAUDE.md §2.10, §2.3)
+
+/** An archiver that records what it's given and answers `outcome` (default: a promise that never settles). */
+function recordingArchiver(outcome?: ArchiveOutcome): { archiver: ProjectionArchiver; inputs: ProjectionArchiveInput[] } {
+  const inputs: ProjectionArchiveInput[] = [];
+  return {
+    inputs,
+    archiver: {
+      archive: (i) => {
+        inputs.push(i);
+        return outcome ? Promise.resolve(outcome) : new Promise<ArchiveOutcome>(() => {});
+      },
+      flush: async () => {},
+    },
+  };
+}
+
+/** The committed NFL schedule, keyed as buildModelInputs keys it. */
+const fixtureSchedule = () => reduceNflSchedule(shared<NflScheduleResponse>(FIXTURE.espnProTeams), defenseId);
+
+describe("buildModelInputs: per-week projection caching and the pre-game archive (§2.10, §2.3)", () => {
+  it("caches each projection week under its own policy: served 6 hours through two weeks after the current one, 24 hours later, and kept 24 hours either way", async () => {
+    const s = loadSnapshot();
+    const fake = fakeHttp(fullRoutes(s));
+    await buildModelInputs({ snapshot: s, http: fake.http, resolver: { defenseId }, now: NOW, projectionArchive: null });
+    const projectionCalls = fake.calls.filter((c) => c.url.startsWith("https://api.sleeper.app/projections/nfl/2026/"));
+    expect(projectionCalls).toHaveLength(17);
+    for (const c of projectionCalls) {
+      const week = Number(/\/2026\/(\d+)\?/.exec(c.url)?.[1]);
+      const ttl = week <= 6 ? TTL.projections : TTL.projectionsLater;
+      expect(c.opts?.cache, `week ${week}`).toEqual({ key: `sleeper:${c.url}`, ttlMs: ttl, retainMs: TTL.projectionsLater });
+    }
+    // The season projections and the stats keep 6 hours.
+    for (const c of fake.calls.filter((x) => x.url.startsWith("https://api.sleeper.app/") && !projectionCalls.includes(x))) expect(c.opts?.cache?.ttlMs).toBe(TTL.projections);
+  });
+
+  it("hands every projection week it reads to the archive with the current week and that week's first kickoff, and doesn't wait for it", async () => {
+    const s = loadSnapshot();
+    const { archiver, inputs } = recordingArchiver(); // its promises never settle: the build must not wait on them
+    const out = await buildModelInputs({ snapshot: s, http: fakeHttp(fullRoutes(s)).http, resolver: { defenseId }, now: NOW, projectionArchive: archiver });
+    expect(out.warnings).toEqual([]);
+    const schedule = fixtureSchedule();
+    expect(inputs.map((i) => i.week)).toEqual(weeks(1, 17));
+    for (const i of inputs) {
+      expect(i, `week ${i.week}`).toMatchObject({ season: 2026, currentWeek: 4, positions: LOAD_POSITIONS, firstKickoff: firstKickoffOf(schedule, i.week) });
+      expect(i.res.fetchedAt).toBe(Date.parse("2026-09-30T10:00:00Z"));
+      expect(i.rows.length).toBeGreaterThan(100);
+    }
+    expect(inputs[3]?.firstKickoff).toBe(Date.parse("2026-10-02T00:15:00Z")); // week 4 opens on Thursday night (US time)
+  });
+
+  it("without the NFL schedule, every week's first kickoff is unknown (so only weeks after the current one can be archived)", async () => {
+    const s = loadSnapshot();
+    const routes = fullRoutes(s);
+    delete routes[nflScheduleUrl(2026)];
+    const { archiver, inputs } = recordingArchiver({ status: "skipped", reason: "kickoff unknown" });
+    const out = await buildModelInputs({ snapshot: s, http: fakeHttp(routes).http, resolver: { defenseId }, now: NOW, projectionArchive: archiver });
+    expect(out.warnings.map((w) => w.code)).toEqual(["NFL_SCHEDULE_UNAVAILABLE"]);
+    expect(inputs).toHaveLength(17);
+    expect(inputs.every((i) => i.firstKickoff === null)).toBe(true);
+  });
+
+  it("uses the process's archive when none is passed (off under Vitest), and none when passed null", async () => {
+    const { archiver, inputs } = recordingArchiver({ status: "unchanged", file: "x" });
+    vi.resetModules();
+    vi.doMock("./projectionArchive", async (importOriginal) => ({ ...(await importOriginal<typeof import("./projectionArchive")>()), defaultProjectionArchiver: () => archiver }));
+    try {
+      const { buildModelInputs: build } = await import("./modelInputs");
+      const s = loadSnapshot();
+      await build({ snapshot: s, http: fakeHttp(fullRoutes(s)).http, resolver: { defenseId }, now: NOW });
+      expect(inputs).toHaveLength(17);
+      await build({ snapshot: s, http: fakeHttp(fullRoutes(s)).http, resolver: { defenseId }, now: NOW, projectionArchive: null });
+      expect(inputs).toHaveLength(17);
+    } finally {
+      vi.doUnmock("./projectionArchive");
+      vi.resetModules();
+    }
+  });
+
+  it("through the real archive: the weeks still ahead of their first kickoff are archived, the weeks already played aren't", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "offer-sheet-model-archive-"));
+    try {
+      const s = loadSnapshot();
+      const archiver = createProjectionArchiver({ root: dir });
+      const outcomes: Array<Promise<ArchiveOutcome>> = [];
+      const spying: ProjectionArchiver = { archive: (i) => (outcomes.push(archiver.archive(i)), outcomes.at(-1) as Promise<ArchiveOutcome>), flush: () => archiver.flush() };
+      await buildModelInputs({ snapshot: s, http: fakeHttp(fullRoutes(s)).http, resolver: { defenseId }, now: NOW, projectionArchive: spying });
+      await archiver.flush();
+      const done = await Promise.all(outcomes);
+      expect(done.slice(0, 3)).toEqual([1, 2, 3].map(() => ({ status: "skipped", reason: "after kickoff" })));
+      expect(done.slice(3).map((o) => o.status)).toEqual(weeks(4, 17).map(() => "archived"));
+      const week4 = await readProjectionSnapshot(projectionSnapshotFile(dir, 2026, 4));
+      expect(week4).toMatchObject({ version: 1, season: 2026, week: 4, firstKickoff: "2026-10-02T00:15:00.000Z" });
+      expect(Object.keys(week4?.groups ?? {})).toEqual(LOAD_POSITIONS);
+      expect(week4?.groups.RB?.fetchedAt).toBe("2026-09-30T10:00:00.000Z");
+      expect(week4?.groups.RB?.players["9221"]?.pos).toBe("RB");
+      expect(await readProjectionSnapshot(projectionSnapshotFile(dir, 2026, 3))).toBeNull();
+      // The next build reads the same cached copies: nothing new to write.
+      const again: Array<Promise<ArchiveOutcome>> = [];
+      await buildModelInputs({
+        snapshot: s,
+        http: fakeHttp(fullRoutes(s)).http,
+        resolver: { defenseId },
+        now: new Date(NOW.getTime() + 60_000),
+        projectionArchive: { archive: (i) => (again.push(archiver.archive(i)), again.at(-1) as Promise<ArchiveOutcome>), flush: () => archiver.flush() },
+      });
+      expect((await Promise.all(again)).slice(3).map((o) => o.status)).toEqual(weeks(4, 17).map(() => "unchanged"));
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });

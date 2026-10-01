@@ -7,7 +7,9 @@
 import { createElement, isValidElement, type ReactElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { StoredImport } from "@/lib/importStore";
+import { config } from "@/engine/config";
+import { fmtWhole } from "@/lib/format";
+import { IMPORT_FORMAT_VERSION, type StoredImport } from "@/lib/importStore";
 import { buildLeagueView } from "@/lib/leagueView";
 import { LeagueError, LeagueFrame, LeaguePage, READY_TEXT, UPDATED_TEXT, UPDATING_TEXT, joinInputsRequest, type LeagueFrameState } from "./LeaguePage";
 import { NOW, leagueFixture } from "./testFixtures";
@@ -66,7 +68,7 @@ describe("LeagueFrame: one status line through every state", () => {
     const fetching = render(STATES.fetching as LeagueFrameState);
     expect(fetching).toContain("The Gloopdorf Invitational");
     expect(fetching).toContain("The first load of the day can take half a minute.");
-    expect(render(STATES.computing as LeagueFrameState)).toContain("This runs in your browser");
+    expect(render(STATES.computing as LeagueFrameState)).toContain(`and ${fmtWhole(config.simulation.finalSims)} simulated seasons for the playoff odds. This runs in your browser`);
   });
 
   it("never marks anything aria-busy, which would hold back the status lines it wraps", () => {
@@ -109,7 +111,7 @@ describe("joinInputsRequest: one model request per page load", () => {
 
   const stored = (leagueId = "4242"): StoredImport => {
     const snapshot = { ...f.snapshot, leagueId };
-    return { version: 1, savedAt: NOW, request: { platform: "espn", season: 2026, leagueId }, response: { snapshot, notes: [] } } as unknown as StoredImport;
+    return { version: IMPORT_FORMAT_VERSION, savedAt: NOW, request: { platform: "espn", season: 2026, leagueId }, response: { snapshot, notes: [] } };
   };
   const tick = () => new Promise((r) => setTimeout(r, 0));
 

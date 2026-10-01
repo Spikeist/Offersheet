@@ -7,14 +7,18 @@
  * read straight from the normalized snapshot; nothing is guessed or back-filled. Two additions come
  * from Phase 2: the FantasyCalc format the league's trade values use (§2.9, with a note for each
  * substitution) and, once the League page has loaded this league's model inputs, which projections
- * are used (§6: ESPN's are averaged with Sleeper's only when the two agree).
+ * are used (§6: ESPN's are averaged with Sleeper's only when the two agree). Phase 3 adds what the
+ * season simulation reads (§8): how ties in the standings are broken (the league's seeding
+ * tiebreaker, or unknown with points for assumed) and the weeks with final scores; a matchup that
+ * spans several NFL weeks counts in all of them.
  */
 import { config } from "@/engine/config";
 import type { ModelInputs } from "@/engine/inputs";
 import { fantasyCalcFormat, fantasyCalcFormatLabel } from "@/engine/market";
-import { POSITIONS, type ImportWarning, type LeagueSettings, type LeagueSnapshot, type Platform, type Pos, type Scoring, type ScoringRule, type StatExpr, type Team, type UnknownSetting } from "@/engine/model";
+import { POSITIONS, type ImportWarning, type LeagueSettings, type LeagueSnapshot, type Platform, type Pos, type Scoring, type ScoringRule, type SeedingTiebreaker, type StatExpr, type Team, type UnknownSetting } from "@/engine/model";
 import { espnSleeperAgreement } from "@/engine/projections";
 import { rateFor, ruleApplies } from "@/engine/scoring";
+import { reseedRuleAssumed } from "@/engine/season";
 import type { EspnCookieSource, ImportResponse } from "./api";
 import { fmtNum, fmtPoints, fmtSigned, formatDate, formatDateTime, formatTime, plural, recordText, weeksText } from "./format";
 import type { MyTeamPickSource } from "./importStore";
@@ -23,7 +27,17 @@ import { resolveMyTeam, type MyTeamSource } from "./myTeam";
 
 /** How a setting the platform doesn't expose (or we couldn't read) is shown (§14 item 2). */
 export const UNKNOWN_SETTING_TEXT = "Unknown — check your league's settings";
-const UNKNOWN_SETTINGS: readonly UnknownSetting[] = ["tradeDeadline", "tradeReview", "playoffs", "playoffSeeding"];
+const UNKNOWN_SETTINGS: readonly UnknownSetting[] = ["tradeDeadline", "tradeReview", "playoffs", "playoffSeeding", "seedingTiebreaker"];
+
+/** The seeding tiebreaker (§8) as the Season card's "Ties in the standings" row shows it. */
+export const TIEBREAKER_TEXT: Readonly<Record<SeedingTiebreaker, string>> = { pointsFor: "Points for", headToHead: "Head-to-head record", divisionRecord: "Division record" };
+/**
+ * A tiebreaker the platform doesn't report or reports one we don't model (ESPN: a missing or UNKNOWN
+ * playoffSeedingRule, TOTAL_POINTS_AGAINST …): the simulator uses points for. Sleeper's is documented
+ * (more points for, then more points against), so its leagues show "Points for", with the adapter's
+ * note that a commissioner can also seed by hand, which the API doesn't show.
+ */
+export const TIEBREAKER_UNKNOWN_TEXT = "Unknown (points for assumed)";
 
 export interface GlanceTile {
   id: "league" | "scoring" | "starters" | "roster" | "playoffs" | "deadline" | "myTeam" | "warnings";
@@ -116,6 +130,8 @@ export interface ImportReportView {
     byes: string;
     rounds?: string;
     seeding: string;
+    /** "Ties in the standings" (§8): the league's seeding tiebreaker, or TIEBREAKER_UNKNOWN_TEXT. */
+    tiebreaker: string;
     medianGame: boolean;
     pointsOnly: boolean;
     divisions: { name: string; teams: string[] }[];
@@ -143,7 +159,11 @@ export interface ImportReportView {
     unmatched: { name: string; pos: string; team: string }[];
     missingDetails: number;
   };
-  schedule: { matchups: number; weeks: string; missingRegularWeeks: number[]; thisWeek?: string };
+  /**
+   * matchups and weeks count every NFL week a matchup spans (ESPN multi-week periods); `results`
+   * names the weeks with final scores from the platform ("None yet" before any).
+   */
+  schedule: { matchups: number; weeks: string; missingRegularWeeks: number[]; thisWeek?: string; results: string };
   activity: { trades: number; adds: number; drops: number; waivers: number; tradedPicks?: number };
   /** The platform's notes, passed through. */
   notes: string[];
@@ -479,20 +499,37 @@ function buildLineup(settings: LeagueSettings, platform: Platform): ImportReport
   };
 }
 
-const STANDARD_SEEDING = "We'll assume standard seeding: wins, then points for.";
+/**
+ * The seeding the season simulation assumes when the platform doesn't report its re-seeding (§8): a fixed
+ * bracket seeded by the standings, after the division winners when the league seeds them first (that rule
+ * doesn't depend on re-seeding: ESPN documents it, and Sleeper's adapter keeps it whatever its seed type
+ * says, so the season simulation seeds them first). It names no tiebreaker: the "Ties in the standings" row
+ * does, and that can be the league's own even when re-seeding is unknown (ESPN).
+ */
+function standardSeedingText(st: LeagueSettings): string {
+  const by = st.pointsOnly ? "points for" : "record";
+  const divisionsFirst = st.playoffSeeding?.divisionWinnersFirst === true && (st.divisions?.length ?? 0) >= 2;
+  return `We'll assume standard seeding: a fixed bracket (no re-seeding), ${divisionsFirst ? `the division winners seeded first, then the other teams by ${by}` : `seeded by ${by}`}.`;
+}
 
 function buildSeason(snapshot: LeagueSnapshot, teamName: (id: string) => string, unknown: ReadonlySet<UnknownSetting>): ImportReportView["season"] {
   const st = snapshot.settings;
   const playoffsUnknown = unknown.has("playoffs");
   const rounds = !playoffsUnknown && st.playoffRoundWeeks?.some((n) => n > 1) ? `Rounds last ${st.playoffRoundWeeks.join(", ")} weeks` : undefined;
   let seeding: string;
-  if (unknown.has("playoffSeeding")) seeding = `${UNKNOWN_SETTING_TEXT}. ${STANDARD_SEEDING}`;
-  else if (!st.playoffSeeding) seeding = `Not reported by the platform. ${STANDARD_SEEDING}`;
+  if (unknown.has("playoffSeeding")) seeding = `${UNKNOWN_SETTING_TEXT}. ${standardSeedingText(st)}`;
+  // No seeding reported, or only its division rule: the re-seeding is a default (season.ts reseedRuleAssumed,
+  // as the season simulation reads it), so it isn't shown as the league's own.
+  else if (!st.playoffSeeding || reseedRuleAssumed(snapshot))
+    seeding = `${snapshot.warnings.some((w) => w.code === "PLAYOFF_SEED_TYPE_UNKNOWN") ? "Reported with a code we don't know" : "Not reported by the platform"}. ${standardSeedingText(st)}`;
   else {
     const parts = [st.playoffSeeding.reseed ? "Re-seeded after each round" : "Fixed bracket (no re-seeding)"];
     if (st.playoffSeeding.divisionWinnersFirst) parts.push("division winners are seeded first");
     seeding = parts.join("; ");
   }
+  // Ties in the standings (§8): unknown when the platform doesn't report the rule or reports one we
+  // don't model (TIEBREAKER_UNKNOWN_TEXT); the season simulation then breaks ties by points for.
+  const tiebreaker = st.seedingTiebreaker && !unknown.has("seedingTiebreaker") ? TIEBREAKER_TEXT[st.seedingTiebreaker] : TIEBREAKER_UNKNOWN_TEXT;
   const byes = playoffsUnknown ? UNKNOWN_SETTING_TEXT : st.playoffByes === undefined ? "Not reported" : st.playoffByes === 0 ? "No byes" : `${plural(st.playoffByes, "bye")} for the top seeds`;
   const divisions = st.divisions && st.divisions.length > 1 ? st.divisions.map((d, i) => ({ name: `Division ${i + 1}`, teams: d.teamIds.map(teamName) })) : [];
   return {
@@ -504,6 +541,7 @@ function buildSeason(snapshot: LeagueSnapshot, teamName: (id: string) => string,
     byes,
     rounds,
     seeding,
+    tiebreaker,
     medianGame: st.medianGame,
     pointsOnly: st.pointsOnly,
     divisions,
@@ -576,18 +614,23 @@ function buildPlayers(snapshot: LeagueSnapshot): ImportReportView["players"] {
   return { total: Object.keys(snapshot.players).length, rostered: rostered.size, onIr, onTaxi, freeAgents: snapshot.freeAgents.length, unmatched, missingDetails };
 }
 
+/** Every NFL week a matchup covers: all of a multi-week period's weeks (ESPN), else its one week. */
+const weeksOf = (m: LeagueSnapshot["schedule"][number]): readonly number[] => m.weeks ?? [m.week];
+
 function buildSchedule(snapshot: LeagueSnapshot, myTeamId: string | null, teamName: (id: string) => string): ImportReportView["schedule"] {
-  const weeks = [...new Set(snapshot.schedule.map((m) => m.week))];
+  const weeks = [...new Set(snapshot.schedule.flatMap(weeksOf))];
   const missingRegularWeeks = snapshot.settings.pointsOnly ? [] : snapshot.settings.regularSeasonWeeks.filter((w) => !weeks.includes(w));
   let thisWeek: string | undefined;
   if (myTeamId) {
-    const m = snapshot.schedule.find((x) => x.week === snapshot.currentWeek && (x.teamA === myTeamId || x.teamB === myTeamId));
+    const m = snapshot.schedule.find((x) => weeksOf(x).includes(snapshot.currentWeek) && (x.teamA === myTeamId || x.teamB === myTeamId));
     if (m) {
       const opp = m.teamA === myTeamId ? m.teamB : m.teamA;
-      thisWeek = `Week ${snapshot.currentWeek}: ${opp ? `vs ${teamName(opp)}` : "bye"}${m.isPlayoff ? " (playoffs)" : ""}`;
+      const span = m.weeks ? ` (weeks ${m.weeks.join(" + ")})` : "";
+      thisWeek = `Week ${snapshot.currentWeek}: ${opp ? `vs ${teamName(opp)}` : "bye"}${span}${m.isPlayoff ? " (playoffs)" : ""}`;
     }
   }
-  return { matchups: snapshot.schedule.length, weeks: weeksText(weeks), missingRegularWeeks, thisWeek };
+  const resultWeeks = snapshot.schedule.filter((m) => m.result).flatMap(weeksOf);
+  return { matchups: snapshot.schedule.length, weeks: weeksText(weeks), missingRegularWeeks, thisWeek, results: resultWeeks.length ? weeksText(resultWeeks) : "None yet" };
 }
 
 // ---------------------------------------------------------------------------------------------

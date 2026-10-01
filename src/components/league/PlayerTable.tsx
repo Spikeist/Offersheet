@@ -13,6 +13,10 @@
  * together, at least 44 px tall. IR and taxi players come after the active roster, each group in its
  * own row group (tbody) headed by a th scope="rowgroup"; browsers that ignore rowgroup headers still
  * hear the group, because it is part of each of those players' button names.
+ *
+ * A player whose ESPN return date conflicts with his tag (CLAUDE.md §6 step 3) gets a short line under
+ * his position line, inside the button (so it's part of his button's name), with the full sentence on
+ * hover and at the top of his breakdown.
  */
 import { useId, useState } from "react";
 import type { PlayerRow, WeekRow } from "@/lib/leagueView";
@@ -105,6 +109,7 @@ export function PlayerDetail({ player, showLineupCost }: { player: PlayerRow; sh
   const p = player;
   return (
     <div className="rounded-xl bg-surface-muted p-3">
+      {p.availabilityNote ? <p className="mb-2 text-xs leading-relaxed">{p.availabilityNote.long}.</p> : null}
       <dl className="grid grid-cols-3 gap-2 text-xs">
         <div>
           <dt className="text-muted">Games left</dt>
@@ -156,6 +161,11 @@ function PlayerRows({ player, columns, showLineupCost, scaleMax }: { player: Pla
               {p.pos} · {p.nflTeam} · {p.byeText}
               {p.injury ? <InjuryBadge injury={p.injury} /> : null}
             </span>
+            {p.availabilityNote ? (
+              <span title={p.availabilityNote.long} className="block pl-4 text-xs break-words text-muted italic">
+                {p.availabilityNote.short}
+              </span>
+            ) : null}
             <span className="sr-only">, week by week</span>
           </button>
         </th>

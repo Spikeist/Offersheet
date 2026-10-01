@@ -67,15 +67,27 @@ export const MemberSchema = z.object({
   lastName: z.string().nullish(),
 });
 
-const ScheduleSideSchema = z.object({ teamId: z.number() });
+const ScheduleSideSchema = z.object({
+  teamId: z.number(),
+  /** The side's score over the whole matchup period (all its NFL weeks), under this league's scoring; live while it's played. */
+  totalPoints: z.number().nullish(),
+});
 
 export const MatchupSchema = z.object({
   matchupPeriodId: z.number(),
   home: ScheduleSideSchema.nullish(),
   away: ScheduleSideSchema.nullish(),
+  /**
+   * HOME / AWAY / TIE once ESPN has decided the matchup, UNDECIDED before (Parker's league on
+   * 2026-09-29: periods 1–3 decided, 4–14 UNDECIDED). The four values are ESPN's own list
+   * (settings.typeNames.winnerTypes of GET /seasons/{season}?view=proTeamSchedules_wl). A string, not
+   * an enum: a value ESPN adds later mustn't fail the whole import (normalize.ts warns instead).
+   */
+  winner: z.string().nullish(),
   /** Absent before the playoffs (Phase 0); WINNERS_BRACKET / consolation ladders once seeded. */
   playoffTierType: z.string().nullish(),
 });
+export type EspnMatchup = z.infer<typeof MatchupSchema>;
 
 export const ScoringItemSchema = z.object({
   statId: z.number(),
@@ -112,6 +124,13 @@ export const SettingsSchema = z.object({
     playoffMatchupPeriodLengthByRound: z.record(z.string(), z.number()).nullish(),
     variablePlayoffMatchupPeriodLength: z.boolean().nullish(),
     playoffReseed: z.boolean().nullish(),
+    /**
+     * The seeding tiebreaker after win percentage. ESPN's own list of values (settings.typeNames.
+     * recordSeedingRuleTypes of GET /seasons/{season}?view=proTeamSchedules_wl): UNKNOWN, H2H_RECORD,
+     * TOTAL_POINTS_SCORED, INTRA_DIVISION_RECORD, TOTAL_POINTS_AGAINST, RAW_STAT. UNKNOWN is a
+     * placeholder (no rule reported; normalize.ts reads it like a missing value). Both test leagues
+     * use TOTAL_POINTS_SCORED.
+     */
     playoffSeedingRule: z.string().nullish(),
     divisions: z.array(z.object({ id: z.number(), size: z.number().nullish() })).nullish(),
   }),

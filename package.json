@@ -30,6 +30,7 @@
     "oracle:report": "tsx scripts/oracle-report.ts",
     "league:report": "tsx scripts/league-report.ts",
     "measure:stat-sd": "tsx scripts/measure-stat-sd.ts",
+    "snapshot:projections": "tsx scripts/snapshot-projections.ts",
     "gen:espn-constants": "tsx scripts/gen-espn-constants.ts",
     "minimize:espn": "tsx scripts/minimize/espn-public-league.ts && tsx scripts/minimize/espn-sleeper-stats.ts",
     "minimize:sleeper": "tsx scripts/minimize/sleeper.ts && tsx scripts/minimize/sleeper-flags.ts",

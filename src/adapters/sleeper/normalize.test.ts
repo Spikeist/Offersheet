@@ -3,7 +3,21 @@ import { LeagueImportError } from "@/adapters/types";
 import type { SleeperPlayerLite } from "@/data/types";
 import { POSITIONS, type LeagueSnapshot } from "@/engine/model";
 import { expectedPoints } from "@/engine/scoring";
-import { findMyRosterId, hasProjection, lineupFromRosterPositions, lookupPlayer, mapInjury, normalizeSleeperLeague, playoffLayout, sleeperPos, FREE_AGENTS_PER_POSITION, type SleeperNormalizeContext } from "./normalize";
+import {
+  FREE_AGENTS_PER_POSITION,
+  SEEDING_TIEBREAKER,
+  divisionSeedingDocumented,
+  findMyRosterId,
+  hasProjection,
+  lastDecidedWeek,
+  lineupFromRosterPositions,
+  lookupPlayer,
+  mapInjury,
+  normalizeSleeperLeague,
+  playoffLayout,
+  sleeperPos,
+  type SleeperNormalizeContext,
+} from "./normalize";
 import { mapSleeperScoring, normalizeProjectionStats } from "./scoringMap";
 import { ALL_SLEEPER_LISTS, crosswalkResolver, fakeResolver, loadTestLeague, projectionRowOf, rawOf, type TestLeague } from "./test-helpers";
 
@@ -64,7 +78,20 @@ describe("normalizeSleeperLeague: the public test league (minimized fixtures)", 
     expect(s.playoffSeeding).toEqual({ reseed: true, divisionWinnersFirst: false });
     expect(s.divisions).toBeUndefined();
     expect(s.faabBudget).toBeUndefined(); // waiver_type 0 is not FAAB
-    expect(s.unknownSettings).toBeUndefined();
+    expect(s.unknownSettings).toBeUndefined(); // every setting read
+  });
+
+  it("breaks ties in the standings by points for, Sleeper's documented default (D4), and notes the hand seeding the API doesn't show", () => {
+    expect(s.seedingTiebreaker).toBe("pointsFor");
+    expect(SEEDING_TIEBREAKER).toBe("pointsFor");
+    // Which way each tiebreaker goes: more points for ranks higher, then MORE points against (Sleeper's
+    // "Higher Points Against"), which "then points against" alone wouldn't say.
+    expect(notes).toContain(
+      "Ties in the standings: more points for, then more points against (Sleeper's default tiebreakers, from its help center). A commissioner can also set the playoff seeds by hand, which Sleeper's API doesn't show; Offer Sheet seeds by the standings.",
+    );
+    // Documented, so a note rather than a warning; no division note without divisions.
+    expect(codes({ snapshot, notes })).toEqual([]);
+    expect(notes.some((n) => n.startsWith("Playoff seeding:"))).toBe(false);
   });
 
   it("maps the scoring, including D/ST brackets as DEF-only ranges", () => {
@@ -110,7 +137,43 @@ describe("normalizeSleeperLeague: the public test league (minimized fixtures)", 
     const w1 = t.matchups[1] as Array<{ roster_id: number; matchup_id: number }>;
     const a = w1.find((m) => m.roster_id === 1) as { matchup_id: number };
     const opp = w1.find((m) => m.matchup_id === a.matchup_id && m.roster_id !== 1) as { roster_id: number };
-    expect(snapshot.schedule).toContainEqual({ week: 1, teamA: String(Math.min(1, opp.roster_id)), teamB: String(Math.max(1, opp.roster_id)), isPlayoff: false });
+    expect(snapshot.schedule).toContainEqual(expect.objectContaining({ week: 1, teamA: String(Math.min(1, opp.roster_id)), teamB: String(Math.max(1, opp.roster_id)), isPlayoff: false }));
+    expect(snapshot.schedule.every((m) => m.weeks === undefined)).toBe(true); // Sleeper matchups last one week
+  });
+
+  it("marks decided, with results, the weeks Sleeper has scored (settings.last_scored_leg: weeks 1–3, although leg is still 3), and none after", () => {
+    expect(t.league.settings).toMatchObject({ leg: 3, last_scored_leg: 3 });
+    expect([...new Set(snapshot.schedule.filter((m) => m.result).map((m) => m.week))]).toEqual([1, 2, 3]);
+    expect(snapshot.schedule.filter((m) => m.week <= 3).every((m) => m.result && m.decided === true)).toBe(true);
+    expect(snapshot.schedule.filter((m) => m.week > 3).every((m) => m.decided === undefined && m.result === undefined)).toBe(true);
+    // Each result reads the two rows' points (the fixture's scores are synthetic); the higher score wins.
+    for (const m of snapshot.schedule.filter((x) => x.result)) {
+      const rows = t.matchups[m.week] as Array<{ roster_id: number; points: number }>;
+      const pa = rows.find((r) => String(r.roster_id) === m.teamA)?.points as number;
+      const pb = rows.find((r) => String(r.roster_id) === m.teamB)?.points as number;
+      expect(m.result).toEqual({ pointsA: pa, pointsB: pb, winnerId: pa > pb ? m.teamA : pb > pa ? m.teamB : null });
+    }
+  });
+
+  it("has results that agree with every team's record and points for/against (W+L+T counts the scored weeks)", () => {
+    for (const team of snapshot.teams) {
+      const rec = { w: 0, l: 0, t: 0, pf: 0, pa: 0 };
+      for (const m of snapshot.schedule) {
+        if (!m.result || (m.teamA !== team.id && m.teamB !== team.id)) continue;
+        const isA = m.teamA === team.id;
+        rec.pf += isA ? m.result.pointsA : (m.result.pointsB as number);
+        rec.pa += isA ? (m.result.pointsB as number) : m.result.pointsA;
+        if (m.result.winnerId === null) rec.t++;
+        else if (m.result.winnerId === team.id) rec.w++;
+        else rec.l++;
+      }
+      expect({ w: rec.w, l: rec.l, t: rec.t }).toEqual(team.record);
+      expect(rec.w + rec.l + rec.t).toBe(t.meta.lastScoredWeek);
+      expect(rec.pf).toBeCloseTo(team.pointsFor, 6);
+      expect(rec.pa).toBeCloseTo(team.pointsAgainst, 6);
+      // The games the records count are exactly the decided ones: the rest are still to play.
+      expect(snapshot.schedule.filter((m) => m.decided && (m.teamA === team.id || m.teamB === team.id))).toHaveLength(team.record.w + team.record.l + team.record.t);
+    }
   });
 
   it("keeps completed transactions only, with week = leg, ISO timestamps, moves and picks", () => {
@@ -270,7 +333,7 @@ describe("normalizeSleeperLeague: codes and variants", () => {
     expect(deadline(17).snapshot.settings.tradeDeadline).toEqual({ week: 17 });
     const none = deadline(99);
     expect(none.snapshot.settings.tradeDeadline).toBeNull();
-    expect(none.snapshot.settings.unknownSettings).toBeUndefined();
+    expect(none.snapshot.settings.unknownSettings).toBeUndefined(); // not the deadline
     expect(codes(none)).not.toContain("TRADE_DEADLINE_UNKNOWN");
     // 99 = no deadline was confirmed in only 1 of 5 leagues in Phase 0: shown with a ⚠️ warning, not as fact.
     expect(none.snapshot.warnings).toContainEqual({ code: "SETTING_INFERRED", message: expect.stringContaining("99"), platformPath: "settings.trade_deadline" });
@@ -350,8 +413,9 @@ describe("normalizeSleeperLeague: codes and variants", () => {
     expect(codes(r)).toContain("PLAYOFF_START_MISSING");
   });
 
-  it("reads the median game, FAAB budget and divisions; division winners first is flagged as inferred", () => {
+  it("reads the median game, FAAB budget and divisions; division winners first is documented for 2 divisions in the league's 6-team playoff (a note, not a warning)", () => {
     const t = loadTestLeague();
+    expect(t.league.settings.playoff_teams).toBe(6);
     Object.assign(t.league.settings, { league_average_match: 1, waiver_type: 2, waiver_budget: 100, divisions: 2 });
     t.rosters.forEach((r) => (r.settings.division = r.roster_id <= 6 ? 1 : 2));
     const r = run(t);
@@ -364,8 +428,75 @@ describe("normalizeSleeperLeague: codes and variants", () => {
     ]);
     expect(snapshot.settings.playoffSeeding).toEqual({ reseed: true, divisionWinnersFirst: true });
     expect(snapshot.teams.find((x) => x.id === "7")?.divisionId).toBe("2");
-    // 2/2 informative leagues in Phase 0: below the 3-league minimum, so ⚠️.
-    expect(snapshot.warnings).toEqual([expect.objectContaining({ code: "SETTING_INFERRED", platformPath: "settings.divisions" })]);
+    // Sleeper's help center documents it for 2 divisions in a 6-team playoff, where the 2 division winners
+    // get the byes (D4; Phase 0 had only inferred it): ✅, so no warning.
+    expect(snapshot.warnings).toEqual([]);
+    expect(r.notes).toContain("Playoff seeding: the 2 division winners take the top seeds, then the other teams by the standings (Sleeper's help center says so for 6-team playoffs with 2 divisions).");
+  });
+
+  // support.sleeper.com/en/articles/2203518: every division winner makes the playoffs; "6-Team Playoff
+  // Leagues": the byes go to the 2 division winners with the best record; "4 Division League": the top 4
+  // seeds are division winners. Seeding the winners first is documented only where those rules give every
+  // winner's seed: 4 divisions, or 2 divisions in a 6-team playoff. (Phase 0's sample of 250 public 2026
+  // leagues had 19 with divisions: 9 with 2 divisions and a 6-team playoff, 4 with 2 and a 4-team
+  // playoff, 2 with 3 divisions, 3 with 4 and 1 with 8.)
+  it.each([
+    { divisions: 1, playoffTeams: 6, first: false, says: "nothing" },
+    { divisions: 2, playoffTeams: 6, first: true, says: "a note" },
+    { divisions: 2, playoffTeams: 4, first: true, says: "a warning" },
+    { divisions: 2, playoffTeams: 8, first: true, says: "a warning" },
+    { divisions: 3, playoffTeams: 6, first: true, says: "a warning" },
+    { divisions: 4, playoffTeams: 4, first: true, says: "a note" },
+    { divisions: 4, playoffTeams: 6, first: true, says: "a note" },
+    { divisions: 4, playoffTeams: 7, first: true, says: "a note" },
+    { divisions: 6, playoffTeams: 6, first: true, says: "a warning" },
+  ])("with $divisions division(s) and a $playoffTeams-team playoff, seeds division winners first ($first) and says so in $says: documented for 4 divisions and for 2 in a 6-team playoff, inferred elsewhere, moot with one", ({ divisions, playoffTeams, first, says }) => {
+    const t = loadTestLeague();
+    Object.assign(t.league.settings, { divisions, playoff_teams: playoffTeams });
+    t.rosters.forEach((r) => (r.settings.division = ((r.roster_id - 1) % divisions) + 1));
+    const r = run(t);
+    expect(r.snapshot.settings.divisions).toHaveLength(divisions);
+    expect(r.snapshot.settings.playoffTeams).toBe(playoffTeams);
+    expect(r.snapshot.settings.playoffSeeding).toEqual({ reseed: true, divisionWinnersFirst: first });
+    expect(divisionSeedingDocumented(divisions, playoffTeams)).toBe(says === "a note");
+    const divisionNotes = r.notes.filter((n) => n.startsWith("Playoff seeding:"));
+    if (says === "a note") {
+      const where = divisions === 4 ? "leagues with 4 divisions" : "6-team playoffs with 2 divisions";
+      expect(divisionNotes).toEqual([`Playoff seeding: the ${divisions} division winners take the top seeds, then the other teams by the standings (Sleeper's help center says so for ${where}).`]);
+      expect(r.snapshot.warnings).toEqual([]);
+    } else if (says === "a warning") {
+      expect(divisionNotes).toEqual([]);
+      expect(r.snapshot.warnings).toEqual([
+        {
+          code: "SETTING_INFERRED",
+          message: `Division winners are assumed to take the top playoff seeds. Sleeper's help center says every division winner makes the playoffs, but it gives them the top seeds only in leagues with 4 divisions and in 6-team playoffs with 2 divisions (this league: ${divisions} divisions, ${playoffTeams} playoff teams), so check your league's playoff settings.`,
+          platformPath: "settings.divisions",
+        },
+      ]);
+    } else {
+      // One division: its winner is the top team anyway, so there's nothing to seed first or to say.
+      expect(divisionNotes).toEqual([]);
+      expect(r.snapshot.warnings).toEqual([]);
+    }
+    // Ties in the standings don't depend on divisions.
+    expect(r.snapshot.settings.seedingTiebreaker).toBe("pointsFor");
+  });
+
+  it("notes the tiebreaker without the hand-seeding sentence when the league has no playoffs", () => {
+    const t = loadTestLeague();
+    t.league.settings.playoff_teams = 0;
+    const r = run(t);
+    expect(r.snapshot.settings).toMatchObject({ playoffTeams: 0, seedingTiebreaker: "pointsFor" });
+    expect(r.notes).toContain("Ties in the standings: more points for, then more points against (Sleeper's default tiebreakers, from its help center).");
+    expect(r.notes.some((n) => n.includes("by hand"))).toBe(false);
+  });
+
+  it("lists its notes in order: best ball, division seeding, then ties in the standings", () => {
+    const t = loadTestLeague();
+    Object.assign(t.league.settings, { best_ball: 1, divisions: 4 });
+    t.rosters.forEach((r) => (r.settings.division = ((r.roster_id - 1) % 4) + 1));
+    const prefixes = run(t).notes.map((n) => n.split(":")[0]);
+    expect(prefixes.slice(0, 3)).toEqual(["Best-ball league", "Playoff seeding", "Ties in the standings"]);
   });
 
   it("says so when the median-game setting is missing (read as no median game)", () => {
@@ -381,12 +512,53 @@ describe("normalizeSleeperLeague: codes and variants", () => {
     delete t.league.settings.playoff_seed_type;
     const r = run(t);
     expect(r.snapshot.settings.playoffSeeding).toBeUndefined();
-    expect(r.snapshot.warnings).toEqual([expect.objectContaining({ code: "SETTING_DEFAULTED", platformPath: "settings.playoff_seed_type" })]);
+    // One warning: the default seeding. The tiebreaker is Sleeper's documented default either way (D4).
+    expect(r.snapshot.warnings).toEqual([
+      {
+        code: "SETTING_DEFAULTED",
+        message: "The league doesn't say how its playoff bracket is seeded; standard seeding is assumed: by record, with ties going to points for (Sleeper's default), and no re-seeding.",
+        platformPath: "settings.playoff_seed_type",
+      },
+    ]);
+    expect(r.snapshot.settings.seedingTiebreaker).toBe("pointsFor");
+    expect(r.snapshot.settings.unknownSettings).toBeUndefined();
     const odd = loadTestLeague();
     odd.league.settings.playoff_seed_type = 4;
     const r2 = run(odd);
     expect(r2.snapshot.settings.playoffSeeding).toEqual({ reseed: false, divisionWinnersFirst: false });
     expect(codes(r2)).toContain("PLAYOFF_SEED_TYPE_UNKNOWN");
+  });
+
+  it("keeps division winners first when the league doesn't report its seed type: that rule doesn't depend on it, only re-seeding is assumed (review ADAPT-1)", () => {
+    const divided = (divisions: number, playoffTeams: number, seedType?: number) => {
+      const t = loadTestLeague();
+      if (seedType === undefined) delete t.league.settings.playoff_seed_type;
+      else t.league.settings.playoff_seed_type = seedType;
+      Object.assign(t.league.settings, { divisions, playoff_teams: playoffTeams });
+      t.rosters.forEach((r) => (r.settings.division = ((r.roster_id - 1) % divisions) + 1));
+      return run(t);
+    };
+    const defaulted = {
+      code: "SETTING_DEFAULTED",
+      message: "The league doesn't say how its playoff bracket is seeded; after the division winners, standard seeding is assumed: by record, with ties going to points for (Sleeper's default), and no re-seeding.",
+      platformPath: "settings.playoff_seed_type",
+    };
+    // Documented (4 divisions): the rule stays, with its note; the one warning is the re-seeding default.
+    const four = divided(4, 6);
+    expect(four.snapshot.settings.playoffSeeding).toEqual({ reseed: false, divisionWinnersFirst: true });
+    expect(four.notes).toContain("Playoff seeding: the 4 division winners take the top seeds, then the other teams by the standings (Sleeper's help center says so for leagues with 4 divisions).");
+    expect(four.snapshot.warnings).toEqual([defaulted]);
+    // Inferred (2 divisions, a 4-team playoff): both readings are warned.
+    const two = divided(2, 4);
+    expect(two.snapshot.settings.playoffSeeding).toEqual({ reseed: false, divisionWinnersFirst: true });
+    expect(two.snapshot.warnings.map((w) => [w.code, w.platformPath])).toEqual([
+      ["SETTING_INFERRED", "settings.divisions"],
+      ["SETTING_DEFAULTED", "settings.playoff_seed_type"],
+    ]);
+    // An unknown seed code: a fixed bracket, division winners still first.
+    const odd = divided(4, 6, 4);
+    expect(odd.snapshot.settings.playoffSeeding).toEqual({ reseed: false, divisionWinnersFirst: true });
+    expect(codes(odd)).toEqual(["PLAYOFF_SEED_TYPE_UNKNOWN"]);
   });
 
   it("gathers teams without a division into ONE warning, and seeds division winners first only with real divisions (SLP-8)", () => {
@@ -562,6 +734,126 @@ describe("normalizeSleeperLeague: codes and variants", () => {
     expect(p?.ownerTeamId).toBe(String(other));
     expect(codes(r)).toContain("TRADED_PICK_DUPLICATE");
     expect(r.snapshot.draftPicks).toHaveLength(108);
+  });
+});
+
+describe("normalizeSleeperLeague: matchup results (§4 Matchup.decided and result)", () => {
+  type Row = { roster_id: number; matchup_id: number | null; points?: number | null; custom_points?: number | null };
+  /** Week `w`'s two rows of the matchup roster 1 plays in (roster 1 is always teamA: the lower id). */
+  const pairOf = (t: TestLeague, w: number): [Row, Row] => {
+    const rows = t.matchups[w] as Row[];
+    const mine = rows.find((r) => r.roster_id === 1) as Row;
+    const opp = rows.find((r) => r.matchup_id === mine.matchup_id && r.roster_id !== 1) as Row;
+    return [mine, opp];
+  };
+  const matchOf = (s: LeagueSnapshot, w: number) => s.schedule.find((m) => m.week === w && (m.teamA === "1" || m.teamB === "1"));
+  const resultWeeks = (s: LeagueSnapshot) => [...new Set(s.schedule.filter((m) => m.result).map((m) => m.week))];
+  /** The weeks whose matchups are decided, checking that a week is decided for all its matchups or none. */
+  const decidedWeeks = (s: LeagueSnapshot) => {
+    const weeks = [...new Set(s.schedule.map((m) => m.week))];
+    for (const w of weeks) expect(new Set(s.schedule.filter((m) => m.week === w).map((m) => m.decided)).size).toBe(1);
+    return weeks.filter((w) => s.schedule.some((m) => m.week === w && m.decided === true));
+  };
+
+  it("uses custom_points over points when it's a number, keeps scores to cents, and reads equal scores as a tie", () => {
+    const t = loadTestLeague();
+    const [mine, opp] = pairOf(t, 2);
+    Object.assign(mine, { points: 101.2, custom_points: 120.5 });
+    Object.assign(opp, { points: 110.30000000000001, custom_points: null });
+    expect(matchOf(run(t).snapshot, 2)).toMatchObject({ teamA: "1", teamB: String(opp.roster_id), result: { pointsA: 120.5, pointsB: 110.3, winnerId: "1" } });
+    // The override can also lose it; and equal scores (to the cent) are a tie.
+    Object.assign(mine, { custom_points: 100 });
+    expect(matchOf(run(t).snapshot, 2)?.result).toEqual({ pointsA: 100, pointsB: 110.3, winnerId: String(opp.roster_id) });
+    Object.assign(mine, { custom_points: null, points: 99.99 });
+    Object.assign(opp, { points: 99.99000000000001 });
+    expect(matchOf(run(t).snapshot, 2)?.result).toEqual({ pointsA: 99.99, pointsB: 99.99, winnerId: null });
+  });
+
+  it("gives no result to a week Sleeper hasn't scored, even when its rows carry points (a week being played), and doesn't mark it decided", () => {
+    const t = loadTestLeague();
+    const [mine, opp] = pairOf(t, 4);
+    Object.assign(mine, { points: 55.1 });
+    Object.assign(opp, { points: 12 });
+    const s = run(t).snapshot;
+    expect(matchOf(s, 4)?.result).toBeUndefined();
+    expect(matchOf(s, 4)?.decided).toBeUndefined();
+    expect(resultWeeks(s)).toEqual([1, 2, 3]);
+    expect(decidedWeeks(s)).toEqual([1, 2, 3]);
+    expect(s.warnings.map((w) => w.code)).not.toContain("MATCHUP_RESULT_MISSING");
+  });
+
+  it("without last_scored_leg, decides the weeks before the league week (leg), else before the NFL week; last_scored_leg 0 decides none", () => {
+    const noScored = loadTestLeague();
+    delete noScored.league.settings.last_scored_leg;
+    const s1 = run(noScored).snapshot;
+    expect(resultWeeks(s1)).toEqual([1, 2]); // leg 3: week 3 is still the league's week
+    expect(decidedWeeks(s1)).toEqual([1, 2]);
+    const noLeg = loadTestLeague();
+    delete noLeg.league.settings.last_scored_leg;
+    delete noLeg.league.settings.leg;
+    const s2 = run(noLeg).snapshot;
+    expect(resultWeeks(s2)).toEqual([1, 2, 3]); // NFL week 4
+    expect(decidedWeeks(s2)).toEqual([1, 2, 3]);
+    const preseason = loadTestLeague();
+    preseason.league.settings.last_scored_leg = 0;
+    const s3 = run(preseason).snapshot;
+    expect(resultWeeks(s3)).toEqual([]);
+    expect(decidedWeeks(s3)).toEqual([]);
+    expect(lastDecidedWeek({ last_scored_leg: 3, leg: 3 }, 4)).toBe(3);
+    expect(lastDecidedWeek({ leg: 3 }, 4)).toBe(2);
+    expect(lastDecidedWeek({}, 4)).toBe(3);
+  });
+
+  it("keeps an already-scored matchup without both teams' points decided, without a result, and warns", () => {
+    const t = loadTestLeague();
+    const [, opp] = pairOf(t, 2);
+    delete opp.points;
+    const r = run(t);
+    // Still decided: Sleeper's records count it, so the season simulation mustn't play it again.
+    expect(matchOf(r.snapshot, 2)).toMatchObject({ decided: true });
+    expect(matchOf(r.snapshot, 2)?.result).toBeUndefined();
+    expect(r.snapshot.schedule.filter((m) => m.week === 2 && m.result)).toHaveLength(5);
+    expect(decidedWeeks(r.snapshot)).toEqual([1, 2, 3]);
+    expect(warning(r, "MATCHUP_RESULT_MISSING")).toEqual({
+      code: "MATCHUP_RESULT_MISSING",
+      message: "1 already-scored matchup(s) (week 2) came without both teams' points, so it has no result: Sleeper's standings still count it as played, but head-to-head tiebreakers leave it out.",
+      platformPath: "matchups/2[].points",
+    });
+    // Two of them, in two weeks: the plural.
+    const [mine3] = pairOf(t, 3);
+    mine3.points = null;
+    expect(warning(run(t), "MATCHUP_RESULT_MISSING")?.message).toBe(
+      "2 already-scored matchup(s) (weeks 2–3) came without both teams' points, so they have no result: Sleeper's standings still count them as played, but head-to-head tiebreakers leave them out.",
+    );
+    // With 2+ divisions the division-record tiebreaker leaves it out too (review ADAPT-2).
+    const divisional = loadTestLeague();
+    divisional.league.settings.divisions = 2;
+    divisional.rosters.forEach((x) => (x.settings.division = x.roster_id <= 6 ? 1 : 2));
+    delete pairOf(divisional, 2)[1].points;
+    expect(warning(run(divisional), "MATCHUP_RESULT_MISSING")?.message).toBe(
+      "1 already-scored matchup(s) (week 2) came without both teams' points, so it has no result: Sleeper's standings still count it as played, but head-to-head and division-record tiebreakers leave it out.",
+    );
+  });
+
+  it("gives a bye (no matchup_id) no result and no warning; it's decided with its week", () => {
+    const t = loadTestLeague();
+    const [mine, opp] = pairOf(t, 1);
+    mine.matchup_id = null;
+    opp.matchup_id = null;
+    const [mine5, opp5] = pairOf(t, 5);
+    mine5.matchup_id = null;
+    opp5.matchup_id = null;
+    const r = run(t);
+    expect(r.snapshot.schedule.filter((m) => m.week === 1 && m.teamB === null)).toEqual([
+      { week: 1, teamA: "1", teamB: null, isPlayoff: false, decided: true },
+      { week: 1, teamA: String(opp.roster_id), teamB: null, isPlayoff: false, decided: true },
+    ]);
+    // Week 5 isn't scored yet: its byes aren't decided either.
+    expect(r.snapshot.schedule.filter((m) => m.week === 5 && m.teamB === null)).toEqual([
+      { week: 5, teamA: "1", teamB: null, isPlayoff: false },
+      { week: 5, teamA: String(opp5.roster_id), teamB: null, isPlayoff: false },
+    ]);
+    expect(codes(r)).not.toContain("MATCHUP_RESULT_MISSING");
   });
 });
 

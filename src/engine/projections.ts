@@ -24,6 +24,23 @@
  *
  * The ESPN/Sleeper agreement check (§6 "agree within 10% on average across the league's rostered
  * players") is a ratio of sums, Σ|E − S| / Σ S, so bench players with tiny projections don't dominate.
+ *
+ * Conflicting ESPN signals (§6 step 3; planner reply to Checkpoint 2, answer 6): a PROBABLE, QUESTIONABLE
+ * or DOUBTFUL player whose ESPN return date is 2+ weeks away gets Sleeper as the tiebreaker
+ * (staleReturnCheck). His healthy base rate H is step 1's base rate as if neither source had projected
+ * him this week (priorHealthyBaseRate): this week's numbers, which his tag may have cut and which H is
+ * compared with, count neither as proj_now nor in the week shape's mean. So proj_now is the latest week
+ * before currentWeek that Sleeper projected him healthy (averaged with ESPN's value for that week when
+ * the sources are averaged), else his nearest later healthy week (hurt all season so far: Sleeper's
+ * projection once he's back, where the season line ÷ 17 counts the games he's expected to miss), else
+ * ESPN's the same way, else Sleeper's season line per game, else his points per game so far, with the
+ * same α blend. The date is stale when H > 0 and Sleeper's projection this week, S_now, is at least
+ * config.projections.staleReturnShare × H: Sleeper still expects him to play. S_now includes this
+ * week's matchup and H doesn't (the shape is clamped to [0.8, 1.2], small next to the 50% cut). A stub
+ * or 0 this week (Sleeper doesn't project him, a bye included) is never stale: the date is followed, and
+ * so it is when Sleeper's projections for this week didn't load (league.ts notes that the tiebreaker was
+ * missing, not negative). ⚠️ Only his availability follows the tiebreaker: his base rate b is step 1's,
+ * which takes this week's projection when Sleeper has one, cut or not (Checkpoint 3 lists it).
  */
 import { config } from "./config";
 import type { PlayerInputs } from "./inputs";
@@ -40,6 +57,8 @@ export interface ProjectionConfig {
   weekShapeClamp: readonly [number, number];
   espnSleeperAgreement: number;
   sourceDisagreementLog: number;
+  /** §6 step 3 "Conflicting ESPN signals": Sleeper's projection this week at this share of the healthy base rate or more makes an ESPN return date stale. */
+  staleReturnShare: number;
   sigma: Readonly<Record<Pos, { readonly c: number; readonly d: number }>>;
 }
 
@@ -113,19 +132,35 @@ export interface BaseRateContext {
   espnAveraged: boolean;
 }
 
-/** proj_now, the week it came from (null for a season projection) and its source. */
-function projectionNow(inputs: PlayerInputs, ctx: BaseRateContext): { value: number; week: number | null; source: BaseRateSource } | null {
-  const sleeper = latestHealthyProjection(inputs.sleeper, ctx.currentWeek, ctx.weeks);
+/** A projection the base rate starts from: its value, the week it came from (null for a season projection) and its source. */
+interface BaseProjection {
+  value: number;
+  week: number | null;
+  source: BaseRateSource;
+}
+
+/**
+ * A Sleeper week, averaged with ESPN's value for that same week when the sources are averaged and ESPN
+ * projects him then; else a week of ESPN's own (no Sleeper week); else Sleeper's season line per game.
+ * `find` picks the week in a weekly series.
+ */
+function pickProjection(inputs: PlayerInputs, ctx: BaseRateContext, find: (values: WeeklyValues | undefined) => { week: number; value: number } | null): BaseProjection | null {
+  const sleeper = find(inputs.sleeper);
   if (sleeper) {
     const espn = inputs.espn?.[sleeper.week];
     if (ctx.espnAveraged && isProjected(espn)) return { value: (sleeper.value + espn) / 2, week: sleeper.week, source: "espn+sleeper" };
     return { value: sleeper.value, week: sleeper.week, source: "sleeper" };
   }
-  // No Sleeper week at all (no Sleeper id, or only stubs): ESPN's own projection is the best there is.
-  const espn = latestHealthyProjection(inputs.espn, ctx.currentWeek, ctx.weeks);
+  // No Sleeper week to use (no Sleeper id, or only stubs): ESPN's own projection is the best there is.
+  const espn = find(inputs.espn);
   if (espn) return { value: espn.value, week: espn.week, source: "espn" };
   if (isProjected(inputs.sleeperSeasonPerGame)) return { value: inputs.sleeperSeasonPerGame, week: null, source: "season" };
   return null;
+}
+
+/** proj_now (§6 step 1): the most recent healthy week (latestHealthyProjection). */
+function projectionNow(inputs: PlayerInputs, ctx: BaseRateContext): BaseProjection | null {
+  return pickProjection(inputs, ctx, (values) => latestHealthyProjection(values, ctx.currentWeek, ctx.weeks));
 }
 
 /** Season-to-date points per game played and games played (PlayerInputs.actual holds only games played). */
@@ -141,8 +176,12 @@ function actualForm(actual: Readonly<Record<number, number>>): { ppg: number | n
 }
 
 function baseRateWithShape(inputs: PlayerInputs, ctx: BaseRateContext, shape: ReadonlyMap<number, number>, cfg: ProjectionConfig): PlayerBase {
+  return blendBaseRate(projectionNow(inputs, ctx), inputs, shape, cfg);
+}
+
+/** §6 step 1's formula from a projection (null = none): the α blend with actual points per game, the week shape taken out. */
+function blendBaseRate(proj: BaseProjection | null, inputs: PlayerInputs, shape: ReadonlyMap<number, number>, cfg: ProjectionConfig): PlayerBase {
   const { ppg: actualPpg, games } = actualForm(inputs.actual);
-  const proj = projectionNow(inputs, ctx);
   if (proj) {
     const alpha = games > 0 ? cfg.actualWeight * Math.min(1, games / cfg.actualFullGames) : 0;
     const mNow = proj.week === null ? 1 : (shape.get(proj.week) ?? 1);
@@ -157,6 +196,53 @@ function baseRateWithShape(inputs: PlayerInputs, ctx: BaseRateContext, shape: Re
 /** §6 step 1: the base rate b and how it was made. */
 export function baseRate(inputs: PlayerInputs, ctx: BaseRateContext, cfg: ProjectionConfig = config.projections): PlayerBase {
   return baseRateWithShape(inputs, ctx, weekShape(inputs, ctx.weeks, cfg), cfg);
+}
+
+/** A weekly series without week `week` (the same object when it has no such week). */
+function withoutWeek(values: WeeklyValues, week: number): WeeklyValues {
+  if (!Object.prototype.hasOwnProperty.call(values, week)) return values;
+  const out: Record<number, number | null> = { ...values };
+  delete out[week];
+  return out;
+}
+
+/**
+ * His healthy base rate H (§6 step 3 "Conflicting ESPN signals"; the file header): step 1's base rate as
+ * if neither source had projected him this week, the same α blend. This week's numbers are the ones his
+ * tag may have cut, and the one H is compared with, so they count nowhere: not as proj_now, and not in the
+ * week shape's mean (a cut this week would pull the mean down and H with it). proj_now is then the latest
+ * healthy week before this week, else his nearest later healthy week (a player hurt all season so far:
+ * Sleeper's projection once he's back is his healthy rate, where the season line ÷ 17 counts the games
+ * he's expected to miss), else ESPN's the same way, else Sleeper's season line per game, else his points
+ * per game (b 0, source "none", without any).
+ */
+export function priorHealthyBaseRate(inputs: PlayerInputs, ctx: BaseRateContext, cfg: ProjectionConfig = config.projections): PlayerBase {
+  const week = ctx.currentWeek;
+  const without: PlayerInputs = { ...inputs, sleeper: withoutWeek(inputs.sleeper, week), ...(inputs.espn ? { espn: withoutWeek(inputs.espn, week) } : {}) };
+  return baseRate(without, ctx, cfg);
+}
+
+/** Sleeper as the tiebreaker for a conflicting ESPN return date (§6 step 3; staleReturnCheck). */
+export interface StaleReturnCheck {
+  /** Sleeper's projection this week in league points; null when it doesn't project him (a stub or 0). */
+  sleeperNow: number | null;
+  /** His healthy base rate (priorHealthyBaseRate), null when there is none (no projection, no games). */
+  healthyRate: number | null;
+  /** sleeperNow ≥ staleReturnShare × healthyRate: Sleeper still expects him to play, so the date is stale. */
+  stale: boolean;
+}
+
+/**
+ * Whether ESPN's return date for a PROBABLE, QUESTIONABLE or DOUBTFUL player 2+ weeks out is stale (the
+ * file header): Sleeper still projects him this week at config.projections.staleReturnShare or more of
+ * his healthy base rate. The caller decides who it applies to (availability.returnDateConflict).
+ */
+export function staleReturnCheck(inputs: PlayerInputs, ctx: BaseRateContext, cfg: ProjectionConfig = config.projections): StaleReturnCheck {
+  const now = inputs.sleeper[ctx.currentWeek];
+  const sleeperNow = isProjected(now) ? now : null;
+  const h = priorHealthyBaseRate(inputs, ctx, cfg).b;
+  const healthyRate = h > 0 && Number.isFinite(h) ? h : null;
+  return { sleeperNow, healthyRate, stale: sleeperNow !== null && healthyRate !== null && sleeperNow >= cfg.staleReturnShare * healthyRate };
 }
 
 /** §6 step 5: σ = c_pos × p + d_pos for a week he's projected to score p > 0; 0 when p = 0 (no points, no spread). */

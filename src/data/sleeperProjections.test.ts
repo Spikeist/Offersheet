@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fetchSleeperLeague, PROJECTIONS_POLICY, sleeperUrls, startablePositions } from "@/adapters/sleeper/fetch";
+import { fetchSleeperLeague, LATER_PROJECTIONS_POLICY, NEAR_PROJECTIONS_POLICY, PROJECTIONS_POLICY, projectionsPolicy, sleeperUrls, startablePositions } from "@/adapters/sleeper/fetch";
 import { normalizeProjectionStats } from "@/adapters/sleeper/scoringMap";
 import { StatRowSchema, type SleeperStatRow } from "@/adapters/sleeper/schemas";
 import { fakeHttp as sleeperFakeHttp, json, loadTestLeague } from "@/adapters/sleeper/test-helpers";
@@ -7,7 +7,7 @@ import type { HttpClient, HttpResponse } from "@/adapters/types";
 import { config } from "@/engine/config";
 import type { Pos, ScoringRule } from "@/engine/model";
 import { rulePoints } from "@/engine/scoring";
-import { MemoryCache, MINUTE, TTL, type Cache, type CacheEntry } from "@/server/cache";
+import { HOUR, MemoryCache, MINUTE, PROJECTIONS_NEAR_WEEKS, TTL, type Cache, type CacheEntry } from "@/server/cache";
 import { createHttpClient } from "@/server/http";
 import { readSanitizedFixture } from "@/test-utils/fixtures";
 import {
@@ -27,6 +27,7 @@ import {
   sleeperSeasonProjectionsUrl,
   sleeperStatsUrl,
   type SleeperGate,
+  type SleeperProjectionWeek,
 } from "./sleeperProjections";
 import { fakeHttp } from "./testSupport";
 
@@ -74,7 +75,7 @@ describe("request shape (CLAUDE.md §2.3 undocumented endpoints)", () => {
     expect(projUrl(5)).toBe("https://api.sleeper.app/projections/nfl/2026/5?season_type=regular&position[]=QB&position[]=RB&position[]=WR&position[]=TE&position[]=K&position[]=DEF");
   });
 
-  it("uses the Sleeper import's cache entries (same URL, key and 6-hour policy), with a shorter timeout and one retry (§2.10, review PERF-1)", async () => {
+  it("uses the Sleeper import's cache entries (same URL, key and policy: served 6 hours, kept 24), with a shorter timeout and one retry (§2.10, review PERF-1)", async () => {
     const t = loadTestLeague();
     const id = String(t.league.league_id);
     const positions = startablePositions(t.league.roster_positions);
@@ -97,7 +98,7 @@ describe("request shape (CLAUDE.md §2.3 undocumented endpoints)", () => {
       const call = mine.calls.find((c) => c.url === sleeperUrls.projections(SEASON, w, positions));
       const theirs = adapterOpts.get(call?.url ?? "");
       expect(call?.opts?.cache).toEqual(theirs?.cache);
-      expect(call?.opts?.cache).toEqual({ key: sleeperCacheKey(call?.url ?? ""), ttlMs: TTL.projections, retainMs: TTL.projections });
+      expect(call?.opts?.cache).toEqual({ key: sleeperCacheKey(call?.url ?? ""), ttlMs: TTL.projections, retainMs: TTL.projectionsLater });
       expect(call?.opts?.cacheIf).toBe(theirs?.cacheIf); // an empty list is never cached
       expect(call?.opts?.bigIntsAsStrings).toBe(theirs?.bigIntsAsStrings);
       // The client's defaults are a 30 s timeout and 3 retries.
@@ -107,6 +108,98 @@ describe("request shape (CLAUDE.md §2.3 undocumented endpoints)", () => {
     expect([SLEEPER_MODEL_TIMEOUT_MS, SLEEPER_MODEL_MAX_RETRIES]).toEqual([20_000, 1]);
     expect([...load.weeks.keys()]).toEqual([4, 5, 6]); // weeks 1–3 aren't routed here: 404, an answer → left out with a warning, and the rest still asked
     expect(load.warnings.map((w) => [w.code, w.platformPath])).toEqual([1, 2, 3].map((w) => ["PROJECTIONS_WEEK_UNAVAILABLE", `projections/${w}`]));
+  });
+});
+
+describe("per-week cache policy (CLAUDE.md §2.10: the current NFL week and the next 2: 6 hours; later weeks: 24 hours)", () => {
+  it("projectionsPolicy: past weeks, the current week and the next PROJECTIONS_NEAR_WEEKS are served 6 hours, later weeks 24; every week's copy is kept 24 hours; same empty-list rule", () => {
+    expect(PROJECTIONS_NEAR_WEEKS).toBe(2);
+    expect([TTL.projections, TTL.projectionsLater]).toEqual([6 * HOUR, 24 * HOUR]);
+    for (const week of [1, 3, 4, 5, 6]) expect(projectionsPolicy(week, 4), `week ${week}`).toBe(NEAR_PROJECTIONS_POLICY);
+    for (const week of [7, 10, 18]) expect(projectionsPolicy(week, 4), `week ${week}`).toBe(LATER_PROJECTIONS_POLICY);
+    const cacheIf = PROJECTIONS_POLICY.cacheIf;
+    expect(NEAR_PROJECTIONS_POLICY).toEqual({ ttlMs: TTL.projections, retainMs: TTL.projectionsLater, league: false, cacheIf });
+    expect(LATER_PROJECTIONS_POLICY).toEqual({ ttlMs: TTL.projectionsLater, retainMs: TTL.projectionsLater, league: false, cacheIf });
+    // One retention per URL, whichever build (at whichever current week) stores or reads a week: the Sleeper gate relies on it.
+    for (let current = 1; current <= 18; current++) for (let week = 1; week <= 18; week++) expect(projectionsPolicy(week, current).retainMs).toBe(TTL.projectionsLater);
+    // Season projections and stats: served and kept 6 hours.
+    expect(PROJECTIONS_POLICY).toMatchObject({ ttlMs: TTL.projections, retainMs: TTL.projections });
+  });
+
+  it("the model's loader caches each week under its own policy (one entry per week), while season projections and stats keep 6 hours", async () => {
+    const rows = rowsOf(PROJ(4));
+    const routes = Object.fromEntries(Array.from({ length: 17 }, (_, i) => [projUrl(i + 1), { json: rows }]));
+    const { http, calls } = fakeHttp({ ...routes, [seasonUrl]: { json: rowsOf(SEASON_QB) }, [statsUrl(3)]: { json: rowsOf(STATS(3)) } });
+    const g = gate(http);
+    await loadSleeperWeeklyProjections(g, SEASON, Array.from({ length: 17 }, (_, i) => i + 1), POS, { currentWeek: 4 });
+    await loadSleeperSeasonProjections(g, SEASON, POS);
+    await loadSleeperStats(g, SEASON, [3], POS);
+    const ttlOf = (url: string) => calls.find((c) => c.url === url)?.opts?.cache;
+    for (let w = 1; w <= 17; w++) {
+      const ttl = w <= 6 ? TTL.projections : TTL.projectionsLater;
+      expect(ttlOf(projUrl(w)), `week ${w}`).toEqual({ key: sleeperCacheKey(projUrl(w)), ttlMs: ttl, retainMs: TTL.projectionsLater });
+      expect(calls.find((c) => c.url === projUrl(w))?.opts?.cacheIf).toBe(PROJECTIONS_POLICY.cacheIf);
+    }
+    expect(ttlOf(seasonUrl)).toEqual({ key: sleeperCacheKey(seasonUrl), ttlMs: TTL.projections, retainMs: TTL.projections });
+    expect(ttlOf(statsUrl(3))).toEqual({ key: sleeperCacheKey(statsUrl(3)), ttlMs: TTL.projections, retainMs: TTL.projections });
+    // Without a current week, every week is served 6 hours (the TTL before Checkpoint 2).
+    const bare = fakeHttp({ [projUrl(12)]: { json: rows } });
+    await loadSleeperWeeklyProjections(gate(bare.http), SEASON, [12], POS);
+    expect(bare.calls[0]?.opts?.cache?.ttlMs).toBe(TTL.projections);
+  });
+
+  it("through the real client: a near week is fetched again after 6 hours, a later week is served from the cache for 24", async () => {
+    vi.useFakeTimers({ now: NOW });
+    const f = sleeperFetch((url) => ({ status: 200, body: sleeperBody(url) }));
+    const http = createHttpClient({ fetchImpl: f.impl, cache: new MemoryCache() });
+    const load = (t: number) => settle(loadSleeperWeeklyProjections(sleeperGate(http, at(t)), SEASON, [5, 10], POS, { currentWeek: 4 }));
+    await load(0);
+    expect(f.attempts.map((a) => a.url)).toEqual([projUrl(5), projUrl(10)]);
+    vi.setSystemTime(at(7 * HOUR));
+    const later = await load(7 * HOUR);
+    expect(f.attempts.slice(2).map((a) => a.url)).toEqual([projUrl(5)]);
+    expect(later.weeks.get(10)?.size).toBe(180);
+    vi.setSystemTime(at(25 * HOUR));
+    await load(25 * HOUR);
+    expect(f.attempts.slice(3).map((a) => a.url)).toEqual([projUrl(5), projUrl(10)]);
+  });
+});
+
+describe("the onWeek hook (the pre-game projection archive's input, CLAUDE.md §2.3)", () => {
+  it("gets every week read with a real projection, right after it is read: its season, week, the request's positions, the rows and the response", async () => {
+    const rows = rowsOf(PROJ(4));
+    const { http } = fakeHttp({
+      [projUrl(4)]: { json: rows, fetchedAt: 1_000, fromCache: true },
+      [projUrl(5)]: { json: [stub("90001")] }, // only stubs: no week
+      [projUrl(7)]: { json: rowsOf(PROJ(5)), fetchedAt: 2_000 },
+    });
+    const seen: SleeperProjectionWeek[] = [];
+    const load = await loadSleeperWeeklyProjections(gate(http), SEASON, [4, 5, 6, 7], ["P", ...[...POS].reverse()], { currentWeek: 4, onWeek: (w) => void seen.push(w) });
+    expect(seen.map((w) => [w.season, w.week, w.positions, w.res.fetchedAt])).toEqual([
+      [SEASON, 4, POS, 1_000],
+      [SEASON, 7, POS, 2_000],
+    ]);
+    expect(seen[0]?.rows).toHaveLength(rows.length); // every row that fit, stubs included
+    expect(seen[0]?.res.json).toBe(rows);
+    expect([...load.weeks.keys()]).toEqual([4, 7]);
+  });
+
+  it("isn't called while Sleeper is down, and a hook that throws doesn't fail the load", async () => {
+    const down = fakeHttp({ [projUrl(4)]: { status: 503, json: null } });
+    const calledWhileDown: number[] = [];
+    await loadSleeperWeeklyProjections(gate(down.http), SEASON, [4, 5], POS, { onWeek: (w) => void calledWhileDown.push(w.week) });
+    expect(calledWhileDown).toEqual([]);
+    const { http } = fakeHttp({ [projUrl(4)]: { json: rowsOf(PROJ(4)) }, [projUrl(5)]: { json: rowsOf(PROJ(5)) } });
+    const asked: number[] = [];
+    const load = await loadSleeperWeeklyProjections(gate(http), SEASON, [4, 5], POS, {
+      onWeek: (w) => {
+        asked.push(w.week);
+        throw new Error("archive bug");
+      },
+    });
+    expect(asked).toEqual([4, 5]);
+    expect([...load.weeks.keys()]).toEqual([4, 5]);
+    expect(load.warnings).toEqual([]);
   });
 });
 
@@ -486,6 +579,91 @@ describe("the Sleeper gate: a build stops at the first request Sleeper doesn't a
     const late = await settle(sleeperBuild(sleeperGate(http, at(TTL.projections + 3 * MINUTE)), [4, 5, 6], [1, 2]));
     expect(f.attempts).toHaveLength(10);
     expect(late.warnings.map((w) => w.platformPath)).toEqual(["projections/4", "projections/5", "projections/6", "projections/season", "stats/1", "stats/2"]);
+  });
+
+  it("during an outage each list is read within its own TTL: a later week's copy for 24 hours, a near week's for 6, and a week that became near for 6", async () => {
+    vi.useFakeTimers({ now: NOW });
+    let down = false;
+    const f = sleeperFetch((url) => (down ? { status: 503 } : { status: 200, body: sleeperBody(url) }));
+    const http = createHttpClient({ fetchImpl: f.impl, cache: new MemoryCache() });
+    // Week 5 is near (6 hours), weeks 9 and 10 later (24 hours), at current week 4.
+    await settle(loadSleeperWeeklyProjections(sleeperGate(http, NOW), SEASON, [5, 9, 10], POS, { currentWeek: 4 }));
+    expect(f.attempts).toHaveLength(3);
+    down = true;
+    // 7 hours later another league's build finds Sleeper down (2 attempts, then the hold).
+    vi.setSystemTime(at(7 * HOUR));
+    await settle(loadSleeperWeeklyProjections(sleeperGate(http, at(7 * HOUR)), SEASON, [4], ["QB"], { currentWeek: 4 }));
+    expect(f.attempts).toHaveLength(5);
+    // During the hold: week 5's copy is past its 6 hours (not asked), weeks 9 and 10 are still served; a new
+    // current week 7 makes week 9 near, so its 7-hour-old copy isn't served any more.
+    const t = 7 * HOUR + MINUTE;
+    vi.setSystemTime(at(t));
+    const held = await settle(loadSleeperWeeklyProjections(sleeperGate(http, at(t)), SEASON, [5, 9, 10], POS, { currentWeek: 4 }));
+    expect(f.attempts).toHaveLength(5);
+    expect([...held.weeks.keys()]).toEqual([9, 10]);
+    expect(held.warnings.map((w) => [w.code, w.platformPath])).toEqual([["SLEEPER_DOWN", "projections/5"]]);
+    const moved = await settle(loadSleeperWeeklyProjections(sleeperGate(http, at(t)), SEASON, [9, 10], POS, { currentWeek: 7 }));
+    expect(f.attempts).toHaveLength(5);
+    expect([...moved.weeks.keys()]).toEqual([10]);
+  });
+
+  it("builds at different current weeks share a client: the gate remembers how long the cache keeps each copy, not the TTL it was read under", async () => {
+    // Around the weekly rollover an ESPN league (its scoring period) and a Sleeper league (Sleeper's NFL week)
+    // can build at current weeks 4 and 5 with the same positions: week 7 is a later week (24 hours) for one and
+    // a near week (6 hours) for the other. Either build may store the copy the other one reads.
+    for (const [first, second] of [[5, 4], [4, 5]] as const) {
+      vi.useFakeTimers({ now: NOW });
+      let down = false;
+      const f = sleeperFetch((url) => (down ? { status: 503 } : { status: 200, body: sleeperBody(url) }));
+      const http = createHttpClient({ fetchImpl: f.impl, cache: new MemoryCache() });
+      const load = (t: number, weeks: number[], currentWeek: number) => {
+        vi.setSystemTime(at(t));
+        return settle(loadSleeperWeeklyProjections(sleeperGate(http, at(t)), SEASON, weeks, POS, { currentWeek }));
+      };
+      const order = `current week ${first}, then ${second}`;
+      await load(0, [7, 8], first);
+      expect(f.attempts, order).toHaveLength(2);
+      const read = await load(HOUR, [7, 8], second); // the other build, an hour later: both from the cache
+      expect(read.fromCache, order).toBe(true);
+      expect(f.attempts, order).toHaveLength(2);
+      // Seven hours after the first build Sleeper is down; a build at current week 4 finds out on week 5 (2 attempts).
+      down = true;
+      const held = await load(7 * HOUR, [5, 7, 8], 4);
+      // Weeks 7 and 8 are later weeks at current week 4: the cache still serves both, and nothing more is asked of Sleeper.
+      expect(f.attempts.slice(2).map((a) => a.url), order).toEqual([projUrl(5), projUrl(5)]);
+      expect([...held.weeks.keys()], order).toEqual([7, 8]);
+      expect(held.warnings.map((w) => [w.code, w.platformPath]), order).toEqual([["SLEEPER_DOWN", "projections/5"]]);
+      // At current week 5 week 7 is near: its 7-hour-old copy isn't served, and isn't asked for either; week 8 still is.
+      const near = await load(7 * HOUR + MINUTE, [7, 8], 5);
+      expect(f.attempts, order).toHaveLength(4);
+      expect([...near.weeks.keys()], order).toEqual([8]);
+      expect(near.warnings.map((w) => [w.code, w.platformPath]), order).toEqual([["SLEEPER_DOWN", "projections/7"]]);
+      vi.useRealTimers();
+    }
+  });
+
+  it("a build that joins another build's download of a week (single-flight) remembers the copy's retention, whatever TTL it asked with", async () => {
+    vi.useFakeTimers({ now: NOW });
+    let down = false;
+    const f = sleeperFetch((url) => (down ? { status: 503 } : { status: 200, body: sleeperBody(url) }));
+    const http = createHttpClient({ fetchImpl: f.impl, cache: new MemoryCache() });
+    // Two builds at once: at current week 5 week 7 is near (that build starts the download), at current week 4 it
+    // is later (that build joins it, and the copy is stored under the first build's policy).
+    const [near, later] = await settle(
+      Promise.all([
+        loadSleeperWeeklyProjections(sleeperGate(http, NOW), SEASON, [7], POS, { currentWeek: 5 }),
+        loadSleeperWeeklyProjections(sleeperGate(http, NOW), SEASON, [7], POS, { currentWeek: 4 }),
+      ]),
+    );
+    expect(f.attempts.map((a) => a.url)).toEqual([projUrl(7)]); // one download for both
+    expect([near.weeks.size, later.weeks.size, near.fromCache, later.fromCache]).toEqual([1, 1, false, false]);
+    // Seven hours later Sleeper is down: a build at current week 4 still reads week 7 from the cache (kept 24 hours).
+    down = true;
+    vi.setSystemTime(at(7 * HOUR));
+    const held = await settle(loadSleeperWeeklyProjections(sleeperGate(http, at(7 * HOUR)), SEASON, [5, 7], POS, { currentWeek: 4 }));
+    expect(f.attempts.slice(1).map((a) => a.url)).toEqual([projUrl(5), projUrl(5)]);
+    expect([...held.weeks.keys()]).toEqual([7]);
+    expect(held.warnings.map((w) => [w.code, w.platformPath])).toEqual([["SLEEPER_DOWN", "projections/5"]]);
   });
 
   it("a list the cache no longer holds costs one attempt without a retry, and then nothing more is read", async () => {

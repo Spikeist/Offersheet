@@ -17,6 +17,25 @@
  *   (−1 = no limit): INFERRED, not documented.
  * - Median game: scoringEnhancementType WIN_BONUS_TOP_HALF (espn-api's reading).
  * - Seeding: playoffReseed when ESPN reports it; otherwise unknown (fixed bracket assumed, warned).
+ *   With 2+ divisions, the division winners take the top seeds, then everyone else by the standings
+ *   (✅ DIVISION_SEEDING_SOURCE: ESPN's help center, and espn-api's standings code agrees), whatever
+ *   ESPN says about re-seeding; a note says so.
+ * - Seeding tiebreaker (§8; planner, Checkpoint 2): scheduleSettings.playoffSeedingRule, the first
+ *   tiebreaker after win percentage. TOTAL_POINTS_SCORED → points for (✅ both test leagues);
+ *   H2H_RECORD → head-to-head and INTRA_DIVISION_RECORD → division record (⚠️ ESPN's own value names,
+ *   settings.typeNames.recordSeedingRuleTypes, read as espn-api's standings code reads them at commit
+ *   663d726, League.standings_weekly; no league using them seen live, so a note says so). Missing or
+ *   UNKNOWN (ESPN's own placeholder, the first of those values: no rule reported) → unknown, warned as
+ *   not reported; TOTAL_POINTS_AGAINST / RAW_STAT (not modeled) → unknown, warned as not modeled.
+ *   Either way points for is assumed.
+ * - Schedule: one matchup per matchup period, in its first NFL week; a period spanning several NFL
+ *   weeks (regular season or playoffs) carries them all in `weeks`. A matchup is `decided` once ESPN
+ *   has decided it (any winner but UNDECIDED; ESPN's records then count it) and has a `result` when
+ *   the verdict is HOME / AWAY / TIE with the scores: ESPN's own verdict, so a tie its matchup tie rule
+ *   breaks still has a winner. A decided matchup we can't read stays decided without a result, warned
+ *   by what that changes: a regular-season game leaves the head-to-head (and division-record)
+ *   tiebreakers, a playoff game makes bye and title odds unknown; a bye changes nothing, so it isn't.
+ *   Consolation-bracket games are left out.
  * - Transactions: EXECUTED rows only (proposals, declines, cancelled or failed claims and lineup
  *   moves are not roster changes), deduped by id across the per-period requests. A trade answered by
  *   both TRADE_ACCEPT and TRADE_UPHOLD counts once (same proposal, own id or trade legs). An accepted
@@ -32,8 +51,9 @@
  *   (not after a collision, ESPN_ID_COLLISION).
  */
 import type { CrosswalkConflict, CrosswalkSourceKey, PlayerIdResolver } from "@/data/types";
+import { returnDateConflict } from "@/engine/availability";
 import { config } from "@/engine/config";
-import type { ImportWarning, LeagueSettings, LeagueSnapshot, Matchup, PlayerInfo, Pos, SlotDef, Team, Transaction, UnknownSetting } from "@/engine/model";
+import type { ImportWarning, LeagueSettings, LeagueSnapshot, Matchup, MatchupResult, PlayerInfo, Pos, SeedingTiebreaker, SlotDef, Team, Transaction, UnknownSetting } from "@/engine/model";
 import { ESPN_PRO_TEAMS } from "./constants";
 import { POSITION_ID, SLOT, eligiblePositions, mapInjury, positionIdsFor, positionOf, slotInfo } from "./positions";
 import { buildEspnScoring, type ScoringContext } from "./scoringMap";
@@ -47,6 +67,7 @@ import {
   TransactionsResponseSchema,
   parseEspn,
   type EspnLeague,
+  type EspnMatchup,
   type EspnPlayer,
   type EspnPoolPlayer,
   type EspnProTeam,
@@ -387,6 +408,61 @@ function tradeReviewOf(ts: EspnLeague["settings"]["tradeSettings"], notes: strin
   return "none";
 }
 
+/**
+ * ESPN's seeding tiebreaker (scheduleSettings.playoffSeedingRule) → ours (§8). The value names are
+ * ESPN's own (settings.typeNames.recordSeedingRuleTypes); espn-api's standings code (commit 663d726,
+ * League.standings_weekly) reads the three it models the same way.
+ */
+export const ESPN_SEEDING_TIEBREAKERS: Readonly<Record<string, SeedingTiebreaker>> = {
+  TOTAL_POINTS_SCORED: "pointsFor",
+  H2H_RECORD: "headToHead",
+  INTRA_DIVISION_RECORD: "divisionRecord",
+};
+
+/** Rules seen in a live league (✅): both test leagues use TOTAL_POINTS_SCORED. The others are read from their names (⚠️). */
+const SEEDING_RULES_SEEN_LIVE: ReadonlySet<string> = new Set(["TOTAL_POINTS_SCORED"]);
+
+const TIEBREAKER_WORDS: Readonly<Record<SeedingTiebreaker, string>> = { pointsFor: "total points for", headToHead: "head-to-head record", divisionRecord: "record within the division" };
+
+/** ESPN's placeholder value (the first of recordSeedingRuleTypes): it reports no rule, like a missing one. */
+const SEEDING_RULE_NOT_REPORTED = "UNKNOWN";
+
+/**
+ * Where the division rule comes from (review ADAPT-3; ✅ documented): ESPN's help center, "H2H Points
+ * League Playoff Seeding: How Tiebreakers Work" (support.espn.com/hc/en-us/articles/360058038711, updated
+ * 2026-08-11): "Division winners always occupy the top seeds", then the other teams by winning
+ * percentage, with the step "skipped in leagues with no divisions". ESPN's older rules page
+ * (espn.com/fantasy/football/ffl/story?page=fflrulesplayoffs) says the same, and espn-api's standings
+ * (commit 663d726, League.standings_weekly) seed each division's winner first. ESPN's API has no
+ * setting for it, so it is a platform rule, not the league's choice.
+ */
+export const DIVISION_SEEDING_SOURCE = "ESPN's help center says division winners always occupy the top seeds";
+
+/**
+ * The league's seeding tiebreaker, or undefined (plus "seedingTiebreaker" in unknownSettings and a
+ * warning) when ESPN doesn't report one (missing, or its UNKNOWN placeholder) or reports one we don't
+ * model: the simulator then breaks ties by points for. A rule read only from its name gets a note, so
+ * the Import Report doesn't show a guess as a fact (§0.12).
+ */
+function seedingTiebreakerOf(value: string | undefined, warnings: ImportWarning[], notes: string[], unknown: UnknownSetting[]): SeedingTiebreaker | undefined {
+  const rule = value && value !== SEEDING_RULE_NOT_REPORTED ? value : undefined;
+  // Own keys only: a value such as "constructor" must not find Object.prototype's.
+  const mapped = rule && Object.hasOwn(ESPN_SEEDING_TIEBREAKERS, rule) ? ESPN_SEEDING_TIEBREAKERS[rule] : undefined;
+  if (rule && mapped) {
+    if (!SEEDING_RULES_SEEN_LIVE.has(rule)) notes.push(`Ties in the standings: ESPN's seeding tiebreaker ${rule} is read as ${TIEBREAKER_WORDS[mapped]}. That's ESPN's own name for it, but no league with this setting has been checked yet.`);
+    return mapped;
+  }
+  unknown.push("seedingTiebreaker");
+  warnings.push({
+    code: "ESPN_SEEDING_TIEBREAKER_UNKNOWN",
+    message: rule
+      ? `ESPN breaks ties in the standings by ${rule}, which Offer Sheet doesn't model yet; the season simulation breaks them by points for instead.`
+      : "ESPN didn't say how ties in the standings are broken; the season simulation breaks them by points for.",
+    platformPath: "settings.scheduleSettings.playoffSeedingRule",
+  });
+  return undefined;
+}
+
 function settingsOf(L: EspnLeague, slots: SlotSummary, proTeams: EspnProTeam[] | undefined, warnings: ImportWarning[], notes: string[]): LeagueSettings {
   const s = L.settings;
   const sch = s.scheduleSettings;
@@ -399,7 +475,7 @@ function settingsOf(L: EspnLeague, slots: SlotSummary, proTeams: EspnProTeam[] |
   const playoff = periods.filter((x) => x.mp > sch.matchupPeriodCount);
   const multiWeek = regular.filter((x) => x.weeks.length > 1);
   if (multiWeek.length)
-    warnings.push({ code: "ESPN_MULTIWEEK_MATCHUPS", message: `Some regular-season matchups span several NFL weeks (${multiWeek.map((x) => `period ${x.mp}: weeks ${x.weeks.join("+")}`).join("; ")}); each is listed once, in its first week.`, platformPath: "settings.scheduleSettings.matchupPeriods" });
+    warnings.push({ code: "ESPN_MULTIWEEK_MATCHUPS", message: `Some regular-season matchups span several NFL weeks (${multiWeek.map((x) => `period ${x.mp}: weeks ${x.weeks.join("+")}`).join("; ")}); each is listed once, with all its weeks.`, platformPath: "settings.scheduleSettings.matchupPeriods" });
   if (!playoff.length) warnings.push({ code: "ESPN_NO_PLAYOFF_WEEKS", message: "ESPN lists no playoff matchup periods for this league.", platformPath: "settings.scheduleSettings.matchupPeriods" });
 
   // Round lengths: matchupPeriods is what ESPN schedules; the length settings are only cross-checked.
@@ -457,18 +533,18 @@ function settingsOf(L: EspnLeague, slots: SlotSummary, proTeams: EspnProTeam[] |
       platformPath: home ? "settings.scoringSettings.homeTeamBonus" : "settings.scoringSettings.playoffHomeTeamBonus",
     });
 
-  // Seeding ties: our simulator breaks them by points for, which is ESPN's TOTAL_POINTS_SCORED (Parker's league).
-  if (sch.playoffSeedingRule && sch.playoffSeedingRule !== "TOTAL_POINTS_SCORED")
-    warnings.push({ code: "ESPN_SEEDING_RULE", message: `ESPN breaks playoff-seeding ties by ${sch.playoffSeedingRule}; we break them by points scored.`, platformPath: "settings.scheduleSettings.playoffSeedingRule" });
   const reseed = sch.playoffReseed ?? undefined;
   if (reseed === undefined) {
     unknown.push("playoffSeeding");
     warnings.push({ code: "ESPN_SEEDING_UNKNOWN", message: "ESPN didn't say whether the playoffs re-seed after each round; we assume a fixed bracket.", platformPath: "settings.scheduleSettings.playoffReseed" });
   }
+  const seedingTiebreaker = seedingTiebreakerOf(sch.playoffSeedingRule ?? undefined, warnings, notes, unknown);
 
   const divs = sch.divisions ?? [];
   const divisions = divs.length > 1 ? divs.map((d) => ({ id: String(d.id), teamIds: L.teams.filter((t) => t.divisionId === d.id).map((t) => String(t.id)) })) : undefined;
-  if (divisions) warnings.push({ code: "ESPN_SEEDING_DIVISIONS_UNKNOWN", message: "ESPN doesn't report whether division winners are seeded first in the playoffs; we assume they aren't.", platformPath: "settings.scheduleSettings.playoffSeedingRule" });
+  // Division winners take the top seeds (review ADAPT-3): ESPN's rule for every league with divisions, not
+  // a league setting, so it holds whatever ESPN says about re-seeding (DIVISION_SEEDING_SOURCE).
+  if (divisions) notes.push(`Playoff seeding: the ${divisions.length} division winners take the top seeds, then the other teams by the standings (${DIVISION_SEEDING_SOURCE}).`);
 
   const positionLimits = positionLimitsOf(s.rosterSettings.positionLimits, slots.scoringCtx.qbSource);
   if (positionLimits) notes.push("Position limits are read from ESPN's positionLimits as the most players allowed per position (our reading; ESPN doesn't document it).");
@@ -492,13 +568,99 @@ function settingsOf(L: EspnLeague, slots: SlotSummary, proTeams: EspnProTeam[] |
     medianGame: s.scoringSettings.scoringEnhancementType === "WIN_BONUS_TOP_HALF",
     pointsOnly,
     ...(divisions ? { divisions } : {}),
-    ...(reseed !== undefined ? { playoffSeeding: { reseed, divisionWinnersFirst: false } } : {}),
+    // Without ESPN's re-seeding flag, the seeding is left out (unknown), unless the division rule applies:
+    // then a fixed bracket stands in for re-seeding (ESPN_SEEDING_UNKNOWN says it's assumed).
+    ...(reseed !== undefined || divisions ? { playoffSeeding: { reseed: reseed ?? false, divisionWinnersFirst: !!divisions } } : {}),
+    ...(seedingTiebreaker ? { seedingTiebreaker } : {}),
     tradeDeadline,
     tradeReview,
     ...(acq?.isUsingAcquisitionBudget && typeof acq.acquisitionBudget === "number" ? { faabBudget: acq.acquisitionBudget } : {}),
     ...(unknown.length ? { unknownSettings: unknown } : {}),
   };
   return settings;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Schedule results
+
+/** Decided matchups we couldn't turn into a result: winner values we don't know, and winners without a score. */
+interface UnreadableResults {
+  winners: Map<string, number>;
+  noScore: number;
+}
+
+const noUnreadable = (): UnreadableResults => ({ winners: new Map(), noScore: 0 });
+
+/** How many matchups a tally holds, and what they were ("2 with winner "FORFEIT"; 1 with a winner but no score"). */
+function unreadableSummary(u: UnreadableResults): { count: number; parts: string } {
+  const parts = [...u.winners].map(([w, n]) => `${n} with winner "${w}"`);
+  if (u.noScore) parts.push(`${u.noScore} with a winner but no score`);
+  return { count: [...u.winners.values()].reduce((a, b) => a + b, 0) + u.noScore, parts: parts.join("; ") };
+}
+
+/**
+ * The warnings on decided matchups we couldn't read (review ADAPT-2), each worded by what the missing
+ * result changes in the season odds (src/engine/season.ts): a regular-season game still counts in ESPN's
+ * records, but the head-to-head tiebreaker (and, with divisions, the division-record one) leaves it
+ * out; a playoff game's missing winner means the bracket can't be replayed, so bye and title odds are
+ * unknown. Byes aren't tallied: nothing reads a bye's result (no opponent, no winner).
+ */
+function unreadableResultWarnings(regular: UnreadableResults, playoff: UnreadableResults, hasDivisions: boolean): ImportWarning[] {
+  const out: ImportWarning[] = [];
+  const r = unreadableSummary(regular);
+  if (r.count) {
+    const [they, them] = r.count === 1 ? ["it has", "it"] : ["they have", "them"];
+    const tiebreakers = hasDivisions ? "head-to-head and division-record tiebreakers" : "head-to-head tiebreakers";
+    out.push({
+      code: "ESPN_MATCHUP_RESULT_UNREADABLE",
+      message: `${plural(r.count, "decided matchup")} came back in a shape we can't read (${r.parts}), so ${they} no result: ESPN's standings still count ${them} as played, but ${tiebreakers} leave ${them} out.`,
+      platformPath: "schedule[].winner",
+    });
+  }
+  const p = unreadableSummary(playoff);
+  if (p.count) {
+    const [they, winners] = p.count === 1 ? ["it has", "its winner"] : ["they have", "their winners"];
+    out.push({
+      code: "ESPN_MATCHUP_RESULT_UNREADABLE",
+      message: `${plural(p.count, "decided playoff game")} came back in a shape we can't read (${p.parts}), so ${they} no result: without ${winners} the playoff bracket can't be replayed, so bye and title odds show as unknown.`,
+      platformPath: "schedule[].winner",
+    });
+  }
+  return out;
+}
+
+/**
+ * ESPN's verdict once it has decided the matchup (§4 Matchup.decided): any winner but UNDECIDED, else
+ * undefined. HOME, AWAY and TIE are ESPN's own values (typeNames.winnerTypes, with UNDECIDED); a value
+ * ESPN adds later counts as decided too (⚠️ inferred: UNDECIDED is its only "not yet"), because ESPN's
+ * records then count the game and the season simulation mustn't play it again.
+ */
+function verdictOf(m: EspnMatchup): string | undefined {
+  return m.winner && m.winner !== "UNDECIDED" ? m.winner : undefined;
+}
+
+/**
+ * A decided matchup's final result (§4 Matchup.result): verdict HOME, AWAY or TIE, with each side's
+ * totalPoints over the whole period (to cents: ESPN's points carry float noise). Not decided → no
+ * result; decided but unreadable (another verdict, or a missing score) → no result, counted in
+ * `unreadable` (the caller's tally for the warnings). A bye (no away team) is never won: its winnerId
+ * is null whatever ESPN says, and pointsB is null.
+ */
+function matchupResult(m: EspnMatchup, teamA: string, teamB: string | null, unreadable: UnreadableResults): MatchupResult | undefined {
+  const winner = verdictOf(m);
+  if (winner === undefined) return undefined;
+  if (winner !== "HOME" && winner !== "AWAY" && winner !== "TIE") {
+    unreadable.winners.set(winner, (unreadable.winners.get(winner) ?? 0) + 1);
+    return undefined;
+  }
+  const a = m.home?.totalPoints;
+  const b = m.away?.totalPoints;
+  if (typeof a !== "number" || (teamB !== null && typeof b !== "number")) {
+    unreadable.noScore++;
+    return undefined;
+  }
+  const winnerId = teamB === null || winner === "TIE" ? null : winner === "HOME" ? teamA : teamB;
+  return { pointsA: round2(a), pointsB: teamB === null ? null : round2(b as number), winnerId };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -695,9 +857,10 @@ export function normalizeEspnLeague(raw: EspnRawBundle, ctx: EspnNormalizeContex
     const injured = teams.flatMap((t) => [...t.roster, ...t.ir]).map((id) => playerInfos[id] as PlayerInfo).filter((p) => p.injury !== "ACTIVE");
     const dated = injured.filter((p) => p.injuryReturnWeek !== undefined);
     if (injured.length) notes.push(`Expected return weeks come from ESPN's player cards for ${dated.length} of ${plural(injured.length, "injured rostered player")}.`);
-    const longer = dated.filter((p) => (p.injury === "QUESTIONABLE" || p.injury === "DOUBTFUL") && (p.injuryReturnWeek as number) >= week + 2);
+    // The engine's own test (§6 step 3: a probable, questionable or doubtful tag with a return week 2+ weeks out), so this list and the League page agree.
+    const longer = dated.filter((p) => returnDateConflict(p, week) !== null);
     if (longer.length)
-      notes.push(`ESPN expects ${plural(longer.length, "player")} listed as questionable, doubtful or day-to-day to be out longer than that status suggests: ${longer.slice(0, 5).map((p) => `${p.name} (back week ${p.injuryReturnWeek})`).join(", ")}${longer.length > 5 ? ", …" : ""}.`);
+      notes.push(`ESPN expects ${plural(longer.length, "player")} listed as probable, questionable, doubtful or day-to-day to be out longer than that status suggests: ${longer.slice(0, 5).map((p) => `${p.name} (back week ${p.injuryReturnWeek})`).join(", ")}${longer.length > 5 ? ", …" : ""}.`);
   }
 
   // My team.
@@ -722,20 +885,37 @@ export function normalizeEspnLeague(raw: EspnRawBundle, ctx: EspnNormalizeContex
     if (info && freeAgents.includes(info.id)) playerInfos[info.id] ??= info;
   }
 
-  // Schedule.
+  // Schedule: each matchup in its first NFL week, with all its weeks when the period spans several,
+  // marked decided once ESPN has decided it, with ESPN's result when we can read it.
   const periodWeeks = new Map(Object.entries(L.settings.scheduleSettings.matchupPeriods).map(([mp, w]) => [Number(mp), [...w].sort((a, b) => a - b)]));
   const schedule: Matchup[] = [];
   let consolation = 0;
+  // Unreadable results, tallied by what they change (unreadableResultWarnings); byes change nothing.
+  const unreadable = { regular: noUnreadable(), playoff: noUnreadable(), bye: noUnreadable() };
   for (const m of L.schedule ?? []) {
-    const first = periodWeeks.get(m.matchupPeriodId)?.[0];
-    if (first === undefined || !m.home) continue;
+    const weeks = periodWeeks.get(m.matchupPeriodId);
+    const first = weeks?.[0];
+    if (!weeks || first === undefined || !m.home) continue;
     if (m.playoffTierType && m.playoffTierType !== "WINNERS_BRACKET" && m.playoffTierType !== "NONE") {
       consolation++;
       continue;
     }
-    schedule.push({ week: first, teamA: String(m.home.teamId), teamB: m.away ? String(m.away.teamId) : null, isPlayoff: m.matchupPeriodId > L.settings.scheduleSettings.matchupPeriodCount });
+    const teamA = String(m.home.teamId);
+    const teamB = m.away ? String(m.away.teamId) : null;
+    const isPlayoff = m.matchupPeriodId > L.settings.scheduleSettings.matchupPeriodCount;
+    const result = matchupResult(m, teamA, teamB, teamB === null ? unreadable.bye : isPlayoff ? unreadable.playoff : unreadable.regular);
+    schedule.push({
+      week: first,
+      teamA,
+      teamB,
+      isPlayoff,
+      ...(weeks.length > 1 ? { weeks: [...weeks] } : {}),
+      ...(verdictOf(m) !== undefined ? { decided: true } : {}),
+      ...(result ? { result } : {}),
+    });
   }
   if (consolation) notes.push(`${consolation} consolation-bracket game(s) are left out of the schedule.`);
+  warnings.push(...unreadableResultWarnings(unreadable.regular, unreadable.playoff, (settings.divisions?.length ?? 0) >= 2));
 
   const teamNames = new Map(teams.map((t) => [t.id, t.name]));
   const tradeCounters = new Map<string, number>();

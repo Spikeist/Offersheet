@@ -45,8 +45,8 @@ export default function PrivacyPage() {
           <li>Offer Sheet only reads your league. It can&apos;t send offers or change anything.</li>
           <li>Your imported league, and the League page&apos;s projections for it, live in this browser tab and are gone when you close it.</li>
           <li>
-            Our server fetches the data and scores each player&apos;s projections with your league&apos;s rules. The League page&apos;s math (lineups, needs, trade partners)
-            runs in your browser.
+            Our server fetches the data and scores each player&apos;s projections with your league&apos;s rules. The League page&apos;s math (lineups, needs, trade partners,
+            playoff odds) runs in your browser.
           </li>
           <li>Our server keeps a short-lived copy of what it fetches (league data for about 10 minutes), then deletes it.</li>
           <li>If you connect with ESPN cookies, they&apos;re kept only in an encrypted cookie in your browser for this session, and only ever sent to ESPN.</li>
@@ -63,7 +63,7 @@ export default function PrivacyPage() {
           When you open the League page, our server fetches your league again (usually from its short-lived copy) along with the projections and trade values for its
           players, and scores the projections with your league&apos;s scoring rules. Your browser keeps those projections and values in session storage too (under
           &ldquo;offersheet:model:v1&rdquo;, for the league you imported), so they&apos;re gone when you close the tab. The League page&apos;s math (lineups, needs,
-          trade partners) runs in your browser; your league isn&apos;t sent to anyone else to be analyzed.
+          trade partners, playoff odds) runs in your browser; your league isn&apos;t sent to anyone else to be analyzed.
         </p>
         <p className="mt-2 text-sm leading-relaxed">To go easy on ESPN and Sleeper, our server keeps a copy of what it fetched for a short time, then deletes it:</p>
         <ul className="mt-2 list-disc space-y-1.5 pl-5 text-sm leading-relaxed">

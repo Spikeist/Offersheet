@@ -49,7 +49,7 @@
  * min-cost flow fallback may settle an exact tie by roster order; its total is the same). The seat
  * output is canonical: of two starters who could swap slots,
  * the better one sits in the more restrictive slot (RB slots hold the top RBs, FLEX the best leftover),
- * so slot-by-slot strength (§7 "Needs and surplus") reads the way platforms show lineups.
+ * so slot-by-slot strength (§7 "Needs and trade chips") reads the way platforms show lineups.
  */
 import { POSITIONS, type LeagueSettings, type Pos, type SlotDef } from "./model";
 

@@ -1,15 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { normalizeEspnLeague } from "@/adapters/espn/normalize";
 import { NOW, PARKER, fakeResolver, parkerBundle } from "@/adapters/espn/test-helpers";
+import { returnDateConflict } from "./availability";
 import { config } from "./config";
-import type { ModelInputs } from "./inputs";
+import type { ModelInputs, PlayerInputs } from "./inputs";
 import {
-  NO_TRADE_VALUES_WARNING,
   buildLeagueModel,
   buildProjectionTable,
+  firstKickoff,
   gameStarted,
   leagueWeeks,
   nflLastWeek,
+  preKickoffTable,
+  sleeperWeekLoaded,
   teamWeeks,
   weekKickedOff,
   type BuildLeagueModelOptions,
@@ -18,11 +21,14 @@ import {
 import type { LeagueModel, TeamModel } from "./leagueModel";
 import { prepareLeagueSlots } from "./lineup";
 import type { LeagueSnapshot, Pos, SlotDef } from "./model";
-import { qualifyingSurplus, standardize, surplusScores } from "./needs";
-import { mvAddGroupPpw, mvLose, ppw, rosValue, scenarioLineups, weekWeights } from "./teamValue";
+import { surplusScores } from "./needs";
+import { priorHealthyBaseRate } from "./projections";
+import { bestFreeAgent, evLineups, lowestKeepValue, mvAddGroupPpw, mvAddPpw, mvLose, positionAllows, ppw, rosterScore, rosValue, scenarioLineups, weekWeights } from "./teamValue";
 import { TEST_NOW, buildTestLeague, randomLeague, syntheticInputs, type TestLeagueSpec, type TestPlayer, type TestTeam } from "./testLeague";
 
 const range = (from: number, to: number): number[] => Array.from({ length: to - from + 1 }, (_, i) => from + i);
+/** A weekly projection: `v` in every NFL week from..to. */
+const flat = (from: number, to: number, v: number): Record<number, number> => Object.fromEntries(range(from, to).map((w) => [w, v]));
 
 const ZERO_MISS: Record<Pos, number> = { QB: 0, RB: 0, WR: 0, TE: 0, K: 0, P: 0, DEF: 0, DL: 0, LB: 0, DB: 0 };
 /** No future injury risk: every healthy player certainly plays (the hand-built cases stay obvious). */
@@ -72,6 +78,151 @@ function rawCosts(league: { snapshot: LeagueSnapshot; inputs: ModelInputs }, mod
   return out;
 }
 
+type BruteChip = { gap: number; cost: number; maxOther: number; bestTeamId: string };
+
+/**
+ * Every trade-chip candidate's numbers by brute force, from the rule in league.ts's header (step 6) and the
+ * friendly API (its own solves): T′_V from the model's waiver move; when T′_V's active roster is full, the
+ * drop by lowestKeepValue over what losing each of its modeled players (never the free agent just added)
+ * costs T′_V's lineup, ROS(T′_V) − ROS(T′_V − k), each roster solved on its own (nothing from the model's
+ * lineup costs); MV_add'(T′, i) = max(0, ROS(T′_V + i − drop) − ROS(T′_V)) in the model's lineup mode over
+ * the weeks team numbers count; positionLimits on T′_V + i − drop. `pick` chooses the team among those
+ * allowed (default: the largest value, ties to the smaller id).
+ */
+function bruteChips(
+  league: { snapshot: LeagueSnapshot; inputs: ModelInputs },
+  model: LeagueModel,
+  opts: BuildLeagueModelOptions,
+  cfg: LeagueModelConfig = config,
+  pick?: (options: { teamId: string; value: number; ev: number }[]) => { teamId: string; value: number } | null,
+): Map<string, BruteChip> {
+  const { snapshot } = league;
+  const { table } = buildProjectionTable(snapshot, league.inputs, opts, cfg);
+  const slots = prepareLeagueSlots(snapshot.settings);
+  const { weights } = teamWeeks(model, model.inProgressWeek, cfg.lineups);
+  const rosEv = (roster: string[]) => rosValue(evLineups(roster, table, slots).lv, weights);
+  const ros = (roster: string[]) => (model.scenarios > 0 ? rosValue(scenarioLineups(roster, table, slots).lv, weights) : rosEv(roster));
+  const posOf = (id: string) => snapshot.players[id]?.pos;
+  const bases = snapshot.teams.map((t) => {
+    const tm = teamOf(model, t.id);
+    const w = tm.waiver;
+    const roster = [...new Set(t.roster)];
+    const v = w ? [...roster.filter((id) => id !== w.drop), w.add] : roster;
+    const full = roster.length + (w && w.drop === null ? 1 : 0) >= snapshot.settings.maxRosterSize;
+    const vRos = ros(v);
+    const drop = full ? lowestKeepValue(v.filter((id) => id !== w?.add && table.rows.has(id)).map((id) => ({ id, keep: vRos - ros(v.filter((x) => x !== id)), value: model.players[id]?.value?.value ?? 0 }))) : null;
+    const b = drop ? v.filter((id) => id !== drop) : v;
+    return { id: t.id, blocked: full && drop === null, vRos, vRosEv: rosEv(v), b, positions: b.flatMap((id) => posOf(id) ?? []) };
+  });
+  const out = new Map<string, BruteChip>();
+  for (const t of snapshot.teams) {
+    const tm = teamOf(model, t.id);
+    for (const [id, x] of Object.entries(tm.players)) {
+      const pos = posOf(id) as Pos;
+      if (cfg.market.tradeSearchExcluded.includes(pos)) continue;
+      const options = bases
+        .filter((b) => b.id !== t.id && !b.blocked && positionAllows(snapshot.settings.positionLimits, b.positions, pos))
+        .map((b) => ({ teamId: b.id, value: Math.max(0, ros([...b.b, id]) - b.vRos), ev: Math.max(0, rosEv([...b.b, id]) - b.vRosEv) }));
+      let best: { teamId: string; value: number } | null = null;
+      if (pick) best = pick(options);
+      else for (const o of options) if (!best || o.value > best.value + 1e-9 || (Math.abs(o.value - best.value) <= 1e-9 && o.teamId < best.teamId)) best = o;
+      if (!best) continue;
+      const cost = x.mvLoseScen ?? x.mvLoseEv;
+      out.set(id, { gap: best.value - cost, cost, maxOther: best.value, bestTeamId: best.teamId });
+    }
+  }
+  return out;
+}
+
+/** The model's chips match brute force: exactly the candidates whose gap reaches chipMinGap, with the same numbers and team. */
+function expectChipsMatch(model: LeagueModel, brute: Map<string, BruteChip>, cfg: LeagueModelConfig = config): number {
+  let chips = 0;
+  for (const t of model.teams) {
+    for (const c of t.chips) expect(brute.get(c.playerId), `team ${t.id}: chip ${c.playerId} isn't a candidate`).toBeDefined();
+    for (const [id, b] of brute) {
+      if (!(id in t.players)) continue;
+      const chip = t.chips.find((c) => c.playerId === id);
+      if (b.gap >= cfg.needs.chipMinGap - 1e-9) {
+        chips++;
+        expect(chip, `team ${t.id}: ${id} (gap ${b.gap}) should be a chip`).toBeDefined();
+        expect(chip?.gap, id).toBeCloseTo(b.gap, 6);
+        expect(chip?.cost, id).toBeCloseTo(b.cost, 6);
+        expect(chip?.maxOther, id).toBeCloseTo(b.maxOther, 6);
+        expect(chip?.bestTeamId, id).toBe(b.bestTeamId);
+      } else {
+        expect(chip, `team ${t.id}: ${id} (gap ${b.gap}) isn't a chip`).toBeUndefined();
+      }
+    }
+  }
+  return chips;
+}
+
+type BrutePartner = { teamId: string; mutual: boolean; score: number };
+
+/**
+ * Best trade partners by brute force, from the rule in league.ts's header (step 7, lead decision D2) and the friendly API
+ * (its own solves): each side's chips (the model's TeamModel.chips) that add something to the receiving team after its best
+ * free-agent move, by own gain (ties: the larger gap, then the smaller id); the first counts; each next one counts while
+ * maxOther − cost(T − counted) ≥ chipMinGap, the cost on T − counted by step 5's rules (V(T′) − ROS(T′ − i + fa_i): V the
+ * best of T′, T′ plus the free agent its open spot would take, and every T′ − j + fa_j, in the model's lineup mode), at most
+ * maxPerSide; each side scored by the joint gain of the chips counted. Ranked like rankPartners: mutual first, best first.
+ */
+function brutePartners(league: { snapshot: LeagueSnapshot; inputs: ModelInputs }, model: LeagueModel, opts: BuildLeagueModelOptions, cfg: LeagueModelConfig = config): BrutePartner[] {
+  const { snapshot } = league;
+  const { table } = buildProjectionTable(snapshot, league.inputs, opts, cfg);
+  const slots = prepareLeagueSlots(snapshot.settings);
+  const tw = teamWeeks(model, model.inProgressWeek, cfg.lineups);
+  const W = model.weeks.length;
+  const window = { from: tw.from, to: W };
+  const scen = model.scenarios > 0;
+  const limits = snapshot.settings.positionLimits;
+  const rosterOf = (id: string) => [...new Set(snapshot.teams.find((t) => t.id === id)?.roster ?? [])];
+  const positionsOf = (ids: readonly string[]) => ids.flatMap((id) => snapshot.players[id]?.pos ?? []);
+  const tv = (id: string): string[] => {
+    const w = teamOf(model, id).waiver;
+    const roster = rosterOf(id);
+    return w ? [...roster.filter((x) => x !== w.drop), w.add] : roster;
+  };
+  const ros = (ids: readonly string[]) => rosValue(scen ? scenarioLineups(ids, table, slots).lv : evLineups(ids, table, slots).lv, tw.weights);
+  /** His lineup cost on team `teamId` without the players in `gone`. */
+  const costWithout = (teamId: string, gone: readonly string[], playerId: string): number => {
+    const roster = rosterOf(teamId).filter((x) => !gone.includes(x));
+    const fopts = { weights: tw.weights, rosterPositions: positionsOf(roster), ...(limits ? { positionLimits: limits } : {}) };
+    const base = ros(roster);
+    let v = base;
+    if (roster.length < snapshot.settings.maxRosterSize) {
+      const fa = bestFreeAgent(roster, snapshot.freeAgents, table, slots, fopts);
+      if (fa) v = Math.max(v, ros([...roster, fa.id]));
+    }
+    const after = (id: string) => {
+      const raw = mvLose(roster, id, snapshot.freeAgents, table, slots, fopts);
+      return base - (scen ? (raw.scen as number) : raw.ev);
+    };
+    for (const id of roster) if (table.rows.has(id)) v = Math.max(v, after(id));
+    return v - after(playerId);
+  };
+  const side = (from: string, to: string): number => {
+    const chips = teamOf(model, from).chips.map((c) => ({ ...c, ppw: mvAddPpw(tv(to), c.playerId, table, slots, window) })).filter((c) => c.ppw > 1e-9);
+    chips.sort((a, b) => (Math.abs(b.ppw - a.ppw) > 1e-9 ? b.ppw - a.ppw : Math.abs(b.gap - a.gap) > 1e-9 ? b.gap - a.gap : a.playerId < b.playerId ? -1 : 1));
+    const counted: string[] = [];
+    for (const c of chips) {
+      if (counted.length >= cfg.search.maxPerSide) break;
+      if (counted.length === 0 || c.maxOther - costWithout(from, counted, c.playerId) >= cfg.needs.chipMinGap - 1e-9) counted.push(c.playerId);
+    }
+    return mvAddGroupPpw(tv(to), counted, table, slots, window);
+  };
+  const me = model.myTeamId as string;
+  const all = snapshot.teams
+    .filter((t) => t.id !== me)
+    .flatMap((t) => {
+      const get = side(t.id, me);
+      const give = side(me, t.id);
+      return get > 1e-9 && give > 1e-9 ? [{ teamId: t.id, mutual: true, score: Math.sqrt(get * give) }] : get > 1e-9 ? [{ teamId: t.id, mutual: false, score: get }] : [];
+    });
+  const rank = (a: BrutePartner, b: BrutePartner) => (a.mutual !== b.mutual ? (a.mutual ? -1 : 1) : b.score - a.score || (a.teamId < b.teamId ? -1 : 1));
+  return all.sort(rank).slice(0, cfg.needs.partnersShown);
+}
+
 /** Every number in the model is finite (no NaN or Infinity leaks into the page). */
 function allFinite(x: unknown, path = "model"): string[] {
   if (typeof x === "number") return Number.isFinite(x) ? [] : [path];
@@ -113,6 +264,10 @@ describe("weeks (Phase 2 spec: remaining NFL weeks currentWeek..lastWeek)", () =
     expect(weekKickedOff(nfl, 6, now)).toBe(false);
     expect(weekKickedOff(nfl, 7, now)).toBe(false);
     expect(weekKickedOff(undefined, 4, now)).toBe(false);
+    // The week's first kickoff (the pre-game moment of a week in progress): unreadable times are skipped.
+    expect(firstKickoff(nfl, 4)).toBe(Date.parse("2026-09-29T17:00:00.000Z"));
+    expect(firstKickoff(nfl, 6)).toBeNull();
+    expect(firstKickoff(undefined, 4)).toBeNull();
   });
 
   it("teamWeeks: a week in progress weighs 0 in ROS, leaves PPW's weeks, and the strength windows start the week after it", () => {
@@ -407,7 +562,7 @@ describe("game days (Phase 2 review decisions): once a current-week game has kic
   });
   const OPTS = { now: TEST_NOW, scenarios: 8 };
 
-  it("identical teams get identical strength, needs, PPW, ROS, lineup costs, 'would start for' and waiver moves, whoever has played", () => {
+  it("identical teams get identical strength, needs, PPW, ROS, lineup costs, trade chips and waiver moves, whoever has played", () => {
     const model = buildLeagueModel(league.snapshot, league.inputs, OPTS, NO_RISK);
     expect(model.inProgressWeek).toBe(4);
     const one = teamOf(model, "1");
@@ -420,14 +575,13 @@ describe("game days (Phase 2 review decisions): once a current-week game has kic
       expect(t.ev.ros, `team ${id}`).toBeCloseTo(one.ev.ros, 9);
       expect(t.scen?.ros, `team ${id}`).toBeCloseTo(one.scen?.ros as number, 9);
       expect(t.waiver, `team ${id}`).toEqual(one.waiver);
-      expect(t.surplus.map((s) => s.playerId.slice(2)), `team ${id}`).toEqual(one.surplus.map((s) => s.playerId.slice(2)));
+      expect(t.chips.map((c) => [c.playerId.slice(2), c.gap]), `team ${id}`).toEqual(one.chips.map((c) => [c.playerId.slice(2), c.gap]));
       for (const s of SUFFIXES) {
         const a = one.players[`1-${s}`] as NonNullable<TeamModel["players"][string]>;
         const b = t.players[`${id}-${s}`] as NonNullable<TeamModel["players"][string]>;
         expect(b.mvLoseEv, `${id}-${s}`).toBeCloseTo(a.mvLoseEv, 9);
         expect(b.mvLoseScen as number, `${id}-${s}`).toBeCloseTo(a.mvLoseScen as number, 9);
         expect(b.autoAdd, `${id}-${s}`).toBe(a.autoAdd);
-        expect(b.startsFor, `${id}-${s}`).toBe(a.startsFor);
         expect(b.surplusScore, `${id}-${s}`).toBeCloseTo(a.surplusScore, 9);
       }
     }
@@ -435,9 +589,8 @@ describe("game days (Phase 2 review decisions): once a current-week game has kic
     expect(one.ev.ros).toBeCloseTo(112 * OMEGA_AFTER, 9);
     expect(one.ev.ppw).toBeCloseTo(112, 9);
     expect(one.players["1-qb"]?.mvLoseEv).toBeCloseTo((20 - 12) * OMEGA_AFTER, 9); // his backup starts
-    expect(one.players["1-rb1"]?.startsFor).toBe(3); // he'd displace every other team's 11-point FLEX
-    // Team 2's bench TE would start for team 1 only in week 4 (team 1's TE has played): the skipped week.
-    expect(teamOf(model, "2").players["2-te2"]?.startsFor).toBe(0);
+    // Identical teams: nobody is worth more to another team than to his own.
+    expect(model.teams.flatMap((t) => t.chips)).toEqual([]);
     expect(one.waiver).toEqual({ add: "fa-k", drop: null, gainEv: expect.closeTo(4 * OMEGA_AFTER, 9), gainScen: expect.closeTo(4 * OMEGA_AFTER, 9) });
     // Week 4 is still reported, a partial week: team 1's players have all played, team 2's haven't.
     expect(one.ev.lv[0]).toBe(0);
@@ -472,16 +625,28 @@ describe("game days (Phase 2 review decisions): once a current-week game has kic
     expect(ppw(two.ev.lv, model.weeks, model.regularWeeks)).toBeCloseTo(112, 9);
   });
 
-  it("partner fit skips the week in progress: a spare RB adds to my lineup only what he'd add in the weeks left", () => {
+  it("trade chips and partner fit skip the week in progress: a spare RB adds to my lineup only what he'd add in the weeks left", () => {
     // Me (team 1): every player has played this week. Team 2 plays tonight and has a spare 13-point RB (its FLEX scores 13.2).
     const fit = buildTestLeague({
       teams: [team("1", starters("1").map((x) => ({ ...x, nflTeam: "EAR" }))), team("2", [...starters("2", 1.2), p("2-rb3", "RB", 13, { value: 9000 })].map((x) => ({ ...x, nflTeam: "LAT" })))],
       kickoffs: { 4: { EAR: EARLY, LAT: LATE } },
     });
     const model = buildLeagueModel(fit.snapshot, fit.inputs, OPTS, NO_RISK);
-    expect(teamOf(model, "2").surplus.map((s) => s.playerId)).toEqual(["2-rb3"]);
     // He'd replace my 11-point FLEX: +2 a week in weeks 5–17. Counting week 4, when my lineup has played, would add his whole 13.
-    expect(model.partners).toEqual([{ teamId: "2", mutual: false, score: expect.closeTo(2, 9), theyCanGive: [{ playerId: "2-rb3", ppw: expect.closeTo(2, 9) }], youCanGive: [] }]);
+    const rb3 = teamOf(model, "2").chips.find((c) => c.playerId === "2-rb3");
+    expect(rb3).toEqual({ playerId: "2-rb3", gap: expect.closeTo(2 * OMEGA_AFTER, 9), cost: expect.closeTo(0, 9), maxOther: expect.closeTo(2 * OMEGA_AFTER, 9), bestTeamId: "1" });
+    // His depth makes team 2's other RB/WR starters chips with the same gap (each one's loss is covered by him): every one is +2 a
+    // week net. Equal gaps list the cheapest to lose first (D3): him (0), the FLEX (13.2 − 13), the 15.6s, then the 18s.
+    expect(teamOf(model, "2").chips.map((c) => c.playerId)).toEqual(["2-rb3", "2-flex", "2-rb2", "2-wr2", "2-rb1", "2-wr1"]);
+    for (const c of teamOf(model, "2").chips) expect(c.gap, c.playerId).toBeCloseTo(2 * OMEGA_AFTER, 9);
+    const partner = model.partners[0];
+    expect(model.partners).toHaveLength(1);
+    expect(partner).toMatchObject({ teamId: "2", mutual: false, youCanGive: [] });
+    expect(partner?.theyCanGive.find((x) => x.playerId === "2-rb3")?.ppw).toBeCloseTo(2, 9);
+    // All six together would rebuild my RB, WR and FLEX spots (+15.2 a week), but they're chips only because each covers another
+    // (D2): once the 18-point RB (+7 to me, the most; the WR's tie goes to the smaller id) has left, every other one is a starter
+    // team 2 can't spare. So the fit counts him alone.
+    expect(partner?.score).toBeCloseTo(18 + 15 + 13 - (15 + 13 + 11), 9);
   });
 
   it("the last regular-season week in progress leaves PPW nothing to average (0), and the strength windows start at the playoffs", () => {
@@ -502,109 +667,261 @@ describe("game days (Phase 2 review decisions): once a current-week game has kic
   });
 });
 
-describe("surplus (§7: high value, low MV_lose, and he would start for another team)", () => {
-  /** Team 1 has a valuable backup QB (22 points, value 9000) behind a 25-point starter. */
-  const withBackupQb = (otherQb: number) =>
-    buildTestLeague({
-      teams: [
-        team("1", [...starters("1").map((x) => (x.pos === "QB" ? { ...x, points: 25, value: 9500 } : { ...x, value: x.pos === "K" || x.pos === "DEF" ? undefined : 3000 })), p("1-qb2", "QB", 22, { value: 9000 })]),
-        team("2", starters("2").map((x) => (x.pos === "QB" ? { ...x, points: otherQb } : x))),
-        team("3", starters("3").map((x) => (x.pos === "QB" ? { ...x, points: 26 } : x))),
-        team("4", starters("4").map((x) => (x.pos === "QB" ? { ...x, points: 27 } : x))),
-      ],
-    });
-
-  it("a valuable backup who would start for another team is surplus", () => {
-    const { snapshot, inputs } = withBackupQb(10);
-    const model = buildLeagueModel(snapshot, inputs, { now: TEST_NOW, scenarios: 8 }, NO_RISK);
-    const t1 = teamOf(model, "1");
-    expect(t1.players["1-qb2"]?.mvLoseEv).toBeCloseTo(0, 9);
-    expect(t1.players["1-qb2"]?.startsFor).toBe(1); // team 2's 10-point QB
-    expect(t1.players["1-qb2"]?.surplusScore).toBeGreaterThanOrEqual(config.needs.surplusMinScore);
-    expect(t1.surplus.map((s) => s.playerId)).toContain("1-qb2");
-  });
-
-  it("the same backup is not surplus when he would start for nobody", () => {
-    const { snapshot, inputs } = withBackupQb(24);
-    const model = buildLeagueModel(snapshot, inputs, { now: TEST_NOW, scenarios: 8 }, NO_RISK);
-    const t1 = teamOf(model, "1");
-    expect(t1.players["1-qb2"]?.startsFor).toBe(0);
-    expect(t1.players["1-qb2"]?.surplusScore).toBeGreaterThanOrEqual(config.needs.surplusMinScore);
-    expect(t1.surplus.map((s) => s.playerId)).not.toContain("1-qb2");
-  });
-
-  it("a star is not surplus even when his convex market value gives him the score: his lineup cost is above the roster's average", () => {
-    // Team 1: a 25-point WR worth 30,000 (FantasyCalc values are convex), 3,000-value starters, a 9-point bench WR who covers
-    // the FLEX, and a valuable backup QB behind a 25-point starter. Team 2's QB scores 10: both of team 1's QBs would start there.
-    const t1Roster = [
-      ...starters("1").map((x) =>
-        x.pos === "QB" ? { ...x, points: 25, value: 9500 } : x.id === "1-wr1" ? { ...x, points: 25, value: 30_000 } : x.pos === "K" || x.pos === "DEF" ? x : { ...x, value: 3000 },
-      ),
-      p("1-qb2", "QB", 22, { value: 9000 }),
-      p("1-wr9", "WR", 9, { value: 1000 }),
-    ];
-    const league = buildTestLeague({
-      teams: [team("1", t1Roster), team("2", starters("2").map((x) => (x.pos === "QB" ? { ...x, points: 10 } : x))), team("3", starters("3")), team("4", starters("4"))],
-    });
-    const model = buildLeagueModel(league.snapshot, league.inputs, { now: TEST_NOW, scenarios: 8 }, NO_RISK);
-    const t1 = teamOf(model, "1");
-    const star = t1.players["1-wr1"];
-    expect(star?.startsFor).toBeGreaterThanOrEqual(1);
-    expect(star?.surplusScore).toBeGreaterThanOrEqual(config.needs.surplusMinScore); // the old rule made him a chip
-    const ids = Object.keys(t1.players);
-    const costZ = standardize(ids.map((id) => t1.players[id]?.mvLoseScen as number));
-    expect(costZ[ids.indexOf("1-wr1")]).toBeGreaterThan(config.needs.surplusMaxCostZ);
-    expect(t1.surplus.map((s) => s.playerId)).not.toContain("1-wr1");
-    expect(t1.surplus.map((s) => s.playerId)).toContain("1-qb2"); // depth that would start elsewhere still is
-  });
-
-  it("with scenarios (injury risk on), surplus scores and the cost cut use scenario lineup costs: a depth RB who fills in for hurt stars isn't surplus", () => {
-    // Team 1: two star RBs and a 10-point depth RB (value 2,200) who never starts in the expected-value lineup, and a
-    // 16-point backup QB (value 4,000). Team 2's QB and RBs are weak, so both backups would start there.
-    const valued = (t: string) => starters(t).map((x, i) => (x.pos === "K" || x.pos === "DEF" ? x : { ...x, value: 3000 - 100 * i }));
-    const t1Roster = [
-      ...valued("1").filter((x) => x.id !== "1-rb1" && x.id !== "1-rb2" && x.id !== "1-flex"),
-      p("1-starA", "RB", 20, { value: 6000 }),
-      p("1-starB", "RB", 18, { value: 5500 }),
-      p("1-wr3", "WR", 13, { value: 2500 }),
-      p("1-depth", "RB", 10, { value: 2200 }),
-      p("1-qb2", "QB", 16, { value: 4000 }),
-    ];
-    const league = buildTestLeague({
-      teams: [team("1", t1Roster), team("2", starters("2").map((x) => (x.pos === "QB" ? { ...x, points: 12 } : x.pos === "RB" ? { ...x, points: 8 } : x))), team("3", starters("3")), team("4", starters("4"))],
-    });
-    // The default config: future injury risk on (a fixed seed, so the test doesn't move with config.lineups.scenarioSeed).
-    const model = buildLeagueModel(league.snapshot, league.inputs, { now: TEST_NOW, scenarios: 32, seed: 3 });
-    const t1 = teamOf(model, "1");
-    const ids = Object.keys(t1.players);
-    const values = ids.map((id) => model.players[id]?.value?.value ?? 0);
-    const scen = ids.map((id) => t1.players[id]?.mvLoseScen as number);
-    const ev = ids.map((id) => t1.players[id]?.mvLoseEv as number);
-    const byScen = surplusScores(values, scen);
-    ids.forEach((id, i) => expect(t1.players[id]?.surplusScore, id).toBeCloseTo(byScen[i] as number, 9));
-    // The two rules really differ here: the depth RB costs nothing in expected-value lineups but starts whenever a star is hurt.
-    const depth = ids.indexOf("1-depth");
-    expect(ev[depth]).toBeCloseTo(0, 9);
-    expect(scen[depth]).toBeGreaterThan(20);
-    const byEv = surplusScores(values, ev);
-    expect(Math.abs((byEv[depth] as number) - (byScen[depth] as number))).toBeGreaterThan(0.1);
-    // Membership follows the scenario costs, the cost cut (z of the lineup cost within the roster) included.
-    const rule = (scores: number[], costs: number[]) =>
-      qualifyingSurplus(
-        ids.map((id, i) => ({ playerId: id, score: scores[i] as number, costZ: standardize(costs)[i] as number, startsFor: t1.players[id]?.startsFor as number })),
-        config.needs,
-      ).map((s) => s.playerId);
-    expect(rule(byEv, ev)).toContain("1-depth"); // expected-value costs would call him surplus
-    expect(rule(byScen, scen)).not.toContain("1-depth");
-    expect(t1.surplus.map((s) => s.playerId)).toEqual(rule(byScen, scen).slice(0, config.needs.surplusShown));
-    expect(t1.surplus.map((s) => s.playerId)).toContain("1-qb2");
+describe("the weekly score the season simulator draws (§8; TeamModel.score)", () => {
+  it("scenario lineups: the scenario mean and sqrt(within-lineup variance + LV spread²); EV lineups: the LV and sqrt(Σ σ²) of the starters", () => {
+    const league = randomLeague({ teams: 4, seed: 17, freeAgentsPerPosition: 4 });
+    const slots = prepareLeagueSlots(league.snapshot.settings);
+    for (const scenarios of [0, 16]) {
+      const opts = { now: TEST_NOW, scenarios, seed: 3, sims: 0 };
+      const model = buildLeagueModel(league.snapshot, league.inputs, opts);
+      const { table } = buildProjectionTable(league.snapshot, league.inputs, opts);
+      for (const t of model.teams) {
+        const roster = league.snapshot.teams.find((x) => x.id === t.id)?.roster ?? [];
+        expect(t.score, `S = ${scenarios}, team ${t.id}`).toEqual(rosterScore(roster, table, slots));
+        expect(t.score.mean).toEqual(scenarios > 0 ? t.scen?.lv : t.ev.lv);
+        expect(t.score.mean).toHaveLength(model.weeks.length);
+        // The weekly spread is mostly the starters' own (a team's σ is ~20 points); the scenario spread only adds to it.
+        t.score.sd.forEach((s, w) => {
+          expect(s).toBeGreaterThan(10);
+          if (scenarios > 0) expect(s).toBeGreaterThanOrEqual(t.scen?.sd[w] as number);
+        });
+      }
+    }
   });
 });
 
-describe("best trade partners (§7: their surplus fits my needs AND mine fits theirs)", () => {
-  // No FLEX and no spare starters, so every bench player is obvious. Me (team 1): a valuable backup QB, weak WRs.
-  // Team 2: a valuable bench WR and a weak QB → mutual. Team 3: a bench WR too but a strong QB → one-sided.
-  // Team 4: a weak QB and nothing to spare → one-sided the other way.
+describe("the week in progress in the simulation (lead decision D6): its games are played from projections as if none had started", () => {
+  const EARLY = "2026-09-29T17:00:00.000Z"; // before TEST_NOW (20:00Z)
+  const LATE = "2026-09-30T00:15:00.000Z";
+  const BEFORE = new Date("2026-09-29T12:00:00.000Z");
+  // Two identical teams: team 1's players played this afternoon, team 2's play tonight. They meet every week from week 4.
+  const league = buildTestLeague({
+    teams: [team("1", starters("1").map((x) => ({ ...x, nflTeam: "EAR" }))), team("2", starters("2").map((x) => ({ ...x, nflTeam: "LAT" })))],
+    kickoffs: { 4: { EAR: EARLY, LAT: LATE } },
+  });
+  league.snapshot.schedule = range(4, 14).map((week) => ({ week, teamA: "1", teamB: "2", isPlayoff: false }));
+  league.snapshot.settings.playoffTeams = 2;
+
+  it("the first week's score is the whole week as it stood before kickoff; the partial week stays everywhere else; EV and scenario lineups", () => {
+    for (const scenarios of [0, 16]) {
+      const live = buildLeagueModel(league.snapshot, league.inputs, { now: TEST_NOW, scenarios, sims: 0 });
+      const before = buildLeagueModel(league.snapshot, league.inputs, { now: BEFORE, scenarios, sims: 0 });
+      expect(live.inProgressWeek).toBe(4);
+      expect(before.inProgressWeek).toBeNull();
+      // The same scores as before any kickoff, every week: the first rebuilt for 1 ms before the first kickoff (the same
+      // scenario draws, read with the table's own stride), the rest untouched.
+      live.teams.forEach((t, i) => expect(t.score, `S = ${scenarios}, team ${t.id}`).toEqual(before.teams[i]?.score));
+      // Nothing else about the week changes: team 1's week-4 lineup value is the partial week, its players having played.
+      expect(teamOf(live, "1").ev.lv[0]).toBe(0);
+      expect(teamOf(live, "1").score.mean[0]).toBeCloseTo(112, 9);
+      expect(teamOf(live, "2").ev.lv[0]).toBeCloseTo(112, 9);
+    }
+  });
+
+  it("so identical teams stay a coin flip in the week under way, and the odds say how that week is played", () => {
+    const live = buildLeagueModel(league.snapshot, league.inputs, { now: TEST_NOW, scenarios: 16, sims: 2000 });
+    const week4 = live.odds?.weekly[0];
+    expect(week4?.week).toBe(4);
+    const p = week4?.games.find((g) => g.teamId === "1")?.pWin as number;
+    expect(p).toBeGreaterThan(0.4); // from the partial week (0 against 112) team 1 would never win
+    expect(p).toBeLessThan(0.6);
+    expect(live.odds?.notes).toContain("Week 4 is under way: live scores aren't read yet, so all its games are simulated from projections as if none had started, with today's rosters and injury news.");
+    expect(preKickoffTable(league.snapshot, league.inputs, null, { now: TEST_NOW })).toBeNull();
+    expect(preKickoffTable(league.snapshot, league.inputs, 4, { now: TEST_NOW })?.now.toISOString()).toBe("2026-09-29T16:59:59.999Z");
+  });
+
+  it("only the clock goes back: a tag added after a player's game is in the week's score, as the note says (review SEASON-1: nothing records tags or rosters at kickoff)", () => {
+    // Team 1's 15-point RB played this afternoon and is tagged OUT now. The week is rebuilt with today's tag: he misses it.
+    const tagged = buildTestLeague({
+      teams: [team("1", starters("1").map((x) => ({ ...x, nflTeam: "EAR", ...(x.id === "1-rb1" ? { injury: "OUT" as const } : {}) }))), team("2", starters("2").map((x) => ({ ...x, nflTeam: "LAT" })))],
+      kickoffs: { 4: { EAR: EARLY, LAT: LATE } },
+    });
+    tagged.snapshot.schedule = league.snapshot.schedule;
+    tagged.snapshot.settings.playoffTeams = 2;
+    for (const scenarios of [0, 16]) {
+      const live = buildLeagueModel(tagged.snapshot, tagged.inputs, { now: TEST_NOW, scenarios, sims: 0 }, NO_RISK);
+      const untagged = buildLeagueModel(league.snapshot, league.inputs, { now: TEST_NOW, scenarios, sims: 0 }, NO_RISK);
+      // Without him team 1 has no bench to fill his RB spot: 112 − 15. The week as it stood at kickoff would have been 112.
+      expect(teamOf(untagged, "1").score.mean[0], `S = ${scenarios}`).toBeCloseTo(112, 9);
+      expect(teamOf(live, "1").score.mean[0], `S = ${scenarios}`).toBeCloseTo(97, 9);
+      expect(teamOf(live, "2").score.mean[0], `S = ${scenarios}`).toBeCloseTo(112, 9);
+    }
+  });
+});
+
+describe("trade chips (§7; planner reply to Checkpoint 2, answers 1 and 2): worth at least chipMinGap more to another team than to his own", () => {
+  /** Σ ω over weeks 4–17: 11 regular-season weeks and 3 playoff weeks at playoffWeight. */
+  const OMEGA = 11 + 3 * config.lineups.playoffWeight;
+  const OPTS = { now: TEST_NOW, scenarios: 8 };
+  const withQb = (t: string, qb: number): TestPlayer[] => starters(t).map((x) => (x.pos === "QB" ? { ...x, points: qb } : x));
+  /** Team 1: a 25-point QB and an 18-point backup in a 1-QB league; the other teams' QBs score `qbs`. */
+  const qbLeague = (qbs: [number, number, number], extra: Partial<TestLeagueSpec> = {}) =>
+    buildTestLeague({ teams: [team("1", [...withQb("1", 25), p("1-qb2", "QB", 18)]), team("2", withQb("2", qbs[0])), team("3", withQb("3", qbs[1])), team("4", withQb("4", qbs[2]))], ...extra });
+
+  it("a backup QB behind a star is a chip when another team's QB is weak: his edge over that QB, to that team (Bo Nix behind Josh Allen)", () => {
+    const league = qbLeague([10, 12, 14]);
+    const model = buildLeagueModel(league.snapshot, league.inputs, OPTS, NO_RISK);
+    const t1 = teamOf(model, "1");
+    // He never starts for team 1 (cost 0) and would replace team 2's 10-point QB: +8 a week, the most of any team.
+    expect(t1.chips.find((c) => c.playerId === "1-qb2")).toEqual({ playerId: "1-qb2", gap: expect.closeTo(8 * OMEGA, 9), cost: expect.closeTo(0, 9), maxOther: expect.closeTo(8 * OMEGA, 9), bestTeamId: "2" });
+    // The star is one too, with the same gap: trading him costs team 1 his edge over the backup (25 − 18) and gives team 2 25 − 10.
+    expect(t1.chips.find((c) => c.playerId === "1-qb")).toEqual({ playerId: "1-qb", gap: expect.closeTo(8 * OMEGA, 9), cost: expect.closeTo(7 * OMEGA, 9), maxOther: expect.closeTo(15 * OMEGA, 9), bestTeamId: "2" });
+    expect(t1.chips.map((c) => c.playerId)).toEqual(["1-qb2", "1-qb"]); // equal gaps: the cheaper one to lose first (D3)
+    // No depth elsewhere: every other starter costs his team more than he'd add to another.
+    for (const id of ["2", "3", "4"]) expect(teamOf(model, id).chips, `team ${id}`).toEqual([]);
+    // Chips are lineup points: FantasyCalc down, the same chips.
+    const down = qbLeague([10, 12, 14], { market: false });
+    expect(buildLeagueModel(down.snapshot, down.inputs, OPTS, NO_RISK).teams.map((t) => t.chips)).toEqual(model.teams.map((t) => t.chips));
+  });
+
+  it("isn't a chip when no other team's QB is weak enough: a half-point edge (under chipMinGap), or none at all", () => {
+    expect(0.5 * OMEGA).toBeLessThan(config.needs.chipMinGap);
+    for (const qbs of [
+      [17.5, 24, 26],
+      [24, 26, 27],
+    ] as [number, number, number][]) {
+      const league = qbLeague(qbs);
+      expect(buildLeagueModel(league.snapshot, league.inputs, OPTS, NO_RISK).teams.flatMap((t) => t.chips), JSON.stringify(qbs)).toEqual([]);
+    }
+  });
+
+  it("measures what he'd add against each team's best free-agent move: a free-agent upgrade doesn't create or inflate a chip (answer 1)", () => {
+    // Team 2's QB scores 10, but a 16-point QB is on waivers: team 2 would add him anyway, so the backup's edge there is 18 − 16.
+    const withFa = qbLeague([10, 24, 26], { freeAgents: [p("fa-qb", "QB", 16)] });
+    const model = buildLeagueModel(withFa.snapshot, withFa.inputs, OPTS, NO_RISK);
+    expect(teamOf(model, "2").waiver).toMatchObject({ add: "fa-qb", drop: null });
+    expect(teamOf(model, "1").chips.find((c) => c.playerId === "1-qb2")).toMatchObject({ gap: expect.closeTo(2 * OMEGA, 9), maxOther: expect.closeTo(2 * OMEGA, 9), bestTeamId: "2" });
+    // Without the free agent, the same backup is worth 8 a week there: the pickup would have been counted four times over.
+    const without = qbLeague([10, 24, 26]);
+    expect(teamOf(buildLeagueModel(without.snapshot, without.inputs, OPTS, NO_RISK), "1").chips.find((c) => c.playerId === "1-qb2")?.gap).toBeCloseTo(8 * OMEGA, 9);
+    // A 17.5-point free agent leaves him half a point a week: no chip at all.
+    const close = qbLeague([10, 24, 26], { freeAgents: [p("fa-qb", "QB", 17.5)] });
+    expect(buildLeagueModel(close.snapshot, close.inputs, OPTS, NO_RISK).teams.flatMap((t) => t.chips)).toEqual([]);
+  });
+
+  it("makes room on a full roster by dropping the player whose loss costs its lineup least (ties: the lower value, then the id), and skips a team the newcomer would put over a position limit", () => {
+    // Team 2: a 10-point QB and a full 16-player active roster whose seven bench players never start (losing one costs 0); QB limit 2.
+    const bench = (qb2Value: number): TestPlayer[] => [
+      p("2-qb2", "QB", 8, { value: qb2Value }),
+      p("2-rb3", "RB", 6, { value: 600 }),
+      p("2-rb4", "RB", 5, { value: 500 }),
+      p("2-wr3", "WR", 7, { value: 700 }),
+      p("2-wr4", "WR", 6, { value: 650 }),
+      p("2-te2", "TE", 4, { value: 300 }),
+      p("2-k2", "K", 5, { value: 400 }),
+    ];
+    const valued = (t: string, qb: number) => withQb(t, qb).map((x, i) => (x.pos === "K" || x.pos === "DEF" ? x : { ...x, value: 3000 - 100 * i }));
+    const league = (qb2Value: number) =>
+      buildTestLeague({ positionLimits: { QB: 2 }, teams: [team("1", [...valued("1", 25), p("1-qb2", "QB", 18, { value: 2000 })]), team("2", [...valued("2", 10), ...bench(qb2Value)]), team("3", withQb("3", 24)), team("4", withQb("4", 26))] });
+    // Every bench player costs 0 to lose, so the least valuable goes: team 2's backup QB, so a QB fits (8 a week over their 10-point starter).
+    const cheap = league(100);
+    expect(cheap.snapshot.teams[1]?.roster).toHaveLength(cheap.snapshot.settings.maxRosterSize);
+    const m1 = buildLeagueModel(cheap.snapshot, cheap.inputs, OPTS, NO_RISK);
+    expect(teamOf(m1, "1").chips.find((c) => c.playerId === "1-qb2")).toMatchObject({ gap: expect.closeTo(8 * OMEGA, 9), bestTeamId: "2" });
+    expectChipsMatch(m1, bruteChips(cheap, m1, OPTS, NO_RISK), NO_RISK);
+    // Worth more than the bench TE (300), the backup QB stays and the TE goes: a third QB would break the limit, so team 2 is skipped.
+    const pricey = league(900);
+    const m2 = buildLeagueModel(pricey.snapshot, pricey.inputs, OPTS, NO_RISK);
+    expect(m2.teams.flatMap((t) => t.chips)).toEqual([]);
+    expectChipsMatch(m2, bruteChips(pricey, m2, OPTS, NO_RISK), NO_RISK);
+  });
+
+  it("makes room with the player whose loss costs the lineup least, nobody refilling his spot: not a starting K whose free-agent twin makes his lineup cost ~0 (review finding)", () => {
+    // Team 2: a 10-point QB and a full roster whose bench players each start in a starter's bye week, so each costs something;
+    // its 8-point K has no backup, and a 7.99-point K is on waivers. A lineup cost refills the spot with that free agent, so the
+    // K's is ~0 (the lowest on the team), but dropping him to make room loses his 8 a week: a bench player goes instead, and the
+    // backup QB stays worth his edge over team 2's QB. Injury risk on (the default config), EV and scenario lineups.
+    const two: TestPlayer[] = [
+      p("2-qb", "QB", 10, { nflTeam: "B06" }),
+      p("2-rb1", "RB", 15, { nflTeam: "B07" }),
+      p("2-rb2", "RB", 13, { nflTeam: "B07" }),
+      p("2-wr1", "WR", 15, { nflTeam: "B08" }),
+      p("2-wr2", "WR", 13, { nflTeam: "B08" }),
+      p("2-te", "TE", 10, { nflTeam: "B09" }),
+      p("2-flex", "WR", 11, { nflTeam: "B08" }),
+      p("2-k", "K", 8),
+      p("2-def", "DEF", 7, { nflTeam: "B11" }),
+      ...[p("2-qb2", "QB", 9), p("2-rb3", "RB", 9), p("2-rb4", "RB", 8), p("2-wr3", "WR", 9), p("2-wr4", "WR", 8), p("2-te2", "TE", 6), p("2-def2", "DEF", 6)],
+    ];
+    const league = (faK: number) =>
+      buildTestLeague({
+        teams: [team("1", [...withQb("1", 25), p("1-qb2", "QB", 18)]), team("2", two), team("3", withQb("3", 24)), team("4", withQb("4", 26))],
+        freeAgents: [p("fa-k", "K", faK)],
+        byeWeek: { B06: 6, B07: 7, B08: 8, B09: 9, B11: 11 },
+      });
+    const close = league(7.99);
+    expect(close.snapshot.teams[1]?.roster).toHaveLength(close.snapshot.settings.maxRosterSize);
+    for (const scenarios of [0, 32]) {
+      const opts = { now: TEST_NOW, scenarios, seed: 7 };
+      const m = buildLeagueModel(close.snapshot, close.inputs, opts);
+      const t2 = teamOf(m, "2");
+      expect(t2.waiver, `S = ${scenarios}`).toBeNull();
+      const cost = (id: string) => (t2.players[id]?.mvLoseScen ?? t2.players[id]?.mvLoseEv) as number;
+      for (const id of Object.keys(t2.players)) if (id !== "2-k") expect(cost("2-k"), `S = ${scenarios}: ${id}`).toBeLessThan(cost(id));
+      const chip = teamOf(m, "1").chips.find((c) => c.playerId === "1-qb2");
+      expect(chip?.bestTeamId, `S = ${scenarios}`).toBe("2");
+      // Worth his 8-a-week edge over team 2's QB, less what the bench player who makes room was worth: far past the cut.
+      expect(chip?.maxOther as number, `S = ${scenarios}`).toBeGreaterThan(5 * OMEGA);
+      expect(expectChipsMatch(m, bruteChips(close, m, opts)), `S = ${scenarios}`).toBeGreaterThan(0);
+      // How good the free-agent K is doesn't change who makes room: the same chips with a 3-point one.
+      const far = league(3);
+      expect(buildLeagueModel(far.snapshot, far.inputs, opts).teams.map((t) => t.chips), `S = ${scenarios}`).toEqual(m.teams.map((t) => t.chips));
+    }
+  });
+
+  it("kickers, punters, team defenses and IDP are never chips (trade search leaves them out, §9), however much another team needs one", () => {
+    // Team 1 has a 7-point backup K behind its 8-point K; team 2's kicker scores 2.
+    const kickers = buildTestLeague({ teams: [team("1", [...starters("1"), p("1-k2", "K", 7)]), team("2", starters("2").map((x) => (x.pos === "K" ? { ...x, points: 2 } : x)))] });
+    expect(buildLeagueModel(kickers.snapshot, kickers.inputs, OPTS, NO_RISK).teams.flatMap((t) => t.chips)).toEqual([]);
+    // Only the exclusion keeps him out: with none, the backup is worth 5 a week to team 2 (and his starter too, by the same gap).
+    const open: LeagueModelConfig = { ...NO_RISK, market: { ...NO_RISK.market, tradeSearchExcluded: [] } };
+    const all = buildLeagueModel(kickers.snapshot, kickers.inputs, OPTS, open);
+    expect(teamOf(all, "1").chips.map((c) => c.playerId)).toEqual(["1-k2", "1-k"]);
+    expect(teamOf(all, "1").chips.find((c) => c.playerId === "1-k2")).toMatchObject({ gap: expect.closeTo(5 * OMEGA, 9), bestTeamId: "2" });
+  });
+
+  it("matches brute force on a random league with injuries, full rosters (so drops) and position limits: every candidate, every other team", () => {
+    const league = randomLeague({ teams: 6, seed: 11, freeAgentsPerPosition: 6 });
+    league.snapshot.settings.positionLimits = { QB: 3, RB: 6, WR: 6, TE: 2 };
+    expect(league.snapshot.teams.every((t) => t.roster.length === league.snapshot.settings.maxRosterSize)).toBe(true);
+    const opts = { now: TEST_NOW, scenarios: 8, seed: 5 };
+    const model = buildLeagueModel(league.snapshot, league.inputs, opts);
+    expect(expectChipsMatch(model, bruteChips(league, model, opts))).toBeGreaterThan(3);
+    // Expected-value lineups (no scenarios) too.
+    const evOpts = { ...opts, scenarios: 0 };
+    const ev = buildLeagueModel(league.snapshot, league.inputs, evOpts);
+    expect(expectChipsMatch(ev, bruteChips(league, ev, evOpts))).toBeGreaterThan(3);
+  });
+
+  it("under starter limits nothing is bounded: the best chipScreenTeams other teams by exact EV value get scenario lineups", () => {
+    // MFL-style: a QB, six flex spots with RB/WR/TE minimums, a K.
+    const lineup: SlotDef[] = [
+      { slot: "QB", count: 1, eligible: ["QB"] },
+      { slot: "FLEX", count: 6, eligible: ["RB", "WR", "TE"] },
+      { slot: "K", count: 1, eligible: ["K"] },
+    ];
+    const league = randomLeague({ teams: 6, seed: 23, freeAgentsPerPosition: 4, lineup });
+    league.snapshot.settings.starterLimits = { RB: { min: 2, max: 4 }, WR: { min: 2, max: 4 }, TE: { min: 1, max: 2 } };
+    const opts = { now: TEST_NOW, scenarios: 8, seed: 5 };
+    // Every other team screened: exactly the brute-force chips.
+    const wide: LeagueModelConfig = { ...config, needs: { ...config.needs, chipScreenTeams: 99 } };
+    const all = buildLeagueModel(league.snapshot, league.inputs, opts, wide);
+    expect(expectChipsMatch(all, bruteChips(league, all, opts, wide), wide)).toBeGreaterThan(0);
+    // One team screened: each chip's team is the one with the best exact EV value (ties: the smaller id), priced in scenario lineups.
+    const one: LeagueModelConfig = { ...config, needs: { ...config.needs, chipScreenTeams: 1 } };
+    const m = buildLeagueModel(league.snapshot, league.inputs, opts, one);
+    const pickEv = (options: { teamId: string; value: number; ev: number }[]) => {
+      let best: (typeof options)[number] | null = null;
+      for (const o of options) if (!best || o.ev > best.ev + 1e-9 || (Math.abs(o.ev - best.ev) <= 1e-9 && o.teamId < best.teamId)) best = o;
+      return best;
+    };
+    expectChipsMatch(m, bruteChips(league, m, opts, one, pickEv), one);
+  });
+});
+
+describe("best trade partners (§7: their trade chips fit my needs AND mine fit theirs)", () => {
+  // No FLEX. Me (team 1): a 25-point QB and a 22-point backup, weak WRs (8, 7). Team 2: a weak QB (10), WRs of 22 and 21 and a
+  // 19-point bench WR → mutual. Team 3: the same WRs but a strong QB (26) → one-sided. Team 4: a weak QB and no depth: no chips.
   const lineup: SlotDef[] = [
     { slot: "QB", count: 1, eligible: ["QB"] },
     { slot: "RB", count: 2, eligible: ["RB"] },
@@ -620,96 +937,111 @@ describe("best trade partners (§7: their surplus fits my needs AND mine fits th
   const spec: TestLeagueSpec = {
     lineup,
     teams: [
-      team("1", [...core("1", 25, [8, 7]).map((x) => (x.pos === "QB" ? { ...x, value: 9500 } : x)), p("1-qb2", "QB", 22, { value: 9000 })]),
-      team("2", [...core("2", 10, [22, 21]), p("2-wr3", "WR", 19, { value: 8000 })]),
-      team("3", [...core("3", 26, [22, 21]), p("3-wr3", "WR", 19, { value: 8000 })]),
+      team("1", [...core("1", 25, [8, 7]), p("1-qb2", "QB", 22)]),
+      team("2", [...core("2", 10, [22, 21]), p("2-wr3", "WR", 19)]),
+      team("3", [...core("3", 26, [22, 21]), p("3-wr3", "WR", 19)]),
       team("4", core("4", 9, [15, 13])),
     ],
   };
+  const OPTS = { now: TEST_NOW, scenarios: 8 };
   const league = buildTestLeague(spec);
-  const model = buildLeagueModel(league.snapshot, league.inputs, { now: TEST_NOW, scenarios: 8 }, NO_RISK);
+  const model = buildLeagueModel(league.snapshot, league.inputs, OPTS, NO_RISK);
+  const ppwOf = (xs: readonly { playerId: string; ppw: number }[] | undefined) => (xs ?? []).map((x) => [x.playerId, Math.round(x.ppw * 1e9) / 1e9]);
 
-  it("lists mutual fits first, then one-sided ones, with what each side's surplus adds to the other lineup", () => {
+  it("builds partners from the trade chips: mutual fits first, then one-sided ones, with what each chip adds to the other lineup", () => {
     expect(model.myTeamId).toBe("1");
-    expect(teamOf(model, "3").surplus.map((s) => s.playerId)).toEqual(["3-wr3"]); // surplus, but my backup QB can't help them
-    // Team 3 could help me but I can't help them: listed after the mutual fit. Team 4 needs my QB but has nothing for me: dropped.
+    // Chips: my two QBs (either covers the other; team 4's 9-point QB gains the most) and every WR of teams 2 and 3 (the bench
+    // WR covers either starter), equal gaps each, the cheapest to lose first (D3). Team 4 has no depth, so no chips.
+    expect(teamOf(model, "1").chips.map((c) => [c.playerId, c.bestTeamId])).toEqual([
+      ["1-qb2", "4"],
+      ["1-qb", "4"],
+    ]);
+    expect(teamOf(model, "2").chips.map((c) => c.playerId)).toEqual(["2-wr3", "2-wr2", "2-wr1"]);
+    expect(teamOf(model, "3").chips.map((c) => c.playerId)).toEqual(["3-wr3", "3-wr2", "3-wr1"]);
+    expect(teamOf(model, "4").chips).toEqual([]);
+    // Team 3 could help me but my QBs can't help it: after the mutual fit. Team 4 has no chips: no fit.
     expect(model.partners.map((x) => [x.teamId, x.mutual])).toEqual([
       ["2", true],
       ["3", false],
     ]);
-    expect(model.partners[1]?.theyCanGive).toEqual([{ playerId: "3-wr3", ppw: 19 - 7 }]);
-    expect(model.partners[1]?.youCanGive).toEqual([]);
     const two = model.partners[0];
-    expect(two?.theyCanGive).toEqual([{ playerId: "2-wr3", ppw: 19 - 7 }]); // he replaces my 7-point WR
-    // Either of my QBs is surplus (each covers the other): each alone would replace their 10-point QB.
-    expect(two?.youCanGive.map((x) => x.playerId)).toEqual(["1-qb", "1-qb2"]);
-    expect(two?.youCanGive[0]?.ppw).toBeCloseTo(25 - 10, 9);
-    expect(two?.youCanGive[1]?.ppw).toBeCloseTo(22 - 10, 9);
-    // They can start only one QB: together my two add 15 a week (the better one), not 15 + 12 (Phase 2 review: joint gain).
-    expect(two?.score).toBeCloseTo(Math.sqrt(12 * 15), 9);
-  });
-
-  it("scores each side by its joint gain: two spare RBs who compete for my one weak RB spot don't outrank one better RB", () => {
-    // Me (team 1): my RB2 scores 5. Team 2 has one spare 13-point RB; team 3 has two spare 11-point RBs. Nobody needs my players.
-    const base = (t: string, rb: [number, number]) => core(t, 20, [15, 13]).map((x) => (x.id === `${t}-rb1` ? { ...x, points: rb[0] } : x.id === `${t}-rb2` ? { ...x, points: rb[1] } : x));
-    const rbs = buildTestLeague({
-      lineup,
-      teams: [
-        team("1", base("1", [15, 5])),
-        team("2", [...base("2", [15, 14]), p("2-rb3", "RB", 13, { value: 8000 })]),
-        team("3", [...base("3", [15, 14]), p("3-rb3", "RB", 11, { value: 8000 }), p("3-rb4", "RB", 11, { value: 8000 })]),
-        team("4", base("4", [8, 6])),
-      ],
-    });
-    const opts = { now: TEST_NOW, scenarios: 8 };
-    const m = buildLeagueModel(rbs.snapshot, rbs.inputs, opts, NO_RISK);
-    expect(teamOf(m, "3").surplus.map((s) => s.playerId)).toEqual(["3-rb3", "3-rb4"]);
-    expect(m.partners.map((x) => [x.teamId, x.mutual])).toEqual([
-      ["2", false],
-      ["3", false],
+    // Each of their WRs would replace my 7-point WR, most helpful first.
+    expect(ppwOf(two?.theyCanGive)).toEqual([
+      ["2-wr1", 22 - 7],
+      ["2-wr2", 21 - 7],
+      ["2-wr3", 19 - 7],
     ]);
-    expect(m.partners[0]?.score).toBeCloseTo(13 - 5, 9);
-    const three = m.partners[1];
-    // Each alone would replace my 5-point RB2 (the card lists that), but there's one spot: together they add 6, not 12.
-    expect(three?.theyCanGive.map((x) => x.playerId)).toEqual(["3-rb3", "3-rb4"]);
-    for (const x of three?.theyCanGive ?? []) expect(x.ppw).toBeCloseTo(11 - 5, 9);
-    expect(three?.score).toBeCloseTo(11 - 5, 9);
-    const { table } = buildProjectionTable(rbs.snapshot, rbs.inputs, opts, NO_RISK);
-    expect(mvAddGroupPpw(rbs.snapshot.teams[0]?.roster ?? [], ["3-rb3", "3-rb4"], table, prepareLeagueSlots(rbs.snapshot.settings))).toBeCloseTo(11 - 5, 9);
-    // Team 4's players all sit at the value floor, so nothing tells them apart and it has no surplus, although lineup
-    // cost alone would pick its 6-point RB2 (he'd start for me): that roster is no partner.
-    const t4 = teamOf(m, "4");
-    expect(t4.surplus).toEqual([]);
-    const ids = Object.keys(t4.players);
-    const costs = ids.map((id) => t4.players[id]?.mvLoseScen as number);
-    const costOnly = qualifyingSurplus(
-      ids.map((id, i) => ({ playerId: id, score: surplusScores(ids.map(() => 0), costs)[i] as number, costZ: standardize(costs)[i] as number, startsFor: t4.players[id]?.startsFor as number })),
-      config.needs,
-    );
-    expect(costOnly.map((s) => s.playerId)).toEqual(["4-rb2"]);
+    // Either of my QBs would replace their 10-point QB.
+    expect(ppwOf(two?.youCanGive)).toEqual([
+      ["1-qb", 25 - 10],
+      ["1-qb2", 22 - 10],
+    ]);
+    // Only chips that stay chips together count (D2): once their best WR (+15 to me) has left, the other two are the starters
+    // team 2 can't spare (no free agent to cover them), and once my starting QB has left, my backup is my only QB. Each side
+    // counts its best chip: 22 against my 7, and 25 against their 10.
+    expect(two?.score).toBeCloseTo(Math.sqrt((22 - 7) * (25 - 10)), 9);
+    const three = model.partners[1];
+    expect(three?.youCanGive).toEqual([]);
+    expect(three?.score).toBeCloseTo(22 - 7, 9);
+    const { table } = buildProjectionTable(league.snapshot, league.inputs, OPTS, NO_RISK);
+    expect(mvAddGroupPpw(league.snapshot.teams[0]?.roster ?? [], ["3-wr1"], table, prepareLeagueSlots(league.snapshot.settings))).toBeCloseTo(three?.score as number, 9);
   });
 
-  it("without trade values (FantasyCalc down) picks no surplus by lineup cost alone: no surplus, no partners, one warning", () => {
+  it("measures their chips against my roster after my best free-agent move: a free agent I'd add anyway shrinks what they add", () => {
+    // An 18-point free-agent WR: I'd add him into an open spot (my WRs become 18 and 8).
+    const fa = buildTestLeague({ ...spec, freeAgents: [p("fa-wr", "WR", 18)] });
+    const m = buildLeagueModel(fa.snapshot, fa.inputs, OPTS, NO_RISK);
+    expect(teamOf(m, "1").waiver).toMatchObject({ add: "fa-wr", drop: null });
+    const two = m.partners.find((x) => x.teamId === "2");
+    expect(ppwOf(two?.theyCanGive)).toEqual([
+      ["2-wr1", 22 - 8],
+      ["2-wr2", 21 - 8],
+      ["2-wr3", 19 - 8],
+    ]);
+    // Together: 22 + 21 against my 18 + 8. Both count (D2): with their best WR gone, team 2 would lose only 21 − 18 a week
+    // without the second (it adds the 18-point free agent), while he's worth 21 − 8 to me: still a chip.
+    expect(two?.score).toBeCloseTo(Math.sqrt((22 + 21 - 18 - 8) * 15), 9);
+  });
+
+  it("needs no trade values: FantasyCalc down gives the same chips and partners, and no warning about them", () => {
     const down = buildTestLeague({ ...spec, market: false });
-    const m = buildLeagueModel(down.snapshot, down.inputs, { now: TEST_NOW, scenarios: 8 }, NO_RISK);
+    const m = buildLeagueModel(down.snapshot, down.inputs, OPTS, NO_RISK);
     expect(m.market.format).toBeNull();
-    for (const t of m.teams) expect(t.surplus, `team ${t.id}`).toEqual([]);
-    expect(m.partners).toEqual([]);
-    expect(m.warnings.filter((w) => w === NO_TRADE_VALUES_WARNING)).toHaveLength(1);
-    expect(model.warnings).not.toContain(NO_TRADE_VALUES_WARNING);
-    // Lineup costs and "would start for" are still there, and lineup cost alone would have picked my backup QB.
-    const t1 = teamOf(m, "1");
-    expect(t1.players["1-qb2"]).toMatchObject({ mvLoseEv: expect.closeTo(0, 9), startsFor: 2 });
-    const ids = Object.keys(t1.players);
-    const costs = ids.map((id) => t1.players[id]?.mvLoseScen as number);
-    const costOnly = qualifyingSurplus(
-      ids.map((id, i) => ({ playerId: id, score: surplusScores(ids.map(() => 0), costs)[i] as number, costZ: standardize(costs)[i] as number, startsFor: t1.players[id]?.startsFor as number })),
-      config.needs,
-    );
-    expect(costOnly.map((s) => s.playerId)).toContain("1-qb2");
-    // The season over: nothing to pick, so no warning.
-    const over = buildTestLeague({ ...spec, market: false, currentWeek: 18 });
-    expect(buildLeagueModel(over.snapshot, over.inputs, { now: TEST_NOW, scenarios: 0 }, NO_RISK).warnings).toEqual([]);
+    expect(m.teams.map((t) => t.chips)).toEqual(model.teams.map((t) => t.chips));
+    expect(m.partners).toEqual(model.partners);
+    // No warning beyond the league's own (this test league has no schedule, so no playoff odds either way).
+    expect(m.warnings).toEqual(model.warnings);
+  });
+
+  it("counts only chips that stay chips together (D2): brute force on random leagues, EV and scenario lineups, 2 and 3 a side, and under starter limits", () => {
+    const check = (league: ReturnType<typeof randomLeague>, opts: BuildLeagueModelOptions, cfg: LeagueModelConfig = config) => {
+      const model = buildLeagueModel(league.snapshot, league.inputs, opts, cfg);
+      const brute = brutePartners(league, model, opts, cfg);
+      expect(model.partners.map((x) => [x.teamId, x.mutual])).toEqual(brute.map((x) => [x.teamId, x.mutual]));
+      model.partners.forEach((x, i) => expect(x.score, x.teamId).toBeCloseTo(brute[i]?.score as number, 6));
+      return model.partners.length;
+    };
+    const league = randomLeague({ teams: 6, seed: 11, freeAgentsPerPosition: 6 });
+    league.snapshot.settings.positionLimits = { QB: 3, RB: 6, WR: 6, TE: 2 };
+    let partners = 0;
+    for (const scenarios of [0, 8]) {
+      const opts = { now: TEST_NOW, scenarios, seed: 5, sims: 0 };
+      partners += check(league, opts);
+      partners += check(league, opts, { ...config, search: { ...config.search, maxPerSide: 3 } });
+    }
+    // MFL-style starter limits: nothing is bounded, so the chips' costs on T − counted are solved exactly.
+    const lineup: SlotDef[] = [
+      { slot: "QB", count: 1, eligible: ["QB"] },
+      { slot: "FLEX", count: 6, eligible: ["RB", "WR", "TE"] },
+      { slot: "K", count: 1, eligible: ["K"] },
+    ];
+    for (const seed of [23, 24, 25]) {
+      const limited = randomLeague({ teams: 6, seed, freeAgentsPerPosition: 4, lineup });
+      limited.snapshot.settings.starterLimits = { RB: { min: 2, max: 4 }, WR: { min: 2, max: 4 }, TE: { min: 1, max: 2 } };
+      partners += check(limited, { now: TEST_NOW, scenarios: 8, seed: 5, sims: 0 });
+      partners += check(limited, { now: TEST_NOW, scenarios: 0, seed: 5, sims: 0 }, { ...config, search: { ...config.search, maxPerSide: 3 } });
+    }
+    expect(partners).toBeGreaterThan(12);
   });
 
   it("has no partners without my team", () => {
@@ -857,7 +1189,8 @@ describe("players, projections and warnings (§6; the League page's rosters)", (
   });
 
   it("words the ESPN/Sleeper note from what loaded: no comparison claimed without Sleeper's projections, and no note once the season is over", () => {
-    const opts = { now: TEST_NOW, scenarios: 0 };
+    // No season simulation: these one-team leagues have no schedule (it would add its own warning).
+    const opts = { now: TEST_NOW, scenarios: 0, sims: 0 };
     // Sleeper projects nobody (stubs only: its projections didn't load, or nobody has a Sleeper id); ESPN projects everyone.
     const espnOnly = (id: string, pts: number) => p(id, "QB", 0, { espn: { 3: pts, 4: pts } });
     const missing = buildTestLeague({ platform: "espn", espnProjections: true, teams: [team("1", [espnOnly("a", 20), espnOnly("b", 12)])] });
@@ -905,6 +1238,105 @@ describe("players, projections and warnings (§6; the League page's rosters)", (
   });
 });
 
+describe("conflicting ESPN signals (§6 step 3; planner reply to Checkpoint 2, answer 6): Sleeper breaks the tie", () => {
+  const OPTS = { now: TEST_NOW, scenarios: 16, seed: 5 };
+  /** A questionable RB whom ESPN expects back in week 8. Sleeper projected him 15 a game before this week, and `now` this week (0 = a stub). */
+  const withQ = (now: number, extra: Partial<TestPlayer> = {}) =>
+    buildTestLeague({ teams: [team("1", [...starters("1"), { id: "rb-q", pos: "RB", points: { ...flat(1, 17, 15), 4: now }, injury: "QUESTIONABLE", injuryReturnWeek: 8, ...extra }]), team("2", starters("2"))] });
+  const expectClose = (actual: readonly number[] | undefined, expected: readonly number[]) => {
+    expect(actual).toHaveLength(expected.length);
+    expected.forEach((x, i) => expect(actual?.[i], `index ${i}`).toBeCloseTo(x, 12));
+  };
+
+  it("Sleeper still projects him (50% of his healthy rate or more): the date is stale, so the tag's one-week table applies this week, then he's healthy", () => {
+    const league = withQ(12);
+    const model = buildLeagueModel(league.snapshot, league.inputs, OPTS, NO_RISK);
+    const pm = model.players["rb-q"];
+    const healthy = priorHealthyBaseRate(league.inputs.players["rb-q"] as PlayerInputs, { currentWeek: 4, weeks: model.weeks, espnAveraged: false }).b;
+    expect(12).toBeGreaterThanOrEqual(0.5 * healthy);
+    expect(pm?.availabilityNote).toEqual({ status: "QUESTIONABLE", returnWeek: 8, used: "sleeper", sleeperNow: 12, healthyRate: expect.closeTo(healthy, 12) });
+    expectClose(
+      pm?.weekly.map((w) => w.a),
+      [0.85, ...new Array<number>(13).fill(1)],
+    );
+  });
+
+  it("Sleeper projects him under 50% of it, or not at all (a stub): he follows the return date, give or take a week", () => {
+    for (const now of [5, 0]) {
+      const league = withQ(now);
+      const model = buildLeagueModel(league.snapshot, league.inputs, OPTS, NO_RISK);
+      const pm = model.players["rb-q"];
+      expect(pm?.availabilityNote, `now ${now}`).toMatchObject({ status: "QUESTIONABLE", returnWeek: 8, used: "returnDate", sleeperNow: now === 0 ? null : now });
+      // Back in week 7, 8 or 9 (25% / 50% / 25%).
+      expectClose(pm?.weekly.map((w) => w.a).slice(0, 7), [0, 0, 0, 0.25, 0.75, 1, 1]);
+    }
+  });
+
+  it("when Sleeper's projections for this week didn't load, there's no tiebreaker: he follows the date, and the note says the projections are missing (review AVAIL-4)", () => {
+    const opts = { ...OPTS, sims: 0 };
+    // Sleeper projects him 15 this week too: loaded, the date is stale.
+    const league = withQ(15);
+    expect(buildLeagueModel(league.snapshot, league.inputs, opts, NO_RISK).players["rb-q"]?.availabilityNote).toEqual({ status: "QUESTIONABLE", returnWeek: 8, used: "sleeper", sleeperNow: 15, healthyRate: 15 });
+    // Week 4's list didn't load (an outage): the model inputs leave its key out for every player.
+    const down = structuredClone(league.inputs);
+    for (const pin of Object.values(down.players)) delete pin.sleeper[4];
+    expect(sleeperWeekLoaded(league.inputs.players, 4)).toBe(true);
+    expect(sleeperWeekLoaded(down.players, 4)).toBe(false);
+    const model = buildLeagueModel(league.snapshot, down, opts, NO_RISK);
+    expect(model.players["rb-q"]?.availabilityNote).toEqual({ status: "QUESTIONABLE", returnWeek: 8, used: "returnDate", sleeperNow: null, sleeperUnavailable: true, healthyRate: 15 });
+    expectClose(model.players["rb-q"]?.weekly.map((w) => w.a).slice(0, 7), [0, 0, 0, 0.25, 0.75, 1, 1]);
+    // The week loaded but has no line for him (a stub): Sleeper doesn't project him, which is a real answer, not an outage.
+    const stub = withQ(0);
+    expect(buildLeagueModel(stub.snapshot, stub.inputs, opts, NO_RISK).players["rb-q"]?.availabilityNote).toEqual({ status: "QUESTIONABLE", returnWeek: 8, used: "returnDate", sleeperNow: null, healthyRate: 15 });
+    // A player Sleeper doesn't cover (no Sleeper id: no weeks at all) in a week that loaded for the others: no flag either.
+    const ids = { ...stub.inputs, players: { ...stub.inputs.players, "rb-q": { ...(stub.inputs.players["rb-q"] as PlayerInputs), sleeper: {} } } };
+    expect(buildLeagueModel(stub.snapshot, ids, opts, NO_RISK).players["rb-q"]?.availabilityNote).toMatchObject({ used: "returnDate", sleeperNow: null });
+    expect(buildLeagueModel(stub.snapshot, ids, opts, NO_RISK).players["rb-q"]?.availabilityNote?.sleeperUnavailable).toBeUndefined();
+  });
+
+  it("his scenario draws follow the same signal, and nobody else's change (common random numbers)", () => {
+    const table = (league: ReturnType<typeof withQ>) => buildProjectionTable(league.snapshot, league.inputs, OPTS, NO_RISK).table;
+    const stale = table(withQ(12));
+    const dated = table(withQ(5));
+    // A stale date is dropped for his scenarios too: the same flags as the same player without a return date.
+    expect(stale.rows.get("rb-q")?.flags).toEqual(table(withQ(12, { injuryReturnWeek: undefined })).rows.get("rb-q")?.flags);
+    // Following the date, he plays no scenario before week 7.
+    const flags = dated.rows.get("rb-q")?.flags as Uint8Array;
+    const W = dated.weeks.length;
+    for (let s = 0; s < OPTS.scenarios; s++) for (let wi = 0; wi < 3; wi++) expect(flags[s * W + wi], `scenario ${s} week ${dated.weeks[wi]}`).toBe(0);
+    expect(flags).not.toEqual(stale.rows.get("rb-q")?.flags);
+    expect(stale.rows.size).toBeGreaterThan(10);
+    for (const [id, row] of stale.rows) if (id !== "rb-q") expect(dated.rows.get(id)?.flags, id).toEqual(row.flags);
+  });
+
+  it("notes only the conflicts: a game-time tag with a return week 2+ weeks out (out for the season too), not OUT or IR players or a date next week", () => {
+    const league = buildTestLeague({
+      nflLastWeek: 18,
+      teams: [
+        team("1", [
+          ...starters("1"),
+          p("q-next", "RB", 10, { injury: "QUESTIONABLE", injuryReturnWeek: 5 }),
+          p("out-8", "RB", 10, { injury: "OUT", injuryReturnWeek: 8 }),
+          p("p-season", "WR", 10, { injury: "PROBABLE", injuryReturnWeek: 19 }),
+          p("d-6", "WR", 10, { injury: "DOUBTFUL", injuryReturnWeek: 6 }),
+        ]),
+        { id: "2", roster: starters("2"), ir: [p("ir-8", "RB", 10, { injury: "IR", injuryReturnWeek: 8 })] },
+      ],
+    });
+    const model = buildLeagueModel(league.snapshot, league.inputs, { now: TEST_NOW, scenarios: 0 }, NO_RISK);
+    expect(
+      Object.entries(model.players)
+        .filter(([, pm]) => pm.availabilityNote)
+        .map(([id]) => id)
+        .sort(),
+    ).toEqual(["d-6", "p-season"]);
+    // Sleeper projects both this week at their healthy rate, so both dates are stale: the probable WR ESPN calls out for the season plays.
+    expect(model.players["p-season"]?.availabilityNote).toMatchObject({ status: "PROBABLE", returnWeek: 19, used: "sleeper" });
+    expect(model.players["p-season"]?.weekly[1]?.a).toBeCloseTo(1, 12);
+    expect(model.players["d-6"]?.availabilityNote).toMatchObject({ status: "DOUBTFUL", returnWeek: 6, used: "sleeper" });
+  });
+});
+
 describe("market values in the model (§9)", () => {
   it("values every modeled player (FantasyCalc, estimates, floors), with the waiver credit from the best free agent", () => {
     const league = buildTestLeague({ teams: [team("1", starters("1").map((x, i) => (x.pos === "K" || x.pos === "DEF" ? x : { ...x, value: 1000 * (i + 1) })))], freeAgents: [p("fa-wr", "WR", 6, { value: 400 }), p("fa-k", "K", 7)], topValue: 10000 });
@@ -926,9 +1358,11 @@ describe("edge cases", () => {
     const model = buildLeagueModel(league.snapshot, league.inputs, { now: TEST_NOW });
     expect(model.weeks).toEqual([]);
     expect(model.inProgressWeek).toBeNull();
-    expect(model.teams[0]).toMatchObject({ ev: { lv: [], ros: 0, ppw: 0 }, scen: { lv: [], ros: 0, ppw: 0, sd: [] }, needs: [], surplus: [] });
+    expect(model.teams[0]).toMatchObject({ ev: { lv: [], ros: 0, ppw: 0 }, scen: { lv: [], ros: 0, ppw: 0, sd: [] }, needs: [], chips: [] });
     expect(model.players["1-qb"]?.weekly).toEqual([]);
     expect(model.partners).toEqual([]);
+    expect(model.odds).toBeNull(); // nothing left to simulate
+    expect(model.teams[0]?.score).toEqual({ mean: [], sd: [] });
     expect(allFinite(model)).toEqual([]);
   });
 
@@ -937,8 +1371,12 @@ describe("edge cases", () => {
     expect(buildLeagueModel(league.snapshot, league.inputs, { now: TEST_NOW, scenarios: 4 }).timings).toEqual({});
     let t = 0;
     const timings = buildLeagueModel(league.snapshot, league.inputs, { now: TEST_NOW, scenarios: 4, clock: () => (t += 1) }).timings;
-    expect(Object.keys(timings)).toEqual(["projections", "availability scenarios", "market values", "EV lineups and marginal values", "scenario lineups and marginal values", "needs, surplus and partners", "total"]);
-    expect(timings.total).toBe(6);
+    expect(Object.keys(timings)).toEqual(["projections", "availability scenarios", "market values", "EV lineups and marginal values", "scenario lineups and marginal values", "trade chips", "needs and partners", "season simulation", "total"]);
+    expect(timings.total).toBe(8);
+    // No simulation (sims 0): no stage for it, and no odds.
+    const none = buildLeagueModel(league.snapshot, league.inputs, { now: TEST_NOW, scenarios: 4, sims: 0, clock: () => (t += 1) });
+    expect(Object.keys(none.timings)).not.toContain("season simulation");
+    expect(none.odds).toBeNull();
   });
 
   it("scenarios: 0 skips scenario lineups (EV only)", () => {
@@ -956,9 +1394,34 @@ describe("performance (§12 target: the engine runs in a browser Web Worker)", (
     const ev = buildLeagueModel(league.snapshot, league.inputs, { now: TEST_NOW, scenarios: 0, clock });
     const model = buildLeagueModel(league.snapshot, league.inputs, { now: TEST_NOW, scenarios: 32, clock });
     const fmt = (t: Record<string, number>) => Object.entries(t).map(([k, v]) => `${k} ${v.toFixed(0)} ms`).join(", ");
-    console.log(`[perf] 12 teams × 16, ${Object.keys(model.players).length} players, ${model.weeks.length} weeks. EV only: ${fmt(ev.timings)}. S = 32: ${fmt(model.timings)}`);
+    const chips = model.teams.reduce((n, t) => n + t.chips.length, 0);
+    console.log(`[perf] 12 teams × 16, ${Object.keys(model.players).length} players, ${model.weeks.length} weeks, ${chips} trade chips. EV only: ${fmt(ev.timings)}. S = 32: ${fmt(model.timings)}`);
     expect(model.timings.total).toBeLessThan(5000);
     expect(allFinite(model)).toEqual([]);
+  });
+
+  it("Parker's league (sanitized fixture, synthetic inputs): the model build with and without the season simulation, EV only and S = 32", { timeout: 60_000 }, () => {
+    const { snapshot } = normalizeEspnLeague(parkerBundle(), { leagueId: PARKER.leagueId, resolver: fakeResolver(), now: NOW, swid: PARKER.swid });
+    const inputs = syntheticInputs(snapshot);
+    const clock = () => performance.now();
+    const build = (scenarios: number, sims: number) => buildLeagueModel(snapshot, inputs, { now: NOW, scenarios, sims, clock });
+    build(32, config.simulation.finalSims); // warm up the JIT
+    const runs: [string, number, number][] = [
+      ["EV only", 0, 0],
+      ["EV only + simulation", 0, config.simulation.finalSims],
+      [`S = ${config.lineups.scenarios}`, config.lineups.scenarios, 0],
+      [`S = ${config.lineups.scenarios} + simulation`, config.lineups.scenarios, config.lineups.scenarios > 0 ? config.simulation.finalSims : 0],
+    ];
+    const median = (xs: number[]) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)] as number;
+    const lines = runs.map(([label, S, sims]) => {
+      const models = [1, 2, 3].map(() => build(S, sims));
+      const total = median(models.map((m) => m.timings.total as number));
+      const sim = sims > 0 ? `, simulation ${median(models.map((m) => m.timings["season simulation"] as number)).toFixed(0)} ms` : "";
+      expect(total, label).toBeLessThan(5000);
+      if (sims > 0) expect(models[0]?.odds, label).not.toBeNull();
+      return `${label} ${total.toFixed(0)} ms${sim}`;
+    });
+    console.log(`[perf] Parker's league model build (median of 3): ${lines.join("; ")}`);
   });
 });
 
@@ -1013,5 +1476,35 @@ describe("Parker's league (committed sanitized ESPN fixture) with synthetic inpu
       // The player dropped costs nothing from the team after the move (in the lineups the move was chosen by).
       if (w.drop !== null) expect(t.players[w.drop]?.mvLoseScen ?? t.players[w.drop]?.mvLoseEv).toBeCloseTo(0, 9);
     }
+  });
+
+  it("gives Josh Jacobs (questionable, ESPN return week 8) Sleeper as the tiebreaker: the synthetic inputs project him this week, so the date is stale", () => {
+    const id = Object.keys(snapshot.players).find((k) => snapshot.players[k]?.name === "Josh Jacobs") as string;
+    expect(snapshot.players[id]).toMatchObject({ injury: "QUESTIONABLE", injuryReturnWeek: 8 });
+    expect(model.players[id]?.availabilityNote).toMatchObject({ status: "QUESTIONABLE", returnWeek: 8, used: "sleeper" });
+    expect(model.players[id]?.weekly[0]?.a).toBeCloseTo(config.projections.injury.QUESTIONABLE[0] as number, 12);
+    // Only conflicted players carry a note.
+    for (const [pid, pm] of Object.entries(model.players)) {
+      const info = snapshot.players[pid];
+      expect(pm.availabilityNote !== undefined, pid).toBe(info !== undefined && returnDateConflict(info, snapshot.currentWeek) !== null);
+    }
+  });
+
+  it("every trade chip is an active-roster player trade search includes, worth at least chipMinGap more to another team; biggest gap first", () => {
+    let chips = 0;
+    for (const t of model.teams) {
+      const roster = snapshot.teams.find((x) => x.id === t.id)?.roster ?? [];
+      t.chips.forEach((c, i) => {
+        chips++;
+        expect(roster, c.playerId).toContain(c.playerId);
+        expect(config.market.tradeSearchExcluded, c.playerId).not.toContain(snapshot.players[c.playerId]?.pos);
+        expect(c.bestTeamId).not.toBe(t.id);
+        expect(c.gap).toBeCloseTo(c.maxOther - c.cost, 9);
+        expect(c.gap).toBeGreaterThanOrEqual(config.needs.chipMinGap - 1e-9);
+        expect(c.cost).toBeCloseTo(t.players[c.playerId]?.mvLoseScen as number, 9);
+        if (i > 0) expect(t.chips[i - 1]?.gap as number).toBeGreaterThanOrEqual(c.gap - 1e-9);
+      });
+    }
+    expect(chips).toBeGreaterThan(0);
   });
 });

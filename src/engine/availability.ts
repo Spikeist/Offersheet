@@ -25,6 +25,14 @@
  *      IR and PUP use any known R; OUT uses R ≥ w0 + 1 (an OUT player whose date has passed falls back
  *      to the table); PROBABLE / QUESTIONABLE / DOUBTFUL use R only when it's at least two weeks out
  *      (ESPN then expects a longer absence than the tag says).
+ *    - Conflicting ESPN signals (CLAUDE.md §6 step 3; planner reply to Checkpoint 2, answer 6): that last
+ *      case, a PROBABLE / QUESTIONABLE / DOUBTFUL tag with a return week 2+ weeks out, is two ESPN
+ *      signals that disagree (returnDateConflict names it). Sleeper breaks the tie, in league.ts: when it
+ *      still projects him this week at config.projections.staleReturnShare or more of his healthy base
+ *      rate (projections.ts staleReturnCheck), the date is stale and the player is passed WITHOUT his
+ *      return week, so the one-week table for his tag applies (then he's healthy); otherwise he keeps it
+ *      and follows the date. Expected availability and the scenarios read the same player, so both
+ *      follow the same signal, and his random stream doesn't change (see common random numbers below).
  *    - injuryReturnWeek = last NFL week + 1 means "not back this season" (§4). Given lastNflWeek, any
  *      R after it means no return at all. Without it, the spread lies past every fantasy week when the
  *      fantasy season ends before the NFL's last week, which gives 0 there too.
@@ -103,6 +111,32 @@ function weekCount(x: number): number {
   return Number.isFinite(x) ? Math.max(0, Math.round(x)) : 0;
 }
 
+/** A known return week as a whole week, or undefined when none is known (missing or not a number). */
+function knownWeek(injuryReturnWeek: number | undefined): number | undefined {
+  return injuryReturnWeek !== undefined && Number.isFinite(injuryReturnWeek) ? Math.round(injuryReturnWeek) : undefined;
+}
+
+/** The statuses that say a player may play this week ("game-time" tags). */
+export type GameTimeStatus = "PROBABLE" | "QUESTIONABLE" | "DOUBTFUL";
+
+function isGameTime(injury: InjuryStatus): injury is GameTimeStatus {
+  return injury === "PROBABLE" || injury === "QUESTIONABLE" || injury === "DOUBTFUL";
+}
+
+/**
+ * Conflicting ESPN signals (§6 step 3): a PROBABLE, QUESTIONABLE or DOUBTFUL player whose known return
+ * week is 2+ weeks away. His tag says he may play this week, ESPN's return date says he's out longer;
+ * returnWeekDistribution follows the date for him, and the caller breaks the tie (see the file header).
+ * Null for everyone else: another status, no known return week, or one within a week of now (the tag's
+ * one-week table then applies whatever the date says). A return week after the NFL's last week ("out for
+ * the season") is a conflict too.
+ */
+export function returnDateConflict(player: AvailabilityPlayer, currentWeek: number): { status: GameTimeStatus; returnWeek: number } | null {
+  const R = knownWeek(player.injuryReturnWeek);
+  if (R === undefined || !isGameTime(player.injury) || !(R >= currentWeek + 2)) return null;
+  return { status: player.injury, returnWeek: R };
+}
+
 function clamp01(x: number): number {
   return Number.isFinite(x) ? Math.min(1, Math.max(0, x)) : 0;
 }
@@ -153,7 +187,7 @@ export function returnWeekDistribution(
   lastNflWeek?: number,
 ): ReturnWeek[] {
   const w0 = currentWeek;
-  const R = injuryReturnWeek !== undefined && Number.isFinite(injuryReturnWeek) ? Math.round(injuryReturnWeek) : undefined;
+  const R = knownWeek(injuryReturnWeek);
   const notBackThisSeason = R !== undefined && lastNflWeek !== undefined && R > lastNflWeek;
   const known = (r: number, earliest: number): ReturnWeek[] => (notBackThisSeason ? [] : spreadAround(r, earliest, cfg.returnWeekSpread));
   switch (injury) {
@@ -162,6 +196,7 @@ export function returnWeekDistribution(
     case "PROBABLE":
     case "QUESTIONABLE":
     case "DOUBTFUL":
+      // A date 2+ weeks out conflicts with the tag (returnDateConflict); the caller drops it when stale.
       return R !== undefined && R >= w0 + 2 ? known(R, w0) : fromCumulative(cfg.injury[injury], w0);
     case "OUT":
       return R !== undefined && R >= w0 + 1 ? known(R, w0 + 1) : fromCumulative(cfg.injury.OUT, w0);

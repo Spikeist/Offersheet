@@ -24,7 +24,8 @@
   "waiver_budget": 100,
   "draft_rounds": 3,
   "best_ball": 0,
-  "leg": 3
+  "leg": 3,
+  "last_scored_leg": 3
  },
  "scoring_settings": {
   "sack": 1,

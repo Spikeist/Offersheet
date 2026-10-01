@@ -1,8 +1,8 @@
 /**
- * Team strength, needs, surplus and best trade partners (CLAUDE.md §7 "Needs and surplus", the surplus
- * score of §12 step 2; config.lineups and config.needs, §15). Pure and deterministic: no I/O, no clock,
- * no randomness. These functions work on numbers the lineup layer (src/engine/teamValue.ts) computes;
- * src/engine/league.ts wires them together into the LeagueModel.
+ * Team strength, needs, trade chips and best trade partners (CLAUDE.md §7 "Needs and trade chips", the
+ * surplus score of §12 step 2; config.lineups and config.needs, §15). Pure and deterministic: no I/O, no
+ * clock, no randomness. These functions work on numbers the lineup layer (src/engine/teamValue.ts)
+ * computes; src/engine/league.ts wires them together into the LeagueModel.
  *
  * - Slot instances: one per starting spot, the League page's heatmap columns. Slots that share a name
  *   share one numbering (QB1; RB1, RB2; FLEX1; …) and are listed together at the name's first place in
@@ -19,20 +19,27 @@
  * - Needs (§7: slots with z ≤ needZThreshold, ranked): instances weak for the rest of the season
  *   (window "ros"), plus instances weak only over the next strengthWeeks (window "next": an injury or a
  *   cluster of byes); weakest first. The League page shows the first needsShown.
- * - Surplus (§7: high market value, low MV_lose; §12's surplus score): z(value) − z(MV_lose), both
- *   z-scores within the team's active roster (mean and population SD). A surplus player scores at least
- *   surplusMinScore, his lineup cost is low (z(MV_lose) below surplusMaxCostZ: below his roster's
- *   average) and he would start for at least one other team. The cost cut keeps stars out: market values
- *   are convex, so a star's z(value) alone can outrun his z(MV_lose), while §7's surplus is "bench depth
- *   that would start for other teams".
- * - Partners (§7 "best trade partners"; Phase 2 review decisions): each side is scored by its JOINT gain,
- *   what all of their helpful surplus players add to my lineup together (league.ts: one lineup solve per
- *   week, teamValue.addRowsGain), so two spare players competing for one slot count once; the card lists
- *   keep each player's own gain. Mutual fits (both sides help) score sqrt(what theirs adds to my lineup ×
- *   what mine adds to theirs), in points per week, and come first; then one-sided fits (only theirs helps
- *   me), scored by what theirs adds; fits where only mine helps them are dropped.
+ * - The surplus score (§12 step 2's give-pool ranking, Phase 4): z(value) − z(MV_lose), both z-scores
+ *   within the team's active roster (mean and population SD). A valuable player his team would barely
+ *   miss scores high. The League page no longer shows it (trade chips replaced Phase 2's surplus chips).
+ * - Trade chips (§7; planner reply to Checkpoint 2, answer 2; tradeChips): a player is a chip when
+ *   gap = maxOther − cost ≥ chipMinGap, where maxOther is the most he'd add to another team's lineup and
+ *   cost what his own team would lose without him, both in rest-of-season lineup points against
+ *   free-agent-adjusted baselines (league.ts measures them). Plain lineup points: chips need no market
+ *   values, so Bo Nix behind Josh Allen in a 1-QB league is a chip whatever FantasyCalc says. Best gap
+ *   first; equal gaps list the cheaper one to lose first (lead decision D3: EV lineups give a starter and
+ *   the backup who covers him the same gap, and the backup is the one to offer), then the smaller id.
+ * - Partners (§7 "best trade partners"; Phase 2 review decisions; lead decision D2): each side is scored
+ *   by its JOINT gain, what its chips add to the other lineup together (league.ts: one lineup solve per
+ *   week, teamValue.addRowsGain), so two spare players competing for one slot count once. Only chips that
+ *   stay chips together count (chipsTogether, at most config.search.maxPerSide a side): chips come in
+ *   groups (a starter and his backup each qualify because the other covers him), and once one of them
+ *   leaves, the rest are usually starters his team can't spare. The card lists keep every helpful chip
+ *   with its own gain. Mutual fits (both sides help) score sqrt(what theirs adds to my lineup × what mine
+ *   adds to theirs), in points per week, and come first; then one-sided fits (only theirs helps me),
+ *   scored by what theirs adds; fits where only mine helps them are dropped.
  */
-import type { Need, SlotInstance, SlotStrength, SurplusPlayer, TradePartner } from "./leagueModel";
+import type { Need, SlotInstance, SlotStrength, TradeChip, TradePartner } from "./leagueModel";
 import type { PreparedSlots } from "./lineup";
 import { POSITIONS, type SlotDef } from "./model";
 
@@ -261,30 +268,34 @@ export function surplusScores(values: readonly number[], mvLose: readonly number
   return zv.map((z, i) => z - (zl[i] as number));
 }
 
-export interface SurplusCandidate {
+/** A player considered for a trade chip: his lineup cost and the other team where he'd add the most (null when he'd add nothing anywhere). */
+export interface ChipCandidate {
   playerId: string;
-  /** surplusScores(): z(value) − z(MV_lose) within the roster. */
-  score: number;
-  /** z(MV_lose) within the roster (standardize over the roster's lineup costs): his lineup cost against the roster's average. */
-  costZ: number;
-  startsFor: number;
+  /** MV_lose'(his team, i), ROS lineup points. */
+  cost: number;
+  /** The largest MV_add'(T′, i) over the other teams and that team (ties: the smaller id), or null. */
+  best: { value: number; teamId: string } | null;
 }
 
 /**
- * Every surplus player of a team (§7: high market value, low MV_lose, bench depth that would start for
- * other teams): surplus score ≥ surplusMinScore, costZ below surplusMaxCostZ (a z within 1e-9 of the cut
- * counts as at it, so float noise around the average doesn't qualify) and he would start for at least one
- * other team; best score first (ties: smaller id). The team table shows the first surplusShown. A roster
- * whose lineup costs are all equal (costZ 0 everywhere) has no player below its average, so no surplus.
+ * A team's trade chips (§7): the candidates whose gap = best.value − cost is at least chipMinGap (a gap
+ * within 1e-9 below the cut counts as at it: float noise), best gap first. Gaps within 1e-9 of each other
+ * are ties (the same gap summed another way), which go to the smaller cost (the cheaper one to lose: with
+ * EV lineups a starter and the backup who covers him get the same gap, and the backup is listed first),
+ * then the smaller player id. Non-finite numbers never make a chip.
  */
-export function qualifyingSurplus(rows: readonly SurplusCandidate[], cfg: { readonly surplusMinScore: number; readonly surplusMaxCostZ: number }): SurplusPlayer[] {
-  return rows
-    .filter((r) => r.score >= cfg.surplusMinScore && r.costZ < cfg.surplusMaxCostZ - EPS && r.startsFor >= 1)
-    .map((r) => ({ playerId: r.playerId, score: r.score, startsFor: r.startsFor }))
-    .sort((a, b) => b.score - a.score || byId(a.playerId, b.playerId));
+export function tradeChips(candidates: readonly ChipCandidate[], cfg: { readonly chipMinGap: number }): TradeChip[] {
+  const out: TradeChip[] = [];
+  for (const c of candidates) {
+    if (!c.best) continue;
+    const gap = c.best.value - c.cost;
+    if (!Number.isFinite(gap) || !(gap >= cfg.chipMinGap - EPS)) continue;
+    out.push({ playerId: c.playerId, gap, cost: c.cost, maxOther: c.best.value, bestTeamId: c.best.teamId });
+  }
+  return out.sort((a, b) => (Math.abs(b.gap - a.gap) > EPS ? b.gap - a.gap : Math.abs(a.cost - b.cost) > EPS ? a.cost - b.cost : byId(a.playerId, b.playerId)));
 }
 
-/** A surplus player and what he alone adds to the other lineup, in points per week. */
+/** A trade chip and what he alone adds to the other lineup, in points per week. */
 export interface PartnerPlayer {
   playerId: string;
   ppw: number;
@@ -298,15 +309,40 @@ export function helpfulPlayers(xs: readonly PartnerPlayer[]): PartnerPlayer[] {
     .sort((a, b) => b.ppw - a.ppw || byId(a.playerId, b.playerId));
 }
 
+/** One side's trade chip in a partner fit: what he alone adds to the other lineup per week, and his chip gap. */
+export interface SideChip extends PartnerPlayer {
+  gap: number;
+}
+
+/**
+ * The chips of one partner side that stay chips together (lead decision D2; the file header, "Partners"):
+ * the side's helpful chips (ppw > 0) in order of what each alone adds to the receiving team (ppw desc;
+ * ties within 1e-9: the larger gap, then the smaller id); the first is taken; each next one is taken only
+ * when `stillChip(playerId, taken)` says he is still a chip once the chips already taken have left his team;
+ * at most `maxPerSide` (at least 1). Returns the taken ids, in that order.
+ */
+export function chipsTogether(side: readonly SideChip[], maxPerSide: number, stillChip: (playerId: string, taken: readonly string[]) => boolean): string[] {
+  const max = Number.isFinite(maxPerSide) ? Math.max(1, Math.floor(maxPerSide)) : 1;
+  const order = side
+    .filter((x) => x.ppw > EPS)
+    .sort((a, b) => (Math.abs(b.ppw - a.ppw) > EPS ? b.ppw - a.ppw : Math.abs(b.gap - a.gap) > EPS ? b.gap - a.gap : byId(a.playerId, b.playerId)));
+  const taken: string[] = [];
+  for (const x of order) {
+    if (taken.length >= max) break;
+    if (taken.length === 0 || stillChip(x.playerId, [...taken])) taken.push(x.playerId);
+  }
+  return taken;
+}
+
 export interface PartnerCandidate {
   teamId: string;
-  /** Their surplus players and what each alone adds to my lineup per week (all remaining weeks). */
+  /** Their trade chips and what each alone adds to my lineup per week (every week team numbers count). */
   theyCanGive: PartnerPlayer[];
-  /** My surplus players and what each alone adds to their lineup per week. */
+  /** My trade chips and what each alone adds to their lineup per week. */
   youCanGive: PartnerPlayer[];
   /**
-   * What helpfulPlayers(theyCanGive) add to my lineup TOGETHER per week (the joint gain: one lineup per
-   * week, so players competing for one slot count once), and what helpfulPlayers(youCanGive) add to theirs.
+   * What their chips that stay chips together (chipsTogether) add to my lineup TOGETHER per week (the joint
+   * gain: one lineup per week, so players competing for one slot count once), and what mine add to theirs.
    */
   get: number;
   give: number;
@@ -315,9 +351,9 @@ export interface PartnerCandidate {
 /**
  * Best trade partners (§7): each side lists its helpful players (helpfulPlayers) and is scored by its joint
  * gain (get, give). Mutual fits (both sides help) score sqrt(get × give) and come first. Then one-sided fits
- * where only their surplus helps me score get: a team with no spare players of its own still learns who
- * could fill its needs (a trade would likely cost it a starter). Fits where only my surplus helps them are
- * dropped. Best first within each group (ties: smaller team id); the first partnersShown overall.
+ * where only their chips help me score get: a team with no trade chips of its own still learns who could
+ * fill its needs (a trade would likely cost it a starter). Fits where only my chips help them are dropped.
+ * Best first within each group (ties: smaller team id); the first partnersShown overall.
  */
 export function rankPartners(candidates: readonly PartnerCandidate[], cfg: { readonly partnersShown: number }): TradePartner[] {
   const mutual: TradePartner[] = [];
@@ -328,7 +364,7 @@ export function rankPartners(candidates: readonly PartnerCandidate[], cfg: { rea
     const get = theyCanGive.length > 0 && Number.isFinite(c.get) ? c.get : 0;
     const give = youCanGive.length > 0 && Number.isFinite(c.give) ? c.give : 0;
     if (get > EPS && give > EPS) mutual.push({ teamId: c.teamId, mutual: true, score: Math.sqrt(get * give), theyCanGive, youCanGive });
-    // One-sided: my surplus adds nothing to their lineup together (under starter limits that can happen even
+    // One-sided: my chips add nothing to their lineup together (under starter limits that can happen even
     // when one of my players alone would help), so none of mine is listed.
     else if (get > EPS) oneSided.push({ teamId: c.teamId, mutual: false, score: get, theyCanGive, youCanGive: [] });
   }

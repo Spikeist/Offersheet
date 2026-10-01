@@ -7,8 +7,11 @@
  *     matchup pairs for every regular-season week (+ one playoff-placeholder week), players_points
  *     for the subset in the oracle weeks, the transactions and traded picks the tests assert,
  *     synthetic transaction/draft IDs, SYNTHETIC transaction times (the real order kept, each at its
- *     league week's start plus whole hours) and synthetic points for/against, so nothing in the
- *     fixture can be matched against the live league's activity feed or standings (review PRIV-3).
+ *     league week's start plus whole hours) and SYNTHETIC team scores for the weeks Sleeper has
+ *     scored (settings.last_scored_leg), with every team's record and points for/against rebuilt from
+ *     them (so W+L+T still counts the scored weeks and the results agree with the standings), so
+ *     nothing in the fixture can be matched against the live league's activity feed, scores or
+ *     standings (review PRIV-3; Phase 3 matchup results).
  *   fixtures/sanitized/min/sleeper/oracle-leagues/  the Phase 0 cross-league oracle leagues: ONLY
  *     scoring_settings (non-zero), roster_positions and per player-week {sleeperId, pos, week, stats,
  *     players_points} for a subset — no league, team, user or roster IDs, no names.
@@ -73,6 +76,7 @@ const SETTINGS_KEYS = [
   "best_ball",
   "divisions",
   "leg",
+  "last_scored_leg",
 ];
 
 /**
@@ -90,10 +94,58 @@ export function synthesizeCreated<T extends { leg: number; created: number }>(ro
   return out;
 }
 
-/** Synthetic season points for a roster (deterministic from its roster number, not from its real points). */
-function syntheticPoints(rosterId: number, what: "for" | "against"): { whole: number; decimal: number } {
-  const h = parseInt(sha(`sleeper-min|${what}|${rosterId}`).slice(0, 8), 16);
-  return { whole: 250 + (h % 130), decimal: Math.floor(h / 130) % 100 };
+/**
+ * A synthetic team score for one scored week, 70.00–159.99 (deterministic from the roster number and
+ * the week, not from the team's real score).
+ */
+export function syntheticScore(rosterId: number, week: number): number {
+  const h = parseInt(sha(`sleeper-min|score|${rosterId}|${week}`).slice(0, 8), 16);
+  return (7000 + (h % 90) * 100 + (Math.floor(h / 90) % 100)) / 100; // whole cents: prints as e.g. 115.37
+}
+
+export interface SyntheticStanding {
+  wins: number;
+  losses: number;
+  ties: number;
+  /** Points for and against, in hundredths (Sleeper's fpts + fpts_decimal / 100). */
+  forCents: number;
+  againstCents: number;
+}
+
+/**
+ * Every roster's record and points for/against, rebuilt from the scored weeks' matchup rows (pairs by
+ * matchup_id; the higher score wins, equal scores tie), so the fixture's standings agree with its
+ * results. Rosters without a scored game get a 0–0 record.
+ */
+export function standingsFrom(weeks: ReadonlyArray<ReadonlyArray<{ roster_id: number; matchup_id?: number | null; points?: number }>>): Map<number, SyntheticStanding> {
+  const out = new Map<number, SyntheticStanding>();
+  const row = (id: number) => {
+    let s = out.get(id);
+    if (!s) out.set(id, (s = { wins: 0, losses: 0, ties: 0, forCents: 0, againstCents: 0 }));
+    return s;
+  };
+  for (const rows of weeks) {
+    const pairs = new Map<number, Array<{ roster_id: number; points?: number }>>();
+    for (const r of rows) if (typeof r.matchup_id === "number") pairs.set(r.matchup_id, [...(pairs.get(r.matchup_id) ?? []), r]);
+    for (const pair of pairs.values()) {
+      const [a, b] = pair;
+      if (pair.length !== 2 || !a || !b || typeof a.points !== "number" || typeof b.points !== "number") continue;
+      for (const [me, opp] of [
+        [a, b],
+        [b, a],
+      ] as const) {
+        const s = row(me.roster_id);
+        const mine = Math.round((me.points as number) * 100);
+        const theirs = Math.round((opp.points as number) * 100);
+        s.forCents += mine;
+        s.againstCents += theirs;
+        if (mine > theirs) s.wins++;
+        else if (mine < theirs) s.losses++;
+        else s.ties++;
+      }
+    }
+  }
+  return out;
 }
 
 const local = <T = any>(label: string): T => readLocalFixture<T>(PLATFORM, `public-test-league/${label}`);
@@ -171,27 +223,6 @@ async function minimizeTestLeague(): Promise<Set<string>> {
     roster_positions: league.roster_positions,
   };
   const minUsers = users.map((u) => ({ user_id: u.user_id, display_name: u.display_name, ...(u.metadata?.team_name ? { metadata: { team_name: u.metadata.team_name } } : {}) }));
-  const minRosters = rosters.map((r) => {
-    const k = keepByRoster.get(r.roster_id) as { players: string[]; reserve: string[]; taxi: string[] };
-    const st = r.settings ?? {};
-    const pf = syntheticPoints(r.roster_id, "for");
-    const pa = syntheticPoints(r.roster_id, "against");
-    return {
-      roster_id: r.roster_id,
-      owner_id: r.owner_id,
-      co_owners: r.co_owners ?? null,
-      players: k.players,
-      reserve: k.reserve.length ? k.reserve : null,
-      taxi: k.taxi.length ? k.taxi : null,
-      settings: {
-        ...Object.fromEntries(["wins", "losses", "ties", "division"].filter((x) => st[x] !== undefined).map((x) => [x, st[x]])),
-        fpts: pf.whole,
-        fpts_decimal: pf.decimal,
-        fpts_against: pa.whole,
-        fpts_against_decimal: pa.decimal,
-      },
-    };
-  });
 
   // Matchups: pairs for every regular-season week + one placeholder playoff week; oracle weeks keep
   // players and players_points for a subset (current subset first, topped up with that week's starters).
@@ -213,6 +244,36 @@ async function minimizeTestLeague(): Promise<Set<string>> {
       }),
     );
   }
+  // The weeks Sleeper has scored get SYNTHETIC team scores (the normalizer's results read them), and
+  // the standings are rebuilt from those, so no real score, result, record or season total survives.
+  const lastScored = Number(league.settings.last_scored_leg ?? 0);
+  const scoredWeeks = [...minMatchups.keys()].filter((w) => w < playoffStart && w <= lastScored).sort((a, b) => a - b);
+  for (const w of scoredWeeks) minMatchups.set(w, (minMatchups.get(w) ?? []).map((m) => ({ ...m, points: syntheticScore(m.roster_id, w) })));
+  const standings = standingsFrom(scoredWeeks.map((w) => minMatchups.get(w) ?? []));
+
+  const minRosters = rosters.map((r) => {
+    const k = keepByRoster.get(r.roster_id) as { players: string[]; reserve: string[]; taxi: string[] };
+    const division = r.settings?.division;
+    const s = standings.get(r.roster_id) ?? { wins: 0, losses: 0, ties: 0, forCents: 0, againstCents: 0 };
+    return {
+      roster_id: r.roster_id,
+      owner_id: r.owner_id,
+      co_owners: r.co_owners ?? null,
+      players: k.players,
+      reserve: k.reserve.length ? k.reserve : null,
+      taxi: k.taxi.length ? k.taxi : null,
+      settings: {
+        wins: s.wins,
+        losses: s.losses,
+        ties: s.ties,
+        ...(division !== undefined ? { division } : {}),
+        fpts: Math.floor(s.forCents / 100),
+        fpts_decimal: s.forCents % 100,
+        fpts_against: Math.floor(s.againstCents / 100),
+        fpts_against_decimal: s.againstCents % 100,
+      },
+    };
+  });
 
   // Full-league oracle on the local copy (aggregate only, for the report).
   const scoring = mapSleeperScoring(league.scoring_settings).scoring;
@@ -335,8 +396,11 @@ async function minimizeTestLeague(): Promise<Set<string>> {
   };
   await save("league", minLeague, "non-zero scoring_settings and the settings keys the adapter reads");
   await save("users", minUsers);
-  await save("rosters", minRosters, "a subset of each roster: one IR and one taxi player where present, and a small starting core; synthetic points for/against");
-  for (const [w, rows] of [...minMatchups].sort((a, b) => a[0] - b[0])) await save(`matchups/${w}`, rows, ORACLE_WEEKS.includes(w) ? "pairs + players_points for a subset" : w >= playoffStart ? "playoff week: regular-season placeholder pairs (ignored)" : "pairs only");
+  await save("rosters", minRosters, "a subset of each roster: one IR and one taxi player where present, and a small starting core; records and points for/against rebuilt from the synthetic scores");
+  for (const [w, rows] of [...minMatchups].sort((a, b) => a[0] - b[0])) {
+    const scored = scoredWeeks.includes(w) ? " + synthetic team scores" : "";
+    await save(`matchups/${w}`, rows, ORACLE_WEEKS.includes(w) ? `pairs + players_points for a subset${scored}` : w >= playoffStart ? "playoff week: regular-season placeholder pairs (ignored)" : `pairs${scored || " only"}`);
+  }
   for (const [leg, rows] of [...minTx].sort((a, b) => a[0] - b[0])) await save(`transactions/${leg}`, rows, "the transactions the tests assert; synthetic IDs; synthetic times (real order kept)");
   await save("traded_picks", minTraded, "one traded pick of this season and three future ones");
   await save("drafts", minDrafts, "synthetic draft IDs");
@@ -344,7 +408,7 @@ async function minimizeTestLeague(): Promise<Set<string>> {
   for (const s of minStats) await save(`stats/${s.week}`, s.rows, "public stats of the oracle subset, scored keys only");
   await save("players", minPlayers, "public Sleeper player facts (SleeperPlayerLite) for every referenced player");
   await save("meta", { season: SEASON, currentWeek: manifest.currentWeek, lastScoredWeek: manifest.lastScoredWeek, oracleWeeks: ORACLE_WEEKS, projectionWeek: PROJECTION_WEEK, me: { userId: manifest.me.userId, rosterId: manifest.me.rosterId, via: manifest.me.via }, txLegs: [...minTx.keys()].sort((a, b) => a - b) });
-  console.log(`test league: ${minRosters.length} rosters, ${kept.size} players kept (IR ${minRosters.reduce((a, r) => a + (r.reserve?.length ?? 0), 0)}, taxi ${minRosters.reduce((a, r) => a + (r.taxi?.length ?? 0), 0)}), ${oracleIds.size} oracle players, ${chosenTx.length} transactions, ${minTraded.length} traded picks, ${minProj.length} projection rows, ${minPlayers.length} player facts`);
+  console.log(`test league: ${minRosters.length} rosters, ${kept.size} players kept (IR ${minRosters.reduce((a, r) => a + (r.reserve?.length ?? 0), 0)}, taxi ${minRosters.reduce((a, r) => a + (r.taxi?.length ?? 0), 0)}), ${oracleIds.size} oracle players, ${chosenTx.length} transactions, ${minTraded.length} traded picks, ${minProj.length} projection rows, ${minPlayers.length} player facts, synthetic scores for ${scoredWeeks.length ? `weeks ${scoredWeeks.join(", ")}` : "no week"}`);
   return written;
 }
 

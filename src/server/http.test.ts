@@ -310,6 +310,177 @@ describe("HttpClient cache options (review HTTP-1, HTTP-3, HTTP-5)", () => {
   });
 });
 
+describe("HttpClient single-flight (CLAUDE.md §2.10, Checkpoint 2)", () => {
+  /** A fetch whose answers wait until release(): every attempt is recorded, and answers come from `answer(url, attempt)`. */
+  function heldFetch(answer: (url: string, attempt: number) => FakeAnswer = () => ({ status: 200, body: '{"v":1}' })) {
+    const calls: { url: string; cookie?: string }[] = [];
+    let open!: () => void;
+    const held = new Promise<void>((r) => (open = r));
+    const impl = (async (url: string | URL, init?: RequestInit) => {
+      const headers = (init?.headers ?? {}) as Record<string, string>;
+      calls.push({ url: String(url), cookie: headers.Cookie });
+      const n = calls.length;
+      await held;
+      const a = answer(String(url), n);
+      if (a === "network error") throw new TypeError("fetch failed");
+      return new Response(a.body, { status: a.status, headers: { "content-type": a.type ?? "application/json" } });
+    }) as typeof fetch;
+    return { impl, calls, release: () => open() };
+  }
+
+  it("overlapping requests for the same cache key share one live fetch and one cache write; each gets its own response object", async () => {
+    vi.useFakeTimers({ now: T0 });
+    const f = heldFetch();
+    const cache = new MemoryCache();
+    const writes = vi.spyOn(cache, "set");
+    const http = createHttpClient({ fetchImpl: f.impl, cache });
+    const opts = { cache: { key: "sleeper:week-5", ttlMs: HOUR } };
+    const a = http.get("https://example.invalid/w5", opts);
+    const b = http.get("https://example.invalid/w5", opts);
+    const c = http.get("https://example.invalid/w5", { ...opts, cache: { ...opts.cache, ttlMs: MINUTE } }); // a Refresh: joins too (nothing is cached yet)
+    await vi.advanceTimersByTimeAsync(0);
+    f.release();
+    const [ra, rb, rc] = await settle(Promise.all([a, b, c]));
+    expect(f.calls).toHaveLength(1);
+    expect(writes).toHaveBeenCalledTimes(1);
+    for (const r of [ra, rb, rc]) expect(r).toMatchObject({ status: 200, json: { v: 1 }, fromCache: false });
+    expect(new Set([ra, rb, rc].map((r) => r.fetchedAt)).size).toBe(1);
+    expect(new Set([ra, rb, rc]).size).toBe(3);
+    // Settled: the entry is gone, and a later request reads the cache as usual.
+    expect(await settle(http.get("https://example.invalid/w5", opts))).toMatchObject({ fromCache: true, json: { v: 1 } });
+    expect(f.calls).toHaveLength(1);
+  });
+
+  it("different cache keys, requests without a cache key (they may carry cookies), and a client without a cache never share", async () => {
+    vi.useFakeTimers({ now: T0 });
+    const keyed = heldFetch();
+    const http = createHttpClient({ fetchImpl: keyed.impl, cache: new MemoryCache() });
+    const both = Promise.all([http.get("https://example.invalid/x", { cache: { key: "x", ttlMs: HOUR } }), http.get("https://example.invalid/x", { cache: { key: "y", ttlMs: HOUR } })]);
+    keyed.release();
+    await settle(both);
+    expect(keyed.calls).toHaveLength(2);
+
+    const unkeyed = heldFetch();
+    const plain = createHttpClient({ fetchImpl: unkeyed.impl, cache: new MemoryCache() });
+    const private2 = Promise.all([plain.get("https://example.invalid/p", { cookie: "espn_s2=a; SWID={1}" }), plain.get("https://example.invalid/p", { cookie: "espn_s2=b; SWID={2}" })]);
+    unkeyed.release();
+    await settle(private2);
+    expect(unkeyed.calls.map((c) => c.cookie)).toEqual(["espn_s2=a; SWID={1}", "espn_s2=b; SWID={2}"]);
+
+    const noCache = heldFetch();
+    const bare = createHttpClient({ fetchImpl: noCache.impl });
+    const two = Promise.all([bare.get("https://example.invalid/n", { cache: { key: "n", ttlMs: HOUR } }), bare.get("https://example.invalid/n", { cache: { key: "n", ttlMs: HOUR } })]);
+    noCache.release();
+    await settle(two);
+    expect(noCache.calls).toHaveLength(2);
+  });
+
+  it("the body's parsing (bigIntsAsStrings) and transformText presence keep separate flights", async () => {
+    vi.useFakeTimers({ now: T0 });
+    const f = heldFetch(() => ({ status: 200, body: '[{"id":1234567890123456789}]' }));
+    const http = createHttpClient({ fetchImpl: f.impl, cache: new MemoryCache() });
+    const key = { cache: { key: "ids", ttlMs: HOUR } };
+    const all = Promise.all([
+      http.get("https://example.invalid/ids", { ...key, bigIntsAsStrings: true }),
+      http.get("https://example.invalid/ids", { ...key, bigIntsAsStrings: true }),
+      http.get("https://example.invalid/ids", key),
+      http.get("https://example.invalid/ids", { ...key, transformText: (t) => t }),
+    ]);
+    f.release();
+    const [exact, exact2, plainJson, transformed] = await settle(all);
+    expect(f.calls).toHaveLength(3);
+    expect(exact.json).toEqual([{ id: "1234567890123456789" }]);
+    expect(exact2.json).toEqual([{ id: "1234567890123456789" }]);
+    expect(plainJson.json).toEqual([{ id: 1234567890123456789 }]);
+    expect(transformed.status).toBe(200);
+  });
+
+  it("a failure is shared, the entry is cleared, and a later request fetches again", async () => {
+    vi.useFakeTimers({ now: T0 });
+    const f = heldFetch((_, attempt) => (attempt === 1 ? { status: 503, body: "" } : { status: 200, body: '{"v":2}' }));
+    const cache = new MemoryCache();
+    const http = createHttpClient({ fetchImpl: f.impl, cache });
+    const opts = { cache: { key: "flaky", ttlMs: HOUR }, maxRetries: 0 };
+    const pair = Promise.all([http.get("https://example.invalid/f", opts), http.get("https://example.invalid/f", opts)]);
+    f.release();
+    const [a, b] = await settle(pair);
+    expect(f.calls).toHaveLength(1);
+    expect([a.status, b.status]).toEqual([503, 503]);
+    expect(cache.keys()).toEqual([]);
+    const later = await settle(http.get("https://example.invalid/f", opts));
+    expect(later).toMatchObject({ status: 200, json: { v: 2 }, fromCache: false });
+    expect(f.calls).toHaveLength(2);
+    expect(cache.keys()).toEqual(["flaky"]);
+  });
+
+  it("a live fetch that throws (a transformText bug) rejects every caller and clears the entry", async () => {
+    vi.useFakeTimers({ now: T0 });
+    const f = heldFetch();
+    const http = createHttpClient({ fetchImpl: f.impl, cache: new MemoryCache() });
+    let broken = true;
+    const opts = {
+      cache: { key: "tx", ttlMs: HOUR },
+      transformText: (t: string) => {
+        if (broken) throw new Error("bug");
+        return t;
+      },
+    };
+    const pair = Promise.allSettled([http.get("https://example.invalid/t", opts), http.get("https://example.invalid/t", opts)]);
+    f.release();
+    expect((await settle(pair)).map((r) => r.status)).toEqual(["rejected", "rejected"]);
+    broken = false;
+    expect(await settle(http.get("https://example.invalid/t", opts))).toMatchObject({ status: 200, json: { v: 1 } });
+    expect(f.calls).toHaveLength(2);
+  });
+
+  it("each request reads the cache first with its own TTL: a Refresh (1 minute) goes live while a normal request is served the copy", async () => {
+    vi.useFakeTimers({ now: T0 });
+    const f = heldFetch(() => ({ status: 200, body: '{"v":"new"}' }));
+    const cache = new MemoryCache();
+    await cache.set("league", { status: 200, contentType: "application/json", text: '{"v":"old"}', fetchedAt: T0 - 5 * MINUTE }, 10 * MINUTE, T0 - 5 * MINUTE);
+    const http = createHttpClient({ fetchImpl: f.impl, cache });
+    const normal = http.get("https://example.invalid/l", { cache: { key: "league", ttlMs: 10 * MINUTE } });
+    const refresh = http.get("https://example.invalid/l", { cache: { key: "league", ttlMs: MINUTE, retainMs: 10 * MINUTE } });
+    const refresh2 = http.get("https://example.invalid/l", { cache: { key: "league", ttlMs: MINUTE, retainMs: 10 * MINUTE } });
+    f.release();
+    const [n, r, r2] = await settle(Promise.all([normal, refresh, refresh2]));
+    expect(n).toMatchObject({ fromCache: true, json: { v: "old" } });
+    expect(r).toMatchObject({ fromCache: false, json: { v: "new" } });
+    expect(r2).toMatchObject({ fromCache: false, json: { v: "new" } });
+    expect(f.calls).toHaveLength(1);
+  });
+
+  it("staleIfError and cacheIf are each caller's own: a joiner is judged by its cacheIf on its own copy", async () => {
+    vi.useFakeTimers({ now: T0 });
+    const f = heldFetch(() => ({ status: 200, body: '{"v":"bad"}' }));
+    const cache = new MemoryCache();
+    await cache.set("src", { status: 200, contentType: "application/json", text: '{"v":"good"}', fetchedAt: T0 - HOUR }, 7 * 24 * HOUR, T0 - HOUR);
+    const http = createHttpClient({ fetchImpl: f.impl, cache });
+    const seen: { who: string; res: object }[] = [];
+    const picky = (who: string) => (res: { json: unknown }) => (seen.push({ who, res }), (res.json as { v?: string }).v !== "bad");
+    const lenient = (who: string) => (res: { json: unknown }) => (seen.push({ who, res }), true);
+    const base = { key: "src", ttlMs: MINUTE, retainMs: 7 * 24 * HOUR };
+    const starter = http.get("https://example.invalid/s", { cache: { ...base, staleIfError: true }, cacheIf: picky("starter") });
+    const withFallback = http.get("https://example.invalid/s", { cache: { ...base, staleIfError: true }, cacheIf: picky("joiner-1") });
+    const withoutFallback = http.get("https://example.invalid/s", { cache: base, cacheIf: picky("joiner-2") });
+    const accepting = http.get("https://example.invalid/s", { cache: { ...base, staleIfError: true }, cacheIf: lenient("joiner-3") });
+    f.release();
+    const [s, j1, j2, j3] = await settle(Promise.all([starter, withFallback, withoutFallback, accepting]));
+    expect(f.calls).toHaveLength(1);
+    expect(s).toMatchObject({ stale: true, json: { v: "good" } }); // rejected by its cacheIf: the retained copy stands in
+    expect(j1).toMatchObject({ stale: true, json: { v: "good" } });
+    expect(j2).toMatchObject({ json: { v: "bad" }, fromCache: false }); // no fallback asked for
+    expect(j3).toMatchObject({ json: { v: "bad" }, fromCache: false }); // its own cacheIf accepts the body
+    // The rejected body was never cached (the starter's cacheIf decides the write).
+    expect((await cache.get<{ text: string }>("src", Number.POSITIVE_INFINITY))?.value.text).toBe('{"v":"good"}');
+    // Each cacheIf saw one object, the one its caller got back (so a caller that memoizes its check by object doesn't run it twice).
+    expect(seen.map((x) => x.who)).toEqual(["starter", "joiner-1", "joiner-2", "joiner-3"]);
+    expect(new Set(seen.map((x) => x.res)).size).toBe(4);
+    expect(seen[2]?.res).toBe(j2);
+    expect(seen[3]?.res).toBe(j3);
+  });
+});
+
 describe("HTML detection (review HTTP-6)", () => {
   const get = async (body: string, type: string) => {
     const f = fakeFetch([{ status: 200, body, type }]);

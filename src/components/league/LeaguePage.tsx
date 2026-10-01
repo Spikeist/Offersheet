@@ -7,7 +7,9 @@
  * model (src/lib/leagueView.ts). It owns the page's requests (the inputs, Refresh), the worker, and
  * what the page keeps in sessionStorage.
  *
- * States: loading (reading storage), fetching inputs, computing, error (with Try again), ready.
+ * States: loading (reading storage), fetching inputs, computing, error (with Try again), ready. With no
+ * import it can read, a card says so, or that Offer Sheet was updated when the tab holds an import saved by
+ * an earlier version (NoImportCard), with a link to the Connect page.
  * After a Refresh or a team change, the previous numbers stay on screen, dimmed, until the new ones
  * are ready. Requests and computations are tagged with what they were for (league, league data,
  * inputs build, team, attempt), so a late answer for an older tag is ignored. React state is only
@@ -26,17 +28,20 @@
  */
 import Link from "next/link";
 import { useEffect, useEffectEvent, useMemo, useRef, useState, type Ref } from "react";
+import { config } from "@/engine/config";
 import type { ModelInputs } from "@/engine/inputs";
 import type { LeagueModel } from "@/engine/leagueModel";
 import type { LeagueSnapshot } from "@/engine/model";
 import { callApi, isApiError, isModelResponse, type ModelResponse } from "@/lib/api";
 import { EngineError, createEngineClient, type EngineClient } from "@/lib/engineClient";
+import { fmtWhole } from "@/lib/format";
 import { refreshOutcomeText } from "@/lib/importReport";
-import { IMPORT_STORAGE_KEY, myTeamKey, parseMyTeamPick, parseStoredImport, type StoredImport } from "@/lib/importStore";
+import { IMPORT_STORAGE_KEY, myTeamKey, parseMyTeamPick, readStoredImport, type StoredImport } from "@/lib/importStore";
 import { buildLeagueView, type LeagueView as LeagueViewModel } from "@/lib/leagueView";
 import { MODEL_STORAGE_KEY, keepModelResponse, modelForSnapshot, modelKey, modelRequest, parseStoredModel, withImportedTeam } from "@/lib/modelStore";
 import { resolveMyTeam, type MyTeamSource } from "@/lib/myTeam";
 import { browserSessionStorage, notifySessionChange, useSessionValue } from "@/lib/useSessionValue";
+import { NoImportCard } from "../NoImportCard";
 import type { RefreshControl } from "../import/ReportView";
 import { revealResult } from "../reveal";
 import { Callout, Card, FOCUS_TARGET, Spinner, buttonClass, cx } from "../ui";
@@ -54,7 +59,7 @@ const WAIT_TEXT: Record<LeagueWait, string> = {
 const WAIT_NOTE: Record<LeagueWait, string | null> = {
   loading: null,
   fetching: "Projections, stats and trade values for every player in the league. The first load of the day can take half a minute.",
-  computing: "Projections, lineups and values for every team. This runs in your browser and takes a few seconds.",
+  computing: `Projections, lineups and values for every team, and ${fmtWhole(config.simulation.finalSims)} simulated seasons for the playoff odds. This runs in your browser and takes a few seconds.`,
 };
 
 export const UPDATING_TEXT = "Updating the numbers…";
@@ -129,20 +134,18 @@ export function LeagueFrame({ state, leagueName, statusRef }: { state: LeagueFra
 
 export function LeaguePage() {
   const raw = useSessionValue(IMPORT_STORAGE_KEY);
-  const stored = useMemo(() => (raw === undefined ? undefined : (parseStoredImport(raw) ?? null)), [raw]);
+  const read = useMemo(() => (raw === undefined ? undefined : readStoredImport(raw)), [raw]);
 
-  if (stored === undefined) return <LeagueFrame state={{ kind: "loading" }} />;
-  if (stored === null) {
+  if (read === undefined) return <LeagueFrame state={{ kind: "loading" }} />;
+  if (read.kind !== "ok") {
     return (
-      <Card className="mx-auto max-w-xl text-center">
-        <h1 className="text-2xl font-black tracking-tight">No league imported yet</h1>
-        <p className="mt-2 text-muted">Connect your ESPN or Sleeper league to see every team&apos;s projected strength, needs and trade partners. Imports stay in this browser tab only.</p>
-        <Link href="/connect" className={`${buttonClass("primary")} mt-5`}>
-          Connect your league
-        </Link>
-      </Card>
+      <NoImportCard
+        outdated={read.kind === "outdated"}
+        text="Connect your ESPN or Sleeper league to see every team's projected strength, needs and trade partners. Imports stay in this browser tab only."
+      />
     );
   }
+  const stored = read.stored;
   const snapshot = stored.response.snapshot;
   if (!modelRequest(stored)) {
     return (

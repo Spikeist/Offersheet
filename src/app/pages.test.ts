@@ -34,7 +34,7 @@ describe("home page", () => {
 
   it("says what's available today, the League page included, and lists Fantrax (public leagues) as Later", () => {
     expect(text).toContain(
-      "Available now: connect an ESPN or Sleeper league, check what Offer Sheet understood about it, and see every team's needs, surplus and rest-of-season projections on the League page. Trade ideas are coming soon.",
+      "Available now: connect an ESPN or Sleeper league, check what Offer Sheet understood about it, and see every team's playoff and title odds, needs, trade chips and rest-of-season projections on the League page. Trade ideas are coming soon.",
     );
     expect(text).toMatch(/Fantrax Public leagues only\. Later/);
   });
@@ -49,7 +49,8 @@ describe("privacy page", () => {
 
   it("says what the League page keeps and sends: projections in session storage, scored on the server, math in the browser, only the format to FantasyCalc", () => {
     expect(text).toContain("Your imported league, and the League page's projections for it, live in this browser tab and are gone when you close it.");
-    expect(text).toContain("Our server fetches the data and scores each player's projections with your league's rules. The League page's math (lineups, needs, trade partners) runs in your browser.");
+    expect(text).toContain("Our server fetches the data and scores each player's projections with your league's rules. The League page's math (lineups, needs, trade partners, playoff odds) runs in your browser.");
+    expect(text).toContain("The League page's math (lineups, needs, trade partners, playoff odds) runs in your browser; your league isn't sent to anyone else to be analyzed.");
     expect(text).toContain("and scores the projections with your league's scoring rules.");
     expect(text).toContain("under “offersheet:model:v1”, for the league you imported");
     expect(text).toContain("The FantasyCalc request carries only your league's format");

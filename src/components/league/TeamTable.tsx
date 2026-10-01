@@ -1,8 +1,11 @@
 /**
  * The League page's team table (CLAUDE.md §14 item 3): teams ranked by projected points per week,
- * with record, points for, rest-of-season points, and needs and surplus chips (§7). On phones the
- * chips sit under the team name and PF / ROS pts are hidden, so nothing scrolls sideways at 375 px.
- * The note under it says which weeks the numbers count (from the next week while one is in progress).
+ * with record, points for, rest-of-season points, and need and trade-chip chips (§7; the "Surplus"
+ * chips became "Trade chips" at Checkpoint 2). On phones the chips sit under the team name (a long
+ * chip wraps inside itself) and PF / ROS pts are hidden, so nothing scrolls sideways at 375 px. Team
+ * names and chips (which name a team) wrap anywhere if they must (wrap-anywhere: unlike break-words, it
+ * lets a long one-word team name shrink the column's minimum width). The note under it says which weeks
+ * the numbers count (from the next week while one is in progress).
  */
 import type { Chip, LeagueView } from "@/lib/leagueView";
 import { Badge, Card, CardTitle, cx } from "../ui";
@@ -11,13 +14,13 @@ import { ValuesCredit } from "./ValuesCredit";
 const CHIP_CLASS: Record<Chip["kind"], string> = {
   "need-ros": "border border-warn-line bg-warn-bg text-warn-fg",
   "need-next": "border border-dashed border-warn-line text-warn-fg",
-  surplus: "border border-transparent bg-brand-soft text-brand-strong dark:text-brand",
+  chip: "border border-transparent bg-brand-soft text-brand-strong dark:text-brand",
 };
 
 /** One chip: short visible text, the full detail on hover and for screen readers. */
 export function ChipTag({ chip }: { chip: Chip }) {
   return (
-    <span title={chip.title} className={cx("inline-block max-w-full rounded-full px-2 py-0.5 text-xs font-bold break-words", CHIP_CLASS[chip.kind])}>
+    <span title={chip.title} className={cx("inline-block max-w-full rounded-full px-2 py-0.5 text-xs font-bold wrap-anywhere", CHIP_CLASS[chip.kind])}>
       <span aria-hidden>{chip.text}</span>
       <span className="sr-only">{chip.title}</span>
     </span>
@@ -55,7 +58,7 @@ export function TeamTable({ view }: { view: LeagueView }) {
       {/* relative: keeps the chips' screen-reader text inside this scroller, not widening the page. */}
       <div className="relative -mx-4 overflow-x-auto sm:mx-0">
         <table className="w-full min-w-[18rem] text-sm">
-          <caption className="sr-only">Teams ranked by projected points per week, with each team&apos;s needs and surplus players</caption>
+          <caption className="sr-only">Teams ranked by projected points per week, with each team&apos;s needs and trade chips</caption>
           <thead>
             <tr className="border-b border-line text-left text-xs text-muted">
               <th scope="col" className="py-2 pr-2 pl-4 font-bold sm:pl-0">
@@ -83,11 +86,11 @@ export function TeamTable({ view }: { view: LeagueView }) {
               <tr key={t.id} className={t.isMine ? "bg-brand-soft" : undefined}>
                 <td className="py-2.5 pr-2 pl-4 align-top font-bold text-muted tabular-nums sm:pl-0">{t.rank}</td>
                 <th scope="row" className="py-2.5 pr-3 text-left align-top font-normal">
-                  <span className="block font-bold break-words">
+                  <span className="block font-bold wrap-anywhere">
                     {t.name} {t.isMine ? <Badge tone="brand">You</Badge> : null}
                   </span>
                   <ChipLine label="Needs" chips={t.needs} />
-                  <ChipLine label="Surplus" chips={t.surplus} />
+                  <ChipLine label="Trade chips" chips={t.chips} />
                 </th>
                 <td className="py-2.5 pr-3 text-right align-top font-semibold whitespace-nowrap tabular-nums">{t.record}</td>
                 <td className="hidden py-2.5 pr-3 text-right align-top tabular-nums sm:table-cell">{t.pointsFor}</td>
@@ -101,10 +104,10 @@ export function TeamTable({ view }: { view: LeagueView }) {
       <ul className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-muted" aria-label="Chip key">
         <LegendItem kind="need-ros" sample="RB2" text="need, rest of season" />
         <LegendItem kind="need-next" sample="RB2" text={`need, ${nextLabel} only`} />
-        <LegendItem kind="surplus" sample="J. Doe" text="surplus: valuable, but his team would barely miss him" />
+        <LegendItem kind="chip" sample="J. Doe: +12" text={view.chipLegend} />
       </ul>
       <p className="mt-2 text-xs text-muted">
-        {view.teamsNote} Playoff odds arrive in the next update. <ValuesCredit />
+        {view.teamsNote} <ValuesCredit />
       </p>
     </Card>
   );

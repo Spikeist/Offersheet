@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { normalizeSleeperLeague } from "@/adapters/sleeper/normalize";
+import { fakeResolver, loadTestLeague, rawOf, type TestLeague } from "@/adapters/sleeper/test-helpers";
 import type { ModelInputs, PlayerInputs } from "@/engine/inputs";
 import { fantasyCalcFormat } from "@/engine/market";
 import type { LeagueSettings, LeagueSnapshot, PlayerInfo, Scoring, Team } from "@/engine/model";
@@ -293,6 +295,8 @@ describe("buildImportReport: lineup, season and trades", () => {
     });
     expect(v.season.seeding).toMatch(/^Not reported/);
     expect(v.season.rounds).toBeUndefined();
+    // No tiebreaker in the snapshot (e.g. one stored before Phase 3): the simulator's points for.
+    expect(v.season.tiebreaker).toBe("Unknown (points for assumed)");
 
     const v2 = buildImportReport(
       response(
@@ -300,6 +304,7 @@ describe("buildImportReport: lineup, season and trades", () => {
           playoffByes: 2,
           playoffRoundWeeks: [1, 2],
           playoffSeeding: { reseed: true, divisionWinnersFirst: true },
+          seedingTiebreaker: "headToHead",
           divisions: [
             { id: "a", teamIds: ["1", "2"] },
             { id: "b", teamIds: ["3", "4"] },
@@ -311,11 +316,26 @@ describe("buildImportReport: lineup, season and trades", () => {
     expect(v2.season.byes).toBe("2 byes for the top seeds");
     expect(v2.season.rounds).toBe("Rounds last 1, 2 weeks");
     expect(v2.season.seeding).toBe("Re-seeded after each round; division winners are seeded first");
+    expect(v2.season.tiebreaker).toBe("Head-to-head record");
     expect(v2.season.divisions).toEqual([
       { name: "Division 1", teams: ["Moonbeam Mudcats", "Gravel Gophers"] },
       { name: "Division 2", teams: ["Quasar Quokkas", "Tundra Tortoises"] },
     ]);
     expect(v2.teams.rows.find((r) => r.id === "3")?.division).toBe("Division 2");
+  });
+
+  it("names how ties in the standings are broken (§8): the league's own tiebreaker, else unknown with points for assumed", () => {
+    const tiebreaker = (extra: Partial<LeagueSettings>) => buildImportReport(response(snapshot({}, extra)), { timeZone: TZ }).season.tiebreaker;
+    expect(tiebreaker({ seedingTiebreaker: "pointsFor" })).toBe("Points for");
+    expect(tiebreaker({ seedingTiebreaker: "headToHead" })).toBe("Head-to-head record");
+    expect(tiebreaker({ seedingTiebreaker: "divisionRecord" })).toBe("Division record");
+    // A rule the platform doesn't report (ESPN: missing or UNKNOWN) or one we don't model: unknown.
+    expect(tiebreaker({ unknownSettings: ["seedingTiebreaker"] })).toBe("Unknown (points for assumed)");
+    const v = buildImportReport(response(snapshot({}, { unknownSettings: ["seedingTiebreaker"] })), { timeZone: TZ });
+    expect(v.unknown).toEqual(["seedingTiebreaker"]);
+    // Not a trade or playoff setting: those tiles stay as they are.
+    expect(v.glance.find((t) => t.id === "deadline")?.tone).toBe("normal");
+    expect(v.glance.find((t) => t.id === "playoffs")?.tone).toBe("normal");
   });
 
   it("describes the trade deadline, review and FAAB", () => {
@@ -398,18 +418,32 @@ describe("buildImportReport: teams and my team", () => {
 });
 
 describe("buildImportReport: settings the platform doesn't expose", () => {
-  const unknownAll = snapshot({}, { unknownSettings: ["tradeDeadline", "tradeReview", "playoffs", "playoffSeeding"], tradeDeadline: null });
+  const unknownAll = snapshot({}, { unknownSettings: ["seedingTiebreaker", "tradeDeadline", "tradeReview", "playoffs", "playoffSeeding"], tradeDeadline: null, seedingTiebreaker: "pointsFor" });
 
   it("shows them as unknown, in the warn tone, instead of a guess such as 'No trade deadline'", () => {
     const v = buildImportReport(response(unknownAll), { timeZone: TZ });
-    expect(v.unknown).toEqual(["tradeDeadline", "tradeReview", "playoffs", "playoffSeeding"]);
+    expect(v.unknown).toEqual(["tradeDeadline", "tradeReview", "playoffs", "playoffSeeding", "seedingTiebreaker"]);
+    // unknownSettings wins over a tiebreaker value next to it (never shown as a fact).
+    expect(v.season.tiebreaker).toBe("Unknown (points for assumed)");
     expect(v.trades.deadline).toBe(UNKNOWN_SETTING_TEXT);
     expect(v.trades.review).toBe(UNKNOWN_SETTING_TEXT);
     expect(JSON.stringify(v)).not.toContain("No trade deadline");
     expect(v.glance.find((t) => t.id === "deadline")).toMatchObject({ value: "Unknown", detail: "Review unknown — check your league's settings", tone: "warn" });
     expect(v.glance.find((t) => t.id === "playoffs")).toMatchObject({ value: "Unknown", detail: "Check your league's settings", tone: "warn" });
     expect(v.season).toMatchObject({ playoffs: UNKNOWN_SETTING_TEXT, playoffTeamsText: UNKNOWN_SETTING_TEXT, byes: UNKNOWN_SETTING_TEXT });
-    expect(v.season.seeding).toBe("Unknown — check your league's settings. We'll assume standard seeding: wins, then points for.");
+    expect(v.season.seeding).toBe("Unknown — check your league's settings. We'll assume standard seeding: a fixed bracket (no re-seeding), seeded by record.");
+  });
+
+  it("keeps the assumed seeding free of a tiebreaker, so it can't contradict the league's own (ESPN: re-seeding unknown, H2H_RECORD)", () => {
+    const season = (extra: Partial<LeagueSettings>) => buildImportReport(response(snapshot({}, extra)), { timeZone: TZ }).season;
+    // What ESPN's normalizer gives for playoffReseed missing and playoffSeedingRule H2H_RECORD.
+    const h2h = season({ unknownSettings: ["playoffSeeding"], seedingTiebreaker: "headToHead" });
+    expect(h2h.seeding).toBe("Unknown — check your league's settings. We'll assume standard seeding: a fixed bracket (no re-seeding), seeded by record.");
+    expect(h2h.tiebreaker).toBe("Head-to-head record");
+    expect(h2h.seeding).not.toMatch(/points for/i);
+    // Not reported at all (Sleeper without playoff_seed_type), and a points-only league (seeded by points).
+    expect(season({ seedingTiebreaker: "divisionRecord" }).seeding).toBe("Not reported by the platform. We'll assume standard seeding: a fixed bracket (no re-seeding), seeded by record.");
+    expect(season({ pointsOnly: true, unknownSettings: ["playoffSeeding"] }).seeding).toBe("Unknown — check your league's settings. We'll assume standard seeding: a fixed bracket (no re-seeding), seeded by points for.");
   });
 
   it("marks only the unknown ones", () => {
@@ -493,7 +527,23 @@ describe("buildImportReport: players, schedule, activity, notes and timestamps",
   });
 
   it("summarizes the schedule and this week's matchup", () => {
-    expect(v.schedule).toEqual({ matchups: 26, weeks: "Weeks 1–13", missingRegularWeeks: [14], thisWeek: "Week 4: vs Quasar Quokkas" });
+    expect(v.schedule).toEqual({ matchups: 26, weeks: "Weeks 1–13", missingRegularWeeks: [14], thisWeek: "Week 4: vs Quasar Quokkas", results: "None yet" });
+  });
+
+  it("names the weeks with final scores, and counts every week of a multi-week matchup (ESPN periods)", () => {
+    const decided = (week: number, a: string, b: string) => ({ week, teamA: a, teamB: b, isPlayoff: false, result: { pointsA: 101.5, pointsB: 99, winnerId: a } });
+    const schedule: LeagueSnapshot["schedule"] = [
+      decided(1, "1", "2"),
+      decided(1, "3", "4"),
+      decided(2, "1", "3"),
+      decided(2, "2", "4"),
+      // Week 3 isn't final yet; weeks 3–4 are one matchup period, listed once in week 3.
+      { week: 3, teamA: "1", teamB: "4", isPlayoff: false, weeks: [3, 4] },
+      { week: 3, teamA: "2", teamB: "3", isPlayoff: false, weeks: [3, 4] },
+      ...[5, 6, 7, 8, 9, 10, 11, 12, 13, 14].map((w) => ({ week: w, teamA: "1", teamB: "2", isPlayoff: false })),
+    ];
+    const v = buildImportReport(response(snapshot({ schedule })), { timeZone: TZ });
+    expect(v.schedule).toEqual({ matchups: 16, weeks: "Weeks 1–14", missingRegularWeeks: [], thisWeek: "Week 4: vs Tundra Tortoises (weeks 3 + 4)", results: "Weeks 1–2" });
   });
 
   it("counts trades, players added and dropped (an add/drop pair counts both; a waiver claim is an add), and traded picks", () => {
@@ -592,5 +642,80 @@ describe("buildImportReport: the League page's projection source (§6)", () => {
     expect(notesFor(inputs({ "9001": { sleeper: {}, actual: { 3: 12 } } }, { espnProjections: false }))[0]).toBe("Projections didn't load from Sleeper, so players are rated on their season so far.");
     expect(notesFor(inputs({ "9001": { sleeper: {}, sleeperSeasonPerGame: 11, actual: {} } }, { espnProjections: false }))[0]).toBe("Projection source: Sleeper's season projections per game, scored with your league's rules (its weekly projections didn't load).");
     expect(notesFor(inputs({ "9001": { sleeper: { 4: 20 }, espn: { 4: 21 }, actual: {} } }, { currentWeek: 18, lastWeek: 17 }))).toEqual([]);
+  });
+});
+
+describe("buildImportReport: a Sleeper league as its adapter reads it (§8; Sleeper's help center, lead decision D4)", () => {
+  const NOW = new Date("2026-09-29T18:00:00Z");
+  /** The Import Report of the minimized public test league (no network), after `edit` changes its raw data. */
+  const sleeperReport = (edit: (t: TestLeague) => void = () => {}) => {
+    const t = loadTestLeague();
+    edit(t);
+    return buildImportReport(normalizeSleeperLeague(rawOf(t), { now: NOW, resolver: fakeResolver(t.players) }), { timeZone: TZ });
+  };
+  /** `count` divisions (and, when given, a `playoffTeams`-team playoff; the test league's is 6). */
+  const withDivisions = (count: number, playoffTeams?: number) => (t: TestLeague) => {
+    t.league.settings.divisions = count;
+    if (playoffTeams !== undefined) t.league.settings.playoff_teams = playoffTeams;
+    t.rosters.forEach((r) => (r.settings.division = ((r.roster_id - 1) % count) + 1));
+  };
+
+  it("shows Sleeper's documented tiebreaker as a fact, with the note that a commissioner can seed by hand", () => {
+    const v = sleeperReport();
+    expect(v.season.tiebreaker).toBe("Points for");
+    expect(v.unknown).toEqual([]);
+    expect(v.notes).toContain(
+      "Ties in the standings: more points for, then more points against (Sleeper's default tiebreakers, from its help center). A commissioner can also set the playoff seeds by hand, which Sleeper's API doesn't show; Offer Sheet seeds by the standings.",
+    );
+    expect(v.warnings).toEqual([]);
+  });
+
+  it("seeds division winners first: a note where Sleeper documents it (4 divisions; 2 in a 6-team playoff), a warning where it's inferred (3 divisions; 2 in a 4-team playoff)", () => {
+    const documented = [
+      { v: sleeperReport(withDivisions(2)), note: "Playoff seeding: the 2 division winners take the top seeds, then the other teams by the standings (Sleeper's help center says so for 6-team playoffs with 2 divisions)." },
+      { v: sleeperReport(withDivisions(4)), note: "Playoff seeding: the 4 division winners take the top seeds, then the other teams by the standings (Sleeper's help center says so for leagues with 4 divisions)." },
+    ];
+    for (const { v, note } of documented) {
+      expect(v.season.seeding).toBe("Re-seeded after each round; division winners are seeded first");
+      expect(v.notes).toContain(note);
+      expect(v.warnings).toEqual([]);
+      expect(v.glance.find((g) => g.id === "warnings")?.tone).toBe("normal");
+    }
+    for (const v of [sleeperReport(withDivisions(3)), sleeperReport(withDivisions(2, 4))]) {
+      // Still seeded that way (Sleeper documents that every division winner makes the playoffs), but ⚠️.
+      expect(v.season.seeding).toBe("Re-seeded after each round; division winners are seeded first");
+      expect(v.notes.some((n) => n.startsWith("Playoff seeding:"))).toBe(false);
+      expect(v.warnings).toEqual([expect.objectContaining({ code: "SETTING_INFERRED", platformPath: "settings.divisions" })]);
+      expect(v.glance.find((g) => g.id === "warnings")?.tone).toBe("warn");
+      expect(v.season.tiebreaker).toBe("Points for");
+    }
+  });
+
+  it("calls the fixed bracket assumed when the league doesn't give its seed type, after the division winners when they're seeded first (as the season simulation reads it: final gate, reviews ADAPT-1, ADAPT-3)", () => {
+    const seedType = (code: number | undefined) => (t: TestLeague) => {
+      if (code === undefined) delete t.league.settings.playoff_seed_type;
+      else t.league.settings.playoff_seed_type = code;
+    };
+    const both = (...edits: ((t: TestLeague) => void)[]) => (t: TestLeague) => edits.forEach((e) => e(t));
+    const divided = sleeperReport(both(withDivisions(2), seedType(undefined)));
+    expect(divided.season.seeding).toBe("Not reported by the platform. We'll assume standard seeding: a fixed bracket (no re-seeding), the division winners seeded first, then the other teams by record.");
+    expect(sleeperReport(seedType(undefined)).season.seeding).toBe("Not reported by the platform. We'll assume standard seeding: a fixed bracket (no re-seeding), seeded by record.");
+    expect(sleeperReport(seedType(4)).season.seeding).toBe("Reported with a code we don't know. We'll assume standard seeding: a fixed bracket (no re-seeding), seeded by record.");
+    expect(sleeperReport(both(withDivisions(2), seedType(0))).season.seeding).toBe("Fixed bracket (no re-seeding); division winners are seeded first");
+    // ESPN with 2 divisions and no playoffReseed: re-seeding unknown, division winners first (ESPN's documented rule).
+    const espnLike = buildImportReport(
+      response(
+        snapshot({}, {
+          unknownSettings: ["playoffSeeding"],
+          playoffSeeding: { reseed: false, divisionWinnersFirst: true },
+          divisions: [
+            { id: "a", teamIds: ["1", "2"] },
+            { id: "b", teamIds: ["3", "4"] },
+          ],
+        }),
+      ),
+      { timeZone: TZ },
+    );
+    expect(espnLike.season.seeding).toBe("Unknown — check your league's settings. We'll assume standard seeding: a fixed bracket (no re-seeding), the division winners seeded first, then the other teams by record.");
   });
 });

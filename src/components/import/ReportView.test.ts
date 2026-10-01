@@ -117,6 +117,15 @@ describe("ReportView", () => {
     expect(html).not.toContain("No trade deadline");
   });
 
+  it("says how ties in the standings are broken, in the warn tone when unknown, and which weeks have final scores (§8)", () => {
+    const known = render({ snapshot: snapshot({ schedule: [{ week: 1, teamA: "1", teamB: "3", isPlayoff: false, result: { pointsA: 101.5, pointsB: 99, winnerId: "1" } }] }, { seedingTiebreaker: "pointsFor" }), notes: [] });
+    expect(known).toMatch(/<dt[^>]*>Ties in the standings<\/dt><dd class="(?![^"]*text-warn-fg)[^"]*">Points for<\/dd>/);
+    expect(known).toMatch(/<dt[^>]*>Final scores<\/dt><dd[^>]*>Week 1<\/dd>/);
+    const unknown = render({ snapshot: snapshot({}, { unknownSettings: ["seedingTiebreaker"] }), notes: [] });
+    expect(unknown).toMatch(/<dt[^>]*>Ties in the standings<\/dt><dd class="[^"]*text-warn-fg[^"]*">Unknown \(points for assumed\)<\/dd>/);
+    expect(unknown).toMatch(/<dt[^>]*>Final scores<\/dt><dd[^>]*>None yet<\/dd>/);
+  });
+
   it("lists a per-unit rate on a sum of stats with the other rates", () => {
     const html = render({ snapshot: snapshot(), notes: [] });
     expect(html).toMatch(/<td[^>]*>Field goals made \(0–39 yds\)<\/td><td[^>]*>3<\/td>/);

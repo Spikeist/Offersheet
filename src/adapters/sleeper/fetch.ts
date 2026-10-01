@@ -7,9 +7,11 @@
  *   the choices, unless chooseLeagueId picks one. With a league ID the username is optional (it only
  *   finds the user's team): a user Sleeper doesn't know becomes a warning, and the user picks a team.
  * - League data is public (anyone with the ID can read it), so it is cached by URL: served for 10
- *   minutes (1 minute after Refresh) and kept 10 minutes either way; projections for 6 hours (§2.10),
- *   never an empty list. The 15 MB players DB is never fetched here: player facts come from
- *   deps.resolver, and injury status and NFL team from the projection rows (fresher).
+ *   minutes (1 minute after Refresh) and kept 10 minutes either way; projections per NFL week
+ *   (projectionsPolicy: served 6 hours for the current week and the next 2, 24 for later weeks, and
+ *   kept 24 hours either way, §2.10), never an empty list. The 15 MB players DB is never fetched
+ *   here: player facts come from deps.resolver, and injury status and NFL team from the projection
+ *   rows (fresher).
  * - Projections: this NFL week and the next two (FREE_AGENT_RANK_WEEKS, capped at week 18), so a
  *   free agent on bye or out this week still ranks by the weeks he's projected to play.
  * - Every body is parsed with bigIntsAsStrings: Sleeper sends a few 19-digit IDs as bare numbers.
@@ -21,7 +23,7 @@ import { LeagueImportError, type HttpClient, type HttpResponse, type ImportDeps,
 import { POSITIONS, type ImportWarning, type Pos } from "@/engine/model";
 import { parseSleeperLeagueInput } from "@/lib/sleeperInput";
 import { config } from "@/engine/config";
-import { TTL, leagueTtl } from "@/server/cache";
+import { PROJECTIONS_NEAR_WEEKS, TTL, leagueTtl } from "@/server/cache";
 import { LAST_NFL_WEEK, SLOT_ELIGIBLE, assertSupported, type SleeperRawLeague } from "./normalize";
 import { LeagueListItemSchema, LeagueSchema, StateSchema, UserSchema, num, parseArrayOrThrow, parseOrThrow } from "./schemas";
 
@@ -132,13 +134,44 @@ export const CLOSED_WEEK_POLICY: CachePolicy = { ttlMs: TTL.closedTransactions, 
 /** User lookups: cached like league data, but not league data themselves. */
 const userPolicy = (refresh?: boolean): CachePolicy => ({ ...leaguePolicy(refresh), league: false });
 
-/** Public projections: 6 hours (§2.10); an empty list (not posted yet) isn't cached. */
+/**
+ * Public projections and stats: served and kept 6 hours (§2.10); an empty list (not posted yet) isn't
+ * cached. Season projections and stats always use this; weekly projections use projectionsPolicy.
+ */
 export const PROJECTIONS_POLICY: CachePolicy = {
   ttlMs: TTL.projections,
   retainMs: TTL.projections,
   league: false,
   cacheIf: (res) => Array.isArray(res.json) && res.json.length > 0,
 };
+
+/**
+ * How long every copy of a week's projections is kept, whichever policy stored it: the longest TTL a
+ * request for it uses. Whether a week is near or later depends on the current week of the build that
+ * asks, and builds can disagree (an ESPN league's scoring period and Sleeper's NFL week around the
+ * weekly rollover), so one URL is asked for under both policies, and a cache hit or a single-flight
+ * join serves a copy another request stored. One retention per URL keeps "how long the cache holds
+ * this copy" a fact about the copy, which the Sleeper gate relies on during an outage
+ * (src/data/sleeperProjections.ts). Like Refresh for league data, a week's nearness shortens how old a
+ * copy may be served, not how long it's kept (public data: within the privacy page's "up to a week").
+ */
+const WEEKLY_PROJECTIONS_RETAIN_MS = TTL.projectionsLater;
+
+/** Weekly projections of past weeks, the current NFL week and the next PROJECTIONS_NEAR_WEEKS: served 6 hours, kept 24 (§2.10). */
+export const NEAR_PROJECTIONS_POLICY: CachePolicy = { ...PROJECTIONS_POLICY, retainMs: WEEKLY_PROJECTIONS_RETAIN_MS };
+
+/** Weekly projections of later NFL weeks: served and kept 24 hours, same rule for empty lists (§2.10, Checkpoint 2). */
+export const LATER_PROJECTIONS_POLICY: CachePolicy = { ...PROJECTIONS_POLICY, ttlMs: TTL.projectionsLater, retainMs: WEEKLY_PROJECTIONS_RETAIN_MS };
+
+/**
+ * How one NFL week's weekly projections are cached (§2.10; each week is its own cache entry, one URL per
+ * week): the current NFL week, the next PROJECTIONS_NEAR_WEEKS and past weeks refresh every 6 hours
+ * (NEAR_PROJECTIONS_POLICY), later weeks every 24 hours (LATER_PROJECTIONS_POLICY). Every copy is kept
+ * 24 hours either way (WEEKLY_PROJECTIONS_RETAIN_MS).
+ */
+export function projectionsPolicy(week: number, currentWeek: number): CachePolicy {
+  return week <= currentWeek + PROJECTIONS_NEAR_WEEKS ? NEAR_PROJECTIONS_POLICY : LATER_PROJECTIONS_POLICY;
+}
 
 interface Getter {
   required(url: string, what: string, notFound: ImportErrorCode, notFoundMessage: string, policy?: CachePolicy): Promise<unknown>;
@@ -300,7 +333,7 @@ export async function fetchSleeperLeague(req: SleeperImportRequest, deps: Pick<I
     Promise.all(legs.map((l) => g.optional(sleeperUrls.transactions(id, l), `transactions/${l}`, "TRANSACTIONS_MISSING", policyFor(l)))),
     g.optional(sleeperUrls.tradedPicks(id), "traded_picks", "TRADED_PICKS_MISSING"),
     g.optional(sleeperUrls.drafts(id), "drafts", "DRAFTS_MISSING"),
-    Promise.all(projectionWeeks.map((w) => g.optional(sleeperUrls.projections(season, w, positions), `projections/${w}`, "PROJECTIONS_UNREADABLE", PROJECTIONS_POLICY))),
+    Promise.all(projectionWeeks.map((w) => g.optional(sleeperUrls.projections(season, w, positions), `projections/${w}`, "PROJECTIONS_UNREADABLE", projectionsPolicy(w, projectionWeek ?? w)))),
   ]);
 
   const matchups: Record<number, unknown> = {};

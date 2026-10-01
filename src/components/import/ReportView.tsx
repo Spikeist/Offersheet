@@ -315,6 +315,7 @@ function SeasonCard({ view }: ViewProps) {
           { label: "Byes", value: s.byes, tone: playoffsTone },
           ...(s.rounds ? [{ label: "Round lengths", value: s.rounds }] : []),
           { label: "Seeding", value: s.seeding, tone: toneFor(view, "playoffSeeding") },
+          { label: "Ties in the standings", value: s.tiebreaker, tone: toneFor(view, "seedingTiebreaker") },
           { label: "Game vs the league median", value: s.medianGame ? "Yes, an extra win or loss each week" : "No" },
           { label: "Points-only league", value: s.pointsOnly ? "Yes (no head-to-head)" : "No, head-to-head" },
           ...(s.divisions.length
@@ -334,6 +335,7 @@ function SeasonCard({ view }: ViewProps) {
               ]
             : []),
           { label: "Matchups loaded", value: `${view.schedule.matchups} (${view.schedule.weeks})` },
+          { label: "Final scores", value: view.schedule.results },
         ]}
       />
       {view.schedule.missingRegularWeeks.length ? (

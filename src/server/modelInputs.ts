@@ -8,7 +8,11 @@
  * buildModelInputs loads, ONE request at a time through the shared, polite, cached HttpClient (§0.9):
  *   1. the NFL schedule (ESPN proTeamSchedules_wl: byes, kickoffs and the NFL's last week; cached 7 days),
  *   2. Sleeper's weekly projections, from lookbackWeeks before the current week (an injured player's
- *      most recent healthy projection, §6 step 1) through the last fantasy week (cached 6 hours),
+ *      most recent healthy projection, §6 step 1) through the last fantasy week (each week its own cache
+ *      entry: 6 hours through two weeks after the current one, 24 hours for later weeks, §2.10). Every
+ *      week read before its first kickoff (the schedule of step 1) also goes to the pre-game projection
+ *      archive (§2.3, src/server/projectionArchive.ts; local disk only, in the background; when the
+ *      schedule failed, only weeks after the current one count as before kickoff),
  *   3. Sleeper's season projections (§6's last-resort base rate; 6 hours),
  *   4. Sleeper's stats for the completed weeks (6 hours),
  *   5. FantasyCalc values in the league's format (keeper leagues: the dynasty and the redraft list,
@@ -61,6 +65,7 @@ import {
   SLEEPER_DOWN,
   sleeperGate,
   type SleeperLoadMeta,
+  type SleeperProjectionWeek,
   type SleeperSeasonProjectionsLoad,
   type SleeperStatsLoad,
   type SleeperWeeklyProjectionsLoad,
@@ -73,6 +78,7 @@ import { POSITIONS, type ImportWarning, type LeagueSettings, type LeagueSnapshot
 import { actualPoints, expectedPoints, playedGame } from "@/engine/scoring";
 import { redactSecrets } from "@/lib/errors";
 import { defaultSeason } from "@/lib/season";
+import { defaultProjectionArchiver, firstKickoffOf, type ProjectionArchiver } from "./projectionArchive";
 
 /** Source names on the League page (InputSourceStamp.source). */
 export const MODEL_SOURCES = {
@@ -460,6 +466,12 @@ export interface BuildModelInputsArgs {
   now: Date;
   /** ESPN leagues: ESPN's league-scored projections (importEspnLeagueForModel). */
   espn?: EspnProjections;
+  /**
+   * Where weeks fetched before their first kickoff are archived (§2.3 "Pre-game snapshots"). Absent: the
+   * process's own archive when it has a local disk (defaultProjectionArchiver: off in production, on
+   * Vercel and under Vitest); null: none. Tests pass their own.
+   */
+  projectionArchive?: ProjectionArchiver | null;
 }
 
 /**
@@ -585,7 +597,17 @@ export async function buildModelInputs(args: BuildModelInputsArgs): Promise<Mode
     // One gate for all of this build's Sleeper requests: once Sleeper stops answering, the rest isn't asked.
     const sleeper = sleeperGate(http, now);
     if (plan.projectionWeeks.length) {
-      weekly = await loadSleeper({ what: "weekly projections", code: "SLEEPER_PROJECTIONS_UNAVAILABLE", path: "projections" }, () => loadSleeperWeeklyProjections(sleeper, season, plan.projectionWeeks, positions), warnings);
+      const archive = args.projectionArchive === undefined ? defaultProjectionArchiver() : args.projectionArchive;
+      const currentWeek = snapshot.currentWeek;
+      // The archive works in the background: the build doesn't wait for it (its promise never rejects; caught anyway).
+      const onWeek = archive
+        ? (w: SleeperProjectionWeek) => void Promise.resolve(archive.archive({ ...w, currentWeek, firstKickoff: firstKickoffOf(schedule, w.week) })).catch(() => {})
+        : undefined;
+      weekly = await loadSleeper(
+        { what: "weekly projections", code: "SLEEPER_PROJECTIONS_UNAVAILABLE", path: "projections" },
+        () => loadSleeperWeeklyProjections(sleeper, season, plan.projectionWeeks, positions, { currentWeek, ...(onWeek ? { onWeek } : {}) }),
+        warnings,
+      );
     }
     seasonLoad = await loadSleeper({ what: "season projections", code: "SEASON_PROJECTIONS_UNAVAILABLE", path: "projections/season" }, () => loadSleeperSeasonProjections(sleeper, season, positions), warnings);
     if (plan.statsWeeks.length) {

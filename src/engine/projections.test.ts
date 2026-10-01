@@ -6,8 +6,10 @@ import {
   baseRateSourceCounts,
   espnSleeperAgreement,
   latestHealthyProjection,
+  priorHealthyBaseRate,
   projectPlayer,
   rosSummary,
+  staleReturnCheck,
   weekShape,
   weeklySd,
   type ProjectionConfig,
@@ -198,6 +200,105 @@ describe("baseRate (§6 step 1)", () => {
     const blended = baseRate(player({ 4: 1 }, { actual: flat(range(1, 6), -20) }), { currentWeek: 4, weeks: [4], espnAveraged: false });
     expect(blended).toMatchObject({ b: 0, actualPpg: -20, alpha: 0.25, source: "sleeper" });
     expect(baseRate(player({}, { actual: { 3: -1 } }), { currentWeek: 4, weeks, espnAveraged: false })).toMatchObject({ b: 0, actualPpg: -1, source: "actual" });
+  });
+});
+
+describe("priorHealthyBaseRate (§6 step 3 'Conflicting ESPN signals': the healthy base rate, step 1's as if he weren't projected this week)", () => {
+  const c = { currentWeek: 4, weeks: [4, 5, 6], espnAveraged: false };
+
+  it("is step 1's base rate with proj_now taken from the latest healthy week BEFORE this week, the same α blend, and this week out of the shape's mean", () => {
+    // Questionable this week: Sleeper cut him to 6. Healthy before: 18, 20, 19 (week 3). The shape's mean leaves the cut
+    // out: (20 + 22) / 2 = 21, not (6 + 20 + 22) / 3 = 16, which would divide week 3 by 1.1875 and pull H down to 16.5.
+    const q = player({ 1: 18, 2: 20, 3: 19, 4: 6, 5: 20, 6: 22 }, { actual: { 1: 21, 2: 17, 3: 22 } });
+    const prior = priorHealthyBaseRate(q, c);
+    const mPrior = 19 / 21;
+    expect(prior).toMatchObject({ projNow: 19, projWeek: 3, alpha: 0.125, games: 3, actualPpg: 20, source: "sleeper" });
+    expect(prior.mNow).toBeCloseTo(mPrior, 12);
+    expect(prior.b).toBeCloseTo(0.875 * (19 / mPrior) + 0.125 * 20, 12); // 20.875
+    // Step 1's own base rate takes this week's reduced 6 (the week he's questionable), with the cut in the mean.
+    expect(baseRate(q, c)).toMatchObject({ projNow: 6, projWeek: 4 });
+    expect(weekShape(q, c.weeks).get(3)).toBeCloseTo(19 / 16, 12);
+    // H doesn't move with this week's number, whatever Sleeper says: it is what S_now is compared with.
+    for (const now of [null, 0.5, 6, 18, 30]) expect(priorHealthyBaseRate({ ...q, sleeper: { ...q.sleeper, 4: now } }, c).b, `now ${now}`).toBeCloseTo(prior.b, 12);
+  });
+
+  it("averages ESPN's value for that same week when the sources are averaged", () => {
+    const q = player({ 3: 20, 4: 5 }, { espn: { 3: 22, 4: 4 } });
+    expect(priorHealthyBaseRate(q, { ...c, weeks: [4], espnAveraged: true })).toMatchObject({ projNow: 21, projWeek: 3, source: "espn+sleeper" });
+    expect(priorHealthyBaseRate(q, { ...c, weeks: [4] })).toMatchObject({ projNow: 20, source: "sleeper" });
+  });
+
+  it("hurt all season so far: his nearest later healthy week, not the season line ÷ 17, which counts the games he's expected to miss (Josh Jacobs)", () => {
+    // Josh Jacobs's live inputs (rebuilt offline, league points): stubs in weeks 1–7 (his week-4 line is a stub too),
+    // 10.28 from week 8, a bye in week 11; Sleeper's season line is 127.9 half-PPR points, 7.52 a game.
+    const weeks = range(4, 17);
+    const jacobs = player({ ...flat(range(1, 7), 0), 8: 10.28, 9: 9.65, 10: 8.14, 11: null, 12: 10.1, 13: 8.57, 14: 10.78, 15: 10.8, 16: 10.65, 17: 9.49 }, { sleeperSeasonPerGame: 7.52 });
+    const h = priorHealthyBaseRate(jacobs, { currentWeek: 4, weeks, espnAveraged: true });
+    expect(h).toMatchObject({ projNow: 10.28, projWeek: 8, source: "sleeper" });
+    // The same as step 1's own base rate, which uses week 8 as well: the note's healthy rate is the rate he's projected at.
+    expect(h.b).toBeCloseTo(baseRate(jacobs, { currentWeek: 4, weeks, espnAveraged: true }).b, 12);
+    expect(h.b).toBeGreaterThan(9.5);
+    // A later Sleeper week comes before ESPN's week and the season line, as in step 1.
+    expect(priorHealthyBaseRate(player({ 3: null, 4: 15, 5: 16 }, { espn: { 3: 12 }, sleeperSeasonPerGame: 13.5 }), c)).toMatchObject({ projNow: 16, projWeek: 5, source: "sleeper" });
+  });
+
+  it("never looks at this week: falls back to ESPN's other weeks, Sleeper's season line, then points per game, then nothing", () => {
+    expect(priorHealthyBaseRate(player({ 3: null, 4: 15 }, { espn: { 3: 12, 4: 14 } }), c)).toMatchObject({ projNow: 12, projWeek: 3, source: "espn" });
+    expect(priorHealthyBaseRate(player({ 3: null, 4: 15 }, { espn: { 3: null, 4: 15 }, sleeperSeasonPerGame: 13.5 }), c)).toMatchObject({ projNow: 13.5, projWeek: null, source: "season" });
+    expect(priorHealthyBaseRate(player({ 3: 0, 4: 15 }, { actual: { 1: 11, 2: 9 } }), c)).toMatchObject({ b: 10, source: "actual" });
+    expect(priorHealthyBaseRate(player({ 4: 15 }), c)).toMatchObject({ b: 0, source: "none" });
+    // Step 1's base rate would use this week's 15.
+    expect(baseRate(player({ 4: 15 }), c)).toMatchObject({ projNow: 15, projWeek: 4 });
+    // The inputs themselves aren't touched.
+    const inputs = player({ 3: 20, 4: 6 }, { espn: { 4: 5 } });
+    priorHealthyBaseRate(inputs, c);
+    expect(inputs).toEqual(player({ 3: 20, 4: 6 }, { espn: { 4: 5 } }));
+  });
+});
+
+describe("staleReturnCheck (§6 step 3: Sleeper breaks the tie between ESPN's tag and its return date)", () => {
+  const c = { currentWeek: 4, weeks: [4, 5, 6], espnAveraged: false };
+  /** Healthy before: 20 a week, flat, so H = 20 exactly (no games played). */
+  const withNow = (now: number | null) => player({ 1: 20, 2: 20, 3: 20, 4: now, 5: 20, 6: 20 });
+
+  it("is stale when Sleeper projects him this week at staleReturnShare (50%) of his healthy base rate or more", () => {
+    expect(config.projections.staleReturnShare).toBe(0.5);
+    // Healthy before: 20 (week 3), and 20 in the weeks after: H = 20 whatever this week says (it's left out of the shape's mean).
+    const q = withNow(18);
+    expect(priorHealthyBaseRate(q, c).b).toBe(20);
+    expect(staleReturnCheck(q, c)).toEqual({ sleeperNow: 18, healthyRate: 20, stale: true });
+    expect(staleReturnCheck(withNow(4), c)).toEqual({ sleeperNow: 4, healthyRate: 20, stale: false });
+  });
+
+  it("the boundary: S_now exactly 50% of H is stale, a hair below isn't", () => {
+    // H = 20: week 3's 20 against the later weeks' mean of 20 (this week's number isn't in it).
+    const at = (now: number) => player({ 3: 20, 4: now, 5: 20, 6: 20 });
+    expect(priorHealthyBaseRate(at(10), c).b).toBe(20);
+    expect(staleReturnCheck(at(10), c)).toEqual({ sleeperNow: 10, healthyRate: 20, stale: true });
+    expect(staleReturnCheck(at(9.99), c).stale).toBe(false);
+  });
+
+  it("a stub or 0 this week is never stale (follow the date); without a healthy base rate nothing is stale; the share comes from config", () => {
+    expect(staleReturnCheck(withNow(null), c)).toMatchObject({ sleeperNow: null, stale: false });
+    expect(staleReturnCheck(withNow(0), c)).toMatchObject({ sleeperNow: null, stale: false });
+    // A week that didn't load (no key) is the same to the check: no tiebreaker (league.ts says why in the note).
+    expect(staleReturnCheck(player({ 1: 20, 2: 20, 3: 20, 5: 20, 6: 20 }), c)).toEqual({ sleeperNow: null, healthyRate: 20, stale: false });
+    expect(staleReturnCheck(player({ 4: 12 }), c)).toEqual({ sleeperNow: 12, healthyRate: null, stale: false });
+    // H = 20: 90% of it is 18.
+    const at = (now: number) => player({ 3: 20, 4: now, 5: 20, 6: 20 });
+    const strict: ProjectionConfig = { ...config.projections, staleReturnShare: 0.9 };
+    expect(staleReturnCheck(at(15), c, strict).stale).toBe(false);
+    expect(staleReturnCheck(at(18), c, strict).stale).toBe(true);
+  });
+
+  it("the 50% bar is half his healthy rate, not half of a rate this week's own cut pulled down (review AVAIL-1/2)", () => {
+    // Healthy 15 before and after; this week 7.2 (48% of 15). With the cut in the shape's mean (12.4), week 3's shape was
+    // 1.2 and H 12.5, whose half 7.2 cleared.
+    const q = player({ 1: 15, 2: 15, 3: 15, 4: 7.2, 5: 15, 6: 15 });
+    expect(staleReturnCheck(q, c)).toEqual({ sleeperNow: 7.2, healthyRate: 15, stale: false });
+    // Hurt all season (no healthy week before this one): H is his healthy weekly rate once back, not the season line ÷ 17.
+    const late = player({ 1: null, 2: null, 3: null, 4: 4, 5: 10, 6: 10 }, { sleeperSeasonPerGame: 7.5 });
+    expect(staleReturnCheck(late, c)).toEqual({ sleeperNow: 4, healthyRate: 10, stale: false }); // 4 < 5; against 7.5 ÷ 2 it was stale
   });
 });
 
