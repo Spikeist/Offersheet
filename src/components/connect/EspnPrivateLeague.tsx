@@ -105,7 +105,7 @@ export function EspnPrivateLeague({
                 ? "ESPN turned down the cookies saved in this session. Forget them, then paste fresh ones."
                 : "Your ESPN cookies are saved for this browser session only."}
             </p>
-            <button type="button" onClick={onForget} className={buttonClass("danger", "sm")}>
+            <button type="button" onClick={onForget} className={cx(buttonClass("danger", "sm"), "min-h-11")}>
               Forget my credentials
             </button>
           </div>

@@ -205,9 +205,10 @@ describe("LeagueView standings and playoff odds (§8; §17 Checkpoint 3)", () =>
     // …and the Trade partners card offers none, saying why (no "Pick your team" link: a team is picked).
     const partners = between(over, "Best fits for your team", 'id="rosters-title"');
     expect(textOf(partners)).toContain(SEASON_OVER_PARTNERS_TEXT);
-    expect(partners).not.toContain("They could give:");
+    expect(partners).not.toContain("Best target:");
+    expect(partners).not.toContain("could give:");
     expect(partners).not.toContain('href="/import#your-team"');
-    expect(between(out, "Best fits for your team", 'id="rosters-title"')).toContain("They could give:");
+    expect(between(out, "Best fits for your team", 'id="rosters-title"')).toContain("They could also give:");
   });
 
   it("lists how the odds were made under the table", () => {
@@ -228,18 +229,22 @@ describe("LeagueView standings and playoff odds (§8; §17 Checkpoint 3)", () =>
     // overflow-wrap: anywhere (wrap-anywhere) lets a table column shrink below a long word; break-words (overflow-wrap:
     // break-word) doesn't count toward a cell's minimum width, so such a name widened its column and pushed Title off-screen.
     const long = "GridironGladiatorsOfDoom";
+    // Team 3 streams D/ST: the streaming card names it.
+    const long3 = "QuasarQuokkasOfTheOuterRim";
     const f = leagueFixture();
-    f.snapshot = { ...f.snapshot, teams: f.snapshot.teams.map((t) => (t.id === "2" ? { ...t, name: long } : t)) };
+    f.snapshot = { ...f.snapshot, teams: f.snapshot.teams.map((t) => (t.id === "2" ? { ...t, name: long } : t.id === "3" ? { ...t, name: long3 } : t)) };
     const page = renderFixture(f);
     expect(standingsOf(page)).toContain(`<span class="block font-bold wrap-anywhere">${long}</span>`);
     expect(scheduleOf(page)).toContain(`<span class="block font-bold wrap-anywhere">${long}</span>`);
     const teams = between(page, "Projected strength", "Positional strength");
     expect(teams).toContain(`<span class="block font-bold wrap-anywhere">${long} </span>`);
     // A trade chip names the team it would help.
-    expect(teams).toMatch(new RegExp(`<span title="[^"]*" class="inline-block max-w-full rounded-full [^"]*wrap-anywhere[^"]*"><span aria-hidden="true">W\\. Spoons: worth \\+15 to ${long}</span>`));
+    expect(teams).toMatch(new RegExp(`<span title="[^"]*" class="inline-block max-w-full rounded-full [^"]*wrap-anywhere[^"]*"><span aria-hidden="true">W\\. Spoons: worth \\+15 to ${long} · costs you 0\\.3 pts/wk</span>`));
     // A partner card's heading is a flex item: it needs min-w-0 to shrink below the name, or the card widens the page.
     expect(between(page, "Best fits for your team", 'id="rosters-title"')).toContain(`<h3 class="min-w-0 font-extrabold wrap-anywhere">${long}</h3>`);
     expect(between(page, ">Playoff odds<", 'id="rosters-title"')).not.toMatch(new RegExp(`break-words[^>]*>[^<]*${long}`));
+    // The streaming card's list of teams that stream is a paragraph that wraps anywhere too.
+    expect(between(page, "Streaming picks this week", 'id="rosters-title"')).toMatch(new RegExp(`<p class="[^"]*wrap-anywhere[^"]*">Other teams that stream [^<]*${long3} \\(D/ST, 3 adds\\)\\.</p>`));
   });
 });
 
@@ -312,12 +317,21 @@ describe("LeagueView team table", () => {
   it("gives every chip its full meaning for screen readers, trade chips under their own label ('Surplus' is gone)", () => {
     expect(html).toContain('<span class="sr-only">Need at RB1 (rest of season): 11.8 pts/wk vs the league median 14</span>');
     const w = config.lineups.playoffWeight;
+    // A bench chip: his gap and what he costs his team a week (Checkpoint 3 answer 3), the title saying both in full.
     expect(html).toContain(
-      `<span aria-hidden="true">C. Snoot: worth +31 to you</span><span class="sr-only">Cornelius Snoot (RB): worth 31.2 more lineup pts (playoffs count ${w}×) to Moonbeam Mudcats (your team) than to his own team. Moonbeam Mudcats (your team) would gain 35.2 with him (after its best free-agent move); his team would lose 4 without him.</span>`,
+      `<span aria-hidden="true">C. Snoot: worth +31 to you · costs his team 0.7 pts/wk</span><span class="sr-only">Cornelius Snoot (RB): worth 31.2 more lineup pts (playoffs count ${w}×) to Moonbeam Mudcats (your team) than to his own team. Moonbeam Mudcats (your team) would gain 35.2 with him (after its free-agent pickups); his team would lose 4 without him, 0.7 a week.</span>`,
     );
+    // A starter: a visible "starter" tag inside the chip (hidden from screen readers, whose text says it in words).
+    expect(html).toMatch(
+      /<span aria-hidden="true">I\. Fumblewick: worth \+18 to Tundra Tortoises · costs his team 1\.6 pts\/wk<span class="[^"]*uppercase[^"]*">starter<\/span><\/span><span class="sr-only">Ignatius Fumblewick \(RB\): [^<]*his team would lose 9 without him, 1\.6 a week\. He starts for his team\.<\/span>/,
+    );
+    expect(html.match(/>starter<\/span>/g)).toHaveLength(2 + 2 + 1 + 1); // team 2's two starters shown, team 3's two, team 4's, and the key's sample
     expect(html).toMatch(/title="Need at WR \(next 4 weeks\)[^"]*" class="[^"]*border-dashed/);
-    expect(text).toContain("Trade chips C. Snoot: worth +31 to you");
+    expect(text).toContain("Trade chips C. Snoot: worth +31 to you · costs his team 0.7 pts/wk");
+    expect(text).toContain("W. Spoons: worth +15 to Gravel Gophers · costs you 0.3 pts/wk");
     expect(text).toContain("trade chip: worth at least 10 more lineup pts to another team than to his own");
+    // The key explains the tag, in words for screen readers too.
+    expect(html).toMatch(/<span class="sr-only">starter tag: <\/span>he starts for his own team<\/li>/);
     expect(text).not.toMatch(/surplus/i);
   });
 
@@ -358,18 +372,120 @@ describe("LeagueView heatmap", () => {
 });
 
 describe("LeagueView trade partners", () => {
-  it("shows each side's trade chips, the rest counted (named on hover and for screen readers)", () => {
-    expect(text).toContain(
-      "Gravel Gophers Fit 2.4 They could give: C. Snoot (+2.1/wk), I. Fumblewick (+1.2/wk), M. Gloop (+0.8/wk) and 1 more and 1 more: P. Plunk (+0.5/wk) You could give: W. Spoons (+1.8/wk)",
+  const partners = between(html, "Best fits for your team", 'id="rosters-title"');
+  /** One partner card's visible text, from its team's name up to its "Trade ideas" link. */
+  const cardText = (markup: string, team: string) => textOf(between(markup, `>${team}<`, "Trade ideas").slice(1)).trim();
+
+  it("leads each card with who to aim for, then each side's other trade chips (planner addendum to Checkpoint 3, §2)", () => {
+    expect(textOf(partners)).toContain(
+      "Gravel Gophers Fit 2.4 Best target: C. Snoot, +2.1/wk Bigger upgrade, harder to get: M. Gloop, +2.5/wk They could also give: I. Fumblewick (+1.2/wk), P. Plunk (+0.5/wk), P. Wobbleton (+0.4/wk) Harder to get You could give: W. Spoons (+1.8/wk)",
     );
-    expect(html).toContain(
-      '<span title="Percival Plunk: +0.5 points per week to the other lineup" class="text-muted"> <span aria-hidden="true">and 1 more</span><span class="sr-only">and 1 more: P. Plunk (+0.5/wk)</span></span>',
+    // Each lead line says on hover what he'd add to my lineup (and why he's harder to get).
+    // The name and the number each stay on one line (a hyphenated name broke at 375 px).
+    expect(partners).toContain(
+      '<p class="mt-1.5 text-sm leading-relaxed" title="Cornelius Snoot: +2.1 points per week to your lineup."><span class="font-semibold text-muted">Best target:</span> <span class="font-bold"><span class="whitespace-nowrap">C. Snoot,</span> <span class="whitespace-nowrap">+2.1/wk</span></span></p>',
+    );
+    expect(partners).toMatch(
+      /<p [^>]*title="Mortimer Gloop: \+2\.5 points per week to your lineup\. Harder to get: [^"]*"><span class="font-semibold text-muted">Bigger upgrade, harder to get:<\/span> <span class="font-bold"><span class="whitespace-nowrap">M\. Gloop,<\/span> <span class="whitespace-nowrap">\+2\.5\/wk<\/span><\/span><\/p>/,
     );
     // A one-sided fit is badged by what was measured, and says plainly what it would cost.
-    expect(text).toContain("Tundra Tortoises Would start for you They could give: O. Wren (+1.6/wk) You could give: no trade chip that would start for them, so a trade would likely cost you a starter.");
+    expect(text).toContain("Tundra Tortoises Would start for you Best target: O. Wren, +1.6/wk You could give: no trade chip that would start for them, so a trade would likely cost you a starter.");
+    // No empty "They could also give:" line when the targets are all of them.
+    expect(textOf(between(partners, ">Tundra Tortoises<", "Trade ideas"))).not.toContain("They could");
+    // Under the floor (config.needs.bestTargetMin, lead decision N12) and untagged, Mop leads nothing: he's simply listed.
+    expect(cardText(partners, "Quasar Quokkas")).toBe("Quasar Quokkas Fit 1.1 They could give: L. Mop (+0.9/wk) You could give: W. Spoons (+1.3/wk)");
     expect(text).not.toContain("Fills your needs");
-    expect(text).toContain("Points per week are what each trade chip would add to the other team's starting lineup, after that team's best free-agent move.");
+    expect(text).toContain("Points per week are what each trade chip would add to the other team's starting lineup, after that team's free-agent pickups.");
     expect(text).toContain("teams with a trade chip who would start for you, when none of yours would start for them, come last.");
+    expect(text).toContain(
+      "come last. “Best target” is the most helpful of their trade chips for you without the “Harder to get” mark, as long as he adds at least 1 point a week; when none does, a marked one who'd help you more leads instead, if he adds at least that much too. A marked player is one of their best, so expect their manager to want a little extra for him. “Trade ideas” opens the Trade Finder",
+    );
+  });
+
+  it("leads with the tagged one alone, as 'Best target, harder to get', when no untagged one adds the floor (lead decision N12)", () => {
+    // The review's Team 1 card in Parker's league: an untagged +0.1/wk next to a tagged +7.2/wk (made-up names here).
+    const f = leagueFixture();
+    f.model.partners = f.model.partners.map((p) =>
+      p.teamId === "2"
+        ? {
+            ...p,
+            theyCanGive: [
+              { playerId: "202", ppw: 7.2 },
+              { playerId: "204", ppw: 0.1 },
+            ],
+          }
+        : p,
+    );
+    const page = between(renderFixture(f), "Best fits for your team", 'id="rosters-title"');
+    expect(cardText(page, "Gravel Gophers")).toBe("Gravel Gophers Fit 2.4 Best target, harder to get: M. Gloop, +7.2/wk They could also give: C. Snoot (+0.1/wk) You could give: W. Spoons (+1.8/wk)");
+    const card = between(page, ">Gravel Gophers<", "Trade ideas");
+    expect(card).toMatch(
+      /<p [^>]*title="Mortimer Gloop: \+7\.2 points per week to your lineup\. Harder to get: [^"]*"><span class="font-semibold text-muted">Best target, harder to get:<\/span> <span class="font-bold"><span class="whitespace-nowrap">M\. Gloop,<\/span> <span class="whitespace-nowrap">\+7\.2\/wk<\/span><\/span><\/p>/,
+    );
+    expect(card).not.toContain("Bigger upgrade");
+  });
+
+  it("marks their harder-to-get players in the list in words (a gold pill, why on hover), never mine", () => {
+    expect(partners).toMatch(
+      /<span title="Pip Wobbleton: \+0\.4 points per week to the other lineup\. Harder to get: [^"]*">, P\. Wobbleton \(\+0\.4\/wk\)<span title="Harder to get: his team&#x27;s second most valuable player[^"]*" class="ml-1"><span class="[^"]*bg-accent text-navy[^"]*">Harder to get<\/span><\/span><\/span>/,
+    );
+    expect(textOf(between(partners, "You could give:", "Trade ideas"))).not.toContain("Harder to get");
+  });
+
+  it("names the rest counted on hover and for screen readers, saying which are harder to get", () => {
+    const f = leagueFixture();
+    f.model.partners = f.model.partners.map((p) =>
+      p.teamId === "2"
+        ? {
+            ...p,
+            theyCanGive: [
+              { playerId: "204", ppw: 2.1 },
+              { playerId: "203", ppw: 1.2 },
+              { playerId: "205", ppw: 0.5 },
+              { playerId: "206", ppw: 0.46 },
+              { playerId: "201", ppw: 0.4 },
+            ],
+          }
+        : p,
+    );
+    const more = between(renderFixture(f), "Best fits for your team", 'id="rosters-title"');
+    expect(textOf(more)).toContain("Gravel Gophers Fit 2.4 Best target: C. Snoot, +2.1/wk They could also give: I. Fumblewick (+1.2/wk), P. Plunk (+0.5/wk), R. Wimbleton (+0.5/wk) and 1 more");
+    expect(more).toMatch(/<span title="Pip Wobbleton: [^"]*" class="text-muted"> <span aria-hidden="true">and 1 more<\/span><span class="sr-only">and 1 more: P\. Wobbleton \(\+0\.4\/wk, harder to get\)<\/span><\/span>/);
+  });
+});
+
+describe("LeagueView 'Harder to get' (planner addendum to Checkpoint 3, §2)", () => {
+  const PILL = '<span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-bold whitespace-nowrap bg-accent text-navy align-middle">Harder to get</span>';
+
+  it("puts a gold 'Harder to get' pill on another team's player's position line, inside his button (part of its name), why on hover", () => {
+    expect(html).toMatch(
+      new RegExp(
+        `<span class="font-bold break-words">Mortimer Gloop</span></span><span class="block pl-4 text-xs text-muted">RB · DET · bye done<span title="Harder to get: his team&#x27;s most valuable player and one of the top 12 players by trade value, so his manager will likely want a little extra for him\\." class="ml-1">${PILL.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&")}</span></span><span class="sr-only">, week by week</span></button>`,
+      ),
+    );
+    // Team 2's and 3's and 4's two each; none on my roster or among the free agents.
+    const rosters = between(html, 'id="rosters-title"', "Best available");
+    expect(rosters.match(/>Harder to get<\/span>/g)).toHaveLength(6);
+    expect(between(rosters, "Moonbeam Mudcats", "Gravel Gophers")).not.toContain("Harder to get");
+    expect(between(html, "Best available", "How these numbers work")).not.toContain("Harder to get");
+  });
+
+  it("tags another team's trade chip in the table with a gold pill after 'starter', and adds it to the key only when one shows", () => {
+    const teams = between(html, "Projected strength", "Positional strength");
+    expect(teams).toMatch(
+      /<span aria-hidden="true">O\. Kettleburn: worth \+12 to Tundra Tortoises · costs his team 5\.2 pts\/wk<span class="[^"]*bg-brand text-brand-contrast[^"]*">starter<\/span><span class="[^"]*bg-accent text-navy[^"]*">Harder to get<\/span><\/span><span class="sr-only">[^<]*He starts for his team\. Harder to get: his team&#x27;s second most valuable player[^<]*<\/span>/,
+    );
+    expect(teams).toMatch(/<span class="sr-only">Harder to get tag: <\/span>his manager will likely want a little extra for him<\/li>/);
+    const f = leagueFixture();
+    f.model.teams = f.model.teams.map((t) => ({ ...t, premiums: undefined }));
+    const none = renderFixture(f);
+    expect(none).not.toContain(">Harder to get</span>");
+    expect(none).not.toContain("bg-accent text-navy");
+    expect(none).not.toContain("Harder to get tag");
+  });
+
+  it("explains it in 'How these numbers work'", () => {
+    expect(text).toContain("Harder to get Managers value their own best players a bit above their trade value.");
   });
 });
 
@@ -380,29 +496,36 @@ describe("LeagueView rosters", () => {
     expect(html.match(/<details/g)).toHaveLength(5); // 4 rosters + how these numbers work
   });
 
-  it("heads each roster with the team's best free-agent move in lineup points, highlighted for mine, in its header so it shows while collapsed", () => {
+  it("heads each roster with its free-agent pickups (how many, what they add), highlighted for mine, so they show while collapsed, and lists them in its body", () => {
     const summaries = [...html.matchAll(/<summary[^>]*>(.*?)<\/summary>/g)].map((m) => m[1] ?? "");
     const mine = summaries.find((s) => s.includes("Moonbeam Mudcats")) ?? "";
     const w = config.lineups.playoffWeight;
     expect(mine).toMatch(
       new RegExp(
-        `<span class="mt-2 block rounded-lg bg-brand-soft [^"]*break-words[^"]*"><span class="font-bold">Best free-agent move:</span> add Floopy Freeman \\(RB, CAR\\), drop Tobias Thimble: <span class="whitespace-nowrap tabular-nums font-extrabold">\\+4\\.6 lineup pts</span> \\(playoffs count ${w}×\\)</span>`,
+        `<span title="Free-agent pickups that would help: add Floopy Freeman \\(RB, CAR\\), drop Tobias Thimble: \\+3\\.9 lineup pts \\(playoffs count ${w}×\\)" class="mt-2 block rounded-lg bg-brand-soft [^"]*break-words[^"]*"><span class="font-bold">Free-agent pickups that would help:</span> <span class="whitespace-nowrap tabular-nums font-extrabold">1, \\+3\\.9 lineup pts</span> \\(playoffs count ${w}×\\)</span>`,
       ),
     );
     const theirs = summaries.find((s) => s.includes("Quasar Quokkas")) ?? "";
-    expect(theirs).toMatch(/<span class="mt-1 block text-xs break-words text-muted"><span class="font-bold">Best free-agent move:<\/span> add Waverly Waiver \(RB, NE\) into an open spot: <span[^>]*>\+2\.4 lineup pts<\/span>/);
-    // No move that helps: no line. And a weighted gain is never labeled like the plain ROS points beside it.
-    const moves = summaries.filter((s) => s.includes("Best free-agent move")).map((s) => s.slice(s.indexOf("Best free-agent move")));
-    expect(moves).toHaveLength(2);
-    for (const move of moves) expect(move).not.toContain("ROS pts");
+    expect(theirs).toMatch(/<span title="[^"]*" class="mt-1 block text-xs break-words text-muted"><span class="font-bold">Free-agent pickups that would help:<\/span> <span[^>]*>2, \+6\.5 lineup pts<\/span>/);
+    // No pickup that helps: no line. And a weighted gain is never labeled like the plain ROS points beside it.
+    const lines = summaries.filter((s) => s.includes("Free-agent pickups")).map((s) => s.slice(s.indexOf("Free-agent pickups")));
+    expect(lines).toHaveLength(2);
+    for (const line of lines) expect(line).not.toContain("ROS pts");
+    // The body lists them in order, as a real list under a heading that names the team for screen readers.
+    const body = between(html, '<span class="block font-extrabold break-words">Quasar Quokkas', "</details>");
+    expect(body).toContain('<h3 class="text-sm font-extrabold">Free-agent pickups that would help<span class="sr-only"> for Quasar Quokkas</span></h3>');
+    expect(body).toMatch(
+      /<ol class="mt-1 list-decimal [^"]*"><li title="Add Waverly Waiver \(RB, NE\) into an open spot: \+3\.4 lineup pts on projected lineups, playoffs count [\d.]+×\." class="break-words">add Waverly Waiver \(RB, NE\) into an open spot: <span class="whitespace-nowrap font-semibold tabular-nums">\+3\.4 lineup pts<\/span><\/li><li[^>]*>add Floopy Freeman \(RB, CAR\), drop Barnaby Tuft: <span[^>]*>\+3\.1 lineup pts<\/span><\/li><\/ol>/,
+    );
+    expect(body).toContain(`<p class="mt-1 text-xs text-muted">Lineup pts (playoffs count ${w}×).</p>`);
     expect(text).toContain("Lineup cost is how many his team would lose without him");
     expect(html).toContain(`<abbr title="Rest-of-season lineup points his team would lose without him, with playoff weeks counted ${w}×">Lineup cost</abbr>`);
   });
 
   it("makes each player's name cell the row header, so moving down a column says whose number it is", () => {
     const rows = [...html.matchAll(/<tr class="border-b border-line"><(t[hd])[^>]*>/g)];
-    // Every player row in every roster and free-agent table: 9 + 7 + 7 + 6 rostered, 3 free agents.
-    expect(rows).toHaveLength(32);
+    // Every player row in every roster and free-agent table: 9 + 7 + 7 + 6 rostered, 5 free agents (2 RBs, a WR, 2 D/STs).
+    expect(rows).toHaveLength(34);
     expect(rows.every((m) => m[1] === "th" && m[0].includes('scope="row"'))).toBe(true);
   });
 
@@ -509,5 +632,54 @@ describe("LeagueView without a team", () => {
     expect(none).toContain('href="/import#your-team"');
     expect(none).not.toContain("<details open");
     expect(textOf(none)).toContain("Pick your team to see which teams fit you best as trade partners.");
+  });
+});
+
+describe("LeagueView streaming picks (§7 streaming positions; planner reply to Checkpoint 3, model change 1)", () => {
+  const card = between(html, "Streaming picks this week", 'id="rosters-title"');
+
+  it("lists this week's picks per position in a captioned table, the player as each row's header, the opponent said in words", () => {
+    expect(card).toContain('<caption class="sr-only">Best free-agent D/STs for week 12, by this week&#x27;s projection</caption>');
+    expect(card).toContain('<abbr title="This week&#x27;s opponent">Opp</abbr>');
+    expect(card).toContain('<abbr title="Projected points this week">Proj</abbr>');
+    expect([...card.matchAll(/<th scope="row"[^>]*>([^<]+) <span[^>]*>([A-Z]+)<\/span><\/th>/g)].map((m) => [m[1], m[2]])).toEqual([
+      ["Seahawks D/ST", "SEA"],
+      ["Giants D/ST", "NYG"],
+    ]);
+    expect(card).toContain('<td class="py-2 pr-2 whitespace-nowrap" title="at home against ARI"><span aria-hidden="true">vs ARI</span><span class="sr-only">at home against ARI</span></td>');
+    expect(card).toContain('<span aria-hidden="true">@ DAL</span><span class="sr-only">away at DAL</span>');
+    expect(textOf(card)).toContain("Seahawks D/ST SEA vs ARI at home against ARI 8.2");
+    // No kicker slot in this league: no kicker table.
+    expect(card).not.toContain("kickers for week");
+  });
+
+  it("says what I stream with a link to Settings (a 44 px target), which other teams stream, and how a streamed slot counts", () => {
+    expect(card).toMatch(/<p>You stream D\/ST\. <a [^>]*href="\/settings"[^>]*>Change it in Settings<\/a><\/p>/);
+    expect(card).toMatch(/<a [^>]*class="inline-flex min-h-11[^"]*"[^>]*>Change it in Settings/);
+    expect(textOf(card)).toContain("Other teams that stream (2 or more adds at the position this season): Quasar Quokkas (D/ST, 3 adds).");
+    expect(textOf(card)).toContain("A streamed slot counts, each week, the better of the team's own player and the streaming replacement: the 3rd-best free agent at that position that week");
+    // Without a team of mine: no "You stream" line, no Settings link.
+    const none = between(render({ myTeamId: null }), "Streaming picks this week", 'id="rosters-title"');
+    expect(none).not.toContain("You stream");
+    expect(none).not.toContain('href="/settings"');
+    expect(textOf(none)).toContain("Teams that stream (2 or more adds at the position this season): Quasar Quokkas (D/ST, 3 adds).");
+  });
+
+  it("says so when no free agent is projected to play this week, and isn't there once the season is over", () => {
+    const f = leagueFixture();
+    f.model.streaming = { ...f.model.streaming, picks: [] };
+    const empty = between(renderFixture(f), "Streaming picks this week", 'id="rosters-title"');
+    expect(textOf(empty)).toContain("None projected to play this week.");
+    expect(textOf(empty)).toContain("No free-agent D/STs are projected to play this week.");
+    const over = leagueFixture();
+    over.model = { ...over.model, weeks: [], regularWeeks: [], playoffWeeks: [], inProgressWeek: null, odds: null, teams: over.model.teams.map((t) => ({ ...t, ev: { lv: [], ros: 0, ppw: 0 }, scen: null })) };
+    expect(renderFixture(over)).not.toContain("Streaming picks this week");
+  });
+
+  it("heads each roster with what its team streams", () => {
+    const rosters = between(html, 'id="rosters-title"', "Best available");
+    expect(rosters).toContain('<span class="block text-xs break-words text-muted">Streams D/ST (your setting)</span>');
+    expect(rosters).toContain('<span class="block text-xs break-words text-muted">Streams D/ST (3 adds this season)</span>');
+    expect(rosters.match(/>Streams /g)).toHaveLength(2);
   });
 });

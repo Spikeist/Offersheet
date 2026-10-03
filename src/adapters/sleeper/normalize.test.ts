@@ -202,6 +202,24 @@ describe("normalizeSleeperLeague: the public test league (minimized fixtures)", 
     expect(dropOnly?.moves.every((m) => m.to === null && m.from !== null)).toBe(true);
   });
 
+  it("gives each move its player's position (Phase 4: streaming detection counts adds by position), from the players DB, a team defense's code, or none when nothing knows him", () => {
+    const moves = snapshot.transactions.flatMap((x) => x.moves);
+    expect(moves.length).toBeGreaterThan(0);
+    for (const m of moves) expect(m.pos).toBe(snapshot.players[m.playerId]?.pos);
+    expect(moves.filter((m) => m.pos).length).toBeGreaterThan(0);
+    // A team defense (its code is its id) and a player no source knows, added in a week of their own.
+    const u = loadTestLeague();
+    const leg = u.meta.txLegs[0] as number;
+    const roster = u.rosters[0].roster_id as number;
+    u.transactions[leg]?.push(
+      { transaction_id: "def-add", type: "free_agent", status: "complete", leg, created: Date.parse("2026-09-20T12:00:00Z"), roster_ids: [roster], adds: { KC: roster }, drops: null },
+      { transaction_id: "ghost-add", type: "free_agent", status: "complete", leg, created: Date.parse("2026-09-20T12:00:01Z"), roster_ids: [roster], adds: { "99999901": roster }, drops: null },
+    );
+    const extra = run(u).snapshot.transactions;
+    expect(extra.find((x) => x.id === "def-add")?.moves).toEqual([{ playerId: "KC", from: null, to: String(roster), pos: "DEF" }]);
+    expect(extra.find((x) => x.id === "ghost-add")?.moves).toEqual([{ playerId: "99999901", from: null, to: String(roster) }]);
+  });
+
   it("lists future pick ownership: own picks of the open seasons, moved by traded_picks", () => {
     const picks = snapshot.draftPicks ?? [];
     // The 2026 draft is complete, so 2027–2029 × 3 rounds × 12 teams.

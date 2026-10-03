@@ -9,14 +9,16 @@ import {
   addGainExact,
   addRowsGain,
   addUpperBound,
+  addUpperBoundWeeks,
   bestFreeAgent,
   evLineups,
   evRemovalCosts,
+  evRemovalWeeks,
   evScore,
+  isStreamId,
   lowestKeepValue,
   mvAddGroupPpw,
   mvAddPpw,
-  mvLose,
   pickFreeAgent,
   positionAllows,
   ppw,
@@ -30,13 +32,14 @@ import {
   scenarioValues,
   slotMask,
   solveEvWeeks,
+  streamRow,
+  streamRowId,
+  streamingReplacement,
   tableRows,
   teamEval,
-  waiverAdjustment,
   weekWeights,
   windowWeights,
   type ProjectionTable,
-  type RosterMove,
   type ScenarioCells,
   type TableRow,
 } from "./teamValue";
@@ -122,6 +125,8 @@ describe("EV lineups (§7 LV with expected points)", () => {
   it("ignores ids without a row (players the model has no projection for)", () => {
     const t = table([row("qb", "QB", [20])], [5]);
     expect(evLineups(["qb", "ghost"], t, STANDARD).lv).toEqual([20]);
+    // tableRows: duplicates and ids without a row are skipped.
+    expect(tableRows(["qb", "ghost", "qb"], t).map((r) => r.id)).toEqual(["qb"]);
   });
 });
 
@@ -583,50 +588,81 @@ describe("the free agent a team adds (§7 roster legality: the best available fr
   });
 });
 
-describe("MV_lose (§7 marginal values; addition C: depth counts in scenario lineups)", () => {
-  // Weeks 5–6; RB slots only; two scenarios in which star A misses week 5 in the second.
-  const a = row("rbA", "RB", [20, 20], { a: [0.5, 1], flags: [[1, 1], [0, 1]] });
-  const b = row("rbB", "RB", [18, 18], { flags: [[1, 1], [1, 1]] });
-  const c = row("rbC", "RB", [9, 9], { a: [0.5, 1], flags: [[1, 1], [0, 1]] });
-  const fa = row("faRB", "RB", [6, 6], { flags: [[1, 1], [1, 1]] });
-  const slots = prepareSlots([slot("RB", 2, ["RB"])]);
-  const t = table([a, b, c, fa], [5, 6], 2);
-  const weights = weekWeights([5, 6], [5, 6], []);
-
-  it("ROS(T) − ROS(T − i + fa) with the same free agent in both modes", () => {
-    const got = mvLose(["rbA", "rbB", "rbC"], "rbB", ["faRB"], t, slots, { weights });
-    // EV: T = (18 + 10) + (20 + 18) = 66. T − B = (10 + 4.5) + (20 + 9); the free agent (6) beats C's 4.5 in week 5,
-    // so T − B + fa = (10 + 6) + (20 + 9) = 45.
-    expect(got.autoAdd).toBe("faRB");
-    expect(got.ev).toBeCloseTo(66 - 45, 9);
-    // Scenarios: T = mean(20 + 18, 18 + 0) + 38 = 66; T − B + fa = mean(20 + 9, 0 + 6) + 29 = 46.5.
-    expect(got.scen).toBeCloseTo(66 - 46.5, 9);
+describe("bounding a swap (the free-agent optimizer, optimizer.ts; the file header's \"Swapping a player\")", () => {
+  it("addUpperBoundWeeks: week by week addUpperBound's terms, never below the exact gain; null under starter limits", () => {
+    const rand = mulberry32(4040);
+    for (let trial = 0; trial < 200; trial++) {
+      const W = 3;
+      const slots = trial % 2 === 0 ? STANDARD : SUPERFLEX;
+      const { roster, pool } = randomPool(rand, W, 2 + Math.floor(rand() * 14), 5);
+      const base = solveEvWeeks(teamEval(roster, slots), W);
+      for (const cand of pool) {
+        const mask = slotMask(slots, cand.pos, cand.eligible);
+        const ub = addUpperBoundWeeks(base, cand, mask) as Float64Array;
+        let total = 0;
+        for (let w = 0; w < W; w++) {
+          const exact = lv([...roster, cand], slots, (r) => r.ev[w] as number) - lv(roster, slots, (r) => r.ev[w] as number);
+          expect(ub[w] as number, `trial ${trial} ${cand.id} week ${w}`).toBeGreaterThanOrEqual(exact - 1e-9);
+          total += ub[w] as number;
+        }
+        expect(total).toBeCloseTo(addUpperBound(base, cand, mask, [1, 1, 1]), 9);
+      }
+    }
+    const limited = prepareSlots([slot("QB", 1, ["QB"]), slot("FLEX", 2, ["RB", "WR"])], { RB: { min: 1, max: 2 } });
+    expect(addUpperBoundWeeks(solveEvWeeks(teamEval([row("qb", "QB", [10])], limited), 1), row("rb", "RB", [5]), slotMask(limited, "RB", ["RB"]))).toBeNull();
+    // A newcomer who fits no slot gains nothing.
+    expect([...(addUpperBoundWeeks(solveEvWeeks(teamEval([row("qb", "QB", [10])], STANDARD), 1), row("p", "P", [9]), 0) as Float64Array)]).toEqual([0]);
   });
 
-  it("a deep bench player costs nothing in EV lineups but something in scenario lineups", () => {
-    const deep = row("rbD", "RB", [8, 8], { flags: [[1, 1], [1, 1]] });
-    const t2 = table([a, b, deep], [5, 6], 2);
-    const got = mvLose(["rbA", "rbB", "rbD"], "rbD", [], t2, slots, { weights });
-    // EV week 5: A 10, B 18, D 8 → D never starts: MV_lose 0. Scenario 2 (A out): D starts for 8 → half of 8 over two scenarios.
-    expect(got.ev).toBe(0);
-    expect(got.scen).toBeCloseTo(4, 9);
-    expect(got.autoAdd).toBeNull();
+  it("evRemovalWeeks: week by week what losing each player costs, nobody refilling his spot (evRemovalCosts' terms); null under starter limits", () => {
+    const rand = mulberry32(5050);
+    for (let trial = 0; trial < 200; trial++) {
+      const W = 3;
+      const slots = trial % 2 === 0 ? STANDARD : SUPERFLEX;
+      const { roster } = randomPool(rand, W, 1 + Math.floor(rand() * 15), 0);
+      const solved = solveEvWeeks(teamEval(roster, slots), W);
+      const rem = evRemovalWeeks(solved) as Float64Array[];
+      const weights = [1, 1.25, 0];
+      const total = evRemovalCosts(solved, weights);
+      roster.forEach((r, k) => {
+        const minus = roster.filter((_, i) => i !== k);
+        let sum = 0;
+        for (let w = 0; w < W; w++) {
+          const exact = lv(roster, slots, (x) => x.ev[w] as number) - lv(minus, slots, (x) => x.ev[w] as number);
+          expect((rem[w] as Float64Array)[k], `trial ${trial} ${r.id} week ${w}`).toBeCloseTo(exact, 9);
+          sum += (weights[w] as number) * ((rem[w] as Float64Array)[k] as number);
+        }
+        expect(total[k]).toBeCloseTo(sum, 9);
+      });
+    }
+    const limited = prepareSlots([slot("QB", 1, ["QB"])], { QB: { min: 1, max: 1 } });
+    expect(evRemovalWeeks(solveEvWeeks(teamEval([row("qb", "QB", [10])], limited), 1))).toBeNull();
   });
 
-  it("scen is null without scenarios, and position limits pass through (the lost player frees his spot)", () => {
-    const tNo = table([a, b, c, fa], [5, 6], 0);
-    const got = mvLose(["rbA", "rbB", "rbC"], "rbB", ["faRB"], tNo, slots, { weights, positionLimits: { RB: 3 }, rosterPositions: ["RB", "RB", "RB"] });
-    expect(got.scen).toBeNull();
-    expect(got.autoAdd).toBe("faRB");
-    expect(tableRows(["rbA", "ghost", "rbA"], tNo).map((r) => r.id)).toEqual(["rbA"]);
-  });
-
-  it("goes negative, as §7 writes it, when a free agent beats one of T's starters (the League model shifts it: waiverAdjustment)", () => {
-    // RB slots only: A 20, B 18, and a 5-point bench RB; a free-agent RB of 19 beats B.
-    const rows = [row("rbA", "RB", [20, 20]), row("rbB", "RB", [18, 18]), row("rbC", "RB", [5, 5]), row("faRB", "RB", [19, 19])];
-    const t = table(rows, [5, 6]);
-    const raw = mvLose(["rbA", "rbB", "rbC"], "rbC", ["faRB"], t, slots, { weights });
-    expect(raw).toMatchObject({ ev: -2, autoAdd: "faRB" }); // T − C + fa = 20 + 19 twice, against T's 20 + 18
+  it("dropping k for a gains at most a's add bound in a week k sits, and at most min(that, a's points − k's removal cost) in a week he starts: 300 random swaps", () => {
+    const rand = mulberry32(6060);
+    let tight = 0;
+    for (let trial = 0; trial < 300; trial++) {
+      const W = 3;
+      const slots = trial % 2 === 0 ? STANDARD : SUPERFLEX;
+      const { roster, pool } = randomPool(rand, W, 2 + Math.floor(rand() * 14), 3);
+      const solved = solveEvWeeks(teamEval(roster, slots), W);
+      const rem = evRemovalWeeks(solved) as Float64Array[];
+      for (const a of pool) {
+        const ub = addUpperBoundWeeks(solved, a, slotMask(slots, a.pos, a.eligible)) as Float64Array;
+        roster.forEach((k, ki) => {
+          const after = [...roster.filter((_, i) => i !== ki), a];
+          for (let w = 0; w < W; w++) {
+            const gain = lv(after, slots, (x) => x.ev[w] as number) - lv(roster, slots, (x) => x.ev[w] as number);
+            const seated = ((solved.seat[w] as Int32Array)[ki] as number) >= 0;
+            const bound = seated ? Math.min(ub[w] as number, (a.ev[w] as number) - ((rem[w] as Float64Array)[ki] as number)) : (ub[w] as number);
+            expect(gain, `trial ${trial} drop ${k.id} add ${a.id} week ${w}`).toBeLessThanOrEqual(bound + 1e-9);
+            if (Math.abs(gain - bound) < 1e-9) tight++;
+          }
+        });
+      }
+    }
+    expect(tight).toBeGreaterThan(1000); // mostly exact, which is what makes the optimizer's pruning effective
   });
 });
 
@@ -889,73 +925,80 @@ describe("lowestKeepValue (§7 roster legality: the player a full roster drops)"
   });
 });
 
-describe("waiverAdjustment (§7 lineup costs from the team after its best free-agent move)", () => {
-  const move = (add: string | null, drop: string | null, ev: number, scen: number | null = null): RosterMove => ({ add, drop, ev, scen });
+describe("streaming rows (§7 streaming positions; Phase 4, lead decision L1)", () => {
+  const K_ONLY = prepareSlots([slot("K", 1, ["K"])]);
 
-  it("V = the best of T and every roster one move away, so every lineup cost V − ROS(after) is ≥ 0; best = the scenario-best move that adds someone (EV-best without scenarios)", () => {
-    const moves = [move("fa", "bench", 104, 110), move("fa", "star", 80, 85), move("fa", "k", 104, 111), move("fa2", null, 103, 112)];
-    const adj = waiverAdjustment({ ev: 100, scen: 108 }, moves);
-    expect(adj.vEv).toBe(104);
-    expect(adj.vScen).toBe(112);
-    // With scenarios the shown move is the one the scenario lineup costs are measured from: the open spot.
-    expect(adj.best).toBe(moves[3]);
-    expect(adj.vScen).toBe(adj.best?.scen);
-    // Without scenarios: the EV-best, and an EV tie ("bench" vs "k") goes to the higher scenario ROS.
-    const noScen = moves.map((m) => ({ ...m }));
-    expect(waiverAdjustment({ ev: 100, scen: null }, noScen).best?.drop).toBe("k");
-    for (const m of moves) {
-      expect(adj.vEv - m.ev).toBeGreaterThanOrEqual(0);
-      expect(adj.vScen as number).toBeGreaterThanOrEqual(m.scen as number);
-    }
+  it("streamingReplacement: the rank-th best of the free agents' expected points each week; fewer → the last one; none → 0", () => {
+    // Expected points (availability included): a 0 is a bye or a game already started.
+    const fas = [row("a", "K", [10, 12, 0]), row("b", "K", [8, 9, 6]), row("c", "K", [7, 11, 5]), row("d", "K", [6, 3, 9])];
+    expect([...streamingReplacement(fas, 3, 3)]).toEqual([7, 9, 5]); // [10, 8, 7, 6], [12, 11, 9, 3], [9, 6, 5, 0]
+    expect([...streamingReplacement(fas, 3, 1)]).toEqual([10, 12, 9]);
+    expect([...streamingReplacement(fas.slice(0, 2), 3, 3)]).toEqual([8, 9, 0]); // two free agents: the worse one each week
+    expect([...streamingReplacement([], 2, 3)]).toEqual([0, 0]);
+    // Availability counts: a free agent who'd score 12 but plays half the time is worth 6 that week.
+    expect([...streamingReplacement([row("x", "K", [12], { a: [0.5] }), row("y", "K", [7])], 1, 2)]).toEqual([6]);
   });
 
-  it("no move gains more than 1e-9: V is T's own ROS and there is no best move; without scenarios vScen is null", () => {
-    const adj = waiverAdjustment({ ev: 100, scen: null }, [move("fa", "x", 100 + 1e-12), move("fa", "y", 60)]);
-    expect(adj.best).toBeNull();
-    expect(adj.vEv).toBeCloseTo(100, 9);
-    expect(adj.vScen).toBeNull();
-    expect(waiverAdjustment({ ev: 50, scen: 55 }, [])).toEqual({ vEv: 50, vScen: 55, best: null });
+  it("streamRow: a virtual row `stream:<POS>` whose conditional and expected points are the replacement, with §6 step 5's SD and every scenario flag 1", () => {
+    expect(streamRowId("DEF")).toBe("stream:DEF");
+    expect(isStreamId("stream:K")).toBe(true);
+    expect(isStreamId("4046")).toBe(false);
+    expect(isStreamId("espn:-16001")).toBe(false);
+    const r = streamRow("K", [8, 0, -1, Number.NaN, 7.5], 3);
+    expect(r).toMatchObject({ id: "stream:K", pos: "K", eligible: ["K"] });
+    expect([...r.cond]).toEqual([8, 0, 0, 0, 7.5]);
+    expect([...r.ev]).toEqual([...r.cond]);
+    expect([...r.condSd]).toEqual([weeklySd(8, "K"), 0, 0, 0, weeklySd(7.5, "K")]);
+    expect([...r.evSd]).toEqual([...r.condSd]);
+    expect([...(r.flags as Uint8Array)]).toEqual(new Array(15).fill(1));
+    expect(streamRow("DEF", [6, 6], 0).flags).toBeNull();
   });
 
-  it("a drop-only move counts in V (no lineup cost below 0) but is never the best move", () => {
-    // Only under starter limits can T − i beat T: lineup.ts's best effort when a minimum can't be met.
-    const moves = [move(null, "forced", 106, 107), move("fa", "bench", 103, 104)];
-    const adj = waiverAdjustment({ ev: 100, scen: 101 }, moves);
-    expect(adj).toMatchObject({ vEv: 106, vScen: 107 });
-    expect(adj.best).toBe(moves[1]);
-    expect(waiverAdjustment({ ev: 100, scen: null }, [move(null, "forced", 106)]).best).toBeNull();
+  it("a streamed slot is worth max(the best rostered player, the replacement) every week and in every scenario; two slots still get one streamer", () => {
+    // My kicker: 8, 5, on bye, 9 when he plays; in scenario 1 he's hurt in weeks 0 and 1. The replacement: 7 every week.
+    const k = row("k", "K", [8, 5, 0, 9], { flags: [
+      [1, 1, 1, 1],
+      [0, 0, 1, 1],
+    ] });
+    const stream = streamRow("K", [7, 7, 7, 7], 2);
+    const t = table([k, stream], [4, 5, 6, 7], 2);
+    expect(evLineups(["k", "stream:K"], t, K_ONLY).lv).toEqual([8, 7, 7, 9]);
+    // Scenario 0: 8, 7, 7, 9; scenario 1: 7, 7, 7, 9.
+    expect(scenarioLineups(["k", "stream:K"], t, K_ONLY).lv).toEqual([7.5, 7, 7, 9]);
+    // Two K slots: a second rostered kicker better than the replacement starts instead of it; with one kicker the streamer fills the other.
+    const TWO_K = prepareSlots([slot("K", 2, ["K"])]);
+    const two = table([row("k1", "K", [8]), row("k2", "K", [9]), streamRow("K", [7], 0)], [4]);
+    expect(evLineups(["k1", "k2", "stream:K"], two, TWO_K).lv).toEqual([17]);
+    expect(evLineups(["k1", "stream:K"], two, TWO_K).lv).toEqual([15]);
   });
 
-  it("ties: the other ROS, then an open spot first, then the lower market value dropped, then the smaller ids", () => {
-    // Ids sort against value here ("a-pricey" < "z-cheap"), so the value rule is what decides.
-    const value: Record<string, number> = { "z-cheap": 100, "a-pricey": 900, a: 500, b: 500 };
-    const valueOf = (id: string) => value[id] ?? 0;
-    const open = move("fa", null, 104, 100);
-    const drop = move("fa", "z-cheap", 104, 120);
-    expect(waiverAdjustment({ ev: 100, scen: 99 }, [drop, open], valueOf).best).toBe(drop); // with scenarios, scenario ROS decides first
-    const openTie = move("fa", null, 104, 120);
-    expect(waiverAdjustment({ ev: 100, scen: 99 }, [drop, openTie], valueOf).best).toBe(openTie); // then nobody lost beats a drop
-    const deep = move("fa", "a-pricey", 104, 109);
-    const shallow = move("fa", "z-cheap", 104 + 1e-12, 108);
-    expect(waiverAdjustment({ ev: 100, scen: 99 }, [shallow, deep], valueOf).best).toBe(deep); // scenario ROS before value
-    const keepPricey = move("fa", "z-cheap", 104, 108);
-    const keepCheap = move("fa", "a-pricey", 104, 108);
-    expect(waiverAdjustment({ ev: 100, scen: 99 }, [keepCheap, keepPricey], valueOf).best).toBe(keepPricey); // drop the less valuable player
-    expect(waiverAdjustment({ ev: 100, scen: 99 }, [keepPricey, keepCheap], valueOf).best).toBe(keepPricey); // whatever the order
-    expect(waiverAdjustment({ ev: 100, scen: null }, [move("fa", "b", 104), move("fa", "a", 104)], valueOf).best?.drop).toBe("a");
-    expect(waiverAdjustment({ ev: 100, scen: null }, [move("fb", "a", 104), move("fa", "a", 104)], valueOf).best?.add).toBe("fa");
-    // A clear winner ignores every tie-break: a higher scenario ROS beats a higher EV ROS with scenarios; the EV ROS decides without them.
-    expect(waiverAdjustment({ ev: 100, scen: 99 }, [open, move("fa", "a-pricey", 104.5, 90)], valueOf).best).toBe(open);
-    expect(waiverAdjustment({ ev: 100, scen: null }, [move("fa", null, 104), move("fa", "a-pricey", 104.5)], valueOf).best?.drop).toBe("a-pricey");
-  });
-
-  it("with scenarios a move qualifies by its scenario gain alone: a scenario-only gain is the best move, an EV-only gain isn't one", () => {
-    const scenOnly = move("fa", "x", 99.5, 101); // scenario ROS +2, EV ROS −0.5
-    expect(waiverAdjustment({ ev: 100, scen: 99 }, [scenOnly]).best).toBe(scenOnly);
-    expect(waiverAdjustment({ ev: 100, scen: 99 }, [move("fa", "x", 104.5, 90)]).best).toBeNull(); // EV +4.5, scenario −9
-    expect(waiverAdjustment({ ev: 100, scen: 99 }, [move("fa", "x", 104.5, 99)]).best).toBeNull(); // scenario +0: no gain
-    // Without scenarios the EV gain is what qualifies.
-    expect(waiverAdjustment({ ev: 100, scen: null }, [move("fa", "x", 104.5)]).best?.ev).toBe(104.5);
-    expect(waiverAdjustment({ ev: 100, scen: null }, [move("fa", "x", 99.5)]).best).toBeNull();
+  it("where a flex takes the position too, the streamer is one more player that week: he starts wherever he helps most, a TE at FLEX, a QB at SUPER_FLEX (review of track A1)", () => {
+    const core = (wr3: number) => [row("qb", "QB", [20]), row("rb1", "RB", [15]), row("rb2", "RB", [12]), row("wr1", "WR", [15]), row("wr2", "WR", [12]), row("wr3", "WR", [wr3]), row("te", "TE", [10])];
+    const ids = core(0).map((r) => r.id);
+    const FLEX_LINEUP = prepareSlots([slot("QB", 1, ["QB"]), slot("RB", 2, ["RB"]), slot("WR", 2, ["WR"]), slot("TE", 1, ["TE"]), slot("FLEX", 1, ["RB", "WR", "TE"])]);
+    const withTe = (rep: number) => evLineups([...ids, "stream:TE"], table([...core(6), streamRow("TE", [rep], 0)], [4]), FLEX_LINEUP).lv;
+    expect(evLineups(ids, table(core(6), [4]), FLEX_LINEUP).lv).toEqual([90]); // the 6-point WR starts at FLEX
+    expect(withTe(5)).toEqual([90]); // worse than everyone who starts: nothing
+    // A 7-point replacement is worse than the team's TE (10) but beats the 6-point WR at FLEX: +1. Held to the TE slot he
+    // would add the same, the team's TE moving to FLEX instead, so the model doesn't hold him there (teamValue's header).
+    expect(withTe(7)).toEqual([91]);
+    // A 12-point one: 12 at TE and the team's TE at FLEX past the WR (or the other way round): +6.
+    expect(withTe(12)).toEqual([96]);
+    // Superflex: a 14-point QB replacement starts at SUPER_FLEX instead of the 9-point WR (+5: streaming a QB into the
+    // superflex), and a 22-point one at QB with the team's QB at SUPER_FLEX (+13).
+    const SF = prepareSlots([slot("QB", 1, ["QB"]), slot("RB", 2, ["RB"]), slot("WR", 2, ["WR"]), slot("TE", 1, ["TE"]), slot("SUPER_FLEX", 1, ["QB", "RB", "WR", "TE"])]);
+    const withQb = (rep: number) => evLineups([...ids, "stream:QB"], table([...core(9), streamRow("QB", [rep], 0)], [4]), SF).lv;
+    expect(evLineups(ids, table(core(9), [4]), SF).lv).toEqual([93]);
+    expect(withQb(8)).toEqual([93]);
+    expect(withQb(14)).toEqual([98]);
+    expect(withQb(22)).toEqual([106]);
+    // Without a flex that takes the position (K, D/ST, or a QB in a one-QB lineup), the slot is max(the team's own, the replacement).
+    expect(evLineups([...ids, "stream:QB"], table([...core(6), streamRow("QB", [22], 0)], [4]), FLEX_LINEUP).lv).toEqual([92]);
+    expect(evLineups([...ids, "stream:QB"], table([...core(6), streamRow("QB", [14], 0)], [4]), FLEX_LINEUP).lv).toEqual([90]);
+    // Scenario lineups alike: the TE plays in scenario 0 (the 7-point streamer at FLEX: 91) and is out in scenario 1, where the
+    // streamer fills the TE slot (87).
+    const S = 2;
+    const flagged = core(6).map((r) => ({ ...r, flags: Uint8Array.from(r.id === "te" ? [1, 0] : [1, 1]) }));
+    expect(scenarioLineups([...ids, "stream:TE"], table([...flagged, streamRow("TE", [7], S)], [4], S), FLEX_LINEUP).lv).toEqual([(91 + 87) / 2]);
   });
 });

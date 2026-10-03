@@ -8,6 +8,9 @@ import { Badge, Card, buttonClass } from "@/components/ui";
  * Checkpoint 0 decision A (Helps you, Chance they accept, Overall); every feature and platform says
  * honestly whether it's available yet (a "Coming soon" badge on what later phases build); and Fantrax
  * (public leagues, a Phase 5 stretch goal) is listed like on the Connect page and in the footer.
+ * Phase 4: trade ideas (the Trade Finder) and the Trade Analyzer are available, so "Get ranked trade
+ * ideas" is badged available and the two features they deliver (the season played out with and without
+ * each trade; the other manager's side) describe how Offer Sheet works today, without a badge.
  */
 
 type Status = "now" | "soon" | "later";
@@ -31,8 +34,8 @@ const STEPS: { title: string; body: string; status: Status }[] = [
   },
   {
     title: "Get ranked trade ideas",
-    body: "Each idea comes with how much it helps you, an estimated chance the other manager accepts, an Overall score that combines the two, and a ready-to-send message.",
-    status: "soon",
+    body: "Each idea comes with how much it helps you, an estimated chance the other manager accepts, an Overall score that combines the two, and a ready-to-send message. Or build your own trade and check it the same way.",
+    status: "now",
   },
 ];
 
@@ -41,12 +44,10 @@ const WHY: { title: string; body: string; status?: Status }[] = [
   {
     title: "Built on your season",
     body: "It plays out the rest of your season thousands of times, with and without each trade, to see how much the trade really moves your playoff and title odds.",
-    status: "soon",
   },
   {
     title: "Offers people say yes to",
     body: "It looks at the deal from the other manager's side too: trade value, holes in their lineup, and how active a trader they are.",
-    status: "soon",
   },
   { title: "Your league's rules", body: "PPR, TE premium, superflex and scoring bonuses are all counted the way your league counts them." },
   { title: "Free and private", body: "No ads and nothing sold. Your league logins are never stored on our servers." },
@@ -91,8 +92,8 @@ export default function Home() {
           ))}
         </ul>
         <p className="mt-4 max-w-2xl text-sm leading-relaxed text-navy-contrast/85">
-          Available now: connect an ESPN or Sleeper league, check what Offer Sheet understood about it, and see every team&apos;s playoff and title odds, needs, trade
-          chips and rest-of-season projections on the League page. Trade ideas are coming soon.
+          Available now: connect an ESPN or Sleeper league, check what Offer Sheet understood about it, see every team&apos;s playoff and title odds, needs, trade
+          chips and rest-of-season projections on the League page, and get ranked trade ideas on the Trade Finder, or check your own in the Trade Analyzer.
         </p>
       </section>
 

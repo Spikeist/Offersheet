@@ -25,17 +25,24 @@ describe("home page", () => {
   const html = renderToStaticMarkup(createElement(Home));
   const text = textOf(html);
 
-  it("badges the 'Why it's different' features that later phases build", () => {
+  it("describes how trade ideas work today without a badge: they're built (Phase 4), so nothing in 'Why it's different' is coming soon", () => {
     const why = text.slice(text.indexOf("Why it's different"), text.indexOf("Works with"));
-    expect(why).toMatch(/Built on your season .* Coming soon/);
-    expect(why).toMatch(/Offers people say yes to .* Coming soon/);
-    expect(why.match(/Coming soon/g)).toHaveLength(2);
+    expect(why).toContain("Built on your season");
+    expect(why).toContain("Offers people say yes to");
+    expect(why).not.toContain("Coming soon");
   });
 
-  it("says what's available today, the League page included, and lists Fantrax (public leagues) as Later", () => {
+  it("badges 'Get ranked trade ideas' available, with the Analyzer, and nothing in How it works is coming soon", () => {
+    const how = text.slice(text.indexOf("How it works"), text.indexOf("What a suggestion looks like"));
+    expect(how).toMatch(/Get ranked trade ideas .* Or build your own trade and check it the same way\. Available now/);
+    expect(how).not.toContain("Coming soon");
+  });
+
+  it("says what's available today, the League page and the trade pages included, and lists Fantrax (public leagues) as Later", () => {
     expect(text).toContain(
-      "Available now: connect an ESPN or Sleeper league, check what Offer Sheet understood about it, and see every team's playoff and title odds, needs, trade chips and rest-of-season projections on the League page. Trade ideas are coming soon.",
+      "Available now: connect an ESPN or Sleeper league, check what Offer Sheet understood about it, see every team's playoff and title odds, needs, trade chips and rest-of-season projections on the League page, and get ranked trade ideas on the Trade Finder, or check your own in the Trade Analyzer.",
     );
+    expect(text).not.toContain("Trade ideas are coming soon");
     expect(text).toMatch(/Fantrax Public leagues only\. Later/);
   });
 });
@@ -43,13 +50,25 @@ describe("home page", () => {
 describe("privacy page", () => {
   const text = textOf(renderToStaticMarkup(createElement(PrivacyPage)));
 
-  it("is dated September 30, 2026", () => {
-    expect(text).toContain("Last updated September 30, 2026");
+  it("is dated October 1, 2026", () => {
+    expect(text).toContain("Last updated October 1, 2026");
+  });
+
+  it("says settings and trade feedback stay in local storage, never reach the server, and how to remove them", () => {
+    expect(text).toContain("Your settings for each league, and any feedback you give on trade ideas, stay in this browser after you close the tab, until you reset or delete them on the Settings page or clear this site's data. They're never sent to our server.");
+    expect(text).toContain("Your settings and trade feedback are the exception: they stay in local storage");
+    expect(text).toContain("saved under “offersheet:settings:v1”");
+    expect(text).toContain("saved under “offersheet:feedback:v1”, for the latest 500 trade ideas");
+    expect(text).toContain("Your settings for each league, and any feedback you give on trade ideas, stay in this browser");
+    expect(text).toContain("In the file your leagues are only numbered (league-1, league-2)");
+    expect(text).toContain("“Reset to defaults” on the Settings page removes a league's settings, “Delete saved feedback” removes all of your feedback, and clearing this site's data in your browser removes both.");
   });
 
   it("says what the League page keeps and sends: projections in session storage, scored on the server, math in the browser, only the format to FantasyCalc", () => {
     expect(text).toContain("Your imported league, and the League page's projections for it, live in this browser tab and are gone when you close it.");
-    expect(text).toContain("Our server fetches the data and scores each player's projections with your league's rules. The League page's math (lineups, needs, trade partners, playoff odds) runs in your browser.");
+    expect(text).toContain(
+      "Our server fetches the data and scores each player's projections with your league's rules. The League page's math (lineups, needs, trade partners, playoff odds), the trade search and the Trade Analyzer all run in your browser.",
+    );
     expect(text).toContain("The League page's math (lineups, needs, trade partners, playoff odds) runs in your browser; your league isn't sent to anyone else to be analyzed.");
     expect(text).toContain("and scores the projections with your league's scoring rules.");
     expect(text).toContain("under “offersheet:model:v1”, for the league you imported");
@@ -57,6 +76,17 @@ describe("privacy page", () => {
     expect(text).toContain("player lists, projections and stats, FantasyCalc trade values, player ID maps and the NFL schedule");
     // The server does more than fetch (src/server/modelInputs.ts scores projections with the league's rules).
     expect(text).not.toContain("Our server only fetches the data");
+  });
+
+  it("says the trade pages run in the browser on the same inputs, and that their links carry only team and player ID numbers (Phase 4)", () => {
+    expect(text).toContain("The Trade Finder and the Trade Analyzer use the same projections and values, kept and fetched the same way, and they search for and score trades in your browser too.");
+    expect(text).toContain("carries only that team's ID number and the players' ID numbers in its web address (never names or your league's ID)");
+    expect(text).toContain("the Finder and the Analyzer put the team you pick and the trade you evaluate into their address the same way.");
+    // The links are never prefetched (prefetch={false}), so this stays true.
+    expect(text).toContain("Offer Sheet never loads these addresses ahead of time, so our server sees one only when you open it, like any web address.");
+    expect(text).toContain("report a problem with it (on the Trade Finder or the Trade Analyzer), it's saved under “offersheet:feedback:v1”, for the latest 500 trade ideas");
+    // Feedback is filed under the same short code as the league's settings (feedbackStore.ts: settingsStore.ts leagueKey).
+    expect(text).toContain("Each record is filed under the same short code made from its league's ID as that league's settings.");
   });
 
   it("says exactly what the Sleeper requests carry: they're shaped by the league's season length and lineup (src/server/modelInputs.ts), never by names or IDs", () => {

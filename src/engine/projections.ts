@@ -39,13 +39,33 @@
  * week's matchup and H doesn't (the shape is clamped to [0.8, 1.2], small next to the 50% cut). A stub
  * or 0 this week (Sleeper doesn't project him, a bye included) is never stale: the date is followed, and
  * so it is when Sleeper's projections for this week didn't load (league.ts notes that the tiebreaker was
- * missing, not negative). ⚠️ Only his availability follows the tiebreaker: his base rate b is step 1's,
- * which takes this week's projection when Sleeper has one, cut or not (Checkpoint 3 lists it).
+ * missing, not negative). Only his availability follows the tiebreaker.
+ *
+ * The Q/D/P base rate (CLAUDE.md §6 step 3; planner reply to Checkpoint 3, answer 5): for every PROBABLE,
+ * QUESTIONABLE or DOUBTFUL player (projectPlayer's ctx.injury), this week's projections, Sleeper's and
+ * ESPN's, are injury-cut, so his whole projection is made as if neither source had projected him this
+ * week (gameTimeBaseRate): the week shape's mean leaves this week out, this week's shape is 1, and proj_now
+ * is his nearest LATER healthy week (nearestHealthyProjection: next week's projection is past the one-week
+ * tag and carries his current role; Sleeper marks the weeks it expects him to miss with stubs, which never
+ * count), else his latest healthy week before this one, else ESPN's the same way, Sleeper's season line per
+ * game or his points per game, with the same α blend. His availability then comes from the injury table
+ * alone (availability.ts), applied once. Before Phase 4 a cut projection lowered b for the rest of the
+ * season and, in the stale-date case, counted the injury twice (Sleeper's cut × the tag's table). Track A1
+ * first took the latest earlier week first (b = H, lead decision L4), which kept a role that changed this
+ * week for the rest of the season (review of track A1): in Sleeper's projections of 2026-09-30, Ollie Gordon
+ * (RB, questionable) went from 3.2 in week 3 to 7.3 this week and about 6.9 a week after it, and his b was
+ * 4.2 instead of 6.9 (7.0 untagged; projections.test.ts). In ESPN leagues whose sources are averaged, a
+ * later week has no ESPN value (the import carries ESPN's previous and current weeks only), so such a b is
+ * Sleeper's alone. ⚠️ A reduced next week that isn't a stub (a return eased in) lowers b; none of the 8
+ * questionable or doubtful players projected at 5+ points a week in Sleeper's 2026-09-30 data had one. The
+ * stale-date tiebreaker's healthy base rate H (priorHealthyBaseRate, above) keeps the latest earlier week
+ * first. Every other status keeps step 1 as above (an OUT or IR player's stub this week is never a base rate
+ * anyway).
  */
 import { config } from "./config";
 import type { PlayerInputs } from "./inputs";
 import type { BaseRateSource, PlayerModel, ProjectionSummary, RosSummary, WeekProjection } from "./leagueModel";
-import type { Pos } from "./model";
+import type { InjuryStatus, Pos } from "./model";
 
 /**
  * The config.projections keys this module reads, with plain number types (config is `as const`), so
@@ -206,20 +226,75 @@ function withoutWeek(values: WeeklyValues, week: number): WeeklyValues {
   return out;
 }
 
+/** His inputs as if neither source had projected him in `week` (Sleeper's and ESPN's weekly lines without it). */
+function withoutWeekInputs(inputs: PlayerInputs, week: number): PlayerInputs {
+  return { ...inputs, sleeper: withoutWeek(inputs.sleeper, week), ...(inputs.espn ? { espn: withoutWeek(inputs.espn, week) } : {}) };
+}
+
 /**
- * His healthy base rate H (§6 step 3 "Conflicting ESPN signals"; the file header): step 1's base rate as
- * if neither source had projected him this week, the same α blend. This week's numbers are the ones his
- * tag may have cut, and the one H is compared with, so they count nowhere: not as proj_now, and not in the
- * week shape's mean (a cut this week would pull the mean down and H with it). proj_now is then the latest
- * healthy week before this week, else his nearest later healthy week (a player hurt all season so far:
- * Sleeper's projection once he's back is his healthy rate, where the season line ÷ 17 counts the games
- * he's expected to miss), else ESPN's the same way, else Sleeper's season line per game, else his points
- * per game (b 0, source "none", without any).
+ * His healthy base rate H (§6 step 3 "Conflicting ESPN signals"; the file header), what the stale-date
+ * tiebreaker compares Sleeper's projection this week with: step 1's base rate as if neither source had
+ * projected him this week, the same α blend. This week's numbers are the ones his tag may have cut, and the
+ * one H is compared with, so they count nowhere: not as proj_now, and not in the week shape's mean (a cut
+ * this week would pull the mean down and H with it). proj_now is then the latest healthy week before this
+ * week, else his nearest later healthy week (a player hurt all season so far: Sleeper's projection once he's
+ * back is his healthy rate, where the season line ÷ 17 counts the games he's expected to miss), else ESPN's
+ * the same way, else Sleeper's season line per game, else his points per game (b 0, source "none", without
+ * any). The Q/D/P base rate (gameTimeBaseRate) takes the later week first instead.
  */
 export function priorHealthyBaseRate(inputs: PlayerInputs, ctx: BaseRateContext, cfg: ProjectionConfig = config.projections): PlayerBase {
-  const week = ctx.currentWeek;
-  const without: PlayerInputs = { ...inputs, sleeper: withoutWeek(inputs.sleeper, week), ...(inputs.espn ? { espn: withoutWeek(inputs.espn, week) } : {}) };
-  return baseRate(without, ctx, cfg);
+  return baseRate(withoutWeekInputs(inputs, ctx.currentWeek), ctx, cfg);
+}
+
+/**
+ * The Q/D/P base rate's week (the file header): the earliest remaining week after currentWeek with a value > 0
+ * (his current role, past the one-week tag), else the latest week before currentWeek with one. currentWeek
+ * itself never counts (its projection is the one the tag may have cut). Null when neither exists.
+ */
+export function nearestHealthyProjection(values: WeeklyValues | undefined, currentWeek: number, weeks: readonly number[]): { week: number; value: number } | null {
+  if (!values) return null;
+  let next: { week: number; value: number } | null = null;
+  for (const week of weeks) {
+    const v = values[week];
+    if (week > currentWeek && isProjected(v) && (next === null || week < next.week)) next = { week, value: v };
+  }
+  if (next) return next;
+  let latest: { week: number; value: number } | null = null;
+  for (const [key, v] of Object.entries(values)) {
+    const week = Number(key);
+    if (!Number.isInteger(week) || week >= currentWeek || !isProjected(v)) continue;
+    if (latest === null || week > latest.week) latest = { week, value: v };
+  }
+  return latest;
+}
+
+/**
+ * The Q/D/P base rate (the file header): step 1's base rate as if neither source had projected him this week,
+ * proj_now from his nearest later healthy week first (nearestHealthyProjection), averaged with ESPN's value for
+ * that week when the sources are averaged and ESPN has one, the week shape's mean without this week, the same α
+ * blend. projectPlayer uses it for every PROBABLE, QUESTIONABLE and DOUBTFUL player.
+ */
+export function gameTimeBaseRate(inputs: PlayerInputs, ctx: BaseRateContext, cfg: ProjectionConfig = config.projections): PlayerBase {
+  const source = withoutWeekInputs(inputs, ctx.currentWeek);
+  return gameTimeBase(source, ctx, weekShape(source, ctx.weeks, cfg), cfg);
+}
+
+/** gameTimeBaseRate from inputs already without this week and their week shape. */
+function gameTimeBase(source: PlayerInputs, ctx: BaseRateContext, shape: ReadonlyMap<number, number>, cfg: ProjectionConfig): PlayerBase {
+  return blendBaseRate(
+    pickProjection(source, ctx, (values) => nearestHealthyProjection(values, ctx.currentWeek, ctx.weeks)),
+    source,
+    shape,
+    cfg,
+  );
+}
+
+/** The game-time tags (§6 step 3): this week's projections are injury-cut, so the Q/D/P base rate ignores them. */
+const GAME_TIME: ReadonlySet<InjuryStatus> = new Set<InjuryStatus>(["PROBABLE", "QUESTIONABLE", "DOUBTFUL"]);
+
+/** Whether a status gets the Q/D/P base rate (the file header): PROBABLE, QUESTIONABLE or DOUBTFUL. */
+export function usesHealthyBaseRate(injury: InjuryStatus | undefined): boolean {
+  return injury !== undefined && GAME_TIME.has(injury);
 }
 
 /** Sleeper as the tiebreaker for a conflicting ESPN return date (§6 step 3; staleReturnCheck). */
@@ -246,7 +321,7 @@ export function staleReturnCheck(inputs: PlayerInputs, ctx: BaseRateContext, cfg
 }
 
 /** §6 step 5: σ = c_pos × p + d_pos for a week he's projected to score p > 0; 0 when p = 0 (no points, no spread). */
-export function weeklySd(points: number, pos: Pos, cfg: ProjectionConfig = config.projections): number {
+export function weeklySd(points: number, pos: Pos, cfg: Pick<ProjectionConfig, "sigma"> = config.projections): number {
   if (!(points > 0)) return 0;
   const { c, d } = cfg.sigma[pos];
   return c * points + d;
@@ -262,18 +337,30 @@ export interface ProjectPlayerContext extends BaseRateContext {
   started: boolean;
   /** He has an NFL team (PlayerInfo.nflTeam !== null); a teamless player has no games left. Default true. */
   hasTeam?: boolean;
+  /**
+   * His injury status (PlayerInfo.injury). PROBABLE, QUESTIONABLE and DOUBTFUL get the Q/D/P base rate (the
+   * file header): this week's projections are left out of b and the week shape, and proj_now is his nearest
+   * later healthy week. Absent = step 1 as is.
+   */
+  injury?: InjuryStatus;
 }
 
 /**
  * §6 steps 1, 2, 4, 5 and 7 for one player. `availability` is a_w per week of ctx.weeks (§6 step 3).
- * `value` is null here; the market layer (§9) fills it in.
+ * `value` is null here; the market layer (§9) fills it in. A PROBABLE, QUESTIONABLE or DOUBTFUL player
+ * (ctx.injury) is projected as if neither source had projected him this week (the Q/D/P base rate in the
+ * file header): b = gameTimeBaseRate's (his nearest later healthy week first), and this week's shape is 1.
  */
 export function projectPlayer(id: string, pos: Pos, inputs: PlayerInputs, availability: ArrayLike<number>, ctx: ProjectPlayerContext, cfg: ProjectionConfig = config.projections): PlayerModel {
   if (availability.length !== ctx.weeks.length) {
     throw new Error(`projectPlayer: ${availability.length} availability values for ${ctx.weeks.length} weeks (player ${id})`);
   }
-  const shape = weekShape(inputs, ctx.weeks, cfg);
-  const base = baseRateWithShape(inputs, ctx, shape, cfg);
+  // The Q/D/P base rate: this week's injury-cut projections count neither in b nor in the week shape (its
+  // mean, and this week's own shape, which is then 1: weekShape gives 1 to a week without a projection).
+  const gameTime = usesHealthyBaseRate(ctx.injury);
+  const source = gameTime ? withoutWeekInputs(inputs, ctx.currentWeek) : inputs;
+  const shape = weekShape(source, ctx.weeks, cfg);
+  const base = gameTime ? gameTimeBase(source, ctx, shape, cfg) : baseRateWithShape(source, ctx, shape, cfg);
   const weekly: WeekProjection[] = ctx.weeks.map((w, i) => {
     const a = availability[i] ?? 0;
     const m = shape.get(w) ?? 1;

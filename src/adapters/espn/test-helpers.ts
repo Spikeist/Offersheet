@@ -1,7 +1,8 @@
 /**
  * Test-only helpers for the ESPN adapter tests (committed fixtures; no network).
- * Parker's league: fixtures/sanitized/espn/ (placeholders only). The public test league (a
- * stranger's): minimized copies in fixtures/sanitized/min/espn/public-league/.
+ * Parker's league: fixtures/sanitized/espn/ (placeholders only), and the trade refill's live evidence in
+ * fixtures/sanitized/min/espn/trade-refill/. The public test league (a stranger's): minimized copies in
+ * fixtures/sanitized/min/espn/public-league/.
  */
 import type { PlayerIdResolver, SleeperPlayerLite } from "@/data/types";
 import { readMinFixture, readSanitizedFixture } from "@/test-utils/fixtures";
@@ -39,7 +40,38 @@ export const PUBLIC = {
   /** The public test league's top-250 pool: that week's actual lines (weeks 2 and 3). */
   pool: (week: number) => `player pool: week ${week} actual lines`,
   weeks: [2, 3],
+  /** Its players acquired by trade, ESPN's per-team trade counters, review settings, activation date (scripts/minimize/espn-trade-refill.ts). */
+  trades: "trade acquisitions",
 } as const;
+
+/** The trade refill's live evidence from Parker's league (scripts/minimize/espn-trade-refill.ts). */
+export const REFILL = { group: "trade-refill", parker: "parker: completed trade without players" } as const;
+
+/** fixtures/sanitized/min/espn/trade-refill "parker: completed trade without players" (Parker's league as imported 2026-10-01). */
+export interface RefillFixture {
+  /** When the app fetched the league (ISO). */
+  captured: string;
+  revisionHours: number | null;
+  vetoVotesRequired: number | null;
+  activatedDate: number | null;
+  /** Team id → ESPN's own trade counter (teams[].transactionCounter.trades). */
+  counters: Record<string, number | null>;
+  /** ESPN's TRADE_ACCEPT / TRADE_UPHOLD rows of every period (memberId dropped). */
+  rows: unknown[];
+  /** Each player acquired by trade: his new roster entry's fields and the team he was on in the committed pre-trade fixture. */
+  moved: Array<{ playerId: number; from: number | null; to: number; lineupSlotId: number; acquisitionType: string; acquisitionDate: number }>;
+  /** Players the trade's rows drop who are gone from that team's roster. */
+  dropped: Array<{ playerId: number; teamId: number }>;
+}
+
+/** fixtures/sanitized/min/espn/public-league "trade acquisitions" (timestamps shifted). */
+export interface PublicTradeAcquisitions {
+  revisionHours: number | null;
+  vetoVotesRequired: number | null;
+  activatedDate: number | null;
+  counters: Record<string, number | null>;
+  teams: Array<{ id: number; entries: Array<{ playerId: number; lineupSlotId: number; acquisitionType: string; acquisitionDate: number; playerPoolEntry: { id: number; player: { id: number; fullName: string; defaultPositionId: number } } }> }>;
+}
 export const CROSS = { group: "cross-source", label: "sleeper stats weeks 2-3 (Parker's rostered players)" } as const;
 
 export const readEspn = <T = unknown>(label: string) => readSanitizedFixture<T>("espn", label);

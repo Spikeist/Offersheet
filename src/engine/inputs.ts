@@ -46,6 +46,12 @@ export interface NflScheduleInputs {
    * ESPN's out-for-season marker is this + 1). Missing = unknown (no schedule).
    */
   lastWeek?: number;
+  /**
+   * NFL week → team code → that week's opponent (team code) and whether the team is at home, for weeks ≥
+   * currentWeek (Phase 4: the League page's "Streaming picks this week" shows each pick's opponent). A team
+   * missing from a week = on bye or unknown. Missing entirely = an older input (no opponents shown).
+   */
+  opponents?: Record<number, Record<string, { team: string; home: boolean }>>;
 }
 
 export interface PlayerInputs {

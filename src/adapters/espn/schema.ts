@@ -37,6 +37,13 @@ export type EspnPlayer = z.infer<typeof PlayerSchema>;
 export const RosterEntrySchema = z.object({
   playerId: z.number(),
   lineupSlotId: z.number(),
+  /**
+   * How the team got him: DRAFT, ADD or TRADE (both test leagues, mRoster). With acquisitionDate
+   * (epoch ms; every player of one trade carries the same instant: Parker's league 2026-10-01, the
+   * public test league), the trade refill rebuilds other teams' trades that ESPN lists without players.
+   */
+  acquisitionType: z.string().nullish(),
+  acquisitionDate: z.number().nullish(),
   playerPoolEntry: z.object({ id: z.number(), player: PlayerSchema }),
 });
 
@@ -152,6 +159,8 @@ export const StatusSchema = z.object({
   firstScoringPeriod: z.number().nullish(),
   finalScoringPeriod: z.number().nullish(),
   isActive: z.boolean().nullish(),
+  /** When the league was activated for this season (epoch ms; both test leagues): anything acquired before it is from an earlier season. */
+  activatedDate: z.number().nullish(),
 });
 
 /** view=mSettings&view=mTeam&view=mRoster&view=mMatchup&view=mStatus */
@@ -172,7 +181,15 @@ export const TransactionItemSchema = z.object({
   type: z.string().nullish(),
   fromTeamId: z.number().nullish(),
   toTeamId: z.number().nullish(),
+  /**
+   * The lineup slot he left / went to (−1 = none: free agency). Items carry no position (926 of 926
+   * items in Parker's league, 2026-10-01), so a single-position slot (K, D/ST, QB …) is the last hint of
+   * a move's position when the player is on no roster and in no free-agent list.
+   */
+  fromLineupSlotId: z.number().nullish(),
+  toLineupSlotId: z.number().nullish(),
 });
+export type EspnTransactionItem = z.infer<typeof TransactionItemSchema>;
 
 export const TransactionSchema = z.object({
   id: z.string(),

@@ -197,6 +197,13 @@ describe("EspnPrivateLeague", () => {
     const html = renderToStaticMarkup(createElement(EspnPrivateLeague, { error: null, session: { connected: true, available: true }, onSessionChange: noop, onCookiesSaved: noop, onForget: noop, busy: false }));
     expect(html).toContain("Forget my credentials</button>");
   });
+
+  it("gives its small buttons 44 px targets: Forget, and Copy message for the commissioner (review of Phase 4: small buttons were 36 px)", () => {
+    const saved = renderToStaticMarkup(createElement(EspnPrivateLeague, { error: null, session: { connected: true, available: true }, onSessionChange: noop, onCookiesSaved: noop, onForget: noop, busy: false }));
+    expect(saved).toMatch(/<button type="button" class="[^"]*min-h-11[^"]*">Forget my credentials<\/button>/);
+    const ask = renderToStaticMarkup(createElement(EspnPrivateLeague, { error: privateError, session: null, onSessionChange: noop, onCookiesSaved: noop, onForget: noop, busy: false }));
+    expect(ask).toMatch(/<button type="button" class="[^"]*min-h-11[^"]*" aria-live="polite">Copy message<\/button>/);
+  });
 });
 
 describe("SleeperConnect (first render)", () => {
@@ -205,6 +212,12 @@ describe("SleeperConnect (first render)", () => {
   it("keeps its status and loading live regions mounted", () => {
     expect(html).toContain('<p role="status"></p>');
     expect(html).toContain('<p aria-live="polite"></p>');
+  });
+
+  it("makes Username and League ID 44 px targets (review of Phase 4: 36 px)", () => {
+    const toggles = [...html.matchAll(/<button type="button" aria-pressed="(?:true|false)" class="([^"]*)">([^<]*)<\/button>/g)].map((m) => ({ cls: m[1] ?? "", text: m[2] }));
+    expect(toggles.map((t) => t.text)).toEqual(["Username", "League ID"]);
+    for (const t of toggles) expect(t.cls).toContain("min-h-11");
   });
 
   it("describes the username field by its help text", () => {

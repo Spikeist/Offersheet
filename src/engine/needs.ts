@@ -25,8 +25,9 @@
  * - Trade chips (§7; planner reply to Checkpoint 2, answer 2; tradeChips): a player is a chip when
  *   gap = maxOther − cost ≥ chipMinGap, where maxOther is the most he'd add to another team's lineup and
  *   cost what his own team would lose without him, both in rest-of-season lineup points against
- *   free-agent-adjusted baselines (league.ts measures them). Plain lineup points: chips need no market
- *   values, so Bo Nix behind Josh Allen in a 1-QB league is a chip whatever FantasyCalc says. Best gap
+ *   free-agent-optimized baselines (each team after its free-agent optimizer V*; league.ts measures them).
+ *   Plain lineup points: chips need no market values, so a backup QB behind a star in a 1-QB league is a
+ *   chip whenever another team's QB is weaker than him and no free agent is as good. Best gap
  *   first; equal gaps list the cheaper one to lose first (lead decision D3: EV lineups give a starter and
  *   the backup who covers him the same gap, and the backup is the one to offer), then the smaller id.
  * - Partners (§7 "best trade partners"; Phase 2 review decisions; lead decision D2): each side is scored
@@ -275,6 +276,9 @@ export interface ChipCandidate {
   cost: number;
   /** The largest MV_add'(T′, i) over the other teams and that team (ties: the smaller id), or null. */
   best: { value: number; teamId: string } | null;
+  /** For the page (lead decision L5): cost per week counted (TradeChip.costPerWeek) and whether he starts for his team (TradeChip.starter). */
+  costPerWeek: number;
+  starter: boolean;
 }
 
 /**
@@ -282,7 +286,8 @@ export interface ChipCandidate {
  * within 1e-9 below the cut counts as at it: float noise), best gap first. Gaps within 1e-9 of each other
  * are ties (the same gap summed another way), which go to the smaller cost (the cheaper one to lose: with
  * EV lineups a starter and the backup who covers him get the same gap, and the backup is listed first),
- * then the smaller player id. Non-finite numbers never make a chip.
+ * then the smaller player id. Non-finite numbers never make a chip. The display fields (costPerWeek,
+ * starter: the planner's answer 3 at Checkpoint 3) pass through; the rule itself doesn't read them.
  */
 export function tradeChips(candidates: readonly ChipCandidate[], cfg: { readonly chipMinGap: number }): TradeChip[] {
   const out: TradeChip[] = [];
@@ -290,7 +295,7 @@ export function tradeChips(candidates: readonly ChipCandidate[], cfg: { readonly
     if (!c.best) continue;
     const gap = c.best.value - c.cost;
     if (!Number.isFinite(gap) || !(gap >= cfg.chipMinGap - EPS)) continue;
-    out.push({ playerId: c.playerId, gap, cost: c.cost, maxOther: c.best.value, bestTeamId: c.best.teamId });
+    out.push({ playerId: c.playerId, gap, cost: c.cost, maxOther: c.best.value, bestTeamId: c.best.teamId, costPerWeek: c.costPerWeek, starter: c.starter });
   }
   return out.sort((a, b) => (Math.abs(b.gap - a.gap) > EPS ? b.gap - a.gap : Math.abs(a.cost - b.cost) > EPS ? a.cost - b.cost : byId(a.playerId, b.playerId)));
 }

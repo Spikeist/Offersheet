@@ -10,5 +10,9 @@
   "9e6fca2942916d04b5801f586cc912cb722ac9f924e5de74351c038bec34cd4e.json": {
     "label": "player pool: week 3 actual lines",
     "note": "249 week-3 actual lines, stats trimmed to 91 scored/source/every-N stat ids; no roster membership"
+  },
+  "0e01c3e5fd0f136d1d65bac1918dda01062fb44ff4b9b987b2ab604e4c51fe1d.json": {
+    "label": "trade acquisitions",
+    "note": "2 roster entries acquired by trade, ESPN's per-team trade counters, review settings and activation date; timestamps shifted"
   }
 }

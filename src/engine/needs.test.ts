@@ -17,6 +17,7 @@ import {
   tradeChips,
   windowAverage,
   zScores,
+  type ChipCandidate,
   type SideChip,
 } from "./needs";
 import { TEST_LINEUP } from "./testLeague";
@@ -160,30 +161,48 @@ describe("the surplus score (§12 step 2: kept for Phase 4's give pool)", () => 
 
 describe("tradeChips (§7; planner reply to Checkpoint 2, answer 2)", () => {
   const best = (value: number, teamId: string) => ({ value, teamId });
+  /** A candidate; the display fields (lead decision L5) don't change the rule, so most cases leave them at 0 and false. */
+  const cand = (playerId: string, cost: number, b: { value: number; teamId: string } | null, display: Partial<Pick<ChipCandidate, "costPerWeek" | "starter">> = {}): ChipCandidate => ({
+    playerId,
+    cost,
+    best: b,
+    costPerWeek: display.costPerWeek ?? 0,
+    starter: display.starter ?? false,
+  });
 
   it("keeps players worth at least chipMinGap more to another team than to their own: gap = maxOther − cost, biggest first, ties by id", () => {
     expect(config.needs.chipMinGap).toBe(10);
     const got = tradeChips(
       [
-        { playerId: "nix", cost: 14, best: best(45, "6") }, // gap 31
-        { playerId: "starter", cost: 120, best: best(125, "6") }, // gap 5: his team needs him
-        { playerId: "b", cost: 0, best: best(31, "2") }, // gap 31: ties with nix, smaller id first
-        { playerId: "nobody", cost: 3, best: null }, // he'd add nothing anywhere
-        { playerId: "edge", cost: 5, best: best(15, "4") }, // gap exactly 10
+        cand("nix", 14, best(45, "6")), // gap 31
+        cand("starter", 120, best(125, "6")), // gap 5: his team needs him
+        cand("b", 0, best(31, "2")), // gap 31: ties with nix, smaller id first
+        cand("nobody", 3, null), // he'd add nothing anywhere
+        cand("edge", 5, best(15, "4")), // gap exactly 10
       ],
       config.needs,
     );
     expect(got.map((c) => c.playerId)).toEqual(["b", "nix", "edge"]);
-    expect(got[1]).toEqual({ playerId: "nix", gap: 31, cost: 14, maxOther: 45, bestTeamId: "6" });
+    expect(got[1]).toEqual({ playerId: "nix", gap: 31, cost: 14, maxOther: 45, bestTeamId: "6", costPerWeek: 0, starter: false });
+  });
+
+  it("passes the display fields through (L5: cost per week and the starter tag), which the rule never reads", () => {
+    const got = tradeChips([cand("cmc", 85.3, best(118.3, "2"), { costPerWeek: 6.1, starter: true }), cand("bench", 0, best(40, "3"), { costPerWeek: 0, starter: false })], config.needs);
+    expect(got).toEqual([
+      { playerId: "bench", gap: 40, cost: 0, maxOther: 40, bestTeamId: "3", costPerWeek: 0, starter: false },
+      { playerId: "cmc", gap: expect.closeTo(33, 9), cost: 85.3, maxOther: 118.3, bestTeamId: "2", costPerWeek: 6.1, starter: true },
+    ]);
+    // The same candidates without the display fields' values: the same chips, in the same order.
+    expect(tradeChips([cand("cmc", 85.3, best(118.3, "2")), cand("bench", 0, best(40, "3"))], config.needs).map((c) => c.playerId)).toEqual(got.map((c) => c.playerId));
   });
 
   it("equal gaps list the cheaper one to lose first, then the smaller id (D3: a starter and the backup who covers him share a gap)", () => {
     const got = tradeChips(
       [
-        { playerId: "a-starter", cost: 7 * 14.75, best: best(15 * 14.75, "2") }, // gap 8 × 14.75
-        { playerId: "z-backup", cost: 0, best: best(8 * 14.75, "2") }, // the same gap, nothing to lose
-        { playerId: "m-mid", cost: 3 * 14.75 + 1e-12, best: best(11 * 14.75 + 1e-12, "3") }, // the same gap summed another way
-        { playerId: "b-twin", cost: 3 * 14.75, best: best(11 * 14.75, "4") }, // an equal cost: the id decides
+        cand("a-starter", 7 * 14.75, best(15 * 14.75, "2")), // gap 8 × 14.75
+        cand("z-backup", 0, best(8 * 14.75, "2")), // the same gap, nothing to lose
+        cand("m-mid", 3 * 14.75 + 1e-12, best(11 * 14.75 + 1e-12, "3")), // the same gap summed another way
+        cand("b-twin", 3 * 14.75, best(11 * 14.75, "4")), // an equal cost: the id decides
       ],
       config.needs,
     );
@@ -191,11 +210,11 @@ describe("tradeChips (§7; planner reply to Checkpoint 2, answer 2)", () => {
   });
 
   it("counts a gap within float noise of the cut as at it, reads the cut from config, and never keeps a non-finite gap", () => {
-    expect(tradeChips([{ playerId: "x", cost: 0.1 + 0.2, best: best(10.3, "2") }], config.needs).map((c) => c.playerId)).toEqual(["x"]); // 9.999999999999998
-    expect(tradeChips([{ playerId: "x", cost: 0, best: best(9.99, "2") }], config.needs)).toEqual([]);
-    expect(tradeChips([{ playerId: "x", cost: 0, best: best(9.99, "2") }], { chipMinGap: 5 }).map((c) => c.playerId)).toEqual(["x"]);
-    expect(tradeChips([{ playerId: "x", cost: Number.NaN, best: best(50, "2") }], config.needs)).toEqual([]);
-    expect(tradeChips([{ playerId: "x", cost: 0, best: best(Number.POSITIVE_INFINITY, "2") }], config.needs)).toEqual([]);
+    expect(tradeChips([cand("x", 0.1 + 0.2, best(10.3, "2"))], config.needs).map((c) => c.playerId)).toEqual(["x"]); // 9.999999999999998
+    expect(tradeChips([cand("x", 0, best(9.99, "2"))], config.needs)).toEqual([]);
+    expect(tradeChips([cand("x", 0, best(9.99, "2"))], { chipMinGap: 5 }).map((c) => c.playerId)).toEqual(["x"]);
+    expect(tradeChips([cand("x", Number.NaN, best(50, "2"))], config.needs)).toEqual([]);
+    expect(tradeChips([cand("x", 0, best(Number.POSITIVE_INFINITY, "2"))], config.needs)).toEqual([]);
   });
 });
 

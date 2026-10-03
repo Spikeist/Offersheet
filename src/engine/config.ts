@@ -2,7 +2,7 @@
  * Config defaults (CLAUDE.md §15). The single source of truth: every tunable number is read from
  * here, never hardcoded. Grouped by the section that uses it.
  */
-import type { Pos } from "./model";
+import type { InjuryStatus, Pos } from "./model";
 
 export const config = {
   /** §5 Scoring engine. */
@@ -185,6 +185,47 @@ export const config = {
     needsShown: 3,
     /** Best trade partners shown for my team. */
     partnersShown: 3,
+    /**
+     * A partner card's "Best target" (planner addendum to Checkpoint 3, §2; Phase 4 addendum lead decision N12): the
+     * best of their trade chips without the "Harder to get" tag who adds at least this many projected points a week
+     * to my lineup, as printed (one decimal). When none does, the single best one leads alone if he's tagged ("Best
+     * target, harder to get"), and weaker chips are listed after. ⚠️ Ours (a review found "+0.1/wk" leading next to
+     * "+7.2/wk").
+     */
+    bestTargetMin: 1,
+  },
+
+  /**
+   * §7 Streaming positions (planner reply to Checkpoint 3, model change 1, from Parker): a streamed slot is worth,
+   * each week, max(the best rostered player, the streaming replacement), the streamRank-th best free agent at
+   * that position that week by that week's projection. It applies to the user's team (TradeSettings.
+   * streamPositions) and to any other team that made detectAdds or more adds at a streamable position this season.
+   */
+  streaming: {
+    /** "Positions I stream weekly" by default. */
+    defaultPositions: ["K", "DEF"] as readonly Pos[],
+    /** Positions the setting offers, and the positions another team can be detected streaming. */
+    streamable: ["K", "DEF", "QB", "TE"] as readonly Pos[],
+    /** The replacement is this-th best free agent that week (3: other teams stream too). */
+    streamRank: 3,
+    /** Another team streams a position after this many adds there this season. */
+    detectAdds: 2,
+    /** "Streaming picks this week" (League page): free agents listed per position (K and DEF). */
+    picksShown: 3,
+    /** Never part of the free-agent optimizer's moves, for any team (K and DEF are streamed or kept). */
+    optimizerExcluded: ["K", "DEF"] as readonly Pos[],
+  },
+
+  /**
+   * §7 The free-agent optimizer V*(X) (planner reply to Checkpoint 3, model change 2): repeatedly apply the best
+   * add/drop while it improves ROS by at least faMinGain, at most faMaxMoves moves; in dynasty and keeper leagues
+   * never drop a player whose dynasty value exceeds the added player's by more than faDynGuard × the top dynasty
+   * value (⚠️ the planner named the guard without a default; 5% of the top value is ours).
+   */
+  freeAgentOptimizer: {
+    faMinGain: 3,
+    faMaxMoves: 5,
+    faDynGuard: 0.05,
   },
 
   /** §8 Season simulator. */
@@ -193,6 +234,12 @@ export const config = {
     screeningSims: 1000,
     /** Seed of the common-random-numbers score matrix (§8): the "before" and every "after" run share it. */
     seed: 20_260_930,
+    /**
+     * Exact title odds (sim.ts "Title odds"): a re-seeding bracket is computed exactly from the first round with at
+     * most this many teams left (2, 4 or 8; others round down into that range), its earlier rounds drawn. A
+     * performance limit, not a model number: the expectation is the same at any value, only the noise differs.
+     */
+    exactReseedTeams: 8,
   },
 
   /**
@@ -229,15 +276,29 @@ export const config = {
   /** §10 Benefit, Trade Score and Overall. */
   benefit: {
     weights: { playoffs: 0.35, title: 0.65 },
+    /** The market term's weight before the planner's addendum to Checkpoint 3 (§3); kept for the before/after comparison only (TradeContextOptions.beforeAddendum). */
     marketSanityWeight: 1.0,
+    /**
+     * "Protect my trade value" (planner addendum to Checkpoint 3, §3): κ in redraft B = B_win + κ × clamp(g_mkt(me),
+     * marketSanityClamp), by the user's setting (TradeSettings.protectValue). At medium, giving 25% more value than you
+     * get (g_mkt(me) = −0.20) costs 0.8 B, about 0.4 projected points a week in Parker's league.
+     */
+    protectValue: { low: 2, medium: 4, high: 8 },
+    protectValueDefault: "medium" as "low" | "medium" | "high",
     marketSanityClamp: [-0.5, 0.5] as const,
     bFutureScale: 40,
     /** Default λ by my P(playoffs): ≥ 0.5 → contender, 0.2–0.5 → bubble, < 0.2 → rebuild; keeper leagues use keeper. */
     lambda: { contender: 0.35, bubble: 0.5, rebuild: 0.75, keeper: 0.2, contenderAt: 0.5, bubbleAt: 0.2 },
-    /** Trade Score ("Helps you") and Overall: round(100 × (1 − e^(−x / bRef))). */
-    bRef: 5,
+    /**
+     * Trade Score ("Helps you") and Overall: round(100 × (1 − e^(−x / bRef))). 6 since Checkpoint 3 (answer 1):
+     * in Parker's league +1, +3 and +6 projected points a week gave B ≈ 2.05, 6.3 and 12.4, which 6 scores 29,
+     * 65 and 87, the planner's intended 29, 63 and 86.
+     */
+    bRef: 6,
     marketCheckBelow: -0.15,
     marketHideBelow: -0.35,
+    /** §10 guard: a trade that depends on a player I'd receive with one of these statuses is flagged ("currently OUT or on IR"; PUP is a reserve list like IR). */
+    injuredStatuses: ["OUT", "IR", "PUP"] as readonly InjuryStatus[],
   },
 
   /** §11 Acceptance probability. */
@@ -249,6 +310,8 @@ export const config = {
     nScale: 5,
     nClamp: [-2, 2] as const,
     nBlendNextWeeks: 4,
+    /** ΔLineup_P's weight on the next nBlendNextWeeks weeks; the rest of the season gets 1 − it (§11: 50/50). */
+    nBlendWeight: 0.5,
     holeFractionOfMedian: 0.6,
     holeWeeks: 3,
     activity: { recentTradeWeeks: 4, inactiveWeeks: 5, quietWeeks: 3, tradesForActive: 2 },
@@ -265,6 +328,24 @@ export const config = {
       { below: Number.POSITIVE_INFINITY, label: "Likely" },
     ] as const,
     refitMinOutcomes: 30,
+    /**
+     * The star premium (planner addendum to Checkpoint 3, §1): managers value their own best players a bit above market.
+     * For each player j the partner gives, v′_j = v_j × (1 + e_j), e_j = e_rank + e_elite, used in place of v for the
+     * partner's given players in the partner's g (the waiver credit unchanged; my g_mkt and B use raw values).
+     * - rank: e_rank for j's rank by market value on the partner's roster (ties: more ROS points): #1, #2; others 0.
+     * - elite / eliteTop: e_elite when j is among the top eliteTop players by FantasyCalc value in the league's format.
+     * - rebuild (dynasty only): for a partner whose P(playoffs) is below `below`, e × factor for `positions` aged `age`+.
+     * - harderToGetMin: a player whose e for his owner is at least this is tagged "Harder to get" (a top-12 player who
+     *   is also his team's #1 or #2), on the League page and on trade cards (§2).
+     * Starting assumptions: Phase 6 fits a scale factor for e from Accepted/Rejected outcomes alongside the β refit.
+     */
+    starPremium: {
+      rank: [0.1, 0.05] as readonly number[],
+      elite: 0.1,
+      eliteTop: 12,
+      rebuild: { below: 0.25, age: 27, factor: 0.5, positions: ["RB", "WR"] as readonly Pos[] },
+      harderToGetMin: 0.15,
+    },
   },
 
   /** §12 Trade search. */
@@ -280,13 +361,82 @@ export const config = {
     screeningGWindow: [-0.35, 0.6] as const,
     finalists: 40,
     resultsShown: 25,
+    /**
+     * An extension step (§12) adds one player to my side, one to theirs, or one to each (a 1-for-1 becomes a 2-for-1,
+     * 1-for-2 or 2-for-2): every single addition is screened, and the one-on-each additions pair the
+     * pairExtensionTop best single additions on each side (Phase 4 wave 2 decision M7; for speed).
+     */
+    pairExtensionTop: 5,
+    /** Get pool H (planner addendum to Checkpoint 3, §2): the top getPool untagged players by MV_add(me, j), plus the top this many "Harder to get" ones. */
+    getPoolTagged: 3,
+    /**
+     * "Offer first / if they say no" (planner addendum to Checkpoint 3, §4). A throw-in is one of my players whose loss
+     * costs me at most throwInMaxCost ROS lineup points against my free-agent-optimized roster, in scenario lineups.
+     * A step is shown only when it raises the chance they accept by at least minAcceptGain and the offer-first version
+     * is at least minOfferFirst likely; a throw-in added "if they say no" must keep B at least minBShare of the offer's.
+     * preScreen is a performance knob, not a model number (lead decision N4, ⚠️ ours): when the throw-in is added "if they
+     * say no", only the best this many candidates by the screening's quick estimate of the chance they accept get exact
+     * evaluation (evaluate.ts tradeSteps; the Checkpoint 4 report measures how often that misses the exact choice).
+     */
+    throwInMaxCost: 5,
+    steps: { minAcceptGain: 0.05, minOfferFirst: 0.1, minBShare: 0.8, preScreen: 2 },
+    /** The Trade Analyzer lets the user build up to this many players a side (counteroffers included). */
+    analyzerMaxPerSide: 4,
+    /**
+     * Responsiveness, not a model number (M8: at most ~50 ms of work between progress yields): the search yields after
+     * this many screens (about 15 ms on Parker's 10-team league in Node) and after this many screening simulations
+     * (each about 2–3 ms); exact evaluations and final simulations yield one by one.
+     */
+    yieldEveryScreens: 100,
+    yieldEverySims: 5,
   },
 
   /** §13 Ranking and diversity. */
   ranking: {
     perPartnerInTop20: 3,
+    /** The partner cap applies within the first this many trades kept (§13's "top 20"). */
+    partnerCapTop: 20,
     perCore: 2,
     fillerCutoffFraction: 0.2,
+  },
+
+  /**
+   * §13 Plain-English reasons and the pitch (src/engine/explain.ts): when a fact is worth a sentence. Display
+   * thresholds only: no number behind B, P_accept or the ranking depends on them. Points are projected points per
+   * week; shares are fractions (0.05 = 5%).
+   */
+  explain: {
+    /** A slot instance's change (mine or the partner's, TradeDetail.mySlots / partnerSlots) worth a sentence ("Your RB2 spot goes from 9.1 to 14.3 …"). */
+    slotChangeMin: 1,
+    /** A whole starting lineup's change worth a sentence when no slot says it: my ΔPPW, or the partner's ΔLineup. */
+    lineupChangeMin: 0.5,
+    /** My playoff-week lineup change worth its own sentence: at least this, and at least this much more than the regular season's. */
+    playoffGainMin: 1,
+    /** A risky week of mine (TradeDetail.riskyWeeks) the trade covers, or weakens: my starting points that week move at least this much. */
+    riskyWeekGain: 3,
+    /**
+     * Trade value within this share either way reads as even (g_mkt of the partner). With a star premium, their perceived
+     * g against it picks the premium line's ending: under it "expect them to want a little extra", else "they'd still come out ahead".
+     */
+    valueEven: 0.05,
+    /** A partner-side reason (activity, history, season context, a hot player, deadline urgency, the lineup) is said only when it moved the acceptance estimate at least this much (logit units, TradeDetail.terms); the value line and the star premium line are always candidates. */
+    termMin: 0.1,
+    /** Partner-side reasons kept, the ones that moved the estimate most first; the star premium line always has a place among them (lead decision N7). */
+    partnerReasons: 3,
+    /** Dynasty and keeper leagues: a change in my roster's long-term value worth a sentence (share of my roster's value). */
+    longTermMin: 0.01,
+    /** …said right after my lineup gain, before the odds, when the trade's λ (Win now 0 ↔ Future 1) is at least this. */
+    futureFirstLambda: 0.5,
+    /**
+     * A hole the trade fills quotes the partner's rest-of-season rank there ("They're 9th of 10 at TE") only when it's
+     * in the bottom part of the league: rank > teams × this (0.5: the bottom half). A better rank means a short-term
+     * hole (holes are judged over the next config.acceptance.holeWeeks weeks: an injury or a bye), worded as one.
+     */
+    holeRankFromBottom: 0.5,
+    /** A value gap above this share ("X% more trade value") reads as a multiple instead: "about 9.3 times as much trade value". */
+    valueMultipleAbove: 1,
+    /** The pitch mentions the trade value the partner gains only up to this share (from valueEven): a bigger gain tells a sharp manager it's an overpay. */
+    pitchValueMax: 0.25,
   },
 } as const;
 

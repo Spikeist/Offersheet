@@ -11,11 +11,19 @@ import type { BaseRateSource, SeasonOdds, TeamModel, WeekOdds } from "@/engine/l
 import { fantasyCalcFormat } from "@/engine/market";
 import { weekUnderWayNote } from "@/engine/season";
 import {
-  FREE_AGENT_MOVE_LABEL,
+  BEST_TARGET_HARDER_LABEL,
+  BEST_TARGET_LABEL,
+  BEST_TARGET_MIN,
+  BEST_TARGET_NOTE,
+  BIGGER_UPGRADE_LABEL,
+  FREE_AGENT_PICKUPS_LABEL,
+  HARDER_TO_GET_TAG,
   RISKY_BYES,
   RISKY_WIN_CHANCE,
   SEASON_OVER_PARTNERS_TEXT,
   SEASON_OVER_TEXT,
+  SETTINGS_HREF,
+  STARTER_TAG,
   UNDER_WAY_TEXT,
   availabilityNoteText,
   buildLeagueView,
@@ -24,6 +32,7 @@ import {
   oddsCell,
   shortName,
   type LeagueViewInput,
+  type PartnerCard,
   type PlayerRow,
 } from "./leagueView";
 
@@ -636,31 +645,87 @@ describe("buildLeagueView: team table (§7 needs and trade chips)", () => {
     expect(t4[1]?.title).toBe("Need at WR (next 4 weeks): 13 pts/wk vs the league median 14.1");
   });
 
-  it("shows each team's biggest trade chips, at most chipsShown: who, his gap in lineup points, and the team he'd help most ('you' for mine)", () => {
+  it("shows each team's biggest trade chips, at most chipsShown: who, his gap in lineup points, the team he'd help most ('you' for mine), and what he costs his team a week", () => {
     expect(config.needs.chipsShown).toBe(3);
     const t2 = v.teams.find((t) => t.id === "2")?.chips ?? [];
-    // Team 2 has four chips (the engine lists them biggest gap first); the table shows three.
-    expect(t2.map((c) => [c.text, c.kind])).toEqual([
-      ["C. Snoot: worth +31 to you", "chip"],
-      ["I. Fumblewick: worth +18 to Tundra Tortoises", "chip"],
-      ["P. Plunk: worth +12 to Quasar Quokkas", "chip"],
+    // Team 2 has four chips (the engine lists them biggest gap first); the table shows three. Each costs "his team" so many
+    // lineup points a week (TradeChip.costPerWeek: 4, 9 and 16 over Σ ω = 2 + 3 × 1.25 on game day); its starters are tagged.
+    // Not "costs them": right after "to Quasar Quokkas" it read as if that team lost the points (review of track A1).
+    expect(t2.map((c) => [c.text, c.kind, c.tags.map((t) => t.text)])).toEqual([
+      ["C. Snoot: worth +31 to you · costs his team 0.7 pts/wk", "chip", []],
+      ["I. Fumblewick: worth +18 to Tundra Tortoises · costs his team 1.6 pts/wk", "chip", [STARTER_TAG]],
+      ["P. Plunk: worth +12 to Quasar Quokkas · costs his team 2.8 pts/wk", "chip", [STARTER_TAG]],
     ]);
-    // The title gives both parts, to a tenth, in lineup points weighted like lineup cost.
+    expect(v.teams.flatMap((t) => t.chips.map((c) => c.text)).some((x) => x.includes("costs them"))).toBe(false);
+    // The title gives every part, to a tenth, in lineup points weighted like lineup cost, and per week; a starter says so.
     const w = `(playoffs count ${config.lineups.playoffWeight}×)`;
     expect(t2[0]?.title).toBe(
-      `Cornelius Snoot (RB): worth 31.2 more lineup pts ${w} to Moonbeam Mudcats (your team) than to his own team. Moonbeam Mudcats (your team) would gain 35.2 with him (after its best free-agent move); his team would lose 4 without him.`,
+      `Cornelius Snoot (RB): worth 31.2 more lineup pts ${w} to Moonbeam Mudcats (your team) than to his own team. Moonbeam Mudcats (your team) would gain 35.2 with him (after its free-agent pickups); his team would lose 4 without him, 0.7 a week.`,
     );
-    expect(t2[1]?.title).toBe(`Ignatius Fumblewick (RB): worth 18.4 more lineup pts ${w} to Tundra Tortoises than to his own team. Tundra Tortoises would gain 27.4 with him (after its best free-agent move); his team would lose 9 without him.`);
-    expect(v.teams.find((t) => t.id === "1")?.chips.map((c) => c.text)).toEqual(["W. Spoons: worth +15 to Gravel Gophers"]);
-    expect(v.teams.find((t) => t.id === "4")?.chips.map((c) => c.text)).toEqual(["O. Wren: worth +13 to you"]);
+    expect(t2[1]?.title).toBe(
+      `Ignatius Fumblewick (RB): worth 18.4 more lineup pts ${w} to Tundra Tortoises than to his own team. Tundra Tortoises would gain 27.4 with him (after its free-agent pickups); his team would lose 9 without him, 1.6 a week. He starts for his team.`,
+    );
+    // My own chip costs "you"; a starter of mine would start "for you".
+    const mine = v.teams.find((t) => t.id === "1")?.chips ?? [];
+    expect(mine.map((c) => [c.text, c.tags])).toEqual([["W. Spoons: worth +15 to Gravel Gophers · costs you 0.3 pts/wk", []]]);
+    expect(mine[0]?.title).toContain("; your team would lose 2 without him, 0.3 a week.");
+    const f = leagueFixture();
+    f.model.teams = f.model.teams.map((t) => (t.id === "1" ? { ...t, chips: t.chips.map((c) => ({ ...c, starter: true })) } : t));
+    expect(of(f).teams.find((t) => t.id === "1")?.chips[0]?.title).toMatch(/0\.3 a week\. He starts for you\.$/);
+    expect(v.teams.find((t) => t.id === "4")?.chips.map((c) => c.text)).toEqual(["O. Wren: worth +13 to you · costs his team 2.4 pts/wk"]);
+    expect(v.teams.flatMap((t) => t.needs).every((n) => n.tags.length === 0)).toBe(true);
     expect(v.chipLegend).toBe("trade chip: worth at least 10 more lineup pts to another team than to his own");
+  });
+
+  it("tags a chip 'starter' as the engine does (after his team's pickups), and says when those pickups would drop him anyway (review of track A2)", () => {
+    // The engine never tags a player its pickups drop (TradeChip.starter reads V*(T)'s lineup): his cost is 0, and the title says why.
+    const f = leagueFixture();
+    f.model.teams = f.model.teams.map((t) =>
+      t.id === "2"
+        ? { ...t, faMoves: [{ add: "901", drop: "203", gainEv: 5, gainScen: 4 }], chips: t.chips.map((c) => (c.playerId === "203" ? { ...c, cost: 0, costPerWeek: 0, gap: c.maxOther, starter: false } : c)) }
+        : t.id === "1"
+          ? { ...t, faMoves: [{ add: "901", drop: "106", gainEv: 5, gainScen: 4 }] }
+          : t,
+    );
+    const view = of(f);
+    const fumblewick = view.teams.find((t) => t.id === "2")?.chips.find((c) => c.key === "203");
+    expect(fumblewick?.tags).toEqual([]);
+    expect(fumblewick?.title).toMatch(/his team would lose 0 without him, 0 a week\. His team's free-agent pickups would drop him anyway\.$/);
+    // My own chip: "Your" pickups.
+    expect(view.teams.find((t) => t.id === "1")?.chips[0]?.title).toMatch(/; your team would lose 2 without him, 0\.3 a week\. Your free-agent pickups would drop him anyway\.$/);
+    // A chip no pickup drops says nothing of the kind.
+    expect(view.teams.find((t) => t.id === "4")?.chips[0]?.title).not.toContain("drop him anyway");
+  });
+
+  it("tags another team's trade chip 'Harder to get' after 'starter' when his manager would want a little extra (planner addendum to Checkpoint 3, §2), the title saying why", () => {
+    const t3 = v.teams.find((t) => t.id === "3")?.chips ?? [];
+    expect(t3.map((c) => [c.key, c.tags])).toEqual([
+      [
+        "302",
+        [
+          { text: STARTER_TAG, kind: "starter" },
+          { text: HARDER_TO_GET_TAG, kind: "harder" },
+        ],
+      ],
+      ["303", [{ text: STARTER_TAG, kind: "starter" }]],
+    ]);
+    expect(t3[0]?.text).toBe("O. Kettleburn: worth +12 to Tundra Tortoises · costs his team 5.2 pts/wk");
+    expect(t3[0]?.title).toMatch(/ He starts for his team\. Harder to get: his team's second most valuable player and one of the top 12 players by trade value, so his manager will likely want a little extra for him\.$/);
+    // Never on my own chips, whatever their premium: it would read as advice about my own players.
+    const f = leagueFixture();
+    f.model.teams = f.model.teams.map((t) => (t.id === "1" ? { ...t, premiums: { ...t.premiums, "106": { e: 0.2, rank: 1, elite: true, harderToGet: true } } } : t));
+    expect(of(f).teams.find((t) => t.id === "1")?.chips[0]?.tags).toEqual([]);
+    // A model without premiums (built before the addendum) tags nobody.
+    const g = leagueFixture();
+    g.model.teams = g.model.teams.map((t) => ({ ...t, premiums: undefined }));
+    expect(of(g).teams.flatMap((t) => t.chips.flatMap((c) => c.tags)).filter((x) => x.kind === "harder")).toEqual([]);
   });
 
   it("drops the playoff weighting from a chip's title once no playoff week is left to count", () => {
     const f = leagueFixture();
     f.model = { ...f.model, weeks: [12, 13, 14], regularWeeks: [12, 13, 14], playoffWeeks: [] };
     expect(of(f).teams.find((t) => t.id === "1")?.chips[0]?.title).toBe(
-      "Wiggleton Spoons (WR): worth 14.6 more lineup pts to Gravel Gophers than to his own team. Gravel Gophers would gain 16.6 with him (after its best free-agent move); his team would lose 2 without him.",
+      "Wiggleton Spoons (WR): worth 14.6 more lineup pts to Gravel Gophers than to his own team. Gravel Gophers would gain 16.6 with him (after its free-agent pickups); your team would lose 2 without him, 0.3 a week.",
     );
   });
 });
@@ -723,19 +788,191 @@ describe("buildLeagueView: positional strength heatmap", () => {
   });
 });
 
-describe("buildLeagueView: best trade partners (§7, from trade chips)", () => {
-  it("shows my best fits with each side's trade chips, in points per week, the first chipsShown and a count of the rest", () => {
+describe("buildLeagueView: best trade partners (§7, from trade chips; planner addendum to Checkpoint 3, §2)", () => {
+  const cardsOf = (f: LeagueFixture) => of(f).partners.cards;
+  const leads = (c: PartnerCard | undefined) => c?.targets.map((t) => `${t.label}: ${t.text}`);
+  /** The fixture with team 2's partner list replaced. */
+  const withTeam2 = (theyCanGive: { playerId: string; ppw: number }[], premiums?: TeamModel["premiums"]) => {
+    const f = leagueFixture();
+    f.model.partners = f.model.partners.map((p) => (p.teamId === "2" ? { ...p, theyCanGive } : p));
+    if (premiums !== undefined) f.model.teams = f.model.teams.map((t) => (t.id === "2" ? { ...t, premiums } : t));
+    return f;
+  };
+
+  it("leads each card with who to aim for, then each side's other trade chips, in points per week, the first chipsShown and a count of the rest", () => {
     expect(v.partners.empty).toBeNull();
-    expect(v.partners.cards.map((c) => [c.name, c.fitText, c.theyCanGive.players.map((p) => p.text), c.theyCanGive.more?.text ?? null, c.youCanGive.players.map((p) => p.text)])).toEqual([
-      ["Gravel Gophers", "Fit 2.4", ["C. Snoot (+2.1/wk)", "I. Fumblewick (+1.2/wk)", "M. Gloop (+0.8/wk)"], "and 1 more", ["W. Spoons (+1.8/wk)"]],
-      ["Quasar Quokkas", "Fit 1.1", ["L. Mop (+0.9/wk)"], null, ["W. Spoons (+1.3/wk)"]],
-      ["Tundra Tortoises", "Would start for you", ["O. Wren (+1.6/wk)"], null, []], // one-sided: after every mutual fit
+    expect(
+      v.partners.cards.map((c) => [c.name, c.fitText, leads(c), c.theyCanGive.label, c.theyCanGive.players.map((p) => p.text), c.theyCanGive.more?.text ?? null, c.youCanGive.label, c.youCanGive.players.map((p) => p.text)]),
+    ).toEqual([
+      // Gloop would help me most, but he's harder to get: the best untagged one leads, Gloop second.
+      [
+        "Gravel Gophers",
+        "Fit 2.4",
+        ["Best target: C. Snoot, +2.1/wk", "Bigger upgrade, harder to get: M. Gloop, +2.5/wk"],
+        "They could also give:",
+        ["I. Fumblewick (+1.2/wk)", "P. Plunk (+0.5/wk)", "P. Wobbleton (+0.4/wk)"],
+        null,
+        "You could give:",
+        ["W. Spoons (+1.8/wk)"],
+      ],
+      // Mop adds less than the floor (config.needs.bestTargetMin) and nobody tagged adds more: no lead line, he's listed.
+      ["Quasar Quokkas", "Fit 1.1", [], "They could give:", ["L. Mop (+0.9/wk)"], null, "You could give:", ["W. Spoons (+1.3/wk)"]],
+      ["Tundra Tortoises", "Would start for you", ["Best target: O. Wren, +1.6/wk"], "They could also give:", [], null, "You could give:", []], // one-sided: after every mutual fit
     ]);
-    // The rest are named on hover and for screen readers.
-    expect(v.partners.cards[0]?.theyCanGive.more).toEqual({ text: "and 1 more", title: "Percival Plunk: +0.5 points per week to the other lineup", srText: "and 1 more: P. Plunk (+0.5/wk)" });
     expect(v.partners.cards[0]?.youCanGive.more).toBeNull();
     expect(v.partners.cards.map((c) => c.mutual)).toEqual([true, true, false]);
     expect(v.partners.cards.length).toBeLessThanOrEqual(config.needs.partnersShown);
+  });
+
+  it("says on hover what each target adds to my lineup, and why a tagged one is harder to get", () => {
+    const [best, bigger] = v.partners.cards[0]?.targets ?? [];
+    expect(best).toEqual({ id: "204", label: BEST_TARGET_LABEL, text: "C. Snoot, +2.1/wk", name: "C. Snoot", perWeek: "+2.1/wk", title: "Cornelius Snoot: +2.1 points per week to your lineup.", harderToGet: false });
+    expect(bigger).toEqual({
+      id: "202",
+      label: BIGGER_UPGRADE_LABEL,
+      text: "M. Gloop, +2.5/wk",
+      name: "M. Gloop",
+      perWeek: "+2.5/wk",
+      title: "Mortimer Gloop: +2.5 points per week to your lineup. Harder to get: his team's most valuable player and one of the top 12 players by trade value, so his manager will likely want a little extra for him.",
+      harderToGet: true,
+    });
+  });
+
+  it("marks their other harder-to-get players in the rest of the list, never mine, and says so to screen readers when they're counted", () => {
+    const rest = v.partners.cards[0]?.theyCanGive.players ?? [];
+    expect(rest.map((p) => [p.id, p.tag?.text ?? null])).toEqual([
+      ["203", null], // their third most valuable: a top-12 player, but not harder to get
+      ["205", null],
+      ["201", HARDER_TO_GET_TAG],
+    ]);
+    expect(rest[2]?.title).toBe("Pip Wobbleton: +0.4 points per week to the other lineup. Harder to get: his team's second most valuable player and one of the top 12 players by trade value, so his manager will likely want a little extra for him.");
+    // My players are never marked, whatever their premium for me.
+    expect(v.partners.cards.flatMap((c) => c.youCanGive.players).every((p) => p.tag === null)).toBe(true);
+    // Counted ones: named with the tag in words for screen readers, and on hover.
+    const f = withTeam2([
+      { playerId: "204", ppw: 2.1 },
+      { playerId: "203", ppw: 1.2 },
+      { playerId: "205", ppw: 0.5 },
+      { playerId: "206", ppw: 0.46 },
+      { playerId: "201", ppw: 0.4 },
+    ]);
+    const more = cardsOf(f)[0]?.theyCanGive;
+    expect(more?.players.map((p) => p.text)).toEqual(["I. Fumblewick (+1.2/wk)", "P. Plunk (+0.5/wk)", "R. Wimbleton (+0.5/wk)"]);
+    expect(more?.more).toEqual({
+      text: "and 1 more",
+      title: "Pip Wobbleton: +0.4 points per week to the other lineup. Harder to get: his team's second most valuable player and one of the top 12 players by trade value, so his manager will likely want a little extra for him.",
+      srText: "and 1 more: P. Wobbleton (+0.4/wk, harder to get)",
+    });
+  });
+
+  it("leads with the best target alone when the single best one isn't harder to get", () => {
+    const f = withTeam2([
+      { playerId: "204", ppw: 2.1 },
+      { playerId: "202", ppw: 0.8 },
+    ]);
+    expect(leads(cardsOf(f)[0])).toEqual(["Best target: C. Snoot, +2.1/wk"]);
+    // Gloop stays in the rest of the list, marked.
+    expect(cardsOf(f)[0]?.theyCanGive.players.map((p) => [p.text, p.tag?.text ?? null])).toEqual([["M. Gloop (+0.8/wk)", HARDER_TO_GET_TAG]]);
+  });
+
+  it("says 'Best target, harder to get' when every one is tagged (no untagged one to be bigger than), and 'They could give' without targets", () => {
+    const allTagged = withTeam2([
+      { playerId: "202", ppw: 2.5 },
+      { playerId: "201", ppw: 0.4 },
+    ]);
+    const card = cardsOf(allTagged)[0];
+    expect(leads(card)).toEqual(["Best target, harder to get: M. Gloop, +2.5/wk"]);
+    expect(card?.theyCanGive.players.map((p) => p.text)).toEqual(["P. Wobbleton (+0.4/wk)"]);
+    expect(BEST_TARGET_HARDER_LABEL).toBe("Best target, harder to get");
+    // Nobody adds anything (the engine lists only players who do; defensively): no targets, the list as before.
+    const none = withTeam2([{ playerId: "204", ppw: 0 }]);
+    expect(cardsOf(none)[0]?.targets).toEqual([]);
+    expect(cardsOf(none)[0]?.theyCanGive).toMatchObject({ label: "They could give:", players: [{ id: "204", text: "C. Snoot (0/wk)" }] });
+  });
+
+  it("names a best target only when he adds at least config.needs.bestTargetMin a week, as the card prints it (lead decision N12)", () => {
+    expect(BEST_TARGET_MIN).toBe(config.needs.bestTargetMin);
+    expect(BEST_TARGET_MIN).toBe(1); // config's default, which these cases are built around
+    // Team 3's only partner player for me adds +0.9/wk: untagged, under the floor, and nobody tagged adds more. No lead line.
+    expect(v.partners.cards.find((c) => c.teamId === "3")).toMatchObject({ targets: [], theyCanGive: { label: "They could give:", players: [{ id: "303", text: "L. Mop (+0.9/wk)", tag: null }], more: null } });
+    // At the floor he leads ("at least"); judged as printed: 0.96 shows "+1/wk" and leads, 0.94 shows "+0.9/wk" and doesn't.
+    const alone = (ppw: number) => cardsOf(withTeam2([{ playerId: "204", ppw }]))[0];
+    expect(leads(alone(1))).toEqual(["Best target: C. Snoot, +1/wk"]);
+    expect(leads(alone(0.96))).toEqual(["Best target: C. Snoot, +1/wk"]);
+    expect(alone(0.94)).toMatchObject({ targets: [], theyCanGive: { label: "They could give:", players: [{ id: "204", text: "C. Snoot (+0.9/wk)" }] } });
+    // An untagged best under the floor leads nothing, even next to a tagged one who adds less (he'd be no best target).
+    const under = cardsOf(withTeam2([{ playerId: "204", ppw: 0.9 }, { playerId: "202", ppw: 0.5 }]))[0];
+    expect(under?.targets).toEqual([]);
+    expect(under?.theyCanGive.players.map((p) => [p.text, p.tag?.text ?? null])).toEqual([
+      ["C. Snoot (+0.9/wk)", null],
+      ["M. Gloop (+0.5/wk)", HARDER_TO_GET_TAG],
+    ]);
+    // Someone who shows "0/wk" leads nothing, tagged or not.
+    const zero = cardsOf(withTeam2([{ playerId: "202", ppw: 0.04 }]))[0];
+    expect(zero).toMatchObject({ targets: [], theyCanGive: { label: "They could give:", players: [{ id: "202", text: "M. Gloop (0/wk)", tag: { text: HARDER_TO_GET_TAG } }] } });
+    // Weaker untagged chips follow the best target, in the engine's order.
+    const weaker = cardsOf(withTeam2([{ playerId: "204", ppw: 2.1 }, { playerId: "203", ppw: 0.6 }, { playerId: "205", ppw: 0.2 }]))[0];
+    expect(leads(weaker)).toEqual(["Best target: C. Snoot, +2.1/wk"]);
+    expect(weaker?.theyCanGive).toMatchObject({ label: "They could also give:", players: [{ text: "I. Fumblewick (+0.6/wk)" }, { text: "P. Plunk (+0.2/wk)" }] });
+  });
+
+  it("leads with the tagged one alone when no untagged one reaches the floor: the review's Team 1 card in Parker's league, +0.1/wk next to +7.2/wk", () => {
+    // Parker's league with week 4 under way: Team 1's card read "Best target" for an untagged back adding +0.1/wk (ESPN
+    // questionable with a far return date) and "Bigger upgrade, harder to get" for a tagged star adding +7.2/wk, and
+    // nothing else. Here Snoot plays the back and Gloop (team 2's most valuable player, a top-12 one: tagged) the star.
+    const card = cardsOf(withTeam2([{ playerId: "202", ppw: 7.2 }, { playerId: "204", ppw: 0.1 }]))[0];
+    expect(leads(card)).toEqual(["Best target, harder to get: M. Gloop, +7.2/wk"]);
+    expect(card?.targets[0]).toMatchObject({ id: "202", label: BEST_TARGET_HARDER_LABEL, harderToGet: true, title: expect.stringMatching(/^Mortimer Gloop: \+7\.2 points per week to your lineup\. Harder to get: /) });
+    // The back goes to "They could also give".
+    expect(card?.theyCanGive).toEqual({ label: "They could also give:", players: [{ id: "204", text: "C. Snoot (+0.1/wk)", title: "Cornelius Snoot: +0.1 points per week to the other lineup", tag: null }], more: null });
+    // With the back at the floor, the card reads as before the floor: him first, the star second as the bigger upgrade.
+    expect(leads(cardsOf(withTeam2([{ playerId: "202", ppw: 7.2 }, { playerId: "204", ppw: 1 }]))[0])).toEqual(["Best target: C. Snoot, +1/wk", "Bigger upgrade, harder to get: M. Gloop, +7.2/wk"]);
+    // The floor holds for a tagged lead too (the lead's call on N12 after the final review): a "+0.5/wk" star leads nothing.
+    const weakStar = cardsOf(withTeam2([{ playerId: "202", ppw: 0.5 }, { playerId: "204", ppw: 0.1 }]))[0];
+    expect(leads(weakStar)).toEqual([]);
+    expect(weakStar?.theyCanGive.players.map((p) => [p.text, p.tag?.text ?? null])).toEqual([
+      ["M. Gloop (+0.5/wk)", HARDER_TO_GET_TAG],
+      ["C. Snoot (+0.1/wk)", null],
+    ]);
+    // At the floor he leads.
+    expect(leads(cardsOf(withTeam2([{ playerId: "202", ppw: 1 }, { playerId: "204", ppw: 0.1 }]))[0])).toEqual(["Best target, harder to get: M. Gloop, +1/wk"]);
+  });
+
+  it("breaks ties the card's way: the untagged one is the better on a tie as printed, and 'at least' the floor counts", () => {
+    // A tie: the untagged one is the best target, and the tagged one isn't "bigger".
+    const tie = withTeam2([
+      { playerId: "202", ppw: 2.1 },
+      { playerId: "204", ppw: 2.1 },
+    ]);
+    expect(leads(cardsOf(tie)[0])).toEqual(["Best target: C. Snoot, +2.1/wk"]);
+    expect(cardsOf(tie)[0]?.theyCanGive.players.map((p) => p.id)).toEqual(["202"]);
+    // A tie as printed: 2.14 and 2.06 both show "+2.1/wk", so the tagged one isn't called bigger either.
+    const printed = cardsOf(withTeam2([{ playerId: "202", ppw: 2.14 }, { playerId: "204", ppw: 2.06 }]))[0];
+    expect(leads(printed)).toEqual(["Best target: C. Snoot, +2.1/wk"]);
+    expect(printed?.theyCanGive.players.map((p) => [p.text, p.tag?.text ?? null])).toEqual([["M. Gloop (+2.1/wk)", HARDER_TO_GET_TAG]]);
+    // A tie at the floor: the untagged one leads ("at least"); the tagged one isn't bigger.
+    expect(leads(cardsOf(withTeam2([{ playerId: "202", ppw: 1 }, { playerId: "204", ppw: 1 }]))[0])).toEqual(["Best target: C. Snoot, +1/wk"]);
+    // A tie under the floor: the untagged one is the better but under the floor, so nobody leads; both are listed.
+    const under = cardsOf(withTeam2([{ playerId: "202", ppw: 0.5 }, { playerId: "204", ppw: 0.5 }]))[0];
+    expect(under?.targets).toEqual([]);
+    expect(under?.theyCanGive).toMatchObject({ label: "They could give:", players: [{ id: "202" }, { id: "204" }] });
+    // Two untagged ones tied: the engine's order decides.
+    expect(leads(cardsOf(withTeam2([{ playerId: "205", ppw: 1.5 }, { playerId: "204", ppw: 1.5 }]))[0])).toEqual(["Best target: P. Plunk, +1.5/wk"]);
+  });
+
+  it("says under the cards what 'Best target' means, with config's floor", () => {
+    expect(BEST_TARGET_NOTE).toBe(
+      "“Best target” is the most helpful of their trade chips for you without the “Harder to get” mark, as long as he adds at least 1 point a week; when none does, a marked one who'd help you more leads instead, if he adds at least that much too. A marked player is one of their best, so expect their manager to want a little extra for him.",
+    );
+  });
+
+  it("still leads with the best target in a model without premiums (built before the addendum), tagging nobody", () => {
+    const f = leagueFixture();
+    f.model.teams = f.model.teams.map((t) => ({ ...t, premiums: undefined }));
+    const cards = cardsOf(f);
+    expect(leads(cards[0])).toEqual(["Best target: M. Gloop, +2.5/wk"]);
+    expect(cards.flatMap((c) => [...c.theyCanGive.players, ...c.youCanGive.players]).every((p) => p.tag === null)).toBe(true);
+    expect(cards.flatMap((c) => c.targets).every((t) => !t.harderToGet)).toBe(true);
   });
 
   it("labels a one-sided fit by what was measured, so a team with no needs isn't told a partner fills them", () => {
@@ -794,6 +1031,33 @@ describe("buildLeagueView: rosters with ROS points (§6 step 7)", () => {
     expect(player("1", "MIN")).toMatchObject({ pos: "D/ST", name: "Vikings D/ST" });
     // Before kickoff his week 12 game still counts.
     expect(before.rosters[0]?.players.find((p) => p.id === "101")).toMatchObject({ rosText: "132", gamesText: "6 games" });
+  });
+
+  it("tags other teams' players 'Harder to get' (their two most valuable when top-12 players), IR and taxi included; never mine or a free agent", () => {
+    const tagged = (teamId: string) => roster(teamId)?.players.filter((p) => p.tag !== null).map((p) => p.id);
+    // Team 1's Pemberton and McSprocket earn the tag for their owner, but team 1 is mine.
+    expect(v.teams.find((t) => t.id === "1")?.isMine).toBe(true);
+    expect(tagged("1")).toEqual([]);
+    expect(tagged("2")).toEqual(["201", "202"]);
+    expect(tagged("3")).toEqual(["302", "304"]);
+    expect(tagged("4")).toEqual(["401", "404"]);
+    expect(player("2", "202").tag).toEqual({
+      text: HARDER_TO_GET_TAG,
+      title: "Harder to get: his team's most valuable player and one of the top 12 players by trade value, so his manager will likely want a little extra for him.",
+    });
+    expect(player("2", "201").tag?.title).toContain("Harder to get: his team's second most valuable player and one of the top 12");
+    // A top-12 player who is his team's third most valuable isn't.
+    expect(player("2", "203").tag).toBeNull();
+    expect(v.freeAgents.flatMap((g) => g.players).every((p) => p.tag === null)).toBe(true);
+    // IR and taxi players are their manager's too.
+    const f = leagueFixture();
+    const tag = { e: 0.2, rank: 1, elite: true, harderToGet: true };
+    f.model.teams = f.model.teams.map((t) => (t.id === "2" ? { ...t, premiums: { ...t.premiums, "206": tag } } : t.id === "3" ? { ...t, premiums: { ...t.premiums, "306": tag } } : t));
+    const edited = of(f);
+    expect(edited.rosters.find((r) => r.teamId === "2")?.players.find((p) => p.id === "206")).toMatchObject({ group: "ir", tag: { text: HARDER_TO_GET_TAG } });
+    expect(edited.rosters.find((r) => r.teamId === "3")?.players.find((p) => p.id === "306")).toMatchObject({ group: "taxi", tag: { text: HARDER_TO_GET_TAG } });
+    // Without a team of mine, every team's tagged players show.
+    expect(view({ myTeamId: null }).rosters.flatMap((r) => r.players.filter((p) => p.tag).map((p) => p.id))).toEqual(expect.arrayContaining(["101", "104", "201", "202"]));
   });
 
   it("badges injuries, PROBABLE included, and an IR-slot player whose status isn't IR (labels.ts INJURY_LABEL)", () => {
@@ -904,55 +1168,236 @@ describe("buildLeagueView: conflicting ESPN signals (§6 step 3, PlayerModel.ava
   });
 });
 
-describe("buildLeagueView: each team's best free-agent move (§7, TeamModel.waiver)", () => {
-  const withWaiver = (teamId: string, waiver: TeamModel["waiver"]) => {
+describe("buildLeagueView: each team's free-agent pickups (§7 V*, TeamModel.faMoves)", () => {
+  const withMoves = (teamId: string, faMoves: TeamModel["faMoves"]) => {
     const f = leagueFixture();
-    f.model.teams = f.model.teams.map((t) => (t.id === teamId ? { ...t, waiver } : t));
-    return of(f).rosters.find((r) => r.teamId === teamId)?.waiver;
+    f.model.teams = f.model.teams.map((t) => (t.id === teamId ? { ...t, faMoves } : t));
+    return of(f).rosters.find((r) => r.teamId === teamId)?.pickups;
   };
+  const w = `(playoffs count ${config.lineups.playoffWeight}×)`;
 
-  it("heads a roster with its best move and the lineup points it gains (weighted like lineup cost, and saying so), from scenario lineups when there are any", () => {
-    expect(roster("1")?.waiver).toEqual({
-      move: `add ${nameOf("901")} (RB, CAR), drop ${nameOf("108")}`,
-      gain: "+4.6 lineup pts",
-      weighting: `(playoffs count ${config.lineups.playoffWeight}×)`,
-      text: `Best free-agent move: add ${nameOf("901")} (RB, CAR), drop ${nameOf("108")}: +4.6 lineup pts (playoffs count ${config.lineups.playoffWeight}×)`,
+  it("lists a team's pickups in order, each with what it adds with injuries and byes simulated, the gain the optimizer picks moves by (weighted like lineup cost, and saying so), and the projected one in its title", () => {
+    // Review of Phase 4: the optimizer picks and keeps moves by their gain in scenario lineups when scenarios run, so
+    // that's the number shown (never under faMinGain, in the order made); the expected-value gain goes in the title.
+    expect(roster("1")?.pickups).toEqual({
+      items: [
+        {
+          move: `add ${nameOf("901")} (RB, CAR), drop ${nameOf("108")}`,
+          gain: "+3.9 lineup pts",
+          title: `Add ${nameOf("901")} (RB, CAR), drop ${nameOf("108")}: +3.9 lineup pts with injuries and byes simulated (+4.6 on projected lineups), playoffs count ${config.lineups.playoffWeight}×.`,
+        },
+      ],
+      summary: "1, +3.9 lineup pts",
+      weighting: w,
+      text: `Free-agent pickups that would help: add ${nameOf("901")} (RB, CAR), drop ${nameOf("108")}: +3.9 lineup pts ${w}`,
     });
-    expect(FREE_AGENT_MOVE_LABEL).toBe("Best free-agent move");
+    expect(FREE_AGENT_PICKUPS_LABEL).toBe("Free-agent pickups that would help");
+    // Two pickups (no scenarios for this team, so no simulated gain: the projected ones, saying so): into an open spot, then for a bench WR; the summary adds them up.
+    expect(roster("3")?.pickups).toMatchObject({
+      items: [
+        { move: `add ${nameOf("902")} (RB, NE) into an open spot`, gain: "+3.4 lineup pts", title: `Add ${nameOf("902")} (RB, NE) into an open spot: +3.4 lineup pts on projected lineups, playoffs count ${config.lineups.playoffWeight}×.` },
+        { move: `add ${nameOf("901")} (RB, CAR), drop ${nameOf("305")}`, gain: "+3.1 lineup pts" },
+      ],
+      summary: "2, +6.5 lineup pts",
+    });
     // Never "ROS pts": that's the plain total in the same header.
-    expect(v.rosters.map((r) => r.waiver?.text ?? "").join(" ")).not.toContain("ROS pts");
+    expect(v.rosters.map((r) => r.pickups?.text ?? "").join(" ")).not.toContain("ROS pts");
   });
 
   it("drops the weighting note when no playoff week is left to count", () => {
     const f = leagueFixture();
     f.model = { ...f.model, weeks: [12, 13, 14], regularWeeks: [12, 13, 14], playoffWeeks: [] };
-    expect(of(f).rosters[0]?.waiver).toMatchObject({ gain: "+4.6 lineup pts", weighting: null, text: `Best free-agent move: add ${nameOf("901")} (RB, CAR), drop ${nameOf("108")}: +4.6 lineup pts` });
+    expect(of(f).rosters[0]?.pickups).toMatchObject({ weighting: null, text: `Free-agent pickups that would help: add ${nameOf("901")} (RB, CAR), drop ${nameOf("108")}: +3.9 lineup pts` });
+    expect(of(f).rosters[0]?.pickups?.items[0]?.title).toBe(`Add ${nameOf("901")} (RB, CAR), drop ${nameOf("108")}: +3.9 lineup pts with injuries and byes simulated (+4.6 on projected lineups).`);
   });
 
-  it("says when the free agent goes into an open spot, with the expected-value gain when a team has no scenarios", () => {
-    expect(roster("3")?.waiver?.text).toBe(`Best free-agent move: add ${nameOf("902")} (RB, NE) into an open spot: +2.4 lineup pts (playoffs count ${config.lineups.playoffWeight}×)`);
+  it("shows the projected gains when the optimizer judges moves on projected lineups: no scenarios, or starter limits that bind", () => {
+    const ev = (f: ReturnType<typeof leagueFixture>) => of(f).rosters.find((r) => r.teamId === "1")?.pickups;
+    // Starter limits (MFL): the optimizer judges in expected-value lineups even with scenarios.
+    const limited = leagueFixture();
+    limited.snapshot = { ...limited.snapshot, settings: { ...limited.snapshot.settings, starterLimits: { QB: { min: 1, max: 1 } } } };
+    expect(ev(limited)).toMatchObject({
+      items: [{ gain: "+4.6 lineup pts", title: `Add ${nameOf("901")} (RB, CAR), drop ${nameOf("108")}: +4.6 lineup pts on projected lineups (+3.9 with injuries and byes simulated), playoffs count ${config.lineups.playoffWeight}×.` }],
+      summary: "1, +4.6 lineup pts",
+    });
+    // No scenarios.
+    const none = leagueFixture();
+    none.model = { ...none.model, scenarios: 0, teams: none.model.teams.map((t) => ({ ...t, faMoves: t.faMoves.map((m) => ({ ...m, gainScen: null })) })) };
+    expect(ev(none)?.items[0]).toEqual({
+      move: `add ${nameOf("901")} (RB, CAR), drop ${nameOf("108")}`,
+      gain: "+4.6 lineup pts",
+      title: `Add ${nameOf("901")} (RB, CAR), drop ${nameOf("108")}: +4.6 lineup pts on projected lineups, playoffs count ${config.lineups.playoffWeight}×.`,
+    });
   });
 
-  it("shows no move when none helps, or when its gain rounds to nothing", () => {
-    expect(roster("2")?.waiver).toBeNull();
-    // Team 4: a scenario gain of 0.04 (its expected-value gain of 0.3 doesn't count when scenarios exist).
-    expect(roster("4")?.waiver).toBeNull();
-    expect(withWaiver("4", { add: "901", drop: null, gainEv: 0.3, gainScen: 0.05 })?.gain).toBe("+0.1 lineup pts");
-    expect(withWaiver("4", { add: "901", drop: null, gainEv: 2, gainScen: -0.5 })).toBeNull();
-    expect(withWaiver("3", { add: "902", drop: null, gainEv: Number.NaN, gainScen: null })).toBeNull();
+  it("says one lineup point in the singular", () => {
+    expect(withMoves("1", [{ add: "901", drop: "108", gainEv: 1.02, gainScen: 3.5 }])?.items[0]?.title).toBe(
+      `Add ${nameOf("901")} (RB, CAR), drop ${nameOf("108")}: +3.5 lineup pts with injuries and byes simulated (+1 on projected lineups), playoffs count ${config.lineups.playoffWeight}×.`,
+    );
+    const f = leagueFixture();
+    f.model = { ...f.model, scenarios: 0 };
+    f.model.teams = f.model.teams.map((t) => (t.id === "1" ? { ...t, faMoves: [{ add: "901", drop: "108", gainEv: 0.96, gainScen: null }] } : t));
+    expect(of(f).rosters.find((r) => r.teamId === "1")?.pickups).toMatchObject({ items: [{ gain: "+1 lineup pt" }], summary: "1, +1 lineup pt" });
+  });
+
+  it("shows nothing when no pickup helps, and leaves out a move without a number", () => {
+    expect(roster("2")?.pickups).toBeNull();
+    expect(roster("4")?.pickups).toBeNull();
+    expect(withMoves("3", [{ add: "902", drop: null, gainEv: Number.NaN, gainScen: null }])).toBeNull();
+    // A depth pickup: it adds little, even less than nothing, to projected lineups, and more once injuries and byes are simulated.
+    expect(withMoves("3", [{ add: "902", drop: null, gainEv: Number.NaN, gainScen: null }, { add: "901", drop: "305", gainEv: -0.4, gainScen: 3.5 }])?.items).toEqual([
+      { move: `add ${nameOf("901")} (RB, CAR), drop ${nameOf("305")}`, gain: "+3.5 lineup pts", title: `Add ${nameOf("901")} (RB, CAR), drop ${nameOf("305")}: +3.5 lineup pts with injuries and byes simulated (−0.4 on projected lineups), playoffs count ${config.lineups.playoffWeight}×.` },
+    ]);
   });
 
   it("names a team defense by its name (plus DEF when the name doesn't say it), leaves out a missing NFL team, and never breaks on an unknown player", () => {
-    expect(withWaiver("3", { add: "BAL", drop: "PHI", gainEv: 12.06, gainScen: null })?.move).toBe("add Ravens D/ST, drop Eagles D/ST");
+    expect(withMoves("3", [{ add: "BAL", drop: "PHI", gainEv: 12.06, gainScen: null }])?.items[0]?.move).toBe("add Ravens D/ST, drop Eagles D/ST");
     // Sleeper names a defense after its team ("Baltimore Ravens").
     const f = leagueFixture({ platform: "sleeper" });
     const bal = f.snapshot.players.BAL;
     if (bal) f.snapshot.players.BAL = { ...bal, name: "Baltimore Ravens" };
-    f.model.teams = f.model.teams.map((t) => (t.id === "3" ? { ...t, waiver: { add: "BAL", drop: "PHI", gainEv: 5, gainScen: null } } : t));
-    expect(of(f).rosters.find((r) => r.teamId === "3")?.waiver?.move).toBe("add Baltimore Ravens (DEF), drop Eagles D/ST");
-    expect(withWaiver("1", { add: "903", drop: "999", gainEv: 1, gainScen: null })?.move).toBe(`add ${nameOf("903")} (WR), drop Unknown player (999)`);
-    expect(withWaiver("3", { add: "LV", drop: null, gainEv: 1, gainScen: null })?.move).toBe("add Unknown player (LV) into an open spot");
-    expect(withWaiver("3", { add: "904", drop: null, gainEv: 1, gainScen: null })?.move).toBe(`add ${nameOf("904")} (K, LV) into an open spot`);
+    f.model.teams = f.model.teams.map((t) => (t.id === "3" ? { ...t, faMoves: [{ add: "BAL", drop: "PHI", gainEv: 5, gainScen: null }] } : t));
+    expect(of(f).rosters.find((r) => r.teamId === "3")?.pickups?.items[0]?.move).toBe("add Baltimore Ravens (DEF), drop Eagles D/ST");
+    expect(withMoves("1", [{ add: "903", drop: "999", gainEv: 3, gainScen: null }])?.items[0]?.move).toBe(`add ${nameOf("903")} (WR), drop Unknown player (999)`);
+    expect(withMoves("3", [{ add: "LV", drop: null, gainEv: 3, gainScen: null }])?.items[0]?.move).toBe("add Unknown player (LV) into an open spot");
+    expect(withMoves("3", [{ add: "904", drop: null, gainEv: 3, gainScen: null }])?.items[0]?.move).toBe(`add ${nameOf("904")} (K, LV) into an open spot`);
+  });
+});
+
+describe("buildLeagueView: streaming positions (§7; planner reply to Checkpoint 3, model change 1)", () => {
+  it("lists this week's streaming picks at the positions the lineup starts (D/ST here: no kicker slot), each with his opponent in short and in words", () => {
+    const s = v.streaming as NonNullable<typeof v.streaming>;
+    expect(s.week).toBe(12);
+    expect(s.groups).toEqual([
+      {
+        pos: "DEF",
+        label: "D/ST",
+        caption: "Best free-agent D/STs for week 12, by this week's projection",
+        picks: [
+          { id: "SEA", name: "Seahawks D/ST", nflTeam: "SEA", opponent: "vs ARI", opponentLong: "at home against ARI", projection: "8.2" },
+          { id: "NYG", name: "Giants D/ST", nflTeam: "NYG", opponent: "@ DAL", opponentLong: "away at DAL", projection: "6.6" },
+        ],
+      },
+    ]);
+    expect(s.empty).toBeNull();
+    // Sleeper calls them DEF; an opponent the schedule doesn't know reads "—" (and "opponent unknown" to screen readers).
+    const f = leagueFixture({ platform: "sleeper" });
+    f.model.streaming = { ...f.model.streaming, picks: [{ playerId: "SEA", pos: "DEF", projection: 8.24, opponent: null }] };
+    expect(of(f).streaming?.groups).toEqual([
+      {
+        pos: "DEF",
+        label: "DEF",
+        caption: "Best free-agent team defenses for week 12, by this week's projection",
+        picks: [{ id: "SEA", name: "Seahawks D/ST", nflTeam: "SEA", opponent: "—", opponentLong: "opponent unknown", projection: "8.2" }],
+      },
+    ]);
+  });
+
+  it("lists a kicker group too when the lineup starts a kicker, K first", () => {
+    const f = leagueFixture();
+    f.snapshot = { ...f.snapshot, settings: { ...f.snapshot.settings, lineup: [...f.snapshot.settings.lineup, { slot: "K", count: 1, eligible: ["K"] }] } };
+    f.model.streaming = { ...f.model.streaming, picks: [{ playerId: "904", pos: "K", projection: 8, opponent: { team: "DEN", home: false } }, ...f.model.streaming.picks] };
+    const groups = of(f).streaming?.groups ?? [];
+    expect(groups.map((g) => [g.label, g.caption, g.picks.map((p) => [p.name, p.opponent])])).toEqual([
+      ["K", "Best free-agent kickers for week 12, by this week's projection", [[nameOf("904"), "@ DEN"]]],
+      ["D/ST", "Best free-agent D/STs for week 12, by this week's projection", [[nameOf("SEA"), "vs ARI"], [nameOf("NYG"), "@ DAL"]]],
+    ]);
+  });
+
+  it("says what I stream (my setting) and which other teams stream, with the adds that show it", () => {
+    expect(v.streaming?.mine).toBe("You stream D/ST.");
+    expect(v.streaming?.others).toBe("Other teams that stream (2 or more adds at the position this season): Quasar Quokkas (D/ST, 3 adds).");
+    expect(SETTINGS_HREF).toBe("/settings");
+    // My setting streams nothing, and no other team streams: the streamable positions this lineup starts are named.
+    const f = leagueFixture();
+    f.model.streaming = {
+      ...f.model.streaming,
+      byTeam: Object.fromEntries(Object.entries(f.model.streaming.byTeam).map(([id, t]) => [id, { ...t, positions: [] }])),
+    };
+    expect(of(f).streaming?.mine).toBe("You don't stream any position.");
+    expect(of(f).streaming?.others).toBe("No other team has made 2 or more adds at QB, TE or D/ST this season, so the others count only their own players.");
+    // Without a team of mine, every team is detected (team 1's single add isn't enough).
+    const none = view({ myTeamId: null }).streaming;
+    expect(none?.mine).toBeNull();
+    expect(none?.others).toBe("Teams that stream (2 or more adds at the position this season): Quasar Quokkas (D/ST, 3 adds).");
+  });
+
+  it("explains how a streamed slot counts, with the replacement's average over the weeks team numbers count, and the game-day rule", () => {
+    const base =
+      "A streamed slot counts, each week, the better of the team's own player and the streaming replacement: the 3rd-best free agent at that position that week (other teams stream too). Over the weeks left, the replacement averages 6.6 points a week at D/ST. A team that starts two at a position still gets one streamer.";
+    expect(v.streaming?.note).toBe(`${base} Free agents whose game this week has already started aren't picks.`);
+    expect(before.streaming?.note).toBe(base);
+    expect(config.streaming.streamRank).toBe(3);
+    // The average skips a week in progress: a replacement of 0 in week 12 (its games started) doesn't pull it down.
+    const f = leagueFixture();
+    f.model.streaming = { ...f.model.streaming, replacement: { DEF: [0, 6, 7, 8, 6, 7] } };
+    expect(of(f).streaming?.note).toContain("the replacement averages 6.8 points a week at D/ST.");
+    // A team that streams TE, which this lineup's FLEX takes too: the streamer is one more player who can start there.
+    const te = leagueFixture();
+    te.model.streaming = {
+      ...te.model.streaming,
+      byTeam: { ...te.model.streaming.byTeam, "3": { positions: ["TE", "DEF"], source: "detected", adds: { TE: 2, DEF: 3 } } },
+      replacement: { ...te.model.streaming.replacement, TE: [5, 5, 5, 5, 5, 5] },
+    };
+    expect(of(te).streaming?.note).toContain(
+      "A team that starts two at a position still gets one streamer. A streamed TE can also start in a flex spot, when that helps the lineup more: the replacement is one more player that week.",
+    );
+  });
+
+  it("says so when no free agent at those positions plays this week, and is left out once no week is left or when nothing streams and no K or D/ST starts", () => {
+    const f = leagueFixture();
+    f.model.streaming = { ...f.model.streaming, picks: [] };
+    const empty = of(f).streaming;
+    expect(empty?.groups.map((g) => g.picks)).toEqual([[]]);
+    expect(empty?.empty).toBe("No free-agent D/STs are projected to play this week.");
+    const over = leagueFixture();
+    over.model = { ...over.model, weeks: [], regularWeeks: [], playoffWeeks: [], inProgressWeek: null, teams: over.model.teams.map((t) => ({ ...t, ev: { lv: [], ros: 0, ppw: 0 }, scen: null })) };
+    expect(of(over).streaming).toBeNull();
+    // No D/ST or K slot, and nobody streams: nothing to show.
+    const g = leagueFixture();
+    g.snapshot = { ...g.snapshot, settings: { ...g.snapshot.settings, lineup: g.snapshot.settings.lineup.filter((s) => s.slot !== "D/ST") } };
+    g.model.streaming = { byTeam: {}, replacement: {}, picks: [] };
+    expect(of(g).streaming).toBeNull();
+  });
+
+  it("says on each roster what its team streams: mine by my setting, another team by its adds", () => {
+    expect(roster("1")?.streams).toBe("Streams D/ST (your setting)");
+    expect(roster("3")?.streams).toBe("Streams D/ST (3 adds this season)");
+    expect(roster("2")?.streams).toBeNull();
+    expect(roster("4")?.streams).toBeNull();
+    const f = leagueFixture();
+    f.model.streaming = { ...f.model.streaming, byTeam: { ...f.model.streaming.byTeam, "3": { positions: ["QB", "DEF"], source: "detected", adds: { QB: 2, DEF: 3 } } } };
+    expect(of(f).rosters.find((r) => r.teamId === "3")?.streams).toBe("Streams QB and D/ST (adds this season: QB 2, D/ST 3)");
+  });
+
+  it("explains streaming in 'How these numbers work', with config's numbers", () => {
+    const text = v.explain.find((e) => e.title === "Streaming")?.text ?? "";
+    expect(text).toBe(
+      "Many managers stream kickers and D/STs: each week they pick up whichever free agent is projected highest. A streamed slot counts, each week, the better of the team's own player and the 3rd-best free agent at that position that week (other teams stream too), in every team number: points per week, positional strength and needs, lineup cost, trade chips, partners and the playoff odds. You choose the positions you stream in Settings (K and D/ST unless you change it; QB and TE can be added). Another team counts as streaming a position once it has made 2 or more adds there this season; the others count only their own players. A team that starts two at a position still gets one streamer. A streamed TE can also start in a flex spot, when that helps the lineup more: the replacement is one more player that week.",
+    );
+    expect(config.streaming.detectAdds).toBe(2);
+    // A superflex lineup takes a QB in a flex too; a lineup whose flex takes neither leaves the sentence out.
+    const sf = leagueFixture();
+    sf.snapshot = { ...sf.snapshot, settings: { ...sf.snapshot.settings, lineup: [...sf.snapshot.settings.lineup, { slot: "SUPER_FLEX", count: 1, eligible: ["QB", "RB", "WR", "TE"] }] } };
+    expect(of(sf).explain.find((e) => e.title === "Streaming")?.text).toMatch(/still gets one streamer\. A streamed QB or TE can also start in a flex spot, when that helps the lineup more: the replacement is one more player that week\.$/);
+    const noFlex = leagueFixture();
+    noFlex.snapshot = { ...noFlex.snapshot, settings: { ...noFlex.snapshot.settings, lineup: noFlex.snapshot.settings.lineup.filter((x) => x.slot !== "FLEX") } };
+    expect(of(noFlex).explain.find((e) => e.title === "Streaming")?.text).toMatch(/still gets one streamer\.$/);
+  });
+
+  it("labels lineup points with the model's playoff weight (the user's setting), not config's", () => {
+    const f = leagueFixture();
+    f.model.playoffWeight = 1.5;
+    const custom = of(f);
+    expect(custom.teams.find((t) => t.id === "2")?.chips[0]?.title).toContain("worth 31.2 more lineup pts (playoffs count 1.5×) to");
+    expect(custom.lineupCostTitle).toBe("Rest-of-season lineup points his team would lose without him, with playoff weeks counted 1.5×");
+    expect(custom.explain.find((e) => e.title === "Rest-of-season (ROS) points")?.text).toContain("with playoff weeks counted 1.5× (they decide titles)");
+    expect(custom.rosters.find((r) => r.teamId === "1")?.pickups?.weighting).toBe("(playoffs count 1.5×)");
+    // A weight of 1: lineup points are plain projected points, so nothing is labeled.
+    f.model.playoffWeight = 1;
+    const plain = of(f);
+    expect(plain.teams.find((t) => t.id === "2")?.chips[0]?.title).not.toContain("playoffs count");
+    expect(plain.lineupCostTitle).toBe("Rest-of-season lineup points his team would lose without him");
   });
 });
 
@@ -961,6 +1406,7 @@ describe("buildLeagueView: free agents", () => {
     expect(v.freeAgents.map((g) => [g.pos, g.players.map((p) => p.id)])).toEqual([
       ["RB", ["901", "902"]],
       ["WR", ["903"]],
+      ["D/ST", ["SEA", "NYG"]],
     ]);
     const drifter = v.freeAgents[1]?.players[0];
     expect(drifter).toMatchObject({ nflTeam: "FA", byeText: "bye unknown", value: null, lineupCost: null, group: "fa" });
@@ -989,7 +1435,19 @@ describe("buildLeagueView: without a team", () => {
 describe("buildLeagueView: how these numbers work", () => {
   it("explains the model with config's numbers", () => {
     const text = v.explain.map((e) => `${e.title}: ${e.text}`).join("\n");
-    expect(v.explain.map((e) => e.title)).toEqual(["Projected points", "Availability", "Depth counts", "Rest-of-season (ROS) points", "Week 12 is under way", "Playoff odds", "Trade values", "Needs, trade chips and partners"]);
+    expect(v.explain.map((e) => e.title)).toEqual([
+      "Projected points",
+      "Availability",
+      "Depth counts",
+      "Streaming",
+      "Free-agent pickups",
+      "Rest-of-season (ROS) points",
+      "Week 12 is under way",
+      "Playoff odds",
+      "Trade values",
+      "Needs, trade chips and partners",
+      "Harder to get",
+    ]);
     expect(text).toContain(`up to ${Math.round(config.projections.actualWeight * 100)}% once he has played ${config.projections.actualFullGames} games`);
     expect(text).toContain("ESPN's own projections differ from Sleeper's by 14% on average this week, more than the 10% we allow");
     expect(text).toContain("Out: 0% this week, 50% next week, 85% in 2 weeks; Doubtful 25%, Questionable 85% and Probable 95% this week");
@@ -997,23 +1455,70 @@ describe("buildLeagueView: how these numbers work", () => {
     expect(text).toContain(`${config.lineups.scenarios} simulated runs of injuries and byes`);
     expect(text).toContain("from week 12 through week 17 (the last playoff week)");
     expect(text).toContain(
-      `Lineup cost and each team's best free-agent move (shown at the top of its roster when one helps) are in lineup points: starting-lineup points over the rest of the season, with playoff weeks counted ${config.lineups.playoffWeight}× (they decide titles), so they don't add up exactly with ROS points.`,
+      `Lineup cost and the gains of each team's free-agent pickups (listed on its roster) are in lineup points: starting-lineup points over the rest of the season, with playoff weeks counted ${config.lineups.playoffWeight}× (they decide titles), so they don't add up exactly with ROS points.`,
     );
-    expect(text).toContain("It's measured after the team's best free-agent move, so it's never negative.");
+    expect(text).toContain("Lineup cost is how many his team would lose without him, after its free-agent pickups (it would pick up a free agent in his place when that helps); it's never negative.");
+    // The free-agent optimizer (§7 V*) with config's numbers: kickers and D/STs never, the guard only in dynasty and keeper leagues.
+    const o = config.freeAgentOptimizer;
+    // Judged with injuries and byes simulated (scenarios ran, no starter limits): review of Phase 4.
+    expect(text).toContain(
+      `Free-agent pickups: Each team is measured after the free-agent pickups that would help it, made one at a time: each time the add (dropping a player, or into an open roster spot) that adds the most lineup points with injuries and byes simulated (so a backup who'd start when a starter is hurt or on bye counts), as long as it adds at least ${o.faMinGain}, up to ${o.faMaxMoves} pickups. Kickers and D/STs are never picked up (they're streamed or kept), nor is a position the team streams, and a player its starting lineup needs is never dropped. Lineup cost, trade chips and partners all start from those rosters, so a trade never gets credit for a pickup a team could make anyway. Each team is measured on its own, so two teams may count on the same free agent.`,
+    );
+    // On projected lineups without scenarios.
+    const noScen = leagueFixture();
+    noScen.model = { ...noScen.model, scenarios: 0 };
+    expect(of(noScen).explain.find((e) => e.title === "Free-agent pickups")?.text).toContain(
+      `each time the add (dropping a player, or into an open roster spot) that adds the most projected lineup points, as long as it adds at least ${o.faMinGain}, up to ${o.faMaxMoves} pickups.`,
+    );
     expect(text).toContain("FantasyCalc in your league's format (8 teams · half-PPR · 1 QB · redraft).");
     // The format's substitutions are said here once (the server's notes repeating them are dropped).
     expect(text).toContain("Where your league doesn't match one of FantasyCalc's formats exactly: 4 teams → FantasyCalc's 8-team values. Players FantasyCalc doesn't value");
-    // The two parts as the engine measures them (league.ts step 6): the receiving team keeps its best free-agent move (a pickup it
-    // could make anyway doesn't count), but his own team's cost gives it one move, so the pickup it would make anyway can be spent
-    // replacing him (CHIPS-2: never "a pickup either team could make anyway doesn't count").
+    // The two parts as the engine measures them (league.ts step 6): the receiving team after its free-agent pickups (a pickup it
+    // could make anyway doesn't count, one the newcomer makes possible does), against his own team's lineup cost.
     expect(text).toContain(
-      `A trade chip is a player worth at least ${config.needs.chipMinGap} more lineup points to another team than to his own: what he'd add to that team's lineup, measured after its best free-agent move (so a pickup it could make anyway doesn't count), minus what his own team would lose without him when it can make only one free-agent move (a replacement for him, or the pickup it would make anyway).`,
+      `A trade chip is a player worth at least ${config.needs.chipMinGap} more lineup points to another team than to his own: what he'd add to that team's lineup, measured after its free-agent pickups (so a pickup it could make anyway doesn't count, while one his arrival makes possible does), minus what his own team would lose without him.`,
     );
     expect(text).not.toContain("either team could make anyway");
     // The positions trade search leaves out that this league starts (a D/ST, no kicker).
     expect(text).toContain("Team defenses aren't trade chips: trade suggestions leave them out.");
     expect(text).toContain("teams with a trade chip who would start for you, when none of yours would start for them, come after them.");
     expect(text).not.toMatch(/surplus/i);
+  });
+
+  it("explains 'Harder to get' with config's numbers, only when the model has premiums (planner addendum to Checkpoint 3, §2)", () => {
+    const sp = config.acceptance.starPremium;
+    expect(v.explain.find((e) => e.title === HARDER_TO_GET_TAG)?.text).toBe(
+      `Managers value their own best players a bit above their trade value. Another team's player marked Harder to get is one of his team's two most valuable players and one of the top ${sp.eliteTop} players by trade value (FantasyCalc's, in your league's format), so expect his manager to want a little extra for him: trade ideas count that in the chance they accept. Partner cards lead with their best target: the unmarked player who'd add the most to your lineup, if he adds at least 1 point a week. A marked player who'd add more than any unmarked one is named next, or alone when no unmarked one adds that much (he too has to add at least 1 point a week to lead). Your own players are never marked.`,
+    );
+    const f = leagueFixture();
+    f.model.teams = f.model.teams.map((t) => ({ ...t, premiums: undefined }));
+    expect(of(f).explain.map((e) => e.title)).not.toContain(HARDER_TO_GET_TAG);
+  });
+
+  it("says the pickups' dynasty guard only where the engine applies it: dynasty and keeper leagues whose dynasty values loaded (review of track A2)", () => {
+    const pickups = (f: ReturnType<typeof leagueFixture>) => of(f).explain.find((e) => e.title === "Free-agent pickups")?.text ?? "";
+    const guard = "In a dynasty or keeper league, a player worth clearly more in dynasty value than the free agent is never dropped for him.";
+    const off = "this league's dynasty values didn't load this time, so that check is off.";
+    // A redraft league: no guard, nothing said.
+    expect(pickups(leagueFixture())).not.toMatch(/dynasty/);
+    // A keeper league with its dynasty list (the market's own format): the guard is on.
+    const keeper = leagueFixture();
+    keeper.snapshot = { ...keeper.snapshot, settings: { ...keeper.snapshot.settings, leagueType: "keeper" } };
+    keeper.model.market = { ...keeper.model.market, format: fantasyCalcFormat(keeper.snapshot.settings) };
+    expect(keeper.model.market.format?.isDynasty).toBe(true);
+    expect(pickups(keeper)).toContain(guard);
+    // Its dynasty list didn't load (the server falls back to the redraft list): the guard is off, and the text says so.
+    const fallback = leagueFixture();
+    fallback.snapshot = keeper.snapshot;
+    fallback.model.market = { ...fallback.model.market, format: fantasyCalcFormat(keeper.snapshot.settings, "redraft") };
+    expect(fallback.model.market.format?.isDynasty).toBe(false);
+    expect(pickups(fallback)).not.toContain(guard);
+    expect(pickups(fallback)).toContain(off);
+    // FantasyCalc down: no values at all, in a dynasty league too.
+    const down = leagueFixture();
+    down.snapshot = { ...keeper.snapshot, settings: { ...keeper.snapshot.settings, leagueType: "dynasty" } };
+    down.model.market = { ...down.model.market, format: null, topValue: 0 };
+    expect(pickups(down)).toContain(off);
   });
 
   it("names every excluded position the league starts, in the platform's words", () => {
@@ -1024,7 +1529,7 @@ describe("buildLeagueView: how these numbers work", () => {
 
   it("says what a week in progress does to the numbers, only while one is", () => {
     const weekText =
-      'Once a week\'s first game kicks off, the team numbers (points per week, team ROS points, positional strength, needs, lineup cost, free-agent moves and trade partners) count from the next week, week 13: lineups are locking and week 12\'s points are being scored, so it no longer says how good a team is. A player\'s own ROS points still count his week 12 game if it hasn\'t kicked off; one that has shows "Game already started".';
+      'Once a week\'s first game kicks off, the team numbers (points per week, team ROS points, positional strength, needs, lineup cost, free-agent pickups, trade chips and partners) count from the next week, week 13: lineups are locking and week 12\'s points are being scored, so it no longer says how good a team is. A player\'s own ROS points still count his week 12 game if it hasn\'t kicked off; one that has shows "Game already started".';
     // The playoff odds still play that week, from pre-game projections (§8; lead decision D6).
     expect(v.explain.find((e) => e.title === "Week 12 is under way")?.text).toBe(
       `${weekText} The playoff odds still play all of week 12's games from projections, as if none had started: live scores aren't read yet, and the rosters and injury news are today's.`,

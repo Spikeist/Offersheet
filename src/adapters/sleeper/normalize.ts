@@ -49,7 +49,9 @@
  * and NFL team from the projection rows (at most 6 hours old, the DB up to a day); else the player
  * object a projection row embeds (Sleeper projects him, so he's current); else the resolver's
  * DynastyProcess fallback, where active false (not an active NFL player) is known only when
- * Sleeper's list for his position loaded fully.
+ * Sleeper's list for his position loaded fully. Everyone in this season's transactions is in the
+ * snapshot's players when those facts know him, and each transaction move carries his position
+ * (`pos`, Phase 4: streaming detection counts adds by position); a player they don't know has none.
  */
 import { LeagueImportError, type ImportResult } from "@/adapters/types";
 import type { PlayerIdResolver, SleeperPlayerLite } from "@/data/types";
@@ -869,6 +871,9 @@ export function normalizeSleeperLeague(raw: SleeperRawLeague, ctx: SleeperNormal
       if (info) players[m.playerId] = info;
     }
   }
+  // Each move's position (Phase 4: streaming detection counts adds by position), from the same player
+  // facts: the players DB, a projection row's player object, or a team defense's code.
+  const withPositions = transactions.map((tx) => ({ ...tx, moves: tx.moves.map((m) => (players[m.playerId] ? { ...m, pos: (players[m.playerId] as PlayerInfo).pos } : m)) }));
 
   const freeAgents = rankFreeAgents(projWeeks, rostered, startable, settings.scoring, lookup, unknownInjury, players);
   const readWeeks = projWeeks.map((w) => w.week);
@@ -892,7 +897,7 @@ export function normalizeSleeperLeague(raw: SleeperRawLeague, ctx: SleeperNormal
     myTeamId,
     players,
     schedule,
-    transactions,
+    transactions: withPositions,
     freeAgents,
     ...(draftPicks ? { draftPicks } : {}),
     warnings,

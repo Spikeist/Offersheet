@@ -9,22 +9,49 @@ import {
   buildProjectionTable,
   firstKickoff,
   gameStarted,
+  leagueMarginals,
   leagueWeeks,
   nflLastWeek,
   preKickoffTable,
+  modelSettings,
   sleeperWeekLoaded,
+  startablePositions,
+  streamIds,
+  streamedPositions,
+  streamingAdds,
+  tableWithStreaming,
   teamWeeks,
   weekKickedOff,
   type BuildLeagueModelOptions,
   type LeagueModelConfig,
 } from "./league";
 import type { LeagueModel, TeamModel } from "./leagueModel";
-import { prepareLeagueSlots } from "./lineup";
-import type { LeagueSnapshot, Pos, SlotDef } from "./model";
+import { prepareLeagueSlots, prepareSlots } from "./lineup";
+import type { LeagueSnapshot, Pos, SlotDef, Transaction } from "./model";
 import { surplusScores } from "./needs";
-import { priorHealthyBaseRate } from "./projections";
-import { bestFreeAgent, evLineups, lowestKeepValue, mvAddGroupPpw, mvAddPpw, mvLose, positionAllows, ppw, rosterScore, rosValue, scenarioLineups, weekWeights } from "./teamValue";
-import { TEST_NOW, buildTestLeague, randomLeague, syntheticInputs, type TestLeagueSpec, type TestPlayer, type TestTeam } from "./testLeague";
+import { applyStep, createOptimizer, type StreamSpec } from "./optimizer";
+import { gameTimeBaseRate, priorHealthyBaseRate, weeklySd } from "./projections";
+import { defaultTradeSettings, type TradeSettings } from "./settings";
+import {
+  evLineups,
+  evStarter,
+  isStreamId,
+  lowestKeepValue,
+  mvAddGroupPpw,
+  mvAddPpw,
+  positionAllows,
+  ppw,
+  rosterScore,
+  rosValue,
+  scenarioLineups,
+  solveEvWeeks,
+  streamingReplacement,
+  teamEval,
+  weekWeights,
+  type ProjectionTable,
+  type TableRow,
+} from "./teamValue";
+import { TEST_LINEUP, TEST_NOW, buildTestLeague, randomLeague, syntheticInputs, type TestLeagueSpec, type TestPlayer, type TestTeam } from "./testLeague";
 
 const range = (from: number, to: number): number[] => Array.from({ length: to - from + 1 }, (_, i) => from + i);
 /** A weekly projection: `v` in every NFL week from..to. */
@@ -54,26 +81,94 @@ function starters(team: string, s = 1): TestPlayer[] {
 const team = (id: string, roster: TestPlayer[]): TestTeam => ({ id, roster });
 const teamOf = (m: LeagueModel, id: string): TeamModel => m.teams.find((t) => t.id === id) as TeamModel;
 
-type RawCost = { ev: number; scen: number | null; autoAdd: string | null };
+/**
+ * The user's team streams nothing (§7 streaming positions; the default streams K and D/ST): for the Phase 2–3
+ * cases whose free-agent kickers would otherwise be its K replacement. No test league has transactions, so no
+ * other team streams either.
+ */
+const NO_STREAMING: TradeSettings = { ...defaultTradeSettings(), streamPositions: [] };
 
 /**
- * §7's MV_lose as written, ROS(T) − ROS(T − i + fa_i) (teamValue.mvLose, the friendly API: its own solves),
- * for every modeled player of a team, on the same projection table and scenario draws as the model, over
- * the weeks the model's team numbers count (teamWeeks: a week in progress weighs 0).
+ * The projection table the model used, with the model's streaming rows (league.tableWithStreaming), and a team's
+ * roster as the model values it: its players plus its streaming rows (teamValue's friendly API then prices it as
+ * the model does; a position without a row is skipped).
  */
-function rawCosts(league: { snapshot: LeagueSnapshot; inputs: ModelInputs }, model: LeagueModel, teamId: string, opts: BuildLeagueModelOptions, cfg: LeagueModelConfig = config): Record<string, RawCost> {
+function modelTable(league: { snapshot: LeagueSnapshot; inputs: ModelInputs }, model: LeagueModel, opts: BuildLeagueModelOptions, cfg: LeagueModelConfig = config): { table: ProjectionTable; withStream: (teamId: string, roster: readonly string[]) => string[] } {
+  const table = tableWithStreaming(buildProjectionTable(league.snapshot, league.inputs, opts, cfg), model, cfg);
+  return { table, withStream: (teamId, roster) => [...roster, ...streamIds(model, teamId)] };
+}
+
+/**
+ * The free-agent optimizer outside the model (optimizer.ts; league.ts step 5), on the projection table the model used
+ * (its streaming rows included), its weeks and settings, and rosters priced through teamValue's friendly API (its own
+ * solves) in the model's lineup mode (scenario lineups when scenarios ran, else EV). V*(T) comes from the model's own
+ * moves (TeamModel.faMoves applied to the roster); `vrun` is this optimizer's own run of it, which the re-runs
+ * (optimizer.reoptimize) start from.
+ */
+function harness(league: { snapshot: LeagueSnapshot; inputs: ModelInputs }, model: LeagueModel, opts: BuildLeagueModelOptions, cfg: LeagueModelConfig = config) {
   const { snapshot } = league;
-  const { table } = buildProjectionTable(snapshot, league.inputs, opts, cfg);
+  const { table } = modelTable(league, model, opts, cfg);
   const slots = prepareLeagueSlots(snapshot.settings);
-  const { weights } = teamWeeks(model, model.inProgressWeek, cfg.lineups);
-  const roster = snapshot.teams.find((t) => t.id === teamId)?.roster ?? [];
-  const rosterPositions = roster.flatMap((id) => {
-    const info = snapshot.players[id];
-    return info ? [info.pos] : [];
-  });
-  const out: Record<string, RawCost> = {};
+  const { weights } = teamWeeks(model, model.inProgressWeek, { ...cfg.lineups, playoffWeight: model.playoffWeight });
+  const rostered = new Set(snapshot.teams.flatMap((t) => [...t.roster, ...t.ir, ...t.taxi]));
+  const spec = (teamId: string): StreamSpec => ({ rows: streamIds(model, teamId).flatMap((id) => table.rows.get(id) ?? []), positions: model.streaming.byTeam[teamId]?.positions ?? [] });
+  const opt = createOptimizer(
+    {
+      rows: table.rows,
+      weekCount: model.weeks.length,
+      slots,
+      weights,
+      freeAgents: snapshot.freeAgents.filter((id) => table.rows.has(id) && !rostered.has(id)),
+      info: (id) => snapshot.players[id],
+      positionLimits: snapshot.settings.positionLimits,
+      maxRosterSize: snapshot.settings.maxRosterSize,
+      dropValue: (id) => model.players[id]?.value?.value ?? 0,
+      dynasty: null,
+      // V*(T) judges its moves in scenario lineups when the model's scenarios ran, as the model's optimizer does.
+      scenarios: model.scenarios,
+    },
+    { faMinGain: cfg.freeAgentOptimizer.faMinGain, faMaxMoves: cfg.freeAgentOptimizer.faMaxMoves, optimizerExcluded: cfg.streaming.optimizerExcluded },
+  );
+  const rosterOf = (teamId: string) => [...new Set(snapshot.teams.find((t) => t.id === teamId)?.roster ?? [])];
+  const vstar = (teamId: string): string[] => teamOf(model, teamId).faMoves.reduce<string[]>((r, m) => applyStep(r, m), rosterOf(teamId));
+  /** V*(T) by this optimizer (the same moves as the model's: the first V* test checks it), the run the re-runs start from. */
+  const vrun = (teamId: string) => opt.optimize(rosterOf(teamId), spec(teamId));
+  const evRos = (ids: readonly string[], teamId: string) => rosValue(evLineups([...ids, ...streamIds(model, teamId)], table, slots).lv, weights);
+  const scenRos = (ids: readonly string[], teamId: string) => rosValue(scenarioLineups([...ids, ...streamIds(model, teamId)], table, slots).lv, weights);
+  const ros = (ids: readonly string[], teamId: string) => (model.scenarios > 0 ? scenRos(ids, teamId) : evRos(ids, teamId));
+  return { table, slots, weights, opt, spec, rosterOf, vstar, vrun, evRos, scenRos, ros };
+}
+
+type HandCost = { ev: number; scen: number | null; autoAdd: string | null };
+
+/**
+ * Every lineup cost of a team by league.ts step 5's rule, priced outside the model: 0 when V*(T) dropped him, else
+ * ROS(V*(T)) − ROS(V*(T − i)), V*(T − i) the optimizer's re-run from V*(T)'s roster without him with one extra move
+ * (optimizer.reoptimize: at most faMaxMoves pickups, an exchange past the cap, a dropped player back into the spot he
+ * leaves), floored at 0, in EV and in scenario lineups, each roster priced on its own; autoAdd = the re-run's first add.
+ */
+function costsByHand(league: { snapshot: LeagueSnapshot; inputs: ModelInputs }, model: LeagueModel, teamId: string, opts: BuildLeagueModelOptions, cfg: LeagueModelConfig = config): Record<string, HandCost> {
+  const h = harness(league, model, opts, cfg);
+  const R = h.vstar(teamId);
+  const from = h.vrun(teamId);
+  const out: Record<string, HandCost> = {};
   for (const id of Object.keys(teamOf(model, teamId).players)) {
-    out[id] = mvLose(roster, id, snapshot.freeAgents, table, slots, { weights, rosterPositions, ...(snapshot.settings.positionLimits ? { positionLimits: snapshot.settings.positionLimits } : {}) });
+    if (!R.includes(id)) {
+      out[id] = { ev: 0, scen: model.scenarios > 0 ? 0 : null, autoAdd: null };
+      continue;
+    }
+    const l = h.opt.reoptimize(
+      from,
+      R.filter((x) => x !== id),
+      h.spec(teamId),
+      1,
+      [id],
+    );
+    out[id] = {
+      ev: Math.max(0, h.evRos(R, teamId) - h.evRos(l.roster, teamId)),
+      scen: model.scenarios > 0 ? Math.max(0, h.scenRos(R, teamId) - h.scenRos(l.roster, teamId)) : null,
+      autoAdd: l.moves[0]?.add ?? null,
+    };
   }
   return out;
 }
@@ -81,13 +176,14 @@ function rawCosts(league: { snapshot: LeagueSnapshot; inputs: ModelInputs }, mod
 type BruteChip = { gap: number; cost: number; maxOther: number; bestTeamId: string };
 
 /**
- * Every trade-chip candidate's numbers by brute force, from the rule in league.ts's header (step 6) and the
- * friendly API (its own solves): T′_V from the model's waiver move; when T′_V's active roster is full, the
- * drop by lowestKeepValue over what losing each of its modeled players (never the free agent just added)
- * costs T′_V's lineup, ROS(T′_V) − ROS(T′_V − k), each roster solved on its own (nothing from the model's
- * lineup costs); MV_add'(T′, i) = max(0, ROS(T′_V + i − drop) − ROS(T′_V)) in the model's lineup mode over
- * the weeks team numbers count; positionLimits on T′_V + i − drop. `pick` chooses the team among those
- * allowed (default: the largest value, ties to the smaller id).
+ * Every trade-chip candidate's numbers by brute force, from the rule in league.ts's header (step 6), every pair solved
+ * (no bounds): V*(T′) from the model's moves; the keep value of each of its modeled players, ROS(V*(T′)) − ROS(V*(T′) −
+ * k), each roster solved on its own; when it is full, the drop by lowestKeepValue over them; when V*(T′) minus that drop
+ * has i's position at its limit, the drop is the lowest keep value at i's position instead (L7), and T′ is skipped when
+ * nobody there can go. Then, unless under starter limits or i starts in no counted week of the base's EV lineups, the
+ * optimizer's re-run from V*(T′) − drop + i with one extra move (optimizer.reoptimize); MV_add(T′, i) = max(0, ROS(that)
+ * − ROS(V*(T′))) in the model's lineup mode. `pick` chooses the team among those allowed (default: the largest value,
+ * ties to the smaller id).
  */
 function bruteChips(
   league: { snapshot: LeagueSnapshot; inputs: ModelInputs },
@@ -97,22 +193,28 @@ function bruteChips(
   pick?: (options: { teamId: string; value: number; ev: number }[]) => { teamId: string; value: number } | null,
 ): Map<string, BruteChip> {
   const { snapshot } = league;
-  const { table } = buildProjectionTable(snapshot, league.inputs, opts, cfg);
-  const slots = prepareLeagueSlots(snapshot.settings);
-  const { weights } = teamWeeks(model, model.inProgressWeek, cfg.lineups);
-  const rosEv = (roster: string[]) => rosValue(evLineups(roster, table, slots).lv, weights);
-  const ros = (roster: string[]) => (model.scenarios > 0 ? rosValue(scenarioLineups(roster, table, slots).lv, weights) : rosEv(roster));
+  const h = harness(league, model, opts, cfg);
+  const limited = h.slots.limits !== null;
+  const limits = snapshot.settings.positionLimits;
   const posOf = (id: string) => snapshot.players[id]?.pos;
   const bases = snapshot.teams.map((t) => {
-    const tm = teamOf(model, t.id);
-    const w = tm.waiver;
-    const roster = [...new Set(t.roster)];
-    const v = w ? [...roster.filter((id) => id !== w.drop), w.add] : roster;
-    const full = roster.length + (w && w.drop === null ? 1 : 0) >= snapshot.settings.maxRosterSize;
-    const vRos = ros(v);
-    const drop = full ? lowestKeepValue(v.filter((id) => id !== w?.add && table.rows.has(id)).map((id) => ({ id, keep: vRos - ros(v.filter((x) => x !== id)), value: model.players[id]?.value?.value ?? 0 }))) : null;
-    const b = drop ? v.filter((id) => id !== drop) : v;
-    return { id: t.id, blocked: full && drop === null, vRos, vRosEv: rosEv(v), b, positions: b.flatMap((id) => posOf(id) ?? []) };
+    const R = h.vstar(t.id);
+    const full = R.length >= snapshot.settings.maxRosterSize;
+    const vRos = h.ros(R, t.id);
+    const keep = (id: string) => ({ id, keep: vRos - h.ros(R.filter((x) => x !== id), t.id), value: model.players[id]?.value?.value ?? 0 });
+    const modeled = R.filter((id) => h.table.rows.has(id));
+    const drop = full ? lowestKeepValue(modeled.map(keep)) : null;
+    const b = drop ? R.filter((id) => id !== drop) : R;
+    /** The base a newcomer at `pos` joins (L7), or null when the team can't take him. */
+    const baseAt = (pos: Pos): string[] | null => {
+      if (full && drop === null) return null;
+      if (positionAllows(limits, b.flatMap((id) => posOf(id) ?? []), pos)) return b;
+      const d = lowestKeepValue(modeled.filter((id) => posOf(id) === pos).map(keep));
+      if (d === null) return null;
+      const bp = R.filter((id) => id !== d);
+      return positionAllows(limits, bp.flatMap((id) => posOf(id) ?? []), pos) ? bp : null;
+    };
+    return { id: t.id, vRos, vRosEv: h.evRos(R, t.id), baseAt, from: h.vrun(t.id) };
   });
   const out = new Map<string, BruteChip>();
   for (const t of snapshot.teams) {
@@ -120,9 +222,14 @@ function bruteChips(
     for (const [id, x] of Object.entries(tm.players)) {
       const pos = posOf(id) as Pos;
       if (cfg.market.tradeSearchExcluded.includes(pos)) continue;
-      const options = bases
-        .filter((b) => b.id !== t.id && !b.blocked && positionAllows(snapshot.settings.positionLimits, b.positions, pos))
-        .map((b) => ({ teamId: b.id, value: Math.max(0, ros([...b.b, id]) - b.vRos), ev: Math.max(0, rosEv([...b.b, id]) - b.vRosEv) }));
+      const options = bases.flatMap((b) => {
+        const base = b.id === t.id ? null : b.baseAt(pos);
+        if (!base) return [];
+        const starts = h.evRos([...base, id], b.id) - h.evRos(base, b.id) > 1e-9;
+        const run = !limited && starts ? h.opt.reoptimize(b.from, [...base, id], h.spec(b.id), 1) : null;
+        const after = run && (run.moves.length || run.given.length) ? [...run.roster] : [...base, id];
+        return [{ teamId: b.id, value: Math.max(0, h.ros(after, b.id) - b.vRos), ev: Math.max(0, h.evRos(after, b.id) - b.vRosEv) }];
+      });
       let best: { teamId: string; value: number } | null = null;
       if (pick) best = pick(options);
       else for (const o of options) if (!best || o.value > best.value + 1e-9 || (Math.abs(o.value - best.value) <= 1e-9 && o.teamId < best.teamId)) best = o;
@@ -161,55 +268,47 @@ type BrutePartner = { teamId: string; mutual: boolean; score: number };
 
 /**
  * Best trade partners by brute force, from the rule in league.ts's header (step 7, lead decision D2) and the friendly API
- * (its own solves): each side's chips (the model's TeamModel.chips) that add something to the receiving team after its best
- * free-agent move, by own gain (ties: the larger gap, then the smaller id); the first counts; each next one counts while
- * maxOther − cost(T − counted) ≥ chipMinGap, the cost on T − counted by step 5's rules (V(T′) − ROS(T′ − i + fa_i): V the
- * best of T′, T′ plus the free agent its open spot would take, and every T′ − j + fa_j, in the model's lineup mode), at most
- * maxPerSide; each side scored by the joint gain of the chips counted. Ranked like rankPartners: mutual first, best first.
+ * (its own solves): each side's chips (the model's TeamModel.chips) that add something to the receiving team's V*, by
+ * own gain (ties: the larger gap, then the smaller id); the first counts; each next one counts while maxOther −
+ * cost(T − counted) ≥ chipMinGap, the cost on T − counted by step 5's rules: ROS(V*(T − counted)) − ROS(V*(T −
+ * counted − i)), each the optimizer's re-run from V*(T)'s roster with one extra move per player gone (a player counted
+ * never comes back), each roster priced on its own; 0 when V*(T) dropped him), at most maxPerSide; each side scored by
+ * the joint gain of the chips counted. Ranked like rankPartners.
  */
 function brutePartners(league: { snapshot: LeagueSnapshot; inputs: ModelInputs }, model: LeagueModel, opts: BuildLeagueModelOptions, cfg: LeagueModelConfig = config): BrutePartner[] {
   const { snapshot } = league;
-  const { table } = buildProjectionTable(snapshot, league.inputs, opts, cfg);
-  const slots = prepareLeagueSlots(snapshot.settings);
-  const tw = teamWeeks(model, model.inProgressWeek, cfg.lineups);
-  const W = model.weeks.length;
-  const window = { from: tw.from, to: W };
-  const scen = model.scenarios > 0;
-  const limits = snapshot.settings.positionLimits;
-  const rosterOf = (id: string) => [...new Set(snapshot.teams.find((t) => t.id === id)?.roster ?? [])];
-  const positionsOf = (ids: readonly string[]) => ids.flatMap((id) => snapshot.players[id]?.pos ?? []);
-  const tv = (id: string): string[] => {
-    const w = teamOf(model, id).waiver;
-    const roster = rosterOf(id);
-    return w ? [...roster.filter((x) => x !== w.drop), w.add] : roster;
-  };
-  const ros = (ids: readonly string[]) => rosValue(scen ? scenarioLineups(ids, table, slots).lv : evLineups(ids, table, slots).lv, tw.weights);
-  /** His lineup cost on team `teamId` without the players in `gone`. */
+  const h = harness(league, model, opts, cfg);
+  const tw = teamWeeks(model, model.inProgressWeek, { ...cfg.lineups, playoffWeight: model.playoffWeight });
+  const window = { from: tw.from, to: model.weeks.length };
+  /** A team's V* roster with its streaming rows, as partner fit values it (EV lineups, no drop). */
+  const tv = (id: string) => [...h.vstar(id), ...streamIds(model, id)];
   const costWithout = (teamId: string, gone: readonly string[], playerId: string): number => {
-    const roster = rosterOf(teamId).filter((x) => !gone.includes(x));
-    const fopts = { weights: tw.weights, rosterPositions: positionsOf(roster), ...(limits ? { positionLimits: limits } : {}) };
-    const base = ros(roster);
-    let v = base;
-    if (roster.length < snapshot.settings.maxRosterSize) {
-      const fa = bestFreeAgent(roster, snapshot.freeAgents, table, slots, fopts);
-      if (fa) v = Math.max(v, ros([...roster, fa.id]));
-    }
-    const after = (id: string) => {
-      const raw = mvLose(roster, id, snapshot.freeAgents, table, slots, fopts);
-      return base - (scen ? (raw.scen as number) : raw.ev);
-    };
-    for (const id of roster) if (table.rows.has(id)) v = Math.max(v, after(id));
-    return v - after(playerId);
+    const R = h.vstar(teamId);
+    if (!R.includes(playerId)) return 0;
+    const from = h.vrun(teamId);
+    const start = R.filter((x) => !gone.includes(x));
+    const out = R.length - start.length;
+    const before = h.opt.reoptimize(from, start, h.spec(teamId), out, gone);
+    const after = h.opt.reoptimize(
+      from,
+      start.filter((x) => x !== playerId),
+      h.spec(teamId),
+      out + 1,
+      [...gone, playerId],
+    );
+    return Math.max(0, h.ros(before.roster, teamId) - h.ros(after.roster, teamId));
   };
   const side = (from: string, to: string): number => {
-    const chips = teamOf(model, from).chips.map((c) => ({ ...c, ppw: mvAddPpw(tv(to), c.playerId, table, slots, window) })).filter((c) => c.ppw > 1e-9);
+    const chips = teamOf(model, from)
+      .chips.map((c) => ({ ...c, ppw: mvAddPpw(tv(to), c.playerId, h.table, h.slots, window) }))
+      .filter((c) => c.ppw > 1e-9);
     chips.sort((a, b) => (Math.abs(b.ppw - a.ppw) > 1e-9 ? b.ppw - a.ppw : Math.abs(b.gap - a.gap) > 1e-9 ? b.gap - a.gap : a.playerId < b.playerId ? -1 : 1));
     const counted: string[] = [];
     for (const c of chips) {
       if (counted.length >= cfg.search.maxPerSide) break;
       if (counted.length === 0 || c.maxOther - costWithout(from, counted, c.playerId) >= cfg.needs.chipMinGap - 1e-9) counted.push(c.playerId);
     }
-    return mvAddGroupPpw(tv(to), counted, table, slots, window);
+    return mvAddGroupPpw(tv(to), counted, h.table, h.slots, window);
   };
   const me = model.myTeamId as string;
   const all = snapshot.teams
@@ -313,14 +412,21 @@ describe("depth counts (§7; planner reply to Checkpoint 1, addition C): Checkpo
     expect(bench?.autoAdd).toBeNull(); // no free agents in this league
   });
 
-  it("stays exactly §7's ROS(T) − ROS(T − i + fa) when no free agent helps: no waiver move, no shift (also with a free agent who starts nowhere)", () => {
-    for (const t of model.teams) expect(t.waiver, `team ${t.id}`).toBeNull();
-    const raw = rawCosts(league, model, "1", { now: TEST_NOW });
+  it("with no free agent to help, there's no move, and a lineup cost is ROS(T) − ROS(T − i): nobody to add in his place (also with a free agent who starts nowhere)", () => {
+    for (const t of model.teams) expect(t.faMoves, `team ${t.id}`).toEqual([]);
+    const hand = costsByHand(league, model, "1", { now: TEST_NOW });
+    const h = harness(league, model, { now: TEST_NOW });
+    const roster = h.rosterOf("1");
     for (const [id, v] of Object.entries(teamOf(model, "1").players)) {
-      expect(v.mvLoseEv, id).toBe(raw[id]?.ev);
-      expect(v.mvLoseScen, id).toBe(raw[id]?.scen);
+      expect(v.mvLoseEv, id).toBeCloseTo(hand[id]?.ev as number, 9);
+      expect(v.mvLoseScen as number, id).toBeCloseTo(hand[id]?.scen as number, 9);
+      const without = roster.filter((x) => x !== id);
+      expect(v.mvLoseScen as number, id).toBeCloseTo(Math.max(0, h.scenRos(roster, "1") - h.scenRos(without, "1")), 9);
     }
-    // A 2-point free-agent RB improves no team's lineup (every team has an open roster spot): nothing changes.
+    // A 2-point free-agent RB improves no expected-value lineup (every team has an open roster spot). V*(T) judges its
+    // moves in scenario lineups (review of track E, item 1): teams 2–4 have no bench, so he's depth there (he plays when a
+    // starting RB is hurt), worth faMinGain or more in scenario lineups while ~0 in EV ones; team 1's bench RB already
+    // covers that, so it changes nothing.
     const weak = buildTestLeague({
       teams: [
         team("1", [...starters("1").filter((x) => x.id !== "1-rb1" && x.id !== "1-rb2" && x.id !== "1-flex"), p("1-starA", "RB", 20), p("1-starB", "RB", 18), p("1-wr3", "WR", 13), p("1-bench", "RB", 10)]),
@@ -331,8 +437,17 @@ describe("depth counts (§7; planner reply to Checkpoint 1, addition C): Checkpo
       freeAgents: [p("fa-rb", "RB", 2)],
     });
     const m2 = buildLeagueModel(weak.snapshot, weak.inputs, { now: TEST_NOW });
-    for (const t of m2.teams) expect(t.waiver, `team ${t.id}`).toBeNull();
+    expect(teamOf(m2, "1").faMoves).toEqual([]);
+    for (const id of ["2", "3", "4"]) {
+      const moves = teamOf(m2, id).faMoves;
+      expect(moves.map((m) => [m.add, m.drop]), `team ${id}`).toEqual([["fa-rb", null]]);
+      expect(moves[0]?.gainEv as number, `team ${id}`).toBeLessThan(config.freeAgentOptimizer.faMinGain);
+      expect(moves[0]?.gainScen as number, `team ${id}`).toBeGreaterThanOrEqual(config.freeAgentOptimizer.faMinGain - 1e-9);
+    }
     expect(teamOf(m2, "1").players).toEqual(teamOf(model, "1").players);
+    // In EV lineups (no scenarios) nobody picks him up.
+    const m3 = buildLeagueModel(weak.snapshot, weak.inputs, { now: TEST_NOW, scenarios: 0 });
+    for (const t of m3.teams) expect(t.faMoves, `team ${t.id}`).toEqual([]);
   });
 
   it("depth makes scenario lineups worth more than expected-value ones (Jensen: each scenario's best lineup)", () => {
@@ -345,14 +460,13 @@ describe("depth counts (§7; planner reply to Checkpoint 1, addition C): Checkpo
   });
 });
 
-describe("lineup costs from the team after its best free-agent move (§7 MV_lose; Checkpoint 2's negative-cost fix)", () => {
+describe("lineup costs from the free-agent-optimized team (§7 MV_lose under V*; planner reply to Checkpoint 3, model change 2)", () => {
   /** Σ ω over weeks 4–17: 11 regular-season weeks and 3 playoff weeks at playoffWeight. */
   const OMEGA = 11 + 3 * config.lineups.playoffWeight;
-  const OPTS = { now: TEST_NOW, scenarios: 8 };
-  /** Values for the non-kicking starters, so the kicker (no FantasyCalc value: the floor) is the team's least valuable player. */
+  const OPTS = { now: TEST_NOW, scenarios: 8, settings: NO_STREAMING };
+  /** Values for the non-kicking starters, so a bench player is the least valuable to lose. */
   const valued = (t: string): TestPlayer[] => starters(t).map((x, i) => (x.pos === "K" || x.pos === "DEF" ? x : { ...x, value: 3000 - 100 * i }));
-  // Team 1's active roster is full (16 of 16): the nine starters and seven bench players who never start ("1-b-wr" sorts
-  // before "1-k", so it's market value, not the id, that picks who is dropped).
+  // Team 1's active roster is full (16 of 16): the nine starters and seven bench players who never start.
   const bench = [
     p("1-qb2", "QB", 12, { value: 800 }),
     p("1-rb3", "RB", 6, { value: 600 }),
@@ -362,100 +476,89 @@ describe("lineup costs from the team after its best free-agent move (§7 MV_lose
     p("1-b-wr", "WR", 6, { value: 650 }),
     p("1-te2", "TE", 4, { value: 300 }),
   ];
-  // Every team's kicker scores 8; the free agent 12.
-  const kLeague = buildTestLeague({ teams: [team("1", [...valued("1"), ...bench]), team("2", valued("2")), team("3", valued("3")), team("4", valued("4"))], freeAgents: [p("fa-k", "K", 12)] });
+  // A 14-point free-agent WR starts over the 13-point WR2, who moves to the FLEX over the 11-point FLEX WR: +3 a week.
+  const wrLeague = buildTestLeague({ teams: [team("1", [...valued("1"), ...bench]), team("2", valued("2")), team("3", valued("3")), team("4", valued("4"))], freeAgents: [p("fa-wr", "WR", 14)] });
 
-  it("a free-agent K beats the team's K: §7's raw costs go negative, measured from the best move they don't, shifted by one constant per team", () => {
-    expect(kLeague.snapshot.teams[0]?.roster).toHaveLength(kLeague.snapshot.settings.maxRosterSize);
-    const model = buildLeagueModel(kLeague.snapshot, kLeague.inputs, OPTS, NO_RISK);
+  it("V*(T) makes the free-agent move, and lineup costs are measured from it: never below 0, a bench player nothing, a starter his edge over who replaces him", () => {
+    expect(wrLeague.snapshot.teams[0]?.roster).toHaveLength(wrLeague.snapshot.settings.maxRosterSize);
+    const model = buildLeagueModel(wrLeague.snapshot, wrLeague.inputs, OPTS, NO_RISK);
     const t1 = teamOf(model, "1");
-    const raw = rawCosts(kLeague, model, "1", OPTS, NO_RISK);
-    const gain = 4 * OMEGA; // the free-agent K's 4 extra points a week
-    // Before: every bench player and the old K "cost" −gain (T − i + the free-agent K beats T itself).
-    for (const id of ["1-k", ...bench.map((b) => b.id)]) {
-      expect(raw[id]?.ev, id).toBeCloseTo(-gain, 9);
-      expect(raw[id]?.scen, id).toBeCloseTo(-gain, 9);
-      expect(raw[id]?.autoAdd, id).toBe("fa-k");
-    }
-    // After: add the free-agent K and drop the least valuable of the players whose loss costs nothing (the old K, at the value floor).
-    expect(t1.waiver).toEqual({ add: "fa-k", drop: "1-k", gainEv: expect.closeTo(gain, 9), gainScen: expect.closeTo(gain, 9) });
+    // Every bench player never starts, so dropping any of them for the free agent gains the same +3 a week (and so does
+    // dropping the FLEX WR, who'd sit behind him): the least valuable goes, the backup TE.
+    expect(t1.faMoves).toEqual([{ add: "fa-wr", drop: "1-te2", gainEv: expect.closeTo(3 * OMEGA, 9), gainScen: expect.closeTo(3 * OMEGA, 9) }]);
+    // MV_lose by the rule, priced outside the model.
+    const hand = costsByHand(wrLeague, model, "1", OPTS, NO_RISK);
     for (const [id, v] of Object.entries(t1.players)) {
+      expect(v.mvLoseEv, id).toBeCloseTo(hand[id]?.ev as number, 9);
+      expect(v.mvLoseScen as number, id).toBeCloseTo(hand[id]?.scen as number, 9);
+      expect(v.autoAdd, id).toBe(hand[id]?.autoAdd);
       expect(v.mvLoseEv, id).toBeGreaterThanOrEqual(0);
-      expect(v.mvLoseScen as number, id).toBeGreaterThanOrEqual(0);
-      expect(v.mvLoseEv - (raw[id]?.ev as number), id).toBeCloseTo(gain, 9); // one constant for the whole team
-      expect((v.mvLoseScen as number) - (raw[id]?.scen as number), id).toBeCloseTo(gain, 9);
-      expect(v.autoAdd, id).toBe(raw[id]?.autoAdd);
     }
-    for (const id of ["1-k", ...bench.map((b) => b.id)]) expect(t1.players[id]?.mvLoseEv, id).toBeCloseTo(0, 9);
+    // V*(T) dropped the backup TE: losing him costs nothing.
+    expect(t1.players["1-te2"]).toMatchObject({ mvLoseEv: 0, mvLoseScen: 0, autoAdd: null });
+    for (const b of bench) expect(t1.players[b.id]?.mvLoseEv, b.id).toBeCloseTo(0, 9);
     expect(t1.players["1-qb"]?.mvLoseEv).toBeCloseTo((20 - 12) * OMEGA, 9); // his 12-point backup starts
-    expect(t1.players["1-def"]?.mvLoseEv).toBeCloseTo(7 * OMEGA, 9); // no backup D/ST
-    // The shift leaves the surplus score (z-scores within the roster) unchanged.
+    expect(t1.players["1-wr1"]?.mvLoseEv).toBeCloseTo((15 + 14 + 13 - (14 + 13 + 11)) * OMEGA, 9); // the WRs move up, the FLEX WR comes back
+    // His backup is the one V*(T) dropped: he comes back into the spot the TE leaves (a run from scratch from T − TE would
+    // have put the WR in that spot instead of dropping him; review of track A2), so losing the TE costs 10 − 4 a week.
+    expect(t1.players["1-te"]?.mvLoseEv).toBeCloseTo((10 - 4) * OMEGA, 9);
+    expect(t1.players["1-te"]?.autoAdd).toBeNull(); // no free agent comes in: the backup does
+    // The surplus score: z(value) − z(lineup cost), within the roster.
     const ids = Object.keys(t1.players);
     const expected = surplusScores(
       ids.map((id) => model.players[id]?.value?.value ?? 0),
-      ids.map((id) => raw[id]?.scen ?? (raw[id]?.ev as number)),
+      ids.map((id) => t1.players[id]?.mvLoseScen as number),
     );
     ids.forEach((id, i) => expect(t1.players[id]?.surplusScore, id).toBeCloseTo(expected[i] as number, 9));
   });
 
-  it("an open active-roster spot: the team adds the free agent without dropping anyone", () => {
-    // Teams 2–4 (9 of 16 players) have room too: the same K goes into their open spot.
-    const model = buildLeagueModel(kLeague.snapshot, kLeague.inputs, OPTS, NO_RISK);
+  it("an open active-roster spot: the team adds the free agent without dropping anyone, each team on its own (so all of them add him)", () => {
+    // Teams 2–4 (9 of 16 players) have room: the same WR goes into each one's open spot.
+    const model = buildLeagueModel(wrLeague.snapshot, wrLeague.inputs, OPTS, NO_RISK);
     for (const id of ["2", "3", "4"]) {
       const t = teamOf(model, id);
-      expect(t.waiver, id).toEqual({ add: "fa-k", drop: null, gainEv: expect.closeTo(4 * OMEGA, 9), gainScen: expect.closeTo(4 * OMEGA, 9) });
-      expect(t.players[`${id}-k`]?.mvLoseEv).toBeCloseTo(0, 9); // he'd be replaced anyway
+      expect(t.faMoves, id).toEqual([{ add: "fa-wr", drop: null, gainEv: expect.closeTo(3 * OMEGA, 9), gainScen: expect.closeTo(3 * OMEGA, 9) }]);
       expect(t.players[`${id}-qb`]?.mvLoseEv).toBeCloseTo(20 * OMEGA, 9); // no backup: his whole 20 a week
     }
     // A team without a TE: a 6-point free-agent TE fills the empty spot (and starts nowhere else: TEs of 10, a FLEX of 11).
     const noTe = buildTestLeague({ teams: [team("1", starters("1").filter((x) => x.pos !== "TE")), team("2", starters("2")), team("3", starters("3"))], freeAgents: [p("fa-te", "TE", 6)] });
     const m2 = buildLeagueModel(noTe.snapshot, noTe.inputs, OPTS, NO_RISK);
-    const t1 = teamOf(m2, "1");
-    expect(t1.waiver).toEqual({ add: "fa-te", drop: null, gainEv: expect.closeTo(6 * OMEGA, 9), gainScen: expect.closeTo(6 * OMEGA, 9) });
-    expect(teamOf(m2, "2").waiver).toBeNull();
-    expect(teamOf(m2, "3").waiver).toBeNull();
-    const raw = rawCosts(noTe, m2, "1", OPTS, NO_RISK);
-    // Losing the K: §7 as written nets the TE he'd add (8 − 6 a week); from the team that adds the TE anyway, it's the K's whole 8.
-    expect(raw["1-k"]?.ev).toBeCloseTo(2 * OMEGA, 9);
-    expect(t1.players["1-k"]?.mvLoseEv).toBeCloseTo(8 * OMEGA, 9);
-    for (const [id, v] of Object.entries(t1.players)) expect(v.mvLoseEv - (raw[id]?.ev as number), id).toBeCloseTo(6 * OMEGA, 9);
+    expect(teamOf(m2, "1").faMoves).toEqual([{ add: "fa-te", drop: null, gainEv: expect.closeTo(6 * OMEGA, 9), gainScen: expect.closeTo(6 * OMEGA, 9) }]);
+    expect(teamOf(m2, "2").faMoves).toEqual([]);
+    expect(teamOf(m2, "3").faMoves).toEqual([]);
+    // Losing the K: kickers are never picked up (they're streamed or kept), so it's his whole 8 a week.
+    expect(teamOf(m2, "1").players["1-k"]?.mvLoseEv).toBeCloseTo(8 * OMEGA, 9);
   });
 
-  it("scenario mode (injury risk on): no cost below 0, one constant per team in each mode, and the waiver's scenario gain is its own roster's", () => {
-    const opts = { now: TEST_NOW, scenarios: 32 };
-    const model = buildLeagueModel(kLeague.snapshot, kLeague.inputs, opts);
-    const { table } = buildProjectionTable(kLeague.snapshot, kLeague.inputs, opts);
-    const slots = prepareLeagueSlots(kLeague.snapshot.settings);
-    const weights = weekWeights(model.weeks, model.regularWeeks, model.playoffWeeks);
-    const scenRos = (roster: readonly string[]) => rosValue(scenarioLineups(roster, table, slots).lv, weights);
+  it("scenario mode (injury risk on): costs by the rule in both modes, never below 0, and each move's scenario gain is its own rosters' difference", () => {
+    const opts = { now: TEST_NOW, scenarios: 32, settings: NO_STREAMING };
+    const model = buildLeagueModel(wrLeague.snapshot, wrLeague.inputs, opts);
+    const h = harness(wrLeague, model, opts);
     for (const t of model.teams) {
-      const raw = rawCosts(kLeague, model, t.id, opts);
-      const players = Object.entries(t.players);
-      const evShift = players.map(([id, v]) => v.mvLoseEv - (raw[id]?.ev as number));
-      const scenShift = players.map(([id, v]) => (v.mvLoseScen as number) - (raw[id]?.scen as number));
-      for (const [id, v] of players) {
-        expect(v.mvLoseEv, `${t.id} ${id}`).toBeGreaterThanOrEqual(0);
+      const hand = costsByHand(wrLeague, model, t.id, opts);
+      for (const [id, v] of Object.entries(t.players)) {
+        expect(v.mvLoseEv, `${t.id} ${id}`).toBeCloseTo(hand[id]?.ev as number, 9);
+        expect(v.mvLoseScen as number, `${t.id} ${id}`).toBeCloseTo(hand[id]?.scen as number, 9);
         expect(v.mvLoseScen as number, `${t.id} ${id}`).toBeGreaterThanOrEqual(0);
       }
-      for (const s of evShift) expect(s, `team ${t.id}`).toBeCloseTo(evShift[0] as number, 9);
-      for (const s of scenShift) expect(s, `team ${t.id}`).toBeCloseTo(scenShift[0] as number, 9);
-      // Every team's best move adds the free-agent K (EV); the scenario shift is the best scenario ROS one move away, at least that move's.
-      const w = t.waiver;
-      expect(w?.add, `team ${t.id}`).toBe("fa-k");
-      expect(evShift[0]).toBeCloseTo(w?.gainEv as number, 9);
-      const roster = kLeague.snapshot.teams.find((x) => x.id === t.id)?.roster ?? [];
-      const after = [...roster.filter((id) => id !== w?.drop), "fa-k"];
-      expect(w?.gainScen).toBeCloseTo(scenRos(after) - scenRos(roster), 9);
-      expect(scenShift[0]).toBeGreaterThanOrEqual((w?.gainScen as number) - 1e-9);
-      expect(t.scen?.ros).toBeCloseTo(scenRos(roster), 9);
+      // The model's moves are the optimizer's, and each move's scenario gain is the rosters' scenario ROS difference.
+      expect(t.faMoves.map((m) => [m.add, m.drop]), `team ${t.id}`).toEqual(h.opt.optimize(h.rosterOf(t.id), h.spec(t.id)).moves.map((m) => [m.add, m.drop]));
+      let roster = h.rosterOf(t.id);
+      for (const m of t.faMoves) {
+        const next = applyStep(roster, m);
+        expect(m.gainEv, `team ${t.id} ${m.add}`).toBeCloseTo(h.evRos(next, t.id) - h.evRos(roster, t.id), 9);
+        expect(m.gainScen as number, `team ${t.id} ${m.add}`).toBeCloseTo(h.scenRos(next, t.id) - h.scenRos(roster, t.id), 9);
+        roster = next;
+      }
+      expect(t.scen?.ros).toBeCloseTo(h.scenRos(h.rosterOf(t.id), t.id), 9); // the team's own numbers are as it stands
     }
   });
 });
 
-describe("position limits in lineup costs and the waiver move (§7 roster legality: positionLimits on the active roster)", () => {
+describe("position limits in the free-agent optimizer and lineup costs (§7 roster legality: positionLimits on the active roster)", () => {
   /** Σ ω over weeks 4–17: 11 regular-season weeks and 3 playoff weeks at playoffWeight. */
   const OMEGA = 11 + 3 * config.lineups.playoffWeight;
-  const OPTS = { now: TEST_NOW, scenarios: 8 };
+  const OPTS = { now: TEST_NOW, scenarios: 8, settings: NO_STREAMING };
   /** Seven bench players who never start: with the nine starters, a full 16-player active roster. */
   const bench = [p("1-qb2", "QB", 12), p("1-rb3", "RB", 6), p("1-rb4", "RB", 5), p("1-rb5", "RB", 3), p("1-wr4", "WR", 7), p("1-wr5", "WR", 6), p("1-te2", "TE", 4)];
   const others = [team("2", starters("2")), team("3", starters("3")), team("4", starters("4"))];
@@ -468,49 +571,47 @@ describe("position limits in lineup costs and the waiver move (§7 roster legali
     const { league, model } = build({ positionLimits: { QB: 2 }, roster: [...starters("1"), ...bench], freeAgents: [p("fa-qb", "QB", 15)] });
     expect(league.snapshot.teams[0]?.roster).toHaveLength(16);
     const t1 = teamOf(model, "1");
+    expect(t1.faMoves).toEqual([]); // the free-agent QB beats no starter, and a third QB would break the limit
     expect(t1.players["1-qb"]?.autoAdd).toBe("fa-qb");
     expect(t1.players["1-qb"]?.mvLoseEv).toBeCloseTo((20 - 15) * OMEGA, 9); // the free agent, not the 12-point backup, replaces him
     expect(t1.players["1-rb5"]?.autoAdd).toBeNull(); // two QBs stay: the limit blocks a third
-    expect(t1.waiver).toBeNull(); // no open spot, and the free-agent QB beats no starter
-    // The model's costs are §7's (teamValue.mvLose with the same limits and roster positions), shifted by one constant.
-    const raw = rawCosts(league, model, "1", OPTS, NO_RISK);
+    const hand = costsByHand(league, model, "1", OPTS, NO_RISK);
     for (const [id, v] of Object.entries(t1.players)) {
-      expect(v.autoAdd, id).toBe(raw[id]?.autoAdd);
-      expect(v.mvLoseEv - (raw[id]?.ev as number), id).toBeCloseTo(0, 9);
+      expect(v.autoAdd, id).toBe(hand[id]?.autoAdd);
+      expect(v.mvLoseEv, id).toBeCloseTo(hand[id]?.ev as number, 9);
     }
   });
 
-  it("a limit already reached blocks the free agent at that position, except for the player whose loss frees the spot (TE limit 2, full roster)", () => {
+  it("a limit already reached: the free agent at that position comes in only for a player there (TE limit 2, full roster)", () => {
     const { model } = build({ positionLimits: { TE: 2 }, roster: [...starters("1"), ...bench], freeAgents: [p("fa-te", "TE", 12)] });
     const t1 = teamOf(model, "1");
-    expect(t1.players["1-rb5"]?.autoAdd).toBeNull();
-    expect(t1.players["1-te2"]?.autoAdd).toBe("fa-te");
-    // The best move swaps a TE for the 12-point free agent (+2 a week); losing the bench RB instead leaves the TE where he is.
-    expect(t1.waiver).toMatchObject({ add: "fa-te", gainEv: expect.closeTo(2 * OMEGA, 9) });
-    expect(["1-te", "1-te2"]).toContain(t1.waiver?.drop);
-    expect(t1.players["1-rb5"]?.mvLoseEv).toBeCloseTo(2 * OMEGA, 9);
+    // He replaces a TE: +2 a week (the 10-point TE sits: the FLEX is the 11-point WR).
+    expect(t1.faMoves).toHaveLength(1);
+    expect(t1.faMoves[0]).toMatchObject({ add: "fa-te", gainEv: expect.closeTo(2 * OMEGA, 9) });
+    expect(["1-te", "1-te2"]).toContain(t1.faMoves[0]?.drop);
   });
 
   it("an open spot doesn't get around a limit already reached: the move drops a TE (TE limit 2, 15 players)", () => {
     const { league, model } = build({ positionLimits: { TE: 2 }, roster: [...starters("1"), ...bench.filter((x) => x.id !== "1-rb5")], freeAgents: [p("fa-te", "TE", 12)] });
     expect(league.snapshot.teams[0]?.roster).toHaveLength(15);
     const t1 = teamOf(model, "1");
-    expect(t1.waiver?.add).toBe("fa-te");
-    expect(["1-te", "1-te2"]).toContain(t1.waiver?.drop);
+    expect(t1.faMoves[0]?.add).toBe("fa-te");
+    expect(["1-te", "1-te2"]).toContain(t1.faMoves[0]?.drop);
   });
 
   it("a player without projections still counts toward a limit (and takes a roster spot), but is never the one dropped", () => {
     // 15 players; the two TEs are the 10-point starter and one without inputs: the open spot can't take the free-agent TE.
     const ghostTe = build({ positionLimits: { TE: 2 }, roster: [...starters("1"), ...bench.filter((x) => x.id !== "1-rb5" && x.id !== "1-te2"), p("1-ghost-te", "TE", 9, { noInputs: true })], freeAgents: [p("fa-te", "TE", 12)] });
     expect(ghostTe.league.snapshot.teams[0]?.roster).toHaveLength(15);
-    expect(teamOf(ghostTe.model, "1").waiver).toMatchObject({ add: "fa-te", drop: "1-te", gainEv: expect.closeTo(2 * OMEGA, 9) });
-    // 16 players, one without inputs: the roster is full, so the better free-agent K comes in for someone.
-    const full = build({ roster: [...starters("1"), ...bench.filter((x) => x.id !== "1-rb5"), p("1-ghost", "RB", 9, { noInputs: true })], freeAgents: [p("fa-k", "K", 12)] });
+    expect(teamOf(ghostTe.model, "1").faMoves).toEqual([{ add: "fa-te", drop: "1-te", gainEv: expect.closeTo(2 * OMEGA, 9), gainScen: expect.closeTo(2 * OMEGA, 9) }]);
+    // 16 players, one without inputs: the roster is full, so the better free-agent WR comes in for someone, never him.
+    const full = build({ roster: [...starters("1"), ...bench.filter((x) => x.id !== "1-rb5"), p("1-ghost", "RB", 9, { noInputs: true })], freeAgents: [p("fa-wr", "WR", 14)] });
     expect(full.league.snapshot.teams[0]?.roster).toHaveLength(16);
-    const w = teamOf(full.model, "1").waiver;
-    expect(w).toMatchObject({ add: "fa-k", gainEv: expect.closeTo(4 * OMEGA, 9) });
-    expect(w?.drop).not.toBeNull();
-    expect(w?.drop).not.toBe("1-ghost");
+    const moves = teamOf(full.model, "1").faMoves;
+    expect(moves).toHaveLength(1);
+    expect(moves[0]).toMatchObject({ add: "fa-wr", gainEv: expect.closeTo(3 * OMEGA, 9) });
+    expect(moves[0]?.drop).not.toBeNull();
+    expect(moves[0]?.drop).not.toBe("1-ghost");
   });
 });
 
@@ -555,14 +656,17 @@ describe("game days (Phase 2 review decisions): once a current-week game has kic
       nflTeam,
       ...(x.value === undefined && x.pos !== "K" && x.pos !== "DEF" ? { value: 3000 - 100 * i } : {}),
     }));
+  // A 14-point free-agent WR (he plays tonight): each team would add him (+3 a week: he starts over the 13-point WR2, who takes
+  // the FLEX from the 11-point WR).
   const league = buildTestLeague({
     teams: [team("1", roster("1", "EAR")), team("2", roster("2", "LAT")), team("3", roster("3", "LAT")), team("4", roster("4", "LAT"))],
-    freeAgents: [p("fa-k", "K", 12, { nflTeam: "LAT" })],
+    freeAgents: [p("fa-wr", "WR", 14, { nflTeam: "LAT" })],
     kickoffs: { 4: { EAR: EARLY, LAT: LATE } },
   });
-  const OPTS = { now: TEST_NOW, scenarios: 8 };
+  // Identical teams: the user's team doesn't stream either.
+  const OPTS = { now: TEST_NOW, scenarios: 8, settings: NO_STREAMING };
 
-  it("identical teams get identical strength, needs, PPW, ROS, lineup costs, trade chips and waiver moves, whoever has played", () => {
+  it("identical teams get identical strength, needs, PPW, ROS, lineup costs, trade chips and free-agent moves, whoever has played", () => {
     const model = buildLeagueModel(league.snapshot, league.inputs, OPTS, NO_RISK);
     expect(model.inProgressWeek).toBe(4);
     const one = teamOf(model, "1");
@@ -574,7 +678,7 @@ describe("game days (Phase 2 review decisions): once a current-week game has kic
       expect(t.scen?.ppw, `team ${id}`).toBeCloseTo(one.scen?.ppw as number, 9);
       expect(t.ev.ros, `team ${id}`).toBeCloseTo(one.ev.ros, 9);
       expect(t.scen?.ros, `team ${id}`).toBeCloseTo(one.scen?.ros as number, 9);
-      expect(t.waiver, `team ${id}`).toEqual(one.waiver);
+      expect(t.faMoves, `team ${id}`).toEqual(one.faMoves);
       expect(t.chips.map((c) => [c.playerId.slice(2), c.gap]), `team ${id}`).toEqual(one.chips.map((c) => [c.playerId.slice(2), c.gap]));
       for (const s of SUFFIXES) {
         const a = one.players[`1-${s}`] as NonNullable<TeamModel["players"][string]>;
@@ -591,7 +695,8 @@ describe("game days (Phase 2 review decisions): once a current-week game has kic
     expect(one.players["1-qb"]?.mvLoseEv).toBeCloseTo((20 - 12) * OMEGA_AFTER, 9); // his backup starts
     // Identical teams: nobody is worth more to another team than to his own.
     expect(model.teams.flatMap((t) => t.chips)).toEqual([]);
-    expect(one.waiver).toEqual({ add: "fa-k", drop: null, gainEv: expect.closeTo(4 * OMEGA_AFTER, 9), gainScen: expect.closeTo(4 * OMEGA_AFTER, 9) });
+    // Each team on its own adds the free agent: weeks 5–17 only.
+    expect(one.faMoves).toEqual([{ add: "fa-wr", drop: null, gainEv: expect.closeTo(3 * OMEGA_AFTER, 9), gainScen: expect.closeTo(3 * OMEGA_AFTER, 9) }]);
     // Week 4 is still reported, a partial week: team 1's players have all played, team 2's haven't.
     expect(one.ev.lv[0]).toBe(0);
     expect(teamOf(model, "2").ev.lv[0]).toBe(112);
@@ -609,7 +714,7 @@ describe("game days (Phase 2 review decisions): once a current-week game has kic
       expect(t.ev.ppw, `team ${t.id}`).toBeCloseTo(112, 9);
       expect(t.needs, `team ${t.id}`).toEqual([]);
       expect(t.players[`${t.id}-qb`]?.mvLoseEv, `team ${t.id}`).toBeCloseTo((20 - 12) * OMEGA_ALL, 9);
-      expect(t.waiver?.gainEv, `team ${t.id}`).toBeCloseTo(4 * OMEGA_ALL, 9);
+      expect(t.faMoves[0]?.gainEv, `team ${t.id}`).toBeCloseTo(3 * OMEGA_ALL, 9);
     }
   });
 
@@ -634,7 +739,8 @@ describe("game days (Phase 2 review decisions): once a current-week game has kic
     const model = buildLeagueModel(fit.snapshot, fit.inputs, OPTS, NO_RISK);
     // He'd replace my 11-point FLEX: +2 a week in weeks 5–17. Counting week 4, when my lineup has played, would add his whole 13.
     const rb3 = teamOf(model, "2").chips.find((c) => c.playerId === "2-rb3");
-    expect(rb3).toEqual({ playerId: "2-rb3", gap: expect.closeTo(2 * OMEGA_AFTER, 9), cost: expect.closeTo(0, 9), maxOther: expect.closeTo(2 * OMEGA_AFTER, 9), bestTeamId: "1" });
+    // A bench back (team 2's FLEX scores 13.2): no cost a week, and no "starter" tag (L5).
+    expect(rb3).toEqual({ playerId: "2-rb3", gap: expect.closeTo(2 * OMEGA_AFTER, 9), cost: expect.closeTo(0, 9), maxOther: expect.closeTo(2 * OMEGA_AFTER, 9), bestTeamId: "1", costPerWeek: expect.closeTo(0, 9), starter: false });
     // His depth makes team 2's other RB/WR starters chips with the same gap (each one's loss is covered by him): every one is +2 a
     // week net. Equal gaps list the cheapest to lose first (D3): him (0), the FLEX (13.2 − 13), the 15.6s, then the 18s.
     expect(teamOf(model, "2").chips.map((c) => c.playerId)).toEqual(["2-rb3", "2-flex", "2-rb2", "2-wr2", "2-rb1", "2-wr1"]);
@@ -674,9 +780,11 @@ describe("the weekly score the season simulator draws (§8; TeamModel.score)", (
     for (const scenarios of [0, 16]) {
       const opts = { now: TEST_NOW, scenarios, seed: 3, sims: 0 };
       const model = buildLeagueModel(league.snapshot, league.inputs, opts);
-      const { table } = buildProjectionTable(league.snapshot, league.inputs, opts);
+      // The user's team streams K and D/ST (the default): its score counts the streaming rows, as its lineups do.
+      expect(streamIds(model, "1")).toEqual(["stream:K", "stream:DEF"]);
+      const { table, withStream } = modelTable(league, model, opts);
       for (const t of model.teams) {
-        const roster = league.snapshot.teams.find((x) => x.id === t.id)?.roster ?? [];
+        const roster = withStream(t.id, league.snapshot.teams.find((x) => x.id === t.id)?.roster ?? []);
         expect(t.score, `S = ${scenarios}, team ${t.id}`).toEqual(rosterScore(roster, table, slots));
         expect(t.score.mean).toEqual(scenarios > 0 ? t.scen?.lv : t.ev.lv);
         expect(t.score.mean).toHaveLength(model.weeks.length);
@@ -763,9 +871,10 @@ describe("trade chips (§7; planner reply to Checkpoint 2, answers 1 and 2): wor
     const model = buildLeagueModel(league.snapshot, league.inputs, OPTS, NO_RISK);
     const t1 = teamOf(model, "1");
     // He never starts for team 1 (cost 0) and would replace team 2's 10-point QB: +8 a week, the most of any team.
-    expect(t1.chips.find((c) => c.playerId === "1-qb2")).toEqual({ playerId: "1-qb2", gap: expect.closeTo(8 * OMEGA, 9), cost: expect.closeTo(0, 9), maxOther: expect.closeTo(8 * OMEGA, 9), bestTeamId: "2" });
+    expect(t1.chips.find((c) => c.playerId === "1-qb2")).toEqual({ playerId: "1-qb2", gap: expect.closeTo(8 * OMEGA, 9), cost: expect.closeTo(0, 9), maxOther: expect.closeTo(8 * OMEGA, 9), bestTeamId: "2", costPerWeek: expect.closeTo(0, 9), starter: false });
     // The star is one too, with the same gap: trading him costs team 1 his edge over the backup (25 − 18) and gives team 2 25 − 10.
-    expect(t1.chips.find((c) => c.playerId === "1-qb")).toEqual({ playerId: "1-qb", gap: expect.closeTo(8 * OMEGA, 9), cost: expect.closeTo(7 * OMEGA, 9), maxOther: expect.closeTo(15 * OMEGA, 9), bestTeamId: "2" });
+    // He costs team 1 his 7-point edge every week (cost ÷ Σ ω), and he starts for it (L5).
+    expect(t1.chips.find((c) => c.playerId === "1-qb")).toEqual({ playerId: "1-qb", gap: expect.closeTo(8 * OMEGA, 9), cost: expect.closeTo(7 * OMEGA, 9), maxOther: expect.closeTo(15 * OMEGA, 9), bestTeamId: "2", costPerWeek: expect.closeTo(7, 9), starter: true });
     expect(t1.chips.map((c) => c.playerId)).toEqual(["1-qb2", "1-qb"]); // equal gaps: the cheaper one to lose first (D3)
     // No depth elsewhere: every other starter costs his team more than he'd add to another.
     for (const id of ["2", "3", "4"]) expect(teamOf(model, id).chips, `team ${id}`).toEqual([]);
@@ -785,11 +894,11 @@ describe("trade chips (§7; planner reply to Checkpoint 2, answers 1 and 2): wor
     }
   });
 
-  it("measures what he'd add against each team's best free-agent move: a free-agent upgrade doesn't create or inflate a chip (answer 1)", () => {
+  it("measures what he'd add against each team's free-agent-optimized roster: a free-agent upgrade doesn't create or inflate a chip (answer 1)", () => {
     // Team 2's QB scores 10, but a 16-point QB is on waivers: team 2 would add him anyway, so the backup's edge there is 18 − 16.
     const withFa = qbLeague([10, 24, 26], { freeAgents: [p("fa-qb", "QB", 16)] });
     const model = buildLeagueModel(withFa.snapshot, withFa.inputs, OPTS, NO_RISK);
-    expect(teamOf(model, "2").waiver).toMatchObject({ add: "fa-qb", drop: null });
+    expect(teamOf(model, "2").faMoves[0]).toMatchObject({ add: "fa-qb", drop: null });
     expect(teamOf(model, "1").chips.find((c) => c.playerId === "1-qb2")).toMatchObject({ gap: expect.closeTo(2 * OMEGA, 9), maxOther: expect.closeTo(2 * OMEGA, 9), bestTeamId: "2" });
     // Without the free agent, the same backup is worth 8 a week there: the pickup would have been counted four times over.
     const without = qbLeague([10, 24, 26]);
@@ -799,7 +908,7 @@ describe("trade chips (§7; planner reply to Checkpoint 2, answers 1 and 2): wor
     expect(buildLeagueModel(close.snapshot, close.inputs, OPTS, NO_RISK).teams.flatMap((t) => t.chips)).toEqual([]);
   });
 
-  it("makes room on a full roster by dropping the player whose loss costs its lineup least (ties: the lower value, then the id), and skips a team the newcomer would put over a position limit", () => {
+  it("makes room on a full roster by dropping the player whose loss costs its lineup least (ties: the lower value, then the id); at a position limit the lowest keep value there goes instead (L7), and only a team with nobody there to drop is skipped", () => {
     // Team 2: a 10-point QB and a full 16-player active roster whose seven bench players never start (losing one costs 0); QB limit 2.
     const bench = (qb2Value: number): TestPlayer[] => [
       p("2-qb2", "QB", 8, { value: qb2Value }),
@@ -819,53 +928,113 @@ describe("trade chips (§7; planner reply to Checkpoint 2, answers 1 and 2): wor
     const m1 = buildLeagueModel(cheap.snapshot, cheap.inputs, OPTS, NO_RISK);
     expect(teamOf(m1, "1").chips.find((c) => c.playerId === "1-qb2")).toMatchObject({ gap: expect.closeTo(8 * OMEGA, 9), bestTeamId: "2" });
     expectChipsMatch(m1, bruteChips(cheap, m1, OPTS, NO_RISK), NO_RISK);
-    // Worth more than the bench TE (300), the backup QB stays and the TE goes: a third QB would break the limit, so team 2 is skipped.
+    // Worth more than the bench TE (300), the backup QB isn't the general drop (the TE is), but a third QB would break the
+    // limit: team 2 makes room at QB instead, with its lowest keep value there (the backup, who never starts), so the chip is
+    // the same. (Review of track A2: the first version skipped team 2 here and the chip went unmade.)
     const pricey = league(900);
     const m2 = buildLeagueModel(pricey.snapshot, pricey.inputs, OPTS, NO_RISK);
-    expect(m2.teams.flatMap((t) => t.chips)).toEqual([]);
+    expect(teamOf(m2, "1").chips.find((c) => c.playerId === "1-qb2")).toMatchObject({ gap: expect.closeTo(8 * OMEGA, 9), bestTeamId: "2" });
+    const priced = leagueMarginals(pricey.snapshot, pricey.inputs, OPTS, NO_RISK);
+    expect(priced.mvAddBlocked("2", "1-qb2")).toBeNull();
+    expect(priced.mvAdd("2", "1-qb2")).toMatchObject({ drop: "2-qb2", scen: expect.closeTo(8 * OMEGA, 9) });
+    expect(priced.mvAdd("2", "1-rb1")?.drop).toBe("2-te2"); // a newcomer at another position: the general drop
     expectChipsMatch(m2, bruteChips(pricey, m2, OPTS, NO_RISK), NO_RISK);
+    // Nobody at QB who can go (two QBs without projections fill the limit; only players with a model are dropped): team 2
+    // can't take him, and says why. Its QB slot is empty, so he'd be worth his whole 18 a week there.
+    const ghosts = buildTestLeague({
+      positionLimits: { QB: 2 },
+      teams: [team("1", [...valued("1", 25), p("1-qb2", "QB", 18, { value: 2000 })]), team("2", [...valued("2", 10).filter((x) => x.pos !== "QB"), p("2-gq1", "QB", 10, { noInputs: true }), p("2-gq2", "QB", 8, { noInputs: true })]), team("3", withQb("3", 24)), team("4", withQb("4", 26))],
+    });
+    const m3 = buildLeagueModel(ghosts.snapshot, ghosts.inputs, OPTS, NO_RISK);
+    const blocked = leagueMarginals(ghosts.snapshot, ghosts.inputs, OPTS, NO_RISK);
+    expect(blocked.mvAddBlocked("2", "1-qb2")).toEqual({ reason: "positionLimit", pos: "QB", limit: 2 });
+    expect(blocked.mvAdd("2", "1-qb2")).toBeNull();
+    expect(teamOf(m3, "1").chips).toEqual([]);
+    expectChipsMatch(m3, bruteChips(ghosts, m3, OPTS, NO_RISK), NO_RISK);
   });
 
-  it("makes room with the player whose loss costs the lineup least, nobody refilling his spot: not a starting K whose free-agent twin makes his lineup cost ~0 (review finding)", () => {
+  it("a position limit filled by a team's own free-agent pickups doesn't block a better player: it makes room at the position (review of track A2)", () => {
+    // Team 2: a 10-point QB with a week-9 bye and open roster spots; QB limit 2. Its optimizer adds a 9-point free-agent QB for
+    // the bye week (+9), which fills the limit. Team 1's 18-point backup QB would still start for team 2 every week: it gives
+    // back its own pickup to make room (the lowest keep value at QB), the design's MV_add from team 2's own roster:
+    // ROS(V*(T2 + him)) − ROS(V*(T2)) = 8 × 14 weeks + the bye week he covers (18 − 9) + 3 playoff weeks × 1.25 × 8.
+    const league = buildTestLeague({
+      teams: [team("1", [...withQb("1", 25), p("1-qb2", "QB", 18)]), team("2", withQb("2", 10).map((x) => (x.pos === "QB" ? { ...x, nflTeam: "B09" } : x))), team("3", withQb("3", 24)), team("4", withQb("4", 26))],
+      freeAgents: [p("fa-qb", "QB", 9)],
+      byeWeek: { B09: 9 },
+      positionLimits: { QB: 2 },
+    });
+    const opts = { now: TEST_NOW, scenarios: 0, sims: 0, settings: NO_STREAMING };
+    const model = buildLeagueModel(league.snapshot, league.inputs, opts, NO_RISK);
+    expect(teamOf(model, "2").faMoves).toEqual([{ add: "fa-qb", drop: null, gainEv: expect.closeTo(9, 9), gainScen: null }]);
+    const marginals = leagueMarginals(league.snapshot, league.inputs, opts, NO_RISK);
+    expect(marginals.mvAddBlocked("2", "1-qb2")).toBeNull();
+    const add = marginals.mvAdd("2", "1-qb2");
+    expect(add).toMatchObject({ drop: "fa-qb" });
+    // From team 2's own roster (two QBs: legal), priced outside the model.
+    const h = harness(league, model, opts, NO_RISK);
+    const scratch = h.opt.optimize([...h.rosterOf("2"), "1-qb2"], h.spec("2"));
+    expect(scratch.moves).toEqual([]);
+    expect(add?.ev).toBeCloseTo(h.evRos(scratch.roster, "2") - h.evRos(h.vstar("2"), "2"), 9);
+    expect(teamOf(model, "1").chips.find((c) => c.playerId === "1-qb2")).toMatchObject({ bestTeamId: "2", maxOther: expect.closeTo(add?.ev as number, 9) });
+    expect(expectChipsMatch(model, bruteChips(league, model, opts, NO_RISK), NO_RISK)).toBeGreaterThan(0);
+  });
+
+  it("makes room with the player whose loss costs the lineup least, nobody refilling his spot: not a starting TE whose free-agent twin makes his lineup cost ~0 (review finding)", () => {
     // Team 2: a 10-point QB and a full roster whose bench players each start in a starter's bye week, so each costs something;
-    // its 8-point K has no backup, and a 7.99-point K is on waivers. A lineup cost refills the spot with that free agent, so the
-    // K's is ~0 (the lowest on the team), but dropping him to make room loses his 8 a week: a bench player goes instead, and the
-    // backup QB stays worth his edge over team 2's QB. Injury risk on (the default config), EV and scenario lineups.
+    // its 10-point TE (no bye) has no backup, and a 9.99-point TE is on waivers. A lineup cost refills the spot with that free
+    // agent, so the TE's is ~0 (the lowest on the team), but dropping him to make room loses his 10 a week: a bench player goes
+    // instead, and the backup QB stays worth his edge over team 2's QB. Injury risk on (the default config), EV and scenario
+    // lineups. (Phase 3's case was a kicker; kickers are never picked up now, so the twin is a TE.)
     const two: TestPlayer[] = [
       p("2-qb", "QB", 10, { nflTeam: "B06" }),
       p("2-rb1", "RB", 15, { nflTeam: "B07" }),
       p("2-rb2", "RB", 13, { nflTeam: "B07" }),
       p("2-wr1", "WR", 15, { nflTeam: "B08" }),
       p("2-wr2", "WR", 13, { nflTeam: "B08" }),
-      p("2-te", "TE", 10, { nflTeam: "B09" }),
+      p("2-te", "TE", 10),
       p("2-flex", "WR", 11, { nflTeam: "B08" }),
-      p("2-k", "K", 8),
+      p("2-k", "K", 8, { nflTeam: "B10" }),
       p("2-def", "DEF", 7, { nflTeam: "B11" }),
-      ...[p("2-qb2", "QB", 9), p("2-rb3", "RB", 9), p("2-rb4", "RB", 8), p("2-wr3", "WR", 9), p("2-wr4", "WR", 8), p("2-te2", "TE", 6), p("2-def2", "DEF", 6)],
+      ...[p("2-qb2", "QB", 9), p("2-rb3", "RB", 9), p("2-rb4", "RB", 8), p("2-wr3", "WR", 9), p("2-wr4", "WR", 8), p("2-k2", "K", 5), p("2-def2", "DEF", 6)],
     ];
-    const league = (faK: number) =>
+    const league = (faTe: number) =>
       buildTestLeague({
         teams: [team("1", [...withQb("1", 25), p("1-qb2", "QB", 18)]), team("2", two), team("3", withQb("3", 24)), team("4", withQb("4", 26))],
-        freeAgents: [p("fa-k", "K", faK)],
-        byeWeek: { B06: 6, B07: 7, B08: 8, B09: 9, B11: 11 },
+        freeAgents: [p("fa-te", "TE", faTe)],
+        byeWeek: { B06: 6, B07: 7, B08: 8, B10: 10, B11: 11 },
       });
-    const close = league(7.99);
+    const close = league(9.99);
     expect(close.snapshot.teams[1]?.roster).toHaveLength(close.snapshot.settings.maxRosterSize);
     for (const scenarios of [0, 32]) {
       const opts = { now: TEST_NOW, scenarios, seed: 7 };
       const m = buildLeagueModel(close.snapshot, close.inputs, opts);
       const t2 = teamOf(m, "2");
-      expect(t2.waiver, `S = ${scenarios}`).toBeNull();
       const cost = (id: string) => (t2.players[id]?.mvLoseScen ?? t2.players[id]?.mvLoseEv) as number;
-      for (const id of Object.keys(t2.players)) if (id !== "2-k") expect(cost("2-k"), `S = ${scenarios}: ${id}`).toBeLessThan(cost(id));
+      if (scenarios === 0) {
+        expect(t2.faMoves, `S = ${scenarios}`).toEqual([]);
+        // The twin replaces him, so his lineup cost is a sliver of his 10 a week: the lowest on the team.
+        expect(cost("2-te")).toBeLessThan(OMEGA);
+        for (const id of Object.keys(t2.players)) if (id !== "2-te") expect(cost("2-te"), id).toBeLessThan(cost(id));
+        expect(t2.players["2-te"]?.autoAdd).toBe("fa-te");
+      } else {
+        // Judged in scenario lineups (review of track E, item 1), the twin is a depth pickup: he plays when the TE is
+        // hurt. Then the TE's lineup cost is small again (the twin is on the roster), under one week's worth.
+        expect(t2.faMoves.map((m) => m.add)).toEqual(["fa-te"]);
+        expect(t2.faMoves[0]?.gainScen as number).toBeGreaterThanOrEqual(config.freeAgentOptimizer.faMinGain - 1e-9);
+        expect(cost("2-te")).toBeLessThan(0.25 * 10 * OMEGA); // a fraction of his 10 a week
+      }
       const chip = teamOf(m, "1").chips.find((c) => c.playerId === "1-qb2");
       expect(chip?.bestTeamId, `S = ${scenarios}`).toBe("2");
       // Worth his 8-a-week edge over team 2's QB, less what the bench player who makes room was worth: far past the cut.
       expect(chip?.maxOther as number, `S = ${scenarios}`).toBeGreaterThan(5 * OMEGA);
       expect(expectChipsMatch(m, bruteChips(close, m, opts)), `S = ${scenarios}`).toBeGreaterThan(0);
-      // How good the free-agent K is doesn't change who makes room: the same chips with a 3-point one.
+      // How good the free-agent TE is doesn't change who makes room: the same chip with a 3-point one (other teams' TEs change:
+      // the twin would replace them too, so only this chip is compared), and the same drop.
       const far = league(3);
-      expect(buildLeagueModel(far.snapshot, far.inputs, opts).teams.map((t) => t.chips), `S = ${scenarios}`).toEqual(m.teams.map((t) => t.chips));
+      const farChip = teamOf(buildLeagueModel(far.snapshot, far.inputs, opts), "1").chips.find((c) => c.playerId === "1-qb2");
+      expect(farChip, `S = ${scenarios}`).toEqual(chip);
+      expect(leagueMarginals(far.snapshot, far.inputs, opts).mvAdd("2", "1-qb2")?.drop, `S = ${scenarios}`).toBe(leagueMarginals(close.snapshot, close.inputs, opts).mvAdd("2", "1-qb2")?.drop);
     }
   });
 
@@ -880,7 +1049,7 @@ describe("trade chips (§7; planner reply to Checkpoint 2, answers 1 and 2): wor
     expect(teamOf(all, "1").chips.find((c) => c.playerId === "1-k2")).toMatchObject({ gap: expect.closeTo(5 * OMEGA, 9), bestTeamId: "2" });
   });
 
-  it("matches brute force on a random league with injuries, full rosters (so drops) and position limits: every candidate, every other team", () => {
+  it("matches brute force on a random league with injuries, full rosters (so drops) and position limits: every candidate, every other team", { timeout: 60_000 }, () => {
     const league = randomLeague({ teams: 6, seed: 11, freeAgentsPerPosition: 6 });
     league.snapshot.settings.positionLimits = { QB: 3, RB: 6, WR: 6, TE: 2 };
     expect(league.snapshot.teams.every((t) => t.roster.length === league.snapshot.settings.maxRosterSize)).toBe(true);
@@ -893,7 +1062,7 @@ describe("trade chips (§7; planner reply to Checkpoint 2, answers 1 and 2): wor
     expect(expectChipsMatch(ev, bruteChips(league, ev, evOpts))).toBeGreaterThan(3);
   });
 
-  it("under starter limits nothing is bounded: the best chipScreenTeams other teams by exact EV value get scenario lineups", () => {
+  it("under starter limits nothing is bounded: the best chipScreenTeams other teams by exact EV value get scenario lineups", { timeout: 60_000 }, () => {
     // MFL-style: a QB, six flex spots with RB/WR/TE minimums, a K.
     const lineup: SlotDef[] = [
       { slot: "QB", count: 1, eligible: ["QB"] },
@@ -987,11 +1156,11 @@ describe("best trade partners (§7: their trade chips fit my needs AND mine fit 
     expect(mvAddGroupPpw(league.snapshot.teams[0]?.roster ?? [], ["3-wr1"], table, prepareLeagueSlots(league.snapshot.settings))).toBeCloseTo(three?.score as number, 9);
   });
 
-  it("measures their chips against my roster after my best free-agent move: a free agent I'd add anyway shrinks what they add", () => {
+  it("measures their chips against my roster after my free-agent moves (V*): a free agent I'd add anyway shrinks what they add", () => {
     // An 18-point free-agent WR: I'd add him into an open spot (my WRs become 18 and 8).
     const fa = buildTestLeague({ ...spec, freeAgents: [p("fa-wr", "WR", 18)] });
     const m = buildLeagueModel(fa.snapshot, fa.inputs, OPTS, NO_RISK);
-    expect(teamOf(m, "1").waiver).toMatchObject({ add: "fa-wr", drop: null });
+    expect(teamOf(m, "1").faMoves[0]).toMatchObject({ add: "fa-wr", drop: null });
     const two = m.partners.find((x) => x.teamId === "2");
     expect(ppwOf(two?.theyCanGive)).toEqual([
       ["2-wr1", 22 - 8],
@@ -1013,7 +1182,8 @@ describe("best trade partners (§7: their trade chips fit my needs AND mine fit 
     expect(m.warnings).toEqual(model.warnings);
   });
 
-  it("counts only chips that stay chips together (D2): brute force on random leagues, EV and scenario lineups, 2 and 3 a side, and under starter limits", () => {
+  // Brute force over ten models, six under starter limits, where the free-agent optimizer solves every move: seconds, not ms.
+  it("counts only chips that stay chips together (D2): brute force on random leagues, EV and scenario lineups, 2 and 3 a side, and under starter limits", { timeout: 60_000 }, () => {
     const check = (league: ReturnType<typeof randomLeague>, opts: BuildLeagueModelOptions, cfg: LeagueModelConfig = config) => {
       const model = buildLeagueModel(league.snapshot, league.inputs, opts, cfg);
       const brute = brutePartners(league, model, opts, cfg);
@@ -1122,7 +1292,8 @@ describe("players, projections and warnings (§6; the League page's rosters)", (
       kickoffs: { 4: { KC: "2026-09-29T17:00:00.000Z", BUF: "2026-09-30T00:15:00.000Z" } },
     });
     const omega = (weeksLeft: number) => weeksLeft + 3 * config.lineups.playoffWeight; // regular-season weeks counted + 3 playoff weeks
-    const model = buildLeagueModel(league.snapshot, league.inputs, { now: TEST_NOW, scenarios: 4 }, NO_RISK);
+    // The user's team doesn't stream here: the free-agent K stays a free agent (streaming would make him its K replacement).
+    const model = buildLeagueModel(league.snapshot, league.inputs, { now: TEST_NOW, scenarios: 4, settings: NO_STREAMING }, NO_RISK);
     expect(model.inProgressWeek).toBe(4);
     expect(model.players.early?.weekly[0]).toMatchObject({ a: 0, p: 0 });
     expect(model.players.late?.weekly[0]).toMatchObject({ a: 1, p: 18 });
@@ -1140,16 +1311,16 @@ describe("players, projections and warnings (§6; the League page's rosters)", (
     // free-agent K doesn't "gain" this week in the early K's slot.
     expect(t1.players.late).toMatchObject({ mvLoseEv: expect.closeTo(0, 9), mvLoseScen: expect.closeTo(0, 9) });
     expect(t1.players.early?.mvLoseEv).toBeCloseTo((20 - 18) * omega(10), 9);
-    expect(t1.waiver).toBeNull();
+    expect(t1.faMoves).toEqual([]); // kickers are never picked up
     // Before any kickoff the week counts like any other.
-    const before = buildLeagueModel(league.snapshot, league.inputs, { now: new Date("2026-09-29T12:00:00.000Z"), scenarios: 4 }, NO_RISK);
+    const before = buildLeagueModel(league.snapshot, league.inputs, { now: new Date("2026-09-29T12:00:00.000Z"), scenarios: 4, settings: NO_STREAMING }, NO_RISK);
     const b1 = teamOf(before, "1");
     expect(before.inProgressWeek).toBeNull();
     expect(b1.ev.lv[0]).toBe(28);
     expect(b1.ev.ros).toBeCloseTo(28 * omega(11), 9);
     expect(b1.players.late).toMatchObject({ mvLoseEv: expect.closeTo(0, 9), mvLoseScen: expect.closeTo(0, 9) });
     expect(b1.players.early?.mvLoseEv).toBeCloseTo((20 - 18) * omega(11), 9);
-    expect(b1.waiver).toBeNull();
+    expect(b1.faMoves).toEqual([]);
   });
 
   it("carries IR and taxi players in players (not in lineups), and the ROS split and byes (§6 step 7, addition A)", () => {
@@ -1371,8 +1542,8 @@ describe("edge cases", () => {
     expect(buildLeagueModel(league.snapshot, league.inputs, { now: TEST_NOW, scenarios: 4 }).timings).toEqual({});
     let t = 0;
     const timings = buildLeagueModel(league.snapshot, league.inputs, { now: TEST_NOW, scenarios: 4, clock: () => (t += 1) }).timings;
-    expect(Object.keys(timings)).toEqual(["projections", "availability scenarios", "market values", "EV lineups and marginal values", "scenario lineups and marginal values", "trade chips", "needs and partners", "season simulation", "total"]);
-    expect(timings.total).toBe(8);
+    expect(Object.keys(timings)).toEqual(["projections", "availability scenarios", "market values", "streaming", "EV lineups and the free-agent optimizer", "scenario lineups and marginal values", "trade chips", "needs and partners", "season simulation", "total"]);
+    expect(timings.total).toBe(9);
     // No simulation (sims 0): no stage for it, and no odds.
     const none = buildLeagueModel(league.snapshot, league.inputs, { now: TEST_NOW, scenarios: 4, sims: 0, clock: () => (t += 1) });
     expect(Object.keys(none.timings)).not.toContain("season simulation");
@@ -1459,22 +1630,26 @@ describe("Parker's league (committed sanitized ESPN fixture) with synthetic inpu
     }
   });
 
-  it("no lineup cost is below 0, and every waiver move adds a free agent (dropping a player of that team, or into an open spot)", () => {
+  it("no lineup cost is below 0, and every free-agent move adds a free agent (never K or DEF), worth faMinGain, at most faMaxMoves a team", () => {
     const freeAgents = new Set(snapshot.freeAgents);
     for (const t of model.teams) {
       for (const [id, v] of Object.entries(t.players)) {
         expect(v.mvLoseEv, `${t.id} ${id}`).toBeGreaterThanOrEqual(0);
         expect(v.mvLoseScen as number, `${t.id} ${id}`).toBeGreaterThanOrEqual(0);
       }
-      const w = t.waiver;
-      if (!w) continue;
-      expect(freeAgents.has(w.add), w.add).toBe(true);
-      // With scenarios the move is the scenario-best one, so its scenario gain is what's positive.
-      expect(w.gainScen ?? w.gainEv).toBeGreaterThan(0);
-      if (w.drop !== null) expect(t.players[w.drop], w.drop).toBeDefined();
-      else expect(snapshot.teams.find((x) => x.id === t.id)?.roster.length).toBeLessThan(snapshot.settings.maxRosterSize);
-      // The player dropped costs nothing from the team after the move (in the lineups the move was chosen by).
-      if (w.drop !== null) expect(t.players[w.drop]?.mvLoseScen ?? t.players[w.drop]?.mvLoseEv).toBeCloseTo(0, 9);
+      expect(t.faMoves.length).toBeLessThanOrEqual(config.freeAgentOptimizer.faMaxMoves);
+      let roster = [...new Set(snapshot.teams.find((x) => x.id === t.id)?.roster ?? [])];
+      for (const m of t.faMoves) {
+        expect(freeAgents.has(m.add), m.add).toBe(true);
+        expect(config.streaming.optimizerExcluded).not.toContain(snapshot.players[m.add]?.pos);
+        // Judged in scenario lineups when they ran (review of track E, item 1).
+        expect(model.scenarios > 0 ? (m.gainScen as number) : m.gainEv).toBeGreaterThanOrEqual(config.freeAgentOptimizer.faMinGain - 1e-9);
+        if (m.drop !== null) expect(roster, m.drop).toContain(m.drop);
+        else expect(roster.length).toBeLessThan(snapshot.settings.maxRosterSize);
+        roster = applyStep(roster, m);
+      }
+      // A player the optimizer dropped costs nothing.
+      for (const m of t.faMoves) if (m.drop !== null && t.players[m.drop]) expect(t.players[m.drop]).toMatchObject({ mvLoseEv: 0, mvLoseScen: 0, autoAdd: null });
     }
   });
 
@@ -1506,5 +1681,527 @@ describe("Parker's league (committed sanitized ESPN fixture) with synthetic inpu
       });
     }
     expect(chips).toBeGreaterThan(0);
+  });
+
+  it("tags a chip 'starter' from his team after its pickups (V*(T), the roster his cost is measured from): never one they drop (review of track A2)", () => {
+    // Before the review's fix, four chips here were tagged starter (from the team as it stands) while V*(T) dropped them, so
+    // each read "costs you 0.0 pts/wk · starter" (KC Concepcion, Nico Collins, Jonathan Taylor, Zay Flowers).
+    // Both lineup modes (V*(T) judges its moves in each mode's lineups, so each drops different players).
+    let dropped = 0;
+    let starters = 0;
+    for (const [m, opts] of [
+      [model, { now: NOW }],
+      [buildLeagueModel(snapshot, inputs, { now: NOW, scenarios: 0 }), { now: NOW, scenarios: 0 }],
+    ] as const) {
+      const h = harness({ snapshot, inputs }, m, opts);
+      for (const t of m.teams) {
+        const vstar = h.vstar(t.id);
+        const { starters: seated } = evLineups([...vstar, ...streamIds(m, t.id)], h.table, h.slots);
+        for (const c of t.chips) {
+          if (!vstar.includes(c.playerId)) {
+            dropped++;
+            expect(c.starter, c.playerId).toBe(false);
+            expect(c.cost, c.playerId).toBe(0);
+            continue;
+          }
+          // The rule (teamValue.evStarter) on V*(T)'s EV lineups: seated in at least half of the counted weeks he plays.
+          let plays = 0;
+          let seats = 0;
+          m.weeks.forEach((_, w) => {
+            if (!((h.weights[w] ?? 0) > 0) || !((m.players[c.playerId]?.weekly[w]?.p ?? 0) > 0)) return;
+            plays++;
+            if (seated[w]?.some((x) => x.id === c.playerId)) seats++;
+          });
+          expect(c.starter, c.playerId).toBe(plays > 0 && 2 * seats >= plays);
+          if (c.starter) starters++;
+        }
+      }
+    }
+    // Since V*(T) judges its moves in scenario lineups (review of track E, item 1), no chip in this fixture is one V*(T)
+    // drops, in either mode: the dropped branch above is checked whenever it occurs (and the rule's code path is the
+    // same), the starter rule on every chip.
+    expect(dropped).toBeGreaterThanOrEqual(0);
+    expect(starters).toBeGreaterThan(0);
+  });
+});
+
+describe("streaming positions (§7; planner reply to Checkpoint 3, model change 1; lead decision L1)", () => {
+  /** Free-agent kickers of 10, 9 (bye in week 6), 8 and 7.5 a week: the 3rd best is 8, and 7.5 in week 6. */
+  const faKs = (): TestPlayer[] => [p("fa-k1", "K", 10), p("fa-k2", "K", 9, { nflTeam: "BYE6" }), p("fa-k3", "K", 8), p("fa-k4", "K", 7.5)];
+  const BYES = { BYE6: 6, BYE7: 7 };
+  const OPTS = { now: TEST_NOW, scenarios: 0, sims: 0 };
+  /** Σ ω over weeks 4–17: 11 regular-season weeks and 3 playoff weeks at playoffWeight. */
+  const OMEGA = 11 + 3 * config.lineups.playoffWeight;
+  /** Settings in which my team (team 1) streams `positions`. */
+  const streaming = (positions: Pos[]): TradeSettings => ({ ...defaultTradeSettings(), streamPositions: positions });
+
+  it("the replacement each week is the streamRank-th best free agent there by that week's expected points (fewer: the last one; none: 0)", () => {
+    expect(config.streaming.streamRank).toBe(3);
+    const league = buildTestLeague({ teams: [team("1", starters("1")), team("2", starters("2"))], freeAgents: [...faKs(), p("fa-def1", "DEF", 6), p("fa-def2", "DEF", 5)], byeWeek: BYES });
+    const model = buildLeagueModel(league.snapshot, league.inputs, OPTS, NO_RISK);
+    const W = model.weeks.length;
+    // Weeks 4–17: 10, 9, 8, 7.5 → 8; week 6, the 9-point kicker on bye: 10, 8, 7.5, 0 → 7.5.
+    expect(model.streaming.replacement.K).toEqual(model.weeks.map((w) => (w === 6 ? 7.5 : 8)));
+    // Two free-agent D/STs, fewer than 3: the last (worse) one.
+    expect(model.streaming.replacement.DEF).toEqual(new Array(W).fill(5));
+    // The table's own function, ties included: equal points give the same value whoever holds them; a rank below 1 reads as 1.
+    const rows = (pts: number[][]): TableRow[] =>
+      pts.map((ev, i) => ({ id: `r${i}`, pos: "K", eligible: ["K"], cond: Float64Array.from(ev), ev: Float64Array.from(ev), condSd: new Float64Array(ev.length), evSd: new Float64Array(ev.length), flags: null }));
+    expect([...streamingReplacement(rows([[5, 5], [9, 5], [5, 1]]), 2, 3)]).toEqual([5, 1]);
+    expect([...streamingReplacement(rows([[5, 5], [9, 5], [5, 1]]), 2, 1)]).toEqual([9, 5]);
+    expect([...streamingReplacement(rows([[5, 5], [9, 5], [5, 1]]), 2, 0)]).toEqual([9, 5]);
+    expect([...streamingReplacement([], 3, 3)]).toEqual([0, 0, 0]);
+    // No free agent at a streamed position: a replacement of 0 and no row, so the slot counts the team's own players alone.
+    const none = buildTestLeague({ teams: [team("1", starters("1")), team("2", starters("2"))] });
+    const m0 = buildLeagueModel(none.snapshot, none.inputs, OPTS, NO_RISK);
+    expect(m0.streaming.byTeam["1"]?.positions).toEqual(["K", "DEF"]);
+    expect(m0.streaming.replacement).toEqual({ K: new Array(W).fill(0), DEF: new Array(W).fill(0) });
+    const plain = buildLeagueModel(none.snapshot, none.inputs, { ...OPTS, settings: NO_STREAMING }, NO_RISK);
+    expect(m0.teams.map((t) => t.ev)).toEqual(plain.teams.map((t) => t.ev));
+    expect(m0.warnings).toEqual(plain.warnings);
+  });
+
+  it("detection: 2+ adds at a streamable position this season (add and waiver moves to the team, at the move's position or the player's); unknown positions, trades and drops don't count; my team follows my setting", () => {
+    const league = buildTestLeague({ teams: ["1", "2", "3", "4", "5"].map((id) => team(id, starters(id))), freeAgents: faKs(), byeWeek: BYES });
+    const add = (to: string, playerId: string, pos?: Pos, type: Transaction["type"] = "add"): Transaction => ({
+      id: `${to}-${playerId}-${type}`,
+      type,
+      week: 2,
+      timestamp: "2026-09-16T10:00:00.000Z",
+      teams: [to],
+      moves: [{ playerId, from: null, to, ...(pos ? { pos } : {}) }, { playerId: `${to}-dropped`, from: to, to: null, pos: "K" }],
+    });
+    league.snapshot.transactions = [
+      // Team 2: a kicker the snapshot no longer knows (the move says K) and one it knows: streams K.
+      add("2", "gone-k", "K"),
+      add("2", "fa-k4"),
+      // Team 3: an add and a waiver claim at D/ST: streams DEF. Two D/STs that came by trade don't count.
+      add("3", "x-def1", "DEF"),
+      add("3", "x-def2", "DEF", "waiver"),
+      add("3", "t-def1", "DEF", "trade"),
+      add("3", "t-def2", "DEF", "trade"),
+      // Team 4: two adds of players whose position is unknown, and one kicker: no stream.
+      add("4", "mystery-1"),
+      add("4", "mystery-2"),
+      add("4", "fa-k3"),
+      // Team 5: two adds at QB (streamable, and the lineup starts one): streams QB. Two RBs aren't streamable.
+      add("5", "x-qb1", "QB"),
+      add("5", "x-qb2", "QB"),
+      add("5", "x-rb1", "RB"),
+      add("5", "x-rb2", "RB"),
+      // Me: three adds at TE, but I stream only what my setting says.
+      add("1", "x-te1", "TE"),
+      add("1", "x-te2", "TE"),
+      add("1", "x-te3", "TE"),
+    ];
+    const model = buildLeagueModel(league.snapshot, league.inputs, { ...OPTS, settings: streaming(["K"]) }, NO_RISK);
+    expect(model.streaming.byTeam).toEqual({
+      "1": { positions: ["K"], source: "setting", adds: { TE: 3 } },
+      "2": { positions: ["K"], source: "detected", adds: { K: 2 } },
+      "3": { positions: ["DEF"], source: "detected", adds: { DEF: 2 } },
+      "4": { positions: [], source: "detected", adds: { K: 1 } },
+      "5": { positions: ["QB"], source: "detected", adds: { QB: 2 } },
+    });
+    expect(streamingAdds(league.snapshot, config.streaming.streamable).get("1")).toEqual({ TE: 3 });
+    // Without a team of mine, every team is detected (team 1 by its TE adds).
+    expect(streamedPositions(league.snapshot, null, defaultTradeSettings())["1"]).toEqual({ positions: ["TE"], source: "detected", adds: { TE: 3 } });
+    // Only positions the lineup starts: in a league without a kicker, nobody streams K, whatever the setting or the adds.
+    const noK = { ...league.snapshot, settings: { ...league.snapshot.settings, lineup: TEST_LINEUP.filter((s) => s.slot !== "K") } };
+    const byTeam = streamedPositions(noK, "1", streaming(["K", "DEF"]));
+    expect(byTeam["1"]?.positions).toEqual(["DEF"]);
+    expect(byTeam["2"]?.positions).toEqual([]);
+    expect(startablePositions(noK.settings)).toEqual(new Set(["QB", "RB", "WR", "TE", "DEF"]));
+  });
+
+  it("a streamed slot is worth max(the best rostered player, the replacement) every week, exactly, in EV and scenario lineups; other teams are untouched", () => {
+    // My kicker scores 7.75 with a bye in week 7; the replacement is 8 (7.5 in week 6).
+    const roster = starters("1").map((x) => (x.pos === "K" ? { ...x, points: 7.75, nflTeam: "BYE7" } : x));
+    const league = buildTestLeague({ teams: [team("1", roster), team("2", starters("2"))], freeAgents: faKs(), byeWeek: BYES });
+    for (const scenarios of [0, 8]) {
+      const opts = { ...OPTS, scenarios };
+      const on = buildLeagueModel(league.snapshot, league.inputs, { ...opts, settings: streaming(["K"]) }, NO_RISK);
+      const off = buildLeagueModel(league.snapshot, league.inputs, { ...opts, settings: NO_STREAMING }, NO_RISK);
+      const rep = on.streaming.replacement.K as number[];
+      const [mine, before] = [teamOf(on, "1"), teamOf(off, "1")];
+      on.weeks.forEach((w, i) => {
+        const gain = Math.max(0, (rep[i] as number) - (w === 7 ? 0 : 7.75));
+        expect((mine.ev.lv[i] as number) - (before.ev.lv[i] as number), `S ${scenarios}, week ${w}`).toBeCloseTo(gain, 9);
+        if (scenarios) expect((mine.scen?.lv[i] as number) - (before.scen?.lv[i] as number), `S ${scenarios}, week ${w}`).toBeCloseTo(gain, 9);
+      });
+      // +0.25 a week in 9 regular-season weeks and the 3 playoff weeks (weighted), +0 in week 6 (7.5 < 7.75), +8 in his bye week.
+      expect(mine.ev.ros - before.ev.ros).toBeCloseTo(9 * 0.25 + 8 + 3 * 0.25 * config.lineups.playoffWeight, 9);
+      expect(teamOf(on, "2").ev).toEqual(teamOf(off, "2").ev);
+      expect(teamOf(on, "2").score).toEqual(teamOf(off, "2").score);
+    }
+  });
+
+  it("a team that streams K has no K need, while the same kicker unstreamed is one; its K strength is the replacement's", () => {
+    // My kicker scores 3; everyone else's 8, and so does the replacement (10, 9, 8 and 7.5 on waivers, no byes).
+    const weakK = starters("1").map((x) => (x.pos === "K" ? { ...x, points: 3 } : x));
+    const league = buildTestLeague({ teams: [team("1", weakK), team("2", starters("2")), team("3", starters("3")), team("4", starters("4"))], freeAgents: faKs().map((k) => ({ ...k, nflTeam: "AAA" })) });
+    const on = buildLeagueModel(league.snapshot, league.inputs, { ...OPTS, scenarios: 8, settings: streaming(["K"]) }, NO_RISK);
+    const off = buildLeagueModel(league.snapshot, league.inputs, { ...OPTS, scenarios: 8, settings: NO_STREAMING }, NO_RISK);
+    expect(teamOf(off, "1").needs.find((n) => n.slot === "K1")).toMatchObject({ window: "ros" });
+    expect(teamOf(off, "1").strength.K1?.ros).toBeCloseTo(3, 9);
+    expect(teamOf(on, "1").needs.find((n) => n.slot === "K1")).toBeUndefined();
+    expect(teamOf(on, "1").strength.K1).toMatchObject({ ros: expect.closeTo(8, 9), next: expect.closeTo(8, 9), zRos: expect.closeTo(0, 9), zNext: expect.closeTo(0, 9) });
+  });
+
+  it("common random numbers are unchanged for real players: streaming adds a row (flags all 1), never changes a player's projection or draws", () => {
+    const league = randomLeague({ teams: 4, seed: 31, freeAgentsPerPosition: 5 });
+    const opts = { now: TEST_NOW, scenarios: 8, seed: 4, sims: 0 };
+    const on = buildLeagueModel(league.snapshot, league.inputs, opts);
+    const off = buildLeagueModel(league.snapshot, league.inputs, { ...opts, settings: NO_STREAMING });
+    expect(on.players).toEqual(off.players);
+    expect(Object.keys(on.players).some(isStreamId)).toBe(false);
+    const built = buildProjectionTable(league.snapshot, league.inputs, opts);
+    const table = tableWithStreaming(built, on);
+    for (const [id, row] of built.table.rows) expect(table.rows.get(id), id).toBe(row);
+    for (const pos of ["K", "DEF"] as const) {
+      const row = table.rows.get(`stream:${pos}`) as TableRow;
+      expect(row).toMatchObject({ id: `stream:${pos}`, pos, eligible: [pos] });
+      expect([...(row.flags as Uint8Array)]).toEqual(new Array(8 * on.weeks.length).fill(1));
+      expect([...row.ev]).toEqual(on.streaming.replacement[pos]);
+      expect([...row.cond]).toEqual([...row.ev]);
+      expect([...row.evSd]).toEqual([...row.ev].map((x) => weeklySd(x, pos)));
+    }
+    // Only my team's lineups change (nobody else streams in a league without transactions).
+    for (const t of on.teams) if (t.id !== "1") expect(t.scen, `team ${t.id}`).toEqual(teamOf(off, t.id).scen);
+  });
+
+  it("the streaming row is never a player: no roster spot, lineup cost or chip, and never the one a full roster drops to make room", () => {
+    // Every one of my 16 players starts (six bench spots that take RBs, WRs and TEs, and two kickers), so each costs his points
+    // to lose, except my 7-point D/ST: the D/ST streamer (the replacement 6) covers him, so he costs 1. The streaming row itself
+    // never starts and would cost nothing, but it is never the one dropped: making room for team 2's backup QB drops my D/ST,
+    // so that QB is worth 18 − 10 a week to me, less the D/ST's 1 (dropping the row instead would have made it 8).
+    const lineup: SlotDef[] = [...TEST_LINEUP.map((s) => (s.slot === "K" ? { ...s, count: 2 } : s)), { slot: "BF", count: 6, eligible: ["RB", "WR", "TE"] }];
+    const mine = [...starters("1").map((x) => (x.pos === "QB" ? { ...x, points: 10 } : x)), p("1-k2", "K", 2), p("1-rb3", "RB", 6), p("1-rb4", "RB", 5), p("1-wr3", "WR", 7), p("1-wr4", "WR", 6), p("1-te2", "TE", 4), p("1-te3", "TE", 3)];
+    const two = [...starters("2").map((x) => (x.pos === "QB" ? { ...x, points: 25 } : x)), p("2-qb2", "QB", 18)];
+    const league = buildTestLeague({ lineup, teams: [team("1", mine), team("2", two)], freeAgents: [p("fa-def", "DEF", 6)] });
+    expect(league.snapshot.teams[0]?.roster).toHaveLength(league.snapshot.settings.maxRosterSize);
+    for (const scenarios of [0, 8]) {
+      const opts = { now: TEST_NOW, scenarios, seed: 3, sims: 0, settings: streaming(["DEF"]) };
+      const model = buildLeagueModel(league.snapshot, league.inputs, opts, NO_RISK);
+      expect(streamIds(model, "1")).toEqual(["stream:DEF"]);
+      for (const t of model.teams) {
+        expect(Object.keys(t.players).some(isStreamId), `team ${t.id}`).toBe(false);
+        expect(t.chips.some((c) => isStreamId(c.playerId)), `team ${t.id}`).toBe(false);
+      }
+      expect(Object.keys(teamOf(model, "1").players).sort()).toEqual(mine.map((x) => x.id).sort());
+      expect(teamOf(model, "2").chips.find((c) => c.playerId === "2-qb2")).toMatchObject({ bestTeamId: "1", maxOther: expect.closeTo((18 - 10 - 1) * OMEGA, 9) });
+      expect(expectChipsMatch(model, bruteChips(league, model, opts, NO_RISK), NO_RISK), `S = ${scenarios}`).toBeGreaterThan(0);
+    }
+  });
+
+  it("game days: this week's replacement uses this week's points (a free agent whose game started scores 0); the simulator's week before kickoff uses the pre-kickoff ones", () => {
+    const EARLY = "2026-09-29T17:00:00.000Z"; // before TEST_NOW
+    const LATE = "2026-09-30T00:15:00.000Z";
+    const BEFORE = new Date("2026-09-29T12:00:00.000Z");
+    // The 10-point free-agent kicker played this afternoon; the others play tonight, as do both teams.
+    const ks = faKs().map((k) => ({ ...k, nflTeam: k.id === "fa-k1" ? "EAR" : "LAT" }));
+    const build = (kicker: number) => buildTestLeague({ teams: [team("1", starters("1").map((x) => ({ ...x, nflTeam: "LAT", ...(x.pos === "K" ? { points: kicker } : {}) }))), team("2", starters("2").map((x) => ({ ...x, nflTeam: "LAT" })))], freeAgents: ks, kickoffs: { 4: { EAR: EARLY, LAT: LATE } } });
+    for (const scenarios of [0, 8]) {
+      const run = (l: ReturnType<typeof build>, now: Date) => buildLeagueModel(l.snapshot, l.inputs, { ...OPTS, scenarios, now, settings: streaming(["K"]) }, NO_RISK);
+      const league = build(8);
+      const live = run(league, TEST_NOW);
+      const before = run(league, BEFORE);
+      expect(live.inProgressWeek).toBe(4);
+      // Week 4 now: 9, 8, 7.5 and the 10 that has played (0) → 7.5; before kickoff → 8. Later weeks: the same both ways.
+      expect(live.streaming.replacement.K?.[0]).toBe(7.5);
+      expect(before.streaming.replacement.K?.[0]).toBe(8);
+      expect(live.streaming.replacement.K?.slice(1)).toEqual(before.streaming.replacement.K?.slice(1));
+      // An 8-point kicker beats both, so the simulator's scores match; a 7.75 one shows the difference.
+      expect(teamOf(live, "1").score).toEqual(teamOf(before, "1").score);
+      const weak = build(7.75);
+      const live2 = run(weak, TEST_NOW);
+      // The partial week counts this week's replacement (7.5 < 7.75: his own kicker); the simulator's week 4, the 8 before kickoff.
+      expect(teamOf(live2, "1").ev.lv[0]).toBeCloseTo(112 - 8 + 7.75, 9);
+      expect(teamOf(live2, "1").score.mean[0]).toBeCloseTo(112, 9);
+      expect(teamOf(live2, "1").score).toEqual(teamOf(run(weak, BEFORE), "1").score);
+    }
+  });
+
+  it("'Streaming picks this week': the best picksShown free agents at K and at DEF by this week's points, ties by id, with their opponents; one who can't play this week isn't one", () => {
+    expect(config.streaming.picksShown).toBe(3);
+    const league = buildTestLeague({
+      teams: [team("1", starters("1")), team("2", starters("2"))],
+      // Week 4: a 9.5 kicker on bye (BYE4), two at 9 (a tie: the smaller id first), an 8 and a 7.5; one D/ST.
+      freeAgents: [p("k-bye", "K", 9.5, { nflTeam: "BYE4" }), p("k-b", "K", 9, { nflTeam: "BUF" }), p("k-a", "K", 9, { nflTeam: "KC" }), p("k-c", "K", 8, { nflTeam: "NYJ" }), p("k-d", "K", 7.5), p("d-1", "DEF", 6, { nflTeam: "SEA" })],
+      byeWeek: { BYE4: 4 },
+    });
+    league.inputs.nfl.opponents = { 4: { KC: { team: "BUF", home: true }, BUF: { team: "KC", home: false }, SEA: { team: "ARI", home: false } } };
+    const model = buildLeagueModel(league.snapshot, league.inputs, OPTS, NO_RISK);
+    expect(model.streaming.picks).toEqual([
+      { playerId: "k-a", pos: "K", projection: 9, opponent: { team: "BUF", home: true } },
+      { playerId: "k-b", pos: "K", projection: 9, opponent: { team: "KC", home: false } },
+      { playerId: "k-c", pos: "K", projection: 8, opponent: null },
+      { playerId: "d-1", pos: "DEF", projection: 6, opponent: { team: "ARI", home: false } },
+    ]);
+    // Inputs from before Phase 4 have no opponents: the picks say none.
+    delete league.inputs.nfl.opponents;
+    expect(buildLeagueModel(league.snapshot, league.inputs, OPTS, NO_RISK).streaming.picks.every((x) => x.opponent === null)).toBe(true);
+    // A league that starts no kicker lists no kickers; once no week is left, nothing.
+    const noK = { ...league.snapshot, settings: { ...league.snapshot.settings, lineup: TEST_LINEUP.filter((s) => s.slot !== "K") } };
+    expect(buildLeagueModel(noK, league.inputs, OPTS, NO_RISK).streaming.picks.map((x) => x.playerId)).toEqual(["d-1"]);
+    const over = buildLeagueModel({ ...league.snapshot, currentWeek: 18 }, { ...league.inputs, currentWeek: 18 }, OPTS, NO_RISK);
+    expect(over.weeks).toEqual([]);
+    expect(over.streaming.picks).toEqual([]);
+  });
+
+  it("settings plumbing: my streamed positions and the playoff weight come from opts.settings (normalized), defaulting to K and D/ST and the config's weight", () => {
+    const league = buildTestLeague({ teams: [team("1", starters("1")), team("2", starters("2"))], freeAgents: [...faKs(), p("fa-def", "DEF", 6), p("fa-qb", "QB", 12)], byeWeek: BYES });
+    const dflt = buildLeagueModel(league.snapshot, league.inputs, OPTS, NO_RISK);
+    expect(dflt.playoffWeight).toBe(config.lineups.playoffWeight);
+    expect(dflt.streaming.byTeam["1"]).toMatchObject({ positions: ["K", "DEF"], source: "setting" });
+    expect(modelSettings(undefined)).toEqual(defaultTradeSettings());
+    // A playoff weight of 1.5 and K + QB (listed in position order).
+    const custom = buildLeagueModel(league.snapshot, league.inputs, { ...OPTS, settings: { ...defaultTradeSettings(), playoffWeight: 1.5, streamPositions: ["K", "QB"] } }, NO_RISK);
+    expect(custom.playoffWeight).toBe(1.5);
+    expect(custom.streaming.byTeam["1"]?.positions).toEqual(["QB", "K"]);
+    const t1 = teamOf(custom, "1");
+    expect(t1.ev.ros).toBeCloseTo(rosValue(t1.ev.lv, weekWeights(custom.weeks, custom.regularWeeks, custom.playoffWeeks, { playoffWeight: 1.5 })), 9);
+    expect(t1.ev.ros).not.toBeCloseTo(rosValue(t1.ev.lv, weekWeights(custom.weeks, custom.regularWeeks, custom.playoffWeeks)), 3);
+    // Bad values fall back to their defaults (settings.ts normalizeTradeSettings): a weight out of range, RB (not streamable), a duplicate.
+    const bad = buildLeagueModel(league.snapshot, league.inputs, { ...OPTS, settings: { ...defaultTradeSettings(), playoffWeight: 7, streamPositions: ["RB", "K", "K"] } }, NO_RISK);
+    expect(bad.playoffWeight).toBe(config.lineups.playoffWeight);
+    expect(bad.streaming.byTeam["1"]?.positions).toEqual(["K"]);
+    // Without settings, a config tuned for calibration keeps its own playoff weight.
+    const tuned: LeagueModelConfig = { ...NO_RISK, lineups: { ...NO_RISK.lineups, playoffWeight: 2 } };
+    expect(buildLeagueModel(league.snapshot, league.inputs, OPTS, tuned).playoffWeight).toBe(2);
+  });
+
+  it("chip display (L5): cost per week = cost ÷ Σ ω over the weeks team numbers count (the setting's playoff weight, a week in progress left out); starter = in his team's EV lineup in at least half of the counted weeks he plays", () => {
+    // Bo Nix behind Josh Allen: team 1's 25-point QB and an 18-point backup; team 2's QB scores 10. All play tonight.
+    const withQb = (t: string, qb: number) => starters(t).map((x) => ({ ...x, nflTeam: "LAT", ...(x.pos === "QB" ? { points: qb } : {}) }));
+    const league = buildTestLeague({ teams: [team("1", [...withQb("1", 25), p("1-qb2", "QB", 18, { nflTeam: "LAT" })]), team("2", withQb("2", 10))], kickoffs: { 4: { EAR: "2026-09-29T17:00:00.000Z", LAT: "2026-09-30T00:15:00.000Z" } } });
+    // A game has kicked off (EAR's): week 4 is in progress, so Σ ω = 10 regular-season weeks + 3 playoff weeks × 1.5.
+    const model = buildLeagueModel(league.snapshot, league.inputs, { ...OPTS, scenarios: 8, settings: { ...NO_STREAMING, playoffWeight: 1.5 } }, NO_RISK);
+    expect(model.inProgressWeek).toBe(4);
+    const omega = 10 + 3 * 1.5;
+    const chips = teamOf(model, "1").chips;
+    expect(chips.find((c) => c.playerId === "1-qb")).toMatchObject({ cost: expect.closeTo(7 * omega, 9), costPerWeek: expect.closeTo(7, 9), starter: true });
+    expect(chips.find((c) => c.playerId === "1-qb2")).toMatchObject({ cost: expect.closeTo(0, 9), costPerWeek: expect.closeTo(0, 9), starter: false });
+    // The rule (teamValue.evStarter): seated in at least half of the counted weeks he plays. One RB slot: a (10 a week) starts in
+    // weeks 0 and 2, b (5, 12, 5, 12) in weeks 1 and 3; c never plays.
+    const rb = (id: string, ev: number[]): TableRow => ({ id, pos: "RB", eligible: ["RB"], cond: Float64Array.from(ev), ev: Float64Array.from(ev), condSd: new Float64Array(ev.length), evSd: new Float64Array(ev.length), flags: null });
+    const solved = solveEvWeeks(teamEval([rb("a", [10, 10, 10, 10]), rb("b", [5, 12, 5, 12]), rb("c", [0, 0, 0, 0])], prepareSlots([{ slot: "RB", count: 1, eligible: ["RB"] }])), 4);
+    expect([0, 1, 2].map((k) => evStarter(solved, k, [1, 1, 1, 1]))).toEqual([true, true, false]); // 2 of 4 each: half is enough
+    expect(evStarter(solved, 1, [1, 1, 0, 1])).toBe(true); // 2 of the 3 weeks that count
+    expect(evStarter(solved, 1, [1, 0, 1, 0])).toBe(false); // 0 of 2
+    expect(evStarter(solved, 0, [0, 0, 0, 0])).toBe(false); // no week counts
+  });
+});
+
+describe("the free-agent-optimized baseline V* (§7; planner reply to Checkpoint 3, model change 2; lead decisions L2 and L3)", () => {
+  /** Σ ω over weeks 4–17: 11 regular-season weeks and 3 playoff weeks at playoffWeight. */
+  const OMEGA = 11 + 3 * config.lineups.playoffWeight;
+
+  it("TeamModel.faMoves are the optimizer's moves for the roster as it stands: at most faMaxMoves, each worth faMinGain, never K, DEF or a streamed position; leagueMarginals agrees with the model", () => {
+    const league = randomLeague({ teams: 6, seed: 11, freeAgentsPerPosition: 6 });
+    league.snapshot.settings.positionLimits = { QB: 3, RB: 6, WR: 6, TE: 2 };
+    const opts = { now: TEST_NOW, scenarios: 8, seed: 5, sims: 0 };
+    const model = buildLeagueModel(league.snapshot, league.inputs, opts);
+    const h = harness(league, model, opts);
+    const marginals = leagueMarginals(league.snapshot, league.inputs, opts);
+    const fas = new Set(league.snapshot.freeAgents);
+    let moves = 0;
+    for (const t of model.teams) {
+      const run = h.opt.optimize(h.rosterOf(t.id), h.spec(t.id));
+      expect(t.faMoves.map((m) => [m.add, m.drop]), `team ${t.id}`).toEqual(run.moves.map((m) => [m.add, m.drop]));
+      expect(t.faMoves.length).toBeLessThanOrEqual(config.freeAgentOptimizer.faMaxMoves);
+      for (const m of t.faMoves) {
+        moves++;
+        expect(fas.has(m.add), m.add).toBe(true);
+        const pos = league.snapshot.players[m.add]?.pos as Pos;
+        expect(config.streaming.optimizerExcluded, m.add).not.toContain(pos);
+        expect(model.streaming.byTeam[t.id]?.positions, m.add).not.toContain(pos);
+        if (m.drop !== null) expect(config.streaming.optimizerExcluded).not.toContain(league.snapshot.players[m.drop]?.pos);
+        expect(m.gainScen as number).toBeGreaterThanOrEqual(config.freeAgentOptimizer.faMinGain - 1e-9);
+      }
+      // leagueMarginals: the same V*, lineup costs and autoAdds.
+      const v = marginals.vStar(t.id);
+      expect(v?.roster.slice().sort()).toEqual(h.vstar(t.id).slice().sort());
+      expect(v?.moves).toEqual(t.faMoves);
+      for (const [id, x] of Object.entries(t.players)) expect(marginals.mvLose(t.id, id)).toEqual({ ev: x.mvLoseEv, scen: x.mvLoseScen, autoAdd: x.autoAdd });
+      // A chip's maxOther is the largest MV_add over the other teams (floored at 0), its team the one that gets it.
+      for (const c of t.chips) {
+        const values = model.teams.filter((u) => u.id !== t.id).flatMap((u) => {
+          const add = marginals.mvAdd(u.id, c.playerId);
+          return add ? [{ teamId: u.id, value: Math.max(0, add.scen as number) }] : [];
+        });
+        const best = Math.max(...values.map((x) => x.value));
+        expect(c.maxOther, c.playerId).toBeCloseTo(best, 9);
+        expect(values.find((x) => x.teamId === c.bestTeamId)?.value, c.playerId).toBeCloseTo(best, 9);
+      }
+    }
+    expect(moves).toBeGreaterThan(3);
+    // optimize: any roster of a team, by the same optimizer (V*(T) from the roster as it stands is the model's own).
+    for (const t of model.teams) {
+      const again = marginals.optimize(t.id, h.rosterOf(t.id));
+      expect(again?.moves).toEqual(t.faMoves);
+      expect(again?.roster.slice().sort()).toEqual(h.vstar(t.id).slice().sort());
+      expect(again?.scen).toBeCloseTo(h.scenRos(h.vstar(t.id), t.id), 9);
+    }
+    // A roster after a trade: team 1 gives its first player to team 2 for team 2's first.
+    const [give, get] = [league.snapshot.teams[0]?.roster[0] as string, league.snapshot.teams[1]?.roster[0] as string];
+    const after = h.rosterOf("1").map((id) => (id === give ? get : id));
+    const traded = marginals.optimize("1", after, 2);
+    expect(traded?.moves.length).toBeLessThanOrEqual(2);
+    expect(traded?.moves.map((m) => [m.add, m.drop])).toEqual(h.opt.optimize(after, h.spec("1"), 2).moves.map((m) => [m.add, m.drop]));
+    expect(traded?.ev).toBeCloseTo(h.evRos(traded?.roster ?? [], "1"), 9);
+    expect(marginals.optimize("nobody", after)).toBeNull();
+    expect(marginals.vStar("nobody")).toBeNull();
+    expect(marginals.mvLose("1", "nobody")).toBeNull();
+    expect(marginals.mvAdd("1", league.snapshot.teams[0]?.roster[0] as string)).toBeNull(); // already on that team
+  });
+
+  it("MV_lose: 0 for a player V* drops anyway; at a team that used every move, replacing a lost starter is an exchange that must beat its cheapest pickup, as from scratch (review of track A2)", () => {
+    // Team 1: a 20-point QB with a 12-point backup, the TE 10 and FLEX 11, and three bench RBs who never start. Free agents: a
+    // 14-point WR (+3 a week), a 12-point TE (+2) and a 15-point QB (behind the starter, so no gain while he plays).
+    const capped: LeagueModelConfig = { ...NO_RISK, freeAgentOptimizer: { ...NO_RISK.freeAgentOptimizer, faMaxMoves: 2 } };
+    const roster = [...starters("1"), p("1-qb2", "QB", 12), p("1-b1", "RB", 1), p("1-b2", "RB", 1), p("1-b3", "RB", 1)];
+    const build = (faQb: number) => buildTestLeague({ teams: [team("1", roster), team("2", starters("2"))], freeAgents: [p("fa-wr", "WR", 14), p("fa-te", "TE", 12), p("fa-qb", "QB", faQb)] });
+    const league = build(15);
+    const opts = { now: TEST_NOW, scenarios: 0, sims: 0, settings: NO_STREAMING };
+    const model = buildLeagueModel(league.snapshot, league.inputs, opts, capped);
+    const t1 = teamOf(model, "1");
+    // Both moves used (team 1 has open spots: 13 of 16).
+    expect(t1.faMoves).toEqual([
+      { add: "fa-wr", drop: null, gainEv: expect.closeTo(3 * OMEGA, 9), gainScen: null },
+      { add: "fa-te", drop: null, gainEv: expect.closeTo(2 * OMEGA, 9), gainScen: null },
+    ]);
+    // Losing the QB: a run from scratch from T − QB makes its two best moves, the free-agent QB (+3 over the 12-point backup)
+    // and the WR (+3), and gives up the TE (+2). The re-run gets there by an exchange: the QB comes in, the TE pickup goes. So
+    // the QB costs his 5-point edge over the free agent plus the TE pickup given up. (The first version let the re-run add the
+    // QB for free, 5 a week; review of track A2.)
+    expect(t1.players["1-qb"]).toMatchObject({ mvLoseEv: expect.closeTo((20 - 15 + 2) * OMEGA, 9), autoAdd: "fa-qb" });
+    expect(costsByHand(league, model, "1", opts, capped)["1-qb"]?.ev).toBeCloseTo((20 - 15 + 2) * OMEGA, 9);
+    const h = harness(league, model, opts, capped);
+    const scratch = h.opt.optimize(h.rosterOf("1").filter((x) => x !== "1-qb"), h.spec("1"));
+    expect(scratch.moves.map((m) => m.add).sort()).toEqual(["fa-qb", "fa-wr"]);
+    expect(t1.players["1-qb"]?.mvLoseEv).toBeCloseTo(h.evRos(h.vstar("1"), "1") - scratch.evRos, 9);
+    // A 13-point free-agent QB (+1 over the backup) doesn't beat the TE pickup (+2): no exchange, and from scratch keeps both
+    // pickups too, so the QB costs his whole edge over the backup.
+    const weak = build(13);
+    const mw = buildLeagueModel(weak.snapshot, weak.inputs, opts, capped);
+    expect(teamOf(mw, "1").players["1-qb"]).toMatchObject({ mvLoseEv: expect.closeTo((20 - 12) * OMEGA, 9), autoAdd: null });
+    // With the optimizer off (faMaxMoves 0) nothing is picked up anywhere, not even after a loss: ROS(T) − ROS(T − QB).
+    const off: LeagueModelConfig = { ...NO_RISK, freeAgentOptimizer: { ...NO_RISK.freeAgentOptimizer, faMaxMoves: 0 } };
+    const m0 = buildLeagueModel(league.snapshot, league.inputs, opts, off);
+    expect(teamOf(m0, "1").faMoves).toEqual([]);
+    expect(teamOf(m0, "1").players["1-qb"]).toMatchObject({ mvLoseEv: expect.closeTo((20 - 12) * OMEGA, 9), autoAdd: null });
+    // A roster at 16 drops: V*(T) swaps a never-starting bench RB for the WR, and that RB then costs nothing (nor does anyone the
+    // optimizer drops).
+    const full = buildTestLeague({ teams: [team("1", [...roster, p("1-b4", "RB", 1), p("1-b5", "RB", 1), p("1-b6", "RB", 1)]), team("2", starters("2"))], freeAgents: [p("fa-wr", "WR", 14)] });
+    expect(full.snapshot.teams[0]?.roster).toHaveLength(16);
+    const m2 = buildLeagueModel(full.snapshot, full.inputs, opts, NO_RISK);
+    const dropped = teamOf(m2, "1").faMoves[0]?.drop as string;
+    expect(dropped).toMatch(/^1-b\d$/);
+    expect(teamOf(m2, "1").players[dropped]).toEqual({ mvLoseEv: 0, mvLoseScen: null, autoAdd: null, surplusScore: expect.any(Number) });
+  });
+
+  it("chips under V*: a player a free agent can match is never a chip (the team he'd join adds that free agent anyway)", () => {
+    // Team 1: a 25-point QB and an 18-point backup; team 2's QB scores 10, teams 3 and 4's 24 and 26. An 18-point free-agent QB:
+    // team 2 adds him into an open spot, so the backup adds nothing there.
+    const withQb = (t: string, qb: number): TestPlayer[] => starters(t).map((x) => (x.pos === "QB" ? { ...x, points: qb } : x));
+    const league = buildTestLeague({ teams: [team("1", [...withQb("1", 25), p("1-qb2", "QB", 18)]), team("2", withQb("2", 10)), team("3", withQb("3", 24)), team("4", withQb("4", 26))], freeAgents: [p("fa-qb", "QB", 18)] });
+    const opts = { now: TEST_NOW, scenarios: 8 };
+    const model = buildLeagueModel(league.snapshot, league.inputs, opts, NO_RISK);
+    expect(teamOf(model, "2").faMoves).toEqual([{ add: "fa-qb", drop: null, gainEv: expect.closeTo(8 * OMEGA, 9), gainScen: expect.closeTo(8 * OMEGA, 9) }]);
+    expect(model.teams.flatMap((t) => t.chips)).toEqual([]);
+    const marginals = leagueMarginals(league.snapshot, league.inputs, opts, NO_RISK);
+    expect(marginals.mvAdd("2", "1-qb2")?.scen).toBeCloseTo(0, 9);
+    expect(marginals.mvAdd("2", "1-qb")?.scen).toBeCloseTo((25 - 18) * OMEGA, 9); // his edge over the free agent…
+    expect(teamOf(model, "1").players["1-qb"]?.mvLoseScen).toBeCloseTo((25 - 18) * OMEGA, 9); // …is what his team loses: no gap
+    expect(expectChipsMatch(model, bruteChips(league, model, opts, NO_RISK), NO_RISK)).toBe(0);
+  });
+
+  it("MV_add re-runs the optimizer: a newcomer who makes a player redundant frees his spot for a pickup the team couldn't make (Bo Nix → Team 1)", () => {
+    // Team 2: a 10-point QB (its only one) and a full roster whose bench players each cover a bye week (week 9 leaves an RB slot
+    // empty: both RBs are off and its one bench RB covers one; the 10-point bench WR takes the FLEX in weeks 6, 7 and 10). A
+    // 7.5-point free-agent RB would fill that hole, but dropping anyone droppable for him nets less than faMinGain (kickers and
+    // D/STs are never dropped by the optimizer), so V*(team 2) makes no move. Team 1's 18-point backup QB arrives
+    // (the drop that makes room is a backup D/ST who never starts): team 2's old QB now sits, so the re-run drops him for the
+    // free-agent RB, +7.5 in week 9 on top of the newcomer's 8 a week.
+    const two: TestPlayer[] = [
+      p("2-qb", "QB", 10),
+      p("2-rb1", "RB", 15, { nflTeam: "B09" }),
+      p("2-rb2", "RB", 13, { nflTeam: "B09" }),
+      p("2-wr1", "WR", 15, { nflTeam: "B06" }),
+      p("2-wr2", "WR", 13, { nflTeam: "B07" }),
+      p("2-te", "TE", 10, { nflTeam: "B08" }),
+      p("2-flex", "WR", 11, { nflTeam: "B10" }),
+      p("2-k", "K", 8, { nflTeam: "B11" }),
+      p("2-def", "DEF", 7, { nflTeam: "B12" }),
+      ...[p("2-rb3", "RB", 6), p("2-wr3", "WR", 10), p("2-te2", "TE", 6), p("2-k2", "K", 5), p("2-def2", "DEF", 6), p("2-k3", "K", 4), p("2-def3", "DEF", 5)],
+    ];
+    const withQb = (t: string, qb: number): TestPlayer[] => starters(t).map((x) => (x.pos === "QB" ? { ...x, points: qb } : x));
+    const league = buildTestLeague({
+      teams: [team("1", [...withQb("1", 25), p("1-qb2", "QB", 18)]), team("2", two), team("3", withQb("3", 24)), team("4", withQb("4", 26))],
+      freeAgents: [p("fa-rb", "RB", 7.5)],
+      byeWeek: { B06: 6, B07: 7, B08: 8, B09: 9, B10: 10, B11: 11, B12: 12 },
+    });
+    expect(league.snapshot.teams[1]?.roster).toHaveLength(16);
+    const opts = { now: TEST_NOW, scenarios: 0, sims: 0, settings: NO_STREAMING };
+    const model = buildLeagueModel(league.snapshot, league.inputs, opts, NO_RISK);
+    expect(teamOf(model, "2").faMoves).toEqual([]);
+    const marginals = leagueMarginals(league.snapshot, league.inputs, opts, NO_RISK);
+    const add = marginals.mvAdd("2", "1-qb2");
+    expect(add).toMatchObject({ drop: "2-def3", ev: expect.closeTo((18 - 10) * OMEGA + 7.5, 9) });
+    // Without the re-run (the pinned move of Phase 3) it would be the newcomer's 8 a week alone.
+    const chip = teamOf(model, "1").chips.find((c) => c.playerId === "1-qb2");
+    expect(chip).toMatchObject({ bestTeamId: "2", maxOther: expect.closeTo((18 - 10) * OMEGA + 7.5, 9), cost: expect.closeTo(0, 9) });
+    expect(expectChipsMatch(model, bruteChips(league, model, opts, NO_RISK), NO_RISK)).toBeGreaterThan(0);
+    // With no move left (faMaxMoves 0), the re-run makes none: the pinned number.
+    const none: LeagueModelConfig = { ...NO_RISK, freeAgentOptimizer: { ...NO_RISK.freeAgentOptimizer, faMaxMoves: 0 } };
+    expect(leagueMarginals(league.snapshot, league.inputs, opts, none).mvAdd("2", "1-qb2")?.ev).toBeCloseTo((18 - 10) * OMEGA, 9);
+  });
+
+  it("dynasty and keeper leagues with dynasty values: the optimizer never drops a player worth more than the guard over the free agent", () => {
+    // Team 1 is full: the nine starters (dynasty values 3,000 down to 2,400; top 3,000, so the guard is 150) and seven bench
+    // prospects worth 1,000 each who never start. A 14-point free-agent WR would replace a prospect in a redraft league (every
+    // bench player ties at +3 a week, and so does the FLEX WR he'd push to the bench: the least valuable goes).
+    const valuedStarters = starters("1").map((x, i) => (x.pos === "K" || x.pos === "DEF" ? x : { ...x, value: 3000 - 100 * i }));
+    const prospects = [1, 2, 3, 4, 5, 6, 7].map((k) => p(`1-pr${k}`, "RB", 1, { value: 1000 }));
+    const spec: TestLeagueSpec = { teams: [team("1", [...valuedStarters, ...prospects]), team("2", starters("2"))], freeAgents: [p("fa-wr", "WR", 14)] };
+    const opts = { now: TEST_NOW, scenarios: 0, sims: 0, settings: NO_STREAMING };
+    const redraft = buildTestLeague(spec);
+    expect(teamOf(buildLeagueModel(redraft.snapshot, redraft.inputs, opts, NO_RISK), "1").faMoves).toEqual([{ add: "fa-wr", drop: "1-pr1", gainEv: expect.closeTo(3 * OMEGA, 9), gainScen: null }]);
+    const dynasty = buildTestLeague({ ...spec, leagueType: "dynasty" });
+    const market = dynasty.inputs.market as NonNullable<ModelInputs["market"]>;
+    dynasty.inputs.market = { ...market, format: { ...market.format, isDynasty: true } };
+    expect(config.freeAgentOptimizer.faDynGuard * market.topValue).toBe(150);
+    // Everyone droppable is worth far more than the free agent (a floor value): no move.
+    expect(teamOf(buildLeagueModel(dynasty.snapshot, dynasty.inputs, opts, NO_RISK), "1").faMoves).toEqual([]);
+    // A keeper league whose dynasty list didn't load (format.isDynasty false): no guard.
+    const noValues = buildTestLeague({ ...spec, leagueType: "keeper" });
+    expect(teamOf(buildLeagueModel(noValues.snapshot, noValues.inputs, opts, NO_RISK), "1").faMoves).toHaveLength(1);
+  });
+});
+
+describe("the Q/D/P base rate (§6 step 3; planner reply to Checkpoint 3, answer 5): this week's injury-cut projections count nowhere", () => {
+  it("a questionable, doubtful or probable player's base rate leaves this week's cut out (his nearest later healthy week), this week's shape is 1, and his tag's table is applied once", () => {
+    // Healthy 15 a week; this week Sleeper cut him to 7. No return date, so no tiebreaker: the tag's one-week table.
+    const tagged = (injury: "QUESTIONABLE" | "DOUBTFUL" | "PROBABLE" | "ACTIVE"): TestPlayer => ({ id: `rb-${injury}`, pos: "RB", points: { ...flat(1, 17, 15), 4: 7 }, injury });
+    const league = buildTestLeague({ teams: [team("1", [...starters("1"), tagged("QUESTIONABLE"), tagged("DOUBTFUL"), tagged("PROBABLE"), tagged("ACTIVE")])] });
+    const model = buildLeagueModel(league.snapshot, league.inputs, { now: TEST_NOW, scenarios: 0, sims: 0 }, NO_RISK);
+    const injury = config.projections.injury;
+    for (const [status, now] of [
+      ["QUESTIONABLE", injury.QUESTIONABLE[0]],
+      ["DOUBTFUL", injury.DOUBTFUL[0]],
+      ["PROBABLE", injury.PROBABLE[0]],
+    ] as const) {
+      const pm = model.players[`rb-${status}`] as NonNullable<LeagueModel["players"][string]>;
+      const g = gameTimeBaseRate(league.inputs.players[`rb-${status}`] as PlayerInputs, { currentWeek: 4, weeks: model.weeks, espnAveraged: false });
+      expect(pm.base, status).toEqual(g);
+      expect(pm.base).toMatchObject({ b: 15, projNow: 15, projWeek: 5 });
+      expect(pm.weekly[0]).toMatchObject({ m: 1, a: now, p: expect.closeTo(15 * (now as number), 9) });
+      expect(pm.weekly[1]).toMatchObject({ m: 1, a: 1, p: 15 });
+    }
+    // An ACTIVE player with the same line keeps step 1: this week's 7 is his proj_now (its shape clamped to 0.8).
+    const active = model.players["rb-ACTIVE"] as NonNullable<LeagueModel["players"][string]>;
+    expect(active.base).toMatchObject({ projNow: 7, projWeek: 4, mNow: 0.8 });
+    expect(active.weekly[0]?.p).toBeCloseTo(7, 9);
+    expect(active.weekly[1]?.p).toBeCloseTo((7 / 0.8) * (15 / (202 / 14)), 9);
   });
 });

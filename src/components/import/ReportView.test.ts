@@ -63,11 +63,11 @@ function render(response: ImportResponse, opts: Partial<ReportOptions> = {}, con
 const noop = () => {};
 
 describe("ReportView", () => {
-  it("links to the League page, and says trade ideas come later", () => {
+  it("links to the League page, and points to the Trade Finder (Phase 4: trade ideas are here)", () => {
     const html = render({ snapshot: snapshot(), notes: [] });
     expect(html).toMatch(/<a class="[^"]*min-h-11[^"]*" href="\/league">See your league&#x27;s needs and projections\u00a0→<\/a>/);
-    expect(html).toContain("Trade ideas come in a later update.");
-    expect(html).not.toContain("Trade ideas arrive in a later update.");
+    expect(html).toContain('Everything Offer Sheet suggests is built on these settings, trade ideas on the <a class="font-semibold text-accent underline underline-offset-2" href="/trades">Trade Finder</a> included.');
+    expect(html).not.toContain("later update");
   });
 
   it("names the FantasyCalc format next to a 'Values: FantasyCalc' link (§2.9), and notes each substitution", () => {
@@ -165,6 +165,17 @@ describe("ReportView", () => {
       expect(html).toContain("Imported with ESPN cookies from .env.local (USE_ENV_COOKIES=1, development only).");
       expect(html).not.toContain("from this browser session");
       expect(html).not.toContain("Forget my ESPN cookies");
+    });
+
+    it("gives every button and button-like link a 44 px target on phones (review of Phase 4: Refresh and Import another league were 36 px)", () => {
+      const forget: ForgetControl = { onForget: noop, forgetting: false, done: false, note: null };
+      const html = render({ snapshot: snapshot(), notes: [], usedEspnCookies: true, espnCookieSource: "session" }, { myTeamId: "3", myTeamSource: "link" }, { refresh, forget });
+      const controls = [...html.matchAll(/<(button|a)\b([^>]*)>([\s\S]*?)<\/\1>/g)]
+        .map(([, tag = "", attrs = "", inner = ""]) => ({ tag, cls: /class="([^"]*)"/.exec(attrs)?.[1] ?? "", text: inner.replace(/<[^>]+>/g, "").trim() }))
+        // Inline text links inside a sentence are exempt (WCAG 2.5.8), as on the trade pages.
+        .filter((c) => c.tag === "button" || c.cls.includes("inline-flex"));
+      expect(controls.map((c) => c.text)).toEqual(expect.arrayContaining(["Yes, that&#x27;s my team", "Forget my ESPN cookies", "Refresh league data", "Import another league"]));
+      for (const c of controls) expect(c.cls, c.text).toContain("min-h-11");
     });
 
     it("announces what Refresh did", () => {

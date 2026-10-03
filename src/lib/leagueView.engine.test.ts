@@ -183,6 +183,33 @@ describe("Parker's league (committed ESPN fixture, synthetic inputs, the real 20
     expect(rows.slice(1).every((r) => r.underWay === null)).toBe(true);
   });
 
+  it("shows 'Streaming picks this week' from the engine: Parker streams K and D/ST (the default), the best free agents by this week's points, none whose game has started", () => {
+    expect(before.model.streaming.byTeam[me]).toMatchObject({ positions: ["K", "DEF"], source: "setting" });
+    const s = before.view.streaming as NonNullable<typeof before.view.streaming>;
+    expect(s.mine).toBe("You stream K and D/ST.");
+    expect(s.groups.map((g) => g.label)).toEqual(["K", "D/ST"]);
+    const free = new Set(snapshot.freeAgents);
+    for (const g of s.groups) {
+      expect(g.picks).toHaveLength(config.streaming.picksShown);
+      const points = g.picks.map((p) => Number(p.projection));
+      expect([...points].sort((a, b) => b - a)).toEqual(points);
+      for (const p of g.picks) {
+        expect(free.has(p.id), p.id).toBe(true);
+        expect(p.name).toBe(snapshot.players[p.id]?.name);
+        expect(p.opponent).toMatch(/^(—|vs [A-Z]{2,3}|@ [A-Z]{2,3})$/);
+      }
+    }
+    expect(before.html).toContain("Streaming picks this week");
+    // An hour after Thursday's kickoff, a free agent whose game has started is no pick this week.
+    const started = new Set(Object.entries(nfl.kickoffs[PARKER.currentWeek] ?? {}).filter(([, iso]) => Date.parse(iso) <= firstKickoff).map(([team]) => team));
+    expect(started.size).toBeGreaterThan(0);
+    const picks = gameDay.model.streaming.picks;
+    expect(picks.length).toBeGreaterThan(0);
+    for (const p of picks) expect(started.has(snapshot.players[p.playerId]?.nflTeam ?? ""), p.playerId).toBe(false);
+    // Lineup points are labeled with the model's playoff weight.
+    expect(before.model.playoffWeight).toBe(config.lineups.playoffWeight);
+  });
+
   it("says when a multi-week matchup is already under way: the row covers only its weeks still to play, since the simulator doesn't read the points scored", () => {
     // My week 4 game made an ESPN two-week matchup period over weeks 3–4 (week 3 played), both teams' own week 3 games gone.
     const wk4 = snapshot.schedule.find((m) => !m.isPlayoff && m.week === 4 && (m.teamA === me || m.teamB === me));

@@ -6,7 +6,8 @@ import type { CrosswalkConflict, PlayerIdResolver } from "@/data/types";
 import type { LeagueSnapshot } from "@/engine/model";
 import { readMinFixture } from "@/test-utils/fixtures";
 import { FREE_AGENTS_PER_POSITION, idOverrideNote, normalizeEspnLeague, normalizeSwid, type EspnRawBundle } from "./normalize";
-import { FA_POSITIONS, LABELS, NOW, PARKER, PUBLIC, expectedTransactionTypes, fakeResolver, parkerBundle, readCross, readEspn } from "./test-helpers";
+import { FA_POSITIONS, LABELS, NOW, PARKER, PUBLIC, REFILL, expectedTransactionTypes, fakeResolver, parkerBundle, readCross, readEspn, type PublicTradeAcquisitions, type RefillFixture } from "./test-helpers";
+import { weekOfInstant, weekWindows } from "./weeks";
 
 type Json = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
 const clone = <T>(x: T): T => JSON.parse(JSON.stringify(x)) as T;
@@ -689,6 +690,14 @@ describe("normalizeEspnLeague edge cases", () => {
     expect(codes(s)).not.toContain("ESPN_TRADES_UNVERIFIED");
   });
 
+  it("doesn't count an accepted trade whose review period ended without its players showing on the rosters, and says so (vetoed, or dropped since)", () => {
+    const old = { id: "r", type: "TRADE_ACCEPT", scoringPeriodId: 3, teamId: 10, relatedTransactionId: "p", proposedDate: NOW.getTime() - 3 * 86_400_000 };
+    const { snapshot: s, notes } = run(base(), { transactions: [{ transactions: [old] }] });
+    expect(s.transactions).toEqual([]);
+    expect(notes).toContain("1 accepted trade is past its review period but doesn't show on the rosters (vetoed, or the players dropped since), so it isn't counted.");
+    expect(notes.join("\n")).not.toMatch(/still in the league's review period/);
+  });
+
   it("keeps at most 50 free agents per position, best projection first", () => {
     const qb = (i: number) => ({ id: 900000 + i, onTeamId: 0, status: "FREEAGENT", player: { id: 900000 + i, fullName: `Zorblax Quintavious ${i}`, defaultPositionId: 1, eligibleSlots: [0, 7, 20, 21], proTeamId: 1, stats: [{ seasonId: 2026, scoringPeriodId: 4, statSourceId: 1, statSplitTypeId: 1, appliedTotal: i }] } });
     const s = run(base(), { freeAgents: [{ players: Array.from({ length: 60 }, (_, i) => qb(i)) }] }).snapshot;
@@ -902,5 +911,207 @@ describe("idOverrideNote (CLAUDE.md §2.9: log every override in the Import Repo
     expect(idOverrideNote({ espnId: 1, label: "Zorblax Kickwell 0 (K, GB)" }, { ...both, sameBy: ["team", "gsis"] })).toContain("whose name, position, NFL team and NFL player ID (GSIS) match DynastyProcess's record.");
     const unsaid: CrosswalkConflict = { source: "espn", platformId: "1", options: both.options, chosen: "970000", resolvedBy: "same player", withinSource: false };
     expect(idOverrideNote({ espnId: 1, label: "Zorblax Kickwell 0 (K, GB)" }, unsaid)).toContain("whose name and position, plus NFL team or NFL player ID (GSIS), match DynastyProcess's record.");
+  });
+});
+
+describe("the trade refill (Phase 4, approved at Checkpoint 1): other teams' trades ESPN lists without players", () => {
+  const refill = () => readMinFixture<RefillFixture>("espn", REFILL.group, REFILL.parker);
+
+  /**
+   * Parker's league right after the trade went through (as the app imported it on 2026-10-01): the
+   * committed pre-trade league with the traded players moved to their new rosters (acquired by trade at
+   * the instant it went through), the dropped player gone, ESPN's counters, and periods 1–4 plus the
+   * live trade rows (Team 10's accept, still without a status, and Team 2's EXECUTED UPHOLD vote).
+   */
+  function afterTheTrade(): { bundle: EspnRawBundle; f: RefillFixture } {
+    const f = refill();
+    const league = clone(readEspn<Json>(LABELS.league));
+    const team = (id: number) => (league.teams as Json[]).find((t) => t.id === id) as Json;
+    for (const m of f.moved) {
+      const from = team(m.from as number).roster.entries as Json[];
+      const [entry] = from.splice(
+        from.findIndex((e) => e.playerId === m.playerId),
+        1,
+      );
+      (team(m.to).roster.entries as Json[]).push({ ...entry, lineupSlotId: m.lineupSlotId, acquisitionType: m.acquisitionType, acquisitionDate: m.acquisitionDate });
+    }
+    // A dropped player is a free agent now: in ESPN's free-agent list for his position, as fetch.ts asks for it.
+    const freeAgents: Json[] = [];
+    for (const d of f.dropped) {
+      const entries = team(d.teamId).roster.entries as Json[];
+      const gone = entries.find((e) => e.playerId === d.playerId) as Json;
+      freeAgents.push({ id: d.playerId, onTeamId: 0, status: "FREEAGENT", player: gone.playerPoolEntry.player });
+      team(d.teamId).roster.entries = entries.filter((e) => e !== gone);
+    }
+    for (const t of league.teams as Json[]) t.transactionCounter = { ...t.transactionCounter, trades: f.counters[String(t.id)] };
+    league.status.activatedDate = f.activatedDate;
+    const transactions = [...[1, 2, 3, 4].map((w) => readEspn(LABELS.tx(w))), { transactions: f.rows }];
+    return { bundle: { league, transactions, freeAgents: [{ players: freeAgents }], proTeamSchedules: readEspn(LABELS.proSchedule) }, f };
+  }
+
+  it("the live fixture: one 2-for-1 trade between two other teams, rows without players, a vote by a third team", () => {
+    const f = refill();
+    expect(f.rows).toEqual([expect.objectContaining({ type: "TRADE_UPHOLD", status: "EXECUTED", teamId: 2 }), expect.objectContaining({ type: "TRADE_ACCEPT", teamId: 10 })]);
+    expect((f.rows[1] as Json).status).toBeUndefined();
+    expect(f.moved.map((m) => [m.from, m.to])).toEqual([
+      [10, 6],
+      [6, 10],
+      [6, 10],
+    ]);
+    expect(new Set(f.moved.map((m) => m.acquisitionDate)).size).toBe(1);
+    expect(f.counters).toMatchObject({ "6": 1, "10": 1, "2": 0 });
+  });
+
+  it("rebuilds Parker's live trade: the parties, each player from the team he left, the acquisition instant, refilled, and nothing left to warn about", () => {
+    const { bundle, f } = afterTheTrade();
+    const { snapshot: s, notes } = normalizeEspnLeague(bundle, { leagueId: PARKER.leagueId, resolver: fakeResolver(), now: new Date(f.captured), swid: PARKER.swid });
+    const trades = s.transactions.filter((t) => t.type === "trade");
+    expect(trades).toHaveLength(1);
+    const trade = trades[0] as (typeof trades)[number];
+    const accept = f.rows[1] as Json;
+    expect(trade).toMatchObject({ id: accept.id, week: 4, timestamp: new Date(f.moved[0]?.acquisitionDate as number).toISOString(), teams: ["6", "10"], refilled: true });
+    // Each player goes from the team he was on before the trade (the committed pre-trade rosters) to his new one.
+    const byEspn = (id: number) => Object.values(s.players).find((p) => p.ids.espn === String(id));
+    const legs = trade.moves.filter((m) => m.from !== null && m.to !== null);
+    expect(legs.map((m) => [m.playerId, m.from, m.to]).sort()).toEqual(f.moved.map((m) => [byEspn(m.playerId)?.id, String(m.from), String(m.to)]).sort());
+    for (const m of legs) expect(m.pos).toBe(s.players[m.playerId]?.pos);
+    expect(legs.map((m) => m.pos).sort()).toEqual(["RB", "WR", "WR"]);
+    // Team 10's roster-space drop comes with it.
+    expect(trade.moves.filter((m) => m.to === null)).toEqual([{ playerId: expect.any(String), from: "10", to: null, pos: expect.any(String) }]);
+    // The vote's team isn't a party; the trades listed now match ESPN's own counters.
+    expect(trade.teams).not.toContain("2");
+    expect(notes.join("\n")).not.toMatch(/trade counters show more trades/);
+    // Worded for any team's trade: a public-link import presumably sees the user's own trades without players too (review Track C 3).
+    expect(notes).toContain(
+      "Trades rebuilt from the rosters: ESPN lists 1 trade without the players traded, so the players come from the rosters (each one's roster entry says he was acquired by trade the moment the trade went through): Team 6 and Team 10 (week 4).",
+    );
+    expect(notes.join("\n")).not.toMatch(/other teams/);
+    expect(notes.join("\n")).not.toMatch(/review period/);
+    expect(codes(s)).not.toContain("ESPN_TRADE_WITHOUT_PLAYERS");
+    expect(codes(s)).not.toContain("ESPN_TRADES_UNVERIFIED");
+  });
+
+  it("before it went through (the vote in, the rosters unchanged), it's still in review: not counted, and the counters note says why", () => {
+    const f = refill();
+    const bundle = { ...parkerBundle(), transactions: [...[1, 2, 3, 4].map((w) => readEspn(LABELS.tx(w))), { transactions: f.rows }] };
+    const { snapshot: s, notes } = parker({ now: new Date("2026-09-30T13:00:00Z") }, bundle);
+    expect(s.transactions.filter((t) => t.type === "trade")).toEqual([]);
+    expect(notes).toContain("1 accepted trade is still in the league's review period, so it isn't counted yet.");
+    expect(notes).toContain("ESPN's own trade counters show more trades than the transaction list for Team 6 (1 vs 0), Team 10 (1 vs 0): a trade still in review counts there.");
+  });
+
+  it("past the review period with the rosters unchanged (vetoed, or its players all gone since), it isn't counted, with the vote or without it (review Track C 2)", () => {
+    const f = refill();
+    const run = (rows: unknown[]) => parker({ now: new Date("2026-10-03T01:00:00Z") }, { ...parkerBundle(), transactions: [...[1, 2, 3, 4].map((w) => readEspn(LABELS.tx(w))), { transactions: rows }] });
+    const voted = run(f.rows);
+    expect(voted.snapshot.transactions.filter((t) => t.type === "trade")).toEqual([]);
+    expect(voted.notes).toContain("1 accepted trade is past its review period but doesn't show on the rosters (vetoed, or the players dropped since), so it isn't counted.");
+    expect(codes(voted.snapshot).filter((c) => /TRADE/.test(c))).toEqual([]);
+    // The vote changes nothing: the same snapshot and notes without it.
+    const plain = run([f.rows[1]]);
+    expect(plain.snapshot).toEqual(voted.snapshot);
+    expect(plain.notes).toEqual(voted.notes);
+  });
+
+  it("rebuilds the public test league's trade from its rosters, from a completed trade row without players or from the rosters and ESPN's counters alone", () => {
+    const acquired = readMinFixture<PublicTradeAcquisitions>("espn", PUBLIC.group, PUBLIC.trades);
+    const at = acquired.teams[0]?.entries[0]?.acquisitionDate as number;
+    expect(acquired.teams.map((t) => [t.id, t.entries.length, t.entries[0]?.acquisitionDate])).toEqual([
+      [2, 1, at],
+      [10, 1, at],
+    ]);
+    const league = clone(readMinFixture<Json>("espn", PUBLIC.group, PUBLIC.league));
+    for (const t of league.teams as Json[]) {
+      t.roster.entries.push(...(acquired.teams.find((x) => x.id === t.id)?.entries ?? []));
+      t.transactionCounter = { trades: acquired.counters[String(t.id)] };
+    }
+    league.status.activatedDate = acquired.activatedDate;
+    const proTeamSchedules = readEspn<Json>(LABELS.proSchedule);
+    const run = (transactions: unknown[]) => normalizeEspnLeague({ league, transactions, proTeamSchedules }, { leagueId: "100002", resolver: fakeResolver(), now: new Date(at + 3_600_000) });
+    const rb = (espnId: number, s: LeagueSnapshot) => Object.values(s.players).find((p) => p.ids.espn === String(espnId))?.id;
+
+    // A completed trade row without players (the live shape of other teams' trades), accepted by Team 2.
+    const row = { id: "accepted", type: "TRADE_ACCEPT", status: "EXECUTED", scoringPeriodId: 4, teamId: 2, proposedDate: at - 24 * 3_600_000, processDate: at };
+    const { snapshot: s, notes } = run([{ transactions: [row] }]);
+    expect(s.transactions).toEqual([
+      {
+        id: "accepted",
+        type: "trade",
+        week: 4,
+        timestamp: new Date(at).toISOString(),
+        teams: ["2", "10"],
+        moves: [
+          { playerId: rb(4241474, s), from: "10", to: "2", pos: "RB" },
+          { playerId: rb(4429096, s), from: "2", to: "10", pos: "RB" },
+        ],
+        refilled: true,
+      },
+    ]);
+    expect(notes.join("\n")).toMatch(/^Trades rebuilt from the rosters: ESPN lists 1 trade without the players traded, .*: Team 2 and Team 10 \(week 4\)\.$/m);
+
+    // No row at all: the rosters and ESPN's counters (1 trade each for Teams 2 and 10) still show it.
+    const alone = run([]);
+    expect(alone.snapshot.transactions).toEqual([{ ...s.transactions[0], id: `espn-roster-trade:${at}:2-10`, week: weekOfInstant(at, weekWindows(proTeamSchedules.settings.proTeams)) }]);
+    expect(alone.notes.join("\n")).toMatch(/Trades only the rosters show: 1 trade isn't in ESPN's transaction list, but the rosters \(players acquired by trade at one instant\) and ESPN's own trade counters show it: Team 2 and Team 10 \(week \d+\)\./);
+    // Without the league's activation date it could be an earlier season's trade (a keeper's): not rebuilt.
+    const unknownSeason = clone(league);
+    delete unknownSeason.status.activatedDate;
+    expect(normalizeEspnLeague({ league: unknownSeason, transactions: [], proTeamSchedules }, { leagueId: "100002", resolver: fakeResolver(), now: new Date(at) }).snapshot.transactions).toEqual([]);
+  });
+
+  it("when the rosters show only the players one team received and nothing names its partner, says so instead of claiming the rosters don't show the trade (review Track C 3)", () => {
+    const acquired = readMinFixture<PublicTradeAcquisitions>("espn", PUBLIC.group, PUBLIC.trades);
+    const at = acquired.teams[0]?.entries[0]?.acquisitionDate as number;
+    // Team 2's side only (Team 10's player has left its roster since), and no ESPN trade counters to name Team 10.
+    const league = clone(readMinFixture<Json>("espn", PUBLIC.group, PUBLIC.league));
+    (league.teams as Json[]).find((t) => t.id === 2)?.roster.entries.push(...(acquired.teams.find((x) => x.id === 2)?.entries ?? []));
+    const row = { id: "accepted", type: "TRADE_ACCEPT", status: "EXECUTED", scoringPeriodId: 4, teamId: 2, proposedDate: at - 24 * 3_600_000, processDate: at };
+    const { snapshot: s } = normalizeEspnLeague({ league, transactions: [{ transactions: [row] }], proTeamSchedules: readEspn(LABELS.proSchedule) }, { leagueId: "100002", resolver: fakeResolver(), now: new Date(at + 3_600_000) });
+    expect(s.transactions).toEqual([{ id: "accepted", type: "trade", week: 4, timestamp: new Date(at).toISOString(), teams: ["2"], moves: [] }]);
+    expect(s.warnings.filter((w) => /TRADE/.test(w.code))).toEqual([
+      {
+        code: "ESPN_TRADE_PARTNER_UNKNOWN",
+        message:
+          "1 completed trade came back without the players traded (ESPN often hides trade details). The rosters show that Team 2 received players by trade in week 4, but not which team it traded with, so the trade is listed without its partner.",
+        platformPath: "teams[].roster.entries[].acquisitionType",
+      },
+    ]);
+  });
+});
+
+describe("transaction move positions (Phase 4: streaming detection counts adds by position)", () => {
+  const base = () => clone(readEspn<Json>(LABELS.league));
+
+  it("gives every move of Parker's league its player's position", () => {
+    const { snapshot: s } = parker();
+    const moves = s.transactions.flatMap((t) => t.moves);
+    expect(moves.length).toBeGreaterThan(100);
+    for (const m of moves) {
+      expect(m.pos).toBeDefined();
+      const info = s.players[m.playerId];
+      if (info) expect(m.pos).toBe(info.pos);
+    }
+  });
+
+  it("knows a player who is on no roster from a free-agent list, a team defense from its id, else the single-position slot he left or went to", () => {
+    const at = Date.parse("2026-09-29T12:00:00Z");
+    const tx = (id: string, items: Json[]) => ({ id, type: "FREEAGENT", status: "EXECUTED", scoringPeriodId: 4, teamId: 3, processDate: at, items });
+    const add = (playerId: number, toLineupSlotId: number) => ({ playerId, type: "ADD", fromTeamId: 0, toTeamId: 3, fromLineupSlotId: -1, toLineupSlotId });
+    const dropped = (playerId: number, fromLineupSlotId: number) => ({ playerId, type: "DROP", fromTeamId: 3, toTeamId: 0, fromLineupSlotId, toLineupSlotId: -1 });
+    const pooled = { id: 93_000_001, onTeamId: 0, status: "FREEAGENT", player: { id: 93_000_001, fullName: "Zorblax Quintavious", defaultPositionId: 4, eligibleSlots: [6, 23, 20, 21], proTeamId: 9, stats: [] } };
+    const transactions = [
+      {
+        transactions: [
+          tx("pool", [add(93_000_001, 20)]), // a TE in a free-agent list, added to the bench
+          tx("dst", [add(-16009, 20)]), // the GB D/ST, on no roster
+          tx("kslot", [add(93_000_002, 17)]), // unknown, added straight into the K slot
+          tx("bench", [add(93_000_003, 20)]), // unknown, to the bench: no position
+          tx("flex", [dropped(93_000_004, 23)]), // unknown, dropped from FLEX: no position
+          tx("dslot", [dropped(93_000_005, 16)]), // unknown, dropped from the D/ST slot
+        ],
+      },
+    ];
+    const s = normalizeEspnLeague({ league: base(), transactions, freeAgents: [{ players: [pooled] }] }, { leagueId: "1", resolver: fakeResolver(), now: NOW }).snapshot;
+    expect(Object.fromEntries(s.transactions.map((t) => [t.id, t.moves[0]?.pos]))).toEqual({ pool: "TE", dst: "DEF", kslot: "K", bench: undefined, flex: undefined, dslot: "DEF" });
   });
 });

@@ -4,6 +4,7 @@
  * Pure types only. Arrays marked "per week" are aligned with LeagueModel.weeks.
  */
 import type { FantasyCalcFormat } from "./inputs";
+import type { Pos } from "./model";
 
 export type BaseRateSource = "espn+sleeper" | "sleeper" | "espn" | "season" | "actual" | "none";
 export type ValueSource = "fantasycalc" | "estimate" | "floor";
@@ -17,8 +18,15 @@ export interface LeagueModel {
   /** Availability scenarios per exact evaluation (§7), 0 when scenarios were skipped. */
   scenarios: number;
   /**
+   * ω for playoff weeks in every ROS(T) and lineup-point number (§7): the user's setting (TradeSettings.
+   * playoffWeight, default config.lineups.playoffWeight). Pages label lineup points with it.
+   */
+  playoffWeight: number;
+  /** Streaming positions (§7; planner reply to Checkpoint 3, model change 1): who streams what, and this week's picks. */
+  streaming: StreamingSummary;
+  /**
    * The current week when any of its games has already kicked off (null otherwise). Team-level numbers
-   * (ROS(T), PPW, strength, needs, lineup costs, the waiver move, trade chips, partner fit) then skip
+   * (ROS(T), PPW, strength, needs, lineup costs, free-agent moves, trade chips, partner fit) then skip
    * it: lineups are locking and its points are being scored, so it no longer says how good a team is.
    * Its per-week LV is still reported (a partial week). Players' own ROS points count the games that
    * haven't started.
@@ -156,13 +164,21 @@ export interface TeamModel {
   /** Rostered players' marginal values (active roster only; IR and taxi players are absent). */
   players: Record<string, TeamPlayerValue>;
   /**
-   * The team's best single free-agent move (add the best free agent, dropping the player whose loss
-   * hurts least, or into an open roster spot), when it gains ROS points; null when none does. Chosen by
-   * scenario ROS when scenarios ran (the lineup costs shown are scenario costs), else by EV ROS. MV_lose is
-   * measured from the team after this move, so a free agent who beats a starter doesn't make every bench
-   * player's lineup cost negative.
+   * The free-agent optimizer's moves for the team as it stands (§7 V*(T); src/engine/optimizer.ts), in order:
+   * each adds the best free agent (dropping a player, or into an open roster spot) while it raises the team's
+   * rest-of-season lineup points by at least config.freeAgentOptimizer.faMinGain, at most faMaxMoves of them;
+   * never a kicker or a team defense (streamed or kept), nor a position the team streams. Empty when no move
+   * qualifies. Lineup costs and trade chips are measured from the roster after these moves (V*), so a trade
+   * never gets credit for a pickup the team could make anyway. The League page lists them as "Free-agent pickups
+   * that would help".
    */
-  waiver: WaiverMove | null;
+  faMoves: FaMove[];
+  /**
+   * The star premium of every player the team rosters (active, IR and taxi), as his owner sees him (planner addendum to
+   * Checkpoint 3, §1–§2): e = e_rank + e_elite, and the "Harder to get" tag (e ≥ config.acceptance.starPremium.
+   * harderToGetMin). Absent in a model built before the addendum.
+   */
+  premiums?: Record<string, PlayerPremium>;
   /**
    * The weekly score distribution the season simulator draws from (§8), per week of LeagueModel.weeks:
    * mean = LV (the scenario mean when scenarios ran, else the EV lineup), sd = sqrt(the within-lineup
@@ -174,11 +190,29 @@ export interface TeamModel {
   score: { mean: number[]; sd: number[] };
 }
 
-export interface WaiverMove {
+/** A rostered player's star premium for his owner (TeamModel.premiums). */
+export interface PlayerPremium {
+  /** e = e_rank + e_elite (dynasty: halved for an older RB or WR on a rebuilding team). */
+  e: number;
+  /** His rank by market value on his team's roster (1 = most valuable; ties: more ROS points, then the smaller id). */
+  rank: number;
+  /** Among the top config.acceptance.starPremium.eliteTop players by FantasyCalc value in the league's format. */
+  elite: boolean;
+  harderToGet: boolean;
+}
+
+/** One free-agent move of a team (TeamModel.faMoves). */
+export interface FaMove {
   add: string;
   /** null = an open active-roster spot, nobody dropped. */
   drop: string | null;
-  /** ROS points gained, EV lineups and scenario lineups (null without scenarios). */
+  /**
+   * ROS lineup points the move gains (the roster after it minus the roster before it), with expected-value
+   * lineups and with scenario lineups (null without scenarios). The optimizer chooses by the scenario gain when
+   * scenarios run (at least faMinGain: the same lineups B is measured in, so no trade gets credit for a depth pickup
+   * the team could make anyway; Phase 4 review), else by the EV gain. So with scenarios gainEv can be below
+   * faMinGain, even below 0, for a pickup that adds depth.
+   */
   gainEv: number;
   gainScen: number | null;
 }
@@ -192,12 +226,14 @@ export interface SlotStrength {
 
 export interface TeamPlayerValue {
   /**
-   * MV_lose(T, i) under expected-value lineups and under scenario lineups (ROS points, §7), measured
-   * from the team after its best free-agent move (TeamModel.waiver), so it is never below 0.
+   * MV_lose(T, i) under expected-value lineups and under scenario lineups (ROS lineup points, §7): ROS(V*(T)) −
+   * ROS(V*(T − i)), the team after its free-agent moves (TeamModel.faMoves) against the same team without him after
+   * it re-optimizes: the optimizer's re-run from V*(T)'s roster, held to faMaxMoves pickups as a run from scratch
+   * (league.ts step 5; optimizer.reoptimize). Floored at 0; 0 when V*(T) drops him anyway.
    */
   mvLoseEv: number;
   mvLoseScen: number | null;
-  /** The free agent T would add after losing him (§7 roster legality), or null. */
+  /** The first free agent the team would add after losing him (the re-run's first move), or null. */
   autoAdd: string | null;
   /** z(v) − z(MV_lose) within T's roster: §12's surplus score, which ranks the give pool (Phase 4). */
   surplusScore: number;
@@ -230,16 +266,69 @@ export interface TradeChip {
   playerId: string;
   /** maxOther − cost (≥ chipMinGap). */
   gap: number;
-  /** MV_lose'(his team, i): what his team loses without him, from the team after its best free-agent move (TeamPlayerValue). */
+  /** MV_lose(his team, i): what his team loses without him, after its free-agent moves (TeamPlayerValue). */
   cost: number;
   /**
-   * The most he'd add to another team: the largest MV_add'(T′, i) = ROS(T′_V + i − drop) − ROS(T′_V) over
-   * the other teams T′, where T′_V is T′ after its best free-agent move and drop, when its active roster is
-   * full, is the T′_V player whose loss costs its lineup least (nobody refilling his spot: the newcomer takes it).
+   * The most he'd add to another team: the largest MV_add(T′, i) = ROS(V*(T′ + i − drop)) − ROS(V*(T′)) over the
+   * other teams T′ (floored at 0), where V*(T′) is T′ after its free-agent moves, drop, when its active roster is
+   * full, is the V*(T′) player whose loss costs its lineup least (nobody refilling his spot: the newcomer takes it;
+   * at i's position when a position limit binds), and V*(T′ + i − drop) is the optimizer's re-run from V*(T′) + i −
+   * drop, held to faMaxMoves pickups as a run from scratch (league.ts step 6).
    */
   maxOther: number;
   /** The team where he'd add maxOther (ties: the smaller team id). */
   bestTeamId: string;
+  /**
+   * cost ÷ Σ ω over the weeks team numbers count: what his team loses per week, in lineup points (playoff
+   * weeks weighted like cost). 0 when no week counts. The League page shows it ("costs you 6.1 pts/wk").
+   */
+  costPerWeek: number;
+  /**
+   * He starts for his own team: he's in the expected-value lineup of V*(T), his team after its free-agent moves (the
+   * roster his cost is measured from; streaming rows included), in at least half of the weeks team numbers count in
+   * which he plays (p > 0). Never when those moves drop him. The page tags him "starter".
+   */
+  starter: boolean;
+}
+
+/**
+ * Streaming positions (§7; lead decision L1): many managers stream K and D/ST, starting whichever free agent
+ * is projected highest each week. A streamed slot is worth, each week, max(the best rostered player, the
+ * streaming replacement), the config.streaming.streamRank-th best free agent at that position that week. Where
+ * a flex takes the position too (a streamed TE or QB), the replacement is one more player that week and can
+ * start there as well (league.ts, step 5a).
+ */
+export interface StreamingSummary {
+  /**
+   * Every team: the positions it streams (only positions its lineup starts, in POSITIONS order) and why. My
+   * team (LeagueModel.myTeamId) follows my setting ("Positions I stream weekly"); every other team streams a
+   * streamable position once it made config.streaming.detectAdds or more adds there this season ("detected").
+   */
+  byTeam: Record<string, StreamingTeam>;
+  /** The streaming replacement per week (aligned with LeagueModel.weeks), for every position some team streams. */
+  replacement: Partial<Record<Pos, number[]>>;
+  /**
+   * "Streaming picks this week": the best config.streaming.picksShown free agents at K and at DEF (when the
+   * lineup starts them) by this week's expected points, best first (ties: the smaller id); a free agent who
+   * can't play this week (bye, a game already started) isn't one. Empty once no week is left.
+   */
+  picks: StreamingPick[];
+}
+
+export interface StreamingTeam {
+  positions: Pos[];
+  source: "setting" | "detected";
+  /** Adds at each streamable position this season (the detection's evidence; a position without adds is absent). */
+  adds: Partial<Record<Pos, number>>;
+}
+
+export interface StreamingPick {
+  playerId: string;
+  pos: "K" | "DEF";
+  /** p this week (§6 step 4: expected points, availability included). */
+  projection: number;
+  /** This week's NFL opponent (inputs.nfl.opponents), or null when unknown. */
+  opponent: { team: string; home: boolean } | null;
 }
 
 export interface TradePartner {
@@ -252,7 +341,7 @@ export interface TradePartner {
   mutual: boolean;
   /**
    * Mutual: sqrt(what their chips add to my lineup × what my chips add to theirs); one-sided: what theirs
-   * add to mine. Points per week against each receiving team after its best free-agent move, each side's
+   * add to mine. Points per week against each receiving team after its free-agent moves (V*), each side's
    * JOINT gain (its players added at once, so two players competing for one slot count once) over the
    * chips that stay chips together: at most config.search.maxPerSide a side, each still a chip once the
    * ones before him have left his team (league.ts step 7). The lists below show every chip with its own gain.

@@ -196,8 +196,11 @@ export interface Transaction {
   week: number;
   timestamp: string;
   teams: string[];
-  moves: { playerId: string; from: string | null; to: string | null }[];
+  /** pos: the player's position when the platform tells us (Phase 4: streaming detection counts adds by position). */
+  moves: { playerId: string; from: string | null; to: string | null; pos?: Pos }[];
   picks?: DraftPick[];
+  /** ESPN: a completed trade whose players came back hidden, rebuilt from the receiving rosters' acquisitions (Phase 4). */
+  refilled?: true;
 }
 
 export interface DraftPick {

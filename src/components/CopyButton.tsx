@@ -1,8 +1,8 @@
 "use client";
 import { useState } from "react";
-import { buttonClass } from "./ui";
+import { buttonClass, cx } from "./ui";
 
-/** Copies text to the clipboard; if the browser refuses, tells the user to copy it by hand. */
+/** Copies text to the clipboard; if the browser refuses, tells the user to copy it by hand. A small button, but a 44 px target. */
 export function CopyButton({ text, label = "Copy message" }: { text: string; label?: string }) {
   const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
 
@@ -17,7 +17,7 @@ export function CopyButton({ text, label = "Copy message" }: { text: string; lab
   }
 
   return (
-    <button type="button" onClick={copy} className={buttonClass("secondary", "sm")} aria-live="polite">
+    <button type="button" onClick={copy} className={cx(buttonClass("secondary", "sm"), "min-h-11")} aria-live="polite">
       {state === "copied" ? "Copied!" : state === "failed" ? "Select the text and copy it" : label}
     </button>
   );

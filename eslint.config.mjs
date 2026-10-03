@@ -12,9 +12,11 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
-    // Project: local caches, API captures and coverage output are data, not source.
+    // Project: local caches, API captures, git-ignored local data (and scratch benchmarks kept with it) and
+    // coverage output are data, not source.
     ".cache/**",
     "fixtures/**",
+    "data-local/**",
     "coverage/**",
   ]),
 ]);

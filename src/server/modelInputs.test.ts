@@ -446,6 +446,15 @@ describe("assembleModelInputs: schedule, stamps, warnings and the header", () =>
     expect(assembleModelInputs(snapshot(), sources({ schedule: noLastWeek }), NOW).nfl).not.toHaveProperty("lastWeek");
   });
 
+  it("passes each team's NFL opponents from the current week on (Phase 4: the League page's streaming picks show them); none for a schedule without them", () => {
+    const opponents = { 3: { KC: { team: "LV", home: false }, LV: { team: "KC", home: true } }, 4: { KC: { team: "DEN", home: true }, DEN: { team: "KC", home: false } }, 5: { DAL: { team: "NYG", home: false }, NYG: { team: "DAL", home: true } } };
+    const out = assembleModelInputs(snapshot(), sources({ schedule: schedule({ opponents }) }), NOW);
+    expect(out.nfl.opponents).toEqual({ 4: opponents[4], 5: opponents[5] });
+    expect(out.nfl.kickoffs).toEqual(assembleModelInputs(snapshot(), sources({ schedule: schedule() }), NOW).nfl.kickoffs);
+    expect(assembleModelInputs(snapshot(), sources({ schedule: schedule() }), NOW).nfl).not.toHaveProperty("opponents");
+    expect(assembleModelInputs(snapshot(), sources(), NOW).nfl).not.toHaveProperty("opponents");
+  });
+
   it("stamps each source that delivered data, in a fixed order: its oldest fetch time, stale when a saved copy stood in, the build time when unknown", () => {
     const loaded = sources({
       weekly: weeklyLoad({ 4: { "4046": QB_LINE } }, { fetchedAt: Date.parse("2026-09-30T09:00:00Z") }),
@@ -791,6 +800,11 @@ describe("buildModelInputs (loading: §0.9 politeness, §2.10 caching)", () => {
     expect(out.nfl.byeWeek.WAS).toBeGreaterThan(0);
     expect(out.nfl.byeWeek).not.toHaveProperty("WSH");
     expect(out.nfl.lastWeek).toBe(18); // ESPN's week-18 games are all time-TBD, and still count
+    // Opponents from the current week on, in Sleeper codes (WSH is WAS on both sides), time-TBD weeks included.
+    expect(Object.keys(out.nfl.opponents ?? {}).map(Number)).toEqual(weeks(s.currentWeek, 18));
+    expect(out.nfl.opponents?.[4]?.WAS).toEqual({ team: "IND", home: true });
+    expect(out.nfl.opponents?.[4]?.IND).toEqual({ team: "WAS", home: false });
+    expect(out.nfl.opponents?.[18]?.KC).toEqual({ team: "LV", home: true });
     expect(out.market?.values["9221"]).toBeGreaterThan(0);
     expect(out.notes[0]).toBe(`Trade values: FantasyCalc ${fantasyCalcFormatLabel(formats.values)}.`);
   });

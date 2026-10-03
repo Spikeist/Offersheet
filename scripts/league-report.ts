@@ -30,8 +30,8 @@
  *   (batchRuns), the change computed in each batch alone (batchSe). B_ref gets B(+3)'s error and one
  *   decimal. When title odds are unknown, the reason is given only when the report can confirm it
  *   (titleUnknownReason); otherwise it points to the notes under the standings. Then the same rows from the
- *   team after its best free-agent move (TeamModel.waiver), since §10's B compares rosters after that move,
- *   with the move's own effect and its standard error. The model doesn't keep that roster's
+ *   team after its free-agent pickups (V*: TeamModel.faMoves applied), since §10's B compares rosters after
+ *   them, with the pickups' own effect and its standard error. The model doesn't keep that roster's
  *   weekly scores, so they're priced with teamValue.rosterScore, the function behind TeamModel.score, on the
  *   projection table rebuilt as the model built it; the report first re-prices the user's current roster
  *   that way and skips these rows unless it reproduces the model's own scores (within float noise).
@@ -44,6 +44,27 @@
  *   screeningSims and finalSims), and buildLeagueModel with and without the simulation (expected-value
  *   lineups only, and S availability scenarios), each the median of TIMING_RUNS runs after TIMING_WARMUPS
  *   warm-up.
+ *
+ * Phase 4, track A1 (planner reply to Checkpoint 3: model change 1, answers 1, 3 and 5):
+ * - Streaming positions (CLAUDE.md §7): which positions each team streams and why (your setting, or detected
+ *   from its adds this season, with the counts), each streamed position's replacement per week and its
+ *   average, and "Streaming picks this week" with their opponents (LeagueModel.streaming). The model is built
+ *   with the default settings (K and DEF streamed, the config's playoff weight).
+ * - Trade chips carry their cost per week and the "starter" tag (answer 3); lineup points are labeled with the
+ *   model's playoff weight (LeagueModel.playoffWeight).
+ * - Everything priced outside the model (rosterScorer, the depth values) adds the team's streaming rows
+ *   (league.tableWithStreaming, streamIds), so it still reproduces the model's own numbers.
+ * - The Trade Score uses B_ref 6 (answer 1; config.benefit.bRef). The scale check still reports the B_ref that
+ *   would map this league's +3 to the toy league's 63.
+ *
+ * Phase 4, track A2 (planner reply to Checkpoint 3, model change 2; "Checkpoint 4 must report"):
+ * - The free-agent optimizer V* (CLAUDE.md §7): every team's pickups (TeamModel.faMoves, EV and scenario gains, the one
+ *   V* decides by marked: optimizerJudging, scenario lineups when scenarios run without starter limits), how
+ *   many moves teams make (the count distribution), and the named examples under V* through league.leagueMarginals
+ *   (the model's own rules, outside it): Bo Nix → Team 1 (his MV_add there, with the drop that makes room, against his
+ *   lineup cost: his chip gap) and McCaffrey's chip gap (OPTIMIZER_EXAMPLES; public NFL names).
+ * - Lineup costs, chips and partners are worded for V*; the scale check's second baseline is my team after all its
+ *   pickups (vstarScale). The build timings (buildTimings) include the optimizer (lead decision L14: ≤ 400 ms).
  *
  * Everything after the network is buildReport (pure but for the clock and the model builds it times), which
  * scripts/league-report.test.ts runs offline on Parker's committed sanitized fixture with synthetic inputs.
@@ -60,14 +81,16 @@ import type { ImportDeps } from "@/adapters/types";
 import { loadPlayerIdResolver } from "@/data";
 import { config } from "@/engine/config";
 import type { ModelInputs } from "@/engine/inputs";
-import { buildLeagueModel, buildProjectionTable, firstKickoff, teamWeeks } from "@/engine/league";
-import type { LeagueModel, PlayerModel, SeasonOdds, TeamOdds, WaiverMove } from "@/engine/leagueModel";
+import { buildLeagueModel, buildProjectionTable, firstKickoff, leagueMarginals, streamIds, tableWithStreaming, teamWeeks, type LeagueMarginals } from "@/engine/league";
+import type { FaMove, LeagueModel, PlayerModel, SeasonOdds, TeamOdds, TradeChip } from "@/engine/leagueModel";
 import { prepareLeagueSlots } from "@/engine/lineup";
 import { fantasyCalcFormatLabel } from "@/engine/market";
-import type { LeagueSnapshot, PlayerInfo } from "@/engine/model";
+import { POSITIONS, type LeagueSnapshot, type PlayerInfo, type Pos } from "@/engine/model";
+import { applyStep } from "@/engine/optimizer";
 import { buildSimSetup, playoffRounds, seasonOdds, type SeasonModel, type SimSetupResult } from "@/engine/season";
 import { simNormals, simulateSeason, type SimNormals, type SimResult, type SimSetup } from "@/engine/sim";
 import { evLineups, rosValue, rosterScore, scenarioLineups } from "@/engine/teamValue";
+import { posLabel } from "@/lib/labels";
 import { RISKY_BYES, RISKY_WIN_CHANCE, SEASON_OVER_TEXT, likelyStarters } from "@/lib/leagueView";
 import { FileCache } from "@/server/cache";
 import { createHttpClient } from "@/server/http";
@@ -133,13 +156,20 @@ const recordOf = (r: { w: number; l: number; t: number }) => `${r.w}-${r.l}${r.t
 /** A player's pure depth value: his team's ROS points with him minus without him, nobody added (EV and scenario lineups). */
 type DepthOf = (teamId: string, playerId: string) => { ev: number; scen: number };
 
-/** Depth values (section "Depth") from the projection table the model used (same scenarios and seed). */
+/** The week weights the model's lineup costs use: a week already under way counts 0 (review SPEC-1), playoff weeks the model's playoff weight. */
+function modelWeights(model: LeagueModel): Float64Array {
+  return teamWeeks(model, model.inProgressWeek, { ...config.lineups, playoffWeight: model.playoffWeight }).weights;
+}
+
+/**
+ * Depth values (section "Depth") from the projection table the model used (same scenarios and seed), with the
+ * model's streaming rows: a team's lineups count its streamed slots as the model's do (league.tableWithStreaming).
+ */
 function depthValues(snapshot: LeagueSnapshot, inputs: ModelInputs, model: LeagueModel, now: Date): DepthOf {
-  const { table } = buildProjectionTable(snapshot, inputs, { now, scenarios: model.scenarios });
+  const table = tableWithStreaming(buildProjectionTable(snapshot, inputs, { now, scenarios: model.scenarios }), model);
   const slots = prepareLeagueSlots(snapshot.settings);
-  // The same week weights the model's lineup costs use (a week already under way counts 0, review SPEC-1).
-  const weights = teamWeeks(model, model.inProgressWeek).weights;
-  const rosters = new Map(snapshot.teams.map((t) => [t.id, t.roster.filter((id) => table.rows.has(id))]));
+  const weights = modelWeights(model);
+  const rosters = new Map(snapshot.teams.map((t) => [t.id, [...t.roster.filter((id) => table.rows.has(id)), ...streamIds(model, t.id)]]));
   const rosOf = (roster: string[]) => ({ ev: rosValue(evLineups(roster, table, slots).lv, weights), scen: rosValue(scenarioLineups(roster, table, slots).lv, weights) });
   const full = new Map([...rosters].map(([id, r]) => [id, rosOf(r)]));
   return (teamId, playerId) => {
@@ -376,19 +406,22 @@ export function scaleCheck(snapshot: LeagueSnapshot, model: SeasonModel, teamId:
 }
 
 /**
- * Weekly scores for any active roster, priced outside the model by TeamModel.score's own rule
+ * Weekly scores for any active roster of a team, priced outside the model by TeamModel.score's own rule
  * (teamValue.rosterScore: scenario lineups and the law of total variance when the model ran scenarios,
  * else expected-value lineups) on the projection table rebuilt as the model built it (buildProjectionTable at
- * `now`, the model's scenario count and the default seed). A week in progress takes its first week from the
- * table as it stood 1 ms before that week's first kickoff, as the model's preKickoffTable does; built here
- * with the free agents, which a free-agent move needs (a player's row doesn't depend on who else is in it).
+ * `now`, the model's scenario count and the default seed), with the team's streaming rows (the positions it
+ * streams, LeagueModel.streaming; league.tableWithStreaming). A week in progress takes its first week from the
+ * table as it stood 1 ms before that week's first kickoff, as the model's preKickoffTable does, its streaming
+ * replacement included; built here with the free agents, which a free-agent move needs (a player's row
+ * doesn't depend on who else is in it).
  */
-export function rosterScorer(snapshot: LeagueSnapshot, inputs: ModelInputs, model: LeagueModel, now: Date): (roster: readonly string[]) => WeeklyScores {
-  const { table } = buildProjectionTable(snapshot, inputs, { now, scenarios: model.scenarios });
+export function rosterScorer(snapshot: LeagueSnapshot, inputs: ModelInputs, model: LeagueModel, now: Date): (roster: readonly string[], teamId: string) => WeeklyScores {
+  const table = tableWithStreaming(buildProjectionTable(snapshot, inputs, { now, scenarios: model.scenarios }), model);
   const slots = prepareLeagueSlots(snapshot.settings);
   const first = model.inProgressWeek !== null && model.weeks.length > 0 ? firstKickoff(inputs.nfl, model.inProgressWeek) : null;
-  const pre = first === null ? null : buildProjectionTable(snapshot, inputs, { now: new Date(first - 1), scenarios: model.scenarios }).table;
-  return (roster) => {
+  const pre = first === null ? null : tableWithStreaming(buildProjectionTable(snapshot, inputs, { now: new Date(first - 1), scenarios: model.scenarios }), model);
+  return (players, teamId) => {
+    const roster = [...players, ...streamIds(model, teamId)];
     const score = rosterScore(roster, table, slots);
     if (pre && score.mean.length > 0) {
       const before = rosterScore(roster, pre, slots, 1);
@@ -399,48 +432,130 @@ export function rosterScorer(snapshot: LeagueSnapshot, inputs: ModelInputs, mode
   };
 }
 
-export interface WaiverScale {
-  waiver: WaiverMove;
+export interface VStarScale {
+  /** My team's free-agent pickups (TeamModel.faMoves), in order. */
+  moves: FaMove[];
   /** The largest |Δ| between the model's weekly scores for the current roster and the same scores re-priced by rosterScorer. */
   reproduced: number;
-  /** ROS(T_V) from its re-priced weekly scores minus (the model's ROS(T) + the move's gain): float noise when the two agree. */
+  /** ROS(V*) from its re-priced weekly scores minus (the model's ROS(T) + the moves' gains): float noise when the two agree. */
   rosDiff: number;
-  /** The move alone: T_V's odds against the current roster's, with standard errors from both baselines' shared batches (null when title odds are unknown). */
+  /** The pickups alone: V*'s odds against the current roster's, with standard errors from both baselines' shared batches (null when title odds are unknown). */
   move: Omit<ScaleRow, "gain"> | null;
   check: ScaleCheck;
 }
 
 /**
- * The scale check from my team after its best free-agent move (T_V = TeamModel.waiver's roster): §10's B
- * compares rosters after that move. `current` is the scale check from the roster as it is (its baseline
- * gives the move's own effect). Skipped, with the reason, when there's no move, or when rosterScorer
- * doesn't reproduce the model's weekly scores for the current roster.
+ * The scale check from my team after its free-agent pickups (V*: TeamModel.faMoves applied to my roster): §10's B
+ * compares rosters after them. `current` is the scale check from the roster as it is (its baseline gives the pickups'
+ * own effect). Skipped, with the reason, when there are none, or when rosterScorer doesn't reproduce the model's
+ * weekly scores for the current roster.
  */
-export function waiverScale(snapshot: LeagueSnapshot, inputs: ModelInputs, model: LeagueModel, now: Date, run: SharedRun, current: ScaleCheck, cfg: BenefitWeights = config.benefit): WaiverScale | { skipped: string } {
+export function vstarScale(snapshot: LeagueSnapshot, inputs: ModelInputs, model: LeagueModel, now: Date, run: SharedRun, current: ScaleCheck, cfg: BenefitWeights = config.benefit): VStarScale | { skipped: string } {
   const me = model.myTeamId;
   const team = snapshot.teams.find((t) => t.id === me);
   const tm = model.teams.find((t) => t.id === me);
   if (!me || !team || !tm) return { skipped: "your team isn't known." };
-  const waiver = tm.waiver;
-  if (!waiver) return { skipped: "no free-agent move gains your team lineup points, so the rows above already start from the roster §10 compares." };
+  const moves = tm.faMoves;
+  if (!moves.length) return { skipped: "no free-agent pickup gains your team lineup points, so the rows above already start from the roster §10 compares." };
   const scoreOf = rosterScorer(snapshot, inputs, model, now);
-  const reproduced = scoreDiff(scoreOf(team.roster), tm.score);
+  const reproduced = scoreDiff(scoreOf(team.roster, me), tm.score);
   if (!(reproduced <= REPRODUCED_TOLERANCE))
     return { skipped: `the model doesn't keep the weekly scores of that roster, and re-pricing your current roster outside the model didn't reproduce the model's own (largest difference ${reproduced}), so they're left out.` };
-  const tv = scoreOf([...team.roster.filter((id) => id !== waiver.drop), waiver.add]);
-  const weights = teamWeeks(model, model.inProgressWeek).weights;
-  const rosDiff = rosValue(tv.mean, weights) - ((tm.scen?.ros ?? tm.ev.ros) + (waiver.gainScen ?? waiver.gainEv));
+  const roster = moves.reduce<string[]>((r, m) => applyStep(r, m), [...new Set(team.roster)]);
+  const tv = scoreOf(roster, me);
+  const weights = modelWeights(model);
+  const gains = moves.reduce((s, m) => s + (m.gainScen ?? m.gainEv), 0);
+  const rosDiff = rosValue(tv.mean, weights) - ((tm.scen?.ros ?? tm.ev.ros) + gains);
   const check = scaleCheck(snapshot, model, me, tv, run, SCALE_GAINS, cfg);
   if (!check) return { skipped: "the season couldn't be simulated from that roster." };
-  let move: WaiverScale["move"] = null;
+  let move: VStarScale["move"] = null;
   if (check.base.pTitle !== null && current.base.pTitle !== null) {
     const d = deltas(current.base, check.base, cfg);
-    // Both baselines ran on the same batches of the same run, so the move's change pairs up batch by batch.
+    // Both baselines ran on the same batches of the same run, so the pickups' change pairs up batch by batch.
     const paired = check.batchSims === current.batchSims && check.baseBatches.length === current.baseBatches.length;
     const parts = paired ? check.baseBatches.map((o, j) => deltas(current.baseBatches[j] as MyOdds, o, cfg)) : [];
     move = { ...d, score: tradeScore(d.B, cfg.bRef), se: deltasSe(parts, check.batchSims, run.sims) };
   }
-  return { waiver, reproduced, rosDiff, move, check };
+  return { moves, reproduced, rosDiff, move, check };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Phase 4, track A2: the free-agent optimizer (V*) in numbers
+
+/** Players the report follows by name under the optimizer (Checkpoint 4: "the Bo Nix → Team 1 example, McCaffrey's chip gap"): public NFL names, and the team each example is about (null = his best one). */
+export const OPTIMIZER_EXAMPLES: readonly { name: string; teamId: string | null }[] = [
+  { name: "Bo Nix", teamId: "1" },
+  { name: "Christian McCaffrey", teamId: null },
+];
+
+/** One player's marginal values under V* (step 5 and 6 of league.ts): what his team loses, what each other team gains, and his chip. */
+export interface OptimizerExample {
+  name: string;
+  playerId: string | null;
+  /** His team, or null when he isn't on a roster. */
+  teamId: string | null;
+  /** The team the example is about (OPTIMIZER_EXAMPLES), or null; and why it can't take him, when it can't. */
+  focusTeamId: string | null;
+  focusBlocked: ReturnType<LeagueMarginals["mvAddBlocked"]>;
+  cost: { ev: number; scen: number | null; autoAdd: string | null } | null;
+  /** MV_add to every other team (unfloored, as leagueMarginals gives it), with the player that team drops to make room. */
+  adds: { teamId: string; ev: number; scen: number | null; drop: string | null }[];
+  /** His trade chip, when he is one (TeamModel.chips). */
+  chip: TradeChip | null;
+}
+
+/** The free-agent optimizer's numbers (track A2): moves per team and their count distribution, and the named examples. */
+export interface OptimizerReport {
+  /** Moves per team, in snapshot order. */
+  moves: { teamId: string; moves: FaMove[] }[];
+  /** How many teams make 0, 1, … faMaxMoves moves. */
+  distribution: number[];
+  examples: OptimizerExample[];
+}
+
+/**
+ * What V*(T) judges its moves by (src/engine/optimizer.ts, "Judging moves in scenario lineups"; league.ts step 5):
+ * "scenario" when the League model runs availability scenarios and the league has no starter limits (the gain in
+ * scenario lineups, the lineups B and the lineup costs are measured in); "ev" in an expected-value-only run; "evLimits"
+ * under starter limits (⚠️ the optimizer judges in EV lineups there). The re-runs behind lineup costs and MV_add
+ * (optimizer.reoptimize) always judge by the EV gain.
+ */
+export type OptimizerJudging = "scenario" | "ev" | "evLimits";
+
+export function optimizerJudging(snapshot: LeagueSnapshot, model: Pick<LeagueModel, "scenarios">): OptimizerJudging {
+  if (!(model.scenarios > 0)) return "ev";
+  return prepareLeagueSlots(snapshot.settings).limits !== null ? "evLimits" : "scenario";
+}
+
+/** The optimizer's rule in words (this report's and the trade report's optimizer sections): what its moves are judged by. */
+export function optimizerJudgingText(judging: OptimizerJudging, scenarios: number): string {
+  if (judging === "scenario") return `by their gain in scenario lineups (S = ${scenarios}), the lineups B and the lineup costs are measured in, so a depth pickup that rarely starts in the average-case lineup can still qualify; the expected-value gain is shown for reference (it can be under ${config.freeAgentOptimizer.faMinGain}, even below 0, for such a pickup)`;
+  if (judging === "evLimits") return `by their expected-value gain (⚠️ under starter limits the optimizer judges in expected-value lineups even when scenarios run); the scenario gain is shown for reference`;
+  return "by their expected-value gain (this run has no availability scenarios)";
+}
+
+/** The optimizer report from the League model and leagueMarginals (the same rules, outside the model). */
+export function optimizerReport(snapshot: LeagueSnapshot, model: LeagueModel, marginals: LeagueMarginals): OptimizerReport {
+  const moves = model.teams.map((t) => ({ teamId: t.id, moves: t.faMoves }));
+  const distribution = new Array<number>(config.freeAgentOptimizer.faMaxMoves + 1).fill(0);
+  for (const m of moves) distribution[Math.min(m.moves.length, distribution.length - 1)] = (distribution[Math.min(m.moves.length, distribution.length - 1)] ?? 0) + 1;
+  const examples = OPTIMIZER_EXAMPLES.map(({ name, teamId: focusTeamId }) => {
+    const playerId = Object.keys(snapshot.players).find((id) => snapshot.players[id]?.name === name) ?? null;
+    const team = playerId ? snapshot.teams.find((t) => t.roster.includes(playerId)) : undefined;
+    const teamId = team?.id ?? null;
+    const cost = playerId && teamId ? marginals.mvLose(teamId, playerId) : null;
+    const adds = playerId
+      ? snapshot.teams.flatMap((t) => {
+          if (t.id === teamId) return [];
+          const a = marginals.mvAdd(t.id, playerId);
+          return a ? [{ teamId: t.id, ev: a.ev, scen: a.scen, drop: a.drop }] : [];
+        })
+      : [];
+    const chip = playerId && teamId ? (model.teams.find((t) => t.id === teamId)?.chips.find((c) => c.playerId === playerId) ?? null) : null;
+    const focusBlocked = focusTeamId && playerId ? marginals.mvAddBlocked(focusTeamId, playerId) : null;
+    return { name, playerId, teamId, focusTeamId, focusBlocked, cost, adds, chip };
+  });
+  return { moves, distribution, examples };
 }
 
 export interface ScheduleRow {
@@ -668,7 +783,7 @@ export interface SeasonReport {
   scale: ScaleCheck | null;
   /** The scale check's baseline odds are the model's own (the same matrix): my P(playoffs), P(title) and expected wins bitwise equal. */
   scaleMatchesModel: boolean | null;
-  waiver: WaiverScale | { skipped: string } | null;
+  vstar: VStarScale | { skipped: string } | null;
   noOp: NoOpCheck | null;
   simTimings: SimTiming[];
   buildTimings: BuildTiming[];
@@ -693,7 +808,7 @@ export function seasonReport(snapshot: LeagueSnapshot, inputs: ModelInputs, mode
   const odds = model.odds;
   const built = buildSimSetup(snapshot, model);
   const builds = buildRuns > 0 ? buildTimings(snapshot, inputs, now, model.scenarios, clock, buildRuns, warmups) : [];
-  if (!odds || !built) return { odds, built, schedule: null, scale: null, scaleMatchesModel: null, waiver: null, noOp: null, simTimings: [], buildTimings: builds };
+  if (!odds || !built) return { odds, built, schedule: null, scale: null, scaleMatchesModel: null, vstar: null, noOp: null, simTimings: [], buildTimings: builds };
   const run: SharedRun = { sims: odds.sims, seed: odds.seed, normals: simNormals(odds.seed, odds.sims, built.setup.weeks.length, built.setup.teams.length) };
   const me = model.myTeamId;
   const mine = model.teams.find((t) => t.id === me);
@@ -706,7 +821,7 @@ export function seasonReport(snapshot: LeagueSnapshot, inputs: ModelInputs, mode
     schedule: remainingSchedule(snapshot, model, odds, built),
     scale,
     scaleMatchesModel,
-    waiver: scale ? waiverScale(snapshot, inputs, model, now, run, scale) : null,
+    vstar: scale ? vstarScale(snapshot, inputs, model, now, run, scale) : null,
     noOp: noOpCheck(snapshot, inputs, model, built, now),
     simTimings: [config.simulation.screeningSims, config.simulation.finalSims].map((sims) => simTiming(built.setup, odds.seed, sims, clock, runs, warmups)),
     buildTimings: builds,
@@ -802,10 +917,10 @@ function renderSchedule(L: string[], season: SeasonReport, snapshot: LeagueSnaps
 /** An estimate with its Monte Carlo standard error: "+0.0412 ± 0.0030" (the error reads "–" when it can't be estimated). */
 const pm = (x: string, se: number, d: number) => `${x} ± ${fmt(se, d)}`;
 
-/** The move alone (waiverScale), one line: every change with its standard error. */
-function moveLine(move: NonNullable<WaiverScale["move"]>): string {
+/** The pickups alone (vstarScale), one line: every change with its standard error. */
+function moveLine(move: NonNullable<VStarScale["move"]>): string {
   const s = move.se;
-  return `The move alone, against your roster as it is: ΔPO ${pm(signed(move.dPO, 4), s.dPO, 4)}, ΔCH ${pm(signed(move.dCH, 4), s.dCH, 4)}, Δ expected wins ${pm(signed(move.dEW, 3), s.dEW, 3)}, B ${pm(fmt(move.B, 2), s.B, 2)}, Trade Score ${move.score ?? "– (B ≤ 0)"}.`;
+  return `The pickups alone, against your roster as it is: ΔPO ${pm(signed(move.dPO, 4), s.dPO, 4)}, ΔCH ${pm(signed(move.dCH, 4), s.dCH, 4)}, Δ expected wins ${pm(signed(move.dEW, 3), s.dEW, 3)}, B ${pm(fmt(move.B, 2), s.B, 2)}, Trade Score ${move.score ?? "– (B ≤ 0)"}.`;
 }
 
 function scaleTable(L: string[], check: ScaleCheck): void {
@@ -857,14 +972,15 @@ function renderScale(L: string[], season: SeasonReport, snapshot: LeagueSnapshot
   if (season.scaleMatchesModel !== null) L.push(`Baseline check: the baseline run ${season.scaleMatchesModel ? "reproduces" : "does NOT reproduce"} the League model's own odds for your team bit for bit (same seed, same matrix).`, "");
   L.push("**From your roster as it is**", "");
   scaleTable(L, check);
-  L.push("**From your team after its best free-agent move** (§10: B compares rosters after that move)", "");
-  const wv = season.waiver;
+  L.push("**From your team after its free-agent pickups (V*)** (§10: B compares rosters after them)", "");
+  const wv = season.vstar;
   if (!wv) L.push("Skipped.", "");
   else if ("skipped" in wv) L.push(`Skipped: ${wv.skipped}`, "");
   else {
-    const move = `add ${playerLabel(snapshot.players[wv.waiver.add], wv.waiver.add)}${wv.waiver.drop ? `, drop ${playerLabel(snapshot.players[wv.waiver.drop], wv.waiver.drop)}` : " into an open spot"}`;
+    const moves = wv.moves.map((m) => `add ${playerLabel(snapshot.players[m.add], m.add)}${m.drop ? `, drop ${playerLabel(snapshot.players[m.drop], m.drop)}` : " into an open spot"}`).join("; ");
+    const gain = wv.moves.reduce((x, m) => x + (m.gainScen ?? m.gainEv), 0);
     L.push(
-      `The move: ${move} (+${fmt(wv.waiver.gainScen ?? wv.waiver.gainEv)} lineup pts, playoff weeks × ${config.lineups.playoffWeight}). Its weekly scores come from teamValue.rosterScore, TeamModel.score's own rule; re-pricing your current roster the same way reproduced the model's scores ${wv.reproduced === 0 ? "bit for bit" : `within ${wv.reproduced.toExponential(1)}`}, and the new roster's ROS matches the model's ROS plus the move's gain ${wv.rosDiff === 0 ? "exactly" : `within ${Math.abs(wv.rosDiff).toExponential(1)}`}.`,
+      `The pickups: ${moves} (+${fmt(gain)} lineup pts together, playoff weeks × ${model.playoffWeight}). Their weekly scores come from teamValue.rosterScore, TeamModel.score's own rule; re-pricing your current roster the same way reproduced the model's scores ${wv.reproduced === 0 ? "bit for bit" : `within ${wv.reproduced.toExponential(1)}`}, and the new roster's ROS matches the model's ROS plus the pickups' gains ${wv.rosDiff === 0 ? "exactly" : `within ${Math.abs(wv.rosDiff).toExponential(1)}`}.`,
       "",
     );
     if (wv.move) L.push(moveLine(wv.move), "");
@@ -926,7 +1042,132 @@ function renderRuntime(L: string[], season: SeasonReport): void {
   }
 }
 
-function render(snapshot: LeagueSnapshot, inputs: ModelInputs, model: LeagueModel, evOnly: LeagueModel, timing: Record<string, number>, depthOf: DepthOf, season: SeasonReport): string {
+/**
+ * Streaming positions (CLAUDE.md §7; planner reply to Checkpoint 3, model change 1; Phase 4): who streams what
+ * (my setting, or detected from the team's adds at the position this season), each streamed position's
+ * replacement per week (the streamRank-th best free agent that week, LeagueModel.streaming.replacement) and its
+ * average over the weeks team numbers count, and "Streaming picks this week" with their opponents.
+ */
+function renderStreaming(L: string[], snapshot: LeagueSnapshot, model: LeagueModel, teamName: (id: string) => string): void {
+  const s = config.streaming;
+  const streaming = model.streaming;
+  const players = snapshot.players;
+  L.push("## Streaming positions", "");
+  L.push(
+    `CLAUDE.md §7 (planner reply to Checkpoint 3, model change 1): a streamed slot is worth, each week, max(the best rostered player, the streaming replacement), the ${ordinal(s.streamRank)}-best free agent at that position that week by that week's projection (fewer free agents: the last one). Your team streams your setting (by default ${s.defaultPositions.join(" and ")}); another team streams a position (${s.streamable.join(", ")}) once it has made ${s.detectAdds} or more adds there this season (add and waiver transactions). Only positions the lineup starts count, with one streamer per position; where a flex takes the position too (TE and FLEX, QB and SUPER_FLEX or OP), the replacement is one more player that week and can start there as well. A streamed slot counts in every team number: lineups, strength and needs, lineup costs, trade chips, partners and the simulator's weekly scores.`,
+    "",
+  );
+  L.push(`| Team | Streams | Why | Adds this season (${s.streamable.join(", ")}) |`, "|---|---|---|---|");
+  for (const t of snapshot.teams) {
+    const x = streaming.byTeam[t.id];
+    const adds = s.streamable.map((p) => `${p} ${x?.adds[p] ?? 0}`).join(", ");
+    const why = !x ? "–" : x.source === "setting" ? "your setting" : x.positions.length ? `detected (${s.detectAdds}+ adds)` : "–";
+    L.push(`| ${teamName(t.id)} | ${x?.positions.join(", ") || "–"} | ${why} | ${adds} |`);
+  }
+  L.push("");
+  const positions = POSITIONS.filter((p) => streaming.replacement[p] !== undefined);
+  if (positions.length) {
+    const from = model.inProgressWeek !== null && model.weeks[0] === model.inProgressWeek ? 1 : 0;
+    L.push(`The streaming replacement per week (expected points, availability included${from ? `; week ${model.inProgressWeek} is under way, so the average starts the week after` : ""}):`, "");
+    L.push(`| Position | ${model.weeks.map((w) => `W${w}`).join(" | ")} | Average |`, `|---|${model.weeks.map(() => "---").join("|")}|---|`);
+    for (const p of positions) {
+      const rep = streaming.replacement[p] ?? [];
+      const counted = rep.slice(from);
+      L.push(`| ${p} | ${rep.map((x) => fmt(x)).join(" | ")} | ${counted.length ? fmt(counted.reduce((a, b) => a + b, 0) / counted.length) : "–"} |`);
+    }
+    L.push("");
+  } else {
+    L.push("No team streams a position this league starts.", "");
+  }
+  L.push(`**Streaming picks this week** (week ${snapshot.currentWeek}: the best ${s.picksShown} free agents at K and at DEF by this week's projection, those who can still play this week; the League page's list)`, "");
+  if (!streaming.picks.length) {
+    L.push("None: no free agent at K or DEF is projected to play this week, or the lineup starts neither.", "");
+    return;
+  }
+  L.push("| Pos | Player | Opponent | Projection |", "|---|---|---|---|");
+  for (const p of streaming.picks) L.push(`| ${p.pos} | ${playerLabel(players[p.playerId], p.playerId)} | ${p.opponent ? `${p.opponent.home ? "vs" : "@"} ${p.opponent.team}` : "unknown"} | ${fmt(p.projection)} |`);
+  L.push("");
+}
+
+/** Why a team can't take a player (leagueMarginals.mvAddBlocked), in words. */
+function blockedText(b: ReturnType<LeagueMarginals["mvAddBlocked"]>, team: string, platform: LeagueSnapshot["platform"]): string {
+  if (!b) return `${team} can take him`;
+  if (b.reason === "onTeam") return `${team} is his own team`;
+  if (b.reason === "full") return `${team} can't take him: its roster is full and nobody can be dropped`;
+  if (b.reason === "positionLimit") return `${team} can't take him: it has its limit of ${b.limit} at ${posLabel(b.pos, platform)} and nobody there it could drop to make room`;
+  return `${team}: not a team of this league`;
+}
+
+/**
+ * The free-agent optimizer (CLAUDE.md §7 V*; planner reply to Checkpoint 3, model change 2; Checkpoint 4 asks for these):
+ * each team's pickups and how many moves teams make, then the named examples under V*: what each player costs his team,
+ * what he'd add to every other team (MV_add, with the player it drops to make room), and his chip gap.
+ */
+function renderOptimizer(L: string[], snapshot: LeagueSnapshot, model: LeagueModel, opt: OptimizerReport, teamName: (id: string) => string): void {
+  const o = config.freeAgentOptimizer;
+  const players = snapshot.players;
+  const lineupPts = `lineup pts, playoff weeks × ${model.playoffWeight}`;
+  const mode = model.scenarios > 0 ? `scenario lineups (S = ${model.scenarios})` : "expected-value lineups";
+  const judging = optimizerJudging(snapshot, model);
+  L.push("## The free-agent optimizer (V*)", "");
+  L.push(
+    `CLAUDE.md §7 (planner reply to Checkpoint 3, model change 2): every team is measured after the free-agent pickups that would help it, one move at a time: the add (dropping a player, or into an open roster spot) with the largest gain in ${lineupPts}, while it gains at least ${o.faMinGain}, at most ${o.faMaxMoves} moves; never ${config.streaming.optimizerExcluded.join(" or ")} (streamed or kept) nor a position the team streams, never a player its starting lineup needs. Moves are judged ${optimizerJudgingText(judging, model.scenarios)}.${judging === "ev" ? "" : " The re-runs behind the lineup costs and MV_add below (from a team's optimized roster after a player leaves or joins) judge their moves by the expected-value gain."} Lineup costs (MV_lose), trade chips (MV_add) and partners compare rosters after these moves, so no trade is credited with a pickup a team could make anyway. Each team is optimized on its own, so two teams can claim the same free agent (⚠️).`,
+    "",
+  );
+  const total = opt.moves.reduce((s, m) => s + m.moves.length, 0);
+  const dist = opt.distribution.map((n, k) => `${k} ${k === 1 ? "move" : "moves"}: ${n} ${n === 1 ? "team" : "teams"}`).join(" · ");
+  L.push(`**How many moves teams make:** ${dist}; ${total} in all, ${fmt(total / Math.max(1, opt.moves.length))} a team.`, "");
+  const evHead = judging === "scenario" ? "Gain, EV (for reference)" : "Gain, EV (decides)";
+  const scenHead = judging === "scenario" ? "Gain, scenarios (decides)" : judging === "evLimits" ? "Gain, scenarios (for reference)" : "Gain, scenarios";
+  L.push(`| Team | # | Move | ${evHead} | ${scenHead} |`, "|---|---|---|---|---|");
+  for (const m of opt.moves) {
+    if (!m.moves.length) {
+      L.push(`| ${teamName(m.teamId)} | – | none helps | – | – |`);
+      continue;
+    }
+    m.moves.forEach((x, i) => {
+      const move = `add ${playerLabel(players[x.add], x.add)}${x.drop ? `, drop ${playerLabel(players[x.drop], x.drop)}` : " into an open spot"}`;
+      L.push(`| ${i === 0 ? teamName(m.teamId) : ""} | ${i + 1} | ${move} | +${fmt(x.gainEv)} | ${x.gainScen === null ? "–" : signed(x.gainScen, 1)} |`);
+    });
+  }
+  L.push("");
+  L.push(
+    `**Named examples under V*** (${lineupPts}, ${mode}): his lineup cost (MV_lose: his team after its pickups, against the same team without him after it re-optimizes), and MV_add to each other team (that team after its pickups, plus him, minus the player it drops to make room when full, or its lowest keep value at his position when a position limit binds, then its optimizer re-run; unfloored here, a chip floors it at 0). Each re-run holds at most ${o.faMaxMoves} pickups, as a run from scratch could: at a team that used every move, one more pickup is an exchange that must beat its cheapest pickup, which it gives back (league.ts steps 5 and 6). A chip needs maxOther − cost ≥ ${config.needs.chipMinGap}.`,
+    "",
+  );
+  for (const ex of opt.examples) {
+    if (!ex.playerId) {
+      L.push(`- **${ex.name}**: not in this league's player list.`, "");
+      continue;
+    }
+    const label = playerLabel(players[ex.playerId], ex.playerId);
+    if (!ex.teamId || !ex.cost) {
+      L.push(`- **${label}**: not on an active roster with a projection.`, "");
+      continue;
+    }
+    const value = (x: { ev: number; scen: number | null }) => x.scen ?? x.ev;
+    const cost = value(ex.cost);
+    const best = [...ex.adds].sort((a, b) => value(b) - value(a) || (a.teamId < b.teamId ? -1 : 1))[0];
+    const focus = ex.focusTeamId ? ex.adds.find((a) => a.teamId === ex.focusTeamId) : undefined;
+    const parts = [`on ${teamName(ex.teamId)}; lineup cost ${fmt(cost)}${ex.cost.scen !== null ? ` (EV ${fmt(ex.cost.ev)})` : ""}${ex.cost.autoAdd ? `, his team would add ${playerLabel(players[ex.cost.autoAdd], ex.cost.autoAdd)} without him` : ""}`];
+    if (ex.focusTeamId) {
+      parts.push(
+        focus
+          ? `to ${teamName(ex.focusTeamId)}: ${signed(value(focus), 1)}${focus.scen !== null ? ` (EV ${signed(focus.ev, 1)})` : ""}${focus.drop ? `, making room by dropping ${playerLabel(players[focus.drop], focus.drop)}` : " into an open spot"}`
+          : blockedText(ex.focusBlocked, teamName(ex.focusTeamId), snapshot.platform),
+      );
+    }
+    if (best) parts.push(`the most to ${teamName(best.teamId)}: ${signed(value(best), 1)}`);
+    const gap = best ? Math.max(0, value(best)) - cost : Number.NaN;
+    parts.push(ex.chip ? `a trade chip: gap ${fmt(ex.chip.gap)} (maxOther ${fmt(ex.chip.maxOther)} to ${teamName(ex.chip.bestTeamId)} − cost ${fmt(ex.chip.cost)})` : `not a trade chip: gap ${fmt(gap)}${config.market.tradeSearchExcluded.includes(players[ex.playerId]?.pos as Pos) ? " (his position is left out of trade search)" : ""}`);
+    L.push(`- **${label}**: ${parts.join("; ")}.`, "");
+    L.push("| Team | MV_add | EV | Makes room by dropping |", "|---|---|---|---|");
+    for (const a of ex.adds) L.push(`| ${teamName(a.teamId)}${a.teamId === ex.focusTeamId ? " ←" : ""} | ${signed(value(a), 1)} | ${signed(a.ev, 1)} | ${a.drop ? playerLabel(players[a.drop], a.drop) : "– (an open spot)"} |`);
+    L.push("");
+  }
+}
+
+function render(snapshot: LeagueSnapshot, inputs: ModelInputs, model: LeagueModel, evOnly: LeagueModel, timing: Record<string, number>, depthOf: DepthOf, season: SeasonReport, optimizer: OptimizerReport): string {
   const L: string[] = [];
   const teamName = (id: string) => `Team ${id}${id === model.myTeamId ? " (you)" : ""}`;
   const players = snapshot.players;
@@ -973,7 +1214,7 @@ function render(snapshot: LeagueSnapshot, inputs: ModelInputs, model: LeagueMode
     const sim = myTeam ? `${fmt(myTeam.score.mean[wi] ?? Number.NaN)} ± ${fmt(myTeam.score.sd[wi] ?? Number.NaN)}` : "–";
     L.push(`| ${w}${po} | ${mine === undefined ? "–" : fmt(mine)} | ${rank} | ${fmt(median(lvs.map((x) => x.lv)))} | ${fmt(Math.max(...lvs.map((x) => x.lv)))} | ${myTeam ? fmt(myTeam.ev.lv[wi] ?? 0) : "–"} | ${sim} |`);
   });
-  L.push("", "| Team | Record | PF | Proj/wk (scenario) | Proj/wk (EV) | ROS (scenario, playoff weeks × " + config.lineups.playoffWeight + ") |", "|---|---|---|---|---|---|");
+  L.push("", "| Team | Record | PF | Proj/wk (scenario) | Proj/wk (EV) | ROS (scenario, playoff weeks × " + model.playoffWeight + ") |", "|---|---|---|---|---|---|");
   const ranked = [...model.teams].sort((a, b) => (b.scen ?? b.ev).ppw - (a.scen ?? a.ev).ppw);
   for (const t of ranked) {
     const st = snapshot.teams.find((x) => x.id === t.id);
@@ -981,8 +1222,14 @@ function render(snapshot: LeagueSnapshot, inputs: ModelInputs, model: LeagueMode
   }
   L.push("");
 
+  // Streaming positions (Phase 4).
+  renderStreaming(L, snapshot, model, teamName);
+
+  // The free-agent optimizer (Phase 4).
+  renderOptimizer(L, snapshot, model, optimizer, teamName);
+
   // Needs, trade chips and partners.
-  const lineupPts = `lineup pts, playoff weeks × ${config.lineups.playoffWeight}${model.scenarios ? `, scenario lineups (S = ${model.scenarios})` : ", expected-value lineups"}`;
+  const lineupPts = `lineup pts, playoff weeks × ${model.playoffWeight}${model.scenarios ? `, scenario lineups (S = ${model.scenarios})` : ", expected-value lineups"}`;
   L.push("## Needs and trade chips, every team", "");
   L.push(`Needs: lineup slots at or below z = ${config.lineups.needZThreshold} against the league (rest of season; "next" = only over the next ${config.lineups.strengthWeeks} weeks).`, "");
   L.push("| Team | Needs | Trade chips |", "|---|---|---|");
@@ -992,21 +1239,21 @@ function render(snapshot: LeagueSnapshot, inputs: ModelInputs, model: LeagueMode
   }
   L.push("");
   L.push(
-    `Trade chips (§7; planner reply to Checkpoint 2, answer 2): gap = maxOther − cost ≥ ${config.needs.chipMinGap} (${lineupPts}). cost = what his team loses without him (lineup cost, from the team after its best free-agent move); maxOther = the most he'd add to another team's lineup, measured from that team after its best free-agent move, minus the player it would drop to make room when its roster is full (the one whose loss costs its lineup least, nobody refilling his spot). ${config.market.tradeSearchExcluded.join(", ")} are never chips (left out of trade search). Every chip is listed; the League page shows the first ${config.needs.chipsShown} per team.`,
+    `Trade chips (§7; planner reply to Checkpoint 2, answer 2): gap = maxOther − cost ≥ ${config.needs.chipMinGap} (${lineupPts}). cost = what his team loses without him (lineup cost: his team after its free-agent pickups, against the same team without him after it re-optimizes); maxOther = the most he'd add to another team's lineup: that team after its free-agent pickups, plus him, minus the player it would drop to make room when its roster is full (the one whose loss costs its lineup least, nobody refilling his spot), at his position instead when a position limit binds, then its optimizer re-run (at most ${config.freeAgentOptimizer.faMaxMoves} pickups, as from scratch: past the cap only an exchange for its cheapest pickup). ${config.market.tradeSearchExcluded.join(", ")} are never chips (left out of trade search). Every chip is listed; the League page shows the first ${config.needs.chipsShown} per team. For the page (planner reply to Checkpoint 3, answer 3): cost/wk = cost ÷ Σ ω over the weeks team numbers count (the page's "costs you 6.1 pts/wk"), and Starter = he's in his team's expected-value lineup after its free-agent pickups in at least half of those weeks in which he plays (the page's "starter" tag; never a player those pickups drop).`,
     "",
   );
-  L.push("| Team | Player | Gap | Cost | maxOther | Best team |", "|---|---|---|---|---|---|");
+  L.push("| Team | Player | Gap | Cost | Cost/wk | Starter | maxOther | Best team |", "|---|---|---|---|---|---|---|---|");
   let chipRows = 0;
   for (const t of model.teams) {
     for (const c of t.chips) {
       chipRows++;
-      L.push(`| ${teamName(t.id)} | ${playerLabel(players[c.playerId], c.playerId)} | ${fmt(c.gap)} | ${fmt(c.cost)} | ${fmt(c.maxOther)} | ${teamName(c.bestTeamId)} |`);
+      L.push(`| ${teamName(t.id)} | ${playerLabel(players[c.playerId], c.playerId)} | ${fmt(c.gap)} | ${fmt(c.cost)} | ${fmt(c.costPerWeek)} | ${c.starter ? "starter" : "–"} | ${fmt(c.maxOther)} | ${teamName(c.bestTeamId)} |`);
     }
   }
-  if (!chipRows) L.push("| – | no trade chips | | | | |");
+  if (!chipRows) L.push("| – | no trade chips | | | | | | |");
   L.push("");
   if (model.partners.length) {
-    L.push("**Best trade partners for your team** (from the trade chips: what each would add per week to the other lineup, after that team's best free-agent move)", "");
+    L.push("**Best trade partners for your team** (from the trade chips: what each would add per week to the other lineup, after that team's free-agent pickups)", "");
     for (const p of model.partners) {
       const give = p.youCanGive.map((x) => `${playerLabel(players[x.playerId], x.playerId)} +${fmt(x.ppw)}/wk`).join(", ");
       const get = p.theyCanGive.map((x) => `${playerLabel(players[x.playerId], x.playerId)} +${fmt(x.ppw)}/wk`).join(", ");
@@ -1055,9 +1302,9 @@ function render(snapshot: LeagueSnapshot, inputs: ModelInputs, model: LeagueMode
 
   // Depth: expected-value lineups vs scenario lineups.
   L.push("## Depth: a bench player's value to his team, EV lineups vs scenario lineups", "");
-  L.push("MV_lose = the team's rest-of-season lineup points with him, minus without him (after it adds the best free agent). EV lineups only count him when he starts in the average case; scenario lineups also count the weeks he fills in for an injured or bye-week starter.", "");
-  L.push(`Bench players here are those whose lineup cost under EV lineups is at most ${BENCH_EV_MAX} lineup points: the average-case lineup almost never starts them. Lineup cost is measured from the team after its best free-agent move (below), so it is never negative.`, "");
-  L.push(`Depth value = his team's rest-of-season lineup points with him minus without him, with nobody added in his place: the pure effect of scenario lineups. Lineup cost (§7 MV_lose) also lets the team add the best free agent, so in a deep 10-team waiver pool it is smaller. Both are lineup points with playoff weeks counted ${config.lineups.playoffWeight}×.`, "");
+  L.push("MV_lose = the team's rest-of-season lineup points with him, minus without him, both after its free-agent pickups (V*: above). EV lineups only count him when he starts in the average case; scenario lineups also count the weeks he fills in for an injured or bye-week starter.", "");
+  L.push(`Bench players here are those whose lineup cost under EV lineups is at most ${BENCH_EV_MAX} lineup points: the average-case lineup almost never starts them. Lineup cost is floored at 0, and is 0 for a player the optimizer drops anyway.`, "");
+  L.push(`Depth value = his team's rest-of-season lineup points with him minus without him, as the roster stands and with nobody added in his place: the pure effect of scenario lineups. Lineup cost (§7 MV_lose) is measured after the team's pickups and lets it pick up a replacement, so in a deep 10-team waiver pool it is smaller. Both are lineup points with playoff weeks counted ${model.playoffWeight}×.`, "");
   L.push("| Team | Player | ROS pts | Depth value, EV | Depth value, scenarios | Lineup cost, EV | Lineup cost, scenarios |", "|---|---|---|---|---|---|---|");
   const costs = model.teams.flatMap((t) => Object.entries(t.players).map(([id, v]) => ({ team: t.id, id, ev: v.mvLoseEv, scen: v.mvLoseScen ?? Number.NaN, depth: depthOf(t.id, id) })));
   const bench = costs.filter((g) => g.ev <= BENCH_EV_MAX).sort((a, b) => b.depth.scen - a.depth.scen);
@@ -1066,11 +1313,6 @@ function render(snapshot: LeagueSnapshot, inputs: ModelInputs, model: LeagueMode
   const benchAll = costs.filter((g) => g.ev <= BENCH_EV_MAX && Number.isFinite(g.scen));
   const avg = (f: (g: (typeof benchAll)[number]) => number) => fmt(benchAll.reduce((s, g) => s + f(g), 0) / Math.max(1, benchAll.length));
   if (benchAll.length) L.push("", `Across all ${benchAll.length} such bench players: depth value ${avg((g) => g.depth.ev)} lineup pts under EV lineups vs ${avg((g) => g.depth.scen)} under scenario lineups; lineup cost ${avg((g) => g.ev)} vs ${avg((g) => g.scen)}.`);
-  L.push("", "**Best free-agent move per team** (the baseline lineup cost is measured from)", "", `| Team | Move | Lineup pts gained, playoff weeks ×${config.lineups.playoffWeight} (EV / scenarios) |`, "|---|---|---|");
-  for (const t of model.teams) {
-    const w = t.waiver;
-    L.push(`| ${teamName(t.id)} | ${w ? `add ${playerLabel(players[w.add], w.add)}${w.drop ? `, drop ${playerLabel(players[w.drop], w.drop)}` : " into an open spot"}` : "none helps"} | ${w ? `${fmt(w.gainEv)} / ${w.gainScen === null ? "–" : fmt(w.gainScen)}` : "–"} |`);
-  }
   L.push("");
 
   // ROS and weekly projections for every rostered player.
@@ -1112,7 +1354,7 @@ export interface ReportOptions extends Omit<SeasonReportOptions, "now" | "clock"
  * scenarios, both with the season simulation), the Phase 3 numbers and the markdown, not yet scrubbed.
  * `snapshot` must already carry placeholders (placeholders()).
  */
-export function buildReport(snapshot: LeagueSnapshot, inputs: ModelInputs, opts: ReportOptions): { doc: string; model: LeagueModel; season: SeasonReport; timing: Record<string, number> } {
+export function buildReport(snapshot: LeagueSnapshot, inputs: ModelInputs, opts: ReportOptions): { doc: string; model: LeagueModel; season: SeasonReport; optimizer: OptimizerReport; timing: Record<string, number> } {
   const { now, clock } = opts;
   const timing = { ...(opts.timing ?? {}) };
   const scenarios = opts.scenarios ?? config.lineups.scenarios;
@@ -1129,8 +1371,9 @@ export function buildReport(snapshot: LeagueSnapshot, inputs: ModelInputs, opts:
     ...(opts.warmups !== undefined ? { warmups: opts.warmups } : {}),
     ...(opts.buildRuns !== undefined ? { buildRuns: opts.buildRuns } : {}),
   });
-  const doc = render(snapshot, inputs, model, evOnly, timing, depthValues(snapshot, inputs, model, now), season);
-  return { doc, model, season, timing };
+  const optimizer = optimizerReport(snapshot, model, leagueMarginals(snapshot, inputs, { now, scenarios }));
+  const doc = render(snapshot, inputs, model, evOnly, timing, depthValues(snapshot, inputs, model, now), season, optimizer);
+  return { doc, model, season, optimizer, timing };
 }
 
 async function main(): Promise<void> {

@@ -6,7 +6,8 @@
  * import "server-only": `npm run league:report` runs it under tsx.
  *
  * buildModelInputs loads, ONE request at a time through the shared, polite, cached HttpClient (§0.9):
- *   1. the NFL schedule (ESPN proTeamSchedules_wl: byes, kickoffs and the NFL's last week; cached 7 days),
+ *   1. the NFL schedule (ESPN proTeamSchedules_wl: byes, kickoffs, each team's opponents and the NFL's
+ *      last week; cached 7 days; ModelInputs.nfl keeps kickoffs and opponents from the current week on),
  *   2. Sleeper's weekly projections, from lookbackWeeks before the current week (an injured player's
  *      most recent healthy projection, §6 step 1) through the last fantasy week (each week its own cache
  *      entry: 6 hours through two weeks after the current one, 24 hours for later weeks, §2.10). Every
@@ -37,6 +38,9 @@
  *
  * Choices of this module (reported at Checkpoint 2):
  * - Points are rounded to 0.01: far below any difference §6 acts on, and it halves the response.
+ * - NFL opponents (Phase 4: "Streaming picks this week" shows each pick's opponent) come for every week
+ *   from the current one through the NFL's last, like kickoffs: about 15 KB of JSON from week 4 (18 KB
+ *   from week 1; kickoffs take 13 KB), shrinking every week.
  * - Once the season is over, the inputs carry no projections, stats or NFL schedule (see above); every
  *   player still gets an entry, and the market loads as usual. The same goes for a season that hasn't
  *   started, with a SEASON_NOT_STARTED warning saying why. "Hasn't started" is the pure calendar test

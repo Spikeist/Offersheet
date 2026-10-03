@@ -1,7 +1,7 @@
 /**
  * League page view model (CLAUDE.md §14 item 3): the standings with each team's playoff, bye and title
  * odds and my remaining schedule (§8), the team table with need and trade-chip chips, the positional
- * strength heatmap, best trade partners (§7), roster tables with each team's best free-agent move and
+ * strength heatmap, best trade partners (§7), roster tables with each team's free-agent pickups and
  * each player's rest-of-season points and week-by-week breakdown (§6 step 7), the best free agents,
  * values (§9) and "how these numbers work". A PURE function from the snapshot, the computed
  * LeagueModel and its model inputs, so the page only lays things out and every word and number is
@@ -31,32 +31,74 @@
  *
  * Team points shown here are plain projected lineup points (Σ LV over the weeks team numbers count).
  * The engine's ROS(T) weights playoff weeks by config.lineups.playoffWeight for trade math; "Lineup
- * cost" (MV_lose, §7), the free-agent move's gain and trade chips' gaps keep that weighting, so the page
+ * cost" (MV_lose, §7), the free-agent pickups' gains and trade chips' gaps keep that weighting, so the page
  * calls them "lineup pts", never "ROS pts", says where playoff weeks count extra, and the explainer
  * spells it out.
  *
+ * Free-agent pickups (§7 V*; planner reply to Checkpoint 3, model change 2; Phase 4 lead decision L3): each roster
+ * lists the moves the free-agent optimizer makes for its team (TeamModel.faMoves, in order; never a kicker or a
+ * D/ST), each with what it adds in the lineups the optimizer picks and keeps moves by, so every shown gain is at
+ * least config.freeAgentOptimizer.faMinGain and the list reads in the optimizer's order: with injuries and byes
+ * simulated (FaMove.gainScen) when it judges in scenario lineups (scenarios ran and no starter limits bind:
+ * optimizer.ts "Judging moves in scenario lineups"), else on projected (expected-value) lineups (gainEv). The title
+ * gives the other number too when there is one (review of Phase 4: the page showed the expected-value gains, "+1
+ * lineup pts" under a stated minimum of 3, and in an order the optimizer didn't pick them in, since a depth pickup
+ * adds little to expected-value lineups). The roster's summary line, shown while it's collapsed, gives their count and
+ * total. Lineup costs, trade chips and partners are all measured from the team after these pickups, and the
+ * explainer says so, in the same lineups.
+ *
  * Trade chips (§7; planner reply to Checkpoint 2, answer 2) replaced Phase 2's surplus chips: a chip
- * reads "B. Nix: worth +31 to Team 6" (his gap: what Team 6 would gain minus what his team would lose,
- * in lineup points), and its title gives both parts. Partner cards list each side's chips by what they'd
- * add per week, the first chipsShown and a count of the rest. A player whose ESPN return date conflicts
- * with his tag (§6 step 3, PlayerModel.availabilityNote) says which signal his numbers follow.
+ * reads "C. McCaffrey: worth +33 to Team 2 · costs you 6.1 pts/wk" (his gap: what Team 2 would gain minus
+ * what his team would lose, in lineup points; then what his own team loses per week: planner reply to
+ * Checkpoint 3, answer 3), "costs his team" on another team's row (not "them", which would read as the team
+ * just named: review of track A1), with a visible "starter" tag when he starts for his own team after its
+ * free-agent pickups, and its title gives every part in words (and says when those pickups would drop him
+ * anyway). Partner cards list each side's chips by what they'd add
+ * per week, the first chipsShown and a count of the rest. A player whose ESPN return date conflicts with
+ * his tag (§6 step 3, PlayerModel.availabilityNote) says which signal his numbers follow.
+ *
+ * "Harder to get" (planner addendum to Checkpoint 3, §2; lead decision N2): managers value their own best players a
+ * bit above market (the star premium, TeamModel.premiums), so another team's player whose premium for his owner is at
+ * least config.acceptance.starPremium.harderToGetMin (a top-12 player who is also his team's #1 or #2 by trade value)
+ * carries a visible "Harder to get" tag, in words, never color alone: in his roster table, on his trade chip, and on
+ * the partner cards. ⚠️ Never on my own players, where it would read as advice about them. A partner card leads with
+ * "Best target: <the best untagged trade chip of theirs who'd start for me>, +3.1/wk" when he adds at least
+ * config.needs.bestTargetMin points a week (lead decision N12, ⚠️ ours: a review found "+0.1/wk" leading next to
+ * "+7.2/wk") and, when the single best one is tagged, "Bigger upgrade, harder to get: <him>, +7.5/wk" second, or alone
+ * as "Best target, harder to get" when no untagged one adds that much (⚠️ "bigger" would compare with nothing); the
+ * rest follow as "They could also give" ("They could give" when nobody leads). ⚠️ What a player adds is judged as the
+ * card prints it (one decimal), like the risky week: "+1/wk" meets a floor of 1, "+0/wk" leads nothing, and "bigger"
+ * is bigger on the card. A model built before the addendum has no premiums: nobody is tagged, so a card's best target
+ * is simply its best chip when he clears the floor, and the explainer leaves "Harder to get" out.
+ *
+ * Streaming (§7 streaming positions; planner reply to Checkpoint 3, model change 1): "Streaming picks this
+ * week" lists the best free-agent kickers and D/STs for the current week with their opponents
+ * (LeagueModel.streaming.picks), says which positions I stream (my setting) and which other teams stream
+ * (their adds), and how a streamed slot counts (where a flex of the lineup takes a streamed QB or TE, that
+ * the replacement can start there too: the engine counts him as one more player that week); each roster says
+ * what its team streams. Lineup points are labeled with the model's playoff weight (LeagueModel.playoffWeight,
+ * the user's setting).
  *
  * Game days (LeagueModel.inProgressWeek; CLAUDE.md §7, Phase 2 review decisions): once a game of the
  * current week has kicked off, the team numbers (Proj/wk, team ROS points, strength, needs, lineup
- * costs, the free-agent move, trade chips, partners) skip that week, as the engine's do. The header, the
+ * costs, the free-agent pickups, trade chips, partners) skip that week, as the engine's do. The header, the
  * team table and the heatmap say which weeks they count, and a player's row for a game already under way
  * shows "—" and "Game already started" (not a 0% chance to play).
  */
 import { config } from "@/engine/config";
 import type { FantasyCalcFormat, ModelInputs } from "@/engine/inputs";
-import type { AvailabilityNote, LeagueModel, LineupValues, PlayerModel, SeasonOdds, SlotStrength, TeamModel, TeamOdds, ValueSource, WeekOdds } from "@/engine/leagueModel";
+import type { AvailabilityNote, LeagueModel, LineupValues, PlayerModel, PlayerPremium, SeasonOdds, SlotStrength, TeamModel, TeamOdds, TradePartner, ValueSource, WeekOdds } from "@/engine/leagueModel";
 import { prepareLeagueSlots, solveLineup, type LineupPlayer } from "@/engine/lineup";
 import { fantasyCalcFormat, fantasyCalcFormatLabel } from "@/engine/market";
-import { POSITIONS, type InjuryStatus, type LeagueSettings, type LeagueSnapshot, type PlayerInfo, type Pos, type Team } from "@/engine/model";
+import { POSITIONS, type InjuryStatus, type LeagueSettings, type LeagueSnapshot, type Platform, type PlayerInfo, type Pos, type Team } from "@/engine/model";
 import { DIVISION_RULE_ASSUMED, weekList } from "@/engine/season";
 import { fmtNum, fmtSigned, fmtWhole, formatShortDateTime, plural, recordText } from "./format";
 import { INJURY_LABEL, PLATFORM_LABEL, posLabel } from "./labels";
 import type { MyTeamSource } from "./myTeam";
+import { HARDER_TO_GET_TAG, harderToGetWho, premiumReasons } from "./tradeView";
+
+/** The "Harder to get" tag's words and reasons are shared with the trade cards (src/lib/tradeView.ts). */
+export { HARDER_TO_GET_TAG, premiumReasons };
 
 /** Free agents listed per startable position (a display choice, not a model number). */
 export const FREE_AGENTS_SHOWN = 5;
@@ -91,12 +133,26 @@ export const HEAT_STEP_LABEL: Record<HeatStep, string> = {
   weak: "Weak",
 };
 
+/** A short visible tag: "starter" (a trade chip who starts for his own team) or "Harder to get" (HARDER_TO_GET_TAG). */
+export interface ChipTag {
+  text: string;
+  kind: "starter" | "harder";
+}
+
 export interface Chip {
   key: string;
   text: string;
   /** Hover and screen-reader detail. */
   title: string;
   kind: "need-ros" | "need-next" | "chip";
+  /** Short visible tags inside the chip, in this order: "starter", then "Harder to get" (another team's player). The title says each in words. */
+  tags: ChipTag[];
+}
+
+/** "Harder to get" on another team's player (the file header): the visible words, and why in a sentence (hover). */
+export interface HarderToGet {
+  text: string;
+  title: string;
 }
 
 export interface TeamRow {
@@ -144,13 +200,36 @@ export interface PartnerPlayer {
   id: string;
   text: string;
   title: string;
+  /** "Harder to get" on one of their players (never on mine), or null. */
+  tag: HarderToGet | null;
 }
 
 /** One side of a partner card: the trade chips shown (the first chipsShown, most helpful first), and the rest as a count. */
 export interface PartnerSide {
+  /** "They could give:", "They could also give:" (after the card's targets) or "You could give:". */
+  label: string;
   players: PartnerPlayer[];
   /** "and 2 more": `title` lists the hidden players (hover), `srText` says them for screen readers; null when all are shown. */
   more: { text: string; title: string; srText: string } | null;
+}
+
+/**
+ * A partner card's lead line (planner addendum to Checkpoint 3, §2; lead decision N12): "Best target: C. Snoot, +2.1/wk"
+ * (the best of their trade chips who'd start for me without the "Harder to get" tag, when he adds at least
+ * config.needs.bestTargetMin a week), or "Bigger upgrade, harder to get: M. Gloop, +2.5/wk" (the single best one, when
+ * he's tagged; "Best target, harder to get" when no untagged one adds that much).
+ */
+export interface PartnerTarget {
+  id: string;
+  /** "Best target", "Bigger upgrade, harder to get" or "Best target, harder to get". */
+  label: string;
+  /** "C. Snoot, +2.1/wk"; its two parts, which the card keeps unbroken (a hyphenated name never splits across lines). */
+  text: string;
+  name: string;
+  perWeek: string;
+  /** Hover: his full name, what he'd add to my lineup a week, and why he's harder to get when he is. */
+  title: string;
+  harderToGet: boolean;
 }
 
 export interface PartnerCard {
@@ -160,6 +239,12 @@ export interface PartnerCard {
   mutual: boolean;
   /** "Fit 2.4" for a mutual fit; "Would start for you" for a one-sided one (what was measured, whether or not I have needs). */
   fitText: string;
+  /**
+   * Who to aim for first (PartnerTarget), best first; empty when none of their chips would start for me, or when the
+   * single best one isn't tagged and adds less than config.needs.bestTargetMin a week (they're all listed after).
+   */
+  targets: PartnerTarget[];
+  /** Their other trade chips (the targets left out), most helpful first. */
   theyCanGive: PartnerSide;
   youCanGive: PartnerSide;
 }
@@ -189,6 +274,8 @@ export interface PlayerRow {
    * and hover. null for everyone whose tag and return date agree.
    */
   availabilityNote: { short: string; long: string } | null;
+  /** "Harder to get" (the file header): another team's player his manager would want a little extra for; null on my team and for free agents. */
+  tag: HarderToGet | null;
   group: "active" | "ir" | "taxi" | "fa";
   /** Rest-of-season points (§6 step 7); null when the model has no projection for him. */
   ros: number | null;
@@ -206,18 +293,30 @@ export interface PlayerRow {
   weeksText: string;
 }
 
-/** How a team's best free-agent move is introduced in its roster header. */
-export const FREE_AGENT_MOVE_LABEL = "Best free-agent move";
+/** How a team's free-agent pickups are introduced on its roster (CLAUDE.md §14 item 3, Phase 4). */
+export const FREE_AGENT_PICKUPS_LABEL = "Free-agent pickups that would help";
 
-/** A team's best free-agent move (§7; TeamModel.waiver), for its roster header. */
-export interface FreeAgentMove {
+/** One free-agent pickup of a team (TeamModel.faMoves), for its roster. */
+export interface FreeAgentPickup {
   /** "add Floopy Freeman (RB, CAR), drop Tobias Thimble", or "add Floopy Freeman (RB, CAR) into an open spot". */
   move: string;
-  /** "+4.6 lineup pts": lineup points it gains over the rest of the season (scenario lineups when computed, else expected-value ones), weighted like lineup cost. */
+  /**
+   * "+4.6 lineup pts": what it adds over the rest of the season in the lineups the optimizer picks moves by (with
+   * injuries and byes simulated, or on projected lineups: the file header), weighted like lineup cost.
+   */
   gain: string;
-  /** "(playoffs count 1.25×)" while playoff weeks are counted, so the gain isn't read as plain ROS points; else null. */
+  /** Hover: the move and its gain in words, saying which lineups, with the other lineups' gain too when computed. */
+  title: string;
+}
+
+/** A team's free-agent pickups (§7 V*): the optimizer's moves, in the order it makes them. */
+export interface FreeAgentPickups {
+  items: FreeAgentPickup[];
+  /** The roster's summary line (shown while it's collapsed): "2, +7.1 lineup pts" (how many, and what they add together). */
+  summary: string;
+  /** "(playoffs count 1.25×)" while playoff weeks are counted, so the gains aren't read as plain ROS points; else null. */
   weighting: string | null;
-  /** The whole line: "Best free-agent move: add …: +4.6 lineup pts (playoffs count 1.25×)". */
+  /** Everything in one line: "Free-agent pickups that would help: add …: +4.6 lineup pts; add …: +2.5 lineup pts (playoffs count 1.25×)". */
   text: string;
 }
 
@@ -226,10 +325,57 @@ export interface RosterCard {
   name: string;
   isMine: boolean;
   summary: string;
-  /** The team's best free-agent move, or null when none gains at least a tenth of a point. */
-  waiver: FreeAgentMove | null;
+  /** "Streams K and D/ST (your setting)" or "Streams K (3 adds this season)" (LeagueModel.streaming), or null when it streams nothing. */
+  streams: string | null;
+  /** The free-agent pickups that would help the team (§7 V*), or null when none does. */
+  pickups: FreeAgentPickups | null;
   players: PlayerRow[];
 }
+
+/** One "Streaming picks this week" row (LeagueModel.streaming.picks). */
+export interface StreamingPickRow {
+  id: string;
+  name: string;
+  /** His NFL team ("SEA"), "FA" without one. */
+  nflTeam: string;
+  /** "vs ARI" at home, "@ DAL" away, "—" when unknown; `opponentLong` says it in words for screen readers and hover. */
+  opponent: string;
+  opponentLong: string;
+  /** This week's projected points ("8.2"). */
+  projection: string;
+}
+
+/** One position's picks: K or D/ST. */
+export interface StreamingGroup {
+  pos: "K" | "DEF";
+  /** "K", "D/ST" (ESPN) or "DEF" (posLabel). */
+  label: string;
+  /** The table's caption: "Best free-agent kickers for week 4, by this week's projection". */
+  caption: string;
+  picks: StreamingPickRow[];
+}
+
+/**
+ * Streaming positions on the League page (CLAUDE.md §7, §14 item 3; planner reply to Checkpoint 3, model
+ * change 1): this week's best free agents at K and D/ST, who streams which positions, and how a streamed
+ * slot counts.
+ */
+export interface StreamingView {
+  week: number;
+  /** One group per position the lineup starts (K, then D/ST), each possibly empty. */
+  groups: StreamingGroup[];
+  /** What I stream ("You stream K and D/ST."; the page links to Settings after it), or null without a team. */
+  mine: string | null;
+  /** Which other teams stream, from their adds this season (or that none does). */
+  others: string;
+  /** How a streamed slot counts, with each streamed position's average replacement. */
+  note: string;
+  /** Why no picks are listed (no free agent at those positions plays this week), or null. */
+  empty: string | null;
+}
+
+/** Where the user changes "Positions I stream weekly" (the Settings page). */
+export const SETTINGS_HREF = "/settings";
 
 export interface FreeAgentGroup {
   pos: string;
@@ -364,6 +510,8 @@ export interface LeagueView {
   heatmap: Heatmap;
   /** My best trade partners; `empty` says why there are none (no team picked, my redraft season over, no fit). */
   partners: { cards: PartnerCard[]; empty: string | null };
+  /** "Streaming picks this week" and who streams what (§7); null once no week is left, or when the lineup starts no K or D/ST and nobody streams. */
+  streaming: StreamingView | null;
   rosters: RosterCard[];
   freeAgents: FreeAgentGroup[];
   /** The Lineup cost column's definition (hover), with the playoff weighting when it applies. */
@@ -505,6 +653,21 @@ const VALUE_SR: Record<ValueSource, string | null> = {
 };
 
 // ---------------------------------------------------------------------------------------------
+// Harder to get (planner addendum to Checkpoint 3, §2; the file header)
+
+/** Another team's player's premium for his owner (TeamModel.premiums); never one of mine (the file header). */
+function premiumOf(team: TeamModel | undefined, playerId: string, myTeamId: string | null): PlayerPremium | undefined {
+  return team && team.id !== myTeamId ? team.premiums?.[playerId] : undefined;
+}
+
+/** The League page's "Harder to get" for a player whose premium earns the tag (PlayerPremium.harderToGet), or null. */
+function harderToGetTag(premium: PlayerPremium | undefined): HarderToGet | null {
+  if (!premium?.harderToGet) return null;
+  const why = premiumReasons(premium, "his team's");
+  return { text: HARDER_TO_GET_TAG, title: `${HARDER_TO_GET_TAG}: ${why.length ? `${listText(why)}, so his` : "his"} manager will likely want a little extra for him.` };
+}
+
+// ---------------------------------------------------------------------------------------------
 // Players
 
 interface PlayerContext {
@@ -514,6 +677,8 @@ interface PlayerContext {
   now: number;
   playoffWeeks: ReadonlySet<number>;
   hasPlayoffs: boolean;
+  /** My team (other teams' players can carry "Harder to get"; mine never do). */
+  myTeamId: string | null;
 }
 
 function kickedOff(ctx: PlayerContext, info: PlayerInfo | undefined): boolean {
@@ -634,6 +799,7 @@ function playerRow(ctx: PlayerContext, id: string, group: PlayerRow["group"], te
     nflTeam: info?.nflTeam ?? "FA",
     injury: injury && info ? { ...injury, tone: INJURY_TONE[info.injury] } : null,
     availabilityNote: note,
+    tag: harderToGetTag(premiumOf(team, id, ctx.myTeamId)),
     group,
     ros,
     rosText: ros === null ? "—" : fmtWhole(ros),
@@ -663,32 +829,201 @@ function byPositionThenRos(snapshot: LeagueSnapshot, rows: PlayerRow[]): PlayerR
 /** A team defense's name that already says it's one ("Vikings D/ST", "MIN D/ST"). */
 const DEFENSE_NAME = /(^|\s)(D\/ST|DST|DEF|Defense)(\s|$)/i;
 
+/** How a free agent added is named: his position and NFL team; a team defense by its name, saying it's a defense ("Vikings D/ST", Sleeper's "Minnesota Vikings (DEF)"). */
+function addedName(snapshot: LeagueSnapshot, id: string): string {
+  const add = snapshot.players[id];
+  if (!add) return `Unknown player (${id})`;
+  const pos = posLabel(add.pos, snapshot.platform);
+  if (add.pos === "DEF") return DEFENSE_NAME.test(add.name) ? add.name : `${add.name} (${pos})`;
+  return `${add.name} (${pos}${add.nflTeam ? `, ${add.nflTeam}` : ""})`;
+}
+
+/** "+4.6 lineup pts", "+1 lineup pt": a signed gain in lineup points, one decimal (singular when it prints as 1). */
+function lineupPts(x: number): string {
+  const text = fmtSigned(x, 1);
+  return `${text} lineup ${text === "+1" || text === "−1" ? "pt" : "pts"}`;
+}
+
 /**
- * A team's best free-agent move (TeamModel.waiver): add the best free agent, dropping the player
- * whose loss hurts least, or into an open roster spot. Its gain uses scenario lineups when they were
- * computed, else expected-value lineups, like lineup cost, and is in the same lineup points (playoff
- * weeks weighted: `weighting` says so). Shown only when it gains at least 0.1 as printed: a scenario
- * gain can round to nothing even when the expected-value one doesn't. The added player gets his
- * position and NFL team; a team defense's name is its team, and says it's a defense too on ESPN
- * ("Vikings D/ST", but Sleeper's "Minnesota Vikings (DEF)").
+ * Whether the free-agent optimizer picked V*'s moves in scenario lineups (optimizer.ts "Judging moves in scenario
+ * lineups"): when scenarios ran (LeagueModel.scenarios) and no starter limit can bind (lineup.ts prepareLeagueSlots;
+ * under them it judges in expected-value lineups).
  */
-function freeAgentMove(snapshot: LeagueSnapshot, team: TeamModel | undefined, weighting: string | null): FreeAgentMove | null {
-  const w = team?.waiver;
-  if (!w) return null;
-  const gain = w.gainScen ?? w.gainEv;
-  if (!(Math.round(gain * 10) > 0)) return null;
-  const add = snapshot.players[w.add];
-  const pos = add ? posLabel(add.pos, snapshot.platform) : "";
-  const addText = !add
-    ? `Unknown player (${w.add})`
-    : add.pos === "DEF"
-      ? DEFENSE_NAME.test(add.name)
-        ? add.name
-        : `${add.name} (${pos})`
-      : `${add.name} (${pos}${add.nflTeam ? `, ${add.nflTeam}` : ""})`;
-  const move = w.drop === null ? `add ${addText} into an open spot` : `add ${addText}, drop ${snapshot.players[w.drop]?.name ?? `Unknown player (${w.drop})`}`;
-  const gainText = `${fmtSigned(gain, 1)} lineup pts`;
-  return { move, gain: gainText, weighting, text: `${FREE_AGENT_MOVE_LABEL}: ${move}: ${gainText}${weighting ? ` ${weighting}` : ""}` };
+function pickupsJudgedInScenarios(snapshot: LeagueSnapshot, model: LeagueModel): boolean {
+  if (!(model.scenarios > 0)) return false;
+  try {
+    return prepareLeagueSlots(snapshot.settings).limits === null;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * A team's free-agent pickups (TeamModel.faMoves; the file header): each move in words ("add …, drop …" or "add …
+ * into an open spot") and its gain in lineup points (playoff weeks weighted: `weighting` says so) in the lineups the
+ * optimizer picks moves by: with injuries and byes simulated when `scenarioJudged` (FaMove.gainScen), else on projected
+ * lineups (gainEv); its title names those lineups and adds the other gain when there is one. The summary adds up the
+ * gains shown. Null when the team makes none. A move without a finite gain is left out (a move without a scenario
+ * gain, when the optimizer judged in scenario lineups, shows its projected one, saying so).
+ */
+function freeAgentPickups(snapshot: LeagueSnapshot, team: TeamModel | undefined, weighting: string | null, scenarioJudged: boolean): FreeAgentPickups | null {
+  const finite = (x: number | null): x is number => x !== null && Number.isFinite(x);
+  const moves = (team?.faMoves ?? []).flatMap((m) => {
+    const scen = scenarioJudged && finite(m.gainScen);
+    const gain = scen ? m.gainScen : m.gainEv;
+    return finite(gain) ? [{ m, gain, scen }] : [];
+  });
+  if (!moves.length) return null;
+  const items = moves.map(({ m, gain, scen }) => {
+    const addText = addedName(snapshot, m.add);
+    const move = m.drop === null ? `add ${addText} into an open spot` : `add ${addText}, drop ${snapshot.players[m.drop]?.name ?? `Unknown player (${m.drop})`}`;
+    const basis = scen ? "with injuries and byes simulated" : "on projected lineups";
+    const other = scen ? (finite(m.gainEv) ? ` (${fmtSigned(m.gainEv, 1)} on projected lineups)` : "") : finite(m.gainScen) ? ` (${fmtSigned(m.gainScen, 1)} with injuries and byes simulated)` : "";
+    return {
+      move,
+      gain: lineupPts(gain),
+      title: `${capitalize(move)}: ${lineupPts(gain)} ${basis}${other}${weighting ? `, ${weighting.slice(1, -1)}` : ""}.`,
+    };
+  });
+  const total = moves.reduce((sum, x) => sum + x.gain, 0);
+  const tail = weighting ? ` ${weighting}` : "";
+  return {
+    items,
+    summary: `${items.length}, ${lineupPts(total)}`,
+    weighting,
+    text: `${FREE_AGENT_PICKUPS_LABEL}: ${items.map((i) => `${i.move}: ${i.gain}`).join("; ")}${tail}`,
+  };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Streaming positions (§7; planner reply to Checkpoint 3, model change 1)
+
+/** Positions the league's lineup starts (a slot with a spot lists them). */
+function startable(settings: LeagueSettings): Set<Pos> {
+  return new Set(settings.lineup.filter((s) => s.count > 0).flatMap((s) => s.eligible));
+}
+
+/**
+ * Positions a flex spot of this lineup also takes (a slot with a spot and two or more positions): a streamer at
+ * one of them is one more player that week and can start in that flex too (the engine's step 5a).
+ */
+function flexTaken(settings: LeagueSettings): Set<Pos> {
+  return new Set(settings.lineup.filter((s) => s.count > 0 && new Set(s.eligible).size >= 2).flatMap((s) => s.eligible));
+}
+
+/** " A streamed QB or TE can also start in a flex spot, …" for `positions` a flex of this lineup takes; "" when none. */
+function streamFlexText(positions: readonly Pos[], settings: LeagueSettings, platform: Platform): string {
+  const flex = flexTaken(settings);
+  const labels = POSITIONS.filter((p) => positions.includes(p) && flex.has(p)).map((p) => posLabel(p, platform));
+  return labels.length ? ` A streamed ${listText(labels, "or")} can also start in a flex spot, when that helps the lineup more: the replacement is one more player that week.` : "";
+}
+
+/** "K and D/ST": positions as the platform's users know them, in a list. */
+function positionsText(positions: readonly Pos[], platform: Platform): string {
+  return listText(positions.map((p) => posLabel(p, platform)));
+}
+
+const ORDINAL_SUFFIX = ["th", "st", "nd", "rd"];
+/** 1 → "1st", 3 → "3rd", 11 → "11th". */
+function ordinal(n: number): string {
+  const v = n % 100;
+  return `${n}${v >= 11 && v <= 13 ? "th" : (ORDINAL_SUFFIX[n % 10] ?? "th")}`;
+}
+
+/**
+ * A team's streamed positions for its roster header (LeagueModel.streaming.byTeam): "Streams K and D/ST
+ * (your setting)" for mine; "Streams D/ST (3 adds this season)" or "Streams K and D/ST (adds this season:
+ * K 3, D/ST 4)" for a team detected streaming; null when it streams nothing.
+ */
+function streamsText(model: LeagueModel, teamId: string, platform: Platform): string | null {
+  const s = model.streaming?.byTeam[teamId];
+  if (!s || !s.positions.length) return null;
+  const list = positionsText(s.positions, platform);
+  if (s.source === "setting") return `Streams ${list} (your setting)`;
+  const [only] = s.positions;
+  if (s.positions.length === 1 && only !== undefined) return `Streams ${list} (${plural(s.adds[only] ?? 0, "add")} this season)`;
+  return `Streams ${list} (adds this season: ${s.positions.map((p) => `${posLabel(p, platform)} ${s.adds[p] ?? 0}`).join(", ")})`;
+}
+
+/** "kickers" / "D/STs": a streamed position's players in words. */
+function positionPlural(pos: Pos, platform: Platform): string {
+  if (pos === "K") return "kickers";
+  if (pos === "DEF") return platform === "espn" ? "D/STs" : "team defenses";
+  if (pos === "QB") return "quarterbacks";
+  if (pos === "TE") return "tight ends";
+  return `${posLabel(pos, platform)}s`;
+}
+
+/**
+ * "Streaming picks this week" and who streams what (LeagueModel.streaming; see StreamingView): a group per
+ * position the lineup starts among K and D/ST with this week's best free agents (the engine's order: by this
+ * week's projection), each with his opponent ("vs ARI" at home, "@ DAL" away); my streamed positions (my
+ * setting) and the teams detected streaming, with their adds; how a streamed slot counts, with each streamed
+ * position's average replacement over the weeks team numbers count. Null once no week is left, or when the
+ * lineup starts neither K nor D/ST and nobody streams.
+ */
+function streamingView(snapshot: LeagueSnapshot, model: LeagueModel, myTeamId: string | null, teamName: (id: string) => string, from: number): StreamingView | null {
+  const streaming = model.streaming;
+  if (!streaming || !model.weeks.length) return null;
+  const platform = snapshot.platform;
+  const week = snapshot.currentWeek;
+  const starts = startable(snapshot.settings);
+  const pickPositions = (["K", "DEF"] as const).filter((p) => starts.has(p));
+  const byTeam = streaming.byTeam;
+  const streamers = snapshot.teams.filter((t) => (byTeam[t.id]?.positions.length ?? 0) > 0);
+  if (!pickPositions.length && !streamers.length) return null;
+
+  const groups: StreamingGroup[] = pickPositions.map((pos) => ({
+    pos,
+    label: posLabel(pos, platform),
+    caption: `Best free-agent ${positionPlural(pos, platform)} for week ${week}, by this week's projection`,
+    picks: streaming.picks
+      .filter((p) => p.pos === pos)
+      .map((p) => {
+        const info = snapshot.players[p.playerId];
+        const opp = p.opponent;
+        return {
+          id: p.playerId,
+          name: info?.name ?? `Unknown player (${p.playerId})`,
+          nflTeam: info?.nflTeam ?? "FA",
+          opponent: opp ? `${opp.home ? "vs" : "@"} ${opp.team}` : "—",
+          opponentLong: opp ? (opp.home ? `at home against ${opp.team}` : `away at ${opp.team}`) : "opponent unknown",
+          projection: fmtNum(p.projection, 1),
+        };
+      }),
+  }));
+
+  const mineStreams = myTeamId ? byTeam[myTeamId] : undefined;
+  const mine = myTeamId ? (mineStreams && mineStreams.positions.length ? `You stream ${positionsText(mineStreams.positions, platform)}.` : "You don't stream any position.") : null;
+  const otherTeams = streamers.filter((t) => t.id !== myTeamId);
+  const detectAdds = config.streaming.detectAdds;
+  const streamableText = listText(
+    POSITIONS.filter((p) => config.streaming.streamable.includes(p) && starts.has(p)).map((p) => posLabel(p, platform)),
+    "or",
+  );
+  const others = otherTeams.length
+    ? `${myTeamId ? "Other teams that stream" : "Teams that stream"} (${detectAdds} or more adds at the position this season): ${otherTeams
+        .map((t) => {
+          const s = byTeam[t.id] as NonNullable<(typeof byTeam)[string]>;
+          return `${teamName(t.id)} (${s.positions.map((p) => `${posLabel(p, platform)}, ${plural(s.adds[p] ?? 0, "add")}`).join("; ")})`;
+        })
+        .join(", ")}.`
+    : `No ${myTeamId ? "other " : ""}team has made ${detectAdds} or more adds at ${streamableText || "a streaming position"} this season, so ${myTeamId ? "the others count" : "every team counts"} only their own players.`;
+
+  // Each streamed position's replacement, averaged over the weeks team numbers count (a position without a
+  // free agent who scores has nothing to average: streaming adds nothing there).
+  const streamed = POSITIONS.filter((p) => streamers.some((t) => byTeam[t.id]?.positions.includes(p)));
+  const averages = streamed.flatMap((p) => {
+    const rep = (streaming.replacement[p] ?? []).slice(from);
+    return rep.some((x) => x > 0) ? [`${fmtNum(sum(rep) / rep.length, 1)} points a week at ${posLabel(p, platform)}`] : [];
+  });
+  const rank = ordinal(config.streaming.streamRank);
+  const gameDay = model.inProgressWeek !== null && from > 0 ? " Free agents whose game this week has already started aren't picks." : "";
+  const note = `A streamed slot counts, each week, the better of the team's own player and the streaming replacement: the ${rank}-best free agent at that position that week (other teams stream too).${averages.length ? ` Over the weeks left, the replacement averages ${listText(averages)}.` : ""} A team that starts two at a position still gets one streamer.${streamFlexText(streamed, snapshot.settings, platform)}${gameDay}`;
+
+  const anyPicks = groups.some((g) => g.picks.length > 0);
+  const empty = groups.length && !anyPicks ? `No free-agent ${listText(groups.map((g) => positionPlural(g.pos, platform)), "or")} are projected to play this week.` : null;
+  return { week, groups, mine, others, note, empty };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -730,17 +1065,29 @@ function needChips(team: TeamModel, labels: Map<string, string>, medians: SlotMe
         text: n.window === "ros" ? label : `${label} · next ${nextWeeks} ${nextWeeks === 1 ? "wk" : "wks"}`,
         title: `Need at ${label} (${windowWords})${detail}`,
         kind: n.window === "ros" ? ("need-ros" as const) : ("need-next" as const),
+        tags: [],
       };
     });
 }
 
+/** The visible tag on a trade chip who starts for his own team (Checkpoint 3 answer 3). */
+export const STARTER_TAG = "starter";
+
 /**
- * A team's trade chips (§7; TeamModel.chips, biggest gap first): the first chipsShown, each "B. Nix:
- * worth +31 to Team 6" (the gap, whole lineup points; "to you" for my team), the title giving both parts
- * to a tenth: what that team would gain with him and what his team would lose without him, in lineup
- * points (`weighting`: the playoff weighting while playoff weeks count).
+ * A team's trade chips (§7; TeamModel.chips, biggest gap first; planner reply to Checkpoint 3, answer 3):
+ * the first chipsShown, each "C. McCaffrey: worth +33 to Team 2 · costs you 6.1 pts/wk" (the gap, whole
+ * lineup points, "to you" when my team gains most; then what his own team loses per week, "you" on my team
+ * and "his team" on another: "them" right after a team's name read as that team), tagged "starter" when he
+ * starts for his team after its free-agent pickups (TradeChip.starter: the roster his cost is measured from, so a
+ * player the pickups drop is never tagged next to a cost of 0; review of track A2). The title gives
+ * every part to a tenth: the gap, what that team would gain with him and what his team would lose without
+ * him, in lineup points (`weighting`: the playoff weighting while playoff weeks count) and per week, that his
+ * team's pickups would drop him anyway when they do (TeamModel.faMoves: why losing him costs nothing), and
+ * whether he starts. Another team's chip whose premium earns it is tagged "Harder to get" too (after "starter"), its
+ * title ending with why.
  */
 function tradeChipTags(snapshot: LeagueSnapshot, team: TeamModel, teamName: (id: string) => string, myTeamId: string | null, weighting: string | null): Chip[] {
+  const own = team.id === myTeamId;
   return team.chips.slice(0, Math.max(0, config.needs.chipsShown)).map((c) => {
     const info = snapshot.players[c.playerId];
     const name = info?.name ?? c.playerId;
@@ -748,13 +1095,134 @@ function tradeChipTags(snapshot: LeagueSnapshot, team: TeamModel, teamName: (id:
     const to = mine ? "you" : teamName(c.bestTeamId);
     const toLong = mine ? `${teamName(c.bestTeamId)} (your team)` : teamName(c.bestTeamId);
     const pos = info ? ` (${posLabel(info.pos, snapshot.platform)})` : "";
+    const perWeek = fmtNum(c.costPerWeek, 1);
+    const starts = c.starter ? ` He starts for ${own ? "you" : "his team"}.` : "";
+    const droppedAnyway = team.faMoves.some((m) => m.drop === c.playerId) ? ` ${own ? "Your" : "His team's"} free-agent pickups would drop him anyway.` : "";
+    const harder = harderToGetTag(premiumOf(team, c.playerId, myTeamId));
+    const tags: ChipTag[] = [...(c.starter ? [{ text: STARTER_TAG, kind: "starter" as const }] : []), ...(harder ? [{ text: harder.text, kind: "harder" as const }] : [])];
     return {
       key: c.playerId,
-      text: `${shortName(name, info?.pos)}: worth ${fmtSigned(c.gap, 0)} to ${to}`,
-      title: `${name}${pos}: worth ${fmtNum(c.gap, 1)} more lineup pts${weighting ? ` ${weighting}` : ""} to ${toLong} than to his own team. ${toLong} would gain ${fmtNum(c.maxOther, 1)} with him (after its best free-agent move); his team would lose ${fmtNum(c.cost, 1)} without him.`,
+      text: `${shortName(name, info?.pos)}: worth ${fmtSigned(c.gap, 0)} to ${to} · costs ${own ? "you" : "his team"} ${perWeek} pts/wk`,
+      title: `${name}${pos}: worth ${fmtNum(c.gap, 1)} more lineup pts${weighting ? ` ${weighting}` : ""} to ${toLong} than to his own team. ${toLong} would gain ${fmtNum(c.maxOther, 1)} with him (after its free-agent pickups); ${own ? "your team" : "his team"} would lose ${fmtNum(c.cost, 1)} without him, ${perWeek} a week.${droppedAnyway}${starts}${harder ? ` ${harder.title}` : ""}`,
       kind: "chip" as const,
+      tags,
     };
   });
+}
+
+// ---------------------------------------------------------------------------------------------
+// Best trade partners (§7; planner addendum to Checkpoint 3, §2; Phase 4 addendum lead decision N12)
+
+/** A partner card's lead lines (PartnerTarget). */
+export const BEST_TARGET_LABEL = "Best target";
+export const BIGGER_UPGRADE_LABEL = "Bigger upgrade, harder to get";
+/** ⚠️ Ours: when no untagged one leads, there's nobody for him to be "bigger" than. */
+export const BEST_TARGET_HARDER_LABEL = "Best target, harder to get";
+
+/** "Best target" adds at least this many points a week to my lineup, as the card prints it (config.needs.bestTargetMin; N12). */
+export const BEST_TARGET_MIN: number = config.needs.bestTargetMin;
+
+/** A partner card prints points per week with this many decimals ("+2.1/wk"), and judges its lead lines on that number. */
+const PER_WEEK_DECIMALS = 1;
+
+/** "+2.1/wk": what a player adds to the other team's lineup a week, as a partner card prints it. */
+const perWeekText = (ppw: number): string => `${fmtSigned(ppw, PER_WEEK_DECIMALS)}/wk`;
+
+/** The same number as printed (fmtNum's rounding), so the card's rules agree with what it shows: "+1/wk" meets a floor of 1. */
+function perWeekShown(ppw: number): number {
+  const factor = 10 ** PER_WEEK_DECIMALS;
+  const rounded = Math.round(Math.abs(ppw) * factor) / factor;
+  return ppw < 0 ? -rounded : rounded;
+}
+
+/** The floor in words, printed like the card's numbers: "1 point" (BEST_TARGET_MIN). */
+function bestTargetMinWords(): string {
+  const text = fmtNum(BEST_TARGET_MIN, PER_WEEK_DECIMALS);
+  return `${text} ${text === "1" ? "point" : "points"}`;
+}
+
+/**
+ * Under the partner cards (TradePartners): what "Best target" means (the file header; N12's floor in config's number) and
+ * why a marked player is harder to get.
+ */
+export const BEST_TARGET_NOTE = `“${BEST_TARGET_LABEL}” is the most helpful of their trade chips for you without the “${HARDER_TO_GET_TAG}” mark, as long as he adds at least ${bestTargetMinWords()} a week; when none does, a marked one who'd help you more leads instead, if he adds at least that much too. A marked player is one of their best, so expect their manager to want a little extra for him.`;
+
+interface PartnerCardContext {
+  snapshot: LeagueSnapshot;
+  /** The partner's team model (its premiums tag its players). */
+  teamModel: TeamModel | undefined;
+  name: string;
+  myTeamId: string;
+}
+
+/**
+ * One partner card (the file header; lead decisions N2 and N12). Targets come from their trade chips who'd start for me
+ * (more than 0 a week as printed), ranked by what each adds as printed; on a tie the untagged one counts as the better,
+ * then the engine's order, so "Bigger upgrade, harder to get" is always strictly bigger on the card. "Best target" = the
+ * best untagged one when he adds at least BEST_TARGET_MIN a week; the single best one follows when he's tagged ("Bigger
+ * upgrade, harder to get"), or leads alone as "Best target, harder to get" when no untagged one clears the floor.
+ * ⚠️ N12's floor holds for every lead line (the lead's call after the final review): a tagged single best under it leads
+ * nothing, and neither does an untagged single best under it (a tagged one who adds less is no best target). The rest of their chips follow as "They
+ * could also give" ("They could give" without targets), in the engine's order, the first chipsShown named and the
+ * others counted; mine as "You could give". Their tagged players carry "Harder to get" there too (hover and
+ * screen-reader words included); mine never do.
+ */
+function partnerCard(p: TradePartner, c: PartnerCardContext): PartnerCard {
+  const { snapshot } = c;
+  const tagOf = (id: string) => harderToGetTag(premiumOf(c.teamModel, id, c.myTeamId));
+  const nameOf = (id: string) => snapshot.players[id]?.name ?? id;
+  const short = (id: string) => shortName(nameOf(id), snapshot.players[id]?.pos);
+
+  const ranked = p.theyCanGive
+    .filter((x) => Number.isFinite(x.ppw) && perWeekShown(x.ppw) > 0)
+    .map((x, i) => ({ x, i, shown: perWeekShown(x.ppw), tag: tagOf(x.playerId) }))
+    .sort((a, b) => b.shown - a.shown || Number(a.tag !== null) - Number(b.tag !== null) || a.i - b.i);
+  const best = ranked[0];
+  const bestUntagged = ranked.find((r) => r.tag === null && r.shown >= BEST_TARGET_MIN);
+  const target = (r: (typeof ranked)[number], label: string): PartnerTarget => ({
+    id: r.x.playerId,
+    label,
+    text: `${short(r.x.playerId)}, ${perWeekText(r.x.ppw)}`,
+    name: short(r.x.playerId),
+    perWeek: perWeekText(r.x.ppw),
+    title: `${nameOf(r.x.playerId)}: ${fmtSigned(r.x.ppw, PER_WEEK_DECIMALS)} points per week to your lineup.${r.tag ? ` ${r.tag.title}` : ""}`,
+    harderToGet: r.tag !== null,
+  });
+  const targets: PartnerTarget[] = [];
+  if (bestUntagged) targets.push(target(bestUntagged, BEST_TARGET_LABEL));
+  // The single best one when he's tagged: then he adds strictly more than every untagged one as printed. The floor holds
+  // for him too (the lead's call on N12): a "+0.5/wk" star leads nothing either (when an untagged one clears the floor, he
+  // adds more than that one, so he clears it as well).
+  if (best && best.tag && best.shown >= BEST_TARGET_MIN) targets.push(target(best, bestUntagged ? BIGGER_UPGRADE_LABEL : BEST_TARGET_HARDER_LABEL));
+  const named = new Set(targets.map((t) => t.id));
+
+  const side = (label: string, players: readonly { playerId: string; ppw: number }[], theirs: boolean): PartnerSide => {
+    const all = players.map((x) => {
+      const tag = theirs ? tagOf(x.playerId) : null;
+      const per = perWeekText(x.ppw);
+      return {
+        player: { id: x.playerId, text: `${short(x.playerId)} (${per})`, title: `${nameOf(x.playerId)}: ${fmtSigned(x.ppw, PER_WEEK_DECIMALS)} points per week to the other lineup${tag ? `. ${tag.title}` : ""}`, tag },
+        sr: `${short(x.playerId)} (${per}${tag ? ", harder to get" : ""})`,
+      };
+    });
+    const shown = Math.max(1, config.needs.chipsShown);
+    const hidden = all.slice(shown);
+    const text = `and ${hidden.length} more`;
+    return {
+      label,
+      players: all.slice(0, shown).map((a) => a.player),
+      more: hidden.length ? { text, title: hidden.map((a) => a.player.title).join("\n"), srText: `${text}: ${hidden.map((a) => a.sr).join(", ")}` } : null,
+    };
+  };
+  return {
+    teamId: p.teamId,
+    name: c.name,
+    mutual: p.mutual,
+    fitText: p.mutual ? `Fit ${fmtNum(p.score, 1)}` : "Would start for you",
+    targets,
+    theyCanGive: side(targets.length ? "They could also give:" : "They could give:", p.theyCanGive.filter((x) => !named.has(x.playerId)), true),
+    youCanGive: side("You could give:", p.youCanGive, false),
+  };
 }
 
 function heatCell(key: string, label: string, teamName: string, s: SlotStrength | undefined, window: StrengthWindow, med: number, windowWords: string): HeatCell {
@@ -1150,6 +1618,8 @@ interface ExplainContext {
   from: number;
   /** Playoff weeks are among the weeks team numbers count, so lineup points weight them. */
   playoffWeighted: boolean;
+  /** ω for playoff weeks (LeagueModel.playoffWeight: the user's setting). */
+  playoffWeight: number;
   /** The season simulation, when it ran (§8). */
   odds: SeasonOdds | null;
   /** My remaining schedule is shown (a team is picked and games are left), so its risk rule is explained too. */
@@ -1225,7 +1695,7 @@ function buildExplain(c: ExplainContext): ExplainItem[] {
     : c.source.sleeperWeekly
       ? ` Each week is then adjusted for the matchup (between ${p.weekShapeClamp[0]}× and ${p.weekShapeClamp[1]}× his usual).`
       : " There's no week-to-week matchup adjustment: it comes from Sleeper's weekly projections, which didn't load.";
-  const lineupPoints = `starting-lineup points over the rest of the season${c.playoffWeighted ? `, with playoff weeks counted ${config.lineups.playoffWeight}× (they decide titles), so they don't add up exactly with ROS points` : ""}`;
+  const lineupPoints = `starting-lineup points over the rest of the season${c.playoffWeighted ? `, with playoff weeks counted ${c.playoffWeight}× (they decide titles), so they don't add up exactly with ROS points` : ""}`;
   const items: ExplainItem[] = [
     {
       title: "Projected points",
@@ -1243,11 +1713,12 @@ function buildExplain(c: ExplainContext): ExplainItem[] {
         ? `Team numbers use each team's best lineup in ${model.scenarios} simulated runs of injuries and byes, so a bench player who fills in when a starter is hurt or on bye gets credit. A lineup built from average availability would miss that.`
         : "Team numbers use each team's best lineup from each week's average projections.",
     },
+    ...(seasonOver ? [] : [{ title: "Streaming", text: streamingExplainText(snapshot) }, { title: "Free-agent pickups", text: pickupsExplainText(snapshot, model) }]),
     {
       title: "Rest-of-season (ROS) points",
       text:
         first !== undefined && last !== undefined
-          ? `ROS points count only the games left, from week ${first} through week ${last}${model.playoffWeeks.length ? " (the last playoff week), split into regular season and playoffs" : ""}. A player whose bye is done has one more game left than one whose bye is still coming. Lineup cost and each team's best free-agent move (shown at the top of its roster when one helps) are in lineup points: ${lineupPoints}. Lineup cost is how many his team would lose without him (it would pick up the best free agent in his place). It's measured after the team's best free-agent move, so it's never negative.`
+          ? `ROS points count only the games left, from week ${first} through week ${last}${model.playoffWeeks.length ? " (the last playoff week), split into regular season and playoffs" : ""}. A player whose bye is done has one more game left than one whose bye is still coming. Lineup cost and the gains of each team's free-agent pickups (listed on its roster) are in lineup points: ${lineupPoints}. Lineup cost is how many his team would lose without him, after its free-agent pickups (it would pick up a free agent in his place when that helps); it's never negative.`
           : "The season is over, so there are no games left to project.",
     },
   ];
@@ -1256,7 +1727,7 @@ function buildExplain(c: ExplainContext): ExplainItem[] {
     const next = weeks[c.from];
     items.push({
       title: `Week ${inProgress} is under way`,
-      text: `Once a week's first game kicks off, the team numbers (points per week, team ROS points, positional strength, needs, lineup cost, free-agent moves and trade partners) ${next === undefined ? "have no full week left to count" : `count from the next week, week ${next}`}: lineups are locking and week ${inProgress}'s points are being scored, so it no longer says how good a team is. A player's own ROS points still count his week ${inProgress} game if it hasn't kicked off; one that has shows "Game already started".${c.odds ? ` The playoff odds still play all of week ${inProgress}'s games from projections, as if none had started: live scores aren't read yet, and the rosters and injury news are today's.` : ""}`,
+      text: `Once a week's first game kicks off, the team numbers (points per week, team ROS points, positional strength, needs, lineup cost, free-agent pickups, trade chips and partners) ${next === undefined ? "have no full week left to count" : `count from the next week, week ${next}`}: lineups are locking and week ${inProgress}'s points are being scored, so it no longer says how good a team is. A player's own ROS points still count his week ${inProgress} game if it hasn't kicked off; one that has shows "Game already started".${c.odds ? ` The playoff odds still play all of week ${inProgress}'s games from projections, as if none had started: live scores aren't read yet, and the rosters and injury news are today's.` : ""}`,
     });
   }
   if (c.odds) items.push({ title: "Playoff odds", text: oddsExplainText(c, c.odds) });
@@ -1269,10 +1740,59 @@ function buildExplain(c: ExplainContext): ExplainItem[] {
     },
     {
       title: "Needs, trade chips and partners",
-      text: `A need is a lineup slot where a team's starter is at least ${Math.abs(config.lineups.needZThreshold)} standard deviations below the league median, for the rest of the season or just the next ${config.lineups.strengthWeeks} weeks. A trade chip is a player worth at least ${config.needs.chipMinGap} more lineup points to another team than to his own: what he'd add to that team's lineup, measured after its best free-agent move (so a pickup it could make anyway doesn't count), minus what his own team would lose without him when it can make only one free-agent move (a replacement for him, or the pickup it would make anyway).${excludedText(snapshot)} Trade partners are teams whose trade chips would start for you while yours would start for them; teams with a trade chip who would start for you, when none of yours would start for them, come after them.`,
+      text: `A need is a lineup slot where a team's starter is at least ${Math.abs(config.lineups.needZThreshold)} standard deviations below the league median, for the rest of the season or just the next ${config.lineups.strengthWeeks} weeks. A trade chip is a player worth at least ${config.needs.chipMinGap} more lineup points to another team than to his own: what he'd add to that team's lineup, measured after its free-agent pickups (so a pickup it could make anyway doesn't count, while one his arrival makes possible does), minus what his own team would lose without him.${excludedText(snapshot)} Trade partners are teams whose trade chips would start for you while yours would start for them; teams with a trade chip who would start for you, when none of yours would start for them, come after them.`,
     },
   );
+  // A model built before the planner's addendum has no premiums, so nobody is marked.
+  if (model.teams.some((t) => t.premiums)) items.push({ title: HARDER_TO_GET_TAG, text: harderExplainText() });
   return items;
+}
+
+/**
+ * "Harder to get" in "How these numbers work" (the file header), from config.acceptance.starPremium (tradeView.ts
+ * harderToGetWho: his team's two most valuable players by default, among the top 12), that the chance they accept counts
+ * it, how partner cards lead (with N12's floor, config.needs.bestTargetMin), and that mine are never marked.
+ */
+function harderExplainText(): string {
+  return `Managers value their own best players a bit above their trade value. Another team's player marked ${HARDER_TO_GET_TAG} is ${harderToGetWho("his team's")} (FantasyCalc's, in your league's format), so expect his manager to want a little extra for him: trade ideas count that in the chance they accept. Partner cards lead with their best target: the unmarked player who'd add the most to your lineup, if he adds at least ${bestTargetMinWords()} a week. A marked player who'd add more than any unmarked one is named next, or alone when no unmarked one adds that much (he too has to add at least ${bestTargetMinWords()} a week to lead). Your own players are never marked.`;
+}
+
+/**
+ * "Streaming" in "How these numbers work" (§7 streaming positions): what streaming is, how a streamed slot
+ * counts (the replacement's rank from config.streaming), where it counts, the setting and its default, how
+ * another team is detected, and one streamer per position.
+ */
+function streamingExplainText(snapshot: LeagueSnapshot): string {
+  const platform = snapshot.platform;
+  const s = config.streaming;
+  const defaults = positionsText(POSITIONS.filter((p) => s.defaultPositions.includes(p)), platform);
+  const options = positionsText(POSITIONS.filter((p) => s.streamable.includes(p) && !s.defaultPositions.includes(p)), platform);
+  return `Many managers stream ${positionPlural("K", platform)} and ${positionPlural("DEF", platform)}: each week they pick up whichever free agent is projected highest. A streamed slot counts, each week, the better of the team's own player and the ${ordinal(s.streamRank)}-best free agent at that position that week (other teams stream too), in every team number: points per week, positional strength and needs, lineup cost, trade chips, partners and the playoff odds. You choose the positions you stream in Settings (${defaults} unless you change it${options ? `; ${options} can be added` : ""}). Another team counts as streaming a position once it has made ${s.detectAdds} or more adds there this season; the others count only their own players. A team that starts two at a position still gets one streamer.${streamFlexText(s.streamable, snapshot.settings, platform)}`;
+}
+
+/**
+ * "Free-agent pickups" in "How these numbers work" (§7 V*): how the optimizer picks (one move at a time, the most lineup
+ * points in the lineups it judges moves in: with injuries and byes simulated, so depth counts, when it judges in scenario
+ * lineups, else projected lineups (pickupsJudgedInScenarios; review of Phase 4), at least faMinGain, at most faMaxMoves),
+ * what it never touches, the dynasty guard in dynasty and keeper leagues (only when their dynasty values loaded, as the
+ * engine applies it: benefit.futureValuesLoaded, a dynasty format with values; otherwise the text says the check is
+ * off: review of track A2), that every team number trades are judged by starts from those rosters, and the known
+ * approximation.
+ */
+function pickupsExplainText(snapshot: LeagueSnapshot, model: LeagueModel): string {
+  const o = config.freeAgentOptimizer;
+  const platform = snapshot.platform;
+  const guardOn = model.market.format?.isDynasty === true && model.market.topValue > 0;
+  const dynasty =
+    snapshot.settings.leagueType === "redraft"
+      ? ""
+      : guardOn
+        ? " In a dynasty or keeper league, a player worth clearly more in dynasty value than the free agent is never dropped for him."
+        : " In a dynasty or keeper league, a player worth clearly more in dynasty value than the free agent is normally never dropped for him, but this league's dynasty values didn't load this time, so that check is off.";
+  const most = pickupsJudgedInScenarios(snapshot, model)
+    ? "the most lineup points with injuries and byes simulated (so a backup who'd start when a starter is hurt or on bye counts)"
+    : "the most projected lineup points";
+  return `Each team is measured after the free-agent pickups that would help it, made one at a time: each time the add (dropping a player, or into an open roster spot) that adds ${most}, as long as it adds at least ${o.faMinGain}, up to ${plural(o.faMaxMoves, "pickup")}. ${capitalize(positionPlural("K", platform))} and ${positionPlural("DEF", platform)} are never picked up (they're streamed or kept), nor is a position the team streams, and a player its starting lineup needs is never dropped.${dynasty} Lineup cost, trade chips and partners all start from those rosters, so a trade never gets credit for a pickup a team could make anyway. Each team is measured on its own, so two teams may count on the same free agent.`;
 }
 
 const EXCLUDED_WORDS: Partial<Record<Pos, string>> = { K: "kickers", P: "punters", DEF: "team defenses", DL: "defensive players", LB: "defensive players", DB: "defensive players" };
@@ -1304,10 +1824,10 @@ export function buildLeagueView(input: LeagueViewInput): LeagueView {
   const keeper = snapshot.settings.leagueType === "keeper";
   const values = valuesShown(snapshot.settings, model.market.format);
   const source = projectionSource(snapshot, model);
-  // Lineup points weight playoff weeks (config.lineups.playoffWeight) when any is among the counted weeks.
-  const playoffWeight: number = config.lineups.playoffWeight;
+  // Lineup points weight playoff weeks (the model's: the user's playoff weight setting) when any is among the counted weeks.
+  const playoffWeight: number = model.playoffWeight ?? config.lineups.playoffWeight;
   const playoffWeighted = playoffWeight !== 1 && countedWeeks.some((w) => model.playoffWeeks.includes(w));
-  const weighting = playoffWeighted ? `(playoffs count ${config.lineups.playoffWeight}×)` : null;
+  const weighting = playoffWeighted ? `(playoffs count ${playoffWeight}×)` : null;
   const nowMs = Date.parse(input.now);
   const ctx: PlayerContext = {
     snapshot,
@@ -1316,6 +1836,7 @@ export function buildLeagueView(input: LeagueViewInput): LeagueView {
     now: Number.isFinite(nowMs) ? nowMs : 0,
     playoffWeeks: new Set(model.playoffWeeks),
     hasPlayoffs: model.playoffWeeks.length > 0,
+    myTeamId,
   };
   const stamp = (iso: string) => formatShortDateTime(iso, timeZone, input.now);
 
@@ -1376,26 +1897,14 @@ export function buildLeagueView(input: LeagueViewInput): LeagueView {
   const myOdds = myTeamId && odds ? odds.teams.find((t) => t.teamId === myTeamId) : undefined;
   const eliminated = myOdds?.eliminated === true && snapshot.settings.leagueType === "redraft" ? SEASON_OVER_TEXT : null;
 
-  // Best trade partners (my team only): each side's trade chips, most helpful first (the engine's order).
-  // None once my redraft season is over: the page says no trade helps this year (§8), so it offers none.
-  const partnerPlayer = (p: { playerId: string; ppw: number }): PartnerPlayer => {
-    const info = snapshot.players[p.playerId];
-    const name = info?.name ?? p.playerId;
-    return { id: p.playerId, text: `${shortName(name, info?.pos)} (${fmtSigned(p.ppw, 1)}/wk)`, title: `${name}: ${fmtSigned(p.ppw, 1)} points per week to the other lineup` };
-  };
-  const partnerSide = (players: readonly { playerId: string; ppw: number }[]): PartnerSide => {
-    const shown = Math.max(1, config.needs.chipsShown);
-    const all = players.map(partnerPlayer);
-    const hidden = all.slice(shown);
-    const text = `and ${hidden.length} more`;
-    return { players: all.slice(0, shown), more: hidden.length ? { text, title: hidden.map((p) => p.title).join("\n"), srText: `${text}: ${hidden.map((p) => p.text).join(", ")}` } : null };
-  };
+  // Best trade partners (my team only): who to aim for first, then each side's trade chips, most helpful first (the
+  // engine's order). None once my redraft season is over: the page says no trade helps this year (§8), so it offers none.
   const cards: PartnerCard[] =
     myTeamId && !eliminated
       ? model.partners
           .filter((p) => teamById.has(p.teamId))
           .slice(0, config.needs.partnersShown)
-          .map((p) => ({ teamId: p.teamId, name: teamName(p.teamId), mutual: p.mutual, fitText: p.mutual ? `Fit ${fmtNum(p.score, 1)}` : "Would start for you", theyCanGive: partnerSide(p.theyCanGive), youCanGive: partnerSide(p.youCanGive) }))
+          .map((p) => partnerCard(p, { snapshot, teamModel: teamModelById.get(p.teamId), name: teamName(p.teamId), myTeamId }))
       : [];
   const partnersEmpty = !myTeamId
     ? "Pick your team to see which teams fit you best as trade partners."
@@ -1405,7 +1914,8 @@ export function buildLeagueView(input: LeagueViewInput): LeagueView {
         ? null
         : "No clear fits right now: no team has a trade chip who would start for you.";
 
-  // Rosters: mine first, then the table's order.
+  // Rosters: mine first, then the table's order. Pickups show the gains the optimizer picked them by.
+  const scenarioJudged = pickupsJudgedInScenarios(snapshot, model);
   const rosterOrder = myTeamId ? [myTeamId, ...order.filter((id) => id !== myTeamId)] : order;
   const rosters: RosterCard[] = rosterOrder.map((id) => {
     const team = teamById.get(id) as Team;
@@ -1415,8 +1925,17 @@ export function buildLeagueView(input: LeagueViewInput): LeagueView {
     const taxi = byPositionThenRos(snapshot, team.taxi.map((pid) => playerRow(ctx, pid, "taxi", t)));
     const row = rows.find((r) => r.id === id);
     const summary = row ? `${row.perWeekText} pts/wk · ${row.rosText} ROS pts` : "";
-    return { teamId: id, name: team.name, isMine: id === myTeamId, summary, waiver: freeAgentMove(snapshot, t, weighting), players: [...active, ...ir, ...taxi] };
+    return {
+      teamId: id,
+      name: team.name,
+      isMine: id === myTeamId,
+      summary,
+      streams: model.weeks.length ? streamsText(model, id, snapshot.platform) : null,
+      pickups: freeAgentPickups(snapshot, t, weighting, scenarioJudged),
+      players: [...active, ...ir, ...taxi],
+    };
   });
+  const streaming = streamingView(snapshot, model, myTeamId, teamName, from);
 
   // Free agents: the best few by ROS points at each startable position.
   const startable = POSITIONS.filter((pos) => snapshot.settings.lineup.some((s) => s.count > 0 && s.eligible.includes(pos)));
@@ -1482,10 +2001,11 @@ export function buildLeagueView(input: LeagueViewInput): LeagueView {
     chipLegend: `trade chip: worth at least ${config.needs.chipMinGap} more lineup pts to another team than to his own`,
     heatmap,
     partners: { cards, empty: partnersEmpty },
+    streaming,
     rosters,
     freeAgents,
-    lineupCostTitle: `Rest-of-season lineup points his team would lose without him${playoffWeighted ? `, with playoff weeks counted ${config.lineups.playoffWeight}×` : ""}`,
-    explain: buildExplain({ snapshot, model, values, keeper, source, from, playoffWeighted, odds, schedule: (schedule?.rows.length ?? 0) > 0 }),
+    lineupCostTitle: `Rest-of-season lineup points his team would lose without him${playoffWeighted ? `, with playoff weeks counted ${playoffWeight}×` : ""}`,
+    explain: buildExplain({ snapshot, model, values, keeper, source, from, playoffWeighted, playoffWeight, odds, schedule: (schedule?.rows.length ?? 0) > 0 }),
     sources,
     warnings,
     notes: pageNotes(inputs.notes, values.said),

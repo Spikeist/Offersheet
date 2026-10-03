@@ -8,10 +8,12 @@ import { createElement, isValidElement, type ReactElement, type ReactNode } from
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { config } from "@/engine/config";
+import { defaultTradeSettings, type TradeSettings } from "@/engine/settings";
 import { fmtWhole } from "@/lib/format";
 import { IMPORT_FORMAT_VERSION, type StoredImport } from "@/lib/importStore";
 import { buildLeagueView } from "@/lib/leagueView";
-import { LeagueError, LeagueFrame, LeaguePage, READY_TEXT, UPDATED_TEXT, UPDATING_TEXT, joinInputsRequest, type LeagueFrameState } from "./LeaguePage";
+import { LEAGUE_MODEL_SETTINGS } from "@/lib/settingsStore";
+import { LeagueError, LeagueFrame, LeaguePage, READY_TEXT, UPDATED_TEXT, UPDATING_TEXT, computeTagFor, joinInputsRequest, type LeagueFrameState } from "./LeaguePage";
 import { NOW, leagueFixture } from "./testFixtures";
 
 const f = leagueFixture();
@@ -101,6 +103,49 @@ describe("LeaguePage", () => {
   it("renders the frame's loading status on the server, before it can read this tab's storage", () => {
     const html = renderToStaticMarkup(createElement(LeaguePage));
     expect(html).toMatch(/<p role="status" tabindex="-1"[^>]*><span aria-hidden="true"[^>]*><\/span> Loading your league…<\/p>/);
+  });
+});
+
+describe("computeTagFor: what a League model computation is for (Phase 4 L12: the settings the model reads included)", () => {
+  const base = { snapshot: f.snapshot, builtAt: f.inputs.builtAt, myTeamId: "1", settings: defaultTradeSettings(), attempt: 0 };
+  const tag = computeTagFor(base);
+
+  it("changes with a setting the League model reads, so changing it computes the model again", () => {
+    expect(LEAGUE_MODEL_SETTINGS).toEqual(["streamPositions", "playoffWeight"]);
+    expect(computeTagFor({ ...base, settings: { ...base.settings, streamPositions: ["K", "DEF", "QB"] } })).not.toBe(tag);
+    expect(computeTagFor({ ...base, settings: { ...base.settings, streamPositions: [] } })).not.toBe(tag);
+    expect(computeTagFor({ ...base, settings: { ...base.settings, playoffWeight: 1.5 } })).not.toBe(tag);
+  });
+
+  it("stays the same when only the trade search's settings change: the model would come out the same (review: no needless rebuild)", () => {
+    const tradeOnly: Partial<TradeSettings>[] = [
+      { lambda: 0.8 },
+      { maxPerSide: 3 },
+      { untouchables: ["101"] },
+      { mustInclude: ["202"] },
+      { targetPositions: ["RB"] },
+      { avoidPositions: ["TE"] },
+      { includeKDefIdp: true },
+      { includePicks: true },
+    ];
+    for (const change of tradeOnly) expect(computeTagFor({ ...base, settings: { ...base.settings, ...change } }), JSON.stringify(change)).toBe(tag);
+    // A slider dragged through every step of Win now ↔ Future posts nothing.
+    const lambdas = new Set(Array.from({ length: 21 }, (_, i) => computeTagFor({ ...base, settings: { ...base.settings, lambda: i / 20 } })));
+    expect([...lambdas]).toEqual([tag]);
+  });
+
+  it("stays the same for the same settings in another order, so nothing is computed twice", () => {
+    const a = computeTagFor({ ...base, settings: { ...base.settings, streamPositions: ["DEF", "K", "TE"] } });
+    const b = computeTagFor({ ...base, settings: { ...base.settings, streamPositions: ["TE", "K", "DEF"] } });
+    expect(a).toBe(b);
+    expect(computeTagFor({ ...base, settings: { ...base.settings, streamPositions: ["DEF", "K"] } })).toBe(tag);
+  });
+
+  it("still changes with the league data, the inputs, my team and the attempt", () => {
+    expect(computeTagFor({ ...base, snapshot: { ...f.snapshot, fetchedAt: "2026-11-26T22:30:00.000Z" } })).not.toBe(tag);
+    expect(computeTagFor({ ...base, builtAt: "2026-11-26T22:31:00.000Z" })).not.toBe(tag);
+    expect(computeTagFor({ ...base, myTeamId: null })).not.toBe(tag);
+    expect(computeTagFor({ ...base, attempt: 1 })).not.toBe(tag);
   });
 });
 

@@ -1,0 +1,79 @@
+{
+ "captured": "2026-10-01T00:16:56.568Z",
+ "revisionHours": 24,
+ "vetoVotesRequired": 4,
+ "activatedDate": 1786678114873,
+ "counters": {
+  "1": 0,
+  "2": 0,
+  "3": 0,
+  "4": 0,
+  "5": 0,
+  "6": 1,
+  "7": 0,
+  "8": 0,
+  "9": 0,
+  "10": 1
+ },
+ "rows": [
+  {
+   "id": "c58644f4-b926-43b9-8c77-2da8b44b096f",
+   "type": "TRADE_UPHOLD",
+   "status": "EXECUTED",
+   "relatedTransactionId": "f990cf74-255c-4841-8e53-d4f234c16cd4",
+   "scoringPeriodId": 4,
+   "teamId": 2,
+   "proposedDate": 1790772710257
+  },
+  {
+   "id": "7253e3d7-5177-4e38-8bbd-1113ef3d3322",
+   "type": "TRADE_ACCEPT",
+   "relatedTransactionId": "f990cf74-255c-4841-8e53-d4f234c16cd4",
+   "scoringPeriodId": 4,
+   "teamId": 10,
+   "proposedDate": 1790726893951,
+   "items": [
+    {
+     "playerId": 4429160,
+     "type": "DROP",
+     "fromTeamId": 10,
+     "toTeamId": 0,
+     "fromLineupSlotId": 20,
+     "toLineupSlotId": -1
+    }
+   ]
+  }
+ ],
+ "moved": [
+  {
+   "playerId": 4428331,
+   "from": 10,
+   "to": 6,
+   "lineupSlotId": 23,
+   "acquisitionType": "TRADE",
+   "acquisitionDate": 1790813281139
+  },
+  {
+   "playerId": 4612826,
+   "from": 6,
+   "to": 10,
+   "lineupSlotId": 4,
+   "acquisitionType": "TRADE",
+   "acquisitionDate": 1790813281139
+  },
+  {
+   "playerId": 3042519,
+   "from": 6,
+   "to": 10,
+   "lineupSlotId": 20,
+   "acquisitionType": "TRADE",
+   "acquisitionDate": 1790813281139
+  }
+ ],
+ "dropped": [
+  {
+   "playerId": 4429160,
+   "teamId": 10
+  }
+ ]
+}

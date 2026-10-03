@@ -37,10 +37,18 @@
  *   tiebreakers, a playoff game makes bye and title odds unknown; a bye changes nothing, so it isn't.
  *   Consolation-bracket games are left out.
  * - Transactions: EXECUTED rows only (proposals, declines, cancelled or failed claims and lineup
- *   moves are not roster changes), deduped by id across the per-period requests. A trade answered by
- *   both TRADE_ACCEPT and TRADE_UPHOLD counts once (same proposal, own id or trade legs). An accepted
- *   trade still in review (no status, as seen live, or PENDING) isn't counted; the Import Report says
- *   so, and compares with ESPN's own per-team trade counters (teams[].transactionCounter).
+ *   moves are not roster changes), deduped by id across the per-period requests. Trades follow
+ *   ./trades.ts (Phase 4): rows answering one trade (TRADE_ACCEPT, TRADE_UPHOLD; own id, proposal or
+ *   trade legs) count once; a trade is completed by an EXECUTED accept or by the rosters, never by a
+ *   member's vote (an EXECUTED TRADE_UPHOLD); an accepted trade still in review (no status, as seen
+ *   live, or PENDING) isn't counted, and the Import Report says so; completed trades ESPN lists without
+ *   their players (other teams' trades, and presumably the user's own on a public-link import) are
+ *   rebuilt from the roster entries acquired by trade (`refilled`, with an Import Report note), as are
+ *   trades only the rosters and ESPN's own per-team trade counters (teams[].transactionCounter) show.
+ *   The counters are also compared with the trades listed.
+ * - Move positions (Transaction moves' `pos`, Phase 4: streaming detection counts adds by position):
+ *   ESPN's items carry none, so the player's defaultPositionId where a roster or a free-agent list
+ *   shows him, an ESPN team-defense id, else the single-position lineup slot he left or went to.
  * - Injury return weeks: kona_playercard injuryDetails.expectedReturnDate → NFL week (weeks.ts).
  * - SWIDs: the fetch step replaced them with pseudonyms (fetch.ts); owners and members are matched
  *   in that form, and ctx.swid is the cookie holder's pseudonym. None reaches the snapshot.
@@ -72,7 +80,9 @@ import {
   type EspnPoolPlayer,
   type EspnProTeam,
   type EspnTransaction,
+  type EspnTransactionItem,
 } from "./schema";
+import { TRADE_ROW_TYPES, tradeHistory, type RebuiltTrade, type TradeAcquisition, type TradeMove, type TradeRow } from "./trades";
 import { weekOfCalendarDate, weekOfInstant, weekWindows, type WeekWindow } from "./weeks";
 
 /** CLAUDE.md §4: freeAgents = the top 50 per position by projection (config.import). */
@@ -666,15 +676,6 @@ function matchupResult(m: EspnMatchup, teamA: string, teamB: string | null, unre
 // ---------------------------------------------------------------------------------------------
 // Transactions
 
-/** Keys that identify one trade across its rows: the proposal it answers, its own id, its trade legs, else team + period. */
-function tradeKeys(t: EspnTransaction, legs: string): string[] {
-  const keys = [`tx:${t.id}`];
-  if (t.relatedTransactionId) keys.push(`tx:${t.relatedTransactionId}`);
-  if (legs) keys.push(`legs:${legs}`);
-  if (!t.relatedTransactionId && !legs) keys.push(`team:${t.teamId}@${t.scoringPeriodId}`);
-  return keys;
-}
-
 interface TransactionContext {
   players: PlayerMapper;
   now: Date;
@@ -683,60 +684,137 @@ interface TransactionContext {
   /** ESPN's own count of each team's trades this season (teams[].transactionCounter.trades). */
   tradeCounters: ReadonlyMap<string, number>;
   teamName: (id: string) => string;
+  /** Rostered players whose last acquisition was a trade (the trade refill, ./trades.ts). */
+  acquisitions: TradeAcquisition[];
+  /** settings.tradeSettings.revisionHours. */
+  revisionHours?: number;
+  /** status.activatedDate. */
+  activatedAt?: number;
+  /** The NFL week of an instant (with the NFL schedule). */
+  weekOf?: (ms: number) => number | null;
+  /** A moved player's position (C2): his defaultPositionId where a roster or free-agent list shows him, else hints. */
+  positionOf: (item: EspnTransactionItem) => Pos | undefined;
+}
+
+const isWaitingAccept = (t: EspnTransaction) => t.type === "TRADE_ACCEPT" && (t.status === undefined || t.status === null || t.status === "PENDING");
+
+/** The position a single-position starting slot holds (QB, TQB, K, D/ST …); none for the bench, IR, FLEX-type slots or "none" (−1). */
+function slotPosition(slotId: number | null | undefined): Pos | undefined {
+  if (typeof slotId !== "number" || slotId < 0) return undefined;
+  const s = slotInfo(slotId);
+  return s.starting && s.eligible?.length === 1 ? s.eligible[0] : undefined;
+}
+
+/**
+ * A moved player's position (Transaction moves' `pos`, Phase 4: streaming detection counts adds by
+ * position). ESPN's transaction items carry none (926 of 926 in Parker's league, 2026-10-01), so: his
+ * defaultPositionId where a roster or a free-agent list shows him (fetch.ts asks for up to 500 free
+ * agents per startable position, so a player dropped since is normally there); an ESPN team-defense id,
+ * −(16000 + proTeamId); else the single-position lineup slot he left or went to (a kicker added straight
+ * into the K slot). Unknown otherwise.
+ */
+function movePositions(L: EspnLeague, pool: readonly EspnPoolPlayer[]): (item: EspnTransactionItem) => Pos | undefined {
+  const known = new Map<number, Pos>();
+  const note = (p: { id: number; defaultPositionId: number }) => {
+    const pos = positionOf(p.defaultPositionId).pos;
+    if (pos && !known.has(p.id)) known.set(p.id, pos);
+  };
+  for (const t of L.teams) for (const e of t.roster?.entries ?? []) note(e.playerPoolEntry.player);
+  for (const x of pool) note(x.player);
+  return (item) => {
+    const hit = known.get(item.playerId);
+    if (hit) return hit;
+    const defense = item.playerId < 0 ? ESPN_PRO_TEAMS[-item.playerId - DST_ID_BASE] : undefined;
+    if (defense && defense !== "None") return "DEF";
+    return slotPosition(item.fromLineupSlotId) ?? slotPosition(item.toLineupSlotId);
+  };
+}
+
+/** "Team 6 and Team 10 (week 4)", one-sided: "…, only Team 6's side: the players Team 10 received have left its roster". */
+function rebuiltText(r: RebuiltTrade, teamName: (id: string) => string): string {
+  const [a, b] = r.tx.teams;
+  const side = r.oneSided ? `, only ${teamName(r.oneSided.receivedBy)}'s side: the players ${teamName(r.oneSided.otherSide)} received have left its roster` : "";
+  return `${teamName(a ?? "")} and ${teamName(b ?? "")} (week ${r.tx.week}${side})`;
 }
 
 function transactionsOf(rows: EspnTransaction[], x: TransactionContext): Transaction[] {
   const seen = new Set<string>();
-  const counted = new Set<string>();
-  const inReview: string[][] = [];
   const out: Transaction[] = [];
-  let trades = 0;
-  let tradesWithoutPlayers = 0;
+  const tradeRows: TradeRow[] = [];
+  const movesOf = (t: EspnTransaction): TradeMove[] =>
+    (t.items ?? [])
+      .filter((i) => i.type === "ADD" || i.type === "DROP" || i.type === "TRADE")
+      .map((i) => {
+        const pos = x.positionOf(i);
+        return { playerId: x.players.idForEspnId(i.playerId), from: i.fromTeamId && i.fromTeamId > 0 ? String(i.fromTeamId) : null, to: i.toTeamId && i.toTeamId > 0 ? String(i.toTeamId) : null, ...(pos ? { pos } : {}), trade: i.type === "TRADE" };
+      });
   for (const t of rows) {
     if (seen.has(t.id)) continue;
     seen.add(t.id);
-    const items = t.items ?? [];
-    if (t.status !== "EXECUTED") {
-      // Accepted, but still in the league's review period: ESPN lists it without a status (seen
-      // live 2026-09-29) or, presumably, PENDING. Not a roster change yet.
-      if (t.type === "TRADE_ACCEPT" && (t.status === undefined || t.status === null || t.status === "PENDING")) inReview.push(tradeKeys(t, ""));
+    if (TRADE_ROW_TYPES.has(t.type)) {
+      // Executed, or accepted and still waiting (no status, as seen live 2026-09-29 and 2026-10-01, or PENDING): ./trades.ts decides.
+      if (t.status === "EXECUTED" || isWaitingAccept(t)) tradeRows.push({ row: t, moves: movesOf(t) });
       continue;
     }
+    if (t.status !== "EXECUTED") continue;
+    const items = t.items ?? [];
     let type: Transaction["type"];
     if (t.type === "WAIVER") type = "waiver";
     else if (t.type === "FREEAGENT") type = items.some((i) => i.type === "ADD") ? "add" : "drop";
-    else if (t.type === "TRADE_ACCEPT" || t.type === "TRADE_UPHOLD") type = "trade";
     else continue; // proposals, declines, vetoes, errors, lineup moves
-    const moves = items
-      .filter((i) => i.type === "ADD" || i.type === "DROP" || i.type === "TRADE")
-      .map((i) => ({ playerId: x.players.idForEspnId(i.playerId), from: i.fromTeamId && i.fromTeamId > 0 ? String(i.fromTeamId) : null, to: i.toTeamId && i.toTeamId > 0 ? String(i.toTeamId) : null, trade: i.type === "TRADE" }));
-    if (type === "trade") {
-      // A trade can come back as TRADE_ACCEPT and later TRADE_UPHOLD: count it once.
-      const legs = moves
-        .filter((m) => m.trade)
-        .map((m) => `${m.playerId}:${m.from}>${m.to}`)
-        .sort()
-        .join("|");
-      const keys = tradeKeys(t, legs);
-      const duplicate = keys.some((k) => counted.has(k));
-      for (const k of keys) counted.add(k);
-      if (duplicate) continue;
-      trades++;
-      if (!legs) tradesWithoutPlayers++;
-    }
+    const moves = movesOf(t);
     const teams = new Set<string>([String(t.teamId)]);
     for (const m of moves) for (const id of [m.from, m.to]) if (id) teams.add(id);
     for (const k of Object.keys(t.teamActions ?? {})) teams.add(k);
     const when = t.processDate ?? t.proposedDate;
-    out.push({ id: t.id, type, week: t.scoringPeriodId, timestamp: iso(when ?? x.now.getTime()), teams: [...teams], moves: moves.map(({ playerId, from, to }) => ({ playerId, from, to })) });
+    out.push({ id: t.id, type, week: t.scoringPeriodId, timestamp: iso(when ?? x.now.getTime()), teams: [...teams], moves: moves.map(({ playerId, from, to, pos }) => ({ playerId, from, to, ...(pos ? { pos } : {}) })) });
   }
-  if (trades)
-    x.warnings.push({ code: "ESPN_TRADES_UNVERIFIED", message: `${trades} completed trade(s) found. ESPN's completed-trade rows haven't been checked against a live trade yet, so trade history may be incomplete.`, platformPath: "transactions[type=TRADE_ACCEPT|TRADE_UPHOLD]" });
-  if (tradesWithoutPlayers)
-    x.warnings.push({ code: "ESPN_TRADE_WITHOUT_PLAYERS", message: `${tradesWithoutPlayers} completed trade(s) came back without the players traded (ESPN often hides other teams' trade details), so a trade partner may be missing too.`, platformPath: "transactions[].items" });
 
-  const pending = inReview.filter((keys) => !keys.some((k) => counted.has(k))).length;
+  const history = tradeHistory(tradeRows, x.acquisitions, {
+    now: x.now.getTime(),
+    tradeCounters: x.tradeCounters,
+    ...(x.revisionHours !== undefined ? { revisionHours: x.revisionHours } : {}),
+    ...(x.activatedAt !== undefined ? { activatedAt: x.activatedAt } : {}),
+    ...(x.weekOf ? { weekOf: x.weekOf } : {}),
+  });
+  out.push(...history.trades);
+  if (history.unconfirmed)
+    x.warnings.push({ code: "ESPN_TRADES_UNVERIFIED", message: `${history.unconfirmed} completed trade(s) found that the rosters can't confirm (the players traded aren't on the rosters they went to), so trade history may be incomplete.`, platformPath: "transactions[type=TRADE_ACCEPT|TRADE_UPHOLD]" });
+  if (history.withoutPlayers)
+    x.warnings.push({
+      code: "ESPN_TRADE_WITHOUT_PLAYERS",
+      message: `${history.withoutPlayers} completed trade(s) came back without the players traded (ESPN often hides trade details), and the rosters don't show them either (the players may have been dropped since), so a trade partner may be missing too.`,
+      platformPath: "transactions[].items",
+    });
+  if (history.partnerUnknown.length) {
+    // The rosters do show these trades (not "the rosters don't show them"): only the team that sent the players is unknown.
+    const [first, ...rest] = history.partnerUnknown;
+    const found = history.partnerUnknown.map((p) => `${x.teamName(p.receivedBy)} in week ${p.tx.week}`);
+    x.warnings.push({
+      code: "ESPN_TRADE_PARTNER_UNKNOWN",
+      message:
+        first && !rest.length
+          ? `1 completed trade came back without the players traded (ESPN often hides trade details). The rosters show that ${x.teamName(first.receivedBy)} received players by trade in week ${first.tx.week}, but not which team it traded with, so the trade is listed without its partner.`
+          : `${history.partnerUnknown.length} completed trades came back without the players traded (ESPN often hides trade details). The rosters show which teams received players by trade (${found.join("; ")}), but not which team each traded with, so those trades are listed without their partners.`,
+      platformPath: "teams[].roster.entries[].acquisitionType",
+    });
+  }
+  const fromRows = history.rebuilt.filter((r) => r.source === "rows");
+  if (fromRows.length)
+    x.notes.push(
+      `Trades rebuilt from the rosters: ESPN lists ${plural(fromRows.length, "trade")} without the players traded, so the players come from the rosters (each one's roster entry says he was acquired by trade the moment the trade went through): ${fromRows.map((r) => rebuiltText(r, x.teamName)).join("; ")}.`,
+    );
+  const fromRosters = history.rebuilt.filter((r) => r.source === "rosters");
+  if (fromRosters.length) {
+    const one = fromRosters.length === 1;
+    x.notes.push(`Trades only the rosters show: ${plural(fromRosters.length, "trade")} ${one ? "isn't" : "aren't"} in ESPN's transaction list, but the rosters (players acquired by trade at one instant) and ESPN's own trade counters show ${one ? "it" : "them"}: ${fromRosters.map((r) => rebuiltText(r, x.teamName)).join("; ")}.`);
+  }
+  const pending = history.pending;
   if (pending) x.notes.push(`${pending === 1 ? "1 accepted trade is" : `${pending} accepted trades are`} still in the league's review period, so ${pending === 1 ? "it isn't" : "they aren't"} counted yet.`);
+  if (history.unresolved) {
+    const one = history.unresolved === 1;
+    x.notes.push(`${plural(history.unresolved, "accepted trade")} ${one ? "is" : "are"} past ${one ? "its" : "their"} review period but ${one ? "doesn't" : "don't"} show on the rosters (vetoed, or the players dropped since), so ${one ? "it isn't" : "they aren't"} counted.`);
+  }
 
   // ESPN's own per-team trade counters vs the completed trades listed.
   const listed = new Map<string, number>();
@@ -920,7 +998,30 @@ export function normalizeEspnLeague(raw: EspnRawBundle, ctx: EspnNormalizeContex
   const teamNames = new Map(teams.map((t) => [t.id, t.name]));
   const tradeCounters = new Map<string, number>();
   for (const t of L.teams) if (typeof t.transactionCounter?.trades === "number") tradeCounters.set(String(t.id), t.transactionCounter.trades);
-  const transactions = transactionsOf(txRows, { players, now: ctx.now, warnings, notes, tradeCounters, teamName: (id) => teamNames.get(id) ?? `Team ${id}` });
+  // The trade refill's evidence: every rostered player whose last acquisition was a trade.
+  const acquisitions: TradeAcquisition[] = [];
+  for (const t of L.teams)
+    for (const e of t.roster?.entries ?? []) {
+      if (e.acquisitionType !== "TRADE" || typeof e.acquisitionDate !== "number" || !Number.isFinite(e.acquisitionDate)) continue;
+      const info = players.info(e.playerPoolEntry.player);
+      if (info) acquisitions.push({ playerId: info.id, teamId: String(t.id), at: e.acquisitionDate, pos: info.pos });
+    }
+  const windows = proTeams ? weekWindows(proTeams) : [];
+  const revisionHours = L.settings.tradeSettings.revisionHours ?? undefined;
+  const activatedAt = L.status.activatedDate ?? undefined;
+  const transactions = transactionsOf(txRows, {
+    players,
+    now: ctx.now,
+    warnings,
+    notes,
+    tradeCounters,
+    teamName: (id) => teamNames.get(id) ?? `Team ${id}`,
+    acquisitions,
+    ...(revisionHours !== undefined ? { revisionHours } : {}),
+    ...(activatedAt !== undefined ? { activatedAt } : {}),
+    ...(windows.length ? { weekOf: (ms: number) => weekOfInstant(ms, windows) } : {}),
+    positionOf: movePositions(L, pool),
+  });
 
   // Position and ID warnings.
   const sk = players.skipped;

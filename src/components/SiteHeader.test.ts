@@ -1,8 +1,9 @@
 /**
  * The site header (CLAUDE.md §14: mobile-first at 375 px): the main nav in the order you use the
- * pages, the page you're on marked for screen readers (aria-current) and visibly, 44 px targets, and
- * a phone layout that keeps the header on one row. Static render (first render only), with
- * usePathname mocked.
+ * pages (the Trade Finder after the League page: Phase 4 wave 2), then Settings (§14 item 6), the page
+ * you're on marked for screen readers (aria-current) and visibly, 44 px targets, and a phone layout
+ * that wraps rather than overflows, with a shorter "Report" label and tighter links below sm so the
+ * five links keep one row at 375 px. Static render (first render only), with usePathname mocked.
  */
 import { createElement, type ComponentProps } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -89,19 +90,23 @@ describe("NavLink", () => {
 });
 
 describe("SiteHeader", () => {
-  it("links Connect, Import report and League, in the order you use them", () => {
+  it("links Connect, Import report, League and Trades, in the order you use them, then Settings", () => {
     const nav = navLinks(headerAt("/"));
-    expect(nav.map((l) => [l.href, l.text])).toEqual([
-      ["/connect", "Connect"],
-      ["/import", "Import report"],
-      ["/league", "League"],
-    ]);
+    expect(nav.map((l) => l.href)).toEqual(["/connect", "/import", "/league", "/trades", "/settings"]);
+    expect(nav.map((l) => l.text)).toEqual(["Connect", "Report Import report", "League", "Trades", "Settings"]);
+  });
+
+  it("says 'Report' on phones and 'Import report' from sm up: only one shows, so it's the link's name", () => {
+    const report = navLinks(headerAt("/")).find((l) => l.href === "/import");
+    expect(report?.inner).toBe('<span class="sm:hidden">Report</span><span class="hidden sm:inline">Import report</span>');
   });
 
   it.each([
     ["/connect", "/connect"],
     ["/import", "/import"],
     ["/league", "/league"],
+    ["/trades", "/trades"],
+    ["/settings", "/settings"],
   ])("on %s, marks only that page's link as current", (pathname, href) => {
     const nav = navLinks(headerAt(pathname));
     expect(nav.filter((l) => l.current).map((l) => [l.href, l.current])).toEqual([[href, "page"]]);
@@ -109,6 +114,15 @@ describe("SiteHeader", () => {
 
   it("marks no nav link on pages outside the nav (home, privacy)", () => {
     for (const pathname of ["/", "/privacy"]) expect(navLinks(headerAt(pathname)).some((l) => l.current)).toBe(false);
+  });
+
+  it("marks Trades as the current section on the Trade Analyzer (reached from the Trade Finder), not as the page", () => {
+    for (const pathname of ["/analyzer", "/analyzer/"]) {
+      const nav = navLinks(headerAt(pathname));
+      expect(nav.filter((l) => l.current).map((l) => [l.href, l.current])).toEqual([["/trades", "true"]]);
+      expect(nav.find((l) => l.href === "/trades")?.classes).toEqual(expect.arrayContaining(["underline", "decoration-accent"]));
+    }
+    expect(navLinks(headerAt("/analyzers")).some((l) => l.current)).toBe(false);
   });
 
   it("keeps 'Offer Sheet' as the home link's name while phones show only the mark", () => {
@@ -120,8 +134,15 @@ describe("SiteHeader", () => {
 
   it("gives every link a 44 px tap target", () => {
     const all = links(headerAt("/league"));
-    expect(all).toHaveLength(4);
+    expect(all).toHaveLength(6);
     for (const l of all) expect(l.classes).toContain("min-h-11");
+  });
+
+  it("sets the links closer together on phones so five fit one row at 375 px, and as before from sm up", () => {
+    const html = headerAt("/");
+    for (const l of navLinks(html)) expect(l.classes).toEqual(expect.arrayContaining(["px-2", "sm:px-2.5"]));
+    const nav = /<nav aria-label="Main" class="([^"]*)">/.exec(html)?.[1]?.split(" ");
+    expect(nav).toEqual(expect.arrayContaining(["gap-0.5", "sm:gap-1"]));
   });
 
   it("drops the nav to a second row rather than overflow on a narrow screen", () => {

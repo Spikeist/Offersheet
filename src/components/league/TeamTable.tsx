@@ -1,13 +1,16 @@
 /**
  * The League page's team table (CLAUDE.md §14 item 3): teams ranked by projected points per week,
  * with record, points for, rest-of-season points, and need and trade-chip chips (§7; the "Surplus"
- * chips became "Trade chips" at Checkpoint 2). On phones the chips sit under the team name (a long
- * chip wraps inside itself) and PF / ROS pts are hidden, so nothing scrolls sideways at 375 px. Team
- * names and chips (which name a team) wrap anywhere if they must (wrap-anywhere: unlike break-words, it
- * lets a long one-word team name shrink the column's minimum width). The note under it says which weeks
- * the numbers count (from the next week while one is in progress).
+ * chips became "Trade chips" at Checkpoint 2; since Checkpoint 3 a trade chip also says what he costs
+ * his team per week, with a visible "starter" tag when he starts for it). On phones the chips sit under
+ * the team name (a long chip wraps inside itself) and PF / ROS pts are hidden, so nothing scrolls
+ * sideways at 375 px. Team names and chips (which name a team) wrap anywhere if they must
+ * (wrap-anywhere: unlike break-words, it lets a long one-word team name shrink the column's minimum
+ * width). The note under it says which weeks the numbers count (from the next week while one is in
+ * progress). Another team's trade chip his manager would want a little extra for also carries a gold "Harder to get"
+ * tag (planner addendum to Checkpoint 3, §2), in words like "starter", and the key explains it when one shows.
  */
-import type { Chip, LeagueView } from "@/lib/leagueView";
+import { HARDER_TO_GET_TAG, STARTER_TAG, type Chip, type ChipTag as ChipTagView, type LeagueView } from "@/lib/leagueView";
 import { Badge, Card, CardTitle, cx } from "../ui";
 import { ValuesCredit } from "./ValuesCredit";
 
@@ -17,22 +20,38 @@ const CHIP_CLASS: Record<Chip["kind"], string> = {
   chip: "border border-transparent bg-brand-soft text-brand-strong dark:text-brand",
 };
 
-/** One chip: short visible text, the full detail on hover and for screen readers. */
+/** A chip's visible tags ("starter", "Harder to get"): small solid pills inside the chip, text rather than color alone. */
+const TAG_BASE = "ml-1 inline-block rounded-full px-1.5 text-[0.65rem] leading-4 font-extrabold tracking-wide whitespace-nowrap uppercase";
+const TAG_CLASS: Record<ChipTagView["kind"], string> = {
+  starter: cx(TAG_BASE, "bg-brand text-brand-contrast"),
+  harder: cx(TAG_BASE, "bg-accent text-navy"),
+};
+
+/** One chip: short visible text (and its tags), the full detail on hover and for screen readers (the title says each tag in words). */
 export function ChipTag({ chip }: { chip: Chip }) {
   return (
     <span title={chip.title} className={cx("inline-block max-w-full rounded-full px-2 py-0.5 text-xs font-bold wrap-anywhere", CHIP_CLASS[chip.kind])}>
-      <span aria-hidden>{chip.text}</span>
+      <span aria-hidden>
+        {chip.text}
+        {chip.tags.map((t) => (
+          <span key={t.kind} className={TAG_CLASS[t.kind]}>
+            {t.text}
+          </span>
+        ))}
+      </span>
       <span className="sr-only">{chip.title}</span>
     </span>
   );
 }
 
-function LegendItem({ kind, sample, text }: { kind: Chip["kind"]; sample: string; text: string }) {
+function LegendItem({ kind, sample, tag, text }: { kind: Chip["kind"]; sample: string; tag?: ChipTagView; text: string }) {
   return (
     <li className="inline-flex items-center gap-1.5">
       <span aria-hidden className={cx("inline-flex items-center rounded-full px-2 py-0.5 font-bold whitespace-nowrap", CHIP_CLASS[kind])}>
         {sample}
+        {tag ? <span className={TAG_CLASS[tag.kind]}>{tag.text}</span> : null}
       </span>
+      {tag ? <span className="sr-only">{tag.text} tag: </span> : null}
       {text}
     </li>
   );
@@ -52,6 +71,7 @@ function ChipLine({ label, chips }: { label: string; chips: Chip[] }) {
 
 export function TeamTable({ view }: { view: LeagueView }) {
   const nextLabel = view.heatmap.windowLabel.next.toLowerCase();
+  const harderShown = view.teams.some((t) => t.chips.some((c) => c.tags.some((g) => g.kind === "harder")));
   return (
     <Card>
       <CardTitle eyebrow="Teams">Projected strength</CardTitle>
@@ -105,6 +125,8 @@ export function TeamTable({ view }: { view: LeagueView }) {
         <LegendItem kind="need-ros" sample="RB2" text="need, rest of season" />
         <LegendItem kind="need-next" sample="RB2" text={`need, ${nextLabel} only`} />
         <LegendItem kind="chip" sample="J. Doe: +12" text={view.chipLegend} />
+        <LegendItem kind="chip" sample="J. Doe" tag={{ text: STARTER_TAG, kind: "starter" }} text="he starts for his own team" />
+        {harderShown ? <LegendItem kind="chip" sample="J. Doe" tag={{ text: HARDER_TO_GET_TAG, kind: "harder" }} text="his manager will likely want a little extra for him" /> : null}
       </ul>
       <p className="mt-2 text-xs text-muted">
         {view.teamsNote} <ValuesCredit />

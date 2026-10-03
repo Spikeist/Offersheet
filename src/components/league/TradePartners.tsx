@@ -1,22 +1,32 @@
 /**
  * Best trade partners for the user's team (CLAUDE.md §7, §14 item 3): teams whose trade chips would
  * start for the user while the user's trade chips would start for them; then one-sided fits, badged by
- * what was measured ("Would start for you"), not by the user's needs. Each side lists its first few
- * chips by what they'd add per week, and says how many more there are (hover lists them; screen
- * readers hear them).
+ * what was measured ("Would start for you"), not by the user's needs. Each card leads with who to aim for
+ * (planner addendum to Checkpoint 3, §2; lead decision N12): "Best target: <their best trade chip without the
+ * Harder to get tag, when he adds at least config.needs.bestTargetMin a week>, +3.1/wk", and "Bigger upgrade,
+ * harder to get: <him>, +7.5/wk" when the single best one is tagged (alone, as "Best target, harder to get",
+ * when no untagged one adds that much); the note under the cards says so (BEST_TARGET_NOTE).
+ * Then each side lists its other chips by what they'd add per week, and says how many more there are
+ * (hover lists them; screen readers hear them), their tagged players marked "Harder to get" in words. Each
+ * card links to the Trade Finder with that team picked (Phase 4 wave 2 decision M13), where the trade
+ * search turns the fit into ranked trade ideas. The link carries the team's id in its address, so it's
+ * never prefetched: the server sees that address only when the user opens it.
  */
 import Link from "next/link";
-import type { LeagueView, PartnerSide } from "@/lib/leagueView";
-import { Badge, Card, CardTitle } from "../ui";
+import { BEST_TARGET_NOTE, type LeagueView, type PartnerSide, type PartnerTarget } from "@/lib/leagueView";
+import { finderHref } from "@/lib/tradeView";
+import { Badge, Card, CardTitle, buttonClass, cx } from "../ui";
+import { HarderToGetBadge } from "./HarderToGetBadge";
 
-function PlayerList({ label, side }: { label: string; side: PartnerSide }) {
+function PlayerList({ side }: { side: PartnerSide }) {
   return (
     <p className="mt-1.5 text-sm leading-relaxed">
-      <span className="font-semibold text-muted">{label}</span>{" "}
+      <span className="font-semibold text-muted">{side.label}</span>{" "}
       {side.players.map((p, i) => (
         <span key={p.id} title={p.title}>
           {i ? ", " : ""}
           {p.text}
+          {p.tag ? <HarderToGetBadge tag={p.tag} className="ml-1" /> : null}
         </span>
       ))}
       {side.more ? (
@@ -26,6 +36,21 @@ function PlayerList({ label, side }: { label: string; side: PartnerSide }) {
           <span className="sr-only">{side.more.srText}</span>
         </span>
       ) : null}
+    </p>
+  );
+}
+
+/**
+ * A lead line: "Best target: C. Snoot, +2.1/wk" (the label says when he's harder to get). The name and the number each
+ * stay on one line: at 375 px "J. Smith-Njigba" broke at its hyphen.
+ */
+function TargetLine({ target }: { target: PartnerTarget }) {
+  return (
+    <p className="mt-1.5 text-sm leading-relaxed" title={target.title}>
+      <span className="font-semibold text-muted">{target.label}:</span>{" "}
+      <span className="font-bold">
+        <span className="whitespace-nowrap">{target.name},</span> <span className="whitespace-nowrap">{target.perWeek}</span>
+      </span>
     </p>
   );
 }
@@ -59,21 +84,27 @@ export function TradePartners({ view }: { view: LeagueView }) {
                     {c.fitText}
                   </Badge>
                 </div>
-                <PlayerList label="They could give:" side={c.theyCanGive} />
+                {c.targets.map((t) => (
+                  <TargetLine key={t.id} target={t} />
+                ))}
+                {c.theyCanGive.players.length ? <PlayerList side={c.theyCanGive} /> : null}
                 {c.youCanGive.players.length ? (
-                  <PlayerList label="You could give:" side={c.youCanGive} />
+                  <PlayerList side={c.youCanGive} />
                 ) : (
                   <p className="mt-1.5 text-sm leading-relaxed text-muted">
                     <span className="font-semibold">You could give:</span> no trade chip that would start for them, so a trade would likely cost you a starter.
                   </p>
                 )}
+                <Link href={finderHref(c.teamId)} prefetch={false} className={cx(buttonClass("secondary", "sm"), "mt-2 min-h-11")}>
+                  Trade ideas<span className="sr-only"> with {c.name}</span>
+                </Link>
               </li>
             ))}
           </ul>
           <p className="mt-3 text-xs text-muted">
-            Points per week are what each trade chip would add to the other team&apos;s starting lineup, after that team&apos;s best free-agent move. Fit combines both
-            directions; teams with a trade chip who would start for you, when none of yours would start for them, come last. Trade ideas with acceptance odds come in a
-            later update.
+            Points per week are what each trade chip would add to the other team&apos;s starting lineup, after that team&apos;s free-agent pickups. Fit combines both
+            directions; teams with a trade chip who would start for you, when none of yours would start for them, come last. {BEST_TARGET_NOTE} &ldquo;Trade
+            ideas&rdquo; opens the Trade Finder for that team: actual trades, ranked by how much they help you and how likely that team is to say yes.
           </p>
         </>
       )}

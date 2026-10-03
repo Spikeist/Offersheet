@@ -1,0 +1,374 @@
+import { describe, expect, it } from "vitest";
+import { marketTermPackage, tradePackage } from "./benefit";
+import { config } from "./config";
+import { NO_TEAM_NOTE, assetValue, buildTradeContext, evaluateExact, simCounts, simulateTrade, tradeInternals, type ExactTrade, type TeamState } from "./evaluate";
+import { rankTrades } from "./rank";
+import { belowWaiverCredit, buildPools, finalistsOf, partnerCandidates, rankCaps, runTradeSearch, shortlistOf, tradeSearch, type TradeSearchOptions } from "./search";
+import { defaultTradeSettings, type TradeSettings } from "./settings";
+import { TEST_NOW } from "./testLeague";
+import { handLeague, smallLeague } from "./trade.testing";
+import type { TradeEvaluation, TradeSearchProgress, TradeSearchResult } from "./tradeModel";
+
+const league = smallLeague(11);
+const ctx = buildTradeContext(league.snapshot, league.inputs, { now: TEST_NOW, scenarios: 8 });
+const I = tradeInternals(ctx);
+const me = I.me as TeamState;
+
+const settingsWith = (x: Partial<TradeSettings>): TradeSettings => ({ ...defaultTradeSettings(), ...x });
+const ids = (t: TradeEvaluation, side: "give" | "get") => t.proposal[side].flatMap((a) => (a.kind === "player" ? [a.id] : []));
+const pos = (id: string) => league.snapshot.players[id]?.pos;
+
+/** The whole search once (shared): its result and progress, timed by a counting clock. */
+let full: { result: TradeSearchResult; progress: TradeSearchProgress[] } | null = null;
+function fullSearch() {
+  if (!full) {
+    let tick = 0;
+    const progress: TradeSearchProgress[] = [];
+    const result = runTradeSearch(ctx, { clock: () => tick++ }, (p) => progress.push(p));
+    full = { result, progress };
+  }
+  return full;
+}
+
+const search = (opts: TradeSearchOptions) => runTradeSearch(ctx, opts);
+
+describe("the trade search (§12; M6–M8)", () => {
+  it("returns at most resultsShown finished trades: final stage, finalSims seasons, B > 0, not hidden, Overall order, with words", () => {
+    const { result } = fullSearch();
+    expect(result.myTeamId).toBe(me.id);
+    expect(result.trades.length).toBeGreaterThan(0);
+    expect(result.trades.length).toBeLessThanOrEqual(config.search.resultsShown);
+    const eg = (t: TradeEvaluation) => (t.b as number) * t.pComplete;
+    result.trades.forEach((t, i) => {
+      expect(t.stage).toBe("final");
+      expect(t.sims).toBe(simCounts().final);
+      expect(t.illegal).toBeNull();
+      expect(t.b).toBeGreaterThan(0);
+      expect(t.flags.hiddenByMarket).toBe(false);
+      expect(t.reasons.length).toBeGreaterThan(0);
+      expect(t.pitch.length).toBeGreaterThan(0);
+      if (i > 0) expect(eg(result.trades[i - 1] as TradeEvaluation)).toBeGreaterThanOrEqual(eg(t) - 1e-12);
+    });
+    expect(result.baseline.pPlayoffs).toBe(I.sim?.base.final.pPlayoffs);
+    expect(result.notes).toContain("Kickers and D/STs are left out; turn them on in Settings.");
+  });
+
+  it("every trade: active-roster players, at most maxPerSide a side, no K or D/ST by default, g_mkt(P) inside the screening window", () => {
+    const { result } = fullSearch();
+    const [lo, hi] = config.search.screeningGWindow;
+    for (const t of result.trades) {
+      const partner = I.byId.get(t.proposal.partnerId) as TeamState;
+      expect(ids(t, "give").every((id) => me.roster.includes(id))).toBe(true);
+      expect(ids(t, "get").every((id) => partner.roster.includes(id))).toBe(true);
+      expect(ids(t, "give").length).toBeLessThanOrEqual(2);
+      expect(ids(t, "get").length).toBeLessThanOrEqual(2);
+      expect([...ids(t, "give"), ...ids(t, "get")].some((id) => pos(id) === "K" || pos(id) === "DEF")).toBe(false);
+      expect(t.gPartner).toBeGreaterThanOrEqual(lo - 1e-9);
+      expect(t.gPartner).toBeLessThanOrEqual(hi + 1e-9);
+    }
+  });
+
+  it("counts and timings per stage", () => {
+    const { result } = fullSearch();
+    const c = result.counts;
+    expect(c.screened).toBeGreaterThanOrEqual(c.exact);
+    expect(c.exact).toBeGreaterThan(0);
+    expect(c.exact).toBeLessThanOrEqual(config.search.exactEvaluationMax);
+    expect(c.simScreen).toBe(c.exact);
+    expect(c.simFinal).toBeLessThanOrEqual(config.search.finalists);
+    expect(c.simFinal).toBeGreaterThanOrEqual(result.trades.length);
+    expect(Object.keys(result.timings)).toEqual(["setup", "screening", "exact", "simScreen", "simFinal", "rank", "steps", "total"]);
+    // Without a clock, no timings.
+    expect(search({ partnerId: "2", settings: settingsWith({ maxPerSide: 1 }) }).timings).toEqual({});
+  });
+
+  it("progress: the stages in order, done never above total, ending with the ranking (one unit per shown trade's steps)", () => {
+    const { progress, result } = fullSearch();
+    const order = ["setup", "screening", "exact", "simScreen", "simFinal", "rank"];
+    let at = 0;
+    for (const p of progress) {
+      const k = order.indexOf(p.stage);
+      expect(k).toBeGreaterThanOrEqual(at);
+      at = k;
+      expect(p.done).toBeLessThanOrEqual(p.total);
+    }
+    expect(new Set(progress.map((p) => p.stage)).size).toBe(order.length);
+    const n = Math.max(1, result.trades.length);
+    expect(progress.at(-1)).toEqual({ stage: "rank", done: n, total: n });
+  });
+
+  it("is deterministic: the same context and options (or a fresh context) give the same result", () => {
+    const opts: TradeSearchOptions = { partnerId: "3", settings: settingsWith({ maxPerSide: 2 }) };
+    const a = search(opts);
+    expect(search(opts)).toEqual(a);
+    const fresh = buildTradeContext(league.snapshot, league.inputs, { now: TEST_NOW, scenarios: 8 });
+    expect(runTradeSearch(fresh, opts)).toEqual(a);
+  });
+
+  it("a context that stops the search (no team): no trades, the context's notes, nothing counted", () => {
+    const none = buildTradeContext({ ...league.snapshot, myTeamId: null }, league.inputs, { now: TEST_NOW, scenarios: 0 });
+    const progress: TradeSearchProgress[] = [];
+    const r = runTradeSearch(none, {}, (p) => progress.push(p));
+    expect(r.trades).toEqual([]);
+    expect(r.notes).toEqual([NO_TEAM_NOTE]);
+    expect(r.counts).toEqual({ screened: 0, exact: 0, simScreen: 0, simFinal: 0 });
+    expect(r.baseline).toEqual({ pPlayoffs: null, pTitle: null, expWins: null });
+    expect(progress).toEqual([{ stage: "setup", done: 0, total: 1 }]);
+  });
+
+  it("the generator can be stopped between steps", () => {
+    const it = tradeSearch(ctx, { partnerId: "2" });
+    expect(it.next().value).toEqual({ stage: "setup", done: 0, total: 1 });
+    expect(it.return({} as TradeSearchResult).done).toBe(true);
+  });
+});
+
+describe("pools and settings (M6)", () => {
+  it("a partner filter searches that team only; maxPerSide 1 gives 1-for-1s only", () => {
+    const r = search({ partnerId: "2", settings: settingsWith({ maxPerSide: 1 }) });
+    expect(r.trades.length).toBeGreaterThan(0);
+    for (const t of r.trades) {
+      expect(t.proposal.partnerId).toBe("2");
+      expect(ids(t, "give")).toHaveLength(1);
+      expect(ids(t, "get")).toHaveLength(1);
+    }
+  });
+
+  it("untouchables are never offered", () => {
+    const base = search({ partnerId: "4", settings: settingsWith({ maxPerSide: 1 }) });
+    const offered = [...new Set(base.trades.flatMap((t) => ids(t, "give")))];
+    expect(offered.length).toBeGreaterThan(0);
+    const r = search({ partnerId: "4", settings: settingsWith({ maxPerSide: 1, untouchables: offered }) });
+    for (const t of r.trades) for (const id of ids(t, "give")) expect(offered).not.toContain(id);
+  });
+
+  it("my must-include player is in every trade, even when also untouchable; theirs picks the partner", () => {
+    const base = search({ partnerId: "2", settings: settingsWith({ maxPerSide: 1 }) });
+    const mine = ids(base.trades[0] as TradeEvaluation, "give")[0] as string;
+    for (const s of [settingsWith({ maxPerSide: 1, mustInclude: [mine] }), settingsWith({ maxPerSide: 1, mustInclude: [mine], untouchables: [mine] })]) {
+      const r = search({ partnerId: "2", settings: s });
+      expect(r.trades.length).toBeGreaterThan(0);
+      for (const t of r.trades) expect(ids(t, "give")).toContain(mine);
+    }
+    const theirs = (I.byId.get("5") as TeamState).roster.find((id) => pos(id) === "WR") as string;
+    const r = search({ settings: settingsWith({ maxPerSide: 1, mustInclude: [theirs] }) });
+    expect(r.counts.exact).toBeGreaterThan(0);
+    for (const t of r.trades) {
+      expect(t.proposal.partnerId).toBe("5");
+      expect(ids(t, "get")).toEqual([theirs]);
+    }
+  });
+
+  it("must-include problems: players on two other teams (no trades), on no roster (ignored), another team than the filter", () => {
+    const a = (I.byId.get("2") as TeamState).roster[0] as string;
+    const b = (I.byId.get("3") as TeamState).roster[0] as string;
+    const two = search({ settings: settingsWith({ mustInclude: [a, b] }) });
+    expect(two.trades).toEqual([]);
+    expect(two.notes).toContain("Your must-include players are on different teams, and a trade is with one team, so no trade can include them all.");
+    const ghost = search({ partnerId: "2", settings: settingsWith({ maxPerSide: 1, mustInclude: ["nobody"] }) });
+    expect(ghost.notes).toContain("1 must-include player isn't on any team's active roster, so it's ignored.");
+    expect(ghost.trades.length).toBeGreaterThan(0);
+    const other = search({ partnerId: "3", settings: settingsWith({ mustInclude: [a] }) });
+    expect(other.trades).toEqual([]);
+    expect(other.notes).toContain("Your must-include players are on another team than the one you picked, so no trade with this team can include them.");
+  });
+
+  it("the planner's get pool (addendum to Checkpoint 3, §2): the top 10 players not tagged \"Harder to get\" plus the top 3 tagged", () => {
+    expect(config.search.getPool).toBe(10);
+    expect(config.search.getPoolTagged).toBe(3);
+  });
+
+  it("target and avoid positions shape what I get", () => {
+    const wr = search({ partnerId: "2", settings: settingsWith({ maxPerSide: 1, targetPositions: ["WR"] }) });
+    expect(wr.counts.exact).toBeGreaterThan(0);
+    for (const t of wr.trades) for (const id of ids(t, "get")) expect(pos(id)).toBe("WR");
+    const noRb = search({ partnerId: "2", settings: settingsWith({ maxPerSide: 1, avoidPositions: ["RB"] }) });
+    expect(noRb.counts.exact).toBeGreaterThan(0);
+    for (const t of noRb.trades) for (const id of ids(t, "get")) expect(pos(id)).not.toBe("RB");
+  });
+
+  it("notes: K/D/ST left out unless included; picks deferred in dynasty and keeper leagues only", () => {
+    const opts = { partnerId: "2", settings: settingsWith({ maxPerSide: 1 }) };
+    expect(search(opts).notes).toContain("Kickers and D/STs are left out; turn them on in Settings.");
+    expect(search({ ...opts, settings: settingsWith({ maxPerSide: 1, includeKDefIdp: true }) }).notes).not.toContain("Kickers and D/STs are left out; turn them on in Settings.");
+    expect(search({ ...opts, settings: settingsWith({ maxPerSide: 1, includePicks: true }) }).notes).not.toContain("Draft picks aren't part of trade ideas yet.");
+    const dynasty = smallLeague(11, { leagueType: "dynasty" });
+    const dctx = buildTradeContext(dynasty.snapshot, dynasty.inputs, { now: TEST_NOW, scenarios: 0 });
+    const notes = runTradeSearch(dctx, { ...opts, settings: settingsWith({ maxPerSide: 1, includePicks: true }) }).notes;
+    expect(notes).toContain("Draft picks aren't part of trade ideas yet.");
+    // This test league's values are redraft values: B counts this season only, and says so once.
+    expect(notes).toContain("Long-term trade values aren't available, so “Helps you” counts this season only.");
+  });
+});
+
+describe("\"Protect my trade value\" per call (planner addendum to Checkpoint 3, §3; review of the addendum, engine finding 4)", () => {
+  it("the search reads the call's level, not the context's: the same result as a context built with that level", () => {
+    // The shared context was built with the default settings (medium); a cached context in the worker can hold older ones.
+    expect(I.settings.protectValue).toBe("medium");
+    const high = settingsWith({ protectValue: "high" });
+    const ctxHigh = buildTradeContext(league.snapshot, league.inputs, { now: TEST_NOW, scenarios: 8, settings: high });
+    const r = search({ settings: high });
+    expect(r).toEqual(runTradeSearch(ctxHigh, { settings: high }));
+    expect(r.trades.length).toBeGreaterThan(0);
+    const [lo, hi] = config.benefit.marketSanityClamp;
+    // B's market term reads my g with what I give at max(v, W) (lead decision N10); the card's g_mkt(me) stays raw.
+    const termG = (t: TradeEvaluation) => marketTermPackage({ players: ids(t, "get") }, { players: ids(t, "give") }, I.values, I.credit).g;
+    for (const t of r.trades) {
+      expect(t.b as number).toBeCloseTo((t.bWin as number) + config.benefit.protectValue.high * Math.min(hi, Math.max(lo, termG(t))), 12);
+      expect(t.gMine).toBe(tradePackage({ players: ids(t, "get") }, { players: ids(t, "give") }, I.values, I.credit).g);
+    }
+    // The level moves trades in and out: at high, more of the evaluated trades stop helping (B ≤ 0) and are hidden.
+    expect(r.hidden.byBenefit).toBeGreaterThan(fullSearch().result.hidden.byBenefit);
+  });
+});
+
+describe("B's market term in both of the search's simulations: what I give at max(v, W) (lead decision N10; end-of-Phase-4 review)", () => {
+  // The hand league (W = 900, the free-agent QB's value) with my bench RB (worth 420, below W) in every trade, a
+  // must-include player of mine; Team 4 only, so at most keptPerPartner exact trades and every one that helps me at
+  // screening numbers is a finalist. EV lineups.
+  const hand = handLeague();
+  const hctx = buildTradeContext(hand.snapshot, hand.inputs, { now: TEST_NOW, scenarios: 0 });
+  const HI = tradeInternals(hctx);
+  const settings = settingsWith({ mustInclude: ["rc1"] });
+  const kappa = config.benefit.protectValue[settings.protectValue];
+  const [lo, hi] = config.benefit.marketSanityClamp;
+  const clampG = (g: number) => Math.min(hi, Math.max(lo, g));
+  let result: TradeSearchResult | null = null;
+  const run = () => (result ??= runTradeSearch(hctx, { partnerId: "4", settings }));
+
+  it("the final simulation: every shown trade's B is B_win + κ × clamp(the floored g); the card's g stays raw", () => {
+    expect(HI.values.rc1 as number).toBeLessThan(HI.credit);
+    const r = run();
+    expect(r.trades.length).toBeGreaterThan(0);
+    for (const t of r.trades) {
+      const give = ids(t, "give");
+      const get = ids(t, "get");
+      expect(give).toContain("rc1");
+      const floored = marketTermPackage({ players: get }, { players: give }, HI.values, HI.credit).g;
+      const raw = tradePackage({ players: get }, { players: give }, HI.values, HI.credit).g;
+      // The floor moves the term on every trade here, so the raw g would give another B.
+      expect(raw - floored, t.key).toBeGreaterThan(0.01);
+      expect(t.b as number, t.key).toBeCloseTo((t.bWin as number) + kappa * clampG(floored), 12);
+      expect(t.gMine, t.key).toBe(raw);
+    }
+  });
+
+  it("the screening simulation: the finalists are the exact trades that help me with the floored g (fewer than with the raw g)", () => {
+    const r = run();
+    // The exact trades, rebuilt as the search builds them.
+    const pools = buildPools(HI, settings, "4");
+    const perPartner = pools.partners.map((p) => {
+      const h = pools.get.get(p.id) as { pool: string[]; forced: string[] };
+      const it = partnerCandidates(HI, p, { give: pools.give, forcedGive: pools.forcedGive, get: h.pool, forcedGet: h.forced }, settings.maxPerSide, { screened: 0 });
+      let next = it.next();
+      while (!next.done) next = it.next();
+      return next.value;
+    });
+    const exact = shortlistOf(perPartner, belowWaiverCredit(HI)).flatMap((s) => {
+      const x = evaluateExact(HI, { partnerId: s.partnerId, give: s.give.map((id) => ({ kind: "player", id })), get: s.get.map((id) => ({ kind: "player", id })) }, settings.maxPerSide);
+      return "illegal" in x ? [] : [x];
+    });
+    expect(exact.length).toBe(r.counts.exact);
+    const screen = (x: ExactTrade) => simulateTrade(HI, x, "screen", settings.lambda, settings.protectValue);
+    const rawOf = (x: ExactTrade): ExactTrade => {
+      const { gMarket: _floored, ...rest } = x;
+      void _floored;
+      return rest;
+    };
+    const value = assetValue(HI);
+    const floored = finalistsOf(exact.map(screen), value, true).keys;
+    const raw = finalistsOf(exact.map((x) => screen(rawOf(x))), value, true).keys;
+    expect(raw.size).toBeGreaterThan(floored.size);
+    expect(r.counts.simFinal).toBe(floored.size);
+    for (const t of r.trades) expect(floored.has(t.key), t.key).toBe(true);
+  });
+});
+
+describe("a search of one partner: no per-partner cap (⚠️ ours; end-of-Phase-4 review, finding 5)", () => {
+  const keys = (xs: readonly TradeEvaluation[]) => xs.map((t) => t.key);
+  const value = assetValue(I);
+
+  it("rankCaps: §13's caps, one looser for the finalists, and no per-partner cap with one partner", () => {
+    const strict = { perPartnerInTop20: config.ranking.perPartnerInTop20, partnerCapTop: config.ranking.partnerCapTop, perCore: config.ranking.perCore, fillerCutoffFraction: config.ranking.fillerCutoffFraction, resultsShown: config.search.resultsShown, marketHideBelow: config.benefit.marketHideBelow };
+    expect(rankCaps({ relaxed: false, onePartner: false })).toEqual(strict);
+    expect(rankCaps({ relaxed: true, onePartner: false })).toEqual({ ...strict, perPartnerInTop20: strict.perPartnerInTop20 + 1, perCore: strict.perCore + 1, resultsShown: config.search.finalists });
+    expect(rankCaps({ relaxed: false, onePartner: true })).toEqual({ ...strict, perPartnerInTop20: Number.POSITIVE_INFINITY });
+    expect(rankCaps({ relaxed: true, onePartner: true }).perPartnerInTop20).toBe(Number.POSITIVE_INFINITY);
+  });
+
+  it("the partner filter: more than perPartnerInTop20 ideas; the per-core and filler rules still apply, and the drops are counted", () => {
+    const r = search({ partnerId: "2" });
+    expect(r.trades.length).toBeGreaterThan(config.ranking.perPartnerInTop20);
+    expect(r.trades.every((t) => t.proposal.partnerId === "2")).toBe(true);
+    expect(r.dropped?.partnerCap).toBe(0);
+    expect((r.dropped?.core ?? 0) + (r.dropped?.filler ?? 0)).toBeGreaterThan(0);
+    // The shown list passes §13's rules without the per-partner cap (ranking it again keeps every trade) …
+    expect(keys(rankTrades(r.trades, value, rankCaps({ relaxed: false, onePartner: true })).trades)).toEqual(keys(r.trades));
+    // … and the all-teams caps would cut it to perPartnerInTop20.
+    expect(keys(rankTrades(r.trades, value).trades)).toEqual(keys(r.trades.slice(0, config.ranking.perPartnerInTop20)));
+  });
+
+  it("must-include players of theirs fix the partner: the same", () => {
+    const theirs = (I.byId.get("5") as TeamState).roster.find((id) => pos(id) === "WR") as string;
+    const r = search({ settings: settingsWith({ mustInclude: [theirs] }) });
+    expect(r.trades.length).toBeGreaterThan(config.ranking.perPartnerInTop20);
+    expect(r.trades.every((t) => t.proposal.partnerId === "5" && ids(t, "get").includes(theirs))).toBe(true);
+    expect(r.dropped?.partnerCap).toBe(0);
+  });
+
+  it("a search of all teams keeps §13's cap (at most perPartnerInTop20 a partner in the top 20) and counts what it drops", () => {
+    const { result } = fullSearch();
+    const top = new Map<string, number>();
+    for (const t of result.trades.slice(0, config.ranking.partnerCapTop)) top.set(t.proposal.partnerId, (top.get(t.proposal.partnerId) ?? 0) + 1);
+    expect(top.size).toBeGreaterThan(1);
+    for (const [partnerId, n] of top) expect(n, partnerId).toBeLessThanOrEqual(config.ranking.perPartnerInTop20);
+    expect(result.dropped?.partnerCap).toBeGreaterThan(0);
+    // A search stopped early drops nothing.
+    const none = runTradeSearch(buildTradeContext({ ...league.snapshot, myTeamId: null }, league.inputs, { now: TEST_NOW, scenarios: 0 }), {});
+    expect(none.dropped).toEqual({ partnerCap: 0, core: 0, filler: 0 });
+  });
+});
+
+describe("beams (M7)", () => {
+  const partner = I.byId.get("2") as TeamState;
+  const skill = (t: TeamState) => t.roster.filter((id) => pos(id) !== "K" && pos(id) !== "DEF" && I.league.table.rows.has(id));
+  const pool = { give: skill(me).slice(0, 6), forcedGive: [] as string[], get: skill(partner).slice(0, 6), forcedGet: [] as string[] };
+  const candidates = (maxPerSide: number, p = pool) => {
+    const tally = { screened: 0 };
+    const it = partnerCandidates(I, partner, p, maxPerSide, tally);
+    let r = it.next();
+    while (!r.done) r = it.next();
+    return { list: r.value, tally };
+  };
+  const shape = (x: { give: string[]; get: string[] }) => `${x.give.length}-${x.get.length}`;
+
+  it("maxPerSide 1: the seeds alone, every 1-for-1 of the pools (each screened once)", () => {
+    const { list, tally } = candidates(1);
+    expect(new Set(list.map(shape))).toEqual(new Set(["1-1"]));
+    expect(tally.screened).toBe(pool.give.length * pool.get.length);
+    expect(new Set(list.map((x) => x.key)).size).toBe(list.length);
+  });
+
+  it("maxPerSide 2: extensions make 2-for-1s, 1-for-2s and 2-for-2s, never 3 a side", () => {
+    const { list } = candidates(2);
+    const shapes = new Set(list.map(shape));
+    for (const s of ["1-1", "2-1", "1-2", "2-2"]) expect(shapes.has(s), s).toBe(true);
+    expect(list.every((x) => x.give.length <= 2 && x.get.length <= 2)).toBe(true);
+    expect(new Set(list.map((x) => x.key)).size).toBe(list.length);
+  });
+
+  it("maxPerSide 3: a second extension reaches 3 a side", () => {
+    const { list } = candidates(3);
+    expect(list.some((x) => x.give.length === 3 || x.get.length === 3)).toBe(true);
+    expect(list.every((x) => x.give.length <= 3 && x.get.length <= 3)).toBe(true);
+  });
+
+  it("forced players are in every candidate (the core completed to a player a side)", () => {
+    const forced = pool.give[0] as string;
+    const { list } = candidates(2, { ...pool, forcedGive: [forced] });
+    expect(list.length).toBeGreaterThan(0);
+    expect(list.every((x) => x.give.includes(forced) && x.get.length >= 1)).toBe(true);
+    const both = candidates(2, { ...pool, forcedGive: [forced], forcedGet: [pool.get[0] as string] }).list;
+    expect(both.every((x) => x.give.includes(forced) && x.get.includes(pool.get[0] as string))).toBe(true);
+  });
+});

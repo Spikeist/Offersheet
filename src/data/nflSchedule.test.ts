@@ -106,8 +106,66 @@ describe("reduceNflSchedule (CLAUDE.md §2.9 NFL schedule and bye weeks, §6 ste
     expect(inputs.kickoffs[4]?.CLE).toMatch(/^2026-10-\d\dT\d\d:\d\d:00\.000Z$/);
     expect(Object.keys(inputs.kickoffs[5] ?? {})).toHaveLength(30); // 15 games: CAR and KC on bye
     expect(inputs.lastWeek).toBe(18);
-    expect(toNflScheduleInputs(data, 19)).toEqual({ byeWeek: data.byeWeek, kickoffs: {}, lastWeek: 18 });
+    expect(toNflScheduleInputs(data, 19)).toEqual({ byeWeek: data.byeWeek, kickoffs: {}, lastWeek: 18, opponents: {} });
     expect(toNflScheduleInputs({ byeWeek: {}, kickoffs: {} }, 4)).toEqual({ byeWeek: {}, kickoffs: {} }); // unknown stays unknown
+  });
+
+  it("gives every team its opponent each week it plays (home or away), in Sleeper codes, TBD games included; none on a bye (Phase 4: streaming picks)", () => {
+    expect(data.opponents?.[1]?.ATL).toEqual({ team: "PIT", home: false });
+    expect(data.opponents?.[1]?.PIT).toEqual({ team: "ATL", home: true });
+    expect(data.opponents?.[1]?.WAS).toEqual({ team: "PHI", home: false }); // ESPN's WSH is Sleeper's WAS, on both sides
+    expect(data.opponents?.[1]?.PHI).toEqual({ team: "WAS", home: true });
+    expect(data.opponents?.[1]?.WSH).toBeUndefined();
+    expect(data.opponents?.[4]?.KC).toEqual({ team: "LV", home: false });
+    // Week 18: every game's time is TBD (no kickoffs), but the opponents are known.
+    expect(data.kickoffs[18]).toBeUndefined();
+    expect(data.opponents?.[18]?.KC).toEqual({ team: "LV", home: true });
+    let games = 0;
+    for (let w = 1; w <= 18; w++) {
+      const week = data.opponents?.[w] ?? {};
+      for (const [team, o] of Object.entries(week)) {
+        // Symmetric: my opponent plays me, and exactly one of us is at home.
+        expect(week[o.team]).toEqual({ team, home: !o.home });
+        expect(data.byeWeek[team]).not.toBe(w);
+        if (o.home) games++;
+      }
+      // A team on bye this week has no opponent; everyone else has one.
+      const onBye = Object.keys(data.byeWeek).filter((t) => data.byeWeek[t] === w);
+      expect(Object.keys(week).sort()).toEqual([...SLEEPER_TEAM_CODES].filter((t) => !onBye.includes(t)).sort());
+    }
+    expect(games).toBe(272);
+  });
+
+  it("keeps the earlier game's opponent when a team has two in a week, and leaves out a game against a team ESPN doesn't list", () => {
+    const b = body();
+    const teams = b.settings.proTeams as unknown as Array<Team & { id: number }>;
+    const atl = teams.find((t) => t.abbrev === "ATL") as Team & { id: number };
+    const nyg = teams.find((t) => t.abbrev === "NYG") as Team & { id: number };
+    const week4 = (atl.proGamesByScoringPeriod?.["4"] as Array<Game & { homeProTeamId: number; awayProTeamId: number }>)[0] as Game & { homeProTeamId: number; awayProTeamId: number };
+    // An earlier game against the Giants in the same week (an imagined reschedule), and a later one against an unknown team id.
+    (atl.proGamesByScoringPeriod as Record<string, unknown[]>)["4"] = [
+      { ...week4, date: week4.date + 3_600_000, homeProTeamId: 999, awayProTeamId: atl.id },
+      { ...week4, date: week4.date - 3_600_000, homeProTeamId: nyg.id, awayProTeamId: atl.id },
+    ];
+    const kc = teams.find((t) => t.abbrev === "KC") as Team & { id: number };
+    (kc.proGamesByScoringPeriod as Record<string, unknown[]>)["5"] = [{ date: Date.parse("2026-10-11T17:00:00Z"), homeProTeamId: kc.id, awayProTeamId: 999 }];
+    const out = reduceNflSchedule(nflScheduleSchema.parse(b), teamCode);
+    expect(out.opponents?.[4]?.ATL).toEqual({ team: "NYG", home: false });
+    expect(out.kickoffs[4]?.ATL).toBe(week4.date - 3_600_000);
+    expect(out.opponents?.[5]?.KC).toBeUndefined(); // KC's bye week, with a game against no team ESPN lists
+    expect(out.kickoffs[5]?.KC).toBeDefined(); // its kickoff still stands, as before
+  });
+
+  it("toNflScheduleInputs passes the opponents from the given week on, and none for a schedule without them", () => {
+    const inputs = toNflScheduleInputs(data, 4);
+    expect(Object.keys(inputs.opponents ?? {}).map(Number)).toEqual([4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]);
+    expect(inputs.opponents?.[4]?.KC).toEqual({ team: "LV", home: false });
+    expect(inputs.opponents?.[18]?.KC).toEqual({ team: "LV", home: true }); // TBD: no kickoff, still an opponent
+    expect(inputs.opponents).not.toBe(data.opponents);
+    expect(toNflScheduleInputs({ byeWeek: {}, kickoffs: {}, opponents: { 3: { KC: { team: "LV", home: true } } } }, 4)).toEqual({ byeWeek: {}, kickoffs: {}, opponents: {} });
+    expect(toNflScheduleInputs({ byeWeek: {}, kickoffs: {} }, 4)).not.toHaveProperty("opponents");
+    // About 15 KB of JSON for weeks 4–18 (32 teams a week less byes): the model inputs grow a little.
+    expect(JSON.stringify(inputs.opponents).length).toBeLessThan(16_000);
   });
 
   it("the NFL's last week is the largest week with a game, time-TBD games included (every week-18 game is TBD in 2026)", () => {

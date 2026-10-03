@@ -17,10 +17,15 @@
  * A player whose ESPN return date conflicts with his tag (CLAUDE.md §6 step 3) gets a short line under
  * his position line, inside the button (so it's part of his button's name), with the full sentence on
  * hover and at the top of his breakdown.
+ *
+ * Another team's player his manager would want a little extra for (planner addendum to Checkpoint 3, §2) carries a
+ * gold "Harder to get" pill on his position line, after any injury badge: words, part of his button's name, with why
+ * on hover (the page's explainer says it in full).
  */
 import { useId, useState } from "react";
 import type { PlayerRow, WeekRow } from "@/lib/leagueView";
 import { Badge, cx } from "../ui";
+import { HarderToGetBadge } from "./HarderToGetBadge";
 
 const GROUP_TITLE: Record<PlayerRow["group"], string | null> = {
   active: null,
@@ -160,6 +165,7 @@ function PlayerRows({ player, columns, showLineupCost, scaleMax }: { player: Pla
             <span className="block pl-4 text-xs text-muted">
               {p.pos} · {p.nflTeam} · {p.byeText}
               {p.injury ? <InjuryBadge injury={p.injury} /> : null}
+              {p.tag ? <HarderToGetBadge tag={p.tag} className="ml-1" /> : null}
             </span>
             {p.availabilityNote ? (
               <span title={p.availabilityNote.long} className="block pl-4 text-xs break-words text-muted italic">

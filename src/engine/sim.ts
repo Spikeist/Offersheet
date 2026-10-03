@@ -5,7 +5,8 @@
  * (records, the remaining schedule as team indexes, and each team's weekly score mean and SD) and reads
  * back playoff, bye and title odds, expected records, seed distributions and each remaining week's
  * win chance. Every tunable number arrives through SimSetup and SimOptions (config.simulation holds the
- * defaults: finalSims, screeningSims, seed).
+ * defaults: finalSims, screeningSims, seed; simulateSeason reads exactReseedTeams from it itself when
+ * SimOptions doesn't give one).
  *
  * Scores
  * - Team t's score in week index w of sim n is mean[t][w] + sd[t][w] × z[n][w][t]: §8's
@@ -112,6 +113,43 @@
  * - N ≤ 1: no bracket. The champion is the top of the final standings (a league without playoffs crowns
  *   its regular-season winner), and nobody has a bye.
  *
+ * Title odds: exact brackets (SimOptions.titleMode, default "exact"; Rao–Blackwellization)
+ * - A sim's playoff bracket is computed exactly instead of drawn: given its final standings (from its own
+ *   regular season), every team's chance to win the bracket is a sum over the bracket's outcomes, and
+ *   P(title) is the average of those chances over the sims. The expectation is the drawn bracket's, but
+ *   the luck of the playoff games no longer adds to the noise; only the regular season's (which decides
+ *   the seeds) is left. A trade's ΔCH (§10's largest term) is the one this matters for. "sampled" draws the
+ *   games as described under "Playoffs" (the tests compare the two). Nothing else reads the playoff games:
+ *   P(playoffs), P(bye), seeds, records and weekly chances come from the regular season and are the same,
+ *   bit for bit, in both modes.
+ * - A game a vs b in round r: a replayed result is certain; otherwise a wins with probability
+ *   Φ((Σ μ_a − Σ μ_b) / √(Σ σ_a² + Σ σ_b²)), the sums over the round's drawn weeks: the drawn game compares
+ *   two independent normal sums, and an exact tie has probability 0. With zero variance it's decided the
+ *   way the drawn game is: the higher sum of means wins, an exact tie goes to the better seed. The round's
+ *   sums don't depend on the sim, so every pair's chance is computed once per run (rounds × teams²). Φ is
+ *   distributions.ts normalCdf (Abramowitz & Stegun 7.1.26, absolute error < 1.5e-7, far below the Monte
+ *   Carlo error; b's chance is 1 − a's, so each game's two chances add up to 1).
+ * - Games are independent given the seeds: every draw z[n][w][t] is independent of the others, a team plays
+ *   one game per round, and different rounds have different weeks. That needs the bracket rounds' drawn
+ *   weeks to be pairwise disjoint and unread by the regular season (games, median weeks, points-only points
+ *   for); otherwise the title is drawn as in "sampled" (⚠️ a fallback no season.ts setup triggers).
+ * - Fixed bracket: dynamic programming over the slots. Before round r, P(slot i alive); it wins round r
+ *   with P(alive) × Σ over the slots j of the other half of its block of P(j alive) × P(i beats j); a
+ *   round-1 bye advances its team surely.
+ * - Re-seeding: the pairing depends on who survived, so the outcomes are enumerated. From 4 teams left,
+ *   best against worst pairs like fixed slots [1, 4, 2, 3] (and the final is the last two), so only a round
+ *   with 8 teams left needs it: its 16 outcomes, each followed by a fixed 4-team bracket of the survivors in
+ *   seed order. The bracket is exact from the first round with at most exactReseedTeams teams left
+ *   (SimOptions, default config.simulation.exactReseedTeams = 8; read as 2, 4 or 8), and its earlier rounds
+ *   are drawn as "sampled" does (⚠️ ours: enumerating a round of 16 would cost thousands of paths per sim;
+ *   the estimate stays unbiased, with those rounds' luck left in). With 8, brackets of up to 8 slots (up to
+ *   8 playoff teams) are exact throughout and bigger ones draw their rounds before the last three.
+ * - Unknown playoffs: a game with neither a result nor a drawn week that is reached with positive
+ *   probability makes the playoffs unknown (drawn: reached in some sim). Rounds already played come before
+ *   the rounds still to play, so their games follow from the seeds and the results, and both modes agree.
+ *   ⚠️ A round over after a round still to play (no real schedule) could differ.
+ * - The exact mode skips drawing the scores of the playoff weeks it doesn't sample.
+ *
  * Outputs are averages over the sims. weekly[k].pWin[t] = team t's wins in its game starting that week
  * (a multi-week game counts in its first drawn week) / sims, NaN without a game; pMedianWin likewise for
  * median weeks, null for other weeks.
@@ -120,10 +158,14 @@
  * each sim is simulateOne, which allocates nothing (the standings sort is an insertion sort over the
  * tied group with keys in a preallocated buffer; median weeks re-sort the previous week's order). In
  * Node on a Parker-sized league (10 teams, 11 regular-season weeks, 3 playoff rounds), once the JIT has
- * warmed up: the 5,000-sim matrix about 17 ms, 5,000 sims about 12 ms, 1,000 sims about 2.5 ms; the
- * first two calls in a fresh process take about 20 ms longer while simulateOne is compiled. sim.test.ts
- * prints the timings.
+ * warmed up: the 5,000-sim matrix about 17 ms, 5,000 sims about 12 ms, 1,000 sims about 2.5 ms, in
+ * either title mode (the exact bracket costs about as much as the playoff draws it replaces: within 5%
+ * for a fixed 6-team bracket, about 5% more re-seeded, about 20% more for a re-seeding bracket of 8 or
+ * more); the first two calls in a fresh process take about 20 ms longer while simulateOne is compiled.
+ * sim.test.ts prints the timings.
  */
+import { config } from "./config";
+import { normalCdf } from "./distributions";
 import { hash32, mix32, mulberry32 } from "./rng";
 
 export type SimTiebreaker = "pointsFor" | "headToHead" | "divisionRecord";
@@ -196,11 +238,18 @@ export interface SimSetup {
   playoffResults: SimPlayoffResult[];
 }
 
+/** How P(title) is estimated (the file header's "Title odds"): each sim's bracket computed exactly, or drawn. */
+export type SimTitleMode = "exact" | "sampled";
+
 export interface SimOptions {
   sims: number;
   seed: number;
   /** The shared CRN matrix; when absent, simNormals(seed, sims, weeks, teams) is drawn. */
   normals?: SimNormals;
+  /** How P(title) is estimated (the file header's "Title odds"); default "exact". */
+  titleMode?: SimTitleMode;
+  /** A re-seeding bracket is exact from the first round with at most this many teams left (2, 4 or 8); default config.simulation.exactReseedTeams. */
+  exactReseedTeams?: number;
 }
 
 /** The common-random-numbers matrix: standard normals, z[n][w][t] at n·weeks·teams + w·teams + t. */
@@ -390,6 +439,11 @@ interface SimState {
   readonly z: Float64Array;
   readonly meanF: Float64Array;
   readonly sdF: Float64Array;
+  /**
+   * The score cells each sim draws, as [start, end) ranges of [w·T + t]: every week, or in the exact title mode only
+   * the weeks something samples (the regular season's, and the drawn rounds of a large re-seeding bracket).
+   */
+  readonly scoreCells: Int32Array;
   // Starting records.
   readonly baseW: Float64Array;
   readonly baseL: Float64Array;
@@ -439,6 +493,22 @@ interface SimState {
   readonly resultWinner: Int32Array;
   /** Per playoff round: the draw indexes of its weeks. */
   readonly roundWeek: readonly Int32Array[];
+  // Exact title odds (the file header's "Title odds").
+  /** The bracket is computed exactly (the title mode is "exact" and its rounds' weeks are independent). */
+  readonly exact: boolean;
+  /** The first round computed exactly; earlier rounds are drawn (a re-seeding bracket with more than exactReseedTeams teams). */
+  readonly exactFrom: number;
+  /** [(r·T + a)·T + b]: P(a beats b in round r); NaN = can't be known, TIE_BY_SEED = the better seed wins. */
+  readonly winP: Float64Array;
+  /** Bracket slots' chances to be alive: this round's and the next's. */
+  readonly pAlive: Float64Array;
+  readonly pNext: Float64Array;
+  /** A re-seeding bracket's round of 8: its 4 pairs (x vs y, -1 = an empty slot), the games' chances, the byes' teams and an outcome's survivors. */
+  readonly pairX: Int32Array;
+  readonly pairY: Int32Array;
+  readonly pairW: Float64Array;
+  readonly byeTeam: Int32Array;
+  readonly quad: Int32Array;
   // Working arrays, reset or rewritten every sim.
   /** This sim's scores: [w·T + t]. */
   readonly score: Float64Array;
@@ -605,6 +675,218 @@ function playoffGame(st: SimState, x: number, y: number, r: number): number {
 }
 
 /**
+ * Drawn playoff round r on st.slots[0..live): its winners go to slots[0..live / 2), in fixed slots or, when the
+ * league re-seeds and r > 0, best seed against worst. False when one of its games can't be known.
+ */
+function playRound(st: SimState, r: number, live: number): boolean {
+  const { slots, seedOf } = st;
+  const half = live >> 1;
+  const bestVsWorst = st.reseed && r > 0;
+  if (bestVsWorst) sortBySeed(slots, live, seedOf);
+  for (let i = 0; i < half; i++) {
+    const x = (bestVsWorst ? slots[i] : slots[2 * i]) as number;
+    const y = (bestVsWorst ? slots[live - 1 - i] : slots[2 * i + 1]) as number;
+    const winner = x < 0 ? y : y < 0 ? x : playoffGame(st, x, y, r);
+    if (winner < 0) return false;
+    slots[i] = winner;
+  }
+  return true;
+}
+
+/** Insertion sort of arr[0..n) by seed, best first (team indexes; no empty slots). */
+function sortBySeed(arr: Int32Array, n: number, seedOf: Int32Array): void {
+  for (let i = 1; i < n; i++) {
+    const a = arr[i] as number;
+    let j = i - 1;
+    while (j >= 0 && (seedOf[arr[j] as number] as number) > (seedOf[a] as number)) {
+      arr[j + 1] = arr[j] as number;
+      j--;
+    }
+    arr[j + 1] = a;
+  }
+}
+
+/** winP's marker for a zero-variance game between equal sums: the better seed wins (the drawn game's tie rule). */
+const TIE_BY_SEED = 2;
+
+/** P(a beats b in round r) from st.winP, the tie rule applied; NaN when the game can't be known. */
+function winChance(st: SimState, r: number, a: number, b: number): number {
+  const { T } = st;
+  const w = st.winP[(r * T + a) * T + b] as number;
+  return w === TIE_BY_SEED ? ((st.seedOf[a] as number) < (st.seedOf[b] as number) ? 1 : 0) : w;
+}
+
+/**
+ * The exact title chances of a fixed bracket (the file header's "Title odds"): slots[0..L) (team indexes, -1 = an
+ * empty slot), L a power of two, playing rounds r0, r0 + 1, … An empty slot is always a round-1 bye: its pair partner
+ * is a team (bracketOrder puts seeds N + 1..B against seeds B − N..1), which goes through. After that, every pair
+ * (i, j) that can meet (i in one half of a block, j in the other) adds P(i alive) × P(j alive) × P(i beats j) to i's
+ * chance to go through and the rest to j's. Adds weight × each team's chance to win it to st.cTitle. False when a
+ * game reached with positive probability can't be known.
+ */
+function fixedExact(st: SimState, slots: Int32Array, L: number, r0: number, weight: number): boolean {
+  const { T, winP, seedOf } = st;
+  let p = st.pAlive;
+  let q = st.pNext;
+  for (let i = 0; i < L; i++) p[i] = (slots[i] as number) >= 0 ? 1 : 0;
+  for (let h = 1, r = r0; h < L; h <<= 1, r++) {
+    for (let i = 0; i < L; i++) q[i] = 0;
+    for (let lo = 0; lo < L; lo += 2 * h) {
+      const mid = lo + h;
+      const hi = mid + h;
+      for (let i = lo; i < mid; i++) {
+        const pi = p[i] as number;
+        const a = slots[i] as number;
+        if (h === 1 && (a < 0 || (slots[mid] as number) < 0)) {
+          // A round-1 bye: the team in the pair goes through.
+          q[i] = pi;
+          q[mid] = p[mid] as number;
+          continue;
+        }
+        if (pi === 0) continue;
+        const row = (r * T + a) * T;
+        for (let j = mid; j < hi; j++) {
+          const pj = p[j] as number;
+          if (pj === 0) continue;
+          const b = slots[j] as number;
+          let w = winP[row + b] as number;
+          if (w !== w) return false; // NaN: can't be known
+          if (w === TIE_BY_SEED) w = (seedOf[a] as number) < (seedOf[b] as number) ? 1 : 0;
+          const both = pi * pj;
+          q[i]! += both * w;
+          q[j]! += both * (1 - w);
+        }
+      }
+    }
+    const t = p;
+    p = q;
+    q = t;
+  }
+  const { cTitle } = st;
+  for (let i = 0; i < L; i++) {
+    const a = slots[i] as number;
+    if (a >= 0) cTitle[a]! += weight * (p[i] as number);
+  }
+  return true;
+}
+
+/**
+ * The exact title chances of a 4-team fixed bracket (fixedExact's rule, written out): s0 vs s1 and s2 vs s3 in
+ * round r, the winners in round r + 1. Adds weight × the chances to st.cTitle; false when a game reached with
+ * positive probability can't be known.
+ */
+function fourExact(st: SimState, r: number, s0: number, s1: number, s2: number, s3: number, weight: number): boolean {
+  const a = winChance(st, r, s0, s1);
+  const b = winChance(st, r, s2, s3);
+  if (a !== a || b !== b) return false;
+  const { cTitle } = st;
+  let t0 = 0;
+  let t1 = 0;
+  let t2 = 0;
+  let t3 = 0;
+  // The final: each pair that can meet, weighted by both getting there.
+  const f = r + 1;
+  if (a > 0 && b > 0) {
+    const w = winChance(st, f, s0, s2);
+    if (w !== w) return false;
+    t0 += a * b * w;
+    t2 += a * b * (1 - w);
+  }
+  if (a > 0 && b < 1) {
+    const w = winChance(st, f, s0, s3);
+    if (w !== w) return false;
+    t0 += a * (1 - b) * w;
+    t3 += a * (1 - b) * (1 - w);
+  }
+  if (a < 1 && b > 0) {
+    const w = winChance(st, f, s1, s2);
+    if (w !== w) return false;
+    t1 += (1 - a) * b * w;
+    t2 += (1 - a) * b * (1 - w);
+  }
+  if (a < 1 && b < 1) {
+    const w = winChance(st, f, s1, s3);
+    if (w !== w) return false;
+    t1 += (1 - a) * (1 - b) * w;
+    t3 += (1 - a) * (1 - b) * (1 - w);
+  }
+  cTitle[s0]! += weight * t0;
+  cTitle[s1]! += weight * t1;
+  cTitle[s2]! += weight * t2;
+  cTitle[s3]! += weight * t3;
+  return true;
+}
+
+/**
+ * A re-seeding bracket's round r with 8 teams left (its games st.pairX[g] vs st.pairY[g], -1 = an empty slot: a
+ * bye), exactly: each outcome of its games, then the survivors' 4-team bracket in seed order, best against worst
+ * (fixed slots [1, 4, 2, 3]). Adds weight × the title chances to st.cTitle; false when a game can't be known.
+ */
+function eightExact(st: SimState, r: number, weight: number): boolean {
+  const { pairX, pairY, pairW, byeTeam, quad, seedOf } = st;
+  // The games, compacted into pairX/pairY[0..games); the byes' teams go through in every outcome.
+  let games = 0;
+  let byes = 0;
+  for (let g = 0; g < 4; g++) {
+    const x = pairX[g] as number;
+    const y = pairY[g] as number;
+    if (x < 0 || y < 0) {
+      byeTeam[byes++] = x < 0 ? y : x;
+      continue;
+    }
+    const w = winChance(st, r, x, y);
+    if (w !== w) return false;
+    pairX[games] = x;
+    pairY[games] = y;
+    pairW[games++] = w;
+  }
+  for (let c = 0; c < 1 << games; c++) {
+    let prob = weight;
+    for (let g = 0; g < games; g++) {
+      const yWins = (c >> g) & 1;
+      prob *= yWins === 1 ? 1 - (pairW[g] as number) : (pairW[g] as number);
+      quad[g] = (yWins === 1 ? pairY[g] : pairX[g]) as number;
+    }
+    if (prob === 0) continue;
+    for (let k = 0; k < byes; k++) quad[games + k] = byeTeam[k] as number;
+    sortBySeed(quad, 4, seedOf);
+    if (!fourExact(st, r + 1, quad[0] as number, quad[3] as number, quad[1] as number, quad[2] as number, prob)) return false;
+  }
+  return true;
+}
+
+/**
+ * The bracket from st.slots[0..B) (seeds in bracketOrder slots), its title chances added to st.cTitle: drawn
+ * (sampled), or exact from st.exactFrom on (the file header's "Title odds"). False when the playoffs can't be known.
+ */
+function playBracket(st: SimState): boolean {
+  const { B, R, slots, cTitle } = st;
+  let live = B;
+  if (!st.exact) {
+    for (let r = 0; r < R; r++, live >>= 1) if (!playRound(st, r, live)) return false;
+    cTitle[slots[0] as number]! += 1;
+    return true;
+  }
+  const r0 = st.exactFrom;
+  for (let r = 0; r < r0; r++, live >>= 1) if (!playRound(st, r, live)) return false;
+  // Fixed slots, or a re-seeding bracket's round 1 (fixed slots) with at most 4 teams: it pairs like fixed slots.
+  if (!st.reseed || (r0 === 0 && live <= 4)) return fixedExact(st, slots, live, r0, 1);
+  // A re-seeded round (after round 1): the survivors best first, best against worst.
+  if (r0 > 0) {
+    sortBySeed(slots, live, st.seedOf);
+    if (live === 2) return fixedExact(st, slots, 2, r0, 1);
+    if (live === 4) return fourExact(st, r0, slots[0] as number, slots[3] as number, slots[1] as number, slots[2] as number, 1);
+  }
+  // A round of 8: round 1 in fixed slots (byes included), a later round best against worst.
+  const { pairX, pairY } = st;
+  for (let g = 0; g < 4; g++) {
+    pairX[g] = (r0 > 0 ? slots[g] : slots[2 * g]) as number;
+    pairY[g] = (r0 > 0 ? slots[7 - g] : slots[2 * g + 1]) as number;
+  }
+  return eightExact(st, r0, 1);
+}
+
+/**
  * Sim n: its scores, the rest of the regular season, the final standings and the playoffs, added to
  * st's accumulators. Allocates nothing. Returns false when the playoffs can't be known (a round already
  * played has no result for one of its games); the title isn't counted then.
@@ -612,7 +894,11 @@ function playoffGame(st: SimState, x: number, y: number, r: number): number {
 function simulateOne(st: SimState, n: number): boolean {
   const { T, WT, z, meanF, sdF, score, wins, losses, ties, pf, pa, h2hWins, divWins } = st;
   const zBase = n * WT;
-  for (let k = 0; k < WT; k++) score[k] = (meanF[k] as number) + (sdF[k] as number) * (z[zBase + k] as number);
+  const scoreCells = st.scoreCells;
+  for (let i = 0; i < scoreCells.length; i += 2) {
+    const end = scoreCells[i + 1] as number;
+    for (let k = scoreCells[i] as number; k < end; k++) score[k] = (meanF[k] as number) + (sdF[k] as number) * (z[zBase + k] as number);
+  }
   wins.set(st.baseW);
   losses.set(st.baseL);
   ties.set(st.baseT);
@@ -719,7 +1005,7 @@ function simulateOne(st: SimState, n: number): boolean {
   }
 
   // Playoffs.
-  const { N, B, R, byes, reseed, seedSlots, slots, cPlayoffs, cBye, cTitle } = st;
+  const { N, B, byes, seedSlots, slots, cPlayoffs, cBye, cTitle } = st;
   for (let k = 0; k < N; k++) cPlayoffs[order[k] as number]! += 1;
   for (let k = 0; k < byes; k++) cBye[order[k] as number]! += 1;
   if (N <= 1) {
@@ -731,33 +1017,7 @@ function simulateOne(st: SimState, n: number): boolean {
     const seed = seedSlots[i] as number;
     slots[i] = seed <= N ? (order[seed - 1] as number) : -1;
   }
-  let live = B;
-  for (let r = 0; r < R; r++) {
-    const half = live >> 1;
-    const bestVsWorst = reseed && r > 0;
-    if (bestVsWorst) {
-      // Re-seed the survivors: sort by seed, best first.
-      for (let i = 1; i < live; i++) {
-        const a = slots[i] as number;
-        let j = i - 1;
-        while (j >= 0 && (seedOf[slots[j] as number] as number) > (seedOf[a] as number)) {
-          slots[j + 1] = slots[j] as number;
-          j--;
-        }
-        slots[j + 1] = a;
-      }
-    }
-    for (let i = 0; i < half; i++) {
-      const x = (bestVsWorst ? slots[i] : slots[2 * i]) as number;
-      const y = (bestVsWorst ? slots[live - 1 - i] : slots[2 * i + 1]) as number;
-      const winner = x < 0 ? y : y < 0 ? x : playoffGame(st, x, y, r);
-      if (winner < 0) return false;
-      slots[i] = winner;
-    }
-    live = half;
-  }
-  cTitle[slots[0] as number]! += 1;
-  return true;
+  return playBracket(st);
 }
 
 /**
@@ -961,6 +1221,69 @@ export function simulateSeason(setup: SimSetup, opts: SimOptions): SimResult {
     resultWinner[a * T + b] = r.winner;
     resultWinner[b * T + a] = r.winner;
   }
+  const roundWeek = bracketRounds.map((r) => Int32Array.from(drawnIndexes(r.weeks, weekIndex)));
+
+  // Exact title odds (the file header's "Title odds"): when the bracket is played and its rounds' drawn weeks are
+  // independent of each other and of the regular season. A re-seeding bracket draws its rounds before the first one
+  // with at most exactReseedTeams teams left.
+  const regularRead = new Uint8Array(W);
+  for (const idx of [gameWeek, medianWeek, pfWeek]) for (const k of idx) regularRead[k] = 1;
+  const roundRead = new Uint8Array(W);
+  let independent = true;
+  for (const rw of roundWeek)
+    for (const k of rw) {
+      if (regularRead[k] === 1 || roundRead[k] === 1) independent = false;
+      roundRead[k] = 1;
+    }
+  const exact = (opts.titleMode ?? "exact") === "exact" && bracketPlayed && independent;
+  // Re-seeding: exact from the first round with at most `cap` teams left (2, 4 or 8: the rounds playBracket enumerates).
+  const capOption = opts.exactReseedTeams ?? config.simulation.exactReseedTeams;
+  const capWhole = Number.isFinite(capOption) ? Math.floor(capOption) : 2;
+  const cap = capWhole >= 8 ? 8 : capWhole >= 4 ? 4 : 2;
+  let exactFrom = 0;
+  if (exact && setup.reseed) while (B >> exactFrom > cap) exactFrom++;
+  const scoreCells: number[] = [];
+  if (!exact) scoreCells.push(0, WT);
+  else {
+    for (let r = 0; r < exactFrom; r++) for (const k of roundWeek[r] as Int32Array) regularRead[k] = 1;
+    for (let k = 0; k < W; k++) {
+      if (regularRead[k] !== 1) continue;
+      if (scoreCells.length > 0 && scoreCells.at(-1) === k * T) scoreCells[scoreCells.length - 1] = (k + 1) * T;
+      else scoreCells.push(k * T, (k + 1) * T);
+    }
+  }
+  const winP = new Float64Array(exact ? R * T * T : 0);
+  if (exact) {
+    const mu = new Float64Array(T);
+    const v = new Float64Array(T);
+    for (let r = 0; r < R; r++) {
+      // Each team's sum of means and variances over the round's drawn weeks, in the drawn game's order.
+      const rw = roundWeek[r] as Int32Array;
+      mu.fill(0);
+      v.fill(0);
+      for (let k = 0; k < rw.length; k++) {
+        const o = (rw[k] as number) * T;
+        for (let t = 0; t < T; t++) {
+          mu[t]! += meanF[o + t] as number;
+          v[t]! += (sdF[o + t] as number) ** 2;
+        }
+      }
+      for (let a = 0; a < T; a++)
+        for (let b = a + 1; b < T; b++) {
+          const known = resultWinner[a * T + b] as number;
+          let w: number;
+          if (known >= 0) w = known === a ? 1 : 0;
+          else if (rw.length === 0) w = Number.NaN;
+          else {
+            const variance = (v[a] as number) + (v[b] as number);
+            const d = (mu[a] as number) - (mu[b] as number);
+            w = variance > 0 ? normalCdf(d / Math.sqrt(variance)) : (mu[a] as number) > (mu[b] as number) ? 1 : (mu[b] as number) > (mu[a] as number) ? 0 : TIE_BY_SEED;
+          }
+          winP[(r * T + a) * T + b] = w;
+          winP[(r * T + b) * T + a] = w === TIE_BY_SEED || Number.isNaN(w) ? w : 1 - w;
+        }
+    }
+  }
 
   // ---- The state every sim reads and writes, and the sims.
   const hierarchy = pointsOnly ? POINTS_ONLY_HIERARCHY : HIERARCHY[setup.tiebreaker];
@@ -971,6 +1294,7 @@ export function simulateSeason(setup: SimSetup, opts: SimOptions): SimResult {
     z,
     meanF,
     sdF,
+    scoreCells: Int32Array.from(scoreCells),
     baseW,
     baseL,
     baseT,
@@ -1002,7 +1326,17 @@ export function simulateSeason(setup: SimSetup, opts: SimOptions): SimResult {
     reseed: setup.reseed,
     seedSlots,
     resultWinner,
-    roundWeek: bracketRounds.map((r) => Int32Array.from(drawnIndexes(r.weeks, weekIndex))),
+    roundWeek,
+    exact,
+    exactFrom,
+    winP,
+    pAlive: new Float64Array(Math.max(B, 1)),
+    pNext: new Float64Array(Math.max(B, 1)),
+    pairX: new Int32Array(4),
+    pairY: new Int32Array(4),
+    pairW: new Float64Array(4),
+    byeTeam: new Int32Array(4),
+    quad: new Int32Array(4),
     score: new Float64Array(WT),
     wins: new Float64Array(T),
     losses: new Float64Array(T),

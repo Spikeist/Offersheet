@@ -4,19 +4,29 @@
  * sessionStorage, gets the league's model inputs (projections and values, §6 and §9) from this
  * tab's stored copy (reused only while under 6 hours old: modelStore.ts MODEL_REUSE_MAX_AGE_MS) or
  * the server, builds the League model in the engine's Web Worker (§3), and renders the pure view
- * model (src/lib/leagueView.ts). It owns the page's requests (the inputs, Refresh), the worker, and
- * what the page keeps in sessionStorage.
+ * model (src/lib/leagueView.ts). Loading the import and its inputs is shared with the Trade Finder and
+ * the Trade Analyzer (useLeagueInputs.ts, Phase 4 wave 2 decision M13); this page owns Refresh, the
+ * worker, and the League model's computation.
+ *
+ * Settings (Phase 4 lead decision L12): the league's settings from this browser's localStorage (the
+ * Settings page saves them; src/components/settings/useLeagueSettings.ts) go with every worker request,
+ * since the League model reads the positions my team streams and the playoff weight. The model waits
+ * until they've been read (never a first run with defaults it would throw away), and a change to one of
+ * those two, saved in this tab or another, computes it again: the compute tag carries the fingerprint of
+ * the settings the model reads (settingsStore.ts LEAGUE_MODEL_SETTINGS). A change to a setting only the
+ * trade search reads (untouchables, Win now ↔ Future, …) leaves the page as it is, since the model would
+ * come out the same, and the same settings in another order don't count as a change either.
  *
  * States: loading (reading storage), fetching inputs, computing, error (with Try again), ready. With no
  * import it can read, a card says so, or that Offer Sheet was updated when the tab holds an import saved by
  * an earlier version (NoImportCard), with a link to the Connect page.
- * After a Refresh or a team change, the previous numbers stay on screen, dimmed, until the new ones
- * are ready. Requests and computations are tagged with what they were for (league, league data,
- * inputs build, team, attempt), so a late answer for an older tag is ignored. React state is only
- * set in async callbacks and event handlers (the react-hooks lint rules).
+ * After a Refresh, a team change or a change to a setting the model reads, the previous numbers stay on
+ * screen, dimmed, until the new ones are ready. Requests and computations are tagged with what they were for
+ * (league, league data, inputs build, team, the model's settings, attempt), so a late answer for an older tag
+ * is ignored. React state is only set in async callbacks and event handlers (the react-hooks lint rules).
  *
- * One request at a time: the model request is shared by key (sharedRequest.ts), so React
- * StrictMode's mount → unmount → mount in development sends one, and it's aborted once the page is
+ * One request at a time: the model request is shared by key (useLeagueInputs.ts, sharedRequest.ts), so
+ * React StrictMode's mount → unmount → mount in development sends one, and it's aborted once the page is
  * gone. The worker job starts a tick after its effect, so StrictMode's first run is cancelled before
  * it starts and the worker computes once.
  *
@@ -32,21 +42,24 @@ import { config } from "@/engine/config";
 import type { ModelInputs } from "@/engine/inputs";
 import type { LeagueModel } from "@/engine/leagueModel";
 import type { LeagueSnapshot } from "@/engine/model";
-import { callApi, isApiError, isModelResponse, type ModelResponse } from "@/lib/api";
+import type { TradeSettings } from "@/engine/settings";
 import { EngineError, createEngineClient, type EngineClient } from "@/lib/engineClient";
 import { fmtWhole } from "@/lib/format";
 import { refreshOutcomeText } from "@/lib/importReport";
-import { IMPORT_STORAGE_KEY, myTeamKey, parseMyTeamPick, readStoredImport, type StoredImport } from "@/lib/importStore";
+import type { StoredImport } from "@/lib/importStore";
 import { buildLeagueView, type LeagueView as LeagueViewModel } from "@/lib/leagueView";
-import { MODEL_STORAGE_KEY, keepModelResponse, modelForSnapshot, modelKey, modelRequest, parseStoredModel, withImportedTeam } from "@/lib/modelStore";
-import { resolveMyTeam, type MyTeamSource } from "@/lib/myTeam";
-import { browserSessionStorage, notifySessionChange, useSessionValue } from "@/lib/useSessionValue";
+import { modelKey, modelRequest } from "@/lib/modelStore";
+import type { MyTeamSource } from "@/lib/myTeam";
+import { LEAGUE_MODEL_SETTINGS, settingsFingerprint } from "@/lib/settingsStore";
 import { NoImportCard } from "../NoImportCard";
 import type { RefreshControl } from "../import/ReportView";
 import { revealResult } from "../reveal";
+import { useLeagueSettings } from "../settings/useLeagueSettings";
 import { Callout, Card, FOCUS_TARGET, Spinner, buttonClass, cx } from "../ui";
 import { LeagueView } from "./LeagueView";
-import { createRequestSharer, type JoinedRequest } from "./sharedRequest";
+import { leagueTag, useLeagueInputs, useStoredImport } from "./useLeagueInputs";
+
+export { joinInputsRequest, type InputsOutcome } from "./useLeagueInputs";
 
 export type LeagueWait = "loading" | "fetching" | "computing";
 
@@ -133,8 +146,7 @@ export function LeagueFrame({ state, leagueName, statusRef }: { state: LeagueFra
 }
 
 export function LeaguePage() {
-  const raw = useSessionValue(IMPORT_STORAGE_KEY);
-  const read = useMemo(() => (raw === undefined ? undefined : readStoredImport(raw)), [raw]);
+  const read = useStoredImport();
 
   if (read === undefined) return <LeagueFrame state={{ kind: "loading" }} />;
   if (read.kind !== "ok") {
@@ -159,14 +171,6 @@ export function LeaguePage() {
   return <LoadedLeague key={modelKey(snapshot)} stored={stored} />;
 }
 
-/** Model inputs fetched in this page view (kept in memory too, in case the browser won't store them). */
-interface Fetched {
-  /** The stored-import tags this answers: the one it was asked for, and its own snapshot's. */
-  tags: string[];
-  snapshot: LeagueSnapshot;
-  inputs: ModelInputs;
-}
-
 interface Computed {
   tag: string;
   snapshot: LeagueSnapshot;
@@ -174,117 +178,42 @@ interface Computed {
   myTeamSource: MyTeamSource;
   result: LeagueModel;
   nowIso: string;
-  /** Numbers were already on screen when these arrived (a Refresh, a team change, a Try again). */
+  /** The league's settings the model was built with. */
+  settings: TradeSettings;
+  /** Numbers were already on screen when these arrived (a Refresh, a team change, a settings change, a Try again). */
   updated: boolean;
 }
 
-export type InputsOutcome = { ok: true; response: ModelResponse } | { ok: false; message: string };
-
-const leagueTag = (s: Pick<LeagueSnapshot, "platform" | "leagueId" | "season" | "fetchedAt">) => `${modelKey(s)}|${s.fetchedAt}`;
-
-/** The League page's model requests in flight, shared by URL and body (see the header). */
-const inputRequests = createRequestSharer<InputsOutcome>();
-
-const UNREACHABLE = "We couldn't reach Offer Sheet. Check your connection and try again.";
-
 /**
- * The model request for the stored import that is already in flight, or a new one (a page load's,
- * never Refresh's): React StrictMode's second mount joins the first's, and it's aborted once every
- * page that joined it has left.
+ * What a League model computation is for: the league data, the inputs' build, my team, the settings the
+ * model reads (LEAGUE_MODEL_SETTINGS, by fingerprint: the same settings in any order are the same
+ * computation, and the trade search's own settings aren't part of it) and the attempt (Try again). A result
+ * whose tag isn't the current one is for something the page no longer shows.
  */
-export function joinInputsRequest(stored: StoredImport): JoinedRequest<InputsOutcome> {
-  const req = modelRequest(stored, false);
-  const key = req ? `${req.url} ${JSON.stringify(req.body)}` : leagueTag(stored.response.snapshot);
-  return inputRequests.join(key, (signal) => requestInputs(stored, false, signal));
-}
-
-/**
- * The stored import's model inputs from the server (with the Sleeper username it was imported with,
- * so the re-import finds the user's team). `signal` aborts the request.
- */
-async function requestInputs(stored: StoredImport, refresh: boolean, signal?: AbortSignal): Promise<InputsOutcome> {
-  const snapshot = stored.response.snapshot;
-  const req = modelRequest(stored, refresh);
-  if (!req) return { ok: false, message: "The League page works with ESPN and Sleeper leagues for now." };
-  const res = await callApi<ModelResponse>(req.url, { method: "POST", body: req.body }, signal ? (input, init) => fetch(input, { ...init, signal }) : undefined);
-  if (isApiError(res)) return { ok: false, message: res.error.message };
-  if (!isModelResponse(res) || modelKey(res.import.snapshot) !== modelKey(snapshot)) return { ok: false, message: "We couldn't read the projections for this league. Try again in a moment." };
-  return { ok: true, response: res };
-}
-
-/**
- * Keeps a model response in this tab (keepModelResponse: a newer snapshot replaces the stored
- * import, keeping the team pick, and the inputs are stored with it), then one change notification.
- * Whatever the browser refuses to store, the page still has in memory; it fetches again next time.
- */
-function keepResponse(stored: StoredImport, response: ModelResponse, requestTag: string): Fetched {
-  const res = withImportedTeam(response, stored);
-  const snap = res.import.snapshot;
-  const storage = browserSessionStorage();
-  if (storage) {
-    const kept = keepModelResponse(storage, { stored, response: res, savedAt: new Date().toISOString() });
-    if (kept.importSaved || kept.modelSaved) notifySessionChange();
-  }
-  return { tags: [requestTag, leagueTag(snap)], snapshot: snap, inputs: res.model };
+export function computeTagFor(args: {
+  snapshot: Pick<LeagueSnapshot, "platform" | "leagueId" | "season" | "fetchedAt">;
+  builtAt: string;
+  myTeamId: string | null;
+  settings: TradeSettings;
+  attempt: number;
+}): string {
+  return `${leagueTag(args.snapshot)}|${args.builtAt}|${args.myTeamId ?? "-"}|${settingsFingerprint(args.settings, LEAGUE_MODEL_SETTINGS)}|${args.attempt}`;
 }
 
 function LoadedLeague({ stored }: { stored: StoredImport }) {
   const snapshot = stored.response.snapshot;
-  const requestTag = leagueTag(snapshot);
-  const pickRaw = useSessionValue(myTeamKey(snapshot));
-  const pick = useMemo(() => parseMyTeamPick(pickRaw), [pickRaw]);
-  const modelRaw = useSessionValue(MODEL_STORAGE_KEY);
-  // When the page opened: stored inputs built over MODEL_REUSE_MAX_AGE_MS before it are fetched again.
-  const [openedAt] = useState(() => Date.now());
-  // undefined while storage hasn't been read; null when nothing stored (and fresh) matches this snapshot.
-  const storedInputs = useMemo(
-    () => (modelRaw === undefined ? undefined : (modelForSnapshot(parseStoredModel(modelRaw), snapshot, { now: openedAt }) ?? null)),
-    [modelRaw, snapshot, openedAt],
-  );
   const timeZone = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC", []);
   const statusRef = useRef<HTMLParagraphElement>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
 
-  // 1. Model inputs: this page view's latest answer, else this tab's stored copy, else fetch.
-  const [fetched, setFetched] = useState<Fetched | null>(null);
-  const [fetchError, setFetchError] = useState<{ tag: string; message: string } | null>(null);
-  const [attempt, setAttempt] = useState(0);
-  const fetchTag = `${requestTag}|${attempt}`;
-  const pair = useMemo(() => {
-    if (fetched && fetched.tags.includes(requestTag)) return { snapshot: fetched.snapshot, inputs: fetched.inputs };
-    if (storedInputs) return { snapshot, inputs: storedInputs };
-    return null;
-  }, [fetched, requestTag, storedInputs, snapshot]);
-  const fetchFailed = fetchError !== null && fetchError.tag === fetchTag;
-  const needFetch = storedInputs !== undefined && !pair && !fetchFailed;
+  // 1. Model inputs and my team (useLeagueInputs.ts): this page view's latest answer, else this tab's stored copy, else fetch.
+  const { pair, myTeam, error: fetchError, retry: retryFetch, refreshInputs } = useLeagueInputs(stored);
 
-  const startFetch = useEffectEvent((tag: string) => {
-    const joined = joinInputsRequest(stored);
-    let live = true;
-    joined.promise.then(
-      (outcome) => {
-        if (!live) return;
-        if (outcome.ok) setFetched(keepResponse(stored, outcome.response, requestTag));
-        else setFetchError({ tag, message: outcome.message });
-      },
-      () => {
-        if (live) setFetchError({ tag, message: UNREACHABLE });
-      },
-    );
-    return () => {
-      live = false;
-      joined.leave();
-    };
-  });
-  useEffect(() => {
-    if (!needFetch) return;
-    return startFetch(fetchTag);
-  }, [needFetch, fetchTag]);
-
-  // 2. The League model, in the engine's worker.
-  const myTeam = useMemo(() => (pair ? resolveMyTeam(pair.snapshot, pick) : null), [pair, pick]);
+  // 2. The League model, in the engine's worker, with the league's settings (undefined until read).
+  const { settings } = useLeagueSettings(snapshot);
   const [computeAttempt, setComputeAttempt] = useState(0);
-  const computeTag = pair && myTeam ? `${leagueTag(pair.snapshot)}|${pair.inputs.builtAt}|${myTeam.myTeamId ?? "-"}|${computeAttempt}` : null;
+  const computeTag =
+    pair && myTeam && settings ? computeTagFor({ snapshot: pair.snapshot, builtAt: pair.inputs.builtAt, myTeamId: myTeam.myTeamId, settings, attempt: computeAttempt }) : null;
   const [computed, setComputed] = useState<Computed | null>(null);
   const [computeError, setComputeError] = useState<{ tag: string; message: string } | null>(null);
   const engineRef = useRef<EngineClient | null>(null);
@@ -298,18 +227,19 @@ function LoadedLeague({ stored }: { stored: StoredImport }) {
   );
 
   const startCompute = useEffectEvent((tag: string) => {
-    if (!pair || !myTeam) return undefined;
+    if (!pair || !myTeam || !settings) return undefined;
     const job = { snapshot: pair.snapshot, inputs: pair.inputs, myTeamSource: myTeam.source };
     const myTeamId = myTeam.myTeamId;
+    const leagueSettings = settings;
     let live = true;
     // A tick later, so React StrictMode's first run (development) is cancelled before it starts.
     const timer = setTimeout(() => {
       const engine = engineRef.current ?? createEngineClient();
       engineRef.current = engine;
       const nowIso = new Date().toISOString();
-      engine.buildLeague({ snapshot: job.snapshot, model: job.inputs, myTeamId, nowIso }).then(
+      engine.buildLeague({ snapshot: job.snapshot, model: job.inputs, myTeamId, nowIso, settings: leagueSettings }).then(
         (result) => {
-          if (live) setComputed((prev) => ({ tag, ...job, result, nowIso, updated: prev !== null }));
+          if (live) setComputed((prev) => ({ tag, ...job, result, nowIso, settings: leagueSettings, updated: prev !== null }));
         },
         (err: unknown) => {
           if (!live) return;
@@ -349,13 +279,12 @@ function LoadedLeague({ stored }: { stored: StoredImport }) {
     setRefreshing(true);
     setRefreshError(null);
     setRefreshStatus(null);
-    const outcome = await requestInputs(stored, true);
+    const outcome = await refreshInputs();
     setRefreshing(false);
     if (!outcome.ok) {
       setRefreshError(outcome.message);
       return;
     }
-    setFetched(keepResponse(stored, outcome.response, requestTag));
     setRefreshStatus(refreshOutcomeText({ before, after: outcome.response.import.snapshot.fetchedAt, now: new Date(), platform: snapshot.platform, timeZone }));
   }
 
@@ -379,7 +308,7 @@ function LoadedLeague({ stored }: { stored: StoredImport }) {
   }, [ready]);
 
   let state: LeagueFrameState;
-  if (!pair && fetchError && fetchFailed) state = { kind: "error", message: fetchError.message, onRetry: () => retry(() => setAttempt((a) => a + 1)) };
+  if (!pair && fetchError) state = { kind: "error", message: fetchError, onRetry: () => retry(retryFetch) };
   else if (!pair) state = { kind: "fetching" };
   else if (!ready && computeError && computeError.tag === computeTag) state = { kind: "error", message: computeError.message, onRetry: () => retry(() => setComputeAttempt((a) => a + 1)) };
   else if (!view || !shown) state = { kind: "computing" };

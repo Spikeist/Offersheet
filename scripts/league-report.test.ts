@@ -7,13 +7,14 @@ import { normalizeEspnLeague } from "@/adapters/espn/normalize";
 import { NOW, PARKER, fakeResolver, parkerBundle } from "@/adapters/espn/test-helpers";
 import { config } from "@/engine/config";
 import type { ModelInputs } from "@/engine/inputs";
-import { buildLeagueModel } from "@/engine/league";
+import { buildLeagueModel, leagueMarginals } from "@/engine/league";
 import type { LeagueModel } from "@/engine/leagueModel";
 import { buildSimSetup, seasonOdds } from "@/engine/season";
 import { simNormals } from "@/engine/sim";
 import { syntheticInputs } from "@/engine/testLeague";
 import { RISKY_BYES, RISKY_WIN_CHANCE, likelyStarters } from "@/lib/leagueView";
 import {
+  OPTIMIZER_EXAMPLES,
   SCALE_GAINS,
   SE_BATCHES,
   bRefFor,
@@ -22,6 +23,9 @@ import {
   benefitWin,
   buildReport,
   noOpCheck,
+  optimizerJudging,
+  optimizerJudgingText,
+  optimizerReport,
   pct,
   placeholders,
   remainingSchedule,
@@ -60,8 +64,13 @@ describe("league report: the Trade Score arithmetic (CLAUDE.md §10)", () => {
     expect(benefitWin(0.1, 0.05)).toBeCloseTo(6.75, 12);
   });
 
-  it("the Trade Score matches §10's sample values, and is hidden (null) for B ≤ 0", () => {
-    expect([1, 2, 3, 5, 8, 10].map((B) => tradeScore(B))).toEqual([18, 33, 45, 63, 80, 86]);
+  it("the Trade Score matches §10's sample values (B_ref 6 since Checkpoint 3), and is hidden (null) for B ≤ 0", () => {
+    expect(config.benefit.bRef).toBe(6);
+    expect([1, 2, 3, 5, 8, 10].map((B) => tradeScore(B))).toEqual([15, 28, 39, 57, 74, 81]);
+    // The planner's check in Parker's league (Checkpoint 3): B ≈ 2.05, 6.3 and 12.4 for +1, +3 and +6 a week score 29, 65 and 87.
+    expect([2.05, 6.3, 12.4].map((B) => tradeScore(B))).toEqual([29, 65, 87]);
+    // The old B_ref 5 gave §10's earlier samples.
+    expect([1, 2, 3, 5, 8, 10].map((B) => tradeScore(B, 5))).toEqual([18, 33, 45, 63, 80, 86]);
     expect(tradeScore(0)).toBeNull();
     expect(tradeScore(-2)).toBeNull();
     expect(tradeScore(Number.NaN)).toBeNull();
@@ -225,19 +234,20 @@ describe("league report: Parker's league (committed sanitized fixture) with synt
     });
   });
 
-  it("the free-agent baseline re-prices the roster exactly as the model priced it, or says why it's skipped", () => {
-    const wv = season.waiver as NonNullable<SeasonReport["waiver"]>;
+  it("the free-agent baseline (V*: all my pickups) re-prices the roster exactly as the model priced it, or says why it's skipped", () => {
+    const wv = season.vstar as NonNullable<SeasonReport["vstar"]>;
     expect(wv).not.toBeNull();
     const my = model.teams.find((t) => t.id === me) as LeagueModel["teams"][number];
-    if (my.waiver === null) {
-      expect(wv).toEqual({ skipped: expect.stringContaining("no free-agent move") });
+    if (my.faMoves.length === 0) {
+      expect(wv).toEqual({ skipped: expect.stringContaining("no free-agent pickup") });
       return;
     }
     if ("skipped" in wv) throw new Error(`skipped: ${wv.skipped}`);
+    expect(wv.moves).toEqual(my.faMoves);
     expect(wv.reproduced).toBe(0);
     expect(Math.abs(wv.rosDiff)).toBeLessThan(1e-6);
     expect(wv.check.rows?.map((r) => r.gain)).toEqual([...SCALE_GAINS]);
-    // The move alone: the T_V baseline against the roster as it is, on the same matrix.
+    // The pickups alone: the V* baseline against the roster as it is, on the same matrix.
     const cur = (season.scale as NonNullable<SeasonReport["scale"]>).base;
     const move = wv.move as NonNullable<typeof wv.move>;
     expect(move.dPO).toBe(wv.check.base.pPlayoffs - cur.pPlayoffs);
@@ -245,8 +255,34 @@ describe("league report: Parker's league (committed sanitized fixture) with synt
     expect(move.dEW).toBe(wv.check.base.expWins - cur.expWins);
     expect(move.B).toBeCloseTo(benefitWin(move.dPO, move.dCH), 12);
     expect(move.score).toBe(tradeScore(move.B));
-    // The T_V roster really differs: the drop is gone and the free agent is in (its baseline odds moved).
+    // The V* roster really differs: its baseline odds moved.
     expect(wv.check.base).not.toEqual(cur);
+  });
+
+  it("the free-agent optimizer: moves per team and their count distribution, and the named examples by the model's own rules (leagueMarginals)", () => {
+    const marginals = leagueMarginals(snapshot, inputs, { now: NOW, scenarios: S });
+    const opt = optimizerReport(snapshot, model, marginals);
+    expect(opt.moves.map((m) => m.teamId)).toEqual(model.teams.map((t) => t.id));
+    expect(opt.distribution).toHaveLength(config.freeAgentOptimizer.faMaxMoves + 1);
+    expect(opt.distribution.reduce((a, b) => a + b, 0)).toBe(model.teams.length);
+    opt.distribution.forEach((n, k) => expect(n, `${k} moves`).toBe(model.teams.filter((t) => t.faMoves.length === k).length));
+    expect(opt.examples.map((e) => e.name)).toEqual(OPTIMIZER_EXAMPLES.map((e) => e.name));
+    for (const ex of opt.examples) {
+      // Both are on a roster in Parker's fixture.
+      expect(ex.playerId, ex.name).not.toBeNull();
+      expect(ex.teamId, ex.name).not.toBeNull();
+      const tm = model.teams.find((t) => t.id === ex.teamId) as LeagueModel["teams"][number];
+      const x = tm.players[ex.playerId as string] as NonNullable<(typeof tm.players)[string]>;
+      expect(ex.cost).toEqual({ ev: x.mvLoseEv, scen: x.mvLoseScen, autoAdd: x.autoAdd });
+      expect(ex.adds.map((a) => a.teamId)).not.toContain(ex.teamId);
+      // A chip's maxOther is the best of these (floored at 0), and its gap what the report prints.
+      if (ex.chip) {
+        const best = Math.max(...ex.adds.map((a) => Math.max(0, a.scen as number)));
+        expect(ex.chip.maxOther).toBeCloseTo(best, 9);
+        expect(ex.chip.gap).toBeCloseTo(ex.chip.maxOther - ex.chip.cost, 9);
+      }
+    }
+    expect(opt.examples[0]?.focusTeamId).toBe("1");
   });
 
   it("the no-op check: one setup twice is bitwise identical, and a rebuilt model moves nothing", () => {
@@ -283,12 +319,14 @@ describe("league report: a week in progress", () => {
     const scoreOf = rosterScorer(snapshot, live, model, NOW);
     for (const t of snapshot.teams) {
       const tm = model.teams.find((x) => x.id === t.id) as LeagueModel["teams"][number];
-      expect(scoreOf(t.roster)).toEqual(tm.score);
+      expect(scoreOf(t.roster, t.id)).toEqual(tm.score);
     }
     // And the same without scenarios (expected-value lineups).
     const ev = buildLeagueModel(snapshot, live, { now: NOW, scenarios: 0, sims: 0 });
     const evScore = rosterScorer(snapshot, live, ev, NOW);
-    for (const t of snapshot.teams) expect(evScore(t.roster)).toEqual(ev.teams.find((x) => x.id === t.id)?.score);
+    for (const t of snapshot.teams) expect(evScore(t.roster, t.id)).toEqual(ev.teams.find((x) => x.id === t.id)?.score);
+    // My team streams (K and D/ST by default): its scores need its streaming rows, which the re-pricing adds.
+    expect(model.streaming.byTeam[PARKER.myTeamId]?.positions.length).toBeGreaterThan(0);
   });
 
   it("the schedule marks the week under way, and the report says the scale check includes it", () => {
@@ -330,6 +368,8 @@ describe("league report: the whole offline report", () => {
       "## Timings",
       "### Season simulation runtime",
       "## Projected starting-lineup points per week",
+      "## Streaming positions",
+      "## The free-agent optimizer (V*)",
       "## Needs and trade chips, every team",
       "## Conflicting ESPN signals: far return dates on game-time tags",
       "## FantasyCalc match rates (rostered QB/RB/WR/TE)",
@@ -348,8 +388,8 @@ describe("league report: the whole offline report", () => {
     expect(doc).toContain(`± is its Monte Carlo standard error, by batch means: the 5,000 seasons split into ${SE_BATCHES} batches of 250`);
     expect(doc).toMatch(/\| \+3 pt\/wk \| [+-]\d\.\d{4} ± \d\.\d{4} \| [+-]\d\.\d{4} ± \d\.\d{4} \| [+-]\d+\.\d{3} ± \d+\.\d{3} \| -?\d+\.\d{2} ± \d+\.\d{2} \|/);
     expect(doc).toMatch(/−B\(\+3\) \/ ln 0\.37 = \*\*\d+\.\d ± \d+\.\d\*\* \(± its Monte Carlo standard error, as B\(\+3\)'s; two standard errors span \d+\.\d–\d+\.\d\)/);
-    const wv = season.waiver;
-    if (wv && !("skipped" in wv) && wv.move) expect(doc).toMatch(/The move alone, against your roster as it is: ΔPO [+-]\d\.\d{4} ± \d\.\d{4}, ΔCH [+-]\d\.\d{4} ± \d\.\d{4}, Δ expected wins [+-]\d+\.\d{3} ± \d+\.\d{3}, B -?\d+\.\d{2} ± \d+\.\d{2}/);
+    const wv = season.vstar;
+    if (wv && !("skipped" in wv) && wv.move) expect(doc).toMatch(/The pickups alone, against your roster as it is: ΔPO [+-]\d\.\d{4} ± \d\.\d{4}, ΔCH [+-]\d\.\d{4} ± \d\.\d{4}, Δ expected wins [+-]\d+\.\d{3} ± \d+\.\d{3}, B -?\d+\.\d{2} ± \d+\.\d{2}/);
     // Build timings: EV lineups and S scenarios, each without and with the simulation.
     expect(season.buildTimings.map((b) => [b.scenarios, b.sims])).toEqual([
       [0, 0],
@@ -362,6 +402,85 @@ describe("league report: the whole offline report", () => {
     expect(Object.keys(timing)).toEqual(["engine, expected-value lineups only (season simulation included)", `engine, with ${S} availability scenarios (season simulation included)`]);
     // Placeholders only: the fixture's team names never reach the report.
     for (const t of snapshot.teams) expect(t.name).toBe(`Team ${t.id}`);
+  });
+
+  it("reports the free-agent optimizer (Phase 4): every team's pickups with both gains, how many moves teams make, and the named examples with their chip gaps", () => {
+    const { doc, model, optimizer } = buildReport(snapshot, inputs, { now: NOW, clock, scenarios: S, runs: 1, warmups: 0, buildRuns: 0 });
+    const section = doc.slice(doc.indexOf("## The free-agent optimizer (V*)"), doc.indexOf("## Needs and trade chips, every team"));
+    expect(section).toContain(`while it gains at least ${config.freeAgentOptimizer.faMinGain}, at most ${config.freeAgentOptimizer.faMaxMoves} moves`);
+    // What V* decides by (review finding: the report said EV after V* became scenario-judged): scenario lineups here.
+    expect(optimizerJudging(snapshot, model)).toBe("scenario");
+    expect(section).toContain(`Moves are judged by their gain in scenario lineups (S = ${S}), the lineups B and the lineup costs are measured in`);
+    expect(section).toContain("The re-runs behind the lineup costs and MV_add below (from a team's optimized roster after a player leaves or joins) judge their moves by the expected-value gain.");
+    expect(section).not.toContain("EV is what the optimizer decides by");
+    expect(section).not.toContain("projected (expected-value) lineup pts");
+    expect(section).toContain("| Team | # | Move | Gain, EV (for reference) | Gain, scenarios (decides) |");
+    // The rule the words state is the one V* follows: every move clears faMinGain in scenario lineups.
+    for (const t of model.teams) for (const m of t.faMoves) expect(m.gainScen as number).toBeGreaterThanOrEqual(config.freeAgentOptimizer.faMinGain - 1e-9);
+    expect(section).toMatch(/\*\*How many moves teams make:\*\* 0 moves: \d+ teams? · 1 move: \d+ teams? · /);
+    const rows = section.split("\n").filter((l) => /^\| (Team \d+( \(you\))?)? \| \d \| add /.test(l));
+    expect(rows).toHaveLength(model.teams.reduce((n, t) => n + t.faMoves.length, 0));
+    for (const t of model.teams) for (const m of t.faMoves) expect(section).toContain(` | +${m.gainEv.toFixed(1)} | ${m.gainScen === null ? "–" : `${m.gainScen < 0 ? "-" : "+"}${Math.abs(m.gainScen).toFixed(1)}`} |`);
+    // Bo Nix → Team 1: his MV_add there is printed, with the drop that makes room (or an open spot), and his chip status.
+    const nix = optimizer.examples[0] as (typeof optimizer.examples)[number];
+    expect(section).toContain(`- **Bo Nix (QB, `);
+    const toOne = nix.adds.find((a) => a.teamId === "1");
+    if (toOne) expect(section).toContain(`to Team 1: ${(toOne.scen as number) < 0 ? "-" : "+"}${Math.abs(toOne.scen as number).toFixed(1)}`);
+    expect(section).toMatch(/- \*\*Bo Nix \(QB, [A-Z]+\)\*\*: on Team \d+.*; (a trade chip: gap|not a trade chip: gap)/);
+    expect(section).toMatch(/- \*\*Christian McCaffrey \(RB, [A-Z]+\)\*\*: on Team \d+.*; (a trade chip: gap|not a trade chip: gap)/);
+    // Team 1 either takes him (its row is marked) or the report says why it can't.
+    if (toOne) expect(section).toContain("| Team 1 ← | ");
+    else expect(section).toMatch(/Team 1 (can't take him: |is his own team)/);
+    expect(nix.focusBlocked === null).toBe(toOne !== undefined);
+    // Here it takes him. (Review of track A2: the first version reported "Team 1 can't take him" on these inputs, when
+    // Team 1's own pickups filled its QB limit.) When its V* is at the QB limit it makes room at QB (L7); since V* judges
+    // its moves in scenario lineups (review of track E, item 1) Team 1's pickups differ, so the drop is checked only then.
+    expect(nix.focusBlocked).toBeNull();
+    const team1 = model.teams.find((t) => t.id === "1");
+    const vstar1 = (team1?.faMoves ?? []).reduce<string[]>((r, m) => (m.drop === null ? [...r, m.add] : r.map((id) => (id === m.drop ? m.add : id))), [...(snapshot.teams.find((t) => t.id === "1")?.roster ?? [])]);
+    const qbLimit = snapshot.settings.positionLimits?.QB;
+    if (qbLimit !== undefined && vstar1.filter((id) => snapshot.players[id]?.pos === "QB").length >= qbLimit) expect(snapshot.players[toOne?.drop ?? ""]?.pos).toBe("QB");
+  });
+
+  it("says what V* judges its moves by: expected value without scenarios, scenario lineups with them, expected value under starter limits", () => {
+    expect(optimizerJudging(snapshot, { scenarios: 0 })).toBe("ev");
+    expect(optimizerJudging(snapshot, { scenarios: S })).toBe("scenario");
+    const limited = { ...snapshot, settings: { ...snapshot.settings, starterLimits: { QB: { min: 1, max: 1 } } } };
+    expect(optimizerJudging(limited, { scenarios: S })).toBe("evLimits");
+    expect(optimizerJudgingText("ev", 0)).toBe("by their expected-value gain (this run has no availability scenarios)");
+    expect(optimizerJudgingText("evLimits", S)).toContain("by their expected-value gain (⚠️ under starter limits");
+    const { doc } = buildReport(snapshot, inputs, { now: NOW, clock, scenarios: 0, runs: 1, warmups: 0, buildRuns: 0 });
+    const section = doc.slice(doc.indexOf("## The free-agent optimizer (V*)"), doc.indexOf("## Needs and trade chips, every team"));
+    expect(section).toContain("Moves are judged by their expected-value gain (this run has no availability scenarios).");
+    expect(section).not.toContain("The re-runs behind");
+    expect(section).toContain("| Team | # | Move | Gain, EV (decides) | Gain, scenarios |");
+  });
+
+  it("reports streaming (Phase 4): who streams what and why, each streamed position's replacement per week, this week's picks; chips with their cost a week and the starter tag", () => {
+    const { doc, model } = buildReport(snapshot, inputs, { now: NOW, clock, scenarios: 0, runs: 1, warmups: 0, buildRuns: 0 });
+    const section = doc.slice(doc.indexOf("## Streaming positions"), doc.indexOf("## Needs and trade chips, every team"));
+    expect(section).toContain("the 3rd-best free agent at that position that week");
+    // One row per team, as the model decided: my setting (K and D/ST by default), the others from their adds this season.
+    for (const t of snapshot.teams) {
+      const x = model.streaming.byTeam[t.id] as NonNullable<(typeof model.streaming.byTeam)[string]>;
+      const why = x.source === "setting" ? "your setting" : x.positions.length ? "detected (2+ adds)" : "–";
+      expect(section).toContain(`| Team ${t.id}${t.id === PARKER.myTeamId ? " (you)" : ""} | ${x.positions.join(", ") || "–"} | ${why} | K ${x.adds.K ?? 0}, DEF ${x.adds.DEF ?? 0}, QB ${x.adds.QB ?? 0}, TE ${x.adds.TE ?? 0} |`);
+    }
+    expect(model.streaming.byTeam[PARKER.myTeamId]).toMatchObject({ positions: ["K", "DEF"], source: "setting" });
+    // Each streamed position's replacement, week by week, with its average.
+    for (const pos of ["K", "DEF"] as const) {
+      const rep = model.streaming.replacement[pos] as number[];
+      expect(rep).toHaveLength(model.weeks.length);
+      expect(section).toContain(`| ${pos} | ${rep.map((x) => x.toFixed(1)).join(" | ")} | ${(rep.reduce((a, b) => a + b, 0) / rep.length).toFixed(1)} |`);
+    }
+    // This week's picks: three kickers and three D/STs (the synthetic inputs have no opponents: "unknown").
+    expect(model.streaming.picks.map((p) => p.pos)).toEqual(["K", "K", "K", "DEF", "DEF", "DEF"]);
+    for (const pick of model.streaming.picks) expect(section).toContain(`| ${pick.pos} | ${snapshot.players[pick.playerId]?.name} (${pick.pos}, `);
+    expect(section).toContain("| unknown | ");
+    // Trade chips: their cost a week and the starter tag, read from the model.
+    expect(doc).toContain("| Team | Player | Gap | Cost | Cost/wk | Starter | maxOther | Best team |");
+    const chips = model.teams.flatMap((t) => t.chips);
+    for (const c of chips) expect(doc).toContain(` | ${c.gap.toFixed(1)} | ${c.cost.toFixed(1)} | ${c.costPerWeek.toFixed(1)} | ${c.starter ? "starter" : "–"} | ${c.maxOther.toFixed(1)} | `);
   });
 
   it("after the regular season: playoff odds only, my team certainly out, and §8's season-over message", () => {

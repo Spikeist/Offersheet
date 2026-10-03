@@ -2,9 +2,10 @@
 /**
  * The League page, ready (CLAUDE.md §14 item 3): the header, the standings with playoff, bye and title
  * odds and my remaining schedule with each week's risk (§8), the team table with needs and trade chips,
- * the positional strength heatmap, best trade partners, every roster (headed by the team's best
- * free-agent move, §7) with rest-of-season points and a week-by-week breakdown (§6 step 7), the best
- * free agents, and "how these numbers work". Every word and number comes from buildLeagueView();
+ * the positional strength heatmap, best trade partners, "Streaming picks this week" (§7 streaming
+ * positions), every roster (headed by what its team streams and how many free-agent pickups would help it, which
+ * its body lists, §7) with rest-of-season points and a week-by-week breakdown (§6 step 7), the best free agents, and
+ * "how these numbers work". Every word and number comes from buildLeagueView();
  * this file only arranges it, mobile-first (375 px). Every set of values carries its own
  * "Values: FantasyCalc" link (§2.9): the header, the team table, the rosters and the free agents (the
  * odds and the schedule show no trade values). When my team is certainly out in a redraft league, the
@@ -15,12 +16,13 @@
  */
 import Link from "next/link";
 import type { Ref } from "react";
-import { FREE_AGENT_MOVE_LABEL, type FreeAgentMove, type LeagueView as LeagueViewModel } from "@/lib/leagueView";
+import { FREE_AGENT_PICKUPS_LABEL, type FreeAgentPickups, type LeagueView as LeagueViewModel } from "@/lib/leagueView";
 import type { RefreshControl } from "../import/ReportView";
 import { Badge, Callout, Card, CardTitle, FOCUS_TARGET, Facts, cx } from "../ui";
 import { PlayerTable } from "./PlayerTable";
 import { RemainingSchedule } from "./RemainingSchedule";
 import { StandingsOdds } from "./StandingsOdds";
+import { StreamingPicks } from "./StreamingPicks";
 import { StrengthHeatmap } from "./StrengthHeatmap";
 import { TeamTable } from "./TeamTable";
 import { TradePartners } from "./TradePartners";
@@ -58,6 +60,7 @@ export function LeagueView({ view, refresh, headingRef }: ViewProps & { refresh?
       <TeamTable view={view} />
       <StrengthHeatmap heatmap={view.heatmap} />
       <TradePartners view={view} />
+      <StreamingPicks view={view} />
       <Rosters view={view} />
       <FreeAgents view={view} />
       <HowItWorks view={view} />
@@ -146,13 +149,15 @@ function Rosters({ view }: ViewProps) {
                 {r.name} {r.isMine ? <Badge tone="brand">You</Badge> : null}
               </span>
               <span className="block text-xs text-muted">{r.summary}</span>
-              {r.waiver ? <FreeAgentMoveLine move={r.waiver} mine={r.isMine} /> : null}
+              {r.streams ? <span className="block text-xs break-words text-muted">{r.streams}</span> : null}
+              {r.pickups ? <PickupsSummary pickups={r.pickups} mine={r.isMine} /> : null}
             </span>
             <span aria-hidden className="shrink-0 text-muted transition-transform group-open:rotate-180">
               ▾
             </span>
           </summary>
           <div className="border-t border-line px-4 pb-3 sm:px-5">
+            {r.pickups ? <PickupsList pickups={r.pickups} teamName={r.name} /> : null}
             <PlayerTable players={r.players} caption={`${r.name}: players with rest-of-season points`} showLineupCost lineupCostTitle={view.lineupCostTitle} split={view.playoffsLeft} />
           </div>
         </details>
@@ -162,16 +167,36 @@ function Rosters({ view }: ViewProps) {
 }
 
 /**
- * A team's best free-agent move (§7), in its roster header: a highlighted box for the user's team,
- * where it's something to act on; a quiet line for the others. It wraps at 375 px: only the gain
- * itself stays on one line, and the playoff-weighting note wraps after it.
+ * A team's free-agent pickups (§7 V*) in its roster header, so they show while it's collapsed: how many and what they
+ * add together; a highlighted box for the user's team, where they're something to act on, a quiet line for the
+ * others. It wraps at 375 px: only the total itself stays on one line, and the playoff-weighting note wraps after it.
  */
-function FreeAgentMoveLine({ move, mine }: { move: FreeAgentMove; mine: boolean }) {
+function PickupsSummary({ pickups, mine }: { pickups: FreeAgentPickups; mine: boolean }) {
   return (
-    <span className={mine ? "mt-2 block rounded-lg bg-brand-soft px-2.5 py-1.5 text-sm leading-snug break-words text-brand-strong dark:text-brand" : "mt-1 block text-xs break-words text-muted"}>
-      <span className="font-bold">{FREE_AGENT_MOVE_LABEL}:</span> {move.move}: <span className={cx("whitespace-nowrap tabular-nums", mine ? "font-extrabold" : "font-semibold")}>{move.gain}</span>
-      {move.weighting ? ` ${move.weighting}` : null}
+    <span title={pickups.text} className={mine ? "mt-2 block rounded-lg bg-brand-soft px-2.5 py-1.5 text-sm leading-snug break-words text-brand-strong dark:text-brand" : "mt-1 block text-xs break-words text-muted"}>
+      <span className="font-bold">{FREE_AGENT_PICKUPS_LABEL}:</span> <span className={cx("whitespace-nowrap tabular-nums", mine ? "font-extrabold" : "font-semibold")}>{pickups.summary}</span>
+      {pickups.weighting ? ` ${pickups.weighting}` : null}
     </span>
+  );
+}
+
+/** The pickups themselves, in the order the team would make them, at the top of the roster's body (a real list: a summary can't hold one). */
+function PickupsList({ pickups, teamName }: { pickups: FreeAgentPickups; teamName: string }) {
+  return (
+    <div className="mt-3">
+      <h3 className="text-sm font-extrabold">
+        {FREE_AGENT_PICKUPS_LABEL}
+        <span className="sr-only">{` for ${teamName}`}</span>
+      </h3>
+      <ol className="mt-1 list-decimal space-y-0.5 pl-5 text-sm leading-snug">
+        {pickups.items.map((item) => (
+          <li key={item.move} title={item.title} className="break-words">
+            {item.move}: <span className="whitespace-nowrap font-semibold tabular-nums">{item.gain}</span>
+          </li>
+        ))}
+      </ol>
+      {pickups.weighting ? <p className="mt-1 text-xs text-muted">Lineup pts {pickups.weighting}.</p> : null}
+    </div>
   );
 }
 

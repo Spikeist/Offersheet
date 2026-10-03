@@ -8,7 +8,7 @@ export const metadata: Metadata = {
 };
 
 /** When this policy last changed (Parker's local date). Update it with every change below. */
-const LAST_UPDATED = "September 30, 2026";
+const LAST_UPDATED = "October 1, 2026";
 
 /**
  * CLAUDE.md §14: the privacy policy must match what the app actually does. Update it whenever data
@@ -19,7 +19,25 @@ const LAST_UPDATED = "September 30, 2026";
  *     private-league cache keys carry a one-way fingerprint of the cookies (credentialScope).
  *   - src/server/session.ts: the sealed, httpOnly, session-only cookie; 12-hour seal.
  *   - src/lib/modelStore.ts: the League page keeps the league's model inputs in sessionStorage
- *     ("offersheet:model:v1"); src/workers/engine.worker.ts: the League math runs in the browser.
+ *     ("offersheet:model:v1"); src/workers/engine.worker.ts: the League math, the trade search (Trade
+ *     Finder) and the Trade Analyzer's evaluations run in the browser (Phase 4); the trade pages load the
+ *     same inputs the same way (src/components/league/useLeagueInputs.ts).
+ *   - src/lib/tradeView.ts finderHref / analyzerHref (Phase 4): links to the Trade Finder for one team and
+ *     to a trade in the Trade Analyzer carry a team ID and player IDs in the URL query, never names or
+ *     the league ID; the Finder (a partner picked) and the Analyzer (the trade it evaluated) write theirs
+ *     back into the address the same way (history.replaceState: no request). Those links are never
+ *     prefetched (prefetch={false}: TradeCard, TradePartners), so the server sees such an address only
+ *     when the user opens it.
+ *   - src/lib/settingsStore.ts (Phase 4): the Settings page keeps each league's settings in localStorage
+ *     ("offersheet:settings:v1"), filed under leagueKey (a short hash of the platform and league ID): player
+ *     IDs, positions, numbers and on/off flags, no names. They outlast the tab until "Reset to defaults" or
+ *     the browser's site data is cleared, and only the in-browser engine reads them (never sent to a server).
+ *   - src/lib/feedbackStore.ts (Phase 4): feedback on trade ideas (outcome and report buttons) in localStorage
+ *     ("offersheet:feedback:v1", the newest FEEDBACK_MAX_RECORDS = 500): the trade's player, pick and partner
+ *     team IDs, Offer Sheet's numbers and features, when each button was pressed and the typed note.
+ *     "Export feedback" (feedbackExport) numbers the leagues (league-1, league-2, …) and keeps notes as
+ *     typed; "Delete saved feedback" removes it all. Nothing is sent anywhere until Phase 7's server-side
+ *     store, which must update this page.
  *   - src/server/modelInputs.ts assembleModelInputs: the server scores every player's projections and
  *     stats with the league's scoring rules and joins FantasyCalc values to the league's players.
  *   - The FantasyCalc values request carries only the league's format (src/engine/market.ts
@@ -45,8 +63,12 @@ export default function PrivacyPage() {
           <li>Offer Sheet only reads your league. It can&apos;t send offers or change anything.</li>
           <li>Your imported league, and the League page&apos;s projections for it, live in this browser tab and are gone when you close it.</li>
           <li>
+            Your settings for each league, and any feedback you give on trade ideas, stay in this browser after you close the tab, until you reset or delete them on the
+            Settings page or clear this site&apos;s data. They&apos;re never sent to our server.
+          </li>
+          <li>
             Our server fetches the data and scores each player&apos;s projections with your league&apos;s rules. The League page&apos;s math (lineups, needs, trade partners,
-            playoff odds) runs in your browser.
+            playoff odds), the trade search and the Trade Analyzer all run in your browser.
           </li>
           <li>Our server keeps a short-lived copy of what it fetches (league data for about 10 minutes), then deletes it.</li>
           <li>If you connect with ESPN cookies, they&apos;re kept only in an encrypted cookie in your browser for this session, and only ever sent to ESPN.</li>
@@ -57,13 +79,21 @@ export default function PrivacyPage() {
         <h2 className="text-lg font-extrabold">Your league</h2>
         <p className="mt-2 text-sm leading-relaxed">
           When you connect, our server fetches your league from ESPN or Sleeper, turns it into the Import Report, and sends it to your browser. Your browser keeps it in this
-          tab&apos;s session storage (not local storage) until you close the tab. Your pick of &ldquo;Your team&rdquo; is kept the same way.
+          tab&apos;s session storage (not local storage) until you close the tab. Your pick of &ldquo;Your team&rdquo; is kept the same way. Your settings and trade
+          feedback are the exception: they stay in local storage, as described below.
         </p>
         <p className="mt-2 text-sm leading-relaxed">
           When you open the League page, our server fetches your league again (usually from its short-lived copy) along with the projections and trade values for its
           players, and scores the projections with your league&apos;s scoring rules. Your browser keeps those projections and values in session storage too (under
           &ldquo;offersheet:model:v1&rdquo;, for the league you imported), so they&apos;re gone when you close the tab. The League page&apos;s math (lineups, needs,
           trade partners, playoff odds) runs in your browser; your league isn&apos;t sent to anyone else to be analyzed.
+        </p>
+        <p className="mt-2 text-sm leading-relaxed">
+          The Trade Finder and the Trade Analyzer use the same projections and values, kept and fetched the same way, and they search for and score trades in your
+          browser too. A link to the Trade Finder for one team, or to a trade in the Trade Analyzer, carries only that team&apos;s ID number and the players&apos; ID
+          numbers in its web address (never names or your league&apos;s ID), and the Finder and the Analyzer put the team you pick and the trade you evaluate into
+          their address the same way. Offer Sheet never loads these addresses ahead of time, so our server sees one only when you open it, like any web
+          address.
         </p>
         <p className="mt-2 text-sm leading-relaxed">To go easy on ESPN and Sleeper, our server keeps a copy of what it fetched for a short time, then deletes it:</p>
         <ul className="mt-2 list-disc space-y-1.5 pl-5 text-sm leading-relaxed">
@@ -84,6 +114,34 @@ export default function PrivacyPage() {
           ESPN league data includes every member&apos;s ESPN member ID (the SWID), yours among them. Before our server keeps a copy, it replaces every member ID with a
           one-way pseudonym, so the saved copy holds no SWIDs.
         </p>
+      </Card>
+
+      <Card>
+        <h2 className="text-lg font-extrabold">Settings and trade feedback</h2>
+        <p className="mt-2 text-sm leading-relaxed">
+          These stay in this browser&apos;s local storage after you close the tab, so they&apos;re there the next time you use Offer Sheet. They&apos;re read only in your
+          browser and never sent to our server.
+        </p>
+        <ul className="mt-2 list-disc space-y-1.5 pl-5 text-sm leading-relaxed">
+          <li>
+            Settings: what you choose on the Settings page for a league is saved under &ldquo;offersheet:settings:v1&rdquo;. Each league&apos;s settings are filed under a
+            short code made from its league ID, and hold player ID numbers and positions, never names.
+          </li>
+          <li>
+            Trade feedback: when you mark what happened to a trade idea or report a problem with it (on the Trade Finder or the Trade Analyzer), it&apos;s saved under
+            &ldquo;offersheet:feedback:v1&rdquo;, for the latest 500 trade ideas. Each record is filed under the same short code made from its league&apos;s ID as
+            that league&apos;s settings. It holds the players and picks in the trade and the other team (all as ID numbers), Offer Sheet&apos;s numbers for the trade, when you
+            pressed each button, and any note you typed.
+          </li>
+          <li>
+            &ldquo;Export feedback&rdquo; on the Settings page downloads your feedback as a file. In the file your leagues are only numbered (league-1, league-2), and your
+            notes appear exactly as you typed them.
+          </li>
+          <li>
+            &ldquo;Reset to defaults&rdquo; on the Settings page removes a league&apos;s settings, &ldquo;Delete saved feedback&rdquo; removes all of your feedback, and
+            clearing this site&apos;s data in your browser removes both.
+          </li>
+        </ul>
       </Card>
 
       <Card>

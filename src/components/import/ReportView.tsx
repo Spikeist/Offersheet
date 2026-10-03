@@ -3,6 +3,8 @@
  * "Here's what we understood" (CLAUDE.md §14 item 2): lays out the view model. Every word and
  * number comes from buildImportReport(); this file only arranges it for phones (375 px) and up.
  * The FantasyCalc format sits in "Where this came from" with the "Values: FantasyCalc" link (§2.9).
+ * Every button and button-like link is a 44 px target (the small ones too: review of Phase 4 measured
+ * "Refresh league data" and "Import another league" at 36 px on a phone).
  */
 import Link from "next/link";
 import { useEffect, useRef } from "react";
@@ -80,7 +82,11 @@ function ReportHeader({ view }: ViewProps) {
         {l.bestBall ? <Badge tone="accent">Best ball</Badge> : null}
       </div>
       <p className="mt-4 max-w-2xl text-sm leading-relaxed text-navy-contrast/80">
-        Check that this matches your league. Everything Offer Sheet suggests is built on these settings. Trade ideas come in a later update.
+        Check that this matches your league. Everything Offer Sheet suggests is built on these settings, trade ideas on the{" "}
+        <Link href="/trades" className="font-semibold text-accent underline underline-offset-2">
+          Trade Finder
+        </Link>{" "}
+        included.
       </p>
       <div className="mt-4 flex flex-wrap gap-2">
         <Link href="/league" className="inline-flex min-h-11 items-center rounded-xl bg-accent px-4 text-sm font-bold text-navy hover:brightness-95">
@@ -156,7 +162,7 @@ function YourTeam({ view, onPickTeam }: ViewProps & { onPickTeam: (teamId: strin
       </select>
       {t.myTeamSource === "link" && t.myTeamId ? (
         // Picking the team already shown fires no change, so confirming a link's team needs its own button.
-        <button type="button" onClick={() => onPickTeam(t.myTeamId ?? "")} className={cx(buttonClass("secondary", "sm"), "mt-2")}>
+        <button type="button" onClick={() => onPickTeam(t.myTeamId ?? "")} className={cx(buttonClass("secondary", "sm"), "mt-2 min-h-11")}>
           Yes, that&apos;s my team
         </button>
       ) : null}
@@ -513,7 +519,7 @@ function DataCard({ view, refresh, forget }: ViewProps & { refresh?: RefreshCont
         <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
           {view.league.cookieNote ? <p className="text-sm text-muted">{view.league.cookieNote}</p> : null}
           {forget && !forget.done ? (
-            <button type="button" onClick={forget.onForget} disabled={forget.forgetting} className={buttonClass("danger", "sm")}>
+            <button type="button" onClick={forget.onForget} disabled={forget.forgetting} className={cx(buttonClass("danger", "sm"), "min-h-11")}>
               {forget.forgetting ? "Forgetting…" : "Forget my ESPN cookies"}
             </button>
           ) : null}
@@ -538,12 +544,12 @@ function DataCard({ view, refresh, forget }: ViewProps & { refresh?: RefreshCont
               if (!refresh.refreshing) refresh.onRefresh();
             }}
             aria-disabled={refresh.refreshing || undefined}
-            className={cx(buttonClass("secondary", "sm"), "aria-disabled:cursor-not-allowed aria-disabled:opacity-60")}
+            className={cx(buttonClass("secondary", "sm"), "min-h-11 aria-disabled:cursor-not-allowed aria-disabled:opacity-60")}
           >
             {refresh.refreshing ? "Refreshing…" : "Refresh league data"}
           </button>
         ) : null}
-        <Link href="/connect" className={buttonClass("secondary", "sm")}>
+        <Link href="/connect" className={cx(buttonClass("secondary", "sm"), "min-h-11")}>
           Import another league
         </Link>
       </div>

@@ -1,12 +1,16 @@
 /**
  * The site header (CLAUDE.md §14: mobile-first, works at 375 px): the logo home link and the main
- * nav in the order you use the pages (Connect, Import report, League). The page you're on is marked
- * by NavLink.
+ * nav in the order you use the pages (Connect, Import report, League, Trades: the Trade Finder, §14
+ * item 4, from which the Trade Analyzer is one link away: Trades is marked current there too), then
+ * Settings (§14 item 6, Phase 4). The page you're on is marked by NavLink.
  *
  * Fitting 375 px: below sm only the mark shows. The "Offer Sheet" wordmark text is visually hidden,
- * but it stays the home link's accessible name, and the three links fit on one row. On narrower
- * screens, or with larger text, the nav drops to a second row instead of pushing the page sideways.
- * The home link and the nav links are 44 px tap targets.
+ * but it stays the home link's accessible name. The five links don't fit beside the mark on a phone,
+ * so the nav drops to its own row under it. To keep that one row at 375 px (Phase 4 wave 2: measured
+ * in headless Chrome, about 330–339 px of links in the 343 px row), "Import report" reads "Report"
+ * below sm (its accessible name follows what's shown) and the links sit closer (NavLink's padding,
+ * the nav's gap). On narrower screens, or with larger text, the links wrap again instead of pushing
+ * the page sideways. From sm up it's one row. The home link and the nav links are 44 px tap targets.
  */
 import Link from "next/link";
 import { NavLink } from "./NavLink";
@@ -32,10 +36,17 @@ export function SiteHeader() {
           <LogoMark className="size-8" />
           <span className="sr-only text-lg sm:not-sr-only">Offer Sheet</span>
         </Link>
-        <nav aria-label="Main" className="ml-auto flex flex-wrap items-center gap-1 text-sm font-bold">
+        <nav aria-label="Main" className="ml-auto flex flex-wrap items-center gap-0.5 text-sm font-bold sm:gap-1">
           <NavLink href="/connect">Connect</NavLink>
-          <NavLink href="/import">Import report</NavLink>
+          <NavLink href="/import">
+            <span className="sm:hidden">Report</span>
+            <span className="hidden sm:inline">Import report</span>
+          </NavLink>
           <NavLink href="/league">League</NavLink>
+          <NavLink href="/trades" alsoOn={["/analyzer"]}>
+            Trades
+          </NavLink>
+          <NavLink href="/settings">Settings</NavLink>
         </nav>
       </div>
     </header>

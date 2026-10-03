@@ -12,6 +12,20 @@
  * numbers, so a player's scenarios never depend on his team). Weeks are LeagueModel.weeks. A roster is
  * its ACTIVE players (team.roster): IR and taxi players never start and are not candidates.
  *
+ * Streaming (CLAUDE.md §7 "Streaming positions"; Phase 4): a team that streams a position gets one virtual
+ * row for it (streamRow, id `stream:<POS>`) whose points each week are the streaming replacement
+ * (streamingReplacement: the config.streaming.streamRank-th best free agent at that position that week).
+ * league.ts adds it to the team's rows wherever its lineup is valued; it takes no roster spot and is never
+ * dropped, traded, a trade chip or a free-agent pick (league.ts keeps it apart from the team's players). The
+ * functions here treat it as one more player at that position, so a streamed slot is worth max(the best
+ * rostered player, the replacement) in every week and every scenario, exactly so where no flex takes the
+ * position (K, D/ST, a QB without a superflex). Where a flex takes it too (TE and FLEX, QB and SUPER_FLEX or
+ * OP), the streamer is one more player that week and starts wherever he helps most: in the flex when he beats
+ * its starter, or in the position's slot with the team's own player moving to the flex, so the lineup can gain
+ * more than that slot's max. Holding him to the position's own slot would change no lineup total, since the
+ * team's own player then takes the flex instead (the solver's basis exchange; 0 of 20,000 random rosters
+ * differed in the review of track A1), so he isn't held there. ⚠️ He takes no roster spot, as everywhere.
+ *
  * Scenario flags are S × weeks row-major for the table's FULL week list, so every reader steps through
  * a row's flags with one stride, the row's own week count (flagStride), never the number of weeks a
  * caller solves or flags.length over the scenarios it asks for: solving only the first k weeks (the week
@@ -42,26 +56,24 @@
  *   remaining week that is neither (no adapter produces one: their weeks are contiguous) weighs 0, as no
  *   fantasy game is played in it. PPW = the average LV over the remaining regular-season weeks (0 when
  *   none remain).
- * - MV_lose(T, i) = ROS(T) − ROS(T − i + fa) (§7 marginal values with the roster-legality add): fa is the
- *   free agent with the largest EV ROS gain for T − i (ties: the smaller id) among the candidates the
- *   active roster's position limits allow; none when no free agent would improve T − i's lineup. The EV
- *   and scenario versions use the same fa. As written, it goes negative for every bench player whenever
- *   a free agent beats one of T's starters (T − i + fa then beats T), so the League model measures lineup
- *   costs from V(T), the best ROS T reaches with one move (waiverAdjustment): MV_lose'(T, i) =
- *   V(T) − ROS(T − i + fa) ≥ 0, a constant shift within the team (surplus z-scores don't change).
+ * - MV_lose and MV_add (§7 marginal values) compare rosters after the free-agent optimizer V* (src/engine/
+ *   optimizer.ts; planner reply to Checkpoint 3, model change 2), built from this file's pieces: the best
+ *   free agent for a roster (pickFreeAgent, exact), the bounds on what adding a player can gain
+ *   (addUpperBound, addUpperBoundWeeks) and what losing each player costs (evRemovalCosts, evRemovalWeeks,
+ *   scenarioRemovalCosts). league.ts wires them; Phase 2–3's one-move baseline V(T) is gone.
  * - MV_add without an auto drop (mvAddPpw): the average weekly EV LV gain of adding a player over a window
  *   of weeks, as partner fit reads it (a roster's own bench player dropped for him seldom changes its best
  *   lineup). Several players at once (addRowsGain, mvAddGroupPpw) take one lineup solve per week, so two
  *   players competing for one slot count once: without starter limits the joint gain is at most the sum
  *   of their own gains (the weighted rank of a matroid is submodular) and can be much less.
  * - MV_add with the drop, for trade chips (league.ts; CLAUDE.md §7): the ROS gain of adding a player to a
- *   base roster B′ (the team after its best free-agent move, minus the player it would drop when full) is
+ *   base roster B′ (the team after its free-agent optimizer, minus the player it would drop when full) is
  *   addGainExact in EV lineups and scenarioAddGain in scenario lineups; the caller subtracts what the drop
  *   cost. The drop is the player whose loss costs that roster's lineup least (§7 roster legality: keep
  *   value = marginal ROS contribution; evRemovalCosts or scenarioRemovalCosts, then lowestKeepValue), with
- *   nobody refilling his spot: the newcomer takes it. (A lineup cost, MV_lose, refills it with a free agent,
- *   so it can't pick the drop: a starting kicker with a free agent almost as good costs his team ~0 there,
- *   but dropping him to make room loses all his points.)
+ *   nobody refilling his spot: the newcomer takes it. (A lineup cost, MV_lose, refills it with free agents,
+ *   so it can't pick the drop: a starter with a free agent almost as good costs his team ~0 there, but
+ *   dropping him to make room loses all his points.)
  *
  * Pricing an added player fast, and still exactly: in a week whose best lineup has no free spot the
  * newcomer can reach (through Kuhn's augmenting paths: he takes a slot group, its starter shifts to
@@ -89,11 +101,28 @@
  * player e can take k's place when k's slot group is among the groups e reaches, the reach above). So k's
  * loss costs a week (or a scenario pattern) his points minus that bench player's, or all his points when
  * nobody scoring more than 0 can step in. Under starter limits each roster without k is solved again.
+ *
+ * Swapping a player for a free agent (the optimizer's moves, optimizer.ts), bounded without solving: dropping
+ * k and adding a gains at most what adding a alone gains (more players never lower the best lineup), in every
+ * week; in a week k sits on the bench it gains exactly that (the best lineup with a never holds k), and in a
+ * week k starts at most a's points minus what losing k costs that week (a newcomer adds at most his own
+ * points). addUpperBoundWeeks and evRemovalWeeks give those per-week numbers. Without starter limits only.
+ *
+ * Speed (Phase 4 addendum, lead decision N6), each the same numbers as the plain way, bit for bit (teamValue.speed.test.ts
+ * checks them against the code as it was, scenario.testing.ts):
+ * - A lineup's slot groups as a graph (GroupGraph): the groups a newcomer reaches and the lowest starter there, built once
+ *   per lineup instead of walking the starters again for every slot mask and every bench player (floors, removal costs).
+ * - scenarioValues keeps each row's flags as one bitmask per week (up to 32 scenarios), finds each scenario's pattern from
+ *   them, and allocates a week's buffers once; patterns, their order and every sum are as before.
+ * - scenarioValuesAfterMove: a roster's scenario lineups after one move, from the roster's before it, solving only the
+ *   patterns the move can change (the matroid argument there).
+ * - scenarioMoveGains: a newcomer's add and swap gains at once, the benched drops sharing the add's solves.
  */
 import { config } from "./config";
 import { lineupOrder, lineupStarters, lineupTotal, prepareRoster, type LineupStarter, type PreparedRoster, type PreparedSlots } from "./lineup";
 import { POSITIONS, type Pos } from "./model";
 import { instancePointsInto, type InstanceIndex } from "./needs";
+import { weeklySd, type ProjectionConfig } from "./projections";
 
 /** Gains closer than this are ties or zero (float noise, not a tunable). */
 const EPS = 1e-9;
@@ -130,6 +159,75 @@ export interface ProjectionTable {
   /** Scenarios per row's flags (0 = none). */
   readonly scenarios: number;
   readonly rows: ReadonlyMap<string, TableRow>;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Streaming rows (CLAUDE.md §7 "Streaming positions"; planner reply to Checkpoint 3, model change 1)
+
+/** Streaming rows' ids are `stream:<POS>`: never a player's (canonical ids are Sleeper ids or `${platform}:${id}`). */
+export const STREAM_ID_PREFIX = "stream:";
+
+/** The streaming row's id for a position ("stream:K"). */
+export function streamRowId(pos: Pos): string {
+  return `${STREAM_ID_PREFIX}${pos}`;
+}
+
+/** Whether an id is a streaming row's (a virtual row, never a player). */
+export function isStreamId(id: string): boolean {
+  return id.startsWith(STREAM_ID_PREFIX);
+}
+
+/**
+ * The streaming replacement per week (§7 streaming positions; lead decision L1): in week w, the rank-th best
+ * (1-based) of the candidates' expected points p_w (TableRow.ev: availability included, so a free agent on
+ * bye or whose game has started scores 0 that week); fewer candidates than `rank` → the last one (the worst
+ * of them); none → 0. The candidates are the free agents at one position. Ties don't matter here: equal
+ * points give the same value whoever holds them (streamingPicks, league.ts, names players and breaks ties by
+ * id). A rank below 1 reads as 1.
+ */
+export function streamingReplacement(candidates: readonly TableRow[], weekCount: number, rank: number): Float64Array {
+  const out = new Float64Array(Math.max(0, weekCount));
+  const n = candidates.length;
+  if (n === 0) return out;
+  const k = Math.min(n, Number.isFinite(rank) ? Math.max(1, Math.floor(rank)) : 1);
+  const points = new Float64Array(n);
+  for (let w = 0; w < out.length; w++) {
+    for (let i = 0; i < n; i++) {
+      const x = (candidates[i] as TableRow).ev[w];
+      points[i] = typeof x === "number" && Number.isFinite(x) && x > 0 ? x : 0;
+    }
+    points.sort(); // ascending: the k-th best is k from the end
+    out[w] = points[n - k] as number;
+  }
+  return out;
+}
+
+/**
+ * The virtual row of a streamed position (lead decision L1): id streamRowId(pos), primary position `pos`,
+ * eligible [pos], conditional and expected points both the replacement (it is already an expectation, so he
+ * "plays" every scenario: flags all 1, S × weeks row-major like a player's), and the SD of those points
+ * (§6 step 5, σ = c_pos × p + d_pos; 0 in a week the replacement is 0). It joins a team's lineup evaluation
+ * only: the exact solver then values the slot at max(the best rostered player, the replacement) every week,
+ * and where a flex takes the position too, he starts wherever he helps most (the file header). One row per
+ * position, whatever the number of slots it can fill (a league starting two kickers still gets one streamer).
+ */
+export function streamRow(pos: Pos, replacement: ArrayLike<number>, scenarios: number, cfg: Pick<ProjectionConfig, "sigma"> = config.projections): TableRow {
+  const points = Float64Array.from({ length: replacement.length }, (_, w) => {
+    const x = replacement[w] as number;
+    return Number.isFinite(x) && x > 0 ? x : 0;
+  });
+  const sd = Float64Array.from(points, (x) => weeklySd(x, pos, cfg));
+  const S = Number.isFinite(scenarios) ? Math.max(0, Math.floor(scenarios)) : 0;
+  return {
+    id: streamRowId(pos),
+    pos,
+    eligible: [pos],
+    cond: points,
+    ev: Float64Array.from(points),
+    condSd: sd,
+    evSd: Float64Array.from(sd),
+    flags: S > 0 ? new Uint8Array(S * points.length).fill(1) : null,
+  };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -238,10 +336,13 @@ export function solveEvWeeks(team: TeamEval, weekCount: number): SolvedWeeks {
   const pts: Float64Array[] = [];
   const seat: Int32Array[] = [];
   const fill = new Int32Array(groups);
+  // One buffer each for every week's points and seats (views per week): far fewer allocations on the optimizer's many solves.
+  const ptsAll = new Float64Array(weekCount * n);
+  const seatAll = new Int32Array(weekCount * n);
   for (let w = 0; w < weekCount; w++) {
-    const p = new Float64Array(n);
+    const p = ptsAll.subarray(w * n, (w + 1) * n);
     for (let k = 0; k < n; k++) p[k] = (rows[k] as TableRow).ev[w] as number;
-    const s = new Int32Array(n);
+    const s = seatAll.subarray(w * n, (w + 1) * n);
     lv[w] = lineupTotal(prep, p, null, s);
     fill.fill(0);
     for (let k = 0; k < n; k++) {
@@ -264,24 +365,102 @@ export function evInstancePoints(solved: SolvedWeeks, index: InstanceIndex): Flo
 }
 
 /**
- * The slot groups a player who fits `mask` can reach in a lineup (seat[k] = player k's slot group, −1 =
- * bench): his own, then every group a starter seated in a reached group also fits (the file header).
+ * Whether roster index k of a solved roster is one of its starters (a trade chip's "starter" tag; lead
+ * decision L5): he is in the EV lineup in at least half of the weeks that count (weights_w > 0) in which he
+ * plays (p_w > 0). Never when he plays in none of them. A week where a starter limit seats him at 0 points
+ * isn't one he plays.
  */
-function reachFrom(mask: number, seat: Int32Array, masks: Int32Array, n: number): number {
-  let reach = mask;
-  for (let changed = true; changed; ) {
-    changed = false;
-    for (let k = 0; k < n; k++) {
-      const g = seat[k] as number;
-      if (g < 0 || ((reach >>> g) & 1) === 0) continue;
-      const next = reach | (masks[k] as number);
-      if (next !== reach) {
-        reach = next;
-        changed = true;
-      }
-    }
+export function evStarter(solved: SolvedWeeks, k: number, weights: ArrayLike<number>): boolean {
+  let plays = 0;
+  let seated = 0;
+  for (let w = 0; w < solved.lv.length; w++) {
+    if (!((weights[w] ?? 0) > 0)) continue;
+    if (!(((solved.pts[w] as Float64Array)[k] ?? 0) > 0)) continue;
+    plays++;
+    if (((solved.seat[w] as Int32Array)[k] ?? -1) >= 0) seated++;
   }
-  return reach;
+  return plays > 0 && 2 * seated >= plays;
+}
+
+/**
+ * The slot groups a player who fits `mask` can reach in a lineup (seat[k] = player k's slot group, −1 = bench) are his own,
+ * then every group a starter seated in a reached group also fits (the file header). A lineup's slot groups as a graph
+ * gives them fast (speed only: the same sets and minimums, computed once per lineup instead of once per newcomer by walking
+ * the starters again): per group g, `reach[g]` = the groups a newcomer who can take g reaches (g itself, then every group a
+ * starter seated in a reached group also fits), and `min[g]` = the lowest points of a starter seated in g (+Infinity when
+ * none). The groups reached from `mask` are the union of reach[g] over the groups in it (the walk is a closure, and the
+ * closure of a union is the union of the closures), and the lowest starter there is the lowest min[g] over them.
+ */
+interface GroupGraph {
+  readonly reach: Int32Array;
+  readonly min: Float64Array;
+}
+
+/** Lowest set bit's index (mask ≠ 0). */
+function lowBitIndex(mask: number): number {
+  return 31 - Math.clz32(mask & -mask);
+}
+
+/** groupGraph for a lineup (seat[k] = player k's group, −1 = bench; pts[k] = his points there), into `out` (G groups). */
+function groupGraphInto(seat: ArrayLike<number>, masks: Int32Array, n: number, pts: ArrayLike<number>, out: GroupGraph, adj: Int32Array): void {
+  const G = out.reach.length;
+  out.min.fill(Number.POSITIVE_INFINITY);
+  adj.fill(0, 0, G);
+  for (let k = 0; k < n; k++) {
+    const g = seat[k] as number;
+    if (g < 0) continue;
+    adj[g] = (adj[g] as number) | (masks[k] as number);
+    const p = pts[k] as number;
+    if (p < (out.min[g] as number)) out.min[g] = p;
+  }
+  for (let g = 0; g < G; g++) {
+    let r = 1 << g;
+    for (;;) {
+      let next = r;
+      for (let m = r; m !== 0; m &= m - 1) next |= adj[lowBitIndex(m)] as number;
+      if (next === r) break;
+      r = next;
+    }
+    out.reach[g] = r;
+  }
+}
+
+/** The groups a newcomer with `mask` reaches, from a lineup's group graph: the union of reach[g] over the groups in `mask`. */
+function reachOf(graph: GroupGraph, mask: number): number {
+  let r = 0;
+  for (let m = mask; m !== 0; m &= m - 1) r |= graph.reach[lowBitIndex(m)] as number;
+  return r;
+}
+
+/** The lowest starter a newcomer with `mask` could displace (the file header): 0 when he reaches a free spot (`open`) or no starter. */
+function floorOf(graph: GroupGraph, mask: number, open: number): number {
+  const reach = reachOf(graph, mask);
+  if ((reach & open) !== 0) return 0; // a free spot he can reach: floor 0
+  let lo = Number.POSITIVE_INFINITY;
+  for (let m = reach; m !== 0; m &= m - 1) {
+    const v = graph.min[lowBitIndex(m)] as number;
+    if (v < lo) lo = v;
+  }
+  return Number.isFinite(lo) ? lo : 0;
+}
+
+/** A SolvedWeeks' group graphs, one per week, built when first needed (floorsFor). */
+const evGraphs = new WeakMap<SolvedWeeks, (GroupGraph | undefined)[]>();
+
+function evGraph(base: SolvedWeeks, w: number): GroupGraph {
+  let all = evGraphs.get(base);
+  if (!all) {
+    all = new Array<GroupGraph | undefined>(base.lv.length);
+    evGraphs.set(base, all);
+  }
+  let graph = all[w];
+  if (!graph) {
+    const G = base.team.prep.slots.groups.length;
+    graph = { reach: new Int32Array(G), min: new Float64Array(G) };
+    groupGraphInto(base.seat[w] as Int32Array, base.team.prep.masks, base.team.prep.size, base.pts[w] as Float64Array, graph, new Int32Array(G));
+    all[w] = graph;
+  }
+  return graph;
 }
 
 /**
@@ -293,21 +472,19 @@ function floorsFor(base: SolvedWeeks, mask: number): Float64Array {
   if (hit) return hit;
   const W = base.lv.length;
   const floors = new Float64Array(W);
-  const { size: n, masks } = base.team.prep;
-  for (let w = 0; w < W; w++) {
-    const seat = base.seat[w] as Int32Array;
-    const pts = base.pts[w] as Float64Array;
-    const reach = reachFrom(mask, seat, masks, n);
-    if ((reach & (base.open[w] as number)) !== 0) continue; // a free spot he can reach: floor 0
-    let lo = Number.POSITIVE_INFINITY;
-    for (let k = 0; k < n; k++) {
-      const g = seat[k] as number;
-      if (g >= 0 && ((reach >>> g) & 1) === 1 && (pts[k] as number) < lo) lo = pts[k] as number;
-    }
-    floors[w] = Number.isFinite(lo) ? lo : 0;
-  }
+  for (let w = 0; w < W; w++) floors[w] = floorOf(evGraph(base, w), mask, base.open[w] as number);
   base.floors.set(mask, floors);
   return floors;
+}
+
+/**
+ * floorsFor for callers outside this file (Phase 4's trade evaluation bounds many players of one slot mask against one
+ * roster): per week, the lowest starter a newcomer with `mask` could displace in `base`'s EV lineups, 0 when he can reach
+ * a free spot (cached per mask on `base`). Null under starter limits (nothing is bounded there).
+ */
+export function addFloors(base: SolvedWeeks, mask: number): Float64Array | null {
+  if (base.team.prep.slots.limits !== null) return null;
+  return floorsFor(base, mask);
 }
 
 /**
@@ -324,6 +501,28 @@ export function addUpperBound(base: SolvedWeeks, row: TableRow, mask: number, we
     const p = row.ev[w] as number;
     const f = floors[w] as number;
     if (wt > 0 && p > f) ub += wt * (p - f);
+  }
+  return ub;
+}
+
+/**
+ * addUpperBound week by week, unweighted: out[w] = max(0, his points − the lowest starter he could displace),
+ * his points when he can reach a free spot, 0 when he fits no slot. Null under starter limits (nothing is
+ * bounded there). The free-agent optimizer bounds a swap with it (the file header).
+ */
+export function addUpperBoundWeeks(base: SolvedWeeks, row: TableRow, mask: number, out?: Float64Array): Float64Array | null {
+  if (base.team.prep.slots.limits !== null) return null;
+  const W = base.lv.length;
+  const ub = out && out.length >= W ? out : new Float64Array(W);
+  if (mask === 0) {
+    ub.fill(0, 0, W);
+    return ub;
+  }
+  const floors = floorsFor(base, mask);
+  for (let w = 0; w < W; w++) {
+    const p = row.ev[w] as number;
+    const f = floors[w] as number;
+    ub[w] = p > f ? p - f : 0;
   }
   return ub;
 }
@@ -433,7 +632,7 @@ export interface ScenarioValues {
   readonly within: Float64Array | null;
   /** Per week: mean starter points by slot instance (only when an InstanceIndex was given). */
   readonly instances: Float64Array[] | null;
-  /** Distinct lineups solved (after the memo). */
+  /** Distinct lineups solved (after the memo; scenarioValuesAfterMove: not counting the lineups it kept). */
   readonly solves: number;
   /** The solved lineups cell by cell, for pricing an added player (only when `keep` was passed). */
   readonly cells: ScenarioCells | null;
@@ -464,9 +663,9 @@ export interface ScenarioCells {
   readonly floors: Map<number, Float64Array[]>;
 }
 
-/** Bitmask of the slot groups a lineup leaves with a free spot (its seats; −1 = bench). */
-function openGroups(slots: PreparedSlots, seat: Int32Array, n: number): number {
-  const fill = new Int32Array(slots.groups.length);
+/** Bitmask of the slot groups a lineup leaves with a free spot (its seats; −1 = bench); `fill` is scratch, one entry per group. */
+function openGroupsInto(slots: PreparedSlots, seat: Int32Array, n: number, fill: Int32Array): number {
+  fill.fill(0);
   for (let k = 0; k < n; k++) {
     const g = seat[k] as number;
     if (g >= 0) fill[g] = (fill[g] as number) + 1;
@@ -492,6 +691,17 @@ function flagStride(row: TableRow): number {
  * within-lineup variance (ScenarioValues.within) for the weekly score (scenarioScore).
  */
 export function scenarioValues(team: TeamEval, weekCount: number, S: number, index: InstanceIndex | null = null, keep = false, spread = false): ScenarioValues {
+  return scenarioValuesWith(team, weekCount, S, index, keep, spread, null);
+}
+
+/**
+ * A pattern's lineup known without solving (scenarioValuesAfterMove): for week w and the pattern's first scenario s, its
+ * LV, with its canonical seats written into `seat`; null when it must be solved.
+ */
+type LineupReuse = (w: number, s: number, seat: Int32Array) => number | null;
+
+/** scenarioValues, with the lineups `reuse` knows taken from it instead of solved (the same LV and seats). */
+function scenarioValuesWith(team: TeamEval, weekCount: number, S: number, index: InstanceIndex | null, keep: boolean, spread: boolean, reuse: LineupReuse | null): ScenarioValues {
   const { prep, rows } = team;
   const n = rows.length;
   const W = weekCount;
@@ -535,15 +745,28 @@ export function scenarioValues(team: TeamEval, weekCount: number, S: number, ind
   const cond = new Float64Array(n);
   const avail = new Uint8Array(n);
   // Seats cost a canonical ordering per solve (lineup.ts), so they're read only when something needs the starters.
-  const seat = index || kept || within ? new Int32Array(n) : null;
+  const seat = index || kept || within || reuse ? new Int32Array(n) : null;
   const orderBuf = new Int32Array(n);
   const flags = rows.map((r) => r.flags);
   const stride = Int32Array.from(rows, (r) => flagStride(r));
+  // Up to 32 scenarios, each row's flags as one bitmask per week (scenarioBits: speed only, the same flags).
+  const bits = scenarios <= 32 ? rows.map((r) => scenarioBits(r)) : null;
   /** Whether player k plays in scenario s, week w (flagStride: the row's own week count, never W). */
   const plays = (k: number, s: number, w: number): boolean => {
+    if (bits) {
+      const b = bits[k];
+      return b !== null && b !== undefined && (((b[w] as number) >>> s) & 1) === 1;
+    }
     const f = flags[k];
     return f !== null && f !== undefined && f[s * (stride[k] as number) + w] === 1;
   };
+  const groups = prep.slots.groups.length;
+  const fill = new Int32Array(groups);
+  const intKeys = new Int32Array(scenarios);
+  const found = new Int32Array(scenarios);
+  const firstOf = new Int32Array(scenarios);
+  const counts = new Int32Array(scenarios);
+  const scratchPattern = new Int32Array(scenarios);
   for (let w = 0; w < W; w++) {
     for (let k = 0; k < n; k++) cond[k] = (rows[k] as TableRow).cond[w] as number;
     const order = lineupOrder(prep, cond, orderBuf);
@@ -553,91 +776,211 @@ export function scenarioValues(team: TeamEval, weekCount: number, S: number, ind
       continue;
     }
     avail.fill(0); // only this week's order is set below: nobody else plays (and can't score anyway)
-    const memo = new Map<number | string, number>();
-    const lvs: number[] = [];
-    const vars: number[] = [];
-    const counts: number[] = [];
-    const rowsInst: Float64Array[] = [];
-    const weekPattern = kept ? (kept.pattern[w] as Int32Array) : null;
+    // Each scenario's pattern: which of the players who can score this week (order) play. Patterns are numbered in the
+    // order they first occur; every scenario of a pattern shares one lineup (the memo).
+    const weekPattern = kept ? (kept.pattern[w] as Int32Array) : scratchPattern;
+    let P = 0;
+    if (bits && m <= 30) {
+      intKeys.fill(0);
+      for (let i = 0; i < m; i++) {
+        const b = bits[order[i] as number];
+        if (!b) continue;
+        const x = b[w] as number;
+        if (x === 0) continue;
+        const bit = 1 << i;
+        for (let s = 0; s < scenarios; s++) if (((x >>> s) & 1) === 1) intKeys[s] = (intKeys[s] as number) | bit;
+      }
+      for (let s = 0; s < scenarios; s++) {
+        const key = intKeys[s] as number;
+        let slot = -1;
+        for (let j = 0; j < P; j++) {
+          if (found[j] === key) {
+            slot = j;
+            break;
+          }
+        }
+        if (slot < 0) {
+          slot = P++;
+          found[slot] = key;
+          firstOf[slot] = s;
+          counts[slot] = 0;
+        }
+        counts[slot] = (counts[slot] as number) + 1;
+        weekPattern[s] = slot;
+      }
+    } else {
+      // More than 30 players who can score (or more than 32 scenarios): text keys.
+      const memo = new Map<number | string, number>();
+      for (let s = 0; s < scenarios; s++) {
+        let key: number | string;
+        if (m <= 30) {
+          let k = 0;
+          for (let i = 0; i < m; i++) if (plays(order[i] as number, s, w)) k |= 1 << i;
+          key = k;
+        } else {
+          let text = "";
+          for (let i = 0; i < m; i++) text += plays(order[i] as number, s, w) ? "1" : "0";
+          key = text;
+        }
+        let slot = memo.get(key);
+        if (slot === undefined) {
+          slot = P++;
+          memo.set(key, slot);
+          firstOf[slot] = s;
+          counts[slot] = 0;
+        }
+        counts[slot] = (counts[slot] as number) + 1;
+        weekPattern[s] = slot;
+      }
+    }
+    // One lineup per pattern, in the order the patterns first occur.
+    const lvs = new Float64Array(P);
+    const vars = within ? new Float64Array(P) : null;
+    const size = index ? index.size : 0;
+    const inst = index ? new Float64Array(P * size) : null;
+    const whoAll = kept ? new Uint8Array(P * n) : null;
+    const seatAll = kept ? new Int32Array(P * n) : null;
     const weekAvail: Uint8Array[] = [];
     const weekSeat: Int32Array[] = [];
-    const weekOpen: number[] = [];
-    for (let s = 0; s < scenarios; s++) {
-      let key: number | string;
-      if (m <= 30) {
-        let bits = 0;
-        for (let i = 0; i < m; i++) if (plays(order[i] as number, s, w)) bits |= 1 << i;
-        key = bits;
-      } else {
-        let text = "";
-        for (let i = 0; i < m; i++) text += plays(order[i] as number, s, w) ? "1" : "0";
-        key = text;
+    const weekOpen = kept ? new Int32Array(P) : null;
+    for (let j = 0; j < P; j++) {
+      const s = firstOf[j] as number;
+      for (let i = 0; i < m; i++) {
+        const k = order[i] as number;
+        avail[k] = plays(k, s, w) ? 1 : 0;
       }
-      let slot = memo.get(key);
-      if (slot === undefined) {
+      const known = reuse && seat ? reuse(w, s, seat) : null;
+      if (known === null) {
+        lvs[j] = lineupTotal(prep, cond, avail, seat, order);
+        solves++;
+      } else lvs[j] = known;
+      if (vars && seat) {
+        // The starters who play (seated and available): Σ condSd² is this pattern's within-lineup variance.
+        let v = 0;
+        for (let k = 0; k < n; k++) {
+          if ((seat[k] as number) < 0 || avail[k] !== 1) continue;
+          const sdk = (rows[k] as TableRow).condSd[w] as number;
+          v += sdk * sdk;
+        }
+        vars[j] = v;
+      }
+      if (index && inst && seat) instancePointsInto(index, seat, cond, avail, n, inst.subarray(j * size, (j + 1) * size));
+      if (kept && whoAll && seatAll && weekOpen && seat) {
+        // Who plays: the players who can score this week and play in this pattern (the rest score 0 anyway).
+        const who = whoAll.subarray(j * n, (j + 1) * n);
         for (let i = 0; i < m; i++) {
           const k = order[i] as number;
-          avail[k] = plays(k, s, w) ? 1 : 0;
+          who[k] = avail[k] as number;
         }
-        slot = lvs.length;
-        memo.set(key, slot);
-        lvs.push(lineupTotal(prep, cond, avail, seat, order));
-        if (within && seat) {
-          // The starters who play (seated and available): Σ condSd² is this pattern's within-lineup variance.
-          let v = 0;
-          for (let k = 0; k < n; k++) {
-            if ((seat[k] as number) < 0 || avail[k] !== 1) continue;
-            const sdk = (rows[k] as TableRow).condSd[w] as number;
-            v += sdk * sdk;
-          }
-          vars.push(v);
-        }
-        counts.push(0);
-        if (index && seat) rowsInst.push(instancePointsInto(index, seat, cond, avail, n, new Float64Array(index.size)));
-        if (kept && seat) {
-          // Who plays: the players who can score this week and play in this pattern (the rest score 0 anyway).
-          const who = new Uint8Array(n);
-          for (let i = 0; i < m; i++) {
-            const k = order[i] as number;
-            who[k] = avail[k] as number;
-          }
-          weekAvail.push(who);
-          weekSeat.push(Int32Array.from(seat));
-          weekOpen.push(openGroups(prep.slots, seat, n));
-        }
-        solves++;
+        weekAvail.push(who);
+        const kSeat = seatAll.subarray(j * n, (j + 1) * n);
+        kSeat.set(seat);
+        weekSeat.push(kSeat);
+        weekOpen[j] = openGroupsInto(prep.slots, seat, n, fill);
       }
-      counts[slot] = (counts[slot] as number) + 1;
-      if (weekPattern) weekPattern[s] = slot;
     }
-    if (kept) {
-      kept.lv.push(Float64Array.from(lvs));
+    if (kept && weekOpen) {
+      kept.lv.push(lvs);
       kept.avail.push(weekAvail);
       kept.seat.push(weekSeat);
-      kept.open.push(Int32Array.from(weekOpen));
+      kept.open.push(weekOpen);
     }
     let mu = 0;
-    for (let j = 0; j < lvs.length; j++) mu += (counts[j] as number) * (lvs[j] as number);
-    mu = lvs.length === 1 ? (lvs[0] as number) : mu / scenarios;
+    for (let j = 0; j < P; j++) mu += (counts[j] as number) * (lvs[j] as number);
+    mu = P === 1 ? (lvs[0] as number) : mu / scenarios;
     let ss = 0;
-    if (lvs.length > 1) for (let j = 0; j < lvs.length; j++) ss += (counts[j] as number) * ((lvs[j] as number) - mu) ** 2;
+    if (P > 1) for (let j = 0; j < P; j++) ss += (counts[j] as number) * ((lvs[j] as number) - mu) ** 2;
     mean[w] = mu;
     sd[w] = Math.sqrt(ss / scenarios);
-    if (within) {
+    if (within && vars) {
       let vw = 0;
-      for (let j = 0; j < vars.length; j++) vw += (counts[j] as number) * (vars[j] as number);
-      within[w] = vars.length === 1 ? (vars[0] as number) : vw / scenarios;
+      for (let j = 0; j < P; j++) vw += (counts[j] as number) * (vars[j] as number);
+      within[w] = P === 1 ? (vars[0] as number) : vw / scenarios;
     }
-    if (instances && index) {
+    if (instances && index && inst) {
       const acc = instances[w] as Float64Array;
-      for (let j = 0; j < rowsInst.length; j++) {
-        const v = rowsInst[j] as Float64Array;
+      for (let j = 0; j < P; j++) {
         const c = (counts[j] as number) / scenarios;
-        for (let i = 0; i < index.size; i++) acc[i] = (acc[i] as number) + c * (v[i] as number);
+        for (let i = 0; i < size; i++) acc[i] = (acc[i] as number) + c * (inst[j * size + i] as number);
       }
     }
   }
   return result();
+}
+
+/**
+ * One move on a roster (the free-agent optimizer's): `after` is `before`'s roster with the newcomer at roster index `at`,
+ * either in the place of the player at index `drop` (at = drop, every other index the same) or, with drop null, added after
+ * the players, before the streaming rows (indexes from `at` on move up by one).
+ */
+export interface RosterMove {
+  drop: number | null;
+  at: number;
+}
+
+/**
+ * scenarioValues(after, …) bit for bit, from `before`'s scenario lineups kept cell by cell (scenarioValues with `keep`), where
+ * `after` is `before`'s roster after one move (E's suggestion in the Phase 4 addendum: build a roster's scenario lineups
+ * incrementally after a move; speed only). A pattern of `after` keeps the lineup of its first scenario's pattern in `before`
+ * (its LV and seats) when the player dropped doesn't start there and the newcomer can't get in: he doesn't play, or his
+ * points are below the lowest starter he could displace there (cellFloors, strictly). Then the matroid greedy takes the very
+ * same players in the same order: every starter he could push out is taken before him (they score more) and spans him, and
+ * a dropped bench player was spanned too (lineup.ts: rejected players never change what is taken, nor where, after them).
+ * Every other pattern is solved as scenarioValues solves it, and every pattern's number, order and sums are scenarioValues'
+ * own. Null (the caller solves from scratch) under starter limits, without kept cells, or when the shapes don't match.
+ */
+export function scenarioValuesAfterMove(before: ScenarioValues, after: TeamEval, move: RosterMove, weekCount: number, S: number, index: InstanceIndex | null = null, keep = false, spread = false): ScenarioValues | null {
+  const cells = before.cells;
+  const scenarios = Number.isFinite(S) ? Math.max(0, Math.floor(S)) : 0;
+  if (!cells || after.prep.slots.limits !== null || cells.scenarios !== scenarios || cells.weekCount < weekCount) return null;
+  const n0 = cells.team.rows.length;
+  const n = after.rows.length;
+  const { drop, at } = move;
+  if (drop === null ? n !== n0 + 1 : n !== n0 || drop !== at) return null;
+  const row = after.rows[at];
+  if (!row || at < 0 || at >= n) return null;
+  // Every other row is `before`'s, in the move's order (the seats are copied index for index).
+  for (let i = 0; i < n0; i++) if (i !== drop && after.rows[drop === null && i >= at ? i + 1 : i] !== cells.team.rows[i]) return null;
+  const mask = after.prep.masks[at] as number;
+  const bits = scenarioBits(row);
+  const floors = mask !== 0 && bits !== null && scenarios <= 32 ? cellFloors(cells, mask) : null;
+  if (mask !== 0 && bits !== null && !floors) return null; // more than 32 scenarios: no bits (scenarioValues reads the flags)
+  const reuse: LineupReuse = (w, s, seat) => {
+    const p = (cells.pattern[w] as Int32Array)[s] as number;
+    const old = (cells.seat[w] as readonly Int32Array[])[p] as Int32Array;
+    if (drop !== null && (old[drop] as number) >= 0) return null; // the player dropped starts there
+    const c = row.cond[w] as number;
+    if (floors && bits && c > 0 && (((bits[w] as number) >>> s) & 1) === 1 && !(c < ((floors[w] as Float64Array)[p] as number))) return null; // the newcomer can get in
+    if (drop !== null) {
+      seat.set(old);
+      seat[at] = -1;
+    } else {
+      for (let i = 0; i < at; i++) seat[i] = old[i] as number;
+      seat[at] = -1;
+      for (let i = at; i < n0; i++) seat[i + 1] = old[i] as number;
+    }
+    return (cells.lv[w] as Float64Array)[p] as number;
+  };
+  return scenarioValuesWith(after, weekCount, scenarios, index, keep, spread, reuse);
+}
+
+/** A row's scenario flags as one bitmask per week of its table (bit s = he plays in scenario s), for the first 32 scenarios; null without flags. Cached per row. */
+const scenarioBitsCache = new WeakMap<TableRow, Uint32Array>();
+
+function scenarioBits(row: TableRow): Uint32Array | null {
+  const f = row.flags;
+  if (f === null) return null;
+  const hit = scenarioBitsCache.get(row);
+  if (hit) return hit;
+  const stride = flagStride(row);
+  const out = new Uint32Array(stride);
+  const rowScenarios = stride > 0 ? Math.min(32, Math.floor(f.length / stride)) : 0;
+  for (let s = 0; s < rowScenarios; s++) {
+    const bit = 1 << s;
+    for (let w = 0; w < stride; w++) if (f[s * stride + w] === 1) out[w] = (out[w] as number) | bit;
+  }
+  scenarioBitsCache.set(row, out);
+  return out;
 }
 
 /**
@@ -648,28 +991,47 @@ export function scenarioValues(team: TeamEval, weekCount: number, S: number, ind
 function cellFloors(cells: ScenarioCells, mask: number): Float64Array[] {
   const hit = cells.floors.get(mask);
   if (hit) return hit;
-  const { team, weekCount: W } = cells;
-  const { size: n, masks } = team.prep;
+  const W = cells.weekCount;
+  const graphs = cellGraphs(cells);
   const out: Float64Array[] = [];
   for (let w = 0; w < W; w++) {
-    const seats = cells.seat[w] as readonly Int32Array[];
+    const weekGraphs = graphs[w] as readonly GroupGraph[];
     const open = cells.open[w] as Int32Array;
-    const floors = new Float64Array(seats.length);
-    for (let p = 0; p < seats.length; p++) {
-      const seat = seats[p] as Int32Array;
-      const reach = reachFrom(mask, seat, masks, n);
-      if ((reach & (open[p] as number)) !== 0) continue; // a free spot he can reach: floor 0
-      let lo = Number.POSITIVE_INFINITY;
-      for (let k = 0; k < n; k++) {
-        const g = seat[k] as number;
-        const pts = (team.rows[k] as TableRow).cond[w] as number;
-        if (g >= 0 && ((reach >>> g) & 1) === 1 && pts < lo) lo = pts;
-      }
-      floors[p] = Number.isFinite(lo) ? lo : 0;
-    }
+    const floors = new Float64Array(weekGraphs.length);
+    for (let p = 0; p < weekGraphs.length; p++) floors[p] = floorOf(weekGraphs[p] as GroupGraph, mask, open[p] as number);
     out.push(floors);
   }
   cells.floors.set(mask, out);
+  return out;
+}
+
+/** Kept cells' group graphs (GroupGraph), per week, per pattern: a seated player plays, so his points are his conditional points that week. */
+const cellGraphCache = new WeakMap<ScenarioCells, GroupGraph[][]>();
+
+function cellGraphs(cells: ScenarioCells): GroupGraph[][] {
+  const hit = cellGraphCache.get(cells);
+  if (hit) return hit;
+  const { team, weekCount: W } = cells;
+  const { size: n, masks } = team.prep;
+  const G = team.prep.slots.groups.length;
+  const adj = new Int32Array(G);
+  const pts = new Float64Array(n);
+  const out: GroupGraph[][] = [];
+  for (let w = 0; w < W; w++) {
+    for (let k = 0; k < n; k++) pts[k] = (team.rows[k] as TableRow).cond[w] as number;
+    const seats = cells.seat[w] as readonly Int32Array[];
+    const P = seats.length;
+    const reach = new Int32Array(P * G);
+    const min = new Float64Array(P * G);
+    const week: GroupGraph[] = [];
+    for (let p = 0; p < P; p++) {
+      const graph = { reach: reach.subarray(p * G, (p + 1) * G), min: min.subarray(p * G, (p + 1) * G) };
+      groupGraphInto(seats[p] as Int32Array, masks, n, pts, graph, adj);
+      week.push(graph);
+    }
+    out.push(week);
+  }
+  cellGraphCache.set(cells, out);
   return out;
 }
 
@@ -764,13 +1126,182 @@ export function scenarioAddGain(cells: ScenarioCells, row: TableRow, mask: numbe
   return gain;
 }
 
+/**
+ * The exact scenario gains of swaps: for each roster index k in `ks`, Σ_w weights_w · mean_s (LV_s(T − k + row, w) −
+ * LV_s(T, w)) on the roster `cells` kept (T), which doesn't have `row`. Without starter limits, a scenario where k sits
+ * on the bench and the newcomer doesn't play or can't beat the lowest starter he could displace gains exactly 0
+ * (removing a bench player leaves the best lineup as it is, and he can't improve it); every other one is solved once
+ * per (k, pattern, newcomer plays), with the newcomer added and k unavailable. Under starter limits every pattern is
+ * solved. It equals the difference of scenarioValues' means for the two rosters (up to float rounding). The free-agent
+ * optimizer's scenario-judged moves price their swaps with it.
+ */
+export function scenarioSwapGains(cells: ScenarioCells, ks: readonly number[], row: TableRow, mask: number, weights: ArrayLike<number>): Float64Array {
+  const out = new Float64Array(ks.length);
+  const S = cells.scenarios;
+  if (S === 0 || ks.length === 0) return out;
+  const limited = cells.team.prep.slots.limits !== null;
+  const f = row.flags;
+  const floors = limited || mask === 0 ? null : cellFloors(cells, mask);
+  const stride = flagStride(row);
+  const base = cells.team;
+  const n0 = base.rows.length;
+  const plus = teamEval([...base.rows, row], base.prep.slots);
+  const cond = new Float64Array(n0 + 1);
+  const avail = new Uint8Array(n0 + 1);
+  const orderBuf = new Int32Array(n0 + 1);
+  const solved = new Map<number, number>();
+  for (let w = 0; w < cells.weekCount; w++) {
+    const wt = weights[w] ?? 0;
+    if (!(wt > 0)) continue;
+    const c = row.cond[w] as number;
+    const pattern = cells.pattern[w] as Int32Array;
+    const lv = cells.lv[w] as Float64Array;
+    const seats = cells.seat[w] as readonly Int32Array[];
+    const fl = floors ? (floors[w] as Float64Array) : null;
+    let order: Int32Array | null = null;
+    for (let j = 0; j < ks.length; j++) {
+      const k = ks[j] as number;
+      solved.clear();
+      let sum = 0;
+      for (let s = 0; s < S; s++) {
+        const p = pattern[s] as number;
+        const plays = f !== null && c > 0 && f[s * stride + w] === 1 ? 1 : 0;
+        const kSeated = ((seats[p] as Int32Array)[k] as number) >= 0;
+        if (!limited && !kSeated && (plays === 0 || mask === 0 || !(c > ((fl as Float64Array)[p] as number)))) continue; // exactly 0
+        const key = 2 * p + plays;
+        let delta = solved.get(key);
+        if (delta === undefined) {
+          if (order === null) {
+            for (let i = 0; i < n0; i++) cond[i] = (base.rows[i] as TableRow).cond[w] as number;
+            cond[n0] = c;
+            order = lineupOrder(plus.prep, cond, orderBuf);
+          }
+          avail.set((cells.avail[w] as readonly Uint8Array[])[p] as Uint8Array);
+          avail[k] = 0;
+          avail[n0] = plays;
+          delta = lineupTotal(plus.prep, cond, avail, null, order) - (lv[p] as number);
+          solved.set(key, delta);
+        }
+        sum += delta;
+      }
+      out[j] = (out[j] as number) + wt * (sum / S);
+    }
+  }
+  return out;
+}
+
+/**
+ * scenarioAddGain (when `withAdd`) and scenarioSwapGains for one newcomer at once, bit for bit (the free-agent optimizer's
+ * scenario-judged moves; speed only). Without starter limits, in a pattern where k sits on the bench (or can't play) the
+ * swap's lineup is the newcomer's add lineup: the best lineup of T + row keeps out every player T's best lineup keeps out
+ * (in the matroid greedy, a player rejected for T is spanned by the players taken before him, and adding the newcomer only
+ * enlarges what they span), so the greedy takes the very same players with k available or not and sums the same points in
+ * the same order. So that pattern's solve is done once for the add and every such k, instead of once per k. Under starter
+ * limits, or for a newcomer who fits no slot or never plays in scenarios, the two functions themselves.
+ */
+export function scenarioMoveGains(cells: ScenarioCells, ks: readonly number[], row: TableRow, mask: number, weights: ArrayLike<number>, withAdd: boolean): { add: number; swaps: Float64Array } {
+  const S = cells.scenarios;
+  const f = row.flags;
+  if (cells.team.prep.slots.limits !== null || S === 0 || mask === 0 || f === null) {
+    return { add: withAdd ? scenarioAddGain(cells, row, mask, weights) : 0, swaps: scenarioSwapGains(cells, ks, row, mask, weights) };
+  }
+  const swaps = new Float64Array(ks.length);
+  const floors = cellFloors(cells, mask);
+  const stride = flagStride(row);
+  const base = cells.team;
+  const n0 = base.rows.length;
+  const plus = teamEval([...base.rows, row], base.prep.slots);
+  const cond = new Float64Array(n0 + 1);
+  const avail = new Uint8Array(n0 + 1);
+  const orderBuf = new Int32Array(n0 + 1);
+  let add = 0;
+  for (let w = 0; w < cells.weekCount; w++) {
+    const wt = weights[w] ?? 0;
+    if (!(wt > 0)) continue;
+    const c = row.cond[w] as number;
+    const pattern = cells.pattern[w] as Int32Array;
+    const lv = cells.lv[w] as Float64Array;
+    const seats = cells.seat[w] as readonly Int32Array[];
+    const avails = cells.avail[w] as readonly Uint8Array[];
+    const fl = floors[w] as Float64Array;
+    const P = lv.length;
+    let order: Int32Array | null = null;
+    const orderOf = (): Int32Array => {
+      if (order === null) {
+        for (let i = 0; i < n0; i++) cond[i] = (base.rows[i] as TableRow).cond[w] as number;
+        cond[n0] = c;
+        order = lineupOrder(plus.prep, cond, orderBuf);
+      }
+      return order;
+    };
+    // The newcomer's add delta per pattern (he plays), solved when first needed: shared by the add and every benched k.
+    const added = new Float64Array(P).fill(Number.NaN);
+    const addDelta = (p: number): number => {
+      let d = added[p] as number;
+      if (d !== d) {
+        const o = orderOf();
+        avail.set(avails[p] as Uint8Array);
+        avail[n0] = 1;
+        d = lineupTotal(plus.prep, cond, avail, null, o) - (lv[p] as number);
+        added[p] = d;
+      }
+      return d;
+    };
+    if (withAdd && c > 0) {
+      let sum = 0;
+      for (let s = 0; s < S; s++) {
+        const p = pattern[s] as number;
+        if (f[s * stride + w] !== 1 || !(c > (fl[p] as number))) continue; // exactly 0 (scenarioAddGain)
+        sum += addDelta(p);
+      }
+      add += wt * (sum / S);
+    }
+    if (!ks.length) continue;
+    // Per k, the patterns where he starts: solved with him out (scenarioSwapGains' keys: pattern and whether the newcomer plays).
+    const own = new Float64Array(2 * P);
+    for (let j = 0; j < ks.length; j++) {
+      const k = ks[j] as number;
+      own.fill(Number.NaN);
+      let sum = 0;
+      for (let s = 0; s < S; s++) {
+        const p = pattern[s] as number;
+        const plays = c > 0 && f[s * stride + w] === 1 ? 1 : 0;
+        if (((seats[p] as Int32Array)[k] as number) < 0) {
+          if (plays === 0 || !(c > (fl[p] as number))) continue; // exactly 0 (scenarioSwapGains)
+          sum += addDelta(p);
+          continue;
+        }
+        const key = 2 * p + plays;
+        let delta = own[key] as number;
+        if (delta !== delta) {
+          const o = orderOf();
+          avail.set(avails[p] as Uint8Array);
+          avail[k] = 0;
+          avail[n0] = plays;
+          delta = lineupTotal(plus.prep, cond, avail, null, o) - (lv[p] as number);
+          own[key] = delta;
+        }
+        sum += delta;
+      }
+      swaps[j] = (swaps[j] as number) + wt * (sum / S);
+    }
+  }
+  return { add, swaps };
+}
+
 // ---------------------------------------------------------------------------------------------
 // Removing a player: what each one's loss costs a lineup (the drop that makes room)
 
-/** Scratch for addRemovalCosts: the bench players who could step in, their points and the slot groups they reach. */
+/** Scratch for addRemovalCosts: the bench players who could step in, their points and the slot groups they reach, and the lineup's group graph. */
 interface RemovalScratch {
   readonly pts: Float64Array;
   readonly reach: Int32Array;
+  readonly graph: GroupGraph;
+  readonly adj: Int32Array;
+}
+
+function removalScratch(n: number, groups: number): RemovalScratch {
+  return { pts: new Float64Array(n), reach: new Int32Array(n), graph: { reach: new Int32Array(groups), min: new Float64Array(groups) }, adj: new Int32Array(groups) };
 }
 
 /**
@@ -780,14 +1311,21 @@ interface RemovalScratch {
  * points). A bench player costs nothing. `points` = what each player scores in this week or scenario
  * pattern (0 = can't play), `seat` = the lineup. Without starter limits only.
  */
-function addRemovalCosts(points: ArrayLike<number>, seat: Int32Array, masks: Int32Array, n: number, scale: number, out: Float64Array, scratch: RemovalScratch): void {
+function addRemovalCosts(points: ArrayLike<number>, seat: Int32Array, masks: Int32Array, n: number, scale: number, out: Float64Array, scratch: RemovalScratch, built: GroupGraph | null = null): void {
   let bench = 0;
+  // The groups each bench player reaches, from the lineup's group graph: `built` (a kept cell's, cellGraphs: the same
+  // seats), or built once here for the first bench player who needs it.
+  let graph = built;
   for (let e = 0; e < n; e++) {
     if ((seat[e] as number) >= 0) continue;
     const pts = points[e] as number;
     if (!(pts > 0) || masks[e] === 0) continue;
+    if (!graph) {
+      groupGraphInto(seat, masks, n, points, scratch.graph, scratch.adj);
+      graph = scratch.graph;
+    }
     scratch.pts[bench] = pts;
-    scratch.reach[bench] = reachFrom(masks[e] as number, seat, masks, n);
+    scratch.reach[bench] = reachOf(graph, masks[e] as number);
     bench++;
   }
   for (let k = 0; k < n; k++) {
@@ -824,13 +1362,31 @@ export function evRemovalCosts(solved: SolvedWeeks, weights: ArrayLike<number>):
     }
     return out;
   }
-  const scratch: RemovalScratch = { pts: new Float64Array(n), reach: new Int32Array(n) };
+  const scratch = removalScratch(n, team.prep.slots.groups.length);
   for (let w = 0; w < W; w++) {
     const wt = weights[w] ?? 0;
     if (!(wt > 0)) continue;
     addRemovalCosts(solved.pts[w] as Float64Array, solved.seat[w] as Int32Array, team.prep.masks, n, wt, out, scratch);
   }
   return out;
+}
+
+/**
+ * evRemovalCosts week by week, unweighted: out[w][k] = LV(T, w) − LV(T − k, w) for roster index k, nobody
+ * refilling his spot (0 for a bench player). Null under starter limits (the optimizer then solves each
+ * roster). The free-agent optimizer bounds a swap with it (the file header).
+ */
+export function evRemovalWeeks(solved: SolvedWeeks): Float64Array[] | null {
+  const { team } = solved;
+  if (team.prep.slots.limits !== null) return null;
+  const n = team.rows.length;
+  const scratch = removalScratch(n, team.prep.slots.groups.length);
+  const all = new Float64Array(solved.pts.length * n);
+  return solved.pts.map((pts, w) => {
+    const out = all.subarray(w * n, (w + 1) * n);
+    addRemovalCosts(pts, solved.seat[w] as Int32Array, team.prep.masks, n, 1, out, scratch);
+    return out;
+  });
 }
 
 /** Σ_w weights_w · the mean LV over the scenarios, from kept cells (scenarioValues' own arithmetic: patterns in order, a single pattern as is). */
@@ -859,6 +1415,44 @@ function patternCounts(cells: ScenarioCells, w: number): Int32Array {
 }
 
 /**
+ * cellFloors for callers outside this file (the free-agent optimizer's scenario-judged moves): per week, per pattern of
+ * `cells`, the lowest starter a newcomer with `mask` could displace (0 = he can reach a free spot; cached per mask).
+ * Null under starter limits (nothing is bounded there).
+ */
+export function scenarioCellFloors(cells: ScenarioCells, mask: number): Float64Array[] | null {
+  if (cells.team.prep.slots.limits !== null) return null;
+  return cellFloors(cells, mask);
+}
+
+/**
+ * scenarioRemovalCosts cell by cell and unweighted: per week, out[w][p·n + k] = LV_p(T, w) − LV_p(T − k, w) in pattern
+ * p (n = the roster's rows), nobody refilling his spot (0 for a bench player; a seated player plays, so his points there
+ * are his conditional points). Exact without starter limits; null under them. The optimizer bounds a swap with it.
+ */
+export function scenarioRemovalCells(cells: ScenarioCells): Float64Array[] | null {
+  const { team, weekCount: W } = cells;
+  if (team.prep.slots.limits !== null) return null;
+  const n = team.rows.length;
+  const scratch = removalScratch(n, team.prep.slots.groups.length);
+  const graphs = cellGraphs(cells);
+  const pts = new Float64Array(n);
+  const out: Float64Array[] = [];
+  for (let w = 0; w < W; w++) {
+    const avail = cells.avail[w] as readonly Uint8Array[];
+    const seats = cells.seat[w] as readonly Int32Array[];
+    const P = seats.length;
+    const week = new Float64Array(P * n);
+    for (let p = 0; p < P; p++) {
+      const who = avail[p] as Uint8Array;
+      for (let k = 0; k < n; k++) pts[k] = who[k] === 1 ? ((team.rows[k] as TableRow).cond[w] as number) : 0;
+      addRemovalCosts(pts, seats[p] as Int32Array, team.prep.masks, n, 1, week.subarray(p * n, (p + 1) * n), scratch, (graphs[w] as GroupGraph[])[p] as GroupGraph);
+    }
+    out.push(week);
+  }
+  return out;
+}
+
+/**
  * evRemovalCosts in scenario lineups: out[k] = Σ_w weights_w · mean_s (LV_s(T, w) − LV_s(T − k, w)) for
  * roster index k of the roster `cells` kept (scenarioValues with `keep`), nobody refilling his spot. Each
  * pattern is priced once and counted for its scenarios; a seated player plays, so his points there are his
@@ -881,7 +1475,8 @@ export function scenarioRemovalCosts(cells: ScenarioCells, weights: ArrayLike<nu
     }
     return out;
   }
-  const scratch: RemovalScratch = { pts: new Float64Array(n), reach: new Int32Array(n) };
+  const scratch = removalScratch(n, team.prep.slots.groups.length);
+  const graphs = cellGraphs(cells);
   const pts = new Float64Array(n);
   for (let w = 0; w < W; w++) {
     const wt = weights[w] ?? 0;
@@ -894,7 +1489,7 @@ export function scenarioRemovalCosts(cells: ScenarioCells, weights: ArrayLike<nu
       if (count === 0) continue;
       const who = avail[p] as Uint8Array;
       for (let k = 0; k < n; k++) pts[k] = who[k] === 1 ? ((team.rows[k] as TableRow).cond[w] as number) : 0;
-      addRemovalCosts(pts, seats[p] as Int32Array, team.prep.masks, n, (wt * count) / S, out, scratch);
+      addRemovalCosts(pts, seats[p] as Int32Array, team.prep.masks, n, (wt * count) / S, out, scratch, (graphs[w] as GroupGraph[])[p] as GroupGraph);
     }
   }
   return out;
@@ -942,50 +1537,7 @@ export function scenarioScore(v: ScenarioValues): WeeklyScore {
 }
 
 // ---------------------------------------------------------------------------------------------
-// The best single move, and lineup costs measured from it
-
-/**
- * A roster one move away from T: T − drop + add. drop null = into an open active-roster spot; add null =
- * a drop only (T − i when no free agent would improve its lineup). ev / scen = its ROS with EV lineups and
- * with scenario lineups (null without scenarios).
- */
-export interface RosterMove {
-  readonly add: string | null;
-  readonly drop: string | null;
-  readonly ev: number;
-  readonly scen: number | null;
-}
-
-export interface WaiverAdjustment {
-  /**
-   * V(T) = the largest ROS among T itself and every candidate move, with EV lineups; vScen the same with
-   * scenario lineups over the same candidate rosters (its maximum may come from another move; null without
-   * scenarios). MV_lose'(T, i) = V(T) − ROS(T − i + fa_i) ≥ 0 for every candidate.
-   */
-  readonly vEv: number;
-  readonly vScen: number | null;
-  /**
-   * The best move that adds a free agent, when it gains more than 1e-9 ROS points over T; else null. With
-   * scenarios it is the scenario-best move (the lineup costs the League page shows are scenario costs, so
-   * the move it shows is the one they're measured from); without them, the EV-best.
-   */
-  readonly best: RosterMove | null;
-}
-
-/** Whether move a beats move b for "best" (see waiverAdjustment's ties); `byScen` ranks by scenario ROS first. */
-function betterMove(a: RosterMove, b: RosterMove, dropValue: (id: string) => number, byScen: boolean): boolean {
-  const scenKnown = a.scen !== null && b.scen !== null;
-  if (byScen && scenKnown && Math.abs((a.scen as number) - (b.scen as number)) > EPS) return (a.scen as number) > (b.scen as number);
-  if (Math.abs(a.ev - b.ev) > EPS) return a.ev > b.ev;
-  if ((a.drop === null) !== (b.drop === null)) return a.drop === null;
-  if (!byScen && scenKnown && Math.abs((a.scen as number) - (b.scen as number)) > EPS) return (a.scen as number) > (b.scen as number);
-  if (a.drop !== null && b.drop !== null && a.drop !== b.drop) {
-    const va = dropValue(a.drop) || 0;
-    const vb = dropValue(b.drop) || 0;
-    return va !== vb ? va < vb : a.drop < b.drop;
-  }
-  return (a.add ?? "") < (b.add ?? "");
-}
+// The player a full roster drops to make room (§7 roster legality)
 
 /**
  * The player a full active roster drops to make room for a newcomer (§7 roster legality: the lowest "keep
@@ -1001,37 +1553,6 @@ export function lowestKeepValue(candidates: readonly { readonly id: string; read
     else if (Math.abs(c.keep - best.keep) <= EPS && (c.value < best.value || (c.value === best.value && c.id < best.id))) best = c;
   }
   return best ? best.id : null;
-}
-
-/**
- * V(T) and the team's best single free-agent move (§7 marginal values with roster legality; the planner's
- * fix for negative lineup costs). `base` is T's own ROS, `moves` the rosters one move away: T − i + fa_i for
- * each player i (fa_i = the free agent T − i would add, or none) and, when the active roster has an open
- * spot, T + fa (the free agent T itself would add).
- *
- * Every lineup cost is then V(T) − ROS(after): never below 0, and a constant shift of §7's
- * ROS(T) − ROS(T − i + fa_i) within the team, so the surplus score's within-roster z-scores are unchanged.
- * A drop-only move counts in V (so no cost is negative) but is never `best`: it only beats T under
- * starter limits, when a roster that can't meet a minimum gets lineup.ts's best effort.
- *
- * `best` ranks moves by scenario ROS when scenarios exist, else by EV ROS. Ties (within 1e-9): the other
- * ROS, then an open spot first (nobody is lost), then the dropped player with the lower `dropValue`
- * (market value: keep the more valuable player), then the smaller ids.
- */
-export function waiverAdjustment(base: { readonly ev: number; readonly scen: number | null }, moves: readonly RosterMove[], dropValue: (id: string) => number = () => 0): WaiverAdjustment {
-  let vEv = base.ev;
-  let vScen = base.scen;
-  let best: RosterMove | null = null;
-  const byScen = base.scen !== null;
-  for (const m of moves) {
-    if (m.ev > vEv) vEv = m.ev;
-    if (vScen !== null && m.scen !== null && m.scen > vScen) vScen = m.scen;
-    if (m.add === null) continue;
-    const gain = byScen && m.scen !== null ? m.scen - (base.scen as number) : m.ev - base.ev;
-    if (!(gain > EPS)) continue;
-    if (!best || betterMove(m, best, dropValue, byScen)) best = m;
-  }
-  return { vEv, vScen, best };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1105,7 +1626,7 @@ export interface FreeAgentOptions {
   positionLimits?: Partial<Record<Pos, number>>;
   /**
    * Positions of every player on the active roster passed in, players without a table row included
-   * (default: the rows' positions). mvLose removes the lost player's position itself.
+   * (default: the rows' positions).
    */
   rosterPositions?: readonly Pos[];
 }
@@ -1130,37 +1651,4 @@ export function bestFreeAgent(roster: readonly string[], candidates: readonly st
     .map((row) => ({ row, mask: slotMask(slots, row.pos, row.eligible) }));
   const pick = pickFreeAgent(base, cands, opts.weights, (row) => positionAllows(opts.positionLimits, positions, row.pos));
   return pick ? { id: pick.row.id, gain: pick.gain } : null;
-}
-
-/**
- * MV_lose(T, i) as §7 writes it: ROS(T) − ROS(T − i + fa) with EV lineups and with scenario lineups (null
- * when the table has no scenarios), fa = the free agent T − i would add (the same one for both), or null.
- * Negative when a free agent beats one of T's starters; the League model shifts it per team to
- * V(T) − ROS(T − i + fa) (waiverAdjustment).
- */
-export function mvLose(roster: readonly string[], playerId: string, candidates: readonly string[], table: ProjectionTable, slots: PreparedSlots, opts: FreeAgentOptions): { ev: number; scen: number | null; autoAdd: string | null } {
-  const W = table.weeks.length;
-  const rows = tableRows(roster, table);
-  const full = teamEval(rows, slots);
-  const minusRows = rows.filter((r) => r.id !== playerId);
-  const minus = teamEval(minusRows, slots);
-  const baseMinus = solveEvWeeks(minus, W);
-  const onRoster = new Set(roster);
-  const lostPos = table.rows.get(playerId)?.pos;
-  const positions: Pos[] = opts.rosterPositions ? [...opts.rosterPositions] : minusRows.map((r) => r.pos);
-  const lostAt = opts.rosterPositions && lostPos !== undefined ? positions.indexOf(lostPos) : -1;
-  if (lostAt >= 0) positions.splice(lostAt, 1);
-  const cands = tableRows(candidates, table)
-    .filter((r) => !onRoster.has(r.id))
-    .map((row) => ({ row, mask: slotMask(slots, row.pos, row.eligible) }));
-  const pick = pickFreeAgent(baseMinus, cands, opts.weights, (row) => positionAllows(opts.positionLimits, positions, row.pos));
-  const evBefore = rosValue(solveEvWeeks(full, W).lv, opts.weights);
-  const evAfter = rosValue(baseMinus.lv, opts.weights) + (pick ? pick.gain : 0);
-  let scen: number | null = null;
-  if (table.scenarios > 0) {
-    const before = rosValue(scenarioValues(full, W, table.scenarios).mean, opts.weights);
-    const after = rosValue(scenarioValues(pick ? pick.team : minus, W, table.scenarios).mean, opts.weights);
-    scen = before - after;
-  }
-  return { ev: evBefore - evAfter, scen, autoAdd: pick ? pick.row.id : null };
 }

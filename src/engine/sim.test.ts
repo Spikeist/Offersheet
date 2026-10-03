@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { config } from "./config";
+import { normalCdf } from "./distributions";
 import { mulberry32, streamFor } from "./rng";
 import {
   bracketGames,
@@ -179,11 +180,15 @@ describe("bracketOrder: the standard single-elimination seeding", () => {
 describe("simulateSeason: sanity (CLAUDE.md §16)", () => {
   it("every sim crowns exactly one champion, sends exactly playoffTeams teams and gives exactly `byes` byes", () => {
     for (let seed = 1; seed <= 30; seed++) {
+      // Drawn: one champion. Exact: the title chances given the sim's seeds add up to 1.
+      const sampled = simulateSeason(parkerSized(), { sims: 1, seed, titleMode: "sampled" });
+      expect(sum(titles(sampled)), `seed ${seed}`).toBe(1);
+      expect(sampled.teams.every((o) => [0, 1].includes(o.pTitle))).toBe(true);
       const res = run(parkerSized(), 1, seed);
-      expect(sum(titles(res)), `seed ${seed}`).toBe(1);
+      expect(sum(titles(res)), `seed ${seed}`).toBeCloseTo(1, 14);
+      expect(res.teams.every((o) => o.pTitle >= 0 && o.pTitle <= o.pPlayoffs)).toBe(true);
       expect(sum(res.teams.map((o) => o.pPlayoffs))).toBe(6);
       expect(sum(res.teams.map((o) => o.pBye))).toBe(2);
-      expect(res.teams.every((o) => [0, 1].includes(o.pTitle))).toBe(true);
     }
     const res = run(parkerSized(), 3000);
     expect(sum(titles(res))).toBeCloseTo(1, 12);
@@ -715,6 +720,249 @@ describe("simulateSeason: playoffs (CLAUDE.md §8)", () => {
   });
 });
 
+describe("simulateSeason: exact title odds (Rao–Blackwellization; SimOptions.titleMode)", () => {
+  /** P(a beats b) in a playoff round: the test's own sums over the round's weeks (all drawn), or a replayed result. */
+  function gameChance(setup: SimSetup, a: number, b: number, r: number): number {
+    const known = setup.playoffResults.find((x) => (x.a === a && x.b === b) || (x.a === b && x.b === a));
+    if (known) return known.winner === a ? 1 : 0;
+    let d = 0;
+    let v = 0;
+    for (const w of (setup.rounds[r] as { weeks: number[] }).weeks) {
+      const k = setup.weeks.indexOf(w);
+      if (k < 0) continue;
+      d += (setup.mean[a]![k] as number) - (setup.mean[b]![k] as number);
+      v += (setup.sd[a]![k] as number) ** 2 + (setup.sd[b]![k] as number) ** 2;
+    }
+    return normalCdf(d / Math.sqrt(v));
+  }
+
+  /**
+   * The title chances by brute force, independent of sim.ts's bracket code: today's standings (the regular season is
+   * over), then every outcome of every game, each round paired by bracketGames from the winners so far.
+   */
+  function enumerateTitles(setup: SimSetup): number[] {
+    const T = setup.teams.length;
+    const order = standingsOrder(setup);
+    let B = 1;
+    while (B < setup.playoffTeams) B *= 2;
+    const R = Math.round(Math.log2(B));
+    const out = new Array<number>(T).fill(0);
+    const walk = (results: SimSetup["playoffResults"], prob: number, r: number): void => {
+      if (r === R) {
+        out[(results.at(-1) as SimSetup["playoffResults"][number]).winner]! += prob;
+        return;
+      }
+      const games = bracketGames({ ...setup, playoffResults: results }, order)[r] ?? [];
+      for (let c = 0; c < 1 << games.length; c++) {
+        let p = prob;
+        const next = [...results];
+        games.forEach(([a, b], g) => {
+          const aWins = ((c >> g) & 1) === 0;
+          const w = gameChance(setup, a, b, r);
+          p *= aWins ? w : 1 - w;
+          next.push({ a, b, winner: aWins ? a : b });
+        });
+        if (p > 0) walk(next, p, r + 1);
+      }
+    };
+    walk(setup.playoffResults, 1, 0);
+    return out;
+  }
+
+  /** The regular season over (team i is seed i + 1); playoff weeks 15… with random means and SDs. */
+  function playoffsOnly(T: number, N: number, over: Partial<SimSetup> = {}, roundWeeks: number[] = []): SimSetup {
+    let B = 1;
+    while (B < N) B *= 2;
+    const R = Math.round(Math.log2(B));
+    let w = 15;
+    const rounds = range(0, R - 1).map((r) => {
+      const len = roundWeeks[r] ?? 1;
+      const weeks = range(w, w + len - 1);
+      w += len;
+      return { weeks };
+    });
+    const rand = mulberry32(1000 * T + N);
+    const base = range(0, T - 1).map(() => 90 + 40 * rand());
+    return makeSetup(
+      { teams: seededTeams(T), weeks: range(15, w - 1), playoffTeams: N, byes: B - N, rounds, ...over },
+      (t) => (base[t] as number) + 5 * rand(),
+      () => 15 + 15 * rand(),
+    );
+  }
+
+  it("fixed brackets of 2–12 teams (byes, multi-week rounds): each team's chance is the bracket's exact chance", () => {
+    const cases: [number, number, number[]][] = [
+      [2, 2, []],
+      [4, 3, []],
+      [4, 4, [1, 2]],
+      [6, 5, []],
+      [8, 6, [2, 1, 2]],
+      [8, 7, []],
+      [10, 8, []],
+      [14, 12, [1, 1, 1, 2]],
+    ];
+    for (const [T, N, roundWeeks] of cases) {
+      const setup = playoffsOnly(T, N, {}, roundWeeks);
+      const res = run(setup, 3);
+      const truth = enumerateTitles(setup);
+      res.teams.forEach((o, t) => expect(o.pTitle, `${N} of ${T}, team ${t}`).toBeCloseTo(truth[t] as number, 12));
+      expect(sum(titles(res))).toBeCloseTo(1, 14);
+      // Seeds past the bracket never win; with the regular season over every sim is the same.
+      expect(titles(res).slice(N).every((p) => p === 0)).toBe(true);
+    }
+  });
+
+  it("re-seeding brackets up to 8 slots: exact, every outcome of the round of 8 then best against worst", () => {
+    for (const [T, N, roundWeeks] of [
+      [6, 5, []],
+      [8, 6, []],
+      [8, 7, [1, 2, 1]],
+      [10, 8, []],
+      [4, 4, []],
+    ] as [number, number, number[]][]) {
+      const setup = playoffsOnly(T, N, { reseed: true }, roundWeeks);
+      const truth = enumerateTitles(setup);
+      titles(run(setup, 2)).forEach((p, t) => expect(p, `${N} of ${T}, team ${t}`).toBeCloseTo(truth[t] as number, 12));
+      // Re-seeding moves the odds (8 slots and up), which a fixed bracket's enumeration would miss.
+      if (N >= 6) expect(enumerateTitles({ ...setup, reseed: false })).not.toEqual(truth);
+    }
+  });
+
+  it("a re-seeding bracket of 16 slots draws round 1 and computes the last three rounds exactly: exact once round 1 is played, unbiased while it isn't", () => {
+    const setup = playoffsOnly(14, 12, { reseed: true });
+    const truth = enumerateTitles(setup);
+    // Round 1 drawn: unbiased (within 4 of the sampled mode's standard errors, an upper bound on the exact mode's).
+    const sims = 4000;
+    const exact = run(setup, sims);
+    exact.teams.forEach((o, t) => {
+      const p = truth[t] as number;
+      expect(Math.abs(o.pTitle - p), `team ${t}`).toBeLessThan(4 * Math.sqrt(Math.max(p * (1 - p), 1e-4) / sims));
+    });
+    expect(sum(titles(exact))).toBeCloseTo(1, 12);
+    // Round 1 played (its results replayed, weeks before the first drawn week): nothing is left to draw.
+    const order = standingsOrder(setup);
+    const round1 = (bracketGames(setup, order)[0] ?? []).map(([a, b], i) => ({ a, b, winner: i % 2 === 0 ? a : b }));
+    const played: SimSetup = { ...setup, playoffResults: round1, weeks: setup.weeks.slice(1), mean: setup.mean.map((m) => m.slice(1)), sd: setup.sd.map((s) => s.slice(1)) };
+    const playedTruth = enumerateTitles(played);
+    titles(run(played, 2)).forEach((p, t) => expect(p, `team ${t}`).toBeCloseTo(playedTruth[t] as number, 12));
+  });
+
+  it("exactReseedTeams (config.simulation's default 8): exact from the first round with at most that many left, 2, 4 or 8", () => {
+    const setup = playoffsOnly(10, 8, { reseed: true });
+    const truth = enumerateTitles(setup);
+    const sims = 4000;
+    const at = (exactReseedTeams: number) => titles(simulateSeason(setup, { sims, seed: SEED, exactReseedTeams }));
+    expect(config.simulation.exactReseedTeams).toBe(8);
+    expect(titles(run(setup, sims))).toEqual(at(8));
+    at(8).forEach((p, t) => expect(p, `team ${t}`).toBeCloseTo(truth[t] as number, 12));
+    // 4 or 2 (and values rounded down into 2–8): earlier rounds drawn, unbiased, the same as the value it rounds to.
+    for (const cap of [4, 2]) {
+      at(cap).forEach((p, t) => {
+        const q = truth[t] as number;
+        expect(Math.abs(p - q), `cap ${cap}, team ${t}`).toBeLessThan(4 * Math.sqrt(Math.max(q * (1 - q), 1e-4) / sims));
+      });
+      expect(sum(at(cap))).toBeCloseTo(1, 12);
+    }
+    expect(at(7)).toEqual(at(4));
+    expect(at(1)).toEqual(at(2));
+    expect(at(99)).toEqual(at(8));
+    expect(at(4)).not.toEqual(at(8));
+  });
+
+  it("replayed rounds count as certain: the final's chance is Φ(10 / √200) exactly", () => {
+    // seededTeams: seed 4 beat seed 1, seed 2 beat seed 3 (round 1 over); the final N(100, 10) vs N(90, 10).
+    const setup = makeSetup(
+      { teams: seededTeams(4), weeks: [16], playoffTeams: 4, byes: 0, rounds: [{ weeks: [15] }, { weeks: [16] }], playoffResults: [{ a: 3, b: 0, winner: 3 }, { a: 1, b: 2, winner: 1 }] },
+      (t) => (t === 3 ? 90 : 100),
+      () => 10,
+    );
+    const res = run(setup, 5);
+    expect(res.teams[1]!.pTitle).toBeCloseTo(normalCdf(10 / Math.sqrt(200)), 14);
+    expect(res.teams[3]!.pTitle).toBeCloseTo(1 - normalCdf(10 / Math.sqrt(200)), 14);
+    expect([res.teams[0]!.pTitle, res.teams[2]!.pTitle]).toEqual([0, 0]);
+    // A points-only league's playoffs are head to head the same way.
+    expect(titles(run({ ...setup, pointsOnly: true }, 5))).toEqual(titles(res));
+  });
+
+  it("agrees with drawn brackets within Monte Carlo error when the regular season is still to play (fixed, re-seeding, median games)", () => {
+    const sims = 20_000;
+    for (const over of [{}, { reseed: true }, { medianWeeks: range(4, 14), divisionWinnersFirst: true }] as Partial<SimSetup>[]) {
+      const setup = parkerSized(over);
+      const normals = simNormals(SEED, sims, setup.weeks.length, setup.teams.length);
+      const exact = simulateSeason(setup, { sims, seed: SEED, normals });
+      const sampled = simulateSeason(setup, { sims, seed: SEED, normals, titleMode: "sampled" });
+      sampled.teams.forEach((o, t) => {
+        const se = Math.sqrt(Math.max(o.pTitle * (1 - o.pTitle), 1e-4) / sims); // the sampled estimate's; the exact one's is smaller
+        expect(Math.abs(exact.teams[t]!.pTitle - o.pTitle), `${JSON.stringify(Object.keys(over))} team ${t}`).toBeLessThan(4 * se);
+      });
+      // Everything but the title is the same, bit for bit: nothing else reads the playoff games.
+      const noTitle = (r: SimResult) => ({ ...r, teams: r.teams.map((o) => ({ ...o, pTitle: 0 })) });
+      expect(noTitle(exact)).toEqual(noTitle(sampled));
+      expect(sum(titles(exact))).toBeCloseTo(1, 12);
+    }
+  });
+
+  it("cuts the seed-to-seed spread of P(title) (the noise in a trade's ΔCH)", () => {
+    const setup = parkerSized();
+    const sd = (xs: number[]) => {
+      const m = sum(xs) / xs.length;
+      return Math.sqrt(xs.reduce((s, x) => s + (x - m) ** 2, 0) / (xs.length - 1));
+    };
+    const spread = (titleMode: "exact" | "sampled") => {
+      const rows = range(1, 30).map((seed) => titles(simulateSeason(setup, { sims: 400, seed, titleMode })));
+      return sum(range(0, 9).map((t) => sd(rows.map((row) => row[t] as number))));
+    };
+    // Measured about 0.2 here: most of these teams' title luck is in the playoffs.
+    expect(spread("exact") / spread("sampled")).toBeLessThan(0.5);
+  });
+
+  it("sampled mode is unchanged: the same title counts as the simulator before exact brackets, bit for bit", () => {
+    // simulateSeason before this change, 2,000 sims of seed SEED: titles per team.
+    const pinned: [Partial<SimSetup>, number[]][] = [
+      [{}, [28, 505, 166, 360, 2, 615, 5, 61, 65, 193]],
+      [{ reseed: true }, [23, 545, 155, 345, 5, 595, 4, 54, 68, 206]],
+      [{ medianWeeks: range(4, 14), divisionWinnersFirst: true }, [39, 508, 228, 309, 9, 513, 7, 33, 138, 216]],
+    ];
+    for (const [over, counts] of pinned) expect(titles(simulateSeason(parkerSized(over), { sims: 2000, seed: SEED, titleMode: "sampled" }))).toEqual(counts.map((c) => c / 2000));
+  });
+
+  it("both modes: identical inputs give identical results, and a screening run is the final matrix's prefix", () => {
+    for (const titleMode of ["exact", "sampled"] as const) {
+      const setup = parkerSized({ reseed: titleMode === "exact" });
+      const copy: SimSetup = { ...setup, mean: setup.mean.map((m) => Float64Array.from(m)), sd: setup.sd.map((s) => Float64Array.from(s)) };
+      const big = simNormals(SEED, 1500, setup.weeks.length, setup.teams.length);
+      const a = simulateSeason(setup, { sims: 600, seed: SEED, normals: big, titleMode });
+      expect(simulateSeason(copy, { sims: 600, seed: SEED, normals: big, titleMode })).toEqual(a);
+      expect(simulateSeason(setup, { sims: 600, seed: SEED, titleMode })).toEqual(a);
+    }
+  });
+
+  it("falls back to drawn brackets when a playoff round's weeks aren't independent (a week shared with a game or another round)", () => {
+    const shared = makeSetup(
+      { teams: seededTeams(4), weeks: [14, 15], games: [{ weeks: [14], a: 0, b: 3 }, { weeks: [14], a: 1, b: 2 }], playoffTeams: 4, byes: 0, rounds: [{ weeks: [14] }, { weeks: [15] }] },
+      (t) => 100 + 3 * t,
+      () => 20,
+    );
+    expect(run(shared, 500)).toEqual(simulateSeason(shared, { sims: 500, seed: SEED, titleMode: "sampled" }));
+    const overlapping = playoffsOnly(4, 4, { rounds: [{ weeks: [15, 16] }, { weeks: [16] }] }, [2, 0]);
+    expect(run(overlapping, 500)).toEqual(simulateSeason(overlapping, { sims: 500, seed: SEED, titleMode: "sampled" }));
+    // Independent weeks: the exact mode differs from the drawn one.
+    expect(titles(run(playoffsOnly(4, 4), 500))).not.toEqual(titles(simulateSeason(playoffsOnly(4, 4), { sims: 500, seed: SEED, titleMode: "sampled" })));
+  });
+
+  it("unknown playoffs match the drawn mode: a played round without a result, a missing round", () => {
+    const missing = makeSetup({ teams: seededTeams(8), weeks: [16, 17], playoffTeams: 6, byes: 2, rounds: [{ weeks: [15] }, { weeks: [16] }, { weeks: [17] }], playoffResults: [{ a: 3, b: 4, winner: 4 }] }, () => 100, () => 10);
+    for (const titleMode of ["exact", "sampled"] as const) {
+      const res = simulateSeason(missing, { sims: 20, seed: SEED, titleMode });
+      expect(res.playoffsKnown, titleMode).toBe(false);
+      expect(res.teams.every((o) => Number.isNaN(o.pTitle) && Number.isNaN(o.pBye))).toBe(true);
+      const fewer = simulateSeason({ ...missing, rounds: [{ weeks: [16] }, { weeks: [17] }], playoffResults: [] }, { sims: 20, seed: SEED, titleMode });
+      expect(fewer.playoffsKnown).toBe(true);
+      expect(fewer.teams.every((o) => Number.isNaN(o.pTitle))).toBe(true);
+    }
+  });
+});
+
 describe("bracketGames: the games the seeds and the results already pin down (season.ts checks the league's own playoff schedule against them)", () => {
   const base = { teams: seededTeams(8), playoffTeams: 6, reseed: false, playoffResults: [] as SimSetup["playoffResults"] };
   const order = range(0, 7);
@@ -865,9 +1113,11 @@ describe("performance (CLAUDE.md §8 defaults: 5,000 final sims, 1,000 screening
     const t3 = performance.now();
     const withMedian = simulateSeason({ ...setup, medianWeeks: range(4, 14) }, { sims: finalSims, seed, normals });
     const t4 = performance.now();
+    simulateSeason(setup, { sims: finalSims, seed, normals, titleMode: "sampled" });
+    const t5 = performance.now();
     const ms = (x: number) => `${x.toFixed(1)} ms`;
     console.log(
-      `[perf] sim, ${T} teams × ${W} weeks: normals (${finalSims} sims) ${ms(t1 - t0)}; ${finalSims} sims ${ms(t2 - t1)}; ${screeningSims} sims ${ms(t3 - t2)}; ${finalSims} sims with median games ${ms(t4 - t3)}`,
+      `[perf] sim, ${T} teams × ${W} weeks: normals (${finalSims} sims) ${ms(t1 - t0)}; ${finalSims} sims ${ms(t2 - t1)}; ${screeningSims} sims ${ms(t3 - t2)}; ${finalSims} sims with median games ${ms(t4 - t3)}; ${finalSims} sims with drawn brackets ${ms(t5 - t4)}`,
     );
     expect(t2 - t0).toBeLessThan(1000); // target: well under 100 ms
     expect(t3 - t2).toBeLessThan(250); // target: well under 25 ms

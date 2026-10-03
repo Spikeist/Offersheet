@@ -5,11 +5,14 @@ import {
   baseRate,
   baseRateSourceCounts,
   espnSleeperAgreement,
+  gameTimeBaseRate,
   latestHealthyProjection,
+  nearestHealthyProjection,
   priorHealthyBaseRate,
   projectPlayer,
   rosSummary,
   staleReturnCheck,
+  usesHealthyBaseRate,
   weekShape,
   weeklySd,
   type ProjectionConfig,
@@ -77,6 +80,22 @@ describe("latestHealthyProjection (§6 step 1: proj_now's week)", () => {
     expect(latestHealthyProjection({ 4: null, 20: 12 }, 4, WEEKS)).toBeNull(); // week 20 isn't a remaining week
     expect(latestHealthyProjection({ 3: -2, 4: null }, 4, WEEKS)).toBeNull();
     expect(latestHealthyProjection(undefined, 4, WEEKS)).toBeNull();
+  });
+});
+
+describe("nearestHealthyProjection (§6 step 3, the Q/D/P base rate's week)", () => {
+  it("takes the earliest remaining week after currentWeek with a value > 0 (a bye's stub and zeros skipped), never currentWeek itself", () => {
+    expect(nearestHealthyProjection({ 3: 19, 4: 6, 5: 20, 6: 22 }, 4, WEEKS)).toEqual({ week: 5, value: 20 });
+    expect(nearestHealthyProjection({ 3: 19, 4: 6, 5: null, 6: 0, 7: 21 }, 4, WEEKS)).toEqual({ week: 7, value: 21 });
+    expect(nearestHealthyProjection({ 4: 15, 9: 12, 8: 11 }, 4, WEEKS)).toEqual({ week: 8, value: 11 });
+  });
+
+  it("otherwise the latest week before currentWeek with one; null when there is neither", () => {
+    expect(nearestHealthyProjection({ 1: 10, 2: 12, 3: null, 4: 6, 5: null }, 4, WEEKS)).toEqual({ week: 2, value: 12 });
+    expect(nearestHealthyProjection({ 3: 19, 4: 6, 20: 12 }, 4, WEEKS)).toEqual({ week: 3, value: 19 }); // week 20 isn't a remaining week
+    expect(nearestHealthyProjection({ 4: 15 }, 4, WEEKS)).toBeNull();
+    expect(nearestHealthyProjection({ 3: -2, 4: 6, 5: 0 }, 4, WEEKS)).toBeNull();
+    expect(nearestHealthyProjection(undefined, 4, WEEKS)).toBeNull();
   });
 });
 
@@ -253,6 +272,119 @@ describe("priorHealthyBaseRate (§6 step 3 'Conflicting ESPN signals': the healt
     const inputs = player({ 3: 20, 4: 6 }, { espn: { 4: 5 } });
     priorHealthyBaseRate(inputs, c);
     expect(inputs).toEqual(player({ 3: 20, 4: 6 }, { espn: { 4: 5 } }));
+  });
+});
+
+describe("the Q/D/P base rate (§6 step 3; planner reply to Checkpoint 3, answer 5): this week's injury-cut projections count nowhere", () => {
+  // Healthy before: 18, 20, 19 (week 3); this week Sleeper cut him to 6 (ESPN to 5); 20 and 22 after. Three games at 20 a game.
+  const q = player({ 1: 18, 2: 20, 3: 19, 4: 6, 5: 20, 6: 22 }, { actual: { 1: 21, 2: 17, 3: 22 }, espn: { 3: 21, 4: 5 } });
+  const c = ctx({ weeks: [4, 5, 6] });
+  /** His tag's one-week table this week, then healthy (availability.ts; no future injury risk here). */
+  const a = [0.85, 1, 1];
+
+  it("b = gameTimeBaseRate: proj_now from his nearest later healthy week; this week's shape is 1; the other weeks' shapes leave the cut out of the mean", () => {
+    const g = gameTimeBaseRate(q, c);
+    // Week 5's 20 ÷ (20 / 21) = 21 (the shapes' mean leaves this week's 6 out: (20 + 22) / 2), blended with 20 a game.
+    expect(g).toMatchObject({ projNow: 20, projWeek: 5, alpha: 0.125, games: 3, actualPpg: 20, source: "sleeper" });
+    expect(g.mNow).toBeCloseTo(20 / 21, 12);
+    expect(g.b).toBeCloseTo(0.875 * 21 + 0.125 * 20, 12); // 20.875
+    // Nothing but the cut changed this week, so the week before (H: week 3's 19 ÷ (19 / 21)) gives the same rate.
+    expect(g.b).toBeCloseTo(priorHealthyBaseRate(q, c).b, 12);
+    for (const injury of ["QUESTIONABLE", "DOUBTFUL", "PROBABLE"] as const) {
+      expect(usesHealthyBaseRate(injury)).toBe(true);
+      const m = projectPlayer("q", "RB", q, a, { ...c, injury });
+      expect(m.base, injury).toEqual(g);
+      expect(m.weekly[0]?.m).toBe(1);
+      expect(m.weekly[1]?.m).toBeCloseTo(20 / 21, 12);
+      expect(m.weekly[2]?.m).toBeCloseTo(22 / 21, 12);
+      // The tag's table, applied once: p = b × 1 × 0.85.
+      expect(m.weekly[0]?.p).toBeCloseTo(g.b * 0.85, 12);
+      expect(m.weekly[0]?.sd).toBeCloseTo(weeklySd(g.b * 0.85, "RB"), 12);
+    }
+    // This week's number never moves it, whatever Sleeper says.
+    for (const now of [null, 0.5, 6, 18, 30]) expect(gameTimeBaseRate({ ...q, sleeper: { ...q.sleeper, 4: now } }, c).b, `now ${now}`).toBeCloseTo(g.b, 12);
+  });
+
+  it("a role that changed this week carries on: a backup promoted to starter keeps his new rate under a game-time tag (review of track A1)", () => {
+    // 4 a week as a backup in weeks 1–3 (3, 5 and 4 points); this week he starts (13), and 14 a week from week 5 on.
+    const promoted = player({ ...flat(range(1, 3), 4), 4: 13, ...flat(range(5, 17), 14) }, { actual: { 1: 3, 2: 5, 3: 4 } });
+    const full = ctx();
+    const untagged = projectPlayer("b", "RB", promoted, ones(WEEKS.length), full).base;
+    expect(untagged.b).toBeCloseTo(0.875 * (195 / 14) + 0.125 * 4, 12); // step 1 reads this week's 13: 12.69
+    for (const injury of ["PROBABLE", "QUESTIONABLE", "DOUBTFUL"] as const) {
+      const m = projectPlayer("b", "RB", promoted, ones(WEEKS.length), { ...full, injury });
+      // Week 5's 14 (every later week is 14: shape 1), blended with 4 a game: 0.875 × 14 + 0.125 × 4 = 12.75.
+      expect(m.base, injury).toMatchObject({ projNow: 14, projWeek: 5, source: "sleeper" });
+      expect(m.base.b).toBeCloseTo(12.75, 12);
+    }
+    // The latest earlier week first (lead decision L4 as first built: b = H) kept his backup's rate all season: week 3's 4
+    // ÷ 0.8 (its shape clamped up), blended: 4.875. H keeps that order for the stale-date tiebreaker.
+    expect(priorHealthyBaseRate(promoted, full)).toMatchObject({ projNow: 4, projWeek: 3 });
+    expect(priorHealthyBaseRate(promoted, full).b).toBeCloseTo(0.875 * 5 + 0.125 * 4, 12);
+  });
+
+  it("Sleeper's live line for a questionable RB whose role grew (2026-09-30): his b matches the untagged one, not week 3's backup rate", () => {
+    // Ollie Gordon (RB, MIA), half-PPR: 2.1, 2.3 and 3.2 in weeks 1–3, 7.34 this week, a bye (a stub) in week 6; 0.7 and 13
+    // points in his two games (week 3's breakout).
+    const gordon = player(
+      { 1: 2.1, 2: 2.3, 3: 3.2, 4: 7.34, 5: 7.81, 6: null, 7: 6.59, 8: 6.55, 9: 7.73, 10: 6.58, 11: 7.34, 12: 6.65, 13: 6.45, 14: 7.41, 15: 6.9, 16: 5.88, 17: 7.41 },
+      { actual: { 2: 0.7, 3: 13 } },
+    );
+    const full = ctx({ byeWeek: 6 });
+    const later = [7.81, 6.59, 6.55, 7.73, 6.58, 7.34, 6.65, 6.45, 7.41, 6.9, 5.88, 7.41];
+    const mean = later.reduce((sum, x) => sum + x, 0) / later.length; // 6.94: weeks 5–17 but his bye, this week left out
+    const alpha = 0.25 * (2 / 6);
+    const m = projectPlayer("gordon", "RB", gordon, ones(WEEKS.length), { ...full, injury: "QUESTIONABLE" });
+    expect(m.base).toMatchObject({ projNow: 7.81, projWeek: 5, source: "sleeper" });
+    expect(m.base.b).toBeCloseTo((1 - alpha) * mean + alpha * 6.85, 9); // 6.93
+    const untagged = projectPlayer("gordon", "RB", gordon, ones(WEEKS.length), full).base;
+    expect(Math.abs(m.base.b / untagged.b - 1)).toBeLessThan(0.01); // 6.96
+    // Week 3's 3.2 ÷ 0.8 (clamped), blended: 4.24, 39% under.
+    expect(priorHealthyBaseRate(gordon, full).b).toBeCloseTo((1 - alpha) * 4 + alpha * 6.85, 9);
+  });
+
+  it("a bye next week: the week after it; no later healthy week: the latest one before this week; then ESPN's other weeks, the season line, points per game, nothing", () => {
+    expect(gameTimeBaseRate(player({ 3: 19, 4: 6, 5: null, 6: 22, 7: 20 }), ctx({ weeks: [4, 5, 6, 7] }))).toMatchObject({ projNow: 22, projWeek: 6, source: "sleeper" });
+    // Sleeper has nothing for him after this week (stubs and a 0): his last healthy week before it.
+    expect(gameTimeBaseRate(player({ 2: 18, 3: 19, 4: 6, 5: null, 6: 0 }), c)).toMatchObject({ projNow: 19, projWeek: 3, source: "sleeper" });
+    // No healthy week before this one (Josh Jacobs's case): the first week Sleeper projects him again.
+    expect(gameTimeBaseRate(player({ 1: 0, 2: 0, 3: 0, 4: 3, 5: null, 6: 10 }), c)).toMatchObject({ projNow: 10, projWeek: 6, b: 10 });
+    expect(gameTimeBaseRate(player({ 3: null, 4: 15 }, { espn: { 3: 12, 4: 14 } }), c)).toMatchObject({ projNow: 12, projWeek: 3, source: "espn" });
+    expect(gameTimeBaseRate(player({ 4: 15 }, { sleeperSeasonPerGame: 13.5 }), c)).toMatchObject({ projNow: 13.5, projWeek: null, source: "season" });
+    expect(gameTimeBaseRate(player({ 3: 0, 4: 15 }, { actual: { 1: 11, 2: 9 } }), c)).toMatchObject({ b: 10, source: "actual" });
+    expect(gameTimeBaseRate(player({ 4: 15 }), c)).toMatchObject({ b: 0, source: "none" });
+  });
+
+  it("every other status keeps step 1 (an OUT player's stub this week is never a base rate anyway), and so does a caller that gives no status", () => {
+    const step1 = baseRate(q, c);
+    expect(step1).toMatchObject({ projNow: 6, projWeek: 4, mNow: 0.8 }); // 6 ÷ (16) clamped up to 0.8
+    for (const injury of ["ACTIVE", "OUT", "IR", "PUP", "SUSPENDED", "NA"] as const) {
+      expect(usesHealthyBaseRate(injury)).toBe(false);
+      expect(projectPlayer("q", "RB", q, a, { ...c, injury }).base, injury).toEqual(step1);
+    }
+    expect(usesHealthyBaseRate(undefined)).toBe(false);
+    expect(projectPlayer("q", "RB", q, a, c).base).toEqual(step1);
+    // Counting the cut twice (Phase 3: Sleeper's 6 in b, then the tag's 0.85 on top) gave him under half his points this week.
+    const before = projectPlayer("q", "RB", q, a, c).weekly[0]?.p as number;
+    const now = projectPlayer("q", "RB", q, a, { ...c, injury: "QUESTIONABLE" }).weekly[0]?.p as number;
+    expect(before).toBeCloseTo(9.0625 * 0.8 * 0.85, 10);
+    expect(now).toBeGreaterThan(2 * before);
+  });
+
+  it("ESPN leagues: a later week has no ESPN projection (the import carries ESPN's previous and current weeks), so b is Sleeper's; a week before this one averages the two", () => {
+    const m = projectPlayer("q", "RB", q, a, { ...c, espnAveraged: true, injury: "QUESTIONABLE" });
+    expect(m.base).toMatchObject({ projNow: 20, projWeek: 5, source: "sleeper" });
+    expect(m.base).toEqual(gameTimeBaseRate(q, { ...c, espnAveraged: true }));
+    // Without a later healthy week: his healthy week before this one, averaged with ESPN's value for it (not this week's cut).
+    const onlyBefore = player({ 3: 19, 4: 6 }, { actual: { 1: 21, 2: 17, 3: 22 }, espn: { 3: 21, 4: 5 } });
+    expect(projectPlayer("q", "RB", onlyBefore, [0.85], { ...c, weeks: [4], espnAveraged: true, injury: "QUESTIONABLE" }).base).toMatchObject({ projNow: 20, projWeek: 3, source: "espn+sleeper" });
+  });
+
+  it("the inputs aren't touched, and a week Sleeper didn't send gives what a cut one does", () => {
+    const inputs = player({ 3: 20, 4: 6, 5: 20 }, { espn: { 4: 5 } });
+    const cut = projectPlayer("q", "RB", inputs, [0.85, 1, 1], { ...c, injury: "DOUBTFUL" });
+    expect(inputs).toEqual(player({ 3: 20, 4: 6, 5: 20 }, { espn: { 4: 5 } }));
+    expect(projectPlayer("q", "RB", player({ 3: 20, 5: 20 }), [0.85, 1, 1], { ...c, injury: "DOUBTFUL" }).base).toEqual(cut.base);
   });
 });
 

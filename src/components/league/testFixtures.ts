@@ -2,12 +2,15 @@
  * Test-only: a small fictional league with a hand-built LeagueModel and model inputs, for the League
  * page's view-model and markup tests (no engine run, no network). Every team and player name is
  * made up. Four teams, NFL week 12 of a season whose regular season ends in week 14 and whose
- * playoffs are weeks 15–17. Team 1 (the user's) has a full roster, so its best free-agent move drops
- * a player; teams 3 and 4 have open spots; team 2 has no move that helps. Team 2 has a Doubtful
+ * playoffs are weeks 15–17. Team 1 (the user's) has a full roster, so its one free-agent pickup
+ * (TeamModel.faMoves) drops a player; team 3 has open spots and two pickups, the first into an open spot,
+ * the second for one of its players; teams 2 and 4 have none that helps. Team 2 has a Doubtful
  * player in an IR slot (his injury badge doesn't say IR) and team 3 a taxi-squad player.
  *
- * Trade chips (CLAUDE.md §7): team 2 has four (the table shows three; its partner card lists three and
- * "1 more"), one of them best for the user's team ("to you"); teams 1, 3 and 4 have one each. Two
+ * Trade chips (CLAUDE.md §7): team 2 has five (the table shows three), one of them best for the user's team
+ * ("to you"); team 3 has two; teams 1 and 4 have one each. Every chip carries its cost per week counted
+ * (cost ÷ omega()) and, except team 1's and team 2's bench back, the "starter" tag. Streaming (§7): the user's
+ * team and team 3 stream D/ST, with two free-agent D/STs as this week's picks (streaming(), below). Two
  * players have conflicting ESPN signals (§6 step 3): team 1's Questionable RB, whose far return date
  * Sleeper overrules, and team 2's Doubtful RB, who follows his return date (week 16).
  *
@@ -25,10 +28,19 @@
  * week 12 LV is a partial week (MIN, with its QB, a WR and its D/ST, has kicked off), while its score
  * keeps the pre-kickoff projection (PRE_KICKOFF), which is the week's LV before kickoff. Nobody else
  * plays in that game, so the other teams' week 12 LV is their pre-kickoff projection either way.
+ *
+ * The star premium (planner addendum to Checkpoint 3, §1–§2; TeamModel.premiums) follows the engine's rules
+ * (premiums(), below): each team's two most valuable players who are also among the top 12 by FantasyCalc value
+ * are "Harder to get": team 1's Pemberton and McSprocket (mine: never shown), team 2's Gloop and Wobbleton,
+ * team 3's Quill and Kettleburn, team 4's Nibble and Fennel. Team 2's best partner player for me is Gloop (tagged),
+ * so its card leads with "Best target: C. Snoot" and "Bigger upgrade, harder to get: M. Gloop"; Wobbleton, a fifth
+ * team 2 chip, shows tagged in the rest of the list, and Kettleburn is a tagged trade chip of team 3. Team 3's only
+ * partner player for me, Mop (+0.9/wk), adds less than config.needs.bestTargetMin (1) a week and isn't tagged, so its
+ * card names no target (lead decision N12); team 4's Wren (+1.6/wk) is its best target.
  */
 import { config } from "@/engine/config";
 import type { ModelInputs } from "@/engine/inputs";
-import type { AvailabilityNote, LeagueModel, PlayerModel, SeasonOdds, SlotStrength, TeamModel, TeamOdds, TeamPlayerValue, ValueSource } from "@/engine/leagueModel";
+import type { AvailabilityNote, LeagueModel, PlayerModel, PlayerPremium, SeasonOdds, SlotStrength, StreamingSummary, TeamModel, TeamOdds, TeamPlayerValue, TradeChip, ValueSource } from "@/engine/leagueModel";
 import type { InjuryStatus, LeagueSettings, LeagueSnapshot, Matchup, PlayerInfo, Pos, Team } from "@/engine/model";
 import { weekUnderWayNote } from "@/engine/season";
 
@@ -142,6 +154,9 @@ const PLAYERS: P[] = [
   { id: "902", name: "Waverly Waiver", pos: "RB", team: "NE", pts: 6, value: null },
   { id: "903", name: "Dabney Drifter", pos: "WR", team: null, injury: "NA", pts: 5, a: [0, 0, 0, 0, 0, 0], value: null },
   { id: "904", name: "Kip Kickington", pos: "K", team: "LV", pts: 8, value: { value: 107, source: "floor" } },
+  // Free-agent D/STs: this week's streaming picks (the league starts no kicker, so there are no K picks).
+  { id: "SEA", name: "Seahawks D/ST", pos: "DEF", team: "SEA", pts: 8.2, value: { value: 107, source: "floor" } },
+  { id: "NYG", name: "Giants D/ST", pos: "DEF", team: "NYG", pts: 6.6, value: { value: 107, source: "floor" } },
 ];
 
 const byId = new Map(PLAYERS.map((p) => [p.id, p]));
@@ -182,6 +197,42 @@ function info(p: P): PlayerInfo {
 
 function team(id: string, name: string, owner: string, rec: [number, number], pf: number, roster: string[], ir: string[] = [], taxi: string[] = []): Team {
   return { id, name, ownerName: owner, roster, ir, taxi, record: { w: rec[0], l: rec[1], t: 0 }, pointsFor: pf, pointsAgainst: 1000 };
+}
+
+/** Each team's players: active roster, IR and taxi squad. */
+const ROSTERS: Record<string, { roster: string[]; ir: string[]; taxi: string[] }> = {
+  "1": { roster: ["101", "102", "103", "104", "105", "106", "108", "MIN"], ir: ["107"], taxi: [] },
+  "2": { roster: ["201", "202", "203", "204", "205", "DET"], ir: ["206"], taxi: [] },
+  "3": { roster: ["301", "302", "303", "304", "305", "PHI"], ir: [], taxi: ["306"] },
+  "4": { roster: ["401", "402", "403", "404", "405", "BAL"], ir: [], taxi: [] },
+};
+
+/**
+ * The star premium (planner addendum to Checkpoint 3, §1; lead decision N1) of every player a team rosters (active, IR
+ * and taxi), as the engine computes it: his rank by value on the roster (ties: more ROS points, then the smaller id),
+ * e_rank from config.acceptance.starPremium.rank, e_elite when he's among the top eliteTop players by FantasyCalc value
+ * (FantasyCalc-valued players only; ties at the cut: the smaller id), "Harder to get" at harderToGetMin. A redraft
+ * league: nobody's premium is halved.
+ */
+function premiums(teamId: string, gameDay: boolean): Record<string, PlayerPremium> {
+  const sp = config.acceptance.starPremium;
+  const byIdAsc = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+  const valueOf = (id: string) => byId.get(id)?.value?.value ?? 0;
+  const fantasyCalc = PLAYERS.filter((p) => p.value?.source === "fantasycalc").sort((a, b) => valueOf(b.id) - valueOf(a.id) || byIdAsc(a.id, b.id));
+  const elite = new Set(fantasyCalc.slice(0, sp.eliteTop).map((p) => p.id));
+  const ros = (id: string) => {
+    const p = byId.get(id);
+    return p ? playerModel(p, gameDay).ros.total : 0;
+  };
+  const r = ROSTERS[teamId];
+  const ids = r ? [...r.roster, ...r.ir, ...r.taxi] : [];
+  const ranked = [...ids].sort((a, b) => valueOf(b) - valueOf(a) || ros(b) - ros(a) || byIdAsc(a, b));
+  return Object.fromEntries(
+    ranked.map((id, i) => {
+      const e = (sp.rank[i] ?? 0) + (elite.has(id) ? sp.elite : 0);
+      return [id, { e, rank: i + 1, elite: elite.has(id), harderToGet: e >= sp.harderToGetMin }];
+    }),
+  );
 }
 
 export const SLOTS = [
@@ -226,13 +277,22 @@ function tpv(mvLoseEv: number, mvLoseScen: number | null, surplusScore = 0): Tea
   return { mvLoseEv, mvLoseScen, autoAdd: "901", surplusScore };
 }
 
-/** A trade chip whose gap is maxOther − cost. */
-function chip(playerId: string, cost: number, maxOther: number, bestTeamId: string) {
-  return { playerId, gap: maxOther - cost, cost, maxOther, bestTeamId };
+/**
+ * Σ ω over the weeks team numbers count: weeks 13–17 on game day (2 regular-season weeks and 3 playoff weeks at the
+ * playoff weight), weeks 12–17 before kickoff.
+ */
+export function omega(gameDay: boolean): number {
+  return (gameDay ? REGULAR.length - 1 : REGULAR.length) + PLAYOFFS.length * config.lineups.playoffWeight;
+}
+
+/** A trade chip whose gap is maxOther − cost, with its cost per week counted and whether he starts for his team. */
+function chip(playerId: string, cost: number, maxOther: number, bestTeamId: string, starter: boolean, gameDay: boolean): TradeChip {
+  return { playerId, gap: maxOther - cost, cost, maxOther, bestTeamId, costPerWeek: cost / omega(gameDay), starter };
 }
 
 function teams(gameDay: boolean): TeamModel[] {
   const lu = (lv: number[]) => lineup(lv, gameDay);
+  const chip_ = (playerId: string, cost: number, maxOther: number, bestTeamId: string, starter = false) => chip(playerId, cost, maxOther, bestTeamId, starter, gameDay);
   // Team 1's week 12 LV: a partial week on game day (MIN has kicked off), the full week before kickoff.
   const week12 = (partial: number, full: number) => (gameDay ? partial : full);
   const scen1 = [week12(82, PRE_KICKOFF["1"] as number), 90, 84, 88, 88, 88];
@@ -246,7 +306,7 @@ function teams(gameDay: boolean): TeamModel[] {
         { slot: "RB2", z: -0.5, window: "ros" },
         { slot: "RB1", z: -1.3, window: "ros" },
       ],
-      chips: [chip("106", 2, 16.6, "2")],
+      chips: [chip_("106", 2, 16.6, "2")],
       players: {
         "101": tpv(60, 58.2),
         "102": tpv(20, 18.5),
@@ -257,8 +317,9 @@ function teams(gameDay: boolean): TeamModel[] {
         "108": tpv(0, 0.4),
         MIN: tpv(5, 5.5),
       },
-      // Full roster: the best move drops the player whose loss hurts least.
-      waiver: { add: "901", drop: "108", gainEv: 3.2, gainScen: 4.64 },
+      // Full roster: the pickup drops a player (its gain with injuries and byes simulated is lower than on projected lineups).
+      faMoves: [{ add: "901", drop: "108", gainEv: 4.64, gainScen: 3.92 }],
+      premiums: premiums("1", gameDay),
       score: score("1", scen1, 24.1, gameDay),
     },
     {
@@ -271,10 +332,12 @@ function teams(gameDay: boolean): TeamModel[] {
         { slot: "WR1", z: -0.6, window: "next" },
       ],
       // Biggest gap first, as the engine lists them; the table shows the first chipsShown.
-      chips: [chip("204", 4, 35.2, "1"), chip("203", 9, 27.44, "4"), chip("205", 16, 28.06, "3"), chip("202", 33, 43.2, "1")],
+      // Snoot is a bench back; Fumblewick, Plunk, Wobbleton and Gloop start for team 2.
+      chips: [chip_("204", 4, 35.2, "1"), chip_("203", 9, 27.44, "4", true), chip_("205", 16, 28.06, "3", true), chip_("201", 38, 48.5, "1", true), chip_("202", 33, 43.2, "1", true)],
       players: { "201": tpv(40, 38), "202": tpv(35, 33), "203": tpv(8, 9), "204": tpv(3, 4, 1.9), "205": tpv(15, 16), DET: tpv(4, 4) },
       // No free agent would help.
-      waiver: null,
+      faMoves: [],
+      premiums: premiums("2", gameDay),
       score: score("2", [93, 92, 94, 93, 93, 93], 22.2, gameDay),
     },
     {
@@ -283,10 +346,15 @@ function teams(gameDay: boolean): TeamModel[] {
       scen: null,
       strength: strength([0, 0.4, -0.2, 1.3, -0.4, -1.2], [0, 0.3, -0.1, 1.2, -0.3, -1.1], [19, 15, 10, 18, 9, 6]),
       needs: [{ slot: "DEF1", z: -1.2, window: "ros" }],
-      chips: [chip("303", 10, 20.4, "1")],
+      // Kettleburn, its second most valuable player and a top-12 one, is a starting trade chip: "Harder to get".
+      chips: [chip_("302", 30, 41.5, "4", true), chip_("303", 10, 20.4, "1", true)],
       players: { "301": tpv(30, null), "302": tpv(30, null), "303": tpv(10, null), "304": tpv(40, null), "305": tpv(3, null), PHI: tpv(3, null) },
-      // No scenarios for this team: the expected-value gain, into an open spot.
-      waiver: { add: "902", drop: null, gainEv: 2.44, gainScen: null },
+      // No scenarios for this team (no simulated gains): one pickup into an open spot, then one for a bench WR.
+      faMoves: [
+        { add: "902", drop: null, gainEv: 3.44, gainScen: null },
+        { add: "901", drop: "305", gainEv: 3.06, gainScen: null },
+      ],
+      premiums: premiums("3", gameDay),
       // No scenarios: the expected-value lineups.
       score: score("3", [88, 87, 89, 88, 88, 88], 23.5, gameDay),
     },
@@ -301,10 +369,11 @@ function teams(gameDay: boolean): TeamModel[] {
         { slot: "WR1", z: -0.9, window: "next" },
         { slot: "DEF1", z: -0.55, window: "ros" },
       ],
-      chips: [chip("403", 14, 26.5, "1")],
+      chips: [chip_("403", 14, 26.5, "1", true)],
       players: { "401": tpv(25, 24), "402": tpv(20, 19), "403": tpv(15, 14), "404": tpv(22, 21), "405": tpv(5, 5), BAL: tpv(4, 4) },
-      // The scenario gain rounds to nothing, so the page shows no move.
-      waiver: { add: "901", drop: null, gainEv: 0.3, gainScen: 0.04 },
+      // No pickup reaches the optimizer's minimum gain.
+      faMoves: [],
+      premiums: premiums("4", gameDay),
       score: score("4", [84, 85, 83, 84, 84, 84], 24.4, gameDay),
     },
   ];
@@ -365,6 +434,30 @@ function seasonOdds(gameDay: boolean): SeasonOdds {
   };
 }
 
+/**
+ * Streaming positions (LeagueModel.streaming, §7): the league starts a D/ST but no kicker, so only D/ST counts.
+ * The user's team streams D/ST (the default setting, K and DEF, minus the K the lineup doesn't start); team 3 is
+ * detected streaming D/ST (3 adds there this season; its K add doesn't count: no K slot); teams 2 and 4 aren't
+ * (one D/ST add, none). The replacement is the 3rd-best free-agent D/ST each week: with only two, the last one
+ * (the Giants, 6.6 every week). This week's picks: the Seahawks at home against ARI, the Giants at DAL. Without
+ * a team of mine, team 1 is detected like the others (one add: not a streamer).
+ */
+function streaming(myTeamId: string | null): StreamingSummary {
+  return {
+    byTeam: {
+      "1": myTeamId === "1" ? { positions: ["DEF"], source: "setting", adds: { DEF: 1 } } : { positions: [], source: "detected", adds: { DEF: 1 } },
+      "2": { positions: [], source: "detected", adds: { DEF: 1 } },
+      "3": { positions: ["DEF"], source: "detected", adds: { DEF: 3, K: 1 } },
+      "4": { positions: [], source: "detected", adds: {} },
+    },
+    replacement: { DEF: WEEKS.map(() => 6.6) },
+    picks: [
+      { playerId: "SEA", pos: "DEF", projection: 8.2, opponent: { team: "ARI", home: true } },
+      { playerId: "NYG", pos: "DEF", projection: 6.6, opponent: { team: "DAL", home: false } },
+    ],
+  };
+}
+
 export interface LeagueFixture {
   snapshot: LeagueSnapshot;
   model: LeagueModel;
@@ -379,11 +472,12 @@ export function leagueFixture(opts: { myTeamId?: string | null; platform?: "espn
   const myTeamId = opts.myTeamId === undefined ? "1" : opts.myTeamId;
   const platform = opts.platform ?? "espn";
   const gameDay = opts.gameDay ?? true;
+  const r = (id: string) => ROSTERS[id] ?? { roster: [], ir: [], taxi: [] };
   const rostered = [
-    team("1", "Moonbeam Mudcats", "Zorblax Quintavious", [7, 4], 1180.4, ["101", "102", "103", "104", "105", "106", "108", "MIN"], ["107"]),
-    team("2", "Gravel Gophers", "Brumhilda Snarfwhistle", [8, 3], 1210.25, ["201", "202", "203", "204", "205", "DET"], ["206"]),
-    team("3", "Quasar Quokkas", "Quenby Flapdoodle", [5, 6], 1100, ["301", "302", "303", "304", "305", "PHI"], [], ["306"]),
-    team("4", "Tundra Tortoises", "Thaddeus Wobblegong", [2, 9], 990.5, ["401", "402", "403", "404", "405", "BAL"]),
+    team("1", "Moonbeam Mudcats", "Zorblax Quintavious", [7, 4], 1180.4, r("1").roster, r("1").ir, r("1").taxi),
+    team("2", "Gravel Gophers", "Brumhilda Snarfwhistle", [8, 3], 1210.25, r("2").roster, r("2").ir, r("2").taxi),
+    team("3", "Quasar Quokkas", "Quenby Flapdoodle", [5, 6], 1100, r("3").roster, r("3").ir, r("3").taxi),
+    team("4", "Tundra Tortoises", "Thaddeus Wobblegong", [2, 9], 990.5, r("4").roster, r("4").ir, r("4").taxi),
   ];
   const snapshot: LeagueSnapshot = {
     platform,
@@ -398,7 +492,7 @@ export function leagueFixture(opts: { myTeamId?: string | null; platform?: "espn
     players: Object.fromEntries(PLAYERS.map((p) => [p.id, info(p)])),
     schedule: SCHEDULE,
     transactions: [],
-    freeAgents: ["901", "902", "903", "904"],
+    freeAgents: ["901", "902", "903", "904", "SEA", "NYG"],
     warnings: [],
   };
   const model: LeagueModel = {
@@ -406,6 +500,8 @@ export function leagueFixture(opts: { myTeamId?: string | null; platform?: "espn
     regularWeeks: REGULAR,
     playoffWeeks: PLAYOFFS,
     scenarios: 32,
+    playoffWeight: config.lineups.playoffWeight,
+    streaming: streaming(myTeamId),
     inProgressWeek: gameDay ? 12 : null,
     players: Object.fromEntries(PLAYERS.map((p) => [p.id, playerModel(p, gameDay)])),
     teams: teams(gameDay),
@@ -417,11 +513,13 @@ export function leagueFixture(opts: { myTeamId?: string | null; platform?: "espn
             teamId: "2",
             mutual: true,
             score: 2.4,
+            // Most first, as the engine lists them: Gloop (Harder to get) would help me most.
             theyCanGive: [
+              { playerId: "202", ppw: 2.5 },
               { playerId: "204", ppw: 2.1 },
               { playerId: "203", ppw: 1.2 },
-              { playerId: "202", ppw: 0.8 },
               { playerId: "205", ppw: 0.5 },
+              { playerId: "201", ppw: 0.4 },
             ],
             youCanGive: [{ playerId: "106", ppw: 1.8 }],
           },

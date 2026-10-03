@@ -31,12 +31,17 @@ function withoutTrailingSlash(path: string): string {
   return path.length > 1 && path.endsWith("/") ? path.slice(0, -1) : path;
 }
 
-/** A 44 px tall tap target on the navy header. */
-const LINK = "inline-flex min-h-11 items-center rounded-lg px-2.5 hover:bg-white/10";
+/** A 44 px tall tap target on the navy header (a little narrower on phones, so five links fit one row at 375 px). */
+const LINK = "inline-flex min-h-11 items-center rounded-lg px-2 hover:bg-white/10 sm:px-2.5";
 const CURRENT = "bg-white/10 underline decoration-accent decoration-2 underline-offset-4";
 
-export function NavLink({ href, children }: { href: string; children: ReactNode }) {
-  const current = navCurrent(usePathname(), href);
+/**
+ * `alsoOn`: other pages this link's section holds (the Trade Analyzer belongs to Trades): there it's marked "true",
+ * like a page under it.
+ */
+export function NavLink({ href, children, alsoOn = [] }: { href: string; children: ReactNode; alsoOn?: readonly string[] }) {
+  const pathname = usePathname();
+  const current = navCurrent(pathname, href) ?? (alsoOn.some((path) => navCurrent(pathname, path)) ? "true" : undefined);
   return (
     <Link href={href} aria-current={current} className={cx(LINK, current && CURRENT)}>
       {children}

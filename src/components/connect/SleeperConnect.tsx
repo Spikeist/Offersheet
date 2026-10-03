@@ -140,7 +140,7 @@ export function SleeperConnect() {
                 setChoices(null);
                 setNote(null);
               }}
-              className={cx("min-h-9 rounded-lg px-3 text-sm font-bold", mode === m ? "bg-surface text-foreground shadow-sm" : "text-muted")}
+              className={cx("min-h-11 rounded-lg px-3 text-sm font-bold", mode === m ? "bg-surface text-foreground shadow-sm" : "text-muted")}
             >
               {m === "username" ? "Username" : "League ID"}
             </button>
