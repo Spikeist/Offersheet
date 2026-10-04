@@ -7,7 +7,10 @@
  *   401/403/404 and HTML login pages are NOT retried — they are reported as-is. MFL: no retries.
  * - Optional file cache with TTL and cross-process single-flight (see cache.ts).
  * - Cookies and request headers are never logged; URLs in results and errors are scrubbed.
+ * - The offline guard (planner reply to Checkpoint 4c, A5): in a script run without --live (runMode.ts setNetworkMode)
+ *   every live fetch is refused before any request (src/server/http.ts refuseIfNetworkOff); cached copies still serve.
  */
+import { refuseIfNetworkOff } from "@/server/http";
 import { readCache, withLock, writeCache } from "./cache";
 import { scrubEverything } from "./redact";
 
@@ -267,6 +270,7 @@ export async function request(url: string, opts: RequestOptions = {}): Promise<H
   const cached = await fromCache();
   if (cached) return cached;
   if (opts.offline) throw new OfflineCacheMiss(opts.label ?? safeUrl);
+  refuseIfNetworkOff(new URL(url).host); // the offline guard, before the cross-process lock (fetchLive checks again)
   if (!opts.cache) return fetchLive(url, safeUrl, opts, started);
 
   return withLock(cacheNs, opts.cache.key, async () => {
@@ -288,6 +292,7 @@ export async function request(url: string, opts: RequestOptions = {}): Promise<H
 
 async function fetchLive(url: string, safeUrl: string, opts: RequestOptions, started: number): Promise<HttpResult> {
   const host = new URL(url).host;
+  refuseIfNetworkOff(host); // the offline guard (the header), before any request
   const maxRetries = opts.retries ?? defaultRetriesFor(host);
   const headers: Record<string, string> = { "User-Agent": USER_AGENT, Accept: "application/json, text/plain, */*", ...opts.headers };
   if (opts.cookie) headers.Cookie = opts.cookie;

@@ -11,7 +11,7 @@ import { marketGain } from "./market";
 import { atMostWaiverCredit, buildPools, dominancePruned, finalistsOf, partnerCandidates, runTradeSearch, shortlistOf } from "./search";
 import { defaultTradeSettings, type TradeSettings } from "./settings";
 import { TEST_NOW } from "./testLeague";
-import { smallLeague } from "./trade.testing";
+import { smallLeague, withWaiverStash } from "./trade.testing";
 import type { TradeAsset } from "./tradeModel";
 import { tradeEvaluation } from "./tradeTestFixtures";
 
@@ -163,7 +163,9 @@ describe("the dominance pruning (lead decision N11: dominancePruned, shortlistOf
   });
 
   describe("in the search (smallLeague(11), Team 5's TEs only: one player to get, so the 2-for-1s are my pairs)", () => {
-    const league = smallLeague(11);
+    // W at the best free agent's value (withWaiverStash: Checkpoint 4c's rule, which these counts were measured on): A3's W,
+    // the best free agent left unclaimed, is 750 here, and few of my players are worth less.
+    const league = withWaiverStash(smallLeague(11));
     const settings: TradeSettings = { ...defaultTradeSettings(), targetPositions: ["TE"] };
     /** Team 5's screened candidates inside the g window, as the search builds them (buildPools, partnerCandidates). */
     const windowed = (I: ReturnType<typeof tradeInternals>, at: TradeSettings = settings) => {

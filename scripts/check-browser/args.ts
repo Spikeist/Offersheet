@@ -1,15 +1,20 @@
 /**
  * `npm run check:browser` options (pure parsing, tested).
  *
- * The documented form is `npm run check:browser -- --team 3`. Without the "--" (or when a shell drops it), npm keeps
+ * It imports Parker's league from ESPN, so it runs only with --live (planner reply to Checkpoint 4c, A5: scripts touch the
+ * network only when asked; scripts/lib/runMode.ts). Without it the check says so and exits 2 (its "couldn't run").
+ *
+ * The documented form is `npm run check:browser -- --live --team 3`. Without the "--" (or when a shell drops it), npm keeps
  * the options as its own settings and passes them on as environment variables: `--team 3` becomes npm_config_team
  * "true" plus a stray "3" argument, `--team=3` becomes npm_config_team "3", `--show` npm_config_show "true", and
  * `--no-shots` an empty npm_config_shots (seen with npm 10 on Windows PowerShell), `--second-league`
- * npm_config_second_league "true". resolveArgs reads those too, so both forms work; options given after "--" win. One stray value goes back to the one option that lost it; with two
+ * npm_config_second_league "true", `--live` npm_config_live "true". resolveArgs reads those too, so both forms work; options given after "--" win. One stray value goes back to the one option that lost it; with two
  * (`--team 3 --max-search 15`) npm doesn't say which was whose, so the error says to put "--" first.
  */
 
 export interface CheckBrowserArgs {
+  /** --live: the network is allowed (the check imports your league); without it the check doesn't run (index.ts). */
+  live: boolean;
   /** --team <id>: the team to pick on the Import Report; null keeps the Import Report's own choice. */
   team: string | null;
   /** --show: a visible browser window instead of headless. */
@@ -37,9 +42,10 @@ export const USAGE = [
   "its public link (ESPN_LEAGUE_ID in .env.local; never printed).",
   "",
   "  npm run build",
-  "  npm run check:browser -- --team 3",
+  "  npm run check:browser -- --live --team 3",
   "",
   "Options:",
+  "  --live               required: the check imports your league from ESPN (scripts touch the network only when asked)",
   "  --team <id>          pick this team on the Import Report (without it, the Import Report's own choice; with no",
   "                       team picked, the Trade Finder, card and Analyzer checks are skipped)",
   "  --show               show the browser window",
@@ -50,14 +56,14 @@ export const USAGE = [
   "  --help               this text",
   "",
   "Chrome: CHROME_PATH, else its usual install places. Exit code 0: every check passed; 1: a check failed;",
-  "2: the check couldn't run (no build, no Chrome, no league id, or the server didn't start).",
+  "2: the check couldn't run (no --live, no build, no Chrome, no league id, or the server didn't start).",
 ].join("\n");
 
 const TEAM_ID = /^[A-Za-z0-9_-]{1,40}$/;
 
 /** The command line's options, and any bare values left over (pure). */
 export function parseArgs(argv: readonly string[]): { args: CheckBrowserArgs; positionals: string[] } | { error: string } {
-  const args: CheckBrowserArgs = { team: null, show: false, shots: true, maxSearchSeconds: DEFAULT_MAX_SEARCH_SECONDS, secondLeague: false, help: false };
+  const args: CheckBrowserArgs = { live: false, team: null, show: false, shots: true, maxSearchSeconds: DEFAULT_MAX_SEARCH_SECONDS, secondLeague: false, help: false };
   const positionals: string[] = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i] as string;
@@ -76,6 +82,9 @@ export function parseArgs(argv: readonly string[]): { args: CheckBrowserArgs; po
       return next;
     };
     switch (flag) {
+      case "--live":
+        args.live = true;
+        break;
       case "--team": {
         const v = value()?.trim();
         if (!v || !TEAM_ID.test(v)) return { error: "--team needs a team id, for example --team 3." };
@@ -128,10 +137,11 @@ export function resolveArgs(parsed: { args: CheckBrowserArgs; positionals: reado
     }
   }
   if (rest.length) {
-    const why = lost.length ? ` npm kept ${lost.join(" and ")} for itself: put "--" before the options, for example npm run check:browser -- --team 3 --max-search 15.` : "";
+    const why = lost.length ? ` npm kept ${lost.join(" and ")} for itself: put "--" before the options, for example npm run check:browser -- --live --team 3 --max-search 15.` : "";
     return { error: `Unexpected argument: ${rest[0]}.${why} Run npm run check:browser -- --help for the options.` };
   }
   if (npmTeam && npmTeam !== "true" && !args.team && TEAM_ID.test(npmTeam)) args.team = npmTeam;
+  if (env.npm_config_live === "true") args.live = true;
   if (env.npm_config_show === "true") args.show = true;
   if (env.npm_config_second_league === "true") args.secondLeague = true;
   if (env.npm_config_shots === "false" || env.npm_config_shots === "") args.shots = false;

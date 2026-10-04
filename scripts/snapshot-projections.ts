@@ -1,7 +1,7 @@
 /**
  * Pre-game projection snapshots by hand (CLAUDE.md §2.3 "Pre-game snapshots"; planner reply to
- * Checkpoint 2, answer 4). A model build (the League page under `npm run dev`, `npm run league:report`)
- * archives every week it loads that was fetched before that week's first kickoff
+ * Checkpoint 2, answer 4). A model build (the League page under `npm run dev` or the stable copy,
+ * `npm run league:report -- --live`) archives every week it loads that was fetched before that week's first kickoff
  * (src/server/projectionArchive.ts; importing a league and the probes don't); this script archives the
  * weeks about to be played even when nobody opens the League page, for example on Wednesday nights.
  * Nothing is scheduled: Parker runs it by hand.
@@ -34,6 +34,7 @@ import { FileCache, TTL } from "@/server/cache";
 import { createHttpClient } from "@/server/http";
 import { createProjectionArchiver, firstKickoffOf, PROJECTION_ARCHIVE_DIR, projectionSnapshotFile, readProjectionSnapshot, type ArchiveOutcome, type ProjectionSnapshot } from "@/server/projectionArchive";
 import { ROOT } from "./lib/env";
+import { isMainModule } from "./lib/runMode";
 
 /** "2026-10-02 00:15 UTC". */
 const utc = (ms: number | null | undefined): string => (ms === null || ms === undefined || !Number.isFinite(ms) ? "unknown" : `${new Date(ms).toISOString().slice(0, 16).replace("T", " ")} UTC`);
@@ -155,7 +156,10 @@ async function main(): Promise<void> {
   if (failed) process.exitCode = 1;
 }
 
-main().catch((err: unknown) => {
-  console.error(err instanceof Error ? `${err.name}: ${err.message}` : String(err));
-  process.exit(1);
-});
+// Run only as a script (an exact path: scripts/lib/runMode.ts isMainModule; a scratch file that imports it starts nothing).
+if (isMainModule(import.meta.url)) {
+  main().catch((err: unknown) => {
+    console.error(err instanceof Error ? `${err.name}: ${err.message}` : String(err));
+    process.exit(1);
+  });
+}

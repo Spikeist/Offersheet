@@ -6,11 +6,13 @@ import { assetId, rankTrades } from "./rank";
 import { atMostWaiverCredit, buildPools, finalistsOf, partnerCandidates, rankCaps, runTradeSearch, searchStateOf, shortlistOf, tradeSearch, type SearchState, type TradeSearchOptions } from "./search";
 import { defaultTradeSettings, type TradeSettings } from "./settings";
 import { TEST_NOW } from "./testLeague";
-import { handLeague, smallLeague } from "./trade.testing";
+import { handLeague, smallLeague, withWaiverStash } from "./trade.testing";
 import { tradeEvaluation } from "./tradeTestFixtures";
 import type { TradeEvaluation, TradeEvaluationCore, TradeSearchProgress, TradeSearchResult } from "./tradeModel";
 
-const league = smallLeague(11);
+// With a free agent nobody can use worth the best free agent's value (withWaiverStash): the W these tests were measured on
+// (Checkpoint 4c's, the best free agent of all), which A3 (the best one left unclaimed) lowers here from 3,276 to 750.
+const league = withWaiverStash(smallLeague(11));
 const ctx = buildTradeContext(league.snapshot, league.inputs, { now: TEST_NOW, scenarios: 8 });
 const I = tradeInternals(ctx);
 const me = I.me as TeamState;

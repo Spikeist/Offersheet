@@ -16,6 +16,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { ROOT } from "./lib/env";
 import { ESPN_API_CONSTANT_PATH, ESPN_API_REPO, parseEspnConstants, type EspnConstants } from "./lib/espn/constants";
+import { isMainModule } from "./lib/runMode";
 
 /** The espn-api commit Phase 0 fetched and checked every table against (reports/probe-output/espn.md IDS.commit). */
 export const ESPN_API_COMMIT = "663d726c82acdcd1e1f42ecaef35b993ce9ce455";
@@ -149,7 +150,10 @@ async function main(): Promise<void> {
   console.log(`wrote ${path.relative(ROOT, OUT_FILE)} (${out.length} bytes)`);
 }
 
-main().catch((err: unknown) => {
-  console.error(err instanceof Error ? err.message : String(err));
-  process.exit(1);
-});
+// Run only as a script (an exact path: scripts/lib/runMode.ts isMainModule; a scratch file that imports it starts nothing).
+if (isMainModule(import.meta.url)) {
+  main().catch((err: unknown) => {
+    console.error(err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  });
+}

@@ -14,7 +14,7 @@ import { planBPasses } from "./planB";
 import { atMostWaiverCredit, barredFromBoxes, buildPools, extraPlayersOf, leanCompanions, leanVersionOf, partnerCandidates, refilterSearch, runRefilter, runTradeSearch, searchStateOf, shortlistOf, type SearchState } from "./search";
 import { defaultTradeSettings, type TradeSettings } from "./settings";
 import { TEST_NOW } from "./testLeague";
-import { smallLeague } from "./trade.testing";
+import { smallLeague, withWaiverStash } from "./trade.testing";
 import type { TradeAsset, TradeEvaluation, TradeEvaluationCore, TradeProposal, TradeSearchProgress, TradeSearchResult } from "./tradeModel";
 
 const players = (ids: readonly string[]): TradeAsset[] => ids.map((id) => ({ kind: "player", id }));
@@ -44,8 +44,10 @@ function rebuild(I: TradeInternals, settings: TradeSettings) {
 }
 
 // smallLeague(6), EV lineups: its search shortlists Team 2's 1006 + 1012 → 1018 (1006 worth at most W, a neutral
-// throw-in) but not 1012 → 1018, whose screen the free-agent add in the roster spot 1006 opens beats.
-const league6 = smallLeague(6);
+// throw-in) but not 1012 → 1018, whose screen the free-agent add in the roster spot 1006 opens beats. These narratives were
+// measured with W the best free agent's value (Checkpoint 4c's rule): a free agent nobody can use, worth that much
+// (withWaiverStash), keeps it, where A3's W (the best one left unclaimed) is lower in these leagues.
+const league6 = withWaiverStash(smallLeague(6));
 const ctx6 = buildTradeContext(league6.snapshot, league6.inputs, { now: TEST_NOW, scenarios: 0 });
 const I6 = tradeInternals(ctx6);
 const settings = settingsWith();
@@ -102,7 +104,7 @@ describe("the lean companions (search.ts)", { timeout: 60_000 }, () => {
       [8, 0],
       [11, 4],
     ] as const) {
-      const lg = seed === 6 ? league6 : smallLeague(seed);
+      const lg = seed === 6 ? league6 : withWaiverStash(smallLeague(seed));
       const ctx = seed === 6 ? ctx6 : buildTradeContext(lg.snapshot, lg.inputs, { now: TEST_NOW, scenarios });
       const I = tradeInternals(ctx);
       const r = seed === 6 ? withCompanions : runTradeSearch(ctx, { settings });

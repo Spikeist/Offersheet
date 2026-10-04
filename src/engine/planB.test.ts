@@ -16,9 +16,9 @@ import { addedGiven, choosePlanB, dominatedByCard, givenCapSkip, givenPlayers, p
 import { meetsMinChance } from "./rank";
 import { runTradeSearch } from "./search";
 import { TEST_NOW } from "./testLeague";
-import { flat, handLeague, smallLeague } from "./trade.testing";
+import { flat, handLeague, smallLeague, withWaiverStash } from "./trade.testing";
 import type { TradeAsset, TradeEvaluation, TradeEvaluationCore } from "./tradeModel";
-import { tradeEvaluation, type EvaluationFixture } from "./tradeTestFixtures";
+import { FIXTURE_B3, tradeEvaluation, type EvaluationFixture } from "./tradeTestFixtures";
 
 /** The steps' own bar, which Plan B clears too: 5 percentage points of P_complete. */
 const GAIN = config.search.steps.minAcceptGain;
@@ -106,8 +106,8 @@ describe("config (§15)", () => {
 describe("planBPasses: the rules", () => {
   it("needs B > 0 and Helps you at least minHelpsShare × the card's, as the cards print them", () => {
     const half = Math.ceil(0.5 * (CARD.tradeScore as number)); // 57 → 28.5 → 29
-    const atB = (score: number) => -6 * Math.log(1 - (score + 0.1) / 100); // a B whose Trade Score rounds to `score`
-    expect(tradeScore(atB(half))).toBe(half);
+    const atB = (score: number) => -FIXTURE_B3 * Math.log(1 - (score + 0.1) / 100); // a B whose Trade Score rounds to `score` (the fixtures' B₃)
+    expect(tradeScore(atB(half), FIXTURE_B3)).toBe(half);
     expect(planBPasses(core({ b: atB(half) }), CARD)).toBe(true);
     expect(planBPasses(core({ b: atB(half - 1) }), CARD)).toBe(false);
     expect(planBPasses(core({ b: 9 }), CARD)).toBe(true); // more than the card's: fine
@@ -221,7 +221,7 @@ describe("choosePlanB: the final simulation and the retry", () => {
       proposal: finalist.core.proposal,
       key: "fin",
       b: 4.5,
-      tradeScore: tradeScore(4.5),
+      tradeScore: tradeScore(4.5, FIXTURE_B3),
       pAccept: 0.65,
       pComplete: 0.65,
       acceptLabel: finalist.core.acceptLabel,
@@ -241,7 +241,7 @@ describe("choosePlanB: the final simulation and the retry", () => {
   it("Phase 4c (change 9): carries its odds from its own final-block simulation (ΔPO, ΔCH, win chance by week, a copy), never from numbers that aren't the final block's", () => {
     const winChance = [{ week: 9, before: 0.48, after: 0.55 }, { week: 13, before: 0.42, after: 0.51 }];
     const screened = cand("scr", { b: 4, dPO: 0.9, dCH: 0.9 });
-    const final = { ...screened.core, stage: "final" as const, sims: 5000, b: 3.2, tradeScore: tradeScore(3.2), dPO: 0.031, dCH: 0.012, detail: { ...screened.core.detail, winChance } };
+    const final = { ...screened.core, stage: "final" as const, sims: 5000, b: 3.2, tradeScore: tradeScore(3.2, FIXTURE_B3), dPO: 0.031, dCH: 0.012, detail: { ...screened.core.detail, winChance } };
     const { planB } = choose([screened], { scr: final });
     expect(planB).toMatchObject({ key: "scr", dPO: 0.031, dCH: 0.012, winChance });
     expect(planB?.winChance).not.toBe(winChance);
@@ -258,11 +258,11 @@ describe("choosePlanB: the final simulation and the retry", () => {
 
   it("simulates a candidate that wasn't a finalist on the final block first (yielding before), and shows those numbers", () => {
     const screened = cand("scr", { b: 4 });
-    const final = { ...screened.core, stage: "final" as const, sims: 5000, b: 3.2, tradeScore: tradeScore(3.2) };
+    const final = { ...screened.core, stage: "final" as const, sims: 5000, b: 3.2, tradeScore: tradeScore(3.2, FIXTURE_B3) };
     const { planB, asked, yields } = choose([screened], { scr: final });
     expect(asked).toEqual(["scr"]);
     expect(yields).toBe(1);
-    expect(planB).toMatchObject({ key: "scr", b: 3.2, tradeScore: tradeScore(3.2) });
+    expect(planB).toMatchObject({ key: "scr", b: 3.2, tradeScore: tradeScore(3.2, FIXTURE_B3) });
   });
 
   it("passes over a candidate whose final numbers fail the rules (less help, or no longer likelier), and tries at most `tries` candidates", () => {
@@ -317,7 +317,9 @@ describe("the given-player cap on the boxes (⚠️ ours; review of track F)", (
 });
 
 describe("the search's Plan Bs (search.ts; synthetic leagues)", { timeout: 60_000 }, () => {
-  const league = smallLeague(11);
+  // W at the best free agent's value (withWaiverStash: Checkpoint 4c's rule, which these facts of the data were measured
+  // on); A3's W, the best free agent left unclaimed, is 750 here, and leaves fewer cheap throw-ins for the boxes.
+  const league = withWaiverStash(smallLeague(11));
   const ctx = buildTradeContext(league.snapshot, league.inputs, { now: TEST_NOW, scenarios: 8 });
   const result = runTradeSearch(ctx, {});
   const withPlanB = result.trades.filter((t) => t.planB);

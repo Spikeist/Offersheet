@@ -2,11 +2,12 @@
  * MFL API documentation (public pages, cached 7 days). CLAUDE.md §2.6 says to read api_info
  * ourselves before writing code; the probe also re-reads it to record what the docs say.
  *
- *   npx tsx scripts/lib/mfl/docs.ts <url> <out.txt>     (dumps the page as plain text)
+ *   npx tsx scripts/lib/mfl/docs.ts --live <url> <out.txt>     (dumps the page as plain text; only with --live)
  */
 import { writeFile } from "node:fs/promises";
 import { TTL } from "../cache";
 import { request, type HttpResult, type RequestOptions } from "../http";
+import { LIVE_FLAG, isMainModule, requireLive } from "../runMode";
 
 /** The docs are HTML pages: cache a 200 page even though it is HTML (the default refuses HTML). */
 export const cacheDocPage: NonNullable<RequestOptions["cacheIf"]> = (res) => res.status === 200 && res.text.length > 0;
@@ -79,11 +80,12 @@ export function documentedTransTypes(detailsText: string): string[] {
   return m?.[1] ? m[1].split(/[,\s]+/).filter(Boolean) : [];
 }
 
-const isMain = process.argv[1] && /mfl[\\/]docs\.ts$/.test(process.argv[1]);
-if (isMain) {
-  const [url, out] = process.argv.slice(2);
+// Run only as a script (an exact path: ../runMode.ts isMainModule), and only with --live.
+if (isMainModule(import.meta.url)) {
+  requireLive({ script: "scripts/lib/mfl/docs.ts", what: "fetches an MFL docs page", command: "npx tsx scripts/lib/mfl/docs.ts --live <url> <out.txt>" });
+  const [url, out] = process.argv.slice(2).filter((a) => a !== LIVE_FLAG);
   if (!url || !out) {
-    console.error("usage: npx tsx scripts/lib/mfl/docs.ts <url> <out.txt>");
+    console.error("usage: npx tsx scripts/lib/mfl/docs.ts --live <url> <out.txt>");
     process.exit(1);
   }
   void (async () => {

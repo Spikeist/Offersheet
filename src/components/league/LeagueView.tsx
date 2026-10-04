@@ -173,6 +173,7 @@ function Rosters({ view }: ViewProps) {
               <span className="block text-xs text-muted">{r.summary}</span>
               {r.streams ? <span className="block text-xs break-words text-muted">{r.streams}</span> : null}
               {r.pickups ? <PickupsSummary pickups={r.pickups} mine={r.isMine} /> : null}
+              {r.inactive ? <span className="mt-1 block text-xs break-words text-muted">{r.inactive}</span> : null}
             </span>
             <span aria-hidden className="shrink-0 text-muted transition-transform group-open:rotate-180">
               ▾

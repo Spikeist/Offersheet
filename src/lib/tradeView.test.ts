@@ -45,7 +45,9 @@ import {
   fewText,
   finderHref,
   harderToGetWho,
+  HELPS_SCALE_TEXT,
   helpsInfoText,
+  lineupEquivalentText,
   incomingInjuryNote,
   INJURED_REASON,
   injuryTagText,
@@ -162,8 +164,21 @@ describe("buildTradeCard (§13: what each card shows)", () => {
   });
 
   it("shows the three numbers (§10): Helps you, the acceptance estimate with Est. and its label, and Overall", () => {
-    // B 3, P_complete 0.4 (the fixture's defaults): 100 × (1 − e^(−3/6)) = 39; 100 × (1 − e^(−1.2/6)) = 18.
-    expect(c.numbers).toEqual({ helps: { value: "39", srText: null }, accept: { value: "40%", srText: null }, acceptLabel: "Est. · Decent", acceptNote: null, overall: { value: "18", srText: null } });
+    // B 3, P_complete 0.4 (the fixture's defaults) on the fixture's B₃ 6: 100 × (1 − e^(−3/6)) = 39; 100 × (1 − e^(−1.2/6)) = 18.
+    // Helps you's tooltip says what the scale means (planner reply to Checkpoint 4c, A2).
+    expect(c.numbers).toEqual({
+      helps: { value: "39", srText: null, title: "63 ≈ as good as adding 3 points a week to your lineup for the rest of the season." },
+      accept: { value: "40%", srText: null },
+      acceptLabel: "Est. · Decent",
+      acceptNote: null,
+      overall: { value: "18", srText: null },
+    });
+    expect(HELPS_SCALE_TEXT).toBe("63 ≈ as good as adding 3 points a week to your lineup for the rest of the season.");
+  });
+
+  it("scores on the evaluation's own B₃: the same B reads 63 where B₃ is B, 39 where B₃ is twice it (planner reply to Checkpoint 4c, A2)", () => {
+    expect(buildTradeCard(evaluation({ b: 4, b3: 4, pComplete: 0.5 }), { snapshot }).numbers).toMatchObject({ helps: { value: "63" }, overall: { value: "39" } });
+    expect(buildTradeCard(evaluation({ b: 4, b3: 8, pComplete: 0.5 }), { snapshot }).numbers).toMatchObject({ helps: { value: "39" }, overall: { value: "22" } });
   });
 
   it("shows the chance it goes through too when the league's review could veto it (§11)", () => {
@@ -194,7 +209,7 @@ describe("buildTradeCard (§13: what each card shows)", () => {
     expect([worse.numbers.helps.value, worse.numbers.overall.value]).toEqual(["0", "0"]);
     expect(worse.flags.map((f) => f.kind)).toEqual(["noHelp"]);
     const unknown = card({ b: null, dPO: null, dCH: null });
-    expect(unknown.numbers.helps).toEqual({ value: "—", srText: "not scored: the season couldn't be simulated" });
+    expect(unknown.numbers.helps).toEqual({ value: "—", srText: "not scored: the season couldn't be simulated", title: HELPS_SCALE_TEXT });
     expect(unknown.flags.map((f) => f.text)).toEqual(["Not scored: your playoff odds couldn't be worked out, so this trade has no Helps you or Overall number."]);
     expect(unknown.odds).toEqual([
       { label: "Title odds", value: "unknown", srValue: "unknown" },
@@ -628,7 +643,7 @@ describe("buildFinderView (§13 ranking, M13 states)", () => {
     expect(view.baseline).toBe("Your odds before any trade: 62% to make the playoffs, 9.0% to win the title.");
     expect(view.baselineNote).toBe("As on the League page, they count the free-agent pickups that would help each team, and every trade idea's odds start from them.");
     // What Helps you sums up, once for the list (the planner's words in a redraft league).
-    expect(view.helpsInfo).toBe("Helps you (0–100) sums up how much your title and playoff odds rise, minus a cost for giving away trade value or plus a credit for gaining it.");
+    expect(view.helpsInfo).toBe("Helps you (0–100) sums up how much your title and playoff odds rise, minus a cost for giving away trade value or plus a credit for gaining it. 63 ≈ as good as adding 3 points a week to your lineup for the rest of the season.");
     expect(view.countText).toBe("3 trade ideas, sorted by Helps you.");
     expect(view.statusText).toBe("Found 3 trade ideas.");
     // Not "the best 200" (review of track UIC, finding 6): exact evaluation adds the lean companions to the best by screening.
@@ -842,7 +857,7 @@ describe("the Analyzer's draft and choices", () => {
     const analyzed = buildAnalysisView({ evaluation: e, illegal: null, notes: [], baseline: { pPlayoffs: 0.63, pTitle: 0.12 } }, snapshot);
     expect(analyzed.baseline).toBe("Your odds before this trade: 63% to make the playoffs, 12.0% to win the title.");
     expect(analyzed.baselineNote).toBe("As on the League page, they count the free-agent pickups that would help each team, and the trade's odds start from them.");
-    expect(analyzed.helpsInfo).toBe("Helps you (0–100) sums up how much your title and playoff odds rise, minus a cost for giving away trade value or plus a credit for gaining it.");
+    expect(analyzed.helpsInfo).toBe("Helps you (0–100) sums up how much your title and playoff odds rise, minus a cost for giving away trade value or plus a credit for gaining it. 63 ≈ as good as adding 3 points a week to your lineup for the rest of the season.");
     const odds = (c: NonNullable<typeof analyzed.card>) => c.odds.map((o) => o.value);
     expect(odds(analyzed.card as NonNullable<typeof analyzed.card>)).toEqual(["12.0% → 15.9%", "63% → 72%"]);
     // The same trade on the Trade Finder, with the same odds before any trade: the same words.
@@ -1275,21 +1290,21 @@ describe("Phase 4c: the card's words that the planner's reply to Checkpoint 4b c
     }
   });
 
-  it("says what Helps you sums up, once per page: the planner's words in redraft, long-term value in dynasty and keeper leagues, no trade-value cost without FantasyCalc (⚠️ ours)", () => {
-    expect(helpsInfoText("redraft")).toBe("Helps you (0–100) sums up how much your title and playoff odds rise, minus a cost for giving away trade value or plus a credit for gaining it.");
-    expect(helpsInfoText("dynasty")).toBe("Helps you (0–100) sums up how much your title and playoff odds rise, weighed against the change in your roster's long-term value.");
+  it("says what Helps you sums up, once per page: the planner's words in redraft, long-term value in dynasty and keeper leagues, no trade-value cost without FantasyCalc (⚠️ ours), then its scale (planner reply to Checkpoint 4c, A2: the tooltip's words, for a phone)", () => {
+    expect(helpsInfoText("redraft")).toBe("Helps you (0–100) sums up how much your title and playoff odds rise, minus a cost for giving away trade value or plus a credit for gaining it. 63 ≈ as good as adding 3 points a week to your lineup for the rest of the season.");
+    expect(helpsInfoText("dynasty")).toBe("Helps you (0–100) sums up how much your title and playoff odds rise, weighed against the change in your roster's long-term value. 63 ≈ as good as adding 3 points a week to your lineup for the rest of the season.");
     expect(helpsInfoText("keeper")).toBe(helpsInfoText("dynasty"));
-    expect(helpsInfoText("redraft", false)).toBe("Helps you (0–100) sums up how much your title and playoff odds rise.");
+    expect(helpsInfoText("redraft", false)).toBe("Helps you (0–100) sums up how much your title and playoff odds rise. 63 ≈ as good as adding 3 points a week to your lineup for the rest of the season.");
     // The Finder says it once, above its cards; not on an empty list.
     const result = searchResult([evaluation()]);
     expect(buildFinderView({ result, sort: "overall", snapshot, partnerId: null, fantasyCalc: fantasyCalcLookup({ ...MARKET, fallback: { kind: "curve", listDate: "2026-09-01T00:00:00.000Z" } }) }).helpsInfo).toBe(
-      "Helps you (0–100) sums up how much your title and playoff odds rise.",
+      "Helps you (0–100) sums up how much your title and playoff odds rise. 63 ≈ as good as adding 3 points a week to your lineup for the rest of the season.",
     );
     expect(buildFinderView({ result: searchResult([]), sort: "overall", snapshot, partnerId: null }).helpsInfo).toBeNull();
   });
 
   it("says Helps you sums up the odds alone in a dynasty or keeper league whose long-term values didn't load (review of track UIC, finding 2: B is B_win then)", () => {
-    const plain = "Helps you (0–100) sums up how much your title and playoff odds rise.";
+    const plain = "Helps you (0–100) sums up how much your title and playoff odds rise. 63 ≈ as good as adding 3 points a week to your lineup for the rest of the season.";
     expect(helpsInfoText("keeper", true, false)).toBe(plain);
     expect(helpsInfoText("dynasty", false, false)).toBe(plain);
     // The long-term flag means nothing in a redraft league, nor FantasyCalc's in dynasty and keeper ones (no market term).
@@ -1395,12 +1410,14 @@ describe("Phase 4c: the card's words that the planner's reply to Checkpoint 4b c
     expect(view.card?.details).toEqual({
       summary: "Details",
       intro:
-        "The model's own trade-value figures, behind the chance they accept, Helps you and the Market check. Unlike the card's trade values (FantasyCalc's own), they count roster spots: every player counts at least what the best free agent is worth, the extra player in an uneven trade adds nothing when he's worth no more than that, and the side getting fewer players is credited the roster spot it opens; your side counts the free-agent moves the card says the trade counts on too.",
+        "The model's own trade-value figures, behind the chance they accept, Helps you and the Market check. Unlike the card's trade values (FantasyCalc's own), they count roster spots: every player counts at least what the best free agent no team is expected to pick up is worth, the extra player in an uneven trade adds nothing when he's worth no more than that, and the side getting fewer players is credited the roster spot it opens; your side counts the free-agent moves the card says the trade counts on too.",
       items: [
         "Your side, counting roster spots: you'd get 12% less trade value than you give.",
         "Their side, counting roster spots: they'd get 14% more trade value than they give.",
         "Their side as they see it (their best players count a little extra): they'd get 4% more trade value than they give.",
         "Helps you from your odds alone: 43; counting trade value by your “Protect my trade value” setting: 35.",
+        // Planner reply to Checkpoint 4c, A2: "≈ +X pts/week", X = 3 × B / B₃ = 3 × 2.6 / 6.
+        "Helps you 35 ≈ +1.3 pts/week: as good as adding that to your lineup every week for the rest of the season.",
       ],
     });
     // At the model's clamp, "at least"; even, "about what"; a one-sided trade, "without giving any up".
@@ -1423,6 +1440,28 @@ describe("Phase 4c: the card's words that the planner's reply to Checkpoint 4b c
     expect(buildTradeCard(e, { snapshot }).details).toBeNull();
   });
 
+  it("ends 'Details' with what Helps you is worth in lineup points a week, on the evaluation's own B₃ (planner reply to Checkpoint 4c, A2)", () => {
+    // B = B₃: Helps you 63 ≈ +3 pts/week, in every league (here B₃ 4.2).
+    expect(lineupEquivalentText({ b: 4.2, b3: 4.2 })).toBe("Helps you 63 ≈ +3 pts/week: as good as adding that to your lineup every week for the rest of the season.");
+    // One point: singular; one decimal at most.
+    expect(lineupEquivalentText({ b: 2, b3: 6 })).toBe("Helps you 28 ≈ +1 pt/week: as good as adding that to your lineup every week for the rest of the season.");
+    expect(lineupEquivalentText({ b: 1.4, b3: 6 })).toBe("Helps you 21 ≈ +0.7 pts/week: as good as adding that to your lineup every week for the rest of the season.");
+    // A trade that doesn't help reads its loss (Helps you prints 0), and nothing reads as nothing.
+    expect(lineupEquivalentText({ b: -1.2, b3: 6 })).toBe("Helps you 0 ≈ −0.6 pts/week: as costly as losing that from your lineup every week for the rest of the season.");
+    expect(lineupEquivalentText({ b: 0.001, b3: 6 })).toBe("Helps you 0 ≈ 0 pts/week: about the same as leaving your lineup as it is.");
+    // Not simulated, or an evaluation without a scale: no line.
+    expect(lineupEquivalentText({ b: null, b3: 6 })).toBeNull();
+    expect(lineupEquivalentText({ b: 3, b3: null })).toBeNull();
+    const e = evaluation({ b: 3, bWin: 3 });
+    expect(detailsView({ ...e, b3: null }, "redraft").items.some((i) => i.includes("pts/week"))).toBe(false);
+    // Every score in Details is on that B₃: the odds-alone score too.
+    expect(detailsView({ ...e, b: 3, bWin: 6, b3: 6 }, "redraft").items.slice(3)).toEqual([
+      "Helps you from your odds alone: 63; counting trade value by your “Protect my trade value” setting: 39.",
+      "Helps you 39 ≈ +1.5 pts/week: as good as adding that to your lineup every week for the rest of the season.",
+    ]);
+    expect(detailsView({ ...e, b3: 3 }, "dynasty").items.at(-1)).toBe("Helps you 63 ≈ +3 pts/week: as good as adding that to your lineup every week for the rest of the season.");
+  });
+
   it("says in 'Details' when FantasyCalc's values aren't available: our own estimates (the curve fallback), and Helps you then counts no trade value (κ = 0)", () => {
     const e = evaluation({ gMine: -0.12, gPartner: 0.14, b: 3.4, bWin: 3.4, features: { g: 0.04, n: 0, h: 0, c: 0, a: 0, hist: null, ctx: 0, hot: 0, urg: 0, z: -0.3 } });
     const curve = fantasyCalcLookup({ ...MARKET, fallback: { kind: "curve", listDate: "2026-07-01" } });
@@ -1430,7 +1469,7 @@ describe("Phase 4c: the card's words that the planner's reply to Checkpoint 4b c
     const estimated = buildAnalysisView({ evaluation: e, illegal: null, notes: [] }, snapshot, undefined, { fantasyCalc: curve }).card?.details;
     // B has no market term then, so the intro doesn't name Helps you (it would contradict the last line).
     expect(estimated?.intro).toBe(
-      "The model's own trade-value figures, behind the chance they accept and the Market check. While FantasyCalc's values aren't available, they use our own estimates, and they count roster spots: every player counts at least what the best free agent is worth, the extra player in an uneven trade adds nothing when he's worth no more than that, and the side getting fewer players is credited the roster spot it opens; your side counts the free-agent moves the card says the trade counts on too.",
+      "The model's own trade-value figures, behind the chance they accept and the Market check. While FantasyCalc's values aren't available, they use our own estimates, and they count roster spots: every player counts at least what the best free agent no team is expected to pick up is worth, the extra player in an uneven trade adds nothing when he's worth no more than that, and the side getting fewer players is credited the roster spot it opens; your side counts the free-agent moves the card says the trade counts on too.",
     );
     expect(estimated?.items[3]).toBe("Helps you counts no trade value while FantasyCalc's values aren't available: 43, from your odds alone.");
     // No values at all; a market term that isn't 0 keeps the usual line (never claimed away), and the intro names Helps you.

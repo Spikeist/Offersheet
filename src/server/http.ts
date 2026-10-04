@@ -28,11 +28,52 @@
  *   cache key are never merged (they may carry cookies without a hashed key). A request whose cache
  *   read straddles the end of a shared fetch may fetch again: harmless.
  * - Never logs cookies or headers; error messages carry no URL (it may hold a private league ID).
+ * - The offline guard (planner reply to Checkpoint 4c, A5: "Verification and report scripts never touch the network
+ *   unless given --live"): a script run without --live sets NETWORK_ENV to "off" (scripts/lib/runMode.ts
+ *   setNetworkMode), and in such a process every live fetch is refused with NetworkOffError before any request
+ *   (refuseIfNetworkOff), said once on stderr so an adapter that turns the error into a warning can't hide it. ⚠️ Our
+ *   reading of "never touch the network": the cache is still read (a fresh copy, cacheOnly). The app never sets it, and
+ *   the stable copy and check:browser start their servers without "off" (scripts/stable.ts, check-browser).
+ * - Entries other versions wrote (planner reply to Checkpoint 4c, A1): the stable copy, an older checkpoint's code, shares
+ *   this cache's folder with the development copy (scripts/stable.ts, src/app/api/_lib/deps.ts). So an entry is read only
+ *   when it has the shape this version stores (isCachedResponse: else a miss, and no stand-in for staleIfError; never a
+ *   thrown error), and what each version stores is filed under its CACHE_FORMAT (cacheStoreKey): a change to what's
+ *   stored under a key (Cached's fields, a transformText, what the text holds) bumps CACHE_FORMAT, so each version then
+ *   reads and writes only its own entries; the files of either version still go when their retention ends (FileCache's
+ *   sweep reads only its own envelope). Format 1, the one before formats existed, keeps its plain keys: no cached copy
+ *   is lost on the update. ⚠️ A version that stores a wrong body under the right key and format (a bug in work in
+ *   progress, in the development server or a --live report) still reaches the other copy while it's served fresh (up to
+ *   10 minutes for league data, 6–24 hours for projections, player lists and value lists), and longer as a stand-in
+ *   while its source is down (staleIfError).
  */
 import type { HttpClient, HttpRequestOptions, HttpResponse } from "@/adapters/types";
 import type { Cache, CacheEntry } from "./cache";
 
 export const USER_AGENT = "OfferSheet/0.1 (non-commercial fantasy trade helper; read-only)";
+
+/** The offline guard's environment variable (see the header): "off" refuses every live fetch in the process. */
+export const NETWORK_ENV = "OFFERSHEET_NETWORK";
+
+/** A live fetch refused by the offline guard (see the header): the host only, never a URL. */
+export class NetworkOffError extends Error {
+  constructor(host: string) {
+    super(`offline: a request to ${host} was refused (this script runs without --live, so it never touches the network)`);
+    this.name = "NetworkOffError";
+  }
+}
+
+let refusalSaid = false;
+
+/** Throws NetworkOffError when this process runs with the network off (NETWORK_ENV "off"); the first refusal is also said on stderr. */
+export function refuseIfNetworkOff(host: string, env: Readonly<Record<string, string | undefined>> = process.env): void {
+  if (env[NETWORK_ENV] !== "off") return;
+  const err = new NetworkOffError(host);
+  if (!refusalSaid) {
+    refusalSaid = true;
+    console.error(`[offer-sheet] ${err.message}. Pass --live to allow the network.`);
+  }
+  throw err;
+}
 
 const HOST_GAP_MS: Record<string, number> = {
   "api.sleeper.app": 120,
@@ -138,12 +179,39 @@ function parseJson(text: string, bigInts: boolean): unknown {
   }
 }
 
+/** What the cache holds under a key (see the header: a change here bumps CACHE_FORMAT). */
 interface Cached {
   status: number;
   contentType: string;
   text: string;
   /** Epoch ms of the live fetch (absent in entries written before it was recorded). */
   fetchedAt?: number;
+}
+
+/**
+ * The format of what this version stores under a key (Cached; see the header). Bump it whenever that changes, so the
+ * stable copy (an older checkpoint) and the development copy, which share one cache folder, never read each other's
+ * entries. http.test.ts pins Cached's fields to it. (scripts/minimize/espn-trade-refill.ts reads format 1's files
+ * directly, by their plain keys: a bump moves it too.)
+ */
+export const CACHE_FORMAT = 1;
+
+/** The key an entry is filed under in the cache: the request's own key for format 1 (as before formats existed), else prefixed with the format. */
+export function cacheStoreKey(key: string, format: number = CACHE_FORMAT): string {
+  return format === 1 ? key : `http-format-${format}\u0000${key}`;
+}
+
+/** An entry this version can read (Cached's shape); anything else (another version's, or damaged) is a miss. */
+export function isCachedResponse(value: unknown): value is Cached {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return (
+    typeof v.status === "number" &&
+    Number.isInteger(v.status) &&
+    typeof v.contentType === "string" &&
+    typeof v.text === "string" &&
+    (v.fetchedAt === undefined || (typeof v.fetchedAt === "number" && Number.isFinite(v.fetchedAt)))
+  );
 }
 
 /** A live fetch's result, shared by every request that joined it (single-flight). */
@@ -183,6 +251,7 @@ export function createHttpClient(options: HttpClientOptions = {}): HttpClient {
 
   async function live(url: string, opts: HttpRequestOptions): Promise<Cached> {
     const host = new URL(url).host;
+    refuseIfNetworkOff(host); // the offline guard (the header), before any request
     const maxRetries = MFL_HOST.test(host) ? 0 : (opts.maxRetries ?? options.maxRetries ?? 3);
     const headers: Record<string, string> = { "User-Agent": options.userAgent ?? USER_AGENT, Accept: "application/json, text/plain, */*", ...opts.headers };
     if (opts.cookie) headers.Cookie = opts.cookie;
@@ -222,11 +291,14 @@ export function createHttpClient(options: HttpClientOptions = {}): HttpClient {
   const fromEntry = (e: CacheEntry<Cached>, bigInts: boolean) => toResponse(e.value, true, bigInts, e.value.fetchedAt ?? e.storedAt);
 
   async function readCache(key: string, maxAgeMs: number): Promise<CacheEntry<Cached> | undefined> {
+    let entry: CacheEntry<unknown> | undefined;
     try {
-      return await options.cache?.get<Cached>(key, maxAgeMs);
+      entry = await options.cache?.get<unknown>(cacheStoreKey(key), maxAgeMs);
     } catch {
       return undefined; // an unreadable cache is a miss, never a failed request
     }
+    // An entry of another shape (another version's, or damaged) is a miss too (see the header).
+    return entry && isCachedResponse(entry.value) ? (entry as CacheEntry<Cached>) : undefined;
   }
 
   /**
@@ -245,7 +317,7 @@ export function createHttpClient(options: HttpClientOptions = {}): HttpClient {
     const c = opts.cache;
     if (c && options.cache && fresh.status === 200 && !bad) {
       try {
-        await options.cache.set(c.key, fresh, retainMs);
+        await options.cache.set(cacheStoreKey(c.key), fresh, retainMs);
       } catch (err) {
         // The fresh response is still good; log only the error's name (never the key or URL).
         console.error(`[offer-sheet] cache write failed (${err instanceof Error ? err.name : typeof err}); serving the response uncached`);

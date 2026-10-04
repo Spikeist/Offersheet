@@ -64,10 +64,37 @@ export interface LeagueModel {
    * Null when `odds` is.
    */
   oddsAsRostersStand?: SeasonOdds | null;
+  /**
+   * Phase 7a (planner reply to Checkpoint 4c, A2: "Helps you" calibrates itself): my odds' changes from a uniform
+   * +config.benefit.helpsGain (3) projected points a week in every week a trade can change, against `odds` on the same
+   * seasons (league.ts step 8c, helpsCalibrationOf). benefit.helpsScale turns it into B₃ for a goal and λ, the scale of every
+   * card's Helps you and Overall. Null when `odds` is or without my team; absent in a model built before Phase 7a.
+   */
+  helpsCalibration?: HelpsCalibration | null;
   /** Milliseconds per stage, when the caller passed a clock. */
   timings: Record<string, number>;
   /** Plain-English notes about gaps (a source missing, a player without projections). */
   warnings: string[];
+}
+
+/**
+ * The "Helps you" calibration run (LeagueModel.helpsCalibration; league.ts helpsCalibrationOf): my weekly score mean + `gain`
+ * in every model week from `from` on (σ unchanged; every other team as in the baseline), simulated on the baseline's own
+ * seasons (common random numbers), against the baseline: every team after its free-agent pickups (LeagueModel.odds, the
+ * trade search's baseline on its final block).
+ */
+export interface HelpsCalibration {
+  /** Projected points a week added (config.benefit.helpsGain). */
+  gain: number;
+  /**
+   * The first model week (index into LeagueModel.weeks) the gain is added from: 1 when the first week is under way (a trade
+   * can't change it: evaluate.ts holds it at the score as rosters stand), else 0. Regular-season and playoff weeks alike.
+   */
+  from: number;
+  /** My P(playoffs) change, a fraction (+0.06 = 6 percentage points). */
+  dPO: number;
+  /** My P(title) change; null when the league's title odds are unknown (B₃ then counts the playoff odds alone, as every trade's B). */
+  dCH: number | null;
 }
 
 export interface PlayerModel {
@@ -417,7 +444,7 @@ export interface TradePartner {
 
 export interface MarketSummary {
   format: FantasyCalcFormat | null;
-  /** W (§9): the best available free agent's value, at least waiverCreditMin. 0 without values. */
+  /** W (§9): the value of the best free agent the baseline allocation leaves unclaimed (league.ts step 4; planner reply to Checkpoint 4c, A3), at least waiverCreditMin. 0 without values. */
   waiverCredit: number;
   topValue: number;
   /** Players by value source. */

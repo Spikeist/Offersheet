@@ -53,8 +53,9 @@
  * Package value (§9): the side that receives fewer players gets the waiver credit W for each open
  * roster spot (an active one: see below), and g_mkt(X) = (PV_recv − PV_give) / PV_give. Each player counts at max(v, W)
  * (planner reply to Checkpoint 4, change 4; it replaces lead decision N10, which floored only the players I give
- * and only in B's market term): a player worth less than the best free agent is replaceable by him, so
- * his roster spot is worth W whoever holds it. packageValues is the one place every package sum goes
+ * and only in B's market term): a player worth less than W, the best free agent no team is predicted to claim (league.ts
+ * step 4; planner reply to Checkpoint 4c, A3), is replaceable by that free agent, so his roster spot is worth W whoever
+ * holds it. packageValues is the one place every package sum goes
  * through (marketGain; benefit.tradePackage for B's market term, ΔDyn and the card's values;
  * premium.perceivedPackage; the partner's trade history), so g_mkt(me), g_mkt(P), the Market check, the
  * hide threshold, the veto rule and the screening window all read the same packages. A value missing counts 0 before
@@ -104,7 +105,7 @@
  * moves without a spot leaves more cheap players in than credits, each adding W to both sums. Only when it is broken,
  * with him or without him, can a player worth at most W move a side's g, either way (toward 0 too: a partner losing
  * value can gain from him). Likewise a cheap player who carries a star premium (his team's #1 or #2 by value, or a top-12
- * player, worth less than the best free agent: never on a real roster) counts his premium when he is one of those left in.
+ * player, worth at most W: never on a real roster) counts his premium when he is one of those left in.
  *
  * Open roster spots are ACTIVE roster spots (review of Phase 4b track E, which made IR players tradable): an IR player who
  * leaves his IR slot opens none, and one received into an open IR slot fills none (no free agent could take an IR slot).
@@ -519,12 +520,17 @@ function valueOf(entry: number | { readonly value: number } | undefined): number
 }
 
 /**
- * W (§9): the value of the best available free agent, at least waiverCreditMinFraction × topValue.
- * Pass the value table and top value of the term being compared (perception for §11's g).
+ * W (§9): the value of the best free agent not in `claimed`, at least waiverCreditMinFraction × topValue. Pass the value
+ * table and top value of the term being compared (perception for §11's g). `claimed` (planner reply to Checkpoint 4c, A3: "use the
+ * best free agent no team is predicted to claim; that's consistent with one free agent, one team"): the free agents the
+ * baseline allocation hands to teams (league.ts step 5), left out, so W is the best free agent still on the wire after
+ * every team's predicted pickups (on Parker's league, Oct 4 09:24Z: Justin Herbert, [value], whom Team 4 picks up, no longer
+ * sets it; KC Concepcion, [value], does). Default: none (every free agent counts).
  */
-export function waiverCredit(values: ValueLookup, freeAgentIds: readonly string[], topValue: number, cfg: MarketConfig = config.market): number {
+export function waiverCredit(values: ValueLookup, freeAgentIds: readonly string[], topValue: number, cfg: MarketConfig = config.market, claimed: ReadonlySet<string> = new Set()): number {
   let best = 0;
   for (const id of freeAgentIds) {
+    if (claimed.has(id)) continue;
     const v = valueOf(values[id]);
     if (v > best) best = v;
   }

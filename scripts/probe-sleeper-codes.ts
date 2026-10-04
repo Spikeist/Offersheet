@@ -3,8 +3,11 @@
  * every numeric code against real leagues rather than assuming it"), from a bounded snowball crawl
  * of public leagues.
  *
- *   npm run probe:sleeper-codes                               offline: replays the last crawl
- *   npx tsx scripts/probe-sleeper-codes.ts --allow-crawl       live crawl (only after Parker agreed)
+ *   npm run probe:sleeper-codes -- --live                       replays the last crawl (no stranger's league is requested)
+ *   npx tsx scripts/probe-sleeper-codes.ts --live --allow-crawl  live crawl (only after Parker agreed)
+ *
+ * Like every probe it runs only with --live (scripts/lib/probe.ts; planner reply to Checkpoint 4c, A5), even the replay:
+ * a replay can still refresh the Sleeper players DB and the docs page when their cached copies are gone.
  *
  * CLAUDE.md §0.6: no new crawls of strangers' leagues without asking Parker first. Without
  * --allow-crawl (or ALLOW_STRANGER_CRAWL=1) no league, user or draft is requested: the same salted
@@ -27,6 +30,7 @@ import { TTL, writeFileAtomic } from "./lib/cache";
 import { ROOT } from "./lib/env";
 import { OfflineCacheMiss, request, setHostGap, type HttpResult } from "./lib/http";
 import { crawlAllowed, runProbe, type ProbeContext } from "./lib/probe";
+import { isMainModule } from "./lib/runMode";
 import { getSleeperPlayers } from "./lib/sleeper-players";
 import { nflCalendar, type NflCalendar } from "./lib/sleeper-codes/calendar";
 import { CRAWL_GAP_MS, CRAWL_TTL, SLEEPER_HOST, SleeperCrawlClient } from "./lib/sleeper-codes/client";
@@ -186,7 +190,8 @@ async function walk(p: ProbeContext, client: SleeperCrawlClient, seeds: { league
   };
 }
 
-void runProbe("sleeper-codes", async (p) => {
+// Run only as a script (an exact path: scripts/lib/runMode.ts isMainModule); runProbe needs --live.
+if (isMainModule(import.meta.url)) void runProbe("sleeper-codes", async (p) => {
   // First: this crawler shares Sleeper's rate limit with the main Sleeper probe.
   setHostGap(SLEEPER_HOST, CRAWL_GAP_MS);
   const allowCrawl = crawlAllowed();

@@ -1,6 +1,6 @@
 /**
  * FROZEN PHASE 0 EVIDENCE: the probes still use this copy; the app uses src/adapters/espn/scoringMap.ts. A fix here doesn't
- * reach the app (and the reverse); `npm run import:report` is the live check of the shipped adapters.
+ * reach the app (and the reverse); `npm run import:report -- --live` is the live check of the shipped adapters.
  *
  * ESPN scoring rule → canonical (Sleeper) stat key candidates, for the Phase 0 check C.canonical.
  * CLAUDE.md §5: Sleeper's stat keys are canonical; a rule that doesn't map goes to scoring.unmapped.

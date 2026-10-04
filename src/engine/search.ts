@@ -107,8 +107,9 @@
  *
  * Final stages (M8). Every exact trade gets the screening simulation (the screening block of seasons, screeningSims) → B
  * (λ, κ and the goal from the call's settings: lambda, "Protect my trade value" protectValue and "What matters most" goal;
- * evaluate.simulateTrade). Finalists: ⚠️ the first config.search.finalists (60 since Phase 4c, planner reply to Checkpoint
- * 4b, change 1: the minimum chance and the caps apply after them, so more trades that qualify remain for the list; no
+ * evaluate.simulateTrade; Helps you and Overall on B₃ for that goal and λ, Phase 7a). Finalists: ⚠️ the first
+ * config.search.finalists (60 since Phase 4c, planner reply to Checkpoint 4b, change 1: the minimum chance and the caps
+ * apply after them, so more trades that qualify remain for the list; no
  * promise of a full one, config.ts) trades rankTrades keeps from those numbers with its caps relaxed by one (perCore + 1
  * trades a core, perPartnerInTop20 + 1 a partner, perGivenPlayerInTop20 + 1 trades giving a player of mine; review of
  * track E, item 3: at 1,000 seasons the order is noisy, and the strict caps dropped trades that rank near the top at
@@ -203,7 +204,10 @@
  *
  * Notes: the context's (no team, no weeks, season over, deadline passed, no odds: then no trades), B's own
  * (benefit.benefitNotes, once; and Phase 4c's evaluate.estimatedValuesNotes, once: no market term in B while the trade
- * values are our own estimates), evaluate.missingValuesNotes once (no trade values at all: the chance they accept reads
+ * values are our own estimates), the "Helps you" scale's (Phase 7a, planner reply to Checkpoint 4c, A2: benefit.
+ * helpsScaleNotes once when B₃ for the search's goal and λ departs from "+3 a week reads 63": my odds barely move, or the
+ * Win now ↔ Future setting past the λ cap; every trade, step and Plan B of the search is scored on
+ * that one B₃, evaluate.helpsScaleOf), evaluate.missingValuesNotes once (no trade values at all: the chance they accept reads
  * every trade as even on value), positions left out by settings, must-include problems, emptied pools, and draft
  * picks (M11: ⚠️ deferred to Phase 5; with includePicks on in a dynasty or keeper league, a note says so).
  *
@@ -213,12 +217,13 @@
  * TradeSearchStage, "steps" (the shown trades' steps, Plan B and words) and "total"; a re-filter's: "rank", "steps" and
  * "total".
  */
-import { benefit, benefitNotes } from "./benefit";
+import { benefit, benefitNotes, helpsScaleNotes } from "./benefit";
 import { config } from "./config";
 import {
   assetValue,
   estimatedValuesNotes,
   evaluateExact,
+  helpsScaleOf,
   missingValuesNotes,
   harderToGetFor,
   proposalKey,
@@ -436,6 +441,9 @@ function searchNotes(I: TradeInternals, settings: TradeSettings): string[] {
       goal: settings.goal,
     });
     notes.push(...benefitNotes(b));
+    // B₃ departs from "+3 a week reads 63" (planner reply to Checkpoint 4c, A2; review of track SC, SC-1): my odds barely
+    // move (the floor), or the Win now ↔ Future setting past the λ cap.
+    notes.push(...helpsScaleNotes(helpsScaleOf(I, settings.lambda, settings.goal)));
     // B without its market term while the trade values are our own estimates (evaluate.simulateTrade: κ = 0).
     notes.push(...estimatedValuesNotes(I));
   }

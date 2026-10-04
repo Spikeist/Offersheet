@@ -325,9 +325,11 @@ describe("Phase 4c's polish: no FantasyCalc values at all (MarketInputs null): t
 
 describe("the value floor at W on both sides (planner reply to Checkpoint 4, change 4; replaces N10)", () => {
   /**
-   * My WR2 is weak (4 points; my FLEX RB scores 10), so V*(me) picks up a 9-point free-agent WR (worth 2,025: the waiver
-   * credit W) and drops my bench WR (3.1 points, worth 240, below W). Team 2's FLEX RB scores 10 too, so it doesn't want
-   * the free agent (as in evaluate.test.ts's consistency test). EV lineups.
+   * My WR2 is weak (4 points; my FLEX RB scores 10), so V*(me) picks up a 9-point free-agent WR (worth 2,025) and drops my
+   * bench WR (3.1 points, worth 240, below W). Team 2's FLEX RB scores 10 too, so it doesn't want the free agent (as in
+   * evaluate.test.ts's consistency test). The waiver credit W is the best free agent the allocation leaves unclaimed
+   * (league.ts step 4; planner reply to Checkpoint 4c, A3): my pickup is claimed, so W is the 6-point free-agent QB's 900
+   * (it was the pickup's 2,025 before A3). EV lineups.
    */
   const edit = (spec: TestLeagueSpec) => {
     swapPlayer(spec, "1", "wb1", flat("wb1", "WR", 4));
@@ -343,7 +345,8 @@ describe("the value floor at W on both sides (planner reply to Checkpoint 4, cha
 
   it("a player V* drops anyway, worth less than W, given for nothing: B = 0 at Low, Medium and High", () => {
     expect(me.vstar.moves.map((m) => [m.add, m.drop])).toEqual([["zfa", "wc1"]]);
-    expect(W).toBe(I.values.zfa);
+    expect(W).toBe(I.values.fq);
+    expect(W).toBeLessThan(I.values.zfa as number);
     expect(I.values.wc1 as number).toBeLessThan(W);
     // After the trade my roster is V*(me)'s: the spot he opens takes the free agent V*(me) picks up anyway.
     const x = exact(ctx, dump);

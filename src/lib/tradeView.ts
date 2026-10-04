@@ -5,7 +5,9 @@
  *
  * A trade card (buildTradeCard) says, in this order:
  * - who it's with, what I give and what I get (each player with position, NFL team and an injury tag in words);
- * - the three numbers: "Helps you" (the Trade Score, 0–100), "Chance they accept" (the estimate rounded to 5%,
+ * - the three numbers: "Helps you" (the Trade Score, 0–100, on the evaluation's scale B₃ since Phase 7a, planner reply to
+ *   Checkpoint 4c, A2: its tooltip says "63 ≈ as good as adding 3 points a week to your lineup for the rest of the season.",
+ *   HELPS_SCALE_TEXT, which helpsInfoText repeats in words), "Chance they accept" (the estimate rounded to 5%,
  *   labeled "Est." and with its label: Long shot, Possible, Decent, Likely; ⚠️ a model value under 5% prints "<5%", never
  *   rounded up: planner reply to Checkpoint 4b, answer 5; acceptance.displayAcceptance's number is unchanged, the filter
  *   and the label read it) and "Overall" (0–100). A trade that doesn't help me (B ≤ 0, only the Analyzer shows one)
@@ -104,7 +106,9 @@
  * keeper leagues have none, and the line says so, and that Helps you counts this season only when their long-term values
  * didn't load). While FantasyCalc's values aren't available, it says the figures are our own estimates (the curve
  * fallback), and that Helps you counts no trade value when B has no market term then. Its intro names what the figures
- * decide: the chance they accept and the Market check, and Helps you only when its trade-value part reads them.
+ * decide: the chance they accept and the Market check, and Helps you only when its trade-value part reads them. Last, what
+ * Helps you is worth in lineup points (planner reply to Checkpoint 4c, A2: "≈ +X pts/week", X = 3 × B / B₃:
+ * lineupEquivalentText), every score there on the evaluation's own B₃ (TradeEvaluation.b3).
  *
  * Planner addendum to Checkpoint 3 (lead decisions N2, N8):
  * - "Harder to get" next to each player I'd get whose premium for his manager earns the tag (TradeDetail.premium:
@@ -156,7 +160,7 @@
  * server that serves the page sees those ids like any address: the privacy page says so).
  */
 import { displayAcceptance } from "@/engine/acceptance";
-import { futureValuesLoaded, tradeScore } from "@/engine/benefit";
+import { HELPS_AT_GAIN, futureValuesLoaded, lineupEquivalent, tradeScore } from "@/engine/benefit";
 import { blendValues } from "@/engine/blend";
 import { config } from "@/engine/config";
 import type { TradeAnalysis } from "@/engine/evaluate";
@@ -518,6 +522,8 @@ export interface NumberView {
   value: string;
   /** The same for screen readers when the print alone is unclear ("not scored"); null when the print says it. */
   srText: string | null;
+  /** A tooltip saying what the number means: Helps you's scale (HELPS_SCALE_TEXT; planner reply to Checkpoint 4c, A2). Absent: none. */
+  title?: string;
 }
 
 export interface FlagView {
@@ -1100,15 +1106,45 @@ function gainWords(g: number, who: "you" | "they", capped = false): string {
   return `${who}'d get ${atLeast}${r}% ${g > 0 ? "more" : "less"} trade value than ${who} give`;
 }
 
-/** A B as the Trade Score prints it ("35"; 0 when B ≤ 0; "—" unknown). */
-function scoreText(b: number | null): string {
+/** A B as the Trade Score prints it on the evaluation's scale B₃ ("35"; 0 when B ≤ 0; "—" when B or B₃ is unknown). */
+function scoreText(b: number | null, b3: number | null): string {
   if (b === null || !Number.isFinite(b)) return "—";
-  return String(tradeScore(b) ?? 0);
+  if (b <= 0) return "0";
+  const score = tradeScore(b, b3);
+  return score === null ? "—" : String(score);
+}
+
+/**
+ * The "Helps you" tooltip (planner reply to Checkpoint 4c, A2): what the scale means, from config (B = B₃ reads
+ * benefit.HELPS_AT_GAIN, 63, and B₃ is the B of +config.benefit.helpsGain, 3, points a week): "63 ≈ as good as adding 3
+ * points a week to your lineup for the rest of the season." The info line under my odds says it too (helpsInfoText: a touch
+ * screen can't hover).
+ */
+export const HELPS_SCALE_TEXT = `${HELPS_AT_GAIN} ≈ as good as adding ${config.benefit.helpsGain} points a week to your lineup for the rest of the season.`;
+
+/**
+ * The Analyzer's Details line (planner reply to Checkpoint 4c, A2: "≈ +X pts/week", X = 3 × B / B₃, one decimal;
+ * benefit.lineupEquivalent): "Helps you 45 ≈ +1.8 pts/week: as good as adding that to your lineup every week for the rest of
+ * the season." A trade that doesn't help reads its loss ("Helps you 0 ≈ −0.6 pts/week: as costly as …"). Null without B or
+ * B₃ (not simulated, or an evaluation from before Phase 7a).
+ */
+export function lineupEquivalentText(e: Pick<TradeEvaluation, "b" | "b3">): string | null {
+  const x = lineupEquivalent(e.b, e.b3 ?? null);
+  if (x === null) return null;
+  const text = fmtSigned(x, 1);
+  const unit = text === "+1" || text === `${MINUS}1` ? "pt" : "pts";
+  const what =
+    text === "0"
+      ? "about the same as leaving your lineup as it is"
+      : x > 0
+        ? "as good as adding that to your lineup every week for the rest of the season"
+        : "as costly as losing that from your lineup every week for the rest of the season";
+  return `Helps you ${scoreText(e.b, e.b3 ?? null)} ≈ ${text} ${unit}/week: ${what}.`;
 }
 
 /** What the model's trade-value figures count, after the intro's first sentence (detailsView). */
 const DETAILS_COUNT =
-  "they count roster spots: every player counts at least what the best free agent is worth, the extra player in an uneven trade adds nothing when he's worth no more than that, and the side getting fewer players is credited the roster spot it opens; your side counts the free-agent moves the card says the trade counts on too.";
+  "they count roster spots: every player counts at least what the best free agent no team is expected to pick up is worth, the extra player in an uneven trade adds nothing when he's worth no more than that, and the side getting fewer players is credited the roster spot it opens; your side counts the free-agent moves the card says the trade counts on too.";
 
 /**
  * "Details" (the file header): the model's own trade-value figures, which decide the chance they accept and the Market
@@ -1123,10 +1159,11 @@ const DETAILS_COUNT =
  * part reads these figures (a redraft B with a market term), so it never contradicts the last line.
  */
 export function detailsView(
-  e: Pick<TradeEvaluation, "gMine" | "gPartner" | "features" | "b" | "bWin" | "lambda" | "dynMissing">,
+  e: Pick<TradeEvaluation, "gMine" | "gPartner" | "features" | "b" | "bWin" | "lambda" | "dynMissing" | "b3">,
   leagueType: LeagueSnapshot["settings"]["leagueType"],
   values: Pick<FantasyCalcLookup, "available" | "estimated"> = { available: true },
 ): DetailsView {
+  const b3 = e.b3 ?? null;
   const [lo, hi] = config.acceptance.gClamp;
   const g = e.features.g;
   const capped = Number.isFinite(g) && (g >= hi - 1e-9 || g <= lo + 1e-9);
@@ -1142,14 +1179,17 @@ export function detailsView(
     helpsReads = values.available || !noTerm;
     items.push(
       helpsReads
-        ? `Helps you from your odds alone: ${scoreText(e.bWin)}; counting trade value by your “Protect my trade value” setting: ${scoreText(e.b)}.`
-        : `Helps you counts no trade value while FantasyCalc's values aren't available: ${scoreText(e.b)}, from your odds alone.`,
+        ? `Helps you from your odds alone: ${scoreText(e.bWin, b3)}; counting trade value by your “Protect my trade value” setting: ${scoreText(e.b, b3)}.`
+        : `Helps you counts no trade value while FantasyCalc's values aren't available: ${scoreText(e.b, b3)}, from your odds alone.`,
     );
   } else if (e.dynMissing) {
     items.push("Helps you has no trade-value part here, and long-term trade values aren't available, so it counts this season only.");
   } else {
     items.push("Helps you has no trade-value part here: in dynasty and keeper leagues it counts the change in your roster's long-term value instead.");
   }
+  // What Helps you is worth in lineup points a week (planner reply to Checkpoint 4c, A2: "≈ +X pts/week").
+  const equivalent = lineupEquivalentText(e);
+  if (equivalent) items.push(equivalent);
   const lead = `The model's own trade-value figures, behind the chance they accept${helpsReads ? ", Helps you" : ""} and the Market check.`;
   let intro: string;
   if (values.available) intro = `${lead} Unlike the card's trade values (FantasyCalc's own), ${DETAILS_COUNT}`;
@@ -1337,7 +1377,8 @@ export function buildTradeCard(e: TradeEvaluation, ctx: CardContext): TradeCardV
       return a.kind === "player" ? { ...view, tag: harderToGetOf(e.detail.premium?.find((f) => f.playerId === a.id)) } : view;
     }),
     numbers: {
-      helps: scoreView(e.tradeScore, e.b),
+      // The scale in a tooltip (planner reply to Checkpoint 4c, A2: "63 ≈ as good as adding 3 points a week …").
+      helps: { ...scoreView(e.tradeScore, e.b), title: HELPS_SCALE_TEXT },
       accept: { value: acceptText(e.pAccept), srText: underStep(e.pAccept) ? acceptSrText(e.pAccept) : null },
       acceptLabel: `Est. · ${e.acceptLabel}`,
       acceptNote: through ? `Counting ${REVIEW_WORDS[snapshot.settings.tradeReview]}, ${through} it goes through.` : null,
@@ -1390,12 +1431,16 @@ export function baselineLines(baseline: CardContext["baseline"], page: "finder" 
  * now ↔ Future) instead of a trade-value cost, and the odds alone when there's nothing to weigh them against: a redraft
  * league while FantasyCalc's values aren't available (`valuesOn` false: B has no market term then), a dynasty or keeper
  * league whose long-term values didn't load (`longTermOn` false: TradeEvaluation.dynMissing, B = B_win; review of track
- * UIC, finding 2).
+ * UIC, finding 2). Then the scale (planner reply to Checkpoint 4c, A2; HELPS_SCALE_TEXT, the card's tooltip, ⚠️ ours here
+ * too: a phone can't hover).
  */
 export function helpsInfoText(leagueType: LeagueSnapshot["settings"]["leagueType"], valuesOn = true, longTermOn = true): string {
   const lead = "Helps you (0–100) sums up how much your title and playoff odds rise";
-  if (leagueType !== "redraft") return longTermOn ? `${lead}, weighed against the change in your roster's long-term value.` : `${lead}.`;
-  return valuesOn ? `${lead}, minus a cost for giving away trade value or plus a credit for gaining it.` : `${lead}.`;
+  let what: string;
+  if (leagueType !== "redraft") what = longTermOn ? `${lead}, weighed against the change in your roster's long-term value.` : `${lead}.`;
+  else what = valuesOn ? `${lead}, minus a cost for giving away trade value or plus a credit for gaining it.` : `${lead}.`;
+  // The scale (planner reply to Checkpoint 4c, A2), said in words too: the card's tooltip can't be hovered on a phone.
+  return `${what} ${HELPS_SCALE_TEXT}`;
 }
 
 // ---------------------------------------------------------------------------------------------

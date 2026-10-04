@@ -100,6 +100,36 @@ export function smallLeague(seed = 11, season: SeasonSpec = {}, teams = 6): { sn
   return withSeason(randomLeague({ teams, seed, rosterSize: 12, freeAgentsPerPosition: 5, currentWeek: 6, injuries: false }), season);
 }
 
+/** The free agent withWaiverStash adds. */
+export const STASH_ID = "stash-p";
+
+/**
+ * `league` with one more free agent, worth `value`, whom no team can use: a punter (no lineup here starts one), so no
+ * team's free-agent pickups ever claim him, and the waiver credit W, the best free agent the allocation leaves unclaimed
+ * (league.ts step 4; planner reply to Checkpoint 4c, A3), is at least `value`. Default `value`: the best free agent's own
+ * value, the W of the rule before A3 (the best free agent of all). For the tests of mechanics that need players worth at
+ * most W (neutral throw-ins, lean versions, the dominance pruning, Plan B's given-player cap) on the synthetic leagues their
+ * narratives were measured on: A3 lowered W there, since these leagues' best free agents get picked up. Throws when the
+ * stash would be one of FantasyCalc's top 12 (the elite list would change: premium.eliteIds), or without market values.
+ */
+export function withWaiverStash(league: { snapshot: LeagueSnapshot; inputs: ModelInputs }, value?: number): { snapshot: LeagueSnapshot; inputs: ModelInputs } {
+  const { snapshot, inputs } = league;
+  const market = inputs.market;
+  if (!market) throw new Error("withWaiverStash: no market values");
+  const v = value ?? Math.max(0, ...snapshot.freeAgents.map((id) => market.values[id] ?? 0));
+  if (Object.values(market.values).filter((x) => x >= v).length < 12) throw new Error(`withWaiverStash: ${v} would be a top-12 value`);
+  const sleeper: Record<number, number | null> = {};
+  for (let w = 1; w <= inputs.lastWeek; w++) sleeper[w] = null;
+  return {
+    snapshot: {
+      ...snapshot,
+      players: { ...snapshot.players, [STASH_ID]: { id: STASH_ID, name: "Testy Stash", pos: "P", eligible: ["P"], nflTeam: "AAA", injury: "ACTIVE", ids: { sleeper: STASH_ID } } },
+      freeAgents: [...snapshot.freeAgents, STASH_ID],
+    },
+    inputs: { ...inputs, players: { ...inputs.players, [STASH_ID]: { sleeper, actual: {} } }, market: { ...market, values: { ...market.values, [STASH_ID]: v }, knownIds: [...market.knownIds, STASH_ID] } },
+  };
+}
+
 /** A player with the same points every week (and a FantasyCalc value of 25 × points², as randomLeague's). */
 export function flat(id: string, pos: TestPlayer["pos"], points: number, extra: Partial<TestPlayer> = {}): TestPlayer {
   const skill = pos === "QB" || pos === "RB" || pos === "WR" || pos === "TE";

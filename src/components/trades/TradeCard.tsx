@@ -39,6 +39,9 @@
  * "<5%" (answer 5), said "under 5%" to screen readers.
  * The feedback buttons wait for the browser to keep a press (onFeedback returns the save's promise: change 7's
  * FeedbackControls), so a refused press is said on the card itself.
+ * Planner reply to Checkpoint 4c (Phase 7a, A2): "Helps you" has a tooltip saying what its scale means ("63 ≈ as good as
+ * adding 3 points a week to your lineup for the rest of the season."; the page's info line says it in words too, for a
+ * phone), and the Analyzer's Details ends with what the trade is worth in lineup points a week ("≈ +1.8 pts/week").
  * It's an <article> named by its heading; the heading level is the page's to choose.
  */
 import Link from "next/link";
@@ -93,9 +96,10 @@ function AssetList({ title, assets }: { title: string; assets: AssetView[] }) {
   );
 }
 
+/** One of the three numbers; its tooltip (NumberView.title: Helps you's scale) on the whole tile. */
 function Score({ label, number, sub }: { label: string; number: NumberView; sub?: string | undefined }) {
   return (
-    <div className="flex min-w-0 flex-col-reverse justify-end rounded-xl bg-surface-muted px-1.5 py-2 text-center">
+    <div title={number.title} className="flex min-w-0 flex-col-reverse justify-end rounded-xl bg-surface-muted px-1.5 py-2 text-center">
       <dt className="mt-0.5 text-xs leading-tight font-semibold text-muted">{label}</dt>
       <dd>
         <span className="block text-2xl font-black tracking-tight tabular-nums" aria-hidden={number.srText ? true : undefined}>

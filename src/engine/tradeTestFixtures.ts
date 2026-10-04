@@ -2,7 +2,9 @@
  * TradeEvaluation fixtures for engine tests (rank.ts and explain.ts; other tracks may reuse them). Test-only: no
  * engine code imports this file. Defaults are consistent with the engine's own rules, so a test overrides only what
  * it is about:
- * - Trade Score, Overall and the acceptance label come from B and P_complete through benefit.ts and acceptance.ts;
+ * - Trade Score, Overall and the acceptance label come from B and P_complete through benefit.ts and acceptance.ts, the
+ *   scores on the fixtures' "Helps you" scale B₃ (FIXTURE_B3 unless a test gives its own b3; planner reply to Checkpoint 4c,
+ *   A2);
  * - the flags from benefit.tradeFlags (g_mkt(me), B, the injured list);
  * - g_mkt for the two sides agree with the package values (the card's value given / received): my PV_give is the
  *   partner's PV_recv, so 1 + g_mkt(partner) = 1 / (1 + g_mkt(me));
@@ -18,6 +20,12 @@ import type { ExplainContext } from "./explain";
 import type { InjuryStatus, Pos, SlotDef } from "./model";
 import { slotInstances } from "./needs";
 import type { PlanB, PremiumFact, TradeAsset, TradeDetail, TradeEvaluation, TradeEvaluationCore, TradeProposal, TradeStep, TradeSteps } from "./tradeModel";
+
+/**
+ * The fixtures' "Helps you" scale (TradeEvaluation.b3; benefit.helpsScale): +3 points a week would give B 6 in this
+ * made-up league (Parker's league gave B 6.3 under the Balanced weights at Checkpoint 3), so B 3 reads 39 and B 6 reads 63.
+ */
+export const FIXTURE_B3 = 6;
 
 /** A 10-team ESPN-style lineup: QB, RB ×2, WR ×2, TE, FLEX (RB/WR/TE), K, D/ST. */
 export const FIXTURE_LINEUP: SlotDef[] = [
@@ -146,6 +154,7 @@ export function tradeEvaluation(o: EvaluationFixture = {}): TradeEvaluation {
     get: (o.get ?? ["kelce"]).map(player),
   };
   const b = o.b === undefined ? 3 : o.b;
+  const b3 = o.b3 !== undefined ? o.b3 : FIXTURE_B3;
   const pComplete = o.pComplete ?? 0.4;
   const pAccept = o.pAccept ?? pComplete;
   const gMine = o.gMine ?? 0;
@@ -163,11 +172,12 @@ export function tradeEvaluation(o: EvaluationFixture = {}): TradeEvaluation {
     sims: o.sims ?? 5000,
     required: o.required ?? { me: { drops: [], adds: [] }, partner: { drops: [], adds: [] } },
     b,
-    tradeScore: o.tradeScore !== undefined ? o.tradeScore : tradeScore(b),
+    tradeScore: o.tradeScore !== undefined ? o.tradeScore : tradeScore(b, b3),
     pAccept,
     pComplete,
     acceptLabel: o.acceptLabel ?? acceptanceLabel(pAccept),
-    overall: o.overall !== undefined ? o.overall : overallScore(b, pComplete),
+    overall: o.overall !== undefined ? o.overall : overallScore(b, pComplete, b3),
+    b3,
     dPO: o.dPO !== undefined ? o.dPO : 0.03,
     dCH: o.dCH !== undefined ? o.dCH : 0.01,
     dEW: o.dEW !== undefined ? o.dEW : 0.2,
@@ -246,7 +256,7 @@ export function tradeStep(o: StepFixture = {}): TradeStep {
     proposal,
     key: o.key ?? fixtureKey(proposal),
     b,
-    tradeScore: o.tradeScore !== undefined ? o.tradeScore : tradeScore(b),
+    tradeScore: o.tradeScore !== undefined ? o.tradeScore : tradeScore(b, FIXTURE_B3),
     pAccept,
     pComplete,
     acceptLabel: o.acceptLabel ?? acceptanceLabel(pAccept),

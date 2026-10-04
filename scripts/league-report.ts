@@ -5,13 +5,17 @@
  * availability, lineups, scenarios, needs, trade chips, market values, the season simulation), exactly as
  * the League page's Web Worker runs it.
  *
- *   npm run league:report                   Parker's ESPN league through the public-link path
- *   npm run league:report -- --team <id>    his team, when the import can't find it (no cookies)
- *   npm run league:report -- --cookies      use the .env.local ESPN cookies (also with USE_ENV_COOKIES=1),
+ *   npm run league:report                   no network: the newest git-ignored placeholder dump of Parker's league
+ *                                           (data-local/parker-league*, by meta.json's time; snapshot.json, inputs.json,
+ *                                           meta.json; loadDump), the engine's `now` from meta.json
+ *   npm run league:report -- --dump <dir>   that dump instead (--offline <dir> is an alias)
+ *   npm run league:report -- --team <id>    his team, when the data doesn't say
+ *   npm run league:report -- --live         Parker's ESPN league through the public-link path (the network)
+ *   npm run league:report -- --live --cookies   use the .env.local ESPN cookies (also with USE_ENV_COOKIES=1),
  *                                           so ESPN itself says which team is his
- *   npm run league:report -- --offline [dir]  no network: a git-ignored placeholder dump (snapshot.json, inputs.json,
- *                                           meta.json; default data-local/parker-league; loadDump), the engine's
- *                                           `now` from meta.json; --team still picks the team
+ *
+ * Offline by default (planner reply to Checkpoint 4c, A5; scripts/lib/runMode.ts): without --live the process's offline
+ * guard is on, so nothing here can touch the network; the header prints the command with the dump named.
  *
  * Phase 3, the season simulation (§8; planner reply to Checkpoint 2, "Checkpoint 3 must include"), on Phase 4c's one
  * baseline (below):
@@ -26,21 +30,28 @@
  *   flag are the League page's own rules, read from src/lib/leagueView.ts (scheduleByeRule: likely starters after my
  *   pickups, ⚠️ none at a position I stream, whose bye the streaming replacement covers; RISKY_WIN_CHANCE, RISKY_BYES;
  *   review POL-1: the report had kept its own copy, which drifted), the win chance the headline's.
- * - Trade Score scale check (§10; planner reply to Checkpoint 4b, change 8: "Keep B_ref at 6 … Confirm this in Checkpoint
- *   4c"): the user's weekly score mean + 1, 3 and 6 points in every remaining week a trade can change (regular season and
+ * - "Helps you" scale check (§10; Phase 7a, planner reply to Checkpoint 4c, A2: the scale calibrates itself per league and
+ *   goal): the user's weekly score mean + 1, 3 and 6 points in every remaining week a trade can change (regular season and
  *   playoffs; ⚠️ a week in progress left out, as every trade's evaluation leaves it: evaluate.ts holds that week at the
  *   as-stands score before and after a trade), σ unchanged, on one common-random-numbers matrix (the League model's own:
  *   config.simulation.finalSims seasons from config.simulation.seed), from the one baseline (every team after its
  *   pickups: TeamModel.scoreWithPickups, the seasons LeagueModel.odds simulates, the trade search's baseline): ΔPO, ΔCH
  *   and Δ expected wins, B = 100 × (w_PO ΔPO + w_CH ΔCH) under each "What matters most" goal (benefit.goalWeights,
- *   config.benefit.goals; no market term: only lineup points move) and the Trade Score (config.benefit.bRef), next to the
- *   planner's toy league, with the B_ref that would map this league's +3 to the toy league's 63 under each goal. Common
+ *   config.benefit.goals; no market term: only lineup points move), B₃ under each goal (the +config.benefit.helpsGain row's
+ *   B through benefit.helpsScale: floored at config.benefit.helpsFloor; ⚠️ without λ, as the rows' B, so in a dynasty or
+ *   keeper league both lack the engine's (1 − λ) and the scores agree with the app's, unless the engine's B₃ departs by λ:
+ *   past config.benefit.helpsLambdaMax, or (1 − λ) × B₃ under the floor, benefit.helpsScale's reason "lambda"), and Helps
+ *   you on it (benefit.tradeScore: +3 reads 63 by construction, +1 and +6 about 28 and 86 when B grows in proportion), next
+ *   to the planner's toy league. The +3 row is checked to equal the League model's own calibration run
+ *   (LeagueModel.helpsCalibration, step 8c) bit for bit. Common
  *   random numbers compare every row with the baseline season by season, which takes out the noise of comparing separate
  *   runs, but each change is still a Monte Carlo estimate from finalSims seasons (another seed gives a somewhat different
  *   B(+3)). So every change carries its standard error, by batch means: the run's seasons split into SE_BATCHES batches
- *   (batchRuns), the change computed in each batch alone (batchSe). B_ref gets B(+3)'s error and one decimal. When title
+ *   (batchRuns), the change computed in each batch alone (batchSe). B₃ gets B(+3)'s error. When title
  *   odds are unknown, the reason is given only when the report can confirm it (titleUnknownReason); otherwise it points
- *   to the notes under the standings. Then the same rows from the rosters as they stand (TeamModel.score, the seasons
+ *   to the notes under the standings. The rows' B can't be computed then, but B₃ still is, from the +3 run's ΔPO alone, as
+ *   the app scores every card (review of track SC, SC-3; ScaleB3.playoffOnly, no error), and the +3 run is still checked
+ *   against the League model's (ΔCH null in both). Then the same rows from the rosters as they stand (TeamModel.score, the seasons
  *   oddsAsRostersStand simulates: Checkpoint 4b's basis), and every team's pickups' own effect on my odds (the one
  *   baseline against as rosters stand, paired season by season, with its standard error). Each baseline run is checked
  *   to reproduce the model's own odds bit for bit. ⚠️ The depth values (depthValues) still price rosters without IR
@@ -66,8 +77,7 @@
  * - Everything priced outside the model (the depth values) adds the team's streaming rows (league.tableWithStreaming,
  *   streamIds), so it still reproduces the model's own numbers. (Phase 4c: the scale check reads the model's own weekly
  *   scores, TeamModel.score and scoreWithPickups, so it prices no roster itself any more.)
- * - The Trade Score uses B_ref 6 (answer 1; config.benefit.bRef). The scale check still reports the B_ref that
- *   would map this league's +3 to the toy league's 63.
+ * - The Trade Score used B_ref 6 (answer 1) until Phase 7a; since then the scale is B₃ (the scale check above).
  *
  * Phase 4, track A2 (planner reply to Checkpoint 3, model change 2; "Checkpoint 4 must report"):
  * - The free-agent optimizer V* (CLAUDE.md §7): every team's pickups (TeamModel.faMoves, EV and scenario gains, the one
@@ -79,9 +89,9 @@
  *   decision L14: ≤ 400 ms).
  *
  * Phase 4b (planner reply to Checkpoint 4; the lead's design, track R):
- * - Offline mode (`--offline [dir]`, loadDump): the same report from a placeholder dump, so the Checkpoint 4b reports
- *   come from one fixed set of data. A dump made before the adapter read ESPN's waiver ranks gets them from the dump
- *   folder's waiver-ranks.json when it has one (the header says so).
+ * - Offline mode (`--dump <dir>`, loadDump; the default since Phase 7a's A5): the same report from a placeholder dump, so
+ *   the checkpoint reports come from one fixed set of data. A dump made before the adapter read ESPN's waiver ranks gets
+ *   them from the dump folder's waiver-ranks.json when it has one (the header says so).
  * - The market blend (§6 step 8; blendLines): the blend's weight and, per position, the players it reaches and the curve
  *   points (LeaguePlayers.blend), the players whose projection it moved (PlayerModel.blend), and the League page's
  *   player breakdown lines (buildLeagueView: PlayerRow.blend, rosters and free-agent lists), with how many read "no
@@ -134,7 +144,7 @@ import { importEspnLeagueForModel } from "@/adapters/espn";
 import { espnWaiverOrder } from "@/adapters/espn/waivers";
 import type { ImportDeps } from "@/adapters/types";
 import { loadPlayerIdResolver } from "@/data";
-import { goalWeights } from "@/engine/benefit";
+import { goalWeights, helpsScale, tradeScore } from "@/engine/benefit";
 import type { BlendPosition } from "@/engine/blend";
 import { config } from "@/engine/config";
 import type { MarketInputs, ModelInputs } from "@/engine/inputs";
@@ -158,6 +168,10 @@ import { buildModelInputs } from "@/server/modelInputs";
 import { ROOT, env, loadEnv } from "./lib/env";
 import { redactorFromMap } from "./lib/minimize";
 import { installConsoleScrubber, registerScrubber, scrubEverything, scrubEverythingExcept } from "./lib/redact";
+import { commandText, isMainModule, relativePath, reportArgs, reportCommandText, reportSourceLine, setNetworkMode, wantsLive, type ReportArgs } from "./lib/runMode";
+
+// The command-line helpers moved to scripts/lib/runMode.ts (Phase 7a, A5); kept importable from here (trade-report, tests).
+export { commandText, displayPath, flagValue, relativePath } from "./lib/runMode";
 
 const fmt = (x: number, d = 1) => (Number.isFinite(x) ? x.toFixed(d) : "–");
 /** A player whose EV lineup cost is at most this many ROS points is "bench" in the depth example. */
@@ -189,10 +203,7 @@ export function placeholders(s: LeagueSnapshot): LeagueSnapshot {
 }
 
 // ---------------------------------------------------------------------------------------------
-// The offline dump (both reports read it: scripts/trade-report.ts loadOffline wraps loadDump)
-
-/** The default offline dump, relative to the project root (git-ignored data-local/). */
-export const DEFAULT_DUMP_DIR = path.join("data-local", "parker-league");
+// The offline dump (both reports read it; which one: scripts/lib/runMode.ts reportArgs, default the newest)
 
 /** A placeholder dump of Parker's league (git-ignored): what loadDump reads. */
 export interface Dump {
@@ -239,26 +250,6 @@ export function loadDump(dir: string, teamArg?: string): Dump {
     waiverRanks = { readAt: typeof file.readAt === "string" ? file.readAt : null, teams: teams.filter((t) => t.waiverRank !== undefined).length };
   }
   return { snapshot: placeholders({ ...raw, teams, myTeamId: teamArg ?? raw.myTeamId }), inputs, now, dumpedAt: meta.now as string, waiverRanks };
-}
-
-/** `--offline [dir]`: the dump folder (a relative one from `root`; default DEFAULT_DUMP_DIR), or null without the flag. */
-export function offlineDirOf(argv: readonly string[], root: string): string | null {
-  const i = argv.indexOf("--offline");
-  if (i < 0) return null;
-  const next = argv[i + 1];
-  return path.resolve(root, next !== undefined && !next.startsWith("--") ? next : DEFAULT_DUMP_DIR);
-}
-
-/** The value after `flag` (`--team 3`), or undefined when the flag is absent or has no value. */
-export function flagValue(argv: readonly string[], flag: string): string | undefined {
-  const i = argv.indexOf(flag);
-  const v = i >= 0 ? argv[i + 1] : undefined;
-  return v !== undefined && !v.startsWith("--") ? v : undefined;
-}
-
-/** A path relative to `root`, with forward slashes (for the report's words; never a secret). */
-export function relativePath(root: string, p: string): string {
-  return path.relative(root, p).split(path.sep).join("/");
 }
 
 /** The report's data line for an offline dump: where it came from, when, and the waiver ranks when they were filled in. */
@@ -333,11 +324,11 @@ export const SCALE_GAINS: readonly number[] = [1, 3, 6];
  * error is about 1 / √(2 × (batches − 1)), 16% at 20.
  */
 export const SE_BATCHES = 20;
-/** The planner's toy league (CLAUDE.md §10 "Planner's check": 12 teams, 10 weeks left): B and the Trade Score per gain. */
+/**
+ * The planner's toy league (CLAUDE.md §10 "Planner's check": 12 teams, 10 weeks left): B and the Trade Score per gain, the
+ * scores the self-calibrating scale aims for everywhere (planner reply to Checkpoint 4c, A2: 28, 63 and 86).
+ */
 const PLANNER_TOY: Readonly<Record<number, { B: number; score: number }>> = { 1: { B: 1.7, score: 29 }, 3: { B: 5, score: 63 }, 6: { B: 10, score: 86 } };
-/** The Trade Score the toy league gives +3 points per week: the scale check reports the B_ref that maps this league's +3 to it. */
-export const TOY_GAIN = 3;
-export const TOY_SCORE_AT_GAIN = 63;
 
 /** One value per "What matters most" goal (GOALS, config.benefit.goals). */
 export type ByGoal<T> = Record<Goal, T>;
@@ -357,16 +348,6 @@ export const GOAL_WORDS: Readonly<Record<Goal, string>> = { title: "Win the titl
 export function benefitWin(dPO: number, dCH: number, goal?: Goal): number {
   const w = goalWeights(goal);
   return 100 * (w.playoffs * dPO + w.title * dCH);
-}
-
-/** The Trade Score ("Helps you", §10): round(100 × (1 − e^(−B / B_ref))) when B > 0; null (hidden by default) otherwise. */
-export function tradeScore(B: number, bRef: number = config.benefit.bRef): number | null {
-  return Number.isFinite(B) && B > 0 ? Math.round(100 * (1 - Math.exp(-B / bRef))) : null;
-}
-
-/** The B_ref that maps benefit B to the given Trade Score: −B / ln(1 − score / 100) (for 63: −B / ln 0.37); null when B ≤ 0. */
-export function bRefFor(B: number, score: number): number | null {
-  return Number.isFinite(B) && B > 0 && score > 0 && score < 100 ? -B / Math.log(1 - score / 100) : null;
 }
 
 /** A team's weekly score distribution per model week (TeamModel.score, scoreWithPickups). */
@@ -469,10 +450,30 @@ function deltasSe(parts: readonly Deltas[], batchSims: number, sims: number): De
 export interface ScaleRow extends Deltas {
   /** Points per week added to the weekly score mean in every remaining week a trade can change (ScaleCheck.from on). */
   gain: number;
-  /** The Trade Score under each goal (config.benefit.bRef). */
+  /** Helps you under each goal on that goal's B₃ (ScaleCheck.b3; benefit.tradeScore). */
   score: ByGoal<number | null>;
   /** Each change's Monte Carlo standard error (batch means: batchRuns, batchSe); NaN when it can't be estimated. */
   se: Deltas;
+}
+
+/** One goal's B₃ in a scale check (ScaleCheck.b3). */
+export interface ScaleB3 {
+  /**
+   * B of the +config.benefit.helpsGain row under the goal (benefit.helpsScale's raw); with title odds unknown, the playoff
+   * term scaled up to the whole weight, as the app scores every card then (`playoffOnly`; review of track SC, SC-3: the
+   * report had printed none while the app had one). Null only when the +helpsGain run has no odds.
+   */
+  raw: number | null;
+  /** raw floored at config.benefit.helpsFloor: the scale Helps you is scored on; null with raw. */
+  value: number | null;
+  floored: boolean;
+  /** Title odds are unknown: B₃ counts the playoff odds alone (benefit.benefitWin's rule for every trade's B). */
+  playoffOnly: boolean;
+  /**
+   * B(+helpsGain)'s Monte Carlo standard error (the row's); null when the row wasn't among the check's gains, when title odds
+   * are unknown (no rows, so no batches), or raw is null.
+   */
+  se: number | null;
 }
 
 export interface ScaleCheck {
@@ -493,11 +494,16 @@ export interface ScaleCheck {
   /** Why title odds are unknown, when the report can confirm it (titleUnknownReason); null otherwise. */
   titleUnknown: string | null;
   /**
-   * Per goal: the B_ref that would map this league's +3 to the toy league's 63 (null without a +3 row or when its B ≤ 0),
-   * and its Monte Carlo standard error (B(+3)'s, scaled by the same constant −1 / ln 0.37; null with B_ref, NaN when
-   * unknown).
+   * Per goal: B₃, the "Helps you" scale (Phase 7a, planner reply to Checkpoint 4c, A2): the +config.benefit.helpsGain row's
+   * ΔPO and ΔCH through benefit.helpsScale (simulated on its own when the gains leave it out, and when title odds are unknown:
+   * then ΔPO alone, as the app's), and B(+3)'s error.
    */
-  bRef: ByGoal<{ value: number | null; se: number | null }>;
+  b3: ByGoal<ScaleB3>;
+  /**
+   * The +helpsGain row's ΔPO and ΔCH (the calibration run as the League model makes it, step 8c; ΔCH null when title odds are
+   * unknown, as LeagueModel.helpsCalibration's); null when that run has no odds.
+   */
+  calibration: { dPO: number; dCH: number | null } | null;
 }
 
 /** Playoff rounds a bracket of `teams` needs: log2 of the next power of two (0 for fewer than 2 teams). */
@@ -531,11 +537,13 @@ export interface ScaleOptions {
 }
 
 /**
- * The Trade Score scale check (the file header) for one team from `base` (its weekly scores in `model`, the season
+ * The "Helps you" scale check (the file header) for one team from `base` (its weekly scores in `model`, the season
  * simulated: the one baseline's pickupSeasonModel with TeamModel.scoreWithPickups, or the model as rosters stand with
  * TeamModel.score). The season is simulated with base, then with base + gain in every model week from `opts.from` on,
- * all on `run`'s matrix; each gain is then simulated again in every batch (batchRuns) for its standard errors. B and the
- * Trade Score under every goal (benefitWin). Null when the season can't be simulated.
+ * all on `run`'s matrix; each gain is then simulated again in every batch (batchRuns) for its standard errors. B under
+ * every goal (benefitWin), B₃ under every goal (the +config.benefit.helpsGain row through benefit.helpsScale, as the engine
+ * makes it: helpsCalibrationOf's run is this row when `model`, `run` and `opts.from` are the League model's), and Helps you
+ * on it. Null when the season can't be simulated.
  */
 export function scaleCheck(snapshot: LeagueSnapshot, model: SeasonModel, teamId: string, base: WeeklyScores, run: SharedRun, opts: ScaleOptions = {}): ScaleCheck | null {
   const gains = opts.gains ?? SCALE_GAINS;
@@ -553,7 +561,7 @@ export function scaleCheck(snapshot: LeagueSnapshot, model: SeasonModel, teamId:
   const inBatches = (score: WeeklyScores): MyOdds[] => parts.map((p) => mine(simulate(score, p)) ?? UNKNOWN_ODDS);
   const known = b.pTitle !== null;
   const baseBatches = known ? inBatches(base) : [];
-  const rows: ScaleRow[] | null = !known
+  const measured = !known
     ? null
     : gains.map((gain) => {
         const score = plus(base, gain, from);
@@ -564,9 +572,18 @@ export function scaleCheck(snapshot: LeagueSnapshot, model: SeasonModel, teamId:
           batchSims,
           run.sims,
         );
-        return { gain, ...d, score: byGoal((g) => tradeScore(d.B[g])), se };
+        return { gain, ...d, se };
       });
-  const toy = rows?.find((r) => r.gain === TOY_GAIN);
+  // B₃ under each goal (planner reply to Checkpoint 4c, A2): the +helpsGain row, simulated alone when the gains leave it out
+  // or title odds are unknown (review of track SC, SC-3: then ΔPO alone, the app's own B₃ by benefit.benefitWin's rule).
+  const gainB3 = config.benefit.helpsGain;
+  const at: Deltas & { se: Deltas | null } = measured?.find((r) => r.gain === gainB3) ?? { ...deltas(b, mine(simulate(plus(base, gainB3, from), run)) ?? UNKNOWN_ODDS), se: null };
+  const dCH3 = Number.isNaN(at.dCH) ? null : at.dCH;
+  const b3 = byGoal((g): ScaleB3 => {
+    const s = helpsScale({ dPO: at.dPO, dCH: dCH3 }, { leagueType: snapshot.settings.leagueType, myPPlayoffs: b.pPlayoffs, goal: g, dynastyTotal: null });
+    return { raw: s?.raw ?? null, value: s?.b3 ?? null, floored: s?.floored ?? false, playoffOnly: s !== null && dCH3 === null, se: s && at.se ? at.se.B[g] : null };
+  });
+  const rows: ScaleRow[] | null = measured?.map((r) => ({ ...r, score: byGoal((g) => tradeScore(r.B[g], b3[g].value)) })) ?? null;
   return {
     base: b,
     baseBatches,
@@ -575,12 +592,19 @@ export function scaleCheck(snapshot: LeagueSnapshot, model: SeasonModel, teamId:
     from,
     rows,
     titleUnknown: titleUnknownReason(snapshot, baseOdds, b),
-    bRef: byGoal((g) => {
-      const value = toy ? bRefFor(toy.B[g], TOY_SCORE_AT_GAIN) : null;
-      // B_ref = B(+3) × (−1 / ln 0.37), so its standard error is B(+3)'s times the same constant (value / B).
-      return { value, se: toy && value !== null ? toy.se.B[g] * (value / toy.B[g]) : null };
-    }),
+    b3,
+    calibration: Number.isFinite(at.dPO) ? { dPO: at.dPO, dCH: dCH3 } : null,
   };
+}
+
+/**
+ * Whether a scale check's +helpsGain row is the League model's own calibration run (LeagueModel.helpsCalibration, step 8c):
+ * the same gain, ΔPO and ΔCH bitwise (ΔCH null in both when title odds are unknown). Null when either is missing (no odds,
+ * no team).
+ */
+export function calibrationMatches(check: Pick<ScaleCheck, "calibration"> | null, cal: { gain: number; dPO: number; dCH: number | null } | null | undefined): boolean | null {
+  if (!check?.calibration || !cal) return null;
+  return cal.gain === config.benefit.helpsGain && Object.is(check.calibration.dPO, cal.dPO) && Object.is(check.calibration.dCH, cal.dCH);
 }
 
 /** Every team's free-agent pickups' own effect on my odds (the one baseline against as rosters stand; pickupsEffect). */
@@ -873,20 +897,8 @@ export function parseLeagueReport(md: string): LeagueReportTables {
 /** A player's status as a league report's St column prints it (STATUS_SHORT; "" when active). */
 export const statusShort = (status: InjuryStatus | undefined): string => STATUS_SHORT[status ?? "ACTIVE"] ?? "";
 
-// ---------------------------------------------------------------------------------------------
-// The command line in a report's header (review of track R: "--offline" alone loads the default dump, not the report's)
-
-/** A path for the header: relative to `root` with forward slashes, or just its file name when it lies outside `root`. */
-export function displayPath(root: string, p: string): string {
-  const rel = relativePath(root, p);
-  return rel.startsWith("..") || path.isAbsolute(rel) ? path.basename(p) : rel;
-}
-
-/** "npm run trade:report -- --offline data-local/x --team 3": the script and the arguments it ran with (empty ones left out). */
-export function commandText(script: string, args: readonly (string | null | undefined | false)[]): string {
-  const parts = args.filter((a): a is string => typeof a === "string" && a.length > 0);
-  return parts.length ? `npm run ${script} -- ${parts.join(" ")}` : `npm run ${script}`;
-}
+// The command line in a report's header (displayPath, commandText) is scripts/lib/runMode.ts's (re-exported above): the
+// dump always named, so the report can be run again on the same data (review of track R; Phase 7a, A5).
 
 /** The market blend in numbers (the file header, Phase 4b). */
 export interface BlendLines {
@@ -1265,9 +1277,11 @@ export interface SeasonReport {
   scaleStand: ScaleCheck | null;
   /**
    * Each scale check's baseline odds are the model's own (the same matrix): my P(playoffs), P(title) and expected wins
-   * bitwise equal to LeagueModel.odds' (pickups) and oddsAsRostersStand's (stand; null without that check).
+   * bitwise equal to LeagueModel.odds' (pickups) and oddsAsRostersStand's (stand; null without that check); and the one
+   * baseline's +3 row is the League model's own "Helps you" calibration run (calibration: ΔPO and ΔCH bitwise equal to
+   * LeagueModel.helpsCalibration's; null when either is missing).
    */
-  scaleMatchesModel: { pickups: boolean; stand: boolean | null } | null;
+  scaleMatchesModel: { pickups: boolean; stand: boolean | null; calibration: boolean | null } | null;
   /** Every team's pickups' own effect on my odds: the one baseline against as rosters stand, paired (pickupsEffect). */
   pickups: PickupsEffect | null;
   noOp: NoOpCheck | null;
@@ -1314,7 +1328,7 @@ export function seasonReport(snapshot: LeagueSnapshot, inputs: ModelInputs, mode
     schedule: remainingSchedule(snapshot, model, odds, built, stand, lastNflWeekOf(inputs)),
     scale,
     scaleStand,
-    scaleMatchesModel: matchPickups === null ? null : { pickups: matchPickups, stand: me ? same(scaleStand, oddsOf(stand, me)) : null },
+    scaleMatchesModel: matchPickups === null ? null : { pickups: matchPickups, stand: me ? same(scaleStand, oddsOf(stand, me)) : null, calibration: calibrationMatches(scale, model.helpsCalibration) },
     pickups: scale && scaleStand ? pickupsEffect(scale, scaleStand, run.sims) : null,
     noOp: noOpCheck(snapshot, inputs, model, built, now),
     simTimings: [config.simulation.screeningSims, config.simulation.finalSims].map((sims) => simTiming(built.setup, odds.seed, sims, clock, runs, warmups)),
@@ -1428,12 +1442,15 @@ function pickupsLine(p: PickupsEffect): string {
 
 function scaleTable(L: string[], check: ScaleCheck): void {
   const rows = check.rows;
+  const gain = config.benefit.helpsGain;
   if (!rows) {
-    L.push(`Title odds are unknown (${check.titleUnknown ? `${check.titleUnknown}; ` : ""}see the notes under Standings and playoff odds), so B can't be computed.`, "");
+    // Review of track SC, SC-3: the app still has a B₃ then (the playoff odds alone), so say it.
+    L.push(`Title odds are unknown (${check.titleUnknown ? `${check.titleUnknown}; ` : ""}see the notes under Standings and playoff odds), so the rows' B can't be computed.`, "");
+    L.push(`B₃, the B of +${gain} points a week, under each goal, by the rule every card's B follows when title odds are unknown: ${b3Words(check)}.`, "");
     return;
   }
   L.push(`Baseline: P(playoffs) ${pct(check.base.pPlayoffs)}, P(title) ${pct(check.base.pTitle)}, expected wins ${fmt(check.base.expWins, 2)}.`, "");
-  L.push(`| Lineup gain | ΔPO | ΔCH | Δ expected wins | ${GOALS.map((g) => `${GOAL_WORDS[g]}: B / Trade Score`).join(" | ")} | Toy league B / score |`, `|---|---|---|---|${GOALS.map(() => "---|").join("")}---|`);
+  L.push(`| Lineup gain | ΔPO | ΔCH | Δ expected wins | ${GOALS.map((g) => `${GOAL_WORDS[g]}: B / Helps you`).join(" | ")} | Toy league B / score |`, `|---|---|---|---|${GOALS.map(() => "---|").join("")}---|`);
   for (const r of rows) {
     const toy = PLANNER_TOY[r.gain];
     const s = r.se;
@@ -1441,19 +1458,25 @@ function scaleTable(L: string[], check: ScaleCheck): void {
     L.push(`| +${r.gain} pt/wk | ${pm(signed(r.dPO, 4), s.dPO, 4)} | ${pm(signed(r.dCH, 4), s.dCH, 4)} | ${pm(signed(r.dEW, 3), s.dEW, 3)} | ${goals} | ${toy ? `≈ ${toy.B} / ≈ ${toy.score}` : "–"} |`);
   }
   L.push("");
-  // One decimal: B_ref carries B(+3)'s Monte Carlo error, tenths rather than hundredths at 5,000 seasons on
-  // Parker's fixture (review finding: seeds 1–20 gave B(+3) an SD of 0.18).
-  const each = GOALS.map((g) => {
-    const b = check.bRef[g];
-    if (b.value === null) return `${GOAL_WORDS[g]}: none (B(+${TOY_GAIN}) isn't above 0)`;
-    const se = b.se !== null && Number.isFinite(b.se) ? ` ± ${fmt(b.se, 1)}` : "";
-    return `${GOAL_WORDS[g]} **${fmt(b.value, 1)}${se}** (with it: ${rows.map((r) => `+${r.gain} → ${tradeScore(r.B[g], b.value as number) ?? "–"}`).join(", ")})`;
-  });
-  L.push(`B_ref that maps this league's +${TOY_GAIN} to a Trade Score of ${TOY_SCORE_AT_GAIN}, −B(+${TOY_GAIN}) / ln ${fmt(1 - TOY_SCORE_AT_GAIN / 100, 2)}, ± its Monte Carlo standard error (as B(+${TOY_GAIN})'s): ${each.join("; ")}. config.benefit.bRef is ${config.benefit.bRef} for every goal.`, "");
+  L.push(`B₃, the B of +${gain} points a week, under each goal (± B(+${gain})'s Monte Carlo standard error): ${b3Words(check)}.`, "");
+}
+
+/**
+ * Each goal's B₃ in words: "Win the title **5.04 ± 0.21**; …" (floored ones say so, and so do B₃s from the playoff odds alone
+ * when title odds are unknown).
+ */
+export function b3Words(check: Pick<ScaleCheck, "b3">): string {
+  return GOALS.map((g) => {
+    const b = check.b3[g];
+    if (b.raw === null || b.value === null) return `${GOAL_WORDS[g]}: none (no odds for +${config.benefit.helpsGain} a week)`;
+    const se = b.se !== null && Number.isFinite(b.se) ? ` ± ${fmt(b.se, 2)}` : "";
+    const floored = b.floored ? ` (floored: B(+${config.benefit.helpsGain}) is ${fmt(b.raw, 2)}, under ${config.benefit.helpsFloor})` : "";
+    return `${GOAL_WORDS[g]} **${fmt(b.value, 2)}${se}**${b.playoffOnly ? " (playoff odds only: title odds unknown)" : ""}${floored}`;
+  }).join("; ");
 }
 
 function renderScale(L: string[], season: SeasonReport, model: LeagueModel): void {
-  L.push("## Trade Score scale check", "");
+  L.push("## “Helps you” scale check", "");
   const check = season.scale;
   const odds = season.odds;
   if (!odds || !check) {
@@ -1468,14 +1491,17 @@ function renderScale(L: string[], season: SeasonReport, model: LeagueModel): voi
       : "The run is too short to split into batches, so the changes have no standard error (–).";
   const goals = GOALS.map((g) => `${GOAL_WORDS[g]} ${goalWeights(g).playoffs} / ${goalWeights(g).title}`).join(", ");
   L.push(
-    `CLAUDE.md §10 and the planner's replies to Checkpoints 2 and 4b (change 8: "Keep B_ref at 6 … Confirm this in Checkpoint 4c"): your weekly score mean + x points in every remaining week a trade can change (weeks ${weeks[0] ?? "–"}–${weeks.at(-1) ?? "–"}: regular season and playoffs${check.from > 0 ? `; week ${model.inProgressWeek} is under way, and a trade's evaluation holds a week under way at its score as rosters stand, so the gain starts the week after` : ""}), σ unchanged, x = ${SCALE_GAINS.join(", ")}. From the one baseline: every team after its free-agent pickups (TeamModel.scoreWithPickups, the seasons LeagueModel.odds simulates, the trade search's baseline). Every row is ${sims} simulated seasons on the same common-random-numbers matrix (seed ${odds.seed}, the League model's own seasons): each season is played with and without the gain on the same random draws. That takes out the noise of comparing separate runs, but each change is still an estimate from ${sims} seasons, and another seed would give a somewhat different one. ${error} ΔPO and ΔCH are fractions; B = 100 × (w_PO ΔPO + w_CH ΔCH) under each "What matters most" goal (w_PO / w_CH: ${goals}; no market term: only lineup points move); Trade Score = round(100 × (1 − e^(−B / ${config.benefit.bRef}))). The planner's toy league (12 teams, 10 weeks left, the weights before Phase 4c): B ≈ ${SCALE_GAINS.map((g) => PLANNER_TOY[g]?.B ?? "–").join(" / ")}, scores ≈ ${SCALE_GAINS.map((g) => PLANNER_TOY[g]?.score ?? "–").join(" / ")}.`,
+    `CLAUDE.md §10 and the planner's reply to Checkpoint 4c (A2: "Helps you" calibrates itself per league and goal): your weekly score mean + x points in every remaining week a trade can change (weeks ${weeks[0] ?? "–"}–${weeks.at(-1) ?? "–"}: regular season and playoffs${check.from > 0 ? `; week ${model.inProgressWeek} is under way, and a trade's evaluation holds a week under way at its score as rosters stand, so the gain starts the week after` : ""}), σ unchanged, x = ${SCALE_GAINS.join(", ")}. From the one baseline: every team after its free-agent pickups (TeamModel.scoreWithPickups, the seasons LeagueModel.odds simulates, the trade search's baseline). Every row is ${sims} simulated seasons on the same common-random-numbers matrix (seed ${odds.seed}, the League model's own seasons): each season is played with and without the gain on the same random draws. That takes out the noise of comparing separate runs, but each change is still an estimate from ${sims} seasons, and another seed would give a somewhat different one. ${error} ΔPO and ΔCH are fractions; B = 100 × (w_PO ΔPO + w_CH ΔCH) under each "What matters most" goal (w_PO / w_CH: ${goals}; no market term: only lineup points move); B₃ = B(+${config.benefit.helpsGain}) under the same goal, at least ${config.benefit.helpsFloor} (benefit.helpsScale; the app's own B₃ is the same run, LeagueModel.helpsCalibration); Helps you = round(100 × (1 − e^(−B / B₃))), so +${config.benefit.helpsGain} reads 63 by construction. The planner's toy league (12 teams, 10 weeks left, the weights before Phase 4c): B ≈ ${SCALE_GAINS.map((g) => PLANNER_TOY[g]?.B ?? "–").join(" / ")}, scores ≈ ${SCALE_GAINS.map((g) => PLANNER_TOY[g]?.score ?? "–").join(" / ")}.`,
     "",
   );
   const m = season.scaleMatchesModel;
-  if (m) L.push(`Baseline check: the baseline run ${m.pickups ? "reproduces" : "does NOT reproduce"} the League model's own odds for your team bit for bit (LeagueModel.odds; same seed, same matrix)${m.stand === null ? "" : `, and so ${m.stand ? "does" : "does NOT"} the as-rosters-stand run (LeagueModel.oddsAsRostersStand)`}.`, "");
+  if (m) {
+    const cal = m.calibration === null ? "" : ` The +${config.benefit.helpsGain} row ${m.calibration ? "is" : "is NOT"} the League model's own "Helps you" calibration run bit for bit (LeagueModel.helpsCalibration: ΔPO and ΔCH).`;
+    L.push(`Baseline check: the baseline run ${m.pickups ? "reproduces" : "does NOT reproduce"} the League model's own odds for your team bit for bit (LeagueModel.odds; same seed, same matrix)${m.stand === null ? "" : `, and so ${m.stand ? "does" : "does NOT"} the as-rosters-stand run (LeagueModel.oddsAsRostersStand)`}.${cal}`, "");
+  }
   L.push("**From the one baseline (every team after its free-agent pickups)**", "");
   scaleTable(L, check);
-  L.push("**As rosters stand** (TeamModel.score: every team as it is today, Checkpoint 4b's basis)", "");
+  L.push("**As rosters stand** (TeamModel.score: every team as it is today, Checkpoint 4b's basis; Helps you on this basis's own B₃, its +3 row)", "");
   if (season.scaleStand) {
     if (season.pickups) L.push(pickupsLine(season.pickups), "");
     scaleTable(L, season.scaleStand);
@@ -1724,7 +1750,7 @@ export interface ReportHead {
   mode: "offline" | "live";
   dataNote: string | null;
   generatedAt: Date;
-  /** The command line it ran with (commandText), so the header reproduces it; default: the script with --offline when offline. */
+  /** The command line it ran with (runMode.reportCommandText), so the header reproduces it; default: the script, with --live when live. */
   command?: string;
   /** A dump from before the 4c adapter that the report put on the 4c rule (asWeeklyResetData), or null/absent. */
   pre4c?: Pre4cOrder | null;
@@ -1738,7 +1764,7 @@ function render(snapshot: LeagueSnapshot, inputs: ModelInputs, model: LeagueMode
   const myTeam = model.teams.find((t) => t.id === model.myTeamId);
 
   L.push("# League model: Parker's ESPN league", "");
-  L.push(`Generated by \`${head.command ?? commandText("league:report", [head.mode === "offline" ? "--offline" : null])}\` on ${head.generatedAt.toISOString().slice(0, 10)} through the real adapters, model-inputs builder and engine. Team, owner and league names are placeholders; NFL player names are public.`, "");
+  L.push(`Generated by \`${head.command ?? commandText("league:report", [head.mode === "live" ? "--live" : null])}\` on ${head.generatedAt.toISOString().slice(0, 10)} through the real adapters, model-inputs builder and engine. Team, owner and league names are placeholders; NFL player names are public.`, "");
   L.push(`**League 1** · ESPN · ${snapshot.season} · week ${snapshot.currentWeek} · ${snapshot.teams.length} teams · remaining weeks ${weeks[0] ?? "–"}–${weeks.at(-1) ?? "–"} (regular season ${model.regularWeeks.length}, playoffs ${model.playoffWeeks.length}) · ${model.scenarios} availability scenarios · ${model.odds ? `${thousands(model.odds.sims)} simulated seasons` : "no season simulation"}`, "");
   L.push("**Data**", "");
   if (head.dataNote) L.push(`- ${head.dataNote}`);
@@ -1984,9 +2010,9 @@ export function buildReport(input: LeagueSnapshot, inputs: ModelInputs, opts: Re
   return { doc, snapshot, pre4c, model, context, season, optimizer, blend, ir, timing };
 }
 
-/** Live: Parker's league through the app's public-link import (or his cookies) and its caches, as the League page loads it. */
-async function loadLive(argv: readonly string[], teamArg: string | undefined, timing: Record<string, number>): Promise<{ snapshot: LeagueSnapshot; inputs: ModelInputs; now: Date }> {
-  const useCookies = !argv.includes("--no-cookies") && (argv.includes("--cookies") || env("USE_ENV_COOKIES") === "1");
+/** Live (--live): Parker's league through the app's public-link import (or his cookies) and its caches, as the League page loads it. */
+async function loadLive(cookies: ReportArgs["cookies"], teamArg: string | undefined, timing: Record<string, number>): Promise<{ snapshot: LeagueSnapshot; inputs: ModelInputs; now: Date }> {
+  const useCookies = cookies !== "off" && (cookies === "on" || env("USE_ENV_COOKIES") === "1");
   const leagueId = env("ESPN_LEAGUE_ID");
   if (!leagueId) throw new Error("ESPN_LEAGUE_ID is blank in .env.local.");
   const season = Number(env("ESPN_SEASON") || 2026);
@@ -2016,27 +2042,31 @@ async function loadLive(argv: readonly string[], teamArg: string | undefined, ti
 }
 
 async function main(): Promise<void> {
-  const argv = process.argv.slice(2);
-  const teamArg = flagValue(argv, "--team");
-  const dir = offlineDirOf(argv, ROOT);
+  const args = reportArgs(process.argv.slice(2), ROOT);
+  if ("error" in args) {
+    console.error(args.error);
+    process.exitCode = 1;
+    return;
+  }
+  console.log(reportSourceLine(args, ROOT));
   registerScrubber(await redactorFromMap("espn"));
   const timing: Record<string, number> = {};
   const clock = () => performance.now();
   const generatedAt = new Date();
   let loaded: { snapshot: LeagueSnapshot; inputs: ModelInputs; now: Date; dataNote: string };
-  if (dir) {
-    const dump = loadDump(dir, teamArg);
-    loaded = { ...dump, dataNote: dumpNote(ROOT, dir, dump) };
+  if (args.dump) {
+    const dump = loadDump(args.dump, args.team);
+    loaded = { ...dump, dataNote: dumpNote(ROOT, args.dump, dump) };
   } else {
-    loaded = { ...(await loadLive(argv, teamArg, timing)), dataNote: "Live: Parker's league through the app's public-link import and its caches (league data 10 minutes, projections 6 hours, values 24 hours)." };
+    loaded = { ...(await loadLive(args.cookies, args.team, timing)), dataNote: "Live: Parker's league through the app's public-link import and its caches (league data 10 minutes, projections 6 hours, values 24 hours)." };
   }
   const { snapshot, inputs, now } = loaded;
-  const command = commandText("league:report", [dir ? "--offline" : null, dir ? displayPath(ROOT, dir) : null, teamArg ? `--team ${teamArg}` : null, argv.includes("--cookies") ? "--cookies" : null, argv.includes("--no-cookies") ? "--no-cookies" : null]);
-  const { doc: raw, model, season: sim, timing: timings, pre4c } = buildReport(snapshot, inputs, { now, clock, timing, mode: dir ? "offline" : "live", dataNote: loaded.dataNote, generatedAt, command });
+  const command = reportCommandText("league:report", args, ROOT);
+  const { doc: raw, model, season: sim, timing: timings, pre4c } = buildReport(snapshot, inputs, { now, clock, timing, mode: args.dump ? "offline" : "live", dataNote: loaded.dataNote, generatedAt, command });
   // Public NFL player names are kept whole: a leaguemate's first or last name can be a word of one, and a
   // scrubbed fragment next to the rest of a public name would reveal it (review PRIV-1).
   const doc = scrubEverythingExcept(raw, Object.values(snapshot.players).map((p) => p.name));
-  writeFileSync(path.join(ROOT, "reports", "league-report.md"), doc);
+  writeFileSync(args.out ?? path.join(ROOT, "reports", "league-report.md"), doc);
   const me = model.teams.find((t) => t.id === model.myTeamId);
   const mine = oddsOf(model.odds, model.myTeamId ?? "");
   const stand = oddsOf(model.oddsAsRostersStand, model.myTeamId ?? "");
@@ -2049,9 +2079,10 @@ async function main(): Promise<void> {
   );
 }
 
-// Run only as a script (npm run league:report), never when a test imports the offline logic above.
-const isMain = process.argv[1] !== undefined && /league-report\.ts$/.test(process.argv[1]);
-if (isMain) {
+// Run only as a script (npm run league:report), never when a test or another script imports the logic above (an exact
+// path: scripts/lib/runMode.ts isMainModule). The offline guard goes on first unless --live (A5).
+if (isMainModule(import.meta.url)) {
+  setNetworkMode(wantsLive(process.argv.slice(2)));
   loadEnv();
   installConsoleScrubber();
   main().catch((err: unknown) => {

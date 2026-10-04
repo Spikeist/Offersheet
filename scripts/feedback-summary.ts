@@ -54,6 +54,7 @@ import {
   type FeedbackVersion,
   type ModelPart,
 } from "@/lib/feedbackStore";
+import { isMainModule } from "./lib/runMode";
 
 /** The numbers and features averaged per reason, in print order. */
 const AVERAGED = ["b", "tradeScore", "pAccept", "pComplete", "gMine", "gPartner", "dPPW", "g", "n", "h", "c", "a", "hist", "ctx", "hot", "urg", "z"] as const;
@@ -386,6 +387,6 @@ function main(): void {
   process.stdout.write(result.output);
 }
 
-// Run only as a script (npm run feedback:summary), never when a test imports the logic above.
-const isMain = process.argv[1] !== undefined && /feedback-summary\.ts$/.test(process.argv[1]);
-if (isMain) main();
+// Run only as a script (npm run feedback:summary), never when a test or a scratch file imports the logic above (an exact
+// path: scripts/lib/runMode.ts isMainModule).
+if (isMainModule(import.meta.url)) main();

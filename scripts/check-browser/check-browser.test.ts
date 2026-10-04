@@ -9,7 +9,7 @@ import { mkdtemp, mkdir, rm, utimes, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_MAX_SEARCH_SECONDS, SECOND_LEAGUE, parseArgs, resolveArgs, type CheckBrowserArgs } from "./args";
+import { DEFAULT_MAX_SEARCH_SECONDS, SECOND_LEAGUE, USAGE, parseArgs, resolveArgs, type CheckBrowserArgs } from "./args";
 import { chromeArgs, chromeCandidates, devtoolsUrl, exited, findChrome, killTree, waitForDevtools } from "./chrome";
 import { CARD_HELPERS, INSTRUMENT, NAME_REPLACER, PAGE_HELPERS, RESTORE_CALL, sanitizeCall } from "./inPage";
 import { keptText, TEXT_KEEP_MAX } from "./page";
@@ -47,13 +47,16 @@ const resolved = (argv: string[], env: Record<string, string> = {}): CheckBrowse
 };
 
 describe("options", () => {
-  it("defaults: the Import Report's team, headless, screenshots, §12's 10 seconds, one league", () => {
-    expect(resolved([])).toEqual({ team: null, show: false, shots: true, maxSearchSeconds: DEFAULT_MAX_SEARCH_SECONDS, secondLeague: false, help: false });
+  it("defaults: no network (--live off), the Import Report's team, headless, screenshots, §12's 10 seconds, one league", () => {
+    expect(resolved([])).toEqual({ live: false, team: null, show: false, shots: true, maxSearchSeconds: DEFAULT_MAX_SEARCH_SECONDS, secondLeague: false, help: false });
     expect(DEFAULT_MAX_SEARCH_SECONDS).toBe(10);
   });
 
-  it("reads --team, --show, --no-shots, --max-search, --second-league and --help, with a space or an equals sign", () => {
-    expect(resolved(["--team", "3", "--show", "--no-shots", "--max-search", "12"])).toEqual({ team: "3", show: true, shots: false, maxSearchSeconds: 12, secondLeague: false, help: false });
+  it("reads --live, --team, --show, --no-shots, --max-search, --second-league and --help, with a space or an equals sign", () => {
+    expect(resolved(["--live", "--team", "3", "--show", "--no-shots", "--max-search", "12"])).toEqual({ live: true, team: "3", show: true, shots: false, maxSearchSeconds: 12, secondLeague: false, help: false });
+    // npm run check:browser --live --team=3 (the "--" left out, or dropped by the shell): npm kept both for itself.
+    expect(resolved([], { npm_config_live: "true", npm_config_team: "3" })).toMatchObject({ live: true, team: "3" });
+    expect(USAGE).toContain("npm run check:browser -- --live --team 3");
     expect(resolved(["--second-league"]).secondLeague).toBe(true);
     // The second league is the public ESPN test league of CLAUDE.md §17 Phase 0.
     expect(SECOND_LEAGUE).toEqual({ leagueId: "899513", season: "2026" });
@@ -70,7 +73,7 @@ describe("options", () => {
     expect(resolveArgs(parsed(["3"]), {})).toMatchObject({ error: expect.stringContaining("Unexpected argument: 3") });
   });
 
-  it("takes the options npm kept for itself when the '--' was dropped (npm 10 on Windows PowerShell)", () => {
+  it("takes the options npm kept for itself when the '--' was left out or dropped (seen with npm 10 on Windows PowerShell)", () => {
     // npm run check:browser --team 3 --show --no-shots
     expect(resolved(["3"], { npm_config_team: "true", npm_config_show: "true", npm_config_shots: "" })).toMatchObject({ team: "3", show: true, shots: false });
     // npm run check:browser --team=3 --max-search=15

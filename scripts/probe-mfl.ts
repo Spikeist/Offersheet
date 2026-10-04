@@ -1,10 +1,10 @@
 /**
  * Phase 0 probe: MyFantasyLeague (CLAUDE.md §2.6, §17 Data Checklist A–M).
  *
- *   npm run probe:mfl                            league data cached 10 min (CLAUDE.md §2.10)
- *   npx tsx scripts/probe-mfl.ts --reuse         reuse cached league data for 24 h (development)
- *   npx tsx scripts/probe-mfl.ts --shapes        also print the shape of every response (no values)
- *   npx tsx scripts/probe-mfl.ts --allow-crawl   may search for a test league when none is pinned (ask Parker first)
+ *   npm run probe:mfl -- --live                         league data cached 10 min (CLAUDE.md §2.10); probes run only with --live
+ *   npx tsx scripts/probe-mfl.ts --live --reuse         reuse cached league data for 24 h (development)
+ *   npx tsx scripts/probe-mfl.ts --live --shapes        also print the shape of every response (no values)
+ *   npx tsx scripts/probe-mfl.ts --live --allow-crawl   may search for a test league when none is pinned (ask Parker first)
  *
  * League: MFL_LEAGUE_ID from .env.local (MFL_USERNAME / MFL_PASSWORD only for private leagues);
  * otherwise the pinned public test league (git-ignored fixtures/raw/mfl/test-league.json), found once
@@ -21,6 +21,7 @@ import { DAY, TTL, credentialScope } from "./lib/cache";
 import { FC_TEAM_SIZES, getFantasyCalc, matchRate, nearest, type FcFormat } from "./lib/fantasycalc";
 import { getJson, request } from "./lib/http";
 import { crawlAllowed, runProbe, type ProbeContext } from "./lib/probe";
+import { isMainModule } from "./lib/runMode";
 import { NEEDS_CRAWL, crawlGateNote } from "./lib/shared/crawl-gate";
 import { fixtureFolders, partitionPaths, whereSaved } from "./lib/shared/fixture-folders";
 import { describeShape, formatShape } from "./lib/shape";
@@ -82,7 +83,8 @@ const hostOf = (u: string | undefined): string | undefined => {
   }
 };
 
-runProbe("mfl", async (p) => {
+// Run only as a script (an exact path: scripts/lib/runMode.ts isMainModule); runProbe needs --live.
+if (isMainModule(import.meta.url)) void runProbe("mfl", async (p) => {
   const { cl } = p;
   const leagueTtl = REUSE ? DAY : TTL.league;
   const projTtl = REUSE ? DAY : TTL.projections;

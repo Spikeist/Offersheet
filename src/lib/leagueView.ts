@@ -109,7 +109,12 @@
  * can't word it differently), and the "Free-agent pickups" explainer says it too. ⚠️ "Wasn't available", not "isn't
  * reported" (review of track F): an import saved before the adapters read ESPN's waiver order has none, though the league
  * reports it. A model built before Phase 4b has no allocation: no line, and the explainer keeps saying each team is
- * measured alone.
+ * measured alone. Phase 7a (planner reply to Checkpoint 4c, A4): a team the engine treats as inactive (no transactions in
+ * config.allocation.inactiveWeeks weeks, never mine: acceptance.inactiveTeams on the same snapshot, the Import Report's
+ * "Inactive teams" row too) makes no pickups, and its roster says so (RosterCard.inactive); the explainer states the rule
+ * (and, when the league's transactions can't tell, that no team is assumed inactive: acceptance.inactiveRuleBlock); where
+ * my team picks counts only the teams expected to make pickups (review of track AL, finding AL-3); and "Streaming" names
+ * an inactive team that made a streamer's adds as assumed to have stopped (finding AL-2).
  *
  * Streaming (§7 streaming positions; planner reply to Checkpoint 3, model change 1): "Streaming picks this
  * week" lists the best free-agent kickers and D/STs for the current week with their opponents
@@ -149,6 +154,7 @@
  * as every trade idea prints my odds before it; review of track UIP: the headline read "9.9%" over my row's "10%"); the
  * playoff and bye odds in whole percents (oddsCell), as the cards print playoff odds.
  */
+import { inactiveRuleBlock, inactiveTeams } from "@/engine/acceptance";
 import { expectedReturnWeek } from "@/engine/availability";
 import { config } from "@/engine/config";
 import type { FantasyCalcFormat, MarketInputs, ModelInputs } from "@/engine/inputs";
@@ -172,7 +178,7 @@ import { fantasyCalcFallbackText, fantasyCalcFormat, fantasyCalcFormatLabel, not
 import { POSITIONS, type InjuryStatus, type LeagueSettings, type LeagueSnapshot, type Platform, type PlayerInfo, type Pos, type Team } from "@/engine/model";
 import { DIVISION_RULE_ASSUMED, weekList, weekUnderWayNote } from "@/engine/season";
 import { fmtNum, fmtSigned, fmtWhole, formatShortDateTime, plural, recordText } from "./format";
-import { allocationBasis, waiverOrderText } from "./importReport";
+import { allocationBasis, inactiveWindowText, waiverOrderText } from "./importReport";
 import { INJURY_LABEL, PLATFORM_LABEL, posLabel } from "./labels";
 import type { MyTeamSource } from "./myTeam";
 import { HARDER_TO_GET_TAG, finderHref, harderToGetWho, premiumReasons, titleOddsText } from "./tradeView";
@@ -446,6 +452,11 @@ export interface RosterCard {
   streams: string | null;
   /** The free-agent pickups that would help the team (§7 V*), or null when none does. */
   pickups: FreeAgentPickups | null;
+  /**
+   * Phase 7a (planner reply to Checkpoint 4c, A4; the file header): "Inactive: no transactions in the last 5 weeks, so no
+   * free-agent pickups are assumed." for a team the engine treats as inactive; null for every other team.
+   */
+  inactive: string | null;
   players: PlayerRow[];
 }
 
@@ -483,7 +494,10 @@ export interface StreamingView {
   groups: StreamingGroup[];
   /** What I stream ("You stream K and D/ST."; the page links to Settings after it), or null without a team. */
   mine: string | null;
-  /** Which other teams stream, from their adds this season (or that none does). */
+  /**
+   * Which other teams stream, from their adds this season (or that none does), and the inactive teams whose adds would
+   * make them streamers, assumed to have stopped (Phase 7a, A4).
+   */
   others: string;
   /** How a streamed slot counts, with each streamed position's average replacement. */
   note: string;
@@ -671,7 +685,8 @@ export interface LeagueView {
   partners: { cards: PartnerCard[]; empty: string | null };
   /**
    * One free agent, one team (LeagueModel.faAllocation; the file header): "Free-agent pickups: each free agent goes to one
-   * team only. Your team picks 4th of 10." and the order used, the Import Report's row ("Weekly reset (reverse
+   * team only. Your team picks 4th of 10." (with inactive teams in the order, "… 1st of the 3 teams expected to make
+   * pickups.") and the order used, the Import Report's row ("Weekly reset (reverse
    * standings)", shown after WAIVER_ORDER_LABEL; null when the Import Report's reading of the snapshot doesn't match the
    * allocation's basis: `text` names the basis then); null without an allocation (an older model) or once no week is left.
    */
@@ -1236,9 +1251,13 @@ function positionPlural(pos: Pos, platform: Platform): string {
  * week's projection), each with his opponent ("vs ARI" at home, "@ DAL" away); my streamed positions (my
  * setting) and the teams detected streaming, with their adds; how a streamed slot counts, with each streamed
  * position's average replacement over the weeks team numbers count. Null once no week is left, or when the
- * lineup starts neither K nor D/ST and nobody streams.
+ * lineup starts neither K nor D/ST and no team streams (nor made a streamer's adds). Phase 7a (planner reply to Checkpoint 4c,
+ * A4; review of track AL, finding AL-2): a team in `inactive` (the engine's rule, buildLeagueView) streams nothing whatever
+ * its adds (league.ts streamedPositions), so one that made the adds is named apart ("Team 2 (K, 2 adds this season) has
+ * made no transactions in the last 5 weeks, so it's assumed to have stopped streaming."), never counted among the teams
+ * without them.
  */
-function streamingView(snapshot: LeagueSnapshot, model: LeagueModel, myTeamId: string | null, teamName: (id: string) => string, from: number): StreamingView | null {
+function streamingView(snapshot: LeagueSnapshot, model: LeagueModel, myTeamId: string | null, teamName: (id: string) => string, from: number, inactive: ReadonlySet<string>): StreamingView | null {
   const streaming = model.streaming;
   if (!streaming || !model.weeks.length) return null;
   const platform = snapshot.platform;
@@ -1247,7 +1266,14 @@ function streamingView(snapshot: LeagueSnapshot, model: LeagueModel, myTeamId: s
   const pickPositions = (["K", "DEF"] as const).filter((p) => starts.has(p));
   const byTeam = streaming.byTeam;
   const streamers = snapshot.teams.filter((t) => (byTeam[t.id]?.positions.length ?? 0) > 0);
-  if (!pickPositions.length && !streamers.length) return null;
+  const detectAdds = config.streaming.detectAdds;
+  const streamable = POSITIONS.filter((p) => config.streaming.streamable.includes(p) && starts.has(p));
+  // Inactive teams that made the adds (A4): the positions they'd stream if they were active, by their adds.
+  const dormant = snapshot.teams
+    .filter((t) => t.id !== myTeamId && inactive.has(t.id) && byTeam[t.id]?.source === "detected" && !byTeam[t.id]?.positions.length)
+    .map((t) => ({ id: t.id, adds: byTeam[t.id]?.adds ?? {}, positions: streamable.filter((p) => (byTeam[t.id]?.adds[p] ?? 0) >= detectAdds) }))
+    .filter((d) => d.positions.length > 0);
+  if (!pickPositions.length && !streamers.length && !dormant.length) return null;
 
   const groups: StreamingGroup[] = pickPositions.map((pos) => ({
     pos,
@@ -1272,19 +1298,23 @@ function streamingView(snapshot: LeagueSnapshot, model: LeagueModel, myTeamId: s
   const mineStreams = myTeamId ? byTeam[myTeamId] : undefined;
   const mine = myTeamId ? (mineStreams && mineStreams.positions.length ? `You stream ${positionsText(mineStreams.positions, platform)}.` : "You don't stream any position.") : null;
   const otherTeams = streamers.filter((t) => t.id !== myTeamId);
-  const detectAdds = config.streaming.detectAdds;
   const streamableText = listText(
-    POSITIONS.filter((p) => config.streaming.streamable.includes(p) && starts.has(p)).map((p) => posLabel(p, platform)),
+    streamable.map((p) => posLabel(p, platform)),
     "or",
   );
+  const stopped = dormant.length
+    ? ` ${listText(dormant.map((d) => `${teamName(d.id)} (${d.positions.map((p) => `${posLabel(p, platform)}, ${plural(d.adds[p] ?? 0, "add")}`).join("; ")} this season)`))} ${dormant.length === 1 ? "has" : "have"} made no transactions ${inactiveWindowText(snapshot)}, so ${dormant.length === 1 ? "it's" : "they're"} assumed to have stopped streaming.`
+    : "";
   const others = otherTeams.length
     ? `${myTeamId ? "Other teams that stream" : "Teams that stream"} (${detectAdds} or more adds at the position this season): ${otherTeams
         .map((t) => {
           const s = byTeam[t.id] as NonNullable<(typeof byTeam)[string]>;
           return `${teamName(t.id)} (${s.positions.map((p) => `${posLabel(p, platform)}, ${plural(s.adds[p] ?? 0, "add")}`).join("; ")})`;
         })
-        .join(", ")}.`
-    : `No ${myTeamId ? "other " : ""}team has made ${detectAdds} or more adds at ${streamableText || "a streaming position"} this season, so ${myTeamId ? "the others count" : "every team counts"} only their own players.`;
+        .join(", ")}.${stopped}`
+    : dormant.length
+      ? `No ${myTeamId ? "other " : ""}team is assumed to stream, so ${myTeamId ? "the others count" : "every team counts"} only their own players.${stopped}`
+      : `No ${myTeamId ? "other " : ""}team has made ${detectAdds} or more adds at ${streamableText || "a streaming position"} this season, so ${myTeamId ? "the others count" : "every team counts"} only their own players.`;
 
   // Each streamed position's replacement, averaged over the weeks team numbers count (a position without a
   // free agent who scores has nothing to average: streaming adds nothing there).
@@ -2323,7 +2353,7 @@ function buildExplain(c: ExplainContext): ExplainItem[] {
         ? `Team numbers use each team's best lineup in ${model.scenarios} simulated runs of injuries and byes, so a bench player who fills in when a starter is hurt or on bye gets credit. A lineup built from average availability would miss that.`
         : "Team numbers use each team's best lineup from each week's average projections.",
     },
-    ...(seasonOver ? [] : [{ title: "Streaming", text: streamingExplainText(snapshot) }, { title: "Free-agent pickups", text: pickupsExplainText(snapshot, model, c.fallback?.kind === "curve") }]),
+    ...(seasonOver ? [] : [{ title: "Streaming", text: streamingExplainText(snapshot, !!model.faAllocation) }, { title: "Free-agent pickups", text: pickupsExplainText(snapshot, model, c.fallback?.kind === "curve") }]),
     {
       title: "Rest-of-season (ROS) points",
       text:
@@ -2371,14 +2401,19 @@ function harderExplainText(curve = false): string {
 /**
  * "Streaming" in "How these numbers work" (§7 streaming positions): what streaming is, how a streamed slot
  * counts (the replacement's rank from config.streaming), where it counts, the setting and its default, how
- * another team is detected, and one streamer per position.
+ * another team is detected (Phase 7a, A4: never an inactive one, where the model allocates free agents: `allocated`),
+ * and one streamer per position.
  */
-function streamingExplainText(snapshot: LeagueSnapshot): string {
+function streamingExplainText(snapshot: LeagueSnapshot, allocated: boolean): string {
   const platform = snapshot.platform;
   const s = config.streaming;
+  // Inactive teams (planner reply to Checkpoint 4c, A4; league.ts streamedPositions): no streaming either, where the model
+  // allocates free agents (the pickups explainer states the rule).
+  const n = config.allocation.inactiveWeeks;
+  const unlessInactive = allocated && n > 0 ? `, unless it has made no transactions in the last ${plural(n, "week")}` : "";
   const defaults = positionsText(POSITIONS.filter((p) => s.defaultPositions.includes(p)), platform);
   const options = positionsText(POSITIONS.filter((p) => s.streamable.includes(p) && !s.defaultPositions.includes(p)), platform);
-  return `Many managers stream ${positionPlural("K", platform)} and ${positionPlural("DEF", platform)}: each week they pick up whichever free agent is projected highest. A streamed slot counts, each week, the better of the team's own player and the ${ordinal(s.streamRank)}-best free agent at that position that week (other teams stream too), in every team number: points per week, positional strength and needs, lineup cost, trade chips, partners and the playoff odds. You choose the positions you stream in Settings (${defaults} unless you change it${options ? `; ${options} can be added` : ""}). Another team counts as streaming a position once it has made ${s.detectAdds} or more adds there this season; the others count only their own players. A team that starts two at a position still gets one streamer.${streamFlexText(s.streamable, snapshot.settings, platform)}`;
+  return `Many managers stream ${positionPlural("K", platform)} and ${positionPlural("DEF", platform)}: each week they pick up whichever free agent is projected highest. A streamed slot counts, each week, the better of the team's own player and the ${ordinal(s.streamRank)}-best free agent at that position that week (other teams stream too), in every team number: points per week, positional strength and needs, lineup cost, trade chips, partners and the playoff odds. You choose the positions you stream in Settings (${defaults} unless you change it${options ? `; ${options} can be added` : ""}). Another team counts as streaming a position once it has made ${s.detectAdds} or more adds there this season${unlessInactive}; the others count only their own players. A team that starts two at a position still gets one streamer.${streamFlexText(s.streamable, snapshot.settings, platform)}`;
 }
 
 /**
@@ -2389,8 +2424,10 @@ function streamingExplainText(snapshot: LeagueSnapshot): string {
  * review of Phase 4c, finding VF-1: only where the engine applies it, without the dynasty guard's long-term values),
  * what it never touches, the dynasty guard in dynasty and keeper leagues (only when their dynasty values loaded, as the
  * engine applies it: benefit.futureValuesLoaded, a dynasty format with values; otherwise the text says the check is
- * off: review of track A2), that every team number trades are judged by starts from those rosters, and the known
- * approximation.
+ * off: review of track A2), that every team number trades are judged by starts from those rosters, the inactive teams'
+ * rule where free agents are allocated (Phase 7a, A4; and, when the league's transactions can't tell, acceptance.
+ * inactiveRuleBlock "missing" or "partnerUnknown", that no team is treated so this time: review of track AL, finding AL-1),
+ * and the known approximation.
  */
 function pickupsExplainText(snapshot: LeagueSnapshot, model: LeagueModel, curve = false): string {
   const o = config.freeAgentOptimizer;
@@ -2410,13 +2447,18 @@ function pickupsExplainText(snapshot: LeagueSnapshot, model: LeagueModel, curve 
     ? "the most lineup points with injuries and byes simulated (so a backup who'd start when a starter is hurt or on bye counts)"
     : "the most projected lineup points";
   // One free agent, one team (§7; planner reply to Checkpoint 4, change 3): a model built before Phase 4b measured each team alone.
+  // Inactive teams (planner reply to Checkpoint 4c, A4): the engine's rule, in words, where it applies (an allocation).
+  const n = config.allocation.inactiveWeeks;
+  const block = inactiveRuleBlock(snapshot, n);
+  const unsure = block === "missing" || block === "partnerUnknown" ? " Right now no team is treated that way: some of this league's transactions didn't load or came back incomplete, so every team is assumed to make its pickups." : "";
+  const inactiveRule = n > 0 ? ` A team with no transactions in the last ${plural(n, "week")} (in the first weeks of the season: none this season) is assumed to make no pickups and to stream nothing; your team always counts as active.${unsure}` : "";
   const shared = model.faAllocation
-    ? ` Each free agent goes to one team only, ${allocationHow(model.faAllocation.basis)}: each team picks from the free agents the teams before it left, and in a trade the two teams pick again from the ones every other team left.`
+    ? ` Each free agent goes to one team only, ${allocationHow(model.faAllocation.basis)}: each team picks from the free agents the teams before it left, and in a trade the two teams pick again from the ones every other team left.${inactiveRule}`
     : " Each team is measured on its own, so two teams may count on the same free agent.";
   // ⚠️ Near-ties in whom a pickup drops (optimizer.ts's header; verification of the final review of Phase 4c, finding VF-1),
   // where the engine applies them: without long-term values (the dynasty guard off), as roster legality does.
   const tie = config.lineups.dropNearTieWeekly;
-  const nearTie = !guardOn && Number.isFinite(tie) && tie > 0 ? ` When the player it would drop has trade value and dropping a less valuable one instead costs at most ${fmtNum(tie)} points a week, the less valuable one goes (any player worth less than the best free agent counts as worth that much), so a pickup can add a little less.` : "";
+  const nearTie = !guardOn && Number.isFinite(tie) && tie > 0 ? ` When the player it would drop has trade value and dropping a less valuable one instead costs at most ${fmtNum(tie)} points a week, the less valuable one goes (any player worth less than the best free agent no team is expected to pick up counts as worth that much), so a pickup can add a little less.` : "";
   return `Each team is measured after the free-agent pickups that would help it, made one at a time: each time the add (dropping a player, or into an open roster spot) that adds ${most}, as long as it adds at least ${o.faMinGain}, up to ${plural(o.faMaxMoves, "pickup")}.${nearTie} ${capitalize(positionPlural("K", platform))} and ${positionPlural("DEF", platform)} are never picked up (they're streamed or kept), nor is a position the team streams, and a player its starting lineup needs is never dropped.${dynasty} Lineup cost, trade chips and partners all start from those rosters, so a trade never gets credit for a pickup a team could make anyway.${shared}`;
 }
 
@@ -2432,13 +2474,23 @@ function allocationHow(basis: NonNullable<LeagueModel["faAllocation"]>["basis"])
  * picks ("Your team picks 4th of 10."), and the order used, word for word the Import Report's "Waiver order used" row
  * (importReport.ts waiverOrderText; Phase 4c, planner reply to Checkpoint 4b, change 5) when its reading of the snapshot
  * (allocationBasis, the engine's rule restated) is the allocation's basis; else the basis in words, as before. Null
- * without an allocation (a model built before Phase 4b) or without teams.
+ * without an allocation (a model built before Phase 4b) or without teams. Phase 7a (planner reply to Checkpoint 4c, A4;
+ * review of track AL, finding AL-3): the teams in `inactive` keep their place in the order but claim nobody, so with any
+ * of them in it my place counts only the others ("Your team picks 1st of the 3 teams expected to make pickups.").
  */
-function pickupsNoteOf(snapshot: LeagueSnapshot, model: LeagueModel, myTeamId: string | null): LeagueView["pickupsNote"] {
+function pickupsNoteOf(snapshot: LeagueSnapshot, model: LeagueModel, myTeamId: string | null, inactive: ReadonlySet<string>): LeagueView["pickupsNote"] {
   const a = model.faAllocation;
   if (!a || !a.order.length) return null;
-  const place = myTeamId ? a.order.indexOf(myTeamId) : -1;
-  const mine = place >= 0 ? ` Your team picks ${ordinal(place + 1)} of ${a.order.length}.` : "";
+  const claiming = a.order.filter((id) => !inactive.has(id));
+  const place = myTeamId ? claiming.indexOf(myTeamId) : -1;
+  const mine =
+    place < 0
+      ? ""
+      : claiming.length === a.order.length
+        ? ` Your team picks ${ordinal(place + 1)} of ${a.order.length}.`
+        : claiming.length === 1
+          ? " Your team is the only one expected to make pickups."
+          : ` Your team picks ${ordinal(place + 1)} of the ${claiming.length} teams expected to make pickups.`;
   const waiverOrder = allocationBasis(snapshot) === a.basis ? waiverOrderText(snapshot) : null;
   return {
     text: waiverOrder ? `Free-agent pickups: each free agent goes to one team only.${mine}` : `Free-agent pickups: each free agent goes to one team only, ${allocationHow(a.basis)}.${mine}`,
@@ -2573,8 +2625,12 @@ export function buildLeagueView(input: LeagueViewInput): LeagueView {
         ? null
         : "No clear fits right now: no team has a trade chip who would start for you.";
 
-  // Rosters: mine first, then the table's order. Pickups show the gains the optimizer picked them by.
+  // Rosters: mine first, then the table's order. Pickups show the gains the optimizer picked them by. An inactive team
+  // (A4: the engine's own rule on the same snapshot, acceptance.inactiveTeams; only where the model allocates free agents
+  // and weeks are left) says it makes none.
   const scenarioJudged = pickupsJudgedInScenarios(snapshot, model);
+  const inactive = new Set(model.faAllocation && model.weeks.length ? inactiveTeams(snapshot, myTeamId, config.allocation.inactiveWeeks) : []);
+  const inactiveText = `Inactive: no transactions ${inactiveWindowText(snapshot)}, so no free-agent pickups are assumed.`;
   const rosterOrder = myTeamId ? [myTeamId, ...order.filter((id) => id !== myTeamId)] : order;
   const rosters: RosterCard[] = rosterOrder.map((id) => {
     const team = teamById.get(id) as Team;
@@ -2591,10 +2647,11 @@ export function buildLeagueView(input: LeagueViewInput): LeagueView {
       summary,
       streams: model.weeks.length ? streamsText(model, id, snapshot.platform) : null,
       pickups: freeAgentPickups(snapshot, t, weighting, scenarioJudged),
+      inactive: inactive.has(id) ? inactiveText : null,
       players: [...active, ...ir, ...taxi],
     };
   });
-  const streaming = streamingView(snapshot, model, myTeamId, teamName, from);
+  const streaming = streamingView(snapshot, model, myTeamId, teamName, from, inactive);
 
   // Free agents: the best few by ROS points at each startable position.
   const startable = POSITIONS.filter((pos) => snapshot.settings.lineup.some((s) => s.count > 0 && s.eligible.includes(pos)));
@@ -2670,7 +2727,7 @@ export function buildLeagueView(input: LeagueViewInput): LeagueView {
     chipLegend: `trade chip: worth at least ${config.needs.chipMinGap} more lineup pts to another team than to his own`,
     heatmap,
     partners: { cards, empty: partnersEmpty },
-    pickupsNote: weeks.length ? pickupsNoteOf(snapshot, model, myTeamId) : null,
+    pickupsNote: weeks.length ? pickupsNoteOf(snapshot, model, myTeamId, inactive) : null,
     streaming,
     rosters,
     freeAgents,

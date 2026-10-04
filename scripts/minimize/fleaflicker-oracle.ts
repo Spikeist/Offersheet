@@ -31,6 +31,7 @@ import type { OracleRow } from "../lib/fleaflicker/scoring";
 import type { RuleMapping } from "../lib/fleaflicker/scoring-map";
 import { LOCAL_SANITIZED_DIR } from "../lib/fixtures";
 import { readLocalFixture, saveMinimizedFixture, shiftTimestamps, timestampShiftMs } from "../lib/minimize";
+import { isMainModule } from "../lib/runMode";
 import { ORACLE_WEEKS, SEASON, TOLERANCE_TEXT, measurePopulation, minimizeStats, pct, round3, selectSubset, sleeperPlayers, sleeperWeekStats } from "./mfl-fleaflicker-common";
 
 const DRY_RUN = process.argv.includes("--dry-run");
@@ -221,7 +222,10 @@ async function main(): Promise<void> {
   for (const spec of LEAGUES) await oracleFor(spec, sleeperBySr, sleeperDefs);
 }
 
-main().catch((err: unknown) => {
-  console.error(err instanceof Error ? err.message : String(err));
-  process.exit(1);
-});
+// Run only as a script (an exact path: ../lib/runMode.ts isMainModule; a scratch file that imports it starts nothing).
+if (isMainModule(import.meta.url)) {
+  main().catch((err: unknown) => {
+    console.error(err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  });
+}

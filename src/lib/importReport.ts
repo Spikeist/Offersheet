@@ -12,8 +12,11 @@
  * tiebreaker, or unknown with points for assumed) and the weeks with final scores; a matchup that
  * spans several NFL weeks counts in all of them. Phase 4c adds the "Waiver order used" row (§7 one
  * free agent, one team; planner reply to Checkpoint 4b, change 5): the order the engine hands free
- * agents out in, read from the same snapshot (waiverOrderText).
+ * agents out in, read from the same snapshot (waiverOrderText). Phase 7a adds the "Inactive teams" row
+ * (planner reply to Checkpoint 4c, A4: "Team 6: inactive, no pickups assumed."; inactiveTeamsView), the
+ * engine's own rule on the same snapshot (acceptance.inactiveTeams).
  */
+import { inactiveRuleBlock, inactiveTeams, transactedWithin, transactionWeek } from "@/engine/acceptance";
 import { config } from "@/engine/config";
 import type { ModelInputs } from "@/engine/inputs";
 import { fantasyCalcFormat, fantasyCalcFormatLabel } from "@/engine/market";
@@ -138,8 +141,12 @@ export interface ImportReportView {
     pointsOnly: boolean;
     divisions: { name: string; teams: string[] }[];
   };
-  /** waiverOrder: the "Waiver order used" row (waiverOrderText), e.g. "Weekly reset (reverse standings)". */
-  trades: { deadline: string; review: string; faab: string; waiverOrder: string };
+  /**
+   * waiverOrder: the "Waiver order used" row (waiverOrderText), e.g. "Weekly reset (reverse standings)"; inactive: the
+   * "Inactive teams" row (inactiveTeamsView): one line per inactive team ("Team 6: inactive, no pickups assumed.") and a
+   * note saying what the rule is, or why nobody is.
+   */
+  trades: { deadline: string; review: string; faab: string; waiverOrder: string; inactive: InactiveTeamsView };
   teams: {
     rows: TeamRow[];
     /** For the "Your team" picker, alphabetical; `note` marks the platform's team or the one from the user's link. */
@@ -608,6 +615,61 @@ export function waiverOrderText(snapshot: Pick<LeagueSnapshot, "settings" | "tea
   return "Live order (rolling waivers)";
 }
 
+/** The "Inactive teams" row (inactiveTeamsView). */
+export interface InactiveTeamsView {
+  /** One line per inactive team, in snapshot order: "Team 6: inactive, no pickups assumed." (the planner's words). */
+  lines: string[];
+  /** What the rule is (with inactive teams), or why nobody is inactive. */
+  note: string;
+}
+
+/**
+ * The window the inactive rule reads, in words (planner reply to Checkpoint 4c, A4; acceptance.withinLastWeeks: the
+ * transactions whose week is above the league week − config.allocation.inactiveWeeks): "this season" while that covers
+ * every week from 0 on (fewer weeks played than the rule's), else "in the last 5 weeks".
+ */
+export function inactiveWindowText(snapshot: Pick<LeagueSnapshot, "currentWeek" | "leagueWeek">): string {
+  const n = config.allocation.inactiveWeeks;
+  return transactionWeek(snapshot) - n < 0 ? "this season" : `in the last ${plural(n, "week")}`;
+}
+
+/**
+ * The "Inactive teams" row (planner reply to Checkpoint 4c, A4: "Show this in the Import Report, for example 'Team 6:
+ * inactive, no pickups assumed.'"): the engine's own list (acceptance.inactiveTeams with config.allocation.inactiveWeeks:
+ * no transaction in that window, never `myTeamId`, the user's team; nobody when the transactions can't tell,
+ * acceptance.inactiveRuleBlock), one line per team in snapshot order, and a note: the rule when some team is inactive;
+ * else why nobody is: every team has made a move in the window ("every other team", review of track AL, finding AL-4,
+ * when mine hasn't: it always counts as active); some of the league's transactions didn't load or couldn't be read, or a
+ * trade in the window came back without one of its teams (finding AL-1: then nobody can be told inactive); the league shows
+ * no transaction at all; or the rule is off. Each "nobody" case says every team is assumed to make its pickups. When some
+ * team is inactive and mine made no move either, the note says mine still counts as active. The League page's rosters
+ * say the same for each inactive team (leagueView.ts).
+ */
+export function inactiveTeamsView(snapshot: Pick<LeagueSnapshot, "teams" | "transactions" | "warnings" | "currentWeek" | "leagueWeek">, myTeamId: string | null, teamName: (id: string) => string): InactiveTeamsView {
+  const n = config.allocation.inactiveWeeks;
+  const ids = inactiveTeams(snapshot, myTeamId, n);
+  const window = inactiveWindowText(snapshot);
+  // My team never counts as inactive (the user is acting), so the note mustn't say every team has moved when mine hasn't.
+  const mineQuiet = myTeamId !== null && snapshot.teams.some((t) => t.id === myTeamId) && !transactedWithin(snapshot.transactions ?? [], myTeamId, transactionWeek(snapshot), n);
+  if (ids.length) {
+    const yours = mineQuiet ? " Your team hasn't made one either, but yours always counts as active." : "";
+    return { lines: ids.map((id) => `${teamName(id)}: inactive, no pickups assumed.`), note: `No transactions ${window}, so we assume ${ids.length === 1 ? "it makes" : "they make"} no free-agent pickups.${yours}` };
+  }
+  const everyTeam = "every team is assumed to make its free-agent pickups.";
+  switch (inactiveRuleBlock(snapshot, n)) {
+    case "off":
+      return { lines: [], note: `None: ${everyTeam}` };
+    case "missing":
+      return { lines: [], note: `None assumed: some of this league's transactions didn't load or couldn't be read, so we can't tell which teams have been inactive, and ${everyTeam}` };
+    case "noTransactions":
+      return { lines: [], note: `None assumed: this league shows no transactions this season, so ${everyTeam}` };
+    case "partnerUnknown":
+      return { lines: [], note: `None assumed: a trade ${window} came back without one of its teams, so we can't tell which teams have been inactive, and ${everyTeam}` };
+    default:
+      return { lines: [], note: mineQuiet ? `None: every other team has made a transaction ${window} (yours always counts as active).` : `None: every team has made a transaction ${window}.` };
+  }
+}
+
 function deadlineText(st: LeagueSettings, timeZone: string, short: boolean): string {
   const d = st.tradeDeadline;
   if (!d || (d.date === undefined && d.week === undefined)) return "No trade deadline";
@@ -805,6 +867,7 @@ export function buildImportReport(response: ImportResponse, opts: ReportOptions)
     review: reviewUnknown ? UNKNOWN_SETTING_TEXT : TRADE_REVIEW_LABEL[settings.tradeReview],
     faab: settings.faabBudget !== undefined ? `$${fmtNum(settings.faabBudget)} FAAB budget` : "No FAAB budget reported",
     waiverOrder: waiverOrderText(snapshot),
+    inactive: inactiveTeamsView(snapshot, myTeamId, teamName),
   };
   const deadlineTile: GlanceTile = {
     id: "deadline",

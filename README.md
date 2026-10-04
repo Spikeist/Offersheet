@@ -15,15 +15,25 @@ npm run check-env
 
 Fill in `.env.local` with whatever you have. Blank means "not available". Never paste its values into chats or reports. `npm run check-env` shows only "set" or "blank".
 
-## Run the app (PowerShell)
+## Run the stable copy (PowerShell)
+
+For everyday use, run the last approved checkpoint, which work in progress can't break:
+
+```powershell
+npm run stable
+```
+
+Then open http://127.0.0.1:3000. It keeps a production build of the newest `checkpoint-*` tag in the sibling folder `fantasy-trade-finder-stable` (created, updated, installed and built as needed; `.env.local` is copied in, never printed). Ctrl+C stops it; run it again after a new checkpoint to update. Your saved leagues, settings and feedback live in the browser under http://127.0.0.1:3000, so they stay put. `npm run stable -- --help` lists its options.
+
+## Run the development version (PowerShell)
 
 ```powershell
 npm run dev
 ```
 
-Then open http://localhost:3000/connect and connect an ESPN or Sleeper league. The Import Report shows what the app understood; the League page (http://localhost:3000/league) shows the standings with playoff, bye and title odds, your remaining schedule with each week's risk, projected points, needs, trade chips, trade partners and every player's rest-of-season points. Its math runs in the browser. By default your own ESPN league imports the way a leaguemate's would (public link, pick your team). To have development use `ESPN_S2` and `ESPN_SWID` from `.env.local` instead, so the app finds your team itself, set `USE_ENV_COOKIES=1` in `.env.local` and restart `npm run dev`.
+Then open http://127.0.0.1:3001/connect and connect an ESPN or Sleeper league. The Import Report shows what the app understood; the League page (http://127.0.0.1:3001/league) shows the standings with playoff, bye and title odds, your remaining schedule with each week's risk, projected points, needs, trade chips, trade partners and every player's rest-of-season points. Its math runs in the browser. By default your own ESPN league imports the way a leaguemate's would (public link, pick your team). To have development use `ESPN_S2` and `ESPN_SWID` from `.env.local` instead, so the app finds your team itself, set `USE_ENV_COOKIES=1` in `.env.local` and restart `npm run dev`.
 
-`npm run dev` listens on this computer only. To try it from a phone on the same Wi-Fi, run `npx next dev -H 0.0.0.0` instead and open the computer's address on port 3000; while that runs, anyone on the network can reach the development server (and, with `USE_ENV_COOKIES=1`, the `.env.local` cookie fallback for your league).
+`npm run dev` listens on this computer only. To try it from a phone on the same Wi-Fi, run `npx next dev -H 0.0.0.0` instead and open the computer's address on port 3001; while that runs, anyone on the network can reach the development server (and, with `USE_ENV_COOKIES=1`, the `.env.local` cookie fallback for your league).
 
 ## Everyday commands
 

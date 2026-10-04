@@ -5,6 +5,8 @@ import { ESPN_WAIVER_CODES } from "@/adapters/espn/waivers";
 import { normalizeSleeperLeague } from "@/adapters/sleeper/normalize";
 import { fakeResolver, loadTestLeague, rawOf, type TestLeague } from "@/adapters/sleeper/test-helpers";
 import { WAIVER_RESET_BEFORE_GAMES as SLEEPER_WAIVER_RESET_BEFORE_GAMES, WAIVER_TYPE_UNKNOWN as SLEEPER_WAIVER_TYPE_UNKNOWN } from "@/adapters/sleeper/waivers";
+import { inactiveTeams } from "@/engine/acceptance";
+import { config } from "@/engine/config";
 import type { ModelInputs, PlayerInputs } from "@/engine/inputs";
 import { allocationOrder } from "@/engine/league";
 import { fantasyCalcFormat } from "@/engine/market";
@@ -347,12 +349,67 @@ describe("buildImportReport: lineup, season and trades", () => {
     const v = buildImportReport(response(snapshot()), { timeZone: TZ });
     // The made-up league reports no waiver ranks or budgets (the waiver order's own tests are below).
     const notReported = "Not reported (the team that gains the most picks first)";
-    expect(v.trades).toEqual({ deadline: "Wed, Dec 2, 2026, 12:00 PM EST (week 13)", review: "League vote: managers can veto trades", faab: "No FAAB budget reported", waiverOrder: notReported });
+    // Every team has a transaction this season (the inactive teams' own tests are below).
+    const inactive = { lines: [], note: "None: every team has made a transaction this season." };
+    expect(v.trades).toEqual({ deadline: "Wed, Dec 2, 2026, 12:00 PM EST (week 13)", review: "League vote: managers can veto trades", faab: "No FAAB budget reported", waiverOrder: notReported, inactive });
     const none = buildImportReport(response(snapshot({}, { tradeDeadline: null, tradeReview: "none", faabBudget: 100 })), { timeZone: TZ });
-    expect(none.trades).toEqual({ deadline: "No trade deadline", review: "No review: accepted trades go through", faab: "$100 FAAB budget", waiverOrder: notReported });
+    expect(none.trades).toEqual({ deadline: "No trade deadline", review: "No review: accepted trades go through", faab: "$100 FAAB budget", waiverOrder: notReported, inactive });
     const weekOnly = buildImportReport(response(snapshot({}, { tradeDeadline: { week: 11 } })), { timeZone: TZ });
     expect(weekOnly.trades.deadline).toBe("Week 11");
     expect(weekOnly.glance.find((t) => t.id === "deadline")?.value).toBe("Week 11");
+  });
+
+  it("the inactive teams (Phase 7a; planner reply to Checkpoint 4c, A4): the engine's own list, one line each in the planner's words, and the rule", () => {
+    const inactive = (snap: LeagueSnapshot, myTeamId?: string) => buildImportReport(response(snap), { timeZone: TZ, ...(myTeamId ? { myTeamId } : {}) }).trades.inactive;
+    const base = snapshot();
+    // Team 4's only transaction gone: it made none this season (week 4, fewer weeks than the rule's 5), so it's inactive.
+    const no4 = { ...base, transactions: base.transactions.filter((t) => !t.teams.includes("4")) };
+    expect(inactive(no4)).toEqual({ lines: ["Tundra Tortoises: inactive, no pickups assumed."], note: "No transactions this season, so we assume it makes no free-agent pickups." });
+    // The engine's rule word for word (acceptance.inactiveTeams, as league.ts reads it).
+    expect(inactiveTeams(no4, "1", config.allocation.inactiveWeeks)).toEqual(["4"]);
+    // My team is never inactive (the user is acting): mine without a transaction, Team 2 listed alone.
+    const only34 = { ...base, transactions: base.transactions.filter((t) => !t.teams.includes("1")) };
+    expect(inactive(only34).lines).toEqual(["Gravel Gophers: inactive, no pickups assumed."]);
+    expect(inactive(only34, "2").lines).toEqual(["Moonbeam Mudcats: inactive, no pickups assumed."]);
+    // Later in the season the window is the last 5 weeks: at week 9, transactions from weeks 2–3 are too old for anyone. Mine
+    // made none either: it still counts as active, and the note says so (review of track AL, finding AL-4).
+    expect(inactive({ ...base, currentWeek: 9 })).toEqual({
+      lines: ["Gravel Gophers: inactive, no pickups assumed.", "Quasar Quokkas: inactive, no pickups assumed.", "Tundra Tortoises: inactive, no pickups assumed."],
+      note: "No transactions in the last 5 weeks, so we assume they make no free-agent pickups. Your team hasn't made one either, but yours always counts as active.",
+    });
+    // Sleeper's league week, when it has one, numbers the transactions: league week 7 keeps weeks 3 and later in the window
+    // (Team 2's week-2 trade falls out), league week 6 weeks 2 and later (everyone in).
+    expect(inactive({ ...base, currentWeek: 9, leagueWeek: 7 }).lines).toEqual(["Gravel Gophers: inactive, no pickups assumed."]);
+    expect(inactive({ ...base, currentWeek: 9, leagueWeek: 6 })).toEqual({ lines: [], note: "None: every team has made a transaction in the last 5 weeks." });
+    // No transaction at all: the league can't tell its teams apart, so nobody is assumed inactive (⚠️ ours).
+    expect(inactive({ ...base, transactions: [] })).toEqual({ lines: [], note: "None assumed: this league shows no transactions this season, so every team is assumed to make its free-agent pickups." });
+  });
+
+  it("⚠️ says why nobody is inactive when the transactions can't tell (review of track AL, finding AL-1), and never that every team moved when mine didn't (AL-4)", () => {
+    const inactive = (snap: LeagueSnapshot, myTeamId?: string) => buildImportReport(response(snap), { timeZone: TZ, ...(myTeamId ? { myTeamId } : {}) }).trades.inactive;
+    const base = snapshot();
+    const no4 = { ...base, transactions: base.transactions.filter((t) => !t.teams.includes("4")) };
+    expect(inactive(no4).lines).toEqual(["Tundra Tortoises: inactive, no pickups assumed."]);
+    // A week's transactions didn't load (the ESPN fetch's warning): Team 4's moves may be in it, so nobody is assumed inactive.
+    const missing = { ...no4, warnings: [...no4.warnings, { code: "ESPN_TRANSACTIONS_UNAVAILABLE", message: "ESPN didn't return every week's transactions, so trade and activity history may be incomplete (HTTP 503).", platformPath: "view=mTransactions2&scoringPeriodId=3" }] };
+    expect(inactive(missing)).toEqual({
+      lines: [],
+      note: "None assumed: some of this league's transactions didn't load or couldn't be read, so we can't tell which teams have been inactive, and every team is assumed to make its free-agent pickups.",
+    });
+    expect(inactiveTeams(missing, "1", config.allocation.inactiveWeeks)).toEqual([]);
+    // A trade this season listed without one of its teams (ESPN: its other side unknown): it may be Team 4's.
+    const partnerless = { ...no4, transactions: [...no4.transactions, { id: "t9", type: "trade" as const, week: 4, timestamp: "2026-09-28T00:00:00Z", teams: ["3"], moves: [] }] };
+    expect(inactive(partnerless)).toEqual({
+      lines: [],
+      note: "None assumed: a trade this season came back without one of its teams, so we can't tell which teams have been inactive, and every team is assumed to make its free-agent pickups.",
+    });
+    // Every other team moved but mine didn't: mine always counts as active, so the note doesn't claim every team moved.
+    const mineQuiet = { ...base, transactions: [...base.transactions.filter((t) => !t.teams.includes("1")), { id: "t5", type: "drop" as const, week: 4, timestamp: "2026-09-28T00:00:00Z", teams: ["2"], moves: [{ playerId: "9004", from: "2", to: null }] }] };
+    expect(inactive(mineQuiet)).toEqual({ lines: [], note: "None: every other team has made a transaction this season (yours always counts as active)." });
+    // Picked as another team, Team 1 is judged like the rest (inactive), and the picked team made a move.
+    expect(inactive(mineQuiet, "2")).toEqual({ lines: ["Moonbeam Mudcats: inactive, no pickups assumed."], note: "No transactions this season, so we assume it makes no free-agent pickups." });
+    // Without a team of mine, there's nobody to except.
+    expect(inactive({ ...mineQuiet, myTeamId: null }).lines).toEqual(["Moonbeam Mudcats: inactive, no pickups assumed."]);
   });
 
   it("the waiver order used, worded by the order free agents are handed out in (Phase 4c; planner reply to Checkpoint 4b, change 5)", () => {

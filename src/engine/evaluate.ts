@@ -38,7 +38,10 @@
  *   trades on the screening's seasons and showing B from the same seasons would show the luck that chose them (the shown
  *   B was above other seeds' for 21 of 25 trades). Within each block every run shares the draws (common random numbers).
  *   The baseline odds of each block go through the same code as every trade's "after" run, so a trade that changes
- *   neither side's V* moves nothing.
+ *   neither side's V* moves nothing. With my team, one more run on the final block: the "Helps you" calibration (Phase 7a,
+ *   planner reply to Checkpoint 4c, A2; league.ts helpsCalibrationOf, the League model's step 8c on the same seasons and
+ *   setup, so SimState.calibration is LeagueModel.helpsCalibration exactly): my score + 3 points a week in every week a
+ *   trade can change, whose B under a call's goal and λ is B₃, the scale of Helps you and Overall (helpsScaleOf).
  * - Once: partner profiles (acceptance.partnerProfile, P(playoffs) from the finalSims baseline), hot players, the
  *   deadline urgency, perception values and the waiver credit W (the League model's), long-term values and MyDynTotal
  *   when they loaded (benefit.futureValuesLoaded), the league median of every slot instance over the hole weeks (the
@@ -76,6 +79,13 @@
  * Screening's legality adds skip each side's baseline exclusion excl(T) (TeamState.pool), ⚠️ whatever the trade's order:
  * screening is a filter. TradeContextOptions.faAllocation "independent" (Checkpoint 4's rule, for the Checkpoint 4b report
  * only) runs every team, and both sides of every trade, against the whole pool, mine first.
+ * Inactive teams (planner reply to Checkpoint 4c, A4; league.ts step 5; TeamState.inactive: no transaction in the last
+ * config.allocation.inactiveWeeks weeks, never me): no pickups in the baseline, and after a trade an inactive partner makes
+ * no V*(after) move and legality's rule 4 leaves the spots the trade opened open (⚠️ ours, the lead's design; rules 1–3 still
+ * apply: roster minimums are a platform rule). ⚠️ An inactive team between me and the partner in the order doesn't count as
+ * "a team between them" above (it would claim nobody): betweenActive.
+ * W is the best free agent the allocation leaves unclaimed (league.ts step 4; A3), the perception one and, in dynasty and
+ * keeper leagues with long-term values, the long-term one (TradeInternals.future.credit) alike.
  *
  * Roster legality (§7; M2). Assets are players in this phase (M11: ⚠️ draft picks are deferred to Phase 5).
  * - Illegal, in plain English: a pick; no asset at all; a player twice; more than the per-side maximum (the
@@ -115,7 +125,8 @@
  *      its only one still gets one in the spot (review of track E, item 5), but ⚠️ an upgrade of a kicker or D/ST it
  *      keeps is never the trade's (Phase 4b review of track C: V* never picks one up, so a 2-for-1 whose open spot took a
  *      better free-agent kicker credited the trade with a pickup the team could make anyway; on Parker's league, Oct 3,
- *      7 of the 19 shown trades raised the partner's lineup by about 1.1 a week that way).
+ *      7 of the 19 shown trades raised the partner's lineup by about 1.1 a week that way). ⚠️ Never for an inactive side
+ *      (planner reply to Checkpoint 4c, A4: it makes no pickups, so the spot stays open; the lead's design).
  *   Keep value (§7): what losing him costs the roster's lineup with nobody refilling his spot (teamValue.
  *   evRemovalCosts / scenarioRemovalCosts) in the evaluation's lineup mode (EV in screening, scenario lineups in exact
  *   evaluation); in dynasty and keeper leagues with long-term values, ⚠️ (L7's reading of "plus normalized market
@@ -218,9 +229,11 @@
  * points by week). Then benefit() (λ = settings.lambda ?? the default by my finalSims baseline
  * P(playoffs); κ = the "Protect my trade value" level's, redraft leagues only: planner addendum to Checkpoint 3, §3, N3;
  * the market term reads g_mkt(me), each player at max(v, W) on both sides: benefit.ts's header; B_win's ΔPO / ΔCH weights
- * by the per-call "What matters most" goal, TradeSettings.goal: Phase 4c, change 8), tradeNumbers, tradeFlags (on the
- * same g_mkt(me)), and benefitNotes into the detail's notes. The search, the Analyzer, the steps' versions and Plan B's
- * final simulations pass the call's goal and protectValue (a cached context may hold older settings).
+ * by the per-call "What matters most" goal, TradeSettings.goal: Phase 4c, change 8), tradeNumbers on B₃ for the same goal
+ * and λ (helpsScaleOf: one scale for every stage, so a step's or Plan B's Helps you compares with its card's; Phase 7a),
+ * tradeFlags (on the same g_mkt(me)), and benefitNotes and helpsScaleNotes (my odds barely move, or the λ cap) into the detail's notes. The
+ * search, the Analyzer, the steps' versions and Plan B's final simulations pass the call's goal and protectValue (a cached
+ * context may hold older settings).
  * ⚠️ κ = 0 when the trade values are our own estimates (Phase 4c lead decision; valuesEstimated: FantasyCalc's curve
  * fallback, MarketInputs.fallback kind "curve"): g_mkt(me) is then computed from values the model derives from its own
  * ROS points, so the market term would count lineup points a second time on top of B_win (the long-term term is already
@@ -300,12 +313,12 @@
  * period isn't modeled; draft picks are deferred.
  */
 import { acceptance, hotPlayers, hotTerm, hotWeeks, holeFeature, median, partnerLineupDelta, partnerProfile, quickAcceptance, tradeDeadlinePassed, transactionWeek, urgencyTerm, vetoApplies, type HoleSlot, type PartnerProfile, type ReceivedPlayer, type ReceivedStarter } from "./acceptance";
-import { benefit, benefitNotes, futureValuesLoaded, injuredReceived, protectValueWeight, rosterValue, tradeFlags, tradeNumbers, tradePackage } from "./benefit";
+import { benefit, benefitNotes, futureValuesLoaded, helpsScale, helpsScaleNotes, injuredReceived, protectValueWeight, rosterValue, tradeFlags, tradeNumbers, tradePackage, type HelpsScale } from "./benefit";
 import { config } from "./config";
 import { explainTrade, injuryTags, tagContextOf, type ExplainContext } from "./explain";
 import type { ModelInputs } from "./inputs";
-import { ODDS_REFUSED_WARNING, buildLeagueModelWithContext, claimedBy, finalRunLineups, nearTieRos, pickupScore, type FaAllocationMode, type LeagueContext, type TeamBase, type TeamWork } from "./league";
-import type { LeagueModel, PlayerPremium, SeasonOdds, SlotInstance } from "./leagueModel";
+import { ODDS_REFUSED_WARNING, buildLeagueModelWithContext, claimedBy, finalRunLineups, helpsCalibrationOf, nearTieRos, pickupScore, type FaAllocationMode, type LeagueContext, type TeamBase, type TeamWork } from "./league";
+import type { HelpsCalibration, LeagueModel, PlayerPremium, SeasonOdds, SlotInstance } from "./leagueModel";
 import { marketValues, valuesForTerm, waiverCredit, type ActiveSpots } from "./market";
 import { lineupTotal, prepareRoster } from "./lineup";
 import { instancePointsInto } from "./needs";
@@ -481,6 +494,11 @@ export interface TeamState {
   pool: PoolRestriction;
   /** Its place in the free-agent allocation order (0 = first claim), or null under faAllocation "independent". */
   claimRank: number | null;
+  /**
+   * An inactive team (league.ts TeamWork.inactive; planner reply to Checkpoint 4c, A4): no free-agent pickups in its
+   * baseline, and after a trade neither V*(after) moves nor legality's rule 4 (the file header). Never me.
+   */
+  inactive: boolean;
   /** Baseline in the exact mode. */
   base: SideEval;
   /** Baseline in EV lineups (screening): LV per week, EV ROS, instance points over the hole weeks. */
@@ -514,6 +532,12 @@ export interface SimState {
    */
   odds: SeasonOdds;
   base: Record<SimStage, MyOdds>;
+  /**
+   * Phase 7a (planner reply to Checkpoint 4c, A2): the "Helps you" calibration run on the final block against `odds`
+   * (league.ts helpsCalibrationOf, the League model's step 8c on the same seasons and setup: LeagueModel.helpsCalibration
+   * exactly). helpsScaleOf turns it into B₃ for a call's goal and λ. Null without my team.
+   */
+  calibration: HelpsCalibration | null;
 }
 
 /** Everything a search or an Analyzer call reads. Mutable only through its memos. */
@@ -794,6 +818,7 @@ export function buildTradeContext(snapshot: LeagueSnapshot, inputs: ModelInputs,
       claimed: t.claimed,
       pool: t.pool,
       claimRank: league.allocation ? (claimRanks.get(ti) ?? null) : null,
+      inactive: t.inactive,
       base: null as unknown as SideEval,
       baseEv: { lv: t.vstar.solved.lv, ros: t.vstar.evRos, hole: avgOver(evInstancePoints(t.vstar.solved, index), holeIdx, instances.length) },
     };
@@ -829,7 +854,9 @@ export function buildTradeContext(snapshot: LeagueSnapshot, inputs: ModelInputs,
     for (const [id, v] of Object.entries(fv)) fValues[id] = v.value;
     const top = valuesForTerm(market, "future").topValue;
     const myIds = I.me ? [...I.me.team.roster, ...I.me.team.ir, ...I.me.team.taxi] : [];
-    I.future = { values: fValues, credit: waiverCredit(fValues, league.freeAgentIds, top, config.market), top: Number.isFinite(top) && top > 0 ? top : 0, myTotal: rosterValue(myIds, fValues) };
+    // The long-term W like the perception one (league.ts step 4; planner reply to Checkpoint 4c, A3): the best free agent the
+    // allocation leaves unclaimed, on the long-term values.
+    I.future = { values: fValues, credit: waiverCredit(fValues, league.freeAgentIds, top, config.market, league.claimedAll), top: Number.isFinite(top) && top > 0 ? top : 0, myTotal: rosterValue(myIds, fValues) };
   }
 
   // The season simulation: one setup, one matrix, the baseline on both blocks. The setup is LeagueModel.odds's: every
@@ -857,11 +884,13 @@ export function buildTradeContext(snapshot: LeagueSnapshot, inputs: ModelInputs,
           const odds = seasonOdds(snapshot, seasonModel, { sims: finalSims, seed: simSeed, normals: blocks.final });
           if (odds) {
             const unknown: MyOdds = { pPlayoffs: 0, pTitle: null, expWins: 0, weekly: [] };
-            const sim: SimState = { built: setup, blocks, seed: simSeed, odds, base: { screen: unknown, final: unknown } };
+            const sim: SimState = { built: setup, blocks, seed: simSeed, odds, base: { screen: unknown, final: unknown }, calibration: null };
             I.sim = sim;
             if (I.me) {
               sim.base.screen = runSim(I, null, null, "screen");
               sim.base.final = runSim(I, null, null, "final");
+              // The "Helps you" calibration (B₃'s run): the League model's step 8c on the same block and setup.
+              sim.calibration = helpsCalibrationOf(snapshot, seasonModel, I.me.id, odds, { sims: finalSims, seed: simSeed, normals: blocks.final }, tw.from);
             }
           }
         }
@@ -1099,12 +1128,13 @@ function positionCounts(I: TradeInternals, roster: readonly string[]): Int32Arra
 
 /**
  * Whether no roster rule can apply to `before` − given + received (rules 1–4): no position above its cap, the roster
- * not above its size cap, no position below its minimum target, no spot opened. Then legality makes no move.
+ * not above its size cap, no position below its minimum target, no spot opened (`refills` false: an inactive side, whose
+ * open spots rule 4 leaves open). Then legality makes no move.
  */
-function legalityQuiet(I: TradeInternals, before: readonly string[], given: readonly string[], received: readonly string[]): boolean {
+function legalityQuiet(I: TradeInternals, before: readonly string[], given: readonly string[], received: readonly string[], refills = true): boolean {
   // Only given players on `before` leave it (screening's V*(T) may have dropped one already).
   const leaving = given.length === 0 ? given : given.filter((id) => before.includes(id));
-  if (received.length < leaving.length) return false; // rule 4: a spot opened
+  if (refills && received.length < leaving.length) return false; // rule 4: a spot opened
   const maxSize = I.league.maxRosterSize;
   if (received.length > leaving.length && Number.isFinite(maxSize) && maxSize > 0 && before.length - leaving.length + received.length > Math.max(maxSize, before.length)) return false;
   const limits = I.league.limits;
@@ -1430,7 +1460,7 @@ export function legalSide(
   const backAfter = new Set(returnersOf(spec).map((r) => r.id));
   const removedBase = [...givenActive, ...[...backBefore].filter((id) => !backAfter.has(id))];
   const addedBase = [...receivedActive, ...[...backAfter].filter((id) => !backBefore.has(id))];
-  if (legalityQuiet(I, before, givenActive, receivedActive)) {
+  if (legalityQuiet(I, before, givenActive, receivedActive, !side.inactive)) {
     if (need === "none") return { roster, change: { drops, adds }, ros: null, look: null, ...placed };
     // From a solved roster (V*(T) in screening), only the weeks the trade can change are solved again (swapLook).
     const look = base ? swapLook(I, base, removedBase, addedBase, need === "look") : quickLook(I, roster, spec, need === "look");
@@ -1614,11 +1644,11 @@ export function legalSide(
   // 4. Roster spots the trade opened: the free agent who most improves the lineup (never at a position the team streams),
   // at a K or D/ST position (optimizerExcluded: V* never picks one up) only to refill a starting slot the trade emptied:
   // the structural fill is below `before`'s and he raises it (the file header, rule 4). Fill counts are computed lazily,
-  // only for such a candidate.
+  // only for such a candidate. ⚠️ Not for an inactive side (A4: it makes no pickups; the spot stays open).
   const excluded = new Set<Pos>(side.stream.positions);
   const refillOnly = new Set<Pos>(I.league.cfg.streaming.optimizerExcluded.filter((p) => !excluded.has(p)));
   let fillBefore: number | null = null;
-  for (let open = before.length - roster.length; open > 0; open--) {
+  for (let open = side.inactive ? 0 : before.length - roster.length; open > 0; open--) {
     const base = ev();
     let fillNow: number | null = null;
     const refills = (row: TableRow): boolean => {
@@ -2007,6 +2037,17 @@ export function othersPool(I: TradeInternals, partner: TeamState): PoolRestricti
   return pool;
 }
 
+/**
+ * Whether a team that makes pickups sits strictly between allocation places `a` and `b` (TeamState.claimRank): one that
+ * isn't inactive (league.ts step 5, A4: an inactive team claims nobody, so a pickup released between the two never goes to
+ * it). Every team with a place counts (me and the partner hold `a` and `b` themselves).
+ */
+function betweenActive(I: Pick<TradeInternals, "teams">, a: number, b: number): boolean {
+  const lo = Math.min(a, b);
+  const hi = Math.max(a, b);
+  return I.teams.some((t) => t.claimRank !== null && t.claimRank > lo && t.claimRank < hi && !t.inactive);
+}
+
 /** Both sides of a trade after legality, and each one's free-agent-optimized roster V*(after) (tradeSides). */
 export interface TradeSidesAfter {
   mineLegal: LegalSide;
@@ -2028,18 +2069,20 @@ export interface TradeSidesAfter {
  * Both sides of a trade in the exact mode (the file header, "Exact evaluation" and "One free agent, one team"): the earlier
  * of me and the partner in the allocation order goes first, its legality adds (rules 3–4) and its V*(after) from the pool
  * minus X (othersPool); then the other one's, from the pool minus X minus every free agent the first one added here
- * (legality's adds and every add of its V*(after) run: league.claimedBy) and, ⚠️ when a team sits between the two in the
- * order, minus the first one's baseline pickups (TeamState.claimed) too: one it gives up after the trade would go to that
- * team first, which keeps its baseline, so nobody adds him; with no team between them the other one is next in line.
- * Without an allocation (faAllocation "independent"), mine first and both from the whole pool: Checkpoint 4's rule.
- * `{ illegal }` when a side's roster rules make it illegal (the first side's reason when both are).
+ * (legality's adds and every add of its V*(after) run: league.claimedBy) and, ⚠️ when a team that makes pickups sits between
+ * the two in the order (betweenActive: an inactive one claims nobody), minus the first one's baseline pickups
+ * (TeamState.claimed) too: one it gives up after the trade would go to that team first, which keeps its baseline, so nobody
+ * adds him; with no such team between them the other one is next in line. An inactive side (A4) makes no V*(after) move and
+ * no rule-4 add. Without an allocation (faAllocation "independent"), mine first and both from the whole pool: Checkpoint
+ * 4's rule. `{ illegal }` when a side's roster rules make it illegal (the first side's reason when both are).
  */
 export function tradeSides(I: TradeInternals, me: TeamState, partner: TeamState, give: readonly string[], get: readonly string[], partnerName: string): TradeSidesAfter | { illegal: string } {
   const optimizer = I.league.optimizer;
   const allocated = I.league.allocation !== null;
   const partnerFirst = allocated && me.claimRank !== null && partner.claimRank !== null && partner.claimRank < me.claimRank;
-  // Whether some team sits between the two in the allocation order (an unknown place counts as one: the cautious reading).
-  const between = me.claimRank === null || partner.claimRank === null || Math.abs(me.claimRank - partner.claimRank) > 1;
+  // Whether some team that makes pickups sits between the two in the allocation order (an unknown place counts as one: the
+  // cautious reading). ⚠️ An inactive team (A4) between them claims nobody, so it doesn't count (ours).
+  const between = me.claimRank === null || partner.claimRank === null || betweenActive(I, me.claimRank, partner.claimRank);
   const sides = [
     { team: me, given: give, received: get, who: "You" },
     { team: partner, given: get, received: give, who: partnerName },
@@ -2052,8 +2095,9 @@ export function tradeSides(I: TradeInternals, me: TeamState, partner: TeamState,
     const s = sides[k as 0 | 1];
     const l = legalSide(I, s.team, s.team.roster, s.given, s.received, "exact", s.who, "none", pool);
     if ("illegal" in l) return { illegal: l.illegal };
-    // With the side's IR after the trade: a returner given away leaves its lineups, one received joins them.
-    const run = optimizer.optimize(l.roster, l.spec, undefined, pool);
+    // With the side's IR after the trade: a returner given away leaves its lineups, one received joins them. An inactive
+    // side (A4) makes no free-agent move after the trade either.
+    const run = s.team.inactive ? optimizer.optimize(l.roster, l.spec, 0) : optimizer.optimize(l.roster, l.spec, undefined, pool);
     legal[k] = l;
     runs[k] = run;
     pools[k] = pool;
@@ -2227,8 +2271,9 @@ export function evaluateExact(I: TradeInternals, proposal: TradeProposal, maxPer
   );
   const f = I.future;
   // ΔDyn (§10): my long-term package change, each player at max(v, W) on the future term's values and W like every
-  // package (planner reply to Checkpoint 4, change 4): a player worth less than the best free agent is replaceable, and
-  // V*(me) already counts that, so dumping him is no long-term gain either. MyDynTotal stays raw (rosterValue).
+  // package (planner reply to Checkpoint 4, change 4): a player worth less than W, the best free agent no team is predicted
+  // to claim (A3), is replaceable, and V*(me) already counts that, so dumping him is no long-term gain either. MyDynTotal
+  // stays raw (rosterValue).
   const dynasty = f && I.snapshot.settings.leagueType !== "redraft" ? (() => {
     const pkg = tradePackage({ players: myRecv }, { players: myGive }, f.values, f.credit, config.market, myPkgSpots);
     return { delta: pkg.recv - pkg.give, total: f.myTotal };
@@ -2279,6 +2324,7 @@ export function evaluateExact(I: TradeInternals, proposal: TradeProposal, maxPer
     pComplete: accept.pComplete,
     acceptLabel: accept.label,
     overall: null,
+    b3: null,
     dPO: null,
     dCH: null,
     dEW: null,
@@ -2362,12 +2408,28 @@ export function simCounts(): { screen: number; final: number } {
 }
 
 /**
+ * B₃ for a call's goal and λ (planner reply to Checkpoint 4c, A2; benefit.ts's header, the three numbers): the context's
+ * calibration run (SimState.calibration, the League model's step 8c on the final block) through benefit.helpsScale with my
+ * baseline P(playoffs) (the default λ, as for every trade) and, in dynasty and keeper leagues whose long-term values loaded,
+ * MyDynTotal (a long-term change of 0: B₃ = (1 − λ) × B_win₃, like a trade's B with no long-term change; λ capped at
+ * config.benefit.helpsLambdaMax, review of track SC, SC-1). The same for every stage (screening, final, steps, Plan B, the
+ * Analyzer): one scale per search. Null without odds or my team.
+ */
+export function helpsScaleOf(I: Pick<TradeInternals, "sim" | "me" | "snapshot" | "future">, lambda: number | null, goal: Goal): HelpsScale | null {
+  if (!I.sim || !I.me) return null;
+  const leagueType = I.snapshot.settings.leagueType;
+  const dynastyTotal = I.future && leagueType !== "redraft" ? I.future.myTotal : null;
+  return helpsScale(I.sim.calibration, { leagueType, myPPlayoffs: I.sim.base.final.pPlayoffs, lambda, goal, dynastyTotal });
+}
+
+/**
  * The trade's season simulation (M4) on the `stage` block of seasons (screening or final), and every number that follows
  * from it: ΔPO, ΔCH, ΔEW, my win chance by week before and after (TradeDetail.winChance, winChanceOf: the baseline and the
  * trade's run on that block; empty in a points-only league), B and its parts (benefit, with λ = the setting or the default
  * by my finalSims baseline P(playoffs), κ = the "Protect my trade value" level's: benefit.protectValueWeight, or 0 when the
  * values are our own estimates (valuesEstimated), and B_win's weights by the "What matters most" goal), the Trade Score and
- * Overall, the flags, and benefitNotes (and estimatedValuesNotes, missingValuesNotes) in the detail's notes.
+ * Overall on B₃ for the same goal and λ (helpsScaleOf; TradeEvaluation.b3), the flags, and benefitNotes (and
+ * helpsScaleNotes, estimatedValuesNotes, missingValuesNotes) in the detail's notes.
  * Without odds (the context's note), B stays null and winChance absent. `protectValue` and `goal` are the user's per-call
  * settings (TradeSettings.protectValue, TradeSettings.goal); absent, the context's settings' (the search and the Analyzer
  * always pass theirs: a cached context may hold older settings, and neither setting rebuilds it).
@@ -2391,11 +2453,14 @@ export function simulateTrade(I: TradeInternals, x: ExactTrade, stage: SimStage,
   // κ: the "Protect my trade value" level's, but 0 when the trade values are our own estimates (valuesEstimated: the market
   // term would count lineup points twice; the file header, "The simulation"), with ESTIMATED_VALUES_NOTE.
   const kappa = valuesEstimated(I) ? 0 : protectValueWeight(protectValue ?? I.settings.protectValue);
-  const b = benefit({ leagueType: I.snapshot.settings.leagueType, dPO, dCH, gMine: ev.gMine, dynasty: x.dynasty, myPPlayoffs: I.sim ? I.sim.base.final.pPlayoffs : null, lambda, kappa, goal: goal ?? I.settings.goal });
-  const numbers = tradeNumbers(b, { pAccept: ev.pAccept, pComplete: ev.pComplete, label: ev.acceptLabel });
+  const g = goal ?? I.settings.goal;
+  const b = benefit({ leagueType: I.snapshot.settings.leagueType, dPO, dCH, gMine: ev.gMine, dynasty: x.dynasty, myPPlayoffs: I.sim ? I.sim.base.final.pPlayoffs : null, lambda, kappa, goal: g });
+  // The scores' scale, B₃, under the same goal and λ (planner reply to Checkpoint 4c, A2).
+  const scale = helpsScaleOf(I, lambda, g);
+  const numbers = tradeNumbers(b, { pAccept: ev.pAccept, pComplete: ev.pComplete, label: ev.acceptLabel }, scale?.b3 ?? null);
   const { titleMissing: _titleMissing, ...cardNumbers } = numbers;
   void _titleMissing;
-  const notes = [...ev.detail.notes, ...benefitNotes(b), ...estimatedValuesNotes(I), ...missingValuesNotes(I)];
+  const notes = [...ev.detail.notes, ...benefitNotes(b), ...helpsScaleNotes(scale), ...estimatedValuesNotes(I), ...missingValuesNotes(I)];
   return {
     ...ev,
     ...cardNumbers,

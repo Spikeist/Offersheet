@@ -35,6 +35,7 @@ import { scoringStatKeys } from "@/engine/scoring";
 import { readCache } from "../lib/cache";
 import { ROOT } from "../lib/env";
 import { readLocalFixture, saveMinimizedFixture } from "../lib/minimize";
+import { isMainModule } from "../lib/runMode";
 import { parseJsonKeepingBigInts } from "../lib/sleeper/json";
 import { cachedStatsWeek, type StatsRow } from "./sleeper-flags";
 
@@ -535,8 +536,8 @@ async function main(): Promise<void> {
   await minimizeOracleLeagues();
 }
 
-const isMain = process.argv[1] && /minimize[\\/]sleeper\.ts$/.test(process.argv[1]);
-if (isMain) {
+// Run only as a script (an exact path: ../lib/runMode.ts isMainModule; a scratch x-minimize/sleeper.ts doesn't start it).
+if (isMainModule(import.meta.url)) {
   main().catch((err: unknown) => {
     console.error(err instanceof Error ? err.message : err);
     process.exit(2);

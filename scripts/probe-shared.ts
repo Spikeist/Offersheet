@@ -10,7 +10,7 @@
  *   STATS-S  Sleeper actual stats (unverified endpoint)
  *   PROJ-E   ESPN league-independent projections (leaguedefaults/3)
  *
- *   npm run probe:shared
+ *   npm run probe:shared -- --live    (probes run only with --live: scripts/lib/probe.ts)
  *
  * All sources are public; no .env.local credential is used. The season and weeks come from Sleeper
  * /state/nfl, so a re-run later in the season checks that week's data. Output:
@@ -19,6 +19,7 @@
  */
 import type { ProbeContext } from "./lib/probe";
 import { runProbe } from "./lib/probe";
+import { isMainModule } from "./lib/runMode";
 import { errMsg, freshness, newState, note, savedLabels, type SharedState } from "./lib/shared/context";
 import { fetchSleeperState } from "./lib/shared/fetch";
 import { expectedLabels } from "./lib/shared/labels";
@@ -101,7 +102,8 @@ function teamCodes(p: ProbeContext, state: SharedState): void {
   if (Object.values(results).some((r) => r.pairs.length)) p.cl.question("Which NFL team-code set should be canonical in Phase 1: Sleeper's (it matches our canonical player IDs) or nflverse's (it matches the schedule)? The pairs in XWALK.teamCodes convert either way.");
 }
 
-void runProbe("shared", async (p) => {
+// Run only as a script (an exact path: scripts/lib/runMode.ts isMainModule); runProbe needs --live.
+if (isMainModule(import.meta.url)) void runProbe("shared", async (p) => {
   p.cl.meta.leagues = [{ label: "none (league-independent sources)", access: "public, no login, no cookies", source: "Sleeper state/projections/stats/players, FantasyCalc, DynastyProcess, nflverse, ESPN leaguedefaults/proTeams" }];
   const state = newState();
   const today = new Date().toISOString().slice(0, 10);

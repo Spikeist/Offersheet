@@ -22,8 +22,8 @@
  * from config.explain; "If they say no, try" shows its own odds too); an estimate under 5% shows "<5%" (answer 5); the
  * Finder's "Chance they accept: at least" and its default (change 10: config.ranking.minChanceDefault), judged on the
  * chance the trade goes through; the card's trade values are FantasyCalc's own (change 3), while the chance they
- * accept, Helps you and the Market check count roster spots, a throw-in worth no more than the best free agent adding
- * nothing (change 2), and the Analyzer's "Details" shows those figures; my side counts the free-agent moves a card says
+ * accept, Helps you and the Market check count roster spots, a throw-in worth no more than W, the best free agent no team is expected to pick up,
+ * adding nothing (change 2), and the Analyzer's "Details" shows those figures; my side counts the free-agent moves a card says
  * the trade counts on too (final review of Phase 4c, finding R1: evaluate.ts freeAgentMovesOf), and the weekly line lists
  * the weeks it drops first (finding R8).
  * Review of track UIC (findings 2 and 3): what it says about values follows the league's data (src/lib/tradeView.ts
@@ -33,10 +33,14 @@
  * the odds alone, "counts this season only" as the cards' note says); a hurt player's projection is "blended with the
  * trade market" only while the blend is on (`blendOn`). Each defaults to on, so the page reads as before while the league's
  * data loads.
+ * Planner reply to Checkpoint 4c (Phase 7a, A2): Helps you's scale, the same in every league and under every goal: 63 is
+ * about as good as adding 3 points a week to your lineup for the rest of the season, unless a note says otherwise
+ * (helpsScaleWords, from config).
  * A native <details>, closed at first; its summary is a 44 px target.
  */
 import { config } from "@/engine/config";
 import type { LeagueSettings } from "@/engine/model";
+import { fmtNum } from "@/lib/format";
 import { HARDER_TO_GET_TAG, harderToGetWho, minChanceLabel } from "@/lib/tradeView";
 
 export type HowToReadPage = "finder" | "analyzer";
@@ -67,6 +71,21 @@ export function acceptCapWords(cap: number = config.acceptance.pAcceptClamp[1]):
 export function weeklyLineWords(min: number = config.explain.weeklyLineMin, max: number = config.explain.weeklyLineMax): string {
   const n = Math.round(min * 100);
   return `by ${n} percentage ${n === 1 ? "point" : "points"} or more (up to ${max} ${max === 1 ? "week" : "weeks"}, the drops first, then the biggest gains)`;
+}
+
+/**
+ * The "Helps you" scale in words (planner reply to Checkpoint 4c, A2; benefit.ts's header, the three numbers): "In every
+ * league and under every goal, 63 is about as good as adding 3 points a week to your lineup for the rest of the season (28
+ * for 1 point a week, 86 for 6); when that doesn't hold for your team right now, a note on the page says so." A gain of g
+ * points a week reads round(100 × (1 − e^(−g / helpsGain))) when B grows in proportion to the gain (B = B₃ at helpsGain,
+ * config.benefit.helpsGain). Review of track SC, SC-1: not "under every setting": the scale departs when the odds barely
+ * move (the floor) or a Win now ↔ Future setting past the largest default λ, and benefit.helpsScaleNotes says so then.
+ */
+export function helpsScaleWords(gain: number = config.benefit.helpsGain): string {
+  const at = (g: number) => Math.round(100 * (1 - Math.exp(-g / gain)));
+  const low = gain / 3;
+  const high = gain * 2;
+  return `In every league and under every goal, ${at(gain)} is about as good as adding ${fmtNum(gain, 1)} points a week to your lineup for the rest of the season (${at(low)} for ${fmtNum(low, 1)} ${fmtNum(low, 1) === "1" ? "point" : "points"} a week, ${at(high)} for ${fmtNum(high, 1)}); when that doesn't hold for your team right now, a note on the page says so.`;
 }
 
 export const HOW_TO_READ_TITLE: Record<HowToReadPage, string> = {
@@ -115,7 +134,7 @@ export function HowToRead({
           <span className="font-bold">Helps you</span> (0–100) is how much the trade raises your chances this season: Offer Sheet plays out the rest of your season
           thousands of times with and without it, and weighs your title and playoff odds by your &ldquo;What matters most&rdquo; setting in Settings (the title
           counts most unless you change it). Each card shows those odds before and after the trade, and the weeks whose chance to win your game moves{" "}
-          {weeklyLineWords()}.{helpsValueWords(later, valuesOn, longTermOn)}
+          {weeklyLineWords()}.{helpsValueWords(later, valuesOn, longTermOn)} {helpsScaleWords()}
         </p>
         <p>
           <span className="font-bold">Chance they accept</span> is an estimate (Est.), rounded to 5% (&ldquo;&lt;{step}&rdquo; when it&apos;s lower) and never above{" "}
@@ -164,7 +183,7 @@ export function HowToRead({
         <p>
           ROS points are each player&apos;s projected points for the rest of the season. The trade values on the card are FantasyCalc&apos;s own, the numbers anyone can
           check on FantasyCalc. The chance they accept{helpsCountsValue ? ", Helps you" : ""} and the Market check count roster spots too: every player counts at least
-          what the best free agent is worth, an extra player in an uneven trade adds nothing when he&apos;s worth no more than that (the team getting him would cut
+          what the best free agent no team is expected to pick up is worth, an extra player in an uneven trade adds nothing when he&apos;s worth no more than that (the team getting him would cut
           someone like him), and the side getting fewer players is credited the roster spot it opens (an IR slot isn&apos;t one). Your side
           also counts the free-agent moves a card says the trade counts on: a player you&apos;d cut for them counts as if you traded him.{" "}
           {analyzer

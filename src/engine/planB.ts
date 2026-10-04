@@ -18,7 +18,8 @@
  * from the card in at least one player) and pass the rules on those numbers (planBPasses):
  * - legal, and it helps me: B known and above 0 (so its Helps you and Overall are numbers);
  * - its Helps you (the Trade Score as the card prints it, a whole number) is at least minHelpsShare × the card's
- *   (⚠️ the printed numbers, so the rule agrees with what the user reads);
+ *   (⚠️ the printed numbers, so the rule agrees with what the user reads; since Phase 7a every trade of a search is scored
+ *   on the same B₃, evaluate.helpsScaleOf, so the two compare like for like);
  * - not hidden by the market guard (flags.hiddenByMarket: g_mkt(me) below config.benefit.marketHideBelow);
  * - ⚠️ likelier to go through than the card: its P_complete at least minAcceptGain above the card's (review of track F:
  *   it's what you try after a no, so it must be easier to say yes to; on Parker's league, the 2026-10-03 21:29Z dump, the

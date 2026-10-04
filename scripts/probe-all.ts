@@ -2,10 +2,13 @@
  * Run every live probe one after another (never in parallel — be polite to the APIs), then rebuild
  * the matrix in reports/data-access.md.
  *
- *   npm run probe:all
- *   npm run probe:all -- --only=espn,sleeper
- *   npm run probe:all -- --matrix-only
- *   npm run probe:all -- --allow-crawl     (passed on to every probe; only after asking Parker)
+ *   npm run probe:all -- --live
+ *   npm run probe:all -- --live --only=espn,sleeper
+ *   npm run probe:all -- --matrix-only     (no network: rebuilds the matrix from the saved probe outputs)
+ *   npm run probe:all -- --live --allow-crawl     (passed on to every probe; only after asking Parker)
+ *
+ * The probes need --live (planner reply to Checkpoint 4c, A5: scripts touch the network only when asked;
+ * scripts/lib/runMode.ts), which is passed on to each; without it, only --matrix-only runs.
  *
  * CLAUDE.md §0.6: without --allow-crawl (or ALLOW_STRANGER_CRAWL=1) no probe crawls or discovers
  * strangers' leagues: each refreshes at most its one pinned test league and reads any other
@@ -17,18 +20,23 @@ import path from "node:path";
 import { ROOT } from "./lib/env";
 import { updateDataAccessMatrix } from "./lib/matrix";
 import { crawlAllowed } from "./lib/probe";
+import { LIVE_FLAG, isMainModule, requireLive, setNetworkMode } from "./lib/runMode";
 
 // Order matters: probe:sleeper reads the outputs of probe:shared and probe:sleeper-codes.
 const ALL = ["shared", "espn", "sleeper-codes", "sleeper", "fleaflicker", "mfl", "yahoo", "fantrax"];
 
 async function main() {
+  const matrixOnly = process.argv.includes("--matrix-only");
+  // The matrix alone reads saved outputs (no network); the probes need --live.
+  if (matrixOnly) setNetworkMode(false);
+  else requireLive({ script: "probe:all", what: "runs every live probe (--matrix-only rebuilds the matrix from saved outputs without the network)" });
   const onlyArg = process.argv.find((a) => a.startsWith("--only="));
   const only = onlyArg ? onlyArg.slice("--only=".length).split(",") : ALL;
   const results: Array<{ name: string; code: number | null; seconds: number }> = [];
-  const passOn = crawlAllowed() ? ["--allow-crawl"] : [];
+  const passOn = [LIVE_FLAG, ...(crawlAllowed() ? ["--allow-crawl"] : [])];
   console.log(crawlAllowed() ? "crawl gate: --allow-crawl (strangers' leagues may be crawled)" : "crawl gate: closed (no --allow-crawl): pinned test leagues only; other strangers' leagues from the cache");
 
-  if (!process.argv.includes("--matrix-only")) {
+  if (!matrixOnly) {
     for (const name of only) {
       const file = path.join(ROOT, "scripts", `probe-${name}.ts`);
       if (!existsSync(file)) {
@@ -49,4 +57,5 @@ async function main() {
   if (results.some((r) => r.code !== 0 && r.code !== null)) process.exitCode = 1;
 }
 
-void main();
+// Run only as a script (an exact path: scripts/lib/runMode.ts isMainModule; a scratch file that imports it starts nothing).
+if (isMainModule(import.meta.url)) void main();

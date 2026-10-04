@@ -9,6 +9,7 @@
  */
 import { readFileSync } from "node:fs";
 import { installConsoleScrubber } from "./redact";
+import { isMainModule } from "./runMode";
 import { formatPath, type JsonPath } from "./sanitize";
 
 interface Stat {
@@ -70,8 +71,8 @@ export function formatShape(stats: Map<string, Stat>): string {
   return lines.join("\n");
 }
 
-const isMain = process.argv[1] && /shape\.ts$/.test(process.argv[1]);
-if (isMain) {
+// Run only as a script (an exact path: runMode.ts isMainModule; a scratch reshape.ts doesn't start it). Offline: a local file.
+if (isMainModule(import.meta.url)) {
   installConsoleScrubber(); // numeric ranges could otherwise show a private league ID
   const file = process.argv[2];
   if (!file) {

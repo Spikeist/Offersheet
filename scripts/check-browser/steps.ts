@@ -668,7 +668,7 @@ export async function secondLeagueStep(ctx: StepContext): Promise<void> {
   const { page, report } = ctx;
   page.step = step;
   if (!ctx.args.secondLeague) {
-    report.skip(step, "not asked for (npm run check:browser -- --second-league adds a second league and switches between them)");
+    report.skip(step, "not asked for (npm run check:browser -- --live --second-league adds a second league and switches between them)");
     return;
   }
   if (!ctx.names) {

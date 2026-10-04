@@ -11,6 +11,10 @@
  *
  * Console output, report files and fixture labels all pass through the .env.local scrubber and the
  * platform Redactor. The probe exits 0 when it ran (even with ❌ items) and 2 if it crashed.
+ *
+ * Probes check live data, so they run only with --live (planner reply to Checkpoint 4c, A5: scripts touch the network only
+ * when asked; runMode.ts requireLive): `npm run probe:<name> -- --live`. Without it a probe says so and exits 1 before
+ * any request; with it, crawling strangers' leagues still needs --allow-crawl as well (crawlAllowed).
  */
 import { Checklist } from "./checklist";
 import { TTL, credentialScope } from "./cache";
@@ -18,6 +22,7 @@ import { env, envStatus } from "./env";
 import { saveRawFixture, saveSanitizedFixture, type FixtureMeta } from "./fixtures";
 import { getJson, request, requestLog, type HttpResult, type RequestOptions } from "./http";
 import { installConsoleScrubber, registerScrubber, scrubEverything } from "./redact";
+import { requireLive } from "./runMode";
 import { Redactor, type ApplyOptions } from "./sanitize";
 
 export interface ProbeContext {
@@ -61,6 +66,8 @@ function toMeta(res?: HttpResult | FixtureMeta): FixtureMeta {
 }
 
 export async function runProbe(platform: string, body: (p: ProbeContext) => Promise<void>): Promise<void> {
+  // Before anything else (no fixture, report or cache is touched): live data only with --live (the header).
+  requireLive({ script: `probe:${platform}`, what: "checks its data sources live" });
   const redactor = new Redactor(platform);
   installConsoleScrubber(redactor);
   registerScrubber(redactor);

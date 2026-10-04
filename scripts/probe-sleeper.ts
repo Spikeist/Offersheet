@@ -1,7 +1,7 @@
 /**
  * Phase 0 probe: Sleeper (CLAUDE.md §2.3, §17 Data Checklist A–M).
  *
- *   npm run probe:sleeper
+ *   npm run probe:sleeper -- --live    (probes run only with --live: scripts/lib/probe.ts)
  *
  * League: SLEEPER_LEAGUE_ID, else SLEEPER_USERNAME's leagues, else the pinned public test league, else
  * (only with --allow-crawl) a public test league found by a salted random walk
@@ -11,15 +11,15 @@
  * data-local/fixtures-sanitized/sleeper (only minimized copies are committed, in
  * fixtures/sanitized/min/sleeper/); Parker's league and public data go to fixtures/sanitized/sleeper.
  *
- * Code meanings are cross-checked against the crawl of public leagues (npm run probe:sleeper-codes,
+ * Code meanings are cross-checked against the crawl of public leagues (npm run probe:sleeper-codes -- --live,
  * reports/probe-output/sleeper-codes.json), and a few crawled leagues feed a cross-league scoring
  * oracle whose results are reported in aggregate only. CLAUDE.md §0.6: no new crawls of strangers'
  * leagues without asking Parker first, so without --allow-crawl those leagues are read from the HTTP
  * cache only (never from the network), and a check that needs data the cache lacks says
  * "untested: needs --allow-crawl (ask Parker first)".
  *
- *   npm run probe:sleeper
- *   npx tsx scripts/probe-sleeper.ts --allow-crawl     (only after Parker agreed to a new crawl)
+ *   npm run probe:sleeper -- --live
+ *   npx tsx scripts/probe-sleeper.ts --live --allow-crawl     (only after Parker agreed to a new crawl)
  */
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -31,6 +31,7 @@ import { LeakError, RAW_DIR, sanitizedDirFor } from "./lib/fixtures";
 import { setHostGap } from "./lib/http";
 import type { ProbeContext } from "./lib/probe";
 import { crawlAllowed, runProbe } from "./lib/probe";
+import { isMainModule } from "./lib/runMode";
 import { registerScrubber } from "./lib/redact";
 import { Redactor, type JsonPath } from "./lib/sanitize";
 import { getSleeperPlayers, type SleeperPlayer } from "./lib/sleeper-players";
@@ -239,7 +240,8 @@ const span = (xs: number[]) => (xs.length ? `${Math.min(...xs)}–${Math.max(...
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const round6 = (x: number) => Math.round(x * 1e6) / 1e6;
 
-void runProbe("sleeper", async (p) => {
+// Run only as a script (an exact path: scripts/lib/runMode.ts isMainModule); runProbe needs --live.
+if (isMainModule(import.meta.url)) void runProbe("sleeper", async (p) => {
   setHostGap("api.sleeper.app", SLEEPER_GAP_MS);
   const disc = new Redactor("sleeper/discovery");
   registerScrubber(disc);
@@ -966,7 +968,7 @@ function checkA(d: Data): void {
     d.crawl?.questions.length ? `open crawl questions: ${d.crawl.questions.map((q) => firstClause(q, 100)).join(" | ")}` : "",
   ].filter(Boolean);
   if (!d.crawl) {
-    cl.issue(`Sleeper settings codes are inferred from this one league because probe:sleeper-codes output (reports/probe-output/sleeper-codes.json) isn't there: ${rows.filter((r) => SETTINGS_NEEDED.has(r.key) && r.confidence !== "verified").map((r) => `${r.key}=${String(r.value)}`).join(", ")} — evidence: GET https://api.sleeper.app/v1/league/{leagueId} (HTTP ${lf.status}), path settings.* — options: run npm run probe:sleeper-codes, then rerun this probe.`);
+    cl.issue(`Sleeper settings codes are inferred from this one league because probe:sleeper-codes output (reports/probe-output/sleeper-codes.json) isn't there: ${rows.filter((r) => SETTINGS_NEEDED.has(r.key) && r.confidence !== "verified").map((r) => `${r.key}=${String(r.value)}`).join(", ")} — evidence: GET https://api.sleeper.app/v1/league/{leagueId} (HTTP ${lf.status}), path settings.* — options: run npm run probe:sleeper-codes -- --live, then rerun this probe.`);
   } else if (parts.length) {
     cl.issue(`Sleeper settings still unresolved after this league and the crawl of public leagues — ${parts.join(" — ")} — evidence: GET https://api.sleeper.app/v1/league/{leagueId} (HTTP ${lf.status}), path settings.* (full table in the settings-keys fixture); reports/probe-output/sleeper-codes.md — options: use the verified meanings as they are; for the rest, use the stated reading with an Import Report note (veto_votes_needed matters only with the veto poll), and decide how to treat guillotine leagues (settings.type 3).`);
   }
@@ -1212,7 +1214,7 @@ function checkC(d: Data, proj: Proj, statsWeeks: StatsWeek[]): void {
   // The same question across every key the crawled leagues score (F7): Parker's league is unknown.
   const crawlKeys = readCrawlScoringKeys();
   if (!crawlKeys) {
-    cl.na("C", "C.projectionCoverageAll", "Projection coverage across leagues", "skipped: probe:sleeper-codes output (meta.scoringKeysNonzero) not found; run npm run probe:sleeper-codes first");
+    cl.na("C", "C.projectionCoverageAll", "Projection coverage across leagues", "skipped: probe:sleeper-codes output (meta.scoringKeysNonzero) not found; run npm run probe:sleeper-codes -- --live first");
   } else {
     const table = projectionCoverage(crawlKeys.keys, direct, aliasSrc, freq);
     d.keyCoverage = table;
@@ -1851,7 +1853,7 @@ async function checkCrossLeagueOracle(d: Data, statsWeeks: StatsWeek[], oracleId
   const weeks = statsWeeks.filter((s) => s.f.ok).map((s) => s.week);
   const crawlLeagues = readCrawlLeagues();
   if (!crawlLeagues) {
-    cl.na("K", "K.oracleCrossLeague", "Scoring oracle, other leagues", `${allowCrawl ? "skipped" : NEEDS_CRAWL}: the probe:sleeper-codes crawl sample (data-local/sleeper-codes, git-ignored) isn't present; run npm run probe:sleeper-codes${allowCrawl ? "" : " -- --allow-crawl"}, then this probe`);
+    cl.na("K", "K.oracleCrossLeague", "Scoring oracle, other leagues", `${allowCrawl ? "skipped" : NEEDS_CRAWL}: the probe:sleeper-codes crawl sample (data-local/sleeper-codes, git-ignored) isn't present; run npm run probe:sleeper-codes -- --live${allowCrawl ? "" : " --allow-crawl"}, then this probe`);
     return;
   }
   if (!weeks.length) {

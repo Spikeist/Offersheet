@@ -1,7 +1,7 @@
 /**
  * Phase 0 probe: ESPN fantasy football (CLAUDE.md §2.2, §2.10, §17 Data Checklist A–M).
  *
- *   npm run probe:espn
+ *   npm run probe:espn -- --live      (probes run only with --live: scripts/lib/probe.ts)
  *
  * Leagues: Parker's league (ESPN_LEAGUE_ID + ESPN_SEASON, cookies ESPN_S2 + ESPN_SWID) and the
  * public test league from §2.2 (no cookies; settings-level checks, plus its completed weeks as a
@@ -21,6 +21,7 @@ import { FC_TEAM_SIZES, getFantasyCalc, matchRate, nearest, fantasyCalcUrl, type
 import { LeakError, type FixtureMeta } from "./lib/fixtures";
 import type { HttpResult } from "./lib/http";
 import { runProbe, type ProbeContext } from "./lib/probe";
+import { isMainModule } from "./lib/runMode";
 import { SWID_RE, collapsePath, formatPath, type JsonPath } from "./lib/sanitize";
 import { getSleeperPlayers, type SleeperPlayer } from "./lib/sleeper-players";
 import { bucketOf, bucketOverlaps, classifyRule, fmtRange, groupOf, mergeGroups, parseEspnRange, sleeperBuckets, type CanonicalGroup, type CanonicalRule, type Range } from "./lib/espn/canonical";
@@ -2017,7 +2018,8 @@ async function saveAllFixtures(ctx: Ctx, f: Fetched) {
 
 // ---------------------------------------------------------------- main
 
-void runProbe("espn", async (p) => {
+// Run only as a script (an exact path: scripts/lib/runMode.ts isMainModule); runProbe needs --live.
+if (isMainModule(import.meta.url)) void runProbe("espn", async (p) => {
   const season = Number(p.env("ESPN_SEASON") ?? "2026");
   const leagueId = p.env("ESPN_LEAGUE_ID");
   const auth: EspnAuth = { s2: p.env("ESPN_S2"), swid: p.env("ESPN_SWID") };

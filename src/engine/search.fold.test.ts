@@ -11,7 +11,7 @@ import { rankTrades } from "./rank";
 import { extraPlayersOf, foldedCards, rankCaps, runRefilter, runTradeSearch, searchStateOf, type SearchState } from "./search";
 import { defaultTradeSettings } from "./settings";
 import { TEST_NOW } from "./testLeague";
-import { smallLeague } from "./trade.testing";
+import { smallLeague, withWaiverStash } from "./trade.testing";
 import type { TradeSteps } from "./tradeModel";
 
 /** Steps naming `offer` first and `full` after (only the keys matter here). */
@@ -40,7 +40,9 @@ describe("folding in the searches (smallLeague 30 and 67, scenario lineups)", { 
   const settings = (minChance: number) => ({ ...defaultTradeSettings(), minChance });
   for (const seed of [30, 67]) {
     it(`seed ${seed}: no card's steps name another card; the cards that did are gone from the list ranked without folding`, () => {
-      const lg = smallLeague(seed);
+      // W at the best free agent's value (withWaiverStash: Checkpoint 4c's rule, which the folding here was measured on);
+      // A3's W, the best free agent left unclaimed, is lower in seed 30 (1,237 against 3,064) and leaves no folding there.
+      const lg = withWaiverStash(smallLeague(seed));
       const ctx = buildTradeContext(lg.snapshot, lg.inputs, { now: TEST_NOW, scenarios: 8 });
       const I = tradeInternals(ctx);
       for (const minChance of [0, 0.1]) {

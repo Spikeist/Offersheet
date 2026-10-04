@@ -291,6 +291,29 @@ export const config = {
     faDynGuard: 0.05,
   },
 
+  /**
+   * §7 One free agent, one team (planner reply to Checkpoint 4, change 3), and two rules from the planner's reply to
+   * Checkpoint 4c (league.ts step 5): who takes part in the allocation (A4) and the waiver credit W it leaves (A3).
+   */
+  allocation: {
+    /**
+     * A4: a team with no transaction of any type in this many weeks (the activity feature's window: transactions whose week
+     * is above the league week − this, so with fewer weeks played none this season) makes no free-agent pickups, in the
+     * baseline or after a trade (acceptance.inactiveTeams). ⚠️ Never my team; and nobody in a league whose snapshot holds no
+     * transaction at all, or may be missing some in this window (a week that didn't load, rows that couldn't be read, a trade
+     * listed without one of its teams: acceptance.inactiveRuleBlock). 0 turns the rule off.
+     */
+    inactiveWeeks: 5,
+    /**
+     * A3: W is the value of the best free agent the allocation leaves unclaimed, and the allocation reads W (its near-tie
+     * cuts floor values at W), so W is found by allocating again with the new W until it repeats: at most this many
+     * allocations (league.ts waiverCreditFixedPoint; a performance limit: Parker's league, Oct 4 09:24Z, takes 2, 615 →
+     * 491, and about 15 ms more per League model build). ⚠️ When it cycles or reaches this cap, the smaller W tried and its
+     * allocation are taken.
+     */
+    waiverCreditPasses: 4,
+  },
+
   /** §8 Season simulator. */
   simulation: {
     finalSims: 5000,
@@ -357,9 +380,10 @@ export const config = {
   benefit: {
     /**
      * Phase 4c (planner reply to Checkpoint 4b, change 8): B's weights by the per-league setting "What matters most"
-     * (TradeSettings.goal). B_win = 100 × (playoffs × ΔPO + title × ΔCH). B_ref stays 6 (the planner: "uniform gains move ΔPO
-     * and ΔCH about equally in Parker's league"). ⚠️ Measured for Checkpoint 4c: they don't, a uniform +3 points a week moves
-     * ΔPO about twice as much as ΔCH there, so "Win the title" reads about a fifth lower than Balanced (a planner question).
+     * (TradeSettings.goal). B_win = 100 × (playoffs × ΔPO + title × ΔCH). Checkpoint 4c measured that a uniform +3 points a
+     * week moves ΔPO about twice as much as ΔCH in Parker's league, so under a fixed B_ref "Win the title" read about a fifth
+     * lower than Balanced; since Phase 7a "Helps you" is scaled by B₃ under the same goal (helpsGain below), so the same
+     * lineup gain reads the same under every goal.
      */
     goals: {
       title: { playoffs: 0.15, title: 0.85 },
@@ -379,11 +403,22 @@ export const config = {
     /** Default λ by my P(playoffs): ≥ 0.5 → contender, 0.2–0.5 → bubble, < 0.2 → rebuild; keeper leagues use keeper. */
     lambda: { contender: 0.35, bubble: 0.5, rebuild: 0.75, keeper: 0.2, contenderAt: 0.5, bubbleAt: 0.2 },
     /**
-     * Trade Score ("Helps you") and Overall: round(100 × (1 − e^(−x / bRef))). 6 since Checkpoint 3 (answer 1):
-     * in Parker's league +1, +3 and +6 projected points a week gave B ≈ 2.05, 6.3 and 12.4, which 6 scores 29,
-     * 65 and 87, the planner's intended 29, 63 and 86.
+     * The "Helps you" scale calibrates itself per league and goal (planner reply to Checkpoint 4c, A2; benefit.ts helpsScale;
+     * it replaces Checkpoint 3's fixed B_ref 6): Helps you = round(100 × (1 − e^(−B / B₃))) and Overall = round(100 × (1 −
+     * e^(−B × P_complete / B₃))), B₃ = the B of a uniform +helpsGain projected points a week for my team in every week a
+     * trade can change, on the same baseline, goal and seasons (league.ts helpsCalibrationOf). So +1, +3 and +6 points a week
+     * read about 28, 63 and 86 in every league under every goal. B₃ is floored at helpsFloor: below it my odds barely move
+     * with lineup changes, and the search and the Analyzer say so (benefit.helpsScaleNotes: HELPS_FLOOR_NOTE).
      */
-    bRef: 6,
+    helpsGain: 3,
+    helpsFloor: 0.5,
+    /**
+     * ⚠️ Ours (review of track SC, finding SC-1): in dynasty and keeper leagues B₃ = (1 − λ) × B_win₃ follows the Win now ↔
+     * Future setting, with λ capped here. Uncapped, λ → 1 shrank B₃ to 0, so the floor became the whole scale and any
+     * long-term gain read about 100 ("≈ +36 pts/week"). The cap is the largest default λ (lambda.rebuild), so every default
+     * still reads +3 points a week as 63; past it (only by the slider) lineup gains this season read lower, and a note says so.
+     */
+    helpsLambdaMax: 0.75,
     marketCheckBelow: -0.15,
     marketHideBelow: -0.35,
     /** §10 guard: a trade that depends on a player I'd receive with one of these statuses is flagged ("currently OUT or on IR"; PUP is a reserve list like IR). */

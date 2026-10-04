@@ -378,6 +378,22 @@ function TradesCard({ view }: ViewProps) {
           { label: "FAAB", value: t.faab },
           // Phase 4c (planner reply to Checkpoint 4b, change 5): the order free agents go out in, one team each (§7).
           { label: "Waiver order used", value: t.waiverOrder },
+          // Phase 7a (planner reply to Checkpoint 4c, A4): teams assumed to make no free-agent pickups.
+          {
+            label: "Inactive teams",
+            value: t.inactive.lines.length ? (
+              <>
+                <ul className="space-y-1">
+                  {t.inactive.lines.map((line, i) => (
+                    <li key={`${i}:${line}`}>{line}</li>
+                  ))}
+                </ul>
+                <p className="mt-1 text-xs font-normal text-muted">{t.inactive.note}</p>
+              </>
+            ) : (
+              t.inactive.note
+            ),
+          },
           { label: "This season so far", value: `${plural(a.trades, "trade")} · ${plural(a.adds, "player")} added (${plural(a.waivers, "waiver claim")}) · ${a.drops} dropped` },
           ...(a.tradedPicks !== undefined ? [{ label: "Traded draft picks", value: a.tradedPicks }] : []),
         ]}

@@ -33,6 +33,7 @@ import { playerPoolFilter } from "../lib/espn/filters";
 import { request } from "../lib/http";
 import { installConsoleScrubber } from "../lib/redact";
 import { readLocalFixture, saveMinimizedFixture, shiftTimestamps, timestampShiftMs } from "../lib/minimize";
+import { isMainModule } from "../lib/runMode";
 
 const LEAGUE_LABEL = "public-league/{publicLeagueId}/view=mSettings+mTeam+mRoster+mStatus";
 const POOL_LABEL = (week: number) => `public-league/{publicLeagueId}/view=kona_player_info&scoringPeriodId=${week} (player pool, top 250 by % owned)`;
@@ -193,7 +194,10 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((err: unknown) => {
-  console.error(err instanceof Error ? err.message : String(err));
-  process.exit(1);
-});
+// Run only as a script (an exact path: ../lib/runMode.ts isMainModule; a scratch file that imports it starts nothing).
+if (isMainModule(import.meta.url)) {
+  main().catch((err: unknown) => {
+    console.error(err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  });
+}

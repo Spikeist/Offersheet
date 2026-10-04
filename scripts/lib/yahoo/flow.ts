@@ -116,7 +116,7 @@ export function appSetupSteps(): string[] {
     `redirect URI ${YAHOO_REDIRECT_URI}`,
     `API permissions: Fantasy Sports → Read (${YAHOO_SCOPE}); Yahoo sets scopes on the app, not in the authorize URL`,
     "send Yahoo that app's Client ID if they ask for it",
-    "fill YAHOO_CLIENT_ID and YAHOO_CLIENT_SECRET in .env.local (never paste them into chat), then run npm run probe:yahoo",
+    "fill YAHOO_CLIENT_ID and YAHOO_CLIENT_SECRET in .env.local (never paste them into chat), then run npm run probe:yahoo -- --live",
   ];
 }
 
@@ -130,7 +130,7 @@ function consentSteps(): string {
     `  2. Sign in and click Agree. Yahoo sends the browser to ${YAHOO_REDIRECT_URI}?code=...`,
     '     The page may not load until the Phase 5 route exists; that\'s fine. Copy the value after "code=" (stop at "&").',
     `  3. Add a line to .env.local:  ${YAHOO_AUTH_CODE_VAR}=<the code>   (codes expire within minutes; the whole callback URL also works)`,
-    "  4. Run again:  npm run probe:yahoo",
+    "  4. Run again:  npm run probe:yahoo -- --live",
     `     The probe exchanges the code once and saves ${YAHOO_REFRESH_TOKEN_VAR} into .env.local without printing it.`,
     "",
   ].join("\n");
@@ -318,7 +318,7 @@ function markItems(p: YahooProbe, reason: string, shared: ReturnType<typeof find
     if (id === "M") {
       const xw = shared
         ? `Yahoo id coverage from probe-shared XWALK.yahoo (${shared.status}${shared.generatedAt ? `, run ${shared.generatedAt.slice(0, 10)}` : ""}): ${shared.summary}`
-        : "Yahoo id coverage: run npm run probe:shared (check XWALK.yahoo)";
+        : "Yahoo id coverage: run npm run probe:shared -- --live (check XWALK.yahoo)";
       note = `${xw}. Fallback for players without a Yahoo id: match on name + position + NFL team, then the user confirms (like manual import, §2.8)`;
     }
     p.cl.na(id, `${id}.status`, TITLES[id], reason, { url: plan.url, path: plan.path, note });

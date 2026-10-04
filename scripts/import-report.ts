@@ -1,20 +1,28 @@
 /**
- * Import a league exactly the way the app does (the real adapters, polite HTTP client, server cache
- * and player-ID crosswalk) and write its Import Report ("Here's what we understood", CLAUDE.md §14)
- * as plain text, for checkpoint reports (Checkpoint 1: "the Import Report contents for Parker's
- * leagues").
+ * The Import Report ("Here's what we understood", CLAUDE.md §14) as plain text, for checkpoint reports (Checkpoint 1:
+ * "the Import Report contents for Parker's leagues"): from a saved dump by default, or a live import exactly the way the
+ * app does it (the real adapters, polite HTTP client, server cache and player-ID crosswalk) with --live.
  *
- *   npm run import:report                 Parker's ESPN league (and Sleeper league, if set) from .env.local,
- *                                         through the public-link path a leaguemate gets ("pick your team")
- *   npm run import:report -- --cookies    use the .env.local ESPN cookies (also the default when
+ *   npm run import:report                 no network: Parker's ESPN league from the newest git-ignored placeholder dump
+ *                                         (data-local/parker-league*, by meta.json's time; scripts/lib/runMode.ts), with
+ *                                         the dump's model inputs for the projection note; --team picks the team
+ *   npm run import:report -- --dump <dir> that dump instead (--offline <dir> is an alias)
+ *   npm run import:report -- --live       Parker's ESPN league (and Sleeper league, if set) from .env.local, through the
+ *                                         public-link path a leaguemate gets ("pick your team")
+ *   npm run import:report -- --live --cookies     use the .env.local ESPN cookies (also the default when
  *                                         USE_ENV_COOKIES=1, like `npm run dev`; CLAUDE.md §0.5)
- *   npm run import:report -- --no-cookies never use the cookies, even with USE_ENV_COOKIES=1
- *   npm run import:report -- --test-leagues   also the pinned public Sleeper test league (no per-team table)
+ *   npm run import:report -- --live --no-cookies  never use the cookies, even with USE_ENV_COOKIES=1
+ *   npm run import:report -- --live --test-leagues   also the pinned public Sleeper test league (no per-team table)
  *   npm run import:report -- --response-out <file>   also save the placeholder-only ESPN import as the
  *                                         sessionStorage record the Import Report page reads (UI checks;
  *                                         the app's current format, lib/importStore IMPORT_FORMAT_VERSION)
+ *   npm run import:report -- --out <file> write the report there instead of reports/import-report.md
  *
- * The report ends with every player ID override in the whole crosswalk (CLAUDE.md §2.9 crosswalk
+ * Offline by default (planner reply to Checkpoint 4c, A5): without --live the process's offline guard is on, so nothing
+ * here can touch the network. A dump keeps the import's snapshot (its warnings included) and the model inputs, not the
+ * import's own notes, the crosswalk or a Sleeper league: the offline report says so where those would be (offlineReport).
+ *
+ * Live, the report ends with every player ID override in the whole crosswalk (CLAUDE.md §2.9 crosswalk
  * rules: "log every override"), not just the ones on the imported leagues' players, which the
  * leagues' own notes list. It names NFL players only.
  *
@@ -37,9 +45,11 @@ import { buildImportReport, type ImportReportView } from "@/lib/importReport";
 import { toStoredImport } from "@/lib/importStore";
 import { FileCache } from "@/server/cache";
 import { createHttpClient } from "@/server/http";
+import { dumpNote, loadDump, type Dump } from "./league-report";
 import { ROOT, env, loadEnv } from "./lib/env";
 import { redactorFromMap } from "./lib/minimize";
 import { installConsoleScrubber, registerScrubber, scrubEverything } from "./lib/redact";
+import { flagValue, isMainModule, reportArgs, reportCommandText, reportSourceLine, setNetworkMode, wantsLive, type DumpInfo, type Env, type ReportArgs } from "./lib/runMode";
 
 const ID_KIND_LABELS: Readonly<Record<IdSource, string>> = { espn: "ESPN", mfl: "MFL", fleaflicker: "Fleaflicker", yahoo: "Yahoo", fantrax: "Fantrax", sportradar: "Sportradar", gsis: "GSIS" };
 const SOURCE_LABELS: Readonly<Record<CrosswalkSourceKey, string>> = { dynastyProcess: "DynastyProcess", fantasyCalc: "FantasyCalc", sleeper: "Sleeper DB" };
@@ -123,22 +133,79 @@ function render(view: ImportReportView, heading: string, opts: { aggregatesOnly?
   return L.join("\n");
 }
 
-async function main(): Promise<void> {
-  loadEnv();
-  installConsoleScrubber();
-  const withTestLeagues = process.argv.includes("--test-leagues");
+// ---------------------------------------------------------------------------------------------
+// The command line
+
+/** import:report's command line: a report's (runMode.reportArgs: the dump or --live, --team, --cookies, --out), plus --test-leagues and --response-out. */
+export interface ImportReportArgs extends ReportArgs {
+  /** --test-leagues (with --live): also the pinned public Sleeper test league. */
+  testLeagues: boolean;
+  /** --response-out <file>: also save the ESPN import as the Import Report page's sessionStorage record. */
+  responseOut: string | undefined;
+}
+
+export function parseImportReportArgs(argv: readonly string[], root: string, opts: { env?: Env; dumps?: () => readonly DumpInfo[] } = {}): ImportReportArgs | { error: string } {
+  const base = reportArgs(argv, root, opts);
+  if ("error" in base) return base;
+  const testLeagues = argv.includes("--test-leagues");
+  if (testLeagues && base.dump) return { error: "--test-leagues imports the public Sleeper test league from Sleeper, so it needs --live: npm run import:report -- --live --test-leagues." };
+  const out = flagValue(argv, "--response-out");
+  if (argv.includes("--response-out") && out === undefined) return { error: "--response-out needs a file, for example --response-out .cache/import.json." };
+  return { ...base, testLeagues, responseOut: out === undefined ? undefined : path.resolve(root, out) };
+}
+
+/** The command line the report's header prints (runMode.reportCommandText: the dump named, or --live), with --test-leagues. */
+export function importReportCommand(args: ImportReportArgs, root: string): string {
+  const base = reportCommandText("import:report", args, root);
+  return args.testLeagues ? `${base}${base.includes(" -- ") ? "" : " --"} --test-leagues` : base;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Offline: a saved dump (the default)
+
+/** The Sleeper section offline: a dump holds only Parker's ESPN league. */
+export const OFFLINE_SLEEPER_TEXT = "## Sleeper\n\nA saved dump holds only Parker's ESPN league: `npm run import:report -- --live` imports his Sleeper league too (when SLEEPER_USERNAME or SLEEPER_LEAGUE_ID is set), and `-- --live --test-leagues` the pinned public test league.\n";
+/** The overrides section offline: the crosswalk isn't in a dump. */
+export const OFFLINE_OVERRIDES_TEXT = "## Player ID overrides (the whole crosswalk)\n\nNot in a saved dump (the crosswalk's ID sources aren't kept): `npm run import:report -- --live` lists them.\n";
+
+/**
+ * The Import Report from a saved dump (pure but for the time zone it's given): the dump's snapshot (placeholders put on
+ * again by loadDump, its warnings included) and its model inputs (the projection-source note). The dump's team is shown
+ * as picked (dump-final.ts sets it by hand, as a user's pick; the public-link import doesn't know it). What a dump
+ * doesn't keep is said where it would be: the import's own notes, the crosswalk's overrides, a Sleeper league.
+ */
+export function offlineReport(dump: Dump, opts: { root: string; dir: string; timeZone: string; command: string; generatedAt: Date }): { doc: string; response: ImportResponse } {
+  const team = dump.snapshot.myTeamId;
+  const response: ImportResponse = { snapshot: { ...dump.snapshot, myTeamId: null }, notes: [], usedEspnCookies: false };
+  const view = buildImportReport(response, { timeZone: opts.timeZone, model: dump.inputs, ...(team ? { myTeamId: team, myTeamSource: "you" as const } : {}) });
+  const doc = [
+    "# Import Report contents",
+    "",
+    `Generated by \`${opts.command}\` on ${opts.generatedAt.toISOString().slice(0, 10)} from a saved dump, with no network (offline is the default; \`-- --live\` imports the league through the real adapters, cache and ID crosswalk). Team, owner and league names are placeholders.`,
+    "",
+    `- ${dumpNote(opts.root, opts.dir, dump)}`,
+    "- A dump keeps the import's snapshot and the model inputs, not the import's own notes (the Notes list below holds only what the report itself adds), the crosswalk or a Sleeper league.",
+    "",
+    render(view, `ESPN: Parker's league (the saved dump, as imported through the public link)`),
+    OFFLINE_SLEEPER_TEXT,
+    OFFLINE_OVERRIDES_TEXT,
+  ].join("\n");
+  return { doc, response };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Live (--live): the import itself
+
+async function liveReport(args: ImportReportArgs, command: string, timeZone: string): Promise<{ doc: string; espn: ImportResponse | null }> {
   // Checkpoint 1 answer 6: the public-link path by default; the .env.local cookies only on request.
-  const noCookies = process.argv.includes("--no-cookies") || !(process.argv.includes("--cookies") || env("USE_ENV_COOKIES") === "1");
-  const responseOutIndex = process.argv.indexOf("--response-out");
-  const responseOut = responseOutIndex > 0 ? process.argv[responseOutIndex + 1] : undefined;
-  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-  for (const platform of ["espn", "sleeper"]) registerScrubber(await redactorFromMap(platform));
+  const noCookies = args.cookies === "off" || !(args.cookies === "on" || env("USE_ENV_COOKIES") === "1");
   const http = createHttpClient({ cache: new FileCache() });
   const started = Date.now();
   const resolver = await loadPlayerIdResolver({ http });
   const deps: ImportDeps = { http, resolver, now: new Date() };
   const sections: string[] = [];
   const timing: string[] = [`player-ID crosswalk ${((Date.now() - started) / 1000).toFixed(1)} s`];
+  let espn: ImportResponse | null = null;
 
   const espnLeague = env("ESPN_LEAGUE_ID");
   if (espnLeague) {
@@ -147,13 +214,8 @@ async function main(): Promise<void> {
     const t0 = Date.now();
     const result = await importEspnLeague({ leagueId: espnLeague, season: Number(env("ESPN_SEASON") || 2026), ...(s2 && swid ? { credentials: { espnS2: s2, swid } } : {}) }, deps);
     timing.push(`ESPN import ${((Date.now() - t0) / 1000).toFixed(1)} s`);
-    const response = { ...placeholders(result, "League 1"), usedEspnCookies: Boolean(s2 && swid), ...(s2 && swid ? { espnCookieSource: "dev-env" as const } : {}), dataSources: dataSourceStamps(resolver) };
-    sections.push(render(buildImportReport(response, { timeZone }), `ESPN: Parker's league${noCookies ? " (no cookies: the public-link path)" : ""}`));
-    if (responseOut) {
-      // The app's own record, in its current format (IMPORT_FORMAT_VERSION), so the pages accept it.
-      const stored = toStoredImport({ request: { platform: "espn", season: response.snapshot.season, leagueId: "{leagueId}" }, response, savedAt: new Date().toISOString() });
-      writeFileSync(responseOut, scrubEverything(JSON.stringify(stored)));
-    }
+    espn = { ...placeholders(result, "League 1"), usedEspnCookies: Boolean(s2 && swid), ...(s2 && swid ? { espnCookieSource: "dev-env" as const } : {}), dataSources: dataSourceStamps(resolver) };
+    sections.push(render(buildImportReport(espn, { timeZone }), `ESPN: Parker's league${noCookies ? " (no cookies: the public-link path)" : ""}`));
   } else sections.push("## ESPN\n\nESPN_LEAGUE_ID is blank in .env.local.\n");
 
   const sleeperUser = env("SLEEPER_USERNAME");
@@ -163,7 +225,7 @@ async function main(): Promise<void> {
     const result = await importSleeperLeague({ season: 2026, ...(sleeperUser ? { username: sleeperUser } : {}), ...(sleeperLeague ? { leagueId: sleeperLeague } : {}) }, deps);
     timing.push(`Sleeper import ${((Date.now() - t0) / 1000).toFixed(1)} s`);
     sections.push(render(buildImportReport({ ...placeholders(result, "League 2"), dataSources: dataSourceStamps(resolver) }, { timeZone }), "Sleeper: Parker's league"));
-  } else if (withTestLeagues) {
+  } else if (args.testLeagues) {
     // The pinned public test league (refreshing it is not a crawl, CLAUDE.md §0.6).
     const pin = path.join(ROOT, "fixtures", "raw", "sleeper", "fallback-league.json");
     const leagueId = existsSync(pin) ? (JSON.parse(readFileSync(pin, "utf8")) as { leagueId?: string }).leagueId : undefined;
@@ -172,26 +234,56 @@ async function main(): Promise<void> {
       const result = await importSleeperLeague({ season: 2026, leagueId }, deps);
       timing.push(`Sleeper test-league import ${((Date.now() - t0) / 1000).toFixed(1)} s`);
       sections.push(render(buildImportReport({ ...placeholders(result, "Sleeper test league"), dataSources: dataSourceStamps(resolver) }, { timeZone }), "Sleeper: the pinned public test league (a stranger's league; no per-team table)", { aggregatesOnly: true }));
-    } else sections.push("## Sleeper\n\nNo pinned public test league (run the Sleeper probe first).\n");
-  } else sections.push("## Sleeper\n\nSLEEPER_USERNAME and SLEEPER_LEAGUE_ID are blank in .env.local, so Parker has no Sleeper league to import. The Sleeper adapter is tested on the public test league's minimized fixtures; `-- --test-leagues` also imports that league live.\n");
+    } else sections.push("## Sleeper\n\nNo pinned public test league (run `npm run probe:sleeper -- --live` first).\n");
+  } else sections.push("## Sleeper\n\nSLEEPER_USERNAME and SLEEPER_LEAGUE_ID are blank in .env.local, so Parker has no Sleeper league to import. The Sleeper adapter is tested on the public test league's minimized fixtures; `-- --live --test-leagues` also imports that league live.\n");
 
   sections.push(renderOverrides(resolver.overrides(), (id) => resolver.sleeperPlayer(id)));
 
   const doc = [
     "# Import Report contents",
     "",
-    `Generated by \`npm run import:report\` on ${new Date().toISOString().slice(0, 10)} through the real adapters, cache and ID crosswalk (${timing.join(", ")}). Team, owner and league names are placeholders.`,
+    `Generated by \`${command}\` on ${new Date().toISOString().slice(0, 10)} through the real adapters, cache and ID crosswalk (${timing.join(", ")}). Team, owner and league names are placeholders.`,
     "",
     ...sections,
   ].join("\n");
+  return { doc, espn };
+}
+
+async function main(): Promise<void> {
+  loadEnv();
+  installConsoleScrubber();
+  const args = parseImportReportArgs(process.argv.slice(2), ROOT);
+  if ("error" in args) {
+    console.error(args.error);
+    process.exitCode = 1;
+    return;
+  }
+  console.log(reportSourceLine(args, ROOT));
+  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  for (const platform of ["espn", "sleeper"]) registerScrubber(await redactorFromMap(platform));
+  const command = importReportCommand(args, ROOT);
+  let doc: string;
+  let espn: ImportResponse | null;
+  if (args.dump) {
+    const dump = loadDump(args.dump, args.team);
+    ({ doc, response: espn } = offlineReport(dump, { root: ROOT, dir: args.dump, timeZone, command, generatedAt: new Date() }));
+  } else {
+    ({ doc, espn } = await liveReport(args, command, timeZone));
+  }
+  if (args.responseOut && espn) {
+    // The app's own record, in its current format (IMPORT_FORMAT_VERSION), so the pages accept it.
+    const stored = toStoredImport({ request: { platform: "espn", season: espn.snapshot.season, leagueId: "{leagueId}" }, response: espn, savedAt: new Date().toISOString() });
+    writeFileSync(args.responseOut, scrubEverything(JSON.stringify(stored)));
+  }
   const safe = scrubEverything(doc);
-  writeFileSync(path.join(ROOT, "reports", "import-report.md"), safe);
+  writeFileSync(args.out ?? path.join(ROOT, "reports", "import-report.md"), safe);
   console.log(safe);
 }
 
-// Run only as a script (`npm run import:report`), so renderOverrides can be imported without side effects.
-const isMain = process.argv[1] !== undefined && /import-report\.ts$/.test(process.argv[1]);
-if (isMain) {
+// Run only as a script (`npm run import:report`), so the pieces above can be imported without side effects (an exact
+// path: scripts/lib/runMode.ts isMainModule). The offline guard goes on first unless --live (A5).
+if (isMainModule(import.meta.url)) {
+  setNetworkMode(wantsLive(process.argv.slice(2)));
   main().catch((err: unknown) => {
     console.error(err instanceof Error ? `${err.name}: ${err.message}` : String(err));
     process.exit(1);

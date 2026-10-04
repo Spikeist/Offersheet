@@ -8,9 +8,10 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { normalizeEspnLeague } from "@/adapters/espn/normalize";
 import { NOW, PARKER, fakeResolver, parkerBundle } from "@/adapters/espn/test-helpers";
+import { helpsScale, tradeScore } from "@/engine/benefit";
 import { config } from "@/engine/config";
 import type { ModelInputs } from "@/engine/inputs";
-import { buildLeagueModel, leagueMarginals } from "@/engine/league";
+import { buildLeagueModel, leagueMarginals, nearTieRos, teamWeeks } from "@/engine/league";
 import type { FaMove, LeagueModel } from "@/engine/leagueModel";
 import type { LeagueSnapshot, Pos } from "@/engine/model";
 import { returnersOf } from "@/engine/optimizer";
@@ -21,22 +22,22 @@ import { simNormals } from "@/engine/sim";
 import { syntheticInputs } from "@/engine/testLeague";
 import { waiverOrderText } from "@/lib/importReport";
 import { RISKY_BYES, RISKY_WIN_CHANCE, buildLeagueView, lastNflWeekOf, likelyStarters, rosterAfterPickups } from "@/lib/leagueView";
+import { reportArgs } from "./lib/runMode";
 import {
-  DEFAULT_DUMP_DIR,
   FANTASYCALC_PLAYERS_UNAVAILABLE,
   GOAL_WORDS,
   OPTIMIZER_EXAMPLES,
   SCALE_GAINS,
   SE_BATCHES,
-  TOY_SCORE_AT_GAIN,
   asWeeklyResetData,
-  bRefFor,
+  b3Words,
   batchRuns,
   batchSe,
   benefitWin,
   blendLines,
   buildReport,
   byGoal,
+  calibrationMatches,
   commandText,
   displayPath,
   dumpNote,
@@ -45,7 +46,6 @@ import {
   flagValue,
   loadDump,
   noOpCheck,
-  offlineDirOf,
   optimizerJudging,
   optimizerJudgingText,
   optimizerReport,
@@ -63,7 +63,6 @@ import {
   simTiming,
   statusShort,
   titleUnknownReason,
-  tradeScore,
   waiverOrderNote,
   waiverRanksPre4c,
   type SeasonReport,
@@ -99,23 +98,13 @@ describe("league report: the Trade Score arithmetic (CLAUDE.md §10)", () => {
     expect(byGoal((g) => GOAL_WORDS[g])).toEqual({ title: "Win the title", balanced: "Balanced", playoffs: "Make the playoffs" });
   });
 
-  it("the Trade Score matches §10's sample values (B_ref 6 since Checkpoint 3), and is hidden (null) for B ≤ 0", () => {
-    expect(config.benefit.bRef).toBe(6);
-    expect([1, 2, 3, 5, 8, 10].map((B) => tradeScore(B))).toEqual([15, 28, 39, 57, 74, 81]);
-    // The planner's check in Parker's league (Checkpoint 3): B ≈ 2.05, 6.3 and 12.4 for +1, +3 and +6 a week score 29, 65 and 87.
-    expect([2.05, 6.3, 12.4].map((B) => tradeScore(B))).toEqual([29, 65, 87]);
-    // The old B_ref 5 gave §10's earlier samples.
-    expect([1, 2, 3, 5, 8, 10].map((B) => tradeScore(B, 5))).toEqual([18, 33, 45, 63, 80, 86]);
-    expect(tradeScore(0)).toBeNull();
-    expect(tradeScore(-2)).toBeNull();
-    expect(tradeScore(Number.NaN)).toBeNull();
-  });
-
-  it("bRefFor gives the B_ref that maps a B to a score: −B / ln 0.37 for 63", () => {
-    expect(bRefFor(5, 63)).toBeCloseTo(-5 / Math.log(0.37), 12);
-    for (const B of [1.7, 4.2, 9]) expect(tradeScore(B, bRefFor(B, 63) as number)).toBe(63);
-    expect(bRefFor(0, 63)).toBeNull();
-    expect(bRefFor(-1, 63)).toBeNull();
+  it("Helps you on the self-calibrating scale (planner reply to Checkpoint 4c, A2): B₃ reads 63, a third of it 28, twice it 86, wherever B₃ is; hidden (null) for B ≤ 0", () => {
+    // The planner's check in Parker's league (Checkpoint 3): B ≈ 2.05, 6.3 and 12.4 for +1, +3 and +6 a week; on B₃ = B(+3) they read 28, 63 and 86.
+    expect([2.05, 6.3, 12.4].map((B) => tradeScore(B, 6.3))).toEqual([28, 63, 86]);
+    for (const b3 of [0.5, 5.04, 9]) expect([b3 / 3, b3, 2 * b3].map((B) => tradeScore(B, b3))).toEqual([28, 63, 86]);
+    expect(tradeScore(0, 6)).toBeNull();
+    expect(tradeScore(-2, 6)).toBeNull();
+    expect(tradeScore(Number.NaN, 6)).toBeNull();
   });
 
   it("prints probabilities with a decimal, exact 0% and 100% only when exact", () => {
@@ -226,10 +215,11 @@ describe("league report: Parker's league (committed sanitized fixture) with synt
 
   // With common random numbers, more points in every week never cost a game, so P(playoffs) and expected wins
   // can't fall; title odds rise here too (not a theorem per season: a better seed changes the bracket path).
-  it("the scale check from the one baseline: more lineup points raise my odds on the shared matrix, and B and the score follow §10 under each goal", () => {
+  it("the scale check from the one baseline: more lineup points raise my odds on the shared matrix, and B, B₃ and Helps you follow §10 under each goal", () => {
     const check = season.scale as NonNullable<SeasonReport["scale"]>;
-    // Both baselines reproduce the model's own odds bit for bit: the headline (with pickups) and as rosters stand.
-    expect(season.scaleMatchesModel).toEqual({ pickups: true, stand: true });
+    // Both baselines reproduce the model's own odds bit for bit: the headline (with pickups) and as rosters stand; and the
+    // +3 row is the League model's own "Helps you" calibration run (step 8c), bit for bit.
+    expect(season.scaleMatchesModel).toEqual({ pickups: true, stand: true, calibration: true });
     expect(check.from).toBe(0); // no week under way in this fixture
     expect(scaleFrom(model)).toBe(0);
     const rows = check.rows as NonNullable<typeof check.rows>;
@@ -242,7 +232,7 @@ describe("league report: Parker's league (committed sanitized fixture) with synt
       for (const g of GOALS) {
         expect(r.B[g]).toBeGreaterThan(last.B[g]);
         expect(r.B[g]).toBeCloseTo(benefitWin(r.dPO, r.dCH, g), 12);
-        expect(r.score[g]).toBe(tradeScore(r.B[g]));
+        expect(r.score[g]).toBe(tradeScore(r.B[g], check.b3[g].value));
         // Every change carries its Monte Carlo standard error (batch means), which a real gain makes positive.
         expect(r.se.B[g]).toBeGreaterThan(0);
       }
@@ -252,11 +242,26 @@ describe("league report: Parker's league (committed sanitized fixture) with synt
     expect([check.batches, check.batchSims]).toEqual([SE_BATCHES, config.simulation.finalSims / SE_BATCHES]);
     expect(check.titleUnknown).toBeNull();
     const at3 = rows.find((r) => r.gain === 3) as (typeof rows)[number];
+    expect(check.calibration).toEqual({ dPO: at3.dPO, dCH: at3.dCH });
+    expect(calibrationMatches(check, model.helpsCalibration)).toBe(true);
+    expect(calibrationMatches(check, { ...(model.helpsCalibration as NonNullable<LeagueModel["helpsCalibration"]>), dPO: at3.dPO + 1e-9 })).toBe(false);
+    expect(calibrationMatches(null, model.helpsCalibration)).toBeNull();
     for (const g of GOALS) {
-      expect(check.bRef[g].value).toBeCloseTo(bRefFor(at3.B[g], TOY_SCORE_AT_GAIN) as number, 12);
-      // B_ref is B(+3) times a constant (−1 / ln 0.37 = bRefFor(1, 63)), and so is its standard error.
-      expect(check.bRef[g].se).toBeCloseTo(at3.se.B[g] * (bRefFor(1, 63) as number), 12);
+      // B₃ is B(+3) under the goal (floored at helpsFloor: not here), with B(+3)'s standard error; +3 reads 63 by construction.
+      expect(check.b3[g]).toEqual({ raw: at3.B[g], value: at3.B[g], floored: false, playoffOnly: false, se: at3.se.B[g] });
+      expect(at3.score[g]).toBe(63);
+      expect(rows.find((r) => r.gain === 1)?.score[g]).toBeLessThan(63);
+      expect(rows.find((r) => r.gain === 6)?.score[g]).toBeGreaterThan(63);
     }
+    // Without a +3 row among the gains, B₃ comes from its own run (no standard error), the same number.
+    const pick3 = pickupSeasonModel(model);
+    const built3 = buildSimSetup(snapshot, pick3) as NonNullable<ReturnType<typeof buildSimSetup>>;
+    const odds = model.odds as NonNullable<LeagueModel["odds"]>;
+    const run3 = { sims: odds.sims, seed: odds.seed, normals: simNormals(odds.seed, odds.sims, built3.setup.weeks.length, built3.setup.teams.length) };
+    const mine3 = model.teams.find((t) => t.id === me) as LeagueModel["teams"][number];
+    const only1 = scaleCheck(snapshot, pick3, me, mine3.scoreWithPickups as NonNullable<typeof mine3.scoreWithPickups>, run3, { gains: [1] });
+    for (const g of GOALS) expect(only1?.b3[g]).toEqual({ ...check.b3[g], se: null });
+    expect(only1?.rows?.[0]?.score).toEqual(rows.find((r) => r.gain === 1)?.score);
     // A zero gain moves nothing on the shared matrix, in the whole run or in any batch; nor does a gain from past the last week.
     const pick = pickupSeasonModel(model);
     const built = buildSimSetup(snapshot, pick) as NonNullable<ReturnType<typeof buildSimSetup>>;
@@ -395,7 +400,8 @@ describe("league report: a week in progress", () => {
     }
     const season = seasonReport(snapshot, live, model, { now: NOW, clock, runs: 1, warmups: 0, buildRuns: 0 });
     expect(season.scale?.from).toBe(1);
-    expect(season.scaleMatchesModel).toEqual({ pickups: true, stand: true });
+    expect(season.scaleMatchesModel).toEqual({ pickups: true, stand: true, calibration: true });
+    expect(model.helpsCalibration?.from).toBe(1);
     // A gain only in the week under way moves nothing: it's never added there.
     const pick = pickupSeasonModel(model);
     const built = buildSimSetup(snapshot, pick) as NonNullable<ReturnType<typeof buildSimSetup>>;
@@ -503,7 +509,7 @@ describe("league report: the whole offline report", () => {
     for (const heading of [
       "## Standings and playoff odds",
       "## Your remaining schedule",
-      "## Trade Score scale check",
+      "## “Helps you” scale check",
       "## No-op check",
       "## Timings",
       "### Season simulation runtime",
@@ -520,25 +526,26 @@ describe("league report: the whole offline report", () => {
     expect(doc).toContain(`Team ${PARKER.myTeamId} (you)`);
     // The schedule's byes are the League page's (review POL-1): after my pickups, my streamed kicker listed, not bold.
     expect(doc).toContain(`**Bold** = a likely starter whose bye counts, the League page's "On bye" rule (src/lib/leagueView.ts scheduleByeRule, the same code): in your best lineup after your free-agent pickups in at least half the weeks he plays, never one at a position you stream (K, D/ST: the streaming replacement covers his bye).`);
-    const schedule = doc.slice(doc.indexOf("## Your remaining schedule"), doc.indexOf("## Trade Score scale check"));
+    const schedule = doc.slice(doc.indexOf("## Your remaining schedule"), doc.indexOf("## “Helps you” scale check"));
     expect(schedule).toMatch(/\n\| 6 \| [^\n]*\bTrey Smack\b[^\n]*\|\n/);
     expect(schedule).not.toContain("**Trey Smack**");
     expect(doc.match(/\*\*Pass\.\*\*/g)).toHaveLength(2);
     expect(doc).not.toContain("FAIL");
     expect(doc).toContain("Σ P(playoffs) = 6.000 (6 playoff teams) · Σ P(bye) = 2.000 (2 byes) · Σ P(title) = 1.000.");
     expect(doc).toContain("| +3 pt/wk |");
-    expect(doc).toContain("B_ref that maps this league's +3 to a Trade Score of 63");
-    // The scale check owns up to its Monte Carlo error: no "not noise" claim, ± on every change, B_ref to one decimal,
-    // B and the Trade Score under every goal, twice (the one baseline, and as rosters stand).
+    expect(doc).toContain("B₃, the B of +3 points a week, under each goal (± B(+3)'s Monte Carlo standard error): Win the title **");
+    // The scale check owns up to its Monte Carlo error: no "not noise" claim, ± on every change and on B₃,
+    // B and Helps you under every goal, twice (the one baseline, and as rosters stand).
     expect(doc).not.toContain("not noise");
     expect(doc).toContain(`± is its Monte Carlo standard error, by batch means: the 5,000 seasons split into ${SE_BATCHES} batches of 250`);
-    expect(doc).toContain("| Lineup gain | ΔPO | ΔCH | Δ expected wins | Win the title: B / Trade Score | Balanced: B / Trade Score | Make the playoffs: B / Trade Score | Toy league B / score |");
-    const row3 = /\| \+3 pt\/wk \| [+-]\d\.\d{4} ± \d\.\d{4} \| [+-]\d\.\d{4} ± \d\.\d{4} \| [+-]\d+\.\d{3} ± \d+\.\d{3} \| (-?\d+\.\d{2} ± \d+\.\d{2} \/ (\d+|– \(B ≤ 0\)) \| ){3}≈ 5 \/ ≈ 63 \|/g;
+    expect(doc).toContain("| Lineup gain | ΔPO | ΔCH | Δ expected wins | Win the title: B / Helps you | Balanced: B / Helps you | Make the playoffs: B / Helps you | Toy league B / score |");
+    // +3 reads 63 under every goal, on both bases (each its own B₃).
+    const row3 = /\| \+3 pt\/wk \| [+-]\d\.\d{4} ± \d\.\d{4} \| [+-]\d\.\d{4} ± \d\.\d{4} \| [+-]\d+\.\d{3} ± \d+\.\d{3} \| (-?\d+\.\d{2} ± \d+\.\d{2} \/ 63 \| ){3}≈ 5 \/ ≈ 63 \|/g;
     expect(doc.match(row3)).toHaveLength(2);
-    expect(doc).toMatch(/: Win the title \*\*\d+\.\d ± \d+\.\d\*\* \(with it: \+1 → \d+, \+3 → 63, \+6 → \d+\); Balanced \*\*\d+\.\d ± \d+\.\d\*\*/);
+    expect(doc).toMatch(/: Win the title \*\*\d+\.\d{2} ± \d+\.\d{2}\*\*; Balanced \*\*\d+\.\d{2} ± \d+\.\d{2}\*\*; Make the playoffs \*\*\d+\.\d{2} ± \d+\.\d{2}\*\*\./);
     expect(doc).toContain("**From the one baseline (every team after its free-agent pickups)**");
-    expect(doc).toContain("**As rosters stand** (TeamModel.score: every team as it is today, Checkpoint 4b's basis)");
-    expect(doc).toContain("Baseline check: the baseline run reproduces the League model's own odds for your team bit for bit (LeagueModel.odds; same seed, same matrix), and so does the as-rosters-stand run (LeagueModel.oddsAsRostersStand).");
+    expect(doc).toContain("**As rosters stand** (TeamModel.score: every team as it is today, Checkpoint 4b's basis; Helps you on this basis's own B₃, its +3 row)");
+    expect(doc).toContain("Baseline check: the baseline run reproduces the League model's own odds for your team bit for bit (LeagueModel.odds; same seed, same matrix), and so does the as-rosters-stand run (LeagueModel.oddsAsRostersStand). The +3 row is the League model's own \"Helps you\" calibration run bit for bit (LeagueModel.helpsCalibration: ΔPO and ΔCH).");
     if (season.pickups) expect(doc).toMatch(/Every team's free-agent pickups, for your team \(the one baseline against as rosters stand, the same seasons\): ΔPO [+-]\d\.\d{4} ± \d\.\d{4}, ΔCH [+-]\d\.\d{4} ± \d\.\d{4}, Δ expected wins [+-]\d+\.\d{3} ± \d+\.\d{3}\./);
     // Build timings: EV lineups and S scenarios, each without and with the simulation.
     expect(season.buildTimings.map((b) => [b.scenarios, b.sims])).toEqual([
@@ -565,8 +572,13 @@ describe("league report: the whole offline report", () => {
     expect(section).not.toContain("EV is what the optimizer decides by");
     expect(section).not.toContain("projected (expected-value) lineup pts");
     expect(section).toContain("| Team | # | Move | Gain, EV (for reference) | Gain, scenarios (decides) |");
-    // The rule the words state is the one V* follows: every move clears faMinGain in scenario lineups.
-    for (const t of model.teams) for (const m of t.faMoves) expect(m.gainScen as number).toBeGreaterThanOrEqual(config.freeAgentOptimizer.faMinGain - 1e-9);
+    // The rule the words state is the one V* follows: every move clears faMinGain in scenario lineups, but for a near-tie cut
+    // (optimizer.ts's header: the best move's free agent for a cheaper player, within config.lineups.dropNearTieWeekly a week
+    // of its gain; since A3, planner reply to Checkpoint 4c, W is the best free agent left unclaimed, lower, so more cuts are
+    // worth more than W and here one move gains less than faMinGain).
+    const weights = teamWeeks(model, model.inProgressWeek, { ...config.lineups, playoffWeight: model.playoffWeight }).weights;
+    const nearTie = nearTieRos(config.lineups.dropNearTieWeekly, weights);
+    for (const t of model.teams) for (const m of t.faMoves) expect(m.gainScen as number).toBeGreaterThanOrEqual(config.freeAgentOptimizer.faMinGain - nearTie - 1e-9);
     expect(section).toMatch(/\*\*How many moves teams make:\*\* 0 moves: \d+ teams? · 1 move: \d+ teams? · /);
     const rows = section.split("\n").filter((l) => /^\| (Team \d+( \(you\))?)? \| \d \| add /.test(l));
     expect(rows).toHaveLength(model.teams.reduce((n, t) => n + t.faMoves.length, 0));
@@ -663,7 +675,7 @@ describe("league report: the whole offline report", () => {
 
   it("gives the reason title odds are unknown only when it can tell: too few playoff rounds, or a playoff game played without a result", () => {
     const opts = { now: NOW, clock, scenarios: 0, runs: 1, warmups: 0, buildRuns: 0 };
-    const unknown = (reason: string) => `Title odds are unknown (${reason}; see the notes under Standings and playoff odds), so B can't be computed.`;
+    const unknown = (reason: string) => `Title odds are unknown (${reason}; see the notes under Standings and playoff odds), so the rows' B can't be computed.`;
     // Two playoff weeks for a 6-team bracket, which needs 3 rounds (review: this used to blame a round played without a result).
     const short = structuredClone(snapshot);
     short.settings.playoffWeeks = [15, 16];
@@ -698,6 +710,32 @@ describe("league report: the whole offline report", () => {
     expect(titleUnknownReason(snapshot, { ...odds, playoffsKnown: true }, mine)).toBeNull(); // Parker's 3 playoff weeks: enough rounds for 6 teams
     expect(titleUnknownReason(short, { ...odds, playoffsKnown: true }, mine)).toBe(rounds);
     expect(titleUnknownReason(short, odds, { ...mine, pTitle: 0.1 })).toBeNull(); // title odds known
+  });
+
+  it("title odds unknown: B₃ is still the app's, from the +3 run's ΔPO alone, and the +3 run is still the League model's (review of track SC, SC-3)", () => {
+    const opts = { now: NOW, clock, scenarios: 0, runs: 1, warmups: 0, buildRuns: 0 };
+    // Two playoff weeks for a 6-team bracket, which needs 3 rounds: every team's title odds are unknown.
+    const short = structuredClone(snapshot);
+    short.settings.playoffWeeks = [15, 16];
+    short.schedule = short.schedule.filter((m) => m.week !== 17);
+    const r = buildReport(short, syntheticInputs(short), opts);
+    const check = r.season.scale as NonNullable<SeasonReport["scale"]>;
+    expect(check.rows).toBeNull();
+    const cal = r.model.helpsCalibration as NonNullable<LeagueModel["helpsCalibration"]>;
+    expect(cal.dCH).toBeNull();
+    expect(check.calibration).toEqual({ dPO: cal.dPO, dCH: null });
+    expect(calibrationMatches(check, cal)).toBe(true);
+    expect(r.season.scaleMatchesModel?.calibration).toBe(true);
+    const myP = r.model.odds?.teams.find((t) => t.teamId === r.model.myTeamId)?.pPlayoffs ?? null;
+    for (const g of GOALS) {
+      // The app's own B₃ (evaluate.helpsScaleOf reads the same run through benefit.helpsScale): 100 × ΔPO₃ under every goal.
+      const app = helpsScale(cal, { leagueType: short.settings.leagueType, myPPlayoffs: myP, goal: g, dynastyTotal: null });
+      expect(app?.raw, g).toBeCloseTo(100 * cal.dPO, 12);
+      expect(check.b3[g], g).toEqual({ raw: app?.raw, value: app?.b3, floored: app?.floored, playoffOnly: true, se: null });
+    }
+    expect(r.doc).toContain("by the rule every card's B follows when title odds are unknown: Win the title **");
+    expect(b3Words(check)).toContain(`Win the title **${(check.b3.title.value as number).toFixed(2)}** (playoff odds only: title odds unknown)`);
+    expect(r.doc).not.toContain("none (title odds unknown)");
   });
 
   it("measures the FantasyCalc ID match only when its player list was read, which the data shows (review of track R, R-7), and says why not otherwise", () => {
@@ -756,16 +794,18 @@ describe("league report: Phase 4b (the market blend, one free agent one team, IR
     return doc.slice(start + 1, next < 0 ? undefined : next);
   };
 
-  it("the header names the offline command, the day it was written and the data line", () => {
-    expect(doc).toContain("Generated by `npm run league:report -- --offline` on 2026-10-03 through the real adapters");
+  it("the header names the offline command (offline is the default since Phase 7a's A5), the day it was written and the data line", () => {
+    expect(doc).toContain("Generated by `npm run league:report` on 2026-10-03 through the real adapters");
     expect(doc).toContain("**Data**\n\n- Offline: a test dump.\n");
   });
 
-  it("the header prints the command line it ran with (review of track R: --offline alone loads the default dump)", () => {
-    const { doc: withCommand } = buildReport(snapshot, inputs, { now: NOW, clock, scenarios: 0, runs: 1, warmups: 0, buildRuns: 0, mode: "offline", command: "npm run league:report -- --offline data-local/parker-league-dev --team 3" });
-    expect(withCommand).toContain("Generated by `npm run league:report -- --offline data-local/parker-league-dev --team 3` on ");
+  it("the header prints the command line it ran with (review of track R: a bare command reads the newest dump, not the report's)", () => {
+    const { doc: withCommand } = buildReport(snapshot, inputs, { now: NOW, clock, scenarios: 0, runs: 1, warmups: 0, buildRuns: 0, mode: "offline", command: "npm run league:report -- --dump data-local/parker-league-dev --team 3" });
+    expect(withCommand).toContain("Generated by `npm run league:report -- --dump data-local/parker-league-dev --team 3` on ");
+    const { doc: live } = buildReport(snapshot, inputs, { now: NOW, clock, scenarios: 0, runs: 1, warmups: 0, buildRuns: 0, mode: "live" });
+    expect(live).toContain("Generated by `npm run league:report -- --live` on ");
     expect(commandText("league:report", [])).toBe("npm run league:report");
-    expect(commandText("league:report", ["--offline", null, undefined, false, "--team 3"])).toBe("npm run league:report -- --offline --team 3");
+    expect(commandText("league:report", ["--dump data-local/x", null, undefined, false, "--team 3"])).toBe("npm run league:report -- --dump data-local/x --team 3");
     const root = path.join(tmpdir(), "repo");
     expect(displayPath(root, path.join(root, "data-local", "x"))).toBe("data-local/x");
     expect(displayPath(root, path.join(tmpdir(), "elsewhere", "dump"))).toBe("dump");
@@ -947,12 +987,7 @@ describe("league report: Phase 4b (the market blend, one free agent one team, IR
     expect(s.split("\n").filter((l) => /^\| Team \d+/.test(l))).toHaveLength(rows.length);
   });
 
-  it("the offline dump: --offline [dir] and --team, the loader (placeholders again, waiver ranks filled in) and the data line", () => {
-    const root = path.join(tmpdir(), "repo");
-    expect(offlineDirOf([], root)).toBeNull();
-    expect(offlineDirOf(["--offline"], root)).toBe(path.join(root, DEFAULT_DUMP_DIR));
-    expect(offlineDirOf(["--offline", "--team", "3"], root)).toBe(path.join(root, DEFAULT_DUMP_DIR));
-    expect(offlineDirOf(["--offline", "data-local/parker-league-final"], root)).toBe(path.join(root, "data-local", "parker-league-final"));
+  it("the offline dump: --dump <dir> (--offline its alias) and --team, the loader (placeholders again, waiver ranks filled in) and the data line", () => {
     expect(flagValue(["--team", "3"], "--team")).toBe("3");
     expect(flagValue(["--team", "--offline"], "--team")).toBeUndefined();
     expect(flagValue([], "--team")).toBeUndefined();
@@ -963,6 +998,9 @@ describe("league report: Phase 4b (the market blend, one free agent one team, IR
       writeFileSync(path.join(dir, "inputs.json"), JSON.stringify(inputs));
       writeFileSync(path.join(dir, "meta.json"), JSON.stringify({ now: NOW.toISOString() }));
       writeFileSync(path.join(dir, "waiver-ranks.json"), JSON.stringify({ readAt: "2026-10-03T18:04:58.416Z", ranks: Object.fromEntries(snapshot.teams.map((t, i) => [t.id, i + 1])) }));
+      // The command line names the folder (scripts/lib/runMode.ts reportArgs): --dump, or --offline, its alias.
+      expect(reportArgs(["--dump", dir, "--team", "3"], path.dirname(dir), { env: {} })).toEqual({ dump: dir, newest: false, team: "3", cookies: null });
+      expect(reportArgs(["--offline", path.basename(dir)], path.dirname(dir), { env: {} })).toMatchObject({ dump: dir, newest: false });
       const d = loadDump(dir, "3");
       expect(d.now.toISOString()).toBe(NOW.toISOString());
       expect(d.snapshot.name).toBe("League 1");

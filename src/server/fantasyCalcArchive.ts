@@ -2,7 +2,8 @@
  * FantasyCalc value archive (planner reply to Checkpoint 4, change 7; CLAUDE.md §2.9, §2.10). Phase 6 backtests the
  * market blend (§6 step 8, config.marketBlend) against the values the market held during the season, but FantasyCalc
  * serves only today's values (/values/current). So every FantasyCalc list a model build reads (modelInputs.ts
- * buildModelInputs: the League page under `npm run dev`, `npm run league:report`, `npm run trade:report`) is also kept,
+ * buildModelInputs: the League page under `npm run dev` or the stable copy, `npm run league:report -- --live`,
+ * `npm run trade:report -- --live`; the reports read a saved dump without --live) is also kept,
  * one copy per format per day, in git-ignored data-local/, next to the pre-game projection snapshots (§2.3):
  *
  *   data-local/fantasycalc-snapshots/<season>/<YYYY-MM-DD>/<format key>.json.gz  (gzip)
@@ -41,7 +42,9 @@
  * - Never throws into callers: a failure is logged by the error's NAME only (never a path or a URL), and the build
  *   goes on. buildModelInputs hands the lists over and doesn't wait (archiveFantasyCalcLists).
  * - Enabled only where there is a local disk, by the projection archive's rule (projectionArchiveEnabled): off in
- *   production, on Vercel and under Vitest (tests pass an archiver explicitly); on under `npm run dev` and tsx scripts.
+ *   production, on Vercel and under Vitest (tests pass an archiver explicitly); on under `npm run dev` and tsx scripts,
+ *   and in the stable copy (scripts/stable.ts sets DATA_LOCAL_ENV to the main folder's data-local/, which is then where
+ *   the lists go: projectionArchive.ts dataLocalRoot).
  * - Server-only in spirit (node:fs, node:zlib), but it doesn't import "server-only", so tsx scripts can use it.
  */
 import { randomBytes } from "node:crypto";
@@ -52,7 +55,7 @@ import { gunzip, gzip } from "node:zlib";
 import { z } from "zod";
 import type { FantasyCalcRequest } from "@/data/fantasyCalcValues";
 import { defaultSeason } from "@/lib/season";
-import { projectionArchiveEnabled } from "./projectionArchive";
+import { dataLocalRoot, projectionArchiveEnabled } from "./projectionArchive";
 
 const gzipAsync = promisify(gzip);
 const gunzipAsync = promisify(gunzip);
@@ -346,14 +349,18 @@ function logFailure(err: unknown): void {
   console.error(`[offer-sheet] FantasyCalc archive: a list wasn't archived (${errorName(err)})`);
 }
 
-/** The fs archiver under `root` (default: data-local/fantasycalc-snapshots in the working directory). */
+/**
+ * The fs archiver under `root` (default: fantasycalc-snapshots in DATA_LOCAL_ENV's folder when it's set, the stable copy;
+ * else data-local/fantasycalc-snapshots in the working directory).
+ */
 export function createFantasyCalcArchiver(opts: { root?: string } = {}): FantasyCalcArchiver {
+  const dataLocal = dataLocalRoot();
   // Literal segments (= FANTASYCALC_ARCHIVE_DIR), like the projection archive's: the bundler's file tracing resolves
   // this one folder instead of guessing. ⚠️ So once the folder exists, `next build` lists its files in the model
   // routes' traces (it already lists data-local/, fixtures/ and .cache/ files for several routes): a deploy built on
   // this computer (vercel build, --prebuilt) would upload them. Before Phase 7, next.config.ts should leave data-local/,
   // fixtures/, .cache/ and reports/ out of tracing (outputFileTracingExcludes). A Git-based deploy doesn't have them.
-  const root = opts.root ?? path.join(process.cwd(), "data-local", "fantasycalc-snapshots");
+  const root = opts.root ?? (dataLocal ? path.join(dataLocal, "fantasycalc-snapshots") : path.join(process.cwd(), "data-local", "fantasycalc-snapshots"));
   /** Files known to hold their day's copy (written here, or found on disk). */
   const stored = new Set<string>();
   /** File → the tail of its write queue. */
@@ -427,7 +434,8 @@ export function archiveFantasyCalcLists(archiver: FantasyCalcArchiver | null | u
 
 /**
  * Whether this process may write the archive: only where there is a local disk, by the projection archive's rule
- * (projectionArchiveEnabled: off in production, on Vercel and under Vitest; on under `npm run dev` and tsx scripts).
+ * (projectionArchiveEnabled: off in production, on Vercel and under Vitest; on under `npm run dev`, tsx scripts and the
+ * stable copy, which sets DATA_LOCAL_ENV).
  */
 export function fantasyCalcArchiveEnabled(env: Readonly<Record<string, string | undefined>> = process.env): boolean {
   return projectionArchiveEnabled(env);

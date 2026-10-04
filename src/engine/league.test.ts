@@ -11,6 +11,7 @@ import {
   gameStarted,
   leagueMarginals,
   leagueWeeks,
+  nearTieRos,
   nflLastWeek,
   preKickoffTable,
   modelSettings,
@@ -134,6 +135,10 @@ function harness(league: { snapshot: LeagueSnapshot; inputs: ModelInputs }, mode
       positionLimits: snapshot.settings.positionLimits,
       maxRosterSize: snapshot.settings.maxRosterSize,
       dropValue: (id) => model.players[id]?.value?.value ?? 0,
+      // The model's near-tie cuts (optimizer.ts's header): its tolerance, values floored at its W (the best free agent the
+      // allocation leaves unclaimed: league.ts step 4, A3), so whom a move cuts is the model's (these leagues are redraft).
+      dropNearTie: nearTieRos(cfg.lineups.dropNearTieWeekly, weights),
+      dropValueFloor: model.market.waiverCredit,
       dynasty: null,
       // V*(T) judges its moves in scenario lineups when the model's scenarios ran, as the model's optimizer does.
       scenarios: model.scenarios,

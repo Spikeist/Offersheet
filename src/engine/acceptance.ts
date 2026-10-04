@@ -36,10 +36,14 @@
  * - a (activity; first rule that matches): +1 when P made at least tradesForActive (2) trades this season or at
  *   least 1 in the last recentTradeWeeks (4) weeks; −2 when P had no transaction of any type in the last
  *   inactiveWeeks (5) weeks; −1 when none in the last quietWeeks (3) weeks; else 0. "The last N weeks" = the
- *   transactions whose week is above week − N, `week` being the week the platform numbers transactions in
+ *   transactions whose week is above week − N (withinLastWeeks), `week` being the week the platform numbers transactions in
  *   (snapshot.leagueWeek ?? snapshot.currentWeek: Sleeper numbers them by league week), so the current week
  *   counts (and a later one, which ESPN can give a waiver run, too). A transaction is P's when P is in its teams
  *   or one of its moves comes from or goes to P. Completed trades only (the adapters keep executed ones).
+ *   transactedWithin is that window; the free-agent allocation's inactive teams read it too (inactiveTeams: planner reply
+ *   to Checkpoint 4c, A4; league.ts step 5), so the two can't define "the last N weeks" differently. ⚠️ Only the
+ *   allocation checks that the window's transactions all loaded (inactiveRuleBlock: review of track AL, finding AL-1);
+ *   this feature reads the transactions there are, as since Phase 4.
  * - hist: the average g_mkt(P) over P's completed trades this season at current perception values (and the
  *   current waiver credit W: each player at max(v, W), as in every package); only the average is clamped, to
  *   historyClamp ±0.15 (§11). Null without any
@@ -312,17 +316,105 @@ export interface ActivitySummary {
   lastWeek: number | null;
 }
 
+/**
+ * "The last `n` weeks" (the file header, a): a transaction's week `w` is above `week` − `n`, `week` being the week the
+ * platform numbers transactions in (transactionWeek), both finite. So the current week counts (and a later one), and with
+ * fewer than `n` weeks played every week of the season does.
+ */
+export function withinLastWeeks(w: number, week: number, n: number): boolean {
+  return Number.isFinite(w) && Number.isFinite(week) && w > week - n;
+}
+
+/**
+ * Whether team `teamId` made a transaction of any type in the last `weeks` weeks (withinLastWeeks; a transaction is the
+ * team's by `involves`; the snapshot's trades are completed ones, the adapters keep only those). The activity feature's
+ * inactive and quiet rules (activity) and the free-agent allocation's inactive teams (inactiveTeams) read it.
+ */
+export function transactedWithin(transactions: readonly Transaction[], teamId: string, week: number, weeks: number): boolean {
+  return transactions.some((t) => involves(t, teamId) && withinLastWeeks(t.week, week, weeks));
+}
+
+/**
+ * The adapters' warnings that some of a snapshot's transactions may be missing (each adapter imports the league without
+ * them): a week whose transactions didn't load (ESPN_TRANSACTIONS_UNAVAILABLE, espn/fetch.ts: one warning, naming only the
+ * first week that failed; TRANSACTIONS_MISSING, sleeper/fetch.ts: one per league week, platformPath "transactions/7"), or
+ * transactions that couldn't be read (ESPN_TRANSACTIONS_UNREADABLE, espn/normalize.ts: a response or rows, week unknown;
+ * TRANSACTIONS_UNREADABLE, sleeper/normalize.ts: platformPath "transactions/7…"). inactiveRuleBlock reads them.
+ */
+export const TRANSACTIONS_INCOMPLETE_CODES: readonly string[] = ["ESPN_TRANSACTIONS_UNAVAILABLE", "ESPN_TRANSACTIONS_UNREADABLE", "TRANSACTIONS_MISSING", "TRANSACTIONS_UNREADABLE"];
+
+/** Why the inactive rule judges nobody inactive (inactiveRuleBlock): the rule off, no transactions, or the window's incomplete. */
+export type InactiveRuleBlock = "off" | "missing" | "noTransactions" | "partnerUnknown";
+
+/**
+ * Whether the snapshot's transactions can tell which teams are inactive (inactiveTeams), else why not, the first that holds:
+ * - "off": `weeks` isn't a positive number (config.allocation.inactiveWeeks 0: the rule off);
+ * - "missing" (review of track AL, finding AL-1): an adapter's warning (TRANSACTIONS_INCOMPLETE_CODES) says transactions the
+ *   window may hold didn't load or couldn't be read: ESPN's whatever week it names (the fetch names only the first week that
+ *   failed, and an unreadable row's week is unknown), Sleeper's when the league week its platformPath names
+ *   ("transactions/7") is in the window (withinLastWeeks), or when it names none;
+ * - "noTransactions": the snapshot holds no transaction at all (none made yet, or none returned: they can't tell the teams
+ *   apart);
+ * - "partnerUnknown": a completed trade in the window is listed with fewer than 2 teams (ESPN: a trade without its players
+ *   whose other side neither the rows nor the rosters name, espn/trades.ts; ESPN_TRADE_PARTNER_UNKNOWN), so a team that
+ *   traded then may be missing from it;
+ * else null (the rule applies). ⚠️ Ours: any such gap judges nobody inactive. A team whose moves fell in the gap can't be
+ * told from one that made none, and assuming every team makes its pickups is the model before the rule (a transient fetch
+ * failure must not become a confident "no pickups"). A gap outside the window (a Sleeper week before it) changes nothing.
+ */
+export function inactiveRuleBlock(snapshot: Pick<LeagueSnapshot, "transactions" | "warnings" | "currentWeek" | "leagueWeek">, weeks: number): InactiveRuleBlock | null {
+  if (!(Number.isFinite(weeks) && weeks > 0)) return "off";
+  const week = transactionWeek(snapshot);
+  const gap = (snapshot.warnings ?? []).some((w) => {
+    if (!TRANSACTIONS_INCOMPLETE_CODES.includes(w.code)) return false;
+    if (w.code.startsWith("ESPN_")) return true;
+    const leg = /^transactions\/(\d+)(?!\d)/.exec(w.platformPath ?? "")?.[1];
+    return leg === undefined || withinLastWeeks(Number(leg), week, weeks);
+  });
+  if (gap) return "missing";
+  const transactions = snapshot.transactions ?? [];
+  if (!transactions.length) return "noTransactions";
+  if (transactions.some((t) => t.type === "trade" && withinLastWeeks(t.week, week, weeks) && partiesOf(t).size < 2)) return "partnerUnknown";
+  return null;
+}
+
+/** The teams a transaction names: its teams and its moves' ends (involves reads the same). */
+function partiesOf(t: Pick<Transaction, "teams" | "moves">): Set<string> {
+  const out = new Set(t.teams);
+  for (const m of t.moves) {
+    if (m.from !== null) out.add(m.from);
+    if (m.to !== null) out.add(m.to);
+  }
+  return out;
+}
+
+/**
+ * The teams the free-agent allocation treats as inactive (planner reply to Checkpoint 4c, A4; league.ts step 5): no
+ * transaction of any type in the last `weeks` weeks (config.allocation.inactiveWeeks; transactedWithin, the activity
+ * feature's own window, so with fewer weeks played it means none this season), in snapshot order. They make no free-agent
+ * pickups: none in the baseline, and none after a trade (league.ts, evaluate.ts). ⚠️ Ours: never `myTeamId` (the user is
+ * acting: he is the one using the app); and nobody when inactiveRuleBlock says the transactions can't tell (the rule off,
+ * none at all, or some of the window's missing: then every team keeps its pickups, as before the rule). The Import Report
+ * and the League page's rosters list the same teams.
+ */
+export function inactiveTeams(
+  snapshot: Pick<LeagueSnapshot, "transactions" | "warnings" | "currentWeek" | "leagueWeek"> & { readonly teams: readonly { readonly id: string }[] },
+  myTeamId: string | null,
+  weeks: number,
+): string[] {
+  if (inactiveRuleBlock(snapshot, weeks) !== null) return [];
+  const week = transactionWeek(snapshot);
+  return snapshot.teams.filter((t) => t.id !== myTeamId && !transactedWithin(snapshot.transactions, t.id, week, weeks)).map((t) => t.id);
+}
+
 /** The activity feature a for team `teamId` (the file header): `week` = the week transactions are numbered in (leagueWeek ?? currentWeek). */
 export function activity(transactions: readonly Transaction[], teamId: string, week: number, cfg: AcceptanceConfig = config.acceptance): ActivitySummary {
   const rules = cfg.activity;
-  const within = (w: number, n: number): boolean => Number.isFinite(w) && Number.isFinite(week) && w > week - n;
   const seen = new Set<string>();
   let trades = 0;
   let recentTrades = 0;
   let count = 0;
   let lastWeek: number | null = null;
-  let anyInactiveWindow = false;
-  let anyQuietWindow = false;
   for (const t of transactions) {
     if (seen.has(t.id) || !involves(t, teamId)) continue;
     seen.add(t.id);
@@ -330,20 +422,18 @@ export function activity(transactions: readonly Transaction[], teamId: string, w
     if (Number.isFinite(t.week) && (lastWeek === null || t.week > lastWeek)) lastWeek = t.week;
     if (t.type === "trade") {
       trades++;
-      if (within(t.week, rules.recentTradeWeeks)) recentTrades++;
+      if (withinLastWeeks(t.week, week, rules.recentTradeWeeks)) recentTrades++;
     }
-    if (within(t.week, rules.inactiveWeeks)) anyInactiveWindow = true;
-    if (within(t.week, rules.quietWeeks)) anyQuietWindow = true;
   }
   let a = 0;
   let rule: ActivityRule = "normal";
   if (trades >= rules.tradesForActive || recentTrades >= 1) {
     a = 1;
     rule = "active";
-  } else if (!anyInactiveWindow) {
+  } else if (!transactedWithin(transactions, teamId, week, rules.inactiveWeeks)) {
     a = -2;
     rule = "inactive";
-  } else if (!anyQuietWindow) {
+  } else if (!transactedWithin(transactions, teamId, week, rules.quietWeeks)) {
     a = -1;
     rule = "quiet";
   }

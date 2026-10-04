@@ -19,6 +19,7 @@ import type { ScoringRule, StatLine } from "@/engine/model";
 import { ruleApplies, rulePoints, statValue } from "@/engine/scoring";
 import { readCache } from "../lib/cache";
 import { saveMinimizedFixture } from "../lib/minimize";
+import { isMainModule } from "../lib/runMode";
 
 const WEEKS = [1, 2, 3];
 const SEASON = 2026;
@@ -64,7 +65,7 @@ async function main(): Promise<void> {
   for (const week of WEEKS) {
     const data = await cachedStatsWeek(SEASON, week);
     if (!data) {
-      console.log(`week ${week}: no cached public /stats copy (run npm run probe:sleeper or probe:shared once); skipped`);
+      console.log(`week ${week}: no cached public /stats copy (run npm run probe:sleeper -- --live or npm run probe:shared -- --live once); skipped`);
       continue;
     }
     for (const r of data) {
@@ -140,8 +141,8 @@ async function main(): Promise<void> {
   console.log(`saved ${body.length} rows → ${file}`);
 }
 
-const isMain = process.argv[1] && /sleeper-flags\.ts$/.test(process.argv[1]);
-if (isMain) {
+// Run only as a script (an exact path: ../lib/runMode.ts isMainModule; a scratch x-sleeper-flags.ts doesn't start it).
+if (isMainModule(import.meta.url)) {
   main().catch((err: unknown) => {
     console.error(err instanceof Error ? err.message : err);
     process.exit(2);

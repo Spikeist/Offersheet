@@ -6,8 +6,11 @@
  * league endpoint), through the probe fetchers in scripts/lib/shared/fetch.ts: paced per host and
  * cached for 6 hours (CLAUDE.md §2.10).
  *
- *   npm run measure:stat-sd              every completed week
- *   npm run measure:stat-sd -- 2 3       chosen weeks
+ *   npm run measure:stat-sd -- --live          every completed week
+ *   npm run measure:stat-sd -- --live 2 3      chosen weeks
+ *
+ * It needs --live (planner reply to Checkpoint 4c, A5: scripts touch the network only when asked; scripts/lib/runMode.ts):
+ * without it, it says so and exits 1 before any request.
  *
  * Sample: players with a real projection (hasProjection: not an ADP-only stub) AND an actual line
  * with gp > 0 (a game not played is availability, §6 step 3, not stat noise). Projection rows go
@@ -43,6 +46,7 @@ import { normalizeProjectionStats } from "@/adapters/sleeper/scoringMap";
 import { config } from "@/engine/config";
 import { normalCdf } from "@/engine/distributions";
 import { expectedRulePoints } from "@/engine/scoring";
+import { isMainModule, requireLive } from "./lib/runMode";
 import { fetchSleeperProjections, fetchSleeperState, fetchSleeperStats } from "./lib/shared/fetch";
 import { parseNflState } from "./lib/shared/weeks";
 
@@ -436,8 +440,9 @@ async function main(): Promise<void> {
   console.log(`    statSd.yds_allow: ${Math.round(yds.sd)} (n ${yds.n}); pts_allow measured ${f1(pts.sd)} (n ${pts.n}) — config keeps the planner's 9`);
 }
 
-const isMain = process.argv[1] && /measure-stat-sd\.ts$/.test(process.argv[1]);
-if (isMain) {
+// Run only as a script (an exact path: scripts/lib/runMode.ts isMainModule), and only with --live.
+if (isMainModule(import.meta.url)) {
+  requireLive({ script: "measure:stat-sd", what: "reads Sleeper's projections and stats for every completed week" });
   main().catch((err: unknown) => {
     console.error(err instanceof Error ? err.message : String(err));
     process.exit(1);

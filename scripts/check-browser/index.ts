@@ -3,7 +3,10 @@
  * Checkpoint 4, change 7: the Phase 4 review's browser harness, kept in the repo so it can be run again).
  *
  *   npm run build
- *   npm run check:browser -- --team 3        (options: npm run check:browser -- --help)
+ *   npm run check:browser -- --live --team 3        (options: npm run check:browser -- --help)
+ *
+ * It runs only with --live (planner reply to Checkpoint 4c, A5: scripts touch the network only when asked): without it,
+ * it says so and exits 2 before anything starts.
  *
  * What it does:
  * 1. Checks it can run: a production build (.next/BUILD_ID: run `npm run build` first; a note when src/ changed after
@@ -41,6 +44,7 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { ROOT, env } from "../lib/env";
 import { installConsoleScrubber, loadSecretsIntoScrubber, registerScrubber, scrubEverything } from "../lib/redact";
+import { isMainModule, liveRequiredText, setNetworkMode } from "../lib/runMode";
 import { parseArgs, resolveArgs, SECOND_LEAGUE, USAGE, type CheckBrowserArgs } from "./args";
 import { CdpClient } from "./cdp";
 import { exited, findChrome, killTree, launchChrome, stopChrome, type RunningChrome } from "./chrome";
@@ -144,7 +148,7 @@ function printNumbers(report: CheckReport, say: (text: string) => void): void {
 async function run(args: CheckBrowserArgs): Promise<number> {
   const build = productionBuild(ROOT);
   if (!build) {
-    console.error("No production build found. Run npm run build first, then npm run check:browser.");
+    console.error("No production build found. Run npm run build first, then npm run check:browser -- --live.");
     return 2;
   }
   const leagueId = env("ESPN_LEAGUE_ID");
@@ -302,7 +306,15 @@ async function main(): Promise<void> {
     console.log(USAGE);
     process.exit(0);
   }
+  // The network only when asked (planner reply to Checkpoint 4c, A5): it imports your league from ESPN. Exit 2 is this
+  // check's "couldn't run". The guard is set either way; the production server it starts inherits it ("live").
+  setNetworkMode(args.live);
+  if (!args.live) {
+    console.error(liveRequiredText("check:browser", "imports your league from ESPN in the production build", "npm run check:browser -- --live --team 3"));
+    process.exit(2);
+  }
   process.exit(await run(args));
 }
 
-void main();
+// Run only as a script (an exact path: scripts/lib/runMode.ts isMainModule).
+if (isMainModule(import.meta.url)) void main();

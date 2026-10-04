@@ -1,6 +1,6 @@
 /**
  * FROZEN PHASE 0 EVIDENCE: the probes still use this copy; the app uses src/adapters/fleaflicker/scoringMap.ts. A fix here doesn't
- * reach the app (and the reverse); `npm run import:report` is the live check of the shipped adapters.
+ * reach the app (and the reverse); `npm run import:report -- --live` is the live check of the shipped adapters.
  *
  * Draft Fleaflicker scoring map (CLAUDE.md §5): stat category → canonical Sleeper stat keys, and
  * conversion of a league's FetchLeagueRules into the normalized Scoring shape

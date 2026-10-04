@@ -47,7 +47,19 @@
  *    to blend toward; the model inputs' banner, FANTASYCALC_VALUES_ESTIMATED, speaks of trade values only: review of
  *    track EF, finding 2).
  * 4. Market values (§9, perception term) with the ROS totals feeding the estimate curve (blended: step 3b comes
- *    first), and the waiver credit W (the best free agent's value, estimates included, at least waiverCreditMin). In
+ *    first), and the waiver credit W: the value of the best free agent the allocation (step 5) leaves unclaimed, estimates
+ *    included, at least waiverCreditMin (planner reply to Checkpoint 4c, A3: "the best free agent no team is predicted to
+ *    claim, consistent with one free agent, one team"; before, the best free agent of all). The allocation reads W too (the
+ *    optimizer's near-tie cuts floor values at W), so W is a fixed point (waiverCreditFixedPoint, LeagueContext.waiverCredit):
+ *    allocate with the best free agent's value, take the best one that allocation leaves, and allocate again with it only
+ *    when some modeled player's value lies between the two (else every near-tie reads the same: the same allocation), until
+ *    W repeats; at most config.allocation.waiverCreditPasses allocations, ⚠️ a cycle or the cap taking the smaller W tried
+ *    and its allocation. With near-tie cuts the free agent claimed at the first W lies between (a later move could cut him),
+ *    so a second allocation runs whenever W drops; without them (dynasty and keeper leagues with long-term values) one does.
+ *    On Parker's league (Oct 4 09:24Z): [value] (Justin Herbert, whom Team 4 picks up) → [value] (KC Concepcion) in two allocations,
+ *    the second repeating [value] (Marvin Harrison Jr., [value], is worth more than W now: Team 3's pickup keeps him and cuts Romeo
+ *    Doubs, and Team 2 makes a second pickup). Under faAllocation "independent" W is the best free agent of all (Checkpoint
+ *    4's rule). In
  *    FantasyCalc's curve fallback (Phase 4c; MarketInputs.fallback kind "curve": market.curveMarketValues values every
  *    player off a curve of an old list's values on these ROS points) the curve is fitted on the players step 3b's rule
  *    lets shape a curve (marketCurveFit: healthy, a game left; review of track MK, finding 1: an injured player's old value
@@ -102,6 +114,19 @@
  *    best free agent already allows for other teams streaming). BuildLeagueModelOptions.faAllocation "independent" is
  *    Checkpoint 4's rule, every team against the whole pool (two teams can then pick up the same free agent), for the
  *    Checkpoint 4b report only: faAllocation is absent then.
+ *    Inactive teams (planner reply to Checkpoint 4c, A4; acceptance.inactiveTeams, the activity feature's window): a team
+ *    with no transaction of any type in the last config.allocation.inactiveWeeks (5) weeks (transactions whose week is above
+ *    the league week, else the NFL week, − 5: with fewer weeks played, none this season) makes no free-agent pickups. Its
+ *    V*(T) is T (a run of no move), it claims nobody (so it holds its place in the order but takes nothing; its "gain" for
+ *    that basis is 0), and every later run of it makes no move either: its lineup costs refill nothing (V*(T − i) = T − i),
+ *    MV_add to it is the pinned formula (AddBase.extra 0), chips stay chips on its rosters as they are, and
+ *    leagueMarginals.optimize makes no move; after a trade evaluate.ts gives it no V*(after) move and no legality rule-4 add.
+ *    ⚠️ Ours: it streams nothing either (step 5a: streaming is a pickup every week); my team is never inactive (the user is
+ *    acting); and a league whose transactions can't tell the teams apart judges nobody inactive (acceptance.inactiveRuleBlock:
+ *    none at all, or some the window may hold missing: a week that didn't load, rows that couldn't be read, a trade listed
+ *    without one of its teams; review of track AL, finding AL-1: a transient fetch failure mustn't become "no pickups").
+ *    None under "independent". The Import Report and the League page's rosters name the same teams (importReport.ts,
+ *    leagueView.ts).
  * 5a. Streaming positions (§7; planner reply to Checkpoint 3, model change 1; lead decision L1): my team
  *    streams the positions of my setting (opts.settings.streamPositions, default K and DEF); every other team
  *    streams a config.streaming.streamable position (K, DEF, QB, TE) where it made detectAdds (2) or more adds
@@ -238,6 +263,13 @@
  *        League page's premiums and "Harder to get" tags are the trade search's), and the trade search's partner context
  *        (acceptance: checked out, rebuilding, contender), which reads its own baseline, these numbers. The odds as rosters
  *        stand only as the second line.
+ *    8c. The "Helps you" calibration (Phase 7a; planner reply to Checkpoint 4c, A2; helpsCalibrationOf): with my team, one
+ *        more simulation on the same seasons, my scoreWithPickups mean + config.benefit.helpsGain (3) in every week a trade
+ *        can change (from teamWeeks' `from`: a week under way is held at the score as rosters stand in every trade, so it's
+ *        left out here too; regular season and playoffs alike), σ unchanged, every other team as in 8b: my P(playoffs) and
+ *        P(title) changes against LeagueModel.odds, LeagueModel.helpsCalibration (ΔPO₃, ΔCH₃). benefit.helpsScale turns them
+ *        into B₃ for a goal and λ, the scale of Helps you and Overall. The trade context runs the same function on its final
+ *        block (the same seasons and setup), so its B₃ is the League model's exactly. Null without odds or a team.
  * 9. The star premium (planner addendum to Checkpoint 3, §1–§2; lead decisions N1 and N2; premium.ts): every rostered
  *    player's (active, IR and taxi) for his own team, TeamModel.premiums: his rank by perception value on the roster
  *    (ties: more ROS points, then the smaller id), whether he is a top-12 FantasyCalc player, e and the "Harder to get"
@@ -282,6 +314,7 @@
  * roster-legality work (a trade's forced moves).
  */
 import { config } from "./config";
+import { inactiveTeams } from "./acceptance";
 import { expectedAvailability, expectedReturnWeek, returnDateConflict, scenarioAvailability, type AvailabilityConfig, type AvailabilityContext, type AvailabilityPlayer } from "./availability";
 import { futureValuesLoaded } from "./benefit";
 import { applyBlend, blendValues, marketBlend, noBlend, type MarketBlend, type MarketBlendConfig } from "./blend";
@@ -291,6 +324,7 @@ import type {
   BaseRateSource,
   FaAllocation,
   FaMove,
+  HelpsCalibration,
   LeagueModel,
   LineupValues,
   MarketSummary,
@@ -326,9 +360,9 @@ import { FULL_POOL, applyStep, createOptimizer, poolRestriction, returnersOf, ro
 import { leaguePremiums, type StarPremiumConfig } from "./premium";
 import { baseRateSourceCounts, espnSleeperAgreement, projectPlayer, staleReturnCheck, weeklySd, type BaseRateContext, type ProjectionConfig, type SourceAgreement } from "./projections";
 import { finalLineups, returnerSpec, type FinalLineups, type FutureKeep, type ReturnerSetup } from "./returners";
-import { buildSimSetup, oddsSkippedWarning, pickupSeasonModel, seasonOdds, type SeasonConfig } from "./season";
+import { buildSimSetup, oddsSkippedWarning, pickupSeasonModel, seasonOdds, type SeasonConfig, type SeasonModel } from "./season";
 import { defaultTradeSettings, normalizeTradeSettings, type TradeSettings } from "./settings";
-import { simNormals } from "./sim";
+import { simNormals, type SimNormals } from "./sim";
 import {
   addGainExact,
   addRowsGain,
@@ -411,8 +445,15 @@ export interface LeagueModelConfig extends SeasonConfig {
     readonly faMaxMoves: number;
     readonly faDynGuard: number;
   };
+  /** The allocation's inactive teams and the waiver credit's allocation passes (the file header, steps 4 and 5; A3, A4). */
+  readonly allocation: {
+    readonly inactiveWeeks: number;
+    readonly waiverCreditPasses: number;
+  };
   /** The star premium (the file header, step 9; premium.ts). */
   readonly acceptance: { readonly starPremium: StarPremiumConfig };
+  /** The "Helps you" calibration's weekly gain (step 8c; config.benefit.helpsGain). */
+  readonly benefit: { readonly helpsGain: number };
 }
 
 export interface BuildLeagueModelOptions {
@@ -890,13 +931,16 @@ export function streamingAdds(snapshot: Pick<LeagueSnapshot, "transactions" | "p
  * The positions each team streams (step 5a; lead decision L1): my team (`myTeamId`, when it is one of the
  * league's teams) streams `streamPositions` (the user's "Positions I stream weekly"), whatever its adds; every
  * other team streams each config.streaming.streamable position where it made detectAdds or more adds this
- * season (streamingAdds). Only streamable positions the lineup starts count, in POSITIONS order.
+ * season (streamingAdds). Only streamable positions the lineup starts count, in POSITIONS order. ⚠️ A team in `inactive`
+ * (step 5, A4: no transaction in config.allocation.inactiveWeeks weeks) streams nothing, whatever its adds (ours: streaming
+ * is a pickup every week, and it has made none in that long; its adds are kept as the evidence).
  */
 export function streamedPositions(
   snapshot: Pick<LeagueSnapshot, "teams" | "transactions" | "players" | "settings">,
   myTeamId: string | null,
   settings: Pick<TradeSettings, "streamPositions">,
   cfg: Pick<LeagueModelConfig, "streaming"> = config,
+  inactive: ReadonlySet<string> = new Set(),
 ): Record<string, StreamingTeam> {
   const streamable = new Set<Pos>(cfg.streaming.streamable);
   const startable = startablePositions(snapshot.settings);
@@ -907,7 +951,7 @@ export function streamedPositions(
   for (const team of snapshot.teams) {
     const counts = adds.get(team.id) ?? {};
     const setting = team.id === myTeamId;
-    const positions = POSITIONS.filter((p) => usable(p) && (setting ? mine.has(p) : (counts[p] ?? 0) >= cfg.streaming.detectAdds));
+    const positions = POSITIONS.filter((p) => usable(p) && (setting ? mine.has(p) : !inactive.has(team.id) && (counts[p] ?? 0) >= cfg.streaming.detectAdds));
     out[team.id] = { positions, source: setting ? "setting" : "detected", adds: { ...counts } };
   }
   return out;
@@ -1131,6 +1175,12 @@ export interface TeamWork {
    */
   claimed: string[];
   pool: PoolRestriction;
+  /**
+   * An inactive team (step 5, A4; acceptance.inactiveTeams): it makes no free-agent pickups, so V*(T) = T, it claims nobody,
+   * and every later run of it makes no move either (its lineup costs refill nothing, MV_add to it is the pinned formula,
+   * chips that stay chips, leagueMarginals.optimize, and after a trade: evaluate.ts).
+   */
+  inactive: boolean;
   /** Per row: V*(T − i), the re-run from V*(T)'s roster without him (step 5; its exchanges in `given`), or null when V*(T) dropped him. */
   losses: (OptimizedRoster | null)[];
   /** Per row: MV_lose, EV and scenario lineups (step 5). */
@@ -1171,6 +1221,15 @@ export interface LeagueContext {
   work: TeamWork[];
   /** The free-agent allocation (step 5): its basis and the order, as indexes into `work`; null under faAllocation "independent". */
   allocation: { basis: FaAllocation["basis"]; order: number[] } | null;
+  /** The inactive teams' ids (step 5, A4: TeamWork.inactive; none under faAllocation "independent"). */
+  inactive: ReadonlySet<string>;
+  /**
+   * Every free agent the allocation hands to a team (step 5: every team's claims; none under faAllocation "independent"):
+   * W leaves them out (step 4, A3), and so does the trade evaluation's long-term W (evaluate.ts).
+   */
+  claimedAll: ReadonlySet<string>;
+  /** How W (MarketSummary.waiverCredit) was found (step 4, A3; waiverCreditFixedPoint). */
+  waiverCredit: WaiverCreditFix;
   /** IR returners on (step 5b; BuildLeagueModelOptions.irReturners, default true). */
   irReturners: boolean;
   /**
@@ -1259,6 +1318,61 @@ export function claimedBy(run: Pick<OptimizedRoster, "moves">): string[] {
   return [...new Set(run.moves.map((m) => m.add))];
 }
 
+/** How the waiver credit W was found (step 4; planner reply to Checkpoint 4c, A3; waiverCreditFixedPoint; LeagueContext.waiverCredit). */
+export interface WaiverCreditFix {
+  /** W: the value of the best free agent the allocation leaves unclaimed, at least waiverCreditMin (MarketSummary.waiverCredit). */
+  value: number;
+  /** The W each allocation was run with, in order (its length: the allocations run). */
+  tried: number[];
+  /**
+   * "fixed": W is the best free agent the allocation behind the model leaves unclaimed (a fixed point: that allocation was
+   * run with W, or with a W no modeled player's value tells apart from it). "cycle" / "cap": no fixed point, because W came
+   * back to a value tried before, or config.allocation.waiverCreditPasses allocations ran: ⚠️ the smaller W tried (of the
+   * cycle; at the cap, of all) and the allocation run with it, so W can differ from that allocation's best unclaimed free agent.
+   */
+  settled: "fixed" | "cycle" | "cap";
+}
+
+/**
+ * W and the allocation it leaves (step 4; planner reply to Checkpoint 4c, A3; the file header): `allocate(W)` runs the
+ * allocation with the optimizer's near-tie cuts floored at W (step 5), `creditOf(claimed)` is W from the free agents those
+ * claims leave (market.waiverCredit). Starting from `first` (the best free agent's value, everyone counted): W′ =
+ * creditOf(the allocation's claims); W′ = W is a fixed point; when `floorMatters(W, W′)` is false (no modeled player's value
+ * lies between the two: the optimizer reads W only by comparing values floored at it, so every decision, and so the
+ * allocation, would be the same), W′ is the fixed point with that same allocation; else allocate again with W′, at most
+ * `passes` allocations (config.allocation.waiverCreditPasses; at least 1). ⚠️ W back at a value tried before (a cycle) or
+ * the cap reached: the smallest W of the cycle (at the cap, of all tried) and its allocation (WaiverCreditFix.settled).
+ * Deterministic: the same inputs give the same passes.
+ */
+export function waiverCreditFixedPoint<P extends { readonly claimed: readonly (readonly string[])[] }>(
+  first: number,
+  allocate: (credit: number) => P,
+  creditOf: (claimed: ReadonlySet<string>) => number,
+  floorMatters: (a: number, b: number) => boolean,
+  passes: number,
+): { credit: number; pass: P; fix: WaiverCreditFix } {
+  const cap = Number.isFinite(passes) ? Math.max(1, Math.floor(passes)) : 1;
+  const tried: { credit: number; pass: P }[] = [];
+  let credit = first;
+  let pass = allocate(credit);
+  tried.push({ credit, pass });
+  const triedValues = () => tried.map((t) => t.credit);
+  for (;;) {
+    const next = creditOf(new Set(pass.claimed.flat()));
+    if (next === credit) return { credit, pass, fix: { value: credit, tried: triedValues(), settled: "fixed" } };
+    if (!floorMatters(credit, next)) return { credit: next, pass, fix: { value: next, tried: triedValues(), settled: "fixed" } };
+    const seenAt = tried.findIndex((t) => t.credit === next);
+    if (seenAt >= 0 || tried.length >= cap) {
+      const among = seenAt >= 0 ? tried.slice(seenAt) : tried;
+      const pick = among.reduce((a, b) => (b.credit < a.credit ? b : a));
+      return { credit: pick.credit, pass: pick.pass, fix: { value: pick.credit, tried: triedValues(), settled: seenAt >= 0 ? "cycle" : "cap" } };
+    }
+    credit = next;
+    pass = allocate(credit);
+    tried.push({ credit, pass });
+  }
+}
+
 /** A lineup cost in the mode chips and drops read: scenario lineups when scenarios ran, else EV. */
 function costOf(t: TeamWork, x: number): number {
   return t.mvLoseScen[x] ?? (t.mvLoseEv[x] as number);
@@ -1318,8 +1432,9 @@ function prepareLeague(snapshot: LeagueSnapshot, inputs: ModelInputs, opts: Buil
   const table = projectionTable(lp, S, seed, cfg, irOn);
   if (S > 0) mark("availability scenarios");
 
-  // 4. Market values and the waiver credit, after the blend (step 3b). `fit`: whether he may be a point of FantasyCalc's
-  // curve fallback (the file header, step 4; only that path reads it): step 3b's healthy rule.
+  // 4. Market values, after the blend (step 3b), and how the waiver credit is read (W itself after the allocation: step 5).
+  // `fit`: whether he may be a point of FantasyCalc's curve fallback (the file header, step 4; only that path reads it):
+  // step 3b's healthy rule.
   const modelIds = Object.keys(lp.players);
   const valuePlayers = modelIds.map((id) => {
     const c = lp.contexts.get(id) as PlayerContext;
@@ -1334,8 +1449,8 @@ function prepareLeague(snapshot: LeagueSnapshot, inputs: ModelInputs, opts: Buil
   for (const id of modelIds) (lp.players[id] as PlayerModel).value = values[id] ?? null;
   const freeAgentIds = lp.relevant.freeAgents.filter((id) => table.rows.has(id));
   const topValue = inputs.market ? valuesForTerm(inputs.market).topValue : 0;
-  const credit = inputs.market ? waiverCredit(values, freeAgentIds, topValue, cfg.market) : 0;
-  const market = marketSummary(modelIds, values, inputs.market ?? null, credit);
+  /** W from the free agents `claimed` leaves (A3; market.waiverCredit, estimates included, at least waiverCreditMin); 0 without values. */
+  const creditWithout = (claimed: ReadonlySet<string>): number => (inputs.market ? waiverCredit(values, freeAgentIds, topValue, cfg.market, claimed) : 0);
   const valueOf = (id: string) => values[id]?.value ?? 0;
   mark("market values");
 
@@ -1350,9 +1465,13 @@ function prepareLeague(snapshot: LeagueSnapshot, inputs: ModelInputs, opts: Buil
   const limits = snapshot.settings.positionLimits;
   const maxRosterSize = snapshot.settings.maxRosterSize;
 
-  // 5a. Streaming: who streams what, one virtual row per streamed position, and this week's picks.
+  // 5a. Streaming: who streams what, one virtual row per streamed position, and this week's picks. The inactive teams (step
+  // 5, A4; acceptance.inactiveTeams: no transaction in config.allocation.inactiveWeeks weeks, never mine) make no pickups,
+  // so they stream nothing either; none under faAllocation "independent" (Checkpoint 4's rule).
   const myTeamKnown = snapshot.myTeamId !== null && snapshot.teams.some((t) => t.id === snapshot.myTeamId);
-  const byTeam = streamedPositions(snapshot, myTeamKnown ? snapshot.myTeamId : null, settings, cfg);
+  const independent = opts.faAllocation === "independent";
+  const inactive: ReadonlySet<string> = new Set(independent ? [] : inactiveTeams(snapshot, myTeamKnown ? snapshot.myTeamId : null, cfg.allocation.inactiveWeeks));
+  const byTeam = streamedPositions(snapshot, myTeamKnown ? snapshot.myTeamId : null, settings, cfg, inactive);
   const streamed = new Set<Pos>(Object.values(byTeam).flatMap((s) => s.positions));
   const stream = streamingRows(table, freeAgentIds, streamed, cfg);
   const picks = streamingPicks(table, freeAgentIds, snapshot, inputs.nfl, cfg);
@@ -1374,6 +1493,93 @@ function prepareLeague(snapshot: LeagueSnapshot, inputs: ModelInputs, opts: Buil
   const isReturner = (id: string) => table.rows.has(id) && returnWeek(id) !== null;
   const withReturners = (base: StreamSpec, ir: readonly string[]): StreamSpec => (irOn ? returnerSpec(base, ir, (id) => table.rows.get(id), isReturner) : { rows: base.rows, positions: base.positions });
   const future = futureTerm(snapshot, inputs, valuePlayers, rosPoints, cfg);
+
+  // 5. Teams: EV lineups, V*(T) and its moves (the allocation, with the waiver credit W it leaves: step 4), and every
+  // V*(V*(T) − i). The inactive teams (A4; step 5a) make no pickups.
+  // ⚠️ Near-ties in whom a move cuts (optimizer.ts's header; roster legality's rule, evaluate.ts keepValues): only where a
+  // keep value is the lineup cost alone (no long-term values: the dynasty guard is off too), the values floored at W.
+  const nearTie = future ? 0 : nearTieRos(cfg.lineups.dropNearTieWeekly, weights);
+  const optimizerFor = (credit: number): RosterOptimizer =>
+    createOptimizer(
+      {
+        rows: table.rows,
+        weekCount: W,
+        slots,
+        weights,
+        freeAgents: freeAgentIds,
+        info: (id) => snapshot.players[id],
+        positionLimits: limits,
+        maxRosterSize,
+        dropValue: valueOf,
+        dropNearTie: nearTie,
+        dropValueFloor: credit,
+        dynasty: dynastyGuard(future, cfg),
+        // V*(T) judges its moves in scenario lineups when scenarios run (the file header, step 5); the re-runs don't.
+        scenarios: S,
+        instanceIndex: index,
+      },
+      { faMinGain: cfg.freeAgentOptimizer.faMinGain, faMaxMoves: cfg.freeAgentOptimizer.faMaxMoves, optimizerExcluded: cfg.streaming.optimizerExcluded },
+    );
+  const specs = snapshot.teams.map((team) => {
+    const ids = [...new Set(team.roster)];
+    // A player listed on the active roster too (a data error) is an active player, never a second row.
+    const ir = [...new Set(team.ir)].filter((id) => !ids.includes(id));
+    const spec = withReturners({ rows: (byTeam[team.id]?.positions ?? []).flatMap((p) => stream.rows.get(p) ?? []), positions: byTeam[team.id]?.positions ?? [] }, ir);
+    return { team, ids, ir, rows: ids.flatMap((id) => table.rows.get(id) ?? []), spec };
+  });
+  type Spec = (typeof specs)[number];
+  /**
+   * One allocation with the optimizer's near-tie cuts floored at `credit` (W): V*(T), team by team in the allocation order
+   * (one free agent, one team), each against the free agents no earlier team claimed, an inactive team with no move (V*(T)
+   * = T, no claim; its "gain" for that basis 0); or every team against the whole pool (faAllocation "independent").
+   */
+  const allocate = (credit: number) => {
+    const optimizer = optimizerFor(credit);
+    const vstars: OptimizedRoster[] = new Array<OptimizedRoster>(specs.length);
+    const claimed: string[][] = specs.map(() => []);
+    let allocation: LeagueContext["allocation"] = null;
+    if (independent) {
+      specs.forEach((t, i) => {
+        vstars[i] = optimizer.optimize(t.ids, t.spec);
+        claimed[i] = claimedBy(vstars[i] as OptimizedRoster);
+      });
+    } else {
+      allocation = allocationOrder(snapshot.teams, snapshot.settings.faabBudget !== undefined, (i) => {
+        const t = specs[i] as Spec;
+        return inactive.has(t.team.id) ? 0 : firstMoveGain(optimizer, t.ids, t.spec, weights);
+      });
+      const taken = new Set<string>();
+      for (const i of allocation.order) {
+        const t = specs[i] as Spec;
+        const run = inactive.has(t.team.id) ? optimizer.optimize(t.ids, t.spec, 0) : optimizer.optimize(t.ids, t.spec, undefined, poolRestriction(taken));
+        vstars[i] = run;
+        claimed[i] = claimedBy(run);
+        for (const id of claimed[i] as string[]) taken.add(id);
+      }
+    }
+    return { optimizer, vstars, claimed, allocation };
+  };
+  // W (step 4, A3): the best free agent the allocation leaves unclaimed, found with the allocation it is read from
+  // (waiverCreditFixedPoint). The optimizer reads W only by comparing values floored at it in its near-tie cuts, so two
+  // W's that no modeled player's value lies between give the same allocation (floorMatters). Under "independent", W is the
+  // best free agent (Checkpoint 4's rule).
+  const floorMatters = (a: number, b: number): boolean => {
+    if (!(nearTie > 0)) return false;
+    const lo = Math.min(a, b);
+    const hi = Math.max(a, b);
+    for (const id of table.rows.keys()) {
+      const v = valueOf(id);
+      if (v > lo && v <= hi) return true;
+    }
+    return false;
+  };
+  const firstCredit = creditWithout(new Set());
+  const settled = independent
+    ? { credit: firstCredit, pass: allocate(firstCredit), fix: { value: firstCredit, tried: [firstCredit], settled: "fixed" as const } }
+    : waiverCreditFixedPoint(firstCredit, allocate, creditWithout, floorMatters, cfg.allocation.waiverCreditPasses);
+  const credit = settled.credit;
+  const { optimizer, vstars, claimed, allocation } = settled.pass;
+  const market = marketSummary(modelIds, values, inputs.market ?? null, credit);
   const returnerSetup: ReturnerSetup = {
     slots,
     weekCount: W,
@@ -1393,69 +1599,21 @@ function prepareLeague(snapshot: LeagueSnapshot, inputs: ModelInputs, opts: Buil
     },
     index,
   };
-
-  // 5. Teams: EV lineups, V*(T) and its moves, and every V*(V*(T) − i).
-  const optimizer = createOptimizer(
-    {
-      rows: table.rows,
-      weekCount: W,
-      slots,
-      weights,
-      freeAgents: freeAgentIds,
-      info: (id) => snapshot.players[id],
-      positionLimits: limits,
-      maxRosterSize,
-      dropValue: valueOf,
-      // ⚠️ Near-ties in whom a move cuts (optimizer.ts's header; roster legality's rule, evaluate.ts keepValues): only where
-      // a keep value is the lineup cost alone (no long-term values: the dynasty guard is off too), the values floored at W.
-      dropNearTie: future ? 0 : nearTieRos(cfg.lineups.dropNearTieWeekly, weights),
-      dropValueFloor: credit,
-      dynasty: dynastyGuard(future, cfg),
-      // V*(T) judges its moves in scenario lineups when scenarios run (the file header, step 5); the re-runs don't.
-      scenarios: S,
-      instanceIndex: index,
-    },
-    { faMinGain: cfg.freeAgentOptimizer.faMinGain, faMaxMoves: cfg.freeAgentOptimizer.faMaxMoves, optimizerExcluded: cfg.streaming.optimizerExcluded },
-  );
-  const teams = snapshot.teams.map((team) => {
-    const ids = [...new Set(team.roster)];
-    // A player listed on the active roster too (a data error) is an active player, never a second row.
-    const ir = [...new Set(team.ir)].filter((id) => !ids.includes(id));
-    const spec = withReturners({ rows: (byTeam[team.id]?.positions ?? []).flatMap((p) => stream.rows.get(p) ?? []), positions: byTeam[team.id]?.positions ?? [] }, ir);
-    return { team, ids, ir, rows: ids.flatMap((id) => table.rows.get(id) ?? []), spec, cur: optimizer.evaluate(ids, spec) };
-  });
-  // V*(T), team by team in the allocation order (one free agent, one team), each against the free agents no earlier team
-  // claimed; or every team against the whole pool (faAllocation "independent": Checkpoint 4's rule).
-  const vstars: OptimizedRoster[] = new Array<OptimizedRoster>(teams.length);
-  const claimed: string[][] = teams.map(() => []);
-  let allocation: LeagueContext["allocation"] = null;
-  if (opts.faAllocation === "independent") {
-    teams.forEach((t, i) => {
-      vstars[i] = optimizer.optimize(t.ids, t.spec);
-      claimed[i] = claimedBy(vstars[i] as OptimizedRoster);
-    });
-  } else {
-    allocation = allocationOrder(snapshot.teams, snapshot.settings.faabBudget !== undefined, (i) => {
-      const t = teams[i] as (typeof teams)[number];
-      return firstMoveGain(optimizer, t.ids, t.spec, weights);
-    });
-    const taken = new Set<string>();
-    for (const i of allocation.order) {
-      const t = teams[i] as (typeof teams)[number];
-      const run = optimizer.optimize(t.ids, t.spec, undefined, poolRestriction(taken));
-      vstars[i] = run;
-      claimed[i] = claimedBy(run);
-      for (const id of claimed[i] as string[]) taken.add(id);
-    }
-  }
-  const work: TeamWork[] = teams.map(({ team, ids, ir, rows, spec, cur }, i) => {
+  const work: TeamWork[] = specs.map(({ team, ids, ir, rows, spec }, i) => {
+    const cur = optimizer.evaluate(ids, spec);
     const vstar = vstars[i] as OptimizedRoster;
+    const off = inactive.has(team.id);
     // excl(T): every other team's claims, the pool of every later run of T (greedy determinism: V*(T) against it is V*(T),
     // but for near-ties: optimizer.ts, "The pool").
     const pool = allocation ? poolRestriction(claimed.flatMap((c, j) => (j === i ? [] : c))) : FULL_POOL;
     const inV = new Set(vstar.roster);
-    // V*(T − i): the re-run from V*(T)'s roster without him, one move beyond the free ones (step 5: an exchange at the cap).
-    const losses = rows.map((r) => (inV.has(r.id) ? optimizer.reoptimize(vstar, vstar.roster.filter((id) => id !== r.id), spec, 1, [r.id], undefined, pool) : null));
+    // V*(T − i): the re-run from V*(T)'s roster without him, one move beyond the free ones (step 5: an exchange at the cap);
+    // an inactive team's refills nothing (A4: T − i).
+    const losses = rows.map((r) => {
+      if (!inV.has(r.id)) return null;
+      const without = vstar.roster.filter((id) => id !== r.id);
+      return off ? optimizer.optimize(without, spec, 0) : optimizer.reoptimize(vstar, without, spec, 1, [r.id], undefined, pool);
+    });
     return {
       team,
       ids,
@@ -1474,6 +1632,7 @@ function prepareLeague(snapshot: LeagueSnapshot, inputs: ModelInputs, opts: Buil
       vstarCells: null,
       claimed: claimed[i] as string[],
       pool,
+      inactive: off,
       losses,
       mvLoseEv: losses.map((l) => (l ? Math.max(0, vstar.evRos - l.evRos) : 0)),
       mvLoseScen: rows.map(() => null),
@@ -1550,7 +1709,42 @@ function prepareLeague(snapshot: LeagueSnapshot, inputs: ModelInputs, opts: Buil
   }
   if (S > 0) mark("scenario lineups and marginal values");
 
-  return { snapshot, cfg, settings, S, W, lp, tw, weights, table, valueOf, market, freeAgentIds, slots, instances, index, maskOf, posOf, limits, maxRosterSize, byTeam, streamed, stream, picks, optimizer, scenRosOf, work, allocation, irReturners: irOn, returnWeek, withReturners, returnerSetup };
+  return {
+    snapshot,
+    cfg,
+    settings,
+    S,
+    W,
+    lp,
+    tw,
+    weights,
+    table,
+    valueOf,
+    market,
+    freeAgentIds,
+    slots,
+    instances,
+    index,
+    maskOf,
+    posOf,
+    limits,
+    maxRosterSize,
+    byTeam,
+    streamed,
+    stream,
+    picks,
+    optimizer,
+    scenRosOf,
+    work,
+    allocation,
+    inactive,
+    claimedAll: new Set(allocation ? claimed.flat() : []),
+    waiverCredit: settled.fix,
+    irReturners: irOn,
+    returnWeek,
+    withReturners,
+    returnerSetup,
+  };
 }
 
 /**
@@ -1669,8 +1863,8 @@ function makeBase(ctx: LeagueContext, t: TeamWork, drop: string | null): AddBase
   // comes back (more players never lower a lineup), and each adds at most his add bound on B′ (a player added to a
   // bigger roster gains no more). So: the (its moves: optimizer.rerunMoves, one extra for the newcomer) largest free
   // agents' add bounds, plus the largest add bound of a player V*(T′) dropped (the one exchange can bring one back).
-  // Under starter limits the re-run is skipped.
-  const moves = slots.limits === null ? ctx.optimizer.rerunMoves(R, base.ids, 1) : 0;
+  // Under starter limits the re-run is skipped, and an inactive team (A4) makes no move: MV_add to it is the pinned formula.
+  const moves = slots.limits === null && !t.inactive ? ctx.optimizer.rerunMoves(R, base.ids, 1) : 0;
   if (moves > 0) {
     const minGain = ctx.cfg.freeAgentOptimizer.faMinGain;
     const always = new Set<Pos>(ctx.cfg.streaming.optimizerExcluded);
@@ -1882,16 +2076,10 @@ function chipsStayChips(ctx: LeagueContext, chipsAll: readonly (readonly TradeCh
       const gone = new Set(taken);
       const start = R.filter((id) => !gone.has(id));
       const out = R.length - start.length;
-      const before = ctx.optimizer.reoptimize(t.vstar, start, t.stream, out, taken, undefined, t.pool);
-      const after = ctx.optimizer.reoptimize(
-        t.vstar,
-        start.filter((id) => id !== playerId),
-        t.stream,
-        out + 1,
-        [...taken, playerId],
-        undefined,
-        t.pool,
-      );
+      const without = start.filter((id) => id !== playerId);
+      // An inactive team (A4) refills nothing: the rosters as they are.
+      const before = t.inactive ? ctx.optimizer.optimize(start, t.stream, 0) : ctx.optimizer.reoptimize(t.vstar, start, t.stream, out, taken, undefined, t.pool);
+      const after = t.inactive ? ctx.optimizer.optimize(without, t.stream, 0) : ctx.optimizer.reoptimize(t.vstar, without, t.stream, out + 1, [...taken, playerId], undefined, t.pool);
       cost = Math.max(0, rerunRos(ctx, t, before) - rerunRos(ctx, t, after));
     }
     return chip.maxOther - cost >= minGap - EPS;
@@ -2218,17 +2406,19 @@ export function buildLeagueModelWithContext(snapshot: LeagueSnapshot, inputs: Mo
     projection,
     odds: null,
     oddsAsRostersStand: null,
+    helpsCalibration: null,
     timings,
     warnings: modelWarnings(snapshot, inputs, lp, projection.sources, cfg),
   };
 
   // 8. The season simulation (§8): every team after its pickups (LeagueModel.odds, the headline and the trade search's
-  // baseline), and every team as it stands (oddsAsRostersStand), on the same seasons.
+  // baseline), every team as it stands (oddsAsRostersStand), and the "Helps you" calibration (8c), on the same seasons.
   const sims = opts.sims ?? cfg.simulation.finalSims;
   if (Number.isFinite(sims) && sims >= 1) {
-    const both = simulate(snapshot, model, Math.floor(sims), opts.simSeed ?? cfg.simulation.seed, cfg);
+    const both = simulate(snapshot, model, Math.floor(sims), opts.simSeed ?? cfg.simulation.seed, cfg, ctx.tw.from);
     model.odds = both.withPickups;
     model.oddsAsRostersStand = both.asRostersStand;
+    model.helpsCalibration = both.calibration;
     mark("season simulation");
   }
 
@@ -2264,10 +2454,19 @@ export const ODDS_REFUSED_WARNING = "The playoff odds couldn't be worked out fro
  * oddsSkippedWarning: the rest of the schedule didn't load) has no odds, with that warning. The simulator refuses a
  * setup it can't decide (a RangeError; season.ts builds setups it accepts): the rest of the model is still good, so the
  * odds are left out with ODDS_REFUSED_WARNING instead of losing the whole League page. The RangeError's message stays out
- * of every user-facing text. Either way both are null (oddsAsRostersStand is null whenever odds is).
+ * of every user-facing text. Either way both are null (oddsAsRostersStand is null whenever odds is), and so is the "Helps
+ * you" calibration (step 8c: with my team, the same seasons against LeagueModel.odds; `from`, teamWeeks' first counted
+ * week).
  */
-function simulate(snapshot: LeagueSnapshot, model: LeagueModel, sims: number, seed: number, cfg: LeagueModelConfig): { withPickups: SeasonOdds | null; asRostersStand: SeasonOdds | null } {
-  const none = { withPickups: null, asRostersStand: null };
+function simulate(
+  snapshot: LeagueSnapshot,
+  model: LeagueModel,
+  sims: number,
+  seed: number,
+  cfg: LeagueModelConfig,
+  from: number,
+): { withPickups: SeasonOdds | null; asRostersStand: SeasonOdds | null; calibration: HelpsCalibration | null } {
+  const none = { withPickups: null, asRostersStand: null, calibration: null };
   const skipped = oddsSkippedWarning(snapshot, model);
   if (skipped !== null) {
     model.warnings.push(skipped);
@@ -2277,13 +2476,45 @@ function simulate(snapshot: LeagueSnapshot, model: LeagueModel, sims: number, se
     const built = buildSimSetup(snapshot, model);
     if (!built) return none;
     const normals = simNormals(seed, sims, built.setup.weeks.length, built.setup.teams.length);
-    const withPickups = seasonOdds(snapshot, pickupSeasonModel(model), { sims, seed, normals }, cfg);
-    return { withPickups, asRostersStand: withPickups ? seasonOdds(snapshot, model, { sims, seed, normals }, cfg) : null };
+    const pickups = pickupSeasonModel(model);
+    const withPickups = seasonOdds(snapshot, pickups, { sims, seed, normals }, cfg);
+    if (!withPickups) return none;
+    const asRostersStand = seasonOdds(snapshot, model, { sims, seed, normals }, cfg);
+    const calibration = model.myTeamId === null ? null : helpsCalibrationOf(snapshot, pickups, model.myTeamId, withPickups, { sims, seed, normals }, from, cfg);
+    return { withPickups, asRostersStand, calibration };
   } catch (err) {
     if (!(err instanceof RangeError)) throw err;
     model.warnings.push(ODDS_REFUSED_WARNING);
     return none;
   }
+}
+
+/**
+ * The "Helps you" calibration run (step 8c; planner reply to Checkpoint 4c, A2; LeagueModel.helpsCalibration): `season` with
+ * my team's weekly score mean + config.benefit.helpsGain in every model week from `from` on (σ unchanged; every other team as
+ * it is), simulated on `run`, which must be the seasons `base` was simulated on (common random numbers: the change is
+ * the gain's alone), and my odds' changes against `base`. The League model runs it on its own seasons against
+ * LeagueModel.odds; the trade context (evaluate.ts) on its final block against its baseline, the same setup and seasons, so
+ * the two give the same numbers bit for bit. Null when my team isn't in `base`, the gain isn't a number, or the run has no
+ * odds. ΔCH null when either title chance is unknown.
+ */
+export function helpsCalibrationOf(
+  snapshot: LeagueSnapshot,
+  season: SeasonModel,
+  myTeamId: string,
+  base: SeasonOdds,
+  run: { sims: number; seed: number; normals: SimNormals },
+  from: number,
+  cfg: SeasonConfig & { readonly benefit: { readonly helpsGain: number } } = config,
+): HelpsCalibration | null {
+  const gain = cfg.benefit.helpsGain;
+  const before = base.teams.find((t) => t.teamId === myTeamId);
+  if (!before || !Number.isFinite(gain)) return null;
+  const start = Number.isFinite(from) ? Math.max(0, Math.floor(from)) : 0;
+  const teams = season.teams.map((t) => (t.id === myTeamId ? { id: t.id, score: { mean: t.score.mean.map((m, w) => (w >= start ? m + gain : m)), sd: [...t.score.sd] } } : t));
+  const after = seasonOdds(snapshot, { ...season, teams }, run, cfg)?.teams.find((t) => t.teamId === myTeamId);
+  if (!after) return null;
+  return { gain, from: start, dPO: after.pPlayoffs - before.pPlayoffs, dCH: after.pTitle !== null && before.pTitle !== null ? after.pTitle - before.pTitle : null };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -2310,9 +2541,9 @@ export interface LeagueMarginals {
   vStar(teamId: string): VStarSummary | null;
   /**
    * The free-agent optimizer from any active roster of a team (its streaming rows and streamed positions; the build's
-   * optimizer and memo), with at most `maxMoves` moves (default faMaxMoves), against the pool minus every other team's
-   * claims (excl(T), step 5): the roster after, its moves with their EV and scenario gains, and its ROS in EV and
-   * scenario lineups. Null for an unknown team.
+   * optimizer and memo), with at most `maxMoves` moves (default faMaxMoves; none for an inactive team, step 5's A4), against
+   * the pool minus every other team's claims (excl(T), step 5): the roster after, its moves with their EV and scenario
+   * gains, and its ROS in EV and scenario lineups. Null for an unknown team.
    */
   optimize(teamId: string, roster: readonly string[], maxMoves?: number): VStarSummary | null;
   /**
@@ -2383,7 +2614,8 @@ export function leagueMarginals(snapshot: LeagueSnapshot, inputs: ModelInputs, o
     optimize(teamId, roster, maxMoves) {
       const t = ctx.work[indexOf.get(teamId) ?? -1];
       if (!t) return null;
-      const run = ctx.optimizer.optimize(roster, t.stream, maxMoves, t.pool);
+      // An inactive team (A4) makes no move.
+      const run = t.inactive ? ctx.optimizer.optimize(roster, t.stream, 0) : ctx.optimizer.optimize(roster, t.stream, maxMoves, t.pool);
       let at: readonly string[] = run.start;
       let ev = ctx.optimizer.evaluate(at, t.stream).evRos;
       let sc = scen ? ctx.scenRosOf(at, t.stream) : null;

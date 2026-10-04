@@ -142,6 +142,15 @@ describe("ReportView", () => {
     expect(render({ snapshot: snapshot(), notes: [] })).toMatch(/<dt[^>]*>Waiver order used<\/dt><dd[^>]*>[^<]+<\/dd>/);
   });
 
+  it("lists the inactive teams right after the waiver order, one line each, with the rule (planner reply to Checkpoint 4c, A4)", () => {
+    // Team 1 made a move this season, Team 3 none: Team 3 is assumed to make no pickups (my team is none here).
+    const tx = { id: "a1", type: "add" as const, week: 3, timestamp: "2026-09-20T00:00:00Z", teams: ["1"], moves: [{ playerId: "x", from: null, to: "1" }] };
+    const html = render({ snapshot: snapshot({ transactions: [tx] }), notes: [] });
+    expect(html).toMatch(/<dt[^>]*>Waiver order used<\/dt><dd[^>]*>[^<]*<\/dd><\/div><div[^>]*><dt[^>]*>Inactive teams<\/dt><dd[^>]*><ul[^>]*><li>Quasar Quokkas: inactive, no pickups assumed\.<\/li><\/ul><p[^>]*>No transactions this season, so we assume it makes no free-agent pickups\.<\/p><\/dd>/);
+    // Nobody inactive: the row says why, as plain text (a league without any transaction can't tell its teams apart).
+    expect(render({ snapshot: snapshot(), notes: [] })).toMatch(/<dt[^>]*>Inactive teams<\/dt><dd[^>]*>None assumed: this league shows no transactions this season, so every team is assumed to make its free-agent pickups\.<\/dd>/);
+  });
+
   it("lists a per-unit rate on a sum of stats with the other rates", () => {
     const html = render({ snapshot: snapshot(), notes: [] });
     expect(html).toMatch(/<td[^>]*>Field goals made \(0–39 yds\)<\/td><td[^>]*>3<\/td>/);

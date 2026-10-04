@@ -45,7 +45,7 @@ export interface RosterChange {
    * optimizer after the trade (V*(after), §7, run on my roster once the moves above are made) picks up `adds` and drops
    * `drops` where my baseline V*(T), the one every number compares with (the League page's "Free-agent pickups that would
    * help"), doesn't (evaluate.ts freeAgentMovesOf). The trade's numbers count on them: B's lineups, and its market term,
-   * where each counts at max(v, W) like a traded player (a player worth more than the best free agent cut to make room
+   * where each counts at max(v, W) like a traded player (a player worth more than W cut to make room
    * costs his value, as if traded away). So the card names them. `starts`: for each pickup, the NFL weeks he starts in my
    * expected-value lineup after the trade, among the weeks team numbers count ("to start in week 7"). `kept`: players my
    * baseline drops who stay on my roster after the trade (the card's "rather than …" when the trade brings no pickup of
@@ -102,15 +102,25 @@ export interface TradeEvaluation {
   // The three numbers (§10)
   /** B, my benefit (null before simulation). */
   b: number | null;
-  /** "Helps you": round(100 × (1 − e^(−B / bRef))) when B > 0; null otherwise. */
+  /** "Helps you": round(100 × (1 − e^(−B / B₃))) when B > 0 (b3 below); null otherwise. */
   tradeScore: number | null;
   /** §11: P_accept and P_complete (the veto rule applied). */
   pAccept: number;
   pComplete: number;
   /** "Long shot" | "Possible" | "Decent" | "Likely" (config.acceptance.labels, from P_accept). */
   acceptLabel: string;
-  /** "Overall": round(100 × (1 − e^(−(B × P_complete) / bRef))) when B > 0; null otherwise. */
+  /** "Overall": round(100 × (1 − e^(−(B × P_complete) / B₃))) when B > 0; null otherwise. */
   overall: number | null;
+  /**
+   * Phase 7a (planner reply to Checkpoint 4c, A2): B₃, the scale Helps you and Overall were scored on (benefit.helpsScale's
+   * b3, floored at config.benefit.helpsFloor): the B of a uniform +config.benefit.helpsGain (3) projected points a week for
+   * my team, under the same goal and λ (capped at config.benefit.helpsLambdaMax), on the same baseline and seasons
+   * (evaluate.ts helpsScaleOf). The same for every
+   * trade of a search (its steps' and Plan B's numbers too) and for the Analyzer's call with the same settings. So B = B₃
+   * reads 63, and helpsGain × B / B₃ is what the trade is worth in lineup points a week (the Analyzer's Details,
+   * benefit.lineupEquivalent). Null before simulation or without odds.
+   */
+  b3: number | null;
 
   // The numbers behind them (§10 "always show")
   /** Changes in my P(playoffs), P(title) and expected wins (null before simulation). */
@@ -138,8 +148,8 @@ export interface TradeEvaluation {
    * and the lead's matched pairs; market.ts's header, "Neutral throw-ins"): players worth at most W on the side giving more
    * players, up to the difference in player counts, then matched pairs of such players, one from each side, each with the
    * roster spot he moves. Then what I give and what I get, each player left at max(v, W) (the value floor on both sides,
-   * planner reply to Checkpoint 4, change 4: a player worth less than the best free agent counts at that free agent's
-   * value W), plus W for each open roster spot on the side that gets fewer players. Roster spots are my active roster's
+   * planner reply to Checkpoint 4, change 4: a player worth less than W, the best free agent no team is predicted to claim,
+   * counts at W), plus W for each open roster spot on the side that gets fewer players. Roster spots are my active roster's
    * (review of Phase 4b track E: an IR slot isn't one, market.ts's header): W on what I get for each spot it opens, on what
    * I give for each it fills, which is the same thing when no IR player moves. So an even swap of two players worth at most
    * W reads 0 given and 0 received (both left out), and, ⚠️ when no IR player moves, a throw-in worth at most W adds
@@ -228,6 +238,7 @@ export interface PlanB {
   /** proposalKey of the proposal. */
   key: string;
   b: number;
+  /** Its Helps you, on the same B₃ as its card (TradeEvaluation.b3: the search's goal and λ). */
   tradeScore: number;
   pAccept: number;
   pComplete: number;
@@ -256,7 +267,7 @@ export interface TradeStep {
   proposal: TradeProposal;
   /** proposalKey of the proposal. */
   key: string;
-  /** B at config.simulation.screeningSims seasons (the screening block), the Trade Score from it, and the acceptance numbers. */
+  /** B at config.simulation.screeningSims seasons (the screening block), the Trade Score from it (on the card's B₃), and the acceptance numbers. */
   b: number | null;
   tradeScore: number | null;
   pAccept: number;

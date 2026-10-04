@@ -2,7 +2,7 @@
  * Phase 0 probe: Yahoo Fantasy (CLAUDE.md §2.4). Yahoo needs an approved app, so today this probe
  * checks that the API host answers, reads Yahoo's OAuth guide, and records items A–M as untested.
  *
- *   npm run probe:yahoo
+ *   npm run probe:yahoo -- --live     (probes run only with --live: scripts/lib/probe.ts)
  *
  * Once YAHOO_CLIENT_ID and YAHOO_CLIENT_SECRET are set it runs the browser-free part of 3-legged
  * OAuth and stops with the next step (see scripts/lib/yahoo/flow.ts):
@@ -20,6 +20,7 @@ import path from "node:path";
 import { writeFileAtomic } from "./lib/cache";
 import { ROOT } from "./lib/env";
 import { runProbe } from "./lib/probe";
+import { isMainModule } from "./lib/runMode";
 import { runYahoo } from "./lib/yahoo/flow";
 import { YAHOO_REFRESH_TOKEN_VAR, upsertEnvLine } from "./lib/yahoo/oauth";
 
@@ -37,7 +38,8 @@ async function saveRefreshToken(token: string): Promise<void> {
   await writeFileAtomic(ENV_FILE, upsertEnvLine(text, YAHOO_REFRESH_TOKEN_VAR, token));
 }
 
-void runProbe("yahoo", (p) =>
+// Run only as a script (an exact path: scripts/lib/runMode.ts isMainModule); runProbe needs --live.
+if (isMainModule(import.meta.url)) void runProbe("yahoo", (p) =>
   runYahoo(p, {
     saveRefreshToken,
     writeAuthorizeUrl: (url) => writeFileAtomic(AUTH_URL_FILE, url + "\n"),

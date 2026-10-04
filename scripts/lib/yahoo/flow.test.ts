@@ -116,7 +116,7 @@ describe("Yahoo probe flow", () => {
     expect(h.cl.decisions.some((d) => /not in CLAUDE\.md §0\.5.*env\.ts.*: both; in \.env\.example: both/.test(d))).toBe(true);
     expect(h.cl.issues.some((i) => /^§2\.4 lists "Scope: fspt-r".*client_id, redirect_uri, response_type, state, language/.test(i))).toBe(true);
     expect(h.cl.issues.some((i) => /^Yahoo items A–M are unverified.*HTTP 401.*Phase 5/.test(i))).toBe(true);
-    expect(h.printed.join("\n")).toMatch(/redirect URI https:\/\/localhost:3000\/api\/auth\/yahoo\/callback[\s\S]*Fantasy Sports → Read/);
+    expect(h.printed.join("\n")).toMatch(/redirect URI https:\/\/localhost:3001\/api\/auth\/yahoo\/callback[\s\S]*Fantasy Sports → Read/);
     expect(h.cl.questions).toHaveLength(1);
     // Exactly the host check and the guide: no token calls without credentials.
     expect(h.calls.map((c) => c.url)).toEqual([GAME_NFL_URL, YAHOO_AUTH_GUIDE_URL]);

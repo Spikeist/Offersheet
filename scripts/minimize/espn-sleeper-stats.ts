@@ -26,6 +26,7 @@ import { TTL } from "../lib/cache";
 import { request } from "../lib/http";
 import { saveMinimizedFixture } from "../lib/minimize";
 import { installConsoleScrubber } from "../lib/redact";
+import { isMainModule } from "../lib/runMode";
 import { getSleeperPlayers } from "../lib/sleeper-players";
 
 export const CROSS_GROUP = "cross-source";
@@ -107,7 +108,10 @@ async function main(): Promise<void> {
   console.log(`saved ${file}: ${out.length}/${lines.length} player-weeks (no Sleeper id ${noSleeperId}, no Sleeper row ${noSleeperRow})`);
 }
 
-main().catch((err: unknown) => {
-  console.error(err instanceof Error ? err.message : String(err));
-  process.exit(1);
-});
+// Run only as a script (an exact path: ../lib/runMode.ts isMainModule; a scratch file that imports it starts nothing).
+if (isMainModule(import.meta.url)) {
+  main().catch((err: unknown) => {
+    console.error(err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  });
+}

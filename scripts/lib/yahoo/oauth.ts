@@ -16,7 +16,7 @@ export const YAHOO_AUTHORIZE_URL = "https://api.login.yahoo.com/oauth2/request_a
 export const YAHOO_TOKEN_URL = "https://api.login.yahoo.com/oauth2/get_token";
 export const YAHOO_API_BASE = "https://fantasysports.yahooapis.com/fantasy/v2";
 /** Must be registered on the Yahoo app and must be HTTPS (§2.4). */
-export const YAHOO_REDIRECT_URI = "https://localhost:3000/api/auth/yahoo/callback";
+export const YAHOO_REDIRECT_URI = "https://localhost:3001/api/auth/yahoo/callback";
 /** The app permission we need ("Fantasy Sports: Read"). */
 export const YAHOO_SCOPE = "fspt-r";
 

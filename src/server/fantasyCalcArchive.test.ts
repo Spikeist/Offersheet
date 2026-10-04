@@ -262,6 +262,22 @@ describe("only with a local disk", () => {
     expect(fantasyCalcArchiveEnabled({})).toBe(true);
     expect(defaultFantasyCalcArchiver()).toBeNull();
   });
+
+  it("the stable copy (OFFERSHEET_DATA_LOCAL, a production build): on, and its lists go to that folder (never on Vercel or under tests)", async () => {
+    expect(fantasyCalcArchiveEnabled({ NODE_ENV: "production", OFFERSHEET_DATA_LOCAL: "D:/main/data-local" })).toBe(true);
+    expect(fantasyCalcArchiveEnabled({ NODE_ENV: "production", OFFERSHEET_DATA_LOCAL: "D:/main/data-local", VERCEL: "1" })).toBe(false);
+    expect(fantasyCalcArchiveEnabled({ NODE_ENV: "production", OFFERSHEET_DATA_LOCAL: "D:/main/data-local", VITEST: "true" })).toBe(false);
+    expect(fantasyCalcArchiveEnabled({ NODE_ENV: "production", OFFERSHEET_DATA_LOCAL: " " })).toBe(false);
+    const main = await mkdtemp(path.join(os.tmpdir(), "offer-sheet-fc-main-"));
+    try {
+      vi.stubEnv("OFFERSHEET_DATA_LOCAL", path.join(main, "data-local"));
+      const outcome = await createFantasyCalcArchiver().archive(list([row("1", 900)]));
+      expect(outcome).toEqual({ status: "archived", file: path.join(main, "data-local", "fantasycalc-snapshots", "2026", "2026-10-03", "redraft-1qb-10team-ppr0.5.json.gz") });
+    } finally {
+      vi.unstubAllEnvs();
+      await rm(main, { recursive: true, force: true });
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------------------------

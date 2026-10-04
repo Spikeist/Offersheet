@@ -56,7 +56,7 @@ import {
 import { runTradeSearch } from "./search";
 import { defaultTradeSettings, type TradeSettings } from "./settings";
 import { TEST_NOW, type TestLeagueSpec, type TestPlayer } from "./testLeague";
-import { flat, handLeague, smallLeague, type SeasonSpec } from "./trade.testing";
+import { flat, handLeague, smallLeague, withWaiverStash, type SeasonSpec } from "./trade.testing";
 import type { TradeAsset, TradeEvaluation, TradeProposal, TradeStep } from "./tradeModel";
 
 const p = (...ids: string[]): TradeAsset[] => ids.map((id) => ({ kind: "player", id }));
@@ -430,10 +430,14 @@ describe("case 2: the throw-in added if they say no", () => {
  * him at 900, or, on the side giving more players, leaves him out with his roster spot: Phase 4c's neutral throw-ins), its
  * TE starts (7.5) ahead of a backup (7), and my bench WR (3 points) is worth `wtValue`; Team 2's two
  * TEs' values can be set (`te2`, `tf2`: their own 25 × points² by default). The values put the trades below on either side
- * of the veto rule (Team 2's raw g below −30%: P_complete = P_accept × the veto factor).
+ * of the veto rule (Team 2's raw g below −30%: P_complete = P_accept × the veto factor). Since A3 (planner reply to
+ * Checkpoint 4c) W is the best free agent the allocation leaves unclaimed, and Team 2 claims the free-agent QB (900): a
+ * free agent nobody can use, worth 900 (withWaiverStash), keeps W at 900. Teams 3 and 4, with no transaction, are inactive
+ * (A4: no pickups), which moves none of the numbers here.
  */
 function vetoInternals(wtValue: number, values: { te2?: number; tf2?: number } = {}): TradeInternals {
-  const { snapshot, inputs } = handLeague(
+  const { snapshot, inputs } = withWaiverStash(
+    handLeague(
     (spec) => {
       swapPlayer(spec, "1", "te1", flat("te1", "TE", 2, { value: 475 }));
       swapPlayer(spec, "1", "wc1", flat("qx1", "QB", 16.5, { value: 970 }));
@@ -443,6 +447,8 @@ function vetoInternals(wtValue: number, values: { te2?: number; tf2?: number } =
       if (values.te2 !== undefined) swapPlayer(spec, "2", "te2", flat("te2", "TE", 7.5, { value: values.te2 }));
     },
     { tradeReview: "league_vote", pastWinnersOrder: ["2", "1", "3", "4"] },
+    ),
+    900,
   );
   snapshot.transactions = [{ id: "add-1", type: "add", week: 4, timestamp: "2026-09-27T12:00:00.000Z", teams: ["2"], moves: [{ playerId: "wz2", from: null, to: "2" }] }];
   return tradeInternals(buildTradeContext(snapshot, inputs, { now: TEST_NOW, scenarios: 0 }));

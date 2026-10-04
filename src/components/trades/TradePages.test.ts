@@ -14,7 +14,7 @@ import type { CardFeedback, FinderView, TradeCardView } from "@/lib/tradeView";
 import { FROM_PLAN_B_NOTE, analyzerChoices, buildAnalysisView, buildFinderView, buildTradeCard, minChanceNote, progressView, settingsSummary } from "@/lib/tradeView";
 import { AnalysisResult, AnalyzerForm, AnalyzerPage } from "./AnalyzerPage";
 import { FeedbackControls, VERSION_QUESTION, VersionChooser, chosenVersionChange, outcomeAction } from "./FeedbackControls";
-import { HowToRead, acceptCapWords, planBGainWords, planBShareWords, weeklyLineWords } from "./HowToRead";
+import { HowToRead, acceptCapWords, helpsScaleWords, planBGainWords, planBShareWords, weeklyLineWords } from "./HowToRead";
 import { TradeCard } from "./TradeCard";
 import { FinderControls, FinderFrame, TradeFinderPage, finderStatus, needsRefilter, refilterProgress, runShown, searchKeyFor, type FinderState } from "./TradeFinderPage";
 import { GLOOP_PREMIUM, SNOOT_PREMIUM, evaluation, searchResult, step, steppedFull, steppedOffer, tradeFantasyCalc, tradeSnapshot } from "./testFixtures";
@@ -174,7 +174,7 @@ describe("FinderFrame: one status line through every state", () => {
     const html = renderFrame({ kind: "done", view: view(undefined, { hidden: { byBenefit: 3, byMarket: 0 } }) });
     const text = textOf(html);
     expect(text).toContain(
-      "Trade ideas Your odds before any trade: 62% to make the playoffs, 9.0% to win the title. As on the League page, they count the free-agent pickups that would help each team, and every trade idea's odds start from them. Helps you (0–100) sums up how much your title and playoff odds rise, minus a cost for giving away trade value or plus a credit for gaining it. 2 trade ideas, sorted by Overall.",
+      "Trade ideas Your odds before any trade: 62% to make the playoffs, 9.0% to win the title. As on the League page, they count the free-agent pickups that would help each team, and every trade idea's odds start from them. Helps you (0–100) sums up how much your title and playoff odds rise, minus a cost for giving away trade value or plus a credit for gaining it. 63 ≈ as good as adding 3 points a week to your lineup for the rest of the season. 2 trade ideas, sorted by Overall.",
     );
     expect(html).toContain('<p class="mt-0.5 text-xs text-muted">As on the League page');
     expect([...html.matchAll(/Trade idea (\d+)<\/p>/g)].map((m) => m[1])).toEqual(["1", "2"]);
@@ -320,6 +320,13 @@ describe("TradeCard (§13: each trade card shows)", () => {
     // Each number's label (dt) comes first for screen readers; the number shows above it (flex-col-reverse).
     expect(text).toContain("Helps you 39 Chance they accept 40% Est. · Decent Overall 18");
     expect(html).toContain('<div class="flex min-w-0 flex-col-reverse justify-end rounded-xl bg-surface-muted px-1.5 py-2 text-center"><dt');
+    // Helps you's tile alone has a tooltip with its scale (planner reply to Checkpoint 4c, A2).
+    const tiles = [...html.matchAll(/<div( title="[^"]*")? class="flex min-w-0 flex-col-reverse[^"]*"><dt[^>]*>([^<]+)<\/dt>/g)].map((m) => [m[2], m[1] ?? null]);
+    expect(tiles).toEqual([
+      ["Helps you", ' title="63 ≈ as good as adding 3 points a week to your lineup for the rest of the season."'],
+      ["Chance they accept", null],
+      ["Overall", null],
+    ]);
     expect(text).toContain("You get 142 ROS pts, give 118");
     // Phase 4c: my odds right under the three numbers (change 9; the separator is read as a comma), and FantasyCalc's own
     // values (change 3).
@@ -533,6 +540,19 @@ describe("HowToRead (planner addendum to Checkpoint 3)", () => {
     expect(weeklyLineWords(0.01, 1)).toBe("by 1 percentage point or more (up to 1 week, the drops first, then the biggest gains)");
   });
 
+  it("says Helps you's scale, the same in every league and under every goal, and that a note says when it doesn't hold (planner reply to Checkpoint 4c, A2; review of track SC, SC-1)", () => {
+    const words =
+      "In every league and under every goal, 63 is about as good as adding 3 points a week to your lineup for the rest of the season (28 for 1 point a week, 86 for 6); when that doesn't hold for your team right now, a note on the page says so.";
+    expect(helpsScaleWords()).toBe(words);
+    for (const leagueType of ["redraft", "keeper", "dynasty"] as const) for (const page of ["finder", "analyzer"] as const) expect(how(leagueType, page)).toContain(words);
+    // Not "under every setting": a Win now ↔ Future setting past the largest default λ, or odds that barely move, departs from it.
+    expect(how("dynasty")).not.toContain("under every setting");
+    // From config.benefit.helpsGain.
+    expect(helpsScaleWords(6)).toBe(
+      "In every league and under every goal, 63 is about as good as adding 6 points a week to your lineup for the rest of the season (28 for 2 points a week, 86 for 12); when that doesn't hold for your team right now, a note on the page says so.",
+    );
+  });
+
   it("says Helps you counts trade value by the Protect my trade value setting in redraft leagues only", () => {
     expect(how()).toContain("It also counts trade value, so you keep some for later deals: giving up more than you get lowers it, getting more raises it. How much depends on your “Protect my trade value” setting in Settings.");
     expect(how("dynasty")).not.toContain("Protect my trade value");
@@ -594,7 +614,7 @@ describe("HowToRead (planner addendum to Checkpoint 3)", () => {
     // Phase 4c: the card's values are FantasyCalc's own (change 3); the model's count of roster spots, neutral throw-ins
     // included (change 2), drives the estimate, Helps you and the Market check.
     expect(text).toContain(
-      "ROS points are each player's projected points for the rest of the season. The trade values on the card are FantasyCalc's own, the numbers anyone can check on FantasyCalc. The chance they accept, Helps you and the Market check count roster spots too: every player counts at least what the best free agent is worth, an extra player in an uneven trade adds nothing when he's worth no more than that (the team getting him would cut someone like him), and the side getting fewer players is credited the roster spot it opens (an IR slot isn't one). Your side also counts the free-agent moves a card says the trade counts on: a player you'd cut for them counts as if you traded him. Trades that wouldn't help you, or where, counting roster spots, you'd give up much more trade value than you get, are left out.",
+      "ROS points are each player's projected points for the rest of the season. The trade values on the card are FantasyCalc's own, the numbers anyone can check on FantasyCalc. The chance they accept, Helps you and the Market check count roster spots too: every player counts at least what the best free agent no team is expected to pick up is worth, an extra player in an uneven trade adds nothing when he's worth no more than that (the team getting him would cut someone like him), and the side getting fewer players is credited the roster spot it opens (an IR slot isn't one). Your side also counts the free-agent moves a card says the trade counts on: a player you'd cut for them counts as if you traded him. Trades that wouldn't help you, or where, counting roster spots, you'd give up much more trade value than you get, are left out.",
     );
     expect(text).not.toContain("trade you built");
   });
@@ -746,12 +766,14 @@ describe("the Trade Analyzer", () => {
     const html = renderToStaticMarkup(createElement(AnalysisResult, { view: result, ...props }));
     const text = textOf(html);
     expect(text).toContain(
-      "The trade, evaluated Your odds before this trade: 63% to make the playoffs, 12.0% to win the title. As on the League page, they count the free-agent pickups that would help each team, and the trade's odds start from them. Helps you (0–100) sums up how much your title and playoff odds rise, minus a cost for giving away trade value or plus a credit for gaining it. Trade with Gravel Gophers",
+      "The trade, evaluated Your odds before this trade: 63% to make the playoffs, 12.0% to win the title. As on the League page, they count the free-agent pickups that would help each team, and the trade's odds start from them. Helps you (0–100) sums up how much your title and playoff odds rise, minus a cost for giving away trade value or plus a credit for gaining it. 63 ≈ as good as adding 3 points a week to your lineup for the rest of the season. Trade with Gravel Gophers",
     );
     expect(text).toContain("Title odds 12.0% → 15.9% from 12.0% to 15.9% · , Playoff odds 63% → 72% from 63% to 72%");
     // The Analyzer's card has "Details" (the model's own trade-value figures), behind a closed 44 px summary named for screen readers.
     expect(html).toMatch(/<details class="mt-3 rounded-xl border border-line"><summary class="flex min-h-11[^"]*"><span>Details<span class="sr-only"> \(Trade with Gravel Gophers\)<\/span><\/span>/);
     expect(text).toContain("Your side, counting roster spots: you'd get about what you give.");
+    // Planner reply to Checkpoint 4c, A2: Details ends with what Helps you is worth in lineup points (B 3 on the fixtures' B₃ 6).
+    expect(text).toContain("Helps you 39 ≈ +1.5 pts/week: as good as adding that to your lineup every week for the rest of the season.");
     // Dimmed with the card when it's stale (the odds are the evaluation's).
     expect(renderToStaticMarkup(createElement(AnalysisResult, { view: result, ...props, stale: true }))).toMatch(/<div class="space-y-4 transition-opacity opacity-60"><div><p class="text-sm font-semibold">Your odds before this trade/);
     // Without them (no odds), no line.

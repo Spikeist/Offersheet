@@ -33,6 +33,7 @@ import { sha256 } from "../lib/cache";
 import { ROOT, env } from "../lib/env";
 import { readLocalFixture, saveMinimizedFixture, shiftTimestamps, timestampShiftMs } from "../lib/minimize";
 import { installConsoleScrubber } from "../lib/redact";
+import { isMainModule } from "../lib/runMode";
 
 export const REFILL_GROUP = "trade-refill";
 export const REFILL_PARKER = "parker: completed trade without players";
@@ -187,7 +188,10 @@ async function main(): Promise<void> {
   await parkerFixture();
 }
 
-main().catch((err: unknown) => {
-  console.error(err instanceof Error ? err.message : String(err));
-  process.exit(1);
-});
+// Run only as a script (an exact path: ../lib/runMode.ts isMainModule; a scratch file that imports it starts nothing).
+if (isMainModule(import.meta.url)) {
+  main().catch((err: unknown) => {
+    console.error(err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  });
+}

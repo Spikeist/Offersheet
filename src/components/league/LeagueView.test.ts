@@ -572,6 +572,24 @@ describe("LeagueView rosters", () => {
     expect(textOf(head)).toMatch(/Waiver order used: Weekly reset/i);
   });
 
+  it("says in an inactive team's roster header that no pickups are assumed for it, so it shows while collapsed (planner reply to Checkpoint 4c, A4)", () => {
+    // Week 12: only Team 2 made a move in the last 5 weeks; Teams 3 and 4 are inactive (my team never is).
+    const f = leagueFixture();
+    f.snapshot = { ...f.snapshot, transactions: [{ id: "d2", type: "drop", week: 11, timestamp: "2026-11-20T00:00:00Z", teams: ["2"], moves: [{ playerId: "x", from: "2", to: null }] }] };
+    f.model = { ...f.model, faAllocation: { basis: "waiver", order: ["3", "2", "1", "4"] } };
+    const summaries = [...renderFixture(f).matchAll(/<summary[^>]*>(.*?)<\/summary>/g)].map((m) => m[1] ?? "");
+    const line = '<span class="mt-1 block text-xs break-words text-muted">Inactive: no transactions in the last 5 weeks, so no free-agent pickups are assumed.</span>';
+    for (const [name, inactive] of [
+      ["Moonbeam Mudcats", false],
+      ["Gravel Gophers", false],
+      ["Quasar Quokkas", true],
+      ["Tundra Tortoises", true],
+    ] as const) {
+      const s = summaries.find((x) => x.includes(name)) ?? "";
+      expect(s.includes(line), name).toBe(inactive);
+    }
+  });
+
   it("opens my roster, and collapses the others", () => {
     expect(html.match(/<details open=""/g)).toHaveLength(1);
     expect(html).toMatch(/<details open=""[^>]*><summary[^>]*><span[^>]*><span[^>]*>Moonbeam Mudcats <span[^>]*>You<\/span><\/span><span[^>]*>87 pts\/wk · 438 ROS pts<\/span>/);

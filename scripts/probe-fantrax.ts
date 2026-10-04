@@ -1,7 +1,7 @@
 /**
  * Phase 0 probe: Fantrax (CLAUDE.md §2.7; stretch goal, public leagues only).
  *
- *   npm run probe:fantrax
+ *   npm run probe:fantrax -- --live   (probes run only with --live: scripts/lib/probe.ts)
  *
  * Always: Fantrax's API docs (go-fantrax README, LeagueInfo struct, repo tree; 7-day docs cache),
  * the league-independent endpoints getPlayerIds and getAdp (shape, counts, ID formats), the
@@ -21,6 +21,7 @@ import { LEAGUE_ENDPOINTS, countBy, protectLeaguePath, registerLeagueIdentities,
 import { DP_IDMAP_URL, fantraxPublicCache, fetchDpIdMap } from "./lib/fantrax/sources";
 import type { HttpResult, RequestOptions } from "./lib/http";
 import { runProbe, type ProbeContext } from "./lib/probe";
+import { isMainModule } from "./lib/runMode";
 import { buildPublicNames, isPlayerName, type PublicNames } from "./lib/public-names";
 import { SLEEPER_PLAYERS_URL, getSleeperPlayers } from "./lib/sleeper-players";
 
@@ -500,7 +501,8 @@ async function checkLeague(p: ProbeContext, leagueId: string, ids: Record<string
   applySpecs(p, leagueChecks({ docs, failures, ids, facts, sleeper: cw.sleeper, dp: cw.dp, fc: cw.fc, fcUrl: fantasyCalcUrl(FC_FORMAT), crosswalk: cw.deep }));
 }
 
-void runProbe("fantrax", async (p) => {
+// Run only as a script (an exact path: scripts/lib/runMode.ts isMainModule); runProbe needs --live.
+if (isMainModule(import.meta.url)) void runProbe("fantrax", async (p) => {
   const leagueId = p.env("FANTRAX_LEAGUE_ID");
   p.cl.meta.leagues = [
     leagueId

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { HOUR, MemoryCache, MINUTE, TTL, credentialScope, leagueTtl, type Cache } from "./cache";
-import { createHttpClient, quoteBigInts, retryAfterMs } from "./http";
+import { CACHE_FORMAT, NETWORK_ENV, NetworkOffError, cacheStoreKey, createHttpClient, isCachedResponse, quoteBigInts, refuseIfNetworkOff, retryAfterMs } from "./http";
 
 type FakeAnswer = { status: number; body: string; type?: string; headers?: Record<string, string> } | "network error";
 
@@ -556,5 +556,98 @@ describe("HTML detection (review HTTP-6)", () => {
     expect((await get('[{"note":"<html> in a string"}]', "text/plain")).isHtml).toBe(false);
     expect((await get('{"page":"<!DOCTYPE html>"}', "application/json")).isHtml).toBe(false);
     expect((await get("sleeper_id,name\n1,Zorblax Quintavious", "text/csv")).isHtml).toBe(false);
+  });
+});
+
+describe("the offline guard (planner reply to Checkpoint 4c, A5)", () => {
+  it("with OFFERSHEET_NETWORK off, refuses every live fetch before any request, says so once, and still serves the cache", async () => {
+    vi.stubEnv(NETWORK_ENV, "off");
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const f = fakeFetch([{ status: 200, body: '{"n":1}' }]);
+      const cache = new MemoryCache();
+      await cache.set("cached", { status: 200, contentType: "application/json", text: '{"n":2}', fetchedAt: T0 }, HOUR);
+      const http = createHttpClient({ fetchImpl: f.impl, cache });
+      await expect(http.get("https://api.sleeper.app/v1/state/nfl")).rejects.toBeInstanceOf(NetworkOffError);
+      await expect(http.get("https://lm-api-reads.fantasy.espn.com/x", { cache: { key: "missing", ttlMs: HOUR, staleIfError: true } })).rejects.toThrow(/offline: a request to lm-api-reads\.fantasy\.espn\.com was refused/);
+      expect(f.calls).toHaveLength(0);
+      // A cached copy, and cacheOnly, never touch the network: still served.
+      expect((await http.get("https://example.invalid/c", { cache: { key: "cached", ttlMs: HOUR } })).json).toEqual({ n: 2 });
+      expect((await http.get("https://example.invalid/d", { cache: { key: "none", ttlMs: HOUR }, cacheOnly: true })).status).toBe(0);
+      // Said on stderr at most once per process (host only, never a URL path).
+      const said = log.mock.calls.map((c) => String(c[0])).filter((s) => s.includes("refused"));
+      expect(said.length).toBeLessThanOrEqual(1);
+      expect(said.join("\n")).not.toContain("/v1/state");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("refuseIfNetworkOff: only the value off refuses (live, unset and anything else let the request through)", () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    expect(() => refuseIfNetworkOff("api.sleeper.app", { [NETWORK_ENV]: "off" })).toThrow(NetworkOffError);
+    expect(() => refuseIfNetworkOff("api.sleeper.app", { [NETWORK_ENV]: "live" })).not.toThrow();
+    expect(() => refuseIfNetworkOff("api.sleeper.app", {})).not.toThrow();
+    expect(() => refuseIfNetworkOff("api.sleeper.app", { [NETWORK_ENV]: "OFF " })).not.toThrow();
+    log.mockRestore();
+  });
+
+  it("a process without the variable (the app, Vitest) fetches as before", async () => {
+    const f = fakeFetch([{ status: 200, body: '{"n":3}' }]);
+    const res = await createHttpClient({ fetchImpl: f.impl }).get("https://example.invalid/live");
+    expect(res.json).toEqual({ n: 3 });
+    expect(f.calls).toHaveLength(1);
+  });
+});
+
+describe("entries another version wrote (planner reply to Checkpoint 4c, A1: the stable copy shares the cache folder)", () => {
+  it("an entry of another shape is a miss, never an error: the live answer replaces it, and staleIfError and cacheOnly don't serve it", async () => {
+    const cache = new MemoryCache();
+    // Say a later version stored the parsed body instead of the text.
+    const other = { status: 200, contentType: "application/json", json: { ok: true }, fetchedAt: T0 };
+    await cache.set("lists:fc", other, HOUR);
+    const f = fakeFetch([{ status: 200, body: '{"ok":1}' }]);
+    const http = createHttpClient({ fetchImpl: f.impl, cache });
+    expect(await http.get("https://example.invalid/fc", { cache: { key: "lists:fc", ttlMs: HOUR, staleIfError: true } })).toMatchObject({ status: 200, json: { ok: 1 }, fromCache: false });
+    expect(f.calls).toHaveLength(1);
+    expect((await cache.get<{ text?: string }>("lists:fc", HOUR))?.value.text).toBe('{"ok":1}');
+    // Never served in place of a failed live answer, nor by cacheOnly.
+    await cache.set("lists:other", other, HOUR);
+    const down = createHttpClient({ fetchImpl: fakeFetch([{ status: 503, body: "" }]).impl, cache, maxRetries: 0 });
+    expect(await down.get("https://example.invalid/o", { cache: { key: "lists:other", ttlMs: HOUR, staleIfError: true } })).toMatchObject({ status: 503, fromCache: false });
+    expect(await down.get("https://example.invalid/o", { cache: { key: "lists:other", ttlMs: HOUR, staleIfError: true }, cacheOnly: true })).toMatchObject({ status: 0, fromCache: false });
+  });
+
+  it("isCachedResponse: status, content type and text, with an optional numeric fetch time", () => {
+    expect(isCachedResponse({ status: 200, contentType: "application/json", text: "{}" })).toBe(true);
+    expect(isCachedResponse({ status: 200, contentType: "", text: "", fetchedAt: T0 })).toBe(true);
+    for (const bad of [null, "text", 200, [], { status: "200", contentType: "x", text: "" }, { status: 200, text: "" }, { status: 200, contentType: "x" }, { status: 200, contentType: "x", text: 1 }, { status: 200.5, contentType: "x", text: "" }, { status: 200, contentType: "x", text: "", fetchedAt: "now" }]) {
+      expect(isCachedResponse(bad)).toBe(false);
+    }
+  });
+
+  it("files entries under CACHE_FORMAT: format 1 keeps the request's own key (nothing cached is lost on the update), another format never meets it", async () => {
+    expect(CACHE_FORMAT).toBe(1);
+    expect(cacheStoreKey("espn:league:x")).toBe("espn:league:x");
+    expect(cacheStoreKey("espn:league:x", 2)).not.toBe("espn:league:x");
+    expect(cacheStoreKey("espn:league:x", 2)).not.toBe(cacheStoreKey("espn:league:x", 3));
+    // An entry stored before formats existed is still read under format 1.
+    const cache = new MemoryCache();
+    await cache.set("before", { status: 200, contentType: "application/json", text: '{"v":0}', fetchedAt: T0 }, HOUR);
+    const f = fakeFetch([{ status: 200, body: '{"v":1}' }]);
+    const http = createHttpClient({ fetchImpl: f.impl, cache });
+    expect(await http.get("https://example.invalid/b", { cache: { key: "before", ttlMs: HOUR } })).toMatchObject({ json: { v: 0 }, fromCache: true });
+    expect(f.calls).toHaveLength(0);
+  });
+
+  it("pins what format 1 stores (a change here must bump CACHE_FORMAT: the stable copy, an older checkpoint, reads the same folder)", async () => {
+    const cache = new MemoryCache();
+    const http = createHttpClient({ fetchImpl: fakeFetch([{ status: 200, body: '{"n":1}', type: "application/json; charset=utf-8" }]).impl, cache });
+    await http.get("https://example.invalid/pin", { cache: { key: "pin", ttlMs: HOUR }, transformText: (t) => t.replace("1", "2") });
+    expect(cache.keys()).toEqual([cacheStoreKey("pin")]);
+    const stored = cache.values()[0] as Record<string, unknown>;
+    expect(Object.keys(stored).sort()).toEqual(["contentType", "fetchedAt", "status", "text"]);
+    expect(stored).toMatchObject({ status: 200, contentType: "application/json; charset=utf-8", text: '{"n":2}' });
+    expect(isCachedResponse(stored)).toBe(true);
   });
 });

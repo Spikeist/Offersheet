@@ -6,6 +6,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { BEFORE_KICKOFF, NOW, PICKUP_GAIN, PRE_KICKOFF, leagueFixture, nameOf, type LeagueFixture } from "@/components/league/testFixtures";
+import { inactiveTeams } from "@/engine/acceptance";
 import { config } from "@/engine/config";
 import type { BaseRateSource, SeasonOdds, TeamModel, WeekOdds } from "@/engine/leagueModel";
 import { fantasyCalcFallbackText, fantasyCalcFormat } from "@/engine/market";
@@ -1800,6 +1801,70 @@ describe("buildLeagueView: one free agent, one team (§7; LeagueModel.faAllocati
     );
   });
 
+  it("says on an inactive team's roster that it makes no pickups, never on mine, and states the rule in the explainer (planner reply to Checkpoint 4c, A4)", () => {
+    // Week 12: Team 2 made a move in week 11; Teams 3 and 4 none in the last 5 weeks; my team (1) none, but never inactive.
+    const drop = { id: "d2", type: "drop" as const, week: 11, timestamp: "2026-11-20T00:00:00Z", teams: ["2"], moves: [{ playerId: "x", from: "2", to: null }] };
+    const view = withAllocation({ basis: "waiver", order: ["3", "1", "2", "4"] }, {}, (f) => {
+      f.snapshot = { ...f.snapshot, transactions: [drop] };
+    });
+    const note = "Inactive: no transactions in the last 5 weeks, so no free-agent pickups are assumed.";
+    expect(Object.fromEntries(view.rosters.map((r) => [r.teamId, r.inactive]))).toEqual({ "1": null, "2": null, "3": note, "4": note });
+    // The engine's own rule on the same snapshot (acceptance.inactiveTeams).
+    expect(inactiveTeams({ ...leagueFixture().snapshot, transactions: [drop] }, "1", config.allocation.inactiveWeeks)).toEqual(["3", "4"]);
+    expect(view.explain.find((e) => e.title === "Free-agent pickups")?.text).toContain(
+      "A team with no transactions in the last 5 weeks (in the first weeks of the season: none this season) is assumed to make no pickups and to stream nothing; your team always counts as active.",
+    );
+    // A league without any transaction (the fixture's own): nobody is (acceptance.inactiveTeams' guard); nor without an allocation.
+    expect(withAllocation({ basis: "waiver", order: ["3", "1", "2", "4"] }).rosters.every((r) => r.inactive === null)).toBe(true);
+    const old = leagueFixture();
+    old.snapshot = { ...old.snapshot, transactions: [drop] };
+    expect(of(old).rosters.every((r) => r.inactive === null)).toBe(true);
+  });
+
+  it("⚠️ counts where my team picks among the teams expected to make pickups: an inactive team keeps its place but claims nobody (review of track AL, finding AL-3)", () => {
+    // Week 12: Teams 3 and 4 made no move in the last 5 weeks (inactive); Team 2 one in week 11; mine (1) none, never inactive.
+    const drop = { id: "d2", type: "drop" as const, week: 11, timestamp: "2026-11-20T00:00:00Z", teams: ["2"], moves: [{ playerId: "x", from: "2", to: null }] };
+    const quiet = (f: LeagueFixture) => {
+      f.snapshot = { ...f.snapshot, transactions: [drop] };
+    };
+    // The order 3 > 1 > 2 > 4: inactive Team 3 ahead of me claims nobody, so I pick first of the 2 teams that pick.
+    expect(withAllocation({ basis: "waiver", order: ["3", "1", "2", "4"] }, {}, quiet).pickupsNote?.text).toBe(
+      "Free-agent pickups: each free agent goes to one team only, in your league's waiver order. Your team picks 1st of the 2 teams expected to make pickups.",
+    );
+    expect(withAllocation({ basis: "waiver", order: ["2", "4", "1", "3"] }, {}, quiet).pickupsNote?.text).toMatch(/Your team picks 2nd of the 2 teams expected to make pickups\.$/);
+    // Every other team inactive: mine is the only one that picks.
+    const alone = (f: LeagueFixture) => {
+      f.snapshot = { ...f.snapshot, transactions: [{ ...drop, teams: ["1"], moves: [{ playerId: "x", from: "1", to: null }] }] };
+    };
+    expect(withAllocation({ basis: "waiver", order: ["3", "1", "2", "4"] }, {}, alone).pickupsNote?.text).toMatch(/\. Your team is the only one expected to make pickups\.$/);
+    // Nobody inactive (the fixture has no transaction): the place in the whole order, as before.
+    expect(withAllocation({ basis: "waiver", order: ["3", "1", "2", "4"] }).pickupsNote?.text).toMatch(/Your team picks 2nd of 4\.$/);
+    // Without a team of mine: no place.
+    expect(withAllocation({ basis: "waiver", order: ["3", "1", "2", "4"] }, { myTeamId: null }, quiet).pickupsNote?.text).toBe("Free-agent pickups: each free agent goes to one team only, in your league's waiver order.");
+  });
+
+  it("⚠️ says in the explainer that no team is treated as inactive when the league's transactions can't tell (review of track AL, finding AL-1)", () => {
+    const drop = { id: "d2", type: "drop" as const, week: 11, timestamp: "2026-11-20T00:00:00Z", teams: ["2"], moves: [{ playerId: "x", from: "2", to: null }] };
+    const unsure = " Right now no team is treated that way: some of this league's transactions didn't load or came back incomplete, so every team is assumed to make its pickups.";
+    const explain = (warnings: LeagueFixture["snapshot"]["warnings"], transactions: LeagueFixture["snapshot"]["transactions"] = [drop]) =>
+      withAllocation({ basis: "waiver", order: ["3", "1", "2", "4"] }, {}, (f) => {
+        f.snapshot = { ...f.snapshot, transactions, warnings };
+      });
+    const gap = explain([{ code: "TRANSACTIONS_MISSING", message: "…", platformPath: "transactions/10" }]);
+    expect(gap.rosters.every((r) => r.inactive === null)).toBe(true);
+    expect(gap.explain.find((e) => e.title === "Free-agent pickups")?.text).toContain(`your team always counts as active.${unsure}`);
+    expect(gap.pickupsNote?.text).toMatch(/Your team picks 2nd of 4\.$/);
+    // A trade in the window without one of its teams: the same.
+    const trade = { id: "t9", type: "trade" as const, week: 10, timestamp: "2026-11-12T00:00:00Z", teams: ["2"], moves: [] };
+    expect(explain([], [drop, trade]).explain.find((e) => e.title === "Free-agent pickups")?.text).toContain(unsure);
+    // A gap before the window (league week 3 at week 12) hides nothing the rule reads: Teams 3 and 4 are inactive, no sentence.
+    const old = explain([{ code: "TRANSACTIONS_MISSING", message: "…", platformPath: "transactions/3" }]);
+    expect(old.rosters.filter((r) => r.inactive !== null).map((r) => r.teamId)).toEqual(["3", "4"]);
+    expect(old.explain.find((e) => e.title === "Free-agent pickups")?.text).not.toContain("Right now");
+    // No transaction at all: the rule simply has nothing to read (the explainer adds nothing; the Import Report says why).
+    expect(explain([], []).explain.find((e) => e.title === "Free-agent pickups")?.text).not.toContain("Right now");
+  });
+
   it("leaves out where I pick without a team, and says nothing for a model built before Phase 4b or once the season is over", () => {
     expect(withAllocation({ basis: "waiver", order: ["3", "2", "4"] }, { myTeamId: null }, weeklyReset).pickupsNote).toEqual({
       text: "Free-agent pickups: each free agent goes to one team only.",
@@ -1877,6 +1942,45 @@ describe("buildLeagueView: streaming positions (§7; planner reply to Checkpoint
     const none = view({ myTeamId: null }).streaming;
     expect(none?.mine).toBeNull();
     expect(none?.others).toBe("Teams that stream (2 or more adds at the position this season): Quasar Quokkas (D/ST, 3 adds).");
+  });
+
+  it("⚠️ names an inactive team that made a streamer's adds as having stopped, never as a team without them (planner reply to Checkpoint 4c, A4; review of track AL, finding AL-2)", () => {
+    // Week 12: only Team 2 (a drop in week 11) and, below, Team 4 moved in the last 5 weeks. Team 3's 3 D/ST adds came
+    // earlier: inactive, so the engine has it stream nothing (league.ts streamedPositions), its adds kept.
+    const drop = (teamId: string, week: number) => ({ id: `d${teamId}`, type: "drop" as const, week, timestamp: "2026-11-20T00:00:00Z", teams: [teamId], moves: [{ playerId: "x", from: teamId, to: null }] });
+    const dormant = (f: LeagueFixture, extra: Record<string, NonNullable<LeagueFixture["model"]["streaming"]>["byTeam"][string]> = {}, transactions = [drop("2", 11)]) => {
+      f.model = { ...f.model, faAllocation: { basis: "waiver", order: ["3", "1", "2", "4"] } };
+      f.snapshot = { ...f.snapshot, transactions };
+      f.model.streaming = { ...f.model.streaming, byTeam: { ...f.model.streaming.byTeam, "3": { positions: [], source: "detected", adds: { DEF: 3 } }, ...extra } };
+    };
+    const stopped = "Quasar Quokkas (D/ST, 3 adds this season) has made no transactions in the last 5 weeks, so it's assumed to have stopped streaming.";
+    const f = leagueFixture();
+    dormant(f);
+    expect(of(f).streaming?.others).toBe(`No other team is assumed to stream, so the others count only their own players. ${stopped}`);
+    expect(of(f).rosters.find((r) => r.teamId === "3")?.streams).toBeNull();
+    // Another team that streams is listed first.
+    const g = leagueFixture();
+    dormant(g, { "4": { positions: ["DEF"], source: "detected", adds: { DEF: 2 } } }, [drop("2", 11), drop("4", 10)]);
+    expect(of(g).streaming?.others).toBe(`Other teams that stream (2 or more adds at the position this season): Tundra Tortoises (D/ST, 2 adds). ${stopped}`);
+    // Two of them: one sentence.
+    const h = leagueFixture();
+    dormant(h, { "4": { positions: [], source: "detected", adds: { DEF: 2, TE: 1 } } });
+    expect(of(h).streaming?.others).toBe(
+      "No other team is assumed to stream, so the others count only their own players. Quasar Quokkas (D/ST, 3 adds this season) and Tundra Tortoises (D/ST, 2 adds this season) have made no transactions in the last 5 weeks, so they're assumed to have stopped streaming.",
+    );
+    // Without a team of mine.
+    const k = leagueFixture({ myTeamId: null });
+    dormant(k);
+    expect(of(k).streaming?.others).toBe(`No team is assumed to stream, so every team counts only their own players. ${stopped}`);
+    // An inactive team without the adds is no streamer to name; nor is one the engine has streaming (no allocation: no inactive teams).
+    const m = leagueFixture();
+    dormant(m, { "3": { positions: [], source: "detected", adds: { DEF: 1 } } });
+    expect(of(m).streaming?.others).toBe("No other team has made 2 or more adds at QB, TE or D/ST this season, so the others count only their own players.");
+    expect(view().streaming?.others).toBe("Other teams that stream (2 or more adds at the position this season): Quasar Quokkas (D/ST, 3 adds).");
+    // The explainer states the exception where the model allocates free agents.
+    expect(of(f).explain.find((e) => e.title === "Streaming")?.text).toContain(
+      "Another team counts as streaming a position once it has made 2 or more adds there this season, unless it has made no transactions in the last 5 weeks; the others count only their own players.",
+    );
   });
 
   it("explains how a streamed slot counts, with the replacement's average over the weeks team numbers count, and the game-day rule", () => {
@@ -2019,7 +2123,7 @@ describe("buildLeagueView: how these numbers work", () => {
     const o = config.freeAgentOptimizer;
     // Judged with injuries and byes simulated (scenarios ran, no starter limits): review of Phase 4.
     expect(text).toContain(
-      `Free-agent pickups: Each team is measured after the free-agent pickups that would help it, made one at a time: each time the add (dropping a player, or into an open roster spot) that adds the most lineup points with injuries and byes simulated (so a backup who'd start when a starter is hurt or on bye counts), as long as it adds at least ${o.faMinGain}, up to ${o.faMaxMoves} pickups. When the player it would drop has trade value and dropping a less valuable one instead costs at most ${config.lineups.dropNearTieWeekly} points a week, the less valuable one goes (any player worth less than the best free agent counts as worth that much), so a pickup can add a little less. Kickers and D/STs are never picked up (they're streamed or kept), nor is a position the team streams, and a player its starting lineup needs is never dropped. Lineup cost, trade chips and partners all start from those rosters, so a trade never gets credit for a pickup a team could make anyway. Each team is measured on its own, so two teams may count on the same free agent.`,
+      `Free-agent pickups: Each team is measured after the free-agent pickups that would help it, made one at a time: each time the add (dropping a player, or into an open roster spot) that adds the most lineup points with injuries and byes simulated (so a backup who'd start when a starter is hurt or on bye counts), as long as it adds at least ${o.faMinGain}, up to ${o.faMaxMoves} pickups. When the player it would drop has trade value and dropping a less valuable one instead costs at most ${config.lineups.dropNearTieWeekly} points a week, the less valuable one goes (any player worth less than the best free agent no team is expected to pick up counts as worth that much), so a pickup can add a little less. Kickers and D/STs are never picked up (they're streamed or kept), nor is a position the team streams, and a player its starting lineup needs is never dropped. Lineup cost, trade chips and partners all start from those rosters, so a trade never gets credit for a pickup a team could make anyway. Each team is measured on its own, so two teams may count on the same free agent.`,
     );
     // One free agent, one team (planner reply to Checkpoint 4, change 3): with an allocation, the last sentence says how
     // free agents are shared out instead (a model built before Phase 4b, like the fixture's, keeps the old one).

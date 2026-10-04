@@ -22,6 +22,7 @@ import { MFL_POS } from "@/adapters/mfl/positions";
 import { mflRulesToScoring } from "@/adapters/mfl/scoringMap";
 import { buildCrosswalk, type MflPlayerIds } from "../lib/mfl/oracle";
 import { readLocalFixture, saveMinimizedFixture, shiftTimestamps, timestampShiftMs } from "../lib/minimize";
+import { isMainModule } from "../lib/runMode";
 import { ORACLE_WEEKS, SEASON, TOLERANCE_TEXT, dynastyProcessRows, measurePopulation, minimizeStats, pct, round3, selectSubset, sleeperPlayers, sleeperWeekStats } from "./mfl-fleaflicker-common";
 
 const DRY_RUN = process.argv.includes("--dry-run");
@@ -112,7 +113,10 @@ async function main(): Promise<void> {
   console.log(`  wrote ${out}`);
 }
 
-main().catch((err: unknown) => {
-  console.error(err instanceof Error ? err.message : String(err));
-  process.exit(1);
-});
+// Run only as a script (an exact path: ../lib/runMode.ts isMainModule; a scratch file that imports it starts nothing).
+if (isMainModule(import.meta.url)) {
+  main().catch((err: unknown) => {
+    console.error(err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  });
+}

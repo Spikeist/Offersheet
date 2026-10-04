@@ -2,8 +2,8 @@
  * Pre-game projection archive (CLAUDE.md §2.3 "Pre-game snapshots"; planner reply to Checkpoint 2,
  * answer 4). Sleeper re-stamps a week's projections after its games, so the stat SDs Phase 2 fit on past
  * weeks may understate the forecast error; Phase 6 refits them (§5) on the projections as they stood
- * before each week's first kickoff. Whenever a model build (the League page under `npm run dev`, and
- * `npm run league:report`: modelInputs.ts buildModelInputs) or `npm run snapshot:projections` reads a
+ * before each week's first kickoff. Whenever a model build (the League page under `npm run dev` or the stable copy, and
+ * `npm run league:report -- --live`: modelInputs.ts buildModelInputs) or `npm run snapshot:projections` reads a
  * week's projections fetched before that kickoff, this module keeps the last such snapshot, per week and
  * position, in git-ignored data-local/. Importing a league and the probes archive nothing themselves, and
  * no scheduled task runs; `npm run snapshot:projections` does it by hand:
@@ -48,7 +48,10 @@
  *   by Sleeper player id); nothing about any league is stored.
  * - Enabled only where there is a local disk (projectionArchiveEnabled): off in production (NODE_ENV
  *   "production"), on Vercel and under Vitest (tests pass an archiver explicitly); on under `npm run dev`
- *   and tsx scripts.
+ *   and tsx scripts. The stable copy (planner reply to Checkpoint 4c, A1; scripts/stable.ts) is a production build on
+ *   this computer, run from a sibling folder: it sets DATA_LOCAL_ENV to the main folder's data-local/, which turns the
+ *   archive on there (never on Vercel or under tests) and puts it in that folder (dataLocalRoot), so its snapshots land
+ *   with the development copy's.
  * - Server-only in spirit (node:fs, node:zlib), but it doesn't import "server-only", so tsx scripts can
  *   use it.
  */
@@ -71,6 +74,18 @@ export const PROJECTION_ARCHIVE_VERSION = 1;
 
 /** The archive's folder, relative to the project root (git-ignored with the rest of /data-local/). */
 export const PROJECTION_ARCHIVE_DIR = path.join("data-local", "projection-snapshots");
+
+/**
+ * The folder that stands for data-local/ when it isn't the working directory's (the header): the stable copy sets it to
+ * the main folder's data-local/ (scripts/stable.ts). It also turns the local archives on in a production build.
+ */
+export const DATA_LOCAL_ENV = "OFFERSHEET_DATA_LOCAL";
+
+/** DATA_LOCAL_ENV as an absolute folder, or null when it isn't set. */
+export function dataLocalRoot(env: Readonly<Record<string, string | undefined>> = process.env): string | null {
+  const dir = env[DATA_LOCAL_ENV]?.trim();
+  return dir ? path.resolve(dir) : null;
+}
 
 /**
  * Stat keys left out: Sleeper's fantasy-point totals (pts_ppr, pts_half_ppr, pts_std, pts_idp), ADP
@@ -383,10 +398,14 @@ function errorName(err: unknown): string {
   return err instanceof Error ? err.name : typeof err;
 }
 
-/** The fs archiver under `root` (default: data-local/projection-snapshots in the working directory). */
+/**
+ * The fs archiver under `root` (default: projection-snapshots in DATA_LOCAL_ENV's folder when it's set, the stable copy;
+ * else data-local/projection-snapshots in the working directory).
+ */
 export function createProjectionArchiver(opts: { root?: string } = {}): ProjectionArchiver {
+  const dataLocal = dataLocalRoot();
   // Literal segments (= PROJECTION_ARCHIVE_DIR), like FileCache's default folder, so the bundler's file tracing sees one fixed path.
-  const root = opts.root ?? path.join(process.cwd(), "data-local", "projection-snapshots");
+  const root = opts.root ?? (dataLocal ? path.join(dataLocal, "projection-snapshots") : path.join(process.cwd(), "data-local", "projection-snapshots"));
   /** File → requested position → the latest fetch time the file is known to hold or to have been checked against. */
   const upTo = new Map<string, Map<string, number>>();
   /** File → the tail of its write queue. */
@@ -462,13 +481,15 @@ export function createProjectionArchiver(opts: { root?: string } = {}): Projecti
 }
 
 /**
- * Whether this process may write the archive: only where there is a local disk. Off in production
- * (NODE_ENV "production"), on Vercel, and under Vitest (NODE_ENV "test" or VITEST; tests pass an
- * archiver explicitly); on under `npm run dev` and tsx scripts.
+ * Whether this process may write the archive: only where there is a local disk. Off on Vercel and under Vitest (NODE_ENV
+ * "test" or VITEST; tests pass an archiver explicitly), whatever else is set; on with DATA_LOCAL_ENV (the stable copy: a
+ * production build on this computer); otherwise off in production (NODE_ENV "production") and on under `npm run dev` and
+ * tsx scripts.
  */
 export function projectionArchiveEnabled(env: Readonly<Record<string, string | undefined>> = process.env): boolean {
-  if (env.NODE_ENV === "production" || env.NODE_ENV === "test") return false;
-  return !env.VERCEL && !env.VITEST;
+  if (env.VERCEL || env.VITEST || env.NODE_ENV === "test") return false;
+  if (dataLocalRoot(env)) return true;
+  return env.NODE_ENV !== "production";
 }
 
 let processArchiver: ProjectionArchiver | null | undefined;

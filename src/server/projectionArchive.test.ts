@@ -20,6 +20,8 @@ import {
   archiveSkip,
   beforeKickoff,
   createProjectionArchiver,
+  DATA_LOCAL_ENV,
+  dataLocalRoot,
   defaultProjectionArchiver,
   firstKickoffOf,
   lastModifiedById,
@@ -376,5 +378,23 @@ describe("where the archive is enabled (only where there is a local disk)", () =
     expect(projectionArchiveEnabled({ VITEST: "true" })).toBe(false);
     expect(projectionArchiveEnabled()).toBe(false); // this run
     expect(defaultProjectionArchiver()).toBeNull();
+  });
+
+  it("the stable copy (OFFERSHEET_DATA_LOCAL, a production build): on, and the snapshots go to that folder (never on Vercel or under tests)", async () => {
+    expect(DATA_LOCAL_ENV).toBe("OFFERSHEET_DATA_LOCAL");
+    expect(projectionArchiveEnabled({ NODE_ENV: "production", OFFERSHEET_DATA_LOCAL: "D:/main/data-local" })).toBe(true);
+    expect(projectionArchiveEnabled({ NODE_ENV: "production", OFFERSHEET_DATA_LOCAL: "D:/main/data-local", VERCEL: "1" })).toBe(false);
+    expect(projectionArchiveEnabled({ NODE_ENV: "test", OFFERSHEET_DATA_LOCAL: "D:/main/data-local" })).toBe(false);
+    expect(projectionArchiveEnabled({ VITEST: "true", OFFERSHEET_DATA_LOCAL: "D:/main/data-local" })).toBe(false);
+    expect(projectionArchiveEnabled({ NODE_ENV: "production", OFFERSHEET_DATA_LOCAL: "" })).toBe(false);
+    expect(dataLocalRoot({ OFFERSHEET_DATA_LOCAL: path.join(dir, "x") })).toBe(path.join(dir, "x"));
+    expect(dataLocalRoot({})).toBeNull();
+    vi.stubEnv(DATA_LOCAL_ENV, path.join(dir, "main-data-local"));
+    try {
+      const outcome = await createProjectionArchiver().archive(input([qb("90002", 250)]));
+      expect(outcome).toEqual({ status: "archived", file: projectionSnapshotFile(path.join(dir, "main-data-local", "projection-snapshots"), SEASON, 5), replaced: ["QB"] });
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });

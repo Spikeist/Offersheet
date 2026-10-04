@@ -1,9 +1,9 @@
 /**
  * Phase 0 probe: Fleaflicker (CLAUDE.md §2.5, §17 Data Checklist A–M).
  *
- *   npm run probe:fleaflicker
- *   npx tsx scripts/probe-fleaflicker.ts --allow-crawl                 (only after Parker agreed)
- *   npx tsx scripts/probe-fleaflicker.ts --rediscover --allow-crawl    (ignore the pinned test league)
+ *   npm run probe:fleaflicker -- --live                                       (probes run only with --live)
+ *   npx tsx scripts/probe-fleaflicker.ts --live --allow-crawl                 (only after Parker agreed)
+ *   npx tsx scripts/probe-fleaflicker.ts --live --rediscover --allow-crawl    (ignore the pinned test league)
  *
  * League: FLEAFLICKER_LEAGUE_ID from .env.local, else a pinned public test league (git-ignored,
  * see scripts/lib/fleaflicker/league-pick.ts). A second public league (pinned as "oracle") is used
@@ -26,6 +26,7 @@ import { FC_TEAM_SIZES, fantasyCalcUrl, getFantasyCalc, matchRate, nearest, type
 import { LeakError } from "./lib/fixtures";
 import { OfflineCacheMiss, type HttpResult } from "./lib/http";
 import { crawlAllowed, runProbe, type ProbeContext } from "./lib/probe";
+import { isMainModule } from "./lib/runMode";
 import { NEEDS_CRAWL, crawlGateNote } from "./lib/shared/crawl-gate";
 import { folderStats, partitionPaths, pruneBothFolders, whereSaved } from "./lib/shared/fixture-folders";
 import { getSleeperPlayers } from "./lib/sleeper-players";
@@ -2010,7 +2011,8 @@ function reportFindings(p: ProbeContext, x: FindingsInput): void {
   if (analysis) p.cl.meta.oracleSummary = { rate: round2(analysis.summary.rate * 100), compared: analysis.summary.compared, rateWithoutZeroZero: round2(analysis.summary.rateNonZero * 100), withoutAdjustments: round2(analysis.baseline.rate * 100) };
 }
 
-runProbe("fleaflicker", async (p) => {
+// Run only as a script (an exact path: scripts/lib/runMode.ts isMainModule); runProbe needs --live.
+if (isMainModule(import.meta.url)) void runProbe("fleaflicker", async (p) => {
   const rediscover = process.argv.includes("--rediscover");
   const ids = new FleaIdentities(p.redactor);
   const watch = new WatchList((v) => ids.isPublicName(v));

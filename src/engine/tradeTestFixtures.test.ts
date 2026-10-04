@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { acceptanceLabel } from "./acceptance";
-import { tradeScore } from "./benefit";
+import { overallScore, tradeScore } from "./benefit";
 import { config } from "./config";
-import { fixtureKey, premiumFact, tradeEvaluation, tradeStep, tradeSteps, withSteps } from "./tradeTestFixtures";
+import { FIXTURE_B3, fixtureKey, premiumFact, tradeEvaluation, tradeStep, tradeSteps, withSteps } from "./tradeTestFixtures";
 
 describe("premiumFact", () => {
   it("follows config.acceptance.starPremium: e = e_rank + e_elite, tagged 'Harder to get' from harderToGetMin", () => {
@@ -23,7 +23,7 @@ describe("premiumFact", () => {
 describe("tradeStep", () => {
   it("follows the engine's rules, as tradeEvaluation does", () => {
     const s = tradeStep({ b: 5, pComplete: 0.3, gMine: 0.25 });
-    expect(s.tradeScore).toBe(tradeScore(5));
+    expect(s.tradeScore).toBe(tradeScore(5, FIXTURE_B3));
     expect(s.pAccept).toBe(0.3);
     expect(s.acceptLabel).toBe(acceptanceLabel(0.3));
     expect(s.gPartner).toBeCloseTo(1 / 1.25 - 1, 12);
@@ -66,7 +66,7 @@ describe("tradeSteps and withSteps", () => {
   it("takes overrides: derived numbers follow them, partial details merge onto the ranked trade's", () => {
     const ranked = tradeEvaluation({ give: ["kelce", "nix"], get: ["bijan"], detail: { holesFilled: ["QB1"] } });
     const steps = tradeSteps(ranked, "nix", { offerFirst: { b: 6, pComplete: 0.2, gMine: 0.25, detail: { holesFilled: ["TE1"] } }, full: { pComplete: 0.5 } });
-    expect(steps.offerFirst).toMatchObject({ b: 6, tradeScore: tradeScore(6), pAccept: 0.2, acceptLabel: acceptanceLabel(0.2) });
+    expect(steps.offerFirst).toMatchObject({ b: 6, tradeScore: tradeScore(6, FIXTURE_B3), pAccept: 0.2, acceptLabel: acceptanceLabel(0.2) });
     expect(steps.offerFirst.gPartner).toBeCloseTo(1 / 1.25 - 1, 12);
     expect(steps.offerFirst.detail.holesFilled).toEqual(["TE1"]);
     expect(steps.offerFirst.detail.teams).toBe(ranked.detail.teams);
@@ -85,5 +85,15 @@ describe("tradeSteps and withSteps", () => {
     expect(e.detail.premium).toEqual([premiumFact("kelce")]);
     expect("steps" in tradeEvaluation()).toBe(false);
     expect("premium" in tradeEvaluation().detail).toBe(false);
+  });
+});
+
+describe("tradeEvaluation's “Helps you” scale (planner reply to Checkpoint 4c, A2)", () => {
+  it("scores B on FIXTURE_B3 by default, or on the b3 a test gives", () => {
+    expect(FIXTURE_B3).toBe(6);
+    expect(tradeEvaluation({ b: 3 })).toMatchObject({ b3: 6, tradeScore: 39, overall: overallScore(3, 0.4, 6) });
+    expect(tradeEvaluation({ b: 3, b3: 3 })).toMatchObject({ b3: 3, tradeScore: 63, overall: overallScore(3, 0.4, 3) });
+    // No scale: no scores.
+    expect(tradeEvaluation({ b: 3, b3: null })).toMatchObject({ b3: null, tradeScore: null, overall: null });
   });
 });

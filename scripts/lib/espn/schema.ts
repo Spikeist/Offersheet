@@ -1,6 +1,6 @@
 /**
  * FROZEN PHASE 0 EVIDENCE: the probes still use this copy; the app uses src/adapters/espn/schema.ts. A fix here doesn't
- * reach the app (and the reverse); `npm run import:report` is the live check of the shipped adapters.
+ * reach the app (and the reverse); `npm run import:report -- --live` is the live check of the shipped adapters.
  *
  * zod shapes for the parts of ESPN's league API the probe reads (verified live 2026-09-29).
  * Fields we don't read are ignored (z.object strips them). The probe validates with safeParse and
