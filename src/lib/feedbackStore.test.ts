@@ -15,6 +15,7 @@ import {
   FEEDBACK_REASONS,
   FEEDBACK_SAVE_FAILED,
   FEEDBACK_STORAGE_KEY,
+  FEEDBACK_VERSIONS,
   OUTCOME_LABEL,
   REASON_LABEL,
   REASON_MODEL_PART,
@@ -185,6 +186,54 @@ describe("applyFeedback: one record per trade idea", () => {
     const [r] = applyFeedback([], { leagueKey: LEAGUE, evaluation: ev, change: { outcome: "sent" }, at: T1 });
     ev.proposal.give.push({ kind: "player", id: "999" });
     expect(r?.proposal).toEqual({ partnerId: "4", give: [{ kind: "pick", season: 2027, round: 1, originalTeamId: "3" }], get: [{ kind: "player", id: "404" }] });
+  });
+});
+
+describe("which version was sent (planner reply to Checkpoint 4, change 6 and answer 8)", () => {
+  const PLAN_B = { version: "planB" as const, key: "2|give:101|get:204", pAccept: 0.3, pComplete: 0.15 };
+
+  it("keeps the version sent with the outcome: which one, its key and its estimate as its line showed it", () => {
+    const [r] = applyFeedback([], { leagueKey: LEAGUE, evaluation: evaluation(), change: { outcome: "sent", sent: PLAN_B }, at: T1 });
+    expect(r).toMatchObject({ outcome: { kind: "sent", at: T1 }, version: "planB", versionKey: PLAN_B.key, versionAccept: { pAccept: 0.3, pComplete: 0.15 } });
+    // The record's numbers stay the card's (the trade idea), the version's estimate beside them.
+    expect(r?.numbers.pAccept).toBe(0.42);
+    expect(FEEDBACK_VERSIONS).toEqual(["offerFirst", "full", "planB"]);
+  });
+
+  it("later outcomes keep it; clearing the outcome clears it (it belongs to the sending); a report alone never has one", () => {
+    let list = applyFeedback([], { leagueKey: LEAGUE, evaluation: evaluation(), change: { outcome: "sent", sent: PLAN_B }, at: T1 });
+    list = applyFeedback(list, { leagueKey: LEAGUE, evaluation: evaluation(), change: { outcome: "accepted" }, at: T2 });
+    expect(list[0]).toMatchObject({ outcome: { kind: "accepted" }, version: "planB", versionKey: PLAN_B.key });
+    list = applyFeedback(list, { leagueKey: LEAGUE, evaluation: evaluation(), change: { report: { reason: "other" } }, at: T2 });
+    list = applyFeedback(list, { leagueKey: LEAGUE, evaluation: evaluation(), change: { outcome: null }, at: T3 });
+    expect(list[0]?.version).toBeUndefined();
+    expect(list[0]?.versionKey).toBeUndefined();
+    expect(list[0]?.versionAccept).toBeUndefined();
+    expect(list[0]?.report?.reason).toBe("other");
+    // A newer version given with a later outcome replaces it; an unknown one is ignored; a non-finite estimate is kept as null.
+    let again = applyFeedback([], { leagueKey: LEAGUE, evaluation: evaluation(), change: { outcome: "sent", sent: PLAN_B }, at: T1 });
+    again = applyFeedback(again, { leagueKey: LEAGUE, evaluation: evaluation(), change: { outcome: "countered", sent: { version: "full", key: "k", pAccept: Number.NaN, pComplete: 0.4 } }, at: T2 });
+    expect(again[0]).toMatchObject({ version: "full", versionKey: "k", versionAccept: { pAccept: null, pComplete: 0.4 } });
+    const odd = applyFeedback([], { leagueKey: LEAGUE, evaluation: evaluation(), change: { outcome: "sent", sent: { ...PLAN_B, version: "other" as never } }, at: T1 });
+    expect(odd[0]?.version).toBeUndefined();
+  });
+
+  it("round-trips through the storage and the export; older records (no version) still read, as unknown", () => {
+    const [withVersion] = applyFeedback([], { leagueKey: LEAGUE, evaluation: evaluation("a"), change: { outcome: "sent", sent: PLAN_B }, at: T1 });
+    const [old] = applyFeedback([], { leagueKey: LEAGUE, evaluation: evaluation("b"), change: { outcome: "rejected" }, at: T1 });
+    const list = [withVersion, old] as FeedbackRecord[];
+    expect(parseFeedback(JSON.stringify(list))).toEqual(list);
+    const exported = parseFeedbackExport(feedbackExportText(list, T3)) ?? [];
+    expect(exported.map((r) => r.version ?? "unknown")).toEqual(["planB", "unknown"]);
+    expect(exported[0]?.versionKey).toBe(PLAN_B.key);
+    // A version that isn't readable is left out; the record stays.
+    const broken = { ...withVersion, version: "sideways", versionKey: 7, versionAccept: "x" };
+    expect(parseFeedback(JSON.stringify([broken]))[0]).toMatchObject({ tradeKey: "a", outcome: { kind: "sent" } });
+    expect(parseFeedback(JSON.stringify([broken]))[0]?.version).toBeUndefined();
+    // A version without an outcome (hand-edited) is left out too.
+    const { outcome: _o, ...noOutcome } = { ...(withVersion as FeedbackRecord), report: { reason: "other", at: T1 } };
+    void _o;
+    expect(parseFeedback(JSON.stringify([noOutcome]))[0]?.version).toBeUndefined();
   });
 });
 

@@ -4,15 +4,16 @@
  * the regular season so the season can be simulated): a search runs to the end in slices with
  * progress in stage order, its result survives the structured clone a worker's postMessage makes, Stop ends it
  * between slices, and the Analyzer reuses the search's evaluation context, sending the search's own odds before any
- * trade with its evaluation. The handler runs with real timers, as in a worker.
+ * trade with its evaluation. The handler runs with real timers, as in a worker. A trade opened from a card's "If they
+ * say no, try:" (review of Phase 4b) loses its steps and gets its words again, through the engine's own withWords.
  */
 import { describe, expect, it } from "vitest";
-import { buildTradeContext } from "@/engine/evaluate";
+import { analyzeTrade, buildTradeContext, tradeInternals, withWords } from "@/engine/evaluate";
 import type { Matchup } from "@/engine/model";
 import { randomLeague } from "@/engine/testLeague";
 import { defaultTradeSettings } from "@/engine/settings";
-import type { TradeSearchResult, TradeSearchStage } from "@/engine/tradeModel";
-import { createEngineHandler, type EngineResponse, type TradesRequest } from "./engine.worker";
+import type { TradeAsset, TradeEvaluation, TradeSearchResult, TradeSearchStage, TradeStep } from "@/engine/tradeModel";
+import { createEngineHandler, withoutSteps, type EngineResponse, type TradesRequest } from "./engine.worker";
 
 /** Every team plays every week (the circle method), none decided yet. */
 function roundRobin(ids: readonly string[], weeks: readonly number[]): Matchup[] {
@@ -134,5 +135,31 @@ describe("the worker protocol with the real trade engine", () => {
     expect(structuredClone(analysis)).toEqual(analysis);
     expect(h.contexts()).toBe(1);
     console.info(`[worker+engine] Analyzer on the cached context: ${ms.toFixed(0)} ms`);
+  });
+
+  it("words a trade opened from 'If they say no, try:' without its steps: same numbers, a message for the trade itself (review of Phase 4b)", { timeout: 120_000 }, () => {
+    const ctx = buildTradeContext({ ...snapshot, myTeamId: "1" }, inputs, { now: new Date(NOW), settings: defaultTradeSettings() });
+    const [a, b] = (snapshot.teams[0]?.roster ?? []).slice(1, 3);
+    const theirs = snapshot.teams[1]?.roster[1];
+    if (!a || !b || !theirs) throw new Error("the synthetic league has no players");
+    const player = (id: string): TradeAsset => ({ kind: "player", id });
+    const analysis = analyzeTrade(ctx, { partnerId: "2", give: [player(a), player(b)], get: [player(theirs)] }, { settings: defaultTradeSettings() });
+    const e = analysis.evaluation;
+    if (!e) throw new Error(analysis.illegal ?? "the trade wasn't evaluated");
+    // The same trade with steps (offer my first player alone first), worded by the engine: its pitch names the first offer.
+    const offerFirst: TradeStep = { ...e, proposal: { partnerId: "2", give: [player(a)], get: [player(theirs)] }, key: `2|give:${a}|get:${theirs}`, b: e.b, tradeScore: e.tradeScore };
+    const { reasons: _r, pitch: _p, ...core } = e;
+    void _r;
+    void _p;
+    const stepped: TradeEvaluation = withWords(tradeInternals(ctx), { ...core, steps: { offerFirst, ifNo: { add: b, full: { ...offerFirst, proposal: e.proposal, key: e.key } }, ranked: "full" } });
+    const name = (id: string) => snapshot.players[id]?.name ?? id;
+    expect(stepped.pitch).not.toContain(name(b));
+    const opened = withoutSteps(ctx, { ...analysis, evaluation: stepped }).evaluation;
+    expect(opened?.steps).toBeUndefined();
+    expect(opened?.pitch).toContain(name(a));
+    expect(opened?.pitch).toContain(name(b));
+    expect(opened?.pitch).toBe(e.pitch);
+    expect([opened?.b, opened?.pAccept, opened?.pComplete, opened?.overall]).toEqual([e.b, e.pAccept, e.pComplete, e.overall]);
+    expect(opened?.reasons).toEqual(e.reasons);
   });
 });

@@ -22,12 +22,11 @@
  *    either); a playoff-week gain well above the regular season's; otherwise the long-term gain. A redraft trade with
  *    B > 0 that none of these explain gets its B from the market term: "Mostly a trade-value win: you get 30% more
  *    trade value than you give." It needs the market term itself (B − B_win) to be positive and at least B_win, so that
- *    it is most of B, and g_mkt(me) ≥ valueEven for the percent it quotes (the market's, as the card's values read).
- *    Since lead decision N10 the term reads my g with each player I give valued at max(v, W) (benefit.ts), so a gain at
- *    market can leave the term at or below 0 (I give a player worth less than the waiver credit): then the line would
- *    credit trade value for a B that comes from the odds alone, and it isn't said (end-of-Phase-4 review). Nothing at
- *    all → "Barely changes your starting lineup." A trade with B ≤ 0 (the Analyzer shows them) starts with "Doesn't
- *    help you overall, …".
+ *    it is most of B (end-of-Phase-4 review: a B that comes from odds changes too small to print isn't credited to trade
+ *    value), and g_mkt(me) ≥ valueEven for the percent it quotes. Since the value floor on both sides (planner reply to
+ *    Checkpoint 4, change 4, which replaced lead decision N10) the term and the card's values read the same g_mkt(me),
+ *    every player at max(v, W) (benefit.ts). Nothing at all → "Barely changes your starting lineup." A trade with B ≤ 0
+ *    (the Analyzer shows them) starts with "Doesn't help you overall, …".
  * 2. Why they might say yes or no (at most partnerReasons, the ones that moved the acceptance estimate most first:
  *    |the feature's term in logit units|, TradeDetail.terms; each needs at least termMin, except the value line and the
  *    star premium line, and the star premium line always has a place among them, below):
@@ -40,8 +39,11 @@
  *    - trade value, from their side: "They give up 8% more trade value than they get, so expect pushback", "They get
  *      12% more …, which makes a yes more likely", or even within valueEven; a gap above valueMultipleAbove reads as
  *      a multiple ("They give up about 9.3 times as much trade value as they get"). The percents are exact readings
- *      of the package values: my PV_give is their PV_recv, so "they give up X% more than they get" is X = g_mkt(me) and
- *      "they get X% more than they give" is X = g_mkt(partner). Said also when the card's "Market check" flag is on
+ *      of their own package: "they get X% more than they give" is X = g_mkt(partner), and "they give up X% more than
+ *      they get" is X = PV_give(P) / PV_recv(P) − 1 = −g / (1 + g) of the same g (theirOverpay). Without an IR player in
+ *      the trade the two packages mirror each other (my PV_give is their PV_recv), so that is g_mkt(me) exactly, and
+ *      g_mkt(me) is what's printed then; with one, each side's open-spot credit follows its own active roster
+ *      (market.ts's header) and only their own package says what they give up (review of track E). Said also when the card's "Market check" flag is on
  *      (the lead's decision after the Trade Finder review: the flag carries the check, from my side, and the reasons
  *      don't repeat it; that they get more is a real reason they'd accept);
  *    - the star premium (planner addendum to Checkpoint 3, §1; lead decision N7), whenever a player they'd give has
@@ -61,8 +63,9 @@
  *      (addendum review: "a little extra" there contradicted the value line and suggested sweetening an offer the
  *      model already favors). An unreadable perceived g gets the planner's ending.
  *      Like the value line it is a candidate whatever its weight, and its weight is what the premium moved the
- *      estimate: the value term at their perceived g (terms.value) minus the term at the raw market g (gPartner,
- *      clamped as the model clamps it). With a premium the value line weighs the raw term alone (⚠️ its words are the
+ *      estimate: the value term at their perceived g (terms.value) minus the term at the market g without the premium
+ *      (gPartner, every player at max(v, W), clamped as the model clamps it). With a premium the value line weighs that
+ *      market term alone (⚠️ its words are the
  *      market's, so it no longer takes the premium's weight as well); without one, |terms.value| as before. It always
  *      has a place among the partnerReasons lines (N7: "whenever"): when that many lines moved the estimate more, it
  *      takes the place of the lowest-weight one of them other than the value line (⚠️ ours: the two read together; the
@@ -88,7 +91,14 @@
  * The pitch leads with what the partner gains (the same lineup facts as group 2: the hole it fills, "over the next 3
  * weeks" when it's a short-term one by the rank rule above; their slot or lineup gain; then the trade value they
  * gain, "(FantasyCalc values)", only when it's modest, valueEven to pitchValueMax: a bigger gain tells a sharp manager
- * the offer is an overpay, and a loss is never mentioned), at most two such sentences, then names the trade from their side ("Would you trade
+ * the offer is an overpay, and a loss is never mentioned), at most two such sentences, then names the trade from their
+ * side. ⚠️ The trade value there is FantasyCalc's own (ExplainContext.fantasyCalcValue: the sum of the FantasyCalc values
+ * they'd get against the sum they'd give; no floor at the waiver credit W and no credit for a roster spot, the model's
+ * package rules, market.ts): the sentence says "(FantasyCalc values)", and a manager who checks FantasyCalc must find that
+ * number (final review of Phase 4b: on Parker's league a pitch said "about 17%" where FantasyCalc read +2.9%, the rest
+ * the model's credit W for the spot the partner opens). It needs a FantasyCalc value for every player in the version
+ * named (no pick, no estimate); otherwise, or without the context's values, nothing is said about value. The card's own
+ * reasons keep the model's package g (the one the acceptance estimate used). ("Would you trade
  * Bijan Robinson for Travis Kelce and Bo Nix?") and closes. A slot fact names the player who'd play there when exactly
  * one player sent can play the slot (his position among the slot's: the instance's `eligible` list when the context
  * gives one, else read from the slot's name: a position, "D/ST", "RB/WR/TE"-style lists and the flex names; ⚠️
@@ -102,20 +112,30 @@
  * partner-side facts above — and never the throw-in held back for "if they say no" (nor that there is one). When the
  * offer first is the ranked trade itself (same assets), the ranked trade's own facts are used. ⚠️ A TradeStep carries
  * no ΔLineup_P, so the offer-first version's is read back from its need term (§11: terms.need = β_need × n, n =
- * clamp(ΔLineup_P / nScale, nClamp)): exact inside the clamp, the clamp's value (±10 a week) at it, where a slot fact
- * leads anyway. A step that doesn't fit the trade (another partner, no assets on either side) is ignored. The reasons
- * stay the ranked trade's: they explain the card's numbers.
+ * clamp(ΔLineup_P / nScale, nClamp), β_need by the league's type: acceptance.betaNeed, 1.2 in redraft and keeper
+ * leagues and 0.6 in dynasty ones since the planner's reply to Checkpoint 4, change 2): exact inside the clamp, the
+ * clamp's value (±10 a week) at it, where a slot fact leads anyway. A step that doesn't fit the trade (another partner,
+ * no assets on either side) is ignored. The reasons stay the ranked trade's: they explain the card's numbers.
+ *
+ * Injury tags (injuryTags; planner reply to Checkpoint 4, change 6): every injury-tagged player on either side, mine
+ * first, then the ones I'd get, for TradeEvaluation.flags.tagged (evaluate.ts withWords fills it for every finished
+ * evaluation, the Trade Finder's and the Analyzer's; the cards word it: src/lib/tradeView.ts), with his return week when
+ * the platform gave one and his projection counts on it
+ * (review of track F): OUT from next week on, IR, PUP and SUSPENDED after this week, and a Probable, Questionable or
+ * Doubtful player's far ESPN date only when his projection follows it (§6 step 3's conflict: tagContextOf reads it from
+ * the League model; a caller without it keeps no such date).
  *
  * Robust to missing data: a null B or odds, empty detail lists, NaN numbers, unknown players ("Unknown player (id)")
  * and slot keys the context doesn't list (the key itself), premium facts and steps that don't fit the trade all
  * produce shorter text, never "NaN" or a throw.
  */
-import type { AcceptanceTerms } from "./acceptance";
+import { betaNeed, type AcceptanceTerms } from "./acceptance";
+import { farReturnWeek } from "./availability";
 import { benefitNotes } from "./benefit";
 import { config } from "./config";
-import type { SlotInstance } from "./leagueModel";
-import { POSITIONS, type InjuryStatus, type LeagueSettings, type Pos } from "./model";
-import type { SlotChange, TradeAsset, TradeDetail, TradeEvaluationCore, TradeProposal } from "./tradeModel";
+import type { PlayerModel, SlotInstance } from "./leagueModel";
+import { POSITIONS, type InjuryStatus, type LeagueSettings, type LeagueSnapshot, type PlayerInfo, type Pos } from "./model";
+import type { InjuryTag, SlotChange, TradeAsset, TradeDetail, TradeEvaluationCore, TradeProposal } from "./tradeModel";
 
 /** What the words need besides the evaluation: names (the app's real ones, or the report's placeholders) and the league's facts. */
 export interface ExplainContext {
@@ -133,6 +153,12 @@ export interface ExplainContext {
   slots: readonly (SlotInstance & { eligible?: readonly Pos[] })[];
   leagueType: LeagueSettings["leagueType"];
   tradeDeadline: LeagueSettings["tradeDeadline"];
+  /**
+   * A player's FantasyCalc value in the league's format (the perception list: what a manager finds on FantasyCalc),
+   * null when FantasyCalc has none (an estimate or a flat minimum). Only the pitch's trade-value sentence reads it
+   * (the file header): without it, the pitch says nothing about trade value.
+   */
+  fantasyCalcValue?: (playerId: string) => number | null;
 }
 
 /** The config.explain keys this module reads, widened so tests can pass other numbers. */
@@ -499,10 +525,27 @@ function valueLine(e: TradeEvaluationCore, cfg: ExplainConfig, premiumTurned = f
     return Number.isFinite(g) ? `They get ${moreValue(g, cfg)} they give, which makes a yes more likely.` : "They get trade value without giving any up, which makes a yes more likely.";
   }
   if (g <= -cfg.valueEven + EPS) {
-    // They give up X% more than they get: X = PV_give(P) / PV_recv(P) − 1 = g_mkt(me).
-    return isFiniteNumber(e.gMine) ? `They give up ${moreValue(e.gMine, cfg)} they get, so expect pushback.` : "They'd give up trade value and get almost none back, so expect pushback.";
+    // They give up X% more than they get: X = PV_give(P) / PV_recv(P) − 1 (theirOverpay).
+    const x = theirOverpay(e);
+    return isFiniteNumber(x) ? `They give up ${moreValue(x, cfg)} they get, so expect pushback.` : "They'd give up trade value and get almost none back, so expect pushback.";
   }
-  return "Even on trade value: each side gets about what it gives.";
+  // Even from their side. Each side's package counts its own active roster spots (§9: an IR slot isn't one), so when an IR
+  // player moves the two packages can stop mirroring each other: "each side" only when mine is even too (or they mirror).
+  const mine = e.gMine;
+  const mirrored = Number.isFinite(mine) && g > -1 && Math.abs(mine + g / (1 + g)) <= 1e-9 * Math.max(1, Math.abs(mine));
+  if (mirrored || (Number.isFinite(mine) && Math.abs(mine) < cfg.valueEven - EPS)) return "Even on trade value: each side gets about what it gives.";
+  return "About even on trade value from their side.";
+}
+
+/**
+ * How much more trade value the partner gives than it gets, from its own package (the file header): PV_give(P) / PV_recv(P)
+ * − 1 = −g / (1 + g) for g = g_mkt(partner) (+Infinity when it gets nothing of value). g_mkt(me) itself when the two agree
+ * (the packages mirror each other: no IR player moves), so those words stay exactly what they were.
+ */
+function theirOverpay(e: Pick<TradeEvaluationCore, "gPartner" | "gMine">): number {
+  const g = e.gPartner;
+  const x = g > -1 ? -g / (1 + g) : Number.POSITIVE_INFINITY;
+  return isFiniteNumber(e.gMine) && isFiniteNumber(x) && Math.abs(x - e.gMine) <= 1e-9 * Math.max(1, Math.abs(x)) ? e.gMine : x;
 }
 
 /** §11's value term β_gain·g⁺ + β_loss·g⁻ at a g_mkt(P), clamped to gClamp as the model clamps it (NaN counts 0). */
@@ -670,8 +713,8 @@ function reasons(e: TradeEvaluationCore, ctx: ExplainContext, names: Names, cfg:
   if (risky.covered) forMe.push(risky.covered);
   if (lineup.playoffs) forMe.push(lineup.playoffs);
   if (longTermGain && !futureFirst) forMe.push(longTermGain);
-  // Nothing above explains a redraft B > 0: it comes from the market term (§10's term on g_mkt(me)) when that term,
-  // B − B_win, is positive and most of B (N10 floors what I give at W there, so a gain at market isn't enough).
+  // Nothing above explains a redraft B > 0: it comes from the market term (§10's term on g_mkt(me), every player at
+  // max(v, W) like the card's values) when that term, B − B_win, is positive and most of B.
   const bWin = e.bWin;
   const marketTerm = isFiniteNumber(e.b) && isFiniteNumber(bWin) ? e.b - bWin : Number.NaN;
   const fromMarket = isFiniteNumber(bWin) && marketTerm > EPS && marketTerm >= bWin - EPS;
@@ -685,8 +728,8 @@ function reasons(e: TradeEvaluationCore, ctx: ExplainContext, names: Names, cfg:
   const t = (x: number | undefined): number => Math.abs(finiteOr0(x));
   const lineupFact = partnerLineup(e, cfg);
   const line = (text: string | null, weight: number, role?: PartnerLine["role"]): PartnerLine | null => (text ? { text, weight, ...(role ? { role } : {}) } : null);
-  // With a star premium, the value term (at their perceived g) splits: the raw market reading's part weighs the value
-  // line, the rest (what the premium moved) the premium line. Without one, the value line weighs the whole term.
+  // With a star premium, the value term (at their perceived g) splits: the market reading's part (no premium) weighs the
+  // value line, the rest (what the premium moved) the premium line. Without one, the value line weighs the whole term.
   const premium = premiumPlayers(e);
   const rawValue = valueTermAt(e.gPartner);
   const perceived = terms?.value;
@@ -748,8 +791,6 @@ function reasons(e: TradeEvaluationCore, ctx: ExplainContext, names: Names, cfg:
 /** What the pitch reads: one version of the trade (the file header: the offer-first version when steps exist). */
 interface PitchSource extends PartnerFacts {
   proposal: TradeProposal;
-  /** g_mkt(P), raw market values. */
-  gPartner: number;
 }
 
 /** A side's assets as a key that ignores their order. */
@@ -769,21 +810,22 @@ const isAsset = (a: unknown): a is TradeAsset => {
 
 /**
  * ΔLineup_P read back from a version's need term (the file header: terms.need = β_need × n, n = clamp(ΔLineup_P /
- * nScale, nClamp)); NaN (says nothing) when it can't be read.
+ * nScale, nClamp), β_need by the league's type: acceptance.betaNeed); NaN (says nothing) when it can't be read.
  */
-function deltaLineupFromTerms(terms: Partial<AcceptanceTerms> | undefined): number {
+export function deltaLineupFromTerms(terms: Partial<AcceptanceTerms> | undefined, leagueType: LeagueSettings["leagueType"]): number {
   const need = terms?.need;
-  const betaNeed: number = config.acceptance.beta.need;
+  const beta = betaNeed(leagueType);
   const scale: number = config.acceptance.nScale;
-  return isFiniteNumber(need) && betaNeed !== 0 && isFiniteNumber(scale) ? (need / betaNeed) * scale : Number.NaN;
+  return isFiniteNumber(need) && isFiniteNumber(beta) && beta !== 0 && isFiniteNumber(scale) ? (need / beta) * scale : Number.NaN;
 }
 
 /**
  * The version of the trade the pitch names (the file header): the offer-first step when the trade has steps that fit
- * it (the same partner, assets on a side, every asset readable), with its own detail, g and ΔLineup_P; the ranked
- * trade itself when there are none, or when the offer first is the ranked trade (the same assets).
+ * it (the same partner, assets on a side, every asset readable), with its own detail and ΔLineup_P (read back with the
+ * league type's β_need); the ranked trade itself when there are none, or when the offer first is the ranked trade
+ * (the same assets).
  */
-function pitchSource(e: TradeEvaluationCore): PitchSource {
+function pitchSource(e: TradeEvaluationCore, leagueType: LeagueSettings["leagueType"]): PitchSource {
   const step = e.steps?.offerFirst;
   const p = step?.proposal;
   if (!step || !p || p.partnerId !== e.proposal.partnerId || !Array.isArray(p.give) || !Array.isArray(p.get)) return e;
@@ -793,8 +835,7 @@ function pitchSource(e: TradeEvaluationCore): PitchSource {
   return {
     proposal: p,
     detail: detail ?? { holesFilled: [], partnerSlots: [], teams: 0 },
-    partnerDeltaLineup: deltaLineupFromTerms(detail?.terms),
-    gPartner: step.gPartner,
+    partnerDeltaLineup: deltaLineupFromTerms(detail?.terms, leagueType),
   };
 }
 
@@ -819,8 +860,37 @@ function starterFor(proposal: TradeProposal, names: Names, key: string, hole: bo
   return able.length === 1 ? names.player((able[0] as { id: string }).id) : null;
 }
 
+/**
+ * What the partner gains in a version of the trade by FantasyCalc's own values (the file header): the sum of what they'd
+ * get (my side) over the sum of what they'd give, minus 1, each player at his FantasyCalc value; null when the context
+ * has no values, a pick is in the trade, a player has no FantasyCalc value (or not a positive, finite one), or they'd
+ * give nothing of value.
+ */
+function fantasyCalcGain(proposal: TradeProposal, ctx: ExplainContext): number | null {
+  const valueOf = ctx.fantasyCalcValue;
+  if (!valueOf) return null;
+  const sum = (assets: readonly TradeAsset[]): number | null => {
+    let total = 0;
+    for (const a of assets) {
+      if (a.kind !== "player") return null;
+      let v: number | null;
+      try {
+        v = valueOf(a.id);
+      } catch {
+        v = null;
+      }
+      if (!isFiniteNumber(v) || !(v > 0)) return null;
+      total += v;
+    }
+    return total;
+  };
+  const theyGet = sum(proposal.give);
+  const theyGive = sum(proposal.get);
+  return theyGet === null || theyGive === null || !(theyGive > 0) ? null : theyGet / theyGive - 1;
+}
+
 /** The pitch for one version of the trade (pitchSource: the offer-first version when steps exist). */
-function pitch(src: PitchSource, names: Names, cfg: ExplainConfig): string {
+function pitch(src: PitchSource, names: Names, cfg: ExplainConfig, ctx: ExplainContext): string {
   const leads: string[] = [];
   const fact = partnerLineup(src, cfg);
   if (fact?.kind === "hole") {
@@ -833,9 +903,9 @@ function pitch(src: PitchSource, names: Names, cfg: ExplainConfig): string {
   } else if (fact?.kind === "gain") {
     leads.push(`This adds about ${projected(fact.points)} a week to your starting lineup.`);
   }
-  const g = src.gPartner;
+  const g = fantasyCalcGain(src.proposal, ctx);
   // Only a modest value gain is a selling point: a bigger one tells a sharp manager it's an overpay; a loss is never mentioned.
-  if (isFiniteNumber(g) && g >= cfg.valueEven - EPS && g <= cfg.pitchValueMax + EPS) leads.push(`You'd ${leads.length ? "also " : ""}get about ${pct(g)} more trade value than you give (FantasyCalc values).`);
+  if (g !== null && g >= cfg.valueEven - EPS && g <= cfg.pitchValueMax + EPS) leads.push(`You'd ${leads.length ? "also " : ""}get about ${pct(g)} more trade value than you give (FantasyCalc values).`);
 
   const give = src.proposal.give.map((a) => names.asset(a));
   const get = src.proposal.get.map((a) => names.asset(a));
@@ -853,5 +923,90 @@ function pitch(src: PitchSource, names: Names, cfg: ExplainConfig): string {
 export function explainTrade(evaluation: TradeEvaluationCore, ctx: ExplainContext, cfg: ExplainConfig = config.explain): { reasons: string[]; pitch: string } {
   if (evaluation.illegal !== null && evaluation.illegal !== undefined) return { reasons: [evaluation.illegal], pitch: "" };
   const names = new Names(ctx, evaluation.proposal.partnerId, evaluation.detail?.myTeamId ?? "");
-  return { reasons: reasons(evaluation, ctx, names, cfg), pitch: pitch(pitchSource(evaluation), names, cfg) };
+  return { reasons: reasons(evaluation, ctx, names, cfg), pitch: pitch(pitchSource(evaluation, ctx.leagueType), names, cfg, ctx) };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Injury tags (planner reply to Checkpoint 4, change 6)
+
+/** What injuryTags reads of a player: his status and, when the platform gave one, his return week. */
+export type TagSource = Readonly<Record<string, Pick<PlayerInfo, "injury" | "injuryReturnWeek"> | undefined>>;
+
+/** What injuryTags knows besides the players (each optional; the file header and injuryTags). */
+export interface TagContext {
+  /** The NFL week now (snapshot.currentWeek): a return week the model ignores this early is left out. */
+  currentWeek?: number | undefined;
+  /**
+   * Whether a Probable, Questionable or Doubtful player's projection follows his far ESPN return date (§6 step 3's
+   * conflict, PlayerModel.availabilityNote.used "returnDate"); without it, no such player's date is kept.
+   */
+  followsReturnDate?: ((playerId: string) => boolean) | undefined;
+}
+
+/**
+ * The tag context of a league (injuryTags; evaluate.ts withWords reads it for the trade search's and the Analyzer's
+ * evaluations alike): the week now, and, from the League model, which conflicted Probable, Questionable or Doubtful players'
+ * projections follow their ESPN return date (PlayerModel.availabilityNote.used "returnDate"; review of track F: Josh
+ * Jacobs, out until ESPN's week 8 in his numbers, read just "Questionable"). Structural, so TradeInternals fits.
+ */
+export function tagContextOf(x: { snapshot: Pick<LeagueSnapshot, "currentWeek">; model: { players: Readonly<Record<string, Pick<PlayerModel, "availabilityNote"> | undefined>> } }): TagContext {
+  return { currentWeek: x.snapshot.currentWeek, followsReturnDate: (id) => x.model.players[id]?.availabilityNote?.used === "returnDate" };
+}
+
+/**
+ * Whether a tag keeps the player's return week R (injuryTags): the week his projection counts on, by §6 step 3's own
+ * rules (availability.returnWeekDistribution). OUT: R from next week on (an earlier date gets the OUT table); IR, PUP and
+ * SUSPENDED: R after this week (he misses this week; an earlier date is stale); PROBABLE, QUESTIONABLE and DOUBTFUL: only
+ * when his projection follows the date (far enough out, availability.farReturnWeek's rule, config.projections.
+ * returnConflictWeeks, and not stale: `follows`); NA: never (he never plays). Without a current week, OUT, IR, PUP and
+ * SUSPENDED keep any R.
+ */
+function keepsReturnWeek(status: Exclude<InjuryStatus, "ACTIVE">, R: number, currentWeek: number | undefined, follows: boolean): boolean {
+  const now = isFiniteNumber(currentWeek) ? currentWeek : null;
+  switch (status) {
+    case "OUT":
+      return now === null || R >= now + 1;
+    case "IR":
+    case "PUP":
+    case "SUSPENDED":
+      return now === null || R > now;
+    case "PROBABLE":
+    case "QUESTIONABLE":
+    case "DOUBTFUL":
+      return follows && (now === null || farReturnWeek(R, now));
+    case "NA":
+      return false;
+  }
+  return false;
+}
+
+/**
+ * Every injury-tagged player in a trade (TradeEvaluation.flags.tagged; the file header): each player whose status isn't
+ * ACTIVE (PROBABLE, QUESTIONABLE, DOUBTFUL, OUT, IR, PUP, SUSPENDED, NA), mine first ("give"), then the ones I'd get
+ * ("get"), each side in the trade's order, a player once. returnWeek = his PlayerInfo.injuryReturnWeek when it is a
+ * whole number and his projection counts on it (keepsReturnWeek: `ctx` gives the current week and which conflicted
+ * Probable, Questionable or Doubtful players follow their date; review of track F: Josh Jacobs, Questionable with ESPN's
+ * week 8, read just "Questionable" while his numbers had him out until then, and an OUT date already past would have
+ * read "expected back week 3" in week 4). A week after the NFL's last week is kept (not back this season, §4: the card
+ * words it). Picks, players the snapshot doesn't know and statuses it doesn't name carry no tag. Pure: `players` is
+ * snapshot.players or any table like it.
+ */
+export function injuryTags(proposal: Pick<TradeProposal, "give" | "get">, players: TagSource, ctx: TagContext = {}): InjuryTag[] {
+  const out: InjuryTag[] = [];
+  const seen = new Set<string>();
+  const side = (assets: readonly TradeAsset[] | undefined, which: InjuryTag["side"]) => {
+    for (const a of assets ?? []) {
+      if (a.kind !== "player" || seen.has(a.id)) continue;
+      const info = players[a.id];
+      const status = info?.injury;
+      if (status === undefined || status === "ACTIVE" || !(status in INJURY_WORDS)) continue;
+      seen.add(a.id);
+      const week = info?.injuryReturnWeek;
+      const keep = typeof week === "number" && Number.isInteger(week) && keepsReturnWeek(status, week, ctx.currentWeek, ctx.followsReturnDate?.(a.id) === true);
+      out.push({ playerId: a.id, side: which, status, ...(keep ? { returnWeek: week } : {}) });
+    }
+  };
+  side(proposal.give, "give");
+  side(proposal.get, "get");
+  return out;
 }

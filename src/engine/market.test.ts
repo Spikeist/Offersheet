@@ -364,14 +364,145 @@ describe("marketGain (§9 package value with the waiver credit)", () => {
     expect(marketGain(["stud"], ["a", "b"], entries, 400)).toBeCloseTo(0.04, 12);
   });
 
-  it("an even 1-for-1 is 0; an unvalued id is worth 0; a side giving nothing of value", () => {
+  it("an even 1-for-1 is 0; an unvalued id counts W (the floor); a side giving nothing of value", () => {
     expect(marketGain(["a"], ["b"], values, 400)).toBe(0);
-    expect(marketGain(["a", "ghost"], ["b"], values, 400)).toBeCloseTo(-400 / 5_400, 12); // the 1-player side gets W
+    // The ghost counts W like the roster spot the 1-player side gets back: 5,400 against 5,400.
+    expect(marketGain(["a", "ghost"], ["b"], values, 400)).toBe(0);
+    expect(packageValues(["a", "ghost"], ["b"], values, 400)).toEqual({ recv: 5_400, give: 5_400 });
     expect(marketGain([], [], values, 400)).toBe(0);
     expect(marketGain(["a"], [], values, 400)).toBeCloseTo((5_000 - 400) / 400, 12);
     expect(marketGain(["a"], [], values, 0)).toBe(Number.POSITIVE_INFINITY);
     expect(marketGain(["ghost"], [], values, 0)).toBe(0);
     expect(marketGain([], ["a"], values, 0)).toBe(-1);
+  });
+
+  describe("each player at max(v, W) (planner reply to Checkpoint 4, change 4; replaces lead decision N10)", () => {
+    const W = 628;
+    const cheap = { ...values, junk: 300, scrap: 120, bench: 610 };
+
+    it("an even swap of two players worth less than W reads g = 0 for both sides", () => {
+      expect(marketGain(["junk"], ["scrap"], cheap, W)).toBe(0);
+      expect(marketGain(["scrap"], ["junk"], cheap, W)).toBe(0);
+      expect(packageValues(["junk"], ["scrap"], cheap, W)).toEqual({ recv: W, give: W });
+    });
+
+    it("dumping a player worth less than W for nothing reads g = 0 (his floored W against the open spot's W)", () => {
+      expect(packageValues([], ["junk"], cheap, W)).toEqual({ recv: W, give: W });
+      expect(marketGain([], ["junk"], cheap, W)).toBe(0);
+      // The side taking him sees the same: it gives the spot (W) for him (W).
+      expect(marketGain(["junk"], [], cheap, W)).toBe(0);
+    });
+
+    it("a throw-in worth less than W adds W to both sides: the value difference doesn't move", () => {
+      // A 1-for-1 (5,000 for 10,000) and the same with "bench" (610 < W) thrown in on the 5,000 side.
+      const lean = packageValues(["stud"], ["a"], cheap, W);
+      const full = packageValues(["stud"], ["a", "bench"], cheap, W);
+      expect(full.recv - full.give).toBe(lean.recv - lean.give);
+      expect(full).toEqual({ recv: lean.recv + W, give: lean.give + W });
+      // When the side throwing him in gets more players, the throw-in only cancels the credit it was owed: nothing moves.
+      const twoForOne = packageValues(["a", "b"], ["stud"], cheap, W);
+      const twoForTwo = packageValues(["a", "b"], ["stud", "bench"], cheap, W);
+      expect(twoForTwo).toEqual(twoForOne);
+    });
+
+    it("…but g is a ratio: each side's g edges toward 0 (g × PV_give / (PV_give + W)) unless he fills a credited spot (⚠️ reported to the planner)", () => {
+      // The same 1-for-1: the side throwing "bench" in gains +100%, the side taking him loses 50%.
+      const leanMine = marketGain(["stud"], ["a"], cheap, W);
+      const leanTheirs = marketGain(["a"], ["stud"], cheap, W);
+      const fullMine = marketGain(["stud"], ["a", "bench"], cheap, W);
+      const fullTheirs = marketGain(["a", "bench"], ["stud"], cheap, W);
+      expect([leanMine, leanTheirs]).toEqual([1, -0.5]);
+      expect(fullMine).toBeCloseTo((leanMine * 5_000) / (5_000 + W), 12);
+      expect(fullTheirs).toBeCloseTo((leanTheirs * 10_000) / (10_000 + W), 12);
+      // Down for the side gaining (+100% → +88.8%), up for the side losing (−50% → −47.0%): nobody gained any value.
+      expect(fullMine).toBeLessThan(leanMine);
+      expect(fullTheirs).toBeGreaterThan(leanTheirs);
+      // A cheap player on each side moves both g toward 0 the same way (W more on every sum).
+      expect(marketGain(["stud", "scrap"], ["a", "junk"], cheap, W)).toBeCloseTo((leanMine * 5_000) / (5_000 + W), 12);
+      // He fills a spot the credit already counted (the side throwing him in got 2 for 1): no g moves, on either side.
+      expect(marketGain(["a", "b"], ["stud", "bench"], cheap, W)).toBe(marketGain(["a", "b"], ["stud"], cheap, W));
+      expect(marketGain(["stud", "bench"], ["a", "b"], cheap, W)).toBe(marketGain(["stud"], ["a", "b"], cheap, W));
+    });
+
+    it("in general a player added to one side's give raises the other side's g exactly when max(v, W) > W × (1 + g) (he takes a new spot) or v > W (he fills a credited one)", () => {
+      const rand = mulberry32(20_261_003);
+      const ids = Array.from({ length: 6 }, (_, i) => `p${i}`);
+      let rises = 0;
+      let falls = 0;
+      let still = 0;
+      for (let k = 0; k < 600; k++) {
+        const values: Record<string, number> = { t: Math.round(rand() * 4000) + 1 };
+        for (const id of ids) values[id] = Math.round(rand() * 8000) + 1;
+        const w = Math.round(rand() * 2500) + 1;
+        const nr = Math.floor(rand() * 3); // what the taker receives before: 0–2 players
+        const ng = 1 + Math.floor(rand() * 3); // what it gives: 1–3 players
+        const recv = ids.slice(0, nr);
+        const give = ids.slice(nr, nr + ng);
+        const before = marketGain(recv, give, values, w);
+        const after = marketGain([...recv, "t"], give, values, w);
+        const newSpot = recv.length >= give.length;
+        const v = values.t as number;
+        if (!newSpot && v <= w) {
+          expect(after, `${k}`).toBeCloseTo(before, 12); // he counts W in place of the W credited for that spot
+          still++;
+          continue;
+        }
+        const counted = Math.max(v, w);
+        const threshold = newSpot ? w * (1 + before) : w;
+        if (Math.abs(counted - threshold) < 1e-6 * w) continue; // too close to call in floating point
+        expect(after > before, `${k}`).toBe(counted > threshold);
+        if (counted > threshold) rises++;
+        else falls++;
+      }
+      // Every branch was exercised.
+      expect(Math.min(rises, falls, still)).toBeGreaterThan(20);
+    });
+
+    it("players worth W or more count their own value; the floor comes before the stud exponent; W 0 (or not a positive number) floors nothing", () => {
+      expect(packageValues(["stud", "a"], ["b"], cheap, W)).toEqual({ recv: 15_000, give: 5_000 + W });
+      const convex = { ...config.market, studExponent: 2 };
+      expect(packageValues(["junk"], ["a"], cheap, W, convex)).toEqual({ recv: W ** 2, give: 5_000 ** 2 });
+      expect(packageValues(["junk"], ["scrap"], cheap, 0)).toEqual({ recv: 300, give: 120 });
+      expect(packageValues(["junk"], ["scrap"], cheap, Number.NaN)).toEqual({ recv: 300, give: 120 });
+      expect(packageValues(["junk"], ["scrap"], cheap, -5)).toEqual({ recv: 300, give: 120 });
+      // …and credits nothing for an open spot.
+      expect(packageValues(["junk"], [], cheap, Number.NaN)).toEqual({ recv: 300, give: 0 });
+    });
+  });
+
+  describe("open roster spots are active roster spots (review of Phase 4b track E: an IR slot isn't one)", () => {
+    const cheap = { stud: 10_000, a: 5_000, b: 5_000, junk: 300, scrap: 120, ir: 400 };
+    const W = 600;
+
+    it("without spots every player takes one (the counts, as before IR players were tradable); spots equal to the counts change nothing", () => {
+      for (const [recv, give] of [[["stud"], ["a", "b"]], [["a", "b"], ["stud"]], [["junk"], []], [[], ["junk"]], [["a"], ["b"]]] as [string[], string[]][]) {
+        expect(packageValues(recv, give, cheap, W, config.market, { recv: recv.length, give: give.length })).toEqual(packageValues(recv, give, cheap, W));
+      }
+    });
+
+    it("a side that gives an active player and an IR player for one player opens no spot: no credit (Rico Dowdle for Kalif Raymond + Jordan Mason)", () => {
+      // The partner gives junk (active) and ir (from its IR) and gets scrap onto its active roster: one off, one on.
+      expect(packageValues(["scrap"], ["junk", "ir"], cheap, W, config.market, { recv: 1, give: 1 })).toEqual({ recv: W, give: 2 * W });
+      expect(marketGain(["scrap"], ["junk", "ir"], cheap, W, config.market, { recv: 1, give: 1 })).toBeCloseTo(-0.5, 12);
+      // Counting players, it was credited a spot it never had: even.
+      expect(marketGain(["scrap"], ["junk", "ir"], cheap, W)).toBe(0);
+    });
+
+    it("an IR player given for an active player: the side's active roster fills a spot (W on what it gives)", () => {
+      expect(packageValues(["a"], ["ir"], cheap, W, config.market, { recv: 1, give: 0 })).toEqual({ recv: 5_000, give: W + W });
+    });
+
+    it("an IR player received into an open IR slot fills no active spot: the side that let an active player go is credited the spot", () => {
+      // It gives a (active) and receives ir into its IR slot: one active spot opens.
+      expect(packageValues(["ir"], ["a"], cheap, W, config.market, { recv: 0, give: 1 })).toEqual({ recv: W + W, give: 5_000 });
+      // Received into an IR slot for an IR player given: no active spot moves either way.
+      expect(packageValues(["ir"], ["junk"], cheap, W, config.market, { recv: 0, give: 0 })).toEqual({ recv: W, give: W });
+    });
+
+    it("unreadable spot counts fall back to the player counts; negative ones count 0", () => {
+      expect(packageValues(["stud"], ["a", "b"], cheap, W, config.market, { recv: Number.NaN, give: Number.POSITIVE_INFINITY })).toEqual(packageValues(["stud"], ["a", "b"], cheap, W));
+      expect(packageValues(["stud"], ["a"], cheap, W, config.market, { recv: -3, give: 1 })).toEqual({ recv: 10_000 + W, give: 5_000 });
+    });
   });
 
   it("§9 studExponent γ replaces every value, W included, with v^γ (default 1 = off)", () => {

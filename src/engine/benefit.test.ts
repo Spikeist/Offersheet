@@ -10,7 +10,6 @@ import {
   futureValuesLoaded,
   injuredReceived,
   marketSanity,
-  marketTermPackage,
   overallScore,
   protectValueWeight,
   resolveLambda,
@@ -70,9 +69,11 @@ describe("Trade Score and Overall (§10, B_ref 6)", () => {
 
   it("Overall is never above the Trade Score (random B and P_complete in the model's range)", () => {
     const rand = mulberry32(20_260_930);
+    const [lo, hi] = config.acceptance.pAcceptClamp;
     for (let i = 0; i < 2000; i++) {
       const b = rand() * 30;
-      const p = 0.01 + rand() * 0.94;
+      // P_complete: P_accept in the clamp, halved by the veto rule half the time.
+      const p = (lo + rand() * (hi - lo)) * (i % 2 ? config.acceptance.veto.factor : 1);
       const ts = tradeScore(b);
       const ov = overallScore(b, p);
       if (ts === null) continue;
@@ -109,8 +110,8 @@ describe("B (§10)", () => {
     expect(marketSanity(-0.9)).toBe(-2);
     expect(marketSanity(Number.POSITIVE_INFINITY)).toBe(2);
     expect(marketSanity(Number.NaN)).toBe(0);
-    // A κ passed in (the before/after variant's 1.0) replaces the default.
-    expect(marketSanity(0.2, config.benefit.marketSanityWeight)).toBeCloseTo(0.2, 12);
+    // A κ passed in replaces the default.
+    expect(marketSanity(0.2, 1)).toBeCloseTo(0.2, 12);
     expect(marketSanity(-0.9, 1)).toBe(-0.5);
   });
 
@@ -141,23 +142,30 @@ describe("B (§10)", () => {
     expect(at("high").market).toBeCloseTo(-1.6, 12);
     // The clamp still caps the term at ±0.5 × κ.
     expect(benefit({ leagueType: "redraft", dPO: 0, dCH: 0, gMine: -0.9, dynasty: null, myPPlayoffs: 0.6, kappa: 8 }).b).toBe(-4);
-    // The before/after variant passes the old weight.
-    expect(benefit({ leagueType: "redraft", dPO: 0.04, dCH: 0.02, gMine: -0.2, dynasty: null, myPPlayoffs: 0.6, kappa: config.benefit.marketSanityWeight }).b).toBeCloseTo(2.7 - 0.2, 12);
   });
 
-  it("the market term reads gMarket, the waiver-credit-floored g (lead decision N10), when it's given; g_mkt(me) otherwise", () => {
+  it("the market term reads g_mkt(me), every player at max(v, W) (planner reply to Checkpoint 4, change 4; replaces N10)", () => {
     const base = { leagueType: "redraft" as const, dPO: 0.04, dCH: 0.02, dynasty: null, myPPlayoffs: 0.6 };
-    // The raw g says I gain 30%, the floored g that the trade is even: no market credit.
-    const r = benefit({ ...base, gMine: 0.3, gMarket: 0 });
-    expect(r.market).toBe(0);
-    expect(r.b).toBeCloseTo(2.7, 12);
-    // A negative gMarket counts as such, at the level's κ, clamped.
-    expect(benefit({ ...base, gMine: 0, gMarket: -0.2, kappa: 8 }).market).toBeCloseTo(-1.6, 12);
-    expect(benefit({ ...base, gMine: 0, gMarket: -0.9, kappa: 2 }).market).toBe(-1);
-    // Absent (the before/after variant): g_mkt(me).
-    expect(benefit({ ...base, gMine: 0.3 }).market).toBeCloseTo(1.2, 12);
-    // Dynasty and keeper leagues have no market term either way.
-    for (const leagueType of ["dynasty", "keeper"] as const) expect(benefit({ ...base, leagueType, gMine: 0.3, gMarket: -0.4, dynasty: { delta: 1000, total: 40_000 } }).market).toBe(0);
+    const W = 628;
+    const values = { junk: 300, scrap: 120, star: 5000, them: 5500 };
+    const gMine = (get: string[], give: string[]) => tradePackage({ players: get }, { players: give }, values, W).g;
+    // A player worth less than W given for nothing: his floored W against the open spot's W: no market term at any κ.
+    expect(gMine([], ["junk"])).toBe(0);
+    for (const kappa of [2, 4, 8]) expect(benefit({ ...base, gMine: gMine([], ["junk"]), kappa })).toMatchObject({ market: 0, b: expect.closeTo(2.7, 12) });
+    // Two players worth less than W swapped: even, both ways.
+    expect(gMine(["scrap"], ["junk"])).toBe(0);
+    expect(gMine(["junk"], ["scrap"])).toBe(0);
+    // A cheap throw-in on my side adds W to both sides (the spot I open, his floored value): the term moves toward 0 only.
+    const lean = gMine(["them"], ["star"]);
+    const full = gMine(["them"], ["star", "junk"]);
+    expect(lean).toBeCloseTo(0.1, 12);
+    expect(full).toBeCloseTo((5500 + W) / (5000 + W) - 1, 12);
+    expect(benefit({ ...base, gMine: full }).market).toBeCloseTo(4 * full, 12);
+    // A negative g counts as such, at the level's κ, clamped.
+    expect(benefit({ ...base, gMine: -0.2, kappa: 8 }).market).toBeCloseTo(-1.6, 12);
+    expect(benefit({ ...base, gMine: -0.9, kappa: 2 }).market).toBe(-1);
+    // Dynasty and keeper leagues have no market term.
+    for (const leagueType of ["dynasty", "keeper"] as const) expect(benefit({ ...base, leagueType, gMine: 0.3, dynasty: { delta: 1000, total: 40_000 } }).market).toBe(0);
   });
 
   it("dynasty and keeper leagues have no market term, whatever κ (B_future carries the value change)", () => {
@@ -318,64 +326,90 @@ describe("package values with picks (§9; ΔDyn, MyDynTotal, the card's values)"
     expect(tradePackage({ players: ["a"], pickValues: [10] }, { players: ["b"] }, values, 0, convex)).toMatchObject({ recv: 100 ** 2 + 10 ** 2, give: 200 ** 2 });
   });
 
-  describe("the market term's package (marketTermPackage; lead decision N10): what I give at max(v, W)", () => {
-    it("with every given player worth W or more it is tradePackage exactly (random packages, a player at exactly W included)", () => {
+  describe("each player at max(v, W) on both sides (planner reply to Checkpoint 4, change 4; replaces N10)", () => {
+    /** The package by hand: each player's max(v, W), the picks' values, W per open spot on the side receiving fewer players. */
+    const byHand = (recv: string[], give: string[], values: Record<string, number>, W: number, picks: { recv?: number[]; give?: number[] } = {}) => {
+      const sum = (ids: string[]) => ids.reduce((s, id) => s + Math.max(values[id] ?? 0, W), 0);
+      const r = sum(recv) + (picks.recv ?? []).reduce((s, x) => s + x, 0) + Math.max(0, give.length - recv.length) * W;
+      const g = sum(give) + (picks.give ?? []).reduce((s, x) => s + x, 0) + Math.max(0, recv.length - give.length) * W;
+      return { recv: r, give: g, g: (r - g) / g };
+    };
+
+    it("random packages, W anywhere among the values: tradePackage is the hand-floored sum on both sides", () => {
       const rand = mulberry32(11);
       const ids = Array.from({ length: 12 }, (_, i) => `p${i}`);
       for (let k = 0; k < 500; k++) {
         const values: Record<string, number> = {};
-        for (const id of ids) values[id] = Math.round(rand() * 9000) + 600;
+        for (const id of ids) values[id] = Math.round(rand() * 9000) + 1;
         const shuffled = [...ids].sort(() => rand() - 0.5);
         const nr = Math.floor(rand() * 4);
         const ng = 1 + Math.floor(rand() * 3);
         const recv = shuffled.slice(0, nr);
         const give = shuffled.slice(nr, nr + ng);
-        // W at most the cheapest given player's value (sometimes exactly it); received players may be worth less.
-        const minGiven = Math.min(...give.map((id) => values[id] as number));
-        const W = k % 5 === 0 ? minGiven : Math.round(rand() * minGiven);
-        const picks = k % 3 === 0 ? { pickValues: [Math.round(rand() * 800)] } : {};
-        expect(marketTermPackage({ players: recv, ...picks }, { players: give }, values, W)).toStrictEqual(tradePackage({ players: recv, ...picks }, { players: give }, values, W));
+        // Sometimes exactly a player's value (the floor binds at equality without changing it).
+        const W = k % 5 === 0 ? (values[give[0] as string] as number) : Math.round(rand() * 3000);
+        const pick = k % 3 === 0 ? Math.round(rand() * 800) : null;
+        const tp = tradePackage({ players: recv, ...(pick !== null ? { pickValues: [pick] } : {}) }, { players: give }, values, W);
+        const hand = byHand(recv, give, values, W, pick !== null ? { recv: [pick] } : {});
+        expect(tp.recv).toBeCloseTo(hand.recv, 9);
+        expect(tp.give).toBeCloseTo(hand.give, 9);
+        expect(tp.g).toBeCloseTo(hand.g, 12);
       }
     });
 
-    it("a given player worth less than W counts W; what I receive keeps its value; his loss for nothing reads even", () => {
-      const values = { star: 5000, junk: 300, other: 400, them: 5500 };
+    it("the planner's three results: an even swap of two cheap players, a cheap player for nothing, a cheap throw-in", () => {
+      const values = { star: 5000, junk: 300, scrap: 120, them: 5500 };
       const W = 628;
-      // Given for nothing: the open spot's credit (W) against his floored value (W).
-      expect(marketTermPackage({ players: [] }, { players: ["junk"] }, values, W)).toStrictEqual({ recv: W, give: W, g: 0 });
-      expect(tradePackage({ players: [] }, { players: ["junk"] }, values, W).g).toBeCloseTo(W / 300 - 1, 12);
-      // A mixed package: the star at his value, the junk at W; the credit for the spot I open is unchanged.
-      expect(marketTermPackage({ players: ["them"] }, { players: ["star", "junk"] }, values, W)).toStrictEqual({ recv: 5500 + W, give: 5000 + W, g: (5500 + W - (5000 + W)) / (5000 + W) });
-      // Received players are never floored (a junk player I get counts 400), and a value missing counts 0 before the floor.
-      expect(marketTermPackage({ players: ["other"] }, { players: ["junk"] }, values, W)).toStrictEqual({ recv: 400, give: W, g: (400 - W) / W });
-      expect(marketTermPackage({ players: [] }, { players: ["nobody"] }, values, W)).toStrictEqual({ recv: W, give: W, g: 0 });
-      // { value } entries (MarketValues) read as numbers, on both sides.
+      // An even swap of two players worth less than W: g = 0 for both sides.
+      expect(tradePackage({ players: ["scrap"] }, { players: ["junk"] }, values, W)).toStrictEqual({ recv: W, give: W, g: 0 });
+      expect(tradePackage({ players: ["junk"] }, { players: ["scrap"] }, values, W)).toStrictEqual({ recv: W, give: W, g: 0 });
+      // Dumping one for nothing: his floored W against the open spot's W.
+      expect(tradePackage({ players: [] }, { players: ["junk"] }, values, W)).toStrictEqual({ recv: W, give: W, g: 0 });
+      expect(tradePackage({ players: ["junk"] }, { players: [] }, values, W).g).toBe(0); // the side taking him
+      // A cheap throw-in adds 0 value: W on the side that gets him, W for the spot he takes on the other.
+      const lean = tradePackage({ players: ["them"] }, { players: ["star"] }, values, W);
+      const full = tradePackage({ players: ["them"] }, { players: ["star", "junk"] }, values, W);
+      expect(full.recv - full.give).toBe(lean.recv - lean.give);
+      expect(full).toStrictEqual({ recv: 5500 + W, give: 5000 + W, g: 500 / (5000 + W) });
+      // A value missing counts 0 before the floor, so W after it; { value } entries read as numbers.
+      expect(tradePackage({ players: [] }, { players: ["nobody"] }, values, W).g).toBe(0);
       const entries = { them: { value: 5500 }, star: { value: 5000 }, junk: { value: 300 } };
-      expect(marketTermPackage({ players: ["them"] }, { players: ["star", "junk"] }, entries, W)).toStrictEqual({ recv: 5500 + W, give: 5000 + W, g: (5500 - 5000) / (5000 + W) });
+      expect(tradePackage({ players: ["them"] }, { players: ["star", "junk"] }, entries, W)).toStrictEqual(full);
     });
 
     it("picks keep their values on either side (a pick opens no roster spot, so no floor)", () => {
       const values = { junk: 300 };
       const W = 628;
-      // A cheap pick I give for nothing: its value, not W; the spot credit counts players only.
-      expect(marketTermPackage({ players: [] }, { players: [], pickValues: [100] }, values, W)).toStrictEqual({ recv: 0, give: 100, g: -1 });
+      // A cheap pick given for nothing: its value, not W; the spot credit counts players only.
+      expect(tradePackage({ players: [] }, { players: [], pickValues: [100] }, values, W)).toStrictEqual({ recv: 0, give: 100, g: -1 });
       // A pick with a player: only the player is floored.
-      expect(marketTermPackage({ players: [], pickValues: [50] }, { players: ["junk"], pickValues: [100] }, values, W)).toStrictEqual({ recv: W + 50, give: W + 100, g: (W + 50 - (W + 100)) / (W + 100) });
+      expect(tradePackage({ players: [], pickValues: [50] }, { players: ["junk"], pickValues: [100] }, values, W)).toStrictEqual({ recv: W + 50, give: W + 100, g: (W + 50 - (W + 100)) / (W + 100) });
     });
 
     it("studExponent applies after the floor (the floored value is a value like any other)", () => {
       const convex: MarketConfig = { ...config.market, studExponent: 2 };
       const values = { junk: 300, them: 900 };
-      expect(marketTermPackage({ players: ["them"] }, { players: ["junk"] }, values, 600, convex)).toMatchObject({ recv: 900 ** 2, give: 600 ** 2 });
+      expect(tradePackage({ players: ["them"] }, { players: ["junk"] }, values, 600, convex)).toMatchObject({ recv: 900 ** 2, give: 600 ** 2 });
+    });
+
+    it("a roster's total (MyDynTotal) is raw: no floor", () => {
+      expect(rosterValue(["junk", "them"], { junk: 300, them: 900 })).toBe(1200);
     });
   });
 
-  it("ΔDyn and MyDynTotal feed B_future", () => {
+  it("ΔDyn and MyDynTotal feed B_future; ΔDyn floors each player at the long-term W, MyDynTotal doesn't", () => {
     const future = { mine: 3000, theirs: 4500, bench: 500, other: 2000 };
     const pkg = tradePackage({ players: ["theirs"] }, { players: ["mine", "bench"] }, future, 250);
     expect(pkg.recv - pkg.give).toBe(4500 + 250 - 3500);
     const total = rosterValue(["mine", "bench", "other"], future);
     expect(benefitFuture(pkg.recv - pkg.give, total)).toBeCloseTo((40 * 1250) / 5500, 12);
+    // With W 600 the bench player (500) counts 600 in ΔDyn, and the spot I open counts 600 too: 4,500 + 600 − 3,600.
+    const floored = tradePackage({ players: ["theirs"] }, { players: ["mine", "bench"] }, future, 600);
+    expect(floored.recv - floored.give).toBe(4500 + 600 - (3000 + 600));
+    // Given for nothing, he moves ΔDyn by nothing.
+    const dump = tradePackage({ players: [] }, { players: ["bench"] }, future, 600);
+    expect(dump.recv - dump.give).toBe(0);
+    expect(rosterValue(["mine", "bench", "other"], future)).toBe(5500);
   });
 });
 

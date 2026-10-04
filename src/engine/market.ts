@@ -32,8 +32,41 @@
  *   valueFloor = valueFloorFraction × the top value.
  *
  * Package value (§9): the side that receives fewer players gets the waiver credit W for each open
- * roster spot, and g_mkt(X) = (PV_recv − PV_give) / PV_give. config.market.studExponent γ replaces
- * every value with v^γ, W included (W is a player's value too).
+ * roster spot (an active one: see below), and g_mkt(X) = (PV_recv − PV_give) / PV_give. Each player counts at max(v, W)
+ * (planner reply to Checkpoint 4, change 4; it replaces lead decision N10, which floored only the players I give
+ * and only in B's market term): a player worth less than the best free agent is replaceable by him, so
+ * his roster spot is worth W whoever holds it. packageValues is the one place every package sum goes
+ * through (marketGain; benefit.tradePackage for B's market term, ΔDyn and the card's values;
+ * premium.perceivedPackage; the partner's trade history), so g_mkt(me), g_mkt(P), the Market check, the
+ * hide threshold, the veto rule and the screening window all read floored packages. The results: an
+ * even swap of two players worth less than W reads g = 0 for both sides; giving one away for nothing
+ * reads g = 0 (his floored W against the open spot's credit W); a throw-in worth less than W adds 0
+ * value, but g is a ratio:
+ * - When the side throwing him in already gives at least as many players as it gets, he adds W to both
+ *   sums of both sides (his floored value to one side's give and the other's receive, the roster spot he
+ *   takes to the other two). The value difference doesn't move; each side's g edges toward 0, to
+ *   g × PV_give / (PV_give + W): up for a side losing value, down for one gaining.
+ * - When it gives fewer players than it gets, he takes the place of a spot already credited: no g moves.
+ * In general, a player added to one side's give raises the other side's g exactly when max(v, W) > W ×
+ * (1 + that g) in the first case, and when v > W in the second. ⚠️ So a cheap throw-in can lift a
+ * lopsided trade past the veto line (g_mkt(P) < veto.gBelow), and my side past the Market check or the
+ * hide threshold: the planner's "a sub-W throw-in adds 0 value" holds for the value difference, not for
+ * g (reported to the lead for the planner). The complexity term of acceptance still counts him. A value
+ * missing counts 0 before the floor, so W after it. A roster's total (benefit.rosterValue, MyDynTotal)
+ * passes W = 0: raw. config.market.studExponent γ replaces every value with v^γ after the floor, W
+ * included (W is a player's value too).
+ *
+ * Open roster spots are ACTIVE roster spots (review of Phase 4b track E, which made IR players tradable): an IR player who
+ * leaves his IR slot opens none, and one received into an open IR slot fills none (no free agent could take an IR slot).
+ * So a trade evaluation passes each side's own active-roster moves (ActiveSpots: returners.activeSpots after roster
+ * legality's rule 5) and the credit counts those: W per spot a side opens on what it receives, W per spot it fills on
+ * what it gives. Without them every player takes a spot (the counts above: a trade without IR players, the partner's
+ * history). The two sides' packages then mirror each other only when no IR player moves (my PV_give is the partner's
+ * PV_recv): with one, each side's credit follows its own roster (on Parker's league, Oct 3, "Rico Dowdle for Kalif
+ * Raymond + Jordan Mason (IR)" credited Team 2 an open spot its roster never had, g_mkt 0% where it gives two players
+ * for one: −50% counting active spots). ⚠️ An IR player still counts at max(v, W) (the planner's "each player"), though
+ * his IR slot isn't a spot a free agent could fill: a player worth less than W taking a receiver's open IR slot reads as W
+ * received.
  */
 import { config } from "./config";
 import type { FantasyCalcFormat, MarketInputs } from "./inputs";
@@ -369,28 +402,49 @@ function studValue(v: number, gamma: number): number {
 }
 
 /**
- * PV_recv and PV_give for the side that receives `recv` and gives `give` (§9): the sum of values
- * (each v^γ), plus W^γ per open roster spot on the side that receives fewer players.
+ * The players a side receives onto and gives from its active roster in a trade (the file header): what §9's open-spot
+ * credit counts. An IR player given from an IR slot isn't one of `give`, and one received into an IR slot isn't one of
+ * `recv` (returners.activeSpots).
  */
-export function packageValues(recv: readonly string[], give: readonly string[], values: ValueLookup, W: number, cfg: MarketConfig = config.market): { recv: number; give: number } {
+export interface ActiveSpots {
+  readonly recv: number;
+  readonly give: number;
+}
+
+/** A spot count when it is a finite number (at least 0), else the fallback (the side's player count). */
+const spotCount = (x: number | undefined, fallback: number): number => (x !== undefined && Number.isFinite(x) ? Math.max(0, x) : fallback);
+
+/**
+ * PV_recv and PV_give for the side that receives `recv` and gives `give` (§9; the file header): the sum
+ * of each player's max(v, W)^γ, plus W^γ per open active roster spot: max(0, spots.give − spots.recv) on
+ * PV_recv (the spots the side opens) and max(0, spots.recv − spots.give) on PV_give (the spots it fills).
+ * `spots` (ActiveSpots) defaults to the player counts (every player on or off the active roster).
+ * A W that isn't a positive finite number counts 0: it floors nothing and credits nothing. Pass W = 0 for
+ * a plain sum of values (benefit.rosterValue).
+ */
+export function packageValues(recv: readonly string[], give: readonly string[], values: ValueLookup, W: number, cfg: MarketConfig = config.market, spots?: ActiveSpots): { recv: number; give: number } {
   const gamma = cfg.studExponent;
+  const floor = Number.isFinite(W) && W > 0 ? W : 0;
   let pvRecv = 0;
-  for (const id of recv) pvRecv += studValue(valueOf(values[id]), gamma);
+  for (const id of recv) pvRecv += studValue(Math.max(valueOf(values[id]), floor), gamma);
   let pvGive = 0;
-  for (const id of give) pvGive += studValue(valueOf(values[id]), gamma);
-  const credit = studValue(W, gamma);
-  pvRecv += Math.max(0, give.length - recv.length) * credit;
-  pvGive += Math.max(0, recv.length - give.length) * credit;
+  for (const id of give) pvGive += studValue(Math.max(valueOf(values[id]), floor), gamma);
+  const credit = studValue(floor, gamma);
+  const onto = spotCount(spots?.recv, recv.length);
+  const off = spotCount(spots?.give, give.length);
+  pvRecv += Math.max(0, off - onto) * credit;
+  pvGive += Math.max(0, onto - off) * credit;
   return { recv: pvRecv, give: pvGive };
 }
 
 /**
  * g_mkt for the side that receives `recv` and gives `give` (§9): (PV_recv − PV_give) / PV_give, as a
- * fraction (+0.04 = +4%). For my side pass (what I get, what I give); for the partner, swap them.
+ * fraction (+0.04 = +4%). For my side pass (what I get, what I give); for the partner, swap them, and pass
+ * each side's own ActiveSpots when a trade moves IR players (packageValues).
  * A side that gives nothing of value gains +Infinity when it receives something, else 0.
  */
-export function marketGain(recv: readonly string[], give: readonly string[], values: ValueLookup, W: number, cfg: MarketConfig = config.market): number {
-  const pv = packageValues(recv, give, values, W, cfg);
+export function marketGain(recv: readonly string[], give: readonly string[], values: ValueLookup, W: number, cfg: MarketConfig = config.market, spots?: ActiveSpots): number {
+  const pv = packageValues(recv, give, values, W, cfg, spots);
   if (pv.give > 0) return (pv.recv - pv.give) / pv.give;
   return pv.recv > 0 ? Number.POSITIVE_INFINITY : 0;
 }

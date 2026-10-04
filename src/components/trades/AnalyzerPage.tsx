@@ -6,8 +6,8 @@
  * on the same card, or why the trade can't be made. It loads the league the way the League page does
  * (useLeagueInputs.ts) and sends the league's settings with every evaluation.
  *
- * Building: pick the partner, then my players to give and theirs to get, from the active rosters (lead decision M2:
- * IR and taxi players aren't tradable yet), up to config.search.analyzerMaxPerSide a side (a full side's other
+ * Building: pick the partner, then my players to give and theirs to get, from the active rosters and IR (Phase 4b:
+ * IR players are tradable, each choice saying "IR slot"; taxi players still aren't), up to config.search.analyzerMaxPerSide a side (a full side's other
  * boxes are disabled, and the page says why). The address can carry a trade (`?partner=&give=&get=`, a team id and
  * player ids only: the Trade Finder's "Open in Analyzer" links). It's read with useSearchParams, which on a client
  * navigation already holds the new address while the page renders (window.location still holds the old one until
@@ -22,6 +22,12 @@
  * the card, "How to read the evaluation" (HowToRead.tsx, as on the Trade Finder) says what the numbers, "Harder to
  * get" and "How to offer it" mean, and why the message can propose less than the trade built (review of the planner
  * addendum to Checkpoint 3).
+ *
+ * A trade opened from a Trade Finder card's "If they say no, try:" carries `from=planB` in its address (review of Phase
+ * 4b): while the trade built is that one, it's evaluated as one offer, without "How to offer it" (the worker's `steps:
+ * false`), so its first offer can't be smaller than the trade the other manager just turned down, and its message proposes
+ * the trade itself; a note under the card says so. Change the trade and it's evaluated as usual (the address drops the
+ * mark on Evaluate).
  *
  * Getting there and back (review of Phase 4): on a phone the result sits a few screens below the form. Evaluate brings
  * it into view (its section's top at the top of the screen when it's taller than the screen) and moves focus to its
@@ -56,10 +62,13 @@ import {
   draftProposal,
   draftSummary,
   readAnalyzerDraft,
+  readAnalyzerFrom,
   type AnalysisView,
   type AnalyzerChoices,
   type AnalyzerDraft,
+  type AnalyzerFrom,
   type PlayerChoice,
+  type SnapshotPart,
 } from "@/lib/tradeView";
 import type { AnalyzerResult } from "@/workers/engine.worker";
 import { NoImportCard } from "../NoImportCard";
@@ -100,11 +109,13 @@ function contextTagFor(snapshot: Pick<LeagueSnapshot, "platform" | "leagueId" | 
 }
 
 interface Evaluated {
-  /** The trade (draftKey) and what it was evaluated against (contextTagFor). */
+  /** The trade (draftKey, with "|planB" when it was evaluated as a Plan B) and what it was evaluated against (contextTagFor). */
   draft: string;
   context: string;
   /** The evaluation, with my odds before any trade. */
   analysis: AnalyzerResult;
+  /** "planB": opened from "If they say no, try:" and evaluated without "How to offer it" (the header). */
+  from: AnalyzerFrom | null;
 }
 
 /** Focus is on nothing in particular (the page, or an element that's gone): the user isn't busy somewhere on the page. */
@@ -129,6 +140,10 @@ function LoadedAnalyzer({ stored }: { stored: StoredImport }) {
   // An edit holds while the address is the one it was made under, or names the same trade (Evaluate's own write).
   const editHolds = edited !== null && (edited.query === query || draftKey(edited.draft) === draftKey(prefill));
   const draft = edited && editHolds ? edited.draft : prefill;
+  // The address's trade opened from "If they say no, try:" (`?from=planB`): evaluated as one offer while it's the trade built (the header).
+  const planBKey = league && readAnalyzerFrom(query) === "planB" && draftProposal(prefill) ? draftKey(prefill) : null;
+  const fromOf = (d: AnalyzerDraft): AnalyzerFrom | null => (planBKey !== null && draftKey(d) === planBKey ? "planB" : null);
+  const evalKey = (d: AnalyzerDraft): string => `${draftKey(d)}${fromOf(d) ? "|planB" : ""}`;
   const contextTag = pair && myTeamId && settings ? contextTagFor(pair.snapshot, pair.inputs.builtAt, myTeamId, settings) : null;
   // "Back to the Trade Finder": the Finder's last address in this tab, its partner filter included (finderMemory.ts).
   const [backHref] = useState(finderAddress);
@@ -156,7 +171,8 @@ function LoadedAnalyzer({ stored }: { stored: StoredImport }) {
     const proposal = draftProposal(d);
     if (!proposal || !pair || !myTeamId || !settings || !contextTag) return;
     const n = ++latest.current;
-    const key = draftKey(d);
+    const from = fromOf(d);
+    const key = evalKey(d);
     const context = contextTag;
     const show = (to: "result" | "failure") => {
       if (!auto || focusIdle()) setReveal((r) => ({ n: (r?.n ?? 0) + 1, to }));
@@ -164,17 +180,17 @@ function LoadedAnalyzer({ stored }: { stored: StoredImport }) {
     setWorking(key);
     setFailure(null);
     try {
-      window.history.replaceState(null, "", analyzerHref(proposal));
+      window.history.replaceState(null, "", analyzerHref(proposal, { from }));
     } catch {
       // the address just doesn't keep the trade
     }
     tradeEngine()
-      .analyzeTrade({ snapshot: pair.snapshot, model: pair.inputs, myTeamId, nowIso: new Date().toISOString(), settings, proposal })
+      .analyzeTrade({ snapshot: pair.snapshot, model: pair.inputs, myTeamId, nowIso: new Date().toISOString(), settings, proposal, ...(from === "planB" ? { steps: false } : {}) })
       .then(
         (analysis) => {
           if (n !== latest.current) return;
           setWorking(null);
-          setEvaluated({ draft: key, context, analysis });
+          setEvaluated({ draft: key, context, analysis, from });
           show("result");
         },
         (err: unknown) => {
@@ -189,7 +205,7 @@ function LoadedAnalyzer({ stored }: { stored: StoredImport }) {
 
   // The address's trade, evaluated once when everything it needs is in and it isn't being edited (a tick later:
   // StrictMode's first run is cancelled). A new trade in the address is evaluated in turn.
-  const autoKey = contextTag && !editHolds && draftProposal(prefill) ? draftKey(prefill) : null;
+  const autoKey = contextTag && !editHolds && draftProposal(prefill) ? evalKey(prefill) : null;
   const startAuto = useEffectEvent(() => {
     const d = prefill;
     const timer = setTimeout(() => evaluate(d, true), 0);
@@ -201,8 +217,10 @@ function LoadedAnalyzer({ stored }: { stored: StoredImport }) {
   }, [autoKey]);
 
   const choices = useMemo(() => (league ? analyzerChoices(league, myTeamId, draft) : null), [league, myTeamId, draft]);
-  const resultView = useMemo(() => (evaluated && league ? buildAnalysisView(evaluated.analysis, league) : null), [evaluated, league]);
-  const stale = evaluated !== null && (evaluated.draft !== draftKey(draft) || evaluated.context !== contextTag);
+  // The NFL's last week, for injury tags' "Out for the season" (tradeView.ts seasonEndOf).
+  const lastNflWeek = pair?.inputs.nfl?.lastWeek;
+  const resultView = useMemo(() => (evaluated && league ? buildAnalysisView(evaluated.analysis, league, lastNflWeek, { from: evaluated.from }) : null), [evaluated, league, lastNflWeek]);
+  const stale = evaluated !== null && (evaluated.draft !== evalKey(draft) || evaluated.context !== contextTag);
   const busy = working !== null;
 
   const status = busy
@@ -286,6 +304,7 @@ function LoadedAnalyzer({ stored }: { stored: StoredImport }) {
           headingRef={resultRef}
           records={records}
           leagueKey={leagueKey}
+          snapshot={league}
           leagueType={league?.settings.leagueType}
           onFeedback={(evaluation, change) => saveTradeFeedback({ leagueKey, evaluation, change })}
         />
@@ -426,6 +445,7 @@ export function AnalysisResult({
   headingRef,
   records,
   leagueKey,
+  snapshot,
   leagueType = "redraft",
   onFeedback,
 }: {
@@ -436,6 +456,8 @@ export function AnalysisResult({
   headingRef?: Ref<HTMLHeadingElement> | undefined;
   records: FeedbackRecord[] | undefined;
   leagueKey: string;
+  /** The league, to name a recorded version this card doesn't show (tradeView.ts cardFeedback's versionWords); absent: unnamed. */
+  snapshot?: SnapshotPart | null | undefined;
   /** Says how Helps you weighs later seasons (HowToRead); default redraft. */
   leagueType?: LeagueSettings["leagueType"] | undefined;
   onFeedback: (evaluation: NonNullable<AnalysisView["card"]>["evaluation"], change: FeedbackChange) => SaveResult;
@@ -459,7 +481,13 @@ export function AnalysisResult({
             {view.illegal}
           </Callout>
         ) : card ? (
-          <TradeCard card={card} headingLevel="h3" showAnalyzerLink={false} feedback={cardFeedback(records, leagueKey, card.key)} onFeedback={(change) => onFeedback(card.evaluation, change)} />
+          <TradeCard
+            card={card}
+            headingLevel="h3"
+            showAnalyzerLink={false}
+            feedback={cardFeedback(records, leagueKey, card.key, snapshot ?? undefined)}
+            onFeedback={(change) => onFeedback(card.evaluation, change)}
+          />
         ) : null}
         {view.notes.length ? (
           <ul className="list-disc space-y-1 pl-5 text-sm text-muted">

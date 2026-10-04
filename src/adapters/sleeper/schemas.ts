@@ -74,6 +74,13 @@ export const RosterSchema = z.object({
       fpts_against: z.number().nullish(),
       fpts_against_decimal: z.number().nullish(),
       division: z.number().nullish(),
+      /**
+       * The roster's place in the waiver order, 1 = first claim (Phase 4b): a 1..n permutation in all 18 surveyed 2026
+       * leagues and the public test league; ρ(position, standings rank) = −1.00 in two reverse-standings leagues.
+       */
+      waiver_position: z.number().nullish(),
+      /** FAAB spent this season (waiver_type 2 leagues); negative after receiving FAAB in a trade (one league: 205 left of 100). */
+      waiver_budget_used: z.number().nullish(),
     })
     .nullish(),
 });

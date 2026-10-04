@@ -3,6 +3,8 @@ import {
   activeShare,
   canPlayWeek,
   expectedAvailability,
+  expectedReturnWeek,
+  farReturnWeek,
   injuryRisk,
   pOut,
   pRecover,
@@ -123,6 +125,18 @@ describe("returnWeekDistribution: the first week he can play again (CLAUDE.md §
     }
   });
 
+  it("one rule, config.projections.returnConflictWeeks (2), decides when a game-time tag's date counts: the distribution and the conflict both follow it", () => {
+    expect(cfg.returnConflictWeeks).toBe(2);
+    expect([4, 5, 6, 7].map((R) => farReturnWeek(R, W0))).toEqual([false, false, true, true]);
+    // Three weeks out instead: a date two weeks out is then ignored by both.
+    const three: AvailabilityConfig = { ...cfg, returnConflictWeeks: 3 };
+    expect([5, 6, 7].map((R) => farReturnWeek(R, W0, three))).toEqual([false, false, true]);
+    expectDist(dist("QUESTIONABLE", 6, three), [[4, 0.85], [5, 0.15]]);
+    expectDist(dist("QUESTIONABLE", 7, three), [[6, 0.25], [7, 0.5], [8, 0.25]]);
+    expect(returnDateConflict(player("QUESTIONABLE", 6), W0, three)).toBeNull();
+    expect(returnDateConflict(player("QUESTIONABLE", 7), W0, three)).toEqual({ status: "QUESTIONABLE", returnWeek: 7 });
+  });
+
   it("a conflicted player follows his return week; passed without it (a stale date, dropped by league.ts) he gets his tag's one-week table", () => {
     expectDist(dist("QUESTIONABLE", 8), [[7, 0.25], [8, 0.5], [9, 0.25]]);
     expectDist(returnWeekDistribution("QUESTIONABLE", undefined, W0), [[4, 0.85], [5, 0.15]]);
@@ -172,6 +186,65 @@ describe("returnWeekDistribution: the first week he can play again (CLAUDE.md §
     expectDist(returnWeekDistribution("OUT", 7, W0, odd), [[6, 0.25], [7, 0.5], [8, 0.25]]);
     expectDist(returnWeekDistribution("IR", 9, W0, { ...cfg, returnWeekSpread: [0, 1, 0] }), [[9, 1]]);
     expectDist(returnWeekDistribution("IR", 9, W0, { ...cfg, returnWeekSpread: [] }), [[9, 1]]);
+  });
+});
+
+describe("expectedReturnWeek: an IR player's expected return week R (planner reply to Checkpoint 4, change 5)", () => {
+  const R = (p: AvailabilityPlayer, over: Partial<AvailabilityContext> = {}, c: AvailabilityConfig = cfg, q?: number) => expectedReturnWeek(p, ctx(over), c, q);
+
+  it("is the first remaining week his chance of being back reaches returnWeekQuantile (0.5): the lead's examples", () => {
+    expect(config.projections.returnWeekQuantile).toBe(0.5);
+    // IR with ESPN's date: back at R − 1, R or R + 1 (25% / 50% / 25%): 75% by R.
+    expect(R(player("IR", 8))).toBe(8);
+    expect(R(player("PUP", 11))).toBe(11);
+    // IR without a date: 0 for irUnknown.outWeeks weeks, then 0.8.
+    expect(R(player("IR"))).toBe(W0 + cfg.injury.irUnknown.outWeeks);
+    // OUT without a date: 50% next week.
+    expect(R(player("OUT"))).toBe(W0 + 1);
+    // OUT with a date next week or later follows it; a healthy player in an IR slot can be activated now.
+    expect(R(player("OUT", 7))).toBe(7);
+    expect(R(player("ACTIVE"))).toBe(W0);
+    // Game-time tags: Questionable (85% this week) and Probable now, Doubtful (25% this week) next week.
+    expect(R(player("QUESTIONABLE"))).toBe(W0);
+    expect(R(player("PROBABLE"))).toBe(W0);
+    expect(R(player("DOUBTFUL"))).toBe(W0 + 1);
+    // A suspension's length is exact.
+    expect(R(player("SUSPENDED", 9))).toBe(9);
+    expect(R(player("SUSPENDED"))).toBe(W0 + cfg.injury.suspendedUnknownWeeks);
+  });
+
+  it("is none when he isn't back within the remaining weeks: out for the season, NA, no NFL team, or a return past the last week", () => {
+    expect(R(player("IR", 19), { lastNflWeek: 18 })).toBeNull();
+    expect(R(player("NA"))).toBeNull();
+    expect(R(player("IR", 8), { hasTeam: false })).toBeNull();
+    // Weeks 4–17: a date of 18 is back by 17 only 25% of the time.
+    expect(R(player("IR", 18))).toBeNull();
+    expect(R(player("IR", 17))).toBe(17);
+    expect(R(player("IR", 8), { weeks: [] })).toBeNull();
+    // NA players who sometimes play (notActive above 0) are back now, as their distribution says.
+    expect(R(player("NA"), {}, withNotActive(0.3))).toBe(W0);
+  });
+
+  it("reads the quantile from config (another one moves R), before future injury risk, and on the remaining weeks given (a gap is skipped)", () => {
+    expect(R(player("IR", 8), {}, cfg, 0.2)).toBe(7);
+    expect(R(player("IR", 8), {}, cfg, 0.8)).toBe(9);
+    expect(R(player("IR", 8), {}, cfg, 1)).toBe(9);
+    // Future injury risk doesn't move it (the distribution is before it).
+    expect(R(player("IR", 8), {}, noRisk)).toBe(R(player("IR", 8)));
+    // Weeks listed with a gap: the first listed week at or past the quantile.
+    expect(R(player("IR", 8), { weeks: [4, 5, 6, 9, 10] })).toBe(9);
+  });
+
+  it("a quantile at or below 0 is the first week he has any chance of being back, never one before it (review of track E)", () => {
+    // ESPN's date 8: 25% / 50% / 25% over weeks 7–9, so nothing before week 7 (weeks 4–17 remain).
+    for (const q of [0, -1, 1e-15, 1e-12]) expect(R(player("IR", 8), {}, cfg, q), `quantile ${q}`).toBe(7);
+    expect(R(player("OUT"), {}, cfg, 0)).toBe(W0 + 1);
+    expect(R(player("ACTIVE"), {}, cfg, 0)).toBe(W0);
+    // Above 1, or not a number: 1.
+    expect(R(player("IR", 8), {}, cfg, 2)).toBe(9);
+    expect(R(player("IR", 8), {}, cfg, Number.NaN)).toBe(9);
+    // Still none when he isn't back at all.
+    expect(R(player("NA"), {}, cfg, 0)).toBeNull();
   });
 });
 

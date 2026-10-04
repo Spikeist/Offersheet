@@ -8,6 +8,7 @@ import {
   analyzeTrade,
   buildTradeContext,
   evaluateExact,
+  legalSide,
   proposalKey,
   screenTrade,
   simCounts,
@@ -127,19 +128,22 @@ describe("the evaluation context (M1)", () => {
 });
 
 describe("proposals the Analyzer refuses (M2)", () => {
-  const ctx = context((spec) => {
-    (spec.teams[0] as { ir?: TestPlayer[] }).ir = [flat("ir1", "RB", 9, { injury: "IR" })];
-    (spec.teams[1] as { ir?: TestPlayer[] }).ir = [flat("ir2", "WR", 9, { injury: "IR" })];
-  });
+  const reserves = (spec: TestLeagueSpec) => {
+    (spec.teams[0] as { ir?: TestPlayer[]; taxi?: TestPlayer[] }).ir = [flat("ir1", "RB", 9, { injury: "IR" })];
+    (spec.teams[0] as { ir?: TestPlayer[]; taxi?: TestPlayer[] }).taxi = [flat("tx1", "WR", 3)];
+    (spec.teams[1] as { ir?: TestPlayer[]; taxi?: TestPlayer[] }).ir = [flat("ir2", "WR", 9, { injury: "IR" })];
+    (spec.teams[1] as { ir?: TestPlayer[]; taxi?: TestPlayer[] }).taxi = [flat("tx2", "WR", 3)];
+  };
+  const ctx = context(reserves);
   const cases: [string, TradeProposal, string][] = [
     ["a pick", { partnerId: "2", give: [{ kind: "pick", season: 2027, round: 1, originalTeamId: "1" }], get: p("wa2") }, "Draft picks can't be part of a trade here yet: pick players only."],
     ["no asset", trade("2", [], []), "Pick at least one player to trade."],
     ["a player twice", trade("2", ["wb1", "wb1"], ["wa2"]), "Testy McTest wb1 is in the trade twice."],
     ["too many a side", trade("2", ["q1", "ra1", "rb1", "wa1", "wb1"], ["wa2"]), "A trade can have at most 4 players a side here."],
-    ["not on my roster", trade("2", ["wa2"], ["wb2"]), "Testy McTest wa2 isn't on your active roster."],
-    ["my IR player", trade("2", ["ir1"], ["wa2"]), "Testy McTest ir1 is on your IR or taxi squad: only active-roster players can be traded here."],
-    ["their IR player", trade("2", ["wb1"], ["ir2"]), "Testy McTest ir2 is on Team 2's IR or taxi squad: only active-roster players can be traded here."],
-    ["not on their roster", trade("2", ["wb1"], ["wa3"]), "Testy McTest wa3 isn't on Team 2's active roster."],
+    ["not on my roster", trade("2", ["wa2"], ["wb2"]), "Testy McTest wa2 isn't on your active roster or IR."],
+    ["my taxi player", trade("2", ["tx1"], ["wa2"]), "Testy McTest tx1 is on your taxi squad: only active-roster and IR players can be traded here."],
+    ["their taxi player", trade("2", ["wb1"], ["tx2"]), "Testy McTest tx2 is on Team 2's taxi squad: only active-roster and IR players can be traded here."],
+    ["not on their roster", trade("2", ["wb1"], ["wa3"]), "Testy McTest wa3 isn't on Team 2's active roster or IR."],
     ["no such partner", trade("9", ["wb1"], ["wa2"]), "Pick a team to trade with."],
     ["my own team", trade("1", ["wb1"], ["wa1"]), "Pick a team to trade with."],
   ];
@@ -148,6 +152,21 @@ describe("proposals the Analyzer refuses (M2)", () => {
       expect(analyzeTrade(ctx, proposal)).toEqual({ evaluation: null, illegal: reason, notes: [] });
     });
   }
+
+  it("IR players are tradable (Phase 4b, planner reply to Checkpoint 4, change 5): mine and theirs", () => {
+    for (const proposal of [trade("2", ["ir1"], ["wa2"]), trade("2", ["wb1"], ["ir2"])]) {
+      const a = analyzeTrade(ctx, proposal);
+      expect(a.illegal, JSON.stringify(proposal)).toBeNull();
+      expect(a.evaluation?.stage).toBe("final");
+    }
+  });
+
+  it("irReturners false (Checkpoint 4's rule, for the report): IR players aren't tradable, with Checkpoint 4's words", () => {
+    const old = context(reserves, {}, { irReturners: false });
+    expect(analyzeTrade(old, trade("2", ["ir1"], ["wa2"]))).toEqual({ evaluation: null, illegal: "Testy McTest ir1 is on your IR or taxi squad: only active-roster players can be traded here.", notes: [] });
+    expect(analyzeTrade(old, trade("2", ["wb1"], ["ir2"]))).toEqual({ evaluation: null, illegal: "Testy McTest ir2 is on Team 2's IR or taxi squad: only active-roster players can be traded here.", notes: [] });
+    expect(analyzeTrade(old, trade("2", ["wa2"], ["wb2"])).illegal).toBe("Testy McTest wa2 isn't on your active roster.");
+  });
 
   it("one empty side is legal (a 1-for-0)", () => {
     const a = analyzeTrade(ctx, trade("2", ["wc1"], []));
@@ -167,8 +186,9 @@ describe("roster legality after a trade (§7; M2's rules and their order)", () =
   it("rule 2 never drops a player just received, even the cheapest to lose", () => {
     const a = analyzeTrade(context(), trade("2", ["rc1", "wc1"], ["wa2"]));
     // Team 2's received bench players cost nothing to lose but stay; its own WR2 and FLEX RB each cost about 0.1 a week
-    // (a received one steps in), the RB a little less (RBs' future injury risk lowers both RBs' expected points more).
-    expect(a.evaluation?.required.partner).toEqual({ drops: ["rc2"], adds: [] });
+    // (a received one steps in). Phase 4b: the market blend (§6 step 8) reads the received RB a little lower than the
+    // received WR (0.43% and 0.37%), so the WR is the cheaper one to lose (0.52 ROS points against the RB's 0.54).
+    expect(a.evaluation?.required.partner).toEqual({ drops: ["wc2"], adds: [] });
   });
 
   it("rule 2 never drops a player the starting lineup needs (Team 2's only kicker, worth nothing now)", () => {
@@ -177,6 +197,31 @@ describe("roster legality after a trade (§7; M2's rules and their order)", () =
       trade("2", ["wb1", "rc1"], ["wa2"]),
     );
     expect(a.evaluation?.required.partner).toEqual({ drops: ["wc2"], adds: [] });
+  });
+
+  it("rule 2 never drops the last player at a position the side streams (final review of Phase 4b): the streamed slot needs his roster spot", () => {
+    // My kicker scores what the streaming replacement does (the one free-agent kicker, 5): losing him costs my lineup
+    // nothing, and his value (a flat minimum) is below my bench WR's, so he's my lowest keep value player. I stream K
+    // (the default), and he's my only kicker: my bench WR goes instead, in exact evaluation and in screening alike.
+    const ctx = context((spec) => swapPlayer(spec, "1", "k1", flat("k1", "K", 5)));
+    const I = tradeInternals(ctx);
+    const me = I.me as TeamState;
+    expect(me.stream.positions).toContain("K");
+    expect(analyzeTrade(ctx, trade("2", ["rc1"], ["wb2", "wc2"])).evaluation?.required.me).toEqual({ drops: ["wc1"], adds: [] });
+    for (const mode of ["exact", "ev"] as const) {
+      const side = legalSide(I, me, mode === "ev" ? me.vstar.roster : me.roster, ["rc1"], ["wb2", "wc2"], mode, "You");
+      if ("illegal" in side) throw new Error(side.illegal);
+      expect(side.change.drops, mode).toEqual(["wc1"]);
+      expect(side.roster, mode).toContain("k1");
+    }
+    // With a second kicker on the roster, one of the two can go (the lower value, then the smaller id: both cost nothing).
+    const two = context((spec) => {
+      swapPlayer(spec, "1", "k1", flat("k1", "K", 5));
+      swapPlayer(spec, "1", "wc1", flat("kx1", "K", 5));
+    });
+    const x = analyzeTrade(two, trade("2", ["rc1"], ["wb2", "wc2"])).evaluation?.required.me;
+    expect(x?.drops).toHaveLength(1);
+    expect(["k1", "kx1"]).toContain(x?.drops[0]);
   });
 
   it("rule 1: a position over its limit drops the position's lowest keep value player not received; then rule 4 fills the spot that opens", () => {
@@ -297,9 +342,9 @@ describe("the simulation behind B (M4)", () => {
     expect(a.evaluation?.dEW).toBe(0);
     expect(a.evaluation?.gMine).toBe(0);
     expect(a.evaluation?.bWin).toBe(0);
-    // B is the market term alone, which counts the player I give (worth less than the waiver credit) at the credit (lead
-    // decision N10; evaluate.addendum.test.ts): it doesn't help.
-    expect(a.evaluation?.b as number).toBeLessThan(0);
+    // B is the market term alone, which counts both players (worth less than the waiver credit) at the credit (planner
+    // reply to Checkpoint 4, change 4; evaluate.addendum.test.ts): an even swap, B = 0, so it doesn't help.
+    expect(a.evaluation?.b).toBe(0);
     expect(a.evaluation?.flags.hiddenByBenefit).toBe(true);
   });
 

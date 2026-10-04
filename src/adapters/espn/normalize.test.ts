@@ -3,9 +3,10 @@ import { LeagueImportError } from "@/adapters/types";
 import { resolverFromData } from "@/data/crosswalk";
 import type { SleeperPlayerRecord } from "@/data/sleeperPlayers";
 import type { CrosswalkConflict, PlayerIdResolver } from "@/data/types";
+import { irEligibleStatuses } from "@/engine/irSlots";
 import type { LeagueSnapshot } from "@/engine/model";
 import { readMinFixture } from "@/test-utils/fixtures";
-import { FREE_AGENTS_PER_POSITION, idOverrideNote, normalizeEspnLeague, normalizeSwid, type EspnRawBundle } from "./normalize";
+import { ESPN_IR_ELIGIBLE, FREE_AGENTS_PER_POSITION, faabRemainingOf, idOverrideNote, normalizeEspnLeague, normalizeSwid, waiverRankOf, type EspnRawBundle } from "./normalize";
 import { FA_POSITIONS, LABELS, NOW, PARKER, PUBLIC, REFILL, expectedTransactionTypes, fakeResolver, parkerBundle, readCross, readEspn, type PublicTradeAcquisitions, type RefillFixture } from "./test-helpers";
 import { weekOfInstant, weekWindows } from "./weeks";
 
@@ -76,6 +77,15 @@ describe("normalizeEspnLeague on Parker's league (sanitized fixtures)", () => {
     expect(s.settings).toMatchObject({ numTeams: 10, leagueType: "redraft", benchSlots: 7, irSlots: 1, taxiSlots: 0, maxRosterSize: 16, medianGame: false, pointsOnly: false, tradeReview: "league_vote" });
     expect(s.settings.faabBudget).toBeUndefined();
     expect(s.settings.divisions).toBeUndefined();
+  });
+
+  it("says which statuses its IR slot takes: Out and IR, as ESPN's help center documents (not Questionable, Doubtful or Suspended)", () => {
+    expect(s.settings.irEligible).toEqual(["IR", "OUT"]);
+    expect([...ESPN_IR_ELIGIBLE]).toEqual(["IR", "OUT"]);
+    // A copy per league: changing one snapshot's list can't change the constant.
+    expect(s.settings.irEligible).not.toBe(ESPN_IR_ELIGIBLE);
+    // The engine reads it in place of its default (IR and PUP).
+    expect([...irEligibleStatuses(s.settings)].sort()).toEqual(["IR", "OUT"]);
   });
 
   it("maps the lineup with FLEX eligibility and ESPN's position limits", () => {
@@ -349,6 +359,53 @@ describe("normalizeEspnLeague on the public test league (minimized fixture: TQB 
     expect(notes.join("\n")).toMatch(/commissioner reviews trades \(inferred\)/);
     expect(s.myTeamId).toBeNull();
     expect(s.freeAgents).toEqual([]);
+  });
+});
+
+describe("the waiver order and remaining FAAB budgets (Phase 4b: one free agent, one team)", () => {
+  it("Parker's league: teams[].waiverRank, 1 = first claim (the 0-3 team), every team ranked once; no FAAB, so no budgets", () => {
+    const { snapshot } = parker();
+    const ranks = Object.fromEntries(snapshot.teams.map((t) => [t.id, t.waiverRank]));
+    expect(ranks).toEqual({ "1": 8, "2": 1, "3": 4, "4": 2, "5": 5, "6": 10, "7": 9, "8": 7, "9": 6, "10": 3 });
+    // 1 = first claim: the waiver order resets weekly to the reverse standings (waiverOrderReset), so the winless team is first.
+    const first = snapshot.teams.find((t) => t.waiverRank === 1);
+    expect(first?.record).toMatchObject({ w: 0, l: 3 });
+    expect(snapshot.teams.find((t) => t.waiverRank === 10)?.record).toMatchObject({ w: 3, l: 0 });
+    expect(snapshot.teams.every((t) => t.faabRemaining === undefined)).toBe(true);
+  });
+
+  it("a FAAB league: the budget minus transactionCounter.acquisitionBudgetSpent; unreadable values are left out", () => {
+    const league = clone(readMinFixture<Json>("espn", PUBLIC.group, PUBLIC.league));
+    // The minimized fixture keeps only what tests read; these values are made up (the live league's spent 0–33 of 200).
+    const spent: Record<string, number | null> = { "1": 16, "2": 0, "3": 250, "4": null, "5": 33 };
+    const ranks: Record<string, number> = { "1": 3, "2": 1, "3": 2, "4": 0, "5": 1.5 };
+    for (const t of league.teams as Json[]) {
+      const id = String(t.id);
+      if (id in spent) t.transactionCounter = { ...(t.transactionCounter ?? {}), acquisitionBudgetSpent: spent[id] };
+      if (id in ranks) t.waiverRank = ranks[id];
+    }
+    const { snapshot } = normalizeEspnLeague({ league }, { leagueId: "100002", resolver: fakeResolver(), now: NOW });
+    expect(snapshot.settings.faabBudget).toBe(200);
+    const of = (id: string) => snapshot.teams.find((t) => t.id === id);
+    expect(of("1")).toMatchObject({ waiverRank: 3, faabRemaining: 184 });
+    expect(of("2")).toMatchObject({ waiverRank: 1, faabRemaining: 200 });
+    expect(of("3")?.waiverRank).toBe(2);
+    expect(of("3")?.faabRemaining).toBeUndefined(); // spent more than the budget: unreadable
+    expect(of("4")?.waiverRank).toBeUndefined(); // rank 0
+    expect(of("4")?.faabRemaining).toBeUndefined(); // no spent amount
+    expect(of("5")?.waiverRank).toBeUndefined(); // not a whole number
+    expect(of("5")?.faabRemaining).toBe(167);
+    expect(of("6")?.faabRemaining).toBeUndefined(); // no counter at all
+  });
+
+  it("waiverRankOf and faabRemainingOf", () => {
+    expect([1, 7, 0, -1, 2.5, Number.NaN, null, undefined].map((r) => waiverRankOf(r))).toEqual([1, 7, undefined, undefined, undefined, undefined, undefined, undefined]);
+    expect(faabRemainingOf(100, 40)).toBe(60);
+    expect(faabRemainingOf(100, 100)).toBe(0);
+    expect(faabRemainingOf(100, 101)).toBeUndefined();
+    expect(faabRemainingOf(undefined, 40)).toBeUndefined(); // not a FAAB league
+    expect(faabRemainingOf(100, null)).toBeUndefined();
+    expect(faabRemainingOf(100, Number.NaN)).toBeUndefined();
   });
 });
 

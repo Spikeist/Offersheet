@@ -8,11 +8,16 @@ import { describe, expect, it } from "vitest";
 import { config } from "@/engine/config";
 import { defaultTradeSettings } from "@/engine/settings";
 import type { TradeAnalysis } from "@/engine/evaluate";
+import type { InjuryStatus, PlayerInfo } from "@/engine/model";
+import { explainTrade } from "@/engine/explain";
+import type { InjuryTag } from "@/engine/tradeModel";
 import { GLOOP_PREMIUM, SNOOT_PREMIUM, evaluation, searchResult, step, steppedFull, steppedOffer, tradeSnapshot } from "@/components/trades/testFixtures";
 import { applyFeedback } from "./feedbackStore";
 import {
   ANALYZER_MAX_PER_SIDE,
   HARDER_TO_GET_TAG,
+  IR_SLOT_TEXT,
+  PLAN_B_HEADING,
   STAGE_LABEL,
   acceptText,
   analyzerChoices,
@@ -28,17 +33,32 @@ import {
   draftSummary,
   finderHref,
   harderToGetWho,
+  incomingInjuryNote,
+  INJURED_REASON,
+  injuryTagText,
+  knownTagsOf,
   listNote,
   percentText,
   perWeek,
+  planBPitch,
+  planBView,
   pointsChange,
+  possessive,
   premiumReasons,
   progressView,
   readAnalyzerDraft,
+  readAnalyzerFrom,
   readFinderPartner,
+  rosNoteOf,
+  seasonEndOf,
   secondsText,
   settingsSummary,
+  teamNameOf,
+  throughText,
   tradeWords,
+  proposalFromKey,
+  versionChoices,
+  versionLine,
 } from "./tradeView";
 
 const snapshot = tradeSnapshot();
@@ -47,7 +67,7 @@ const fact = (c: ReturnType<typeof card>, label: string) => c.facts.find((f) => 
 
 /** Every word a card shows, for the no-jargon check. */
 const allText = (c: ReturnType<typeof card>) =>
-  [c.heading, ...c.give.map((a) => `${a.name} ${a.detail}`), ...c.get.map((a) => `${a.name} ${a.detail}`), c.numbers.acceptLabel, c.numbers.acceptNote ?? "", ...c.flags.map((f) => f.text), ...c.facts.map((f) => `${f.label} ${f.value}`), c.ros, ...c.required].join(" ");
+  [c.heading, ...c.give.map((a) => `${a.name} ${a.detail}`), ...c.get.map((a) => `${a.name} ${a.detail}`), c.numbers.acceptLabel, c.numbers.acceptNote ?? "", ...c.flags.map((f) => f.text), ...c.facts.map((f) => `${f.label} ${f.value}`), c.ros, c.rosNote ?? "", ...c.required].join(" ");
 
 describe("small words", () => {
   it("prints odds as whole percents, '<1%' and '>99%' only when they merely round there, and acceptance to the nearest 5%", () => {
@@ -88,10 +108,11 @@ describe("buildTradeCard (§13: what each card shows)", () => {
 
   it("names the partner and both sides, each player with position, NFL team and injury in words", () => {
     expect(c.heading).toBe("Trade with Gravel Gophers");
-    expect(c.give).toEqual([{ id: "106", name: "Wiggleton Spoons", detail: "WR · ATL", injury: null, tag: null }]);
-    expect(c.get).toEqual([{ id: "204", name: "Cornelius Snoot", detail: "RB · HOU", injury: null, tag: null }]);
+    expect(c.give).toEqual([{ id: "106", name: "Wiggleton Spoons", detail: "WR · ATL", injury: null, status: null, tag: null }]);
+    expect(c.get).toEqual([{ id: "204", name: "Cornelius Snoot", detail: "RB · HOU", injury: null, status: null, tag: null }]);
     const q = buildTradeCard(evaluation({ give: ["103"] }), { snapshot }).give[0];
     expect(q?.injury).toEqual({ short: "Q", long: "Questionable", tone: "warn" });
+    expect(q?.status).toEqual({ text: "Questionable", tone: "warn" });
     expect(assetView({ kind: "player", id: "gone" }, snapshot).name).toBe("A player who's no longer in this league's data");
     expect(assetView({ kind: "pick", season: 2027, round: 1, originalTeamId: "3" }, snapshot)).toEqual({ id: "pick:2027:1:3", name: "2027 round 1 pick", detail: "Original owner: Quasar Quokkas", injury: null, tag: null });
   });
@@ -107,6 +128,20 @@ describe("buildTradeCard (§13: what each card shows)", () => {
     expect(vetoed.numbers.acceptNote).toBe("Counting a league veto vote, about 20% it goes through.");
     const commish = buildTradeCard(evaluation({ pAccept: 0.4, pComplete: 0.2, detail: { vetoRisk: true } }), { snapshot: tradeSnapshot({ tradeReview: "commissioner" }) });
     expect(commish.numbers.acceptNote).toBe("Counting the commissioner's review, about 20% it goes through.");
+  });
+
+  it("says 'under 5%' when the veto cuts the chance below what the card can print, never '5% … about 5%' (review of Phase 4b)", () => {
+    const league = { snapshot: tradeSnapshot({ tradeReview: "league_vote" }) };
+    // Bo Nix for A.J. Brown on Parker's league: both print as 5% (§11's display floor), the reason says the veto halves it.
+    const floor = buildTradeCard(evaluation({ pAccept: 0.06, pComplete: 0.03, detail: { vetoRisk: true } }), league);
+    expect(floor.numbers.accept.value).toBe("5%");
+    expect(floor.numbers.acceptNote).toBe("Counting a league veto vote, under 5% it goes through.");
+    // At 2% (the model's floor) as well.
+    expect(buildTradeCard(evaluation({ pAccept: 0.02, pComplete: 0.01, detail: { vetoRisk: true } }), league).numbers.acceptNote).toBe("Counting a league veto vote, under 5% it goes through.");
+    // A cut that prints the same above the floor says nothing more (the reason says the league reviews trades).
+    expect(buildTradeCard(evaluation({ pAccept: 0.11, pComplete: 0.09, detail: { vetoRisk: true } }), league).numbers.acceptNote).toBeNull();
+    // throughText itself: differently printed, below the floor, nothing more.
+    expect([throughText(0.4, 0.2), throughText(0.06, 0.03), throughText(0.06, 0.06), throughText(0.11, 0.09), throughText(0.4, Number.NaN)]).toEqual(["about 20%", "under 5%", null, null, null]);
   });
 
   it("scores a trade that doesn't help 0, flags it, and shows a dash (with words for screen readers) when B is unknown", () => {
@@ -128,7 +163,8 @@ describe("buildTradeCard (§13: what each card shows)", () => {
     expect(noHelp({ b: -0.11, bWin: 1.08, gMine: -0.297, dPO: 0.0178, dCH: 0.007 })).toBe(
       "Doesn't help you overall: it raises your chances this season, but you'd give up more trade value than that's worth at your “Protect my trade value” setting, so trade ideas leave it out.",
     );
-    // …and when the card's values don't show me giving more (the market term's waiver-credit floor, N10): only "overall".
+    // …and numbers that break the rule (my chances rise, B ≤ 0, yet I don't give more value: the value floor on both sides,
+    // planner reply to Checkpoint 4, change 4, rules that out, since the term and the card read the same g): only "overall".
     expect(noHelp({ b: -0.2, bWin: 0.4, gMine: 0.1 })).toBe("Doesn't help you overall, so trade ideas leave it out.");
     // Dynasty and keeper: this season against long-term value, by the Win now ↔ Future setting.
     expect(noHelp({ b: -0.5, bWin: 1.5, bFuture: -4, lambda: 0.5, dDyn: -900 })).toBe(
@@ -145,7 +181,12 @@ describe("buildTradeCard (§13: what each card shows)", () => {
   });
 
   it("raises the risk flags apart from the numbers, in words: an injured player, the market check, and a trade normally hidden", () => {
-    expect(card({ flags: { marketCheck: false, hiddenByMarket: false, hiddenByBenefit: false, injured: ["107"] } }).flags).toEqual([{ kind: "injured", text: "Depends on an injured player: Humbert Fiddlesticks (injured reserve)" }]);
+    expect(card({ flags: { marketCheck: false, hiddenByMarket: false, hiddenByBenefit: false, injured: ["107"] } }).flags).toEqual([
+      { kind: "injured", text: "Depends on an injured player: Humbert Fiddlesticks (injured reserve). His projection assumes he returns at full strength, blended with the trade market." },
+    ]);
+    expect(card({ get: ["107", "206"], flags: { marketCheck: false, hiddenByMarket: false, hiddenByBenefit: false, injured: ["107", "206"] } }).flags[0]?.text).toBe(
+      "Depends on injured players: Humbert Fiddlesticks (injured reserve) and Rupert Wimbleton (doubtful). Their projections assume they return at full strength, blended with the trade market.",
+    );
     expect(card({ gMine: -0.2 }).flags).toEqual([{ kind: "market", text: "Market check: you'd get 20% less trade value than you give." }]);
     expect(card({ gMine: -0.4 }).flags).toEqual([{ kind: "hiddenByMarket", text: "Market check: you'd get 40% less trade value than you give, so trade ideas leave it out." }]);
     expect(card().flags).toEqual([]);
@@ -156,7 +197,7 @@ describe("buildTradeCard (§13: what each card shows)", () => {
       { label: "Your lineup", value: "+2 pts a week in the regular season, +2 in the playoffs" },
       { label: "Playoff odds", value: "+3 percentage points" },
       { label: "Title odds", value: "+1 percentage point" },
-      { label: "Trade value", value: "You give 5,000, you get 5,000", kind: "values" },
+      { label: "Trade value", value: "You give 5,000, you get 5,000 (a player worth less than the best free agent counts at that free agent's value)", kind: "values" },
       { label: "Their lineup", value: "0 pts a week" },
     ]);
     const withBaseline = card({ dPO: 0.041, dCH: 0.002, partnerDeltaLineup: -1.26 }, { pPlayoffs: 0.62, pTitle: 0.09 });
@@ -164,8 +205,29 @@ describe("buildTradeCard (§13: what each card shows)", () => {
     // The whole percent doesn't move: no end percents.
     expect(fact(withBaseline, "Title odds")).toBe("+0.2 percentage points");
     expect(fact(withBaseline, "Their lineup")).toBe("−1.3 pts a week");
-    // An uneven trade says the side getting fewer players is credited for its roster spot (§9's waiver credit).
-    expect(fact(card({ give: ["105", "106"] }), "Trade value")).toBe("You give 5,000, you get 5,000 (the side getting fewer players is credited for its open roster spot)");
+    // An uneven trade says the side getting fewer players is credited for its roster spot (§9's waiver credit), and both
+    // say a player worth less than the best free agent counts at that value (planner reply to Checkpoint 4, change 4).
+    // Review of track F: "worth less" said what it's less than.
+    expect(fact(card({ give: ["105", "106"] }), "Trade value")).toBe(
+      "You give 5,000, you get 5,000 (an open roster spot on the side getting fewer players counts at the best free agent's value, and so does any player worth less than that free agent)",
+    );
+  });
+
+  it("with an IR player in the trade, says only my active roster's spots count (review of track E: an IR slot isn't a roster spot)", () => {
+    // Team 1 (mine) has Humbert Fiddlesticks (IR) in its one IR slot; team 2 has a Doubtful player in its IR slot.
+    const mine = (give: string[], get: string[], s = snapshot) => fact(buildTradeCard(evaluation({ give, get, detail: { myTeamId: "1" } }), { snapshot: s, baseline: null }), "Trade value");
+    // My IR player and an active one for one player: one off my active roster, one on: no open spot counts.
+    expect(mine(["107", "106"], ["204"])).toBe("You give 5,000, you get 5,000 (a player worth less than the best free agent counts at that free agent's value; an IR slot isn't a roster spot, so no open spot counts)");
+    // My IR player alone for an active player: my active roster fills a spot.
+    expect(mine(["107"], ["204"])).toBe("You give 5,000, you get 5,000 (each spot your active roster fills counts at the best free agent's value, as does any player worth less than that free agent; an IR slot isn't a roster spot)");
+    // Two active players for their IR player, who takes an active spot of mine (my IR slot is full; Doubtful isn't
+    // eligible anyway): one spot opens on my active roster.
+    expect(mine(["106", "105"], ["206"])).toBe("You give 5,000, you get 5,000 (an open spot on your active roster counts at the best free agent's value, as does any player worth less than that free agent; an IR slot isn't a roster spot)");
+    // A league whose IR slots take Doubtful players: my IR player out, theirs into my IR slot, an active player of mine out.
+    const doubtfulOk = { ...snapshot, settings: { ...snapshot.settings, irEligible: ["IR", "PUP", "DOUBTFUL"] as InjuryStatus[] } };
+    expect(mine(["107", "106"], ["206"], doubtfulOk)).toBe("You give 5,000, you get 5,000 (an open spot on your active roster counts at the best free agent's value, as does any player worth less than that free agent; an IR slot isn't a roster spot)");
+    // No IR player: the words as before.
+    expect(mine(["105", "106"], ["204"])).toBe("You give 5,000, you get 5,000 (an open roster spot on the side getting fewer players counts at the best free agent's value, and so does any player worth less than that free agent)");
   });
 
   it("adds long-term value in dynasty and keeper leagues, or says it's unknown when values didn't load", () => {
@@ -179,6 +241,32 @@ describe("buildTradeCard (§13: what each card shows)", () => {
     expect(card({ ros: { received: 142.4, given: 117.6 } }).ros).toBe("You get 142 ROS pts, give 118");
   });
 
+  it("says when my starting lineup moves the other way from those ROS points (review of Phase 4b: a backup QB given away)", () => {
+    // Doubs + Bo Nix for DK Metcalf on Parker's league: "You get 96 ROS pts, give 295", yet my lineup gains every week.
+    const weekly = [
+      { week: 12, before: 110, after: 110 }, // a week in progress: the same both times
+      { week: 13, before: 100, after: 104.2 },
+      { week: 14, before: 101, after: 106.5 },
+      { week: 15, before: 98, after: 103.7 },
+    ];
+    const backup = card({ ros: { received: 96, given: 295 }, detail: { weekly } });
+    expect(backup.ros).toBe("You get 96 ROS pts, give 295");
+    expect(backup.rosNote).toBe("Your starting lineup still gains 15 ROS pts: ROS points count each player's projected points whether he starts or not.");
+    // The other way: more ROS points in, fewer in my lineup.
+    const down = weekly.map((w) => ({ ...w, after: w.week === 12 ? w.before : w.before - 4 }));
+    expect(card({ ros: { received: 150, given: 100 }, detail: { weekly: down } }).rosNote).toBe(
+      "Your starting lineup loses 12 ROS pts even so: ROS points count each player's projected points whether he starts or not.",
+    );
+    expect(rosNoteOf({ ros: { received: 10, given: 20 }, detail: { weekly: [{ week: 13, before: 100, after: 101 }] } })).toBe(
+      "Your starting lineup still gains 1 ROS pt: ROS points count each player's projected points whether he starts or not.",
+    );
+    // Nothing when the two agree, when the lineup's change rounds to 0, or when the weeks aren't known.
+    expect(card({ ros: { received: 150, given: 100 }, detail: { weekly } }).rosNote).toBeNull();
+    expect(card({ ros: { received: 96, given: 295 }, detail: { weekly: [{ week: 13, before: 100, after: 100.3 }] } }).rosNote).toBeNull();
+    expect(card({ ros: { received: 96, given: 295 } }).rosNote).toBeNull();
+    expect(c.rosNote).toBeNull();
+  });
+
   it("says the roster moves the trade forces, for either side (§7)", () => {
     const forced = card({ required: { me: { drops: ["108"], adds: [] }, partner: { drops: [], adds: ["901", "902"] } } });
     expect(forced.required).toEqual([
@@ -186,6 +274,44 @@ describe("buildTradeCard (§13: what each card shows)", () => {
       "Gravel Gophers would pick up Floopy Freeman (RB, CAR) and Waverly Waiver (RB, NE) from free agents to fill their roster.",
     ]);
     expect(c.required).toEqual([]);
+  });
+
+  it("says where a received IR player goes and who is dropped when an IR player comes back, for either side (Phase 4b, RosterChange.toIR and .displaced)", () => {
+    const forced = card({
+      give: ["105"],
+      get: ["206"],
+      required: {
+        me: { drops: [], adds: [], toIR: ["206"], displaced: [{ playerId: "108", week: 15, returner: "206" }] },
+        partner: { drops: [], adds: [], toIR: ["107", "104"], displaced: [{ playerId: "205", week: 14, returner: "107" }] },
+      },
+    });
+    expect(forced.required).toEqual([
+      "Rupert Wimbleton goes to your IR slot (no roster spot until he's back).",
+      "From week 15, when Rupert Wimbleton comes back from IR, you'd drop Tobias Thimble (TE, JAX).",
+      "Humbert Fiddlesticks and Noodle McSprocket go to Gravel Gophers' IR slots (no roster spots until they're back).",
+      "From week 14, when Humbert Fiddlesticks comes back from IR, Gravel Gophers would drop Percival Plunk (WR, LAR).",
+    ]);
+    // Next to the drops and adds, mine first; empty or absent fields say nothing.
+    const both = card({ required: { me: { drops: ["108"], adds: [], toIR: [], displaced: [] }, partner: { drops: [], adds: ["901"], toIR: ["206"] } } });
+    expect(both.required).toEqual([
+      "You'd drop Tobias Thimble (TE, JAX) to stay within your roster limits.",
+      "Gravel Gophers would pick up Floopy Freeman (RB, CAR) from free agents to fill their roster.",
+      "Rupert Wimbleton goes to Gravel Gophers' IR slot (no roster spot until he's back).",
+    ]);
+  });
+
+  it("leaves out explain.ts's caveat that repeats the injured flag, and only it (review of Phase 4b)", () => {
+    // The engine's own words for a trade that depends on an injured player.
+    const e = evaluation({ give: ["106"], get: ["107"], flags: { marketCheck: false, hiddenByMarket: false, hiddenByBenefit: false, injured: ["107"] } });
+    const words = explainTrade(e, { teamName: (id) => teamNameOf(snapshot, id), player: (id) => snapshot.players[id] ?? null, slots: [], leagueType: "redraft", tradeDeadline: null });
+    const shown = buildTradeCard({ ...e, reasons: words.reasons, pitch: words.pitch }, { snapshot });
+    expect(shown.reasons).toEqual(words.reasons.filter((r) => !INJURED_REASON.test(r)));
+    expect(shown.reasons.join(" ")).not.toContain("assume");
+    expect(shown.flags[0]?.text).toContain("Depends on an injured player: Humbert Fiddlesticks");
+    expect(INJURED_REASON.test("Depends on injured players: A (out) and B (on injured reserve), and the numbers assume they return as expected.")).toBe(true);
+    // Without the flag, every reason stays as written.
+    const plain = evaluation({ reasons: ["Depends on an injured player: kept when no flag says it."] });
+    expect(buildTradeCard(plain, { snapshot }).reasons).toEqual(plain.reasons);
   });
 
   it("carries the reasons and pitch as explain.ts wrote them, and links to the Analyzer with the trade", () => {
@@ -252,9 +378,19 @@ describe("'How to offer it' (planner addendum to Checkpoint 3, §4: offer first,
     const first = buildTradeCard(vetoed, { snapshot: tradeSnapshot({ tradeReview: "league_vote" }) }).steps?.items[0];
     expect(first).toMatchObject({ est: "Est. 40%", through: "about 20% it goes through", acceptSr: "an estimated 40% chance they accept, about 20% that it goes through" });
     expect(first?.text).toBe("Offer first: Wiggleton Spoons for Cornelius Snoot · Est. 40%, about 20% it goes through");
-    // Vetoed, but both print the same: nothing more to say (the card's own note says a veto vote could stop the trade).
-    const same = { ...e, steps: e.steps && { ...e.steps, offerFirst: step({ give: ["106"], get: ["204"], pAccept: 0.05, pComplete: 0.025, vetoRisk: true }) } };
-    expect(buildTradeCard(same, { snapshot: tradeSnapshot({ tradeReview: "league_vote" }) }).steps?.items[0]).toMatchObject({ est: "Est. 5%", through: null, text: "Offer first: Wiggleton Spoons for Cornelius Snoot · Est. 5%" });
+    // Vetoed, but both print the same above the display's floor: nothing more to say (the card's own note says a veto
+    // vote could stop the trade).
+    const same = { ...e, steps: e.steps && { ...e.steps, offerFirst: step({ give: ["106"], get: ["204"], pAccept: 0.11, pComplete: 0.09, vetoRisk: true }) } };
+    expect(buildTradeCard(same, { snapshot: tradeSnapshot({ tradeReview: "league_vote" }) }).steps?.items[0]).toMatchObject({ est: "Est. 10%", through: null, text: "Offer first: Wiggleton Spoons for Cornelius Snoot · Est. 10%" });
+    // Both print as the floor while the veto cut it below: "under 5%" (review of Phase 4b: "5% … about 5%" said nothing,
+    // and "5%" alone hid the cut the reasons talk about).
+    const floor = { ...e, steps: e.steps && { ...e.steps, offerFirst: step({ give: ["106"], get: ["204"], pAccept: 0.05, pComplete: 0.025, vetoRisk: true }) } };
+    expect(buildTradeCard(floor, { snapshot: tradeSnapshot({ tradeReview: "league_vote" }) }).steps?.items[0]).toMatchObject({
+      est: "Est. 5%",
+      through: "under 5% it goes through",
+      acceptSr: "an estimated 5% chance they accept, under 5% that it goes through",
+      text: "Offer first: Wiggleton Spoons for Cornelius Snoot · Est. 5%, under 5% it goes through",
+    });
   });
 
   it("has no steps when the engine sets none, and names what it can't find plainly", () => {
@@ -412,14 +548,38 @@ describe("links between the pages (a team id and player ids only)", () => {
     for (const bad of ["?partner=1", "?partner=99", "", "?team=2", undefined]) expect(readFinderPartner(bad, snapshot, "1")).toBeNull();
   });
 
-  it("reads the Analyzer's trade from its address: my active players to give, theirs to get, each once, at most a side's limit", () => {
-    // 107 is on my IR (not tradable here), 204 isn't mine, 999 is no one's; 105 twice counts once.
-    const draft = readAnalyzerDraft("?partner=2&give=105&give=107&give=204&give=105&give=999&get=203&get=101", snapshot, "1");
-    expect(draft).toEqual({ partnerId: "2", give: ["105"], get: ["203"] });
+  it("reads the Analyzer's trade from its address: my active and IR players to give, theirs to get, each once, at most a side's limit", () => {
+    // 107 is on my IR (tradable since Phase 4b), 204 isn't mine, 999 is no one's; 105 twice counts once; 206 is on team 2's IR.
+    const draft = readAnalyzerDraft("?partner=2&give=105&give=107&give=204&give=105&give=999&get=203&get=101&get=206", snapshot, "1");
+    expect(draft).toEqual({ partnerId: "2", give: ["105", "107"], get: ["203", "206"] });
+    // A taxi-squad player (team 3's 306) isn't tradable.
+    expect(readAnalyzerDraft("?partner=3&get=306&get=301", snapshot, "1")).toEqual({ partnerId: "3", give: [], get: ["301"] });
     expect(readAnalyzerDraft("?partner=1&give=105&get=203", snapshot, "1")).toEqual({ partnerId: null, give: ["105"], get: [] });
     const many = readAnalyzerDraft(`?partner=2&${["101", "102", "103", "104", "105", "106"].map((id) => `give=${id}`).join("&")}`, snapshot, "1");
     expect(many.give).toHaveLength(ANALYZER_MAX_PER_SIDE);
     expect(ANALYZER_MAX_PER_SIDE).toBe(config.search.analyzerMaxPerSide);
+  });
+
+  it("marks a trade opened from 'If they say no, try:' in the Analyzer's address, and reads the mark back (review of Phase 4b)", () => {
+    const e = evaluation({ give: ["104", "105"], get: ["203"] });
+    const href = analyzerHref(e.proposal, { from: "planB" });
+    expect(href).toBe("/analyzer?partner=2&give=104&give=105&get=203&from=planB");
+    const query = href.slice(href.indexOf("?"));
+    expect(readAnalyzerFrom(query)).toBe("planB");
+    // The trade reads the same with the mark.
+    expect(readAnalyzerDraft(query, snapshot, "1")).toEqual({ partnerId: "2", give: ["104", "105"], get: ["203"] });
+    for (const other of ["?partner=2&get=203", "?from=planb", "?from=other", "", undefined]) expect(readAnalyzerFrom(other)).toBeNull();
+    expect(analyzerHref(e.proposal, { from: null })).toBe("/analyzer?partner=2&give=104&give=105&get=203");
+  });
+
+  it("reads a trade's key back into its players, the engine's form and the fixtures' (CardFeedback.versionWords)", () => {
+    const player = (id: string) => ({ kind: "player" as const, id });
+    expect(proposalFromKey("8|give:8146|get:13279,8167")).toEqual({ partnerId: "8", give: [player("8146")], get: [player("13279"), player("8167")] });
+    expect(proposalFromKey("2|106,108|202")).toEqual({ partnerId: "2", give: [player("106"), player("108")], get: [player("202")] });
+    expect(proposalFromKey("2|give:|get:202")).toEqual({ partnerId: "2", give: [], get: [player("202")] });
+    expect(proposalFromKey("4|give:pick:2027:1:4|get:401")).toEqual({ partnerId: "4", give: [{ kind: "pick", season: 2027, round: 1, originalTeamId: "4" }], get: [player("401")] });
+    for (const bad of ["", "2|give:106", "|give:106|get:202", "2|give:|get:", "2|give:106,,108|get:202", "a|b|c|d", null, undefined]) expect(proposalFromKey(bad)).toBeNull();
+    expect(tradeWords(proposalFromKey("2|give:106|get:202,999") as NonNullable<ReturnType<typeof proposalFromKey>>, snapshot)).toBe("Wiggleton Spoons for Mortimer Gloop and A player who's no longer in this league's data");
   });
 
   it("round-trips a trade through the Analyzer's address", () => {
@@ -443,17 +603,22 @@ describe("the Analyzer's draft and choices", () => {
     expect(draftSummary({ partnerId: "1", give: [], get: ["102"] }, snapshot)).toBe("You give nothing; you get Dorian Quibble Jr.");
   });
 
-  it("offers the other teams, my active roster and the partner's, by position, checked as drafted, the rest disabled once a side is full", () => {
+  it("offers the other teams, my active and IR players and the partner's, by position, checked as drafted, the rest disabled once a side is full", () => {
     const choices = analyzerChoices(snapshot, "1", { partnerId: "2", give: ["101", "102", "104", "105"], get: ["203"] });
     expect(choices.partners.map((p) => p.name)).toEqual(["Gravel Gophers", "Quasar Quokkas", "Tundra Tortoises"]);
-    expect(choices.mine.map((p) => p.id)).toEqual(["101", "103", "102", "105", "104", "106", "108", "MIN"]);
+    expect(choices.mine.map((p) => p.id)).toEqual(["101", "103", "102", "105", "107", "104", "106", "108", "MIN"]);
     expect(choices.mine.filter((p) => p.checked).map((p) => p.id)).toEqual(["101", "102", "105", "104"]);
-    expect(choices.mine.filter((p) => p.disabled).map((p) => p.id)).toEqual(["103", "106", "108", "MIN"]);
+    expect(choices.mine.filter((p) => p.disabled).map((p) => p.id)).toEqual(["103", "107", "106", "108", "MIN"]);
     expect(choices.mine.find((p) => p.id === "103")).toMatchObject({ name: "Bartleby Crumpet", detail: "RB · NYJ", injury: { short: "Q", long: "Questionable", tone: "warn" } });
-    expect(choices.theirs.map((p) => p.id)).toEqual(["201", "204", "203", "202", "205", "DET"]);
+    // An IR player says he's in an IR slot (Phase 4b: IR players are tradable).
+    expect(choices.mine.find((p) => p.id === "107")).toMatchObject({ name: "Humbert Fiddlesticks", detail: `WR · CHI · ${IR_SLOT_TEXT}` });
+    expect(choices.theirs.map((p) => p.id)).toEqual(["201", "204", "203", "202", "206", "205", "DET"]);
+    expect(choices.theirs.find((p) => p.id === "206")?.detail).toBe(`RB · PIT · ${IR_SLOT_TEXT}`);
     expect(choices.theirs.some((p) => p.disabled)).toBe(false);
     expect(analyzerChoices(snapshot, "1", { partnerId: null, give: [], get: [] }).theirs).toEqual([]);
-    expect(choices.limitText).toBe(`Up to ${ANALYZER_MAX_PER_SIDE} players a side, from the active rosters (players on IR or a taxi squad can't be traded here yet).`);
+    // Taxi-squad players aren't offered (team 3's 306).
+    expect(analyzerChoices(snapshot, "1", { partnerId: "3", give: [], get: [] }).theirs.map((p) => p.id)).not.toContain("306");
+    expect(choices.limitText).toBe(`Up to ${ANALYZER_MAX_PER_SIDE} players a side, from the active rosters and IR (players on a taxi squad can't be traded here yet).`);
   });
 
   it("leaves out of the Analyzer's notes what the card's reasons already say, and says each note once", () => {
@@ -510,10 +675,250 @@ describe("settingsSummary and feedback state", () => {
   it("reads what this browser saved for a card", () => {
     const e = evaluation();
     let records = applyFeedback([], { leagueKey: "espn:0000abcd", evaluation: e, change: { outcome: "sent" }, at: "2026-10-01T12:00:00.000Z" });
-    expect(cardFeedback(records, "espn:0000abcd", e.key)).toEqual({ outcome: "sent", report: null });
+    const none = { versionKey: null, versionWords: null };
+    expect(cardFeedback(records, "espn:0000abcd", e.key)).toEqual({ outcome: "sent", report: null, version: null, ...none });
     records = applyFeedback(records, { leagueKey: "espn:0000abcd", evaluation: e, change: { report: { reason: "never-accept", note: " too lopsided " } }, at: "2026-10-01T12:01:00.000Z" });
-    expect(cardFeedback(records, "espn:0000abcd", e.key)).toEqual({ outcome: "sent", report: { reason: "never-accept", note: "too lopsided" } });
-    expect(cardFeedback(records, "espn:ffff0000", e.key)).toEqual({ outcome: null, report: null });
-    expect(cardFeedback(undefined, "espn:0000abcd", e.key)).toEqual({ outcome: null, report: null });
+    expect(cardFeedback(records, "espn:0000abcd", e.key)).toEqual({ outcome: "sent", report: { reason: "never-accept", note: "too lopsided" }, version: null, ...none });
+    expect(cardFeedback(records, "espn:ffff0000", e.key)).toEqual({ outcome: null, report: null, version: null, ...none });
+    expect(cardFeedback(undefined, "espn:0000abcd", e.key)).toEqual({ outcome: null, report: null, version: null, ...none });
+    // The version sent (planner reply to Checkpoint 4, change 6).
+    const sent = applyFeedback([], { leagueKey: "espn:0000abcd", evaluation: e, change: { outcome: "sent", sent: { version: "planB", key: "2|give:106|get:202", pAccept: 0.3, pComplete: 0.3 } }, at: "2026-10-01T12:00:00.000Z" });
+    expect(cardFeedback(sent, "espn:0000abcd", e.key)).toEqual({ outcome: "sent", report: null, version: "planB", versionKey: "2|give:106|get:202", versionWords: null });
+    // With the league, that version's trade in words (review of Phase 4b: the "Version:" line names it when the card doesn't show it).
+    expect(cardFeedback(sent, "espn:0000abcd", e.key, snapshot)).toEqual({ outcome: "sent", report: null, version: "planB", versionKey: "2|give:106|get:202", versionWords: "Wiggleton Spoons for Mortimer Gloop" });
+  });
+});
+
+describe("injury tags on the card (planner reply to Checkpoint 4, change 6)", () => {
+  /** The fictional league with return weeks set (the fixture's players carry none). */
+  const withReturns = (weeks: Record<string, number>) => {
+    const snap = tradeSnapshot();
+    const players = { ...snap.players };
+    for (const [id, week] of Object.entries(weeks)) {
+      const p = players[id];
+      if (p) players[id] = { ...p, injuryReturnWeek: week };
+    }
+    return { ...snap, players };
+  };
+
+  it("words each status, the return week the tag carries, and 'for the season' after its end", () => {
+    const text = (status: InjuryTag["status"], returnWeek?: number, end?: number, source?: string) => injuryTagText({ status, ...(returnWeek !== undefined ? { returnWeek } : {}) }, end, source);
+    expect(["PROBABLE", "QUESTIONABLE", "DOUBTFUL", "OUT", "IR", "PUP", "SUSPENDED", "NA"].map((s) => text(s as InjuryTag["status"]))).toEqual([
+      "Probable",
+      "Questionable",
+      "Doubtful",
+      "Out",
+      "On IR",
+      "On the PUP list",
+      "Suspended",
+      "Not an active NFL player",
+    ]);
+    expect(text("OUT", 8, 18)).toBe("Out — expected back week 8");
+    expect(text("IR", 8, 18)).toBe("On IR — expected back week 8");
+    expect(text("PUP", 9, 18)).toBe("On the PUP list — expected back week 9");
+    expect(text("SUSPENDED", 7, 18)).toBe("Suspended — back week 7");
+    // ESPN's out-for-season marker (the NFL's last week + 1), and any week after the season's end.
+    expect(text("IR", 19, 18)).toBe("Out for the season");
+    expect(text("OUT", 19, 18)).toBe("Out for the season");
+    expect(text("SUSPENDED", 19, 18)).toBe("Suspended for the season");
+    // A Questionable, Doubtful or Probable tag carries a week only when his projection follows the platform's far date
+    // (explain.injuryTags; review of track F: Josh Jacobs read just "Questionable"): said as the platform's.
+    expect(text("QUESTIONABLE", 8, 18, "ESPN")).toBe("Questionable — ESPN expects him back week 8");
+    expect(text("DOUBTFUL", 19, 18, "ESPN")).toBe("Doubtful — ESPN expects him out for the season");
+    expect(text("PROBABLE", 9, 18)).toBe("Probable — expected back week 9");
+    expect(text("NA", 9, 18)).toBe("Not an active NFL player");
+    // Without a season end, the week is said.
+    expect(text("IR", 19)).toBe("On IR — expected back week 19");
+  });
+
+  it("ends the season at the NFL's last week when known, else the league's last week", () => {
+    expect(seasonEndOf(snapshot.settings, 18)).toBe(18);
+    expect(seasonEndOf(snapshot.settings)).toBe(17); // the fixture's playoffs end in week 17
+    expect(seasonEndOf({ regularSeasonWeeks: [], playoffWeeks: [] })).toBeUndefined();
+  });
+
+  it("tags every injured player on either side, in words with a tone, from the evaluation's tags or else the snapshot", () => {
+    // Mine: the Questionable RB (103); theirs: the Doubtful RB in team 2's IR slot (206), back in week 16.
+    const snap = withReturns({ "206": 16 });
+    const card = buildTradeCard(evaluation({ give: ["103", "106"], get: ["206", "204"] }), { snapshot: snap, lastNflWeek: 18 });
+    expect(card.give.map((a) => a.status)).toEqual([{ text: "Questionable", tone: "warn" }, null]);
+    expect(card.get.map((a) => a.status)).toEqual([{ text: "Doubtful", tone: "warn" }, null]);
+    // The evaluation's own tags (the search's) win: here an IR tag with a return week.
+    const tagged = evaluation({ give: ["106"], get: ["204"], flags: { marketCheck: false, hiddenByMarket: false, hiddenByBenefit: false, injured: [], tagged: [{ playerId: "204", side: "get", status: "IR", returnWeek: 19 }] } });
+    expect(buildTradeCard(tagged, { snapshot, lastNflWeek: 18 }).get[0]?.status).toEqual({ text: "Out for the season", tone: "danger" });
+    // The IR WR (107) with a return week before the season's end.
+    const ir = buildTradeCard(evaluation({ give: ["106"], get: ["107"] }), { snapshot: withReturns({ "107": 15 }), lastNflWeek: 18 });
+    expect(ir.get[0]?.status).toEqual({ text: "On IR — expected back week 15", tone: "danger" });
+    // A date this week or earlier (the fixture is in week 12) is stale: never "expected back week 11" (review of track F).
+    expect(buildTradeCard(evaluation({ give: ["106"], get: ["107"] }), { snapshot: withReturns({ "107": 11 }), lastNflWeek: 18 }).get[0]?.status?.text).toBe("On IR");
+    expect(buildTradeCard(evaluation({ give: ["106"], get: ["107"] }), { snapshot: withReturns({ "107": 12 }), lastNflWeek: 18 }).get[0]?.status?.text).toBe("On IR");
+    // From the snapshot alone (an evaluation without tags, a core) a Doubtful player's far date isn't said: whether his
+    // projection follows it is the League model's word, which the evaluations' own tags carry (the search's and the Analyzer's).
+    expect(buildTradeCard(evaluation({ give: ["106"], get: ["206"] }), { snapshot: withReturns({ "206": 16 }), lastNflWeek: 18 }).get[0]?.status?.text).toBe("Doubtful");
+    // The search's tag for him, when his projection follows the date: the platform's date (an ESPN league here).
+    const followed = evaluation({ give: ["106"], get: ["206"], flags: { marketCheck: false, hiddenByMarket: false, hiddenByBenefit: false, injured: [], tagged: [{ playerId: "206", side: "get", status: "DOUBTFUL", returnWeek: 16 }] } });
+    expect(buildTradeCard(followed, { snapshot: withReturns({ "206": 16 }), lastNflWeek: 18 }).get[0]?.status).toEqual({ text: "Doubtful — ESPN expects him back week 16", tone: "warn" });
+  });
+
+  it("says once why a hurt player I'd get still has his numbers: his projection assumes a full return, blended with the market", () => {
+    const one = buildTradeCard(evaluation({ give: ["106"], get: ["107"] }), { snapshot });
+    expect(one.injuryNote).toBe("Humbert Fiddlesticks: his projection assumes he returns at full strength, blended with the trade market.");
+    const two = buildTradeCard(evaluation({ give: ["106"], get: ["107", "206"] }), { snapshot });
+    expect(two.injuryNote).toBe("Humbert Fiddlesticks and Rupert Wimbleton: their projections assume they return at full strength, blended with the trade market.");
+    // Not for a player of mine, nor for a player who isn't an active NFL player (NA) or is suspended, nor a healthy card.
+    expect(buildTradeCard(evaluation({ give: ["103"], get: ["204"] }), { snapshot }).injuryNote).toBeNull();
+    expect(incomingInjuryNote([{ playerId: "903", side: "get", status: "NA" }, { playerId: "204", side: "get", status: "SUSPENDED" }], snapshot)).toBeNull();
+    expect(card().injuryNote).toBeNull();
+    // A player the injured flag names: the flag says it (review of Phase 4b), the note only the others.
+    const flagged = buildTradeCard(evaluation({ give: ["106"], get: ["107", "206"], flags: { marketCheck: false, hiddenByMarket: false, hiddenByBenefit: false, injured: ["107"] } }), { snapshot });
+    expect(flagged.injuryNote).toBe("Rupert Wimbleton: his projection assumes he returns at full strength, blended with the trade market.");
+    expect(buildTradeCard(evaluation({ give: ["106"], get: ["107"], flags: { marketCheck: false, hiddenByMarket: false, hiddenByBenefit: false, injured: ["107"] } }), { snapshot }).injuryNote).toBeNull();
+  });
+});
+
+describe("Plan B on the card: \"If they say no, try:\" (planner reply to Checkpoint 4, change 6)", () => {
+  const planB = { proposal: { partnerId: "2", give: [{ kind: "player" as const, id: "106" }, { kind: "player" as const, id: "108" }], get: [{ kind: "player" as const, id: "202" }] }, key: "2|give:106,108|get:202", b: 3.5, tradeScore: 44, pAccept: 0.42, pComplete: 0.42, acceptLabel: "Decent", overall: 22, kind: "otherTarget" as const };
+
+  it("words the other trade, its kind, its three numbers as the card prints its own, and links it to the Analyzer", () => {
+    const view = planBView(planB, snapshot);
+    expect(view).toEqual({
+      heading: PLAN_B_HEADING,
+      kindText: "A different set of their players",
+      give: "Wiggleton Spoons and Tobias Thimble",
+      get: "Mortimer Gloop",
+      numbers: "Helps you 44 · Chance they accept 40% (Est. · Decent) · Overall 22",
+      numberParts: [{ text: "Helps you 44" }, { text: "Chance they accept 40%", label: "(Est. · Decent)" }, { text: "Overall 22" }],
+      acceptNote: null,
+      also: null,
+      pitch: "Thanks for considering it! Would you trade Mortimer Gloop for Wiggleton Spoons and Tobias Thimble instead? Let me know what you think!",
+      // Marked as a Plan B: the Analyzer shows it as one offer, without "How to offer it" (review of Phase 4b).
+      analyzerHref: "/analyzer?partner=2&give=106&give=108&get=202&from=planB",
+      key: planB.key,
+      text: "Wiggleton Spoons and Tobias Thimble for Mortimer Gloop · Helps you 44 · Chance they accept 40% (Est. · Decent) · Overall 22",
+    });
+    expect(PLAN_B_HEADING).toBe("If they say no, try:");
+    expect(planBView({ ...planB, kind: "samePlayers" }, snapshot)?.kindText).toBe("The same players of theirs, a different package");
+    // Review of track F: "Different players of theirs" read wrong for a Plan B that keeps one of the card's players.
+    expect(planBView(planB, snapshot)?.kindText).not.toContain("Different players");
+    // A version the veto rule cuts says the chance it goes through, like the card's own note.
+    expect(planBView({ ...planB, pComplete: 0.21 }, tradeSnapshot({ tradeReview: "league_vote" }))?.acceptNote).toBe("Counting a league veto vote, about 20% it goes through.");
+    // Below the display's floor: "under 5%" (review of Phase 4b).
+    expect(planBView({ ...planB, pAccept: 0.06, pComplete: 0.03 }, tradeSnapshot({ tradeReview: "league_vote" }))?.acceptNote).toBe("Counting a league veto vote, under 5% it goes through.");
+    expect(planBView(undefined, snapshot)).toBeNull();
+  });
+
+  it("has its own message to send them: a follow-up naming the trade from their side, never what I gain (review of Phase 4b)", () => {
+    expect(planBPitch({ give: [{ kind: "player", id: "106" }], get: [{ kind: "player", id: "202" }, { kind: "player", id: "204" }] }, snapshot)).toBe(
+      "Thanks for considering it! Would you trade Mortimer Gloop and Cornelius Snoot for Wiggleton Spoons instead? Let me know what you think!",
+    );
+    expect(planBPitch({ give: [], get: [{ kind: "player", id: "202" }] }, snapshot)).toBe("Thanks for considering it! Would you send me Mortimer Gloop instead? Let me know what you think!");
+    expect(planBPitch({ give: [{ kind: "player", id: "106" }], get: [] }, snapshot)).toBe("Thanks for considering it! Would you take Wiggleton Spoons instead, with nothing needed back? Let me know what you think!");
+    // No team name, no jargon, nothing about what I gain.
+    const text = planBView(planB, snapshot)?.pitch ?? "";
+    for (const word of ["Gravel Gophers", "Helps you", "ROS", "NaN", "undefined"]) expect(text).not.toContain(word);
+  });
+
+  it("is on the card when the evaluation has one, and not otherwise", () => {
+    expect(buildTradeCard(evaluation({ planB }), { snapshot }).planB?.key).toBe(planB.key);
+    expect(card().planB).toBeNull();
+  });
+
+  it("tags its injured players after their names: the card's own tag for a player it shares with the card, else the snapshot's (review of track F)", () => {
+    // My IR WR (107, back in week 15) and team 2's Doubtful RB (206, ESPN's week 16, which his projection follows: the
+    // search's tag on the card says so).
+    const snap = { ...snapshot, players: { ...snapshot.players, "107": { ...(snapshot.players["107"] as PlayerInfo), injuryReturnWeek: 15 }, "206": { ...(snapshot.players["206"] as PlayerInfo), injuryReturnWeek: 16 } } };
+    const shared = { ...planB, proposal: { partnerId: "2", give: [{ kind: "player" as const, id: "107" }], get: [{ kind: "player" as const, id: "206" }] }, key: "2|give:107|get:206" };
+    const e = evaluation({ give: ["106"], get: ["206"], planB: shared, flags: { marketCheck: false, hiddenByMarket: false, hiddenByBenefit: false, injured: [], tagged: [{ playerId: "206", side: "get", status: "DOUBTFUL", returnWeek: 16 }] } });
+    const box = buildTradeCard(e, { snapshot: snap, lastNflWeek: 18 }).planB;
+    expect(box?.give).toBe("Humbert Fiddlesticks (On IR — expected back week 15)");
+    expect(box?.get).toBe("Rupert Wimbleton (Doubtful — ESPN expects him back week 16)");
+    expect(box?.text).toBe("Humbert Fiddlesticks (On IR — expected back week 15) for Rupert Wimbleton (Doubtful — ESPN expects him back week 16) · Helps you 44 · Chance they accept 40% (Est. · Decent) · Overall 22");
+    // Without the card's tag, the snapshot's: no far date for the Doubtful player (whether it's followed isn't known).
+    expect(planBView(shared, snap, { seasonEnd: 18 })?.get).toBe("Rupert Wimbleton (Doubtful)");
+    // …unless the search tagged him on another idea (review of Phase 4b): that tag knows his far date, whichever side.
+    const known = knownTagsOf([evaluation({ flags: { marketCheck: false, hiddenByMarket: false, hiddenByBenefit: false, injured: [], tagged: [{ playerId: "206", side: "give", status: "DOUBTFUL", returnWeek: 16 }] } })]);
+    expect(planBView(shared, snap, { seasonEnd: 18, knownTags: known })?.get).toBe("Rupert Wimbleton (Doubtful — ESPN expects him back week 16)");
+    const list = buildFinderView({
+      result: searchResult([
+        evaluation({ key: "a", give: ["106"], get: ["204"], planB: shared }),
+        evaluation({ key: "b", give: ["105"], get: ["206"], flags: { marketCheck: false, hiddenByMarket: false, hiddenByBenefit: false, injured: [], tagged: [{ playerId: "206", side: "get", status: "DOUBTFUL", returnWeek: 16 }] } }),
+      ]),
+      sort: "overall",
+      snapshot: snap,
+      partnerId: null,
+      lastNflWeek: 18,
+    });
+    expect(list.cards.find((x) => x.key === "a")?.planB?.get).toBe("Rupert Wimbleton (Doubtful — ESPN expects him back week 16)");
+    expect(knownTagsOf([evaluation()]).size).toBe(0);
+    // A healthy player has no tag.
+    expect(planBView(planB, snap)?.get).toBe("Mortimer Gloop");
+  });
+});
+
+describe("buildFinderView: a Plan B that is a card of its own says so (review of track F)", () => {
+  // Card x's Plan B is card y, at whatever place y has in the sort shown.
+  const y = evaluation({ key: "2|105|204", give: ["105"], get: ["204"], b: 2, pComplete: 0.6 }); // EG 1.2, Helps you 28
+  const x = evaluation({ key: "2|106|204", give: ["106"], get: ["204"], b: 6, pComplete: 0.3, planB: { proposal: y.proposal, key: y.key, b: 2, tradeScore: 28, pAccept: 0.6, pComplete: 0.6, acceptLabel: "Likely", overall: 18, kind: "samePlayers" } }); // EG 1.8
+  const z = evaluation({ key: "3|105|303", partnerId: "3", give: ["105"], get: ["303"], b: 1, pComplete: 0.9 }); // EG 0.9
+  const view = (sort: "overall" | "helps" | "accept") => buildFinderView({ result: searchResult([x, y, z]), sort, snapshot, partnerId: null });
+
+  it("names that card's place in the sort shown", () => {
+    expect(view("overall").cards.map((c) => c.key)).toEqual([x.key, y.key, z.key]);
+    expect(view("overall").cards[0]?.planB?.also).toBe("Also shown as trade idea 2.");
+    // Sorted by the chance they accept, y is first and x second.
+    expect(view("accept").cards.map((c) => c.key)).toEqual([z.key, y.key, x.key]);
+    expect(view("accept").cards[2]?.planB?.also).toBe("Also shown as trade idea 2.");
+    expect(view("helps").cards.find((c) => c.key === x.key)?.planB?.also).toBe(`Also shown as trade idea ${view("helps").cards.findIndex((c) => c.key === y.key) + 1}.`);
+  });
+
+  it("says nothing when the Plan B isn't in the list", () => {
+    expect(buildFinderView({ result: searchResult([x, z]), sort: "overall", snapshot, partnerId: null }).cards[0]?.planB?.also).toBeNull();
+  });
+});
+
+describe("feedback versions (which version was sent; planner reply to Checkpoint 4, change 6)", () => {
+  it("a plain card: this trade alone, as the full version", () => {
+    expect(versionChoices(evaluation(), snapshot)).toEqual([{ version: "full", key: evaluation().key, pAccept: 0.4, pComplete: 0.4, label: "This trade" }]);
+  });
+
+  it("with steps: the first offer, then the full version with the throw-in added", () => {
+    const e = steppedFull();
+    expect(versionChoices(e, snapshot)).toEqual([
+      { version: "offerFirst", key: e.steps?.offerFirst.key, pAccept: 0.35, pComplete: 0.35, label: "The first offer" },
+      { version: "full", key: e.steps?.ifNo.full.key, pAccept: 0.55, pComplete: 0.55, label: "With Tobias Thimble added" },
+    ]);
+  });
+
+  it("with a Plan B: this trade, then the one to try if they say no", () => {
+    const e = evaluation({ planB: { proposal: { partnerId: "2", give: [{ kind: "player", id: "106" }], get: [{ kind: "player", id: "203" }] }, key: "2|give:106|get:203", b: 2, tradeScore: 28, pAccept: 0.5, pComplete: 0.45, acceptLabel: "Decent", overall: 14, kind: "otherTarget" } });
+    expect(versionChoices(e, snapshot)).toEqual([
+      { version: "full", key: e.key, pAccept: 0.4, pComplete: 0.4, label: "This trade" },
+      { version: "planB", key: "2|give:106|get:203", pAccept: 0.5, pComplete: 0.45, label: "The “If they say no” trade" },
+    ]);
+    expect(buildTradeCard(e, { snapshot }).versions).toHaveLength(2);
+  });
+
+  it("names the recorded version by its key: the card's label when it shows that version, else 'an earlier one' with its players (review of Phase 4b)", () => {
+    const planB = { proposal: { partnerId: "2", give: [{ kind: "player" as const, id: "106" }], get: [{ kind: "player" as const, id: "203" }] }, key: "2|give:106|get:203", b: 2, tradeScore: 28, pAccept: 0.5, pComplete: 0.45, acceptLabel: "Decent", overall: 14, kind: "otherTarget" as const };
+    const versions = buildTradeCard(evaluation({ planB }), { snapshot }).versions;
+    const fb = (version: "planB" | "full" | "offerFirst" | null, versionKey: string | null, versionWords: string | null = null, outcome: "sent" | null = "sent") => ({ outcome, version, versionKey, versionWords });
+    expect(versionLine(fb("planB", planB.key), versions)).toBe("The “If they say no” trade");
+    // A refresh changed the Plan B since: the one sent is named, never the box shown now.
+    expect(versionLine(fb("planB", "2|give:106|get:204", "Wiggleton Spoons for Cornelius Snoot"), versions)).toBe("an earlier one (Wiggleton Spoons for Cornelius Snoot)");
+    expect(versionLine(fb("planB", "2|give:106|get:204"), versions)).toBe("an earlier one");
+    // A record made before keys were saved: by its kind, on a card with two.
+    expect(versionLine(fb("planB", null), versions)).toBe("The “If they say no” trade");
+    // A card with one version (the Analyzer's): nothing when it's that one, the earlier one otherwise.
+    const one = versionChoices(evaluation(), snapshot);
+    expect(versionLine(fb("full", evaluation().key), one)).toBeNull();
+    expect(versionLine(fb("full", null), one)).toBeNull();
+    expect(versionLine(fb("planB", planB.key, "Wiggleton Spoons for Ignatius Fumblewick"), one)).toBe("an earlier one (Wiggleton Spoons for Ignatius Fumblewick)");
+    // Nothing without an outcome or a version.
+    expect(versionLine(fb("planB", planB.key, null, null), versions)).toBeNull();
+    expect(versionLine(fb(null, null), versions)).toBeNull();
+  });
+
+  it("says a team's possessive plainly", () => {
+    expect([possessive("Team 2"), possessive("Gravel Gophers"), possessive("The Bus")]).toEqual(["Team 2's", "Gravel Gophers'", "The Bus'"]);
   });
 });

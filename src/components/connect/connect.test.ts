@@ -108,7 +108,7 @@ describe("ConnectFlow (first render)", () => {
     expect(inputs).toHaveLength(5);
     for (const input of inputs) expect(input).toContain(' class="sr-only"');
     for (const r of radios) {
-      expect(r.labelClasses).toEqual(expect.arrayContaining(["relative", "has-[:focus-visible]:outline-3", "has-[:focus-visible]:outline-accent"]));
+      expect(r.labelClasses).toEqual(expect.arrayContaining(["relative", "has-[:focus-visible]:outline-3", "has-[:focus-visible]:outline-focus"]));
       // transition-colors would fade the ring in from the text color; this one leaves outline-color out.
       expect(r.labelClasses).toContain("transition-[color,background-color,border-color]");
       expect(r.labelClasses).not.toContain("transition-colors");

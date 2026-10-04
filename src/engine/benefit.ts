@@ -22,26 +22,27 @@
  * - Redraft: B = B_win + κ × clamp(g_mkt(me), marketSanityClamp), the market term (g_mkt(me) from perception values;
  *   +∞, a side that gives nothing of value, clamps to +0.5; NaN counts 0). κ is the user's "Protect my trade value"
  *   setting (planner addendum to Checkpoint 3, §3; TradeSettings.protectValue, lead decision N3): config.benefit.
- *   protectValue low 2, medium 4 (the default), high 8 (protectValueWeight). It keeps trade value for later deals
- *   before the deadline; depth for injuries and byes is already in B_win (scenario lineups). At medium, giving 25%
- *   more value than I get (g_mkt(me) = −0.20) costs 0.8 B, about 0.4 projected points a week in Parker's league.
- *   Before the addendum the weight was marketSanityWeight (1.0), which only evaluate.ts's before/after variant
- *   (TradeContextOptions.beforeAddendum) still passes (BenefitInputs.kappa).
- * - The market term's waiver-credit floor (lead decision N10; ⚠️ our reading of §10's "a trade never gets credit for a
- *   pickup I could make anyway", reported to the planner): the term reads my g with each player I give valued at max(v, W)
- *   (marketTermPackage; BenefitInputs.gMarket). A player worth less than the best free agent is replaceable, and my
- *   free-agent-optimized roster V*(me) already counts that replacement, so dumping him isn't a value gain: §9's waiver
- *   credit for the roster spot he opens (W) is cancelled by his floored value (W), and giving him for nothing reads g = 0.
- *   Only the term reads it: g_mkt(me) on the card (TradeEvaluation.gMine), the card's values, the Market check flag and
- *   the hide threshold stay raw, as do the partner's g's. What I receive stays raw too (the decision floors the given side
- *   only), so ⚠️ a swap of two players worth less than W reads as giving W for the one received (an even bench-for-bench
- *   swap's term goes from 0 to κ × clamp(v / W − 1)). Picks keep their values (they open no roster spot). The before/after
- *   variant reads the raw g (no gMarket).
+ *   protectValue low 2, medium 4 (the default), high 8 (protectValueWeight; BenefitInputs.kappa). It keeps trade value
+ *   for later deals before the deadline; depth for injuries and byes is already in B_win (scenario lineups). At medium,
+ *   giving 25% more value than I get (g_mkt(me) = −0.20) costs 0.8 B, about 0.4 projected points a week in Parker's
+ *   league.
+ * - The value floor at W on both sides (planner reply to Checkpoint 4, change 4; it replaces lead decision N10, which
+ *   floored only the players I give and only in the market term): every package counts each player at max(v, W)
+ *   (market.packageValues, which tradePackage goes through), so g_mkt(me) itself is floored, and the market term, the
+ *   card's values, the Market check flag and the hide threshold all read the same g. A player worth less than the best
+ *   free agent is replaceable, and my free-agent-optimized roster V*(me) already counts that replacement, so dumping
+ *   him isn't a value gain: the waiver credit for the roster spot he opens (W) is cancelled by his floored value (W),
+ *   and giving him for nothing reads g = 0. An even swap of two players worth less than W reads g = 0 for both sides.
+ *   A throw-in worth less than W adds 0 value, but g is a ratio: when I already give at least as many players as I get,
+ *   he adds W to what I give (his floored value) and W to what I get (the spot he opens), so g_mkt(me) edges toward 0
+ *   (g × PV_give / (PV_give + W)), and the partner's g the same way; when I give fewer than I get, nothing moves.
+ *   ⚠️ So a cheap throw-in can lift me past the Market check or the hide threshold, and the partner past the veto line
+ *   (market.ts's header; reported to the planner). Picks keep their values (they open no roster spot).
  * - Dynasty and keeper: B = (1 − λ) × B_win + λ × B_future, B_future = bFutureScale × ΔDyn / MyDynTotal (gaining
  *   10% of my roster's value ≈ +4). No market term (L6), whatever κ (⚠️ N3: B_future carries the value change). ΔDyn = my package
- *   change in long-term (dynasty) values, the waiver credit and picks included (tradePackage with the future
- *   term's values and W); MyDynTotal = my roster's long-term value before the trade, my picks included
- *   (rosterValue).
+ *   change in long-term (dynasty) values, the waiver credit and picks included, each player at max(v, W) like every
+ *   package (tradePackage with the future term's values and W); MyDynTotal = my roster's long-term value before the
+ *   trade, my picks included (rosterValue: ⚠️ raw, W = 0, since it is the scale of B_future, not a trade package).
  * - λ: TradeSettings.lambda when it is set (0 = win now … 1 = future), else by my baseline P(playoffs) (every
  *   team at V*): ≥ contenderAt (0.5) → 0.35, ≥ bubbleAt (0.2) → 0.5, below → 0.75; keeper leagues default to
  *   0.2 (keeper costs aren't modeled, and the UI says so). ⚠️ Ours: an unknown P(playoffs) (the season wasn't
@@ -52,16 +53,17 @@
  *   term either, as L6 writes it), dynMissing true (the card says so). λ is still reported.
  *
  * Package values (§9) for any term, picks included (tradePackage): the waiver credit W counts players only (a
- * pick takes no roster spot), so PV_recv = Σ v(players received) + Σ v(picks received) + max(0, players given −
- * players received) × W, and the same for PV_give; g = (PV_recv − PV_give) / PV_give with market.marketGain's
- * zero rule (a side that gives nothing of value gains +∞ when it receives something, else 0). Player-only
- * packages equal market.packageValues and market.marketGain exactly. studExponent γ applies to pick values too
- * (they're values). The card's "value given / received" is my perception package (TradeEvaluation.value).
+ * pick takes no roster spot), so PV_recv = Σ max(v, W)(players received) + Σ v(picks received) + max(0, players
+ * given − players received) × W, and the same for PV_give (players on and off the side's ACTIVE roster when a trade
+ * moves IR players: an IR slot isn't a roster spot, market.ts's header); g = (PV_recv − PV_give) / PV_give with
+ * market.marketGain's zero rule (a side that gives nothing of value gains +∞ when it receives something, else 0).
+ * Player-only packages equal market.packageValues and market.marketGain exactly. studExponent γ applies to pick
+ * values too (they're values). The card's "value given / received" is my perception package (TradeEvaluation.value).
  *
  * The three numbers (§10): Trade Score = round(100 × (1 − e^(−B / bRef))) and Overall = round(100 × (1 −
  * e^(−B × P_complete / bRef))) when B > 0, null otherwise (B ≤ 0 is hidden by default). bRef = 6 since
- * Checkpoint 3. Overall never exceeds the Trade Score (P_complete ≤ 0.95). EG = B × P_complete ranks (§13).
- * Don't add extra factors to Overall (§10).
+ * Checkpoint 3. Overall never exceeds the Trade Score (P_complete ≤ 0.85, config.acceptance.pAcceptClamp's top).
+ * EG = B × P_complete ranks (§13). Don't add extra factors to Overall (§10).
  *
  * Guards (§10; TradeEvaluation.flags), apart from the three numbers: "Market check" when g_mkt(me) <
  * marketCheckBelow (−0.15); hidden by default when g_mkt(me) < marketHideBelow (−0.35) or when B ≤ 0 (a B not
@@ -69,19 +71,18 @@
  * benefit.injuredStatuses (OUT, IR, PUP: "currently OUT or on IR"; PUP is a reserve list like IR).
  *
  * How an evaluation uses it (src/engine/evaluate.ts): my perception package tradePackage(get, give, perception
- * values, W) gives TradeEvaluation.value (received = recv, given = give) and g_mkt(me), and marketTermPackage on the
- * same inputs the market term's g (N10); the partner's (swapped) tradePackage gives g_mkt(P) for acceptance.ts.
- * Dynasty and keeper leagues with futureValuesLoaded: ΔDyn = recv − give of
- * tradePackage(get, give, future values, the future term's W) and MyDynTotal = rosterValue(my players, future
- * values, my picks' values). After the simulation: benefit({ ΔPO, ΔCH, g_mkt(me), the market term's g, dynasty, my
- * baseline P(playoffs), settings.lambda, κ = protectValueWeight(settings.protectValue) }), then tradeNumbers(benefit,
- * acceptance result) and tradeFlags({ g_mkt(me), B, injuredReceived(get, snapshot.players) }); benefitNotes(benefit)
- * for the search's notes (the Analyzer's reasons).
+ * values, W) gives TradeEvaluation.value (received = recv, given = give) and g_mkt(me), which the market term reads;
+ * the partner's (swapped) tradePackage gives g_mkt(P) for acceptance.ts. Dynasty and keeper leagues with
+ * futureValuesLoaded: ΔDyn = recv − give of tradePackage(get, give, future values, the future term's W) and
+ * MyDynTotal = rosterValue(my players, future values, my picks' values). After the simulation: benefit({ ΔPO, ΔCH,
+ * g_mkt(me), dynasty, my baseline P(playoffs), settings.lambda, κ = protectValueWeight(settings.protectValue) }), then
+ * tradeNumbers(benefit, acceptance result) and tradeFlags({ g_mkt(me), B, injuredReceived(get, snapshot.players) });
+ * benefitNotes(benefit) for the search's notes (the Analyzer's reasons).
  */
 import type { AcceptanceResult } from "./acceptance";
 import { config } from "./config";
 import type { MarketInputs } from "./inputs";
-import { packageValues, type MarketConfig, type ValueLookup } from "./market";
+import { packageValues, type ActiveSpots, type MarketConfig, type ValueLookup } from "./market";
 import type { InjuryStatus, LeagueSettings, PlayerInfo } from "./model";
 import type { ProtectValue } from "./settings";
 import type { TradeEvaluation } from "./tradeModel";
@@ -89,8 +90,6 @@ import type { TradeEvaluation } from "./tradeModel";
 /** The config.benefit keys this module reads, widened so calibration and tests can pass other numbers. */
 export interface BenefitConfig {
   readonly weights: { readonly playoffs: number; readonly title: number };
-  /** The market term's weight before the addendum (the before/after variant passes it as BenefitInputs.kappa). */
-  readonly marketSanityWeight: number;
   /** κ by "Protect my trade value" level, and the default level. */
   readonly protectValue: Readonly<Record<ProtectValue, number>>;
   readonly protectValueDefault: ProtectValue;
@@ -177,13 +176,8 @@ export interface BenefitInputs {
   /** Changes in my P(playoffs) and P(title), fractions, from the common-random-numbers simulation; null = unknown. */
   dPO: number | null;
   dCH: number | null;
-  /** g_mkt(me) on perception values (§9). */
+  /** g_mkt(me) on perception values (§9; each player at max(v, W): the file header): the redraft market term reads it. */
   gMine: number;
-  /**
-   * g_mkt(me) as the redraft market term reads it (lead decision N10; the file header): marketTermPackage's g, each
-   * player I give valued at max(v, W). Absent = gMine (the before/after variant, and callers that only state facts).
-   */
-  gMarket?: number;
   /**
    * Dynasty and keeper leagues: ΔDyn (my long-term package change, tradePackage's recv − give on the future
    * term) and MyDynTotal (rosterValue before the trade). Null when long-term values are missing; ignored in
@@ -196,8 +190,7 @@ export interface BenefitInputs {
   lambda?: number | null;
   /**
    * κ, the redraft market term's weight: protectValueWeight(TradeSettings.protectValue). Absent = the default level's
-   * (medium, 4). The before/after variant passes config.benefit.marketSanityWeight (1.0). Ignored in dynasty and keeper
-   * leagues (no market term).
+   * (medium, 4). Ignored in dynasty and keeper leagues (no market term).
    */
   kappa?: number;
 }
@@ -210,7 +203,7 @@ export interface Benefit {
   bFuture: number | null;
   /** λ used (dynasty and keeper); null in redraft leagues. */
   lambda: number | null;
-  /** The redraft market term inside B, κ × clamp(the market term's g: gMarket, else g_mkt(me)) (0 in dynasty and keeper leagues). */
+  /** The redraft market term inside B, κ × clamp(g_mkt(me)) (0 in dynasty and keeper leagues). */
   market: number;
   /** ΔDyn (dynasty and keeper), null in redraft leagues or when missing. */
   dDyn: number | null;
@@ -224,7 +217,7 @@ export interface Benefit {
 export function benefit(x: BenefitInputs, cfg: BenefitConfig = config.benefit): Benefit {
   const { bWin, titleMissing } = benefitWin(x.dPO, x.dCH, cfg);
   if (x.leagueType === "redraft") {
-    const market = marketSanity(x.gMarket ?? x.gMine, x.kappa, cfg);
+    const market = marketSanity(x.gMine, x.kappa, cfg);
     return { b: bWin === null ? null : bWin + market, bWin, bFuture: null, lambda: null, market, dDyn: null, dynMissing: false, titleMissing };
   }
   // resolveLambda is null only in redraft leagues; the fallback just narrows the type.
@@ -363,38 +356,23 @@ function pickSum(values: readonly number[] | undefined, cfg: MarketConfig): numb
 }
 
 /**
- * §9's package values for the side that receives `recv` and gives `give`, picks included (the file header): the
- * waiver credit W per open roster spot counts players only. For my side pass (what I get, what I give); for the
- * partner, swap them. Player-only packages equal market.packageValues and market.marketGain.
+ * §9's package values for the side that receives `recv` and gives `give`, picks included (the file header): each player
+ * at max(v, W) and the waiver credit W per open roster spot, both for players only (market.packageValues); picks keep
+ * their values. For my side pass (what I get, what I give); for the partner, swap them. `spots`: the side's own moves on
+ * and off its active roster (market.ActiveSpots; a trade that moves IR players: an IR slot isn't a roster spot), else
+ * every player takes one. Player-only packages equal market.packageValues and market.marketGain.
  */
-export function tradePackage(recv: PackageSide, give: PackageSide, values: ValueLookup, W: number, cfg: MarketConfig = config.market): PackageValue {
-  const pv = packageValues(recv.players, give.players, values, W, cfg);
+export function tradePackage(recv: PackageSide, give: PackageSide, values: ValueLookup, W: number, cfg: MarketConfig = config.market, spots?: ActiveSpots): PackageValue {
+  const pv = packageValues(recv.players, give.players, values, W, cfg, spots);
   const r = pv.recv + pickSum(recv.pickValues, cfg);
   const g = pv.give + pickSum(give.pickValues, cfg);
   return { recv: r, give: g, g: g > 0 ? (r - g) / g : r > 0 ? Number.POSITIVE_INFINITY : 0 };
 }
 
-/** A value lookup's entry as a number (market.ts's rule: a number or { value }; missing or non-finite → 0). */
-function entryValue(entry: number | { readonly value: number } | undefined): number {
-  const v = typeof entry === "number" ? entry : entry?.value;
-  return v !== undefined && Number.isFinite(v) ? v : 0;
-}
-
 /**
- * My package as B's redraft market term reads it (lead decision N10; the file header): tradePackage with each player of
- * `give` (the side I give) valued at max(v, W). What I receive and every pick keep their values, and the waiver credit
- * is the same; with every given player worth W or more it is tradePackage exactly. Pass (what I get, what I give), as for
- * my tradePackage; a player on both sides (never in a legal trade) would be floored on both.
+ * A roster's total value on one term (§10's MyDynTotal on the future term): Σ v^γ over its players (each once) plus its
+ * picks' values. ⚠️ Raw (no floor at W: market.packageValues with W = 0): it is the scale of B_future, not a trade package.
  */
-export function marketTermPackage(recv: PackageSide, give: PackageSide, values: ValueLookup, W: number, cfg: MarketConfig = config.market): PackageValue {
-  const floor = Number.isFinite(W) ? W : 0;
-  const lookup: Record<string, number> = {};
-  for (const id of recv.players) lookup[id] = entryValue(values[id]);
-  for (const id of give.players) lookup[id] = Math.max(entryValue(values[id]), floor);
-  return tradePackage(recv, give, lookup, W, cfg);
-}
-
-/** A roster's total value on one term (§10's MyDynTotal on the future term): Σ v^γ over its players (each once) plus its picks' values. */
 export function rosterValue(players: readonly string[], values: ValueLookup, pickValues: readonly number[] = [], cfg: MarketConfig = config.market): number {
   return packageValues([...new Set(players)], [], values, 0, cfg).recv + pickSum(pickValues, cfg);
 }

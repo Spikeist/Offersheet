@@ -88,8 +88,15 @@ export interface MarketInputs {
   fetchedAt: string;
   /** Canonical id → FantasyCalc value in this format (§9 v_i). Only players FantasyCalc values. */
   values: Record<string, number>;
-  /** Keeper leagues: redraft values for perception (§9); `values` then holds dynasty values. */
+  /** Keeper leagues: redraft values for perception (§9); `values` then holds dynasty values. Never set for dynasty leagues. */
   redraftValues?: Record<string, number>;
+  /**
+   * Dynasty leagues: FantasyCalc's redraft list in the league's own format, read only by the market blend (§6 step 8:
+   * "dynasty leagues use redraft values here too, since B_win is about this season"). Perception and the future term
+   * keep reading `values` (dynasty). Absent when it couldn't be loaded (no blend then), when no week is left to project
+   * (the server doesn't ask for it then), and in other league types.
+   */
+  seasonValues?: Record<string, number>;
   /** Canonical ids of relevant players FantasyCalc knows (has a FantasyCalc player id), valued or not. */
   knownIds: string[];
   /** The top value in FantasyCalc's list for this format (valueFloor and waiverCreditMin are fractions of it). */

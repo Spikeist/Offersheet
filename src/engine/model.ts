@@ -42,6 +42,11 @@ export interface LeagueSettings {
   lineup: SlotDef[];
   benchSlots: number;
   irSlots: number;
+  /**
+   * Injury statuses an IR slot accepts, when the platform reports its rule (Sleeper's reserve_allow_* settings);
+   * absent = unknown (config.lineups.irEligibleDefault: IR and PUP). Phase 4b (planner reply to Checkpoint 4, change 5).
+   */
+  irEligible?: InjuryStatus[];
   taxiSlots: number;
   /** Active roster, excluding IR/taxi. */
   maxRosterSize: number;
@@ -137,6 +142,13 @@ export interface Team {
   pointsFor: number;
   pointsAgainst: number;
   divisionId?: string;
+  /**
+   * The team's place in the waiver order (1 = first claim), when the platform reports it (ESPN teams[].waiverRank,
+   * Sleeper rosters[].settings.waiver_position). Phase 4b: free agents go to one team each, in this order (§7).
+   */
+  waiverRank?: number;
+  /** FAAB leagues: the team's remaining budget (the budget minus what it has spent), when the platform reports it. */
+  faabRemaining?: number;
 }
 
 /** NA = not an active NFL player right now (Sleeper's NA; retired or unsigned): availability config.projections.injury.notActive. */

@@ -1,16 +1,17 @@
 /**
- * The planner's addendum to Checkpoint 3 in trade evaluation (lead decisions N1, N3, N5 and N10): the partner's g feature
- * reads its perceived g (the star premium on what it gives) in screening and in exact evaluation, while the card's g, my
- * side and the veto rule read the raw g; TradeDetail.premium; the context's premiums (P(playoffs) from its own baseline,
- * every team at V*); κ by the "Protect my trade value" level in redraft B, none in dynasty and keeper leagues; B's market
- * term with my given players at max(v, W) while every number the card shows stays raw (N10); and the before-addendum
- * variant, which reproduces the model before all of it.
+ * The planner's addendum to Checkpoint 3 in trade evaluation (lead decisions N1 and N3), with the value floor of the
+ * planner's reply to Checkpoint 4 (change 4, which replaces lead decision N10): the partner's g feature reads its
+ * perceived g (the star premium on what it gives) in screening and in exact evaluation, while the card's g, my side and
+ * the veto rule read the raw g; TradeDetail.premium; the context's premiums (P(playoffs) from its own baseline, every team
+ * at V*); κ by the "Protect my trade value" level in redraft B, none in dynasty and keeper leagues; and every package with
+ * each player at max(v, W) on both sides: B's market term, the card's values and g's, ΔDyn and the partner's g. Phase 4b
+ * removed the before-addendum variant (N5) these tests used to compare with.
  */
 import { describe, expect, it } from "vitest";
 import { gFeature } from "./acceptance";
-import { marketTermPackage, protectValueWeight, tradePackage } from "./benefit";
+import { protectValueWeight, tradePackage } from "./benefit";
 import { config } from "./config";
-import { analyzeTrade, buildTradeContext, evaluateExact, harderToGetFor, kappaFor, perceivedG, premiumOf, screenTrade, tradeInternals, type ExactTrade, type TeamState, type TradeContextOptions } from "./evaluate";
+import { analyzeTrade, buildTradeContext, evaluateExact, harderToGetFor, perceivedG, premiumOf, screenTrade, tradeInternals, type ExactTrade, type TeamState, type TradeContextOptions } from "./evaluate";
 import { leaguePremiums, perceivedPackage, premiumFacts } from "./premium";
 import { runTradeSearch } from "./search";
 import { defaultTradeSettings, PROTECT_VALUE_LEVELS, type ProtectValue } from "./settings";
@@ -130,22 +131,12 @@ describe("the perceived g in evaluation (N1)", () => {
     const s = screenTrade(I, I.byId.get("2") as TeamState, give, get);
     expect(s?.gPartner).toBe(raw);
     expect(s?.pQuick).toBeCloseTo(ev2.pAccept, 12);
-    // The pre-addendum model (the raw g) reads the same trade as much better for Team 2.
-    const before = tradeInternals(context(() => undefined, {}, { beforeAddendum: true }));
-    const sBefore = screenTrade(before, before.byId.get("2") as TeamState, give, get);
-    expect(sBefore?.pQuick as number).toBeGreaterThan((s?.pQuick as number) + 0.1);
   });
 
   it("screening's quick estimate reads the perceived g too (and equals the exact one here); its g window keeps the raw g", () => {
     const s = screenTrade(I, I.byId.get("2") as TeamState, ["wa1"], ["ra2"]);
     expect(s?.gPartner).toBe(ev.gPartner);
     expect(s?.pQuick).toBeCloseTo(ev.pAccept, 12);
-    // The pre-addendum model's quick estimate is higher: the partner sees an even trade there.
-    const before = tradeInternals(context(() => undefined, {}, { beforeAddendum: true }));
-    const sBefore = screenTrade(before, before.byId.get("2") as TeamState, ["wa1"], ["ra2"]);
-    expect(sBefore?.gPartner).toBe(s?.gPartner);
-    expect(sBefore?.myDelta).toBe(s?.myDelta);
-    expect(sBefore?.pQuick as number).toBeGreaterThan(s?.pQuick as number);
   });
 
   it("the veto reads the raw g: −20% at market is no veto, though the partner perceives −33%", () => {
@@ -157,6 +148,17 @@ describe("the perceived g in evaluation (N1)", () => {
     expect(v.features.g).toBeLessThan(config.acceptance.veto.gBelow);
     expect(v.detail.vetoRisk).toBe(false);
     expect(v.pComplete).toBe(v.pAccept);
+  });
+
+  it("a search: one premium fact per player the partner gives, and the g feature on the perceived g", () => {
+    const r = runTradeSearch(ctx, { partnerId: "2", settings: { ...defaultTradeSettings(), maxPerSide: 1 } });
+    expect(r.trades.length).toBeGreaterThan(0);
+    for (const t of r.trades) {
+      const get = t.proposal.get.flatMap((a) => (a.kind === "player" ? [a.id] : []));
+      const give = t.proposal.give.flatMap((a) => (a.kind === "player" ? [a.id] : []));
+      expect(t.detail.premium?.map((f) => f.playerId)).toEqual(get);
+      expect(t.features.g).toBe(gFeature(perceivedG(I, "2", give, get)));
+    }
   });
 });
 
@@ -173,7 +175,7 @@ describe("κ, \"Protect my trade value\" (N3)", () => {
       const ev = at[level];
       expect(ev.bWin, level).toBe(at.medium.bWin); // the simulation doesn't depend on κ
       expect(ev.b as number).toBeCloseTo((ev.bWin as number) + protectValueWeight(level) * clampG(g), 12);
-      expect(kappaFor(tradeInternals(ctx), level)).toBe(config.benefit.protectValue[level]);
+      expect(protectValueWeight(level)).toBe(config.benefit.protectValue[level]);
     }
     expect(at.high.b as number).toBeLessThan(at.medium.b as number);
     expect(at.medium.b as number).toBeLessThan(at.low.b as number);
@@ -193,7 +195,7 @@ describe("κ, \"Protect my trade value\" (N3)", () => {
   });
 });
 
-describe("B's market term with my given players at max(v, W) (N10)", () => {
+describe("the value floor at W on both sides (planner reply to Checkpoint 4, change 4; replaces N10)", () => {
   /**
    * My WR2 is weak (4 points; my FLEX RB scores 10), so V*(me) picks up a 9-point free-agent WR (worth 2,025: the waiver
    * credit W) and drops my bench WR (3.1 points, worth 240, below W). Team 2's FLEX RB scores 10 too, so it doesn't want
@@ -208,74 +210,118 @@ describe("B's market term with my given players at max(v, W) (N10)", () => {
   const ctx = context(edit);
   const I = tradeInternals(ctx);
   const me = I.me as TeamState;
+  const W = I.credit;
   const dump = trade("2", ["wc1"], []);
-  const termG = (give: string[], get: string[]) => marketTermPackage({ players: get }, { players: give }, I.values, I.credit).g;
 
   it("a player V* drops anyway, worth less than W, given for nothing: B = 0 at Low, Medium and High", () => {
     expect(me.vstar.moves.map((m) => [m.add, m.drop])).toEqual([["zfa", "wc1"]]);
-    expect(I.credit).toBe(I.values.zfa);
-    expect(I.values.wc1 as number).toBeLessThan(I.credit);
+    expect(W).toBe(I.values.zfa);
+    expect(I.values.wc1 as number).toBeLessThan(W);
     // After the trade my roster is V*(me)'s: the spot he opens takes the free agent V*(me) picks up anyway.
     const x = exact(ctx, dump);
     expect([...x.mine.roster]).toEqual([...me.vstar.roster]);
-    expect(x.gMarket).toBe(0);
+    // His floored W against the open spot's W: even, on the card too.
+    expect(x.evaluation.gMine).toBe(0);
     for (const level of PROTECT_VALUE_LEVELS) {
       const ev = analyzeTrade(ctx, dump, settingsAt(level)).evaluation as TradeEvaluation;
-      for (const k of ["dPO", "dCH", "dEW", "bWin", "b"] as const) expect(ev[k], `${level} ${k}`).toBe(0);
+      for (const k of ["dPO", "dCH", "dEW", "bWin", "b", "gMine"] as const) expect(ev[k], `${level} ${k}`).toBe(0);
       expect(ev.tradeScore, level).toBeNull();
       expect(ev.flags.hiddenByBenefit, level).toBe(true);
-      // The card stays raw: I give 240 and get the credit for the open spot, far more than +50% at market.
-      expect(ev.value, level).toEqual({ given: I.values.wc1, received: I.credit });
-      expect(ev.gMine, level).toBeCloseTo(I.credit / (I.values.wc1 as number) - 1, 12);
+      expect(ev.value, level).toEqual({ given: W, received: W });
       expect(ev.flags.marketCheck, level).toBe(false);
+      // Team 2 gets him (W, floored) for the roster spot he takes (W): even for it too.
+      expect(ev.gPartner, level).toBe(0);
     }
-    // Before the addendum (the raw g, κ 1) the open spot's credit counted twice: B = +0.5 for a trade that changes nothing.
-    const before = analyzeTrade(context(edit, {}, { beforeAddendum: true }), dump).evaluation as TradeEvaluation;
-    expect(before.bWin).toBe(0);
-    expect(before.b).toBe(config.benefit.marketSanityWeight * clampG(before.gMine));
-    expect(before.b as number).toBeGreaterThan(0);
   });
 
-  it("a mixed package: the market term counts the cheap player at W and the other at his value; every raw reading stays", () => {
+  it("a mixed package: the cheap player counts W, the others their value, on every number the card shows", () => {
     // My WR1 (4,900) and my bench WR (240) for Team 2's RB1 (4,900; its #2 and a top-12 player).
     const give = ["wa1", "wc1"];
     const get = ["ra2"];
-    const x = exact(ctx, trade("2", give, get));
-    const ev = x.evaluation;
-    // The floored g: I give 4,900 + W and get 4,900 + W (the spot I open): even.
-    expect(termG(give, get)).toBe(0);
-    expect(x.gMarket).toBe(termG(give, get));
-    // Raw: I give 5,140 and get 4,900 + W, a gain at market (it was B's market term before N10).
-    const raw = tradePackage({ players: get }, { players: give }, I.values, I.credit);
-    expect(ev.gMine).toBe(raw.g);
-    expect(ev.gMine).toBeGreaterThan(0.25);
-    expect(ev.value).toEqual({ given: raw.give, received: raw.recv });
-    // The partner's g's stay theirs: the raw one on the card, the perceived one (its premium on Team 2's RB1) in acceptance.
-    expect(ev.gPartner).toBe(tradePackage({ players: give }, { players: get }, I.values, I.credit).g);
-    expect(ev.features.g).toBe(gFeature(perceivedG(I, "2", give, get) as number));
+    const ev = exact(ctx, trade("2", give, get)).evaluation;
+    // I give 4,900 + W and get 4,900 + W (the spot I open): even.
+    expect(ev.value).toEqual({ given: 4900 + W, received: 4900 + W });
+    expect(ev.gMine).toBe(0);
+    expect(ev.gMine).toBe(tradePackage({ players: get }, { players: give }, I.values, I.credit).g);
+    // Team 2's g: even at market; as it sees it, its RB1 at 4,900 × 1.15 (the premium on the floored value, here his own).
+    expect(ev.gPartner).toBe(0);
+    expect(ev.features.g).toBe(gFeature(perceivedG(I, "2", give, get)));
+    expect(perceivedG(I, "2", give, get)).toBeCloseTo((4900 + W) / (4900 * 1.15 + W) - 1, 12);
     for (const level of PROTECT_VALUE_LEVELS) {
       const a = analyzeTrade(ctx, trade("2", give, get), settingsAt(level)).evaluation as TradeEvaluation;
-      expect(a.b as number, level).toBeCloseTo((a.bWin as number) + protectValueWeight(level) * clampG(termG(give, get)), 12);
-      expect(a.b as number, level).toBeLessThan((a.bWin as number) + protectValueWeight(level) * clampG(a.gMine) - 0.5);
-      expect(a.gMine, level).toBe(ev.gMine);
+      // B is B_win alone: the market term reads the floored g, 0.
+      expect(a.b as number, level).toBe(a.bWin as number);
+      expect(a.gMine, level).toBe(0);
       expect(a.flags.marketCheck, level).toBe(false);
     }
   });
 
-  it("two players worth less than W swapped: the one I give counts W, the one I get his value (the market check and the hide threshold read the raw g)", () => {
+  it("a cheap throw-in adds 0 value; the complexity term still counts him", () => {
+    const lean = exact(ctx, trade("2", ["wa1"], ["ra2"])).evaluation;
+    const full = exact(ctx, trade("2", ["wa1", "wc1"], ["ra2"])).evaluation;
+    // The value difference is the same (0 here): he adds W to what I give and W for the spot it opens on what I get.
+    expect(full.value.received - full.value.given).toBe(lean.value.received - lean.value.given);
+    expect(full.value).toEqual({ given: lean.value.given + W, received: lean.value.received + W });
+    expect([lean.gMine, full.gMine, lean.gPartner, full.gPartner]).toEqual([0, 0, 0, 0]);
+    // One player more: c = 1, and its term in z.
+    expect([lean.features.c, full.features.c]).toEqual([0, 1]);
+    expect(full.detail.terms.complexity).toBeCloseTo(-config.acceptance.beta.complexity, 12);
+  });
+
+  it("⚠️ away from even, a cheap throw-in still adds 0 value but edges every g toward 0, so the market guard and the veto can flip (reported to the planner)", () => {
+    // My WR1 (4,900) for Team 2's WR1 (4,225), and the same with my bench WR (240, below W) thrown in.
+    const lean = exact(ctx, trade("2", ["wa1"], ["wa2"])).evaluation;
+    const full = exact(ctx, trade("2", ["wa1", "wc1"], ["wa2"])).evaluation;
+    expect(full.value.received - full.value.given).toBe(lean.value.received - lean.value.given);
+    expect(full.value).toEqual({ given: lean.value.given + W, received: lean.value.received + W });
+    // Each g × PV_give / (PV_give + W): mine over what I give, the partner's over what it gives (what I get).
+    expect(full.gMine).toBeCloseTo((lean.gMine * lean.value.given) / (lean.value.given + W), 12);
+    expect(full.gPartner).toBeCloseTo((lean.gPartner * lean.value.received) / (lean.value.received + W), 12);
+    expect(lean.gMine).toBeLessThan(full.gMine);
+    expect(full.gMine).toBeLessThan(0);
+    expect(lean.gPartner).toBeGreaterThan(full.gPartner);
+    expect(full.gPartner).toBeGreaterThan(0);
+
+    // The hide threshold: my WR1 for Team 2's WR2 (2,500) reads −49% for me (hidden); with him −34.7% (shown, still a
+    // market check).
+    const hidden = exact(ctx, trade("2", ["wa1"], ["wb2"])).evaluation;
+    const shown = exact(ctx, trade("2", ["wa1", "wc1"], ["wb2"])).evaluation;
+    expect(hidden.gMine).toBeCloseTo((2500 - 4900) / 4900, 12);
+    expect(hidden.flags).toMatchObject({ hiddenByMarket: true, marketCheck: true });
+    expect(shown.gMine).toBeCloseTo(-2400 / (4900 + W), 12);
+    expect(shown.flags).toMatchObject({ hiddenByMarket: false, marketCheck: true });
+
+    // The veto, in a league that votes on trades: my RB rc1 (2,500) for Team 2's WR1 (4,225) reads −40.8% for Team 2
+    // (vetoed); with him −27.6%, so the veto no longer halves P_complete.
+    const vote = context(edit, { tradeReview: "league_vote" });
+    const Wv = tradeInternals(vote).credit;
+    expect(Wv).toBe(W);
+    const vetoed = exact(vote, trade("2", ["rc1"], ["wa2"])).evaluation;
+    const lifted = exact(vote, trade("2", ["rc1", "wc1"], ["wa2"])).evaluation;
+    expect(vetoed.gPartner).toBeCloseTo((2500 - 4225) / 4225, 12);
+    expect(lifted.gPartner).toBeCloseTo(-1725 / (4225 + Wv), 12);
+    expect([vetoed.detail.vetoRisk, lifted.detail.vetoRisk]).toEqual([true, false]);
+    expect(vetoed.pComplete).toBeCloseTo(vetoed.pAccept * config.acceptance.veto.factor, 12);
+    expect(lifted.pComplete).toBe(lifted.pAccept);
+  });
+
+  it("two players worth less than W swapped: g = 0 for both sides, so B = B_win = 0 (the market check and the hide threshold read the same g)", () => {
     // The plain hand league (W = 900, the free-agent QB's value): my bench WR for Team 2's, the same player but his id.
     const plain = context((spec) => swapPlayer(spec, "2", "wc2", flat("wc2", "WR", 3.1)));
     const Ip = tradeInternals(plain);
     expect(Ip.values.wc1).toBe(Ip.values.wc2);
     expect(Ip.values.wc1 as number).toBeLessThan(Ip.credit);
-    const ev = analyzeTrade(plain, trade("2", ["wc1"], ["wc2"])).evaluation as TradeEvaluation;
-    expect(ev.bWin).toBe(0);
-    expect(ev.gMine).toBe(0);
-    // ⚠️ The decision floors the given side only: (240 − 900) / 900 = −73%, clamped to −50%: B = 4 × −0.5 at Medium.
-    const g = marketTermPackage({ players: ["wc2"] }, { players: ["wc1"] }, Ip.values, Ip.credit).g;
-    expect(g).toBeCloseTo((Ip.values.wc2 as number) / Ip.credit - 1, 12);
-    expect(ev.b).toBe(protectValueWeight("medium") * config.benefit.marketSanityClamp[0]);
-    expect(ev.flags).toMatchObject({ hiddenByBenefit: true, marketCheck: false, hiddenByMarket: false });
+    for (const level of PROTECT_VALUE_LEVELS) {
+      const ev = analyzeTrade(plain, trade("2", ["wc1"], ["wc2"]), settingsAt(level)).evaluation as TradeEvaluation;
+      expect([ev.bWin, ev.gMine, ev.gPartner, ev.b], level).toEqual([0, 0, 0, 0]);
+      expect(ev.value, level).toEqual({ given: Ip.credit, received: Ip.credit });
+      expect(ev.flags, level).toMatchObject({ hiddenByBenefit: true, marketCheck: false, hiddenByMarket: false });
+    }
+    // Two cheap players of different values read the same: each counts W.
+    const uneven = context((spec) => swapPlayer(spec, "2", "wc2", flat("wc2", "WR", 2)));
+    const u = analyzeTrade(uneven, trade("2", ["wc1"], ["wc2"])).evaluation as TradeEvaluation;
+    expect(tradeInternals(uneven).values.wc2 as number).toBeLessThan(tradeInternals(uneven).values.wc1 as number);
+    expect([u.gMine, u.gPartner]).toEqual([0, 0]);
   });
 
   it("a dynasty league: no market term; B = (1 − λ) B_win + λ B_future", () => {
@@ -286,79 +332,21 @@ describe("B's market term with my given players at max(v, W) (N10)", () => {
     expect(ev.b as number).toBeCloseTo((1 - (ev.lambda as number)) * (ev.bWin as number) + (ev.lambda as number) * (ev.bFuture as number), 12);
   });
 
-  it("dynasty and keeper leagues: ΔDyn counts my given players at max(v, W) too, so the same dump gives B = 0 (raw before the addendum)", () => {
-    // The final review of Phase 4: in dynasty and keeper leagues the double count lived on in B_future, through ΔDyn's
-    // waiver credit for the spot a player worth less than W opens (ΔDyn +1,785 = 2,025 − 240 for a trade that changes nothing).
+  it("dynasty and keeper leagues: ΔDyn counts each player at max(v, W) too, so the same dump gives B = 0", () => {
+    // The final review of Phase 4: ΔDyn's waiver credit for the spot a player worth less than W opens would otherwise be a
+    // long-term gain for a trade that changes nothing (+1,785 = 2,025 − 240).
     for (const leagueType of ["dynasty", "keeper"] as const) {
-      const build = (opts: Partial<TradeContextOptions>) => {
-        const { snapshot, inputs } = handLeague(edit, { leagueType });
-        if (inputs.market) inputs.market.format = { ...inputs.market.format, isDynasty: true };
-        return buildTradeContext(snapshot, inputs, { now: TEST_NOW, scenarios: 0, ...opts });
-      };
-      const Id = tradeInternals(build({}));
+      const { snapshot, inputs } = handLeague(edit, { leagueType });
+      if (inputs.market) inputs.market.format = { ...inputs.market.format, isDynasty: true };
+      const dctx = buildTradeContext(snapshot, inputs, { now: TEST_NOW, scenarios: 0 });
+      const Id = tradeInternals(dctx);
       expect(Id.future, leagueType).not.toBeNull();
-      const ev = analyzeTrade(build({}), dump).evaluation as TradeEvaluation;
+      const ev = analyzeTrade(dctx, dump).evaluation as TradeEvaluation;
       for (const k of ["dPO", "dCH", "dEW", "bWin", "dDyn", "bFuture", "b"] as const) expect(ev[k], `${leagueType} ${k}`).toBe(0);
       expect(ev.flags.hiddenByBenefit, leagueType).toBe(true);
-      // Before the addendum ΔDyn credited the open spot: the long-term waiver credit minus his long-term value.
-      const before = analyzeTrade(build({ beforeAddendum: true }), dump).evaluation as TradeEvaluation;
-      expect(before.bWin, leagueType).toBe(0);
-      expect(before.dDyn as number, leagueType).toBeGreaterThan(0);
-      expect(before.b as number, leagueType).toBeGreaterThan(0);
-    }
-  });
-});
-
-describe("the before-addendum variant (N5)", () => {
-  const proposal = trade("2", ["wa1"], ["ra2"]);
-  const after = context(() => undefined, {}, { scenarios: 8 });
-  const before = context(() => undefined, {}, { scenarios: 8, beforeAddendum: true });
-
-  it("no star premium: the g feature is the raw g, no premium facts; κ is the old weight (1.0) whatever the level", () => {
-    const I = tradeInternals(before);
-    expect(I.beforeAddendum).toBe(true);
-    expect(I.premiums.get("2")?.ra2?.harderToGet).toBe(true); // computed, never read
-    expect(premiumOf(I, "2")("ra2")).toBe(0);
-    expect(harderToGetFor(I, "2", "ra2")).toBe(false);
-    expect(perceivedG(I, "2", ["wa1"], ["ra2"])).toBeUndefined();
-    for (const level of PROTECT_VALUE_LEVELS) expect(kappaFor(I, level)).toBe(config.benefit.marketSanityWeight);
-    const ev = analyzeTrade(before, trade("3", ["wb1", "rc1"], ["wa3"]), settingsAt("high")).evaluation as TradeEvaluation;
-    expect(ev.b as number).toBeCloseTo((ev.bWin as number) + config.benefit.marketSanityWeight * clampG(ev.gMine), 12);
-    const x = analyzeTrade(before, proposal).evaluation as TradeEvaluation;
-    expect(x.features.g).toBe(gFeature(x.gPartner));
-    expect(x.detail.premium).toBeUndefined();
-  });
-
-  it("everything else is the same model: lineups, odds, B_win, the raw g's and the values", () => {
-    const a = analyzeTrade(after, proposal).evaluation as TradeEvaluation;
-    const b = analyzeTrade(before, proposal).evaluation as TradeEvaluation;
-    for (const k of ["dPO", "dCH", "dEW", "bWin", "dPPW", "dPPWPlayoffs", "gMine", "gPartner", "partnerDeltaLineup"] as const) expect(b[k], k).toBe(a[k]);
-    expect(b.value).toEqual(a.value);
-    expect(b.required).toEqual(a.required);
-    expect(b.features.n).toBe(a.features.n);
-    expect(b.features.h).toBe(a.features.h);
-    // The partner sees the trade as even before the addendum, as a loss after it.
-    expect(b.features.g).toBe(0);
-    expect(a.features.g).toBeLessThan(0);
-    expect(b.pAccept).toBeGreaterThan(a.pAccept);
-  });
-
-  it("a search: no premium facts and the raw g before; one fact per player the partner gives and the perceived g after", () => {
-    const opts = { partnerId: "2", settings: { ...defaultTradeSettings(), maxPerSide: 1 } };
-    const rb = runTradeSearch(context(() => undefined, {}, { beforeAddendum: true }), opts);
-    const ra = runTradeSearch(context(), opts);
-    expect(rb.trades.length).toBeGreaterThan(0);
-    expect(ra.trades.length).toBeGreaterThan(0);
-    for (const t of rb.trades) {
-      expect(t.detail.premium).toBeUndefined();
-      expect(t.features.g).toBe(gFeature(t.gPartner));
-    }
-    const I = tradeInternals(context());
-    for (const t of ra.trades) {
-      const get = t.proposal.get.flatMap((x) => (x.kind === "player" ? [x.id] : []));
-      const give = t.proposal.give.flatMap((x) => (x.kind === "player" ? [x.id] : []));
-      expect(t.detail.premium?.map((f) => f.playerId)).toEqual(get);
-      expect(t.features.g).toBe(gFeature(perceivedG(I, "2", give, get) as number));
+      // MyDynTotal stays raw: the sum of my long-term values, no floor.
+      const mine = [...(Id.me?.team.roster ?? []), ...(Id.me?.team.ir ?? []), ...(Id.me?.team.taxi ?? [])];
+      expect(Id.future?.myTotal, leagueType).toBe(mine.reduce((s, id) => s + (Id.future?.values[id] ?? 0), 0));
     }
   });
 });

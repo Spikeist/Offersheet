@@ -99,11 +99,19 @@ export const config = {
     seasonGames: 17,
     /**
      * Conflicting ESPN signals (CLAUDE.md §6 step 3; planner reply to Checkpoint 2, answer 6): a PROBABLE,
-     * QUESTIONABLE or DOUBTFUL player whose ESPN return week is 2+ weeks away follows the one-week table
-     * (the date is stale) when Sleeper projects him this week at this share or more of his healthy base
-     * rate; otherwise he follows the return week.
+     * QUESTIONABLE or DOUBTFUL player whose ESPN return week is 2+ weeks away (returnConflictWeeks) follows the
+     * one-week table (the date is stale) when Sleeper projects him this week at this share or more of his healthy
+     * base rate; otherwise he follows the return week.
      */
     staleReturnShare: 0.5,
+    /**
+     * A PROBABLE, QUESTIONABLE or DOUBTFUL player's ESPN return week counts only when it is at least this many weeks
+     * after the current week (§6 step 3: "Q/D/P use it only 2+ weeks out"; ESPN then expects a longer absence than the
+     * tag says, the conflict above); a nearer date is ignored and the tag's one-week table applies. One rule for his
+     * availability (availability.returnWeekDistribution), the conflict (returnDateConflict, the ESPN Import Report note)
+     * and the trade card's injury tag (explain.injuryTags).
+     */
+    returnConflictWeeks: 2,
     /** Availability multipliers by weeks from now (index 0 = this week), then 1. */
     injury: {
       OUT: [0, 0.5, 0.85],
@@ -125,6 +133,13 @@ export const config = {
      * allows (OUT, IR, PUP and SUSPENDED miss this week).
      */
     returnWeekSpread: [0.25, 0.5, 0.25] as const,
+    /**
+     * An IR player's expected return week (planner reply to Checkpoint 4, change 5; availability.expectedReturnWeek):
+     * the first remaining week whose chance he's back (his return-week distribution, before future injury risk)
+     * reaches this share. From it he takes an active roster spot (the lowest keep value bench player goes when the
+     * roster is full).
+     */
+    returnWeekQuantile: 0.5,
     /**
      * Future injury risk (CLAUDE.md §6 step 3; planner reply to Checkpoint 1, addition B): a
      * two-state weekly model. r = 1 / meanInjuryWeeks; h = M × r / (1 − M); a player healthy now is
@@ -151,6 +166,21 @@ export const config = {
     } as Readonly<Record<Pos, { c: number; d: number }>>,
   },
 
+  /**
+   * §6 step 8, market-blended projections (planner reply to Checkpoint 4, change 1): the search ranks thousands of trades
+   * by our own model's edge, so its top fills with the places our projections disagree most with the market (the
+   * optimizer's curse). For players at `positions` with a real FantasyCalc value (redraft values in the league's format;
+   * dynasty leagues too), per game played (review of track A): b′ = (1 − weight) × b + weight × R_pos(v), b his base
+   * rate, R_pos an isotonic fit of b on value over the position's healthy valued players (each read off the fit without
+   * him, except at the value range's ends; at least `minPlayers` of them, else no blend there); his weekly points and
+   * ROS scale by b′ / b (blend.ts).
+   */
+  marketBlend: {
+    weight: 0.5,
+    positions: ["QB", "RB", "WR", "TE"] as readonly Pos[],
+    minPlayers: 10,
+  },
+
   /** §7 Lineups, team strength and needs. */
   lineups: {
     playoffWeight: 1.25,
@@ -164,6 +194,13 @@ export const config = {
      */
     scenarios: 32,
     scenarioSeed: 20_260_929,
+    /**
+     * Injury statuses an IR slot accepts when the platform doesn't report its own rule (planner reply to Checkpoint 4,
+     * change 5: a received IR player goes into an open IR slot if he's eligible): a Sleeper league without reserve_allow_*
+     * flags (6 of 250 crawled), or a platform that reports none. ESPN's adapter sets IR and OUT from ESPN's help center
+     * (LeagueSettings.irEligible), so this default doesn't apply there.
+     */
+    irEligibleDefault: ["IR", "PUP"] as readonly InjuryStatus[],
   },
 
   /** §7 Needs, trade chips and best trade partners (League page). */
@@ -186,10 +223,11 @@ export const config = {
     /** Best trade partners shown for my team. */
     partnersShown: 3,
     /**
-     * A partner card's "Best target" (planner addendum to Checkpoint 3, §2; Phase 4 addendum lead decision N12): the
+     * A partner card's lead line, "Best of their trade chips" ("Best target" until Phase 4b; planner addendum to Checkpoint
+     * 3, §2; Phase 4 addendum lead decision N12): the
      * best of their trade chips without the "Harder to get" tag who adds at least this many projected points a week
-     * to my lineup, as printed (one decimal). When none does, the single best one leads alone if he's tagged ("Best
-     * target, harder to get"), and weaker chips are listed after. ⚠️ Ours (a review found "+0.1/wk" leading next to
+     * to my lineup, as printed (one decimal). When none does, the single best one leads alone if he's tagged ("Best of
+     * their trade chips, harder to get"), and weaker chips are listed after. ⚠️ Ours (a review found "+0.1/wk" leading next to
      * "+7.2/wk").
      */
     bestTargetMin: 1,
@@ -276,8 +314,6 @@ export const config = {
   /** §10 Benefit, Trade Score and Overall. */
   benefit: {
     weights: { playoffs: 0.35, title: 0.65 },
-    /** The market term's weight before the planner's addendum to Checkpoint 3 (§3); kept for the before/after comparison only (TradeContextOptions.beforeAddendum). */
-    marketSanityWeight: 1.0,
     /**
      * "Protect my trade value" (planner addendum to Checkpoint 3, §3): κ in redraft B = B_win + κ × clamp(g_mkt(me),
      * marketSanityClamp), by the user's setting (TradeSettings.protectValue). At medium, giving 25% more value than you
@@ -303,8 +339,12 @@ export const config = {
 
   /** §11 Acceptance probability. */
   acceptance: {
-    beta: { b0: -0.6, gain: 6, loss: 9, need: 0.6, hole: 0.4, complexity: 0.25, activity: 0.35, history: 3 },
-    pAcceptClamp: [0.02, 0.95] as const,
+    /**
+     * β_need is `need` in redraft and keeper leagues and `needDynasty` in dynasty leagues (planner reply to Checkpoint 4,
+     * change 2: in redraft a manager's own lineup weighs more).
+     */
+    beta: { b0: -0.6, gain: 6, loss: 9, need: 1.2, needDynasty: 0.6, hole: 0.4, complexity: 0.25, activity: 0.35, history: 3 },
+    pAcceptClamp: [0.02, 0.85] as const,
     veto: { gBelow: -0.3, factor: 0.5 },
     gClamp: [-0.5, 0.5] as const,
     nScale: 5,
@@ -330,8 +370,10 @@ export const config = {
     refitMinOutcomes: 30,
     /**
      * The star premium (planner addendum to Checkpoint 3, §1): managers value their own best players a bit above market.
-     * For each player j the partner gives, v′_j = v_j × (1 + e_j), e_j = e_rank + e_elite, used in place of v for the
-     * partner's given players in the partner's g (the waiver credit unchanged; my g_mkt and B use raw values).
+     * For each player j the partner gives, v′_j = max(v_j, W) × (1 + e_j) (the value floor of the planner's reply to
+     * Checkpoint 4, change 4, then the premium), e_j = e_rank + e_elite, used in place of v for the partner's given
+     * players in the partner's g (the waiver credit per open spot unchanged; my g_mkt and B use the floored values
+     * without the premium).
      * - rank: e_rank for j's rank by market value on the partner's roster (ties: more ROS points): #1, #2; others 0.
      * - elite / eliteTop: e_elite when j is among the top eliteTop players by FantasyCalc value in the league's format.
      * - rebuild (dynasty only): for a partner whose P(playoffs) is below `below`, e × factor for `positions` aged `age`+.
@@ -380,6 +422,12 @@ export const config = {
      */
     throwInMaxCost: 5,
     steps: { minAcceptGain: 0.05, minOfferFirst: 0.1, minBShare: 0.8, preScreen: 2 },
+    /**
+     * Plan B, "If they say no, try:" (planner reply to Checkpoint 4, change 6), for a card without a qualifying throw-in
+     * step: the best other evaluated trade with the same partner whose Helps you is at least minHelpsShare of the card's
+     * (B > 0, not hidden by the market guard); at most `tries` candidates get the final simulation.
+     */
+    planB: { minHelpsShare: 0.5, tries: 3 },
     /** The Trade Analyzer lets the user build up to this many players a side (counteroffers included). */
     analyzerMaxPerSide: 4,
     /**
@@ -396,6 +444,8 @@ export const config = {
     perPartnerInTop20: 3,
     /** The partner cap applies within the first this many trades kept (§13's "top 20"). */
     partnerCapTop: 20,
+    /** At most this many trades in the top 20 give the same player of mine (planner reply to Checkpoint 4, answer 7). */
+    perGivenPlayerInTop20: 3,
     perCore: 2,
     fillerCutoffFraction: 0.2,
   },

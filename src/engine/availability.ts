@@ -23,8 +23,9 @@
  *      SUSPENDED miss w0). Mass below that week moves up to it, so a date that has passed means "back
  *      at the first week he can be", and R at that first week still keeps its chance of a week's delay.
  *      IR and PUP use any known R; OUT uses R ≥ w0 + 1 (an OUT player whose date has passed falls back
- *      to the table); PROBABLE / QUESTIONABLE / DOUBTFUL use R only when it's at least two weeks out
- *      (ESPN then expects a longer absence than the tag says).
+ *      to the table); PROBABLE / QUESTIONABLE / DOUBTFUL use R only when it's at least
+ *      config.projections.returnConflictWeeks (2) weeks out (ESPN then expects a longer absence than the tag
+ *      says; farReturnWeek, the one rule the trade cards' injury tags read too).
  *    - Conflicting ESPN signals (CLAUDE.md §6 step 3; planner reply to Checkpoint 2, answer 6): that last
  *      case, a PROBABLE / QUESTIONABLE / DOUBTFUL tag with a return week 2+ weeks out, is two ESPN
  *      signals that disagree (returnDateConflict names it). Sleeper breaks the tie, in league.ts: when it
@@ -46,6 +47,11 @@
  *
  * Expected availability: a_w = gates(w) · Σ_t P(T = t)·1{w ≥ t}·(1 − pOut(w − t)), times notActive for NA.
  * Scenario s draws T by inverse CDF and walks the chain; its flags average to exactly a_w (tested).
+ *
+ * An IR player's expected return week R (expectedReturnWeek; planner reply to Checkpoint 4, change 5): the first
+ * remaining week whose chance he's back, the return-week distribution's cumulative probability (step 1, before future
+ * injury risk), reaches config.projections.returnWeekQuantile. From R he needs an active roster spot again (league.ts
+ * step 5b: returners and the displacement they cause).
  *
  * Common random numbers: scenario s of a player uses streamFor(seed, playerId, s) and always draws its
  * uniforms in the same order: u0 picks T; then, for each listed week in order, one uniform for the chain
@@ -103,6 +109,8 @@ export interface AvailabilityConfig {
     readonly notActive: number;
   };
   returnWeekSpread: readonly number[];
+  /** A PROBABLE, QUESTIONABLE or DOUBTFUL player's known return week counts from this many weeks out (farReturnWeek). */
+  returnConflictWeeks: number;
   injuryRisk: { readonly meanInjuryWeeks: number; readonly missShare: Readonly<Record<Pos, number>> };
 }
 
@@ -124,16 +132,25 @@ function isGameTime(injury: InjuryStatus): injury is GameTimeStatus {
 }
 
 /**
- * Conflicting ESPN signals (§6 step 3): a PROBABLE, QUESTIONABLE or DOUBTFUL player whose known return
- * week is 2+ weeks away. His tag says he may play this week, ESPN's return date says he's out longer;
- * returnWeekDistribution follows the date for him, and the caller breaks the tie (see the file header).
- * Null for everyone else: another status, no known return week, or one within a week of now (the tag's
- * one-week table then applies whatever the date says). A return week after the NFL's last week ("out for
- * the season") is a conflict too.
+ * Whether a PROBABLE, QUESTIONABLE or DOUBTFUL player's known return week R counts (§6 step 3; the file header): only
+ * when it is at least config.projections.returnConflictWeeks weeks after `currentWeek` (2: "Q/D/P use it only 2+ weeks
+ * out"). A nearer date is ignored and the tag's one-week table applies. The one rule returnWeekDistribution,
+ * returnDateConflict and the trade cards' injury tags (explain.injuryTags) read.
  */
-export function returnDateConflict(player: AvailabilityPlayer, currentWeek: number): { status: GameTimeStatus; returnWeek: number } | null {
+export function farReturnWeek(R: number, currentWeek: number, cfg: Pick<AvailabilityConfig, "returnConflictWeeks"> = config.projections): boolean {
+  return R >= currentWeek + weekCount(cfg.returnConflictWeeks);
+}
+
+/**
+ * Conflicting ESPN signals (§6 step 3): a PROBABLE, QUESTIONABLE or DOUBTFUL player whose known return
+ * week is far away (farReturnWeek: 2+ weeks). His tag says he may play this week, ESPN's return date says he's out
+ * longer; returnWeekDistribution follows the date for him, and the caller breaks the tie (see the file header).
+ * Null for everyone else: another status, no known return week, or a nearer one (the tag's one-week table then
+ * applies whatever the date says). A return week after the NFL's last week ("out for the season") is a conflict too.
+ */
+export function returnDateConflict(player: AvailabilityPlayer, currentWeek: number, cfg: Pick<AvailabilityConfig, "returnConflictWeeks"> = config.projections): { status: GameTimeStatus; returnWeek: number } | null {
   const R = knownWeek(player.injuryReturnWeek);
-  if (R === undefined || !isGameTime(player.injury) || !(R >= currentWeek + 2)) return null;
+  if (R === undefined || !isGameTime(player.injury) || !farReturnWeek(R, currentWeek, cfg)) return null;
   return { status: player.injury, returnWeek: R };
 }
 
@@ -196,8 +213,8 @@ export function returnWeekDistribution(
     case "PROBABLE":
     case "QUESTIONABLE":
     case "DOUBTFUL":
-      // A date 2+ weeks out conflicts with the tag (returnDateConflict); the caller drops it when stale.
-      return R !== undefined && R >= w0 + 2 ? known(R, w0) : fromCumulative(cfg.injury[injury], w0);
+      // A far date (farReturnWeek: 2+ weeks out) conflicts with the tag (returnDateConflict); the caller drops it when stale.
+      return R !== undefined && farReturnWeek(R, w0, cfg) ? known(R, w0) : fromCumulative(cfg.injury[injury], w0);
     case "OUT":
       return R !== undefined && R >= w0 + 1 ? known(R, w0 + 1) : fromCumulative(cfg.injury.OUT, w0);
     case "IR":
@@ -220,6 +237,41 @@ export function returnWeekDistribution(
 /** The chance he plays in a week he's healthy for: notActive for NA (applied every week), else 1. */
 export function activeShare(injury: InjuryStatus, cfg: AvailabilityConfig = config.projections): number {
   return injury === "NA" ? clamp01(cfg.injury.notActive) : 1;
+}
+
+/** Cumulative chances closer than this to the quantile reach it (float noise in the table's differences, not a tunable). */
+const QUANTILE_EPS = 1e-12;
+
+/**
+ * An IR player's expected return week R (the file header; planner reply to Checkpoint 4, change 5): the first week of
+ * ctx.weeks (the remaining weeks, ascending) at which his return-week distribution's cumulative chance (returnWeekDistribution
+ * for his status and known return week, before future injury risk) reaches `quantile` (config.projections.
+ * returnWeekQuantile; read within (0, 1]: a quantile at or below 0 is the first week he has any chance of being back,
+ * never one before it; above 1 or not a number, 1). Null when he isn't back within the remaining weeks: never back at all
+ * (out for the season, NA with notActive 0, no NFL team) or not by the last remaining week. With the default 0.5, for current week
+ * w0: an IR or PUP player with ESPN's date R → R (25% / 50% / 25% over R − 1, R, R + 1, never before w0 + 1); IR or PUP
+ * without a date → w0 + irUnknown.outWeeks (0.8 back from then); OUT → w0 + 1 (0.5); a healthy player in an IR slot
+ * (ACTIVE) → w0, as he can be activated now. Callers pass what availability reads (league.ts PlayerContext.avail: a stale
+ * ESPN date already dropped).
+ */
+export function expectedReturnWeek(
+  player: AvailabilityPlayer,
+  ctx: Pick<AvailabilityContext, "weeks" | "currentWeek" | "hasTeam" | "lastNflWeek">,
+  cfg: AvailabilityConfig = config.projections,
+  quantile: number = config.projections.returnWeekQuantile,
+): number | null {
+  if (!ctx.hasTeam || activeShare(player.injury, cfg) === 0) return null;
+  const dist = returnWeekDistribution(player.injury, player.injuryReturnWeek, ctx.currentWeek, cfg, ctx.lastNflWeek);
+  if (dist.length === 0) return null;
+  const q = Number.isFinite(quantile) ? Math.min(1, Math.max(QUANTILE_EPS, quantile)) : 1;
+  for (const w of ctx.weeks) {
+    let cum = 0;
+    for (const { week, p } of dist) if (week <= w) cum += p;
+    // A positive chance first (review of track E: a quantile clamped to QUANTILE_EPS made the bar 0, so every player
+    // was "back" in the first remaining week, before his distribution starts).
+    if (cum > 0 && cum >= q - QUANTILE_EPS) return w;
+  }
+  return null;
 }
 
 /**

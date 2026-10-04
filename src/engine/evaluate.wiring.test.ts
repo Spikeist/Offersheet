@@ -234,9 +234,12 @@ describe("legality readings (item 4f)", () => {
   });
 
   it("dynasty and keeper leagues: the keep value adds the long-term value, so a valuable bench prospect stays", () => {
-    // Team 2's bench WR scores 2 but is worth 9,000 long-term; its FLEX RB costs a sliver to lose once mine arrive.
-    const edit = (spec: TestLeagueSpec) => swapPlayer(spec, "2", "wc2", flat("young2", "WR", 2, { value: 9000 }));
+    // Team 2's bench WR scores 2; its FLEX RB costs a sliver to lose once mine arrive. In the dynasty league the WR is worth
+    // 9,000 long-term, and that keeps him. The redraft control gives him no value (Phase 4b: a redraft value is this
+    // season's market too, and the market blend, league.ts step 3b, would lift his 2 points toward it, so the control
+    // would no longer isolate the keep value), so his 2 points make him the one dropped there.
     const drops = (leagueType: "redraft" | "dynasty") => {
+      const edit = (spec: TestLeagueSpec) => swapPlayer(spec, "2", "wc2", flat("young2", "WR", 2, leagueType === "dynasty" ? { value: 9000 } : {}));
       const { snapshot, inputs } = handLeague(edit, { leagueType });
       if (inputs.market) inputs.market.format = { ...inputs.market.format, isDynasty: leagueType === "dynasty" };
       const ctx = buildTradeContext(snapshot, inputs, { now: TEST_NOW, scenarios: 0 });

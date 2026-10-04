@@ -25,6 +25,13 @@ export interface LeagueModel {
   /** Streaming positions (§7; planner reply to Checkpoint 3, model change 1): who streams what, and this week's picks. */
   streaming: StreamingSummary;
   /**
+   * One free agent, one team (§7; planner reply to Checkpoint 4, change 3): the order teams got their free-agent pickups
+   * in (snapshot team ids, first claim first) and what decided it: "faab" (remaining budget, highest first), "waiver"
+   * (the platform's waiver order) or "gain" (each team's best available gain first: the league reports no order).
+   * Absent in models built before Phase 4b.
+   */
+  faAllocation?: FaAllocation;
+  /**
    * The current week when any of its games has already kicked off (null otherwise). Team-level numbers
    * (ROS(T), PPW, strength, needs, lineup costs, free-agent moves, trade chips, partner fit) then skip
    * it: lineups are locking and its points are being scored, so it no longer says how good a team is.
@@ -82,6 +89,32 @@ export interface PlayerModel {
    * ESPN return week is 2+ weeks away (his tag and the date disagree); absent for everyone else.
    */
   availabilityNote?: AvailabilityNote;
+  /**
+   * The market blend (§6 step 8; planner reply to Checkpoint 4, change 1), for players it moved: present only when his
+   * weight is above 0 and his own projection isn't 0. The player detail shows "Our projection 210 · Trade market 170 ·
+   * Used 190".
+   */
+  blend?: PlayerBlend;
+}
+
+/**
+ * A blended player's rest-of-season points (§6 step 8), on the ros.total basis the tables show: `ours` before the blend,
+ * `used` after it (= ros.total), and `market` such that used = (1 − weight) × ours + weight × market exactly: his ROS at
+ * the market's points per game (ours × R_pos(v) ÷ b, R_pos the position's curve of healthy players' base rates on
+ * market value; src/engine/blend.ts).
+ */
+export interface PlayerBlend {
+  ours: number;
+  market: number;
+  used: number;
+  weight: number;
+}
+
+/** LeagueModel.faAllocation (§7 one free agent, one team). */
+export interface FaAllocation {
+  basis: "faab" | "waiver" | "gain";
+  /** Team ids, first claim first. */
+  order: string[];
 }
 
 /**
@@ -152,7 +185,11 @@ export interface LineupValues {
 
 export interface TeamModel {
   id: string;
-  /** Expected-value lineups (§7; the fast screening method). */
+  /**
+   * Expected-value lineups (§7; the fast screening method) of the team as it stands: its active roster, streaming rows and
+   * IR returners, with the roster spot a returner needs from his return week (league.ts step 5b; so do scen, strength,
+   * needs and score).
+   */
   ev: LineupValues;
   /** Availability-scenario lineups (§7 exact evaluation); sd = spread of LV across scenarios, per week. Null when skipped. */
   scen: (LineupValues & { sd: number[] }) | null;
@@ -161,16 +198,23 @@ export interface TeamModel {
   needs: Need[];
   /** Every trade chip of this team (§7), best gap first (ties: the smaller cost, then the smaller player id). The League page shows the first config.needs.chipsShown. */
   chips: TradeChip[];
-  /** Rostered players' marginal values (active roster only; IR and taxi players are absent). */
+  /**
+   * Rostered players' marginal values: the active roster's players with a model and, since Phase 4b, the IR returners (IR
+   * players with a model expected back within the remaining weeks: league.ts step 5b), whose lineup cost is what losing
+   * him costs V*(T)'s lineups with nobody refilling his spot (his IR slot opens, no active spot does; autoAdd null). Other
+   * IR players and taxi players are absent.
+   */
   players: Record<string, TeamPlayerValue>;
   /**
    * The free-agent optimizer's moves for the team as it stands (§7 V*(T); src/engine/optimizer.ts), in order:
-   * each adds the best free agent (dropping a player, or into an open roster spot) while it raises the team's
-   * rest-of-season lineup points by at least config.freeAgentOptimizer.faMinGain, at most faMaxMoves of them;
-   * never a kicker or a team defense (streamed or kept), nor a position the team streams. Empty when no move
-   * qualifies. Lineup costs and trade chips are measured from the roster after these moves (V*), so a trade
-   * never gets credit for a pickup the team could make anyway. The League page lists them as "Free-agent pickups
-   * that would help".
+   * each adds the best free agent left to it in the allocation order (one free agent, one team: no team earlier in
+   * LeagueModel.faAllocation's order claimed him; planner reply to Checkpoint 4, change 3), dropping a player or into an
+   * open roster spot, while it raises the team's rest-of-season lineup points by at least
+   * config.freeAgentOptimizer.faMinGain, at most faMaxMoves of them; never a kicker or a team defense (streamed or
+   * kept), nor a position the team streams. Empty when no move qualifies. No free agent shows in two teams' moves
+   * (except under league.ts faAllocation "independent", Checkpoint 4's rule for reports). Lineup costs and trade chips
+   * are measured from the roster after these moves (V*), so a trade never gets credit for a pickup the team could make
+   * anyway. The League page lists them as "Free-agent pickups that would help".
    */
   faMoves: FaMove[];
   /**
@@ -235,7 +279,7 @@ export interface TeamPlayerValue {
   mvLoseScen: number | null;
   /** The first free agent the team would add after losing him (the re-run's first move), or null. */
   autoAdd: string | null;
-  /** z(v) − z(MV_lose) within T's roster: §12's surplus score, which ranks the give pool (Phase 4). */
+  /** z(v) − z(MV_lose) within T's roster (its active players with a model and its IR returners): §12's surplus score, which ranks the give pool (Phase 4). */
   surplusScore: number;
 }
 

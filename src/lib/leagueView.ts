@@ -62,14 +62,25 @@
  * least config.acceptance.starPremium.harderToGetMin (a top-12 player who is also his team's #1 or #2 by trade value)
  * carries a visible "Harder to get" tag, in words, never color alone: in his roster table, on his trade chip, and on
  * the partner cards. ⚠️ Never on my own players, where it would read as advice about them. A partner card leads with
- * "Best target: <the best untagged trade chip of theirs who'd start for me>, +3.1/wk" when he adds at least
+ * "Best of their trade chips: <the best untagged trade chip of theirs who'd start for me>, +3.1/wk" (planner reply to
+ * Checkpoint 4, change 6: it read "Best target", which sounded like the Trade Finder's pick) when he adds at least
  * config.needs.bestTargetMin points a week (lead decision N12, ⚠️ ours: a review found "+0.1/wk" leading next to
  * "+7.2/wk") and, when the single best one is tagged, "Bigger upgrade, harder to get: <him>, +7.5/wk" second, or alone
- * as "Best target, harder to get" when no untagged one adds that much (⚠️ "bigger" would compare with nothing); the
- * rest follow as "They could also give" ("They could give" when nobody leads). ⚠️ What a player adds is judged as the
- * card prints it (one decimal), like the risky week: "+1/wk" meets a floor of 1, "+0/wk" leads nothing, and "bigger"
- * is bigger on the card. A model built before the addendum has no premiums: nobody is tagged, so a card's best target
- * is simply its best chip when he clears the floor, and the explainer leaves "Harder to get" out.
+ * as "Best of their trade chips, harder to get" when no untagged one adds that much (⚠️ "bigger" would compare with
+ * nothing); the rest follow as "They could also give" ("They could give" when nobody leads). ⚠️ What a player adds is
+ * judged as the card prints it (one decimal), like the risky week: "+1/wk" meets a floor of 1, "+0/wk" leads nothing,
+ * and "bigger" is bigger on the card. A model built before the addendum has no premiums: nobody is tagged, so a card's
+ * lead is simply its best chip when he clears the floor, and the explainer leaves "Harder to get" out. Each card ends
+ * with "See trade ideas with <team> →" (change 6), the one-partner Trade Finder (/trades?partner=<team id>): the
+ * trades it ranks can differ from the chips a card leads with.
+ *
+ * One free agent, one team (§7; planner reply to Checkpoint 4, change 3; LeagueModel.faAllocation): the free agents
+ * the rosters' pickups take go to one team each, in the league's waiver order, in FAAB order, or, when neither was
+ * available, the team that gains the most first; one line above the rosters says which, and where my team picks
+ * (LeagueView.pickupsNote), and the "Free-agent pickups" explainer says it too. ⚠️ "Wasn't available", not "isn't
+ * reported" (review of track F): an import saved before the adapters read ESPN's waiver order has none, though the league
+ * reports it. A model built before Phase 4b has no allocation: no line, and the explainer keeps saying each team is
+ * measured alone.
  *
  * Streaming (§7 streaming positions; planner reply to Checkpoint 3, model change 1): "Streaming picks this
  * week" lists the best free-agent kickers and D/STs for the current week with their opponents
@@ -78,6 +89,14 @@
  * the replacement can start there too: the engine counts him as one more player that week); each roster says
  * what its team streams. Lineup points are labeled with the model's playoff weight (LeagueModel.playoffWeight,
  * the user's setting).
+ *
+ * The market blend (§6 step 8; planner reply to Checkpoint 4, change 1): a player whose projection the engine pulled
+ * toward the trade market (PlayerModel.blend) shows "Our projection 210 · Trade market 170 · Used 190" at the top of his
+ * breakdown, with what each number is in words under it (visible, so phones see it too), and at the top of his ROS hover
+ * text (blendText); the explainer's "Projected points" says which positions were blended, how far, per game, and in a
+ * dynasty league that the blend reads this season's values, not the dynasty values the page shows (review of track A).
+ * A player at the top or bottom of his position's value range, whose market number is his own projection, reads "Trade
+ * market: no comparison (top value at his position)" instead of three equal numbers (review of Phase 4b).
  *
  * Game days (LeagueModel.inProgressWeek; CLAUDE.md §7, Phase 2 review decisions): once a game of the
  * current week has kicked off, the team numbers (Proj/wk, team ROS points, strength, needs, lineup
@@ -95,7 +114,7 @@ import { DIVISION_RULE_ASSUMED, weekList } from "@/engine/season";
 import { fmtNum, fmtSigned, fmtWhole, formatShortDateTime, plural, recordText } from "./format";
 import { INJURY_LABEL, PLATFORM_LABEL, posLabel } from "./labels";
 import type { MyTeamSource } from "./myTeam";
-import { HARDER_TO_GET_TAG, harderToGetWho, premiumReasons } from "./tradeView";
+import { HARDER_TO_GET_TAG, finderHref, harderToGetWho, premiumReasons } from "./tradeView";
 
 /** The "Harder to get" tag's words and reasons are shared with the trade cards (src/lib/tradeView.ts). */
 export { HARDER_TO_GET_TAG, premiumReasons };
@@ -214,14 +233,15 @@ export interface PartnerSide {
 }
 
 /**
- * A partner card's lead line (planner addendum to Checkpoint 3, §2; lead decision N12): "Best target: C. Snoot, +2.1/wk"
- * (the best of their trade chips who'd start for me without the "Harder to get" tag, when he adds at least
- * config.needs.bestTargetMin a week), or "Bigger upgrade, harder to get: M. Gloop, +2.5/wk" (the single best one, when
- * he's tagged; "Best target, harder to get" when no untagged one adds that much).
+ * A partner card's lead line (planner addendum to Checkpoint 3, §2; lead decision N12; planner reply to Checkpoint 4,
+ * change 6): "Best of their trade chips: C. Snoot, +2.1/wk" (the best of their trade chips who'd start for me without the
+ * "Harder to get" tag, when he adds at least config.needs.bestTargetMin a week), or "Bigger upgrade, harder to get: M.
+ * Gloop, +2.5/wk" (the single best one, when he's tagged; "Best of their trade chips, harder to get" when no untagged one
+ * adds that much).
  */
 export interface PartnerTarget {
   id: string;
-  /** "Best target", "Bigger upgrade, harder to get" or "Best target, harder to get". */
+  /** "Best of their trade chips", "Bigger upgrade, harder to get" or "Best of their trade chips, harder to get". */
   label: string;
   /** "C. Snoot, +2.1/wk"; its two parts, which the card keeps unbroken (a hyphenated name never splits across lines). */
   text: string;
@@ -247,6 +267,8 @@ export interface PartnerCard {
   /** Their other trade chips (the targets left out), most helpful first. */
   theyCanGive: PartnerSide;
   youCanGive: PartnerSide;
+  /** "See trade ideas with Gravel Gophers" (the card adds an arrow): the one-partner Trade Finder (/trades?partner=<team id>). */
+  ideas: { text: string; href: string };
 }
 
 export interface WeekRow {
@@ -288,8 +310,13 @@ export interface PlayerRow {
   value: { text: string; estimated: boolean; title: string; srText: string | null } | null;
   /** MV_lose (§7): lineup points his team loses without him (LeagueView.lineupCostTitle); null off the active roster. */
   lineupCost: string | null;
+  /**
+   * The market blend (§6 step 8; PlayerModel.blend), for a player it reached: "Our projection 210 · Trade market 170 ·
+   * Used 190" (rest-of-season points, rounded) and what each number is, both shown in his breakdown; null for everyone else.
+   */
+  blend: { text: string; title: string } | null;
   weeks: WeekRow[];
-  /** The week-by-week breakdown as plain text (hover). */
+  /** The week-by-week breakdown as plain text (hover), after the conflict note and the market blend's line when he has them. */
   weeksText: string;
 }
 
@@ -510,6 +537,12 @@ export interface LeagueView {
   heatmap: Heatmap;
   /** My best trade partners; `empty` says why there are none (no team picked, my redraft season over, no fit). */
   partners: { cards: PartnerCard[]; empty: string | null };
+  /**
+   * One free agent, one team (LeagueModel.faAllocation; the file header): "Free-agent pickups: each free agent goes to one
+   * team only, in your league's waiver order. Your team picks 3rd of 10."; null without an allocation (an older model) or
+   * once no week is left.
+   */
+  pickupsNote: string | null;
   /** "Streaming picks this week" and who streams what (§7); null once no week is left, or when the lineup starts no K or D/ST and nobody streams. */
   streaming: StreamingView | null;
   rosters: RosterCard[];
@@ -679,6 +712,12 @@ interface PlayerContext {
   hasPlayoffs: boolean;
   /** My team (other teams' players can carry "Harder to get"; mine never do). */
   myTeamId: string | null;
+  /**
+   * Per position, the median FantasyCalc value of the players the market blend reached (blendMediansOf): whether a player
+   * whose market number is his own is at the top or the bottom of his position's range (blendEndOf). Empty in a dynasty
+   * league, whose blend reads another list (this season's values) than the one the page shows.
+   */
+  blendMedians: ReadonlyMap<Pos, number>;
 }
 
 function kickedOff(ctx: PlayerContext, info: PlayerInfo | undefined): boolean {
@@ -765,12 +804,88 @@ function weekRows(ctx: PlayerContext, info: PlayerInfo | undefined, pm: PlayerMo
   });
 }
 
-function weeksText(rows: readonly WeekRow[], note: string | null): string {
+function weeksText(rows: readonly WeekRow[], ...notes: (string | null)[]): string {
   const weeks = rows.map((r) => {
     const detail = r.note === "Bye" ? "bye" : r.started ? "game already started" : `${r.pointsText} pts, ${r.availabilityText}${r.note ? ` · ${r.note}` : ""}`;
     return `Wk ${r.week}${r.playoff ? " (playoffs)" : ""}: ${detail}`;
   });
-  return (note ? [note, ...weeks] : weeks).join("\n");
+  return [...notes.filter((n): n is string => n !== null), ...weeks].join("\n");
+}
+
+/**
+ * Whether the blend's market number is his own projection (blend.ts rule 4: a healthy player at one end of his
+ * position's value range, with no other curve point valued at or beyond his on one side, reads the curve with his own
+ * point in it, so it says nothing the market knows: his factor is exactly 1). ⚠️ Read from the numbers (PlayerBlend
+ * carries no flag): market equal to ours to floating-point precision, which a player read off the curve fitted without
+ * him all but never is.
+ */
+export function blendIsOwnPoint(b: Pick<NonNullable<PlayerModel["blend"]>, "ours" | "market">): boolean {
+  return Number.isFinite(b.ours) && Number.isFinite(b.market) && Math.abs(b.market - b.ours) <= 1e-9 * Math.max(1, Math.abs(b.ours));
+}
+
+/**
+ * Per position, the median FantasyCalc value (PlayerModel.value, FantasyCalc's own) of the players the blend reached
+ * (PlayerModel.blend), for blendEndOf; none in a dynasty league (its blend reads this season's values, the page shows
+ * dynasty ones).
+ */
+function blendMediansOf(snapshot: LeagueSnapshot, model: LeagueModel): Map<Pos, number> {
+  const out = new Map<Pos, number>();
+  if (snapshot.settings.leagueType === "dynasty") return out;
+  const byPos = new Map<Pos, number[]>();
+  for (const [id, pm] of Object.entries(model.players)) {
+    const pos = snapshot.players[id]?.pos;
+    if (!pm.blend || !pos || pm.value?.source !== "fantasycalc" || !Number.isFinite(pm.value.value)) continue;
+    const list = byPos.get(pos) ?? [];
+    list.push(pm.value.value);
+    byPos.set(pos, list);
+  }
+  for (const [pos, list] of byPos) {
+    const sorted = [...list].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    out.set(pos, sorted.length % 2 ? (sorted[mid] as number) : ((sorted[mid - 1] as number) + (sorted[mid] as number)) / 2);
+  }
+  return out;
+}
+
+/** Which end of his position's value range a player whose market number is his own sits at (blendIsOwnPoint): by the position's median value; null when unknown. */
+function blendEndOf(ctx: PlayerContext, pm: PlayerModel, pos: Pos | undefined): "top" | "bottom" | null {
+  if (!pm.blend || !blendIsOwnPoint(pm.blend) || !pos || pm.value?.source !== "fantasycalc") return null;
+  const median = ctx.blendMedians.get(pos);
+  return median === undefined ? null : pm.value.value >= median ? "top" : "bottom";
+}
+
+/**
+ * The market blend's line (§6 step 8; PlayerRow.blend): his rest-of-season points before the blend ("Our projection"),
+ * the same games at the points per game his trade value implies ("Trade market": the position's curve of our points
+ * per game on value, over healthy players), and the blend every number uses ("Used" = (1 − w) × ours + w × market),
+ * each rounded; `title` says what each is, in words the breakdown shows. A dynasty league's blend reads this season's
+ * values (FantasyCalc's redraft list), not the dynasty values the page shows, and says so.
+ * Review of Phase 4b: a player whose market number is his own (blendIsOwnPoint: the top or bottom value at his position)
+ * read "Our projection 313 · Trade market 313 · Used 313", as if the market agreed, when it has nothing to compare him
+ * with; his line says so ("Trade market: no comparison (top value at his position)"; `end` from blendEndOf, else "his value
+ * is at the end of his position's range").
+ */
+export function blendText(
+  b: NonNullable<PlayerModel["blend"]>,
+  leagueType: LeagueSnapshot["settings"]["leagueType"] = "redraft",
+  end: "top" | "bottom" | null = null,
+): { text: string; title: string } {
+  const value = leagueType === "dynasty" ? "trade value this season (FantasyCalc's redraft values)" : "trade value";
+  if (blendIsOwnPoint(b)) {
+    const where = end === "top" ? "top value at his position" : end === "bottom" ? "lowest value at his position" : "his value is at the end of his position's range";
+    const why =
+      end === null
+        ? `his ${value} is at one end of his position's range, with no other healthy player valued like him to compare with`
+        : `no other healthy player at his position has a ${value} as ${end === "top" ? "high" : "low"} as his`;
+    return {
+      text: `Our projection ${fmtWhole(b.ours)} · Trade market: no comparison (${where}) · Used ${fmtWhole(b.used)}`,
+      title: `Rest-of-season points. Our projection: our own model's. Trade market: none for him: ${why}, so the market can't say more than our projection, which every number on this page uses as it is.`,
+    };
+  }
+  return {
+    text: `Our projection ${fmtWhole(b.ours)} · Trade market ${fmtWhole(b.market)} · Used ${fmtWhole(b.used)}`,
+    title: `Rest-of-season points. Our projection: our own model's. Trade market: the same games at the points per game our model gives healthy players with his ${value}. Used: ${pct(1 - b.weight)} ours and ${pct(b.weight)} the market's, which every number on this page uses.`,
+  };
 }
 
 function byeText(pm: PlayerModel | undefined): string {
@@ -792,6 +907,7 @@ function playerRow(ctx: PlayerContext, id: string, group: PlayerRow["group"], te
   const cost = tv ? (tv.mvLoseScen ?? tv.mvLoseEv) : null;
   const ros = pm ? pm.ros.total : null;
   const value = pm?.value ?? null;
+  const blend = pm?.blend ? blendText(pm.blend, ctx.snapshot.settings.leagueType, blendEndOf(ctx, pm, info?.pos)) : null;
   return {
     id,
     name: info?.name ?? `Unknown player (${id})`,
@@ -810,8 +926,9 @@ function playerRow(ctx: PlayerContext, id: string, group: PlayerRow["group"], te
       ? { text: `${value.source === "fantasycalc" ? "" : "~"}${fmtWhole(value.value)}`, estimated: value.source !== "fantasycalc", title: VALUE_TITLE[value.source], srText: VALUE_SR[value.source] }
       : null,
     lineupCost: cost === null ? null : fmtNum(cost, 1),
+    blend,
     weeks,
-    weeksText: weeksText(weeks, note?.long ?? null),
+    weeksText: weeksText(weeks, note?.long ?? null, blend?.text ?? null),
   };
 }
 
@@ -1113,14 +1230,17 @@ function tradeChipTags(snapshot: LeagueSnapshot, team: TeamModel, teamName: (id:
 // ---------------------------------------------------------------------------------------------
 // Best trade partners (§7; planner addendum to Checkpoint 3, §2; Phase 4 addendum lead decision N12)
 
-/** A partner card's lead lines (PartnerTarget). */
-export const BEST_TARGET_LABEL = "Best target";
+/** A partner card's lead lines (PartnerTarget): "Best of their trade chips" since the planner's reply to Checkpoint 4, change 6 (it read "Best target"). */
+export const BEST_TARGET_LABEL = "Best of their trade chips";
 export const BIGGER_UPGRADE_LABEL = "Bigger upgrade, harder to get";
 /** ⚠️ Ours: when no untagged one leads, there's nobody for him to be "bigger" than. */
-export const BEST_TARGET_HARDER_LABEL = "Best target, harder to get";
+export const BEST_TARGET_HARDER_LABEL = "Best of their trade chips, harder to get";
 
-/** "Best target" adds at least this many points a week to my lineup, as the card prints it (config.needs.bestTargetMin; N12). */
+/** The lead line adds at least this many points a week to my lineup, as the card prints it (config.needs.bestTargetMin; N12). */
 export const BEST_TARGET_MIN: number = config.needs.bestTargetMin;
+
+/** A partner card's link to the one-partner Trade Finder (planner reply to Checkpoint 4, change 6); the card adds an arrow. */
+export const partnerIdeasText = (teamName: string): string => `See trade ideas with ${teamName}`;
 
 /** A partner card prints points per week with this many decimals ("+2.1/wk"), and judges its lead lines on that number. */
 const PER_WEEK_DECIMALS = 1;
@@ -1142,10 +1262,10 @@ function bestTargetMinWords(): string {
 }
 
 /**
- * Under the partner cards (TradePartners): what "Best target" means (the file header; N12's floor in config's number) and
- * why a marked player is harder to get.
+ * Under the partner cards (TradePartners): what the lead line, "Best of their trade chips", means (the file header; N12's
+ * floor in config's number) and why a marked player is harder to get.
  */
-export const BEST_TARGET_NOTE = `“${BEST_TARGET_LABEL}” is the most helpful of their trade chips for you without the “${HARDER_TO_GET_TAG}” mark, as long as he adds at least ${bestTargetMinWords()} a week; when none does, a marked one who'd help you more leads instead, if he adds at least that much too. A marked player is one of their best, so expect their manager to want a little extra for him.`;
+export const BEST_TARGET_NOTE = `“${BEST_TARGET_LABEL}” is the one of their trade chips who'd help you most without the “${HARDER_TO_GET_TAG}” mark, as long as he adds at least ${bestTargetMinWords()} a week; when none does, a marked one who'd help you more leads instead, if he adds at least that much too. A marked player is one of their best, so expect their manager to want a little extra for him.`;
 
 interface PartnerCardContext {
   snapshot: LeagueSnapshot;
@@ -1158,14 +1278,14 @@ interface PartnerCardContext {
 /**
  * One partner card (the file header; lead decisions N2 and N12). Targets come from their trade chips who'd start for me
  * (more than 0 a week as printed), ranked by what each adds as printed; on a tie the untagged one counts as the better,
- * then the engine's order, so "Bigger upgrade, harder to get" is always strictly bigger on the card. "Best target" = the
- * best untagged one when he adds at least BEST_TARGET_MIN a week; the single best one follows when he's tagged ("Bigger
- * upgrade, harder to get"), or leads alone as "Best target, harder to get" when no untagged one clears the floor.
- * ⚠️ N12's floor holds for every lead line (the lead's call after the final review): a tagged single best under it leads
- * nothing, and neither does an untagged single best under it (a tagged one who adds less is no best target). The rest of their chips follow as "They
- * could also give" ("They could give" without targets), in the engine's order, the first chipsShown named and the
- * others counted; mine as "You could give". Their tagged players carry "Harder to get" there too (hover and
- * screen-reader words included); mine never do.
+ * then the engine's order, so "Bigger upgrade, harder to get" is always strictly bigger on the card. "Best of their trade
+ * chips" = the best untagged one when he adds at least BEST_TARGET_MIN a week; the single best one follows when he's
+ * tagged ("Bigger upgrade, harder to get"), or leads alone as "Best of their trade chips, harder to get" when no untagged
+ * one clears the floor. ⚠️ N12's floor holds for every lead line (the lead's call after the final review): a tagged single
+ * best under it leads nothing, and neither does an untagged single best under it (a tagged one who adds less is no lead).
+ * The rest of their chips follow as "They could also give" ("They could give" without targets), in the engine's order,
+ * the first chipsShown named and the others counted; mine as "You could give". Their tagged players carry "Harder to get"
+ * there too (hover and screen-reader words included); mine never do. Then "See trade ideas with <team>" (change 6).
  */
 function partnerCard(p: TradePartner, c: PartnerCardContext): PartnerCard {
   const { snapshot } = c;
@@ -1222,6 +1342,7 @@ function partnerCard(p: TradePartner, c: PartnerCardContext): PartnerCard {
     targets,
     theyCanGive: side(targets.length ? "They could also give:" : "They could give:", p.theyCanGive.filter((x) => !named.has(x.playerId)), true),
     youCanGive: side("You could give:", p.youCanGive, false),
+    ideas: { text: partnerIdeasText(c.name), href: finderHref(p.teamId) },
   };
 }
 
@@ -1683,6 +1804,28 @@ function oddsExplainText(c: ExplainContext, odds: SeasonOdds): string {
   return `We play out the rest of the season ${fmtWhole(odds.sims)} times. ${draws} ${ranking} ${playoffs} A team's chance of ${chances} is the share of those seasons where it happened. Each time the odds are worked out, every team and week gets the same random draws (common random numbers), so when trade ideas compare the odds before and after a trade, the difference comes from the trade, not from the luck of the draw.${risk}`;
 }
 
+/**
+ * The market blend in "Projected points" (§6 step 8; PlayerModel.blend): the positions of the players it reached, how far
+ * it pulls (the weight) and toward what, per game (byes and injuries stay the model's), and which values it reads in a
+ * dynasty league (this season's, not the dynasty values the page shows); "" when it reached nobody (no values, or none
+ * at a blended position).
+ */
+function blendExplainText(snapshot: LeagueSnapshot, model: LeagueModel): string {
+  let weight = 0;
+  const positions = new Set<Pos>();
+  for (const [id, pm] of Object.entries(model.players)) {
+    if (!pm.blend) continue;
+    weight = pm.blend.weight;
+    const pos = snapshot.players[id]?.pos;
+    if (pos) positions.add(pos);
+  }
+  if (!positions.size) return "";
+  const who = listText(POSITIONS.filter((x) => positions.has(x)).map((x) => `${posLabel(x, snapshot.platform)}s`));
+  const how = weight === 0.5 ? "halfway" : `${pct(weight)} of the way`;
+  const value = snapshot.settings.leagueType === "dynasty" ? "a FantasyCalc trade value this season (its redraft values, not the dynasty values shown here)" : "a FantasyCalc trade value";
+  return ` Then, for ${who} with ${value}, points per game are pulled ${how} toward what our model gives healthy players with about the same trade value, so a projection the trade market disagrees with counts for less; byes and injuries stay as projected (a player's breakdown shows both numbers).`;
+}
+
 function buildExplain(c: ExplainContext): ExplainItem[] {
   const { snapshot, model, values } = c;
   const p = config.projections;
@@ -1701,7 +1844,7 @@ function buildExplain(c: ExplainContext): ExplainItem[] {
       title: "Projected points",
       text: seasonOver
         ? "The season is over, so nothing is projected: projections aren't requested once no fantasy weeks are left."
-        : `A player's points per game start from ${c.source.from}. Recent form counts too: up to ${pct(p.actualWeight)} once he has played ${p.actualFullGames} games.${matchup}`,
+        : `A player's points per game start from ${c.source.from}. Recent form counts too: up to ${pct(p.actualWeight)} once he has played ${p.actualFullGames} games.${matchup}${blendExplainText(snapshot, model)}`,
     },
     {
       title: "Availability",
@@ -1754,7 +1897,7 @@ function buildExplain(c: ExplainContext): ExplainItem[] {
  * it, how partner cards lead (with N12's floor, config.needs.bestTargetMin), and that mine are never marked.
  */
 function harderExplainText(): string {
-  return `Managers value their own best players a bit above their trade value. Another team's player marked ${HARDER_TO_GET_TAG} is ${harderToGetWho("his team's")} (FantasyCalc's, in your league's format), so expect his manager to want a little extra for him: trade ideas count that in the chance they accept. Partner cards lead with their best target: the unmarked player who'd add the most to your lineup, if he adds at least ${bestTargetMinWords()} a week. A marked player who'd add more than any unmarked one is named next, or alone when no unmarked one adds that much (he too has to add at least ${bestTargetMinWords()} a week to lead). Your own players are never marked.`;
+  return `Managers value their own best players a bit above their trade value. Another team's player marked ${HARDER_TO_GET_TAG} is ${harderToGetWho("his team's")} (FantasyCalc's, in your league's format), so expect his manager to want a little extra for him: trade ideas count that in the chance they accept. Partner cards lead with the best of their trade chips: the unmarked one who'd add the most to your lineup, if he adds at least ${bestTargetMinWords()} a week. A marked player who'd add more than any unmarked one is named next, or alone when no unmarked one adds that much (he too has to add at least ${bestTargetMinWords()} a week to lead). Your own players are never marked.`;
 }
 
 /**
@@ -1792,7 +1935,30 @@ function pickupsExplainText(snapshot: LeagueSnapshot, model: LeagueModel): strin
   const most = pickupsJudgedInScenarios(snapshot, model)
     ? "the most lineup points with injuries and byes simulated (so a backup who'd start when a starter is hurt or on bye counts)"
     : "the most projected lineup points";
-  return `Each team is measured after the free-agent pickups that would help it, made one at a time: each time the add (dropping a player, or into an open roster spot) that adds ${most}, as long as it adds at least ${o.faMinGain}, up to ${plural(o.faMaxMoves, "pickup")}. ${capitalize(positionPlural("K", platform))} and ${positionPlural("DEF", platform)} are never picked up (they're streamed or kept), nor is a position the team streams, and a player its starting lineup needs is never dropped.${dynasty} Lineup cost, trade chips and partners all start from those rosters, so a trade never gets credit for a pickup a team could make anyway. Each team is measured on its own, so two teams may count on the same free agent.`;
+  // One free agent, one team (§7; planner reply to Checkpoint 4, change 3): a model built before Phase 4b measured each team alone.
+  const shared = model.faAllocation
+    ? ` Each free agent goes to one team only, ${allocationHow(model.faAllocation.basis)}: each team picks from the free agents the teams before it left, and in a trade the two teams pick again from the ones every other team left.`
+    : " Each team is measured on its own, so two teams may count on the same free agent.";
+  return `Each team is measured after the free-agent pickups that would help it, made one at a time: each time the add (dropping a player, or into an open roster spot) that adds ${most}, as long as it adds at least ${o.faMinGain}, up to ${plural(o.faMaxMoves, "pickup")}. ${capitalize(positionPlural("K", platform))} and ${positionPlural("DEF", platform)} are never picked up (they're streamed or kept), nor is a position the team streams, and a player its starting lineup needs is never dropped.${dynasty} Lineup cost, trade chips and partners all start from those rosters, so a trade never gets credit for a pickup a team could make anyway.${shared}`;
+}
+
+/** How free agents are shared out (LeagueModel.faAllocation.basis), in words: the waiver order, FAAB, or the biggest gain first. */
+function allocationHow(basis: NonNullable<LeagueModel["faAllocation"]>["basis"]): string {
+  if (basis === "waiver") return "in your league's waiver order";
+  if (basis === "faab") return "in FAAB order (the most budget left first)";
+  return "the team that gains the most from its best pickup first (your league's waiver order wasn't available)";
+}
+
+/**
+ * The line above the rosters (LeagueView.pickupsNote; the file header): how free agents are shared out, and where my team
+ * picks ("Your team picks 3rd of 10."); null without an allocation (a model built before Phase 4b) or without teams.
+ */
+function pickupsNoteOf(model: LeagueModel, myTeamId: string | null): string | null {
+  const a = model.faAllocation;
+  if (!a || !a.order.length) return null;
+  const place = myTeamId ? a.order.indexOf(myTeamId) : -1;
+  const mine = place >= 0 ? ` Your team picks ${ordinal(place + 1)} of ${a.order.length}.` : "";
+  return `Free-agent pickups: each free agent goes to one team only, ${allocationHow(a.basis)}.${mine}`;
 }
 
 const EXCLUDED_WORDS: Partial<Record<Pos, string>> = { K: "kickers", P: "punters", DEF: "team defenses", DL: "defensive players", LB: "defensive players", DB: "defensive players" };
@@ -1837,6 +2003,7 @@ export function buildLeagueView(input: LeagueViewInput): LeagueView {
     playoffWeeks: new Set(model.playoffWeeks),
     hasPlayoffs: model.playoffWeeks.length > 0,
     myTeamId,
+    blendMedians: blendMediansOf(snapshot, model),
   };
   const stamp = (iso: string) => formatShortDateTime(iso, timeZone, input.now);
 
@@ -2001,6 +2168,7 @@ export function buildLeagueView(input: LeagueViewInput): LeagueView {
     chipLegend: `trade chip: worth at least ${config.needs.chipMinGap} more lineup pts to another team than to his own`,
     heatmap,
     partners: { cards, empty: partnersEmpty },
+    pickupsNote: weeks.length ? pickupsNoteOf(model, myTeamId) : null,
     streaming,
     rosters,
     freeAgents,

@@ -8,6 +8,7 @@
  * FantasyCalc units (perception term, §9); ROS points are §6 step 7's (Σ p over the remaining weeks).
  */
 import type { AcceptanceTerms, ActivitySummary, ContextTerm } from "./acceptance";
+import type { InjuryStatus } from "./model";
 
 /** One side's asset in a trade: a player (canonical id) or a draft pick (dynasty and keeper leagues). */
 export type TradeAsset = { kind: "player"; id: string } | { kind: "pick"; season: number; round: number; originalTeamId: string };
@@ -25,14 +26,28 @@ export interface RosterChange {
   drops: string[];
   /** Free agents added because it would be under it (the best available). */
   adds: string[];
+  /**
+   * Phase 4b (IR players; planner reply to Checkpoint 4, change 5): received IR players who go into an open IR slot of
+   * this team (legality rule 5), so they take no active roster spot until they return. Absent or empty: none.
+   */
+  toIR?: string[];
+  /**
+   * Phase 4b: players this team drops from a week on, when an IR player comes back and the active roster is full (the
+   * displacement on the team's final roster after the trade, after its free-agent optimizer: src/engine/returners.ts),
+   * ⚠️ only the ones its baseline at V*(T) doesn't have (evaluate.ts rosterChangeOf: a displacement the team makes with
+   * or without the trade isn't the trade's move, and B doesn't count it). `returner` is the IR player whose return forces
+   * it (the player himself when he's released at his return), `week` the NFL week from which the drop counts. Absent or
+   * empty: none.
+   */
+  displaced?: { playerId: string; week: number; returner: string }[];
 }
 
 /** §11's features for the partner, as the model used them (the feedback export stores them). */
 export interface AcceptanceFeatures {
   /**
    * The partner's g as they perceive it, clamped to config.acceptance.gClamp: g_mkt(P) with the star premium on the
-   * players they give (planner addendum to Checkpoint 3, §1: v′ = v × (1 + e)). TradeEvaluation.gPartner keeps the raw
-   * market reading.
+   * players they give (planner addendum to Checkpoint 3, §1, after the value floor of the planner's reply to Checkpoint
+   * 4, change 4: v′ = max(v, W) × (1 + e)). TradeEvaluation.gPartner keeps the market reading without the premium.
    */
   g: number;
   /** ΔLineup_P / nScale, clamped (before the contender factor). */
@@ -97,9 +112,18 @@ export interface TradeEvaluation {
   dDyn: number | null;
   /** A keeper league whose dynasty values didn't load: ΔDyn is missing and the card says so (Checkpoint 2). */
   dynMissing: boolean;
-  /** My package values (§9, perception, the waiver credit included): what I give and what I get. */
+  /**
+   * My package values (§9, perception): what I give and what I get, each player at max(v, W) (the value floor on both
+   * sides, planner reply to Checkpoint 4, change 4: a player worth less than the best free agent counts at that free
+   * agent's value W), plus W for each open roster spot on the side that gets fewer players. Roster spots are my active
+   * roster's (review of Phase 4b track E: an IR slot isn't one, market.ts's header): W on what I get for each spot it
+   * opens, on what I give for each it fills, which is the same thing when no IR player moves.
+   */
   value: { given: number; received: number };
-  /** g_mkt for my side and the partner's (§9): raw market values (the partner's perceived g, with the star premium, is features.g). */
+  /**
+   * g_mkt for my side and the partner's (§9), on those packages (each player at max(v, W)), without the star premium (the
+   * partner's perceived g, with it, is features.g).
+   */
   gMine: number;
   gPartner: number;
   /** ROS points (§6 step 7) of the players I give and get. */
@@ -118,6 +142,15 @@ export interface TradeEvaluation {
     hiddenByBenefit: boolean;
     /** Players I'd get whose status is in config.benefit.injuredStatuses: "depends on an injured player". */
     injured: string[];
+    /**
+     * Every injury-tagged player on either side (planner reply to Checkpoint 4, change 6): status other than ACTIVE
+     * (explain.injuryTags, from snapshot.players, with explain.tagContextOf: the week now and the League model's word on
+     * which conflicted Probable, Questionable or Doubtful players follow their ESPN return date). evaluate.ts withWords sets
+     * it on every finished evaluation, the Trade Finder's cards and the Analyzer's alike. Absent on a core (before its
+     * words) and on an evaluation stored before Phase 4b: the cards then read the tags from the snapshot
+     * (src/lib/tradeView.ts), without that word, so such a player's far date isn't said there.
+     */
+    tagged?: InjuryTag[];
   };
   /** What the explanations and the Analyzer read besides the numbers above (ids only, no names). */
   detail: TradeDetail;
@@ -126,10 +159,49 @@ export interface TradeEvaluation {
    * addendum). Ranking and the three numbers above stay the ranked trade's.
    */
   steps?: TradeSteps;
+  /**
+   * "If they say no, try:" (planner reply to Checkpoint 4, change 6): on a Trade Finder card without steps, the best other
+   * exactly evaluated trade with the same partner that still helps (B > 0, Helps you at least config.search.planB.
+   * minHelpsShare of the card's, not hidden by the market guard) and, ⚠️ since the review of track F, is likelier to go
+   * through (P_complete at least config.search.steps.minAcceptGain above the card's), the same players of theirs first,
+   * with at most config.ranking.perGivenPlayerInTop20 boxes adding the same player of mine, and ⚠️ never a trade the list
+   * shows as a card itself (final review of Phase 4b) (src/engine/planB.ts). Absent when none qualifies, on a card with
+   * steps, and in the Analyzer.
+   */
+  planB?: PlanB;
   /** Plain-English reasons (§13), most important first (src/engine/explain.ts). */
   reasons: string[];
   /** The copy-ready pitch message (§13), leading with what the partner gains (src/engine/explain.ts). */
   pitch: string;
+}
+
+/** An injury-tagged player in a trade (TradeEvaluation.flags.tagged). */
+export interface InjuryTag {
+  playerId: string;
+  /** "give": a player of mine; "get": one I'd receive. */
+  side: "give" | "get";
+  status: Exclude<InjuryStatus, "ACTIVE">;
+  /**
+   * PlayerInfo.injuryReturnWeek when known and his projection counts on it (explain.injuryTags, review of track F): OUT
+   * from next week on; IR, PUP and SUSPENDED after this week; a Probable, Questionable or Doubtful player's far ESPN date
+   * only when his projection follows it (§6 step 3's conflict); never NA. After the NFL's last week = out for the season.
+   */
+  returnWeek?: number;
+}
+
+/** A Plan B (TradeEvaluation.planB): its proposal and its three numbers on the card's basis (the final simulation). */
+export interface PlanB {
+  proposal: TradeProposal;
+  /** proposalKey of the proposal. */
+  key: string;
+  b: number;
+  tradeScore: number;
+  pAccept: number;
+  pComplete: number;
+  acceptLabel: string;
+  overall: number;
+  /** "samePlayers": a different package for the same players of theirs; "otherTarget": a different target. */
+  kind: "samePlayers" | "otherTarget";
 }
 
 /** One version of a trade in "Offer first / if they say no" (§4 of the addendum): exact evaluation + the screening simulation. */
@@ -143,7 +215,7 @@ export interface TradeStep {
   pAccept: number;
   pComplete: number;
   acceptLabel: string;
-  /** Raw g_mkt for my side and the partner's. */
+  /** g_mkt for my side and the partner's, each player at max(v, W), without the star premium (as TradeEvaluation's). */
   gMine: number;
   gPartner: number;
   /** The forced roster moves of this version (§7 legality). */
@@ -262,10 +334,11 @@ export interface TradeSearchResult {
   hidden: { byBenefit: number; byMarket: number };
   /**
    * Trades the final ranking's variety rules left out (§13 diversity, rank.ts RankedTrades.dropped: over the per-partner
-   * cap in the top 20, over the per-core cap, filler variants), counted so a page can say so. The search always sets it;
-   * optional only so that fakes needn't (end-of-Phase-4 review, finding 5).
+   * cap in the top 20, over the per-core cap, filler variants, and over Phase 4b's given-player cap in the top 20),
+   * counted so a page can say so. The search always sets it (every key, 0 when it stops before ranking); optional only
+   * so that fakes needn't (end-of-Phase-4 review, finding 5).
    */
-  dropped?: { partnerCap: number; core: number; filler: number };
+  dropped?: { partnerCap: number; core: number; filler: number; givenPlayer: number };
   /** Counts per stage: candidates screened, exactly evaluated, simulated at 1,000 and at 5,000 seasons. */
   counts: { screened: number; exact: number; simScreen: number; simFinal: number };
   /** Milliseconds per stage (TradeSearchStage keys) and "total". */

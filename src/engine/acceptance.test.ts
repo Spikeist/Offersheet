@@ -4,6 +4,7 @@ import {
   acceptanceFeatures,
   acceptanceLabel,
   activity,
+  betaNeed,
   complexityFeature,
   contextTerm,
   displayAcceptance,
@@ -76,9 +77,9 @@ function tx(type: Transaction["type"], week: number, moves: Transaction["moves"]
 const leg = (playerId: string, from: string, to: string) => ({ playerId, from, to });
 const add = (teamId: string, week: number, playerId = `fa${week}`) => tx("add", week, [{ playerId, from: null, to: teamId }]);
 
-/** Within ±1 percentage point (§11: the required tolerance). */
-function expectWithinOnePoint(p: number, percent: number): void {
-  expect(Math.abs(p * 100 - percent)).toBeLessThanOrEqual(1);
+/** Within ±0.5 percentage points (planner reply to Checkpoint 4, change 2: the tolerance of both anchor tables). */
+function expectWithinHalfPoint(p: number, percent: number): void {
+  expect(Math.abs(p * 100 - percent)).toBeLessThanOrEqual(0.5);
 }
 
 // A standard lineup and the real lineup machinery, so the hole feature reads slot instances the way the engine
@@ -127,27 +128,39 @@ function holeInputs(before: readonly LineupPlayer[], after: readonly LineupPlaye
   return { slots, receivedStarters, before: b, after: a };
 }
 
-describe("§11 required anchor tests (default coefficients, within ±1 point)", () => {
-  // The planner's table (CLAUDE.md §11): scenario → P_accept. Features not named are 0 (g even, a = 0, no
-  // history, no hole, a 1-for-1, no context, hot and urg 0); n is given through ΔLineup_P = n × nScale.
-  const anchors: { name: string; g?: number; n?: number; h?: 0 | 1; a?: number; c?: number; percent: number }[] = [
-    { name: "Even value; n = 0.5; fills a hole; active (a = +1)", n: 0.5, h: 1, a: 1, percent: 61.1 },
-    { name: "Even value; nothing else", percent: 35.4 },
-    { name: "g = −0.10; n = 0.5; fills a hole", g: -0.1, n: 0.5, h: 1, percent: 31.0 },
-    { name: "g = −0.20; nothing else", g: -0.2, percent: 8.3 },
-    { name: "g = +0.15; n = −0.3", g: 0.15, n: -0.3, percent: 53.0 },
-    { name: "Even value; inactive (a = −2)", a: -2, percent: 21.4 },
-    { name: "3-for-1 (c = 2); even value", c: 2, percent: 25.0 },
-    { name: "g = +0.30; n = 0.5", g: 0.3, n: 0.5, percent: 81.8 },
+describe("§11 required anchor tests (planner reply to Checkpoint 4, change 2: default coefficients, within ±0.5 points)", () => {
+  // The planner's new table (β_need 1.2 in redraft, 0.6 in dynasty; P_accept capped at 85%): scenario → P_accept, with
+  // Checkpoint 4's value as `old`. Features not named are 0 (g even, a = 0, no history, no hole, a 1-for-1, no context,
+  // hot and urg 0); n is given through ΔLineup_P = n × nScale; a partner at 40% playoff odds (no season context).
+  const anchors: { name: string; league?: AcceptanceLeague; g?: number; n?: number; h?: 0 | 1; a?: number; c?: number; percent: number; old: number }[] = [
+    { name: "Even value; n = 0.5; fills a hole; active (a = +1)", n: 0.5, h: 1, a: 1, percent: 67.9, old: 61.1 },
+    { name: "Even value; nothing else", percent: 35.4, old: 35.4 },
+    { name: "g = −0.10; n = 0.5; fills a hole", g: -0.1, n: 0.5, h: 1, percent: 37.8, old: 31.0 },
+    { name: "g = −0.20; nothing else", g: -0.2, percent: 8.3, old: 8.3 },
+    { name: "g = +0.15; n = −0.3", g: 0.15, n: -0.3, percent: 48.5, old: 53.0 },
+    { name: "Even value; inactive (a = −2)", a: -2, percent: 21.4, old: 21.4 },
+    { name: "3-for-1 (c = 2); even value", c: 2, percent: 25.0, old: 25.0 },
+    { name: "g = +0.30; n = 0.5 (the 85% cap)", g: 0.3, n: 0.5, percent: 85.0, old: 81.8 },
+    { name: "Dynasty: even value; n = 0.5; fills a hole; active", league: DYNASTY, n: 0.5, h: 1, a: 1, percent: 61.1, old: 61.1 },
   ];
   for (const s of anchors) {
-    it(`${s.name} → ${s.percent}%`, () => {
-      const r = acceptance(REDRAFT, profile({ a: s.a ?? 0 }), trade({ gPartner: s.g ?? 0, deltaLineup: (s.n ?? 0) * config.acceptance.nScale, h: s.h ?? 0, assets: (s.c ?? 0) + 2 }));
-      expectWithinOnePoint(r.pAccept, s.percent);
+    it(`${s.name} → ${s.percent}% (${s.old}% at Checkpoint 4)`, () => {
+      const league = s.league ?? REDRAFT;
+      const input = trade({ gPartner: s.g ?? 0, deltaLineup: (s.n ?? 0) * config.acceptance.nScale, h: s.h ?? 0, assets: (s.c ?? 0) + 2 });
+      const r = acceptance(league, profile({ a: s.a ?? 0 }), input);
+      expectWithinHalfPoint(r.pAccept, s.percent);
       expect(r.pComplete).toBe(r.pAccept); // no review in this league: no veto
-      expect(quickAcceptance(REDRAFT, profile({ a: s.a ?? 0 }), trade({ gPartner: s.g ?? 0, deltaLineup: (s.n ?? 0) * config.acceptance.nScale, h: s.h ?? 0, assets: (s.c ?? 0) + 2 }))).toBe(r.pAccept);
+      expect(quickAcceptance(league, profile({ a: s.a ?? 0 }), input)).toBe(r.pAccept);
     });
   }
+
+  it("the old table is the same model with Checkpoint 4's β_need (0.6 in every league) and cap (95%)", () => {
+    const old: AcceptanceConfig = { ...config.acceptance, beta: { ...config.acceptance.beta, need: 0.6, needDynasty: 0.6 }, pAcceptClamp: [0.02, 0.95] };
+    for (const s of anchors) {
+      const r = acceptance(s.league ?? REDRAFT, profile({ a: s.a ?? 0 }), trade({ gPartner: s.g ?? 0, deltaLineup: (s.n ?? 0) * config.acceptance.nScale, h: s.h ?? 0, assets: (s.c ?? 0) + 2 }), old);
+      expectWithinHalfPoint(r.pAccept, s.old);
+    }
+  });
 
   it("the anchors hold when every feature is built from raw league data (values, lineups, holes, transactions)", () => {
     const W = 100;
@@ -171,27 +184,59 @@ describe("§11 required anchor tests (default coefficients, within ±1 point)", 
     const g = marketGain(["mine"], ["theirs"], values, W); // the partner receives mine, gives theirs
     expect(g).toBe(0);
     const anchor1 = acceptance(REDRAFT, active, { gPartner: g, deltaLineup: delta.blended, h: hole.h, assets: 2, partnerReceives: [{ pos: "TE", age: 25 }] });
-    expectWithinOnePoint(anchor1.pAccept, 61.1);
+    expectWithinHalfPoint(anchor1.pAccept, 67.9);
+    // The same partner in a dynasty league weighs its lineup at β_need 0.6: Checkpoint 4's 61.1%.
+    expectWithinHalfPoint(acceptance(DYNASTY, active, { gPartner: g, deltaLineup: delta.blended, h: hole.h, assets: 2, partnerReceives: [{ pos: "TE", age: 25 }] }).pAccept, 61.1);
 
     // Team 4 added a free agent in week 1 and nothing since; in week 8 that's inactive (a = −2), no trades (hist null).
     const quiet = partnerProfile({ teamId: "4", transactions: [add("4", 1)], week: 8, values, W, pPlayoffs: 0.4 });
     expect(quiet.activity).toMatchObject({ a: -2, rule: "inactive" });
     expect(quiet.history.hist).toBeNull();
-    expectWithinOnePoint(acceptance(REDRAFT, quiet, trade()).pAccept, 21.4);
+    expectWithinHalfPoint(acceptance(REDRAFT, quiet, trade()).pAccept, 21.4);
 
     // 3-for-1 at even value: the partner receives three players for one, so its side gives the waiver credit for two spots.
     const g31 = marketGain(["m1", "m2", "m3"], ["big"], values, W);
     expect(g31).toBeCloseTo(0, 12);
     const neutral = partnerProfile({ teamId: "9", transactions: [add("9", 7)], week: 8, values, W, pPlayoffs: 0.4 });
     expect(neutral.activity.a).toBe(0);
-    expectWithinOnePoint(acceptance(REDRAFT, neutral, trade({ gPartner: g31, assets: 4 })).pAccept, 25.0);
+    expectWithinHalfPoint(acceptance(REDRAFT, neutral, trade({ gPartner: g31, assets: 4 })).pAccept, 25.0);
   });
 });
 
-describe("the star premium's anchor tests (planner addendum to Checkpoint 3, §1: default coefficients, W = 752, within ±0.5 points)", () => {
+describe("β_need by league type (planner reply to Checkpoint 4, change 2)", () => {
+  it("1.2 in redraft and keeper leagues, 0.6 in dynasty leagues, from config", () => {
+    expect(config.acceptance.beta.need).toBe(1.2);
+    expect(config.acceptance.beta.needDynasty).toBe(0.6);
+    expect(betaNeed("redraft")).toBe(1.2);
+    expect(betaNeed("keeper")).toBe(1.2);
+    expect(betaNeed("dynasty")).toBe(0.6);
+    // A widened config's numbers (a refit's).
+    expect(betaNeed("dynasty", { beta: { ...config.acceptance.beta, needDynasty: 0.9 } })).toBe(0.9);
+  });
+
+  it("the need term, the contender factor's extra in ctx and the quick variant all read it", () => {
+    const t = trade({ deltaLineup: 5 }); // n = 1
+    const contender = profile({ pPlayoffs: 0.75 });
+    const factor = config.acceptance.context.contenderNeedFactor - 1;
+    for (const [league, beta] of [
+      [REDRAFT, 1.2],
+      [{ leagueType: "keeper", tradeReview: "none" } as AcceptanceLeague, 1.2],
+      [DYNASTY, 0.6],
+    ] as const) {
+      const f = acceptanceFeatures(league, contender, t);
+      expect(f.terms.need, league.leagueType).toBeCloseTo(beta * 1, 12);
+      expect(f.features.ctx, league.leagueType).toBeCloseTo(beta * 1 * factor, 12);
+      expect(contextTerm({ leagueType: league.leagueType, pPlayoffs: 0.75, partnerReceives: [], n: 1 }).ctx, league.leagueType).toBeCloseTo(beta * factor, 12);
+      expect(quickAcceptance(league, contender, t), league.leagueType).toBeCloseTo(logistic(config.acceptance.beta.b0 + beta * (1 + factor)), 12);
+    }
+  });
+});
+
+describe("the star premium's anchor tests (planner reply to Checkpoint 4, change 2's table: default coefficients, W = 752, within ±0.5 points)", () => {
   // Through the real functions: premium.eliteIds and teamPremiums give each player's e from the FantasyCalc list and the
-  // partner's roster, premium.perceivedPackage the partner's perceived g (v′ = v × (1 + e) on what it gives, W unchanged),
-  // benefit.tradePackage the raw g, and acceptance() / quickAcceptance() the estimate. Ten players above 9,000 plus the
+  // partner's roster, premium.perceivedPackage the partner's perceived g (v′ = max(v, W) × (1 + e) on what it gives, the
+  // credit W per open spot unchanged; every value here is above W, so the floor changes nothing), benefit.tradePackage the
+  // raw g (no premium), and acceptance() / quickAcceptance() the estimate. Ten players above 9,000 plus the
   // partner's star (9,000) and one of mine (9,000; "star" sorts first at the tie) are FantasyCalc's top 12.
   const W = 752;
   const values: Record<string, number> = { star: 9000, you9000: 9000, p2: 5000, p3: 4000, p4: 3000, p5: 2500, p6: 2000, p7: 1000, best: 5000, b2: 3000, you2000: 2000, you5000: 5000, you6500: 6500, r4000: 4000, r3500a: 3500, r3500b: 3500 };
@@ -238,18 +283,19 @@ describe("the star premium's anchor tests (planner addendum to Checkpoint 3, §1
     expect(r.full.pAccept).toBe(r.before);
   });
 
-  it("partner gets 4,000 + 3,500 + 3,500 for their #1 top-12 player (9,000); contender; n = 0.6; fills a hole → 23.4% (51.3% before)", () => {
+  it("partner gets 4,000 + 3,500 + 3,500 for their #1 top-12 player (9,000); contender; n = 0.6; fills a hole → 32.8% (23.4% at Checkpoint 4)", () => {
     const r = estimate(contender, partnerA, ["r4000", "r3500a", "r3500b"], ["star"], { deltaLineup: 0.6 * config.acceptance.nScale, h: 1 });
     // W counts on the side receiving fewer players (the partner's give side here), unchanged by the premium.
     expect(r.gPerceived).toBeCloseTo((11_000 - (9000 * 1.2 + 2 * W)) / (9000 * 1.2 + 2 * W), 12);
     expect(r.full.features.c).toBe(2);
-    withinHalfPoint(r.full.pAccept, 23.4);
-    withinHalfPoint(r.before, 51.3);
+    withinHalfPoint(r.full.pAccept, 32.8);
+    // The premium only lowers the estimate.
+    expect(r.before).toBeGreaterThan(r.full.pAccept);
   });
 
-  it("the same trade, where the RBs help them twice as much (n = 1.2) → 32.8%", () => {
+  it("the same trade, where the RBs help them twice as much (n = 1.2) → 55.4% (32.8% at Checkpoint 4)", () => {
     const r = estimate(contender, partnerA, ["r4000", "r3500a", "r3500b"], ["star"], { deltaLineup: 1.2 * config.acceptance.nScale, h: 1 });
-    withinHalfPoint(r.full.pAccept, 32.8);
+    withinHalfPoint(r.full.pAccept, 55.4);
   });
 
   it("1-for-1, equal raw value; partner's #2; not top-12 → 26.3%", () => {
@@ -280,7 +326,7 @@ describe("the star premium's anchor tests (planner addendum to Checkpoint 3, §1
     expect(vetoed.vetoRisk).toBe(true);
     expect(vetoed.features.g).toBe(-0.2);
     expect(vetoed.pComplete).toBe(vetoed.pAccept * config.acceptance.veto.factor);
-    // Without a perceived g (the pre-addendum model), the g feature is the raw g.
+    // Without a perceived g (a caller without premiums), the g feature is the raw g.
     expect(acceptance(VOTE, contender, trade({ gPartner })).features.g).toBe(gPartner);
   });
 });
@@ -309,14 +355,20 @@ describe("the model (§11)", () => {
     expect(contender.features.z).toBeCloseTo(config.acceptance.beta.b0 + config.acceptance.beta.need * 1.3, 12);
   });
 
-  it("clamps P_accept to [0.02, 0.95]", () => {
-    expect(pAcceptFromLogit(10)).toBe(0.95);
+  it("clamps P_accept to [0.02, 0.85] (planner reply to Checkpoint 4, change 2: no offer is a sure thing)", () => {
+    expect(config.acceptance.pAcceptClamp).toEqual([0.02, 0.85]);
+    expect(pAcceptFromLogit(10)).toBe(0.85);
     expect(pAcceptFromLogit(-10)).toBe(0.02);
-    expect(pAcceptFromLogit(Number.POSITIVE_INFINITY)).toBe(0.95);
+    expect(pAcceptFromLogit(Number.POSITIVE_INFINITY)).toBe(0.85);
     expect(pAcceptFromLogit(Number.NEGATIVE_INFINITY)).toBe(0.02);
     expect(pAcceptFromLogit(Number.NaN)).toBe(0.5);
+    // Just under the cap σ(z) passes through; σ(1.8) = 85.8% is capped (the anchor table's g = +0.30, n = 0.5).
+    expect(pAcceptFromLogit(1.7)).toBeCloseTo(logistic(1.7), 12);
+    expect(pAcceptFromLogit(1.8)).toBe(0.85);
     const huge = acceptance(REDRAFT, profile({ a: 1, pPlayoffs: 0.9 }), trade({ gPartner: 5, deltaLineup: 50, h: 1, hot: 0.15, urg: 0.2 }));
-    expect(huge.pAccept).toBe(0.95);
+    expect(huge.pAccept).toBe(0.85);
+    expect(huge.shown.accept).toBe(0.85);
+    expect(huge.label).toBe("Likely");
     const hopeless = acceptance(REDRAFT, profile({ a: -2, hist: 0.15, pPlayoffs: 0.01 }), trade({ gPartner: -0.9, deltaLineup: -20, assets: 6 }));
     expect(hopeless.pAccept).toBe(0.02);
   });
@@ -337,6 +389,32 @@ describe("the model (§11)", () => {
     expect(open.pComplete).toBe(open.pAccept);
     expect(open.pAccept).toBe(vetoed.pAccept);
     expect(quickAcceptance(VOTE, profile({ a: 1 }), t)).toBe(vetoed.pAccept);
+  });
+
+  it("⚠️ a throw-in worth less than W adds 0 value but edges g toward 0, so it can lift a trade past the veto line (value floor: planner reply to Checkpoint 4, change 4; reported to the planner)", () => {
+    // A league that votes on trades, W = 628: the partner gives a 5,000 player for my 3,400 one (−32%: vetoed), n 1.5, a hole.
+    const W = 628;
+    const values = { mine: 3400, theirs: 5000, junk: 300 };
+    const lean = tradePackage({ players: ["mine"] }, { players: ["theirs"] }, values, W); // the partner's side
+    const full = tradePackage({ players: ["mine", "junk"] }, { players: ["theirs"] }, values, W);
+    // 0 value: he counts W on what they get, and the roster spot he takes counts W on what they give.
+    expect(full.recv - full.give).toBe(lean.recv - lean.give);
+    expect(lean.g).toBeCloseTo(-0.32, 12);
+    expect(full.g).toBeCloseTo(-1600 / (5000 + W), 12); // −28.4%: above the −30% veto line
+    const estimate = (g: number, assets: number) => acceptance(VOTE, profile(), trade({ gPartner: g, deltaLineup: 1.5 * config.acceptance.nScale, h: 1, assets }));
+    const offer = estimate(lean.g, 2);
+    const withJunk = estimate(full.g, 3);
+    expect([offer.vetoRisk, withJunk.vetoRisk]).toEqual([true, false]);
+    // The value term rises by more than the extra player's complexity term costs, so even P_accept rises (21.8% → 23.0%)…
+    expect(withJunk.terms.complexity - offer.terms.complexity).toBeCloseTo(-config.acceptance.beta.complexity, 12);
+    expect(withJunk.terms.value - offer.terms.value).toBeGreaterThan(config.acceptance.beta.complexity);
+    expect(offer.pAccept).toBeCloseTo(logistic(-1.28), 12);
+    expect(withJunk.pAccept).toBeGreaterThan(offer.pAccept);
+    // …and the veto no longer halves P_complete (10.9% → 23.0%): enough for an "if they say no, add him" step.
+    expect(offer.pComplete).toBeCloseTo(offer.pAccept * config.acceptance.veto.factor, 12);
+    expect(withJunk.pComplete).toBe(withJunk.pAccept);
+    expect(offer.pComplete).toBeGreaterThanOrEqual(config.search.steps.minOfferFirst);
+    expect(withJunk.pComplete - offer.pComplete).toBeGreaterThanOrEqual(config.search.steps.minAcceptGain);
   });
 
   it("is deterministic and doesn't mutate its inputs", () => {
@@ -590,6 +668,14 @@ describe("hist: the partner's past trades at current values", () => {
     expect(h.perTrade[0]?.g).toBeCloseTo((6000 - 6400) / 6400, 12);
   });
 
+  it("counts each player at max(v, W), as every package (planner reply to Checkpoint 4, change 4): a swap of two cheap players is even", () => {
+    // Both worth less than W (400): each counts 400, so the swap reads g = 0 whatever their own values.
+    const cheap = { ...values, lo1: 120, lo2: 310 };
+    expect(tradeHistory([tx("trade", 3, [leg("lo1", T, "5"), leg("lo2", "5", T)])], T, cheap, W)).toMatchObject({ hist: 0, used: 1 });
+    // A cheap player P throws in counts W, the same as the roster spot the 2-for-1 frees for P: 3,000 + W for 3,000 + W.
+    expect(tradeHistory([tx("trade", 4, [leg("e", T, "5"), leg("lo1", T, "5"), leg("f", "5", T)])], T, cheap, W).perTrade[0]?.g).toBe(0);
+  });
+
   it("is null without completed trades; adds, drops and other teams' trades don't count", () => {
     const h = tradeHistory([add(T, 2), tx("trade", 3, [leg("a", "5", "6"), leg("b", "6", "5")])], T, values, W);
     expect(h).toStrictEqual({ hist: null, average: null, trades: 0, used: 0, skipped: 0, perTrade: [] });
@@ -655,10 +741,9 @@ describe("ctx: season context", () => {
     expect(contextTerm({ leagueType: "redraft", pPlayoffs: 0.2, partnerReceives: receives, n: 0 }).ctx).toBe(0);
   });
 
-  it("any league: a contender (above 60%) counts n 1.3 times, either sign; exactly 60% isn't one", () => {
-    const need = config.acceptance.beta.need;
-    expect(contextTerm({ leagueType: "redraft", pPlayoffs: 0.61, partnerReceives: [], n: 0.5 }).ctx).toBeCloseTo(need * 0.5 * 0.3, 12);
-    expect(contextTerm({ leagueType: "dynasty", pPlayoffs: 0.9, partnerReceives: receives, n: -1 }).ctx).toBeCloseTo(need * -1 * 0.3, 12);
+  it("any league: a contender (above 60%) counts n 1.3 times, either sign, at its league type's β_need; exactly 60% isn't one", () => {
+    expect(contextTerm({ leagueType: "redraft", pPlayoffs: 0.61, partnerReceives: [], n: 0.5 }).ctx).toBeCloseTo(config.acceptance.beta.need * 0.5 * 0.3, 12);
+    expect(contextTerm({ leagueType: "dynasty", pPlayoffs: 0.9, partnerReceives: receives, n: -1 }).ctx).toBeCloseTo(config.acceptance.beta.needDynasty * -1 * 0.3, 12);
     expect(contextTerm({ leagueType: "redraft", pPlayoffs: 0.6, partnerReceives: [], n: 0.5 })).toMatchObject({ ctx: 0, contender: false });
   });
 

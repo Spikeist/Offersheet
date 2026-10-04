@@ -4,19 +4,22 @@
  * same context and options give the same result; the only clock is the optional one for timings. Every number comes
  * from config.search, config.simulation and config.ranking (src/engine/evaluate.ts does the evaluating).
  *
- * Pools (§12 step 2; M6). Candidates are active-roster players with a model.
- * - G (mine): my top givePool by surplus score (TeamModel.players surplusScore: z(value) − z(MV_lose)) ∪ every trade
- *   chip of mine ∪ my must-include players, minus untouchables, minus P, K, D/ST and IDP unless includeKDefIdp; ⚠️ the
- *   filters come before the top givePool is taken (the pool is my top tradable players), and must-include players
- *   always stay (even untouchable ones).
+ * Pools (§12 step 2; M6). Candidates are players with a model on the active rosters and, with IR returners (planner reply
+ * to Checkpoint 4, change 5; league.ts step 5b, evaluate.ts rule 5), on the IRs: IR players appear in both pools.
+ * - G (mine): my top givePool by surplus score (TeamModel.players surplusScore: z(value) − z(MV_lose); an IR returner's
+ *   lineup cost is what losing him costs V*(me)'s lineups, no active spot opening; an IR player who isn't back this
+ *   season has no surplus score and ranks last) ∪ every trade chip of mine (active players) ∪ my must-include players,
+ *   minus untouchables, minus P, K, D/ST and IDP unless includeKDefIdp; ⚠️ the filters come before the top givePool is
+ *   taken (the pool is my top tradable players), and must-include players always stay (even untouchable ones).
  * - H (per partner P): P's players by MV_add(me, j) in EV lineups (league.ts's rule: V*(me) plus him minus the drop that
- *   makes room, the optimizer re-run from there, against V*(me)), keeping those above 0, after the position filters
+ *   makes room, the optimizer re-run from there, against V*(me)); an IR player of P whom an open IR slot of mine would
+ *   take (⚠️ judged on my IR before the trade; the slot takes his status) as a returner instead: what he adds to V*(me)'s
+ *   lineups, no drop. Keeping those above 0, after the position filters
  *   (targetPositions non-empty: only those; never avoidPositions; the K/D/ST/IDP rule): the top getPool players not
  *   tagged "Harder to get" for P (evaluate.harderToGetFor: e ≥ harderToGetMin, a top-12 player who is P's #1 or #2;
  *   planner addendum to Checkpoint 3, §2, lead decision N2) plus the top getPoolTagged tagged ones (star trades are still
- *   evaluated, and rank on their honest acceptance), in MV_add order ∪ P's must-include players. The pre-addendum model
- *   (TradeContextOptions.beforeAddendum) takes the top getPool by MV_add without the split.
- * - Must-include ids on no team's active roster are ignored (a note); must-include players on two or more other teams:
+ *   evaluated, and rank on their honest acceptance), in MV_add order ∪ P's must-include players.
+ * - Must-include ids on no team's active roster (or IR) are ignored (a note); must-include players on two or more other teams:
  *   no trade can hold them all (no trades, a note); one partner's: only that partner is searched; mine: every
  *   candidate contains them. opts.partnerId searches that partner only.
  *
@@ -32,23 +35,43 @@
  * (perception value; W = the waiver credit) is dropped when the same trade without him (same partner and players of
  * theirs, my side keeping at least one player) was screened and kept with an objective at least as high
  * (dominancePruned). Each partner then keeps its best keptPerPartner, and the best exactEvaluationMax over all partners go
- * to exact evaluation. Order everywhere: the screening objective (my ΔROS × quick P_accept), then the key. The
- * pre-addendum model (TradeContextOptions.beforeAddendum) doesn't prune.
+ * to exact evaluation. Order everywhere: the screening objective (my ΔROS × quick P_accept), then the key. Since the
+ * value floor (planner reply to Checkpoint 4, change 4) such a player adds 0 value to the partner's package (W on both
+ * sides when my side already gives at least as many players; nothing when he fills a spot the partner was owed) while
+ * costing the complexity term, so a variant with him screens better through the lineups or ⚠️ through the partner's g,
+ * which edges toward 0 and so rises when the partner loses value (market.ts's header).
  *
  * Final stages (M8). Every exact trade gets the screening simulation (the first block of seasons, screeningSims) → B
  * (λ and κ from the call's settings: lambda and "Protect my trade value", protectValue; evaluate.simulateTrade).
  * Finalists: ⚠️ the first config.search.finalists trades rankTrades keeps from those numbers with its caps relaxed by
- * one (perCore + 1 trades a core, perPartnerInTop20 + 1 a partner in the top 20; review of track E, item 3: at 1,000
- * seasons the order is noisy, and the strict caps dropped trades that rank near the top at 5,000), `finalists` in place
- * of resultsShown; then, if the caps left room, the best others by EG = B × P_complete (ties: the key), never one hidden
- * by default (B ≤ 0 or the market guard): so the final ranking has diverse trades to choose from rather than 40
- * variants of a few cores. They get the final simulation (the second block, finalSims seasons the screening never saw:
- * evaluate.ts); rankTrades on their numbers, with §13's strict caps, gives TradeSearchResult.trades. Then each shown trade
+ * one (perCore + 1 trades a core, perPartnerInTop20 + 1 a partner, perGivenPlayerInTop20 + 1 trades giving a player of
+ * mine; review of track E, item 3: at 1,000 seasons the order is noisy, and the strict caps dropped trades that rank near
+ * the top at 5,000), `finalists` in place of resultsShown, and ⚠️ the partner and given-player caps' window covering
+ * every finalist rather than the first 20 (rankCaps; final review of Phase 4b: the strict ranking applies those caps to
+ * its whole list until it keeps 20, which on Parker's league, Oct 3, it never did, so finalists 21–40, picked with no
+ * such cap, were mostly the players and partners already at it: 16 cards shown of 25); then, if the caps left room, the
+ * best others by EG = B × P_complete (ties: the key), never one hidden by default (B ≤ 0 or the market guard): so the
+ * final ranking has diverse trades to choose from rather than 40 variants of a few cores. They get the final simulation
+ * (the second block, finalSims seasons the screening never saw: evaluate.ts); rankTrades on their numbers, with §13's
+ * strict caps, gives TradeSearchResult.trades: on Parker's league (the 2026-10-03 21:29Z dump, default settings) 17
+ * cards, as many as ranking all 200 exact trades at final numbers keeps (16 before the window covered every finalist;
+ * the given-player cap keeps the list under 20 there). Then each shown trade
  * gets its "Offer first / if they say no" steps (planner addendum to Checkpoint 3, §4; lead decision N4: evaluate.ts
- * tradeSteps, the versions on the screening block, reusing the exact stage's evaluations) and its words (explain.ts, with
- * the app's names; the pitch names the offer-first version). The ranking stays on the ranked trades' numbers. Hidden counts:
- * the finalists' (rankTrades) plus the other exact trades the guards hide at screening numbers; TradeSearchResult.dropped
- * counts the finalists the final ranking's variety rules left out (rankTrades' dropped).
+ * tradeSteps, the versions on the screening block, reusing the exact stage's evaluations); one without steps gets a Plan B
+ * ("If they say no, try:", planner reply to Checkpoint 4, change 6; planB.ts: the best other exact trade with that partner
+ * by its rules, ⚠️ at least the steps' minAcceptGain likelier to go through than the card and never one the list shows as a
+ * card, from a pool fixed before any card picks, of every exact trade with its best numbers, a finalist's final ones; a
+ * chosen trade that wasn't a finalist is simulated on the final block first, once per key, ⚠️ not counted in
+ * counts.simFinal, which stays the finalists').
+ * ⚠️ The Plan Bs of the cards in the top-20 window keep to the given-player cap among themselves (planB.ts: in the cards'
+ * order, each box counts the players of mine its card doesn't give, and a candidate that would add one already added by
+ * that many boxes is skipped). Then its words and its injury tags (evaluate.ts withWords, as the Analyzer's: explain.ts
+ * with the app's names, the pitch naming the offer-first version; flags.tagged, explain.injuryTags from the snapshot with
+ * explain.tagContextOf: the week now and the League model's word on which conflicted Probable, Questionable or Doubtful
+ * players follow their ESPN return date). The ranking stays on the ranked trades' numbers. Hidden counts: the finalists'
+ * (rankTrades) plus the other exact trades the guards hide at screening numbers; TradeSearchResult.dropped counts the
+ * finalists the final ranking's variety rules left out (rankTrades' dropped, its given-player cap's `givenPlayer` too, on
+ * every path).
  *
  * One partner (⚠️ ours, end-of-Phase-4 review, finding 5): a search of a single partner (opts.partnerId, must-include
  * players of theirs, or a league with one other team: Pools.partners holds one team) ranks without the per-partner cap,
@@ -62,8 +85,9 @@
  * picks (M11: ⚠️ deferred to Phase 5; with includePicks on in a dynasty or keeper league, a note says so).
  *
  * Progress (M8, M14): the generator yields between units of work (a batch of screens, each exact trade, each final
- * simulation, each shown trade's steps: reported under the "rank" stage, one unit per shown trade), so a worker can slice
- * it and stop it. Timings: one key per TradeSearchStage, "steps" (the shown trades' steps and words) and "total".
+ * simulation, each shown trade's steps and Plan B: reported under the "rank" stage, one unit per shown trade, with a
+ * yield before each of Plan B's simulations too), so a worker can slice it and stop it. Timings: one key per
+ * TradeSearchStage, "steps" (the shown trades' steps, Plan B and words) and "total".
  */
 import { benefit, benefitNotes } from "./benefit";
 import { config } from "./config";
@@ -86,9 +110,11 @@ import {
 } from "./evaluate";
 import { addValueOf, baseFor, startablePositions } from "./league";
 import type { Pos } from "./model";
+import { addGainExact } from "./teamValue";
+import { addedGiven, choosePlanB, givenCapSkip, planBCandidates, planBConfig, type PlanBConfig } from "./planB";
 import { rankTrades, type RankConfig } from "./rank";
 import { defaultTradeSettings, normalizeTradeSettings, type TradeSettings } from "./settings";
-import type { TradeAsset, TradeEvaluation, TradeEvaluationCore, TradeSearchProgress, TradeSearchResult, TradeSearchStage } from "./tradeModel";
+import type { PlanB, TradeAsset, TradeEvaluation, TradeEvaluationCore, TradeSearchProgress, TradeSearchResult, TradeSearchStage } from "./tradeModel";
 
 export interface TradeSearchOptions {
   /** The user's settings (maxPerSide, untouchables, mustInclude, target/avoid positions, includeKDefIdp, includePicks, lambda, protectValue). Default: defaultTradeSettings(). */
@@ -97,6 +123,12 @@ export interface TradeSearchOptions {
   partnerId?: string | null;
   /** Milliseconds (performance.now in the browser) for TradeSearchResult.timings; without it the timings are empty. */
   clock?: () => number;
+  /**
+   * Report switch (the app never sets it): Plan B's rules in place of config's (planB.ts planBConfig), for instance
+   * `{ minAcceptGain: null }` (no "likelier to go through" rule: the planner's rules as first read) or
+   * `{ givenPlayerCap: null }` (Plan B's offers not capped), so a report can measure what each rule does.
+   */
+  planB?: Partial<PlanBConfig>;
 }
 
 /** Gains closer than this are ties (float noise, not a tunable). */
@@ -149,23 +181,25 @@ export function buildPools(I: TradeInternals, settings: TradeSettings, partnerId
   const excluded = new Set<Pos>(settings.includeKDefIdp ? [] : config.market.tradeSearchExcluded);
   const untouchable = new Set(settings.untouchables);
 
-  // Must-include players: mine, one partner's, or nobody's (ignored).
+  // Must-include players: mine, one partner's, or nobody's (ignored). Tradable: active-roster players and, with IR
+  // returners (evaluate.ts rule 5), IR players.
+  const tradableOf = (t: TeamState): readonly string[] => (I.irOn ? [...t.roster, ...t.ir] : t.roster);
   const forcedGive: string[] = [];
   const forcedBy = new Map<string, string[]>();
   let ignored = 0;
   for (const id of settings.mustInclude) {
-    if (me.roster.includes(id)) {
+    if (tradableOf(me).includes(id)) {
       forcedGive.push(id);
       continue;
     }
-    const owner = I.teams.find((t) => t !== me && t.roster.includes(id));
+    const owner = I.teams.find((t) => t !== me && tradableOf(t).includes(id));
     if (!owner) {
       ignored++;
       continue;
     }
     forcedBy.set(owner.id, [...(forcedBy.get(owner.id) ?? []), id]);
   }
-  if (ignored > 0) notes.push(`${ignored === 1 ? "1 must-include player isn't" : `${ignored} must-include players aren't`} on any team's active roster, so ${ignored === 1 ? "it's" : "they're"} ignored.`);
+  if (ignored > 0) notes.push(`${ignored === 1 ? "1 must-include player isn't" : `${ignored} must-include players aren't`} on any team's active roster${I.irOn ? " or IR" : ""}, so ${ignored === 1 ? "it's" : "they're"} ignored.`);
   if (forcedBy.size >= 2) return stop("Your must-include players are on different teams, and a trade is with one team, so no trade can include them all.");
   if (forcedGive.length > maxPerSide) return stop(`You must include ${forcedGive.length} of your players, more than the ${maxPerSide} a side your settings allow.`);
   const [forcedTeam, forcedGet] = [...forcedBy.entries()][0] ?? [null, []];
@@ -178,11 +212,12 @@ export function buildPools(I: TradeInternals, settings: TradeSettings, partnerId
   }
   if (!partners.length) return stop("Pick a team to trade with.");
 
-  // G: my top tradable players by surplus score, my trade chips, my must-include players.
+  // G: my top tradable players by surplus score (my IR returners included: TeamModel.players ranks them by their lineup
+  // cost from V*(me)'s lineups), my trade chips, my must-include players.
   const myModel = I.model.teams[me.index];
   const tradable = (id: string) => hasRow(id) && !untouchable.has(id) && !excluded.has(posOf(id) as Pos);
   const surplus = (id: string) => myModel?.players[id]?.surplusScore ?? Number.NEGATIVE_INFINITY;
-  const top = me.roster
+  const top = [...new Set(tradableOf(me))]
     .filter(tradable)
     .sort((a, b) => surplus(b) - surplus(a) || (a < b ? -1 : a > b ? 1 : 0))
     .slice(0, Math.max(0, Math.floor(config.search.givePool)));
@@ -198,28 +233,33 @@ export function buildPools(I: TradeInternals, settings: TradeSettings, partnerId
   const wanted = (pos: Pos | undefined) => pos !== undefined && !excluded.has(pos) && !avoid.has(pos) && (target.size === 0 || target.has(pos));
   const getPool = Math.max(0, Math.floor(config.search.getPool));
   const getPoolTagged = Math.max(0, Math.floor(config.search.getPoolTagged));
+  // A partner's IR player comes to me as a returner when I'd have an open IR slot (⚠️ judged before any trade: my IR as it
+  // stands) and the slot takes his status (evaluate.ts rule 5): MV_add is then what he adds to V*(me)'s lineups, no drop.
+  const myIrOpen = I.irOn && me.ir.length < Math.max(0, Math.floor(I.snapshot.settings.irSlots));
   for (const p of partners) {
     const forced = p.id === forcedTeam ? forcedGet : [];
     const scored: { id: string; mv: number }[] = [];
-    for (const id of p.roster) {
+    for (const id of new Set(tradableOf(p))) {
       const row = I.league.table.rows.get(id);
       if (!row || forced.includes(id) || !wanted(row.pos)) continue;
-      const base = baseFor(I.league, I.bases, me.index, row.pos);
-      if (!base) continue;
-      const mv = addValue(me.index, base, row, I.league.maskOf(row), false);
+      const mask = I.league.maskOf(row);
+      let mv: number;
+      if (myIrOpen && p.ir.includes(id) && I.irEligible.has(I.snapshot.players[id]?.injury ?? "ACTIVE")) {
+        mv = addGainExact(me.vstar.solved, row, mask, I.weights).gain;
+      } else {
+        const base = baseFor(I.league, I.bases, me.index, row.pos);
+        if (!base) continue;
+        mv = addValue(me.index, base, row, mask, false);
+      }
       if (mv > EPS) scored.push({ id, mv });
     }
     scored.sort((a, b) => (Math.abs(b.mv - a.mv) > EPS ? b.mv - a.mv : a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-    let top: string[];
-    if (I.beforeAddendum) top = scored.slice(0, getPool).map((x) => x.id);
-    else {
-      // The top getPool untagged and the top getPoolTagged tagged, kept in MV_add order.
-      let untagged = 0;
-      let tagged = 0;
-      top = [];
-      for (const x of scored) {
-        if (harderToGetFor(I, p.id, x.id) ? tagged++ < getPoolTagged : untagged++ < getPool) top.push(x.id);
-      }
+    // The top getPool untagged and the top getPoolTagged tagged, kept in MV_add order.
+    let untagged = 0;
+    let tagged = 0;
+    const top: string[] = [];
+    for (const x of scored) {
+      if (harderToGetFor(I, p.id, x.id) ? tagged++ < getPoolTagged : untagged++ < getPool) top.push(x.id);
     }
     const pool = [...top, ...forced];
     out.get.set(p.id, { pool, forced });
@@ -359,9 +399,9 @@ export function* partnerCandidates(I: TradeInternals, partner: TeamState, pool: 
 }
 
 /**
- * Whether a player is worth less than the waiver credit W (perception values, the values g reads; a player without one
- * counts 0): "a player of mine worth less than W" in the dominance pruning (lead decision N11; dominancePruned). With no
- * market values W is 0 and nobody is.
+ * Whether a player is worth less than the waiver credit W (raw perception values; a player without one counts 0; every
+ * package counts such a player at W): "a player of mine worth less than W" in the dominance pruning (lead decision N11;
+ * dominancePruned). With no market values W is 0 and nobody is.
  */
 export function belowWaiverCredit(I: Pick<TradeInternals, "values" | "credit">): (id: string) => boolean {
   const W = I.credit;
@@ -392,8 +432,8 @@ export function dominancePruned(list: readonly Screened[], cheap: (id: string) =
 /**
  * The trades exact evaluation takes from the screening (M7): each partner's candidates inside the screeningGWindow on
  * g_mkt(P) (a non-finite g is outside), without the dominated ones when `cheap` is given (N11: dominancePruned with my
- * players worth less than W; null, the pre-addendum model: no pruning), that partner's best keptPerPartner, then the best
- * exactEvaluationMax over all partners. Order: the objective, then the key.
+ * players worth less than W, as the search passes it; null: no pruning, for reports that measure it), that partner's
+ * best keptPerPartner, then the best exactEvaluationMax over all partners. Order: the objective, then the key.
  */
 export function shortlistOf(perPartner: readonly (readonly Screened[])[], cheap: ((id: string) => boolean) | null = null): Screened[] {
   const [gLo, gHi] = config.search.screeningGWindow;
@@ -408,37 +448,49 @@ export function shortlistOf(perPartner: readonly (readonly Screened[])[], cheap:
 
 /**
  * The caps a ranking in the search reads (rank.ts; §13): config's (the final ranking, resultsShown trades), or `relaxed`
- * (the finalists): one looser per core and per partner in the top 20, and config.search.finalists trades. `onePartner`
- * (the file header, "One partner"): no per-partner cap at all; the per-core and filler rules stay.
+ * (the finalists): one looser per core, per partner and per player of mine given, over every finalist (the partner and
+ * given-player caps' window covers all config.search.finalists of them: the file header, "Final stages"), and
+ * config.search.finalists trades. `onePartner` (the file header, "One partner"): no per-partner cap at all; the per-core,
+ * given-player and filler rules stay.
  */
 export function rankCaps(opts: { relaxed: boolean; onePartner: boolean }): RankConfig {
   const loosen = opts.relaxed ? 1 : 0;
+  const finalists = Math.max(0, Math.floor(config.search.finalists));
   return {
     perPartnerInTop20: opts.onePartner ? Number.POSITIVE_INFINITY : config.ranking.perPartnerInTop20 + loosen,
-    partnerCapTop: config.ranking.partnerCapTop,
+    partnerCapTop: opts.relaxed ? Math.max(config.ranking.partnerCapTop, finalists) : config.ranking.partnerCapTop,
+    // ⚠️ Ours: one partner keeps it (a one-team list that sells the same player of mine again and again needs it too).
+    perGivenPlayerInTop20: config.ranking.perGivenPlayerInTop20 + loosen,
     perCore: config.ranking.perCore + loosen,
     fillerCutoffFraction: config.ranking.fillerCutoffFraction,
-    resultsShown: opts.relaxed ? Math.max(0, Math.floor(config.search.finalists)) : config.search.resultsShown,
+    resultsShown: opts.relaxed ? finalists : config.search.resultsShown,
     marketHideBelow: config.benefit.marketHideBelow,
   };
 }
 
+/** EG = B × P_complete (−∞ without B): the order the finalists' last places are filled in. */
+const egOf = (c: TradeEvaluationCore): number => (c.b === null ? Number.NEGATIVE_INFINITY : c.b * c.pComplete);
+
+/** Hidden by default at these numbers (§10 guards): B ≤ 0 or unknown, or the market guard. */
+const hiddenAt = (c: TradeEvaluationCore): boolean => c.b === null || !(c.b > 0) || c.flags.hiddenByMarket;
+
+/** EG, highest first, then the key. */
+const byEgThenKey = (a: TradeEvaluationCore, b: TradeEvaluationCore): number => (Math.abs(egOf(b) - egOf(a)) > EPS ? egOf(b) - egOf(a) : byKey(a, b));
+
 /**
  * The finalists (the file header, "Final stages") among the trades with screening numbers: the first
- * config.search.finalists that rankTrades keeps with its per-core and per-partner caps relaxed by one (no per-partner cap
- * when `onePartner`: the file header's "One partner"), then, while room is left, the best others by EG = B × P_complete
- * (ties: the key) that aren't hidden by default. Also the counts of the others the guards hide (B ≤ 0 or unknown: by
- * benefit; else the market guard).
+ * config.search.finalists that rankTrades keeps with its per-core, per-partner and given-player caps relaxed by one, the
+ * caps' window covering every finalist (rankCaps; no per-partner cap when `onePartner`: the file header's "One
+ * partner"), then, while room is left, the best others by EG = B × P_complete (ties: the key) that aren't hidden by
+ * default. Also the counts of the others the guards hide (B ≤ 0 or unknown: by benefit; else the market guard).
  */
 export function finalistsOf(cores: readonly TradeEvaluationCore[], value: (asset: TradeAsset) => number, onePartner = false): { keys: Set<string>; hidden: { byBenefit: number; byMarket: number } } {
-  const eg = (c: TradeEvaluationCore) => (c.b === null ? Number.NEGATIVE_INFINITY : c.b * c.pComplete);
-  const hiddenAt = (c: TradeEvaluationCore) => c.b === null || !(c.b > 0) || c.flags.hiddenByMarket;
   const maxFinalists = Math.max(0, Math.floor(config.search.finalists));
   // Relaxed by one (review of track E, item 3): at 1,000 seasons the order is noisy, and the strict caps dropped trades the
   // 5,000-season numbers rank near the top. The strict rules apply in the final ranking.
   const pre = rankTrades(cores.map(bare), value, rankCaps({ relaxed: true, onePartner }));
   const keys = new Set(pre.trades.map((t) => t.key));
-  const rest = cores.filter((c) => !keys.has(c.key) && !hiddenAt(c)).sort((a, b) => (Math.abs(eg(b) - eg(a)) > EPS ? eg(b) - eg(a) : byKey(a, b)));
+  const rest = cores.filter((c) => !keys.has(c.key) && !hiddenAt(c)).sort(byEgThenKey);
   for (const c of rest) {
     if (keys.size >= maxFinalists) break;
     keys.add(c.key);
@@ -471,7 +523,8 @@ export function* tradeSearch(ctx: TradeContext, opts: TradeSearchOptions = {}): 
   };
   const settings = normalizeTradeSettings(opts.settings ?? defaultTradeSettings());
   const counts = { screened: 0, exact: 0, simScreen: 0, simFinal: 0 };
-  const noDrops = { partnerCap: 0, core: 0, filler: 0 };
+  // The same keys rankTrades counts (its `givenPlayer` too), whichever path returns.
+  const noDrops = { partnerCap: 0, core: 0, filler: 0, givenPlayer: 0 };
   const result = (trades: TradeEvaluation[], hidden: TradeSearchResult["hidden"], notes: string[], dropped: NonNullable<TradeSearchResult["dropped"]> = noDrops): TradeSearchResult => {
     if (clock) timings.total = last - start;
     const base = I.sim && I.me ? I.sim.base.final : null;
@@ -516,8 +569,8 @@ export function* tradeSearch(ctx: TradeContext, opts: TradeSearchOptions = {}): 
     perPartner.push(r.value);
     yield { stage: "screening", done: pi + 1, total: pools.partners.length };
   }
-  // The dominance pruning (N11) only in the addendum's model.
-  const chosen = shortlistOf(perPartner, I.beforeAddendum ? null : belowWaiverCredit(I));
+  // The dominance pruning (N11).
+  const chosen = shortlistOf(perPartner, belowWaiverCredit(I));
   mark("screening");
 
   // Exact evaluation (§12 step 3).
@@ -567,9 +620,34 @@ export function* tradeSearch(ctx: TradeContext, opts: TradeSearchOptions = {}): 
   const ranked = rankTrades(finals.map(bare), value, rankCaps({ relaxed: false, onePartner }));
   mark("rank");
 
-  // The shown trades' steps ("Offer first / if they say no", N4) and words: the pitch names the offer-first version.
+  // The shown trades' steps ("Offer first / if they say no", N4), a Plan B for each one without steps (planB.ts), their
+  // words (the pitch names the offer-first version) and their injury tags.
   const versions = new Map<string, TradeVersion>(screened.map((s) => [s.core.key, { x: s.x, screen: s.core }]));
+  // Plan B's pool, fixed before any card picks: every exact trade with its best numbers (a finalist's final ones). A
+  // candidate that isn't a finalist is simulated on the final block once, whichever card asks first.
+  const finalByKey = new Map<string, TradeEvaluationCore>(finals.map((c) => [c.key, c]));
+  const exactByKey = new Map<string, ExactTrade>(screened.map((s) => [s.core.key, s.x]));
+  const planBPool = screened.map((s) => finalByKey.get(s.core.key) ?? s.core);
+  const finalOf = (core: TradeEvaluationCore): TradeEvaluationCore => {
+    const known = finalByKey.get(core.key);
+    if (known) return known;
+    const x = exactByKey.get(core.key);
+    if (!x) return core;
+    const sim = simulateTrade(I, x, "final", settings.lambda, settings.protectValue);
+    finalByKey.set(core.key, sim);
+    return sim;
+  };
+  const planBCfg: PlanBConfig = { ...planBConfig(), ...opts.planB };
+  // The given-player cap on the Plan B boxes (planB.ts): the boxes of the cards in the cap's top-20 window, each counting
+  // the players of mine its card doesn't give, in the cards' order.
+  const capWindow = Math.max(0, Math.floor(config.ranking.partnerCapTop));
+  const inBoxes = new Map<string, number>();
+  const count = (ids: readonly string[]) => {
+    for (const id of ids) inBoxes.set(id, (inBoxes.get(id) ?? 0) + 1);
+  };
   const shown: TradeEvaluation[] = [];
+  // A box never names a trade the list shows as a card (planB.ts: the card above or below already offers it).
+  const shownKeys = new Set(ranked.trades.map((t) => t.key));
   const total = Math.max(1, ranked.trades.length);
   for (let i = 0; i < ranked.trades.length; i++) {
     const { reasons: _reasons, pitch: _pitch, ...core } = ranked.trades[i] as TradeEvaluation;
@@ -577,7 +655,20 @@ export function* tradeSearch(ctx: TradeContext, opts: TradeSearchOptions = {}): 
     void _pitch;
     const version = versions.get(core.key);
     const steps = version ? tradeSteps(I, version, { settings, maxPerSide, versions }) : null;
-    shown.push(withWords(I, steps ? { ...core, steps } : core));
+    let planB: PlanB | null = null;
+    if (!steps) {
+      const inWindow = i < capWindow;
+      const skip = inWindow ? givenCapSkip(core.proposal, inBoxes, planBCfg.givenPlayerCap) : undefined;
+      const it = choosePlanB(core, planBCandidates(core, planBPool, planBCfg, shownKeys), finalOf, planBCfg, skip);
+      let r = it.next();
+      while (!r.done) {
+        yield { stage: "rank", done: i, total };
+        r = it.next();
+      }
+      planB = r.value;
+      if (planB && inWindow) count(addedGiven(core.proposal, planB.proposal));
+    }
+    shown.push(withWords(I, { ...core, ...(steps ? { steps } : {}), ...(planB ? { planB } : {}) }));
     yield { stage: "rank", done: i + 1, total };
   }
   if (!ranked.trades.length) yield { stage: "rank", done: 1, total: 1 };

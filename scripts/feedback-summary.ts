@@ -14,14 +14,22 @@
  * - Totals: trade ideas with feedback, leagues (an export numbers them, league-1, league-2, …; a bare list keys
  *   them by their short hash), with an outcome, with a report, with a note.
  * - By outcome: each trade idea's latest outcome (Sent, Accepted, Rejected, Countered).
+ * - By version sent (planner reply to Checkpoint 4, change 6 and answer 8; FeedbackRecord.version): each latest outcome
+ *   by the version of the trade idea that was sent (the first offer, the full trade, or "If they say no, try:"), and
+ *   "Unknown" for records without one (made before Phase 4b); per version, how many sent the card's own trade
+ *   (sentCardTrade: the record's numbers and features are the sent trade's only then; review of track F: "full" is the
+ *   card's own trade on a plain card, but the card plus its throw-in when the card is the first offer). ⚠️ Records keep
+ *   only the sent version's estimate, not its features (a TradeStep carries only its acceptance terms and a PlanB no model
+ *   inputs at all: a question for the lead).
  * - By reason: how many reports gave each Report reason, and the average numbers and acceptance features
  *   (§11's g, n, h, c, a, hist, ctx, hot, urg and the logit z) of those trade ideas as the card showed them:
  *   what the model saw when people said it was wrong.
  * - By model part (§11 "How the data is used"): the acceptance model (refit: "They'd never accept" reports and
  *   Rejected outcomes), benefit and projections ("Doesn't help me": review those cases), the data import
  *   (wrong player info or league settings: the adapters' bug queue), and read by hand ("Other").
- * - Acceptance calibration: trade ideas binned by the predicted P_accept, on the card's own bins and labels
- *   (config.acceptance.labels: Long shot under 15%, Possible, Decent, Likely from 55%), against what happened:
+ * - Acceptance calibration: trade ideas binned by the predicted P_accept (the sent version's, as its line on the card
+ *   showed it, when the record has one: the prediction the user acted on; else the card's own), on the card's own bins
+ *   and labels (config.acceptance.labels: Long shot under 15%, Possible, Decent, Likely from 55%), against what happened:
  *   decided = Accepted + Rejected, the observed acceptance rate next to the mean prediction, and per bin the
  *   Countered outcomes, the ones only Sent (no answer yet) and the "They'd never accept" reports. Small bins are
  *   noise: a rate needs a few dozen decided trades before it says much.
@@ -33,14 +41,17 @@ import { config } from "@/engine/config";
 import {
   FEEDBACK_OUTCOMES,
   FEEDBACK_REASONS,
+  FEEDBACK_VERSIONS,
   MODEL_PART_LABEL,
   OUTCOME_LABEL,
   REASON_LABEL,
   REASON_MODEL_PART,
+  VERSION_LABEL,
   parseFeedbackExport,
   type FeedbackOutcome,
   type FeedbackReason,
   type FeedbackRecord,
+  type FeedbackVersion,
   type ModelPart,
 } from "@/lib/feedbackStore";
 
@@ -77,6 +88,22 @@ export interface CalibrationBin {
   observed: number | null;
 }
 
+/** One row of "By version sent": the trade ideas with an outcome whose sent version is this one ("unknown": none recorded). */
+export interface VersionSummary {
+  version: FeedbackVersion | "unknown";
+  label: string;
+  /** Trade ideas with an outcome, and each latest outcome. */
+  total: number;
+  outcomes: Record<FeedbackOutcome, number>;
+  /**
+   * Of `total`, the ones that sent the card's own trade (sentCardTrade): their record's numbers and features are the sent
+   * trade's. The others' are the card's, not the version sent (review of track F: "full" is the card's own trade on a
+   * plain card and when the ranked trade holds the throw-in, but the card plus its throw-in when the card is the first
+   * offer; a Plan B is never the card's).
+   */
+  cardOwn: number;
+}
+
 export interface FeedbackSummary {
   total: number;
   leagues: number;
@@ -84,6 +111,7 @@ export interface FeedbackSummary {
   withReport: number;
   withNote: number;
   byOutcome: Record<FeedbackOutcome, number>;
+  byVersion: VersionSummary[];
   byReason: ReasonSummary[];
   byModelPart: { part: ModelPart; label: string; reports: number; rejected: number }[];
   calibration: CalibrationBin[];
@@ -116,8 +144,32 @@ export function calibrationBins(): Pick<CalibrationBin, "label" | "from" | "to">
   });
 }
 
+/** The predicted P_accept a record's outcome answers (the file header): the sent version's when recorded, else the card's. */
+export function predictedAccept(record: FeedbackRecord): number | null {
+  const sent = record.versionAccept?.pAccept;
+  return typeof sent === "number" && Number.isFinite(sent) ? sent : record.numbers.pAccept;
+}
+
+/**
+ * Whether a record's outcome is about the card's own trade, the one its numbers and features describe: no other version
+ * was recorded (no version key, as a plain card's or an older record's), or the sent version's key is the card's.
+ */
+export function sentCardTrade(record: Pick<FeedbackRecord, "tradeKey" | "versionKey">): boolean {
+  return record.versionKey === undefined || record.versionKey === record.tradeKey;
+}
+
 export function summarizeFeedback(records: readonly FeedbackRecord[]): FeedbackSummary {
   const byOutcome = Object.fromEntries(FEEDBACK_OUTCOMES.map((o) => [o, records.filter((r) => r.outcome?.kind === o).length])) as Record<FeedbackOutcome, number>;
+  const byVersion: VersionSummary[] = [...FEEDBACK_VERSIONS, "unknown" as const].map((version) => {
+    const mine = records.filter((r) => r.outcome && (r.version ?? "unknown") === version);
+    return {
+      version,
+      label: version === "unknown" ? "Unknown (not recorded)" : VERSION_LABEL[version],
+      total: mine.length,
+      outcomes: Object.fromEntries(FEEDBACK_OUTCOMES.map((o) => [o, mine.filter((r) => r.outcome?.kind === o).length])) as Record<FeedbackOutcome, number>,
+      cardOwn: mine.filter(sentCardTrade).length,
+    };
+  });
   const byReason = FEEDBACK_REASONS.map((reason) => {
     const mine = records.filter((r) => r.report?.reason === reason);
     return { reason, label: REASON_LABEL[reason], count: mine.length, averages: averages(mine) };
@@ -134,7 +186,7 @@ export function summarizeFeedback(records: readonly FeedbackRecord[]): FeedbackS
   const calibration: CalibrationBin[] = calibrationBins().map((b) => ({ ...b, decided: 0, accepted: 0, rejected: 0, countered: 0, pending: 0, neverAccept: 0, meanPredicted: null, observed: null }));
   const predictedSum = new Map<CalibrationBin, number>();
   for (const r of records) {
-    const p = r.numbers.pAccept;
+    const p = predictedAccept(r);
     if (p === null) {
       unpredicted++;
       continue;
@@ -165,6 +217,7 @@ export function summarizeFeedback(records: readonly FeedbackRecord[]): FeedbackS
     withReport: records.filter((r) => r.report).length,
     withNote: records.filter((r) => r.report?.note).length,
     byOutcome,
+    byVersion,
     byReason,
     byModelPart,
     calibration,
@@ -195,6 +248,17 @@ export function formatSummary(summary: FeedbackSummary, notes?: readonly { reaso
 
   lines.push("## By outcome (the latest per trade idea)", "");
   lines.push(...table(["Outcome", "Trade ideas"], FEEDBACK_OUTCOMES.map((o) => [OUTCOME_LABEL[o], s.byOutcome[o]])), "");
+
+  lines.push("## By version sent", "");
+  lines.push(
+    ...table(
+      ["Version", "Trade ideas", ...FEEDBACK_OUTCOMES.map((o) => OUTCOME_LABEL[o]), "The card's own trade"],
+      s.byVersion.map((v) => [v.label, v.total, ...FEEDBACK_OUTCOMES.map((o) => v.outcomes[o]), v.cardOwn]),
+    ),
+    "",
+    "Each trade idea with an outcome, by the version of it that was sent (asked when its card showed more than one). Unknown: records made before versions were recorded. The card's own trade: how many sent the trade the card ranked, whose numbers and features the record keeps; for the rest (a first offer without the throw-in, the throw-in added to a first offer, a Plan B) the record keeps the card's numbers, not the version's, except its estimate.",
+    "",
+  );
 
   lines.push("## By reason", "");
   lines.push(

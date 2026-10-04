@@ -15,13 +15,22 @@
  *   only the outcome or the report.
  * - `outcome` is the latest outcome pressed (Sent, then Accepted); `report` the latest report. Passing null
  *   clears either one (the card's buttons toggle), and a record left with neither is removed.
+ * - Which version was sent (planner reply to Checkpoint 4, change 6 and answer 8: recorded now, analyzed in Phase 6):
+ *   a card can show more than one version of a trade idea (the first offer and the full one of "How to offer it"; the
+ *   trade and its "If they say no, try:"), so the first outcome pressed while none is recorded asks which one (a plain
+ *   card's only version, "full", is recorded without asking). The record keeps `version` ("offerFirst", "full" or
+ *   "planB"), that version's trade key (`versionKey`) and its estimate as its line on the card showed it
+ *   (`versionAccept`: the prediction the user acted on, which the summary's calibration reads). Later outcomes keep it;
+ *   clearing the outcome clears it (it belongs to the sending). A record without one (made before Phase 4b, or a
+ *   version not given) reads as unknown.
  * - The list runs from the least to the most recently touched record and keeps the newest
  *   FEEDBACK_MAX_RECORDS (500), so a busy season never fills the browser's storage.
  * - Numbers and features that weren't finite (B before a simulation, for example) are kept as null.
  *
  * Privacy: a record holds no names, no league id and nothing about anyone's account: player ids (canonical:
  * Sleeper's), the platform's team id of the partner, the league's short hash, the model's numbers and features,
- * and the time of each press. The note is the user's own words (trimmed, at most FEEDBACK_NOTE_MAX characters).
+ * which version was sent (its key: the same team and player ids) and the time of each press. The note is the user's
+ * own words (trimmed, at most FEEDBACK_NOTE_MAX characters).
  * The short hash isn't anonymous (an ESPN league id is a small number: hashing every possible id finds it in
  * seconds, and the record id made from it gives it away the same way), so the export, a file meant to be
  * shared, numbers the leagues instead and makes each record id again from that number (feedbackExport).
@@ -63,6 +72,28 @@ export const REASON_LABEL: Record<FeedbackReason, string> = {
   settings: "League settings look wrong",
   other: "Other",
 };
+
+/**
+ * The versions of a trade idea a card can show (the header): the first offer of "How to offer it", the full trade (the
+ * card's own, or the full version of its steps), and "If they say no, try:" (Plan B).
+ */
+export const FEEDBACK_VERSIONS = ["offerFirst", "full", "planB"] as const;
+export type FeedbackVersion = (typeof FEEDBACK_VERSIONS)[number];
+
+/** The versions in words, for the summary. */
+export const VERSION_LABEL: Record<FeedbackVersion, string> = {
+  offerFirst: "First offer",
+  full: "Full trade",
+  planB: "If they say no (Plan B)",
+};
+
+/** The version sent, as a press passes it: which one, its trade key, and its estimate as its line on the card showed it. */
+export interface FeedbackSent {
+  version: FeedbackVersion;
+  key: string;
+  pAccept: number | null;
+  pComplete: number | null;
+}
 
 /** The part of Offer Sheet a report points at (§11 "How the data is used"). */
 export type ModelPart = "acceptance" | "benefit" | "adapters" | "review";
@@ -119,14 +150,23 @@ export interface FeedbackRecord {
   numbers: FeedbackNumbers;
   features: FeedbackFeatures;
   outcome?: { kind: FeedbackOutcome; at: string };
+  /** Which version was sent (the header), with the outcome only; absent = unknown. */
+  version?: FeedbackVersion;
+  /** The sent version's trade key (TradeEvaluation.key, a TradeStep's or a PlanB's). */
+  versionKey?: string;
+  /** The sent version's estimate as its line on the card showed it (null where it wasn't finite). */
+  versionAccept?: { pAccept: number | null; pComplete: number | null };
   report?: { reason: FeedbackReason; note?: string; at: string };
 }
 
 /** The parts of a trade's evaluation a record keeps (a full TradeEvaluation fits). */
 export type FeedbackEvaluation = Pick<TradeEvaluation, "key" | "proposal" | "features" | keyof FeedbackNumbers>;
 
-/** One press: set (or, with null, clear) the outcome or the report. */
-export type FeedbackChange = { outcome: FeedbackOutcome | null } | { report: { reason: FeedbackReason; note?: string | undefined } | null };
+/**
+ * One press: set (or, with null, clear) the outcome or the report. An outcome may say which version was sent (`sent`:
+ * recorded with it; without it, a version already recorded stays).
+ */
+export type FeedbackChange = { outcome: FeedbackOutcome | null; sent?: FeedbackSent | undefined } | { report: { reason: FeedbackReason; note?: string | undefined } | null };
 
 export const FEEDBACK_SAVE_FAILED =
   "Your browser wouldn't let Offer Sheet save this (its storage is full or blocked for this site), so it wasn't kept. Allow site data for Offer Sheet and try again.";
@@ -196,8 +236,22 @@ export function applyFeedback(
         features: feedbackFeatures(evaluation.features),
       };
   if ("outcome" in change) {
-    if (change.outcome === null) delete next.outcome;
-    else next.outcome = { kind: change.outcome, at };
+    if (change.outcome === null) {
+      // The version belongs to the sending: it goes with the outcome.
+      delete next.outcome;
+      delete next.version;
+      delete next.versionKey;
+      delete next.versionAccept;
+    } else {
+      next.outcome = { kind: change.outcome, at };
+      const sent = change.sent;
+      if (sent && (FEEDBACK_VERSIONS as readonly unknown[]).includes(sent.version)) {
+        next.version = sent.version;
+        if (isText(sent.key)) next.versionKey = sent.key;
+        else delete next.versionKey;
+        next.versionAccept = { pAccept: finite(sent.pAccept), pComplete: finite(sent.pComplete) };
+      }
+    }
   } else if (change.report === null) {
     delete next.report;
   } else {
@@ -253,6 +307,13 @@ export function parseFeedbackRecord(x: unknown): FeedbackRecord | null {
   if (o !== undefined) {
     if (!isRecordLike(o) || !(FEEDBACK_OUTCOMES as readonly unknown[]).includes(o.kind) || !isText(o.at)) return null;
     record.outcome = { kind: o.kind as FeedbackOutcome, at: o.at };
+    // The sent version (Phase 4b) goes with the outcome; one that isn't readable is left out (the record stays: older
+    // and newer records alike read).
+    if ((FEEDBACK_VERSIONS as readonly unknown[]).includes(x.version)) {
+      record.version = x.version as FeedbackVersion;
+      if (isText(x.versionKey)) record.versionKey = x.versionKey;
+      if (isRecordLike(x.versionAccept)) record.versionAccept = { pAccept: finite(x.versionAccept.pAccept), pComplete: finite(x.versionAccept.pComplete) };
+    }
   }
   const r = x.report;
   if (r !== undefined) {

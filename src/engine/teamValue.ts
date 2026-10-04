@@ -10,7 +10,9 @@
  * (§6 step 4), their weekly SDs (§6 step 5: σ = c_pos × points + d_pos, for c_w and for p_w) and S
  * availability scenarios (flags from availability.scenarioAvailability, drawn with common random
  * numbers, so a player's scenarios never depend on his team). Weeks are LeagueModel.weeks. A roster is
- * its ACTIVE players (team.roster): IR and taxi players never start and are not candidates.
+ * its ACTIVE players (team.roster); league.ts adds a team's streaming rows and its IR returners (Phase 4b: IR players
+ * expected back, optimizer.StreamSpec.returners) wherever it values the team's lineup. Taxi players never start, and IR
+ * players start only as returners.
  *
  * Streaming (CLAUDE.md §7 "Streaming positions"; Phase 4): a team that streams a position gets one virtual
  * row for it (streamRow, id `stream:<POS>`) whose points each week are the streaming replacement
@@ -40,8 +42,11 @@
  *   average-case lineup but starts in every scenario where a star is hurt, so depth counts. Per week one
  *   sort serves every scenario (lineupOrder), and scenarios in which the same players who could score
  *   are available (the same bitmask) share one solve: memoized per week, within a call. A row without
- *   flags counts as never available in scenarios (only IR and taxi players lack them, and they never
- *   start).
+ *   flags counts as never available in scenarios (only taxi players lack them, and they never start;
+ *   since Phase 4b IR players get flags, so a returner comes back in scenarios as his availability says).
+ * - A player dropped from a week on (the roster spot an IR returner needs, league.ts step 5b): maskedRow
+ *   zeroes his row from that week, and solveEvWeeksMasked / scenarioValuesMasked price the roster with it
+ *   from the lineups without the mask, solving only the weeks (scenario patterns) where he started.
  * - The weekly score the season simulator draws (§8; TeamModel.score): with scenario lineups, the law of
  *   total variance. Given scenario s, the score is LV_s plus the noise of the starters who play in it
  *   (seated and available), each with his SD given he plays (condSd = c_pos × c_w + d_pos), independent:
@@ -911,7 +916,7 @@ function scenarioValuesWith(team: TeamEval, weekCount: number, S: number, index:
 /**
  * One move on a roster (the free-agent optimizer's): `after` is `before`'s roster with the newcomer at roster index `at`,
  * either in the place of the player at index `drop` (at = drop, every other index the same) or, with drop null, added after
- * the players, before the streaming rows (indexes from `at` on move up by one).
+ * the players, before the streaming rows and the IR returners (indexes from `at` on move up by one).
  */
 export interface RosterMove {
   drop: number | null;
@@ -959,6 +964,115 @@ export function scenarioValuesAfterMove(before: ScenarioValues, after: TeamEval,
       seat[at] = -1;
       for (let i = at; i < n0; i++) seat[i + 1] = old[i] as number;
     }
+    return (cells.lv[w] as Float64Array)[p] as number;
+  };
+  return scenarioValuesWith(after, weekCount, scenarios, index, keep, spread, reuse);
+}
+
+// ---------------------------------------------------------------------------------------------
+// A player dropped from a week on (the displacement an IR returner causes: league.ts step 5b)
+
+/** Masked copies by row and first masked week, so the same mask is the same object (the scenario-bits cache, memo keys). */
+const maskedRows = new WeakMap<TableRow, Map<number, TableRow>>();
+
+/**
+ * `row` with nothing from week index `from` on (planner reply to Checkpoint 4, change 5: the player a full roster drops when
+ * an IR returner comes back): conditional and expected points, both SDs and every scenario's flags 0 in weeks ≥ from (the
+ * flags' stride is the row's own week count, flagStride), the rest unchanged. `from` ≤ 0 masks every week; past the last
+ * week, the row itself. Cached: the same row and week give the same object.
+ */
+export function maskedRow(row: TableRow, from: number): TableRow {
+  const W = row.cond.length;
+  const f = Number.isFinite(from) ? Math.max(0, Math.floor(from)) : W;
+  if (f >= W) return row;
+  let byFrom = maskedRows.get(row);
+  if (!byFrom) {
+    byFrom = new Map();
+    maskedRows.set(row, byFrom);
+  }
+  const hit = byFrom.get(f);
+  if (hit) return hit;
+  const cut = (xs: Float64Array) => {
+    const out = Float64Array.from(xs);
+    out.fill(0, f);
+    return out;
+  };
+  let flags: Uint8Array | null = null;
+  if (row.flags) {
+    flags = Uint8Array.from(row.flags);
+    const scenarios = W > 0 ? Math.floor(flags.length / W) : 0;
+    for (let s = 0; s < scenarios; s++) flags.fill(0, s * W + f, (s + 1) * W);
+  }
+  const out: TableRow = { id: row.id, pos: row.pos, eligible: row.eligible, cond: cut(row.cond), ev: cut(row.ev), condSd: cut(row.condSd), evSd: cut(row.evSd), flags };
+  byFrom.set(f, out);
+  return out;
+}
+
+/** Whether `after` is `before`'s rows with row k replaced (the same objects, the same order, the same prepared slots). */
+function sameRowsBut(before: TeamEval, after: TeamEval, k: number): boolean {
+  const n = after.rows.length;
+  if (n !== before.rows.length || k < 0 || k >= n || after.prep.slots !== before.prep.slots) return false;
+  for (let i = 0; i < n; i++) if (i !== k && after.rows[i] !== before.rows[i]) return false;
+  return true;
+}
+
+/**
+ * solveEvWeeks(after, weekCount), bit for bit, from `before`'s lineups, where `after` is `before`'s team with row k replaced
+ * by its masked copy from week index `from` on (maskedRow): a week before `from` keeps its lineup (the rows are the same),
+ * and so does a week from `from` on where player k sat on the bench (removing a bench player never changes an optimal
+ * lineup, and the matroid greedy seats the others where it seated them: scenarioValuesAfterMove's argument); only the weeks
+ * he started are solved again, and under starter limits every week from `from` on (the same total, but the solver's seats
+ * among equal lineups aren't argued there). From scratch when the shapes don't match.
+ */
+export function solveEvWeeksMasked(before: SolvedWeeks, after: TeamEval, k: number, from: number, weekCount: number): SolvedWeeks {
+  if (!sameRowsBut(before.team, after, k) || before.lv.length < weekCount) return solveEvWeeks(after, weekCount);
+  const { prep, rows } = after;
+  const limited = prep.slots.limits !== null;
+  const n = rows.length;
+  const lv = new Float64Array(weekCount);
+  const open = new Int32Array(weekCount);
+  const ptsAll = new Float64Array(weekCount * n);
+  const seatAll = new Int32Array(weekCount * n);
+  const pts: Float64Array[] = [];
+  const seat: Int32Array[] = [];
+  const fill = new Int32Array(prep.slots.groups.length);
+  for (let w = 0; w < weekCount; w++) {
+    const p = ptsAll.subarray(w * n, (w + 1) * n);
+    for (let j = 0; j < n; j++) p[j] = (rows[j] as TableRow).ev[w] as number;
+    const s = seatAll.subarray(w * n, (w + 1) * n);
+    const old = before.seat[w] as Int32Array;
+    if (w < from || (!limited && (old[k] as number) < 0)) {
+      s.set(old);
+      lv[w] = before.lv[w] as number;
+      open[w] = before.open[w] as number;
+    } else {
+      lv[w] = lineupTotal(prep, p, null, s);
+      open[w] = openGroupsInto(prep.slots, s, n, fill);
+    }
+    pts.push(p);
+    seat.push(s);
+  }
+  return { team: after, lv, pts, seat, open, floors: new Map() };
+}
+
+/**
+ * scenarioValues(after, …) bit for bit, from `before`'s scenario lineups kept cell by cell (scenarioValues with `keep`), where
+ * `after` is `before`'s team with row k replaced by its masked copy from week index `from` on (maskedRow). A pattern of
+ * `after` keeps the lineup of its first scenario's pattern in `before` (its LV and seats) in a week before `from` (the rows
+ * are the same there), and from `from` on when player k isn't seated in it (he sat or couldn't play: the matroid greedy
+ * takes the very same players in the same places without him, scenarioValuesAfterMove's argument for a dropped bench
+ * player); the others are solved. Null (the caller solves from scratch) under starter limits, without kept cells, or when
+ * the shapes don't match.
+ */
+export function scenarioValuesMasked(before: ScenarioValues, after: TeamEval, k: number, from: number, weekCount: number, S: number, index: InstanceIndex | null = null, keep = false, spread = false): ScenarioValues | null {
+  const cells = before.cells;
+  const scenarios = Number.isFinite(S) ? Math.max(0, Math.floor(S)) : 0;
+  if (!cells || after.prep.slots.limits !== null || cells.scenarios !== scenarios || cells.weekCount < weekCount || !sameRowsBut(cells.team, after, k)) return null;
+  const reuse: LineupReuse = (w, s, seat) => {
+    const p = (cells.pattern[w] as Int32Array)[s] as number;
+    const old = (cells.seat[w] as readonly Int32Array[])[p] as Int32Array;
+    if (w >= from && (old[k] as number) >= 0) return null; // he started there: solve it
+    seat.set(old);
     return (cells.lv[w] as Float64Array)[p] as number;
   };
   return scenarioValuesWith(after, weekCount, scenarios, index, keep, spread, reuse);

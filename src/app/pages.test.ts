@@ -50,8 +50,8 @@ describe("home page", () => {
 describe("privacy page", () => {
   const text = textOf(renderToStaticMarkup(createElement(PrivacyPage)));
 
-  it("is dated October 1, 2026", () => {
-    expect(text).toContain("Last updated October 1, 2026");
+  it("is dated October 3, 2026", () => {
+    expect(text).toContain("Last updated October 3, 2026");
   });
 
   it("says settings and trade feedback stay in local storage, never reach the server, and how to remove them", () => {
@@ -80,7 +80,9 @@ describe("privacy page", () => {
 
   it("says the trade pages run in the browser on the same inputs, and that their links carry only team and player ID numbers (Phase 4)", () => {
     expect(text).toContain("The Trade Finder and the Trade Analyzer use the same projections and values, kept and fetched the same way, and they search for and score trades in your browser too.");
-    expect(text).toContain("carries only that team's ID number and the players' ID numbers in its web address (never names or your league's ID)");
+    expect(text).toContain(
+      "carries only that team's ID number and the players' ID numbers in its web address (never names or your league's ID; a trade opened from “If they say no, try” also says so there)",
+    );
     expect(text).toContain("the Finder and the Analyzer put the team you pick and the trade you evaluate into their address the same way.");
     // The links are never prefetched (prefetch={false}), so this stays true.
     expect(text).toContain("Offer Sheet never loads these addresses ahead of time, so our server sees one only when you open it, like any web address.");

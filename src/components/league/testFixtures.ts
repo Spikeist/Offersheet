@@ -33,10 +33,11 @@
  * (premiums(), below): each team's two most valuable players who are also among the top 12 by FantasyCalc value
  * are "Harder to get": team 1's Pemberton and McSprocket (mine: never shown), team 2's Gloop and Wobbleton,
  * team 3's Quill and Kettleburn, team 4's Nibble and Fennel. Team 2's best partner player for me is Gloop (tagged),
- * so its card leads with "Best target: C. Snoot" and "Bigger upgrade, harder to get: M. Gloop"; Wobbleton, a fifth
- * team 2 chip, shows tagged in the rest of the list, and Kettleburn is a tagged trade chip of team 3. Team 3's only
- * partner player for me, Mop (+0.9/wk), adds less than config.needs.bestTargetMin (1) a week and isn't tagged, so its
- * card names no target (lead decision N12); team 4's Wren (+1.6/wk) is its best target.
+ * so its card leads with "Best of their trade chips: C. Snoot" and "Bigger upgrade, harder to get: M. Gloop";
+ * Wobbleton, a fifth team 2 chip, shows tagged in the rest of the list, and Kettleburn is a tagged trade chip of team 3.
+ * Team 3's only partner player for me, Mop (+0.9/wk), adds less than config.needs.bestTargetMin (1) a week and isn't
+ * tagged, so its card leads with no chip (lead decision N12); team 4's Wren (+1.6/wk) leads its card as the best of its
+ * trade chips.
  */
 import { config } from "@/engine/config";
 import type { ModelInputs } from "@/engine/inputs";

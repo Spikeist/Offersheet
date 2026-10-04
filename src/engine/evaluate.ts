@@ -14,7 +14,8 @@
  *   B is measured in (optimizer.ts; review of track E, item 1: an EV-judged V* skipped depth pickups, so a trade
  *   bringing the same depth got credit for them). Each team's weekly score for the simulator comes from V*(T)'s lineups the
  *   way TeamModel.score is built (scenario mean and sqrt(within-lineup variance + the scenarios' spread²); EV lineups
- *   and sqrt(Σ σ²) without scenarios), streaming rows included. ⚠️ The week in progress (LeagueModel.inProgressWeek):
+ *   and sqrt(Σ σ²) without scenarios), streaming rows and IR returners included, finally priced (sideEval: the roster
+ *   spot a returner needs from his week; "IR players" below). ⚠️ The week in progress (LeagueModel.inProgressWeek):
  *   its score stays each team's TeamModel.score week-0 value (rosters as they stand, as before kickoff) before and
  *   after every trade, since a trade or a pickup can't change a week under way. A trade made before kickoff counts
  *   the current week in full (⚠️ the platform's review period isn't modeled).
@@ -39,37 +40,95 @@
  *   refused it: B can't be computed). Any of them stops the search (no trades); the Analyzer still evaluates, with
  *   the note (without B when there are no odds), except without a team.
  *
+ * One free agent, one team (CLAUDE.md §7; planner reply to Checkpoint 4, change 3; league.ts step 5). The League model
+ * builds every V*(T) in the allocation order, each team claiming every free agent its run adds (TeamState.claimed), so
+ * the baseline never gives one free agent to two teams. A trade re-optimizes only its two teams (tradeSides); every other
+ * team keeps its baseline pickups: X = the free agents every other team claimed (othersPool). The earlier of me and the
+ * partner in the allocation order goes first: its legality adds (rules 3–4 below) and its V*(after) draw from the pool
+ * minus X; then the later one's, from the pool minus X minus every free agent the first one added here (legality's adds
+ * and every add of its V*(after) run). So my V*(after) may take a free agent the partner picked up in the baseline when
+ * I'm earlier in the order, and never one a third team picked up. A baseline pickup the first one gives up after the
+ * trade: ⚠️ ours (Phase 4b track C and its review; the design let the later team take him whatever the order): the later
+ * one may take him only when no team sits between the two in the order. Every team ahead of the first one passed on him
+ * in the baseline (he was in its pool) and keeps its baseline, so the later one is next in line; a team between them
+ * never had a chance at him and would claim him first, but it keeps its baseline allocation (the planner's rule), so then
+ * nobody adds him. On Parker's league (Oct 3, live waiver order) the design's rule gave me Jordan Love in two of the top
+ * 10 trades with Team 5, first in that order (I was last), while Team 10, between us, picks him up when each team is
+ * optimized on its own. A trade that changes neither roster still reproduces the baseline (the later team's baseline run excluded the
+ * earlier one's pickups too, and greedy determinism, optimizer.ts "The pool", makes each side's run against its pool the
+ * moves its baseline run made), exactly but for gains within 1e-9 of each other (⚠️ optimizer.ts, "The pool").
+ * Screening's legality adds skip each side's baseline exclusion excl(T) (TeamState.pool), ⚠️ whatever the trade's order:
+ * screening is a filter. TradeContextOptions.faAllocation "independent" (Checkpoint 4's rule, for the Checkpoint 4b report
+ * only) runs every team, and both sides of every trade, against the whole pool, mine first.
+ *
  * Roster legality (§7; M2). Assets are players in this phase (M11: ⚠️ draft picks are deferred to Phase 5).
  * - Illegal, in plain English: a pick; no asset at all; a player twice; more than the per-side maximum (the
- *   Analyzer's analyzerMaxPerSide, the search's maxPerSide); an asset not on that side's ACTIVE roster (⚠️ IR and
- *   taxi players aren't tradable in this phase, and an injured player's return isn't valued while he is on IR).
- *   One empty side is legal (a 1-for-0 the Analyzer can build).
- * - Each side's active roster after the trade = its roster − what it gives + what it receives (received players join
- *   the active roster: ⚠️ never moved to IR automatically). Then, in order:
+ *   Analyzer's analyzerMaxPerSide, the search's maxPerSide); an asset not on that side's active roster or IR (IR players
+ *   are tradable since Phase 4b; taxi players still aren't; under irReturners false, Checkpoint 4's rule, only
+ *   active-roster players are). One empty side is legal (a 1-for-0 the Analyzer can build).
+ * - 5 (first: IR players; planner reply to Checkpoint 4, change 5; returners.irAfterTrade). An IR player given leaves the
+ *   giver's IR (its IR slot opens; no active spot does). An IR player received goes into an open IR slot of the receiver
+ *   (irSlots minus the IR players it keeps) when his status is one the slot takes (returners.irEligibleStatuses:
+ *   LeagueSettings.irEligible, else config.lineups.irEligibleDefault, IR and PUP), as a returner (no active spot, never
+ *   dropped); otherwise he joins the active roster like any received player. Several: the most ROS points first into the
+ *   open slots (ties: the smaller id). ⚠️ A player received from the other team's active roster joins the active roster
+ *   whatever his status. The side's IR after the trade is LegalSide.ir, and its spec (its streaming rows with that IR's
+ *   returners: league.ts withReturners) is LegalSide.spec, which every later solve of the side uses (its V*(after), the
+ *   final evaluation). Every lineup legality solves holds those returners (no displacement: legality isn't final).
+ * - Each side's active roster after the trade = its roster − the active-roster players it gives + the players it receives
+ *   who don't go to its IR. Then, in order:
  *   1. A position over its positionLimits → drop that position's lowest keep value player not just received (none →
  *      illegal). ⚠️ A team already over a limit before the trade is held only to its count before the trade.
  *   2. Over maxRosterSize → drop the lowest keep value players, never one just received, never one the starting
  *      lineup needs (optimizer.fillCount: the slots fillable before stay fillable, streaming rows counting for their
- *      position), one at a time, recomputed. ⚠️ A roster already over the size before the trade isn't trimmed by it.
- *   3. A position under rosterMinimums → add the best free agent there (EV ROS gain, ties as in 4; none → illegal).
+ *      position, returners not), never the last one the side rosters at a position it streams (⚠️ ours, final review of
+ *      Phase 4b, the displacement's rule in returners.ts: streaming a K or D/ST takes a roster spot for the week's pickup,
+ *      and the streaming row takes none, so the row covering the slot doesn't make the only rostered one free to drop),
+ *      one at a time, recomputed. ⚠️ A roster already over the size before the trade isn't trimmed by it.
+ *   3. A position under rosterMinimums → add the best free agent there (EV ROS gain, ties as in 4; none → illegal), from
+ *      the side's pool ("One free agent, one team" above), as in 4.
  *      ⚠️ Only up to the count the team had before the trade (a shortfall the trade didn't cause isn't its to fix).
  *      ⚠️ The add takes a roster spot like any other: when it leaves the roster too big, rule 2 makes room again
  *      (never dropping the player added, nor one a position's minimum needs).
  *   4. Each roster spot the trade opened (fewer active players than before it) → add the free agent who most improves
  *      its lineup (EV ROS gain; ties, including no gain at all: higher ROS points, then the smaller id), within
- *      position limits, never at a position the team streams (its streaming row values that slot; review of track E,
- *      item 5: a K or D/ST is added for a team that doesn't stream it, so trading its only kicker refills the slot).
+ *      position limits, never at a position the team streams (its streaming row values that slot), only from the side's
+ *      pool (legalSide's `pool`: "One free agent, one team" above). At a config.streaming.optimizerExcluded position
+ *      (K, D/ST) only to refill a starting slot the trade emptied: the roster's structural fill (optimizer.fillCount,
+ *      streaming rows counting) is below `before`'s, and he raises it. So a team that doesn't stream kickers and trades
+ *      its only one still gets one in the spot (review of track E, item 5), but ⚠️ an upgrade of a kicker or D/ST it
+ *      keeps is never the trade's (Phase 4b review of track C: V* never picks one up, so a 2-for-1 whose open spot took a
+ *      better free-agent kicker credited the trade with a pickup the team could make anyway; on Parker's league, Oct 3,
+ *      7 of the 19 shown trades raised the partner's lineup by about 1.1 a week that way).
  *   Keep value (§7): what losing him costs the roster's lineup with nobody refilling his spot (teamValue.
  *   evRemovalCosts / scenarioRemovalCosts) in the evaluation's lineup mode (EV in screening, scenario lineups in exact
  *   evaluation); in dynasty and keeper leagues with long-term values, ⚠️ (L7's reading of "plus normalized market
  *   value") removal cost ÷ the roster's largest removal cost + v_dyn ÷ the top dynasty value. Only players with a model
  *   are dropped (one without projections isn't known to be worthless); ties: teamValue.lowestKeepValue's (the lower
- *   perception value, then the smaller id). These forced moves are TradeEvaluation.required, per side.
+ *   perception value, then the smaller id). These forced moves are TradeEvaluation.required, per side, with rule 5's IR
+ *   placements and the displacements the trade brings (rosterChangeOf).
  *
- * Screening (§12 step 2; M5): EV lineups, fast. My side: V*(me) − give + get with the legality above in EV mode,
- * ⚠️ not re-optimized (for speed: the exact stage runs V*); myΔROS = EV ROS(after) − EV ROS(V*(me)), Σ ω LV with the
+ * IR players (planner reply to Checkpoint 4, change 5 and answer 11; league.ts step 5b; returners.ts). Each team's IR
+ * players expected back within the season (its returners) ride with its lineup rows everywhere a lineup is solved here:
+ * screening, legality, V*(after) and the final pricing. The final pricing of a side (sideEval: the baseline at V*(T) and
+ * both sides of every exact trade; B, n, h, the card's odds and the simulations) also puts a returner back on the active
+ * roster from his return week: when that leaves it over maxRosterSize or his position over its limit, the lowest keep
+ * value player goes from that week on (returners.finalLineups: its keep value over the weeks from the return on, in the
+ * exact mode's lineups; ⚠️ the returner himself a candidate, so a return never lowers a side; never one the lineup needs,
+ * one a position's minimum needs, or the last one at a position the side streams; at his position when its limit binds),
+ * SideEval.displaced. Screening and legality don't (⚠️ the marginal machinery compares like with like without it). The
+ * optimizer's memoized scenario lineups of a roster are reused only when nothing is displaced; else the lineups are
+ * priced again where the dropped player started. The packages' open-spot credit counts each side's active-roster moves
+ * (above): a given IR player opens no spot, a received one in an open IR slot fills none.
+ * TradeContextOptions.irReturners false is Checkpoint 4's rule (no returner, no displacement, IR players not tradable).
+ *
+ * Screening (§12 step 2; M5): EV lineups, fast. My side: V*(me) − give + get with the legality above in EV mode (its adds
+ * skip excl(me): "One free agent, one team" above), ⚠️ not re-optimized (for speed: the exact stage runs V*); myΔROS = EV
+ * ROS(after) − EV ROS(V*(me)), Σ ω LV with the
  * user's playoff weight. The partner's side the same way from V*(P): ΔLineup_P (EV) → n, h from EV instance points
- * and the EV medians, g_mkt(P) (raw: Screened.gPartner, which the screening window reads) and the partner's perceived g
+ * and the EV medians, g_mkt(P) (raw, i.e. no star premium, each player floored at W like every package, its open-spot
+ * credit from its own moves on and off its active roster after rule 5 (spotsOf; market.ts's header):
+ * Screened.gPartner, which the screening window reads) and the partner's perceived g
  * (the star premium on what it gives: perceivedG, the g feature), c, and acceptance.quickAcceptance (no hot, urg or
  * veto). Objective = myΔROS × quick P_accept. A screen that legality rejects is dropped. Speed (M14; about 15,000 screens on Parker's league), exactly:
  * a side's lineups start from the ones the context solved (V*(T)'s; the team's own in exact evaluation) and only the
@@ -81,25 +140,32 @@
  * come and go.
  *
  * Exact evaluation (M3; L6, L8). Legality in scenario lineups, then V*(after) = the free-agent optimizer from scratch
- * on each side's post-legality roster (memoized by roster; judged in scenario lineups like the baseline, and its own
- * scenario lineups reused: optimizer.scenarioValuesOf), scenario lineups of both (EV without scenarios) → weekly
+ * on each side's post-legality roster, the two sides in the allocation order from their pools ("One free agent, one
+ * team" above; tradeSides), memoized by roster and pool, judged in scenario lineups like the baseline, and its own
+ * scenario lineups reused (optimizer.scenarioValuesOf); scenario lineups of both (EV without scenarios) → weekly
  * scores, LV per week and slot-instance points. ΔPPW / ΔPPW_playoffs: my average LV change over the remaining
  * regular-season / playoff weeks team numbers count. n from the partner's V* LV before and after
  * (acceptance.partnerLineupDelta from the first counted week); h (acceptance.holeFeature) from the partner's instance
  * points over the hole weeks before and after and the baseline league medians, with the received players who start in
- * the partner's after-V* EV lineup in at least one hole week; g from perception packages (benefit.tradePackage: the raw
- * g_mkt(P) on the card and for the veto rule) and the partner's perceived g (premium.perceivedPackage: v′ = v × (1 + e)
- * on what it gives, the g feature; N1); my g for B's market term (benefit.marketTermPackage: what I give at max(v, W);
- * N10; ExactTrade.gMarket); the card's values, ROS points (§6 step 7) given and received, the injured flag;
- * acceptance(...) with hot and urg; TradeDetail.premium, one PremiumFact per player the partner gives.
+ * the partner's after-V* EV lineup in at least one hole week; g from perception packages (benefit.tradePackage, each
+ * player at max(v, W): planner reply to Checkpoint 4, change 4, which replaces lead decision N10; each side's open-spot
+ * credit W from its own moves on and off its ACTIVE roster after rule 5 (spotsOf: an IR slot isn't a roster spot, review
+ * of track E; market.ts's header), so with an IR player in the trade my package and the partner's needn't mirror each
+ * other; the raw g_mkt(P), no
+ * premium, on the card and for the veto rule, g_mkt(me) on the card and for B's market term) and the partner's perceived g
+ * (premium.perceivedPackage: v′ = max(v, W) × (1 + e) on what it gives, the g feature; N1); the card's values (my
+ * package, floored the same way), ROS points (§6 step 7) given and received, the injured flag; acceptance(...) with hot
+ * and urg; TradeDetail.premium, one PremiumFact per player the partner gives. ΔDyn (dynasty and keeper leagues with
+ * long-term values): my package on the future values and the future term's W, floored the same way (so a player worth
+ * less than W given for nothing moves it by 0) with my active-roster spots; MyDynTotal raw (benefit.rosterValue).
  *
  * The simulation (M4): the baseline SimSetup with my team's and the partner's mean and SD rows replaced by their
  * after-V* scores (every other team, and the week in progress, unchanged), simulateSeason on the screening block
  * or the final block; ΔPO, ΔCH (null when title odds are unknown: benefit's titleMissing rule), ΔEW against the
  * baseline on the same block. Then benefit() (λ = settings.lambda ?? the default by my finalSims baseline
  * P(playoffs); κ = the "Protect my trade value" level's, redraft leagues only: planner addendum to Checkpoint 3, §3, N3;
- * the market term reads my g with each player I give valued at max(v, W), ExactTrade.gMarket: lead decision N10, ⚠️ ours,
- * benefit.ts's header), tradeNumbers, tradeFlags (on the raw g_mkt(me)), and benefitNotes into the detail's notes.
+ * the market term reads g_mkt(me), each player at max(v, W) on both sides: benefit.ts's header), tradeNumbers,
+ * tradeFlags (on the same g_mkt(me)), and benefitNotes into the detail's notes.
  *
  * "Offer first / if they say no" (planner addendum to Checkpoint 3, §4; lead decision N4; tradeSteps). A throw-in is one of
  * my active-roster players with a model whose lineup cost in the exact mode (TeamPlayerValue.mvLoseScen with scenarios, else
@@ -117,11 +183,13 @@
  *   ΔROS) and only the best config.search.steps.preScreen get exact evaluation (the Checkpoint 4 report measures how often
  *   that misses the exact choice).
  * - Steps are kept only when P_complete(full) − P_complete(offer first) ≥ minAcceptGain and P_complete(offer first) ≥
- *   minOfferFirst (⚠️ on P_complete, the card's "Chance they accept"). ⚠️ Under §9's waiver credit a throw-in worth less
- *   than W costs the partner more than it brings (an extra player takes a roster spot worth W) and adds a player to the
- *   trade (the complexity term), so most throw-ins lower the chance they accept and few trades get steps. Since N10 such a
- *   throw-in adds W to both sides of my market term's package (the spot he opens, his floored value; nothing when my side
- *   gave fewer players), so it no longer buys B there: it only pulls that g toward 0.
+ *   minOfferFirst (⚠️ on P_complete, the card's "Chance they accept"). ⚠️ Under the value floor (planner reply to
+ *   Checkpoint 4, change 4) a throw-in worth less than W adds W to both sides of every package (his floored value on the
+ *   side that gets him, the roster spot he takes on the other; nothing on either when that side gave more players):
+ *   the value difference doesn't move, but each g, a ratio, edges toward 0, while the extra player costs the complexity
+ *   term. So besides their lineup, such a throw-in moves the chance they accept through g: up when they lose value, down
+ *   when they gain. A trade just past the veto line (g_mkt(P) < veto.gBelow) can come back above it with him, so the
+ *   veto no longer cuts P_complete: a step from value nobody gains (market.ts's header; reported to the planner).
  * - ⚠️ The offer-first version must help me (B > 0 on the screening block; review of the addendum, engine findings 1 and
  *   10): case 1's lean version, case 2's ranked trade (so minBShare only ever compares positive B: with an offer at B −5,
  *   "B ≥ 0.8 × the offer's B" would ask for B ≥ −4, a better B rather than at most a fifth less, and coach a trade that
@@ -132,30 +200,35 @@
  * when a context note stops the search. TradeStep.detail is each version's explanation facts: the pitch names the
  * offer-first version (explain.ts).
  *
- * The before/after variant (TradeContextOptions.beforeAddendum; lead decision N5): the model before the planner's addendum
- * to Checkpoint 3, for the Checkpoint 4 report's comparison only (the app never sets it). No star premium (the g feature
- * reads the raw g_mkt(P); no TradeDetail.premium), κ = config.benefit.marketSanityWeight (1.0) whatever the setting, the
- * market term on the raw g_mkt(me) (no waiver-credit floor, N10), the search's get pool without the "Harder to get" split
- * and its screening without the dominance pruning (N11; search.ts), and no "Offer first" steps. The same numbers otherwise:
- * the default search with it reproduces the pre-addendum search exactly (checked on Parker's league offline).
+ * Phase 4b removed the before/after variant (TradeContextOptions.beforeAddendum, lead decision N5: the model before the
+ * planner's addendum to Checkpoint 3, kept for the Checkpoint 4 report's comparison only); Checkpoint 4b compares against
+ * Checkpoint 4's committed numbers and a run of the Checkpoint 4 commit instead.
  *
- * ⚠️ Known approximations (M15): screening isn't re-optimized; each team is optimized alone (two teams can both
- * "claim" the same free agent); IR players aren't tradable and their return isn't valued while on IR; the review
+ * ⚠️ Known approximations (M15): screening isn't re-optimized, and its legality adds skip each side's baseline exclusion
+ * whatever the trade's order; after a trade every other team keeps its baseline pickups (the planner's rule: a free agent
+ * a trading team no longer claims isn't offered to a third team, nor to the other trading team when a team sits between
+ * the two in the order); IR players (Phase 4b): the roster spot a returner needs counts in final evaluations only (never
+ * in screening, legality or V*'s moves), and from one week, his expected return week R (the return distribution's
+ * median), while his points follow his availability week by week (TradeEvaluation.required names, per side, the received
+ * IR players placed in IR slots and the displacements the trade brings: rosterChangeOf);
+ * an IR player counts at max(v, W) in every package though no free agent could take his IR slot; the search's get pool
+ * judges an open IR slot of mine before the trade; a player received from an active roster never goes to IR; the review
  * period isn't modeled; draft picks are deferred.
  */
 import { acceptance, hotPlayers, hotTerm, hotWeeks, holeFeature, median, partnerLineupDelta, partnerProfile, quickAcceptance, tradeDeadlinePassed, transactionWeek, urgencyTerm, vetoApplies, type HoleSlot, type PartnerProfile, type ReceivedPlayer, type ReceivedStarter } from "./acceptance";
-import { benefit, benefitNotes, futureValuesLoaded, injuredReceived, marketTermPackage, protectValueWeight, rosterValue, tradeFlags, tradeNumbers, tradePackage } from "./benefit";
+import { benefit, benefitNotes, futureValuesLoaded, injuredReceived, protectValueWeight, rosterValue, tradeFlags, tradeNumbers, tradePackage } from "./benefit";
 import { config } from "./config";
-import { explainTrade, type ExplainContext } from "./explain";
+import { explainTrade, injuryTags, tagContextOf, type ExplainContext } from "./explain";
 import type { ModelInputs } from "./inputs";
-import { ODDS_REFUSED_WARNING, buildLeagueModelWithContext, type LeagueContext, type TeamBase, type TeamWork } from "./league";
+import { ODDS_REFUSED_WARNING, buildLeagueModelWithContext, claimedBy, type FaAllocationMode, type LeagueContext, type TeamBase, type TeamWork } from "./league";
 import type { LeagueModel, PlayerPremium, SeasonOdds, SlotInstance } from "./leagueModel";
-import { marketValues, valuesForTerm, waiverCredit } from "./market";
+import { marketValues, valuesForTerm, waiverCredit, type ActiveSpots } from "./market";
 import { lineupTotal, prepareRoster } from "./lineup";
 import { instancePointsInto } from "./needs";
-import { POSITIONS, type LeagueSnapshot, type PlayerInfo, type Pos, type Team } from "./model";
-import { fillCount, rosterKey, type OptimizedRoster, type StreamSpec } from "./optimizer";
+import { POSITIONS, type InjuryStatus, type LeagueSnapshot, type PlayerInfo, type Pos, type Team } from "./model";
+import { FULL_POOL, fillCount, poolRestriction, returnersOf, rosterKey, type OptimizedRoster, type PoolRestriction, type StreamSpec } from "./optimizer";
 import { leaguePremiums, perceivedPackage, premiumFacts } from "./premium";
+import { activeSpots, finalLineups, irAfterTrade, irEligibleStatuses, type Displacement } from "./returners";
 import { buildSimSetup, oddsSkippedWarning, seasonOdds, type SeasonModel, type SimSetupResult } from "./season";
 import { defaultTradeSettings, normalizeTradeSettings, type ProtectValue, type TradeSettings } from "./settings";
 import { simNormals, simulateSeason, type SimNormals } from "./sim";
@@ -204,14 +277,17 @@ export interface TradeContextOptions {
   /** Milliseconds (performance.now in the browser): TradeContext.timings is filled only when given. */
   clock?: () => number;
   /**
-   * The model before the planner's addendum to Checkpoint 3 (lead decision N5), for the Checkpoint 4 report's before/after
-   * comparison only; never set by the app. Default false. With it: no star premium (the partner's g feature reads the raw
-   * g_mkt(P), and TradeDetail.premium is absent), κ = config.benefit.marketSanityWeight (1.0) whatever the "Protect my
-   * trade value" setting, the get pool H the top getPool players by MV_add(me, j) without the "Harder to get" split, and
-   * no "Offer first / if they say no" steps. Everything else is the same model, so the default search reproduces the
-   * pre-addendum search exactly.
+   * The League model's free-agent allocation (league.ts BuildLeagueModelOptions.faAllocation): "oneTeam" (the default)
+   * or "independent" (Checkpoint 4's rule, for the Checkpoint 4b report only; the app never sets it): every team's
+   * V* and both trade sides against the whole pool, mine evaluated first.
    */
-  beforeAddendum?: boolean;
+  faAllocation?: FaAllocationMode;
+  /**
+   * IR returners (league.ts BuildLeagueModelOptions.irReturners; step 5b): true (the default) brings IR players back into
+   * their teams' lineups and makes them tradable; false is Checkpoint 4's rule (IR players never join a lineup and aren't
+   * tradable), for the Checkpoint 4b report only: the app never sets it.
+   */
+  irReturners?: boolean;
 }
 
 export interface TradeContext {
@@ -238,10 +314,16 @@ export const NO_ODDS_NOTE = "Trade ideas need your playoff odds, and they couldn
 // ---------------------------------------------------------------------------------------------
 // The context's internals (search.ts and the tests read them; the pages only see TradeContext)
 
-/** One evaluated roster of a team: its lineups as the exact mode prices them (scenario lineups when there are scenarios, else EV). */
+/**
+ * One evaluated roster of a team: its lineups as the exact mode prices them (scenario lineups when there are scenarios, else
+ * EV), finally: its IR returners in and, from a returner's week, the roster spot he needs (league.ts step 5b;
+ * returners.finalLineups).
+ */
 export interface SideEval {
-  /** The roster (active players; streaming rows aside). */
+  /** The roster (active players; streaming rows and returners aside). */
   roster: readonly string[];
+  /** The players the roster drops from a week on for its returners (none when it has room). */
+  displaced: readonly Displacement[];
   /** LV per week (aligned with LeagueModel.weeks): the scenario mean, or the EV lineup's. */
   lv: Float64Array;
   /** The simulator's weekly score (the week in progress: TeamModel.score's week-0 value). */
@@ -249,7 +331,7 @@ export interface SideEval {
   /** Average instance points (LeagueModel.slots order) over the counted regular-season weeks, and over the hole weeks. */
   regular: Float64Array;
   hole: Float64Array;
-  /** EV lineups (who starts: the received-starter check, likely starters). */
+  /** EV lineups, finally priced (who starts: the received-starter check, likely starters). */
   ev: SolvedWeeks;
 }
 
@@ -258,11 +340,22 @@ export interface TeamState {
   index: number;
   id: string;
   team: Team;
+  /** Its streaming rows and positions, and its IR returners (league.ts TeamWork.stream). */
   stream: StreamSpec;
   /** Its active roster (team.roster, each id once). */
   roster: readonly string[];
+  /** Its IR (team.ir, each id once; league.ts TeamWork.ir). */
+  ir: readonly string[];
   /** V*(T): the free-agent optimizer from scratch on the roster (the League model's own). */
   vstar: OptimizedRoster;
+  /**
+   * The free agents V*(T) claimed (league.ts claimedBy: every one its run added) and excl(T), every other team's claims
+   * (the League model's TeamWork.pool; FULL_POOL under faAllocation "independent"): screening's legality adds skip them.
+   */
+  claimed: readonly string[];
+  pool: PoolRestriction;
+  /** Its place in the free-agent allocation order (0 = first claim), or null under faAllocation "independent". */
+  claimRank: number | null;
   /** Baseline in the exact mode. */
   base: SideEval;
   /** Baseline in EV lineups (screening): LV per week, EV ROS, instance points over the hole weeks. */
@@ -318,15 +411,12 @@ export interface TradeInternals {
   instances: SlotInstance[];
   /** Per instance: the positions its slot takes. */
   slotEligible: Pos[][];
-  /** Perception values (§9; the League model's) and the waiver credit W. */
+  /** Perception values (§9; the League model's, raw) and the waiver credit W (every package floors each player at it). */
   values: Record<string, number>;
   credit: number;
-  /** The pre-addendum model (TradeContextOptions.beforeAddendum): no star premium, κ 1, H without tags, no steps. */
-  beforeAddendum: boolean;
   /**
    * The star premium (premium.leaguePremiums): team id → its rostered players' premiums (active, IR and taxi), each team's
-   * P(playoffs) from the baseline on the final block (every team at V*). Computed in both variants; only the addendum's
-   * model reads it (premiumOf, harderToGetFor).
+   * P(playoffs) from the baseline on the final block (every team at V*). premiumOf and harderToGetFor read it.
    */
   premiums: Map<string, Record<string, PlayerPremium>>;
   /** Long-term values (dynasty and keeper leagues whose dynasty values loaded): values, W, top value, MyDynTotal. */
@@ -350,6 +440,17 @@ export interface TradeInternals {
   countMemo: WeakMap<readonly string[], Int32Array>;
   /** Exact-mode side evaluations by team and roster (V* rosters before and after trades). */
   sideMemo: Map<string, SideEval>;
+  /**
+   * Per partner id: X, the pool restriction of a trade with it (the file header, "Exact evaluation"): the free agents every
+   * team but me and the partner claimed (FULL_POOL under faAllocation "independent"), built when first needed.
+   */
+  othersPool: Map<string, PoolRestriction>;
+  /** IR players tradable and back in lineups (TradeContextOptions.irReturners; the League model's). */
+  irOn: boolean;
+  /** Every IR player's team (IR player id → team id): a received IR player may go into an open IR slot (legality's rule 5). */
+  irOwner: Map<string, string>;
+  /** The statuses an IR slot accepts (returners.irEligibleStatuses: LeagueSettings.irEligible, else config's default). */
+  irEligible: ReadonlySet<InjuryStatus>;
   notes: string[];
   warnings: string[];
   timings: Record<string, number>;
@@ -403,35 +504,30 @@ function avgOver(perWeek: readonly ArrayLike<number>[], idx: readonly number[], 
 }
 
 // ---------------------------------------------------------------------------------------------
-// The star premium and κ (planner addendum to Checkpoint 3, §1–§3; lead decisions N1–N3, N5)
+// The star premium (planner addendum to Checkpoint 3, §1–§2; lead decisions N1, N2)
 
-/** A player's star premium e for team `teamId` (his owner): 0 for a player it doesn't roster, and everywhere in the pre-addendum model. */
+/** A player's star premium e for team `teamId` (his owner): 0 for a player it doesn't roster. */
 export function premiumOf(I: TradeInternals, teamId: string): (playerId: string) => number {
-  const premiums = I.beforeAddendum ? undefined : I.premiums.get(teamId);
+  const premiums = I.premiums.get(teamId);
   return (playerId) => premiums?.[playerId]?.e ?? 0;
 }
 
-/** Whether a player is "Harder to get" from team `teamId` (his owner): e ≥ harderToGetMin; never in the pre-addendum model. */
+/** Whether a player is "Harder to get" from team `teamId` (his owner): e ≥ harderToGetMin. */
 export function harderToGetFor(I: TradeInternals, teamId: string, playerId: string): boolean {
-  return !I.beforeAddendum && I.premiums.get(teamId)?.[playerId]?.harderToGet === true;
+  return I.premiums.get(teamId)?.[playerId]?.harderToGet === true;
 }
 
 /**
  * The partner's perceived g (premium.perceivedPackage): what it receives (`give`, my side) against what it gives (`get`)
- * with its own premiums on the latter; undefined in the pre-addendum model (acceptance then reads the raw g). `raw`, the
- * partner's raw g_mkt on the same values when the caller has it, is returned as it is when none of `get` carries a premium
- * (perceivedPackage equals tradePackage exactly then: a shortcut for the screening's thousands of trades).
+ * with its own premiums on the latter, its open-spot credit from `spots` (its own moves on and off its active roster:
+ * spotsOf its legality; absent, every player takes a spot). `raw`, the partner's raw g_mkt on the same values and spots
+ * when the caller has it, is returned as it is when none of `get` carries a premium (perceivedPackage equals tradePackage
+ * exactly then: a shortcut for the screening's thousands of trades).
  */
-export function perceivedG(I: TradeInternals, partnerId: string, give: readonly string[], get: readonly string[], raw?: number): number | undefined {
-  if (I.beforeAddendum) return undefined;
+export function perceivedG(I: TradeInternals, partnerId: string, give: readonly string[], get: readonly string[], raw?: number, spots?: ActiveSpots): number {
   const e = premiumOf(I, partnerId);
   if (raw !== undefined && get.every((id) => e(id) === 0)) return raw;
-  return perceivedPackage({ players: give }, { players: get }, I.values, I.credit, e).g;
-}
-
-/** κ for a "Protect my trade value" level (benefit.protectValueWeight); config.benefit.marketSanityWeight in the pre-addendum model. */
-export function kappaFor(I: TradeInternals, level: ProtectValue | null | undefined): number {
-  return I.beforeAddendum ? config.benefit.marketSanityWeight : protectValueWeight(level);
+  return perceivedPackage({ players: give }, { players: get }, I.values, I.credit, e, config.market, spots).g;
 }
 
 const POS_WORDS: Readonly<Record<Pos, [string, string]>> = {
@@ -471,6 +567,8 @@ export function buildTradeContext(snapshot: LeagueSnapshot, inputs: ModelInputs,
     settings,
     ...(opts.scenarios !== undefined ? { scenarios: opts.scenarios } : {}),
     ...(opts.seed !== undefined ? { seed: opts.seed } : {}),
+    ...(opts.faAllocation !== undefined ? { faAllocation: opts.faAllocation } : {}),
+    ...(opts.irReturners !== undefined ? { irReturners: opts.irReturners } : {}),
   });
   const { model, context: league, bases } = built;
   mark("league model");
@@ -517,7 +615,6 @@ export function buildTradeContext(snapshot: LeagueSnapshot, inputs: ModelInputs,
     slotEligible,
     values,
     credit: league.market.waiverCredit,
-    beforeAddendum: opts.beforeAddendum === true,
     premiums: new Map(),
     future: null,
     profiles: new Map(),
@@ -538,12 +635,17 @@ export function buildTradeContext(snapshot: LeagueSnapshot, inputs: ModelInputs,
       .sort((a, b) => (lp.players[b.id]?.ros.total ?? 0) - (lp.players[a.id]?.ros.total ?? 0) || byId(a.id, b.id)),
     countMemo: new WeakMap(),
     sideMemo: new Map(),
+    othersPool: new Map(),
+    irOn: league.irReturners,
+    irOwner: new Map(league.irReturners ? league.work.flatMap((t) => t.ir.map((id): [string, string] => [id, t.team.id])) : []),
+    irEligible: irEligibleStatuses(snapshot.settings),
     notes: [],
     warnings: [...model.warnings],
     timings,
   };
 
   // The baseline: every team at V*(T), in the exact mode and in EV lineups.
+  const claimRanks = new Map((league.allocation?.order ?? []).map((ti, k) => [ti, k]));
   I.teams = league.work.map((t: TeamWork, ti) => {
     const state: TeamState = {
       index: ti,
@@ -551,7 +653,11 @@ export function buildTradeContext(snapshot: LeagueSnapshot, inputs: ModelInputs,
       team: t.team,
       stream: t.stream,
       roster: t.ids,
+      ir: t.ir,
       vstar: t.vstar,
+      claimed: t.claimed,
+      pool: t.pool,
+      claimRank: league.allocation ? (claimRanks.get(ti) ?? null) : null,
       base: null as unknown as SideEval,
       baseEv: { lv: t.vstar.solved.lv, ros: t.vstar.evRos, hole: avgOver(evInstancePoints(t.vstar.solved, index), holeIdx, instances.length) },
     };
@@ -691,22 +797,29 @@ export function buildTradeContext(snapshot: LeagueSnapshot, inputs: ModelInputs,
  * under riskyWinChance to win (judged on the printed whole percent; head-to-head leagues), or riskyByes or more of my
  * likely starters on bye in a game that counts for me (an opponent or a median game). The byes are counted over the
  * matchup's weeks that count (review of track E, item 6: an ESPN matchup spanning two weeks has its bye crunch in either),
- * each starter once. Likely starter: in my V* EV lineup in at least half of the counted weeks he plays. In a points-only
- * league every counted week counts on its own (byes only). Empty without odds.
+ * each starter once. Likely starter: in my V* EV lineup (its final pricing: returners in, the roster spot one needs from
+ * his week, SideEval.ev) in at least half of the counted weeks he plays. A starter's bye counts only in a week his row can
+ * score for me (review of track E): a returner's from his expected return week on, a displaced player's before the week
+ * his displacement starts (a bye he'd sit on IR for, or after he's dropped, isn't my crunch). In a points-only league
+ * every counted week counts on its own (byes only). Empty without odds.
  */
 function riskyWeeksOf(I: TradeInternals): number[] {
   const me = I.me;
   const odds = I.sim?.odds;
   if (!me || !odds) return [];
-  const solved = me.vstar.solved;
+  const solved = me.base.ev;
   const starters = solved.team.rows.flatMap((r, k) => (!isStreamId(r.id) && evStarter(solved, k, I.weights) ? [r.id] : []));
   const weekIndex = new Map(I.league.lp.weeks.weeks.map((w, i) => [w, i]));
   const counted = new Set(I.regWeeks);
+  // The week indexes a starter is on my active roster: a returner from his return, a displaced player before his drop.
+  const back = new Map(returnersOf(me.stream).map((r) => [r.id, I.league.returnerSetup.returnIndex(r.id) ?? Number.POSITIVE_INFINITY]));
+  const gone = new Map(me.base.displaced.map((d) => [d.id, d.from]));
+  const withMe = (id: string, w: number): boolean => w >= (back.get(id) ?? 0) && w < (gone.get(id) ?? Number.POSITIVE_INFINITY);
   const onBye = (weeks: readonly number[]): number =>
     starters.filter((id) =>
       weeks.some((week) => {
         const w = weekIndex.get(week);
-        return w !== undefined && I.league.lp.players[id]?.weekly[w]?.bye === true;
+        return w !== undefined && withMe(id, w) && I.league.lp.players[id]?.weekly[w]?.bye === true;
       }),
     ).length;
   const byes = config.leaguePage.riskyByes;
@@ -742,29 +855,34 @@ function matchupWeeksOf(snapshot: LeagueSnapshot, me: string, opponentId: string
 // Side evaluations (exact mode) and EV solves (screening)
 
 /**
- * A team's roster priced in the exact mode (SideEval), from an optimizer run's roster: scenario lineups with S > 0
- * (the law-of-total-variance score, instance points), else its EV lineups. Memoized by team and roster, so a roster
- * the trade leaves as it was gives the very same numbers (the no-op test). The week in progress keeps TeamModel.score's
- * week-0 value (the file header).
+ * A team's roster priced in the exact mode (SideEval), from an optimizer run's roster made with `spec` (the team's
+ * streaming rows and the returners of its IR after the trade; default its own, TeamState.stream): scenario lineups with
+ * S > 0 (the law-of-total-variance score, instance points), else its EV lineups; finally priced (returners.finalLineups:
+ * from a returner's week, the roster spot he needs, when it's full: the file header, "IR players"). Memoized by team,
+ * roster and spec, so a roster the trade leaves as it was gives the very same numbers (the no-op test). The week in
+ * progress keeps TeamModel.score's week-0 value (the file header).
  */
-export function sideEval(I: TradeInternals, t: Pick<TeamState, "index" | "stream">, run: OptimizedRoster): SideEval {
-  const key = `${t.index}\u0004${rosterKey(run.roster, t.stream)}`;
+export function sideEval(I: TradeInternals, t: Pick<TeamState, "index" | "stream">, run: OptimizedRoster, spec: StreamSpec = t.stream): SideEval {
+  const key = `${t.index}\u0004${rosterKey(run.roster, spec)}`;
   const hit = I.sideMemo.get(key);
   if (hit) return hit;
   const { W, S, league } = I;
+  // The roster's lineups before any displacement: the optimizer's own scenario lineups when it judged in them (V* passed
+  // through it), else solved here with their cells kept (the displacement prices from them).
+  const raw = S > 0 ? (league.optimizer.scenarioValuesOf(run.roster, spec) ?? scenarioValues(run.team, W, S, league.index, true, true)) : null;
+  const final = finalLineups(league.returnerSetup, run.roster, spec, { ev: run.solved, scen: raw });
   let lv: Float64Array;
   let score: WeeklyScore;
   let perWeek: Float64Array[];
-  if (S > 0) {
-    // The optimizer's own scenario lineups of the roster when it judged in them (V* passed through it), else solved here.
-    const v = league.optimizer.scenarioValuesOf(run.roster, t.stream) ?? scenarioValues(run.team, W, S, league.index, false, true);
+  if (final.scen) {
+    const v = final.scen;
     lv = v.mean;
     score = scenarioScore(v);
     perWeek = v.instances as Float64Array[];
   } else {
-    lv = run.solved.lv;
-    score = evScore(run.solved);
-    perWeek = evInstancePoints(run.solved, league.index);
+    lv = final.ev.lv;
+    score = evScore(final.ev);
+    perWeek = evInstancePoints(final.ev, league.index);
   }
   if (I.inProgress && W > 0) {
     const pre = I.model.teams[t.index]?.score;
@@ -775,34 +893,35 @@ export function sideEval(I: TradeInternals, t: Pick<TeamState, "index" | "stream
   }
   const out: SideEval = {
     roster: run.roster,
+    displaced: final.displaced,
     lv,
     score,
     regular: avgOver(perWeek, I.regIdx, I.instances.length),
     hole: avgOver(perWeek, I.holeIdx, I.instances.length),
-    ev: run.solved,
+    ev: final.ev,
   };
   I.sideMemo.set(key, out);
   return out;
 }
 
-/** EV lineups of a roster with the team's streaming rows (after its players, as the optimizer orders them). */
+/** EV lineups of a roster with the team's streaming rows and returners (after its players, as the optimizer orders them). */
 function evSolve(I: TradeInternals, roster: readonly string[], stream: StreamSpec): SolvedWeeks {
   const rows: TableRow[] = [];
   for (const id of roster) {
     const row = I.league.table.rows.get(id);
     if (row) rows.push(row);
   }
-  return solveEvWeeks(teamEval([...rows, ...stream.rows], I.league.slots), I.W);
+  return solveEvWeeks(teamEval([...rows, ...stream.rows, ...returnersOf(stream)], I.league.slots), I.W);
 }
 
-/** Scenario lineups of a roster kept cell by cell (keep values in the exact mode). */
+/** Scenario lineups of a roster kept cell by cell (keep values in the exact mode), with the streaming rows and returners. */
 function scenarioCells(I: TradeInternals, roster: readonly string[], stream: StreamSpec): ScenarioCells {
   const rows: TableRow[] = [];
   for (const id of roster) {
     const row = I.league.table.rows.get(id);
     if (row) rows.push(row);
   }
-  return scenarioValues(teamEval([...rows, ...stream.rows], I.league.slots), I.W, I.S, null, true).cells as ScenarioCells;
+  return scenarioValues(teamEval([...rows, ...stream.rows, ...returnersOf(stream)], I.league.slots), I.W, I.S, null, true).cells as ScenarioCells;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -811,12 +930,28 @@ function scenarioCells(I: TradeInternals, roster: readonly string[], stream: Str
 export type LineupMode = "ev" | "exact";
 
 export interface LegalSide {
+  /** The active roster after the trade and the roster rules. */
   roster: string[];
   change: RosterChange;
   /** The final roster's EV ROS (EV mode, need "ros" or "look"), else null. */
   ros: number | null;
   /** The final roster's EV look (need "look"), else null. */
   look: EvLook | null;
+  /** The side's IR after the trade (rule 5: given IR players leave it, received ones fill its open IR slots when eligible). */
+  ir: string[];
+  /** The side's streaming rows with the returners of that IR (league.ts withReturners): every later solve of the side uses it. */
+  spec: StreamSpec;
+  /** Rule 5's moves: the IR players it gives (leaving its IR) and the received ones going into its IR slots (returners.irAfterTrade). */
+  givenIR: readonly string[];
+  toIR: readonly string[];
+}
+
+/**
+ * A side's moves on and off its active roster (returners.activeSpots: what §9's open-spot credit counts, market.ts's
+ * header): `given` and `received` from the side's point of view, less the IR players legality's rule 5 placed.
+ */
+function spotsOf(side: Pick<LegalSide, "givenIR" | "toIR">, given: readonly string[], received: readonly string[]): ActiveSpots {
+  return activeSpots(given, received, side);
 }
 
 const POS_INDEX: ReadonlyMap<Pos, number> = new Map(POSITIONS.map((p, i) => [p, i]));
@@ -869,23 +1004,25 @@ function legalityQuiet(I: TradeInternals, before: readonly string[], given: read
 }
 
 /**
- * Keep values of a roster's players (the file header): removal cost in the mode, plus the dynasty part. `raw` holds
- * the EV removal costs (ROS points) in EV mode, so legality can track the roster's EV ROS after a drop.
+ * Keep values of a roster's players (the file header): removal cost in the mode, plus the dynasty part, for the active
+ * roster's players only (never a streaming row or a returner: neither is ever dropped). `raw` holds the EV removal costs
+ * (ROS points) in EV mode, so legality can track the roster's EV ROS after a drop.
  */
 function keepValues(I: TradeInternals, roster: readonly string[], stream: StreamSpec, mode: LineupMode, solvedEv: SolvedWeeks | null): { keep: Map<string, number>; raw: Map<string, number> | null } {
   const costs = new Map<string, number>();
   let raw: Map<string, number> | null = null;
+  const onRoster = new Set(roster);
   if (mode === "exact" && I.S > 0) {
     const cells = scenarioCells(I, roster, stream);
     const c = scenarioRemovalCosts(cells, I.weights);
     cells.team.rows.forEach((r, k) => {
-      if (!isStreamId(r.id)) costs.set(r.id, c[k] as number);
+      if (onRoster.has(r.id)) costs.set(r.id, c[k] as number);
     });
   } else {
     const solved = solvedEv ?? evSolve(I, roster, stream);
     const c = evRemovalCosts(solved, I.weights);
     solved.team.rows.forEach((r, k) => {
-      if (!isStreamId(r.id)) costs.set(r.id, c[k] as number);
+      if (onRoster.has(r.id)) costs.set(r.id, c[k] as number);
     });
     raw = costs;
   }
@@ -915,17 +1052,26 @@ function* dropOrder(I: TradeInternals, keep: ReadonlyMap<string, number>, candid
   }
 }
 
-/** Which free agents a legality add may take: not on the roster or added, within position limits, and either at `pos` (rule 3) or not at an `excluded` position (rule 4). */
+/**
+ * Which free agents a legality add may take: not on the roster or added, not in `pool` (free agents other teams claimed:
+ * the file header, "One free agent, one team"), within position limits, and either at `pos` (rule 3) or not at an
+ * `excluded` position (rule 4); at a `refillOnly` position (rule 4: K and D/ST), only one `refills` accepts (he fills a
+ * starting slot the trade emptied).
+ */
 interface AddFilter {
   on: ReadonlySet<string>;
   counts: Int32Array;
+  pool: ReadonlySet<string>;
   pos?: Pos;
   excluded?: ReadonlySet<Pos>;
+  refillOnly?: ReadonlySet<Pos>;
+  refills?: (row: TableRow) => boolean;
 }
 
 function addAllowed(I: TradeInternals, f: AddFilter, row: TableRow): boolean {
   if (f.pos !== undefined ? row.pos !== f.pos : f.excluded?.has(row.pos) === true) return false;
-  return !f.on.has(row.id) && limitAllows(I, f.counts, row.pos);
+  if (f.on.has(row.id) || f.pool.has(row.id) || !limitAllows(I, f.counts, row.pos)) return false;
+  return f.refillOnly?.has(row.pos) !== true || f.refills?.(row) === true;
 }
 
 /**
@@ -1080,26 +1226,74 @@ export function tradeRoster(before: readonly string[], given: readonly string[],
 export type LegalNeed = "none" | "ros" | "look";
 
 /**
- * Roster legality after a trade for one side (the file header, rules 1–4): `before` is the roster the trade applies
- * to (the team's roster in exact evaluation, V*(T) in screening), `given` and `received` its sides. `who` words the
- * illegal reasons ("You", or the team's name). In EV mode it also prices the final roster as `need` asks, solving as
- * little as it can: dropping a player who starts in no week leaves the best lineups as they were (removing a bench
- * player never changes an optimal lineup), dropping a starter lowers EV ROS by exactly his removal cost (nobody
- * refilling his spot), and an added free agent raises it by exactly his gain (pickAdd), his lineups re-solved only in the
- * weeks he could change (addLook).
+ * Rule 5 (the file header): a side's IR after a trade (returners.irAfterTrade: given IR players leave it; players received
+ * from the other side's IR fill its open IR slots when the slot takes their status, the most ROS points first) and its
+ * spec with that IR's returners. The side's own IR and spec (TeamState.stream, the same object) when the trade moves no IR
+ * player of it, and always under irReturners false (no IR player is tradable then).
  */
-export function legalSide(I: TradeInternals, side: TeamState, before: readonly string[], given: readonly string[], received: readonly string[], mode: LineupMode, who: string, need: LegalNeed = mode === "ev" ? "look" : "none"): LegalSide | { illegal: string } {
-  const inbound = new Set(received);
-  const roster = tradeRoster(before, given, received);
+function irMoves(I: TradeInternals, side: TeamState, given: readonly string[], received: readonly string[]): { givenIR: readonly string[]; toIR: readonly string[]; ir: readonly string[]; spec: StreamSpec } {
+  const none = { givenIR: [], toIR: [], ir: side.ir, spec: side.stream };
+  if (!I.irOn) return none;
+  const after = irAfterTrade({
+    ir: side.ir,
+    irSlots: I.snapshot.settings.irSlots,
+    given,
+    received,
+    fromIR: (id) => I.irOwner.has(id) && I.irOwner.get(id) !== side.id,
+    eligible: (id) => I.irEligible.has(I.snapshot.players[id]?.injury ?? "ACTIVE"),
+    ros: (id) => I.league.lp.players[id]?.ros.total ?? 0,
+  });
+  if (!after.givenIR.length && !after.toIR.length) return none;
+  return { ...after, spec: I.league.withReturners(side.stream, after.ir) };
+}
+
+/**
+ * Roster legality after a trade for one side (the file header, rules 1–5): `before` is the active roster the trade applies
+ * to (the team's roster in exact evaluation, V*(T) in screening), `given` and `received` its sides (IR players included:
+ * rule 5 sends them to or from the side's IR first; the rest are active-roster moves). `who` words the illegal reasons
+ * ("You", or the team's name). Rules 3 and 4 add only free agents `pool` doesn't exclude (the file header, "One free
+ * agent, one team": the free agents other teams claimed; default FULL_POOL). Every lineup solved here holds the side's
+ * returners after the trade (LegalSide.spec), never a displacement (legality isn't a final evaluation). In EV mode it also
+ * prices the final roster as `need` asks, solving as little as it can: dropping a player who starts in no week leaves the
+ * best lineups as they were (removing a bench player never changes an optimal lineup), dropping a starter lowers EV ROS by
+ * exactly his removal cost (nobody refilling his spot), and an added free agent raises it by exactly his gain (pickAdd),
+ * his lineups re-solved only in the weeks he could change (addLook).
+ */
+export function legalSide(
+  I: TradeInternals,
+  side: TeamState,
+  before: readonly string[],
+  given: readonly string[],
+  received: readonly string[],
+  mode: LineupMode,
+  who: string,
+  need: LegalNeed = mode === "ev" ? "look" : "none",
+  pool: PoolRestriction = FULL_POOL,
+): LegalSide | { illegal: string } {
+  // Rule 5: IR players move first; what's left are the active roster's moves.
+  const irMove = irMoves(I, side, given, received);
+  const ir = [...irMove.ir];
+  const spec = irMove.spec;
+  const placed = { ir, spec, givenIR: irMove.givenIR, toIR: irMove.toIR };
+  const givenActive = irMove.givenIR.length ? given.filter((id) => !irMove.givenIR.includes(id)) : given;
+  const receivedActive = irMove.toIR.length ? received.filter((id) => !irMove.toIR.includes(id)) : received;
+  const inbound = new Set(receivedActive);
+  const roster = tradeRoster(before, givenActive, receivedActive);
   const drops: string[] = [];
   const adds: string[] = [];
   // `before`'s EV lineups when the context has them: V*(T)'s (screening) or the team's as it stands (exact evaluation).
+  // Their rows hold the side's own returners: the solves from them take out the ones the trade takes away and bring in
+  // the ones it brings (a returner's row is his own row, whichever lineup he joins).
   const base = before === side.vstar.roster ? side.vstar.solved : before === side.roster ? (I.league.work[side.index]?.solved ?? null) : null;
-  if (legalityQuiet(I, before, given, received)) {
-    if (need === "none") return { roster, change: { drops, adds }, ros: null, look: null };
+  const backBefore = new Set(returnersOf(side.stream).map((r) => r.id));
+  const backAfter = new Set(returnersOf(spec).map((r) => r.id));
+  const removedBase = [...givenActive, ...[...backBefore].filter((id) => !backAfter.has(id))];
+  const addedBase = [...receivedActive, ...[...backAfter].filter((id) => !backBefore.has(id))];
+  if (legalityQuiet(I, before, givenActive, receivedActive)) {
+    if (need === "none") return { roster, change: { drops, adds }, ros: null, look: null, ...placed };
     // From a solved roster (V*(T) in screening), only the weeks the trade can change are solved again (swapLook).
-    const look = base ? swapLook(I, base, given, received, need === "look") : quickLook(I, roster, side.stream, need === "look");
-    return { roster, change: { drops, adds }, ros: rosValue(look.lv, I.weights), look: need === "look" ? look : null };
+    const look = base ? swapLook(I, base, removedBase, addedBase, need === "look") : quickLook(I, roster, spec, need === "look");
+    return { roster, change: { drops, adds }, ros: rosValue(look.lv, I.weights), look: need === "look" ? look : null, ...placed };
   }
   /** The current roster's exact EV lineups (null: not solved since the last change). */
   let solved: SolvedWeeks | null = null;
@@ -1134,7 +1328,7 @@ export function legalSide(I: TradeInternals, side: TeamState, before: readonly s
   const ev = (): SolvedWeeks => {
     if (!solved) {
       if (prev && pending.length && !adds.length) solved = swapSolve(I, prev, pending, []);
-      else solved = base ? swapSolve(I, base, [...given, ...drops], [...received, ...adds]) : evSolve(I, roster, side.stream);
+      else solved = base ? swapSolve(I, base, [...removedBase, ...drops], [...addedBase, ...adds]) : evSolve(I, roster, spec);
       prev = null;
       pending = [];
       ros = rosValue(solved.lv, I.weights);
@@ -1183,7 +1377,7 @@ export function legalSide(I: TradeInternals, side: TeamState, before: readonly s
       const cap = Math.max(limit, countBefore(pos));
       while (countNow(pos) > cap) {
         const cands = roster.filter((id) => !inbound.has(id) && hasRow(id) && I.league.posOf(id) === pos);
-        const kv = cands.length ? keepValues(I, roster, side.stream, mode, evMode ? ev() : null) : null;
+        const kv = cands.length ? keepValues(I, roster, spec, mode, evMode ? ev() : null) : null;
         const k = kv ? dropOrder(I, kv.keep, cands).next().value : undefined;
         if (k === undefined) return { illegal: `${who} can have at most ${posWords(pos, limit)}.` };
         drop(k, kv?.raw ?? null);
@@ -1192,40 +1386,50 @@ export function legalSide(I: TradeInternals, side: TeamState, before: readonly s
   }
 
   // 2. Over the roster size: drop the lowest keep value player, never one just received (or added by rule 3), one the
-  // lineup needs, or one a position's minimum needs (rule 3's target). Run again after rule 3's adds.
+  // lineup needs, one a position's minimum needs (rule 3's target), or the last one at a position the side streams (the
+  // file header). Run again after rule 3's adds.
   const maxSize = I.league.maxRosterSize;
   const minimums = I.snapshot.settings.rosterMinimums;
   const minTarget = (pos: Pos | undefined): number => {
     const min = pos === undefined ? undefined : minimums?.[pos];
     return min === undefined || !Number.isFinite(min) ? 0 : Math.min(min, countBefore(pos as Pos));
   };
+  /** The positions the side streams: rule 2 keeps the last player it rosters at each (the file header). */
+  const streamedHere = new Set<Pos>(spec.positions);
+  /** A roster's structural lineup entries (optimizer.fillCount): its known players and the side's streaming rows (never its returners: they can't play now). */
+  const entries = (ids: readonly string[]) => [
+    ...ids.flatMap((id) => {
+      const info = I.snapshot.players[id];
+      return info ? [{ id, pos: info.pos, eligible: info.eligible }] : [];
+    }),
+    ...side.stream.rows.map((r) => ({ id: r.id, pos: r.pos, eligible: r.eligible })),
+  ];
   const trim = (): string | null => {
     if (!(Number.isFinite(maxSize) && maxSize > 0)) return null;
     const cap = Math.max(maxSize, before.length);
-    const entries = (ids: readonly string[]) => [
-      ...ids.flatMap((id) => {
-        const info = I.snapshot.players[id];
-        return info ? [{ id, pos: info.pos, eligible: info.eligible }] : [];
-      }),
-      ...side.stream.rows.map((r) => ({ id: r.id, pos: r.pos, eligible: r.eligible })),
-    ];
     while (roster.length > cap) {
       const cands = roster.filter((id) => {
         if (inbound.has(id) || adds.includes(id) || !hasRow(id)) return false;
         const pos = I.league.posOf(id);
+        if (pos !== undefined && streamedHere.has(pos) && countNow(pos) <= 1) return false; // the last one at a streamed position
         return !(minTarget(pos) > 0 && countNow(pos as Pos) <= minTarget(pos));
       });
-      const kv = cands.length ? keepValues(I, roster, side.stream, mode, evMode ? ev() : null) : null;
+      const kv = cands.length ? keepValues(I, roster, spec, mode, evMode ? ev() : null) : null;
       // In drop order, the first one the starting lineup doesn't need (optimizer.fillCount), checked lazily.
       let fill: number | null = null;
       let k: string | undefined;
-      // Not needed when some week's EV lineup fills every slot without him (then the roster without him still can).
+      // Not needed when some week's EV lineup fills every slot without him and without a returner (then the roster without
+      // him still can: the fill rule leaves returners out).
       const cur = evMode ? (solved as SolvedWeeks | null) : null;
+      const backAt = cur && backAfter.size ? cur.team.rows.flatMap((r, x) => (backAfter.has(r.id) ? [x] : [])) : [];
       const sparedIn = (id: string): boolean => {
         if (!cur) return false;
         const at = cur.team.rows.findIndex((r) => r.id === id);
         if (at < 0) return false;
-        for (let w = 0; w < cur.lv.length; w++) if ((cur.open[w] as number) === 0 && ((cur.seat[w] as Int32Array)[at] as number) < 0) return true;
+        for (let w = 0; w < cur.lv.length; w++) {
+          const seat = cur.seat[w] as Int32Array;
+          if ((cur.open[w] as number) === 0 && (seat[at] as number) < 0 && backAt.every((x) => (seat[x] as number) < 0)) return true;
+        }
         return false;
       };
       for (const id of kv ? dropOrder(I, kv.keep, cands) : []) {
@@ -1257,7 +1461,7 @@ export function legalSide(I: TradeInternals, side: TeamState, before: readonly s
       const target = Math.min(min, countBefore(pos));
       while (countNow(pos) < target) {
         const base = ev();
-        const pick = pickAdd(I, base, { on: taken(), counts, pos });
+        const pick = pickAdd(I, base, { on: taken(), counts, pool: pool.excluded, pos });
         if (!pick) return { illegal: `${who} must keep at least ${posWords(pos, min)}, and no free agent is available to fill the spot.` };
         add(pick, base);
       }
@@ -1266,19 +1470,30 @@ export function legalSide(I: TradeInternals, side: TeamState, before: readonly s
     if (still) return { illegal: still };
   }
 
-  // 4. Roster spots the trade opened: the free agent who most improves the lineup (never at a position the team streams).
+  // 4. Roster spots the trade opened: the free agent who most improves the lineup (never at a position the team streams),
+  // at a K or D/ST position (optimizerExcluded: V* never picks one up) only to refill a starting slot the trade emptied:
+  // the structural fill is below `before`'s and he raises it (the file header, rule 4). Fill counts are computed lazily,
+  // only for such a candidate.
   const excluded = new Set<Pos>(side.stream.positions);
+  const refillOnly = new Set<Pos>(I.league.cfg.streaming.optimizerExcluded.filter((p) => !excluded.has(p)));
+  let fillBefore: number | null = null;
   for (let open = before.length - roster.length; open > 0; open--) {
     const base = ev();
-    const pick = pickAdd(I, base, { on: taken(), counts, excluded });
+    let fillNow: number | null = null;
+    const refills = (row: TableRow): boolean => {
+      fillBefore ??= fillCount(entries(before), I.league.slots);
+      fillNow ??= fillCount(entries(roster), I.league.slots);
+      return fillNow < fillBefore && fillCount([...entries(roster), { id: row.id, pos: row.pos, eligible: row.eligible }], I.league.slots) > fillNow;
+    };
+    const pick = pickAdd(I, base, { on: taken(), counts, pool: pool.excluded, excluded, refillOnly, refills });
     if (!pick) break;
     add(pick, base);
   }
   const change = { drops, adds };
-  if (need === "none") return { roster, change, ros: null, look: null };
-  if (need === "ros") return { roster, change, ros: ros ?? rosValue(ev().lv, I.weights), look: null };
+  if (need === "none") return { roster, change, ros: null, look: null, ...placed };
+  if (need === "ros") return { roster, change, ros: ros ?? rosValue(ev().lv, I.weights), look: null, ...placed };
   const final = look ?? lookOf(I, solved ?? reusable ?? ev());
-  return { roster, change, ros: ros ?? rosValue(final.lv, I.weights), look: final };
+  return { roster, change, ros: ros ?? rosValue(final.lv, I.weights), look: final, ...placed };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1307,6 +1522,20 @@ export function proposalProblem(I: TradeInternals, proposal: TradeProposal, maxP
   for (const id of [...give, ...get]) {
     if (seen.has(id)) return `${playerName(I, id)} is in the trade twice.`;
     seen.add(id);
+  }
+  // Active-roster players, and IR players too since Phase 4b (planner reply to Checkpoint 4, change 5; rule 5 places them);
+  // taxi players still aren't tradable. Under irReturners false, Checkpoint 4's rule: active-roster players only.
+  if (I.irOn) {
+    for (const id of give) {
+      if (me.roster.includes(id) || me.ir.includes(id)) continue;
+      return me.team.taxi.includes(id) ? `${playerName(I, id)} is on your taxi squad: only active-roster and IR players can be traded here.` : `${playerName(I, id)} isn't on your active roster or IR.`;
+    }
+    for (const id of get) {
+      if (partner.roster.includes(id) || partner.ir.includes(id)) continue;
+      const name = teamName(I, partner.id);
+      return partner.team.taxi.includes(id) ? `${playerName(I, id)} is on ${name}'s taxi squad: only active-roster and IR players can be traded here.` : `${playerName(I, id)} isn't on ${name}'s active roster or IR.`;
+    }
+    return null;
   }
   const reserve = (t: Team, id: string) => t.ir.includes(id) || t.taxi.includes(id);
   for (const id of give) {
@@ -1362,7 +1591,7 @@ function lookOf(I: TradeInternals, solved: SolvedWeeks): EvLook {
   return { rows: solved.team.rows, lv: solved.lv, seats: I.holeIdx.map((w) => solved.seat[w] as Int32Array), pts: I.holeIdx.map((w) => solved.pts[w] as Float64Array) };
 }
 
-/** EV lineups of a roster plus the team's streaming rows (the optimizer's order), seats only in the hole weeks when `holes`. */
+/** EV lineups of a roster plus the team's streaming rows and returners (the optimizer's order), seats only in the hole weeks when `holes`. */
 function quickLook(I: TradeInternals, roster: readonly string[], stream: StreamSpec, holes: boolean): EvLook {
   const rows: TableRow[] = [];
   for (const id of roster) {
@@ -1370,6 +1599,7 @@ function quickLook(I: TradeInternals, roster: readonly string[], stream: StreamS
     if (row) rows.push(row);
   }
   for (const r of stream.rows) rows.push(r);
+  for (const r of returnersOf(stream)) rows.push(r);
   const prep = prepareRoster(rows, I.league.slots);
   const n = rows.length;
   const lv = new Float64Array(I.W);
@@ -1442,7 +1672,12 @@ function swapLook(I: TradeInternals, base: SolvedWeeks, removed: readonly string
   return { rows, lv, seats, pts: holePts };
 }
 
-/** swapLook's rows: base's players kept, the added players, base's streaming rows; base indexes (−1: added), removed indexes, the added players' weekly add bounds (null under starter limits). */
+/**
+ * swapLook's rows: base's players kept, the added players, base's streaming rows; base indexes (−1: added), removed
+ * indexes, the added players' weekly add bounds (null under starter limits). Base's IR returners (rows after its streaming
+ * rows) stay among the kept rows, before the added ones: the order changes no lineup value (lineup.ts seats and sums by
+ * points, ties by id), and every reader finds rows by id.
+ */
 function swapRows(I: TradeInternals, base: SolvedWeeks, removed: readonly string[], added: readonly string[]): { rows: TableRow[]; from: number[]; out: number[]; ubs: Float64Array[] | null } {
   const baseRows = base.team.rows;
   const gone = new Set(removed);
@@ -1579,20 +1814,24 @@ function holeSlots(I: TradeInternals, before: Float64Array, after: Float64Array,
  */
 export function screenTrade(I: TradeInternals, partner: TeamState, give: readonly string[], get: readonly string[], key?: string): Screened | null {
   const me = I.me as TeamState;
-  const mine = legalSide(I, me, me.vstar.roster, give, get, "ev", "You", "ros");
+  // Each side's legality adds skip the free agents the other teams claimed (its baseline exclusion excl(T): ⚠️ screening
+  // is a filter, so the trade's own allocation order isn't followed here).
+  const mine = legalSide(I, me, me.vstar.roster, give, get, "ev", "You", "ros", me.pool);
   if ("illegal" in mine) return null;
-  const theirs = legalSide(I, partner, partner.vstar.roster, get, give, "ev", teamName(I, partner.id), "look");
+  const theirs = legalSide(I, partner, partner.vstar.roster, get, give, "ev", teamName(I, partner.id), "look", partner.pool);
   if ("illegal" in theirs) return null;
   const look = theirs.look as EvLook;
   const myDelta = (mine.ros as number) - me.baseEv.ros;
-  const gPartner = tradePackage({ players: give }, { players: get }, I.values, I.credit).g;
-  const gPerceived = perceivedG(I, partner.id, give, get, gPartner);
+  // The partner's open-spot credit follows its own active roster (rule 5 placed the IR players: market.ts's header).
+  const theirSpots = spotsOf(theirs, get, give);
+  const gPartner = tradePackage({ players: give }, { players: get }, I.values, I.credit, config.market, theirSpots).g;
+  const gPerceived = perceivedG(I, partner.id, give, get, gPartner, theirSpots);
   const delta = partnerLineupDelta(partner.baseEv.lv, look.lv, I.from);
   const h = holeFeature(holeSlots(I, partner.baseEv.hole, holeAverage(I, look), I.medians.ev), startersIn(I, look.rows, look.seats, give)).h;
   const profile = I.profiles.get(partner.id) as PartnerProfile;
   const pQuick = quickAcceptance({ leagueType: I.snapshot.settings.leagueType }, profile, {
     gPartner,
-    ...(gPerceived !== undefined ? { gPerceived } : {}),
+    gPerceived,
     deltaLineup: delta.blended,
     h,
     assets: give.length + get.length,
@@ -1613,6 +1852,112 @@ export function screenTrade(I: TradeInternals, partner: TeamState, give: readonl
 // ---------------------------------------------------------------------------------------------
 // Exact evaluation (M3)
 
+/**
+ * X for a trade with `partner` (the file header, "One free agent, one team"): the free agents every team but me and the
+ * partner claimed; FULL_POOL under faAllocation "independent". Memoized per partner.
+ */
+export function othersPool(I: TradeInternals, partner: TeamState): PoolRestriction {
+  let pool = I.othersPool.get(partner.id);
+  if (!pool) {
+    const me = I.me;
+    pool = I.league.allocation ? poolRestriction(I.teams.flatMap((t) => (t === me || t === partner ? [] : t.claimed))) : FULL_POOL;
+    I.othersPool.set(partner.id, pool);
+  }
+  return pool;
+}
+
+/** Both sides of a trade after legality, and each one's free-agent-optimized roster V*(after) (tradeSides). */
+export interface TradeSidesAfter {
+  mineLegal: LegalSide;
+  theirLegal: LegalSide;
+  mine: OptimizedRoster;
+  theirs: OptimizedRoster;
+  /** The side that went first: the earlier of the two in the allocation order ("me" under faAllocation "independent"). */
+  first: "me" | "partner";
+  /**
+   * The pool each side's legality adds and V*(after) drew from (the second one's excludes what the first one added and,
+   * with a team between them in the order, the first one's baseline pickups).
+   */
+  pools: { mine: PoolRestriction; theirs: PoolRestriction };
+  /** Each side's spec after the trade (LegalSide.spec: its streaming rows and the returners of its IR after the trade), which its V*(after) ran with. */
+  specs: { mine: StreamSpec; theirs: StreamSpec };
+}
+
+/**
+ * Both sides of a trade in the exact mode (the file header, "Exact evaluation" and "One free agent, one team"): the earlier
+ * of me and the partner in the allocation order goes first, its legality adds (rules 3–4) and its V*(after) from the pool
+ * minus X (othersPool); then the other one's, from the pool minus X minus every free agent the first one added here
+ * (legality's adds and every add of its V*(after) run: league.claimedBy) and, ⚠️ when a team sits between the two in the
+ * order, minus the first one's baseline pickups (TeamState.claimed) too: one it gives up after the trade would go to that
+ * team first, which keeps its baseline, so nobody adds him; with no team between them the other one is next in line.
+ * Without an allocation (faAllocation "independent"), mine first and both from the whole pool: Checkpoint 4's rule.
+ * `{ illegal }` when a side's roster rules make it illegal (the first side's reason when both are).
+ */
+export function tradeSides(I: TradeInternals, me: TeamState, partner: TeamState, give: readonly string[], get: readonly string[], partnerName: string): TradeSidesAfter | { illegal: string } {
+  const optimizer = I.league.optimizer;
+  const allocated = I.league.allocation !== null;
+  const partnerFirst = allocated && me.claimRank !== null && partner.claimRank !== null && partner.claimRank < me.claimRank;
+  // Whether some team sits between the two in the allocation order (an unknown place counts as one: the cautious reading).
+  const between = me.claimRank === null || partner.claimRank === null || Math.abs(me.claimRank - partner.claimRank) > 1;
+  const sides = [
+    { team: me, given: give, received: get, who: "You" },
+    { team: partner, given: get, received: give, who: partnerName },
+  ] as const;
+  const legal: LegalSide[] = [];
+  const runs: OptimizedRoster[] = [];
+  const pools: PoolRestriction[] = [];
+  let pool = othersPool(I, partner);
+  for (const k of partnerFirst ? [1, 0] : [0, 1]) {
+    const s = sides[k as 0 | 1];
+    const l = legalSide(I, s.team, s.team.roster, s.given, s.received, "exact", s.who, "none", pool);
+    if ("illegal" in l) return { illegal: l.illegal };
+    // With the side's IR after the trade: a returner given away leaves its lineups, one received joins them.
+    const run = optimizer.optimize(l.roster, l.spec, undefined, pool);
+    legal[k] = l;
+    runs[k] = run;
+    pools[k] = pool;
+    // The second side may not add what the first one added here, nor, ⚠️ with a team between them in the order, the first
+    // one's baseline pickups, even one it no longer wants after the trade (that team would claim him first). With none
+    // between, every team ahead of the first one passed on such a player in the baseline: the second side is next in line.
+    if (allocated) pool = poolRestriction([...pool.excluded, ...(between ? s.team.claimed : []), ...l.change.adds, ...claimedBy(run)]);
+  }
+  return {
+    mineLegal: legal[0] as LegalSide,
+    theirLegal: legal[1] as LegalSide,
+    mine: runs[0] as OptimizedRoster,
+    theirs: runs[1] as OptimizedRoster,
+    first: partnerFirst ? "partner" : "me",
+    pools: { mine: pools[0] as PoolRestriction, theirs: pools[1] as PoolRestriction },
+    specs: { mine: (legal[0] as LegalSide).spec, theirs: (legal[1] as LegalSide).spec },
+  };
+}
+
+/**
+ * A side's forced roster moves on the card (TradeEvaluation.required; tradeModel.ts RosterChange): legality's drops and
+ * adds (rules 1–4); `toIR`, the received IR players rule 5 put into its open IR slots (LegalSide.toIR); and `displaced`,
+ * the roster spot a returner needs from his week (returners.finalLineups) on its final evaluation after the trade
+ * (SideEval.displaced after V*(after); `week` the NFL week from which the drop counts) that its baseline at V*(T) doesn't
+ * have. ⚠️ Ours (final review of Phase 4b): a displacement the baseline has too (the same player from the same week for
+ * the same returner) isn't the trade's move, and B doesn't count it (both sides of the comparison have it): on Parker's
+ * league, Oct 3, my own IR WR displaces a bench WR from week 7 in the baseline, so every card would repeat it. `toIR` and
+ * `displaced` are present only when not empty ("absent or empty: none").
+ */
+export function rosterChangeOf(I: TradeInternals, legal: Pick<LegalSide, "change" | "toIR">, after: Pick<SideEval, "displaced">, side: Pick<TeamState, "base">): RosterChange {
+  const weeks = I.league.lp.weeks.weeks;
+  const key = (d: Displacement) => `${d.id}\u0004${d.from}\u0004${d.returner}`;
+  const before = new Set(side.base.displaced.map(key));
+  const displaced = after.displaced.flatMap((d) => {
+    const week = weeks[d.from];
+    return before.has(key(d)) || week === undefined ? [] : [{ playerId: d.id, week, returner: d.returner }];
+  });
+  return {
+    drops: [...legal.change.drops],
+    adds: [...legal.change.adds],
+    ...(legal.toIR.length ? { toIR: [...legal.toIR] } : {}),
+    ...(displaced.length ? { displaced } : {}),
+  };
+}
+
 /** An exactly evaluated trade with what its simulation needs. */
 export interface ExactTrade {
   evaluation: TradeEvaluationCore;
@@ -1621,11 +1966,6 @@ export interface ExactTrade {
   theirs: SideEval;
   /** ΔDyn and MyDynTotal (dynasty and keeper leagues with long-term values), else null. */
   dynasty: { delta: number; total: number } | null;
-  /**
-   * g_mkt(me) as B's redraft market term reads it (lead decision N10): each player I give valued at max(v, W)
-   * (benefit.marketTermPackage); the raw g_mkt(me) (evaluation.gMine) in the pre-addendum model. Absent: gMine.
-   */
-  gMarket?: number;
 }
 
 /**
@@ -1641,39 +1981,39 @@ export function evaluateExact(I: TradeInternals, proposal: TradeProposal, maxPer
   const give = playerIds(proposal.give);
   const get = playerIds(proposal.get);
   const partnerName = teamName(I, partner.id);
-  const mineLegal = legalSide(I, me, me.roster, give, get, "exact", "You");
-  if ("illegal" in mineLegal) return { illegal: mineLegal.illegal };
-  const theirLegal = legalSide(I, partner, partner.roster, get, give, "exact", partnerName);
-  if ("illegal" in theirLegal) return { illegal: theirLegal.illegal };
-
-  const optimizer = I.league.optimizer;
-  const mine = sideEval(I, me, optimizer.optimize(mineLegal.roster, me.stream));
-  const theirs = sideEval(I, partner, optimizer.optimize(theirLegal.roster, partner.stream));
+  const after = tradeSides(I, me, partner, give, get, partnerName);
+  if ("illegal" in after) return after;
+  const { mineLegal, theirLegal } = after;
+  const mine = sideEval(I, me, after.mine, after.specs.mine);
+  const theirs = sideEval(I, partner, after.theirs, after.specs.theirs);
   const weeks = I.league.lp.weeks.weeks;
 
   const dPPW = ppw(mine.lv, weeks, I.regWeeks) - ppw(me.base.lv, weeks, I.regWeeks);
   const dPPWPlayoffs = ppw(mine.lv, weeks, I.poWeeks) - ppw(me.base.lv, weeks, I.poWeeks);
   const delta = partnerLineupDelta(partner.base.lv, theirs.lv, I.from);
   const hole = holeFeature(holeSlots(I, partner.base.hole, theirs.hole, I.medians.exact), receivedStarters(I, theirs.ev, give));
-  const myPkg = tradePackage({ players: get }, { players: give }, I.values, I.credit);
-  const gPartner = tradePackage({ players: give }, { players: get }, I.values, I.credit).g;
+  // Each side's open-spot credit follows its own active roster after rule 5 (an IR slot isn't a roster spot: market.ts's
+  // header), so with an IR player in the trade my package and the partner's needn't mirror each other.
+  const mySpots = spotsOf(mineLegal, give, get);
+  const theirSpots = spotsOf(theirLegal, get, give);
+  const myPkg = tradePackage({ players: get }, { players: give }, I.values, I.credit, config.market, mySpots);
+  const gPartner = tradePackage({ players: give }, { players: get }, I.values, I.credit, config.market, theirSpots).g;
   // The partner's g as it perceives it (the star premium on what it gives): the g feature only; the veto reads gPartner.
-  const gPerceived = perceivedG(I, partner.id, give, get, gPartner);
+  const gPerceived = perceivedG(I, partner.id, give, get, gPartner, theirSpots);
   const rosOf = (ids: readonly string[]) => ids.reduce((s, id) => s + (I.league.lp.players[id]?.ros.total ?? 0), 0);
   const profile = I.profiles.get(partner.id) as PartnerProfile;
   const hot = hotTerm(give, get, I.hot);
   const accept = acceptance(
     { leagueType: I.snapshot.settings.leagueType, tradeReview: I.snapshot.settings.tradeReview },
     profile,
-    { gPartner, ...(gPerceived !== undefined ? { gPerceived } : {}), deltaLineup: delta.blended, h: hole.h, assets: give.length + get.length, partnerReceives: receivedPlayers(I, give), hot, urg: I.urg },
+    { gPartner, gPerceived, deltaLineup: delta.blended, h: hole.h, assets: give.length + get.length, partnerReceives: receivedPlayers(I, give), hot, urg: I.urg },
   );
   const f = I.future;
-  // ΔDyn (§10): my long-term package change. Since the addendum, like B's redraft market term (N10), each player I give
-  // counts at least the long-term waiver credit: a player worth less than the best free agent is replaceable, and V*(me)
-  // already counts that, so dumping him is no long-term gain either (final review of Phase 4: the double count N10 removed
-  // in redraft leagues lived on here). ⚠️ Ours, reported at Checkpoint 4. Raw in the before-addendum variant.
+  // ΔDyn (§10): my long-term package change, each player at max(v, W) on the future term's values and W like every
+  // package (planner reply to Checkpoint 4, change 4): a player worth less than the best free agent is replaceable, and
+  // V*(me) already counts that, so dumping him is no long-term gain either. MyDynTotal stays raw (rosterValue).
   const dynasty = f && I.snapshot.settings.leagueType !== "redraft" ? (() => {
-    const pkg = I.beforeAddendum ? tradePackage({ players: get }, { players: give }, f.values, f.credit) : marketTermPackage({ players: get }, { players: give }, f.values, f.credit);
+    const pkg = tradePackage({ players: get }, { players: give }, f.values, f.credit, config.market, mySpots);
     return { delta: pkg.recv - pkg.give, total: f.myTotal };
   })() : null;
 
@@ -1700,12 +2040,10 @@ export function evaluateExact(I: TradeInternals, proposal: TradeProposal, maxPer
     weekly: weeks.map((week, w) => ({ week, before: me.base.score.mean[w] as number, after: mine.score.mean[w] as number })),
     riskyWeeks: [...I.riskyWeeks],
     notes,
-    // One fact per player the partner gives (e may be 0); absent in the pre-addendum model.
-    ...(I.beforeAddendum ? {} : { premium: premiumFacts(get, I.premiums.get(partner.id)) }),
+    // One fact per player the partner gives (e may be 0).
+    premium: premiumFacts(get, I.premiums.get(partner.id)),
   };
   const gMine = myPkg.g;
-  // B's market term only (N10): my given players at max(v, W); the card, the flags and the partner keep the raw g's.
-  const gMarket = I.beforeAddendum ? gMine : marketTermPackage({ players: get }, { players: give }, I.values, I.credit).g;
   const injured = injuredReceived(get, I.snapshot.players);
   const evaluation: TradeEvaluationCore = {
     key: proposalKey(proposal),
@@ -1713,7 +2051,7 @@ export function evaluateExact(I: TradeInternals, proposal: TradeProposal, maxPer
     illegal: null,
     stage: "exact",
     sims: 0,
-    required: { me: mineLegal.change, partner: theirLegal.change },
+    required: { me: rosterChangeOf(I, mineLegal, mine, me), partner: rosterChangeOf(I, theirLegal, theirs, partner) },
     b: null,
     tradeScore: null,
     pAccept: accept.pAccept,
@@ -1739,7 +2077,7 @@ export function evaluateExact(I: TradeInternals, proposal: TradeProposal, maxPer
     flags: tradeFlags({ gMine, b: null, injured }),
     detail,
   };
-  return { evaluation, partner, mine, theirs, dynasty, gMarket };
+  return { evaluation, partner, mine, theirs, dynasty };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1781,7 +2119,7 @@ export function simCounts(): { screen: number; final: number } {
 /**
  * The trade's season simulation (M4) on the `stage` block of seasons (screening or final), and every number that follows from it: ΔPO, ΔCH, ΔEW, B and its
  * parts (benefit, with λ = the setting or the default by my finalSims baseline P(playoffs), and κ = the "Protect my trade
- * value" level's: kappaFor), the Trade Score and Overall, the flags, and benefitNotes in the detail's notes. Without odds
+ * value" level's: benefit.protectValueWeight), the Trade Score and Overall, the flags, and benefitNotes in the detail's notes. Without odds
  * (the context's note), B stays null. `protectValue` is the user's per-call setting (TradeSettings.protectValue); absent,
  * the context's settings' (the search and the Analyzer always pass theirs: a cached context may hold older settings).
  */
@@ -1799,8 +2137,8 @@ export function simulateTrade(I: TradeInternals, x: ExactTrade, stage: SimStage,
     dCH = after.pTitle !== null && base.pTitle !== null ? after.pTitle - base.pTitle : null;
     dEW = after.expWins - base.expWins;
   }
-  const kappa = kappaFor(I, protectValue ?? I.settings.protectValue);
-  const b = benefit({ leagueType: I.snapshot.settings.leagueType, dPO, dCH, gMine: ev.gMine, gMarket: x.gMarket ?? ev.gMine, dynasty: x.dynasty, myPPlayoffs: I.sim ? I.sim.base.final.pPlayoffs : null, lambda, kappa });
+  const kappa = protectValueWeight(protectValue ?? I.settings.protectValue);
+  const b = benefit({ leagueType: I.snapshot.settings.leagueType, dPO, dCH, gMine: ev.gMine, dynasty: x.dynasty, myPPlayoffs: I.sim ? I.sim.base.final.pPlayoffs : null, lambda, kappa });
   const numbers = tradeNumbers(b, { pAccept: ev.pAccept, pComplete: ev.pComplete, label: ev.acceptLabel });
   const { titleMissing: _titleMissing, ...cardNumbers } = numbers;
   void _titleMissing;
@@ -1944,11 +2282,11 @@ const helps = (v: TradeVersion): boolean => {
 
 /**
  * "Offer first / if they say no" for a trade (the file header): its two steps, or null when none qualify (the offer-first
- * version must help me: B > 0 on the screening block), in the pre-addendum model, or without my team. `ranked` is the
- * trade as ranked, with its screening-block numbers.
+ * version must help me: B > 0 on the screening block), or without my team. `ranked` is the trade as ranked, with its
+ * screening-block numbers.
  */
 export function tradeSteps(I: TradeInternals, ranked: TradeVersion, opts: StepOptions): TradeSteps | null {
-  if (I.beforeAddendum || !I.me) return null;
+  if (!I.me) return null;
   const cfg = opts.cfg ?? stepConfig();
   const proposal = ranked.screen.proposal;
   if ([...proposal.give, ...proposal.get].some((a) => a.kind !== "player")) return null;
@@ -1998,7 +2336,7 @@ export function tradeSteps(I: TradeInternals, ranked: TradeVersion, opts: StepOp
 // ---------------------------------------------------------------------------------------------
 // Words (explain.ts) and values (rank.ts)
 
-/** The names and league facts explain.ts reads: the app's own names (snapshot teams and players). */
+/** The names and league facts explain.ts reads: the app's own names (snapshot teams and players), and FantasyCalc's values for the pitch. */
 export function explainContextOf(I: TradeInternals): ExplainContext {
   return {
     teamName: (id) => teamName(I, id),
@@ -2009,13 +2347,21 @@ export function explainContextOf(I: TradeInternals): ExplainContext {
     slots: I.instances.map((inst, i) => ({ ...inst, eligible: I.slotEligible[i] ?? [] })),
     leagueType: I.snapshot.settings.leagueType,
     tradeDeadline: I.snapshot.settings.tradeDeadline,
+    // The pitch quotes FantasyCalc's own values (explain.ts): a perception value from FantasyCalc, never an estimate.
+    fantasyCalcValue: (id) => {
+      const v = I.league.lp.players[id]?.value;
+      return v && v.source === "fantasycalc" ? v.value : null;
+    },
   };
 }
 
 /** A finished evaluation: the core plus its reasons and pitch (explain.ts). */
 export function withWords(I: TradeInternals, core: TradeEvaluationCore): TradeEvaluation {
   const words = explainTrade(core, explainContextOf(I));
-  return { ...core, reasons: words.reasons, pitch: words.pitch };
+  // The card's injury tags (planner reply to Checkpoint 4, change 6): every tagged player on either side, with the return
+  // week the model counts on (explain.tagContextOf), for the Trade Finder's cards and the Analyzer's alike.
+  const tagged = injuryTags(core.proposal, I.snapshot.players, tagContextOf(I));
+  return { ...core, flags: { ...core.flags, tagged }, reasons: words.reasons, pitch: words.pitch };
 }
 
 /** An asset's perception value (§9), for rank.ts's cores; picks are 0 in this phase. */
@@ -2058,6 +2404,6 @@ export function analyzeTrade(ctx: TradeContext, proposal: TradeProposal, opts: A
   // trade doesn't help never says how to land it; and none when a context note stops the search (the deadline passed,
   // the season's over, no odds, …): the Analyzer still evaluates, but there's nothing to offer.
   const shown = core.b !== null && core.b > 0 && !core.flags.hiddenByMarket; // B > 0: not hidden by benefit either
-  const steps = I.beforeAddendum || I.blocked || !shown ? null : tradeSteps(I, { x: exact, screen: simulateTrade(I, exact, "screen", settings.lambda, settings.protectValue) }, { settings, maxPerSide });
+  const steps = I.blocked || !shown ? null : tradeSteps(I, { x: exact, screen: simulateTrade(I, exact, "screen", settings.lambda, settings.protectValue) }, { settings, maxPerSide });
   return { evaluation: withWords(I, steps ? { ...core, steps } : core), illegal: null, notes };
 }

@@ -31,6 +31,21 @@
  *   deadline (inferred, 1/5); any other code → unknown (settings.unknownSettings).
  * - league_average_match 1 = an extra game vs the median each week; missing → none (defaulted).
  * - waiver_type 2 = FAAB (waiver_budget is then the budget).
+ * - Waiver order and FAAB (Phase 4b: free agents go to one team each, in this order; engine league.ts step 5):
+ *   rosters[].settings.waiver_position → Team.waiverRank (1 = first claim: a 1..n permutation in all 18 surveyed 2026
+ *   leagues of the Phase 0 crawl and in the public test league; ρ(position, standings rank) = −1.00 in two
+ *   reverse-standings leagues, so position 1 is the worst team's: ✅ for those, ⚠️ read the same way for rolling
+ *   waivers). In a FAAB league, Team.faabRemaining = waiver_budget − rosters[].settings.waiver_budget_used (✅ Phase 0: no
+ *   team spent more than waiver_budget in 27 finished FAAB seasons; the amount used goes below 0 when a team receives
+ *   FAAB in a trade: one 2026 league has 205 left of a 100 budget). A position that isn't a whole number ≥ 1, or a
+ *   remaining budget below 0 or unreadable, is left out.
+ * - IR slots (Phase 4b: a traded IR player goes into an open IR slot when it takes his status; engine evaluate.ts
+ *   rule 5): reserve_slots → irSlots, and LeagueSettings.irEligible = IR and PUP always, OUT with reserve_allow_out 1,
+ *   DOUBTFUL with reserve_allow_doubtful 1, SUSPENDED with reserve_allow_sus 1, NA with reserve_allow_na 1 (irEligibleOf).
+ *   ✅ The public test league (Phase 0 probe B.ir): reserve_allow_out 1 with 3 Out players on IR, and a PUP player on IR
+ *   though no reserve_allow_pup setting exists; the settings are 0/1 flags in 244 of 250 crawled leagues (absent in 6:
+ *   then irEligible is left out, unknown, and the engine's default applies). ⚠️ Sleeper's DNR and COV statuses (read as
+ *   OUT, INJURY_MAP) have flags of their own (reserve_allow_dnr, reserve_allow_cov): OUT follows reserve_allow_out alone.
  * - Matchups of weeks ≥ playoff_week_start are regular-season placeholders until the playoffs start,
  *   so the schedule holds regular-season weeks only; once the playoffs start, a warning says the
  *   playoff matchups aren't imported yet (the winners_bracket isn't read).
@@ -333,6 +348,23 @@ function tiebreakerNote(hasPlayoffs: boolean): string {
   return hasPlayoffs ? `${ties} A commissioner can also set the playoff seeds by hand, which Sleeper's API doesn't show; Offer Sheet seeds by the standings.` : ties;
 }
 
+/** reserve_allow_* settings → the statuses beyond IR and PUP an IR slot takes (the file header, "IR slots"). */
+const RESERVE_ALLOW: readonly (readonly [string, InjuryStatus])[] = [
+  ["reserve_allow_out", "OUT"],
+  ["reserve_allow_doubtful", "DOUBTFUL"],
+  ["reserve_allow_sus", "SUSPENDED"],
+  ["reserve_allow_na", "NA"],
+];
+
+/**
+ * LeagueSettings.irEligible from settings.reserve_allow_* (the file header, "IR slots"): IR and PUP always, then each
+ * status whose flag is 1; undefined when the league reports none of the flags (unknown: the engine's default applies).
+ */
+export function irEligibleOf(s: Record<string, unknown>): InjuryStatus[] | undefined {
+  if (!RESERVE_ALLOW.some(([key]) => num(s, key) !== undefined)) return undefined;
+  return ["IR", "PUP", ...RESERVE_ALLOW.filter(([key]) => num(s, key) === 1).map(([, status]) => status)];
+}
+
 function buildSettings(league: SleeperLeague, rosters: SleeperRoster[], scoring: Scoring, warn: (w: ImportWarning) => void): SettingsResult {
   const s = league.settings;
   const notes: string[] = [];
@@ -420,12 +452,14 @@ function buildSettings(league: SleeperLeague, rosters: SleeperRoster[], scoring:
   // Division seeding, then how ties in the standings are broken (§8: Sleeper's documented default).
   notes.push(...seedingNotes, tiebreakerNote(playoffTeams > 0));
 
+  const irEligible = irEligibleOf(s);
   const settings: LeagueSettings = {
     numTeams,
     leagueType,
     lineup,
     benchSlots: bench,
     irSlots: num(s, "reserve_slots") ?? 0,
+    ...(irEligible ? { irEligible } : {}),
     taxiSlots: num(s, "taxi_slots") ?? 0,
     maxRosterSize: lineup.reduce((a, l) => a + l.count, 0) + bench,
     ...(Object.keys(positionLimits).length ? { positionLimits } : {}),
@@ -478,6 +512,8 @@ function buildTeams(rosters: SleeperRoster[], users: SleeperLeagueUser[], settin
       const st = r.settings ?? {};
       const id = String(r.roster_id);
       const division = inDivision.get(id);
+      const waiverRank = waiverRankOf(st.waiver_position);
+      const faabRemaining = faabRemainingOf(settings.faabBudget, st.waiver_budget_used);
       return {
         id,
         name: teamNameOf(owner) ?? `Team ${r.roster_id}`,
@@ -489,8 +525,27 @@ function buildTeams(rosters: SleeperRoster[], users: SleeperLeagueUser[], settin
         pointsFor: round2((st.fpts ?? 0) + (st.fpts_decimal ?? 0) / 100),
         pointsAgainst: round2((st.fpts_against ?? 0) + (st.fpts_against_decimal ?? 0) / 100),
         ...(division ? { divisionId: division } : {}),
+        ...(waiverRank !== undefined ? { waiverRank } : {}),
+        ...(faabRemaining !== undefined ? { faabRemaining } : {}),
       };
     });
+}
+
+/** rosters[].settings.waiver_position when it is a whole number ≥ 1 (1 = first claim), else undefined (the header, "Waiver order and FAAB"). */
+export function waiverRankOf(position: number | null | undefined): number | undefined {
+  return typeof position === "number" && Number.isInteger(position) && position >= 1 ? position : undefined;
+}
+
+/**
+ * A FAAB league's remaining budget for a roster (the header, "Waiver order and FAAB"): settings.waiver_budget −
+ * rosters[].settings.waiver_budget_used, when the league uses FAAB (`budget`: LeagueSettings.faabBudget, set for
+ * waiver_type 2) and the amount used is a number (negative after receiving FAAB in a trade, so more than the budget can
+ * be left); undefined otherwise, or below 0.
+ */
+export function faabRemainingOf(budget: number | undefined, used: number | null | undefined): number | undefined {
+  if (budget === undefined || typeof used !== "number" || !Number.isFinite(used)) return undefined;
+  const left = budget - used;
+  return Number.isFinite(left) && left >= 0 ? left : undefined;
 }
 
 /** §2.3: the roster whose owner_id is the user, else one whose co_owners lists them. */

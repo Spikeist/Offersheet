@@ -373,36 +373,46 @@ describe("LeagueView heatmap", () => {
 
 describe("LeagueView trade partners", () => {
   const partners = between(html, "Best fits for your team", 'id="rosters-title"');
-  /** One partner card's visible text, from its team's name up to its "Trade ideas" link. */
-  const cardText = (markup: string, team: string) => textOf(between(markup, `>${team}<`, "Trade ideas").slice(1)).trim();
+  /** One partner card's visible text, from its team's name up to its "See trade ideas" link. */
+  const cardText = (markup: string, team: string) => textOf(between(markup, `>${team}<`, "See trade ideas").slice(1)).trim();
 
   it("leads each card with who to aim for, then each side's other trade chips (planner addendum to Checkpoint 3, §2)", () => {
     expect(textOf(partners)).toContain(
-      "Gravel Gophers Fit 2.4 Best target: C. Snoot, +2.1/wk Bigger upgrade, harder to get: M. Gloop, +2.5/wk They could also give: I. Fumblewick (+1.2/wk), P. Plunk (+0.5/wk), P. Wobbleton (+0.4/wk) Harder to get You could give: W. Spoons (+1.8/wk)",
+      "Gravel Gophers Fit 2.4 Best of their trade chips: C. Snoot, +2.1/wk Bigger upgrade, harder to get: M. Gloop, +2.5/wk They could also give: I. Fumblewick (+1.2/wk), P. Plunk (+0.5/wk), P. Wobbleton (+0.4/wk) Harder to get You could give: W. Spoons (+1.8/wk)",
     );
     // Each lead line says on hover what he'd add to my lineup (and why he's harder to get).
     // The name and the number each stay on one line (a hyphenated name broke at 375 px).
     expect(partners).toContain(
-      '<p class="mt-1.5 text-sm leading-relaxed" title="Cornelius Snoot: +2.1 points per week to your lineup."><span class="font-semibold text-muted">Best target:</span> <span class="font-bold"><span class="whitespace-nowrap">C. Snoot,</span> <span class="whitespace-nowrap">+2.1/wk</span></span></p>',
+      '<p class="mt-1.5 text-sm leading-relaxed" title="Cornelius Snoot: +2.1 points per week to your lineup."><span class="font-semibold text-muted">Best of their trade chips:</span> <span class="font-bold"><span class="whitespace-nowrap">C. Snoot,</span> <span class="whitespace-nowrap">+2.1/wk</span></span></p>',
     );
     expect(partners).toMatch(
       /<p [^>]*title="Mortimer Gloop: \+2\.5 points per week to your lineup\. Harder to get: [^"]*"><span class="font-semibold text-muted">Bigger upgrade, harder to get:<\/span> <span class="font-bold"><span class="whitespace-nowrap">M\. Gloop,<\/span> <span class="whitespace-nowrap">\+2\.5\/wk<\/span><\/span><\/p>/,
     );
     // A one-sided fit is badged by what was measured, and says plainly what it would cost.
-    expect(text).toContain("Tundra Tortoises Would start for you Best target: O. Wren, +1.6/wk You could give: no trade chip that would start for them, so a trade would likely cost you a starter.");
+    expect(text).toContain("Tundra Tortoises Would start for you Best of their trade chips: O. Wren, +1.6/wk You could give: no trade chip that would start for them, so a trade would likely cost you a starter.");
     // No empty "They could also give:" line when the targets are all of them.
-    expect(textOf(between(partners, ">Tundra Tortoises<", "Trade ideas"))).not.toContain("They could");
+    expect(textOf(between(partners, ">Tundra Tortoises<", "See trade ideas"))).not.toContain("They could");
     // Under the floor (config.needs.bestTargetMin, lead decision N12) and untagged, Mop leads nothing: he's simply listed.
     expect(cardText(partners, "Quasar Quokkas")).toBe("Quasar Quokkas Fit 1.1 They could give: L. Mop (+0.9/wk) You could give: W. Spoons (+1.3/wk)");
     expect(text).not.toContain("Fills your needs");
     expect(text).toContain("Points per week are what each trade chip would add to the other team's starting lineup, after that team's free-agent pickups.");
     expect(text).toContain("teams with a trade chip who would start for you, when none of yours would start for them, come last.");
     expect(text).toContain(
-      "come last. “Best target” is the most helpful of their trade chips for you without the “Harder to get” mark, as long as he adds at least 1 point a week; when none does, a marked one who'd help you more leads instead, if he adds at least that much too. A marked player is one of their best, so expect their manager to want a little extra for him. “Trade ideas” opens the Trade Finder",
+      "come last. “Best of their trade chips” is the one of their trade chips who'd help you most without the “Harder to get” mark, as long as he adds at least 1 point a week; when none does, a marked one who'd help you more leads instead, if he adds at least that much too. A marked player is one of their best, so expect their manager to want a little extra for him. “See trade ideas” opens the Trade Finder for that team: actual trades, ranked by how much they help you and how likely that team is to say yes, which can differ from the trade chips named here.",
     );
+    expect(text).not.toContain("Best target");
   });
 
-  it("leads with the tagged one alone, as 'Best target, harder to get', when no untagged one adds the floor (lead decision N12)", () => {
+  it("ends each card with 'See trade ideas with <team> →': a 44 px link that wraps a long name, its arrow hidden from screen readers (planner reply to Checkpoint 4, change 6)", () => {
+    const links = [...partners.matchAll(/<a class="([^"]*)" href="([^"]*)">See trade ideas with ([^<]*)<span aria-hidden="true"> →<\/span><\/a>/g)].map(([, cls = "", href, team]) => ({ href, team, target: cls.includes("min-h-11"), wraps: cls.includes("wrap-anywhere") }));
+    expect(links).toEqual([
+      { href: "/trades?partner=2", team: "Gravel Gophers", target: true, wraps: true },
+      { href: "/trades?partner=3", team: "Quasar Quokkas", target: true, wraps: true },
+      { href: "/trades?partner=4", team: "Tundra Tortoises", target: true, wraps: true },
+    ]);
+  });
+
+  it("leads with the tagged one alone, as 'Best of their trade chips, harder to get', when no untagged one adds the floor (lead decision N12)", () => {
     // The review's Team 1 card in Parker's league: an untagged +0.1/wk next to a tagged +7.2/wk (made-up names here).
     const f = leagueFixture();
     f.model.partners = f.model.partners.map((p) =>
@@ -417,10 +427,10 @@ describe("LeagueView trade partners", () => {
         : p,
     );
     const page = between(renderFixture(f), "Best fits for your team", 'id="rosters-title"');
-    expect(cardText(page, "Gravel Gophers")).toBe("Gravel Gophers Fit 2.4 Best target, harder to get: M. Gloop, +7.2/wk They could also give: C. Snoot (+0.1/wk) You could give: W. Spoons (+1.8/wk)");
-    const card = between(page, ">Gravel Gophers<", "Trade ideas");
+    expect(cardText(page, "Gravel Gophers")).toBe("Gravel Gophers Fit 2.4 Best of their trade chips, harder to get: M. Gloop, +7.2/wk They could also give: C. Snoot (+0.1/wk) You could give: W. Spoons (+1.8/wk)");
+    const card = between(page, ">Gravel Gophers<", "See trade ideas");
     expect(card).toMatch(
-      /<p [^>]*title="Mortimer Gloop: \+7\.2 points per week to your lineup\. Harder to get: [^"]*"><span class="font-semibold text-muted">Best target, harder to get:<\/span> <span class="font-bold"><span class="whitespace-nowrap">M\. Gloop,<\/span> <span class="whitespace-nowrap">\+7\.2\/wk<\/span><\/span><\/p>/,
+      /<p [^>]*title="Mortimer Gloop: \+7\.2 points per week to your lineup\. Harder to get: [^"]*"><span class="font-semibold text-muted">Best of their trade chips, harder to get:<\/span> <span class="font-bold"><span class="whitespace-nowrap">M\. Gloop,<\/span> <span class="whitespace-nowrap">\+7\.2\/wk<\/span><\/span><\/p>/,
     );
     expect(card).not.toContain("Bigger upgrade");
   });
@@ -429,7 +439,7 @@ describe("LeagueView trade partners", () => {
     expect(partners).toMatch(
       /<span title="Pip Wobbleton: \+0\.4 points per week to the other lineup\. Harder to get: [^"]*">, P\. Wobbleton \(\+0\.4\/wk\)<span title="Harder to get: his team&#x27;s second most valuable player[^"]*" class="ml-1"><span class="[^"]*bg-accent text-navy[^"]*">Harder to get<\/span><\/span><\/span>/,
     );
-    expect(textOf(between(partners, "You could give:", "Trade ideas"))).not.toContain("Harder to get");
+    expect(textOf(between(partners, "You could give:", "See trade ideas"))).not.toContain("Harder to get");
   });
 
   it("names the rest counted on hover and for screen readers, saying which are harder to get", () => {
@@ -449,7 +459,7 @@ describe("LeagueView trade partners", () => {
         : p,
     );
     const more = between(renderFixture(f), "Best fits for your team", 'id="rosters-title"');
-    expect(textOf(more)).toContain("Gravel Gophers Fit 2.4 Best target: C. Snoot, +2.1/wk They could also give: I. Fumblewick (+1.2/wk), P. Plunk (+0.5/wk), R. Wimbleton (+0.5/wk) and 1 more");
+    expect(textOf(more)).toContain("Gravel Gophers Fit 2.4 Best of their trade chips: C. Snoot, +2.1/wk They could also give: I. Fumblewick (+1.2/wk), P. Plunk (+0.5/wk), R. Wimbleton (+0.5/wk) and 1 more");
     expect(more).toMatch(/<span title="Pip Wobbleton: [^"]*" class="text-muted"> <span aria-hidden="true">and 1 more<\/span><span class="sr-only">and 1 more: P\. Wobbleton \(\+0\.4\/wk, harder to get\)<\/span><\/span>/);
   });
 });
@@ -490,6 +500,15 @@ describe("LeagueView 'Harder to get' (planner addendum to Checkpoint 3, §2)", (
 });
 
 describe("LeagueView rosters", () => {
+  it("says above the rosters how free agents are shared out, one team each (planner reply to Checkpoint 4, change 3), only when the model says", () => {
+    const f = leagueFixture();
+    f.model = { ...f.model, faAllocation: { basis: "faab", order: ["2", "1", "3", "4"] } };
+    const head = between(renderFixture(f), 'id="rosters-title"', "<details");
+    expect(head).toContain('<p class="mt-1 text-sm break-words text-muted">Free-agent pickups: each free agent goes to one team only, in FAAB order (the most budget left first). Your team picks 2nd of 4.</p>');
+    // A model built before Phase 4b (the fixture's): no line.
+    expect(between(html, 'id="rosters-title"', "<details")).not.toContain("one team only");
+  });
+
   it("opens my roster, and collapses the others", () => {
     expect(html.match(/<details open=""/g)).toHaveLength(1);
     expect(html).toMatch(/<details open=""[^>]*><summary[^>]*><span[^>]*><span[^>]*>Moonbeam Mudcats <span[^>]*>You<\/span><\/span><span[^>]*>87 pts\/wk · 438 ROS pts<\/span>/);
@@ -594,6 +613,27 @@ describe("LeagueView rosters", () => {
     const qb = view.rosters[0]?.players.find((p) => p.id === "101");
     if (!qb) throw new Error("fixture QB missing");
     expect(renderToStaticMarkup(createElement(PlayerDetail, { player: qb, showLineupCost: true }))).not.toContain("ESPN:");
+  });
+
+  it("shows the market blend's line at the top of a blended player's breakdown (§6 step 8), and what each number is in visible words under it (phones have no hover)", () => {
+    const f = leagueFixture();
+    const pm = f.model.players["101"];
+    if (!pm) throw new Error("fixture QB missing");
+    f.model.players["101"] = { ...pm, blend: { ours: 210.4, market: 169.6, used: 190, weight: 0.5 } };
+    const view = buildLeagueView({ ...f, myTeamSource: "platform", timeZone: "America/Chicago", now: NOW });
+    const qb = view.rosters[0]?.players.find((p) => p.id === "101");
+    if (!qb) throw new Error("fixture QB missing");
+    const detail = renderToStaticMarkup(createElement(PlayerDetail, { player: qb, showLineupCost: true }));
+    expect(detail).toMatch(
+      /<p class="mb-2 text-xs leading-relaxed break-words"><span class="font-medium">Our projection 210 · Trade market 170 · Used 190<\/span><span class="block text-muted">Rest-of-season points\. [^<]*<\/span><\/p>/,
+    );
+    // The words are on screen for everyone, not in a hover or screen-reader-only text.
+    expect(detail).not.toMatch(/title="Rest-of-season/);
+    expect(textOf(detail)).toContain("Our projection 210 · Trade market 170 · Used 190 Rest-of-season points. Our projection: our own model's. Trade market: the same games at the points per game");
+    // An unblended player's breakdown has no such line.
+    const rb = view.rosters[0]?.players.find((p) => p.id === "102");
+    if (!rb) throw new Error("fixture RB missing");
+    expect(renderToStaticMarkup(createElement(PlayerDetail, { player: rb, showLineupCost: true }))).not.toContain("Trade market");
   });
 
   it("says what ~ means for screen readers: our estimate, or our flat minimum value", () => {

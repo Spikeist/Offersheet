@@ -17,6 +17,12 @@
   --brand-contrast: #ffffff;
   --brand-soft: #e2f4ea;
   --accent: #f2b705;
+  /*
+   * Keyboard focus ring: a darker gold than --accent, which is only 1.8 : 1 on a white card. This one is 4.7 on white,
+   * 4.3 on the page, 4.1 on surface-muted and 3.5 on navy (WCAG asks 3 : 1 of a focus indicator). On navy the ring takes
+   * the bright gold again (9.2 : 1), below.
+   */
+  --focus: #9a6a00;
   --navy: #0b1f33;
   --navy-contrast: #f4f7fb;
   --warn-bg: #fff6dc;
@@ -57,6 +63,8 @@
     --brand-contrast: #04140c;
     --brand-soft: #12301f;
     --accent: #f5c542;
+    /* The bright gold is 10.6 : 1 on a dark card. */
+    --focus: #f5c542;
     --navy: #060d18;
     --navy-contrast: #eef3fa;
     --warn-bg: #33280a;
@@ -93,6 +101,7 @@
   --color-brand-contrast: var(--brand-contrast);
   --color-brand-soft: var(--brand-soft);
   --color-accent: var(--accent);
+  --color-focus: var(--focus);
   --color-navy: var(--navy);
   --color-navy-contrast: var(--navy-contrast);
   --color-warn-bg: var(--warn-bg);
@@ -128,7 +137,7 @@ body {
 
 /* Visible keyboard focus everywhere, a scroll region the keyboard can reach (tabindex="0") included. */
 :where(a, button, input, select, textarea, summary, [tabindex="0"]):focus-visible {
-  outline: 3px solid var(--accent);
+  outline: 3px solid var(--focus);
   outline-offset: 2px;
   border-radius: 6px;
 }
@@ -138,8 +147,13 @@ body {
   outline: none;
 }
 :where([tabindex="-1"]):focus-visible {
-  outline: 3px solid var(--accent);
+  outline: 3px solid var(--focus);
   outline-offset: 2px;
+}
+
+/* On navy (the site header, the page headers' panels) the bright gold reads best. */
+.bg-navy :where(a, button, input, select, textarea, summary, [tabindex="0"], [tabindex="-1"]):focus-visible {
+  outline-color: var(--accent);
 }
 
 details > summary {

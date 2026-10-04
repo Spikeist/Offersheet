@@ -7,11 +7,13 @@
  * Features (§11's table with L8's readings; P = the partner):
  * - g = P's perceived g, clamped to gClamp ±0.5; g⁺ = max(g, 0), g⁻ = min(g, 0). +∞ (P gives nothing of value)
  *   clamps; NaN counts 0. The perceived g (planner addendum to Checkpoint 3, §1; TradeAcceptanceInput.gPerceived) is
- *   g_mkt(P) with the star premium on the players P gives: v′ = v × (1 + e), managers valuing their own best players
- *   a bit above market (premium.ts perceivedPackage). Without one (the pre-addendum model), g = g_mkt(P) itself (§9;
- *   market.marketGain, or benefit.tradePackage when picks are in it). Both on perception values (redraft values in
- *   redraft and keeper leagues, dynasty values in dynasty leagues: market.valuesForTerm). Only this feature reads the
- *   perceived g: the veto rule, the partner's trade history and everything on the card read the raw g_mkt(P).
+ *   g_mkt(P) with the star premium on the players P gives: v′ = max(v, W) × (1 + e), managers valuing their own best
+ *   players a bit above market (premium.ts perceivedPackage). Without one (a caller that has no premiums), g = g_mkt(P)
+ *   itself (§9; market.marketGain, or benefit.tradePackage when picks are in it). Both on perception values (redraft
+ *   values in redraft and keeper leagues, dynasty values in dynasty leagues: market.valuesForTerm), each player counted
+ *   at max(v, W) (planner reply to Checkpoint 4, change 4: market.packageValues, the one place every package sum goes
+ *   through). Only this feature reads the perceived g: the veto rule, the partner's trade history and everything on
+ *   the card read the raw g_mkt(P) (no premium; floored at W like every package).
  * - n = ΔLineup_P / nScale (5 points per week = 1 unit), clamped to nClamp ±2. ΔLineup_P is the change in P's
  *   average weekly starting points, blended 50/50 (weight nBlendWeight 0.5 on the first) between the next
  *   nBlendNextWeeks (4) weeks and the rest of the season, both from P's V* lineups before and after (§7's
@@ -39,7 +41,8 @@
  *   counts (and a later one, which ESPN can give a waiver run, too). A transaction is P's when P is in its teams
  *   or one of its moves comes from or goes to P. Completed trades only (the adapters keep executed ones).
  * - hist: the average g_mkt(P) over P's completed trades this season at current perception values (and the
- *   current waiver credit W); only the average is clamped, to historyClamp ±0.15 (§11). Null without any
+ *   current waiver credit W: each player at max(v, W), as in every package); only the average is clamped, to
+ *   historyClamp ±0.15 (§11). Null without any
  *   (then it adds nothing). Positive = P usually wins trades on value, which lowers acceptance (−β_hist). A
  *   trade's sides are its legs (moves from one team to another; adds and drops riding along aren't). A trade
  *   where P gave nothing of value has g = +∞, so the average is +∞ and hist +0.15: the limit of a given side
@@ -53,8 +56,9 @@
  *   leagues, a rebuilding partner (below rebuildingBelow, 25%): oldPlayerPenalty (−0.25) for each RB or WR P
  *   would receive aged oldPlayerAge (28) or older (an unknown age doesn't count); any league, a contender
  *   (above contenderAbove, 60%): n × contenderNeedFactor (1.3). The contender factor is carried in ctx as
- *   β_need × n × (factor − 1), so z is exactly the sum of the stored features' terms (AcceptanceFeatures.n is
- *   before the factor, ctx is in logit units). Unknown P(playoffs) (no simulation) → no context.
+ *   β_need × n × (factor − 1) (the league type's β_need: betaNeed), so z is exactly the sum of the stored features'
+ *   terms (AcceptanceFeatures.n is before the factor, ctx is in logit units). Unknown P(playoffs) (no simulation) →
+ *   no context.
  * - hot (recency): +bonus (0.15) when a player P receives scored at least multiple (1.5) × his projection in
  *   each of the last `weeks` (2) completed weeks (hotWeeks: the weeks before the current one), −bonus when a
  *   player P gives up did; both → 0. His projection that week: Sleeper's league-scored one (ModelInputs
@@ -67,7 +71,10 @@
  *   Sleeper's deadline is a league week). After the deadline, 0.
  *
  * Model (§11): z = β0 + β_gain·g⁺ + β_loss·g⁻ + β_need·n + β_hole·h − β_cx·c + β_act·a − β_hist·hist + ctx + hot
- * + urg; P_accept = clamp(σ(z), pAcceptClamp [0.02, 0.95]), σ the logistic function. β_loss > β_gain on purpose
+ * + urg; P_accept = clamp(σ(z), pAcceptClamp [0.02, 0.85]: no offer is a sure thing, planner reply to Checkpoint 4,
+ * change 2), σ the logistic function. β_need (betaNeed) is beta.need (1.2) in redraft and keeper leagues and
+ * beta.needDynasty (0.6) in dynasty leagues (change 2: in redraft a manager's own lineup weighs more), wherever n is
+ * weighed: the need term, the contender factor's extra in ctx, and the quick variant. β_loss > β_gain on purpose
  * (losses weigh more). Veto risk: when the league reviews trades (tradeReview ≠ "none") and the raw g_mkt(P) <
  * veto.gBelow (−0.30), P_complete = P_accept × veto.factor (0.5); else P_complete = P_accept. ⚠️ The raw g, not the
  * perceived one (lead decision N1): league members judge a trade by the market, not by the owner's attachment to his
@@ -105,7 +112,10 @@ export interface AcceptanceConfig {
     readonly b0: number;
     readonly gain: number;
     readonly loss: number;
+    /** β_need in redraft and keeper leagues (betaNeed). */
     readonly need: number;
+    /** β_need in dynasty leagues (betaNeed). */
+    readonly needDynasty: number;
     readonly hole: number;
     readonly complexity: number;
     readonly activity: number;
@@ -152,6 +162,15 @@ const finiteOr0 = (x: number | null | undefined): number => (isFiniteNumber(x) ?
 
 /** x clamped to [lo, hi]; ±Infinity land on the bounds. */
 const clampTo = (x: number, range: readonly [number, number]): number => Math.min(range[1], Math.max(range[0], x));
+
+/**
+ * β_need for a league type (the file header; planner reply to Checkpoint 4, change 2): beta.needDynasty in dynasty
+ * leagues, beta.need in redraft and keeper leagues. Every place n is weighed reads it: the need term, the contender
+ * factor's extra in ctx, the quick variant, and whoever reads ΔLineup_P back from a need term.
+ */
+export function betaNeed(leagueType: LeagueType, cfg: Pick<AcceptanceConfig, "beta"> = config.acceptance): number {
+  return leagueType === "dynasty" ? cfg.beta.needDynasty : cfg.beta.need;
+}
 
 // ---------------------------------------------------------------------------------------------
 // g, n, h, c (the trade)
@@ -433,7 +452,7 @@ export interface ContextInput {
 }
 
 export interface ContextTerm {
-  /** ctx in logit units: the checked-out or aging-player terms plus the contender factor's extra β_need × n × (factor − 1). */
+  /** ctx in logit units: the checked-out or aging-player terms plus the contender factor's extra β_need × n × (factor − 1) (betaNeed). */
   ctx: number;
   /** Redraft or keeper partner below checkedOutBelow. */
   checkedOut: boolean;
@@ -457,7 +476,7 @@ export function contextTerm(x: ContextInput, cfg: AcceptanceConfig = config.acce
     ctx += agingPlayers * c.oldPlayerPenalty;
   }
   const contender = p > c.contenderAbove;
-  if (contender) ctx += cfg.beta.need * finiteOr0(x.n) * (c.contenderNeedFactor - 1);
+  if (contender) ctx += betaNeed(x.leagueType, cfg) * finiteOr0(x.n) * (c.contenderNeedFactor - 1);
   return { ctx, checkedOut, agingPlayers, contender };
 }
 
@@ -581,11 +600,11 @@ export function partnerProfile(x: PartnerProfileInput, cfg: AcceptanceConfig = c
 
 /** The trade as the model reads it. */
 export interface TradeAcceptanceInput {
-  /** g_mkt(P) on perception values, before the clamp: the market's reading of the trade (the veto rule reads it). */
+  /** g_mkt(P) on perception values (each player at max(v, W)), before the clamp: the market's reading of the trade (the veto rule reads it). */
   gPartner: number;
   /**
    * P's perceived g, before the clamp (planner addendum to Checkpoint 3, §1: the star premium on the players P gives;
-   * premium.perceivedPackage): the g feature reads it when given, else gPartner (the pre-addendum model).
+   * premium.perceivedPackage): the g feature reads it when given, else gPartner (a caller without premiums).
    */
   gPerceived?: number;
   /** ΔLineup_P in points per week (partnerLineupDelta(...).blended). */
@@ -613,7 +632,7 @@ export interface AcceptanceTerms {
   base: number;
   /** β_gain·g⁺ + β_loss·g⁻. */
   value: number;
-  /** β_need·n, before the contender factor (its extra is in `context`). */
+  /** β_need·n (the league type's β_need: betaNeed), before the contender factor (its extra is in `context`). */
   need: number;
   hole: number;
   /** −β_cx·c. */
@@ -673,7 +692,7 @@ function buildFeatures(
   const terms: AcceptanceTerms = {
     base: beta.b0,
     value: beta.gain * Math.max(g, 0) + beta.loss * Math.min(g, 0),
-    need: beta.need * n,
+    need: betaNeed(league.leagueType, cfg) * n,
     hole: beta.hole * h,
     complexity: -beta.complexity * c,
     activity: beta.activity * a,

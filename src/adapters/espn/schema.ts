@@ -61,8 +61,19 @@ export const TeamSchema = z.object({
   divisionId: z.number().nullish(),
   record: z.object({ overall: RecordLineSchema }).nullish(),
   roster: z.object({ entries: z.array(RosterEntrySchema) }).nullish(),
-  /** ESPN's own season counters (mTeam). `trades` counts accepted trades, including one still in review (Parker's fixture). */
-  transactionCounter: z.object({ trades: z.number().nullish(), acquisitions: z.number().nullish(), drops: z.number().nullish() }).nullish(),
+  /**
+   * The team's place in the waiver order as it stands, 1 = first claim (mTeam; Phase 4b). Both test leagues: a 1..10
+   * permutation, at the weekly reset (waiverOrderReset; Sep 30, before that week's first waiver run) 11 − playoffSeed for
+   * all 10 teams of each: the 0-3 team ranks 1. Mid-week it isn't reverse standings: in Parker's league
+   * (WAIVERS_TRADITIONAL) a team whose claim goes through moves to the back until the next reset (the normalizer's header).
+   */
+  waiverRank: z.number().nullish(),
+  /**
+   * ESPN's own season counters (mTeam). `trades` counts accepted trades, including one still in review (Parker's fixture).
+   * `acquisitionBudgetSpent`: the FAAB the team has spent (the public test league, budget 200: 0–33 a team; 0 in Parker's,
+   * which doesn't use FAAB).
+   */
+  transactionCounter: z.object({ trades: z.number().nullish(), acquisitions: z.number().nullish(), drops: z.number().nullish(), acquisitionBudgetSpent: z.number().nullish() }).nullish(),
 });
 export type EspnTeam = z.infer<typeof TeamSchema>;
 

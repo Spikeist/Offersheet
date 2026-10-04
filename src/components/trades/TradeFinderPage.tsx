@@ -25,7 +25,7 @@
  * settings and partner) and still hold (no kickoff since, the same deadline readings: src/workers/freshness.ts) shows
  * them again at once instead of searching, in the sort the page was left in; the Analyzer's "Back to the Trade
  * Finder" returns to this page's address, partner included; and when the user left through an idea's "Open in
- * Analyzer", that link comes back into view with focus on it.
+ * Analyzer" (its own, or its "If they say no, try:" one), that link comes back into view with focus on it.
  *
  * Accessibility: one status line (role="status") stays mounted through every state, so each change is announced
  * (the stage while searching, then what was found); the progress bar's numbers are read on demand. A button that
@@ -62,6 +62,7 @@ import {
   teamNameOf,
   type FinderView,
   type ProgressView,
+  type SnapshotPart,
 } from "@/lib/tradeView";
 import { contextStillValid } from "@/workers/freshness";
 import { NoImportCard } from "../NoImportCard";
@@ -70,7 +71,7 @@ import { revealResult } from "../reveal";
 import { saveTradeFeedback, useFeedbackRecords } from "../settings/useFeedback";
 import { useLeagueSettings } from "../settings/useLeagueSettings";
 import { Callout, Card, FOCUS_TARGET, Spinner, buttonClass, cx, inputClass } from "../ui";
-import { recallSearch, rememberFinderAddress, rememberReturn, rememberSearch, rememberSort, rememberedSort, takeReturn, tradeEngine } from "./finderMemory";
+import { recallSearch, rememberFinderAddress, rememberReturn, rememberSearch, rememberSort, rememberedSort, takeReturnTarget, tradeEngine } from "./finderMemory";
 import { HowToRead } from "./HowToRead";
 import { LeagueLoading } from "./LeagueLoading";
 import { SearchProgress } from "./SearchProgress";
@@ -190,8 +191,8 @@ function LoadedFinder({ stored }: { stored: StoredImport }) {
 
   // The search, in the trade pages' engine worker (finderMemory.ts tradeEngine: shared with the Analyzer, never disposed here).
   const handleRef = useRef<TradeSearchHandle | null>(null);
-  // Coming back from the Analyzer: the idea whose "Open in Analyzer" was used, to bring back into view when its search's ideas show.
-  const returnRef = useRef<{ tag: string; cardKey: string } | null>(null);
+  // Coming back from the Analyzer: the idea whose "Open in Analyzer" was used (and which link), to bring back into view when its search's ideas show.
+  const returnRef = useRef<{ tag: string; cardKey: string; href: string | null } | null>(null);
   const [progress, setProgress] = useState<{ tag: string; view: ProgressView } | null>(null);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   // The last ideas found (kept when a later search runs, stops or fails: shown dimmed for the same partner).
@@ -205,12 +206,12 @@ function LoadedFinder({ stored }: { stored: StoredImport }) {
     let live = true;
     // A tick later, so React StrictMode's first run (development) is cancelled before it starts.
     const timer = setTimeout(() => {
-      const cardKey = takeReturn(key);
+      const back = takeReturnTarget(key);
       const nowMs = Date.now();
       // The ideas this search found before in this tab, while they still hold (finderMemory.ts): shown again at once.
       const known = recall ? recallSearch(key, (iso) => contextStillValid(Date.parse(iso), nowMs, job.model, job.snapshot)) : null;
       if (known) {
-        returnRef.current = cardKey ? { tag, cardKey } : null;
+        returnRef.current = back ? { tag, ...back } : null;
         const done: Done = { tag, key, kind: "done", result: known, partnerId: job.partnerId };
         setOutcome(done);
         setLastDone(done);
@@ -272,7 +273,7 @@ function LoadedFinder({ stored }: { stored: StoredImport }) {
     // Coming back from the Analyzer: the "Open in Analyzer" link used, back in view and focused (see the header).
     const back = returnRef.current;
     returnRef.current = null;
-    if (back && back.tag === doneResult.tag && revealIdea(back.cardKey)) return;
+    if (back && back.tag === doneResult.tag && revealIdea(back.cardKey, back.href)) return;
     // Focus left on nothing, on the status line or on a control that went away (Stop; a dimmed card's button) → the results.
     const active = document.activeElement;
     if (!active || active === document.body || active === statusRef.current || !active.isConnected) resultsRef.current?.focus({ preventScroll: true });
@@ -292,20 +293,22 @@ function LoadedFinder({ stored }: { stored: StoredImport }) {
 
   // The ideas shown: this search's, or (while it runs) the last ones found for the same partner, dimmed.
   const shownOutcome = doneResult ?? (lastDone && lastDone.partnerId === partnerId ? lastDone : null);
+  // The NFL's last week, for injury tags' "Out for the season" (tradeView.ts seasonEndOf).
+  const lastNflWeek = pair?.inputs.nfl?.lastWeek;
   const view = useMemo(
-    () => (shownOutcome && league ? buildFinderView({ result: shownOutcome.result, sort, snapshot: league, partnerId: shownOutcome.partnerId }) : null),
-    [shownOutcome, sort, league],
+    () => (shownOutcome && league ? buildFinderView({ result: shownOutcome.result, sort, snapshot: league, partnerId: shownOutcome.partnerId, lastNflWeek }) : null),
+    [shownOutcome, sort, league, lastNflWeek],
   );
 
   const onFeedback = useCallback(
     (evaluation: TradeSearchResult["trades"][number], change: FeedbackChange) => saveTradeFeedback({ leagueKey, evaluation, change }),
     [leagueKey],
   );
-  // "Open in Analyzer" remembers the idea, to come back to it (finderMemory.ts).
+  // "Open in Analyzer" remembers the idea and the link used, to come back to it (finderMemory.ts).
   const shownKey = shownOutcome?.key ?? null;
   const onOpenAnalyzer = useCallback(
-    (cardKey: string) => {
-      if (shownKey) rememberReturn(shownKey, cardKey);
+    (cardKey: string, href?: string) => {
+      if (shownKey) rememberReturn(shownKey, cardKey, href);
     },
     [shownKey],
   );
@@ -353,6 +356,7 @@ function LoadedFinder({ stored }: { stored: StoredImport }) {
       stopRef={stopRef}
       records={records}
       leagueKey={leagueKey}
+      snapshot={league}
       onFeedback={onFeedback}
       onOpenAnalyzer={onOpenAnalyzer}
     />
@@ -360,12 +364,14 @@ function LoadedFinder({ stored }: { stored: StoredImport }) {
 }
 
 /**
- * Brings back into view the idea (its TradeEvaluation.key) whose "Open in Analyzer" was used, with focus on that link,
- * the way the user left it; false when that idea isn't shown.
+ * Brings back into view the idea (its TradeEvaluation.key) whose "Open in Analyzer" was used, with focus on that link
+ * (the one with `href`: the card's own or its "If they say no, try:" one; else the idea's first), the way the user left
+ * it; false when that idea isn't shown.
  */
-function revealIdea(cardKey: string): boolean {
+function revealIdea(cardKey: string, href: string | null): boolean {
   const item = [...document.querySelectorAll<HTMLElement>("li[data-trade-key]")].find((li) => li.dataset.tradeKey === cardKey);
-  const link = item?.querySelector<HTMLElement>(`a[href^="${ANALYZER_PATH}?"]`) ?? null;
+  const links = item ? [...item.querySelectorAll<HTMLElement>(`a[href^="${ANALYZER_PATH}?"]`)] : [];
+  const link = (href ? links.find((a) => a.getAttribute("href") === href) : undefined) ?? links[0] ?? null;
   if (!link) return false;
   link.scrollIntoView({ block: "center" });
   link.focus({ preventScroll: true });
@@ -449,9 +455,11 @@ interface FrameProps {
   stopRef?: Ref<HTMLButtonElement> | undefined;
   records: FeedbackRecord[] | undefined;
   leagueKey: string;
+  /** The league, to name a recorded version a card no longer shows (tradeView.ts cardFeedback's versionWords); absent: unnamed. */
+  snapshot?: SnapshotPart | null | undefined;
   onFeedback: (evaluation: TradeSearchResult["trades"][number], change: FeedbackChange) => ReturnType<typeof saveTradeFeedback>;
-  /** A card's "Open in Analyzer" was used (its TradeEvaluation.key): the page remembers it, to come back to it. */
-  onOpenAnalyzer?: ((cardKey: string) => void) | undefined;
+  /** A card's "Open in Analyzer" was used (its TradeEvaluation.key, and the link's address): the page remembers it, to come back to it. */
+  onOpenAnalyzer?: ((cardKey: string, href?: string) => void) | undefined;
 }
 
 /**
@@ -459,7 +467,7 @@ interface FrameProps {
  * keeps the element and each new text is announced. It shows with a spinner while the page waits, and is read to
  * screen readers only otherwise.
  */
-export function FinderFrame({ state, teamName, leagueType = "redraft", controls, statusRef, resultsRef, againRef, stopRef, records, leagueKey, onFeedback, onOpenAnalyzer }: FrameProps) {
+export function FinderFrame({ state, teamName, leagueType = "redraft", controls, statusRef, resultsRef, againRef, stopRef, records, leagueKey, snapshot, onFeedback, onOpenAnalyzer }: FrameProps) {
   const text = finderStatus(state);
   const waiting = state.kind === "fetching" || state.kind === "settings";
   return (
@@ -494,17 +502,27 @@ export function FinderFrame({ state, teamName, leagueType = "redraft", controls,
         {waiting ? " " : null}
         {text}
       </p>
-      <FinderBody state={state} resultsRef={resultsRef} againRef={againRef} stopRef={stopRef} records={records} leagueKey={leagueKey} onFeedback={onFeedback} onOpenAnalyzer={onOpenAnalyzer} />
+      <FinderBody
+        state={state}
+        resultsRef={resultsRef}
+        againRef={againRef}
+        stopRef={stopRef}
+        records={records}
+        leagueKey={leagueKey}
+        snapshot={snapshot}
+        onFeedback={onFeedback}
+        onOpenAnalyzer={onOpenAnalyzer}
+      />
       <HowToRead leagueType={leagueType} />
     </div>
   );
 }
 
-function FinderBody({ state, resultsRef, againRef, stopRef, records, leagueKey, onFeedback, onOpenAnalyzer }: Omit<FrameProps, "teamName" | "leagueType" | "controls" | "statusRef">) {
+function FinderBody({ state, resultsRef, againRef, stopRef, records, leagueKey, snapshot, onFeedback, onOpenAnalyzer }: Omit<FrameProps, "teamName" | "leagueType" | "controls" | "statusRef">) {
   const previous =
     (state.kind === "searching" || state.kind === "stopped" || state.kind === "error") && state.previous ? (
       <div className="opacity-60 transition-opacity">
-        <Results view={state.previous} records={records} leagueKey={leagueKey} onFeedback={onFeedback} onOpenAnalyzer={onOpenAnalyzer} headingText="The last trade ideas found" />
+        <Results view={state.previous} records={records} leagueKey={leagueKey} snapshot={snapshot} onFeedback={onFeedback} onOpenAnalyzer={onOpenAnalyzer} headingText="The last trade ideas found" />
       </div>
     ) : null;
   switch (state.kind) {
@@ -572,7 +590,9 @@ function FinderBody({ state, resultsRef, againRef, stopRef, records, leagueKey, 
         </div>
       );
     case "done":
-      return <Results view={state.view} records={records} leagueKey={leagueKey} onFeedback={onFeedback} onOpenAnalyzer={onOpenAnalyzer} headingRef={resultsRef} headingText="Trade ideas" />;
+      return (
+        <Results view={state.view} records={records} leagueKey={leagueKey} snapshot={snapshot} onFeedback={onFeedback} onOpenAnalyzer={onOpenAnalyzer} headingRef={resultsRef} headingText="Trade ideas" />
+      );
   }
 }
 
@@ -586,6 +606,7 @@ const Results = memo(function Results({
   view,
   records,
   leagueKey,
+  snapshot,
   onFeedback,
   onOpenAnalyzer,
   headingRef,
@@ -594,6 +615,7 @@ const Results = memo(function Results({
   view: FinderView;
   records: FeedbackRecord[] | undefined;
   leagueKey: string;
+  snapshot?: FrameProps["snapshot"];
   onFeedback: FrameProps["onFeedback"];
   onOpenAnalyzer?: FrameProps["onOpenAnalyzer"];
   headingRef?: Ref<HTMLHeadingElement> | undefined;
@@ -642,9 +664,9 @@ const Results = memo(function Results({
               <TradeCard
                 card={card}
                 rank={i + 1}
-                feedback={cardFeedback(records, leagueKey, card.key)}
+                feedback={cardFeedback(records, leagueKey, card.key, snapshot ?? undefined)}
                 onFeedback={(change) => onFeedback(card.evaluation, change)}
-                onOpenAnalyzer={onOpenAnalyzer ? () => onOpenAnalyzer(card.key) : undefined}
+                onOpenAnalyzer={onOpenAnalyzer ? (href: string) => onOpenAnalyzer(card.key, href) : undefined}
               />
             </li>
           ))}

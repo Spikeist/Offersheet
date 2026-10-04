@@ -169,14 +169,16 @@ describe("the dominance pruning (lead decision N11: dominancePruned, shortlistOf
       return r.value.filter((x) => x.gPartner >= lo - 1e-9 && x.gPartner <= hi + 1e-9);
     };
     const ctx = buildTradeContext(league.snapshot, league.inputs, { now: TEST_NOW, scenarios: 0 });
-    const before = buildTradeContext(league.snapshot, league.inputs, { now: TEST_NOW, scenarios: 0, beforeAddendum: true });
     const I = tradeInternals(ctx);
 
-    it("exact evaluation gets the pruned list; the before-addendum variant the whole window", () => {
+    it("exact evaluation gets the pruned list; without the pruning it would get the whole window", () => {
       const list = windowed(I);
       const pruned = dominancePruned(list, belowWaiverCredit(I));
-      // Fewer than keptPerPartner are left, so the pruning shows in the count of exact evaluations.
-      expect(list.length).toBeLessThanOrEqual(config.search.keptPerPartner);
+      const keep = config.search.keptPerPartner;
+      // Fewer than keptPerPartner are left after the pruning, and fewer than the window would send without it, so the
+      // pruning shows in the count of exact evaluations. (Since the value floor of the planner's reply to Checkpoint 4 the
+      // window holds more than keptPerPartner here: a cheap player of mine counts W for Team 5, which lifts its g.)
+      expect(pruned.length).toBeLessThan(Math.min(list.length, keep));
       expect(pruned.length).toBeLessThan(list.length - 5);
       expect(pruned.every((x) => x.give.length >= 1)).toBe(true);
       // Every trade dropped gives a player of mine worth less than W, beside another of mine.
@@ -185,20 +187,18 @@ describe("the dominance pruning (lead decision N11: dominancePruned, shortlistOf
         expect(x.give.some((id) => (I.values[id] ?? 0) < I.credit)).toBe(true);
       }
       expect(runTradeSearch(ctx, { partnerId: "5", settings }).counts.exact).toBe(pruned.length);
-      // The before-addendum variant screens the same trades into the window (no tagged player here; the window reads the
-      // raw g) and prunes none of them.
-      const Ib = tradeInternals(before);
-      expect(new Set(windowed(Ib).map((x) => x.key))).toEqual(new Set(list.map((x) => x.key)));
-      expect(runTradeSearch(before, { partnerId: "5", settings }).counts.exact).toBe(list.length);
+      // The shortlist without the pruning (null) would take the window's best keptPerPartner.
+      expect(shortlistOf([list], null)).toHaveLength(Math.min(list.length, keep));
+      expect(shortlistOf([list], belowWaiverCredit(I))).toHaveLength(pruned.length);
     });
 
     it("whatever the settings: 3 a side allowed, and a must-include player of mine (the pruning tries my other players)", () => {
       const cheap = belowWaiverCredit(I);
       const me = I.me as TeamState;
-      // maxPerSide 3, my four most valuable players untouchable so the window stays under keptPerPartner (the pruning then
+      // maxPerSide 3, my five most valuable players untouchable so the window stays under keptPerPartner (the pruning then
       // shows in the count of exact evaluations); 3-for-1s are among the trades it drops.
-      const top4 = [...me.roster].sort((a, b) => (I.values[b] ?? 0) - (I.values[a] ?? 0) || (a < b ? -1 : 1)).slice(0, 4);
-      const three: TradeSettings = { ...settings, maxPerSide: 3, untouchables: top4 };
+      const top5 = [...me.roster].sort((a, b) => (I.values[b] ?? 0) - (I.values[a] ?? 0) || (a < b ? -1 : 1)).slice(0, 5);
+      const three: TradeSettings = { ...settings, maxPerSide: 3, untouchables: top5 };
       const list3 = windowed(I, three);
       const pruned3 = dominancePruned(list3, cheap);
       expect(list3.length).toBeLessThanOrEqual(config.search.keptPerPartner);

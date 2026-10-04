@@ -14,9 +14,9 @@
  *   same deadline readings): the search is deterministic, so searching again would find the very same ideas.
  * - The Finder's address (its partner filter: rememberFinderAddress) for the Analyzer's "Back to the Trade Finder", and
  *   the Finder's sort, so a return shows the ideas in the order left.
- * - Where to come back to: the idea whose "Open in Analyzer" was used (rememberReturn). The Finder's next search start
- *   takes it (takeReturn, once): when it shows that search's ideas again, it brings that idea's link back into view
- *   with focus on it.
+ * - Where to come back to: the idea whose "Open in Analyzer" was used, and which of its links (the card's own or its
+ *   "If they say no, try:" one: Phase 4b) (rememberReturn). The Finder's next search start takes it (takeReturnTarget,
+ *   once): when it shows that search's ideas again, it brings that link back into view with focus on it.
  */
 import type { TradeSearchResult, TradeSort } from "@/engine/tradeModel";
 import { createEngineClient, type EngineClient } from "@/lib/engineClient";
@@ -79,18 +79,26 @@ export function rememberedSort(): TradeSort | null {
   return sort;
 }
 
-let back: { key: string; cardKey: string } | null = null;
+let back: { key: string; cardKey: string; href: string | null } | null = null;
 
-/** The idea (its TradeEvaluation.key) whose "Open in Analyzer" was used, in the search under `key`. */
-export function rememberReturn(key: string, cardKey: string): void {
-  back = { key, cardKey };
+/**
+ * The idea (its TradeEvaluation.key) whose "Open in Analyzer" was used, in the search under `key`, and that link's
+ * address (`href`: the card's own or its Plan B's; absent: the idea's first link).
+ */
+export function rememberReturn(key: string, cardKey: string, href?: string): void {
+  back = { key, cardKey, href: href ?? null };
 }
 
-/** The idea to come back to in the search under `key` (null for another search); taken once either way. */
-export function takeReturn(key: string): string | null {
+/** The idea and link to come back to in the search under `key` (null for another search); taken once either way. */
+export function takeReturnTarget(key: string): { cardKey: string; href: string | null } | null {
   const b = back;
   back = null;
-  return b && b.key === key ? b.cardKey : null;
+  return b && b.key === key ? { cardKey: b.cardKey, href: b.href } : null;
+}
+
+/** The idea to come back to in the search under `key` (takeReturnTarget's idea alone); taken once either way. */
+export function takeReturn(key: string): string | null {
+  return takeReturnTarget(key)?.cardKey ?? null;
 }
 
 /** Forgets everything but the engine client (tests). */

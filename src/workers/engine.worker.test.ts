@@ -24,6 +24,9 @@ vi.mock("@/engine/evaluate", () => ({
   tradeInternals: () => {
     throw new Error("Not a trade context built by buildTradeContext");
   },
+  withWords: () => {
+    throw new Error("the tests pass their own reword");
+  },
 }));
 vi.mock("@/engine/search", () => ({
   tradeSearch: () => {
@@ -36,7 +39,7 @@ import type { ModelInputs } from "@/engine/inputs";
 import type { LeagueModel } from "@/engine/leagueModel";
 import type { LeagueSnapshot } from "@/engine/model";
 import { defaultTradeSettings, type TradeSettings } from "@/engine/settings";
-import type { TradeProposal, TradeSearchProgress, TradeSearchResult } from "@/engine/tradeModel";
+import type { TradeEvaluation, TradeEvaluationCore, TradeProposal, TradeSearchProgress, TradeSearchResult } from "@/engine/tradeModel";
 import {
   ENGINE_ERROR_MESSAGE,
   SEARCH_SLICE_MS,
@@ -44,6 +47,7 @@ import {
   contextKey,
   contextStillValid,
   createEngineHandler,
+  withoutSteps,
   type AnalyzeRequest,
   type BaselineOdds,
   type EngineHandlerDeps,
@@ -411,6 +415,64 @@ describe("the Trade Analyzer request", () => {
     });
     handle(analyzeReq(4));
     expect(posted).toEqual([{ type: "error", id: 4, message: ENGINE_ERROR_MESSAGE, detail: "Error: boom" }]);
+  });
+
+  describe("a trade opened from 'If they say no, try:' (steps: false; review of Phase 4b)", () => {
+    // A stepped evaluation: its pitch proposes the smaller first offer.
+    const stepped = {
+      key: "5|give:101,102|get:202",
+      proposal: { partnerId: "5", give: [{ kind: "player", id: "101" }, { kind: "player", id: "102" }], get: [{ kind: "player", id: "202" }] },
+      b: 2.5,
+      pAccept: 0.4,
+      steps: { offerFirst: { key: "5|give:101|get:202" }, ifNo: { add: "102" }, ranked: "full" },
+      reasons: ["the ranked trade's reasons"],
+      pitch: "Hey! Would you trade 202 for 101?",
+    } as unknown as TradeEvaluation;
+    const reworded: TradeEvaluationCore[] = [];
+    const reword = (_ctx: TradeContext, core: TradeEvaluationCore): TradeEvaluation => {
+      reworded.push(core);
+      return { ...core, reasons: ["the ranked trade's reasons"], pitch: "Hey! Would you trade 202 for 101 and 102?" } as TradeEvaluation;
+    };
+    const handlerWith = (analysis: TradeAnalysis) => {
+      const posted: EngineResponse[] = [];
+      const handle = createEngineHandler((r) => posted.push(r), {
+        buildContext: (() => ({ myTeamId: "3" })) as unknown as BuildContext,
+        analyze: (() => analysis) as Analyze,
+        baseline: () => BASELINE,
+        reword,
+      });
+      return { handle, posted };
+    };
+
+    it("drops the steps and makes the words again without them, keeping the numbers", () => {
+      reworded.length = 0;
+      const h = handlerWith({ evaluation: stepped, illegal: null, notes: ["a note"] });
+      h.handle(analyzeReq(6, { steps: false }));
+      const reply = h.posted[0];
+      expect(reply).toMatchObject({ type: "analysis", id: 6, result: { illegal: null, notes: ["a note"], baseline: BASELINE } });
+      const e = reply?.type === "analysis" ? reply.result.evaluation : null;
+      expect(e?.steps).toBeUndefined();
+      expect(e?.pitch).toBe("Hey! Would you trade 202 for 101 and 102?");
+      expect([e?.key, e?.b, e?.pAccept]).toEqual([stepped.key, 2.5, 0.4]);
+      // The core it was worded from: no steps, no old words.
+      expect(reworded).toHaveLength(1);
+      expect(Object.keys(reworded[0] ?? {}).sort()).toEqual(["b", "key", "pAccept", "proposal"]);
+    });
+
+    it("leaves an evaluation as it is otherwise: steps wanted, none to drop, or nothing evaluated", () => {
+      reworded.length = 0;
+      for (const extra of [{}, { steps: true }]) {
+        const h = handlerWith({ evaluation: stepped, illegal: null, notes: [] });
+        h.handle(analyzeReq(7, extra));
+        expect(h.posted[0]?.type === "analysis" ? h.posted[0].result.evaluation : null).toBe(stepped);
+      }
+      const plain = { ...stepped, steps: undefined } as TradeEvaluation;
+      const h = handlerWith({ evaluation: plain, illegal: null, notes: [] });
+      h.handle(analyzeReq(8, { steps: false }));
+      expect(h.posted[0]?.type === "analysis" ? h.posted[0].result.evaluation : null).toBe(plain);
+      expect(withoutSteps({} as TradeContext, ANALYSIS, reword)).toBe(ANALYSIS);
+      expect(reworded).toHaveLength(0);
+    });
   });
 
   it("answers while a search runs, without stopping it", () => {

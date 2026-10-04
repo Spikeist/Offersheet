@@ -264,6 +264,15 @@ describe("relevant players, positions and FantasyCalc formats", () => {
     expect(keeper.values.substitutions[0]).toMatch(/dynasty values for long-term worth/);
     expect(keeper.redraft?.substitutions[0]).toMatch(/redraft values for how managers see a trade/);
   });
+
+  it("dynasty leagues also name this season's list, the redraft list in their own format, for the market blend (§6 step 8); no other league type does", () => {
+    const dynasty = marketFormats({ ...SETTINGS, leagueType: "dynasty", numTeams: 16 });
+    expect(dynasty.values).toEqual(expect.objectContaining({ isDynasty: true, numTeams: 14, ppr: 0.5, numQbs: 1, tep: "te+" }));
+    expect(dynasty.season).toEqual(expect.objectContaining({ isDynasty: false, numTeams: 14, ppr: 0.5, numQbs: 1, tep: "te+" }));
+    expect(dynasty).not.toHaveProperty("redraft"); // perception keeps reading the dynasty list
+    expect(marketFormats(SETTINGS)).not.toHaveProperty("season");
+    expect(marketFormats({ ...SETTINGS, leagueType: "keeper" })).not.toHaveProperty("season");
+  });
 });
 
 describe("assembleModelInputs: league scoring (§5, §6)", () => {
@@ -417,6 +426,35 @@ describe("assembleModelInputs: FantasyCalc (§9, §2.9)", () => {
       "Trade values: keeper league → FantasyCalc's redraft values for how managers see a trade this season.",
     ]);
     expect(out.sources.find((s) => s.source === MODEL_SOURCES.fantasyCalc)).toEqual({ source: "FantasyCalc values", fetchedAt: "2026-09-30T05:00:00.000Z", stale: true });
+  });
+
+  it("dynasty leagues: dynasty values for perception and the future term, this season's list only as seasonValues (the market blend's), never redraftValues; no note of its own (the League page says which values the blend reads)", () => {
+    const dynasty: LeagueSettings = { ...SETTINGS, leagueType: "dynasty" };
+    const f = marketFormats(dynasty);
+    const seasonFormat = f.season as FantasyCalcFormat;
+    const fantasyCalc = {
+      values: valuesLoad(f.values, [fcRow("Quill Arbuckle", "QB", 4000, { sleeperId: "4046" })], { fetchedAt: Date.parse("2026-09-30T06:00:00Z") }),
+      season: valuesLoad(seasonFormat, [fcRow("Quill Arbuckle", "QB", 5200, { sleeperId: "4046" }), fcRow("Rory Bellweather", "RB", 6100, { sleeperId: "9221" })], { fetchedAt: Date.parse("2026-09-30T04:00:00Z"), stale: true }),
+      players: null,
+    };
+    const out = assembleModelInputs(snapshot({}, dynasty), sources({ fantasyCalc }), NOW);
+    expect(out.market).toMatchObject({ format: f.values, values: { "4046": 4000 }, seasonValues: { "4046": 5200, "9221": 6100 }, fetchedAt: "2026-09-30T04:00:00.000Z" });
+    expect(out.market).not.toHaveProperty("redraftValues");
+    // Only the dynasty list's row is FantasyCalc's own value for 9221 in this format: the season list makes him known, not valued.
+    expect(out.market?.values).not.toHaveProperty("9221");
+    expect(out.market?.knownIds).toEqual(["4046", "9221"]);
+    // The notes are the dynasty list's alone: the season list adds none (review of track A: a note in dynasty leagues
+    // only, where the blend reads a list in every league type; the League page's "Projected points" names it).
+    expect(out.notes).toEqual(fantasyCalcNotes(f.values));
+    expect(out.notes[0]).toBe(`Trade values: FantasyCalc ${fantasyCalcFormatLabel(f.values)}.`);
+    expect(fantasyCalcFormatLabel(seasonFormat)).toBe("10 teams · half-PPR · 1 QB · redraft · TE+");
+    // The season list's own mode note ("dynasty league → … redraft values") isn't a trade-values note either.
+    expect(out.notes.filter((n) => n.includes("dynasty league →"))).toEqual([]);
+    expect(out.sources.find((s) => s.source === MODEL_SOURCES.fantasyCalc)).toEqual({ source: "FantasyCalc values", fetchedAt: "2026-09-30T04:00:00.000Z", stale: true });
+    // Without the season list: no seasonValues, the same notes (the League model says the blend is off).
+    const without = assembleModelInputs(snapshot({}, dynasty), sources({ fantasyCalc: { values: fantasyCalc.values, players: null } }), NOW);
+    expect(without.market).not.toHaveProperty("seasonValues");
+    expect(without.notes).toEqual(out.notes);
   });
 
   it("the format in words for a redraft league: the list's label, then each substitution (the Import Report hides the ones it shows itself)", () => {
@@ -767,6 +805,7 @@ function fullRoutes(s: LeagueSnapshot): Record<string, FakeRoute> {
   const redraft = () => valuesBody(FC_VALUES_10, FANTASYCALC_REDRAFT_MIN_PLAYERS);
   routes[fantasyCalcValuesUrl(formats.values)] = { json: formats.values.isDynasty ? dynasty() : redraft(), fetchedAt: fetchedAt - HOUR };
   if (formats.redraft) routes[fantasyCalcValuesUrl(formats.redraft)] = { json: redraft(), fetchedAt: fetchedAt - HOUR };
+  if (formats.season) routes[fantasyCalcValuesUrl(formats.season)] = { json: redraft(), fetchedAt: fetchedAt - HOUR };
   routes[FANTASYCALC_PLAYERS_URL] = { json: fantasyCalcWith(fixtureFantasyCalcResponse() as unknown[]), fetchedAt };
   return routes;
 }
@@ -1042,6 +1081,74 @@ describe("buildModelInputs (loading: §0.9 politeness, §2.10 caching)", () => {
     expect(out.market?.format.isDynasty).toBe(true);
     expect(out.market?.redraftValues?.["9221"]).toBeGreaterThan(0);
     expect(out.warnings).toEqual([]);
+  });
+
+  it("dynasty leagues ask for their dynasty list, then this season's list in their format (the market blend's, §6 step 8), then /players; perception keeps the dynasty values", async () => {
+    const s = loadSnapshot({}, { leagueType: "dynasty" });
+    const formats = marketFormats(s.settings);
+    const seasonFormat = formats.season as FantasyCalcFormat;
+    const fake = fakeHttp(fullRoutes(s));
+    const out = await buildModelInputs({ snapshot: s, http: fake.http, resolver: { defenseId }, now: NOW });
+    expect(fake.calls.map((c) => c.url).filter((u) => u.includes("fantasycalc"))).toEqual([fantasyCalcValuesUrl(formats.values), fantasyCalcValuesUrl(seasonFormat), FANTASYCALC_PLAYERS_URL]);
+    expect(out.market?.format.isDynasty).toBe(true);
+    expect(out.market?.values["9221"]).toBeGreaterThan(0);
+    expect(out.market?.seasonValues?.["9221"]).toBeGreaterThan(0);
+    expect(out.market?.seasonValues?.["9221"]).not.toBe(out.market?.values["9221"]); // two lists, two values
+    expect(out.market).not.toHaveProperty("redraftValues");
+    expect(out.warnings).toEqual([]);
+    expect(out.notes).toEqual(fantasyCalcNotes(formats.values)); // no note of its own for the season list
+    // FantasyCalc answered the first list, so the season list keeps its retry.
+    expect(fake.calls.find((c) => c.url === fantasyCalcValuesUrl(seasonFormat))?.opts?.maxRetries).toBe(1);
+  });
+
+  it("right after a saved copy stood in for the first list (FantasyCalc failed to answer it), a later list is asked once, without a retry: dynasty and keeper leagues (review of track A)", async () => {
+    const dynasty = loadSnapshot({}, { leagueType: "dynasty" });
+    const formats = marketFormats(dynasty.settings);
+    const routes = fullRoutes(dynasty);
+    routes[fantasyCalcValuesUrl(formats.values)] = { ...(routes[fantasyCalcValuesUrl(formats.values)] as FakeRoute), stale: true };
+    const fake = fakeHttp(routes);
+    const out = await buildModelInputs({ snapshot: dynasty, http: fake.http, resolver: { defenseId }, now: NOW });
+    expect(fake.calls.find((c) => c.url === fantasyCalcValuesUrl(formats.season as FantasyCalcFormat))?.opts?.maxRetries).toBe(0);
+    expect(out.market?.seasonValues?.["9221"]).toBeGreaterThan(0); // a fresh or saved copy still serves
+    expect(out.sources.find((x) => x.source === MODEL_SOURCES.fantasyCalc)?.stale).toBe(true);
+
+    const keeper = loadSnapshot({}, { leagueType: "keeper" });
+    const keeperFormats = marketFormats(keeper.settings);
+    const keeperRoutes = fullRoutes(keeper);
+    keeperRoutes[fantasyCalcValuesUrl(keeperFormats.values)] = { ...(keeperRoutes[fantasyCalcValuesUrl(keeperFormats.values)] as FakeRoute), stale: true };
+    const keeperFake = fakeHttp(keeperRoutes);
+    const keeperOut = await buildModelInputs({ snapshot: keeper, http: keeperFake.http, resolver: { defenseId }, now: NOW });
+    expect(keeperFake.calls.find((c) => c.url === fantasyCalcValuesUrl(keeperFormats.redraft as FantasyCalcFormat))?.opts?.maxRetries).toBe(0);
+    expect(keeperOut.market?.redraftValues?.["9221"]).toBeGreaterThan(0);
+  });
+
+  it("dynasty leagues: this season's list failing only leaves the blend off (the League model says so); their own list failing isn't followed by it", async () => {
+    const s = loadSnapshot({}, { leagueType: "dynasty" });
+    const formats = marketFormats(s.settings);
+    const routes = fullRoutes(s);
+    routes[fantasyCalcValuesUrl(formats.season as FantasyCalcFormat)] = { status: 503, json: null };
+    const out = await buildModelInputs({ snapshot: s, http: fakeHttp(routes).http, resolver: { defenseId }, now: NOW });
+    expect(out.market?.values["9221"]).toBeGreaterThan(0);
+    expect(out.market).not.toHaveProperty("seasonValues");
+    expect(out.warnings).toEqual([]);
+    expect(out.notes).toEqual(fantasyCalcNotes(formats.values));
+
+    const ownDown = fullRoutes(s);
+    ownDown[fantasyCalcValuesUrl(formats.values)] = { status: 503, json: null };
+    const fake = fakeHttp(ownDown);
+    const none = await buildModelInputs({ snapshot: s, http: fake.http, resolver: { defenseId }, now: NOW });
+    expect(fake.calls.map((c) => c.url).filter((u) => u.includes("fantasycalc"))).toEqual([fantasyCalcValuesUrl(formats.values)]);
+    expect(none.market).toBeNull();
+    expect(none.warnings.map((w) => w.code)).toEqual(["FANTASYCALC_UNAVAILABLE"]);
+  });
+
+  it("dynasty leagues once the season is over: no season list (nothing is left to project, so nothing to blend)", async () => {
+    const s = loadSnapshot({ currentWeek: 18 }, { leagueType: "dynasty" });
+    const fake = fakeHttp(fullRoutes(s));
+    const out = await buildModelInputs({ snapshot: s, http: fake.http, resolver: { defenseId }, now: NOW });
+    expect(fake.calls.map((c) => c.url)).toEqual([fantasyCalcValuesUrl(marketFormats(s.settings).values), FANTASYCALC_PLAYERS_URL]);
+    expect(out.market?.format.isDynasty).toBe(true);
+    expect(out.market).not.toHaveProperty("seasonValues");
   });
 });
 

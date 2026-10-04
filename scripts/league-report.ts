@@ -9,6 +9,9 @@
  *   npm run league:report -- --team <id>    his team, when the import can't find it (no cookies)
  *   npm run league:report -- --cookies      use the .env.local ESPN cookies (also with USE_ENV_COOKIES=1),
  *                                           so ESPN itself says which team is his
+ *   npm run league:report -- --offline [dir]  no network: a git-ignored placeholder dump (snapshot.json, inputs.json,
+ *                                           meta.json; default data-local/parker-league; loadDump), the engine's
+ *                                           `now` from meta.json; --team still picks the team
  *
  * Phase 3, the season simulation (§8; planner reply to Checkpoint 2, "Checkpoint 3 must include"):
  * - Standings and playoff odds: today's standings by the league's rules (TeamOdds.rank) with each team's
@@ -32,9 +35,10 @@
  *   (titleUnknownReason); otherwise it points to the notes under the standings. Then the same rows from the
  *   team after its free-agent pickups (V*: TeamModel.faMoves applied), since §10's B compares rosters after
  *   them, with the pickups' own effect and its standard error. The model doesn't keep that roster's
- *   weekly scores, so they're priced with teamValue.rosterScore, the function behind TeamModel.score, on the
- *   projection table rebuilt as the model built it; the report first re-prices the user's current roster
- *   that way and skips these rows unless it reproduces the model's own scores (within float noise).
+ *   weekly scores, so they're priced with league.teamRosterScorer, TeamModel.score's own rule (Phase 4b: IR
+ *   returners and the roster spot one needs from his week included), from the steps the model ran; the report first
+ *   re-prices the user's current roster that way and skips these rows unless it reproduces the model's own scores
+ *   (within float noise). ⚠️ The depth values (depthValues) still price rosters without IR returners.
  * - No-op check (§8 common random numbers; §16): (a) one setup simulated twice, each run drawing its own
  *   matrix from the seed: every number bitwise identical; (b) a second League model built from the same
  *   snapshot and inputs with every roster copied (a trade that changes nothing), simulated with the same
@@ -53,7 +57,8 @@
  * - Trade chips carry their cost per week and the "starter" tag (answer 3); lineup points are labeled with the
  *   model's playoff weight (LeagueModel.playoffWeight).
  * - Everything priced outside the model (rosterScorer, the depth values) adds the team's streaming rows
- *   (league.tableWithStreaming, streamIds), so it still reproduces the model's own numbers.
+ *   (league.tableWithStreaming, streamIds; rosterScorer through league.teamRosterScorer since Phase 4b), so it still
+ *   reproduces the model's own numbers.
  * - The Trade Score uses B_ref 6 (answer 1; config.benefit.bRef). The scale check still reports the B_ref that
  *   would map this league's +3 to the toy league's 63.
  *
@@ -66,6 +71,26 @@
  * - Lineup costs, chips and partners are worded for V*; the scale check's second baseline is my team after all its
  *   pickups (vstarScale). The build timings (buildTimings) include the optimizer (lead decision L14: ≤ 400 ms).
  *
+ * Phase 4b (planner reply to Checkpoint 4; the lead's design, track R):
+ * - Offline mode (`--offline [dir]`, loadDump): the same report from a placeholder dump, so the Checkpoint 4b reports
+ *   come from one fixed set of data. A dump made before the adapter read ESPN's waiver ranks gets them from the dump
+ *   folder's waiver-ranks.json when it has one (the header says so).
+ * - The market blend (§6 step 8; blendLines): the blend's weight and, per position, the players it reaches and the curve
+ *   points (LeaguePlayers.blend), the players whose projection it moved (PlayerModel.blend), and the League page's
+ *   player breakdown lines (buildLeagueView: PlayerRow.blend, rosters and free-agent lists), with how many read "no
+ *   comparison" (a player at the end of his position's value range, whose market number is his own).
+ * - One free agent, one team (§7; LeagueModel.faAllocation): the allocation's basis and order next to every team's
+ *   pickups, and a check that no free agent is in two teams' pickups. A waiver-order allocation carries CLAUDE.md §2.2's
+ *   ⚠️ (waiverOrderCaveat: ESPN's order is the live one, Parker's league resets it weekly and a claim sends a team to the
+ *   back, so the pickups depend on the import's day), with the weekly reset order from today's standings (resetWaiverOrder).
+ * - The header prints the command line the report ran with (commandText, displayPath: the dump folder and --team), so a
+ *   reader can run it again on the same data.
+ * - parseLeagueReport reads a committed league report's team and roster tables back, for the trade report's "what changed
+ *   in the data" since Checkpoints 3 and 4.
+ * - IR returners (§6, §7; irReturnerRows): every IR player, his expected return week R, whether he rejoins his team's
+ *   lineups, and the player his team as it stands drops from R on to make room (returners.finalLineups, the displacement
+ *   the League page's numbers and odds count).
+ *
  * Everything after the network is buildReport (pure but for the clock and the model builds it times), which
  * scripts/league-report.test.ts runs offline on Parker's committed sanitized fixture with synthetic inputs.
  *
@@ -73,25 +98,28 @@
  * anything is rendered, and the output is scrubbed with the .env.local secrets and the redaction map.
  * NFL player names are public. Output: reports/league-report.md and a short console summary.
  */
-import { writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
 import { importEspnLeagueForModel } from "@/adapters/espn";
 import type { ImportDeps } from "@/adapters/types";
 import { loadPlayerIdResolver } from "@/data";
+import type { BlendPosition } from "@/engine/blend";
 import { config } from "@/engine/config";
 import type { ModelInputs } from "@/engine/inputs";
-import { buildLeagueModel, buildProjectionTable, firstKickoff, leagueMarginals, streamIds, tableWithStreaming, teamWeeks, type LeagueMarginals } from "@/engine/league";
-import type { FaMove, LeagueModel, PlayerModel, SeasonOdds, TeamOdds, TradeChip } from "@/engine/leagueModel";
+import { buildLeagueModel, buildLeagueModelWithContext, buildProjectionTable, leagueMarginals, streamIds, tableWithStreaming, teamRosterScorer, teamWeeks, type LeagueContext, type LeagueMarginals } from "@/engine/league";
+import type { FaAllocation, FaMove, LeagueModel, PlayerModel, SeasonOdds, TeamOdds, TradeChip } from "@/engine/leagueModel";
 import { prepareLeagueSlots } from "@/engine/lineup";
 import { fantasyCalcFormatLabel } from "@/engine/market";
-import { POSITIONS, type LeagueSnapshot, type PlayerInfo, type Pos } from "@/engine/model";
-import { applyStep } from "@/engine/optimizer";
+import { POSITIONS, type InjuryStatus, type LeagueSnapshot, type PlayerInfo, type Pos } from "@/engine/model";
+import { applyStep, returnersOf } from "@/engine/optimizer";
+import { finalLineups } from "@/engine/returners";
 import { buildSimSetup, playoffRounds, seasonOdds, type SeasonModel, type SimSetupResult } from "@/engine/season";
 import { simNormals, simulateSeason, type SimNormals, type SimResult, type SimSetup } from "@/engine/sim";
-import { evLineups, rosValue, rosterScore, scenarioLineups } from "@/engine/teamValue";
+import { defaultTradeSettings } from "@/engine/settings";
+import { evLineups, rosValue, scenarioLineups } from "@/engine/teamValue";
 import { posLabel } from "@/lib/labels";
-import { RISKY_BYES, RISKY_WIN_CHANCE, SEASON_OVER_TEXT, likelyStarters } from "@/lib/leagueView";
+import { RISKY_BYES, RISKY_WIN_CHANCE, SEASON_OVER_TEXT, blendIsOwnPoint, buildLeagueView, likelyStarters } from "@/lib/leagueView";
 import { FileCache } from "@/server/cache";
 import { createHttpClient } from "@/server/http";
 import { buildModelInputs } from "@/server/modelInputs";
@@ -126,6 +154,85 @@ export function pct(p: number | null | undefined): string {
 /** Team, owner and league names → placeholders ("Team 3"), before any text is built. */
 export function placeholders(s: LeagueSnapshot): LeagueSnapshot {
   return { ...s, name: "League 1", leagueId: "{leagueId}", teams: s.teams.map((t) => ({ ...t, name: `Team ${t.id}`, ownerName: `Owner ${t.id}` })) };
+}
+
+// ---------------------------------------------------------------------------------------------
+// The offline dump (both reports read it: scripts/trade-report.ts loadOffline wraps loadDump)
+
+/** The default offline dump, relative to the project root (git-ignored data-local/). */
+export const DEFAULT_DUMP_DIR = path.join("data-local", "parker-league");
+
+/** A placeholder dump of Parker's league (git-ignored): what loadDump reads. */
+export interface Dump {
+  /** The dump's snapshot with placeholders put on again (the report never trusts a file to have them), its team from --team or the dump. */
+  snapshot: LeagueSnapshot;
+  inputs: ModelInputs;
+  /** The engine's `now`: the moment the dump was made (meta.json). */
+  now: Date;
+  dumpedAt: string;
+  /**
+   * The waiver ranks read from the dump folder's waiver-ranks.json (a dump made before the ESPN adapter read
+   * teams[].waiverRank: data-local/parker-league-oct3 has one), applied only when no team in the snapshot has a rank: when
+   * it was read, and how many teams got one. Null when nothing was applied.
+   */
+  waiverRanks: { readAt: string | null; teams: number } | null;
+}
+
+/** A waiver rank the engine reads: a whole number ≥ 1 (league.ts allocationOrder), else undefined. */
+function waiverRankOf(x: unknown): number | undefined {
+  return typeof x === "number" && Number.isInteger(x) && x >= 1 ? x : undefined;
+}
+
+/**
+ * The offline dump in `dir` (snapshot.json, inputs.json, meta.json with `now`; data-local/dump-final.ts writes them with
+ * the app's own import and model-inputs builder, team and owner names already placeholders). `teamArg` (--team) picks my
+ * team; else the dump's. A waiver-ranks.json next to them fills in waiver ranks when the snapshot has none (Dump.waiverRanks).
+ */
+export function loadDump(dir: string, teamArg?: string): Dump {
+  const read = <T>(file: string): T => JSON.parse(readFileSync(path.join(dir, file), "utf8")) as T;
+  const raw = read<LeagueSnapshot>("snapshot.json");
+  const inputs = read<ModelInputs>("inputs.json");
+  const meta = read<{ now?: unknown }>("meta.json");
+  const now = new Date(typeof meta.now === "string" ? meta.now : Number.NaN);
+  if (Number.isNaN(now.getTime())) throw new Error(`${path.join(dir, "meta.json")} has no valid \`now\`.`);
+  let teams = raw.teams;
+  let waiverRanks: Dump["waiverRanks"] = null;
+  const ranksFile = path.join(dir, "waiver-ranks.json");
+  if (existsSync(ranksFile) && !raw.teams.some((t) => waiverRankOf(t.waiverRank) !== undefined)) {
+    const file = JSON.parse(readFileSync(ranksFile, "utf8")) as { readAt?: unknown; ranks?: Record<string, unknown> };
+    teams = raw.teams.map((t) => {
+      const r = waiverRankOf(file.ranks?.[t.id]);
+      return r === undefined ? t : { ...t, waiverRank: r };
+    });
+    waiverRanks = { readAt: typeof file.readAt === "string" ? file.readAt : null, teams: teams.filter((t) => t.waiverRank !== undefined).length };
+  }
+  return { snapshot: placeholders({ ...raw, teams, myTeamId: teamArg ?? raw.myTeamId }), inputs, now, dumpedAt: meta.now as string, waiverRanks };
+}
+
+/** `--offline [dir]`: the dump folder (a relative one from `root`; default DEFAULT_DUMP_DIR), or null without the flag. */
+export function offlineDirOf(argv: readonly string[], root: string): string | null {
+  const i = argv.indexOf("--offline");
+  if (i < 0) return null;
+  const next = argv[i + 1];
+  return path.resolve(root, next !== undefined && !next.startsWith("--") ? next : DEFAULT_DUMP_DIR);
+}
+
+/** The value after `flag` (`--team 3`), or undefined when the flag is absent or has no value. */
+export function flagValue(argv: readonly string[], flag: string): string | undefined {
+  const i = argv.indexOf(flag);
+  const v = i >= 0 ? argv[i + 1] : undefined;
+  return v !== undefined && !v.startsWith("--") ? v : undefined;
+}
+
+/** A path relative to `root`, with forward slashes (for the report's words; never a secret). */
+export function relativePath(root: string, p: string): string {
+  return path.relative(root, p).split(path.sep).join("/");
+}
+
+/** The report's data line for an offline dump: where it came from, when, and the waiver ranks when they were filled in. */
+export function dumpNote(root: string, dir: string, dump: Pick<Dump, "dumpedAt" | "waiverRanks">): string {
+  const ranks = dump.waiverRanks ? ` Waiver ranks for ${dump.waiverRanks.teams} teams come from the dump folder's waiver-ranks.json${dump.waiverRanks.readAt ? ` (read from ESPN at ${dump.waiverRanks.readAt})` : ""}: the dump was made before the adapter read them.` : "";
+  return `Offline: the git-ignored dump in ${relativePath(root, dir)}/ (made by the app's own import and model-inputs builder at ${dump.dumpedAt}, team and owner names placeholders); the engine's "now" is that moment.${ranks}`;
 }
 
 /** An NFL player's name: public, so the final scrub keeps it whole (scrubEverythingExcept). */
@@ -407,29 +514,19 @@ export function scaleCheck(snapshot: LeagueSnapshot, model: SeasonModel, teamId:
 
 /**
  * Weekly scores for any active roster of a team, priced outside the model by TeamModel.score's own rule
- * (teamValue.rosterScore: scenario lineups and the law of total variance when the model ran scenarios,
- * else expected-value lineups) on the projection table rebuilt as the model built it (buildProjectionTable at
- * `now`, the model's scenario count and the default seed), with the team's streaming rows (the positions it
- * streams, LeagueModel.streaming; league.tableWithStreaming). A week in progress takes its first week from the
+ * (league.teamRosterScorer: scenario lineups and the law of total variance when the model ran scenarios, else
+ * expected-value lineups; the team's streaming rows and IR returners, and the roster spot a returner needs from his
+ * week, Phase 4b) from the steps the model ran (its scenario count, the default seed, my streamed positions and its
+ * playoff weight, which the report's models take from the defaults). A week in progress takes its first week from the
  * table as it stood 1 ms before that week's first kickoff, as the model's preKickoffTable does, its streaming
- * replacement included; built here with the free agents, which a free-agent move needs (a player's row
- * doesn't depend on who else is in it).
+ * replacement included; built there with every free agent, which a free-agent move needs (a player's row doesn't depend
+ * on who else is in it).
  */
 export function rosterScorer(snapshot: LeagueSnapshot, inputs: ModelInputs, model: LeagueModel, now: Date): (roster: readonly string[], teamId: string) => WeeklyScores {
-  const table = tableWithStreaming(buildProjectionTable(snapshot, inputs, { now, scenarios: model.scenarios }), model);
-  const slots = prepareLeagueSlots(snapshot.settings);
-  const first = model.inProgressWeek !== null && model.weeks.length > 0 ? firstKickoff(inputs.nfl, model.inProgressWeek) : null;
-  const pre = first === null ? null : tableWithStreaming(buildProjectionTable(snapshot, inputs, { now: new Date(first - 1), scenarios: model.scenarios }), model);
-  return (players, teamId) => {
-    const roster = [...players, ...streamIds(model, teamId)];
-    const score = rosterScore(roster, table, slots);
-    if (pre && score.mean.length > 0) {
-      const before = rosterScore(roster, pre, slots, 1);
-      score.mean[0] = before.mean[0] as number;
-      score.sd[0] = before.sd[0] as number;
-    }
-    return score;
-  };
+  const me = model.myTeamId;
+  const settings = { ...defaultTradeSettings(), playoffWeight: model.playoffWeight, ...(me !== null ? { streamPositions: [...(model.streaming.byTeam[me]?.positions ?? [])] } : {}) };
+  const scoreOf = teamRosterScorer(snapshot, inputs, { now, scenarios: model.scenarios, settings });
+  return (players, teamId) => scoreOf(players, teamId) ?? { mean: [], sd: [] };
 }
 
 export interface VStarScale {
@@ -437,7 +534,11 @@ export interface VStarScale {
   moves: FaMove[];
   /** The largest |Δ| between the model's weekly scores for the current roster and the same scores re-priced by rosterScorer. */
   reproduced: number;
-  /** ROS(V*) from its re-priced weekly scores minus (the model's ROS(T) + the moves' gains): float noise when the two agree. */
+  /**
+   * ROS(V*) from its re-priced weekly scores minus (the model's ROS(T) + the moves' gains): float noise when the two agree.
+   * With an IR returner it is what the roster spot he needs (league.ts step 5b, final pricing only; the gains are measured
+   * without it) costs T minus what it costs V*: the two rosters can drop different players at his return.
+   */
   rosDiff: number;
   /** The pickups alone: V*'s odds against the current roster's, with standard errors from both baselines' shared batches (null when title odds are unknown). */
   move: Omit<ScaleRow, "gain"> | null;
@@ -456,7 +557,7 @@ export function vstarScale(snapshot: LeagueSnapshot, inputs: ModelInputs, model:
   const tm = model.teams.find((t) => t.id === me);
   if (!me || !team || !tm) return { skipped: "your team isn't known." };
   const moves = tm.faMoves;
-  if (!moves.length) return { skipped: "no free-agent pickup gains your team lineup points, so the rows above already start from the roster §10 compares." };
+  if (!moves.length) return { skipped: `no free-agent pickup left to your team gains it lineup points${model.faAllocation ? " (one free agent per team: the teams ahead of yours in the allocation order claim theirs first)" : ""}, so the rows above already start from the roster §10 compares.` };
   const scoreOf = rosterScorer(snapshot, inputs, model, now);
   const reproduced = scoreDiff(scoreOf(team.roster, me), tm.score);
   if (!(reproduced <= REPRODUCED_TOLERANCE))
@@ -556,6 +657,226 @@ export function optimizerReport(snapshot: LeagueSnapshot, model: LeagueModel, ma
     return { name, playerId, teamId, focusTeamId, focusBlocked, cost, adds, chip };
   });
   return { moves, distribution, examples };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Phase 4b: the market blend, one free agent one team, IR returners
+
+/** The free agents two or more teams pick up (TeamModel.faMoves' adds; each team counted once), by player id. */
+export function duplicatePickups(teams: readonly { id: string; faMoves: readonly FaMove[] }[]): { playerId: string; teamIds: string[] }[] {
+  const by = new Map<string, string[]>();
+  for (const t of teams) for (const id of new Set(t.faMoves.map((m) => m.add))) by.set(id, [...(by.get(id) ?? []), t.id]);
+  return [...by]
+    .filter(([, ids]) => ids.length > 1)
+    .map(([playerId, teamIds]) => ({ playerId, teamIds }))
+    .sort((a, b) => b.teamIds.length - a.teamIds.length || (a.playerId < b.playerId ? -1 : a.playerId > b.playerId ? 1 : 0));
+}
+
+/** The allocation's basis in words (LeagueModel.faAllocation; league.ts allocationOrder). */
+export function allocationBasisText(basis: FaAllocation["basis"]): string {
+  if (basis === "faab") return "remaining FAAB budget, the most first";
+  if (basis === "waiver") return "the league's waiver order (ESPN's waiver ranks)";
+  return "each team's best available gain first (the league reports no waiver order)";
+}
+
+/**
+ * The waiver order a weekly reset would give today (CLAUDE.md §2.2: at ESPN's weekly reset, rank = number of teams + 1 −
+ * the team's seed): today's standings by the league's rules reversed (TeamOdds.rank; the last-placed team claims first).
+ * Null without odds.
+ */
+export function resetWaiverOrder(model: Pick<LeagueModel, "odds">): string[] | null {
+  const teams = model.odds?.teams;
+  if (!teams?.length) return null;
+  return [...teams].sort((a, b) => b.rank - a.rank || (a.teamId < b.teamId ? -1 : a.teamId > b.teamId ? 1 : 0)).map((t) => t.teamId);
+}
+
+/**
+ * The ⚠️ caveat on a waiver-order allocation (CLAUDE.md §2.2, a planner question at Checkpoint 4b): ESPN reports the order
+ * as it stands at the import, and in Parker's league it resets weekly while every claim that goes through sends its team to
+ * the back for the rest of the week, so the allocation depends on the day the league is imported. With the weekly reset
+ * order from today's standings (resetWaiverOrder) when it differs from the live one, and my place in it.
+ */
+export function waiverOrderCaveat(live: readonly string[], reset: readonly string[] | null, myTeamId: string | null, teamName: (id: string) => string): string {
+  const head = "⚠️ ESPN gives the waiver order as it stands when the league is imported. Parker's league resets it every week to reverse standings, and a team whose claim goes through moves to the back for the rest of that week (CLAUDE.md §2.2), so this order, and the pickups that follow it, depend on the day of the import (a planner question at Checkpoint 4b).";
+  if (!reset || reset.length !== live.length) return head;
+  if (reset.every((id, i) => id === live[i])) return `${head} Today it is the weekly reset order (reverse standings).`;
+  const place = myTeamId ? reset.indexOf(myTeamId) : -1;
+  return `${head} The weekly reset order from today's standings: ${reset.map((id) => teamName(id)).join(" > ")}${place >= 0 ? ` (you'd claim ${ordinal(place + 1)}, against ${ordinal(live.indexOf(myTeamId as string) + 1)} now)` : ""}.`;
+}
+
+
+// ---------------------------------------------------------------------------------------------
+// A committed league report read back (the trade report's data attribution: what changed in the data since a checkpoint)
+
+/** One roster table row of a league report (the section "Rest-of-season and weekly projected points, every rostered player"). */
+export interface ReportedPlayer {
+  /** The St column's short code (STATUS_SHORT: "" active, P, Q, D, O, IR, PUP, SUS, NA). */
+  status: string;
+  /** His rest-of-season points (null: "no projection"). */
+  ros: number | null;
+  slot: "active" | "ir" | "taxi";
+}
+
+/** The tables a league report prints that a later report compares with (parseLeagueReport). */
+export interface LeagueReportTables {
+  /** Per team id: its record ("2-1"), points for and projected points per week (scenario lineups), from "Projected starting-lineup points per week". */
+  teams: Map<string, { record: string; pointsFor: number | null; ppw: number | null }>;
+  /** Per team id: its roster table's players by public NFL name. */
+  rosters: Map<string, Map<string, ReportedPlayer>>;
+}
+
+const numberCell = (s: string | undefined): number | null => {
+  const x = Number((s ?? "").replace(/[−]/g, "-"));
+  return (s ?? "").trim() !== "" && Number.isFinite(x) ? x : null;
+};
+
+/**
+ * A league report's markdown read back (this script's own render: the team table under "Projected starting-lineup points per
+ * week", "| Team | Record | PF | Proj/wk (scenario) | …", and the roster tables "### Team N" with "| Player | Pos | NFL | St |
+ * ROS | …"). Tolerant: rows it can't read are skipped. The trade report reads Checkpoint 3's and Checkpoint 4's committed
+ * reports (git show 6a83beb / b27e90f:reports/league-report.md) with it.
+ */
+export function parseLeagueReport(md: string): LeagueReportTables {
+  const teams: LeagueReportTables["teams"] = new Map();
+  const rosters: LeagueReportTables["rosters"] = new Map();
+  let inTeams = false;
+  let roster: Map<string, ReportedPlayer> | null = null;
+  for (const line of md.split(/\r?\n/)) {
+    if (line.startsWith("| Team | Record | PF | Proj/wk (scenario) |")) {
+      inTeams = true;
+      continue;
+    }
+    if (inTeams && !line.startsWith("|")) inTeams = false;
+    const cells = line.split("|").map((c) => c.trim());
+    if (inTeams) {
+      const id = /^Team (\d+)/.exec(cells[1] ?? "")?.[1];
+      if (id) teams.set(id, { record: cells[2] ?? "", pointsFor: numberCell(cells[3]), ppw: numberCell(cells[4]) });
+      continue;
+    }
+    const heading = /^### Team (\d+)/.exec(line);
+    if (heading) {
+      roster = new Map();
+      rosters.set(heading[1] as string, roster);
+      continue;
+    }
+    if (line.startsWith("## ") || line.startsWith("### ")) {
+      roster = null;
+      continue;
+    }
+    if (!roster || !line.startsWith("| ") || line.startsWith("| Player |")) continue;
+    const raw = cells[1] ?? "";
+    if (!raw || /^-+$/.test(raw)) continue;
+    const slot = / \(IR\)$/.test(raw) ? "ir" : / \(taxi\)$/.test(raw) ? "taxi" : "active";
+    roster.set(raw.replace(/ \((IR|taxi)\)$/, ""), { status: cells[4] ?? "", ros: numberCell(cells[5]), slot });
+  }
+  return { teams, rosters };
+}
+
+/** A player's status as a league report's St column prints it (STATUS_SHORT; "" when active). */
+export const statusShort = (status: InjuryStatus | undefined): string => STATUS_SHORT[status ?? "ACTIVE"] ?? "";
+
+// ---------------------------------------------------------------------------------------------
+// The command line in a report's header (review of track R: "--offline" alone loads the default dump, not the report's)
+
+/** A path for the header: relative to `root` with forward slashes, or just its file name when it lies outside `root`. */
+export function displayPath(root: string, p: string): string {
+  const rel = relativePath(root, p);
+  return rel.startsWith("..") || path.isAbsolute(rel) ? path.basename(p) : rel;
+}
+
+/** "npm run trade:report -- --offline data-local/x --team 3": the script and the arguments it ran with (empty ones left out). */
+export function commandText(script: string, args: readonly (string | null | undefined | false)[]): string {
+  const parts = args.filter((a): a is string => typeof a === "string" && a.length > 0);
+  return parts.length ? `npm run ${script} -- ${parts.join(" ")}` : `npm run ${script}`;
+}
+
+/** The market blend in numbers (the file header, Phase 4b). */
+export interface BlendLines {
+  /** w (config.marketBlend.weight as the build clamped it; 0: nothing blended). */
+  weight: number;
+  /** Per configured position: players with a real value, curve points, blended (blend.ts). */
+  positions: BlendPosition[];
+  /** Players the blend reaches (a real value at a blended position), and those of them with a base rate above 0. */
+  reached: number;
+  scaled: number;
+  /** Players whose rest-of-season points it moved (PlayerModel.blend: a weight above 0 and ROS above 0). */
+  moved: number;
+  /** Of those, the ones whose market number is their own (the end of their position's value range: blendIsOwnPoint), and the others whose three rounded numbers are equal anyway. */
+  ownPoint: number;
+  equalRounded: number;
+  /** The League page's player breakdown lines (PlayerRow.blend) on the rosters and in the free-agent lists, and how many say "no comparison". */
+  rosterLines: number;
+  freeAgentLines: number;
+  noComparison: number;
+}
+
+/** The blend's counts (BlendLines) from a League model build and the League page built on it. */
+export function blendLines(snapshot: LeagueSnapshot, inputs: ModelInputs, model: LeagueModel, context: Pick<LeagueContext, "lp">, now: Date): BlendLines {
+  const blend = context.lp.blend;
+  const factors = [...blend.factors.values()];
+  const moved = Object.values(model.players).flatMap((pm) => (pm.blend ? [pm.blend] : []));
+  const ownPoint = moved.filter((b) => blendIsOwnPoint(b)).length;
+  const equalRounded = moved.filter((b) => !blendIsOwnPoint(b) && Math.round(b.ours) === Math.round(b.market) && Math.round(b.market) === Math.round(b.used)).length;
+  const view = buildLeagueView({ snapshot, model, inputs, myTeamSource: "you", timeZone: "UTC", now: now.toISOString() });
+  const rows = view.rosters.flatMap((r) => r.players).filter((p) => p.blend);
+  const fa = view.freeAgents.flatMap((g) => g.players).filter((p) => p.blend);
+  return {
+    weight: blend.weight,
+    positions: blend.positions,
+    reached: factors.length,
+    scaled: factors.filter((f) => f.ours > 0).length,
+    moved: moved.length,
+    ownPoint,
+    equalRounded,
+    rosterLines: rows.length,
+    freeAgentLines: fa.length,
+    noComparison: [...rows, ...fa].filter((p) => p.blend?.text.includes("no comparison")).length,
+  };
+}
+
+/** One IR player (the file header, Phase 4b): his team, status, ESPN's return week, R, and the displacement at R. */
+export interface IrReturnerRow {
+  teamId: string;
+  playerId: string;
+  status: InjuryStatus | null;
+  /** ESPN's return week (PlayerInfo.injuryReturnWeek; after the NFL's last week: out for the season). */
+  espnWeek: number | null;
+  /** His expected return week R (an NFL week of the model's), or null when he isn't back within them or has no model. */
+  R: number | null;
+  /** He rejoins his team's lineups (a returner: a model and an R). */
+  returner: boolean;
+  /**
+   * The roster spot his return needs, on the team as it stands (returners.finalLineups: the League page's numbers and
+   * odds): the player dropped and from which NFL week (`self`: the returner himself is released then), or null when the
+   * roster has room.
+   */
+  drop: { playerId: string; week: number; self: boolean } | null;
+}
+
+/** Every team's IR players (league.ts TeamWork.ir) with their returns and the displacement each one causes (IrReturnerRow). */
+export function irReturnerRows(context: Pick<LeagueContext, "work" | "returnerSetup" | "returnWeek" | "lp" | "snapshot">): IrReturnerRow[] {
+  const weeks = context.lp.weeks.weeks;
+  const rows: IrReturnerRow[] = [];
+  for (const t of context.work) {
+    if (!t.ir.length) continue;
+    const final = finalLineups(context.returnerSetup, t.ids, t.stream, { ev: t.solved, scen: t.scen });
+    const back = new Set(returnersOf(t.stream).map((r) => r.id));
+    for (const id of t.ir) {
+      const info = context.snapshot.players[id];
+      const d = final.displaced.find((x) => x.returner === id);
+      const week = d ? weeks[d.from] : undefined;
+      rows.push({
+        teamId: t.team.id,
+        playerId: id,
+        status: info?.injury ?? null,
+        espnWeek: info?.injuryReturnWeek ?? null,
+        R: context.returnWeek(id),
+        returner: back.has(id),
+        drop: d && week !== undefined ? { playerId: d.id, week, self: d.id === id } : null,
+      });
+    }
+  }
+  return rows;
 }
 
 export interface ScheduleRow {
@@ -836,7 +1157,8 @@ function expectedRecord(t: TeamOdds, ties: boolean): string {
   return `${fmt(t.expWins)}–${fmt(t.expLosses)}${ties ? `–${fmt(t.expTies)}` : ""}`;
 }
 
-const ordinal = (n: number) => `${n}${n % 100 >= 11 && n % 100 <= 13 ? "th" : (["th", "st", "nd", "rd"][n % 10] ?? "th")}`;
+/** 1 → "1st", 2 → "2nd", 11 → "11th". */
+export const ordinal = (n: number): string => `${n}${n % 100 >= 11 && n % 100 <= 13 ? "th" : (["th", "st", "nd", "rd"][n % 10] ?? "th")}`;
 
 function renderStandings(L: string[], season: SeasonReport, snapshot: LeagueSnapshot, model: LeagueModel, teamName: (id: string) => string): void {
   L.push("## Standings and playoff odds", "");
@@ -980,7 +1302,7 @@ function renderScale(L: string[], season: SeasonReport, snapshot: LeagueSnapshot
     const moves = wv.moves.map((m) => `add ${playerLabel(snapshot.players[m.add], m.add)}${m.drop ? `, drop ${playerLabel(snapshot.players[m.drop], m.drop)}` : " into an open spot"}`).join("; ");
     const gain = wv.moves.reduce((x, m) => x + (m.gainScen ?? m.gainEv), 0);
     L.push(
-      `The pickups: ${moves} (+${fmt(gain)} lineup pts together, playoff weeks × ${model.playoffWeight}). Their weekly scores come from teamValue.rosterScore, TeamModel.score's own rule; re-pricing your current roster the same way reproduced the model's scores ${wv.reproduced === 0 ? "bit for bit" : `within ${wv.reproduced.toExponential(1)}`}, and the new roster's ROS matches the model's ROS plus the pickups' gains ${wv.rosDiff === 0 ? "exactly" : `within ${Math.abs(wv.rosDiff).toExponential(1)}`}.`,
+      `The pickups: ${moves} (+${fmt(gain)} lineup pts together, playoff weeks × ${model.playoffWeight}). Their weekly scores come from league.teamRosterScorer, TeamModel.score's own rule; re-pricing your current roster the same way reproduced the model's scores ${wv.reproduced === 0 ? "bit for bit" : `within ${wv.reproduced.toExponential(1)}`}, and the new roster's ROS matches the model's ROS plus the pickups' gains ${wv.rosDiff === 0 ? "exactly" : Math.abs(wv.rosDiff) < 1e-6 ? `within ${Math.abs(wv.rosDiff).toExponential(1)}` : `within ${Math.abs(wv.rosDiff).toExponential(1)}, what the roster spot an IR returner needs from his week costs the two rosters differently (the pickups' gains are measured without it)`}.`,
       "",
     );
     if (wv.move) L.push(moveLine(wv.move), "");
@@ -1111,7 +1433,15 @@ function renderOptimizer(L: string[], snapshot: LeagueSnapshot, model: LeagueMod
   const judging = optimizerJudging(snapshot, model);
   L.push("## The free-agent optimizer (V*)", "");
   L.push(
-    `CLAUDE.md §7 (planner reply to Checkpoint 3, model change 2): every team is measured after the free-agent pickups that would help it, one move at a time: the add (dropping a player, or into an open roster spot) with the largest gain in ${lineupPts}, while it gains at least ${o.faMinGain}, at most ${o.faMaxMoves} moves; never ${config.streaming.optimizerExcluded.join(" or ")} (streamed or kept) nor a position the team streams, never a player its starting lineup needs. Moves are judged ${optimizerJudgingText(judging, model.scenarios)}.${judging === "ev" ? "" : " The re-runs behind the lineup costs and MV_add below (from a team's optimized roster after a player leaves or joins) judge their moves by the expected-value gain."} Lineup costs (MV_lose), trade chips (MV_add) and partners compare rosters after these moves, so no trade is credited with a pickup a team could make anyway. Each team is optimized on its own, so two teams can claim the same free agent (⚠️).`,
+    `CLAUDE.md §7 (planner reply to Checkpoint 3, model change 2): every team is measured after the free-agent pickups that would help it, one move at a time: the add (dropping a player, or into an open roster spot) with the largest gain in ${lineupPts}, while it gains at least ${o.faMinGain}, at most ${o.faMaxMoves} moves; never ${config.streaming.optimizerExcluded.join(" or ")} (streamed or kept) nor a position the team streams, never a player its starting lineup needs. Moves are judged ${optimizerJudgingText(judging, model.scenarios)}.${judging === "ev" ? "" : " The re-runs behind the lineup costs and MV_add below (from a team's optimized roster after a player leaves or joins) judge their moves by the expected-value gain."} Lineup costs (MV_lose), trade chips (MV_add) and partners compare rosters after these moves, so no trade is credited with a pickup a team could make anyway.`,
+    "",
+  );
+  const alloc = model.faAllocation;
+  const dups = duplicatePickups(model.teams);
+  L.push(
+    alloc
+      ? `**One free agent, one team** (§7; planner reply to Checkpoint 4, change 3): teams claim free agents in ${allocationBasisText(alloc.basis)}: ${alloc.order.map((id) => teamName(id)).join(" > ")}; each team's run adds only free agents no earlier team's run claimed (a free agent a later move of the run swapped away stays claimed). Free agents in two or more teams' pickups: **${dups.length}**${dups.length ? ` (${dups.map((d) => `${playerLabel(players[d.playerId], d.playerId)}: ${d.teamIds.map((id) => teamName(id)).join(", ")}`).join("; ")})` : ""}.${alloc.basis === "waiver" ? ` ${waiverOrderCaveat(alloc.order, resetWaiverOrder(model), model.myTeamId, teamName)}` : ""}`
+      : `**No free-agent allocation** in this model (each team optimized on its own against the whole pool, Checkpoint 4's rule): free agents in two or more teams' pickups: ${dups.length}.`,
     "",
   );
   const total = opt.moves.reduce((s, m) => s + m.moves.length, 0);
@@ -1167,7 +1497,62 @@ function renderOptimizer(L: string[], snapshot: LeagueSnapshot, model: LeagueMod
   }
 }
 
-function render(snapshot: LeagueSnapshot, inputs: ModelInputs, model: LeagueModel, evOnly: LeagueModel, timing: Record<string, number>, depthOf: DepthOf, season: SeasonReport, optimizer: OptimizerReport): string {
+/** The market blend (§6 step 8; the file header, Phase 4b): the curve's coverage per position, and the League page's lines. */
+function renderBlend(L: string[], b: BlendLines): void {
+  const mb = config.marketBlend;
+  L.push("## Market-blended projections", "");
+  L.push(
+    `CLAUDE.md §6 step 8 (planner reply to Checkpoint 4, change 1): every ${mb.positions.join(", ")} with a real FantasyCalc value in this season's list for the league's format has his points per game pulled part of the way toward what healthy players valued like him score: b′ = (1 − w)·b + w·R_pos(v), w = ${fmt(b.weight, 2)} (config.marketBlend.weight ${mb.weight}), R_pos the isotonic curve of base rates on value over his position's healthy valued players (each read off the curve fitted without him, except at the two ends of the value range, who read it with their own point in it). His weekly points and ROS points scale by b′ / b, so byes, availability and week shape stay the model's, and every team number (lineups, needs, chips, V*, the odds) reads the blended points. A position with fewer than ${mb.minPlayers} curve points isn't blended.`,
+    "",
+  );
+  if (!b.positions.length) {
+    L.push("Nothing is blended in this model (no weight, or no season list of values).", "");
+    return;
+  }
+  L.push("| Position | Players with a real value | Curve points (healthy, a game left) | Blended |", "|---|---|---|---|");
+  for (const p of b.positions) L.push(`| ${p.pos} | ${p.players} | ${p.fit} | ${p.blended ? "yes" : `no (under ${mb.minPlayers} curve points)`} |`);
+  L.push("");
+  L.push(
+    `- Players the blend reaches: **${b.reached}** (${b.scaled} with a base rate above 0); players whose rest-of-season points it moved (PlayerModel.blend): **${b.moved}**.`,
+    `- The League page's player breakdown line ("Our projection 210 · Trade market 170 · Used 190", tap or hover on a player): **${b.rosterLines + b.freeAgentLines}** lines, ${b.rosterLines} on the rosters and ${b.freeAgentLines} in the free-agent lists; **${b.noComparison}** of them read "Trade market: no comparison" (a player at one end of his position's value range, whose market number is his own: ${b.ownPoint} such players in the model). Another ${b.equalRounded} of the model's blended players print three equal rounded numbers because the market and our projection agree to within a point.`,
+    "",
+  );
+}
+
+/** IR returners (§6–§7; the file header, Phase 4b). */
+function renderIrReturners(L: string[], rows: readonly IrReturnerRow[], snapshot: LeagueSnapshot, inputs: ModelInputs, teamName: (id: string) => string): void {
+  const players = snapshot.players;
+  const last = inputs.nfl.lastWeek;
+  L.push("## IR returners", "");
+  L.push(
+    `CLAUDE.md §6–§7 (planner reply to Checkpoint 4, change 5): an IR player with a model rejoins his team's lineups from his expected return week R, the first remaining week his chance of being back reaches ${fmt(100 * config.projections.returnWeekQuantile, 0)}% (availability.expectedReturnWeek; his own availability keeps him out before it). From R he needs an active roster spot: when the roster is full then, the lowest keep value player goes from R on (never one the starting lineup needs, nor the last one at a position the team streams; the returner himself can be the one released). That displacement counts in the final numbers only: each team as it stands here (lineups, strength, needs and the odds), and in the trade evaluation the baseline at V*(T) and both sides of every trade.`,
+    "",
+  );
+  if (!rows.length) {
+    L.push("No team has a player on IR.", "");
+    return;
+  }
+  L.push("| Team | IR player | Status | ESPN return week | Expected return week R | Rejoins the lineups | From R, the team as it stands drops |", "|---|---|---|---|---|---|---|");
+  for (const r of rows) {
+    const espn = r.espnWeek === null ? "–" : last !== undefined && r.espnWeek > last ? `${r.espnWeek} (out for the season)` : String(r.espnWeek);
+    const drop = !r.returner ? "–" : r.drop ? (r.drop.self ? `releases him at week ${r.drop.week}` : `${playerLabel(players[r.drop.playerId], r.drop.playerId)} from week ${r.drop.week}`) : "nobody (room on the roster)";
+    L.push(`| ${teamName(r.teamId)} | ${playerLabel(players[r.playerId], r.playerId)} | ${r.status ?? "–"} | ${espn} | ${r.R ?? "not back this season"} | ${r.returner ? "yes" : "no"} | ${drop} |`);
+  }
+  L.push("");
+  const back = rows.filter((r) => r.returner);
+  L.push(`${back.length} of ${rows.length} IR players rejoin their teams' lineups; ${back.filter((r) => r.drop).length} of those returns need a roster spot their team makes by dropping someone from R on.`, "");
+}
+
+/** How a report run was made (the header): the command's mode, the data line, the day it was written, and the command itself. */
+export interface ReportHead {
+  mode: "offline" | "live";
+  dataNote: string | null;
+  generatedAt: Date;
+  /** The command line it ran with (commandText), so the header reproduces it; default: the script with --offline when offline. */
+  command?: string;
+}
+
+function render(snapshot: LeagueSnapshot, inputs: ModelInputs, model: LeagueModel, evOnly: LeagueModel, timing: Record<string, number>, depthOf: DepthOf, season: SeasonReport, optimizer: OptimizerReport, head: ReportHead, blend: BlendLines, ir: readonly IrReturnerRow[]): string {
   const L: string[] = [];
   const teamName = (id: string) => `Team ${id}${id === model.myTeamId ? " (you)" : ""}`;
   const players = snapshot.players;
@@ -1175,9 +1560,10 @@ function render(snapshot: LeagueSnapshot, inputs: ModelInputs, model: LeagueMode
   const myTeam = model.teams.find((t) => t.id === model.myTeamId);
 
   L.push("# League model: Parker's ESPN league", "");
-  L.push(`Generated by \`npm run league:report\` on ${new Date().toISOString().slice(0, 10)} through the real adapters, model-inputs builder and engine. Team, owner and league names are placeholders; NFL player names are public.`, "");
+  L.push(`Generated by \`${head.command ?? commandText("league:report", [head.mode === "offline" ? "--offline" : null])}\` on ${head.generatedAt.toISOString().slice(0, 10)} through the real adapters, model-inputs builder and engine. Team, owner and league names are placeholders; NFL player names are public.`, "");
   L.push(`**League 1** · ESPN · ${snapshot.season} · week ${snapshot.currentWeek} · ${snapshot.teams.length} teams · remaining weeks ${weeks[0] ?? "–"}–${weeks.at(-1) ?? "–"} (regular season ${model.regularWeeks.length}, playoffs ${model.playoffWeeks.length}) · ${model.scenarios} availability scenarios · ${model.odds ? `${thousands(model.odds.sims)} simulated seasons` : "no season simulation"}`, "");
   L.push("**Data**", "");
+  if (head.dataNote) L.push(`- ${head.dataNote}`);
   for (const s of inputs.sources) L.push(`- ${s.source}: ${s.fetchedAt}${s.stale ? " (saved copy; the live fetch failed)" : ""}`);
   L.push(`- FantasyCalc format: ${model.market.format ? fantasyCalcFormatLabel(model.market.format) : "values unavailable"}`);
   const ag = model.projection.agreement;
@@ -1222,11 +1608,17 @@ function render(snapshot: LeagueSnapshot, inputs: ModelInputs, model: LeagueMode
   }
   L.push("");
 
+  // The market blend (Phase 4b).
+  renderBlend(L, blend);
+
   // Streaming positions (Phase 4).
   renderStreaming(L, snapshot, model, teamName);
 
-  // The free-agent optimizer (Phase 4).
+  // The free-agent optimizer (Phase 4; one free agent, one team since Phase 4b).
   renderOptimizer(L, snapshot, model, optimizer, teamName);
+
+  // IR returners (Phase 4b).
+  renderIrReturners(L, ir, snapshot, inputs, teamName);
 
   // Needs, trade chips and partners.
   const lineupPts = `lineup pts, playoff weeks × ${model.playoffWeight}${model.scenarios ? `, scenario lineups (S = ${model.scenarios})` : ", expected-value lineups"}`;
@@ -1347,6 +1739,25 @@ export interface ReportOptions extends Omit<SeasonReportOptions, "now" | "clock"
   timing?: Record<string, number>;
   /** Availability scenarios of the main model (default config.lineups.scenarios). */
   scenarios?: number;
+  /** "offline" (a dump: loadDump) or "live" (default), the data line the header prints (dumpNote), and the day written (default `now`). */
+  mode?: "offline" | "live";
+  dataNote?: string;
+  generatedAt?: Date;
+  /** The command line the header prints (ReportHead.command). */
+  command?: string;
+}
+
+/** What buildReport returns: the markdown (not yet scrubbed) and the numbers behind it. */
+export interface LeagueReport {
+  doc: string;
+  model: LeagueModel;
+  /** The main model's steps 1–5 (its blend, its teams' IR players and lineups). */
+  context: LeagueContext;
+  season: SeasonReport;
+  optimizer: OptimizerReport;
+  blend: BlendLines;
+  ir: IrReturnerRow[];
+  timing: Record<string, number>;
 }
 
 /**
@@ -1354,7 +1765,7 @@ export interface ReportOptions extends Omit<SeasonReportOptions, "now" | "clock"
  * scenarios, both with the season simulation), the Phase 3 numbers and the markdown, not yet scrubbed.
  * `snapshot` must already carry placeholders (placeholders()).
  */
-export function buildReport(snapshot: LeagueSnapshot, inputs: ModelInputs, opts: ReportOptions): { doc: string; model: LeagueModel; season: SeasonReport; optimizer: OptimizerReport; timing: Record<string, number> } {
+export function buildReport(snapshot: LeagueSnapshot, inputs: ModelInputs, opts: ReportOptions): LeagueReport {
   const { now, clock } = opts;
   const timing = { ...(opts.timing ?? {}) };
   const scenarios = opts.scenarios ?? config.lineups.scenarios;
@@ -1362,7 +1773,7 @@ export function buildReport(snapshot: LeagueSnapshot, inputs: ModelInputs, opts:
   const evOnly = buildLeagueModel(snapshot, inputs, { now, scenarios: 0, clock });
   timing["engine, expected-value lineups only (season simulation included)"] = clock() - t0;
   t0 = clock();
-  const model = buildLeagueModel(snapshot, inputs, { now, scenarios, clock });
+  const { model, context } = buildLeagueModelWithContext(snapshot, inputs, { now, scenarios, clock });
   timing[`engine, with ${scenarios} availability scenarios (season simulation included)`] = clock() - t0;
   const season = seasonReport(snapshot, inputs, model, {
     now,
@@ -1372,20 +1783,19 @@ export function buildReport(snapshot: LeagueSnapshot, inputs: ModelInputs, opts:
     ...(opts.buildRuns !== undefined ? { buildRuns: opts.buildRuns } : {}),
   });
   const optimizer = optimizerReport(snapshot, model, leagueMarginals(snapshot, inputs, { now, scenarios }));
-  const doc = render(snapshot, inputs, model, evOnly, timing, depthValues(snapshot, inputs, model, now), season, optimizer);
-  return { doc, model, season, optimizer, timing };
+  const blend = blendLines(snapshot, inputs, model, context, now);
+  const ir = irReturnerRows(context);
+  const head: ReportHead = { mode: opts.mode ?? "live", dataNote: opts.dataNote ?? null, generatedAt: opts.generatedAt ?? now, ...(opts.command ? { command: opts.command } : {}) };
+  const doc = render(snapshot, inputs, model, evOnly, timing, depthValues(snapshot, inputs, model, now), season, optimizer, head, blend, ir);
+  return { doc, model, context, season, optimizer, blend, ir, timing };
 }
 
-async function main(): Promise<void> {
-  const argv = process.argv.slice(2);
-  const teamFlag = argv.indexOf("--team");
-  const teamArg = teamFlag >= 0 ? argv[teamFlag + 1] : undefined;
+/** Live: Parker's league through the app's public-link import (or his cookies) and its caches, as the League page loads it. */
+async function loadLive(argv: readonly string[], teamArg: string | undefined, timing: Record<string, number>): Promise<{ snapshot: LeagueSnapshot; inputs: ModelInputs; now: Date }> {
   const useCookies = !argv.includes("--no-cookies") && (argv.includes("--cookies") || env("USE_ENV_COOKIES") === "1");
-  registerScrubber(await redactorFromMap("espn"));
   const leagueId = env("ESPN_LEAGUE_ID");
   if (!leagueId) throw new Error("ESPN_LEAGUE_ID is blank in .env.local.");
   const season = Number(env("ESPN_SEASON") || 2026);
-  const timing: Record<string, number> = {};
   const clock = () => performance.now();
 
   const http = createHttpClient({ cache: new FileCache() });
@@ -1408,8 +1818,27 @@ async function main(): Promise<void> {
   t0 = clock();
   const inputs = await buildModelInputs({ snapshot: result.snapshot, http, resolver, now, espn });
   timing["model inputs (server: Sleeper, FantasyCalc, NFL schedule, scoring)"] = clock() - t0;
+  return { snapshot, inputs, now };
+}
 
-  const { doc: raw, model, season: sim, timing: timings } = buildReport(snapshot, inputs, { now, clock, timing });
+async function main(): Promise<void> {
+  const argv = process.argv.slice(2);
+  const teamArg = flagValue(argv, "--team");
+  const dir = offlineDirOf(argv, ROOT);
+  registerScrubber(await redactorFromMap("espn"));
+  const timing: Record<string, number> = {};
+  const clock = () => performance.now();
+  const generatedAt = new Date();
+  let loaded: { snapshot: LeagueSnapshot; inputs: ModelInputs; now: Date; dataNote: string };
+  if (dir) {
+    const dump = loadDump(dir, teamArg);
+    loaded = { ...dump, dataNote: dumpNote(ROOT, dir, dump) };
+  } else {
+    loaded = { ...(await loadLive(argv, teamArg, timing)), dataNote: "Live: Parker's league through the app's public-link import and its caches (league data 10 minutes, projections 6 hours, values 24 hours)." };
+  }
+  const { snapshot, inputs, now } = loaded;
+  const command = commandText("league:report", [dir ? "--offline" : null, dir ? displayPath(ROOT, dir) : null, teamArg ? `--team ${teamArg}` : null, argv.includes("--cookies") ? "--cookies" : null, argv.includes("--no-cookies") ? "--no-cookies" : null]);
+  const { doc: raw, model, season: sim, timing: timings } = buildReport(snapshot, inputs, { now, clock, timing, mode: dir ? "offline" : "live", dataNote: loaded.dataNote, generatedAt, command });
   // Public NFL player names are kept whole: a leaguemate's first or last name can be a word of one, and a
   // scrubbed fragment next to the rest of a public name would reveal it (review PRIV-1).
   const doc = scrubEverythingExcept(raw, Object.values(snapshot.players).map((p) => p.name));

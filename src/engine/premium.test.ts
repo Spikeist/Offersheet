@@ -144,6 +144,21 @@ describe("the partner's perceived package (perceivedPackage)", () => {
     expect(perceivedPackage({ players: ["mine"] }, { players: ["theirs"] }, values, 0, () => Number.NaN).g).toBe(0);
   });
 
+  it("the premium sits on the floored value: v′ = max(v, W) × (1 + e) (planner reply to Checkpoint 4, change 4)", () => {
+    const cheap = { ...values, junk: 300, scrap: 120 };
+    const W = 752;
+    // The partner gives "junk" (300 < W, e 0.1) for my "scrap" (120 < W): it gives 752 × 1.1, gets 752.
+    const p = perceivedPackage({ players: ["scrap"] }, { players: ["junk"] }, cheap, W, (id) => (id === "junk" ? 0.1 : 0));
+    expect(p.give).toBeCloseTo(W * 1.1, 9);
+    expect(p.recv).toBe(W);
+    expect(p.g).toBeCloseTo(1 / 1.1 - 1, 12);
+    // With e 0 it is the floored package exactly: even.
+    expect(perceivedPackage({ players: ["scrap"] }, { players: ["junk"] }, cheap, W, () => 0)).toStrictEqual(tradePackage({ players: ["scrap"] }, { players: ["junk"] }, cheap, W));
+    expect(tradePackage({ players: ["scrap"] }, { players: ["junk"] }, cheap, W).g).toBe(0);
+    // Above W nothing changes: the premium on the player's own value.
+    expect(perceivedPackage({ players: ["mine"] }, { players: ["theirs"] }, cheap, W, () => 0.2).give).toBeCloseTo(5000 * 1.2, 9);
+  });
+
   it("premiumFacts: one per player, a player without a premium at e 0", () => {
     const premiums = { a: { e: 0.2, rank: 1, elite: true, harderToGet: true } };
     expect(premiumFacts(["a", "z"], premiums)).toStrictEqual([

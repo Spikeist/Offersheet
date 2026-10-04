@@ -1,9 +1,8 @@
 /**
  * The get pool's "Harder to get" split (planner addendum to Checkpoint 3, §2; lead decision N2): per partner, the top
  * getPool untagged players by MV_add(me, j) > 0 plus the top getPoolTagged tagged ones, in MV_add order, must-include
- * players always; the before-addendum variant (N5) takes the top getPool by MV_add without the split. At most two players
- * a team can be tagged (only its #1 and #2 reach e ≥ 0.15), so the default caps (10 and 3) can't bind in a small test
- * league: this file shrinks them to 3 and 1 (config mocked) so both caps bind.
+ * players always. At most two players a team can be tagged (only its #1 and #2 reach e ≥ 0.15), so the default caps (10
+ * and 3) can't bind in a small test league: this file shrinks them to 3 and 1 (config mocked) so both caps bind.
  */
 import { describe, expect, it, vi } from "vitest";
 
@@ -71,14 +70,6 @@ describe("the get pool H with \"Harder to get\" players apart (N2)", () => {
     // The other tagged player, though he'd add more than the third untagged one, waits for the tagged cap.
     expect(pool).not.toContain(tagged[1]);
     expect(order.indexOf(tagged[1] as string)).toBeLessThan(order.indexOf(untagged[2] as string));
-  });
-
-  it("the before-addendum variant: the top getPool by MV_add, tags or not", () => {
-    const I = internals({ beforeAddendum: true });
-    const pool = buildPools(I, defaultTradeSettings(), null).get.get("2")?.pool;
-    expect(pool).toEqual(byAddValue(I, "2").slice(0, 3));
-    expect(pool).toContain("ra2");
-    expect(pool).toContain("q2");
   });
 
   it("a must-include player is always in, tagged or not, on top of both caps", () => {

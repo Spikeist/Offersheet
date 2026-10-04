@@ -16,9 +16,9 @@
  * 3. Per player: availability (§6 step 3; his currentWeek game "started" once its kickoff in
  *    inputs.nfl.kickoffs is at or before `now`, so it is no longer a game left; a known return week after
  *    inputs.nfl.lastWeek, the NFL's last week, means "not back this season"), the projection (§6 steps 1,
- *    2, 4, 5, 7) and, for active-roster players and free agents, S availability scenarios drawn with
- *    common random numbers (addition C: a player's draws depend only on the seed, his id and the
- *    scenario, never on his team). Conflicting ESPN signals (§6 step 3; availability.returnDateConflict):
+ *    2, 4, 5, 7) and, for active-roster players, free agents and (step 5b) IR players, S availability
+ *    scenarios drawn with common random numbers (addition C: a player's draws depend only on the seed, his
+ *    id and the scenario, never on his team). Conflicting ESPN signals (§6 step 3; availability.returnDateConflict):
  *    a PROBABLE, QUESTIONABLE or DOUBTFUL player whose return week is 2+ weeks away gets Sleeper as the
  *    tiebreaker (projections.staleReturnCheck). A stale date is dropped (the tag's one-week table, then
  *    healthy) for his expected availability and his scenarios alike, and PlayerModel.availabilityNote says
@@ -28,8 +28,22 @@
  *    or DOUBTFUL player gets the Q/D/P base rate (projections.gameTimeBaseRate; planner reply to Checkpoint 3,
  *    answer 5): this week's injury-cut projections count neither in b nor in the week shape (this week's shape
  *    is 1), and proj_now is his nearest later healthy week, which carries his current role (review of track A1).
- * 4. Market values (§9, perception term) with the ROS totals feeding the estimate curve, and the waiver
- *    credit W (the best free agent's value, estimates included, at least waiverCreditMin).
+ * 3b. The market blend (§6 step 8; planner reply to Checkpoint 4, change 1; blend.ts): every QB, RB, WR and TE with a
+ *    real FantasyCalc value in this season's list for the league's format (blend.blendValues: redraft values; a dynasty
+ *    league's redraft list, MarketInputs.seasonValues) has his projection scaled by f = b′ / b, b′ = (1 − w)·b +
+ *    w·R_pos(v): b his base rate (points per game when he plays), R_pos the isotonic curve of b on value over his
+ *    position's healthy valued players (no injury tag, a game left), each of them inside the value range read off the
+ *    curve fitted without him.
+ *    ⚠️ Per game, not per rest-of-season total, and the curve without his own point (review of track A: blend.ts's header
+ *    has why). b, every week's p and σ, and his ROS summary scale (blend.applyBlend), so everything from the projection
+ *    table on reads blended points: free agents, needs, trade chips, V*, both lineups of every trade and the season
+ *    simulation. The factors are computed once per build (projectLeaguePlayers; LeaguePlayers.blend), and a pre-kickoff
+ *    rebuild applies the same ones (preKickoffTable). They don't depend on the moment, so a build made once a week is
+ *    under way and one made before its first kickoff blend alike (Phase 3's game-day identity holds). PlayerModel.blend
+ *    says what moved for the player detail. Without this season's list (a dynasty or keeper league whose redraft list
+ *    didn't load) nothing is blended, and the model warns (BLEND_OFF_WARNING).
+ * 4. Market values (§9, perception term) with the ROS totals feeding the estimate curve (blended: step 3b comes
+ *    first), and the waiver credit W (the best free agent's value, estimates included, at least waiverCreditMin).
  * 5. Per team (teamValue.ts): EV and scenario lineups of the team as it stands, ROS (playoff weeks × the user's
  *    playoff weight: opts.settings, TradeSettings.playoffWeight; LeagueModel.playoffWeight), PPW, slot strength
  *    and TeamModel.score, the weekly score the simulator draws (§8; teamValue.ts): with scenarios the scenario
@@ -60,7 +74,23 @@
  *    it's floored. TeamPlayerValue.autoAdd is the re-run's first add. The optimizer is memoized by roster within
  *    the build (chips and partners re-run it too). With faMaxMoves 0 nothing is picked up anywhere: MV_lose is
  *    ROS(T) − ROS(T − i).
- *    ⚠️ Each team is optimized on its own, so two teams can both "claim" the same free agent (CLAUDE.md §7).
+ *    One free agent, one team (§7; planner reply to Checkpoint 4, change 3): V*(T) is built team by team in the
+ *    allocation order (allocationOrder: in a FAAB league whose teams all report a remaining budget, the most budget
+ *    first; else, when every team reports a waiver rank, the platform's waiver order; else each team's best single-move
+ *    gain against the whole pool first, in the optimizer's judging mode: firstMoveGain; ties: snapshot order), each
+ *    team's run adding only free agents no earlier team's run claimed. A team claims every free agent its run adds
+ *    (claimedBy), ⚠️ one a later move of the same run swapped away included (ours: the design counted only the final
+ *    roster's): so no free agent shows in two teams' moves (TeamModel.faMoves), and greedy determinism holds (optimizer.
+ *    ts, "The pool": no later team adds a free agent an earlier team's run added, so the earlier run against the pool
+ *    minus every other team's claims makes the very same moves; exactly but for near-ties within 1e-9, ⚠️ that file
+ *    says when). Counting only the final roster's would let a later team take the swapped-away player, and then the
+ *    earlier team's every later run, against excl(T), couldn't make its first move again. excl(T), every other team's claims
+ *    (TeamWork.pool), restricts every later run of T: the lineup costs' re-runs, MV_add's re-runs and their bases'
+ *    bounds (step 6; the trade search's get pool reads them too), chips staying chips (step 7) and leagueMarginals.
+ *    LeagueModel.faAllocation has the basis and the order. The streaming replacement is unchanged (the streamRank-th
+ *    best free agent already allows for other teams streaming). BuildLeagueModelOptions.faAllocation "independent" is
+ *    Checkpoint 4's rule, every team against the whole pool (two teams can then pick up the same free agent), for the
+ *    Checkpoint 4b report only: faAllocation is absent then.
  * 5a. Streaming positions (§7; planner reply to Checkpoint 3, model change 1; lead decision L1): my team
  *    streams the positions of my setting (opts.settings.streamPositions, default K and DEF); every other team
  *    streams a config.streaming.streamable position (K, DEF, QB, TE) where it made detectAdds (2) or more adds
@@ -85,6 +115,34 @@
  *    replacement per week, and "Streaming picks this week" (streamingPicks: the top picksShown free agents at K
  *    and DEF this week, with their opponents). The free-agent optimizer (step 5) never adds or drops a K or DEF,
  *    nor a position the team streams: those slots are valued by streaming (or kept as rostered).
+ * 5b. IR returners (§6, §7; planner reply to Checkpoint 4, change 5 and answer 11; src/engine/returners.ts). Each IR
+ *    player's expected return week R (availability.expectedReturnWeek on what his availability reads: the first remaining
+ *    week his chance of being back reaches config.projections.returnWeekQuantile; none when he isn't back within the
+ *    weeks: out for the season, NA). The ones with a model and an R are the team's returners (StreamSpec.returners,
+ *    returners.returnerSpec, in id order): their own rows join every lineup of the team after the streaming rows (the
+ *    team as it stands, V*(T) and its moves, lineup costs, MV_add and its bases, chips staying chips, partner fit, and
+ *    the trade evaluation), so a returner starts once his availability says he's back. They take no active roster spot,
+ *    are never dropped (nor the drop that makes room for a chip; only the displacement below can release one at his
+ *    return), never a free-agent move, never a trade chip (⚠️ chips stay active-roster only), and don't count for the
+ *    lineup-fill rule (but in the displacement, from their return). TeamModel.players gains them: lineup cost = what
+ *    losing him costs V*(T)'s lineups with nobody refilling him (his IR slot opens, no active spot does), floored at 0, in
+ *    EV and scenario lineups, and the surplus scores are standardized over the active players and the returners together
+ *    (the trade search's give pool ranks both). Their scenario flags are drawn like anyone's (step 3). The roster spot a
+ *    returner needs from R (the displacement: returners.finalLineups) applies to FINAL evaluations only: here, each team as
+ *    it stands (TeamModel.ev and scen, strength and needs, TeamModel.score and so the League page's odds); in evaluate.ts,
+ *    the trade baseline at V*(T) and every trade side after V*. Returners join the active roster in order of R; a join
+ *    that leaves it over maxRosterSize (⚠️ a roster already over it is held only to its own size) or his position over
+ *    its positionLimits (the same rule) drops the lowest keep value player from R on, at his position when its limit
+ *    binds (what losing him costs over the weeks from R on, in scenario lineups when scenarios ran, else EV; dynasty and
+ *    keeper leagues with long-term values add the normalized market value, as legality does; ⚠️ the returner himself
+ *    among the candidates, review of track E, so a return never lowers a team; never one the starting lineup needs, one a
+ *    position's rosterMinimums needs, or the last one at a position the team streams; ties: the lower perception value,
+ *    then the smaller id), as a masked copy of his row. ⚠️ Not inside the optimizer's moves, lineup costs, MV_add, chips
+ *    or partner fit: that machinery compares rosters with each other, and the displacement is about the same on both
+ *    sides (a constant per team). The week in progress's pre-kickoff score brings the returners in too, and leaves out a
+ *    player displaced from the current week on, a returner released then included: the week as the model priced it before
+ *    kickoff (finalScore).
+ *    BuildLeagueModelOptions.irReturners false is Checkpoint 4's rule: no returner, no displacement, no IR flags.
  * 6. Trade chips (§7; answer 2): gap_i = maxOther_i − cost_i ≥ chipMinGap, all in ROS lineup points in the
  *    lineup costs' mode (scenario lineups when scenarios ran, else EV). cost_i = MV_lose(own team, i) (step 5).
  *    maxOther_i = the largest MV_add(T′, i) over the other teams (ties: the smaller team id), floored at 0:
@@ -103,7 +161,7 @@
  *    T′ whenever V*(T′) minus the general drop was at the limit, so a team whose own pickups had filled its QB
  *    spots could take no QB at all: Bo Nix → Team 1 on the offline report's inputs, 18 such pairs in that league,
  *    every one legal on the team's own roster.) Then the optimizer re-runs from V*(T′) + i − drop
- *    (optimizer.reoptimize with one extra move, step 5's rule): it may hold at most faMaxMoves pickups, so a team
+ *    (optimizer.reoptimize with one extra move, step 5's rule, against excl(T′)): it may hold at most faMaxMoves pickups, so a team
  *    that used every move makes one more pickup only as an exchange (giving back the pickup that then costs least,
  *    when that pays), while a swap of a pickup the newcomer made redundant needs none. So a newcomer who makes one
  *    of T′'s players redundant frees that spot for a pickup (Bo Nix to Team 1: a QB it has, or one it picked up,
@@ -114,7 +172,8 @@
  *    re-run adds. The re-run is run only for a newcomer who starts for B′ in some week team numbers count (rerunCounts:
  *    ⚠️ for speed, an approximation it measures). Candidates: active-roster players with a model
  *    whose position isn't in config.market.tradeSearchExcluded (P, K, DEF, IDP: excluded from trade search by
- *    default, §9); IR and taxi players aren't candidates yet. Chips need no market values. The search is exact
+ *    default, §9); IR players (⚠️ step 5b: chips stay active-roster only, though IR players are tradable) and taxi
+ *    players aren't candidates. Chips need no market values. The search is exact
  *    and all pairs count, but only pairs whose bound could reach the best value found, or make a chip at all, are
  *    solved: the bound is teamValue's bound on adding i to B′ plus a bound on what the re-run can add. That is 0
  *    when no free agent's add bound on B′ reaches faMinGain (the re-run's first move gains at most what adding
@@ -168,13 +227,15 @@
  * live scores aren't read), so TeamModel.score's first week is the whole week as if none of its games had
  * started (preKickoffTable: the players rebuilt for 1 ms before its earliest kickoff, each team's first
  * week solved alone; scenario lineups when scenarios ran, else EV). Nothing else about the week changes,
- * and the scenario draws are the same ones (they depend on the seed, the player and the scenario only).
+ * and the scenario draws are the same ones (they depend on the seed, the player and the scenario only), and
+ * so are the market blend's factors (step 3b: they don't depend on the moment, and the rebuild applies the build's).
  * ⚠️ Only the clock is turned back: the rosters and injury tags are today's, since nothing records them as
  * they were at kickoff. A player tagged out after the game he already played counts as missing it, and a
  * player moved since kickoff counts for his new team (the odds' note says so: season.ts weekUnderWayNote).
  *
  * Choices the spec leaves open (Checkpoints 2 and 3 list them): TeamModel.chips holds every chip, and the
- * page shows the first chipsShown; TeamModel.players covers the active-roster players with a model;
+ * page shows the first chipsShown; TeamModel.players covers the active-roster players with a model and (step 5b)
+ * the IR returners;
  * Need.slot is a slot instance key (LeagueModel.slots). Only players with a model are drop candidates, for
  * the free-agent optimizer and for making room: one without projections isn't known to be worthless, so he is
  * never the one dropped (he still takes a roster spot). The keep value that picks the drop is his marginal ROS
@@ -182,12 +243,14 @@
  * roster-legality work (a trade's forced moves).
  */
 import { config } from "./config";
-import { expectedAvailability, returnDateConflict, scenarioAvailability, type AvailabilityConfig, type AvailabilityContext, type AvailabilityPlayer } from "./availability";
+import { expectedAvailability, expectedReturnWeek, returnDateConflict, scenarioAvailability, type AvailabilityConfig, type AvailabilityContext, type AvailabilityPlayer } from "./availability";
 import { futureValuesLoaded } from "./benefit";
+import { applyBlend, blendValues, marketBlend, noBlend, type MarketBlend, type MarketBlendConfig } from "./blend";
 import type { ModelInputs, NflScheduleInputs, PlayerInputs } from "./inputs";
 import type {
   AvailabilityNote,
   BaseRateSource,
+  FaAllocation,
   FaMove,
   LeagueModel,
   LineupValues,
@@ -220,9 +283,10 @@ import {
   type PartnerCandidate,
   type PartnerPlayer,
 } from "./needs";
-import { applyStep, createOptimizer, rosterKey, type DynastyGuard, type OptimizedRoster, type RosterOptimizer, type StreamSpec } from "./optimizer";
+import { FULL_POOL, applyStep, createOptimizer, poolRestriction, returnersOf, rosterKey, type DynastyGuard, type OptimizedRoster, type PoolRestriction, type RosterOptimizer, type StreamSpec } from "./optimizer";
 import { leaguePremiums, type StarPremiumConfig } from "./premium";
 import { baseRateSourceCounts, espnSleeperAgreement, projectPlayer, staleReturnCheck, weeklySd, type BaseRateContext, type ProjectionConfig, type SourceAgreement } from "./projections";
+import { finalLineups, returnerSpec, type FinalLineups, type FutureKeep, type ReturnerSetup } from "./returners";
 import { oddsSkippedWarning, seasonOdds, type SeasonConfig } from "./season";
 import { defaultTradeSettings, normalizeTradeSettings, type TradeSettings } from "./settings";
 import {
@@ -235,6 +299,7 @@ import {
   evStarter,
   isStreamId,
   lowestKeepValue,
+  maskedRow,
   positionAllows,
   ppw,
   rosValue,
@@ -267,7 +332,10 @@ const byId = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 
 /** The config keys the League model reads, widened from config's `as const` literals so tests and calibration can vary them. */
 export interface LeagueModelConfig extends SeasonConfig {
-  readonly projections: ProjectionConfig & AvailabilityConfig;
+  /** returnWeekQuantile: an IR player's expected return week (step 5b; availability.expectedReturnWeek). */
+  readonly projections: ProjectionConfig & AvailabilityConfig & { readonly returnWeekQuantile: number };
+  /** The market blend (the file header, step 3b; blend.ts). */
+  readonly marketBlend: MarketBlendConfig;
   readonly market: MarketConfig & { readonly tradeSearchExcluded: readonly Pos[] };
   readonly lineups: {
     readonly playoffWeight: number;
@@ -321,7 +389,23 @@ export interface BuildLeagueModelOptions {
    * version, or a bad value, falls back to its default); without them, the playoff weight is the config's.
    */
   settings?: TradeSettings;
+  /**
+   * How free agents are shared out (step 5): "oneTeam" (the default; §7 one free agent, one team) allocates them team
+   * by team in the allocation order; "independent" is Checkpoint 4's rule (every team's V* against the whole pool, so
+   * two teams can pick up the same free agent), for the Checkpoint 4b report's comparison only: the app never sets it.
+   */
+  faAllocation?: FaAllocationMode;
+  /**
+   * IR returners (step 5b; planner reply to Checkpoint 4, change 5): true (the default) brings each team's IR players back
+   * into its lineups from their expected return week, with the roster spot they need then; false is Checkpoint 4's rule
+   * (IR players never join a lineup and, in the trade evaluation, aren't tradable), for the Checkpoint 4b report's
+   * comparison only: the app never sets it.
+   */
+  irReturners?: boolean;
 }
+
+/** BuildLeagueModelOptions.faAllocation. */
+export type FaAllocationMode = "oneTeam" | "independent";
 
 // ---------------------------------------------------------------------------------------------
 // Weeks and players
@@ -429,6 +513,8 @@ interface Relevant {
   /** Every rostered id (active, IR, taxi), then every free agent not on a roster. */
   all: string[];
   active: Set<string>;
+  /** Players on a team's IR (and on no active roster). */
+  ir: Set<string>;
   rostered: Set<string>;
   freeAgents: string[];
 }
@@ -437,6 +523,7 @@ function relevantIds(snapshot: LeagueSnapshot): Relevant {
   const all: string[] = [];
   const seen = new Set<string>();
   const active = new Set<string>();
+  const ir = new Set<string>();
   const rostered = new Set<string>();
   const add = (id: string) => {
     if (seen.has(id)) return;
@@ -454,30 +541,32 @@ function relevantIds(snapshot: LeagueSnapshot): Relevant {
       add(id);
     }
   }
+  for (const t of snapshot.teams) for (const id of t.ir) if (!active.has(id)) ir.add(id);
   const freeAgents: string[] = [];
   for (const id of snapshot.freeAgents) {
     if (rostered.has(id) || seen.has(id)) continue;
     add(id);
     freeAgents.push(id);
   }
-  return { all, active, rostered, freeAgents };
+  return { all, active, ir, rostered, freeAgents };
 }
 
 /**
  * Conflicting ESPN signals (§6 step 3; the file header, step 3): for a PROBABLE, QUESTIONABLE or DOUBTFUL
- * player whose ESPN return week is 2+ weeks away, which signal his availability follows (Sleeper breaks the
- * tie) and the numbers behind it; undefined for everyone else. `sleeperWeekLoaded` false (sleeperWeekLoaded,
- * below: Sleeper's projections for this week didn't load) leaves no tiebreaker: he follows the date, and
- * the note says the projections were missing rather than that Sleeper doesn't project him.
+ * player whose ESPN return week is 2+ weeks away (availability.returnDateConflict: config.projections.
+ * returnConflictWeeks), which signal his availability follows (Sleeper breaks the tie) and the numbers behind it;
+ * undefined for everyone else. `sleeperWeekLoaded` false (sleeperWeekLoaded, below: Sleeper's projections for this
+ * week didn't load) leaves no tiebreaker: he follows the date, and the note says the projections were missing rather
+ * than that Sleeper doesn't project him.
  */
 export function availabilityNoteFor(
   info: Pick<PlayerInfo, "injury" | "injuryReturnWeek">,
   inputs: PlayerInputs,
   ctx: BaseRateContext,
-  cfg: ProjectionConfig = config.projections,
+  cfg: ProjectionConfig & Pick<AvailabilityConfig, "returnConflictWeeks"> = config.projections,
   sleeperWeekLoaded = true,
 ): AvailabilityNote | undefined {
-  const conflict = returnDateConflict(info, ctx.currentWeek);
+  const conflict = returnDateConflict(info, ctx.currentWeek, cfg);
   if (!conflict) return undefined;
   const check = staleReturnCheck(inputs, ctx, cfg);
   const note: AvailabilityNote = { status: conflict.status, returnWeek: conflict.returnWeek, used: check.stale ? "sleeper" : "returnDate", sleeperNow: check.sleeperNow, healthyRate: check.healthyRate };
@@ -502,10 +591,10 @@ export interface PlayerContext {
   avail: AvailabilityPlayer;
 }
 
-/** Players, projections and the projection table (steps 1–3), before scenarios are drawn. */
+/** Players, projections and the projection table (steps 1–3b), before scenarios are drawn. */
 export interface LeaguePlayers {
   weeks: LeagueWeeks;
-  /** Relevant players with a model (LeagueModel.players, values still null). */
+  /** Relevant players with a model (LeagueModel.players, values still null), the market blend applied (step 3b). */
   players: Record<string, PlayerModel>;
   /** Availability context per modeled player (scenario draws reuse it). */
   contexts: Map<string, PlayerContext>;
@@ -514,10 +603,48 @@ export interface LeaguePlayers {
   skipped: { rostered: string[]; freeAgents: string[] };
   agreement: SourceAgreement | null;
   espnAveraged: boolean;
+  /**
+   * The market blend applied (step 3b; blend.ts): its weight, every player it reaches with his factor (his base rate
+   * before it, the market curve's, the blend's and f, all points per game; whether he is a curve point) and each
+   * position's curve size. Scripts report the factors from here; a pre-kickoff rebuild applies the same ones
+   * (preKickoffTable).
+   */
+  blend: MarketBlend;
 }
 
-/** Steps 1–3 without the scenarios: weeks, the ESPN/Sleeper agreement, availability and projections. */
-export function projectLeaguePlayers(snapshot: LeagueSnapshot, inputs: ModelInputs, now: Date, cfg: LeagueModelConfig = config): LeaguePlayers {
+/**
+ * The build's market blend (step 3b; blend.ts) from its unblended players: each one's base rate b (points per game when he
+ * plays) against this season's values for the league type (blend.blendValues), the curve fitted on the healthy ones: no
+ * injury tag (PlayerInfo.injury ACTIVE) and a game left on his NFL team's schedule (he has a team and a remaining week
+ * isn't his bye). None of it depends on the moment (b doesn't, and a game that kicked off still counts as on the
+ * schedule), so a build made once a week is under way gets the factors one made before its first kickoff gets. No blend
+ * without this season's values.
+ */
+function buildMarketBlend(
+  snapshot: LeagueSnapshot,
+  inputs: ModelInputs,
+  weeks: LeagueWeeks,
+  players: Readonly<Record<string, PlayerModel>>,
+  contexts: ReadonlyMap<string, PlayerContext>,
+  cfg: LeagueModelConfig,
+): MarketBlend {
+  const values = blendValues(inputs.market, snapshot.settings.leagueType);
+  if (!values) return noBlend();
+  const list = Object.entries(players).flatMap(([id, pm]) => {
+    const c = contexts.get(id);
+    if (!c) return [];
+    const fit = c.info.injury === "ACTIVE" && c.ctx.hasTeam && weeks.weeks.some((w) => w !== c.ctx.byeWeek);
+    return [{ id, pos: c.info.pos, rate: pm.base.b, fit }];
+  });
+  return marketBlend(list, values, cfg.marketBlend);
+}
+
+/**
+ * Steps 1–3b without the scenarios: weeks, the ESPN/Sleeper agreement, availability, projections and the market blend.
+ * The blend's factors are this build's own (buildMarketBlend, over every modeled player), unless `blend` gives them: a
+ * rebuild that models fewer players (preKickoffTable: the streamed positions' free agents only) applies the build's.
+ */
+export function projectLeaguePlayers(snapshot: LeagueSnapshot, inputs: ModelInputs, now: Date, cfg: LeagueModelConfig = config, blend?: MarketBlend): LeaguePlayers {
   const currentWeek = snapshot.currentWeek;
   const weeks = leagueWeeks(snapshot.settings, currentWeek, inputs.lastWeek);
   const relevant = relevantIds(snapshot);
@@ -561,23 +688,32 @@ export function projectLeaguePlayers(snapshot: LeagueSnapshot, inputs: ModelInpu
     players[id] = note ? { ...pm, availabilityNote: note } : pm;
     contexts.set(id, { info, ctx, avail });
   }
-  return { weeks, players, contexts, relevant, skipped, agreement, espnAveraged };
+  // 3b. The market blend: this build's factors, or the ones given (a rebuild of the same build with fewer players).
+  const applied = blend ?? buildMarketBlend(snapshot, inputs, weeks, players, contexts, cfg);
+  if (applied.weight > 0) {
+    for (const [id, pm] of Object.entries(players)) {
+      const c = contexts.get(id);
+      if (c) players[id] = applyBlend(pm, c.info.pos, applied, cfg.projections);
+    }
+  }
+  return { weeks, players, contexts, relevant, skipped, agreement, espnAveraged, blend: applied };
 }
 
 /**
  * The projection table (teamValue.ts) from projected players: conditional points b·m_w, expected points
  * p_w, their SDs (§6 step 5: σ given he plays, c_pos × b·m_w + d_pos, and PlayerModel.weekly[w].sd) and,
- * when S > 0, S availability scenarios for active-roster players and free agents (streamFor(seed,
- * playerId, s): the same flags whichever team he is on).
+ * when S > 0, S availability scenarios for active-roster players, free agents and, with `irFlags` (step 5b's IR
+ * returners; the default), IR players (streamFor(seed, playerId, s): the same flags whichever team he is on, so
+ * drawing an IR player's changes nobody else's). Taxi players never get flags (they never start).
  */
-export function projectionTable(lp: LeaguePlayers, S: number, seed: number, cfg: LeagueModelConfig = config): ProjectionTable {
+export function projectionTable(lp: LeaguePlayers, S: number, seed: number, cfg: LeagueModelConfig = config, irFlags = true): ProjectionTable {
   const rows = new Map<string, TableRow>();
   const scenarios = Number.isFinite(S) ? Math.max(0, Math.floor(S)) : 0;
   const freeAgents = new Set(lp.relevant.freeAgents);
   for (const [id, pm] of Object.entries(lp.players)) {
     const c = lp.contexts.get(id);
     if (!c) continue;
-    const drawn = scenarios > 0 && (lp.relevant.active.has(id) || freeAgents.has(id));
+    const drawn = scenarios > 0 && (lp.relevant.active.has(id) || freeAgents.has(id) || (irFlags && lp.relevant.ir.has(id)));
     const cond = Float64Array.from(pm.weekly, (w) => pm.base.b * w.m);
     rows.set(id, {
       id,
@@ -593,10 +729,20 @@ export function projectionTable(lp: LeaguePlayers, S: number, seed: number, cfg:
   return { weeks: lp.weeks.weeks, scenarios, rows };
 }
 
-/** Steps 1–3 in one call (tests and scripts): projected players and their projection table. */
-export function buildProjectionTable(snapshot: LeagueSnapshot, inputs: ModelInputs, opts: BuildLeagueModelOptions, cfg: LeagueModelConfig = config): { players: LeaguePlayers; table: ProjectionTable } {
-  const players = projectLeaguePlayers(snapshot, inputs, opts.now, cfg);
-  return { players, table: projectionTable(players, scenarioCount(opts.scenarios ?? cfg.lineups.scenarios), opts.seed ?? cfg.lineups.scenarioSeed, cfg) };
+/**
+ * Steps 1–3b in one call (tests and scripts): projected players and their projection table. The market blend's factors
+ * are the ones the League model computes for the same snapshot and inputs, unless `blend` gives them (a script rebuilding
+ * a model's week in progress before its kickoff may pass that model build's LeaguePlayers.blend, as preKickoffTable does).
+ */
+export function buildProjectionTable(
+  snapshot: LeagueSnapshot,
+  inputs: ModelInputs,
+  opts: BuildLeagueModelOptions,
+  cfg: LeagueModelConfig = config,
+  blend?: MarketBlend,
+): { players: LeaguePlayers; table: ProjectionTable } {
+  const players = projectLeaguePlayers(snapshot, inputs, opts.now, cfg, blend);
+  return { players, table: projectionTable(players, scenarioCount(opts.scenarios ?? cfg.lineups.scenarios), opts.seed ?? cfg.lineups.scenarioSeed, cfg, opts.irReturners !== false) };
 }
 
 function scenarioCount(s: number): number {
@@ -620,7 +766,11 @@ export function firstKickoff(nfl: NflScheduleInputs | undefined, week: number): 
  * before kickoff too); other free agents don't change a team's score. A player's projection doesn't depend
  * on the moment, and his scenario draws depend only on the seed, his id and the scenario, so the table
  * matches the one at `opts.now` in every week but the first, where only the games that had kicked off come
- * back. ⚠️ It is not the week as it stood at kickoff: the snapshot's rosters and injury tags are today's (a
+ * back. The market blend (step 3b) applies the build's own factors, `blend` (the build's LeaguePlayers.blend; when
+ * absent, the ones the whole snapshot gives), not factors of its own: every modeled free agent is one of the blend's
+ * curve points, and this table models only the streamed positions' ones. The factors don't depend on the moment, so
+ * every week but the first stays identical.
+ * ⚠️ It is not the week as it stood at kickoff: the snapshot's rosters and injury tags are today's (a
  * tag added after a player's game zeroes that game here, and a player moved since kickoff plays for his new
  * team). Null when `inProgressWeek` is null (LeagueModel.inProgressWeek) or its kickoffs are unknown.
  */
@@ -631,6 +781,7 @@ export function preKickoffTable(
   opts: BuildLeagueModelOptions,
   cfg: LeagueModelConfig = config,
   freeAgentPositions: ReadonlySet<Pos> = new Set(),
+  blend?: MarketBlend,
 ): { now: Date; table: ProjectionTable } | null {
   if (inProgressWeek === null) return null;
   const first = firstKickoff(inputs.nfl, inProgressWeek);
@@ -640,8 +791,9 @@ export function preKickoffTable(
     const pos = snapshot.players[id]?.pos;
     return pos !== undefined && freeAgentPositions.has(pos);
   });
-  const players = projectLeaguePlayers({ ...snapshot, freeAgents }, inputs, now, cfg);
-  return { now, table: projectionTable(players, scenarioCount(opts.scenarios ?? cfg.lineups.scenarios), opts.seed ?? cfg.lineups.scenarioSeed, cfg) };
+  const factors = blend ?? projectLeaguePlayers(snapshot, inputs, now, cfg).blend;
+  const players = projectLeaguePlayers({ ...snapshot, freeAgents }, inputs, now, cfg, factors);
+  return { now, table: projectionTable(players, scenarioCount(opts.scenarios ?? cfg.lineups.scenarios), opts.seed ?? cfg.lineups.scenarioSeed, cfg, opts.irReturners !== false) };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -818,6 +970,12 @@ export function modelSettings(raw: TradeSettings | undefined, cfg: Pick<LeagueMo
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
+/**
+ * The market blend is off (the file header, step 3b) although FantasyCalc's values loaded: this season's list it needs
+ * (a dynasty league's redraft list in its format, MarketInputs.seasonValues, or a keeper league's redraft list) didn't.
+ */
+export const BLEND_OFF_WARNING = "The trade-market blend is off: FantasyCalc's redraft values didn't load.";
+
 function nameList(ids: readonly string[], snapshot: LeagueSnapshot, max = 5): string {
   const names = ids.slice(0, max).map((id) => snapshot.players[id]?.name ?? id);
   return `${names.join(", ")}${ids.length > max ? ", …" : ""}`;
@@ -828,7 +986,9 @@ function nameList(ids: readonly string[], snapshot: LeagueSnapshot, max = 5): st
  * whose projections weren't averaged) follows the base-rate sources (`sources`): which projections the
  * numbers use, and it says the two were compared only when they were. Nothing about projections once no
  * week is left to project. Missing trade values are the model inputs' own warning (nothing here needs
- * them: trade chips and partners are lineup points).
+ * them: trade chips and partners are lineup points); values that loaded without this season's list the
+ * market blend needs (step 3b) get BLEND_OFF_WARNING, while some player is projected (a league renewed for
+ * a season that hasn't started projects nobody, and its server doesn't ask for the list).
  */
 function modelWarnings(snapshot: LeagueSnapshot, inputs: ModelInputs, lp: LeaguePlayers, sources: Readonly<Record<BaseRateSource, number>>, cfg: LeagueModelConfig): string[] {
   const out: string[] = [];
@@ -853,6 +1013,9 @@ function modelWarnings(snapshot: LeagueSnapshot, inputs: ModelInputs, lp: League
       out.push("Sleeper's projections are missing, so projections use ESPN's alone.");
     }
   }
+  // The blend is off for want of this season's list, and there was something to blend: someone is projected.
+  const projected = Object.values(lp.players).some((pm) => pm.ros.total > 0);
+  if (weeksLeft && projected && inputs.market && cfg.marketBlend.weight > 0 && !blendValues(inputs.market, snapshot.settings.leagueType)) out.push(BLEND_OFF_WARNING);
   return out;
 }
 
@@ -865,12 +1028,23 @@ export interface TeamWork {
   ids: string[];
   /** Active-roster players with a model, in roster order. */
   rows: TableRow[];
+  /** Every distinct id on team.ir, in IR order (step 5b), but one also on team.roster (a data error: he's an active player). */
+  ir: string[];
   /**
-   * The team's streaming rows and streamed positions (step 5a). Every lineup of the team is valued with the
-   * rows after its players (so a player's roster index is the same in both), but they are never one of its
-   * players: no roster spot, no lineup cost, never dropped, a chip or a free-agent move.
+   * The team's streaming rows and streamed positions (step 5a) and its IR returners (step 5b: StreamSpec.returners; none
+   * under irReturners false). Every lineup of the team is valued with the streaming rows after its players and the
+   * returners after them (so a player's roster index is the same in all), but they are never one of its active players:
+   * no roster spot, no lineup cost among the active players', never dropped (but by a final evaluation's displacement,
+   * returners.finalLineups), a chip or a free-agent move.
    */
   stream: StreamSpec;
+  /**
+   * The returners' lineup costs (step 5b; TeamModel.players): what losing each one costs V*(T)'s lineups, EV and scenario
+   * (null without scenarios), floored at 0. Nobody refills him: his IR slot opens, no active spot.
+   */
+  returnerCosts: { id: string; ev: number; scen: number | null }[];
+  /** The returners' surplus scores (step 7, aligned with returnerCosts), standardized with the active players'. */
+  returnerScores: number[];
   /** The team as it stands: its rows and streaming rows prepared, its EV lineups and EV ROS. */
   evalT: TeamEval;
   solved: SolvedWeeks;
@@ -882,6 +1056,13 @@ export interface TeamWork {
   vstar: OptimizedRoster;
   vstarScen: number | null;
   vstarCells: ScenarioCells | null;
+  /**
+   * The free agents V*(T) claimed (step 5: every free agent its run added, in move order, one a later move swapped away
+   * included), and excl(T), the pool restriction of every later run of T: the free agents every other team claimed
+   * (FULL_POOL under faAllocation "independent").
+   */
+  claimed: string[];
+  pool: PoolRestriction;
   /** Per row: V*(T − i), the re-run from V*(T)'s roster without him (step 5; its exchanges in `given`), or null when V*(T) dropped him. */
   losses: (OptimizedRoster | null)[];
   /** Per row: MV_lose, EV and scenario lineups (step 5). */
@@ -920,6 +1101,79 @@ export interface LeagueContext {
   /** A roster's ROS in scenario lineups (memoized by its key); only with scenarios. */
   scenRosOf: (roster: readonly string[], stream: StreamSpec) => number;
   work: TeamWork[];
+  /** The free-agent allocation (step 5): its basis and the order, as indexes into `work`; null under faAllocation "independent". */
+  allocation: { basis: FaAllocation["basis"]; order: number[] } | null;
+  /** IR returners on (step 5b; BuildLeagueModelOptions.irReturners, default true). */
+  irReturners: boolean;
+  /**
+   * A modeled player's expected return week (step 5b; availability.expectedReturnWeek on what his availability reads):
+   * an NFL week of the model's weeks, or null when he isn't back within them (or has no model).
+   */
+  returnWeek: (id: string) => number | null;
+  /**
+   * `base` (a team's streaming rows and positions) with the returners among `ir` (returners.returnerSpec: IR players with
+   * a model and a return week, in id order); `base`'s rows and positions alone under irReturners false.
+   */
+  withReturners: (base: StreamSpec, ir: readonly string[]) => StreamSpec;
+  /** What final evaluations read for the displacement (step 5b; returners.finalLineups): this build's lineups and values. */
+  returnerSetup: ReturnerSetup;
+}
+
+/** A team's place in the allocation order (allocationOrder): what it reports. */
+export type AllocationTeam = Pick<Team, "waiverRank" | "faabRemaining">;
+
+/** allocationOrder's "gain" basis compares gains to the nearest this many points (float noise, not a tunable). */
+const GAIN_TIE = 1e-6;
+
+/** A whole number ≥ 1 (a waiver rank the engine reads), else undefined. */
+function rankOf(t: AllocationTeam): number | undefined {
+  const r = t.waiverRank;
+  return typeof r === "number" && Number.isInteger(r) && r >= 1 ? r : undefined;
+}
+
+/** A finite budget ≥ 0 (a remaining FAAB budget the engine reads), else undefined. */
+function budgetOf(t: AllocationTeam): number | undefined {
+  const b = t.faabRemaining;
+  return typeof b === "number" && Number.isFinite(b) && b >= 0 ? b : undefined;
+}
+
+/**
+ * The order teams claim free agents in (step 5; §7 one free agent, one team), as indexes into `teams` (snapshot order),
+ * and what decided it:
+ * - "faab": a FAAB league (`faabLeague`: settings.faabBudget set) where every team reports a remaining budget
+ *   (Team.faabRemaining, a finite number ≥ 0): the most remaining budget first; ties: the better waiver rank (a team
+ *   with one before a team without), then snapshot order;
+ * - "waiver": otherwise, when every team reports a waiver rank (Team.waiverRank, a whole number ≥ 1; 1 = first
+ *   claim): waiver rank ascending; ties: snapshot order;
+ * - "gain": otherwise, `gain(i)`, each team's best single-move gain against the whole pool (0 when it makes none),
+ *   highest first, compared to the nearest GAIN_TIE points (float noise: two identical teams' gains can differ in the
+ *   last bits); ties keep snapshot order. `gain` is called only for this basis, once per team.
+ */
+export function allocationOrder(teams: readonly AllocationTeam[], faabLeague: boolean, gain: (index: number) => number): { basis: FaAllocation["basis"]; order: number[] } {
+  const idx = teams.map((_, i) => i);
+  const rank = (i: number) => rankOf(teams[i] as AllocationTeam) ?? Number.POSITIVE_INFINITY;
+  if (faabLeague && teams.length > 0 && teams.every((t) => budgetOf(t) !== undefined)) {
+    const budget = (i: number) => budgetOf(teams[i] as AllocationTeam) as number;
+    return { basis: "faab", order: idx.sort((a, b) => budget(b) - budget(a) || (rank(a) === rank(b) ? 0 : rank(a) < rank(b) ? -1 : 1) || a - b) };
+  }
+  if (teams.length > 0 && teams.every((t) => rankOf(t) !== undefined)) {
+    return { basis: "waiver", order: idx.sort((a, b) => rank(a) - rank(b) || a - b) };
+  }
+  // Whole multiples of GAIN_TIE: a total order (an epsilon comparison isn't transitive).
+  const gains = idx.map((i) => {
+    const g = gain(i);
+    return Number.isFinite(g) ? Math.round(g / GAIN_TIE) : 0;
+  });
+  return { basis: "gain", order: idx.sort((a, b) => (gains[b] as number) - (gains[a] as number) || a - b) };
+}
+
+/**
+ * The free agents an optimizer run claims (step 5): every free agent one of its moves added, in move order, each once
+ * (⚠️ one a later move of the same run swapped away included: no other team's run may add him, so no free agent shows in
+ * two teams' moves and greedy determinism holds, but for near-ties; optimizer.ts, "The pool").
+ */
+export function claimedBy(run: Pick<OptimizedRoster, "moves">): string[] {
+  return [...new Set(run.moves.map((m) => m.add))];
 }
 
 /** A lineup cost in the mode chips and drops read: scenario lineups when scenarios ran, else EV. */
@@ -944,16 +1198,21 @@ function withoutOne(positions: readonly Pos[], pos: Pos): Pos[] {
 }
 
 /**
- * The dynasty guard (step 5): in dynasty and keeper leagues whose dynasty values loaded (benefit.futureValuesLoaded),
- * the long-term values (§9's future term, estimates for players FantasyCalc doesn't value) and the most a drop may
- * give up over the free agent added: faDynGuard × the top dynasty value. Null otherwise (no guard).
+ * The long-term values (§9's future term, estimates for players FantasyCalc doesn't value) and the top dynasty value, in
+ * dynasty and keeper leagues whose dynasty values loaded (benefit.futureValuesLoaded); null otherwise. The dynasty guard
+ * (step 5) and the displacement's keep value (step 5b) read them.
  */
-function dynastyGuard(snapshot: LeagueSnapshot, inputs: ModelInputs, players: readonly { id: string; pos: Pos }[], rosPoints: Readonly<Record<string, number>>, cfg: LeagueModelConfig): DynastyGuard | null {
+function futureTerm(snapshot: LeagueSnapshot, inputs: ModelInputs, players: readonly { id: string; pos: Pos }[], rosPoints: Readonly<Record<string, number>>, cfg: LeagueModelConfig): FutureKeep | null {
   const market = inputs.market ?? null;
   if (!market || !futureValuesLoaded(snapshot.settings.leagueType, market)) return null;
   const future = marketValues(players, rosPoints, market, cfg.market, "future");
   const top = valuesForTerm(market, "future").topValue;
-  return { value: (id) => future[id]?.value ?? 0, maxDrop: cfg.freeAgentOptimizer.faDynGuard * (Number.isFinite(top) && top > 0 ? top : 0) };
+  return { value: (id) => future[id]?.value ?? 0, top: Number.isFinite(top) && top > 0 ? top : 0 };
+}
+
+/** The dynasty guard (step 5) from the long-term values: the most a drop may give up over the free agent added, faDynGuard × the top dynasty value. Null without them (no guard). */
+function dynastyGuard(future: FutureKeep | null, cfg: LeagueModelConfig): DynastyGuard | null {
+  return future ? { value: future.value, maxDrop: cfg.freeAgentOptimizer.faDynGuard * future.top } : null;
 }
 
 /** Steps 1–5 (the file header): projections, scenarios, values, streaming, every team's lineups, V* and lineup costs. */
@@ -962,22 +1221,26 @@ function prepareLeague(snapshot: LeagueSnapshot, inputs: ModelInputs, opts: Buil
   const seed = opts.seed ?? cfg.lineups.scenarioSeed;
   // The user's settings: my streamed positions (step 5a) and the playoff weight every ROS(T) uses.
   const settings = modelSettings(opts.settings, cfg);
+  // IR returners (step 5b): on unless a report asks for Checkpoint 4's rule.
+  const irOn = opts.irReturners !== false;
 
-  // 1–3. Weeks, players, projections, scenarios; the weeks team numbers count (game days: the file header).
+  // 1–3b. Weeks, players, projections and the market blend (its factors computed once, here), then the scenarios; the
+  // weeks team numbers count (game days: the file header). Everything from the table on reads blended points.
   const lp = projectLeaguePlayers(snapshot, inputs, opts.now, cfg);
   const { weeks } = lp;
   const W = weeks.weeks.length;
   const tw = teamWeeks(weeks, weekKickedOff(inputs.nfl, snapshot.currentWeek, opts.now.getTime()) ? snapshot.currentWeek : null, { ...cfg.lineups, playoffWeight: settings.playoffWeight });
   const { weights } = tw;
   mark("projections");
-  const table = projectionTable(lp, S, seed, cfg);
+  const table = projectionTable(lp, S, seed, cfg, irOn);
   if (S > 0) mark("availability scenarios");
 
-  // 4. Market values and the waiver credit.
+  // 4. Market values and the waiver credit, after the blend (step 3b).
   const modelIds = Object.keys(lp.players);
   const valuePlayers = modelIds.map((id) => ({ id, pos: (lp.contexts.get(id) as PlayerContext).info.pos }));
   // The estimate curve (§9) fits values to ROS points over the weeks team numbers count, so on game days a
   // player whose game has kicked off isn't worth less than one who plays later that week (review final check).
+  // They are the blended points (step 3b), the ones every lineup reads.
   const rosPoints: Record<string, number> = {};
   for (const id of modelIds) rosPoints[id] = (lp.players[id] as PlayerModel).weekly.slice(tw.from).reduce((s, w) => s + w.p, 0);
   const values = marketValues(valuePlayers, rosPoints, inputs.market ?? null, cfg.market);
@@ -1008,6 +1271,40 @@ function prepareLeague(snapshot: LeagueSnapshot, inputs: ModelInputs, opts: Buil
   const picks = streamingPicks(table, freeAgentIds, snapshot, inputs.nfl, cfg);
   mark("streaming");
 
+  // 5b. IR returners: each IR player's expected return week (null: not back within the weeks), and the specs that bring
+  // the ones who are back (with a model) into their team's lineups. None under irReturners false.
+  const weekAt = new Map(weeks.weeks.map((w, i) => [w, i]));
+  const returnWeeks = new Map<string, number | null>();
+  const returnWeek = (id: string): number | null => {
+    let r = returnWeeks.get(id);
+    if (r === undefined) {
+      const c = lp.contexts.get(id);
+      r = c ? expectedReturnWeek(c.avail, c.ctx, cfg.projections, cfg.projections.returnWeekQuantile) : null;
+      returnWeeks.set(id, r);
+    }
+    return r;
+  };
+  const isReturner = (id: string) => table.rows.has(id) && returnWeek(id) !== null;
+  const withReturners = (base: StreamSpec, ir: readonly string[]): StreamSpec => (irOn ? returnerSpec(base, ir, (id) => table.rows.get(id), isReturner) : { rows: base.rows, positions: base.positions });
+  const future = futureTerm(snapshot, inputs, valuePlayers, rosPoints, cfg);
+  const returnerSetup: ReturnerSetup = {
+    slots,
+    weekCount: W,
+    scenarios: S,
+    weights,
+    maxRosterSize,
+    positionLimits: limits,
+    rosterMinimums: snapshot.settings.rosterMinimums,
+    info: (id) => snapshot.players[id],
+    dropValue: valueOf,
+    future,
+    returnIndex: (id) => {
+      const r = returnWeek(id);
+      return r === null ? null : (weekAt.get(r) ?? null);
+    },
+    index,
+  };
+
   // 5. Teams: EV lineups, V*(T) and its moves, and every V*(V*(T) − i).
   const optimizer = createOptimizer(
     {
@@ -1020,27 +1317,60 @@ function prepareLeague(snapshot: LeagueSnapshot, inputs: ModelInputs, opts: Buil
       positionLimits: limits,
       maxRosterSize,
       dropValue: valueOf,
-      dynasty: dynastyGuard(snapshot, inputs, valuePlayers, rosPoints, cfg),
+      dynasty: dynastyGuard(future, cfg),
       // V*(T) judges its moves in scenario lineups when scenarios run (the file header, step 5); the re-runs don't.
       scenarios: S,
       instanceIndex: index,
     },
     { faMinGain: cfg.freeAgentOptimizer.faMinGain, faMaxMoves: cfg.freeAgentOptimizer.faMaxMoves, optimizerExcluded: cfg.streaming.optimizerExcluded },
   );
-  const work: TeamWork[] = snapshot.teams.map((team) => {
+  const teams = snapshot.teams.map((team) => {
     const ids = [...new Set(team.roster)];
-    const rows = ids.flatMap((id) => table.rows.get(id) ?? []);
-    const spec: StreamSpec = { rows: (byTeam[team.id]?.positions ?? []).flatMap((p) => stream.rows.get(p) ?? []), positions: byTeam[team.id]?.positions ?? [] };
-    const cur = optimizer.evaluate(ids, spec);
-    const vstar = optimizer.optimize(ids, spec);
+    // A player listed on the active roster too (a data error) is an active player, never a second row.
+    const ir = [...new Set(team.ir)].filter((id) => !ids.includes(id));
+    const spec = withReturners({ rows: (byTeam[team.id]?.positions ?? []).flatMap((p) => stream.rows.get(p) ?? []), positions: byTeam[team.id]?.positions ?? [] }, ir);
+    return { team, ids, ir, rows: ids.flatMap((id) => table.rows.get(id) ?? []), spec, cur: optimizer.evaluate(ids, spec) };
+  });
+  // V*(T), team by team in the allocation order (one free agent, one team), each against the free agents no earlier team
+  // claimed; or every team against the whole pool (faAllocation "independent": Checkpoint 4's rule).
+  const vstars: OptimizedRoster[] = new Array<OptimizedRoster>(teams.length);
+  const claimed: string[][] = teams.map(() => []);
+  let allocation: LeagueContext["allocation"] = null;
+  if (opts.faAllocation === "independent") {
+    teams.forEach((t, i) => {
+      vstars[i] = optimizer.optimize(t.ids, t.spec);
+      claimed[i] = claimedBy(vstars[i] as OptimizedRoster);
+    });
+  } else {
+    allocation = allocationOrder(snapshot.teams, snapshot.settings.faabBudget !== undefined, (i) => {
+      const t = teams[i] as (typeof teams)[number];
+      return firstMoveGain(optimizer, t.ids, t.spec, weights);
+    });
+    const taken = new Set<string>();
+    for (const i of allocation.order) {
+      const t = teams[i] as (typeof teams)[number];
+      const run = optimizer.optimize(t.ids, t.spec, undefined, poolRestriction(taken));
+      vstars[i] = run;
+      claimed[i] = claimedBy(run);
+      for (const id of claimed[i] as string[]) taken.add(id);
+    }
+  }
+  const work: TeamWork[] = teams.map(({ team, ids, ir, rows, spec, cur }, i) => {
+    const vstar = vstars[i] as OptimizedRoster;
+    // excl(T): every other team's claims, the pool of every later run of T (greedy determinism: V*(T) against it is V*(T),
+    // but for near-ties: optimizer.ts, "The pool").
+    const pool = allocation ? poolRestriction(claimed.flatMap((c, j) => (j === i ? [] : c))) : FULL_POOL;
     const inV = new Set(vstar.roster);
     // V*(T − i): the re-run from V*(T)'s roster without him, one move beyond the free ones (step 5: an exchange at the cap).
-    const losses = rows.map((r) => (inV.has(r.id) ? optimizer.reoptimize(vstar, vstar.roster.filter((id) => id !== r.id), spec, 1, [r.id]) : null));
+    const losses = rows.map((r) => (inV.has(r.id) ? optimizer.reoptimize(vstar, vstar.roster.filter((id) => id !== r.id), spec, 1, [r.id], undefined, pool) : null));
     return {
       team,
       ids,
       rows,
+      ir,
       stream: spec,
+      returnerCosts: [],
+      returnerScores: [],
       evalT: cur.team,
       solved: cur.solved,
       evRos: cur.evRos,
@@ -1049,6 +1379,8 @@ function prepareLeague(snapshot: LeagueSnapshot, inputs: ModelInputs, opts: Buil
       vstar,
       vstarScen: null,
       vstarCells: null,
+      claimed: claimed[i] as string[],
+      pool,
       losses,
       mvLoseEv: losses.map((l) => (l ? Math.max(0, vstar.evRos - l.evRos) : 0)),
       mvLoseScen: rows.map(() => null),
@@ -1074,7 +1406,8 @@ function prepareLeague(snapshot: LeagueSnapshot, inputs: ModelInputs, opts: Buil
     const steps = t.vstar.moves;
     if (S > 0) {
       const noMove = steps.length === 0;
-      t.scen = scenarioValues(t.evalT, W, S, index, noMove, true);
+      // Cells kept: V*(T)'s when it made no move, and the displacement prices the team's final lineups from them (step 5b).
+      t.scen = scenarioValues(t.evalT, W, S, index, true, true);
       t.scenRos = rosValue(t.scen.mean, weights);
       scenMemo.set(rosterKey(t.ids, t.stream), t.scenRos);
       if (noMove) {
@@ -1099,10 +1432,10 @@ function prepareLeague(snapshot: LeagueSnapshot, inputs: ModelInputs, opts: Buil
       scenBefore = scen;
       return move;
     });
-    if (S > 0) {
+    const removal = S > 0 ? scenarioRemovalCosts(t.vstarCells as ScenarioCells, weights) : null;
+    const at = new Map(t.vstar.team.rows.map((r, k) => [r.id, k]));
+    if (removal) {
       // A re-run that changed nothing is V*(T) minus him: his scenario removal cost, without solving again (teamValue.ts).
-      const removal = scenarioRemovalCosts(t.vstarCells as ScenarioCells, weights);
-      const at = new Map(t.vstar.team.rows.map((r, k) => [r.id, k]));
       t.mvLoseScen = t.rows.map((r, x) => {
         const l = t.losses[x];
         if (!l) return 0;
@@ -1110,10 +1443,38 @@ function prepareLeague(snapshot: LeagueSnapshot, inputs: ModelInputs, opts: Buil
         return Math.max(0, lost);
       });
     }
+    // 5b. The returners' lineup costs: what losing each costs V*(T)'s lineups, nobody refilling him (his IR slot opens, no
+    // active spot does, so no free agent comes in), floored at 0.
+    const back = returnersOf(t.stream);
+    if (back.length) {
+      const evCost = evRemovalCosts(t.vstar.solved, weights);
+      const cost = (xs: Float64Array, id: string) => {
+        const k = at.get(id);
+        return k === undefined ? 0 : Math.max(0, xs[k] as number);
+      };
+      t.returnerCosts = back.map((r) => ({ id: r.id, ev: cost(evCost, r.id), scen: removal ? cost(removal, r.id) : null }));
+    }
   }
   if (S > 0) mark("scenario lineups and marginal values");
 
-  return { snapshot, cfg, settings, S, W, lp, tw, weights, table, valueOf, market, freeAgentIds, slots, instances, index, maskOf, posOf, limits, maxRosterSize, byTeam, streamed, stream, picks, optimizer, scenRosOf, work };
+  return { snapshot, cfg, settings, S, W, lp, tw, weights, table, valueOf, market, freeAgentIds, slots, instances, index, maskOf, posOf, limits, maxRosterSize, byTeam, streamed, stream, picks, optimizer, scenRosOf, work, allocation, irReturners: irOn, returnWeek, withReturners, returnerSetup };
+}
+
+/**
+ * A team's best single-move gain against the whole pool (allocationOrder's "gain" basis): the first move of its optimizer
+ * run (a run of one move, the same move a full run makes first: the moves are greedy), in the optimizer's judging mode
+ * (scenario ROS when it judges in scenario lineups, else EV ROS, over the weeks team numbers count); 0 when it makes
+ * none. The roster after the move minus the roster before it, priced as the optimizer prices them.
+ */
+function firstMoveGain(optimizer: RosterOptimizer, ids: readonly string[], spec: StreamSpec, weights: ArrayLike<number>): number {
+  const run = optimizer.optimize(ids, spec, 1);
+  if (!run.moves.length) return 0;
+  if (optimizer.judgesScenarios) {
+    const before = optimizer.scenarioValuesOf(run.start, spec);
+    const after = optimizer.scenarioValuesOf(run.roster, spec);
+    if (before && after) return rosValue(after.mean, weights) - rosValue(before.mean, weights);
+  }
+  return run.evRos - optimizer.evaluate(run.start, spec).evRos;
 }
 
 /**
@@ -1228,9 +1589,10 @@ function makeBase(ctx: LeagueContext, t: TeamWork, drop: string | null): AddBase
     const evB: number[] = [];
     const scB: number[] = [];
     let first = 0;
+    // Only free agents the re-run may add: not on B′, not at an excluded position, not claimed by another team (excl(T)).
     for (const id of ctx.freeAgentIds) {
       const row = ctx.table.rows.get(id) as TableRow;
-      if (onBase.has(id) || excluded(row.pos)) continue;
+      if (onBase.has(id) || t.pool.excluded.has(id) || excluded(row.pos)) continue;
       const mask = ctx.maskOf(row);
       const ub = addUpperBound(base.ev, row, mask, weights);
       if (ub > first) first = ub;
@@ -1277,9 +1639,10 @@ export function teamBases(ctx: LeagueContext): TeamBase[] {
     // A full roster drops the player whose loss costs V*(T′)'s lineup least, in the chips' lineup mode, with nobody
     // refilling his spot (the newcomer takes it): §7's keep value, marginal ROS contribution. Not his lineup cost,
     // which refills the spot with free agents (the file header, step 6). Candidates: V*(T′)'s players with a model
-    // (free agents it added included); never a streaming row (it takes no roster spot).
+    // (free agents it added included); never a streaming row or an IR returner (neither takes a roster spot).
     const keep = keepCosts(ctx, t, tb);
-    const drop = lowestKeepValue(R.team.rows.flatMap((r, k) => (isStreamId(r.id) ? [] : [{ id: r.id, keep: keep[k] as number, value: ctx.valueOf(r.id) }])));
+    const onRoster = new Set(R.roster);
+    const drop = lowestKeepValue(R.team.rows.flatMap((r, k) => (isStreamId(r.id) || !onRoster.has(r.id) ? [] : [{ id: r.id, keep: keep[k] as number, value: ctx.valueOf(r.id) }])));
     tb.base = drop === null ? null : makeBase(ctx, t, drop);
     return tb;
   });
@@ -1288,7 +1651,7 @@ export function teamBases(ctx: LeagueContext): TeamBase[] {
 /**
  * The base a newcomer at `pos` joins on team `u` (step 6; L7 roster legality): its general B′ when that leaves room
  * at his position, else V*(T′) minus its lowest keep value player at `pos` (his primary position; a player with a
- * model, never a streaming row; ties as lowestKeepValue), built once per position. Null when the roster is full with
+ * model, never a streaming row or an IR returner; ties as lowestKeepValue), built once per position. Null when the roster is full with
  * nobody to drop, when nobody at `pos` can go, or when one going still leaves the position at its limit.
  */
 export function baseFor(ctx: LeagueContext, bases: readonly TeamBase[], u: number, pos: Pos): AddBase | null {
@@ -1299,7 +1662,8 @@ export function baseFor(ctx: LeagueContext, bases: readonly TeamBase[], u: numbe
   if (b === undefined) {
     const t = ctx.work[u] as TeamWork;
     const keep = keepCosts(ctx, t, tb);
-    const drop = lowestKeepValue(t.vstar.team.rows.flatMap((r, k) => (isStreamId(r.id) || r.pos !== pos ? [] : [{ id: r.id, keep: keep[k] as number, value: ctx.valueOf(r.id) }])));
+    const onRoster = new Set(t.vstar.roster);
+    const drop = lowestKeepValue(t.vstar.team.rows.flatMap((r, k) => (isStreamId(r.id) || !onRoster.has(r.id) || r.pos !== pos ? [] : [{ id: r.id, keep: keep[k] as number, value: ctx.valueOf(r.id) }])));
     const positions = t.vstar.roster.flatMap((id) => ctx.posOf(id) ?? []);
     b = drop !== null && positionAllows(ctx.limits, withoutOne(positions, pos), pos) ? makeBase(ctx, t, drop) : null;
     tb.atLimit.set(pos, b);
@@ -1317,7 +1681,7 @@ export function addValueOf(ctx: LeagueContext): (u: number, b: AddBase, row: Tab
     const pinned = () => (scenario ? scenarioAddGain(b.cells as ScenarioCells, row, mask, ctx.weights) - b.dropCostScen : addGainExact(b.ev, row, mask, ctx.weights).gain - b.dropCostEv);
     if (!(b.extraEv > 0) || !rerunCounts(b, row, mask, ctx.weights)) return pinned();
     const t = ctx.work[u] as TeamWork;
-    const run = ctx.optimizer.reoptimize(t.vstar, [...b.ids, row.id], t.stream, 1, [], b.ids);
+    const run = ctx.optimizer.reoptimize(t.vstar, [...b.ids, row.id], t.stream, 1, [], b.ids, t.pool);
     if (!run.moves.length && !run.given.length) return pinned();
     return scenario ? ctx.scenRosOf(run.roster, t.stream) - (t.vstarScen as number) : run.evRos - t.vstar.evRos;
   };
@@ -1425,17 +1789,108 @@ function chipsStayChips(ctx: LeagueContext, chipsAll: readonly (readonly TradeCh
       const gone = new Set(taken);
       const start = R.filter((id) => !gone.has(id));
       const out = R.length - start.length;
-      const before = ctx.optimizer.reoptimize(t.vstar, start, t.stream, out, taken);
+      const before = ctx.optimizer.reoptimize(t.vstar, start, t.stream, out, taken, undefined, t.pool);
       const after = ctx.optimizer.reoptimize(
         t.vstar,
         start.filter((id) => id !== playerId),
         t.stream,
         out + 1,
         [...taken, playerId],
+        undefined,
+        t.pool,
       );
       cost = Math.max(0, rerunRos(ctx, t, before) - rerunRos(ctx, t, after));
     }
     return chip.maxOther - cost >= minGap - EPS;
+  };
+}
+
+/** The week in progress before its first kickoff (step 8; preKickoffTable): its projection table and streaming rows. */
+interface PreKickoff {
+  table: ProjectionTable;
+  stream: Map<Pos, TableRow>;
+}
+
+/**
+ * The week in progress before its first kickoff (step 8), or null when no week is in progress (or its kickoffs are
+ * unknown, or no week is left): the projection table rebuilt for 1 ms before it (preKickoffTable, with the build's blend
+ * factors), with the free agents at the streamed positions only (the model's own teams), or every free agent (`allFree`:
+ * a script pricing a roster with pickups; a player's row doesn't depend on who else is in the table), and the streaming
+ * rows from it.
+ */
+function preKickoffOf(ctx: LeagueContext, inputs: ModelInputs, opts: BuildLeagueModelOptions, allFree: boolean): PreKickoff | null {
+  if (ctx.W === 0) return null;
+  const { snapshot, cfg, tw, lp, streamed } = ctx;
+  let table: ProjectionTable | null;
+  if (allFree) {
+    const first = tw.inProgressWeek === null ? null : firstKickoff(inputs.nfl, tw.inProgressWeek);
+    table = first === null ? null : buildProjectionTable(snapshot, inputs, { ...opts, now: new Date(first - 1) }, cfg, lp.blend).table;
+  } else {
+    table = preKickoffTable(snapshot, inputs, tw.inProgressWeek, opts, cfg, streamed, lp.blend)?.table ?? null;
+  }
+  if (!table) return null;
+  const pre = table;
+  const stream = streamingRows(
+    pre,
+    ctx.freeAgentIds.filter((id) => pre.rows.has(id)),
+    streamed,
+    cfg,
+  ).rows;
+  return { table: pre, stream };
+}
+
+/**
+ * TeamModel.score's rule (step 8) for a final evaluation (step 5b) of an active roster of team `t`: the scenario mean and
+ * sqrt(within-lineup variance + the scenarios' spread²) with scenarios, else the EV lineup's LV and sqrt(Σ σ²); and a week
+ * in progress (`pre`) as if none of its games had started: the roster's rows from the pre-kickoff table, the team's
+ * streaming rows from it and its returners, every player displaced from the current week on masked there too, an
+ * active player or a returner alike (a returner released at his own return, or one an earlier returner's week displaces:
+ * returners.finalLineups lets either go, and the week under way weighs 0 in keep values, so a returner back now is the
+ * likelier one to go; review of Phase 4b: unmasked, he still played the pre-kickoff week). That is the week as the model
+ * priced it 1 ms before kickoff, when a returner whose expected return week is the current week (a healthy, Probable or
+ * Questionable player in an IR slot: he can be activated now) plays it and the player he displaces doesn't, so the odds
+ * don't jump at the first kickoff (the file header, "Game days": only the clock is turned back). ⚠️ Review of track E
+ * asked to leave such a returner out of the week under way (he sat in the IR slot at kickoff); kept as is, since the week
+ * is priced from projections and the best lineup, never from the lineup actually set.
+ */
+function finalScore(ctx: LeagueContext, t: TeamWork, roster: readonly string[], final: FinalLineups, pre: PreKickoff | null): WeeklyScore {
+  const score = final.scen ? scenarioScore(final.scen) : evScore(final.ev);
+  if (!pre || ctx.W === 0) return score;
+  const outNow = new Set(final.displaced.filter((d) => d.from === 0).map((d) => d.id));
+  /** A player's pre-kickoff row, masked for the whole week when he's displaced from the current week on. */
+  const preRow = (id: string): TableRow[] => {
+    const row = pre.table.rows.get(id);
+    return row ? [outNow.has(id) ? maskedRow(row, 0) : row] : [];
+  };
+  const rows = [
+    ...[...new Set(roster)].flatMap(preRow),
+    ...(ctx.byTeam[t.team.id]?.positions ?? []).flatMap((p) => pre.stream.get(p) ?? []),
+    ...returnersOf(t.stream).flatMap((r) => preRow(r.id)),
+  ];
+  const first = teamEval(rows, ctx.slots);
+  const s = ctx.S > 0 ? scenarioScore(scenarioValues(first, 1, ctx.S, null, false, true)) : evScore(solveEvWeeks(first, 1));
+  score.mean[0] = s.mean[0] as number;
+  score.sd[0] = s.sd[0] as number;
+  return score;
+}
+
+/**
+ * Weekly scores for any active roster of a team (its streaming rows and IR returners, as the build gives them), priced as
+ * TeamModel.score prices the team as it stands (steps 5b and 8: the roster spot a returner needs from his week, a week in
+ * progress from before its first kickoff), from the same steps 1–5 a League model with these options builds: the team's
+ * own roster gives its TeamModel.score exactly. For scripts that price rosters the model doesn't keep (the league
+ * report's free-agent baseline). Null for an unknown team.
+ */
+export function teamRosterScorer(snapshot: LeagueSnapshot, inputs: ModelInputs, opts: BuildLeagueModelOptions, cfg: LeagueModelConfig = config): (roster: readonly string[], teamId: string) => { mean: number[]; sd: number[] } | null {
+  const ctx = prepareLeague(snapshot, inputs, opts, cfg, () => undefined);
+  const pre = preKickoffOf(ctx, inputs, opts, true);
+  return (roster, teamId) => {
+    const t = ctx.work.find((w) => w.team.id === teamId);
+    if (!t) return null;
+    const cur = ctx.optimizer.evaluate(roster, t.stream);
+    const scen = ctx.S > 0 ? scenarioValues(cur.team, ctx.W, ctx.S, ctx.index, true, true) : null;
+    const score = finalScore(ctx, t, roster, finalLineups(ctx.returnerSetup, roster, t.stream, { ev: cur.solved, scen }), pre);
+    return { mean: Array.from(score.mean), sd: Array.from(score.sd) };
   };
 }
 
@@ -1473,49 +1928,43 @@ export function buildLeagueModelWithContext(snapshot: LeagueSnapshot, inputs: Mo
     last = t;
   };
   const ctx = prepareLeague(snapshot, inputs, opts, cfg, mark);
-  const { S, W, lp, tw, work, slots, index, instances, byTeam, streamed, stream } = ctx;
+  const { S, W, lp, tw, work, index, instances, byTeam, stream } = ctx;
   const { weeks } = lp;
 
-  // The weekly score the season simulator draws (step 8): T as it stands, its streaming rows included.
-  const scores: WeeklyScore[] = work.map((t) => (t.scen ? scenarioScore(t.scen) : evScore(t.solved)));
-  // The week in progress: its score with every game still to play (step 8; today's rosters and tags), its
-  // streaming replacement before kickoff too (step 5a: the free agents at the streamed positions are rebuilt).
-  const pre = preKickoffTable(snapshot, inputs, tw.inProgressWeek, opts, cfg, streamed);
-  if (pre && W > 0) {
-    const preStream = streamingRows(
-      pre.table,
-      ctx.freeAgentIds.filter((id) => pre.table.rows.has(id)),
-      streamed,
-      cfg,
-    ).rows;
-    work.forEach((t, ti) => {
-      const rows = [...t.rows.flatMap((r) => pre.table.rows.get(r.id) ?? []), ...(byTeam[t.team.id]?.positions ?? []).flatMap((p) => preStream.get(p) ?? [])];
-      const first = teamEval(rows, slots);
-      const s = S > 0 ? scenarioScore(scenarioValues(first, 1, S, null, false, true)) : evScore(solveEvWeeks(first, 1));
-      const score = scores[ti] as WeeklyScore;
-      score.mean[0] = s.mean[0] as number;
-      score.sd[0] = s.sd[0] as number;
-    });
-    mark("week in progress before kickoff");
-  }
+  // 5b. Each team as it stands, priced finally: its returners back, and from a returner's week on the roster spot he needs
+  // (returners.finalLineups; nothing changes without one, or with room for every one). Its lineups make LV, ROS, PPW,
+  // strength, needs and the weekly score below.
+  const finals: FinalLineups[] = work.map((t) => finalLineups(ctx.returnerSetup, t.ids, t.stream, { ev: t.solved, scen: t.scen }));
+  if (work.some((t) => returnersOf(t.stream).length)) mark("IR returners");
+
+  // The weekly score the season simulator draws (step 8): T as it stands, its streaming rows and returners included, and
+  // a week in progress with every game still to play (finalScore).
+  const pre = preKickoffOf(ctx, inputs, opts, false);
+  const scores: WeeklyScore[] = work.map((t, ti) => finalScore(ctx, t, t.ids, finals[ti] as FinalLineups, pre));
+  if (pre) mark("week in progress before kickoff");
 
   // 6. Trade chips: each team's base B′ (from V*), then every candidate's best other team (the file header).
   const bases = teamBases(ctx);
   const chipsAll = tradeChipsAll(ctx, bases);
   mark("trade chips");
 
-  // 7. Strength, needs, partners and surplus scores: over the weeks team numbers count (tw).
-  const perWeek = work.map((t) => (t.scen?.instances ? t.scen.instances : evInstancePoints(t.solved, index)));
+  // 7. Strength, needs, partners and surplus scores: over the weeks team numbers count (tw). Strength from each team's
+  // final lineups (step 5b).
+  const perWeek = finals.map((f) => (f.scen?.instances ? f.scen.instances : evInstancePoints(f.ev, index)));
   const strengths = strengthTable(
     instances,
     perWeek.map((p) => windowAverage(p, tw.from, tw.from + tw.nNext, index.size)),
     perWeek.map((p) => windowAverage(p, tw.from, W, index.size)),
   );
+  // Surplus scores over the active players and the returners (step 5b: the give pool ranks both), each returner at his
+  // lineup cost in the costs' mode.
   for (const t of work) {
-    t.scores = surplusScores(
-      t.rows.map((r) => ctx.valueOf(r.id)),
-      t.rows.map((_, x) => costOf(t, x)),
+    const scores = surplusScores(
+      [...t.rows.map((r) => ctx.valueOf(r.id)), ...t.returnerCosts.map((c) => ctx.valueOf(c.id))],
+      [...t.rows.map((_, x) => costOf(t, x)), ...t.returnerCosts.map((c) => c.scen ?? c.ev)],
     );
+    t.scores = scores.slice(0, t.rows.length);
+    t.returnerScores = scores.slice(t.rows.length);
   }
 
   const myIndex = snapshot.myTeamId === null ? -1 : work.findIndex((t) => t.team.id === snapshot.myTeamId);
@@ -1578,11 +2027,16 @@ export function buildLeagueModelWithContext(snapshot: LeagueSnapshot, inputs: Mo
         surplusScore: t.scores[x] as number,
       };
     });
+    // The IR returners (step 5b): their lineup cost from V*(T)'s lineups; nobody refills them.
+    t.returnerCosts.forEach((c, x) => {
+      players[c.id] = { mvLoseEv: c.ev, mvLoseScen: c.scen, autoAdd: null, surplusScore: t.returnerScores[x] as number };
+    });
     const score = scores[ti] as WeeklyScore;
+    const final = finals[ti] as FinalLineups;
     return {
       id: t.team.id,
-      ev: lineupValues(t.solved.lv, tw, weeks),
-      scen: t.scen ? { ...lineupValues(t.scen.mean, tw, weeks), sd: Array.from(t.scen.sd) } : null,
+      ev: lineupValues(final.ev.lv, tw, weeks),
+      scen: final.scen ? { ...lineupValues(final.scen.mean, tw, weeks), sd: Array.from(final.scen.sd) } : null,
       strength,
       needs: findNeeds(strength, instances, cfg.lineups.needZThreshold),
       chips: chipsAll[ti] ?? [],
@@ -1609,6 +2063,8 @@ export function buildLeagueModelWithContext(snapshot: LeagueSnapshot, inputs: Mo
     scenarios: S,
     playoffWeight: ctx.settings.playoffWeight,
     streaming: { byTeam, replacement, picks: ctx.picks },
+    // One free agent, one team (step 5): the basis and the order (team ids, first claim first); absent under "independent".
+    ...(ctx.allocation ? { faAllocation: { basis: ctx.allocation.basis, order: ctx.allocation.order.map((i) => (work[i] as TeamWork).team.id) } } : {}),
     inProgressWeek: tw.inProgressWeek,
     players: lp.players,
     teams,
@@ -1698,12 +2154,15 @@ export interface LeagueMarginals {
   vStar(teamId: string): VStarSummary | null;
   /**
    * The free-agent optimizer from any active roster of a team (its streaming rows and streamed positions; the build's
-   * optimizer and memo), with at most `maxMoves` moves (default faMaxMoves): the roster after, its moves with their EV
-   * and scenario gains, and its ROS in EV and scenario lineups. A trade's "after" (lead decision L6) is this on the
-   * roster after the trade. Null for an unknown team.
+   * optimizer and memo), with at most `maxMoves` moves (default faMaxMoves), against the pool minus every other team's
+   * claims (excl(T), step 5): the roster after, its moves with their EV and scenario gains, and its ROS in EV and
+   * scenario lineups. Null for an unknown team.
    */
   optimize(teamId: string, roster: readonly string[], maxMoves?: number): VStarSummary | null;
-  /** MV_lose(T, i) as TeamModel.players has it (step 5: floored at 0, 0 when V*(T) dropped him); null when he isn't one of T's players with a model. */
+  /**
+   * MV_lose(T, i) as TeamModel.players has it (step 5: floored at 0, 0 when V*(T) dropped him; an IR returner's removal cost
+   * from V*(T)'s lineups, step 5b); null when he isn't one of T's active players with a model or returners.
+   */
   mvLose(teamId: string, playerId: string): (MarginalValue & { autoAdd: string | null }) | null;
   /**
    * MV_add(T′, j) as trade chips measure it (step 6: V*(T′) + j − the drop, the optimizer re-run from there with one
@@ -1749,9 +2208,12 @@ export function leagueMarginals(snapshot: LeagueSnapshot, inputs: ModelInputs, o
     },
     mvLose(teamId, playerId) {
       const t = ctx.work[indexOf.get(teamId) ?? -1];
-      const x = t ? t.rows.findIndex((r) => r.id === playerId) : -1;
-      if (!t || x < 0) return null;
-      return { ev: t.mvLoseEv[x] as number, scen: t.mvLoseScen[x] ?? null, autoAdd: t.losses[x]?.moves[0]?.add ?? null };
+      if (!t) return null;
+      const x = t.rows.findIndex((r) => r.id === playerId);
+      if (x >= 0) return { ev: t.mvLoseEv[x] as number, scen: t.mvLoseScen[x] ?? null, autoAdd: t.losses[x]?.moves[0]?.add ?? null };
+      // An IR returner (step 5b): his removal cost from V*(T)'s lineups.
+      const c = t.returnerCosts.find((r) => r.id === playerId);
+      return c ? { ev: c.ev, scen: c.scen, autoAdd: null } : null;
     },
     mvAdd(teamId, playerId) {
       if (blocked(teamId, playerId)) return null;
@@ -1765,7 +2227,7 @@ export function leagueMarginals(snapshot: LeagueSnapshot, inputs: ModelInputs, o
     optimize(teamId, roster, maxMoves) {
       const t = ctx.work[indexOf.get(teamId) ?? -1];
       if (!t) return null;
-      const run = ctx.optimizer.optimize(roster, t.stream, maxMoves);
+      const run = ctx.optimizer.optimize(roster, t.stream, maxMoves, t.pool);
       let at: readonly string[] = run.start;
       let ev = ctx.optimizer.evaluate(at, t.stream).evRos;
       let sc = scen ? ctx.scenRosOf(at, t.stream) : null;

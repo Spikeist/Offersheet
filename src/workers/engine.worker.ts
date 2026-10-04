@@ -17,7 +17,10 @@
  * - `analyze`: the Trade Analyzer (§13, src/engine/evaluate.ts analyzeTrade): one proposal evaluated exactly as
  *   the search's finalists are. One reply: `analysis` (or `error`), which also carries my odds before any trade, the
  *   ones the search reports (contextBaseline), so the Analyzer's card reads like the Trade Finder's (review of Phase 4:
- *   the Finder's "+9.1 percentage points (63% to 72%)" read "+9.1 percentage points" in the Analyzer).
+ *   the Finder's "+9.1 percentage points (63% to 72%)" read "+9.1 percentage points" in the Analyzer). With `steps:
+ *   false` (a trade opened from a card's "If they say no, try:"; review of Phase 4b) the evaluation comes without "Offer
+ *   first / if they say no" and its words are made again without them (withoutSteps), so its message proposes the trade
+ *   itself, never a smaller first offer than the trade the other manager just turned down.
  * - `cancel` { id }: stops that search (a `cancelled` reply follows); anything else is ignored.
  *
  * The evaluation context (evaluate.ts buildTradeContext: projections, scenarios, every team's free-agent-
@@ -39,14 +42,14 @@
  * handler on its main thread when the browser has no Worker support (src/lib/engineClient.ts). The listener
  * is registered only when this module runs as a worker.
  */
-import { analyzeTrade, buildTradeContext, tradeInternals, type TradeAnalysis, type TradeContext, type TradeInternals } from "@/engine/evaluate";
+import { analyzeTrade, buildTradeContext, tradeInternals, withWords, type TradeAnalysis, type TradeContext, type TradeInternals } from "@/engine/evaluate";
 import type { ModelInputs } from "@/engine/inputs";
 import { buildLeagueModel } from "@/engine/league";
 import type { LeagueModel } from "@/engine/leagueModel";
 import type { LeagueSnapshot } from "@/engine/model";
 import { tradeSearch } from "@/engine/search";
 import { normalizeTradeSettings, type TradeSettings } from "@/engine/settings";
-import type { TradeAsset, TradeProposal, TradeSearchProgress, TradeSearchResult } from "@/engine/tradeModel";
+import type { TradeAsset, TradeEvaluation, TradeEvaluationCore, TradeProposal, TradeSearchProgress, TradeSearchResult } from "@/engine/tradeModel";
 import { LEAGUE_MODEL_SETTINGS, settingsFingerprint } from "@/lib/settingsStore";
 import { contextStillValid } from "./freshness";
 
@@ -78,6 +81,11 @@ export interface TradesRequest extends LeagueJobFields {
 export interface AnalyzeRequest extends LeagueJobFields {
   type: "analyze";
   proposal: TradeProposal;
+  /**
+   * false: without "Offer first / if they say no" (the trade opened from a card's "If they say no, try:": the header);
+   * absent or true: as analyzeTrade gives it.
+   */
+  steps?: boolean;
 }
 
 /** Stop the search with this id. */
@@ -123,6 +131,8 @@ export interface EngineHandlerDeps {
   analyze?: typeof analyzeTrade;
   /** My odds before any trade in a context (default contextBaseline; tests with fake contexts pass their own). */
   baseline?: (ctx: TradeContext) => BaselineOdds | null;
+  /** An evaluation's words made again (default: evaluate.ts withWords in the context; tests with fake contexts pass their own). */
+  reword?: (ctx: TradeContext, core: TradeEvaluationCore) => TradeEvaluation;
   /** Milliseconds for the engine's stage timings (performance.now in the browser); also times the search's slices. */
   clock?: () => number;
   /** Runs `fn` once the messages already waiting have been handled (default setTimeout 0). */
@@ -202,6 +212,24 @@ export function contextBaseline(ctx: TradeContext): BaselineOdds | null {
   return base ? { pPlayoffs: base.pPlayoffs, pTitle: base.pTitle, expWins: base.expWins } : null;
 }
 
+/** An evaluation's reasons and pitch made again in its context (evaluate.ts withWords: explain.ts's words, the injury tags). */
+const defaultReword = (ctx: TradeContext, core: TradeEvaluationCore): TradeEvaluation => withWords(tradeInternals(ctx), core);
+
+/**
+ * An Analyzer evaluation without "Offer first / if they say no" (the header: `steps: false`): the same numbers, its steps
+ * dropped and its words made again without them, so the pitch proposes the trade itself (explain.ts names the offer-first
+ * version when steps exist). Unchanged when it has no steps.
+ */
+export function withoutSteps(ctx: TradeContext, analysis: TradeAnalysis, reword: (ctx: TradeContext, core: TradeEvaluationCore) => TradeEvaluation = defaultReword): TradeAnalysis {
+  const e = analysis.evaluation;
+  if (!e?.steps) return analysis;
+  const { steps: _steps, reasons: _reasons, pitch: _pitch, ...core } = e;
+  void _steps;
+  void _reasons;
+  void _pitch;
+  return { ...analysis, evaluation: reword(ctx, core) };
+}
+
 const defaultClock = (): number => (typeof performance !== "undefined" ? performance.now() : Date.now());
 const defaultSchedule = (fn: () => void): void => void setTimeout(fn, 0);
 
@@ -217,6 +245,7 @@ export function createEngineHandler(post: (response: EngineResponse) => void, de
   const search = deps.search ?? tradeSearch;
   const analyze = deps.analyze ?? analyzeTrade;
   const baselineOf = deps.baseline ?? contextBaseline;
+  const reword = deps.reword ?? defaultReword;
   const schedule = deps.schedule ?? defaultSchedule;
   const sliceClock = deps.clock ?? defaultClock;
   const sliceMs = deps.sliceMs ?? SEARCH_SLICE_MS;
@@ -313,7 +342,9 @@ export function createEngineHandler(post: (response: EngineResponse) => void, de
       case "analyze":
         try {
           const ctx = contextFor(message, now, settings);
-          const analysis = analyze(ctx, message.proposal, { settings, ...timing });
+          const analyzed = analyze(ctx, message.proposal, { settings, ...timing });
+          // A Plan B opened in the Analyzer: one offer, without a smaller first offer (the header).
+          const analysis = message.steps === false ? withoutSteps(ctx, analyzed, reword) : analyzed;
           post({ type: "analysis", id, result: { ...analysis, baseline: baselineOf(ctx) } });
         } catch (err) {
           fail(id, err);

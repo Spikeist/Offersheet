@@ -2,19 +2,19 @@
  * Best trade partners for the user's team (CLAUDE.md §7, §14 item 3): teams whose trade chips would
  * start for the user while the user's trade chips would start for them; then one-sided fits, badged by
  * what was measured ("Would start for you"), not by the user's needs. Each card leads with who to aim for
- * (planner addendum to Checkpoint 3, §2; lead decision N12): "Best target: <their best trade chip without the
- * Harder to get tag, when he adds at least config.needs.bestTargetMin a week>, +3.1/wk", and "Bigger upgrade,
- * harder to get: <him>, +7.5/wk" when the single best one is tagged (alone, as "Best target, harder to get",
- * when no untagged one adds that much); the note under the cards says so (BEST_TARGET_NOTE).
- * Then each side lists its other chips by what they'd add per week, and says how many more there are
+ * (planner addendum to Checkpoint 3, §2; lead decision N12; planner reply to Checkpoint 4, change 6): "Best of their
+ * trade chips: <their best trade chip without the Harder to get tag, when he adds at least config.needs.bestTargetMin a
+ * week>, +3.1/wk", and "Bigger upgrade, harder to get: <him>, +7.5/wk" when the single best one is tagged (alone, as
+ * "Best of their trade chips, harder to get", when no untagged one adds that much); the note under the cards says so
+ * (BEST_TARGET_NOTE). Then each side lists its other chips by what they'd add per week, and says how many more there are
  * (hover lists them; screen readers hear them), their tagged players marked "Harder to get" in words. Each
- * card links to the Trade Finder with that team picked (Phase 4 wave 2 decision M13), where the trade
- * search turns the fit into ranked trade ideas. The link carries the team's id in its address, so it's
- * never prefetched: the server sees that address only when the user opens it.
+ * card ends with "See trade ideas with <team> →" (change 6; Phase 4 wave 2 decision M13): the Trade Finder with that
+ * team picked, where the trade search turns the fit into ranked trade ideas. The link is a 44 px target that wraps a long
+ * team name at 375 px; its arrow is hidden from screen readers. It carries the team's id in its address, so it's never
+ * prefetched: the server sees that address only when the user opens it.
  */
 import Link from "next/link";
 import { BEST_TARGET_NOTE, type LeagueView, type PartnerSide, type PartnerTarget } from "@/lib/leagueView";
-import { finderHref } from "@/lib/tradeView";
 import { Badge, Card, CardTitle, buttonClass, cx } from "../ui";
 import { HarderToGetBadge } from "./HarderToGetBadge";
 
@@ -41,8 +41,8 @@ function PlayerList({ side }: { side: PartnerSide }) {
 }
 
 /**
- * A lead line: "Best target: C. Snoot, +2.1/wk" (the label says when he's harder to get). The name and the number each
- * stay on one line: at 375 px "J. Smith-Njigba" broke at its hyphen.
+ * A lead line: "Best of their trade chips: C. Snoot, +2.1/wk" (the label says when he's harder to get). The name and the
+ * number each stay on one line: at 375 px "J. Smith-Njigba" broke at its hyphen.
  */
 function TargetLine({ target }: { target: PartnerTarget }) {
   return (
@@ -95,16 +95,18 @@ export function TradePartners({ view }: { view: LeagueView }) {
                     <span className="font-semibold">You could give:</span> no trade chip that would start for them, so a trade would likely cost you a starter.
                   </p>
                 )}
-                <Link href={finderHref(c.teamId)} prefetch={false} className={cx(buttonClass("secondary", "sm"), "mt-2 min-h-11")}>
-                  Trade ideas<span className="sr-only"> with {c.name}</span>
+                <Link href={c.ideas.href} prefetch={false} className={cx(buttonClass("secondary", "sm"), "mt-2 h-auto min-h-11 py-2 text-left wrap-anywhere")}>
+                  {c.ideas.text}
+                  <span aria-hidden> →</span>
                 </Link>
               </li>
             ))}
           </ul>
           <p className="mt-3 text-xs text-muted">
             Points per week are what each trade chip would add to the other team&apos;s starting lineup, after that team&apos;s free-agent pickups. Fit combines both
-            directions; teams with a trade chip who would start for you, when none of yours would start for them, come last. {BEST_TARGET_NOTE} &ldquo;Trade
-            ideas&rdquo; opens the Trade Finder for that team: actual trades, ranked by how much they help you and how likely that team is to say yes.
+            directions; teams with a trade chip who would start for you, when none of yours would start for them, come last. {BEST_TARGET_NOTE} &ldquo;See trade
+            ideas&rdquo; opens the Trade Finder for that team: actual trades, ranked by how much they help you and how likely that team is to say yes, which can
+            differ from the trade chips named here.
           </p>
         </>
       )}

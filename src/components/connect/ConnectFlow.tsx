@@ -43,7 +43,7 @@ const TRACK = "grid grid-cols-2 gap-1 rounded-xl border border-line bg-surface-m
  * transition leaves out outline-color, so the ring appears in gold at once, as it does everywhere else.
  */
 const OPTION =
-  "relative rounded-lg transition-[color,background-color,border-color] has-[:focus-visible]:outline-3 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-accent";
+  "relative rounded-lg transition-[color,background-color,border-color] has-[:focus-visible]:outline-3 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-focus";
 /** Phones: a segment at least 44 px tall. */
 const SEGMENT = "min-h-11 items-center justify-center px-3 text-center";
 /** From sm up: a card, as before the compact phone picker. */

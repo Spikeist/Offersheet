@@ -8,12 +8,13 @@
 import { createElement, isValidElement, type ReactElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
+import { config } from "@/engine/config";
 import { defaultTradeSettings } from "@/engine/settings";
-import type { CardFeedback, FinderView } from "@/lib/tradeView";
-import { analyzerChoices, buildAnalysisView, buildFinderView, buildTradeCard, progressView, settingsSummary } from "@/lib/tradeView";
+import type { CardFeedback, FinderView, TradeCardView } from "@/lib/tradeView";
+import { FROM_PLAN_B_NOTE, analyzerChoices, buildAnalysisView, buildFinderView, buildTradeCard, progressView, settingsSummary } from "@/lib/tradeView";
 import { AnalysisResult, AnalyzerForm, AnalyzerPage } from "./AnalyzerPage";
-import { FeedbackControls } from "./FeedbackControls";
-import { HowToRead } from "./HowToRead";
+import { FeedbackControls, VERSION_QUESTION, VersionChooser, chosenVersionChange, outcomeAction } from "./FeedbackControls";
+import { HowToRead, acceptCapWords, planBGainWords, planBShareWords } from "./HowToRead";
 import { TradeCard } from "./TradeCard";
 import { FinderControls, FinderFrame, TradeFinderPage, finderStatus, type FinderState } from "./TradeFinderPage";
 import { GLOOP_PREMIUM, SNOOT_PREMIUM, evaluation, searchResult, step, steppedFull, steppedOffer, tradeSnapshot } from "./testFixtures";
@@ -21,7 +22,7 @@ import { GLOOP_PREMIUM, SNOOT_PREMIUM, evaluation, searchResult, step, steppedFu
 const snapshot = tradeSnapshot();
 const noop = () => {};
 const saved = () => ({ ok: true as const });
-const NONE: CardFeedback = { outcome: null, report: null };
+const NONE: CardFeedback = { outcome: null, report: null, version: null, versionKey: null, versionWords: null };
 
 /** Visible text, tags and the entities React writes removed. */
 const textOf = (html: string) =>
@@ -208,14 +209,39 @@ describe("TradeCard (§13: each trade card shows)", () => {
     expect(text).toContain("Helps you 39 Chance they accept 40% Est. · Decent Overall 18");
     expect(html).toContain('<div class="flex min-w-0 flex-col-reverse justify-end rounded-xl bg-surface-muted px-1.5 py-2 text-center"><dt');
     expect(text).toContain("You get 142 ROS pts, give 118");
-    expect(text).toContain("Playoff odds +3 percentage points Title odds +1 percentage point Trade value You give 5,000, you get 5,000 · Values: FantasyCalc (opens in a new tab)");
+    expect(text).toContain(
+      "Playoff odds +3 percentage points Title odds +1 percentage point Trade value You give 5,000, you get 5,000 (a player worth less than the best free agent counts at that free agent's value) · Values: FantasyCalc (opens in a new tab)",
+    );
     expect(html).toMatch(/<a href="https:\/\/fantasycalc\.com" target="_blank" rel="noopener noreferrer" class="[^"]*">Values: FantasyCalc/);
   });
 
   it("lists the risk flags apart from the numbers, in words with a symbol (not color alone)", () => {
     const html = render(evaluation({ gMine: -0.2, flags: { marketCheck: true, hiddenByMarket: false, hiddenByBenefit: false, injured: ["107"] } }));
-    expect(html).toMatch(/<ul aria-label="Risks"[^>]*><li[^>]*><span aria-hidden="true"[^>]*>⚠<\/span><span[^>]*>Depends on an injured player: Humbert Fiddlesticks \(injured reserve\)<\/span><\/li><li[^>]*>.*Market check: you&#x27;d get 20% less trade value than you give\./);
+    expect(html).toMatch(
+      /<ul aria-label="Risks"[^>]*><li[^>]*><span aria-hidden="true"[^>]*>⚠<\/span><span[^>]*>Depends on an injured player: Humbert Fiddlesticks \(injured reserve\)\. His projection assumes he returns at full strength, blended with the trade market\.<\/span><\/li><li[^>]*>.*Market check: you&#x27;d get 20% less trade value than you give\./,
+    );
     expect(render()).not.toContain('aria-label="Risks"');
+  });
+
+  it("says a hurt player I'd get twice, not four times: his tag, and the flag with what his projection assumes (review of Phase 4b)", () => {
+    // I get the IR WR (107), whom the flag names, and the Doubtful RB (206), whom no flag names; explain.ts's caveat
+    // repeating the flag isn't shown.
+    const caveat = "Depends on injured players: Humbert Fiddlesticks (on injured reserve), and the numbers assume they return as expected.";
+    const html = render(
+      evaluation({
+        give: ["105"],
+        get: ["107", "206"],
+        flags: { marketCheck: false, hiddenByMarket: false, hiddenByBenefit: false, injured: ["107"] },
+        reasons: ["Your WR2 spot goes from 9.1 to 14.3 projected points per week.", caveat],
+      }),
+    );
+    const text = textOf(html);
+    expect(text).toContain("Depends on an injured player: Humbert Fiddlesticks (injured reserve). His projection assumes he returns at full strength, blended with the trade market.");
+    expect(text).toContain("Rupert Wimbleton: his projection assumes he returns at full strength, blended with the trade market.");
+    expect(text).not.toContain("Humbert Fiddlesticks: his projection");
+    expect(text).not.toContain("numbers assume");
+    expect(text.match(/Humbert Fiddlesticks/g)).toHaveLength(2);
+    expect(text).toContain("Why Your WR2 spot goes from 9.1 to 14.3 projected points per week.");
   });
 
   it("says the forced roster moves, the reasons, and the pitch behind a 44 px summary with a 44 px Copy button", () => {
@@ -234,7 +260,7 @@ describe("TradeCard (§13: each trade card shows)", () => {
   });
 
   it("has the outcome buttons (toggles) and Report; the pressed one is marked by a ring and a check, not color alone", () => {
-    const html = render(evaluation(), { outcome: "accepted", report: null });
+    const html = render(evaluation(), { ...NONE, outcome: "accepted" });
     const buttons = [...html.matchAll(/<button type="button" aria-pressed="(true|false)" class="([^"]*)">(.*?)<\/button>/g)].map(([, pressed, cls = "", inner = ""]) => ({ pressed, ring: cls.includes("ring-2"), text: textOf(inner) }));
     expect(buttons).toEqual([
       { pressed: "false", ring: false, text: "Sent (trade idea 1, Trade with Gravel Gophers)" },
@@ -247,13 +273,17 @@ describe("TradeCard (§13: each trade card shows)", () => {
   });
 
   it("reads a saved report back with Undo instead of Report", () => {
-    const html = render(evaluation(), { outcome: null, report: { reason: "never-accept", note: "too lopsided" } });
+    const html = render(evaluation(), { ...NONE, report: { reason: "never-accept", note: "too lopsided" } });
     expect(textOf(html)).toContain("Reported: They'd never accept · “too lopsided” Undo the report on trade idea 1, Trade with Gravel Gophers");
     expect(html).not.toContain("Report a problem");
   });
 
   it("gives every button and non-text link a 44 px target", () => {
-    const html = render(evaluation({ required: { me: { drops: ["108"], adds: [] }, partner: { drops: [], adds: [] } } }), { outcome: "sent", report: null });
+    const planB = { proposal: { partnerId: "2", give: [{ kind: "player" as const, id: "105" }], get: [{ kind: "player" as const, id: "203" }] }, key: "2|give:105|get:203", b: 2, tradeScore: 28, pAccept: 0.4, pComplete: 0.4, acceptLabel: "Decent", overall: 13, kind: "otherTarget" as const };
+    const html = render(evaluation({ planB, required: { me: { drops: ["108"], adds: [] }, partner: { drops: [], adds: [] } } }), { ...NONE, outcome: "sent" });
+    // Both messages (the card's and its Plan B's) and both Open in Analyzer links are counted.
+    expect(targets(html).filter((t) => t.text.startsWith("Open in Analyzer"))).toHaveLength(2);
+    expect(html.match(/<summary class="flex min-h-11/g)).toHaveLength(2);
     const small = targets(html).filter((t) => !t.cls.includes("min-h-11") && !t.text.startsWith("Values: FantasyCalc") && t.tag !== "button");
     expect(small).toEqual([]);
     for (const t of targets(html).filter((x) => x.tag === "button" && x.text !== "Copy message")) expect(t.cls, t.text).toContain("min-h-11");
@@ -274,11 +304,57 @@ describe("TradeCard (§13: each trade card shows)", () => {
     );
     expect(html.match(/>Harder to get<\/span>/g)).toHaveLength(1);
     expect(textOf(html)).toContain(`You get Mortimer Gloop Harder to get ${why} RB · DET Cornelius Snoot RB · HOU`);
-    // After an injury badge, a small gap separates the two pills.
+    // A tagged player who is hurt: the pill by his name, his injury tag in words under his position (Phase 4b).
     const hurt = render(evaluation({ get: ["206"], detail: { premium: [{ playerId: "206", e: 0.2, rank: 1, elite: true, harderToGet: true }] } }));
     expect(hurt).toMatch(
-      /<span class="sr-only">Doubtful<\/span><\/span><span title="Harder to get: [^"]*" class="ml-1"><span class="[^"]*bg-accent[^"]*"><span aria-hidden="true">Harder to get<\/span><\/span><span class="sr-only">Harder to get: [^<]*<\/span><\/span>/,
+      /<span class="font-extrabold break-words">Rupert Wimbleton<\/span> <span title="Harder to get: [^"]*"><span class="[^"]*bg-accent[^"]*"><span aria-hidden="true">Harder to get<\/span><\/span><span class="sr-only">Harder to get: [^<]*<\/span><\/span><span class="block text-xs text-muted">RB · PIT<\/span><span class="[^"]*bg-warn-bg text-warn-fg">Doubtful<\/span>/,
     );
+  });
+
+  it("tags every hurt player on either side in words under his name (a tint that wraps, never color alone), and says once why a hurt player I'd get still counts (planner reply to Checkpoint 4, change 6)", () => {
+    // I give the Questionable RB (103) and get the IR WR (107).
+    const html = render(evaluation({ give: ["103"], get: ["107"] }));
+    expect(html).toContain('<span class="mt-0.5 inline-block rounded-md px-1.5 py-0.5 text-xs font-bold break-words bg-warn-bg text-warn-fg">Questionable</span>');
+    expect(html).toContain('<span class="mt-0.5 inline-block rounded-md px-1.5 py-0.5 text-xs font-bold break-words bg-danger-bg text-danger-fg">On IR</span>');
+    // The sentence sits under the two lists, before the three numbers.
+    const note = "Humbert Fiddlesticks: his projection assumes he returns at full strength, blended with the trade market.";
+    expect(html).toContain(`<p class="mt-2 text-xs leading-relaxed break-words text-muted">${note}</p>`);
+    expect(html.indexOf(note)).toBeLessThan(html.indexOf(">Helps you</dt>"));
+    // A healthy card has neither.
+    expect(render()).not.toContain("inline-block rounded-md");
+    expect(render()).not.toContain("full strength");
+  });
+
+  it("shows 'If they say no, try:' after the card's own content: the other trade, its kind, its numbers, its own message and its own 44 px Open in Analyzer (planner reply to Checkpoint 4, change 6)", () => {
+    const planB = { proposal: { partnerId: "2", give: [{ kind: "player" as const, id: "105" }], get: [{ kind: "player" as const, id: "203" }] }, key: "2|give:105|get:203", b: 2, tradeScore: 28, pAccept: 0.4, pComplete: 0.4, acceptLabel: "Decent", overall: 13, kind: "otherTarget" as const };
+    const html = render(evaluation({ planB, flags: { marketCheck: false, hiddenByMarket: false, hiddenByBenefit: false, injured: ["204"] } }));
+    const text = textOf(html);
+    const which = "(if they say no, try: Glimmer Oddfellow for Ignatius Fumblewick; trade idea 1, Trade with Gravel Gophers)";
+    expect(text).toContain(
+      `If they say no, try: A different set of their players You give: Glimmer Oddfellow You get: Ignatius Fumblewick Helps you 28 · Chance they accept 40% (Est. · Decent) · Overall 13 Message to send them ${which} ▾ Thanks for considering it! Would you trade Ignatius Fumblewick for Glimmer Oddfellow instead? Let me know what you think! Copy message Open in Analyzer ${which}`,
+    );
+    // Review of Phase 4b: after the card's flags, facts, reasons, message and Open in Analyzer (a flag about the card's
+    // player sat right under a Plan B that didn't include him), and before the feedback buttons.
+    const at = html.indexOf("If they say no, try:");
+    for (const before of ['aria-label="Risks"', "You get 120 ROS pts", ">Why<", "Hey! Want Wiggleton Spoons for Cornelius Snoot?", 'href="/analyzer?partner=2&amp;give=106&amp;get=204"']) expect(html.indexOf(before), before).toBeLessThan(at);
+    expect(at).toBeLessThan(html.indexOf("What happened with it?"));
+    // Each number on one line; the estimate's label can wrap apart from its number (a 320 px phone).
+    expect(html).toContain(
+      '<p class="mt-1 font-semibold"><span class="whitespace-nowrap">Helps you 28</span> · <span class="whitespace-nowrap">Chance they accept 40%</span> <span class="whitespace-nowrap">(Est. · Decent)</span> · <span class="whitespace-nowrap">Overall 13</span></p>',
+    );
+    // Its link says it comes from "If they say no, try:" (the Analyzer then shows it as one offer).
+    expect(html).toMatch(/<a class="[^"]*min-h-11[^"]*" href="\/analyzer\?partner=2&amp;give=105&amp;get=203&amp;from=planB">Open in Analyzer<span class="sr-only">/);
+    // Its message's summary and Copy are 44 px targets.
+    expect(html).toMatch(/<summary class="flex min-h-11[^"]*"><span>Message to send them<span class="sr-only"> \(if they say no, try:/);
+    // Not on a card without one, and the Analyzer's card shows no link.
+    expect(render()).not.toContain("If they say no, try:");
+    expect(render(evaluation({ planB }), NONE, { analyzer: false })).not.toContain("Open in Analyzer");
+    // Review of track F: its injured players carry their tags in words, and a Plan B that is a card of its own says so.
+    const hurt = render(evaluation({ planB: { ...planB, proposal: { ...planB.proposal, get: [{ kind: "player", id: "206" }] }, key: "2|give:105|get:206" } }));
+    expect(textOf(hurt)).toContain("You get: Rupert Wimbleton (Doubtful)");
+    const list = buildFinderView({ result: searchResult([evaluation({ planB: { ...planB, key: "2|give:105|get:204" } }), evaluation({ key: "2|give:105|get:204", give: ["105"], b: 1, pComplete: 0.5 })]), sort: "overall", snapshot, partnerId: null });
+    const withAlso = renderToStaticMarkup(createElement(TradeCard, { card: list.cards[0] as TradeCardView, rank: 1, feedback: NONE, onFeedback: saved }));
+    expect(withAlso).toContain('<p class="text-muted">Also shown as trade idea 2.</p>');
   });
 
   it("shows 'How to offer it' right under the three numbers: an ordered list, each estimate said in full to screen readers (§4)", () => {
@@ -309,6 +385,16 @@ describe("HowToRead (planner addendum to Checkpoint 3)", () => {
     expect(how("keeper")).not.toContain("Protect my trade value");
   });
 
+  it("names what moves the chance they accept, the trade's effect on their starting lineup included, and its cap from config (review of Phase 4b)", () => {
+    for (const page of ["finder", "analyzer"] as const) {
+      expect(how(undefined, page)).toContain(
+        "Chance they accept is an estimate (Est.), rounded to 5% and never above 85%: it looks at the trade from the other manager's side (trade value, what it adds to or costs their starting lineup, the holes it fills, how active a trader they are).",
+      );
+    }
+    expect(acceptCapWords()).toBe(`${Math.round(config.acceptance.pAcceptClamp[1] * 100)}%`);
+    expect(acceptCapWords(0.9)).toBe("90%");
+  });
+
   it("explains Harder to get and How to offer it", () => {
     expect(how()).toContain(HARDER);
     expect(how()).toContain("How to offer it shows on some ideas: offer the first version, and if they say no, add the player named, one you can spare (losing him costs your lineup little), which raises the chance they accept. The message to send them proposes the first version.");
@@ -319,20 +405,43 @@ describe("HowToRead (planner addendum to Checkpoint 3)", () => {
     expect(text.startsWith("How to read a trade idea Helps you (0–100)")).toBe(true);
     expect(text).toContain("Overall combines the two: how much it helps, discounted by the chance it happens. Ideas are sorted by it unless you choose otherwise.");
     expect(text).toContain(
-      "ROS points are each player's projected points for the rest of the season. Trade values are FantasyCalc's. Trades that wouldn't help you, or where you'd give up much more trade value than you get, are left out.",
+      "ROS points are each player's projected points for the rest of the season. Trade values are FantasyCalc's, except that a player worth less than the best free agent counts at that free agent's value (he could be replaced from the waiver wire), and so does each open roster spot on the side that gets fewer players (an IR slot doesn't count as a roster spot). Trades that wouldn't help you, or where you'd give up much more trade value than you get, are left out.",
     );
     expect(text).not.toContain("trade you built");
+  });
+
+  it("explains Plan B on the Trade Finder only, and the injury tags on both pages (planner reply to Checkpoint 4, change 6)", () => {
+    // Review of track F: a Plan B is a trade they're likelier to accept (it read "a good fallback", for trades that were
+    // often harder to land than their card).
+    const planB =
+      "If they say no, try shows on other ideas when the same team has a trade they're likelier to accept: at least 5 percentage points likelier to go through, while still helping you at least half as much. It's the best such trade, a different package for the same players of theirs when there is one, else a different set of their players, with its own three numbers, its own message to send them, and a link to open it in the Trade Analyzer, where it's shown as one offer.";
+    expect(how()).toContain(planB);
+    expect(how()).not.toContain("good fallback");
+    // The Analyzer shows no Plan B; it only says how a trade opened from one is shown (review of Phase 4b).
+    expect(how(undefined, "analyzer")).not.toContain("If they say no, try shows");
+    expect(how(undefined, "analyzer")).toContain("A trade opened from a trade idea's “If they say no, try” is shown as one offer instead");
+    const tags =
+      "Injury tags show under any player in the trade who isn't healthy, on either side: for example “Questionable” or “Out — expected back week 8”. The week shows when his projection counts on it, so a questionable player whose league site doesn't expect him back for weeks shows that week too. A player you'd get who is hurt is projected to return at full strength, blended with the trade market, which prices his injury in.";
+    expect(how()).toContain(tags);
+    expect(how(undefined, "analyzer")).toContain(tags);
+    // The share and the acceptance bar are config's.
+    expect(planBShareWords(0.5)).toBe("half as much");
+    expect(planBShareWords(0.6)).toBe("60% as much");
+    expect(planBGainWords()).toBe(`${Math.round(config.search.steps.minAcceptGain * 100)} percentage points`);
+    expect([planBGainWords(0.05), planBGainWords(0.01)]).toEqual(["5 percentage points", "1 percentage point"]);
   });
 
   it("has the Trade Analyzer's own version: nothing ranked or left out there, and why the first offer can leave out a player of the trade built (review of the addendum)", () => {
     const text = how(undefined, "analyzer");
     expect(text.startsWith("How to read the evaluation Helps you (0–100)")).toBe(true);
     expect(text).toContain("It also counts trade value, so you keep some for later deals");
-    expect(text).toContain("Chance they accept is an estimate (Est.), rounded to 5%");
+    expect(text).toContain(
+      "Chance they accept is an estimate (Est.), rounded to 5% and never above 85%: it looks at the trade from the other manager's side (trade value, what it adds to or costs their starting lineup, the holes it fills, how active a trader they are). It's a guess, not a promise.",
+    );
     expect(text).toContain("Overall combines the two: how much it helps, discounted by the chance it happens. The Trade Finder ranks its trade ideas by it.");
     expect(text).toContain(HARDER);
     expect(text).toContain(
-      "How to offer it shows when the trade is worth offering in two steps: offer the first version, and if they say no, add the player named, one you can spare (losing him costs your lineup little), which raises the chance they accept. If the trade you built gives a player you can spare along with someone else, the first version leaves him out, and adding him back gives the trade you built. The message to send them proposes the first version; the three numbers are for the trade you built.",
+      "How to offer it shows when the trade is worth offering in two steps: offer the first version, and if they say no, add the player named, one you can spare (losing him costs your lineup little), which raises the chance they accept. If the trade you built gives a player you can spare along with someone else, the first version leaves him out, and adding him back gives the trade you built. The message to send them proposes the first version; the three numbers are for the trade you built. A trade opened from a trade idea's “If they say no, try” is shown as one offer instead: they've just turned down a trade with the same team.",
     );
     expect(text).toContain(
       "The Trade Finder leaves out trades that wouldn't help you, or where you'd give up much more trade value than you get; here they still show, with a warning.",
@@ -346,7 +455,7 @@ describe("HowToRead (planner addendum to Checkpoint 3)", () => {
     for (const page of ["finder", "analyzer"] as const) {
       const html = renderToStaticMarkup(createElement(HowToRead, { page }));
       expect(html).toMatch(/^<details class="[^"]*"><summary class="flex min-h-11 [^"]*">How to read (a trade idea|the evaluation)<\/summary>/);
-      expect(html).not.toContain(" open");
+      expect(html).not.toMatch(/<details[^>]* open/);
     }
   });
 });
@@ -356,6 +465,58 @@ describe("FeedbackControls", () => {
     const html = renderToStaticMarkup(createElement(FeedbackControls, { feedback: NONE, onChange: saved, tradeName: "Trade with Gravel Gophers" }));
     expect(textOf(html)).toContain("What happened with it?");
     expect(html).toMatch(/<p role="status" class="sr-only"><\/p>/);
+  });
+
+  describe("which version was sent (planner reply to Checkpoint 4, change 6)", () => {
+    const plain = buildTradeCard(evaluation(), { snapshot }).versions;
+    const stepped = buildTradeCard(steppedFull(), { snapshot }).versions;
+
+    it("a plain card saves its one version with the outcome, without asking", () => {
+      expect(outcomeAction(NONE, plain, "sent")).toEqual({ action: "save", change: { outcome: "sent", sent: { version: "full", key: plain[0]?.key, pAccept: 0.4, pComplete: 0.4 } } });
+    });
+
+    it("a card with two versions asks on the first outcome; a version recorded stays; pressing the outcome on clears it", () => {
+      expect(outcomeAction(NONE, stepped, "sent")).toEqual({ action: "ask" });
+      expect(outcomeAction(NONE, stepped, "accepted")).toEqual({ action: "ask" });
+      expect(outcomeAction({ outcome: "sent", version: "offerFirst" }, stepped, "accepted")).toEqual({ action: "save", change: { outcome: "accepted" } });
+      expect(outcomeAction({ outcome: "sent", version: "offerFirst" }, stepped, "sent")).toEqual({ action: "clear", change: { outcome: null } });
+      // No versions (absent): the outcome alone.
+      expect(outcomeAction(NONE, [], "rejected")).toEqual({ action: "save", change: { outcome: "rejected" } });
+      expect(chosenVersionChange("sent", stepped[0] as (typeof stepped)[number])).toEqual({ outcome: "sent", sent: { version: "offerFirst", key: stepped[0]?.key, pAccept: 0.35, pComplete: 0.35 } });
+    });
+
+    it("asks in words, worded for the outcome, one 44 px button per version and Cancel", () => {
+      const html = renderToStaticMarkup(createElement(VersionChooser, { kind: "sent", versions: stepped, tradeName: "Trade with Gravel Gophers", onChoose: noop, onCancel: noop }));
+      expect(html).toMatch(/^<fieldset[^>]*><legend tabindex="-1" class="[^"]*">Which version did you send\?<span class="sr-only"> \(Trade with Gravel Gophers\)<\/span><\/legend>/);
+      const buttons = targets(html).filter((t) => t.tag === "button");
+      expect(buttons.map((b) => b.text)).toEqual(["The first offer", "With Tobias Thimble added", "Cancel"]);
+      for (const b of buttons) expect(b.cls, b.text).toContain("min-h-11");
+      expect(VERSION_QUESTION).toEqual({ sent: "Which version did you send?", accepted: "Which version did they accept?", rejected: "Which version did they turn down?", countered: "Which version did they counter?" });
+    });
+
+    it("says which version was recorded under the buttons, on a card with two", () => {
+      const sentFull = { ...NONE, outcome: "sent" as const, version: "full" as const, versionKey: stepped[1]?.key ?? null };
+      const html = renderToStaticMarkup(createElement(FeedbackControls, { feedback: sentFull, onChange: saved, tradeName: "Trade with Gravel Gophers", versions: stepped }));
+      expect(textOf(html)).toContain("Version: With Tobias Thimble added");
+      // A record made before keys were saved: by its kind.
+      expect(textOf(renderToStaticMarkup(createElement(FeedbackControls, { feedback: { ...sentFull, versionKey: null }, onChange: saved, tradeName: "x", versions: stepped })))).toContain("Version: With Tobias Thimble added");
+      // A plain card's one version goes without saying.
+      expect(textOf(renderToStaticMarkup(createElement(FeedbackControls, { feedback: { ...sentFull, versionKey: plain[0]?.key ?? null }, onChange: saved, tradeName: "x", versions: plain })))).not.toContain("Version:");
+    });
+
+    it("says 'an earlier one', with its players, when the recorded version isn't one the card shows (review of Phase 4b)", () => {
+      // Sent the "If they say no" trade, then a refresh changed the card's Plan B: the line names the one sent, not the box shown now.
+      const earlier = { ...NONE, outcome: "sent" as const, version: "planB" as const, versionKey: "2|give:105|get:203", versionWords: "Glimmer Oddfellow for Ignatius Fumblewick" };
+      const html = renderToStaticMarkup(createElement(FeedbackControls, { feedback: earlier, onChange: saved, tradeName: "x", versions: stepped }));
+      expect(textOf(html)).toContain("Version: an earlier one (Glimmer Oddfellow for Ignatius Fumblewick)");
+      expect(textOf(html)).not.toContain("The first offer");
+      // The Analyzer's card for the same trade (one version) says it too, rather than nothing.
+      expect(textOf(renderToStaticMarkup(createElement(FeedbackControls, { feedback: earlier, onChange: saved, tradeName: "x", versions: plain })))).toContain("Version: an earlier one (Glimmer Oddfellow for Ignatius Fumblewick)");
+      // Without the league's names, still never the version shown now.
+      expect(textOf(renderToStaticMarkup(createElement(FeedbackControls, { feedback: { ...earlier, versionWords: null }, onChange: saved, tradeName: "x", versions: stepped })))).toContain("Version: an earlier one");
+      // A later outcome keeps the recorded version without asking.
+      expect(outcomeAction(earlier, stepped, "rejected")).toEqual({ action: "save", change: { outcome: "rejected" } });
+    });
   });
 });
 
@@ -369,7 +530,8 @@ describe("the Trade Analyzer", () => {
     expect(html).toContain('<option value="" selected="">Choose a team…</option>');
     expect(html).toMatch(/<fieldset class="min-w-0"><legend class="[^"]*">You give<\/legend>/);
     expect(textOf(html)).toContain("You get Choose a team first to see its players.");
-    expect((html.match(/<label class="flex min-h-11/g) ?? []).length).toBe(8);
+    // My 8 active-roster players and my IR player (Phase 4b: IR players are tradable).
+    expect((html.match(/<label class="flex min-h-11/g) ?? []).length).toBe(9);
     expect(html).toMatch(/<button type="button" aria-disabled="true" class="[^"]*">Evaluate trade<\/button>/);
     expect(textOf(html)).toContain("Choose a team and at least one player to evaluate a trade.");
   });
@@ -377,7 +539,8 @@ describe("the Trade Analyzer", () => {
   it("checks the drafted players, disables the rest of a full side and says why, and evaluates a complete trade", () => {
     const html = form({ partnerId: "2", give: ["101", "102", "104", "105"], get: ["203"] });
     expect((html.match(/checked=""/g) ?? []).length).toBe(5);
-    expect((html.match(/disabled=""/g) ?? []).length).toBe(4);
+    // My side is full: my other 4 active-roster players and my IR player are disabled.
+    expect((html.match(/disabled=""/g) ?? []).length).toBe(5);
     expect(textOf(html)).toContain("That's 4 players, the most a side can have here. Uncheck one to pick another.");
     expect(html).toMatch(/<legend class="[^"]*">You get from Gravel Gophers<\/legend>/);
     expect(html).toMatch(/<button type="button" class="[^"]*">Evaluate trade<\/button>/);
@@ -399,6 +562,20 @@ describe("the Trade Analyzer", () => {
     // Without them (no odds), no line.
     const plain = renderToStaticMarkup(createElement(AnalysisResult, { view: buildAnalysisView({ evaluation: evaluation(), illegal: null, notes: [] }, snapshot), ...props }));
     expect(plain).not.toContain("Your odds before");
+  });
+
+  it("says a trade opened from 'If they say no, try:' is shown as one offer, first among the notes under its card (review of Phase 4b)", () => {
+    const props = { stale: false, records: [], leagueKey: "espn:0000abcd", onFeedback: saved };
+    const view = buildAnalysisView({ evaluation: evaluation(), illegal: null, notes: ["Long-term values didn't load."] }, snapshot, undefined, { from: "planB" });
+    expect(view.notes).toEqual([FROM_PLAN_B_NOTE, "Long-term values didn't load."]);
+    const html = renderToStaticMarkup(createElement(AnalysisResult, { view, ...props }));
+    expect(textOf(html)).toContain(
+      "You opened this from “If they say no, try:” on a trade idea, so it's shown as one offer, without a smaller first offer to try before it: they've just turned down a trade with the same team. Long-term values didn't load.",
+    );
+    expect(html.indexOf("You opened this from")).toBeGreaterThan(html.indexOf("What happened with it?"));
+    // Not otherwise, and not without a card.
+    expect(buildAnalysisView({ evaluation: evaluation(), illegal: null, notes: [] }, snapshot).notes).toEqual([]);
+    expect(buildAnalysisView({ evaluation: null, illegal: "You can't trade a player twice.", notes: [] }, snapshot, undefined, { from: "planB" }).notes).toEqual([]);
   });
 
   it("shows the analyzed trade's steps on its card too (useful for counteroffers)", () => {

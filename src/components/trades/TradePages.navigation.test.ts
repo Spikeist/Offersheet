@@ -38,7 +38,7 @@ import { buildFinderView, buildTradeCard } from "@/lib/tradeView";
 import { NOW, leagueFixture } from "../league/testFixtures";
 import { TradePartners } from "../league/TradePartners";
 import { AnalyzerPage } from "./AnalyzerPage";
-import { rememberFinderAddress, rememberReturn, resetFinderMemory, takeReturn } from "./finderMemory";
+import { rememberFinderAddress, rememberReturn, resetFinderMemory, takeReturn, takeReturnTarget } from "./finderMemory";
 import { TradeCard } from "./TradeCard";
 import { FinderFrame, TradeFinderPage } from "./TradeFinderPage";
 import { evaluation, searchResult, tradeSnapshot } from "./testFixtures";
@@ -87,8 +87,18 @@ describe("the pages follow useSearchParams, never window.location (client naviga
 
 describe("links that carry ids are never prefetched", () => {
   it("the trade card's Open in Analyzer", () => {
-    renderToStaticMarkup(createElement(TradeCard, { card: buildTradeCard(evaluation(), { snapshot: tradeSnapshot() }), rank: 1, feedback: { outcome: null, report: null }, onFeedback: () => ({ ok: true as const }) }));
+    renderToStaticMarkup(createElement(TradeCard, { card: buildTradeCard(evaluation(), { snapshot: tradeSnapshot() }), rank: 1, feedback: { outcome: null, report: null, version: null, versionKey: null, versionWords: null }, onFeedback: () => ({ ok: true as const }) }));
     expect(env.links.filter((l) => l.href.startsWith("/analyzer?"))).toEqual([{ href: "/analyzer?partner=2&give=106&get=204", prefetch: false }]);
+  });
+
+  it("Plan B's Open in Analyzer too (planner reply to Checkpoint 4, change 6)", () => {
+    const planB = { proposal: { partnerId: "2", give: [{ kind: "player" as const, id: "105" }], get: [{ kind: "player" as const, id: "203" }] }, key: "2|give:105|get:203", b: 2, tradeScore: 28, pAccept: 0.4, pComplete: 0.4, acceptLabel: "Decent", overall: 13, kind: "otherTarget" as const };
+    renderToStaticMarkup(createElement(TradeCard, { card: buildTradeCard(evaluation({ planB }), { snapshot: tradeSnapshot() }), rank: 1, feedback: { outcome: null, report: null, version: null, versionKey: null, versionWords: null }, onFeedback: () => ({ ok: true as const }) }));
+    // The card's own first, then its Plan B's (after the card's content since the review of Phase 4b), marked as one.
+    expect(env.links.filter((l) => l.href.startsWith("/analyzer?"))).toEqual([
+      { href: "/analyzer?partner=2&give=106&get=204", prefetch: false },
+      { href: "/analyzer?partner=2&give=105&get=203&from=planB", prefetch: false },
+    ]);
   });
 
   it("the League page's partner cards' Trade ideas", () => {
@@ -135,5 +145,32 @@ describe("the trip between the Trade Finder and the Analyzer (review of Phase 4)
     rememberReturn("search-key", "a");
     expect(takeReturn("search-key")).toBe("a");
     expect(takeReturn("search-key")).toBeNull();
+  });
+
+  it("remembers which of an idea's links was used, its own or its Plan B's, to bring that one back into view (Phase 4b)", () => {
+    const seen: [string, string | undefined][] = [];
+    const planB = { proposal: { partnerId: "2", give: [{ kind: "player" as const, id: "105" }], get: [{ kind: "player" as const, id: "203" }] }, key: "2|give:105|get:203", b: 2, tradeScore: 28, pAccept: 0.4, pComplete: 0.4, acceptLabel: "Decent", overall: 13, kind: "otherTarget" as const };
+    const found = buildFinderView({ result: searchResult([evaluation({ key: "a", planB })]), sort: "overall", snapshot: tradeSnapshot(), partnerId: null });
+    renderToStaticMarkup(
+      createElement(FinderFrame, {
+        state: { kind: "done", view: found },
+        teamName: null,
+        controls: null,
+        records: [],
+        leagueKey: "espn:0000abcd",
+        onFeedback: () => ({ ok: true as const }),
+        onOpenAnalyzer: (key: string, href?: string) => void seen.push([key, href]),
+      }),
+    );
+    for (const o of env.links.filter((l) => l.href.startsWith("/analyzer?"))) o.onClick?.();
+    expect(seen).toEqual([
+      ["a", "/analyzer?partner=2&give=106&get=204"],
+      ["a", "/analyzer?partner=2&give=105&get=203&from=planB"],
+    ]);
+    rememberReturn("search-key", "a", "/analyzer?partner=2&give=105&get=203&from=planB");
+    expect(takeReturnTarget("search-key")).toEqual({ cardKey: "a", href: "/analyzer?partner=2&give=105&get=203&from=planB" });
+    expect(takeReturnTarget("search-key")).toBeNull();
+    rememberReturn("search-key", "a");
+    expect(takeReturnTarget("search-key")).toEqual({ cardKey: "a", href: null });
   });
 });

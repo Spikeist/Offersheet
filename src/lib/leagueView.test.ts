@@ -26,6 +26,8 @@ import {
   STARTER_TAG,
   UNDER_WAY_TEXT,
   availabilityNoteText,
+  blendIsOwnPoint,
+  blendText,
   buildLeagueView,
   heatStep,
   likelyStarters,
@@ -808,7 +810,7 @@ describe("buildLeagueView: best trade partners (§7, from trade chips; planner a
       [
         "Gravel Gophers",
         "Fit 2.4",
-        ["Best target: C. Snoot, +2.1/wk", "Bigger upgrade, harder to get: M. Gloop, +2.5/wk"],
+        ["Best of their trade chips: C. Snoot, +2.1/wk", "Bigger upgrade, harder to get: M. Gloop, +2.5/wk"],
         "They could also give:",
         ["I. Fumblewick (+1.2/wk)", "P. Plunk (+0.5/wk)", "P. Wobbleton (+0.4/wk)"],
         null,
@@ -817,7 +819,7 @@ describe("buildLeagueView: best trade partners (§7, from trade chips; planner a
       ],
       // Mop adds less than the floor (config.needs.bestTargetMin) and nobody tagged adds more: no lead line, he's listed.
       ["Quasar Quokkas", "Fit 1.1", [], "They could give:", ["L. Mop (+0.9/wk)"], null, "You could give:", ["W. Spoons (+1.3/wk)"]],
-      ["Tundra Tortoises", "Would start for you", ["Best target: O. Wren, +1.6/wk"], "They could also give:", [], null, "You could give:", []], // one-sided: after every mutual fit
+      ["Tundra Tortoises", "Would start for you", ["Best of their trade chips: O. Wren, +1.6/wk"], "They could also give:", [], null, "You could give:", []], // one-sided: after every mutual fit
     ]);
     expect(v.partners.cards[0]?.youCanGive.more).toBeNull();
     expect(v.partners.cards.map((c) => c.mutual)).toEqual([true, true, false]);
@@ -870,20 +872,20 @@ describe("buildLeagueView: best trade partners (§7, from trade chips; planner a
       { playerId: "204", ppw: 2.1 },
       { playerId: "202", ppw: 0.8 },
     ]);
-    expect(leads(cardsOf(f)[0])).toEqual(["Best target: C. Snoot, +2.1/wk"]);
+    expect(leads(cardsOf(f)[0])).toEqual(["Best of their trade chips: C. Snoot, +2.1/wk"]);
     // Gloop stays in the rest of the list, marked.
     expect(cardsOf(f)[0]?.theyCanGive.players.map((p) => [p.text, p.tag?.text ?? null])).toEqual([["M. Gloop (+0.8/wk)", HARDER_TO_GET_TAG]]);
   });
 
-  it("says 'Best target, harder to get' when every one is tagged (no untagged one to be bigger than), and 'They could give' without targets", () => {
+  it("says 'Best of their trade chips, harder to get' when every one is tagged (no untagged one to be bigger than), and 'They could give' without targets", () => {
     const allTagged = withTeam2([
       { playerId: "202", ppw: 2.5 },
       { playerId: "201", ppw: 0.4 },
     ]);
     const card = cardsOf(allTagged)[0];
-    expect(leads(card)).toEqual(["Best target, harder to get: M. Gloop, +2.5/wk"]);
+    expect(leads(card)).toEqual(["Best of their trade chips, harder to get: M. Gloop, +2.5/wk"]);
     expect(card?.theyCanGive.players.map((p) => p.text)).toEqual(["P. Wobbleton (+0.4/wk)"]);
-    expect(BEST_TARGET_HARDER_LABEL).toBe("Best target, harder to get");
+    expect(BEST_TARGET_HARDER_LABEL).toBe("Best of their trade chips, harder to get");
     // Nobody adds anything (the engine lists only players who do; defensively): no targets, the list as before.
     const none = withTeam2([{ playerId: "204", ppw: 0 }]);
     expect(cardsOf(none)[0]?.targets).toEqual([]);
@@ -897,8 +899,8 @@ describe("buildLeagueView: best trade partners (§7, from trade chips; planner a
     expect(v.partners.cards.find((c) => c.teamId === "3")).toMatchObject({ targets: [], theyCanGive: { label: "They could give:", players: [{ id: "303", text: "L. Mop (+0.9/wk)", tag: null }], more: null } });
     // At the floor he leads ("at least"); judged as printed: 0.96 shows "+1/wk" and leads, 0.94 shows "+0.9/wk" and doesn't.
     const alone = (ppw: number) => cardsOf(withTeam2([{ playerId: "204", ppw }]))[0];
-    expect(leads(alone(1))).toEqual(["Best target: C. Snoot, +1/wk"]);
-    expect(leads(alone(0.96))).toEqual(["Best target: C. Snoot, +1/wk"]);
+    expect(leads(alone(1))).toEqual(["Best of their trade chips: C. Snoot, +1/wk"]);
+    expect(leads(alone(0.96))).toEqual(["Best of their trade chips: C. Snoot, +1/wk"]);
     expect(alone(0.94)).toMatchObject({ targets: [], theyCanGive: { label: "They could give:", players: [{ id: "204", text: "C. Snoot (+0.9/wk)" }] } });
     // An untagged best under the floor leads nothing, even next to a tagged one who adds less (he'd be no best target).
     const under = cardsOf(withTeam2([{ playerId: "204", ppw: 0.9 }, { playerId: "202", ppw: 0.5 }]))[0];
@@ -912,7 +914,7 @@ describe("buildLeagueView: best trade partners (§7, from trade chips; planner a
     expect(zero).toMatchObject({ targets: [], theyCanGive: { label: "They could give:", players: [{ id: "202", text: "M. Gloop (0/wk)", tag: { text: HARDER_TO_GET_TAG } }] } });
     // Weaker untagged chips follow the best target, in the engine's order.
     const weaker = cardsOf(withTeam2([{ playerId: "204", ppw: 2.1 }, { playerId: "203", ppw: 0.6 }, { playerId: "205", ppw: 0.2 }]))[0];
-    expect(leads(weaker)).toEqual(["Best target: C. Snoot, +2.1/wk"]);
+    expect(leads(weaker)).toEqual(["Best of their trade chips: C. Snoot, +2.1/wk"]);
     expect(weaker?.theyCanGive).toMatchObject({ label: "They could also give:", players: [{ text: "I. Fumblewick (+0.6/wk)" }, { text: "P. Plunk (+0.2/wk)" }] });
   });
 
@@ -921,12 +923,12 @@ describe("buildLeagueView: best trade partners (§7, from trade chips; planner a
     // questionable with a far return date) and "Bigger upgrade, harder to get" for a tagged star adding +7.2/wk, and
     // nothing else. Here Snoot plays the back and Gloop (team 2's most valuable player, a top-12 one: tagged) the star.
     const card = cardsOf(withTeam2([{ playerId: "202", ppw: 7.2 }, { playerId: "204", ppw: 0.1 }]))[0];
-    expect(leads(card)).toEqual(["Best target, harder to get: M. Gloop, +7.2/wk"]);
+    expect(leads(card)).toEqual(["Best of their trade chips, harder to get: M. Gloop, +7.2/wk"]);
     expect(card?.targets[0]).toMatchObject({ id: "202", label: BEST_TARGET_HARDER_LABEL, harderToGet: true, title: expect.stringMatching(/^Mortimer Gloop: \+7\.2 points per week to your lineup\. Harder to get: /) });
     // The back goes to "They could also give".
     expect(card?.theyCanGive).toEqual({ label: "They could also give:", players: [{ id: "204", text: "C. Snoot (+0.1/wk)", title: "Cornelius Snoot: +0.1 points per week to the other lineup", tag: null }], more: null });
     // With the back at the floor, the card reads as before the floor: him first, the star second as the bigger upgrade.
-    expect(leads(cardsOf(withTeam2([{ playerId: "202", ppw: 7.2 }, { playerId: "204", ppw: 1 }]))[0])).toEqual(["Best target: C. Snoot, +1/wk", "Bigger upgrade, harder to get: M. Gloop, +7.2/wk"]);
+    expect(leads(cardsOf(withTeam2([{ playerId: "202", ppw: 7.2 }, { playerId: "204", ppw: 1 }]))[0])).toEqual(["Best of their trade chips: C. Snoot, +1/wk", "Bigger upgrade, harder to get: M. Gloop, +7.2/wk"]);
     // The floor holds for a tagged lead too (the lead's call on N12 after the final review): a "+0.5/wk" star leads nothing.
     const weakStar = cardsOf(withTeam2([{ playerId: "202", ppw: 0.5 }, { playerId: "204", ppw: 0.1 }]))[0];
     expect(leads(weakStar)).toEqual([]);
@@ -935,7 +937,7 @@ describe("buildLeagueView: best trade partners (§7, from trade chips; planner a
       ["C. Snoot (+0.1/wk)", null],
     ]);
     // At the floor he leads.
-    expect(leads(cardsOf(withTeam2([{ playerId: "202", ppw: 1 }, { playerId: "204", ppw: 0.1 }]))[0])).toEqual(["Best target, harder to get: M. Gloop, +1/wk"]);
+    expect(leads(cardsOf(withTeam2([{ playerId: "202", ppw: 1 }, { playerId: "204", ppw: 0.1 }]))[0])).toEqual(["Best of their trade chips, harder to get: M. Gloop, +1/wk"]);
   });
 
   it("breaks ties the card's way: the untagged one is the better on a tie as printed, and 'at least' the floor counts", () => {
@@ -944,25 +946,25 @@ describe("buildLeagueView: best trade partners (§7, from trade chips; planner a
       { playerId: "202", ppw: 2.1 },
       { playerId: "204", ppw: 2.1 },
     ]);
-    expect(leads(cardsOf(tie)[0])).toEqual(["Best target: C. Snoot, +2.1/wk"]);
+    expect(leads(cardsOf(tie)[0])).toEqual(["Best of their trade chips: C. Snoot, +2.1/wk"]);
     expect(cardsOf(tie)[0]?.theyCanGive.players.map((p) => p.id)).toEqual(["202"]);
     // A tie as printed: 2.14 and 2.06 both show "+2.1/wk", so the tagged one isn't called bigger either.
     const printed = cardsOf(withTeam2([{ playerId: "202", ppw: 2.14 }, { playerId: "204", ppw: 2.06 }]))[0];
-    expect(leads(printed)).toEqual(["Best target: C. Snoot, +2.1/wk"]);
+    expect(leads(printed)).toEqual(["Best of their trade chips: C. Snoot, +2.1/wk"]);
     expect(printed?.theyCanGive.players.map((p) => [p.text, p.tag?.text ?? null])).toEqual([["M. Gloop (+2.1/wk)", HARDER_TO_GET_TAG]]);
     // A tie at the floor: the untagged one leads ("at least"); the tagged one isn't bigger.
-    expect(leads(cardsOf(withTeam2([{ playerId: "202", ppw: 1 }, { playerId: "204", ppw: 1 }]))[0])).toEqual(["Best target: C. Snoot, +1/wk"]);
+    expect(leads(cardsOf(withTeam2([{ playerId: "202", ppw: 1 }, { playerId: "204", ppw: 1 }]))[0])).toEqual(["Best of their trade chips: C. Snoot, +1/wk"]);
     // A tie under the floor: the untagged one is the better but under the floor, so nobody leads; both are listed.
     const under = cardsOf(withTeam2([{ playerId: "202", ppw: 0.5 }, { playerId: "204", ppw: 0.5 }]))[0];
     expect(under?.targets).toEqual([]);
     expect(under?.theyCanGive).toMatchObject({ label: "They could give:", players: [{ id: "202" }, { id: "204" }] });
     // Two untagged ones tied: the engine's order decides.
-    expect(leads(cardsOf(withTeam2([{ playerId: "205", ppw: 1.5 }, { playerId: "204", ppw: 1.5 }]))[0])).toEqual(["Best target: P. Plunk, +1.5/wk"]);
+    expect(leads(cardsOf(withTeam2([{ playerId: "205", ppw: 1.5 }, { playerId: "204", ppw: 1.5 }]))[0])).toEqual(["Best of their trade chips: P. Plunk, +1.5/wk"]);
   });
 
-  it("says under the cards what 'Best target' means, with config's floor", () => {
+  it("says under the cards what 'Best of their trade chips' means, with config's floor", () => {
     expect(BEST_TARGET_NOTE).toBe(
-      "“Best target” is the most helpful of their trade chips for you without the “Harder to get” mark, as long as he adds at least 1 point a week; when none does, a marked one who'd help you more leads instead, if he adds at least that much too. A marked player is one of their best, so expect their manager to want a little extra for him.",
+      "“Best of their trade chips” is the one of their trade chips who'd help you most without the “Harder to get” mark, as long as he adds at least 1 point a week; when none does, a marked one who'd help you more leads instead, if he adds at least that much too. A marked player is one of their best, so expect their manager to want a little extra for him.",
     );
   });
 
@@ -970,9 +972,23 @@ describe("buildLeagueView: best trade partners (§7, from trade chips; planner a
     const f = leagueFixture();
     f.model.teams = f.model.teams.map((t) => ({ ...t, premiums: undefined }));
     const cards = cardsOf(f);
-    expect(leads(cards[0])).toEqual(["Best target: M. Gloop, +2.5/wk"]);
+    expect(leads(cards[0])).toEqual(["Best of their trade chips: M. Gloop, +2.5/wk"]);
     expect(cards.flatMap((c) => [...c.theyCanGive.players, ...c.youCanGive.players]).every((p) => p.tag === null)).toBe(true);
     expect(cards.flatMap((c) => c.targets).every((t) => !t.harderToGet)).toBe(true);
+  });
+
+  it("reads 'Best of their trade chips' (planner reply to Checkpoint 4, change 6: it read 'Best target')", () => {
+    expect(BEST_TARGET_LABEL).toBe("Best of their trade chips");
+    expect(BEST_TARGET_HARDER_LABEL).toBe("Best of their trade chips, harder to get");
+    expect(JSON.stringify(v.partners)).not.toContain("Best target");
+  });
+
+  it("ends each card with 'See trade ideas with <team>', the one-partner Trade Finder (planner reply to Checkpoint 4, change 6)", () => {
+    expect(v.partners.cards.map((c) => c.ideas)).toEqual([
+      { text: "See trade ideas with Gravel Gophers", href: "/trades?partner=2" },
+      { text: "See trade ideas with Quasar Quokkas", href: "/trades?partner=3" },
+      { text: "See trade ideas with Tundra Tortoises", href: "/trades?partner=4" },
+    ]);
   });
 
   it("labels a one-sided fit by what was measured, so a team with no needs isn't told a partner fills them", () => {
@@ -1168,6 +1184,86 @@ describe("buildLeagueView: conflicting ESPN signals (§6 step 3, PlayerModel.ava
   });
 });
 
+describe("buildLeagueView: the market blend (§6 step 8, PlayerModel.blend; planner reply to Checkpoint 4, change 1)", () => {
+  /** The league before kickoff, with Team 1's questionable RB (103) blended toward the trade market. */
+  const blended = (): LeagueFixture => {
+    const f = leagueFixture({ gameDay: false });
+    const pm = f.model.players["103"];
+    if (!pm) throw new Error("fixture RB missing");
+    f.model.players["103"] = { ...pm, blend: { ours: 210.4, market: 169.6, used: 190, weight: 0.5 } };
+    return f;
+  };
+
+  it("shows our projection, the trade market's and the blend used, rounded, in a blended player's breakdown and hover (after his conflict note)", () => {
+    const view = of(blended(), { now: BEFORE_KICKOFF });
+    const rb = view.rosters.find((r) => r.teamId === "1")?.players.find((p) => p.id === "103") as PlayerRow;
+    expect(rb.blend).toEqual({
+      text: "Our projection 210 · Trade market 170 · Used 190",
+      title:
+        "Rest-of-season points. Our projection: our own model's. Trade market: the same games at the points per game our model gives healthy players with his trade value. Used: 50% ours and 50% the market's, which every number on this page uses.",
+    });
+    expect(rb.weeksText.split("\n").slice(0, 2)).toEqual([rb.availabilityNote?.long, rb.blend?.text]);
+    // Nobody else was blended, so nobody else has the line.
+    expect(view.rosters.flatMap((r) => r.players).filter((p) => p.blend).map((p) => p.id)).toEqual(["103"]);
+    expect(blendText({ ours: 100, market: 140, used: 110, weight: 0.25 }).title).toContain("Used: 75% ours and 25% the market's");
+  });
+
+  it("in a dynasty league, says the trade market is this season's values, not the dynasty values the page shows (review of track A)", () => {
+    const b = { ours: 100, market: 140, used: 120, weight: 0.5 };
+    expect(blendText(b, "dynasty").title).toContain("healthy players with his trade value this season (FantasyCalc's redraft values).");
+    for (const type of ["redraft", "keeper"] as const) expect(blendText(b, type).title).toContain("healthy players with his trade value. Used:");
+    const dynasty = blended();
+    dynasty.snapshot = { ...dynasty.snapshot, settings: { ...dynasty.snapshot.settings, leagueType: "dynasty" } };
+    const view = of(dynasty, { now: BEFORE_KICKOFF });
+    expect(view.rosters.find((r) => r.teamId === "1")?.players.find((p) => p.id === "103")?.blend?.title).toBe(blendText(b, "dynasty").title);
+    expect(view.explain.find((e) => e.title === "Projected points")?.text).toContain("with a FantasyCalc trade value this season (its redraft values, not the dynasty values shown here), points per game are pulled halfway");
+  });
+
+  it("says the market has no comparison for a player at the top or bottom of his position's value range, never three equal numbers (review of Phase 4b)", () => {
+    // Blended RBs: Gloop (7,900, the top value: his market number is his own), Snoot (4,200, read off the curve) and
+    // Quibble (2,400, the lowest: his own number too).
+    const f = leagueFixture({ gameDay: false });
+    const set = (id: string, blend: { ours: number; market: number; used: number; weight: number }) => {
+      const pm = f.model.players[id];
+      if (!pm) throw new Error(`fixture player ${id} missing`);
+      f.model.players[id] = { ...pm, blend };
+    };
+    set("202", { ours: 313.2, market: 313.2, used: 313.2, weight: 0.5 });
+    set("204", { ours: 150, market: 130, used: 140, weight: 0.5 });
+    set("102", { ours: 120.4, market: 120.4, used: 120.4, weight: 0.5 });
+    const rows = of(f, { now: BEFORE_KICKOFF }).rosters.flatMap((r) => r.players);
+    const row = (id: string) => rows.find((p) => p.id === id)?.blend;
+    expect(row("202")).toEqual({
+      text: "Our projection 313 · Trade market: no comparison (top value at his position) · Used 313",
+      title:
+        "Rest-of-season points. Our projection: our own model's. Trade market: none for him: no other healthy player at his position has a trade value as high as his, so the market can't say more than our projection, which every number on this page uses as it is.",
+    });
+    expect(row("102")?.text).toBe("Our projection 120 · Trade market: no comparison (lowest value at his position) · Used 120");
+    expect(row("102")?.title).toContain("no other healthy player at his position has a trade value as low as his");
+    expect(row("204")?.text).toBe("Our projection 150 · Trade market 130 · Used 140");
+    // The hover's breakdown says the same.
+    expect(rows.find((p) => p.id === "202")?.weeksText).toContain("Trade market: no comparison (top value at his position)");
+    // Which end isn't known (a dynasty league shows other values than the blend reads): said without it.
+    expect(blendText({ ours: 313.2, market: 313.2, used: 313.2, weight: 0.5 }).text).toBe("Our projection 313 · Trade market: no comparison (his value is at the end of his position's range) · Used 313");
+    const dynasty = { ...f, snapshot: { ...f.snapshot, settings: { ...f.snapshot.settings, leagueType: "dynasty" as const } } };
+    const dynRow = of(dynasty, { now: BEFORE_KICKOFF }).rosters.flatMap((r) => r.players).find((p) => p.id === "202")?.blend;
+    expect(dynRow?.text).toBe("Our projection 313 · Trade market: no comparison (his value is at the end of his position's range) · Used 313");
+    expect(dynRow?.title).toContain("his trade value this season (FantasyCalc's redraft values) is at one end of his position's range");
+    // Equal to floating-point precision (another blend weight), and only then.
+    expect(blendIsOwnPoint({ ours: 200, market: 200 * (1 + 4e-16) })).toBe(true);
+    expect(blendIsOwnPoint({ ours: 200, market: 200.01 })).toBe(false);
+    expect(blendIsOwnPoint({ ours: 120.3, market: 120.4 })).toBe(false);
+  });
+
+  it("says in 'Projected points' which positions were blended, how far and that it is per game; nothing when nobody was", () => {
+    const text = (f: LeagueFixture) => of(f, { now: BEFORE_KICKOFF }).explain.find((e) => e.title === "Projected points")?.text ?? "";
+    expect(text(blended())).toContain(
+      "Then, for RBs with a FantasyCalc trade value, points per game are pulled halfway toward what our model gives healthy players with about the same trade value, so a projection the trade market disagrees with counts for less; byes and injuries stay as projected (a player's breakdown shows both numbers).",
+    );
+    expect(text(leagueFixture({ gameDay: false }))).not.toContain("trade market");
+  });
+});
+
 describe("buildLeagueView: each team's free-agent pickups (§7 V*, TeamModel.faMoves)", () => {
   const withMoves = (teamId: string, faMoves: TeamModel["faMoves"]) => {
     const f = leagueFixture();
@@ -1261,6 +1357,42 @@ describe("buildLeagueView: each team's free-agent pickups (§7 V*, TeamModel.faM
     expect(withMoves("1", [{ add: "903", drop: "999", gainEv: 3, gainScen: null }])?.items[0]?.move).toBe(`add ${nameOf("903")} (WR), drop Unknown player (999)`);
     expect(withMoves("3", [{ add: "LV", drop: null, gainEv: 3, gainScen: null }])?.items[0]?.move).toBe("add Unknown player (LV) into an open spot");
     expect(withMoves("3", [{ add: "904", drop: null, gainEv: 3, gainScen: null }])?.items[0]?.move).toBe(`add ${nameOf("904")} (K, LV) into an open spot`);
+  });
+});
+
+describe("buildLeagueView: one free agent, one team (§7; LeagueModel.faAllocation; planner reply to Checkpoint 4, change 3)", () => {
+  const withAllocation = (faAllocation: NonNullable<LeagueFixture["model"]["faAllocation"]>, opts: Parameters<typeof leagueFixture>[0] = {}) => {
+    const f = leagueFixture(opts);
+    f.model = { ...f.model, faAllocation };
+    return of(f);
+  };
+
+  it("says above the rosters how free agents are shared out, and where my team picks", () => {
+    expect(withAllocation({ basis: "waiver", order: ["3", "1", "2", "4"] }).pickupsNote).toBe("Free-agent pickups: each free agent goes to one team only, in your league's waiver order. Your team picks 2nd of 4.");
+    expect(withAllocation({ basis: "faab", order: ["1", "2", "3", "4"] }).pickupsNote).toBe("Free-agent pickups: each free agent goes to one team only, in FAAB order (the most budget left first). Your team picks 1st of 4.");
+    // "Wasn't available", never "doesn't report" (review of track F): an import saved before the adapters read ESPN's
+    // waiver order has none although the league reports one.
+    expect(withAllocation({ basis: "gain", order: ["2", "4", "3", "1"] }).pickupsNote).toBe(
+      "Free-agent pickups: each free agent goes to one team only, the team that gains the most from its best pickup first (your league's waiver order wasn't available). Your team picks 4th of 4.",
+    );
+    expect(withAllocation({ basis: "gain", order: ["2", "4", "3", "1"] }).pickupsNote).not.toContain("doesn't report");
+  });
+
+  it("leaves out where I pick without a team, and says nothing for a model built before Phase 4b or once the season is over", () => {
+    expect(withAllocation({ basis: "waiver", order: ["3", "2", "4"] }, { myTeamId: null }).pickupsNote).toBe("Free-agent pickups: each free agent goes to one team only, in your league's waiver order.");
+    expect(v.pickupsNote).toBeNull();
+    const over = leagueFixture();
+    over.model = {
+      ...over.model,
+      weeks: [],
+      regularWeeks: [],
+      playoffWeeks: [],
+      inProgressWeek: null,
+      teams: over.model.teams.map((t) => ({ ...t, ev: { lv: [], ros: 0, ppw: 0 }, scen: null })),
+      faAllocation: { basis: "waiver", order: ["1", "2", "3", "4"] },
+    };
+    expect(of(over).pickupsNote).toBeNull();
+    expect(withAllocation({ basis: "waiver", order: [] }).pickupsNote).toBeNull();
   });
 });
 
@@ -1464,6 +1596,15 @@ describe("buildLeagueView: how these numbers work", () => {
     expect(text).toContain(
       `Free-agent pickups: Each team is measured after the free-agent pickups that would help it, made one at a time: each time the add (dropping a player, or into an open roster spot) that adds the most lineup points with injuries and byes simulated (so a backup who'd start when a starter is hurt or on bye counts), as long as it adds at least ${o.faMinGain}, up to ${o.faMaxMoves} pickups. Kickers and D/STs are never picked up (they're streamed or kept), nor is a position the team streams, and a player its starting lineup needs is never dropped. Lineup cost, trade chips and partners all start from those rosters, so a trade never gets credit for a pickup a team could make anyway. Each team is measured on its own, so two teams may count on the same free agent.`,
     );
+    // One free agent, one team (planner reply to Checkpoint 4, change 3): with an allocation, the last sentence says how
+    // free agents are shared out instead (a model built before Phase 4b, like the fixture's, keeps the old one).
+    const shared = leagueFixture();
+    shared.model = { ...shared.model, faAllocation: { basis: "waiver", order: ["3", "1", "2", "4"] } };
+    const sharedText = of(shared).explain.find((e) => e.title === "Free-agent pickups")?.text ?? "";
+    expect(sharedText).toContain(
+      "so a trade never gets credit for a pickup a team could make anyway. Each free agent goes to one team only, in your league's waiver order: each team picks from the free agents the teams before it left, and in a trade the two teams pick again from the ones every other team left.",
+    );
+    expect(sharedText).not.toContain("two teams may count on the same free agent");
     // On projected lineups without scenarios.
     const noScen = leagueFixture();
     noScen.model = { ...noScen.model, scenarios: 0 };
@@ -1488,7 +1629,7 @@ describe("buildLeagueView: how these numbers work", () => {
   it("explains 'Harder to get' with config's numbers, only when the model has premiums (planner addendum to Checkpoint 3, §2)", () => {
     const sp = config.acceptance.starPremium;
     expect(v.explain.find((e) => e.title === HARDER_TO_GET_TAG)?.text).toBe(
-      `Managers value their own best players a bit above their trade value. Another team's player marked Harder to get is one of his team's two most valuable players and one of the top ${sp.eliteTop} players by trade value (FantasyCalc's, in your league's format), so expect his manager to want a little extra for him: trade ideas count that in the chance they accept. Partner cards lead with their best target: the unmarked player who'd add the most to your lineup, if he adds at least 1 point a week. A marked player who'd add more than any unmarked one is named next, or alone when no unmarked one adds that much (he too has to add at least 1 point a week to lead). Your own players are never marked.`,
+      `Managers value their own best players a bit above their trade value. Another team's player marked Harder to get is one of his team's two most valuable players and one of the top ${sp.eliteTop} players by trade value (FantasyCalc's, in your league's format), so expect his manager to want a little extra for him: trade ideas count that in the chance they accept. Partner cards lead with the best of their trade chips: the unmarked one who'd add the most to your lineup, if he adds at least 1 point a week. A marked player who'd add more than any unmarked one is named next, or alone when no unmarked one adds that much (he too has to add at least 1 point a week to lead). Your own players are never marked.`,
     );
     const f = leagueFixture();
     f.model.teams = f.model.teams.map((t) => ({ ...t, premiums: undefined }));

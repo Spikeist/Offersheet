@@ -7,6 +7,7 @@ import {
   FREE_AGENTS_PER_POSITION,
   SEEDING_TIEBREAKER,
   divisionSeedingDocumented,
+  faabRemainingOf as sleeperFaabRemainingOf,
   findMyRosterId,
   hasProjection,
   lastDecidedWeek,
@@ -16,6 +17,7 @@ import {
   normalizeSleeperLeague,
   playoffLayout,
   sleeperPos,
+  waiverRankOf as sleeperWaiverRankOf,
   type SleeperNormalizeContext,
 } from "./normalize";
 import { mapSleeperScoring, normalizeProjectionStats } from "./scoringMap";
@@ -68,6 +70,10 @@ describe("normalizeSleeperLeague: the public test league (minimized fixtures)", 
     expect(s).toMatchObject({ benchSlots: 10, irSlots: 2, taxiSlots: 3, maxRosterSize: 20 });
     expect(s.positionLimits).toBeUndefined();
     expect(s.bestBall).toBeUndefined();
+  });
+
+  it("reads which statuses its IR slots take from reserve_allow_* (Phase 4b): IR and PUP always, OUT here (reserve_allow_out 1)", () => {
+    expect(s.irEligible).toEqual(["IR", "PUP", "OUT"]);
   });
 
   it("reads the season shape, playoffs, deadline and review with the verified codes", () => {
@@ -293,6 +299,23 @@ describe("normalizeSleeperLeague: codes and variants", () => {
     const t = loadTestLeague();
     t.league.sport = "nba";
     expectImportError(() => run(t), "UNSUPPORTED_LEAGUE", "sport");
+  });
+
+  it("maps reserve_allow_* to the IR slot's statuses (IR and PUP always); none reported → irEligible left out (unknown)", () => {
+    const eligible = (flags: Record<string, number | undefined>) => {
+      const t = loadTestLeague();
+      for (const [k, v] of Object.entries(flags)) {
+        if (v === undefined) delete t.league.settings[k];
+        else t.league.settings[k] = v;
+      }
+      return run(t).snapshot.settings.irEligible;
+    };
+    expect(eligible({ reserve_allow_out: 1, reserve_allow_doubtful: 1, reserve_allow_sus: 1, reserve_allow_na: 1 })).toEqual(["IR", "PUP", "OUT", "DOUBTFUL", "SUSPENDED", "NA"]);
+    expect(eligible({ reserve_allow_out: 0, reserve_allow_doubtful: 0, reserve_allow_sus: 1, reserve_allow_na: 0 })).toEqual(["IR", "PUP", "SUSPENDED"]);
+    expect(eligible({ reserve_allow_out: 0, reserve_allow_doubtful: 0, reserve_allow_sus: 0, reserve_allow_na: 0 })).toEqual(["IR", "PUP"]);
+    expect(eligible({ reserve_allow_out: undefined, reserve_allow_doubtful: undefined, reserve_allow_sus: undefined, reserve_allow_na: undefined })).toBeUndefined();
+    // One flag reported is enough to know the rule (the others count as 0).
+    expect(eligible({ reserve_allow_out: undefined, reserve_allow_doubtful: 1, reserve_allow_sus: undefined, reserve_allow_na: undefined })).toEqual(["IR", "PUP", "DOUBTFUL"]);
   });
 
   it("accepts best-ball leagues with an Import Report note", () => {
@@ -752,6 +775,45 @@ describe("normalizeSleeperLeague: codes and variants", () => {
     expect(p?.ownerTeamId).toBe(String(other));
     expect(codes(r)).toContain("TRADED_PICK_DUPLICATE");
     expect(r.snapshot.draftPicks).toHaveLength(108);
+  });
+});
+
+describe("normalizeSleeperLeague: the waiver order and remaining FAAB budgets (Phase 4b: one free agent, one team)", () => {
+  // The minimized fixture keeps only what tests read, so the waiver fields are made up here (the live league's
+  // waiver_position is a 1..12 permutation, waiver_budget_used 0: a rolling-waiver league, not FAAB).
+  const positions = [5, 1, 12, 7, 2, 9, 3, 11, 4, 8, 6, 10];
+
+  it("rosters[].settings.waiver_position → waiverRank (1 = first claim); not a FAAB league: no budgets", () => {
+    const t = loadTestLeague();
+    expect(t.league.settings.waiver_type).toBe(0);
+    t.rosters.forEach((r, i) => Object.assign(r.settings, { waiver_position: positions[i], waiver_budget_used: 0 }));
+    const { snapshot } = run(t);
+    expect(snapshot.teams.map((x) => x.waiverRank)).toEqual([...t.rosters].sort((a, b) => a.roster_id - b.roster_id).map((r) => r.settings.waiver_position));
+    expect(snapshot.teams.every((x) => x.faabRemaining === undefined)).toBe(true);
+    // Absent fields: no waiver ranks either.
+    expect(run(loadTestLeague()).snapshot.teams.every((x) => x.waiverRank === undefined && x.faabRemaining === undefined)).toBe(true);
+  });
+
+  it("a FAAB league (waiver_type 2): waiver_budget − waiver_budget_used, more than the budget after receiving FAAB in a trade; unreadable values left out", () => {
+    const t = loadTestLeague();
+    Object.assign(t.league.settings, { waiver_type: 2, waiver_budget: 100 });
+    const used: (number | null)[] = [0, 37, 100, -105, 140, null, 12.5, 0, 0, 0, 0, 0];
+    const ranks: (number | null)[] = [1, 2, 3, 4, 5, 6, 7, 0, 2.5, null, 11, 12];
+    const byId = [...t.rosters].sort((a, b) => a.roster_id - b.roster_id);
+    byId.forEach((r, i) => Object.assign(r.settings, { waiver_budget_used: used[i], waiver_position: ranks[i] }));
+    const { snapshot } = run(t);
+    expect(snapshot.settings.faabBudget).toBe(100);
+    expect(snapshot.teams.map((x) => x.faabRemaining)).toEqual([100, 63, 0, 205, undefined, undefined, 87.5, 100, 100, 100, 100, 100]);
+    expect(snapshot.teams.map((x) => x.waiverRank)).toEqual([1, 2, 3, 4, 5, 6, 7, undefined, undefined, undefined, 11, 12]);
+  });
+
+  it("waiverRankOf and faabRemainingOf", () => {
+    expect([1, 12, 0, -2, 1.5, Number.NaN, null, undefined].map((x) => sleeperWaiverRankOf(x))).toEqual([1, 12, undefined, undefined, undefined, undefined, undefined, undefined]);
+    expect(sleeperFaabRemainingOf(100, 30)).toBe(70);
+    expect(sleeperFaabRemainingOf(100, -20)).toBe(120);
+    expect(sleeperFaabRemainingOf(100, 120)).toBeUndefined();
+    expect(sleeperFaabRemainingOf(undefined, 30)).toBeUndefined();
+    expect(sleeperFaabRemainingOf(100, null)).toBeUndefined();
   });
 });
 

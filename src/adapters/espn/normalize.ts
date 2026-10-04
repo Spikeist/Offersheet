@@ -50,6 +50,24 @@
  *   ESPN's items carry none, so the player's defaultPositionId where a roster or a free-agent list
  *   shows him, an ESPN team-defense id, else the single-position lineup slot he left or went to.
  * - Injury return weeks: kona_playercard injuryDetails.expectedReturnDate → NFL week (weeks.ts).
+ * - IR slots (Phase 4b, engine evaluate.ts rule 5: a traded IR player goes into an open IR slot when it takes his status):
+ *   LeagueSettings.irEligible = IR and OUT (ESPN_IR_ELIGIBLE): not in ESPN's API, but ✅ documented by ESPN's help center
+ *   (Out or IR may be placed in the IR slot, suspended players may not; INJURY_RESERVE and OUT are the statuses ESPN
+ *   reports for them, positions.ts mapInjury), and seen live: 2 of the 7 players in Parker's league's IR slots on Oct 3 were
+ *   OUT. The same article says a player whose status improves to Questionable or Doubtful may stay in the slot (the
+ *   captures hold Doubtful, Questionable and even healthy players in IR slots); he can't be placed there, so a received
+ *   one joins the active roster.
+ * - Waiver order and FAAB (Phase 4b: free agents go to one team each, in this order; engine league.ts step 5):
+ *   teams[].waiverRank → Team.waiverRank, the order as it stands when the league is read (1 = first claim: ✅ both test
+ *   leagues, a 1..10 permutation; with acquisitionSettings.waiverOrderReset, which both have, it is reverse standings at
+ *   the weekly reset: on Sep 30, before that week's first waiver run, every team of each was at 11 − playoffSeed, the
+ *   0-3 team at 1). ⚠️ Not during the week: in Parker's league (WAIVERS_TRADITIONAL, waivers run six days a week) a team
+ *   whose claim goes through moves to the back until the next reset, so on Oct 3, after three runs, the week's claimants
+ *   were last (Parker's team 10th of 10, 4th at the reset): the order read, and so the allocation, depends on the day
+ *   of the week the league is imported. In a FAAB league (settings.faabBudget), Team.faabRemaining =
+ *   acquisitionBudget − teams[].transactionCounter.acquisitionBudgetSpent (⚠️ the public test league's spent amounts,
+ *   0–33 of 200, never above the budget, weren't cross-checked against winning bids: its transactions weren't captured).
+ *   A rank that isn't a whole number ≥ 1, or a remaining budget below 0 or unreadable, is left out.
  * - SWIDs: the fetch step replaced them with pseudonyms (fetch.ts); owners and members are matched
  *   in that form, and ctx.swid is the cookie holder's pseudonym. None reaches the snapshot.
  * - Player ids (§2.9 "Player ID crosswalk rules", Checkpoint 1 answers 1 and 2): for the players in
@@ -61,7 +79,7 @@
 import type { CrosswalkConflict, CrosswalkSourceKey, PlayerIdResolver } from "@/data/types";
 import { returnDateConflict } from "@/engine/availability";
 import { config } from "@/engine/config";
-import type { ImportWarning, LeagueSettings, LeagueSnapshot, Matchup, MatchupResult, PlayerInfo, Pos, SeedingTiebreaker, SlotDef, Team, Transaction, UnknownSetting } from "@/engine/model";
+import type { ImportWarning, InjuryStatus, LeagueSettings, LeagueSnapshot, Matchup, MatchupResult, PlayerInfo, Pos, SeedingTiebreaker, SlotDef, Team, Transaction, UnknownSetting } from "@/engine/model";
 import { ESPN_PRO_TEAMS } from "./constants";
 import { POSITION_ID, SLOT, eligiblePositions, mapInjury, positionIdsFor, positionOf, slotInfo } from "./positions";
 import { buildEspnScoring, type ScoringContext } from "./scoringMap";
@@ -449,6 +467,14 @@ const SEEDING_RULE_NOT_REPORTED = "UNKNOWN";
 export const DIVISION_SEEDING_SOURCE = "ESPN's help center says division winners always occupy the top seeds";
 
 /**
+ * The statuses ESPN's IR slot takes (LeagueSettings.irEligible; the file header, "IR slots"): ESPN's help center, "Players on
+ * Injured Reserve (IR)" (support.espn.com/hc/en-us/articles/115003849911, updated 2026-08-18): "In ESPN Fantasy Football,
+ * players with either the Out (O) or Injured/Reserve (IR) status may be placed into the IR slot", and "Suspended players
+ * (SSPD) are NOT eligible for IR on FFL".
+ */
+export const ESPN_IR_ELIGIBLE: readonly InjuryStatus[] = ["IR", "OUT"];
+
+/**
  * The league's seeding tiebreaker, or undefined (plus "seedingTiebreaker" in unknownSettings and a
  * warning) when ESPN doesn't report one (missing, or its UNKNOWN placeholder) or reports one we don't
  * model: the simulator then breaks ties by points for. A rule read only from its name gets a note, so
@@ -566,6 +592,8 @@ function settingsOf(L: EspnLeague, slots: SlotSummary, proTeams: EspnProTeam[] |
     lineup: slots.lineup,
     benchSlots: slots.benchSlots,
     irSlots: slots.irSlots,
+    // Not in ESPN's API; its help center documents it (ESPN_IR_ELIGIBLE, the file header).
+    irEligible: [...ESPN_IR_ELIGIBLE],
     taxiSlots: 0,
     maxRosterSize: slots.maxRosterSize,
     ...(positionLimits ? { positionLimits } : {}),
@@ -870,6 +898,25 @@ function freeAgentsOf(pool: EspnPoolPlayer[], rostered: ReadonlySet<number>, all
 }
 
 // ---------------------------------------------------------------------------------------------
+// Waiver order and FAAB (Team.waiverRank, Team.faabRemaining: one free agent, one team; the file header)
+
+/** teams[].waiverRank when it is a whole number ≥ 1 (1 = first claim), else undefined. */
+export function waiverRankOf(rank: number | null | undefined): number | undefined {
+  return typeof rank === "number" && Number.isInteger(rank) && rank >= 1 ? rank : undefined;
+}
+
+/**
+ * A FAAB league's remaining budget for a team: acquisitionSettings.acquisitionBudget − teams[].transactionCounter.
+ * acquisitionBudgetSpent, when the league uses FAAB (`budget`: settings.faabBudget) and the spent amount is a number;
+ * undefined otherwise, or when it would be below 0 (unreadable).
+ */
+export function faabRemainingOf(budget: number | undefined, spent: number | null | undefined): number | undefined {
+  if (budget === undefined || typeof spent !== "number" || !Number.isFinite(spent)) return undefined;
+  const left = budget - spent;
+  return Number.isFinite(left) && left >= 0 ? left : undefined;
+}
+
+// ---------------------------------------------------------------------------------------------
 // Snapshot
 
 export function normalizeEspnLeague(raw: EspnRawBundle, ctx: EspnNormalizeContext): EspnNormalized {
@@ -915,6 +962,8 @@ export function normalizeEspnLeague(raw: EspnRawBundle, ctx: EspnNormalizeContex
     const m = ownerSwid ? members.get(normalizeSwid(ownerSwid)) : undefined;
     const ownerName = m?.displayName?.trim() || [m?.firstName, m?.lastName].filter(Boolean).join(" ").trim() || "Unknown owner";
     const rec = t.record?.overall;
+    const waiverRank = waiverRankOf(t.waiverRank);
+    const faabRemaining = faabRemainingOf(settings.faabBudget, t.transactionCounter?.acquisitionBudgetSpent);
     return {
       id: String(t.id),
       name,
@@ -926,6 +975,8 @@ export function normalizeEspnLeague(raw: EspnRawBundle, ctx: EspnNormalizeContex
       pointsFor: round2(rec?.pointsFor ?? 0),
       pointsAgainst: round2(rec?.pointsAgainst ?? 0),
       ...(settings.divisions && t.divisionId !== undefined && t.divisionId !== null ? { divisionId: String(t.divisionId) } : {}),
+      ...(waiverRank !== undefined ? { waiverRank } : {}),
+      ...(faabRemaining !== undefined ? { faabRemaining } : {}),
     };
   });
 

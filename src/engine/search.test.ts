@@ -1,13 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { marketTermPackage, tradePackage } from "./benefit";
+import { tradePackage } from "./benefit";
 import { config } from "./config";
 import { NO_TEAM_NOTE, assetValue, buildTradeContext, evaluateExact, simCounts, simulateTrade, tradeInternals, type ExactTrade, type TeamState } from "./evaluate";
-import { rankTrades } from "./rank";
+import { assetId, rankTrades } from "./rank";
 import { belowWaiverCredit, buildPools, finalistsOf, partnerCandidates, rankCaps, runTradeSearch, shortlistOf, tradeSearch, type TradeSearchOptions } from "./search";
 import { defaultTradeSettings, type TradeSettings } from "./settings";
 import { TEST_NOW } from "./testLeague";
 import { handLeague, smallLeague } from "./trade.testing";
-import type { TradeEvaluation, TradeSearchProgress, TradeSearchResult } from "./tradeModel";
+import { tradeEvaluation } from "./tradeTestFixtures";
+import type { TradeEvaluation, TradeEvaluationCore, TradeSearchProgress, TradeSearchResult } from "./tradeModel";
 
 const league = smallLeague(11);
 const ctx = buildTradeContext(league.snapshot, league.inputs, { now: TEST_NOW, scenarios: 8 });
@@ -166,7 +167,7 @@ describe("pools and settings (M6)", () => {
     expect(two.trades).toEqual([]);
     expect(two.notes).toContain("Your must-include players are on different teams, and a trade is with one team, so no trade can include them all.");
     const ghost = search({ partnerId: "2", settings: settingsWith({ maxPerSide: 1, mustInclude: ["nobody"] }) });
-    expect(ghost.notes).toContain("1 must-include player isn't on any team's active roster, so it's ignored.");
+    expect(ghost.notes).toContain("1 must-include player isn't on any team's active roster or IR, so it's ignored.");
     expect(ghost.trades.length).toBeGreaterThan(0);
     const other = search({ partnerId: "3", settings: settingsWith({ mustInclude: [a] }) });
     expect(other.trades).toEqual([]);
@@ -211,18 +212,17 @@ describe("\"Protect my trade value\" per call (planner addendum to Checkpoint 3,
     expect(r).toEqual(runTradeSearch(ctxHigh, { settings: high }));
     expect(r.trades.length).toBeGreaterThan(0);
     const [lo, hi] = config.benefit.marketSanityClamp;
-    // B's market term reads my g with what I give at max(v, W) (lead decision N10); the card's g_mkt(me) stays raw.
-    const termG = (t: TradeEvaluation) => marketTermPackage({ players: ids(t, "get") }, { players: ids(t, "give") }, I.values, I.credit).g;
+    // B's market term reads g_mkt(me), the card's own, every player at max(v, W) (planner reply to Checkpoint 4, change 4).
     for (const t of r.trades) {
-      expect(t.b as number).toBeCloseTo((t.bWin as number) + config.benefit.protectValue.high * Math.min(hi, Math.max(lo, termG(t))), 12);
       expect(t.gMine).toBe(tradePackage({ players: ids(t, "get") }, { players: ids(t, "give") }, I.values, I.credit).g);
+      expect(t.b as number).toBeCloseTo((t.bWin as number) + config.benefit.protectValue.high * Math.min(hi, Math.max(lo, t.gMine)), 12);
     }
     // The level moves trades in and out: at high, more of the evaluated trades stop helping (B ≤ 0) and are hidden.
     expect(r.hidden.byBenefit).toBeGreaterThan(fullSearch().result.hidden.byBenefit);
   });
 });
 
-describe("B's market term in both of the search's simulations: what I give at max(v, W) (lead decision N10; end-of-Phase-4 review)", () => {
+describe("B's market term in both of the search's simulations: every player at max(v, W) (planner reply to Checkpoint 4, change 4; replaces N10)", () => {
   // The hand league (W = 900, the free-agent QB's value) with my bench RB (worth 420, below W) in every trade, a
   // must-include player of mine; Team 4 only, so at most keptPerPartner exact trades and every one that helps me at
   // screening numbers is a finalist. EV lineups.
@@ -235,8 +235,15 @@ describe("B's market term in both of the search's simulations: what I give at ma
   const clampG = (g: number) => Math.min(hi, Math.max(lo, g));
   let result: TradeSearchResult | null = null;
   const run = () => (result ??= runTradeSearch(hctx, { partnerId: "4", settings }));
+  /** g_mkt(me) without the floor, by hand (each player at his own value, W per open spot): the reading before change 4. */
+  const unflooredG = (get: readonly string[], give: readonly string[]): number => {
+    const v = (id: string) => HI.values[id] ?? 0;
+    const r = get.reduce((s, id) => s + v(id), 0) + Math.max(0, give.length - get.length) * HI.credit;
+    const g = give.reduce((s, id) => s + v(id), 0) + Math.max(0, get.length - give.length) * HI.credit;
+    return (r - g) / g;
+  };
 
-  it("the final simulation: every shown trade's B is B_win + κ × clamp(the floored g); the card's g stays raw", () => {
+  it("the final simulation: every shown trade's B is B_win + κ × clamp(g_mkt(me)), the card's g, every player floored at W", () => {
     expect(HI.values.rc1 as number).toBeLessThan(HI.credit);
     const r = run();
     expect(r.trades.length).toBeGreaterThan(0);
@@ -244,16 +251,15 @@ describe("B's market term in both of the search's simulations: what I give at ma
       const give = ids(t, "give");
       const get = ids(t, "get");
       expect(give).toContain("rc1");
-      const floored = marketTermPackage({ players: get }, { players: give }, HI.values, HI.credit).g;
-      const raw = tradePackage({ players: get }, { players: give }, HI.values, HI.credit).g;
-      // The floor moves the term on every trade here, so the raw g would give another B.
-      expect(raw - floored, t.key).toBeGreaterThan(0.01);
+      const floored = tradePackage({ players: get }, { players: give }, HI.values, HI.credit).g;
+      expect(t.gMine, t.key).toBe(floored);
+      // The floor moves g on every trade here, so the unfloored g would give another B.
+      expect(Math.abs(unflooredG(get, give) - floored), t.key).toBeGreaterThan(0.01);
       expect(t.b as number, t.key).toBeCloseTo((t.bWin as number) + kappa * clampG(floored), 12);
-      expect(t.gMine, t.key).toBe(raw);
     }
   });
 
-  it("the screening simulation: the finalists are the exact trades that help me with the floored g (fewer than with the raw g)", () => {
+  it("the screening simulation reads the same floored g: every exact trade's screening B, and the finalists they pick", () => {
     const r = run();
     // The exact trades, rebuilt as the search builds them.
     const pools = buildPools(HI, settings, "4");
@@ -270,15 +276,25 @@ describe("B's market term in both of the search's simulations: what I give at ma
     });
     expect(exact.length).toBe(r.counts.exact);
     const screen = (x: ExactTrade) => simulateTrade(HI, x, "screen", settings.lambda, settings.protectValue);
+    // The same exact trade with g_mkt(me) unfloored (B's market term and the guards read evaluation.gMine).
     const rawOf = (x: ExactTrade): ExactTrade => {
-      const { gMarket: _floored, ...rest } = x;
-      void _floored;
-      return rest;
+      const ev = x.evaluation;
+      return { ...x, evaluation: { ...ev, gMine: unflooredG(ev.proposal.get.flatMap((a) => (a.kind === "player" ? [a.id] : [])), ev.proposal.give.flatMap((a) => (a.kind === "player" ? [a.id] : []))) } };
     };
     const value = assetValue(HI);
-    const floored = finalistsOf(exact.map(screen), value, true).keys;
-    const raw = finalistsOf(exact.map((x) => screen(rawOf(x))), value, true).keys;
-    expect(raw.size).toBeGreaterThan(floored.size);
+    const cores = exact.map(screen);
+    // Every exact trade's screening B reads the floored g (the card's g_mkt(me)); the unfloored reading would give
+    // another B on each of them, since each gives my bench RB (worth less than W).
+    const side = (c: TradeEvaluationCore, s: "give" | "get") => c.proposal[s].flatMap((a) => (a.kind === "player" ? [a.id] : []));
+    cores.forEach((c, i) => {
+      expect(c.gMine, c.key).toBe(tradePackage({ players: side(c, "get") }, { players: side(c, "give") }, HI.values, HI.credit).g);
+      expect(c.b as number, c.key).toBeCloseTo((c.bWin as number) + kappa * clampG(c.gMine), 12);
+      const other = screen(rawOf(exact[i] as ExactTrade));
+      expect(other.bWin, c.key).toBe(c.bWin);
+      expect(Math.abs((other.b as number) - (c.b as number)), c.key).toBeGreaterThan(0);
+    });
+    // The search's finalists are the ones those numbers pick.
+    const floored = finalistsOf(cores, value, true).keys;
     expect(r.counts.simFinal).toBe(floored.size);
     for (const t of r.trades) expect(floored.has(t.key), t.key).toBe(true);
   });
@@ -289,9 +305,17 @@ describe("a search of one partner: no per-partner cap (⚠️ ours; end-of-Phase
   const value = assetValue(I);
 
   it("rankCaps: §13's caps, one looser for the finalists, and no per-partner cap with one partner", () => {
-    const strict = { perPartnerInTop20: config.ranking.perPartnerInTop20, partnerCapTop: config.ranking.partnerCapTop, perCore: config.ranking.perCore, fillerCutoffFraction: config.ranking.fillerCutoffFraction, resultsShown: config.search.resultsShown, marketHideBelow: config.benefit.marketHideBelow };
+    const strict = { perPartnerInTop20: config.ranking.perPartnerInTop20, partnerCapTop: config.ranking.partnerCapTop, perGivenPlayerInTop20: config.ranking.perGivenPlayerInTop20, perCore: config.ranking.perCore, fillerCutoffFraction: config.ranking.fillerCutoffFraction, resultsShown: config.search.resultsShown, marketHideBelow: config.benefit.marketHideBelow };
     expect(rankCaps({ relaxed: false, onePartner: false })).toEqual(strict);
-    expect(rankCaps({ relaxed: true, onePartner: false })).toEqual({ ...strict, perPartnerInTop20: strict.perPartnerInTop20 + 1, perCore: strict.perCore + 1, resultsShown: config.search.finalists });
+    // The finalists' partner and given-player caps cover every finalist (final review of Phase 4b), not just the top 20.
+    expect(rankCaps({ relaxed: true, onePartner: false })).toEqual({
+      ...strict,
+      perPartnerInTop20: strict.perPartnerInTop20 + 1,
+      partnerCapTop: Math.max(config.ranking.partnerCapTop, config.search.finalists),
+      perGivenPlayerInTop20: strict.perGivenPlayerInTop20 + 1,
+      perCore: strict.perCore + 1,
+      resultsShown: config.search.finalists,
+    });
     expect(rankCaps({ relaxed: false, onePartner: true })).toEqual({ ...strict, perPartnerInTop20: Number.POSITIVE_INFINITY });
     expect(rankCaps({ relaxed: true, onePartner: true }).perPartnerInTop20).toBe(Number.POSITIVE_INFINITY);
   });
@@ -325,7 +349,7 @@ describe("a search of one partner: no per-partner cap (⚠️ ours; end-of-Phase
     expect(result.dropped?.partnerCap).toBeGreaterThan(0);
     // A search stopped early drops nothing.
     const none = runTradeSearch(buildTradeContext({ ...league.snapshot, myTeamId: null }, league.inputs, { now: TEST_NOW, scenarios: 0 }), {});
-    expect(none.dropped).toEqual({ partnerCap: 0, core: 0, filler: 0 });
+    expect(none.dropped).toEqual({ partnerCap: 0, core: 0, filler: 0, givenPlayer: 0 });
   });
 });
 
@@ -370,5 +394,27 @@ describe("beams (M7)", () => {
     expect(list.every((x) => x.give.includes(forced) && x.get.length >= 1)).toBe(true);
     const both = candidates(2, { ...pool, forcedGive: [forced], forcedGet: [pool.get[0] as string] }).list;
     expect(both.every((x) => x.give.includes(forced) && x.get.includes(pool.get[0] as string))).toBe(true);
+  });
+});
+
+describe("finalistsOf: the relaxed caps cover every finalist (final review of Phase 4b)", () => {
+  it("a player of mine given past the cap doesn't fill finalists 21–40 while other trades wait", () => {
+    // 25 trades each giving their own player (the best), 30 giving "g1" (next), 10 more each giving their own player
+    // (last); every trade its own partner and its own core. With the window at the top 20, finalists 21–40 were
+    // uncapped: 15 more "g1" trades, none of the last 10. Covering every finalist, "g1" is held to the relaxed cap (3 + 1)
+    // and the last 10 get in; the leftover place goes to the best "g1" trade left (the fill-up by expected gain).
+    const t = (give: string, get: string, partnerId: string, b: number) => tradeEvaluation({ partnerId, give: [give], get: [get], b, pComplete: 0.5, stage: "exact", sims: 1000 });
+    const cores = [
+      ...Array.from({ length: 25 }, (_, i) => t(`d${i + 1}`, `x${i + 1}`, `p${i + 1}`, 5)),
+      ...Array.from({ length: 30 }, (_, i) => t("g1", `y${i + 1}`, `q${i + 1}`, 4)),
+      ...Array.from({ length: 10 }, (_, i) => t(`e${i + 1}`, `z${i + 1}`, `r${i + 1}`, 3)),
+    ];
+    const value = (a: Parameters<typeof assetId>[0]) => Number(assetId(a).replace(/\D/g, "")) || 0;
+    const { keys } = finalistsOf(cores, value);
+    expect(keys.size).toBe(config.search.finalists);
+    const givers = (prefix: string) => cores.filter((c) => keys.has(c.key) && ids(c as TradeEvaluation, "give")[0]?.startsWith(prefix)).length;
+    expect(givers("d")).toBe(25);
+    expect(givers("e")).toBe(10);
+    expect(givers("g")).toBe(config.ranking.perGivenPlayerInTop20 + 1 + 1);
   });
 });

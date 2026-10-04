@@ -2,18 +2,25 @@
  * The league report's offline logic (scripts/league-report.ts buildReport and the Phase 3 checks behind it),
  * on Parker's committed sanitized ESPN fixture with synthetic model inputs: no network, no .env.local.
  */
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { normalizeEspnLeague } from "@/adapters/espn/normalize";
 import { NOW, PARKER, fakeResolver, parkerBundle } from "@/adapters/espn/test-helpers";
 import { config } from "@/engine/config";
 import type { ModelInputs } from "@/engine/inputs";
-import { buildLeagueModel, leagueMarginals } from "@/engine/league";
-import type { LeagueModel } from "@/engine/leagueModel";
+import { buildLeagueModel, buildLeagueModelWithContext, leagueMarginals } from "@/engine/league";
+import type { FaMove, LeagueModel } from "@/engine/leagueModel";
+import { applyStep, returnersOf } from "@/engine/optimizer";
+import { finalLineups } from "@/engine/returners";
+import { rosValue, scenarioValues } from "@/engine/teamValue";
 import { buildSimSetup, seasonOdds } from "@/engine/season";
 import { simNormals } from "@/engine/sim";
 import { syntheticInputs } from "@/engine/testLeague";
-import { RISKY_BYES, RISKY_WIN_CHANCE, likelyStarters } from "@/lib/leagueView";
+import { RISKY_BYES, RISKY_WIN_CHANCE, buildLeagueView, likelyStarters } from "@/lib/leagueView";
 import {
+  DEFAULT_DUMP_DIR,
   OPTIMIZER_EXAMPLES,
   SCALE_GAINS,
   SE_BATCHES,
@@ -22,19 +29,31 @@ import {
   batchSe,
   benefitWin,
   buildReport,
+  commandText,
+  displayPath,
+  dumpNote,
+  duplicatePickups,
+  flagValue,
+  loadDump,
   noOpCheck,
+  offlineDirOf,
   optimizerJudging,
   optimizerJudgingText,
   optimizerReport,
+  ordinal,
+  parseLeagueReport,
   pct,
   placeholders,
   remainingSchedule,
+  resetWaiverOrder,
   rosterScorer,
   scaleCheck,
   seasonReport,
   simTiming,
+  statusShort,
   titleUnknownReason,
   tradeScore,
+  waiverOrderCaveat,
   type SeasonReport,
   type SharedRun,
 } from "./league-report";
@@ -245,7 +264,21 @@ describe("league report: Parker's league (committed sanitized fixture) with synt
     if ("skipped" in wv) throw new Error(`skipped: ${wv.skipped}`);
     expect(wv.moves).toEqual(my.faMoves);
     expect(wv.reproduced).toBe(0);
-    expect(Math.abs(wv.rosDiff)).toBeLessThan(1e-6);
+    // ROS(V*) = ROS(T) + the pickups' gains, but for the roster spot an IR returner needs from his week (league.ts step
+    // 5b): final pricing only, so it can cost the two rosters differently (review of track E: here the team as it stands
+    // drops one player at the return, while V*, whose first pickup dropped him, releases the returner himself). The gap
+    // is exactly that difference: what the displacement costs T minus what it costs V*, each from its own raw lineups.
+    const { context } = buildLeagueModelWithContext(snapshot, inputs, { now: NOW, scenarios: S });
+    const t = context.work.find((w) => w.team.id === me);
+    if (!t || t.scenRos === null || !my.scen) throw new Error("no scenario lineups");
+    const vRoster = my.faMoves.reduce<string[]>((r, m) => applyStep(r, m), [...t.ids]);
+    const vEval = context.optimizer.evaluate(vRoster, t.stream);
+    const vFinal = finalLineups(context.returnerSetup, vRoster, t.stream, { ev: vEval.solved, scen: scenarioValues(vEval.team, context.W, context.S, context.index, true, true) });
+    const costT = t.scenRos - my.scen.ros;
+    const costV = context.scenRosOf(vRoster, t.stream) - rosValue((vFinal.scen as NonNullable<typeof vFinal.scen>).mean, context.weights);
+    expect(Math.abs(wv.rosDiff - (costT - costV))).toBeLessThan(1e-6);
+    // Without IR returners the two are the same roster spot's worth: no gap at all.
+    if (returnersOf(t.stream).length === 0) expect(Math.abs(wv.rosDiff)).toBeLessThan(1e-6);
     expect(wv.check.rows?.map((r) => r.gain)).toEqual([...SCALE_GAINS]);
     // The pickups alone: the V* baseline against the roster as it is, on the same matrix.
     const cur = (season.scale as NonNullable<SeasonReport["scale"]>).base;
@@ -557,5 +590,165 @@ describe("league report: the whole offline report", () => {
     expect(doc).toContain("No odds: The schedule has no matchups for the rest of the regular season (weeks 4–14)");
     expect(doc).toContain("No odds, so no schedule (above).");
     expect(doc).not.toContain("FAIL");
+  });
+});
+
+describe("league report: Phase 4b (the market blend, one free agent one team, IR returners, the offline mode)", () => {
+  const report = buildReport(snapshot, inputs, { now: NOW, clock, scenarios: S, runs: 1, warmups: 0, buildRuns: 0, mode: "offline", dataNote: "Offline: a test dump.", generatedAt: new Date("2026-10-03T12:00:00.000Z") });
+  const { doc, model, context } = report;
+  const section = (heading: string): string => {
+    const start = doc.indexOf(`\n## ${heading}`);
+    if (start < 0) return "";
+    const next = doc.indexOf("\n## ", start + 1);
+    return doc.slice(start + 1, next < 0 ? undefined : next);
+  };
+
+  it("the header names the offline command, the day it was written and the data line", () => {
+    expect(doc).toContain("Generated by `npm run league:report -- --offline` on 2026-10-03 through the real adapters");
+    expect(doc).toContain("**Data**\n\n- Offline: a test dump.\n");
+  });
+
+  it("the header prints the command line it ran with (review of track R: --offline alone loads the default dump)", () => {
+    const { doc: withCommand } = buildReport(snapshot, inputs, { now: NOW, clock, scenarios: 0, runs: 1, warmups: 0, buildRuns: 0, mode: "offline", command: "npm run league:report -- --offline data-local/parker-league-dev --team 3" });
+    expect(withCommand).toContain("Generated by `npm run league:report -- --offline data-local/parker-league-dev --team 3` on ");
+    expect(commandText("league:report", [])).toBe("npm run league:report");
+    expect(commandText("league:report", ["--offline", null, undefined, false, "--team 3"])).toBe("npm run league:report -- --offline --team 3");
+    const root = path.join(tmpdir(), "repo");
+    expect(displayPath(root, path.join(root, "data-local", "x"))).toBe("data-local/x");
+    expect(displayPath(root, path.join(tmpdir(), "elsewhere", "dump"))).toBe("dump");
+  });
+
+  it("reads its own team and roster tables back (parseLeagueReport: the trade report's data changes since a checkpoint)", () => {
+    const t = parseLeagueReport(doc);
+    expect([...t.teams.keys()].sort()).toEqual(snapshot.teams.map((x) => x.id).sort());
+    for (const team of model.teams) {
+      const st = snapshot.teams.find((x) => x.id === team.id);
+      const row = t.teams.get(team.id);
+      expect(row?.ppw).toBe(Number((team.scen ?? team.ev).ppw.toFixed(1)));
+      expect(row?.record).toBe(`${st?.record.w}-${st?.record.l}${st?.record.t ? `-${st.record.t}` : ""}`);
+      expect(row?.pointsFor).toBe(Number(st?.pointsFor.toFixed(1)));
+    }
+    for (const st of snapshot.teams) {
+      const roster = t.rosters.get(st.id);
+      expect(roster?.size).toBe(st.roster.length + st.ir.length + st.taxi.length);
+      for (const id of [...st.roster, ...st.ir, ...st.taxi]) {
+        const p = snapshot.players[id];
+        const got = roster?.get(p?.name ?? id);
+        expect(got?.status).toBe(statusShort(p?.injury));
+        expect(got?.slot).toBe(st.ir.includes(id) ? "ir" : st.taxi.includes(id) ? "taxi" : "active");
+        const ros = model.players[id]?.ros.total;
+        expect(got?.ros).toBe(ros === undefined ? null : Number(ros.toFixed(1)));
+      }
+    }
+    // Tolerant: other tables and headings don't leak in; an empty document has nothing.
+    expect(parseLeagueReport("").teams.size).toBe(0);
+    expect(parseLeagueReport("### Team 4\n\n| Player | Pos | NFL | St | ROS |\n|---|---|---|---|---|\n| A B (IR) | WR | NYJ | IR | no projection |\n").rosters.get("4")?.get("A B")).toEqual({ status: "IR", ros: null, slot: "ir" });
+  });
+
+  it("the weekly reset waiver order (reverse standings) and the ⚠️ on ESPN's live order (CLAUDE.md §2.2)", () => {
+    const reset = resetWaiverOrder(model) as string[];
+    const ranks = new Map((model.odds?.teams ?? []).map((x) => [x.teamId, x.rank]));
+    expect(reset).toHaveLength(snapshot.teams.length);
+    for (let i = 1; i < reset.length; i++) expect(ranks.get(reset[i - 1] as string) as number).toBeGreaterThan(ranks.get(reset[i] as string) as number);
+    expect(resetWaiverOrder({ odds: null })).toBeNull();
+    const name = (id: string) => `Team ${id}`;
+    const live = model.faAllocation?.order ?? [];
+    const caveat = waiverOrderCaveat(live, reset, PARKER.myTeamId, name);
+    expect(caveat).toMatch(/^⚠️ ESPN gives the waiver order as it stands when the league is imported\. Parker's league resets it every week to reverse standings/);
+    if (reset.some((id, i) => id !== live[i])) expect(caveat).toContain(`The weekly reset order from today's standings: ${reset.map(name).join(" > ")} (you'd claim ${ordinal(reset.indexOf(PARKER.myTeamId) + 1)}, against ${ordinal(live.indexOf(PARKER.myTeamId) + 1)} now).`);
+    expect(waiverOrderCaveat(["1", "2"], ["1", "2"], "1", name)).toContain("Today it is the weekly reset order (reverse standings).");
+    expect(waiverOrderCaveat(["1", "2"], null, "1", name)).not.toContain("reset order from today's standings");
+    expect([ordinal(1), ordinal(2), ordinal(3), ordinal(4), ordinal(11), ordinal(12), ordinal(21), ordinal(103)]).toEqual(["1st", "2nd", "3rd", "4th", "11th", "12th", "21st", "103rd"]);
+    // On the allocation line of the optimizer section (a waiver-order allocation).
+    expect(section("The free-agent optimizer (V*)")).toContain(waiverOrderCaveat(live, reset, PARKER.myTeamId, (id) => `Team ${id}${id === PARKER.myTeamId ? " (you)" : ""}`));
+  });
+
+  it("the market blend: the build's own blend per position, the players it moved, and the League page's breakdown lines", () => {
+    const b = report.blend;
+    const blend = context.lp.blend;
+    expect(b.weight).toBe(config.marketBlend.weight);
+    expect(b.positions).toEqual(blend.positions);
+    expect(b.positions.some((p) => p.blended)).toBe(true); // a fact of the synthetic inputs
+    expect(b.reached).toBe(blend.factors.size);
+    expect(b.scaled).toBe([...blend.factors.values()].filter((f) => f.ours > 0).length);
+    expect(b.moved).toBe(Object.values(model.players).filter((pm) => pm.blend).length);
+    expect(b.moved).toBeGreaterThan(0);
+    const view = buildLeagueView({ snapshot, model, inputs, myTeamSource: "you", timeZone: "UTC", now: NOW.toISOString() });
+    expect(b.rosterLines).toBe(view.rosters.flatMap((r) => r.players).filter((p) => p.blend).length);
+    expect(b.freeAgentLines).toBe(view.freeAgents.flatMap((g) => g.players).filter((p) => p.blend).length);
+    // The page's "no comparison" lines are players whose market number is their own; the page lists some of them.
+    expect(b.noComparison).toBeLessThanOrEqual(b.ownPoint);
+    const s = section("Market-blended projections");
+    expect(s).toContain("| Position | Players with a real value | Curve points (healthy, a game left) | Blended |");
+    for (const p of b.positions) expect(s).toContain(`| ${p.pos} | ${p.players} | ${p.fit} | ${p.blended ? "yes" : "no (under 10 curve points)"} |`);
+    expect(s).toContain(`- Players the blend reaches: **${b.reached}** (${b.scaled} with a base rate above 0); players whose rest-of-season points it moved (PlayerModel.blend): **${b.moved}**.`);
+    expect(s).toContain(`**${b.rosterLines + b.freeAgentLines}** lines, ${b.rosterLines} on the rosters and ${b.freeAgentLines} in the free-agent lists; **${b.noComparison}** of them read "Trade market: no comparison"`);
+  });
+
+  it("one free agent, one team: the allocation's basis and order, and no free agent in two teams' pickups", () => {
+    expect(model.faAllocation?.basis).toBe("waiver"); // the fixture's teams carry ESPN's waiver ranks
+    expect(model.faAllocation?.order).toHaveLength(snapshot.teams.length);
+    expect(duplicatePickups(model.teams)).toEqual([]);
+    const s = section("The free-agent optimizer (V*)");
+    expect(s).toContain(`**One free agent, one team** (§7; planner reply to Checkpoint 4, change 3): teams claim free agents in the league's waiver order (ESPN's waiver ranks): ${(model.faAllocation?.order ?? []).map((id) => `Team ${id}${id === PARKER.myTeamId ? " (you)" : ""}`).join(" > ")};`);
+    expect(s).toContain("Free agents in two or more teams' pickups: **0**.");
+    expect(s).not.toContain("Each team is optimized on its own");
+    // Each team counted once, most teams first.
+    const move = (add: string): FaMove => ({ add, drop: null, gainEv: 5, gainScen: 5 });
+    expect(duplicatePickups([{ id: "1", faMoves: [move("a"), move("a"), move("b")] }, { id: "2", faMoves: [move("a")] }, { id: "3", faMoves: [move("b"), move("a")] }])).toEqual([
+      { playerId: "a", teamIds: ["1", "2", "3"] },
+      { playerId: "b", teamIds: ["1", "3"] },
+    ]);
+  });
+
+  it("IR returners: every IR player with his expected return week, whether he rejoins, and the drop his return forces as the team stands", () => {
+    const rows = report.ir;
+    expect(rows.map((r) => r.playerId).sort()).toEqual(context.work.flatMap((t) => t.ir).sort());
+    expect(rows.length).toBeGreaterThan(0); // Parker's fixture has IR players
+    for (const r of rows) {
+      const t = context.work.find((w) => w.team.id === r.teamId);
+      if (!t) throw new Error(`no team ${r.teamId}`);
+      expect(r.R).toBe(context.returnWeek(r.playerId));
+      expect(r.returner).toBe(returnersOf(t.stream).some((x) => x.id === r.playerId));
+      expect(r.status).toBe(snapshot.players[r.playerId]?.injury ?? null);
+      const final = finalLineups(context.returnerSetup, t.ids, t.stream, { ev: t.solved, scen: t.scen });
+      const d = final.displaced.find((x) => x.returner === r.playerId);
+      expect(r.drop).toEqual(d ? { playerId: d.id, week: context.lp.weeks.weeks[d.from], self: d.id === r.playerId } : null);
+    }
+    expect(rows.some((r) => r.drop)).toBe(true); // a fact of the fixture: some team is full at a return
+    const s = section("IR returners");
+    expect(s).toContain("| Team | IR player | Status | ESPN return week | Expected return week R | Rejoins the lineups | From R, the team as it stands drops |");
+    expect(s.split("\n").filter((l) => /^\| Team \d+/.test(l))).toHaveLength(rows.length);
+  });
+
+  it("the offline dump: --offline [dir] and --team, the loader (placeholders again, waiver ranks filled in) and the data line", () => {
+    const root = path.join(tmpdir(), "repo");
+    expect(offlineDirOf([], root)).toBeNull();
+    expect(offlineDirOf(["--offline"], root)).toBe(path.join(root, DEFAULT_DUMP_DIR));
+    expect(offlineDirOf(["--offline", "--team", "3"], root)).toBe(path.join(root, DEFAULT_DUMP_DIR));
+    expect(offlineDirOf(["--offline", "data-local/parker-league-final"], root)).toBe(path.join(root, "data-local", "parker-league-final"));
+    expect(flagValue(["--team", "3"], "--team")).toBe("3");
+    expect(flagValue(["--team", "--offline"], "--team")).toBeUndefined();
+    expect(flagValue([], "--team")).toBeUndefined();
+    const dir = mkdtempSync(path.join(tmpdir(), "league-report-"));
+    try {
+      const raw = { ...snapshot, name: "Secret League", teams: snapshot.teams.map((t) => ({ ...t, name: `Real Name ${t.id}`, waiverRank: undefined })) };
+      writeFileSync(path.join(dir, "snapshot.json"), JSON.stringify(raw));
+      writeFileSync(path.join(dir, "inputs.json"), JSON.stringify(inputs));
+      writeFileSync(path.join(dir, "meta.json"), JSON.stringify({ now: NOW.toISOString() }));
+      writeFileSync(path.join(dir, "waiver-ranks.json"), JSON.stringify({ readAt: "2026-10-03T18:04:58.416Z", ranks: Object.fromEntries(snapshot.teams.map((t, i) => [t.id, i + 1])) }));
+      const d = loadDump(dir, "3");
+      expect(d.now.toISOString()).toBe(NOW.toISOString());
+      expect(d.snapshot.name).toBe("League 1");
+      expect(d.snapshot.teams.every((t) => t.name === `Team ${t.id}`)).toBe(true);
+      expect(d.snapshot.myTeamId).toBe("3");
+      expect(d.snapshot.teams.map((t) => t.waiverRank)).toEqual(snapshot.teams.map((_, i) => i + 1));
+      expect(d.waiverRanks).toEqual({ readAt: "2026-10-03T18:04:58.416Z", teams: snapshot.teams.length });
+      expect(dumpNote(path.dirname(dir), dir, d)).toBe(
+        `Offline: the git-ignored dump in ${path.basename(dir)}/ (made by the app's own import and model-inputs builder at ${NOW.toISOString()}, team and owner names placeholders); the engine's "now" is that moment. Waiver ranks for ${snapshot.teams.length} teams come from the dump folder's waiver-ranks.json (read from ESPN at 2026-10-03T18:04:58.416Z): the dump was made before the adapter read them.`,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

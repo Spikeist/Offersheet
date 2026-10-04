@@ -17,7 +17,7 @@ import { config } from "./config";
 import type { ExplainContext } from "./explain";
 import type { InjuryStatus, Pos, SlotDef } from "./model";
 import { slotInstances } from "./needs";
-import type { PremiumFact, TradeAsset, TradeDetail, TradeEvaluation, TradeEvaluationCore, TradeProposal, TradeStep, TradeSteps } from "./tradeModel";
+import type { PlanB, PremiumFact, TradeAsset, TradeDetail, TradeEvaluation, TradeEvaluationCore, TradeProposal, TradeStep, TradeSteps } from "./tradeModel";
 
 /** A 10-team ESPN-style lineup: QB, RB ×2, WR ×2, TE, FLEX (RB/WR/TE), K, D/ST. */
 export const FIXTURE_LINEUP: SlotDef[] = [
@@ -187,9 +187,20 @@ export function tradeEvaluation(o: EvaluationFixture = {}): TradeEvaluation {
     flags: o.flags ?? tradeFlags({ gMine, b, injured }),
     detail: tradeDetail(o.detail),
     ...(o.steps ? { steps: o.steps } : {}),
+    ...(o.planB ? { planB: o.planB } : {}),
     reasons: o.reasons ?? [],
     pitch: o.pitch ?? "",
   };
+}
+
+/**
+ * A Plan B ("If they say no, try:"; planner reply to Checkpoint 4, change 6) for a fixture card: the trade as player ids
+ * (default my ["nix"] for their ["jsn"], another target than tradeEvaluation's default) with tradeEvaluation's rules for
+ * its numbers (B 2 by default: Helps you and Overall from B and P_complete, the label from P_accept).
+ */
+export function planBFixture(o: { partnerId?: string; give?: readonly string[]; get?: readonly string[]; b?: number; pComplete?: number; pAccept?: number; kind?: PlanB["kind"] } = {}): PlanB {
+  const e = tradeEvaluation({ partnerId: o.partnerId, give: o.give ?? ["nix"], get: o.get ?? ["jsn"], b: o.b ?? 2, pComplete: o.pComplete ?? 0.5, ...(o.pAccept !== undefined ? { pAccept: o.pAccept } : {}) });
+  return { proposal: e.proposal, key: e.key, b: e.b as number, tradeScore: e.tradeScore as number, pAccept: e.pAccept, pComplete: e.pComplete, acceptLabel: e.acceptLabel, overall: e.overall as number, kind: o.kind ?? "otherTarget" };
 }
 
 /**
@@ -263,7 +274,8 @@ const STEP_ACCEPT_GAP = 0.15;
  *   by default P_complete STEP_ACCEPT_GAP lower (at least minOfferFirst), B 10% higher (I keep him) and g_mkt(me) 0.1
  *   higher.
  * - otherwise: ranked "offerFirst". The offer first is the ranked trade; the full step adds the throw-in to my side,
- *   by default P_complete STEP_ACCEPT_GAP higher (at most 0.95), B 90% (above the 80% rule) and g_mkt(me) 0.1 lower.
+ *   by default P_complete STEP_ACCEPT_GAP higher (at most the P_accept cap, config.acceptance.pAcceptClamp's top), B 90%
+ *   (above the 80% rule) and g_mkt(me) 0.1 lower.
  * The other version's detail defaults to the ranked trade's. `over` overrides either step's numbers and facts (a
  * partial detail merges onto its default); derived fields (Trade Score, label, g_mkt(partner)) follow the overrides.
  */
@@ -294,7 +306,7 @@ export function tradeSteps(ranked: RankedTrade, throwIn: string, over: { offerFi
     return { offerFirst, ifNo: { add: throwIn, full: own(over.full) }, ranked: "full" };
   }
   const full: TradeProposal = { ...ranked.proposal, give: [...ranked.proposal.give, player(throwIn)] };
-  const fullStep = other(full, { b: b === null ? null : b * 0.9, pComplete: Math.min(0.95, ranked.pComplete + STEP_ACCEPT_GAP), gMine: ranked.gMine - 0.1 }, over.full);
+  const fullStep = other(full, { b: b === null ? null : b * 0.9, pComplete: Math.min(config.acceptance.pAcceptClamp[1], ranked.pComplete + STEP_ACCEPT_GAP), gMine: ranked.gMine - 0.1 }, over.full);
   return { offerFirst: own(over.offerFirst), ifNo: { add: throwIn, full: fullStep }, ranked: "offerFirst" };
 }
 

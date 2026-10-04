@@ -16,7 +16,9 @@
  *
  * A player whose ESPN return date conflicts with his tag (CLAUDE.md §6 step 3) gets a short line under
  * his position line, inside the button (so it's part of his button's name), with the full sentence on
- * hover and at the top of his breakdown.
+ * hover and at the top of his breakdown. A player the market blend reached (§6 step 8) shows "Our projection
+ * 210 · Trade market 170 · Used 190" at the top of his breakdown, with what each number is in words under it (visible
+ * text, not a hover: phones have none), and at the top of the ROS cell's hover text.
  *
  * Another team's player his manager would want a little extra for (planner addendum to Checkpoint 3, §2) carries a
  * gold "Harder to get" pill on his position line, after any injury badge: words, part of his button's name, with why
@@ -109,12 +111,22 @@ function WeekTable({ player }: { player: PlayerRow }) {
   );
 }
 
-/** The breakdown under a player: the columns phones don't show, then his week-by-week points. */
+/**
+ * The breakdown under a player: the conflict note and the market blend's line (Our projection · Trade market · Used,
+ * CLAUDE.md §6 step 8, with what each is in words) when he has them, the columns phones don't show, then his
+ * week-by-week points.
+ */
 export function PlayerDetail({ player, showLineupCost }: { player: PlayerRow; showLineupCost: boolean }) {
   const p = player;
   return (
     <div className="rounded-xl bg-surface-muted p-3">
       {p.availabilityNote ? <p className="mb-2 text-xs leading-relaxed">{p.availabilityNote.long}.</p> : null}
+      {p.blend ? (
+        <p className="mb-2 text-xs leading-relaxed break-words">
+          <span className="font-medium">{p.blend.text}</span>
+          <span className="block text-muted">{p.blend.title}</span>
+        </p>
+      ) : null}
       <dl className="grid grid-cols-3 gap-2 text-xs">
         <div>
           <dt className="text-muted">Games left</dt>

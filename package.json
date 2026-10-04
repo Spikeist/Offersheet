@@ -17,6 +17,7 @@
     "gen:secret": "tsx scripts/gen-session-secret.ts",
     "check:leaks": "tsx scripts/check-leaks.ts",
     "check:sleeper-cors": "tsx scripts/check-sleeper-cors.ts",
+    "check:browser": "tsx scripts/check-browser/index.ts",
     "probe:espn": "tsx scripts/probe-espn.ts",
     "probe:sleeper": "tsx scripts/probe-sleeper.ts",
     "probe:sleeper-codes": "tsx scripts/probe-sleeper-codes.ts",

@@ -21,8 +21,11 @@ export const IMPORT_STORAGE_KEY = "offersheet:import:v1";
  *   `weeks`), and settings carry `seedingTiebreaker`. The season simulation reads them (which games
  *   the records already count, and their scores for head-to-head tiebreaks), so a version-1 snapshot,
  *   which has none of them, would give wrong odds and warnings about scores that are in.
+ * - 3: Phase 4b. Teams carry `waiverRank` and `faabRemaining` (the order free agents are handed out in, §7) and
+ *   settings carry `irEligible` (which statuses an IR slot takes). A version-2 snapshot has neither, so its free agents
+ *   would be handed out by best gain under a note that the league's waiver order wasn't available.
  */
-export const IMPORT_FORMAT_VERSION = 2;
+export const IMPORT_FORMAT_VERSION = 3;
 /** Dispatched on window after this tab changes a stored value (the "storage" event only fires in other tabs). */
 export const STORAGE_CHANGED_EVENT = "offersheet:storage-changed";
 

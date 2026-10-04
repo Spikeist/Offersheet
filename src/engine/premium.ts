@@ -21,19 +21,21 @@
  *   gains more (§11, n × 1.3).
  * - "Harder to get" (§2): e ≥ harderToGetMin (0.15), a top-12 player who is also his team's #1 or #2.
  *
- * Where it's used (perceivedPackage; acceptance.ts, evaluate.ts): the partner's perceived package puts v′_j = v_j × (1 +
- * e_j) in place of v_j for each player the partner gives (the waiver credit W and pick values unchanged; with
- * config.market.studExponent γ, v′ is raised to γ as v would be), which gives the partner's perceived g, the g feature
- * of the acceptance model (quick and full). Everything else stays raw: my g_mkt and B, the partner's g_mkt on the card,
- * its trade history, the screening window (§12) and ⚠️ the veto rule (league members judge a trade by the market, not by
- * the owner's attachment to his player). These are starting assumptions: Phase 6 fits a scale factor for e from
- * Accepted and Rejected outcomes alongside the β refit (planner addendum §1).
+ * Where it's used (perceivedPackage; acceptance.ts, evaluate.ts): the partner's perceived package puts v′_j = max(v_j, W)
+ * × (1 + e_j) in place of v_j for each player the partner gives: the premium on the value every package counts him at
+ * (planner reply to Checkpoint 4, change 4: each player at max(v, W), market.packageValues), the waiver credit W per open
+ * spot and pick values unchanged; with config.market.studExponent γ, v′ is raised to γ as v would be. That gives the
+ * partner's perceived g, the g feature of the acceptance model (quick and full). Everything else stays without the
+ * premium (raw): my g_mkt and B, the partner's g_mkt on the card, its trade history, the screening window (§12) and ⚠️
+ * the veto rule (league members judge a trade by the market, not by the owner's attachment to his player). These are
+ * starting assumptions: Phase 6 fits a scale factor for e from Accepted and Rejected outcomes alongside the β refit
+ * (planner addendum §1).
  */
 import { tradePackage, type LeagueType, type PackageSide, type PackageValue } from "./benefit";
 import { config } from "./config";
 import type { MarketInputs } from "./inputs";
 import type { PlayerPremium } from "./leagueModel";
-import { valuesForTerm, type MarketConfig, type ValueLookup } from "./market";
+import { valuesForTerm, type ActiveSpots, type MarketConfig, type ValueLookup } from "./market";
 import type { LeagueSnapshot, Pos } from "./model";
 import type { PremiumFact } from "./tradeModel";
 
@@ -180,17 +182,20 @@ function entryValue(entry: number | { readonly value: number } | undefined): num
 }
 
 /**
- * The partner's perceived package (§1 of the addendum): benefit.tradePackage for the side that receives `recv` (my
- * give) and gives `give` (my get), with v′ = v × (1 + e) in place of v for each player in `give` (premium(id) = his e
- * for the partner, 0 when absent or not finite); what it receives, its picks and the waiver credit W unchanged. With
- * every e 0 it equals tradePackage exactly. Its g is the partner's perceived g (acceptance's g feature).
+ * The partner's perceived package (§1 of the addendum; the file header): benefit.tradePackage for the side that receives
+ * `recv` (my give) and gives `give` (my get), with v′ = max(v, W) × (1 + e) in place of v for each player in `give`
+ * (premium(id) = his e for the partner, 0 when absent or not finite): the premium on the floored value (planner reply to
+ * Checkpoint 4, change 4). What it receives (floored at W by tradePackage), its picks and the waiver credit W unchanged
+ * (`spots`: the partner's moves on and off its active roster, as tradePackage takes them). With every e 0 it equals
+ * tradePackage exactly. Its g is the partner's perceived g (acceptance's g feature).
  */
-export function perceivedPackage(recv: PackageSide, give: PackageSide, values: ValueLookup, W: number, premium: (id: string) => number, cfg: MarketConfig = config.market): PackageValue {
+export function perceivedPackage(recv: PackageSide, give: PackageSide, values: ValueLookup, W: number, premium: (id: string) => number, cfg: MarketConfig = config.market, spots?: ActiveSpots): PackageValue {
+  const floor = isFiniteNumber(W) && W > 0 ? W : 0;
   const table: Record<string, number> = {};
   for (const id of recv.players) table[id] = entryValue(values[id]);
   for (const id of give.players) {
     const e = premium(id);
-    table[id] = entryValue(values[id]) * (1 + (isFiniteNumber(e) ? e : 0));
+    table[id] = Math.max(entryValue(values[id]), floor) * (1 + (isFiniteNumber(e) ? e : 0));
   }
-  return tradePackage(recv, give, table, W, cfg);
+  return tradePackage(recv, give, table, W, cfg, spots);
 }

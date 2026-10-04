@@ -184,7 +184,7 @@ function CheckRow({
 
 /** Same look as the Connect page's platform picker: the radio is visually hidden, its label shows focus. */
 const OPTION =
-  "relative flex min-h-11 min-w-11 cursor-pointer flex-col items-center justify-center rounded-lg px-3 text-center transition-[color,background-color] has-[:focus-visible]:outline-3 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-accent";
+  "relative flex min-h-11 min-w-11 cursor-pointer flex-col items-center justify-center rounded-lg px-3 text-center transition-[color,background-color] has-[:focus-visible]:outline-3 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-focus";
 /** Chosen: tinted, with a ring (a shape, not only a color change). */
 const SELECTED = "bg-brand-soft ring-2 ring-brand";
 const UNSELECTED = "text-muted hover:text-foreground";

@@ -17,20 +17,38 @@
  * with steps shows "How to offer it" right under the three numbers, an ordered list ("Offer first: … · Est. 35%", "If
  * they say no, add … · Est. 55%"), each estimate said in full to screen readers. Both pages explain the two under the
  * cards (HowToRead.tsx).
+ * Planner reply to Checkpoint 4, change 6: every injury-tagged player on either side carries his tag in words under his
+ * name ("Out — expected back week 8"; a tinted tag that wraps, so a long one never widens the card past a 375 px
+ * screen), and when a player I'd get is tagged, one line under the two lists says his projection assumes he returns at
+ * full strength, blended with the trade market (for a player the "Depends on an injured player" flag names, the flag
+ * says it instead: src/lib/tradeView.ts). A Finder card without steps can show "If they say no, try:": the other trade
+ * (each tagged player with his tag in words after his name), which kind it is, its three numbers in words (each kept on
+ * one line, the estimate's label apart), "Also shown as trade idea 6." when the list has it as a card of its own, its own
+ * "Message to send them" with Copy, and its own "Open in Analyzer" (both named for screen readers). Review of Phase 4b:
+ * it sits after the card's own reasons, message and "Open in Analyzer", just before the feedback buttons, so the card's
+ * flags, facts and reasons read as the card's (they sat under a Plan B that didn't include their player). The feedback
+ * buttons get the card's versions (FeedbackControls asks which one was sent when there are two).
+ * Under "You get 142 ROS pts, give 118", a line when my starting lineup moves the other way from those points (a backup
+ * given away scores nothing for me). The roster moves the trade forces include Phase 4b's IR slots and returns.
  * It's an <article> named by its heading; the heading level is the page's to choose.
  */
 import Link from "next/link";
-import { useId } from "react";
+import { Fragment, useId } from "react";
 import type { FeedbackChange } from "@/lib/feedbackStore";
 import type { SaveResult } from "@/lib/importStore";
-import type { AssetView, CardFeedback, NumberView, StepsView, TradeCardView } from "@/lib/tradeView";
+import type { AssetView, CardFeedback, InjuryTone, NumberView, PlanBView, StepsView, TradeCardView } from "@/lib/tradeView";
 import { CopyButton } from "../CopyButton";
 import { HarderToGetBadge } from "../league/HarderToGetBadge";
 import { ValuesCredit } from "../league/ValuesCredit";
-import { Badge, buttonClass, cx } from "../ui";
+import { buttonClass, cx } from "../ui";
 import { FeedbackControls } from "./FeedbackControls";
 
-const INJURY_BADGE = { muted: "muted", warn: "warn", danger: "danger" } as const;
+/** An injury tag's tint by its tone (the words say it all; the tint only helps scanning). */
+const TAG_CLASS: Record<InjuryTone, string> = {
+  muted: "bg-surface-muted text-muted",
+  warn: "bg-warn-bg text-warn-fg",
+  danger: "bg-danger-bg text-danger-fg",
+};
 
 function AssetList({ title, assets }: { title: string; assets: AssetView[] }) {
   return (
@@ -40,15 +58,15 @@ function AssetList({ title, assets }: { title: string; assets: AssetView[] }) {
         <ul className="mt-1 space-y-1">
           {assets.map((a) => (
             <li key={a.id} className="min-w-0">
-              <span className="font-extrabold break-words">{a.name}</span>{" "}
-              {a.injury ? (
-                <Badge tone={INJURY_BADGE[a.injury.tone]} className="align-middle">
-                  <span aria-hidden>{a.injury.short}</span>
-                  <span className="sr-only">{a.injury.long}</span>
-                </Badge>
+              <span className="font-extrabold break-words">{a.name}</span>
+              {a.tag ? (
+                <>
+                  {" "}
+                  <HarderToGetBadge tag={a.tag} describe />
+                </>
               ) : null}
-              {a.tag ? <HarderToGetBadge tag={a.tag} className={a.injury ? "ml-1" : undefined} describe /> : null}
               {a.detail ? <span className="block text-xs text-muted">{a.detail}</span> : null}
+              {a.status ? <span className={cx("mt-0.5 inline-block rounded-md px-1.5 py-0.5 text-xs font-bold break-words", TAG_CLASS[a.status.tone])}>{a.status.text}</span> : null}
             </li>
           ))}
         </ul>
@@ -97,6 +115,75 @@ function Steps({ steps }: { steps: StepsView }) {
   );
 }
 
+/** A message behind a 44 px "Message to send them" summary, with a 44 px Copy button; `name` says whose for screen readers. */
+function Message({ text, name, className }: { text: string; name: string; className?: string }) {
+  return (
+    <details className={cx("rounded-xl border border-line", className)}>
+      <summary className="flex min-h-11 items-center justify-between gap-2 px-3 text-sm font-bold">
+        <span>
+          Message to send them<span className="sr-only"> ({name})</span>
+        </span>
+        <span aria-hidden className="text-muted">
+          ▾
+        </span>
+      </summary>
+      <div className="border-t border-line p-3">
+        <p className="text-sm leading-relaxed break-words whitespace-pre-wrap">{text}</p>
+        {/* CopyButton is a small button; the wrapper makes it a 44 px target. */}
+        <div className="mt-2 [&>button]:min-h-11">
+          <CopyButton text={text} />
+        </div>
+      </div>
+    </details>
+  );
+}
+
+/**
+ * "If they say no, try:" (Plan B): the other trade in words (tags after the names), which kind it is, its three numbers
+ * (each kept on one line, the estimate's label apart, so nothing breaks inside "(Est. · Likely)" on a 375 px phone; the
+ * chance it goes through when a veto could cut it), whether the list shows it as an idea of its own, its own message to
+ * send them and its own "Open in Analyzer", both named for screen readers by the card.
+ */
+function PlanBBox({ planB, name, showLink, onOpen }: { planB: PlanBView; name: string; showLink: boolean; onOpen?: ((href: string) => void) | undefined }) {
+  const which = `if they say no, try: ${planB.give} for ${planB.get}; ${name}`;
+  return (
+    <div className="mt-3 rounded-xl border border-line px-3 py-2 text-sm leading-relaxed">
+      <p className="font-bold">{planB.heading}</p>
+      <p className="text-xs text-muted">{planB.kindText}</p>
+      <p className="mt-1 break-words">
+        <span className="font-semibold">You give:</span> {planB.give}
+      </p>
+      <p className="break-words">
+        <span className="font-semibold">You get:</span> {planB.get}
+      </p>
+      <p className="mt-1 font-semibold">
+        {planB.numberParts.map((part, i) => (
+          <Fragment key={part.text}>
+            {i > 0 ? " · " : null}
+            <span className="whitespace-nowrap">{part.text}</span>
+            {part.label ? (
+              <>
+                {" "}
+                <span className="whitespace-nowrap">{part.label}</span>
+              </>
+            ) : null}
+          </Fragment>
+        ))}
+      </p>
+      {planB.acceptNote ? <p className="text-muted">{planB.acceptNote}</p> : null}
+      {planB.also ? <p className="text-muted">{planB.also}</p> : null}
+      <Message text={planB.pitch} name={which} className="mt-2" />
+      {showLink ? (
+        <div className="mt-2">
+          <Link href={planB.analyzerHref} prefetch={false} onClick={onOpen ? () => onOpen(planB.analyzerHref) : undefined} className={cx(buttonClass("secondary", "sm"), "min-h-11")}>
+            Open in Analyzer<span className="sr-only"> ({which})</span>
+          </Link>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export interface TradeCardProps {
   card: TradeCardView;
   /** Its place in the list (1 = first), shown above the heading; omitted in the Analyzer. */
@@ -104,10 +191,13 @@ export interface TradeCardProps {
   headingLevel?: "h2" | "h3";
   feedback: CardFeedback;
   onFeedback: (change: FeedbackChange) => SaveResult;
-  /** "Open in Analyzer" (the Finder's cards). */
+  /** "Open in Analyzer" (the Finder's cards; Plan B's too). */
   showAnalyzerLink?: boolean;
-  /** Called when "Open in Analyzer" is used (the Finder remembers the idea, to bring it back into view on return). */
-  onOpenAnalyzer?: (() => void) | undefined;
+  /**
+   * Called with the link's address when an "Open in Analyzer" is used (the card's or its Plan B's): the Finder remembers
+   * the idea and the link, to bring that link back into view on return.
+   */
+  onOpenAnalyzer?: ((href: string) => void) | undefined;
 }
 
 export function TradeCard({ card, rank, headingLevel = "h3", feedback, onFeedback, showAnalyzerLink = true, onOpenAnalyzer }: TradeCardProps) {
@@ -127,6 +217,7 @@ export function TradeCard({ card, rank, headingLevel = "h3", feedback, onFeedbac
         <AssetList title="You give" assets={card.give} />
         <AssetList title="You get" assets={card.get} />
       </div>
+      {card.injuryNote ? <p className="mt-2 text-xs leading-relaxed break-words text-muted">{card.injuryNote}</p> : null}
 
       <dl className="mt-4 grid grid-cols-3 gap-2">
         <Score label="Helps you" number={n.helps} />
@@ -150,6 +241,7 @@ export function TradeCard({ card, rank, headingLevel = "h3", feedback, onFeedbac
       ) : null}
 
       <p className="mt-3 text-sm font-bold">{card.ros}</p>
+      {card.rosNote ? <p className="mt-0.5 text-xs leading-relaxed break-words text-muted">{card.rosNote}</p> : null}
       <dl className="mt-2 divide-y divide-line text-sm">
         {card.facts.map((f) => (
           <div key={f.label} className="grid gap-0.5 py-1.5 sm:grid-cols-[minmax(0,10rem)_1fr] sm:gap-3">
@@ -193,35 +285,20 @@ export function TradeCard({ card, rank, headingLevel = "h3", feedback, onFeedbac
         </div>
       ) : null}
 
-      {card.pitch ? (
-        <details className="mt-3 rounded-xl border border-line">
-          <summary className="flex min-h-11 items-center justify-between gap-2 px-3 text-sm font-bold">
-            <span>
-              Message to send them<span className="sr-only"> ({name})</span>
-            </span>
-            <span aria-hidden className="text-muted">
-              ▾
-            </span>
-          </summary>
-          <div className="border-t border-line p-3">
-            <p className="text-sm leading-relaxed break-words whitespace-pre-wrap">{card.pitch}</p>
-            {/* CopyButton is a small button; the wrapper makes it a 44 px target. */}
-            <div className="mt-2 [&>button]:min-h-11">
-              <CopyButton text={card.pitch} />
-            </div>
-          </div>
-        </details>
-      ) : null}
+      {card.pitch ? <Message text={card.pitch} name={name} className="mt-3" /> : null}
 
       {showAnalyzerLink ? (
         <div className="mt-3">
-          <Link href={card.analyzerHref} prefetch={false} onClick={onOpenAnalyzer} className={cx(buttonClass("secondary", "sm"), "min-h-11")}>
+          <Link href={card.analyzerHref} prefetch={false} onClick={onOpenAnalyzer ? () => onOpenAnalyzer(card.analyzerHref) : undefined} className={cx(buttonClass("secondary", "sm"), "min-h-11")}>
             Open in Analyzer<span className="sr-only"> ({name})</span>
           </Link>
         </div>
       ) : null}
 
-      <FeedbackControls feedback={feedback} onChange={onFeedback} tradeName={name} />
+      {/* After the card's own content (review of Phase 4b: its flags read as the Plan B's when they sat under it). */}
+      {card.planB ? <PlanBBox planB={card.planB} name={name} showLink={showAnalyzerLink} onOpen={onOpenAnalyzer} /> : null}
+
+      <FeedbackControls feedback={feedback} onChange={onFeedback} tradeName={name} versions={card.versions} />
     </article>
   );
 }

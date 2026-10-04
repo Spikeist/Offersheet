@@ -82,8 +82,8 @@ describe("import store", () => {
     expect(parseStoredImport(JSON.stringify({ ...stored, response: { snapshot: snap } }))).toBeUndefined();
   });
 
-  it("saves this version's format: 2 since Phase 3, whose snapshots carry matchup results (lead decision D8)", () => {
-    expect(IMPORT_FORMAT_VERSION).toBe(2);
+  it("saves this version's format: 3 since Phase 4b, whose snapshots carry waiver ranks and IR eligibility (2 since Phase 3's matchup results)", () => {
+    expect(IMPORT_FORMAT_VERSION).toBe(3);
     const { version, ...rest } = stored;
     expect(version).toBe(IMPORT_FORMAT_VERSION);
     expect(toStoredImport(rest)).toEqual(stored);

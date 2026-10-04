@@ -1,155 +1,153 @@
 /**
- * Checkpoint 4 numbers for Parker's league (CLAUDE.md §17 "Checkpoint 4 includes"; planner reply to Checkpoint 3,
- * "Checkpoint 4 must include" and model change 2's "Checkpoint 4 must report"; the planner's addendum to Checkpoint 3,
- * §5, reports/planner-reply-3b.md; the Phase 4 addendum's lead decisions N9–N12), computed through the real trade engine
- * exactly as the Trade Finder's and the Trade Analyzer's Web Worker runs it: buildTradeContext, runTradeSearch and
- * analyzeTrade (src/engine/evaluate.ts, search.ts), explainTrade (explain.ts), acceptance (acceptance.ts), the star
- * premium (premium.ts), leagueMarginals and buildLeagueModel (league.ts), and the League page's view (src/lib/leagueView.ts).
+ * Checkpoint 4b numbers for Parker's league (planner reply to Checkpoint 4, reports/planner-reply-4.md, "Checkpoint 4b must
+ * include"; the lead's Phase 4b design, track R), computed through the real trade engine exactly as the Trade Finder's and
+ * the Trade Analyzer's Web Worker runs it: buildTradeContext, runTradeSearch and analyzeTrade (src/engine/evaluate.ts,
+ * search.ts), explainTrade (explain.ts), acceptance (acceptance.ts), the star premium (premium.ts) and buildLeagueModel
+ * (league.ts).
  *
- *   npm run trade:report                      Parker's ESPN league through the public-link path and the app's caches
- *   npm run trade:report -- --team <id>       his team, when the import can't find it (no cookies)
- *   npm run trade:report -- --cookies         use the .env.local ESPN cookies (also with USE_ENV_COOKIES=1)
- *   npm run trade:report -- --offline         no network: the git-ignored dump in data-local/parker-league/
- *                                             (snapshot.json, inputs.json, meta.json; team names already
- *                                             placeholders, his team "3", the engine's `now` from meta.json)
+ *   npm run trade:report                           Parker's ESPN league through the public-link path and the app's caches
+ *   npm run trade:report -- --team <id>            his team, when the import can't find it (no cookies)
+ *   npm run trade:report -- --cookies              use the .env.local ESPN cookies (also with USE_ENV_COOKIES=1)
+ *   npm run trade:report -- --offline [dir]        no network: a git-ignored placeholder dump (snapshot.json, inputs.json,
+ *                                                  meta.json; default data-local/parker-league; league-report's loadDump),
+ *                                                  the engine's `now` from meta.json
+ *   ... --compare <file>                           the Checkpoint 4 model's results on the same dump (the lead's worktree
+ *                                                  driver; CompareRun), for sections 2, 4 and 5
+ *   ... --compare3 <file>                          the Checkpoint 3 model's odds on the same dump, for section 4
  *
  * The report (reports/trade-report.md), each section explaining its table in words:
- * 0. Header: the data's timestamps, the settings used (defaultTradeSettings: the app's defaults), the baseline
- *    odds, and every note and warning of the inputs, the evaluation context and the search.
- * 1. Parker's top 10 trades (the app's model at the default settings): a summary table ("Harder to get" players marked),
- *    then each trade's card: the three numbers (Helps you, Chance they accept with its label, P_complete when the veto
- *    rule cuts it, Overall), B and its parts (the market term κ × clamp(g): κ the "Protect my trade value" level's, g =
- *    g_mkt(you) with each player you give counted at least at the waiver credit W, lead decision N10), ΔPPW (regular
- *    season and playoffs), ΔPO, ΔCH, ΔEW, ROS points in and out, g_mkt for both sides with its plain reading, the star
- *    premium on what the partner gives (TradeDetail.premium) and their g as they see it, the partner's n (and ΔLineup per
- *    week) and h, the forced drops and adds, the risk flags, the "Offer first / if they say no" steps, the reasons and the
- *    pitch. Reasons and pitch are worded again by explainTrade with placeholder names (ExplainContext.teamName "Team N"),
- *    so they can never carry a real team name.
- * 2. Before and after the addendum (planner-reply-3b §5; N9): the top 10 of the before-addendum variant
- *    (TradeContextOptions.beforeAddendum, N5: no star premium, κ = config.benefit.marketSanityWeight on the raw g_mkt(you),
- *    no market-term floor (N10), the get pool without the "Harder to get" split, no dominance pruning (N11), no steps)
- *    side by side with the app's, from the same run; then every trade of either top 10 in both models (analyzeTrade in the
- *    other model's context when it isn't among that model's shown trades) and what moved it. B_win is the same in both
- *    (the same lineups, seeds and seasons), so a trade's B moves only with the market term and its chance only with the
- *    star premium. Where a model didn't show a trade, the report names the stage of that model's search that dropped it
- *    (dropStage: not screened, outside the value window, pruned by N11, past a partner's best keptPerPartner or the
- *    overall exactEvaluationMax, illegal, not a finalist, hidden, a diversity rule, or below the shown ones), from each
- *    model's search re-run stage by stage with the engine's own functions (searchTrace, checked to reproduce the search
- *    exactly); for a trade a search never exactly evaluated, also where it would have ended had it been (ifEvaluated:
- *    its exact evaluation and simulations added, the rest of that search unchanged). Offline, the before variant's search
- *    is also checked against the saved pre-addendum reference (data-local/before-addendum/top25.json, when it was saved
- *    for the same dump and moment: referenceCheck, place by place; only the match is printed).
- * 3. Realism check on the shown trades (at most config.search.resultsShown): the distribution of g_mkt(partner)
- *    (REALISM_BUCKETS), min / median / max of both sides, how many ask the partner to give up more than 15% in value
- *    (⚠️ our definition, as the lead set it: g_mkt(partner) < −0.15, the partner gets back less than 85% of what it
- *    gives), how many carry "Market check" (g_mkt(me) < config.benefit.marketCheckBelow), what the value term adds
- *    to the acceptance estimate and costs B on average, and a plain verdict on lopsidedness in either direction. Then
- *    g_mkt(you) before the addendum and at Low / Medium / High (κ 2 / 4 / 8: the report's context searched once per level),
- *    the κ question's top-10 table (Σ EG = Σ B × P_complete within a level only: B holds κ × g; and the κ-free
- *    Σ B_win × P_complete across levels), the break-even κ of today's #1 against the best even trade in the list
- *    (breakEvenKappa: ⚠️ two trades only), and N11's dominance pruning (pruningCheck: the app's search's screening
- *    from its trace, the shortlist without and with it).
- * 4. The Smith-Njigba example (planner-reply-3b: "Would someone really give up Smith-Njigba for three RBs?"): his star
- *    premium, every package of STAR_PACKAGE.size of Parker's STAR_PACKAGE.pos players for him in both models (the
- *    Analyzer), the package the old model rated most likely in detail, the planner's anchor (section 8), and value-even star
- *    trades on the real rosters: STAR_TRADES (⚠️ named by the lead) and every star trade the before model showed, each
- *    with its place in both models or the stage of that model's search that dropped it (section 2's dropStage).
- * 5. "Offer first / if they say no" (planner-reply-3b §4–§5; N4): how many shown cards carry a step, and why, measured
- *    (stepsDiagnosis): every shown trade's possible steps without the search's pre-screen (case 1: each throw-in in the
- *    trade held back, the rule's the lowest-value one; case 2: each throw-in added, the rule's the best qualifying one),
- *    each version evaluated as the search evaluates it (evaluate.tradeVersion: exact evaluation + the screening
- *    simulation), both chances, the throw-ins' values against W, the change in z by part, and how often the pre-screen
- *    keeps the rule's choice.
- * 6. "Harder to get" (planner-reply-3b §2; N2, N12): FantasyCalc's top 12, every team's premium players (e, rank, top-12,
- *    the tag) as the trade context has them, and the League page's partner rows (buildLeagueView on the League model the
- *    page builds: the default settings, with odds).
- * 7. Consistency check: why no suggested trade's B comes from free-agent pickups (V* judged in scenario lineups on both
- *    sides; N10's floor), the tests that pin it, the measured bound (giveAwayCheck: each throw-in and each player worth less
- *    than W given alone for nothing, the partner left as it was: the lineup points his departure realizes and the B it
- *    gets), then every shown trade re-evaluated with analyzeTrade in a fresh context (every memo empty): B and the card's
- *    numbers must equal the search's bit for bit; each trade's pickups after the trade on both sides; and for the first
- *    trade the V* moves before and after for both teams.
- * 8. The acceptance anchors: §11's 8 (acceptance()) and the addendum's 6 (premiumAnchorRows: premium.eliteIds,
- *    teamPremiums and perceivedPackage, benefit.tradePackage and acceptance(), W = 752), each next to the planner's value
- *    and with the estimate without the star premium.
- * 9. Runtime: buildTradeContext and runTradeSearch, the median of SEARCH_RUNS runs after SEARCH_WARMUPS warm-up
- *    (each run builds its own context), per stage (the offer-first steps and words included), with the counts per stage,
- *    the longest gap between two progress yields (what the worker's slices wait on), the Analyzer's time per trade in a
- *    fresh context, and this report's own stages. Node, not the browser worker.
- * 10. One Trade Analyzer example (a trade that looks great for Parker that the model gives a low acceptance chance),
- *    found systematically (analyzerExample): every 1-for-1 and 2-for-1 between Parker's players and each partner's
- *    ANALYZER_TOP_VALUES most valuable players (perception values; P, K, D/ST and IDP left out on both sides, as the
- *    search does by default), exactly evaluated (evaluate.evaluateExact: the Analyzer's evaluation before its
- *    simulation); those with P_accept < ANALYZER_MAX_ACCEPT simulated at screeningSims seasons; the
- *    ANALYZER_FINALISTS best by that B, inside the search's value window (config.search.screeningGWindow on
- *    g_mkt(partner)) and overall, through analyzeTrade itself; the highest Trade Score inside the window is the
- *    example (ties: B, then the key). ⚠️ The window is ours: without it the winners are plain lowballs (a star for
- *    spare parts, the value term at its clamp), which says nothing new; the report names the unrestricted winner in
- *    one line. Its card, then its acceptance terms (TradeDetail.terms, logit units) in words: what pulled it down,
- *    and what the estimate would be without each. The value term's words give the trade value at market and, under a
- *    star premium, as the partner sees it (valueTermWords), next to the g the term reads.
- * 11. The free-agent optimizer items of model change 2 (league-report's optimizerReport on the context's League
- *    model and leagueMarginals, the same rules as reports/league-report.md, what V* judges its moves by included:
- *    optimizerJudging): Bo Nix → Team 1 (MV_add, chip gap), Christian McCaffrey's chip gap, each next to its Checkpoint 3
- *    number (CHECKPOINT3_OPTIMIZER) and what this run's pickups say about the change, and how many moves teams make.
+ * 0. Header: the command line it ran with (reportCommand: the dump folder, --team and the compare files, so it can be run
+ *    again), the data's timestamps (and the compare files'), the settings used (defaultTradeSettings: the app's
+ *    defaults), the baseline odds, and every note and warning of the inputs, the evaluation context and the search.
+ * 1. Your top 10 trades now: a summary table, then each card in full: give and get with injury tags (flags.tagged in the
+ *    card's words, tradeView.injuryTagText) and "Harder to get", the three numbers, B and its parts, ΔPPW, ΔPO, ΔCH, ΔEW,
+ *    ROS in and out, g_mkt both sides (and the pitch's own trade-value figure when it quotes one: FantasyCalc's raw values,
+ *    pitchValueGain), the star premium, the partner's n and h, the forced moves (RosterChange: drops, adds, IR slots and the
+ *    displacements an IR return brings), the app's card's own flags and injury note (tradeView.buildTradeCard), the steps
+ *    or the Plan B with its three numbers, the card's reasons and the pitch (explainTrade with placeholder team names).
+ *    "Among them" says when Garrett Wilson's count is the given-player cap's most, and the count without the cap.
+ * 2. Before and after: (a) Checkpoint 4 as reported (CHECKPOINT4_REPORTED: the 10 rows of reports/trade-report.md §1 at
+ *    commit b27e90f with the received players' statuses from that commit's league report, read back to check them:
+ *    reportedTagsCheck), (b) the Checkpoint 4 model on this same dump (--compare), each of its top 10 with where it is now
+ *    (shown, or the Trade Analyzer's numbers today), (c) now; for (b) and (c) the top 10 with the three numbers and injury
+ *    tags, how many of the top 10 receive an injury-tagged player (status not ACTIVE), how many give Garrett Wilson (top
+ *    10 and all shown, and in the cards' Plan B boxes), the median g_mkt(you) of the top 10 and of all shown, cards shown
+ *    and hidden counts (listFacts); and (c) again without the given-player cap (§13: at most 3 of the top 20 give one player
+ *    of mine, so with it Wilson's count can't pass 3: uncappedSearch, the same context searched with the cap patched off),
+ *    with why the uncapped list still sells him (wilsonWhy: the cards' "Covers your risky week" reasons, his 2-for-1s).
+ * 3. Blend sensitivity: the search at config.marketBlend.weight 0, 0.25 and 0.5 (BLEND_WEIGHTS; the weight set on the
+ *    config object while that context is built and searched, then restored: withSwitches), each with the median g_mkt(you)
+ *    of the top 10 and the top 25, Wilson given (cards and boxes), injury-tagged players received and cards shown, each
+ *    also without the given-player cap. Then the blend at the default weight (blendFacts, LeaguePlayers.blend): players
+ *    blended per position, the distribution of the factor f, injured against healthy players' f (the double-counted
+ *    discount, a planner question), the 10 largest and smallest f with their numbers per game and in ROS points, Garrett
+ *    Wilson's and Zay Flowers'.
+ * 4. Your odds over time: Checkpoint 3 and Checkpoint 4 as reported, the Checkpoint 3 and 4 models on this dump (the
+ *    compare files), and now, as rosters stand (the League model) and with pickups (the trade baseline, every team at
+ *    V*), now's pickup effect on the same seasons (standOnSearchSeasons). Reading down the table, data against model, with
+ *    Phase 4's change split into streaming and the rest; what changed in the data (dataChanges: Checkpoint 3's and 4's
+ *    committed league reports read back with git show: records, roster moves and injury news per team, and points per week
+ *    and my players' ROS under Checkpoint 4's rules on both data). Then the model decomposition (SETTINGS, settingRun):
+ *    from Checkpoint 4's rules (no blend, each team's pickups on its own, no IR returners) each change alone, in sequence,
+ *    and removed alone from now; and streaming's share (no team streams: settings.streamPositions [] and
+ *    config.streaming.detectAdds Infinity); and the check that Checkpoint 4's rules reproduce its model (cp4Reproduction).
+ * 5. Free-agent allocation (allocationReport): the basis and order, with CLAUDE.md §2.2's ⚠️ on ESPN's live order and the
+ *    same search on the weekly reset order (resetOrderRun), each team's pickups one team each and each on its own, the free
+ *    agents two or more teams pick up and how many went away, where Mark Andrews, Malik Washington and Jordan Love land,
+ *    and for each of the top 10 trades whether my V* after the trade adds a free agent the partner claimed in the baseline
+ *    (allowed when I'm ahead in the order, or right behind it and it lets him go: pickupReach) or a third team's (never),
+ *    and whether the partner's takes one of mine.
+ * 6. Cards (cardsReport): how many shown cards carry a Plan B (by kind) or offer-first steps, how many carry injury tags,
+ *    the ranking's variety drops (the given-player cap's among them), the most-given players of mine in the top 20 (ties
+ *    at the cut included) and my players in the Plan B boxes (the cap counts a box only when it adds a player); and the
+ *    Plan B boxes the planner's literal rules would give (the search again with TradeSearchOptions.planB
+ *    { minAcceptGain: null, givenPlayerCap: null }: the "likelier" rule and the cap off).
+ * 7. IR players (irReport): every IR player (team, status, ESPN's return week, R, the displacement at R as the team
+ *    stands and at V*(T)), the returners' effect on each team's PPW and on my odds, the shown trades with an IR player (in
+ *    an IR slot, or on an active roster with a status the league's IR slot takes: irSlots.irEligibleStatuses), and the IR
+ *    moves on the cards (RosterChange.toIR and .displaced).
+ * 8. Consistency: no B from free-agent pickups (by construction, the tests, the measured bound: giveAwayCheck), every
+ *    shown trade and every Plan B re-evaluated by analyzeTrade in a fresh context (bit for bit), and a no-op check
+ *    through simulateTrade (both sides at their baselines: ΔPO = ΔCH = ΔEW = 0 exactly at both blocks of seasons).
+ * 9. The acceptance anchors: the planner's two tables through the real functions (anchorRows, premiumAnchorRows), each row
+ *    ✅ within ±0.5 points or ❌.
+ * 10. Runtime: the League model and the search per stage (median of SEARCH_RUNS after SEARCH_WARMUPS warm-up, Node), cold
+ *    (the first run in the process) and warm, the search again on the same context, with the counts; the longest stretch
+ *    between progress yields with the stage it fell in (gapTracker), against CLAUDE.md §12's documented bound.
  *
- * Everything after the network is buildTradeReport (pure but for the clock it is given), which
- * scripts/trade-report.test.ts runs on a synthetic league.
+ * Everything after the network is buildTradeReport (pure but for the clock it is given and the config patches it undoes),
+ * which scripts/trade-report.test.ts runs on a synthetic league.
  *
  * Privacy (CLAUDE.md §0.5, §0.6): team, owner and league names are placeholders (league-report's placeholders())
  * before the engine runs; teams read "Team N" and Parker "Team 3 (you)"; the output is scrubbed with the .env.local
  * secrets and the ESPN redaction map, public NFL player names kept whole. Output: reports/trade-report.md and a
  * short console summary.
  */
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
+import { z } from "zod";
 import { importEspnLeagueForModel } from "@/adapters/espn";
 import type { ImportDeps } from "@/adapters/types";
 import { loadPlayerIdResolver } from "@/data";
-import { acceptance, displayAcceptance, logistic, pAcceptFromLogit, type AcceptanceLeague, type AcceptanceTerms, type PartnerProfile, type TradeAcceptanceInput } from "@/engine/acceptance";
+import { acceptance, betaNeed, displayAcceptance, type AcceptanceLeague, type PartnerProfile, type TradeAcceptanceInput } from "@/engine/acceptance";
+import { farReturnWeek } from "@/engine/availability";
 import { protectValueWeight, tradePackage } from "@/engine/benefit";
+import type { BlendPosition } from "@/engine/blend";
 import { config } from "@/engine/config";
 import {
-  addCandidates,
   analyzeTrade,
-  assetValue,
   buildTradeContext,
   evaluateExact,
   explainContextOf,
-  legalSide,
-  perceivedG,
   proposalKey,
-  screenTrade,
   simulateTrade,
-  stepConfig,
   throwIns,
   tradeInternals,
-  tradeVersion,
+  tradeSides,
   type ExactTrade,
-  type Screened,
   type TeamState,
   type TradeContext,
   type TradeInternals,
-  type TradeVersion,
 } from "@/engine/evaluate";
-import { explainTrade } from "@/engine/explain";
+import { explainTrade, injuryTags } from "@/engine/explain";
 import type { MarketInputs, ModelInputs } from "@/engine/inputs";
-import { buildLeagueModel, leagueMarginals } from "@/engine/league";
-import type { FaMove, PlayerPremium } from "@/engine/leagueModel";
-import type { LeagueSnapshot, Pos } from "@/engine/model";
+import { irEligibleStatuses } from "@/engine/irSlots";
+import { buildLeagueModel, claimedBy, type FaAllocationMode } from "@/engine/league";
+import type { FaAllocation, FaMove, LeagueModel, PlayerBlend } from "@/engine/leagueModel";
+import type { InjuryStatus, LeagueSnapshot, Pos } from "@/engine/model";
 import type { FaStep } from "@/engine/optimizer";
 import { eliteIds, perceivedPackage, teamPremiums } from "@/engine/premium";
-import { rankTrades, sortTrades, type RankConfig } from "@/engine/rank";
-import { belowWaiverCredit, buildPools, dominancePruned, finalistsOf, partnerCandidates, runTradeSearch, shortlistOf } from "@/engine/search";
+import { runTradeSearch, type TradeSearchOptions } from "@/engine/search";
+import { seasonOdds } from "@/engine/season";
 import { PROTECT_VALUE_LEVELS, defaultTradeSettings, normalizeTradeSettings, type ProtectValue, type TradeSettings } from "@/engine/settings";
 import { rosValue } from "@/engine/teamValue";
-import type { TradeAsset, TradeEvaluation, TradeEvaluationCore, TradeProposal, TradeSearchResult } from "@/engine/tradeModel";
-import { BEST_TARGET_NOTE, buildLeagueView, type PartnerCard } from "@/lib/leagueView";
+import type { InjuryTag, RosterChange, TradeAsset, TradeEvaluation, TradeSearchProgress, TradeSearchResult } from "@/engine/tradeModel";
+import { INJURED_REASON, buildTradeCard, injuryTagText, knownTagsOf, seasonEndOf } from "@/lib/tradeView";
 import { FileCache } from "@/server/cache";
 import { createHttpClient } from "@/server/http";
 import { buildModelInputs } from "@/server/modelInputs";
-import { optimizerJudging, optimizerJudgingText, optimizerReport, placeholders, type OptimizerExample, type OptimizerReport } from "./league-report";
+import {
+  allocationBasisText,
+  commandText,
+  displayPath,
+  duplicatePickups,
+  dumpNote,
+  flagValue,
+  irReturnerRows,
+  loadDump,
+  offlineDirOf,
+  ordinal,
+  parseLeagueReport,
+  placeholders,
+  relativePath,
+  resetWaiverOrder,
+  statusShort,
+  waiverOrderCaveat,
+  type IrReturnerRow,
+  type LeagueReportTables,
+} from "./league-report";
 import { ROOT, env, loadEnv } from "./lib/env";
 import { redactorFromMap } from "./lib/minimize";
 import { installConsoleScrubber, registerScrubber, scrubEverything, scrubEverythingExcept } from "./lib/redact";
@@ -157,85 +155,145 @@ import { installConsoleScrubber, registerScrubber, scrubEverything, scrubEveryth
 // ---------------------------------------------------------------------------------------------
 // Report choices (not model tunables: nothing the engine computes depends on them)
 
-/** Timed search runs after SEARCH_WARMUPS untimed ones (the lead's brief: the median of 3 runs after 1 warm-up). */
+/** Timed runs after SEARCH_WARMUPS untimed ones (the lead's brief: the median of 3 runs after 1 warm-up). */
 export const SEARCH_RUNS = 3;
 export const SEARCH_WARMUPS = 1;
-/** Trades shown in full (Checkpoint 4: "Parker's top 10 trades"). */
+/** Trades shown in full and counted as "the top 10" (planner reply to Checkpoint 4: "Parker's top 10"). */
 export const TOP_DETAIL = 10;
-/** The Analyzer example: each partner's most valuable players tried, the acceptance bar, and the candidates analyzeTrade re-runs. */
-export const ANALYZER_TOP_VALUES = 3;
-export const ANALYZER_MAX_ACCEPT = 0.2;
-export const ANALYZER_FINALISTS = 10;
-/** "Asks the partner to give up more than 15% in value" (the realism check): g_mkt(partner) below this. */
-export const PARTNER_OVERPAYS_BELOW = -0.15;
-/** The κ question's "below −25%" (the addendum review's measure): g_mkt(you) below this. */
-export const DEEP_OVERPAY_BELOW = -0.25;
-/** The realism check's g_mkt buckets: [lo, hi) as fractions, the first and last open-ended. */
-export const REALISM_BUCKETS: readonly { lo: number; hi: number }[] = [
-  { lo: Number.NEGATIVE_INFINITY, hi: -0.35 },
-  { lo: -0.35, hi: -0.15 },
-  { lo: -0.15, hi: -0.05 },
-  { lo: -0.05, hi: 0.05 },
-  { lo: 0.05, hi: 0.15 },
-  { lo: 0.15, hi: 0.35 },
-  { lo: 0.35, hi: Number.POSITIVE_INFINITY },
-];
-/** The Smith-Njigba example (planner-reply-3b, Parker's question): the star, and the package of Parker's players tried for him. */
-export const STAR_NAME = "Jaxon Smith-Njigba";
-export const STAR_PACKAGE: { readonly pos: Pos; readonly size: number } = { pos: "RB", size: 3 };
-/** ⚠️ The lead's value-even real star trades (public NFL names; a name not on these rosters any more is reported, not guessed). */
-export const STAR_TRADES: readonly { readonly give: readonly string[]; readonly get: readonly string[] }[] = [
-  { give: ["Brock Bowers", "Garrett Wilson"], get: ["Jaxon Smith-Njigba", "Juwan Johnson"] },
-  { give: ["Brock Bowers", "Breece Hall"], get: ["Derrick Henry", "Isaiah Likely"] },
-];
+/** The wider window of section 3 ("the top 25", or every shown trade when fewer). */
+export const TOP_WIDE = 25;
+/** Section 3's market-blend weights (planner reply to Checkpoint 4: "marketBlend 0, 0.25 and 0.5"). */
+export const BLEND_WEIGHTS: readonly number[] = [0, 0.25, 0.5];
+/** Section 3: how many of the largest and the smallest blend factors are listed. */
+export const BLEND_EXTREMES = 10;
+/** The player the planner's question follows by name (public NFL name), and section 3's named players. */
+export const WILSON = "Garrett Wilson";
+export const BLEND_NAMED: readonly string[] = ["Garrett Wilson", "Zay Flowers"];
+/** Section 5's named free agents (planner reply to Checkpoint 4: "where Mark Andrews lands"; the lead added the other two). */
+export const ALLOCATION_NAMED: readonly string[] = ["Mark Andrews", "Malik Washington", "Jordan Love"];
+/** Section 6: the players of mine given most often in the top 20, listed (everyone tied with the last one listed is listed too). */
+export const MOST_GIVEN_SHOWN = 5;
+/**
+ * Section 10: CLAUDE.md §12's documented bound on the work between two progress yields ("typically under 40 ms of work
+ * between yields on Parker's league in Node"). A report reference value, not a tunable: the report flags a longer stretch.
+ */
+export const YIELD_GAP_DOCUMENTED_MS = 40;
+/** Section 4: how many of my players' rest-of-season moves under Checkpoint 4's rules are listed (the largest first). */
+export const DATA_ROS_SHOWN = 5;
+
+/** Checkpoint 3's reported odds for Parker (reports/checkpoint-3.md: his standings row; live data of 2026-09-30), as rosters stood. */
+export const CHECKPOINT3_REPORTED = { code: "6a83beb", data: "live data of 2026-09-30", asRostersStand: { pPlayoffs: 0.786, pTitle: 0.197 } } as const;
+
+/** One row of Checkpoint 4's reported top 10 (public NFL names; the partner a placeholder; g_mkt as fractions, rounded as printed). */
+export interface ReportedRow {
+  partnerId: string;
+  give: readonly string[];
+  get: readonly string[];
+  /**
+   * The players received whose status wasn't active on Checkpoint 4's data, by name (the St column of Checkpoint 4's league
+   * report, b27e90f:reports/league-report.md, the same live data): Q = QUESTIONABLE, O = OUT.
+   */
+  tagged: Readonly<Record<string, InjuryStatus>>;
+  helps: number;
+  /** "Chance they accept" as shown (whole percent) and its label. */
+  chance: number;
+  label: string;
+  overall: number;
+  b: number;
+  gMine: number;
+  gPartner: number;
+}
 
 /**
- * §11's required anchor tests: the planner's scenarios and P_accept. Features not named are 0 (even value, a = 0, no
- * history, no hole, a 1-for-1, no season context, hot and urg 0); n enters as ΔLineup_P = n × nScale.
+ * Checkpoint 4 as reported (reports/trade-report.md and reports/checkpoint-4.md at commit b27e90f; live data of 2026-10-03
+ * 09:28Z): its top 10 (§1) with the received players' injury statuses from its league report (ReportedRow.tagged), the shown
+ * and hidden counts and the median g_mkt(you) of all shown (§3), the odds, and the lead's counts on that data: Garrett
+ * Wilson is given in 9 of the top 10 and in 15 of the 22 shown. Report reference values, not tunables.
  */
-export const ANCHORS: readonly { name: string; g?: number; n?: number; h?: 0 | 1; a?: number; c?: number; percent: number }[] = [
-  { name: "Even value; n = 0.5; fills a hole; active (a = +1)", n: 0.5, h: 1, a: 1, percent: 61.1 },
-  { name: "Even value; nothing else", percent: 35.4 },
-  { name: "g = −0.10; n = 0.5; fills a hole", g: -0.1, n: 0.5, h: 1, percent: 31.0 },
-  { name: "g = −0.20; nothing else", g: -0.2, percent: 8.3 },
-  { name: "g = +0.15; n = −0.3", g: 0.15, n: -0.3, percent: 53.0 },
-  { name: "Even value; inactive (a = −2)", a: -2, percent: 21.4 },
-  { name: "3-for-1 (c = 2); even value", c: 2, percent: 25.0 },
-  { name: "g = +0.30; n = 0.5", g: 0.3, n: 0.5, percent: 81.8 },
-];
-/** §11: the anchors must hold within ±1 percentage point. */
-export const ANCHOR_TOLERANCE = 1;
+export const CHECKPOINT4_REPORTED = {
+  code: "b27e90f",
+  data: "live data of 2026-10-03 09:28Z",
+  asRostersStand: { pPlayoffs: 0.678, pTitle: 0.133 },
+  withPickups: { pPlayoffs: 0.629, pTitle: 0.116 },
+  shown: 22,
+  hidden: { byBenefit: 17, byMarket: 3 },
+  wilsonTop: 9,
+  wilsonAll: 15,
+  medianAll: -0.201,
+  top: [
+    { partnerId: "9", give: ["Brock Bowers"], get: ["Zay Flowers"], tagged: { "Zay Flowers": "QUESTIONABLE" }, helps: 65, chance: 55, label: "Likely", overall: 42, b: 6.26, gMine: -0.232, gPartner: 0.303 },
+    { partnerId: "9", give: ["Garrett Wilson", "David Montgomery"], get: ["Zay Flowers"], tagged: { "Zay Flowers": "QUESTIONABLE" }, helps: 57, chance: 60, label: "Likely", overall: 40, b: 5.12, gMine: -0.251, gPartner: 0.336 },
+    { partnerId: "9", give: ["Garrett Wilson", "David Montgomery"], get: ["Zay Flowers", "Jacory Croskey-Merritt"], tagged: { "Zay Flowers": "QUESTIONABLE" }, helps: 66, chance: 45, label: "Decent", overall: 39, b: 6.55, gMine: -0.219, gPartner: 0.28 },
+    { partnerId: "10", give: ["Garrett Wilson"], get: ["Jalen Coker", "Jaylen Warren"], tagged: { "Jalen Coker": "QUESTIONABLE" }, helps: 56, chance: 50, label: "Decent", overall: 34, b: 4.95, gMine: -0.197, gPartner: 0.246 },
+    { partnerId: "1", give: ["Garrett Wilson", "Kyle Monangai"], get: ["Davante Adams", "Isaiah Likely"], tagged: {}, helps: 43, chance: 70, label: "Likely", overall: 32, b: 3.37, gMine: -0.269, gPartner: 0.368 },
+    { partnerId: "1", give: ["Garrett Wilson"], get: ["Davante Adams", "Isaiah Likely"], tagged: {}, helps: 42, chance: 70, label: "Likely", overall: 31, b: 3.23, gMine: -0.255, gPartner: 0.342 },
+    { partnerId: "8", give: ["Garrett Wilson", "Bo Nix"], get: ["Christian Watson", "Dallas Goedert"], tagged: { "Dallas Goedert": "OUT" }, helps: 39, chance: 75, label: "Likely", overall: 31, b: 2.97, gMine: -0.274, gPartner: 0.377 },
+    { partnerId: "8", give: ["Garrett Wilson"], get: ["Christian Watson", "Dallas Goedert"], tagged: { "Dallas Goedert": "OUT" }, helps: 37, chance: 75, label: "Likely", overall: 29, b: 2.78, gMine: -0.252, gPartner: 0.337 },
+    { partnerId: "4", give: ["Garrett Wilson"], get: ["Chuba Hubbard", "Mike Evans"], tagged: { "Mike Evans": "QUESTIONABLE" }, helps: 60, chance: 35, label: "Decent", overall: 28, b: 5.53, gMine: -0.064, gPartner: 0.069 },
+    { partnerId: "10", give: ["Garrett Wilson", "Kyle Monangai"], get: ["Jalen Coker", "Ladd McConkey"], tagged: { "Jalen Coker": "QUESTIONABLE", "Ladd McConkey": "QUESTIONABLE" }, helps: 26, chance: 90, label: "Likely", overall: 23, b: 1.81, gMine: -0.336, gPartner: 0.506 },
+  ] as readonly ReportedRow[],
+} as const;
+
+/** Checkpoint 4's reported top 10 that receive an injury-tagged player (ReportedRow.tagged; 8 of 10). */
+export const reportedInjuredTop = (rows: readonly ReportedRow[] = CHECKPOINT4_REPORTED.top): number => rows.filter((r) => r.get.some((name) => r.tagged[name] !== undefined)).length;
 
 /**
- * The star premium's anchor tests (planner addendum to Checkpoint 3, §1: default coefficients, W = 752, within ±0.5 points),
- * as src/engine/acceptance.test.ts builds them: ten players worth 9,100–10,000 plus partner A's #1 "star" (9,000) and one
- * of mine (9,000) are FantasyCalc's top 12; partner A rosters star, p2 … p7 (5,000 … 1,000), partner B "best" (5,000, not
- * top-12) and b2. A contender has 70% playoff odds, the others 40% (no season context); a = 0, no history.
+ * Checkpoint 4's reported statuses (ReportedRow.tagged, and every other received player active) checked against its league
+ * report's roster tables when given (the St column, statusShort): the players whose status differs, or null when every
+ * received player was found with the same status; undefined when the league report isn't available.
  */
-export const PREMIUM_ANCHORS: readonly { name: string; partner: "A" | "B"; contender: boolean; recv: readonly string[]; give: readonly string[]; n?: number; h?: 0 | 1; percent: number; plannerBefore?: number }[] = [
-  { name: "1-for-1, equal raw value; partner's #1; top-12; contender; no lineup change", partner: "A", contender: true, recv: ["you9000"], give: ["star"], percent: 10.9 },
-  { name: "1-for-1, equal raw value; partner's #6; not top-12", partner: "A", contender: false, recv: ["you2000"], give: ["p6"], percent: 35.4, plannerBefore: 35.4 },
-  { name: "Partner gets 4,000 + 3,500 + 3,500 for their #1 top-12 player (9,000); contender; n = 0.6; fills a hole", partner: "A", contender: true, recv: ["r4000", "r3500a", "r3500b"], give: ["star"], n: 0.6, h: 1, percent: 23.4, plannerBefore: 51.3 },
-  { name: "The same trade, where the RBs help them twice as much (n = 1.2)", partner: "A", contender: true, recv: ["r4000", "r3500a", "r3500b"], give: ["star"], n: 1.2, h: 1, percent: 32.8 },
-  { name: "1-for-1, equal raw value; partner's #2; not top-12", partner: "A", contender: false, recv: ["you5000"], give: ["p2"], percent: 26.3 },
-  { name: "1-for-1; partner's #1, not top-12; contender; partner gets 30% more raw value", partner: "B", contender: true, recv: ["you6500"], give: ["best"], percent: 62.0 },
+export function reportedTagsCheck(cp4: LeagueReportTables | null, rows: readonly ReportedRow[] = CHECKPOINT4_REPORTED.top): string[] | null | undefined {
+  if (!cp4) return undefined;
+  const statusOf = (name: string): string | undefined => {
+    for (const roster of cp4.rosters.values()) {
+      const p = roster.get(name);
+      if (p) return p.status;
+    }
+    return undefined;
+  };
+  const off = new Set<string>();
+  for (const r of rows) for (const name of r.get) if (statusOf(name) !== statusShort(r.tagged[name] ?? "ACTIVE")) off.add(name);
+  return off.size ? [...off] : null;
+}
+
+/**
+ * §11's required anchor tests (the planner's reply to Checkpoint 4, change 2's table): the planner's scenarios and P_accept,
+ * with Checkpoint 4's value as `old` (β_need 0.6 everywhere, the cap at 95%). Features not named are 0 (even value, a = 0,
+ * no history, no hole, a 1-for-1, no season context, hot and urg 0); n enters as ΔLineup_P = n × nScale; a redraft league
+ * unless `dynasty`.
+ */
+export const ANCHORS: readonly { name: string; dynasty?: true; g?: number; n?: number; h?: 0 | 1; a?: number; c?: number; percent: number; old: number }[] = [
+  { name: "Even value; n = 0.5; fills a hole; active (a = +1)", n: 0.5, h: 1, a: 1, percent: 67.9, old: 61.1 },
+  { name: "Even value; nothing else", percent: 35.4, old: 35.4 },
+  { name: "g = −0.10; n = 0.5; fills a hole", g: -0.1, n: 0.5, h: 1, percent: 37.8, old: 31.0 },
+  { name: "g = −0.20; nothing else", g: -0.2, percent: 8.3, old: 8.3 },
+  { name: "g = +0.15; n = −0.3", g: 0.15, n: -0.3, percent: 48.5, old: 53.0 },
+  { name: "Even value; inactive (a = −2)", a: -2, percent: 21.4, old: 21.4 },
+  { name: "3-for-1 (c = 2); even value", c: 2, percent: 25.0, old: 25.0 },
+  { name: "g = +0.30; n = 0.5 (the 85% cap)", g: 0.3, n: 0.5, percent: 85.0, old: 81.8 },
+  { name: "Dynasty: even value; n = 0.5; fills a hole; active", dynasty: true, n: 0.5, h: 1, a: 1, percent: 61.1, old: 61.1 },
 ];
-/** The addendum's anchors: within ±0.5 points, with this waiver credit. */
+/** The planner's reply to Checkpoint 4 (change 2): both tables within ±0.5 percentage points. */
+export const ANCHOR_TOLERANCE = 0.5;
+
+/**
+ * The star premium's anchor tests (the planner's reply to Checkpoint 4, change 2's table: default coefficients, W = 752,
+ * within ±0.5 points), as src/engine/acceptance.test.ts builds them: ten players worth 9,100–10,000 plus partner A's #1
+ * "star" (9,000) and one of mine (9,000) are FantasyCalc's top 12; partner A rosters star, p2 … p7 (5,000 … 1,000),
+ * partner B "best" (5,000, not top-12) and b2. A contender has 70% playoff odds, the others 40% (no season context); a = 0,
+ * no history. `old`: Checkpoint 4's value.
+ */
+export const PREMIUM_ANCHORS: readonly { name: string; partner: "A" | "B"; contender: boolean; recv: readonly string[]; give: readonly string[]; n?: number; h?: 0 | 1; percent: number; old: number }[] = [
+  { name: "1-for-1, equal raw value; partner's #1; top-12; contender; no lineup change", partner: "A", contender: true, recv: ["you9000"], give: ["star"], percent: 10.9, old: 10.9 },
+  { name: "1-for-1, equal raw value; partner's #6; not top-12", partner: "A", contender: false, recv: ["you2000"], give: ["p6"], percent: 35.4, old: 35.4 },
+  { name: "Partner gets 4,000 + 3,500 + 3,500 for their #1 top-12 player (9,000); contender; n = 0.6; fills a hole", partner: "A", contender: true, recv: ["r4000", "r3500a", "r3500b"], give: ["star"], n: 0.6, h: 1, percent: 32.8, old: 23.4 },
+  { name: "The same trade, where the RBs help them twice as much (n = 1.2)", partner: "A", contender: true, recv: ["r4000", "r3500a", "r3500b"], give: ["star"], n: 1.2, h: 1, percent: 55.4, old: 32.8 },
+  { name: "1-for-1, equal raw value; partner's #2; not top-12", partner: "A", contender: false, recv: ["you5000"], give: ["p2"], percent: 26.3, old: 26.3 },
+  { name: "1-for-1; partner's #1, not top-12; contender; partner gets 30% more raw value", partner: "B", contender: true, recv: ["you6500"], give: ["best"], percent: 62.0, old: 62.0 },
+];
+/** The star premium's anchors: within ±0.5 points, with this waiver credit. */
 export const PREMIUM_ANCHOR_TOLERANCE = 0.5;
 export const PREMIUM_ANCHOR_W = 752;
-
-/**
- * Checkpoint 3's numbers for model change 2's examples (section 11), with the one-move baseline the optimizer replaced.
- * Bo Nix → Team 1's +83 lineup points with Team 1's one move re-picked and +45 with it pinned (CLAUDE.md §7) came from
- * track C's test fixture with synthetic inputs, not Parker's league (final review of Checkpoint 4); on Parker's league
- * Checkpoint 3 reported at most +14.9 anywhere (Team 10) against his lineup cost of 14.1, a gap of 0.8
- * (reports/checkpoint-3.md). Christian McCaffrey's chip gap 33.1 = maxOther 124.0 to Team 2 − his cost 90.9 (Checkpoint 3's
- * league report; "McCaffrey +33" in reports/checkpoint-3.md). Report reference values, not tunables.
- */
-export const CHECKPOINT3_OPTIMIZER = {
-  nix: { name: "Bo Nix", teamId: "1", repicked: 83, pinned: 45, realMax: 14.9, realMaxTeamId: "10", realCost: 14.1, realGap: 0.8 },
-  mccaffrey: { name: "Christian McCaffrey", gap: 33.1, maxOther: 124.0, cost: 90.9, teamId: "2" },
-} as const;
 
 // ---------------------------------------------------------------------------------------------
 // Numbers in words
@@ -261,36 +319,51 @@ export const pctSigned = (x: number | null | undefined, d = 1): string => (finit
 export const pctPlain = (x: number | null | undefined, d = 1): string => (finite(x) ? `${fmt(100 * x, d)}%` : "–");
 /** A change in a probability, in percentage points: +0.081 → "+8.1 pts". */
 export const pts = (x: number | null | undefined, d = 1): string => (finite(x) ? `${signed(100 * x, d)} pts` : "–");
+/** A stretch between yields, one decimal (so a 39.6 ms one isn't printed "40 ms" next to the 40 ms bound). */
+const gapMs = (x: number | null | undefined): string => (finite(x) ? `${x.toFixed(1)} ms` : "–");
 const ms = (x: number | null | undefined): string => (!finite(x) ? "–" : x >= 1000 ? `${(x / 1000).toFixed(2)} s` : x < 10 ? `${x.toFixed(1)} ms` : `${Math.round(x)} ms`);
 const thousands = (n: number): string => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-/** "a", "a and b", "a, b and c". */
-const andList = (xs: readonly string[]): string => (xs.length <= 1 ? (xs[0] ?? "") : `${xs.slice(0, -1).join(", ")} and ${xs.at(-1) as string}`);
 /** A trade value: "9,912". */
 const valueText = (v: number | null | undefined): string => (finite(v) ? thousands(Math.round(v)) : "–");
+/** "✅" when a check holds, "❌" when it doesn't (CLAUDE.md §0.12: ✅ only when the data verifies it). */
+const mark = (ok: boolean): string => (ok ? "✅" : "❌");
 
-function median(xs: readonly number[]): number {
+/** The median of the finite numbers (NaN without any). */
+export function median(xs: readonly number[]): number {
   const s = xs.filter((x) => Number.isFinite(x)).sort((a, b) => a - b);
   const n = s.length;
   if (!n) return Number.NaN;
   return n % 2 ? (s[(n - 1) / 2] as number) : ((s[n / 2 - 1] as number) + (s[n / 2] as number)) / 2;
 }
 
-const mean = (xs: readonly number[]): number => (xs.length ? xs.reduce((s, x) => s + x, 0) / xs.length : Number.NaN);
+/** The p-quantile of sorted numbers, linear between order statistics (p 0: the minimum, 1: the maximum); NaN without any. */
+export function quantile(sorted: readonly number[], p: number): number {
+  const n = sorted.length;
+  if (!n) return Number.NaN;
+  const at = Math.min(n - 1, Math.max(0, p * (n - 1)));
+  const lo = Math.floor(at);
+  const hi = Math.ceil(at);
+  const a = sorted[lo] as number;
+  return a + ((sorted[hi] as number) - a) * (at - lo);
+}
 
 const playerIds = (xs: readonly TradeAsset[]): string[] => xs.flatMap((a) => (a.kind === "player" ? [a.id] : []));
 const asPlayers = (ids: readonly string[]): TradeAsset[] => ids.map((id) => ({ kind: "player", id }));
+const unique = <T>(xs: readonly T[]): T[] => [...new Set(xs)];
 
-/** "Garrett Wilson (WR, NYJ)": a public NFL name with his position and NFL team. */
+/** "Garrett Wilson (WR, NYJ)": a public NFL name with his position and NFL team (the id when he isn't in the data). */
 function playerLabel(snapshot: LeagueSnapshot, id: string): string {
   const p = snapshot.players[id];
   return p ? `${p.name} (${p.pos}, ${p.nflTeam ?? "FA"})` : id;
 }
-const players = (snapshot: LeagueSnapshot, ids: readonly string[]): string => (ids.length ? ids.map((id) => playerLabel(snapshot, id)).join(" + ") : "nobody");
 /** "Garrett Wilson": the public name alone (compact tables). */
 const nameOf = (snapshot: LeagueSnapshot, id: string): string => snapshot.players[id]?.name ?? id;
 const names = (snapshot: LeagueSnapshot, ids: readonly string[]): string => (ids.length ? ids.map((id) => nameOf(snapshot, id)).join(" + ") : "nobody");
-/** "Team 9: Garrett Wilson + Breece Hall → Zay Flowers": a trade in one line (compact tables). */
-const tradeLine = (snapshot: LeagueSnapshot, p: TradeProposal, teamName: (id: string) => string): string => `${teamName(p.partnerId)}: ${names(snapshot, playerIds(p.give))} → ${names(snapshot, playerIds(p.get))}`;
+
+/** A player's id by his public name (the first one in the data with it), or null. */
+export function idByName(snapshot: LeagueSnapshot, name: string): string | null {
+  return Object.keys(snapshot.players).find((id) => snapshot.players[id]?.name === name) ?? null;
+}
 
 /**
  * Trade value in words from both sides' g_mkt (§9). The package values make both readings exact: my PV_give is the
@@ -306,22 +379,19 @@ export function valueReading(gMine: number, gPartner: number): { you: string; th
 }
 
 /** The card's chance as shown: "70%" (P_accept rounded to config.acceptance.displayStep). */
-const shownChance = (p: number): string => `${Math.round(100 * displayAcceptance(p))}%`;
+export const shownChance = (p: number): string => `${Math.round(100 * displayAcceptance(p))}%`;
 
 /** "Est. 80% (Likely)", and P_complete when the veto rule cuts it. */
-function chanceText(t: TradeEvaluation): string {
+function chanceText(t: Pick<TradeEvaluation, "pAccept" | "pComplete" | "acceptLabel"> & { detail: Pick<TradeEvaluation["detail"], "vetoRisk"> }): string {
   const shown = `Est. ${shownChance(t.pAccept)} (${t.acceptLabel})`;
   return t.detail.vetoRisk ? `${shown}; P_complete ${Math.round(100 * displayAcceptance(t.pComplete))}% (the league vote may veto: halved)` : shown;
 }
 
-/** The card's three numbers in one cell: "47 / 70% / 37" (Helps you / Chance they accept as shown / Overall). */
-const threeNumbers = (t: TradeEvaluation | null): string => (t ? `${t.tradeScore ?? "–"} / ${shownChance(t.pAccept)} / ${t.overall ?? "–"}` : "–");
+/** The three numbers in one cell: "47 / 70% / 37" (Helps you / Chance they accept as shown / Overall). */
+const threeNumbers = (helps: number | null, pAccept: number, overall: number | null): string => `${helps ?? "–"} / ${shownChance(pAccept)} / ${overall ?? "–"}`;
 
 /** B's market term (redraft: B − B_win), or null. */
 const marketTermOf = (t: TradeEvaluation | null): number | null => (t && t.lambda === null && finite(t.b) && finite(t.bWin) ? t.b - t.bWin : null);
-
-/** Expected gain EG = B × P_complete (§13; Overall before its 0–100 scale), or null. */
-const egOf = (t: TradeEvaluation): number | null => (finite(t.b) ? t.b * t.pComplete : null);
 
 /** The names explain.ts words reasons and pitches with: placeholders only ("Team 9"). */
 function placeholderWords(I: TradeInternals, t: TradeEvaluation): { reasons: string[]; pitch: string } {
@@ -329,21 +399,258 @@ function placeholderWords(I: TradeInternals, t: TradeEvaluation): { reasons: str
   return { reasons: words.reasons, pitch: words.pitch };
 }
 
-/** The players of `ids` tagged "Harder to get" for their owner `teamId` (the trade context's premiums: the same in both variants' contexts). */
-function taggedFor(I: TradeInternals, teamId: string, ids: readonly string[]): string[] {
-  const premiums = I.premiums.get(teamId);
-  return ids.filter((id) => premiums?.[id]?.harderToGet === true);
+// ---------------------------------------------------------------------------------------------
+// The compare files (--compare, --compare3)
+
+const oddsSchema = z.object({ pPlayoffs: z.number(), pTitle: z.number().nullable() });
+const tagSchema = z.object({ playerId: z.string(), side: z.enum(["give", "get"]), status: z.string(), returnWeek: z.number().optional() });
+const compareTradeSchema = z.object({
+  rank: z.number(),
+  partnerId: z.string(),
+  give: z.array(z.string()),
+  get: z.array(z.string()),
+  helps: z.number().nullable(),
+  pAccept: z.number(),
+  pComplete: z.number(),
+  label: z.string(),
+  overall: z.number().nullable(),
+  b: z.number().nullable(),
+  dPO: z.number().nullable().optional(),
+  dCH: z.number().nullable().optional(),
+  dPPW: z.number().nullable().optional(),
+  gMine: z.number(),
+  gPartner: z.number(),
+  steps: z.string().nullable().optional(),
+  tagged: z.array(tagSchema).optional(),
+});
+const compareSchema = z.object({
+  label: z.string(),
+  code: z.string(),
+  dump: z.string(),
+  now: z.string(),
+  odds: z.object({ asRostersStand: oddsSchema, withPickups: oddsSchema.optional() }),
+  pickups: z.array(z.object({ teamId: z.string(), moves: z.array(z.object({ add: z.string(), drop: z.string().nullable() })) })).optional(),
+  duplicates: z.array(z.object({ playerId: z.string(), teamIds: z.array(z.string()) })).optional(),
+  hidden: z.object({ byBenefit: z.number(), byMarket: z.number() }).optional(),
+  counts: z.object({ screened: z.number(), exact: z.number(), simScreen: z.number(), simFinal: z.number() }).optional(),
+  searchMs: z.number().optional(),
+  timings: z.record(z.string(), z.number()).optional(),
+  trades: z.array(compareTradeSchema).optional(),
+});
+
+/** Another model's results on the same dump (the lead's worktree driver, e.g. data-local/cp4-compare-dev.json): odds, pickups and its search. */
+export type CompareRun = z.infer<typeof compareSchema>;
+export type CompareTrade = z.infer<typeof compareTradeSchema>;
+
+/** A compare file's contents, checked (`source` names it in the error, which lists every bad JSON path). */
+export function parseCompare(json: unknown, source: string): CompareRun {
+  const r = compareSchema.safeParse(json);
+  if (!r.success) throw new Error(`${source} isn't a compare file: ${r.error.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`).join("; ")}`);
+  return r.data;
 }
 
-/** Runs a generator to its end (the search's per-partner screening). */
-function drain<T>(it: Generator<void, T, void>): T {
-  let r = it.next();
-  while (!r.done) r = it.next();
-  return r.value;
+/** A compare file from disk (parseCompare). */
+export function readCompare(file: string): CompareRun {
+  return parseCompare(JSON.parse(readFileSync(file, "utf8")) as unknown, path.basename(file));
 }
 
 // ---------------------------------------------------------------------------------------------
-// Runtime (section 9) and the search the report reads
+// A ranked list in common terms (section 2), whichever model made it
+
+/** A trade of a ranked list (this run's TradeEvaluation, or a compare file's row). */
+export interface ListedTrade {
+  key: string;
+  partnerId: string;
+  give: string[];
+  get: string[];
+  helps: number | null;
+  pAccept: number;
+  pComplete: number;
+  label: string;
+  overall: number | null;
+  b: number | null;
+  gMine: number;
+  gPartner: number;
+  /** Every injury-tagged player on either side (TradeEvaluation.flags.tagged). */
+  tagged: { playerId: string; side: "give" | "get"; status: string; returnWeek?: number }[];
+  /** The players of mine its Plan B box gives (null: no box on this card); absent for a model without Plan B (a compare file's). */
+  planBGive?: string[] | null;
+}
+
+/** This run's trade as a ListedTrade (its tags: flags.tagged, else from the snapshot as the cards read them). */
+export function listedOf(t: TradeEvaluation, snapshot: LeagueSnapshot): ListedTrade {
+  const tagged = t.flags.tagged ?? injuryTags(t.proposal, snapshot.players, { currentWeek: snapshot.currentWeek });
+  return {
+    key: t.key,
+    partnerId: t.proposal.partnerId,
+    give: playerIds(t.proposal.give),
+    get: playerIds(t.proposal.get),
+    helps: t.tradeScore,
+    pAccept: t.pAccept,
+    pComplete: t.pComplete,
+    label: t.acceptLabel,
+    overall: t.overall,
+    b: t.b,
+    gMine: t.gMine,
+    gPartner: t.gPartner,
+    tagged: tagged.map((g) => ({ ...g })),
+    planBGive: t.planB ? playerIds(t.planB.proposal.give) : null,
+  };
+}
+
+/** A compare file's row as a ListedTrade (its key as proposalKey makes it, so it matches this run's). */
+export function listedOfCompare(c: CompareTrade): ListedTrade {
+  return {
+    key: proposalKey({ partnerId: c.partnerId, give: asPlayers(c.give), get: asPlayers(c.get) }),
+    partnerId: c.partnerId,
+    give: [...c.give],
+    get: [...c.get],
+    helps: c.helps,
+    pAccept: c.pAccept,
+    pComplete: c.pComplete,
+    label: c.label,
+    overall: c.overall,
+    b: c.b,
+    gMine: c.gMine,
+    gPartner: c.gPartner,
+    tagged: (c.tagged ?? []).map((g) => ({ ...g })),
+  };
+}
+
+/** The planner's questions on a ranked list (section 2; section 3 per blend weight). */
+export interface ListFacts {
+  shown: number;
+  /** The first `top` (TOP_DETAIL) trades: how many receive an injury-tagged player (status not ACTIVE: a tag on "get"), and how many give `wilsonId`. */
+  topN: number;
+  injuredTop: number;
+  wilsonTop: number;
+  /** The same over every shown trade. */
+  injuredAll: number;
+  wilsonAll: number;
+  /**
+   * The Plan B boxes on the shown cards that give `wilsonId` too (the page suggests selling him there as well), and of them
+   * the ones on a card that doesn't give him (the box adds him); null for a list from a model without Plan B.
+   */
+  wilsonBoxes: { all: number; added: number } | null;
+  /** Median g_mkt(you) of the top `top`, of the first `wide` (TOP_WIDE; every shown trade when fewer), and of all shown. */
+  medianTop: number;
+  medianWide: number;
+  medianAll: number;
+}
+
+const receivesTagged = (t: ListedTrade): boolean => t.tagged.some((g) => g.side === "get");
+
+export function listFacts(trades: readonly ListedTrade[], wilsonId: string | null, top = TOP_DETAIL, wide = TOP_WIDE): ListFacts {
+  const head = trades.slice(0, top);
+  const gives = (t: ListedTrade) => wilsonId !== null && t.give.includes(wilsonId);
+  const boxGives = (t: ListedTrade) => wilsonId !== null && (t.planBGive ?? []).includes(wilsonId);
+  const withPlanB = trades.some((t) => t.planBGive !== undefined);
+  return {
+    shown: trades.length,
+    topN: head.length,
+    injuredTop: head.filter(receivesTagged).length,
+    wilsonTop: head.filter(gives).length,
+    injuredAll: trades.filter(receivesTagged).length,
+    wilsonAll: trades.filter(gives).length,
+    wilsonBoxes: withPlanB ? { all: trades.filter(boxGives).length, added: trades.filter((t) => boxGives(t) && !gives(t)).length } : null,
+    medianTop: median(head.map((t) => t.gMine)),
+    medianWide: median(trades.slice(0, wide).map((t) => t.gMine)),
+    medianAll: median(trades.map((t) => t.gMine)),
+  };
+}
+
+/**
+ * Why the model sells Garrett Wilson (section 2; review of track R): over the first `top` trades of a list (the uncapped
+ * search's, where the given-player cap can't hide it), how many give him; how many carry the card's reason "Covers your
+ * risky week N" (explain.ts, the cards' own words) and for which weeks; how many give him alone for two players, with the
+ * ROS points they'd get and his own.
+ */
+export interface WilsonWhy {
+  top: number;
+  gives: number;
+  /** Trades with a "Covers your risky week(s) …" reason, per week it names. */
+  riskyCovered: { week: number; trades: number }[];
+  /** Trades that give him alone for two players: how many, the ROS points received (min, max), and his ROS points. */
+  aloneForTwo: { trades: number; rosIn: [number, number] | null; rosOut: number | null };
+}
+
+/** The weeks a card's "Covers your risky week 13: …" / "Covers your risky weeks 12 and 13: …" reason names (explain.ts riskyWeekLines). */
+export function coveredRiskyWeeks(reasons: readonly string[]): number[] {
+  for (const r of reasons) {
+    const m = /^Covers your risky weeks? ([^:]+):/.exec(r);
+    if (m) return [...(m[1] as string).matchAll(/\d+/g)].map((x) => Number(x[0]));
+  }
+  return [];
+}
+
+export function wilsonWhy(trades: readonly TradeEvaluation[], wilsonId: string | null, top = TOP_DETAIL): WilsonWhy {
+  const head = trades.slice(0, top);
+  const gives = head.filter((t) => wilsonId !== null && playerIds(t.proposal.give).includes(wilsonId));
+  const weeks = new Map<number, number>();
+  for (const t of gives) for (const w of coveredRiskyWeeks(t.reasons)) weeks.set(w, (weeks.get(w) ?? 0) + 1);
+  const alone = gives.filter((t) => playerIds(t.proposal.give).length === 1 && playerIds(t.proposal.get).length === 2);
+  const rosIn = alone.map((t) => t.ros.received).filter((x) => finite(x));
+  return {
+    top: head.length,
+    gives: gives.length,
+    riskyCovered: [...weeks].map(([week, n]) => ({ week, trades: n })).sort((a, b) => b.trades - a.trades || a.week - b.week),
+    aloneForTwo: { trades: alone.length, rosIn: rosIn.length ? [Math.min(...rosIn), Math.max(...rosIn)] : null, rosOut: alone[0]?.ros.given ?? null },
+  };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Settings switches (sections 3 and 4): the config patches and the engine options
+
+/**
+ * The four Phase 4b-era switches a run can turn off (section 4): the market blend (config.marketBlend.weight 0), one free
+ * agent one team (faAllocation "independent": Checkpoint 4's rule), IR returners (irReturners false: Checkpoint 4's
+ * rule) and streaming (no team streams: settings.streamPositions [] and config.streaming.detectAdds Infinity).
+ */
+export interface Switches {
+  blend: boolean;
+  oneTeam: boolean;
+  irReturners: boolean;
+  streaming: boolean;
+}
+
+export const NOW_SWITCHES: Switches = { blend: true, oneTeam: true, irReturners: true, streaming: true };
+/** Checkpoint 4's rules: no blend, each team's pickups on its own, no IR returners (streaming was already in). */
+export const CP4_SWITCHES: Switches = { blend: false, oneTeam: false, irReturners: false, streaming: true };
+
+type MutableConfig = { marketBlend: { weight: number }; streaming: { detectAdds: number }; ranking: { perGivenPlayerInTop20: number } };
+
+/**
+ * Runs `fn` with config patched (the blend's weight, streaming's detection, the ranking's given-player cap) and restores
+ * config afterwards, whatever happens: the trade context and the search read config, not a config argument, so this is
+ * how a script searches another weight.
+ */
+export function withConfigPatch<T>(patch: { blendWeight?: number; detectAdds?: number; givenPlayerCap?: number }, fn: () => T): T {
+  const c = config as unknown as MutableConfig;
+  const saved = { weight: c.marketBlend.weight, detectAdds: c.streaming.detectAdds, cap: c.ranking.perGivenPlayerInTop20 };
+  if (patch.blendWeight !== undefined) c.marketBlend.weight = patch.blendWeight;
+  if (patch.detectAdds !== undefined) c.streaming.detectAdds = patch.detectAdds;
+  if (patch.givenPlayerCap !== undefined) c.ranking.perGivenPlayerInTop20 = patch.givenPlayerCap;
+  try {
+    return fn();
+  } finally {
+    c.marketBlend.weight = saved.weight;
+    c.streaming.detectAdds = saved.detectAdds;
+    c.ranking.perGivenPlayerInTop20 = saved.cap;
+  }
+}
+
+/** The engine options of a switch setting: the settings (no streamed positions without streaming), the allocation and IR returners. */
+export function switchOptions(s: Switches, settings: TradeSettings): { settings: TradeSettings; faAllocation: FaAllocationMode; irReturners: boolean } {
+  return { settings: s.streaming ? settings : { ...settings, streamPositions: [] }, faAllocation: s.oneTeam ? "oneTeam" : "independent", irReturners: s.irReturners };
+}
+
+/** Runs `fn` under a switch setting: the config patches (withConfigPatch) and the engine options (switchOptions). */
+export function withSwitches<T>(s: Switches, settings: TradeSettings, fn: (opts: ReturnType<typeof switchOptions>) => T): T {
+  return withConfigPatch({ ...(s.blend ? {} : { blendWeight: 0 }), ...(s.streaming ? {} : { detectAdds: Number.POSITIVE_INFINITY }) }, () => fn(switchOptions(s, settings)));
+}
+
+// ---------------------------------------------------------------------------------------------
+// Runtime (section 10) and the search the report reads
 
 export interface RuntimeRun {
   /** buildTradeContext's own stages (TradeContext.timings: league model, baseline lineups, simulation, profiles, total). */
@@ -354,1006 +661,732 @@ export interface RuntimeRun {
   total: number;
   /** The longest stretch of work between two progress yields (from the search's start to its end). */
   maxGap: number;
+  /** Where it ended: the progress the search yielded after it (gapStageText says it in words), or null when it ended with the search. */
+  maxGapAt: GapAt | null;
   /** The trades' keys and numbers: the same in every run when the search is deterministic. */
   signature: string;
 }
 
+/**
+ * Where a stretch of work between two progress yields ended: the yield after it (TradeSearchProgress). Search.ts yields
+ * "rank" once before the ranking ({ done 0, total 1 }), then in each shown card's loop (inside its Plan B choice, with the
+ * cards done so far, and after the card, with one more): `card` is the shown card the stretch worked on (the previous "rank"
+ * yield's done + 1), null outside that loop.
+ */
+export interface GapAt {
+  stage: TradeSearchProgress["stage"];
+  done: number;
+  total: number;
+  card: number | null;
+}
+
+/** A stretch's stage in the words of section 10's table (the work before the yield that ended it). */
+export function gapStageText(at: GapAt | null): string {
+  if (!at) return "the search's last stretch, after its last progress report";
+  if (at.stage === "rank") return at.card === null ? "the ranking" : `the shown trades' offer-first steps, Plan B and words (card ${at.card} of ${at.total})`;
+  const label: Record<Exclude<TradeSearchProgress["stage"], "rank">, string> = { setup: "setup", screening: "screening", exact: "exact evaluation", simScreen: "the screening simulation", simFinal: "the final simulation" };
+  return `${label[at.stage]} (${at.done} of ${at.total})`;
+}
+
+/** A progress callback that records the longest stretch between yields and where it ended (GapAt), for timedSearches. */
+export function gapTracker(clock: () => number): { onProgress: (p: TradeSearchProgress) => void; finish: () => { maxGap: number; maxGapAt: GapAt | null } } {
+  let mark = clock();
+  let maxGap = 0;
+  let maxGapAt: GapAt | null = null;
+  let prevRankDone: number | null = null;
+  return {
+    onProgress: (p) => {
+      const t = clock();
+      const card = p.stage === "rank" && prevRankDone !== null ? prevRankDone + 1 : null;
+      if (t - mark > maxGap) {
+        maxGap = t - mark;
+        maxGapAt = { stage: p.stage, done: p.done, total: p.total, card };
+      }
+      if (p.stage === "rank") prevRankDone = p.done;
+      mark = t;
+    },
+    finish: () => {
+      const t = clock();
+      if (t - mark > maxGap) return { maxGap: t - mark, maxGapAt: null };
+      return { maxGap, maxGapAt };
+    },
+  };
+}
+
 export interface Runtime {
+  /** The first run in the process (cold: the JIT and every memo empty). */
+  cold: RuntimeRun;
+  /** The timed runs after the warm-ups, each with its own context, and their medians. */
   runs: RuntimeRun[];
   warmups: number;
-  /** Medians over the timed runs. */
   context: Record<string, number>;
   search: Record<string, number>;
   total: number;
   maxGap: number;
-  /** Every run (warm-ups included) returned the same trades with the same numbers. */
+  /** The search run again on the last context (its memos warm: what a settings change costs), medians of `again.runs`. */
+  again: { runs: number; search: Record<string, number> };
+  /** Every run (warm-ups and the runs again included) returned the same trades with the same numbers. */
   sameEveryRun: boolean;
 }
 
-export const signatureOf = (r: TradeSearchResult): string => r.trades.map((t) => `${t.key}:${t.b}:${t.pComplete}:${t.gMine}`).join("|");
+export const signatureOf = (r: TradeSearchResult): string => r.trades.map((t) => `${t.key}:${t.b}:${t.pComplete}:${t.gMine}:${t.planB?.key ?? ""}`).join("|");
 
 function medians(rows: readonly Record<string, number>[]): Record<string, number> {
   const keys = [...new Set(rows.flatMap((r) => Object.keys(r)))];
   return Object.fromEntries(keys.map((k) => [k, median(rows.map((r) => r[k] ?? Number.NaN))]));
 }
 
-/** The search with default settings, `warmups` + `runs` times, each with its own context; the last run's context and result are the report's. */
-export function timedSearches(snapshot: LeagueSnapshot, inputs: ModelInputs, opts: { now: Date; clock: () => number; scenarios?: number; settings: TradeSettings; runs: number; warmups: number }): { ctx: TradeContext; result: TradeSearchResult; runtime: Runtime } {
+/**
+ * The search with `settings`, `warmups` + `runs` times, each with its own context, then `again` more times on the last
+ * context; the last timed run's context and result are the report's.
+ */
+export function timedSearches(snapshot: LeagueSnapshot, inputs: ModelInputs, opts: { now: Date; clock: () => number; scenarios?: number; settings: TradeSettings; runs: number; warmups: number; again: number }): { ctx: TradeContext; result: TradeSearchResult; runtime: Runtime } {
   const { clock } = opts;
-  const timed: RuntimeRun[] = [];
-  const signatures: string[] = [];
+  const all: RuntimeRun[] = [];
   let last: { ctx: TradeContext; result: TradeSearchResult } | null = null;
-  const total = Math.max(0, opts.warmups) + Math.max(1, opts.runs);
+  const warmups = Math.max(0, opts.warmups);
+  const total = warmups + Math.max(1, opts.runs);
   for (let i = 0; i < total; i++) {
     const t0 = clock();
     const ctx = buildTradeContext(snapshot, inputs, { now: opts.now, clock, settings: opts.settings, ...(opts.scenarios !== undefined ? { scenarios: opts.scenarios } : {}) });
-    let mark = clock();
-    let maxGap = 0;
-    const result = runTradeSearch(ctx, { clock, settings: opts.settings }, () => {
-      const t = clock();
-      maxGap = Math.max(maxGap, t - mark);
-      mark = t;
-    });
+    const gaps = gapTracker(clock);
+    const result = runTradeSearch(ctx, { clock, settings: opts.settings }, gaps.onProgress);
+    const { maxGap, maxGapAt } = gaps.finish();
     const end = clock();
-    maxGap = Math.max(maxGap, end - mark);
-    const signature = signatureOf(result);
-    signatures.push(signature);
-    if (i >= Math.max(0, opts.warmups)) timed.push({ context: { ...ctx.timings }, search: { ...result.timings }, total: end - t0, maxGap, signature });
+    all.push({ context: { ...ctx.timings }, search: { ...result.timings }, total: end - t0, maxGap, maxGapAt, signature: signatureOf(result) });
     last = { ctx, result };
   }
   const done = last as { ctx: TradeContext; result: TradeSearchResult };
+  const again = Array.from({ length: Math.max(0, opts.again) }, () => runTradeSearch(done.ctx, { clock, settings: opts.settings }));
+  const timed = all.slice(warmups);
+  const signatures = [...all.map((r) => r.signature), ...again.map(signatureOf)];
   return {
     ...done,
     runtime: {
+      cold: all[0] as RuntimeRun,
       runs: timed,
-      warmups: Math.max(0, opts.warmups),
+      warmups,
       context: medians(timed.map((r) => r.context)),
       search: medians(timed.map((r) => r.search)),
       total: median(timed.map((r) => r.total)),
       maxGap: median(timed.map((r) => r.maxGap)),
+      again: { runs: again.length, search: medians(again.map((r) => r.timings)) },
       sameEveryRun: signatures.every((s) => s === signatures[0]),
     },
   };
 }
 
-// ---------------------------------------------------------------------------------------------
-// Before and after the addendum, and the "Protect my trade value" levels (sections 2 and 3)
+/** The League model's runtime (section 10): its stages (LeagueModel.timings), cold (the first build in the process) and the medians of the timed builds. */
+export interface LeagueRuntime {
+  cold: Record<string, number>;
+  warm: Record<string, number>;
+  runs: number;
+  warmups: number;
+  players: number;
+  teams: number;
+  scenarios: number;
+  sims: number;
+}
 
-/** One model's search on the same data: the before-addendum variant (N5), or the app's model at a "Protect my trade value" level. */
-export interface VariantRun {
-  variant: "before" | ProtectValue;
-  /** The market term's weight: config.benefit.marketSanityWeight before the addendum, else the level's κ. */
-  kappa: number;
+/** buildLeagueModel as the League page builds it (default settings, scenarios and seasons), `warmups` + `runs` times; the last build is the report's. */
+export function leagueRuntime(snapshot: LeagueSnapshot, inputs: ModelInputs, opts: { now: Date; clock: () => number; scenarios?: number; settings: TradeSettings; runs: number; warmups: number }): { model: LeagueModel; runtime: LeagueRuntime } {
+  const builds: Record<string, number>[] = [];
+  let model: LeagueModel | null = null;
+  const warmups = Math.max(0, opts.warmups);
+  for (let i = 0; i < warmups + Math.max(1, opts.runs); i++) {
+    model = buildLeagueModel(snapshot, inputs, { now: opts.now, clock: opts.clock, settings: opts.settings, ...(opts.scenarios !== undefined ? { scenarios: opts.scenarios } : {}) });
+    builds.push({ ...model.timings });
+  }
+  const m = model as LeagueModel;
+  return {
+    model: m,
+    runtime: { cold: builds[0] as Record<string, number>, warm: medians(builds.slice(warmups)), runs: builds.length - warmups, warmups, players: Object.keys(m.players).length, teams: m.teams.length, scenarios: m.scenarios, sims: m.odds?.sims ?? 0 },
+  };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Section 3: blend sensitivity and the blend's facts
+
+/** My odds: P(playoffs) and P(title) (null: unknown). */
+export interface OddsPair {
+  pPlayoffs: number;
+  pTitle: number | null;
+}
+
+/** The app's model searched at one market-blend weight (section 3). */
+export interface BlendRun {
+  weight: number;
   ctx: TradeContext;
   result: TradeSearchResult;
-  /** The settings it searched with (the Analyzer reads the same). */
-  settings: TradeSettings;
-  /** Wall time of this search (and of its own context when it built one), ms; NaN for the timed main search. */
+  facts: ListFacts;
+  /** My baseline odds with pickups (the trade baseline: every team at V*). */
+  baseline: OddsPair | null;
+  /**
+   * The same context searched again without the given-player cap (§13: at most config.ranking.perGivenPlayerInTop20
+   * trades in the top 20 giving one player of mine, which keeps Garrett Wilson in at most that many by construction):
+   * what the list would look like without it.
+   */
+  uncapped: { result: TradeSearchResult; facts: ListFacts };
+  /** This run's wall time, ms, the search without the cap included (the main run's own search is timed in section 10). */
   ms: number;
 }
 
-export type Variants = { before: VariantRun } & Record<ProtectValue, VariantRun>;
-
-/**
- * The before-addendum search (its own context: TradeContextOptions.beforeAddendum) and the app's model at every "Protect my
- * trade value" level: the main search at its level, the others searched on the main context (the context reads only the
- * League model's settings; κ is per call, so the numbers equal a context built at that level: search.test.ts pins it).
- */
-export function variantSearches(snapshot: LeagueSnapshot, inputs: ModelInputs, main: { ctx: TradeContext; result: TradeSearchResult }, opts: { now: Date; clock: () => number; scenarios?: number; settings: TradeSettings }): Variants {
-  const { clock, settings } = opts;
-  const t0 = clock();
-  const beforeCtx = buildTradeContext(snapshot, inputs, { now: opts.now, settings, beforeAddendum: true, ...(opts.scenarios !== undefined ? { scenarios: opts.scenarios } : {}) });
-  const before: VariantRun = { variant: "before", kappa: config.benefit.marketSanityWeight, ctx: beforeCtx, result: runTradeSearch(beforeCtx, { settings }), settings, ms: clock() - t0 };
-  const level = (v: ProtectValue): VariantRun => {
-    const at = { ...settings, protectValue: v };
-    if (v === settings.protectValue) return { variant: v, kappa: protectValueWeight(v), ctx: main.ctx, result: main.result, settings: at, ms: Number.NaN };
-    const t = clock();
-    const result = runTradeSearch(main.ctx, { settings: at });
-    return { variant: v, kappa: protectValueWeight(v), ctx: main.ctx, result, settings: at, ms: clock() - t };
-  };
-  const levels = Object.fromEntries(PROTECT_VALUE_LEVELS.map((v) => [v, level(v)])) as Record<ProtectValue, VariantRun>;
-  return { before, ...levels };
+/** The search on `ctx` again without the given-player cap (BlendRun.uncapped). */
+export function uncappedSearch(ctx: TradeContext, settings: TradeSettings): TradeSearchResult {
+  return withConfigPatch({ givenPlayerCap: Number.POSITIVE_INFINITY }, () => runTradeSearch(ctx, { settings }));
 }
 
-/**
- * A saved search to compare the before-addendum variant with: data-local/before-addendum/top25.json, the default search on
- * Parker's offline dump saved before the addendum was built (git-ignored; keys and numbers only). The report prints only
- * whether they match.
- */
-export interface SearchReference {
-  now?: string;
-  counts: TradeSearchResult["counts"];
-  hidden: TradeSearchResult["hidden"];
-  trades: ({ key: string; flags: TradeEvaluation["flags"] } & Pick<TradeEvaluation, (typeof REFERENCE_FIELDS)[number]>)[];
-}
+const baselineOf = (result: TradeSearchResult): OddsPair | null => (finite(result.baseline.pPlayoffs) ? { pPlayoffs: result.baseline.pPlayoffs, pTitle: result.baseline.pTitle } : null);
 
-/** The numbers compared with the reference, besides the key, the place and the flags. */
-const REFERENCE_FIELDS = ["b", "tradeScore", "pAccept", "pComplete", "overall", "dPO", "dCH", "dPPW", "gMine", "gPartner"] as const;
-
-export interface ReferenceCheck {
-  /** Where the reference came from (a path the report prints). */
-  label: string;
-  /** Trades in the reference, and how many this run reproduces exactly (same place, key, numbers and flags). */
-  trades: number;
-  same: number;
-  /** The stage counts and the hidden counts are equal. */
-  counts: boolean;
-  hidden: boolean;
-  /** The first difference in words, or null. */
-  first: string | null;
-}
-
-const sameNumber = (a: number | null, b: number | null): boolean => a === b || (typeof a === "number" && typeof b === "number" && Number.isNaN(a) && Number.isNaN(b));
-
-/** A search's trades, counts and hidden counts against a saved reference, place by place (the file header, section 2). */
-export function referenceCheck(result: TradeSearchResult, ref: SearchReference, label: string): ReferenceCheck {
-  let same = 0;
-  let first: string | null = null;
-  const n = Math.max(ref.trades.length, result.trades.length);
-  for (let i = 0; i < n; i++) {
-    const r = ref.trades[i];
-    const t = result.trades[i];
-    if (!r || !t) {
-      first ??= `#${i + 1} ${r ? "is missing in this run" : "isn't in the reference"}`;
-      continue;
-    }
-    const flags = (Object.keys(t.flags) as (keyof TradeEvaluation["flags"])[]).filter((k) => JSON.stringify(t.flags[k]) !== JSON.stringify(r.flags?.[k]));
-    const diff = t.key !== r.key ? ["the trade"] : [...REFERENCE_FIELDS.filter((k) => !sameNumber(t[k], r[k])), ...flags];
-    if (diff.length) first ??= `#${i + 1}: ${diff.join(", ")}`;
-    else same++;
-  }
-  const c = result.counts;
-  const h = result.hidden;
-  return {
-    label,
-    trades: ref.trades.length,
-    same,
-    counts: c.screened === ref.counts.screened && c.exact === ref.counts.exact && c.simScreen === ref.counts.simScreen && c.simFinal === ref.counts.simFinal,
-    hidden: h.byBenefit === ref.hidden.byBenefit && h.byMarket === ref.hidden.byMarket,
-    first,
-  };
-}
-
-// ---------------------------------------------------------------------------------------------
-// Where a trade left a model's search (sections 2 and 4)
-
-/**
- * One model's search re-run stage by stage with the engine's own functions, in search.ts's order (searchTrace): the
- * pools, the screening (beams), the value window, N11's dominance pruning (the addendum's model only), each partner's
- * best keptPerPartner, the overall exactEvaluationMax, exact evaluation, the screening simulation, the finalists, the
- * final simulation and rankTrades. It keeps every stage's membership, so the report can say where a trade the search
- * didn't show left it (dropStage), and checks it reproduces the search (`matches`).
- */
-export interface SearchTrace {
-  I: TradeInternals;
-  settings: TradeSettings;
-  /** The search stopped before screening (a context note, or the pools emptied by the settings). */
-  stopped: boolean;
-  /** My give pool G (pools order) and each partner's get pool H. */
-  give: string[];
-  get: Map<string, Set<string>>;
-  /** The screening per partner (pools order): every legal screen; and all of them by key. */
-  perPartner: Screened[][];
-  screened: Map<string, Screened>;
-  /** Screens made (the search's counts.screened). */
-  screens: number;
-  /** In-window trades the dominance pruning drops (N11): key → my player worth less than W the leaner trade leaves out. */
-  pruned: Map<string, string | null>;
-  /** Each in-window trade's place in its partner's list by the screening objective: after the pruning (the search's), and without it. */
-  partnerPlace: Map<string, Place>;
-  partnerPlaceUnpruned: Map<string, Place>;
-  /** The partners' kept trades' places over all partners (the overall cut), and the trades sent to exact evaluation, in order. */
-  overallPlace: Map<string, Place>;
-  shortlist: string[];
-  /** Exact evaluation: the legal trades, and the illegal ones with why. */
-  exact: Map<string, ExactTrade>;
-  illegal: Map<string, string>;
-  /** The screening simulation's numbers (every exact trade), the finalists, and the final simulation's numbers. */
-  screen: Map<string, TradeEvaluationCore>;
-  finalists: Set<string>;
-  finals: Map<string, TradeEvaluationCore>;
-  /** rankTrades on the finals: the shown trades' keys, in order. */
-  shown: string[];
-  /** The re-run reproduces the search: the same counts, hidden counts and shown trades in the same order. */
-  matches: boolean;
-}
-
-/** A place in a list: 1 = first, of `of`. */
-export interface Place {
-  rank: number;
-  of: number;
-}
-
-/** The screening's order (search.ts byObjective): the objective, highest first (ties within float noise), then the key. */
-const byObjective = (a: Screened, b: Screened): number => (Math.abs(b.objective - a.objective) > EPS ? b.objective - a.objective : a.key < b.key ? -1 : a.key > b.key ? 1 : 0);
-
-/** Inside §12's value window on g_mkt(partner) (search.ts shortlistOf's test). */
-function inValueWindow(s: Pick<Screened, "gPartner">): boolean {
-  const [gLo, gHi] = config.search.screeningGWindow;
-  return Number.isFinite(s.gPartner) && s.gPartner >= gLo - EPS && s.gPartner <= gHi + EPS;
-}
-
-/** A core without words, as search.ts hands it to rankTrades (the words never change the order). */
-const bare = (core: TradeEvaluationCore): TradeEvaluation => ({ ...core, reasons: [], pitch: "" });
-
-/** §13's ranking numbers (rank.ts's defaults), with `resultsShown` changed when asked. */
-function rankConfig(resultsShown: number = config.search.resultsShown): RankConfig {
-  return { perPartnerInTop20: config.ranking.perPartnerInTop20, partnerCapTop: config.ranking.partnerCapTop, perCore: config.ranking.perCore, fillerCutoffFraction: config.ranking.fillerCutoffFraction, resultsShown, marketHideBelow: config.benefit.marketHideBelow };
-}
-
-/** The ranking that picks the finalists (search.ts finalistsOf): §13's caps relaxed by one, config.search.finalists places. */
-function finalistConfig(): RankConfig {
-  return { ...rankConfig(Math.max(0, Math.floor(config.search.finalists))), perPartnerInTop20: config.ranking.perPartnerInTop20 + 1, perCore: config.ranking.perCore + 1 };
-}
-
-/** A trade's core as rank.ts reads it (the highest-value player on each side; ties: the smaller id), for the words only. */
-function coreOf(proposal: TradeProposal, value: (asset: TradeAsset) => number): { give: string | null; get: string | null } {
-  const best = (xs: readonly TradeAsset[]) => {
-    let id: string | null = null;
-    let v = Number.NEGATIVE_INFINITY;
-    for (const a of xs) {
-      if (a.kind !== "player") continue;
-      const x = value(a);
-      const w = Number.isFinite(x) ? x : Number.NEGATIVE_INFINITY;
-      if (id === null || w > v || (w === v && a.id < id)) {
-        id = a.id;
-        v = w;
-      }
-    }
-    return id;
-  };
-  return { give: best(proposal.give), get: best(proposal.get) };
-}
-
-/** Expected gain at a stage's numbers (B × P_complete; −∞ without B), as finalistsOf ranks the others. */
-const egCore = (c: TradeEvaluationCore): number => (finite(c.b) ? c.b * c.pComplete : Number.NEGATIVE_INFINITY);
-
-/** A trade's place among cores by expected gain (ties: the key), as finalistsOf fills its last places. */
-function egPlace(cores: readonly TradeEvaluationCore[], key: string): Place {
-  const sorted = [...cores].sort((a, b) => (Math.abs(egCore(b) - egCore(a)) > EPS ? egCore(b) - egCore(a) : a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
-  return { rank: sorted.findIndex((c) => c.key === key) + 1, of: sorted.length };
-}
-
-/** The search's stages re-run on its context (SearchTrace); `result` is the search to check it against. */
-export function searchTrace(ctx: TradeContext, settings: TradeSettings, result: TradeSearchResult): SearchTrace {
-  const I = tradeInternals(ctx);
-  const s = normalizeTradeSettings(settings);
-  const trace: SearchTrace = { I, settings: s, stopped: true, give: [], get: new Map(), perPartner: [], screened: new Map(), screens: 0, pruned: new Map(), partnerPlace: new Map(), partnerPlaceUnpruned: new Map(), overallPlace: new Map(), shortlist: [], exact: new Map(), illegal: new Map(), screen: new Map(), finalists: new Set(), finals: new Map(), shown: [], matches: false };
-  const pools = I.blocked || !I.me ? null : buildPools(I, s, null);
-  if (!pools || pools.stop) return { ...trace, matches: result.trades.length === 0 && result.counts.screened === 0 };
-  trace.stopped = false;
-  trace.give = [...pools.give];
-  for (const [id, h] of pools.get) trace.get.set(id, new Set(h.pool));
-
-  // Screening: the beams per partner.
-  const tally = { screened: 0 };
-  trace.perPartner = pools.partners.map((p) => {
-    const H = pools.get.get(p.id) ?? { pool: [], forced: [] };
-    return drain(partnerCandidates(I, p, { give: pools.give, forcedGive: pools.forcedGive, get: H.pool, forcedGet: H.forced }, s.maxPerSide, tally));
+/** The search at every weight of `weights` (BLEND_WEIGHTS): the main run at config's own weight, the others built and searched with the weight patched. */
+export function blendSensitivity(snapshot: LeagueSnapshot, inputs: ModelInputs, main: { ctx: TradeContext; result: TradeSearchResult }, opts: { now: Date; clock: () => number; settings: TradeSettings; scenarios?: number; weights?: readonly number[]; wilsonId: string | null }): BlendRun[] {
+  const own = config.marketBlend.weight;
+  const weights = [...new Set([...(opts.weights ?? BLEND_WEIGHTS)])].sort((a, b) => a - b);
+  return weights.map((weight): BlendRun => {
+    const facts = (r: TradeSearchResult) => listFacts(r.trades.map((t) => listedOf(t, snapshot)), opts.wilsonId);
+    const t0 = opts.clock();
+    const { ctx, result, uncapped } = withConfigPatch({ blendWeight: weight }, () => {
+      if (Math.abs(weight - own) <= EPS) return { ctx: main.ctx, result: main.result, uncapped: uncappedSearch(main.ctx, opts.settings) };
+      const c = buildTradeContext(snapshot, inputs, { now: opts.now, settings: opts.settings, ...(opts.scenarios !== undefined ? { scenarios: opts.scenarios } : {}) });
+      return { ctx: c, result: runTradeSearch(c, { settings: opts.settings }), uncapped: uncappedSearch(c, opts.settings) };
+    });
+    return { weight, ctx, result, facts: facts(result), baseline: baselineOf(result), uncapped: { result: uncapped, facts: facts(uncapped) }, ms: opts.clock() - t0 };
   });
-  trace.screens = tally.screened;
-  for (const list of trace.perPartner) for (const x of list) trace.screened.set(x.key, x);
-
-  // The value window, the pruning (N11, only in the addendum's model) and each partner's best keptPerPartner.
-  const cheap = I.beforeAddendum ? null : belowWaiverCredit(I);
-  const keptPerPartner = Math.max(0, Math.floor(config.search.keptPerPartner));
-  const kept: Screened[] = [];
-  for (const list of trace.perPartner) {
-    const inWindow = list.filter(inValueWindow);
-    const survivors = cheap ? dominancePruned(inWindow, cheap) : inWindow;
-    const alive = new Set(survivors.map((x) => x.key));
-    const byKeyOf = new Map(inWindow.map((x) => [x.key, x]));
-    for (const x of inWindow) {
-      if (alive.has(x.key)) continue;
-      // The player the leaner trade leaves out (dominancePruned's test, for the words only).
-      const player = x.give.find((id) => (cheap as (id: string) => boolean)(id) && (byKeyOf.get(proposalKey({ partnerId: x.partnerId, give: asPlayers(x.give.filter((g) => g !== id)), get: asPlayers(x.get) }))?.objective ?? Number.NEGATIVE_INFINITY) >= x.objective - EPS);
-      trace.pruned.set(x.key, player ?? null);
-    }
-    const sorted = [...survivors].sort(byObjective);
-    sorted.forEach((x, i) => trace.partnerPlace.set(x.key, { rank: i + 1, of: sorted.length }));
-    const all = [...inWindow].sort(byObjective);
-    all.forEach((x, i) => trace.partnerPlaceUnpruned.set(x.key, { rank: i + 1, of: all.length }));
-    kept.push(...sorted.slice(0, keptPerPartner));
-  }
-  const overall = kept.sort(byObjective);
-  overall.forEach((x, i) => trace.overallPlace.set(x.key, { rank: i + 1, of: overall.length }));
-  // The shortlist is the engine's own (shortlistOf); the places above must agree with it (checked in `matches`).
-  trace.shortlist = shortlistOf(trace.perPartner, cheap).map((x) => x.key);
-  const sameShortlist = trace.shortlist.join("\n") === overall.slice(0, Math.max(0, Math.floor(config.search.exactEvaluationMax))).map((x) => x.key).join("\n");
-
-  // Exact evaluation, the screening simulation, the finalists, the final simulation, the ranking.
-  for (const key of trace.shortlist) {
-    const x = trace.screened.get(key) as Screened;
-    const r = evaluateExact(I, { partnerId: x.partnerId, give: asPlayers(x.give), get: asPlayers(x.get) }, s.maxPerSide);
-    if ("illegal" in r) trace.illegal.set(key, r.illegal);
-    else trace.exact.set(key, r);
-  }
-  for (const [key, x] of trace.exact) trace.screen.set(key, simulateTrade(I, x, "screen", s.lambda, s.protectValue));
-  const value = assetValue(I);
-  const fin = finalistsOf([...trace.screen.values()], value);
-  trace.finalists = fin.keys;
-  for (const key of trace.shortlist) if (fin.keys.has(key)) trace.finals.set(key, simulateTrade(I, trace.exact.get(key) as ExactTrade, "final", s.lambda, s.protectValue));
-  const ranked = rankTrades([...trace.finals.values()].map(bare), value);
-  trace.shown = ranked.trades.map((t) => t.key);
-  const c = result.counts;
-  trace.matches =
-    sameShortlist &&
-    trace.screens === c.screened &&
-    trace.exact.size === c.exact &&
-    trace.screen.size === c.simScreen &&
-    trace.finals.size === c.simFinal &&
-    trace.shown.join("\n") === result.trades.map((t) => t.key).join("\n") &&
-    ranked.hidden.byBenefit + fin.hidden.byBenefit === result.hidden.byBenefit &&
-    ranked.hidden.byMarket + fin.hidden.byMarket === result.hidden.byMarket;
-  return trace;
 }
 
-/** A diversity rule of §13's ranking (rank.ts): a filler variant, the per-core cap, or the per-partner cap in the top 20. */
-export type DiversityRule = "filler" | "core" | "partnerCap";
+/** One player the blend reaches (section 3): per game (LeaguePlayers.blend's factor) and in ROS points (PlayerModel.blend). */
+export interface BlendFactRow {
+  id: string;
+  pos: Pos | null;
+  status: string;
+  value: number;
+  /** One of his position's curve points (healthy, a game left). */
+  fit: boolean;
+  /** Base rates, points per game: ours (before), the market curve's, and the one used; f = used ÷ ours. */
+  ours: number;
+  market: number;
+  used: number;
+  f: number;
+  /** ROS points before and after (and the market's) when he has any (PlayerModel.blend), else null. */
+  ros: PlayerBlend | null;
+}
 
-/** Where a trade ended in a ranking (rankFate): shown, hidden by default, dropped by a diversity rule, or below the shown ones. */
-export type RankFate =
-  | { kind: "shown"; place: number }
-  | { kind: "hidden"; why: "benefit" | "market" }
-  /** `core`: the core it shares with the trades kept above it (the core rule only). */
-  | { kind: "diversity"; rule: DiversityRule; core: { give: string | null; get: string | null } | null }
-  /** Past the last shown trade: never reached; `place` is where it would come with room for every trade (null: a diversity rule would drop it even then). */
-  | { kind: "lowerOverall"; place: number | null };
-
-/** Where a trade left one model's search (dropStage; the stages of search.ts in order), or where it was shown. */
-export type DropStage =
-  | RankFate
-  /** Never screened: the search stopped, a side has more than maxPerSide players, a player isn't in the pools, screening's roster rules reject it, or the beams never built it. */
-  | { kind: "notScreened"; why: "stopped" | "size" | "pools" | "rules" | "beams"; missingGive: string[]; missingGet: string[] }
-  | { kind: "window"; g: number }
-  /** N11: the same trade without `player` (mine, worth less than W) screened at least as well. */
-  | { kind: "pruned"; player: string | null }
-  /** Past its partner's best keptPerPartner (`unpruned`: its place without N11's pruning, in the addendum's model). */
-  | { kind: "partnerCut"; place: Place; unpruned: Place | null }
-  | { kind: "overallCut"; place: Place }
-  | { kind: "illegal"; reason: string }
+export interface BlendFacts {
+  weight: number;
+  positions: BlendPosition[];
+  /** Players the blend reaches with a base rate above 0 (f is defined), and f's distribution over them. */
+  count: number;
+  quantiles: { min: number; p10: number; median: number; p90: number; max: number } | null;
+  largest: BlendFactRow[];
+  smallest: BlendFactRow[];
+  named: { name: string; row: BlendFactRow | null }[];
   /**
-   * Exactly evaluated, not a finalist: hidden at the screening simulation's numbers, else left out of the finalists'
-   * ranking (search.ts finalistsOf: §13's caps relaxed by one) by `rule`, or below its places (`rule` null). `place`: its
-   * expected gain's place among the exact trades at the screening simulation.
+   * f for the injury-tagged players (status not ACTIVE) against the healthy ones: how many, median, mean and how many below 1
+   * (blend.ts rule 3's ⚠️: an injured player's market discount is partly counted twice, a planner question); and how many of
+   * the players off the curve (not curve points) are tagged.
    */
-  | { kind: "notFinalist"; hidden: "benefit" | "market" | null; rule: DiversityRule | null; place: Place };
-
-/** The stages before exact evaluation: such a trade's numbers come from the Trade Analyzer only. */
-export const PRE_EXACT: ReadonlySet<DropStage["kind"]> = new Set(["notScreened", "window", "pruned", "partnerCut", "overallCut"]);
-
-/**
- * Where a trade ended in rankTrades on `evaluated` with `cfg` (§13; default the shown ranking's; RankFate). For a trade
- * not kept and not hidden, the rule that dropped it comes from rankTrades itself, on the trades kept above it and it
- * alone: the kept trades are judged exactly as in the full ranking (a dropped trade never changes what is kept), so it
- * meets the same kept set.
- */
-export function rankFate(evaluated: readonly TradeEvaluationCore[], key: string, value: (asset: TradeAsset) => number, cfg: RankConfig = rankConfig()): RankFate {
-  const evals = evaluated.map(bare);
-  const ranked = rankTrades(evals, value, cfg);
-  const at = ranked.trades.findIndex((t) => t.key === key);
-  if (at >= 0) return { kind: "shown", place: at + 1 };
-  const t = evals.find((e) => e.key === key);
-  if (!t || !(finite(t.b) && t.b > 0)) return { kind: "hidden", why: "benefit" };
-  if (t.gMine < cfg.marketHideBelow) return { kind: "hidden", why: "market" };
-  const order = sortTrades(
-    evals.filter((e) => e.illegal === null && finite(e.b) && e.b > 0 && !(e.gMine < cfg.marketHideBelow)),
-    "overall",
-  );
-  const kept = new Set(ranked.trades.map((k) => k.key));
-  const pos = order.findIndex((e) => e.key === key);
-  const last = ranked.trades.at(-1);
-  const lastPos = last ? order.findIndex((e) => e.key === last.key) : -1;
-  if (ranked.trades.length >= Math.floor(cfg.resultsShown) && pos > lastPos) {
-    const more = rankTrades(evals, value, { ...cfg, resultsShown: evals.length });
-    const k = more.trades.findIndex((e) => e.key === key);
-    return { kind: "lowerOverall", place: k >= 0 ? k + 1 : null };
-  }
-  const above = order.slice(0, Math.max(0, pos)).filter((e) => kept.has(e.key));
-  const r = rankTrades([...above, t], value, cfg);
-  const rule: DiversityRule = r.dropped.filler > 0 ? "filler" : r.dropped.core > 0 ? "core" : "partnerCap";
-  return { kind: "diversity", rule, core: rule === "core" ? coreOf(t.proposal, value) : null };
+  byHealth: { tagged: FactorGroup; healthy: FactorGroup; offCurve: number; offCurveTagged: number };
+  /** The extremes' players who are tagged (largest, smallest). */
+  extremesTagged: { largest: number; smallest: number };
 }
 
-/** Why an exact trade isn't among the finalists (search.ts finalistsOf), as DropStage's notFinalist. */
-function notFinalist(cores: readonly TradeEvaluationCore[], key: string, value: (asset: TradeAsset) => number): DropStage {
-  const c = cores.find((x) => x.key === key) as TradeEvaluationCore;
-  const hidden = !(finite(c.b) && c.b > 0) ? "benefit" : c.flags.hiddenByMarket ? "market" : null;
-  const pre = hidden ? null : rankFate(cores, key, value, finalistConfig());
-  return { kind: "notFinalist", hidden, rule: pre?.kind === "diversity" ? pre.rule : null, place: egPlace(cores, key) };
-}
-
-/** Where a trade left the traced model's search (DropStage), stage by stage. */
-export function dropStage(tr: SearchTrace, proposal: TradeProposal): DropStage {
-  const key = proposalKey(proposal);
-  const shownAt = tr.shown.indexOf(key);
-  if (shownAt >= 0) return { kind: "shown", place: shownAt + 1 };
-  const give = playerIds(proposal.give);
-  const get = playerIds(proposal.get);
-  const sc = tr.screened.get(key);
-  if (!sc) {
-    const none = { missingGive: [] as string[], missingGet: [] as string[] };
-    if (tr.stopped) return { kind: "notScreened", why: "stopped", ...none };
-    if (give.length > tr.settings.maxPerSide || get.length > tr.settings.maxPerSide) return { kind: "notScreened", why: "size", ...none };
-    const pool = tr.get.get(proposal.partnerId);
-    const missingGive = give.filter((id) => !tr.give.includes(id));
-    const missingGet = get.filter((id) => !pool?.has(id));
-    if (missingGive.length || missingGet.length) return { kind: "notScreened", why: "pools", missingGive, missingGet };
-    const partner = tr.I.byId.get(proposal.partnerId);
-    if (!partner || !screenTrade(tr.I, partner, give, get)) return { kind: "notScreened", why: "rules", ...none };
-    return { kind: "notScreened", why: "beams", ...none };
-  }
-  if (!inValueWindow(sc)) return { kind: "window", g: sc.gPartner };
-  if (tr.pruned.has(key)) return { kind: "pruned", player: tr.pruned.get(key) ?? null };
-  const place = tr.partnerPlace.get(key) as Place;
-  if (place.rank > Math.floor(config.search.keptPerPartner)) return { kind: "partnerCut", place, unpruned: tr.I.beforeAddendum ? null : (tr.partnerPlaceUnpruned.get(key) ?? null) };
-  if (!tr.shortlist.includes(key)) return { kind: "overallCut", place: tr.overallPlace.get(key) as Place };
-  const illegal = tr.illegal.get(key);
-  if (illegal !== undefined) return { kind: "illegal", reason: illegal };
-  if (!tr.finalists.has(key)) return notFinalist([...tr.screen.values()], key, assetValue(tr.I));
-  return rankFate([...tr.finals.values()], key, assetValue(tr.I));
-}
-
-/**
- * The counterfactual for a trade the traced search never exactly evaluated: where it would have ended had the search
- * exactly evaluated it too, with the rest of the search unchanged (its screening simulation, then the finalists picked
- * again with it among them, the final simulation of those, and the ranking). Exact: the same functions on the same
- * seasons, so its numbers are the Trade Analyzer's.
- */
-export function ifEvaluated(tr: SearchTrace, proposal: TradeProposal): DropStage {
-  const { I, settings: s } = tr;
-  const x = evaluateExact(I, proposal, s.maxPerSide);
-  if ("illegal" in x) return { kind: "illegal", reason: x.illegal };
-  const key = x.evaluation.key;
-  const cores = [...[...tr.screen.values()].filter((c) => c.key !== key), simulateTrade(I, x, "screen", s.lambda, s.protectValue)];
-  const value = assetValue(I);
-  const fin = finalistsOf(cores, value);
-  if (!fin.keys.has(key)) return notFinalist(cores, key, value);
-  const finals = [...fin.keys].map((k) => (k === key ? simulateTrade(I, x, "final", s.lambda, s.protectValue) : (tr.finals.get(k) ?? simulateTrade(I, tr.exact.get(k) as ExactTrade, "final", s.lambda, s.protectValue))));
-  return rankFate(finals, key, value);
-}
-
-/** A trade in one model: its place among that model's shown trades (1 = first; null: not shown) and its evaluation there. */
-export interface ModelSide {
-  rank: number | null;
-  /** The search's evaluation when shown, else analyzeTrade's in that model's context (null when it can't be evaluated there). */
-  t: TradeEvaluation | null;
-  /** Where it left that model's search (dropStage on its trace), or where it was shown. */
-  stage: DropStage;
-  /** A trade that model's search never exactly evaluated: where it would have ended had it been (ifEvaluated); else null. */
-  ifEvaluated: DropStage | null;
-}
-
-export interface CompareRow {
-  key: string;
-  proposal: TradeProposal;
-  before: ModelSide;
-  after: ModelSide;
-}
-
-/**
- * Every trade in either model's top `top`, the after list's first, with its numbers in both models and, where a model
- * didn't show it, the stage of that model's search that dropped it (the file header, section 2).
- */
-export function compareTop(before: VariantRun, after: VariantRun, traces: { before: SearchTrace; after: SearchTrace }, top = TOP_DETAIL): CompareRow[] {
-  const index = (r: TradeSearchResult) => new Map(r.trades.map((t, i) => [t.key, { rank: i + 1, t }]));
-  const inBefore = index(before.result);
-  const inAfter = index(after.result);
-  const side = (run: VariantRun, tr: SearchTrace, m: Map<string, { rank: number; t: TradeEvaluation }>, p: TradeProposal, key: string): ModelSide => {
-    const hit = m.get(key);
-    if (hit) return { rank: hit.rank, t: hit.t, stage: { kind: "shown", place: hit.rank }, ifEvaluated: null };
-    const stage = dropStage(tr, p);
-    return { rank: null, t: analyzeTrade(run.ctx, p, { settings: run.settings }).evaluation, stage, ifEvaluated: PRE_EXACT.has(stage.kind) ? ifEvaluated(tr, p) : null };
-  };
-  const rows: CompareRow[] = [];
-  const seen = new Set<string>();
-  for (const t of [...after.result.trades.slice(0, top), ...before.result.trades.slice(0, top)]) {
-    if (seen.has(t.key)) continue;
-    seen.add(t.key);
-    rows.push({ key: t.key, proposal: t.proposal, before: side(before, traces.before, inBefore, t.proposal, t.key), after: side(after, traces.after, inAfter, t.proposal, t.key) });
-  }
-  return rows;
-}
-
-/** g_mkt(you) of a search's shown trades (planner-reply-3b §5; the κ question). */
-export interface GMineStats {
-  trades: number;
-  /** Trades per REALISM_BUCKETS bucket. */
-  buckets: number[];
-  min: number;
+/** A group of blend factors: how many, their median and mean, and how many are below 1. */
+export interface FactorGroup {
+  count: number;
   median: number;
-  max: number;
-  /** flags.marketCheck (g_mkt(you) < config.benefit.marketCheckBelow). */
-  marketCheck: number;
-  /** g_mkt(you) < DEEP_OVERPAY_BELOW. */
-  deep: number;
-  /** The same for the first `top` trades. */
-  top: { trades: number; median: number; marketCheck: number; deep: number };
-  hidden: { byBenefit: number; byMarket: number };
-  /** Σ B × P_complete over the shown trades (Overall's expected gain before its 0–100 scale). B holds κ × g, so it isn't comparable across κ levels. */
-  eg: number;
-  /** Σ (B − the market term) × P_complete: the κ-free part (B_win in redraft leagues; dynasty and keeper B has no market term), comparable across levels. */
-  egKappaFree: number;
+  mean: number;
+  below1: number;
 }
 
-export function gMineStats(result: TradeSearchResult, top = TOP_DETAIL): GMineStats {
-  const trades = result.trades;
-  const gm = trades.map((t) => t.gMine);
-  const buckets = new Array<number>(REALISM_BUCKETS.length).fill(0);
-  for (const g of gm) {
-    const k = bucketOf(g);
-    if (k >= 0) buckets[k] = (buckets[k] ?? 0) + 1;
-  }
-  const head = trades.slice(0, top);
-  return {
-    trades: trades.length,
-    buckets,
-    min: gm.length ? Math.min(...gm) : Number.NaN,
-    median: median(gm),
-    max: gm.length ? Math.max(...gm) : Number.NaN,
-    marketCheck: trades.filter((t) => t.flags.marketCheck).length,
-    deep: gm.filter((g) => g < DEEP_OVERPAY_BELOW).length,
-    top: { trades: head.length, median: median(head.map((t) => t.gMine)), marketCheck: head.filter((t) => t.flags.marketCheck).length, deep: head.filter((t) => t.gMine < DEEP_OVERPAY_BELOW).length },
-    hidden: { ...result.hidden },
-    eg: trades.reduce((s, t) => s + (egOf(t) ?? 0), 0),
-    egKappaFree: trades.reduce((s, t) => s + (finite(t.b) ? (t.b - (marketTermOf(t) ?? 0)) * t.pComplete : 0), 0),
+const factorGroup = (fs: readonly number[]): FactorGroup => ({ count: fs.length, median: median(fs), mean: fs.length ? fs.reduce((s, x) => s + x, 0) / fs.length : Number.NaN, below1: fs.filter((x) => x < 1 - EPS).length });
+
+/** The blend of the trade context's League build (section 3: LeaguePlayers.blend and PlayerModel.blend). */
+export function blendFacts(I: TradeInternals, n = BLEND_EXTREMES, named: readonly string[] = BLEND_NAMED): BlendFacts {
+  const blend = I.league.lp.blend;
+  const snapshot = I.snapshot;
+  const rows = [...blend.factors]
+    .filter(([, f]) => f.ours > 0)
+    .map(([id, f]): BlendFactRow => ({ id, pos: snapshot.players[id]?.pos ?? null, status: snapshot.players[id]?.injury ?? "–", value: f.value, fit: f.fit, ours: f.ours, market: f.market, used: f.used, f: f.f, ros: I.model.players[id]?.blend ?? null }));
+  const byF = [...rows].sort((a, b) => a.f - b.f || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  const fs = byF.map((r) => r.f);
+  const rowOf = (name: string) => {
+    const id = idByName(snapshot, name);
+    return id === null ? null : (rows.find((r) => r.id === id) ?? null);
   };
-}
-
-/** Today's #1 against the best even trade in the list: the κ at which their EG = B × P_complete are equal (the κ question). */
-export interface BreakEven {
-  first: TradeEvaluation;
-  even: TradeEvaluation;
-  /** The even trade's place in the list (1 = first). */
-  evenRank: number;
-  /** κ where the two EG are equal (B_win and the chance they accept don't move with κ); null when the lines never cross at κ ≥ 0. */
-  kappa: number | null;
-}
-
-/**
- * ⚠️ A two-trade reading for the planner's κ question: today's #1 (when its trade value isn't even) against the best trade
- * by EG whose g_mkt(you) is within config.explain.valueEven of even. Each trade's market term is κ × m with m = (B −
- * B_win) / κ (the clamped g its term reads), so EG(κ′) = (B_win + κ′ m) × P_complete; the crossing is κ* = (B_win2 P2 −
- * B_win1 P1) / (m1 P1 − m2 P2). Redraft leagues only (dynasty and keeper B has no market term); null otherwise.
- */
-export function breakEvenKappa(trades: readonly TradeEvaluation[], kappa: number): BreakEven | null {
-  const first = trades[0];
-  const term = (t: TradeEvaluation) => marketTermOf(t);
-  if (!first || term(first) === null || !(kappa > 0) || Math.abs(first.gMine) < config.explain.valueEven) return null;
-  let best: { t: TradeEvaluation; rank: number } | null = null;
-  trades.forEach((t, i) => {
-    if (i === 0 || term(t) === null || Math.abs(t.gMine) >= config.explain.valueEven) return;
-    if (!best || (egOf(t) ?? Number.NEGATIVE_INFINITY) > (egOf(best.t) ?? Number.NEGATIVE_INFINITY)) best = { t, rank: i + 1 };
-  });
-  const even = best as { t: TradeEvaluation; rank: number } | null;
-  if (!even) return null;
-  const m1 = (term(first) as number) / kappa;
-  const m2 = (term(even.t) as number) / kappa;
-  const p1 = first.pComplete;
-  const p2 = even.t.pComplete;
-  const num = (even.t.bWin as number) * p2 - (first.bWin as number) * p1;
-  const den = m1 * p1 - m2 * p2;
-  const k = den !== 0 ? num / den : Number.NaN;
-  return { first, even: even.t, evenRank: even.rank, kappa: Number.isFinite(k) && k >= 0 ? k : null };
-}
-
-/** N11's dominance pruning measured (the file header, section 3): the screening run again, the shortlist without and with it. */
-export interface PruningCheck {
-  /** Screens (equals the search's counts.screened), and the screened trades inside the value window (§12). */
-  screened: number;
-  inWindow: number;
-  /** In-window trades the pruning drops. */
-  dropped: number;
-  /** The trades for exact evaluation without and with the pruning, and how many of them give a player of yours worth less than W. */
-  exact: { without: number; with: number };
-  cheap: { without: number; with: number };
-  /** The keys of the trades sent to exact evaluation with the pruning (the search's own shortlist). */
-  shortlist: string[];
-  /** Your give pool G, and its players worth less than W. */
-  give: string[];
-  belowW: string[];
-  W: number;
-}
-
-/** The search's screening (the app's model's trace: pools and beams run again), then the shortlist without and with the pruning; null when the search stops. */
-export function pruningCheck(tr: SearchTrace): PruningCheck | null {
-  if (tr.stopped) return null;
-  const I = tr.I;
-  const cheap = belowWaiverCredit(I);
-  // The value window as shortlistOf applies it.
-  const windowed = tr.perPartner.map((list) => list.filter(inValueWindow));
-  const inWindow = windowed.reduce((n, l) => n + l.length, 0);
-  const kept = windowed.reduce((n, l) => n + dominancePruned(l, cheap).length, 0);
-  const without = shortlistOf(tr.perPartner, null);
-  const withIt = shortlistOf(tr.perPartner, cheap);
-  const givesCheap = (s: Screened) => s.give.some(cheap);
+  const tagged = (r: BlendFactRow) => r.status !== "ACTIVE" && r.status !== "–";
+  const largest = [...byF].reverse().slice(0, n);
+  const smallest = byF.slice(0, n);
   return {
-    screened: tr.screens,
-    inWindow,
-    dropped: inWindow - kept,
-    exact: { without: without.length, with: withIt.length },
-    cheap: { without: without.filter(givesCheap).length, with: withIt.filter(givesCheap).length },
-    shortlist: withIt.map((s) => s.key),
-    give: [...tr.give],
-    belowW: tr.give.filter(cheap),
-    W: I.credit,
+    weight: blend.weight,
+    positions: blend.positions,
+    count: rows.length,
+    quantiles: fs.length ? { min: quantile(fs, 0), p10: quantile(fs, 0.1), median: quantile(fs, 0.5), p90: quantile(fs, 0.9), max: quantile(fs, 1) } : null,
+    largest,
+    smallest,
+    named: named.map((name) => ({ name, row: rowOf(name) })),
+    byHealth: {
+      tagged: factorGroup(rows.filter(tagged).map((r) => r.f)),
+      healthy: factorGroup(rows.filter((r) => !tagged(r)).map((r) => r.f)),
+      offCurve: rows.filter((r) => !r.fit).length,
+      offCurveTagged: rows.filter((r) => !r.fit && tagged(r)).length,
+    },
+    extremesTagged: { largest: largest.filter(tagged).length, smallest: smallest.filter(tagged).length },
   };
 }
 
 // ---------------------------------------------------------------------------------------------
-// Realism (section 3)
+// Section 4: odds over time and the decomposition
 
-export interface Realism {
-  trades: number;
-  /** Trades per REALISM_BUCKETS bucket, by g_mkt(partner) and by g_mkt(me). */
-  partnerBuckets: number[];
-  mineBuckets: number[];
-  partner: { min: number; median: number; max: number };
-  mine: { min: number; median: number; max: number };
-  /** g_mkt(partner) < PARTNER_OVERPAYS_BELOW. */
-  partnerOverpays: number;
-  /** flags.marketCheck: g_mkt(me) < config.benefit.marketCheckBelow. */
-  marketCheck: number;
-  /** Means over the trades: the value term (logits), P_accept and P_accept without the value term (the same trade at even value), B and the market term inside B (redraft). */
-  valueTerm: number;
-  pAccept: number;
-  pAcceptEven: number;
-  b: number;
-  marketTerm: number | null;
+/** One switch setting run (section 4): its League model (odds as rosters stand) and trade context (odds with pickups). */
+export interface SettingRun {
+  key: string;
+  label: string;
+  switches: Switches;
+  model: LeagueModel;
+  ctx: TradeContext;
+  stand: OddsPair | null;
+  pickups: OddsPair | null;
 }
 
-const bucketOf = (g: number): number => REALISM_BUCKETS.findIndex((b) => g >= b.lo && g < b.hi);
+/** Section 4's settings, from Checkpoint 4's rules to now, and streaming's share at both ends. */
+export const SETTINGS: readonly { key: string; label: string; switches: Switches }[] = [
+  { key: "cp4", label: "Checkpoint 4's rules (no blend, each team's pickups on its own, no IR returners)", switches: CP4_SWITCHES },
+  { key: "cp4+blend", label: "Checkpoint 4's rules + the market blend", switches: { ...CP4_SWITCHES, blend: true } },
+  { key: "cp4+oneTeam", label: "Checkpoint 4's rules + one free agent, one team", switches: { ...CP4_SWITCHES, oneTeam: true } },
+  { key: "cp4+ir", label: "Checkpoint 4's rules + IR returners", switches: { ...CP4_SWITCHES, irReturners: true } },
+  { key: "cp4+blend+oneTeam", label: "the blend + one free agent, one team (now without IR returners)", switches: { ...CP4_SWITCHES, blend: true, oneTeam: true } },
+  { key: "now", label: "now: the blend + one free agent, one team + IR returners", switches: NOW_SWITCHES },
+  { key: "now-blend", label: "now without the blend", switches: { ...NOW_SWITCHES, blend: false } },
+  { key: "now-oneTeam", label: "now with each team's pickups on its own", switches: { ...NOW_SWITCHES, oneTeam: false } },
+  { key: "cp4-streaming", label: "Checkpoint 4's rules without streaming", switches: { ...CP4_SWITCHES, streaming: false } },
+  { key: "now-streaming", label: "now without streaming", switches: { ...NOW_SWITCHES, streaming: false } },
+];
 
-export function realismCheck(trades: readonly TradeEvaluation[]): Realism {
-  const count = (gs: number[]) => {
-    const out = new Array<number>(REALISM_BUCKETS.length).fill(0);
-    for (const g of gs) {
-      const k = bucketOf(g);
-      if (k >= 0) out[k] = (out[k] ?? 0) + 1;
-    }
-    return out;
-  };
-  const spread = (gs: number[]) => ({ min: gs.length ? Math.min(...gs) : Number.NaN, median: median(gs), max: gs.length ? Math.max(...gs) : Number.NaN });
-  const gp = trades.map((t) => t.gPartner);
-  const gm = trades.map((t) => t.gMine);
-  const redraft = trades.filter((t) => t.lambda === null && finite(t.b) && finite(t.bWin));
-  return {
-    trades: trades.length,
-    partnerBuckets: count(gp),
-    mineBuckets: count(gm),
-    partner: spread(gp),
-    mine: spread(gm),
-    partnerOverpays: gp.filter((g) => g < PARTNER_OVERPAYS_BELOW).length,
-    marketCheck: trades.filter((t) => t.flags.marketCheck).length,
-    valueTerm: mean(trades.map((t) => t.detail.terms.value)),
-    pAccept: mean(trades.map((t) => t.pAccept)),
-    pAcceptEven: mean(trades.map((t) => pAcceptFromLogit(t.features.z - t.detail.terms.value))),
-    b: mean(trades.flatMap((t) => (finite(t.b) ? [t.b] : []))),
-    marketTerm: redraft.length ? mean(redraft.map((t) => (t.b as number) - (t.bWin as number))) : null,
-  };
-}
+/** Odds in words: "65.2% / 12.1%" (P(playoffs) / P(title)). */
+export const oddsText = (o: { pPlayoffs: number; pTitle: number | null } | null | undefined): string => (o ? `${pctPlain(o.pPlayoffs)} / ${pctPlain(o.pTitle)}` : "–");
+/** The change from `a` to `b` in percentage points: "+0.6 pts / +0.4 pts". */
+export const deltaText = (a: OddsPair | null | undefined, b: OddsPair | null | undefined): string => (a && b ? `${pts(b.pPlayoffs - a.pPlayoffs)} / ${b.pTitle !== null && a.pTitle !== null ? pts(b.pTitle - a.pTitle) : "–"}` : "–");
 
-/**
- * The verdict in plain sentences: does the search favor offers lopsided against the partner (most ask it to give up
- * more than 15%: the planner's question), or the other way (Market checks: the user gives up more than 15%)? "Leans"
- * from a quarter of the trades on (⚠️ our wording threshold, a report choice).
- */
-export function realismVerdict(r: Realism): string {
-  const n = r.trades;
-  if (!n) return "No trades to check.";
-  const over = r.partnerOverpays;
-  const mc = r.marketCheck;
-  const share = (k: number) => `${Math.round((100 * k) / n)}%`;
-  if (over * 2 > n) return `**Most suggestions (${over} of ${n}) ask partners to give up more than 15% in value: the search favors offers lopsided against the partner.**`;
-  const first = `**The search does not favor offers lopsided against the partner: ${over} of ${n} ask the partner to give up more than 15% in value.**`;
-  if (mc * 2 > n) return `${first} **It leans the other way: ${mc} of ${n} (${share(mc)}) carry a Market check, so most suggestions ask you to give up more than 15% in value; the median trade gives the partner ${pctSigned(r.partner.median)}.**`;
-  if (mc * 4 >= n) return `${first} **It leans the other way: ${mc} of ${n} (${share(mc)}) carry a Market check (you give up more than 15% in value), and the median trade gives the partner ${pctSigned(r.partner.median)} in value.**`;
-  return `${first} Nor does it lean the other way: ${mc} of ${n} carry a Market check.`;
-}
+const myOddsIn = (model: LeagueModel): OddsPair | null => {
+  const o = model.odds?.teams.find((t) => t.teamId === model.myTeamId);
+  return o ? { pPlayoffs: o.pPlayoffs, pTitle: o.pTitle } : null;
+};
 
-// ---------------------------------------------------------------------------------------------
-// The Smith-Njigba example (section 4)
+const pickupOddsIn = (ctx: TradeContext): OddsPair | null => {
+  const b = tradeInternals(ctx).sim?.base.final;
+  return b ? { pPlayoffs: b.pPlayoffs, pTitle: b.pTitle } : null;
+};
 
-/** One trade evaluated in both models (the Analyzer: analyzeTrade in each model's context). */
-export interface StarRow {
-  partnerId: string | null;
-  give: string[];
-  get: string[];
-  /** Named players not on the rosters the trade needs (STAR_TRADES whose players moved): then nothing is evaluated. */
-  missing: string[];
-  before: TradeEvaluation | null;
-  after: TradeEvaluation | null;
-  illegal: string | null;
-}
-
-export interface StarExample {
-  /** The star (STAR_NAME) on another team's active roster, his owner, his trade value and his star premium there; nulls when he isn't. */
-  playerId: string | null;
-  teamId: string | null;
-  value: number | null;
-  premium: PlayerPremium | null;
-  /** My players at STAR_PACKAGE.pos tried (active roster, with a model), and every STAR_PACKAGE.size package of them for him. */
-  mine: string[];
-  packages: StarRow[];
-  /** The package the old (before-addendum) model rated most likely: P_accept, then z, then the key; null without a legal one. */
-  pick: StarRow | null;
-  /** STAR_TRADES on these rosters. */
-  named: StarRow[];
-  /** The before model's shown trades that get a player tagged "Harder to get" for his team, with their places in both lists. */
-  shownStars: { row: StarRow; beforeRank: number; afterRank: number | null; tagged: string[] }[];
-}
-
-function bothModels(before: VariantRun, after: VariantRun, proposal: TradeProposal): Pick<StarRow, "before" | "after" | "illegal"> {
-  const b = analyzeTrade(before.ctx, proposal, { settings: before.settings });
-  const a = analyzeTrade(after.ctx, proposal, { settings: after.settings });
-  return { before: b.evaluation, after: a.evaluation, illegal: b.illegal ?? a.illegal };
-}
-
-function combinations<T>(xs: readonly T[], k: number): T[][] {
-  if (k <= 0) return [[]];
-  const out: T[][] = [];
-  xs.forEach((x, i) => {
-    for (const rest of combinations(xs.slice(i + 1), k - 1)) out.push([x, ...rest]);
+/** A setting's League model (default seasons: odds as rosters stand) and trade context (its baseline: odds with pickups). */
+export function settingRun(snapshot: LeagueSnapshot, inputs: ModelInputs, s: { key: string; label: string; switches: Switches }, opts: { now: Date; settings: TradeSettings; scenarios?: number }): SettingRun {
+  return withSwitches(s.switches, opts.settings, (o) => {
+    const sc = opts.scenarios !== undefined ? { scenarios: opts.scenarios } : {};
+    const model = buildLeagueModel(snapshot, inputs, { now: opts.now, settings: o.settings, faAllocation: o.faAllocation, irReturners: o.irReturners, ...sc });
+    const ctx = buildTradeContext(snapshot, inputs, { now: opts.now, settings: o.settings, faAllocation: o.faAllocation, irReturners: o.irReturners, ...sc });
+    return { ...s, model, ctx, stand: myOddsIn(model), pickups: pickupOddsIn(ctx) };
   });
+}
+
+/** Every setting of SETTINGS (the "now" one from the report's own League model and context). */
+export function decomposition(snapshot: LeagueSnapshot, inputs: ModelInputs, now: { model: LeagueModel; ctx: TradeContext }, opts: { now: Date; settings: TradeSettings; scenarios?: number }): Map<string, SettingRun> {
+  const out = new Map<string, SettingRun>();
+  for (const s of SETTINGS) out.set(s.key, s.key === "now" ? { ...s, model: now.model, ctx: now.ctx, stand: myOddsIn(now.model), pickups: pickupOddsIn(now.ctx) } : settingRun(snapshot, inputs, s, opts));
   return out;
 }
 
-/** The Smith-Njigba example (the file header, section 4). */
-export function starExample(snapshot: LeagueSnapshot, before: VariantRun, after: VariantRun): StarExample {
-  const I = tradeInternals(after.ctx);
-  const me = I.me;
-  const empty: StarExample = { playerId: null, teamId: null, value: null, premium: null, mine: [], packages: [], pick: null, named: [], shownStars: [] };
-  if (!me) return empty;
-  const others = I.teams.filter((t) => t !== me);
-  const ownerOf = (id: string) => others.find((t) => t.roster.includes(id)) ?? null;
-  const byName = (name: string, roster: readonly string[]) => roster.find((id) => snapshot.players[id]?.name === name) ?? null;
-
-  // Value-even star trades: STAR_TRADES by name, then every before-model shown trade that gets a tagged player.
-  const named: StarRow[] = STAR_TRADES.map((ex) => {
-    const give = ex.give.map((n) => byName(n, me.roster));
-    const owner = others.find((t) => ex.get.every((n) => byName(n, t.roster) !== null)) ?? null;
-    const get = ex.get.map((n) => (owner ? byName(n, owner.roster) : null));
-    const missing = [...ex.give.filter((_, i) => give[i] === null), ...ex.get.filter((_, i) => get[i] === null)];
-    const row: StarRow = { partnerId: owner?.id ?? null, give: give.filter((x): x is string => x !== null), get: get.filter((x): x is string => x !== null), missing, before: null, after: null, illegal: null };
-    if (missing.length || !owner) return row;
-    return { ...row, ...bothModels(before, after, { partnerId: owner.id, give: asPlayers(row.give), get: asPlayers(row.get) }) };
-  });
-  const afterRank = new Map(after.result.trades.map((t, i) => [t.key, { rank: i + 1, t }]));
-  const shownStars = before.result.trades.flatMap((t, i) => {
-    const tagged = taggedFor(I, t.proposal.partnerId, playerIds(t.proposal.get));
-    if (!tagged.length) return [];
-    const hit = afterRank.get(t.key);
-    const a = hit ? { after: hit.t, illegal: null } : (() => {
-      const r = analyzeTrade(after.ctx, t.proposal, { settings: after.settings });
-      return { after: r.evaluation, illegal: r.illegal };
-    })();
-    const row: StarRow = { partnerId: t.proposal.partnerId, give: playerIds(t.proposal.give), get: playerIds(t.proposal.get), missing: [], before: t, after: a.after, illegal: a.illegal };
-    return [{ row, beforeRank: i + 1, afterRank: hit?.rank ?? null, tagged }];
-  });
-
-  const star = Object.keys(snapshot.players).find((id) => snapshot.players[id]?.name === STAR_NAME && ownerOf(id) !== null) ?? null;
-  const owner = star ? ownerOf(star) : null;
-  if (!star || !owner) return { ...empty, named, shownStars };
-  const mine = me.roster.filter((id) => I.league.table.rows.has(id) && I.league.posOf(id) === STAR_PACKAGE.pos);
-  const packages = combinations(mine, STAR_PACKAGE.size).map((give): StarRow => ({ partnerId: owner.id, give, get: [star], missing: [], ...bothModels(before, after, { partnerId: owner.id, give: asPlayers(give), get: asPlayers([star]) }) }));
-  const legal = packages.filter((p) => p.before && p.after);
-  const key = (p: StarRow) => proposalKey({ partnerId: owner.id, give: asPlayers(p.give), get: asPlayers(p.get) });
-  const pick =
-    [...legal].sort((a, b) => {
-      const x = a.before as TradeEvaluation;
-      const y = b.before as TradeEvaluation;
-      return y.pAccept - x.pAccept || y.features.z - x.features.z || (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0);
-    })[0] ?? null;
-  return { playerId: star, teamId: owner.id, value: I.values[star] ?? null, premium: I.premiums.get(owner.id)?.[star] ?? null, mine, packages, pick, named, shownStars };
+/**
+ * My odds as rosters stand (the League model's teams, TeamModel.score) simulated on the trade baseline's own seasons (its
+ * final block: seasons screeningSims + 1 … screeningSims + finalSims of the seed's matrix), so "with pickups" minus this is
+ * a common-random-numbers difference. The League model itself reads seasons 1 … finalSims (review of track R: the two
+ * columns of section 4 aren't the same seasons). Null without a simulation.
+ */
+export function standOnSearchSeasons(snapshot: LeagueSnapshot, model: LeagueModel, ctx: TradeContext): OddsPair | null {
+  const sim = tradeInternals(ctx).sim;
+  if (!sim) return null;
+  const odds = seasonOdds(snapshot, model, { sims: config.simulation.finalSims, seed: config.simulation.seed, normals: sim.blocks.final });
+  const mine = odds?.teams.find((t) => t.teamId === model.myTeamId);
+  return mine ? { pPlayoffs: mine.pPlayoffs, pTitle: mine.pTitle } : null;
 }
 
-// ---------------------------------------------------------------------------------------------
-// "Offer first / if they say no" (section 5)
-
-/** One version's numbers as the steps compare them (the screening block of seasons, as the search's steps). */
-export interface StepVersionNumbers {
-  pComplete: number;
-  pAccept: number;
-  b: number | null;
-  /** The partner's raw g_mkt and its g as it sees it (AcceptanceFeatures.g, with the star premium; clamped). */
-  gPartner: number;
-  g: number;
-  z: number;
-  terms: AcceptanceTerms;
+/**
+ * Checkpoint 4's rules in today's code (the "cp4" setting) against the Checkpoint 4 model on the same data (the compare
+ * file): whether they agree to the printed decimal (|Δ| < 0.0005 on every odds number the compare file has), and the
+ * differences. Null without both.
+ */
+export function cp4Reproduction(c4: CompareRun | null, cp4Run: Pick<SettingRun, "stand" | "pickups"> | null): { same: boolean; stand: string; pickups: string } | null {
+  if (!c4 || !cp4Run) return null;
+  const near = (a: number | null | undefined, b: number | null | undefined) => (a === null || a === undefined || b === null || b === undefined ? a === b : Math.abs(a - b) < 0.0005);
+  const standSame = near(cp4Run.stand?.pPlayoffs, c4.odds.asRostersStand.pPlayoffs) && near(cp4Run.stand?.pTitle, c4.odds.asRostersStand.pTitle);
+  const pickupsSame = !c4.odds.withPickups || (near(cp4Run.pickups?.pPlayoffs, c4.odds.withPickups.pPlayoffs) && near(cp4Run.pickups?.pTitle, c4.odds.withPickups.pTitle));
+  return { same: standSame && pickupsSame, stand: deltaText(c4.odds.asRostersStand, cp4Run.stand), pickups: deltaText(c4.odds.withPickups ?? null, cp4Run.pickups) };
 }
 
-/** One possible step: the version offered first and the one with the throw-in (TradeVersion numbers), and what moved between them. */
-export interface StepCandidate {
-  throwIn: string;
-  value: number;
-  offer: StepVersionNumbers;
-  full: StepVersionNumbers;
-  /** P_complete(full) − P_complete(offer first). */
-  gain: number;
-  /** The change in z (full − offer first) by part: the value term, the extra player (complexity), their lineup (need, hole, context), the rest (activity, history, hot, urgency). */
-  dz: { value: number; extra: number; lineup: number; rest: number; total: number };
-  /** Case 2: the version with him helps (B > 0) and keeps B at least minBShare × the offer's (the rule's B filter); case 1: true. */
-  bOk: boolean;
-  /** Why the rule wouldn't show it, in words (empty: it would). */
-  fails: string[];
+/** One team's data changes since a checkpoint (section 4: its committed league report's tables against this data). */
+export interface TeamDataChange {
+  /** Public NFL names: on the team now and not then, and the other way round. */
+  joined: string[];
+  left: string[];
+  /** Players on the team both times whose status changed (league-report's St codes: "" active, P, Q, D, O, IR, …). */
+  status: { name: string; from: string; to: string }[];
+  /** Its record then (the report's) and now ("2-1"). */
+  record: { then: string | null; now: string };
 }
 
-export type StepCase = "holdBack" | "add" | "noRoom" | "noThrowIn" | "noHelp" | "illegal";
-
-export interface StepRow {
-  rank: number;
-  trade: TradeEvaluation;
-  stepCase: StepCase;
-  candidates: StepCandidate[];
-  /** The step the rule would choose without the pre-screen (case 1: the lowest-value throw-in in the trade; case 2: the best of those passing the B filter), or null. */
-  rule: StepCandidate | null;
-  /** Case 2 with more candidates than the pre-screen keeps: whether it keeps the rule's throw-in (null otherwise). */
-  preScreenKeeps: boolean | null;
-  /** The search showed steps on this card (TradeEvaluation.steps). */
-  shown: boolean;
+/** What changed in the data since Checkpoints 3 and 4 (section 4; the planner's "explain the moves by cause"). */
+export interface DataChanges {
+  /** Per team id; null when that checkpoint's league report isn't available (git show failed). */
+  cp3: Map<string, TeamDataChange> | null;
+  cp4: Map<string, TeamDataChange> | null;
+  /** Points per week (scenario lineups, rosters as they stand) under Checkpoint 4's rules: Checkpoint 4's report, and this data (the "cp4" setting's League model). */
+  ppwCp4: Map<string, { then: number | null; now: number | null }>;
+  /**
+   * My players on my roster both times with the same status: rest-of-season points under Checkpoint 4's rules, its report
+   * then and the "cp4" setting now (projection updates), the largest moves first (DATA_ROS_SHOWN).
+   */
+  myRos: { name: string; then: number; now: number }[];
 }
 
-export interface StepsDiagnosis {
-  W: number;
-  /** My throw-ins (evaluate.throwIns: cheapest first), their perception values and lineup costs (exact mode). */
-  throwIns: { id: string; value: number; cost: number | null }[];
-  rows: StepRow[];
-  /** Shown cards with steps; every candidate version; those reaching minAcceptGain; the largest gain. */
-  withSteps: number;
-  candidates: number;
-  reaching: number;
-  best: { row: StepRow; c: StepCandidate } | null;
-  /** Candidates whose throw-in raises their g as they see it. */
-  raiseG: number;
-  /** Means over every candidate of the change in z by part, and of the gain. */
-  meanDz: StepCandidate["dz"];
-  meanGain: number;
-  /** Case-2 trades with more candidates than the pre-screen keeps (and a rule choice), and how many keep it. */
-  preScreen: { trades: number; kept: number };
-}
+/** A record as the league report prints it ("2-1", "2-1-1"). */
+const recordText = (r: { w: number; l: number; t: number }): string => `${r.w}-${r.l}${r.t ? `-${r.t}` : ""}`;
 
-const stepNumbers = (v: TradeVersion): StepVersionNumbers => ({ pComplete: v.screen.pComplete, pAccept: v.screen.pAccept, b: v.screen.b, gPartner: v.screen.gPartner, g: v.screen.features.g, z: v.screen.features.z, terms: v.screen.detail.terms });
-const versionHelps = (v: TradeVersion): boolean => finite(v.screen.b) && v.screen.b > 0;
+/** Every team's record the same as in the report (null: no report). */
+export const recordsSame = (changes: Map<string, TeamDataChange> | null): boolean | null => (changes ? [...changes.values()].every((c) => c.record.then === c.record.now) : null);
 
-/** Every shown trade's possible steps, measured (the file header, section 5). */
-export function stepsDiagnosis(ctx: TradeContext, result: TradeSearchResult, settings: TradeSettings): StepsDiagnosis {
-  const I = tradeInternals(ctx);
-  const cfg = stepConfig();
-  const me = I.me;
-  const thr = me ? throwIns(I, settings, cfg) : [];
-  const costs = me ? (I.model.teams[me.index]?.players ?? {}) : {};
-  const versions = new Map<string, TradeVersion>();
-  const opts = { settings, maxPerSide: settings.maxPerSide, versions };
-  const percent = (x: number) => `${fmt(100 * x, 0)}%`;
-  const candidate = (id: string, offer: TradeVersion, full: TradeVersion, bFails: string[]): StepCandidate => {
-    const t1 = full.screen.detail.terms;
-    const t0 = offer.screen.detail.terms;
-    const d = (k: keyof AcceptanceTerms) => t1[k] - t0[k];
-    const gain = full.screen.pComplete - offer.screen.pComplete;
-    const fails = [...bFails];
-    if (!versionHelps(offer)) fails.push("the offer first doesn't help you");
-    if (!(gain >= cfg.minAcceptGain - EPS)) fails.push(`the chance moves ${pts(gain)} (a step needs +${fmt(100 * cfg.minAcceptGain, 0)})`);
-    if (!(offer.screen.pComplete >= cfg.minOfferFirst - EPS)) fails.push(`the offer first is under ${percent(cfg.minOfferFirst)} likely`);
-    return {
-      throwIn: id,
-      value: I.values[id] ?? 0,
-      offer: stepNumbers(offer),
-      full: stepNumbers(full),
-      gain,
-      dz: { value: d("value"), extra: d("complexity"), lineup: d("need") + d("hole") + d("context"), rest: d("base") + d("activity") + d("history") + d("hot") + d("urgency"), total: full.screen.features.z - offer.screen.features.z },
-      bOk: bFails.length === 0,
-      fails,
-    };
-  };
-  const rows = result.trades.map((t, i): StepRow => {
-    const give = playerIds(t.proposal.give);
-    const get = playerIds(t.proposal.get);
-    const base: Omit<StepRow, "stepCase"> = { rank: i + 1, trade: t, candidates: [], rule: null, preScreenKeeps: null, shown: t.steps !== undefined };
-    const ranked = tradeVersion(I, t.proposal, opts);
-    if (!ranked) return { ...base, stepCase: "illegal" };
-    const version = (ids: readonly string[]) => tradeVersion(I, { partnerId: t.proposal.partnerId, give: asPlayers(ids), get: asPlayers(get) }, opts);
-    const inTrade = thr.filter((id) => give.includes(id));
-    if (inTrade.length && give.length >= 2) {
-      // Case 1: offer first without a throw-in in the trade (the rule: the lowest-value one), add him back if they say no.
-      const candidates = inTrade.flatMap((id) => {
-        const lean = version(give.filter((x) => x !== id));
-        return lean ? [candidate(id, lean, ranked, [])] : [];
-      });
-      return { ...base, stepCase: "holdBack", candidates, rule: candidates.find((c) => c.throwIn === inTrade[0]) ?? null };
-    }
-    const toAdd = thr.filter((id) => !give.includes(id));
-    if (!toAdd.length) return { ...base, stepCase: "noThrowIn" };
-    if (give.length + 1 > settings.maxPerSide) return { ...base, stepCase: "noRoom" };
-    if (!versionHelps(ranked)) return { ...base, stepCase: "noHelp" };
-    // Case 2: offer the ranked trade first; if they say no, add a throw-in (every one evaluated: no pre-screen).
-    const bOffer = ranked.screen.b as number;
-    const candidates = toAdd.flatMap((id) => {
-      const v = version([...give, id]);
-      if (!v) return [];
-      const bFails = !versionHelps(v) ? ["the version with him doesn't help you"] : (v.screen.b as number) < cfg.minBShare * bOffer - EPS ? [`B falls under ${fmt(100 * cfg.minBShare, 0)}% of the offer's`] : [];
-      return [candidate(id, ranked, v, bFails)];
+function teamChanges(snapshot: LeagueSnapshot, then: LeagueReportTables): Map<string, TeamDataChange> {
+  const out = new Map<string, TeamDataChange>();
+  for (const t of snapshot.teams) {
+    const before = then.rosters.get(t.id) ?? new Map();
+    const now = new Map([...t.roster, ...t.ir, ...t.taxi].map((id) => [snapshot.players[id]?.name ?? id, statusShort(snapshot.players[id]?.injury)] as const));
+    out.set(t.id, {
+      joined: [...now.keys()].filter((n) => !before.has(n)),
+      left: [...before.keys()].filter((n) => !now.has(n)),
+      status: [...now].flatMap(([name, to]) => {
+        const from = before.get(name)?.status;
+        return from !== undefined && from !== to ? [{ name, from, to }] : [];
+      }),
+      record: { then: then.teams.get(t.id)?.record ?? null, now: recordText(t.record) },
     });
-    let rule: StepCandidate | null = null;
-    for (const c of candidates) {
-      if (!c.bOk) continue;
-      const p = c.full.pComplete;
-      const b = c.full.b as number;
-      if (!rule || p > rule.full.pComplete + EPS || (Math.abs(p - rule.full.pComplete) <= EPS && (b > (rule.full.b as number) + EPS || (Math.abs(b - (rule.full.b as number)) <= EPS && c.throwIn < rule.throwIn)))) rule = c;
-    }
-    const pre = toAdd.length > cfg.preScreen ? addCandidates(I, t.proposal, thr, cfg) : null;
-    return { ...base, stepCase: "add", candidates, rule, preScreenKeeps: pre && rule ? pre.includes(rule.throwIn) : null };
+  }
+  return out;
+}
+
+export function dataChanges(snapshot: LeagueSnapshot, history: { cp3: LeagueReportTables | null; cp4: LeagueReportTables | null }, cp4Model: LeagueModel | null, shown = DATA_ROS_SHOWN): DataChanges {
+  const cp3 = history.cp3 ? teamChanges(snapshot, history.cp3) : null;
+  const cp4 = history.cp4 ? teamChanges(snapshot, history.cp4) : null;
+  const ppwCp4 = new Map<string, { then: number | null; now: number | null }>();
+  for (const t of snapshot.teams) {
+    const m = cp4Model?.teams.find((x) => x.id === t.id);
+    ppwCp4.set(t.id, { then: history.cp4?.teams.get(t.id)?.ppw ?? null, now: m ? (m.scen ?? m.ev).ppw : null });
+  }
+  const me = snapshot.teams.find((t) => t.id === snapshot.myTeamId);
+  const mine = history.cp4 && me ? (history.cp4.rosters.get(me.id) ?? new Map()) : new Map();
+  const myRos = (me ? [...me.roster, ...me.ir, ...me.taxi] : []).flatMap((id) => {
+    const p = snapshot.players[id];
+    const then = p ? mine.get(p.name) : undefined;
+    const now = cp4Model?.players[id]?.ros.total;
+    if (!p || !then || then.ros === null || then.status !== statusShort(p.injury) || !finite(now)) return [];
+    return [{ name: p.name, then: then.ros, now }];
   });
-  const all = rows.flatMap((r) => r.candidates.map((c) => ({ row: r, c })));
-  let best: { row: StepRow; c: StepCandidate } | null = null;
-  for (const x of all) if (!best || x.c.gain > best.c.gain + EPS) best = x;
-  const avg = (f: (c: StepCandidate) => number) => mean(all.map((x) => f(x.c)));
-  const pre = rows.filter((r) => r.preScreenKeeps !== null);
+  myRos.sort((a, b) => Math.abs(b.now - b.then) - Math.abs(a.now - a.then) || (a.name < b.name ? -1 : 1));
+  return { cp3, cp4, ppwCp4, myRos: myRos.filter((r) => Math.abs(r.now - r.then) >= 0.05).slice(0, shown) };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Section 5: one free agent, one team
+
+/** A team's pickups (TeamModel.faMoves). */
+export interface TeamPickups {
+  teamId: string;
+  moves: FaMove[];
+}
+
+/** One top trade's free agents after it (section 5): what each side's legality and V*(after) add, and whose baseline claims they are. */
+export interface AllocationTradeRow {
+  rank: number;
+  partnerId: string;
+  illegal: string | null;
+  /** Who went first in the allocation order (null under "independent" or when illegal), and whether a team sits between us. */
+  first: "me" | "partner" | null;
+  between: boolean;
+  myAdds: string[];
+  /** Of my adds: the partner's baseline claims (allowed when I'm first), a third team's (never). */
+  fromPartner: string[];
+  fromThird: string[];
+  theirAdds: string[];
+  /** Of the partner's adds: my baseline claims (allowed when it's first, or right behind me), a third team's (never). */
+  takesMine: string[];
+  theirFromThird: string[];
+}
+
+export interface AllocationReport {
+  allocation: FaAllocation | null;
+  oneTeam: TeamPickups[];
+  independent: TeamPickups[];
+  dups: { oneTeam: { playerId: string; teamIds: string[] }[]; independent: { playerId: string; teamIds: string[] }[]; cp4: { playerId: string; teamIds: string[] }[] | null };
+  named: { name: string; playerId: string | null; oneTeam: string[]; independent: string[]; cp4: string[] | null }[];
+  trades: AllocationTradeRow[];
+}
+
+/** Who picks up `playerId` in a set of pickups. */
+const takers = (teams: readonly TeamPickups[], playerId: string | null): string[] => (playerId === null ? [] : teams.filter((t) => t.moves.some((m) => m.add === playerId)).map((t) => t.teamId));
+
+/** The allocation report (section 5) from the main context (one team each) and a model of each team on its own (the same switches otherwise). */
+export function allocationReport(I: TradeInternals, independent: LeagueModel, result: TradeSearchResult, compare: CompareRun | null, named: readonly string[] = ALLOCATION_NAMED, top = TOP_DETAIL): AllocationReport {
+  const snapshot = I.snapshot;
+  const oneTeam = I.model.teams.map((t) => ({ teamId: t.id, moves: t.faMoves }));
+  const indep = independent.teams.map((t) => ({ teamId: t.id, moves: t.faMoves }));
+  const cp4 = compare?.pickups ? compare.pickups.map((p) => ({ teamId: p.teamId, moves: p.moves.map((m) => ({ add: m.add, drop: m.drop, gainEv: Number.NaN, gainScen: null })) })) : null;
+  const me = I.me;
+  const trades: AllocationTradeRow[] = !me
+    ? []
+    : result.trades.slice(0, top).map((t, i): AllocationTradeRow => {
+        const partner = I.byId.get(t.proposal.partnerId) as TeamState;
+        const base: AllocationTradeRow = { rank: i + 1, partnerId: partner.id, illegal: null, first: null, between: false, myAdds: [], fromPartner: [], fromThird: [], theirAdds: [], takesMine: [], theirFromThird: [] };
+        const sides = tradeSides(I, me, partner, playerIds(t.proposal.give), playerIds(t.proposal.get), `Team ${partner.id}`);
+        if ("illegal" in sides) return { ...base, illegal: sides.illegal };
+        const third = (id: string) => I.teams.some((u) => u !== me && u !== partner && u.claimed.includes(id));
+        const myAdds = unique([...sides.mineLegal.change.adds, ...claimedBy(sides.mine)]);
+        const theirAdds = unique([...sides.theirLegal.change.adds, ...claimedBy(sides.theirs)]);
+        const between = me.claimRank === null || partner.claimRank === null || Math.abs(me.claimRank - partner.claimRank) > 1;
+        return {
+          ...base,
+          first: I.league.allocation ? sides.first : null,
+          between,
+          myAdds,
+          fromPartner: myAdds.filter((id) => partner.claimed.includes(id)),
+          fromThird: myAdds.filter(third),
+          theirAdds,
+          takesMine: theirAdds.filter((id) => me.claimed.includes(id)),
+          theirFromThird: theirAdds.filter(third),
+        };
+      });
   return {
-    W: I.credit,
-    throwIns: thr.map((id) => {
-      const pv = costs[id];
-      return { id, value: I.values[id] ?? 0, cost: pv ? (pv.mvLoseScen ?? pv.mvLoseEv) : null };
+    allocation: I.model.faAllocation ?? null,
+    oneTeam,
+    independent: indep,
+    dups: { oneTeam: duplicatePickups(I.model.teams), independent: duplicatePickups(independent.teams), cp4: compare?.duplicates ? compare.duplicates.map((d) => ({ playerId: d.playerId, teamIds: [...d.teamIds] })) : null },
+    named: named.map((name) => {
+      const id = idByName(snapshot, name);
+      return { name, playerId: id, oneTeam: takers(oneTeam, id), independent: takers(indep, id), cp4: cp4 ? takers(cp4, id) : null };
     }),
-    rows,
-    withSteps: result.trades.filter((t) => t.steps !== undefined).length,
-    candidates: all.length,
-    reaching: all.filter((x) => x.c.gain >= cfg.minAcceptGain - EPS).length,
-    best,
-    raiseG: all.filter((x) => x.c.full.g > x.c.offer.g + EPS).length,
-    meanDz: { value: avg((c) => c.dz.value), extra: avg((c) => c.dz.extra), lineup: avg((c) => c.dz.lineup), rest: avg((c) => c.dz.rest), total: avg((c) => c.dz.total) },
-    meanGain: avg((c) => c.gain),
-    preScreen: { trades: pre.length, kept: pre.filter((r) => r.preScreenKeeps === true).length },
+    trades,
+  };
+}
+
+/**
+ * How a top trade's own baseline pickup of the partner's came within my reach after it (section 5; evaluate.ts tradeSides):
+ * I'm earlier in the order (I claim first), or the partner is right before me with no team between and doesn't claim him
+ * again after the trade; anything else would be a pool bug (❌). The partner takes one of mine the same way round.
+ */
+export function pickupReach(first: "me" | "partner" | null, between: boolean, whose: "partner's" | "mine"): string {
+  const takerFirst = whose === "partner's" ? first === "me" : first === "partner";
+  if (takerFirst) return whose === "partner's" ? "you're earlier in the order, so you'd claim him first" : "they're earlier in the order, so they'd claim him first";
+  if (!between && first !== null) return whose === "partner's" ? "you're right behind them in the order and they let him go after the trade" : "they're right behind you in the order and you let him go after the trade";
+  return "❌ a team between you in the order would claim him first";
+}
+
+/** The search with the waiver order a weekly reset would give today (section 5; CLAUDE.md §2.2's ⚠️, a planner question at Checkpoint 4b). */
+export interface ResetOrderRun {
+  /** The weekly reset order (resetWaiverOrder) and the live one the report runs with (LeagueModel.faAllocation). */
+  order: string[];
+  live: string[];
+  /** My pickups (V*(me)) and my odds with pickups (the trade baseline) under the reset order. */
+  myPickups: FaMove[];
+  odds: OddsPair | null;
+  result: TradeSearchResult;
+  facts: ListFacts;
+  /** Of its first TOP_DETAIL trades, how many are among this report's first TOP_DETAIL. */
+  overlap: number;
+}
+
+/**
+ * The default search again with every team's waiver rank set to its place in the weekly reset order (reverse standings by
+ * the League model's ranks, `model`), a fresh context: what the allocation and the trades would be on the morning of the
+ * reset. Null when the allocation isn't a waiver order, or the reset order is unknown or already the live one.
+ */
+export function resetOrderRun(snapshot: LeagueSnapshot, inputs: ModelInputs, model: LeagueModel, main: { ctx: TradeContext; result: TradeSearchResult }, opts: { now: Date; settings: TradeSettings; scenarios?: number; wilsonId: string | null }): ResetOrderRun | null {
+  const live = tradeInternals(main.ctx).model.faAllocation;
+  const order = resetWaiverOrder(model);
+  if (!live || live.basis !== "waiver" || !order || order.length !== snapshot.teams.length || order.every((id, i) => id === live.order[i])) return null;
+  const rank = new Map(order.map((id, i) => [id, i + 1]));
+  const reset: LeagueSnapshot = { ...snapshot, teams: snapshot.teams.map((t) => ({ ...t, waiverRank: rank.get(t.id) as number })) };
+  const ctx = buildTradeContext(reset, inputs, { now: opts.now, settings: opts.settings, ...(opts.scenarios !== undefined ? { scenarios: opts.scenarios } : {}) });
+  const I = tradeInternals(ctx);
+  const result = runTradeSearch(ctx, { settings: opts.settings });
+  const mainTop = new Set(main.result.trades.slice(0, TOP_DETAIL).map((t) => t.key));
+  return {
+    order: [...(I.model.faAllocation?.order ?? order)],
+    live: [...live.order],
+    myPickups: [...(I.model.teams.find((t) => t.id === I.model.myTeamId)?.faMoves ?? [])],
+    odds: baselineOf(result),
+    result,
+    facts: listFacts(result.trades.map((t) => listedOf(t, snapshot)), opts.wilsonId),
+    overlap: result.trades.slice(0, TOP_DETAIL).filter((t) => mainTop.has(t.key)).length,
   };
 }
 
 // ---------------------------------------------------------------------------------------------
-// "Harder to get" (section 6)
+// Section 6: the cards
 
-export interface PremiumPlayerRow {
-  id: string;
-  value: number;
-  e: number;
-  rank: number;
-  elite: boolean;
-  harderToGet: boolean;
+export interface CardsReport {
+  shown: number;
+  steps: number;
+  planB: { boxes: number; samePlayers: number; otherTarget: number; distinct: number };
+  /** Cards with an injury tag on either side, on what I'd get, on what I'd give. */
+  tagged: { any: number; get: number; give: number };
+  dropped: { partnerCap: number; core: number; filler: number; givenPlayer: number };
+  /**
+   * The window the partner and given-player caps read (config.ranking.partnerCapTop), and my players given most in it: the
+   * first `shownMost` by count, and everyone tied with the last of them (review of track R: a cut at 5 among 7 players at the
+   * cap of 3 dropped Garrett Wilson, the one the planner asked about).
+   */
+  window: number;
+  mostGiven: { playerId: string; count: number }[];
+  /**
+   * My players the shown cards' Plan B boxes give (all shown cards), each with the cards and the boxes that give him and the
+   * boxes on cards that don't (the box adds him): the given-player cap counts a box only when it adds a player, and only in
+   * its window (search.ts), so a capped player can still be suggested in boxes. Players with a box only, most suggested first.
+   */
+  inBoxes: { playerId: string; cards: number; boxes: number; added: number }[];
 }
 
-export interface HarderToGetReport {
-  /** FantasyCalc's top eliteTop in the league's format (premium.eliteIds): value, owner (null: not on a roster) and rank there. */
-  elite: { id: string; value: number; teamId: string | null; rank: number | null }[];
-  /** Every team's players with e > 0 (the trade context's premiums), best rank first. */
-  teams: { teamId: string; players: PremiumPlayerRow[] }[];
-  /** The League page's partner cards (buildLeagueView), or why there are none. */
-  cards: PartnerCard[];
-  empty: string | null;
+export function cardsReport(result: TradeSearchResult, shownMost = MOST_GIVEN_SHOWN): CardsReport {
+  const t = result.trades;
+  const boxes = t.flatMap((x) => (x.planB ? [x.planB] : []));
+  const tags = (x: TradeEvaluation) => x.flags.tagged ?? [];
+  const window = Math.max(0, Math.floor(config.ranking.partnerCapTop));
+  const count = new Map<string, number>();
+  for (const x of t.slice(0, window)) for (const id of playerIds(x.proposal.give)) count.set(id, (count.get(id) ?? 0) + 1);
+  const ranked = [...count].map(([playerId, n]) => ({ playerId, count: n })).sort((a, b) => b.count - a.count || (a.playerId < b.playerId ? -1 : 1));
+  const cut = ranked[Math.max(0, Math.floor(shownMost)) - 1]?.count;
+  const boxed = new Map<string, { cards: number; boxes: number; added: number }>();
+  for (const x of t) {
+    if (!x.planB) continue;
+    const card = new Set(playerIds(x.proposal.give));
+    for (const id of playerIds(x.planB.proposal.give)) {
+      const e = boxed.get(id) ?? { cards: 0, boxes: 0, added: 0 };
+      boxed.set(id, { ...e, boxes: e.boxes + 1, added: e.added + (card.has(id) ? 0 : 1) });
+    }
+  }
+  for (const [id, e] of boxed) e.cards = t.filter((x) => playerIds(x.proposal.give).includes(id)).length;
+  return {
+    shown: t.length,
+    steps: t.filter((x) => x.steps).length,
+    planB: { boxes: boxes.length, samePlayers: boxes.filter((b) => b.kind === "samePlayers").length, otherTarget: boxes.filter((b) => b.kind === "otherTarget").length, distinct: new Set(boxes.map((b) => b.key)).size },
+    tagged: { any: t.filter((x) => tags(x).length > 0).length, get: t.filter((x) => tags(x).some((g) => g.side === "get")).length, give: t.filter((x) => tags(x).some((g) => g.side === "give")).length },
+    dropped: { partnerCap: 0, core: 0, filler: 0, givenPlayer: 0, ...(result.dropped ?? {}) },
+    window,
+    mostGiven: cut === undefined ? ranked : ranked.filter((m, i) => i < shownMost || m.count === cut),
+    inBoxes: [...boxed].map(([playerId, e]) => ({ playerId, ...e })).sort((a, b) => b.cards + b.boxes - (a.cards + a.boxes) || b.boxes - a.boxes || (a.playerId < b.playerId ? -1 : 1)),
+  };
 }
 
-/** The tags and the League page's partner rows (the file header, section 6). */
-export function harderToGetReport(snapshot: LeagueSnapshot, inputs: ModelInputs, I: TradeInternals, opts: { now: Date; settings: TradeSettings; scenarios?: number }): HarderToGetReport {
-  const market = inputs.market ?? null;
-  const owners = new Map<string, string>();
-  for (const t of snapshot.teams) for (const id of [...t.roster, ...t.ir, ...t.taxi]) owners.set(id, t.id);
-  const fcValue = (id: string) => (market ? (market.redraftValues && snapshot.settings.leagueType === "keeper" ? market.redraftValues[id] : market.values[id]) : undefined) ?? I.values[id] ?? 0;
-  const elite = [...eliteIds(market)]
-    .map((id) => {
-      const teamId = owners.get(id) ?? null;
-      return { id, value: fcValue(id), teamId, rank: teamId ? (I.premiums.get(teamId)?.[id]?.rank ?? null) : null };
-    })
-    .sort((a, b) => b.value - a.value || (a.id < b.id ? -1 : 1));
-  const teams = snapshot.teams.map((t) => ({
-    teamId: t.id,
-    players: Object.entries(I.premiums.get(t.id) ?? {})
-      .filter(([, p]) => p.e > 0)
-      .map(([id, p]) => ({ id, value: I.values[id] ?? 0, e: p.e, rank: p.rank, elite: p.elite, harderToGet: p.harderToGet }))
-      .sort((a, b) => a.rank - b.rank),
-  }));
-  const model = buildLeagueModel(snapshot, inputs, { now: opts.now, settings: opts.settings, ...(opts.scenarios !== undefined ? { scenarios: opts.scenarios } : {}) });
-  const view = buildLeagueView({ snapshot, model, inputs, myTeamSource: "you", timeZone: "UTC", now: opts.now.toISOString() });
-  return { elite, teams, cards: view.partners.cards, empty: view.partners.empty };
+/** The Plan B boxes the planner's literal rules give (section 6): the search again with the "likelier" rule and the box cap off. */
+export interface LiteralPlanB {
+  boxes: number;
+  /** Boxes less likely to go through than their card (P_complete below the card's), and worse on both (Helps you and P_complete below the card's). */
+  lessLikely: number;
+  worseOnBoth: number;
+  /** The player of mine the boxes add most often (beyond what their cards give), and in how many boxes. */
+  topAdded: { playerId: string; count: number } | null;
+}
+
+export function literalPlanB(ctx: TradeContext, settings: TradeSettings, planB: TradeSearchOptions["planB"] = { minAcceptGain: null, givenPlayerCap: null }): LiteralPlanB {
+  const r = runTradeSearch(ctx, { settings, planB });
+  const withBox = r.trades.filter((t) => t.planB);
+  const added = new Map<string, number>();
+  for (const t of withBox) {
+    const give = new Set(playerIds(t.proposal.give));
+    for (const id of playerIds((t.planB as NonNullable<TradeEvaluation["planB"]>).proposal.give)) if (!give.has(id)) added.set(id, (added.get(id) ?? 0) + 1);
+  }
+  const top = [...added].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))[0];
+  return {
+    boxes: withBox.length,
+    lessLikely: withBox.filter((t) => (t.planB as NonNullable<TradeEvaluation["planB"]>).pComplete < t.pComplete - EPS).length,
+    worseOnBoth: withBox.filter((t) => {
+      const b = t.planB as NonNullable<TradeEvaluation["planB"]>;
+      return b.pComplete < t.pComplete - EPS && b.tradeScore < (t.tradeScore ?? Number.NEGATIVE_INFINITY);
+    }).length,
+    topAdded: top ? { playerId: top[0], count: top[1] } : null,
+  };
 }
 
 // ---------------------------------------------------------------------------------------------
-// Consistency (section 7)
+// Section 7: IR players
+
+/** An IR player (league-report's IrReturnerRow) with the displacement at V*(T), the trade baseline's. */
+export interface IrRow extends IrReturnerRow {
+  vstarDrop: { playerId: string; week: number; self: boolean } | null;
+}
+
+export interface IrTradeRow {
+  rank: number;
+  partnerId: string;
+  /**
+   * The IR players in the trade, whose (mine: given; theirs: received), and where he is: in an IR slot (team.ir: tradable
+   * since Phase 4b) or on an active roster with a status the league's IR slot takes (IrReport.eligible; always tradable).
+   */
+  ir: { playerId: string; side: "give" | "get"; slot: boolean }[];
+  required: TradeEvaluation["required"];
+}
+
+export interface IrReport {
+  /** The statuses this league's IR slot takes (irSlots.irEligibleStatuses: the platform's rule, else config's default). */
+  eligible: InjuryStatus[];
+  rows: IrRow[];
+  /** Each team's points per week (scenario lineups when they ran) without and with the returners (as rosters stand). */
+  ppw: { teamId: string; off: number; on: number }[];
+  /** My odds as rosters stand without and with the returners. */
+  odds: { off: OddsPair | null; on: OddsPair | null };
+  trades: IrTradeRow[];
+  /** Shown trades with an IR player: in the top 10; and those with a player in an IR slot (the kind Phase 4b made tradable). */
+  inTop: number;
+  inSlot: number;
+  /** Shown cards whose forced moves put a received IR player in an open IR slot (RosterChange.toIR), and those with a displacement the trade brings, on my side and on the partner's (RosterChange.displaced). */
+  toIR: number;
+  displaced: { mine: number; theirs: number };
+}
+
+export function irReport(I: TradeInternals, off: LeagueModel, on: LeagueModel, result: TradeSearchResult, top = TOP_DETAIL): IrReport {
+  const weeks = I.league.lp.weeks.weeks;
+  const rows = irReturnerRows(I.league).map((r): IrRow => {
+    const t = I.byId.get(r.teamId);
+    const d = t?.base.displaced.find((x) => x.returner === r.playerId);
+    const week = d ? weeks[d.from] : undefined;
+    return { ...r, vstarDrop: d && week !== undefined ? { playerId: d.id, week, self: d.id === r.playerId } : null };
+  });
+  const ppwOf = (m: LeagueModel, id: string) => {
+    const t = m.teams.find((x) => x.id === id);
+    return t ? (t.scen ?? t.ev).ppw : Number.NaN;
+  };
+  const irIds = new Set(I.snapshot.teams.flatMap((t) => t.ir));
+  // An IR player: in an IR slot, or with a status the league's IR slot takes (ESPN's: IR and OUT), whichever roster he's on.
+  const eligible = irEligibleStatuses(I.snapshot.settings);
+  const isIr = (id: string) => {
+    const status = I.snapshot.players[id]?.injury;
+    return irIds.has(id) || (status !== undefined && eligible.has(status));
+  };
+  const trades = result.trades.flatMap((t, i): IrTradeRow[] => {
+    const side = (which: "give" | "get") => playerIds(which === "give" ? t.proposal.give : t.proposal.get).filter(isIr).map((playerId) => ({ playerId, side: which, slot: irIds.has(playerId) }));
+    const ir = [...side("give"), ...side("get")];
+    return ir.length ? [{ rank: i + 1, partnerId: t.proposal.partnerId, ir, required: t.required }] : [];
+  });
+  const has = (c: RosterChange, k: "toIR" | "displaced") => (c[k] ?? []).length > 0;
+  return {
+    eligible: [...eligible],
+    rows,
+    ppw: on.teams.map((t) => ({ teamId: t.id, off: ppwOf(off, t.id), on: ppwOf(on, t.id) })),
+    odds: { off: myOddsIn(off), on: myOddsIn(on) },
+    trades,
+    inTop: trades.filter((t) => t.rank <= top).length,
+    inSlot: trades.filter((t) => t.ir.some((p) => p.slot)).length,
+    toIR: result.trades.filter((t) => has(t.required.me, "toIR") || has(t.required.partner, "toIR")).length,
+    displaced: { mine: result.trades.filter((t) => has(t.required.me, "displaced")).length, theirs: result.trades.filter((t) => has(t.required.partner, "displaced")).length },
+  };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Section 8: consistency
 
 export interface ConsistencyRow {
   rank: number;
@@ -1366,13 +1399,21 @@ export interface ConsistencyRow {
   illegal: string | null;
   /** analyzeTrade's time for this trade, ms (a fresh context: its memos fill as it goes). */
   ms: number;
-  /** V* after the trade: my pickups and the partner's (null when legality fails). */
+  /** V*(after) of each side as the evaluation runs it (tradeSides: the allocation's pools), null when legality fails. */
   myAfter: readonly FaStep[] | null;
   theirAfter: readonly FaStep[] | null;
 }
 
+/** A Plan B box re-evaluated (its three numbers must be the Analyzer's: the final block of seasons). */
+export interface PlanBCheckRow {
+  rank: number;
+  key: string;
+  differ: string[];
+}
+
 export interface Consistency {
   rows: ConsistencyRow[];
+  planB: PlanBCheckRow[];
   /** V* before any trade: my pickups, and each partner's. */
   myBefore: readonly FaStep[];
   before: Record<string, readonly FaStep[]>;
@@ -1381,15 +1422,16 @@ export interface Consistency {
 }
 
 /** The card's numbers compared between the search's evaluation and the Analyzer's. */
-const COMPARED: readonly (keyof TradeEvaluation)[] = ["b", "tradeScore", "overall", "pAccept", "pComplete", "dPO", "dCH", "dEW", "dPPW", "dPPWPlayoffs", "gMine", "gPartner", "partnerDeltaLineup", "bWin"];
+export const COMPARED: readonly (keyof TradeEvaluation)[] = ["b", "tradeScore", "overall", "pAccept", "pComplete", "dPO", "dCH", "dEW", "dPPW", "dPPWPlayoffs", "gMine", "gPartner", "partnerDeltaLineup", "bWin"];
+const PLAN_B_COMPARED = ["b", "tradeScore", "overall", "pAccept", "pComplete"] as const;
 
-/** V*(after) of one side: legality in exact mode, then the free-agent optimizer from scratch (what evaluateExact runs). */
-function vstarAfter(I: TradeInternals, team: TeamState, given: readonly string[], received: readonly string[], who: string): readonly FaStep[] | null {
-  const legal = legalSide(I, team, team.roster, given, received, "exact", who);
-  return "illegal" in legal ? null : I.league.optimizer.optimize(legal.roster, team.stream).moves;
+/** V*(after) of both sides as evaluateExact runs them (tradeSides), or nulls when legality fails. */
+function vstarAfter(I: TradeInternals, me: TeamState, partner: TeamState, give: readonly string[], get: readonly string[]): { mine: readonly FaStep[] | null; theirs: readonly FaStep[] | null } {
+  const sides = tradeSides(I, me, partner, give, get, `Team ${partner.id}`);
+  return "illegal" in sides ? { mine: null, theirs: null } : { mine: sides.mine.moves, theirs: sides.theirs.moves };
 }
 
-/** Every shown trade re-evaluated by analyzeTrade in a fresh context (the file header). */
+/** Every shown trade and Plan B re-evaluated by analyzeTrade in a fresh context (the file header, section 8). */
 export function consistencyCheck(snapshot: LeagueSnapshot, inputs: ModelInputs, trades: readonly TradeEvaluation[], opts: { now: Date; clock: () => number; scenarios?: number; settings: TradeSettings }): Consistency {
   const { clock } = opts;
   const t0 = clock();
@@ -1404,27 +1446,22 @@ export function consistencyCheck(snapshot: LeagueSnapshot, inputs: ModelInputs, 
     const e = a.evaluation;
     const differ = e ? COMPARED.filter((k) => !Object.is(t[k], e[k])).map(String) : ["(no evaluation)"];
     const partner = I.byId.get(t.proposal.partnerId) as TeamState;
-    const give = playerIds(t.proposal.give);
-    const get = playerIds(t.proposal.get);
-    return {
-      rank: i + 1,
-      key: t.key,
-      partnerId: t.proposal.partnerId,
-      bSearch: t.b,
-      bAnalyzer: e?.b ?? null,
-      differ,
-      illegal: a.illegal,
-      ms: dt,
-      myAfter: vstarAfter(I, me, give, get, "You"),
-      theirAfter: vstarAfter(I, partner, get, give, `Team ${partner.id}`),
-    };
+    const after = vstarAfter(I, me, partner, playerIds(t.proposal.give), playerIds(t.proposal.get));
+    return { rank: i + 1, key: t.key, partnerId: t.proposal.partnerId, bSearch: t.b, bAnalyzer: e?.b ?? null, differ, illegal: a.illegal, ms: dt, myAfter: after.mine, theirAfter: after.theirs };
+  });
+  const planB = trades.flatMap((t, i): PlanBCheckRow[] => {
+    const box = t.planB;
+    if (!box) return [];
+    const e = analyzeTrade(fresh, box.proposal, { settings: opts.settings }).evaluation;
+    const differ = e ? PLAN_B_COMPARED.filter((k) => !Object.is(box[k], e[k])).map(String) : ["(no evaluation)"];
+    return [{ rank: i + 1, key: box.key, differ }];
   });
   const before: Record<string, readonly FaStep[]> = {};
   for (const t of I.teams) before[t.id] = t.vstar.moves;
-  return { rows, myBefore: me.vstar.moves, before, contextMs };
+  return { rows, planB, myBefore: me.vstar.moves, before, contextMs };
 }
 
-/** One player of mine given alone for nothing, my side only (the measured bound: the file header, section 7). */
+/** One player of mine given alone for nothing, my side only (the measured bound: section 8). */
 export interface GiveAwayRow {
   playerId: string;
   value: number;
@@ -1441,9 +1478,8 @@ export interface GiveAwayRow {
   outs: string[];
   /** B_win with only my row of the season simulation changed (the partner left as it was), the final block of seasons. */
   bWin: number | null;
-  /** B, the same way, at each "Protect my trade value" level, and in the before-addendum model. */
+  /** B, the same way, at each "Protect my trade value" level. */
   b: Record<ProtectValue, number | null>;
-  bBefore: number | null;
 }
 
 /**
@@ -1453,9 +1489,8 @@ export interface GiveAwayRow {
  * departure does to my side alone. A positive ROS change is a free-agent swap V*(me) skipped (it gains under faMinGain) that
  * the trade realizes: the measured "no B from pickups" bound.
  */
-export function giveAwayCheck(ctx: TradeContext, beforeCtx: TradeContext, result: TradeSearchResult, settings: TradeSettings): GiveAwayRow[] {
+export function giveAwayCheck(ctx: TradeContext, result: TradeSearchResult, settings: TradeSettings): GiveAwayRow[] {
   const I = tradeInternals(ctx);
-  const Ib = tradeInternals(beforeCtx);
   const me = I.me;
   if (!me || !I.sim) return [];
   const excluded = new Set<Pos>(settings.includeKDefIdp ? [] : config.market.tradeSearchExcluded);
@@ -1480,7 +1515,6 @@ export function giveAwayCheck(ctx: TradeContext, beforeCtx: TradeContext, result
         outs: [],
         bWin: null,
         b: { low: null, medium: null, high: null },
-        bBefore: null,
       };
       let x: ExactTrade | null = null;
       let last = "No team can take him.";
@@ -1497,8 +1531,6 @@ export function giveAwayCheck(ctx: TradeContext, beforeCtx: TradeContext, result
       if (!x) return { ...row, illegal: last };
       const after = new Set(x.mine.roster);
       const sims = Object.fromEntries(PROTECT_VALUE_LEVELS.map((v) => [v, simulateTrade(I, mineOnly(x as ExactTrade), "final", settings.lambda, v)])) as Record<ProtectValue, ReturnType<typeof simulateTrade>>;
-      const xb = evaluateExact(Ib, x.evaluation.proposal, maxPerSide);
-      const bBefore = "illegal" in xb ? null : simulateTrade(Ib, mineOnly(xb), "final", settings.lambda).b;
       return {
         ...row,
         ros: rosValue(x.mine.lv, I.weights) - baseRos,
@@ -1506,14 +1538,45 @@ export function giveAwayCheck(ctx: TradeContext, beforeCtx: TradeContext, result
         outs: [...vstar].filter((p) => p !== id && !after.has(p)),
         bWin: sims[settings.protectValue].bWin,
         b: { low: sims.low.b, medium: sims.medium.b, high: sims.high.b },
-        bBefore,
       };
     })
     .sort((a, b) => (b.ros ?? Number.NEGATIVE_INFINITY) - (a.ros ?? Number.NEGATIVE_INFINITY) || (a.playerId < b.playerId ? -1 : 1));
 }
 
+/** A no-op check row: a shown trade's exact evaluation with both sides put back at their baselines, simulated at both blocks. */
+export interface NoOpRow {
+  rank: number;
+  partnerId: string;
+  /** ΔPO, ΔCH and ΔEW at the screening block and at the final block (all must be exactly 0). */
+  screen: { dPO: number | null; dCH: number | null; dEW: number | null };
+  final: { dPO: number | null; dCH: number | null; dEW: number | null };
+}
+
+/**
+ * The no-op check (§16: "a no-op trade has exactly zero delta under common random numbers"): for each shown trade, its
+ * exact evaluation with my side and the partner's both replaced by their baselines (TeamState.base: V*(T), finally priced),
+ * run through simulateTrade at both blocks of seasons. A trade that changes neither roster moves nothing: the baseline odds
+ * go through the same code as every "after" run.
+ */
+export function noOpCheck(ctx: TradeContext, result: TradeSearchResult, settings: TradeSettings): NoOpRow[] {
+  const I = tradeInternals(ctx);
+  const me = I.me;
+  if (!me || !I.sim) return [];
+  const maxPerSide = Math.max(1, Math.floor(config.search.analyzerMaxPerSide));
+  return result.trades.flatMap((t, i): NoOpRow[] => {
+    const x = evaluateExact(I, t.proposal, maxPerSide);
+    if ("illegal" in x) return [];
+    const noop: ExactTrade = { ...x, mine: me.base, theirs: x.partner.base };
+    const d = (stage: "screen" | "final") => {
+      const c = simulateTrade(I, noop, stage, settings.lambda, settings.protectValue);
+      return { dPO: c.dPO, dCH: c.dCH, dEW: c.dEW };
+    };
+    return [{ rank: i + 1, partnerId: t.proposal.partnerId, screen: d("screen"), final: d("final") }];
+  });
+}
+
 // ---------------------------------------------------------------------------------------------
-// The anchors (section 8)
+// Section 9: the anchors
 
 export interface AnchorRow {
   name: string;
@@ -1521,11 +1584,11 @@ export interface AnchorRow {
   computed: number;
   diff: number;
   pass: boolean;
-  /** Within ± this many points (§11's 1; the addendum's 0.5). */
+  /** Within ± this many points (0.5 for both tables since the planner's reply to Checkpoint 4). */
   tolerance: number;
-  /** The estimate without the star premium (the before-addendum model; §11's anchors carry none), and the planner's "before" when the table gives one. */
+  /** The estimate without the star premium (§11's anchors carry none), and the planner's Checkpoint 4 value. */
   withoutPremium: number;
-  plannerBefore: number | null;
+  plannerOld: number;
 }
 
 /** A partner without trade history at activity `a` and `pPlayoffs` playoff odds (0.4: no season context). */
@@ -1539,21 +1602,22 @@ function anchorProfile(a: number, pPlayoffs: number): PartnerProfile {
 }
 
 const ANCHOR_LEAGUE: AcceptanceLeague = { leagueType: "redraft", tradeReview: "none" };
+const DYNASTY_ANCHOR_LEAGUE: AcceptanceLeague = { leagueType: "dynasty", tradeReview: "none" };
 /** Playoff odds of a partner with no season context, and of a contender (above config.acceptance.context.contenderAbove). */
 const NEUTRAL_PLAYOFFS = 0.4;
 const CONTENDER_PLAYOFFS = 0.7;
 
-/** §11's anchors through acceptance() itself (a redraft league without trade review, a partner with no history and 40% playoff odds: no season context). */
+/** §11's anchors through acceptance() itself (a league without trade review, redraft unless the scenario says dynasty; a partner with no history and 40% playoff odds: no season context). */
 export function anchorRows(): AnchorRow[] {
   return ANCHORS.map((s) => {
-    const r = acceptance(ANCHOR_LEAGUE, anchorProfile(s.a ?? 0, NEUTRAL_PLAYOFFS), { gPartner: s.g ?? 0, deltaLineup: (s.n ?? 0) * config.acceptance.nScale, h: s.h ?? 0, assets: (s.c ?? 0) + 2, partnerReceives: [] });
+    const r = acceptance(s.dynasty ? DYNASTY_ANCHOR_LEAGUE : ANCHOR_LEAGUE, anchorProfile(s.a ?? 0, NEUTRAL_PLAYOFFS), { gPartner: s.g ?? 0, deltaLineup: (s.n ?? 0) * config.acceptance.nScale, h: s.h ?? 0, assets: (s.c ?? 0) + 2, partnerReceives: [] });
     const computed = 100 * r.pAccept;
     const diff = computed - s.percent;
-    return { name: s.name, planner: s.percent, computed, diff, pass: Math.abs(diff) <= ANCHOR_TOLERANCE, tolerance: ANCHOR_TOLERANCE, withoutPremium: computed, plannerBefore: null };
+    return { name: s.name, planner: s.percent, computed, diff, pass: Math.abs(diff) <= ANCHOR_TOLERANCE, tolerance: ANCHOR_TOLERANCE, withoutPremium: computed, plannerOld: s.old };
   });
 }
 
-/** The addendum's anchors (PREMIUM_ANCHORS) through the real functions, as src/engine/acceptance.test.ts builds them. */
+/** The star premium's anchors (PREMIUM_ANCHORS) through the real functions, as src/engine/acceptance.test.ts builds them. */
 export function premiumAnchorRows(): AnchorRow[] {
   const W = PREMIUM_ANCHOR_W;
   const values: Record<string, number> = { star: 9000, you9000: 9000, p2: 5000, p3: 4000, p4: 3000, p5: 2500, p6: 2000, p7: 1000, best: 5000, b2: 3000, you2000: 2000, you5000: 5000, you6500: 6500, r4000: 4000, r3500a: 3500, r3500b: 3500 };
@@ -1571,183 +1635,8 @@ export function premiumAnchorRows(): AnchorRow[] {
     const computed = 100 * acceptance(ANCHOR_LEAGUE, profile, input).pAccept;
     const withoutPremium = 100 * acceptance(ANCHOR_LEAGUE, profile, { ...input, gPerceived: undefined }).pAccept;
     const diff = computed - s.percent;
-    return { name: s.name, planner: s.percent, computed, diff, pass: Math.abs(diff) <= PREMIUM_ANCHOR_TOLERANCE, tolerance: PREMIUM_ANCHOR_TOLERANCE, withoutPremium, plannerBefore: s.plannerBefore ?? null };
+    return { name: s.name, planner: s.percent, computed, diff, pass: Math.abs(diff) <= PREMIUM_ANCHOR_TOLERANCE, tolerance: PREMIUM_ANCHOR_TOLERANCE, withoutPremium, plannerOld: s.old };
   });
-}
-
-// ---------------------------------------------------------------------------------------------
-// The Analyzer example (section 10)
-
-export interface AnalyzerExample {
-  /** Candidates tried, illegal ones, legal ones under the acceptance bar, those with B > 0 at screening (and of those, inside the search's value window), and those analyzeTrade ran. */
-  candidates: number;
-  illegal: number;
-  lowAccept: number;
-  positive: number;
-  inWindow: number;
-  analyzed: number;
-  /**
-   * The pick (analyzeTrade's evaluation): the highest Trade Score among trades whose g_mkt(partner) is inside the
-   * search's screening window (config.search.screeningGWindow: an offer the search itself could make, not a plain
-   * lowball); null when none qualifies.
-   */
-  pick: TradeEvaluation | null;
-  /** The same rule without the window (the most lopsided offers win it), for the report's one-line comparison. */
-  extreme: TradeEvaluation | null;
-}
-
-/** analyzeTrade's better example: the higher Trade Score, then the higher B, then the smaller key. */
-function betterExample(e: TradeEvaluation, than: TradeEvaluation | null): boolean {
-  if (!than) return true;
-  const a = e.tradeScore ?? 0;
-  const b = than.tradeScore ?? 0;
-  if (a !== b) return a > b;
-  const eb = e.b as number;
-  const tb = than.b as number;
-  return eb !== tb ? eb > tb : e.key < than.key;
-}
-
-/** The systematic search for the Analyzer example (the file header, section 10). */
-export function analyzerExample(ctx: TradeContext, opts: { settings: TradeSettings; topValues?: number; maxAccept?: number; finalists?: number }): AnalyzerExample {
-  const I = tradeInternals(ctx);
-  const empty: AnalyzerExample = { candidates: 0, illegal: 0, lowAccept: 0, positive: 0, inWindow: 0, analyzed: 0, pick: null, extreme: null };
-  const me = I.me;
-  if (!me || !I.sim) return empty;
-  const topValues = opts.topValues ?? ANALYZER_TOP_VALUES;
-  const maxAccept = opts.maxAccept ?? ANALYZER_MAX_ACCEPT;
-  const keep = Math.max(1, opts.finalists ?? ANALYZER_FINALISTS);
-  const [gLo, gHi] = config.search.screeningGWindow;
-  const inWindow = (g: number) => g >= gLo && g <= gHi;
-  const excluded = new Set<Pos>(config.market.tradeSearchExcluded);
-  const tradable = (id: string) => I.league.table.rows.has(id) && !excluded.has(I.league.posOf(id) as Pos);
-  const mine = me.roster.filter(tradable);
-  const gives: string[][] = [...mine.map((id) => [id]), ...mine.flatMap((a, i) => mine.slice(i + 1).map((b) => [a, b]))];
-  const maxPerSide = Math.max(1, Math.floor(config.search.analyzerMaxPerSide));
-  const low: { proposal: TradeProposal; b: number; key: string; g: number }[] = [];
-  let candidates = 0;
-  let illegal = 0;
-  let lowAccept = 0;
-  for (const partner of I.teams) {
-    if (partner === me) continue;
-    const top = partner.roster
-      .filter(tradable)
-      .sort((a, b) => (I.values[b] ?? 0) - (I.values[a] ?? 0) || (a < b ? -1 : a > b ? 1 : 0))
-      .slice(0, topValues);
-    for (const target of top) {
-      for (const give of gives) {
-        candidates++;
-        const proposal: TradeProposal = { partnerId: partner.id, give: give.map((id) => ({ kind: "player", id })), get: [{ kind: "player", id: target }] };
-        const x = evaluateExact(I, proposal, maxPerSide);
-        if ("illegal" in x) {
-          illegal++;
-          continue;
-        }
-        if (!(x.evaluation.pAccept < maxAccept)) continue;
-        lowAccept++;
-        const b = simulateTrade(I, x, "screen", opts.settings.lambda, opts.settings.protectValue).b;
-        if (finite(b) && b > 0) low.push({ proposal, b, key: proposalKey(proposal), g: x.evaluation.gPartner });
-      }
-    }
-  }
-  low.sort((a, b) => b.b - a.b || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
-  const windowed = low.filter((c) => inWindow(c.g));
-  const finalists = new Map([...windowed.slice(0, keep), ...low.slice(0, keep)].map((c) => [c.key, c]));
-  let pick: TradeEvaluation | null = null;
-  let extreme: TradeEvaluation | null = null;
-  for (const f of finalists.values()) {
-    const e = analyzeTrade(ctx, f.proposal, { settings: opts.settings }).evaluation;
-    if (!e || !(e.pAccept < maxAccept) || !finite(e.b) || !(e.b > 0)) continue;
-    if (betterExample(e, extreme)) extreme = e;
-    if (inWindow(e.gPartner) && betterExample(e, pick)) pick = e;
-  }
-  return { candidates, illegal, lowAccept, positive: low.length, inWindow: windowed.length, analyzed: finalists.size, pick, extreme };
-}
-
-/** One acceptance term in words (section 10). */
-export interface TermRow {
-  term: keyof AcceptanceTerms;
-  logit: number;
-  words: string;
-}
-
-/** One side of a trade's value: who comes out ahead and by how much ("give": they give up `pct` more than they get). */
-interface ValueSide {
-  dir: "get" | "give" | "even";
-  pct: number;
-}
-
-/** The partner's side from its own g (what it gets over what it gives, minus 1): it gives up −g / (1 + g) more than it gets when g < 0. */
-export function partnerSide(g: number): ValueSide {
-  if (!finite(g) || Math.abs(g) < 0.0005) return { dir: "even", pct: 0 };
-  return g > 0 ? { dir: "get", pct: g } : { dir: "give", pct: -g / (1 + g) };
-}
-
-const sidePhrase = (v: ValueSide): string => (v.dir === "get" ? `they get ${pctPlain(v.pct)} more than they give` : v.dir === "give" ? `they give up ${pctPlain(v.pct)} more than they get` : "even trade value");
-
-/**
- * The value term in words (sections 4 and 10): the trade value at market (g_mkt: valueReading's numbers) and, when what
- * they give carries a star premium (§1 of the addendum), as they see it (their perceived g: `perceived`, unclamped, when
- * the caller has it, else the clamped g the term reads). The g printed, the gain or loss wording and β are the term's own
- * (AcceptanceFeatures.g: the perceived g, clamped).
- */
-export function valueTermWords(t: TradeEvaluation, snapshot: LeagueSnapshot, perceived: number | null = null): string {
-  const g = t.features.g;
-  const b = config.acceptance.beta;
-  const premium = (t.detail.premium ?? []).filter((p) => p.e > 0);
-  // Market: valueReading's exact readings (my g_mkt is their give over their get, minus 1).
-  const market: ValueSide = !finite(t.gMine) || Math.abs(t.gMine) < 0.0005 ? { dir: "even", pct: 0 } : t.gMine < 0 ? { dir: "get", pct: t.gPartner } : { dir: "give", pct: t.gMine };
-  const seen = premium.length ? (perceived !== null && finite(perceived) ? perceived : g) : t.gPartner;
-  const clamp = finite(seen) && Math.abs(seen - g) > 1e-9 ? `, which the model clamps to ${signed(g, 3)}` : "";
-  const term = g < 0 ? ` × β_loss ${b.loss}: losses weigh more than gains` : g > 0 ? ` × β_gain ${b.gain}` : ": no value term";
-  const their = `(their g ${signed(seen, 3)}${clamp}${term})`;
-  if (!premium.length) return `${sidePhrase(market)} ${their}`;
-  const on = `the star premium on ${premium.map((p) => `${nameOf(snapshot, p.playerId)} at e ${fmt(p.e, 2)}`).join(" and ")}`;
-  const p = partnerSide(seen);
-  if (p.dir === market.dir && p.dir !== "even") return `${sidePhrase(market)} at market, ${pctPlain(p.pct)} more as they see it with ${on} ${their}`;
-  if (p.dir === "even") return `${sidePhrase(market)} at market, even as they see it with ${on} ${their}`;
-  return `${sidePhrase(market)} at market, but as they see it with ${on} ${sidePhrase(p)} ${their}`;
-}
-
-/**
- * The trade's acceptance terms (TradeDetail.terms, logit units), each in plain words, in the model's order. `I`: the
- * context the trade was evaluated in, for the partner's perceived g unclamped (valueTermWords); without it the words read
- * the clamped g.
- */
-export function termRows(t: TradeEvaluation, snapshot: LeagueSnapshot, I?: TradeInternals): TermRow[] {
-  const d = t.detail;
-  const f = t.features;
-  const b = config.acceptance.beta;
-  const ctx = config.acceptance.context;
-  const act = config.acceptance.activity;
-  const name = (ids: readonly string[]) => ids.map((id) => snapshot.players[id]?.name ?? id).join(", ");
-  // The star premium (§1 of the addendum): the g the model read is the partner's perceived g (features.g, clamped), not g_mkt.
-  const perceived = I ? (perceivedG(I, t.proposal.partnerId, playerIds(t.proposal.give), playerIds(t.proposal.get), t.gPartner) ?? null) : null;
-  const words: Record<keyof AcceptanceTerms, string> = {
-    base: `the starting point (β0 ${fmt(b.b0, 1)}): an even 1-for-1 with nothing else is ${pctPlain(logistic(b.b0))}`,
-    value: valueTermWords(t, snapshot, perceived),
-    need: `their starting lineup changes by ${signed(t.partnerDeltaLineup)} points a week (n = ${signed(f.n, 2)}, × β_need ${b.need})`,
-    hole: f.h === 1 ? `it gives them a starter at a hole (${d.holesFilled.join(", ")})` : d.holes.length ? `they have a hole (${d.holes.join(", ")}) but this doesn't fill it` : "they have no hole for it to fill",
-    complexity: f.c > 0 ? `${f.c} player${f.c === 1 ? "" : "s"} beyond a 1-for-1 (× −β_cx ${b.complexity})` : "a 1-for-1: no complexity cost",
-    activity:
-      d.activity.rule === "active"
-        ? `an active trader: ${d.activity.trades} trade${d.activity.trades === 1 ? "" : "s"} this season`
-        : d.activity.rule === "inactive"
-          ? `no moves in the last ${act.inactiveWeeks} weeks (a = −2)`
-          : d.activity.rule === "quiet"
-            ? `no moves in the last ${act.quietWeeks} weeks (a = −1)`
-            : `ordinary activity (${d.activity.transactions} move${d.activity.transactions === 1 ? "" : "s"} this season, ${d.activity.trades} trade${d.activity.trades === 1 ? "" : "s"})`,
-    history: f.hist === null ? "no completed trade of theirs to judge" : `their trades this season averaged ${pctSigned(d.history.average)} in value for them (hist ${signed(f.hist, 3)})`,
-    context: d.context.checkedOut
-      ? `they've checked out (under ${pctPlain(ctx.checkedOutBelow, 0)} to make the playoffs)`
-      : d.context.contender
-        ? `a contender (over ${pctPlain(ctx.contenderAbove, 0)} to make the playoffs): their lineup change counts ${ctx.contenderNeedFactor}×`
-        : d.context.agingPlayers > 0
-          ? `a rebuilding team getting ${d.context.agingPlayers} older RB/WR`
-          : "no season context",
-    hot: d.hotReceived.length ? `a hot player coming to them: ${name(d.hotReceived)}` : d.hotGiven.length ? `a hot player leaving them: ${name(d.hotGiven)}` : "nobody hot either way",
-    urgency: f.urg > 0 ? "the trade deadline is near" : "the deadline isn't near",
-  };
-  return (Object.keys(words) as (keyof AcceptanceTerms)[]).map((term) => ({ term, logit: d.terms[term], words: words[term] }));
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1756,61 +1645,76 @@ export function termRows(t: TradeEvaluation, snapshot: LeagueSnapshot, I?: Trade
 export interface TradeReportOptions {
   now: Date;
   clock: () => number;
-  /** "offline" (the data-local dump) or "live" (through the app's caches); and a line saying where the data came from. */
+  /** "offline" (a dump) or "live" (through the app's caches); and a line saying where the data came from. */
   mode: "offline" | "live";
   dataNote: string;
   /** When the report is written (the header's date). Default: `now`. */
   generatedAt?: Date;
   /** Availability scenarios (default config.lineups.scenarios). */
   scenarios?: number;
-  /** Timed runs and warm-ups (default SEARCH_RUNS, SEARCH_WARMUPS). */
+  /** Timed runs and warm-ups (default SEARCH_RUNS, SEARCH_WARMUPS); searches again on the same context (default `runs`). */
   runs?: number;
   warmups?: number;
+  again?: number;
+  /** Section 3's weights (default BLEND_WEIGHTS). */
+  blendWeights?: readonly number[];
+  /** The Checkpoint 4 and Checkpoint 3 models' results on the same data (--compare, --compare3), with where each came from. */
+  compare?: { run: CompareRun; file: string } | null;
+  compare3?: { run: CompareRun; file: string } | null;
+  /**
+   * Checkpoint 3's and Checkpoint 4's committed league reports (the markdown of 6a83beb and b27e90f:reports/league-report.md;
+   * main reads them with git show), for section 4's "what changed in the data"; null or absent when not available.
+   */
+  history?: { cp3: string | null; cp4: string | null } | null;
+  /** The command line the header prints (commandText; default: the script with --offline when offline). */
+  command?: string;
   /** Timings of the stages before the engine (live: the crosswalk, the import, the model inputs). */
   timing?: Record<string, number>;
-  /** The saved pre-addendum search for the same data and moment (offline: data-local/before-addendum/top25.json), and its label. */
-  beforeReference?: { label: string; data: SearchReference };
 }
 
 export interface TradeReport {
   doc: string;
   ctx: TradeContext;
   result: TradeSearchResult;
+  model: LeagueModel;
   runtime: Runtime;
-  variants: Variants;
-  /** Both models' searches re-run stage by stage (where a trade left each; N11's pruning measured on the after one). */
-  traces: { before: SearchTrace; after: SearchTrace };
-  /** The before variant against the saved reference (null without one). */
-  reference: ReferenceCheck | null;
-  compare: CompareRow[];
-  realism: Realism;
-  pruning: PruningCheck | null;
-  star: StarExample;
-  steps: StepsDiagnosis;
-  tags: HarderToGetReport;
+  leagueRuntime: LeagueRuntime;
+  wilsonId: string | null;
+  facts: { now: ListFacts; cp4: ListFacts | null };
+  /** Why the model sells Garrett Wilson, over the uncapped search's top 10 at the app's blend weight (section 2), or null. */
+  wilsonWhy: WilsonWhy | null;
+  blend: BlendRun[];
+  blendFacts: BlendFacts;
+  settings: Map<string, SettingRun>;
+  /** My odds as rosters stand on the trade baseline's seasons (section 4: the pickup effect on common random numbers). */
+  standOnSearch: OddsPair | null;
+  /** What changed in the data since Checkpoints 3 and 4 (section 4). */
+  dataChanges: DataChanges;
+  allocation: AllocationReport;
+  /** The search with the weekly reset waiver order (section 5), or null. */
+  resetOrder: ResetOrderRun | null;
+  cards: CardsReport;
+  literalPlanB: LiteralPlanB;
+  ir: IrReport;
   consistency: Consistency;
   giveAway: GiveAwayRow[];
+  noOp: NoOpRow[];
   anchors: AnchorRow[];
   premiumAnchors: AnchorRow[];
-  example: AnalyzerExample;
-  optimizer: OptimizerReport;
-  /** This report's own stages after the timed searches, ms (and "total": everything buildTradeReport did). */
+  /** This report's own stages after the timed runs, ms (and "total": everything buildTradeReport did). */
   timing: Record<string, number>;
 }
 
-/** This report's stages, in order, with their labels (section 9). */
+/** This report's stages, in order, with their labels (section 10). */
 const REPORT_STAGES: readonly [string, string][] = [
-  ["searches", `the timed searches (warm-up and runs, each with its own context)`],
-  ["variants", "the before-addendum search (its own context) and the Low and High searches (the main context)"],
-  ["traces", "both models' searches re-run stage by stage (where each trade left them; N11's pruning measured)"],
-  ["compare", "before vs after: the top-10 trades the other model didn't show, through the Analyzer, and where each would have ranked"],
-  ["star", "the Smith-Njigba example and the star trades (the Analyzer, both models)"],
-  ["steps", "the offer-first diagnosis (every possible step, exactly evaluated)"],
-  ["tags", "\"Harder to get\" and the League page (a League model with odds, and its view)"],
-  ["consistency", "the consistency check (a fresh context, every shown trade through the Analyzer)"],
-  ["giveAway", "the measured bound (each throw-in given for nothing, both models)"],
-  ["example", "the Trade Analyzer example (every candidate exactly evaluated)"],
-  ["optimizer", "the free-agent optimizer section (leagueMarginals)"],
+  ["league", "the League model's timed builds (warm-up and runs)"],
+  ["searches", "the timed searches (warm-up and runs, each with its own context; then again on the last context)"],
+  ["blend", "section 3's searches: the other market-blend weights (each with its own context), and every weight's search again without the given-player cap"],
+  ["settings", "the switch settings (a League model and a trade context each)"],
+  ["sections", "Checkpoint 4's top 10 through the Analyzer, the data changes, the allocation, the cards, the IR players"],
+  ["resetOrder", "section 5's search with the weekly reset waiver order (its own context)"],
+  ["literalPlanB", "the search again with the planner's literal Plan B rules (the main context)"],
+  ["consistency", "the consistency checks (a fresh context; the measured bound; the no-op)"],
   ["total", "the whole report, before writing it"],
 ];
 
@@ -1821,8 +1725,9 @@ const REPORT_STAGES: readonly [string, string][] = [
 export function buildTradeReport(snapshot: LeagueSnapshot, inputs: ModelInputs, opts: TradeReportOptions): TradeReport {
   const settings = normalizeTradeSettings(defaultTradeSettings());
   const { now, clock } = opts;
-  const scenarios = opts.scenarios;
-  const sc = scenarios !== undefined ? { scenarios } : {};
+  const sc = opts.scenarios !== undefined ? { scenarios: opts.scenarios } : {};
+  const runs = opts.runs ?? SEARCH_RUNS;
+  const warmups = opts.warmups ?? SEARCH_WARMUPS;
   const timing: Record<string, number> = {};
   const start = clock();
   let last = start;
@@ -1831,38 +1736,118 @@ export function buildTradeReport(snapshot: LeagueSnapshot, inputs: ModelInputs, 
     timing[stage] = t - last;
     last = t;
   };
-  const { ctx, result, runtime } = timedSearches(snapshot, inputs, { now, clock, settings, runs: opts.runs ?? SEARCH_RUNS, warmups: opts.warmups ?? SEARCH_WARMUPS, ...sc });
+  const league = leagueRuntime(snapshot, inputs, { now, clock, settings, runs, warmups, ...sc });
+  lap("league");
+  const { ctx, result, runtime } = timedSearches(snapshot, inputs, { now, clock, settings, runs, warmups, again: opts.again ?? runs, ...sc });
   lap("searches");
   const I = tradeInternals(ctx);
-  const variants = variantSearches(snapshot, inputs, { ctx, result }, { now, clock, settings, ...sc });
-  const after = variants[settings.protectValue];
-  lap("variants");
-  const traces = { before: searchTrace(variants.before.ctx, variants.before.settings, variants.before.result), after: searchTrace(after.ctx, after.settings, after.result) };
-  const pruning = pruningCheck(traces.after);
-  lap("traces");
-  const reference = opts.beforeReference ? referenceCheck(variants.before.result, opts.beforeReference.data, opts.beforeReference.label) : null;
-  const compare = compareTop(variants.before, after, traces);
-  lap("compare");
-  const realism = realismCheck(result.trades);
-  const star = starExample(snapshot, variants.before, after);
-  lap("star");
-  const steps = stepsDiagnosis(ctx, result, settings);
-  lap("steps");
-  const tags = harderToGetReport(snapshot, inputs, I, { now, settings, ...sc });
-  lap("tags");
+  const wilsonId = idByName(snapshot, WILSON);
+  const blend = blendSensitivity(snapshot, inputs, { ctx, result }, { now, clock, settings, wilsonId, ...(opts.blendWeights ? { weights: opts.blendWeights } : {}), ...sc });
+  const facts = blendFacts(I);
+  lap("blend");
+  const decomp = decomposition(snapshot, inputs, { model: league.model, ctx }, { now, settings, ...sc });
+  lap("settings");
+  const compare = opts.compare?.run ?? null;
+  const cp4Trades = compare?.trades ? compare.trades.map(listedOfCompare) : null;
+  const nowList = result.trades.map((t) => listedOf(t, snapshot));
+  const history = { cp3: opts.history?.cp3 ? parseLeagueReport(opts.history.cp3) : null, cp4: opts.history?.cp4 ? parseLeagueReport(opts.history.cp4) : null };
+  const changes = dataChanges(snapshot, history, (decomp.get("cp4") as SettingRun).model);
+  const standSearch = standOnSearchSeasons(snapshot, league.model, ctx);
+  const allocation = allocationReport(I, (decomp.get("now-oneTeam") as SettingRun).model, result, compare);
+  const cards = cardsReport(result);
+  const ir = irReport(I, (decomp.get("cp4+blend+oneTeam") as SettingRun).model, league.model, result);
+  const cp4Now = cp4Trades ? cp4Trades.slice(0, TOP_DETAIL).map((t) => nowOf(ctx, result, settings, t)) : [];
+  const mainRun = mainBlendRun({ blend });
+  const why = mainRun ? wilsonWhy(mainRun.uncapped.result.trades, wilsonId) : null;
+  lap("sections");
+  const reset = resetOrderRun(snapshot, inputs, league.model, { ctx, result }, { now, settings, wilsonId, ...sc });
+  lap("resetOrder");
+  const literal = literalPlanB(ctx, settings);
+  lap("literalPlanB");
   const consistency = consistencyCheck(snapshot, inputs, result.trades, { now, clock, settings, ...sc });
+  const giveAway = giveAwayCheck(ctx, result, settings);
+  const noOp = noOpCheck(ctx, result, settings);
   lap("consistency");
-  const giveAway = giveAwayCheck(ctx, variants.before.ctx, result, settings);
-  lap("giveAway");
-  const example = analyzerExample(ctx, { settings });
-  lap("example");
-  const optimizer = optimizerReport(snapshot, I.model, leagueMarginals(snapshot, inputs, { now, settings, ...sc }));
-  lap("optimizer");
   const anchors = anchorRows();
   const premiumAnchors = premiumAnchorRows();
   timing.total = clock() - start;
-  const doc = render({ snapshot, inputs, opts, settings, ctx, I, result, runtime, variants, traces, reference, compare, realism, pruning, star, steps, tags, consistency, giveAway, anchors, premiumAnchors, example, optimizer, timing });
-  return { doc, ctx, result, runtime, variants, traces, reference, compare, realism, pruning, star, steps, tags, consistency, giveAway, anchors, premiumAnchors, example, optimizer, timing };
+  const listFactsNow = listFacts(nowList, wilsonId);
+  const listFactsCp4 = cp4Trades ? listFacts(cp4Trades, wilsonId) : null;
+  const x: RenderInput = {
+    snapshot,
+    inputs,
+    opts,
+    settings,
+    ctx,
+    I,
+    result,
+    model: league.model,
+    runtime,
+    leagueRuntime: league.runtime,
+    wilsonId,
+    nowList,
+    cp4Trades,
+    cp4Now,
+    facts: { now: listFactsNow, cp4: listFactsCp4 },
+    wilsonWhy: why,
+    blend,
+    blendFacts: facts,
+    settingsRuns: decomp,
+    standOnSearch: standSearch,
+    dataChanges: changes,
+    history,
+    allocation,
+    resetOrder: reset,
+    cards,
+    literalPlanB: literal,
+    ir,
+    consistency,
+    giveAway,
+    noOp,
+    anchors,
+    premiumAnchors,
+    timing,
+  };
+  const doc = render(x);
+  return {
+    doc,
+    ctx,
+    result,
+    model: league.model,
+    runtime,
+    leagueRuntime: league.runtime,
+    wilsonId,
+    facts: x.facts,
+    wilsonWhy: why,
+    blend,
+    blendFacts: facts,
+    settings: decomp,
+    standOnSearch: standSearch,
+    dataChanges: changes,
+    allocation,
+    resetOrder: reset,
+    cards,
+    literalPlanB: literal,
+    ir,
+    consistency,
+    giveAway,
+    noOp,
+    anchors,
+    premiumAnchors,
+    timing,
+  };
+}
+
+/** Where a compare file's trade is now (section 2b): its place in this run's list, else the Analyzer's numbers today, or why it can't be made. */
+export type NowFate = { kind: "shown"; place: number } | { kind: "analyzed"; helps: number | null; pAccept: number; overall: number | null; b: number | null; hiddenByMarket: boolean } | { kind: "illegal"; reason: string };
+
+export function nowOf(ctx: TradeContext, result: TradeSearchResult, settings: TradeSettings, t: Pick<ListedTrade, "key" | "partnerId" | "give" | "get">): NowFate {
+  const at = result.trades.findIndex((x) => x.key === t.key);
+  if (at >= 0) return { kind: "shown", place: at + 1 };
+  const a = analyzeTrade(ctx, { partnerId: t.partnerId, give: asPlayers(t.give), get: asPlayers(t.get) }, { settings });
+  if (!a.evaluation) return { kind: "illegal", reason: a.illegal ?? "it can't be evaluated" };
+  const e = a.evaluation;
+  return { kind: "analyzed", helps: e.tradeScore, pAccept: e.pAccept, overall: e.overall, b: e.b, hiddenByMarket: e.flags.hiddenByMarket };
 }
 
 interface RenderInput {
@@ -1873,22 +1858,32 @@ interface RenderInput {
   ctx: TradeContext;
   I: TradeInternals;
   result: TradeSearchResult;
+  model: LeagueModel;
   runtime: Runtime;
-  variants: Variants;
-  traces: { before: SearchTrace; after: SearchTrace };
-  reference: ReferenceCheck | null;
-  compare: CompareRow[];
-  realism: Realism;
-  pruning: PruningCheck | null;
-  star: StarExample;
-  steps: StepsDiagnosis;
-  tags: HarderToGetReport;
+  leagueRuntime: LeagueRuntime;
+  wilsonId: string | null;
+  nowList: ListedTrade[];
+  cp4Trades: ListedTrade[] | null;
+  cp4Now: NowFate[];
+  facts: { now: ListFacts; cp4: ListFacts | null };
+  wilsonWhy: WilsonWhy | null;
+  blend: BlendRun[];
+  blendFacts: BlendFacts;
+  settingsRuns: Map<string, SettingRun>;
+  standOnSearch: OddsPair | null;
+  dataChanges: DataChanges;
+  /** The committed league reports read back (null: not available). */
+  history: { cp3: LeagueReportTables | null; cp4: LeagueReportTables | null };
+  allocation: AllocationReport;
+  resetOrder: ResetOrderRun | null;
+  cards: CardsReport;
+  literalPlanB: LiteralPlanB;
+  ir: IrReport;
   consistency: Consistency;
   giveAway: GiveAwayRow[];
+  noOp: NoOpRow[];
   anchors: AnchorRow[];
   premiumAnchors: AnchorRow[];
-  example: AnalyzerExample;
-  optimizer: OptimizerReport;
   timing: Record<string, number>;
 }
 
@@ -1898,15 +1893,14 @@ function render(x: RenderInput): string {
   renderHeader(L, x);
   renderTop(L, x, teamName);
   renderBeforeAfter(L, x, teamName);
-  renderRealism(L, x, teamName);
-  renderStar(L, x, teamName);
-  renderSteps(L, x, teamName);
-  renderTags(L, x, teamName);
+  renderBlend(L, x, teamName);
+  renderOdds(L, x, teamName);
+  renderAllocation(L, x, teamName);
+  renderCards(L, x);
+  renderIr(L, x, teamName);
   renderConsistency(L, x, teamName);
   renderAnchors(L, x.anchors, x.premiumAnchors);
   renderRuntime(L, x);
-  renderAnalyzer(L, x, teamName);
-  renderOptimizer(L, x, teamName);
   return L.join("\n");
 }
 
@@ -1914,13 +1908,16 @@ function render(x: RenderInput): string {
 const kappaOf = (x: RenderInput): number => protectValueWeight(x.settings.protectValue);
 const LEVEL_WORDS: Readonly<Record<ProtectValue, string>> = { low: "Low", medium: "Medium", high: "High" };
 
+/** A compare file's provenance in one line. */
+const compareLine = (c: { run: CompareRun; file: string }, root: string): string => `${c.run.label} (code ${c.run.code}) on dump ${c.run.dump} at ${c.run.now}, from ${relativePath(root, c.file)}`;
+
 function renderHeader(L: string[], x: RenderInput): void {
   const { snapshot, inputs, I, result, settings, opts } = x;
   const model = I.model;
   const generated = (opts.generatedAt ?? opts.now).toISOString().slice(0, 10);
-  L.push("# Trade search: Parker's ESPN league", "");
+  L.push("# Trade search: Parker's ESPN league (Checkpoint 4b)", "");
   L.push(
-    `Generated by \`npm run trade:report${opts.mode === "offline" ? " -- --offline" : ""}\` on ${generated} through the real trade engine (buildTradeContext, runTradeSearch, analyzeTrade, explainTrade), as the Trade Finder's Web Worker runs it. Team, owner and league names are placeholders (you are Team ${result.myTeamId ?? "–"}); NFL player names are public.`,
+    `Generated by \`${opts.command ?? commandText("trade:report", [opts.mode === "offline" ? "--offline" : null])}\` on ${generated} through the real trade engine (buildTradeContext, runTradeSearch, analyzeTrade, explainTrade) and League model (buildLeagueModel), as the app's Web Workers run them. Team, owner and league names are placeholders (you are Team ${result.myTeamId ?? "–"}); NFL player names are public.`,
     "",
   );
   L.push(
@@ -1931,35 +1928,132 @@ function renderHeader(L: string[], x: RenderInput): void {
   L.push(`- ${opts.dataNote}`);
   for (const s of inputs.sources) L.push(`- ${s.source}: ${s.fetchedAt}${s.stale ? " (saved copy; the live fetch failed)" : ""}`);
   L.push(`- League snapshot fetched: ${snapshot.fetchedAt}`);
+  for (const [label, c] of [
+    ["Checkpoint 4 model's results (--compare)", opts.compare],
+    ["Checkpoint 3 model's results (--compare3)", opts.compare3],
+  ] as const) {
+    if (!c) {
+      L.push(`- ${label}: not given.`);
+      continue;
+    }
+    const same = Date.parse(c.run.now) === opts.now.getTime();
+    L.push(`- ${label}: ${compareLine(c, ROOT)}${same ? " (the same moment as this report's data)" : ` ⚠️ not this report's data (its moment differs from ${opts.now.toISOString()}): its numbers aren't comparable one for one`}.`);
+  }
   for (const n of inputs.notes) L.push(`- Note: ${n}`);
   for (const w of inputs.warnings) L.push(`- Warning \`${w.code}\`: ${w.message}`);
   L.push("");
   const b = result.baseline;
   L.push(
-    `**Settings used** (the app's defaults, defaultTradeSettings): max ${settings.maxPerSide} players a side; streamed positions ${settings.streamPositions.join(", ") || "none"}; playoff weeks count ${settings.playoffWeight}×; Win now ↔ Future ${settings.lambda === null ? "default (redraft: not used)" : settings.lambda}; Protect my trade value ${LEVEL_WORDS[settings.protectValue]} (κ ${kappaOf(x)}); untouchables ${settings.untouchables.length || "none"}; must-include ${settings.mustInclude.length || "none"}; target positions ${settings.targetPositions.join(", ") || "any"}; avoid ${settings.avoidPositions.join(", ") || "none"}; P/K/D/ST/IDP ${settings.includeKDefIdp ? "included" : "left out"}; draft picks ${settings.includePicks ? "on" : "off"}. Search sizes from config.search: give and get pools ${config.search.givePool} / ${config.search.getPool} (plus up to ${config.search.getPoolTagged} "Harder to get" players a partner), beams ${config.search.beamSecond} / ${config.search.beamThird}, ${config.search.keptPerPartner} kept per partner, ${config.search.exactEvaluationMax} exactly evaluated, ${config.search.finalists} finalists at ${thousands(config.simulation.finalSims)} seasons, ${config.search.resultsShown} shown. The waiver credit W (the best free agent's trade value, §9): ${valueText(I.credit)}.`,
+    `**Settings used** (the app's defaults, defaultTradeSettings): max ${settings.maxPerSide} players a side; streamed positions ${settings.streamPositions.join(", ") || "none"}; playoff weeks count ${settings.playoffWeight}×; Win now ↔ Future ${settings.lambda === null ? "default (redraft: not used)" : settings.lambda}; Protect my trade value ${LEVEL_WORDS[settings.protectValue]} (κ ${kappaOf(x)}); untouchables ${settings.untouchables.length || "none"}; must-include ${settings.mustInclude.length || "none"}; target positions ${settings.targetPositions.join(", ") || "any"}; avoid ${settings.avoidPositions.join(", ") || "none"}; P/K/D/ST/IDP ${settings.includeKDefIdp ? "included" : "left out"}; draft picks ${settings.includePicks ? "on" : "off"}. The model's Phase 4b rules: market-blended projections (w ${config.marketBlend.weight}), one free agent per team (${model.faAllocation ? `claimed in ${allocationBasisText(model.faAllocation.basis)}` : "no allocation"}), IR returners, β_need ${betaNeed(snapshot.settings.leagueType)} and the P_accept cap ${pctPlain(config.acceptance.pAcceptClamp[1], 0)}, every player at max(v, W) in trade values. The waiver credit W (the best free agent's trade value, §9): ${valueText(I.credit)}.`,
     "",
   );
   L.push(`**Your baseline** (every team after its free-agent pickups, ${thousands(config.simulation.finalSims)} seasons): P(playoffs) ${pctPlain(b.pPlayoffs)}, P(title) ${pctPlain(b.pTitle)}, expected wins ${fmt(b.expWins, 2)}.`, "");
   const notes = [...new Set([...x.ctx.notes, ...result.notes])];
-  const warnings = [...new Set([...x.ctx.warnings, ...result.warnings])];
-  L.push("**Engine notes and warnings** (the evaluation context's and the search's):", "");
+  const warnings = [...new Set([...x.ctx.warnings, ...result.warnings, ...model.warnings])];
+  L.push("**Engine notes and warnings** (the League model's, the evaluation context's and the search's):", "");
   if (!notes.length && !warnings.length) L.push("- none");
   for (const n of notes) L.push(`- Note: ${n}`);
   for (const w of warnings) L.push(`- Warning: ${w}`);
   L.push("");
 }
 
-/** "Zay Flowers (WR, BAL) [Harder to get]": the players I get, with the tag from the trade's premium facts. */
-function getText(snapshot: LeagueSnapshot, t: TradeEvaluation): string {
-  const tagged = new Set((t.detail.premium ?? []).filter((p) => p.harderToGet).map((p) => p.playerId));
-  const ids = playerIds(t.proposal.get);
-  return ids.length ? ids.map((id) => `${playerLabel(snapshot, id)}${tagged.has(id) ? " [Harder to get]" : ""}`).join(" + ") : "nobody";
+// ---------------------------------------------------------------------------------------------
+// Section 1: the top 10
+
+/** The season's end for "Out for the season" (tradeView.seasonEndOf: the NFL's last week when known). */
+const seasonEnd = (x: RenderInput): number | undefined => seasonEndOf(x.snapshot.settings, x.inputs.nfl.lastWeek);
+
+/** A player's status in words: "active", or the card's tag words without a week ("Questionable", "On IR"). */
+function statusWords(status: string | null | undefined): string {
+  if (!status) return "–";
+  return status === "ACTIVE" ? "active" : injuryTagText({ status: status as InjuryTag["status"] });
+}
+
+/** An injury tag in the card's words: "Questionable", "Out — expected back week 8" (tradeView.injuryTagText). */
+function tagWords(x: RenderInput, tag: Pick<InjuryTag, "status" | "returnWeek">): string {
+  return injuryTagText(tag as Pick<InjuryTag, "status" | "returnWeek">, seasonEnd(x), x.snapshot.platform === "manual" ? undefined : "ESPN");
+}
+
+/** "Zay Flowers (WR, BAL) [Questionable] [Harder to get]": a side's players with their injury tags (and, received, the premium tag). */
+function sideText(x: RenderInput, t: TradeEvaluation, side: "give" | "get"): string {
+  const ids = playerIds(side === "give" ? t.proposal.give : t.proposal.get);
+  const tags = new Map((t.flags.tagged ?? []).filter((g) => g.side === side).map((g) => [g.playerId, g]));
+  const harder = new Set(side === "get" ? (t.detail.premium ?? []).filter((p) => p.harderToGet).map((p) => p.playerId) : []);
+  if (!ids.length) return "nobody";
+  return ids
+    .map((id) => {
+      const tag = tags.get(id);
+      return `${playerLabel(x.snapshot, id)}${tag ? ` [${tagWords(x, tag)}]` : ""}${harder.has(id) ? " [Harder to get]" : ""}`;
+    })
+    .join(" + ");
+}
+
+/** A side's forced moves (RosterChange): drops, adds, IR slots and the displacements an IR return brings. */
+export function changeText(snapshot: LeagueSnapshot, c: RosterChange): string {
+  const parts = [
+    ...c.drops.map((id) => `drop ${playerLabel(snapshot, id)}`),
+    ...c.adds.map((id) => `add ${playerLabel(snapshot, id)}`),
+    ...(c.toIR ?? []).map((id) => `${playerLabel(snapshot, id)} goes to an open IR slot`),
+    ...(c.displaced ?? []).map((d) => (d.playerId === d.returner ? `release ${playerLabel(snapshot, d.playerId)} at his return (week ${d.week})` : `from week ${d.week} drop ${playerLabel(snapshot, d.playerId)} when ${nameOf(snapshot, d.returner)} comes back from IR`)),
+  ];
+  return parts.length ? parts.join(", ") : "none";
+}
+
+/** The app's own card for a trade (tradeView.buildTradeCard, as the Trade Finder builds it): its flags, injury note and reasons. */
+function cardOf(x: RenderInput, t: TradeEvaluation): ReturnType<typeof buildTradeCard> {
+  return buildTradeCard(t, { snapshot: x.snapshot, baseline: x.result.baseline, lastNflWeek: x.inputs.nfl.lastWeek, knownTags: knownTagsOf(x.result.trades) });
+}
+
+/**
+ * What the pitch's "You'd get about X% more trade value than you give (FantasyCalc values)" reads (explain.ts
+ * fantasyCalcGain): the partner's gain in FantasyCalc's own values, each player at his raw value (no floor at W, no
+ * roster-spot credit), or null when a player has no positive value.
+ */
+export function pitchValueGain(t: Pick<TradeEvaluation, "proposal">, value: ((id: string) => number | null) | undefined): number | null {
+  if (!value) return null;
+  const sum = (assets: readonly TradeAsset[]): number | null => {
+    let s = 0;
+    for (const a of assets) {
+      const v = a.kind === "player" ? value(a.id) : null;
+      if (v === null || !finite(v) || !(v > 0)) return null;
+      s += v;
+    }
+    return s;
+  };
+  const theyGet = sum(t.proposal.give);
+  const theyGive = sum(t.proposal.get);
+  return theyGet === null || theyGive === null || !(theyGive > 0) ? null : theyGet / theyGive - 1;
+}
+
+/** The star premium line of a card (TradeDetail.premium): each player they give with e, his rank there and top-12, and their g as they see it. */
+function premiumText(snapshot: LeagueSnapshot, t: TradeEvaluation): string | null {
+  const facts = (t.detail.premium ?? []).filter((f) => f.e > 0);
+  if (!facts.length) return null;
+  const [lo, hi] = config.acceptance.gClamp;
+  const clamped = t.features.g <= lo + EPS || t.features.g >= hi - EPS ? ` (the model clamps g to ${pctSigned(lo, 0)}…${pctSigned(hi, 0)})` : "";
+  const parts = facts.map((f) => `${nameOf(snapshot, f.playerId)} e ${fmt(f.e, 2)}${f.rank ? ` (their #${f.rank}${f.elite ? ", top-12" : ""})` : ""}${f.harderToGet ? ", Harder to get" : ""}`);
+  return `${parts.join("; ")}: their g as they see it ${pctSigned(t.features.g)}${clamped}, at market ${pctSigned(t.gPartner)}`;
+}
+
+/** The card's "How to offer it" (TradeEvaluation.steps) or "If they say no, try:" (TradeEvaluation.planB). */
+function nextStepText(snapshot: LeagueSnapshot, t: TradeEvaluation): string {
+  const st = t.steps;
+  if (st) {
+    const o = st.offerFirst;
+    return `How to offer it: offer first ${names(snapshot, playerIds(o.proposal.give))} for ${names(snapshot, playerIds(o.proposal.get))} · Est. ${shownChance(o.pAccept)} (P_complete ${pctPlain(o.pComplete)}); if they say no, add ${nameOf(snapshot, st.ifNo.add)} · Est. ${shownChance(st.ifNo.full.pAccept)} (P_complete ${pctPlain(st.ifNo.full.pComplete)}); the ranked trade is the ${st.ranked === "full" ? "full version" : "offer first"}`;
+  }
+  const p = t.planB;
+  if (p) {
+    const kind = p.kind === "samePlayers" ? "a different package for the same players of theirs" : "a different target";
+    const veto = Math.abs(p.pComplete - p.pAccept) > EPS ? `, P_complete ${pctPlain(p.pComplete)}` : "";
+    return `If they say no, try (${kind}): you give ${names(snapshot, playerIds(p.proposal.give))} for ${names(snapshot, playerIds(p.proposal.get))} · Helps you ${p.tradeScore} · Est. ${shownChance(p.pAccept)} (${p.acceptLabel}${veto}) · Overall ${p.overall} · B ${fmt(p.b, 2)}`;
+  }
+  return "no offer-first step and no Plan B (none qualifies)";
 }
 
 /** One trade's numbers as the summary table prints them. */
 function summaryRow(x: RenderInput, t: TradeEvaluation, i: number, teamName: (id: string) => string): string {
-  const s = x.snapshot;
-  return `| ${i + 1} | ${teamName(t.proposal.partnerId)} | ${players(s, playerIds(t.proposal.give))} | ${getText(s, t)} | ${t.tradeScore ?? "–"} | ${chanceText(t)} | ${t.overall ?? "–"} | ${fmt(t.b, 2)} | ${signed(t.dPPW)} / ${signed(t.dPPWPlayoffs)} | ${pts(t.dPO)} | ${pts(t.dCH)} | ${signed(t.dEW, 2)} | ${fmt(t.ros.received)} / ${fmt(t.ros.given)} | ${pctSigned(t.gMine)} / ${pctSigned(t.gPartner)} | ${signed(t.features.n, 2)} (${signed(t.partnerDeltaLineup)}/wk) | ${t.features.h} |`;
+  return `| ${i + 1} | ${teamName(t.proposal.partnerId)} | ${sideText(x, t, "give")} | ${sideText(x, t, "get")} | ${t.tradeScore ?? "–"} | ${chanceText(t)} | ${t.overall ?? "–"} | ${fmt(t.b, 2)} | ${signed(t.dPPW)} / ${signed(t.dPPWPlayoffs)} | ${pts(t.dPO)} | ${pts(t.dCH)} | ${signed(t.dEW, 2)} | ${fmt(t.ros.received)} / ${fmt(t.ros.given)} | ${pctSigned(t.gMine)} / ${pctSigned(t.gPartner)} | ${signed(t.features.n, 2)} (${signed(t.partnerDeltaLineup)}/wk) | ${t.features.h} |`;
 }
 
 const SUMMARY_HEAD = [
@@ -1967,38 +2061,7 @@ const SUMMARY_HEAD = [
   "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
 ];
 
-function changeText(snapshot: LeagueSnapshot, c: { drops: string[]; adds: string[] }): string {
-  const parts = [...c.drops.map((id) => `drop ${playerLabel(snapshot, id)}`), ...c.adds.map((id) => `add ${playerLabel(snapshot, id)}`)];
-  return parts.length ? parts.join(", ") : "none";
-}
-
-function flagsText(snapshot: LeagueSnapshot, t: TradeEvaluation): string {
-  const flags: string[] = [];
-  if (t.flags.marketCheck) flags.push(`Market check (you'd get back ${pctPlain(1 + t.gMine, 0)} of the value you give)`);
-  if (t.flags.injured.length) flags.push(`depends on an injured player: ${t.flags.injured.map((id) => `${playerLabel(snapshot, id)} ${snapshot.players[id]?.injury ?? ""}`.trim()).join(", ")}`);
-  if (t.detail.vetoRisk) flags.push("veto risk (the league votes on trades and they get much less value)");
-  return flags.length ? flags.join("; ") : "none";
-}
-
-/** The star premium line of a card (TradeDetail.premium): each player they give with e, his rank there and top-12, and their g as they see it. */
-function premiumText(snapshot: LeagueSnapshot, t: TradeEvaluation): string | null {
-  const facts = t.detail.premium;
-  if (!facts) return null;
-  const [lo, hi] = config.acceptance.gClamp;
-  const clamped = t.features.g <= lo + EPS || t.features.g >= hi - EPS ? ` (the model clamps g to ${pctSigned(lo, 0)}…${pctSigned(hi, 0)})` : "";
-  const parts = facts.map((f) => `${nameOf(snapshot, f.playerId)} e ${fmt(f.e, 2)}${f.rank ? ` (their #${f.rank}${f.elite ? ", top-12" : ""})` : ""}${f.harderToGet ? ", Harder to get" : ""}`);
-  return `${parts.join("; ") || "none"}: their g as they see it ${pctSigned(t.features.g)}${clamped}, at market ${pctSigned(t.gPartner)}`;
-}
-
-/** The card's "How to offer it" (TradeEvaluation.steps). */
-function stepsText(snapshot: LeagueSnapshot, t: TradeEvaluation): string {
-  const st = t.steps;
-  if (!st) return "no step (section 5 says why)";
-  const o = st.offerFirst;
-  return `offer first: you give ${names(snapshot, playerIds(o.proposal.give))} for ${names(snapshot, playerIds(o.proposal.get))} · Est. ${shownChance(o.pAccept)} (P_complete ${pctPlain(o.pComplete)}); if they say no, add ${nameOf(snapshot, st.ifNo.add)} · Est. ${shownChance(st.ifNo.full.pAccept)} (P_complete ${pctPlain(st.ifNo.full.pComplete)}); the ranked trade is the ${st.ranked === "full" ? "full version" : "offer first"}`;
-}
-
-/** A trade's card in full (top 10 and the Analyzer example). */
+/** A trade's card in full. */
 function renderCard(L: string[], x: RenderInput, t: TradeEvaluation, heading: string, teamName: (id: string) => string): void {
   const s = x.snapshot;
   const partner = teamName(t.proposal.partnerId);
@@ -2007,7 +2070,7 @@ function renderCard(L: string[], x: RenderInput, t: TradeEvaluation, heading: st
   const kappa = kappaOf(x);
   const term = marketTermOf(t);
   L.push(`### ${heading}`, "");
-  L.push(`**You give** ${players(s, playerIds(t.proposal.give))} · **you get** ${getText(s, t)} · partner ${partner}`, "");
+  L.push(`**You give** ${sideText(x, t, "give")} · **you get** ${sideText(x, t, "get")} · partner ${partner}`, "");
   L.push(`- **Helps you ${t.tradeScore ?? "– (B ≤ 0)"}** · **Chance they accept ${chanceText(t)}** (model: P_accept ${pctPlain(t.pAccept)}${t.detail.vetoRisk ? `, P_complete ${pctPlain(t.pComplete)}` : ""}) · **Overall ${t.overall ?? "–"}**`);
   const bParts =
     t.lambda === null
@@ -2015,578 +2078,592 @@ function renderCard(L: string[], x: RenderInput, t: TradeEvaluation, heading: st
       : `λ ${fmt(t.lambda, 2)}, B_win ${fmt(t.bWin, 2)}, B_future ${fmt(t.bFuture, 2)}${t.dynMissing ? " (long-term values missing)" : ""}`;
   L.push(`- B ${fmt(t.b, 2)} (${bParts}); ΔPO ${pts(t.dPO)}, ΔCH ${pts(t.dCH)}, ΔEW ${signed(t.dEW, 2)} wins (${thousands(t.sims)} seasons)`);
   L.push(`- ΔPPW ${signed(t.dPPW)} points a week in the regular season, ${signed(t.dPPWPlayoffs)} in the playoffs; ROS points: you get ${fmt(t.ros.received)}, give ${fmt(t.ros.given)}`);
-  L.push(`- Trade value (FantasyCalc, the waiver credit included): you give ${thousands(Math.round(t.value.given))}, get ${thousands(Math.round(t.value.received))}; g_mkt(you) ${pctSigned(t.gMine)}, g_mkt(${partner}) ${pctSigned(t.gPartner)}: ${v.you}`);
+  L.push(`- Trade value (FantasyCalc, each player at max(v, W), W ${valueText(x.I.credit)}, with the roster-spot credit): you give ${thousands(Math.round(t.value.given))}, get ${thousands(Math.round(t.value.received))}; g_mkt(you) ${pctSigned(t.gMine)}, g_mkt(${partner}) ${pctSigned(t.gPartner)}: ${v.you}`);
+  if (/\(FantasyCalc values\)/.test(words.pitch)) {
+    // The pitch names the offer-first version when the card has steps (explain.ts pitchSource).
+    const offerFirst = t.steps?.offerFirst.proposal;
+    const raw = pitchValueGain({ proposal: offerFirst ?? t.proposal }, explainContextOf(x.I).fantasyCalcValue);
+    if (raw !== null && (offerFirst || Math.abs(raw - t.gPartner) >= 0.005))
+      L.push(`- The pitch's trade-value figure is FantasyCalc's raw values${offerFirst ? " for the offer-first version it names" : ""} (no floor at W, no roster-spot credit): they get ${pctSigned(raw)}${offerFirst ? "" : `, where g_mkt(${partner}) reads ${pctSigned(t.gPartner)}`}`);
+  }
   const premium = premiumText(s, t);
-  if (premium) L.push(`- Star premium on what ${partner} gives (§1 of the addendum): ${premium}`);
+  if (premium) L.push(`- Star premium on what ${partner} gives: ${premium}`);
   const holes = t.detail.holes.length ? `holes ${t.detail.holes.join(", ")}${t.detail.holesFilled.length ? `, filled ${t.detail.holesFilled.join(", ")}` : ", none filled"}` : "no holes";
-  L.push(`- ${partner}'s side: n ${signed(t.features.n, 2)} (their lineup ${signed(t.partnerDeltaLineup)} points a week, the next ${config.acceptance.nBlendNextWeeks} weeks and the rest of the season blended), h ${t.features.h} (${holes}), activity ${signed(t.features.a, 0)} (${t.detail.activity.rule}), hist ${t.features.hist === null ? "none" : signed(t.features.hist, 3)}, context ${signed(t.features.ctx, 2)}, hot ${signed(t.features.hot, 2)}, urgency ${signed(t.features.urg, 2)}; z ${signed(t.features.z, 2)}`);
+  L.push(`- ${partner}'s side: n ${signed(t.features.n, 2)} (their lineup ${signed(t.partnerDeltaLineup)} points a week, the next ${config.acceptance.nBlendNextWeeks} weeks and the rest of the season blended; × β_need ${betaNeed(s.settings.leagueType)}), h ${t.features.h} (${holes}), activity ${signed(t.features.a, 0)} (${t.detail.activity.rule}), hist ${t.features.hist === null ? "none" : signed(t.features.hist, 3)}, context ${signed(t.features.ctx, 2)}, hot ${signed(t.features.hot, 2)}, urgency ${signed(t.features.urg, 2)}; z ${signed(t.features.z, 2)}`);
   L.push(`- Required moves: you ${changeText(s, t.required.me)}; ${partner} ${changeText(s, t.required.partner)}`);
-  L.push(`- Risk flags: ${flagsText(s, t)}`);
-  if (t.detail.premium) L.push(`- How to offer it: ${stepsText(s, t)}`);
+  const card = cardOf(x, t);
+  L.push(`- Flags on the card: ${card.flags.length ? card.flags.map((f) => `"${f.text}"`).join(" · ") : "none"}`);
+  if (card.injuryNote) L.push(`- Injury note on the card: "${card.injuryNote}"`);
+  L.push(`- ${nextStepText(s, t)}`);
   if (t.detail.notes.length) L.push(`- Notes: ${t.detail.notes.join(" ")}`);
+  // The card's reasons: the engine's, with its injured-player caveat left to the flag (tradeView.buildTradeCard).
+  const reasons = t.flags.injured.length ? words.reasons.filter((r) => !INJURED_REASON.test(r)) : words.reasons;
   L.push("", "Reasons:", "");
-  for (const r of words.reasons) L.push(`1. ${r}`);
+  for (const r of reasons) L.push(`1. ${r}`);
   L.push("", "Pitch:", "", `> ${words.pitch || "(none)"}`, "");
 }
 
 function renderTop(L: string[], x: RenderInput, teamName: (id: string) => string): void {
   const trades = x.result.trades;
   const top = trades.slice(0, TOP_DETAIL);
-  L.push(`## 1. Your top ${TOP_DETAIL} trades`, "");
+  L.push(`## 1. Your top ${TOP_DETAIL} trades now`, "");
   if (!top.length) {
     L.push(`No trades: ${[...x.ctx.notes, ...x.result.notes].join(" ") || "nothing helps your team."}`, "");
     return;
   }
   const kappa = kappaOf(x);
   L.push(
-    `The search's first ${top.length} trades in its default order, Overall (§13: EG = B × P_complete), with the default settings: the app's model, the planner's addendum included. **Helps you** = round(100 × (1 − e^(−B / ${config.benefit.bRef}))); **Chance they accept** = the model's estimate (§11), shown rounded to ${Math.round(100 * config.acceptance.displayStep)}% with its label; **Overall** = round(100 × (1 − e^(−B × P_complete / ${config.benefit.bRef}))). B = 100 × (${config.benefit.weights.playoffs} ΔPO + ${config.benefit.weights.title} ΔCH) + the market term κ × clamp(g, ±${config.benefit.marketSanityClamp[1]}): κ = ${kappa} ("Protect my trade value": ${LEVEL_WORDS[x.settings.protectValue]}), and g is g_mkt(you) with each player you give counted at no less than the waiver credit W (${valueText(x.I.credit)}; lead decision N10: a player worth less than the best free agent is replaceable, and your free-agent-optimized roster already replaces him). ΔPO, ΔCH: the change in your playoff and title odds in percentage points (${thousands(config.simulation.finalSims)} seasons on common random numbers); ΔEW: expected wins. ΔPPW: your average weekly starting points, regular season / playoffs. ROS pts: the players' own rest-of-season points (§6), received / given. g_mkt (§9): what a side gets over what it gives, minus 1, in FantasyCalc values with the waiver credit (the market's reading, never floored or premium-weighted); you / them. n = their weekly lineup change ÷ ${config.acceptance.nScale}, clamped to ±2 (ΔLineup in points a week); h = 1 when it gives them a starter at a hole. Both teams are measured after their free-agent pickups (V*) before and after. "[Harder to get]" marks a player who is his team's #1 or #2 by trade value and a top-12 player (section 6).`,
+    `The search's first ${top.length} of ${trades.length} trades in its default order, Overall (§13: EG = B × P_complete), with the default settings: the app's model with every Phase 4b change. **Helps you** = round(100 × (1 − e^(−B / ${config.benefit.bRef}))); **Chance they accept** = the model's estimate (§11: β_need ${betaNeed(x.snapshot.settings.leagueType)}, P_accept capped at ${pctPlain(config.acceptance.pAcceptClamp[1], 0)}), shown rounded to ${Math.round(100 * config.acceptance.displayStep)}% with its label; **Overall** = round(100 × (1 − e^(−B × P_complete / ${config.benefit.bRef}))). B = 100 × (${config.benefit.weights.playoffs} ΔPO + ${config.benefit.weights.title} ΔCH) + the market term κ × clamp(g_mkt(you), ±${config.benefit.marketSanityClamp[1]}), κ = ${kappa} ("Protect my trade value": ${LEVEL_WORDS[x.settings.protectValue]}). ΔPO, ΔCH: the change in your playoff and title odds in percentage points (${thousands(config.simulation.finalSims)} seasons on common random numbers); ΔEW: expected wins. ΔPPW: your average weekly starting points, regular season / playoffs. ROS pts: the players' own rest-of-season points (§6, market-blended), received / given. g_mkt (§9): what a side gets over what it gives, minus 1, in FantasyCalc values, each player at max(v, W) on both sides with the roster-spot credit; you / them. n = their weekly lineup change ÷ ${config.acceptance.nScale}, clamped to ±2; h = 1 when it gives them a starter at a hole. Both teams are measured after their free-agent pickups (V*), one free agent per team. Injury tags in brackets are the card's own words (flags.tagged: every player on either side whose status isn't active); "[Harder to get]" marks a player who is his team's #1 or #2 by trade value and a top-12 player. Each card's flags and injury note below are the app's card's own words (tradeView.buildTradeCard: what Parker sees), and its reasons are the card's: the engine's, with the injured-player caveat left to the flag. The pitch quotes trade value in FantasyCalc's raw numbers (explain.ts: no floor at W and no roster-spot credit), so it can read lower than g_mkt(them): on a 1-for-2 the side that gets fewer players has an open roster spot worth W in g_mkt but not in the pitch.`,
     "",
   );
   L.push(...SUMMARY_HEAD);
   top.forEach((t, i) => L.push(summaryRow(x, t, i, teamName)));
   L.push("");
-  const tagged = top.flatMap((t) => (t.detail.premium ?? []).filter((p) => p.harderToGet).map((p) => nameOf(x.snapshot, p.playerId)));
-  const premiumOn = top.flatMap((t) => (t.detail.premium ?? []).filter((p) => p.e > 0).map((p) => `${nameOf(x.snapshot, p.playerId)} (e ${fmt(p.e, 2)})`));
-  L.push(`"Harder to get" players among them: ${tagged.length ? [...new Set(tagged)].join(", ") : "none"}. A star premium on what the partner gives: ${premiumOn.length ? [...new Set(premiumOn)].join(", ") : "none"}. Cards with an "If they say no" step: ${top.filter((t) => t.steps).length} of ${top.length} (section 5).`, "");
-  L.push("Each trade's card (reasons and pitch worded by explainTrade with placeholder team names):", "");
+  const f = x.facts.now;
+  const cap = config.ranking.perGivenPlayerInTop20;
+  const uncapped = mainBlendRun(x)?.uncapped.facts ?? null;
+  const capped = f.wilsonTop >= cap ? ` (the given-player cap's most: at most ${cap} trades in the top ${config.ranking.partnerCapTop} give one player of yours${uncapped ? `; without the cap, ${uncapped.wilsonTop} of ${uncapped.topN}: section 2` : ""})` : "";
+  L.push(
+    `Among them: ${f.injuredTop} receive an injury-tagged player; ${f.wilsonTop} give ${WILSON}${capped}; ${top.filter((t) => t.steps).length} carry an offer-first step and ${top.filter((t) => t.planB).length} a Plan B ("If they say no, try:").`,
+    "",
+  );
+  L.push("Each trade's card (reasons and pitch worded by explainTrade with placeholder team names, as the card shows them):", "");
   top.forEach((t, i) => renderCard(L, x, t, `${i + 1}. With ${teamName(t.proposal.partnerId)}`, teamName));
 }
 
-/** A stage in a few words, for a table cell: "cut in screening" (DropStage). */
-export function stageTag(st: DropStage): string {
-  switch (st.kind) {
-    case "shown":
-      return `#${st.place}`;
-    case "notScreened":
-      return "not screened";
-    case "window":
-      return "outside the value window";
-    case "pruned":
-      return "pruned in screening";
-    case "partnerCut":
-    case "overallCut":
-      return "cut in screening";
-    case "illegal":
-      return "illegal";
-    case "notFinalist":
-      return "not a finalist";
-    case "hidden":
-      return "hidden";
-    case "diversity":
-      return "a diversity rule";
-    case "lowerOverall":
-      return `below the ${config.search.resultsShown} shown`;
-  }
-}
-
-/** §13's diversity rules by name. */
-const RULE_WORDS: Readonly<Record<DiversityRule, string>> = { filler: "the filler rule", core: "the core rule", partnerCap: "the partner cap" };
-
-/** Why a trade is hidden by default (§10's guards), in words. */
-const hiddenWhy = (why: "benefit" | "market"): string => (why === "benefit" ? "B ≤ 0: it doesn't help you" : `the market guard: g_mkt(you) under ${pctSigned(config.benefit.marketHideBelow, 0)}`);
-
-/** A stage in a sentence (section 2's list): where the trade left the search, and why. `partner` names the partner, `maxPerSide` is the search's. */
-export function stageWords(st: DropStage, snapshot: LeagueSnapshot, partner: string, maxPerSide: number): string {
-  const sc = config.search;
-  const rk = config.ranking;
-  const are = (ids: readonly string[]) => `${names(snapshot, ids)} ${ids.length === 1 ? "isn't" : "aren't"}`;
-  switch (st.kind) {
-    case "shown":
-      return `shown at #${st.place}`;
-    case "notScreened":
-      if (st.why === "stopped") return "never screened: the search stopped before screening";
-      if (st.why === "size") return `never screened: more than ${maxPerSide} players a side`;
-      if (st.why === "rules") return "never screened: screening's roster rules reject it";
-      if (st.why === "beams") return "never screened: its players are in the pools, but the beams never built it";
-      return `never screened: ${[st.missingGive.length ? `${are(st.missingGive)} in your give pool` : null, st.missingGet.length ? `${are(st.missingGet)} in ${partner}'s get pool` : null].filter((p): p is string => p !== null).join(", and ")}`;
-    case "window": {
-      const [lo, hi] = sc.screeningGWindow;
-      return `screened, but outside the value window: g_mkt(${partner}) ${pctSigned(st.g)}, the window ${pctSigned(lo, 0)} to ${pctSigned(hi, 0)}`;
-    }
-    case "pruned":
-      return `screened, then pruned as dominated (N11): the same trade without ${st.player ? nameOf(snapshot, st.player) : "your player worth less than W"} screened at least as well`;
-    case "partnerCut":
-      return `screened and inside the value window, but #${st.place.rank} of ${st.place.of} in ${partner}'s list by the screening objective, and only each partner's best ${sc.keptPerPartner} go on to exact evaluation${st.unpruned && st.unpruned.rank !== st.place.rank ? ` (#${st.unpruned.rank} of ${st.unpruned.of} without N11's pruning)` : ""}`;
-    case "overallCut":
-      return `in ${partner}'s best ${sc.keptPerPartner} by the screening objective, but #${st.place.rank} of ${st.place.of} over all partners, and only the best ${sc.exactEvaluationMax} go on to exact evaluation`;
-    case "illegal":
-      return `exact evaluation's roster rules reject it (${st.reason})`;
-    case "notFinalist":
-      if (st.hidden) return `exactly evaluated, then hidden at the screening simulation's numbers (${hiddenWhy(st.hidden)}), so not a finalist`;
-      if (st.rule)
-        return `exactly evaluated, but not a finalist: the ${sc.finalists} finalists are the first of §13's ranking at ${thousands(config.simulation.screeningSims)} seasons with its caps relaxed by one (${rk.perCore + 1} trades a core, ${rk.perPartnerInTop20 + 1} a partner in the top ${rk.partnerCapTop}), and ${RULE_WORDS[st.rule]} left it out there (its expected gain ranks #${st.place.rank} of ${st.place.of})`;
-      return `exactly evaluated, but not among the ${sc.finalists} finalists: its expected gain at ${thousands(config.simulation.screeningSims)} seasons ranks #${st.place.rank} of ${st.place.of}`;
-    case "hidden":
-      return `a finalist, hidden by default at ${thousands(config.simulation.finalSims)} seasons (${hiddenWhy(st.why)})`;
-    case "diversity":
-      if (st.rule === "filler") return `a finalist, dropped by §13's filler rule: a smaller trade with ${partner} ranks above it, and the extra player moves B by less than ${fmt(100 * rk.fillerCutoffFraction, 0)}% of that trade's`;
-      if (st.rule === "core") return `a finalist, dropped by §13's core rule: ${rk.perCore} trades above it share its core${st.core?.give && st.core.get ? `, ${nameOf(snapshot, st.core.give)} for ${nameOf(snapshot, st.core.get)}` : ""} (the most valuable player on each side)`;
-      return `a finalist, dropped by §13's partner cap: ${partner} already has ${rk.perPartnerInTop20} trades in the top ${rk.partnerCapTop}`;
-    case "lowerOverall":
-      return `a finalist ranked below the ${sc.resultsShown} shown by Overall${st.place !== null ? ` (with room for every finalist it would be #${st.place})` : ""}`;
-  }
-}
-
-/** The counterfactual (ifEvaluated) in words, after "had it been exactly evaluated too, ". */
-export function ifWords(st: DropStage): string {
-  switch (st.kind) {
-    case "shown":
-      return `it would have been shown at #${st.place}`;
-    case "hidden":
-      return `it would have been hidden (${hiddenWhy(st.why)})`;
-    case "diversity":
-      return `${RULE_WORDS[st.rule]} would have dropped it`;
-    case "lowerOverall":
-      return `it would have ranked below the ${config.search.resultsShown} shown${st.place !== null ? ` (#${st.place})` : ""}`;
-    case "notFinalist":
-      return `it wouldn't have been a finalist${st.hidden ? ` (${hiddenWhy(st.hidden)})` : st.rule ? ` (${RULE_WORDS[st.rule]} of the finalists' ranking)` : ` (#${st.place.rank} of ${st.place.of} by expected gain)`}`;
-    case "illegal":
-      return `it would be illegal (${st.reason})`;
-    default:
-      return stageTag(st);
-  }
-}
+// ---------------------------------------------------------------------------------------------
+// Section 2: before and after
 
 /**
- * Section 2's bullet on the trades of `rows` that the `side` model's search never exactly evaluated (a stage before exact
- * evaluation: PRE_EXACT), or null when there are none: where each left that search, that its numbers there are the Trade
- * Analyzer's, where it would have ended had that search exactly evaluated it (ModelSide.ifEvaluated), and, for the before
- * search's misses, whether N11's pruning is what made the room in the after search (`after`: its trace's places in each
- * partner's list with and without the pruning; within keptPerPartner only with it).
+ * A tag's return week as the card would say it (explain.injuryTags' rule, so a compare file's tags read like today's
+ * cards): OUT from next week on, IR, PUP and SUSPENDED after this week, Probable, Questionable and Doubtful only when far
+ * enough out (availability.farReturnWeek; whether the other model's projection followed the date isn't in the file), NA
+ * never; else no week.
  */
-export function neverEvaluatedText(rows: readonly CompareRow[], side: "before" | "after", group: string, ctx: { snapshot: LeagueSnapshot; teamName: (id: string) => string; after: Pick<SearchTrace, "partnerPlace" | "partnerPlaceUnpruned"> }): string | null {
-  const { snapshot: s, teamName } = ctx;
-  const never = rows.filter((r) => r[side].rank === null && PRE_EXACT.has(r[side].stage.kind));
-  if (!never.length) return null;
-  const keep = Math.floor(config.search.keptPerPartner);
-  const one = never.length === 1;
-  const stageAt = (r: CompareRow) => {
-    const st = r[side].stage;
-    return st.kind === "partnerCut" ? `#${st.place.rank} of ${st.place.of} in ${teamName(r.proposal.partnerId)}'s screening list` : stageTag(st);
-  };
-  let roomText = "";
-  if (side === "before") {
-    const places = never.map((r) => ({ a: ctx.after.partnerPlace.get(r.key), u: ctx.after.partnerPlaceUnpruned.get(r.key) }));
-    const room = places.flatMap((p) => (p.a && p.u && p.a.rank <= keep && p.u.rank > keep ? [{ a: p.a, u: p.u }] : []));
-    const anyway = places.filter((p) => p.a && p.u && p.a.rank <= keep && p.u.rank <= keep).length;
-    if (room.length) {
-      const all = room.length === never.length;
-      roomText = ` ${all ? (one ? "N11's pruning made the room" : "For all of them, N11's pruning made the room") : `For ${room.length} of them, N11's pruning made the room`} in the after search: there ${room.length === 1 ? "it is" : "they are"} within ${room.length === 1 ? "its" : "their"} partner's best ${keep} only once the pruning drops dominated variants (${room.map((p) => `#${p.a.rank} of ${p.a.of} with it, #${p.u.rank} of ${p.u.of} without`).join("; ")}).`;
-    } else if (anyway === never.length) {
-      roomText = ` N11's pruning isn't what let ${one ? "it" : "them"} in: the after search's own screening ranks ${one ? "it" : "them"} within a partner's best ${keep} even without it.`;
-    }
-  }
-  const places = never.flatMap((r) => {
-    const f = r[side].ifEvaluated;
-    return f?.kind === "shown" ? [f.place] : [];
-  });
-  const fate =
-    places.length === never.length
-      ? `${one ? "it" : "they"} would have been shown at ${andList(places.map((p) => `#${p}`))}${one ? "" : " respectively"}`
-      : never.map((r) => `${tradeLine(s, r.proposal, teamName)}: ${r[side].ifEvaluated ? ifWords(r[side].ifEvaluated as DropStage) : "–"}`).join("; ");
-  return `- **${never.length} of the ${rows.length} ${group} ${one ? "was" : "were"} never exactly evaluated by the ${side} search**: ${never.map((r) => `${tradeLine(s, r.proposal, teamName)} (${stageAt(r)})`).join("; ")}. ${one ? "Its" : "Their"} ${side} numbers above come from the Trade Analyzer, not from the ${side} search's ranking.${roomText} Had the ${side} search exactly evaluated ${one ? "it" : "them"} too, ${fate}.`;
+export function shownReturnWeek(status: string, R: number | undefined, currentWeek: number): number | undefined {
+  if (R === undefined || !Number.isInteger(R)) return undefined;
+  if (status === "OUT") return R >= currentWeek + 1 ? R : undefined;
+  if (status === "IR" || status === "PUP" || status === "SUSPENDED") return R > currentWeek ? R : undefined;
+  if (status === "PROBABLE" || status === "QUESTIONABLE" || status === "DOUBTFUL") return farReturnWeek(R, currentWeek) ? R : undefined;
+  return undefined;
 }
 
-/** "#3 · 55 / 80% / 46" or "not shown (cut in screening) · 44 / 70% / 34" (a model's side of a trade). */
-const sideText = (m: ModelSide): string => `${m.rank === null ? `not shown (${stageTag(m.stage)})` : `#${m.rank}`} · ${threeNumbers(m.t)}`;
+/** A listed trade's received tags, in words (the card's: shownReturnWeek). */
+function receivedTagsText(x: RenderInput, t: ListedTrade): string {
+  const got = t.tagged.filter((g) => g.side === "get");
+  const words = (g: ListedTrade["tagged"][number]) => {
+    const week = shownReturnWeek(g.status, g.returnWeek, x.snapshot.currentWeek);
+    return tagWords(x, { status: g.status as InjuryTag["status"], ...(week !== undefined ? { returnWeek: week } : {}) });
+  };
+  return got.length ? got.map((g) => `${nameOf(x.snapshot, g.playerId)}: ${words(g)}`).join("; ") : "–";
+}
+
+const nowFateText = (f: NowFate | undefined): string => {
+  if (!f) return "–";
+  if (f.kind === "shown") return `shown at #${f.place}`;
+  if (f.kind === "illegal") return `can't be made now: ${f.reason}`;
+  if (!finite(f.b) || !(f.b > 0)) return `not shown: doesn't help you now (B ${fmt(f.b, 2)}); Est. ${shownChance(f.pAccept)}`;
+  if (f.hiddenByMarket) return `not shown: hidden by the market guard; ${threeNumbers(f.helps, f.pAccept, f.overall)}`;
+  return `not shown; the Analyzer now: ${threeNumbers(f.helps, f.pAccept, f.overall)}`;
+};
 
 function renderBeforeAfter(L: string[], x: RenderInput, teamName: (id: string) => string): void {
   const s = x.snapshot;
-  const before = x.variants.before;
-  const after = x.variants[x.settings.protectValue];
-  const bTop = before.result.trades.slice(0, TOP_DETAIL);
-  const aTop = after.result.trades.slice(0, TOP_DETAIL);
-  L.push("## 2. Before and after the planner's addendum: your top 10", "");
+  const r4 = CHECKPOINT4_REPORTED;
+  L.push("## 2. Before and after: your top 10", "");
   L.push(
-    `The same run searched twice: **before** is the engine's before/after variant (TradeContextOptions.beforeAddendum, lead decision N5), the model as it stood before the planner's addendum to Checkpoint 3: no star premium, B's market term at weight ${config.benefit.marketSanityWeight} on the raw g_mkt(you) (no waiver-credit floor, N10), the get pool without the "Harder to get" split, no dominance pruning in screening (N11) and no "Offer first" steps. **After** is the app's model at the default settings (star premium, "Protect my trade value" ${LEVEL_WORDS[x.settings.protectValue]}: κ ${kappaOf(x)}, N10, N11, the tagged get pool, steps). Same data, lineups, seeds and seasons, so a trade's B_win is identical in both: its B moves only with the market term, and its chance they accept only with the star premium. Each cell: Helps you / Chance they accept (as the card shows it) / Overall.`,
+    `The planner's ask: Parker's top 10 before (Checkpoint 4) and after, with the three numbers, injury flags, how many receive an injury-tagged player, and how many give ${WILSON}. Three lists: **(a)** Checkpoint 4 as reported (${r4.data}, commit ${r4.code}); **(b)** the Checkpoint 4 model run on this report's own data (a worktree of commit ${r4.code}, --compare), so the data is the same and only the model differs; **(c)** now. Three numbers: Helps you / Chance they accept (as shown) / Overall. "Injury-tagged" = any status other than active (Probable, Questionable, Doubtful, Out, IR, PUP, Suspended, NA) on a player you'd get.`,
     "",
   );
-  const ref = x.reference;
+  // (a)
+  const check = reportedTagsCheck(x.history.cp4);
+  const injuredA = reportedInjuredTop();
   L.push(
-    ref
-      ? `**Checked in this run:** the before variant's search against the pre-addendum reference (${ref.label}: the default search on this data, saved before the addendum was built): **${ref.same} of ${ref.trades} trades identical** (place, trade and every number), the stage counts ${ref.counts ? "equal" : "**different**"}, the hidden counts ${ref.hidden ? "equal" : "**different**"}${ref.first ? `; first difference: ${ref.first}` : ""}.`
-      : `Not re-checked here against the pre-addendum reference (${x.opts.mode === "live" ? "live data: the reference is for the offline dump" : "no reference saved for this data"}); the engine track's check on the offline dump reproduced it exactly.`,
+    `**(a) Checkpoint 4 as reported** (reports/trade-report.md §1 at ${r4.code}; the received players' injury statuses from the St column of its league report on the same live data, ${r4.code}:reports/league-report.md${check === null ? ", read back here: every one matches ✅" : check === undefined ? "; that report isn't available here to read them back" : `, read back here: ⚠️ ${check.join(", ")} differ`}):`,
     "",
   );
-  L.push(`| # | Before: trade | Before: Helps / Chance / Overall | After: trade | After: Helps / Chance / Overall | Harder to get (after) |`, "|---|---|---|---|---|---|");
-  for (let i = 0; i < Math.max(bTop.length, aTop.length); i++) {
-    const b = bTop[i];
-    const a = aTop[i];
-    const tags = a ? (a.detail.premium ?? []).filter((p) => p.harderToGet).map((p) => nameOf(s, p.playerId)) : [];
-    L.push(`| ${i + 1} | ${b ? tradeLine(s, b.proposal, teamName) : "–"} | ${threeNumbers(b ?? null)} | ${a ? tradeLine(s, a.proposal, teamName) : "–"} | ${threeNumbers(a ?? null)} | ${tags.join(", ") || "–"} |`);
+  L.push("| # | Partner | You give | You get | Helps / Chance / Overall | B | g_mkt you / them | Injury-tagged players you'd get |", "|---|---|---|---|---|---|---|---|");
+  r4.top.forEach((row, i) => {
+    const tags = row.get.filter((name) => row.tagged[name] !== undefined).map((name) => `${name}: ${statusWords(row.tagged[name])}`);
+    L.push(`| ${i + 1} | ${teamName(row.partnerId)} | ${row.give.join(" + ")} | ${row.get.join(" + ")} | ${row.helps} / ${row.chance}% (${row.label}) / ${row.overall} | ${fmt(row.b, 2)} | ${pctSigned(row.gMine)} / ${pctSigned(row.gPartner)} | ${tags.join("; ") || "–"} |`);
+  });
+  L.push("");
+  // (b)
+  const cp4 = x.cp4Trades;
+  L.push(`**(b) The Checkpoint 4 model on this data**${x.opts.compare ? ` (${x.opts.compare.run.label}, code ${x.opts.compare.run.code})` : ""}:`, "");
+  if (!cp4) L.push(x.opts.compare ? "The compare file has no trades." : "Not given (run with `--compare <file>`).", "");
+  else {
+    L.push("| # | Partner | You give | You get | Helps / Chance / Overall | B | g_mkt you / them | Injury-tagged players you'd get | Now |", "|---|---|---|---|---|---|---|---|---|");
+    cp4.slice(0, TOP_DETAIL).forEach((t, i) => L.push(`| ${i + 1} | ${teamName(t.partnerId)} | ${names(s, t.give)} | ${names(s, t.get)} | ${threeNumbers(t.helps, t.pAccept, t.overall)} | ${fmt(t.b, 2)} | ${pctSigned(t.gMine)} / ${pctSigned(t.gPartner)} | ${receivedTagsText(x, t)} | ${nowFateText(x.cp4Now[i])} |`));
+    L.push("", `"Now" is where the same trade stands in list (c), else what the Trade Analyzer gives it today (the current model, the same data).`, "");
   }
+  // (c)
+  L.push("**(c) Now:**", "");
+  const cpRank = new Map((cp4 ?? []).map((t, i) => [t.key, i + 1]));
+  L.push(`| # | Partner | You give | You get | Helps / Chance / Overall | B | g_mkt you / them | Injury-tagged players you'd get | In (b) |`, "|---|---|---|---|---|---|---|---|---|");
+  x.nowList.slice(0, TOP_DETAIL).forEach((t, i) => L.push(`| ${i + 1} | ${teamName(t.partnerId)} | ${names(s, t.give)} | ${names(s, t.get)} | ${threeNumbers(t.helps, t.pAccept, t.overall)} | ${fmt(t.b, 2)} | ${pctSigned(t.gMine)} / ${pctSigned(t.gPartner)} | ${receivedTagsText(x, t)} | ${cp4 ? (cpRank.has(t.key) ? `#${cpRank.get(t.key)}` : "not shown") : "–"} |`));
+  L.push("");
+  // The facts.
+  const fNow = x.facts.now;
+  const fCp4 = x.facts.cp4;
+  const hiddenCp4 = x.opts.compare?.run.hidden;
+  const main = mainBlendRun(x);
+  const fUn = main?.uncapped.facts ?? null;
+  const hiddenUn = main?.uncapped.result.hidden;
+  const col = (f: ListFacts | null, render: (f: ListFacts) => string) => (f ? render(f) : "–");
+  const wilson = x.wilsonId ? WILSON : `${WILSON} (not in this data)`;
+  L.push("| | (a) Checkpoint 4 as reported | (b) Checkpoint 4 model, this data | (c) Now | (c) Now without the given-player cap |", "|---|---|---|---|---|");
+  L.push(`| Cards shown | ${r4.shown} | ${col(fCp4, (f) => String(f.shown))} | ${fNow.shown} | ${col(fUn, (f) => String(f.shown))} |`);
+  L.push(`| Hidden by default: B ≤ 0 / the market guard | ${r4.hidden.byBenefit} / ${r4.hidden.byMarket} | ${hiddenCp4 ? `${hiddenCp4.byBenefit} / ${hiddenCp4.byMarket}` : "–"} | ${x.result.hidden.byBenefit} / ${x.result.hidden.byMarket} | ${hiddenUn ? `${hiddenUn.byBenefit} / ${hiddenUn.byMarket}` : "–"} |`);
+  L.push(`| Top 10 that receive an injury-tagged player | ${injuredA} of 10${check === null ? " ✅" : ""} | ${col(fCp4, (f) => `${f.injuredTop} of ${f.topN}`)} | ${fNow.injuredTop} of ${fNow.topN} | ${col(fUn, (f) => `${f.injuredTop} of ${f.topN}`)} |`);
+  L.push(`| All shown that receive one | – | ${col(fCp4, (f) => `${f.injuredAll} of ${f.shown}`)} | ${fNow.injuredAll} of ${fNow.shown} | ${col(fUn, (f) => `${f.injuredAll} of ${f.shown}`)} |`);
+  L.push(`| ${wilson} given: top 10 / all shown | ${r4.wilsonTop} of 10 / ${r4.wilsonAll} of ${r4.shown} | ${col(fCp4, (f) => `${f.wilsonTop} of ${f.topN} / ${f.wilsonAll} of ${f.shown}`)} | ${fNow.wilsonTop} of ${fNow.topN} / ${fNow.wilsonAll} of ${fNow.shown} | ${col(fUn, (f) => `${f.wilsonTop} of ${f.topN} / ${f.wilsonAll} of ${f.shown}`)} |`);
+  const boxes = (f: ListFacts | null) => (!f ? "–" : f.wilsonBoxes ? `${f.wilsonBoxes.all} (${f.wilsonBoxes.added})` : "– (no Plan B then)");
+  const suggestions = (f: ListFacts | null) => (!f ? "–" : f.wilsonBoxes ? `${f.wilsonAll} + ${f.wilsonBoxes.all} = ${f.wilsonAll + f.wilsonBoxes.all}` : `${f.wilsonAll} (no Plan B then)`);
+  L.push(`| Plan B boxes on the shown cards that give ${WILSON} (of them, on a card that doesn't give him) | – (no Plan B then) | ${boxes(fCp4)} | ${boxes(fNow)} | ${boxes(fUn)} |`);
+  L.push(`| Suggestions on the page that sell ${WILSON}: cards + Plan B boxes | ${r4.wilsonAll} (no Plan B then) | ${suggestions(fCp4)} | ${suggestions(fNow)} | ${suggestions(fUn)} |`);
+  L.push(`| Median g_mkt(you): top 10 / all shown | ${pctSigned(median(r4.top.map((r) => r.gMine)), 2)} (from the table's rounded values) / ${pctSigned(r4.medianAll)} | ${col(fCp4, (f) => `${pctSigned(f.medianTop)} / ${pctSigned(f.medianAll)}`)} | ${pctSigned(fNow.medianTop)} / ${pctSigned(fNow.medianAll)} | ${col(fUn, (f) => `${pctSigned(f.medianTop)} / ${pctSigned(f.medianAll)}`)} |`);
   L.push("");
   L.push(
-    `**What changed, trade by trade**: every trade in either top ${TOP_DETAIL}, with its place and numbers in both models. "Not shown": outside that model's ${config.search.resultsShown} shown trades, with the stage of that model's search that dropped it (the list under the table says more): not screened, outside the value window, pruned in screening (N11), cut in screening (past a partner's best ${config.search.keptPerPartner} or the best ${config.search.exactEvaluationMax} overall: never exactly evaluated), not a finalist, hidden, a diversity rule (§13), or below the ${config.search.resultsShown} shown. Such a trade is evaluated in that model by the Trade Analyzer (analyzeTrade, ${thousands(config.simulation.finalSims)} seasons): the numbers that model gives it, whether or not its search got that far. Market term = B − B_win (before: ${config.benefit.marketSanityWeight} × clamp(g_mkt(you)); after: κ ${kappaOf(x)} × clamp(g) with N10's floor). "Star premium": e on each player they'd give who carries one.`,
+    `The given-player cap (§13; planner answer 7: at most ${config.ranking.perGivenPlayerInTop20} trades in the top ${config.ranking.partnerCapTop} giving the same player of yours) holds every player of yours, ${WILSON} included, to at most ${config.ranking.perGivenPlayerInTop20} of the top ${config.ranking.partnerCapTop} by construction, so the last column searches the same context again without it (config.ranking.perGivenPlayerInTop20 set to infinity for that search, which lifts the Plan B boxes' cap too: planB.ts reads the same key): how often the model itself would still sell him. The cap counts a box only when it adds him to its card: a Plan B box that sells him is a suggestion too (section 6).`,
     "",
   );
-  L.push("| Trade | Before: place · Helps / Chance / Overall | After: place · Helps / Chance / Overall | B_win | Market term, before → after | P_accept, before → after | Star premium (after) | Gives a player worth less than W |", "|---|---|---|---|---|---|---|---|");
-  const W = x.I.credit;
-  for (const r of x.compare) {
-    const b = r.before.t;
-    const a = r.after.t;
-    const premium = (a?.detail.premium ?? []).filter((p) => p.e > 0).map((p) => `${nameOf(s, p.playerId)} e ${fmt(p.e, 2)}${p.harderToGet ? " [Harder to get]" : ""}`);
-    const cheap = playerIds(r.proposal.give).filter((id) => (x.I.values[id] ?? 0) < W);
-    const bWin = b && a && finite(b.bWin) && finite(a.bWin) && Math.abs(b.bWin - a.bWin) > 1e-9 ? `${fmt(b.bWin, 2)} → ${fmt(a.bWin, 2)}` : fmt(a?.bWin ?? b?.bWin, 2);
-    L.push(`| ${tradeLine(s, r.proposal, teamName)} | ${sideText(r.before)} | ${sideText(r.after)} | ${bWin} | ${signed(marketTermOf(b), 2)} → ${signed(marketTermOf(a), 2)} | ${pctPlain(b?.pAccept)} → ${pctPlain(a?.pAccept)} | ${premium.join("; ") || "–"} | ${cheap.map((id) => `${nameOf(s, id)} (${valueText(x.I.values[id] ?? 0)})`).join(", ") || "–"} |`);
-  }
-  L.push("");
-  // Where each trade marked "not shown" left that model's search (the traces).
-  const tb = x.traces.before;
-  const ta = x.traces.after;
-  const notShown = x.compare.flatMap((r) => [
-    ...(r.before.rank === null ? [{ r, label: "Before", m: r.before, tr: tb }] : []),
-    ...(r.after.rank === null ? [{ r, label: "After", m: r.after, tr: ta }] : []),
-  ]);
-  if (notShown.length) {
-    const yes = (ok: boolean) => (ok ? "yes" : "**no**");
+  const why = x.wilsonWhy;
+  if (fUn && fCp4 && why && why.gives > 0) {
+    const wilsonPm = x.wilsonId ? x.I.model.players[x.wilsonId] : undefined;
+    const bye = wilsonPm?.ros.bye.status === "upcoming" ? wilsonPm.ros.bye.week : null;
+    const risky = x.I.riskyWeeks;
+    const winOf = (w: number) => x.I.sim?.odds.weekly.find((wk) => wk.week === w)?.games.find((g) => g.teamId === x.I.me?.id)?.pWin ?? null;
+    const covered = why.riskyCovered.map((r) => {
+      const win = winOf(r.week);
+      const notes = [r.week === bye ? `${WILSON}'s bye week` : null, risky.includes(r.week) ? `${risky.length === 1 ? "your only" : "a"} risky week before any trade${win !== null ? ` (${pctPlain(win, 0)} to win it)` : ""}` : null].filter((n): n is string => n !== null);
+      return `${r.trades} of the ${why.gives} that give him "cover your risky week ${r.week}"${notes.length ? `, ${notes.join(" and ")}` : ""}`;
+    });
+    const alone = why.aloneForTwo;
     L.push(
-      `**Why the trades marked "not shown" weren't shown.** Each model's search re-run stage by stage with the engine's own functions, in search.ts's order: the pools, the screening beams, the value window, N11's pruning (after only), each partner's best ${config.search.keptPerPartner} by the screening objective, the best ${config.search.exactEvaluationMax} overall, exact evaluation, the ${thousands(config.simulation.screeningSims)}-season screening simulation, the ${config.search.finalists} finalists, the ${thousands(config.simulation.finalSims)}-season final simulation and §13's ranking. The re-runs reproduce the searches exactly (counts, hidden counts and the shown trades in order): before ${yes(tb.matches)}, after ${yes(ta.matches)}${tb.matches && ta.matches ? "" : " (**so the stages below may be off**)"}. For a trade the search never exactly evaluated, the line also says where it would have ended had it been (its own exact evaluation and simulations added to that search, the rest unchanged).`,
+      `**What the blend changed, and what it didn't** (without the cap, so the cap hides nothing: the last column against (b), the Checkpoint 4 model on the same data): the top 10's median g_mkt(you) went from ${pctSigned(fCp4.medianTop)} to ${pctSigned(fUn.medianTop)}, and the top 10 receiving an injury-tagged player from ${fCp4.injuredTop} to ${fUn.injuredTop}; ${WILSON} is given in ${fCp4.wilsonTop} of the top 10 then and ${fUn.wilsonTop} of ${fUn.topN} now${fUn.wilsonTop >= fCp4.wilsonTop ? ", so the blend didn't cut the Wilson sales" : ""}. ${covered.length ? `The cards' own reasons say why: ${covered.join("; ")}` : "No card that gives him names a risky week it covers"}; and ${alone.trades} of them trade him alone for two players${alone.rosIn && alone.rosOut !== null ? ` (${fmt(alone.rosIn[0], 0)}–${fmt(alone.rosIn[1], 0)} ROS points in against his ${fmt(alone.rosOut, 0)})` : ""}.`,
       "",
     );
-    for (const n of notShown) {
-      const partner = teamName(n.r.proposal.partnerId);
-      const cf = n.m.ifEvaluated ? ` Had it been exactly evaluated too, ${ifWords(n.m.ifEvaluated)}.` : "";
-      L.push(`- ${n.label}: ${tradeLine(s, n.r.proposal, teamName)}: ${stageWords(n.m.stage, s, partner, n.tr.settings.maxPerSide)}.${cf}`);
+  }
+}
+
+/** Section 3's run at the app's own blend weight (the main search), or null. */
+function mainBlendRun(x: Pick<RenderInput, "blend">): BlendRun | null {
+  return x.blend.find((b) => Math.abs(b.weight - config.marketBlend.weight) <= EPS) ?? null;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Section 3: blend sensitivity
+
+function blendRowText(snapshot: LeagueSnapshot, r: BlendFactRow): string {
+  const ros = r.ros ? `${fmt(r.ros.ours, 0)} → ${fmt(r.ros.used, 0)} (market ${fmt(r.ros.market, 0)})` : "–";
+  return `| ${playerLabel(snapshot, r.id)} | ${statusWords(r.status)} | ${valueText(r.value)}${r.fit ? "" : " (off the curve)"} | ${fmt(r.ours, 2)} / ${fmt(r.market, 2)} / ${fmt(r.used, 2)} | ${fmt(r.f, 3)} | ${ros} |`;
+}
+
+const BLEND_ROW_HEAD = ["| Player | Status | Value | Per game: ours / market / used | f | ROS points: ours → used (market) |", "|---|---|---|---|---|---|"];
+
+function renderBlend(L: string[], x: RenderInput, teamName: (id: string) => string): void {
+  const runs = x.blend;
+  const own = config.marketBlend.weight;
+  L.push("## 3. Blend sensitivity", "");
+  L.push(
+    `The planner's ask: the median g_mkt(you) of the top 10 and the top 25 at marketBlend 0, 0.25 and 0.5. Each column is the app's model searched with config.marketBlend.weight set to that weight while its context is built and searched (a fresh context each; config restored after), the default settings otherwise; ${fmt(own, 2)} is the app's weight (the main search). "Top 25" is every shown trade when fewer are shown. g_mkt(you) below 0 means you give more trade value than you get.`,
+    "",
+  );
+  const head = runs.map((r) => `w ${fmt(r.weight, 2)}${Math.abs(r.weight - own) <= EPS ? " (the app's)" : ""}`);
+  L.push(`| | ${head.join(" | ")} |`, `|---|${runs.map(() => "---").join("|")}|`);
+  const row = (label: string, f: (r: BlendRun) => string) => L.push(`| ${label} | ${runs.map(f).join(" | ")} |`);
+  row("Cards shown", (r) => String(r.facts.shown));
+  row("Hidden: B ≤ 0 / the market guard", (r) => `${r.result.hidden.byBenefit} / ${r.result.hidden.byMarket}`);
+  row("**Median g_mkt(you), top 10**", (r) => `**${pctSigned(r.facts.medianTop)}**`);
+  row(`**Median g_mkt(you), top ${TOP_WIDE}**`, (r) => `**${pctSigned(r.facts.medianWide)}**${r.facts.shown < TOP_WIDE ? ` (all ${r.facts.shown})` : ""}`);
+  row(`${WILSON} given: top 10 / all shown`, (r) => `${r.facts.wilsonTop} / ${r.facts.wilsonAll}`);
+  row(`… and in the shown cards' Plan B boxes (of them, on a card that doesn't give him)`, (r) => (r.facts.wilsonBoxes ? `${r.facts.wilsonBoxes.all} (${r.facts.wilsonBoxes.added})` : "–"));
+  row("Receive an injury-tagged player: top 10 / all shown", (r) => `${r.facts.injuredTop} / ${r.facts.injuredAll}`);
+  row("The #1 trade (Helps / Chance / Overall)", (r) => {
+    const t = r.result.trades[0];
+    return t ? `${teamName(t.proposal.partnerId)}: ${names(x.snapshot, playerIds(t.proposal.give))} → ${names(x.snapshot, playerIds(t.proposal.get))} (${threeNumbers(t.tradeScore, t.pAccept, t.overall)})` : "–";
+  });
+  row("Your odds with pickups (playoffs / title)", (r) => (r.baseline ? `${pctPlain(r.baseline.pPlayoffs)} / ${pctPlain(r.baseline.pTitle)}` : "–"));
+  row("*Without the given-player cap:* cards shown", (r) => String(r.uncapped.facts.shown));
+  row("… median g_mkt(you), top 10 / top 25", (r) => `${pctSigned(r.uncapped.facts.medianTop)} / ${pctSigned(r.uncapped.facts.medianWide)}`);
+  row(`… ${WILSON} given: top 10 / all shown`, (r) => `${r.uncapped.facts.wilsonTop} / ${r.uncapped.facts.wilsonAll}`);
+  row("… receive an injury-tagged player: top 10 / all shown", (r) => `${r.uncapped.facts.injuredTop} / ${r.uncapped.facts.injuredAll}`);
+  L.push("");
+  L.push(`The given-player cap holds any one player of yours to at most ${config.ranking.perGivenPlayerInTop20} of the top ${config.ranking.partnerCapTop}, so the last four rows search each weight's context again without it (section 2 says how).`, "");
+  const bf = x.blendFacts;
+  L.push(`### The blend at w ${fmt(bf.weight, 2)}`, "");
+  L.push(
+    `blend.ts (§6 step 8): per game, b′ = (1 − w)·b + w·R_pos(v), with b a player's base rate (points per game when he plays) and R_pos the isotonic curve of base rates on FantasyCalc value over his position's healthy valued players (each read off the curve fitted without him, except at the ends of the value range); his weekly points and ROS scale by f = b′ / b. "Per game: ours / market / used" are b, R_pos(v) and b′; ROS points are his rest-of-season points before and after (and at the market's rate). "(off the curve)": not one of his position's curve points (an injury tag, or no game left on his NFL team's schedule), so the curve is read at his value but he doesn't shape it.`,
+    "",
+  );
+  if (!bf.positions.length) L.push("Nothing is blended (no weight, or no list of this season's values).", "");
+  else {
+    L.push("| Position | Players with a real value | Curve points (healthy, a game left) | Blended |", "|---|---|---|---|");
+    for (const p of bf.positions) L.push(`| ${p.pos} | ${p.players} | ${p.fit} | ${p.blended ? "yes" : `no (under ${config.marketBlend.minPlayers} curve points)`} |`);
+    L.push("");
+  }
+  const q = bf.quantiles;
+  L.push(q ? `f over the ${bf.count} players the blend reaches with a base rate above 0: min ${fmt(q.min, 3)}, 10th percentile ${fmt(q.p10, 3)}, median ${fmt(q.median, 3)}, 90th percentile ${fmt(q.p90, 3)}, max ${fmt(q.max, 3)}.` : "No player is blended.", "");
+  const h = bf.byHealth;
+  if (h.tagged.count && h.healthy.count) {
+    const group = (g: FactorGroup) => `median f ${fmt(g.median, 3)}, mean ${fmt(g.mean, 3)}, ${g.below1} of ${g.count} (${pctPlain(g.below1 / g.count, 0)}) below 1`;
+    L.push(
+      `**Injured and healthy players' f** (blend.ts rule 3's ⚠️: an injured player's base rate is his full-strength rate, compared with what healthy players valued like him score, while his value is also discounted for the games he misses, so part of that discount is counted twice; a planner question): the ${h.tagged.count} injury-tagged players (any status but active): ${group(h.tagged)}; the ${h.healthy.count} healthy ones: ${group(h.healthy)}. ${h.offCurveTagged} of the ${h.offCurve} players off the curve are injury-tagged, and ${bf.extremesTagged.smallest} of the ${bf.smallest.length} smallest f below (${bf.extremesTagged.largest} of the ${bf.largest.length} largest).`,
+      "",
+    );
+  }
+  if (bf.largest.length) {
+    L.push(`**The ${bf.largest.length} largest f** (the market thinks more of them than we do):`, "", ...BLEND_ROW_HEAD);
+    for (const r of bf.largest) L.push(blendRowText(x.snapshot, r));
+    L.push("", `**The ${bf.smallest.length} smallest f** (we think more of them than the market does):`, "", ...BLEND_ROW_HEAD);
+    for (const r of bf.smallest) L.push(blendRowText(x.snapshot, r));
+    L.push("");
+  }
+  L.push("**Named players:**", "", ...BLEND_ROW_HEAD);
+  for (const n of bf.named) L.push(n.row ? blendRowText(x.snapshot, n.row) : `| ${n.name} | – | – | not blended (not in this data, no real value, or no base rate) | – | – |`);
+  L.push("");
+}
+
+// ---------------------------------------------------------------------------------------------
+// Section 4: odds over time
+
+/** b − a minus d − c, per odds number: what's left of one change after another (section 4's "the rest of Phase 4"). */
+function remainder(a: OddsPair | null | undefined, b: OddsPair | null | undefined, c: OddsPair | null | undefined, d: OddsPair | null | undefined): OddsPair | null {
+  if (!a || !b || !c || !d) return null;
+  const title = a.pTitle !== null && b.pTitle !== null && c.pTitle !== null && d.pTitle !== null ? b.pTitle - a.pTitle - (d.pTitle - c.pTitle) : null;
+  return { pPlayoffs: b.pPlayoffs - a.pPlayoffs - (d.pPlayoffs - c.pPlayoffs), pTitle: title };
+}
+/** A change as an OddsPair from zero, printed like deltaText. */
+const changeText2 = (d: OddsPair | null): string => deltaText({ pPlayoffs: 0, pTitle: d?.pTitle === null ? null : 0 }, d);
+
+function renderOdds(L: string[], x: RenderInput, teamName: (id: string) => string): void {
+  const r3 = CHECKPOINT3_REPORTED;
+  const r4 = CHECKPOINT4_REPORTED;
+  const c4 = x.opts.compare?.run ?? null;
+  const c3 = x.opts.compare3?.run ?? null;
+  const st = x.settingsRuns;
+  const nowRun = st.get("now") as SettingRun;
+  const odd = (key: string) => st.get(key) ?? null;
+  const screen = config.simulation.screeningSims;
+  const final = config.simulation.finalSims;
+  L.push("## 4. Your odds over time", "");
+  L.push(
+    `Your playoff and title odds, P(playoffs) / P(title). **As rosters stand**: the League model's simulation (the League page's odds), every team as it is today, on seasons 1–${thousands(final)} of the seed's matrix. **With pickups**: the trade search's baseline, every team after its free-agent pickups (V*), on the search's final block, seasons ${thousands(screen + 1)}–${thousands(screen + final)} (the seasons every shown trade's numbers come from). ${thousands(final)} seasons each, the same seed.`,
+    "",
+  );
+  const paired = x.standOnSearch;
+  L.push("| When | Model | Data | As rosters stand | With pickups | The pickup baseline's effect |", "|---|---|---|---|---|---|");
+  L.push(`| Checkpoint 3, as reported | ${r3.code} | ${r3.data} | ${oddsText(r3.asRostersStand)} | – | – |`);
+  L.push(`| Checkpoint 4, as reported | ${r4.code} | ${r4.data} | ${oddsText(r4.asRostersStand)} | ${oddsText(r4.withPickups)} | ${deltaText(r4.asRostersStand, r4.withPickups)} (unpaired) |`);
+  L.push(`| The Checkpoint 3 model | ${c3 ? c3.code : "–"} | ${c3 ? "this report's data" : "not given (--compare3)"} | ${c3 ? oddsText(c3.odds.asRostersStand) : "–"} | ${c3?.odds.withPickups ? oddsText(c3.odds.withPickups) : "–"} | ${c3?.odds.withPickups ? `${deltaText(c3.odds.asRostersStand, c3.odds.withPickups)} (unpaired)` : "–"} |`);
+  L.push(`| The Checkpoint 4 model | ${c4 ? c4.code : "–"} | ${c4 ? "this report's data" : "not given (--compare)"} | ${c4 ? oddsText(c4.odds.asRostersStand) : "–"} | ${c4?.odds.withPickups ? oddsText(c4.odds.withPickups) : "–"} | ${c4?.odds.withPickups ? `${deltaText(c4.odds.asRostersStand, c4.odds.withPickups)} (unpaired)` : "–"} |`);
+  L.push(`| **Now** | this code | this report's data | **${oddsText(nowRun.stand)}** | **${oddsText(nowRun.pickups)}** | ${paired ? `${deltaText(paired, nowRun.pickups)} (paired)` : `${deltaText(nowRun.stand, nowRun.pickups)} (unpaired)`} |`);
+  L.push("");
+  const p = nowRun.stand?.pPlayoffs;
+  const noise = finite(p) ? Math.sqrt(2 * screen * p * (1 - p)) / final : Number.NaN;
+  L.push(
+    `The pickup baseline's effect is with pickups minus as rosters stand, in percentage points: what every team's free-agent pickups (yours and everyone else's) do to your odds. The trade search measures every trade against the odds with pickups. ${paired ? `**Now's is paired**: your odds as rosters stand priced on the search's own seasons (seasons ${thousands(screen + 1)}–${thousands(screen + final)}) are ${oddsText(paired)}, against ${oddsText(nowRun.stand)} on the League page's, so it is a common-random-numbers difference. ` : ""}The Checkpoint rows subtract the two columns as printed, from different seasons (1–${thousands(final)} against ${thousands(screen + 1)}–${thousands(screen + final)}): the ${thousands(screen)} seasons each has that the other doesn't add about ±${fmt(100 * noise)} pts (1 SD) of noise to that difference.`,
+    "",
+  );
+  // Reading down the table: data against model (review of track R: name every cause, and only causes that can move these odds).
+  const cpStream = odd("cp4-streaming");
+  const cpRules = odd("cp4");
+  const lines: string[] = [];
+  if (c3) lines.push(`- Checkpoint 3 as reported → the Checkpoint 3 model on this data: the data alone, under Checkpoint 3's model: ${deltaText(r3.asRostersStand, c3.odds.asRostersStand)}.`);
+  if (c3 && c4) {
+    const streaming = cpStream && cpRules ? deltaText(cpStream.stand, cpRules.stand) : "–";
+    const rest = cpStream && cpRules ? changeText2(remainder(c3.odds.asRostersStand, c4.odds.asRostersStand, cpStream.stand, cpRules.stand)) : "–";
+    lines.push(`- The Checkpoint 3 model → the Checkpoint 4 model, the same data: Phase 4's model changes, ${deltaText(c3.odds.asRostersStand, c4.odds.asRostersStand)}: streaming ${streaming} (Checkpoint 4's rules without and with it, below), and the rest of Phase 4 (the Q/D/P base rate and its other changes) ${rest}, the remainder (each rounded on its own). The free-agent optimizer isn't one of them: free agents can't move the odds as rosters stand.`);
+  }
+  if (c4) lines.push(`- Checkpoint 4 as reported → the Checkpoint 4 model on this data: the data alone, under Checkpoint 4's model: ${deltaText(r4.asRostersStand, c4.odds.asRostersStand)} as rosters stand, ${deltaText(r4.withPickups, c4.odds.withPickups ?? null)} with pickups.`);
+  if (c4) lines.push(`- The Checkpoint 4 model → now, the same data: Phase 4b's model changes, ${deltaText(c4.odds.asRostersStand, nowRun.stand)} as rosters stand, ${deltaText(c4.odds.withPickups ?? null, nowRun.pickups)} with pickups (the switches below).`);
+  if (lines.length) L.push("**Reading down the table.** The reported rows ran on live data of their day, the model rows on this report's data, so moving down a column changes either the data or the model, never both:", "", ...lines, "");
+  renderDataChanges(L, x, teamName);
+  L.push("**What moved now's odds: the Phase 4b switches.** Each setting is today's code with some of Phase 4b's switches off: the market blend (config.marketBlend.weight 0), one free agent per team (each team's pickups on its own, Checkpoint 4's rule), IR returners (IR players never rejoin a lineup, Checkpoint 4's rule); and streaming (no team streams K, D/ST, QB or TE: your setting empty and config.streaming.detectAdds Infinity) to show its share.", "");
+  L.push("| Setting | Blend | Free agents | IR returners | Streaming | As rosters stand | With pickups |", "|---|---|---|---|---|---|---|");
+  for (const s of SETTINGS) {
+    const r = st.get(s.key);
+    if (!r) continue;
+    const w = r.switches;
+    L.push(`| ${r.label} | ${w.blend ? "on" : "off"} | ${w.oneTeam ? "one team each" : "each on its own"} | ${w.irReturners ? "on" : "off"} | ${w.streaming ? "on" : "off"} | ${oddsText(r.stand)} | ${oddsText(r.pickups)} |`);
+  }
+  L.push("");
+  const both = (a: string, b: string) => {
+    const ra = odd(a);
+    const rb = odd(b);
+    return `${deltaText(ra?.stand, rb?.stand)} | ${deltaText(ra?.pickups, rb?.pickups)}`;
+  };
+  L.push("Each change in percentage points, P(playoffs) / P(title):", "");
+  L.push(
+    "| Change | Alone, from Checkpoint 4's rules: as rosters stand | … with pickups | In sequence (blend, then free agents, then IR): as rosters stand | … with pickups | Removed alone from now: as rosters stand | … with pickups |",
+    "|---|---|---|---|---|---|---|",
+  );
+  L.push(`| The market blend | ${both("cp4", "cp4+blend")} | ${both("cp4", "cp4+blend")} | ${both("now-blend", "now")} |`);
+  L.push(`| One free agent, one team | ${both("cp4", "cp4+oneTeam")} | ${both("cp4+blend", "cp4+blend+oneTeam")} | ${both("now-oneTeam", "now")} |`);
+  L.push(`| IR returners | ${both("cp4", "cp4+ir")} | ${both("cp4+blend+oneTeam", "now")} | ${both("cp4+blend+oneTeam", "now")} |`);
+  L.push(`| Streaming (against no team streaming) | ${both("cp4-streaming", "cp4")} | – | – | ${both("now-streaming", "now")} |`);
+  L.push(`| All three Phase 4b switches | ${both("cp4", "now")} | ${both("cp4", "now")} | – | – |`);
+  L.push("");
+  L.push("Free agents can't move the odds as rosters stand (no pickups there). The sequence's three steps add up to the whole change exactly; the changes alone needn't (they interact). Streaming is measured at both ends (Checkpoint 4's rules, and now): its share of the odds as they are, not a Phase 4b change.", "");
+  const repro = cp4Reproduction(c4, cpRules);
+  if (repro) L.push(reproductionText(repro), "");
+}
+
+/** Section 4's check that Checkpoint 4's rules in today's code are the Checkpoint 4 model (cp4Reproduction), in words. */
+export function reproductionText(r: { same: boolean; stand: string; pickups: string }): string {
+  return `Checkpoint 4's rules in today's code against the Checkpoint 4 model itself on the same data: ${r.stand} as rosters stand, ${r.pickups} with pickups: ${r.same ? "the switches reproduce the Checkpoint 4 model to the printed decimal ✅ (Phase 4b's other changes, the acceptance rebalance, the value floor and the cards, don't move the odds)" : "⚠️ not the same: some of Phase 4b's other changes move the odds too"}.`;
+}
+
+/** A team's data changes in words: "+A, −B; C Q → O" ("no change"). */
+function teamChangeText(c: TeamDataChange | undefined): string {
+  if (!c) return "–";
+  const word = (s: string) => s || "active";
+  const moves = [...c.joined.map((n) => `+${n}`), ...c.left.map((n) => `−${n}`)].join(", ");
+  const status = c.status.map((s) => `${s.name} ${word(s.from)} → ${word(s.to)}`).join(", ");
+  const record = c.record.then !== null && c.record.then !== c.record.now ? `record ${c.record.then} → ${c.record.now}` : "";
+  return [moves, status, record].filter((s) => s.length > 0).join("; ") || "no change";
+}
+
+/** Section 4's "what changed in the data" (DataChanges): records, roster moves and injury news per team, and projection updates under Checkpoint 4's rules. */
+function renderDataChanges(L: string[], x: RenderInput, teamName: (id: string) => string): void {
+  const d = x.dataChanges;
+  const r3 = CHECKPOINT3_REPORTED;
+  const r4 = CHECKPOINT4_REPORTED;
+  if (!d.cp3 && !d.cp4) {
+    L.push(`**What changed in the data**: Checkpoint 3's and Checkpoint 4's league reports (${r3.code} and ${r4.code}:reports/league-report.md) aren't available here, so the report can't list the roster moves and injury news since then, nor check that no game was decided in between.`, "");
+    return;
+  }
+  const same3 = recordsSame(d.cp3);
+  const same4 = recordsSame(d.cp4);
+  const which = [d.cp3 ? `Checkpoint 3's` : null, d.cp4 ? `Checkpoint 4's` : null].filter((s): s is string => s !== null);
+  const recordLine = same3 !== false && same4 !== false ? `no fantasy game was decided in between: every team's record is the same as in ${which.join(" and ")} league report${which.length > 1 ? "s" : ""} ✅` : `⚠️ records changed (the table says which teams'): games were decided in between`;
+  L.push(
+    `**What changed in the data.** Roster moves, injury news and projection updates (each source's fetch time is in the header; ESPN's weekly projections come with the league data, and the base rates average them with Sleeper's): ${recordLine}, read back from the reports' own tables (${[d.cp3 ? `${r3.code}` : null, d.cp4 ? `${r4.code}` : null].filter(Boolean).join(" and ")}:reports/league-report.md). Per team, from those reports' roster tables (status: P/Q/D/O = probable/questionable/doubtful/out; IR; "active" = no tag):`,
+    "",
+  );
+  const order = [...x.snapshot.teams].sort((a, b) => (a.id === x.snapshot.myTeamId ? -1 : b.id === x.snapshot.myTeamId ? 1 : Number(a.id) - Number(b.id) || (a.id < b.id ? -1 : 1)));
+  L.push(`| Team | Since Checkpoint 3's data (${r3.data}) | Since Checkpoint 4's data (${r4.data}) | Points per week under Checkpoint 4's rules: its data → this data |`, "|---|---|---|---|");
+  for (const t of order) {
+    const ppw = d.ppwCp4.get(t.id);
+    const ppwText = ppw && ppw.then !== null && ppw.now !== null ? `${fmt(ppw.then)} → ${fmt(ppw.now)} (${signed(ppw.now - ppw.then)})` : "–";
+    L.push(`| ${teamName(t.id)} | ${d.cp3 ? teamChangeText(d.cp3.get(t.id)) : "– (report not available)"} | ${d.cp4 ? teamChangeText(d.cp4.get(t.id)) : "– (report not available)"} | ${ppwText} |`);
+  }
+  L.push("");
+  const repro = cp4Reproduction(x.opts.compare?.run ?? null, x.settingsRuns.get("cp4") ?? null);
+  const how = repro ? (repro.same ? "today's code with Checkpoint 4's rules, which reproduces the Checkpoint 4 model's odds on this data ✅ (below)" : "today's code with Checkpoint 4's rules (⚠️ which doesn't quite reproduce the Checkpoint 4 model's odds on this data, below)") : "today's code with Checkpoint 4's rules";
+  L.push(
+    `"Points per week under Checkpoint 4's rules" compares Checkpoint 4's league report (scenario lineups, rosters as they stand) with ${how}: one rule set on both data, so the change is the data's alone.${d.myRos.length ? ` Your players on your roster both times with no status change (so projection updates alone), the largest rest-of-season moves under those rules: ${d.myRos.map((r) => `${r.name} ${fmt(r.then)} → ${fmt(r.now)} (${signed(r.now - r.then)})`).join("; ")}.` : ""} Checkpoint 3's span isn't split this way here: the Checkpoint 3 model's per-team numbers on this data aren't in its compare file, and its points per week count week 4, which hadn't kicked off then (the lead attributes that span in the checkpoint).`,
+    "",
+  );
+}
+
+// ---------------------------------------------------------------------------------------------
+// Section 5: one free agent, one team
+
+function pickupsText(snapshot: LeagueSnapshot, moves: readonly FaMove[]): string {
+  return moves.length ? moves.map((m) => `+${nameOf(snapshot, m.add)}${m.drop ? ` −${nameOf(snapshot, m.drop)}` : ""}`).join(", ") : "none";
+}
+
+const dupText = (snapshot: LeagueSnapshot, dups: readonly { playerId: string; teamIds: string[] }[]): string => (dups.length ? dups.map((d) => `${nameOf(snapshot, d.playerId)} (${d.teamIds.length} teams: ${d.teamIds.map((id) => `Team ${id}`).join(", ")})`).join("; ") : "none");
+
+/** Extra pickups of the same free agent: Σ (teams − 1). */
+const extraPickups = (dups: readonly { teamIds: string[] }[]): number => dups.reduce((n, d) => n + d.teamIds.length - 1, 0);
+
+function renderAllocation(L: string[], x: RenderInput, teamName: (id: string) => string): void {
+  const a = x.allocation;
+  const s = x.snapshot;
+  L.push("## 5. Free-agent allocation: one free agent, one team", "");
+  L.push(
+    `§7 (planner reply to Checkpoint 4, change 3): free agents are allocated once. Teams claim in order, each running its free-agent optimizer (at most ${config.freeAgentOptimizer.faMaxMoves} moves) against the pool minus every free agent an earlier team claimed. A trade re-optimizes only its two teams, against the pool minus every other team's claims; the earlier of the two in the order goes first.`,
+    "",
+  );
+  L.push(a.allocation ? `**The order**, from ${allocationBasisText(a.allocation.basis)}: ${a.allocation.order.map((id) => teamName(id)).join(" > ")}.` : "**No allocation** in this model.", "");
+  if (a.allocation?.basis === "waiver") {
+    L.push(waiverOrderCaveat(a.allocation.order, resetWaiverOrder(x.model), x.result.myTeamId, teamName), "");
+    const rr = x.resetOrder;
+    if (rr) {
+      const me = x.result.myTeamId;
+      const place = (order: readonly string[]) => (me && order.includes(me) ? ordinal(order.indexOf(me) + 1) : "–");
+      const top = (r: TradeSearchResult) => {
+        const t = r.trades[0];
+        return t ? `${teamName(t.proposal.partnerId)}: ${names(s, playerIds(t.proposal.give))} → ${names(s, playerIds(t.proposal.get))} (${threeNumbers(t.tradeScore, t.pAccept, t.overall)})` : "none";
+      };
+      const myMoves = x.I.model.teams.find((t) => t.id === me)?.faMoves ?? [];
+      L.push(
+        "**The same search on the weekly reset order** (every team's waiver rank set to its place in the reset order, a fresh context and the default search; what the pickups and the trades would be right after the reset):",
+        "",
+        `| Order | Your place | Your pickups | Your odds with pickups | Cards shown | The #1 trade | ${WILSON} given: top 10 / all shown |`,
+        "|---|---|---|---|---|---|---|",
+        `| The live order (this report) | ${place(rr.live)} | ${pickupsText(s, myMoves)} | ${oddsText(baselineOf(x.result))} | ${x.result.trades.length} | ${top(x.result)} | ${x.facts.now.wilsonTop} / ${x.facts.now.wilsonAll} |`,
+        `| The weekly reset order | ${place(rr.order)} | ${pickupsText(s, rr.myPickups)} | ${oddsText(rr.odds)} | ${rr.result.trades.length} | ${top(rr.result)} | ${rr.facts.wilsonTop} / ${rr.facts.wilsonAll} |`,
+        "",
+        `${rr.overlap} of the reset order's top ${Math.min(TOP_DETAIL, rr.result.trades.length)} are in this report's top ${Math.min(TOP_DETAIL, x.result.trades.length)}; its top 3: ${rr.result.trades
+          .slice(0, 3)
+          .map((t, i) => `#${i + 1} ${teamName(t.proposal.partnerId)}: ${names(s, playerIds(t.proposal.give))} → ${names(s, playerIds(t.proposal.get))} (${threeNumbers(t.tradeScore, t.pAccept, t.overall)})`)
+          .join("; ") || "none"}.`,
+        "",
+      );
+    }
+  }
+  L.push("| Team | Pickups, one free agent per team (now) | Each team on its own (now's other rules) |", "|---|---|---|");
+  for (const t of a.oneTeam) L.push(`| ${teamName(t.teamId)} | ${pickupsText(s, t.moves)} | ${pickupsText(s, a.independent.find((u) => u.teamId === t.teamId)?.moves ?? [])} |`);
+  L.push("");
+  const dI = a.dups.independent;
+  const d1 = a.dups.oneTeam;
+  const dc = a.dups.cp4;
+  L.push(
+    `**Free agents two or more teams pick up**: each team on its own: ${dI.length} (${extraPickups(dI)} extra pickups) — ${dupText(s, dI)}. One per team: **${d1.length}**${d1.length ? ` — ${dupText(s, d1)} ❌` : " ✅"}. ${dc ? `The Checkpoint 4 model on this data: ${dc.length} (${extraPickups(dc)} extra pickups) — ${dupText(s, dc)}.` : ""} So ${dc ? `all ${dc.length} of Checkpoint 4's duplicates` : `all ${dI.length} duplicates`} went away.`,
+    "",
+  );
+  L.push("**Where the named free agents land:**", "", "| Free agent | One per team (now) | Each on its own (now's other rules) | The Checkpoint 4 model |", "|---|---|---|---|");
+  const teamsText = (ids: readonly string[] | null) => (ids === null ? "–" : ids.length ? ids.map((id) => teamName(id)).join(", ") : "nobody");
+  for (const n of a.named) L.push(`| ${n.playerId ? playerLabel(s, n.playerId) : `${n.name} (not in this data)`} | ${teamsText(n.oneTeam)} | ${teamsText(n.independent)} | ${teamsText(n.cp4)} |`);
+  L.push("");
+  L.push(
+    `**The top ${a.trades.length} trades**: the free agents each side adds after the trade (legality's adds and its V*(after) run, tradeSides as the evaluation runs it), and whose baseline claims they were. A third team's claim is never in reach (✅ when none is taken). The partner's baseline pickup is in your reach when you're earlier in the order (you'd claim him first), or when you're right behind the partner, no team between, and the partner lets him go after the trade; yours is in the partner's reach the same way round (evaluate.ts tradeSides).`,
+    "",
+  );
+  L.push("| # | Partner | First in the order | Your adds after the trade | Of them, the partner's baseline claims | A third team's | Partner's adds after | Of them, yours | A third team's |", "|---|---|---|---|---|---|---|---|---|");
+  for (const r of a.trades) {
+    if (r.illegal) {
+      L.push(`| ${r.rank} | ${teamName(r.partnerId)} | – | illegal: ${r.illegal} | – | – | – | – | – |`);
+      continue;
+    }
+    const list = (ids: readonly string[]) => (ids.length ? ids.map((id) => nameOf(s, id)).join(", ") : "none");
+    const first = r.first === null ? "–" : r.first === "me" ? "you" : "they";
+    L.push(`| ${r.rank} | ${teamName(r.partnerId)} | ${first}${r.between ? "" : " (no team between)"} | ${list(r.myAdds)} | ${list(r.fromPartner)} | ${r.fromThird.length ? `${list(r.fromThird)} ❌` : "none ✅"} | ${list(r.theirAdds)} | ${list(r.takesMine)} | ${r.theirFromThird.length ? `${list(r.theirFromThird)} ❌` : "none ✅"} |`);
+  }
+  const third = a.trades.filter((r) => r.fromThird.length || r.theirFromThird.length).length;
+  const fromPartner = a.trades.filter((r) => r.fromPartner.length);
+  const takesMine = a.trades.filter((r) => r.takesMine.length);
+  const listNames = (ids: readonly string[]) => ids.map((id) => nameOf(s, id)).join(", ");
+  const why = (rows: readonly AllocationTradeRow[], whose: "partner's" | "mine", ids: (r: AllocationTradeRow) => string[]) => rows.map((r) => `#${r.rank} ${listNames(ids(r))}: ${pickupReach(r.first, r.between, whose)}`).join("; ");
+  L.push(
+    "",
+    `**Does any top trade still depend on a pickup another team would make first?** A third team's pickup: ${third} of ${a.trades.length} trades ${third ? "❌" : "✅"}. The partner's own baseline pickup, which you take after the trade: ${fromPartner.length} of ${a.trades.length}${fromPartner.length ? ` (${why(fromPartner, "partner's", (r) => r.fromPartner)})` : ""}. Yours, which the partner takes after the trade: ${takesMine.length} of ${a.trades.length}${takesMine.length ? ` (${why(takesMine, "mine", (r) => r.takesMine)})` : ""}.`,
+    "",
+  );
+}
+
+// ---------------------------------------------------------------------------------------------
+// Section 6: the cards
+
+/**
+ * The most-given players in words, grouped by count, names in alphabetical order within a group: "3 each (the cap's most):
+ * Bo Nix, …, Puka Nacua (7 players); then 2: Marvin Harrison Jr.; none over 3 ✅" (CardsReport.mostGiven, ties included).
+ */
+export function mostGivenText(snapshot: LeagueSnapshot, most: readonly { playerId: string; count: number }[], cap: number): string {
+  if (!most.length) return "none";
+  const counts = [...new Set(most.map((m) => m.count))].sort((a, b) => b - a);
+  const groups = counts.map((n, i) => {
+    const who = most
+      .filter((m) => m.count === n)
+      .map((m) => nameOf(snapshot, m.playerId))
+      .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+    const head = `${i === 0 ? "" : "then "}${n}${who.length > 1 ? " each" : ""}${n === cap ? " (the cap's most)" : ""}`;
+    return `${head}: ${who.join(", ")}${who.length > 1 ? ` (${who.length} players)` : ""}`;
+  });
+  return `${groups.join("; ")}${most.some((m) => m.count > cap) ? " ❌ (over the cap)" : `; none over ${cap} ✅`}`;
+}
+
+function renderCards(L: string[], x: RenderInput): void {
+  const c = x.cards;
+  const lp = x.literalPlanB;
+  const s = x.snapshot;
+  const rk = config.ranking;
+  L.push("## 6. Cards: Plan B, offer-first steps, injury tags, the given-player cap", "");
+  L.push(
+    `Planner reply to Checkpoint 4, change 6. Plan B ("If they say no, try:") shows on a card without an offer-first step: the best other exactly evaluated trade with the same partner that differs in at least one player, with B > 0, Helps you at least ${fmt(100 * config.search.planB.minHelpsShare, 0)}% of the card's and not hidden by the market guard (the planner's rules), and, ⚠️ ours, at least ${fmt(100 * config.search.steps.minAcceptGain, 0)} points likelier to go through than the card, never a trade the list shows as a card, and at most ${rk.perGivenPlayerInTop20} boxes in the top ${rk.partnerCapTop} adding the same player of yours.`,
+    "",
+  );
+  L.push("| | Cards |", "|---|---|");
+  L.push(`| Shown | ${c.shown} |`);
+  L.push(`| With an offer-first step ("How to offer it") | ${c.steps} |`);
+  L.push(`| With a Plan B | ${c.planB.boxes} (${c.planB.samePlayers} a different package for the same players of theirs, ${c.planB.otherTarget} a different target; ${c.planB.distinct} distinct trades) |`);
+  L.push(`| With neither | ${c.shown - c.steps - c.planB.boxes} |`);
+  L.push(`| With an injury tag (either side / on a player you'd get / on one you'd give) | ${c.tagged.any} / ${c.tagged.get} / ${c.tagged.give} |`);
+  L.push("");
+  L.push(
+    `**Plan B under the planner's literal rules** (the same search with the "likelier" rule and the box cap off: TradeSearchOptions.planB): ${lp.boxes} boxes; ${lp.lessLikely} of them less likely to go through than their card, ${lp.worseOnBoth} worse on both Helps you and the chance it goes through${lp.topAdded ? `; the player of yours they add most: ${nameOf(s, lp.topAdded.playerId)}, in ${lp.topAdded.count}` : ""}.`,
+    "",
+  );
+  L.push(
+    `**The ranking's variety rules** (§13; rank.ts) left out ${c.dropped.partnerCap + c.dropped.core + c.dropped.filler + c.dropped.givenPlayer} finalists: ${c.dropped.givenPlayer} by the given-player cap (at most ${rk.perGivenPlayerInTop20} trades in the top ${rk.partnerCapTop} giving the same player of yours, planner answer 7), ${c.dropped.partnerCap} by the partner cap, ${c.dropped.core} by the core rule, ${c.dropped.filler} as filler variants.`,
+    "",
+  );
+  L.push(`**Your players given most in the top ${c.window}** (the first ${MOST_GIVEN_SHOWN}, and everyone tied with the last of them): ${mostGivenText(s, c.mostGiven, rk.perGivenPlayerInTop20)}.`, "");
+  if (c.inBoxes.length) {
+    const wilson = x.wilsonId ? c.inBoxes.find((b) => b.playerId === x.wilsonId) : undefined;
+    const each = c.inBoxes.map((b) => `${nameOf(s, b.playerId)} ${b.cards} card${b.cards === 1 ? "" : "s"} + ${b.boxes} box${b.boxes === 1 ? "" : "es"} (${b.added} adding him)`).join("; ");
+    L.push(
+      `**The cap and the Plan B boxes.** The given-player cap counts the cards, and a box only when it adds a player of yours to its card and only in the top ${rk.partnerCapTop} (search.ts), so a capped player can still be offered in boxes: the top ${rk.partnerCapTop} can show ${rk.perGivenPlayerInTop20} cards giving him, ${rk.perGivenPlayerInTop20} boxes adding him, and any number of boxes on cards that already give him.${wilson ? ` ${WILSON}: ${wilson.cards} cards and ${wilson.boxes} boxes (${wilson.added} adding him to a card that doesn't give him), so the page suggests selling him ${wilson.cards + wilson.boxes} times.` : ""} Your players in the shown cards' boxes (cards that give him + boxes that give him): ${each}.`,
+      "",
+    );
+  }
+  if (!x.result.trades.length) return;
+  L.push("**Every card** (Helps you / Chance they accept / Overall; the injury tags on either side; the card's next step):", "");
+  L.push("| # | Partner | You give → you get | Numbers | Injury tags | Offer-first step or Plan B |", "|---|---|---|---|---|---|");
+  x.result.trades.forEach((t, i) => {
+    const tags = (t.flags.tagged ?? []).map((g) => `${nameOf(s, g.playerId)} (${g.side === "get" ? "get" : "give"}): ${tagWords(x, g)}`).join("; ") || "–";
+    const next = t.steps
+      ? `steps: offer ${names(s, playerIds(t.steps.offerFirst.proposal.give))} first (Est. ${shownChance(t.steps.offerFirst.pAccept)}), then add ${nameOf(s, t.steps.ifNo.add)} (Est. ${shownChance(t.steps.ifNo.full.pAccept)})`
+      : t.planB
+        ? `Plan B (${t.planB.kind === "samePlayers" ? "same players of theirs" : "another target"}): ${names(s, playerIds(t.planB.proposal.give))} → ${names(s, playerIds(t.planB.proposal.get))} (${threeNumbers(t.planB.tradeScore, t.planB.pAccept, t.planB.overall)})`
+        : "–";
+    L.push(`| ${i + 1} | Team ${t.proposal.partnerId} | ${names(s, playerIds(t.proposal.give))} → ${names(s, playerIds(t.proposal.get))} | ${threeNumbers(t.tradeScore, t.pAccept, t.overall)} | ${tags} | ${next} |`);
+  });
+  L.push("");
+}
+
+// ---------------------------------------------------------------------------------------------
+// Section 7: IR players
+
+function dropWords(snapshot: LeagueSnapshot, d: { playerId: string; week: number; self: boolean } | null, returner: boolean): string {
+  if (!returner) return "–";
+  if (!d) return "nobody (room)";
+  return d.self ? `releases him at week ${d.week}` : `${nameOf(snapshot, d.playerId)} from week ${d.week}`;
+}
+
+function renderIr(L: string[], x: RenderInput, teamName: (id: string) => string): void {
+  const ir = x.ir;
+  const s = x.snapshot;
+  const last = x.inputs.nfl.lastWeek;
+  L.push("## 7. IR players", "");
+  L.push(
+    `§6–§7, §12 (planner reply to Checkpoint 4, change 5). An IR player rejoins his team's lineups from his expected return week R (the first remaining week his chance of being back reaches ${fmt(100 * config.projections.returnWeekQuantile, 0)}%); when the active roster is full then, the lowest keep value player goes from R on. That displacement counts in final evaluations: the team as it stands (the League page and its odds) and its V*(T) (the trade baseline). IR players can be traded; a received one goes into an open IR slot when his status is one the slot takes.`,
+    "",
+  );
+  if (!ir.rows.length) L.push("No team has a player on IR.", "");
+  else {
+    L.push("| Team | IR player | Status | ESPN return week | R | Rejoins | Drop at R, as the team stands | Drop at R, at V*(T) |", "|---|---|---|---|---|---|---|---|");
+    for (const r of ir.rows) {
+      const espn = r.espnWeek === null ? "–" : last !== undefined && r.espnWeek > last ? `${r.espnWeek} (out for the season)` : String(r.espnWeek);
+      L.push(`| ${teamName(r.teamId)} | ${playerLabel(s, r.playerId)} | ${statusWords(r.status)} | ${espn} | ${r.R ?? "not back"} | ${r.returner ? "yes" : "no"} | ${dropWords(s, r.drop, r.returner)} | ${dropWords(s, r.vstarDrop, r.returner)} |`);
     }
     L.push("");
   }
-  const keys = (ts: readonly TradeEvaluation[]) => new Set(ts.map((t) => t.key));
-  const aKeys = keys(aTop);
-  const bKeys = keys(bTop);
-  const stayed = bTop.filter((t) => aKeys.has(t.key));
-  const samePlace = bTop.filter((t, i) => aTop[i]?.key === t.key).length;
-  const both = x.compare.filter((r) => r.before.t && r.after.t);
-  const dB = both.map((r) => ((r.after.t as TradeEvaluation).b ?? Number.NaN) - ((r.before.t as TradeEvaluation).b ?? Number.NaN));
-  const dP = both.map((r) => (r.after.t as TradeEvaluation).pAccept - (r.before.t as TradeEvaluation).pAccept);
-  const where = (r: CompareRow) => `${tradeLine(s, r.proposal, teamName)} (${sideText(r.before)} → ${sideText(r.after)})`;
-  const left = x.compare.filter((r) => bKeys.has(r.key) && !aKeys.has(r.key));
-  const came = x.compare.filter((r) => aKeys.has(r.key) && !bKeys.has(r.key));
-  const aTags = after.result.trades.filter((t) => (t.detail.premium ?? []).some((p) => p.harderToGet));
-  const bStars = before.result.trades.filter((t) => taggedFor(x.I, t.proposal.partnerId, playerIds(t.proposal.get)).length > 0);
-  L.push(`- **${stayed.length} of the before top ${bTop.length} are still in the after top ${aTop.length}** (${samePlace} in the same place).`);
-  // Trades one search never exactly evaluated: their numbers in that model are the Analyzer's, not that search's ranking.
-  const missed = (rows: readonly CompareRow[], side: "before" | "after", group: string): void => {
-    const text = neverEvaluatedText(rows, side, group, { snapshot: s, teamName, after: ta });
-    if (text) L.push(text);
-  };
-  if (left.length) L.push(`- Left the top ${TOP_DETAIL}: ${left.map(where).join("; ")}.`);
-  missed(left, "after", `that left the top ${TOP_DETAIL}`);
-  if (came.length) L.push(`- New in the top ${TOP_DETAIL}: ${came.map(where).join("; ")}.`);
-  missed(came, "before", `new in the top ${TOP_DETAIL}`);
-  if (both.length) L.push(`- Over these ${both.length} trades, B moved by ${signed(mean(dB), 2)} on average (min ${signed(Math.min(...dB), 2)}, max ${signed(Math.max(...dB), 2)}: the market term alone) and P_accept by ${pts(mean(dP))} (min ${pts(Math.min(...dP))}, max ${pts(Math.max(...dP))}: the star premium alone; 0 where they give no #1, #2 or top-12 player).`);
-  L.push(`- "Harder to get" players in the after top ${aTop.length}: ${aTop.flatMap((t) => (t.detail.premium ?? []).filter((p) => p.harderToGet).map((p) => nameOf(s, p.playerId))).join(", ") || "none"}; among all ${after.result.trades.length} trades shown after: ${aTags.length}; trades the before model showed that get one: ${bStars.length} (section 4).`);
-  // Your throw-ins (section 5) and players worth less than W, in the shown trades of each model.
-  const cheapOrThrow = [...new Set([...x.steps.throwIns.map((t) => t.id), ...[...before.result.trades, ...after.result.trades].flatMap((t) => playerIds(t.proposal.give)).filter((id) => (x.I.values[id] ?? 0) < W)])];
-  const count = (ts: readonly TradeEvaluation[], id: string) => ts.filter((t) => playerIds(t.proposal.give).includes(id)).length;
-  const counted = cheapOrThrow.map((id) => ({ id, b: count(before.result.trades, id), a: count(after.result.trades, id) })).filter((c) => c.a + c.b > 0);
-  if (counted.length) L.push(`- Your throw-ins in the shown trades, before → after: ${counted.map((c) => `${nameOf(s, c.id)} (${valueText(x.I.values[c.id] ?? 0)}${(x.I.values[c.id] ?? 0) < W ? ", worth less than W" : ""}) ${c.b} → ${c.a}`).join("; ")} (section 7 measures what giving each one away realizes).`);
-  L.push(`- Trades shown: ${before.result.trades.length} before, ${after.result.trades.length} after; hidden for B ≤ 0: ${before.result.hidden.byBenefit} before, ${after.result.hidden.byBenefit} after; cards with an "If they say no" step after: ${after.result.trades.filter((t) => t.steps).length} (section 5).`, "");
-}
-
-function bucketLabel(k: number): string {
-  const b = REALISM_BUCKETS[k];
-  if (!b) return "–";
-  if (!Number.isFinite(b.lo)) return `below ${pctSigned(b.hi, 0)}`;
-  if (!Number.isFinite(b.hi)) return `${pctSigned(b.lo, 0)} or more`;
-  return `${pctSigned(b.lo, 0)} to ${pctSigned(b.hi, 0)}`;
-}
-
-function renderRealism(L: string[], x: RenderInput, teamName: (id: string) => string): void {
-  const r = x.realism;
-  const trades = x.result.trades;
-  L.push(`## 3. Realism check: the ${r.trades} trades shown`, "");
-  if (!r.trades) {
-    L.push("No trades to check.", "");
-    renderKappa(L, x, teamName);
-    return;
+  L.push("**The returners' effect on each team's points per week** (as rosters stand, scenario lineups; without returners is Checkpoint 4's rule, the other Phase 4b switches on):", "");
+  L.push("| Team | Without returners | With them | Change |", "|---|---|---|---|");
+  for (const p of ir.ppw) L.push(`| ${teamName(p.teamId)} | ${fmt(p.off, 2)} | ${fmt(p.on, 2)} | ${signed(p.on - p.off, 2)} |`);
+  L.push("", `Your odds as rosters stand without returners ${oddsText(ir.odds.off)}, with them ${oddsText(ir.odds.on)}.`, "");
+  L.push(
+    `**Shown trades with an IR player** (in an IR slot, or on an active roster with a status this league's IR slot takes, irSlots.irEligibleStatuses: ${ir.eligible.join(" and ") || "none"}): ${ir.trades.length} of ${x.result.trades.length} (${ir.inTop} in the top ${TOP_DETAIL}); with a player in an IR slot, the kind Phase 4b made tradable: ${ir.inSlot}.`,
+    "",
+  );
+  for (const t of ir.trades) {
+    const who = t.ir.map((p) => `${playerLabel(s, p.playerId)} (${p.side === "give" ? "yours, given" : "theirs, received"}; ${p.slot ? "in an IR slot" : `on an active roster, status ${s.players[p.playerId]?.injury ?? "–"}`})`).join(", ");
+    L.push(`- #${t.rank} with ${teamName(t.partnerId)}: ${who}; forced moves: you ${changeText(s, t.required.me)}; them ${changeText(s, t.required.partner)}.`);
   }
+  if (ir.trades.length) L.push("");
   L.push(
-    `Planner's question: do most suggestions ask partners to give up more than 15% in value? **Definition used (⚠️ ours, as the lead set it): a trade asks the partner to give up more than 15% in value when g_mkt(partner) < ${fmt(PARTNER_OVERPAYS_BELOW, 2)}**, i.e. the partner gets back less than 85% of the value it gives (FantasyCalc values with the waiver credit, §9). The other direction is §10's Market check: g_mkt(you) < ${fmt(config.benefit.marketCheckBelow, 2)}, you get back less than 85% of what you give; trades below ${fmt(config.benefit.marketHideBelow, 2)} are hidden (${x.result.hidden.byMarket} hidden this way, ${x.result.hidden.byBenefit} hidden for B ≤ 0). The search only keeps trades with g_mkt(partner) in [${config.search.screeningGWindow.map((g) => fmt(g, 2)).join(", ")}] (§12).`,
+    `**The forced moves IR players bring to the cards** (RosterChange): a received IR player put in an open IR slot on ${ir.toIR} of ${x.result.trades.length} cards; a drop from an IR player's return week that the trade brings (one the baseline at V*(T) doesn't already make) on ${ir.displaced.mine} cards on your side and ${ir.displaced.theirs} on the partner's.`,
     "",
   );
-  L.push("| g_mkt bucket | Trades by g_mkt(partner) | Trades by g_mkt(you) |", "|---|---|---|");
-  REALISM_BUCKETS.forEach((_, k) => L.push(`| ${bucketLabel(k)} | ${r.partnerBuckets[k] ?? 0} | ${r.mineBuckets[k] ?? 0} |`));
-  L.push("");
-  L.push(`g_mkt(partner): min ${pctSigned(r.partner.min)}, median ${pctSigned(r.partner.median)}, max ${pctSigned(r.partner.max)}. g_mkt(you): min ${pctSigned(r.mine.min)}, median ${pctSigned(r.mine.median)}, max ${pctSigned(r.mine.max)}.`, "");
-  L.push(`- Ask the partner to give up more than 15% (g_mkt(partner) < ${fmt(PARTNER_OVERPAYS_BELOW, 2)}): **${r.partnerOverpays} of ${r.trades}**.`);
-  const top = trades.slice(0, TOP_DETAIL);
-  L.push(`- Carry a Market check (g_mkt(you) < ${fmt(config.benefit.marketCheckBelow, 2)}): **${r.marketCheck} of ${r.trades}**; among the top ${top.length}: **${top.filter((t) => t.flags.marketCheck).length}**, and the top ${top.length}'s median g_mkt(partner) is ${pctSigned(median(top.map((t) => t.gPartner)))}.`, "");
-  L.push(realismVerdict(r), "");
-  L.push(
-    `Why, in the model's own numbers (means over these ${r.trades} trades): the value term adds ${signed(r.valueTerm, 2)} logits to the acceptance estimate (β_gain ${config.acceptance.beta.gain} × g⁺, β_loss ${config.acceptance.beta.loss} × g⁻, on their g as they see it: the star premium included), so P_accept averages ${pctPlain(r.pAccept)} against ${pctPlain(r.pAcceptEven)} for the same trades at even value; ${r.marketTerm === null ? "B has no market term in this league type" : `B's market term (§10 with the addendum: κ ${kappaOf(x)} × clamp(g, ±${config.benefit.marketSanityClamp[1]}), g = g_mkt(you) with each player you give counted at least at W) averages ${signed(r.marketTerm, 2)} B points against an average B of ${fmt(r.b, 2)}`}. Overall ranks by B × P_complete, so giving value away raises the acceptance side more than it lowers B (⚠️ our reading of the numbers; the κ question below measures how far κ moves it).`,
-    "",
-  );
-  L.push("Every trade shown (Overall order):", "");
-  L.push("| # | Partner | You give | You get | g_mkt(them) | g_mkt(you) | Market check | B | P_accept |", "|---|---|---|---|---|---|---|---|---|");
-  trades.forEach((t, i) => L.push(`| ${i + 1} | ${teamName(t.proposal.partnerId)} | ${players(x.snapshot, playerIds(t.proposal.give))} | ${getText(x.snapshot, t)} | ${pctSigned(t.gPartner)} | ${pctSigned(t.gMine)} | ${t.flags.marketCheck ? "yes" : "–"} | ${fmt(t.b, 2)} | ${pctPlain(t.pAccept)} |`));
-  L.push("");
-  renderKappa(L, x, teamName);
 }
 
-/** The variants in column order: before the addendum, then the levels. */
-function variantColumns(x: RenderInput): { label: string; run: VariantRun }[] {
-  return [
-    { label: `Before the addendum (κ ${x.variants.before.kappa}, no star premium)`, run: x.variants.before },
-    ...PROTECT_VALUE_LEVELS.map((v) => ({ label: `${LEVEL_WORDS[v]} (κ ${x.variants[v].kappa}${v === x.settings.protectValue ? ", the default" : ""})`, run: x.variants[v] })),
-  ];
-}
-
-function renderKappa(L: string[], x: RenderInput, teamName: (id: string) => string): void {
-  const cols = variantColumns(x);
-  const stats = cols.map((c) => gMineStats(c.run.result));
-  L.push("### g_mkt(you) before and after the addendum, and at each \"Protect my trade value\" level", "");
-  L.push(
-    `Planner-reply-3b §5: the distribution of g_mkt(you) over the shown trades, before and after. The levels are the app's model searched again on the same evaluation context with "Protect my trade value" at Low, Medium and High (κ ${PROTECT_VALUE_LEVELS.map((v) => x.variants[v].kappa).join(" / ")}: the context reads only the League model's settings, so each equals a context built at that level). Market check: g_mkt(you) < ${pctSigned(config.benefit.marketCheckBelow, 0)}; "below ${pctSigned(DEEP_OVERPAY_BELOW, 0)}": you give up a third more than you get or worse.`,
-    "",
-  );
-  L.push(`| g_mkt(you) | ${cols.map((c) => c.label).join(" | ")} |`, `|---|${cols.map(() => "---").join("|")}|`);
-  REALISM_BUCKETS.forEach((_, k) => L.push(`| ${bucketLabel(k)} | ${stats.map((st) => st.buckets[k] ?? 0).join(" | ")} |`));
-  L.push(`| **trades shown** | ${stats.map((st) => st.trades).join(" | ")} |`);
-  L.push(`| median | ${stats.map((st) => pctSigned(st.median)).join(" | ")} |`);
-  L.push(`| min / max | ${stats.map((st) => `${pctSigned(st.min)} / ${pctSigned(st.max)}`).join(" | ")} |`);
-  L.push(`| Market checks | ${stats.map((st) => st.marketCheck).join(" | ")} |`);
-  L.push(`| below ${pctSigned(DEEP_OVERPAY_BELOW, 0)} | ${stats.map((st) => st.deep).join(" | ")} |`);
-  L.push(`| hidden: B ≤ 0 / market guard | ${stats.map((st) => `${st.hidden.byBenefit} / ${st.hidden.byMarket}`).join(" | ")} |`);
-  L.push("");
-  L.push(
-    `**The κ question: your top ${TOP_DETAIL} at each level.** Σ EG is B × P_complete summed over all the shown trades, the expected gain Overall ranks by. B holds the market term κ × g, so **Σ EG isn't comparable across levels**: for the very same trades it moves with κ (down where you give value away, g < 0, up where you gain it), so a lower Σ EG at a higher κ doesn't mean worse trades. Σ B_win × P_complete leaves the market term out (κ-free: the trades' effect on your odds, weighted by the chance they go through), so it is comparable across the columns.`,
-    "",
-  );
-  L.push(`| Setting | #1 trade (Helps / Chance / Overall) | Top-${TOP_DETAIL} median g_mkt(you) | Top-${TOP_DETAIL} Market checks | Top-${TOP_DETAIL} below ${pctSigned(DEEP_OVERPAY_BELOW, 0)} | Σ EG (within a level only) | Σ B_win × P_complete (κ-free) |`, "|---|---|---|---|---|---|---|");
-  cols.forEach((c, i) => {
-    const st = stats[i] as GMineStats;
-    const first = c.run.result.trades[0];
-    L.push(`| ${c.label} | ${first ? `${tradeLine(x.snapshot, first.proposal, teamName)} (${threeNumbers(first)})` : "–"} | ${pctSigned(st.top.median)} | ${st.top.marketCheck} of ${st.top.trades} | ${st.top.deep} of ${st.top.trades} | ${fmt(st.eg, 2)} | ${fmt(st.egKappaFree, 2)} |`);
-  });
-  L.push("");
-  const main = x.variants[x.settings.protectValue];
-  const be = breakEvenKappa(main.result.trades, main.kappa);
-  if (be) {
-    const p = (t: TradeEvaluation) => `B_win ${fmt(t.bWin, 2)}, market g ${pctSigned(((t.b as number) - (t.bWin as number)) / main.kappa)} after its floor, P_complete ${pctPlain(t.pComplete)}`;
-    L.push(
-      `**Break-even κ** (⚠️ a two-trade reading): today's #1 (${tradeLine(x.snapshot, be.first.proposal, teamName)}: ${p(be.first)}) against the best even trade in the list (#${be.evenRank}, ${tradeLine(x.snapshot, be.even.proposal, teamName)}: ${p(be.even)}). B_win and the chance they accept don't move with κ, so their EG = (B_win + κ × g) × P_complete cross ${be.kappa === null ? "at no κ ≥ 0" : `at **κ ≈ ${fmt(be.kappa, 2)}**: from there the even trade out-ranks today's #1`} (the rest of the list moves too, and the diversity rules apply).`,
-      "",
-    );
-  } else L.push(`**Break-even κ**: none to compute (today's #1 is already within ${pctSigned(config.explain.valueEven, 0)} of even, there is no even trade among the shown ones, or the league has no market term).`, "");
-  const pr = x.pruning;
-  L.push("**N11, the dominance pruning in screening** (lead decision N11, ⚠️ ours): a screened trade that gives a player of yours worth less than W is dropped when the same trade without him (same partner and players of theirs, your side keeping at least one player) was screened and kept with an objective at least as high. Measured by running the screening again on this context:", "");
-  if (!pr) L.push("- not measured (the search stops before screening).", "");
-  else
-    L.push(
-      `- Your give pool: ${pr.give.length} players, ${pr.belowW.length} of them worth less than W (${valueText(pr.W)}): ${pr.belowW.map((id) => `${nameOf(x.snapshot, id)} (${valueText(x.I.values[id] ?? 0)})`).join(", ") || "none"}.`,
-      `- Screens: ${thousands(pr.screened)} (the search's own count: ${thousands(x.result.counts.screened)}); inside the value window: ${thousands(pr.inWindow)}; dropped by the pruning: **${thousands(pr.dropped)}**.`,
-      `- Of the ${pr.exact.with} trades sent to exact evaluation, **${pr.cheap.with} give a player worth less than W, against ${pr.cheap.without} of ${pr.exact.without} without the pruning**.`,
-      "",
-    );
-}
-
-function renderStar(L: string[], x: RenderInput, teamName: (id: string) => string): void {
-  const st = x.star;
-  const s = x.snapshot;
-  const sp = config.acceptance.starPremium;
-  L.push("## 4. The Smith-Njigba example: a star for three RBs", "");
-  L.push(
-    `Parker's question to the planner: "Would someone really give up Smith-Njigba for three RBs?" The planner's anchor (section 8): a partner gets 4,000 + 3,500 + 3,500 for its #1 top-12 player (9,000), a contender, n 0.6, filling a hole: **51.3% before the addendum, 23.4% after** (computed: ${pctPlain((x.premiumAnchors[2]?.withoutPremium ?? Number.NaN) / 100, 2)} → ${pctPlain((x.premiumAnchors[2]?.computed ?? Number.NaN) / 100, 2)}). Below, the same question on the real rosters, every trade through the Trade Analyzer in both models (before: no star premium; after: the app's).`,
-    "",
-  );
-  if (!st.playerId || !st.teamId) {
-    L.push(`${STAR_NAME} isn't on another team's active roster in this league, so there is no package to try.`, "");
-  } else {
-    const pr = st.premium;
-    L.push(
-      `**${playerLabel(s, st.playerId)}** is ${teamName(st.teamId)}'s #${pr?.rank ?? "–"} by trade value (${valueText(st.value)})${pr?.elite ? ` and among FantasyCalc's top ${sp.eliteTop}` : ""}: e ${fmt(pr?.e ?? 0, 2)} (${pr ? [pr.rank <= sp.rank.length ? `#${pr.rank} ${fmt(sp.rank[pr.rank - 1] ?? 0, 2)}` : null, pr.elite ? `top-${sp.eliteTop} ${fmt(sp.elite, 2)}` : null].filter(Boolean).join(" + ") : "–"})${pr?.harderToGet ? ', tagged "Harder to get"' : ""}. Your ${STAR_PACKAGE.pos}s: ${st.mine.map((id) => `${nameOf(s, id)} (${valueText(x.I.values[id] ?? 0)})`).join(", ") || "none"}: ${st.packages.length} package${st.packages.length === 1 ? "" : "s"} of ${STAR_PACKAGE.size}.`,
-      "",
-    );
-    if (st.packages.length) {
-      L.push(`| Package for ${nameOf(s, st.playerId)} | Their g (market) | n (ΔLineup/wk) | Their holes | Before: P_accept / P_complete / z | After: P_accept / P_complete / z | Helps you (after) |`, "|---|---|---|---|---|---|---|");
-      for (const p of st.packages) {
-        const b = p.before;
-        const a = p.after;
-        if (!a || !b) {
-          L.push(`| ${names(s, p.give)} | – | – | – | ${p.illegal ?? "–"} | – | – |`);
-          continue;
-        }
-        L.push(`| ${names(s, p.give)}${p === st.pick ? " (the old model's most likely)" : ""} | ${pctSigned(a.gPartner)} | ${signed(a.features.n, 2)} (${signed(a.partnerDeltaLineup)}) | ${a.detail.holes.join(", ") || "none"} | ${pctPlain(b.pAccept)} / ${pctPlain(b.pComplete)} / ${signed(b.features.z, 2)} | ${pctPlain(a.pAccept)} / ${pctPlain(a.pComplete)} / ${signed(a.features.z, 2)} | ${a.tradeScore ?? "– (B ≤ 0)"} |`);
-      }
-      L.push("");
-      const legal = st.packages.filter((p) => p.before && p.after);
-      if (legal.length) {
-        const range = (f: (p: StarRow) => number, show: (v: number) => string) => {
-          const v = legal.map(f);
-          return `${show(Math.min(...v))} to ${show(Math.max(...v))}`;
-        };
-        const [lo] = config.acceptance.pAcceptClamp;
-        const [gLo] = config.acceptance.gClamp;
-        const floorB = legal.filter((p) => ((p.before as TradeEvaluation).pAccept as number) <= lo + EPS).length;
-        const floorA = legal.filter((p) => ((p.after as TradeEvaluation).pAccept as number) <= lo + EPS).length;
-        const holes = [...new Set(legal.flatMap((p) => (p.after as TradeEvaluation).detail.holes))];
-        const filled = legal.filter((p) => (p.after as TradeEvaluation).features.h === 1).length;
-        const clamped = legal.filter((p) => (p.after as TradeEvaluation).gPartner <= gLo + EPS).length;
-        const vetoed = legal.filter((p) => (p.after as TradeEvaluation).detail.vetoRisk).length;
-        L.push(
-          `**Range over the ${legal.length} packages**: their g at market ${range((p) => (p.after as TradeEvaluation).gPartner, (v) => pctSigned(v))} (${clamped} past the model's ${pctSigned(gLo, 0)} clamp, where the star premium can't lower it further); n ${range((p) => (p.after as TradeEvaluation).features.n, (v) => signed(v, 2))} (the RBs ${legal.every((p) => (p.after as TradeEvaluation).partnerDeltaLineup < 0) ? "lower their lineup in every package" : "help their lineup in some packages"}); ${holes.length ? `their holes: ${holes.join(", ")}, filled in ${filled} of ${legal.length}` : `${teamName(st.teamId)} has no hole for them to fill`}; P_accept before ${range((p) => (p.before as TradeEvaluation).pAccept, (v) => pctPlain(v))} (${floorB} at the ${pctPlain(lo, 0)} floor), after ${range((p) => (p.after as TradeEvaluation).pAccept, (v) => pctPlain(v))} (${floorA} at the floor)${vetoed ? `; the veto rule halves P_complete in ${vetoed} of them (the league votes on trades)` : ""}. ${floorA === legal.length && floorB === legal.length ? `**A long shot in both models: every package sits at the ${pctPlain(lo, 0)} floor before and after**, so the star premium can't lower the number; it shows in z and in the card's reason. The planner's 51% → 23% comes from the anchor's own values (an even package that fills a hole), not from ${teamName(st.teamId)}'s roster.` : "The star premium lowers the chance of every package the floor doesn't hold."}`,
-          "",
-        );
-      }
-      const pick = st.pick;
-      if (pick?.before && pick.after) {
-        const b = pick.before;
-        const a = pick.after;
-        L.push(`**The package the old model rated most likely**: you give ${names(s, pick.give)} for ${nameOf(s, st.playerId)} (old P_accept ${pctPlain(b.pAccept)}, z ${signed(b.features.z, 2)}; new ${pctPlain(a.pAccept)}, z ${signed(a.features.z, 2)}). Its acceptance terms, logit units:`, "");
-        L.push("| Term | Before | After | In words (after) |", "|---|---|---|---|");
-        const rows = termRows(a, s, x.I);
-        for (const r of rows) L.push(`| ${r.term} | ${signed(b.detail.terms[r.term], 2)} | ${signed(r.logit, 2)} | ${r.words} |`);
-        L.push(`| **z** | **${signed(b.features.z, 2)}** | **${signed(a.features.z, 2)}** | P_accept ${pctPlain(b.pAccept)} → ${pctPlain(a.pAccept)}${a.detail.vetoRisk ? `; the league votes on trades and their g at market is under ${pctSigned(config.acceptance.veto.gBelow, 0)}, so P_complete is halved: ${pctPlain(a.pComplete)}` : ""} |`, "");
-        const words = placeholderWords(x.I, a);
-        L.push(`Its reasons after the addendum (the Analyzer's card): ${words.reasons.map((w) => `“${w}”`).join(" ")}`, "");
-      }
-    }
-  }
-  L.push(`**Star trades on these rosters**: the lead's value-even examples (⚠️ chosen by name), then every trade the before model showed that gets a "Harder to get" player. Each cell: Helps you / Chance they accept / Overall; the trade's place among the shown trades when it is one, else the stage of that model's search that dropped it (section 2's stages).`, "");
-  L.push("| Trade | Their g: market → as they see it | Star premium | Before: place · Helps / Chance / Overall | After: place · Helps / Chance / Overall | P_accept, before → after |", "|---|---|---|---|---|---|");
-  const afterRank = new Map(x.variants[x.settings.protectValue].result.trades.map((t, i) => [t.key, i + 1]));
-  const beforeRank = new Map(x.variants.before.result.trades.map((t, i) => [t.key, i + 1]));
-  const place = (m: Map<string, number>, t: TradeEvaluation, tr: SearchTrace) => {
-    const k = m.get(t.key);
-    return k === undefined ? `not shown (${stageTag(dropStage(tr, t.proposal))})` : `#${k}`;
-  };
-  const row = (r: StarRow, label: string) => {
-    if (r.missing.length) {
-      L.push(`| ${label} | – | – | not on these rosters now: ${r.missing.join(", ")} | – | – |`);
-      return;
-    }
-    const a = r.after;
-    const b = r.before;
-    if (!a || !b) {
-      L.push(`| ${label} | – | – | ${r.illegal ?? "can't be evaluated"} | – | – |`);
-      return;
-    }
-    const premium = (a.detail.premium ?? []).filter((p) => p.e > 0).map((p) => `${nameOf(s, p.playerId)} e ${fmt(p.e, 2)}${p.harderToGet ? " [Harder to get]" : ""}`);
-    L.push(`| ${label} | ${pctSigned(a.gPartner)} → ${pctSigned(a.features.g)} | ${premium.join("; ") || "–"} | ${place(beforeRank, b, x.traces.before)} · ${threeNumbers(b)} | ${place(afterRank, a, x.traces.after)} · ${threeNumbers(a)} | ${pctPlain(b.pAccept)} → ${pctPlain(a.pAccept)} |`);
-  };
-  const lineOf = (r: StarRow, give: readonly string[], get: readonly string[]) => (r.partnerId ? `${teamName(r.partnerId)}: ` : "") + `${r.give.length === give.length ? names(s, r.give) : give.join(" + ")} → ${r.get.length === get.length ? names(s, r.get) : get.join(" + ")}`;
-  st.named.forEach((r, i) => {
-    const ex = STAR_TRADES[i] as (typeof STAR_TRADES)[number];
-    row(r, lineOf(r, ex.give, ex.get));
-  });
-  const namedKeys = new Set(st.named.flatMap((r) => (r.before ? [r.before.key] : [])));
-  for (const ss of st.shownStars) if (!namedKeys.has(ss.row.before?.key ?? "")) row(ss.row, `${tradeLine(s, { partnerId: ss.row.partnerId as string, give: asPlayers(ss.row.give), get: asPlayers(ss.row.get) }, teamName)} (shown before)`);
-  if (!st.named.length && !st.shownStars.length) L.push("| none | – | – | – | – | – |");
-  L.push("");
-  const evenRows = [...st.named, ...st.shownStars.map((x2) => x2.row)].filter((r) => r.before && r.after);
-  if (evenRows.length) {
-    const ratio = evenRows.map((r) => (r.after as TradeEvaluation).pAccept / (r.before as TradeEvaluation).pAccept);
-    const first = x.premiumAnchors[0];
-    const anchorRatio = first ? first.computed / first.withoutPremium : Number.NaN;
-    const [floor] = config.acceptance.pAcceptClamp;
-    const floored = evenRows.filter((r) => (r.before as TradeEvaluation).pAccept <= floor + EPS && (r.after as TradeEvaluation).pAccept <= floor + EPS).length;
-    L.push(`On these star trades the chance they accept falls to ${pctPlain(Math.min(...ratio), 0)}–${pctPlain(Math.max(...ratio), 0)} of what it was before the addendum${floored ? ` (${floored} at the ${pctPlain(floor, 0)} floor in both models)` : ""}; the planner's own 1-for-1 anchor for a #1 top-12 player goes ${fmt(first?.withoutPremium, 1)}% → ${fmt(first?.computed, 1)}%, to ${pctPlain(anchorRatio, 0)}.`, "");
-  }
-}
-
-/** "value −0.62 / extra −0.25 / lineup +0.05 / rest 0.00" (a step's change in z by part). */
-const dzText = (d: StepCandidate["dz"]): string => `value ${signed(d.value, 2)} / extra player ${signed(d.extra, 2)} / their lineup ${signed(d.lineup, 2)} / rest ${signed(d.rest, 2)}`;
-
-/** A step case in words (the search's per-side maximum: the report's settings). */
-function stepCaseWords(c: StepCase, maxPerSide: number): string {
-  switch (c) {
-    case "holdBack":
-      return "1: hold a throw-in back";
-    case "add":
-      return "2: add a throw-in";
-    case "noRoom":
-      return `none: you already give ${maxPerSide}, the most a side`;
-    case "noThrowIn":
-      return "none: every throw-in is in the trade";
-    case "noHelp":
-      return "none: the trade doesn't help you on the screening seasons";
-    case "illegal":
-      return "none: the trade isn't legal as a version";
-  }
-}
-
-function renderSteps(L: string[], x: RenderInput, teamName: (id: string) => string): void {
-  const d = x.steps;
-  const s = x.snapshot;
-  const cfg = stepConfig();
-  const W = d.W;
-  L.push('## 5. "Offer first / if they say no": how many cards show a step, and why', "");
-  L.push(`**Cards with an "If they say no" step: ${d.withSteps} of ${x.result.trades.length}.**`, "");
-  L.push(
-    `The rule (§4 of the addendum; lead decision N4): a throw-in is a player of yours whose loss costs you at most ${cfg.throwInMaxCost} lineup points against your free-agent-optimized roster, in scenario lineups (so an injury and bye backup isn't free). Case 1: a trade that gives a throw-in (and keeps a player on your side without him) is offered first without the lowest-value one, and he's added back if they say no. Case 2: otherwise the ranked trade is offered first, and the throw-in added if they say no is the one with the highest chance it goes through while B stays at least ${fmt(100 * cfg.minBShare, 0)}% of the offer's. A step is shown only when it raises the chance it goes through (P_complete) by at least ${fmt(100 * cfg.minAcceptGain, 0)} points, the offer first is at least ${fmt(100 * cfg.minOfferFirst, 0)}% likely, and the offer first helps you. Both versions are compared on the ${thousands(config.simulation.screeningSims)}-season screening block, as the search does.`,
-    "",
-  );
-  L.push(`Your throw-ins, against the waiver credit W = ${valueText(W)} (§9 charges the side that receives more players W for each roster spot it must open):`, "");
-  L.push("| Throw-in | Trade value | Value − W | Lineup cost (exact mode) | In shown trades |", "|---|---|---|---|---|");
-  const signedValue = (v: number) => `${v > 0.5 ? "+" : v < -0.5 ? MINUS : ""}${valueText(Math.abs(v))}`;
-  for (const t of d.throwIns) L.push(`| ${playerLabel(s, t.id)} | ${valueText(t.value)} | ${signedValue(t.value - W)} | ${fmt(t.cost, 1)} | ${x.result.trades.filter((tr) => playerIds(tr.proposal.give).includes(t.id)).length} |`);
-  if (!d.throwIns.length) L.push("| none | – | – | – | – |");
-  L.push("");
-  L.push(`Measured: every shown trade's possible steps, each version exactly evaluated with the screening simulation (evaluate.tradeVersion, as the search's steps are), **without the search's pre-screen** (case 1: each throw-in in the trade held back; case 2: each throw-in added). The row shows the step the rule would choose (case 2: the best of those keeping B; else the one with the largest gain), its chance it goes through for the offer first → with the throw-in, and the change in z (logit units) by part.`, "");
-  L.push("| # | Trade | Case | Step | P_complete: offer first → if they say no | Gain | Change in z | Shown? Why not |", "|---|---|---|---|---|---|---|---|");
-  for (const r of d.rows) {
-    const shownC = r.rule ?? [...r.candidates].sort((a, b) => b.gain - a.gain)[0] ?? null;
-    const step = shownC ? `${r.stepCase === "holdBack" ? "hold back" : "add"} ${nameOf(s, shownC.throwIn)} (${valueText(shownC.value)})` : "–";
-    const why = r.shown ? "**shown**" : shownC ? (shownC.fails.length ? shownC.fails.join("; ") : r.preScreenKeeps === false ? "the pre-screen missed it" : "–") : "no candidate";
-    L.push(`| ${r.rank} | ${tradeLine(s, r.trade.proposal, teamName)} | ${stepCaseWords(r.stepCase, x.settings.maxPerSide)} | ${step} | ${shownC ? `${pctPlain(shownC.offer.pComplete)} → ${pctPlain(shownC.full.pComplete)}` : "–"} | ${shownC ? pts(shownC.gain) : "–"} | ${shownC ? dzText(shownC.dz) : "–"} | ${why} |`);
-  }
-  L.push("");
-  if (!d.candidates) {
-    L.push("No candidate step to measure.", "");
-    return;
-  }
-  const best = d.best;
-  const cheap = d.throwIns.filter((t) => t.value < W);
-  L.push(`**${d.withSteps ? "What decides it" : "Why none qualifies"}**, over all ${d.candidates} candidate versions:`, "");
-  if (best) L.push(`- The largest gain any throw-in brings is **${pts(best.c.gain)}** (#${best.row.rank}, ${best.row.stepCase === "holdBack" ? "holding back" : "adding"} ${nameOf(s, best.c.throwIn)}: ${pctPlain(best.c.offer.pComplete)} → ${pctPlain(best.c.full.pComplete)}); ${d.reaching} of ${d.candidates} reach the +${fmt(100 * cfg.minAcceptGain, 0)} a step needs. On average a throw-in moves the chance by ${pts(d.meanGain)}.`);
-  L.push(
-    `- The value term: §9's waiver credit makes the side that receives more players open a roster spot worth W, so a throw-in raises the partner's g only when he's worth more than W × (1 + g) (more than W when you give fewer players than you get). ${cheap.length} of your ${d.throwIns.length} throw-ins are worth less than W (${cheap.map((t) => nameOf(s, t.id)).join(", ") || "none"}); their g as they see it rises in only ${d.raiseG} of the ${d.candidates} versions, and near the g clamp (${pctSigned(config.acceptance.gClamp[1], 0)}) more value adds nothing. On average the value term moves z by ${signed(d.meanDz.value, 2)}.`,
-  );
-  L.push(`- The extra player: §11's complexity term costs ${signed(-config.acceptance.beta.complexity, 2)} in z for each player beyond a 1-for-1 (on average ${signed(d.meanDz.extra, 2)} here), their lineup moves it by ${signed(d.meanDz.lineup, 2)}, the rest by ${signed(d.meanDz.rest, 2)}: ${signed(d.meanDz.total, 2)} in all on average.`);
-  if (d.preScreen.trades) L.push(`- Case 2's pre-screen (the best ${cfg.preScreen} candidates by the screening's quick estimate get exact evaluation, ⚠️ for speed) kept the rule's exact choice in **${d.preScreen.kept} of ${d.preScreen.trades}** trades.`);
-  L.push("");
-}
-
-function renderTags(L: string[], x: RenderInput, teamName: (id: string) => string): void {
-  const tg = x.tags;
-  const s = x.snapshot;
-  const sp = config.acceptance.starPremium;
-  L.push('## 6. "Harder to get": who carries the tag, and the League page\'s partner rows', "");
-  L.push(
-    `The star premium (§1 of the addendum; lead decision N1): a manager values his own best players a bit above market. For each player, e = e_rank + e_elite: e_rank by his rank by trade value on his own roster (#1 ${fmt(sp.rank[0] ?? 0, 2)}, #2 ${fmt(sp.rank[1] ?? 0, 2)}, others 0; ties: more ROS points), e_elite ${fmt(sp.elite, 2)} when he's among FantasyCalc's top ${sp.eliteTop} in the league's format. "Harder to get" (§2): e ≥ ${fmt(sp.harderToGetMin, 2)}, a top-${sp.eliteTop} player who is also his team's #1 or #2. The trade context's numbers (each team's baseline odds; the dynasty halving for a rebuilding team doesn't apply in ${s.settings.leagueType === "dynasty" ? "this league's non-rebuilding teams" : "a redraft league"}). The League page shows the tag on other teams' players only.`,
-    "",
-  );
-  L.push(`**FantasyCalc's top ${sp.eliteTop}** in this league's format:`, "");
-  L.push("| # | Player | Value | Rostered by | His rank there | Tag |", "|---|---|---|---|---|---|");
-  tg.elite.forEach((e, i) => {
-    const p = e.teamId ? x.I.premiums.get(e.teamId)?.[e.id] : undefined;
-    L.push(`| ${i + 1} | ${playerLabel(s, e.id)} | ${valueText(e.value)} | ${e.teamId ? teamName(e.teamId) : "free agent"} | ${e.rank === null ? "–" : `#${e.rank}`} | ${p?.harderToGet ? "Harder to get" : "–"} |`);
-  });
-  if (!tg.elite.length) L.push("| – | no FantasyCalc values | – | – | – | – |");
-  L.push("");
-  const tagged = tg.teams.flatMap((t) => t.players.filter((p) => p.harderToGet).map((p) => ({ teamId: t.teamId, p })));
-  L.push(`**Every team's premium players** (e > 0, best rank first; ${tagged.length} tagged "Harder to get" in all, ${tagged.filter((t) => t.teamId !== x.result.myTeamId).length} on other teams):`, "");
-  L.push("| Team | Players (rank by value · top-12 · e) |", "|---|---|");
-  for (const t of tg.teams) {
-    const list = t.players.map((p) => `${p.harderToGet ? "**" : ""}${nameOf(s, p.id)}${p.harderToGet ? "**" : ""} #${p.rank}${p.elite ? " · top-12" : ""} · e ${fmt(p.e, 2)} (${valueText(p.value)})${p.harderToGet ? " · Harder to get" : ""}`);
-    L.push(`| ${t.teamId === x.result.myTeamId ? `Team ${t.teamId} (you: the tag never shows on your own players)` : teamName(t.teamId)} | ${list.join("; ") || "–"} |`);
-  }
-  L.push("");
-  L.push(
-    `**The League page's partner rows** (buildLeagueView on the League model the page builds: default settings, ${thousands(config.simulation.finalSims)} seasons). "Best target" is the best of their trade chips without the tag who adds at least ${config.needs.bestTargetMin} projected point${config.needs.bestTargetMin === 1 ? "" : "s"} a week to your lineup as printed (N12); a tagged single best follows as "Bigger upgrade, harder to get", or leads alone as "Best target, harder to get" when no untagged one clears that floor. The page's own note under the cards:`,
-    "",
-    `> ${BEST_TARGET_NOTE}`,
-    "",
-  );
-  if (!tg.cards.length) L.push(`No partner cards: ${tg.empty ?? "none fit."}`, "");
-  for (const c of tg.cards) {
-    const theirs = [...c.theyCanGive.players.map((p) => `${p.text}${p.tag ? " [Harder to get]" : ""}`), ...(c.theyCanGive.more ? [c.theyCanGive.more.text] : [])];
-    const mine = [...c.youCanGive.players.map((p) => p.text), ...(c.youCanGive.more ? [c.youCanGive.more.text] : [])];
-    L.push(`- **${c.name}** (${c.fitText}): ${c.targets.map((t) => `${t.label}: ${t.text}`).join(" · ") || "no lead line"}${theirs.length ? ` · ${c.theyCanGive.label} ${theirs.join(", ")}` : ""} · ${c.youCanGive.label} ${mine.join(", ") || "nobody"}`);
-  }
-  L.push("");
-}
+// ---------------------------------------------------------------------------------------------
+// Section 8: consistency
 
 function movesText(snapshot: LeagueSnapshot, moves: readonly FaStep[] | null): string {
   if (moves === null) return "(illegal)";
@@ -2600,111 +2677,91 @@ function renderConsistency(L: string[], x: RenderInput, teamName: (id: string) =
   const c = x.consistency;
   const s = x.snapshot;
   const fo = config.freeAgentOptimizer;
-  L.push("## 7. Consistency check: no B from free-agent pickups", "");
+  L.push("## 8. Consistency: no B from free-agent pickups; a no-op moves nothing", "");
   L.push(
-    `**By construction.** B compares your team before and after the trade, and both sides of that comparison are free-agent-optimized rosters (V*, §7): the baseline is every team at V*(T) (evaluate.ts buildTradeContext: each team's weekly scores from its V*(T) lineups, one common-random-numbers matrix), and every trade's "after" is legality's roster run through the same optimizer from scratch, for you and for the partner (evaluateExact: \`optimizer.optimize(post-legality roster)\`), simulated on the same seasons. With availability scenarios, V* picks its moves by their gain in the same scenario lineups B is measured in, on both sides, so a pickup you could make anyway (a depth pickup included) is made in both rosters, moves both odds alike and cancels in ΔPO and ΔCH; a trade gets credit only for what the pickups can't do. (An open roster spot the trade creates is worth what the best free agent adds there, as §7 says.) **N10** (⚠️ ours, reported to the planner) closes the same gap in the market term: B's market term counts each player you give at no less than the waiver credit W, because a player worth less than the best free agent is replaceable and V*(you) already replaces him, so dumping him isn't a value gain either (the card's values and g_mkt stay the market's).`,
+    `**By construction.** B compares your team before and after the trade, and both sides of that comparison are free-agent-optimized rosters (V*, §7): the baseline is every team at V*(T), one free agent per team, and every trade's "after" is legality's roster run through the same optimizer for you and for the partner (tradeSides: the earlier of the two in the order first, both against the pool minus every other team's claims), simulated on the same seasons. With availability scenarios V* picks its moves by their gain in the same scenario lineups B is measured in, so a pickup you could make anyway is made in both rosters and cancels in ΔPO and ΔCH. **The value floor** (planner reply to Checkpoint 4, change 4) closes the same gap in the market term: every package counts each player at no less than the waiver credit W, on both sides.`,
     "",
   );
   L.push(
-    `**The tests.** (1) \`src/engine/evaluate.test.ts\`, "the simulation behind B (M4)" › "Checkpoint 4: a trade whose whole effect a free-agent pickup reproduces gets no B from it (ΔPO = ΔCH = 0 exactly)": my weak WR2 and a free-agent WR that V*(me) picks up (dropping my bench WR); a partner's bench WR identical to that free agent in every way but his id. Trading my bench WR for him does exactly what the pickup does; it asserts V*(me) makes that one pickup, that after the trade V* picks up nobody, that my weekly score means are equal before and after, and that ΔPO, ΔCH, ΔEW and B_win are exactly 0 at 5,000 seasons. Next to it, "a no-op (my V* and the partner's unchanged) moves no odds" asserts ΔPO = ΔCH = ΔEW = 0 exactly at both simulation counts. (2) In scenario lineups: \`src/engine/evaluate.consistency.test.ts\`, "Checkpoint 4 consistency in scenario lineups" › "a depth pickup a trade reproduces gets no B: ΔPO = ΔCH = ΔEW = 0 exactly": a free-agent TE who never starts in the average-case lineup but plays when an RB is hurt; V*(me) picks him up by his scenario gain (under ${fo.faMinGain} in expected-value lineups, over it in scenario ones), and trading the player that pickup drops for a partner's identical TE gives B_win 0 exactly at 5,000 seasons. (3) N10: \`src/engine/evaluate.addendum.test.ts\`, "B's market term with my given players at max(v, W) (N10)" › "a player V* drops anyway, worth less than W, given for nothing: B = 0 at Low, Medium and High" (before the addendum the same trade scored B > 0 from the open spot's credit).`,
+    `**The tests.** \`src/engine/evaluate.test.ts\`, "the simulation behind B (M4)": "a no-op (my V* and the partner's unchanged) moves no odds: ΔPO = ΔCH = ΔEW = 0 exactly, at both counts" and "Checkpoint 4: a trade whose whole effect a free-agent pickup reproduces gets no B from it (ΔPO = ΔCH = 0 exactly)". \`src/engine/evaluate.consistency.test.ts\`, "Checkpoint 4 consistency in scenario lineups": "a depth pickup a trade reproduces gets no B: ΔPO = ΔCH = ΔEW = 0 exactly", with me first and with the partner first in the waiver order. \`src/engine/evaluate.addendum.test.ts\`, "the value floor at W on both sides": "a player V* drops anyway, worth less than W, given for nothing: B = 0 at Low, Medium and High". \`src/engine/evaluate.allocation.test.ts\`: the order of the two sides, and "a trade of bench players makes each side's baseline pickups again". \`src/engine/evaluate.returners.test.ts\`: "a no-op with displacements on both sides moves no odds".`,
+    "",
+  );
+  // The no-op, measured.
+  const z = x.noOp;
+  const zero = (d: { dPO: number | null; dCH: number | null; dEW: number | null }) => d.dPO === 0 && (d.dCH === 0 || d.dCH === null) && d.dEW === 0;
+  const allZero = z.every((r) => zero(r.screen) && zero(r.final));
+  L.push(
+    `**The no-op, measured.** Each shown trade's exact evaluation with your side and the partner's both put back at their baselines (V*(T), finally priced), through simulateTrade at the ${thousands(config.simulation.screeningSims)}-season block and the ${thousands(config.simulation.finalSims)}-season block: ΔPO, ΔCH and ΔEW are exactly 0 in **${z.filter((r) => zero(r.screen) && zero(r.final)).length} of ${z.length}** ${allZero ? "✅" : "❌"}.`,
     "",
   );
   // The measured bound.
   const g = x.giveAway;
   L.push(
-    `**The measured bound.** V* only makes a move worth at least faMinGain (${fo.faMinGain} lineup points), so a smaller swap stays undone in the baseline; a trade that sends that player away can realize it (legality fills the open spot with the best free agent, and V* re-runs), and B_win counts it. So "no B from pickups" holds up to about faMinGain per player given (⚠️ a known approximation, reported to the planner). Measured below for each of your throw-ins and each of your players worth less than W: him alone for nothing, evaluated exactly, with only your side changed in the simulation (the partner's row left at its baseline), on the ${thousands(config.simulation.finalSims)}-season block. Lineup points: Σ ω × LV over the remaining weeks (playoff weeks × ${x.settings.playoffWeight}), the exact mode's lineups.`,
+    `**The measured bound.** V* only makes a move worth at least faMinGain (${fo.faMinGain} lineup points), so a smaller swap stays undone in the baseline; a trade that sends that player away can realize it. Measured for each of your throw-ins and each of your players worth less than W: him alone for nothing, evaluated exactly, only your side changed in the simulation (the ${thousands(config.simulation.finalSims)}-season block).`,
     "",
   );
   if (!g.length) L.push("No such player (or no odds).", "");
   else {
-    // Against V*(you): a free agent added, one of your players V*(you) would drop kept instead, or one it keeps dropped.
     const mineBefore = new Set(x.I.me?.roster ?? []);
-    const adds = (r: GiveAwayRow) => r.ins.filter((id) => !mineBefore.has(id));
-    L.push(`| Player | Value (W ${valueText(x.I.credit)}) | Lineup cost | In shown trades | Your lineup points when he leaves | Your roster then, against your optimized one | B_win, your side | B: before / ${PROTECT_VALUE_LEVELS.map((v) => LEVEL_WORDS[v]).join(" / ")} |`, "|---|---|---|---|---|---|---|---|");
+    L.push(`| Player | Value (W ${valueText(x.I.credit)}) | Lineup cost | In shown trades | Your lineup points when he leaves | Your roster then, against your optimized one | B_win, your side | B: ${PROTECT_VALUE_LEVELS.map((v) => LEVEL_WORDS[v]).join(" / ")} |`, "|---|---|---|---|---|---|---|---|");
     for (const r of g) {
       if (r.illegal) {
         L.push(`| ${playerLabel(s, r.playerId)} | ${valueText(r.value)} | ${fmt(r.cost, 1)} | ${r.inShown} | – | ${r.illegal} | – | – |`);
         continue;
       }
       const moved = [...r.ins.map((id) => (mineBefore.has(id) ? `keeps ${nameOf(s, id)}` : `adds ${nameOf(s, id)}`)), ...r.outs.map((id) => `drops ${nameOf(s, id)}`)].join(", ") || "the same otherwise";
-      L.push(`| ${playerLabel(s, r.playerId)} | ${valueText(r.value)}${r.value < x.I.credit ? " (< W)" : ""} | ${fmt(r.cost, 1)} | ${r.inShown} | ${signed(r.ros, 2)} | ${moved} | ${signed(r.bWin, 3)} | ${fmt(r.bBefore, 3)} / ${PROTECT_VALUE_LEVELS.map((v) => fmt(r.b[v], 3)).join(" / ")} |`);
+      L.push(`| ${playerLabel(s, r.playerId)} | ${valueText(r.value)}${r.value < x.I.credit ? " (< W)" : ""} | ${fmt(r.cost, 1)} | ${r.inShown} | ${signed(r.ros, 2)} | ${moved} | ${signed(r.bWin, 3)} | ${PROTECT_VALUE_LEVELS.map((v) => fmt(r.b[v], 3)).join(" / ")} |`);
     }
-    L.push("");
-    const pos = g.filter((r) => finite(r.ros) && (r.ros as number) > EPS);
-    const top = pos[0];
-    const cheapRows = g.filter((r) => !r.illegal && r.value < x.I.credit);
-    const zeroTerm = cheapRows.filter((r) => PROTECT_VALUE_LEVELS.every((v) => finite(r.b[v]) && finite(r.bWin) && Math.abs((r.b[v] as number) - (r.bWin as number)) <= 1e-9));
-    L.push(
-      `"Keeps" is one of your players your optimized roster would drop, kept instead; "adds" a free agent; "drops" one your optimized roster keeps (the optimizer's greedy path can end elsewhere once a player leaves).`,
-      "",
-      top
-        ? `**Largest: ${nameOf(s, top.playerId)} → ${adds(top).map((id) => nameOf(s, id)).join(", ") || "the refill"}, ${signed(top.ros, 2)} lineup points** (B_win ${signed(top.bWin, 3)} from your side), in ${top.inShown} shown trade${top.inShown === 1 ? "" : "s"}: well under faMinGain (${fo.faMinGain}), the bound. ${pos.length} of ${g.length} player${g.length === 1 ? "" : "s"} realize${pos.length === 1 ? "s" : ""} such a swap when ${pos.length === 1 ? "he leaves" : "they leave"}.`
-        : `None of these players realizes a skipped swap when he leaves (every change ≤ 0): within the bound.`,
-      "",
-      `For the ${cheapRows.length} worth less than W, the market term adds ${zeroTerm.length === cheapRows.length ? "exactly 0 at every level (B = B_win)" : `0 at every level for ${zeroTerm.length}`}: N10's floor. Before the addendum the open spot's credit counted twice, and the market term alone gave each one B for nothing: ${cheapRows.map((r) => `${nameOf(s, r.playerId)} ${signed(finite(r.bBefore) && finite(r.bWin) ? r.bBefore - r.bWin : null, 2)}`).join(", ") || "–"}.`,
-      "",
-    );
+    const top = g.find((r) => finite(r.ros) && (r.ros as number) > EPS);
+    L.push("", top ? `Largest: ${nameOf(s, top.playerId)}, ${signed(top.ros, 2)} lineup points when he leaves (B_win ${signed(top.bWin, 3)} from your side): ${(top.ros as number) < fo.faMinGain ? "under faMinGain, the bound ✅" : "⚠️ over faMinGain"}.` : "None of these players realizes a skipped swap when he leaves (every change ≤ 0): within the bound ✅.", "");
   }
   if (!c.rows.length) {
     L.push("No trades to re-evaluate.", "");
     return;
   }
   const same = c.rows.filter((r) => !r.differ.length).length;
+  const sameB = c.planB.filter((r) => !r.differ.length).length;
   L.push(
-    `**Empirically.** Each trade shown, re-evaluated by analyzeTrade (the Trade Analyzer) in a fresh evaluation context (built in ${ms(c.contextMs)}; every memo empty): B and the card's other numbers (${COMPARED.join(", ")}) compared with the search's bit for bit (Object.is). **${same} of ${c.rows.length} match exactly.** Your pickups before any trade (V*(you)): ${movesText(s, c.myBefore)}.`,
+    `**Empirically.** Each shown trade re-evaluated by analyzeTrade (the Trade Analyzer) in a fresh evaluation context (built in ${ms(c.contextMs)}; every memo empty), its numbers (${COMPARED.join(", ")}) compared with the search's bit for bit: **${same} of ${c.rows.length} match exactly** ${same === c.rows.length ? "✅" : "❌"}. Every Plan B box the same way (its ${PLAN_B_COMPARED.join(", ")}: the final block, the card's basis): **${sameB} of ${c.planB.length}** ${sameB === c.planB.length ? "✅" : "❌"}. Your pickups before any trade (V*(you)): ${movesText(s, c.myBefore)}.`,
     "",
   );
   L.push("| # | Partner | B, search | B, Analyzer | Same numbers | Your pickups after the trade | Pickups you'd make anyway (in both) | Their pickups after |", "|---|---|---|---|---|---|---|---|");
   const before = new Set(addsOf(c.myBefore));
   for (const r of c.rows) {
     const shared = addsOf(r.myAfter).filter((id) => before.has(id));
-    L.push(`| ${r.rank} | ${teamName(r.partnerId)} | ${fmt(r.bSearch, 4)} | ${fmt(r.bAnalyzer, 4)} | ${r.differ.length ? `differ: ${r.differ.join(", ")}` : "yes"} | ${movesText(s, r.myAfter)} | ${shared.map((id) => s.players[id]?.name ?? id).join(", ") || "–"} | ${movesText(s, r.theirAfter)} |`);
+    L.push(`| ${r.rank} | ${teamName(r.partnerId)} | ${fmt(r.bSearch, 4)} | ${fmt(r.bAnalyzer, 4)} | ${r.differ.length ? `differ: ${r.differ.join(", ")}` : "yes"} | ${movesText(s, r.myAfter)} | ${shared.map((id) => nameOf(s, id)).join(", ") || "–"} | ${movesText(s, r.theirAfter)} |`);
   }
   L.push("");
-  const first = x.result.trades[0];
-  const row = c.rows[0];
-  if (first && row) {
-    const pid = first.proposal.partnerId;
-    const theirBefore = c.before[pid] ?? [];
-    const myShared = addsOf(row.myAfter).filter((id) => before.has(id));
-    const theirShared = addsOf(row.theirAfter).filter((id) => addsOf(theirBefore).includes(id));
-    L.push(`**Trade 1 in detail** (you give ${players(s, playerIds(first.proposal.give))}, get ${players(s, playerIds(first.proposal.get))}): the free-agent moves V* makes on each roster.`, "");
-    L.push("| Team | Before the trade (baseline) | After the trade |", "|---|---|---|");
-    L.push(`| ${teamName(x.result.myTeamId ?? "")} | ${movesText(s, c.myBefore)} | ${movesText(s, row.myAfter)} |`);
-    L.push(`| ${teamName(pid)} | ${movesText(s, theirBefore)} | ${movesText(s, row.theirAfter)} |`);
-    L.push("");
-    L.push(
-      `Pickups made both before and after (they cancel in B): you ${myShared.map((id) => s.players[id]?.name ?? id).join(", ") || "none"}; ${teamName(pid)} ${theirShared.map((id) => s.players[id]?.name ?? id).join(", ") || "none"}. Gains are each move's expected-value lineup points (playoff weeks × ${x.settings.playoffWeight}); with availability scenarios V* picks its moves by their scenario gain, so a depth pickup can show a small expected-value gain.`,
-      "",
-    );
-  }
 }
+
+// ---------------------------------------------------------------------------------------------
+// Section 9: the anchors
 
 function renderAnchors(L: string[], anchors: readonly AnchorRow[], premium: readonly AnchorRow[]): void {
-  L.push("## 8. The acceptance anchor tests (§11, and the addendum's star premium)", "");
+  L.push("## 9. The acceptance anchor tests", "");
   L.push(
-    `The planner's 8 §11 scenarios through acceptance() itself (src/engine/acceptance.ts) with the default coefficients (β0 ${fmt(config.acceptance.beta.b0, 1)}, β_gain ${config.acceptance.beta.gain}, β_loss ${config.acceptance.beta.loss}, β_need ${config.acceptance.beta.need}, β_hole ${config.acceptance.beta.hole}, β_cx ${config.acceptance.beta.complexity}, β_act ${config.acceptance.beta.activity}, β_hist ${config.acceptance.beta.history}): a redraft league without trade review, a partner with no trade history and 40% playoff odds (no season context), features not named at 0, n entered as ΔLineup = n × ${config.acceptance.nScale}; they must be within ±${ANCHOR_TOLERANCE} point. Then the addendum's 6 star-premium scenarios (planner-reply-3b §1, W = ${thousands(PREMIUM_ANCHOR_W)}), within ±${PREMIUM_ANCHOR_TOLERANCE}, through the real functions: premium.eliteIds and teamPremiums give each player's e from a FantasyCalc list and the partner's roster, premium.perceivedPackage the partner's g as it sees it (v′ = v × (1 + e) on what it gives, W unchanged), benefit.tradePackage the market g, and acceptance() the estimate (a contender has 70% playoff odds). The last column is the same scenario without the star premium (the model before the addendum). src/engine/acceptance.test.ts runs both tables.`,
+    `The planner's two tables (reply to Checkpoint 4, change 2), through the real functions. §11's ${anchors.length} scenarios through acceptance() (src/engine/acceptance.ts) with the default coefficients (β0 ${fmt(config.acceptance.beta.b0, 1)}, β_gain ${config.acceptance.beta.gain}, β_loss ${config.acceptance.beta.loss}, β_need ${betaNeed("redraft")} in redraft and keeper leagues and ${betaNeed("dynasty")} in dynasty leagues, β_hole ${config.acceptance.beta.hole}, β_cx ${config.acceptance.beta.complexity}, β_act ${config.acceptance.beta.activity}, β_hist ${config.acceptance.beta.history}; P_accept capped at ${pctPlain(config.acceptance.pAcceptClamp[1], 0)}): a redraft league (the last scenario a dynasty league) without trade review, a partner with no trade history and 40% playoff odds, features not named at 0, n entered as ΔLineup = n × ${config.acceptance.nScale}. Then the ${premium.length} star-premium scenarios (W = ${thousands(PREMIUM_ANCHOR_W)}): premium.eliteIds and teamPremiums give each player's e, premium.perceivedPackage the partner's g as it sees it (v′ = max(v, W) × (1 + e) on what it gives), benefit.tradePackage the market g, and acceptance() the estimate (a contender has 70% playoff odds). Each must be within ±${ANCHOR_TOLERANCE} point of the planner's value. src/engine/acceptance.test.ts runs both tables.`,
     "",
   );
-  L.push("| # | Scenario | Planner | Computed | Difference | Tolerance | Pass | Without the star premium |", "|---|---|---|---|---|---|---|---|");
+  L.push("| # | Scenario | Planner (Checkpoint 4's) | Computed | Difference | Within ±0.5 | Without the star premium |", "|---|---|---|---|---|---|---|");
   const all = [...anchors, ...premium];
   all.forEach((a, i) => {
-    const planner = a.plannerBefore !== null && Math.abs(a.plannerBefore - a.planner) > 1e-9 ? `${fmt(a.planner)}% (${fmt(a.plannerBefore)}% before)` : `${fmt(a.planner)}%`;
-    L.push(`| ${i + 1} | ${a.name} | ${planner} | ${fmt(a.computed, 2)}% | ${signed(a.diff, 2)} | ±${a.tolerance} | ${a.pass ? "yes" : "**NO**"} | ${fmt(a.withoutPremium, 2)}% |`);
+    const planner = Math.abs(a.plannerOld - a.planner) > 1e-9 ? `${fmt(a.planner)}% (${fmt(a.plannerOld)}%)` : `${fmt(a.planner)}%`;
+    L.push(`| ${i + 1} | ${a.name} | ${planner} | ${fmt(a.computed, 2)}% | ${signed(a.diff, 2)} | ${mark(a.pass)} | ${fmt(a.withoutPremium, 2)}% |`);
   });
   const pass = all.filter((a) => a.pass).length;
-  const pA = anchors.filter((a) => a.pass).length;
-  const pP = premium.filter((a) => a.pass).length;
-  const beforeOk = premium.filter((a) => a.plannerBefore !== null).every((a) => Math.abs(a.withoutPremium - (a.plannerBefore as number)) <= PREMIUM_ANCHOR_TOLERANCE);
   L.push(
     "",
-    `${pass} of ${all.length} within their tolerance (§11: ${pA} of ${anchors.length} within ±${ANCHOR_TOLERANCE}; the addendum: ${pP} of ${premium.length} within ±${PREMIUM_ANCHOR_TOLERANCE}, and its "before" values ${beforeOk ? "within ±" + PREMIUM_ANCHOR_TOLERANCE + " too" : "**off**"}).${pass === all.length ? " **Pass.**" : " **FAIL.**"}`,
+    `${pass} of ${all.length} within ±${ANCHOR_TOLERANCE} (§11: ${anchors.filter((a) => a.pass).length} of ${anchors.length}; the star premium: ${premium.filter((a) => a.pass).length} of ${premium.length}).${pass === all.length ? " **Pass.** ✅" : " **FAIL.** ❌"}`,
     "",
   );
 }
 
+// ---------------------------------------------------------------------------------------------
+// Section 10: runtime
+
 const CONTEXT_STAGES: readonly [string, string][] = [
-  ["league model", "League model steps 1–6 (projections, scenarios, values, streaming, V* for every team, lineup costs, chips)"],
+  ["league model", "League model steps 1–6 (projections and the blend, scenarios, values, streaming, the allocation and V*, IR returners, lineup costs, chips)"],
   ["baseline lineups", "baseline lineups (every team at V*, both lineup modes)"],
   ["simulation", "baseline simulation (one matrix; 1,000 and 5,000 seasons)"],
   ["profiles", "partner profiles, star premiums, hot players, urgency, risky weeks"],
@@ -2717,31 +2774,52 @@ const SEARCH_STAGES: readonly [string, string][] = [
   ["simScreen", "screening simulation (1,000 seasons each)"],
   ["simFinal", "final simulation (5,000 seasons)"],
   ["rank", "ranking and diversity"],
-  ["steps", "the shown trades' \"Offer first\" steps and words"],
+  ["steps", "the shown trades' offer-first steps, Plan B and words"],
   ["total", "search, total"],
 ];
 
 function renderRuntime(L: string[], x: RenderInput): void {
   const r = x.runtime;
+  const lr = x.leagueRuntime;
   const c = x.result.counts;
-  L.push("## 9. Runtime", "");
+  L.push("## 10. Runtime", "");
   L.push(
-    `Node ${process.version} on this machine, not the browser's Web Worker (the worker runs the same generator in time slices). Each number is the median of ${r.runs.length} timed run${r.runs.length === 1 ? "" : "s"} after ${r.warmups} warm-up; every run builds its own evaluation context, then searches with the default settings. ${r.sameEveryRun ? "Every run, warm-up included, returned the same trades with the same numbers (deterministic)." : "**The runs did not all return the same trades.**"} Browser timings aren't measured here: they come from the production worker check (the real engine.worker.ts bundled by esbuild in production mode, minified, run in headless Chrome on the same league), reported with Checkpoint 4.`,
+    `Node ${process.version} on this machine, not the browser's Web Worker (the worker runs the same code in time slices). CLAUDE.md §12's target, 10 seconds or less, is for the worker: \`npm run check:browser\` times a full Trade Finder search there on the production build, and the checkpoint reports its numbers. **Cold** is the first run in this process (the JIT and every memo empty: a first page visit). **Warm** is the median of ${r.runs.length} timed run${r.runs.length === 1 ? "" : "s"} after ${r.warmups} warm-up${r.warmups === 1 ? "" : "s"}, each building its own League model or context. **Again** is the search run ${r.again.runs} more time${r.again.runs === 1 ? "" : "s"} on the last context, its memos warm (what a settings change costs in the Trade Finder). ${r.sameEveryRun ? "Every search, warm-ups and runs again included, returned the same trades with the same numbers (deterministic) ✅." : "**The runs did not all return the same trades.** ❌"}`,
     "",
   );
-  L.push("| Stage | Median |", "|---|---|");
-  for (const [k, label] of CONTEXT_STAGES) if (r.context[k] !== undefined) L.push(`| ${label} | ${ms(r.context[k])} |`);
-  for (const [k, label] of SEARCH_STAGES) if (r.search[k] !== undefined) L.push(`| ${label} | ${ms(r.search[k])} |`);
-  L.push(`| **context + search, end to end** | **${ms(r.total)}** |`, "");
-  const pr = x.pruning;
+  L.push(`**The League model** (buildLeagueModel as the League page builds it: ${lr.teams} teams, ${lr.players} players, ${lr.scenarios} scenarios, ${thousands(lr.sims)} seasons):`, "");
+  L.push("| Stage | Cold | Warm |", "|---|---|---|");
+  for (const k of Object.keys(lr.warm)) L.push(`| ${k} | ${ms(lr.cold[k])} | ${ms(lr.warm[k])} |`);
+  L.push("");
+  L.push("**The trade search** (buildTradeContext, then runTradeSearch with the default settings):", "");
+  L.push("| Stage | Cold | Warm | Again (same context) |", "|---|---|---|---|");
+  for (const [k, label] of CONTEXT_STAGES) if (r.context[k] !== undefined) L.push(`| ${label} | ${ms(r.cold.context[k])} | ${ms(r.context[k])} | – |`);
+  for (const [k, label] of SEARCH_STAGES) if (r.search[k] !== undefined) L.push(`| ${label} | ${ms(r.cold.search[k])} | ${ms(r.search[k])} | ${ms(r.again.search[k])} |`);
+  L.push(`| **context + search, end to end** | **${ms(r.cold.total)}** | **${ms(r.total)}** | – |`, "");
   L.push(
-    `Counts: ${thousands(c.screened)} candidates screened${pr ? ` (${thousands(pr.inWindow)} inside the value window, ${thousands(pr.dropped)} of them dropped by the dominance pruning)` : ""}, ${c.exact} exactly evaluated, ${c.simScreen} simulated at ${thousands(config.simulation.screeningSims)} seasons, ${c.simFinal} at ${thousands(config.simulation.finalSims)} (the finalists), ${x.result.trades.length} shown, ${x.result.trades.filter((t) => t.steps).length} with steps; hidden by default: ${x.result.hidden.byBenefit} for B ≤ 0, ${x.result.hidden.byMarket} by the market guard. Longest stretch of work between two progress yields: ${ms(r.maxGap)} (median over the runs; the design keeps it under about 50 ms so the worker stays responsive).`,
+    `Counts: ${thousands(c.screened)} candidates screened, ${c.exact} exactly evaluated, ${c.simScreen} simulated at ${thousands(config.simulation.screeningSims)} seasons, ${c.simFinal} at ${thousands(config.simulation.finalSims)} (the finalists; a Plan B that wasn't a finalist is simulated too, not counted here), ${x.result.trades.length} shown (${x.cards.steps} with steps, ${x.cards.planB.boxes} with a Plan B); hidden by default: ${x.result.hidden.byBenefit} for B ≤ 0, ${x.result.hidden.byMarket} by the market guard.`,
+    "",
+  );
+  const over = r.maxGap > YIELD_GAP_DOCUMENTED_MS;
+  // A stretch inside a per-trade stage is one unit of it (one exact evaluation, one simulation): its average says whether
+  // the longest one is typical or a single slow one.
+  const perUnit: Partial<Record<TradeSearchProgress["stage"], [number | undefined, number]>> = { exact: [r.search.exact, c.exact], simScreen: [r.search.simScreen, c.simScreen], simFinal: [r.search.simFinal, c.simFinal] };
+  const stages = [...new Set(r.runs.map((run) => run.maxGapAt?.stage))];
+  const unit = stages.length === 1 && stages[0] ? perUnit[stages[0]] : undefined;
+  const average = unit && finite(unit[0]) && unit[1] > 0 ? (unit[0] as number) / unit[1] : null;
+  L.push(
+    `**The longest stretch of work between two progress yields** (the worker can stop or hand the thread back only between them): ${gapMs(r.maxGap)}, the warm median (${r.runs.map((run) => `${gapMs(run.maxGap)} in ${gapStageText(run.maxGapAt)}`).join("; ")}); cold ${gapMs(r.cold.maxGap)} in ${gapStageText(r.cold.maxGapAt)}.${average !== null ? ` One unit of that stage takes ${ms(average)} on average here (its warm median time ÷ its count), so the longest stretches are single slow ones: most likely garbage-collection pauses (⚠️ inferred: by the timed runs this process has built many contexts, now garbage).` : ""} ${over ? `⚠️ Above CLAUDE.md §12's "typically under ${YIELD_GAP_DOCUMENTED_MS} ms of work between yields" in Node (§12: a garbage-collection pause or a cold start can exceed it; a single run's longest stretch varies from run to run).` : `Within CLAUDE.md §12's "typically under ${YIELD_GAP_DOCUMENTED_MS} ms" ✅.`}`,
     "",
   );
   const times = x.consistency.rows.map((row) => row.ms);
-  if (times.length) L.push(`The Trade Analyzer: analyzeTrade took ${ms(median(times))} per trade (median; max ${ms(Math.max(...times))}, its steps included) over the ${times.length} re-evaluations of section 7, in a fresh context once it was built (${ms(x.consistency.contextMs)}).`, "");
-  const v = x.variants;
-  L.push(`Other searches in this run: the before-addendum search ${ms(v.before.ms)} (its own context included); ${PROTECT_VALUE_LEVELS.filter((l) => l !== x.settings.protectValue).map((l) => `${LEVEL_WORDS[l]} ${ms(v[l].ms)}`).join(", ")} (on the main context, its memos warm).`, "");
+  if (times.length) L.push(`The Trade Analyzer: analyzeTrade took ${ms(median(times))} per trade (median; max ${ms(Math.max(...times))}, its steps included) over the ${times.length} re-evaluations of section 8, in a fresh context once it was built (${ms(x.consistency.contextMs)}).`, "");
+  const own = x.blend.filter((b) => Math.abs(b.weight - config.marketBlend.weight) <= EPS);
+  const other = x.blend.filter((b) => Math.abs(b.weight - config.marketBlend.weight) > EPS);
+  if (x.blend.length)
+    L.push(
+      `Section 3's runs: ${[...other.map((b) => `w ${fmt(b.weight, 2)} ${ms(b.ms)} (its own context, the search, and the search again without the given-player cap)`), ...own.map((b) => `w ${fmt(b.weight, 2)} ${ms(b.ms)} (the app's weight: only the search again without the cap, on the main context)`)].join("; ")}.`,
+      "",
+    );
   L.push("This report's own run (buildTradeReport, wall clock):", "", "| Stage | Time |", "|---|---|");
   for (const [k, label] of REPORT_STAGES) if (x.timing[k] !== undefined) L.push(`| ${label} | ${ms(x.timing[k])} |`);
   L.push("");
@@ -2750,130 +2828,6 @@ function renderRuntime(L: string[], x: RenderInput): void {
     for (const [k, val] of Object.entries(x.opts.timing)) L.push(`| ${k} | ${ms(val)} |`);
     L.push("");
   }
-}
-
-function renderAnalyzer(L: string[], x: RenderInput, teamName: (id: string) => string): void {
-  const e = x.example;
-  const [gLo, gHi] = config.search.screeningGWindow;
-  L.push("## 10. A Trade Analyzer example: great for you, unlikely to be accepted", "");
-  L.push(
-    `Found systematically: every 1-for-1 and 2-for-1 between your players and each partner's ${ANALYZER_TOP_VALUES} most valuable players (FantasyCalc values; P, K, D/ST and IDP left out on both sides, as the search does by default): ${thousands(e.candidates)} trades, ${thousands(e.illegal)} illegal (roster rules), each exactly evaluated as the Analyzer does (scenario lineups, both teams' free-agent pickups). ${thousands(e.lowAccept)} have P_accept under ${pctPlain(ANALYZER_MAX_ACCEPT, 0)}, and ${thousands(e.positive)} of those help you (B > 0 at ${thousands(config.simulation.screeningSims)} seasons). Without a limit on trade value the winners are plain lowballs (the partner gives a star for spare parts), so ⚠️ the example is chosen among the ${thousands(e.inWindow)} whose g_mkt(partner) is inside the search's own value window [${fmt(gLo, 2)}, ${fmt(gHi, 2)}] (§12: an offer the search itself could make). The ${ANALYZER_FINALISTS} best by B, inside the window and overall (${e.analyzed} trades), went through analyzeTrade itself (${thousands(config.simulation.finalSims)} seasons); the example is the highest Helps you inside the window.`,
-    "",
-  );
-  const ex = e.extreme;
-  if (ex) {
-    L.push(
-      `For comparison, the highest Helps you without the window: you give ${players(x.snapshot, playerIds(ex.proposal.give))} to ${teamName(ex.proposal.partnerId)} for ${players(x.snapshot, playerIds(ex.proposal.get))}: Helps you ${ex.tradeScore ?? "–"}, P_accept ${pctPlain(ex.pAccept)}, g_mkt(them) ${pctSigned(ex.gPartner)}; its value term alone is ${signed(ex.detail.terms.value, 2)} logits: ${valueTermWords(ex, x.snapshot, perceivedG(x.I, ex.proposal.partnerId, playerIds(ex.proposal.give), playerIds(ex.proposal.get), ex.gPartner) ?? null)}.`,
-      "",
-    );
-  }
-  const t = e.pick;
-  if (!t) {
-    L.push("No trade inside the window qualifies (none helps you with an acceptance chance under the bar).", "");
-    return;
-  }
-  renderCard(L, x, t, `The example: with ${teamName(t.proposal.partnerId)}`, teamName);
-  const rows = termRows(t, x.snapshot, x.I);
-  const [pLo, pHi] = config.acceptance.pAcceptClamp;
-  L.push(`**Why the acceptance estimate is low** (§11: z is the sum of these terms, in logit units; P_accept = σ(z) clamped to ${pctPlain(pLo, 0)}–${pctPlain(pHi, 0)}):`, "");
-  L.push("| Term | Logit units | In words |", "|---|---|---|");
-  for (const r of rows) L.push(`| ${r.term} | ${signed(r.logit, 2)} | ${r.words} |`);
-  L.push(`| **z** | **${signed(t.features.z, 2)}** | P_accept = σ(z) = ${pctPlain(t.pAccept)} |`, "");
-  const down = rows.filter((r) => r.term !== "base" && r.logit < -1e-9).sort((a, b) => a.logit - b.logit);
-  const up = rows.filter((r) => r.logit > 1e-9).sort((a, b) => b.logit - a.logit);
-  const without = (term: keyof AcceptanceTerms) => pAcceptFromLogit(t.features.z - t.detail.terms[term]);
-  const what = down.map((r) => `**${r.term} ${signed(r.logit, 2)}**: ${r.words} (without it: ${pctPlain(without(r.term))})`);
-  L.push(
-    `Starting from ${pctPlain(logistic(config.acceptance.beta.b0))} for an even 1-for-1 with nothing else (β0 ${fmt(config.acceptance.beta.b0, 1)}), what pulled the estimate down, most first:`,
-    "",
-    ...(what.length ? what.map((w) => `- ${w}`) : ["- nothing beyond the starting point"]),
-    "",
-    `What helped: ${up.filter((r) => r.term !== "base").map((r) => `${r.term} ${signed(r.logit, 2)} (${r.words})`).join("; ") || "nothing"}.`,
-    "",
-  );
-}
-
-function renderOptimizer(L: string[], x: RenderInput, teamName: (id: string) => string): void {
-  const o = x.optimizer;
-  const s = x.snapshot;
-  const fo = config.freeAgentOptimizer;
-  const model = x.I.model;
-  const judging = optimizerJudging(s, model);
-  L.push("## 11. The free-agent optimizer (model change 2)", "");
-  L.push(
-    `The same rules and numbers as reports/league-report.md's optimizer section (league-report's optimizerReport on this run's League model and leagueMarginals), from the data above. Every team is measured after the pickups that help it: the best add/drop while it gains at least ${fo.faMinGain} lineup points, at most ${fo.faMaxMoves} moves, never a K or D/ST nor a position the team streams, never a player its lineup needs. Lineup points: ROS, playoff weeks × ${model.playoffWeight}. Moves are judged ${optimizerJudgingText(judging, model.scenarios)}.${judging === "ev" ? "" : " The re-runs behind the lineup costs and MV_add below judge their moves by the expected-value gain."}`,
-    "",
-  );
-  const total = o.moves.reduce((n, m) => n + m.moves.length, 0);
-  const dist = o.distribution.map((n, k) => `${k} ${k === 1 ? "move" : "moves"}: ${n} ${n === 1 ? "team" : "teams"}`).join(" · ");
-  L.push(`**How many moves teams make:** ${dist}; ${total} in all, ${fmt(total / Math.max(1, o.moves.length))} a team (median ${fmt(median(o.moves.map((m) => m.moves.length)), 1)}).`, "");
-  L.push(`| Team | Moves | Pickups (gain: scenario lineups / expected value; ${judging === "scenario" ? "the scenario gain decides" : "the expected-value gain decides"}) |`, "|---|---|---|");
-  for (const m of o.moves) L.push(`| ${teamName(m.teamId)} | ${m.moves.length} | ${m.moves.length ? m.moves.map((mv) => `add ${playerLabel(s, mv.add)}${mv.drop ? `, drop ${playerLabel(s, mv.drop)}` : " (open spot)"} ${mv.gainScen !== null ? `${signed(mv.gainScen)} / ` : ""}${signed(mv.gainEv)}`).join("; ") : "none helps"} |`);
-  L.push("");
-  for (const ex of o.examples) {
-    if (!ex.playerId) {
-      L.push(`- **${ex.name}**: not in this league's player list.`);
-      continue;
-    }
-    const label = playerLabel(s, ex.playerId);
-    if (!ex.teamId || !ex.cost) {
-      L.push(`- **${label}**: not on an active roster with a projection.`);
-      continue;
-    }
-    const value = (v: { ev: number; scen: number | null }) => v.scen ?? v.ev;
-    const cost = value(ex.cost);
-    const best = [...ex.adds].sort((a, b) => value(b) - value(a) || (a.teamId < b.teamId ? -1 : 1))[0];
-    const parts = [`on ${teamName(ex.teamId)}, lineup cost (MV_lose) ${fmt(cost)}${ex.cost.scen !== null ? ` (EV ${fmt(ex.cost.ev)})` : ""}`];
-    if (ex.focusTeamId) {
-      const focus = ex.adds.find((a) => a.teamId === ex.focusTeamId);
-      parts.push(
-        focus
-          ? `MV_add to ${teamName(ex.focusTeamId)} ${signed(value(focus))}${focus.scen !== null ? ` (EV ${signed(focus.ev)})` : ""}${focus.drop ? `, making room by dropping ${playerLabel(s, focus.drop)}` : ", into an open spot"}`
-          : `${teamName(ex.focusTeamId)} can't take him (${ex.focusBlocked?.reason ?? "unknown"})`,
-      );
-    }
-    if (best) parts.push(`the most to ${teamName(best.teamId)}: ${signed(value(best))}`);
-    const gap = best ? Math.max(0, value(best)) - cost : Number.NaN;
-    parts.push(ex.chip ? `**a trade chip: gap ${fmt(ex.chip.gap)}** (maxOther ${fmt(ex.chip.maxOther)} to ${teamName(ex.chip.bestTeamId)} − cost ${fmt(ex.chip.cost)}; ${fmt(ex.chip.costPerWeek)} pts/wk${ex.chip.starter ? ", starter" : ""})` : `**not a trade chip: gap ${fmt(gap)}** (a chip needs ${config.needs.chipMinGap})`);
-    const focusAdd = ex.focusTeamId ? ex.adds.find((a) => a.teamId === ex.focusTeamId) : undefined;
-    const then = checkpoint3Text(x, ex, teamName, {
-      focus: focusAdd ? value(focusAdd) : null,
-      gap: ex.chip ? ex.chip.gap : gap,
-      maxOther: ex.chip ? ex.chip.maxOther : best ? Math.max(0, value(best)) : null,
-      cost: ex.chip ? ex.chip.cost : cost,
-      bestTeamId: ex.chip ? ex.chip.bestTeamId : (best?.teamId ?? null),
-    });
-    L.push(`- **${label}**: ${parts.join("; ")}.${then ? ` ${then}` : ""}`);
-  }
-  L.push("");
-}
-
-/**
- * An example of section 11 against Checkpoint 3's numbers (CHECKPOINT3_OPTIMIZER: the one-move baseline the optimizer
- * replaced), with what this run's pickups say about the change: the focus team's (Bo Nix → Team 1) or his best team's
- * (McCaffrey) own pickups at his position, which V* now counts before him. Null for another example.
- */
-function checkpoint3Text(x: RenderInput, ex: OptimizerExample, teamName: (id: string) => string, now: { focus: number | null; gap: number; maxOther: number | null; cost: number; bestTeamId: string | null }): string | null {
-  const s = x.snapshot;
-  const pos = ex.playerId ? s.players[ex.playerId]?.pos : undefined;
-  const pickupsAt = (teamId: string | null) => (teamId === null || pos === undefined ? [] : (x.optimizer.moves.find((m) => m.teamId === teamId)?.moves ?? []).filter((m) => s.players[m.add]?.pos === pos));
-  const listed = (ms: readonly FaMove[]) => andList(ms.map((m) => `${playerLabel(s, m.add)} (${signed(m.gainScen ?? m.gainEv)})`));
-  const nix = CHECKPOINT3_OPTIMIZER.nix;
-  if (ex.name === nix.name && ex.focusTeamId === nix.teamId) {
-    const own = pickupsAt(nix.teamId);
-    const why = own.length ? `, because ${teamName(nix.teamId)}'s own pickups include ${listed(own)}: V* makes ${own.length === 1 ? "that pickup" : "those pickups"} first, so ${ex.name} adds only what he adds over ${own.length === 1 ? "it" : "them"}` : `; ${teamName(nix.teamId)} makes no ${pos ?? ""} pickup of its own`;
-    const most = now.maxOther !== null && now.bestTeamId !== null ? `; at most ${signed(now.maxOther)} anywhere (${teamName(now.bestTeamId)}), a gap of ${fmt(now.gap)}` : "";
-    // Checkpoint 3's real-data team is named only when this league has it (a synthetic test league may not).
-    const where = s.teams.some((t) => t.id === nix.realMaxTeamId) ? ` (${teamName(nix.realMaxTeamId)})` : "";
-    return `At Checkpoint 3 the +${nix.repicked} (${teamName(nix.teamId)}'s one move re-picked) and +${nix.pinned} (pinned) came from a test fixture with synthetic inputs, not this league; on this league's data he added at most +${fmt(nix.realMax)} anywhere${where} against his lineup cost of ${fmt(nix.realCost)}, a gap of ${fmt(nix.realGap)}. Now ${now.focus === null ? "nothing (it can't take him)" : signed(now.focus)} to ${teamName(nix.teamId)}${why}${most}.`;
-  }
-  const mc = CHECKPOINT3_OPTIMIZER.mccaffrey;
-  if (ex.name === mc.name) {
-    const own = now.bestTeamId === mc.teamId ? pickupsAt(mc.teamId) : [];
-    const moved = now.maxOther !== null && now.bestTeamId === mc.teamId ? `: what he'd add to ${teamName(mc.teamId)} ${now.maxOther < mc.maxOther ? "fell" : "rose"} by ${fmt(Math.abs(now.maxOther - mc.maxOther))}${own.length ? ` (${teamName(mc.teamId)}'s own pickups include ${listed(own)})` : ""} and his cost ${now.cost < mc.cost ? "fell" : "rose"} by ${fmt(Math.abs(now.cost - mc.cost))}` : "";
-    return `At Checkpoint 3 (the one-move baseline) his chip gap was ${fmt(mc.gap)} (maxOther ${fmt(mc.maxOther)} to ${teamName(mc.teamId)} − cost ${fmt(mc.cost)}); now ${fmt(now.gap)}${now.maxOther !== null && now.bestTeamId !== null ? ` (maxOther ${fmt(now.maxOther)} to ${teamName(now.bestTeamId)} − cost ${fmt(now.cost)})` : ""}${moved}.`;
-  }
-  return null;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -2905,52 +2859,81 @@ async function loadLive(argv: readonly string[], teamArg: string | undefined): P
   return { snapshot: placeholders({ ...result.snapshot, myTeamId }), inputs, now, timing };
 }
 
-/** The offline dump (git-ignored data-local/parker-league/): snapshot, inputs and the moment they're for. */
-export function loadOffline(dir: string, teamArg: string | undefined): { snapshot: LeagueSnapshot; inputs: ModelInputs; now: Date; dumpedAt: string } {
-  const read = <T>(file: string): T => JSON.parse(readFileSync(path.join(dir, file), "utf8")) as T;
-  const raw = read<LeagueSnapshot>("snapshot.json");
-  const inputs = read<ModelInputs>("inputs.json");
-  const meta = read<{ now: string }>("meta.json");
-  const now = new Date(meta.now);
-  if (Number.isNaN(now.getTime())) throw new Error("data-local/parker-league/meta.json has no valid `now`.");
-  // placeholders() again: the dump already has them, but the report never trusts a file to.
-  return { snapshot: placeholders({ ...raw, myTeamId: teamArg ?? raw.myTeamId }), inputs, now, dumpedAt: meta.now };
+/** The offline dump (git-ignored; league-report's loadDump): snapshot, inputs and the moment they're for. */
+export function loadOffline(dir: string, teamArg: string | undefined): { snapshot: LeagueSnapshot; inputs: ModelInputs; now: Date; dumpedAt: string; waiverRanks: { readAt: string | null; teams: number } | null } {
+  return loadDump(dir, teamArg);
+}
+
+/** The command line (the file header): the offline dump folder (null: live), the team, the compare files. */
+export interface TradeReportArgs {
+  offline: string | null;
+  team: string | undefined;
+  compare: string | null;
+  compare3: string | null;
+}
+
+export function parseArgs(argv: readonly string[], root: string): TradeReportArgs {
+  const file = (flag: string) => {
+    const v = flagValue(argv, flag);
+    return v === undefined ? null : path.resolve(root, v);
+  };
+  return { offline: offlineDirOf(argv, root), team: flagValue(argv, "--team"), compare: file("--compare"), compare3: file("--compare3") };
+}
+
+/** The command line the report ran with, for its header (paths relative to the project root: displayPath), so it can be run again on the same data. */
+export function reportCommand(args: TradeReportArgs, root: string, argv: readonly string[] = []): string {
+  const rel = (p: string | null) => (p === null ? null : displayPath(root, p));
+  return commandText("trade:report", [
+    args.offline ? "--offline" : null,
+    rel(args.offline),
+    args.team ? `--team ${args.team}` : null,
+    args.compare ? `--compare ${rel(args.compare)}` : null,
+    args.compare3 ? `--compare3 ${rel(args.compare3)}` : null,
+    argv.includes("--cookies") ? "--cookies" : null,
+    argv.includes("--no-cookies") ? "--no-cookies" : null,
+  ]);
+}
+
+/**
+ * A committed file's contents at a commit (`git show <commit>:<file>`, read-only: no working tree or index change), or null
+ * when git or the commit isn't available. Section 4 reads Checkpoint 3's and Checkpoint 4's league reports with it.
+ */
+export function committedFile(root: string, commit: string, file: string): string | null {
+  try {
+    return execFileSync("git", ["show", `${commit}:${file}`], { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], maxBuffer: 64 * 1024 * 1024 });
+  } catch {
+    return null;
+  }
 }
 
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
-  const teamFlag = argv.indexOf("--team");
-  const teamArg = teamFlag >= 0 ? argv[teamFlag + 1] : undefined;
-  const offline = argv.includes("--offline");
+  const args = parseArgs(argv, ROOT);
   registerScrubber(await redactorFromMap("espn"));
   const clock = () => performance.now();
   const generatedAt = new Date();
-  let loaded: { snapshot: LeagueSnapshot; inputs: ModelInputs; now: Date; timing: Record<string, number>; note: string; reference?: { label: string; data: SearchReference } };
-  if (offline) {
-    const dir = path.join(ROOT, "data-local", "parker-league");
-    const o = loadOffline(dir, teamArg);
-    loaded = { ...o, timing: {}, note: `Offline: the git-ignored dump in data-local/parker-league/ (made by the app's own import and model-inputs builder at ${o.dumpedAt}); the engine's "now" is that moment.` };
-    // The pre-addendum reference, when it was saved for this very dump and moment (git-ignored; only its match is printed).
-    const refFile = path.join(ROOT, "data-local", "before-addendum", "top25.json");
-    if (existsSync(refFile)) {
-      const data = JSON.parse(readFileSync(refFile, "utf8")) as SearchReference;
-      if (data.now === o.dumpedAt) loaded.reference = { label: "data-local/before-addendum/top25.json", data };
-    }
+  let loaded: { snapshot: LeagueSnapshot; inputs: ModelInputs; now: Date; timing: Record<string, number>; note: string };
+  if (args.offline) {
+    const o = loadOffline(args.offline, args.team);
+    loaded = { ...o, timing: {}, note: dumpNote(ROOT, args.offline, o) };
   } else {
-    const l = await loadLive(argv, teamArg);
+    const l = await loadLive(argv, args.team);
     loaded = { ...l, note: "Live: Parker's league through the app's public-link import and its caches (league data 10 minutes, projections 6 hours, values 24 hours)." };
   }
-  const { snapshot, inputs, now, timing, note, reference } = loaded;
-  const report = buildTradeReport(snapshot, inputs, { now, clock, mode: offline ? "offline" : "live", dataNote: note, generatedAt, timing, ...(reference ? { beforeReference: reference } : {}) });
+  const compare = args.compare ? { run: readCompare(args.compare), file: args.compare } : null;
+  const compare3 = args.compare3 ? { run: readCompare(args.compare3), file: args.compare3 } : null;
+  const history = { cp3: committedFile(ROOT, CHECKPOINT3_REPORTED.code, "reports/league-report.md"), cp4: committedFile(ROOT, CHECKPOINT4_REPORTED.code, "reports/league-report.md") };
+  const { snapshot, inputs, now, timing, note } = loaded;
+  const report = buildTradeReport(snapshot, inputs, { now, clock, mode: args.offline ? "offline" : "live", dataNote: note, generatedAt, timing, compare, compare3, history, command: reportCommand(args, ROOT, argv) });
   // Public NFL player names are kept whole: a leaguemate's first or last name can be a word of one (league-report, review PRIV-1).
   const doc = scrubEverythingExcept(report.doc, Object.values(snapshot.players).map((p) => p.name));
   writeFileSync(path.join(ROOT, "reports", "trade-report.md"), doc);
   const top = report.result.trades[0];
-  const beforeTop = report.variants.before.result.trades[0];
   const anchors = [...report.anchors, ...report.premiumAnchors];
+  const f = report.facts.now;
   console.log(
     scrubEverything(
-      `trade report written (${offline ? "offline" : "live"}) in ${ms(report.timing.total)}: ${report.result.trades.length} trades shown; search ${ms(report.runtime.search.total)} + context ${ms(report.runtime.context.total)} (median of ${report.runtime.runs.length}); top trade Helps you ${top?.tradeScore ?? "–"}, Overall ${top?.overall ?? "–"} (before the addendum: ${beforeTop?.tradeScore ?? "–"}, ${beforeTop?.overall ?? "–"}${report.reference ? `; reference ${report.reference.same}/${report.reference.trades}${report.reference.counts && report.reference.hidden ? "" : ", counts differ"}` : ""}); steps ${report.steps.withSteps}; anchors ${anchors.filter((a) => a.pass).length}/${anchors.length}; consistency ${report.consistency.rows.filter((r) => !r.differ.length).length}/${report.consistency.rows.length}; Analyzer example ${report.example.pick ? `Helps you ${report.example.pick.tradeScore}, P_accept ${pctPlain(report.example.pick.pAccept)}` : "none"}`,
+      `trade report written (${args.offline ? "offline" : "live"}) in ${ms(report.timing.total)}: ${report.result.trades.length} trades shown; search ${ms(report.runtime.search.total)} + context ${ms(report.runtime.context.total)} (warm median of ${report.runtime.runs.length}); top trade Helps you ${top?.tradeScore ?? "–"}, Overall ${top?.overall ?? "–"}; top 10: ${f.injuredTop} receive an injury-tagged player, ${f.wilsonTop} give ${WILSON}, median g_mkt(you) ${pctSigned(f.medianTop)}; Plan B ${report.cards.planB.boxes}, steps ${report.cards.steps}; anchors ${anchors.filter((a) => a.pass).length}/${anchors.length}; consistency ${report.consistency.rows.filter((r) => !r.differ.length).length}/${report.consistency.rows.length}`,
     ),
   );
 }

@@ -17,16 +17,18 @@ const render = (myTeamId: string | null = "1") => {
 };
 
 describe("TradePartners → Trade Finder", () => {
-  it("links each partner card to the Trade Finder with that team picked", () => {
+  it("links each partner card to the Trade Finder with that team picked: 'See trade ideas with <team> →' (planner reply to Checkpoint 4, change 6)", () => {
     const html = render();
-    const links = [...html.matchAll(/<a class="([^"]*)" href="([^"]*)">Trade ideas<span class="sr-only"> with ([^<]*)<\/span><\/a>/g)].map(([, cls = "", href, name]) => ({ href, name, target: cls.includes("min-h-11") }));
+    const links = [...html.matchAll(/<a class="([^"]*)" href="([^"]*)">See trade ideas with ([^<]*)<span aria-hidden="true"> →<\/span><\/a>/g)].map(([, cls = "", href, name]) => ({ href, name, target: cls.includes("min-h-11") }));
     expect(links).toEqual([
       { href: "/trades?partner=2", name: "Gravel Gophers", target: true },
       { href: "/trades?partner=3", name: "Quasar Quokkas", target: true },
       { href: "/trades?partner=4", name: "Tundra Tortoises", target: true },
     ]);
     expect(html).not.toContain("come in a later update");
-    expect(html).toContain("“Trade ideas” opens the Trade Finder for that team: actual trades, ranked by how much they help you and how likely that team is to say yes.");
+    expect(html).toContain(
+      "“See trade ideas” opens the Trade Finder for that team: actual trades, ranked by how much they help you and how likely that team is to say yes, which can differ from the trade chips named here.",
+    );
   });
 
   it("offers no links without partners (no team picked)", () => {

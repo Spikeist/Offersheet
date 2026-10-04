@@ -21,6 +21,9 @@
  * QB and TE in Parker's format. So a league always uses `value` from a request in its own format:
  * redraft → isDynasty=false; dynasty → isDynasty=true; keeper → both, dynasty `value` for the future
  * term (MarketInputs.values) and redraft `value` for perception (MarketInputs.redraftValues) (§9).
+ * Dynasty leagues with weeks left to project also get the redraft `value` in their own format for the
+ * market blend (MarketInputs.seasonValues, §6 step 8: "redraftValue" in the planner's words, ⚠️ read
+ * as the redraft list's own `value` in the league's format, by the rule above).
  *
  * Joining to canonical ids (§4): a Sleeper id (the canonical id when known) joins on the row's
  * sleeperId, which FantasyCalc gives on every row. A platform id (`espn:<id>`, `mfl:<id>`,
@@ -70,12 +73,16 @@ export function fantasyCalcValuesUrl(f: FantasyCalcRequest): string {
 
 /**
  * The formats a league requests (§9): `values` in its own list (redraft → the redraft list, dynasty and
- * keeper → the dynasty list), plus the redraft list for keeper leagues (perception).
- * src/server/modelInputs.ts marketFormats builds them with src/engine/market.ts fantasyCalcFormat.
+ * keeper → the dynasty list), plus the redraft list for keeper leagues (perception) and, for dynasty
+ * leagues, the redraft list in the league's format as `season` (§6 step 8: the market blend weighs this
+ * season's projections against this season's market; Phase 4b). src/server/modelInputs.ts marketFormats
+ * builds them with src/engine/market.ts fantasyCalcFormat.
  */
 export interface MarketFormats {
   values: FantasyCalcFormat;
   redraft?: FantasyCalcFormat;
+  /** Dynasty leagues: the redraft list in the league's own format, read only by the market blend (MarketInputs.seasonValues). */
+  season?: FantasyCalcFormat;
 }
 
 const idLike = z.union([z.string(), z.number()]).nullish().catch(null);
@@ -93,6 +100,9 @@ const valueRowSchema = z.object({
   }),
   value: z.number(),
   redraftValue: z.number().nullish().catch(null),
+  /** Kept only for the local FantasyCalc archive (src/server/fantasyCalcArchive.ts); the engine never reads them. */
+  overallRank: z.number().nullish().catch(null),
+  positionRank: z.number().nullish().catch(null),
 });
 
 export const fantasyCalcValuesSchema = z.array(valueRowSchema);
@@ -117,6 +127,9 @@ export interface FantasyCalcValueRow extends FantasyCalcIdentity {
   value: number;
   /** FantasyCalc's baseline redraft number (12 teams, PPR, no TE premium): never a league's value (see the header). */
   redraftValue: number | null;
+  /** FantasyCalc's overall and position ranks in this format, for the local archive only (Phase 6's marketBlend backtest). */
+  overallRank?: number | null;
+  positionRank?: number | null;
 }
 
 export interface FantasyCalcPickValue {
@@ -152,6 +165,8 @@ export function reduceFantasyCalcValues(response: FantasyCalcValuesResponse): Fa
       team: cleanTeamCode(p.maybeTeam),
       value: row.value,
       redraftValue: row.redraftValue ?? null,
+      overallRank: row.overallRank ?? null,
+      positionRank: row.positionRank ?? null,
     });
   }
   return { players, picks };
@@ -282,13 +297,16 @@ export function fantasyCalcKnownIds(ids: Iterable<string>, players: Readonly<Rec
  * for dynasty and keeper leagues); keeper leagues pass the redraft load as `redraft`. A keeper league
  * whose dynasty list couldn't be loaded passes its redraft load as `values` and no `redraft`: the
  * market's format then says isDynasty false, so a reader of the future term can tell that it's missing
- * (src/server/modelInputs.ts, review DATA-2). `fantasyCalcPlayers`
+ * (src/server/modelInputs.ts, review DATA-2). Dynasty leagues pass their redraft list in the league's
+ * format as `season`, which becomes seasonValues (the market blend's table, §6 step 8; never
+ * redraftValues, which perception would read). `fantasyCalcPlayers`
  * (/players, null when it couldn't be loaded) widens knownIds to players FantasyCalc lists without a
  * value. fetchedAt is the oldest load's time (`now` when the client didn't report one).
  */
 export function marketInputsFrom(input: {
   values: FantasyCalcValuesLoad;
   redraft?: FantasyCalcValuesLoad;
+  season?: FantasyCalcValuesLoad;
   fantasyCalcPlayers: readonly FantasyCalcPlayerIds[] | null;
   players: Readonly<Record<string, JoinPlayer>>;
   relevantIds: Iterable<string>;
@@ -297,13 +315,15 @@ export function marketInputsFrom(input: {
   const ids = [...new Set(input.relevantIds)];
   const sources: Array<readonly FantasyCalcIdentity[]> = [input.values.players];
   if (input.redraft) sources.push(input.redraft.players);
+  if (input.season) sources.push(input.season.players);
   if (input.fantasyCalcPlayers) sources.push(input.fantasyCalcPlayers);
-  const times = [input.values.fetchedAt, input.redraft?.fetchedAt].filter((t): t is number => t !== undefined);
+  const times = [input.values.fetchedAt, input.redraft?.fetchedAt, input.season?.fetchedAt].filter((t): t is number => t !== undefined);
   return {
     format: input.values.format,
     fetchedAt: new Date(times.length ? Math.min(...times) : input.now.getTime()).toISOString(),
     values: fantasyCalcValuesFor(input.values.players, input.players, ids),
     ...(input.redraft ? { redraftValues: fantasyCalcValuesFor(input.redraft.players, input.players, ids) } : {}),
+    ...(input.season ? { seasonValues: fantasyCalcValuesFor(input.season.players, input.players, ids) } : {}),
     knownIds: fantasyCalcKnownIds(ids, input.players, sources),
     topValue: input.values.topValue,
   };

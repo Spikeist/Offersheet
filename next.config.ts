@@ -13,6 +13,13 @@ const SECURITY_HEADERS = [
 ];
 
 const nextConfig: NextConfig = {
+  /**
+   * Keep local data out of the server bundles' file traces: the archives under data-local/, raw captures under
+   * fixtures/, the file cache and the reports could otherwise be listed in a route's trace (a literal default path in
+   * src/server/projectionArchive.ts and fantasyCalcArchive.ts is enough) and uploaded with a deploy built on this
+   * computer (Phase 4b review of track G).
+   */
+  outputFileTracingExcludes: { "*": ["data-local/**", "fixtures/**", ".cache/**", "reports/**"] },
   headers() {
     return [{ source: "/:path*", headers: SECURITY_HEADERS }];
   },

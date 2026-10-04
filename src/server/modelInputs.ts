@@ -17,8 +17,10 @@
  *   3. Sleeper's season projections (§6's last-resort base rate; 6 hours),
  *   4. Sleeper's stats for the completed weeks (6 hours),
  *   5. FantasyCalc values in the league's format (keeper leagues: the dynasty and the redraft list,
- *      §9, each asked for whatever happens to the other) and FantasyCalc /players for knownIds (24
- *      hours; the crosswalk's cache entry).
+ *      §9, each asked for whatever happens to the other; dynasty leagues with weeks left to project: the
+ *      redraft list in their format too, after their own list loaded, for the market blend, §6 step 8,
+ *      MarketInputs.seasonValues) and FantasyCalc /players for knownIds (24 hours; the crosswalk's cache
+ *      entry). Each list is a format of its own, fetched at most once a day (§2.9).
  * Steps 2–4 go through one SleeperGate (src/data/sleeperProjections.ts; review DATA-1, PERF-1): once
  * Sleeper stops answering, nothing more is asked of it in this build, nor in the builds of the next few
  * minutes, so an outage costs the build that finds it 2 requests and the builds after it none (what the
@@ -27,9 +29,13 @@
  * (the league's season comes after the one being played: a league renewed in January or February for
  * next season, review DATA-3), only step 5 runs: nothing is left to project, or nothing is published
  * yet, so asking for schedules, projections and stats would only load the sources (§0.9), while dynasty
- * and keeper values still matter.
+ * and keeper values still matter (a dynasty league's season list doesn't then: nothing is projected to
+ * blend).
  * Every source that fails becomes a warning and an empty contribution; nothing here throws for a
  * source failure (the route fails only when the league import itself fails).
+ * Every FantasyCalc list step 5 read also goes to the local FantasyCalc archive (planner reply to
+ * Checkpoint 4, change 7: src/server/fantasyCalcArchive.ts; one copy per format per day, local disk
+ * only, in the background), for Phase 6's backtest of the market blend.
  *
  * assembleModelInputs is the pure part (no I/O, time passed in): league scoring (expectedPoints for
  * projections, actualPoints for stat lines, §5), the FantasyCalc join (marketInputsFrom: Sleeper ids on
@@ -82,6 +88,7 @@ import { POSITIONS, type ImportWarning, type LeagueSettings, type LeagueSnapshot
 import { actualPoints, expectedPoints, playedGame } from "@/engine/scoring";
 import { redactSecrets } from "@/lib/errors";
 import { defaultSeason } from "@/lib/season";
+import { archiveFantasyCalcLists, defaultFantasyCalcArchiver, type FantasyCalcArchiver } from "./fantasyCalcArchive";
 import { defaultProjectionArchiver, firstKickoffOf, type ProjectionArchiver } from "./projectionArchive";
 
 /** Source names on the League page (InputSourceStamp.source). */
@@ -163,10 +170,13 @@ export function isSleeperId(id: string): boolean {
 /**
  * The FantasyCalc formats a league requests (§9, §2.9): its own list (redraft → redraft, dynasty →
  * dynasty), and for keeper leagues the dynasty list for `values` plus the redraft list for perception.
- * Each carries its own substitution notes (fantasyCalcFormat).
+ * Dynasty leagues also name the redraft list in their own format, `season`, for the market blend (§6
+ * step 8; MarketInputs.seasonValues), which buildModelInputs asks for only while weeks are left to
+ * project. Each carries its own substitution notes (fantasyCalcFormat).
  */
 export function marketFormats(settings: LeagueSettings): MarketFormats {
   if (settings.leagueType === "keeper") return { values: fantasyCalcFormat(settings, "dynasty"), redraft: fantasyCalcFormat(settings, "redraft") };
+  if (settings.leagueType === "dynasty") return { values: fantasyCalcFormat(settings), season: fantasyCalcFormat(settings, "redraft") };
   return { values: fantasyCalcFormat(settings) };
 }
 
@@ -182,6 +192,11 @@ export interface FantasyCalcLoads {
   values: FantasyCalcValuesLoad;
   /** Keeper leagues: the redraft list (perception, §9); missing when it couldn't be loaded. */
   redraft?: FantasyCalcValuesLoad;
+  /**
+   * Dynasty leagues with weeks left: the redraft list in the league's format, for the market blend (§6 step 8;
+   * MarketInputs.seasonValues); missing when it couldn't be loaded (the League model then says the blend is off).
+   */
+  season?: FantasyCalcValuesLoad;
   /** FantasyCalc /players (widens knownIds); null when it couldn't be loaded. */
   players: readonly FantasyCalcPlayerIds[] | null;
 }
@@ -323,7 +338,14 @@ export function collapseWeekWarnings(warnings: readonly ImportWarning[]): Import
   return out;
 }
 
-/** "Trade values: FantasyCalc …" and one note per substitution (each once), for the formats that loaded. */
+/**
+ * "Trade values: FantasyCalc …" and one note per substitution (each once), for the formats that loaded. A
+ * dynasty league's season list (the market blend's, §6 step 8) gets no note of its own: the blend reads a
+ * list in every league type, and the League page's "Projected points" says which in each (in a dynasty
+ * league, this season's redraft values rather than the dynasty values shown), so a note for dynasty leagues
+ * alone would say less than the page and only in one league type (review of track A). Its size, PPR and TE
+ * substitutions are the league's own list's anyway.
+ */
 export function fantasyCalcNotes(values: FantasyCalcFormat, redraft?: FantasyCalcFormat): string[] {
   const head = redraft
     ? `Trade values: FantasyCalc ${fantasyCalcFormatLabel(values)} for long-term worth, and ${fantasyCalcFormatLabel(redraft)} for how managers see a trade this season.`
@@ -400,10 +422,18 @@ export function assembleModelInputs(snapshot: LeagueSnapshot, loaded: ModelSourc
     players[id] = inputs;
   }
 
-  // FantasyCalc (§9): values joined to canonical ids, keeper leagues' redraft list, knownIds.
+  // FantasyCalc (§9): values joined to canonical ids, keeper leagues' redraft list, dynasty leagues' season list (the market blend's), knownIds.
   const fc = loaded.fantasyCalc;
   const market: MarketInputs | null = fc
-    ? marketInputsFrom({ values: fc.values, ...(fc.redraft ? { redraft: fc.redraft } : {}), fantasyCalcPlayers: fc.players, players: snapshot.players, relevantIds: ids, now })
+    ? marketInputsFrom({
+        values: fc.values,
+        ...(fc.redraft ? { redraft: fc.redraft } : {}),
+        ...(fc.season ? { season: fc.season } : {}),
+        fantasyCalcPlayers: fc.players,
+        players: snapshot.players,
+        relevantIds: ids,
+        now,
+      })
     : null;
 
   const warnings: ImportWarning[] = [];
@@ -435,7 +465,7 @@ export function assembleModelInputs(snapshot: LeagueSnapshot, loaded: ModelSourc
   const stamps = [
     stamp(MODEL_SOURCES.sleeperProjections, projectionLoads, now),
     stamp(MODEL_SOURCES.sleeperStats, stats && stats.weeks.size ? [stats] : [], now),
-    market && fc ? { source: MODEL_SOURCES.fantasyCalc, fetchedAt: market.fetchedAt, ...(fc.values.stale || fc.redraft?.stale ? { stale: true } : {}) } : null,
+    market && fc ? { source: MODEL_SOURCES.fantasyCalc, fetchedAt: market.fetchedAt, ...(fc.values.stale || fc.redraft?.stale || fc.season?.stale ? { stale: true } : {}) } : null,
     stamp(MODEL_SOURCES.nflSchedule, loaded.schedule ? [loaded.schedule] : [], now),
   ];
   for (const s of stamps) if (s) sources.push(s);
@@ -476,6 +506,12 @@ export interface BuildModelInputsArgs {
    * Vercel and under Vitest); null: none. Tests pass their own.
    */
   projectionArchive?: ProjectionArchiver | null;
+  /**
+   * Where every FantasyCalc list read is archived, one copy per format per day (planner reply to Checkpoint 4,
+   * change 7: Phase 6's backtest of the market blend). Absent: the process's own archive when it has a local disk
+   * (defaultFantasyCalcArchiver: off in production, on Vercel and under Vitest); null: none. Tests pass their own.
+   */
+  fantasyCalcArchive?: FantasyCalcArchiver | null;
 }
 
 /**
@@ -532,13 +568,19 @@ function fantasyCalcDidntAnswer(err: unknown): boolean {
 
 /**
  * FantasyCalc's lists for the league (§9). A keeper league asks for both lists whatever happens to the
- * first (review DATA-2): the redraft one is what the League page shows. /players is asked for only when
- * a list loaded.
+ * first (review DATA-2): the redraft one is what the League page shows. A dynasty league asks for its
+ * season list (`formats.season`, the market blend's, §6 step 8) only once its own list loaded: without
+ * that there's no market to blend with. The season list failing isn't a warning here: the League model
+ * says the blend is off (src/engine/league.ts BLEND_OFF_WARNING). Right after FantasyCalc failed to
+ * answer the first list (it didn't answer, or a saved copy stood in for a live answer it couldn't use),
+ * a later list is asked once, without a retry (a fresh or saved copy still serves; review DATA-2, and the
+ * review of track A for the saved copy). /players is asked for only when a list loaded.
  */
 async function loadFantasyCalc(http: HttpClient, formats: MarketFormats, warnings: ImportWarning[]): Promise<FantasyCalcLoads | null> {
   const own = await tryFantasyCalcValues(http, formats.values);
-  // Right after FantasyCalc didn't answer, the second list is asked once, without a retry (a fresh or saved copy still serves).
-  const second = formats.redraft ? await tryFantasyCalcValues(http, formats.redraft, "error" in own && fantasyCalcDidntAnswer(own.error) ? { maxRetries: 0 } : {}) : undefined;
+  const failedToAnswer = "error" in own ? fantasyCalcDidntAnswer(own.error) : own.load.stale;
+  const later = failedToAnswer ? { maxRetries: 0 } : {};
+  const second = formats.redraft ? await tryFantasyCalcValues(http, formats.redraft, later) : undefined;
   let values: FantasyCalcValuesLoad;
   let redraft: FantasyCalcValuesLoad | undefined;
   if ("load" in own) {
@@ -563,13 +605,18 @@ async function loadFantasyCalc(http: HttpClient, formats: MarketFormats, warning
     warnings.push({ code: "FANTASYCALC_UNAVAILABLE", message: `FantasyCalc's values couldn't be loaded (${reasons.join("; ")}), so players have no market values yet.`, platformPath: "values/current" });
     return null;
   }
+  let season: FantasyCalcValuesLoad | undefined;
+  if (formats.season && "load" in own) {
+    const got = await tryFantasyCalcValues(http, formats.season, later);
+    if ("load" in got) season = got.load;
+  }
   let players: FantasyCalcPlayerIds[] | null = null;
   try {
     players = (await fetchFantasyCalcPlayers(http)).players;
   } catch (err) {
     warnings.push({ code: "FANTASYCALC_PLAYERS_UNAVAILABLE", message: `FantasyCalc's player list couldn't be loaded (${reasonOf(err)}), so only players with a value count as known to FantasyCalc.`, platformPath: "players" });
   }
-  return { values, ...(redraft ? { redraft } : {}), players };
+  return { values, ...(redraft ? { redraft } : {}), ...(season ? { season } : {}), players };
 }
 
 /**
@@ -619,7 +666,11 @@ export async function buildModelInputs(args: BuildModelInputsArgs): Promise<Mode
     }
   }
 
-  const fantasyCalc = await loadFantasyCalc(http, marketFormats(snapshot.settings), warnings);
+  // A dynasty league's season list is the market blend's (§6 step 8): asked for only while weeks are left to project.
+  const formats = marketFormats(snapshot.settings);
+  const fantasyCalc = await loadFantasyCalc(http, plan.seasonOver || plan.notStarted ? { values: formats.values, ...(formats.redraft ? { redraft: formats.redraft } : {}) } : formats, warnings);
+  // Every list read goes to the local FantasyCalc archive too, in the background: the build doesn't wait (never throws).
+  archiveFantasyCalcLists(args.fantasyCalcArchive === undefined ? defaultFantasyCalcArchiver() : args.fantasyCalcArchive, fantasyCalc);
 
   return assembleModelInputs(snapshot, { schedule, weekly, season: seasonLoad, stats, fantasyCalc, ...(args.espn ? { espn: args.espn } : {}), warnings }, now);
 }

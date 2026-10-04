@@ -4,7 +4,8 @@
  * odds and my remaining schedule with each week's risk (§8), the team table with needs and trade chips,
  * the positional strength heatmap, best trade partners, "Streaming picks this week" (§7 streaming
  * positions), every roster (headed by what its team streams and how many free-agent pickups would help it, which
- * its body lists, §7) with rest-of-season points and a week-by-week breakdown (§6 step 7), the best free agents, and
+ * its body lists, §7; above them, how free agents are shared out, one team each: Phase 4b) with rest-of-season points
+ * and a week-by-week breakdown (§6 step 7), the best free agents, and
  * "how these numbers work". Every word and number comes from buildLeagueView();
  * this file only arranges it, mobile-first (375 px). Every set of values carries its own
  * "Values: FantasyCalc" link (§2.9): the header, the team table, the rosters and the free agents (the
@@ -140,6 +141,7 @@ function Rosters({ view }: ViewProps) {
         <p className="mt-1 text-sm text-muted">
           Rest-of-season (ROS) points count only the games left. Tap a player for his week-by-week points. <ValuesCredit />
         </p>
+        {view.pickupsNote ? <p className="mt-1 text-sm break-words text-muted">{view.pickupsNote}</p> : null}
       </div>
       {view.rosters.map((r) => (
         <details key={r.teamId} open={r.isMine} className="group rounded-2xl border border-line bg-surface shadow-sm">

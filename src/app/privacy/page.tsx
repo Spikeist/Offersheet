@@ -8,7 +8,7 @@ export const metadata: Metadata = {
 };
 
 /** When this policy last changed (Parker's local date). Update it with every change below. */
-const LAST_UPDATED = "October 1, 2026";
+const LAST_UPDATED = "October 3, 2026";
 
 /**
  * CLAUDE.md §14: the privacy policy must match what the app actually does. Update it whenever data
@@ -24,7 +24,8 @@ const LAST_UPDATED = "October 1, 2026";
  *     same inputs the same way (src/components/league/useLeagueInputs.ts).
  *   - src/lib/tradeView.ts finderHref / analyzerHref (Phase 4): links to the Trade Finder for one team and
  *     to a trade in the Trade Analyzer carry a team ID and player IDs in the URL query, never names or
- *     the league ID; the Finder (a partner picked) and the Analyzer (the trade it evaluated) write theirs
+ *     the league ID (Phase 4b: a trade opened from a card's "If they say no, try:" also carries `from=planB`,
+ *     which says only where it was opened from); the Finder (a partner picked) and the Analyzer (the trade it evaluated) write theirs
  *     back into the address the same way (history.replaceState: no request). Those links are never
  *     prefetched (prefetch={false}: TradeCard, TradePartners), so the server sees such an address only
  *     when the user opens it.
@@ -34,7 +35,9 @@ const LAST_UPDATED = "October 1, 2026";
  *     the browser's site data is cleared, and only the in-browser engine reads them (never sent to a server).
  *   - src/lib/feedbackStore.ts (Phase 4): feedback on trade ideas (outcome and report buttons) in localStorage
  *     ("offersheet:feedback:v1", the newest FEEDBACK_MAX_RECORDS = 500): the trade's player, pick and partner
- *     team IDs, Offer Sheet's numbers and features, when each button was pressed and the typed note.
+ *     team IDs, Offer Sheet's numbers and features, which version of the idea was sent when its card showed two
+ *     (Phase 4b: the version's key, made of the same team and player IDs, and its estimate), when each button was
+ *     pressed and the typed note.
  *     "Export feedback" (feedbackExport) numbers the leagues (league-1, league-2, …) and keeps notes as
  *     typed; "Delete saved feedback" removes it all. Nothing is sent anywhere until Phase 7's server-side
  *     store, which must update this page.
@@ -91,8 +94,8 @@ export default function PrivacyPage() {
         <p className="mt-2 text-sm leading-relaxed">
           The Trade Finder and the Trade Analyzer use the same projections and values, kept and fetched the same way, and they search for and score trades in your
           browser too. A link to the Trade Finder for one team, or to a trade in the Trade Analyzer, carries only that team&apos;s ID number and the players&apos; ID
-          numbers in its web address (never names or your league&apos;s ID), and the Finder and the Analyzer put the team you pick and the trade you evaluate into
-          their address the same way. Offer Sheet never loads these addresses ahead of time, so our server sees one only when you open it, like any web
+          numbers in its web address (never names or your league&apos;s ID; a trade opened from &ldquo;If they say no, try&rdquo; also says so there), and the
+          Finder and the Analyzer put the team you pick and the trade you evaluate into their address the same way. Offer Sheet never loads these addresses ahead of time, so our server sees one only when you open it, like any web
           address.
         </p>
         <p className="mt-2 text-sm leading-relaxed">To go easy on ESPN and Sleeper, our server keeps a copy of what it fetched for a short time, then deletes it:</p>
@@ -130,8 +133,9 @@ export default function PrivacyPage() {
           <li>
             Trade feedback: when you mark what happened to a trade idea or report a problem with it (on the Trade Finder or the Trade Analyzer), it&apos;s saved under
             &ldquo;offersheet:feedback:v1&rdquo;, for the latest 500 trade ideas. Each record is filed under the same short code made from its league&apos;s ID as
-            that league&apos;s settings. It holds the players and picks in the trade and the other team (all as ID numbers), Offer Sheet&apos;s numbers for the trade, when you
-            pressed each button, and any note you typed.
+            that league&apos;s settings. It holds the players and picks in the trade and the other team (all as ID numbers), Offer Sheet&apos;s numbers for the trade, which
+            version of it you sent when the card showed more than one (its players as ID numbers too, and Offer Sheet&apos;s estimate for it), when you pressed each
+            button, and any note you typed.
           </li>
           <li>
             &ldquo;Export feedback&rdquo; on the Settings page downloads your feedback as a file. In the file your leagues are only numbered (league-1, league-2), and your

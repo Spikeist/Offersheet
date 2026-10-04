@@ -9,17 +9,67 @@
  *   labeled "Est." and with its label: Long shot, Possible, Decent, Likely) and "Overall" (0–100). A trade that
  *   doesn't help me (B ≤ 0, only the Analyzer shows one) scores 0; one whose odds couldn't be simulated shows "—".
  *   When the league's review could veto it (the veto rule, §11), the chance it goes through is shown too;
- * - the risk flags, apart from the numbers (§10 guards): "Depends on an injured player", "Market check" (and, in the
- *   Analyzer, that a trade is normally hidden: it doesn't help me, saying what pulled it down (noHelpText), or the market
- *   check's hiding line);
+ * - the risk flags, apart from the numbers (§10 guards): "Depends on an injured player" (with what his projection
+ *   assumes: see the injury tags below), "Market check" (and, in the Analyzer, that a trade is normally hidden: it doesn't
+ *   help me, saying what pulled it down (noHelpText), or the market check's hiding line);
  * - the numbers behind the score in words (§10 "always show"): my lineup's change per week (regular season and
  *   playoffs), my playoff and title odds in percentage points ("Playoff odds +4.1 percentage points (62% to 66%)":
  *   never "points", which would read as fantasy points next to the lineup's; the end percents only when my odds before
  *   any trade are known and the whole percent moves), long-term value in dynasty and
- *   keeper leagues, trade value given and received (the page puts "Values: FantasyCalc" beside it, §2.9), the
- *   partner's weekly lineup change, and "You get 142 ROS pts, give 118" (§13);
- * - the roster moves the trade forces (§7 roster legality: drops and adds for either side);
- * - the reasons and the pitch message (src/engine/explain.ts wrote them; shown as they are).
+ *   keeper leagues, trade value given and received (the page puts "Values: FantasyCalc" beside it, §2.9; since the
+ *   value floor on both sides, planner reply to Checkpoint 4, change 4, it says that a player worth less than the best
+ *   free agent counts at that free agent's value, and so does an open roster spot: ⚠️ always, since the card can't
+ *   tell which players the floor lifted; with an IR player in the trade, review of track E, that only my active roster's
+ *   spots count, since an IR slot isn't one: valueBasisText), the partner's weekly lineup change, and "You get 142 ROS
+ *   pts, give 118" (§13), with a line when my starting lineup moves the other way (review of Phase 4b: "You get 96 ROS
+ *   pts, give 295" read like a lopsided loss on a trade that gives a backup QB who never starts): "Your starting lineup
+ *   still gains 25 ROS pts: …" (rosNoteOf, from TradeDetail.weekly);
+ * - the roster moves the trade forces (§7 roster legality: drops and adds for either side; Phase 4b's IR players: a
+ *   received IR player who goes into an open IR slot, RosterChange.toIR, and a player dropped from the week an IR player
+ *   comes back, RosterChange.displaced);
+ * - the reasons and the pitch message (src/engine/explain.ts wrote them; shown as they are, except explain.ts's
+ *   "Depends on an injured player" caveat, which the card's flag already says: INJURED_REASON).
+ *
+ * Planner reply to Checkpoint 4, change 6:
+ * - Injury tags in words on every injury-tagged player on either side (TradeEvaluation.flags.tagged; when an evaluation
+ *   lacks them, the Analyzer's, tags from the snapshot with the week now: explain.injuryTags): "Questionable", "Out —
+ *   expected back week 8", "On IR — expected back week 8", "Out for the season", "Suspended", "Not an active NFL player"
+ *   (injuryTagText). A return week is said whenever the tag carries one, and explain.injuryTags keeps it only when his
+ *   projection counts on it (review of track F): OUT from next week on, IR, PUP and SUSPENDED after this week (an older
+ *   date is stale), and a Probable, Questionable or Doubtful player's far ESPN date only when his projection follows it
+ *   (§6 step 3's conflict), said as the platform's: "Questionable — ESPN expects him back week 8" (Josh Jacobs on
+ *   Parker's league, out until then in his numbers, read just "Questionable"). The search's evaluations and the
+ *   Analyzer's both carry tags that know which conflicted players follow their date (evaluate.ts withWords sets
+ *   flags.tagged with explain.tagContextOf, the League model's word); only an evaluation without them (a core) reads the
+ *   snapshot, where such a player reads just "Questionable". When a player I'd get is tagged with an injury status
+ *   (Probable, Questionable, Doubtful, Out, IR or PUP; not Suspended or NA), the card says once why his numbers can still
+ *   look good: "Josh Jacobs: his projection assumes he returns at full strength, blended with the trade market." ⚠️ The
+ *   tag doesn't say whether the market blend reached him (a player without a real FantasyCalc value, or a K or D/ST when
+ *   they're included, isn't blended), so the sentence is said for every such player. Review of Phase 4b: a player I'd
+ *   get who is Out, on IR or on the PUP list was said four times (his tag, that sentence, the "Depends on an injured
+ *   player" flag and explain.ts's caveat repeating the flag), so for him the sentence joins the flag ("Depends on an
+ *   injured player: Jadarian Price (injured reserve). His projection assumes he returns at full strength, blended with
+ *   the trade market.") and the caveat isn't repeated among the reasons: his tag and the flag say it. The sentence under
+ *   the two lists stays for the other tagged players I'd get (Probable, Questionable, Doubtful), whom no flag names.
+ * - "If they say no, try:" (TradeEvaluation.planB, the Trade Finder's cards without steps; since the review of track F a
+ *   trade likelier to go through than the card): the other trade in words, each tagged player with his tag (the card's
+ *   own for a player it shares with the card, else the search's tag for him on another idea, which knows his far date,
+ *   else the snapshot's: ⚠️ PlanB carries no tags of its own), whether it's the same players of theirs or "A different
+ *   set of their players", its three numbers (with the chance it goes through when a veto could cut it), "Also shown as
+ *   trade idea 6." when the list shows it as a card of its own (its place in the sort shown), its own message to send
+ *   them (planBPitch: a follow-up naming the trade from their side) and its own "Open in Analyzer" link, which says it
+ *   comes from "If they say no, try:" (`from=planB`), so the Analyzer shows that trade as one offer, without "How to
+ *   offer it" (review of Phase 4b: its first offer could be smaller than the trade they had just turned down, and its
+ *   message proposed that smaller offer).
+ * - Feedback versions (TradeCardView.versions): the versions the card shows, for "Which version did you send?" (the
+ *   first offer and the full one with steps; this trade and Plan B's; this trade alone otherwise). The "Version:" line
+ *   under the outcome buttons (versionLine) names the recorded version only when its key is one the card shows; a
+ *   recorded version the card no longer shows (its Plan B or throw-in changed since, or the Analyzer's card for the same
+ *   trade) reads "an earlier one" with its players, read from its key (CardFeedback.versionWords).
+ *
+ * The chance a version goes through when the league's review could veto it (throughText) is said when it prints
+ * differently from the chance they accept, and as "under 5%" when both print as the display's floor while the veto cut
+ * it below (review of Phase 4b: "5% … about 5% it goes through" next to a reason saying the veto halves the chance).
  *
  * Planner addendum to Checkpoint 3 (lead decisions N2, N8):
  * - "Harder to get" next to each player I'd get whose premium for his manager earns the tag (TradeDetail.premium:
@@ -57,15 +107,32 @@
 import { displayAcceptance } from "@/engine/acceptance";
 import { config } from "@/engine/config";
 import type { TradeAnalysis } from "@/engine/evaluate";
+import { injuryTags } from "@/engine/explain";
+import { tradeActiveSpots } from "@/engine/irSlots";
 import { POSITIONS, type InjuryStatus, type LeagueSnapshot, type PlayerInfo, type Pos } from "@/engine/model";
 import { sortTrades } from "@/engine/rank";
 import type { TradeSettings } from "@/engine/settings";
-import type { PremiumFact, TradeAsset, TradeEvaluation, TradeProposal, TradeSearchProgress, TradeSearchResult, TradeSearchStage, TradeSort, TradeStep } from "@/engine/tradeModel";
-import { feedbackFor, type FeedbackOutcome, type FeedbackReason, type FeedbackRecord } from "./feedbackStore";
+import type {
+  InjuryTag,
+  PlanB,
+  PremiumFact,
+  RosterChange,
+  TradeAsset,
+  TradeDetail,
+  TradeEvaluation,
+  TradeProposal,
+  TradeSearchProgress,
+  TradeSearchResult,
+  TradeSearchStage,
+  TradeSort,
+  TradeStep,
+} from "@/engine/tradeModel";
+import { feedbackFor, type FeedbackOutcome, type FeedbackReason, type FeedbackRecord, type FeedbackSent, type FeedbackVersion } from "./feedbackStore";
 import { fmtNum, fmtSigned, fmtWhole, plural } from "./format";
-import { INJURY_LABEL, posLabel } from "./labels";
+import { INJURY_LABEL, PLATFORM_LABEL, posLabel } from "./labels";
 
-type SnapshotPart = Pick<LeagueSnapshot, "platform" | "teams" | "players" | "settings">;
+/** What the views read of the snapshot; currentWeek (the injury tags' week now) is optional so partial fixtures fit. */
+export type SnapshotPart = Pick<LeagueSnapshot, "platform" | "teams" | "players" | "settings"> & Partial<Pick<LeagueSnapshot, "currentWeek">>;
 
 export const FINDER_PATH = "/trades";
 export const ANALYZER_PATH = "/analyzer";
@@ -97,6 +164,19 @@ export function percentText(p: number): string {
 /** An acceptance estimate as shown (§11: the nearest 5%). */
 export function acceptText(p: number): string {
   return `${Math.round(displayAcceptance(p) * 100)}%`;
+}
+
+/**
+ * The chance a version goes through when the league's review could veto it, next to the chance they accept (the file
+ * header): "about 20%" when it prints differently; "under 5%" when both print as the display's floor (§11: an estimate is
+ * never shown below displayStep) while the veto cut it below that floor; null when there's nothing more to say (it
+ * prints the same and isn't below the floor: the reason that the league reviews trades says the rest).
+ */
+export function throughText(pAccept: number, pComplete: number): string | null {
+  if (!Number.isFinite(pComplete)) return null;
+  if (Math.abs(displayAcceptance(pComplete) - displayAcceptance(pAccept)) > 1e-9) return `about ${acceptText(pComplete)}`;
+  const floor = config.acceptance.displayStep;
+  return pComplete > 0 && pComplete < floor - 1e-12 && pComplete < pAccept - 1e-12 ? `under ${Math.round(floor * 100)}%` : null;
 }
 
 /**
@@ -147,6 +227,11 @@ const INJURY_TONE: Record<InjuryStatus, InjuryTone> = {
   NA: "muted",
 };
 
+/** A name's possessive: "Team 2's", "Gravel Gophers'" (a name ending in s takes the apostrophe alone). */
+export function possessive(name: string): string {
+  return /s$/i.test(name) ? `${name}'` : `${name}'s`;
+}
+
 /** A team's name, or a stand-in when the snapshot doesn't have it. */
 export function teamNameOf(snapshot: Pick<LeagueSnapshot, "teams">, teamId: string): string {
   return snapshot.teams.find((t) => t.id === teamId)?.name ?? "The other team";
@@ -163,6 +248,11 @@ export interface AssetView {
   detail: string;
   /** An injury tag ("Q", "IR") with its words, or null when healthy. */
   injury: { short: string; long: string; tone: InjuryTone } | null;
+  /**
+   * On a trade card: his injury tag in words (planner reply to Checkpoint 4, change 6; injuryTagText: "Out — expected back
+   * week 8"), with its tone; null when he isn't tagged; absent outside a card.
+   */
+  status?: { text: string; tone: InjuryTone } | null;
   /** "Harder to get" (a player I'd get whom his manager values above market: the file header), with why on hover; null otherwise. */
   tag: { text: string; title: string } | null;
 }
@@ -237,6 +327,100 @@ function harderToGetOf(fact: PremiumFact | undefined): AssetView["tag"] {
   return { text: HARDER_TO_GET_TAG, title: `${HARDER_TO_GET_TAG}: ${why.length ? `${listText(why)}, so expect` : "expect"} them to want a little extra for him.` };
 }
 
+// ---------------------------------------------------------------------------------------------
+// Injury tags (planner reply to Checkpoint 4, change 6; the file header)
+
+/** A tag's status in words. */
+const TAG_WORDS: Readonly<Record<InjuryTag["status"], string>> = {
+  PROBABLE: "Probable",
+  QUESTIONABLE: "Questionable",
+  DOUBTFUL: "Doubtful",
+  OUT: "Out",
+  IR: "On IR",
+  PUP: "On the PUP list",
+  SUSPENDED: "Suspended",
+  NA: "Not an active NFL player",
+};
+
+/** Game-time statuses (he may play this week): a return week on such a tag is the platform's far date his projection follows. */
+const GAME_TIME: ReadonlySet<InjuryTag["status"]> = new Set<InjuryTag["status"]>(["PROBABLE", "QUESTIONABLE", "DOUBTFUL"]);
+
+/** Statuses of a player I'd get that the card's once-per-card sentence covers: an injury (not a suspension, not NA). */
+const INJURED_NOTE: ReadonlySet<InjuryTag["status"]> = new Set<InjuryTag["status"]>(["PROBABLE", "QUESTIONABLE", "DOUBTFUL", "OUT", "IR", "PUP"]);
+
+/**
+ * An injury tag in words (the file header): his status, and his return week when the tag carries one (explain.injuryTags
+ * keeps it only when his projection counts on it): "Out — expected back week 8" ("Suspended — back week 8": a
+ * suspension's end is known), or "Out for the season" ("Suspended for the season") when it comes after `seasonEnd`
+ * (seasonEndOf); without a season end, the week is said. A Probable, Questionable or Doubtful tag with a week is the
+ * platform's far return date his projection follows (§6 step 3's conflict), said as the platform's (`source`, "ESPN"):
+ * "Questionable — ESPN expects him back week 8", "Questionable — ESPN expects him out for the season". NA never says a
+ * week.
+ */
+export function injuryTagText(tag: Pick<InjuryTag, "status" | "returnWeek">, seasonEnd?: number, source?: string): string {
+  const base = TAG_WORDS[tag.status] ?? "Injured";
+  const r = tag.returnWeek;
+  if (tag.status === "NA" || r === undefined || !Number.isFinite(r)) return base;
+  const afterSeason = seasonEnd !== undefined && Number.isFinite(seasonEnd) && r > seasonEnd;
+  if (GAME_TIME.has(tag.status)) {
+    const who = source ? `${source} expects him` : "expected";
+    return `${base} — ${who} ${afterSeason ? "out for the season" : `back week ${r}`}`;
+  }
+  if (afterSeason) return tag.status === "SUSPENDED" ? "Suspended for the season" : "Out for the season";
+  return `${base} — ${tag.status === "SUSPENDED" ? "back" : "expected back"} week ${r}`;
+}
+
+/** Whose return dates a league's tags quote (injuryTagText's `source`): the platform's name; none for a manual league. */
+function dateSourceOf(snapshot: Pick<LeagueSnapshot, "platform">): string | undefined {
+  return snapshot.platform === "manual" ? undefined : PLATFORM_LABEL[snapshot.platform];
+}
+
+/**
+ * A trade's injury tags (the file header): the evaluation's own (the search's and the Analyzer's, which know which
+ * conflicted players follow their date), else explain.injuryTags from the snapshot with the week now (an evaluation
+ * without them: no such date).
+ */
+function tagsOf(e: Pick<TradeEvaluation, "proposal" | "flags">, snapshot: SnapshotPart): InjuryTag[] {
+  return e.flags.tagged ?? injuryTags(e.proposal, snapshot.players, { currentWeek: snapshot.currentWeek });
+}
+
+/**
+ * The last week a return can come in time to count, for "Out for the season": the NFL regular season's last week when
+ * the schedule gave it (ModelInputs.nfl.lastWeek: a return week after it is ESPN's out-for-season marker, §4), else ⚠️ the
+ * league's last fantasy week (a return after it plays no game for this league); undefined when neither is known.
+ */
+export function seasonEndOf(settings: Pick<LeagueSnapshot["settings"], "regularSeasonWeeks" | "playoffWeeks">, lastNflWeek?: number): number | undefined {
+  if (lastNflWeek !== undefined && Number.isFinite(lastNflWeek)) return lastNflWeek;
+  const weeks = [...settings.regularSeasonWeeks, ...settings.playoffWeeks].filter((w) => Number.isFinite(w));
+  return weeks.length ? Math.max(...weeks) : undefined;
+}
+
+/** What a hurt player's projection assumes (the file header), for one player or several. */
+function assumesFullReturn(several: boolean): string {
+  return several ? "their projections assume they return at full strength, blended with the trade market." : "his projection assumes he returns at full strength, blended with the trade market.";
+}
+
+/**
+ * The card's once-per-card sentence for the players I'd get who carry an injury tag (the file header): "Josh Jacobs: his
+ * projection assumes he returns at full strength, blended with the trade market." (their projections, for several); null
+ * when none does. `flagged` (the "Depends on an injured player" flag's players, TradeEvaluation.flags.injured) are left
+ * out: the flag says it for them (review of Phase 4b).
+ */
+export function incomingInjuryNote(tags: readonly InjuryTag[], snapshot: Pick<LeagueSnapshot, "players">, flagged: readonly string[] = []): string | null {
+  const names = tags
+    .filter((t) => t.side === "get" && INJURED_NOTE.has(t.status) && !flagged.includes(t.playerId))
+    .map((t) => snapshot.players[t.playerId]?.name ?? "A player who's no longer in this league's data");
+  if (!names.length) return null;
+  return `${listText(names)}: ${assumesFullReturn(names.length > 1)}`;
+}
+
+/**
+ * explain.ts's caveat for a trade that depends on an injured player ("Depends on an injured player: … and the numbers
+ * assume he returns as expected."): the card's flag says it, with what his projection assumes, so the card's reasons
+ * leave it out (the file header). ⚠️ Matched on the engine's words: should they change, the caveat just shows again.
+ */
+export const INJURED_REASON = /^Depends on (an injured player|injured players): /;
+
 /** "Bo Nix (QB, DEN)" for sentences. */
 function playerPhrase(id: string, snapshot: SnapshotPart): string {
   const info = snapshot.players[id];
@@ -274,7 +458,10 @@ export interface StepView {
   what: string;
   /** "Est. 35%": the chance they accept, rounded like the card's (kept on one line). */
   est: string;
-  /** "about 20% it goes through" when the league's review could veto this version and that rounds differently; else null. */
+  /**
+   * "about 20% it goes through" when the league's review could veto this version and that rounds differently ("under 5%
+   * it goes through" below the display's floor: throughText); else null.
+   */
   through: string | null;
   /** The estimate for screen readers: "an estimated 35% chance they accept" (", about 20% that it goes through"). */
   acceptSr: string;
@@ -287,6 +474,49 @@ export interface StepsView {
   heading: string;
   /** Offer first, then what to add if they say no. */
   items: [StepView, StepView];
+}
+
+/** "If they say no, try:" (TradeEvaluation.planB; the file header). */
+export interface PlanBView {
+  /** "If they say no, try:". */
+  heading: string;
+  /** "The same players of theirs, a different package" or "A different set of their players". */
+  kindText: string;
+  /**
+   * My players in words ("Wiggleton Spoons and Tobias Thimble"; "nothing"), and theirs, each injury-tagged one with his tag
+   * in words after his name ("Dallas Goedert (Out — expected back week 5)").
+   */
+  give: string;
+  get: string;
+  /** "Helps you 45 · Chance they accept 40% (Est. · Decent) · Overall 20". */
+  numbers: string;
+  /**
+   * The same three numbers one by one, each kept on one line by the card (review of Phase 4b: a 375 px break inside "(Est.
+   * · Likely)"), the estimate's label apart so a 320 px phone can still wrap before it: [{ text: "Helps you 45" }, { text:
+   * "Chance they accept 40%", label: "(Est. · Decent)" }, { text: "Overall 20" }].
+   */
+  numberParts: { text: string; label?: string }[];
+  /**
+   * "Counting a league veto vote, about 20% it goes through." when the veto rule cuts it and that prints differently
+   * ("under 5%" below the display's floor: throughText); else null.
+   */
+  acceptNote: string | null;
+  /** "Also shown as trade idea 6." when the Finder's list shows the same trade as a card of its own (its place in the sort shown); else null. */
+  also: string | null;
+  /** Its own message to send them (planBPitch): a follow-up naming this trade from their side. */
+  pitch: string;
+  /** The Trade Analyzer, prefilled with it and marked as a Plan B (`from=planB`: shown there as one offer, without "How to offer it"). */
+  analyzerHref: string;
+  /** Its trade key. */
+  key: string;
+  /** The whole Plan B in one line (tests, hover): "Wiggleton Spoons for Mortimer Gloop · Helps you 45 · …". */
+  text: string;
+}
+
+/** One version of a trade idea the user may have sent (the feedback's "Which version did you send?"), with its words. */
+export interface VersionChoice extends FeedbackSent {
+  /** "The first offer", "With Tobias Thimble added", "This trade" or "The “If they say no” trade". */
+  label: string;
 }
 
 export interface TradeCardView {
@@ -308,11 +538,25 @@ export interface TradeCardView {
   };
   /** "How to offer it" (offer first, then what to add if they say no), or null when the trade has no steps. */
   steps: StepsView | null;
+  /** "If they say no, try:" (Plan B), or null when the trade has none (it has steps, nothing qualified, or it's the Analyzer's). */
+  planB: PlanBView | null;
+  /**
+   * Once per card, for injury-tagged players I'd get whom the "Depends on an injured player" flag doesn't name (the flag
+   * says it for them): "Josh Jacobs: his projection assumes he returns at full strength, …"; else null.
+   */
+  injuryNote: string | null;
+  /** The versions of the trade this card shows, in the card's order (the feedback asks which one was sent when there are two). */
+  versions: VersionChoice[];
   flags: FlagView[];
   facts: FactView[];
   /** "You get 142 ROS pts, give 118" (§13). */
   ros: string;
-  /** The roster moves the trade forces (§7), in sentences; empty when none. */
+  /**
+   * When my starting lineup moves the other way from those ROS points (rosNoteOf): "Your starting lineup still gains 25 ROS
+   * pts: …"; else null.
+   */
+  rosNote: string | null;
+  /** The roster moves the trade forces (§7; Phase 4b's IR slots and returns too), in sentences; empty when none. */
   required: string[];
   reasons: string[];
   pitch: string;
@@ -329,6 +573,13 @@ export interface CardContext {
    * worker sends with an Analyzer evaluation (null fields when unknown; absent: the card shows the changes alone).
    */
   baseline?: { pPlayoffs: number | null; pTitle: number | null } | null;
+  /** The NFL regular season's last week (ModelInputs.nfl.lastWeek), for "Out for the season" (seasonEndOf); absent: the league's last week. */
+  lastNflWeek?: number | undefined;
+  /**
+   * Injury tags the search made for players on its other ideas (knownTagsOf), by player: a Plan B's player reads his tag
+   * from there when the card doesn't have him (it knows his far ESPN date; PlanB carries no tags of its own).
+   */
+  knownTags?: ReadonlyMap<string, InjuryTag> | undefined;
 }
 
 /** A 0–100 score as printed: its number; 0 for a trade that doesn't help me (B ≤ 0); "—" when B is unknown. */
@@ -355,9 +606,10 @@ function oddsFact(d: number | null, before: number | null | undefined): string {
  * - Dynasty and keeper leagues with long-term values (λ and B_future known, §10): this season against long-term value,
  *   weighed by the Win now ↔ Future setting.
  * - Redraft: my chances go up (B_win > 0) while I'd give up more trade value than I get (g_mkt(me) < 0, as the card's
- *   values show) → that trade value, weighed by "Protect my trade value". ⚠️ When my chances go up and the card's values
- *   don't show me giving more (the market term reads players I give worth less than the best free agent at that free
- *   agent's value: lead decision N10), only "overall", which stays true.
+ *   values show) → that trade value, weighed by "Protect my trade value". Since the value floor on both sides (planner
+ *   reply to Checkpoint 4, change 4, which replaced lead decision N10) the market term and the card's values read the same
+ *   g_mkt(me), so a B ≤ 0 with B_win > 0 always has g_mkt(me) < 0; only numbers that break that rule fall back to
+ *   "overall", which stays true.
  * - Otherwise: it wouldn't raise my chances this season.
  */
 function noHelpText(e: Pick<TradeEvaluation, "bWin" | "bFuture" | "lambda" | "gMine">): string {
@@ -391,13 +643,14 @@ export function tradeWords(p: Pick<TradeProposal, "give" | "get">, snapshot: Sna
 /**
  * A step's estimate, the way the card shows its own: the chance they accept, and the chance it goes through when the
  * league's review could veto that version, only when it prints differently ("Est. 5%, about 5% it goes through" said
- * nothing more; the card's own note already says a veto vote could stop the ranked trade).
+ * nothing more; the card's own note already says a veto vote could stop the ranked trade), or as "under 5%" below the
+ * display's floor (throughText).
  */
 function stepAccept(s: Pick<TradeStep, "pAccept" | "pComplete">): { est: string; through: string | null; sr: string } {
   const est = acceptText(s.pAccept);
-  if (Math.abs(displayAcceptance(s.pComplete) - displayAcceptance(s.pAccept)) <= 1e-9) return { est: `Est. ${est}`, through: null, sr: `an estimated ${est} chance they accept` };
-  const through = acceptText(s.pComplete);
-  return { est: `Est. ${est}`, through: `about ${through} it goes through`, sr: `an estimated ${est} chance they accept, about ${through} that it goes through` };
+  const through = throughText(s.pAccept, s.pComplete);
+  if (!through) return { est: `Est. ${est}`, through: null, sr: `an estimated ${est} chance they accept` };
+  return { est: `Est. ${est}`, through: `${through} it goes through`, sr: `an estimated ${est} chance they accept, ${through} that it goes through` };
 }
 
 /** "How to offer it" (TradeEvaluation.steps; the file header), or null without steps. */
@@ -416,19 +669,194 @@ export function stepsView(steps: TradeEvaluation["steps"], snapshot: SnapshotPar
   };
 }
 
+/** Plan B's heading on the card (the planner's words). */
+export const PLAN_B_HEADING = "If they say no, try:";
+
+/**
+ * Which kind of Plan B it is (review of track F: "Different players of theirs" read wrong for a Plan B that keeps one of
+ * the card's players, such as Luther Burden III alone for Burden and Kalif Raymond).
+ */
+const PLAN_B_KIND: Readonly<Record<PlanB["kind"], string>> = {
+  samePlayers: "The same players of theirs, a different package",
+  otherTarget: "A different set of their players",
+};
+
+/** What planBView reads besides the Plan B: the card's own injury tags, the search's tags for its other ideas (CardContext.knownTags) and the season's end (seasonEndOf). */
+export interface PlanBContext {
+  cardTags?: readonly InjuryTag[] | undefined;
+  knownTags?: ReadonlyMap<string, InjuryTag> | undefined;
+  seasonEnd?: number | undefined;
+}
+
+/**
+ * The Plan B's own message to send them (PlanBView.pitch; review of Phase 4b: the box had none, and the Analyzer's
+ * proposed a smaller first offer): templates only, like explain.ts's pitch, which it follows — no team name, the trade
+ * named from their side, never what I gain — as a follow-up to the trade they turned down ("Thanks for considering it!
+ * Would you trade Carnell Tate for Kyle Monangai and Bo Nix instead? Let me know what you think!"). ⚠️ PlanB carries no
+ * partner-side facts (the hole it fills, their lineup's gain), so it doesn't lead with them; the Trade Analyzer's message
+ * for the same trade (its "Open in Analyzer") does.
+ */
+export function planBPitch(p: Pick<TradeProposal, "give" | "get">, snapshot: SnapshotPart): string {
+  const names = (assets: readonly TradeAsset[]) => listText(assets.map((a) => assetView(a, snapshot).name));
+  let ask = "";
+  if (p.give.length && p.get.length) ask = `Would you trade ${names(p.get)} for ${names(p.give)} instead?`;
+  else if (p.get.length) ask = `Would you send me ${names(p.get)} instead?`;
+  else if (p.give.length) ask = `Would you take ${names(p.give)} instead, with nothing needed back?`;
+  return ["Thanks for considering it!", ask, "Let me know what you think!"].filter((s) => s.length > 0).join(" ");
+}
+
+/**
+ * "If they say no, try:" (TradeEvaluation.planB; the file header), or null without one: the trade in words (each
+ * injury-tagged player with his tag: the card's own tag for a player the card has on the same side, so a player reads the
+ * same in both places, else the search's tag for him on another idea (`knownTags`: it knows his far ESPN date), else
+ * explain.injuryTags from the snapshot with the week now; ⚠️ PlanB carries no tags of its own, so a conflicted Probable,
+ * Questionable or Doubtful player only Plan B has gets no far date), which kind it is, its three numbers as the card prints
+ * its own (Helps you, the chance they accept rounded to 5% with "Est." and its label, Overall), the chance it goes
+ * through when a veto could cut it (throughText), its own message (planBPitch) and its Analyzer link (marked
+ * `from=planB`). `also` is the Finder list's to fill (buildFinderView).
+ */
+export function planBView(planB: TradeEvaluation["planB"], snapshot: SnapshotPart, ctx: PlanBContext = {}): PlanBView | null {
+  if (!planB) return null;
+  const own = injuryTags(planB.proposal, snapshot.players, { currentWeek: snapshot.currentWeek });
+  const source = dateSourceOf(snapshot);
+  const named = (a: TradeAsset, which: InjuryTag["side"]): string => {
+    const name = assetView(a, snapshot).name;
+    if (a.kind !== "player") return name;
+    const known = ctx.knownTags?.get(a.id);
+    const t = ctx.cardTags?.find((x) => x.playerId === a.id && x.side === which) ?? (known ? { ...known, side: which } : undefined) ?? own.find((x) => x.playerId === a.id && x.side === which);
+    return t ? `${name} (${injuryTagText(t, ctx.seasonEnd, source)})` : name;
+  };
+  const side = (assets: readonly TradeAsset[], which: InjuryTag["side"]) => (assets.length ? listText(assets.map((a) => named(a, which))) : "nothing");
+  const numberParts = [{ text: `Helps you ${planB.tradeScore}` }, { text: `Chance they accept ${acceptText(planB.pAccept)}`, label: `(Est. · ${planB.acceptLabel})` }, { text: `Overall ${planB.overall}` }];
+  const numbers = numberParts.map((p) => (p.label ? `${p.text} ${p.label}` : p.text)).join(" · ");
+  const through = throughText(planB.pAccept, planB.pComplete);
+  const acceptNote = through ? `Counting ${REVIEW_WORDS[snapshot.settings.tradeReview]}, ${through} it goes through.` : null;
+  const give = side(planB.proposal.give, "give");
+  const get = side(planB.proposal.get, "get");
+  return {
+    heading: PLAN_B_HEADING,
+    kindText: PLAN_B_KIND[planB.kind],
+    give,
+    get,
+    numbers,
+    numberParts,
+    acceptNote,
+    also: null,
+    pitch: planBPitch(planB.proposal, snapshot),
+    analyzerHref: analyzerHref(planB.proposal, { from: "planB" }),
+    key: planB.key,
+    text: `${give} for ${get} · ${numbers}${acceptNote ? ` · ${acceptNote}` : ""}`,
+  };
+}
+
+/** "Also shown as trade idea 6." (PlanBView.also). */
+export function planBAlsoText(place: number): string {
+  return `Also shown as trade idea ${place}.`;
+}
+
+/**
+ * The versions of a trade idea its card shows (TradeCardView.versions; the feedback's "Which version did you send?"),
+ * each with its key and estimate: with steps, the first offer and the full version (the throw-in added); with a Plan
+ * B, this trade and Plan B's; else this trade alone ("full").
+ */
+export function versionChoices(e: Pick<TradeEvaluation, "key" | "pAccept" | "pComplete" | "steps" | "planB">, snapshot: SnapshotPart): VersionChoice[] {
+  const s = e.steps;
+  if (s) {
+    return [
+      { version: "offerFirst", key: s.offerFirst.key, pAccept: s.offerFirst.pAccept, pComplete: s.offerFirst.pComplete, label: "The first offer" },
+      { version: "full", key: s.ifNo.full.key, pAccept: s.ifNo.full.pAccept, pComplete: s.ifNo.full.pComplete, label: `With ${assetView({ kind: "player", id: s.ifNo.add }, snapshot).name} added` },
+    ];
+  }
+  const self: VersionChoice = { version: "full", key: e.key, pAccept: e.pAccept, pComplete: e.pComplete, label: "This trade" };
+  const p = e.planB;
+  return p ? [self, { version: "planB", key: p.key, pAccept: p.pAccept, pComplete: p.pComplete, label: "The “If they say no” trade" }] : [self];
+}
+
+/**
+ * What my "Trade value" counts besides FantasyCalc's values (the file header): a player worth less than the best free
+ * agent at that free agent's value (planner reply to Checkpoint 4, change 4), and an open roster spot at it too (§9).
+ * Without an IR player in the trade, the side getting fewer players gets the spot (the two packages mirror each other).
+ * With one (review of track E), only my active roster counts, since an IR slot isn't a roster spot: an open spot on it
+ * adds to what I get, a spot it fills to what I give, and none when it gains and loses as many players
+ * (returners.tradeActiveSpots, the engine's rule 5 read from the league).
+ */
+function valueBasisText(e: TradeEvaluation, snapshot: SnapshotPart): string {
+  const floor = "a player worth less than the best free agent counts at that free agent's value";
+  const give = e.proposal.give.flatMap((a) => (a.kind === "player" ? [a.id] : []));
+  const get = e.proposal.get.flatMap((a) => (a.kind === "player" ? [a.id] : []));
+  const { spots, irMoved } = tradeActiveSpots(snapshot, e.detail.myTeamId, e.proposal.partnerId, give, get);
+  if (!irMoved) return e.proposal.give.length !== e.proposal.get.length ? "an open roster spot on the side getting fewer players counts at the best free agent's value, and so does any player worth less than that free agent" : floor;
+  const notIr = "an IR slot isn't a roster spot";
+  if (spots.give > spots.recv) return `an open spot on your active roster counts at the best free agent's value, as does any player worth less than that free agent; ${notIr}`;
+  if (spots.recv > spots.give) return `each spot your active roster fills counts at the best free agent's value, as does any player worth less than that free agent; ${notIr}`;
+  return `${floor}; ${notIr}, so no open spot counts`;
+}
+
+/**
+ * The change in my starting lineup over the rest of the season, in ROS points (Σ after − before over TradeDetail.weekly:
+ * my V* lineups' starting points per remaining week; a week in progress is the same both times), when it moves the other
+ * way from the players' ROS points the card prints ("You get 96 ROS pts, give 295" on a helpful trade that gives a backup
+ * QB who never starts: review of Phase 4b): "Your starting lineup still gains 25 ROS pts: …"; null otherwise (the two
+ * agree, either rounds to nothing, or the weeks are unknown).
+ */
+export function rosNoteOf(e: Pick<TradeEvaluation, "ros"> & { detail: Pick<TradeDetail, "weekly"> }): string | null {
+  let lineup = 0;
+  for (const w of e.detail.weekly ?? []) if (Number.isFinite(w.before) && Number.isFinite(w.after)) lineup += w.after - w.before;
+  const change = Math.round(lineup);
+  const given = Math.round(e.ros.given);
+  const received = Math.round(e.ros.received);
+  if (!Number.isFinite(given) || !Number.isFinite(received)) return null;
+  const why = "ROS points count each player's projected points whether he starts or not.";
+  const pts = (n: number) => `${fmtWhole(n)} ROS ${n === 1 ? "pt" : "pts"}`;
+  if (given > received && change > 0) return `Your starting lineup still gains ${pts(change)}: ${why}`;
+  if (received > given && change < 0) return `Your starting lineup loses ${pts(-change)} even so: ${why}`;
+  return null;
+}
+
+/**
+ * The roster moves a trade forces on one side (§7 legality; Phase 4b's IR players), in sentences, the side's own words
+ * (`who`): drops and adds as before; a received IR player who goes into an open IR slot ("Jordan Mason goes to your IR
+ * slot (no roster spot until he's back)."); and a player dropped from the week an IR player comes back ("From week 7,
+ * when Alec Pierce comes back from IR, you'd drop Marvin Harrison Jr. (WR, ARI)."). The IR fields may be absent
+ * (RosterChange: none).
+ */
+function requiredLines(change: RosterChange, who: { drop: string; dropLater: string; pickUp: string; their: string; ir: string }, snapshot: SnapshotPart): string[] {
+  const phrase = (id: string) => playerPhrase(id, snapshot);
+  const plain = (id: string) => snapshot.players[id]?.name ?? "a player who's no longer in this league's data";
+  const out: string[] = [];
+  if (change.drops.length) out.push(`${who.drop} ${listText(change.drops.map(phrase))} to stay within ${who.their} roster limits.`);
+  if (change.adds.length) out.push(`${who.pickUp} ${listText(change.adds.map(phrase))} from free agents to fill ${who.their} roster.`);
+  const toIR = [...new Set(change.toIR ?? [])];
+  if (toIR.length) {
+    const one = toIR.length === 1;
+    const names = listText(toIR.map(plain));
+    out.push(`${names.charAt(0).toUpperCase()}${names.slice(1)} ${one ? "goes" : "go"} to ${who.ir} IR ${one ? "slot" : "slots"} (no roster ${one ? "spot" : "spots"} until ${one ? "he's" : "they're"} back).`);
+  }
+  for (const d of change.displaced ?? []) {
+    if (!d || typeof d.playerId !== "string") continue;
+    const when = Number.isFinite(d.week) ? `From week ${d.week}, when ${plain(d.returner)} comes back from IR, ` : `When ${plain(d.returner)} comes back from IR, `;
+    out.push(`${when}${who.dropLater} ${phrase(d.playerId)}.`);
+  }
+  return out;
+}
+
 export function buildTradeCard(e: TradeEvaluation, ctx: CardContext): TradeCardView {
   const { snapshot } = ctx;
   const partnerName = teamNameOf(snapshot, e.proposal.partnerId);
   const showsVeto = e.detail.vetoRisk || Math.abs(displayAcceptance(e.pComplete) - displayAcceptance(e.pAccept)) > 1e-9;
+  const through = showsVeto ? throughText(e.pAccept, e.pComplete) : null;
+  const flagged = [...new Set(e.flags.injured)];
 
   const flags: FlagView[] = [];
-  if (e.flags.injured.length) {
-    const who = e.flags.injured.map((id) => {
+  if (flagged.length) {
+    const who = flagged.map((id) => {
       const info = snapshot.players[id];
       const status = info ? INJURY_LABEL[info.injury]?.long.toLowerCase() : undefined;
       return `${info?.name ?? "a player"}${status ? ` (${status})` : ""}`;
     });
-    flags.push({ kind: "injured", text: `Depends on ${e.flags.injured.length === 1 ? "an injured player" : "injured players"}: ${listText(who)}` });
+    // What his projection assumes joins the flag (the file header: said once, not again under the lists or in the reasons).
+    const assumes = assumesFullReturn(flagged.length > 1);
+    flags.push({ kind: "injured", text: `Depends on ${flagged.length === 1 ? "an injured player" : "injured players"}: ${listText(who)}. ${assumes.charAt(0).toUpperCase()}${assumes.slice(1)}` });
   }
   if (e.flags.hiddenByBenefit) flags.push({ kind: "noHelp", text: noHelpText(e) });
   if (e.flags.marketCheck && Number.isFinite(e.gMine)) {
@@ -448,46 +876,55 @@ export function buildTradeCard(e: TradeEvaluation, ctx: CardContext): TradeCardV
   ];
   if (e.dDyn !== null && Number.isFinite(e.dDyn)) facts.push({ label: "Long-term value", value: `${signedWhole(e.dDyn)} for your roster` });
   else if (e.dynMissing) facts.push({ label: "Long-term value", value: "Unknown: long-term values didn't load" });
-  const counts = e.proposal.give.length !== e.proposal.get.length;
-  facts.push({
-    label: "Trade value",
-    value: `You give ${fmtWhole(e.value.given)}, you get ${fmtWhole(e.value.received)}${counts ? " (the side getting fewer players is credited for its open roster spot)" : ""}`,
-    kind: "values",
-  });
+  // The value floor on both sides (planner reply to Checkpoint 4, change 4) and the open-spot credit: said on every card
+  // (the file header, valueBasisText).
+  facts.push({ label: "Trade value", value: `You give ${fmtWhole(e.value.given)}, you get ${fmtWhole(e.value.received)} (${valueBasisText(e, snapshot)})`, kind: "values" });
   facts.push({ label: "Their lineup", value: perWeek(e.partnerDeltaLineup) });
 
-  const required: string[] = [];
-  const name = (id: string) => playerPhrase(id, snapshot);
-  const r = e.required;
-  if (r.me.drops.length) required.push(`You'd drop ${listText(r.me.drops.map(name))} to stay within your roster limits.`);
-  if (r.me.adds.length) required.push(`You'd pick up ${listText(r.me.adds.map(name))} from free agents to fill your roster.`);
-  if (r.partner.drops.length) required.push(`${partnerName} would drop ${listText(r.partner.drops.map(name))} to stay within their roster limits.`);
-  if (r.partner.adds.length) required.push(`${partnerName} would pick up ${listText(r.partner.adds.map(name))} from free agents to fill their roster.`);
+  // The roster moves the trade forces, mine first (§7; Phase 4b's IR slots and returns: requiredLines).
+  const required = [
+    ...requiredLines(e.required.me, { drop: "You'd drop", dropLater: "you'd drop", pickUp: "You'd pick up", their: "your", ir: "your" }, snapshot),
+    ...requiredLines(e.required.partner, { drop: `${partnerName} would drop`, dropLater: `${partnerName} would drop`, pickUp: `${partnerName} would pick up`, their: "their", ir: possessive(partnerName) }, snapshot),
+  ];
+
+  // Injury tags in words on both sides (the evaluation's; else, a core without them, tags from the snapshot: tagsOf).
+  const tags = tagsOf(e, snapshot);
+  const end = seasonEndOf(snapshot.settings, ctx.lastNflWeek);
+  const source = dateSourceOf(snapshot);
+  const statusOf = (a: TradeAsset, side: InjuryTag["side"]): AssetView["status"] => {
+    const t = a.kind === "player" ? tags.find((x) => x.playerId === a.id && x.side === side) : undefined;
+    return t ? { text: injuryTagText(t, end, source), tone: INJURY_TONE[t.status] } : null;
+  };
 
   return {
     key: e.key,
     partnerId: e.proposal.partnerId,
     heading: `Trade with ${partnerName}`,
     partnerName,
-    give: e.proposal.give.map((a) => assetView(a, snapshot)),
+    give: e.proposal.give.map((a) => ({ ...assetView(a, snapshot), status: statusOf(a, "give") })),
     // Players I'd get carry "Harder to get" when their manager values them above market (TradeDetail.premium).
     get: e.proposal.get.map((a) => {
-      const view = assetView(a, snapshot);
+      const view = { ...assetView(a, snapshot), status: statusOf(a, "get") };
       return a.kind === "player" ? { ...view, tag: harderToGetOf(e.detail.premium?.find((f) => f.playerId === a.id)) } : view;
     }),
     numbers: {
       helps: scoreView(e.tradeScore, e.b),
       accept: { value: acceptText(e.pAccept), srText: null },
       acceptLabel: `Est. · ${e.acceptLabel}`,
-      acceptNote: showsVeto ? `Counting ${REVIEW_WORDS[snapshot.settings.tradeReview]}, about ${acceptText(e.pComplete)} it goes through.` : null,
+      acceptNote: through ? `Counting ${REVIEW_WORDS[snapshot.settings.tradeReview]}, ${through} it goes through.` : null,
       overall: scoreView(e.overall, e.b),
     },
     steps: stepsView(e.steps, snapshot),
+    planB: planBView(e.planB, snapshot, { cardTags: tags, knownTags: ctx.knownTags, seasonEnd: end }),
+    injuryNote: incomingInjuryNote(tags, snapshot, flagged),
+    versions: versionChoices(e, snapshot),
     flags,
     facts,
     ros: `You get ${fmtWhole(e.ros.received)} ROS pts, give ${fmtWhole(e.ros.given)}`,
+    rosNote: rosNoteOf(e),
     required,
-    reasons: [...e.reasons],
+    // The injured caveat is the flag's to say (INJURED_REASON); every other reason as explain.ts wrote it.
+    reasons: flagged.length ? e.reasons.filter((r) => !INJURED_REASON.test(r)) : [...e.reasons],
     pitch: e.pitch,
     analyzerHref: analyzerHref(e.proposal),
     evaluation: e,
@@ -563,10 +1000,28 @@ export function listNote(note: string): string {
   return m ? `Week ${m[1]} is under way, so no trade can change it: every idea's odds count week ${m[1]} as it stands.` : note;
 }
 
-export function buildFinderView(args: { result: TradeSearchResult; sort: TradeSort; snapshot: SnapshotPart; partnerId: string | null }): FinderView {
+/**
+ * The injury tags the search made for the players on its ideas (TradeEvaluation.flags.tagged), by player: the first one
+ * for each (a player's tag doesn't depend on the idea or the side), for a Plan B's players (CardContext.knownTags).
+ */
+export function knownTagsOf(trades: readonly Pick<TradeEvaluation, "flags">[]): Map<string, InjuryTag> {
+  const out = new Map<string, InjuryTag>();
+  for (const e of trades) for (const t of e.flags.tagged ?? []) if (!out.has(t.playerId)) out.set(t.playerId, t);
+  return out;
+}
+
+export function buildFinderView(args: { result: TradeSearchResult; sort: TradeSort; snapshot: SnapshotPart; partnerId: string | null; lastNflWeek?: number | undefined }): FinderView {
   const { result, snapshot } = args;
   const baseline = result.baseline;
-  const cards = sortTrades(result.trades, args.sort).map((e) => buildTradeCard(e, { snapshot, baseline }));
+  const knownTags = knownTagsOf(result.trades);
+  const sorted = sortTrades(result.trades, args.sort).map((e) => buildTradeCard(e, { snapshot, baseline, lastNflWeek: args.lastNflWeek, knownTags }));
+  // A Plan B that is also a card of its own says so, with that card's place in this sort (review of track F: the same
+  // trade showed twice without a word).
+  const place = new Map(sorted.map((c, i) => [c.key, i + 1]));
+  const cards = sorted.map((c) => {
+    const at = c.planB ? place.get(c.planB.key) : undefined;
+    return c.planB && at !== undefined ? { ...c, planB: { ...c.planB, also: planBAlsoText(at) } } : c;
+  });
   const sortLabel = SORT_OPTIONS.find((o) => o.value === args.sort)?.label ?? "Overall";
   const odds = baselineLines(baseline, "finder");
   const hidden = hiddenText(result.hidden);
@@ -674,13 +1129,57 @@ export function finderHref(partnerId: string | null): string {
   return partnerId ? `${FINDER_PATH}?${new URLSearchParams({ partner: partnerId }).toString()}` : FINDER_PATH;
 }
 
-/** The Trade Analyzer, prefilled with a trade (players only: picks wait for Phase 5, M11). */
-export function analyzerHref(p: Pick<TradeProposal, "partnerId" | "give" | "get">): string {
+/**
+ * Where an Analyzer trade came from, when that changes how it's shown: "planB", a card's "If they say no, try:" (the
+ * Analyzer shows it as one offer, without "How to offer it": review of Phase 4b, whose first offer could be smaller than
+ * the trade they had just turned down).
+ */
+export type AnalyzerFrom = "planB";
+
+/** The Trade Analyzer, prefilled with a trade (players only: picks wait for Phase 5, M11), and where it came from (`from=planB`). */
+export function analyzerHref(p: Pick<TradeProposal, "partnerId" | "give" | "get">, opts: { from?: AnalyzerFrom | null | undefined } = {}): string {
   const q = new URLSearchParams();
   q.set("partner", p.partnerId);
   for (const a of p.give) if (a.kind === "player") q.append("give", a.id);
   for (const a of p.get) if (a.kind === "player") q.append("get", a.id);
+  if (opts.from) q.set("from", opts.from);
   return `${ANALYZER_PATH}?${q.toString()}`;
+}
+
+/** Where the Analyzer's address says its trade came from (`?from=planB`), else null. */
+export function readAnalyzerFrom(search: string | null | undefined): AnalyzerFrom | null {
+  return new URLSearchParams(search ?? "").get("from") === "planB" ? "planB" : null;
+}
+
+/** The Analyzer's note for a trade opened from "If they say no, try:" (buildAnalysisView). */
+export const FROM_PLAN_B_NOTE =
+  "You opened this from “If they say no, try:” on a trade idea, so it's shown as one offer, without a smaller first offer to try before it: they've just turned down a trade with the same team.";
+
+/**
+ * A trade's key read back into a proposal (TradeEvaluation.key, evaluate.ts proposalKey: "<partner>|give:<ids>|get:<ids>",
+ * each side's assets sorted, a pick as "pick:<season>:<round>:<original team>"; the test fixtures' "<partner>|<ids>|<ids>"
+ * too), for naming a recorded version the card no longer shows (CardFeedback.versionWords); null when it isn't one.
+ */
+export function proposalFromKey(key: string | null | undefined): TradeProposal | null {
+  if (typeof key !== "string") return null;
+  const parts = key.split("|");
+  if (parts.length !== 3) return null;
+  const [partnerId = "", give = "", get = ""] = parts;
+  if (!partnerId) return null;
+  const side = (text: string, prefix: string): TradeAsset[] | null => {
+    const list = text.startsWith(prefix) ? text.slice(prefix.length) : text;
+    if (!list) return [];
+    const out: TradeAsset[] = [];
+    for (const id of list.split(",")) {
+      if (!id) return null;
+      const pick = /^pick:(\d+):(\d+):(.+)$/.exec(id);
+      out.push(pick ? { kind: "pick", season: Number(pick[1]), round: Number(pick[2]), originalTeamId: pick[3] ?? "" } : { kind: "player", id });
+    }
+    return out;
+  };
+  const g = side(give, "give:");
+  const r = side(get, "get:");
+  return g && r && g.length + r.length > 0 ? { partnerId, give: g, get: r } : null;
 }
 
 /** Another team in this league (never mine), or null. */
@@ -705,8 +1204,18 @@ export const EMPTY_DRAFT: AnalyzerDraft = { partnerId: null, give: [], get: [] }
 /** At most this many players a side in the Analyzer (config.search.analyzerMaxPerSide). */
 export const ANALYZER_MAX_PER_SIDE: number = Math.max(1, Math.floor(config.search.analyzerMaxPerSide));
 
-function activeRoster(snapshot: Pick<LeagueSnapshot, "teams">, teamId: string | null): string[] {
-  return teamId ? (snapshot.teams.find((t) => t.id === teamId)?.roster ?? []) : [];
+/**
+ * The players a team can trade here: its active roster, then its IR (Phase 4b: IR players are tradable, planner reply to
+ * Checkpoint 4, change 5; the engine places a received one, evaluate.ts rule 5), each once. Taxi players aren't tradable.
+ */
+function tradableRoster(snapshot: Pick<LeagueSnapshot, "teams">, teamId: string | null): string[] {
+  const team = teamId ? snapshot.teams.find((t) => t.id === teamId) : undefined;
+  return team ? [...new Set([...team.roster, ...team.ir])] : [];
+}
+
+/** A team's IR players (an Analyzer choice says so). */
+function irOf(snapshot: Pick<LeagueSnapshot, "teams">, teamId: string | null): ReadonlySet<string> {
+  return new Set(teamId ? (snapshot.teams.find((t) => t.id === teamId)?.ir ?? []) : []);
 }
 
 function keepIds(ids: readonly string[], allowed: readonly string[]): string[] {
@@ -716,14 +1225,14 @@ function keepIds(ids: readonly string[], allowed: readonly string[]): string[] {
 }
 
 /**
- * The Analyzer's trade from its address (`?partner=&give=&get=`): only another team of this league, my active-roster
- * players to give and the partner's to get (M2: IR and taxi players aren't tradable yet), each once, at most
+ * The Analyzer's trade from its address (`?partner=&give=&get=`): only another team of this league, my players to give and
+ * the partner's to get from the active rosters and IR (Phase 4b; taxi players aren't tradable), each once, at most
  * ANALYZER_MAX_PER_SIDE a side. Anything else is ignored.
  */
 export function readAnalyzerDraft(search: string | null | undefined, snapshot: Pick<LeagueSnapshot, "teams">, myTeamId: string | null): AnalyzerDraft {
   const q = new URLSearchParams(search ?? "");
   const partnerId = partnerOrNull(snapshot, myTeamId, q.get("partner"));
-  return { partnerId, give: keepIds(q.getAll("give"), activeRoster(snapshot, myTeamId)), get: keepIds(q.getAll("get"), activeRoster(snapshot, partnerId)) };
+  return { partnerId, give: keepIds(q.getAll("give"), tradableRoster(snapshot, myTeamId)), get: keepIds(q.getAll("get"), tradableRoster(snapshot, partnerId)) };
 }
 
 /** The trade being built in a sentence ("You give Bo Nix; you get Travis Kelce."), null before any player is picked. */
@@ -766,7 +1275,10 @@ export interface AnalyzerChoices {
 
 const POS_RANK = new Map<Pos, number>(POSITIONS.map((p, i) => [p, i]));
 
-function choices(snapshot: SnapshotPart, ids: readonly string[], picked: readonly string[]): PlayerChoice[] {
+/** Words after an IR player's position and team in an Analyzer choice. */
+export const IR_SLOT_TEXT = "IR slot";
+
+function choices(snapshot: SnapshotPart, ids: readonly string[], picked: readonly string[], ir: ReadonlySet<string> = new Set()): PlayerChoice[] {
   const full = picked.length >= ANALYZER_MAX_PER_SIDE;
   const rank = (id: string) => POS_RANK.get(snapshot.players[id]?.pos as Pos) ?? POSITIONS.length;
   return [...ids]
@@ -774,17 +1286,21 @@ function choices(snapshot: SnapshotPart, ids: readonly string[], picked: readonl
     .map((id) => {
       const view = assetView({ kind: "player", id }, snapshot);
       const checked = picked.includes(id);
-      return { id, name: view.name, detail: view.detail, injury: view.injury, checked, disabled: full && !checked };
+      const detail = ir.has(id) ? [view.detail, IR_SLOT_TEXT].filter(Boolean).join(" · ") : view.detail;
+      return { id, name: view.name, detail, injury: view.injury, checked, disabled: full && !checked };
     });
 }
 
-/** What the Analyzer offers: the other teams, my active roster and the partner's, each player checked as in the draft. */
+/**
+ * What the Analyzer offers: the other teams, my players and the partner's (active rosters and IR, an IR player's detail
+ * saying "IR slot"), each player checked as in the draft.
+ */
 export function analyzerChoices(snapshot: SnapshotPart, myTeamId: string | null, draft: AnalyzerDraft): AnalyzerChoices {
   return {
     partners: snapshot.teams.filter((t) => t.id !== myTeamId).map((t) => ({ id: t.id, name: t.name })),
-    mine: choices(snapshot, activeRoster(snapshot, myTeamId), draft.give),
-    theirs: choices(snapshot, activeRoster(snapshot, draft.partnerId), draft.get),
-    limitText: `Up to ${ANALYZER_MAX_PER_SIDE} players a side, from the active rosters (players on IR or a taxi squad can't be traded here yet).`,
+    mine: choices(snapshot, tradableRoster(snapshot, myTeamId), draft.give, irOf(snapshot, myTeamId)),
+    theirs: choices(snapshot, tradableRoster(snapshot, draft.partnerId), draft.get, irOf(snapshot, draft.partnerId)),
+    limitText: `Up to ${ANALYZER_MAX_PER_SIDE} players a side, from the active rosters and IR (players on a taxi squad can't be traded here yet).`,
   };
 }
 
@@ -802,15 +1318,23 @@ export interface AnalysisView {
  * The Analyzer's result in words. `analysis.baseline` (my odds before any trade, which the worker sends with the
  * evaluation: src/workers/engine.worker.ts) gives the card's odds their end points and the line above it, so a trade
  * reads the same as on the Trade Finder (review of Phase 4: the Finder's "+9.1 percentage points (63% to 72%)" read
- * "+9.1 percentage points" here). Without it, the card shows the changes alone.
+ * "+9.1 percentage points" here). Without it, the card shows the changes alone. `from` "planB" (a trade opened from a
+ * card's "If they say no, try:", evaluated without "How to offer it": the worker's `steps: false`) says so first among
+ * the notes, with a card.
  */
-export function buildAnalysisView(analysis: TradeAnalysis & { baseline?: CardContext["baseline"] }, snapshot: SnapshotPart): AnalysisView {
+export function buildAnalysisView(
+  analysis: TradeAnalysis & { baseline?: CardContext["baseline"] },
+  snapshot: SnapshotPart,
+  lastNflWeek?: number,
+  opts: { from?: AnalyzerFrom | null | undefined } = {},
+): AnalysisView {
   const baseline = analysis.baseline ?? null;
-  const card = analysis.evaluation && !analysis.illegal ? buildTradeCard(analysis.evaluation, { snapshot, baseline }) : null;
+  const card = analysis.evaluation && !analysis.illegal ? buildTradeCard(analysis.evaluation, { snapshot, baseline, lastNflWeek }) : null;
   const odds = card ? baselineLines(baseline, "analyzer") : null;
   // A note the card's reasons already say isn't said twice.
   const said = new Set(card?.reasons ?? []);
-  return { baseline: odds?.text ?? null, baselineNote: odds?.note ?? null, card, illegal: analysis.illegal, notes: [...new Set(analysis.notes)].filter((n) => !said.has(n)) };
+  const notes = [...new Set(analysis.notes)].filter((n) => !said.has(n));
+  return { baseline: odds?.text ?? null, baselineNote: odds?.note ?? null, card, illegal: analysis.illegal, notes: card && opts.from === "planB" ? [FROM_PLAN_B_NOTE, ...notes] : notes };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -819,13 +1343,44 @@ export function buildAnalysisView(analysis: TradeAnalysis & { baseline?: CardCon
 export interface CardFeedback {
   outcome: FeedbackOutcome | null;
   report: { reason: FeedbackReason; note: string | null } | null;
+  /** Which version was sent (FeedbackRecord.version), null when unknown or nothing is saved. */
+  version: FeedbackVersion | null;
+  /** That version's trade key (FeedbackRecord.versionKey), null when unknown (a record made before keys were saved, or none). */
+  versionKey: string | null;
+  /** That version's trade in words ("Kyle Monangai and Bo Nix for Carnell Tate", read from its key), null when unknown. */
+  versionWords: string | null;
 }
 
-/** What this browser has saved for a trade idea (both null when nothing). */
-export function cardFeedback(records: readonly FeedbackRecord[] | undefined, leagueKey: string, tradeKey: string): CardFeedback {
+/**
+ * What this browser has saved for a trade idea (all null when nothing). With the league's `snapshot`, the recorded
+ * version's trade in words (versionWords, from its key: proposalFromKey).
+ */
+export function cardFeedback(records: readonly FeedbackRecord[] | undefined, leagueKey: string, tradeKey: string, snapshot?: SnapshotPart): CardFeedback {
   const record = records ? feedbackFor(records, leagueKey, tradeKey) : undefined;
+  const version = record?.version ?? null;
+  const versionKey = version !== null ? (record?.versionKey ?? null) : null;
+  const proposal = versionKey !== null && snapshot ? proposalFromKey(versionKey) : null;
   return {
     outcome: record?.outcome?.kind ?? null,
     report: record?.report ? { reason: record.report.reason, note: record.report.note ?? null } : null,
+    version,
+    versionKey,
+    versionWords: proposal && snapshot ? tradeWords(proposal, snapshot) : null,
   };
+}
+
+/**
+ * The "Version:" line under a card's outcome buttons (the file header), or null: the recorded version's label when its key
+ * is one the card shows (on a card with two; a plain card's one version goes without saying; a record without a key,
+ * made before keys were saved, by its kind alone), else "an earlier one" with its trade in words when a version with a
+ * key is recorded that the card doesn't show (review of Phase 4b: after a refresh changed a card's Plan B, the line named
+ * the box shown now; the Analyzer's card for the same trade said nothing).
+ */
+export function versionLine(feedback: Pick<CardFeedback, "outcome" | "version" | "versionKey" | "versionWords">, versions: readonly VersionChoice[]): string | null {
+  if (!feedback.outcome || feedback.version === null) return null;
+  const key = feedback.versionKey;
+  const shown = key !== null ? versions.find((v) => v.key === key) : versions.length > 1 ? versions.find((v) => v.version === feedback.version) : undefined;
+  if (shown) return versions.length > 1 ? shown.label : null;
+  if (key === null) return null;
+  return feedback.versionWords ? `an earlier one (${feedback.versionWords})` : "an earlier one";
 }

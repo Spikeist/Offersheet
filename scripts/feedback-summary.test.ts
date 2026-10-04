@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 import { config } from "@/engine/config";
 import type { AcceptanceFeatures } from "@/engine/tradeModel";
 import { applyFeedback, feedbackExportText, type FeedbackChange, type FeedbackRecord } from "@/lib/feedbackStore";
-import { calibrationBins, feedbackNotes, formatSummary, parseArgs, runSummary, summarizeFeedback } from "./feedback-summary";
+import { calibrationBins, feedbackNotes, formatSummary, parseArgs, predictedAccept, runSummary, sentCardTrade, summarizeFeedback } from "./feedback-summary";
 
 const AT = "2026-10-01T18:00:00.000Z";
 const BASE_FEATURES: AcceptanceFeatures = { g: 0, n: 0, h: 0, c: 0, a: 0, hist: null, ctx: 0, hot: 0, urg: 0, z: -0.6 };
@@ -124,6 +124,63 @@ describe("summarizeFeedback", () => {
     expect(empty).toMatchObject({ total: 0, leagues: 0, refit: { decided: 0, ready: false } });
     expect(empty.calibration.every((b) => b.observed === null && b.meanPredicted === null)).toBe(true);
     expect(formatSummary(empty)).toContain("0 trade ideas with feedback from 0 leagues");
+  });
+});
+
+describe("by version sent (planner reply to Checkpoint 4, change 6 and answer 8)", () => {
+  /** The sample, plus ideas sent as the first offer, the full trade and Plan B (Plan B's estimate 0.6: Likely). */
+  function withVersions(): FeedbackRecord[] {
+    let r = sample();
+    r = idea(r, "v1", 0.2, [{ outcome: "sent", sent: { version: "offerFirst", key: "v1-lean", pAccept: 0.1, pComplete: 0.1 } }, { outcome: "rejected" }]);
+    r = idea(r, "v2", 0.3, [{ outcome: "accepted", sent: { version: "full", key: "v2", pAccept: 0.3, pComplete: 0.3 } }]);
+    r = idea(r, "v3", 0.3, [{ outcome: "sent", sent: { version: "planB", key: "v3-b", pAccept: 0.6, pComplete: 0.6 } }, { outcome: "accepted" }]);
+    return r;
+  }
+
+  it("counts each latest outcome by the version sent, records without one as unknown", () => {
+    const s = summarizeFeedback(withVersions());
+    expect(s.byVersion.map((v) => [v.version, v.total, v.outcomes])).toEqual([
+      ["offerFirst", 1, { sent: 0, accepted: 0, rejected: 1, countered: 0 }],
+      ["full", 1, { sent: 0, accepted: 1, rejected: 0, countered: 0 }],
+      ["planB", 1, { sent: 0, accepted: 1, rejected: 0, countered: 0 }],
+      ["unknown", 7, { sent: 1, accepted: 2, rejected: 3, countered: 1 }],
+    ]);
+    const text = formatSummary(s);
+    expect(text).toContain("## By version sent");
+    expect(text).toContain("| If they say no (Plan B) | 1 | 0 | 1 | 0 | 0 | 0 |");
+    expect(text).toContain("| Unknown (not recorded) | 7 | 1 | 2 | 3 | 1 | 7 |");
+  });
+
+  it("says per version how many sent the card's own trade, the one the record's numbers and features describe (review of track F)", () => {
+    // "full" is the card's own trade on a plain card (v2) but the card plus its throw-in when the card is the first offer
+    // (v4: its key isn't the card's); a first offer that leaves out the card's throw-in (v1) and a Plan B (v3) never are.
+    const records = idea(withVersions(), "v4", 0.35, [{ outcome: "sent", sent: { version: "full", key: "v4-plus-throw-in", pAccept: 0.5, pComplete: 0.5 } }]);
+    const s = summarizeFeedback(records);
+    expect(s.byVersion.map((v) => [v.version, v.total, v.cardOwn])).toEqual([
+      ["offerFirst", 1, 0],
+      ["full", 2, 1],
+      ["planB", 1, 0],
+      ["unknown", 7, 7],
+    ]);
+    expect(sentCardTrade(records.find((r) => r.tradeKey === "v2") as FeedbackRecord)).toBe(true);
+    expect(sentCardTrade(records.find((r) => r.tradeKey === "v4") as FeedbackRecord)).toBe(false);
+    expect(sentCardTrade(records.find((r) => r.tradeKey === "a") as FeedbackRecord)).toBe(true); // no version recorded
+    const text = formatSummary(s);
+    expect(text).toContain("| Version | Trade ideas | Sent | Accepted | Rejected | Countered | The card's own trade |");
+    expect(text).toContain("| Full trade | 2 | 1 | 1 | 0 | 0 | 1 |");
+  });
+
+  it("calibrates on the sent version's estimate when the record has one (the prediction acted on), else the card's", () => {
+    const records = withVersions();
+    const v1 = records.find((r) => r.tradeKey === "v1") as FeedbackRecord;
+    const v3 = records.find((r) => r.tradeKey === "v3") as FeedbackRecord;
+    expect(predictedAccept(v1)).toBe(0.1);
+    expect(predictedAccept(v3)).toBe(0.6);
+    expect(predictedAccept(records.find((r) => r.tradeKey === "a") as FeedbackRecord)).toBe(0.08);
+    const [long, , , likely] = summarizeFeedback(records).calibration;
+    // v1 (a card at 20%, its first offer at 10%) lands in Long shot; v3 (a card at 30%, Plan B at 60%) in Likely.
+    expect(long).toMatchObject({ decided: 2, rejected: 2 });
+    expect(likely).toMatchObject({ decided: 2, accepted: 2, meanPredicted: 0.7 });
   });
 });
 

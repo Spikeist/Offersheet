@@ -87,7 +87,7 @@ describe("rankTrades: hidden by default (§10 guards)", () => {
     const r = rankTrades(trades, byNumber);
     expect(r.hidden).toEqual({ byBenefit: 4, byMarket: 1 });
     expect(keys(r.trades)).toEqual(["good", "edge"]);
-    expect(r.dropped).toEqual({ partnerCap: 0, core: 0, filler: 0 });
+    expect(r.dropped).toEqual({ partnerCap: 0, core: 0, filler: 0, givenPlayer: 0 });
   });
 
   it("keeps one evaluation per key, the furthest evaluated, whatever the input order", () => {
@@ -122,11 +122,11 @@ describe("rankTrades: hidden by default (§10 guards)", () => {
     );
     expect(keys(r.trades)).toEqual(["ok"]);
     expect(r.hidden).toEqual({ byBenefit: 0, byMarket: 0 });
-    expect(r.dropped).toEqual({ partnerCap: 0, core: 0, filler: 0 });
+    expect(r.dropped).toEqual({ partnerCap: 0, core: 0, filler: 0, givenPlayer: 0 });
   });
 
   it("handles no trades", () => {
-    expect(rankTrades([], byNumber)).toEqual({ trades: [], hidden: { byBenefit: 0, byMarket: 0 }, dropped: { partnerCap: 0, core: 0, filler: 0 } });
+    expect(rankTrades([], byNumber)).toEqual({ trades: [], hidden: { byBenefit: 0, byMarket: 0 }, dropped: { partnerCap: 0, core: 0, filler: 0, givenPlayer: 0 } });
   });
 });
 
@@ -165,7 +165,7 @@ describe("rankTrades: diversity rules (§13)", () => {
     const r = rankTrades([t1, t2, t3, t4], value);
     expect(config.ranking.perCore).toBe(2);
     expect(keys(r.trades)).toEqual(["t1", "t2", "t4"]);
-    expect(r.dropped).toEqual({ partnerCap: 0, core: 1, filler: 0 });
+    expect(r.dropped).toEqual({ partnerCap: 0, core: 1, filler: 0, givenPlayer: 0 });
   });
 
   it("breaks core value ties (and unknown values) by the smaller asset id", () => {
@@ -217,7 +217,7 @@ describe("rankTrades: diversity rules (§13)", () => {
     const t = (key: string, b: number, give: string[], get: string[]) => tradeEvaluation({ key, partnerId: "7", b, pComplete: 0.5, give, get });
     const r = rankTrades([t("t1", 9, ["mine"], ["star"]), t("t2", 8, ["mine", "x1"], ["star"]), t("t3", 7, ["mine", "x2"], ["star"]), t("t4", 6, ["y1"], ["y2"]), t("t5", 5, ["y3"], ["y4"])], value, { ...rankCfg(), fillerCutoffFraction: 0 });
     expect(keys(r.trades)).toEqual(["t1", "t2", "t4"]);
-    expect(r.dropped).toEqual({ partnerCap: 1, core: 1, filler: 0 });
+    expect(r.dropped).toEqual({ partnerCap: 1, core: 1, filler: 0, givenPlayer: 0 });
   });
 
   it("counts a trade several rules would drop once, under the first rule (filler, then core, then partner cap)", () => {
@@ -227,10 +227,10 @@ describe("rankTrades: diversity rules (§13)", () => {
     const third = tradeEvaluation({ key: "third", b: 5.1, pComplete: 0.5, give: ["mine", "f1"], get: ["star"] }); // a filler of base, and the core's 3rd without fillers
     const r = rankTrades([base, second, third], value, { ...rankCfg(), fillerCutoffFraction: 0.2 });
     expect(keys(r.trades)).toEqual(["base"]);
-    expect(r.dropped).toEqual({ partnerCap: 0, core: 0, filler: 2 });
+    expect(r.dropped).toEqual({ partnerCap: 0, core: 0, filler: 2, givenPlayer: 0 });
     const noFiller = rankTrades([base, second, third], value, { ...rankCfg(), fillerCutoffFraction: 0 });
     expect(keys(noFiller.trades)).toEqual(["base", "second"]);
-    expect(noFiller.dropped).toEqual({ partnerCap: 0, core: 1, filler: 0 });
+    expect(noFiller.dropped).toEqual({ partnerCap: 0, core: 1, filler: 0, givenPlayer: 0 });
   });
 
   it("a filler that is also its core's 3rd is counted as a filler, not under the core rule", () => {
@@ -240,7 +240,7 @@ describe("rankTrades: diversity rules (§13)", () => {
     const both = tradeEvaluation({ key: "both", b: 5.5, pComplete: 0.5, give: ["mine", "x1", "x2"], get: ["star"] }); // a filler of "other" AND the core's 3rd
     const r = rankTrades([both, other, base], value);
     expect(keys(r.trades)).toEqual(["base", "other"]);
-    expect(r.dropped).toEqual({ partnerCap: 0, core: 0, filler: 1 });
+    expect(r.dropped).toEqual({ partnerCap: 0, core: 0, filler: 1, givenPlayer: 0 });
   });
 
   it("a core's 3rd that would also break the partner cap is counted under the core rule", () => {
@@ -249,7 +249,7 @@ describe("rankTrades: diversity rules (§13)", () => {
     // Partner 7 keeps three (two on one core, one elsewhere); the 4th is the core's 3rd and the partner's 4th in the top 20.
     const r = rankTrades([t("a", 9, ["mine"], ["star"]), t("b", 8, ["mine", "x1"], ["star", "y1"]), t("c", 7, ["z1"], ["z2"]), t("d", 6, ["mine", "x2"], ["star", "y2"])], value, { ...rankCfg(), fillerCutoffFraction: 0 });
     expect(keys(r.trades)).toEqual(["a", "b", "c"]);
-    expect(r.dropped).toEqual({ partnerCap: 0, core: 1, filler: 0 });
+    expect(r.dropped).toEqual({ partnerCap: 0, core: 1, filler: 0, givenPlayer: 0 });
   });
 
   it("a filler that would also break the partner cap is counted as a filler", () => {
@@ -257,7 +257,7 @@ describe("rankTrades: diversity rules (§13)", () => {
     // "d" ranks last (EG 2.67): partner 7 already has three kept, and "d" is "a" plus a filler (|8.9 − 9| < 0.2 × 9).
     const r = rankTrades([t("a", 9, ["p1"], ["p2"]), t("b", 8, ["p3"], ["p4"]), t("c", 7, ["p5"], ["p6"]), t("d", 8.9, ["p1", "p7"], ["p2"], 0.3)], byNumber);
     expect(keys(r.trades)).toEqual(["a", "b", "c"]);
-    expect(r.dropped).toEqual({ partnerCap: 0, core: 0, filler: 1 });
+    expect(r.dropped).toEqual({ partnerCap: 0, core: 0, filler: 1, givenPlayer: 0 });
   });
 
   it("stops at resultsShown kept; the rest are neither kept nor counted", () => {
@@ -265,7 +265,7 @@ describe("rankTrades: diversity rules (§13)", () => {
     const r = rankTrades(trades, byNumber);
     expect(r.trades).toHaveLength(config.search.resultsShown);
     expect(keys(r.trades)).toEqual(keys(trades).slice(0, config.search.resultsShown));
-    expect(r.dropped).toEqual({ partnerCap: 0, core: 0, filler: 0 });
+    expect(r.dropped).toEqual({ partnerCap: 0, core: 0, filler: 0, givenPlayer: 0 });
   });
 
   it("is deterministic: the same output for any input order", () => {
@@ -294,10 +294,57 @@ describe("rankTrades: diversity rules (§13)", () => {
   });
 });
 
+describe("rankTrades: the given-player cap (planner reply to Checkpoint 4, answer 7)", () => {
+  /** A trade with its own partner (no partner cap) and its own players of theirs (no core or filler rule), giving `give`. */
+  const t = (key: string, b: number, give: string[], partnerId = `t-${key}`) => tradeEvaluation({ key, partnerId, b, pComplete: 0.5, give, get: [`g-${key}`] });
+
+  it("keeps at most perGivenPlayerInTop20 trades in the top 20 that give the same player of mine", () => {
+    const cap = config.ranking.perGivenPlayerInTop20;
+    expect(cap).toBe(3);
+    // Five trades give "wilson" (the live Checkpoint 4 list sold one player in 15 of 22), then two that don't.
+    const trades = [...[0, 1, 2, 3, 4].map((i) => t(`w${i}`, 50 - i, ["wilson"])), t("x1", 40, ["nix"]), t("x2", 39, ["kyren"])];
+    const r = rankTrades(trades, byNumber);
+    expect(keys(r.trades)).toEqual(["w0", "w1", "w2", "x1", "x2"]);
+    expect(r.dropped).toEqual({ partnerCap: 0, core: 0, filler: 0, givenPlayer: 2 });
+  });
+
+  it("counts every player of mine a trade gives: a 2-for-1 with a capped player is dropped, and counts for both when kept", () => {
+    const trades = [t("a", 50, ["wilson", "nix"]), t("b", 49, ["wilson"]), t("c", 48, ["nix", "kyren"]), t("d", 47, ["wilson"]), t("e", 46, ["nix"]), t("f", 45, ["kyren"])];
+    const r = rankTrades(trades, byNumber, { ...rankCfg(), perGivenPlayerInTop20: 2 });
+    // a: wilson 1, nix 1; b: wilson 2; c: nix 2, kyren 1; d: wilson over the cap; e: nix over the cap; f: kyren 2.
+    expect(keys(r.trades)).toEqual(["a", "b", "c", "f"]);
+    expect(r.dropped.givenPlayer).toBe(2);
+    // A pick of mine isn't a player: it never counts.
+    const pick = { kind: "pick" as const, season: 2027, round: 1, originalTeamId: "3" };
+    const withPicks = [0, 1, 2, 3].map((i) => tradeEvaluation({ key: `p${i}`, partnerId: `t${i}`, b: 30 - i, pComplete: 0.5, proposal: { partnerId: `t${i}`, give: [pick], get: [{ kind: "player", id: `g${i}` }] } }));
+    expect(rankTrades(withPicks, byNumber).dropped.givenPlayer).toBe(0);
+  });
+
+  it("past the first 20 kept, a player may be given in more; the partner cap is counted first", () => {
+    // 20 trades with 20 different players of mine first, then four that give "wilson".
+    const trades = [...Array.from({ length: 20 }, (_, i) => t(`a${String(i).padStart(2, "0")}`, 100 - i, [`m${i}`])), ...[0, 1, 2, 3].map((i) => t(`w${i}`, 10 - i, ["wilson"]))];
+    const r = rankTrades(trades, byNumber);
+    expect(r.trades.filter((x) => x.proposal.give.some((a) => a.kind === "player" && a.id === "wilson"))).toHaveLength(4);
+    expect(r.dropped.givenPlayer).toBe(0);
+    // A partner's 4th trade in the top 20 that is also a player's 4th: counted under the partner cap (rule c before d).
+    const same = [0, 1, 2, 3].map((i) => t(`s${i}`, 20 - i, ["wilson"], "7"));
+    expect(rankTrades(same, byNumber).dropped).toEqual({ partnerCap: 1, core: 0, filler: 0, givenPlayer: 0 });
+  });
+
+  it("a config without the key gets config's cap (a RankConfig built before Phase 4b); Infinity turns it off", () => {
+    const trades = [0, 1, 2, 3].map((i) => t(`w${i}`, 50 - i, ["wilson"]));
+    const { perGivenPlayerInTop20: _cap, ...old } = rankCfg();
+    void _cap;
+    expect(rankTrades(trades, byNumber, old).trades).toHaveLength(config.ranking.perGivenPlayerInTop20);
+    expect(rankTrades(trades, byNumber, { ...rankCfg(), perGivenPlayerInTop20: Number.POSITIVE_INFINITY }).trades).toHaveLength(4);
+  });
+});
+
 function rankCfg(): RankConfig {
   return {
     perPartnerInTop20: config.ranking.perPartnerInTop20,
     partnerCapTop: config.ranking.partnerCapTop,
+    perGivenPlayerInTop20: config.ranking.perGivenPlayerInTop20,
     perCore: config.ranking.perCore,
     fillerCutoffFraction: config.ranking.fillerCutoffFraction,
     resultsShown: config.search.resultsShown,

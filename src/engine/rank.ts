@@ -1,7 +1,7 @@
 /**
- * Ranking and diversity (CLAUDE.md §13; lead decisions L10 and M9 of the Phase 4 designs). Pure and deterministic:
- * no I/O, no clock, and the output never depends on the input order. The caps come from config.ranking and
- * config.search.resultsShown, the hiding threshold from config.benefit.
+ * Ranking and diversity (CLAUDE.md §13; lead decisions L10 and M9 of the Phase 4 designs; Phase 4b's given-player cap).
+ * Pure and deterministic: no I/O, no clock, and the output never depends on the input order. The caps come from
+ * config.ranking and config.search.resultsShown, the hiding threshold from config.benefit.
  *
  * Sorts (sortTrades; the search ranks with "overall", the Trade Finder re-sorts with any of them):
  * - "overall" (the default): the expected gain EG = B × P_complete (benefit.expectedGain), highest first; it is what
@@ -28,7 +28,11 @@
  *    b. core: perCore kept trades already share its core, the highest-value asset on each side (`value`: the
  *       perception value; ties and unknown values: the smaller asset id; an empty side has no core asset);
  *    c. partner cap: while fewer than partnerCapTop (20, §13's "top 20") trades are kept, its partner already has
- *       perPartnerInTop20 of them. Past the first 20, a partner may have more.
+ *       perPartnerInTop20 of them. Past the first 20, a partner may have more;
+ *    d. given-player cap (planner reply to Checkpoint 4, change 6 and answer 7: the live top ideas mostly sold one
+ *       player of mine, Garrett Wilson in 15 of 22): in the same top-20 window, a player of mine it gives is already
+ *       given by perGivenPlayerInTop20 of the trades kept (counted per player on my side, picks aside: a 2-for-1 counts
+ *       for both of my players). Past the first 20, a player may be given in more.
  *    A trade more than one rule would drop is counted once, under the first rule in that order.
  * 3. It stops once resultsShown trades are kept; the trades after that are neither kept nor counted as dropped.
  */
@@ -39,8 +43,13 @@ import type { TradeAsset, TradeEvaluation, TradeSort } from "./tradeModel";
 /** The numbers rankTrades reads, widened so tests and calibration can pass others (defaults: config). */
 export interface RankConfig {
   readonly perPartnerInTop20: number;
-  /** The partner cap applies within the first this many trades kept (§13's "top 20"). */
+  /** The partner cap and the given-player cap apply within the first this many trades kept (§13's "top 20"). */
   readonly partnerCapTop: number;
+  /**
+   * At most this many trades in that window give the same player of mine (planner reply to Checkpoint 4, answer 7).
+   * Absent: config.ranking.perGivenPlayerInTop20 (a config built before Phase 4b still gets the cap).
+   */
+  readonly perGivenPlayerInTop20?: number;
   readonly perCore: number;
   readonly fillerCutoffFraction: number;
   readonly resultsShown: number;
@@ -50,6 +59,7 @@ export interface RankConfig {
 const DEFAULT_RANK_CONFIG: RankConfig = {
   perPartnerInTop20: config.ranking.perPartnerInTop20,
   partnerCapTop: config.ranking.partnerCapTop,
+  perGivenPlayerInTop20: config.ranking.perGivenPlayerInTop20,
   perCore: config.ranking.perCore,
   fillerCutoffFraction: config.ranking.fillerCutoffFraction,
   resultsShown: config.search.resultsShown,
@@ -116,8 +126,11 @@ export interface RankedTrades {
   trades: TradeEvaluation[];
   /** Kept out by default (§10): B ≤ 0, or g_mkt(me) below marketHideBelow. */
   hidden: { byBenefit: number; byMarket: number };
-  /** Dropped by the diversity rules (§13): over the per-partner cap in the top 20, over the per-core cap, filler variants. */
-  dropped: { partnerCap: number; core: number; filler: number };
+  /**
+   * Dropped by the diversity rules (§13): over the per-partner cap in the top 20, over the per-core cap, filler variants,
+   * and over the given-player cap in the top 20 (givenPlayer; planner reply to Checkpoint 4, answer 7).
+   */
+  dropped: { partnerCap: number; core: number; filler: number; givenPlayer: number };
 }
 
 /** An asset's id within its side: a player's canonical id, or a pick's season, round and original team. */
@@ -149,6 +162,8 @@ interface Candidate {
   /** Side-tagged asset ids ("give:…", "get:…"). */
   assets: Set<string>;
   core: string;
+  /** The players of mine it gives (each once; picks aside): the given-player cap counts them. */
+  given: string[];
   b: number;
 }
 
@@ -165,7 +180,8 @@ function properSubset(small: ReadonlySet<string>, big: ReadonlySet<string>): boo
  */
 export function rankTrades(evaluations: readonly TradeEvaluation[], value: (asset: TradeAsset) => number, cfg: RankConfig = DEFAULT_RANK_CONFIG): RankedTrades {
   const hidden = { byBenefit: 0, byMarket: 0 };
-  const dropped = { partnerCap: 0, core: 0, filler: 0 };
+  const dropped = { partnerCap: 0, core: 0, filler: 0, givenPlayer: 0 };
+  const givenCap = cfg.perGivenPlayerInTop20 ?? config.ranking.perGivenPlayerInTop20;
   const byKey = new Map<string, TradeEvaluation>();
   for (const e of evaluations) {
     const kept = byKey.get(e.key);
@@ -182,6 +198,7 @@ export function rankTrades(evaluations: readonly TradeEvaluation[], value: (asse
   const kept: Candidate[] = [];
   const perCore = new Map<string, number>();
   const perPartnerTop = new Map<string, number>();
+  const perGivenTop = new Map<string, number>();
   const limit = Math.max(0, Math.floor(cfg.resultsShown));
   for (const trade of shown) {
     if (kept.length >= limit) break;
@@ -192,6 +209,7 @@ export function rankTrades(evaluations: readonly TradeEvaluation[], value: (asse
       partnerId: trade.proposal.partnerId,
       assets: new Set([...give.map((a) => `give:${assetId(a)}`), ...get.map((a) => `get:${assetId(a)}`)]),
       core: `${coreAsset(give, value)}|${coreAsset(get, value)}`,
+      given: [...new Set(give.flatMap((a) => (a.kind === "player" ? [a.id] : [])))],
       b: trade.b as number,
     };
     if (kept.some((k) => k.partnerId === c.partnerId && properSubset(k.assets, c.assets) && Math.abs(c.b - k.b) < cfg.fillerCutoffFraction * k.b)) {
@@ -207,9 +225,16 @@ export function rankTrades(evaluations: readonly TradeEvaluation[], value: (asse
       dropped.partnerCap++;
       continue;
     }
+    if (inTop && c.given.some((id) => (perGivenTop.get(id) ?? 0) >= givenCap)) {
+      dropped.givenPlayer++;
+      continue;
+    }
     kept.push(c);
     perCore.set(c.core, (perCore.get(c.core) ?? 0) + 1);
-    if (inTop) perPartnerTop.set(c.partnerId, (perPartnerTop.get(c.partnerId) ?? 0) + 1);
+    if (inTop) {
+      perPartnerTop.set(c.partnerId, (perPartnerTop.get(c.partnerId) ?? 0) + 1);
+      for (const id of c.given) perGivenTop.set(id, (perGivenTop.get(id) ?? 0) + 1);
+    }
   }
   return { trades: kept.map((k) => k.trade), hidden, dropped };
 }

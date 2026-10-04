@@ -78,6 +78,8 @@ describe("reduceFantasyCalcValues", () => {
       team: "DET",
       value: 10717,
       redraftValue: 10605, // the 12-team PPR baseline: not this format's value
+      overallRank: 1, // kept for the local archive only
+      positionRank: 1,
     });
   });
 });
@@ -248,5 +250,12 @@ describe("market inputs (§9: which number a league uses)", () => {
     const m = marketInputsFrom({ values: dynasty, redraft, fantasyCalcPlayers: null, players, relevantIds: new Set(["90001", "90002", "90003"]), now: NOW });
     expect(m).toEqual({ format: DYNASTY_12, fetchedAt: new Date(1_500).toISOString(), values: { "90001": 8000, "90002": 4000 }, redraftValues: { "90001": 6000 }, knownIds: ["90001", "90002"], topValue: 8000 });
     expect(marketInputsFrom({ values: loaded(DYNASTY_12, [row({ sleeperId: "90001" })]), fantasyCalcPlayers: null, players, relevantIds: [], now: NOW }).fetchedAt).toBe(NOW.toISOString());
+  });
+
+  it("dynasty: this season's list (the market blend's, §6 step 8) becomes seasonValues, never redraftValues; it counts for knownIds and the oldest fetch time", () => {
+    const dynasty = loaded(DYNASTY_12, [row({ sleeperId: "90001", value: 8000 })], 2_000);
+    const season = loaded(fmt(), [row({ sleeperId: "90001", value: 6000 }), row({ sleeperId: "90003", value: 3000 })], 1_200);
+    const m = marketInputsFrom({ values: dynasty, season, fantasyCalcPlayers: null, players, relevantIds: ["90001", "90002", "90003"], now: NOW });
+    expect(m).toEqual({ format: DYNASTY_12, fetchedAt: new Date(1_200).toISOString(), values: { "90001": 8000 }, seasonValues: { "90001": 6000, "90003": 3000 }, knownIds: ["90001", "90003"], topValue: 8000 });
   });
 });
