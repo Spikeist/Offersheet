@@ -8,7 +8,9 @@ import { describe, expect, it } from "vitest";
 import { config } from "./config";
 import { needFeature, partnerLineupDelta } from "./acceptance";
 import { analyzeTrade, buildTradeContext, evaluateExact, explainContextOf, simCounts, simulateTrade, tradeInternals, type ExactTrade, type SimState, type TeamState, type TradeContextOptions } from "./evaluate";
-import type { Matchup } from "./model";
+import type { Matchup, Pos } from "./model";
+import { defaultTradeSettings } from "./settings";
+import { evStarter } from "./teamValue";
 import { seasonOdds, type SeasonModel } from "./season";
 import type { TestLeagueSpec, TestPlayer } from "./testLeague";
 import { TEST_NOW } from "./testLeague";
@@ -271,6 +273,40 @@ describe("items 5–7", () => {
     expect(ctx.notes).toEqual([]);
     expect(tradeInternals(ctx).riskyWeeks).toContain(6);
     expect(tradeInternals(ctx).riskyWeeks).not.toContain(7);
+  });
+
+  it("Phase 4c (lead decision): a likely starter at a position I stream isn't counted on bye: the streaming replacement covers his slot", () => {
+    // A points-only league (its byes alone flag a week): my QB, RB1 and kicker are on bye in week 7. My kicker (9) beats
+    // the streaming replacement (the free-agent kicker, 5) every week he plays, so he's a likely starter either way.
+    const { snapshot, inputs } = handLeague((spec) => {
+      spec.byeWeek = { BYE7: 7 };
+      for (const [id, pos, pts] of [["q1", "QB", 20], ["ra1", "RB", 15], ["k1", "K", 9]] as const) swapPlayer(spec, "1", id, flat(id, pos, pts, { nflTeam: "BYE7" }));
+    });
+    const pointsOnly = { ...snapshot, settings: { ...snapshot.settings, pointsOnly: true } };
+    const streaming = (streamPositions: Pos[]) => tradeInternals(buildTradeContext(pointsOnly, inputs, { now: TEST_NOW, scenarios: 0, settings: { ...defaultTradeSettings(), streamPositions } }));
+    const streamsK = streaming(["K", "DEF"]);
+    const me = streamsK.me as TeamState;
+    expect(me.stream.positions).toEqual(["K", "DEF"]);
+    const k = me.base.ev.team.rows.findIndex((r) => r.id === "k1");
+    expect(evStarter(me.base.ev, k, streamsK.weights)).toBe(true);
+    // Streaming K (the default): his bye is covered, so week 7 has two starters off, not three.
+    expect(streamsK.riskyWeeks).not.toContain(7);
+    // Not streaming K: he's the third likely starter off in week 7, which flags it.
+    expect(streaming(["DEF"]).riskyWeeks).toContain(7);
+  });
+
+  it("Phase 4c (lead decision): a streamed QB's or TE's bye still counts, since only a streamed K or D/ST covers it (config.leaguePage.streamCoversBye)", () => {
+    // My QB, RB1 and TE are on bye in week 7. Streaming QB and TE (my setting) doesn't cover their byes: their replacements
+    // are much weaker, so the week has three starters off and is flagged, whatever I stream.
+    const { snapshot, inputs } = handLeague((spec) => {
+      spec.byeWeek = { BYE7: 7 };
+      for (const [id, pos, pts] of [["q1", "QB", 20], ["ra1", "RB", 15], ["te1", "TE", 12]] as const) swapPlayer(spec, "1", id, flat(id, pos, pts, { nflTeam: "BYE7" }));
+    });
+    const pointsOnly = { ...snapshot, settings: { ...snapshot.settings, pointsOnly: true } };
+    const streaming = (streamPositions: Pos[]) => tradeInternals(buildTradeContext(pointsOnly, inputs, { now: TEST_NOW, scenarios: 0, settings: { ...defaultTradeSettings(), streamPositions } }));
+    expect(config.leaguePage.streamCoversBye).toEqual(["K", "DEF"]);
+    expect(streaming(["K", "DEF", "QB", "TE"]).riskyWeeks).toContain(7);
+    expect(streaming(["K", "DEF"]).riskyWeeks).toContain(7);
   });
 
   it("item 7: the explanation context carries injury statuses and each slot's positions", () => {

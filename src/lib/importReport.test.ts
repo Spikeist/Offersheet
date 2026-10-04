@@ -1,11 +1,16 @@
 import { describe, expect, it } from "vitest";
+import { normalizeEspnLeague } from "@/adapters/espn/normalize";
+import { PARKER as ESPN_PARKER, fakeResolver as espnResolver, parkerBundle } from "@/adapters/espn/test-helpers";
+import { ESPN_WAIVER_CODES } from "@/adapters/espn/waivers";
 import { normalizeSleeperLeague } from "@/adapters/sleeper/normalize";
 import { fakeResolver, loadTestLeague, rawOf, type TestLeague } from "@/adapters/sleeper/test-helpers";
+import { WAIVER_RESET_BEFORE_GAMES as SLEEPER_WAIVER_RESET_BEFORE_GAMES, WAIVER_TYPE_UNKNOWN as SLEEPER_WAIVER_TYPE_UNKNOWN } from "@/adapters/sleeper/waivers";
 import type { ModelInputs, PlayerInputs } from "@/engine/inputs";
+import { allocationOrder } from "@/engine/league";
 import { fantasyCalcFormat } from "@/engine/market";
 import type { LeagueSettings, LeagueSnapshot, PlayerInfo, Scoring, Team } from "@/engine/model";
 import type { ImportResponse } from "./api";
-import { UNKNOWN_SETTING_TEXT, buildImportReport, refreshOutcomeText, ruleText } from "./importReport";
+import { UNKNOWN_SETTING_TEXT, WAIVER_WARNING_CODES, allocationBasis, buildImportReport, refreshOutcomeText, ruleText } from "./importReport";
 
 // A small synthetic league. Every name is made up.
 const TZ = "America/New_York";
@@ -340,12 +345,127 @@ describe("buildImportReport: lineup, season and trades", () => {
 
   it("describes the trade deadline, review and FAAB", () => {
     const v = buildImportReport(response(snapshot()), { timeZone: TZ });
-    expect(v.trades).toEqual({ deadline: "Wed, Dec 2, 2026, 12:00 PM EST (week 13)", review: "League vote: managers can veto trades", faab: "No FAAB budget reported" });
+    // The made-up league reports no waiver ranks or budgets (the waiver order's own tests are below).
+    const notReported = "Not reported (the team that gains the most picks first)";
+    expect(v.trades).toEqual({ deadline: "Wed, Dec 2, 2026, 12:00 PM EST (week 13)", review: "League vote: managers can veto trades", faab: "No FAAB budget reported", waiverOrder: notReported });
     const none = buildImportReport(response(snapshot({}, { tradeDeadline: null, tradeReview: "none", faabBudget: 100 })), { timeZone: TZ });
-    expect(none.trades).toEqual({ deadline: "No trade deadline", review: "No review: accepted trades go through", faab: "$100 FAAB budget" });
+    expect(none.trades).toEqual({ deadline: "No trade deadline", review: "No review: accepted trades go through", faab: "$100 FAAB budget", waiverOrder: notReported });
     const weekOnly = buildImportReport(response(snapshot({}, { tradeDeadline: { week: 11 } })), { timeZone: TZ });
     expect(weekOnly.trades.deadline).toBe("Week 11");
     expect(weekOnly.glance.find((t) => t.id === "deadline")?.value).toBe("Week 11");
+  });
+
+  it("the waiver order used, worded by the order free agents are handed out in (Phase 4c; planner reply to Checkpoint 4b, change 5)", () => {
+    const ranked = (extra: (id: string) => Partial<Team> = () => ({})) => snapshot().teams.map((t, i) => ({ ...t, waiverRank: i + 1, ...extra(t.id) }));
+    const text = (teams: Team[], settings: Partial<LeagueSettings> = {}, warnings: LeagueSnapshot["warnings"] = []) => buildImportReport(response(snapshot({ teams, warnings }, settings)), { timeZone: TZ }).trades.waiverOrder;
+    expect(text(ranked(), { waiverOrderUsed: "weeklyReset" })).toBe("Weekly reset (reverse standings)");
+    expect(text(ranked(), { waiverOrderUsed: "live" })).toBe("Live order (rolling waivers)");
+    // ⚠️ A commissioner's edit lasts until the next weekly reset (ESPN keeps the reset order then): the row says so.
+    expect(text(ranked(), { waiverOrderUsed: "weeklyReset" }, [{ code: "ESPN_WAIVER_ORDER_EDITED", message: "…" }])).toBe("Weekly reset (reverse standings; the commissioner's edited order lasts until the reset)");
+    for (const code of ["ESPN_WAIVER_RESET_UNKNOWN", "WAIVER_TYPE_UNKNOWN"]) expect(text(ranked(), { waiverOrderUsed: "live" }, [{ code, message: "…" }])).toBe("Live order (the league doesn't say whether it resets weekly)");
+    // A league that resets weekly but hasn't played a game has no standings to reset to: its adapter's warning says so. A
+    // rolling league's order is live before its first game too, for the usual reason.
+    const fresh = ranked(() => ({ record: { w: 0, l: 0, t: 0 }, pointsFor: 0 }));
+    for (const code of ["ESPN_WAIVER_RESET_BEFORE_GAMES", "WAIVER_RESET_BEFORE_GAMES"]) expect(text(fresh, { waiverOrderUsed: "live" }, [{ code, message: "…" }])).toBe("Live order (no games played yet)");
+    expect(text(fresh, { waiverOrderUsed: "live" })).toBe("Live order (rolling waivers)");
+    // A platform that ranks every team without saying which order it is.
+    expect(text(ranked())).toBe("The league's waiver order");
+    // FAAB: the budgets, when every team reports one; else the ranks, saying which budget is missing; else neither.
+    const budgets = ranked((id) => ({ faabRemaining: Number(id) * 10 }));
+    expect(text(budgets, { faabBudget: 100, waiverOrderUsed: "faab" })).toBe("FAAB budget left (the most left picks first)");
+    expect(text(ranked((id) => (id === "2" ? {} : { faabRemaining: 50 })), { faabBudget: 100, waiverOrderUsed: "faab" })).toBe("Waiver order (not every team's FAAB budget was reported)");
+    expect(text(budgets, { waiverOrderUsed: "faab" })).toBe("Waiver order (the league's FAAB budget wasn't reported)");
+    // A FAAB league whose ties go by the weekly reset order (ESPN, order reset weekly: the live rank kept apart) says so.
+    const resetTies = (teams: Team[]) => teams.map((t) => ({ ...t, liveWaiverRank: 5 - (t.waiverRank as number) }));
+    expect(text(resetTies(budgets), { faabBudget: 100, waiverOrderUsed: "faab" })).toBe("FAAB budget left (the most left picks first; ties by the weekly reset order)");
+    expect(text(resetTies(ranked((id) => (id === "2" ? {} : { faabRemaining: 50 }))), { faabBudget: 100, waiverOrderUsed: "faab" })).toBe("Weekly reset order (not every team's FAAB budget was reported)");
+    expect(text(resetTies(budgets), { waiverOrderUsed: "faab" })).toBe("Weekly reset order (the league's FAAB budget wasn't reported)");
+    // No order at all: the biggest gain first.
+    const unranked = snapshot().teams.map((t, i) => (i === 1 ? t : { ...t, waiverRank: i + 1 }));
+    expect(text(unranked, { waiverOrderUsed: "live" })).toBe("Not reported (the team that gains the most picks first)");
+    expect(text(snapshot().teams, {}, [{ code: "ESPN_NO_WAIVERS", message: "…" }])).toBe("None, free agency: the team that gains the most picks first");
+  });
+
+  it("the row's basis is the engine's (src/engine/league.ts allocationOrder) on any mix of ranks and budgets", () => {
+    const values = [undefined, 0, 1, 2, 2.5, -1, Number.NaN, 7] as const;
+    let seed = 7;
+    const pick = () => {
+      seed = (seed * 48271) % 2147483647;
+      return values[seed % values.length];
+    };
+    for (let k = 0; k < 400; k++) {
+      const teams = snapshot().teams.map((t) => {
+        const waiverRank = pick();
+        const faabRemaining = pick();
+        return { ...t, ...(waiverRank !== undefined ? { waiverRank } : {}), ...(faabRemaining !== undefined ? { faabRemaining } : {}) };
+      });
+      for (const faabBudget of [undefined, 100]) {
+        const snap = snapshot({ teams }, faabBudget !== undefined ? { faabBudget } : {});
+        expect(allocationBasis(snap), `case ${k}`).toBe(allocationOrder(snap.teams, snap.settings.faabBudget !== undefined, () => 0).basis);
+      }
+    }
+    expect(allocationBasis(snapshot({ teams: [] }, { faabBudget: 100 }))).toBe(allocationOrder([], true, () => 0).basis);
+  });
+
+  it("the adapters' waiver warning codes are the ones the row reads", () => {
+    expect(WAIVER_WARNING_CODES.noWaivers).toBe(ESPN_WAIVER_CODES.noWaivers);
+    expect(WAIVER_WARNING_CODES.edited).toBe(ESPN_WAIVER_CODES.edited);
+    expect([...WAIVER_WARNING_CODES.resetUnknown]).toEqual([ESPN_WAIVER_CODES.resetUnknown, SLEEPER_WAIVER_TYPE_UNKNOWN]);
+    expect([...WAIVER_WARNING_CODES.beforeGames]).toEqual([ESPN_WAIVER_CODES.beforeGames, SLEEPER_WAIVER_RESET_BEFORE_GAMES]);
+  });
+
+  it("the row for leagues as their adapters read them: Parker's ESPN league (weekly reset), the Sleeper test league (rolling; reverse standings)", () => {
+    type EspnJson = { teams: { record: { overall: Record<string, number> } }[]; settings: { acquisitionSettings: Record<string, unknown> }; status: Record<string, unknown> };
+    const espn = (edit: (league: EspnJson) => void = () => {}) => {
+      const bundle = parkerBundle();
+      edit(bundle.league as EspnJson);
+      return buildImportReport(normalizeEspnLeague(bundle, { leagueId: ESPN_PARKER.leagueId, resolver: espnResolver(), now: new Date("2026-09-29T20:00:00Z"), swid: ESPN_PARKER.swid }), { timeZone: TZ }).trades.waiverOrder;
+    };
+    // Before week 1: every record 0-0, no points.
+    const espnFresh = (league: EspnJson) => league.teams.forEach((t) => Object.assign(t.record.overall, { wins: 0, losses: 0, ties: 0, pointsFor: 0, pointsAgainst: 0 }));
+    expect(espn()).toBe("Weekly reset (reverse standings)");
+    expect(espn(espnFresh)).toBe("Live order (no games played yet)");
+    expect(
+      espn((league) => {
+        espnFresh(league);
+        league.settings.acquisitionSettings.waiverOrderReset = false;
+      }),
+    ).toBe("Live order (rolling waivers)");
+    // ⚠️ A commissioner's edit: the reset order still, said so.
+    expect(espn((league) => (league.status.isWaiverOrderEdited = true))).toBe("Weekly reset (reverse standings; the commissioner's edited order lasts until the reset)");
+    // As a FAAB league: every team's budget left (Parker's league has spent none), ties by the weekly reset order (its order
+    // resets weekly); without the league's budget, that order alone.
+    expect(espn((league) => Object.assign(league.settings.acquisitionSettings, { isUsingAcquisitionBudget: true }))).toBe("FAAB budget left (the most left picks first; ties by the weekly reset order)");
+    expect(
+      espn((league) => {
+        Object.assign(league.settings.acquisitionSettings, { isUsingAcquisitionBudget: true });
+        delete league.settings.acquisitionSettings.acquisitionBudget;
+      }),
+    ).toBe("Weekly reset order (the league's FAAB budget wasn't reported)");
+    // A FAAB league whose order doesn't reset weekly: its ties go by ESPN's live rank, so the row doesn't name one.
+    expect(espn((league) => Object.assign(league.settings.acquisitionSettings, { isUsingAcquisitionBudget: true, waiverOrderReset: false }))).toBe("FAAB budget left (the most left picks first)");
+    const sleeper = (waiverType: number, edit: (t: TestLeague) => void = () => {}) => {
+      const t = loadTestLeague();
+      t.league.settings.waiver_type = waiverType;
+      // Made-up positions (the minimized fixture keeps none).
+      t.rosters.forEach((r) => Object.assign(r.settings, { waiver_position: 13 - r.roster_id }));
+      edit(t);
+      return buildImportReport(normalizeSleeperLeague(rawOf(t), { now: new Date("2026-09-29T18:00:00Z"), resolver: fakeResolver(t.players) }), { timeZone: TZ }).trades.waiverOrder;
+    };
+    const sleeperFresh = (t: TestLeague) => t.rosters.forEach((r) => Object.assign(r.settings, { wins: 0, losses: 0, ties: 0, fpts: 0, fpts_decimal: 0 }));
+    expect(sleeper(0)).toBe("Live order (rolling waivers)");
+    expect(sleeper(0, sleeperFresh)).toBe("Live order (rolling waivers)");
+    expect(sleeper(1)).toBe("Weekly reset (reverse standings)");
+    expect(sleeper(1, sleeperFresh)).toBe("Live order (no games played yet)");
+    expect(sleeper(9)).toBe("Live order (the league doesn't say whether it resets weekly)");
+    // FAAB with the league's budget but no team's amount used (the minimized fixture keeps none): the positions, said so.
+    expect(sleeper(2, (t) => Object.assign(t.league.settings, { waiver_budget: 100 }))).toBe("Waiver order (not every team's FAAB budget was reported)");
+    // FAAB without the league's budget (never seen): the positions, saying it's the league's budget that's missing.
+    expect(
+      sleeper(2, (t) => {
+        delete (t.league.settings as Record<string, unknown>).waiver_budget;
+      }),
+    ).toBe("Waiver order (the league's FAAB budget wasn't reported)");
   });
 
   it("notes best ball", () => {

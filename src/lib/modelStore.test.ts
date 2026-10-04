@@ -3,43 +3,20 @@ import type { ModelInputs } from "@/engine/inputs";
 import type { LeagueSnapshot } from "@/engine/model";
 import { TTL } from "@/server/cache";
 import type { ModelResponse } from "./api";
-import { IMPORT_FORMAT_VERSION, IMPORT_STORAGE_KEY, myTeamKey, parseMyTeamPick, parseStoredImport, saveImport, saveMyTeam, type StorageLike, type StoredImport } from "./importStore";
-import { MODEL_REUSE_MAX_AGE_MS, MODEL_STORAGE_KEY, keepModelResponse, modelForSnapshot, modelKey, modelRequest, parseStoredModel, saveModel, storedModelForLeague, withImportedTeam } from "./modelStore";
-
-class FakeStorage implements StorageLike {
-  data = new Map<string, string>();
-  log: string[] = [];
-  getItem(k: string) {
-    return this.data.get(k) ?? null;
-  }
-  setItem(k: string, v: string) {
-    this.log.push(`set ${k}`);
-    this.data.set(k, v);
-  }
-  removeItem(k: string) {
-    this.log.push(`remove ${k}`);
-    this.data.delete(k);
-  }
-}
-
-/** Storage that is full: reads and removals work, writes throw. */
-class FullStorage extends FakeStorage {
-  setItem(): void {
-    throw new Error("QuotaExceededError");
-  }
-}
-
-class BlockedStorage implements StorageLike {
-  getItem(): string | null {
-    throw new Error("SecurityError");
-  }
-  setItem(): void {
-    throw new Error("SecurityError");
-  }
-  removeItem(): void {
-    throw new Error("SecurityError");
-  }
-}
+import { IMPORT_FORMAT_VERSION, type StoredImport } from "./importStore";
+import {
+  MODEL_REUSE_MAX_AGE_MS,
+  MODEL_STORAGE_KEY,
+  checkStoredModel,
+  modelForSnapshot,
+  modelKey,
+  modelRequest,
+  parseStoredModel,
+  snapshotOrder,
+  storedModelForLeague,
+  withImportedTeam,
+  type StoredModel,
+} from "./modelStore";
 
 function inputs(overrides: Partial<ModelInputs> = {}): ModelInputs {
   return {
@@ -64,23 +41,28 @@ const SAVED_AT = "2026-09-30T02:00:05.000Z";
 /** Ten minutes after the default inputs were built. */
 const SOON = { now: Date.parse("2026-09-30T02:10:00.000Z") };
 
-describe("model store (sessionStorage offersheet:model:v1)", () => {
+/** The record kept for a snapshot's inputs (the league store's, and the pre-4c tab's). */
+const storedModel = (snapshot: { platform: "sleeper" | "espn"; leagueId: string; season: number; fetchedAt: string }, model: ModelInputs): StoredModel => ({
+  version: 1,
+  savedAt: SAVED_AT,
+  key: modelKey(snapshot),
+  snapshotFetchedAt: snapshot.fetchedAt,
+  model,
+});
+
+describe("model store", () => {
   it("keys a league by platform, league and season", () => {
     expect(modelKey(snap)).toBe("sleeper:123456789012345678:2026");
     expect(MODEL_STORAGE_KEY).toBe("offersheet:model:v1");
   });
 
-  it("round-trips the inputs for one snapshot", () => {
-    const s = new FakeStorage();
-    expect(saveModel(s, { snapshot: snap, model: inputs(), savedAt: SAVED_AT })).toEqual({ ok: true });
-    const stored = parseStoredModel(s.getItem(MODEL_STORAGE_KEY));
+  it("reads the inputs kept as text for one snapshot (the pre-4c sessionStorage copy the league store's migration reads)", () => {
+    const stored = parseStoredModel(JSON.stringify(storedModel(snap, inputs())));
     expect(stored).toEqual({ version: 1, savedAt: SAVED_AT, key: "sleeper:123456789012345678:2026", snapshotFetchedAt: snap.fetchedAt, model: inputs() });
   });
 
   it("is reused only for the same league and the same league data (snapshot.fetchedAt)", () => {
-    const s = new FakeStorage();
-    saveModel(s, { snapshot: snap, model: inputs(), savedAt: SAVED_AT });
-    const stored = parseStoredModel(s.getItem(MODEL_STORAGE_KEY));
+    const stored = storedModel(snap, inputs());
     expect(modelForSnapshot(stored, snap, SOON)).toEqual(inputs());
     expect(modelForSnapshot(stored, { ...snap, fetchedAt: "2026-09-30T02:30:00.000Z" }, SOON)).toBeUndefined();
     expect(modelForSnapshot(stored, { ...snap, leagueId: "999999999999999999" }, SOON)).toBeUndefined();
@@ -95,9 +77,7 @@ describe("model store (sessionStorage offersheet:model:v1)", () => {
   it("is reused only while younger than the projections' refresh interval (6 hours, the server's TTL.projections), so a tab reopened days later fetches again", () => {
     expect(MODEL_REUSE_MAX_AGE_MS).toBe(TTL.projections);
     expect(MODEL_REUSE_MAX_AGE_MS).toBe(6 * 60 * 60 * 1000);
-    const s = new FakeStorage();
-    saveModel(s, { snapshot: snap, model: inputs(), savedAt: SAVED_AT });
-    const stored = parseStoredModel(s.getItem(MODEL_STORAGE_KEY));
+    const stored = storedModel(snap, inputs());
     const built = Date.parse(inputs().builtAt);
     expect(modelForSnapshot(stored, snap, { now: built + MODEL_REUSE_MAX_AGE_MS - 1 })).toEqual(inputs());
     expect(modelForSnapshot(stored, snap, { now: built + MODEL_REUSE_MAX_AGE_MS })).toBeUndefined();
@@ -107,26 +87,7 @@ describe("model store (sessionStorage offersheet:model:v1)", () => {
     expect(modelForSnapshot(stored, snap, { now: built - 60_000 })).toEqual(inputs());
     expect(modelForSnapshot(stored, snap, { now: built + 60_000, maxAgeMs: 30_000 })).toBeUndefined();
     // No readable build time: treated as old.
-    saveModel(s, { snapshot: snap, model: inputs({ builtAt: "sometime" }), savedAt: SAVED_AT });
-    expect(modelForSnapshot(parseStoredModel(s.getItem(MODEL_STORAGE_KEY)), snap, SOON)).toBeUndefined();
-  });
-
-  it("keeps one league at a time, removing the old copy before writing", () => {
-    const s = new FakeStorage();
-    saveModel(s, { snapshot: snap, model: inputs(), savedAt: SAVED_AT });
-    saveModel(s, { snapshot: { ...snap, leagueId: "222" }, model: inputs({ currentWeek: 5 }), savedAt: SAVED_AT });
-    expect(s.log).toEqual([`remove ${MODEL_STORAGE_KEY}`, `set ${MODEL_STORAGE_KEY}`, `remove ${MODEL_STORAGE_KEY}`, `set ${MODEL_STORAGE_KEY}`]);
-    expect(parseStoredModel(s.getItem(MODEL_STORAGE_KEY))?.key).toBe("sleeper:222:2026");
-  });
-
-  it("says so when the browser won't store it, and never leaves a stale copy behind", () => {
-    const full = new FullStorage();
-    full.data.set(MODEL_STORAGE_KEY, "old copy");
-    const res = saveModel(full, { snapshot: snap, model: inputs(), savedAt: SAVED_AT });
-    expect(res.ok).toBe(false);
-    expect(res.ok ? "" : res.message).toMatch(/wouldn't let us keep the projections/);
-    expect(full.data.has(MODEL_STORAGE_KEY)).toBe(false);
-    expect(saveModel(new BlockedStorage(), { snapshot: snap, model: inputs(), savedAt: SAVED_AT }).ok).toBe(false);
+    expect(modelForSnapshot(storedModel(snap, inputs({ builtAt: "sometime" })), snap, SOON)).toBeUndefined();
   });
 
   it("ignores anything that isn't a stored model (light shape check)", () => {
@@ -174,32 +135,12 @@ describe("model store (sessionStorage offersheet:model:v1)", () => {
     });
   });
 
-  describe("keepModelResponse (the League page's answer from POST /api/model/…)", () => {
+  describe("withImportedTeam (the League page's answer from POST /api/model/…, before the league store keeps it)", () => {
     const leagueSnap = (fetchedAt: string) =>
       ({ platform: "espn", leagueId: "4242", season: 2026, fetchedAt, name: "Fictional League", teams: [{ id: "1" }, { id: "2" }], settings: {}, myTeamId: null }) as unknown as LeagueSnapshot;
     const T0 = "2026-09-30T01:00:00.000Z";
     const storedImport = (fetchedAt: string): StoredImport => ({ version: IMPORT_FORMAT_VERSION, savedAt: T0, request: { platform: "espn", season: 2026, leagueId: "4242" }, response: { snapshot: leagueSnap(fetchedAt), notes: [] } });
     const reply = (fetchedAt: string): ModelResponse => ({ import: { snapshot: leagueSnap(fetchedAt), notes: ["fresh"] }, model: inputs({ builtAt: fetchedAt }) });
-
-    it("stores the inputs for the same league data, leaving the import alone", () => {
-      const s = new FakeStorage();
-      saveImport(s, storedImport(T0));
-      const before = s.getItem(IMPORT_STORAGE_KEY);
-      expect(keepModelResponse(s, { stored: storedImport(T0), response: reply(T0), savedAt: SAVED_AT })).toEqual({ importSaved: false, modelSaved: true });
-      expect(s.getItem(IMPORT_STORAGE_KEY)).toBe(before);
-      expect(modelForSnapshot(parseStoredModel(s.getItem(MODEL_STORAGE_KEY)), leagueSnap(T0), SOON)?.builtAt).toBe(T0);
-    });
-
-    it("replaces the import with newer league data, keeping the user's team pick, and stores the inputs with it", () => {
-      const s = new FakeStorage();
-      saveImport(s, storedImport(T0));
-      saveMyTeam(s, leagueSnap(T0), "2", "you");
-      const T1 = "2026-09-30T02:00:00.000Z";
-      expect(keepModelResponse(s, { stored: storedImport(T0), response: reply(T1), savedAt: SAVED_AT })).toEqual({ importSaved: true, modelSaved: true });
-      expect(parseStoredImport(s.getItem(IMPORT_STORAGE_KEY))?.response).toMatchObject({ snapshot: { fetchedAt: T1 }, notes: ["fresh"] });
-      expect(parseMyTeamPick(s.getItem(myTeamKey(leagueSnap(T1))))).toEqual({ teamId: "2", source: "you" });
-      expect(modelForSnapshot(parseStoredModel(s.getItem(MODEL_STORAGE_KEY)), leagueSnap(T1), SOON)).toBeDefined();
-    });
 
     it("keeps the team the platform found at import when the model route couldn't find it (no Sleeper username)", () => {
       const withMine = (fetchedAt: string, myTeamId: string | null): StoredImport => {
@@ -239,13 +180,25 @@ describe("model store (sessionStorage offersheet:model:v1)", () => {
       // A reply without a warnings list (light shape check) still carries the team.
       expect(withImportedTeam(reply(T1), known).import.snapshot).toMatchObject({ myTeamId: "2", warnings: [] });
     });
+  });
+});
 
-    it("stores nothing for older league data, or when the import can't be stored", () => {
-      const s = new FakeStorage();
-      saveImport(s, storedImport("2026-09-30T02:00:00.000Z"));
-      expect(keepModelResponse(s, { stored: storedImport("2026-09-30T02:00:00.000Z"), response: reply(T0), savedAt: SAVED_AT })).toEqual({ importSaved: false, modelSaved: false });
-      expect(s.getItem(MODEL_STORAGE_KEY)).toBeNull();
-      expect(keepModelResponse(new FullStorage(), { stored: storedImport(T0), response: reply("2026-09-30T02:00:00.000Z"), savedAt: SAVED_AT })).toEqual({ importSaved: false, modelSaved: false });
-    });
+describe("the pieces the league store shares (Phase 4c: src/lib/leagueStore.ts keeps each league's inputs in IndexedDB)", () => {
+  it("checks stored inputs already parsed exactly as parseStoredModel checks their text", () => {
+    const good = { version: 1, savedAt: SAVED_AT, key: modelKey(snap), snapshotFetchedAt: snap.fetchedAt, model: inputs() };
+    for (const data of [good, { ...good, version: 2 }, { ...good, model: { ...good.model, players: [] } }, null, [], "inputs"]) {
+      expect(checkStoredModel(data), JSON.stringify(data)).toEqual(parseStoredModel(JSON.stringify(data)));
+    }
+    expect(checkStoredModel(good)).toEqual(good);
+    expect(checkStoredModel(undefined)).toBeUndefined();
+  });
+
+  it("orders a response's league data against the stored import's: older stores nothing, the same keeps the import, newer replaces it", () => {
+    expect(snapshotOrder("2026-09-30T02:00:00.000Z", "2026-09-30T01:00:00.000Z")).toBe("older");
+    expect(snapshotOrder("2026-09-30T02:00:00.000Z", "2026-09-30T02:00:00.000Z")).toBe("same");
+    expect(snapshotOrder("2026-09-30T02:00:00.000Z", "2026-09-30T03:00:00.000Z")).toBe("newer");
+    // A time that can't be read is never older: the response is the server's answer for this league just now.
+    expect(snapshotOrder("2026-09-30T02:00:00.000Z", "soon")).toBe("newer");
+    expect(snapshotOrder("whenever", "2026-09-30T01:00:00.000Z")).toBe("newer");
   });
 });

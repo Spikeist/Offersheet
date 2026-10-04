@@ -14,19 +14,23 @@
  * 1. Why it helps me: my biggest slot gain ("Your RB2 spot goes from 9.1 to 14.3 projected points per week"; else my
  *    whole lineup's weekly gain, else my playoff-week gain; the whole-lineup line says "In the regular season …" when
  *    a playoff-week line is shown too); in dynasty and keeper leagues leaning to the future (λ ≥ futureFirstLambda)
- *    my roster's long-term value gain next; the change in my odds ("Raises your playoff odds by 4.2 and your title
- *    odds by 1.8 percentage points", one decimal as the card prints them; a change that rounds to 0.0 is left out, as
- *    are title odds when unknown); my risky weeks it covers ("Covers your risky week 13: +6.2 projected points that
+ *    my roster's long-term value gain next ("Raises your roster's long-term value by 6%, counting roster spots.": ⚠️ the
+ *    model's ΔDyn over my roster's long-term value, said as the card's "Long-term value" fact says it, since
+ *    FantasyCalc's own sums, the card's value line, can read differently; review of track UIC); the change in my odds ("Raises your playoff odds by 4 and your title
+ *    odds by 1.8 percentage points": as the card's odds line prints them, its printed after minus its printed before, the
+ *    playoffs in whole points and the title in tenths, when ExplainContext.baseline gives the card's "before"; else the
+ *    change with one decimal; a change that prints as 0 is left out, as are title odds when unknown); my risky weeks it covers ("Covers your risky week 13: +6.2 projected points that
  *    week": a week the League page flags risky, TradeDetail.riskyWeeks, whose starting points rise at least
  *    riskyWeekGain; ⚠️ the detail doesn't say whether byes or a tough matchup made it risky, so the words don't
  *    either); a playoff-week gain well above the regular season's; otherwise the long-term gain. A redraft trade with
- *    B > 0 that none of these explain gets its B from the market term: "Mostly a trade-value win: you get 30% more
- *    trade value than you give." It needs the market term itself (B − B_win) to be positive and at least B_win, so that
- *    it is most of B (end-of-Phase-4 review: a B that comes from odds changes too small to print isn't credited to trade
- *    value), and g_mkt(me) ≥ valueEven for the percent it quotes. Since the value floor on both sides (planner reply to
- *    Checkpoint 4, change 4, which replaced lead decision N10) the term and the card's values read the same g_mkt(me),
- *    every player at max(v, W) (benefit.ts). Nothing at all → "Barely changes your starting lineup." A trade with B ≤ 0
- *    (the Analyzer shows them) starts with "Doesn't help you overall, …".
+ *    B > 0 that none of these explain gets its B from the market term: "Mostly a trade-value win: by FantasyCalc's trade
+ *    values, you get 30% more than you give." It needs the market term itself (B − B_win) to be positive and at least
+ *    B_win, so that it is most of B (end-of-Phase-4 review: a B that comes from odds changes too small to print isn't
+ *    credited to trade value), and g_mkt(me) ≥ valueEven (the model's package, which the term reads). ⚠️ The percent it
+ *    quotes is FantasyCalc's own (the "One value number" paragraph below), said only when that too is at least
+ *    valueEven; otherwise the line says it without a number, as the model reads it: "Mostly a trade-value win: counting
+ *    roster spots, you get more trade value than you give." Nothing at all → "Barely changes your starting lineup." A
+ *    trade with B ≤ 0 (the Analyzer shows them) starts with "Doesn't help you overall, …".
  * 2. Why they might say yes or no (at most partnerReasons, the ones that moved the acceptance estimate most first:
  *    |the feature's term in logit units|, TradeDetail.terms; each needs at least termMin, except the value line and the
  *    star premium line, and the star premium line always has a place among them, below):
@@ -36,16 +40,21 @@
  *      (rank > teams × holeRankFromBottom: "They're 9th of 10 at TE, and this gives them a starter"); otherwise it's a
  *      short-term hole (an injury or a bye: "Their TE spot is weak over the next 3 weeks, and this gives them a
  *      starter there"), and an unknown rank reads the same way;
- *    - trade value, from their side: "They give up 8% more trade value than they get, so expect pushback", "They get
- *      12% more …, which makes a yes more likely", or even within valueEven; a gap above valueMultipleAbove reads as
- *      a multiple ("They give up about 9.3 times as much trade value as they get"). The percents are exact readings
- *      of their own package: "they get X% more than they give" is X = g_mkt(partner), and "they give up X% more than
- *      they get" is X = PV_give(P) / PV_recv(P) − 1 = −g / (1 + g) of the same g (theirOverpay). Without an IR player in
- *      the trade the two packages mirror each other (my PV_give is their PV_recv), so that is g_mkt(me) exactly, and
- *      g_mkt(me) is what's printed then; with one, each side's open-spot credit follows its own active roster
- *      (market.ts's header) and only their own package says what they give up (review of track E). Said also when the card's "Market check" flag is on
- *      (the lead's decision after the Trade Finder review: the flag carries the check, from my side, and the reasons
- *      don't repeat it; that they get more is a real reason they'd accept);
+ *    - trade value, from their side, by FantasyCalc's own values (the "One value number" paragraph below): "By
+ *      FantasyCalc's trade values, they give up 8% more than they get, so expect pushback", "… they get 12% more than
+ *      they give, which makes a yes more likely", or "… the two sides are about even" within valueEven; a gap above
+ *      valueMultipleAbove reads as a multiple ("… they give up about 9.3 times as much as they get"). The percents are
+ *      exact readings of FantasyCalc's sums: "they get X% more than they give" is X = Σ they get / Σ they give − 1, and
+ *      "they give up X% more than they get" the same the other way. ⚠️ The clauses after the number are the model's own
+ *      reading (its package g_mkt(P), every player at max(v, W) with the roster-spot credit and the neutral throw-ins,
+ *      market.ts), said only when the model agrees: "which makes a yes more likely" when g_mkt(P) ≥ valueEven (and, with a
+ *      star premium, their perceived g too: below), "so expect pushback" when g_mkt(P) ≤ −valueEven; otherwise the
+ *      number stands alone. A player (or a pick) FantasyCalc doesn't value: said in words instead of a percent (⚠️ ours):
+ *      "FantasyCalc has no trade value for Tobias Thimble, so its values can't compare the two sides."; none in the trade
+ *      at all (a kicker for a D/ST; FantasyCalc's curve fallback, where no FantasyCalc value is quoted): "There are no
+ *      FantasyCalc trade values to compare for this trade." Said also when the
+ *      card's "Market check" flag is on (the lead's decision after the Trade Finder review: the flag carries the check,
+ *      from my side, and the reasons don't repeat it; that they get more is a real reason they'd accept);
  *    - the star premium (planner addendum to Checkpoint 3, §1; lead decision N7), whenever a player they'd give has
  *      e > 0 (TradeDetail.premium; facts for players not in the trade, or with an unreadable e, are ignored): the
  *      planner's "Their best player (or a top-12 player): expect them to want a little extra.", with his name and
@@ -61,7 +70,9 @@
  *      doesn't need, so the line says the premium is counted and they still come out ahead: "Zay Flowers is their
  *      second-best player, but even if they rate him a bit above his trade value, they'd still come out ahead."
  *      (addendum review: "a little extra" there contradicted the value line and suggested sweetening an offer the
- *      model already favors). An unreadable perceived g gets the planner's ending.
+ *      model already favors). ⚠️ Since Phase 4c the value line quotes FantasyCalc's own values, so "they'd still come
+ *      out ahead" also needs those to say they get at least valueEven more (the card never says they come out ahead
+ *      next to a value line that says otherwise); else, and with an unreadable perceived g, the planner's ending.
  *      Like the value line it is a candidate whatever its weight, and its weight is what the premium moved the
  *      estimate: the value term at their perceived g (terms.value) minus the term at the market g without the premium
  *      (gPartner, every player at max(v, W), clamped as the model clamps it). With a premium the value line weighs that
@@ -72,33 +83,45 @@
  *      value line's only when it is the one line kept), so a card still shows at most partnerReasons partner lines,
  *      in weight order. When the premium leaves them under valueEven in their eyes while the market says they get
  *      more, the value line drops "which makes a yes more likely" (⚠️ to them it's about even, and the premium line
- *      says they'll want a little extra): "They get 6% more trade value than they give." The pitch never mentions the
- *      premium (it would invite a counter);
+ *      says they'll want a little extra): "By FantasyCalc's trade values, they get 6% more than they give." The pitch
+ *      never mentions the premium (it would invite a counter);
  *    - activity ("Active trader: 3 trades this season"; "Quiet lately: no moves in 5 weeks"), their trade history
- *      on value, the season context (checked out, rebuilding with older players coming in, a contender), hot players
- *      coming or going, the deadline being near.
+ *      on value (⚠️ Phase 4c: without its percent, "They tend to win their trades on value this season, so they may want
+ *      more.": the average is the model's package g on past trades, floored at W, a figure the card no longer prints),
+ *      the season context (checked out, rebuilding with older players coming in, a contender), hot players coming or
+ *      going, the deadline being near.
  *    On equal weights they keep this order: the lineup, trade value, the star premium, activity, history, context,
  *    hot players, the deadline.
  * 3. Caveats: injured players I'd get ("Depends on an injured player: …"), my biggest slot loss, my risky weeks it
- *    weakens, a playoff-week loss, lower odds, a long-term value loss, the veto risk (the league reviews trades and
- *    the chance it goes through is cut). The card shows the risk flags apart (§13); the market check is left to its
+ *    weakens, a playoff-week loss, lower odds, a long-term value loss ("Costs 4% of your roster's long-term value,
+ *    counting roster spots."), the veto risk ("Your league reviews trades, and counting roster spots, this one is uneven
+ *    enough to risk a veto, so the chance it goes through is halved.": ⚠️ the veto rule reads the model's package
+ *    g_mkt(P), so the line says whose count it is, as the Market check flag does; FantasyCalc's own values can read the
+ *    same trade as even: review of track UIC). The card shows the risk flags apart (§13); the market check is left to its
  *    flag, and nothing here says a trade is hidden (the search never shows hidden trades).
  * 4. Notes: long-term values missing in a dynasty or keeper league (benefit.benefitNotes' words: Checkpoint 2, "the
  *    card says so"). TradeDetail.notes aren't repeated: the search lists them once for every card, and the Analyzer
  *    shows them with its result.
  * An illegal trade's reasons are its illegal reason alone, and it has no pitch.
  *
+ * One value number (planner reply to Checkpoint 4b, change 3: "Cards use FantasyCalc's raw values, the number a
+ * leaguemate can check, in both the reasons and the pitch"): every trade-value number in the words is FantasyCalc's own
+ * (ExplainContext.fantasyCalcValue, fantasyCalcComparison: the plain sum of the FantasyCalc values each side would get; no
+ * floor at the waiver credit W, no credit for a roster spot, no star premium and no neutral throw-ins, the model's
+ * package rules in market.ts and premium.ts). The model's figures stay internal: they decide the estimate, the order of
+ * the reasons and the clauses that say what the model makes of the value (above), never a number. src/lib/tradeView.ts
+ * prints the card's value line from the same comparison, and the Trade Analyzer shows the model's figures under
+ * "Details". Without the context's values (no lookup at all) nothing is said about trade value.
+ *
  * The pitch leads with what the partner gains (the same lineup facts as group 2: the hole it fills, "over the next 3
- * weeks" when it's a short-term one by the rank rule above; their slot or lineup gain; then the trade value they
- * gain, "(FantasyCalc values)", only when it's modest, valueEven to pitchValueMax: a bigger gain tells a sharp manager
- * the offer is an overpay, and a loss is never mentioned), at most two such sentences, then names the trade from their
- * side. ⚠️ The trade value there is FantasyCalc's own (ExplainContext.fantasyCalcValue: the sum of the FantasyCalc values
- * they'd get against the sum they'd give; no floor at the waiver credit W and no credit for a roster spot, the model's
- * package rules, market.ts): the sentence says "(FantasyCalc values)", and a manager who checks FantasyCalc must find that
- * number (final review of Phase 4b: on Parker's league a pitch said "about 17%" where FantasyCalc read +2.9%, the rest
- * the model's credit W for the spot the partner opens). It needs a FantasyCalc value for every player in the version
- * named (no pick, no estimate); otherwise, or without the context's values, nothing is said about value. The card's own
- * reasons keep the model's package g (the one the acceptance estimate used). ("Would you trade
+ * weeks" when it's a short-term one by the rank rule above; their slot or lineup gain; then the trade value they gain,
+ * "By FantasyCalc's trade values, you'd get about 18% more than you give.", only when it's modest: at least valueEven
+ * (the planner: "+5% or more"), and ⚠️ ours, at most pitchValueMax (25%): a bigger gain tells a sharp manager the offer is
+ * an overpay; a loss is never mentioned), at most two such sentences, then names the trade from their side. The value is
+ * FantasyCalc's own (the paragraph above), so a manager who checks FantasyCalc finds that number (final review of Phase
+ * 4b: on Parker's league a pitch said "about 17%" where FantasyCalc read +2.9%, the rest the model's credit W for the
+ * spot the partner opens). It needs a FantasyCalc value for every player in the version named (no pick, no estimate);
+ * otherwise, or without the context's values, nothing is said about value. ("Would you trade
  * Bijan Robinson for Travis Kelce and Bo Nix?") and closes. A slot fact names the player who'd play there when exactly
  * one player sent can play the slot (his position among the slot's: the instance's `eligible` list when the context
  * gives one, else read from the slot's name: a position, "D/ST", "RB/WR/TE"-style lists and the flex names; ⚠️
@@ -155,10 +178,17 @@ export interface ExplainContext {
   tradeDeadline: LeagueSettings["tradeDeadline"];
   /**
    * A player's FantasyCalc value in the league's format (the perception list: what a manager finds on FantasyCalc),
-   * null when FantasyCalc has none (an estimate or a flat minimum). Only the pitch's trade-value sentence reads it
-   * (the file header): without it, the pitch says nothing about trade value.
+   * null when FantasyCalc has none (an estimate or a flat minimum). Every trade-value number in the words reads it (the
+   * file header, "One value number": the value line, "Mostly a trade-value win" and the pitch); without it, nothing is
+   * said about trade value.
    */
   fantasyCalcValue?: (playerId: string) => number | null;
+  /**
+   * My odds before any trade on the final block of seasons, the "before" the card's odds line prints (the search's baseline,
+   * TradeSearchResult.baseline; the Analyzer's): the odds line then quotes the change the card shows, after printed minus
+   * before printed (oddsLine; final review of Phase 4c, findings R9 and PAGES-2). Absent or null fields: the change itself.
+   */
+  baseline?: { pPlayoffs: number | null; pTitle: number | null } | null;
 }
 
 /** The config.explain keys this module reads, widened so tests can pass other numbers. */
@@ -210,18 +240,17 @@ function fmtSigned(n: number, maxDecimals = 1): string {
 const pct = (x: number): string => `${Math.round(Math.abs(x) * 100)}%`;
 
 /**
- * A value gap g (≥ 0: one side gets g more than the other) as words before "they give" / "they get": "28% more trade
- * value than", or above valueMultipleAbove a multiple of the smaller side, "about 9.3 times as much trade value as"
- * (1 + g, at most one decimal).
+ * A value gap g (≥ 0: one side gets g more than the other) as words before "they give" / "they get": "28% more than", or
+ * above valueMultipleAbove a multiple of the smaller side, "about 9.3 times as much as" (1 + g, at most one decimal).
  */
-function moreValue(g: number, cfg: ExplainConfig): string {
-  return g > cfg.valueMultipleAbove + EPS ? `about ${fmtNum(1 + g)} times as much trade value as` : `${pct(g)} more trade value than`;
+function moreAmount(g: number, cfg: ExplainConfig): string {
+  return g > cfg.valueMultipleAbove + EPS ? `about ${fmtNum(1 + g)} times as much as` : `${pct(g)} more than`;
 }
 
-/** "A", "A and B", "A, B and C" (the League page's lists). */
-function listText(items: readonly string[]): string {
+/** "A", "A and B", "A, B and C" (the League page's lists); "A or B", "A, B or C" with `or`. */
+function listText(items: readonly string[], joiner: "and" | "or" = "and"): string {
   if (items.length <= 1) return items[0] ?? "";
-  return `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+  return `${items.slice(0, -1).join(", ")} ${joiner} ${items[items.length - 1]}`;
 }
 
 const ORDINAL_SUFFIX = ["th", "st", "nd", "rd"];
@@ -340,6 +369,14 @@ class Names {
     const owner = a.originalTeamId === this.partnerId ? "your" : a.originalTeamId === this.myTeamId ? "my" : `${this.team(a.originalTeamId)}'s`;
     return `${owner} ${a.season} ${ordinal(a.round)}-round pick`;
   }
+
+  /** An asset in the reasons, said to me: a player's name; a pick as "your / Team 7's 2027 1st-round pick"; anything unreadable as "a pick". */
+  reasonAsset(a: TradeAsset): string {
+    if (a?.kind === "player") return this.player(a.id);
+    if (a?.kind !== "pick" || !Number.isInteger(a.season) || !Number.isInteger(a.round)) return "a pick";
+    const owner = a.originalTeamId === this.myTeamId ? "your" : `${this.team(a.originalTeamId)}'s`;
+    return `${owner} ${a.season} ${ordinal(a.round)}-round pick`;
+  }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -442,18 +479,34 @@ function myLineupLines(e: TradeEvaluationCore, names: Names, cfg: ExplainConfig)
 }
 
 /**
- * The odds line, in percentage points with one decimal as the card prints them: { up } for a gain (any part up),
- * { down } when every part shown fell; null when no part shows (unknown, or rounds to 0.0).
+ * My odds as the card's odds line prints them, as a number of percentage points (src/lib/tradeView.ts oddsViews: the title
+ * with one decimal, toFixed as titleOddsText, the playoffs whole, Math.round as percentText; the value kept within 0–100%).
  */
-function oddsLine(e: TradeEvaluationCore): { up: string } | { down: string } | null {
+const printedOdds = (p: number, decimals: 0 | 1): number => {
+  const x = Math.min(1, Math.max(0, p)) * 100;
+  return decimals === 1 ? Number(x.toFixed(1)) : Math.round(x);
+};
+
+/**
+ * The odds line, in percentage points as the card prints them: { up } for a gain (any part up), { down } when every part
+ * shown fell; null when no part shows (unknown, or rounds to 0). ⚠️ With my odds before the trade (ExplainContext.baseline,
+ * for an evaluation on the final block: the card's own "before"), each part is the card's own change, its printed after
+ * minus its printed before (the title in tenths, the playoffs in whole points), so the two never disagree (final review of
+ * Phase 4c, findings R9 and PAGES-2: "Title odds 10.5% → 12.5%" sat beside "your title odds by 1.9 percentage points",
+ * 10.546% → 12.484%, and "Playoff odds 60% → 60%" beside "Raises your playoff odds by 0.4"); without it, the change itself
+ * with one decimal, as the card prints it then ("+1.9 percentage points").
+ */
+function oddsLine(e: TradeEvaluationCore, baseline?: ExplainContext["baseline"]): { up: string } | { down: string } | null {
   const parts: { what: string; up: boolean; text: string }[] = [];
-  const add = (what: string, x: number | null) => {
+  const add = (what: string, x: number | null, before: number | null | undefined, decimals: 0 | 1) => {
     if (!isFiniteNumber(x)) return;
-    const text = fmtNum(Math.abs(x) * 100, 1);
-    if (text !== "0") parts.push({ what, up: x > 0, text });
+    let change = x * 100;
+    if (e.stage === "final" && isFiniteNumber(before)) change = Math.round((printedOdds(before + x, decimals) - printedOdds(before, decimals)) * 10) / 10;
+    const text = fmtNum(Math.abs(change), 1);
+    if (text !== "0") parts.push({ what, up: change > 0, text });
   };
-  add("playoff", e.dPO);
-  add("title", e.dCH);
+  add("playoff", e.dPO, baseline?.pPlayoffs, 0);
+  add("title", e.dCH, baseline?.pTitle, 1);
   const unit = (text: string) => (text === "1" ? "percentage point" : "percentage points");
   const [a, b] = parts;
   if (!a) return null;
@@ -516,36 +569,88 @@ function partnerLineupLine(fact: PartnerLineup, names: Names, cfg: ExplainConfig
   }
 }
 
-/** `premiumTurned`: counting a star premium, they no longer clearly come out ahead (under valueEven in their eyes), so the line doesn't say "they get more" makes a yes more likely (the file header). */
-function valueLine(e: TradeEvaluationCore, cfg: ExplainConfig, premiumTurned = false): string | null {
-  const g = e.gPartner;
-  if (Number.isNaN(g)) return null;
-  if (g >= cfg.valueEven - EPS) {
-    if (premiumTurned) return Number.isFinite(g) ? `They get ${moreValue(g, cfg)} they give.` : "They get trade value without giving any up.";
-    return Number.isFinite(g) ? `They get ${moreValue(g, cfg)} they give, which makes a yes more likely.` : "They get trade value without giving any up, which makes a yes more likely.";
-  }
-  if (g <= -cfg.valueEven + EPS) {
-    // They give up X% more than they get: X = PV_give(P) / PV_recv(P) − 1 (theirOverpay).
-    const x = theirOverpay(e);
-    return isFiniteNumber(x) ? `They give up ${moreValue(x, cfg)} they get, so expect pushback.` : "They'd give up trade value and get almost none back, so expect pushback.";
-  }
-  // Even from their side. Each side's package counts its own active roster spots (§9: an IR slot isn't one), so when an IR
-  // player moves the two packages can stop mirroring each other: "each side" only when mine is even too (or they mirror).
-  const mine = e.gMine;
-  const mirrored = Number.isFinite(mine) && g > -1 && Math.abs(mine + g / (1 + g)) <= 1e-9 * Math.max(1, Math.abs(mine));
-  if (mirrored || (Number.isFinite(mine) && Math.abs(mine) < cfg.valueEven - EPS)) return "Even on trade value: each side gets about what it gives.";
-  return "About even on trade value from their side.";
-}
+// ---------------------------------------------------------------------------------------------
+// FantasyCalc's own values (the file header, "One value number")
 
 /**
- * How much more trade value the partner gives than it gets, from its own package (the file header): PV_give(P) / PV_recv(P)
- * − 1 = −g / (1 + g) for g = g_mkt(partner) (+Infinity when it gets nothing of value). g_mkt(me) itself when the two agree
- * (the packages mirror each other: no IR player moves), so those words stay exactly what they were.
+ * A version of the trade by FantasyCalc's own values (the file header, "One value number"), from the partner's side:
+ * `theyGet` is the plain sum of the FantasyCalc values of what I give, `theyGive` of what I get (no floor at W, no
+ * roster-spot credit, no star premium, no neutral throw-ins). "missing": the assets FantasyCalc has no value for (a pick, a
+ * player it doesn't value, a value that isn't a positive finite number, a lookup that throws), in the trade's order, mine
+ * first; "none": the context has no values at all (nothing is said about value then). src/lib/tradeView.ts words the
+ * card's value line from it too.
  */
-function theirOverpay(e: Pick<TradeEvaluationCore, "gPartner" | "gMine">): number {
-  const g = e.gPartner;
-  const x = g > -1 ? -g / (1 + g) : Number.POSITIVE_INFINITY;
-  return isFiniteNumber(e.gMine) && isFiniteNumber(x) && Math.abs(x - e.gMine) <= 1e-9 * Math.max(1, Math.abs(x)) ? e.gMine : x;
+export type FantasyCalcComparison =
+  | { kind: "none" }
+  | { kind: "missing"; assets: TradeAsset[] }
+  | { kind: "known"; theyGet: number; theyGive: number };
+
+export function fantasyCalcComparison(proposal: { readonly give: readonly TradeAsset[]; readonly get: readonly TradeAsset[] }, ctx: Pick<ExplainContext, "fantasyCalcValue">): FantasyCalcComparison {
+  const valueOf = ctx.fantasyCalcValue;
+  if (!valueOf) return { kind: "none" };
+  const missing: TradeAsset[] = [];
+  const sum = (assets: readonly TradeAsset[] | undefined): number => {
+    let total = 0;
+    for (const a of assets ?? []) {
+      let v: number | null = null;
+      if (a?.kind === "player") {
+        try {
+          v = valueOf(a.id);
+        } catch {
+          v = null;
+        }
+      }
+      if (isFiniteNumber(v) && v > 0) total += v;
+      else missing.push(a);
+    }
+    return total;
+  };
+  const theyGet = sum(proposal.give);
+  const theyGive = sum(proposal.get);
+  return missing.length > 0 ? { kind: "missing", assets: missing } : { kind: "known", theyGet, theyGive };
+}
+
+type KnownComparison = Extract<FantasyCalcComparison, { kind: "known" }>;
+
+/** What the partner gains by FantasyCalc's values: they get / they give − 1 (+Infinity when they'd give nothing of value; 0 when neither side has any). */
+export function partnerFantasyCalcGain(c: KnownComparison): number {
+  if (c.theyGive > 0) return c.theyGet / c.theyGive - 1;
+  return c.theyGet > 0 ? Number.POSITIVE_INFINITY : 0;
+}
+
+/** What I gain by FantasyCalc's values: what I get / what I give − 1 (the same sums the other way round). */
+export function myFantasyCalcGain(c: KnownComparison): number {
+  return partnerFantasyCalcGain({ kind: "known", theyGet: c.theyGive, theyGive: c.theyGet });
+}
+
+/** The value line's lead-in (and the "Mostly a trade-value win" line's). */
+const BY_FC = "By FantasyCalc's trade values";
+
+/**
+ * The value line (the file header, group 2): FantasyCalc's own comparison from their side, with the model's reading after
+ * it only when the model agrees (`model.ahead`: g_mkt(P) at least valueEven, and with a star premium their perceived g too;
+ * `model.behind`: g_mkt(P) at most −valueEven). Null without the context's values.
+ */
+function valueLine(fc: FantasyCalcComparison, names: Names, cfg: ExplainConfig, model: { ahead: boolean; behind: boolean }, assets: number): string | null {
+  if (fc.kind === "none") return null;
+  if (fc.kind === "missing") {
+    // ⚠️ None of the trade's players at all (a kicker for a D/ST, or the curve fallback, where no FantasyCalc value is
+    // quoted): not named one by one, which would read as FantasyCalc not knowing them.
+    if (fc.assets.length >= assets) return "There are no FantasyCalc trade values to compare for this trade.";
+    return `FantasyCalc has no trade value for ${listText(fc.assets.map((a) => names.reasonAsset(a)), "or")}, so its values can't compare the two sides.`;
+  }
+  const g = partnerFantasyCalcGain(fc);
+  if (g >= cfg.valueEven - EPS) {
+    const fact = Number.isFinite(g) ? `they get ${moreAmount(g, cfg)} they give` : "they get trade value without giving any up";
+    return `${BY_FC}, ${fact}${model.ahead ? ", which makes a yes more likely" : ""}.`;
+  }
+  if (g <= -cfg.valueEven + EPS) {
+    // They give up X% more than they get: X = what they give / what they get − 1.
+    const x = myFantasyCalcGain(fc);
+    const fact = Number.isFinite(x) ? `they give up ${moreAmount(x, cfg)} they get` : "they'd give up trade value and get none back";
+    return `${BY_FC}, ${fact}${model.behind ? ", so expect pushback" : ""}.`;
+  }
+  return `${BY_FC}, the two sides are about even.`;
 }
 
 /** §11's value term β_gain·g⁺ + β_loss·g⁻ at a g_mkt(P), clamped to gClamp as the model clamps it (NaN counts 0). */
@@ -597,7 +702,8 @@ function premiumPlayers(e: TradeEvaluationCore): PremiumPlayer[] {
 
 /**
  * The star premium line (the file header), or null when no player they'd give has one. `stillAhead`: counting the
- * premium, they still come out ahead (their perceived g at least valueEven), so the line doesn't say they'll want more.
+ * premium, they still come out ahead (their perceived g at least valueEven, and FantasyCalc's own values agree), so the
+ * line doesn't say they'll want more.
  */
 function premiumLine(players: readonly PremiumPlayer[], names: Names, stillAhead: boolean): string | null {
   const [only] = players;
@@ -625,11 +731,15 @@ function activityLine(e: TradeEvaluationCore): string | null {
   }
 }
 
+/**
+ * Their trade history on value (the file header): ⚠️ without its percent since Phase 4c (the average is the model's
+ * package g on their past trades, every player floored at W: a figure the card doesn't print).
+ */
 function historyLine(e: TradeEvaluationCore): string | null {
   const avg = e.detail.history?.average;
   if (avg === null || avg === undefined || Number.isNaN(avg) || avg === 0) return null;
-  if (avg > 0) return Number.isFinite(avg) ? `They tend to win their trades on value (${pct(avg)} on average this season), so they may want more.` : "They tend to win their trades on value, so they may want more.";
-  return Number.isFinite(avg) ? `They've given up value in their trades this season (${pct(avg)} on average), so they may be open to this.` : null;
+  if (avg > 0) return "They tend to win their trades on value this season, so they may want more.";
+  return Number.isFinite(avg) ? "They've given up value in their trades this season, so they may be open to this." : null;
 }
 
 function contextLine(e: TradeEvaluationCore, ctx: ExplainContext): string | null {
@@ -686,11 +796,17 @@ function injuredLine(e: TradeEvaluationCore, names: Names): string | null {
   return `Depends on injured players: ${list}, and the numbers assume they return as expected.`;
 }
 
+/**
+ * The veto caveat (the file header, group 3). ⚠️ "Counting roster spots" (review of track UIC, finding 1): the veto rule
+ * reads the model's package g_mkt(P) (every player at max(v, W), the roster-spot credit, the neutral throw-ins), which can
+ * be far from even where FantasyCalc's own values, the card's value line, read even (two players of mine worth less than W
+ * for one of theirs worth their sum), so the caveat says whose count it is, as the Market check flag does.
+ */
 function vetoLine(e: TradeEvaluationCore): string | null {
   if (!e.detail.vetoRisk) return null;
   const factor = config.acceptance.veto.factor;
   const cut = factor === 0.5 ? "is halved" : `is cut to ${pct(factor)} of the estimate`;
-  return `Your league reviews trades, and one this uneven risks a veto, so the chance it goes through ${cut}.`;
+  return `Your league reviews trades, and counting roster spots, this one is uneven enough to risk a veto, so the chance it goes through ${cut}.`;
 }
 
 /** The reasons (§13), in the file header's order. */
@@ -700,11 +816,14 @@ function reasons(e: TradeEvaluationCore, ctx: ExplainContext, names: Names, cfg:
   const notes: string[] = [];
 
   const lineup = myLineupLines(e, names, cfg);
-  const odds = oddsLine(e);
+  const odds = oddsLine(e, ctx.baseline);
   const risky = riskyWeekLines(e, cfg);
   const longTerm = longTermPercent(e, ctx, cfg);
   const futureFirst = isFiniteNumber(e.lambda) && e.lambda >= cfg.futureFirstLambda - EPS;
-  const longTermGain = longTerm !== null && longTerm > 0 ? `Raises your roster's long-term value by ${longTerm}%.` : null;
+  // ⚠️ "Counting roster spots" (review of track UIC, finding 4): the percent is the model's ΔDyn (every player at max(v,
+  // W), the roster-spot credit, the neutral throw-ins) over my roster's long-term value, as the card's "Long-term value"
+  // fact says; FantasyCalc's own sums, the card's value line, can read differently.
+  const longTermGain = longTerm !== null && longTerm > 0 ? `Raises your roster's long-term value by ${longTerm}%, counting roster spots.` : null;
 
   if (isFiniteNumber(e.b) && e.b <= 0) forMe.push("Doesn't help you overall, so the Trade Finder leaves trades like this out.");
   if (lineup.main) forMe.push(lineup.main);
@@ -713,13 +832,20 @@ function reasons(e: TradeEvaluationCore, ctx: ExplainContext, names: Names, cfg:
   if (risky.covered) forMe.push(risky.covered);
   if (lineup.playoffs) forMe.push(lineup.playoffs);
   if (longTermGain && !futureFirst) forMe.push(longTermGain);
-  // Nothing above explains a redraft B > 0: it comes from the market term (§10's term on g_mkt(me), every player at
-  // max(v, W) like the card's values) when that term, B − B_win, is positive and most of B.
+  // The trade by FantasyCalc's own values (the file header, "One value number"): every value number below is this one's.
+  const fc = fantasyCalcComparison(e.proposal, ctx);
+  // Nothing above explains a redraft B > 0: it comes from the market term (§10's term on g_mkt(me), the model's package)
+  // when that term, B − B_win, is positive and most of B. Its percent is FantasyCalc's own, when that agrees.
   const bWin = e.bWin;
   const marketTerm = isFiniteNumber(e.b) && isFiniteNumber(bWin) ? e.b - bWin : Number.NaN;
   const fromMarket = isFiniteNumber(bWin) && marketTerm > EPS && marketTerm >= bWin - EPS;
   if (forMe.length === 0 && ctx.leagueType === "redraft" && isFiniteNumber(e.b) && e.b > 0 && fromMarket && e.gMine >= cfg.valueEven - EPS) {
-    forMe.push(Number.isFinite(e.gMine) ? `Mostly a trade-value win: you get ${moreValue(e.gMine, cfg)} you give.` : "Mostly a trade-value win: you get trade value without giving any up.");
+    const mine = fc.kind === "known" ? myFantasyCalcGain(fc) : Number.NaN;
+    if (mine >= cfg.valueEven - EPS) {
+      forMe.push(`Mostly a trade-value win: by FantasyCalc's trade values, ${Number.isFinite(mine) ? `you get ${moreAmount(mine, cfg)} you give` : "you get trade value without giving any up"}.`);
+    } else {
+      forMe.push("Mostly a trade-value win: counting roster spots, you get more trade value than you give.");
+    }
   }
   if (forMe.length === 0 && !lineup.slotLoss && !lineup.playoffsLoss) forMe.push("Barely changes your starting lineup.");
 
@@ -737,12 +863,18 @@ function reasons(e: TradeEvaluationCore, ctx: ExplainContext, names: Names, cfg:
   const premiumWeight = isFiniteNumber(perceived) ? Math.abs(perceived - rawValue) : 0;
   // Counting the premium, do they still clearly come out ahead? Their perceived g ≥ valueEven, read on the value term
   // (monotone in g, so the comparison holds term for term). An unreadable term: no (the planner's words).
-  const stillAhead = premium.length > 0 && isFiniteNumber(perceived) && perceived >= valueTermAt(cfg.valueEven) - EPS;
-  const premiumTurned = premium.length > 0 && isFiniteNumber(perceived) && !stillAhead;
+  const aheadInTheirEyes = premium.length > 0 && isFiniteNumber(perceived) && perceived >= valueTermAt(cfg.valueEven) - EPS;
+  const premiumTurned = premium.length > 0 && isFiniteNumber(perceived) && !aheadInTheirEyes;
+  // The model's reading after the value line's number (the file header): only when it agrees.
+  const g = e.gPartner;
+  const model = { ahead: g >= cfg.valueEven - EPS && !premiumTurned, behind: g <= -cfg.valueEven + EPS };
+  // "They'd still come out ahead" also needs FantasyCalc's own values to say so (never next to a value line that doesn't).
+  const fcAhead = fc.kind === "none" || (fc.kind === "known" && partnerFantasyCalcGain(fc) >= cfg.valueEven - EPS);
+  const stillAhead = aheadInTheirEyes && fcAhead;
   // In this order on equal weights.
   const candidates = [
     line(partnerLineupLine(lineupFact, names, cfg), Math.abs(finiteOr0(terms?.need) + (lineupFact?.kind === "hole" ? finiteOr0(terms?.hole) : 0))),
-    line(valueLine(e, cfg, premiumTurned), valueWeight, "value"),
+    line(valueLine(fc, names, cfg, model, e.proposal.give.length + e.proposal.get.length), valueWeight, "value"),
     line(premiumLine(premium, names, stillAhead), premiumWeight, "premium"),
     line(activityLine(e), t(terms?.activity)),
     line(historyLine(e), t(terms?.history)),
@@ -774,7 +906,7 @@ function reasons(e: TradeEvaluationCore, ctx: ExplainContext, names: Names, cfg:
     risky.hurt,
     lineup.playoffsLoss,
     odds && "down" in odds ? odds.down : null,
-    longTerm !== null && longTerm < 0 ? `Costs ${-longTerm}% of your roster's long-term value.` : null,
+    longTerm !== null && longTerm < 0 ? `Costs ${-longTerm}% of your roster's long-term value, counting roster spots.` : null,
     vetoLine(e),
   ]) {
     if (line) caveats.push(line);
@@ -861,32 +993,13 @@ function starterFor(proposal: TradeProposal, names: Names, key: string, hole: bo
 }
 
 /**
- * What the partner gains in a version of the trade by FantasyCalc's own values (the file header): the sum of what they'd
- * get (my side) over the sum of what they'd give, minus 1, each player at his FantasyCalc value; null when the context
- * has no values, a pick is in the trade, a player has no FantasyCalc value (or not a positive, finite one), or they'd
- * give nothing of value.
+ * What the partner gains in a version of the trade by FantasyCalc's own values (the file header, "One value number":
+ * fantasyCalcComparison); null when the context has no values, an asset has no FantasyCalc value (a pick, a player it
+ * doesn't value), or they'd give nothing of value.
  */
 function fantasyCalcGain(proposal: TradeProposal, ctx: ExplainContext): number | null {
-  const valueOf = ctx.fantasyCalcValue;
-  if (!valueOf) return null;
-  const sum = (assets: readonly TradeAsset[]): number | null => {
-    let total = 0;
-    for (const a of assets) {
-      if (a.kind !== "player") return null;
-      let v: number | null;
-      try {
-        v = valueOf(a.id);
-      } catch {
-        v = null;
-      }
-      if (!isFiniteNumber(v) || !(v > 0)) return null;
-      total += v;
-    }
-    return total;
-  };
-  const theyGet = sum(proposal.give);
-  const theyGive = sum(proposal.get);
-  return theyGet === null || theyGive === null || !(theyGive > 0) ? null : theyGet / theyGive - 1;
+  const fc = fantasyCalcComparison(proposal, ctx);
+  return fc.kind === "known" && fc.theyGive > 0 ? partnerFantasyCalcGain(fc) : null;
 }
 
 /** The pitch for one version of the trade (pitchSource: the offer-first version when steps exist). */
@@ -904,8 +1017,9 @@ function pitch(src: PitchSource, names: Names, cfg: ExplainConfig, ctx: ExplainC
     leads.push(`This adds about ${projected(fact.points)} a week to your starting lineup.`);
   }
   const g = fantasyCalcGain(src.proposal, ctx);
-  // Only a modest value gain is a selling point: a bigger one tells a sharp manager it's an overpay; a loss is never mentioned.
-  if (g !== null && g >= cfg.valueEven - EPS && g <= cfg.pitchValueMax + EPS) leads.push(`You'd ${leads.length ? "also " : ""}get about ${pct(g)} more trade value than you give (FantasyCalc values).`);
+  // Only a modest value gain is a selling point: at least valueEven (the planner: "+5% or more"), and ⚠️ ours, at most
+  // pitchValueMax (25%), since a bigger one tells a sharp manager it's an overpay; a loss is never mentioned.
+  if (g !== null && g >= cfg.valueEven - EPS && g <= cfg.pitchValueMax + EPS) leads.push(`${leads.length ? "Also, by" : "By"} FantasyCalc's trade values, you'd get about ${pct(g)} more than you give.`);
 
   const give = src.proposal.give.map((a) => names.asset(a));
   const get = src.proposal.get.map((a) => names.asset(a));

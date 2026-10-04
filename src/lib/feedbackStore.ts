@@ -23,8 +23,16 @@
  *   (`versionAccept`: the prediction the user acted on, which the summary's calibration reads). Later outcomes keep it;
  *   clearing the outcome clears it (it belongs to the sending). A record without one (made before Phase 4b, or a
  *   version not given) reads as unknown.
+ * - Phase 4c (planner reply to Checkpoint 4b, change 7 and answer 9): the sent version's model inputs go with it
+ *   (`versionInputs`: its acceptance features, raw g_mkt(P), B and the goal B was weighted by), so Phase 6 refits on
+ *   the version actually sent. They follow the version: an outcome that names a version replaces them (or drops them
+ *   when it carries none), and clearing the outcome clears them.
  * - The list runs from the least to the most recently touched record and keeps the newest
- *   FEEDBACK_MAX_RECORDS (500), so a busy season never fills the browser's storage.
+ *   FEEDBACK_MAX_RECORDS (500), so a busy season never fills the browser's storage. Phase 4c: the league store
+ *   (src/lib/leagueStore.ts) keeps one such list per league in IndexedDB (so 500 per league), built with the same
+ *   functions (applyFeedback, feedbackRecordsFrom); its migration moves the localStorage list in once per browser
+ *   (mergeFeedbackRecords), and deleting feedback deletes that old list too. The pages no longer read or write
+ *   localStorage: ⚠️ saveFeedback and clearFeedback (the pre-4c writers) are kept with their tests, unused since 4c.
  * - Numbers and features that weren't finite (B before a simulation, for example) are kept as null.
  *
  * Privacy: a record holds no names, no league id and nothing about anyone's account: player ids (canonical:
@@ -41,6 +49,7 @@
  * storage (like importStore.ts); the pages' hooks are in src/components/settings/useFeedback.ts.
  */
 import { fmix32, hash32 } from "@/engine/rng";
+import { GOALS } from "@/engine/settings";
 import type { AcceptanceFeatures, TradeAsset, TradeEvaluation, TradeProposal } from "@/engine/tradeModel";
 import type { SaveResult, StorageLike } from "./importStore";
 
@@ -93,6 +102,21 @@ export interface FeedbackSent {
   key: string;
   pAccept: number | null;
   pComplete: number | null;
+  /** Phase 4c (planner reply to Checkpoint 4b, change 7): the sent version's model inputs, for Phase 6's refit. */
+  inputs?: VersionInputs | undefined;
+}
+
+/**
+ * The model inputs of the version sent (planner reply to Checkpoint 4b, change 7: g, n, h, c, a, hist, ctx, the star
+ * premium and B), as the card's numbers were computed: its acceptance features (g is the partner's perceived g, with the
+ * star premium), the raw g_mkt(P) (so the premium is g's difference from it), B, and the goal B was weighted by. Null where
+ * a number wasn't finite or the version doesn't carry it.
+ */
+export interface VersionInputs {
+  features: FeedbackFeatures | null;
+  gPartner: number | null;
+  b: number | null;
+  goal: "title" | "balanced" | "playoffs" | null;
 }
 
 /** The part of Offer Sheet a report points at (§11 "How the data is used"). */
@@ -156,6 +180,8 @@ export interface FeedbackRecord {
   versionKey?: string;
   /** The sent version's estimate as its line on the card showed it (null where it wasn't finite). */
   versionAccept?: { pAccept: number | null; pComplete: number | null };
+  /** Phase 4c: the sent version's model inputs (FeedbackSent.inputs). */
+  versionInputs?: VersionInputs;
   report?: { reason: FeedbackReason; note?: string; at: string };
 }
 
@@ -185,6 +211,21 @@ function feedbackFeatures(features: AcceptanceFeatures | Record<string, unknown>
   const out = {} as FeedbackFeatures;
   for (const k of FEATURE_KEYS) out[k] = finite(f[k]);
   return out;
+}
+
+/**
+ * The sent version's model inputs as a record keeps them (a press's FeedbackSent.inputs, or a stored record's): only
+ * the known fields, numbers that weren't finite as null, a goal that isn't one of "What matters most" as null;
+ * undefined when it isn't an object at all.
+ */
+function versionInputsOf(x: unknown): VersionInputs | undefined {
+  if (!isRecordLike(x)) return undefined;
+  return {
+    features: isRecordLike(x.features) ? feedbackFeatures(x.features) : null,
+    gPartner: finite(x.gPartner),
+    b: finite(x.b),
+    goal: (GOALS as readonly unknown[]).includes(x.goal) ? (x.goal as VersionInputs["goal"]) : null,
+  };
 }
 
 function copyAsset(a: TradeAsset): TradeAsset {
@@ -242,6 +283,7 @@ export function applyFeedback(
       delete next.version;
       delete next.versionKey;
       delete next.versionAccept;
+      delete next.versionInputs;
     } else {
       next.outcome = { kind: change.outcome, at };
       const sent = change.sent;
@@ -250,6 +292,10 @@ export function applyFeedback(
         if (isText(sent.key)) next.versionKey = sent.key;
         else delete next.versionKey;
         next.versionAccept = { pAccept: finite(sent.pAccept), pComplete: finite(sent.pComplete) };
+        // The inputs belong to the version named now: an earlier version's never stay with this one.
+        const inputs = versionInputsOf(sent.inputs);
+        if (inputs) next.versionInputs = inputs;
+        else delete next.versionInputs;
       }
     }
   } else if (change.report === null) {
@@ -313,6 +359,8 @@ export function parseFeedbackRecord(x: unknown): FeedbackRecord | null {
       record.version = x.version as FeedbackVersion;
       if (isText(x.versionKey)) record.versionKey = x.versionKey;
       if (isRecordLike(x.versionAccept)) record.versionAccept = { pAccept: finite(x.versionAccept.pAccept), pComplete: finite(x.versionAccept.pComplete) };
+      const inputs = versionInputsOf(x.versionInputs);
+      if (inputs) record.versionInputs = inputs;
     }
   }
   const r = x.report;
@@ -356,6 +404,50 @@ export function parseFeedback(raw: string | null | undefined): FeedbackRecord[] 
   return Array.isArray(data) ? recordsFrom(data, FEEDBACK_MAX_RECORDS) : [];
 }
 
+/**
+ * parseFeedback for a list already parsed (the league store's IndexedDB rows hold arrays, not text): malformed records
+ * skipped, one per trade idea, the newest FEEDBACK_MAX_RECORDS; [] for anything that isn't a list. Never throws.
+ */
+export function feedbackRecordsFrom(list: unknown): FeedbackRecord[] {
+  return Array.isArray(list) ? recordsFrom(list, FEEDBACK_MAX_RECORDS) : [];
+}
+
+/** The latest time a record says it was pressed (made, outcome, report), in ms; 0 when none can be read. */
+export function feedbackTouchedAt(record: FeedbackRecord): number {
+  let latest = 0;
+  for (const at of [record.savedAt, record.outcome?.at, record.report?.at]) {
+    const ms = at ? Date.parse(at) : Number.NaN;
+    if (Number.isFinite(ms) && ms > latest) latest = ms;
+  }
+  return latest;
+}
+
+/**
+ * A stored list with more records added (the league store's migration: the localStorage list joins a league's list in
+ * IndexedDB): one record per trade idea, the copy pressed later when both have it (the stored one on a tie), in its
+ * place; the added records the list didn't hold go first, in their own order (they're older: the localStorage list
+ * predates the league store); the newest FEEDBACK_MAX_RECORDS. Pure.
+ */
+export function mergeFeedbackRecords(stored: readonly FeedbackRecord[], added: readonly FeedbackRecord[]): FeedbackRecord[] {
+  const ideaOf = (r: FeedbackRecord) => `${r.leagueKey}\u0000${r.tradeKey}`;
+  const addedByIdea = new Map(added.map((r) => [ideaOf(r), r]));
+  const storedIdeas = new Set(stored.map(ideaOf));
+  const kept = stored.map((r) => {
+    const other = addedByIdea.get(ideaOf(r));
+    return other && feedbackTouchedAt(other) > feedbackTouchedAt(r) ? other : r;
+  });
+  const before: FeedbackRecord[] = [];
+  const placed = new Set<string>();
+  for (const r of added) {
+    const idea = ideaOf(r);
+    if (storedIdeas.has(idea) || placed.has(idea)) continue;
+    placed.add(idea);
+    before.push(addedByIdea.get(idea) ?? r); // a trade idea added twice: its later copy, at the first one's place
+  }
+  const out = [...before, ...kept];
+  return out.length > FEEDBACK_MAX_RECORDS ? out.slice(out.length - FEEDBACK_MAX_RECORDS) : out;
+}
+
 // ---------------------------------------------------------------------------------------------
 // Writing
 
@@ -371,13 +463,16 @@ export function saveFeedback(storage: StorageLike, args: { leagueKey: string; ev
   }
 }
 
+/** What a failed "Delete saved feedback" says (nothing was deleted). */
+export const FEEDBACK_DELETE_FAILED = "Your browser wouldn't let Offer Sheet delete the saved feedback (its storage is blocked for this site).";
+
 /** Deletes every record (the Settings page's "Delete saved feedback"). */
 export function clearFeedback(storage: StorageLike): SaveResult {
   try {
     storage.removeItem(FEEDBACK_STORAGE_KEY);
     return { ok: true };
   } catch {
-    return { ok: false, message: "Your browser wouldn't let Offer Sheet delete the saved feedback (its storage is blocked for this site)." };
+    return { ok: false, message: FEEDBACK_DELETE_FAILED };
   }
 }
 

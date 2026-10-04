@@ -2,15 +2,21 @@
  * The Trade Finder's and Trade Analyzer's view models (CLAUDE.md §10, §11, §13; Phase 4 wave 2 decision M13): every
  * card field in words, the sorts (through rank.ts), the empty states, the progress bar's words, the links between
  * the pages and what they carry back, the Analyzer's choices, and feedback state. A small made-up league; every
- * name is invented.
+ * name is invented. Phase 4c (planner reply to Checkpoint 4b): FantasyCalc's own values on the card (change 3), my odds
+ * and the weekly line next to Helps you (change 9), "<5%" (answer 5), the minimum chance's words (change 10), the pattern
+ * note (change 6), the version inputs for the feedback (change 7), and the Analyzer's "Details".
  */
 import { describe, expect, it } from "vitest";
+import { displayAcceptance } from "@/engine/acceptance";
 import { config } from "@/engine/config";
 import { defaultTradeSettings } from "@/engine/settings";
 import type { TradeAnalysis } from "@/engine/evaluate";
-import type { InjuryStatus, PlayerInfo } from "@/engine/model";
+import type { MarketInputs } from "@/engine/inputs";
+import type { PlayerInfo } from "@/engine/model";
+import { buildTradeContext, explainContextOf, tradeInternals } from "@/engine/evaluate";
 import { explainTrade } from "@/engine/explain";
-import type { InjuryTag } from "@/engine/tradeModel";
+import { randomLeague } from "@/engine/testLeague";
+import type { InjuryTag, TradeEvaluation, TradeStep } from "@/engine/tradeModel";
 import { GLOOP_PREMIUM, SNOOT_PREMIUM, evaluation, searchResult, step, steppedFull, steppedOffer, tradeSnapshot } from "@/components/trades/testFixtures";
 import { applyFeedback } from "./feedbackStore";
 import {
@@ -18,7 +24,10 @@ import {
   HARDER_TO_GET_TAG,
   IR_SLOT_TEXT,
   PLAN_B_HEADING,
+  MIN_CHANCE_OPTIONS,
   STAGE_LABEL,
+  VALUES_UNAVAILABLE,
+  acceptSrText,
   acceptText,
   analyzerChoices,
   analyzerHref,
@@ -30,14 +39,22 @@ import {
   cardFeedback,
   draftKey,
   draftProposal,
+  detailsView,
   draftSummary,
+  fantasyCalcLookup,
+  fewText,
   finderHref,
   harderToGetWho,
+  helpsInfoText,
   incomingInjuryNote,
   INJURED_REASON,
   injuryTagText,
   knownTagsOf,
   listNote,
+  marketBlendOn,
+  minChanceLabel,
+  minChanceNote,
+  oddsViews,
   percentText,
   perWeek,
   planBPitch,
@@ -55,14 +72,27 @@ import {
   settingsSummary,
   teamNameOf,
   throughText,
+  titleOddsText,
   tradeWords,
   proposalFromKey,
+  valueFactsOf,
   versionChoices,
   versionLine,
+  weeklyLine,
+  type FantasyCalcLookup,
 } from "./tradeView";
 
 const snapshot = tradeSnapshot();
-const card = (o: Parameters<typeof evaluation>[0] = {}, baseline?: { pPlayoffs: number | null; pTitle: number | null }) => buildTradeCard(evaluation(o), { snapshot, baseline: baseline ?? null });
+/** FantasyCalc's list for the fictional league (MarketInputs, the model inputs' copy): only some players valued. */
+const MARKET: MarketInputs = {
+  format: { isDynasty: false, numQbs: 1, numTeams: 10, ppr: 1, substitutions: [] },
+  fetchedAt: "2026-10-01T12:00:00.000Z",
+  values: { "106": 5000, "204": 5400, "105": 1500, "203": 3200, "202": 9000, "107": 2600 },
+  knownIds: [],
+  topValue: 9000,
+};
+const FC = fantasyCalcLookup(MARKET);
+const card = (o: Parameters<typeof evaluation>[0] = {}, baseline?: { pPlayoffs: number | null; pTitle: number | null }) => buildTradeCard(evaluation(o), { snapshot, baseline: baseline ?? null, fantasyCalc: FC });
 const fact = (c: ReturnType<typeof card>, label: string) => c.facts.find((f) => f.label === label)?.value;
 
 /** Every word a card shows, for the no-jargon check. */
@@ -72,7 +102,21 @@ const allText = (c: ReturnType<typeof card>) =>
 describe("small words", () => {
   it("prints odds as whole percents, '<1%' and '>99%' only when they merely round there, and acceptance to the nearest 5%", () => {
     expect([0, 0.004, 0.62, 0.996, 1].map(percentText)).toEqual(["0%", "<1%", "62%", ">99%", "100%"]);
-    expect([0.02, 0.4, 0.43, 0.612].map(acceptText)).toEqual(["5%", "40%", "45%", "60%"]);
+    expect([0.4, 0.43, 0.612, 0.05, 0.074, 0.075].map(acceptText)).toEqual(["40%", "45%", "60%", "5%", "5%", "10%"]);
+  });
+
+  it("prints a chance under 5% as '<5%', never rounded up (planner reply to Checkpoint 4b, answer 5), the filter's number unchanged", () => {
+    expect([0.02, 0.0249, 0.03, 0.049].map(acceptText)).toEqual(["<5%", "<5%", "<5%", "<5%"]);
+    expect([0.02, 0.05].map(acceptSrText)).toEqual(["under 5%", "5%"]);
+    // acceptance.displayAcceptance still reads 5% (the filter and the label use it): only the words change.
+    expect(displayAcceptance(0.02)).toBe(0.05);
+    const card = buildTradeCard(evaluation({ pAccept: 0.03, pComplete: 0.03 }), { snapshot });
+    expect(card.numbers.accept).toEqual({ value: "<5%", srText: "under 5%" });
+    expect(card.numbers.acceptLabel).toBe("Est. · Long shot");
+  });
+
+  it("prints title odds with one decimal (the planner's \"12.1% → 13.4%\"), '<0.1%' and '>99.9%' only when they merely round there", () => {
+    expect([0.121, 0.12, 0, 0.0004, 0.9996, 1, Number.NaN].map(titleOddsText)).toEqual(["12.1%", "12.0%", "0.0%", "<0.1%", ">99.9%", "100.0%", "—"]);
   });
 
   it("says points a week and seconds singular when they print as 1 (review of Phase 4: 'That took 1 seconds', '−1 pts a week')", () => {
@@ -136,12 +180,13 @@ describe("buildTradeCard (§13: what each card shows)", () => {
     const floor = buildTradeCard(evaluation({ pAccept: 0.06, pComplete: 0.03, detail: { vetoRisk: true } }), league);
     expect(floor.numbers.accept.value).toBe("5%");
     expect(floor.numbers.acceptNote).toBe("Counting a league veto vote, under 5% it goes through.");
-    // At 2% (the model's floor) as well.
-    expect(buildTradeCard(evaluation({ pAccept: 0.02, pComplete: 0.01, detail: { vetoRisk: true } }), league).numbers.acceptNote).toBe("Counting a league veto vote, under 5% it goes through.");
+    // At 2% (the model's floor) both print "<5%": nothing more to say (Phase 4c: the card's own "<5%" says it).
+    const both = buildTradeCard(evaluation({ pAccept: 0.02, pComplete: 0.01, detail: { vetoRisk: true } }), league);
+    expect([both.numbers.accept.value, both.numbers.acceptNote]).toEqual(["<5%", null]);
     // A cut that prints the same above the floor says nothing more (the reason says the league reviews trades).
     expect(buildTradeCard(evaluation({ pAccept: 0.11, pComplete: 0.09, detail: { vetoRisk: true } }), league).numbers.acceptNote).toBeNull();
     // throughText itself: differently printed, below the floor, nothing more.
-    expect([throughText(0.4, 0.2), throughText(0.06, 0.03), throughText(0.06, 0.06), throughText(0.11, 0.09), throughText(0.4, Number.NaN)]).toEqual(["about 20%", "under 5%", null, null, null]);
+    expect([throughText(0.4, 0.2), throughText(0.06, 0.03), throughText(0.06, 0.06), throughText(0.11, 0.09), throughText(0.4, Number.NaN), throughText(0.04, 0.02)]).toEqual(["about 20%", "under 5%", null, null, null, null]);
   });
 
   it("scores a trade that doesn't help 0, flags it, and shows a dash (with words for screen readers) when B is unknown", () => {
@@ -151,7 +196,10 @@ describe("buildTradeCard (§13: what each card shows)", () => {
     const unknown = card({ b: null, dPO: null, dCH: null });
     expect(unknown.numbers.helps).toEqual({ value: "—", srText: "not scored: the season couldn't be simulated" });
     expect(unknown.flags.map((f) => f.text)).toEqual(["Not scored: your playoff odds couldn't be worked out, so this trade has no Helps you or Overall number."]);
-    expect([fact(unknown, "Playoff odds"), fact(unknown, "Title odds")]).toEqual(["Unknown", "Unknown"]);
+    expect(unknown.odds).toEqual([
+      { label: "Title odds", value: "unknown", srValue: "unknown" },
+      { label: "Playoff odds", value: "unknown", srValue: "unknown" },
+    ]);
   });
 
   it("says why a trade that doesn't help is left out by what pulled it down, never contradicting its own odds (review of Phase 4)", () => {
@@ -161,7 +209,7 @@ describe("buildTradeCard (§13: what each card shows)", () => {
     expect(noHelp({ b: 0, bWin: 0, gMine: 0 })).toBe("Doesn't help you: it wouldn't raise your chances this season, so trade ideas leave it out.");
     // Redraft, my chances rise but I'd give up more trade value (Parker's league: Team 4, B −0.11, B_win +1.08, odds +1.8 points).
     expect(noHelp({ b: -0.11, bWin: 1.08, gMine: -0.297, dPO: 0.0178, dCH: 0.007 })).toBe(
-      "Doesn't help you overall: it raises your chances this season, but you'd give up more trade value than that's worth at your “Protect my trade value” setting, so trade ideas leave it out.",
+      "Doesn't help you overall: it raises your chances this season, but counting roster spots, you'd give up more trade value than that's worth at your “Protect my trade value” setting, so trade ideas leave it out.",
     );
     // …and numbers that break the rule (my chances rise, B ≤ 0, yet I don't give more value: the value floor on both sides,
     // planner reply to Checkpoint 4, change 4, rules that out, since the term and the card read the same g): only "overall".
@@ -187,52 +235,169 @@ describe("buildTradeCard (§13: what each card shows)", () => {
     expect(card({ get: ["107", "206"], flags: { marketCheck: false, hiddenByMarket: false, hiddenByBenefit: false, injured: ["107", "206"] } }).flags[0]?.text).toBe(
       "Depends on injured players: Humbert Fiddlesticks (injured reserve) and Rupert Wimbleton (doubtful). Their projections assume they return at full strength, blended with the trade market.",
     );
-    expect(card({ gMine: -0.2 }).flags).toEqual([{ kind: "market", text: "Market check: you'd get 20% less trade value than you give." }]);
-    expect(card({ gMine: -0.4 }).flags).toEqual([{ kind: "hiddenByMarket", text: "Market check: you'd get 40% less trade value than you give, so trade ideas leave it out." }]);
+    // The model's trigger (g_mkt(me) under −15%), no number (planner reply to Checkpoint 4b, change 3).
+    expect(card({ gMine: -0.2 }).flags).toEqual([{ kind: "market", text: "Market check: counting roster spots, you'd give up more trade value than you get." }]);
+    expect(card({ gMine: -0.4 }).flags).toEqual([{ kind: "hiddenByMarket", text: "Market check: counting roster spots, you'd give up much more trade value than you get, so trade ideas leave it out." }]);
+    expect(card({ gMine: -0.2 }).flags[0]?.text).not.toMatch(/\d/);
     expect(card().flags).toEqual([]);
   });
 
-  it("says the numbers behind the score in words (§10 'always show'): lineup, odds in points (to what, with the baseline), values, their lineup", () => {
+  it("⚠️ names my free-agent moves after the trade that my baseline doesn't make (final review of Phase 4c, finding R1), after the forced ones", () => {
+    const moves = (faMoves: NonNullable<TradeEvaluation["required"]["me"]["faMoves"]>, me: Partial<TradeEvaluation["required"]["me"]> = {}) =>
+      card({ required: { me: { drops: [], adds: [], ...me, faMoves }, partner: { drops: [], adds: [] } } }).required;
+    // Parker's card: a QB for Josh Allen's week-7 bye, Kyle Monangai cut to make room.
+    expect(moves({ adds: ["901"], drops: ["105"], kept: [], starts: { "901": [7] } })).toEqual([
+      "This trade's numbers count on one more free-agent move: you'd drop Glimmer Oddfellow (WR, SEA) and pick up Floopy Freeman (RB, CAR) to start in week 7.",
+    ]);
+    // Two weeks: both named; more, or two pickups: no week. After legality's own lines.
+    expect(moves({ adds: ["901"], drops: ["105"], kept: [], starts: { "901": [7, 13] } })[0]).toContain("pick up Floopy Freeman (RB, CAR) to start in weeks 7 and 13.");
+    expect(moves({ adds: ["901"], drops: ["105"], kept: [], starts: { "901": [7, 9, 13] } })[0]).toMatch(/pick up Floopy Freeman \(RB, CAR\)\.$/);
+    expect(moves({ adds: ["901", "902"], drops: ["105", "104"], kept: [], starts: { "901": [7], "902": [9] } }, { drops: ["108"] })).toEqual([
+      "You'd drop Tobias Thimble (TE, JAX) to stay within your roster limits.",
+      "This trade's numbers count on more free-agent moves: you'd drop Glimmer Oddfellow (WR, SEA) and Noodle McSprocket (WR, MIN), and pick up Floopy Freeman (RB, CAR) and Waverly Waiver (RB, NE).",
+    ]);
+    // No pickup of its own, another drop than the baseline's (a player worth more than W: the engine names only those).
+    expect(moves({ adds: [], drops: ["105"], kept: ["104"], starts: {} })).toEqual(["This trade's numbers count on one more free-agent move: you'd drop Glimmer Oddfellow (WR, SEA) rather than Noodle McSprocket (WR, MIN)."]);
+    // ⚠️ And whom it makes room for when that's the League page's own pickup (verification of the final review, finding VF-1:
+    // "you'd drop Kyle Monangai (RB, CHI)." alone gave no reason), with or without the drop it replaces.
+    expect(moves({ adds: [], drops: ["105"], kept: [], starts: {}, room: ["901"] })).toEqual([
+      "This trade's numbers count on one more free-agent move: you'd drop Glimmer Oddfellow (WR, SEA) to make room for Floopy Freeman (RB, CAR), the pickup the League page suggests.",
+    ]);
+    expect(moves({ adds: [], drops: ["105"], kept: ["104"], starts: {}, room: ["901"] })).toEqual([
+      "This trade's numbers count on one more free-agent move: you'd drop Glimmer Oddfellow (WR, SEA) rather than Noodle McSprocket (WR, MIN) to make room for Floopy Freeman (RB, CAR), the pickup the League page suggests.",
+    ]);
+    expect(moves({ adds: [], drops: ["105", "104"], kept: [], starts: {}, room: ["901", "902"] })).toEqual([
+      "This trade's numbers count on more free-agent moves: you'd drop Glimmer Oddfellow (WR, SEA) and Noodle McSprocket (WR, MIN) to make room for Floopy Freeman (RB, CAR) and Waverly Waiver (RB, NE), pickups the League page suggests.",
+    ]);
+    // A pickup of its own is the reason: no room words then.
+    expect(moves({ adds: ["902"], drops: ["105"], kept: [], starts: {}, room: ["901"] })[0]).not.toContain("make room");
+    // None: nothing said.
+    expect(moves({ adds: [], drops: [], kept: [], starts: {} })).toEqual([]);
+    // Now before later: the move comes before the drop an IR player's return brings (Parker's card: Pat Freiermuth picked up
+    // for week 6, dropped in week 7 when Alec Pierce is back).
+    expect(moves({ adds: ["901"], drops: ["105"], kept: [], starts: { "901": [6] } }, { displaced: [{ playerId: "901", week: 7, returner: "107" }] })).toEqual([
+      "This trade's numbers count on one more free-agent move: you'd drop Glimmer Oddfellow (WR, SEA) and pick up Floopy Freeman (RB, CAR) to start in week 6.",
+      "From week 7, when Humbert Fiddlesticks comes back from IR, you'd drop Floopy Freeman (RB, CAR).",
+    ]);
+  });
+
+  it("⚠️ names the roster spot when it's what trips the Market check: more players onto my active roster, and FantasyCalc's own values alone wouldn't (final review of Phase 4c, finding PAGES-6)", () => {
+    const flag = (o: NonNullable<Parameters<typeof evaluation>[0]>) => card({ ...o, detail: { myTeamId: "1", ...o.detail } }).flags.find((f) => f.kind === "market" || f.kind === "hiddenByMarket")?.text;
+    // 5,000 given for 5,400 + 3,200 by FantasyCalc (+72%): the model's −20% comes from the spot the 2-for-1 fills.
+    expect(flag({ give: ["106"], get: ["204", "203"], gMine: -0.2 })).toBe("Market check: you'd get 2 players for 1, and counting the roster spot that costs you, you'd give up more trade value than you get.");
+    expect(flag({ give: ["106"], get: ["204", "203"], gMine: -0.4 })).toBe("Market check: you'd get 2 players for 1, and counting the roster spot that costs you, you'd give up much more trade value than you get, so trade ideas leave it out.");
+    // My IR player given opens no spot: 3 onto my active roster for 1 off it, two spots.
+    expect(flag({ give: ["106", "107"], get: ["204", "203", "105"], gMine: -0.2 })).toBe("Market check: you'd get 3 players for 2, and counting the 2 roster spots that cost you, you'd give up more trade value than you get.");
+    // The generic words otherwise: a 1-for-1; FantasyCalc's own values trip it too (9,000 for 6,900: −23%); a player received
+    // into an open IR slot takes no active spot; a player FantasyCalc doesn't value.
+    const generic = "Market check: counting roster spots, you'd give up more trade value than you get.";
+    expect(flag({ give: ["106"], get: ["204"], gMine: -0.2 })).toBe(generic);
+    expect(flag({ give: ["202"], get: ["204", "105"], gMine: -0.2 })).toBe(generic);
+    expect(flag({ give: ["106"], get: ["204", "203"], gMine: -0.2, required: { me: { drops: [], adds: [], toIR: ["203"] }, partner: { drops: [], adds: [] } } })).toBe(generic);
+    expect(flag({ give: ["106"], get: ["204", "201"], gMine: -0.2 })).toBe(generic);
+  });
+
+  it("says the numbers behind the score in words (§10 'always show'): lineup, trade values (FantasyCalc's own), their lineup", () => {
     expect(c.facts).toEqual([
       { label: "Your lineup", value: "+2 pts a week in the regular season, +2 in the playoffs" },
-      { label: "Playoff odds", value: "+3 percentage points" },
-      { label: "Title odds", value: "+1 percentage point" },
-      { label: "Trade value", value: "You give 5,000, you get 5,000 (a player worth less than the best free agent counts at that free agent's value)", kind: "values" },
+      { label: "Trade value", value: "You give 5,000, you get 5,400", kind: "values" },
       { label: "Their lineup", value: "0 pts a week" },
     ]);
-    const withBaseline = card({ dPO: 0.041, dCH: 0.002, partnerDeltaLineup: -1.26 }, { pPlayoffs: 0.62, pTitle: 0.09 });
-    expect(fact(withBaseline, "Playoff odds")).toBe("+4.1 percentage points (62% to 66%)");
-    // The whole percent doesn't move: no end percents.
-    expect(fact(withBaseline, "Title odds")).toBe("+0.2 percentage points");
-    expect(fact(withBaseline, "Their lineup")).toBe("−1.3 pts a week");
-    // An uneven trade says the side getting fewer players is credited for its roster spot (§9's waiver credit), and both
-    // say a player worth less than the best free agent counts at that value (planner reply to Checkpoint 4, change 4).
-    // Review of track F: "worth less" said what it's less than.
-    expect(fact(card({ give: ["105", "106"] }), "Trade value")).toBe(
-      "You give 5,000, you get 5,000 (an open roster spot on the side getting fewer players counts at the best free agent's value, and so does any player worth less than that free agent)",
+    expect(fact(card({ partnerDeltaLineup: -1.26 }), "Their lineup")).toBe("−1.3 pts a week");
+    // My odds sit next to the three numbers now (oddsViews), not among the facts.
+    expect(c.facts.map((f) => f.label)).not.toContain("Playoff odds");
+  });
+
+  it("shows my title and playoff odds before and after, next to Helps you (planner reply to Checkpoint 4b, change 9)", () => {
+    // The planner's example: "Title odds 12.1% → 13.4%" and "Playoff odds 65% → 69%".
+    expect(card({ dCH: 0.013, dPO: 0.04 }, { pPlayoffs: 0.65, pTitle: 0.121 }).odds).toEqual([
+      { label: "Title odds", value: "12.1% → 13.4%", srValue: "from 12.1% to 13.4%" },
+      { label: "Playoff odds", value: "65% → 69%", srValue: "from 65% to 69%" },
+    ]);
+    // A change that doesn't move the printed odds still shows both ends; a loss reads downward.
+    expect(card({ dCH: -0.002, dPO: 0.001 }, { pPlayoffs: 0.62, pTitle: 0.09 }).odds.map((o) => o.value)).toEqual(["9.0% → 8.8%", "62% → 62%"]);
+    // Kept within 0–100%.
+    expect(card({ dCH: 0.05, dPO: 0.2 }, { pPlayoffs: 0.9, pTitle: 0.97 }).odds.map((o) => o.value)).toEqual(["97.0% → 100.0%", "90% → 100%"]);
+    // Without my odds before any trade: the change in percentage points.
+    expect(c.odds.map((o) => o.value)).toEqual(["+1 percentage point", "+3 percentage points"]);
+    expect(oddsViews({ dPO: 0.041, dCH: null }, null).map((o) => o.value)).toEqual(["unknown", "+4.1 percentage points"]);
+  });
+
+  it("says the weeks whose win chance moves at least weeklyLineMin, at most weeklyLineMax of them, the drops first, then the largest gains, in week order (change 9)", () => {
+    const { weeklyLineMin, weeklyLineMax } = config.explain;
+    expect([weeklyLineMin, weeklyLineMax]).toEqual([0.03, 4]);
+    // The planner's example.
+    const example = card({ detail: { winChance: [{ week: 9, before: 0.68, after: 0.64 }, { week: 10, before: 0.6, after: 0.61 }, { week: 13, before: 0.42, after: 0.55 }] } }).weekly;
+    expect(example?.text).toBe("Win chance by week: Week 9: 68% → 64% · Week 13: 42% → 55%");
+    expect(example?.weeks.map((w) => w.srText)).toEqual(["week 9 from 68% to 64%", "week 13 from 42% to 55%"]);
+    // Exactly 3 points counts; just under doesn't; unknown chances are skipped.
+    expect(weeklyLine([{ week: 5, before: 0.5, after: 0.53 }, { week: 6, before: 0.5, after: 0.5299 }, { week: 7, before: null, after: 0.9 }])?.text).toBe("Win chance by week: Week 5: 50% → 53%");
+    // More than four: the four largest moves, shown in week order.
+    const many = [5, 6, 7, 8, 9, 10].map((week, i) => ({ week, before: 0.5, after: 0.5 + 0.04 + i * 0.01 }));
+    expect(weeklyLine(many)?.weeks.map((w) => w.week)).toEqual([7, 8, 9, 10]);
+    expect(weeklyLine(many, { weeklyLineMin: 0.03, weeklyLineMax: 2 })?.weeks.map((w) => w.week)).toEqual([9, 10]);
+    // ⚠️ The weeks it drops come first (final review of Phase 4c, finding R8), the largest drop first, then the largest
+    // gains. Parker's card 6: week 14's 3.9-point drop was hidden behind gains of 4.3 and 4.4.
+    const card6 = [
+      { week: 6, before: 0.554, after: 0.597 },
+      { week: 7, before: 0.468, after: 0.42 },
+      { week: 8, before: 0.605, after: 0.649 },
+      { week: 9, before: 0.484, after: 0.515 },
+      { week: 11, before: 0.627, after: 0.74 },
+      { week: 13, before: 0.425, after: 0.464 },
+      { week: 14, before: 0.493, after: 0.454 },
+    ];
+    expect(weeklyLine(card6)?.text).toBe("Win chance by week: Week 7: 47% → 42% · Week 8: 61% → 65% · Week 11: 63% → 74% · Week 14: 49% → 45%");
+    // More drops than places: the largest drops alone, in week order.
+    const drops = [5, 6, 7, 8, 9].map((week, i) => ({ week, before: 0.6, after: 0.6 - 0.04 - i * 0.01 }));
+    expect(weeklyLine([...drops, { week: 10, before: 0.4, after: 0.6 }])?.weeks.map((w) => w.week)).toEqual([6, 7, 8, 9]);
+    // None moving, a points-only league's empty list, or no odds: no line.
+    expect(weeklyLine([{ week: 5, before: 0.5, after: 0.51 }])).toBeNull();
+    expect(weeklyLine([])).toBeNull();
+    expect(weeklyLine(undefined)).toBeNull();
+    expect(c.weekly).toBeNull();
+  });
+
+  it("gives trade values by FantasyCalc's own values: the plain sums, one value number per card (planner reply to Checkpoint 4b, change 3)", () => {
+    const value = (o: Parameters<typeof evaluation>[0], fc: FantasyCalcLookup | undefined = FC) => fact(buildTradeCard(evaluation(o), { snapshot, fantasyCalc: fc }), "Trade value");
+    // No floor, no roster-spot credit: Glimmer Oddfellow (1,500) and Wiggleton Spoons (5,000) for Cornelius Snoot (5,400).
+    expect(value({ give: ["105", "106"], get: ["204"] })).toBe("You give 6,500, you get 5,400");
+    // ⚠️ Ours: a player FantasyCalc doesn't value is named, not counted.
+    expect(value({ give: ["106", "108"], get: ["204"] })).toBe("You give 5,000 plus Tobias Thimble (no FantasyCalc value), you get 5,400");
+    expect(value({ give: ["108"], get: ["204"] })).toBe("You give Tobias Thimble (no FantasyCalc value), you get 5,400");
+    expect(value({ give: ["108", "104"], get: ["204"] })).toBe("You give Tobias Thimble and Noodle McSprocket (no FantasyCalc values), you get 5,400");
+    expect(value({ proposal: { partnerId: "2", give: [{ kind: "pick", season: 2027, round: 1, originalTeamId: "1" }], get: [{ kind: "player", id: "204" }] } })).toBe(
+      "You give 2027 round 1 pick (no FantasyCalc value), you get 5,400",
     );
+    expect(value({ give: [], get: ["204"] })).toBe("You give nothing, you get 5,400");
+    // The model's package values (floored, credited) never show.
+    expect(value({ give: ["106"], get: ["204"], value: { given: 6115, received: 5400 } })).toBe("You give 5,000, you get 5,400");
+    // Without FantasyCalc's values: said, and no FantasyCalc link (kind).
+    const none = buildTradeCard(evaluation(), { snapshot }).facts.find((f) => f.label === "Trade value");
+    expect(none).toEqual({ label: "Trade value", value: VALUES_UNAVAILABLE });
+    expect(value({}, fantasyCalcLookup(null))).toBe(VALUES_UNAVAILABLE);
+    expect(value({}, fantasyCalcLookup({ ...MARKET, fallback: { kind: "curve", listDate: "2026-09-01T00:00:00.000Z" } }))).toBe(VALUES_UNAVAILABLE);
   });
 
-  it("with an IR player in the trade, says only my active roster's spots count (review of track E: an IR slot isn't a roster spot)", () => {
-    // Team 1 (mine) has Humbert Fiddlesticks (IR) in its one IR slot; team 2 has a Doubtful player in its IR slot.
-    const mine = (give: string[], get: string[], s = snapshot) => fact(buildTradeCard(evaluation({ give, get, detail: { myTeamId: "1" } }), { snapshot: s, baseline: null }), "Trade value");
-    // My IR player and an active one for one player: one off my active roster, one on: no open spot counts.
-    expect(mine(["107", "106"], ["204"])).toBe("You give 5,000, you get 5,000 (a player worth less than the best free agent counts at that free agent's value; an IR slot isn't a roster spot, so no open spot counts)");
-    // My IR player alone for an active player: my active roster fills a spot.
-    expect(mine(["107"], ["204"])).toBe("You give 5,000, you get 5,000 (each spot your active roster fills counts at the best free agent's value, as does any player worth less than that free agent; an IR slot isn't a roster spot)");
-    // Two active players for their IR player, who takes an active spot of mine (my IR slot is full; Doubtful isn't
-    // eligible anyway): one spot opens on my active roster.
-    expect(mine(["106", "105"], ["206"])).toBe("You give 5,000, you get 5,000 (an open spot on your active roster counts at the best free agent's value, as does any player worth less than that free agent; an IR slot isn't a roster spot)");
-    // A league whose IR slots take Doubtful players: my IR player out, theirs into my IR slot, an active player of mine out.
-    const doubtfulOk = { ...snapshot, settings: { ...snapshot.settings, irEligible: ["IR", "PUP", "DOUBTFUL"] as InjuryStatus[] } };
-    expect(mine(["107", "106"], ["206"], doubtfulOk)).toBe("You give 5,000, you get 5,000 (an open spot on your active roster counts at the best free agent's value, as does any player worth less than that free agent; an IR slot isn't a roster spot)");
-    // No IR player: the words as before.
-    expect(mine(["105", "106"], ["204"])).toBe("You give 5,000, you get 5,000 (an open roster spot on the side getting fewer players counts at the best free agent's value, and so does any player worth less than that free agent)");
+  it("reads FantasyCalc's own values from the model inputs: the perception list, a saved list with its date, never the curve fallback's estimates", () => {
+    expect(FC.available).toBe(true);
+    expect([FC.value("106"), FC.value("108"), FC.value("constructor"), FC.value("__proto__")]).toEqual([5000, null, null, null]);
+    expect(FC.note).toBeNull();
+    // A keeper league reads its redraft list (how managers see a trade), not the dynasty one.
+    const keeper = fantasyCalcLookup({ ...MARKET, values: { "106": 9000 }, redraftValues: { "106": 4800 } });
+    expect(keeper.value("106")).toBe(4800);
+    // A saved list stands in: its values, and a note with its day.
+    const saved = fantasyCalcLookup({ ...MARKET, fallback: { kind: "saved", listDate: "2026-09-27T15:00:00.000Z" } });
+    expect([saved.available, saved.value("106"), saved.note]).toEqual([true, 5000, "Trade values from Sep 27: FantasyCalc didn't answer."]);
+    // The curve fallback: no FantasyCalc value is quoted; nor without a market.
+    const curve = fantasyCalcLookup({ ...MARKET, fallback: { kind: "curve", listDate: "2026-09-01T00:00:00.000Z" } });
+    expect([curve.available, curve.value("106"), curve.note]).toEqual([false, null, null]);
+    expect(fantasyCalcLookup(undefined).available).toBe(false);
   });
 
-  it("adds long-term value in dynasty and keeper leagues, or says it's unknown when values didn't load", () => {
-    expect(fact(card({ dDyn: 1234.4 }), "Long-term value")).toBe("+1,234 for your roster");
-    expect(fact(card({ dDyn: -300 }), "Long-term value")).toBe("−300 for your roster");
+  it("adds long-term value in dynasty and keeper leagues (the model's, counting roster spots), or says it's unknown when values didn't load", () => {
+    expect(fact(card({ dDyn: 1234.4 }), "Long-term value")).toBe("+1,234 for your roster, counting roster spots");
+    expect(fact(card({ dDyn: -300 }), "Long-term value")).toBe("−300 for your roster, counting roster spots");
     expect(fact(card({ dynMissing: true }), "Long-term value")).toBe("Unknown: long-term values didn't load");
     expect(fact(c, "Long-term value")).toBeUndefined();
   });
@@ -298,6 +463,23 @@ describe("buildTradeCard (§13: what each card shows)", () => {
       "Gravel Gophers would pick up Floopy Freeman (RB, CAR) from free agents to fill their roster.",
       "Rupert Wimbleton goes to Gravel Gophers' IR slot (no roster spot until he's back).",
     ]);
+  });
+
+  it("says it's a choice when the player released at an IR return is the returner himself (review of track UIC, finding 7)", () => {
+    // §7: on a full roster from his return he's a bench player like any other, and he can be the one released.
+    const self = card({
+      required: {
+        me: { drops: [], adds: [], displaced: [{ playerId: "206", week: 7, returner: "206" }] },
+        partner: { drops: [], adds: [], displaced: [{ playerId: "107", week: 9, returner: "107" }, { playerId: "205", week: Number.NaN, returner: "205" }] },
+      },
+    });
+    expect(self.required).toEqual([
+      "From week 7, when Rupert Wimbleton comes back from IR, you'd release him instead of dropping someone else.",
+      "From week 9, when Humbert Fiddlesticks comes back from IR, Gravel Gophers would release him instead of dropping someone else.",
+      "When Percival Plunk comes back from IR, Gravel Gophers would release him instead of dropping someone else.",
+    ]);
+    // Never his name twice in one sentence.
+    for (const line of self.required) expect(line.match(/Rupert Wimbleton|Humbert Fiddlesticks|Percival Plunk/g)?.length).toBe(1);
   });
 
   it("leaves out explain.ts's caveat that repeats the injured flag, and only it (review of Phase 4b)", () => {
@@ -408,13 +590,18 @@ describe("'How to offer it' (planner addendum to Checkpoint 3, §4: offer first,
   });
 });
 
-describe("baselineLines: my odds before any trade, and what they count (review of Phase 4)", () => {
-  it("says them for the Finder's list and the Analyzer's trade, with why they can differ from the League page's", () => {
+describe("baselineLines: my odds before any trade, and what they count (review of Phase 4; Phase 4c: the League page's)", () => {
+  it("says them for the Finder's list and the Analyzer's trade: the League page's headline odds (planner reply to Checkpoint 4b, change 9), the title with one decimal", () => {
     expect(baselineLines({ pPlayoffs: 0.712, pTitle: 0.153 }, "finder")).toEqual({
-      text: "Your odds before any trade: 71% to make the playoffs, 15% to win the title.",
-      note: "Like every trade idea's numbers, they count the free-agent pickups that would help each team, so they can differ from the League page's odds, which take rosters as they stand.",
+      text: "Your odds before any trade: 71% to make the playoffs, 15.3% to win the title.",
+      note: "As on the League page, they count the free-agent pickups that would help each team, and every trade idea's odds start from them.",
     });
-    expect(baselineLines({ pPlayoffs: 0.712, pTitle: 0.153 }, "analyzer")?.text).toBe("Your odds before this trade: 71% to make the playoffs, 15% to win the title.");
+    expect(baselineLines({ pPlayoffs: 0.712, pTitle: 0.153 }, "analyzer")).toEqual({
+      text: "Your odds before this trade: 71% to make the playoffs, 15.3% to win the title.",
+      note: "As on the League page, they count the free-agent pickups that would help each team, and the trade's odds start from them.",
+    });
+    // Never "they can differ from the League page's" any more: one baseline everywhere.
+    expect(baselineLines({ pPlayoffs: 0.5, pTitle: 0.1 }, "finder")?.note).not.toContain("differ");
     // Title odds unknown: the playoffs alone; no odds at all: nothing.
     expect(baselineLines({ pPlayoffs: 0.5, pTitle: null }, "finder")?.text).toBe("Your odds before any trade: 50% to make the playoffs.");
     for (const none of [null, undefined, { pPlayoffs: null, pTitle: 0.1 }, { pPlayoffs: Number.NaN, pTitle: null }]) expect(baselineLines(none, "finder")).toBeNull();
@@ -436,24 +623,35 @@ describe("buildFinderView (§13 ranking, M13 states)", () => {
 
   it("says my odds before any trade and what they count, how many ideas and their order, what was found, what was looked at, and passes notes and warnings on", () => {
     const view = buildFinderView({ result: { ...result, notes: ["Kickers and D/STs are left out; turn them on in Settings."], warnings: ["Sleeper's week 17 projections didn't load."] }, sort: "helps", snapshot, partnerId: null });
-    // Review of Phase 4: "Your odds now: 71%" sat next to the League page's 76% (rosters as they stand), so it says what it is.
-    expect(view.baseline).toBe("Your odds before any trade: 62% to make the playoffs, 9% to win the title.");
-    expect(view.baselineNote).toBe(
-      "Like every trade idea's numbers, they count the free-agent pickups that would help each team, so they can differ from the League page's odds, which take rosters as they stand.",
-    );
+    // Review of Phase 4: "Your odds now: 71%" sat next to the League page's 76% (rosters as they stand), so it says what it
+    // is; since Phase 4c they are the League page's headline odds.
+    expect(view.baseline).toBe("Your odds before any trade: 62% to make the playoffs, 9.0% to win the title.");
+    expect(view.baselineNote).toBe("As on the League page, they count the free-agent pickups that would help each team, and every trade idea's odds start from them.");
+    // What Helps you sums up, once for the list (the planner's words in a redraft league).
+    expect(view.helpsInfo).toBe("Helps you (0–100) sums up how much your title and playoff odds rise, minus a cost for giving away trade value or plus a credit for gaining it.");
     expect(view.countText).toBe("3 trade ideas, sorted by Helps you.");
     expect(view.statusText).toBe("Found 3 trade ideas.");
-    expect(view.searched).toBe(`Looked at 1,234 trade ideas, checked the best 200 closely, and played out your season ${config.simulation.finalSims.toLocaleString("en-US")} times with each of the best 40. That took 4.2 seconds.`);
+    // Not "the best 200" (review of track UIC, finding 6): exact evaluation adds the lean companions to the best by screening.
+    expect(view.searched).toBe(`Looked at 1,234 trade ideas, checked 200 closely, and played out your season ${config.simulation.finalSims.toLocaleString("en-US")} times with each of the best 40. That took 4.2 seconds.`);
+    expect(buildFinderView({ result: { ...result, counts: { screened: 15873, exact: 208, simScreen: 208, simFinal: 60 } }, sort: "overall", snapshot, partnerId: null }).searched).toMatch(
+      /^Looked at 15,873 trade ideas, checked 208 closely, and played out your season [\d,]+ times with each of the best 60\. /,
+    );
     expect(view.notes).toEqual(["Kickers and D/STs are left out; turn them on in Settings."]);
     expect(view.warnings).toEqual(["Sleeper's week 17 projections didn't load."]);
     expect(view.empty).toBeNull();
-    // Baseline odds give each card's odds their end point.
-    expect(view.cards[0]?.facts.find((f) => f.label === "Playoff odds")?.value).toBe("+3 percentage points (62% to 65%)");
+    // Baseline odds give each card's odds their "before".
+    expect(view.cards[0]?.odds.map((o) => o.value)).toEqual(["9.0% → 10.0%", "62% → 65%"]);
   });
 
   it("counts what was left out on purpose (§10 guards)", () => {
     const view = buildFinderView({ result: { ...result, hidden: { byBenefit: 10, byMarket: 1 } }, sort: "overall", snapshot, partnerId: null });
-    expect(view.hidden).toBe(`Left out on purpose: 10 trade ideas that wouldn't help you and 1 trade idea where you'd get over ${Math.round(-config.benefit.marketHideBelow * 100)}% less trade value than you give.`);
+    expect(view.hidden).toBe(
+      `Left out on purpose: 10 trade ideas that wouldn't help you and 1 trade idea where, counting roster spots, you'd get over ${Math.round(-config.benefit.marketHideBelow * 100)}% less trade value than you give.`,
+    );
+    // Phase 4c: the ideas below the minimum chance too.
+    const withChance = buildFinderView({ result: { ...result, hidden: { byBenefit: 2, byMarket: 0, byChance: 3 } }, sort: "overall", snapshot, partnerId: null });
+    expect(withChance.hidden).toBe("Left out on purpose: 2 trade ideas that wouldn't help you and 3 trade ideas below your minimum chance.");
+    expect(buildFinderView({ result: { ...result, hidden: { byBenefit: 0, byMarket: 0, byChance: 1 } }, sort: "overall", snapshot, partnerId: null }).hidden).toBe("Left out on purpose: 1 trade idea below your minimum chance.");
   });
 
   /** The search's own note that is almost always there (search.ts: K, D/ST and IDP left out by default). */
@@ -503,10 +701,10 @@ describe("buildFinderView (§13 ranking, M13 states)", () => {
 
   it("words the engine's week-in-progress note for the whole list, once (review of Phase 4: 'this trade' under a list of 18)", () => {
     // evaluate.ts's own words for one trade (the Analyzer keeps them under its single card).
-    const one = (week: number) => `Week ${week} is under way, so this trade can't change it: its odds count week ${week} as it stands.`;
-    const list = "Week 4 is under way, so no trade can change it: every idea's odds count week 4 as it stands.";
+    const one = (week: number) => `Week ${week} is under way: these odds play it with today's rosters, before and after the trade.`;
+    const list = "Week 4 is under way: every idea's odds play it with today's rosters, before and after the trade.";
     expect(listNote(one(4))).toBe(list);
-    expect(listNote(one(12))).toBe("Week 12 is under way, so no trade can change it: every idea's odds count week 12 as it stands.");
+    expect(listNote(one(12))).toBe("Week 12 is under way: every idea's odds play it with today's rosters, before and after the trade.");
     expect(listNote("Keeper costs aren't modeled.")).toBe("Keeper costs aren't modeled.");
     const trades = [evaluation({ key: "x", detail: { notes: [one(4)] } }), evaluation({ key: "y", give: ["105"], detail: { notes: [one(4), "Keeper costs aren't modeled."] } })];
     const view = buildFinderView({ result: searchResult(trades, { notes: [KDST] }), sort: "overall", snapshot, partnerId: null });
@@ -532,7 +730,9 @@ describe("progressView (M14's progress bar)", () => {
   it("moves through the stages, says how far a stage is, and never reads 100% before it's done", () => {
     expect(progressView(null)).toEqual({ label: "Getting your league ready", detail: null, percent: 0, valueText: "Getting your league ready" });
     const screening = progressView({ stage: "screening", done: 120, total: 480 });
-    expect(screening).toEqual({ label: "Screening trade ideas", detail: "120 of 480", percent: 17, valueText: "Screening trade ideas: 120 of 480" });
+    expect(screening).toEqual({ label: "Screening trade ideas", detail: "120 of 480", percent: 16, valueText: "Screening trade ideas: 120 of 480" });
+    // Phase 4c: screening is about 45% of a search (the exhaustive candidates); setup 5%.
+    expect(progressView({ stage: "exact", done: 0, total: 200 }).percent).toBe(50);
     const percents = (["setup", "screening", "exact", "simScreen", "simFinal", "rank"] as const).map((stage) => progressView({ stage, done: 0, total: 10 }).percent);
     expect(percents).toEqual([...percents].sort((x, y) => x - y));
     expect(progressView({ stage: "rank", done: 1, total: 1 }).percent).toBe(99);
@@ -630,7 +830,7 @@ describe("the Analyzer's draft and choices", () => {
 
   it("shows an illegal trade's reason instead of a card, with the notes", () => {
     const illegal: TradeAnalysis = { evaluation: null, illegal: "Gravel Gophers can have at most 4 RBs.", notes: ["Pick your team on the Import Report to see trade ideas."] };
-    expect(buildAnalysisView(illegal, snapshot)).toEqual({ baseline: null, baselineNote: null, card: null, illegal: "Gravel Gophers can have at most 4 RBs.", notes: ["Pick your team on the Import Report to see trade ideas."] });
+    expect(buildAnalysisView(illegal, snapshot)).toEqual({ baseline: null, baselineNote: null, helpsInfo: null, card: null, illegal: "Gravel Gophers can have at most 4 RBs.", notes: ["Pick your team on the Import Report to see trade ideas."] });
     // My odds before any trade say nothing without a card.
     expect(buildAnalysisView({ ...illegal, baseline: { pPlayoffs: 0.62, pTitle: 0.09 } }, snapshot).baseline).toBeNull();
     const legal = buildAnalysisView({ evaluation: evaluation(), illegal: null, notes: [] }, snapshot);
@@ -640,17 +840,19 @@ describe("the Analyzer's draft and choices", () => {
   it("reads a trade as the Trade Finder does: my odds before this trade above the card, and its odds with their end percents (review of Phase 4)", () => {
     const e = evaluation({ key: "w", dPO: 0.091, dCH: 0.039 });
     const analyzed = buildAnalysisView({ evaluation: e, illegal: null, notes: [], baseline: { pPlayoffs: 0.63, pTitle: 0.12 } }, snapshot);
-    expect(analyzed.baseline).toBe("Your odds before this trade: 63% to make the playoffs, 12% to win the title.");
-    expect(analyzed.baselineNote).toBe("Like the trade's numbers, they count the free-agent pickups that would help each team, so they can differ from the League page's odds, which take rosters as they stand.");
-    const odds = (c: NonNullable<typeof analyzed.card>) => c.facts.filter((f) => f.label.endsWith("odds")).map((f) => f.value);
-    expect(odds(analyzed.card as NonNullable<typeof analyzed.card>)).toEqual(["+9.1 percentage points (63% to 72%)", "+3.9 percentage points (12% to 16%)"]);
+    expect(analyzed.baseline).toBe("Your odds before this trade: 63% to make the playoffs, 12.0% to win the title.");
+    expect(analyzed.baselineNote).toBe("As on the League page, they count the free-agent pickups that would help each team, and the trade's odds start from them.");
+    expect(analyzed.helpsInfo).toBe("Helps you (0–100) sums up how much your title and playoff odds rise, minus a cost for giving away trade value or plus a credit for gaining it.");
+    const odds = (c: NonNullable<typeof analyzed.card>) => c.odds.map((o) => o.value);
+    expect(odds(analyzed.card as NonNullable<typeof analyzed.card>)).toEqual(["12.0% → 15.9%", "63% → 72%"]);
     // The same trade on the Trade Finder, with the same odds before any trade: the same words.
     const found = buildFinderView({ result: searchResult([e], { baseline: { pPlayoffs: 0.63, pTitle: 0.12, expWins: 8 } }), sort: "overall", snapshot, partnerId: null }).cards[0];
     expect(found?.facts).toEqual(analyzed.card?.facts);
+    expect(found?.odds).toEqual(analyzed.card?.odds);
     // An evaluation sent without them (an older worker): the changes alone, no line.
     const plain = buildAnalysisView({ evaluation: e, illegal: null, notes: [] }, snapshot);
     expect(plain.baseline).toBeNull();
-    expect(odds(plain.card as NonNullable<typeof plain.card>)).toEqual(["+9.1 percentage points", "+3.9 percentage points"]);
+    expect(odds(plain.card as NonNullable<typeof plain.card>)).toEqual(["+3.9 percentage points", "+9.1 percentage points"]);
   });
 });
 
@@ -774,6 +976,53 @@ describe("injury tags on the card (planner reply to Checkpoint 4, change 6)", ()
     expect(flagged.injuryNote).toBe("Rupert Wimbleton: his projection assumes he returns at full strength, blended with the trade market.");
     expect(buildTradeCard(evaluation({ give: ["106"], get: ["107"], flags: { marketCheck: false, hiddenByMarket: false, hiddenByBenefit: false, injured: ["107"] } }), { snapshot }).injuryNote).toBeNull();
   });
+
+  it("never says a hurt player's projection is blended with the trade market while the blend is off (review of track UIC, finding 3)", () => {
+    const injured = { marketCheck: false, hiddenByMarket: false, hiddenByBenefit: false, injured: ["107"] };
+    const off = buildTradeCard(evaluation({ give: ["106"], get: ["107", "206"], flags: injured }), { snapshot, blendOn: false });
+    expect(off.flags[0]?.text).toBe("Depends on an injured player: Humbert Fiddlesticks (injured reserve). His projection assumes he returns at full strength.");
+    expect(off.injuryNote).toBe("Rupert Wimbleton: his projection assumes he returns at full strength.");
+    expect(incomingInjuryNote([{ playerId: "107", side: "get", status: "IR" }, { playerId: "206", side: "get", status: "DOUBTFUL" }], snapshot, [], false)).toBe(
+      "Humbert Fiddlesticks and Rupert Wimbleton: their projections assume they return at full strength.",
+    );
+    // The Finder's and the Analyzer's cards get the page's word.
+    const finder = buildFinderView({ result: searchResult([evaluation({ give: ["106"], get: ["206"] })]), sort: "overall", snapshot, partnerId: null, blendOn: false });
+    expect(finder.cards[0]?.injuryNote).toBe("Rupert Wimbleton: his projection assumes he returns at full strength.");
+    const analyzer = buildAnalysisView({ evaluation: evaluation({ give: ["106"], get: ["206"] }), illegal: null, notes: [] }, snapshot, undefined, { blendOn: false });
+    expect(analyzer.card?.injuryNote).toBe("Rupert Wimbleton: his projection assumes he returns at full strength.");
+    // On, or not said (the default): as before.
+    expect(buildTradeCard(evaluation({ give: ["106"], get: ["206"] }), { snapshot, blendOn: true }).injuryNote).toBe("Rupert Wimbleton: his projection assumes he returns at full strength, blended with the trade market.");
+  });
+
+  it("reads whether the market blend is on as the engine does: this season's FantasyCalc list in the league's format (blend.ts blendValues)", () => {
+    expect(marketBlendOn(MARKET, "redraft")).toBe(true);
+    // FantasyCalc's curve fallback, and no FantasyCalc at all: off.
+    expect(marketBlendOn({ ...MARKET, fallback: { kind: "curve", listDate: "2026-09-01T00:00:00.000Z" } }, "redraft")).toBe(false);
+    expect(marketBlendOn(null, "redraft")).toBe(false);
+    // A saved list standing in still blends.
+    expect(marketBlendOn({ ...MARKET, fallback: { kind: "saved", listDate: "2026-09-27T15:00:00.000Z" } }, "redraft")).toBe(true);
+    // Dynasty: the format's own redraft list (seasonValues); without it, off. Keeper: the redraft list, or the league's
+    // own list when the server served the redraft list in its place (a format that isn't dynasty).
+    const dynasty = { ...MARKET, format: { ...MARKET.format, isDynasty: true } };
+    expect(marketBlendOn(dynasty, "dynasty")).toBe(false);
+    expect(marketBlendOn({ ...dynasty, seasonValues: MARKET.values }, "dynasty")).toBe(true);
+    expect(marketBlendOn(dynasty, "keeper")).toBe(false);
+    expect(marketBlendOn({ ...dynasty, redraftValues: MARKET.values }, "keeper")).toBe(true);
+    expect(marketBlendOn(MARKET, "keeper")).toBe(true);
+  });
+
+  it("gives the pages' How to read the league's facts (valueFactsOf): FantasyCalc's values, long-term values and the blend", () => {
+    expect(valueFactsOf(MARKET, "redraft")).toEqual({ valuesOn: true, longTermOn: true, blendOn: true });
+    expect(valueFactsOf({ ...MARKET, fallback: { kind: "curve", listDate: "2026-09-01T00:00:00.000Z" } }, "redraft")).toEqual({ valuesOn: false, longTermOn: true, blendOn: false });
+    expect(valueFactsOf(null, "redraft")).toEqual({ valuesOn: false, longTermOn: true, blendOn: false });
+    // Long-term values: a dynasty format's list (benefit.futureValuesLoaded); a keeper league served the redraft list in
+    // place of its failed dynasty list has none, and neither does the curve fallback.
+    const dynasty = { ...MARKET, format: { ...MARKET.format, isDynasty: true }, seasonValues: MARKET.values };
+    expect(valueFactsOf(dynasty, "dynasty")).toEqual({ valuesOn: true, longTermOn: true, blendOn: true });
+    expect(valueFactsOf(MARKET, "keeper").longTermOn).toBe(false);
+    expect(valueFactsOf({ ...dynasty, fallback: { kind: "curve", listDate: "2026-09-01T00:00:00.000Z" } }, "dynasty")).toEqual({ valuesOn: false, longTermOn: false, blendOn: false });
+    expect(valueFactsOf(null, "keeper").longTermOn).toBe(false);
+  });
 });
 
 describe("Plan B on the card: \"If they say no, try:\" (planner reply to Checkpoint 4, change 6)", () => {
@@ -789,6 +1038,9 @@ describe("Plan B on the card: \"If they say no, try:\" (planner reply to Checkpo
       numbers: "Helps you 44 · Chance they accept 40% (Est. · Decent) · Overall 22",
       numberParts: [{ text: "Helps you 44" }, { text: "Chance they accept 40%", label: "(Est. · Decent)" }, { text: "Overall 22" }],
       acceptNote: null,
+      // A Plan B made without odds (none before Phase 4c's polish) prints none.
+      odds: [],
+      weekly: null,
       also: null,
       pitch: "Thanks for considering it! Would you trade Mortimer Gloop for Wiggleton Spoons and Tobias Thimble instead? Let me know what you think!",
       // Marked as a Plan B: the Analyzer shows it as one offer, without "How to offer it" (review of Phase 4b).
@@ -805,6 +1057,30 @@ describe("Plan B on the card: \"If they say no, try:\" (planner reply to Checkpo
     // Below the display's floor: "under 5%" (review of Phase 4b).
     expect(planBView({ ...planB, pAccept: 0.06, pComplete: 0.03 }, tradeSnapshot({ tradeReview: "league_vote" }))?.acceptNote).toBe("Counting a league veto vote, under 5% it goes through.");
     expect(planBView(undefined, snapshot)).toBeNull();
+  });
+
+  it("Phase 4c (planner reply to Checkpoint 4b, change 9): prints its own odds as the card prints its own, from the card's before: title and playoff odds, then the weekly line", () => {
+    const baseline = { pPlayoffs: 0.65, pTitle: 0.121 };
+    const withOdds = { ...planB, dPO: 0.04, dCH: 0.013, winChance: [{ week: 9, before: 0.68, after: 0.64 }, { week: 10, before: 0.5, after: 0.51 }, { week: 13, before: 0.42, after: 0.55 }] };
+    const view = planBView(withOdds, snapshot, { baseline });
+    // The planner's own example lines, by the card's own functions (oddsViews, weeklyLine).
+    expect(view?.odds.map((o) => `${o.label} ${o.value}`)).toEqual(["Title odds 12.1% → 13.4%", "Playoff odds 65% → 69%"]);
+    expect(view?.odds).toEqual(oddsViews(withOdds, baseline));
+    expect(view?.weekly).toEqual(weeklyLine(withOdds.winChance));
+    expect(view?.weekly?.text).toBe("Win chance by week: Week 9: 68% → 64% · Week 13: 42% → 55%");
+    expect(view?.text).toBe(
+      "Wiggleton Spoons and Tobias Thimble for Mortimer Gloop · Helps you 44 · Chance they accept 40% (Est. · Decent) · Overall 22 · Title odds 12.1% → 13.4% · Playoff odds 65% → 69% · Win chance by week: Week 9: 68% → 64% · Week 13: 42% → 55%",
+    );
+    // Without the card's before, the changes in percentage points, as the card's; title odds unknown say so.
+    expect(planBView(withOdds, snapshot)?.odds.map((o) => o.value)).toEqual(["+1.3 percentage points", "+4 percentage points"]);
+    expect(planBView({ ...withOdds, dCH: null }, snapshot, { baseline })?.odds.map((o) => o.value)).toEqual(["unknown", "65% → 69%"]);
+    // A points-only league's empty list, or no week moving enough: no weekly line.
+    expect(planBView({ ...withOdds, winChance: [] }, snapshot, { baseline })?.weekly).toBeNull();
+    expect(planBView({ ...withOdds, winChance: [{ week: 9, before: 0.68, after: 0.67 }] }, snapshot, { baseline })?.weekly).toBeNull();
+    // On the card, from the card's own before (the search's baseline): the same lines as the box alone.
+    const c = buildTradeCard(evaluation({ planB: withOdds }), { snapshot, baseline });
+    expect(c.planB?.odds).toEqual(view?.odds);
+    expect(c.planB?.weekly).toEqual(view?.weekly);
   });
 
   it("has its own message to send them: a follow-up naming the trade from their side, never what I gain (review of Phase 4b)", () => {
@@ -877,25 +1153,44 @@ describe("buildFinderView: a Plan B that is a card of its own says so (review of
 });
 
 describe("feedback versions (which version was sent; planner reply to Checkpoint 4, change 6)", () => {
-  it("a plain card: this trade alone, as the full version", () => {
-    expect(versionChoices(evaluation(), snapshot)).toEqual([{ version: "full", key: evaluation().key, pAccept: 0.4, pComplete: 0.4, label: "This trade" }]);
+  /** A version's model inputs as the card makes them (Phase 4c, planner reply to Checkpoint 4b, change 7). */
+  const inputsOf = (x: { features?: TradeEvaluation["features"] | undefined; gPartner?: number | undefined; b: number | null }, goal: "title" | "balanced" | "playoffs" | null = null) => ({
+    features: x.features ? { ...x.features } : null,
+    gPartner: x.gPartner ?? null,
+    b: x.b,
+    goal,
   });
 
-  it("with steps: the first offer, then the full version with the throw-in added", () => {
+  it("a plain card: this trade alone, as the full version, with its model inputs", () => {
+    const e = evaluation();
+    expect(versionChoices(e, snapshot)).toEqual([{ version: "full", key: e.key, pAccept: 0.4, pComplete: 0.4, inputs: inputsOf(e), label: "This trade" }]);
+    // With the goal the numbers were weighted by.
+    expect(versionChoices(e, snapshot, "title")[0]?.inputs).toEqual(inputsOf(e, "title"));
+  });
+
+  it("with steps: the first offer, then the full version with the throw-in added; the card's own inputs for the card's trade, the step's for the other", () => {
     const e = steppedFull();
-    expect(versionChoices(e, snapshot)).toEqual([
-      { version: "offerFirst", key: e.steps?.offerFirst.key, pAccept: 0.35, pComplete: 0.35, label: "The first offer" },
-      { version: "full", key: e.steps?.ifNo.full.key, pAccept: 0.55, pComplete: 0.55, label: "With Tobias Thimble added" },
+    const offer = e.steps?.offerFirst as TradeStep;
+    const withFeatures = { ...e, steps: e.steps && { ...e.steps, offerFirst: { ...offer, features: { ...e.features, g: 0.07, z: -0.4 } } } };
+    expect(versionChoices(withFeatures, snapshot, "balanced")).toEqual([
+      { version: "offerFirst", key: offer.key, pAccept: 0.35, pComplete: 0.35, inputs: { features: { ...e.features, g: 0.07, z: -0.4 }, gPartner: offer.gPartner, b: offer.b, goal: "balanced" }, label: "The first offer" },
+      // The full version is the card's trade (TradeSteps.ranked "full"): its final numbers.
+      { version: "full", key: e.steps?.ifNo.full.key, pAccept: 0.55, pComplete: 0.55, inputs: inputsOf(e, "balanced"), label: "With Tobias Thimble added" },
     ]);
+    // A step without features (older engines): none, the rest kept.
+    expect(versionChoices(e, snapshot)[0]?.inputs).toEqual({ features: null, gPartner: offer.gPartner, b: offer.b, goal: null });
   });
 
-  it("with a Plan B: this trade, then the one to try if they say no", () => {
-    const e = evaluation({ planB: { proposal: { partnerId: "2", give: [{ kind: "player", id: "106" }], get: [{ kind: "player", id: "203" }] }, key: "2|give:106|get:203", b: 2, tradeScore: 28, pAccept: 0.5, pComplete: 0.45, acceptLabel: "Decent", overall: 14, kind: "otherTarget" } });
-    expect(versionChoices(e, snapshot)).toEqual([
-      { version: "full", key: e.key, pAccept: 0.4, pComplete: 0.4, label: "This trade" },
-      { version: "planB", key: "2|give:106|get:203", pAccept: 0.5, pComplete: 0.45, label: "The “If they say no” trade" },
+  it("with a Plan B: this trade, then the one to try if they say no, each with its inputs", () => {
+    const planB = { proposal: { partnerId: "2", give: [{ kind: "player" as const, id: "106" }], get: [{ kind: "player" as const, id: "203" }] }, key: "2|give:106|get:203", b: 2, tradeScore: 28, pAccept: 0.5, pComplete: 0.45, acceptLabel: "Decent", overall: 14, kind: "otherTarget" as const };
+    const e = evaluation({ planB: { ...planB, features: { g: 0.1, n: 0.2, h: 0, c: 0, a: 1, hist: null, ctx: 0, hot: 0, urg: 0, z: 0.1 }, gPartner: 0.08 } });
+    expect(versionChoices(e, snapshot, "title")).toEqual([
+      { version: "full", key: e.key, pAccept: 0.4, pComplete: 0.4, inputs: inputsOf(e, "title"), label: "This trade" },
+      { version: "planB", key: "2|give:106|get:203", pAccept: 0.5, pComplete: 0.45, inputs: { features: { g: 0.1, n: 0.2, h: 0, c: 0, a: 1, hist: null, ctx: 0, hot: 0, urg: 0, z: 0.1 }, gPartner: 0.08, b: 2, goal: "title" }, label: "The “If they say no” trade" },
     ]);
     expect(buildTradeCard(e, { snapshot }).versions).toHaveLength(2);
+    // A Plan B without its features (an older engine): none.
+    expect(versionChoices(evaluation({ planB }), snapshot)[1]?.inputs).toEqual({ features: null, gPartner: null, b: 2, goal: null });
   });
 
   it("names the recorded version by its key: the card's label when it shows that version, else 'an earlier one' with its players (review of Phase 4b)", () => {
@@ -920,5 +1215,235 @@ describe("feedback versions (which version was sent; planner reply to Checkpoint
 
   it("says a team's possessive plainly", () => {
     expect([possessive("Team 2"), possessive("Gravel Gophers"), possessive("The Bus")]).toEqual(["Team 2's", "Gravel Gophers'", "The Bus'"]);
+  });
+});
+
+describe("Phase 4c: the card's words that the planner's reply to Checkpoint 4b changed", () => {
+  it("⚠️ the card's odds line and its reasons' odds sentence say the same change (final review of Phase 4c, findings R9 and PAGES-2)", () => {
+    // Parker's cards: 10.546% + 1.94 printed "10.5% → 12.5%" beside "title odds by 1.9"; 60% → 60% beside "playoff odds by 0.4".
+    const cases: [number, number, number, number][] = [
+      [0.602, 0.0508, 0.10546, 0.0194],
+      [0.598, 0.0044, 0.10546, 0.0275],
+      [0.5986, 0.0264, 0.1055, 0.0053],
+      [0.41, -0.0251, 0.0449, -0.0026],
+      [0.003, 0.0041, 0.0003, 0.0011],
+    ];
+    // "<0.1%" and "<1%" read as 0, ">99.9%" and ">99%" as 100 (the card's words at the extremes).
+    const number = (s: string) => (s.startsWith("<") ? 0 : s.startsWith(">") ? 100 : Number(s.replace(/%/g, "")));
+    for (const [po, dPO, ch, dCH] of cases) {
+      const baseline = { pPlayoffs: po, pTitle: ch };
+      const e = evaluation({ dPO, dCH });
+      const words = explainTrade(e, { teamName: (id) => teamNameOf(snapshot, id), player: (id) => snapshot.players[id] ?? null, slots: [], leagueType: "redraft", tradeDeadline: null, baseline });
+      const shown = buildTradeCard({ ...e, reasons: words.reasons, pitch: words.pitch }, { snapshot, baseline });
+      const printed = (label: string) => {
+        const [from = "", to = ""] = (shown.odds.find((o) => o.label === label)?.value ?? "").split(" → ");
+        return Math.round((number(to) - number(from)) * 10) / 10;
+      };
+      const said = (what: "playoff" | "title") => {
+        const line = shown.reasons.find((r) => r.includes(`${what} odds by`)) ?? "";
+        const m = new RegExp(`(Raises|Lowers|raises|lowers) your (?:playoff odds by [\\d.]+ and your )?${what} odds by ([\\d.]+)`).exec(line) ?? new RegExp(`(Raises|Lowers|raises|lowers) your ${what} odds by ([\\d.]+)`).exec(line);
+        if (!m) return 0;
+        const [, verb = "", n = "0"] = m;
+        return (verb.toLowerCase() === "raises" ? 1 : -1) * Number(n);
+      };
+      expect([said("playoff"), said("title")], `${po} ${dPO} ${ch} ${dCH}: ${shown.odds.map((o) => o.value).join(" · ")} | ${shown.reasons.join(" ")}`).toEqual([printed("Playoff odds"), printed("Title odds")]);
+    }
+  });
+
+  it("reads the same FantasyCalc values as the engine's words (evaluate.ts explainContextOf), so the card's value line and its reasons agree", { timeout: 120_000 }, () => {
+    const league = randomLeague({ teams: 8, seed: 20261004, freeAgentsPerPosition: 10 });
+    const snap = { ...league.snapshot, myTeamId: "1" };
+    const market = league.inputs.market;
+    if (!market) throw new Error("the random league has FantasyCalc values");
+    const fresh = Object.keys(market.values).length;
+    expect(fresh).toBeGreaterThan(20);
+    for (const m of [market, { ...market, fallback: { kind: "saved" as const, listDate: "2026-09-27T15:00:00.000Z" } }, { ...market, fallback: { kind: "curve" as const, listDate: "2026-09-01T00:00:00.000Z" } }, null]) {
+      const ctx = buildTradeContext(snap, { ...league.inputs, market: m }, { now: new Date("2026-09-30T12:00:00.000Z"), settings: defaultTradeSettings() });
+      const I = tradeInternals(ctx);
+      const engine = explainContextOf(I).fantasyCalcValue;
+      const page = fantasyCalcLookup(m);
+      const ids = Object.keys(I.league.lp.players);
+      expect(ids.length).toBeGreaterThan(50);
+      let quoted = 0;
+      for (const id of ids) {
+        const v = page.value(id);
+        expect(v, `${m?.fallback?.kind ?? (m ? "fresh" : "none")} ${id}`).toBe(engine?.(id) ?? null);
+        if (v !== null) quoted++;
+      }
+      // Fresh and saved lists quote FantasyCalc; the curve fallback and no market quote nothing.
+      expect(quoted > 0, m?.fallback?.kind ?? (m ? "fresh" : "none")).toBe(m !== null && m.fallback?.kind !== "curve");
+    }
+  });
+
+  it("says what Helps you sums up, once per page: the planner's words in redraft, long-term value in dynasty and keeper leagues, no trade-value cost without FantasyCalc (⚠️ ours)", () => {
+    expect(helpsInfoText("redraft")).toBe("Helps you (0–100) sums up how much your title and playoff odds rise, minus a cost for giving away trade value or plus a credit for gaining it.");
+    expect(helpsInfoText("dynasty")).toBe("Helps you (0–100) sums up how much your title and playoff odds rise, weighed against the change in your roster's long-term value.");
+    expect(helpsInfoText("keeper")).toBe(helpsInfoText("dynasty"));
+    expect(helpsInfoText("redraft", false)).toBe("Helps you (0–100) sums up how much your title and playoff odds rise.");
+    // The Finder says it once, above its cards; not on an empty list.
+    const result = searchResult([evaluation()]);
+    expect(buildFinderView({ result, sort: "overall", snapshot, partnerId: null, fantasyCalc: fantasyCalcLookup({ ...MARKET, fallback: { kind: "curve", listDate: "2026-09-01T00:00:00.000Z" } }) }).helpsInfo).toBe(
+      "Helps you (0–100) sums up how much your title and playoff odds rise.",
+    );
+    expect(buildFinderView({ result: searchResult([]), sort: "overall", snapshot, partnerId: null }).helpsInfo).toBeNull();
+  });
+
+  it("says Helps you sums up the odds alone in a dynasty or keeper league whose long-term values didn't load (review of track UIC, finding 2: B is B_win then)", () => {
+    const plain = "Helps you (0–100) sums up how much your title and playoff odds rise.";
+    expect(helpsInfoText("keeper", true, false)).toBe(plain);
+    expect(helpsInfoText("dynasty", false, false)).toBe(plain);
+    // The long-term flag means nothing in a redraft league, nor FantasyCalc's in dynasty and keeper ones (no market term).
+    expect(helpsInfoText("redraft", true, false)).toBe(helpsInfoText("redraft"));
+    expect(helpsInfoText("dynasty", false, true)).toBe(helpsInfoText("dynasty"));
+    // The engine's own word: TradeEvaluation.dynMissing on the trades shown (the Finder) or the trade built (the Analyzer).
+    const keeper = { ...snapshot, settings: { ...snapshot.settings, leagueType: "keeper" as const } };
+    const missing = evaluation({ dynMissing: true, lambda: 0.2 });
+    expect(buildFinderView({ result: searchResult([missing]), sort: "overall", snapshot: keeper, partnerId: null }).helpsInfo).toBe(plain);
+    expect(buildFinderView({ result: searchResult([evaluation({ lambda: 0.2 })]), sort: "overall", snapshot: keeper, partnerId: null }).helpsInfo).toBe(helpsInfoText("keeper"));
+    expect(buildAnalysisView({ evaluation: missing, illegal: null, notes: [] }, keeper).helpsInfo).toBe(plain);
+    expect(buildAnalysisView({ evaluation: evaluation({ lambda: 0.2 }), illegal: null, notes: [] }, keeper).helpsInfo).toBe(helpsInfoText("keeper"));
+  });
+
+  it("offers the minimum chance's options from config (Any, 10% … 50%) and names them", () => {
+    expect(MIN_CHANCE_OPTIONS).toEqual([
+      { value: 0, label: "Any" },
+      { value: 0.1, label: "10%" },
+      { value: 0.2, label: "20%" },
+      { value: 0.3, label: "30%" },
+      { value: 0.4, label: "40%" },
+      { value: 0.5, label: "50%" },
+    ]);
+    expect(MIN_CHANCE_OPTIONS.map((o) => o.value)).toEqual([...config.ranking.minChanceOptions]);
+    expect([minChanceLabel(0.3), minChanceLabel(0), minChanceLabel(0.25)]).toEqual(["30%", "Any", "25%"]);
+  });
+
+  it("says under the minimum that it reads the chance the trade goes through, naming the review the cards name (review of track UIC, finding 5)", () => {
+    expect(minChanceNote("league_vote")).toBe("Judged on the chance the trade goes through, which a league veto vote can cut.");
+    expect(minChanceNote("commissioner")).toBe("Judged on the chance the trade goes through, which the commissioner's review can cut.");
+    expect(minChanceNote("none")).toBeNull();
+    // The cards' veto line names the same review.
+    const vetoed = evaluation({ pAccept: 0.4, pComplete: 0.2, detail: { vetoRisk: true } });
+    expect(buildTradeCard(vetoed, { snapshot: tradeSnapshot({ tradeReview: "commissioner" }) }).numbers.acceptNote).toBe("Counting the commissioner's review, about 20% it goes through.");
+    expect(buildTradeCard(vetoed, { snapshot: tradeSnapshot({ tradeReview: "league_vote" }) }).numbers.acceptNote).toBe("Counting a league veto vote, about 20% it goes through.");
+  });
+
+  it("says when the minimum leaves few ideas, and suggests a lower setting (change 10: filter.few)", () => {
+    const filter = (minChance: number, few: boolean) => ({ minChance, qualifying: 9, few });
+    const four = [0, 1, 2, 3].map((i) => evaluation({ key: `k${i}`, give: [`10${i + 1}`] }));
+    expect(fewText({ trades: four, filter: filter(0.5, true) })).toBe("Only 4 trade ideas to show at “at least 50%”. Try a lower setting to see more.");
+    expect(fewText({ trades: four.slice(0, 1), filter: filter(0.3, true) })).toBe("Only 1 trade idea to show at “at least 30%”. Try a lower setting to see more.");
+    // Not when the search says no lower setting would add one, at Any, or before ranking (no filter).
+    expect(fewText({ trades: four, filter: filter(0.5, false) })).toBeNull();
+    expect(fewText({ trades: four, filter: filter(0, true) })).toBeNull();
+    expect(fewText({ trades: four })).toBeNull();
+    const view = buildFinderView({ result: searchResult(four, { filter: filter(0.5, true) }), sort: "overall", snapshot, partnerId: null });
+    expect(view.few).toBe("Only 4 trade ideas to show at “at least 50%”. Try a lower setting to see more.");
+  });
+
+  it("says when no idea reaches the minimum chance, instead of 'No trade ideas that help you'", () => {
+    const view = buildFinderView({
+      result: searchResult([], { filter: { minChance: 0.5, qualifying: 0, few: true }, hidden: { byBenefit: 4, byMarket: 0, byChance: 6 } }),
+      sort: "overall",
+      snapshot,
+      partnerId: null,
+    });
+    expect(view.empty).toEqual({
+      title: "No trade ideas at this minimum chance",
+      text: ["Every trade idea that would otherwise show is below “at least 50%”. Try a lower setting to see more.", "Left out on purpose: 4 trade ideas that wouldn't help you and 6 trade ideas below your minimum chance."],
+    });
+    expect(view.hidden).toBeNull();
+    expect(view.statusText).toBe("No trade ideas at this minimum chance.");
+    // At Any, with nothing under the minimum: as before.
+    expect(buildFinderView({ result: searchResult([], { filter: { minChance: 0, qualifying: 0, few: false }, hidden: { byBenefit: 4, byMarket: 0, byChance: 0 } }), sort: "overall", snapshot, partnerId: null }).empty?.title).toBe(
+      "No trade ideas that help you",
+    );
+  });
+
+  it("puts the pattern note above the list, as the engine wrote it (change 6), only with cards", () => {
+    const pattern = { playerId: "106", count: 7, of: 10, drivers: ["byeCover" as const], text: "Most of your best ideas trade Wiggleton Spoons: his bye is in week 13, your riskiest week." };
+    expect(buildFinderView({ result: searchResult([evaluation()], { pattern }), sort: "overall", snapshot, partnerId: null }).pattern).toBe(pattern.text);
+    expect(buildFinderView({ result: searchResult([evaluation()]), sort: "overall", snapshot, partnerId: null }).pattern).toBeNull();
+    expect(buildFinderView({ result: searchResult([], { pattern }), sort: "overall", snapshot, partnerId: null }).pattern).toBeNull();
+  });
+
+  it("lists a saved FantasyCalc list's date with the notes when the cards quote it", () => {
+    const saved = fantasyCalcLookup({ ...MARKET, fallback: { kind: "saved", listDate: "2026-09-27T15:00:00.000Z" } });
+    const view = buildFinderView({ result: searchResult([evaluation()], { notes: ["Kickers and D/STs are left out; turn them on in Settings."] }), sort: "overall", snapshot, partnerId: null, fantasyCalc: saved });
+    expect(view.notes).toEqual(["Kickers and D/STs are left out; turn them on in Settings.", "Trade values from Sep 27: FantasyCalc didn't answer."]);
+    const analysis = buildAnalysisView({ evaluation: evaluation(), illegal: null, notes: [] }, snapshot, undefined, { fantasyCalc: saved });
+    expect(analysis.notes).toEqual(["Trade values from Sep 27: FantasyCalc didn't answer."]);
+  });
+
+  it("names a goal that isn't the default in the settings line ('What matters most', change 8)", () => {
+    expect(settingsSummary({ ...defaultTradeSettings(), goal: "balanced" }, "espn")).toBe("Up to 2 players a side. What matters most: Balanced.");
+    expect(settingsSummary({ ...defaultTradeSettings(), goal: "playoffs", protectValue: "high" }, "espn")).toBe("Up to 2 players a side. What matters most: Make the playoffs. Protect my trade value: High.");
+    expect(settingsSummary({ ...defaultTradeSettings(), goal: config.benefit.goalDefault }, "espn")).toBe("Up to 2 players a side.");
+  });
+
+  it("shows a re-filter's progress as the ranking alone; a re-filter that had to search shows the search's stages", () => {
+    expect(progressView(null, "refilter")).toEqual({ label: "Ranking the trade ideas", detail: null, percent: 0, valueText: "Ranking the trade ideas" });
+    expect(progressView({ stage: "rank", done: 5, total: 10 }, "refilter").percent).toBe(50);
+    expect(progressView({ stage: "rank", done: 10, total: 10 }, "refilter").percent).toBe(99);
+    expect(progressView({ stage: "screening", done: 120, total: 480 }, "refilter")).toEqual(progressView({ stage: "screening", done: 120, total: 480 }));
+    // A search's "rank" stage is its last few percent.
+    expect(progressView({ stage: "rank", done: 5, total: 10 }).percent).toBe(98);
+  });
+
+  it("gives the Analyzer's card 'Details': the model's own trade-value figures (change 3: 'the Analyzer can show them under Details')", () => {
+    const e = evaluation({ gMine: -0.12, gPartner: 0.14, b: 2.6, bWin: 3.4, features: { g: 0.04, n: 0, h: 0, c: 0, a: 0, hist: null, ctx: 0, hot: 0, urg: 0, z: -0.3 } });
+    const view = buildAnalysisView({ evaluation: e, illegal: null, notes: [] }, snapshot, undefined, { fantasyCalc: FC });
+    expect(view.card?.details).toEqual({
+      summary: "Details",
+      intro:
+        "The model's own trade-value figures, behind the chance they accept, Helps you and the Market check. Unlike the card's trade values (FantasyCalc's own), they count roster spots: every player counts at least what the best free agent is worth, the extra player in an uneven trade adds nothing when he's worth no more than that, and the side getting fewer players is credited the roster spot it opens; your side counts the free-agent moves the card says the trade counts on too.",
+      items: [
+        "Your side, counting roster spots: you'd get 12% less trade value than you give.",
+        "Their side, counting roster spots: they'd get 14% more trade value than they give.",
+        "Their side as they see it (their best players count a little extra): they'd get 4% more trade value than they give.",
+        "Helps you from your odds alone: 43; counting trade value by your “Protect my trade value” setting: 35.",
+      ],
+    });
+    // At the model's clamp, "at least"; even, "about what"; a one-sided trade, "without giving any up".
+    const clamped = detailsView({ ...e, features: { ...e.features, g: -0.5 }, gMine: 0.001, gPartner: Number.POSITIVE_INFINITY }, "redraft");
+    expect(clamped.items.slice(0, 3)).toEqual([
+      "Your side, counting roster spots: you'd get about what you give.",
+      "Their side, counting roster spots: they'd get trade value without giving any up.",
+      "Their side as they see it (their best players count a little extra): they'd get at least 50% less trade value than they give.",
+    ]);
+    // B ≤ 0 scores 0; dynasty and keeper leagues have no trade-value part.
+    expect(detailsView({ ...e, b: -0.4, bWin: 0.2 }, "redraft").items[3]).toBe("Helps you from your odds alone: 3; counting trade value by your “Protect my trade value” setting: 0.");
+    expect(detailsView(e, "dynasty").items[3]).toBe("Helps you has no trade-value part here: in dynasty and keeper leagues it counts the change in your roster's long-term value instead.");
+    // Review of track UIC (finding 2): when their long-term values didn't load, B is the odds alone.
+    expect(detailsView({ ...e, dynMissing: true }, "keeper").items[3]).toBe("Helps you has no trade-value part here, and long-term trade values aren't available, so it counts this season only.");
+    // The intro names Helps you only when its trade-value part reads these figures (a redraft B with a market term).
+    for (const leagueType of ["dynasty", "keeper"] as const) {
+      expect(detailsView(e, leagueType).intro).toMatch(/^The model's own trade-value figures, behind the chance they accept and the Market check\. Unlike/);
+    }
+    // The Trade Finder's cards have none.
+    expect(buildTradeCard(e, { snapshot }).details).toBeNull();
+  });
+
+  it("says in 'Details' when FantasyCalc's values aren't available: our own estimates (the curve fallback), and Helps you then counts no trade value (κ = 0)", () => {
+    const e = evaluation({ gMine: -0.12, gPartner: 0.14, b: 3.4, bWin: 3.4, features: { g: 0.04, n: 0, h: 0, c: 0, a: 0, hist: null, ctx: 0, hot: 0, urg: 0, z: -0.3 } });
+    const curve = fantasyCalcLookup({ ...MARKET, fallback: { kind: "curve", listDate: "2026-07-01" } });
+    expect([curve.available, curve.estimated]).toEqual([false, true]);
+    const estimated = buildAnalysisView({ evaluation: e, illegal: null, notes: [] }, snapshot, undefined, { fantasyCalc: curve }).card?.details;
+    // B has no market term then, so the intro doesn't name Helps you (it would contradict the last line).
+    expect(estimated?.intro).toBe(
+      "The model's own trade-value figures, behind the chance they accept and the Market check. While FantasyCalc's values aren't available, they use our own estimates, and they count roster spots: every player counts at least what the best free agent is worth, the extra player in an uneven trade adds nothing when he's worth no more than that, and the side getting fewer players is credited the roster spot it opens; your side counts the free-agent moves the card says the trade counts on too.",
+    );
+    expect(estimated?.items[3]).toBe("Helps you counts no trade value while FantasyCalc's values aren't available: 43, from your odds alone.");
+    // No values at all; a market term that isn't 0 keeps the usual line (never claimed away), and the intro names Helps you.
+    const none = buildAnalysisView({ evaluation: { ...e, b: 2.6 }, illegal: null, notes: [] }, snapshot, undefined, { fantasyCalc: fantasyCalcLookup(null) }).card?.details;
+    expect(none?.intro).toMatch(/^The model's own trade-value figures, behind the chance they accept, Helps you and the Market check\. FantasyCalc's values aren't available right now; they count roster spots: /);
+    expect(none?.items[3]).toBe("Helps you from your odds alone: 43; counting trade value by your “Protect my trade value” setting: 35.");
+    // With FantasyCalc's values, the usual line even when the term is 0 (an even trade by the model's count).
+    expect(detailsView(e, "redraft", { available: true }).items[3]).toBe("Helps you from your odds alone: 43; counting trade value by your “Protect my trade value” setting: 43.");
+  });
+
+  it("uses no jargon in the new lines (odds, weekly line, details, value line)", () => {
+    const c4 = buildTradeCard(evaluation({ gMine: -0.2, detail: { winChance: [{ week: 9, before: 0.68, after: 0.64 }] } }), { snapshot, baseline: { pPlayoffs: 0.6, pTitle: 0.1 }, fantasyCalc: FC, details: true });
+    const words = [...c4.odds.map((o) => `${o.label} ${o.value} ${o.srValue}`), c4.weekly?.text ?? "", ...(c4.details?.items ?? []), c4.details?.intro ?? "", ...c4.facts.map((f) => f.value), ...c4.flags.map((f) => f.text)].join(" ");
+    for (const jargon of [" EV ", "σ", "V*", "g_mkt", "B_win", "κ", "kappa", "NaN", "undefined", "Infinity"]) expect(words).not.toContain(jargon);
   });
 });

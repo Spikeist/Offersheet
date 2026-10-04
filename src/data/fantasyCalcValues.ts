@@ -8,8 +8,26 @@
  *
  * - One cache key per format: the parameters always go in the same order (fantasyCalcValuesUrl).
  * - getPublicSource: only a body that passes the check (shape and row floor) is cached, a saved copy
- *   stands in for up to 7 days when FantasyCalc fails (the load says `stale`), and a fresh saved copy
- *   that fails the check is fetched again once. A failure throws LeagueImportError.
+ *   stands in when FantasyCalc fails (the load says `stale`, and `fetchedAt` is when FantasyCalc served that
+ *   copy), and a fresh saved copy that fails the check is fetched again once. A failure throws LeagueImportError.
+ * - Phase 4c (planner reply to Checkpoint 4b, change 12): FantasyCalc stays the only market source, with fallbacks.
+ *   Its lists are kept FANTASYCALC_RETAIN_MS (src/server/cache.ts: config.market.fantasyCalcCurveDays, 90 days) instead
+ *   of the other public sources' 7 (keptLonger raises the retention getPublicSource asks for), still through the Cache
+ *   interface (production has no disk: a KV store will keep them the same way; the dev-only archive in data-local/ is
+ *   never read back), still served fresh only within the 24-hour TTL (at most one request a day per format), and older
+ *   copies only when FantasyCalc fails. ⚠️ Ours: one entry per format with a long retention, rather than a second copy
+ *   under another key: a saved copy can't drift from the list the app last read, and nothing is written twice.
+ *   fantasyCalcListUse then says what a copy may do at the build time: "fresh" (FantasyCalc answered), "saved" (at most
+ *   fantasyCalcStaleDays old: stands in as FantasyCalc's own, with a "values from <date>" note), "curve" (older, at
+ *   most fantasyCalcCurveDays: only calibrates the model's own value curve, src/engine/market.ts) or "expired".
+ *   src/server/modelInputs.ts acts on it.
+ * - The outage memory (Phase 4c's polish; CLAUDE.md §0.9; fantasyCalcGate, the Sleeper gate's rule and numbers,
+ *   src/data/sleeperProjections.ts): until then nothing remembered a failure, so during a FantasyCalc outage every model
+ *   build past the 24-hour TTL asked again, with its retry. Now, once a value-list request finds FantasyCalc not answering
+ *   (no response, 429, 5xx or an HTML page, a saved copy standing in or not), FantasyCalc isn't asked for 5 minutes, then
+ *   10, at most 15 while it lasts, in-process, by that build's later lists and every build on the same client: they read
+ *   only what the server cache holds (HttpRequestOptions.cacheOnly: a copy within the TTL as FantasyCalc's answer, an older
+ *   retained one standing in as it would after a failed request), and one answer ends the outage.
  * - Row floors (review HTTP-1): 196–198 players in every redraft format and 395–396 in dynasty
  *   (Phase 0); fewer than 150 / 300 is a broken or partial answer.
  * - Draft picks (position PICK, dynasty only: "2027 1st (Early)" …) are kept apart from player values
@@ -38,9 +56,10 @@
  */
 import { z } from "zod";
 import { LeagueImportError, type HttpClient, type HttpResponse } from "@/adapters/types";
+import { config } from "@/engine/config";
 import type { FantasyCalcFormat, MarketInputs } from "@/engine/inputs";
 import type { PlayerInfo, Pos } from "@/engine/model";
-import { TTL } from "@/server/cache";
+import { DAY, FANTASYCALC_RETAIN_MS, MINUTE, TTL } from "@/server/cache";
 import { playerNameKey } from "./crosswalk";
 import type { FantasyCalcPlayerIds } from "./fantasyCalcPlayers";
 import { normalizeId } from "./ids";
@@ -200,26 +219,186 @@ export interface FantasyCalcValuesLoad extends FantasyCalcValues {
 }
 
 /**
- * Fetch and check one format's values (24 h cache, a saved copy for up to 7 days). Throws LeagueImportError.
- * `maxRetries` overrides the one retry, e.g. 0 for a second list right after FantasyCalc didn't answer the
- * first (a saved copy still stands in).
+ * The client with FantasyCalc's longer retention (the file header) on every cached request it makes: getPublicSource asks
+ * for STALE_PUBLIC_RETAIN_MS. Every FantasyCalc values request goes through here, so every request of a key carries the same
+ * retention (src/server/http.ts: the fetch that starts a single-flight governs the cache write).
  */
-export async function loadFantasyCalcValues(http: HttpClient, format: FantasyCalcFormat, opts: { maxRetries?: number } = {}): Promise<FantasyCalcValuesLoad> {
+function keptLonger(http: HttpClient): HttpClient {
+  return { get: (url, opts) => http.get(url, opts?.cache ? { ...opts, cache: { ...opts.cache, retainMs: Math.max(opts.cache.retainMs ?? 0, FANTASYCALC_RETAIN_MS) } } : opts) };
+}
+
+// ---------------------------------------------------------------------------------------------
+// The outage memory (Phase 4c's polish; CLAUDE.md §0.9, be polite to data sources: the Sleeper gate's rule,
+// src/data/sleeperProjections.ts, for FantasyCalc's value lists)
+
+/**
+ * How long a FantasyCalc outage is remembered (FantasyCalc isn't asked meanwhile), doubling while it lasts, up to
+ * FANTASYCALC_OUTAGE_MAX_HOLD_MS: the Sleeper gate's numbers (SLEEPER_OUTAGE_HOLD_MS), so a long outage costs a probe (2
+ * attempts: the one retry) every 15 minutes, and a recovered FantasyCalc is noticed within 15 minutes.
+ */
+export const FANTASYCALC_OUTAGE_HOLD_MS = 5 * MINUTE;
+export const FANTASYCALC_OUTAGE_MAX_HOLD_MS = 15 * MINUTE;
+
+/** The hold after `outages` outages in a row (no outage: 0). */
+export function fantasyCalcOutageHoldMs(outages: number): number {
+  if (outages <= 0) return 0;
+  return Math.min(FANTASYCALC_OUTAGE_MAX_HOLD_MS, FANTASYCALC_OUTAGE_HOLD_MS * 2 ** (outages - 1));
+}
+
+/** What the process remembers about FantasyCalc, per HttpClient (one client per server process, src/app/api/_lib/deps.ts). */
+interface FantasyCalcHealth {
+  /** FantasyCalc isn't asked before this (epoch ms). */
+  downUntil: number;
+  /** Why: the failure that started the hold ("HTTP 503", "no response", …). */
+  reason: string;
+  /** Outages in a row: each doubles the next hold; back to 0 once FantasyCalc answers. */
+  outages: number;
+}
+
+const healthByClient = new WeakMap<HttpClient, FantasyCalcHealth>();
+
+/** What one value-list request told about FantasyCalc (loadFantasyCalcValues; FantasyCalcGate.saw). */
+export type FantasyCalcOutcome = { answered: true } | { answered: false; reason: string };
+
+/**
+ * One model build's way to FantasyCalc's value lists (the outage memory): while an outage is remembered nothing is asked
+ * of FantasyCalc (loadFantasyCalcValues reads only what the server cache holds), and each request's outcome starts,
+ * lengthens or ends it.
+ */
+export interface FantasyCalcGate {
+  /** Why FantasyCalc isn't asked (an outage this process remembers, at the build's time); undefined while it is. */
+  down(): string | undefined;
+  /** Notes what a request found: an answer ends any outage; none starts one, or (after the last hold ran out) a longer one. */
+  saw(outcome: FantasyCalcOutcome): void;
+}
+
+/**
+ * A gate for one model build at `now` (the build's time: holds are measured from it), mirroring the Sleeper gate
+ * (sleeperProjections.ts sleeperGate): "FantasyCalc didn't answer" is no response (a network error or a timeout), 429,
+ * 5xx or an HTML page after the request's retry, whether a saved copy then stood in (HttpResponse.liveFailure) or not; a
+ * 404 or a 200 body that fails the checks is an answer about that format, so it starts nothing (FantasyCalc is up, and
+ * another league's format must still be asked). The outage is remembered per HttpClient for FANTASYCALC_OUTAGE_HOLD_MS,
+ * doubling while it lasts (at most FANTASYCALC_OUTAGE_MAX_HOLD_MS), so the builds in between, and this build's later
+ * lists, ask nothing: they read the copy the server cache holds (HttpRequestOptions.cacheOnly: a copy within the 24-hour
+ * TTL as FantasyCalc's answer, an older retained one standing in as it would after a failed request), and a format with
+ * no copy gets none. A later build asks again, and one answer ends the outage. Builds on the same client share what it
+ * remembers, so a build running alongside the one that finds FantasyCalc down holds off from its next request on.
+ */
+export function fantasyCalcGate(http: HttpClient, now: Date): FantasyCalcGate {
+  const at = now.getTime();
+  let health = healthByClient.get(http);
+  if (!health) {
+    health = { downUntil: Number.NEGATIVE_INFINITY, reason: "", outages: 0 };
+    healthByClient.set(http, health);
+  }
+  const h = health;
+  return {
+    down: () => (h.downUntil > at ? h.reason : undefined),
+    saw(outcome) {
+      if (outcome.answered) {
+        h.outages = 0;
+        h.downUntil = Number.NEGATIVE_INFINITY;
+        h.reason = "";
+        return;
+      }
+      // A build running alongside may have started the hold already: one outage, one doubling.
+      if (h.downUntil > at) return;
+      h.outages += 1;
+      h.downUntil = at + fantasyCalcOutageHoldMs(h.outages);
+      h.reason = outcome.reason;
+    },
+  };
+}
+
+/** A live answer that isn't FantasyCalc serving data: no response, 429, 5xx or an HTML page (the Sleeper gate's test). */
+function notAnswering(x: { status: number; isHtml: boolean }): boolean {
+  return x.status === 0 || x.status === 429 || x.status >= 500 || x.isHtml;
+}
+
+/** A failed answer in words, as the Sleeper gate says it: "no response", "HTTP 503", "a web page instead of data". */
+function failureWords(x: { status: number; isHtml: boolean } | undefined): string {
+  if (!x) return "no usable answer";
+  if (x.status === 0) return "no response";
+  if (x.isHtml) return "a web page instead of data";
+  return `HTTP ${x.status}`;
+}
+
+/**
+ * What a request's response says about FantasyCalc (the gate's rule): null when no request went out (a copy within the
+ * TTL); else whether FantasyCalc answered: the live answer's own status, or, for a saved copy standing in, the failed
+ * answer it stood in for (HttpResponse.liveFailure; a client that doesn't report it counts as no answer).
+ */
+export function fantasyCalcOutcome(res: Pick<HttpResponse, "status" | "isHtml" | "fromCache" | "stale" | "liveFailure">): FantasyCalcOutcome | null {
+  if (res.stale) return res.liveFailure && !notAnswering(res.liveFailure) ? { answered: true } : { answered: false, reason: failureWords(res.liveFailure) };
+  if (res.fromCache) return null;
+  return notAnswering(res) ? { answered: false, reason: failureWords(res) } : { answered: true };
+}
+
+/**
+ * Fetch and check one format's values (24 h cache; a saved copy, kept up to FANTASYCALC_RETAIN_MS, stands in when
+ * FantasyCalc fails: fantasyCalcListUse says for what). Throws LeagueImportError.
+ * `maxRetries` overrides the one retry, e.g. 0 for a second list right after a saved copy stood in for a first list
+ * FantasyCalc answered with a body the checks turned down (src/server/modelInputs.ts; after a first it didn't answer at
+ * all, the gate holds FantasyCalc off instead, review POL-2). `gate` (the build's FantasyCalcGate: src/server/modelInputs.ts passes one): while
+ * it holds FantasyCalc off, nothing is asked and only the cache's copy is read (a copy within the TTL as FantasyCalc's
+ * answer, an older one as a saved copy standing in; none: SOURCE_DOWN, status 0, "not asked while FantasyCalc isn't
+ * answering"); otherwise the request's outcome goes to it (fantasyCalcOutcome).
+ */
+export async function loadFantasyCalcValues(http: HttpClient, format: FantasyCalcFormat, opts: { maxRetries?: number; gate?: FantasyCalcGate } = {}): Promise<FantasyCalcValuesLoad> {
   const url = fantasyCalcValuesUrl(format);
+  const held = opts.gate?.down();
   let got: PublicSourceResult<FantasyCalcValues>;
   try {
-    const request = { key: `fantasycalc:${url}`, ttlMs: TTL.fantasyCalc, timeoutMs: FANTASYCALC_VALUES_TIMEOUT_MS, maxRetries: opts.maxRetries ?? FANTASYCALC_VALUES_MAX_RETRIES };
-    got = await getPublicSource(http, url, request, valuesCheck(format));
+    const request = {
+      key: `fantasycalc:${url}`,
+      ttlMs: TTL.fantasyCalc,
+      timeoutMs: FANTASYCALC_VALUES_TIMEOUT_MS,
+      maxRetries: held === undefined ? (opts.maxRetries ?? FANTASYCALC_VALUES_MAX_RETRIES) : 0,
+      ...(held === undefined ? {} : { cacheOnly: true, refetchBadCopy: false }),
+    };
+    got = await getPublicSource(keptLonger(http), url, request, valuesCheck(format));
   } catch (err) {
+    if (held === undefined) opts.gate?.saw({ answered: false, reason: "no response" });
     // The real client never throws; any other client's error text could hold a URL, so it isn't echoed.
     if (err instanceof LeagueImportError) throw err;
     throw new LeagueImportError("SOURCE_DOWN", `${whatOf(format)}: couldn't be reached`);
+  }
+  if (held !== undefined) {
+    // Nothing was asked: no copy in the cache (or none it could use) is FantasyCalc's outage, not this request's.
+    if ("error" in got) throw new LeagueImportError("SOURCE_DOWN", `${whatOf(format)}: not asked while FantasyCalc isn't answering (${held})`, { status: 0 });
+  } else {
+    const outcome = fantasyCalcOutcome(got.res);
+    if (outcome) opts.gate?.saw(outcome);
   }
   if ("error" in got) throw got.error;
   const { res, value } = got;
   let topValue = 0;
   for (const p of value.players) topValue = Math.max(topValue, p.value);
   return { format, ...value, topValue, fromCache: res.fromCache, stale: res.stale === true, ...(res.fetchedAt !== undefined ? { fetchedAt: res.fetchedAt } : {}) };
+}
+
+/** What a loaded list may do (fantasyCalcListUse; the file header). */
+export type FantasyCalcListUse = "fresh" | "saved" | "curve" | "expired";
+
+/** The config.market keys fantasyCalcListUse reads. */
+export interface FantasyCalcAgeConfig {
+  readonly fantasyCalcStaleDays: number;
+  readonly fantasyCalcCurveDays: number;
+}
+
+/**
+ * What a loaded list may do at `now`, the build time (pure; the file header): "fresh" when FantasyCalc answered (not
+ * stale: a live answer, or a cached one within the 24-hour TTL); a saved copy that stood in (stale) by its age since
+ * FantasyCalc served it: at most fantasyCalcStaleDays → "saved", at most fantasyCalcCurveDays → "curve", older →
+ * "expired". ⚠️ A saved copy of unknown age (no fetchedAt; the real client always reports one) reads "saved", as every
+ * saved copy did before Phase 4c.
+ */
+export function fantasyCalcListUse(load: Pick<FantasyCalcValuesLoad, "stale" | "fetchedAt">, now: Date, cfg: FantasyCalcAgeConfig = config.market): FantasyCalcListUse {
+  if (!load.stale) return "fresh";
+  if (load.fetchedAt === undefined || !Number.isFinite(load.fetchedAt)) return "saved";
+  const age = now.getTime() - load.fetchedAt;
+  if (age <= cfg.fantasyCalcStaleDays * DAY) return "saved";
+  return age <= cfg.fantasyCalcCurveDays * DAY ? "curve" : "expired";
 }
 
 // ---------------------------------------------------------------------------------------------

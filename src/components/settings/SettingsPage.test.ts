@@ -1,45 +1,50 @@
 /**
  * The Settings page (CLAUDE.md §14 item 6; lead decision L12), rendered statically (first render only) with the
- * tab's sessionStorage (the import, "my team") and the browser's localStorage (settings, feedback) faked through
- * their hooks: without a league it says settings need one (and the feedback card is still there), an import from
- * an earlier version asks for the league again, and with a league every setting is a labeled native control in a
- * fieldset, checked as saved. A small made-up league; every name is invented.
+ * league store's state mocked (Phase 4c: src/lib/leagueStore.ts, leagueStoreStateOf: the league this tab shows, its
+ * "my team" pick, its settings and every league's feedback): without a league it says settings need one (and the
+ * feedback card is still there), a league saved by an earlier version asks for the league again, and with a league
+ * every setting is a labeled native control in a fieldset, checked as saved. A small made-up league; every name is
+ * invented.
  */
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { defaultTradeSettings, type TradeSettings } from "@/engine/settings";
-import { FEEDBACK_STORAGE_KEY, applyFeedback, type FeedbackRecord } from "@/lib/feedbackStore";
-import { IMPORT_FORMAT_VERSION, IMPORT_STORAGE_KEY, OUTDATED_IMPORT_TITLE, myTeamKey, type StoredImport } from "@/lib/importStore";
-import { SETTINGS_STORAGE_KEY, leagueKey } from "@/lib/settingsStore";
-import { FeedbackCardView, deleteStep, feedbackCountText, type DeleteFocus, type DeleteStep, type FeedbackNote } from "./FeedbackCard";
+import { applyFeedback, type FeedbackRecord } from "@/lib/feedbackStore";
+import { IMPORT_FORMAT_VERSION, OUTDATED_IMPORT_TITLE, type StoredImport } from "@/lib/importStore";
+import { leagueStoreStateOf, savedLeagueId, type LeagueStoreState } from "@/lib/leagueStore";
+import { modelKey, type StoredModel } from "@/lib/modelStore";
+import { leagueKey } from "@/lib/settingsStore";
+import { FEEDBACK_SCOPE_TEXT, FeedbackCardView, deleteQuestionText, deleteStep, feedbackCountText, type DeleteFocus, type DeleteStep, type FeedbackNote } from "./FeedbackCard";
 import { SaveStatus, SettingsForm, focusAfterRemoval } from "./SettingsForm";
 import { NO_LEAGUE_TITLE, OUTDATED_TEXT, SettingsPage } from "./SettingsPage";
 import { buildSettingsView } from "./settingsView";
 import { snapshot } from "./testFixtures";
 
-/** This tab's sessionStorage and the browser's localStorage as the hooks read them (undefined = not read yet). */
-const stores = vi.hoisted(() => ({ session: new Map<string, string>(), local: new Map<string, string>(), localReady: true }));
-vi.mock("@/lib/useSessionValue", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/lib/useSessionValue")>()),
-  useSessionValue: (key: string) => stores.session.get(key) ?? null,
-}));
-vi.mock("./useLocalValue", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("./useLocalValue")>()),
-  useLocalValue: (key: string) => (stores.localReady ? (stores.local.get(key) ?? null) : undefined),
-}));
+/** The league store's state the page sees: null = the real hook's (the server's: loading). */
+const env = vi.hoisted(() => ({ state: null as LeagueStoreState | null }));
+vi.mock("@/lib/leagueStore", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/leagueStore")>();
+  return { ...actual, useLeagueStoreState: () => env.state ?? actual.useLeagueStoreState() };
+});
 
 const snap = snapshot();
 const stored: StoredImport = { version: IMPORT_FORMAT_VERSION, savedAt: "2026-09-30T20:00:00.000Z", request: { platform: "espn", season: 2026, leagueId: snap.leagueId }, response: { snapshot: snap, notes: [] } };
 
-function render(opts: { importValue?: unknown; myTeam?: string; settings?: TradeSettings; feedback?: FeedbackRecord[]; localReady?: boolean } = {}): string {
-  stores.session.clear();
-  stores.local.clear();
-  stores.localReady = opts.localReady ?? true;
-  if (opts.importValue !== undefined) stores.session.set(IMPORT_STORAGE_KEY, JSON.stringify(opts.importValue));
-  if (opts.myTeam) stores.session.set(myTeamKey(snap), JSON.stringify({ teamId: opts.myTeam, source: "you" }));
-  if (opts.settings) stores.local.set(SETTINGS_STORAGE_KEY, JSON.stringify({ [leagueKey(snap)]: opts.settings }));
-  if (opts.feedback) stores.local.set(FEEDBACK_STORAGE_KEY, JSON.stringify(opts.feedback));
+/**
+ * The page with: `league` (a saved league in this version's format, one saved by an earlier version, or none), "my
+ * team", its settings and feedback; `loading`: the store not read yet (the server's render and hydration).
+ */
+function render(opts: { league?: "current" | "outdated"; importValue?: StoredImport; myTeam?: string; settings?: TradeSettings; feedback?: FeedbackRecord[]; loading?: boolean } = {}): string {
+  const imported = opts.importValue ?? stored;
+  const id = savedLeagueId(imported.response.snapshot);
+  const base = leagueStoreStateOf({
+    imports: opts.league ? [imported] : [],
+    ...(opts.myTeam ? { picks: { [id]: { teamId: opts.myTeam, source: "you" as const } } } : {}),
+    ...(opts.settings ? { settings: { [leagueKey(snap)]: opts.settings } } : {}),
+    ...(opts.feedback ? { feedback: opts.feedback } : {}),
+  });
+  env.state = opts.loading ? null : opts.league === "outdated" ? { ...base, imports: new Map([[id, { kind: "outdated", request: imported.request }]]) } : base;
   return renderToStaticMarkup(createElement(SettingsPage));
 }
 
@@ -67,9 +72,7 @@ function checkboxes(html: string): [string, boolean][] {
 }
 
 afterEach(() => {
-  stores.session.clear();
-  stores.local.clear();
-  stores.localReady = true;
+  env.state = null;
 });
 
 describe("without a league it can read", () => {
@@ -85,11 +88,19 @@ describe("without a league it can read", () => {
     expect(text).not.toContain("Delete saved feedback");
   });
 
-  it("asks for the league again when the import is from an earlier version of Offer Sheet", () => {
-    const text = textOf(render({ importValue: { ...stored, version: 1 } }));
+  it("asks for the league again when it was saved by an earlier version of Offer Sheet, with Import again as on the other pages", () => {
+    const html = render({ league: "outdated" });
+    const text = textOf(html);
     expect(text).toContain(OUTDATED_IMPORT_TITLE);
     expect(text).toContain(OUTDATED_TEXT);
     expect(text).not.toContain(NO_LEAGUE_TITLE);
+    // Phase 4c's import format makes a Phase 4b import one of these (review of track ML): one click brings it back.
+    expect(html).toMatch(/<button type="button" class="[^"]*">Import again<\/button>/);
+    expect(html).toMatch(/<a class="[^"]*" href="\/connect">Connect your league<\/a>/);
+    // Without a league id to send: the Connect page.
+    const noId = textOf(render({ league: "outdated", importValue: { ...stored, request: { platform: "sleeper", season: 2026, username: "zorblax_q" } } }));
+    expect(noId).not.toContain("Import again");
+    expect(noId).toContain("Connect your league");
   });
 
   it("has one page heading: the cards' headings are h2", () => {
@@ -98,23 +109,26 @@ describe("without a league it can read", () => {
 });
 
 describe("with a league", () => {
-  it("waits for the browser's storage before showing settings (server render and hydration)", () => {
-    const text = textOf(render({ importValue: stored, myTeam: "1", localReady: false }));
-    expect(text).toContain("Loading your settings…");
+  it("waits for the league store before showing settings (server render and hydration)", () => {
+    const text = textOf(render({ league: "current", myTeam: "1", loading: true }));
+    expect(text).toContain("Loading your league…");
     expect(text).not.toContain("Positions I stream weekly");
+    expect(text).toContain("Checking this browser…");
   });
 
   it("shows every setting as a labeled group, with the defaults checked when nothing is saved", () => {
-    const html = render({ importValue: stored, myTeam: "1" });
+    const html = render({ league: "current", myTeam: "1" });
     expect(radioChecked(html, "playoff-weight")).toEqual(["1.25"]);
     expect(radioChecked(html, "max-per-side")).toEqual(["2"]);
     expect(radioChecked(html, "protect-value")).toEqual(["medium"]);
+    expect(radioChecked(html, "goal")).toEqual(["title"]);
     const legends = [...html.matchAll(/<legend[^>]*>(.*?)<\/legend>/g)].map((m) => textOf(m[1] ?? ""));
     expect(legends).toEqual([
       "Positions I stream weekly",
       "Playoff weeks count",
-      "Most players per side",
+      "What matters most",
       "Protect my trade value",
+      "Most players per side",
       "Also include",
       "Untouchables",
       "Must include",
@@ -138,7 +152,7 @@ describe("with a league", () => {
 
   it("checks what's saved, and offers Reset to defaults", () => {
     const settings: TradeSettings = { ...defaultTradeSettings(), streamPositions: ["DEF", "TE"], playoffWeight: 1.5, maxPerSide: 3, untouchables: ["103"], mustInclude: ["202"], avoidPositions: ["TE"], protectValue: "high" };
-    const html = render({ importValue: stored, myTeam: "1", settings });
+    const html = render({ league: "current", myTeam: "1", settings });
     const boxes = checkboxes(html);
     expect(boxes.slice(0, 4).map(([, c]) => c)).toEqual([false, true, false, true]);
     expect(boxes).toContainEqual(["Cal Catcher WR · SEA", true]);
@@ -147,13 +161,22 @@ describe("with a league", () => {
     expect(radioChecked(html, "max-per-side")).toEqual(["3"]);
     expect(radioChecked(html, "protect-value")).toEqual(["high"]);
     expect(textOf(html)).toContain("Rex Rusher · RB · DET Team Two");
+    expect(radioChecked(render({ league: "current", myTeam: "1", settings: { ...settings, goal: "playoffs" } }), "goal")).toEqual(["playoffs"]);
     expect(html).toMatch(/<button type="button" class="[^"]*">Remove<span class="sr-only"> Rex Rusher<\/span><\/button>/);
     expect(textOf(html)).toContain("These are your settings for this league");
+    expect(html).toMatch(/<button type="button" class="[^"]*">Reset to defaults<\/button>/);
+    // The Trade Finder's minimum is at its default here: not mentioned.
+    expect(textOf(html)).not.toContain("Chance they accept: at least");
+  });
+
+  it("names the Trade Finder's minimum chance in the league's card when it's what makes the settings saved, and what Reset does to it (final review of Phase 4c, finding PAGES-5)", () => {
+    const html = render({ league: "current", myTeam: "1", settings: { ...defaultTradeSettings(), minChance: 0.3 } });
+    expect(textOf(html)).toContain("These are your settings for this league, saved in this browser. The League page and trade ideas use them. The Trade Finder's “Chance they accept: at least” is 30%, set on the Trade Finder. Reset to defaults sets it back to 10% too.");
     expect(html).toMatch(/<button type="button" class="[^"]*">Reset to defaults<\/button>/);
   });
 
   it("links each group's help text to its fieldset, and gives every control a 44 px target", () => {
-    const html = render({ importValue: stored, myTeam: "1" });
+    const html = render({ league: "current", myTeam: "1" });
     for (const [, id] of html.matchAll(/<fieldset aria-describedby="([^"]+)"/g)) expect(html).toContain(`<p id="${id}" class=`);
     expect(html.match(/<fieldset aria-describedby=/g)?.length).toBeGreaterThanOrEqual(6);
     for (const [label] of html.matchAll(/<label class="[^"]*"><input type="(?:checkbox|radio)"/g)) expect(label).toContain("min-h-11");
@@ -163,7 +186,7 @@ describe("with a league", () => {
   });
 
   it("points to the Import Report when it doesn't know which team is mine", () => {
-    const html = render({ importValue: stored });
+    const html = render({ league: "current" });
     expect(textOf(html)).toContain("Pick your team on the Import Report first");
     expect(html).toContain('href="/import#your-team"');
     expect(html).not.toMatch(/<legend[^>]*>Untouchables<\/legend>/);
@@ -172,7 +195,7 @@ describe("with a league", () => {
 
   it("shows Win now ↔ Future and draft picks in a dynasty league", () => {
     const dynasty = { ...stored, response: { ...stored.response, snapshot: snapshot({ leagueType: "dynasty" }) } };
-    const html = render({ importValue: dynasty, myTeam: "1", settings: { ...defaultTradeSettings(), lambda: 0.25 } });
+    const html = render({ league: "current", importValue: dynasty, myTeam: "1", settings: { ...defaultTradeSettings(), lambda: 0.25 } });
     const text = textOf(html);
     expect(text).toContain("Win now or build for the future");
     expect(text).toContain("Mostly this season: later seasons count 25%");
@@ -185,9 +208,72 @@ describe("with a league", () => {
     expect(html).toContain('<p class="mt-1 text-sm font-semibold" aria-hidden="true">Mostly this season: later seasons count 25%</p>');
   });
 
+  it("offers 'What matters most' as three labeled radios, each with its line of help linked as a description, in every league type (planner reply to Checkpoint 4b, change 8)", () => {
+    const html = render({ league: "current", myTeam: "1" });
+    // One label at a time (never across into the next one).
+    const rows = [...html.matchAll(/<label class="([^"]*)"><input type="radio"([^>]*)\/>((?:(?!<label).)*?)<\/label><p id="([^"]+)"[^>]*>(.*?)<\/p>/g)]
+      .filter(([, , attrs = ""]) => attrs.includes('name="goal"'))
+      .map(([, cls = "", attrs = "", name = "", id = "", help = ""]) => ({ cls, described: attrs.includes(`aria-describedby="${id}"`), name: textOf(name), help: textOf(help) }));
+    expect(rows.map((r) => [r.name, r.help])).toEqual([
+      ["Win the title default", "Weighs your title odds most (85%), playoff odds 15%."],
+      ["Balanced", "Weighs your title odds 65% and your playoff odds 35%."],
+      ["Make the playoffs", "Weighs your playoff odds most (70%), title odds 30%."],
+    ]);
+    for (const r of rows) {
+      expect(r.described).toBe(true);
+      expect(r.cls).toContain("min-h-11");
+    }
+    // A real space between the label and "default" (final review of Phase 4c, finding PAGES-4: the accessible name read
+    // "Win the titledefault", the two spans side by side with only a margin between them).
+    expect(html).toMatch(/>Win the title<\/span> <span class="[^"]*">default<\/span>/);
+    expect(html).not.toContain("Win the title</span><span");
+    expect(textOf(html)).toContain("Scoring How trade ideas are scored");
+    const dynasty = { ...stored, response: { ...stored.response, snapshot: snapshot({ leagueType: "dynasty" }) } };
+    const dyn = render({ league: "current", importValue: dynasty, myTeam: "1" });
+    expect(radioChecked(dyn, "goal")).toEqual(["title"]);
+    expect(textOf(dyn)).toContain("For this season, Helps you scores a trade by how much it raises your title and playoff odds");
+  });
+
+  it("says Protect my trade value changes nothing while the league's latest inputs value players by our own estimates, and only then (planner reply to Checkpoint 4b, change 12)", () => {
+    const id = savedLeagueId(snap);
+    const model = (fallback: { kind: "saved" | "curve"; listDate: string } | null, builtAt: string): StoredModel => ({
+      version: 1,
+      savedAt: builtAt,
+      key: modelKey(snap),
+      snapshotFetchedAt: snap.fetchedAt,
+      model: {
+        version: 1,
+        season: 2026,
+        currentWeek: 4,
+        lastWeek: 17,
+        builtAt,
+        nfl: { byeWeek: {}, kickoffs: {} },
+        players: {},
+        espnProjections: true,
+        market: { values: {}, knownIds: [], topValue: 10000, fetchedAt: builtAt, format: { isDynasty: false, numQbs: 1, numTeams: 8, ppr: 1, substitutions: [] }, ...(fallback ? { fallback } : {}) },
+        sources: [],
+        warnings: [],
+        notes: [],
+      },
+    });
+    const withModel = (m: StoredModel) => {
+      const base = leagueStoreStateOf({ imports: [stored], picks: { [id]: { teamId: "1", source: "you" as const } }, models: { [id]: m } });
+      env.state = base;
+      return textOf(renderToStaticMarkup(createElement(SettingsPage)));
+    };
+    const now = new Date().toISOString();
+    const note = "For now this setting changes nothing: FantasyCalc isn't available, so this league's trade values are our own estimates";
+    expect(withModel(model({ kind: "curve", listDate: "2026-09-01T00:00:00.000Z" }, now))).toContain(note);
+    // A saved list standing in is FantasyCalc's own: nothing to say.
+    expect(withModel(model({ kind: "saved", listDate: "2026-09-28T00:00:00.000Z" }, now))).not.toContain(note);
+    expect(withModel(model(null, now))).not.toContain(note);
+    // Inputs too old for the League page to reuse don't say what the values are now: nothing either.
+    expect(withModel(model({ kind: "curve", listDate: "2026-09-01T00:00:00.000Z" }, "2026-01-01T00:00:00.000Z"))).not.toContain(note);
+  });
+
   it("links a checkbox's longer help to it as a description, not as part of its name", () => {
     const dynasty = { ...stored, response: { ...stored.response, snapshot: snapshot({ leagueType: "dynasty" }) } };
-    const html = render({ importValue: dynasty, myTeam: "1" });
+    const html = render({ league: "current", importValue: dynasty, myTeam: "1" });
     const described = [...html.matchAll(/<input type="checkbox"[^>]*aria-describedby="([^"]+)"[^>]*\/>(.*?)<\/label><p id="\1"[^>]*>(.*?)<\/p>/g)].map(([, , name = "", help = ""]) => [textOf(name), textOf(help).slice(0, 30)]);
     expect(described).toEqual([
       ["Automatic", "Set from your playoff odds: la"],
@@ -230,6 +316,20 @@ describe("the feedback card", () => {
     expect(html).toMatch(/<button type="button" class="[^"]*">Delete saved feedback<\/button>/);
     expect(feedbackCountText(undefined)).toBe("Checking this browser…");
     expect(feedbackCountText(1)).toBe("1 trade idea with feedback saved in this browser.");
+  });
+
+  it("says it covers every league's feedback, and how many leagues when there are several, since Delete takes them all (review of track ML)", () => {
+    // Feedback from another league too: the page edits this league, the card covers both.
+    const other = records.map((r) => ({ ...r, leagueKey: "sleeper:12345678", tradeKey: `other-${r.tradeKey}` }));
+    const text = textOf(render({ league: "current", feedback: [...records, ...other] }));
+    expect(text).toContain(FEEDBACK_SCOPE_TEXT);
+    expect(text).toContain("4 trade ideas with feedback saved in this browser, across 2 leagues.");
+    expect(feedbackCountText(5, 3)).toBe("5 trade ideas with feedback saved in this browser, across 3 leagues.");
+    expect(deleteQuestionText(2)).toBe("Delete the feedback on 2 trade ideas? You can't undo this.");
+    expect(deleteQuestionText(4, 2)).toBe("Delete the feedback on 4 trade ideas in both leagues? You can't undo this.");
+    expect(deleteQuestionText(5, 3)).toBe("Delete the feedback on 5 trade ideas in all 3 leagues? You can't undo this.");
+    const asking = renderToStaticMarkup(createElement(FeedbackCardView, { count: 4, leagues: 2, confirming: true, note: null, onExport: () => {}, onAsk: () => {}, onKeep: () => {}, onDelete: () => {} }));
+    expect(textOf(asking)).toContain("Delete the feedback on 4 trade ideas in both leagues? You can't undo this.");
   });
 
   it("says what the exported file holds: ID numbers, numbers and notes, no names, leagues only numbered (review)", () => {

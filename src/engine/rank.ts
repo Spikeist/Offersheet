@@ -1,7 +1,9 @@
 /**
- * Ranking and diversity (CLAUDE.md §13; lead decisions L10 and M9 of the Phase 4 designs; Phase 4b's given-player cap).
- * Pure and deterministic: no I/O, no clock, and the output never depends on the input order. The caps come from
- * config.ranking and config.search.resultsShown, the hiding threshold from config.benefit.
+ * Ranking and diversity (CLAUDE.md §13; lead decisions L10 and M9 of the Phase 4 designs; Phase 4b's given-player cap;
+ * Phase 4c's minimum chance). Pure and deterministic: no I/O, no clock, and the output never depends on the input order.
+ * The caps come from config.ranking and config.search.resultsShown, the hiding threshold from config.benefit, the minimum
+ * chance and the players the given-player cap skips from the call (RankOptions: the user's TradeSettings.minChance and
+ * must-include players of mine).
  *
  * Sorts (sortTrades; the search ranks with "overall", the Trade Finder re-sorts with any of them):
  * - "overall" (the default): the expected gain EG = B × P_complete (benefit.expectedGain), highest first; it is what
@@ -19,12 +21,29 @@
  *    evaluations are skipped (the search drops them before ranking). A key evaluated more than once counts once, as
  *    its furthest evaluation (⚠️ ours: a legal one first, then stage final > exact > screened, then more seasons
  *    simulated, then the higher EG, B, P_complete and g_mkt(me)), whatever the input order.
+ *    Then the minimum chance (planner reply to Checkpoint 4b, change 10: "Chance they accept: at least Any / 10% / … /
+ *    50%", which replaced hiding long shots): a trade the guards keep whose P_complete is under RankOptions.minChance is
+ *    counted (byChance) and never shown, BEFORE the diversity rules below, so the list fills with trades that qualify.
+ *    ⚠️ Judged on P_complete as the card prints it (acceptance.displayAcceptance: the nearest 5%; review of track SR,
+ *    finding 3: judged on the model's own number, a card printing "10%" was hidden under "at least 10%" and appeared
+ *    when the user picked Any, and at 40% on Parker's league a card printing "40%" (39.5%) lost its place to a weaker
+ *    one; §11 judges the labels on the shown value the same way): a P_complete of 7.5% prints "10%"
+ *    and meets 10%, one of 7.49% prints "5%" and doesn't (meetsMinChance). The options start at 10%, so a chance printed
+ *    at or under 5% never meets one. minChance 0 (Any) or absent removes nothing. RankedTrades.qualifying counts the
+ *    trades that pass both (what the diversity rules start from).
  * 2. The rest, in Overall order, go through the diversity rules greedily, each trade judged against the trades
  *    already kept:
  *    a. filler: a kept trade with the same partner whose assets (side by side) are a proper subset of this one's, and
  *       |B − B_kept| < fillerCutoffFraction × B_kept: the extra assets barely change B (§13: "Drop variants that only
- *       add a filler player whose effect is under 0.2 × B"). Only the variant ranked below is dropped: a variant that
- *       ranks above its smaller trade is no filler of it;
+ *       add a filler player whose effect is under 0.2 × B"), or ⚠️ (final review of Phase 4c, finding R5, ours) this one
+ *       is no more helpful (B ≤ B_kept) and less likely to go through (P_complete under the kept one's): its extra players
+ *       only make it worse, however much. ⚠️ Not seen on Parker's data (verification of that review, finding VF-3): on his
+ *       league (Oct 4 09:24Z) it drops nothing the 20% clause doesn't. That review's card, Rico Dowdle → Jordan Mason +
+ *       Kalif Raymond (B 0.171 at 40.8%), left the list through search.ts leanVersionOf's fallback, which made Rico Dowdle
+ *       → Jordan Mason (B 0.158 at 47.0%) a lean companion and then a finalist, and the 20% clause (its B is the higher
+ *       one, so this clause doesn't hold). On the synthetic smallLeague(11) it drops three variants of Team 2's 1011 → 1020
+ *       (B 5.83 at 29.1%) the 20% clause keeps, such as 1011 + 1002 → 1015 + 1020 (B 3.83 at 26.6%). Only the variant
+ *       ranked below is dropped: a variant that ranks above its smaller trade is no filler of it;
  *    b. core: perCore kept trades already share its core, the highest-value asset on each side (`value`: the
  *       perception value; ties and unknown values: the smaller asset id; an empty side has no core asset);
  *    c. partner cap: while fewer than partnerCapTop (20, §13's "top 20") trades are kept, its partner already has
@@ -32,10 +51,15 @@
  *    d. given-player cap (planner reply to Checkpoint 4, change 6 and answer 7: the live top ideas mostly sold one
  *       player of mine, Garrett Wilson in 15 of 22): in the same top-20 window, a player of mine it gives is already
  *       given by perGivenPlayerInTop20 of the trades kept (counted per player on my side, picks aside: a 2-for-1 counts
- *       for both of my players). Past the first 20, a player may be given in more.
+ *       for both of my players). Past the first 20, a player may be given in more. ⚠️ Players in
+ *       RankOptions.givenCapExempt are never counted nor checked (review of track SR, finding 1: the search passes my
+ *       must-include players, whom every trade gives because the user asked, so the cap cut such a list to
+ *       perGivenPlayerInTop20 cards whatever else qualified: 3 cards with Garrett Wilson must-include on Parker's league,
+ *       22 without counting him; the search's one-partner rule drops the partner cap for the same reason).
  *    A trade more than one rule would drop is counted once, under the first rule in that order.
  * 3. It stops once resultsShown trades are kept; the trades after that are neither kept nor counted as dropped.
  */
+import { displayAcceptance } from "./acceptance";
 import { expectedGain } from "./benefit";
 import { config } from "./config";
 import type { TradeAsset, TradeEvaluation, TradeSort } from "./tradeModel";
@@ -56,6 +80,21 @@ export interface RankConfig {
   readonly marketHideBelow: number;
 }
 
+/** A ranking's per-call options (the user's settings, not config). */
+export interface RankOptions {
+  /**
+   * Phase 4c (planner reply to Checkpoint 4b, change 10): the minimum P_complete a trade needs to be kept, as the card
+   * prints it, applied before the diversity rules (the file header, step 1; meetsMinChance); TradeSettings.minChance.
+   * 0 (Any) or absent: no minimum.
+   */
+  readonly minChance?: number;
+  /**
+   * ⚠️ Players of mine the given-player cap neither counts nor checks (the file header, rule d): the search's must-include
+   * players of mine, in every trade by the user's choice. Absent or empty: every player of mine counts.
+   */
+  readonly givenCapExempt?: readonly string[];
+}
+
 const DEFAULT_RANK_CONFIG: RankConfig = {
   perPartnerInTop20: config.ranking.perPartnerInTop20,
   partnerCapTop: config.ranking.partnerCapTop,
@@ -67,6 +106,9 @@ const DEFAULT_RANK_CONFIG: RankConfig = {
 };
 
 const isFiniteNumber = (x: number | null | undefined): x is number => typeof x === "number" && Number.isFinite(x);
+
+/** Float noise in the minimum-chance comparison (not a tunable). */
+const EPS = 1e-9;
 
 const byString = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 
@@ -122,10 +164,19 @@ export function sortTrades(trades: readonly TradeEvaluation[], sort: TradeSort):
 }
 
 export interface RankedTrades {
-  /** The top config.search.resultsShown, Overall order, after the hidden-by-default guards and the diversity rules. */
+  /**
+   * The top config.search.resultsShown, Overall order, after the hidden-by-default guards, the minimum chance and the
+   * diversity rules.
+   */
   trades: TradeEvaluation[];
-  /** Kept out by default (§10): B ≤ 0, or g_mkt(me) below marketHideBelow. */
-  hidden: { byBenefit: number; byMarket: number };
+  /**
+   * Kept out by default (§10): B ≤ 0, or g_mkt(me) below marketHideBelow; and (Phase 4c) kept out by the minimum chance:
+   * P_complete, as the card prints it, under RankOptions.minChance (byChance, counted only for trades the guards keep; 0
+   * without a minimum).
+   */
+  hidden: { byBenefit: number; byMarket: number; byChance: number };
+  /** Phase 4c: the trades that pass the guards and the minimum chance, before the diversity rules (the filter's "qualifying"). */
+  qualifying: number;
   /**
    * Dropped by the diversity rules (§13): over the per-partner cap in the top 20, over the per-core cap, filler variants,
    * and over the given-player cap in the top 20 (givenPlayer; planner reply to Checkpoint 4, answer 7).
@@ -162,7 +213,7 @@ interface Candidate {
   /** Side-tagged asset ids ("give:…", "get:…"). */
   assets: Set<string>;
   core: string;
-  /** The players of mine it gives (each once; picks aside): the given-player cap counts them. */
+  /** The players of mine it gives (each once; picks and RankOptions.givenCapExempt aside): the given-player cap counts them. */
   given: string[];
   b: number;
 }
@@ -175,13 +226,26 @@ function properSubset(small: ReadonlySet<string>, big: ReadonlySet<string>): boo
 }
 
 /**
- * §13's ranking and diversity on evaluated trades (the file header). `value` gives an asset's perception value (the
- * core of a trade is its highest-value asset on each side). `cfg` defaults to config.
+ * Whether a trade's P_complete reaches the minimum chance as the card prints it (the file header, step 1:
+ * acceptance.displayAcceptance, the nearest 5%; float noise counts as at it). A minimum of 0 (Any), or none, holds for
+ * every trade.
  */
-export function rankTrades(evaluations: readonly TradeEvaluation[], value: (asset: TradeAsset) => number, cfg: RankConfig = DEFAULT_RANK_CONFIG): RankedTrades {
-  const hidden = { byBenefit: 0, byMarket: 0 };
+export function meetsMinChance(pComplete: number, minChance: number | undefined): boolean {
+  if (!isFiniteNumber(minChance) || !(minChance > 0)) return true;
+  return isFiniteNumber(pComplete) && displayAcceptance(pComplete) >= minChance - EPS;
+}
+
+/**
+ * §13's ranking and diversity on evaluated trades (the file header). `value` gives an asset's perception value (the
+ * core of a trade is its highest-value asset on each side). `cfg` defaults to config; `opts.minChance` is the user's
+ * minimum chance (none by default), `opts.givenCapExempt` the players of mine the given-player cap skips (none by
+ * default).
+ */
+export function rankTrades(evaluations: readonly TradeEvaluation[], value: (asset: TradeAsset) => number, cfg: RankConfig = DEFAULT_RANK_CONFIG, opts: RankOptions = {}): RankedTrades {
+  const hidden = { byBenefit: 0, byMarket: 0, byChance: 0 };
   const dropped = { partnerCap: 0, core: 0, filler: 0, givenPlayer: 0 };
   const givenCap = cfg.perGivenPlayerInTop20 ?? config.ranking.perGivenPlayerInTop20;
+  const exempt = new Set(opts.givenCapExempt ?? []);
   const byKey = new Map<string, TradeEvaluation>();
   for (const e of evaluations) {
     const kept = byKey.get(e.key);
@@ -192,8 +256,10 @@ export function rankTrades(evaluations: readonly TradeEvaluation[], value: (asse
     if (e.illegal !== null) continue;
     if (!helpsYou(e)) hidden.byBenefit++;
     else if (e.gMine < cfg.marketHideBelow) hidden.byMarket++;
+    else if (!meetsMinChance(e.pComplete, opts.minChance)) hidden.byChance++;
     else shown.push(e);
   }
+  const qualifying = shown.length;
 
   const kept: Candidate[] = [];
   const perCore = new Map<string, number>();
@@ -209,10 +275,10 @@ export function rankTrades(evaluations: readonly TradeEvaluation[], value: (asse
       partnerId: trade.proposal.partnerId,
       assets: new Set([...give.map((a) => `give:${assetId(a)}`), ...get.map((a) => `get:${assetId(a)}`)]),
       core: `${coreAsset(give, value)}|${coreAsset(get, value)}`,
-      given: [...new Set(give.flatMap((a) => (a.kind === "player" ? [a.id] : [])))],
+      given: [...new Set(give.flatMap((a) => (a.kind === "player" && !exempt.has(a.id) ? [a.id] : [])))],
       b: trade.b as number,
     };
-    if (kept.some((k) => k.partnerId === c.partnerId && properSubset(k.assets, c.assets) && Math.abs(c.b - k.b) < cfg.fillerCutoffFraction * k.b)) {
+    if (kept.some((k) => k.partnerId === c.partnerId && properSubset(k.assets, c.assets) && (Math.abs(c.b - k.b) < cfg.fillerCutoffFraction * k.b || (c.b <= k.b && c.trade.pComplete < k.trade.pComplete)))) {
       dropped.filler++;
       continue;
     }
@@ -236,5 +302,5 @@ export function rankTrades(evaluations: readonly TradeEvaluation[], value: (asse
       for (const id of c.given) perGivenTop.set(id, (perGivenTop.get(id) ?? 0) + 1);
     }
   }
-  return { trades: kept.map((k) => k.trade), hidden, dropped };
+  return { trades: kept.map((k) => k.trade), hidden, qualifying, dropped };
 }

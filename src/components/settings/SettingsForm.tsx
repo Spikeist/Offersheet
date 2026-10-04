@@ -2,9 +2,12 @@
 /**
  * The Settings page's form for one league (CLAUDE.md §14 item 6, §12 "User settings", §7 "Streaming
  * positions"): lays out the view model (settingsView.ts), mobile-first (375 px): the league's card (saved or
- * defaults, Reset to defaults), then your lineup (streamed positions, playoff weight), trade ideas (players per
- * side, Win now ↔ Future in dynasty and keeper leagues or Protect my trade value in redraft ones, what else to
- * include), players (untouchables, must-include) and positions (target, avoid). Every word comes from the view model; each change is one SettingsEdit that the page saves at once
+ * defaults, Reset to defaults, and the Trade Finder's minimum chance when the saved one isn't the default), then your
+ * lineup (streamed positions, playoff weight), how trade ideas are scored
+ * (Phase 4c: What matters most, each option with its line of help; Win now ↔ Future in dynasty and keeper leagues or
+ * Protect my trade value in redraft ones, with a note while the league's values are our own estimates), what a trade
+ * idea can be (players per side, what else to include), players (untouchables, must-include) and positions (target,
+ * avoid). Every word comes from the view model; each change is one SettingsEdit that the page saves at once
  * (there's no Save button).
  *
  * Accessibility: each group is a fieldset whose legend names it, with its help text linked by
@@ -38,6 +41,7 @@ export function SettingsForm({ view, onEdit, onReset, status }: EditProps & { on
     <div className="space-y-6">
       <LeagueCard view={view} onReset={onReset} status={status} />
       <LineupCard view={view} onEdit={onEdit} />
+      <ScoringCard view={view} onEdit={onEdit} />
       <TradeIdeasCard view={view} onEdit={onEdit} />
       <PlayersCard view={view} onEdit={onEdit} />
       <PositionsCard view={view} onEdit={onEdit} />
@@ -68,6 +72,7 @@ function LeagueCard({ view, onReset, status }: { view: SettingsView; onReset: ()
           ? "These are your settings for this league, saved in this browser. The League page and trade ideas use them."
           : "This league uses the defaults. Change anything below and it's saved in this browser for this league."}
       </p>
+      {view.finderMinimum ? <p className="mt-2 text-sm text-muted">{view.finderMinimum}</p> : null}
       {status?.tone === "error" ? (
         <div className="mt-3">
           <Callout tone="danger" role="alert" title="That change wasn't saved">
@@ -182,6 +187,51 @@ function CheckRow({
   );
 }
 
+/**
+ * A radio and its label (a 44 px row) for a choice that needs a line of help (What matters most): `detail` is short and part
+ * of its name ("default"); `description` is the line under it, linked by aria-describedby. The native radio shows which one
+ * is chosen (its dot), so it never rests on color.
+ */
+function RadioRow<T extends string>({
+  name,
+  value,
+  label,
+  detail,
+  description,
+  checked,
+  onChange,
+}: {
+  name: string;
+  value: T;
+  label: string;
+  detail?: string | undefined;
+  description: string;
+  checked: boolean;
+  onChange: (value: T) => void;
+}) {
+  const descriptionId = useId();
+  return (
+    <div>
+      <label className="flex min-h-11 cursor-pointer items-center gap-3 rounded-lg px-2 py-1 hover:bg-surface-muted">
+        <input type="radio" name={name} value={value} checked={checked} onChange={() => onChange(value)} aria-describedby={descriptionId} className="size-5 shrink-0 accent-brand" />
+        <span className="min-w-0">
+          <span className="font-semibold break-words">{label}</span>
+          {/* A real space before the detail, so its accessible name reads "Win the title default" (final review of Phase 4c, finding PAGES-4). */}
+          {detail ? (
+            <>
+              {" "}
+              <span className="ml-1 text-xs text-muted">{detail}</span>
+            </>
+          ) : null}
+        </span>
+      </label>
+      <p id={descriptionId} className="pl-10 text-sm text-muted">
+        {description}
+      </p>
+    </div>
+  );
+}
+
 /** Same look as the Connect page's platform picker: the radio is visually hidden, its label shows focus. */
 const OPTION =
   "relative flex min-h-11 min-w-11 cursor-pointer flex-col items-center justify-center rounded-lg px-3 text-center transition-[color,background-color] has-[:focus-visible]:outline-3 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-focus";
@@ -228,6 +278,39 @@ function LineupCard({ view, onEdit }: EditProps) {
   );
 }
 
+/**
+ * How trade ideas are scored for me (Phase 4c): What matters most (planner reply to Checkpoint 4b, change 8), then Win now
+ * ↔ Future (dynasty and keeper leagues) or Protect my trade value (redraft), each with its note while the league's values
+ * are our own estimates.
+ */
+function ScoringCard({ view, onEdit }: EditProps) {
+  return (
+    <Card>
+      <CardTitle eyebrow="Scoring">How trade ideas are scored</CardTitle>
+      <div className="space-y-6">
+        <Group legend="What matters most" help={view.goal.help}>
+          <div className="space-y-1">
+            {view.goal.choices.map((c) => (
+              <RadioRow key={c.value} name="goal" value={c.value} label={c.label} detail={c.detail} description={c.help} checked={c.checked} onChange={(value) => onEdit({ kind: "goal", value })} />
+            ))}
+          </div>
+        </Group>
+        {view.lambda ? <LambdaGroup lambda={view.lambda} onEdit={onEdit} /> : null}
+        {view.protectValue ? (
+          <Group legend="Protect my trade value" help={view.protectValue.help}>
+            <Segmented name="protect-value" choices={view.protectValue.choices} onChange={(value) => onEdit({ kind: "protectValue", value })} />
+            {view.protectValue.note ? (
+              <div className="mt-3">
+                <Callout tone="warn">{view.protectValue.note}</Callout>
+              </div>
+            ) : null}
+          </Group>
+        ) : null}
+      </div>
+    </Card>
+  );
+}
+
 function TradeIdeasCard({ view, onEdit }: EditProps) {
   return (
     <Card>
@@ -236,12 +319,6 @@ function TradeIdeasCard({ view, onEdit }: EditProps) {
         <Group legend="Most players per side" help={view.maxPerSide.help}>
           <Segmented name="max-per-side" choices={view.maxPerSide.choices} onChange={(value) => onEdit({ kind: "maxPerSide", value })} />
         </Group>
-        {view.lambda ? <LambdaGroup lambda={view.lambda} onEdit={onEdit} /> : null}
-        {view.protectValue ? (
-          <Group legend="Protect my trade value" help={view.protectValue.help}>
-            <Segmented name="protect-value" choices={view.protectValue.choices} onChange={(value) => onEdit({ kind: "protectValue", value })} />
-          </Group>
-        ) : null}
         {view.kDefIdp || view.picks ? (
           <Group legend="Also include">
             <div className="space-y-3">
@@ -292,6 +369,11 @@ function LambdaGroup({ lambda, onEdit }: { lambda: NonNullable<SettingsView["lam
         </div>
       )}
       {lambda.keeperNote ? <p className="mt-2 text-sm text-muted">{lambda.keeperNote}</p> : null}
+      {lambda.estimatedNote ? (
+        <div className="mt-3">
+          <Callout tone="warn">{lambda.estimatedNote}</Callout>
+        </div>
+      ) : null}
     </Group>
   );
 }

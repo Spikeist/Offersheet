@@ -12,18 +12,32 @@
  * those of the trade built (TradeSteps.ranked "full").
  * Planner reply to Checkpoint 4: "If they say no, try:" (change 6; the Finder's cards only: the Analyzer gives none;
  * since the review of track F, a trade likelier to go through than the card, by the steps' own bar), the injury tags
- * (a week shows when the projection counts on it) and what a tagged player's projection assumes (change 6), and that a
- * player worth less than the best free agent counts at that free agent's value in the trade values, as does an open
- * roster spot (change 4).
+ * (a week shows when the projection counts on it) and what a tagged player's projection assumes (change 6).
  * Review of Phase 4b: "Chance they accept" names what moves it, the trade's effect on their starting lineup included
  * (change 2 doubled its weight in redraft and keeper leagues), and its cap (config.acceptance.pAcceptClamp: "never above
  * 85%"); "If they say no, try" has its own message, and opens in the Analyzer as one offer (no smaller first offer, the
  * Analyzer's "How to offer it" says so).
+ * Planner reply to Checkpoint 4b (Phase 4c): Helps you weighs the title and playoff odds by "What matters most" (change
+ * 8), and the card shows those odds before and after, with the weeks whose win chance moves (change 9: weeklyLineWords,
+ * from config.explain; "If they say no, try" shows its own odds too); an estimate under 5% shows "<5%" (answer 5); the
+ * Finder's "Chance they accept: at least" and its default (change 10: config.ranking.minChanceDefault), judged on the
+ * chance the trade goes through; the card's trade values are FantasyCalc's own (change 3), while the chance they
+ * accept, Helps you and the Market check count roster spots, a throw-in worth no more than the best free agent adding
+ * nothing (change 2), and the Analyzer's "Details" shows those figures; my side counts the free-agent moves a card says
+ * the trade counts on too (final review of Phase 4c, finding R1: evaluate.ts freeAgentMovesOf), and the weekly line lists
+ * the weeks it drops first (finding R8).
+ * Review of track UIC (findings 2 and 3): what it says about values follows the league's data (src/lib/tradeView.ts
+ * ValueFacts, the engine's own tests, from the model inputs the page holds): Helps you counts trade value in a redraft
+ * league only while FantasyCalc's values are available (`valuesOn`: B has no market term in the curve fallback, and none
+ * moves without values), and long-term value in a dynasty or keeper league only when it loaded (`longTermOn`: else B is
+ * the odds alone, "counts this season only" as the cards' note says); a hurt player's projection is "blended with the
+ * trade market" only while the blend is on (`blendOn`). Each defaults to on, so the page reads as before while the league's
+ * data loads.
  * A native <details>, closed at first; its summary is a 44 px target.
  */
 import { config } from "@/engine/config";
 import type { LeagueSettings } from "@/engine/model";
-import { HARDER_TO_GET_TAG, harderToGetWho } from "@/lib/tradeView";
+import { HARDER_TO_GET_TAG, harderToGetWho, minChanceLabel } from "@/lib/tradeView";
 
 export type HowToReadPage = "finder" | "analyzer";
 
@@ -46,29 +60,70 @@ export function acceptCapWords(cap: number = config.acceptance.pAcceptClamp[1]):
   return `${Math.round(cap * 100)}%`;
 }
 
+/**
+ * The card's weekly line, in words from config.explain: "by 3 percentage points or more (up to 4 weeks, the drops first,
+ * then the biggest gains)" (tradeView.weeklyLine's order since the final review of Phase 4c, finding R8).
+ */
+export function weeklyLineWords(min: number = config.explain.weeklyLineMin, max: number = config.explain.weeklyLineMax): string {
+  const n = Math.round(min * 100);
+  return `by ${n} percentage ${n === 1 ? "point" : "points"} or more (up to ${max} ${max === 1 ? "week" : "weeks"}, the drops first, then the biggest gains)`;
+}
+
 export const HOW_TO_READ_TITLE: Record<HowToReadPage, string> = {
   finder: "How to read a trade idea",
   analyzer: "How to read the evaluation",
 };
 
-export function HowToRead({ leagueType = "redraft", page = "finder" }: { leagueType?: LeagueSettings["leagueType"] | undefined; page?: HowToReadPage | undefined }) {
+/** What Helps you counts besides the odds, by league type and what loaded (the header), as the paragraph's last sentences. */
+function helpsValueWords(later: "keeper" | "dynasty" | null, valuesOn: boolean, longTermOn: boolean): string {
+  if (later && longTermOn) {
+    return ` In a ${later} league it also counts the change in your roster's long-term value, weighed by your Win now ↔ Future setting in Settings.${later === "keeper" ? " What it costs to keep a player next season isn't counted yet." : ""}`;
+  }
+  if (later) return ` In a ${later} league it would also count the change in your roster's long-term value, but long-term trade values aren't available right now, so it counts this season only.`;
+  if (valuesOn) {
+    return " It also counts trade value, so you keep some for later deals: giving up more than you get lowers it, getting more raises it. How much depends on your “Protect my trade value” setting in Settings.";
+  }
+  return " While FantasyCalc's trade values aren't available, it leaves trade value out.";
+}
+
+export function HowToRead({
+  leagueType = "redraft",
+  page = "finder",
+  valuesOn = true,
+  longTermOn = true,
+  blendOn = true,
+}: {
+  leagueType?: LeagueSettings["leagueType"] | undefined;
+  page?: HowToReadPage | undefined;
+  /** FantasyCalc's own values are available (ValueFacts.valuesOn): Helps you counts trade value in a redraft league. */
+  valuesOn?: boolean | undefined;
+  /** Dynasty and keeper leagues: long-term values loaded (ValueFacts.longTermOn), so Helps you counts them. */
+  longTermOn?: boolean | undefined;
+  /** The market blend reaches anyone (ValueFacts.blendOn): a hurt player's projection is blended with the trade market. */
+  blendOn?: boolean | undefined;
+}) {
   const later = leagueType === "redraft" ? null : leagueType === "keeper" ? "keeper" : "dynasty";
   const analyzer = page === "analyzer";
+  const step = `${Math.round(config.acceptance.displayStep * 100)}%`;
+  // Whether Helps you counts a value besides the odds (trade value in redraft, long-term value in dynasty and keeper).
+  const helpsCountsValue = later ? longTermOn : valuesOn;
   return (
     <details className="rounded-2xl border border-line bg-surface shadow-sm">
       <summary className="flex min-h-11 items-center px-4 font-extrabold sm:px-5">{HOW_TO_READ_TITLE[page]}</summary>
       <div className="space-y-2 border-t border-line px-4 py-3 text-sm leading-relaxed sm:px-5">
         <p>
           <span className="font-bold">Helps you</span> (0–100) is how much the trade raises your chances this season: Offer Sheet plays out the rest of your season
-          thousands of times with and without it, counting your playoff odds and, more, your title odds.
-          {later
-            ? ` In a ${later} league it also counts the change in your roster's long-term value, weighed by your Win now ↔ Future setting in Settings.${later === "keeper" ? " What it costs to keep a player next season isn't counted yet." : ""}`
-            : " It also counts trade value, so you keep some for later deals: giving up more than you get lowers it, getting more raises it. How much depends on your “Protect my trade value” setting in Settings."}
+          thousands of times with and without it, and weighs your title and playoff odds by your &ldquo;What matters most&rdquo; setting in Settings (the title
+          counts most unless you change it). Each card shows those odds before and after the trade, and the weeks whose chance to win your game moves{" "}
+          {weeklyLineWords()}.{helpsValueWords(later, valuesOn, longTermOn)}
         </p>
         <p>
-          <span className="font-bold">Chance they accept</span> is an estimate (Est.), rounded to 5% and never above {acceptCapWords()}: it looks at the trade from
-          the other manager&apos;s side (trade value, what it adds to or costs their starting lineup, the holes it fills, how active a trader they are). It&apos;s
-          a guess, not a promise.
+          <span className="font-bold">Chance they accept</span> is an estimate (Est.), rounded to 5% (&ldquo;&lt;{step}&rdquo; when it&apos;s lower) and never above{" "}
+          {acceptCapWords()}: it looks at the trade from the other manager&apos;s side (trade value, what it adds to or costs their starting lineup, the holes it
+          fills, how active a trader they are). It&apos;s a guess, not a promise.
+          {analyzer
+            ? null
+            : ` “Chance they accept: at least” hides ideas below the chance you pick (${minChanceLabel(config.ranking.minChanceDefault)} unless you change it), judged on the chance the trade goes through after a possible veto.`}
         </p>
         <p>
           <span className="font-bold">Overall</span> combines the two: how much it helps, discounted by the chance it happens.{" "}
@@ -95,7 +150,7 @@ export function HowToRead({ leagueType = "redraft", page = "finder" }: { leagueT
             <p>
               <span className="font-bold">If they say no, try</span> shows on other ideas when the same team has a trade they&apos;re likelier to accept: at least{" "}
               {planBGainWords()} likelier to go through, while still helping you at least {planBShareWords()}. It&apos;s the best such trade, a different package for the
-              same players of theirs when there is one, else a different set of their players, with its own three numbers, its own message to send them, and a link
+              same players of theirs when there is one, else a different set of their players, with its own three numbers and odds, its own message to send them, and a link
               to open it in the Trade Analyzer, where it&apos;s shown as one offer.
             </p>
           </>
@@ -103,16 +158,18 @@ export function HowToRead({ leagueType = "redraft", page = "finder" }: { leagueT
         <p>
           <span className="font-bold">Injury tags</span> show under any player in the trade who isn&apos;t healthy, on either side: for example &ldquo;Questionable&rdquo; or
           &ldquo;Out — expected back week 8&rdquo;. The week shows when his projection counts on it, so a questionable player whose league site doesn&apos;t expect him
-          back for weeks shows that week too. A player you&apos;d get who is hurt is projected to return at full strength, blended with the trade market, which prices his
-          injury in.
+          back for weeks shows that week too. A player you&apos;d get who is hurt is projected to return at full strength
+          {blendOn ? ", blended with the trade market, which prices his injury in" : ""}.
         </p>
         <p>
-          ROS points are each player&apos;s projected points for the rest of the season. Trade values are FantasyCalc&apos;s, except that a player worth less than the
-          best free agent counts at that free agent&apos;s value (he could be replaced from the waiver wire), and so does each open roster spot on the side that gets
-          fewer players (an IR slot doesn&apos;t count as a roster spot).{" "}
+          ROS points are each player&apos;s projected points for the rest of the season. The trade values on the card are FantasyCalc&apos;s own, the numbers anyone can
+          check on FantasyCalc. The chance they accept{helpsCountsValue ? ", Helps you" : ""} and the Market check count roster spots too: every player counts at least
+          what the best free agent is worth, an extra player in an uneven trade adds nothing when he&apos;s worth no more than that (the team getting him would cut
+          someone like him), and the side getting fewer players is credited the roster spot it opens (an IR slot isn&apos;t one). Your side
+          also counts the free-agent moves a card says the trade counts on: a player you&apos;d cut for them counts as if you traded him.{" "}
           {analyzer
-            ? "The Trade Finder leaves out trades that wouldn't help you, or where you'd give up much more trade value than you get; here they still show, with a warning."
-            : "Trades that wouldn't help you, or where you'd give up much more trade value than you get, are left out."}
+            ? "“Details” shows those figures. The Trade Finder leaves out trades that wouldn't help you, or where, counting roster spots, you'd give up much more trade value than you get; here they still show, with a warning."
+            : "Trades that wouldn't help you, or where, counting roster spots, you'd give up much more trade value than you get, are left out."}
         </p>
       </div>
     </details>

@@ -126,6 +126,22 @@ describe("ReportView", () => {
     expect(unknown).toMatch(/<dt[^>]*>Final scores<\/dt><dd[^>]*>None yet<\/dd>/);
   });
 
+  it("names the waiver order used right after FAAB, in the Import Report's own words (planner reply to Checkpoint 4b, change 5)", () => {
+    // Both teams ranked by the weekly reset order (the Phase 4c adapters'): the order the free-agent pickups use.
+    const reset = snapshot(
+      { teams: snapshot().teams.map((t, i) => ({ ...t, waiverRank: i + 1, liveWaiverRank: 2 - i })) },
+      { waiverOrderUsed: "weeklyReset" },
+    );
+    const response = { snapshot: reset, notes: [] };
+    const view = buildImportReport(response, { timeZone: "America/Chicago" });
+    const html = render(response);
+    expect(html).toMatch(new RegExp(`<dt[^>]*>FAAB</dt><dd[^>]*>[^<]*</dd></div><div[^>]*><dt[^>]*>Waiver order used</dt><dd[^>]*>${view.trades.waiverOrder.replace(/[()]/g, "\\$&")}</dd>`));
+    // (Its wording is importReport.ts waiverOrderText's: pinned there.)
+    expect(view.trades.waiverOrder).toMatch(/weekly reset/i);
+    // No order reported: still a row, saying so (never left out).
+    expect(render({ snapshot: snapshot(), notes: [] })).toMatch(/<dt[^>]*>Waiver order used<\/dt><dd[^>]*>[^<]+<\/dd>/);
+  });
+
   it("lists a per-unit rate on a sum of stats with the other rates", () => {
     const html = render({ snapshot: snapshot(), notes: [] });
     expect(html).toMatch(/<td[^>]*>Field goals made \(0–39 yds\)<\/td><td[^>]*>3<\/td>/);

@@ -1,8 +1,9 @@
 /**
  * IR slots in a trade (CLAUDE.md §7 roster legality, §9; planner reply to Checkpoint 4, change 5; Phase 4b track E): where a
  * traded IR player goes, and the active-roster spots a trade's packages count. A light module (config and types only), so
- * the trade cards' words (src/lib/tradeView.ts) read the engine's rule without the lineup solver; returners.ts re-exports
- * it. Pure and deterministic: no I/O, no clock, no randomness; the one tunable is config.lineups.irEligibleDefault.
+ * a reader outside the engine (a report, the UI) can apply the engine's rule without the lineup solver (Phase 4c: the
+ * cards quote FantasyCalc's raw values and no longer read it); returners.ts re-exports it. Pure and deterministic: no I/O,
+ * no clock, no randomness; the one tunable is config.lineups.irEligibleDefault.
  *
  * 1. A traded IR player (irAfterTrade; evaluate.ts roster legality, rule 5): IR players are tradable. One given leaves the
  *    giver's IR (its IR slot opens; no active spot does). One received goes into an open IR slot of the receiver (irSlots
@@ -13,8 +14,11 @@
  *    active roster joins the active roster whatever his status.
  * 2. The open roster spots a trade's packages count (activeSpots; market.ts's header, §9's waiver credit; review of track
  *    E): the players a side gives from and receives onto its ACTIVE roster after item 1, since an IR slot isn't a roster
- *    spot (an IR player who leaves one opens no active spot, and one who takes one fills none). tradeActiveSpots reads the
- *    same from the league itself for the card's words.
+ *    spot (an IR player who leaves one opens no active spot, and one who takes one fills none), and (Phase 4c) those IR
+ *    players themselves, the side's own IR movers (ActiveSpots.inactive): the neutral throw-in rule (planner reply to
+ *    Checkpoint 4b, change 2: market.packageValues) removes no roster-spot credit with a player who moved without one. So
+ *    every caller gets the packages the engine's evaluations read (evaluate.ts spotsOf is this function).
+ *    tradeActiveSpots reads the same from the league itself (a reader outside the engine, such as a report).
  */
 import { config } from "./config";
 import type { ActiveSpots } from "./market";
@@ -71,22 +75,29 @@ export function irAfterTrade(x: IrTradeInput): IrAfterTrade {
 
 /**
  * The players a side gives from and receives onto its active roster in a trade (the file header, item 2): `given` minus
- * the IR players leaving its IR, `received` minus the ones going into its IR slots. What §9's open-spot credit counts
- * (market.packageValues).
+ * the IR players leaving its IR, `received` minus the ones going into its IR slots: what §9's open-spot credit counts
+ * (market.packageValues). Those IR players themselves are the side's `inactive` set (Phase 4c: each moves without an
+ * active roster spot, so the neutral throw-in rule takes no spot credit away with him); absent when no IR player of the
+ * side moves.
  */
 export function activeSpots(given: readonly string[], received: readonly string[], ir: Pick<IrAfterTrade, "givenIR" | "toIR">): ActiveSpots {
   const out = new Set(ir.givenIR);
   const inn = new Set(ir.toIR);
-  return { give: given.filter((id) => !out.has(id)).length, recv: received.filter((id) => !inn.has(id)).length };
+  const spots = { give: given.filter((id) => !out.has(id)).length, recv: received.filter((id) => !inn.has(id)).length };
+  const inactive = [...given.filter((id) => out.has(id)), ...received.filter((id) => inn.has(id))];
+  return inactive.length ? { ...spots, inactive: new Set(inactive) } : spots;
 }
 
 /**
- * Item 2 read from the league itself (the card's words: src/lib/tradeView.ts): team `teamId`'s active-roster moves when it
- * gives `given` to team `otherId` and receives `received` from it (IR players placed by item 1: each team's IR as the
- * snapshot lists it, a player listed on its active roster too counting as active, as league.ts TeamWork.ir reads it; the
- * slot's statuses, irEligibleStatuses), and whether an IR player moves at all (`irMoved`: one given from its IR or received
- * from the other team's). Which received players take its open IR slots can depend on their ROS points (item 1), but how
- * many can't, so the counts are the engine's whatever the order (ros 0 here). With IR returners on, as the app builds.
+ * Item 2 read from the league itself (a reader outside the engine): team `teamId`'s active-roster moves when it gives
+ * `given` to team `otherId` and receives `received` from it (IR players placed by item 1: each team's IR as the snapshot
+ * lists it, a player listed on its active roster too counting as active, as league.ts TeamWork.ir reads it; the slot's
+ * statuses, irEligibleStatuses), with its own IR movers as `inactive` (activeSpots), and whether an IR player moves at all
+ * (`irMoved`: one given from its IR or received from the other team's). Which received players take its open IR slots
+ * can depend on their ROS points (item 1: the most first), while how many can't: so the counts are the engine's whatever
+ * `ros` says, and so is the inactive set given the engine's ROS points (`ros`: PlayerModel.ros.total, as evaluate.ts reads
+ * them; default 0 for everyone, ties by the smaller id, which can name another player only when more eligible IR players
+ * are received than the side has open IR slots). With IR returners on, as the app builds.
  */
 export function tradeActiveSpots(
   league: Pick<LeagueSnapshot, "teams" | "players" | "settings">,
@@ -94,6 +105,7 @@ export function tradeActiveSpots(
   otherId: string,
   given: readonly string[],
   received: readonly string[],
+  ros: (id: string) => number = () => 0,
 ): { spots: ActiveSpots; irMoved: boolean } {
   const irOf = (id: string): string[] => {
     const t = league.teams.find((x) => x.id === id);
@@ -109,7 +121,7 @@ export function tradeActiveSpots(
     received,
     fromIR: (id) => theirs.has(id),
     eligible: (id) => eligible.has(league.players[id]?.injury ?? "ACTIVE"),
-    ros: () => 0,
+    ros,
   });
   return { spots: activeSpots(given, received, after), irMoved: after.givenIR.length > 0 || received.some((id) => theirs.has(id)) };
 }

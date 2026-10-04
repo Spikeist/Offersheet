@@ -11,12 +11,16 @@
  * changes in. Because both runs optimize free agents, no B comes from a pickup I could make anyway.
  *
  * B (§10):
- * - B_win = 100 × (w_PO × ΔPO + w_CH × ΔCH) in percentage points, ΔPO and ΔCH as fractions (config.benefit.
- *   weights 0.35 / 0.65). ΔPO missing (not simulated yet) → B_win and B are null. ⚠️ Ours (awaiting the lead's
+ * - B_win = 100 × (w_PO × ΔPO + w_CH × ΔCH) in percentage points, ΔPO and ΔCH as fractions. The weights are the
+ *   user's "What matters most" (planner reply to Checkpoint 4b, change 8; TradeSettings.goal, BenefitInputs.goal;
+ *   goalWeights): config.benefit.goals "title" 0.15 / 0.85 (the default, config.benefit.goalDefault: Parker's main goal
+ *   is the title), "balanced" 0.35 / 0.65 (the weights before Phase 4c), "playoffs" 0.70 / 0.30. B_ref stays 6 for all
+ *   three. ΔPO missing (not simulated yet) → B_win and B are null. ⚠️ Ours (awaiting the lead's
  *   sign-off in §10): when the title odds are unknown but the playoff odds aren't (season.ts nulls every team's
  *   P(title) when a played playoff round has no result it can match, SeasonOdds.playoffsKnown false, or when the
  *   league lists fewer playoff rounds than its bracket needs), B_win = 100 × (w_PO + w_CH) × ΔPO: the playoff
- *   term scaled up to the whole weight, so B stays on the Trade Score's scale. Benefit.titleMissing marks it,
+ *   term scaled up to the whole weight (each goal's weights sum to 1, so it is 100 × ΔPO under every goal), so B stays
+ *   on the Trade Score's scale. Benefit.titleMissing marks it,
  *   tradeNumbers passes it on, and benefitNotes words it. It holds for every trade in such a league, so a
  *   search says it once (TradeSearchResult.notes); TradeEvaluation has no field for it.
  * - Redraft: B = B_win + κ × clamp(g_mkt(me), marketSanityClamp), the market term (g_mkt(me) from perception values;
@@ -25,19 +29,24 @@
  *   protectValue low 2, medium 4 (the default), high 8 (protectValueWeight; BenefitInputs.kappa). It keeps trade value
  *   for later deals before the deadline; depth for injuries and byes is already in B_win (scenario lineups). At medium,
  *   giving 25% more value than I get (g_mkt(me) = −0.20) costs 0.8 B, about 0.4 projected points a week in Parker's
- *   league.
+ *   league. ⚠️ evaluate.ts passes κ = 0 in FantasyCalc's curve fallback (Phase 4c lead decision; evaluate.valuesEstimated:
+ *   the values there come from our own ROS points, so the term would count lineup points twice), with a note.
  * - The value floor at W on both sides (planner reply to Checkpoint 4, change 4; it replaces lead decision N10, which
  *   floored only the players I give and only in the market term): every package counts each player at max(v, W)
  *   (market.packageValues, which tradePackage goes through), so g_mkt(me) itself is floored, and the market term, the
  *   card's values, the Market check flag and the hide threshold all read the same g. A player worth less than the best
  *   free agent is replaceable, and my free-agent-optimized roster V*(me) already counts that replacement, so dumping
- *   him isn't a value gain: the waiver credit for the roster spot he opens (W) is cancelled by his floored value (W),
- *   and giving him for nothing reads g = 0. An even swap of two players worth less than W reads g = 0 for both sides.
- *   A throw-in worth less than W adds 0 value, but g is a ratio: when I already give at least as many players as I get,
- *   he adds W to what I give (his floored value) and W to what I get (the spot he opens), so g_mkt(me) edges toward 0
- *   (g × PV_give / (PV_give + W)), and the partner's g the same way; when I give fewer than I get, nothing moves.
- *   ⚠️ So a cheap throw-in can lift me past the Market check or the hide threshold, and the partner past the veto line
- *   (market.ts's header; reported to the planner). Picks keep their values (they open no roster spot).
+ *   him isn't a value gain: giving him for nothing reads g = 0. An even swap of two players worth less than W reads
+ *   g = 0 for both sides. Phase 4c (planner reply to Checkpoint 4b, change 2, with the lead's matched pairs; market.ts's
+ *   header, "Neutral throw-ins"): before any sum, the players worth at most W on the side moving more players are left
+ *   out with their roster spots, then matched pairs of such players, one from each side. So when every player moves with
+ *   an active roster spot a package is the one with every player worth at most W left out with his spot, and a throw-in
+ *   worth at most W added to either side moves neither g_mkt(me) nor the partner's g (before, he added W to both sums of
+ *   each side and pulled every g toward 0: a cheap throw-in could lift me past the Market check or the hide threshold,
+ *   and the partner past the veto line; the planner's step alone still did when the other side moved d more players, at
+ *   least d of them worth at most W: review of track EF, finding 1). ⚠️ A trade that moves an IR player can be the
+ *   exception market.ts's header states precisely. Picks keep their values (they open no roster spot, and aren't
+ *   players: the rule counts players only).
  * - Dynasty and keeper: B = (1 − λ) × B_win + λ × B_future, B_future = bFutureScale × ΔDyn / MyDynTotal (gaining
  *   10% of my roster's value ≈ +4). No market term (L6), whatever κ (⚠️ N3: B_future carries the value change). ΔDyn = my package
  *   change in long-term (dynasty) values, the waiver credit and picks included, each player at max(v, W) like every
@@ -49,16 +58,19 @@
  *   simulated) takes the middle value, 0.5. Redraft leagues have no λ (null).
  * - Missing long-term values (Checkpoint 2; L6): a keeper league whose dynasty list didn't load (the server then
  *   serves the redraft list as MarketInputs.values with format.isDynasty false: futureValuesLoaded), a dynasty
- *   league without values (FantasyCalc down), or MyDynTotal ≤ 0 → B_future and ΔDyn null, B = B_win (no market
- *   term either, as L6 writes it), dynMissing true (the card says so). λ is still reported.
+ *   league without values (FantasyCalc down), ⚠️ the curve fallback (Phase 4c, MarketInputs.fallback kind "curve":
+ *   a curve of an old list's values on this season's points says nothing about long-term worth, so ours), or
+ *   MyDynTotal ≤ 0 → B_future and ΔDyn null, B = B_win (no market term either, as L6 writes it), dynMissing true (the
+ *   card says so). λ is still reported.
  *
- * Package values (§9) for any term, picks included (tradePackage): the waiver credit W counts players only (a
- * pick takes no roster spot), so PV_recv = Σ max(v, W)(players received) + Σ v(picks received) + max(0, players
- * given − players received) × W, and the same for PV_give (players on and off the side's ACTIVE roster when a trade
- * moves IR players: an IR slot isn't a roster spot, market.ts's header); g = (PV_recv − PV_give) / PV_give with
- * market.marketGain's zero rule (a side that gives nothing of value gains +∞ when it receives something, else 0).
- * Player-only packages equal market.packageValues and market.marketGain exactly. studExponent γ applies to pick
- * values too (they're values). The card's "value given / received" is my perception package (TradeEvaluation.value).
+ * Package values (§9) for any term, picks included (tradePackage): the neutral throw-ins left out first (players only,
+ * market.neutralThrowIns), the waiver credit W counts players only (a pick takes no roster spot), so PV_recv = Σ max(v,
+ * W)(players received) + Σ v(picks received) + max(0, players given − players received) × W, and the same for PV_give
+ * (players on and off the side's ACTIVE roster when a trade moves IR players: an IR slot isn't a roster spot,
+ * market.ts's header); g = (PV_recv − PV_give) / PV_give with market.marketGain's zero rule (a side that gives nothing of
+ * value gains +∞ when it receives something, else 0). Player-only packages equal market.packageValues and
+ * market.marketGain exactly. studExponent γ applies to pick values too (they're values). The card's "value given /
+ * received" is my perception package (TradeEvaluation.value).
  *
  * The three numbers (§10): Trade Score = round(100 × (1 − e^(−B / bRef))) and Overall = round(100 × (1 −
  * e^(−B × P_complete / bRef))) when B > 0, null otherwise (B ≤ 0 is hidden by default). bRef = 6 since
@@ -75,21 +87,29 @@
  * the partner's (swapped) tradePackage gives g_mkt(P) for acceptance.ts. Dynasty and keeper leagues with
  * futureValuesLoaded: ΔDyn = recv − give of tradePackage(get, give, future values, the future term's W) and
  * MyDynTotal = rosterValue(my players, future values, my picks' values). After the simulation: benefit({ ΔPO, ΔCH,
- * g_mkt(me), dynasty, my baseline P(playoffs), settings.lambda, κ = protectValueWeight(settings.protectValue) }), then
- * tradeNumbers(benefit, acceptance result) and tradeFlags({ g_mkt(me), B, injuredReceived(get, snapshot.players) });
- * benefitNotes(benefit) for the search's notes (the Analyzer's reasons).
+ * g_mkt(me), dynasty, my baseline P(playoffs), settings.lambda, κ = protectValueWeight(settings.protectValue),
+ * goal = settings.goal }), then tradeNumbers(benefit, acceptance result) and tradeFlags({ g_mkt(me), B,
+ * injuredReceived(get, snapshot.players) }); benefitNotes(benefit) for the search's notes (the Analyzer's reasons).
  */
 import type { AcceptanceResult } from "./acceptance";
 import { config } from "./config";
 import type { MarketInputs } from "./inputs";
 import { packageValues, type ActiveSpots, type MarketConfig, type ValueLookup } from "./market";
 import type { InjuryStatus, LeagueSettings, PlayerInfo } from "./model";
-import type { ProtectValue } from "./settings";
+import type { Goal, ProtectValue } from "./settings";
 import type { TradeEvaluation } from "./tradeModel";
+
+/** B_win's weights on ΔPO (playoffs) and ΔCH (title). */
+export interface GoalWeights {
+  readonly playoffs: number;
+  readonly title: number;
+}
 
 /** The config.benefit keys this module reads, widened so calibration and tests can pass other numbers. */
 export interface BenefitConfig {
-  readonly weights: { readonly playoffs: number; readonly title: number };
+  /** B_win's weights by "What matters most" (TradeSettings.goal; Phase 4c), and the default goal. */
+  readonly goals: Readonly<Record<Goal, GoalWeights>>;
+  readonly goalDefault: Goal;
   /** κ by "Protect my trade value" level, and the default level. */
   readonly protectValue: Readonly<Record<ProtectValue, number>>;
   readonly protectValueDefault: ProtectValue;
@@ -140,11 +160,21 @@ export function resolveLambda(leagueType: LeagueType, setting: number | null | u
 // B (§10)
 
 /**
- * B_win in percentage points from ΔPO and ΔCH (fractions). Null when ΔPO is missing (titleMissing false: nothing
- * was simulated); ΔCH missing → the playoff term scaled up to the whole weight (the file header), titleMissing true.
+ * B_win's weights for a "What matters most" goal (the file header; TradeSettings.goal): config.benefit.goals[goal]. An
+ * unknown goal (absent, or not one of the three) gets the default goal's (config.benefit.goalDefault: "title").
  */
-export function benefitWin(dPO: number | null, dCH: number | null, cfg: BenefitConfig = config.benefit): { bWin: number | null; titleMissing: boolean } {
-  const w = cfg.weights;
+export function goalWeights(goal: Goal | null | undefined, cfg: Pick<BenefitConfig, "goals" | "goalDefault"> = config.benefit): GoalWeights {
+  const own = goal && Object.hasOwn(cfg.goals, goal) ? cfg.goals[goal] : undefined;
+  return own ?? cfg.goals[cfg.goalDefault];
+}
+
+/**
+ * B_win in percentage points from ΔPO and ΔCH (fractions), with `goal`'s weights (goalWeights; absent: the default goal's).
+ * Null when ΔPO is missing (titleMissing false: nothing was simulated); ΔCH missing → the playoff term scaled up to the
+ * whole weight (the file header), titleMissing true.
+ */
+export function benefitWin(dPO: number | null, dCH: number | null, cfg: BenefitConfig = config.benefit, goal?: Goal | null): { bWin: number | null; titleMissing: boolean } {
+  const w = goalWeights(goal, cfg);
   if (!isFiniteNumber(dPO)) return { bWin: null, titleMissing: false };
   if (isFiniteNumber(dCH)) return { bWin: 100 * (w.playoffs * dPO + w.title * dCH), titleMissing: false };
   return { bWin: w.playoffs > 0 ? 100 * (w.playoffs + w.title) * dPO : null, titleMissing: true };
@@ -193,6 +223,11 @@ export interface BenefitInputs {
    * (medium, 4). Ignored in dynasty and keeper leagues (no market term).
    */
   kappa?: number;
+  /**
+   * Phase 4c (planner reply to Checkpoint 4b, change 8): TradeSettings.goal, "What matters most". B_win's ΔPO / ΔCH
+   * weights are config.benefit.goals[goal]; absent = config.benefit.goalDefault ("title": 0.15 / 0.85).
+   */
+  goal?: Goal;
 }
 
 export interface Benefit {
@@ -215,7 +250,7 @@ export interface Benefit {
 
 /** B and its parts (§10; L6). See the file header for every rule. */
 export function benefit(x: BenefitInputs, cfg: BenefitConfig = config.benefit): Benefit {
-  const { bWin, titleMissing } = benefitWin(x.dPO, x.dCH, cfg);
+  const { bWin, titleMissing } = benefitWin(x.dPO, x.dCH, cfg, x.goal);
   if (x.leagueType === "redraft") {
     const market = marketSanity(x.gMine, x.kappa, cfg);
     return { b: bWin === null ? null : bWin + market, bWin, bFuture: null, lambda: null, market, dDyn: null, dynMissing: false, titleMissing };
@@ -232,10 +267,11 @@ export function benefit(x: BenefitInputs, cfg: BenefitConfig = config.benefit): 
 /**
  * Whether long-term (dynasty) values are available for B_future: a dynasty or keeper league whose market
  * loaded in a dynasty format with at least one value. A keeper league whose dynasty list failed gets the
- * redraft list in `values` (format.isDynasty false; src/server/modelInputs.ts), which isn't long-term worth.
+ * redraft list in `values` (format.isDynasty false; src/server/modelInputs.ts), which isn't long-term worth. ⚠️ Nor is
+ * the curve fallback (MarketInputs.fallback kind "curve"; the file header): no long-term term then.
  */
 export function futureValuesLoaded(leagueType: LeagueType, market: MarketInputs | null): boolean {
-  if (leagueType === "redraft" || !market || !market.format.isDynasty) return false;
+  if (leagueType === "redraft" || !market || !market.format.isDynasty || market.fallback?.kind === "curve") return false;
   return Object.values(market.values).some((v) => Number.isFinite(v) && v > 0);
 }
 
@@ -356,14 +392,16 @@ function pickSum(values: readonly number[] | undefined, cfg: MarketConfig): numb
 }
 
 /**
- * §9's package values for the side that receives `recv` and gives `give`, picks included (the file header): each player
- * at max(v, W) and the waiver credit W per open roster spot, both for players only (market.packageValues); picks keep
- * their values. For my side pass (what I get, what I give); for the partner, swap them. `spots`: the side's own moves on
- * and off its active roster (market.ActiveSpots; a trade that moves IR players: an IR slot isn't a roster spot), else
- * every player takes one. Player-only packages equal market.packageValues and market.marketGain.
+ * §9's package values for the side that receives `recv` and gives `give`, picks included (the file header): the neutral
+ * throw-ins left out, then each player at max(v, W) and the waiver credit W per open roster spot, all for players only
+ * (market.packageValues); picks keep their values. For my side pass (what I get, what I give); for the partner, swap
+ * them. `spots`: the side's own moves on and off its active roster (market.ActiveSpots; a trade that moves IR players: an
+ * IR slot isn't a roster spot), else every player takes one. `throwInValues`: the table the neutral throw-ins are chosen
+ * on, when `values` isn't the market's own (premium.perceivedPackage). Player-only packages equal market.packageValues
+ * and market.marketGain.
  */
-export function tradePackage(recv: PackageSide, give: PackageSide, values: ValueLookup, W: number, cfg: MarketConfig = config.market, spots?: ActiveSpots): PackageValue {
-  const pv = packageValues(recv.players, give.players, values, W, cfg, spots);
+export function tradePackage(recv: PackageSide, give: PackageSide, values: ValueLookup, W: number, cfg: MarketConfig = config.market, spots?: ActiveSpots, throwInValues?: ValueLookup): PackageValue {
+  const pv = packageValues(recv.players, give.players, values, W, cfg, spots, throwInValues ?? values);
   const r = pv.recv + pickSum(recv.pickValues, cfg);
   const g = pv.give + pickSum(give.pickValues, cfg);
   return { recv: r, give: g, g: g > 0 ? (r - g) / g : r > 0 ? Number.POSITIVE_INFINITY : 0 };

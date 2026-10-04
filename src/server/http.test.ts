@@ -247,6 +247,63 @@ describe("HttpClient cache options (review HTTP-1, HTTP-3, HTTP-5)", () => {
     expect(calls.length).toBe(9);
   });
 
+  it("a stale copy says what the failed live answer was (liveFailure: its status, 0 for no response, and whether it was a web page), so a caller can tell an outage from an unusable answer", async () => {
+    vi.useFakeTimers({ now: T0 });
+    let answer: FakeAnswer = { status: 200, body: '{"v":1}' };
+    const impl = (async () => {
+      if (answer === "network error") throw new TypeError("fetch failed");
+      return new Response(answer.body, { status: answer.status, headers: { "content-type": answer.type ?? "application/json" } });
+    }) as typeof fetch;
+    const http = createHttpClient({ fetchImpl: impl, cache: new MemoryCache() });
+    const opts = { cache: { key: "lf", ttlMs: MINUTE, retainMs: HOUR, staleIfError: true }, cacheIf: (r: { json: unknown }) => (r.json as { v?: unknown } | undefined)?.v !== "bad", maxRetries: 0 };
+    const url = "https://example.invalid/lf";
+    const fresh = await settle(http.get(url, opts));
+    expect(fresh.liveFailure).toBeUndefined();
+    expect((await settle(http.get(url, opts))).liveFailure).toBeUndefined(); // a cache hit
+    vi.setSystemTime(T0 + 2 * MINUTE);
+    const cases: [FakeAnswer, { status: number; isHtml: boolean }][] = [
+      [{ status: 503, body: "" }, { status: 503, isHtml: false }],
+      [{ status: 429, body: "" }, { status: 429, isHtml: false }],
+      ["network error", { status: 0, isHtml: false }],
+      [{ status: 200, body: "<html>maintenance</html>", type: "text/html" }, { status: 200, isHtml: true }],
+      [{ status: 200, body: '{"v":"bad"}' }, { status: 200, isHtml: false }],
+    ];
+    for (const [a, failure] of cases) {
+      answer = a;
+      expect(await settle(http.get(url, opts)), JSON.stringify(a)).toMatchObject({ json: { v: 1 }, stale: true, liveFailure: failure });
+    }
+  });
+
+  it("cacheOnly never asks the source: the copy within the TTL, else (staleIfError) a retained one marked stale, else a status-0 response", async () => {
+    vi.useFakeTimers({ now: T0 });
+    const f = fakeFetch([{ status: 200, body: '{"v":1}' }]);
+    const http = createHttpClient({ fetchImpl: f.impl, cache: new MemoryCache() });
+    const url = "https://example.invalid/only";
+    const cache = { key: "only", ttlMs: MINUTE, retainMs: HOUR, staleIfError: true };
+    // Nothing cached: status 0, and no request.
+    expect(await settle(http.get(url, { cache, cacheOnly: true }))).toEqual({ status: 0, ok: false, isHtml: false, json: undefined, text: "", fromCache: false });
+    expect(f.calls).toHaveLength(0);
+    const stored = await settle(http.get(url, { cache })); // one live fetch stores a copy
+    expect(f.calls).toHaveLength(1);
+    const fetchedAt = stored.fetchedAt;
+    // Within the TTL: the copy, as a cache hit.
+    const hit = await settle(http.get(url, { cache, cacheOnly: true }));
+    expect(hit).toMatchObject({ json: { v: 1 }, fromCache: true, fetchedAt });
+    expect(hit.stale).toBeUndefined();
+    // Past the TTL, within the retention: with staleIfError the retained copy, marked stale (no liveFailure: nothing was
+    // asked); without staleIfError, status 0.
+    vi.setSystemTime(T0 + 2 * MINUTE);
+    const stale = await settle(http.get(url, { cache, cacheOnly: true }));
+    expect(stale).toMatchObject({ json: { v: 1 }, fromCache: true, stale: true, fetchedAt });
+    expect(stale.liveFailure).toBeUndefined();
+    expect(await settle(http.get(url, { cache: { key: "only", ttlMs: MINUTE, retainMs: HOUR }, cacheOnly: true }))).toMatchObject({ status: 0, fromCache: false });
+    // Past the retention: gone, status 0. A client without a cache: always status 0.
+    vi.setSystemTime(T0 + 2 * HOUR);
+    expect(await settle(http.get(url, { cache, cacheOnly: true }))).toMatchObject({ status: 0, fromCache: false });
+    expect(await settle(createHttpClient({ fetchImpl: f.impl }).get(url, { cache, cacheOnly: true }))).toMatchObject({ status: 0, fromCache: false });
+    expect(f.calls).toHaveLength(1);
+  });
+
   it("keeps a fresh copy for retainMs even when a Refresh asks for a shorter TTL", async () => {
     vi.useFakeTimers({ now: T0 });
     const f = fakeFetch([{ status: 200, body: '{"v":1}' }]);

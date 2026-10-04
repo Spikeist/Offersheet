@@ -1,15 +1,26 @@
 "use client";
 /**
- * Sleeper connect flow: a username (then pick a league if there are several), or a league ID or
- * link with an optional username so we can find the user's team. A sleeper.com league link typed
+ * Sleeper connect flow: a username (then pick one or more leagues if there are several), or a league ID
+ * or link with an optional username so we can find the user's team. A sleeper.com league link typed
  * into the username box switches to League ID and imports that league.
+ *
+ * Every league imported is saved in this browser (finishImport.ts: src/lib/leagueStore.ts; Phase 4c,
+ * planner reply to Checkpoint 4b, change 11). Several picked from the username's list are imported one
+ * after another (politely: one request at a time; sleeperBatch.ts), the status line saying which one is
+ * under way and each league saying how it went; the first one imported becomes the league this tab shows.
+ * When they all import, the Import Report opens; when some don't, the page stays, says why under each, and
+ * links to the Import Report for the ones that did. ⚠️ Leaving the page mid-batch (review of track ML) stops
+ * it after the league under way, which is saved without switching the tab's league, and nothing navigates;
+ * opened again while that league finishes, the page says so and its buttons wait, then says how it ended.
  *
  * Results appear below the form, which on a phone is below the fold, so an error or the league list
  * is scrolled into view and focused (reveal.ts).
  */
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { callApi, isApiError, isChooseLeague, type ImportResponse, type SleeperChooseLeagueResponse } from "@/lib/api";
+import { savedLeagueId } from "@/lib/leagueStore";
 import { defaultSeason, newestSeason } from "@/lib/season";
 import {
   SLEEPER_LEAGUE_ID_HINT,
@@ -21,11 +32,13 @@ import {
   type SleeperFormError,
   type SleeperInputMode,
 } from "@/lib/sleeperInput";
+import { useSavedLeagues } from "../league/useLeagueInputs";
 import { revealResult } from "../reveal";
 import { Callout, Card, CardTitle, FOCUS_TARGET, Spinner, buttonClass, cx, inputClass } from "../ui";
 import { finishImport } from "./finishImport";
 import { SeasonSelect } from "./SeasonSelect";
-import { SleeperLeagueChoices } from "./SleeperLeagueChoices";
+import { BATCH_RUNNING_TEXT, detachedText, runSleeperBatch, useSleeperBatch, type BatchOutcome } from "./sleeperBatch";
+import { SleeperLeagueChoices, type LeagueImportState } from "./SleeperLeagueChoices";
 
 type Mode = SleeperInputMode;
 type Choices = SleeperChooseLeagueResponse["chooseLeague"];
@@ -34,6 +47,26 @@ type Reveal = { n: number; target: "error" | "choices" };
 
 const ERROR_ID = "sleeper-error";
 const LINK_SWITCH_NOTE = "That's a league link, so we switched to League ID.";
+const NOT_SENT = "Sleeper didn't send that league. Try again in a moment.";
+const TALKING_TO_SLEEPER = "Talking to Sleeper… The first import can take up to a minute while we load the player database.";
+
+/** What the status line says once a batch is done and some leagues didn't import (pure; all imported: the Import Report opens). */
+export function batchOutcomeText(imported: number, total: number): string {
+  if (!imported) return total === 1 ? "That league didn't import: see why below." : `None of the ${total} leagues imported: see why under each.`;
+  return `Imported ${imported} of ${total} leagues. See why the others didn't under each.`;
+}
+
+/**
+ * Imports one league of a username's list and saves it; `makeCurrent()`, asked once the league is in, says whether it
+ * becomes the league this tab shows (not once the page that asked for it is gone: sleeperBatch.ts).
+ */
+async function importChosen(leagueId: string, username: string, season: number, makeCurrent: () => boolean): Promise<BatchOutcome> {
+  const res = await callApi<ImportResponse | SleeperChooseLeagueResponse>("/api/import/sleeper", { method: "POST", body: { season, username, chooseLeagueId: leagueId } });
+  if (isApiError(res)) return { ok: false, message: res.error.message };
+  if (isChooseLeague(res) || !("snapshot" in res)) return { ok: false, message: NOT_SENT };
+  const saved = await finishImport({ platform: "sleeper", season, leagueId: res.snapshot.leagueId, username }, res, undefined, { makeCurrent: makeCurrent() });
+  return saved.ok ? { ok: true } : { ok: false, message: saved.message };
+}
 
 export function SleeperConnect() {
   const router = useRouter();
@@ -46,11 +79,32 @@ export function SleeperConnect() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<FormError | null>(null);
   const [choices, setChoices] = useState<Choices | null>(null);
+  // The batch of leagues picked from the list: each one's import, and what the status line says about it.
+  const [results, setResults] = useState<Record<string, LeagueImportState>>({});
+  const [batchNote, setBatchNote] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [reveal, setReveal] = useState<Reveal | null>(null);
+  const savedLeagues = useSavedLeagues();
+  // The listed leagues already saved in this browser (by their Sleeper id), so the list can say so.
+  const saved = useMemo(() => {
+    const ids = new Set(savedLeagues?.leagues.map((l) => l.id) ?? []);
+    return new Set(choices?.leagues.filter((l) => ids.has(savedLeagueId({ platform: "sleeper", leagueId: l.id, season: choices.season }))).map((l) => l.id) ?? []);
+  }, [savedLeagues, choices]);
   const errorRef = useRef<HTMLDivElement>(null);
   const choicesRef = useRef<HTMLDivElement>(null);
   const choicesHeadingRef = useRef<HTMLHeadingElement>(null);
+  // A batch under way, this page's or one started before the page was left and opened again (sleeperBatch.ts): the
+  // page's Sleeper requests wait for it.
+  const batch = useSleeperBatch();
+  const working = busy || batch.running;
+  // The page is open (a batch it started stops, and doesn't navigate, once it's gone).
+  const live = useRef(true);
+  useEffect(() => {
+    live.current = true;
+    return () => {
+      live.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (!reveal) return;
@@ -64,24 +118,23 @@ export function SleeperConnect() {
     revealNext("error");
   };
 
-  async function submit(chooseLeagueId?: string) {
+  async function submit() {
+    if (working) return;
     setError(null);
     let currentMode = mode;
     let userText = username;
     let leagueText = leagueInput;
-    if (!chooseLeagueId) {
-      // A league link pasted into the username box: import that league instead of failing.
-      const linkId = currentMode === "username" ? sleeperLeagueLinkId(userText) : undefined;
-      if (linkId) {
-        currentMode = "league";
-        leagueText = userText.trim();
-        userText = "";
-        setMode("league");
-        setLeagueInput(leagueText);
-        setUsername("");
-        setNote(LINK_SWITCH_NOTE);
-      } else setNote(null);
-    }
+    // A league link pasted into the username box: import that league instead of failing.
+    const linkId = currentMode === "username" ? sleeperLeagueLinkId(userText) : undefined;
+    if (linkId) {
+      currentMode = "league";
+      leagueText = userText.trim();
+      userText = "";
+      setMode("league");
+      setLeagueInput(leagueText);
+      setUsername("");
+      setNote(LINK_SWITCH_NOTE);
+    } else setNote(null);
     const name = userText.trim() ? normalizeSleeperUsername(userText) : undefined;
     if (userText.trim() && !name) {
       fail({ message: currentMode === "username" ? `${SLEEPER_USERNAME_INVALID} ${SLEEPER_LEAGUE_ID_HINT}` : SLEEPER_USERNAME_INVALID, field: "username" });
@@ -100,7 +153,7 @@ export function SleeperConnect() {
       return;
     }
     setBusy(true);
-    const body = { season, ...(name ? { username: name } : {}), ...(leagueId ? { leagueId } : {}), ...(chooseLeagueId ? { chooseLeagueId } : {}) };
+    const body = { season, ...(name ? { username: name } : {}), ...(leagueId ? { leagueId } : {}) };
     const res = await callApi<ImportResponse | SleeperChooseLeagueResponse>("/api/import/sleeper", { method: "POST", body });
     if (isApiError(res)) {
       setBusy(false);
@@ -109,11 +162,13 @@ export function SleeperConnect() {
     }
     if (isChooseLeague(res)) {
       setBusy(false);
+      setResults({});
+      setBatchNote(null);
       setChoices(res.chooseLeague);
       revealNext("choices");
       return;
     }
-    const saved = finishImport({ platform: "sleeper", season, leagueId: res.snapshot.leagueId, ...(name ? { username: name } : {}) }, res);
+    const saved = await finishImport({ platform: "sleeper", season, leagueId: res.snapshot.leagueId, ...(name ? { username: name } : {}) }, res);
     if (!saved.ok) {
       setBusy(false);
       fail({ message: saved.message });
@@ -121,6 +176,42 @@ export function SleeperConnect() {
     }
     router.push("/import");
   }
+
+  /** The leagues picked from the username's list, one after another (see the header; sleeperBatch.ts). */
+  async function importPicked(ids: readonly string[]) {
+    if (!choices || working || !ids.length) return;
+    const { username: user, season: listSeason } = choices;
+    const names = new Map(choices.leagues.map((l) => [l.id, l.name]));
+    setBusy(true);
+    setError(null);
+    setResults(Object.fromEntries(ids.map((id) => [id, { kind: "waiting" } as LeagueImportState])));
+    const done = await runSleeperBatch(ids, {
+      attached: () => live.current,
+      // The first one imported becomes the league this tab shows (while this page is open); the others are saved next to it.
+      importOne: (id, makeCurrent) => importChosen(id, user, listSeason, makeCurrent),
+      onStart: (id, i) => {
+        setResults((r) => ({ ...r, [id]: { kind: "importing" } }));
+        setBatchNote(`Importing ${i + 1} of ${ids.length}: ${names.get(id) ?? "a league"}…`);
+      },
+      onEnd: (id, outcome) => setResults((r) => ({ ...r, [id]: outcome.ok ? { kind: "done" } : { kind: "failed", message: outcome.message } })),
+    });
+    // The page was left meanwhile: nothing to show here, and nowhere to go.
+    if (!live.current) return;
+    setBusy(false);
+    // (null: another batch was under way; the buttons wait for it, so this doesn't happen.)
+    if (!done) return;
+    if (done.imported === ids.length) {
+      setBatchNote(`Imported ${ids.length === 1 ? "the league" : `all ${ids.length} leagues`}. Opening the Import Report…`);
+      router.push("/import");
+      return;
+    }
+    setBatchNote(batchOutcomeText(done.imported, ids.length));
+  }
+
+  // Under the form: talking to Sleeper; else a batch from before the page was left, finishing or how it ended.
+  const formNote = busy && !choices ? TALKING_TO_SLEEPER : !busy && batch.running ? BATCH_RUNNING_TEXT : !busy && !choices && batch.detached ? detachedText(batch.detached) : null;
+
+  const importedSome = Object.values(results).some((r) => r.kind === "done");
 
   const invalid = (field: "username" | "league") => error?.field === field;
 
@@ -210,14 +301,14 @@ export function SleeperConnect() {
               </label>
               <SeasonSelect id="sleeper-season" value={season} newest={newest} onChange={setSeason} />
             </div>
-            <button type="submit" className={buttonClass("primary")} disabled={busy}>
-              {busy ? <Spinner /> : null}
-              {busy ? "Working…" : mode === "username" ? "Find my leagues" : "Import league"}
+            <button type="submit" className={buttonClass("primary")} disabled={working}>
+              {working ? <Spinner /> : null}
+              {working ? "Working…" : mode === "username" ? "Find my leagues" : "Import league"}
             </button>
           </div>
         </form>
-        <p className={busy ? "mt-4 text-sm text-muted" : undefined} aria-live="polite">
-          {busy ? "Talking to Sleeper… The first import can take up to a minute while we load the player database." : null}
+        <p className={formNote ? "mt-4 text-sm text-muted" : undefined} aria-live="polite">
+          {formNote}
         </p>
       </Card>
 
@@ -230,8 +321,17 @@ export function SleeperConnect() {
       ) : null}
 
       {choices ? (
-        <div ref={choicesRef} className={cx("mt-4", FOCUS_TARGET.className)}>
-          <SleeperLeagueChoices choices={choices} busy={busy} onPick={(id) => void submit(id)} headingRef={choicesHeadingRef} />
+        <div ref={choicesRef} className={cx("mt-4 space-y-3", FOCUS_TARGET.className)}>
+          <SleeperLeagueChoices choices={choices} busy={working} saved={saved} results={results} onImport={(ids) => void importPicked(ids)} headingRef={choicesHeadingRef} />
+          {/* Always mounted while the list shows, so each league's import is announced. */}
+          <p role="status" className={batchNote ? "text-sm font-semibold" : "sr-only"}>
+            {batchNote ?? ""}
+          </p>
+          {importedSome && !busy ? (
+            <Link href="/import" className={buttonClass("secondary")}>
+              See the Import Report
+            </Link>
+          ) : null}
         </div>
       ) : null}
     </div>

@@ -19,7 +19,18 @@
  * 6. Analyzer (the card's "Open in Analyzer"): it evaluates the same trade with the same three numbers as the card;
  *    both sides shown, no tag on mine; the layout; "Back to the Trade Finder" shows the ideas again.
  * 7. Settings (the nav's link): the layout; a setting saves in this browser and "Reset to defaults" clears it.
- * 8. Home and Privacy (full loads): the layout.
+ * 8. Second league (only with --second-league; Phase 4c, planner reply to Checkpoint 4b, change 11): the first idea gets
+ *    an outcome (Sent); the switcher's "Add league" imports the public ESPN test league (args.ts SECOND_LEAGUE), whose
+ *    names are added to the cleaning before anything is measured; then each page shows that league (the Import Report's
+ *    and the League page's heading is its name, compared in the page; the trade pages ask for its team, with none of the
+ *    first league's ideas; the Settings page's league card), a setting saved there stays its own, the first league's
+ *    feedback stays the first league's; the switcher's layout with its panel open; back to the first league, every page
+ *    shows it again (its ideas with their outcome, its own settings); a partner picked on its Trade Finder doesn't follow
+ *    a switch to the test league (the address names that league's teams: review of track ML); then, from the test
+ *    league's Trade Finder with a team in its address, Remove (with its confirmation) deletes the test league, the league
+ *    shown, and what it saved, and nothing of the first league's; the tab moves to the first league, the status line says
+ *    so, and its Trade Finder opens for every team, never on the removed league's address.
+ * 9. Home and Privacy (full loads): the layout.
  * After each step: no console errors (page or worker), uncaught exceptions, failed requests to the app, or requests to
  * any other site. Screenshots, when on, go to the shots folder after the page's names are replaced with placeholders,
  * put back right after (one that can't be saved is a skip: it's a record to look at, not a check of the app).
@@ -27,10 +38,14 @@
  * Texts these checks look for are the app's own (status lines, headings, button names); when one changes, the check
  * that reads it fails loudly rather than passing by accident: a check that counts something somewhere first checks it
  * found that somewhere. Page texts come back whole: the entry point cleans them, then cuts them (report.ts).
+ *
+ * What the app saved is read from its league store (Phase 4c: IndexedDB "offersheet", inPage.ts storeRows), never by
+ * opening it in a way that would create it. A saved league's id (a short hash of its league id, and its season) stays
+ * in the page and in this process: it's compared, never printed or written.
  */
-import { LEAGUE_ID_PLACEHOLDER, nameRules, type CheckReport, type LeagueNames } from "./report";
+import { LEAGUE_ID_PLACEHOLDER, mergeLeagueNames, nameRules, type CheckReport, type LeagueNames } from "./report";
 import { sanitizeCall } from "./inPage";
-import type { CheckBrowserArgs } from "./args";
+import { SECOND_LEAGUE, type CheckBrowserArgs } from "./args";
 import type { PageSession } from "./page";
 
 export interface CardInfo {
@@ -190,15 +205,11 @@ export async function connectStep(ctx: StepContext): Promise<void> {
   }
   report.ok(step, `imported the league through its public link in ${took} s`);
 
-  // The imported league's names: from here on, every line printed and every screenshot uses placeholders.
-  const names = await page.run<LeagueNames | null>(`
-    try {
-      const s = JSON.parse(sessionStorage.getItem("offersheet:import:v1")).response.snapshot;
-      return { leagueName: s.name, teams: s.teams.map((t) => ({ id: String(t.id), name: t.name, ownerName: t.ownerName })), players: Object.values(s.players).map((p) => p.name).filter(Boolean) };
-    } catch (e) { return null; }
-  `);
+  // The imported league's names (the league store's copy of the tab's league): from here on, every line printed and
+  // every screenshot uses placeholders.
+  const names = await page.run<LeagueNames | null>(`return namesOf(await savedImport());`);
   if (!names) {
-    report.fail(step, "the imported league isn't in this tab's storage (offersheet:import:v1)");
+    report.fail(step, "the imported league isn't saved in this browser as this tab's league (the league store, IndexedDB offersheet)");
     ctx.stop = "the import wasn't stored";
     return;
   }
@@ -333,7 +344,8 @@ export function sidelessCards(cards: ReadonlyArray<Pick<CardInfo, "give" | "get"
  * number, among the ideas that help (Helps you above 0; the others follow in their own order).
  */
 export function sortInversions(label: string, cards: ReadonlyArray<Pick<CardInfo, "helps" | "accept" | "acceptThrough" | "overall">>, sort: "helps" | "accept" | "overall"): string[] {
-  const num = (v: string | null) => (v === null || v === "—" ? -1 : parseFloat(v.replace("%", "")));
+  // "<5%" (an estimate under 5%, Phase 4c) sorts just under 5%.
+  const num = (v: string | null) => (v === null || v === "—" ? -1 : v.trim().startsWith("<") ? parseFloat(v.replace(/[<%]/g, "")) - 0.1 : parseFloat(v.replace("%", "")));
   const shown = cards.map((c, i) => ({ i, value: sort === "accept" ? (c.acceptThrough ?? c.accept) : c[sort], helps: num(c.helps) }));
   const ordered = sort === "accept" ? shown.filter((c) => c.helps > 0) : shown;
   const out: string[] = [];
@@ -438,7 +450,8 @@ export async function cardStep(ctx: StepContext): Promise<void> {
   report.check(step, inversions.length === 0 && !searched, "the three sorts reorder the ideas, highest first, without searching again", searched ? "changing the sort started a new search" : "a sort leaves the ideas out of order", inversions);
 
   const first = `document.querySelector("article")`;
-  const readFeedback = `(() => { try { return JSON.parse(localStorage.getItem("offersheet:feedback:v1") || "[]"); } catch (e) { return []; } })()`;
+  // This league's feedback records in the league store (an expression for an async body: inPage.ts savedFeedback).
+  const readFeedback = `(await savedFeedback(tabLeague()))`;
 
   // An outcome button: on, saved in this browser; pressed again, cleared.
   const button = (label: string) => `[...${first}.querySelectorAll("div[role=group] button")].find((b) => visibleText(b).replace("✓", "").trim() === ${JSON.stringify(label)})`;
@@ -457,11 +470,11 @@ export async function cardStep(ctx: StepContext): Promise<void> {
     chose = true;
   }
   const on = await page
-    .waitFor<boolean>(`(() => { const b = ${button("Rejected")}; return b && b.getAttribute("aria-pressed") === "true" && ${readFeedback}.some((r) => r.outcome && r.outcome.kind === "rejected"${chose ? " && typeof r.version === \"string\"" : ""}); })()`, 5_000, "the outcome to save")
+    .waitFor<boolean>(`(await (async () => { const b = ${button("Rejected")}; return b && b.getAttribute("aria-pressed") === "true" && ${readFeedback}.some((r) => r.outcome && r.outcome.kind === "rejected"${chose ? " && typeof r.version === \"string\"" : ""}); })())`, 5_000, "the outcome to save")
     .catch(() => false);
   await page.click(button("Rejected"), "the Rejected button");
   const off = await page
-    .waitFor<boolean>(`(() => { const b = ${button("Rejected")}; return b && b.getAttribute("aria-pressed") === "false" && !${readFeedback}.some((r) => r.outcome && r.outcome.kind === "rejected"); })()`, 5_000, "the outcome to clear")
+    .waitFor<boolean>(`(await (async () => { const b = ${button("Rejected")}; return b && b.getAttribute("aria-pressed") === "false" && !${readFeedback}.some((r) => r.outcome && r.outcome.kind === "rejected"); })())`, 5_000, "the outcome to clear")
     .catch(() => false);
   report.check(step, on && off, `an outcome button (Rejected${chose ? ", after choosing which version" : ""}) saves in this browser and clears when pressed again`, on ? "pressing Rejected again didn't clear it" : "pressing Rejected didn't save it");
 
@@ -594,7 +607,8 @@ export async function settingsStep(ctx: StepContext): Promise<void> {
   layoutChecks(ctx, step, await measurePage(ctx));
   await screenshot(ctx, "06-settings");
 
-  const stored = `(() => { try { return Object.values(JSON.parse(localStorage.getItem("offersheet:settings:v1") || "{}")); } catch (e) { return []; } })()`;
+  // This league's saved settings in the league store, as a list of none or one (an expression for an async body).
+  const stored = `[await savedSettings(tabLeague())].filter(Boolean)`;
   const option = (n: number) => `[...byText("legend", ${JSON.stringify(MAX_LEGEND)}).closest("fieldset").querySelectorAll("label")].find((l) => txt(l).startsWith(${JSON.stringify(String(n))}))`;
   const alreadyThree = await page.run<boolean>(`return ${stored}.some((s) => s && s.maxPerSide === 3);`);
   await page.click(option(alreadyThree ? 2 : 3), "a players-per-side choice");
@@ -614,12 +628,326 @@ export async function settingsStep(ctx: StepContext): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------------------------
-// 8. Home and Privacy
+// 8. A second league (--second-league)
+
+/** The switcher's panel while it's open (its button's aria-controls), else null. */
+const PANEL = `(() => { const b = switcherButton(); const id = b && b.getAttribute("aria-controls"); return id ? document.getElementById(id) : null; })()`;
+
+/** Opens the switcher's panel (the button pressed when it's closed); false when it doesn't open. */
+async function openSwitcher(page: PageSession): Promise<boolean> {
+  if (!(await page.run<boolean>(`return !!switcherButton();`))) return false;
+  if (!(await page.run<boolean>(`return !!(${PANEL});`))) await page.click(`switcherButton()`, "the league switcher");
+  return page.waitFor<boolean>(`!!(${PANEL})`, 5_000, "the league switcher's panel").catch(() => false);
+}
+
+/** Closes the switcher's panel (its button pressed again). */
+async function closeSwitcher(page: PageSession): Promise<void> {
+  if (await page.run<boolean>(`return !!(${PANEL});`)) await page.click(`switcherButton()`, "the league switcher");
+  await page.waitFor<boolean>(`!(${PANEL})`, 5_000, "the league switcher's panel to close").catch(() => false);
+}
+
+/** Switches the tab to a saved league (its id) with the switcher; true once the tab shows it. */
+async function switchLeague(page: PageSession, id: string): Promise<boolean> {
+  if (!(await openSwitcher(page))) return false;
+  await page.click(`(${PANEL}).querySelector(${JSON.stringify(`[data-league-id="${id}"]`)})`, "a league in the switcher");
+  return page.waitFor<boolean>(`tabLeague() === ${JSON.stringify(id)} && !(${PANEL})`, 10_000, "the switch").catch(() => false);
+}
+
+/** Whether the page's main heading shows a saved league's own name (compared in the page, never returned). */
+const headingShows = (id: string) => `showsName(document.querySelector("main h1"), await savedImport(${JSON.stringify(id)}))`;
+
+/** The Settings page's league card title (the h2 under its "League" eyebrow) shows a saved league's own name. */
+const settingsShows = (id: string) =>
+  `showsName([...document.querySelectorAll("main h2")].find((h) => { const p = h.previousElementSibling; return p && txt(p) === "League"; }) || null, await savedImport(${JSON.stringify(id)}))`;
+
+/** The players-per-side choice checked on the Settings page ("2", "3"…), or null. */
+const CHECKED_MAX = `(() => { const l = byText("legend", ${JSON.stringify(MAX_LEGEND)}); const r = l ? l.closest("fieldset").querySelector("input[type=radio]:checked") : null; return r ? r.value : null; })()`;
+
+export async function secondLeagueStep(ctx: StepContext): Promise<void> {
+  const step = "Second league";
+  const { page, report } = ctx;
+  page.step = step;
+  if (!ctx.args.secondLeague) {
+    report.skip(step, "not asked for (npm run check:browser -- --second-league adds a second league and switches between them)");
+    return;
+  }
+  if (!ctx.names) {
+    report.skip(step, "no league imported");
+    return;
+  }
+  // The first league's saved id, kept here to compare (never printed).
+  const first = await page.run<string | null>(`return tabLeague();`);
+  if (!first) {
+    report.fail(step, "the tab doesn't say which saved league it shows (sessionStorage offersheet:current-league:v1)");
+    return;
+  }
+
+  // 1. An outcome on the first league's first idea, to show feedback stays with its league.
+  const sentButton = `[...document.querySelector("article").querySelectorAll("div[role=group] button")].find((b) => visibleText(b).replace("✓", "").trim() === "Sent")`;
+  let sent = false;
+  if (ctx.firstCard) {
+    await page.click(`navLink("/trades")`, "the nav's Trades link");
+    const shown = await page.waitFor<string>(FINDER_DONE, 120_000, "the Trade Finder", 50).catch(() => "no");
+    if (shown === "done") {
+      await page.click(sentButton, "the Sent button");
+      const chooser = `[...document.querySelector("article").querySelectorAll("fieldset")].find((f) => /^Which version/.test(txt(f.querySelector("legend") || f)))`;
+      const asked = await page.waitFor<boolean>(`(() => { const b = ${sentButton}; return (b && b.getAttribute("aria-pressed") === "true") || !!(${chooser}); })()`, 5_000, "Sent to save or to ask which version").catch(() => false);
+      if (asked && (await page.run<boolean>(`return !!(${chooser});`))) await page.click(`[...(${chooser}).querySelectorAll("button")][0]`, "the first version offered");
+      sent = await page
+        .waitFor<boolean>(`(await savedFeedback(${JSON.stringify(first)})).some((r) => r.outcome && r.outcome.kind === "sent")`, 5_000, "Sent to save")
+        .catch(() => false);
+    }
+    report.check(step, sent, "an outcome (Sent) on the first league's first idea is saved with that league", "Sent on the first league's first idea wasn't saved");
+  } else {
+    report.skip(step, "the first league has no trade idea: the feedback check is left out");
+  }
+
+  // 2. The second league, through the switcher's "Add league" and the Connect page's public-link import.
+  if (!(await openSwitcher(page))) {
+    report.fail(step, "the league switcher isn't at the top of the page, or its panel doesn't open");
+    return;
+  }
+  await page.click(`[...(${PANEL}).querySelectorAll("a")].find((a) => txt(a) === "Add league")`, "Add league");
+  await page.waitFor(`location.pathname === "/connect" && document.getElementById("espn-league")`, 30_000, "the Connect page");
+  await page.run(`setInput(document.getElementById("espn-league"), ${JSON.stringify(SECOND_LEAGUE.leagueId)}); return true;`);
+  const season = await page.run<boolean>(`
+    const s = document.getElementById("espn-season");
+    if (!s || ![...s.options].some((o) => o.value === ${JSON.stringify(SECOND_LEAGUE.season)})) return false;
+    if (s.value !== ${JSON.stringify(SECOND_LEAGUE.season)}) setSelect(s, ${JSON.stringify(SECOND_LEAGUE.season)});
+    return true;
+  `);
+  if (!season) report.note(step, "season", "the test league's season isn't one of the Connect page's seasons: its default was used");
+  await page.waitFor<boolean>(`[...document.querySelectorAll("span")].some((e) => /^League \\d+$/.test(txt(e)))`, 10_000, "the test league's id to be recognized").catch(() => false);
+  const started = Date.now();
+  await page.click(`[...document.querySelectorAll("button[type=submit]")].find((b) => txt(b).includes("Import"))`, "the Import button");
+  const imported = await page
+    .waitFor<string>(
+      `(await (async () => { if (location.pathname === "/import" && document.getElementById("my-team") && tabLeague() && tabLeague() !== ${JSON.stringify(first)}) return "ok"; const e = [...document.querySelectorAll("[role=alert], .text-danger-fg")].map(txt).filter((t) => t.length > 3)[0]; return e ? "error: " + e : null; })())`,
+      240_000,
+      "the test league's import",
+      250,
+    )
+    .catch((err: unknown) => `error: ${err instanceof Error ? err.message : "the import didn't finish"}`);
+  report.note(step, "importSeconds", seconds(Date.now() - started));
+  if (imported !== "ok") {
+    report.fail(step, `the test league didn't import: ${imported.replace(/^error: /, "")}`);
+    return;
+  }
+  const second = (await page.run<string | null>(`return tabLeague();`)) as string;
+  // Its names join the cleaning before anything else is read from the page.
+  const secondNames = await page.run<LeagueNames | null>(`return namesOf(await savedImport(${JSON.stringify(second)}));`);
+  if (!secondNames) {
+    report.fail(step, "the test league isn't saved in this browser");
+    return;
+  }
+  ctx.names = mergeLeagueNames(ctx.names, secondNames, "L2-");
+  ctx.onNames(ctx.names);
+  report.ok(step, `imported the test league through "Add league" (now ${pl((await page.run<string[]>(`return await savedLeagueIds();`)).length, "saved league")})`);
+
+  // 3. The second league on every page.
+  report.check(step, await page.run<boolean>(`return ${headingShows(second)};`), "the Import Report shows the test league", "the Import Report doesn't show the test league's name");
+  if (await openSwitcher(page)) {
+    const listed = await page.run<{ count: number; currentIsSecond: boolean; firstListed: boolean; m: Measure }>(`
+      const panel = ${PANEL};
+      const items = [...panel.querySelectorAll("[data-league-id]")];
+      const current = items.filter((b) => b.getAttribute("aria-current") === "true");
+      return { count: items.length, currentIsSecond: current.length === 1 && current[0].dataset.leagueId === ${JSON.stringify(second)}, firstListed: items.some((b) => b.dataset.leagueId === ${JSON.stringify(first)}), m: measure(panel) };
+    `);
+    report.check(
+      step,
+      listed.count === 2 && listed.currentIsSecond && listed.firstListed,
+      "the switcher lists both leagues, the test league marked as the one shown",
+      `the switcher lists ${pl(listed.count, "league")}${listed.currentIsSecond ? "" : ", the test league not marked as shown"}${listed.firstListed ? "" : ", without the first league"}`,
+    );
+    report.check(step, listed.m.smallCount === 0, `the switcher's panel: tap targets at least 44 px tall (${listed.m.targets} checked)`, `${pl(listed.m.smallCount, "tap target")} in the switcher's panel under 44 px`, listed.m.small);
+    layoutChecks(ctx, step, await measurePage(ctx), "the page with the switcher open");
+    await screenshot(ctx, "07-switcher");
+    await closeSwitcher(page);
+  } else {
+    report.fail(step, "the league switcher's panel doesn't open");
+  }
+
+  await page.click(`navLink("/league")`, "the nav's League link");
+  const league2 = await page.waitFor<string>(LEAGUE_READY, 400_000, "the test league's League page", 250).catch((err: unknown) => `error: ${err instanceof Error ? err.message : "it didn't load"}`);
+  if (report.check(step, league2 === "ready", "the League page built the test league", `the test league's League page didn't load: ${league2.replace(/^error: /, "")}`)) {
+    report.check(step, await page.run<boolean>(`return ${headingShows(second)};`), "the League page shows the test league", "the League page doesn't show the test league's name");
+  }
+  await page.click(`navLink("/trades")`, "the nav's Trades link");
+  const finder2 = await page
+    .waitFor<string>(`location.pathname === "/trades" && (noImport() ? "no import" : txt(document.querySelector("main") || document.body).includes("Pick your team on the Import Report to see trade ideas.") ? (document.querySelectorAll("article").length ? "cards" : "asks") : null)`, 120_000, "the test league's Trade Finder")
+    .catch(() => "no answer");
+  report.check(step, finder2 === "asks", "the Trade Finder asks for the test league's team, with none of the first league's ideas", `the Trade Finder in the test league: ${finder2}`);
+  await page.click(`[...document.querySelectorAll("a")].find((a) => a.getAttribute("href") === "/analyzer")`, "the Trade Analyzer link");
+  const analyzer2 = await page
+    .waitFor<string>(`location.pathname === "/analyzer" && (noImport() ? "no import" : txt(document.querySelector("main") || document.body).includes("Pick your team on the Import Report to build trades.") ? "asks" : null)`, 60_000, "the test league's Trade Analyzer")
+    .catch(() => "no answer");
+  report.check(step, analyzer2 === "asks", "the Trade Analyzer asks for the test league's team too", `the Trade Analyzer in the test league: ${analyzer2}`);
+
+  await page.click(`navLink("/settings")`, "the nav's Settings link");
+  const settings2 = await page.waitFor<boolean>(`location.pathname === "/settings" && !!byText("legend", ${JSON.stringify(MAX_LEGEND)})`, 60_000, "the test league's Settings page").catch(() => false);
+  if (report.check(step, settings2 && (await page.run<boolean>(`return ${settingsShows(second)};`)), "the Settings page shows the test league's settings", "the Settings page doesn't show the test league")) {
+    const firstMax = await page.run<number | null>(`const s = await savedSettings(${JSON.stringify(first)}); return s ? s.maxPerSide : null;`);
+    const want = firstMax === 3 ? 2 : 3;
+    await page.click(
+      `[...byText("legend", ${JSON.stringify(MAX_LEGEND)}).closest("fieldset").querySelectorAll("label")].find((l) => txt(l).startsWith(${JSON.stringify(String(want))}))`,
+      "a players-per-side choice",
+    );
+    const own = await page
+      .waitFor<boolean>(
+        `(await (async () => { const a = await savedSettings(${JSON.stringify(second)}); const b = await savedSettings(${JSON.stringify(first)}); return !!a && a.maxPerSide === ${want} && (b ? b.maxPerSide : null) === ${JSON.stringify(firstMax)}; })())`,
+        10_000,
+        "the test league's setting to save",
+      )
+      .catch(() => false);
+    report.check(step, own, `a setting saved in the test league (${MAX_LEGEND}: ${want}) is its own: the first league's stays as it was`, "the test league's setting wasn't saved as its own");
+  }
+  if (sent) {
+    const feedback = await page.run<{ second: number; first: boolean }>(
+      `return { second: (await savedFeedback(${JSON.stringify(second)})).length, first: (await savedFeedback(${JSON.stringify(first)})).some((r) => r.outcome && r.outcome.kind === "sent") };`,
+    );
+    report.check(step, feedback.second === 0 && feedback.first, "feedback stays per league: none in the test league, the first league's Sent kept", `feedback isn't per league (${feedback.second} record(s) in the test league; the first league's Sent ${feedback.first ? "kept" : "gone"})`);
+  }
+
+  // 4. Back to the first league: every page shows it again, with its own settings and feedback.
+  if (!(await switchLeague(page, first))) {
+    report.fail(step, "switching back to the first league with the switcher didn't work");
+    return;
+  }
+  const back = await page
+    .waitFor<boolean>(`location.pathname === "/settings" && ${settingsShows(first)} && ${CHECKED_MAX} !== null`, 30_000, "the first league's settings")
+    .catch(() => false);
+  const backMax = back ? await page.run<string | null>(`return ${CHECKED_MAX};`) : null;
+  const firstSaved = await page.run<number | null>(`const s = await savedSettings(${JSON.stringify(first)}); return s ? s.maxPerSide : null;`);
+  report.check(
+    step,
+    back && backMax === String(firstSaved ?? 2),
+    `switched back with the switcher: the Settings page shows the first league's own settings (${MAX_LEGEND}: ${backMax})`,
+    back ? `the Settings page shows ${MAX_LEGEND}: ${backMax} for the first league` : "the Settings page doesn't show the first league after switching back",
+  );
+  await page.click(`navLink("/import")`, "the nav's Import report link");
+  const report1 = await page.waitFor<boolean>(`location.pathname === "/import" && !!document.getElementById("my-team") && ${headingShows(first)}`, 30_000, "the first league's Import Report").catch(() => false);
+  report.check(step, report1, "the Import Report shows the first league again", "the Import Report doesn't show the first league after switching back");
+  await page.click(`navLink("/league")`, "the nav's League link");
+  const league1 = await page.waitFor<string>(LEAGUE_READY, 400_000, "the first league's League page", 250).catch(() => "no");
+  report.check(step, league1 === "ready" && (await page.run<boolean>(`return ${headingShows(first)};`)), "the League page shows the first league again", "the League page doesn't show the first league after switching back");
+  if (ctx.firstCard) {
+    await page.click(`navLink("/trades")`, "the nav's Trades link");
+    const finder1 = await page.waitFor<string>(FINDER_DONE, 300_000, "the first league's Trade Finder", 50).catch(() => "no");
+    const pressed = finder1 === "done" ? await page.run<boolean>(`const b = ${sentButton}; return !!b && b.getAttribute("aria-pressed") === "true";`).catch(() => false) : false;
+    report.check(
+      step,
+      finder1 === "done" && pressed === sent,
+      `the Trade Finder shows the first league's ideas again${sent ? ", the first one still marked Sent" : ""}`,
+      finder1 === "done" ? "the first league's first idea lost its Sent" : "the Trade Finder doesn't show the first league's ideas after switching back",
+    );
+  }
+
+  // 4b. A trade page's address names teams of the league it was for (review of track ML; finderMemory.ts
+  // useLeagueQuery): a partner picked on the first league's Trade Finder doesn't follow a switch to the test league.
+  // (Team ids only, compared in the page and never printed.)
+  let partner: string | null = null;
+  if (ctx.myTeam) {
+    if ((await page.run<string>(`return location.pathname;`)) !== "/trades") await page.click(`navLink("/trades")`, "the nav's Trades link");
+    const ready = await page.waitFor<string>(FINDER_DONE, 300_000, "the first league's Trade Finder", 50).catch(() => "no");
+    partner =
+      ready === "done" ? await page.run<string | null>(`const s = document.getElementById("finder-partner"); return (s ? [...s.options].map((o) => o.value).filter(Boolean) : [])[0] || null;`) : null;
+    if (partner) {
+      const from = await mark(page);
+      await page.run(`setSelect(document.getElementById("finder-partner"), ${JSON.stringify(partner)}); return true;`);
+      const searched = await page
+        .waitFor<boolean>(`location.search === ${JSON.stringify(`?partner=${partner}`)} && engineSince(${from}).some((e) => e.type === "trades") && ${FINDER_DONE} === "done"`, 120_000, "the one-partner search", 50)
+        .catch(() => false);
+      const switched = searched && (await switchLeague(page, second));
+      const own = switched
+        ? await page
+            .waitFor<boolean>(`location.pathname === "/trades" && location.search === "" && txt(document.querySelector("main") || document.body).includes("Pick your team on the Import Report to see trade ideas.")`, 30_000, "the test league's Trade Finder")
+            .catch(() => false)
+        : false;
+      report.check(
+        step,
+        own,
+        "a partner picked on the first league's Trade Finder doesn't follow a switch: the test league's Finder opens on its own, its address without the partner",
+        !searched ? "picking a partner on the first league's Trade Finder didn't search" : !switched ? "switching to the test league from the Trade Finder didn't work" : "after the switch, the address still names the first league's partner",
+      );
+      if (!own) partner = null;
+    } else {
+      report.skip(step, "the first league's Trade Finder has no partner to pick: the trade pages' address checks are left out");
+    }
+  } else {
+    report.skip(step, "no team picked: the trade pages' address checks are left out");
+  }
+
+  // 5. Remove the test league, the league shown, from a trade page whose address names a team (written under the test
+  // league, as a link would): asked first; then it and what it saved go, and nothing of the first league's; the tab moves
+  // to the first league, whose Trade Finder opens for every team, never on that address's partner, and the address goes.
+  if ((await page.run<string | null>(`return tabLeague();`)) !== second && !(await switchLeague(page, second))) {
+    report.fail(step, "switching to the test league to remove it didn't work");
+    return;
+  }
+  if (partner) {
+    await page.run(`window.history.replaceState(null, "", "/trades?partner=" + ${JSON.stringify(partner)}); return true;`);
+    await page.waitFor<boolean>(`location.search === ${JSON.stringify(`?partner=${partner}`)}`, 5_000, "the address").catch(() => false);
+    await sleep(500);
+    // From here on, any partner the Finder's filter shows is noted: the first league's must never show the address's.
+    await page.run(`
+      window.__partnersShown = [];
+      const note = () => { const s = document.getElementById("finder-partner"); if (s && s.value) window.__partnersShown.push(s.value); };
+      window.__partnerWatch = new MutationObserver(note);
+      window.__partnerWatch.observe(document, { subtree: true, childList: true, attributes: true });
+      return true;
+    `);
+  }
+  if (!(await openSwitcher(page))) {
+    report.fail(step, "the league switcher's panel doesn't open to remove the test league");
+    return;
+  }
+  await page.click(`(${PANEL}).querySelector(${JSON.stringify(`[data-remove-league="${second}"]`)})`, "Remove on the test league");
+  const asked = await page
+    .waitFor<boolean>(`!!(${PANEL}) && [...(${PANEL}).querySelectorAll("[role=group] p")].some((p) => /^Remove .* from this browser\\?$/.test(txt(p))) && !!byText("button", "Yes, remove it", ${PANEL})`, 5_000, "the removal's question")
+    .catch(() => false);
+  if (!report.check(step, asked, "Remove asks first, saying what goes", "Remove didn't ask before removing the league")) return;
+  await page.click(`byText("button", "Yes, remove it", ${PANEL})`, "Yes, remove it");
+  const removed = await page
+    .waitFor<boolean>(
+      `(await (async () => { const ids = await savedLeagueIds(); return ids.length === 1 && ids[0] === ${JSON.stringify(first)} && tabLeague() === ${JSON.stringify(first)} && !(await savedImport(${JSON.stringify(second)})) && !(await savedSettings(${JSON.stringify(second)})); })())`,
+      10_000,
+      "the test league to be removed",
+    )
+    .catch(() => false);
+  const kept = sent ? await page.run<boolean>(`return (await savedFeedback(${JSON.stringify(first)})).some((r) => r.outcome && r.outcome.kind === "sent");`) : true;
+  report.check(
+    step,
+    removed && kept,
+    "Remove deleted the test league (the league shown) and its settings; the first league and its feedback stayed, and the tab moved to it",
+    removed ? "removing the test league took the first league's feedback with it" : "the test league (or its settings) is still saved after Remove, or the tab didn't move to the first league",
+  );
+  const named = await page.run<boolean>(`return statusLines().some((t) => t.startsWith("Removed ") && t.includes(" Now showing "));`);
+  report.check(step, named, "the switcher's status line says which league shows now", "the switcher's status line doesn't say which league shows after the removal");
+  if (partner) {
+    const finder1 = await page.waitFor<string>(FINDER_DONE, 300_000, "the first league's Trade Finder after the removal", 50).catch(() => "no");
+    const after = await page.run<{ search: string; filter: string | null; shown: number }>(`
+      if (window.__partnerWatch) window.__partnerWatch.disconnect();
+      const s = document.getElementById("finder-partner");
+      return { search: location.search, filter: s ? s.value : null, shown: (window.__partnersShown || []).length };
+    `);
+    report.check(
+      step,
+      finder1 === "done" && after.search === "" && after.filter === "" && after.shown === 0,
+      "the first league's Trade Finder opened for every team after the removal: never on the removed league's address, which is gone",
+      finder1 !== "done"
+        ? "the first league's Trade Finder didn't show its ideas after the removal"
+        : `the first league's Trade Finder read the removed league's address (${after.search ? "the address kept it" : "address dropped"}; the filter showed a partner ${after.shown} time(s); now ${after.filter ? "a partner" : "every team"})`,
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------------------------
+// 9. Home and Privacy
 
 export async function staticPagesStep(ctx: StepContext): Promise<void> {
   for (const [step, pathname, shot] of [
-    ["Home", "/", "07-home"],
-    ["Privacy", "/privacy", "08-privacy"],
+    ["Home", "/", "08-home"],
+    ["Privacy", "/privacy", "09-privacy"],
   ] as const) {
     ctx.page.step = step;
     await ctx.page.navigate(pathname);
@@ -644,6 +972,7 @@ export const STEPS: ReadonlyArray<{ name: string; run: (ctx: StepContext) => Pro
   { name: "Trade card", run: cardStep, health: true },
   { name: "Analyzer", run: analyzerStep, health: true },
   { name: "Settings", run: settingsStep, health: true },
+  { name: "Second league", run: secondLeagueStep, health: true },
   { name: "Home and Privacy", run: staticPagesStep, health: false },
 ];
 

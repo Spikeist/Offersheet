@@ -1,16 +1,21 @@
 "use client";
 /**
  * One league's trade settings in the pages (CLAUDE.md §12 "User settings", §14 item 6; lead decision L12):
- * the Settings page edits them, and the League page (and Phase 4's Trade Finder and Analyzer) send them with
- * every engine request. They're read from localStorage through src/lib/settingsStore.ts, so every page sees
- * the same normalized copy, and a change saved anywhere (this tab or another) reaches every open page.
+ * the Settings page edits them, and the League page, the Trade Finder and the Analyzer send them with every
+ * engine request. Every page sees the same normalized copy, and a change saved anywhere (this tab or another)
+ * reaches every open page.
+ *
+ * Phase 4c (planner reply to Checkpoint 4b, change 11): settings live in the league store (IndexedDB,
+ * src/lib/leagueStore.ts), per leagueKey: useSavedLeagueSettings reads them (undefined settings while the store
+ * loads), changeSavedSettings and resetSavedSettings write them. A change applies to the page at once and then to
+ * the copy stored right now (so quick changes in a row, a slider's drag among them, never undo each other); the
+ * promise says whether the browser kept it (a refused change puts the page back and says why).
  */
 import { useMemo } from "react";
-import type { LeagueSnapshot } from "@/engine/model";
-import type { TradeSettings } from "@/engine/settings";
+import { defaultTradeSettings, type TradeSettings } from "@/engine/settings";
 import type { SaveResult } from "@/lib/importStore";
-import { SETTINGS_SAVE_FAILED, SETTINGS_STORAGE_KEY, leagueKey, loadLeagueSettings, readLeagueSettings, resetLeagueSettings, saveLeagueSettings } from "@/lib/settingsStore";
-import { browserLocalStorage, notifyLocalChange, useLocalValue } from "./useLocalValue";
+import { leagueStore, useLeagueStoreState } from "@/lib/leagueStore";
+import { SETTINGS_SAVE_FAILED } from "@/lib/settingsStore";
 
 export interface LeagueSettingsState {
   /** The league's key in this browser's storage (settingsStore.ts leagueKey). */
@@ -21,35 +26,25 @@ export interface LeagueSettingsState {
   stored: boolean;
 }
 
-/** This league's settings, kept current as they change. */
-export function useLeagueSettings(league: Pick<LeagueSnapshot, "platform" | "leagueId">): LeagueSettingsState {
-  const raw = useLocalValue(SETTINGS_STORAGE_KEY);
-  const key = leagueKey(league);
+/** A league's settings from the league store (by its leagueKey: a saved league's `leagueKey`), kept current as they change. */
+export function useSavedLeagueSettings(key: string): LeagueSettingsState {
+  const { status, settings } = useLeagueStoreState();
+  const own = status === "ready" ? settings.get(key) : undefined;
   return useMemo(() => {
-    if (raw === undefined) return { key, settings: undefined, stored: false };
-    const read = readLeagueSettings(raw, key);
-    return { key, settings: read.settings, stored: read.stored };
-  }, [raw, key]);
+    if (status !== "ready") return { key, settings: undefined, stored: false };
+    return own ? { key, settings: own, stored: true } : { key, settings: defaultTradeSettings(), stored: false };
+  }, [status, own, key]);
 }
 
 /**
- * Changes a league's settings in this browser and tells the open pages. The change applies to the copy
- * stored right now (not to what a page last rendered), so quick changes in a row, a slider's drag among them,
- * never undo each other.
+ * Changes a league's settings in the league store: `change` runs on the page's copy at once, then on the stored copy
+ * (keep it pure: it can run twice). Resolves once the browser kept it, or with the reason it didn't.
  */
-export function updateSettings(key: string, change: (current: TradeSettings) => TradeSettings): SaveResult {
-  const storage = browserLocalStorage();
-  if (!storage) return { ok: false, message: SETTINGS_SAVE_FAILED };
-  const saved = saveLeagueSettings(storage, key, change(loadLeagueSettings(storage, key).settings));
-  if (saved.ok) notifyLocalChange();
-  return saved;
+export function changeSavedSettings(key: string, change: (current: TradeSettings) => TradeSettings): Promise<SaveResult> {
+  return leagueStore()?.updateSettings(key, change) ?? Promise.resolve({ ok: false, message: SETTINGS_SAVE_FAILED });
 }
 
-/** Back to the defaults for a league (its saved copy is removed) and tells the open pages. */
-export function resetSettings(key: string): SaveResult {
-  const storage = browserLocalStorage();
-  if (!storage) return { ok: false, message: SETTINGS_SAVE_FAILED };
-  const reset = resetLeagueSettings(storage, key);
-  if (reset.ok) notifyLocalChange();
-  return reset;
+/** Back to the defaults for a league in the league store (its saved copy goes). */
+export function resetSavedSettings(key: string): Promise<SaveResult> {
+  return leagueStore()?.resetSettings(key) ?? Promise.resolve({ ok: false, message: SETTINGS_SAVE_FAILED });
 }

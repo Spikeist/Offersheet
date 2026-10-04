@@ -3,19 +3,31 @@
  * The Trade Analyzer (CLAUDE.md §13 "Trade Analyzer", §14 item 5; Phase 4 wave 2 decision M13): the user builds any
  * trade with one team (a counteroffer included), and sees the same evaluation a trade idea gets
  * (src/engine/evaluate.ts analyzeTrade, in the engine's Web Worker: exact lineups and the full season simulation),
- * on the same card, or why the trade can't be made. It loads the league the way the League page does
- * (useLeagueInputs.ts) and sends the league's settings with every evaluation.
+ * on the same card, or why the trade can't be made. It loads the league this tab shows (one of the leagues saved in this
+ * browser: src/lib/leagueStore.ts, Phase 4c) the way the League page does (useLeagueInputs.ts), sends the league's
+ * settings with every evaluation, and reads and saves its feedback per league (useFeedback.ts saveFeedbackPress: the card
+ * says what a press did once the browser has kept it, or why not; each press saves the sent version's model inputs, with
+ * "What matters most" as the evaluation weighted B).
+ *
+ * Phase 4c (planner reply to Checkpoint 4b): the card is the Trade Finder's, with my title and playoff odds before and
+ * after and the weeks whose win chance moves (change 9), its trade values FantasyCalc's own (change 3: tradeView.ts
+ * fantasyCalcLookup from the model inputs this page holds), and "Details", the model's own trade-value figures, which only
+ * the Analyzer shows ("the Analyzer can show them under 'Details'"). What "Helps you" sums up is said once, above the card.
+ * What the card and "How to read" say about values follows the league's data (tradeView.ts valueFactsOf: FantasyCalc's
+ * values, long-term values, the market blend; review of track UIC, findings 2 and 3).
  *
  * Building: pick the partner, then my players to give and theirs to get, from the active rosters and IR (Phase 4b:
  * IR players are tradable, each choice saying "IR slot"; taxi players still aren't), up to config.search.analyzerMaxPerSide a side (a full side's other
  * boxes are disabled, and the page says why). The address can carry a trade (`?partner=&give=&get=`, a team id and
  * player ids only: the Trade Finder's "Open in Analyzer" links). It's read with useSearchParams, which on a client
  * navigation already holds the new address while the page renders (window.location still holds the old one until
- * the navigation commits), so the app route wraps the page in <Suspense> (src/app/analyzer/page.tsx). Anything that
- * isn't on those rosters is ignored, and a complete trade is evaluated straight away. Edits hold until the address
- * names another trade. Evaluate writes the trade back into the address (history.replaceState, which Next keeps in
- * step with useSearchParams), so a reload or a bookmark keeps it, and that write never counts as a new trade to
- * evaluate. The result stays editable: change anything and Evaluate again. A result for a trade that has since
+ * the navigation commits), so the app route wraps the page in <Suspense> (src/app/analyzer/page.tsx). ⚠️ An address
+ * read under one saved league is read as none under another (a switch, a removal here or in another tab) and dropped,
+ * so another league's teams and players never prefill a trade here (finderMemory.ts useLeagueQuery; review of track
+ * ML). Anything that isn't on those rosters is ignored, and a complete trade is evaluated straight away. Edits hold
+ * until the address names another trade. Evaluate writes the trade back into the address (history.replaceState, which
+ * Next keeps in step with useSearchParams), so a reload or a bookmark keeps it, and that write never counts as a new
+ * trade to evaluate. The result stays editable: change anything and Evaluate again. A result for a trade that has since
  * changed, or for older league data or settings, stays on screen dimmed, saying so. Above the card, my odds before
  * this trade (the worker sends them with the evaluation), worded as the Trade Finder words them, so a trade's odds
  * read the same on both pages, end percents included (src/lib/tradeView.ts baselineLines; review of Phase 4). Under
@@ -34,22 +46,23 @@
  * heading; so does the address's trade (the Trade Finder's "Open in Analyzer") once it's evaluated, unless the user
  * has put focus somewhere on the page meanwhile (they're busy there), and a failure is brought into view the same
  * way. The status line sits above the form, so "Evaluating the trade…" shows near the top while the address's trade
- * is evaluated. "Back to the Trade Finder" goes to the Finder's last address, its partner filter included, where the
- * Finder shows the ideas it found again (src/components/trades/finderMemory.ts); the two pages share one engine
- * client, so the Analyzer reuses the evaluation context a search built.
+ * is evaluated. "Back to the Trade Finder" goes to this league's Finder's last address, its partner filter included,
+ * where the Finder shows the ideas it found again (src/components/trades/finderMemory.ts, per saved league); the two
+ * pages share the league's engine client, so the Analyzer reuses the evaluation context a search built.
  *
  * Accessibility: the partner is a labeled native select; each side's players are a fieldset of native checkboxes
  * (44 px rows; position, NFL team and injury in words); one status line (role="status") announces each evaluation.
  */
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
-import { useEffect, useEffectEvent, useId, useMemo, useRef, useState, type Ref } from "react";
+import { useCallback, useEffect, useEffectEvent, useId, useMemo, useRef, useState, type Ref } from "react";
 import type { LeagueSettings, LeagueSnapshot } from "@/engine/model";
-import type { TradeSettings } from "@/engine/settings";
+import type { Goal, TradeSettings } from "@/engine/settings";
+import type { TradeEvaluation } from "@/engine/tradeModel";
 import { EngineError } from "@/lib/engineClient";
 import type { FeedbackChange, FeedbackRecord } from "@/lib/feedbackStore";
-import type { SaveResult, StoredImport } from "@/lib/importStore";
-import { modelKey, modelRequest } from "@/lib/modelStore";
+import type { SaveResult } from "@/lib/importStore";
+import type { CurrentLeagueRead } from "@/lib/leagueStore";
+import { modelRequest } from "@/lib/modelStore";
 import { settingsFingerprint } from "@/lib/settingsStore";
 import {
   ANALYZER_MAX_PER_SIDE,
@@ -61,38 +74,42 @@ import {
   draftKey,
   draftProposal,
   draftSummary,
+  fantasyCalcLookup,
   readAnalyzerDraft,
   readAnalyzerFrom,
+  valueFactsOf,
   type AnalysisView,
   type AnalyzerChoices,
   type AnalyzerDraft,
   type AnalyzerFrom,
   type PlayerChoice,
   type SnapshotPart,
+  type ValueFacts,
 } from "@/lib/tradeView";
 import type { AnalyzerResult } from "@/workers/engine.worker";
 import { NoImportCard } from "../NoImportCard";
-import { leagueTag, useLeagueInputs, useStoredImport } from "../league/useLeagueInputs";
+import { leagueTag, useCurrentLeague, useSavedLeagueInputs } from "../league/useLeagueInputs";
 import { revealResult } from "../reveal";
-import { saveTradeFeedback, useFeedbackRecords } from "../settings/useFeedback";
-import { useLeagueSettings } from "../settings/useLeagueSettings";
+import { saveFeedbackPress, useSavedFeedback } from "../settings/useFeedback";
+import { useSavedLeagueSettings } from "../settings/useLeagueSettings";
 import { Badge, Callout, Card, CardTitle, FOCUS_TARGET, Spinner, buttonClass, cx, inputClass } from "../ui";
-import { finderAddress, tradeEngine } from "./finderMemory";
+import { finderAddress, tradeEngine, useLeagueQuery } from "./finderMemory";
 import { HowToRead } from "./HowToRead";
 import { TradeCard } from "./TradeCard";
 import { LeagueLoading } from "./LeagueLoading";
 
 export const ANALYZER_TITLE = "Trade Analyzer";
-export const NO_IMPORT_TEXT = "Connect your ESPN or Sleeper league to build and check your own trades. Imports stay in this browser tab only.";
+export const NO_IMPORT_TEXT = "Connect your ESPN or Sleeper league to build and check your own trades. Leagues you import stay saved in this browser until you remove them.";
 
 const linkClass = "font-semibold text-brand-strong underline underline-offset-2 dark:text-brand";
 
 export function AnalyzerPage() {
-  const read = useStoredImport();
+  const read = useCurrentLeague();
+  // The address's trade, while it's this league's (finderMemory.ts useLeagueQuery: kept here, across a switch).
+  const query = useLeagueQuery();
   if (read === undefined) return <LeagueLoading />;
-  if (read.kind !== "ok") return <NoImportCard outdated={read.kind === "outdated"} text={NO_IMPORT_TEXT} />;
-  const stored = read.stored;
-  if (!modelRequest(stored)) {
+  if (read.kind !== "ok") return <NoImportCard read={read} text={NO_IMPORT_TEXT} />;
+  if (!modelRequest(read.stored)) {
     return (
       <Card className="mx-auto max-w-xl text-center">
         <h1 className="text-2xl font-black tracking-tight">Not available for this league yet</h1>
@@ -100,7 +117,8 @@ export function AnalyzerPage() {
       </Card>
     );
   }
-  return <LoadedAnalyzer key={modelKey(stored.response.snapshot)} stored={stored} />;
+  // One page state per saved league: switching to or importing another starts fresh (finderMemory.ts: its own worker).
+  return <LoadedAnalyzer key={read.league.id} current={read} query={query} />;
 }
 
 /** What an evaluation is for besides the trade: the league data, the inputs' build, my team and every setting. */
@@ -116,6 +134,8 @@ interface Evaluated {
   analysis: AnalyzerResult;
   /** "planB": opened from "If they say no, try:" and evaluated without "How to offer it" (the header). */
   from: AnalyzerFrom | null;
+  /** "What matters most" as the evaluation weighted B (the feedback's version inputs). */
+  goal: Goal;
 }
 
 /** Focus is on nothing in particular (the page, or an element that's gone): the user isn't busy somewhere on the page. */
@@ -124,13 +144,15 @@ function focusIdle(): boolean {
   return !active || active === document.body || !active.isConnected;
 }
 
-function LoadedAnalyzer({ stored }: { stored: StoredImport }) {
-  const snapshot = stored.response.snapshot;
-  const { pair, myTeam, error: fetchError, retry: retryFetch } = useLeagueInputs(stored);
-  const { settings, key: leagueKey } = useLeagueSettings(snapshot);
-  const records = useFeedbackRecords();
-  // The address's query (see the header: never window.location, which lags a client navigation). Null outside Next.
-  const query = useSearchParams()?.toString() ?? "";
+/** `query`: the address's query while it's this league's (useLeagueQuery, in AnalyzerPage: never window.location, which lags a client navigation). */
+function LoadedAnalyzer({ current, query }: { current: Extract<CurrentLeagueRead, { kind: "ok" }>; query: string }) {
+  // The saved league's id: its engine client and its Finder's address are that league's (finderMemory.ts).
+  const leagueId = current.league.id;
+  const { pair, myTeam, error: fetchError, retry: retryFetch } = useSavedLeagueInputs(current);
+  const { settings, key: leagueKey } = useSavedLeagueSettings(current.league.leagueKey);
+  const records = useSavedFeedback(current.league.leagueKey);
+  // A press shows at once (the league store applies it); the card says what it did once the browser has kept it.
+  const onFeedback = useCallback((evaluation: TradeEvaluation, change: FeedbackChange) => saveFeedbackPress({ leagueKey, evaluation, change }), [leagueKey]);
   // The trade as edited here, and the query it was edited under.
   const [edited, setEdited] = useState<{ draft: AnalyzerDraft; query: string } | null>(null);
 
@@ -145,8 +167,8 @@ function LoadedAnalyzer({ stored }: { stored: StoredImport }) {
   const fromOf = (d: AnalyzerDraft): AnalyzerFrom | null => (planBKey !== null && draftKey(d) === planBKey ? "planB" : null);
   const evalKey = (d: AnalyzerDraft): string => `${draftKey(d)}${fromOf(d) ? "|planB" : ""}`;
   const contextTag = pair && myTeamId && settings ? contextTagFor(pair.snapshot, pair.inputs.builtAt, myTeamId, settings) : null;
-  // "Back to the Trade Finder": the Finder's last address in this tab, its partner filter included (finderMemory.ts).
-  const [backHref] = useState(finderAddress);
+  // "Back to the Trade Finder": this league's Finder's last address in this tab, its partner filter included (finderMemory.ts).
+  const [backHref] = useState(() => finderAddress(leagueId));
 
   const latest = useRef(0);
   const [evaluated, setEvaluated] = useState<Evaluated | null>(null);
@@ -174,6 +196,7 @@ function LoadedAnalyzer({ stored }: { stored: StoredImport }) {
     const from = fromOf(d);
     const key = evalKey(d);
     const context = contextTag;
+    const goal = settings.goal;
     const show = (to: "result" | "failure") => {
       if (!auto || focusIdle()) setReveal((r) => ({ n: (r?.n ?? 0) + 1, to }));
     };
@@ -184,13 +207,13 @@ function LoadedAnalyzer({ stored }: { stored: StoredImport }) {
     } catch {
       // the address just doesn't keep the trade
     }
-    tradeEngine()
+    tradeEngine(leagueId)
       .analyzeTrade({ snapshot: pair.snapshot, model: pair.inputs, myTeamId, nowIso: new Date().toISOString(), settings, proposal, ...(from === "planB" ? { steps: false } : {}) })
       .then(
         (analysis) => {
           if (n !== latest.current) return;
           setWorking(null);
-          setEvaluated({ draft: key, context, analysis, from });
+          setEvaluated({ draft: key, context, analysis, from, goal });
           show("result");
         },
         (err: unknown) => {
@@ -219,10 +242,21 @@ function LoadedAnalyzer({ stored }: { stored: StoredImport }) {
   const choices = useMemo(() => (league ? analyzerChoices(league, myTeamId, draft) : null), [league, myTeamId, draft]);
   // The NFL's last week, for injury tags' "Out for the season" (tradeView.ts seasonEndOf).
   const lastNflWeek = pair?.inputs.nfl?.lastWeek;
-  const resultView = useMemo(() => (evaluated && league ? buildAnalysisView(evaluated.analysis, league, lastNflWeek, { from: evaluated.from }) : null), [evaluated, league, lastNflWeek]);
+  // FantasyCalc's own values, the card's one value number (tradeView.ts fantasyCalcLookup).
+  const market = pair?.inputs.market;
+  const fantasyCalc = useMemo(() => fantasyCalcLookup(market), [market]);
+  // What the league's data lets the card and "How to read" say about values and the market blend (tradeView.ts valueFactsOf).
+  const leagueType = pair?.snapshot.settings.leagueType ?? "redraft";
+  const facts = useMemo(() => (pair ? valueFactsOf(market, leagueType) : null), [pair, market, leagueType]);
+  const blendOn = facts?.blendOn;
+  const resultView = useMemo(
+    () => (evaluated && league ? buildAnalysisView(evaluated.analysis, league, lastNflWeek, { from: evaluated.from, fantasyCalc, goal: evaluated.goal, blendOn }) : null),
+    [evaluated, league, lastNflWeek, fantasyCalc, blendOn],
+  );
   const stale = evaluated !== null && (evaluated.draft !== evalKey(draft) || evaluated.context !== contextTag);
   const busy = working !== null;
 
+  const accept = resultView?.card?.numbers.accept;
   const status = busy
     ? "Evaluating the trade…"
     : failure
@@ -230,8 +264,8 @@ function LoadedAnalyzer({ stored }: { stored: StoredImport }) {
       : resultView
         ? resultView.illegal
           ? `This trade can't be made: ${resultView.illegal}`
-          : resultView.card
-            ? `Evaluated: Helps you ${resultView.card.numbers.helps.value}, chance they accept ${resultView.card.numbers.accept.value}, Overall ${resultView.card.numbers.overall.value}.`
+          : resultView.card && accept
+            ? `Evaluated: Helps you ${resultView.card.numbers.helps.value}, chance they accept ${accept.srText ?? accept.value}, Overall ${resultView.card.numbers.overall.value}.`
             : "Evaluated."
         : "";
 
@@ -306,7 +340,8 @@ function LoadedAnalyzer({ stored }: { stored: StoredImport }) {
           leagueKey={leagueKey}
           snapshot={league}
           leagueType={league?.settings.leagueType}
-          onFeedback={(evaluation, change) => saveTradeFeedback({ leagueKey, evaluation, change })}
+          facts={facts}
+          onFeedback={onFeedback}
         />
       ) : null}
     </div>
@@ -433,10 +468,10 @@ function PlayerGroup({ legend, players, onToggle, empty }: { legend: string; pla
 }
 
 /**
- * The evaluation: my odds before the trade and what they count, the trade card, or why it can't be made, and the notes;
- * dimmed when it's for an older trade. Under a card, "How to read the evaluation" (HowToRead.tsx: the three numbers,
- * "Harder to get", "How to offer it" and why its message can propose less than the trade built), never dimmed: the
- * words don't go stale.
+ * The evaluation: my odds before the trade and what they count, what "Helps you" sums up, the trade card (with "Details",
+ * the model's trade-value figures), or why it can't be made, and the notes; dimmed when it's for an older trade. Under a
+ * card, "How to read the evaluation" (HowToRead.tsx: the three numbers, "Harder to get", "How to offer it" and why its
+ * message can propose less than the trade built), never dimmed: the words don't go stale.
  */
 export function AnalysisResult({
   view,
@@ -447,6 +482,7 @@ export function AnalysisResult({
   leagueKey,
   snapshot,
   leagueType = "redraft",
+  facts,
   onFeedback,
 }: {
   view: AnalysisView;
@@ -460,7 +496,13 @@ export function AnalysisResult({
   snapshot?: SnapshotPart | null | undefined;
   /** Says how Helps you weighs later seasons (HowToRead); default redraft. */
   leagueType?: LeagueSettings["leagueType"] | undefined;
-  onFeedback: (evaluation: NonNullable<AnalysisView["card"]>["evaluation"], change: FeedbackChange) => SaveResult;
+  /**
+   * What the league's data lets "How to read" say about values and the market blend (tradeView.ts valueFactsOf); absent or
+   * null: the usual words. Long-term values also count as missing when the card says so (TradeEvaluation.dynMissing).
+   */
+  facts?: ValueFacts | null | undefined;
+  /** Saves a feedback press; its promise says whether the browser kept it (the card says so). */
+  onFeedback: (evaluation: NonNullable<AnalysisView["card"]>["evaluation"], change: FeedbackChange) => SaveResult | Promise<SaveResult>;
 }) {
   const card = view.card;
   return (
@@ -470,10 +512,11 @@ export function AnalysisResult({
       </h2>
       {stale ? <Callout tone="warn">You&apos;ve changed the trade, your settings or the league data since. Evaluate it again to see the new numbers.</Callout> : null}
       <div className={cx("space-y-4 transition-opacity", stale && "opacity-60")}>
-        {view.baseline ? (
+        {view.baseline || view.helpsInfo ? (
           <div>
-            <p className="text-sm font-semibold">{view.baseline}</p>
+            {view.baseline ? <p className="text-sm font-semibold">{view.baseline}</p> : null}
             {view.baselineNote ? <p className="mt-0.5 text-xs text-muted">{view.baselineNote}</p> : null}
+            {view.helpsInfo ? <p className="mt-0.5 text-xs text-muted">{view.helpsInfo}</p> : null}
           </div>
         ) : null}
         {view.illegal ? (
@@ -497,7 +540,15 @@ export function AnalysisResult({
           </ul>
         ) : null}
       </div>
-      {card ? <HowToRead leagueType={leagueType} page="analyzer" /> : null}
+      {card ? (
+        <HowToRead
+          leagueType={leagueType}
+          page="analyzer"
+          valuesOn={facts?.valuesOn ?? true}
+          longTermOn={(facts?.longTermOn ?? true) && !card.evaluation.dynMissing}
+          blendOn={facts?.blendOn ?? true}
+        />
+      ) : null}
     </section>
   );
 }

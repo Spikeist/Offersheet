@@ -1,18 +1,23 @@
 /**
- * Keeps the League page's model inputs (CLAUDE.md §6 projections and §9 FantasyCalc values for the
- * imported league, already in the league's scoring) in sessionStorage for this tab, so going back
- * to the League page doesn't fetch them again. Never localStorage, never credentials. A stored copy
- * is reused only for the same league AND the same league data (snapshot.fetchedAt), so projections
- * never mix with other rosters, and only while it is younger than the projections' refresh interval
- * (MODEL_REUSE_MAX_AGE_MS): a tab reopened days later fetches again instead of showing an old week
- * as current. One league at a time. Pure functions over an injected storage, like importStore.ts.
+ * The League page's model inputs (CLAUDE.md §6 projections and §9 FantasyCalc values for an imported league, already
+ * in the league's scoring) as the browser keeps them, so going back to the League page doesn't fetch them again. Never
+ * credentials. A stored copy is reused only for the same league AND the same league data (snapshot.fetchedAt), so
+ * projections never mix with other rosters, and only while it is younger than the projections' refresh interval
+ * (MODEL_REUSE_MAX_AGE_MS): a page opened days later fetches again instead of showing an old week as current. Pure
+ * functions.
+ *
+ * Phase 4c (planner reply to Checkpoint 4b, change 11): the league store (src/lib/leagueStore.ts) keeps each saved
+ * league's latest inputs in IndexedDB with this record (StoredModel, checkStoredModel), this reuse rule
+ * (modelForSnapshot) and this replace rule (snapshotOrder). Before 4c a tab kept one league's inputs in sessionStorage
+ * (MODEL_STORAGE_KEY): the migration reads them once (parseStoredModel), and nothing writes them anymore.
  */
 import type { ModelInputs } from "@/engine/inputs";
 import type { LeagueSnapshot } from "@/engine/model";
 import type { EspnModelBody, ModelResponse, SleeperModelBody } from "./api";
-import { recordImport, type SaveResult, type StorageLike, type StoredImport } from "./importStore";
+import type { StoredImport } from "./importStore";
 import { normalizeSleeperUsername } from "./sleeperInput";
 
+/** Before Phase 4c: this tab's model inputs in sessionStorage (the league store's migration reads them). */
 export const MODEL_STORAGE_KEY = "offersheet:model:v1";
 
 /**
@@ -39,21 +44,6 @@ export function modelKey(league: LeagueKey): string {
   return `${league.platform}:${league.leagueId}:${league.season}`;
 }
 
-/**
- * Saves model inputs for a snapshot, replacing whatever was stored. The old copy goes first, so a
- * full storage never keeps a stale copy in the way of the import itself.
- */
-export function saveModel(storage: StorageLike, args: { snapshot: SnapshotKey; model: ModelInputs; savedAt: string }): SaveResult {
-  const stored: StoredModel = { version: 1, savedAt: args.savedAt, key: modelKey(args.snapshot), snapshotFetchedAt: args.snapshot.fetchedAt, model: args.model };
-  try {
-    storage.removeItem(MODEL_STORAGE_KEY);
-    storage.setItem(MODEL_STORAGE_KEY, JSON.stringify(stored));
-    return { ok: true };
-  } catch {
-    return { ok: false, message: "Your browser wouldn't let us keep the projections for this session (storage is full or blocked), so they'll load again next time." };
-  }
-}
-
 function isRecord(x: unknown): x is Record<string, unknown> {
   return !!x && typeof x === "object" && !Array.isArray(x);
 }
@@ -67,6 +57,11 @@ export function parseStoredModel(raw: string | null | undefined): StoredModel | 
   } catch {
     return undefined;
   }
+  return checkStoredModel(data);
+}
+
+/** parseStoredModel for a value already parsed (the league store's IndexedDB rows hold objects, not text). */
+export function checkStoredModel(data: unknown): StoredModel | undefined {
   if (!isRecord(data) || data.version !== 1 || typeof data.key !== "string" || typeof data.snapshotFetchedAt !== "string" || typeof data.savedAt !== "string") return undefined;
   const m = data.model;
   if (!isRecord(m) || m.version !== 1 || typeof m.currentWeek !== "number" || typeof m.lastWeek !== "number" || typeof m.builtAt !== "string") return undefined;
@@ -132,21 +127,11 @@ export function withImportedTeam(response: ModelResponse, stored: StoredImport):
 }
 
 /**
- * Keeps a model response (POST /api/model/…) for the stored import it was asked for. A newer league
- * snapshot than the stored one replaces the stored import (recordImport keeps the user's team
- * pick); then the inputs are stored for the response's snapshot. A snapshot older than the stored
- * one (it shouldn't happen) is stored nowhere, so the two never mismatch. The caller sends one
- * change notification afterwards, so a page never sees the new import without its inputs.
+ * A model response's league data against the stored import's (both snapshot.fetchedAt): "older" stores nothing,
+ * "same" stores the inputs, "newer" replaces the import too. A time that can't be read is never "older": the
+ * response is the server's answer for this league just now.
  */
-export function keepModelResponse(storage: StorageLike, args: { stored: StoredImport; response: ModelResponse; savedAt: string }): { importSaved: boolean; modelSaved: boolean } {
-  const snap = args.response.import.snapshot;
-  const current = args.stored.response.snapshot.fetchedAt;
-  if (snap.fetchedAt !== current && Date.parse(snap.fetchedAt) < Date.parse(current)) return { importSaved: false, modelSaved: false };
-  let importSaved = false;
-  if (snap.fetchedAt !== current) {
-    importSaved = recordImport(storage, { request: args.stored.request, response: args.response.import, savedAt: args.savedAt }).ok;
-    if (!importSaved) return { importSaved, modelSaved: false };
-  }
-  const modelSaved = saveModel(storage, { snapshot: snap, model: args.response.model, savedAt: args.savedAt }).ok;
-  return { importSaved, modelSaved };
+export function snapshotOrder(stored: string, incoming: string): "older" | "same" | "newer" {
+  if (incoming === stored) return "same";
+  return Date.parse(incoming) < Date.parse(stored) ? "older" : "newer";
 }

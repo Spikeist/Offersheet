@@ -1,28 +1,40 @@
 "use client";
 /**
  * The Settings page (CLAUDE.md §14 item 6; §12 "User settings"; §7 "Streaming positions"; lead decision
- * L12). Settings belong to a league, so the page edits the one imported in this tab (sessionStorage, as the
- * other pages read it), with "my team" resolved the way they resolve it (the user's pick, else the
- * platform's). Each change is saved at once in this browser's localStorage (src/lib/settingsStore.ts), where
- * the League page and the trade pages read it; "Reset to defaults" removes the league's saved copy.
+ * L12). Settings belong to a league, so the page edits the league this tab shows (one of the leagues saved in
+ * this browser, src/lib/leagueStore.ts, Phase 4c: the switcher at the top of every page picks it), with "my
+ * team" resolved the way the other pages resolve it (the user's pick, else the platform's). Each change shows at
+ * once and is saved in the league store, per league (useLeagueSettings.ts changeSavedSettings), where the League
+ * page and the trade pages read it; "Reset to defaults" removes the league's saved copy.
  *
- * Without an import it can read, the page says settings need a league and links to the Connect page (an
- * import saved by an earlier version of Offer Sheet asks for the league again). "Your trade feedback"
- * (export and delete) needs no league and is always there.
+ * Without a league it can read, the page says settings need a league and links to the Connect page (a
+ * league saved by an earlier version of Offer Sheet asks for the league again, with "Import again" as on the
+ * other pages). "Your trade feedback" (export and delete, every league's) needs no league and is always there.
  *
- * Saving is reported in one status line at the bottom of the screen ("Saved." for a few seconds, then
- * cleared), and a failure as an alert in the league's card that stays until the next change.
+ * Saving is reported in one status line at the bottom of the screen ("Saved." once the browser kept the change,
+ * for a few seconds, then cleared), and a failure as an alert in the league's card that stays until the next
+ * change: a change the browser refuses is put back on the page (the store does it). The form moves focus as soon
+ * as a change shows (a Remove button's row is gone at once), except when the store already refuses writes (its
+ * storage went away while the page was open: the alert says to reload).
+ *
+ * Phase 4c (planner reply to Checkpoint 4b, change 12): when the league's latest model inputs (the saved copy the League
+ * page reuses, only while it's fresh: modelStore.ts modelForSnapshot) say its trade values are our own estimates
+ * (MarketInputs.fallback kind "curve"), Protect my trade value and Win now ↔ Future say they change nothing for now. The
+ * page fetches nothing for it: without a fresh saved copy it says nothing.
  */
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { IMPORT_STORAGE_KEY, OUTDATED_IMPORT_TITLE, myTeamKey, parseMyTeamPick, readStoredImport, type StoredImport } from "@/lib/importStore";
+import { OUTDATED_IMPORT_TITLE, type ImportRequestSummary, type SaveResult } from "@/lib/importStore";
+import type { CurrentLeagueRead } from "@/lib/leagueStore";
+import { modelForSnapshot } from "@/lib/modelStore";
 import { resolveMyTeam } from "@/lib/myTeam";
-import { useSessionValue } from "@/lib/useSessionValue";
+import { ImportAgain, importAgainFor } from "../NoImportCard";
+import { useCurrentLeague, useLeagueStorage, useSavedModel } from "../league/useLeagueInputs";
 import { Card, Spinner, buttonClass } from "../ui";
 import { FeedbackCard } from "./FeedbackCard";
 import { SettingsForm, type SettingsStatus } from "./SettingsForm";
 import { applySettingsEdit, buildSettingsView, type SettingsEdit } from "./settingsView";
-import { resetSettings, updateSettings, useLeagueSettings } from "./useLeagueSettings";
+import { changeSavedSettings, resetSavedSettings, useSavedLeagueSettings } from "./useLeagueSettings";
 
 /** How long "Saved." stays on screen. */
 const SAVED_SHOWN_MS = 3000;
@@ -40,53 +52,73 @@ function Waiting({ text }: { text: string }) {
   );
 }
 
-/** No import this page can read: settings need a league. */
-export function NoLeagueCard({ outdated }: { outdated: boolean }) {
+/**
+ * No import this page can read: settings need a league. One saved by an earlier version offers "Import again" when its
+ * id is known, as the other pages do (NoImportCard.tsx; review of track ML: Phase 4c's import format makes every Phase
+ * 4b import one).
+ */
+export function NoLeagueCard({ outdated, request = null }: { outdated: boolean; request?: ImportRequestSummary | null }) {
   return (
     <Card>
       <h2 className="text-xl font-extrabold tracking-tight">{outdated ? OUTDATED_IMPORT_TITLE : NO_LEAGUE_TITLE}</h2>
       <p className="mt-2 text-sm text-muted">{outdated ? OUTDATED_TEXT : NO_LEAGUE_TEXT}</p>
-      <Link href="/connect" className={`${buttonClass("primary")} mt-4`}>
-        Connect your league
-      </Link>
+      {outdated && request ? (
+        <ImportAgain request={request} align="start" />
+      ) : (
+        <Link href="/connect" className={`${buttonClass("primary")} mt-4`}>
+          Connect your league
+        </Link>
+      )}
     </Card>
   );
 }
 
 export function SettingsPage() {
-  const raw = useSessionValue(IMPORT_STORAGE_KEY);
-  const read = useMemo(() => (raw === undefined ? undefined : readStoredImport(raw)), [raw]);
+  const read = useCurrentLeague();
   return (
     <div className="space-y-6">
       <header>
         <h1 className="text-3xl font-black tracking-tight sm:text-4xl">Settings</h1>
-        <p className="mt-2 max-w-2xl text-muted">How Offer Sheet values your lineup, and what its trade ideas may include. Saved in this browser, for each league.</p>
+        <p className="mt-2 max-w-2xl text-muted">How Offer Sheet values your lineup, how it scores trade ideas, and what they may include. Saved in this browser, for each league.</p>
       </header>
-      {read === undefined ? <Waiting text="Loading your league…" /> : read.kind === "ok" ? <LeagueSettings stored={read.stored} /> : <NoLeagueCard outdated={read.kind === "outdated"} />}
+      {read === undefined ? (
+        <Waiting text="Loading your league…" />
+      ) : read.kind === "ok" ? (
+        // One form state per saved league: another league's settings never show under this one's status line.
+        <LeagueSettings key={read.league.id} current={read} />
+      ) : (
+        <NoLeagueCard outdated={read.kind === "outdated"} request={importAgainFor(read)} />
+      )}
       <FeedbackCard />
     </div>
   );
 }
 
-function LeagueSettings({ stored }: { stored: StoredImport }) {
-  const snapshot = stored.response.snapshot;
-  const pickRaw = useSessionValue(myTeamKey(snapshot));
-  const pick = useMemo(() => parseMyTeamPick(pickRaw), [pickRaw]);
+function LeagueSettings({ current }: { current: Extract<CurrentLeagueRead, { kind: "ok" }> }) {
+  const snapshot = current.stored.response.snapshot;
+  const pick = current.pick;
   const myTeamId = useMemo(() => resolveMyTeam(snapshot, pick).myTeamId, [snapshot, pick]);
-  const league = useLeagueSettings(snapshot);
+  const league = useSavedLeagueSettings(current.league.leagueKey);
+  const storage = useLeagueStorage();
+  // The league's trade values are our own estimates for now (the file header): read off its saved model inputs, while fresh.
+  const savedModel = useSavedModel(current.league.id);
+  const [openedAt] = useState(() => Date.now());
+  const valuesEstimated = useMemo(() => modelForSnapshot(savedModel ?? undefined, snapshot, { now: openedAt })?.market?.fallback?.kind === "curve", [savedModel, snapshot, openedAt]);
   const view = useMemo(
-    () => (league.settings ? buildSettingsView({ snapshot, myTeamId, settings: league.settings, stored: league.stored }) : null),
-    [snapshot, myTeamId, league.settings, league.stored],
+    () => (league.settings ? buildSettingsView({ snapshot, myTeamId, settings: league.settings, stored: league.stored, valuesEstimated }) : null),
+    [snapshot, myTeamId, league.settings, league.stored, valuesEstimated],
   );
 
   const [status, setStatus] = useState<SettingsStatus | null>(null);
   const clearTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(
-    () => () => {
+  const live = useRef(true);
+  useEffect(() => {
+    live.current = true;
+    return () => {
+      live.current = false;
       if (clearTimer.current) clearTimeout(clearTimer.current);
-    },
-    [],
-  );
+    };
+  }, []);
 
   function report(next: SettingsStatus) {
     if (clearTimer.current) clearTimeout(clearTimer.current);
@@ -95,22 +127,40 @@ function LeagueSettings({ stored }: { stored: StoredImport }) {
     if (next.tone === "ok") clearTimer.current = setTimeout(() => setStatus(null), SAVED_SHOWN_MS);
   }
 
-  /** Saves one change; true when it was saved (the form moves focus only then). */
+  /**
+   * A change or a reset: refused at once while the store refuses writes (its storage went away: false, the alert says
+   * why); else it shows at once (true: the form moves focus) and is reported once the browser kept it, or didn't.
+   */
+  function save(write: () => Promise<SaveResult>, savedText: () => string): boolean {
+    if (storage?.kind === "closed") {
+      report({ tone: "error", text: storage.message });
+      return false;
+    }
+    void write().then((saved) => {
+      if (live.current) report(saved.ok ? { tone: "ok", text: savedText() } : { tone: "error", text: saved.message });
+    });
+    return true;
+  }
+
+  /** Saves one change (the store runs it on the page's copy, then on the stored one: the note is the stored one's). */
   function edit(change: SettingsEdit): boolean {
     const out = { note: null as string | null };
-    const saved = updateSettings(league.key, (current) => {
-      const applied = applySettingsEdit(current, change, (id) => snapshot.players[id]?.name ?? "That player", snapshot.platform);
-      out.note = applied.note;
-      return applied.settings;
-    });
-    report(saved.ok ? { tone: "ok", text: out.note ? `Saved. ${out.note}` : "Saved." } : { tone: "error", text: saved.message });
-    return saved.ok;
+    return save(
+      () =>
+        changeSavedSettings(league.key, (settings) => {
+          const applied = applySettingsEdit(settings, change, (id) => snapshot.players[id]?.name ?? "That player", snapshot.platform);
+          out.note = applied.note;
+          return applied.settings;
+        }),
+      () => (out.note ? `Saved. ${out.note}` : "Saved."),
+    );
   }
 
   function reset(): boolean {
-    const done = resetSettings(league.key);
-    report(done.ok ? { tone: "ok", text: "Back to the defaults for this league." } : { tone: "error", text: done.message });
-    return done.ok;
+    return save(
+      () => resetSavedSettings(league.key),
+      () => "Back to the defaults for this league.",
+    );
   }
 
   if (!view) return <Waiting text="Loading your settings…" />;

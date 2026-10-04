@@ -1,7 +1,8 @@
 /**
  * "Offer first / if they say no" (planner addendum to Checkpoint 3, §4; lead decision N4): throw-ins (their lineup cost
  * in scenario lineups), case 1 (the lowest-value throw-in held back), case 2 (the best throw-in added, by P_complete, then
- * B, keeping B at least minBShare of the offer's), the two thresholds (on P_complete, not P_accept), the per-side maximum
+ * B, keeping B at least minBShare of the offer's), the two thresholds (on P_complete, not P_accept; Phase 4c: the offer first as
+ * the card prints it, and in case 1 at least the user's minimum chance too), the per-side maximum
  * (the search's, the Analyzer's), legality, the pre-screen (with the veto rule), no steps for a trade that doesn't help
  * (review of the addendum, engine findings 1 and 10), determinism, the planner's numbers, and the steps in the search
  * (the pitch names the offer-first version) and the Analyzer. Hand leagues (EV lineups unless a test says otherwise),
@@ -26,7 +27,7 @@ vi.mock("./config", async (importOriginal) => {
   return { ...actual, config: { ...c, marketBlend: { ...c.marketBlend, weight: 0 } } };
 });
 
-import { vetoApplies } from "./acceptance";
+import { displayAcceptance, vetoApplies } from "./acceptance";
 import { config } from "./config";
 import {
   DEADLINE_PASSED_NOTE,
@@ -34,6 +35,7 @@ import {
   analyzeTrade,
   buildTradeContext,
   evaluateExact,
+  offerFirstBar,
   preScreenOrder,
   proposalKey,
   screenTrade,
@@ -104,10 +106,10 @@ function ranked(I: TradeInternals, proposal: TradeProposal, settings: TradeSetti
   return { x, screen: simulateTrade(I, x, "screen", settings.lambda, settings.protectValue) };
 }
 
-/** A version's step, as tradeSteps builds it. */
+/** A version's step, as tradeSteps builds it (Phase 4c: with the version's acceptance features, for feedback). */
 const stepOf = (v: TradeVersion): TradeStep => {
   const c = v.screen;
-  return { proposal: c.proposal, key: c.key, b: c.b, tradeScore: c.tradeScore, pAccept: c.pAccept, pComplete: c.pComplete, acceptLabel: c.acceptLabel, gMine: c.gMine, gPartner: c.gPartner, required: c.required, detail: c.detail };
+  return { proposal: c.proposal, key: c.key, b: c.b, tradeScore: c.tradeScore, pAccept: c.pAccept, pComplete: c.pComplete, acceptLabel: c.acceptLabel, gMine: c.gMine, gPartner: c.gPartner, required: c.required, detail: c.detail, features: c.features };
 };
 
 const ctx = context();
@@ -189,6 +191,10 @@ describe("case 1: the ranked trade gives a throw-in", () => {
     expect(steps?.offerFirst).toEqual(stepOf(lean));
     expect(steps?.offerFirst.key).toBe(proposalKey(trade("3", ["wb1"], ["wa3"])));
     expect(steps?.offerFirst.b).toBeGreaterThan(0);
+    // Each step carries its own version's acceptance features (Phase 4c, change 7: feedback stores the version sent).
+    expect(steps?.offerFirst.features).toEqual(lean.screen.features);
+    expect(steps?.ifNo.full.features).toEqual(r.screen.features);
+    expect(steps?.offerFirst.features).not.toEqual(steps?.ifNo.full.features);
     // The planner's thresholds hold: the throw-in raises P_complete by at least minAcceptGain, from at least minOfferFirst.
     const gain = (steps?.ifNo.full.pComplete as number) - (steps?.offerFirst.pComplete as number);
     expect(gain).toBeGreaterThanOrEqual(config.search.steps.minAcceptGain);
@@ -202,7 +208,8 @@ describe("case 1: the ranked trade gives a throw-in", () => {
     const cheap = both[0] as string;
     expect(I.values[cheap] ?? 0).toBeLessThan(I.values.qx1 as number);
     const r = ranked(I, trade("2", [cheap, "qx1"], ["wa2"]));
-    const steps = tradeSteps(I, r, { settings: SETTINGS, maxPerSide: 2, cfg });
+    // Permissive thresholds and the minimum chance at Any (case 1's offer first is held to it too, Phase 4c).
+    const steps = tradeSteps(I, r, { settings: settingsWith({ minChance: 0 }), maxPerSide: 2, cfg });
     expect(steps?.ranked).toBe("full");
     expect(steps?.ifNo.add).toBe(cheap);
     expect(steps?.offerFirst.key).toBe(proposalKey(trade("2", ["qx1"], ["wa2"])));
@@ -223,8 +230,11 @@ describe("case 1: the ranked trade gives a throw-in", () => {
 
 describe("case 2: the throw-in added if they say no", () => {
   // My bench RB for their RB2 (B well above 0); with throwInMaxCost 30 my starting QB and my bench RB are throw-ins too.
+  // minBShare 0.7 rather than the planner's 0.8 (the tie test below keeps 0.8): since Phase 4c ("Win the title" weights,
+  // the neutral throw-in rule) the backup QB keeps about 78% of the offer's B here, and these tests are about the rule's
+  // mechanics, which need one candidate above the share and one below it.
   const offer = trade("2", ["rc1"], ["rb2"]);
-  const cfg = permissive({ throwInMaxCost: 30 });
+  const cfg = permissive({ throwInMaxCost: 30, minBShare: 0.7 });
 
   /** Every candidate's version, and the one the rule picks: the highest P_complete with B ≥ minBShare × the offer's B (and above 0); ties: the higher B, then the smaller id. */
   function expected(c: StepConfig, I2: TradeInternals = I, proposal: TradeProposal = offer, maxPerSide = 2) {
@@ -256,17 +266,30 @@ describe("case 2: the throw-in added if they say no", () => {
   it("each version's B reads the market term on g_mkt(me), every player at max(v, W) (planner reply to Checkpoint 4, change 4)", () => {
     const kappa = config.benefit.protectValue[SETTINGS.protectValue];
     const [lo, hi] = config.benefit.marketSanityClamp;
-    /** My g by hand: each player at max(v, W) when `floor`, else at v; W per open spot on the side receiving fewer players. */
-    const gByHand = (I2: TradeInternals, get: string[], give: string[], floor: boolean) => {
+    /**
+     * My g by hand: when `floor`, first the neutral throw-ins (Phase 4c, planner reply to Checkpoint 4b, change 2: on the
+     * side moving more players, up to the difference of its players worth at most W, lowest value first, are left out with
+     * their roster spots), then each player at max(v, W); else every player at v. W per open spot on the side receiving
+     * fewer players (no IR player moves here: every player takes or opens an active spot).
+     */
+    const gByHand = (I2: TradeInternals, get0: string[], give0: string[], floor: boolean) => {
       const W = I2.credit;
-      const sum = (ids: string[]) => ids.reduce((s, id) => s + (floor ? Math.max(I2.values[id] ?? 0, W) : (I2.values[id] ?? 0)), 0);
+      const v = (id: string) => I2.values[id] ?? 0;
+      const neutral = (side: string[], d: number) => {
+        const out = new Set([...side].filter((id) => v(id) <= W).sort((a, b) => v(a) - v(b) || (a < b ? -1 : 1)).slice(0, d));
+        return side.filter((id) => !out.has(id));
+      };
+      const give = floor && give0.length > get0.length ? neutral(give0, give0.length - get0.length) : give0;
+      const get = floor && get0.length > give0.length ? neutral(get0, get0.length - give0.length) : get0;
+      const sum = (ids: string[]) => ids.reduce((s, id) => s + (floor ? Math.max(v(id), W) : v(id)), 0);
       const r = sum(get) + Math.max(0, give.length - get.length) * W;
       const g = sum(give) + Math.max(0, get.length - give.length) * W;
       return (r - g) / g;
     };
     /**
-     * Every version tradeSteps evaluated (tradeVersion) reads g_mkt(me) floored on both sides in B's market term, as the
-     * search does; the floor moves g (so the unfloored g would give another B) on those with a player worth less than W.
+     * Every version tradeSteps evaluated (tradeVersion) reads g_mkt(me) floored on both sides (after the neutral throw-ins)
+     * in B's market term, as the search does; the floor moves g (so the unfloored g would give another B) on those with a
+     * player worth less than W.
      */
     const floorsAll = (I2: TradeInternals, versions: Map<string, TradeVersion>) => {
       let moved = 0;
@@ -292,7 +315,7 @@ describe("case 2: the throw-in added if they say no", () => {
     // The step's full version is one of them.
     expect(steps?.ifNo.full.b).toBe(versions.get(steps?.ifNo.full.key as string)?.screen.b);
     // A throw-in worth less than W added to an offer that gives none (the steps league with a bench WR worth 240 in place
-    // of my D/ST): his full version floors him.
+    // of my D/ST): his full version leaves him out (Phase 4c's neutral throw-in), so its g is the offer's.
     const Ic = tradeInternals(stepsContext(3000, {}, {}, (spec) => swapPlayer(spec, "1", "d1", flat("wc1", "WR", 3.1))));
     expect(Ic.values.wc1 as number).toBeLessThan(Ic.credit);
     const offerC = trade("3", ["wb1"], ["wa3"]);
@@ -403,8 +426,9 @@ describe("case 2: the throw-in added if they say no", () => {
 /**
  * The veto league (a league that votes on trades): Team 2 is a contender (4-0) without a QB (its free-agent-optimized
  * roster picks up the free-agent QB, 6 points), so my backup QB (16.5 points, worth 970) fills a hole there; a recent add
- * keeps it from counting as inactive. My TE is weak (2 points, worth 475, less than the waiver credit 900: every package
- * counts him at 900), its TE starts (7.5) ahead of a backup (7), and my bench WR (3 points) is worth `wtValue`; Team 2's two
+ * keeps it from counting as inactive. My TE is weak (2 points, worth 475, less than the waiver credit 900: a package counts
+ * him at 900, or, on the side giving more players, leaves him out with his roster spot: Phase 4c's neutral throw-ins), its
+ * TE starts (7.5) ahead of a backup (7), and my bench WR (3 points) is worth `wtValue`; Team 2's two
  * TEs' values can be set (`te2`, `tf2`: their own 25 × points² by default). The values put the trades below on either side
  * of the veto rule (Team 2's raw g below −30%: P_complete = P_accept × the veto factor).
  */
@@ -436,9 +460,42 @@ describe("the thresholds (on P_complete, the card's chance they accept)", () => 
     expect(tradeSteps(I1, r, { settings: SETTINGS, maxPerSide: 2, cfg: { ...stepConfig(), minAcceptGain: gain - 1e-6 } })).toEqual(base);
   });
 
-  it("… and the offer first is at least minOfferFirst likely", () => {
-    expect(tradeSteps(I1, r, { settings: SETTINGS, maxPerSide: 2, cfg: { ...stepConfig(), minOfferFirst: offer + 1e-6 } })).toBeNull();
-    expect(tradeSteps(I1, r, { settings: SETTINGS, maxPerSide: 2, cfg: { ...stepConfig(), minOfferFirst: offer } })).toEqual(base);
+  it("… and the offer first, as the card prints it, is at least minOfferFirst likely (Phase 4c: the minimum chance's own rule)", () => {
+    // The lean version is 23.3% likely and prints 25% (the nearest 5%).
+    const shown = displayAcceptance(offer);
+    expect(offer).toBeCloseTo(0.2331, 4);
+    expect(shown).toBe(0.25);
+    expect(tradeSteps(I1, r, { settings: SETTINGS, maxPerSide: 2, cfg: { ...stepConfig(), minOfferFirst: shown + 1e-6 } })).toBeNull();
+    expect(tradeSteps(I1, r, { settings: SETTINGS, maxPerSide: 2, cfg: { ...stepConfig(), minOfferFirst: shown } })).toEqual(base);
+    // A bar between the model's number and the printed one: the printed one decides (Phase 4b compared the raw number).
+    expect(tradeSteps(I1, r, { settings: SETTINGS, maxPerSide: 2, cfg: { ...stepConfig(), minOfferFirst: 0.24 } })).toEqual(base);
+  });
+
+  it("⚠️ case 1: the offer first prints at least the user's minimum chance too (Phase 4c lead decision), whatever minOfferFirst", () => {
+    // Its 25% meets every minimum up to 20%; at 30% the step would advise offering a version the list's minimum keeps out.
+    for (const minChance of config.ranking.minChanceOptions) {
+      const steps = tradeSteps(I1, r, { settings: settingsWith({ minChance }), maxPerSide: 2 });
+      expect(steps, String(minChance)).toEqual(minChance <= 0.25 ? base : null);
+    }
+    expect(offerFirstBar("full", 0.3)).toBe(0.3);
+    expect(offerFirstBar("full", 0)).toBe(config.search.steps.minOfferFirst);
+    // The card itself (the full version, 77%) is above every minimum: only its offer-first version is held to it.
+    expect(displayAcceptance(r.screen.pComplete)).toBeGreaterThanOrEqual(0.5);
+    // The Analyzer applies it with its own settings: the same trade at 30% gets no steps, at 20% the steps above.
+    expect(analyzeTrade(S1, CASE1, { settings: settingsWith({ minChance: 0.3 }) }).evaluation?.steps).toBeUndefined();
+    expect(analyzeTrade(S1, CASE1, { settings: settingsWith({ minChance: 0.2 }) }).evaluation?.steps?.offerFirst.key).toBe(base?.offerFirst.key);
+  });
+
+  it("⚠️ case 2: the offer first is the card itself, held to minOfferFirst only (the list's minimum already holds the card)", () => {
+    // My RB1 and bench RB for Team 2's RB2 and WR2 (17.6%, printed 20%); the backup QB added if they say no (52%).
+    const two = ranked(I1, trade("2", ["ra1", "rc1"], ["rb2", "wb2"]));
+    expect(displayAcceptance(two.screen.pComplete)).toBe(0.2);
+    const at = (minChance: number) => tradeSteps(I1, two, { settings: settingsWith({ minChance }), maxPerSide: 4 });
+    const plain = at(0.1);
+    expect(plain?.ranked).toBe("offerFirst");
+    expect(plain?.ifNo.add).toBe("qx1");
+    for (const minChance of config.ranking.minChanceOptions) expect(at(minChance), String(minChance)).toEqual(plain);
+    expect(offerFirstBar("offerFirst", 0.5)).toBe(config.search.steps.minOfferFirst);
   });
 
   it("a throw-in that lowers the chance they accept gives no steps (a cheap player costs them a roster spot worth the waiver credit)", () => {
@@ -457,10 +514,11 @@ describe("the thresholds (on P_complete, the card's chance they accept)", () => 
   });
 
   it("in a league that votes, the veto rule's halving counts: on P_accept the steps would show, on P_complete they don't", () => {
-    // My backup QB and my bench WR (worth 900) for Team 2's TE (worth 1,700 here): the lean version (the backup QB alone)
+    // My backup QB and my bench WR (worth 950: above the waiver credit, 900, so no neutral throw-in, Phase 4c; below the
+    // backup QB, 970, so the lean version is the backup QB alone) for Team 2's TE (worth 1,700 here): the lean version
     // gives Team 2 43% less value than it gives up, so the veto rule halves it, while the backup QB fills its QB hole
     // (n at β_need 1.2 lifts P_accept to about 14%).
-    const IV = vetoInternals(900, { te2: 1700 });
+    const IV = vetoInternals(950, { te2: 1700 });
     expect(IV.snapshot.settings.tradeReview).toBe("league_vote");
     expect(IV.profiles.get("2")?.pPlayoffs as number).toBeGreaterThan(config.acceptance.context.contenderAbove);
     expect(throwIns(IV, SETTINGS)).toEqual(["te1", "wt1", "qx1"]);
@@ -479,15 +537,17 @@ describe("the thresholds (on P_complete, the card's chance they accept)", () => 
     // … on P_complete the offer first is under minOfferFirst: no steps.
     expect(lean.screen.pComplete).toBeLessThan(minOfferFirst - 0.02);
     expect(tradeSteps(IV, full, { settings: SETTINGS, maxPerSide: 2 })).toBeNull();
-    // With the offer-first threshold out of the way, they show: the halving is what stops them.
-    expect(tradeSteps(IV, full, { settings: SETTINGS, maxPerSide: 2, cfg: { ...stepConfig(), minOfferFirst: 0 } })?.ifNo.add).toBe("wt1");
+    // With the offer-first threshold out of the way (and, case 1, the minimum chance at Any), they show: the halving is
+    // what stops them.
+    expect(tradeSteps(IV, full, { settings: settingsWith({ minChance: 0 }), maxPerSide: 2, cfg: { ...stepConfig(), minOfferFirst: 0 } })?.ifNo.add).toBe("wt1");
   });
 
   it("the pre-screen orders candidates by P_complete as the veto rule leaves it, not by P_accept", () => {
-    // My weak TE for Team 2's backup TE (worth 1,900 here), plus one of: my backup QB (fills Team 2's QB hole, but its value
-    // leaves Team 2's raw g below −30%: vetoed) or my bench WR (worth 2,100, starts nowhere there: no veto). My TE counts
-    // the waiver credit (900) in both.
-    const IV = vetoInternals(2100, { tf2: 1900 });
+    // My weak TE for Team 2's backup TE (worth 1,450 here), plus one of: my backup QB (fills Team 2's QB hole, but its value
+    // leaves Team 2's raw g below −30%: vetoed) or my bench WR (worth 1,550, starts nowhere there: no veto). My TE, worth
+    // less than the waiver credit on the side giving more players, is left out of both packages with his roster spot
+    // (Phase 4c's neutral throw-ins; Phase 4b counted him at the waiver credit, 900, with tf2 at 1,900 and the WR at 2,100).
+    const IV = vetoInternals(1550, { tf2: 1450 });
     const partner = IV.byId.get("2") as TeamState;
     const quick = (id: string) => screenTrade(IV, partner, ["te1", id], ["tf2"]) as NonNullable<ReturnType<typeof screenTrade>>;
     const qb = quick("qx1");
@@ -606,6 +666,28 @@ describe("determinism, the Analyzer and the search", () => {
     expect(tradeSteps(I1, ranked(I1, CASE1), { settings: SETTINGS, maxPerSide: 2 })).toEqual(a);
     const fresh = tradeInternals(stepsContext());
     expect(tradeSteps(fresh, ranked(fresh, CASE1), { settings: SETTINGS, maxPerSide: 2 })).toEqual(a);
+  });
+
+  it("⚠️ a version comes back in the order it's asked for, whatever order it was cached in; one not cached yet is evaluated in key order (verification of the final review, finding VF-2)", () => {
+    const versions = new Map<string, TradeVersion>();
+    const opts = { settings: SETTINGS, maxPerSide: 2, versions };
+    const ab = tradeVersion(I1, trade("3", ["wb1", "qx1"], ["wa3"]), opts) as TradeVersion;
+    const ba = tradeVersion(I1, trade("3", ["qx1", "wb1"], ["wa3"]), opts) as TradeVersion;
+    expect(sideIds(ab.screen.proposal.give)).toEqual(["wb1", "qx1"]);
+    expect(sideIds(ab.x.evaluation.proposal.give)).toEqual(["wb1", "qx1"]);
+    expect(sideIds(ba.screen.proposal.give)).toEqual(["qx1", "wb1"]);
+    expect(sideIds(ba.x.evaluation.proposal.give)).toEqual(["qx1", "wb1"]);
+    // One evaluation, cached once: the same numbers whichever order asks.
+    expect(versions.size).toBe(1);
+    expect({ ...ba.screen, proposal: null }).toEqual({ ...ab.screen, proposal: null });
+    // It was evaluated in key order ("qx1" before "wb1"), so asking in that order returns the cached object itself, and its
+    // numbers are an evaluation in that order's.
+    const cached = versions.get(ab.screen.key) as TradeVersion;
+    expect(sideIds(cached.screen.proposal.give)).toEqual(["qx1", "wb1"]);
+    expect(ba).toBe(cached);
+    const keyOrder = evaluateExact(I1, trade("3", ["qx1", "wb1"], ["wa3"]), 2);
+    if ("illegal" in keyOrder) throw new Error(keyOrder.illegal);
+    expect(ab.screen.b).toBe(simulateTrade(I1, keyOrder, "screen", SETTINGS.lambda, SETTINGS.protectValue, SETTINGS.goal).b);
   });
 
   it("the Analyzer gives the analyzed trade its steps; the pitch names the offer-first version, never the throw-in held back", () => {

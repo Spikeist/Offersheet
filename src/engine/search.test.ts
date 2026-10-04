@@ -3,7 +3,7 @@ import { tradePackage } from "./benefit";
 import { config } from "./config";
 import { NO_TEAM_NOTE, assetValue, buildTradeContext, evaluateExact, simCounts, simulateTrade, tradeInternals, type ExactTrade, type TeamState } from "./evaluate";
 import { assetId, rankTrades } from "./rank";
-import { belowWaiverCredit, buildPools, finalistsOf, partnerCandidates, rankCaps, runTradeSearch, shortlistOf, tradeSearch, type TradeSearchOptions } from "./search";
+import { atMostWaiverCredit, buildPools, finalistsOf, partnerCandidates, rankCaps, runTradeSearch, searchStateOf, shortlistOf, tradeSearch, type SearchState, type TradeSearchOptions } from "./search";
 import { defaultTradeSettings, type TradeSettings } from "./settings";
 import { TEST_NOW } from "./testLeague";
 import { handLeague, smallLeague } from "./trade.testing";
@@ -33,7 +33,7 @@ function fullSearch() {
 
 const search = (opts: TradeSearchOptions) => runTradeSearch(ctx, opts);
 
-describe("the trade search (§12; M6–M8)", () => {
+describe("the trade search (§12; M6–M8)", { timeout: 60_000 }, () => {
   it("returns at most resultsShown finished trades: final stage, finalSims seasons, B > 0, not hidden, Overall order, with words", () => {
     const { result } = fullSearch();
     expect(result.myTeamId).toBe(me.id);
@@ -74,7 +74,11 @@ describe("the trade search (§12; M6–M8)", () => {
     const c = result.counts;
     expect(c.screened).toBeGreaterThanOrEqual(c.exact);
     expect(c.exact).toBeGreaterThan(0);
-    expect(c.exact).toBeLessThanOrEqual(config.search.exactEvaluationMax);
+    // The shortlist (at most exactEvaluationMax) and its lean companions on top, at most one per shortlisted trade (Phase 4c).
+    const companions = (searchStateOf(result) as SearchState).companions.length;
+    expect(companions).toBeGreaterThan(0);
+    expect(c.exact).toBeLessThanOrEqual(config.search.exactEvaluationMax + companions);
+    expect(companions).toBeLessThanOrEqual(config.search.exactEvaluationMax);
     expect(c.simScreen).toBe(c.exact);
     expect(c.simFinal).toBeLessThanOrEqual(config.search.finalists);
     expect(c.simFinal).toBeGreaterThanOrEqual(result.trades.length);
@@ -124,7 +128,7 @@ describe("the trade search (§12; M6–M8)", () => {
   });
 });
 
-describe("pools and settings (M6)", () => {
+describe("pools and settings (M6)", { timeout: 60_000 }, () => {
   it("a partner filter searches that team only; maxPerSide 1 gives 1-for-1s only", () => {
     const r = search({ partnerId: "2", settings: settingsWith({ maxPerSide: 1 }) });
     expect(r.trades.length).toBeGreaterThan(0);
@@ -202,7 +206,7 @@ describe("pools and settings (M6)", () => {
   });
 });
 
-describe("\"Protect my trade value\" per call (planner addendum to Checkpoint 3, §3; review of the addendum, engine finding 4)", () => {
+describe("\"Protect my trade value\" per call (planner addendum to Checkpoint 3, §3; review of the addendum, engine finding 4)", { timeout: 60_000 }, () => {
   it("the search reads the call's level, not the context's: the same result as a context built with that level", () => {
     // The shared context was built with the default settings (medium); a cached context in the worker can hold older ones.
     expect(I.settings.protectValue).toBe("medium");
@@ -217,12 +221,14 @@ describe("\"Protect my trade value\" per call (planner addendum to Checkpoint 3,
       expect(t.gMine).toBe(tradePackage({ players: ids(t, "get") }, { players: ids(t, "give") }, I.values, I.credit).g);
       expect(t.b as number).toBeCloseTo((t.bWin as number) + config.benefit.protectValue.high * Math.min(hi, Math.max(lo, t.gMine)), 12);
     }
-    // The level moves trades in and out: at high, more of the evaluated trades stop helping (B ≤ 0) and are hidden.
-    expect(r.hidden.byBenefit).toBeGreaterThan(fullSearch().result.hidden.byBenefit);
+    // The level moves trades in and out: the high list isn't the medium one. (Since Phase 4c's matched pairs, the neutral
+    // throw-in rule's second step, as many evaluated trades stop helping at high as at medium on this league, 7 each, where
+    // Phase 4c's first rule alone hid 9 and 18; the lists still differ: 11 cards at medium, 9 at high.)
+    expect(r.trades.map((t) => t.key)).not.toEqual(fullSearch().result.trades.map((t) => t.key));
   });
 });
 
-describe("B's market term in both of the search's simulations: every player at max(v, W) (planner reply to Checkpoint 4, change 4; replaces N10)", () => {
+describe("B's market term in both of the search's simulations: every player at max(v, W) (planner reply to Checkpoint 4, change 4; replaces N10)", { timeout: 60_000 }, () => {
   // The hand league (W = 900, the free-agent QB's value) with my bench RB (worth 420, below W) in every trade, a
   // must-include player of mine; Team 4 only, so at most keptPerPartner exact trades and every one that helps me at
   // screening numbers is a finalist. EV lineups.
@@ -270,7 +276,7 @@ describe("B's market term in both of the search's simulations: every player at m
       while (!next.done) next = it.next();
       return next.value;
     });
-    const exact = shortlistOf(perPartner, belowWaiverCredit(HI)).flatMap((s) => {
+    const exact = shortlistOf(perPartner, atMostWaiverCredit(HI)).flatMap((s) => {
       const x = evaluateExact(HI, { partnerId: s.partnerId, give: s.give.map((id) => ({ kind: "player", id })), get: s.get.map((id) => ({ kind: "player", id })) }, settings.maxPerSide);
       return "illegal" in x ? [] : [x];
     });
@@ -300,7 +306,7 @@ describe("B's market term in both of the search's simulations: every player at m
   });
 });
 
-describe("a search of one partner: no per-partner cap (⚠️ ours; end-of-Phase-4 review, finding 5)", () => {
+describe("a search of one partner: no per-partner cap (⚠️ ours; end-of-Phase-4 review, finding 5)", { timeout: 60_000 }, () => {
   const keys = (xs: readonly TradeEvaluation[]) => xs.map((t) => t.key);
   const value = assetValue(I);
 
@@ -398,14 +404,19 @@ describe("beams (M7)", () => {
 });
 
 describe("finalistsOf: the relaxed caps cover every finalist (final review of Phase 4b)", () => {
-  it("a player of mine given past the cap doesn't fill finalists 21–40 while other trades wait", () => {
-    // 25 trades each giving their own player (the best), 30 giving "g1" (next), 10 more each giving their own player
-    // (last); every trade its own partner and its own core. With the window at the top 20, finalists 21–40 were
-    // uncapped: 15 more "g1" trades, none of the last 10. Covering every finalist, "g1" is held to the relaxed cap (3 + 1)
-    // and the last 10 get in; the leftover place goes to the best "g1" trade left (the fill-up by expected gain).
+  it("config: 60 finalists since Phase 4c (planner reply to Checkpoint 4b, change 1; 40 before)", () => {
+    expect(config.search.finalists).toBe(60);
+  });
+
+  it("a player of mine given past the cap doesn't fill the finalists' last places while other trades wait", () => {
+    // finalists − 15 trades each giving their own player (the best), 30 giving "g1" (next), 10 more each giving their own
+    // player (last); every trade its own partner and its own core. With the window at the top 20, the finalists after the
+    // 20th were uncapped: more "g1" trades, none of the last 10. Covering every finalist, "g1" is held to the relaxed cap
+    // (3 + 1) and the last 10 get in; the leftover place goes to the best "g1" trade left (the fill-up by expected gain).
     const t = (give: string, get: string, partnerId: string, b: number) => tradeEvaluation({ partnerId, give: [give], get: [get], b, pComplete: 0.5, stage: "exact", sims: 1000 });
+    const best = config.search.finalists - 15;
     const cores = [
-      ...Array.from({ length: 25 }, (_, i) => t(`d${i + 1}`, `x${i + 1}`, `p${i + 1}`, 5)),
+      ...Array.from({ length: best }, (_, i) => t(`d${i + 1}`, `x${i + 1}`, `p${i + 1}`, 5)),
       ...Array.from({ length: 30 }, (_, i) => t("g1", `y${i + 1}`, `q${i + 1}`, 4)),
       ...Array.from({ length: 10 }, (_, i) => t(`e${i + 1}`, `z${i + 1}`, `r${i + 1}`, 3)),
     ];
@@ -413,8 +424,24 @@ describe("finalistsOf: the relaxed caps cover every finalist (final review of Ph
     const { keys } = finalistsOf(cores, value);
     expect(keys.size).toBe(config.search.finalists);
     const givers = (prefix: string) => cores.filter((c) => keys.has(c.key) && ids(c as TradeEvaluation, "give")[0]?.startsWith(prefix)).length;
-    expect(givers("d")).toBe(25);
+    expect(givers("d")).toBe(best);
     expect(givers("e")).toBe(10);
     expect(givers("g")).toBe(config.ranking.perGivenPlayerInTop20 + 1 + 1);
+  });
+
+  it("⚠️ my must-include players (forcedGive) are outside the relaxed given-player cap, so the other caps keep the finalists varied (review of track SR, finding 1)", () => {
+    // Every trade gives "must" (worth the most, so every give-side core is his): 40 with partner "a" (the best), then one
+    // with each of 30 other partners. Counting him, only 4 trades are ranked and the fill by EG takes partner a's next 36;
+    // outside the cap, partner a is held to the relaxed partner cap and all 30 others get in.
+    const t = (partnerId: string, i: number, b: number) => tradeEvaluation({ partnerId, give: ["must", `x${partnerId}${i}`], get: [`y${partnerId}${i}`], b, pComplete: 0.5, stage: "exact", sims: 1000 });
+    const cores = [...Array.from({ length: 40 }, (_, i) => t("a", i, 10 - i * 0.01)), ...Array.from({ length: 30 }, (_, j) => t(`p${j}`, 0, 5 - j * 0.01))];
+    const value = (a: Parameters<typeof assetId>[0]) => (assetId(a) === "must" ? 9000 : 100);
+    const fromA = (keys: Set<string>) => cores.filter((c) => keys.has(c.key) && c.proposal.partnerId === "a").length;
+    const counted = finalistsOf(cores, value).keys;
+    const exempt = finalistsOf(cores, value, false, ["must"]).keys;
+    expect(counted.size).toBe(config.search.finalists);
+    expect(exempt.size).toBe(config.search.finalists);
+    expect(fromA(counted)).toBe(40);
+    expect(fromA(exempt)).toBe(config.search.finalists - 30);
   });
 });

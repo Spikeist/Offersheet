@@ -39,11 +39,20 @@
  *    table on reads blended points: free agents, needs, trade chips, V*, both lineups of every trade and the season
  *    simulation. The factors are computed once per build (projectLeaguePlayers; LeaguePlayers.blend), and a pre-kickoff
  *    rebuild applies the same ones (preKickoffTable). They don't depend on the moment, so a build made once a week is
- *    under way and one made before its first kickoff blend alike (Phase 3's game-day identity holds). PlayerModel.blend
+ *    under way and one made before its first kickoff blend alike (the blend factors are the same either side of the
+ *    first kickoff, so the odds as rosters stand keep Phase 3's game-day identity: "Game days" below). PlayerModel.blend
  *    says what moved for the player detail. Without this season's list (a dynasty or keeper league whose redraft list
- *    didn't load) nothing is blended, and the model warns (BLEND_OFF_WARNING).
+ *    didn't load) nothing is blended, and the model warns (BLEND_OFF_WARNING); FantasyCalc's curve fallback (step 4) blends
+ *    nothing either, and the model warns in its own words (BLEND_OFF_CURVE_WARNING: its old lists are there, but too old
+ *    to blend toward; the model inputs' banner, FANTASYCALC_VALUES_ESTIMATED, speaks of trade values only: review of
+ *    track EF, finding 2).
  * 4. Market values (§9, perception term) with the ROS totals feeding the estimate curve (blended: step 3b comes
- *    first), and the waiver credit W (the best free agent's value, estimates included, at least waiverCreditMin).
+ *    first), and the waiver credit W (the best free agent's value, estimates included, at least waiverCreditMin). In
+ *    FantasyCalc's curve fallback (Phase 4c; MarketInputs.fallback kind "curve": market.curveMarketValues values every
+ *    player off a curve of an old list's values on these ROS points) the curve is fitted on the players step 3b's rule
+ *    lets shape a curve (marketCurveFit: healthy, a game left; review of track MK, finding 1: an injured player's old value
+ *    prices games his ROS doesn't count, and pooled in it lifted the bottom of the curve, W included), and everyone is read
+ *    off it.
  * 5. Per team (teamValue.ts): EV and scenario lineups of the team as it stands, ROS (playoff weeks × the user's
  *    playoff weight: opts.settings, TradeSettings.playoffWeight; LeagueModel.playoffWeight), PPW, slot strength
  *    and TeamModel.score, the weekly score the simulator draws (§8; teamValue.ts): with scenarios the scenario
@@ -52,7 +61,9 @@
  *    Checkpoint 3, model change 2; lead decisions L2 and L3): V*(T), the free-agent optimizer's roster
  *    (optimizer.ts: from T, the best add/drop or open-spot add while it gains at least faMinGain ROS points, at most
  *    faMaxMoves moves; never K or DEF or a position the team streams; never a player the starting lineup needs; the
- *    dynasty guard in dynasty and keeper leagues whose dynasty values loaded, with §9's future-term values). Its moves
+ *    dynasty guard in dynasty and keeper leagues whose dynasty values loaded, with §9's future-term values; ⚠️ without
+ *    those, near-ties in whom a move cuts go to the cheaper player, values floored at W: config.lineups.dropNearTieWeekly
+ *    a week, nearTieRos, legality's rule, optimizer.ts's header, verification finding VF-1). Its moves
  *    are judged in scenario lineups when scenarios run (review of track E, item 1: the lineups B and the lineup costs
  *    are measured in, so a depth pickup worth little in EV lineups is made, and a trade never gets credit for it), else
  *    in EV lineups. Its moves are TeamModel.faMoves, each with its EV gain and its scenario gain (the
@@ -129,15 +140,18 @@
  *    EV and scenario lineups, and the surplus scores are standardized over the active players and the returners together
  *    (the trade search's give pool ranks both). Their scenario flags are drawn like anyone's (step 3). The roster spot a
  *    returner needs from R (the displacement: returners.finalLineups) applies to FINAL evaluations only: here, each team as
- *    it stands (TeamModel.ev and scen, strength and needs, TeamModel.score and so the League page's odds); in evaluate.ts,
- *    the trade baseline at V*(T) and every trade side after V*. Returners join the active roster in order of R; a join
+ *    it stands (TeamModel.ev and scen, strength and needs, TeamModel.score and so oddsAsRostersStand) and each team's V*(T)
+ *    (step 8a: TeamModel.scoreWithPickups and so LeagueModel.odds); in evaluate.ts, the trade baseline at V*(T) (step 8a's
+ *    own lineups) and every trade side after V*. Returners join the active roster in order of R; a join
  *    that leaves it over maxRosterSize (⚠️ a roster already over it is held only to its own size) or his position over
  *    its positionLimits (the same rule) drops the lowest keep value player from R on, at his position when its limit
  *    binds (what losing him costs over the weeks from R on, in scenario lineups when scenarios ran, else EV; dynasty and
  *    keeper leagues with long-term values add the normalized market value, as legality does; ⚠️ the returner himself
- *    among the candidates, review of track E, so a return never lowers a team; never one the starting lineup needs, one a
- *    position's rosterMinimums needs, or the last one at a position the team streams; ties: the lower perception value,
- *    then the smaller id), as a masked copy of his row. ⚠️ Not inside the optimizer's moves, lineup costs, MV_add, chips
+ *    among the candidates, review of track E, so a return never lowers a team by more than the near-tie tolerance below
+ *    (with exact ties not at all); never one the starting lineup needs, one a position's rosterMinimums needs, or the
+ *    last one at a position the team streams; ties: the lower perception value, then the smaller id, and ⚠️ without
+ *    long-term values near-ties within config.lineups.dropNearTieWeekly a week go to the less valuable player, values
+ *    floored at W: returners.ts), as a masked copy of his row. ⚠️ Not inside the optimizer's moves, lineup costs, MV_add, chips
  *    or partner fit: that machinery compares rosters with each other, and the displacement is about the same on both
  *    sides (a constant per team). The week in progress's pre-kickoff score brings the returners in too, and leaves out a
  *    player displaced from the current week on, a returner released then included: the week as the model priced it before
@@ -203,17 +217,33 @@
  *    backup each qualify because the other covers him), so a deep team's whole group no longer inflates its
  *    fit. The side's score is the joint gain of the chips counted (one lineup solve per week, so chips
  *    competing for one slot count once). Partners don't need trade values either.
- * 8. The season simulation (§8; season.ts, sim.ts): LeagueModel.odds from every team's weekly score,
- *    opts.sims seasons (default config.simulation.finalSims; 0 = none, odds null) on the common-random-
- *    numbers matrix of opts.simSeed (default config.simulation.seed). Null when nothing is left to simulate,
- *    and null with a warning when the rest of the regular season has no schedule (season.ts
- *    oddsSkippedWarning) or the simulator refuses the setup. Timings only when opts.clock is given.
+ * 8. The season simulation (§8; season.ts, sim.ts), opts.sims seasons (default config.simulation.finalSims; 0 = none,
+ *    both odds null) on the common-random-numbers matrix of opts.simSeed (default config.simulation.seed), drawn once for both
+ *    runs below. Null when nothing is left to simulate, and null with a warning when the rest of the regular season has
+ *    no schedule (season.ts oddsSkippedWarning) or the simulator refuses the setup. Timings only when opts.clock is given.
+ *    One baseline everywhere (Phase 4c; planner reply to Checkpoint 4b, change 9): the headline is every team after its
+ *    free-agent pickups, the trade search's own baseline, so the League page and every card's "before" agree.
+ *    8a. TeamModel.scoreWithPickups: each team's V*(T) (step 5, the allocation's: one free agent, one team) priced finally
+ *        (finalRunLineups: its returners back and the roster spot each needs from his week, step 5b; its streaming rows),
+ *        scored as TeamModel.score is, with the week in progress held at TeamModel.score's week (pickupScore: ⚠️ the
+ *        model plays a week under way with today's rosters, so pickups count from the next week). evaluate.ts runs the same two functions on every trade side, and reuses these
+ *        very lineups for its baseline (LeagueModelBuild.pickups), so its baseline odds on its final block (the first
+ *        finalSims seasons of the same matrix) are LeagueModel.odds exactly.
+ *    8b. LeagueModel.odds simulates every team's scoreWithPickups (season.pickupSeasonModel); oddsAsRostersStand, the
+ *        page's smaller second line, every team's TeamModel.score (as it stands) on the same seasons. ⚠️ Who reads which
+ *        (ours): the headline everywhere a number is judged or shown first: the standings table (today's rank, P(playoffs),
+ *        P(bye), P(title), the projected record), the remaining schedule (my win and median-game chances each week; its
+ *        projected points from scoreWithPickups), the risky weeks (a win chance under riskyWinChance), "Your season's
+ *        over" (TeamOdds.eliminated: never read off simulation counts, so the same in both), step 9's P(playoffs) (so the
+ *        League page's premiums and "Harder to get" tags are the trade search's), and the trade search's partner context
+ *        (acceptance: checked out, rebuilding, contender), which reads its own baseline, these numbers. The odds as rosters
+ *        stand only as the second line.
  * 9. The star premium (planner addendum to Checkpoint 3, §1–§2; lead decisions N1 and N2; premium.ts): every rostered
  *    player's (active, IR and taxi) for his own team, TeamModel.premiums: his rank by perception value on the roster
  *    (ties: more ROS points, then the smaller id), whether he is a top-12 FantasyCalc player, e and the "Harder to get"
- *    tag, from step 4's values and step 8's odds (dynasty leagues: a rebuilding team's older RBs and WRs count half;
- *    without odds, P(playoffs) is unknown and nothing is halved). Last, and read by nothing above it: no other number
- *    of the model depends on it.
+ *    tag, from step 4's values and step 8's odds with pickups (dynasty leagues: a rebuilding team's older RBs and WRs
+ *    count half; without odds, P(playoffs) is unknown and nothing is halved). Last, and read by nothing above it: no other
+ *    number of the model depends on it.
  *
  * Game days (Phase 2 review decisions; LeagueModel.inProgressWeek): once any game of the current week has
  * kicked off (inputs.nfl.kickoffs[currentWeek] at or before `now`), every team-level number skips that
@@ -226,12 +256,21 @@
  * games that haven't started. The simulator plays that week's games from projections (lead decision D6:
  * live scores aren't read), so TeamModel.score's first week is the whole week as if none of its games had
  * started (preKickoffTable: the players rebuilt for 1 ms before its earliest kickoff, each team's first
- * week solved alone; scenario lineups when scenarios ran, else EV). Nothing else about the week changes,
+ * week solved alone; scenario lineups when scenarios ran, else EV), and TeamModel.scoreWithPickups's first week is that
+ * same number (step 8a: ⚠️ the model plays a week under way with today's rosters). Nothing else about the week changes,
  * and the scenario draws are the same ones (they depend on the seed, the player and the scenario only), and
  * so are the market blend's factors (step 3b: they don't depend on the moment, and the rebuild applies the build's).
  * ⚠️ Only the clock is turned back: the rosters and injury tags are today's, since nothing records them as
  * they were at kickoff. A player tagged out after the game he already played counts as missing it, and a
  * player moved since kickoff counts for his new team (the odds' note says so: season.ts weekUnderWayNote).
+ * ⚠️ Phase 4c: that identity (the odds just after the week's first kickoff are the odds just before it) holds for
+ * oddsAsRostersStand, not for the headline LeagueModel.odds (step 8): before kickoff each team's pickups can still play
+ * the week (its scoreWithPickups counts them there), after it they can't (the week is held at its score as it stands),
+ * and V*(T) itself is re-judged without the week (ω = 0), so a pickup that mattered only then may go. The trade search's
+ * baseline has always worked this way; it is the League page's headline since Phase 4c. On Parker's league (Oct 4 data,
+ * 1 ms either side of week 4's first kickoff) the headline moved by up to 1.3 points of P(playoffs) and 0.3 of P(title)
+ * (one team's V*(T) lost a move; Team 3's P(playoffs) moved 0.2), the odds as rosters stand by 0 (review of track EV;
+ * league.test.ts pins both rules).
  *
  * Choices the spec leaves open (Checkpoints 2 and 3 list them): TeamModel.chips holds every chip, and the
  * page shows the first chipsShown; TeamModel.players covers the active-roster players with a model and (step 5b)
@@ -287,8 +326,9 @@ import { FULL_POOL, applyStep, createOptimizer, poolRestriction, returnersOf, ro
 import { leaguePremiums, type StarPremiumConfig } from "./premium";
 import { baseRateSourceCounts, espnSleeperAgreement, projectPlayer, staleReturnCheck, weeklySd, type BaseRateContext, type ProjectionConfig, type SourceAgreement } from "./projections";
 import { finalLineups, returnerSpec, type FinalLineups, type FutureKeep, type ReturnerSetup } from "./returners";
-import { oddsSkippedWarning, seasonOdds, type SeasonConfig } from "./season";
+import { buildSimSetup, oddsSkippedWarning, pickupSeasonModel, seasonOdds, type SeasonConfig } from "./season";
 import { defaultTradeSettings, normalizeTradeSettings, type TradeSettings } from "./settings";
+import { simNormals } from "./sim";
 import {
   addGainExact,
   addRowsGain,
@@ -343,6 +383,11 @@ export interface LeagueModelConfig extends SeasonConfig {
     readonly strengthWeeks: number;
     readonly scenarios: number;
     readonly scenarioSeed: number;
+    /**
+     * Near-ties in whom a forced drop or a free-agent move cuts, points a week (an IR player's return:
+     * returners.ReturnerSetup.nearTieWeekly; the optimizer's moves: OptimizerSetup.dropNearTie, nearTieRos; absent: none).
+     */
+    readonly dropNearTieWeekly?: number;
   };
   readonly needs: {
     readonly chipMinGap: number;
@@ -377,7 +422,7 @@ export interface BuildLeagueModelOptions {
   scenarios?: number;
   /** Scenario seed (default config.lineups.scenarioSeed). */
   seed?: number;
-  /** Simulated seasons for LeagueModel.odds (§8; default config.simulation.finalSims; 0 = no simulation, odds null). */
+  /** Simulated seasons for LeagueModel.odds and oddsAsRostersStand (§8; default config.simulation.finalSims; 0 = no simulation, both null). */
   sims?: number;
   /** The season simulation's common-random-numbers seed (default config.simulation.seed). */
   simSeed?: number;
@@ -613,12 +658,20 @@ export interface LeaguePlayers {
 }
 
 /**
+ * Whether a modeled player may shape a market curve (step 3b's curve, blend.ts rule 4; and in FantasyCalc's curve
+ * fallback the value curve of step 4, market.MarketPlayer.fit): healthy with a game left, i.e. no injury tag
+ * (PlayerInfo.injury ACTIVE) and a game left on his NFL team's schedule (he has a team and a remaining week isn't his
+ * bye). It doesn't depend on the moment (a game that kicked off still counts as on the schedule).
+ */
+export function marketCurveFit(c: Pick<PlayerContext, "info" | "ctx">, weeks: Pick<LeagueWeeks, "weeks">): boolean {
+  return c.info.injury === "ACTIVE" && c.ctx.hasTeam && weeks.weeks.some((w) => w !== c.ctx.byeWeek);
+}
+
+/**
  * The build's market blend (step 3b; blend.ts) from its unblended players: each one's base rate b (points per game when he
- * plays) against this season's values for the league type (blend.blendValues), the curve fitted on the healthy ones: no
- * injury tag (PlayerInfo.injury ACTIVE) and a game left on his NFL team's schedule (he has a team and a remaining week
- * isn't his bye). None of it depends on the moment (b doesn't, and a game that kicked off still counts as on the
- * schedule), so a build made once a week is under way gets the factors one made before its first kickoff gets. No blend
- * without this season's values.
+ * plays) against this season's values for the league type (blend.blendValues), the curve fitted on the healthy ones
+ * (marketCurveFit). None of it depends on the moment (b doesn't, and neither does marketCurveFit), so a build made once a
+ * week is under way gets the factors one made before its first kickoff gets. No blend without this season's values.
  */
 function buildMarketBlend(
   snapshot: LeagueSnapshot,
@@ -633,8 +686,7 @@ function buildMarketBlend(
   const list = Object.entries(players).flatMap(([id, pm]) => {
     const c = contexts.get(id);
     if (!c) return [];
-    const fit = c.info.injury === "ACTIVE" && c.ctx.hasTeam && weeks.weeks.some((w) => w !== c.ctx.byeWeek);
-    return [{ id, pos: c.info.pos, rate: pm.base.b, fit }];
+    return [{ id, pos: c.info.pos, rate: pm.base.b, fit: marketCurveFit(c, weeks) }];
   });
   return marketBlend(list, values, cfg.marketBlend);
 }
@@ -973,8 +1025,20 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? o
 /**
  * The market blend is off (the file header, step 3b) although FantasyCalc's values loaded: this season's list it needs
  * (a dynasty league's redraft list in its format, MarketInputs.seasonValues, or a keeper league's redraft list) didn't.
+ * Never in FantasyCalc's curve fallback (MarketInputs.fallback kind "curve"): the blend is off there too, but the lists did
+ * load (old ones), so BLEND_OFF_CURVE_WARNING says it there.
  */
 export const BLEND_OFF_WARNING = "The trade-market blend is off: FantasyCalc's redraft values didn't load.";
+
+/**
+ * The market blend is off in FantasyCalc's curve fallback (the file header, step 3b; MarketInputs.fallback kind "curve":
+ * FantasyCalc didn't answer and the newest list is too old to read as today's, so nothing is blended toward it). The model
+ * inputs' banner (FANTASYCALC_VALUES_ESTIMATED, market.fantasyCalcFallbackText) speaks of trade values only, so this says
+ * what it means for projections (review of track EF, finding 2: with the blend off, nothing else on the League page or
+ * the Trade Finder did).
+ */
+export const BLEND_OFF_CURVE_WARNING =
+  "The trade-market blend is off: FantasyCalc didn't answer and its newest values are too old, so projections aren't pulled toward the trade market.";
 
 function nameList(ids: readonly string[], snapshot: LeagueSnapshot, max = 5): string {
   const names = ids.slice(0, max).map((id) => snapshot.players[id]?.name ?? id);
@@ -988,7 +1052,8 @@ function nameList(ids: readonly string[], snapshot: LeagueSnapshot, max = 5): st
  * week is left to project. Missing trade values are the model inputs' own warning (nothing here needs
  * them: trade chips and partners are lineup points); values that loaded without this season's list the
  * market blend needs (step 3b) get BLEND_OFF_WARNING, while some player is projected (a league renewed for
- * a season that hasn't started projects nobody, and its server doesn't ask for the list).
+ * a season that hasn't started projects nobody, and its server doesn't ask for the list); FantasyCalc's curve fallback,
+ * whose old lists blend nothing, gets BLEND_OFF_CURVE_WARNING under the same conditions instead.
  */
 function modelWarnings(snapshot: LeagueSnapshot, inputs: ModelInputs, lp: LeaguePlayers, sources: Readonly<Record<BaseRateSource, number>>, cfg: LeagueModelConfig): string[] {
   const out: string[] = [];
@@ -1013,9 +1078,12 @@ function modelWarnings(snapshot: LeagueSnapshot, inputs: ModelInputs, lp: League
       out.push("Sleeper's projections are missing, so projections use ESPN's alone.");
     }
   }
-  // The blend is off for want of this season's list, and there was something to blend: someone is projected.
+  // The blend is off for want of this season's list, and there was something to blend: someone is projected. The curve
+  // fallback's lists loaded (old ones, read only by the value curve): its own words say so.
   const projected = Object.values(lp.players).some((pm) => pm.ros.total > 0);
-  if (weeksLeft && projected && inputs.market && cfg.marketBlend.weight > 0 && !blendValues(inputs.market, snapshot.settings.leagueType)) out.push(BLEND_OFF_WARNING);
+  if (weeksLeft && projected && inputs.market && cfg.marketBlend.weight > 0 && !blendValues(inputs.market, snapshot.settings.leagueType)) {
+    out.push(inputs.market.fallback?.kind === "curve" ? BLEND_OFF_CURVE_WARNING : BLEND_OFF_WARNING);
+  }
   return out;
 }
 
@@ -1168,6 +1236,21 @@ export function allocationOrder(teams: readonly AllocationTeam[], faabLeague: bo
 }
 
 /**
+ * A near-tie tolerance in points a week (config.lineups.dropNearTieWeekly) in ROS lineup points: × the sum of the weeks'
+ * weights (the weeks team numbers count, the user's playoff weight). 0 for a tolerance that isn't a positive number.
+ * Roster legality's forced drops (evaluate.ts keepValues) and the optimizer's moves (OptimizerSetup.dropNearTie) read it.
+ */
+export function nearTieRos(perWeek: number | undefined, weights: ArrayLike<number>): number {
+  if (perWeek === undefined || !Number.isFinite(perWeek) || !(perWeek > 0)) return 0;
+  let sum = 0;
+  for (let w = 0; w < weights.length; w++) {
+    const x = weights[w] as number;
+    if (Number.isFinite(x) && x > 0) sum += x;
+  }
+  return perWeek * sum;
+}
+
+/**
  * The free agents an optimizer run claims (step 5): every free agent one of its moves added, in move order, each once
  * (⚠️ one a later move of the same run swapped away included: no other team's run may add him, so no free agent shows in
  * two teams' moves and greedy determinism holds, but for near-ties; optimizer.ts, "The pool").
@@ -1235,9 +1318,13 @@ function prepareLeague(snapshot: LeagueSnapshot, inputs: ModelInputs, opts: Buil
   const table = projectionTable(lp, S, seed, cfg, irOn);
   if (S > 0) mark("availability scenarios");
 
-  // 4. Market values and the waiver credit, after the blend (step 3b).
+  // 4. Market values and the waiver credit, after the blend (step 3b). `fit`: whether he may be a point of FantasyCalc's
+  // curve fallback (the file header, step 4; only that path reads it): step 3b's healthy rule.
   const modelIds = Object.keys(lp.players);
-  const valuePlayers = modelIds.map((id) => ({ id, pos: (lp.contexts.get(id) as PlayerContext).info.pos }));
+  const valuePlayers = modelIds.map((id) => {
+    const c = lp.contexts.get(id) as PlayerContext;
+    return { id, pos: c.info.pos, fit: marketCurveFit(c, weeks) };
+  });
   // The estimate curve (§9) fits values to ROS points over the weeks team numbers count, so on game days a
   // player whose game has kicked off isn't worth less than one who plays later that week (review final check).
   // They are the blended points (step 3b), the ones every lineup reads.
@@ -1297,6 +1384,8 @@ function prepareLeague(snapshot: LeagueSnapshot, inputs: ModelInputs, opts: Buil
     rosterMinimums: snapshot.settings.rosterMinimums,
     info: (id) => snapshot.players[id],
     dropValue: valueOf,
+    nearTieWeekly: cfg.lineups.dropNearTieWeekly ?? 0,
+    valueFloor: credit,
     future,
     returnIndex: (id) => {
       const r = returnWeek(id);
@@ -1317,6 +1406,10 @@ function prepareLeague(snapshot: LeagueSnapshot, inputs: ModelInputs, opts: Buil
       positionLimits: limits,
       maxRosterSize,
       dropValue: valueOf,
+      // ⚠️ Near-ties in whom a move cuts (optimizer.ts's header; roster legality's rule, evaluate.ts keepValues): only where
+      // a keep value is the lineup cost alone (no long-term values: the dynasty guard is off too), the values floored at W.
+      dropNearTie: future ? 0 : nearTieRos(cfg.lineups.dropNearTieWeekly, weights),
+      dropValueFloor: credit,
       dynasty: dynastyGuard(future, cfg),
       // V*(T) judges its moves in scenario lineups when scenarios run (the file header, step 5); the re-runs don't.
       scenarios: S,
@@ -1875,11 +1968,42 @@ function finalScore(ctx: LeagueContext, t: TeamWork, roster: readonly string[], 
 }
 
 /**
+ * A team's roster after a free-agent optimizer run, priced finally (steps 5b and 8a; the trade evaluation's exact mode):
+ * its scenario lineups when scenarios ran (the optimizer's own when it judged the run in them, memoized; else solved
+ * here, cells kept, since the displacement prices from them), else its EV lineups; then, from a returner's week, the
+ * roster spot he needs (returners.finalLineups). V*(T) with the team's own spec for TeamModel.scoreWithPickups and the
+ * trade search's baseline; V*(after) with a side's spec after a trade for every exact trade (evaluate.ts sideEval).
+ */
+export function finalRunLineups(ctx: LeagueContext, run: OptimizedRoster, spec: StreamSpec): FinalLineups {
+  const raw = ctx.S > 0 ? (ctx.optimizer.scenarioValuesOf(run.roster, spec) ?? scenarioValues(run.team, ctx.W, ctx.S, ctx.index, true, true)) : null;
+  return finalLineups(ctx.returnerSetup, run.roster, spec, { ev: run.solved, scen: raw });
+}
+
+/**
+ * The weekly score the simulator draws for a team after free-agent pickups (step 8a): TeamModel.score's rule on `final`
+ * (finalRunLineups: the scenario mean and sqrt(within-lineup variance + the scenarios' spread²) with scenarios, else the
+ * EV lineup's LV and sqrt(Σ σ²)), with a week in progress held at `standing`'s first week, the team's TeamModel.score as it
+ * stands (that week as it was before kickoff): ⚠️ the model plays a week under way with today's rosters. TeamModel.
+ * scoreWithPickups (V*(T)), the trade search's baseline (the same numbers) and every trade's sides after it (evaluate.ts
+ * sideEval). A fresh score: the caller may keep it.
+ */
+export function pickupScore(ctx: Pick<LeagueContext, "tw" | "W">, final: FinalLineups, standing: { readonly mean: ArrayLike<number>; readonly sd: ArrayLike<number> } | null | undefined): WeeklyScore {
+  const score = final.scen ? scenarioScore(final.scen) : evScore(final.ev);
+  if (ctx.tw.inProgressWeek !== null && ctx.W > 0 && standing && standing.mean.length > 0 && standing.sd.length > 0) {
+    score.mean[0] = standing.mean[0] as number;
+    score.sd[0] = standing.sd[0] as number;
+  }
+  return score;
+}
+
+/**
  * Weekly scores for any active roster of a team (its streaming rows and IR returners, as the build gives them), priced as
  * TeamModel.score prices the team as it stands (steps 5b and 8: the roster spot a returner needs from his week, a week in
  * progress from before its first kickoff), from the same steps 1–5 a League model with these options builds: the team's
  * own roster gives its TeamModel.score exactly. For scripts that price rosters the model doesn't keep (the league
- * report's free-agent baseline). Null for an unknown team.
+ * report's free-agent baseline). Null for an unknown team. ⚠️ Not the score with pickups: given V*(T)'s roster it plays
+ * the week in progress with the pickups (every free agent's pre-kickoff row), while TeamModel.scoreWithPickups, the
+ * headline odds' score (step 8a), holds that week at the team's score as it stands; the other weeks agree.
  */
 export function teamRosterScorer(snapshot: LeagueSnapshot, inputs: ModelInputs, opts: BuildLeagueModelOptions, cfg: LeagueModelConfig = config): (roster: readonly string[], teamId: string) => { mean: number[]; sd: number[] } | null {
   const ctx = prepareLeague(snapshot, inputs, opts, cfg, () => undefined);
@@ -1902,13 +2026,21 @@ export function buildLeagueModel(snapshot: LeagueSnapshot, inputs: ModelInputs, 
   return buildLeagueModelWithContext(snapshot, inputs, opts, cfg).model;
 }
 
-/** buildLeagueModel's result with what it was built from, for Phase 4's trade evaluation (evaluate.ts): steps 1–5 and step 6's bases. */
+/**
+ * buildLeagueModel's result with what it was built from, for Phase 4's trade evaluation (evaluate.ts): steps 1–5, step 6's
+ * bases and step 8a's priced V*(T) lineups.
+ */
 export interface LeagueModelBuild {
   model: LeagueModel;
   /** Steps 1–5: projections, scenarios, values, streaming, every team's lineups, V* and lineup costs. */
   context: LeagueContext;
   /** Step 6's bases for MV_add (teamBases; baseFor builds the position-limited ones when first needed). */
   bases: TeamBase[];
+  /**
+   * Step 8a: every team's V*(T) priced finally (finalRunLineups with its own spec), context.work order: the lineups behind
+   * TeamModel.scoreWithPickups, which the trade evaluation reuses as its baseline (evaluate.ts), so the two are one.
+   */
+  pickups: FinalLineups[];
 }
 
 /**
@@ -1942,6 +2074,15 @@ export function buildLeagueModelWithContext(snapshot: LeagueSnapshot, inputs: Mo
   const pre = preKickoffOf(ctx, inputs, opts, false);
   const scores: WeeklyScore[] = work.map((t, ti) => finalScore(ctx, t, t.ids, finals[ti] as FinalLineups, pre));
   if (pre) mark("week in progress before kickoff");
+
+  // 8a. The same for every team after its free-agent pickups (one baseline everywhere: the file header, step 8): V*(T),
+  // step 5's allocation (one free agent, one team), priced finally (its returners back, the roster spot each needs from his
+  // week; finalRunLineups) with the week in progress held at the team's score as it stands (pickupScore). These are the
+  // trade search's baseline lineups (evaluate.ts reuses them: LeagueModelBuild.pickups), and LeagueModel.odds simulates
+  // their scores (TeamModel.scoreWithPickups).
+  const pickups: FinalLineups[] = work.map((t) => finalRunLineups(ctx, t.vstar, t.stream));
+  const pickupScores: WeeklyScore[] = work.map((_, ti) => pickupScore(ctx, pickups[ti] as FinalLineups, scores[ti]));
+  mark("teams after their pickups");
 
   // 6. Trade chips: each team's base B′ (from V*), then every candidate's best other team (the file header).
   const bases = teamBases(ctx);
@@ -2032,6 +2173,7 @@ export function buildLeagueModelWithContext(snapshot: LeagueSnapshot, inputs: Mo
       players[c.id] = { mvLoseEv: c.ev, mvLoseScen: c.scen, autoAdd: null, surplusScore: t.returnerScores[x] as number };
     });
     const score = scores[ti] as WeeklyScore;
+    const withPickups = pickupScores[ti] as WeeklyScore;
     const final = finals[ti] as FinalLineups;
     return {
       id: t.team.id,
@@ -2043,6 +2185,7 @@ export function buildLeagueModelWithContext(snapshot: LeagueSnapshot, inputs: Mo
       players,
       faMoves: t.faMoves,
       score: { mean: Array.from(score.mean), sd: Array.from(score.sd) },
+      scoreWithPickups: { mean: Array.from(withPickups.mean), sd: Array.from(withPickups.sd) },
     };
   });
 
@@ -2074,18 +2217,23 @@ export function buildLeagueModelWithContext(snapshot: LeagueSnapshot, inputs: Mo
     market: ctx.market,
     projection,
     odds: null,
+    oddsAsRostersStand: null,
     timings,
     warnings: modelWarnings(snapshot, inputs, lp, projection.sources, cfg),
   };
 
-  // 8. The season simulation (§8): from every team's weekly score.
+  // 8. The season simulation (§8): every team after its pickups (LeagueModel.odds, the headline and the trade search's
+  // baseline), and every team as it stands (oddsAsRostersStand), on the same seasons.
   const sims = opts.sims ?? cfg.simulation.finalSims;
   if (Number.isFinite(sims) && sims >= 1) {
-    model.odds = simulate(snapshot, model, Math.floor(sims), opts.simSeed ?? cfg.simulation.seed, cfg);
+    const both = simulate(snapshot, model, Math.floor(sims), opts.simSeed ?? cfg.simulation.seed, cfg);
+    model.odds = both.withPickups;
+    model.oddsAsRostersStand = both.asRostersStand;
     mark("season simulation");
   }
 
-  // 9. The star premium (the file header): every rostered player's, for his own team, from the values and the odds.
+  // 9. The star premium (the file header): every rostered player's, for his own team, from the values and the odds (with
+  // pickups: the trade search's own baseline, so its premiums are the League page's).
   const odds = model.odds;
   const premiums = leaguePremiums(
     {
@@ -2099,7 +2247,7 @@ export function buildLeagueModelWithContext(snapshot: LeagueSnapshot, inputs: Mo
   );
   for (const t of model.teams) t.premiums = premiums.get(t.id) ?? {};
   if (clock) timings.total = last - start;
-  return { model, context: ctx, bases };
+  return { model, context: ctx, bases, pickups };
 }
 
 /**
@@ -2109,24 +2257,32 @@ export function buildLeagueModelWithContext(snapshot: LeagueSnapshot, inputs: Mo
 export const ODDS_REFUSED_WARNING = "The playoff odds couldn't be worked out from this league's schedule, so they're left out.";
 
 /**
- * LeagueModel.odds (step 8). A season that can't be simulated although weeks remain (season.ts
- * oddsSkippedWarning: the rest of the schedule didn't load) has no odds, with that warning. The
- * simulator refuses a setup it can't decide (a RangeError; season.ts builds setups it accepts): the rest
- * of the model is still good, so the odds are left out with ODDS_REFUSED_WARNING instead of losing the
- * whole League page. The RangeError's message stays out of every user-facing text.
+ * LeagueModel.odds and oddsAsRostersStand (step 8): every team's TeamModel.scoreWithPickups (season.ts
+ * pickupSeasonModel), and every team's TeamModel.score, simulated on the same `sims` seasons of `seed`'s matrix (drawn
+ * once: the two setups differ only in their scores). Those seasons are the trade search's final block (evaluate.ts), so
+ * LeagueModel.odds is its baseline exactly. A season that can't be simulated although weeks remain (season.ts
+ * oddsSkippedWarning: the rest of the schedule didn't load) has no odds, with that warning. The simulator refuses a
+ * setup it can't decide (a RangeError; season.ts builds setups it accepts): the rest of the model is still good, so the
+ * odds are left out with ODDS_REFUSED_WARNING instead of losing the whole League page. The RangeError's message stays out
+ * of every user-facing text. Either way both are null (oddsAsRostersStand is null whenever odds is).
  */
-function simulate(snapshot: LeagueSnapshot, model: LeagueModel, sims: number, seed: number, cfg: LeagueModelConfig): SeasonOdds | null {
+function simulate(snapshot: LeagueSnapshot, model: LeagueModel, sims: number, seed: number, cfg: LeagueModelConfig): { withPickups: SeasonOdds | null; asRostersStand: SeasonOdds | null } {
+  const none = { withPickups: null, asRostersStand: null };
   const skipped = oddsSkippedWarning(snapshot, model);
   if (skipped !== null) {
     model.warnings.push(skipped);
-    return null;
+    return none;
   }
   try {
-    return seasonOdds(snapshot, model, { sims, seed }, cfg);
+    const built = buildSimSetup(snapshot, model);
+    if (!built) return none;
+    const normals = simNormals(seed, sims, built.setup.weeks.length, built.setup.teams.length);
+    const withPickups = seasonOdds(snapshot, pickupSeasonModel(model), { sims, seed, normals }, cfg);
+    return { withPickups, asRostersStand: withPickups ? seasonOdds(snapshot, model, { sims, seed, normals }, cfg) : null };
   } catch (err) {
     if (!(err instanceof RangeError)) throw err;
     model.warnings.push(ODDS_REFUSED_WARNING);
-    return null;
+    return none;
   }
 }
 

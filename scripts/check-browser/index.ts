@@ -15,7 +15,10 @@
  * 3. Runs the steps (steps.ts): Connect and the public-link import, the Import Report and the team (--team <id>, else
  *    the report's own choice), the League page, the Trade Finder's full search (timed, with the engine's per-stage
  *    timings), a card's buttons, the Trade Analyzer, Settings, then Home and Privacy: no sideways scrolling, tap targets
- *    of at least 44 px, no console errors or failed requests, and "Harder to get" never on my own players.
+ *    of at least 44 px, no console errors or failed requests, and "Harder to get" never on my own players. With
+ *    --second-league (Phase 4c), also a second league (the public ESPN test league, args.ts SECOND_LEAGUE) added with
+ *    the league switcher, switched to and back, then removed: each page shows the league it should, and settings and
+ *    feedback stay per league. Its names are cleaned like the first league's ("Team L2-3").
  * 4. Prints one line per check as it goes, the numbers (timings and counts), and a summary; writes the same, cleaned,
  *    to .cache/check-browser/results.json, and screenshots (when on) to .cache/check-browser/shots/.
  * 5. Always stops Chrome and the server, whatever happened (an error, Ctrl+C, an uncaught exception): each process is
@@ -38,7 +41,7 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { ROOT, env } from "../lib/env";
 import { installConsoleScrubber, loadSecretsIntoScrubber, registerScrubber, scrubEverything } from "../lib/redact";
-import { parseArgs, resolveArgs, USAGE, type CheckBrowserArgs } from "./args";
+import { parseArgs, resolveArgs, SECOND_LEAGUE, USAGE, type CheckBrowserArgs } from "./args";
 import { CdpClient } from "./cdp";
 import { exited, findChrome, killTree, launchChrome, stopChrome, type RunningChrome } from "./chrome";
 import { PageSession, PHONE } from "./page";
@@ -155,7 +158,9 @@ async function run(args: CheckBrowserArgs): Promise<number> {
     return 2;
   }
 
-  console.log(`Offer Sheet browser check: the production build at ${PHONE.width} px, your ESPN league through its public link.`);
+  console.log(
+    `Offer Sheet browser check: the production build at ${PHONE.width} px, your ESPN league through its public link${args.secondLeague ? `, then the public test league ${SECOND_LEAGUE.leagueId} (${SECOND_LEAGUE.season}) as a second league` : ""}.`,
+  );
   console.log(`Build: ${new Date(build.builtAt).toISOString()}.`);
   if (newestChange(path.join(ROOT, "src")) > build.builtAt) console.log("Note: files in src/ changed after that build. This checks the build as it is: run npm run build for the current code.");
   mkdirSync(OUT_DIR, { recursive: true });
@@ -208,6 +213,7 @@ async function run(args: CheckBrowserArgs): Promise<number> {
       season: env("ESPN_SEASON"),
       shotsDir: args.shots ? SHOTS_DIR : null,
       names: null,
+      // Called again with both leagues' names when --second-league adds one (report.ts mergeLeagueNames).
       onNames: (names) => {
         registerScrubber(leagueNamesScrubber(names));
         check.leftovers = leftoverChecker(names, [leagueId]);

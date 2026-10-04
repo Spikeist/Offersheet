@@ -47,6 +47,16 @@ export interface LeagueSettings {
    * absent = unknown (config.lineups.irEligibleDefault: IR and PUP). Phase 4b (planner reply to Checkpoint 4, change 5).
    */
   irEligible?: InjuryStatus[];
+  /**
+   * Phase 4c (planner reply to Checkpoint 4b, answer 2): which waiver order Team.waiverRank holds. "weeklyReset": the order
+   * the league resets to each week, reverse standings (ESPN waiverOrderReset, Sleeper waiver_type 1), so the free-agent
+   * baseline doesn't depend on the day of the import. "live": the platform's order as it stands (rolling waivers, or a
+   * reset league whose reset order can't be used yet: an unreported reset rule, no games played; the adapters' warnings say
+   * which). "faab": a FAAB league (ESPN isUsingAcquisitionBudget, Sleeper waiver_type 2): budgets left first, when every
+   * team's is known, else waiverRank. Absent when no order is used (ESPN FREEAGENCY) or not every team is ranked. The
+   * Import Report shows it ("Waiver order used: Weekly reset (reverse standings)").
+   */
+  waiverOrderUsed?: "weeklyReset" | "live" | "faab";
   taxiSlots: number;
   /** Active roster, excluding IR/taxi. */
   maxRosterSize: number;
@@ -143,10 +153,18 @@ export interface Team {
   pointsAgainst: number;
   divisionId?: string;
   /**
-   * The team's place in the waiver order (1 = first claim), when the platform reports it (ESPN teams[].waiverRank,
-   * Sleeper rosters[].settings.waiver_position). Phase 4b: free agents go to one team each, in this order (§7).
+   * The team's place in the order the free-agent allocation uses (1 = first claim; Phase 4b: free agents go to one team
+   * each, in this order, §7). Phase 4c: the weekly reset order where the league resets weekly (ESPN waiverOrderReset,
+   * Sleeper waiver_type 1; LeagueSettings.waiverOrderUsed "weeklyReset"), else the platform's live order (ESPN
+   * teams[].waiverRank, Sleeper rosters[].settings.waiver_position).
    */
   waiverRank?: number;
+  /**
+   * Phase 4c (planner reply to Checkpoint 4b, answer 2): the platform's live waiver rank in a league whose order resets
+   * weekly (waiverRank then holds the reset order, so the free-agent baseline doesn't depend on the day of the import). Set
+   * on every team the platform ranks in such a league, even where it equals waiverRank (as at the reset); absent elsewhere.
+   */
+  liveWaiverRank?: number;
   /** FAAB leagues: the team's remaining budget (the budget minus what it has spent), when the platform reports it. */
   faabRemaining?: number;
 }

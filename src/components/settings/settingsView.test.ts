@@ -10,17 +10,45 @@ import { describe, expect, it } from "vitest";
 import { config } from "@/engine/config";
 import type { LeagueSnapshot, Pos, SlotDef } from "@/engine/model";
 import { defaultTradeSettings, type TradeSettings } from "@/engine/settings";
-import { applySettingsEdit, buildSettingsView, lambdaStart, lambdaText, startablePositions, type SettingsView } from "./settingsView";
+import {
+  GOAL_LABEL,
+  LAMBDA_ESTIMATED_NOTE,
+  PROTECT_VALUE_ESTIMATED_NOTE,
+  applySettingsEdit,
+  buildSettingsView,
+  goalHelp,
+  lambdaStart,
+  lambdaText,
+  startablePositions,
+  type SettingsView,
+} from "./settingsView";
 import { LINEUP, PLAYERS, snapshot } from "./testFixtures";
 
-const view = (settings: Partial<TradeSettings> = {}, opts: { myTeamId?: string | null; snap?: LeagueSnapshot; stored?: boolean } = {}): SettingsView =>
-  buildSettingsView({ snapshot: opts.snap ?? snapshot(), myTeamId: opts.myTeamId === undefined ? "1" : opts.myTeamId, settings: { ...defaultTradeSettings(), ...settings }, stored: opts.stored ?? false });
+const view = (settings: Partial<TradeSettings> = {}, opts: { myTeamId?: string | null; snap?: LeagueSnapshot; stored?: boolean; valuesEstimated?: boolean } = {}): SettingsView =>
+  buildSettingsView({
+    snapshot: opts.snap ?? snapshot(),
+    myTeamId: opts.myTeamId === undefined ? "1" : opts.myTeamId,
+    settings: { ...defaultTradeSettings(), ...settings },
+    stored: opts.stored ?? false,
+    ...(opts.valuesEstimated !== undefined ? { valuesEstimated: opts.valuesEstimated } : {}),
+  });
 
 const checked = <T>(choices: { value: T; checked: boolean }[]) => choices.filter((c) => c.checked).map((c) => c.value);
 const okPlayers = (v: SettingsView) => {
   if (v.players.kind !== "ok") throw new Error("expected the player pickers");
   return v.players;
 };
+
+describe("the Trade Finder's minimum chance on this page (final review of Phase 4c, finding PAGES-5)", () => {
+  it("is named in the league's card when saved settings hold one other than the default, with what Reset does to it; else nothing", () => {
+    expect(config.ranking.minChanceDefault).toBe(0.1);
+    expect(view({ minChance: 0.3 }, { stored: true }).finderMinimum).toBe("The Trade Finder's “Chance they accept: at least” is 30%, set on the Trade Finder. Reset to defaults sets it back to 10% too.");
+    expect(view({ minChance: 0 }, { stored: true }).finderMinimum).toBe("The Trade Finder's “Chance they accept: at least” is Any, set on the Trade Finder. Reset to defaults sets it back to 10% too.");
+    // The default, or no saved settings at all: nothing to say.
+    expect(view({ minChance: 0.1 }, { stored: true }).finderMinimum).toBeNull();
+    expect(view({ minChance: 0.3 }, { stored: false }).finderMinimum).toBeNull();
+  });
+});
 
 describe("the league's choices", () => {
   it("offers the streamable positions the league starts, K and D/ST on by default (ESPN calls defenses D/ST)", () => {
@@ -97,6 +125,47 @@ describe("the league's choices", () => {
     expect(view({}, { snap: snapshot({ leagueType: "keeper" }) }).protectValue).toBeNull();
     // Plain words: no Greek letters or model terms.
     expect(JSON.stringify(redraft.protectValue)).not.toMatch(/κ|kappa|g_mkt|market term/i);
+  });
+
+  it("offers 'What matters most' (Win the title, the default / Balanced / Make the playoffs) in every league type, each with its weights from config (planner reply to Checkpoint 4b, change 8)", () => {
+    const pct = (x: number) => `${Math.round(x * 100)}%`;
+    const g = config.benefit.goals;
+    const redraft = view();
+    expect(redraft.goal.choices).toEqual([
+      { value: "title", label: "Win the title", detail: "default", help: `Weighs your title odds most (${pct(g.title.title)}), playoff odds ${pct(g.title.playoffs)}.`, checked: true },
+      { value: "balanced", label: "Balanced", help: `Weighs your title odds ${pct(g.balanced.title)} and your playoff odds ${pct(g.balanced.playoffs)}.`, checked: false },
+      { value: "playoffs", label: "Make the playoffs", help: `Weighs your playoff odds most (${pct(g.playoffs.playoffs)}), title odds ${pct(g.playoffs.title)}.`, checked: false },
+    ]);
+    // The planner's words for the default, with today's config.
+    expect(goalHelp("title")).toBe("Weighs your title odds most (85%), playoff odds 15%.");
+    expect(config.benefit.goalDefault).toBe("title");
+    expect(GOAL_LABEL).toEqual({ title: "Win the title", balanced: "Balanced", playoffs: "Make the playoffs" });
+    // The numbers follow the weights given, never fixed ones.
+    expect(goalHelp("playoffs", { playoffs: 0.6, title: 0.4 })).toBe("Weighs your playoff odds most (60%), title odds 40%.");
+    expect(redraft.goal.help).toBe("Helps you scores a trade by how much it raises your title and playoff odds. This sets which of the two counts more.");
+    expect(checked(view({ goal: "playoffs" }).goal.choices)).toEqual(["playoffs"]);
+    // Dynasty and keeper leagues too: it weighs this season's part, and the help says where later seasons are set.
+    for (const leagueType of ["dynasty", "keeper"] as const) {
+      const v = view({ goal: "balanced" }, { snap: snapshot({ leagueType }) });
+      expect(checked(v.goal.choices)).toEqual(["balanced"]);
+      expect(v.goal.help).toBe(
+        "For this season, Helps you scores a trade by how much it raises your title and playoff odds (how much later seasons count is set under Win now or build for the future). This sets which of the two counts more.",
+      );
+    }
+    // Plain words: no Greek letters or model terms.
+    expect(JSON.stringify(redraft.goal)).not.toMatch(/ΔPO|ΔCH|B_win|weight/i);
+  });
+
+  it("says Protect my trade value (redraft) and Win now ↔ Future (dynasty, keeper) change nothing while the league's values are our own estimates (FantasyCalc's curve fallback)", () => {
+    expect(view().protectValue?.note).toBeNull();
+    expect(view({}, { valuesEstimated: true }).protectValue?.note).toBe(PROTECT_VALUE_ESTIMATED_NOTE);
+    expect(PROTECT_VALUE_ESTIMATED_NOTE).toBe(
+      "For now this setting changes nothing: FantasyCalc isn't available, so this league's trade values are our own estimates, and Helps you leaves trade value out until FantasyCalc is back.",
+    );
+    expect(view({}, { snap: snapshot({ leagueType: "dynasty" }) }).lambda?.estimatedNote).toBeNull();
+    for (const leagueType of ["dynasty", "keeper"] as const) expect(view({}, { snap: snapshot({ leagueType }), valuesEstimated: true }).lambda?.estimatedNote).toBe(LAMBDA_ESTIMATED_NOTE);
+    // What matters most still counts then (the odds don't depend on trade values): no note.
+    expect(JSON.stringify(view({}, { valuesEstimated: true }).goal)).not.toContain("FantasyCalc");
   });
 
   it("puts λ in words", () => {
@@ -217,6 +286,8 @@ describe("applySettingsEdit", () => {
     expect(applySettingsEdit({ ...base, lambda: 0.6 }, { kind: "lambda", value: null }).settings.lambda).toBeNull();
     expect(applySettingsEdit(base, { kind: "maxPerSide", value: 3 }).settings.maxPerSide).toBe(3);
     expect(applySettingsEdit(base, { kind: "protectValue", value: "high" })).toEqual({ settings: { ...base, protectValue: "high" }, note: null });
+    expect(applySettingsEdit(base, { kind: "goal", value: "playoffs" })).toEqual({ settings: { ...base, goal: "playoffs" }, note: null });
+    expect(applySettingsEdit({ ...base, goal: "playoffs" }, { kind: "goal", value: "title" }).settings.goal).toBe("title");
     expect(applySettingsEdit({ ...base, protectValue: "high" }, { kind: "protectValue", value: "low" }).settings.protectValue).toBe("low");
     expect(applySettingsEdit(base, { kind: "includePicks", on: true }).settings.includePicks).toBe(true);
     expect(applySettingsEdit(base, { kind: "includeKDefIdp", on: true })).toEqual({ settings: { ...base, includeKDefIdp: true }, note: null });
@@ -228,6 +299,7 @@ describe("applySettingsEdit", () => {
     expect(applySettingsEdit(base, { kind: "stream", pos: "RB", on: true }).settings.streamPositions).toEqual(["K", "DEF"]);
     // A level that doesn't exist (an old page, a tampered store) falls back to the default.
     expect(applySettingsEdit(base, { kind: "protectValue", value: "extreme" as unknown as "high" }).settings.protectValue).toBe(config.benefit.protectValueDefault);
+    expect(applySettingsEdit(base, { kind: "goal", value: "everything" as unknown as "title" }).settings.goal).toBe(config.benefit.goalDefault);
   });
 
   it("never leaves a player on both lists: marking one moves him, and says so", () => {

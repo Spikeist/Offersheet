@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import type { AcceptanceFeatures } from "@/engine/tradeModel";
 import type { StorageLike } from "./importStore";
 import {
+  FEEDBACK_DELETE_FAILED,
   FEEDBACK_EXPORT_KIND,
   FEEDBACK_MAX_RECORDS,
   FEEDBACK_NOTE_MAX,
@@ -25,6 +26,9 @@ import {
   feedbackExportFileName,
   feedbackExportText,
   feedbackFor,
+  feedbackRecordsFrom,
+  feedbackTouchedAt,
+  mergeFeedbackRecords,
   parseFeedback,
   parseFeedbackExport,
   saveFeedback,
@@ -301,7 +305,7 @@ describe("saving to and reading from the browser's storage", () => {
     saveFeedback(storage, { leagueKey: LEAGUE, evaluation: evaluation(), change: { outcome: "sent" }, at: T1 });
     expect(clearFeedback(storage)).toEqual({ ok: true });
     expect(storage.getItem(FEEDBACK_STORAGE_KEY)).toBeNull();
-    expect(clearFeedback(new BlockedStorage()).ok).toBe(false);
+    expect(clearFeedback(new BlockedStorage())).toEqual({ ok: false, message: FEEDBACK_DELETE_FAILED });
   });
 });
 
@@ -357,5 +361,75 @@ describe("the export file", () => {
     expect(feedbackExportFileName(T3)).toBe("offersheet-feedback-2026-10-03.json");
     expect(feedbackExportFileName("whenever")).toBe("offersheet-feedback-export.json");
     expect(feedbackExportFileName(T3)).not.toMatch(/[<>:"/\\|?*]/);
+  });
+});
+
+describe("the sent version's model inputs (planner reply to Checkpoint 4b, change 7)", () => {
+  const INPUTS = { features: FEATURES, gPartner: -0.1, b: 4.2, goal: "title" as const };
+  const sent = (version: "offerFirst" | "full" | "planB", inputs?: unknown) => ({ version, key: `${version}-key`, pAccept: 0.3, pComplete: 0.3, ...(inputs !== undefined ? { inputs: inputs as typeof INPUTS } : {}) });
+
+  it("keeps them with the version sent, and they follow it: a later version without inputs drops them, clearing the outcome clears them", () => {
+    let list = applyFeedback([], { leagueKey: LEAGUE, evaluation: evaluation(), change: { outcome: "sent", sent: sent("offerFirst", INPUTS) }, at: T1 });
+    expect(list[0]?.versionInputs).toEqual(INPUTS);
+    // A later outcome without a version keeps them (the same sending).
+    list = applyFeedback(list, { leagueKey: LEAGUE, evaluation: evaluation(), change: { outcome: "accepted" }, at: T2 });
+    expect(list[0]?.versionInputs).toEqual(INPUTS);
+    // Another version named without inputs: the earlier version's never stay with it.
+    list = applyFeedback(list, { leagueKey: LEAGUE, evaluation: evaluation(), change: { outcome: "countered", sent: sent("planB") }, at: T2 });
+    expect(list[0]).toMatchObject({ version: "planB" });
+    expect(list[0]?.versionInputs).toBeUndefined();
+    list = applyFeedback(list, { leagueKey: LEAGUE, evaluation: evaluation(), change: { outcome: "sent", sent: sent("full", INPUTS) }, at: T3 });
+    list = applyFeedback(list, { leagueKey: LEAGUE, evaluation: evaluation(), change: { report: { reason: "other" } }, at: T3 });
+    list = applyFeedback(list, { leagueKey: LEAGUE, evaluation: evaluation(), change: { outcome: null }, at: T3 });
+    expect(list[0]?.versionInputs).toBeUndefined();
+  });
+
+  it("keeps only the known fields, numbers that weren't finite and goals that aren't one as null", () => {
+    const odd = { features: { ...FEATURES, z: Number.NaN, extra: 1 }, gPartner: Number.POSITIVE_INFINITY, b: "4", goal: "fun", junk: true };
+    const [r] = applyFeedback([], { leagueKey: LEAGUE, evaluation: evaluation(), change: { outcome: "sent", sent: sent("full", odd) }, at: T1 });
+    expect(r?.versionInputs).toEqual({ features: { ...FEATURES, z: null }, gPartner: null, b: null, goal: null });
+    const [noFeatures] = applyFeedback([], { leagueKey: LEAGUE, evaluation: evaluation(), change: { outcome: "sent", sent: sent("full", { b: 1, goal: "playoffs" }) }, at: T1 });
+    expect(noFeatures?.versionInputs).toEqual({ features: null, gPartner: null, b: 1, goal: "playoffs" });
+  });
+
+  it("round-trips through the storage and the export; one that isn't an object, or without a version, is left out", () => {
+    const [r] = applyFeedback([], { leagueKey: LEAGUE, evaluation: evaluation(), change: { outcome: "sent", sent: sent("full", INPUTS) }, at: T1 });
+    expect(parseFeedback(JSON.stringify([r]))).toEqual([r]);
+    expect(parseFeedbackExport(feedbackExportText([r as FeedbackRecord], T3))?.[0]?.versionInputs).toEqual(INPUTS);
+    expect(parseFeedback(JSON.stringify([{ ...r, versionInputs: "lots" }]))[0]?.versionInputs).toBeUndefined();
+    const { version: _v, ...noVersion } = r as FeedbackRecord;
+    void _v;
+    expect(parseFeedback(JSON.stringify([noVersion]))[0]?.versionInputs).toBeUndefined();
+  });
+});
+
+describe("the pieces the league store uses (Phase 4c: one list per league in IndexedDB)", () => {
+  const at = (key: string, when: string) => applyFeedback([], { leagueKey: LEAGUE, evaluation: evaluation(key), change: { outcome: "sent" }, at: when })[0] as FeedbackRecord;
+
+  it("reads a stored list already parsed as parseFeedback reads its text", () => {
+    const list = [at("a", T1), at("b", T2)];
+    for (const data of [list, [null, ...list], [...list, list[0]], {}, "x", null]) expect(feedbackRecordsFrom(data), JSON.stringify(data)).toEqual(parseFeedback(JSON.stringify(data)));
+    expect(feedbackRecordsFrom(Array.from({ length: FEEDBACK_MAX_RECORDS + 3 }, (_, i) => at(`t${i}`, T1)))).toHaveLength(FEEDBACK_MAX_RECORDS);
+  });
+
+  it("knows when a record was last pressed (made, outcome, report)", () => {
+    let list = [at("a", T1)];
+    expect(feedbackTouchedAt(list[0] as FeedbackRecord)).toBe(Date.parse(T1));
+    list = applyFeedback(list, { leagueKey: LEAGUE, evaluation: evaluation("a"), change: { report: { reason: "other" } }, at: T3 });
+    expect(feedbackTouchedAt(list[0] as FeedbackRecord)).toBe(Date.parse(T3));
+    expect(feedbackTouchedAt({ ...(list[0] as FeedbackRecord), savedAt: "?", outcome: { kind: "sent", at: "?" }, report: { reason: "other", at: "?" } })).toBe(0);
+  });
+
+  it("merges the localStorage list into a stored one: one record per trade idea, the later-pressed copy in its place, the added ones first", () => {
+    const stored = [at("a", T2), at("b", T2)];
+    const newerA = applyFeedback([at("a", T1)], { leagueKey: LEAGUE, evaluation: evaluation("a"), change: { outcome: "rejected" }, at: T3 })[0] as FeedbackRecord;
+    const merged = mergeFeedbackRecords(stored, [at("c", T1), newerA, at("b", T1)]);
+    expect(merged.map((r) => `${r.tradeKey}/${r.outcome?.kind}`)).toEqual(["c/sent", "a/rejected", "b/sent"]);
+    expect(merged[2]).toBe(stored[1]); // the stored copy wins a tie or a later press
+    expect(mergeFeedbackRecords([], [at("x", T1), at("x", T2)]).map((r) => r.outcome?.at)).toEqual([T2]);
+    // Other leagues' records stay apart (one per league AND trade idea).
+    const other = { ...at("a", T1), leagueKey: "sleeper:00000001" };
+    expect(mergeFeedbackRecords(stored, [other])).toHaveLength(3);
+    expect(mergeFeedbackRecords([], Array.from({ length: FEEDBACK_MAX_RECORDS + 2 }, (_, i) => at(`t${i}`, T1)))[0]?.tradeKey).toBe("t2");
   });
 });

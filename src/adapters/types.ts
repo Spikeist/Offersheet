@@ -56,6 +56,13 @@ export interface HttpResponse {
   fetchedAt?: number;
   /** A live fetch failed and an older cached copy was served instead (cache.staleIfError). */
   stale?: boolean;
+  /**
+   * With `stale` after a live fetch: the live answer that couldn't be used, its status (0: no response, a network error or
+   * a timeout) and whether it was an HTML page; a 200 body the caller's cacheIf turned down reads status 200, isHtml false.
+   * So a caller can tell a source that didn't answer from one that answered with something unusable (src/data/
+   * fantasyCalcValues.ts's outage memory). Absent on a copy served without a live attempt (cacheOnly).
+   */
+  liveFailure?: { status: number; isHtml: boolean };
 }
 
 export interface HttpRequestOptions {
@@ -77,6 +84,12 @@ export interface HttpRequestOptions {
   timeoutMs?: number;
   /** Retries on 429 / 5xx / network errors (default 3; MFL hosts never retry). */
   maxRetries?: number;
+  /**
+   * Never ask the source (a caller holding off a source it found down: src/data/fantasyCalcValues.ts's outage memory):
+   * serve the copy the cache holds younger than cache.ttlMs, else, with cache.staleIfError, a retained older copy (marked
+   * stale); else a status-0 response, and no request at all. Without a cache: always that status-0 response.
+   */
+  cacheOnly?: boolean;
 }
 
 /** Injected HTTP client: polite (per-host pacing, backoff on 429/5xx, no retry on 401/403/HTML). */

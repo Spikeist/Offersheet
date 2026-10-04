@@ -17,6 +17,7 @@ import {
   LEAGUE_MODEL_SETTINGS,
   SETTINGS_SAVE_FAILED,
   SETTINGS_STORAGE_KEY,
+  isLeagueKey,
   leagueKey,
   loadLeagueSettings,
   parseStoredSettings,
@@ -71,6 +72,12 @@ describe("leagueKey", () => {
     expect(key).not.toContain(ESPN.leagueId);
     expect(leagueKey(SLEEPER)).toMatch(/^sleeper:[0-9a-f]{8}$/);
     expect(leagueKey(SLEEPER)).not.toContain(SLEEPER.leagueId);
+  });
+
+  it("recognizes its own keys (the league store checks every settings and feedback row's key)", () => {
+    expect(isLeagueKey(leagueKey(ESPN))).toBe(true);
+    expect(isLeagueKey(leagueKey(SLEEPER))).toBe(true);
+    for (const bad of ["espn:4242", "espn:1A2B3C4D", "espn:1a2b3c4d:2026", ":1a2b3c4d", "__proto__", 42, null, undefined]) expect(isLeagueKey(bad), String(bad)).toBe(false);
   });
 
   it("tells leagues and platforms apart", () => {
@@ -245,6 +252,8 @@ describe("LEAGUE_MODEL_SETTINGS: every setting the League model reads, and only 
     includeKDefIdp: true,
     includePicks: true,
     protectValue: "high",
+    goal: "playoffs",
+    minChance: 0.3,
   };
 
   it("builds the very same model when any other setting changes, so the League page has no reason to compute it again", () => {

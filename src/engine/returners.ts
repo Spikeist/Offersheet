@@ -22,14 +22,23 @@
  *    scenarioRemovalCosts) in the evaluation's lineup mode (scenario lineups with scenarios, else EV), plus in dynasty and
  *    keeper leagues with long-term values the normalized market value as roster legality reads it (cost ÷ the roster's
  *    largest + v_dyn ÷ the top dynasty value). Candidates: the active roster left and the returners back by then (⚠️ the
- *    returner himself included, review of track E: on a full roster from R on he is a bench player like any other, so a
- *    team never comes out weaker with its returner than without him; when he's the one, he's released at R), with a model;
+ *    returner himself included, review of track E: on a full roster from R on he is a bench player like any other, so
+ *    with exact ties a team never comes out weaker with its returner than without him; when he's the one, he's released at
+ *    R; ⚠️ with the near-ties below, by at most their tolerance: a returner worth more than W keeps his spot over a cheaper
+ *    bench player whose keep value is up to that much higher, verification of the final review, finding VF-4: on
+ *    Parker's league, Oct 4 09:24Z, Team 6 keeps Jordyn Tyson from week 5 and drops Emanuel Wilson, 1 ROS point, 104.9 →
+ *    104.8 points a week as its roster stands, where exact ties released Tyson), with a model;
  *    never one the starting lineup needs (the lineup-fill rule, structurally: the candidates and the streaming rows),
  *    never one a position's minimum needs (rosterMinimums, held to the count the position had, legality's rule), and never
  *    the last one at a position the team streams (⚠️ review of track E: streaming a K or D/ST takes a roster spot for the
  *    week's pickup, so the streaming row doesn't make the team's only rostered one free to drop; legality's rule 2 keeps
  *    him too since the final review of Phase 4b); ties: the lower perception value, then the smaller id
- *    (teamValue.lowestKeepValue). The drop is a
+ *    (teamValue.lowestKeepValue), and ⚠️ without long-term values near-ties count as ties (final review of Phase 4c,
+ *    finding R6, roster legality's rule: ReturnerSetup.nearTieWeekly, config.lineups.dropNearTieWeekly points a week × the
+ *    weights from R on): among the candidates within that of the lowest keep value, the lowest perception value floored at
+ *    the waiver credit W goes (ReturnerSetup.valueFloor; then the lower keep value), so a return releases a near-free bench
+ *    player worth at most W rather than a tradable one, and between players worth at most W the lineup decides as before.
+ *    The drop is a
  *    masked copy of the player's row (teamValue.maskedRow: nothing from R on), and the lineups are priced again only where
  *    he started (solveEvWeeksMasked, scenarioValuesMasked). When nobody can go, ⚠️ the roster runs over (nothing is
  *    dropped). ⚠️ Applied to FINAL team evaluations only: the League model's teams as they stand (LV, ROS, PPW, strength,
@@ -40,7 +49,8 @@
  *    team).
  * 3. A traded IR player (irAfterTrade; evaluate.ts roster legality, rule 5) and the active-roster spots a trade's packages
  *    count (activeSpots, tradeActiveSpots; market.ts §9's waiver credit, review of track E: an IR slot isn't a roster
- *    spot): irSlots.ts, a light module the trade cards' words read too, re-exported here.
+ *    spot; Phase 4c: each side's own IR movers too, ActiveSpots.inactive): irSlots.ts, a light module a reader outside the
+ *    engine can use, re-exported here.
  */
 import type { Pos } from "./model";
 import type { InstanceIndex } from "./needs";
@@ -113,6 +123,14 @@ export interface ReturnerSetup {
   readonly info: (id: string) => { readonly pos: Pos; readonly eligible: readonly Pos[] } | undefined;
   /** Perception value (keep-value ties: the less valuable player goes). */
   readonly dropValue: (id: string) => number;
+  /**
+   * Near-ties (final review of Phase 4c, finding R6; config.lineups.dropNearTieWeekly, projected points a week): without
+   * long-term values (`future` null), a keep value within this × the weights of the weeks from the return on of the lowest
+   * counts as a tie, so the less valuable player goes (teamValue.lowestKeepValue's `tie`). Absent or 0: exact ties only.
+   */
+  readonly nearTieWeekly?: number;
+  /** The waiver credit W (§9): the near-ties' values are floored at it (teamValue.lowestKeepValue's `floor`). Absent: 0. */
+  readonly valueFloor?: number;
   readonly future: FutureKeep | null;
   /** A returner's expected return week as an index into the model's weeks (0 = the current week); null when he isn't back. */
   readonly returnIndex: (id: string) => number | null;
@@ -246,7 +264,15 @@ export function finalLineups(setup: ReturnerSetup, roster: readonly string[], sp
       }
       return fillCount(entries(live.filter((x) => x !== id)), setup.slots) >= fillBefore;
     });
-    const pick = lowestKeepValue(candidates.map((id) => ({ id, keep: keep(id), value: setup.dropValue(id) || 0 })));
+    // Near-ties when the keep value is the lineup cost alone (ReturnerSetup.nearTieWeekly × the weights from his return on).
+    const perWeek = setup.nearTieWeekly ?? 0;
+    let tie = 0;
+    if (!fut && Number.isFinite(perWeek) && perWeek > 0) for (let w = from; w < W; w++) tie += Math.max(0, (wf[w] as number) || 0) * perWeek;
+    const pick = lowestKeepValue(
+      candidates.map((id) => ({ id, keep: keep(id), value: setup.dropValue(id) || 0 })),
+      tie,
+      setup.valueFloor ?? 0,
+    );
     if (pick === null) continue; // ⚠️ nobody can go: the roster runs over
     const k = at.get(pick) as number;
     const rows = [...team.rows];

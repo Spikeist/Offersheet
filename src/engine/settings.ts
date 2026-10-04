@@ -20,6 +20,10 @@
  *   more trade value than I get, κ in B = B_win + κ × clamp(g_mkt(me)) (redraft leagues; config.benefit.protectValue:
  *   low 2, medium 4 (the default), high 8). Dynasty and keeper leagues have no market term in B (B_future carries the
  *   value change), so the Settings page offers it in redraft leagues only.
+ * - goal: "What matters most" (planner reply to Checkpoint 4b, change 8): B's weights on ΔPO and ΔCH
+ *   (config.benefit.goals: "title" 0.15 / 0.85, the default; "balanced" 0.35 / 0.65; "playoffs" 0.70 / 0.30).
+ * - minChance: the Trade Finder's "Chance they accept: at least …" filter on P_complete (change 10): one of
+ *   config.ranking.minChanceOptions (0 = Any), default config.ranking.minChanceDefault (10%).
  */
 import { config } from "./config";
 import { POSITIONS, type Pos } from "./model";
@@ -27,6 +31,10 @@ import { POSITIONS, type Pos } from "./model";
 /** "Protect my trade value" levels (config.benefit.protectValue gives each one's κ). */
 export const PROTECT_VALUE_LEVELS = ["low", "medium", "high"] as const;
 export type ProtectValue = (typeof PROTECT_VALUE_LEVELS)[number];
+
+/** "What matters most" (config.benefit.goals gives each one's weights on ΔPO and ΔCH). */
+export const GOALS = ["title", "balanced", "playoffs"] as const;
+export type Goal = (typeof GOALS)[number];
 
 export interface TradeSettings {
   version: 1;
@@ -41,6 +49,10 @@ export interface TradeSettings {
   includeKDefIdp: boolean;
   includePicks: boolean;
   protectValue: ProtectValue;
+  /** "What matters most": B's weights (Phase 4c). */
+  goal: Goal;
+  /** The Trade Finder's minimum chance they accept (P_complete), 0 = Any (Phase 4c). */
+  minChance: number;
 }
 
 /** The settings a new league starts with. */
@@ -58,6 +70,8 @@ export function defaultTradeSettings(): TradeSettings {
     includeKDefIdp: false,
     includePicks: false,
     protectValue: config.benefit.protectValueDefault,
+    goal: config.benefit.goalDefault,
+    minChance: config.ranking.minChanceDefault,
   };
 }
 
@@ -106,5 +120,7 @@ export function normalizeTradeSettings(raw: unknown): TradeSettings {
     includeKDefIdp: typeof r.includeKDefIdp === "boolean" ? r.includeKDefIdp : d.includeKDefIdp,
     includePicks: typeof r.includePicks === "boolean" ? r.includePicks : d.includePicks,
     protectValue: typeof r.protectValue === "string" && (PROTECT_VALUE_LEVELS as readonly string[]).includes(r.protectValue) ? (r.protectValue as ProtectValue) : d.protectValue,
+    goal: typeof r.goal === "string" && (GOALS as readonly string[]).includes(r.goal) ? (r.goal as Goal) : d.goal,
+    minChance: typeof r.minChance === "number" && config.ranking.minChanceOptions.includes(r.minChance) ? r.minChance : d.minChance,
   };
 }

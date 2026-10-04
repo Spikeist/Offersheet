@@ -57,17 +57,23 @@
  *   OUT. The same article says a player whose status improves to Questionable or Doubtful may stay in the slot (the
  *   captures hold Doubtful, Questionable and even healthy players in IR slots); he can't be placed there, so a received
  *   one joins the active roster.
- * - Waiver order and FAAB (Phase 4b: free agents go to one team each, in this order; engine league.ts step 5):
- *   teams[].waiverRank → Team.waiverRank, the order as it stands when the league is read (1 = first claim: ✅ both test
- *   leagues, a 1..10 permutation; with acquisitionSettings.waiverOrderReset, which both have, it is reverse standings at
- *   the weekly reset: on Sep 30, before that week's first waiver run, every team of each was at 11 − playoffSeed, the
- *   0-3 team at 1). ⚠️ Not during the week: in Parker's league (WAIVERS_TRADITIONAL, waivers run six days a week) a team
- *   whose claim goes through moves to the back until the next reset, so on Oct 3, after three runs, the week's claimants
- *   were last (Parker's team 10th of 10, 4th at the reset): the order read, and so the allocation, depends on the day
- *   of the week the league is imported. In a FAAB league (settings.faabBudget), Team.faabRemaining =
- *   acquisitionBudget − teams[].transactionCounter.acquisitionBudgetSpent (⚠️ the public test league's spent amounts,
- *   0–33 of 200, never above the budget, weren't cross-checked against winning bids: its transactions weren't captured).
- *   A rank that isn't a whole number ≥ 1, or a remaining budget below 0 or unreadable, is left out.
+ * - Waiver order and FAAB (free agents go to one team each, in this order; engine league.ts step 5): ./waivers.ts (Phase
+ *   4c; planner reply to Checkpoint 4b, answer 2). A league whose order resets weekly (acquisitionSettings.waiverOrderReset,
+ *   as both test leagues' does) gets the reset order in Team.waiverRank: numTeams + 1 − teams[].playoffSeed (✅ ESPN's own
+ *   waiverRank at the reset on Sep 30 for 20 of 20 teams, both leagues seeded by points for; ⚠️ under another seeding
+ *   rule, and with divisions, where it's the reverse of the overall standings), and ESPN's live teams[].waiverRank in
+ *   Team.liveWaiverRank, so the allocation doesn't depend on the day of the import (in Parker's league a team whose claim
+ *   goes through moves to the back until the next reset: on Oct 4, after three runs, Parker's team was 10th of 10, 4th at
+ *   the reset); ⚠️ a commissioner-edited order keeps the reset order, warned (the next reset replaces an edit). In a FAAB
+ *   league (isUsingAcquisitionBudget) the rank only breaks ties between equal budgets: the reset order there too when the
+ *   order resets weekly, else ESPN's live rank (so only a tie is independent of the day of the import: the budgets are
+ *   read as they stand). Rolling waivers, an unreported reset rule (warned) and the weeks before any
+ *   game (warned) keep ESPN's live rank; FREEAGENCY (⚠️ read as no waivers, warned) has no order.
+ *   LeagueSettings.waiverOrderUsed says which. In a FAAB league
+ *   with a budget (settings.faabBudget), Team.faabRemaining = acquisitionBudget − teams[].transactionCounter.
+ *   acquisitionBudgetSpent (⚠️ the public test league's spent amounts, 0–33 of 200, never above the budget, weren't
+ *   cross-checked against winning bids: its transactions weren't captured). A rank that isn't a whole number ≥ 1, or a
+ *   remaining budget below 0 or unreadable, is left out.
  * - SWIDs: the fetch step replaced them with pseudonyms (fetch.ts); owners and members are matched
  *   in that form, and ctx.swid is the cookie holder's pseudonym. None reaches the snapshot.
  * - Player ids (§2.9 "Player ID crosswalk rules", Checkpoint 1 answers 1 and 2): for the players in
@@ -101,7 +107,10 @@ import {
   type EspnTransactionItem,
 } from "./schema";
 import { TRADE_ROW_TYPES, tradeHistory, type RebuiltTrade, type TradeAcquisition, type TradeMove, type TradeRow } from "./trades";
+import { espnWaiverOrder, faabRemainingOf } from "./waivers";
 import { weekOfCalendarDate, weekOfInstant, weekWindows, type WeekWindow } from "./weeks";
+
+export { faabRemainingOf, waiverRankOf } from "./waivers";
 
 /** CLAUDE.md §4: freeAgents = the top 50 per position by projection (config.import). */
 export const FREE_AGENTS_PER_POSITION = config.import.freeAgentsPerPosition;
@@ -898,22 +907,12 @@ function freeAgentsOf(pool: EspnPoolPlayer[], rostered: ReadonlySet<number>, all
 }
 
 // ---------------------------------------------------------------------------------------------
-// Waiver order and FAAB (Team.waiverRank, Team.faabRemaining: one free agent, one team; the file header)
+// Teams' records (the standings and the waiver order read the same numbers)
 
-/** teams[].waiverRank when it is a whole number ≥ 1 (1 = first claim), else undefined. */
-export function waiverRankOf(rank: number | null | undefined): number | undefined {
-  return typeof rank === "number" && Number.isInteger(rank) && rank >= 1 ? rank : undefined;
-}
-
-/**
- * A FAAB league's remaining budget for a team: acquisitionSettings.acquisitionBudget − teams[].transactionCounter.
- * acquisitionBudgetSpent, when the league uses FAAB (`budget`: settings.faabBudget) and the spent amount is a number;
- * undefined otherwise, or when it would be below 0 (unreadable).
- */
-export function faabRemainingOf(budget: number | undefined, spent: number | null | undefined): number | undefined {
-  if (budget === undefined || typeof spent !== "number" || !Number.isFinite(spent)) return undefined;
-  const left = budget - spent;
-  return Number.isFinite(left) && left >= 0 ? left : undefined;
+/** A team's W-L-T, points for and points against as the snapshot carries them (ESPN's points to cents). */
+function standingOf(t: EspnLeague["teams"][number]): { record: Team["record"]; pointsFor: number; pointsAgainst: number } {
+  const rec = t.record?.overall;
+  return { record: { w: rec?.wins ?? 0, l: rec?.losses ?? 0, t: rec?.ties ?? 0 }, pointsFor: round2(rec?.pointsFor ?? 0), pointsAgainst: round2(rec?.pointsAgainst ?? 0) };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -934,6 +933,16 @@ export function normalizeEspnLeague(raw: EspnRawBundle, ctx: EspnNormalizeContex
   const built = buildEspnScoring(L.settings.scoringSettings.scoringItems, slots.scoringCtx);
   settings.scoring = built.scoring;
   warnings.push(...built.warnings);
+
+  // The waiver order (./waivers.ts): the weekly reset order where the league resets weekly, else ESPN's live rank.
+  const acq = L.settings.acquisitionSettings;
+  const waivers = espnWaiverOrder(
+    L.teams.map((t) => ({ id: String(t.id), waiverRank: t.waiverRank, playoffSeed: t.playoffSeed, ...standingOf(t) })),
+    { faab: acq?.isUsingAcquisitionBudget === true, acquisitionType: acq?.acquisitionType, waiverOrderReset: acq?.waiverOrderReset, orderEdited: L.status.isWaiverOrderEdited, divisions: (settings.divisions?.length ?? 0) >= 2 },
+  );
+  if (waivers.used) settings.waiverOrderUsed = waivers.used;
+  notes.push(...waivers.notes);
+  warnings.push(...waivers.warnings);
 
   // Teams and rosters.
   const returnWeeks = returnWeeksOf(cards, proTeams ? weekWindows(proTeams) : []);
@@ -961,8 +970,7 @@ export function normalizeEspnLeague(raw: EspnRawBundle, ctx: EspnNormalizeContex
     const ownerSwid = t.primaryOwner ?? t.owners?.[0];
     const m = ownerSwid ? members.get(normalizeSwid(ownerSwid)) : undefined;
     const ownerName = m?.displayName?.trim() || [m?.firstName, m?.lastName].filter(Boolean).join(" ").trim() || "Unknown owner";
-    const rec = t.record?.overall;
-    const waiverRank = waiverRankOf(t.waiverRank);
+    const { waiverRank, liveWaiverRank } = waivers.ranks.get(String(t.id)) ?? {};
     const faabRemaining = faabRemainingOf(settings.faabBudget, t.transactionCounter?.acquisitionBudgetSpent);
     return {
       id: String(t.id),
@@ -971,11 +979,10 @@ export function normalizeEspnLeague(raw: EspnRawBundle, ctx: EspnNormalizeContex
       roster,
       ir,
       taxi: [],
-      record: { w: rec?.wins ?? 0, l: rec?.losses ?? 0, t: rec?.ties ?? 0 },
-      pointsFor: round2(rec?.pointsFor ?? 0),
-      pointsAgainst: round2(rec?.pointsAgainst ?? 0),
+      ...standingOf(t),
       ...(settings.divisions && t.divisionId !== undefined && t.divisionId !== null ? { divisionId: String(t.divisionId) } : {}),
       ...(waiverRank !== undefined ? { waiverRank } : {}),
+      ...(liveWaiverRank !== undefined ? { liveWaiverRank } : {}),
       ...(faabRemaining !== undefined ? { faabRemaining } : {}),
     };
   });

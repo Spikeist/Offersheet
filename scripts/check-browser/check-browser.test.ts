@@ -9,7 +9,7 @@ import { mkdtemp, mkdir, rm, utimes, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_MAX_SEARCH_SECONDS, parseArgs, resolveArgs, type CheckBrowserArgs } from "./args";
+import { DEFAULT_MAX_SEARCH_SECONDS, SECOND_LEAGUE, parseArgs, resolveArgs, type CheckBrowserArgs } from "./args";
 import { chromeArgs, chromeCandidates, devtoolsUrl, exited, findChrome, killTree, waitForDevtools } from "./chrome";
 import { CARD_HELPERS, INSTRUMENT, NAME_REPLACER, PAGE_HELPERS, RESTORE_CALL, sanitizeCall } from "./inPage";
 import { keptText, TEXT_KEEP_MAX } from "./page";
@@ -22,6 +22,7 @@ import {
   leagueNamesScrubber,
   leftoverChecker,
   leftoverNames,
+  mergeLeagueNames,
   nameRules,
   ownerNames,
   placeholderPairs,
@@ -46,13 +47,16 @@ const resolved = (argv: string[], env: Record<string, string> = {}): CheckBrowse
 };
 
 describe("options", () => {
-  it("defaults: the Import Report's team, headless, screenshots, §12's 10 seconds", () => {
-    expect(resolved([])).toEqual({ team: null, show: false, shots: true, maxSearchSeconds: DEFAULT_MAX_SEARCH_SECONDS, help: false });
+  it("defaults: the Import Report's team, headless, screenshots, §12's 10 seconds, one league", () => {
+    expect(resolved([])).toEqual({ team: null, show: false, shots: true, maxSearchSeconds: DEFAULT_MAX_SEARCH_SECONDS, secondLeague: false, help: false });
     expect(DEFAULT_MAX_SEARCH_SECONDS).toBe(10);
   });
 
-  it("reads --team, --show, --no-shots, --max-search and --help, with a space or an equals sign", () => {
-    expect(resolved(["--team", "3", "--show", "--no-shots", "--max-search", "12"])).toEqual({ team: "3", show: true, shots: false, maxSearchSeconds: 12, help: false });
+  it("reads --team, --show, --no-shots, --max-search, --second-league and --help, with a space or an equals sign", () => {
+    expect(resolved(["--team", "3", "--show", "--no-shots", "--max-search", "12"])).toEqual({ team: "3", show: true, shots: false, maxSearchSeconds: 12, secondLeague: false, help: false });
+    expect(resolved(["--second-league"]).secondLeague).toBe(true);
+    // The second league is the public ESPN test league of CLAUDE.md §17 Phase 0.
+    expect(SECOND_LEAGUE).toEqual({ leagueId: "899513", season: "2026" });
     expect(resolved(["--team=7"]).team).toBe("7");
     expect(resolved(["-h"]).help).toBe(true);
   });
@@ -71,6 +75,8 @@ describe("options", () => {
     expect(resolved(["3"], { npm_config_team: "true", npm_config_show: "true", npm_config_shots: "" })).toMatchObject({ team: "3", show: true, shots: false });
     // npm run check:browser --team=3 --max-search=15
     expect(resolved([], { npm_config_team: "3", npm_config_max_search: "15" })).toMatchObject({ team: "3", maxSearchSeconds: 15 });
+    // npm run check:browser --second-league
+    expect(resolved([], { npm_config_second_league: "true" }).secondLeague).toBe(true);
     expect(resolved([], { npm_config_shots: "false" }).shots).toBe(false);
     // npm run check:browser --max-search 15
     expect(resolved(["15"], { npm_config_max_search: "true" }).maxSearchSeconds).toBe(15);
@@ -171,6 +177,22 @@ describe("the report", () => {
     );
     expect(s.scrubText("GRAVEL GOPHERS")).toBe("Team 3");
     expect(s.scrubText("gRaVeL gOpHeRs")).toBe("Team 3");
+  });
+
+  it("cleans a second league's names too (--second-league): its teams as Team L2-<id>, its league name as <league name>", () => {
+    const first = { leagueName: "Fictional League", teams: [{ id: "3", name: "Gravel Gophers", ownerName: "Drake" }], players: ["Drake Moorcroft"] };
+    const second = { leagueName: "Moonbeam Invitational", teams: [{ id: "3", name: "Quasar Quokkas", ownerName: "Rowan Vale" }], players: ["Tess Calloway"] };
+    const both = mergeLeagueNames(first, second, "L2-");
+    expect(both.teams.map((t) => t.id)).toEqual(["3", "L2-3"]);
+    expect(both.players).toEqual(["Drake Moorcroft", "Tess Calloway"]);
+    const s = leagueNamesScrubber(both);
+    expect(s.scrubText("Gravel Gophers (Drake) in Fictional League; Quasar Quokkas (Rowan Vale) in Moonbeam Invitational")).toBe(
+      "Team 3 (Owner 3) in <league name>; Team L2-3 (Owner L2-3) in <league name>",
+    );
+    expect(leftoverNames("Quasar Quokkas and the Moonbeam Invitational", both)).toBe(2);
+    expect(leftoverNames(s.scrubText("Quasar Quokkas and the Moonbeam Invitational"), both)).toBe(0);
+    // A third league keeps the second's league name.
+    expect(mergeLeagueNames(both, { leagueName: "Third Cup", teams: [], players: [] }, "L3-").alsoLeagueNames).toEqual(["Moonbeam Invitational", "Third Cup"]);
   });
 
   it("counts the names left in cleaned output, ignoring public player names and names too short to replace", () => {
@@ -336,6 +358,10 @@ describe("the checks' own rules", () => {
     expect(sortInversions("Chance they accept", [card("40", "40%", "20"), card("45", "50%", "18")], "accept")).toEqual(["Chance they accept: idea 1 shows 40%, idea 2 shows 50%"]);
     // Ideas that don't help come after, in their own order.
     expect(sortInversions("Chance they accept", [card("40", "40%", "20"), card("0", "90%", "0"), card("—", "95%", "—")], "accept")).toEqual([]);
+    // Phase 4c: "<5%" (an estimate under 5%) sorts just under 5%, and a veto's "under 5% it goes through" reads the same.
+    expect(sortInversions("Chance they accept", [card("40", "5%", "20"), card("45", "<5%", "18")], "accept")).toEqual([]);
+    expect(sortInversions("Chance they accept", [card("40", "<5%", "20"), card("45", "5%", "18")], "accept")).toEqual(["Chance they accept: idea 1 shows <5%, idea 2 shows 5%"]);
+    expect(sortInversions("Chance they accept", [card("40", "10%", "20"), card("45", "30%", "18", "<5%")], "accept")).toEqual([]);
   });
 
   it("Helps you and Overall are in order by their own numbers, unknown last", () => {

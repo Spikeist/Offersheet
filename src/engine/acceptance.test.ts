@@ -391,30 +391,63 @@ describe("the model (§11)", () => {
     expect(quickAcceptance(VOTE, profile({ a: 1 }), t)).toBe(vetoed.pAccept);
   });
 
-  it("⚠️ a throw-in worth less than W adds 0 value but edges g toward 0, so it can lift a trade past the veto line (value floor: planner reply to Checkpoint 4, change 4; reported to the planner)", () => {
-    // A league that votes on trades, W = 628: the partner gives a 5,000 player for my 3,400 one (−32%: vetoed), n 1.5, a hole.
+  it("Phase 4c: a throw-in worth at most W added to the side already giving at least as many players moves no g, so it can't lift a trade past the veto line; it only lowers P_accept through c (planner reply to Checkpoint 4b, change 2 and answer 6)", () => {
+    // A league that votes on trades, W = 628: the partner gives a 5,000 player for my 3,400 one (−32%: vetoed), n 1.5, a
+    // hole. Phase 4b counted the 300 throw-in at W on what they get and the roster spot he takes at W on what they give,
+    // which edged their g to −28.4%, above the veto line, and raised P_accept.
     const W = 628;
     const values = { mine: 3400, theirs: 5000, junk: 300 };
     const lean = tradePackage({ players: ["mine"] }, { players: ["theirs"] }, values, W); // the partner's side
     const full = tradePackage({ players: ["mine", "junk"] }, { players: ["theirs"] }, values, W);
-    // 0 value: he counts W on what they get, and the roster spot he takes counts W on what they give.
-    expect(full.recv - full.give).toBe(lean.recv - lean.give);
-    expect(lean.g).toBeCloseTo(-0.32, 12);
-    expect(full.g).toBeCloseTo(-1600 / (5000 + W), 12); // −28.4%: above the −30% veto line
+    // On the side giving more players and worth at most W, he's left out of both totals with his roster spot: the same
+    // package, the same g.
+    expect(full).toEqual(lean);
+    expect(full.g).toBeCloseTo(-0.32, 12);
+    expect(marketGain(["mine", "junk"], ["theirs"], values, W)).toBe(marketGain(["mine"], ["theirs"], values, W));
     const estimate = (g: number, assets: number) => acceptance(VOTE, profile(), trade({ gPartner: g, deltaLineup: 1.5 * config.acceptance.nScale, h: 1, assets }));
     const offer = estimate(lean.g, 2);
     const withJunk = estimate(full.g, 3);
-    expect([offer.vetoRisk, withJunk.vetoRisk]).toEqual([true, false]);
-    // The value term rises by more than the extra player's complexity term costs, so even P_accept rises (21.8% → 23.0%)…
+    // Both vetoed: the veto rule halves P_complete either way.
+    expect([offer.vetoRisk, withJunk.vetoRisk]).toEqual([true, true]);
+    expect(withJunk.pComplete).toBeCloseTo(withJunk.pAccept * config.acceptance.veto.factor, 12);
+    // The value term doesn't move; the extra player costs the complexity term: P_accept falls (21.8% → 17.8%).
+    expect(withJunk.terms.value).toBe(offer.terms.value);
     expect(withJunk.terms.complexity - offer.terms.complexity).toBeCloseTo(-config.acceptance.beta.complexity, 12);
-    expect(withJunk.terms.value - offer.terms.value).toBeGreaterThan(config.acceptance.beta.complexity);
     expect(offer.pAccept).toBeCloseTo(logistic(-1.28), 12);
-    expect(withJunk.pAccept).toBeGreaterThan(offer.pAccept);
-    // …and the veto no longer halves P_complete (10.9% → 23.0%): enough for an "if they say no, add him" step.
-    expect(offer.pComplete).toBeCloseTo(offer.pAccept * config.acceptance.veto.factor, 12);
-    expect(withJunk.pComplete).toBe(withJunk.pAccept);
-    expect(offer.pComplete).toBeGreaterThanOrEqual(config.search.steps.minOfferFirst);
-    expect(withJunk.pComplete - offer.pComplete).toBeGreaterThanOrEqual(config.search.steps.minAcceptGain);
+    expect(withJunk.pAccept).toBeCloseTo(logistic(-1.28 - config.acceptance.beta.complexity), 12);
+    // So no "if they say no, add him" step: adding him makes a yes less likely.
+    expect(withJunk.pComplete).toBeLessThan(offer.pComplete);
+    expect(withJunk.pComplete - offer.pComplete).toBeLessThan(config.search.steps.minAcceptGain);
+  });
+
+  it("Phase 4c: added to the side giving fewer players while the other side's extra player is worth at most W, he moves no g either: the two are a matched pair (the gap the review of track EF found, finding 1, closed)", () => {
+    // The partner's cheap extra (c), left out of the 1-for-2 by the planner's step, and my throw-in (x) in the 2-for-2 are
+    // a matched pair (market.neutralThrowIns' second step): both left out with their spots, so A + x → B + c reads as A → B,
+    // the same as A → B + c. Phase 4c's first rule alone left nobody out once the counts were even: c counted again at W
+    // beside x, both sums grew by W and the partner's g rose from −33.3% (vetoed) to −23.6% (not vetoed).
+    const W = 615;
+    const values = { A: 1000, B: 1500, c: 100, x: 200, C: 700 };
+    // The partner's side: it gets my A (and x), and gives B and c.
+    const lean = tradePackage({ players: ["A"] }, { players: ["B", "c"] }, values, W);
+    const full = tradePackage({ players: ["A", "x"] }, { players: ["B", "c"] }, values, W);
+    expect(lean).toEqual({ recv: 1000, give: 1500, g: -1 / 3 });
+    expect(full).toEqual(lean);
+    expect(tradePackage({ players: ["A"] }, { players: ["B"] }, values, W)).toEqual(lean);
+    // My side doesn't move either: +50%.
+    expect(marketGain(["B", "c"], ["A"], values, W)).toBeCloseTo(0.5, 12);
+    expect(marketGain(["B", "c"], ["A", "x"], values, W)).toBeCloseTo(0.5, 12);
+    // In a league that votes: −33.3% is vetoed with x or without, and x costs the complexity term: P_complete falls.
+    const estimate = (g: number, assets: number) => acceptance(VOTE, profile(), trade({ gPartner: g, deltaLineup: 1.5 * config.acceptance.nScale, h: 1, assets }));
+    const offer = estimate(lean.g, 3);
+    const withX = estimate(full.g, 4);
+    expect([offer.vetoRisk, withX.vetoRisk]).toEqual([true, true]);
+    expect(withX.terms.value).toBe(offer.terms.value);
+    expect(withX.pAccept).toBeLessThan(offer.pAccept);
+    expect(withX.pComplete).toBeLessThan(offer.pComplete);
+    // The partner's extra player worth more than W (C, 700): nobody is left out of the 1-for-2, and x counts W against
+    // the roster spot the partner was owed: no move either.
+    const leanC = tradePackage({ players: ["A"] }, { players: ["B", "C"] }, values, W);
+    expect(tradePackage({ players: ["A", "x"] }, { players: ["B", "C"] }, values, W)).toEqual(leanC);
   });
 
   it("is deterministic and doesn't mutate its inputs", () => {

@@ -3,6 +3,7 @@ import { acceptance } from "./acceptance";
 import {
   benefit,
   benefitFuture,
+  goalWeights,
   benefitNotes,
   benefitWin,
   defaultLambda,
@@ -24,7 +25,7 @@ import { config } from "./config";
 import type { MarketInputs } from "./inputs";
 import { marketGain, packageValues, type MarketConfig } from "./market";
 import { mulberry32 } from "./rng";
-import type { ProtectValue } from "./settings";
+import { GOALS, type Goal, type ProtectValue } from "./settings";
 
 const market = (over: Partial<MarketInputs> & Pick<MarketInputs, "values">): MarketInputs => ({
   format: { isDynasty: true, numQbs: 1, numTeams: 10, ppr: 0.5, substitutions: [] },
@@ -89,19 +90,64 @@ describe("Trade Score and Overall (§10, B_ref 6)", () => {
   });
 });
 
+/** B_win for ΔPO 4 points and ΔCH 2 points under the default goal ("Win the title": 0.15 / 0.85): 0.6 + 1.7. */
+const BWIN = 2.3;
+
 describe("B (§10)", () => {
-  it("B_win = 100 × (0.35 ΔPO + 0.65 ΔCH) in percentage points", () => {
-    expect(benefitWin(0.04, 0.02).bWin).toBeCloseTo(100 * (0.35 * 0.04 + 0.65 * 0.02), 12);
+  it("B_win = 100 × (w_PO ΔPO + w_CH ΔCH) in percentage points, the weights by “What matters most” (planner reply to Checkpoint 4b, change 8)", () => {
+    expect(config.benefit.goals).toStrictEqual({ title: { playoffs: 0.15, title: 0.85 }, balanced: { playoffs: 0.35, title: 0.65 }, playoffs: { playoffs: 0.7, title: 0.3 } });
+    expect(config.benefit.goalDefault).toBe("title");
+    // The default goal, "Win the title".
+    expect(benefitWin(0.04, 0.02).bWin).toBeCloseTo(100 * (0.15 * 0.04 + 0.85 * 0.02), 12);
+    expect(benefitWin(0.04, 0.02).bWin).toBeCloseTo(BWIN, 12);
+    expect(benefitWin(0.04, 0.02, config.benefit, "title")).toStrictEqual(benefitWin(0.04, 0.02));
+    // "Balanced" (the weights before Phase 4c) and "Make the playoffs".
+    expect(benefitWin(0.04, 0.02, config.benefit, "balanced").bWin).toBeCloseTo(100 * (0.35 * 0.04 + 0.65 * 0.02), 12);
+    expect(benefitWin(0.04, 0.02, config.benefit, "playoffs").bWin).toBeCloseTo(100 * (0.7 * 0.04 + 0.3 * 0.02), 12);
     expect(benefitWin(0, 0)).toStrictEqual({ bWin: 0, titleMissing: false });
     // Not simulated yet: no B, and nothing about title odds to say.
     expect(benefitWin(null, null)).toStrictEqual({ bWin: null, titleMissing: false });
     expect(benefitWin(null, 0.02)).toStrictEqual({ bWin: null, titleMissing: false });
   });
 
-  it("title odds unknown: the playoff term scaled up to the whole weight, flagged", () => {
+  it("goalWeights: each goal's weights, and the default goal's for an unknown one", () => {
+    expect(goalWeights("title")).toStrictEqual({ playoffs: 0.15, title: 0.85 });
+    expect(goalWeights("balanced")).toStrictEqual({ playoffs: 0.35, title: 0.65 });
+    expect(goalWeights("playoffs")).toStrictEqual({ playoffs: 0.7, title: 0.3 });
+    for (const odd of [undefined, null, "glory" as Goal, "toString" as Goal]) expect(goalWeights(odd)).toStrictEqual({ playoffs: 0.15, title: 0.85 });
+    // Each goal's weights sum to 1, so the title-missing rule is 100 × ΔPO under every goal.
+    for (const g of GOALS) expect(goalWeights(g).playoffs + goalWeights(g).title).toBeCloseTo(1, 12);
+  });
+
+  it("B under each goal: the same odds, different weights; benefit() reads BenefitInputs.goal (absent: the default)", () => {
+    const at = (goal?: Goal) => benefit({ leagueType: "redraft", dPO: 0.04, dCH: 0.02, gMine: 0, dynasty: null, myPPlayoffs: 0.6, ...(goal ? { goal } : {}) });
+    expect(at().b).toBeCloseTo(BWIN, 12);
+    expect(at("title").b).toBeCloseTo(BWIN, 12);
+    expect(at("balanced").b).toBeCloseTo(2.7, 12);
+    expect(at("playoffs").b).toBeCloseTo(3.4, 12);
+    // A trade that only buys title odds (ΔPO 0, ΔCH +2 points) is worth most to "Win the title"; one that only buys playoff odds, to "Make the playoffs".
+    const titleOnly = (goal: Goal) => benefit({ leagueType: "redraft", dPO: 0, dCH: 0.02, gMine: 0, dynasty: null, myPPlayoffs: 0.6, goal }).b as number;
+    const playoffsOnly = (goal: Goal) => benefit({ leagueType: "redraft", dPO: 0.02, dCH: 0, gMine: 0, dynasty: null, myPPlayoffs: 0.6, goal }).b as number;
+    expect(titleOnly("title")).toBeGreaterThan(titleOnly("balanced"));
+    expect(titleOnly("balanced")).toBeGreaterThan(titleOnly("playoffs"));
+    expect(playoffsOnly("playoffs")).toBeGreaterThan(playoffsOnly("balanced"));
+    expect(playoffsOnly("balanced")).toBeGreaterThan(playoffsOnly("title"));
+    // Dynasty and keeper leagues weigh B_win by the goal too.
+    expect(benefit({ leagueType: "dynasty", dPO: 0.04, dCH: 0.02, gMine: 0, dynasty: { delta: 1000, total: 40_000 }, myPPlayoffs: 0.6, goal: "playoffs" }).bWin).toBeCloseTo(3.4, 12);
+  });
+
+  it("title odds unknown: the playoff term scaled up to the whole weight, flagged, under every goal", () => {
     const r = benefitWin(0.04, null);
     expect(r.bWin).toBeCloseTo(4, 12);
     expect(r.titleMissing).toBe(true);
+    // B_win = 100 × (w_PO + w_CH) × ΔPO: 4 under every goal (each goal's weights sum to 1).
+    for (const g of GOALS) expect(benefitWin(0.04, null, config.benefit, g)).toStrictEqual({ bWin: expect.closeTo(4, 12), titleMissing: true });
+    // A widened config whose weights don't sum to 1 shows the formula: 100 × (0.2 + 0.3) × ΔPO.
+    const odd: BenefitConfig = { ...config.benefit, goals: { ...config.benefit.goals, title: { playoffs: 0.2, title: 0.3 } } };
+    expect(benefitWin(0.04, null, odd, "title").bWin).toBeCloseTo(2, 12);
+    // A goal with no playoff weight can't stand in for missing title odds.
+    const titleOnly: BenefitConfig = { ...config.benefit, goals: { ...config.benefit.goals, title: { playoffs: 0, title: 1 } } };
+    expect(benefitWin(0.04, null, titleOnly, "title")).toStrictEqual({ bWin: null, titleMissing: true });
   });
 
   it("the market term: κ × clamp(g_mkt(me), ±0.5), κ by default the medium level's (4)", () => {
@@ -117,11 +163,11 @@ describe("B (§10)", () => {
 
   it("redraft: B = B_win + the market term; no λ, no future term", () => {
     const r = benefit({ leagueType: "redraft", dPO: 0.04, dCH: 0.02, gMine: -0.1, dynasty: null, myPPlayoffs: 0.6, lambda: 0.9 });
-    expect(r.b).toBeCloseTo(2.7 - 0.4, 12);
+    expect(r.b).toBeCloseTo(BWIN - 0.4, 12);
     expect(r).toMatchObject({ bFuture: null, lambda: null, dDyn: null, dynMissing: false, titleMissing: false });
     expect(r.market).toBeCloseTo(-0.4, 12);
     // Dynasty numbers passed to a redraft league are ignored.
-    expect(benefit({ leagueType: "redraft", dPO: 0.04, dCH: 0.02, gMine: -0.1, dynasty: { delta: 1000, total: 1000 }, myPPlayoffs: 0.6 }).b).toBeCloseTo(2.3, 12);
+    expect(benefit({ leagueType: "redraft", dPO: 0.04, dCH: 0.02, gMine: -0.1, dynasty: { delta: 1000, total: 1000 }, myPPlayoffs: 0.6 }).b).toBeCloseTo(BWIN - 0.4, 12);
   });
 
   it("κ by the 'Protect my trade value' level (planner addendum §3): low 2, medium 4 (the default), high 8", () => {
@@ -136,31 +182,32 @@ describe("B (§10)", () => {
     expect(protectValueWeight("max" as ProtectValue)).toBe(4);
     // B = B_win + κ × clamp(g_mkt(me)): giving 25% more value than I get (g_mkt(me) = −0.20) costs 0.4, 0.8 and 1.6 B.
     const at = (level: ProtectValue) => benefit({ leagueType: "redraft", dPO: 0.04, dCH: 0.02, gMine: -0.2, dynasty: null, myPPlayoffs: 0.6, kappa: protectValueWeight(level) });
-    expect(at("low").b).toBeCloseTo(2.7 - 0.4, 12);
-    expect(at("medium").b).toBeCloseTo(2.7 - 0.8, 12);
-    expect(at("high").b).toBeCloseTo(2.7 - 1.6, 12);
+    expect(at("low").b).toBeCloseTo(BWIN - 0.4, 12);
+    expect(at("medium").b).toBeCloseTo(BWIN - 0.8, 12);
+    expect(at("high").b).toBeCloseTo(BWIN - 1.6, 12);
     expect(at("high").market).toBeCloseTo(-1.6, 12);
     // The clamp still caps the term at ±0.5 × κ.
     expect(benefit({ leagueType: "redraft", dPO: 0, dCH: 0, gMine: -0.9, dynasty: null, myPPlayoffs: 0.6, kappa: 8 }).b).toBe(-4);
   });
 
-  it("the market term reads g_mkt(me), every player at max(v, W) (planner reply to Checkpoint 4, change 4; replaces N10)", () => {
+  it("the market term reads g_mkt(me), every player at max(v, W) after the neutral throw-ins (planner replies to Checkpoint 4, change 4, and to Checkpoint 4b, change 2)", () => {
     const base = { leagueType: "redraft" as const, dPO: 0.04, dCH: 0.02, dynasty: null, myPPlayoffs: 0.6 };
     const W = 628;
     const values = { junk: 300, scrap: 120, star: 5000, them: 5500 };
     const gMine = (get: string[], give: string[]) => tradePackage({ players: get }, { players: give }, values, W).g;
-    // A player worth less than W given for nothing: his floored W against the open spot's W: no market term at any κ.
+    // A player worth less than W given for nothing: he and his spot are left out: no market term at any κ.
     expect(gMine([], ["junk"])).toBe(0);
-    for (const kappa of [2, 4, 8]) expect(benefit({ ...base, gMine: gMine([], ["junk"]), kappa })).toMatchObject({ market: 0, b: expect.closeTo(2.7, 12) });
+    for (const kappa of [2, 4, 8]) expect(benefit({ ...base, gMine: gMine([], ["junk"]), kappa })).toMatchObject({ market: 0, b: expect.closeTo(BWIN, 12) });
     // Two players worth less than W swapped: even, both ways.
     expect(gMine(["scrap"], ["junk"])).toBe(0);
     expect(gMine(["junk"], ["scrap"])).toBe(0);
-    // A cheap throw-in on my side adds W to both sides (the spot I open, his floored value): the term moves toward 0 only.
+    // A cheap throw-in on my side (I already give as many players as I get) is left out: the term doesn't move at all
+    // (before Phase 4c it moved toward 0: (5,500 + W) / (5,000 + W) − 1).
     const lean = gMine(["them"], ["star"]);
     const full = gMine(["them"], ["star", "junk"]);
     expect(lean).toBeCloseTo(0.1, 12);
-    expect(full).toBeCloseTo((5500 + W) / (5000 + W) - 1, 12);
-    expect(benefit({ ...base, gMine: full }).market).toBeCloseTo(4 * full, 12);
+    expect(full).toBe(lean);
+    expect(benefit({ ...base, gMine: full }).market).toBeCloseTo(4 * lean, 12);
     // A negative g counts as such, at the level's κ, clamped.
     expect(benefit({ ...base, gMine: -0.2, kappa: 8 }).market).toBeCloseTo(-1.6, 12);
     expect(benefit({ ...base, gMine: -0.9, kappa: 2 }).market).toBe(-1);
@@ -193,7 +240,7 @@ describe("B (§10)", () => {
     const r = benefit({ leagueType: "dynasty", dPO: 0.04, dCH: 0.02, gMine: 0.3, dynasty: { delta: 1000, total: 40_000 }, myPPlayoffs: 0.6 });
     expect(r.lambda).toBe(0.35);
     expect(r.bFuture).toBeCloseTo(1, 12);
-    expect(r.b).toBeCloseTo(0.65 * 2.7 + 0.35 * 1, 12);
+    expect(r.b).toBeCloseTo(0.65 * BWIN + 0.35 * 1, 12);
     expect(r).toMatchObject({ market: 0, dDyn: 1000, dynMissing: false });
     // "Gaining 10% of my roster's value ≈ +4".
     expect(benefitFuture(4000, 40_000)).toBeCloseTo(4, 12);
@@ -232,7 +279,7 @@ describe("B (§10)", () => {
 
   it("a keeper league without dynasty values: B = B_win, B_future and ΔDyn missing, the card says so", () => {
     const r = benefit({ leagueType: "keeper", dPO: 0.04, dCH: 0.02, gMine: 0.4, dynasty: null, myPPlayoffs: 0.3 });
-    expect(r.b).toBeCloseTo(2.7, 12);
+    expect(r.b).toBeCloseTo(BWIN, 12);
     expect(r).toMatchObject({ bFuture: null, dDyn: null, dynMissing: true, lambda: 0.2, market: 0 });
     // A roster with no long-term value can't scale ΔDyn either.
     expect(benefit({ leagueType: "dynasty", dPO: 0.04, dCH: 0.02, gMine: 0, dynasty: { delta: 500, total: 0 }, myPPlayoffs: 0.3 })).toMatchObject({ dynMissing: true, bFuture: null });
@@ -246,11 +293,17 @@ describe("B (§10)", () => {
     expect(futureValuesLoaded("dynasty", market({ values: {} }))).toBe(false);
     expect(futureValuesLoaded("dynasty", null)).toBe(false);
     expect(futureValuesLoaded("redraft", market({ values: { a: 100 } }))).toBe(false);
+    // Phase 4c: a saved list FantasyCalc served days ago is its own; the curve fallback (an older list) isn't long-term worth.
+    expect(futureValuesLoaded("dynasty", market({ values: { a: 100 }, fallback: { kind: "saved", listDate: "2026-09-28T06:00:00.000Z" } }))).toBe(true);
+    expect(futureValuesLoaded("dynasty", market({ values: { a: 100 }, fallback: { kind: "curve", listDate: "2026-09-10T06:00:00.000Z" } }))).toBe(false);
+    expect(futureValuesLoaded("keeper", market({ values: { a: 100 }, redraftValues: { a: 90 }, fallback: { kind: "curve", listDate: "2026-09-10T06:00:00.000Z" } }))).toBe(false);
   });
 
   it("accepts a widened config", () => {
-    const cfg: BenefitConfig = { ...config.benefit, weights: { playoffs: 1, title: 0 } };
+    const cfg: BenefitConfig = { ...config.benefit, goals: { ...config.benefit.goals, title: { playoffs: 1, title: 0 } } };
     expect(benefit({ leagueType: "redraft", dPO: 0.03, dCH: 0.5, gMine: 0, dynasty: null, myPPlayoffs: 0.5 }, cfg).b).toBeCloseTo(3, 12);
+    const balancedDefault: BenefitConfig = { ...config.benefit, goalDefault: "balanced" };
+    expect(benefit({ leagueType: "redraft", dPO: 0.04, dCH: 0.02, gMine: 0, dynasty: null, myPPlayoffs: 0.5 }, balancedDefault).b).toBeCloseTo(2.7, 12);
   });
 });
 
@@ -326,13 +379,22 @@ describe("package values with picks (§9; ΔDyn, MyDynTotal, the card's values)"
     expect(tradePackage({ players: ["a"], pickValues: [10] }, { players: ["b"] }, values, 0, convex)).toMatchObject({ recv: 100 ** 2 + 10 ** 2, give: 200 ** 2 });
   });
 
-  describe("each player at max(v, W) on both sides (planner reply to Checkpoint 4, change 4; replaces N10)", () => {
-    /** The package by hand: each player's max(v, W), the picks' values, W per open spot on the side receiving fewer players. */
+  describe("each player at max(v, W) on both sides, after the neutral throw-ins (planner replies to Checkpoint 4, change 4, and to Checkpoint 4b, change 2)", () => {
+    /**
+     * The package by hand, by market.ts's header: without IR moves the neutral throw-in rule (the planner's step, then the
+     * matched pairs) leaves the package that counts only the players worth more than W, each at his own value, plus the
+     * picks' values (a pick isn't a player for the rule and takes no roster spot), plus W per roster spot their counts leave
+     * open on the side receiving fewer such players. (W 0 floors nothing, credits nothing and leaves nobody out: every
+     * player at his own value.)
+     */
     const byHand = (recv: string[], give: string[], values: Record<string, number>, W: number, picks: { recv?: number[]; give?: number[] } = {}) => {
-      const sum = (ids: string[]) => ids.reduce((s, id) => s + Math.max(values[id] ?? 0, W), 0);
-      const r = sum(recv) + (picks.recv ?? []).reduce((s, x) => s + x, 0) + Math.max(0, give.length - recv.length) * W;
-      const g = sum(give) + (picks.give ?? []).reduce((s, x) => s + x, 0) + Math.max(0, recv.length - give.length) * W;
-      return { recv: r, give: g, g: (r - g) / g };
+      const dear = (ids: string[]) => ids.filter((id) => (values[id] ?? 0) > W);
+      const r0 = dear(recv);
+      const g0 = dear(give);
+      const sum = (ids: string[]) => ids.reduce((s, id) => s + (values[id] ?? 0), 0);
+      const r = sum(r0) + (picks.recv ?? []).reduce((s, x) => s + x, 0) + Math.max(0, g0.length - r0.length) * W;
+      const g = sum(g0) + (picks.give ?? []).reduce((s, x) => s + x, 0) + Math.max(0, r0.length - g0.length) * W;
+      return { recv: r, give: g, g: g > 0 ? (r - g) / g : r > 0 ? Number.POSITIVE_INFINITY : 0 };
     };
 
     it("random packages, W anywhere among the values: tradePackage is the hand-floored sum on both sides", () => {
@@ -357,33 +419,68 @@ describe("package values with picks (§9; ΔDyn, MyDynTotal, the card's values)"
       }
     });
 
-    it("the planner's three results: an even swap of two cheap players, a cheap player for nothing, a cheap throw-in", () => {
+    it("the planner's three results: an even swap of two cheap players, a cheap player for nothing, a cheap throw-in (now left out)", () => {
       const values = { star: 5000, junk: 300, scrap: 120, them: 5500 };
       const W = 628;
-      // An even swap of two players worth less than W: g = 0 for both sides.
-      expect(tradePackage({ players: ["scrap"] }, { players: ["junk"] }, values, W)).toStrictEqual({ recv: W, give: W, g: 0 });
-      expect(tradePackage({ players: ["junk"] }, { players: ["scrap"] }, values, W)).toStrictEqual({ recv: W, give: W, g: 0 });
-      // Dumping one for nothing: his floored W against the open spot's W.
-      expect(tradePackage({ players: [] }, { players: ["junk"] }, values, W)).toStrictEqual({ recv: W, give: W, g: 0 });
+      // An even swap of two players worth less than W: g = 0 for both sides (a matched pair, Phase 4c: both left out with
+      // their spots, nothing against nothing; Checkpoint 4b counted W against W).
+      expect(tradePackage({ players: ["scrap"] }, { players: ["junk"] }, values, W)).toStrictEqual({ recv: 0, give: 0, g: 0 });
+      expect(tradePackage({ players: ["junk"] }, { players: ["scrap"] }, values, W)).toStrictEqual({ recv: 0, give: 0, g: 0 });
+      // Dumping one for nothing: he and the spot he opens are left out (Checkpoint 4b counted W against W).
+      expect(tradePackage({ players: [] }, { players: ["junk"] }, values, W)).toStrictEqual({ recv: 0, give: 0, g: 0 });
       expect(tradePackage({ players: ["junk"] }, { players: [] }, values, W).g).toBe(0); // the side taking him
-      // A cheap throw-in adds 0 value: W on the side that gets him, W for the spot he takes on the other.
+      // A cheap throw-in on the side giving more players is left out with his spot: the package is the lean one's exactly
+      // (Checkpoint 4b added W to both sums, which pulled g from +10% to +8.8%).
       const lean = tradePackage({ players: ["them"] }, { players: ["star"] }, values, W);
       const full = tradePackage({ players: ["them"] }, { players: ["star", "junk"] }, values, W);
-      expect(full.recv - full.give).toBe(lean.recv - lean.give);
-      expect(full).toStrictEqual({ recv: 5500 + W, give: 5000 + W, g: 500 / (5000 + W) });
-      // A value missing counts 0 before the floor, so W after it; { value } entries read as numbers.
-      expect(tradePackage({ players: [] }, { players: ["nobody"] }, values, W).g).toBe(0);
+      expect(full).toStrictEqual(lean);
+      expect(full).toStrictEqual({ recv: 5500, give: 5000, g: 0.1 });
+      // A value missing counts 0 before the floor: a missing player given for nothing is left out the same way; { value }
+      // entries read as numbers.
+      expect(tradePackage({ players: [] }, { players: ["nobody"] }, values, W)).toStrictEqual({ recv: 0, give: 0, g: 0 });
       const entries = { them: { value: 5500 }, star: { value: 5000 }, junk: { value: 300 } };
       expect(tradePackage({ players: ["them"] }, { players: ["star", "junk"] }, entries, W)).toStrictEqual(full);
     });
 
-    it("picks keep their values on either side (a pick opens no roster spot, so no floor)", () => {
+    it("the header's scope: a player of mine worth at most W moves no g, whatever the counts (no IR moves; review of track EF, finding 1: Phase 4c's first rule alone moved both when the partner gave d more players, at least d of them worth at most W)", () => {
+      const rand = mulberry32(20_261_004);
+      const ids = Array.from({ length: 8 }, (_, i) => `p${i}`);
+      const tally = { mineAtLeast: 0, partnerExtrasDear: 0, formerGap: 0 };
+      for (let k = 0; k < 2000; k++) {
+        const values: Record<string, number> = {};
+        for (const id of ids) values[id] = rand() < 0.4 ? Math.round(rand() * 900) : Math.round(rand() * 9000) + 1;
+        const W = 1 + Math.round(rand() * 900);
+        values.x = Math.round(rand() * W); // mine, worth at most W
+        const shuffled = [...ids].sort(() => rand() - 0.5);
+        const m = 1 + Math.floor(rand() * 2); // my players without him: 1–2
+        const p = 1 + Math.floor(rand() * 3); // the partner's: 1–3
+        const give = shuffled.slice(0, m);
+        const get = shuffled.slice(m, m + p);
+        const lean = tradePackage({ players: get }, { players: give }, values, W); // my side
+        const full = tradePackage({ players: get }, { players: [...give, "x"] }, values, W);
+        expect(full, `${k}`).toEqual(lean);
+        // The partner's side is the mirror (no IR player moves): no move there either.
+        expect(tradePackage({ players: [...give, "x"] }, { players: get }, values, W).g, `${k}`).toBe(tradePackage({ players: give }, { players: get }, values, W).g);
+        const d = get.length - give.length;
+        const cheapTheirs = get.filter((id) => (values[id] as number) <= W).length;
+        if (d <= 0) tally.mineAtLeast++;
+        else if (cheapTheirs >= d) tally.formerGap++; // the gap's shape: one of their cheap extras now pairs with him
+        else tally.partnerExtrasDear++;
+      }
+      // Every branch was exercised.
+      expect(Math.min(...Object.values(tally))).toBeGreaterThan(100);
+    });
+
+    it("picks keep their values on either side (a pick opens no roster spot, so no floor), and never count as players for the neutral rule", () => {
       const values = { junk: 300 };
       const W = 628;
       // A cheap pick given for nothing: its value, not W; the spot credit counts players only.
       expect(tradePackage({ players: [] }, { players: [], pickValues: [100] }, values, W)).toStrictEqual({ recv: 0, give: 100, g: -1 });
-      // A pick with a player: only the player is floored.
-      expect(tradePackage({ players: [], pickValues: [50] }, { players: ["junk"], pickValues: [100] }, values, W)).toStrictEqual({ recv: W + 50, give: W + 100, g: (W + 50 - (W + 100)) / (W + 100) });
+      // A cheap player with a pick for a pick: one player against none, so he is the neutral throw-in (left out with the
+      // spot he opens); the picks keep their values (Checkpoint 4b: W + 50 against W + 100).
+      expect(tradePackage({ players: [], pickValues: [50] }, { players: ["junk"], pickValues: [100] }, values, W)).toStrictEqual({ recv: 50, give: 100, g: -0.5 });
+      // A pick doesn't even the counts: a cheap player for a pick is still one player against none.
+      expect(tradePackage({ players: ["junk"] }, { players: [], pickValues: [400] }, values, W)).toStrictEqual({ recv: 0, give: 400, g: -1 });
     });
 
     it("studExponent applies after the floor (the floored value is a value like any other)", () => {
@@ -403,9 +500,11 @@ describe("package values with picks (§9; ΔDyn, MyDynTotal, the card's values)"
     expect(pkg.recv - pkg.give).toBe(4500 + 250 - 3500);
     const total = rosterValue(["mine", "bench", "other"], future);
     expect(benefitFuture(pkg.recv - pkg.give, total)).toBeCloseTo((40 * 1250) / 5500, 12);
-    // With W 600 the bench player (500) counts 600 in ΔDyn, and the spot I open counts 600 too: 4,500 + 600 − 3,600.
+    // With W 600 the bench player (500) is worth at most W on the side giving more players: a neutral throw-in, left out
+    // with the spot I open (Phase 4c; Checkpoint 4b counted 600 for him and 600 for the spot, the same difference).
     const floored = tradePackage({ players: ["theirs"] }, { players: ["mine", "bench"] }, future, 600);
-    expect(floored.recv - floored.give).toBe(4500 + 600 - (3000 + 600));
+    expect(floored).toStrictEqual({ recv: 4500, give: 3000, g: 0.5 });
+    expect(floored.recv - floored.give).toBe(4500 - 3000);
     // Given for nothing, he moves ΔDyn by nothing.
     const dump = tradePackage({ players: [] }, { players: ["bench"] }, future, 600);
     expect(dump.recv - dump.give).toBe(0);
@@ -419,7 +518,7 @@ describe("tradeNumbers: the card's numbers from B and the acceptance result", ()
   it("assembles the three numbers and B's parts", () => {
     const b = benefit({ leagueType: "redraft", dPO: 0.06, dCH: 0.04, gMine: 0.05, dynasty: null, myPPlayoffs: 0.5 });
     const n = tradeNumbers(b, acc);
-    expect(n.b).toBeCloseTo(100 * (0.35 * 0.06 + 0.65 * 0.04) + 4 * 0.05, 12);
+    expect(n.b).toBeCloseTo(100 * (0.15 * 0.06 + 0.85 * 0.04) + 4 * 0.05, 12); // the default goal, "Win the title"
     expect(n.tradeScore).toBe(tradeScore(n.b));
     expect(n.overall).toBe(overallScore(n.b, acc.pComplete));
     expect(n.overall as number).toBeLessThanOrEqual(n.tradeScore as number);

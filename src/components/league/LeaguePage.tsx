@@ -1,15 +1,16 @@
 "use client";
 /**
- * League page container (CLAUDE.md §14 item 3). It reads the imported league from this tab's
- * sessionStorage, gets the league's model inputs (projections and values, §6 and §9) from this
- * tab's stored copy (reused only while under 6 hours old: modelStore.ts MODEL_REUSE_MAX_AGE_MS) or
- * the server, builds the League model in the engine's Web Worker (§3), and renders the pure view
- * model (src/lib/leagueView.ts). Loading the import and its inputs is shared with the Trade Finder and
- * the Trade Analyzer (useLeagueInputs.ts, Phase 4 wave 2 decision M13); this page owns Refresh, the
- * worker, and the League model's computation.
+ * League page container (CLAUDE.md §14 item 3). It reads the league this tab shows (one of the leagues
+ * saved in this browser's IndexedDB: src/lib/leagueStore.ts, Phase 4c; the switcher at the top of every
+ * page picks it), gets the league's model inputs (projections and values, §6 and §9) from its stored copy
+ * (reused only while under 6 hours old: modelStore.ts MODEL_REUSE_MAX_AGE_MS) or the server, builds the
+ * League model in the engine's Web Worker (§3), and renders the pure view model (src/lib/leagueView.ts).
+ * Loading the league and its inputs is shared with the Trade Finder and the Trade Analyzer
+ * (useLeagueInputs.ts, Phase 4 wave 2 decision M13); this page owns Refresh, the worker, and the League
+ * model's computation. Another league starts a fresh page state (and its own worker).
  *
- * Settings (Phase 4 lead decision L12): the league's settings from this browser's localStorage (the
- * Settings page saves them; src/components/settings/useLeagueSettings.ts) go with every worker request,
+ * Settings (Phase 4 lead decision L12): the league's settings from the league store (the Settings page
+ * saves them, per league; src/components/settings/useLeagueSettings.ts) go with every worker request,
  * since the League model reads the positions my team streams and the playoff weight. The model waits
  * until they've been read (never a first run with defaults it would throw away), and a change to one of
  * those two, saved in this tab or another, computes it again: the compute tag carries the fingerprint of
@@ -18,8 +19,8 @@
  * come out the same, and the same settings in another order don't count as a change either.
  *
  * States: loading (reading storage), fetching inputs, computing, error (with Try again), ready. With no
- * import it can read, a card says so, or that Offer Sheet was updated when the tab holds an import saved by
- * an earlier version (NoImportCard), with a link to the Connect page.
+ * league saved, a card says so, or that Offer Sheet was updated when the league was saved by an earlier
+ * version (NoImportCard: Import again), with a link to the Connect page.
  * After a Refresh, a team change or a change to a setting the model reads, the previous numbers stay on
  * screen, dimmed, until the new ones are ready. Requests and computations are tagged with what they were for
  * (league, league data, inputs build, team, the model's settings, attempt), so a late answer for an older tag
@@ -46,18 +47,18 @@ import type { TradeSettings } from "@/engine/settings";
 import { EngineError, createEngineClient, type EngineClient } from "@/lib/engineClient";
 import { fmtWhole } from "@/lib/format";
 import { refreshOutcomeText } from "@/lib/importReport";
-import type { StoredImport } from "@/lib/importStore";
+import type { CurrentLeagueRead } from "@/lib/leagueStore";
 import { buildLeagueView, type LeagueView as LeagueViewModel } from "@/lib/leagueView";
-import { modelKey, modelRequest } from "@/lib/modelStore";
+import { modelRequest } from "@/lib/modelStore";
 import type { MyTeamSource } from "@/lib/myTeam";
 import { LEAGUE_MODEL_SETTINGS, settingsFingerprint } from "@/lib/settingsStore";
 import { NoImportCard } from "../NoImportCard";
 import type { RefreshControl } from "../import/ReportView";
 import { revealResult } from "../reveal";
-import { useLeagueSettings } from "../settings/useLeagueSettings";
+import { useSavedLeagueSettings } from "../settings/useLeagueSettings";
 import { Callout, Card, FOCUS_TARGET, Spinner, buttonClass, cx } from "../ui";
 import { LeagueView } from "./LeagueView";
-import { leagueTag, useLeagueInputs, useStoredImport } from "./useLeagueInputs";
+import { leagueTag, useCurrentLeague, useSavedLeagueInputs } from "./useLeagueInputs";
 
 export { joinInputsRequest, type InputsOutcome } from "./useLeagueInputs";
 
@@ -145,21 +146,15 @@ export function LeagueFrame({ state, leagueName, statusRef }: { state: LeagueFra
   );
 }
 
+export const NO_IMPORT_TEXT =
+  "Connect your ESPN or Sleeper league to see every team's projected strength, needs and trade partners. Leagues you import stay saved in this browser until you remove them.";
+
 export function LeaguePage() {
-  const read = useStoredImport();
+  const read = useCurrentLeague();
 
   if (read === undefined) return <LeagueFrame state={{ kind: "loading" }} />;
-  if (read.kind !== "ok") {
-    return (
-      <NoImportCard
-        outdated={read.kind === "outdated"}
-        text="Connect your ESPN or Sleeper league to see every team's projected strength, needs and trade partners. Imports stay in this browser tab only."
-      />
-    );
-  }
-  const stored = read.stored;
-  const snapshot = stored.response.snapshot;
-  if (!modelRequest(stored)) {
+  if (read.kind !== "ok") return <NoImportCard read={read} text={NO_IMPORT_TEXT} />;
+  if (!modelRequest(read.stored)) {
     return (
       <Card className="mx-auto max-w-xl text-center">
         <h1 className="text-2xl font-black tracking-tight">Not available for this league yet</h1>
@@ -167,8 +162,8 @@ export function LeaguePage() {
       </Card>
     );
   }
-  // One page state per league: importing another league starts fresh (and stops the old worker).
-  return <LoadedLeague key={modelKey(snapshot)} stored={stored} />;
+  // One page state per saved league: switching to or importing another starts fresh (and stops the old worker).
+  return <LoadedLeague key={read.league.id} current={read} />;
 }
 
 interface Computed {
@@ -200,17 +195,17 @@ export function computeTagFor(args: {
   return `${leagueTag(args.snapshot)}|${args.builtAt}|${args.myTeamId ?? "-"}|${settingsFingerprint(args.settings, LEAGUE_MODEL_SETTINGS)}|${args.attempt}`;
 }
 
-function LoadedLeague({ stored }: { stored: StoredImport }) {
-  const snapshot = stored.response.snapshot;
+function LoadedLeague({ current }: { current: Extract<CurrentLeagueRead, { kind: "ok" }> }) {
+  const snapshot = current.stored.response.snapshot;
   const timeZone = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC", []);
   const statusRef = useRef<HTMLParagraphElement>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
 
-  // 1. Model inputs and my team (useLeagueInputs.ts): this page view's latest answer, else this tab's stored copy, else fetch.
-  const { pair, myTeam, error: fetchError, retry: retryFetch, refreshInputs } = useLeagueInputs(stored);
+  // 1. Model inputs and my team (useLeagueInputs.ts): this page view's latest answer, else the league's stored copy, else fetch.
+  const { pair, myTeam, error: fetchError, retry: retryFetch, refreshInputs } = useSavedLeagueInputs(current);
 
   // 2. The League model, in the engine's worker, with the league's settings (undefined until read).
-  const { settings } = useLeagueSettings(snapshot);
+  const { settings } = useSavedLeagueSettings(current.league.leagueKey);
   const [computeAttempt, setComputeAttempt] = useState(0);
   const computeTag =
     pair && myTeam && settings ? computeTagFor({ snapshot: pair.snapshot, builtAt: pair.inputs.builtAt, myTeamId: myTeam.myTeamId, settings, attempt: computeAttempt }) : null;

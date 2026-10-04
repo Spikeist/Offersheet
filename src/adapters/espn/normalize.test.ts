@@ -372,6 +372,10 @@ describe("the waiver order and remaining FAAB budgets (Phase 4b: one free agent,
     expect(first?.record).toMatchObject({ w: 0, l: 3 });
     expect(snapshot.teams.find((t) => t.waiverRank === 10)?.record).toMatchObject({ w: 3, l: 0 });
     expect(snapshot.teams.every((t) => t.faabRemaining === undefined)).toBe(true);
+    // Phase 4c: the order resets weekly, so waiverRank is the reset order and ESPN's own rank goes to liveWaiverRank (the
+    // fixture was captured at the reset, so the two agree; ./waivers.test.ts covers the mid-week case).
+    expect(snapshot.settings.waiverOrderUsed).toBe("weeklyReset");
+    expect(snapshot.teams.every((t) => t.liveWaiverRank === t.waiverRank)).toBe(true);
   });
 
   it("a FAAB league: the budget minus transactionCounter.acquisitionBudgetSpent; unreadable values are left out", () => {
@@ -386,6 +390,10 @@ describe("the waiver order and remaining FAAB budgets (Phase 4b: one free agent,
     }
     const { snapshot } = normalizeEspnLeague({ league }, { leagueId: "100002", resolver: fakeResolver(), now: NOW });
     expect(snapshot.settings.faabBudget).toBe(200);
+    // FAAB: the minimized fixture keeps no waiverOrderReset, so ESPN's live rank breaks ties between equal budgets (a FAAB
+    // league whose order resets weekly breaks them by the reset order: ./waivers.test.ts).
+    expect(snapshot.settings.waiverOrderUsed).toBe("faab");
+    expect(snapshot.teams.every((t) => t.liveWaiverRank === undefined)).toBe(true);
     const of = (id: string) => snapshot.teams.find((t) => t.id === id);
     expect(of("1")).toMatchObject({ waiverRank: 3, faabRemaining: 184 });
     expect(of("2")).toMatchObject({ waiverRank: 1, faabRemaining: 200 });

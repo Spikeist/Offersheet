@@ -197,7 +197,10 @@ describe("the packages' open-spot credit counts active roster spots (review of t
     expect(screenTrade(I, two, ["wc1"], ["wc2", "ir2"])?.gPartner).toBe(want);
     // My side: two players onto my active roster for one, so the spot I fill counts on what I give (the counts agree).
     expect(x.evaluation.gMine).toBe(gOf(I, ["wc2", "ir2"], ["wc1"], { recv: 2, give: 1 }));
-    expect(x.evaluation.value).toEqual({ given: I.credit * 2, received: Math.max(I.values.wc2 ?? 0, I.credit) + (I.values.ir2 ?? 0) });
+    // Phase 4c (neutral throw-ins, planner reply to Checkpoint 4b, change 2): their bench WR, worth less than W on the
+    // side moving more players, is left out with the spot he takes on my roster: W (my bench WR, floored) for their IR RB.
+    expect(I.values.wc2 as number).toBeLessThan(I.credit);
+    expect(x.evaluation.value).toEqual({ given: I.credit, received: I.values.ir2 ?? 0 });
   });
 
   it("my IR player given with an active one for one player: my active roster gains one and loses one, so no spot is credited to me", () => {

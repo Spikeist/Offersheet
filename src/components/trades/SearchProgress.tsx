@@ -2,7 +2,8 @@
  * The trade search's progress bar (Phase 4 wave 2 decisions M13 and M14): the stage in plain words and how far it
  * is ("Screening trade ideas · 120 of 480"), a bar (role="progressbar", its value in words through
  * aria-valuetext), and Stop. The page's own status line announces each new stage; the bar's numbers are there for
- * whoever looks (a live region that changed every few milliseconds would drown a screen reader).
+ * whoever looks (a live region that changed every few milliseconds would drown a screen reader). Phase 4c: a re-filter
+ * (the minimum chance changed) shows here too, the whole bar for its ranking (src/lib/tradeView.ts progressView).
  */
 import type { Ref } from "react";
 import type { ProgressView } from "@/lib/tradeView";

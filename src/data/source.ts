@@ -57,6 +57,11 @@ export interface PublicSourceRequest {
   maxRetries: number;
   /** Request again (once) when a fresh saved copy fails the check, e.g. one cached before the check existed. Default true. */
   refetchBadCopy?: boolean;
+  /**
+   * Never ask the source (HttpRequestOptions.cacheOnly; a caller holding off a source it found down): the copy the cache
+   * holds, a retained older one standing in (stale), or the check's failure on a status-0 response. No refetch either.
+   */
+  cacheOnly?: boolean;
 }
 
 /** The response plus the checked value, or the reason the body isn't usable. */
@@ -71,7 +76,9 @@ export type PublicSourceResult<T> = { res: HttpResponse; value: T } | { res: Htt
  * - every accepted body is kept STALE_PUBLIC_RETAIN_MS: when the live request fails, or its body is
  *   rejected, the saved copy stands in (`res.stale`; `res.fetchedAt` is when that copy was fetched);
  * - whatever comes back (a cache hit, a saved copy, or a live body with no copy to fall back on) goes
- *   through `check` too, and each response object is checked only once.
+ *   through `check` too, and each response object is checked only once;
+ * - `cacheOnly` (a caller holding off a source it found down) asks nothing: the cache's copy, a retained one standing in
+ *   (stale), or the check's failure on a status-0 response (HttpRequestOptions.cacheOnly).
  */
 export async function getPublicSource<T>(http: HttpClient, url: string, req: PublicSourceRequest, check: (res: HttpResponse) => T): Promise<PublicSourceResult<T>> {
   const checked = new WeakMap<HttpResponse, { value: T } | { error: unknown }>();
@@ -93,11 +100,12 @@ export async function getPublicSource<T>(http: HttpClient, url: string, req: Pub
       cacheIf: (res) => "value" in run(res),
       maxRetries: req.maxRetries,
       timeoutMs: req.timeoutMs,
+      ...(req.cacheOnly ? { cacheOnly: true } : {}),
     });
   let res = await request(req.ttlMs);
   // A fresh saved copy that fails the check: no copy is younger than -Infinity, so this is one live
   // request (a good body then replaces the bad copy; a failure falls back to it and fails the check).
-  if (res.fromCache && !res.stale && req.refetchBadCopy !== false && "error" in run(res)) res = await request(Number.NEGATIVE_INFINITY);
+  if (res.fromCache && !res.stale && req.refetchBadCopy !== false && !req.cacheOnly && "error" in run(res)) res = await request(Number.NEGATIVE_INFINITY);
   const result = run(res);
   return "value" in result ? { res, value: result.value } : { res, error: result.error };
 }

@@ -15,10 +15,22 @@
  *
  * Only types come from the worker module here, so the engine itself is never part of the page's
  * bundle; the main-thread fallback loads it on demand.
+ *
+ * Phase 4c (planner reply to Checkpoint 4b, change 11: several saved leagues): createLeagueEngine keeps one client for
+ * one league at a time, for the trade pages (src/components/trades/finderMemory.ts). Asking it for another league stops
+ * the client before (dispose: its worker goes, with the evaluation context it built and anything pending), so one
+ * league's worker never answers for another. ⚠️ The worker's own context key names the league too (engine.worker.ts
+ * contextKey), so this is belt and braces, and it frees the old league's memory at the switch.
+ *
+ * Phase 4c (change 10: "Re-filter instantly from the finalists, without re-running the search"): refilterTrades asks the
+ * worker to rank a result's ideas again with the job's minimum chance (engine.worker.ts `refilter`). It names the result
+ * by the id of the request that brought it (each result this client hands out is remembered by object, in a WeakMap);
+ * a result it didn't hand out goes as -1, and the worker searches afresh. A re-filter is a search here: one at a time
+ * with searches, with progress and Stop.
  */
 import type { LeagueModel } from "@/engine/leagueModel";
 import type { TradeSearchProgress, TradeSearchResult } from "@/engine/tradeModel";
-import type { AnalyzeRequest, AnalyzerResult, EngineRequest, EngineResponse, LeagueRequest, TradesRequest } from "@/workers/engine.worker";
+import type { AnalyzeRequest, AnalyzerResult, EngineRequest, EngineResponse, LeagueRequest, RefilterRequest, TradesRequest } from "@/workers/engine.worker";
 
 /** The parts of a Worker this client uses (a real Worker, or a fake in tests). */
 export interface WorkerLike {
@@ -34,6 +46,8 @@ export type LeagueJob = Omit<LeagueRequest, "type" | "id">;
 export type TradesJob = Omit<TradesRequest, "type" | "id">;
 /** A Trade Analyzer request without the protocol fields. */
 export type AnalyzeJob = Omit<AnalyzeRequest, "type" | "id">;
+/** A re-filter request without the protocol fields: a search's job (its settings carry the new minimum chance) and the result to rank again. */
+export type RefilterJob = TradesJob & { result: TradeSearchResult };
 
 /** A search under way: its result, and Stop. */
 export interface TradeSearchHandle {
@@ -48,6 +62,11 @@ export interface EngineClient {
   buildLeague(job: LeagueJob): Promise<LeagueModel>;
   /** Searches for trade ideas; `onProgress` hears each progress step. Stops any search started before it. */
   searchTrades(job: TradesJob, onProgress?: (progress: TradeSearchProgress) => void): TradeSearchHandle;
+  /**
+   * Ranks a result's ideas again with the job's minimum chance (the header), as a search: progress, Stop, one at a time.
+   * The worker searches afresh when it can't (a result it no longer holds, or a kickoff since).
+   */
+  refilterTrades(job: RefilterJob, onProgress?: (progress: TradeSearchProgress) => void): TradeSearchHandle;
   /** Evaluates one trade (the Trade Analyzer), with my odds before any trade (AnalyzerResult); rejects with an EngineError. */
   analyzeTrade(job: AnalyzeJob): Promise<AnalyzerResult>;
   /** Stops the worker. Pending requests reject, and later replies are ignored. */
@@ -121,6 +140,8 @@ export function createEngineClient(opts: EngineClientOptions = {}): EngineClient
   const pending = new Map<number, Pending>();
   /** The id of the search under way (one at a time), if any. */
   let searchId: number | null = null;
+  /** The request id behind each result this client handed out (a re-filter names its result by it: the header). */
+  const resultIds = new WeakMap<TradeSearchResult, number>();
 
   function settle(response: EngineResponse): void {
     const job = pending.get(response.id);
@@ -216,6 +237,32 @@ export function createEngineClient(opts: EngineClientOptions = {}): EngineClient
     return response.type === "error" ? new EngineError(response.message, response.detail) : new EngineError(UNEXPECTED_REPLY, `Unexpected "${response.type}" reply.`);
   }
 
+  /** A search or re-filter (one at a time: it stops the one before), its result remembered by its request id. */
+  function startSearchLike(request: TradesRequest | RefilterRequest, onProgress?: (progress: TradeSearchProgress) => void): TradeSearchHandle {
+    if (searchId !== null) cancelSearch(searchId);
+    searchId = request.id;
+    const promise = new Promise<TradeSearchResult>((resolve, reject) => {
+      send({
+        request,
+        where: "worker",
+        reject,
+        onReply(response) {
+          if (response.type === "progress") {
+            onProgress?.(response.progress);
+            return false;
+          }
+          if (response.type === "trades") {
+            if (response.result && typeof response.result === "object") resultIds.set(response.result, request.id);
+            resolve(response.result);
+          } else if (response.type === "cancelled") reject(new EngineError(SEARCH_CANCELLED, undefined, true));
+          else reject(unexpected(response));
+          return true;
+        },
+      });
+    });
+    return { promise, cancel: () => cancelSearch(request.id) };
+  }
+
   return {
     buildLeague(job) {
       if (disposed) return Promise.reject(new EngineError(ENGINE_STOPPED));
@@ -236,27 +283,14 @@ export function createEngineClient(opts: EngineClientOptions = {}): EngineClient
 
     searchTrades(job, onProgress) {
       if (disposed) return { promise: Promise.reject(new EngineError(ENGINE_STOPPED)), cancel() {} };
-      if (searchId !== null) cancelSearch(searchId);
-      const request: TradesRequest = { type: "trades", id: nextId++, ...job };
-      searchId = request.id;
-      const promise = new Promise<TradeSearchResult>((resolve, reject) => {
-        send({
-          request,
-          where: "worker",
-          reject,
-          onReply(response) {
-            if (response.type === "progress") {
-              onProgress?.(response.progress);
-              return false;
-            }
-            if (response.type === "trades") resolve(response.result);
-            else if (response.type === "cancelled") reject(new EngineError(SEARCH_CANCELLED, undefined, true));
-            else reject(unexpected(response));
-            return true;
-          },
-        });
-      });
-      return { promise, cancel: () => cancelSearch(request.id) };
+      return startSearchLike({ type: "trades", id: nextId++, ...job }, onProgress);
+    },
+
+    refilterTrades(job, onProgress) {
+      if (disposed) return { promise: Promise.reject(new EngineError(ENGINE_STOPPED)), cancel() {} };
+      // Only the result's id goes to the worker, never the result itself.
+      const { result, ...rest } = job;
+      return startSearchLike({ type: "refilter", id: nextId++, of: resultIds.get(result) ?? -1, ...rest }, onProgress);
     },
 
     analyzeTrade(job) {
@@ -287,5 +321,36 @@ export function createEngineClient(opts: EngineClientOptions = {}): EngineClient
       pending.clear();
       for (const job of jobs) job.reject(new EngineError(ENGINE_STOPPED, undefined, true));
     },
+  };
+}
+
+/** One engine client for one saved league at a time (the header). */
+export interface LeagueEngine {
+  /**
+   * The client for a saved league (its id: src/lib/leagueStore.ts savedLeagueId), made on first use and kept while the
+   * same league asks. Another league's request stops the client before first (dispose: a search under way rejects as
+   * cancelled), then makes a new one.
+   */
+  forLeague(leagueId: string): EngineClient;
+  /** The league the current client is for (null: none). */
+  leagueId(): string | null;
+  /** Stops the client, if any. */
+  release(): void;
+}
+
+export function createLeagueEngine(make: () => EngineClient = () => createEngineClient()): LeagueEngine {
+  let current: { leagueId: string; client: EngineClient } | null = null;
+  const release = () => {
+    current?.client.dispose();
+    current = null;
+  };
+  return {
+    forLeague(leagueId) {
+      if (current && current.leagueId !== leagueId) release();
+      current ??= { leagueId, client: make() };
+      return current.client;
+    },
+    leagueId: () => current?.leagueId ?? null,
+    release,
   };
 }

@@ -31,6 +31,25 @@
  *   min(valueFloor, the lowest real value at that position), or valueFloor when none has a value.
  *   valueFloor = valueFloorFraction × the top value.
  *
+ * The curve fallback (Phase 4c; planner reply to Checkpoint 4b, change 12; MarketInputs.fallback kind "curve"): when
+ * FantasyCalc didn't answer and the newest saved list is more than config.market.fantasyCalcStaleDays old (at most
+ * fantasyCalcCurveDays: src/server/modelInputs.ts decides), that list only calibrates the model's own value curve
+ * (curveMarketValues): per position (ours), the same isotonic fit of value on rest-of-season points, and EVERY player
+ * there, valued or not, is valued by the curve at his own ROS points (source "estimate", no cap; ⚠️ ours: no old value is
+ * used directly, since a player's value may have moved a lot since that list, while the curve reads today's
+ * projections). ⚠️ The curve's points are the HEALTHY players the old list values with points left (review of track MK,
+ * as the market blend's curve, blend.ts rule 4): no injury tag and a game left (MarketPlayer.fit, the caller's flag;
+ * absent counts as fit) and ROS points above 0. An injured or tagged player's value prices his full-strength worth while
+ * his ROS counts only the games he's expected to play (dynasty lists keep injured young players high), and a player
+ * projected for nothing tells the curve nothing about points, so in the fit they would lift and flatten its bottom, and
+ * with no cap here that reaches every value, W included (toy: one WR out for the season valued 8,000 put every WR with
+ * ROS ≤ 60 at 1,979 instead of his own 100–1,850). They are still read off the curve at their own ROS points, so ⚠️ an
+ * injured player's value counts only the games he's expected to play (the banner says so). A position with fewer curve
+ * points than unvaluedCurveMinPlayers gets the floor, as above. The other readers of the old list keep off it: no market
+ * blend (blend.blendValues), no long-term term (benefit.futureValuesLoaded) and an elite list from the model's estimates
+ * (premium.eliteIds). A saved list at most fantasyCalcStaleDays old (kind "saved") is read as FantasyCalc's own.
+ * fantasyCalcFallbackText words both for users.
+ *
  * Package value (§9): the side that receives fewer players gets the waiver credit W for each open
  * roster spot (an active one: see below), and g_mkt(X) = (PV_recv − PV_give) / PV_give. Each player counts at max(v, W)
  * (planner reply to Checkpoint 4, change 4; it replaces lead decision N10, which floored only the players I give
@@ -38,23 +57,54 @@
  * his roster spot is worth W whoever holds it. packageValues is the one place every package sum goes
  * through (marketGain; benefit.tradePackage for B's market term, ΔDyn and the card's values;
  * premium.perceivedPackage; the partner's trade history), so g_mkt(me), g_mkt(P), the Market check, the
- * hide threshold, the veto rule and the screening window all read floored packages. The results: an
- * even swap of two players worth less than W reads g = 0 for both sides; giving one away for nothing
- * reads g = 0 (his floored W against the open spot's credit W); a throw-in worth less than W adds 0
- * value, but g is a ratio:
- * - When the side throwing him in already gives at least as many players as it gets, he adds W to both
- *   sums of both sides (his floored value to one side's give and the other's receive, the roster spot he
- *   takes to the other two). The value difference doesn't move; each side's g edges toward 0, to
- *   g × PV_give / (PV_give + W): up for a side losing value, down for one gaining.
- * - When it gives fewer players than it gets, he takes the place of a spot already credited: no g moves.
- * In general, a player added to one side's give raises the other side's g exactly when max(v, W) > W ×
- * (1 + that g) in the first case, and when v > W in the second. ⚠️ So a cheap throw-in can lift a
- * lopsided trade past the veto line (g_mkt(P) < veto.gBelow), and my side past the Market check or the
- * hide threshold: the planner's "a sub-W throw-in adds 0 value" holds for the value difference, not for
- * g (reported to the lead for the planner). The complexity term of acceptance still counts him. A value
- * missing counts 0 before the floor, so W after it. A roster's total (benefit.rosterValue, MyDynTotal)
- * passes W = 0: raw. config.market.studExponent γ replaces every value with v^γ after the floor, W
- * included (W is a player's value too).
+ * hide threshold, the veto rule and the screening window all read the same packages. A value missing counts 0 before
+ * the floor, so W after it. A roster's total (benefit.rosterValue, MyDynTotal) passes W = 0: raw.
+ * config.market.studExponent γ replaces every value with v^γ after the floor, W included (W is a player's value too).
+ *
+ * Neutral throw-ins (Phase 4c; planner reply to Checkpoint 4b, change 2 and answer 6: "drop any player worth at most W
+ * who's on the side giving more players, together with his roster-spot credit. Then apply the usual floor and credit to
+ * what's left."; neutralThrowIns). When W > 0, before any sum, players worth at most W (his own value, before the floor;
+ * a missing one is 0) are left out in two steps, each with the roster spot he moves (his side's spot count drops by one,
+ * except for a player who moves without an active spot: ActiveSpots.inactive, an IR player leaving his IR slot or taking
+ * one):
+ * 1. the planner's: when one side of a package moves d more players than the other (players, not roster spots), up to d
+ *    of that side's, cheapest first (ties: the smaller id);
+ * 2. ⚠️ the lead's (Phase 4c, closing the gap the review of track EF found, finding 1: the planner's literal rule leaves
+ *    nobody out once the counts are even): then matched pairs, one from each side, cheapest first on each side, as many
+ *    pairs as the side with fewer of them left has. Without it A + x → B + c (x and c worth at most W) left nobody out
+ *    while A → B + c left c out, so c counted again at W beside x: both sums grew by W and both g's moved toward 0, up
+ *    for a partner losing value (W [value]: A 1,000 for B 1,500 + c 100 read −33.3% for the partner, vetoed; with x 200
+ *    added −23.6%, not vetoed). Now both read as A → B.
+ * The floor and the credit then apply to what's left. The players worth at most W that the steps leave in are all on one
+ * side, the one with fewer players worth more than W, at most as many as that difference: each counts W where the
+ * roster-spot credit he stands for would. So when every player moves with an active spot (no IR move), a package equals
+ * the one with every player worth at most W left out with his spot (market.test.ts), and:
+ * - an even swap of two players worth at most W reads g = 0 for both sides (both are left out: nothing against nothing);
+ * - giving one away for nothing reads g = 0 (he and his spot are left out);
+ * - a player worth at most W added to either side of any trade moves neither side's g, so through value he can only
+ *   lower acceptance: he still counts in the complexity term c, and roster legality still makes the receiving side drop
+ *   someone (market.test.ts's property tests: with n, h and hot held fixed, P_accept and P_complete never rise). ⚠️ He
+ *   can still raise it through what he does for the partner's lineup (n, h: a cheap player can still start for them or
+ *   fill a hole) or a hot streak (hot): that is where an "if they say no, add him" step's rise comes from (evaluate.ts;
+ *   review of NT, finding 2: on Parker's league, the 00:51Z dump, the steps that add Rico Dowdle, worth [value] ≤ W [value], raise
+ *   the chance 7.6 to 8.2 points through n and h, he fills a hole in Team 2's lineup, with the partner's g at 0% in both
+ *   versions). Before Phase 4c he counted W on one side and the spot he took W on the other, which pulled each g toward
+ *   0: a cheap throw-in could lift a lopsided trade past the veto line, the Market check or the hide threshold, and raise
+ *   acceptance through value when the partner was losing value.
+ * - Both sides leave out the same players (the steps read only values and ids, the same on both sides of a trade), so
+ *   when no IR player moves my package and the partner's mirror each other exactly (my PV_give is its PV_recv).
+ *   premium.perceivedPackage decides on the raw values too (packageValues' throwInValues), whatever premium it puts on
+ *   the players left.
+ * ⚠️ The exception, IR moves (market.test.ts checks this statement on random trades): the steps count players and pick by
+ * value alone (so both sides leave out the same players), while the credit counts active roster spots. A side's package
+ * equals the one with every player worth at most W left out with his spot exactly when the players worth at most W the
+ * steps leave in all move with an active spot and are no more than the roster-spot credits their list would count
+ * without them (one for each active player worth more than W the other list has beyond theirs). A trade that moves an IR
+ * player can break that: a cheap IR player left in counts W with no spot behind him, or a player worth more than W who
+ * moves without a spot leaves more cheap players in than credits, each adding W to both sums. Only when it is broken,
+ * with him or without him, can a player worth at most W move a side's g, either way (toward 0 too: a partner losing
+ * value can gain from him). Likewise a cheap player who carries a star premium (his team's #1 or #2 by value, or a top-12
+ * player, worth less than the best free agent: never on a real roster) counts his premium when he is one of those left in.
  *
  * Open roster spots are ACTIVE roster spots (review of Phase 4b track E, which made IR players tradable): an IR player who
  * leaves his IR slot opens none, and one received into an open IR slot fills none (no free agent could take an IR slot).
@@ -64,9 +114,11 @@
  * history). The two sides' packages then mirror each other only when no IR player moves (my PV_give is the partner's
  * PV_recv): with one, each side's credit follows its own roster (on Parker's league, Oct 3, "Rico Dowdle for Kalif
  * Raymond + Jordan Mason (IR)" credited Team 2 an open spot its roster never had, g_mkt 0% where it gives two players
- * for one: −50% counting active spots). ⚠️ An IR player still counts at max(v, W) (the planner's "each player"), though
- * his IR slot isn't a spot a free agent could fill: a player worth less than W taking a receiver's open IR slot reads as W
- * received.
+ * for one: −50% counting active spots; since Phase 4c's matched pairs all three, each worth at most W, are left out,
+ * nothing against nothing: 0% for both sides). ⚠️ An IR player still counts at max(v, W) (the planner's "each player"),
+ * though his IR slot isn't a spot a free agent could fill: a player worth less than W taking a receiver's open IR slot
+ * reads as W received, unless the neutral throw-in rule leaves him out (then his side loses no spot credit with him: he
+ * had none).
  */
 import { config } from "./config";
 import type { FantasyCalcFormat, MarketInputs } from "./inputs";
@@ -292,6 +344,14 @@ export function curveValue(curve: IsotonicCurve, x: number): number {
 export interface MarketPlayer {
   readonly id: string;
   readonly pos: Pos;
+  /**
+   * Phase 4c, read by the curve fallback only (curveMarketValues; the file header): he may be one of his position's curve
+   * points, healthy with a game left, by the market blend's rule for its own curve points (blend.ts rule 4, league.ts
+   * buildMarketBlend: no injury tag, an NFL team, a remaining week that isn't his bye), which only the caller knows (the
+   * League model's market step). Absent: true. §9's estimate curve for unvalued players (marketValues) fits every valued
+   * player, as §9 writes it: its estimates are capped at the lowest real value, so only its bottom end matters.
+   */
+  readonly fit?: boolean;
 }
 
 /**
@@ -322,7 +382,8 @@ const finiteOrUndefined = (x: number | undefined): number | undefined => (x !== 
  * points (`rosPoints`, the ROS total in league points), else the floor (see the file header). The
  * lowest real value and the curve use the valued players in `players` at the same position (our
  * position, not FantasyCalc's). A player at a curve position without ROS points gets no estimate and
- * is left out, as is everyone when there are no market values (FantasyCalc down).
+ * is left out, as is everyone when there are no market values (FantasyCalc down). In the curve fallback
+ * (MarketInputs.fallback kind "curve"), curveMarketValues instead: everyone from the curve.
  *
  * `term` picks the table (valuesForTerm): perception (the default: the League page, the surplus score
  * and §11's g) or future (§10's ΔDyn). The two differ only in keeper leagues.
@@ -330,6 +391,7 @@ const finiteOrUndefined = (x: number | undefined): number | undefined => (x !== 
 export function marketValues(players: readonly MarketPlayer[], rosPoints: Readonly<Record<string, number>>, market: MarketInputs | null, cfg: MarketConfig = config.market, term: ValueTerm = "perception"): MarketValues {
   const out: MarketValues = {};
   if (!market) return out;
+  if (market.fallback?.kind === "curve") return curveMarketValues(players, rosPoints, market, cfg, term);
   const { values, topValue } = valuesForTerm(market, term);
   const valueFloor = cfg.valueFloorFraction * (Number.isFinite(topValue) && topValue > 0 ? topValue : 0);
 
@@ -371,6 +433,80 @@ export function marketValues(players: readonly MarketPlayer[], rosPoints: Readon
   return out;
 }
 
+/**
+ * The curve fallback (the file header; planner reply to Checkpoint 4b, change 12): v_i for every player from the model's
+ * own value curve, calibrated on an old saved list (MarketInputs.fallback kind "curve"; its tables hold that list). Per
+ * position (ours): the isotonic fit of the term's table (valuesForTerm) on `rosPoints` over its curve points, the players
+ * it values who are fit (MarketPlayer.fit not false: healthy with a game left) with ROS points above 0 (review of track
+ * MK: the file header has why), then every player there with ROS points, fit or not, at curveValue(the fit, his ROS
+ * points) (source "estimate", at least 0, no cap: the curve stands in for the market); a player without ROS points is
+ * left out. A position with fewer curve points than unvaluedCurveMinPlayers: everyone there at the floor, min(valueFloor,
+ * the lowest old value there, any player's), or valueFloor when none is valued (K, DEF, IDP). valueFloor is a fraction of
+ * the old list's top value. Deterministic whatever the players' order (each id counts once, his first entry).
+ */
+export function curveMarketValues(players: readonly MarketPlayer[], rosPoints: Readonly<Record<string, number>>, market: MarketInputs, cfg: MarketConfig = config.market, term: ValueTerm = "perception"): MarketValues {
+  const out: MarketValues = {};
+  const { values, topValue } = valuesForTerm(market, term);
+  const valueFloor = cfg.valueFloorFraction * (Number.isFinite(topValue) && topValue > 0 ? topValue : 0);
+  const byPos = new Map<Pos, { members: MarketPlayer[]; points: { x: number; y: number }[]; lowest: number }>();
+  const seen = new Set<string>();
+  for (const p of players) {
+    if (seen.has(p.id)) continue;
+    seen.add(p.id);
+    let group = byPos.get(p.pos);
+    if (!group) byPos.set(p.pos, (group = { members: [], points: [], lowest: Number.POSITIVE_INFINITY }));
+    group.members.push(p);
+    const v = realValue(values[p.id]);
+    if (v === undefined) continue;
+    if (v < group.lowest) group.lowest = v;
+    const x = finiteOrUndefined(rosPoints[p.id]);
+    // A curve point: healthy with a game left, and some points to project (an injured player's value prices games his ROS
+    // doesn't count; a player projected for nothing says nothing about what points are worth).
+    if (x !== undefined && x > 0 && p.fit !== false) group.points.push({ x, y: v });
+  }
+  for (const group of byPos.values()) {
+    if (group.points.length < Math.max(1, cfg.unvaluedCurveMinPlayers)) {
+      const floor = Number.isFinite(group.lowest) ? Math.min(valueFloor, group.lowest) : valueFloor;
+      for (const p of group.members) out[p.id] = { value: floor, source: "floor" };
+      continue;
+    }
+    const curve = isotonicFit(group.points);
+    for (const p of group.members) {
+      const x = finiteOrUndefined(rosPoints[p.id]);
+      if (x === undefined) continue; // no ROS points: no estimate can be made
+      out[p.id] = { value: Math.max(0, curveValue(curve, x)), source: "estimate" };
+    }
+  }
+  return out;
+}
+
+/** The user-facing words for a FantasyCalc fallback (fantasyCalcFallbackText): the config.market key they read. */
+export interface FallbackTextConfig {
+  readonly fantasyCalcStaleDays: number;
+}
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"] as const;
+
+/** "Sep 28": the UTC day of an ISO time, for notes; null when it isn't one. */
+export function noteDay(iso: string): string | null {
+  const ms = Date.parse(iso);
+  if (!Number.isFinite(ms)) return null;
+  const d = new Date(ms);
+  return `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}`;
+}
+
+/**
+ * The words for a FantasyCalc fallback (MarketInputs.fallback; the file header), for the League page and the model inputs'
+ * notes and warnings: "saved" → "Trade values from Sep 28: FantasyCalc didn't answer." (a note); "curve" → a banner
+ * saying the values are our own estimates, calibrated on the list from that day, and that an injured player's counts only
+ * the games he's expected to play (curveMarketValues reads everyone off the curve at his own ROS points).
+ */
+export function fantasyCalcFallbackText(fallback: NonNullable<MarketInputs["fallback"]>, cfg: FallbackTextConfig = config.market): string {
+  const day = noteDay(fallback.listDate) ?? "an earlier day";
+  if (fallback.kind === "saved") return `Trade values from ${day}: FantasyCalc didn't answer.`;
+  return `Trade values are our own estimates, not FantasyCalc's: FantasyCalc didn't answer, and the newest list we have, from ${day}, is more than ${cfg.fantasyCalcStaleDays} days old. Each player's value comes from his projected points for the rest of the season, on a curve fitted to that list, so an injured player's value counts only the games he's expected to play. Read trade values as rough.`;
+}
+
 // ---------------------------------------------------------------------------------------------
 // Waiver credit and package value (§9)
 
@@ -409,38 +545,118 @@ function studValue(v: number, gamma: number): number {
 export interface ActiveSpots {
   readonly recv: number;
   readonly give: number;
+  /**
+   * Phase 4c (the neutral throw-in rule, planner reply to Checkpoint 4b, change 2): players who move without an active roster
+   * spot (an IR player leaving an IR slot, or one received into an open IR slot), so dropping one of them as a throw-in
+   * removes no roster-spot credit. Absent: every player moves with an active spot.
+   */
+  readonly inactive?: ReadonlySet<string>;
 }
 
 /** A spot count when it is a finite number (at least 0), else the fallback (the side's player count). */
 const spotCount = (x: number | undefined, fallback: number): number => (x !== undefined && Number.isFinite(x) ? Math.max(0, x) : fallback);
 
+const byId = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+
+/** A package once its neutral throw-ins are left out (neutralThrowIns). */
+export interface NeutralPackage {
+  /** The players the side receives and gives that still count, each in its given order. */
+  readonly recv: readonly string[];
+  readonly give: readonly string[];
+  /**
+   * The players left out (the planner's step, on the side moving more players, then the matched pairs, one from each side:
+   * the file header), lowest value first (ties: the smaller id): the same list, in the same order, from either side of a trade.
+   */
+  readonly removed: readonly string[];
+  /** The side's active-roster spots after them: received onto, and given from, its active roster (ActiveSpots' counts). */
+  readonly spots: { readonly recv: number; readonly give: number };
+}
+
+/** A side's players worth at most `floor` (raw value: a missing or non-finite one is 0), cheapest first (ties: the smaller id, then the place). */
+function cheapest(side: readonly string[], values: ValueLookup, floor: number): { id: string; i: number; v: number }[] {
+  return side
+    .map((id, i) => ({ id, i, v: valueOf(values[id]) }))
+    .filter((x) => x.v <= floor)
+    .sort((a, b) => a.v - b.v || byId(a.id, b.id) || a.i - b.i);
+}
+
 /**
- * PV_recv and PV_give for the side that receives `recv` and gives `give` (§9; the file header): the sum
- * of each player's max(v, W)^γ, plus W^γ per open active roster spot: max(0, spots.give − spots.recv) on
- * PV_recv (the spots the side opens) and max(0, spots.recv − spots.give) on PV_give (the spots it fills).
- * `spots` (ActiveSpots) defaults to the player counts (every player on or off the active roster).
- * A W that isn't a positive finite number counts 0: it floors nothing and credits nothing. Pass W = 0 for
- * a plain sum of values (benefit.rosterValue).
+ * The neutral throw-ins of the package of the side that receives `recv` and gives `give` (the file header; planner reply to
+ * Checkpoint 4b, change 2, and the lead's closing of the gap the review of track EF found, finding 1): when W is a positive
+ * finite number, (1) when one side moves d > 0 more players than the other, up to d of that side's players worth at most W
+ * (`values`, before the floor; a missing or non-finite value is 0), cheapest first (ties: the smaller id); (2) then matched
+ * pairs of players worth at most W, one from each side, cheapest first on each side (ties: the smaller id), as many pairs as
+ * the side with fewer such players left has. Each one left out lowers his side's spot count (spots.give for `give`,
+ * spots.recv for `recv`; floored at 0) unless he is in spots.inactive. `spots` defaults to the player counts. Both sides of a
+ * trade leave out the same players (the rule reads only `values`, W and the ids), and on each side the players left out are
+ * its cheapest ones (a prefix of its cheap players in that order). `opts.pairs` false runs step (1) alone, the planner's
+ * own step (search.ts leanVersionOf reads it when both steps would leave a side empty; packages always run both).
  */
-export function packageValues(recv: readonly string[], give: readonly string[], values: ValueLookup, W: number, cfg: MarketConfig = config.market, spots?: ActiveSpots): { recv: number; give: number } {
-  const gamma = cfg.studExponent;
+export function neutralThrowIns(recv: readonly string[], give: readonly string[], values: ValueLookup, W: number, spots?: ActiveSpots, opts: { readonly pairs?: boolean } = {}): NeutralPackage {
   const floor = Number.isFinite(W) && W > 0 ? W : 0;
-  let pvRecv = 0;
-  for (const id of recv) pvRecv += studValue(Math.max(valueOf(values[id]), floor), gamma);
-  let pvGive = 0;
-  for (const id of give) pvGive += studValue(Math.max(valueOf(values[id]), floor), gamma);
-  const credit = studValue(floor, gamma);
   const onto = spotCount(spots?.recv, recv.length);
   const off = spotCount(spots?.give, give.length);
-  pvRecv += Math.max(0, off - onto) * credit;
-  pvGive += Math.max(0, onto - off) * credit;
+  if (floor === 0) return { recv: [...recv], give: [...give], removed: [], spots: { recv: onto, give: off } };
+  const cheapRecv = cheapest(recv, values, floor);
+  const cheapGive = cheapest(give, values, floor);
+  // (1) The planner's step: on the side moving d more players, up to d of its cheapest.
+  const d = give.length - recv.length;
+  let nRecv = d < 0 ? Math.min(-d, cheapRecv.length) : 0;
+  let nGive = d > 0 ? Math.min(d, cheapGive.length) : 0;
+  // (2) Matched pairs of the cheap players left, one from each side, cheapest first on each.
+  const pairs = opts.pairs === false ? 0 : Math.min(cheapRecv.length - nRecv, cheapGive.length - nGive);
+  nRecv += pairs;
+  nGive += pairs;
+  const outRecv = cheapRecv.slice(0, nRecv);
+  const outGive = cheapGive.slice(0, nGive);
+  const goneRecv = new Set(outRecv.map((x) => x.i));
+  const goneGive = new Set(outGive.map((x) => x.i));
+  const withSpot = (out: readonly { id: string }[]) => out.filter((x) => !spots?.inactive?.has(x.id)).length;
+  const removed = [...outRecv, ...outGive].sort((a, b) => a.v - b.v || byId(a.id, b.id)).map((x) => x.id);
+  return {
+    recv: recv.filter((_, i) => !goneRecv.has(i)),
+    give: give.filter((_, i) => !goneGive.has(i)),
+    removed,
+    spots: { recv: Math.max(0, onto - withSpot(outRecv)), give: Math.max(0, off - withSpot(outGive)) },
+  };
+}
+
+/**
+ * PV_recv and PV_give for the side that receives `recv` and gives `give` (§9; the file header): first the neutral
+ * throw-ins are left out (neutralThrowIns, chosen on `throwInValues`, default `values`), then the sum of each player
+ * left's max(v, W)^γ, plus W^γ per open active roster spot: max(0, spots.give − spots.recv) on PV_recv (the spots the
+ * side opens) and max(0, spots.recv − spots.give) on PV_give (the spots it fills), the spots after the throw-ins.
+ * `spots` (ActiveSpots) defaults to the player counts (every player on or off the active roster).
+ * A W that isn't a positive finite number counts 0: it floors nothing, credits nothing and leaves nobody out. Pass W = 0
+ * for a plain sum of values (benefit.rosterValue). `throwInValues`: premium.perceivedPackage passes the raw values while
+ * `values` carries the partner's star premium, so its package leaves out the same players as everyone else's.
+ */
+export function packageValues(
+  recv: readonly string[],
+  give: readonly string[],
+  values: ValueLookup,
+  W: number,
+  cfg: MarketConfig = config.market,
+  spots?: ActiveSpots,
+  throwInValues: ValueLookup = values,
+): { recv: number; give: number } {
+  const gamma = cfg.studExponent;
+  const floor = Number.isFinite(W) && W > 0 ? W : 0;
+  const pkg = neutralThrowIns(recv, give, throwInValues, floor, spots);
+  let pvRecv = 0;
+  for (const id of pkg.recv) pvRecv += studValue(Math.max(valueOf(values[id]), floor), gamma);
+  let pvGive = 0;
+  for (const id of pkg.give) pvGive += studValue(Math.max(valueOf(values[id]), floor), gamma);
+  const credit = studValue(floor, gamma);
+  pvRecv += Math.max(0, pkg.spots.give - pkg.spots.recv) * credit;
+  pvGive += Math.max(0, pkg.spots.recv - pkg.spots.give) * credit;
   return { recv: pvRecv, give: pvGive };
 }
 
 /**
  * g_mkt for the side that receives `recv` and gives `give` (§9): (PV_recv − PV_give) / PV_give, as a
- * fraction (+0.04 = +4%). For my side pass (what I get, what I give); for the partner, swap them, and pass
- * each side's own ActiveSpots when a trade moves IR players (packageValues).
+ * fraction (+0.04 = +4%), neutral throw-ins left out (packageValues). For my side pass (what I get, what I give); for
+ * the partner, swap them, and pass each side's own ActiveSpots when a trade moves IR players (packageValues).
  * A side that gives nothing of value gains +Infinity when it receives something, else 0.
  */
 export function marketGain(recv: readonly string[], give: readonly string[], values: ValueLookup, W: number, cfg: MarketConfig = config.market, spots?: ActiveSpots): number {

@@ -3,44 +3,20 @@ import type { LeagueSnapshot } from "@/engine/model";
 import {
   IMPORT_FORMAT_VERSION,
   IMPORT_STORAGE_KEY,
+  MY_TEAM_KEY_PREFIX,
   OUTDATED_IMPORT_TEXT,
   OUTDATED_IMPORT_TITLE,
+  checkMyTeamPick,
   myTeamKey,
+  parseMyTeamKey,
   parseMyTeamPick,
   parseStoredImport,
+  pickAfterImport,
+  readImportData,
   readStoredImport,
-  recordImport,
-  saveImport,
-  saveMyTeam,
   toStoredImport,
-  type StorageLike,
   type StoredImport,
 } from "./importStore";
-
-class FakeStorage implements StorageLike {
-  data = new Map<string, string>();
-  getItem(k: string) {
-    return this.data.get(k) ?? null;
-  }
-  setItem(k: string, v: string) {
-    this.data.set(k, v);
-  }
-  removeItem(k: string) {
-    this.data.delete(k);
-  }
-}
-
-class BlockedStorage implements StorageLike {
-  getItem(): string | null {
-    throw new Error("SecurityError");
-  }
-  setItem(): void {
-    throw new Error("QuotaExceededError");
-  }
-  removeItem(): void {
-    throw new Error("SecurityError");
-  }
-}
 
 const snap = {
   platform: "sleeper",
@@ -60,18 +36,11 @@ const stored: StoredImport = {
 };
 
 const espnSnap = { ...snap, platform: "espn", leagueId: "4242", teams: [{ id: "3" }, { id: "7" }] } as unknown as LeagueSnapshot;
-const espnRequest = { platform: "espn", season: 2026, leagueId: "4242" } as const;
-const SAVED_AT = "2026-09-29T23:00:00.000Z";
-
-function pickIn(s: FakeStorage, snapshot: LeagueSnapshot) {
-  return parseMyTeamPick(s.getItem(myTeamKey(snapshot)));
-}
 
 describe("import store", () => {
-  it("round-trips an import through sessionStorage", () => {
-    const s = new FakeStorage();
-    expect(saveImport(s, stored)).toEqual({ ok: true });
-    expect(parseStoredImport(s.getItem(IMPORT_STORAGE_KEY))).toEqual(stored);
+  it("reads an import kept as text (the pre-4c sessionStorage copy the league store's migration reads)", () => {
+    expect(IMPORT_STORAGE_KEY).toBe("offersheet:import:v1");
+    expect(parseStoredImport(JSON.stringify(stored))).toEqual(stored);
   });
 
   it("ignores values that aren't ours", () => {
@@ -82,14 +51,13 @@ describe("import store", () => {
     expect(parseStoredImport(JSON.stringify({ ...stored, response: { snapshot: snap } }))).toBeUndefined();
   });
 
-  it("saves this version's format: 3 since Phase 4b, whose snapshots carry waiver ranks and IR eligibility (2 since Phase 3's matchup results)", () => {
-    expect(IMPORT_FORMAT_VERSION).toBe(3);
+  it("saves this version's format: 4 since Phase 4c, whose waiver ranks are the order the allocation uses (3 since Phase 4b's waiver ranks and IR eligibility, 2 since Phase 3's matchup results)", () => {
+    expect(IMPORT_FORMAT_VERSION).toBe(4);
     const { version, ...rest } = stored;
     expect(version).toBe(IMPORT_FORMAT_VERSION);
     expect(toStoredImport(rest)).toEqual(stored);
-    const s = new FakeStorage();
-    recordImport(s, { request: stored.request, response: stored.response, savedAt: SAVED_AT });
-    expect(JSON.parse(s.getItem(IMPORT_STORAGE_KEY) ?? "{}")).toMatchObject({ version: IMPORT_FORMAT_VERSION });
+    // A Phase 4b record (its waiverRank is the live order of the day it was imported) is one to import again.
+    expect(readStoredImport(JSON.stringify({ ...stored, version: 3 }))).toEqual({ kind: "outdated" });
   });
 
   it("ignores an import saved in another format, e.g. before Phase 3 (matchups without decided or result), so the pages ask for a new import", () => {
@@ -121,31 +89,11 @@ describe("import store", () => {
     expect(OUTDATED_IMPORT_TEXT).toBe("Import your league again to see the new numbers.");
   });
 
-  it("replaces an old-format record in place when the league is imported again (same key: sessionStorage never holds both)", () => {
-    const s = new FakeStorage();
-    s.setItem(IMPORT_STORAGE_KEY, JSON.stringify({ ...stored, version: 1, savedAt: "2026-09-20T12:00:00.000Z" }));
-    expect(parseStoredImport(s.getItem(IMPORT_STORAGE_KEY))).toBeUndefined();
-    expect(recordImport(s, { request: stored.request, response: stored.response, savedAt: SAVED_AT })).toEqual({ ok: true });
-    expect(parseStoredImport(s.getItem(IMPORT_STORAGE_KEY))).toEqual(stored);
-    expect([...s.data.keys()]).toEqual([IMPORT_STORAGE_KEY]);
-  });
-
-  it("reports a full or blocked storage instead of throwing", () => {
-    const blocked = new BlockedStorage();
-    expect(saveImport(blocked, stored).ok).toBe(false);
-    expect(recordImport(blocked, { request: stored.request, response: stored.response, savedAt: SAVED_AT }).ok).toBe(false);
-    expect(() => saveMyTeam(blocked, snap, "1")).not.toThrow();
-  });
-
-  it("keeps the user's team pick per league and season, with where it came from", () => {
-    const s = new FakeStorage();
-    saveMyTeam(s, snap, "2");
-    expect(pickIn(s, snap)).toEqual({ teamId: "2", source: "you" });
-    expect(s.getItem(myTeamKey({ ...snap, season: 2025 }))).toBeNull();
-    saveMyTeam(s, snap, "1", "link");
-    expect(pickIn(s, snap)).toEqual({ teamId: "1", source: "link" });
-    saveMyTeam(s, snap, null);
-    expect(s.getItem(myTeamKey(snap))).toBeNull();
+  it("keys a pre-4c team pick by league and season, and reads where it came from", () => {
+    expect(myTeamKey(snap)).not.toBe(myTeamKey({ ...snap, season: 2025 }));
+    expect(myTeamKey(snap)).not.toBe(myTeamKey({ ...snap, leagueId: "1" }));
+    expect(parseMyTeamPick(JSON.stringify({ teamId: "2", source: "you" }))).toEqual({ teamId: "2", source: "you" });
+    expect(parseMyTeamPick(JSON.stringify({ teamId: "1", source: "link" }))).toEqual({ teamId: "1", source: "link" });
   });
 
   it("reads picks stored as a bare team ID as the user's own, and ignores junk", () => {
@@ -157,42 +105,45 @@ describe("import store", () => {
     expect(parseMyTeamPick(null)).toBeUndefined();
   });
 
-  it("never stores credentials: the request summary has no place for them", () => {
-    const s = new FakeStorage();
-    saveImport(s, stored);
-    const raw = s.getItem(IMPORT_STORAGE_KEY) ?? "";
-    expect(raw).not.toMatch(/espn_s2|espnS2|swid/i);
+  it("never keeps credentials: the request summary has no place for them", () => {
+    expect(JSON.stringify(toStoredImport({ request: stored.request, response: stored.response, savedAt: stored.savedAt }))).not.toMatch(/espn_s2|espnS2|swid/i);
   });
 });
 
-describe("recordImport: a team from a pasted ESPN team link", () => {
-  it("is kept as a pick to confirm, under the per-league key (so Refresh keeps it)", () => {
-    const s = new FakeStorage();
-    expect(recordImport(s, { request: espnRequest, response: { snapshot: espnSnap, notes: [] }, savedAt: SAVED_AT, teamHint: "7" })).toEqual({ ok: true });
-    expect(pickIn(s, espnSnap)).toEqual({ teamId: "7", source: "link" });
-    // Refresh saves the new snapshot without a hint: the pick stays.
-    recordImport(s, { request: espnRequest, response: { snapshot: espnSnap, notes: [] }, savedAt: SAVED_AT });
-    expect(pickIn(s, espnSnap)).toEqual({ teamId: "7", source: "link" });
+describe("the pieces the league store shares (Phase 4c: src/lib/leagueStore.ts keeps imports and picks in IndexedDB)", () => {
+  it("reads an import already parsed exactly as readStoredImport reads its text", () => {
+    const v1 = { ...stored, version: 1 };
+    for (const data of [stored, v1, { ...stored, version: IMPORT_FORMAT_VERSION + 1 }, null, 42, [], { version: 1 }]) {
+      expect(readImportData(data), JSON.stringify(data)).toEqual(readStoredImport(JSON.stringify(data)));
+    }
+    expect(readImportData(stored)).toEqual({ kind: "ok", stored });
+    expect(readImportData(v1)).toEqual({ kind: "outdated" });
+    expect(readImportData(undefined)).toEqual({ kind: "none" });
   });
 
-  it("is ignored when it isn't a team in this league", () => {
-    const s = new FakeStorage();
-    recordImport(s, { request: espnRequest, response: { snapshot: espnSnap, notes: [] }, savedAt: SAVED_AT, teamHint: "42" });
-    expect(pickIn(s, espnSnap)).toBeUndefined();
+  it("checks a pick already parsed, and names the league and season of every pick key (a league id may hold anything but the season)", () => {
+    expect(checkMyTeamPick({ teamId: "3", source: "link" })).toEqual({ teamId: "3", source: "link" });
+    expect(checkMyTeamPick({ teamId: "3", source: "?" })).toEqual({ teamId: "3", source: "you" });
+    for (const bad of [null, "3", { teamId: "" }, { teamId: 3 }, []]) expect(checkMyTeamPick(bad), JSON.stringify(bad)).toBeUndefined();
+    expect(myTeamKey(snap).startsWith(MY_TEAM_KEY_PREFIX)).toBe(true);
+    expect(parseMyTeamKey(myTeamKey(snap))).toEqual({ platform: "sleeper", leagueId: "123456789012345678", season: 2026 });
+    expect(parseMyTeamKey(myTeamKey(espnSnap))).toEqual({ platform: "espn", leagueId: "4242", season: 2026 });
+    expect(parseMyTeamKey(`${MY_TEAM_KEY_PREFIX}espn:a:b:2025`)).toEqual({ platform: "espn", leagueId: "a:b", season: 2025 });
+    for (const bad of [IMPORT_STORAGE_KEY, `${MY_TEAM_KEY_PREFIX}espn:4242`, `${MY_TEAM_KEY_PREFIX}espn:4242:26`, "offersheet:myteam:v2:espn:1:2026"]) expect(parseMyTeamKey(bad), bad).toBeUndefined();
   });
 
-  it("never replaces a team the user picked", () => {
-    const s = new FakeStorage();
-    saveMyTeam(s, espnSnap, "3");
-    recordImport(s, { request: espnRequest, response: { snapshot: espnSnap, notes: [] }, savedAt: SAVED_AT, teamHint: "7" });
-    expect(pickIn(s, espnSnap)).toEqual({ teamId: "3", source: "you" });
-  });
-
-  it("gives way when the platform knows the user's team (ESPN cookies)", () => {
-    const s = new FakeStorage();
-    saveMyTeam(s, espnSnap, "7", "link");
+  it("states the import's pick rule as a change: set a link pick, keep the user's, clear a link pick the platform overrides", () => {
     const known = { ...espnSnap, myTeamId: "3" } as LeagueSnapshot;
-    recordImport(s, { request: espnRequest, response: { snapshot: known, notes: [] }, savedAt: SAVED_AT, teamHint: "7" });
-    expect(pickIn(s, known)).toBeUndefined();
+    expect(pickAfterImport(espnSnap, undefined, "7")).toEqual({ kind: "set", pick: { teamId: "7", source: "link" } });
+    expect(pickAfterImport(espnSnap, { teamId: "7", source: "link" }, "3")).toEqual({ kind: "set", pick: { teamId: "3", source: "link" } });
+    expect(pickAfterImport(espnSnap, { teamId: "3", source: "you" }, "7")).toEqual({ kind: "keep" });
+    // The user's pick of a team no longer in the league gives way to the link.
+    expect(pickAfterImport(espnSnap, { teamId: "99", source: "you" }, "7")).toEqual({ kind: "set", pick: { teamId: "7", source: "link" } });
+    expect(pickAfterImport(espnSnap, undefined, "42")).toEqual({ kind: "keep" });
+    expect(pickAfterImport(espnSnap, undefined)).toEqual({ kind: "keep" });
+    // Refresh brings no hint: a link pick stays.
+    expect(pickAfterImport(espnSnap, { teamId: "7", source: "link" })).toEqual({ kind: "keep" });
+    expect(pickAfterImport(known, { teamId: "7", source: "link" }, "7")).toEqual({ kind: "clear" });
+    expect(pickAfterImport(known, { teamId: "7", source: "you" })).toEqual({ kind: "keep" });
   });
 });

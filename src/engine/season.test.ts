@@ -7,7 +7,7 @@ import { config } from "./config";
 import { buildLeagueModel, leagueWeeks } from "./league";
 import type { LeagueSettings, LeagueSnapshot, Matchup } from "./model";
 import { mulberry32 } from "./rng";
-import { DIVISION_RULE_ASSUMED, RESEED_RULE_ASSUMED, buildSimSetup, oddsSkippedWarning, playoffRounds, reseedRuleAssumed, seasonOdds, weekList, weekUnderWayNote, type SeasonModel } from "./season";
+import { DIVISION_RULE_ASSUMED, RESEED_RULE_ASSUMED, buildSimSetup, oddsSkippedWarning, pickupSeasonModel, playoffRounds, reseedRuleAssumed, seasonOdds, weekList, weekUnderWayNote, type SeasonModel } from "./season";
 import { simNormals, standingsOrder } from "./sim";
 import { buildTestLeague, syntheticInputs } from "./testLeague";
 
@@ -818,6 +818,21 @@ describe("seasonOdds: weekly matchups and determinism", () => {
     const b = seasonOdds(x.snapshot, better, { sims: 500, seed: 11, normals });
     expect(b?.teams[0]?.pPlayoffs).toBeGreaterThan(a?.teams[0]?.pPlayoffs as number);
     expect(b?.teams[0]?.expWins).toBeGreaterThan(a?.teams[0]?.expWins as number);
+  });
+
+  it("pickupSeasonModel: every team's scoreWithPickups as its score, the same weeks; a team without one keeps its own (a model from before Phase 4c)", () => {
+    const x = league({ T: 4, currentWeek: 4, schedule: roundRobin(4, range(1, 14), 4) });
+    const up = (t: { score: { mean: number[]; sd: number[] } }) => ({ mean: t.score.mean.map((v) => v + 5), sd: t.score.sd });
+    const teams = x.model.teams.map((t, i) => (i === 3 ? { ...t } : { ...t, scoreWithPickups: up(t) }));
+    const m = pickupSeasonModel({ ...x.model, teams });
+    expect([m.weeks, m.regularWeeks, m.playoffWeeks, m.inProgressWeek]).toEqual([x.model.weeks, x.model.regularWeeks, x.model.playoffWeeks, x.model.inProgressWeek]);
+    expect(m.teams.map((t) => t.id)).toEqual(["1", "2", "3", "4"]);
+    m.teams.forEach((t, i) => expect(t.score, t.id).toEqual(i === 3 ? x.model.teams[3]?.score : up(x.model.teams[i] as { score: { mean: number[]; sd: number[] } })));
+    // Simulated on the same seasons, the three teams' pickups lift them and push team 4 down.
+    const a = seasonOdds(x.snapshot, x.model, { sims: 500, seed: 11 });
+    const b = seasonOdds(x.snapshot, m, { sims: 500, seed: 11 });
+    expect(b?.teams[3]?.expWins).toBeLessThan(a?.teams[3]?.expWins as number);
+    expect(b?.teams[3]?.pTitle).toBeLessThan(a?.teams[3]?.pTitle as number);
   });
 
   it("weekList names weeks plainly, runs of consecutive weeks as ranges", () => {

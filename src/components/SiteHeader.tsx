@@ -10,9 +10,17 @@
  * in headless Chrome, about 330–339 px of links in the 343 px row), "Import report" reads "Report"
  * below sm (its accessible name follows what's shown) and the links sit closer (NavLink's padding,
  * the nav's gap). On narrower screens, or with larger text, the links wrap again instead of pushing
- * the page sideways. From sm up it's one row. The home link and the nav links are 44 px tap targets.
+ * the page sideways. The home link and the nav links are 44 px tap targets.
+ *
+ * Phase 4c (planner reply to Checkpoint 4b, change 11): the league switcher (LeagueSwitcher.tsx) sits next to the
+ * logo, and the nav has a row of its own below lg (basis-full: 1024 px fits the logo, the switcher and the five links
+ * in one row), with or without the switcher, so the header's rows never move when it appears after the store loads.
+ * At 375 px the first row is the logo and the switcher (both 44 px tall), the second the five links, as before. The
+ * header's row is the switcher's panel's anchor on phones (relative). A banner under the header says when leagues
+ * can't be kept in this browser (StorageNotice).
  */
 import Link from "next/link";
+import { LeagueSwitcher, StorageNotice } from "./LeagueSwitcher";
 import { NavLink } from "./NavLink";
 
 export function LogoMark({ className }: { className?: string }) {
@@ -29,26 +37,30 @@ export function LogoMark({ className }: { className?: string }) {
 
 export function SiteHeader() {
   return (
-    <header className="bg-navy text-navy-contrast">
-      <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-x-3 px-4 py-2">
-        {/* The negative margin keeps the mark lined up with the page while the padding makes a 44 px target. */}
-        <Link href="/" className="-ml-1.5 flex min-h-11 items-center gap-2 rounded-lg px-1.5 font-extrabold tracking-tight">
-          <LogoMark className="size-8" />
-          <span className="sr-only text-lg sm:not-sr-only">Offer Sheet</span>
-        </Link>
-        <nav aria-label="Main" className="ml-auto flex flex-wrap items-center gap-0.5 text-sm font-bold sm:gap-1">
-          <NavLink href="/connect">Connect</NavLink>
-          <NavLink href="/import">
-            <span className="sm:hidden">Report</span>
-            <span className="hidden sm:inline">Import report</span>
-          </NavLink>
-          <NavLink href="/league">League</NavLink>
-          <NavLink href="/trades" alsoOn={["/analyzer"]}>
-            Trades
-          </NavLink>
-          <NavLink href="/settings">Settings</NavLink>
-        </nav>
-      </div>
-    </header>
+    <>
+      <header className="bg-navy text-navy-contrast">
+        <div className="relative mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-x-3 px-4 py-2">
+          {/* The negative margin keeps the mark lined up with the page while the padding makes a 44 px target. */}
+          <Link href="/" className="-ml-1.5 flex min-h-11 shrink-0 items-center gap-2 rounded-lg px-1.5 font-extrabold tracking-tight">
+            <LogoMark className="size-8" />
+            <span className="sr-only text-lg sm:not-sr-only">Offer Sheet</span>
+          </Link>
+          <LeagueSwitcher />
+          <nav aria-label="Main" className="ml-auto flex basis-full flex-wrap items-center justify-end gap-0.5 text-sm font-bold sm:gap-1 lg:basis-auto">
+            <NavLink href="/connect">Connect</NavLink>
+            <NavLink href="/import">
+              <span className="sm:hidden">Report</span>
+              <span className="hidden sm:inline">Import report</span>
+            </NavLink>
+            <NavLink href="/league">League</NavLink>
+            <NavLink href="/trades" alsoOn={["/analyzer"]}>
+              Trades
+            </NavLink>
+            <NavLink href="/settings">Settings</NavLink>
+          </nav>
+        </div>
+      </header>
+      <StorageNotice />
+    </>
   );
 }

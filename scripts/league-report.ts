@@ -13,37 +13,44 @@
  *                                           meta.json; default data-local/parker-league; loadDump), the engine's
  *                                           `now` from meta.json; --team still picks the team
  *
- * Phase 3, the season simulation (§8; planner reply to Checkpoint 2, "Checkpoint 3 must include"):
+ * Phase 3, the season simulation (§8; planner reply to Checkpoint 2, "Checkpoint 3 must include"), on Phase 4c's one
+ * baseline (below):
  * - Standings and playoff odds: today's standings by the league's rules (TeamOdds.rank) with each team's
- *   record, points for, P(playoffs), P(bye), P(title) and expected final record, the Σ checks (Σ P(playoffs)
- *   = playoff teams, Σ P(title) = 1) and the simulation's own notes.
+ *   record, points for, P(playoffs), P(bye), P(title) and expected final record (the headline: every team after its
+ *   free-agent pickups, LeagueModel.odds), P(playoffs) and P(title) as rosters stand (LeagueModel.oddsAsRostersStand,
+ *   the second line), the Σ checks (Σ P(playoffs) = playoff teams, Σ P(title) = 1) and the simulation's own notes.
  * - Your remaining schedule (§8 "show each remaining week's risk"): each remaining regular-season game with
- *   both teams' weekly score (the simulator's mean ± SD, summed over a multi-week matchup's weeks still to
- *   play), the win chance, and the active-roster players on bye. Likely starters and the risky-week flag
- *   follow the League page's own rules (src/lib/leagueView.ts: likelyStarters, RISKY_WIN_CHANCE, RISKY_BYES).
- * - Trade Score scale check (§10): the user's weekly score mean + 1, 3 and 6 points in every remaining week
- *   (regular season and playoffs, a week in progress included), σ unchanged, on one common-random-numbers
- *   matrix (config.simulation.finalSims seasons from config.simulation.seed): ΔPO, ΔCH and Δ expected wins,
- *   B = 100 × (0.35 ΔPO + 0.65 ΔCH) (config.benefit.weights; no market term: only lineup points move) and
- *   the Trade Score (config.benefit.bRef), next to the planner's toy league, with the B_ref that would map
- *   this league's +3 to the toy league's 63. Common random numbers compare every row with the baseline
- *   season by season, which takes out the noise of comparing separate runs, but each change is still a
- *   Monte Carlo estimate from finalSims seasons (another seed gives a somewhat different B(+3)). So every
- *   change carries its standard error, by batch means: the run's seasons split into SE_BATCHES batches
- *   (batchRuns), the change computed in each batch alone (batchSe). B_ref gets B(+3)'s error and one
- *   decimal. When title odds are unknown, the reason is given only when the report can confirm it
- *   (titleUnknownReason); otherwise it points to the notes under the standings. Then the same rows from the
- *   team after its free-agent pickups (V*: TeamModel.faMoves applied), since §10's B compares rosters after
- *   them, with the pickups' own effect and its standard error. The model doesn't keep that roster's
- *   weekly scores, so they're priced with league.teamRosterScorer, TeamModel.score's own rule (Phase 4b: IR
- *   returners and the roster spot one needs from his week included), from the steps the model ran; the report first
- *   re-prices the user's current roster that way and skips these rows unless it reproduces the model's own scores
- *   (within float noise). ⚠️ The depth values (depthValues) still price rosters without IR returners.
+ *   both teams' weekly score (the simulator's mean ± SD with pickups, TeamModel.scoreWithPickups, summed over a
+ *   multi-week matchup's weeks still to play), the win chance (with pickups, and as rosters stand), and my players on bye
+ *   (the roster after my pickups, and IR returners from their expected return week). Likely starters and the risky-week
+ *   flag are the League page's own rules, read from src/lib/leagueView.ts (scheduleByeRule: likely starters after my
+ *   pickups, ⚠️ none at a position I stream, whose bye the streaming replacement covers; RISKY_WIN_CHANCE, RISKY_BYES;
+ *   review POL-1: the report had kept its own copy, which drifted), the win chance the headline's.
+ * - Trade Score scale check (§10; planner reply to Checkpoint 4b, change 8: "Keep B_ref at 6 … Confirm this in Checkpoint
+ *   4c"): the user's weekly score mean + 1, 3 and 6 points in every remaining week a trade can change (regular season and
+ *   playoffs; ⚠️ a week in progress left out, as every trade's evaluation leaves it: evaluate.ts holds that week at the
+ *   as-stands score before and after a trade), σ unchanged, on one common-random-numbers matrix (the League model's own:
+ *   config.simulation.finalSims seasons from config.simulation.seed), from the one baseline (every team after its
+ *   pickups: TeamModel.scoreWithPickups, the seasons LeagueModel.odds simulates, the trade search's baseline): ΔPO, ΔCH
+ *   and Δ expected wins, B = 100 × (w_PO ΔPO + w_CH ΔCH) under each "What matters most" goal (benefit.goalWeights,
+ *   config.benefit.goals; no market term: only lineup points move) and the Trade Score (config.benefit.bRef), next to the
+ *   planner's toy league, with the B_ref that would map this league's +3 to the toy league's 63 under each goal. Common
+ *   random numbers compare every row with the baseline season by season, which takes out the noise of comparing separate
+ *   runs, but each change is still a Monte Carlo estimate from finalSims seasons (another seed gives a somewhat different
+ *   B(+3)). So every change carries its standard error, by batch means: the run's seasons split into SE_BATCHES batches
+ *   (batchRuns), the change computed in each batch alone (batchSe). B_ref gets B(+3)'s error and one decimal. When title
+ *   odds are unknown, the reason is given only when the report can confirm it (titleUnknownReason); otherwise it points
+ *   to the notes under the standings. Then the same rows from the rosters as they stand (TeamModel.score, the seasons
+ *   oddsAsRostersStand simulates: Checkpoint 4b's basis), and every team's pickups' own effect on my odds (the one
+ *   baseline against as rosters stand, paired season by season, with its standard error). Each baseline run is checked
+ *   to reproduce the model's own odds bit for bit. ⚠️ The depth values (depthValues) still price rosters without IR
+ *   returners.
  * - No-op check (§8 common random numbers; §16): (a) one setup simulated twice, each run drawing its own
  *   matrix from the seed: every number bitwise identical; (b) a second League model built from the same
  *   snapshot and inputs with every roster copied (a trade that changes nothing), simulated with the same
- *   seed: the largest |Δ| in each team's P(playoffs), P(bye), P(title) and expected wins, and in the
- *   simulator's weekly score inputs, which must all be exactly 0.
+ *   seed: the largest |Δ| in each team's P(playoffs), P(bye), P(title) and expected wins (both odds: with pickups and as
+ *   rosters stand), and in the simulator's weekly score inputs (TeamModel.score and scoreWithPickups), which must all be
+ *   exactly 0.
  * - Simulation runtime: simNormals and simulateSeason at 1,000 and 5,000 seasons (config.simulation
  *   screeningSims and finalSims), and buildLeagueModel with and without the simulation (expected-value
  *   lineups only, and S availability scenarios), each the median of TIMING_RUNS runs after TIMING_WARMUPS
@@ -56,9 +63,9 @@
  *   with the default settings (K and DEF streamed, the config's playoff weight).
  * - Trade chips carry their cost per week and the "starter" tag (answer 3); lineup points are labeled with the
  *   model's playoff weight (LeagueModel.playoffWeight).
- * - Everything priced outside the model (rosterScorer, the depth values) adds the team's streaming rows
- *   (league.tableWithStreaming, streamIds; rosterScorer through league.teamRosterScorer since Phase 4b), so it still
- *   reproduces the model's own numbers.
+ * - Everything priced outside the model (the depth values) adds the team's streaming rows (league.tableWithStreaming,
+ *   streamIds), so it still reproduces the model's own numbers. (Phase 4c: the scale check reads the model's own weekly
+ *   scores, TeamModel.score and scoreWithPickups, so it prices no roster itself any more.)
  * - The Trade Score uses B_ref 6 (answer 1; config.benefit.bRef). The scale check still reports the B_ref that
  *   would map this league's +3 to the toy league's 63.
  *
@@ -68,8 +75,8 @@
  *   many moves teams make (the count distribution), and the named examples under V* through league.leagueMarginals
  *   (the model's own rules, outside it): Bo Nix → Team 1 (his MV_add there, with the drop that makes room, against his
  *   lineup cost: his chip gap) and McCaffrey's chip gap (OPTIMIZER_EXAMPLES; public NFL names).
- * - Lineup costs, chips and partners are worded for V*; the scale check's second baseline is my team after all its
- *   pickups (vstarScale). The build timings (buildTimings) include the optimizer (lead decision L14: ≤ 400 ms).
+ * - Lineup costs, chips and partners are worded for V*. The build timings (buildTimings) include the optimizer (lead
+ *   decision L14: ≤ 400 ms).
  *
  * Phase 4b (planner reply to Checkpoint 4; the lead's design, track R):
  * - Offline mode (`--offline [dir]`, loadDump): the same report from a placeholder dump, so the Checkpoint 4b reports
@@ -80,9 +87,8 @@
  *   player breakdown lines (buildLeagueView: PlayerRow.blend, rosters and free-agent lists), with how many read "no
  *   comparison" (a player at the end of his position's value range, whose market number is his own).
  * - One free agent, one team (§7; LeagueModel.faAllocation): the allocation's basis and order next to every team's
- *   pickups, and a check that no free agent is in two teams' pickups. A waiver-order allocation carries CLAUDE.md §2.2's
- *   ⚠️ (waiverOrderCaveat: ESPN's order is the live one, Parker's league resets it weekly and a claim sends a team to the
- *   back, so the pickups depend on the import's day), with the weekly reset order from today's standings (resetWaiverOrder).
+ *   pickups, and a check that no free agent is in two teams' pickups. A waiver-order allocation names the order used
+ *   (waiverOrderNote, Phase 4c below).
  * - The header prints the command line the report ran with (commandText, displayPath: the dump folder and --team), so a
  *   reader can run it again on the same data.
  * - parseLeagueReport reads a committed league report's team and roster tables back, for the trade report's "what changed
@@ -90,6 +96,29 @@
  * - IR returners (§6, §7; irReturnerRows): every IR player, his expected return week R, whether he rejoins his team's
  *   lineups, and the player his team as it stands drops from R on to make room (returners.finalLineups, the displacement
  *   the League page's numbers and odds count).
+ *
+ * Phase 4c (planner reply to Checkpoint 4b; the lead's Phase 4c design, track R):
+ * - One baseline everywhere (change 9): every odds reading is the headline, LeagueModel.odds (every team after its
+ *   free-agent pickups), with LeagueModel.oddsAsRostersStand as the second line (the standings, the schedule's win
+ *   chances, the scale check and its second set of rows, the no-op check). Seasons: the League model's own, seasons 1–
+ *   finalSims of the seed's matrix, which are also the trade search's final block (its screening block is the next
+ *   screeningSims).
+ * - Goals (change 8): B under each "What matters most" goal (config.benefit.goals through benefit.goalWeights, the
+ *   default goal config.benefit.goalDefault) wherever the report computes B (benefitWin, the scale check).
+ * - The waiver order used (change 5; answer 2): the data line names it as the Import Report does
+ *   (importReport.waiverOrderText), and so does the allocation line (waiverOrderNote). A snapshot from before the 4c
+ *   adapter (no settings.waiverOrderUsed: its ranks are ESPN's live order of the import's day) is first put on the 4c
+ *   adapter's rule for a league whose order resets weekly, as Parker's does (asWeeklyResetData: ⚠️ assumed, the dump
+ *   doesn't say; review of track R, R-4, so this report and the trade report run on the order the app now uses): the
+ *   weekly reset order from the standings becomes Team.waiverRank and the dump's ranks Team.liveWaiverRank; both lines say
+ *   so with the two orders and my place in each (pre4cText).
+ * - The blend's clamp (change 4; review of track R, R-6): the formula with config.marketBlend.factorClamp, and every factor
+ *   the clamp cut (BlendLines.clamped).
+ * - FantasyCalc's fallback (change 12): the ID match rate is measured only when FantasyCalc's player list was read, which the
+ *   data shows (fantasyCalcPlayersRead: knownIds names a player beyond the value lists' rows; review of track R, R-7: the
+ *   server reads it whenever FantasyCalc served any list fresh, so a saved list alone doesn't mean it wasn't read);
+ *   otherwise the report says why it isn't (the fallback, or the list's own warning), and the value rate says which list
+ *   it read.
  *
  * Everything after the network is buildReport (pure but for the clock and the model builds it times), which
  * scripts/league-report.test.ts runs offline on Parker's committed sanitized fixture with synthetic inputs.
@@ -102,24 +131,27 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
 import { importEspnLeagueForModel } from "@/adapters/espn";
+import { espnWaiverOrder } from "@/adapters/espn/waivers";
 import type { ImportDeps } from "@/adapters/types";
 import { loadPlayerIdResolver } from "@/data";
+import { goalWeights } from "@/engine/benefit";
 import type { BlendPosition } from "@/engine/blend";
 import { config } from "@/engine/config";
-import type { ModelInputs } from "@/engine/inputs";
-import { buildLeagueModel, buildLeagueModelWithContext, buildProjectionTable, leagueMarginals, streamIds, tableWithStreaming, teamRosterScorer, teamWeeks, type LeagueContext, type LeagueMarginals } from "@/engine/league";
+import type { MarketInputs, ModelInputs } from "@/engine/inputs";
+import { buildLeagueModel, buildLeagueModelWithContext, buildProjectionTable, leagueMarginals, streamIds, tableWithStreaming, teamWeeks, type LeagueContext, type LeagueMarginals } from "@/engine/league";
 import type { FaAllocation, FaMove, LeagueModel, PlayerModel, SeasonOdds, TeamOdds, TradeChip } from "@/engine/leagueModel";
 import { prepareLeagueSlots } from "@/engine/lineup";
-import { fantasyCalcFormatLabel } from "@/engine/market";
-import { POSITIONS, type InjuryStatus, type LeagueSnapshot, type PlayerInfo, type Pos } from "@/engine/model";
-import { applyStep, returnersOf } from "@/engine/optimizer";
+import { fantasyCalcFallbackText, fantasyCalcFormatLabel } from "@/engine/market";
+import { POSITIONS, type InjuryStatus, type LeagueSettings, type LeagueSnapshot, type PlayerInfo, type Pos, type Team } from "@/engine/model";
+import { returnersOf } from "@/engine/optimizer";
 import { finalLineups } from "@/engine/returners";
-import { buildSimSetup, playoffRounds, seasonOdds, type SeasonModel, type SimSetupResult } from "@/engine/season";
+import { buildSimSetup, pickupSeasonModel, playoffRounds, seasonOdds, type SeasonModel, type SimSetupResult } from "@/engine/season";
 import { simNormals, simulateSeason, type SimNormals, type SimResult, type SimSetup } from "@/engine/sim";
-import { defaultTradeSettings } from "@/engine/settings";
+import { GOALS, type Goal } from "@/engine/settings";
 import { evLineups, rosValue, scenarioLineups } from "@/engine/teamValue";
+import { waiverOrderText } from "@/lib/importReport";
 import { posLabel } from "@/lib/labels";
-import { RISKY_BYES, RISKY_WIN_CHANCE, SEASON_OVER_TEXT, blendIsOwnPoint, buildLeagueView, likelyStarters } from "@/lib/leagueView";
+import { RISKY_BYES, RISKY_WIN_CHANCE, SEASON_OVER_TEXT, blendIsOwnPoint, buildLeagueView, lastNflWeekOf, scheduleByeRule } from "@/lib/leagueView";
 import { FileCache } from "@/server/cache";
 import { createHttpClient } from "@/server/http";
 import { buildModelInputs } from "@/server/modelInputs";
@@ -293,7 +325,7 @@ function depthValues(snapshot: LeagueSnapshot, inputs: ModelInputs, model: Leagu
 /** Timed runs per runtime measurement, after TIMING_WARMUPS untimed ones (lead design R1: the median of 5 runs after one warm-up). */
 export const TIMING_RUNS = 5;
 export const TIMING_WARMUPS = 1;
-/** The scale check's lineup gains, points per week in every remaining week (planner reply to Checkpoint 2: +1, +3 and +6). */
+/** The scale check's lineup gains, points per week in every remaining week a trade can change (planner reply to Checkpoint 2: +1, +3 and +6). */
 export const SCALE_GAINS: readonly number[] = [1, 3, 6];
 /**
  * Batches the scale check splits its run into for the Monte Carlo standard errors (batchRuns, batchSe): 20
@@ -304,19 +336,27 @@ export const SE_BATCHES = 20;
 /** The planner's toy league (CLAUDE.md §10 "Planner's check": 12 teams, 10 weeks left): B and the Trade Score per gain. */
 const PLANNER_TOY: Readonly<Record<number, { B: number; score: number }>> = { 1: { B: 1.7, score: 29 }, 3: { B: 5, score: 63 }, 6: { B: 10, score: 86 } };
 /** The Trade Score the toy league gives +3 points per week: the scale check reports the B_ref that maps this league's +3 to it. */
-const TOY_GAIN = 3;
-const TOY_SCORE_AT_GAIN = 63;
-/** A re-priced weekly score counts as the model's own when no mean or SD differs by more than this (float noise, not a tunable). */
-const REPRODUCED_TOLERANCE = 1e-9;
+export const TOY_GAIN = 3;
+export const TOY_SCORE_AT_GAIN = 63;
 
-interface BenefitWeights {
-  readonly weights: { readonly playoffs: number; readonly title: number };
-  readonly bRef: number;
+/** One value per "What matters most" goal (GOALS, config.benefit.goals). */
+export type ByGoal<T> = Record<Goal, T>;
+
+/** A value for every goal, in GOALS order. */
+export function byGoal<T>(f: (goal: Goal) => T): ByGoal<T> {
+  return Object.fromEntries(GOALS.map((g) => [g, f(g)])) as ByGoal<T>;
 }
 
-/** §10's B_win in percentage points: 100 × (0.35 ΔPO + 0.65 ΔCH), ΔPO and ΔCH as fractions (config.benefit.weights). */
-export function benefitWin(dPO: number, dCH: number, cfg: BenefitWeights = config.benefit): number {
-  return 100 * (cfg.weights.playoffs * dPO + cfg.weights.title * dCH);
+/** The goals' names as the Settings page words them (planner reply to Checkpoint 4b, change 8). */
+export const GOAL_WORDS: Readonly<Record<Goal, string>> = { title: "Win the title", balanced: "Balanced", playoffs: "Make the playoffs" };
+
+/**
+ * §10's B_win in percentage points under a goal's weights: 100 × (w_PO ΔPO + w_CH ΔCH), ΔPO and ΔCH as fractions
+ * (benefit.goalWeights: config.benefit.goals; absent goal: the default, config.benefit.goalDefault).
+ */
+export function benefitWin(dPO: number, dCH: number, goal?: Goal): number {
+  const w = goalWeights(goal);
+  return 100 * (w.playoffs * dPO + w.title * dCH);
 }
 
 /** The Trade Score ("Helps you", §10): round(100 × (1 − e^(−B / B_ref))) when B > 0; null (hidden by default) otherwise. */
@@ -329,7 +369,7 @@ export function bRefFor(B: number, score: number): number | null {
   return Number.isFinite(B) && B > 0 && score > 0 && score < 100 ? -B / Math.log(1 - score / 100) : null;
 }
 
-/** A team's weekly score distribution per model week (TeamModel.score). */
+/** A team's weekly score distribution per model week (TeamModel.score, scoreWithPickups). */
 export interface WeeklyScores {
   mean: number[];
   sd: number[];
@@ -349,9 +389,18 @@ function withScore(model: SeasonModel, teamId: string, score: WeeklyScores): Sea
   return { ...model, teams: model.teams.map((t) => (t.id === teamId ? { id: t.id, score } : t)) };
 }
 
-const plus = (score: WeeklyScores, x: number): WeeklyScores => ({ mean: score.mean.map((m) => m + x), sd: [...score.sd] });
+/** `score` with `x` points added to every week's mean from model week `from` on (the SDs unchanged). */
+const plus = (score: WeeklyScores, x: number, from: number): WeeklyScores => ({ mean: score.mean.map((m, i) => (i >= from ? m + x : m)), sd: [...score.sd] });
 
-const oddsOf = (odds: SeasonOdds | null, teamId: string): TeamOdds | null => odds?.teams.find((t) => t.teamId === teamId) ?? null;
+const oddsOf = (odds: SeasonOdds | null | undefined, teamId: string): TeamOdds | null => odds?.teams.find((t) => t.teamId === teamId) ?? null;
+
+/**
+ * The first model week a trade can change, which the scale check adds its gain from: 1 when the model's first week is under
+ * way (evaluate.ts holds that week at the as-stands score before and after every trade), else 0.
+ */
+export function scaleFrom(model: Pick<LeagueModel, "weeks" | "inProgressWeek">): number {
+  return model.inProgressWeek !== null && model.weeks[0] === model.inProgressWeek ? 1 : 0;
+}
 
 /** The common-random-numbers run every scale-check row shares: sims, seed and the one matrix. */
 export interface SharedRun {
@@ -393,33 +442,35 @@ export function batchSe(values: readonly number[], batchSims: number, sims: numb
 /** The team's odds in one simulated run: P(playoffs), P(title) (null = unknown) and expected wins. */
 export type MyOdds = Pick<TeamOdds, "pPlayoffs" | "pTitle" | "expWins">;
 
-/** §10's changes from one run's odds to another's: ΔPO and ΔCH as fractions, Δ expected wins, and B. */
+/** §10's changes from one run's odds to another's: ΔPO and ΔCH as fractions, Δ expected wins, and B under each goal. */
 export interface Deltas {
   dPO: number;
   dCH: number;
   dEW: number;
-  B: number;
+  /** B (benefitWin; no market term: only lineup points move) under each "What matters most" goal; NaN when ΔCH is unknown. */
+  B: ByGoal<number>;
 }
 
 const UNKNOWN_ODDS: MyOdds = { pPlayoffs: Number.NaN, pTitle: null, expWins: Number.NaN };
 
 /** The changes from `from` to `to`: ΔCH (and so B) is NaN when either title chance is unknown. */
-function deltas(from: MyOdds, to: MyOdds, cfg: BenefitWeights): Deltas {
+function deltas(from: MyOdds, to: MyOdds): Deltas {
   const dPO = to.pPlayoffs - from.pPlayoffs;
   const dCH = to.pTitle !== null && from.pTitle !== null ? to.pTitle - from.pTitle : Number.NaN;
-  return { dPO, dCH, dEW: to.expWins - from.expWins, B: benefitWin(dPO, dCH, cfg) };
+  return { dPO, dCH, dEW: to.expWins - from.expWins, B: byGoal((g) => benefitWin(dPO, dCH, g)) };
 }
 
 /** Each change's Monte Carlo standard error from its values in the batches (batchSe). */
 function deltasSe(parts: readonly Deltas[], batchSims: number, sims: number): Deltas {
-  const se = (k: keyof Deltas) => batchSe(parts.map((p) => p[k]), batchSims, sims);
-  return { dPO: se("dPO"), dCH: se("dCH"), dEW: se("dEW"), B: se("B") };
+  const se = (f: (d: Deltas) => number) => batchSe(parts.map(f), batchSims, sims);
+  return { dPO: se((d) => d.dPO), dCH: se((d) => d.dCH), dEW: se((d) => d.dEW), B: byGoal((g) => se((d) => d.B[g])) };
 }
 
 export interface ScaleRow extends Deltas {
-  /** Points per week added to the weekly score mean in every remaining week. */
+  /** Points per week added to the weekly score mean in every remaining week a trade can change (ScaleCheck.from on). */
   gain: number;
-  score: number | null;
+  /** The Trade Score under each goal (config.benefit.bRef). */
+  score: ByGoal<number | null>;
   /** Each change's Monte Carlo standard error (batch means: batchRuns, batchSe); NaN when it can't be estimated. */
   se: Deltas;
 }
@@ -429,20 +480,24 @@ export interface ScaleCheck {
   base: MyOdds;
   /**
    * The baseline in each batch of the run (batchRuns). Another baseline on the same run takes the standard
-   * error of its change from these (waiverScale's move). Empty when title odds are unknown: no row needs them.
+   * error of its change from these (pickupsEffect). Empty when title odds are unknown: no row needs them.
    */
   baseBatches: MyOdds[];
   /** The run's batches (batchRuns): how many, and seasons in each (0 and 0 when the run is too short to split). */
   batches: number;
   batchSims: number;
+  /** The first model week the gain is added to (scaleFrom: 1 when the first week is under way). */
+  from: number;
   /** One row per gain; null when title odds are unknown (B needs ΔCH). */
   rows: ScaleRow[] | null;
   /** Why title odds are unknown, when the report can confirm it (titleUnknownReason); null otherwise. */
   titleUnknown: string | null;
-  /** The B_ref that would map this league's +3 to the toy league's 63; null without a +3 row or when its B ≤ 0. */
-  bRefAtToyGain: number | null;
-  /** Its Monte Carlo standard error: B(+3)'s, scaled by the same constant (−1 / ln 0.37); null with B_ref, NaN when unknown. */
-  bRefSe: number | null;
+  /**
+   * Per goal: the B_ref that would map this league's +3 to the toy league's 63 (null without a +3 row or when its B ≤ 0),
+   * and its Monte Carlo standard error (B(+3)'s, scaled by the same constant −1 / ln 0.37; null with B_ref, NaN when
+   * unknown).
+   */
+  bRef: ByGoal<{ value: number | null; se: number | null }>;
 }
 
 /** Playoff rounds a bracket of `teams` needs: log2 of the next power of two (0 for fewer than 2 teams). */
@@ -468,13 +523,23 @@ export function titleUnknownReason(snapshot: LeagueSnapshot, odds: SeasonOdds, m
   return N >= 2 && playoffRounds(snapshot.settings).length < roundsNeeded(N) ? `the league's playoff schedule has fewer rounds than a bracket of ${N} teams needs` : null;
 }
 
+/** scaleCheck's options: the gains (default SCALE_GAINS), the first model week they're added from (default 0) and the batches (default SE_BATCHES). */
+export interface ScaleOptions {
+  gains?: readonly number[];
+  from?: number;
+  batches?: number;
+}
+
 /**
- * The Trade Score scale check (the file header) for one team from `base` (its weekly scores). The season is
- * simulated with base, then with base + gain in every model week, all on `run`'s matrix. Each gain is then
- * simulated again in every batch of `batches` (batchRuns) for its standard errors. Null when the season
- * can't be simulated.
+ * The Trade Score scale check (the file header) for one team from `base` (its weekly scores in `model`, the season
+ * simulated: the one baseline's pickupSeasonModel with TeamModel.scoreWithPickups, or the model as rosters stand with
+ * TeamModel.score). The season is simulated with base, then with base + gain in every model week from `opts.from` on,
+ * all on `run`'s matrix; each gain is then simulated again in every batch (batchRuns) for its standard errors. B and the
+ * Trade Score under every goal (benefitWin). Null when the season can't be simulated.
  */
-export function scaleCheck(snapshot: LeagueSnapshot, model: SeasonModel, teamId: string, base: WeeklyScores, run: SharedRun, gains: readonly number[] = SCALE_GAINS, cfg: BenefitWeights = config.benefit, batches: number = SE_BATCHES): ScaleCheck | null {
+export function scaleCheck(snapshot: LeagueSnapshot, model: SeasonModel, teamId: string, base: WeeklyScores, run: SharedRun, opts: ScaleOptions = {}): ScaleCheck | null {
+  const gains = opts.gains ?? SCALE_GAINS;
+  const from = Math.max(0, Math.floor(opts.from ?? 0));
   const simulate = (score: WeeklyScores, r: SharedRun) => seasonOdds(snapshot, withScore(model, teamId, score), { sims: r.sims, seed: r.seed, normals: r.normals });
   const mine = (odds: SeasonOdds | null): MyOdds | null => {
     const o = oddsOf(odds, teamId);
@@ -483,7 +548,7 @@ export function scaleCheck(snapshot: LeagueSnapshot, model: SeasonModel, teamId:
   const baseOdds = simulate(base, run);
   const b = mine(baseOdds);
   if (!baseOdds || !b) return null;
-  const parts = batchRuns(run, batches);
+  const parts = batchRuns(run, opts.batches ?? SE_BATCHES);
   const batchSims = parts[0]?.sims ?? 0;
   const inBatches = (score: WeeklyScores): MyOdds[] => parts.map((p) => mine(simulate(score, p)) ?? UNKNOWN_ODDS);
   const known = b.pTitle !== null;
@@ -491,93 +556,50 @@ export function scaleCheck(snapshot: LeagueSnapshot, model: SeasonModel, teamId:
   const rows: ScaleRow[] | null = !known
     ? null
     : gains.map((gain) => {
-        const score = plus(base, gain);
-        const d = deltas(b, mine(simulate(score, run)) ?? UNKNOWN_ODDS, cfg);
+        const score = plus(base, gain, from);
+        const d = deltas(b, mine(simulate(score, run)) ?? UNKNOWN_ODDS);
         // The same change in each batch, against the baseline's same seasons: the standard error.
-        const se = deltasSe(inBatches(score).map((o, j) => deltas(baseBatches[j] as MyOdds, o, cfg)), batchSims, run.sims);
-        return { gain, ...d, score: tradeScore(d.B, cfg.bRef), se };
+        const se = deltasSe(
+          inBatches(score).map((o, j) => deltas(baseBatches[j] as MyOdds, o)),
+          batchSims,
+          run.sims,
+        );
+        return { gain, ...d, score: byGoal((g) => tradeScore(d.B[g])), se };
       });
   const toy = rows?.find((r) => r.gain === TOY_GAIN);
-  const bRef = toy ? bRefFor(toy.B, TOY_SCORE_AT_GAIN) : null;
   return {
     base: b,
     baseBatches,
     batches: parts.length,
     batchSims,
+    from,
     rows,
     titleUnknown: titleUnknownReason(snapshot, baseOdds, b),
-    bRefAtToyGain: bRef,
-    // B_ref = B(+3) × (−1 / ln 0.37), so its standard error is B(+3)'s times the same constant (bRef / B).
-    bRefSe: toy && bRef !== null ? toy.se.B * (bRef / toy.B) : null,
+    bRef: byGoal((g) => {
+      const value = toy ? bRefFor(toy.B[g], TOY_SCORE_AT_GAIN) : null;
+      // B_ref = B(+3) × (−1 / ln 0.37), so its standard error is B(+3)'s times the same constant (value / B).
+      return { value, se: toy && value !== null ? toy.se.B[g] * (value / toy.B[g]) : null };
+    }),
   };
 }
 
-/**
- * Weekly scores for any active roster of a team, priced outside the model by TeamModel.score's own rule
- * (league.teamRosterScorer: scenario lineups and the law of total variance when the model ran scenarios, else
- * expected-value lineups; the team's streaming rows and IR returners, and the roster spot a returner needs from his
- * week, Phase 4b) from the steps the model ran (its scenario count, the default seed, my streamed positions and its
- * playoff weight, which the report's models take from the defaults). A week in progress takes its first week from the
- * table as it stood 1 ms before that week's first kickoff, as the model's preKickoffTable does, its streaming
- * replacement included; built there with every free agent, which a free-agent move needs (a player's row doesn't depend
- * on who else is in it).
- */
-export function rosterScorer(snapshot: LeagueSnapshot, inputs: ModelInputs, model: LeagueModel, now: Date): (roster: readonly string[], teamId: string) => WeeklyScores {
-  const me = model.myTeamId;
-  const settings = { ...defaultTradeSettings(), playoffWeight: model.playoffWeight, ...(me !== null ? { streamPositions: [...(model.streaming.byTeam[me]?.positions ?? [])] } : {}) };
-  const scoreOf = teamRosterScorer(snapshot, inputs, { now, scenarios: model.scenarios, settings });
-  return (players, teamId) => scoreOf(players, teamId) ?? { mean: [], sd: [] };
-}
-
-export interface VStarScale {
-  /** My team's free-agent pickups (TeamModel.faMoves), in order. */
-  moves: FaMove[];
-  /** The largest |Δ| between the model's weekly scores for the current roster and the same scores re-priced by rosterScorer. */
-  reproduced: number;
-  /**
-   * ROS(V*) from its re-priced weekly scores minus (the model's ROS(T) + the moves' gains): float noise when the two agree.
-   * With an IR returner it is what the roster spot he needs (league.ts step 5b, final pricing only; the gains are measured
-   * without it) costs T minus what it costs V*: the two rosters can drop different players at his return.
-   */
-  rosDiff: number;
-  /** The pickups alone: V*'s odds against the current roster's, with standard errors from both baselines' shared batches (null when title odds are unknown). */
-  move: Omit<ScaleRow, "gain"> | null;
-  check: ScaleCheck;
+/** Every team's free-agent pickups' own effect on my odds (the one baseline against as rosters stand; pickupsEffect). */
+export interface PickupsEffect extends Deltas {
+  /** Paired on the same batches of the same run (NaN when the two checks' batches don't pair up). */
+  se: Deltas;
 }
 
 /**
- * The scale check from my team after its free-agent pickups (V*: TeamModel.faMoves applied to my roster): §10's B
- * compares rosters after them. `current` is the scale check from the roster as it is (its baseline gives the pickups'
- * own effect). Skipped, with the reason, when there are none, or when rosterScorer doesn't reproduce the model's
- * weekly scores for the current roster.
+ * The change from the odds as rosters stand to the one baseline's (every team after its pickups) for my team, from the two
+ * scale checks' baselines on the same run: paired season by season, so its standard error comes from their batches
+ * pairwise. Null when title odds are unknown in either.
  */
-export function vstarScale(snapshot: LeagueSnapshot, inputs: ModelInputs, model: LeagueModel, now: Date, run: SharedRun, current: ScaleCheck, cfg: BenefitWeights = config.benefit): VStarScale | { skipped: string } {
-  const me = model.myTeamId;
-  const team = snapshot.teams.find((t) => t.id === me);
-  const tm = model.teams.find((t) => t.id === me);
-  if (!me || !team || !tm) return { skipped: "your team isn't known." };
-  const moves = tm.faMoves;
-  if (!moves.length) return { skipped: `no free-agent pickup left to your team gains it lineup points${model.faAllocation ? " (one free agent per team: the teams ahead of yours in the allocation order claim theirs first)" : ""}, so the rows above already start from the roster §10 compares.` };
-  const scoreOf = rosterScorer(snapshot, inputs, model, now);
-  const reproduced = scoreDiff(scoreOf(team.roster, me), tm.score);
-  if (!(reproduced <= REPRODUCED_TOLERANCE))
-    return { skipped: `the model doesn't keep the weekly scores of that roster, and re-pricing your current roster outside the model didn't reproduce the model's own (largest difference ${reproduced}), so they're left out.` };
-  const roster = moves.reduce<string[]>((r, m) => applyStep(r, m), [...new Set(team.roster)]);
-  const tv = scoreOf(roster, me);
-  const weights = modelWeights(model);
-  const gains = moves.reduce((s, m) => s + (m.gainScen ?? m.gainEv), 0);
-  const rosDiff = rosValue(tv.mean, weights) - ((tm.scen?.ros ?? tm.ev.ros) + gains);
-  const check = scaleCheck(snapshot, model, me, tv, run, SCALE_GAINS, cfg);
-  if (!check) return { skipped: "the season couldn't be simulated from that roster." };
-  let move: VStarScale["move"] = null;
-  if (check.base.pTitle !== null && current.base.pTitle !== null) {
-    const d = deltas(current.base, check.base, cfg);
-    // Both baselines ran on the same batches of the same run, so the pickups' change pairs up batch by batch.
-    const paired = check.batchSims === current.batchSims && check.baseBatches.length === current.baseBatches.length;
-    const parts = paired ? check.baseBatches.map((o, j) => deltas(current.baseBatches[j] as MyOdds, o, cfg)) : [];
-    move = { ...d, score: tradeScore(d.B, cfg.bRef), se: deltasSe(parts, check.batchSims, run.sims) };
-  }
-  return { moves, reproduced, rosDiff, move, check };
+export function pickupsEffect(withPickups: ScaleCheck, asStands: ScaleCheck, sims: number): PickupsEffect | null {
+  if (withPickups.base.pTitle === null || asStands.base.pTitle === null) return null;
+  const d = deltas(asStands.base, withPickups.base);
+  const paired = withPickups.batchSims === asStands.batchSims && withPickups.baseBatches.length === asStands.baseBatches.length;
+  const parts = paired ? withPickups.baseBatches.map((o, j) => deltas(asStands.baseBatches[j] as MyOdds, o)) : [];
+  return { ...d, se: deltasSe(parts, withPickups.batchSims, sims) };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -675,14 +697,14 @@ export function duplicatePickups(teams: readonly { id: string; faMoves: readonly
 /** The allocation's basis in words (LeagueModel.faAllocation; league.ts allocationOrder). */
 export function allocationBasisText(basis: FaAllocation["basis"]): string {
   if (basis === "faab") return "remaining FAAB budget, the most first";
-  if (basis === "waiver") return "the league's waiver order (ESPN's waiver ranks)";
+  if (basis === "waiver") return "the league's waiver order (Team.waiverRank)";
   return "each team's best available gain first (the league reports no waiver order)";
 }
 
 /**
  * The waiver order a weekly reset would give today (CLAUDE.md §2.2: at ESPN's weekly reset, rank = number of teams + 1 −
- * the team's seed): today's standings by the league's rules reversed (TeamOdds.rank; the last-placed team claims first).
- * Null without odds.
+ * the team's seed; the 4c adapter's rule in a league without divisions): today's standings by the league's rules reversed
+ * (TeamOdds.rank; the last-placed team claims first). Null without odds.
  */
 export function resetWaiverOrder(model: Pick<LeagueModel, "odds">): string[] | null {
   const teams = model.odds?.teams;
@@ -691,17 +713,93 @@ export function resetWaiverOrder(model: Pick<LeagueModel, "odds">): string[] | n
 }
 
 /**
- * The ⚠️ caveat on a waiver-order allocation (CLAUDE.md §2.2, a planner question at Checkpoint 4b): ESPN reports the order
- * as it stands at the import, and in Parker's league it resets weekly while every claim that goes through sends its team to
- * the back for the rest of the week, so the allocation depends on the day the league is imported. With the weekly reset
- * order from today's standings (resetWaiverOrder) when it differs from the live one, and my place in it.
+ * Whether a snapshot's waiver ranks come from before the 4c adapter (the file header, Phase 4c): every team has one (so the
+ * allocation follows them) but settings.waiverOrderUsed is absent. The 4c adapters set it whenever every team is ranked, so
+ * such ranks are Phase 4b's: ESPN's live order of the import's day (data-local/parker-league-final's).
  */
-export function waiverOrderCaveat(live: readonly string[], reset: readonly string[] | null, myTeamId: string | null, teamName: (id: string) => string): string {
-  const head = "⚠️ ESPN gives the waiver order as it stands when the league is imported. Parker's league resets it every week to reverse standings, and a team whose claim goes through moves to the back for the rest of that week (CLAUDE.md §2.2), so this order, and the pickups that follow it, depend on the day of the import (a planner question at Checkpoint 4b).";
-  if (!reset || reset.length !== live.length) return head;
-  if (reset.every((id, i) => id === live[i])) return `${head} Today it is the weekly reset order (reverse standings).`;
-  const place = myTeamId ? reset.indexOf(myTeamId) : -1;
-  return `${head} The weekly reset order from today's standings: ${reset.map((id) => teamName(id)).join(" > ")}${place >= 0 ? ` (you'd claim ${ordinal(place + 1)}, against ${ordinal(live.indexOf(myTeamId as string) + 1)} now)` : ""}.`;
+export function waiverRanksPre4c(snapshot: Pick<LeagueSnapshot, "settings" | "teams">): boolean {
+  return snapshot.settings.waiverOrderUsed === undefined && snapshot.teams.length > 0 && snapshot.teams.every((t) => typeof t.waiverRank === "number" && Number.isInteger(t.waiverRank) && t.waiverRank >= 1);
+}
+
+/** How a report put a snapshot from before the 4c adapter on the 4c rule (asWeeklyResetData). */
+export interface Pre4cOrder {
+  /** The dump's own order (its ranks: ESPN's live order on the day of the import; now Team.liveWaiverRank), first claim first. */
+  live: string[];
+  /** The order the report runs on (Team.waiverRank: the weekly reset order once a game has been played), and which one it is. */
+  used: string[];
+  waiverOrderUsed: NonNullable<LeagueSettings["waiverOrderUsed"]>;
+}
+
+/** Team ids by a rank, first claim first (ties: the id). */
+function orderBy(teams: readonly Team[], rank: (t: Team) => number | undefined): string[] {
+  const r = (t: Team) => rank(t) ?? Number.POSITIVE_INFINITY;
+  return [...teams].sort((a, b) => r(a) - r(b) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)).map((t) => t.id);
+}
+
+/**
+ * A snapshot from before the 4c adapter (waiverRanksPre4c) put on the 4c adapter's rule, so a report on an old dump runs on
+ * the order the app now uses everywhere (the file header, Phase 4c; review of track R, R-4: the trade report's search and
+ * the odds' headline used different orders): ESPN's own rule (src/adapters/espn/waivers.ts espnWaiverOrder) for a league
+ * whose order resets weekly, as Parker's does (acquisitionSettings.waiverOrderReset true in his sanitized fixture, track AD;
+ * ⚠️ assumed for such a dump, whose snapshot doesn't say). Once a game has been played that is Team.waiverRank = the weekly
+ * reset order (the dump carries no playoff seeds, so the reverse of the overall standings: worst win percentage first, then
+ * fewer points for), Team.liveWaiverRank = the dump's ranks, settings.waiverOrderUsed "weeklyReset" ("faab" in a FAAB league,
+ * whose ties it breaks; before any game the dump's own order stays, "live", as the adapter keeps it); the adapter's warnings
+ * join the snapshot's. Data from the 4c adapter comes back unchanged, with null.
+ */
+export function asWeeklyResetData(snapshot: LeagueSnapshot): { snapshot: LeagueSnapshot; pre4c: Pre4cOrder | null } {
+  if (!waiverRanksPre4c(snapshot)) return { snapshot, pre4c: null };
+  const order = espnWaiverOrder(
+    snapshot.teams.map((t) => ({ id: t.id, waiverRank: t.waiverRank ?? null, record: t.record, pointsFor: t.pointsFor })),
+    { faab: snapshot.settings.faabBudget !== undefined, acquisitionType: null, waiverOrderReset: true, orderEdited: false, divisions: (snapshot.settings.divisions?.length ?? 0) >= 2 },
+  );
+  if (!order.used) return { snapshot, pre4c: null };
+  const teams = snapshot.teams.map((t) => {
+    const r = order.ranks.get(t.id) ?? {};
+    const { waiverRank: _rank, liveWaiverRank: _live, ...rest } = t;
+    void _rank;
+    void _live;
+    return { ...rest, ...(r.waiverRank !== undefined ? { waiverRank: r.waiverRank } : {}), ...(r.liveWaiverRank !== undefined ? { liveWaiverRank: r.liveWaiverRank } : {}) };
+  });
+  const converted: LeagueSnapshot = { ...snapshot, settings: { ...snapshot.settings, waiverOrderUsed: order.used }, teams, warnings: [...snapshot.warnings, ...order.warnings] };
+  return { snapshot: converted, pre4c: { live: orderBy(snapshot.teams, (t) => t.waiverRank), used: orderBy(teams, (t) => t.waiverRank), waiverOrderUsed: order.used } };
+}
+
+/**
+ * A team order with my place in it: "Team 2 > Team 4 > … > Team 6; you claim 4th" (a clause of its own: "Team 6 (you claim
+ * 4th)" read as if the last team were mine).
+ */
+export function orderText(order: readonly string[], myTeamId: string | null, teamName: (id: string) => string, claim = "claim"): string {
+  const place = myTeamId ? order.indexOf(myTeamId) : -1;
+  return `${order.map((id) => teamName(id)).join(" > ")}${place >= 0 ? `; you ${claim} ${ordinal(place + 1)}` : ""}`;
+}
+
+/**
+ * What a report says about a dump it put on the 4c rule (asWeeklyResetData): the ⚠️, the order it runs on, and the dump's
+ * own (ESPN's live order on the day of the import) with my place in each.
+ */
+export function pre4cText(p: Pre4cOrder, myTeamId: string | null, teamName: (id: string) => string): string {
+  const runsOn =
+    p.waiverOrderUsed === "live"
+      ? "the dump's own order: no game had been played, so there were no standings to reset to"
+      : `the weekly reset order from today's standings${p.waiverOrderUsed === "faab" ? " (it breaks ties between equal FAAB budgets)" : ""}: ${orderText(p.used, myTeamId, teamName)}, and the dump's ranks become the live order (Team.liveWaiverRank)`;
+  return `⚠️ This dump comes from before the 4c adapter, so its waiver ranks are ESPN's live order on the day of the import (${orderText(p.live, myTeamId, teamName, "claimed")}). The report puts it on the 4c adapter's rule for a league whose order resets weekly, as Parker's does (src/adapters/espn/waivers.ts; ⚠️ assumed: the dump doesn't say), so every number here runs on ${runsOn}.`;
+}
+
+/**
+ * The waiver order a waiver-order allocation used (`order`, LeagueModel.faAllocation's), in words (the file header, Phase
+ * 4c; planner reply to Checkpoint 4b, answer 2 and change 5): the Import Report's row (importReport.waiverOrderText) and
+ * the order with my place; for a dump the report put on the 4c rule (`pre4c`, asWeeklyResetData), what it did (pre4cText).
+ * For a snapshot still from before the 4c adapter (waiverRanksPre4c: a caller that didn't convert it) a ⚠️ instead: its
+ * ranks are ESPN's live order of the import's day, which the app no longer uses in a league whose order resets weekly,
+ * with the weekly reset order from today's standings (`reset`, resetWaiverOrder) and my place in it.
+ */
+export function waiverOrderNote(snapshot: Pick<LeagueSnapshot, "settings" | "teams" | "warnings">, order: readonly string[], reset: readonly string[] | null, myTeamId: string | null, teamName: (id: string) => string, pre4c: Pre4cOrder | null = null): string {
+  if (!waiverRanksPre4c(snapshot)) return `Waiver order used: ${waiverOrderText(snapshot)}: ${orderText(order, myTeamId, teamName)}.${pre4c ? ` ${pre4cText(pre4c, myTeamId, teamName)}` : ""}`;
+  const head = `⚠️ This data comes from before the 4c adapter: its waiver ranks are ESPN's live order on the day of the import (${orderText(order, myTeamId, teamName)}), and the pickups follow it. Since Phase 4c the app uses the weekly reset order in a league whose order resets weekly, as Parker's does (planner reply to Checkpoint 4b, answer 2), so the baseline doesn't depend on the day of the import.`;
+  if (!reset || reset.length !== order.length) return head;
+  if (reset.every((id, i) => id === order[i])) return `${head} Today the two orders are the same.`;
+  return `${head} The weekly reset order from today's standings (reverse standings): ${orderText(reset, myTeamId, teamName, "would claim")}.`;
 }
 
 
@@ -808,6 +906,13 @@ export interface BlendLines {
   rosterLines: number;
   freeAgentLines: number;
   noComparison: number;
+  /**
+   * Phase 4c (planner reply to Checkpoint 4b, change 4; review of track R, R-6): the factor's clamp
+   * (config.marketBlend.factorClamp) and every factor it cut (BlendFactor.clamped: the factor before the clamp, after it,
+   * and the bound), the most extreme first (|ln fRaw|; ties: the id).
+   */
+  clamp: readonly [number, number];
+  clamped: { id: string; fRaw: number; f: number; bound: "low" | "high" }[];
 }
 
 /** The blend's counts (BlendLines) from a League model build and the League page built on it. */
@@ -820,6 +925,10 @@ export function blendLines(snapshot: LeagueSnapshot, inputs: ModelInputs, model:
   const view = buildLeagueView({ snapshot, model, inputs, myTeamSource: "you", timeZone: "UTC", now: now.toISOString() });
   const rows = view.rosters.flatMap((r) => r.players).filter((p) => p.blend);
   const fa = view.freeAgents.flatMap((g) => g.players).filter((p) => p.blend);
+  const far = (f: number) => (f > 0 && Number.isFinite(f) ? Math.abs(Math.log(f)) : Number.POSITIVE_INFINITY);
+  const clamped = [...blend.factors]
+    .flatMap(([id, f]) => (f.clamped ? [{ id, fRaw: f.fRaw ?? f.f, f: f.f, bound: f.clamped }] : []))
+    .sort((a, b) => far(b.fRaw) - far(a.fRaw) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   return {
     weight: blend.weight,
     positions: blend.positions,
@@ -831,7 +940,26 @@ export function blendLines(snapshot: LeagueSnapshot, inputs: ModelInputs, model:
     rosterLines: rows.length,
     freeAgentLines: fa.length,
     noComparison: [...rows, ...fa].filter((p) => p.blend?.text.includes("no comparison")).length,
+    clamp: config.marketBlend.factorClamp,
+    clamped,
   };
+}
+
+/** The warning src/server/modelInputs.ts (loadFantasyCalc) gives when FantasyCalc's player list (/players) couldn't be loaded. */
+export const FANTASYCALC_PLAYERS_UNAVAILABLE = "FANTASYCALC_PLAYERS_UNAVAILABLE";
+
+/**
+ * Whether the model inputs read FantasyCalc's player list (/players), from the data itself (the file header, Phase 4c;
+ * review of track R, R-7: the fallback alone doesn't tell, since src/server/modelInputs.ts asks for the list whenever
+ * FantasyCalc served any list fresh in the build, a dynasty league's season list or a keeper league's redraft list
+ * included): MarketInputs.knownIds names a player beyond the value lists' own rows (values, redraftValues, seasonValues).
+ * Without the player list knownIds is exactly the players those rows name (data/fantasyCalcValues.ts marketInputsFrom: the
+ * same matcher on the same rows). False too when the list was read and added nobody: an ID match would then only repeat
+ * the value rate.
+ */
+export function fantasyCalcPlayersRead(market: Pick<MarketInputs, "knownIds" | "values" | "redraftValues" | "seasonValues">): boolean {
+  const rows = new Set([...Object.keys(market.values), ...Object.keys(market.redraftValues ?? {}), ...Object.keys(market.seasonValues ?? {})]);
+  return market.knownIds.some((id) => !rows.has(id));
 }
 
 /** One IR player (the file header, Phase 4b): his team, status, ESPN's return week, R, and the displacement at R. */
@@ -885,12 +1013,22 @@ export interface ScheduleRow {
   weeks: number[];
   /** null = my fantasy bye week (no game). */
   opponentId: string | null;
-  /** TeamModel.score summed over those weeks: means add, SDs add in quadrature (each week is drawn independently). */
+  /**
+   * The simulator's weekly score with pickups (TeamModel.scoreWithPickups, the headline's; TeamModel.score in a model
+   * without it) summed over those weeks: means add, SDs add in quadrature (each week is drawn independently).
+   */
   mine: { mean: number; sd: number };
   theirs: { mean: number; sd: number } | null;
+  /** My win chance: the headline's (with pickups), and as rosters stand (null when the model has no such odds). */
   pWin: number | null;
+  pWinStand: number | null;
   pMedianWin: number | null;
-  /** My active-roster players whose NFL team is on bye in one of those weeks: likely starters first (lineup order), then by ROS points. */
+  /**
+   * My players whose NFL team is on bye in one of those weeks (leagueView.scheduleByeRule: my active roster after my
+   * free-agent pickups, as the odds count it, then my IR returners, a returner only from his expected return week). First
+   * the likely starters whose byes count (`starter`: the League page's "On bye" list, in its order; never a player at a
+   * position I stream), then the rest by ROS points.
+   */
   byes: { id: string; starter: boolean }[];
   /** Why the League page flags the week risky (empty = not risky). */
   risk: string[];
@@ -903,19 +1041,24 @@ export interface ScheduleRow {
 
 /**
  * My remaining regular-season games (§8 "show each remaining week's risk"): one row per game of mine in
- * SeasonOdds.weekly, over the weeks the simulator sums (the setup's game); likely starters and the risky-week
- * rule are the League page's (src/lib/leagueView.ts): a win chance under RISKY_WIN_CHANCE as the page prints
- * it (whole percents; head-to-head leagues), or RISKY_BYES or more likely starters on bye in a week that
- * counts (a game, a median game, or any week of a points-only league). Null without my team.
+ * SeasonOdds.weekly (`odds`: the headline, LeagueModel.odds, with pickups; `stand`: as rosters stand), over the weeks the
+ * simulator sums (the setup's game). The byes and the risky-week rule are the League page's, read from
+ * src/lib/leagueView.ts so the two can't drift (review POL-1: this report had kept its own copy, which took likely
+ * starters from the roster as it stood and still counted a streamed kicker): its bye rule, scheduleByeRule (likely
+ * starters after my free-agent pickups, as the odds count them, ⚠️ none at a position I stream, whose bye the streaming
+ * replacement covers; a returner's bye only from his expected return week, read with `lastNflWeek`,
+ * leagueView.lastNflWeekOf), and a win chance under RISKY_WIN_CHANCE as the page prints it (whole percents; head-to-head
+ * leagues; the headline's), or RISKY_BYES or more of those starters on bye in a week that counts (a game, a median game,
+ * or any week of a points-only league). Null without my team.
  */
-export function remainingSchedule(snapshot: LeagueSnapshot, model: LeagueModel, odds: SeasonOdds, built: SimSetupResult): ScheduleRow[] | null {
+export function remainingSchedule(snapshot: LeagueSnapshot, model: LeagueModel, odds: SeasonOdds, built: SimSetupResult, stand: SeasonOdds | null, lastNflWeek: number | undefined): ScheduleRow[] | null {
   const me = model.myTeamId;
   const team = snapshot.teams.find((t) => t.id === me);
   if (!me || !team) return null;
   const mi = built.teamIds.indexOf(me);
   const drawn = new Set(built.setup.weeks);
   const weekIndex = new Map(model.weeks.map((w, i) => [w, i]));
-  const scores = new Map(model.teams.map((t) => [t.id, t.score]));
+  const scores = new Map(model.teams.map((t) => [t.id, t.scoreWithPickups ?? t.score]));
   const total = (teamId: string, weeks: readonly number[]) => {
     const s = scores.get(teamId);
     let mean = 0;
@@ -928,8 +1071,9 @@ export function remainingSchedule(snapshot: LeagueSnapshot, model: LeagueModel, 
     }
     return { mean, sd: Math.sqrt(variance) };
   };
-  const starters = likelyStarters(snapshot, model, me);
-  const starterRank = new Map(starters.map((id, k) => [id, k]));
+  // The League page's bye rule: who's listed, which of them count (`starter`), and when a player is off.
+  const rule = scheduleByeRule(snapshot, model, me, lastNflWeek);
+  const starterRank = new Map(rule.starters.map((id, k) => [id, k]));
   const pointsOnly = snapshot.settings.pointsOnly;
   const riskyPct = Math.round(RISKY_WIN_CHANCE * 100);
   const rows: ScheduleRow[] = [];
@@ -938,11 +1082,8 @@ export function remainingSchedule(snapshot: LeagueSnapshot, model: LeagueModel, 
     if (!game) continue;
     const sim = built.setup.games.find((g) => (g.a === mi || g.b === mi) && g.weeks.find((w) => drawn.has(w)) === wk.week);
     const weeks = sim ? sim.weeks.filter((w) => drawn.has(w)) : [wk.week];
-    const byes = team.roster
-      .filter((id) => {
-        const bye = model.players[id]?.ros.bye;
-        return bye?.status === "upcoming" && bye.week !== undefined && weeks.includes(bye.week);
-      })
+    const byes = rule.players
+      .filter((id) => rule.onBye(id, weeks))
       .map((id) => ({ id, starter: starterRank.has(id) }))
       .sort((a, b) => (starterRank.get(a.id) ?? Number.POSITIVE_INFINITY) - (starterRank.get(b.id) ?? Number.POSITIVE_INFINITY) || (model.players[b.id]?.ros.total ?? 0) - (model.players[a.id]?.ros.total ?? 0));
     const off = byes.filter((b) => b.starter).length;
@@ -957,6 +1098,7 @@ export function remainingSchedule(snapshot: LeagueSnapshot, model: LeagueModel, 
       mine: total(me, weeks),
       theirs: game.opponentId === null ? null : total(game.opponentId, weeks),
       pWin: game.pWin,
+      pWinStand: stand?.weekly.find((w) => w.week === wk.week)?.games.find((g) => g.teamId === me)?.pWin ?? null,
       pMedianWin: game.pMedianWin,
       byes,
       risk: [...(many ? [`${off} likely starters on bye`] : []), ...(low ? [`under ${riskyPct}% to win`] : [])],
@@ -971,8 +1113,9 @@ export interface NoOpCheck {
   sameSetup: { sims: number; compared: number; differing: number };
   /**
    * (b) A second League model from the same snapshot and inputs (every roster copied): the largest |Δ| per
-   * measure over the teams, "score" over every team's weekly score means and SDs, and `nulls` = odds known in
-   * one model and not the other. Null when either model has no odds.
+   * measure over the teams and both odds (the headline with pickups and as rosters stand), "score" over every team's
+   * weekly score means and SDs (TeamModel.score and scoreWithPickups), and `nulls` = odds or scores known in one model
+   * and not the other. Null when either model has no odds.
    */
   rebuilt: { pPlayoffs: number; pBye: number; pTitle: number; expWins: number; score: number; nulls: number } | null;
 }
@@ -1003,11 +1146,9 @@ function compareSims(a: SimResult, b: SimResult): { compared: number; differing:
   return { compared, differing };
 }
 
-/** (b) of the no-op check: the largest |Δ| per measure between two League models' odds and weekly scores. */
+/** (b) of the no-op check: the largest |Δ| per measure between two League models' odds (both) and weekly scores (both). */
 function oddsDelta(a: LeagueModel, b: LeagueModel): NoOpCheck["rebuilt"] {
-  const oa = a.odds;
-  const ob = b.odds;
-  if (!oa || !ob) return null;
+  if (!a.odds || !b.odds) return null;
   const out = { pPlayoffs: 0, pBye: 0, pTitle: 0, expWins: 0, score: 0, nulls: 0 };
   const diff = (x: number | null, y: number | null): number => {
     if (x === null || y === null) {
@@ -1016,20 +1157,35 @@ function oddsDelta(a: LeagueModel, b: LeagueModel): NoOpCheck["rebuilt"] {
     }
     return Math.abs(x - y);
   };
-  for (const t of oa.teams) {
-    const u = ob.teams.find((x) => x.teamId === t.teamId);
-    if (!u) {
-      out.nulls++;
+  for (const [oa, ob] of [
+    [a.odds, b.odds],
+    [a.oddsAsRostersStand ?? null, b.oddsAsRostersStand ?? null],
+  ] as const) {
+    if (!oa || !ob) {
+      if (oa !== ob) out.nulls++;
       continue;
     }
-    out.pPlayoffs = Math.max(out.pPlayoffs, diff(t.pPlayoffs, u.pPlayoffs));
-    out.pBye = Math.max(out.pBye, diff(t.pBye, u.pBye));
-    out.pTitle = Math.max(out.pTitle, diff(t.pTitle, u.pTitle));
-    out.expWins = Math.max(out.expWins, diff(t.expWins, u.expWins));
+    for (const t of oa.teams) {
+      const u = ob.teams.find((x) => x.teamId === t.teamId);
+      if (!u) {
+        out.nulls++;
+        continue;
+      }
+      out.pPlayoffs = Math.max(out.pPlayoffs, diff(t.pPlayoffs, u.pPlayoffs));
+      out.pBye = Math.max(out.pBye, diff(t.pBye, u.pBye));
+      out.pTitle = Math.max(out.pTitle, diff(t.pTitle, u.pTitle));
+      out.expWins = Math.max(out.expWins, diff(t.expWins, u.expWins));
+    }
   }
   for (const t of a.teams) {
     const u = b.teams.find((x) => x.id === t.id);
-    out.score = Math.max(out.score, u ? scoreDiff(t.score, u.score) : Number.POSITIVE_INFINITY);
+    if (!u) {
+      out.score = Number.POSITIVE_INFINITY;
+      continue;
+    }
+    out.score = Math.max(out.score, scoreDiff(t.score, u.score));
+    if (t.scoreWithPickups && u.scoreWithPickups) out.score = Math.max(out.score, scoreDiff(t.scoreWithPickups, u.scoreWithPickups));
+    else if (t.scoreWithPickups || u.scoreWithPickups) out.nulls++;
   }
   return out;
 }
@@ -1098,13 +1254,22 @@ export function buildTimings(snapshot: LeagueSnapshot, inputs: ModelInputs, now:
 }
 
 export interface SeasonReport {
+  /** The headline odds (LeagueModel.odds: every team after its free-agent pickups) and the second line (oddsAsRostersStand). */
   odds: SeasonOdds | null;
+  stand: SeasonOdds | null;
+  /** The simulator's setup for the headline (pickupSeasonModel: TeamModel.scoreWithPickups). */
   built: SimSetupResult | null;
   schedule: ScheduleRow[] | null;
+  /** The scale check from the one baseline (every team after its pickups), and from the rosters as they stand. */
   scale: ScaleCheck | null;
-  /** The scale check's baseline odds are the model's own (the same matrix): my P(playoffs), P(title) and expected wins bitwise equal. */
-  scaleMatchesModel: boolean | null;
-  vstar: VStarScale | { skipped: string } | null;
+  scaleStand: ScaleCheck | null;
+  /**
+   * Each scale check's baseline odds are the model's own (the same matrix): my P(playoffs), P(title) and expected wins
+   * bitwise equal to LeagueModel.odds' (pickups) and oddsAsRostersStand's (stand; null without that check).
+   */
+  scaleMatchesModel: { pickups: boolean; stand: boolean | null } | null;
+  /** Every team's pickups' own effect on my odds: the one baseline against as rosters stand, paired (pickupsEffect). */
+  pickups: PickupsEffect | null;
   noOp: NoOpCheck | null;
   simTimings: SimTiming[];
   buildTimings: BuildTiming[];
@@ -1127,22 +1292,30 @@ export function seasonReport(snapshot: LeagueSnapshot, inputs: ModelInputs, mode
   const warmups = opts.warmups ?? TIMING_WARMUPS;
   const buildRuns = opts.buildRuns ?? runs;
   const odds = model.odds;
-  const built = buildSimSetup(snapshot, model);
+  const stand = model.oddsAsRostersStand ?? null;
+  // The headline's season: every team after its pickups (season.pickupSeasonModel), as LeagueModel.odds simulates it.
+  const pickups = pickupSeasonModel(model);
+  const built = buildSimSetup(snapshot, pickups);
   const builds = buildRuns > 0 ? buildTimings(snapshot, inputs, now, model.scenarios, clock, buildRuns, warmups) : [];
-  if (!odds || !built) return { odds, built, schedule: null, scale: null, scaleMatchesModel: null, vstar: null, noOp: null, simTimings: [], buildTimings: builds };
+  if (!odds || !built) return { odds, stand, built, schedule: null, scale: null, scaleStand: null, scaleMatchesModel: null, pickups: null, noOp: null, simTimings: [], buildTimings: builds };
+  // The League model's own seasons: both odds share the seed's first finalSims seasons (league.ts step 8b).
   const run: SharedRun = { sims: odds.sims, seed: odds.seed, normals: simNormals(odds.seed, odds.sims, built.setup.weeks.length, built.setup.teams.length) };
   const me = model.myTeamId;
   const mine = model.teams.find((t) => t.id === me);
-  const scale = me && mine ? scaleCheck(snapshot, model, me, mine.score, run) : null;
-  const own = me ? oddsOf(odds, me) : null;
-  const scaleMatchesModel = scale && own ? Object.is(scale.base.pPlayoffs, own.pPlayoffs) && Object.is(scale.base.pTitle, own.pTitle) && Object.is(scale.base.expWins, own.expWins) : null;
+  const from = scaleFrom(model);
+  const scale = me && mine ? scaleCheck(snapshot, pickups, me, mine.scoreWithPickups ?? mine.score, run, { from }) : null;
+  const scaleStand = me && mine && stand ? scaleCheck(snapshot, model, me, mine.score, run, { from }) : null;
+  const same = (check: ScaleCheck | null, o: TeamOdds | null): boolean | null => (check && o ? Object.is(check.base.pPlayoffs, o.pPlayoffs) && Object.is(check.base.pTitle, o.pTitle) && Object.is(check.base.expWins, o.expWins) : null);
+  const matchPickups = me ? same(scale, oddsOf(odds, me)) : null;
   return {
     odds,
+    stand,
     built,
-    schedule: remainingSchedule(snapshot, model, odds, built),
+    schedule: remainingSchedule(snapshot, model, odds, built, stand, lastNflWeekOf(inputs)),
     scale,
-    scaleMatchesModel,
-    vstar: scale ? vstarScale(snapshot, inputs, model, now, run, scale) : null,
+    scaleStand,
+    scaleMatchesModel: matchPickups === null ? null : { pickups: matchPickups, stand: me ? same(scaleStand, oddsOf(stand, me)) : null },
+    pickups: scale && scaleStand ? pickupsEffect(scale, scaleStand, run.sims) : null,
     noOp: noOpCheck(snapshot, inputs, model, built, now),
     simTimings: [config.simulation.screeningSims, config.simulation.finalSims].map((sims) => simTiming(built.setup, odds.seed, sims, clock, runs, warmups)),
     buildTimings: builds,
@@ -1174,14 +1347,17 @@ function renderStandings(L: string[], season: SeasonReport, snapshot: LeagueSnap
   // A points-only league has no W-L: its standings go by points for, so an expected record would read 0–0.
   const pointsOnly = snapshot.settings.pointsOnly;
   const out = rows.some((t) => t.eliminated) ? ' "(out)" = certainly out of the title race.' : "";
+  const stand = season.stand;
   L.push(
-    `Today's standings by the league's rules (rank), with each team's chance to make the playoffs (${odds.playoffTeams} teams)${showBye ? `, earn a first-round bye (the top ${odds.byes})` : ""} and win the title${pointsOnly ? "" : ", and its expected final regular-season record"}: ${thousands(odds.sims)} simulated seasons on the common-random-numbers matrix of seed ${odds.seed}. Weekly scores are drawn around each team's projected lineup (TeamModel.score: scenario lineups when scenarios ran; SD by the law of total variance).${out}`,
+    `Today's standings by the league's rules (rank), with each team's chance to make the playoffs (${odds.playoffTeams} teams)${showBye ? `, earn a first-round bye (the top ${odds.byes})` : ""} and win the title${pointsOnly ? "" : ", and its expected final regular-season record"}: ${thousands(odds.sims)} simulated seasons on the common-random-numbers matrix of seed ${odds.seed} (seasons 1–${thousands(odds.sims)}, which are also the trade search's final block; its screening block is the next ${thousands(config.simulation.screeningSims)}). The headline (Phase 4c, one baseline everywhere): every team after its free-agent pickups (TeamModel.scoreWithPickups, LeagueModel.odds), the odds every trade card's "before" reads. Weekly scores are drawn around each team's projected lineup (scenario lineups when scenarios ran; SD by the law of total variance).${stand ? ` "As rosters stand" is the second line (LeagueModel.oddsAsRostersStand: every team as it is today, TeamModel.score), on the same seasons.` : ""}${out}`,
     "",
   );
-  L.push(`| Rank | Team | Record | PF | Playoffs |${showBye ? " Bye |" : ""} Title | Expected final record |`, `|---|---|---|---|---|${showBye ? "---|" : ""}---|---|`);
+  const standCols = stand ? " As rosters stand: playoffs | … title |" : "";
+  L.push(`| Rank | Team | Record | PF | Playoffs |${showBye ? " Bye |" : ""} Title | Expected final record |${standCols}`, `|---|---|---|---|---|${showBye ? "---|" : ""}---|---|${stand ? "---|---|" : ""}`);
   for (const t of rows) {
     const st = snapshot.teams.find((x) => x.id === t.teamId);
-    L.push(`| ${t.rank} | ${teamName(t.teamId)}${t.eliminated ? " (out)" : ""} | ${st ? recordOf(st.record) : "–"} | ${st ? fmt(st.pointsFor) : "–"} | ${pct(t.pPlayoffs)} |${showBye ? ` ${pct(t.pBye)} |` : ""} ${pct(t.pTitle)} | ${pointsOnly ? "– (points only)" : expectedRecord(t, ties)} |`);
+    const s = oddsOf(stand, t.teamId);
+    L.push(`| ${t.rank} | ${teamName(t.teamId)}${t.eliminated ? " (out)" : ""} | ${st ? recordOf(st.record) : "–"} | ${st ? fmt(st.pointsFor) : "–"} | ${pct(t.pPlayoffs)} |${showBye ? ` ${pct(t.pBye)} |` : ""} ${pct(t.pTitle)} | ${pointsOnly ? "– (points only)" : expectedRecord(t, ties)} |${stand ? ` ${pct(s?.pPlayoffs)} | ${pct(s?.pTitle)} |` : ""}`);
   }
   const sum = (f: (t: TeamOdds) => number | null) => rows.reduce<number | null>((s, t) => (s === null || f(t) === null ? null : s + (f(t) as number)), 0);
   const sums = [`Σ P(playoffs) = ${fmt(sum((t) => t.pPlayoffs) ?? Number.NaN, 3)} (${odds.playoffTeams} playoff teams)`];
@@ -1216,12 +1392,16 @@ function renderSchedule(L: string[], season: SeasonReport, snapshot: LeagueSnaps
     return;
   }
   const showMedian = rows.some((r) => r.pMedianWin !== null);
+  const showStand = season.stand !== null;
   const riskyPct = Math.round(RISKY_WIN_CHANCE * 100);
+  // The positions I stream, whose byes the page doesn't count (leagueView.scheduleByeRule).
+  const streamed = (model.myTeamId ? (model.streaming.byTeam[model.myTeamId]?.positions ?? []) : []).map((p) => posLabel(p, snapshot.platform));
+  const streamedText = streamed.length ? `, never one at a position you stream (${streamed.join(", ")}: the streaming replacement covers his bye)` : "";
   L.push(
-    `Each remaining regular-season game (§8 "show each remaining week's risk"): your weekly score and your opponent's, as the simulator draws them (mean ± SD; a multi-week matchup sums its weeks still to play), your chance to win it in the ${thousands(season.odds.sims)} simulated seasons${showMedian ? ", your chance of a top-half score (the median game)" : ""}, and your active-roster players whose NFL team is off that week. **Bold** = a likely starter, the League page's rule: your best lineup by each player's projected points per game left. A week is flagged risky as the League page flags it: your chance to win under ${riskyPct}% as the page prints it (whole percents), or ${RISKY_BYES} or more likely starters on bye in a week that counts.`,
+    `Each remaining regular-season game (§8 "show each remaining week's risk"): your weekly score and your opponent's, as the simulator draws them for the headline odds (mean ± SD, every team after its free-agent pickups: TeamModel.scoreWithPickups; a multi-week matchup sums its weeks still to play), your chance to win it in the ${thousands(season.odds.sims)} simulated seasons${showStand ? " (and as rosters stand, the second line)" : ""}${showMedian ? ", your chance of a top-half score (the median game)" : ""}, and your players whose NFL team is off that week (your roster after your free-agent pickups, as the odds count it, and an IR player from his expected return week). **Bold** = a likely starter whose bye counts, the League page's "On bye" rule (src/lib/leagueView.ts scheduleByeRule, the same code): in your best lineup after your free-agent pickups in at least half the weeks he plays${streamedText}. A week is flagged risky as the League page flags it: your chance to win (the headline's) under ${riskyPct}% as the page prints it (whole percents), or ${RISKY_BYES} or more of those likely starters on bye in a week that counts.`,
     "",
   );
-  L.push(`| Week | Opponent | You | Them | Win |${showMedian ? " Median |" : ""} On bye | Risk |`, `|---|---|---|---|---|${showMedian ? "---|" : ""}---|---|`);
+  L.push(`| Week | Opponent | You | Them | Win |${showStand ? " Win, as rosters stand |" : ""}${showMedian ? " Median |" : ""} On bye | Risk |`, `|---|---|---|---|---|${showStand ? "---|" : ""}${showMedian ? "---|" : ""}---|---|`);
   for (const r of rows) {
     const first = r.weeks[0] ?? r.week;
     const last = r.weeks.at(-1) ?? r.week;
@@ -1230,7 +1410,8 @@ function renderSchedule(L: string[], season: SeasonReport, snapshot: LeagueSnaps
     const opp = r.opponentId === null ? "bye week (no game)" : teamName(r.opponentId);
     const them = r.theirs ? `${fmt(r.theirs.mean)} ± ${fmt(r.theirs.sd)}` : "–";
     const win = r.opponentId === null ? "no game" : pct(r.pWin);
-    L.push(`| ${week} | ${opp} | ${fmt(r.mine.mean)} ± ${fmt(r.mine.sd)} | ${them} | ${win} |${showMedian ? ` ${pct(r.pMedianWin)} |` : ""} ${byes} | ${r.risk.length ? `Risky: ${r.risk.join("; ")}` : ""} |`);
+    const winStand = r.opponentId === null ? "no game" : pct(r.pWinStand);
+    L.push(`| ${week} | ${opp} | ${fmt(r.mine.mean)} ± ${fmt(r.mine.sd)} | ${them} | ${win} |${showStand ? ` ${winStand} |` : ""}${showMedian ? ` ${pct(r.pMedianWin)} |` : ""} ${byes} | ${r.risk.length ? `Risky: ${r.risk.join("; ")}` : ""} |`);
   }
   const risky = rows.filter((r) => r.risk.length);
   L.push("", risky.length ? `Risky weeks: ${risky.map((r) => `week ${r.week} (${r.risk.join("; ")})`).join(", ")}.` : "No risky weeks.", "");
@@ -1239,10 +1420,10 @@ function renderSchedule(L: string[], season: SeasonReport, snapshot: LeagueSnaps
 /** An estimate with its Monte Carlo standard error: "+0.0412 ± 0.0030" (the error reads "–" when it can't be estimated). */
 const pm = (x: string, se: number, d: number) => `${x} ± ${fmt(se, d)}`;
 
-/** The pickups alone (vstarScale), one line: every change with its standard error. */
-function moveLine(move: NonNullable<VStarScale["move"]>): string {
-  const s = move.se;
-  return `The pickups alone, against your roster as it is: ΔPO ${pm(signed(move.dPO, 4), s.dPO, 4)}, ΔCH ${pm(signed(move.dCH, 4), s.dCH, 4)}, Δ expected wins ${pm(signed(move.dEW, 3), s.dEW, 3)}, B ${pm(fmt(move.B, 2), s.B, 2)}, Trade Score ${move.score ?? "– (B ≤ 0)"}.`;
+/** Every team's pickups' own effect on my odds (pickupsEffect), one line: every change with its standard error. */
+function pickupsLine(p: PickupsEffect): string {
+  const s = p.se;
+  return `Every team's free-agent pickups, for your team (the one baseline against as rosters stand, the same seasons): ΔPO ${pm(signed(p.dPO, 4), s.dPO, 4)}, ΔCH ${pm(signed(p.dCH, 4), s.dCH, 4)}, Δ expected wins ${pm(signed(p.dEW, 3), s.dEW, 3)}.`;
 }
 
 function scaleTable(L: string[], check: ScaleCheck): void {
@@ -1252,27 +1433,26 @@ function scaleTable(L: string[], check: ScaleCheck): void {
     return;
   }
   L.push(`Baseline: P(playoffs) ${pct(check.base.pPlayoffs)}, P(title) ${pct(check.base.pTitle)}, expected wins ${fmt(check.base.expWins, 2)}.`, "");
-  L.push("| Lineup gain | ΔPO | ΔCH | Δ expected wins | B | Trade Score | Toy league B | Toy score |", "|---|---|---|---|---|---|---|---|");
+  L.push(`| Lineup gain | ΔPO | ΔCH | Δ expected wins | ${GOALS.map((g) => `${GOAL_WORDS[g]}: B / Trade Score`).join(" | ")} | Toy league B / score |`, `|---|---|---|---|${GOALS.map(() => "---|").join("")}---|`);
   for (const r of rows) {
     const toy = PLANNER_TOY[r.gain];
     const s = r.se;
-    L.push(`| +${r.gain} pt/wk | ${pm(signed(r.dPO, 4), s.dPO, 4)} | ${pm(signed(r.dCH, 4), s.dCH, 4)} | ${pm(signed(r.dEW, 3), s.dEW, 3)} | ${pm(fmt(r.B, 2), s.B, 2)} | ${r.score ?? "– (B ≤ 0)"} | ${toy ? `≈ ${toy.B}` : "–"} | ${toy ? `≈ ${toy.score}` : "–"} |`);
+    const goals = GOALS.map((g) => `${pm(fmt(r.B[g], 2), s.B[g], 2)} / ${r.score[g] ?? "– (B ≤ 0)"}`).join(" | ");
+    L.push(`| +${r.gain} pt/wk | ${pm(signed(r.dPO, 4), s.dPO, 4)} | ${pm(signed(r.dCH, 4), s.dCH, 4)} | ${pm(signed(r.dEW, 3), s.dEW, 3)} | ${goals} | ${toy ? `≈ ${toy.B} / ≈ ${toy.score}` : "–"} |`);
   }
   L.push("");
-  const bRef = check.bRefAtToyGain;
-  if (bRef === null) {
-    L.push(`No B_ref maps this league's +${TOY_GAIN} to ${TOY_SCORE_AT_GAIN} (its B isn't above 0).`, "");
-    return;
-  }
-  const scores = rows.map((r) => `+${r.gain} → ${tradeScore(r.B, bRef) ?? "–"}`).join(", ");
   // One decimal: B_ref carries B(+3)'s Monte Carlo error, tenths rather than hundredths at 5,000 seasons on
   // Parker's fixture (review finding: seeds 1–20 gave B(+3) an SD of 0.18).
-  const se = check.bRefSe;
-  const error = se !== null && Number.isFinite(se) ? { text: ` ± ${fmt(se, 1)}`, range: ` (± its Monte Carlo standard error, as B(+${TOY_GAIN})'s; two standard errors span ${fmt(bRef - 2 * se, 1)}–${fmt(bRef + 2 * se, 1)})` } : { text: "", range: "" };
-  L.push(`B_ref that maps this league's +${TOY_GAIN} to a Trade Score of ${TOY_SCORE_AT_GAIN}: −B(+${TOY_GAIN}) / ln ${fmt(1 - TOY_SCORE_AT_GAIN / 100, 2)} = **${fmt(bRef, 1)}${error.text}**${error.range}; config.benefit.bRef is ${config.benefit.bRef}. With it: ${scores}.`, "");
+  const each = GOALS.map((g) => {
+    const b = check.bRef[g];
+    if (b.value === null) return `${GOAL_WORDS[g]}: none (B(+${TOY_GAIN}) isn't above 0)`;
+    const se = b.se !== null && Number.isFinite(b.se) ? ` ± ${fmt(b.se, 1)}` : "";
+    return `${GOAL_WORDS[g]} **${fmt(b.value, 1)}${se}** (with it: ${rows.map((r) => `+${r.gain} → ${tradeScore(r.B[g], b.value as number) ?? "–"}`).join(", ")})`;
+  });
+  L.push(`B_ref that maps this league's +${TOY_GAIN} to a Trade Score of ${TOY_SCORE_AT_GAIN}, −B(+${TOY_GAIN}) / ln ${fmt(1 - TOY_SCORE_AT_GAIN / 100, 2)}, ± its Monte Carlo standard error (as B(+${TOY_GAIN})'s): ${each.join("; ")}. config.benefit.bRef is ${config.benefit.bRef} for every goal.`, "");
 }
 
-function renderScale(L: string[], season: SeasonReport, snapshot: LeagueSnapshot, model: LeagueModel): void {
+function renderScale(L: string[], season: SeasonReport, model: LeagueModel): void {
   L.push("## Trade Score scale check", "");
   const check = season.scale;
   const odds = season.odds;
@@ -1280,34 +1460,26 @@ function renderScale(L: string[], season: SeasonReport, snapshot: LeagueSnapshot
     L.push(odds ? "Parker's team isn't known, so there's nothing to check." : "No odds, so no check.", "");
     return;
   }
-  const w = config.benefit.weights;
-  const weeks = model.weeks;
+  const weeks = model.weeks.slice(check.from);
   const sims = thousands(odds.sims);
   const error =
     check.batches >= 2
       ? `± is its Monte Carlo standard error, by batch means: the ${sims} seasons split into ${check.batches} batches of ${thousands(check.batchSims)}, the change computed in each batch alone, SE = the batches' SD × √(${thousands(check.batchSims)} / ${sims}).`
       : "The run is too short to split into batches, so the changes have no standard error (–).";
+  const goals = GOALS.map((g) => `${GOAL_WORDS[g]} ${goalWeights(g).playoffs} / ${goalWeights(g).title}`).join(", ");
   L.push(
-    `CLAUDE.md §10 and the planner's reply to Checkpoint 2: your weekly score mean + x points in every remaining week (weeks ${weeks[0] ?? "–"}–${weeks.at(-1) ?? "–"}: regular season and playoffs${model.inProgressWeek !== null ? `, week ${model.inProgressWeek} in progress included` : ""}), σ unchanged, x = ${SCALE_GAINS.join(", ")}. Every row is ${sims} simulated seasons on the same common-random-numbers matrix (seed ${odds.seed}): each season is played with and without the gain on the same random draws. That takes out the noise of comparing separate runs, but each change is still an estimate from ${sims} seasons, and another seed would give a somewhat different one. ${error} ΔPO and ΔCH are fractions; B = 100 × (${w.playoffs} ΔPO + ${w.title} ΔCH) (no market term: only lineup points move); Trade Score = round(100 × (1 − e^(−B / ${config.benefit.bRef}))). The planner's toy league (12 teams, 10 weeks left): B ≈ ${SCALE_GAINS.map((g) => PLANNER_TOY[g]?.B ?? "–").join(" / ")}, scores ≈ ${SCALE_GAINS.map((g) => PLANNER_TOY[g]?.score ?? "–").join(" / ")}.`,
+    `CLAUDE.md §10 and the planner's replies to Checkpoints 2 and 4b (change 8: "Keep B_ref at 6 … Confirm this in Checkpoint 4c"): your weekly score mean + x points in every remaining week a trade can change (weeks ${weeks[0] ?? "–"}–${weeks.at(-1) ?? "–"}: regular season and playoffs${check.from > 0 ? `; week ${model.inProgressWeek} is under way, and a trade's evaluation holds a week under way at its score as rosters stand, so the gain starts the week after` : ""}), σ unchanged, x = ${SCALE_GAINS.join(", ")}. From the one baseline: every team after its free-agent pickups (TeamModel.scoreWithPickups, the seasons LeagueModel.odds simulates, the trade search's baseline). Every row is ${sims} simulated seasons on the same common-random-numbers matrix (seed ${odds.seed}, the League model's own seasons): each season is played with and without the gain on the same random draws. That takes out the noise of comparing separate runs, but each change is still an estimate from ${sims} seasons, and another seed would give a somewhat different one. ${error} ΔPO and ΔCH are fractions; B = 100 × (w_PO ΔPO + w_CH ΔCH) under each "What matters most" goal (w_PO / w_CH: ${goals}; no market term: only lineup points move); Trade Score = round(100 × (1 − e^(−B / ${config.benefit.bRef}))). The planner's toy league (12 teams, 10 weeks left, the weights before Phase 4c): B ≈ ${SCALE_GAINS.map((g) => PLANNER_TOY[g]?.B ?? "–").join(" / ")}, scores ≈ ${SCALE_GAINS.map((g) => PLANNER_TOY[g]?.score ?? "–").join(" / ")}.`,
     "",
   );
-  if (season.scaleMatchesModel !== null) L.push(`Baseline check: the baseline run ${season.scaleMatchesModel ? "reproduces" : "does NOT reproduce"} the League model's own odds for your team bit for bit (same seed, same matrix).`, "");
-  L.push("**From your roster as it is**", "");
+  const m = season.scaleMatchesModel;
+  if (m) L.push(`Baseline check: the baseline run ${m.pickups ? "reproduces" : "does NOT reproduce"} the League model's own odds for your team bit for bit (LeagueModel.odds; same seed, same matrix)${m.stand === null ? "" : `, and so ${m.stand ? "does" : "does NOT"} the as-rosters-stand run (LeagueModel.oddsAsRostersStand)`}.`, "");
+  L.push("**From the one baseline (every team after its free-agent pickups)**", "");
   scaleTable(L, check);
-  L.push("**From your team after its free-agent pickups (V*)** (§10: B compares rosters after them)", "");
-  const wv = season.vstar;
-  if (!wv) L.push("Skipped.", "");
-  else if ("skipped" in wv) L.push(`Skipped: ${wv.skipped}`, "");
-  else {
-    const moves = wv.moves.map((m) => `add ${playerLabel(snapshot.players[m.add], m.add)}${m.drop ? `, drop ${playerLabel(snapshot.players[m.drop], m.drop)}` : " into an open spot"}`).join("; ");
-    const gain = wv.moves.reduce((x, m) => x + (m.gainScen ?? m.gainEv), 0);
-    L.push(
-      `The pickups: ${moves} (+${fmt(gain)} lineup pts together, playoff weeks × ${model.playoffWeight}). Their weekly scores come from league.teamRosterScorer, TeamModel.score's own rule; re-pricing your current roster the same way reproduced the model's scores ${wv.reproduced === 0 ? "bit for bit" : `within ${wv.reproduced.toExponential(1)}`}, and the new roster's ROS matches the model's ROS plus the pickups' gains ${wv.rosDiff === 0 ? "exactly" : Math.abs(wv.rosDiff) < 1e-6 ? `within ${Math.abs(wv.rosDiff).toExponential(1)}` : `within ${Math.abs(wv.rosDiff).toExponential(1)}, what the roster spot an IR returner needs from his week costs the two rosters differently (the pickups' gains are measured without it)`}.`,
-      "",
-    );
-    if (wv.move) L.push(moveLine(wv.move), "");
-    scaleTable(L, wv.check);
-  }
+  L.push("**As rosters stand** (TeamModel.score: every team as it is today, Checkpoint 4b's basis)", "");
+  if (season.scaleStand) {
+    if (season.pickups) L.push(pickupsLine(season.pickups), "");
+    scaleTable(L, season.scaleStand);
+  } else L.push("Skipped: the model has no odds as rosters stand.", "");
 }
 
 function renderNoOp(L: string[], season: SeasonReport): void {
@@ -1327,11 +1499,11 @@ function renderNoOp(L: string[], season: SeasonReport): void {
     L.push("(b) Skipped: the second model has no odds.", "");
     return;
   }
-  L.push("(b) A second League model built from the same snapshot and inputs, every roster copied unchanged (a trade that changes nothing), simulated with the same seed:", "");
+  L.push("(b) A second League model built from the same snapshot and inputs, every roster copied unchanged (a trade that changes nothing), simulated with the same seed (both odds: with pickups and as rosters stand):", "");
   L.push("| Measure | Largest \\|Δ\\| over the teams |", "|---|---|");
-  L.push(`| P(playoffs) | ${b.pPlayoffs} |`, `| P(bye) | ${b.pBye} |`, `| P(title) | ${b.pTitle} |`, `| Expected wins | ${b.expWins} |`, `| Weekly score means and SDs (the simulator's inputs) | ${b.score} |`);
+  L.push(`| P(playoffs) | ${b.pPlayoffs} |`, `| P(bye) | ${b.pBye} |`, `| P(title) | ${b.pTitle} |`, `| Expected wins | ${b.expWins} |`, `| Weekly score means and SDs (the simulator's inputs, with pickups and as rosters stand) | ${b.score} |`);
   const zero = b.pPlayoffs === 0 && b.pBye === 0 && b.pTitle === 0 && b.expWins === 0 && b.score === 0 && b.nulls === 0;
-  L.push("", zero ? "Every difference is exactly 0. **Pass.**" : `**FAIL**${b.nulls ? ` (${b.nulls} odds known in one model and not the other)` : ""}.`, "");
+  L.push("", zero ? "Every difference is exactly 0. **Pass.**" : `**FAIL**${b.nulls ? ` (${b.nulls} odds or scores known in one model and not the other)` : ""}.`, "");
 }
 
 function renderRuntime(L: string[], season: SeasonReport): void {
@@ -1425,7 +1597,7 @@ function blockedText(b: ReturnType<LeagueMarginals["mvAddBlocked"]>, team: strin
  * each team's pickups and how many moves teams make, then the named examples under V*: what each player costs his team,
  * what he'd add to every other team (MV_add, with the player it drops to make room), and his chip gap.
  */
-function renderOptimizer(L: string[], snapshot: LeagueSnapshot, model: LeagueModel, opt: OptimizerReport, teamName: (id: string) => string): void {
+function renderOptimizer(L: string[], snapshot: LeagueSnapshot, model: LeagueModel, opt: OptimizerReport, teamName: (id: string) => string, pre4c: Pre4cOrder | null): void {
   const o = config.freeAgentOptimizer;
   const players = snapshot.players;
   const lineupPts = `lineup pts, playoff weeks × ${model.playoffWeight}`;
@@ -1440,7 +1612,7 @@ function renderOptimizer(L: string[], snapshot: LeagueSnapshot, model: LeagueMod
   const dups = duplicatePickups(model.teams);
   L.push(
     alloc
-      ? `**One free agent, one team** (§7; planner reply to Checkpoint 4, change 3): teams claim free agents in ${allocationBasisText(alloc.basis)}: ${alloc.order.map((id) => teamName(id)).join(" > ")}; each team's run adds only free agents no earlier team's run claimed (a free agent a later move of the run swapped away stays claimed). Free agents in two or more teams' pickups: **${dups.length}**${dups.length ? ` (${dups.map((d) => `${playerLabel(players[d.playerId], d.playerId)}: ${d.teamIds.map((id) => teamName(id)).join(", ")}`).join("; ")})` : ""}.${alloc.basis === "waiver" ? ` ${waiverOrderCaveat(alloc.order, resetWaiverOrder(model), model.myTeamId, teamName)}` : ""}`
+      ? `**One free agent, one team** (§7; planner reply to Checkpoint 4, change 3): teams claim free agents in ${allocationBasisText(alloc.basis)}: ${alloc.order.map((id) => teamName(id)).join(" > ")}; each team's run adds only free agents no earlier team's run claimed (a free agent a later move of the run swapped away stays claimed). Free agents in two or more teams' pickups: **${dups.length}**${dups.length ? ` (${dups.map((d) => `${playerLabel(players[d.playerId], d.playerId)}: ${d.teamIds.map((id) => teamName(id)).join(", ")}`).join("; ")})` : ""}.${alloc.basis === "waiver" ? ` ${waiverOrderNote(snapshot, alloc.order, resetWaiverOrder(model), model.myTeamId, teamName, pre4c)}` : ""}`
       : `**No free-agent allocation** in this model (each team optimized on its own against the whole pool, Checkpoint 4's rule): free agents in two or more teams' pickups: ${dups.length}.`,
     "",
   );
@@ -1497,12 +1669,13 @@ function renderOptimizer(L: string[], snapshot: LeagueSnapshot, model: LeagueMod
   }
 }
 
-/** The market blend (§6 step 8; the file header, Phase 4b): the curve's coverage per position, and the League page's lines. */
-function renderBlend(L: string[], b: BlendLines): void {
+/** The market blend (§6 step 8; the file header, Phases 4b and 4c): the curve's coverage per position, the clamp, and the League page's lines. */
+function renderBlend(L: string[], b: BlendLines, snapshot: LeagueSnapshot): void {
   const mb = config.marketBlend;
+  const [lo, hi] = b.clamp;
   L.push("## Market-blended projections", "");
   L.push(
-    `CLAUDE.md §6 step 8 (planner reply to Checkpoint 4, change 1): every ${mb.positions.join(", ")} with a real FantasyCalc value in this season's list for the league's format has his points per game pulled part of the way toward what healthy players valued like him score: b′ = (1 − w)·b + w·R_pos(v), w = ${fmt(b.weight, 2)} (config.marketBlend.weight ${mb.weight}), R_pos the isotonic curve of base rates on value over his position's healthy valued players (each read off the curve fitted without him, except at the two ends of the value range, who read it with their own point in it). His weekly points and ROS points scale by b′ / b, so byes, availability and week shape stay the model's, and every team number (lineups, needs, chips, V*, the odds) reads the blended points. A position with fewer than ${mb.minPlayers} curve points isn't blended.`,
+    `CLAUDE.md §6 step 8 (planner reply to Checkpoint 4, change 1): every ${mb.positions.join(", ")} with a real FantasyCalc value in this season's list for the league's format has his points per game pulled part of the way toward what our base rates give healthy players valued like him: b′ = (1 − w)·b + w·R_pos(v), w = ${fmt(b.weight, 2)} (config.marketBlend.weight ${mb.weight}), R_pos the isotonic curve of base rates on value over his position's healthy valued players (each read off the curve fitted without him, except at the two ends of the value range, who read it with their own point in it). Then the factor f = b′ / b is clamped to [${lo}, ${hi}] (config.marketBlend.factorClamp; Phase 4c, planner reply to Checkpoint 4b, change 4: "Extreme factors are where data glitches and market hype concentrate"), so a clamped player's base rate is b × f, not b′. His weekly points and ROS points scale by f, so byes, availability and week shape stay the model's, and every team number (lineups, needs, chips, V*, the odds) reads the blended points. A position with fewer than ${mb.minPlayers} curve points isn't blended.`,
     "",
   );
   if (!b.positions.length) {
@@ -1514,6 +1687,9 @@ function renderBlend(L: string[], b: BlendLines): void {
   L.push("");
   L.push(
     `- Players the blend reaches: **${b.reached}** (${b.scaled} with a base rate above 0); players whose rest-of-season points it moved (PlayerModel.blend): **${b.moved}**.`,
+    b.clamped.length
+      ? `- The clamp cut **${b.clamped.length}** factor${b.clamped.length === 1 ? "" : "s"}: ${b.clamped.map((c) => `${playerLabel(snapshot.players[c.id], c.id)} ×${fmt(c.fRaw, 3)} → ×${fmt(c.f, 2)} (its ${c.bound === "high" ? "upper" : "lower"} bound)`).join("; ")}. The trade report's section 6 lists the most extreme factors with what each one's record shows.`
+      : `- The clamp cut no factor (every f within [${lo}, ${hi}]).`,
     `- The League page's player breakdown line ("Our projection 210 · Trade market 170 · Used 190", tap or hover on a player): **${b.rosterLines + b.freeAgentLines}** lines, ${b.rosterLines} on the rosters and ${b.freeAgentLines} in the free-agent lists; **${b.noComparison}** of them read "Trade market: no comparison" (a player at one end of his position's value range, whose market number is his own: ${b.ownPoint} such players in the model). Another ${b.equalRounded} of the model's blended players print three equal rounded numbers because the market and our projection agree to within a point.`,
     "",
   );
@@ -1550,6 +1726,8 @@ export interface ReportHead {
   generatedAt: Date;
   /** The command line it ran with (commandText), so the header reproduces it; default: the script with --offline when offline. */
   command?: string;
+  /** A dump from before the 4c adapter that the report put on the 4c rule (asWeeklyResetData), or null/absent. */
+  pre4c?: Pre4cOrder | null;
 }
 
 function render(snapshot: LeagueSnapshot, inputs: ModelInputs, model: LeagueModel, evOnly: LeagueModel, timing: Record<string, number>, depthOf: DepthOf, season: SeasonReport, optimizer: OptimizerReport, head: ReportHead, blend: BlendLines, ir: readonly IrReturnerRow[]): string {
@@ -1565,7 +1743,9 @@ function render(snapshot: LeagueSnapshot, inputs: ModelInputs, model: LeagueMode
   L.push("**Data**", "");
   if (head.dataNote) L.push(`- ${head.dataNote}`);
   for (const s of inputs.sources) L.push(`- ${s.source}: ${s.fetchedAt}${s.stale ? " (saved copy; the live fetch failed)" : ""}`);
-  L.push(`- FantasyCalc format: ${model.market.format ? fantasyCalcFormatLabel(model.market.format) : "values unavailable"}`);
+  L.push(`- FantasyCalc format: ${model.market.format ? fantasyCalcFormatLabel(model.market.format) : "values unavailable"}${inputs.market?.fallback ? ` (⚠️ ${fantasyCalcFallbackText(inputs.market.fallback)})` : ""}`);
+  if (head.pre4c) L.push(`- Waiver order used: ${waiverOrderText(snapshot)}. ${pre4cText(head.pre4c, model.myTeamId, teamName)}`);
+  else L.push(`- Waiver order used: ${waiverOrderText(snapshot)}${waiverRanksPre4c(snapshot) ? " (⚠️ this data comes from before the 4c adapter: its waiver ranks are ESPN's live order on the day of the import; the free-agent optimizer's section says more)" : ""}`);
   const ag = model.projection.agreement;
   L.push(`- ESPN vs Sleeper projections, week ${ag?.week ?? snapshot.currentWeek}: ${ag ? `Σ|ESPN − Sleeper| / Σ Sleeper = ${fmt(100 * ag.meanRelDiff)}% over ${ag.players} rostered players` : "not compared"} → ${model.projection.espnAveraged ? "averaged" : "Sleeper only"} (§6: average only within ${100 * config.projections.espnSleeperAgreement}%)`);
   if (model.projection.disagreements.length) L.push(`- Sources disagree by more than ${100 * config.projections.sourceDisagreementLog}% on: ${model.projection.disagreements.map((d) => `${playerLabel(players[d.playerId], d.playerId)} ESPN ${fmt(d.espn)} vs Sleeper ${fmt(d.sleeper)}`).join("; ")}`);
@@ -1578,7 +1758,7 @@ function render(snapshot: LeagueSnapshot, inputs: ModelInputs, model: LeagueMode
   // Phase 3: the season simulation.
   renderStandings(L, season, snapshot, model, teamName);
   renderSchedule(L, season, snapshot, model, teamName);
-  renderScale(L, season, snapshot, model);
+  renderScale(L, season, model);
   renderNoOp(L, season);
 
   L.push("## Timings", "", "| Stage | Time |", "|---|---|");
@@ -1590,15 +1770,15 @@ function render(snapshot: LeagueSnapshot, inputs: ModelInputs, model: LeagueMode
 
   // Parker's projected points per week against the league.
   L.push("## Projected starting-lineup points per week", "");
-  L.push("Scenario lineups (§7: the average over availability scenarios, so depth counts). EV = expected-value lineups. Simulator = your weekly score as the season simulation draws it (mean ± SD; a week in progress as if none of its games had started, with today's rosters and injury news).", "");
-  L.push("| Week | You | Rank | League median | Best | You, EV | Simulator, you |", "|---|---|---|---|---|---|---|");
+  L.push("Scenario lineups as rosters stand (§7: the average over availability scenarios, so depth counts). EV = expected-value lineups. Simulator = your weekly score as the season simulation draws it (mean ± SD; a week in progress as if none of its games had started, with today's rosters and injury news): as rosters stand (TeamModel.score), and after every team's free-agent pickups (TeamModel.scoreWithPickups, the headline odds'; a week in progress keeps its as-stands score).", "");
+  L.push("| Week | You | Rank | League median | Best | You, EV | Simulator, you | Simulator, you with pickups |", "|---|---|---|---|---|---|---|---|");
   weeks.forEach((w, wi) => {
     const lvs = model.teams.map((t) => ({ id: t.id, lv: (t.scen ?? t.ev).lv[wi] ?? 0 }));
     const mine = lvs.find((x) => x.id === model.myTeamId)?.lv;
     const rank = mine === undefined ? "–" : String(1 + lvs.filter((x) => x.lv > mine).length);
     const po = model.playoffWeeks.includes(w) ? " (playoffs)" : w === model.inProgressWeek ? " (in progress: its games have started; team numbers skip it)" : "";
-    const sim = myTeam ? `${fmt(myTeam.score.mean[wi] ?? Number.NaN)} ± ${fmt(myTeam.score.sd[wi] ?? Number.NaN)}` : "–";
-    L.push(`| ${w}${po} | ${mine === undefined ? "–" : fmt(mine)} | ${rank} | ${fmt(median(lvs.map((x) => x.lv)))} | ${fmt(Math.max(...lvs.map((x) => x.lv)))} | ${myTeam ? fmt(myTeam.ev.lv[wi] ?? 0) : "–"} | ${sim} |`);
+    const simOf = (s: WeeklyScores | undefined) => (s ? `${fmt(s.mean[wi] ?? Number.NaN)} ± ${fmt(s.sd[wi] ?? Number.NaN)}` : "–");
+    L.push(`| ${w}${po} | ${mine === undefined ? "–" : fmt(mine)} | ${rank} | ${fmt(median(lvs.map((x) => x.lv)))} | ${fmt(Math.max(...lvs.map((x) => x.lv)))} | ${myTeam ? fmt(myTeam.ev.lv[wi] ?? 0) : "–"} | ${simOf(myTeam?.score)} | ${simOf(myTeam?.scoreWithPickups)} |`);
   });
   L.push("", "| Team | Record | PF | Proj/wk (scenario) | Proj/wk (EV) | ROS (scenario, playoff weeks × " + model.playoffWeight + ") |", "|---|---|---|---|---|---|");
   const ranked = [...model.teams].sort((a, b) => (b.scen ?? b.ev).ppw - (a.scen ?? a.ev).ppw);
@@ -1608,14 +1788,14 @@ function render(snapshot: LeagueSnapshot, inputs: ModelInputs, model: LeagueMode
   }
   L.push("");
 
-  // The market blend (Phase 4b).
-  renderBlend(L, blend);
+  // The market blend (Phase 4b; its clamp, Phase 4c).
+  renderBlend(L, blend, snapshot);
 
   // Streaming positions (Phase 4).
   renderStreaming(L, snapshot, model, teamName);
 
   // The free-agent optimizer (Phase 4; one free agent, one team since Phase 4b).
-  renderOptimizer(L, snapshot, model, optimizer, teamName);
+  renderOptimizer(L, snapshot, model, optimizer, teamName, head.pre4c ?? null);
 
   // IR returners (Phase 4b).
   renderIrReturners(L, ir, snapshot, inputs, teamName);
@@ -1687,9 +1867,18 @@ function render(snapshot: LeagueSnapshot, inputs: ModelInputs, model: LeagueMode
   const valued = new Set(Object.keys(inputs.market?.values ?? {}));
   const idMisses = skill.filter((id) => !known.has(id) && !valued.has(id));
   const valueMisses = skill.filter((id) => !valued.has(id));
+  const fallback = inputs.market?.fallback;
   L.push("## FantasyCalc match rates (rostered QB/RB/WR/TE)", "");
-  L.push(`- ID match (FantasyCalc knows the player): ${skill.length - idMisses.length}/${skill.length} = ${fmt((100 * (skill.length - idMisses.length)) / Math.max(1, skill.length))}% (target ≥ 98%)${idMisses.length ? `; misses: ${idMisses.map((id) => playerLabel(players[id], id)).join("; ")}` : ""}`);
-  L.push(`- Has a value in this format: ${skill.length - valueMisses.length}/${skill.length} = ${fmt((100 * (skill.length - valueMisses.length)) / Math.max(1, skill.length))}%${valueMisses.length ? `; without one (estimated instead): ${valueMisses.map((id) => `${playerLabel(players[id], id)} → ${model.players[id]?.value ? `${Math.round(model.players[id]!.value!.value)} (${model.players[id]!.value!.source})` : "none"}`).join("; ")}` : ""}`);
+  // Phase 4c (the file header; review of track R, R-7): the ID match is measured only when FantasyCalc's player list was read.
+  if (inputs.market && !fantasyCalcPlayersRead(inputs.market)) {
+    const why = fallback
+      ? ` FantasyCalc didn't answer this build (${fallback.kind === "saved" ? "a saved list stands in" : "an old list calibrates our own value curve"}, from ${fallback.listDate}), and its player list is asked only when it serves a list fresh.`
+      : inputs.warnings.some((w) => w.code === FANTASYCALC_PLAYERS_UNAVAILABLE)
+        ? ` Its player list couldn't be loaded (the \`${FANTASYCALC_PLAYERS_UNAVAILABLE}\` warning above).`
+        : "";
+    L.push(`- ID match: not measured. MarketInputs.knownIds names no player beyond FantasyCalc's value lists, so its player list wasn't read in this build (or added nobody), and the match would only repeat the value rate below.${why}`);
+  } else L.push(`- ID match (FantasyCalc knows the player): ${skill.length - idMisses.length}/${skill.length} = ${fmt((100 * (skill.length - idMisses.length)) / Math.max(1, skill.length))}% (target ≥ 98%)${idMisses.length ? `; misses: ${idMisses.map((id) => playerLabel(players[id], id)).join("; ")}` : ""}`);
+  L.push(`- Has a value in ${fallback ? `the list from ${fallback.listDate}` : "this format"}: ${skill.length - valueMisses.length}/${skill.length} = ${fmt((100 * (skill.length - valueMisses.length)) / Math.max(1, skill.length))}%${fallback?.kind === "curve" ? " (⚠️ in the curve fallback the list only calibrates our curve: every player's value below is our estimate)" : ""}${valueMisses.length ? `; without one (estimated instead): ${valueMisses.map((id) => `${playerLabel(players[id], id)} → ${model.players[id]?.value ? `${Math.round(model.players[id]!.value!.value)} (${model.players[id]!.value!.source})` : "none"}`).join("; ")}` : ""}`);
   L.push(`- Values by source, all relevant players: ${Object.entries(model.market.counts).map(([k, v]) => `${k} ${v}`).join(", ")}; waiver credit W = ${Math.round(model.market.waiverCredit)}; top value ${Math.round(model.market.topValue)}`, "");
 
   // Depth: expected-value lineups vs scenario lineups.
@@ -1750,6 +1939,9 @@ export interface ReportOptions extends Omit<SeasonReportOptions, "now" | "clock"
 /** What buildReport returns: the markdown (not yet scrubbed) and the numbers behind it. */
 export interface LeagueReport {
   doc: string;
+  /** The snapshot the report ran on: the one given, or a dump from before the 4c adapter put on the 4c rule (`pre4c`, asWeeklyResetData). */
+  snapshot: LeagueSnapshot;
+  pre4c: Pre4cOrder | null;
   model: LeagueModel;
   /** The main model's steps 1–5 (its blend, its teams' IR players and lineups). */
   context: LeagueContext;
@@ -1763,9 +1955,11 @@ export interface LeagueReport {
 /**
  * Everything after the network (the file header): the League models (expected-value lineups only, and with
  * scenarios, both with the season simulation), the Phase 3 numbers and the markdown, not yet scrubbed.
- * `snapshot` must already carry placeholders (placeholders()).
+ * `input` must already carry placeholders (placeholders()); a dump from before the 4c adapter is put on the 4c rule
+ * first (asWeeklyResetData).
  */
-export function buildReport(snapshot: LeagueSnapshot, inputs: ModelInputs, opts: ReportOptions): LeagueReport {
+export function buildReport(input: LeagueSnapshot, inputs: ModelInputs, opts: ReportOptions): LeagueReport {
+  const { snapshot, pre4c } = asWeeklyResetData(input);
   const { now, clock } = opts;
   const timing = { ...(opts.timing ?? {}) };
   const scenarios = opts.scenarios ?? config.lineups.scenarios;
@@ -1785,9 +1979,9 @@ export function buildReport(snapshot: LeagueSnapshot, inputs: ModelInputs, opts:
   const optimizer = optimizerReport(snapshot, model, leagueMarginals(snapshot, inputs, { now, scenarios }));
   const blend = blendLines(snapshot, inputs, model, context, now);
   const ir = irReturnerRows(context);
-  const head: ReportHead = { mode: opts.mode ?? "live", dataNote: opts.dataNote ?? null, generatedAt: opts.generatedAt ?? now, ...(opts.command ? { command: opts.command } : {}) };
+  const head: ReportHead = { mode: opts.mode ?? "live", dataNote: opts.dataNote ?? null, generatedAt: opts.generatedAt ?? now, ...(opts.command ? { command: opts.command } : {}), pre4c };
   const doc = render(snapshot, inputs, model, evOnly, timing, depthValues(snapshot, inputs, model, now), season, optimizer, head, blend, ir);
-  return { doc, model, context, season, optimizer, blend, ir, timing };
+  return { doc, snapshot, pre4c, model, context, season, optimizer, blend, ir, timing };
 }
 
 /** Live: Parker's league through the app's public-link import (or his cookies) and its caches, as the League page loads it. */
@@ -1838,18 +2032,19 @@ async function main(): Promise<void> {
   }
   const { snapshot, inputs, now } = loaded;
   const command = commandText("league:report", [dir ? "--offline" : null, dir ? displayPath(ROOT, dir) : null, teamArg ? `--team ${teamArg}` : null, argv.includes("--cookies") ? "--cookies" : null, argv.includes("--no-cookies") ? "--no-cookies" : null]);
-  const { doc: raw, model, season: sim, timing: timings } = buildReport(snapshot, inputs, { now, clock, timing, mode: dir ? "offline" : "live", dataNote: loaded.dataNote, generatedAt, command });
+  const { doc: raw, model, season: sim, timing: timings, pre4c } = buildReport(snapshot, inputs, { now, clock, timing, mode: dir ? "offline" : "live", dataNote: loaded.dataNote, generatedAt, command });
   // Public NFL player names are kept whole: a leaguemate's first or last name can be a word of one, and a
   // scrubbed fragment next to the rest of a public name would reveal it (review PRIV-1).
   const doc = scrubEverythingExcept(raw, Object.values(snapshot.players).map((p) => p.name));
   writeFileSync(path.join(ROOT, "reports", "league-report.md"), doc);
   const me = model.teams.find((t) => t.id === model.myTeamId);
   const mine = oddsOf(model.odds, model.myTeamId ?? "");
-  const odds = mine ? `; playoffs ${pct(mine.pPlayoffs)}, title ${pct(mine.pTitle)}` : "";
+  const stand = oddsOf(model.oddsAsRostersStand, model.myTeamId ?? "");
+  const odds = mine ? `; with pickups: playoffs ${pct(mine.pPlayoffs)}, title ${pct(mine.pTitle)}${stand ? ` (as rosters stand ${pct(stand.pPlayoffs)}, ${pct(stand.pTitle)})` : ""}` : "";
   const t5000 = sim.simTimings.find((t) => t.sims === config.simulation.finalSims);
   console.log(
     scrubEverything(
-      `league report written: ${Object.keys(model.players).length} players, ${model.teams.length} teams, weeks ${model.weeks[0]}–${model.weeks.at(-1)}; Parker ${me ? `${fmt((me.scen ?? me.ev).ppw)} pts/wk${odds}` : "team unknown"}; ${t5000 ? `${thousands(t5000.sims)} seasons ${msFine(t5000.total)}; ` : ""}timings ${Object.entries(timings).map(([k, v]) => `${k} ${ms(v)}`).join(", ")}`,
+      `league report written: ${Object.keys(model.players).length} players, ${model.teams.length} teams, weeks ${model.weeks[0]}–${model.weeks.at(-1)}; Parker ${me ? `${fmt((me.scen ?? me.ev).ppw)} pts/wk${odds}` : "team unknown"}; ${t5000 ? `${thousands(t5000.sims)} seasons ${msFine(t5000.total)}; ` : ""}timings ${Object.entries(timings).map(([k, v]) => `${k} ${ms(v)}`).join(", ")}${pre4c ? `; a dump from before the 4c adapter, put on the ${pre4c.waiverOrderUsed === "live" ? "dump's own order" : "weekly reset order"}` : ""}`,
     ),
   );
 }

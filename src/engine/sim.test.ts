@@ -137,7 +137,7 @@ describe("simNormals: the common-random-numbers matrix (CLAUDE.md §8)", () => {
     }
   });
 
-  it("the first k sims of an n-sim matrix are the k-sim matrix (a screening run reads the final run's prefix)", () => {
+  it("the first k sims of an n-sim matrix are the k-sim matrix (the League model's seasons are the trade search's final block)", () => {
     const big = simNormals(SEED, 50, 14, 10);
     const small = simNormals(SEED, 20, 14, 10);
     expect(Array.from(big.z.subarray(0, small.z.length))).toEqual(Array.from(small.z));
@@ -218,7 +218,7 @@ describe("simulateSeason: sanity (CLAUDE.md §16)", () => {
     expect(simulateSeason(before, { sims: 1000, seed: config.simulation.seed })).toEqual(a);
   });
 
-  it("a screening run on the final run's matrix equals a run on its own smaller matrix (the CRN prefix property)", () => {
+  it("a run on a bigger matrix's prefix equals a run on its own smaller matrix (the CRN prefix property)", () => {
     const setup = parkerSized();
     const big = simNormals(SEED, 2000, setup.weeks.length, setup.teams.length);
     expect(simulateSeason(setup, { sims: 500, seed: SEED, normals: big })).toEqual(simulateSeason(setup, { sims: 500, seed: SEED }));
@@ -926,7 +926,7 @@ describe("simulateSeason: exact title odds (Rao–Blackwellization; SimOptions.t
     for (const [over, counts] of pinned) expect(titles(simulateSeason(parkerSized(over), { sims: 2000, seed: SEED, titleMode: "sampled" }))).toEqual(counts.map((c) => c / 2000));
   });
 
-  it("both modes: identical inputs give identical results, and a screening run is the final matrix's prefix", () => {
+  it("both modes: identical inputs give identical results, and a smaller run is a bigger matrix's prefix", () => {
     for (const titleMode of ["exact", "sampled"] as const) {
       const setup = parkerSized({ reseed: titleMode === "exact" });
       const copy: SimSetup = { ...setup, mean: setup.mean.map((m) => Float64Array.from(m)), sd: setup.sd.map((s) => Float64Array.from(s)) };

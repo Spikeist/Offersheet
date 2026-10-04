@@ -11,7 +11,9 @@ import { describe, expect, it } from "vitest";
 import { config } from "@/engine/config";
 import type { SeasonOdds } from "@/engine/leagueModel";
 import { weekUnderWayNote } from "@/engine/season";
-import { SEASON_OVER_PARTNERS_TEXT, SEASON_OVER_TEXT, UNDER_WAY_TEXT, buildLeagueView } from "@/lib/leagueView";
+import { fantasyCalcFallbackText } from "@/engine/market";
+import { waiverOrderText } from "@/lib/importReport";
+import { SEASON_OVER_PARTNERS_TEXT, SEASON_OVER_TEXT, UNDER_WAY_TEXT, buildLeagueView, pickupsUnderWayNote } from "@/lib/leagueView";
 import type { RefreshControl } from "../import/ReportView";
 import { LeagueView } from "./LeagueView";
 import { PlayerDetail } from "./PlayerTable";
@@ -97,6 +99,27 @@ describe("LeagueView header", () => {
     expect(sections.freeAgents).toContain(">Value</th>");
   });
 
+  it("dates a saved FantasyCalc list next to the values credit, and puts a banner under the header when every value is our estimate (planner reply to Checkpoint 4b, change 12)", () => {
+    const withFallback = (fallback: { kind: "saved" | "curve"; listDate: string }) => {
+      const f = leagueFixture();
+      const market = { values: {}, knownIds: [], topValue: 10722, fetchedAt: fallback.listDate, format: f.model.market.format as NonNullable<LeagueFixture["model"]["market"]["format"]>, fallback };
+      f.inputs = { ...f.inputs, market };
+      if (fallback.kind === "curve") f.inputs = { ...f.inputs, warnings: [...f.inputs.warnings, { code: "FANTASYCALC_VALUES_ESTIMATED", message: fantasyCalcFallbackText(fallback) }] };
+      return renderFixture(f);
+    };
+    const saved = withFallback({ kind: "saved", listDate: "2026-11-22T09:00:00.000Z" });
+    const header = between(saved, "<header", "</header>");
+    expect(header).toContain('(8 teams · half-PPR · 1 QB · redraft)<span class="block font-semibold text-navy-contrast">Trade values from Nov 22: FantasyCalc didn&#x27;t answer.</span></p>');
+    expect(saved).not.toContain("FantasyCalc is unavailable");
+    const curve = withFallback({ kind: "curve", listDate: "2026-11-02T09:00:00.000Z" });
+    expect(between(curve, "<header", "</header>")).toContain('<span class="block font-semibold text-navy-contrast">Every value shown is our own estimate for now.</span>');
+    // The banner, right under the header (before the warnings), in words: its title and the fallback's text, once.
+    expect(curve).toMatch(/<\/header><div class="[^"]*"><p class="font-bold">FantasyCalc is unavailable<\/p><div class="mt-1"><p>Trade values are our own estimates, not FantasyCalc&#x27;s: FantasyCalc didn&#x27;t answer, and the newest list we have, from Nov 2/);
+    expect(curve.match(/Trade values are our own estimates, not FantasyCalc/g)).toHaveLength(1);
+    expect(curve.indexOf("FantasyCalc is unavailable")).toBeLessThan(curve.indexOf("Some data is missing"));
+    expect(html).not.toContain("FantasyCalc is unavailable");
+  });
+
   it("lists the data gaps", () => {
     expect(text).toContain("Some data is missing Sleeper's week 17 projections didn't load. No projection for Dabney Drifter.");
   });
@@ -127,14 +150,35 @@ describe("LeagueView standings and playoff odds (§8; §17 Checkpoint 3)", () =>
     expect(at(">Your remaining games<")).toBeLessThan(at(">Projected strength<"));
   });
 
+  it("leads with my odds (every team after its pickups) and, smaller, the same as rosters stand, then says what the odds count, above the table (planner reply to Checkpoint 4b, change 9)", () => {
+    expect(standings).toContain(
+      '<div class="mb-2"><p class="text-base font-extrabold tabular-nums">Your odds: 86% playoffs · 43.0% title</p><p class="text-sm text-muted tabular-nums">As rosters stand: 82% playoffs · 40.0% title</p></div>',
+    );
+    expect(standings).toContain(
+      '<p class="mb-3 text-xs text-muted">These odds count the free-agent pickups that would help each team (listed on its roster): trade ideas start from the same odds. “As rosters stand” counts no pickups.</p>',
+    );
+    expect(standings.indexOf("Your odds:")).toBeLessThan(standings.indexOf("<table"));
+    // Symbolic odds are read out in words, as in the table.
+    const four = standingsOf(render({ myTeamId: "4" }));
+    expect(four).toContain(
+      'Your odds: <span aria-hidden="true">&lt;1% playoffs</span><span class="sr-only">less than 1% playoffs</span> · <span aria-hidden="true">&lt;0.1% title</span><span class="sr-only">less than 0.1% title</span>',
+    );
+    // No team: no headline, but what the odds count.
+    const none = standingsOf(render({ myTeamId: null }));
+    expect(none).not.toContain("Your odds:");
+    expect(none).toContain("These odds count the free-agent pickups that would help each team");
+    expect(none).not.toContain("counts no pickups");
+  });
+
   it("is a captioned table in today's standings order, a row header per team, mine badged", () => {
     expect(standings).toContain(
-      '<caption class="sr-only">Standings today by your league&#x27;s rules, with each team&#x27;s chance to make the playoffs and win the title, and its projected final record, from 5,000 simulated seasons</caption>',
+      '<caption class="sr-only">Standings today by your league&#x27;s rules, with each team&#x27;s chance to make the playoffs and win the title, and its projected final record, from 5,000 simulated seasons, counting each team&#x27;s free-agent pickups that would help</caption>',
     );
     const teams = [...standings.matchAll(/<th scope="row"[^>]*><span class="block font-bold wrap-anywhere">([^<]+)</g)].map((m) => m[1]?.trim());
     expect(teams).toEqual(["Gravel Gophers", "Moonbeam Mudcats", "Quasar Quokkas", "Tundra Tortoises"]);
     expect(standings).toMatch(/<tr class="bg-brand-soft"><td[^>]*>2<\/td><th scope="row"[^>]*><span[^>]*>Moonbeam Mudcats <span[^>]*>You<\/span>/);
-    expect(textOf(standings)).toContain("1 Gravel Gophers 8–3 projected final record 9.8–4.2 1210.3 93% 47%");
+    // Title odds with one decimal, as the headline above prints mine (review of track UIP: "43.0% title" over "43%").
+    expect(textOf(standings)).toContain("1 Gravel Gophers 8–3 projected final record 9.8–4.2 1210.3 93% 47.0% 2 Moonbeam Mudcats You 7–4 projected final record 8.5–5.5 1180.4 86% 43.0%");
   });
 
   it("puts the projected final record under today's (said as such to screen readers), and hides points for on phones (375 px)", () => {
@@ -156,7 +200,7 @@ describe("LeagueView standings and playoff odds (§8; §17 Checkpoint 3)", () =>
     expect(pointsOnly).toMatch(new RegExp(`<th scope="col" class="${WIDE_ONLY}">Record</th>`));
     expect(pointsOnly.match(new RegExp(`<td class="${WIDE_ONLY}"><span class="block font-semibold">\\d+–\\d+</span></td>`, "g"))).toHaveLength(4);
     // Ranked by points for, so a phone reads the order off the numbers: 1210.3, 1180.4, 1100, 990.5.
-    expect(textOf(pointsOnly)).toContain("1 Gravel Gophers 8–3 1210.3 93% 47% 2 Moonbeam Mudcats You 7–4 1180.4 86% 43%");
+    expect(textOf(pointsOnly)).toContain("1 Gravel Gophers 8–3 1210.3 93% 47.0% 2 Moonbeam Mudcats You 7–4 1180.4 86% 43.0%");
   });
 
   it("has no Playoffs column when fewer than 2 teams make the playoffs, and makes the title odds the headline number", () => {
@@ -167,14 +211,15 @@ describe("LeagueView standings and playoff odds (§8; §17 Checkpoint 3)", () =>
     expect(none).toContain('<abbr title="Chance to win the title">Title</abbr>');
     expect(none).toContain("chance to win the title, and its projected final record");
     expect(none).not.toContain("make the playoffs");
-    expect(none).toMatch(/<td class="[^"]*font-extrabold[^"]*">47%<\/td>/);
-    expect(textOf(none)).toContain("1 Gravel Gophers 8–3 projected final record 9.8–4.2 1210.3 47%");
+    expect(none).toMatch(/<td class="[^"]*font-extrabold[^"]*">47\.0%<\/td>/);
+    expect(textOf(none)).toContain("1 Gravel Gophers 8–3 projected final record 9.8–4.2 1210.3 47.0%");
     // With playoffs, the title odds are plain.
-    expect(standings).toMatch(/<td class="py-2\.5 pr-4 text-right align-top tabular-nums sm:pr-0">47%<\/td>/);
+    expect(standings).toMatch(/<td class="py-2\.5 pr-4 text-right align-top tabular-nums sm:pr-0">47\.0%<\/td>/);
   });
 
-  it("says symbolic odds in words: <1% is read as 'less than 1%'", () => {
+  it("says symbolic odds in words: <1% is read as 'less than 1%', a title's <0.1% as 'less than 0.1%'", () => {
     expect(standings).toContain('<span aria-hidden="true">&lt;1%</span><span class="sr-only">less than 1%</span>');
+    expect(standings).toMatch(/<td class="py-2\.5 pr-4 text-right align-top tabular-nums sm:pr-0"><span aria-hidden="true">&lt;0\.1%<\/span><span class="sr-only">less than 0\.1%<\/span><\/td>/);
     expect(standings).toMatch(/<abbr title="Chance to make the playoffs">Playoffs<\/abbr>/);
     expect(standings).toMatch(/<abbr title="Chance to win the title">Title<\/abbr>/);
   });
@@ -186,7 +231,7 @@ describe("LeagueView standings and playoff odds (§8; §17 Checkpoint 3)", () =>
     f.model.odds = { ...oddsOf(f), playoffTeams: 3, byes: 1, teams: oddsOf(f).teams.map((t) => ({ ...t, pBye: byes[t.teamId] ?? null })) };
     const withByes = standingsOf(renderFixture(f));
     expect(withByes).toContain('<abbr title="Chance of a first-round playoff bye">Bye</abbr>');
-    expect(textOf(withByes)).toContain("2 Moonbeam Mudcats You 7–4 projected final record 8.5–5.5 1180.4 86% 18% 43%");
+    expect(textOf(withByes)).toContain("2 Moonbeam Mudcats You 7–4 projected final record 8.5–5.5 1180.4 86% 18% 43.0%");
   });
 
   it("marks a team out of the title race in words, and says when my season's over, right under the header", () => {
@@ -211,9 +256,9 @@ describe("LeagueView standings and playoff odds (§8; §17 Checkpoint 3)", () =>
     expect(between(out, "Best fits for your team", 'id="rosters-title"')).toContain("They could also give:");
   });
 
-  it("lists how the odds were made under the table", () => {
+  it("lists how the odds were made under the table, with when they count pickups from while a week is under way", () => {
     expect(standings).toContain(
-      `<ul class="mt-3 space-y-1 text-xs text-muted" aria-label="How the odds were made"><li>Odds from 5,000 simulated seasons.</li><li>Ties in the standings go to points for, the league&#x27;s rule.</li><li>${weekUnderWayNote(12).replace(/'/g, "&#x27;")}</li></ul>`,
+      `<ul class="mt-3 space-y-1 text-xs text-muted" aria-label="How the odds were made"><li>Odds from 5,000 simulated seasons.</li><li>Ties in the standings go to points for, the league&#x27;s rule.</li><li>${weekUnderWayNote(12).replace(/'/g, "&#x27;")}</li><li>${pickupsUnderWayNote(12, 13).replace(/'/g, "&#x27;")}</li></ul>`,
     );
   });
 
@@ -259,8 +304,11 @@ describe("LeagueView remaining schedule (§8: each remaining week's risk)", () =
     expect([...schedule.matchAll(/<th scope="row"[^>]*><span aria-hidden="true">(\d+)<\/span><span class="sr-only">Week \1<\/span><\/th>/g)].map((m) => m[1])).toEqual(["12", "13", "14"]);
     for (const h of ['<abbr title="NFL week">Wk</abbr>', '<abbr title="Your projected points">You</abbr>', '<abbr title="Their projected points">Them</abbr>', '<abbr title="Your chance to win the game">Win</abbr>'])
       expect(schedule).toContain(h);
-    expect(textOf(schedule)).toContain("13 Tundra Tortoises 90 85 56%");
-    expect(textOf(schedule)).toContain('"On bye" names your likely starters who are off that week');
+    // Projected points with each team's pickups, as the odds beside them (TeamModel.scoreWithPickups).
+    expect(textOf(schedule)).toContain("13 Tundra Tortoises 91.5 85 56%");
+    // Game day: week 12 is played with today's rosters, the pickups count from week 13 (what the model does).
+    expect(textOf(schedule)).toContain("Projected points and chances count each team's free-agent pickups that would help from week 13 on, as the odds above do: week 12 is played with today's rosters.");
+    expect(textOf(schedule)).toContain('"On bye" names your likely starters who are off that week: players in your best lineup, after your free-agent pickups, in at least half the weeks they play');
   });
 
   it("flags a risky week with a badge and its reasons in words, the whole sentence read once by screen readers", () => {
@@ -282,7 +330,7 @@ describe("LeagueView remaining schedule (§8: each remaining week's risk)", () =
     const median = scheduleOf(renderFixture(f));
     expect(median).toContain('<abbr title="Your chance of a top-half score that week (the median game)">Median</abbr>');
     expect(textOf(median)).toContain(`12 Quasar Quokkas ${UNDER_WAY_TEXT} 91.4 88 54% 50%`);
-    expect(textOf(median)).toContain("13 Bye week 90 — no opponent — no game 62%");
+    expect(textOf(median)).toContain("13 Bye week 91.5 — no opponent — no game 62%");
   });
 
   it("says under the opponent when a multi-week matchup is already under way, so its numbers aren't read as the whole matchup's", () => {
@@ -504,9 +552,24 @@ describe("LeagueView rosters", () => {
     const f = leagueFixture();
     f.model = { ...f.model, faAllocation: { basis: "faab", order: ["2", "1", "3", "4"] } };
     const head = between(renderFixture(f), 'id="rosters-title"', "<details");
+    // The fixture's snapshot reports no budgets, so the order used can't be named: the basis in words, no second line.
     expect(head).toContain('<p class="mt-1 text-sm break-words text-muted">Free-agent pickups: each free agent goes to one team only, in FAAB order (the most budget left first). Your team picks 2nd of 4.</p>');
+    expect(head).not.toContain("Waiver order used");
     // A model built before Phase 4b (the fixture's): no line.
     expect(between(html, 'id="rosters-title"', "<details")).not.toContain("one team only");
+  });
+
+  it("names the waiver order used under it, as the Import Report's row does (planner reply to Checkpoint 4b, change 5)", () => {
+    const f = leagueFixture();
+    const ranks: Record<string, number> = { "3": 1, "2": 2, "1": 3, "4": 4 };
+    f.snapshot = { ...f.snapshot, settings: { ...f.snapshot.settings, waiverOrderUsed: "weeklyReset" }, teams: f.snapshot.teams.map((t) => ({ ...t, waiverRank: ranks[t.id] as number })) };
+    f.model = { ...f.model, faAllocation: { basis: "waiver", order: ["3", "2", "1", "4"] } };
+    const head = between(renderFixture(f), 'id="rosters-title"', "<details");
+    // The Import Report's own words (importReport.ts waiverOrderText, pinned there).
+    expect(head).toContain(
+      `<p class="mt-1 text-sm break-words text-muted">Free-agent pickups: each free agent goes to one team only. Your team picks 3rd of 4.</p><p class="text-sm break-words text-muted"><span class="font-semibold text-foreground">Waiver order used:</span> ${waiverOrderText(f.snapshot).replace(/'/g, "&#x27;")}</p>`,
+    );
+    expect(textOf(head)).toMatch(/Waiver order used: Weekly reset/i);
   });
 
   it("opens my roster, and collapses the others", () => {

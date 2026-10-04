@@ -50,9 +50,18 @@ describe("irAfterTrade and irEligibleStatuses: a traded IR player's place (rule 
 
 describe("activeSpots and tradeActiveSpots: the active-roster spots a trade's packages count (review of track E)", () => {
   it("counts the players a side moves on and off its active roster: IR players leaving its IR or taking its IR slots aren't", () => {
-    expect(activeSpots(["x", "a"], ["b"], { givenIR: ["x"], toIR: [] })).toEqual({ give: 1, recv: 1 });
-    expect(activeSpots(["a"], ["y", "b"], { givenIR: [], toIR: ["y"] })).toEqual({ give: 1, recv: 1 });
+    expect(activeSpots(["x", "a"], ["b"], { givenIR: ["x"], toIR: [] })).toMatchObject({ give: 1, recv: 1 });
+    expect(activeSpots(["a"], ["y", "b"], { givenIR: [], toIR: ["y"] })).toMatchObject({ give: 1, recv: 1 });
     expect(activeSpots(["a", "b"], ["c"], { givenIR: [], toIR: [] })).toEqual({ give: 2, recv: 1 });
+  });
+
+  it("Phase 4c: names the side's own IR movers as `inactive` (the neutral throw-in rule's input), none when no IR player moves", () => {
+    expect(activeSpots(["x", "a"], ["b"], { givenIR: ["x"], toIR: [] })).toEqual({ give: 1, recv: 1, inactive: new Set(["x"]) });
+    expect(activeSpots(["a"], ["y", "b"], { givenIR: [], toIR: ["y"] })).toEqual({ give: 1, recv: 1, inactive: new Set(["y"]) });
+    expect(activeSpots(["x"], ["y", "b"], { givenIR: ["x"], toIR: ["y"] })).toEqual({ give: 0, recv: 1, inactive: new Set(["x", "y"]) });
+    // Only players of this trade: the side's other IR moves (another trade's) aren't its movers here.
+    expect(activeSpots(["a"], ["b"], { givenIR: ["x"], toIR: ["y"] })).toEqual({ give: 1, recv: 1 });
+    expect("inactive" in activeSpots(["a", "b"], ["c"], { givenIR: [], toIR: [] })).toBe(false);
   });
 
   it("reads the league itself (each team's IR, the slot's statuses): the engine's counts whatever the received players' order", () => {
@@ -63,14 +72,26 @@ describe("activeSpots and tradeActiveSpots: the active-roster spots a trade's pa
       players,
       settings: { irSlots, ...(irEligible ? { irEligible } : {}) },
     }) as unknown as Parameters<typeof tradeActiveSpots>[0];
-    // My IR player for theirs (IR status, my slot opens): nothing moves on or off my active roster.
-    expect(tradeActiveSpots(league(1), "1", "2", ["mineIr"], ["theirIr1"])).toEqual({ spots: { give: 0, recv: 0 }, irMoved: true });
+    const inactive = (s: { spots: { inactive?: ReadonlySet<string> } }) => [...(s.spots.inactive ?? [])].sort();
+    // My IR player for theirs (IR status, my slot opens): nothing moves on or off my active roster; both move without a spot.
+    const swap = tradeActiveSpots(league(1), "1", "2", ["mineIr"], ["theirIr1"]);
+    expect(swap).toMatchObject({ spots: { give: 0, recv: 0 }, irMoved: true });
+    expect(inactive(swap)).toEqual(["mineIr", "theirIr1"]);
     // Their OUT player can't take my slot under the default (IR, PUP): he takes an active spot; with OUT eligible, the slot.
-    expect(tradeActiveSpots(league(1), "1", "2", ["mineIr"], ["theirIr2"])).toEqual({ spots: { give: 0, recv: 1 }, irMoved: true });
-    expect(tradeActiveSpots(league(1, ["IR", "OUT"]), "1", "2", ["mineIr"], ["theirIr2"])).toEqual({ spots: { give: 0, recv: 0 }, irMoved: true });
-    // Two of theirs for one open slot: one takes it, the other an active spot (which one doesn't change the count).
-    expect(tradeActiveSpots(league(1, ["IR", "OUT"]), "1", "2", ["mineIr", "a"], ["theirIr1", "theirIr2"]).spots).toEqual({ give: 1, recv: 1 });
-    // No IR player: the player counts.
+    const out = tradeActiveSpots(league(1), "1", "2", ["mineIr"], ["theirIr2"]);
+    expect(out).toMatchObject({ spots: { give: 0, recv: 1 }, irMoved: true });
+    expect(inactive(out)).toEqual(["mineIr"]);
+    const slotted = tradeActiveSpots(league(1, ["IR", "OUT"]), "1", "2", ["mineIr"], ["theirIr2"]);
+    expect(slotted).toMatchObject({ spots: { give: 0, recv: 0 }, irMoved: true });
+    expect(inactive(slotted)).toEqual(["mineIr", "theirIr2"]);
+    // Two of theirs for one open slot: one takes it, the other an active spot (which one doesn't change the count; it
+    // decides which is inactive: the most ROS points first, as the engine reads them, else the smaller id).
+    const two = (ros?: (id: string) => number) => tradeActiveSpots(league(1, ["IR", "OUT"]), "1", "2", ["mineIr", "a"], ["theirIr1", "theirIr2"], ros);
+    expect(two().spots).toMatchObject({ give: 1, recv: 1 });
+    expect(inactive(two())).toEqual(["mineIr", "theirIr1"]);
+    expect(inactive(two((id) => (id === "theirIr2" ? 90 : 10)))).toEqual(["mineIr", "theirIr2"]);
+    expect(two((id) => (id === "theirIr2" ? 90 : 10)).spots).toMatchObject({ give: 1, recv: 1 });
+    // No IR player: the player counts, and nobody is inactive.
     expect(tradeActiveSpots(league(1), "1", "2", ["a"], ["b"])).toEqual({ spots: { give: 1, recv: 1 }, irMoved: false });
     // A player listed on my active roster and my IR (a data error) is an active player, as the League model reads him.
     expect(tradeActiveSpots(league(1, undefined, true), "1", "2", ["mineIr"], ["b"])).toEqual({ spots: { give: 1, recv: 1 }, irMoved: false });
@@ -239,6 +260,9 @@ function build(opts: {
   stream?: { rows: TableRow[]; positions: Pos[] };
   limits?: Partial<Record<Pos, number>>;
   minimums?: Partial<Record<Pos, number>>;
+  /** Near-ties (points a week) and the waiver credit their values are floored at (ReturnerSetup.nearTieWeekly, valueFloor); absent: exact ties. */
+  nearTie?: number;
+  floor?: number;
 }): Built {
   const slots = prepareSlots(opts.lineup ?? LINEUP);
   const S = opts.S ?? 0;
@@ -254,6 +278,8 @@ function build(opts: {
     rosterMinimums: opts.minimums,
     info: (id) => rows.get(id),
     dropValue: (id) => opts.values?.[id] ?? 0,
+    ...(opts.nearTie !== undefined ? { nearTieWeekly: opts.nearTie } : {}),
+    ...(opts.floor !== undefined ? { valueFloor: opts.floor } : {}),
     future: opts.future ?? null,
     returnIndex: (id) => at.get(id) ?? null,
     index: instanceIndex(slotInstances(opts.lineup ?? LINEUP), slots),
@@ -326,7 +352,7 @@ describe("finalLineups: the roster spot a returner needs from his week (final ev
     expect(finalLineups(b.setup, b.roster, b.spec, b.raw).displaced).toEqual([{ id: "te", from: 3, returner: "back" }]);
   });
 
-  it("⚠️ the returner himself is a candidate: when he's the least useful from his week, he's released and the team is never weaker for his return", () => {
+  it("⚠️ the returner himself is a candidate: when he's the least useful from his week, he's released and (exact ties) the team is never weaker for his return", () => {
     // A bench WR back from week 2 who scores 2: every other player starts or out-scores him, so he's the one who goes.
     const b = build({ active: team8(), returners: [{ row: row("back", "WR", 2, { from: 2 }), at: 2 }], max: 8, values: { ...VALUES, back: 10 } });
     const f = finalLineups(b.setup, b.roster, b.spec, b.raw);
@@ -350,7 +376,7 @@ describe("finalLineups: the roster spot a returner needs from his week (final ev
     expect((none.lv[4] as number) - (old.lv[4] as number)).toBe(1);
   });
 
-  it("⚠️ never makes a team weaker than without its returner (one returner, the fill rule never needing him): 300 random rosters, EV and scenarios", () => {
+  it("⚠️ with exact ties, never makes a team weaker than without its returner (one returner, the fill rule never needing him): 300 random rosters, EV and scenarios", () => {
     const rand = mulberry32(20261004);
     const positions: Pos[] = ["QB", "RB", "RB", "WR", "WR", "TE"];
     for (let trial = 0; trial < 300; trial++) {
@@ -370,6 +396,42 @@ describe("finalLineups: the roster spot a returner needs from his week (final ev
       // Keep values tie within 1e-9 (teamValue.lowestKeepValue), so a near-tie can cost that much per candidate.
       expect(rosOf(f), `trial ${trial}`).toBeGreaterThanOrEqual(rosOf({ ev: solveEvWeeks(team, W), scen: none }) - 1e-7);
     }
+  });
+
+  it("⚠️ with near-ties (verification of the final review, finding VF-4), weaker than without its returner by at most the tolerance from his week on: 300 random rosters, EV and scenarios", () => {
+    const rand = mulberry32(20261005);
+    const positions: Pos[] = ["QB", "RB", "RB", "WR", "WR", "TE"];
+    let weaker = 0;
+    let keptValuable = 0;
+    for (let trial = 0; trial < 300; trial++) {
+      const S = trial % 2 === 0 ? 0 : 1 + Math.floor(rand() * 12);
+      const starters = positions.map((pos, k) => ({ ...randomRow(rand, `a${k}`, W, S), pos, eligible: [pos] }));
+      const bench = Array.from({ length: 1 + Math.floor(rand() * 4) }, (_, k) => randomRow(rand, `b${k}`, W, S)).map((r) => ({ ...r, eligible: [r.pos] }));
+      const active = [...starters, ...bench];
+      const at = Math.floor(rand() * W);
+      const back = { ...randomRow(rand, "ret", W, S), pos: positions[Math.floor(rand() * positions.length)] as Pos };
+      const ret: TableRow = { ...back, eligible: [back.pos] };
+      const nearTie = 0.5 + 3 * rand();
+      const floor = Math.floor(rand() * 4000);
+      const values = Object.fromEntries([...active, ret].map((r) => [r.id, Math.floor(rand() * 9000)]));
+      const b = build({ active, returners: [{ row: ret, at }], max: active.length, values, S, nearTie, floor });
+      const f = finalLineups(b.setup, b.roster, b.spec, b.raw);
+      expect(f.displaced, `trial ${trial}`).toHaveLength(1);
+      const team = teamEval(active, b.setup.slots);
+      const none = rosOf({ ev: solveEvWeeks(team, W), scen: S > 0 ? scenarioValues(team, W, S, b.setup.index, true, true) : null });
+      // The tolerance in ROS points: points a week × the weights from his return on (every week weighs 1 here).
+      const tolerance = nearTie * (W - at);
+      expect(rosOf(f), `trial ${trial}`).toBeGreaterThanOrEqual(none - tolerance - 1e-7);
+      if (rosOf(f) < none - 1e-7) {
+        weaker++;
+        // Only to keep a returner worth more than W over a cheaper player.
+        expect(Math.max(values.ret as number, floor), `trial ${trial}`).toBeGreaterThan(Math.max(values[f.displaced[0]?.id as string] as number, floor));
+        if (f.displaced[0]?.id !== "ret") keptValuable++;
+      }
+    }
+    // The exception happens, and only that way.
+    expect(weaker).toBeGreaterThan(5);
+    expect(keptValuable).toBe(weaker);
   });
 
   it("a position at its limit drops one at the returner's position, even with room on the roster; legality's cap when already over", () => {

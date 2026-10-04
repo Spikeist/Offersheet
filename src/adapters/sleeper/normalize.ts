@@ -31,14 +31,18 @@
  *   deadline (inferred, 1/5); any other code → unknown (settings.unknownSettings).
  * - league_average_match 1 = an extra game vs the median each week; missing → none (defaulted).
  * - waiver_type 2 = FAAB (waiver_budget is then the budget).
- * - Waiver order and FAAB (Phase 4b: free agents go to one team each, in this order; engine league.ts step 5):
- *   rosters[].settings.waiver_position → Team.waiverRank (1 = first claim: a 1..n permutation in all 18 surveyed 2026
- *   leagues of the Phase 0 crawl and in the public test league; ρ(position, standings rank) = −1.00 in two
- *   reverse-standings leagues, so position 1 is the worst team's: ✅ for those, ⚠️ read the same way for rolling
- *   waivers). In a FAAB league, Team.faabRemaining = waiver_budget − rosters[].settings.waiver_budget_used (✅ Phase 0: no
- *   team spent more than waiver_budget in 27 finished FAAB seasons; the amount used goes below 0 when a team receives
- *   FAAB in a trade: one 2026 league has 205 left of a 100 budget). A position that isn't a whole number ≥ 1, or a
- *   remaining budget below 0 or unreadable, is left out.
+ * - Waiver order and FAAB (free agents go to one team each, in this order; engine league.ts step 5): ./waivers.ts (Phase
+ *   4c; planner reply to Checkpoint 4b, answer 2). waiver_type 1 (reverse standings, reset each week: ✅ 3 of 3 such
+ *   leagues: waiver_position was exactly the reverse standings in the 2 read before their weekly run, and in the one read
+ *   after it the reverse standings with that week's claimants moved to the back) → Team.waiverRank = the reverse
+ *   standings, Team.liveWaiverRank = rosters[].settings.waiver_position, so the allocation doesn't depend on the day of the
+ *   import; waiver_type 0 (rolling, ⚠️ by elimination), 2 (FAAB: the position is the tiebreak), an unknown type (warned)
+ *   and a reverse-standings league before any game (warned) keep waiver_position (1 = first claim: a 1..n permutation in
+ *   all 18 surveyed 2026 leagues of the Phase 0 crawl and in the public test league).
+ *   LeagueSettings.waiverOrderUsed says which. In a FAAB league, Team.faabRemaining = waiver_budget −
+ *   rosters[].settings.waiver_budget_used (✅ Phase 0: no team spent more than waiver_budget in 27 finished FAAB seasons;
+ *   the amount used goes below 0 when a team receives FAAB in a trade: one 2026 league has 205 left of a 100 budget). A
+ *   position that isn't a whole number ≥ 1, or a remaining budget below 0 or unreadable, is left out.
  * - IR slots (Phase 4b: a traded IR player goes into an open IR slot when it takes his status; engine evaluate.ts
  *   rule 5): reserve_slots → irSlots, and LeagueSettings.irEligible = IR and PUP always, OUT with reserve_allow_out 1,
  *   DOUBTFUL with reserve_allow_doubtful 1, SUSPENDED with reserve_allow_sus 1, NA with reserve_allow_na 1 (irEligibleOf).
@@ -97,6 +101,9 @@ import {
   type SleeperTradedPick,
   type SleeperTransaction,
 } from "./schemas";
+import { faabRemainingOf, sleeperWaiverOrder, type SleeperWaiverOrder } from "./waivers";
+
+export { faabRemainingOf, waiverRankOf } from "./waivers";
 
 /** Free agents kept per position (CLAUDE.md §4 LeagueSnapshot.freeAgents: "top 50 per position"; config.import). */
 export const FREE_AGENTS_PER_POSITION = config.import.freeAgentsPerPosition;
@@ -496,7 +503,21 @@ function teamNameOf(u: SleeperLeagueUser | undefined): string | undefined {
   return typeof t === "string" && t.trim() ? t.trim() : displayName(u);
 }
 
-function buildTeams(rosters: SleeperRoster[], users: SleeperLeagueUser[], settings: LeagueSettings): Team[] {
+/** A roster's W-L-T, points for and points against as the snapshot carries them (Sleeper's points to cents). */
+function standingOf(r: SleeperRoster): { record: Team["record"]; pointsFor: number; pointsAgainst: number } {
+  const st = r.settings ?? {};
+  return { record: { w: st.wins ?? 0, l: st.losses ?? 0, t: st.ties ?? 0 }, pointsFor: round2((st.fpts ?? 0) + (st.fpts_decimal ?? 0) / 100), pointsAgainst: round2((st.fpts_against ?? 0) + (st.fpts_against_decimal ?? 0) / 100) };
+}
+
+/** The league's waiver order (./waivers.ts): the weekly reset order for reverse-standings waivers, else Sleeper's positions. */
+function waiverOrderOf(league: SleeperLeague, rosters: SleeperRoster[], settings: LeagueSettings): SleeperWaiverOrder {
+  return sleeperWaiverOrder(
+    rosters.map((r) => ({ id: String(r.roster_id), waiverPosition: r.settings?.waiver_position, ...standingOf(r) })),
+    { waiverType: num(league.settings, "waiver_type"), divisions: (settings.divisions?.length ?? 0) >= 2 },
+  );
+}
+
+function buildTeams(rosters: SleeperRoster[], users: SleeperLeagueUser[], settings: LeagueSettings, waivers: SleeperWaiverOrder): Team[] {
   const byId = new Map(users.map((u) => [u.user_id, u]));
   const inDivision = new Map<string, string>();
   for (const d of settings.divisions ?? []) for (const t of d.teamIds) inDivision.set(t, d.id);
@@ -512,7 +533,7 @@ function buildTeams(rosters: SleeperRoster[], users: SleeperLeagueUser[], settin
       const st = r.settings ?? {};
       const id = String(r.roster_id);
       const division = inDivision.get(id);
-      const waiverRank = waiverRankOf(st.waiver_position);
+      const { waiverRank, liveWaiverRank } = waivers.ranks.get(id) ?? {};
       const faabRemaining = faabRemainingOf(settings.faabBudget, st.waiver_budget_used);
       return {
         id,
@@ -521,31 +542,13 @@ function buildTeams(rosters: SleeperRoster[], users: SleeperLeagueUser[], settin
         roster: all.filter((p) => !benched.has(p)),
         ir,
         taxi,
-        record: { w: st.wins ?? 0, l: st.losses ?? 0, t: st.ties ?? 0 },
-        pointsFor: round2((st.fpts ?? 0) + (st.fpts_decimal ?? 0) / 100),
-        pointsAgainst: round2((st.fpts_against ?? 0) + (st.fpts_against_decimal ?? 0) / 100),
+        ...standingOf(r),
         ...(division ? { divisionId: division } : {}),
         ...(waiverRank !== undefined ? { waiverRank } : {}),
+        ...(liveWaiverRank !== undefined ? { liveWaiverRank } : {}),
         ...(faabRemaining !== undefined ? { faabRemaining } : {}),
       };
     });
-}
-
-/** rosters[].settings.waiver_position when it is a whole number ≥ 1 (1 = first claim), else undefined (the header, "Waiver order and FAAB"). */
-export function waiverRankOf(position: number | null | undefined): number | undefined {
-  return typeof position === "number" && Number.isInteger(position) && position >= 1 ? position : undefined;
-}
-
-/**
- * A FAAB league's remaining budget for a roster (the header, "Waiver order and FAAB"): settings.waiver_budget −
- * rosters[].settings.waiver_budget_used, when the league uses FAAB (`budget`: LeagueSettings.faabBudget, set for
- * waiver_type 2) and the amount used is a number (negative after receiving FAAB in a trade, so more than the budget can
- * be left); undefined otherwise, or below 0.
- */
-export function faabRemainingOf(budget: number | undefined, used: number | null | undefined): number | undefined {
-  if (budget === undefined || typeof used !== "number" || !Number.isFinite(used)) return undefined;
-  const left = budget - used;
-  return Number.isFinite(left) && left >= 0 ? left : undefined;
 }
 
 /** §2.3: the roster whose owner_id is the user, else one whose co_owners lists them. */
@@ -863,7 +866,11 @@ export function normalizeSleeperLeague(raw: SleeperRawLeague, ctx: SleeperNormal
     warn({ code: "PLAYOFFS_NOT_IMPORTED", message: `The fantasy playoffs started in week ${playoffStart}, but Offer Sheet doesn't read playoff matchups yet, so the schedule shows the regular season only.`, platformPath: "winners_bracket" });
   // Sleeper's league week (settings.leg) can lag the NFL week by a day: trades complete through leg D.
   const leagueWeek = num(league.settings, "leg");
-  const teams = buildTeams(rosters, users, settings);
+  const waivers = waiverOrderOf(league, rosters, settings);
+  if (waivers.used) settings.waiverOrderUsed = waivers.used;
+  notes.push(...waivers.notes);
+  waivers.warnings.forEach(warn);
+  const teams = buildTeams(rosters, users, settings, waivers);
 
   let myTeamId: string | null = null;
   if (ctx.userId) {

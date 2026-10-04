@@ -12,12 +12,17 @@
  * odds and the schedule show no trade values). When my team is certainly out in a redraft league, the
  * page says "Your season's over — no trade helps this year." (§8) right under the header.
  *
+ * Phase 4c (planner reply to Checkpoint 4b, changes 5 and 12): the header's values line says when a saved FantasyCalc
+ * list stands in, or that every value is our own estimate, with a banner under the header then (FantasyCalc's curve
+ * fallback: words, never color alone); the line above the rosters names the waiver order used, as the Import Report's
+ * row does.
+ *
  * Refresh stays focusable while it works (aria-disabled, clicks ignored), so keyboard focus never
  * drops to the page; `headingRef` lets the page move focus to the league's name after a Try again.
  */
 import Link from "next/link";
 import type { Ref } from "react";
-import { FREE_AGENT_PICKUPS_LABEL, type FreeAgentPickups, type LeagueView as LeagueViewModel } from "@/lib/leagueView";
+import { FREE_AGENT_PICKUPS_LABEL, WAIVER_ORDER_LABEL, type FreeAgentPickups, type LeagueView as LeagueViewModel } from "@/lib/leagueView";
 import type { RefreshControl } from "../import/ReportView";
 import { Badge, Callout, Card, CardTitle, FOCUS_TARGET, Facts, cx } from "../ui";
 import { PlayerTable } from "./PlayerTable";
@@ -37,6 +42,11 @@ export function LeagueView({ view, refresh, headingRef }: ViewProps & { refresh?
   return (
     <div className="space-y-6">
       <LeagueHeader view={view} refresh={refresh} headingRef={headingRef} />
+      {view.valuesBanner ? (
+        <Callout tone="warn" title={view.valuesBanner.title}>
+          <p>{view.valuesBanner.text}</p>
+        </Callout>
+      ) : null}
       {view.myTeam.hint ? (
         <Callout tone="warn" title={view.myTeam.id ? "Is this your team?" : "Which team is yours?"}>
           <p>{view.myTeam.hint}</p>
@@ -96,6 +106,7 @@ function LeagueHeader({ view, refresh, headingRef }: ViewProps & { refresh?: Ref
       <p className="mt-1 text-sm leading-relaxed text-navy-contrast/80">
         Projected points: {h.projections} · <ValuesCredit tone="onNavy" />
         {h.valuesFormat ? ` (${h.valuesFormat})` : " (unavailable right now)"}
+        {h.valuesNote ? <span className="block font-semibold text-navy-contrast">{h.valuesNote}</span> : null}
       </p>
       <p className="mt-1 text-sm text-navy-contrast/80">{h.weeksLeft}</p>
       <div className="mt-4 flex flex-wrap items-center gap-2">
@@ -141,7 +152,16 @@ function Rosters({ view }: ViewProps) {
         <p className="mt-1 text-sm text-muted">
           Rest-of-season (ROS) points count only the games left. Tap a player for his week-by-week points. <ValuesCredit />
         </p>
-        {view.pickupsNote ? <p className="mt-1 text-sm break-words text-muted">{view.pickupsNote}</p> : null}
+        {view.pickupsNote ? (
+          <>
+            <p className="mt-1 text-sm break-words text-muted">{view.pickupsNote.text}</p>
+            {view.pickupsNote.waiverOrder ? (
+              <p className="text-sm break-words text-muted">
+                <span className="font-semibold text-foreground">{WAIVER_ORDER_LABEL}:</span> {view.pickupsNote.waiverOrder}
+              </p>
+            ) : null}
+          </>
+        ) : null}
       </div>
       {view.rosters.map((r) => (
         <details key={r.teamId} open={r.isMine} className="group rounded-2xl border border-line bg-surface shadow-sm">

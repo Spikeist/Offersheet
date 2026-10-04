@@ -4,7 +4,9 @@
  * evaluation context, the search generator and the Analyzer are fakes, and the tests run the handler's timer and
  * clock themselves, so every slice of a search is seen: progress, the result, Stop, a newer search taking over,
  * and the cached evaluation context with its kickoff rule. The Analyzer's reply carries my odds before any trade from
- * the context it evaluated on (review of Phase 4; the real engine's are checked in engine.worker.engine.test.ts).
+ * the context it evaluated on (review of Phase 4; the real engine's are checked in engine.worker.engine.test.ts). Phase
+ * 4c: a re-filter ranks a kept search's ideas again at another minimum chance, or stands in for it (the same result, or a
+ * new search) when it can't.
  */
 import { describe, expect, it, vi } from "vitest";
 
@@ -32,6 +34,12 @@ vi.mock("@/engine/search", () => ({
   tradeSearch: () => {
     throw new Error("the tests pass their own search");
   },
+  searchStateOf: () => {
+    throw new Error("the tests pass their own search state");
+  },
+  refilterSearch: () => {
+    throw new Error("the tests pass their own re-filter");
+  },
 }));
 
 import type { TradeAnalysis, TradeContext } from "@/engine/evaluate";
@@ -42,6 +50,7 @@ import { defaultTradeSettings, type TradeSettings } from "@/engine/settings";
 import type { TradeEvaluation, TradeEvaluationCore, TradeProposal, TradeSearchProgress, TradeSearchResult } from "@/engine/tradeModel";
 import {
   ENGINE_ERROR_MESSAGE,
+  KEPT_RESULTS,
   SEARCH_SLICE_MS,
   contextBaseline,
   contextKey,
@@ -53,6 +62,7 @@ import {
   type EngineHandlerDeps,
   type EngineResponse,
   type LeagueRequest,
+  type RefilterRequest,
   type TradesRequest,
 } from "./engine.worker";
 
@@ -81,6 +91,19 @@ const request: LeagueRequest = { ...withoutSettings, settings };
 const RESULT = { weeks: [4, 5] } as unknown as LeagueModel;
 
 const trades = (id: number, extra: Partial<TradesRequest> = {}): TradesRequest => ({ type: "trades", id, snapshot, model, myTeamId: "3", nowIso: NOW, settings, partnerId: null, ...extra });
+/** A re-filter of the search `of` at minimum chance `minChance` (Phase 4c). */
+const refilterReq = (id: number, of: number, minChance: number, extra: Partial<RefilterRequest> = {}): RefilterRequest => ({
+  type: "refilter",
+  id,
+  of,
+  snapshot,
+  model,
+  myTeamId: "3",
+  nowIso: NOW,
+  settings: { ...settings, minChance },
+  partnerId: null,
+  ...extra,
+});
 const proposal: TradeProposal = { partnerId: "5", give: [{ kind: "player", id: "101" }], get: [{ kind: "player", id: "202" }] };
 const analyzeReq = (id: number, extra: Partial<AnalyzeRequest> = {}): AnalyzeRequest => ({ type: "analyze", id, snapshot, model, myTeamId: "3", nowIso: NOW, settings, proposal, ...extra });
 
@@ -88,8 +111,25 @@ type Build = NonNullable<EngineHandlerDeps["build"]>;
 type BuildContext = NonNullable<EngineHandlerDeps["buildContext"]>;
 type Search = NonNullable<EngineHandlerDeps["search"]>;
 type Analyze = NonNullable<EngineHandlerDeps["analyze"]>;
+type Refilter = NonNullable<EngineHandlerDeps["refilter"]>;
+type StateOf = NonNullable<EngineHandlerDeps["searchState"]>;
 
-const SEARCH_RESULT = { trades: [], myTeamId: "3", baseline: { pPlayoffs: 0.6, pTitle: 0.1, expWins: 8 }, hidden: { byBenefit: 0, byMarket: 0 }, counts: { screened: 0, exact: 0, simScreen: 0, simFinal: 0 }, timings: {}, notes: [], warnings: [] } as TradeSearchResult;
+/** A fake search state (search.ts SearchState): the result it belongs to and the context it ran on. */
+interface FakeState {
+  result: TradeSearchResult;
+  ctx: TradeContext;
+}
+
+const SEARCH_RESULT = {
+  trades: [],
+  myTeamId: "3",
+  baseline: { pPlayoffs: 0.6, pTitle: 0.1, expWins: 8 },
+  hidden: { byBenefit: 0, byMarket: 0 },
+  counts: { screened: 0, exact: 0, simScreen: 0, simFinal: 0 },
+  timings: { screening: 2000, total: 4210 },
+  notes: [],
+  warnings: [],
+} as TradeSearchResult;
 const ANALYSIS: TradeAnalysis = { evaluation: null, illegal: "You can't trade a player twice.", notes: [] };
 /** My odds before any trade, as the fake contexts report them. */
 const BASELINE: BaselineOdds = { pPlayoffs: 0.71, pTitle: 0.15, expWins: 8.4 };
@@ -98,9 +138,15 @@ const ANALYZED = { ...ANALYSIS, baseline: BASELINE };
 
 /**
  * A harness: the handler with a timer the test runs by hand and a clock that moves `tick` ms per read, a
- * context builder that counts its builds, a search that yields `steps` progress steps, and an Analyzer.
+ * context builder that counts its builds, a search that yields `steps` progress steps, and an Analyzer. Re-filtering
+ * (Phase 4c): every result the fake search returns has a state (none with `noState`: a search that stopped before
+ * ranking), and the fake re-filter refuses a state of another context (or every state, `refilterThrows`), as
+ * search.ts refilterSearch does at its first step, else yields 3 steps under "rank" and returns the result at the new
+ * minimum.
  */
-function harness(opts: { steps?: number; tick?: number; sliceMs?: number; withClock?: boolean; failContext?: () => boolean; failSearchAt?: number } = {}) {
+function harness(
+  opts: { steps?: number; tick?: number; sliceMs?: number; withClock?: boolean; failContext?: () => boolean; failSearchAt?: number; noState?: boolean; refilterThrows?: boolean } = {},
+) {
   const posted: EngineResponse[] = [];
   const queue: (() => void)[] = [];
   let time = 0;
@@ -108,6 +154,8 @@ function harness(opts: { steps?: number; tick?: number; sliceMs?: number; withCl
   const contexts: { snapshot: LeagueSnapshot; inputs: ModelInputs; opts: Parameters<BuildContext>[2] }[] = [];
   const searches: { ctx: TradeContext; opts: Parameters<Search>[1] }[] = [];
   const analyses: Parameters<Analyze>[] = [];
+  const refilters: { ctx: TradeContext; state: FakeState; opts: Parameters<Refilter>[2] }[] = [];
+  const states = new Map<TradeSearchResult, FakeState>();
   /** The contexts the Analyzer's odds before any trade were read from. */
   const baselines: TradeContext[] = [];
   /** How many units of search work ran (each `next()` call of a search generator). */
@@ -118,20 +166,36 @@ function harness(opts: { steps?: number; tick?: number; sliceMs?: number; withCl
     return { myTeamId: snap.myTeamId, partnerIds: [], notes: [], warnings: [], timings: {}, n: contexts.length } as unknown as TradeContext;
   }) as BuildContext;
   const steps = opts.steps ?? 10;
-  const run = function* (): Generator<TradeSearchProgress, TradeSearchResult, void> {
+  const run = function* (ctx: TradeContext): Generator<TradeSearchProgress, TradeSearchResult, void> {
     for (let i = 0; i < steps; i++) {
       advanced++;
       if (opts.failSearchAt === i) throw new RangeError("no partner 9");
       yield { stage: i < steps / 2 ? "screening" : "exact", done: i + 1, total: steps };
     }
     advanced++;
-    return { ...SEARCH_RESULT, notes: [`search ${searches.length}`] };
+    const result: TradeSearchResult = { ...SEARCH_RESULT, notes: [`search ${searches.length}`] };
+    if (!opts.noState) states.set(result, { result, ctx });
+    return result;
   };
   // Calls are recorded when the search is made (a generator's body only runs at its first step).
   const search = ((ctx: TradeContext, o: Parameters<Search>[1]) => {
     searches.push({ ctx, opts: o });
-    return run();
+    return run(ctx);
   }) as Search;
+  const searchState = ((r: TradeSearchResult) => states.get(r) ?? null) as unknown as StateOf;
+  const refilter = ((ctx: TradeContext, state: FakeState, o: Parameters<Refilter>[2]) => {
+    refilters.push({ ctx, state, opts: o });
+    return (function* (): Generator<TradeSearchProgress, TradeSearchResult, void> {
+      if (opts.refilterThrows || state.ctx !== ctx) throw new Error("This search state belongs to another trade context");
+      for (let i = 0; i < 3; i++) {
+        advanced++;
+        yield { stage: "rank", done: i, total: 3 };
+      }
+      const result: TradeSearchResult = { ...state.result, notes: [...state.result.notes, `re-filtered at ${o.minChance}`], filter: { minChance: o.minChance, qualifying: 2, few: false }, timings: { rank: 1, steps: 2, total: 3 } };
+      states.set(result, { result, ctx });
+      return result;
+    })();
+  }) as unknown as Refilter;
   const analyze = ((...args: Parameters<Analyze>) => {
     analyses.push(args);
     return ANALYSIS;
@@ -140,6 +204,8 @@ function harness(opts: { steps?: number; tick?: number; sliceMs?: number; withCl
     buildContext,
     search,
     analyze,
+    searchState,
+    refilter,
     baseline: (ctx) => {
       baselines.push(ctx);
       return BASELINE;
@@ -154,6 +220,7 @@ function harness(opts: { steps?: number; tick?: number; sliceMs?: number; withCl
     posted,
     contexts,
     searches,
+    refilters,
     analyses,
     baselines,
     get advanced() {
@@ -369,6 +436,144 @@ describe("the trade search request (M12: time slices, progress, Stop)", () => {
   it("slices about SEARCH_SLICE_MS of work by default (M12: 30–50 ms between looks at the messages)", () => {
     expect(SEARCH_SLICE_MS).toBeGreaterThanOrEqual(30);
     expect(SEARCH_SLICE_MS).toBeLessThanOrEqual(50);
+  });
+});
+
+describe("the re-filter request (Phase 4c; planner reply to Checkpoint 4b, change 10: re-filter instantly, no new search)", () => {
+  /** The replies to request `id`, in words: "rank 1" for progress, the type otherwise. */
+  const repliesTo = (h: ReturnType<typeof harness>, id: number) => h.posted.filter((r) => r.id === id).map((r) => (r.type === "progress" ? `${r.progress.stage} ${r.progress.done}` : r.type));
+  const resultOf = (h: ReturnType<typeof harness>, id: number) => {
+    const r = h.posted.find((x) => x.id === id && x.type === "trades");
+    return r?.type === "trades" ? r.result : null;
+  };
+
+  it("ranks a finished search's ideas again at the request's minimum, in slices under 'rank', on the same context, with no new search", () => {
+    const h = harness();
+    h.handle(trades(1));
+    h.runAll();
+    h.handle(refilterReq(2, 1, 0.3));
+    h.runAll();
+    expect(h.searches).toHaveLength(1);
+    expect(h.contexts).toHaveLength(1);
+    expect(h.refilters).toHaveLength(1);
+    expect(h.refilters[0]?.ctx).toBe(h.searches[0]?.ctx);
+    expect(h.refilters[0]?.state.result).toBe(resultOf(h, 1));
+    expect(h.refilters[0]?.opts).toMatchObject({ minChance: 0.3 });
+    expect(typeof h.refilters[0]?.opts.clock).toBe("function");
+    // Its progress is the ranking's alone, from the first reply on (its 3 steps fit in one slice).
+    expect(repliesTo(h, 2)).toEqual(["rank 0", "trades"]);
+    // A slower clock: progress per slice, every step under "rank".
+    const slow = harness({ tick: 30 });
+    slow.handle(trades(1));
+    slow.runAll();
+    slow.handle(refilterReq(2, 1, 0.3));
+    slow.runAll();
+    expect(repliesTo(slow, 2)).toEqual(["rank 0", "rank 1", "trades"]);
+    expect(resultOf(h, 2)).toMatchObject({ notes: ["search 1", "re-filtered at 0.3"], filter: { minChance: 0.3 } });
+  });
+
+  it("answers with the search's own timings, the re-filter's time apart, also when re-filtering a re-filtered result", () => {
+    const h = harness();
+    h.handle(trades(1));
+    h.runAll();
+    h.handle(refilterReq(2, 1, 0.3));
+    h.runAll();
+    expect(resultOf(h, 2)?.timings).toEqual({ screening: 2000, total: 4210, refilter: 3 });
+    h.handle(refilterReq(3, 2, 0.5));
+    h.runAll();
+    expect(h.searches).toHaveLength(1);
+    expect(resultOf(h, 3)).toMatchObject({ notes: ["search 1", "re-filtered at 0.3", "re-filtered at 0.5"], filter: { minChance: 0.5 }, timings: { screening: 2000, total: 4210, refilter: 3 } });
+  });
+
+  it("answers with the same result when the search stopped before ranking (no state: it holds for any minimum)", () => {
+    const h = harness({ noState: true });
+    h.handle(trades(1));
+    h.runAll();
+    h.handle(refilterReq(2, 1, 0.3));
+    h.runAll();
+    expect(h.searches).toHaveLength(1);
+    expect(h.refilters).toHaveLength(0);
+    expect(resultOf(h, 2)).toBe(resultOf(h, 1));
+  });
+
+  it("searches afresh, with the request's settings, when it holds no such result", () => {
+    const h = harness({ steps: 4 });
+    h.handle(refilterReq(1, -1, 0.3, { partnerId: "5" }));
+    h.runAll();
+    expect(h.searches).toHaveLength(1);
+    expect(h.searches[0]?.opts).toMatchObject({ settings: { minChance: 0.3 }, partnerId: "5" });
+    expect(repliesTo(h, 1).at(-1)).toBe("trades");
+    // Its result is kept like a search's: it can be re-filtered in turn.
+    h.handle(refilterReq(2, 1, 0.5));
+    h.runAll();
+    expect(h.searches).toHaveLength(1);
+    expect(h.refilters).toHaveLength(1);
+  });
+
+  it("searches afresh after a kickoff (a new context: the results it kept are forgotten), and when the engine refuses the state", () => {
+    const h = harness();
+    h.handle(trades(1));
+    h.runAll();
+    h.handle(refilterReq(2, 1, 0.3, { nowIso: THURSDAY }));
+    h.runAll();
+    expect(h.contexts).toHaveLength(2);
+    expect(h.refilters).toHaveLength(0);
+    expect(h.searches).toHaveLength(2);
+    expect(h.searches[1]?.opts?.settings).toMatchObject({ minChance: 0.3 });
+    const refused = harness({ refilterThrows: true });
+    refused.handle(trades(1));
+    refused.runAll();
+    refused.handle(refilterReq(2, 1, 0.3));
+    refused.runAll();
+    expect(refused.refilters).toHaveLength(1);
+    expect(refused.searches).toHaveLength(2);
+    expect(resultOf(refused, 2)).toMatchObject({ notes: ["search 2"] });
+  });
+
+  it(`keeps the last ${KEPT_RESULTS} results: an older one is searched afresh`, () => {
+    const h = harness({ steps: 2 });
+    for (let id = 1; id <= KEPT_RESULTS + 1; id++) {
+      h.handle(trades(id));
+      h.runAll();
+    }
+    h.handle(refilterReq(10, 1, 0.3));
+    h.runAll();
+    expect(h.searches).toHaveLength(KEPT_RESULTS + 2);
+    h.handle(refilterReq(11, KEPT_RESULTS + 1, 0.3));
+    h.runAll();
+    expect(h.searches).toHaveLength(KEPT_RESULTS + 2);
+    expect(h.refilters).toHaveLength(1);
+  });
+
+  it("is one at a time with searches: Stop and a newer search stop it, and it stops a search under way", () => {
+    const h = harness();
+    h.handle(trades(1));
+    h.runAll();
+    h.handle(refilterReq(2, 1, 0.3));
+    h.runNext(); // the generator, with its first step taken
+    h.handle({ type: "cancel", id: 2 });
+    expect(h.posted.at(-1)).toEqual({ type: "cancelled", id: 2 });
+    h.runAll();
+    expect(repliesTo(h, 2)).toEqual(["rank 0", "cancelled"]);
+    h.handle(refilterReq(3, 1, 0.3));
+    h.handle(trades(4));
+    h.runAll();
+    expect(repliesTo(h, 3)).toEqual(["rank 0", "cancelled"]);
+    expect(repliesTo(h, 4).at(-1)).toBe("trades");
+    h.handle(trades(5));
+    h.runNext();
+    h.handle(refilterReq(6, 4, 0.2));
+    expect(h.posted.filter((r) => r.id === 5).at(-1)).toEqual({ type: "cancelled", id: 5 });
+  });
+
+  it("rejects a re-filter request without a numeric search id", () => {
+    const h = harness();
+    h.handle({ ...refilterReq(3, 1, 0.3), of: "1" });
+    h.handle({ ...refilterReq(4, 1, 0.3), partnerId: 5 });
+    expect(h.posted).toEqual([
+      { type: "error", id: 3, message: ENGINE_ERROR_MESSAGE, detail: "Not an engine request." },
+      { type: "error", id: 4, message: ENGINE_ERROR_MESSAGE, detail: "Not an engine request." },
+    ]);
   });
 });
 

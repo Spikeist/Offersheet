@@ -12,6 +12,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { mkdir, readFile, readdir, rename, rm, stat, utimes, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { config } from "@/engine/config";
 
 export const MINUTE = 60_000;
 export const HOUR = 60 * MINUTE;
@@ -50,6 +51,17 @@ export const PROJECTIONS_NEAR_WEEKS = 2;
  * a stale copy can stand in while the source is down (HttpRequestOptions.cache.staleIfError).
  */
 export const STALE_PUBLIC_RETAIN_MS = 7 * DAY;
+
+/**
+ * FantasyCalc's value lists are kept longer (Phase 4c; planner reply to Checkpoint 4b, change 12): config.market.
+ * fantasyCalcCurveDays (90) days, through this Cache like every other entry (a KV store in production keeps them the same
+ * way; the dev-only archive in data-local/ is never read for it). A copy is still served fresh only within
+ * TTL.fantasyCalc (24 hours: at most one request a day per format) and otherwise only when FantasyCalc fails
+ * (staleIfError); src/server/modelInputs.ts decides what an old copy may do: stand in for up to fantasyCalcStaleDays (7),
+ * then only calibrate the model's own value curve (src/data/fantasyCalcValues.ts fantasyCalcListUse). Public data, about
+ * 150–330 KB per format.
+ */
+export const FANTASYCALC_RETAIN_MS = config.market.fantasyCalcCurveDays * DAY;
 
 /** Cache TTL for league data (settings, rosters, transactions): 10 minutes, or 1 minute after Refresh. */
 export function leagueTtl(refresh?: boolean): number {

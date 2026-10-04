@@ -7,7 +7,10 @@
  *   asking for more than a minute gets its answer back instead of an early retry).
  *   401 / 403 / 404 and HTML login pages are returned as-is, never retried. MFL: no retries.
  * - Optional cache: only 200, non-HTML bodies the caller's cacheIf accepts; a failed fetch can fall
- *   back to a retained older copy (staleIfError); a cache write failure never fails the request.
+ *   back to a retained older copy (staleIfError), which then says what the live answer was (HttpResponse.liveFailure: its
+ *   status, 0 for none, and whether it was an HTML page); a cache write failure never fails the request. cacheOnly
+ *   (HttpRequestOptions) never fetches: the cache's copy (a retained one with staleIfError, marked stale), else a status-0
+ *   response without any request.
  * - Single-flight (§2.10, Checkpoint 2): requests that carry a cache key and overlap share ONE live
  *   fetch and its cache write. Each request still reads the cache first with its own TTL (so Refresh's
  *   1-minute TTL is honoured); on a miss it joins the live fetch in flight for the same cache key (and
@@ -264,6 +267,14 @@ export function createHttpClient(options: HttpClientOptions = {}): HttpClient {
         const hit = await readCache(c.key, c.ttlMs);
         if (hit) return fromEntry(hit, bigInts);
       }
+      if (opts.cacheOnly) {
+        // Never ask the source (HttpRequestOptions.cacheOnly): a retained older copy with staleIfError, else no response.
+        if (c?.staleIfError) {
+          const old = await readCache(c.key, retainMs);
+          if (old) return { ...fromEntry(old, bigInts), stale: true };
+        }
+        return { status: 0, ok: false, isHtml: false, json: undefined, text: "", fromCache: false };
+      }
       let response: HttpResponse;
       let bad: boolean;
       const key = c ? flightKey(c.key, bigInts, opts.transformText !== undefined) : undefined;
@@ -285,7 +296,7 @@ export function createHttpClient(options: HttpClientOptions = {}): HttpClient {
       }
       if (c && bad && c.staleIfError) {
         const old = await readCache(c.key, retainMs);
-        if (old) return { ...fromEntry(old, bigInts), stale: true };
+        if (old) return { ...fromEntry(old, bigInts), stale: true, liveFailure: { status: response.status, isHtml: response.isHtml } };
       }
       return response;
     },

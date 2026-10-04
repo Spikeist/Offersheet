@@ -1,30 +1,34 @@
 "use client";
 /**
- * Import Report container (CLAUDE.md §14 item 2): reads the import the Connect page left in
- * sessionStorage, plus the stored "Your team" pick for this league (the user's own, or one taken
- * from a pasted ESPN team link) and, when the League page has loaded them, this league's model
- * inputs (for the projection-source note), and renders the pure view model from
- * src/lib/importReport.ts. It owns the page's requests: Refresh, and "Forget my ESPN cookies". An
- * import saved by an earlier version of Offer Sheet isn't read: the page says Offer Sheet was updated
- * and asks for the league again (NoImportCard).
+ * Import Report container (CLAUDE.md §14 item 2): reads the league this tab shows from the league store
+ * (one of the leagues saved in this browser: src/lib/leagueStore.ts, Phase 4c; the Connect page saves each
+ * import there and shows it), plus its "Your team" pick (the user's own, or one taken from a pasted ESPN
+ * team link) and, when the League page has loaded them, its model inputs (for the projection-source note),
+ * and renders the pure view model from src/lib/importReport.ts. It owns the page's requests: Refresh (the
+ * same league again, saved over it, unless the league was removed while it ran), and "Forget my ESPN
+ * cookies". A league saved by an earlier version of
+ * Offer Sheet isn't read: the page says Offer Sheet was updated and offers to import it again (NoImportCard).
+ * A team pick shows at once; one the browser refuses to keep is put back, and an alert under the choice says why.
  */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { callApi, isApiError, type EspnImportBody, type EspnSessionStatus, type ImportResponse, type SleeperImportBody } from "@/lib/api";
 import { buildImportReport, refreshOutcomeText } from "@/lib/importReport";
-import { IMPORT_STORAGE_KEY, myTeamKey, parseMyTeamPick, readStoredImport, saveMyTeam, type StoredImport } from "@/lib/importStore";
-import { MODEL_STORAGE_KEY, parseStoredModel, storedModelForLeague } from "@/lib/modelStore";
-import { browserSessionStorage, notifySessionChange, useSessionValue } from "@/lib/useSessionValue";
+import { saveMyTeamPick, type CurrentLeagueRead } from "@/lib/leagueStore";
+import { storedModelForLeague } from "@/lib/modelStore";
 import { NoImportCard } from "../NoImportCard";
 import { finishImport } from "../connect/finishImport";
+import { useCurrentLeague, useSavedModel } from "../league/useLeagueInputs";
 import { Spinner } from "../ui";
 import { ReportView, type ForgetControl, type RefreshControl } from "./ReportView";
 
-const COOKIES_FORGOTTEN =
-  "Done. Your ESPN cookies are gone from this browser session. This report stays until you close the tab; if your league is private, Refresh won't work until you connect with cookies again.";
+export const COOKIES_FORGOTTEN =
+  "Done. Your ESPN cookies are gone from this browser session. This league stays saved in this browser; if it's private, Refresh won't work until you connect with cookies again.";
+
+export const NO_IMPORT_TEXT =
+  "Connect your ESPN or Sleeper league and we'll show you everything we understood about it. Leagues you import stay saved in this browser until you remove them.";
 
 export function ImportReport() {
-  const raw = useSessionValue(IMPORT_STORAGE_KEY);
-  const read = useMemo(() => (raw === undefined ? undefined : readStoredImport(raw)), [raw]);
+  const read = useCurrentLeague();
 
   if (read === undefined) {
     return (
@@ -33,23 +37,17 @@ export function ImportReport() {
       </div>
     );
   }
-  if (read.kind !== "ok") {
-    return (
-      <NoImportCard
-        outdated={read.kind === "outdated"}
-        text="Connect your ESPN or Sleeper league and we'll show you everything we understood about it. Imports stay in this browser tab only."
-      />
-    );
-  }
-  return <LoadedReport stored={read.stored} />;
+  if (read.kind !== "ok") return <NoImportCard read={read} text={NO_IMPORT_TEXT} />;
+  // One page state per saved league: another league's report starts fresh (its Refresh and Forget lines included).
+  return <LoadedReport key={read.league.id} current={read} />;
 }
 
-function LoadedReport({ stored }: { stored: StoredImport }) {
+function LoadedReport({ current }: { current: Extract<CurrentLeagueRead, { kind: "ok" }> }) {
+  const { stored, pick } = current;
+  const leagueId = current.league.id;
   const snapshot = stored.response.snapshot;
-  const pickRaw = useSessionValue(myTeamKey(snapshot));
-  const pick = useMemo(() => parseMyTeamPick(pickRaw), [pickRaw]);
-  const modelRaw = useSessionValue(MODEL_STORAGE_KEY);
-  const model = useMemo(() => storedModelForLeague(parseStoredModel(modelRaw), snapshot)?.model ?? null, [modelRaw, snapshot]);
+  const storedModel = useSavedModel(leagueId);
+  const model = useMemo(() => storedModelForLeague(storedModel ?? undefined, snapshot)?.model ?? null, [storedModel, snapshot]);
   const timeZone = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC", []);
   const view = useMemo(
     () => buildImportReport(stored.response, { timeZone, myTeamId: pick?.teamId ?? null, ...(pick ? { myTeamSource: pick.source } : {}), model }),
@@ -62,12 +60,21 @@ function LoadedReport({ stored }: { stored: StoredImport }) {
   const [forgetting, setForgetting] = useState(false);
   const [forgotten, setForgotten] = useState(false);
   const [forgetNote, setForgetNote] = useState<string | null>(null);
+  const [pickError, setPickError] = useState<string | null>(null);
+  const live = useRef(true);
+  useEffect(() => {
+    live.current = true;
+    return () => {
+      live.current = false;
+    };
+  }, []);
 
+  /** "Your team": shows at once (the league store applies it first); a pick the browser refuses is put back, and said. */
   function pickTeam(teamId: string) {
-    const storage = browserSessionStorage();
-    if (!storage) return;
-    saveMyTeam(storage, snapshot, teamId || null, "you");
-    notifySessionChange();
+    setPickError(null);
+    void saveMyTeamPick(leagueId, teamId || null, "you").then((saved) => {
+      if (!saved.ok && live.current) setPickError(saved.message);
+    });
   }
 
   /** Refresh (§2.10): the same league again, skipping server copies older than a minute. The stored team pick stays. */
@@ -90,7 +97,10 @@ function LoadedReport({ stored }: { stored: StoredImport }) {
       setRefreshError("That didn't work. Import the league again from the Connect page.");
       return;
     }
-    const saved = finishImport(stored.request, res);
+    // Saved over the league without making it the tab's league: one switched away from meanwhile stays switched away,
+    // and one removed meanwhile (here or in another tab) stays removed (ifSaved; review of track ML).
+    const saved = await finishImport(stored.request, res, undefined, { makeCurrent: false, ifSaved: true });
+    if (!live.current) return;
     if (!saved.ok) {
       setRefreshError(saved.message);
       return;
@@ -98,7 +108,7 @@ function LoadedReport({ stored }: { stored: StoredImport }) {
     setRefreshStatus(refreshOutcomeText({ before, after: res.snapshot.fetchedAt, now: new Date(), platform, timeZone }));
   }
 
-  /** "Forget my ESPN cookies": the sealed session cookie is deleted; this report (sessionStorage) stays. */
+  /** "Forget my ESPN cookies": the sealed session cookie is deleted; this league stays saved in the browser. */
   async function forgetCookies() {
     setForgetting(true);
     setForgetNote(null);
@@ -115,5 +125,5 @@ function LoadedReport({ stored }: { stored: StoredImport }) {
   const refreshControl: RefreshControl | undefined =
     snapshot.platform === "espn" || snapshot.platform === "sleeper" ? { onRefresh: () => void refresh(), refreshing, error: refreshError, status: refreshStatus } : undefined;
   const forgetControl: ForgetControl | undefined = view.league.canForgetEspnCookies ? { onForget: () => void forgetCookies(), forgetting, done: forgotten, note: forgetNote } : undefined;
-  return <ReportView view={view} onPickTeam={pickTeam} refresh={refreshControl} forget={forgetControl} />;
+  return <ReportView view={view} onPickTeam={pickTeam} pickError={pickError} refresh={refreshControl} forget={forgetControl} />;
 }

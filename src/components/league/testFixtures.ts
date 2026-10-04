@@ -29,6 +29,12 @@
  * keeps the pre-kickoff projection (PRE_KICKOFF), which is the week's LV before kickoff. Nobody else
  * plays in that game, so the other teams' week 12 LV is their pre-kickoff projection either way.
  *
+ * One baseline everywhere (Phase 4c; planner reply to Checkpoint 4b, change 9): LeagueModel.odds is every team after its
+ * free-agent pickups (TeamModel.scoreWithPickups: team 1's score plus PICKUP_GAIN["1"] a week, team 3's plus its own;
+ * teams 2 and 4 make none, so theirs is their score), and LeagueModel.oddsAsRostersStand every team as it stands: team 1
+ * 82% / 40% there against 86% / 43% with pickups. On game day each scoreWithPickups keeps score's week 12 (the engine plays
+ * a week under way with today's rosters); before kickoff the pickups count in week 12 too.
+ *
  * The star premium (planner addendum to Checkpoint 3, §1–§2; TeamModel.premiums) follows the engine's rules
  * (premiums(), below): each team's two most valuable players who are also among the top 12 by FantasyCalc value
  * are "Harder to get": team 1's Pemberton and McSprocket (mine: never shown), team 2's Gloop and Wobbleton,
@@ -274,6 +280,18 @@ function score(teamId: string, lv: number[], sd: number, gameDay: boolean): Team
   return { mean: lv.map((x, i) => (i === 0 && gameDay ? (PRE_KICKOFF[teamId] ?? x) : x)), sd: lv.map((_, i) => sd + (i === 2 ? 1.2 : 0)) };
 }
 
+/** What each team's free-agent pickups (TeamModel.faMoves) add to its weekly mean: teams 1 and 3 make some, teams 2 and 4 none. */
+export const PICKUP_GAIN: Record<string, number> = { "1": 1.5, "2": 0, "3": 2.2, "4": 0 };
+
+/**
+ * TeamModel.scoreWithPickups (Phase 4c): the score with the team's pickups (PICKUP_GAIN a week, the same SD), except a week
+ * in progress, which keeps the score's week (the engine plays it with today's rosters).
+ */
+function scoreWithPickups(teamId: string, s: TeamModel["score"], gameDay: boolean): NonNullable<TeamModel["scoreWithPickups"]> {
+  const gain = PICKUP_GAIN[teamId] ?? 0;
+  return { mean: s.mean.map((x, i) => (i === 0 && gameDay ? x : x + gain)), sd: [...s.sd] };
+}
+
 function tpv(mvLoseEv: number, mvLoseScen: number | null, surplusScore = 0): TeamPlayerValue {
   return { mvLoseEv, mvLoseScen, autoAdd: "901", surplusScore };
 }
@@ -297,7 +315,7 @@ function teams(gameDay: boolean): TeamModel[] {
   // Team 1's week 12 LV: a partial week on game day (MIN has kicked off), the full week before kickoff.
   const week12 = (partial: number, full: number) => (gameDay ? partial : full);
   const scen1 = [week12(82, PRE_KICKOFF["1"] as number), 90, 84, 88, 88, 88];
-  return [
+  const list: TeamModel[] = [
     {
       id: "1",
       ev: lu([week12(80, 89.4), 88, 86, 90, 90, 90]),
@@ -378,6 +396,8 @@ function teams(gameDay: boolean): TeamModel[] {
       score: score("4", [84, 85, 83, 84, 84, 84], 24.4, gameDay),
     },
   ];
+  // Phase 4c: each team's score after its free-agent pickups (the headline odds' scores).
+  return list.map((t) => ({ ...t, scoreWithPickups: scoreWithPickups(t.id, t.score, gameDay) }));
 }
 
 /** The remaining regular-season schedule (the user's team is teamB in week 13, so either order is read). */
@@ -403,8 +423,12 @@ function teamOdds(teamId: string, rank: number, pPlayoffs: number, pTitle: numbe
   return { teamId, rank, pPlayoffs, pBye: null, pTitle, expWins, expLosses: record[0] + record[1] + REGULAR.length - expWins, expTies: 0, seedDist, eliminated: false };
 }
 
-/** The season simulation (§8): 2 playoff spots, no byes, a fixed bracket; same team order as the model. */
-function seasonOdds(gameDay: boolean): SeasonOdds {
+/**
+ * The season simulation (§8): 2 playoff spots, no byes, a fixed bracket; same team order as the model. The headline
+ * (LeagueModel.odds: every team after its free-agent pickups), or `asRostersStand` (LeagueModel.oddsAsRostersStand: no
+ * team's pickups, so teams 1 and 3, who make some, do a little worse). Both add up: Σ playoffs = 2, Σ titles = 1.
+ */
+function seasonOdds(gameDay: boolean, asRostersStand = false): SeasonOdds {
   return {
     sims: 5000,
     seed: config.simulation.seed,
@@ -413,12 +437,19 @@ function seasonOdds(gameDay: boolean): SeasonOdds {
     tiebreaker: { rule: "pointsFor", assumed: false },
     reseed: { value: false, assumed: false },
     playoffsKnown: true,
-    teams: [
-      teamOdds("1", 2, 0.86, 0.43, [0.21, 0.65, 0.13, 0.01], [7, 4]),
-      teamOdds("2", 1, 0.93, 0.47, [0.77, 0.16, 0.069, 0.001], [8, 3]),
-      teamOdds("3", 3, 0.2092, 0.0998, [0.0198, 0.1894, 0.7412, 0.0496], [5, 6]),
-      teamOdds("4", 4, 0.0008, 0.0002, [0.0002, 0.0006, 0.0598, 0.9394], [2, 9]),
-    ],
+    teams: asRostersStand
+      ? [
+          teamOdds("1", 2, 0.82, 0.4, [0.19, 0.63, 0.16, 0.02], [7, 4]),
+          teamOdds("2", 1, 0.97, 0.51, [0.8, 0.17, 0.029, 0.001], [8, 3]),
+          teamOdds("3", 3, 0.2085, 0.0897, [0.0098, 0.1987, 0.7465, 0.045], [5, 6]),
+          teamOdds("4", 4, 0.0015, 0.0003, [0.0002, 0.0013, 0.0645, 0.934], [2, 9]),
+        ]
+      : [
+          teamOdds("1", 2, 0.86, 0.43, [0.21, 0.65, 0.13, 0.01], [7, 4]),
+          teamOdds("2", 1, 0.93, 0.47, [0.77, 0.16, 0.069, 0.001], [8, 3]),
+          teamOdds("3", 3, 0.2092, 0.0998, [0.0198, 0.1894, 0.7412, 0.0496], [5, 6]),
+          teamOdds("4", 4, 0.0008, 0.0002, [0.0002, 0.0006, 0.0598, 0.9394], [2, 9]),
+        ],
     weekly: REGULAR.map((week) => ({
       week,
       games: SCHEDULE.filter((m) => m.week === week).flatMap((m) => [
@@ -536,6 +567,7 @@ export function leagueFixture(opts: { myTeamId?: string | null; platform?: "espn
     },
     projection: { espnAveraged: false, agreement: { meanRelDiff: 0.14, players: 26, week: 12 }, disagreements: [], sources: { "espn+sleeper": 0, sleeper: 33, espn: 0, season: 0, actual: 0, none: 0 } },
     odds: seasonOdds(gameDay),
+    oddsAsRostersStand: seasonOdds(gameDay, true),
     timings: {},
     warnings: ["No projection for Dabney Drifter."],
   };

@@ -1,18 +1,24 @@
 /**
- * Hands the import from the Connect page to the Import Report through sessionStorage (never
- * localStorage, never credentials): it lasts only for this browser tab's session. Pure functions
- * over an injected storage, so they're testable without a browser.
+ * An import as the browser keeps it (never credentials): the record (StoredImport, toStoredImport), its checks
+ * (readImportData, readStoredImport) and the "my team" pick rule (pickAfterImport). Pure functions, testable
+ * without a browser.
+ *
+ * Phase 4c (planner reply to Checkpoint 4b, change 11): saved leagues live in IndexedDB (src/lib/leagueStore.ts),
+ * which keeps any number of imports with their "my team" picks until the user removes them, with the record, checks
+ * and pick rule here. Before 4c a tab kept its one import and its picks in sessionStorage (IMPORT_STORAGE_KEY,
+ * myTeamKey): the league store's migration reads them once per tab (readStoredImport, parseMyTeamKey,
+ * parseMyTeamPick), and a removal deletes this tab's copies; nothing writes them anymore.
  *
  * The stored record carries its format version (IMPORT_FORMAT_VERSION). A record from another version
  * is never read, so the pages don't show a snapshot that lacks fields they now rely on. One saved by an
  * earlier version of Offer Sheet (readStoredImport: "outdated") makes them say so and ask for the league
  * again (OUTDATED_IMPORT_TITLE, OUTDATED_IMPORT_TEXT), instead of "No league imported yet", which would
- * read as if the import had been lost. The storage key stays the same across versions, so the new
- * import replaces the old record in place (sessionStorage is small).
+ * read as if the import had been lost.
  */
 import type { LeagueSnapshot, Platform } from "@/engine/model";
 import type { ImportResponse } from "./api";
 
+/** Before Phase 4c: this tab's import in sessionStorage (the league store's migration reads it). */
 export const IMPORT_STORAGE_KEY = "offersheet:import:v1";
 /**
  * The stored import's format. Bump it whenever the snapshot changes in a way the pages rely on:
@@ -24,10 +30,14 @@ export const IMPORT_STORAGE_KEY = "offersheet:import:v1";
  * - 3: Phase 4b. Teams carry `waiverRank` and `faabRemaining` (the order free agents are handed out in, §7) and
  *   settings carry `irEligible` (which statuses an IR slot takes). A version-2 snapshot has neither, so its free agents
  *   would be handed out by best gain under a note that the league's waiver order wasn't available.
+ * - 4: Phase 4c (review of track ML). Team.waiverRank is the order the free-agent allocation uses: the weekly reset
+ *   order in a league whose waiver order resets weekly, the platform's own order kept in Team.liveWaiverRank; settings
+ *   carry `waiverOrderUsed` (planner reply to Checkpoint 4b, answer 2). A version-3 snapshot holds the platform's live
+ *   order in waiverRank, so its free agents would go out in the order of the day it was imported, and the Import
+ *   Report couldn't say which order was used. A Phase 4b tab's import therefore asks to be imported again (the league
+ *   store's migration still moves its "my team" pick, settings and feedback in: src/lib/leagueStore.ts).
  */
-export const IMPORT_FORMAT_VERSION = 3;
-/** Dispatched on window after this tab changes a stored value (the "storage" event only fires in other tabs). */
-export const STORAGE_CHANGED_EVENT = "offersheet:storage-changed";
+export const IMPORT_FORMAT_VERSION = 4;
 
 /** What the user asked for, to show and to re-import. Never holds credentials. */
 export interface ImportRequestSummary {
@@ -45,7 +55,7 @@ export interface StoredImport {
 }
 
 /**
- * The record for an import, in this version's format: what recordImport saves, and what
+ * The record for an import, in this version's format: what the league store saves, and what
  * scripts/import-report.ts --response-out writes for UI checks.
  */
 export function toStoredImport(args: { request: ImportRequestSummary; response: ImportResponse; savedAt: string }): StoredImport {
@@ -59,15 +69,6 @@ export interface StorageLike {
 }
 
 export type SaveResult = { ok: true } | { ok: false; message: string };
-
-export function saveImport(storage: StorageLike, stored: StoredImport): SaveResult {
-  try {
-    storage.setItem(IMPORT_STORAGE_KEY, JSON.stringify(stored));
-    return { ok: true };
-  } catch {
-    return { ok: false, message: "Your browser wouldn't let us keep this league for the session (storage is full or blocked). Try closing other Offer Sheet tabs, or allow site data." };
-  }
-}
 
 /** The pages' heading and text when this tab holds an import saved by an earlier version (readStoredImport: "outdated"). */
 export const OUTDATED_IMPORT_TITLE = "Offer Sheet was updated";
@@ -89,6 +90,11 @@ export function readStoredImport(raw: string | null | undefined): StoredImportRe
   } catch {
     return { kind: "none" };
   }
+  return readImportData(data);
+}
+
+/** readStoredImport for a value already parsed (the league store's IndexedDB rows hold objects, not text). */
+export function readImportData(data: unknown): StoredImportRead {
   if (!data || typeof data !== "object") return { kind: "none" };
   const d = data as Partial<StoredImport>;
   const snap = d.response?.snapshot as Partial<LeagueSnapshot> | undefined;
@@ -127,9 +133,20 @@ export interface MyTeamPick {
 
 type LeagueKey = Pick<LeagueSnapshot, "platform" | "leagueId" | "season">;
 
-/** Key for the user's own pick of "my team" in one league and season. */
+/** What every pre-4c "my team" key in sessionStorage starts with (myTeamKey). */
+export const MY_TEAM_KEY_PREFIX = "offersheet:myteam:v1:";
+
+/** The pre-4c sessionStorage key of the user's own pick of "my team" in one league and season. */
 export function myTeamKey(snapshot: LeagueKey): string {
-  return `offersheet:myteam:v1:${snapshot.platform}:${snapshot.leagueId}:${snapshot.season}`;
+  return `${MY_TEAM_KEY_PREFIX}${snapshot.platform}:${snapshot.leagueId}:${snapshot.season}`;
+}
+
+const MY_TEAM_KEY = /^offersheet:myteam:v1:([a-z]+):(.+):(\d{4})$/;
+
+/** The league and season a myTeamKey names (the league store's migration reads every pick in a tab); undefined for any other key. */
+export function parseMyTeamKey(key: string): { platform: string; leagueId: string; season: number } | undefined {
+  const m = MY_TEAM_KEY.exec(key);
+  return m ? { platform: m[1] as string, leagueId: m[2] as string, season: Number(m[3]) } : undefined;
 }
 
 /** A stored pick. A bare team ID (how picks were first stored) counts as the user's own. */
@@ -137,47 +154,33 @@ export function parseMyTeamPick(raw: string | null | undefined): MyTeamPick | un
   if (!raw) return undefined;
   if (!raw.startsWith("{")) return { teamId: raw, source: "you" };
   try {
-    const d = JSON.parse(raw) as Partial<MyTeamPick>;
-    if (typeof d.teamId !== "string" || !d.teamId) return undefined;
-    return { teamId: d.teamId, source: d.source === "link" ? "link" : "you" };
+    return checkMyTeamPick(JSON.parse(raw));
   } catch {
     return undefined;
   }
 }
 
-export function saveMyTeam(storage: StorageLike, snapshot: LeagueKey, teamId: string | null, source: MyTeamPickSource = "you"): void {
-  try {
-    if (teamId) storage.setItem(myTeamKey(snapshot), JSON.stringify({ teamId, source } satisfies MyTeamPick));
-    else storage.removeItem(myTeamKey(snapshot));
-  } catch {
-    // storage blocked: the pick lasts until the page reloads
-  }
+/** A pick already parsed (the league store's rows hold objects), checked: a team ID and where it came from. */
+export function checkMyTeamPick(data: unknown): MyTeamPick | undefined {
+  if (!data || typeof data !== "object") return undefined;
+  const d = data as Partial<MyTeamPick>;
+  if (typeof d.teamId !== "string" || !d.teamId) return undefined;
+  return { teamId: d.teamId, source: d.source === "link" ? "link" : "you" };
 }
 
-function loadMyTeamPick(storage: StorageLike, snapshot: LeagueKey): MyTeamPick | undefined {
-  try {
-    return parseMyTeamPick(storage.getItem(myTeamKey(snapshot)));
-  } catch {
-    return undefined;
-  }
-}
+/** What an import does to the stored pick (pickAfterImport): leave it, set it, or clear it. */
+export type PickChange = { kind: "keep" } | { kind: "set"; pick: MyTeamPick } | { kind: "clear" };
 
 /**
- * Saves a finished import for the Import Report. A team from a pasted ESPN team link is kept as a
- * pick to confirm ("link"), under the per-league key so Refresh keeps it, unless the platform itself
- * knows the user's team (ESPN cookies, a Sleeper username) or the user already picked one. A link
- * pick is dropped once the platform knows the team.
+ * The pick rule for a finished import (the league store's saveImport and model responses): a team from a pasted ESPN
+ * team link (`teamHint`) becomes a pick to confirm ("link"), kept under the league's own pick so Refresh keeps it,
+ * unless the platform itself knows the user's team (ESPN cookies, a Sleeper username) or the user already picked a team
+ * that is still in the league; a link pick is dropped once the platform knows the team. A hint that isn't a team in the
+ * league changes nothing.
  */
-export function recordImport(storage: StorageLike, args: { request: ImportRequestSummary; response: ImportResponse; savedAt: string; teamHint?: string }): SaveResult {
-  const saved = saveImport(storage, toStoredImport(args));
-  if (!saved.ok) return saved;
-  const snap = args.response.snapshot;
-  const isTeam = (id: string | undefined) => id !== undefined && snap.teams.some((t) => t.id === id);
-  const existing = loadMyTeamPick(storage, snap);
-  if (snap.myTeamId) {
-    if (existing?.source === "link") saveMyTeam(storage, snap, null);
-  } else if (isTeam(args.teamHint) && !(existing?.source === "you" && isTeam(existing.teamId))) {
-    saveMyTeam(storage, snap, args.teamHint ?? null, "link");
-  }
-  return saved;
+export function pickAfterImport(snapshot: Pick<LeagueSnapshot, "myTeamId" | "teams">, existing: MyTeamPick | undefined, teamHint?: string): PickChange {
+  const isTeam = (id: string | undefined): id is string => id !== undefined && snapshot.teams.some((t) => t.id === id);
+  if (snapshot.myTeamId) return existing?.source === "link" ? { kind: "clear" } : { kind: "keep" };
+  if (isTeam(teamHint) && !(existing?.source === "you" && isTeam(existing.teamId))) return { kind: "set", pick: { teamId: teamHint, source: "link" } };
+  return { kind: "keep" };
 }

@@ -7,14 +7,14 @@
  * prefetched (prefetch={false}), so the server sees such an address only when the user opens it. And the trip between
  * the two pages (review of Phase 4): the Analyzer's "Back to the Trade Finder" goes to the Finder's last address,
  * partner included; a card's "Open in Analyzer" remembers the idea to come back to; the Analyzer's status line sits
- * above its form. Static renders (first render only) with this tab's storage, the browser's storage and Next's hooks
- * faked; a made-up league.
+ * above its form. Static renders (first render only) with the league store's state (Phase 4c: src/lib/leagueStore.ts,
+ * leagueStoreStateOf) and Next's hooks faked; a made-up league.
  */
 import { createElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const env = vi.hoisted(() => ({ query: "", session: new Map<string, string>(), links: [] as { href: string; prefetch: unknown; onClick?: () => void }[] }));
+const env = vi.hoisted(() => ({ query: "", state: null as LeagueStoreState | null, links: [] as { href: string; prefetch: unknown; onClick?: () => void }[] }));
 vi.mock("next/navigation", () => ({ useSearchParams: () => new URLSearchParams(env.query), usePathname: () => "/trades" }));
 vi.mock("next/link", () => ({
   default: ({ href, prefetch, children, ...rest }: { href: string; prefetch?: unknown; children?: ReactNode; className?: string; onClick?: () => void }) => {
@@ -22,18 +22,15 @@ vi.mock("next/link", () => ({
     return createElement("a", { ...rest, href }, children);
   },
 }));
-vi.mock("@/lib/useSessionValue", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/lib/useSessionValue")>()),
-  useSessionValue: (key: string) => env.session.get(key) ?? null,
-}));
-vi.mock("@/components/settings/useLocalValue", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/components/settings/useLocalValue")>()),
-  useLocalValue: () => null,
-}));
+vi.mock("@/lib/leagueStore", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/leagueStore")>();
+  return { ...actual, useLeagueStoreState: () => env.state ?? actual.useLeagueStoreState() };
+});
 
-import { IMPORT_FORMAT_VERSION, IMPORT_STORAGE_KEY } from "@/lib/importStore";
+import { IMPORT_FORMAT_VERSION, type StoredImport } from "@/lib/importStore";
+import { leagueStoreStateOf, savedLeagueId, type LeagueStoreState } from "@/lib/leagueStore";
 import { buildLeagueView } from "@/lib/leagueView";
-import { MODEL_STORAGE_KEY, modelKey } from "@/lib/modelStore";
+import { modelKey } from "@/lib/modelStore";
 import { buildFinderView, buildTradeCard } from "@/lib/tradeView";
 import { NOW, leagueFixture } from "../league/testFixtures";
 import { TradePartners } from "../league/TradePartners";
@@ -44,14 +41,18 @@ import { FinderFrame, TradeFinderPage } from "./TradeFinderPage";
 import { evaluation, searchResult, tradeSnapshot } from "./testFixtures";
 
 const f = leagueFixture();
+/** The saved league's id: the trade pages' memory is per league (finderMemory.ts). */
+const LEAGUE = savedLeagueId(f.snapshot);
 
 beforeEach(() => {
-  env.session.clear();
   env.links = [];
-  // The import and fresh model inputs for it, as the League page leaves them in this tab.
+  // The saved league and fresh model inputs for it, as the League page leaves them in the league store.
   const savedAt = new Date().toISOString();
-  env.session.set(IMPORT_STORAGE_KEY, JSON.stringify({ version: IMPORT_FORMAT_VERSION, savedAt, request: { platform: "espn", season: 2026, leagueId: f.snapshot.leagueId }, response: { snapshot: f.snapshot, notes: [] } }));
-  env.session.set(MODEL_STORAGE_KEY, JSON.stringify({ version: 1, savedAt, key: modelKey(f.snapshot), snapshotFetchedAt: f.snapshot.fetchedAt, model: { ...f.inputs, builtAt: savedAt } }));
+  const stored: StoredImport = { version: IMPORT_FORMAT_VERSION, savedAt, request: { platform: "espn", season: 2026, leagueId: f.snapshot.leagueId }, response: { snapshot: f.snapshot, notes: [] } };
+  env.state = leagueStoreStateOf({
+    imports: [stored],
+    models: { [LEAGUE]: { version: 1, savedAt, key: modelKey(f.snapshot), snapshotFetchedAt: f.snapshot.fetchedAt, model: { ...f.inputs, builtAt: savedAt } } },
+  });
   // The address the browser still shows: the page the user came from.
   vi.stubGlobal("window", { location: { pathname: "/league", search: "?partner=4&give=101&get=401" } });
 });
@@ -59,6 +60,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllGlobals();
   resetFinderMemory();
+  env.state = null;
 });
 
 /** The Finder's partner select's chosen option. */
@@ -113,11 +115,15 @@ describe("the trip between the Trade Finder and the Analyzer (review of Phase 4)
   /** The Analyzer's "Back to the Trade Finder" link. */
   const backHref = (html: string) => /<a [^>]*href="([^"]*)"[^>]*>Back to the Trade Finder<\/a>/.exec(html)?.[1];
 
-  it("goes back to the Finder's last address, its partner filter included, else to the Finder for every team", () => {
+  it("goes back to the league's Finder's last address, its partner filter included, else to the Finder for every team", () => {
     env.query = "partner=2&give=105&get=203";
     expect(backHref(renderToStaticMarkup(createElement(AnalyzerPage)))).toBe("/trades");
-    rememberFinderAddress("/trades?partner=4");
+    rememberFinderAddress(LEAGUE, "/trades?partner=4");
     expect(backHref(renderToStaticMarkup(createElement(AnalyzerPage)))).toBe("/trades?partner=4");
+    // Another league's Finder address never: its partner is a team of that league (Phase 4c).
+    resetFinderMemory();
+    rememberFinderAddress("sleeper:12345678:2026", "/trades?partner=3");
+    expect(backHref(renderToStaticMarkup(createElement(AnalyzerPage)))).toBe("/trades");
   });
 
   it("has the Analyzer's status line above its form, so the address's trade shows it's being evaluated near the top", () => {

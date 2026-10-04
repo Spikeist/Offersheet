@@ -1,11 +1,17 @@
 import { describe, expect, it } from "vitest";
+import { acceptance, type PartnerProfile } from "./acceptance";
+import { tradePackage } from "./benefit";
+import { perceivedPackage } from "./premium";
 import { config } from "./config";
 import type { MarketInputs } from "./inputs";
+import { activeSpots } from "./irSlots";
 import {
+  curveMarketValues,
   curveValue,
   defaultFantasyCalcMode,
   FANTASYCALC_PPR,
   FANTASYCALC_TEAM_SIZES,
+  fantasyCalcFallbackText,
   fantasyCalcFormat,
   fantasyCalcFormatLabel,
   isotonicFit,
@@ -13,6 +19,8 @@ import {
   marketSummary,
   marketValues,
   nearestOption,
+  neutralThrowIns,
+  noteDay,
   packageValues,
   receptionRate,
   valuesForTerm,
@@ -332,6 +340,99 @@ describe("marketValues (§9 player values)", () => {
   });
 });
 
+describe("the curve fallback (Phase 4c; planner reply to Checkpoint 4b, change 12): an old list only calibrates the model's own value curve", () => {
+  // The ten RBs of the block above, from a list FantasyCalc served 20 days ago. Their isotonic curve of value on ROS
+  // points: 200 at 40 and 50 (rb0 and rb1 pooled), then 400 at 60 rising by 100 every 10 points to 1,100 at 130.
+  const valuedRbs = [{ x: 40, v: 300 }, { x: 50, v: 100 }, ...Array.from({ length: 8 }, (_, i) => ({ x: 60 + 10 * i, v: 400 + 100 * i }))].map((p, i) => ({ id: `rb${i}`, ...p }));
+  const rbValues = Object.fromEntries(valuedRbs.map((p) => [p.id, p.v]));
+  const rbRos = Object.fromEntries(valuedRbs.map((p) => [p.id, p.x]));
+  const rb = (id: string): MarketPlayer => ({ id, pos: "RB" });
+  const old = (extra: Partial<MarketInputs> = {}) => market(rbValues, { fallback: { kind: "curve", listDate: "2026-09-14T06:00:00.000Z" }, ...extra });
+
+  it("values every player at the position by the curve at his own ROS points, valued or not (source estimate, no cap)", () => {
+    const players = [...valuedRbs.map((p) => rb(p.id)), rb("new1"), rb("star"), rb("noRos")];
+    const ros = { ...rbRos, new1: 65, star: 500 };
+    const v = marketValues(players, ros, old());
+    // A player the old list valued gets the curve's number at today's points, not his old value (100 then; 200 now).
+    expect(v.rb1).toEqual({ value: 200, source: "estimate" });
+    // On the curve: the same number, as an estimate.
+    expect(v.rb5).toEqual({ value: 700, source: "estimate" });
+    // An unvalued player isn't capped at the lowest old value: 65 points is halfway from rb2 (400) to rb3 (500).
+    expect(v.new1).toEqual({ value: 450, source: "estimate" });
+    // Beyond the curve's last point: flat at its top.
+    expect(v.star).toEqual({ value: 1100, source: "estimate" });
+    expect(v.noRos).toBeUndefined();
+    expect(Object.values(v).every((x) => x.source === "estimate")).toBe(true);
+    // marketValues runs curveMarketValues then; the players' order doesn't matter.
+    expect(curveMarketValues([...players].reverse(), ros, old())).toEqual(v);
+  });
+
+  it("fits the curve on the healthy players with points left (review of track MK): an injured player's old value never lifts it; he is read off it at his own ROS points", () => {
+    // The review's toy: 14 healthy WRs (ROS 10–140, old values 100–4,650 rising 350 a step: the fit is the points themselves)
+    // and a WR out for the season (ROS 0) whom the old list, a dynasty list, still values at 8,000.
+    const healthy = Array.from({ length: 14 }, (_, i) => ({ id: `w${i}`, ros: 10 + 10 * i, v: 100 + 350 * i }));
+    const wrValues = Object.fromEntries(healthy.map((p) => [p.id, p.v]));
+    const wrRos = Object.fromEntries(healthy.map((p) => [p.id, p.ros]));
+    const wr = (id: string, fit?: boolean): MarketPlayer => ({ id, pos: "WR", ...(fit === undefined ? {} : { fit }) });
+    const wrs = healthy.map((p) => wr(p.id));
+    const oldWr = (values: Record<string, number>) => market(values, { fallback: { kind: "curve", listDate: "2026-09-14T06:00:00.000Z" } });
+    // Out for the season: no points left, so no curve point whatever his tag says. In the fit, every WR with ROS ≤ 60
+    // read 1,979; now each healthy WR reads his own value.
+    const season = marketValues([...wrs, wr("star")], { ...wrRos, star: 0 }, oldWr({ ...wrValues, star: 8000 }));
+    for (const p of healthy) expect(season[p.id]).toEqual({ value: p.v, source: "estimate" });
+    expect(season.star).toEqual({ value: 0, source: "estimate" }); // read off the curve: no games left
+    // Out for weeks (an IR tag, fit false): points left, still no curve point; read off the curve at his own ROS points.
+    const ir = marketValues([...wrs, wr("ir", false)], { ...wrRos, ir: 35 }, oldWr({ ...wrValues, ir: 8000 }));
+    for (const p of healthy) expect(ir[p.id]).toEqual({ value: p.v, source: "estimate" });
+    expect(ir.ir).toEqual({ value: 975, source: "estimate" }); // halfway from w2 (800 at 30) to w3 (1,150 at 40)
+    // fit true is the default: an unflagged player is a curve point, and the same 8,000 then lifts his neighbours.
+    expect(marketValues([...wrs, wr("ir", true)], { ...wrRos, ir: 35 }, oldWr({ ...wrValues, ir: 8000 }))).toEqual(marketValues([...wrs, wr("ir")], { ...wrRos, ir: 35 }, oldWr({ ...wrValues, ir: 8000 })));
+    expect(marketValues([...wrs, wr("ir")], { ...wrRos, ir: 35 }, oldWr({ ...wrValues, ir: 8000 })).w3?.value).toBeGreaterThan(1150);
+  });
+
+  it("counts curve points, not valued players, against unvaluedCurveMinPlayers: ten valued RBs with one injured, or one without points, is one short", () => {
+    const injured = marketValues(
+      valuedRbs.map((p, i) => (i === 9 ? { ...rb(p.id), fit: false } : rb(p.id))),
+      rbRos,
+      old(),
+    );
+    for (const p of valuedRbs) expect(injured[p.id]).toEqual({ value: 100, source: "floor" }); // min(valueFloor 100, the lowest old value 100)
+    const noPoints = marketValues(
+      valuedRbs.map((p) => rb(p.id)),
+      { ...rbRos, rb9: 0 },
+      old(),
+    );
+    for (const p of valuedRbs) expect(noPoints[p.id]).toEqual({ value: 100, source: "floor" });
+  });
+
+  it("a position with too few valued players gets the floor (min(valueFloor, the lowest old value there)); kickers and defenses valueFloor", () => {
+    const players: MarketPlayer[] = [{ id: "te1", pos: "TE" }, { id: "teX", pos: "TE" }, { id: "k", pos: "K" }];
+    const v = marketValues(players, { te1: 50, teX: 70, k: 80 }, old({ values: { ...rbValues, te1: 3000 } }));
+    expect(v).toEqual({ te1: { value: 100, source: "floor" }, teX: { value: 100, source: "floor" }, k: { value: 100, source: "floor" } });
+  });
+
+  it("keeper leagues: perception reads the old redraft list and the future term the old dynasty list, as valuesForTerm does", () => {
+    const keeperOld = old({ redraftValues: Object.fromEntries(valuedRbs.map((p) => [p.id, p.v * 2])) });
+    expect(marketValues(valuedRbs.map((p) => rb(p.id)), rbRos, keeperOld).rb4).toEqual({ value: 1200, source: "estimate" });
+    expect(marketValues(valuedRbs.map((p) => rb(p.id)), rbRos, keeperOld, config.market, "future").rb4).toEqual({ value: 600, source: "estimate" });
+  });
+
+  it("only the curve path: a saved list (kind saved) is read as FantasyCalc's own values", () => {
+    const saved = market(rbValues, { fallback: { kind: "saved", listDate: "2026-09-28T06:00:00.000Z" } });
+    expect(marketValues([rb("rb1")], { rb1: 50 }, saved).rb1).toEqual({ value: 100, source: "fantasycalc" });
+  });
+
+  it("fantasyCalcFallbackText: the note for a saved list and the banner for the curve, naming the list's day (UTC)", () => {
+    expect(noteDay("2026-09-28T23:30:00.000Z")).toBe("Sep 28");
+    expect(noteDay("nonsense")).toBeNull();
+    expect(fantasyCalcFallbackText({ kind: "saved", listDate: "2026-09-28T06:00:00.000Z" })).toBe("Trade values from Sep 28: FantasyCalc didn't answer.");
+    expect(fantasyCalcFallbackText({ kind: "curve", listDate: "2026-09-14T06:00:00.000Z" })).toBe(
+      "Trade values are our own estimates, not FantasyCalc's: FantasyCalc didn't answer, and the newest list we have, from Sep 14, is more than 7 days old. Each player's value comes from his projected points for the rest of the season, on a curve fitted to that list, so an injured player's value counts only the games he's expected to play. Read trade values as rough.",
+    );
+    expect(fantasyCalcFallbackText({ kind: "saved", listDate: "?" })).toBe("Trade values from an earlier day: FantasyCalc didn't answer.");
+  });
+});
+
 describe("waiverCredit (§9 W)", () => {
   it("is the best available free agent's value, at least waiverCreditMinFraction × the top value", () => {
     expect(waiverCredit({ fa1: 300, fa2: 800, rostered: 5000 }, ["fa1", "fa2", "unknown"], 10_000)).toBe(800);
@@ -364,109 +465,326 @@ describe("marketGain (§9 package value with the waiver credit)", () => {
     expect(marketGain(["stud"], ["a", "b"], entries, 400)).toBeCloseTo(0.04, 12);
   });
 
-  it("an even 1-for-1 is 0; an unvalued id counts W (the floor); a side giving nothing of value", () => {
+  it("an even 1-for-1 is 0; an unvalued id counts 0 before the floor; a side giving nothing of value", () => {
     expect(marketGain(["a"], ["b"], values, 400)).toBe(0);
-    // The ghost counts W like the roster spot the 1-player side gets back: 5,400 against 5,400.
+    // The ghost (no value: 0, at most W) is a neutral throw-in on the side moving more players: left out with his spot.
     expect(marketGain(["a", "ghost"], ["b"], values, 400)).toBe(0);
-    expect(packageValues(["a", "ghost"], ["b"], values, 400)).toEqual({ recv: 5_400, give: 5_400 });
+    expect(packageValues(["a", "ghost"], ["b"], values, 400)).toEqual({ recv: 5_000, give: 5_000 });
     expect(marketGain([], [], values, 400)).toBe(0);
+    // A player worth more than W is never left out: the side giving nothing gets his value for the spot it fills.
     expect(marketGain(["a"], [], values, 400)).toBeCloseTo((5_000 - 400) / 400, 12);
     expect(marketGain(["a"], [], values, 0)).toBe(Number.POSITIVE_INFINITY);
     expect(marketGain(["ghost"], [], values, 0)).toBe(0);
     expect(marketGain([], ["a"], values, 0)).toBe(-1);
   });
 
-  describe("each player at max(v, W) (planner reply to Checkpoint 4, change 4; replaces lead decision N10)", () => {
+  describe("each player at max(v, W), after the neutral throw-ins (planner replies to Checkpoint 4, change 4, and to Checkpoint 4b, change 2)", () => {
     const W = 628;
-    const cheap = { ...values, junk: 300, scrap: 120, bench: 610 };
+    const cheap = { ...values, junk: 300, scrap: 120, bench: 610, edge: W };
 
     it("an even swap of two players worth less than W reads g = 0 for both sides", () => {
       expect(marketGain(["junk"], ["scrap"], cheap, W)).toBe(0);
       expect(marketGain(["scrap"], ["junk"], cheap, W)).toBe(0);
-      expect(packageValues(["junk"], ["scrap"], cheap, W)).toEqual({ recv: W, give: W });
+      // A matched pair (the second step, Phase 4c): both are left out with their spots, nothing against nothing (Checkpoint
+      // 4b counted W against W: the same g).
+      expect(packageValues(["junk"], ["scrap"], cheap, W)).toEqual({ recv: 0, give: 0 });
     });
 
-    it("dumping a player worth less than W for nothing reads g = 0 (his floored W against the open spot's W)", () => {
-      expect(packageValues([], ["junk"], cheap, W)).toEqual({ recv: W, give: W });
+    it("dumping a player worth less than W for nothing reads g = 0: he and the roster spot he opens are left out", () => {
+      expect(packageValues([], ["junk"], cheap, W)).toEqual({ recv: 0, give: 0 });
       expect(marketGain([], ["junk"], cheap, W)).toBe(0);
-      // The side taking him sees the same: it gives the spot (W) for him (W).
+      // The side taking him sees the same.
+      expect(packageValues(["junk"], [], cheap, W)).toEqual({ recv: 0, give: 0 });
       expect(marketGain(["junk"], [], cheap, W)).toBe(0);
     });
 
-    it("a throw-in worth less than W adds W to both sides: the value difference doesn't move", () => {
+    it("a throw-in worth at most W moves nothing, on either side, whichever side he's added to (Checkpoint 4b's ratio effect is gone)", () => {
       // A 1-for-1 (5,000 for 10,000) and the same with "bench" (610 < W) thrown in on the 5,000 side.
       const lean = packageValues(["stud"], ["a"], cheap, W);
-      const full = packageValues(["stud"], ["a", "bench"], cheap, W);
-      expect(full.recv - full.give).toBe(lean.recv - lean.give);
-      expect(full).toEqual({ recv: lean.recv + W, give: lean.give + W });
-      // When the side throwing him in gets more players, the throw-in only cancels the credit it was owed: nothing moves.
-      const twoForOne = packageValues(["a", "b"], ["stud"], cheap, W);
-      const twoForTwo = packageValues(["a", "b"], ["stud", "bench"], cheap, W);
-      expect(twoForTwo).toEqual(twoForOne);
+      expect(packageValues(["stud"], ["a", "bench"], cheap, W)).toEqual(lean);
+      expect(marketGain(["stud"], ["a", "bench"], cheap, W)).toBe(marketGain(["stud"], ["a"], cheap, W));
+      // The partner's side: it gets him and gives the same, so its g doesn't move either (it was −50% and stays there).
+      expect(marketGain(["a", "bench"], ["stud"], cheap, W)).toBe(marketGain(["a"], ["stud"], cheap, W));
+      expect(marketGain(["a"], ["stud"], cheap, W)).toBe(-0.5);
+      // A player worth exactly W is one too ("at most W").
+      expect(packageValues(["stud"], ["a", "edge"], cheap, W)).toEqual(lean);
+      // One cheap player on each side: a matched pair (the second step), both left out with their spots, so it reads as
+      // stud for a (Checkpoint 4b, and Phase 4c's first rule alone, counted both at W: each g edged toward 0, +88.7%).
+      expect(packageValues(["stud", "scrap"], ["a", "junk"], cheap, W)).toEqual(packageValues(["stud"], ["a"], cheap, W));
+      expect(marketGain(["stud", "scrap"], ["a", "junk"], cheap, W)).toBe(1);
+      // The side throwing him in got 2 for 1 already: he evens the counts and nobody is cheap on the other side, so he stays
+      // in at W, in the place of the spot that side was owed: nothing moves either (as before Phase 4c).
+      expect(packageValues(["a", "b"], ["stud", "bench"], cheap, W)).toEqual(packageValues(["a", "b"], ["stud"], cheap, W));
     });
 
-    it("…but g is a ratio: each side's g edges toward 0 (g × PV_give / (PV_give + W)) unless he fills a credited spot (⚠️ reported to the planner)", () => {
-      // The same 1-for-1: the side throwing "bench" in gains +100%, the side taking him loses 50%.
-      const leanMine = marketGain(["stud"], ["a"], cheap, W);
-      const leanTheirs = marketGain(["a"], ["stud"], cheap, W);
-      const fullMine = marketGain(["stud"], ["a", "bench"], cheap, W);
-      const fullTheirs = marketGain(["a", "bench"], ["stud"], cheap, W);
-      expect([leanMine, leanTheirs]).toEqual([1, -0.5]);
-      expect(fullMine).toBeCloseTo((leanMine * 5_000) / (5_000 + W), 12);
-      expect(fullTheirs).toBeCloseTo((leanTheirs * 10_000) / (10_000 + W), 12);
-      // Down for the side gaining (+100% → +88.8%), up for the side losing (−50% → −47.0%): nobody gained any value.
-      expect(fullMine).toBeLessThan(leanMine);
-      expect(fullTheirs).toBeGreaterThan(leanTheirs);
-      // A cheap player on each side moves both g toward 0 the same way (W more on every sum).
-      expect(marketGain(["stud", "scrap"], ["a", "junk"], cheap, W)).toBeCloseTo((leanMine * 5_000) / (5_000 + W), 12);
-      // He fills a spot the credit already counted (the side throwing him in got 2 for 1): no g moves, on either side.
-      expect(marketGain(["a", "b"], ["stud", "bench"], cheap, W)).toBe(marketGain(["a", "b"], ["stud"], cheap, W));
-      expect(marketGain(["stud", "bench"], ["a", "b"], cheap, W)).toBe(marketGain(["stud"], ["a", "b"], cheap, W));
+    it("the gap the review of track EF found (finding 1), closed by the matched pairs: A + x → B + c reads as A → B, the same as A → B + c", () => {
+      // W 615; my A (1,000) for their B (1,500) and c (100), then with my x (200) thrown in.
+      const w = 615;
+      const vals = { A: 1000, B: 1500, c: 100, x: 200 };
+      const lean = packageValues(["B", "c"], ["A"], vals, w); // my side, without x: the planner's step leaves c out
+      expect(lean).toEqual({ recv: 1500, give: 1000 });
+      expect(neutralThrowIns(["B", "c"], ["A", "x"], vals, w)).toEqual({ recv: ["B"], give: ["A"], removed: ["c", "x"], spots: { recv: 1, give: 1 } });
+      expect(packageValues(["B", "c"], ["A", "x"], vals, w)).toEqual(lean);
+      expect(packageValues(["B"], ["A"], vals, w)).toEqual(lean);
+      // The partner's side, the mirror: −33.3% with x or without (Phase 4c's first rule alone read −23.6% with x).
+      expect(marketGain(["A", "x"], ["B", "c"], vals, w)).toBeCloseTo(-1 / 3, 12);
+      expect(marketGain(["A"], ["B", "c"], vals, w)).toBeCloseTo(-1 / 3, 12);
+      // Pairs come after the planner's step, cheapest first on each side: in a 3-for-2 with 2 cheap players of mine and 1 of
+      // theirs (d = 1), the planner's step takes my cheapest (x), then the pair my next (y) with their c.
+      const more = { ...vals, y: 300, z: 500, D: 2500 };
+      expect(neutralThrowIns(["B", "c"], ["A", "x", "y"], more, w).removed).toEqual(["c", "x", "y"]);
+      // In a 4-for-3 my dearest cheap one (z) stays: the counts are even again and nobody cheap is left on their side.
+      expect(neutralThrowIns(["B", "c", "D"], ["A", "x", "y", "z"], more, w)).toEqual({ recv: ["B", "D"], give: ["A", "z"], removed: ["c", "x", "y"], spots: { recv: 2, give: 2 } });
+      // He counts W in place of the roster-spot credit on what I give (two players worth more than W in, one out): the same
+      // package as with every cheap player left out.
+      expect(packageValues(["B", "c", "D"], ["A", "x", "y", "z"], more, w)).toEqual(packageValues(["B", "D"], ["A"], more, w));
     });
 
-    it("in general a player added to one side's give raises the other side's g exactly when max(v, W) > W × (1 + g) (he takes a new spot) or v > W (he fills a credited one)", () => {
+    it("the cheapest go first, up to the difference in players; the cheap ones left count W like anyone floored", () => {
+      // 3 for 2: one of the two cheap players goes (scrap, the cheaper); junk stays, at W.
+      expect(packageValues(["stud", "b"], ["a", "junk", "scrap"], cheap, W)).toEqual({ recv: 15_000, give: 5_000 + W });
+      expect(neutralThrowIns(["stud", "b"], ["a", "junk", "scrap"], cheap, W)).toEqual({ recv: ["stud", "b"], give: ["a", "junk"], removed: ["scrap"], spots: { recv: 2, give: 2 } });
+      // 4 for 2: two of the three cheap players go, cheapest first (scrap, then junk); bench stays, at W.
+      expect(neutralThrowIns(["stud", "b"], ["a", "junk", "bench", "scrap"], cheap, W)).toEqual({ recv: ["stud", "b"], give: ["a", "bench"], removed: ["scrap", "junk"], spots: { recv: 2, give: 2 } });
+      expect(packageValues(["stud", "b"], ["a", "junk", "bench", "scrap"], cheap, W)).toEqual({ recv: 15_000, give: 5_000 + W });
+      // Never a player worth more than W: 3 for 1 with one cheap player, who goes alone; the side still opens a spot.
+      expect(neutralThrowIns(["stud"], ["a", "b", "junk"], cheap, W)).toEqual({ recv: ["stud"], give: ["a", "b"], removed: ["junk"], spots: { recv: 1, give: 2 } });
+      expect(packageValues(["stud"], ["a", "b", "junk"], cheap, W)).toEqual({ recv: 10_000 + W, give: 10_000 });
+      // Ties by the smaller id, whatever the lists' order.
+      const twins = { ...cheap, p2: 200, p1: 200 };
+      expect(neutralThrowIns(["stud", "b"], ["p2", "a", "p1"], twins, W).removed).toEqual(["p1"]);
+      expect(neutralThrowIns(["stud", "b"], ["p1", "p2", "a"], twins, W).removed).toEqual(["p1"]);
+      // The side receiving more: its cheap receipts go (the ghost, then junk), the givers' counts untouched.
+      expect(neutralThrowIns(["a", "junk", "ghost"], ["stud"], cheap, W)).toEqual({ recv: ["a"], give: ["stud"], removed: ["ghost", "junk"], spots: { recv: 1, give: 1 } });
+    });
+
+    it("no W (0, negative or not a number), or nobody cheap enough on the bigger side and no cheap pair: nobody is left out", () => {
+      for (const w of [0, -5, Number.NaN]) expect(neutralThrowIns(["stud"], ["junk", "scrap"], cheap, w).removed).toEqual([]);
+      expect(neutralThrowIns(["stud"], ["a", "b"], cheap, W)).toEqual({ recv: ["stud"], give: ["a", "b"], removed: [], spots: { recv: 1, give: 2 } });
+      // Equal counts with cheap players on one side only: no pair.
+      expect(neutralThrowIns(["stud", "junk"], ["a", "b"], cheap, W).removed).toEqual([]);
+      // Equal counts with one on each side: a pair (Checkpoint 4b, and Phase 4c's first rule alone, left both in).
+      expect(neutralThrowIns(["junk"], ["scrap"], cheap, W)).toEqual({ recv: [], give: [], removed: ["scrap", "junk"], spots: { recv: 0, give: 0 } });
+      // As many pairs as the side with fewer cheap players has, cheapest first on each side; ties by the smaller id.
+      const twins = { ...cheap, q1: 200, q2: 200 };
+      expect(neutralThrowIns(["stud", "junk", "b"], ["a", "q2", "q1"], twins, W)).toEqual({ recv: ["stud", "b"], give: ["a", "q2"], removed: ["q1", "junk"], spots: { recv: 2, give: 2 } });
+      expect(neutralThrowIns(["stud", "junk", "bench"], ["a", "q2", "b"], twins, W)).toEqual({ recv: ["stud", "bench"], give: ["a", "b"], removed: ["q2", "junk"], spots: { recv: 2, give: 2 } });
+      expect(neutralThrowIns(["stud", "junk", "bench"], ["a", "q2", "q1"], twins, W).removed).toEqual(["q1", "q2", "junk", "bench"]);
+    });
+
+    it("both sides of a trade leave out the same players, so without IR moves my package and the partner's mirror each other (random trades)", () => {
+      const rand = mulberry32(20_261_004);
+      const ids = Array.from({ length: 8 }, (_, i) => `p${i}`);
+      let removedSome = 0;
+      for (let k = 0; k < 600; k++) {
+        const vals: Record<string, number> = {};
+        for (const id of ids) vals[id] = rand() < 0.4 ? Math.round(rand() * 900) : Math.round(rand() * 9000) + 1;
+        const w = Math.round(rand() * 1000);
+        const shuffled = [...ids].sort(() => rand() - 0.5);
+        const ng = Math.floor(rand() * 4);
+        const nr = Math.floor(rand() * 4);
+        const get = shuffled.slice(0, ng);
+        const give = shuffled.slice(ng, ng + nr);
+        const mine = packageValues(get, give, vals, w);
+        const theirs = packageValues(give, get, vals, w);
+        expect(mine, `${k}`).toEqual({ recv: theirs.give, give: theirs.recv });
+        const a = neutralThrowIns(get, give, vals, w);
+        const b = neutralThrowIns(give, get, vals, w);
+        expect([...a.removed].sort(), `${k}`).toEqual([...b.removed].sort());
+        if (a.removed.length) removedSome++;
+      }
+      expect(removedSome).toBeGreaterThan(100);
+    });
+
+    it("without IR moves a package equals the one with every player worth at most W left out with his roster spot (random trades)", () => {
+      const rand = mulberry32(20_261_007);
+      const ids = Array.from({ length: 8 }, (_, i) => `p${i}`);
+      let cheapLeftIn = 0;
+      for (let k = 0; k < 2000; k++) {
+        const vals: Record<string, number> = {};
+        for (const id of ids) vals[id] = rand() < 0.45 ? Math.round(rand() * 900) : Math.round(rand() * 9000) + 1;
+        const w = k % 7 === 0 ? (vals.p0 as number) : 1 + Math.round(rand() * 900); // sometimes exactly a player's value
+        const shuffled = [...ids].sort(() => rand() - 0.5);
+        const nr = Math.floor(rand() * 4);
+        const ng = Math.floor(rand() * 4);
+        const recv = shuffled.slice(0, nr);
+        const give = shuffled.slice(nr, nr + ng);
+        const dear = (side: string[]) => side.filter((id) => (vals[id] as number) > w);
+        const ideal = packageValues(dear(recv), dear(give), vals, w); // nobody cheap left: nobody left out
+        expect(packageValues(recv, give, vals, w), `${k}`).toEqual(ideal);
+        // The cheap players the steps leave in are all on one side, the one with fewer dear players, at most that many.
+        const p = neutralThrowIns(recv, give, vals, w);
+        const left = { recv: p.recv.length - dear(recv).length, give: p.give.length - dear(give).length };
+        expect(Math.min(left.recv, left.give), `${k}`).toBe(0);
+        expect(left.recv, `${k}`).toBeLessThanOrEqual(Math.max(0, dear(give).length - dear(recv).length));
+        expect(left.give, `${k}`).toBeLessThanOrEqual(Math.max(0, dear(recv).length - dear(give).length));
+        if (left.recv + left.give > 0) cheapLeftIn++;
+      }
+      expect(cheapLeftIn).toBeGreaterThan(100);
+    });
+
+    it("property: without IR moves a player worth at most W added to either side of any trade never changes either side's g (Phase 4c's first rule alone held this only for the side already giving at least as many players)", () => {
+      const rand = mulberry32(20_261_005);
+      const ids = Array.from({ length: 8 }, (_, i) => `p${i}`);
+      const tally = { biggerOrEqual: 0, smaller: 0, theirCheapExtras: 0 };
+      for (let k = 0; k < 3000; k++) {
+        const vals: Record<string, number> = {};
+        for (const id of ids) vals[id] = rand() < 0.4 ? Math.round(rand() * 800) : Math.round(rand() * 9000) + 1;
+        const w = 1 + Math.round(rand() * 900);
+        vals.t = Math.round(rand() * w); // the throw-in: at most W
+        const shuffled = [...ids].sort(() => rand() - 0.5);
+        const nGive = 1 + Math.floor(rand() * 3);
+        const nRecv = Math.floor(rand() * 4);
+        const give = shuffled.slice(0, nGive);
+        const recv = shuffled.slice(nGive, nGive + nRecv);
+        const withT = [...give, "t"];
+        // The thrower's own g, and the taker's (the partner's), before and after.
+        expect(marketGain(recv, withT, vals, w), `${k} thrower`).toBeCloseTo(marketGain(recv, give, vals, w), 12);
+        expect(marketGain(withT, recv, vals, w), `${k} taker`).toBeCloseTo(marketGain(give, recv, vals, w), 12);
+        if (nGive >= nRecv) tally.biggerOrEqual++;
+        else {
+          tally.smaller++;
+          // The gap's shape (review of track EF, finding 1): the other side gives d more, at least d of them cheap.
+          if (recv.filter((id) => (vals[id] as number) <= w).length >= nRecv - nGive) tally.theirCheapExtras++;
+        }
+      }
+      expect(Math.min(...Object.values(tally))).toBeGreaterThan(150);
+    });
+
+    it("in general, without IR moves, a player added to what one side receives: no move when he's worth at most W, else a rise exactly as the floor and credit say", () => {
       const rand = mulberry32(20_261_003);
       const ids = Array.from({ length: 6 }, (_, i) => `p${i}`);
-      let rises = 0;
-      let falls = 0;
-      let still = 0;
-      for (let k = 0; k < 600; k++) {
-        const values: Record<string, number> = { t: Math.round(rand() * 4000) + 1 };
-        for (const id of ids) values[id] = Math.round(rand() * 8000) + 1;
+      const tally = { neutral: 0, owed: 0, newSpot: 0 };
+      for (let k = 0; k < 3000; k++) {
+        const vals: Record<string, number> = { t: Math.round(rand() * 4000) + 1 };
+        for (const id of ids) vals[id] = rand() < 0.3 ? Math.round(rand() * 1500) + 1 : Math.round(rand() * 8000) + 1;
         const w = Math.round(rand() * 2500) + 1;
         const nr = Math.floor(rand() * 3); // what the taker receives before: 0–2 players
         const ng = 1 + Math.floor(rand() * 3); // what it gives: 1–3 players
         const recv = ids.slice(0, nr);
         const give = ids.slice(nr, nr + ng);
-        const before = marketGain(recv, give, values, w);
-        const after = marketGain([...recv, "t"], give, values, w);
-        const newSpot = recv.length >= give.length;
-        const v = values.t as number;
-        if (!newSpot && v <= w) {
-          expect(after, `${k}`).toBeCloseTo(before, 12); // he counts W in place of the W credited for that spot
-          still++;
+        const before = marketGain(recv, give, vals, w);
+        const after = marketGain([...recv, "t"], give, vals, w);
+        const v = vals.t as number;
+        if (v <= w) {
+          expect(after, `${k}`).toBeCloseTo(before, 12); // worth at most W: left out, or left in where a credit stood
+          tally.neutral++;
           continue;
         }
-        const counted = Math.max(v, w);
-        const threshold = newSpot ? w * (1 + before) : w;
-        if (Math.abs(counted - threshold) < 1e-6 * w) continue; // too close to call in floating point
-        expect(after > before, `${k}`).toBe(counted > threshold);
-        if (counted > threshold) rises++;
-        else falls++;
+        // Only the players worth more than W count (the property above): whether the taker was owed a roster-spot credit.
+        const dear = (side: string[]) => side.filter((id) => (vals[id] as number) > w).length;
+        let margin: number;
+        if (dear(give) > dear(recv)) {
+          margin = v - w; // he takes the place of a credit the taker was owed: v in place of W
+          tally.owed++;
+        } else {
+          margin = v - w * (1 + before); // a new spot filled: v on what it gets, W on what it gives
+          tally.newSpot++;
+        }
+        if (Math.abs(margin) < 1e-6 * w) continue; // too close to call in floating point
+        expect(after > before, `${k}`).toBe(margin > 0);
       }
       // Every branch was exercised.
-      expect(Math.min(rises, falls, still)).toBeGreaterThan(20);
+      expect(Math.min(...Object.values(tally))).toBeGreaterThan(20);
     });
 
-    it("players worth W or more count their own value; the floor comes before the stud exponent; W 0 (or not a positive number) floors nothing", () => {
+    it("players worth more than W count their own value; the floor comes before the stud exponent; W 0 (or not a positive number) floors nothing", () => {
       expect(packageValues(["stud", "a"], ["b"], cheap, W)).toEqual({ recv: 15_000, give: 5_000 + W });
       const convex = { ...config.market, studExponent: 2 };
       expect(packageValues(["junk"], ["a"], cheap, W, convex)).toEqual({ recv: W ** 2, give: 5_000 ** 2 });
       expect(packageValues(["junk"], ["scrap"], cheap, 0)).toEqual({ recv: 300, give: 120 });
       expect(packageValues(["junk"], ["scrap"], cheap, Number.NaN)).toEqual({ recv: 300, give: 120 });
       expect(packageValues(["junk"], ["scrap"], cheap, -5)).toEqual({ recv: 300, give: 120 });
-      // …and credits nothing for an open spot.
+      // …credits nothing for an open spot, and leaves nobody out.
       expect(packageValues(["junk"], [], cheap, Number.NaN)).toEqual({ recv: 300, give: 0 });
+    });
+
+    it("the throw-ins can be chosen on another table than the one summed (premium.perceivedPackage's raw values under a premium)", () => {
+      // "junk" carries a premium in the summed table (W × 1.1 > W), but the raw table makes him a throw-in all the same.
+      const premium = { ...cheap, junk: W * 1.1 };
+      expect(packageValues(["stud"], ["a", "junk"], premium, W)).toEqual({ recv: 10_000 + W, give: 5_000 + W * 1.1 });
+      expect(packageValues(["stud"], ["a", "junk"], premium, W, config.market, undefined, cheap)).toEqual({ recv: 10_000, give: 5_000 });
+    });
+  });
+
+  describe("the planner's result: through value, a throw-in worth at most W can only lower the chance they accept (Checkpoint 4b, answer 6; with n, h and hot held fixed: through the partner's lineup he can still raise it, review of NT, finding 2)", () => {
+    const profile: PartnerProfile = {
+      teamId: "2",
+      activity: { a: 0, rule: "normal", trades: 0, recentTrades: 0, transactions: 3, lastWeek: 4 },
+      history: { hist: null, average: null, trades: 0, used: 0, skipped: 0, perTrade: [] },
+      pPlayoffs: 0.4,
+    };
+
+    it("with n, h and hot held fixed, P_accept and P_complete never rise when he's added: either side throwing him in, whatever the counts (random trades without IR moves, the star premium on the partner's players worth more than W, a league that votes)", () => {
+      const rand = mulberry32(20_261_006);
+      const ids = Array.from({ length: 8 }, (_, i) => `p${i}`);
+      const tally = { lower: 0, mineToSmaller: 0, theirsToSmaller: 0 };
+      for (let k = 0; k < 3000; k++) {
+        const vals: Record<string, number> = {};
+        for (const id of ids) vals[id] = rand() < 0.4 ? Math.round(rand() * 800) : Math.round(rand() * 9000) + 1;
+        const w = 1 + Math.round(rand() * 900);
+        vals.t = Math.round(rand() * w);
+        const shuffled = [...ids].sort(() => rand() - 0.5);
+        const nGive = 1 + Math.floor(rand() * 3);
+        const nGet = 1 + Math.floor(rand() * 3);
+        const give = shuffled.slice(0, nGive); // mine
+        const get = shuffled.slice(nGive, nGive + nGet); // theirs
+        // The partner's premiums (its #1, #2, top-12 players): only on players worth more than W, as on a real roster.
+        const e: Record<string, number> = {};
+        for (const id of get) e[id] = (vals[id] as number) > w ? [0, 0, 0.05, 0.1, 0.15, 0.2][Math.floor(rand() * 6)] as number : 0;
+        const mineThrows = rand() < 0.5;
+        const deltaLineup = (rand() - 0.5) * 10;
+        const h = rand() < 0.5 ? 1 : 0;
+        const estimate = (g: string[], r: string[]) => {
+          // The partner receives my `g` and gives my `r`: its raw g (the veto) and its perceived g (the g feature).
+          const gPartner = tradePackage({ players: g }, { players: r }, vals, w).g;
+          const gPerceived = perceivedPackage({ players: g }, { players: r }, vals, w, (id) => e[id] ?? 0).g;
+          return acceptance({ leagueType: "redraft", tradeReview: "league_vote" }, profile, { gPartner, gPerceived, deltaLineup, h, assets: g.length + r.length, partnerReceives: [] });
+        };
+        const before = estimate(give, get);
+        const after = mineThrows ? estimate([...give, "t"], get) : estimate(give, [...get, "t"]);
+        expect(after.pAccept, `${k}`).toBeLessThanOrEqual(before.pAccept + 1e-12);
+        expect(after.pComplete, `${k}`).toBeLessThanOrEqual(before.pComplete + 1e-12);
+        // The value feature is the same: only the complexity term moved.
+        expect(after.terms.value, `${k}`).toBeCloseTo(before.terms.value, 12);
+        if (after.pAccept < before.pAccept) tally.lower++;
+        // Thrown in on the side giving fewer players: Phase 4c's first rule alone moved g there (the gap).
+        if (mineThrows && nGive < nGet) tally.mineToSmaller++;
+        if (!mineThrows && nGet < nGive) tally.theirsToSmaller++;
+      }
+      expect(Math.min(...Object.values(tally))).toBeGreaterThan(300);
+    });
+
+    it("the gap's example (review of track EF, finding 1): my cheap throw-in no longer lifts a −33.3% trade past the veto line", () => {
+      // W 615: my A (1,000) for their B (1,500) and c (100): −33.3% for them, vetoed. With my x (200): the same −33.3%
+      // (Phase 4c's first rule alone: −23.6%, not vetoed).
+      const w = 615;
+      const vals = { A: 1000, B: 1500, c: 100, x: 200 };
+      const lean = tradePackage({ players: ["A"] }, { players: ["B", "c"] }, vals, w);
+      const full = tradePackage({ players: ["A", "x"] }, { players: ["B", "c"] }, vals, w);
+      expect(full).toEqual(lean);
+      expect(full.g).toBeCloseTo(-1 / 3, 12);
+      const estimate = (g: number, assets: number) => acceptance({ leagueType: "redraft", tradeReview: "league_vote" }, profile, { gPartner: g, deltaLineup: 1.5 * config.acceptance.nScale, h: 1, assets, partnerReceives: [] });
+      const offer = estimate(lean.g, 3);
+      const withX = estimate(full.g, 4);
+      expect([offer.vetoRisk, withX.vetoRisk]).toEqual([true, true]);
+      expect(withX.pComplete).toBeLessThan(offer.pComplete);
+    });
+
+    it("the Checkpoint 4b example: a cheap throw-in no longer lifts a −32% trade past the veto line", () => {
+      // A league that votes, W = 628: the partner gives a 5,000 player for my 3,400 one (−32%: vetoed), n 1.5, a hole.
+      const W = 628;
+      const vals = { mine: 3400, theirs: 5000, junk: 300 };
+      const lean = tradePackage({ players: ["mine"] }, { players: ["theirs"] }, vals, W);
+      const full = tradePackage({ players: ["mine", "junk"] }, { players: ["theirs"] }, vals, W);
+      expect(lean.g).toBeCloseTo(-0.32, 12);
+      expect(full).toEqual(lean); // before Phase 4c: −28.4%, above the −30% line
+      const estimate = (g: number, assets: number) => acceptance({ leagueType: "redraft", tradeReview: "league_vote" }, profile, { gPartner: g, deltaLineup: 1.5 * config.acceptance.nScale, h: 1, assets, partnerReceives: [] });
+      const offer = estimate(lean.g, 2);
+      const withJunk = estimate(full.g, 3);
+      expect([offer.vetoRisk, withJunk.vetoRisk]).toEqual([true, true]);
+      expect(withJunk.pAccept).toBeLessThan(offer.pAccept);
+      expect(withJunk.pComplete).toBeLessThan(offer.pComplete);
     });
   });
 
@@ -475,17 +793,33 @@ describe("marketGain (§9 package value with the waiver credit)", () => {
     const W = 600;
 
     it("without spots every player takes one (the counts, as before IR players were tradable); spots equal to the counts change nothing", () => {
-      for (const [recv, give] of [[["stud"], ["a", "b"]], [["a", "b"], ["stud"]], [["junk"], []], [[], ["junk"]], [["a"], ["b"]]] as [string[], string[]][]) {
+      for (const [recv, give] of [[["stud"], ["a", "b"]], [["a", "b"], ["stud"]], [["junk"], []], [[], ["junk"]], [["a"], ["b"]], [["stud"], ["a", "junk"]]] as [string[], string[]][]) {
         expect(packageValues(recv, give, cheap, W, config.market, { recv: recv.length, give: give.length })).toEqual(packageValues(recv, give, cheap, W));
       }
     });
 
     it("a side that gives an active player and an IR player for one player opens no spot: no credit (Rico Dowdle for Kalif Raymond + Jordan Mason)", () => {
-      // The partner gives junk (active) and ir (from its IR) and gets scrap onto its active roster: one off, one on.
-      expect(packageValues(["scrap"], ["junk", "ir"], cheap, W, config.market, { recv: 1, give: 1 })).toEqual({ recv: W, give: 2 * W });
-      expect(marketGain(["scrap"], ["junk", "ir"], cheap, W, config.market, { recv: 1, give: 1 })).toBeCloseTo(-0.5, 12);
-      // Counting players, it was credited a spot it never had: even.
-      expect(marketGain(["scrap"], ["junk", "ir"], cheap, W)).toBe(0);
+      // The partner gives junk (active) and ir (from its IR) and gets "a" onto its active roster: one off, one on. junk, the
+      // cheaper of the two it gives (both worth less than W), is the neutral throw-in, with his spot; ir stays in at W, and
+      // the spot "a" fills counts W on what it gives.
+      const spots = { recv: 1, give: 1, inactive: new Set(["ir"]) };
+      expect(packageValues(["a"], ["junk", "ir"], cheap, W, config.market, spots)).toEqual({ recv: 5_000, give: 2 * W });
+      expect(marketGain(["a"], ["junk", "ir"], cheap, W, config.market, spots)).toBeCloseTo(5_000 / (2 * W) - 1, 12);
+      // Counting players, it was credited a spot it never had: even on spots.
+      expect(packageValues(["a"], ["junk", "ir"], cheap, W)).toEqual({ recv: 5_000, give: W });
+      // With a cheap player received too (scrap), he and ir are a matched pair (Phase 4c): nothing against nothing.
+      expect(packageValues(["scrap"], ["junk", "ir"], cheap, W, config.market, spots)).toEqual({ recv: 0, give: 0 });
+    });
+
+    it("a neutral throw-in who moves without an active spot (ActiveSpots.inactive) takes no spot credit with him", () => {
+      // A side gives "a" (active) and "ir" (from its IR, worth less than W) for "stud": one active player each way.
+      const spots = { recv: 1, give: 1, inactive: new Set(["ir"]) };
+      expect(neutralThrowIns(["stud"], ["a", "ir"], cheap, W, spots)).toEqual({ recv: ["stud"], give: ["a"], removed: ["ir"], spots: { recv: 1, give: 1 } });
+      expect(packageValues(["stud"], ["a", "ir"], cheap, W, config.market, spots)).toEqual({ recv: 10_000, give: 5_000 });
+      // Read as an active player, he would take a spot the side never opened with him (W on what it gives).
+      expect(packageValues(["stud"], ["a", "ir"], cheap, W, config.market, { recv: 1, give: 1 })).toEqual({ recv: 10_000, give: 5_000 + W });
+      // On the side receiving him into an IR slot: no spot there either.
+      expect(neutralThrowIns(["a", "ir"], ["stud"], cheap, W, { recv: 1, give: 1, inactive: new Set(["ir"]) }).spots).toEqual({ recv: 1, give: 1 });
     });
 
     it("an IR player given for an active player: the side's active roster fills a spot (W on what it gives)", () => {
@@ -496,7 +830,109 @@ describe("marketGain (§9 package value with the waiver credit)", () => {
       // It gives a (active) and receives ir into its IR slot: one active spot opens.
       expect(packageValues(["ir"], ["a"], cheap, W, config.market, { recv: 0, give: 1 })).toEqual({ recv: W + W, give: 5_000 });
       // Received into an IR slot for an IR player given: no active spot moves either way.
-      expect(packageValues(["ir"], ["junk"], cheap, W, config.market, { recv: 0, give: 0 })).toEqual({ recv: W, give: W });
+      expect(packageValues(["a"], ["b"], cheap, W, config.market, { recv: 0, give: 0, inactive: new Set(["a", "b"]) })).toEqual({ recv: 5_000, give: 5_000 });
+      // Two such players worth less than W are a matched pair, left out with no spot to take: nothing against nothing
+      // (before Phase 4c's pairs: W against W, the same g).
+      expect(packageValues(["ir"], ["junk"], cheap, W, config.market, { recv: 0, give: 0, inactive: new Set(["ir", "junk"]) })).toEqual({ recv: 0, give: 0 });
+    });
+
+    it("⚠️ the exception (the file header): with an IR move, a cheap player left in can count W where no roster-spot credit stands, so a cheap throw-in can still move g, even past the veto line", () => {
+      // The partner gives B (2,500) from its IR into my open IR slot and C (2,000) from its active roster for my A (3,000),
+      // W 600: −33.3% for the partner (vetoed). My x (300, active) evens the counts of players, so nothing is left out, but
+      // only one active spot opens on the partner's roster (C's) against two filled (A's and x's): x counts W on what it
+      // gets and the spot he takes W on what it gives, as under Phase 4b: −29.4%, past the veto line.
+      const vals = { A: 3000, B: 2500, C: 2000, x: 300 };
+      const w = 600;
+      const theirs = (withX: boolean) => ({ recv: withX ? 2 : 1, give: 1, inactive: new Set(["B"]) });
+      expect(marketGain(["A"], ["B", "C"], vals, w, config.market, theirs(false))).toBeCloseTo(-1 / 3, 12);
+      expect(marketGain(["A", "x"], ["B", "C"], vals, w, config.market, theirs(true))).toBeCloseTo(3600 / 5100 - 1, 12);
+      // My side (B goes into my IR slot: inactive for me too) moves toward 0 the same way: +50% → +41.7%.
+      const mine = (withX: boolean) => ({ recv: 1, give: withX ? 2 : 1, inactive: new Set(["B"]) });
+      expect(marketGain(["B", "C"], ["A"], vals, w, config.market, mine(false))).toBeCloseTo(0.5, 12);
+      expect(marketGain(["B", "C"], ["A", "x"], vals, w, config.market, mine(true))).toBeCloseTo(5100 / 3600 - 1, 12);
+      // Without the IR move (B from its active roster onto mine) x is neutral: left in at W where the credit stood.
+      expect(marketGain(["A", "x"], ["B", "C"], vals, w)).toBe(marketGain(["A"], ["B", "C"], vals, w));
+    });
+
+    it("⚠️ TradeEvaluation.value's own example (review POL-3): with an IR move, my cheap throw-in adds W to both of my numbers; without one, nothing", () => {
+      // As evaluate.ts prices my side: tradePackage on what I get and give, with my active-roster spots (irSlots.activeSpots,
+      // evaluate.spotsOf). I give A (5,000) and get B (3,000) into my open IR slot and C (4,000); W 600. Then I add x (200).
+      const vals = { A: 5000, B: 3000, C: 4000, x: 200 };
+      const w = 600;
+      const mine = (give: string[], toIR: string[]) => tradePackage({ players: ["B", "C"] }, { players: give }, vals, w, config.market, activeSpots(give, ["B", "C"], { givenIR: [], toIR }));
+      expect(mine(["A"], ["B"])).toMatchObject({ give: 5000, recv: 7000 });
+      expect(mine(["A", "x"], ["B"])).toMatchObject({ give: 5600, recv: 7600 });
+      expect(mine(["A", "x"], ["B"]).g).toBeLessThan(mine(["A"], ["B"]).g);
+      // B onto my active roster instead: x takes the place of the roster spot I fill, so both numbers stay.
+      expect(mine(["A", "x"], [])).toEqual(mine(["A"], []));
+      expect(mine(["A"], [])).toMatchObject({ give: 5600, recv: 7000 });
+    });
+
+    it("⚠️ the exception, precisely (random trades with IR moves of the kinds evaluate.ts makes): a package differs from the one with every cheap player left out with his spot exactly when a cheap player left in moves without an active spot or they outnumber their list's credits; only then can a cheap player move a side's g", () => {
+      // Kinds: "AA" active to active; "II" from an IR slot into the receiver's open IR slot; "IA" from an IR slot onto the
+      // receiver's active roster (evaluate.ts rule 5: a player from an active roster never goes to an IR slot).
+      type Kind = "AA" | "II" | "IA";
+      const rand = mulberry32(20_261_008);
+      const spotsFor = (recv: string[], give: string[], kind: Record<string, Kind>) => {
+        const inactive = new Set<string>([...give.filter((id) => kind[id] !== "AA"), ...recv.filter((id) => kind[id] === "II")]);
+        return { recv: recv.filter((id) => !inactive.has(id)).length, give: give.filter((id) => !inactive.has(id)).length, inactive };
+      };
+      const tally = { equal: 0, differs: 0, moved: 0 };
+      for (let k = 0; k < 4000; k++) {
+        const w = 100 + Math.round(rand() * 900);
+        const ids = Array.from({ length: 7 }, (_, i) => `p${i}`);
+        const vals: Record<string, number> = {};
+        const kind: Record<string, Kind> = {};
+        const irRate = rand() < 0.3 ? 0 : 0.3;
+        for (const id of ids) {
+          vals[id] = rand() < 0.45 ? Math.round(rand() * w) : w + 1 + Math.round(rand() * 8000);
+          kind[id] = rand() < irRate ? (rand() < 0.5 ? "II" : "IA") : "AA";
+        }
+        vals.x = Math.round(rand() * w);
+        kind.x = rand() < irRate ? (rand() < 0.5 ? "II" : "IA") : "AA";
+        const nGive = Math.floor(rand() * 4);
+        const nGet = Math.floor(rand() * 4);
+        const give = ids.slice(0, nGive);
+        const get = ids.slice(nGive, nGive + nGet);
+        const mineThrows = rand() < 0.5;
+        const give2 = mineThrows ? [...give, "x"] : give;
+        const get2 = mineThrows ? get : [...get, "x"];
+        const dear = (side: readonly string[]) => side.filter((id) => (vals[id] as number) > w);
+        const sum = (side: readonly string[]) => side.reduce((s, id) => s + (vals[id] as number), 0);
+        /** Whether the side's package isn't the one with every cheap player left out with his spot (the file header). */
+        const differs = (recv: string[], gv: string[]): boolean => {
+          const sp = spotsFor(recv, gv, kind);
+          const p = neutralThrowIns(recv, gv, vals, w, sp);
+          const leftR = p.recv.filter((id) => (vals[id] as number) <= w);
+          const leftG = p.give.filter((id) => (vals[id] as number) <= w);
+          expect(Math.min(leftR.length, leftG.length), `${k}: one side`).toBe(0);
+          const left = leftR.length ? leftR : leftG;
+          const active = (side: readonly string[]) => side.filter((id) => !sp.inactive.has(id)).length;
+          const credits = leftR.length ? Math.max(0, active(dear(gv)) - active(dear(recv))) : Math.max(0, active(dear(recv)) - active(dear(gv)));
+          const broken = left.some((id) => sp.inactive.has(id)) || left.length > credits;
+          // The statement: the package equals that one exactly when it isn't broken (integer sums: exact).
+          const pv = packageValues(recv, gv, vals, w, config.market, sp);
+          const ideal = { recv: sum(dear(recv)) + Math.max(0, active(dear(gv)) - active(dear(recv))) * w, give: sum(dear(gv)) + Math.max(0, active(dear(recv)) - active(dear(gv))) * w };
+          expect(pv.recv === ideal.recv && pv.give === ideal.give, `${k}`).toBe(!broken);
+          if (broken) expect([...recv, ...gv].some((id) => kind[id] !== "AA"), `${k}: only with an IR move`).toBe(true);
+          tally[broken ? "differs" : "equal"]++;
+          return broken;
+        };
+        const g = (recv: string[], gv: string[]) => marketGain(recv, gv, vals, w, config.market, spotsFor(recv, gv, kind));
+        for (const [r1, g1, r2, g2] of [
+          [get, give, get2, give2],
+          [give, get, give2, get2],
+        ] as [string[], string[], string[], string[]][]) {
+          const brokenBefore = differs(r1, g1);
+          const brokenAfter = differs(r2, g2);
+          const a = g(r1, g1);
+          const b = g(r2, g2);
+          if (a === b || Math.abs(a - b) <= 1e-12) continue;
+          expect(brokenBefore || brokenAfter, `${k}: moved only when broken`).toBe(true);
+          tally.moved++;
+        }
+      }
+      expect(Math.min(...Object.values(tally))).toBeGreaterThan(50);
     });
 
     it("unreadable spot counts fall back to the player counts; negative ones count 0", () => {

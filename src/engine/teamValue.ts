@@ -1657,9 +1657,32 @@ export function scenarioScore(v: ScenarioValues): WeeklyScore {
  * The player a full active roster drops to make room for a newcomer (§7 roster legality: the lowest "keep
  * value"; the League model's keep value is what losing him costs the roster's lineup, evRemovalCosts or
  * scenarioRemovalCosts, league.ts), ties within 1e-9 to the lower market value, then the smaller id. Null
- * without candidates.
+ * without candidates. With `tie` > 0 (final review of Phase 4c, finding R6: the forced drops of roster legality and of
+ * an IR player's return, where a keep value is the lineup cost alone; config.lineups.dropNearTieWeekly in the keep
+ * values' units), near-ties count as ties: among the candidates whose keep value is within `tie` of the lowest, the
+ * lowest market value floored at `floor` (the waiver credit W: a player worth less than the best free agent is
+ * replaceable, so his trade value is W's, as every package counts it), then the lower keep value, then the lower market
+ * value, then the smaller id. So only a player worth more than W is kept over a near-free one who costs the lineup a
+ * hair less; between players worth at most W the lineup decides, as without the tolerance.
  */
-export function lowestKeepValue(candidates: readonly { readonly id: string; readonly keep: number; readonly value: number }[]): string | null {
+export function lowestKeepValue(candidates: readonly { readonly id: string; readonly keep: number; readonly value: number }[], tie = 0, floor = 0): string | null {
+  if (tie > 0 && Number.isFinite(tie)) {
+    let low = Number.POSITIVE_INFINITY;
+    for (const c of candidates) if (c.keep < low) low = c.keep;
+    const f = Number.isFinite(floor) && floor > 0 ? floor : 0;
+    let pick: (typeof candidates)[number] | null = null;
+    for (const c of candidates) {
+      if (!(c.keep <= low + tie + EPS)) continue;
+      if (!pick) {
+        pick = c;
+        continue;
+      }
+      const v = Math.max(c.value, f);
+      const pv = Math.max(pick.value, f);
+      if (v < pv || (v === pv && (c.keep < pick.keep - EPS || (Math.abs(c.keep - pick.keep) <= EPS && (c.value < pick.value || (c.value === pick.value && c.id < pick.id)))))) pick = c;
+    }
+    return pick ? pick.id : null;
+  }
   let best: (typeof candidates)[number] | null = null;
   for (const c of candidates) {
     if (!best) best = c;

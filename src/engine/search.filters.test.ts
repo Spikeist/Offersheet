@@ -7,7 +7,8 @@ import { describe, expect, it } from "vitest";
 import { config } from "./config";
 import { buildTradeContext, harderToGetFor, proposalKey, tradeInternals, type Screened, type TeamState } from "./evaluate";
 import { addValueOf, baseFor } from "./league";
-import { belowWaiverCredit, buildPools, dominancePruned, finalistsOf, partnerCandidates, runTradeSearch, shortlistOf } from "./search";
+import { marketGain } from "./market";
+import { atMostWaiverCredit, buildPools, dominancePruned, finalistsOf, partnerCandidates, runTradeSearch, shortlistOf } from "./search";
 import { defaultTradeSettings, type TradeSettings } from "./settings";
 import { TEST_NOW } from "./testLeague";
 import { smallLeague } from "./trade.testing";
@@ -64,11 +65,11 @@ describe("the dominance pruning (lead decision N11: dominancePruned, shortlistOf
     pQuick,
     gPartner,
   });
-  /** My players worth less than the waiver credit: the ones whose id starts with "t". */
+  /** My players worth at most the waiver credit: the ones whose id starts with "t". */
   const cheap = (id: string) => id.startsWith("t");
   const keys = (xs: readonly Screened[]) => xs.map((x) => x.key);
 
-  it("drops a trade giving a player worth less than W when the trade without him screened at least as well (a tie counts)", () => {
+  it("drops a trade giving a player worth at most W when the trade without him screened at least as well (a tie counts)", () => {
     const lean = s("2", ["a"], ["x"], 5);
     const worse = s("2", ["a", "t1"], ["x"], 4);
     const tie = s("2", ["t2", "a"], ["x"], 5);
@@ -78,7 +79,7 @@ describe("the dominance pruning (lead decision N11: dominancePruned, shortlistOf
     expect(dominancePruned([lean, s("2", ["a", "t1"], ["x"], 5 + 1e-12)], cheap)).toEqual([lean]);
   });
 
-  it("only players worth less than W, and only against the same trade without him: same partner, same players of theirs", () => {
+  it("only players worth at most W, and only against the same trade without him: same partner, same players of theirs", () => {
     const pricey = s("2", ["a", "b"], ["x"], 1);
     const variant = s("2", ["a", "t1"], ["x"], 1);
     const others = [s("2", ["a"], ["x", "y"], 9), s("2", ["a"], ["y"], 9), s("3", ["a"], ["x"], 9), s("2", ["b"], ["x"], 9)];
@@ -89,7 +90,7 @@ describe("the dominance pruning (lead decision N11: dominancePruned, shortlistOf
     expect(keys(dominancePruned([pricey, variant, lean, ...others], cheap))).toEqual(keys([pricey, lean, ...others]));
   });
 
-  it("only players I give: a player of theirs worth less than W never drops a trade (end-of-Phase-4 review)", () => {
+  it("only players I give: a player of theirs worth at most W never drops a trade (end-of-Phase-4 review)", () => {
     // Two players of mine worth W or more for a cheap player of theirs: nothing of mine to leave out, so it stays, even
     // beside better trades giving one of the two (they are other trades, not this one without a cheap player of mine).
     const theirsCheap = s("2", ["a", "b"], ["t9"], 1);
@@ -147,11 +148,18 @@ describe("the dominance pruning (lead decision N11: dominancePruned, shortlistOf
     expect(shortlistOf([[...plain, dominated]])).toEqual(unpruned);
   });
 
-  it("worth less than W: strictly below the waiver credit (perception values; a player without one counts 0)", () => {
-    const below = belowWaiverCredit({ values: { at: 900, under: 899.5, over: 901 }, credit: 900 });
-    expect(["at", "under", "over", "none"].map(below)).toEqual([false, true, false, true]);
-    // No market values: W is 0 and nobody is below it.
-    expect(belowWaiverCredit({ values: {}, credit: 0 })("none")).toBe(false);
+  it("worth at most W: the neutral throw-ins' bar (Phase 4c; perception values, a player without one counts 0)", () => {
+    // A player worth exactly W is cheap (market.neutralThrowIns leaves him out of both packages too): "≤ W", not "< W".
+    const cheap = atMostWaiverCredit({ values: { at: 900, under: 899.5, over: 901 }, credit: 900 });
+    expect(["at", "under", "over", "none"].map(cheap)).toEqual([true, true, false, true]);
+    // The same bar as the neutral throw-in rule: a 2-for-1 adding a player worth exactly W leaves the partner's g as the
+    // 1-for-1's (he's left out with his roster spot), so it's the kind of variant the pruning is for.
+    const values = { mine: 3000, at: 900, theirs: 3500 };
+    expect(marketGain(["mine", "at"], ["theirs"], values, 900)).toBe(marketGain(["mine"], ["theirs"], values, 900));
+    // No market values: W is 0 and nobody is cheap, not even a player without a value (nothing to compare with).
+    const none = atMostWaiverCredit({ values: { zero: 0 }, credit: 0 });
+    expect(["none", "zero"].map(none)).toEqual([false, false]);
+    expect(atMostWaiverCredit({ values: {}, credit: Number.NaN })("none")).toBe(false);
   });
 
   describe("in the search (smallLeague(11), Team 5's TEs only: one player to get, so the 2-for-1s are my pairs)", () => {
@@ -173,7 +181,7 @@ describe("the dominance pruning (lead decision N11: dominancePruned, shortlistOf
 
     it("exact evaluation gets the pruned list; without the pruning it would get the whole window", () => {
       const list = windowed(I);
-      const pruned = dominancePruned(list, belowWaiverCredit(I));
+      const pruned = dominancePruned(list, atMostWaiverCredit(I));
       const keep = config.search.keptPerPartner;
       // Fewer than keptPerPartner are left after the pruning, and fewer than the window would send without it, so the
       // pruning shows in the count of exact evaluations. (Since the value floor of the planner's reply to Checkpoint 4 the
@@ -181,19 +189,19 @@ describe("the dominance pruning (lead decision N11: dominancePruned, shortlistOf
       expect(pruned.length).toBeLessThan(Math.min(list.length, keep));
       expect(pruned.length).toBeLessThan(list.length - 5);
       expect(pruned.every((x) => x.give.length >= 1)).toBe(true);
-      // Every trade dropped gives a player of mine worth less than W, beside another of mine.
+      // Every trade dropped gives a player of mine worth at most W, beside another of mine.
       for (const x of list.filter((y) => !pruned.includes(y))) {
         expect(x.give.length).toBeGreaterThanOrEqual(2);
-        expect(x.give.some((id) => (I.values[id] ?? 0) < I.credit)).toBe(true);
+        expect(x.give.some((id) => (I.values[id] ?? 0) <= I.credit)).toBe(true);
       }
       expect(runTradeSearch(ctx, { partnerId: "5", settings }).counts.exact).toBe(pruned.length);
       // The shortlist without the pruning (null) would take the window's best keptPerPartner.
       expect(shortlistOf([list], null)).toHaveLength(Math.min(list.length, keep));
-      expect(shortlistOf([list], belowWaiverCredit(I))).toHaveLength(pruned.length);
+      expect(shortlistOf([list], atMostWaiverCredit(I))).toHaveLength(pruned.length);
     });
 
     it("whatever the settings: 3 a side allowed, and a must-include player of mine (the pruning tries my other players)", () => {
-      const cheap = belowWaiverCredit(I);
+      const cheap = atMostWaiverCredit(I);
       const me = I.me as TeamState;
       // maxPerSide 3, my five most valuable players untouchable so the window stays under keptPerPartner (the pruning then
       // shows in the count of exact evaluations); 3-for-1s are among the trades it drops.

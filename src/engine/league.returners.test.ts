@@ -100,20 +100,43 @@ describe("IR returners in the League model (step 5b)", () => {
     expect(teamOf(model, "1").ev.lv).toEqual(teamOf(open, "1").ev.lv);
   });
 
-  it("the displaced player's weeks from the return are gone, and the keep value picks him: a backup who starts once beats one who never does", () => {
-    // Team 1's bench WR scores 10, its bench RB 4. Its WR2's bye (week 9) moves the FLEX WR to WR2 and puts the bench WR
-    // (10) in the FLEX, ahead of rb2 (9), whom the returner RB benches from his return. From week 8 on the bench RB and rb2
-    // cost nothing to lose, the bench WR 1 point (week 9): the less valuable bench RB goes, and the bench WR's start stays.
-    const l = league(11, (spec) => {
+  // Team 1's bench WR scores 10, its bench RB 4. Its WR2's bye (week 9) moves the FLEX WR to WR2 and puts the bench WR (10)
+  // in the FLEX, ahead of rb2 (9), whom the returner RB benches from his return. From week 8 on the bench RB and rb2 cost
+  // nothing to lose, the bench WR 1 point (week 9).
+  const startsOnce = () =>
+    league(11, (spec) => {
       const t = spec.teams[0] as TestTeam;
       t.roster = t.roster.map((x) => (x.id === "1-bWR" ? p("1-bWR", "WR", 10, { value: 200 }) : x.id === "1-wr2" ? p("1-wr2", "WR", 13, { nflTeam: "BYE" }) : x.id === "1-rb2" ? p("1-rb2", "RB", 9, { value: 5000 }) : x));
       spec.byeWeek = { BYE: 9 };
     });
-    const model = buildLeagueModel(l.snapshot, l.inputs, OPTS, NO_RISK);
+
+  it("the displaced player's weeks from the return are gone, and the keep value picks him: a backup who starts once beats one who never does", () => {
+    // Exact ties only (config.lineups.dropNearTieWeekly 0): the less valuable bench RB goes, and the bench WR's start stays.
+    const exactTies: LeagueModelConfig = { ...NO_RISK, lineups: { ...NO_RISK.lineups, dropNearTieWeekly: 0 } };
+    const l = startsOnce();
+    const model = buildLeagueModel(l.snapshot, l.inputs, OPTS, exactTies);
     const ids = l.snapshot.teams[0]?.roster ?? [];
     const lv = teamOf(model, "1").ev.lv;
     expect(lv).toEqual(evLv(l, [...ids, "ir-rb"], { id: "1-bRB", from: 4 }));
     expect(lv).not.toEqual(evLv(l, [...ids, "ir-rb"], { id: "1-bWR", from: 4 }));
+  });
+
+  it("⚠️ near-ties count as ties (final review of Phase 4c, finding R6): the bench WR's one start, 1 point, is under 0.2 points a week, so the less valuable bench WR goes", () => {
+    const l = startsOnce();
+    const model = buildLeagueModel(l.snapshot, l.inputs, OPTS, NO_RISK);
+    const ids = l.snapshot.teams[0]?.roster ?? [];
+    const lv = teamOf(model, "1").ev.lv;
+    // The tolerance from his return on (week 8 = index 4): 0.2 × Σ ω over those weeks, above the 1 point the WR's start costs.
+    const built = buildLeagueModelWithContext(l.snapshot, l.inputs, OPTS, NO_RISK).context;
+    const weights = built.tw.weights;
+    // Both bench players are worth more than the waiver credit W (the near-tie floors values at it).
+    expect(built.market.waiverCredit).toBeLessThan(200);
+    const tie = config.lineups.dropNearTieWeekly * Array.from(weights).slice(4).reduce((s, w) => s + w, 0);
+    expect(tie).toBeGreaterThan(1);
+    expect(lv).toEqual(evLv(l, [...ids, "ir-rb"], { id: "1-bWR", from: 4 }));
+    // His week-9 start is gone: 1 point that week, nothing else.
+    const exact = evLv(l, [...ids, "ir-rb"], { id: "1-bRB", from: 4 });
+    expect(lv.map((x, w) => Math.round((exact[w] as number) - x))).toEqual(lv.map((_, w) => (w === 5 ? 1 : 0)));
   });
 
   it("⚠️ a returner worth the least from his week is released then (review of track E): the team is never weaker than without him", () => {

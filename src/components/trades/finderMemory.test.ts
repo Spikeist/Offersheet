@@ -2,7 +2,9 @@
  * What the trade pages keep while the tab stays in the app (finderMemory.ts; review of Phase 4: every return from the
  * Analyzer searched again, about 5 seconds, and lost the partner filter and the place in the list): the ideas each
  * search found, while they still hold (the worker's own rule: no kickoff since, the same deadline readings), the
- * Finder's address and sort, the idea to come back to, and one engine client for both pages.
+ * Finder's address and sort, the idea to come back to, and one engine client for both pages. Phase 4c: per saved league
+ * (planner reply to Checkpoint 4b, change 11), so nothing from one league shows in another, an address included: a trade
+ * page reads only an address of the league it shows (useLeagueQuery's rule; review of track ML).
  */
 import { afterEach, describe, expect, it } from "vitest";
 import type { ModelInputs } from "@/engine/inputs";
@@ -12,7 +14,10 @@ import { contextStillValid } from "@/workers/freshness";
 import {
   KEPT_SEARCHES,
   finderAddress,
+  honoredQuery,
+  queryOwnerAfter,
   recallSearch,
+  recallSearchEntry,
   rememberFinderAddress,
   rememberReturn,
   rememberSearch,
@@ -21,6 +26,7 @@ import {
   resetFinderMemory,
   takeReturn,
   tradeEngine,
+  type QueryOwner,
 } from "./finderMemory";
 import { searchResult } from "./testFixtures";
 
@@ -59,19 +65,37 @@ describe("the ideas each search found", () => {
     expect(recallSearch("a", holdsAt("2026-10-02T12:00:00.000Z"))).toBeNull();
     expect(recallSearch("a", always)).toBeNull();
   });
+
+  it("come back with the moment they were for, and ideas re-filtered at another minimum chance replace them under the same key (Phase 4c)", () => {
+    rememberSearch("a", "2026-10-01T16:00:00.000Z", found("at 10%"));
+    expect(recallSearchEntry("a", always)).toEqual({ result: found("at 10%"), nowIso: "2026-10-01T16:00:00.000Z" });
+    // The Finder keeps the re-filtered ideas under the search's key (it leaves the minimum out), for the re-filter's moment.
+    rememberSearch("a", "2026-10-01T16:05:00.000Z", found("at 30%"));
+    expect(recallSearchEntry("a", always)).toEqual({ result: found("at 30%"), nowIso: "2026-10-01T16:05:00.000Z" });
+    expect(recallSearchEntry("a", () => false)).toBeNull();
+    expect(recallSearchEntry("a", always)).toBeNull();
+  });
 });
 
 describe("the Finder's address, sort and place", () => {
-  it("sends the Analyzer's back link to the Finder's last address, else the Finder for every team", () => {
-    expect(finderAddress()).toBe("/trades");
-    rememberFinderAddress("/trades?partner=9");
-    expect(finderAddress()).toBe("/trades?partner=9");
+  const A = "espn:0000abcd:2026";
+  const B = "sleeper:12345678:2026";
+
+  it("sends the Analyzer's back link to the league's Finder's last address, else the Finder for every team; another league's never", () => {
+    expect(finderAddress(A)).toBe("/trades");
+    rememberFinderAddress(A, "/trades?partner=9");
+    expect(finderAddress(A)).toBe("/trades?partner=9");
+    // A partner is a team id of that league: another league's back link never takes it.
+    expect(finderAddress(B)).toBe("/trades");
+    rememberFinderAddress(B, "/trades?partner=2");
+    expect(finderAddress(A)).toBe("/trades?partner=9");
   });
 
-  it("keeps the sort the Finder was left in", () => {
-    expect(rememberedSort()).toBeNull();
-    rememberSort("helps");
-    expect(rememberedSort()).toBe("helps");
+  it("keeps the sort each league's Finder was left in", () => {
+    expect(rememberedSort(A)).toBeNull();
+    rememberSort(A, "helps");
+    expect(rememberedSort(A)).toBe("helps");
+    expect(rememberedSort(B)).toBeNull();
   });
 
   it("gives back the idea whose Open in Analyzer was used once, and only to its own search", () => {
@@ -85,10 +109,45 @@ describe("the Finder's address, sort and place", () => {
 });
 
 describe("tradeEngine", () => {
-  it("is one client for both trade pages, made on first use and kept", () => {
-    const a = tradeEngine();
-    expect(tradeEngine()).toBe(a);
+  it("is one client for both trade pages of a league, made on first use and kept; another league gets its own", () => {
+    const a = tradeEngine("espn:0000abcd:2026");
+    expect(tradeEngine("espn:0000abcd:2026")).toBe(a);
     resetFinderMemory();
-    expect(tradeEngine()).toBe(a);
+    expect(tradeEngine("espn:0000abcd:2026")).toBe(a);
+    // Another league: the first one's client is stopped (src/lib/engineClient.ts createLeagueEngine), a new one made.
+    const b = tradeEngine("sleeper:12345678:2026");
+    expect(b).not.toBe(a);
+    expect(tradeEngine("espn:0000abcd:2026")).not.toBe(a);
+  });
+});
+
+describe("whose address it is (useLeagueQuery's rule; review of track ML)", () => {
+  const A = "espn:0000abcd:2026";
+  const B = "sleeper:12345678:2026";
+
+  /** The page's renders, one per (address, league shown): what each reads, the owner carried from one to the next. */
+  function renders(steps: readonly [query: string, leagueId: string | null][]): string[] {
+    let owner: QueryOwner | null = null;
+    return steps.map(([query, leagueId]) => {
+      owner = queryOwnerAfter(owner, query, leagueId);
+      return honoredQuery(owner, query, leagueId);
+    });
+  }
+
+  it("reads an address the page opened, or wrote, under the league shown", () => {
+    expect(renders([["partner=4", A]])).toEqual(["partner=4"]);
+    // The page's own write (a partner picked), and a link followed, under the same league.
+    expect(renders([["partner=4", A], ["partner=7", A], ["", A], ["partner=4", A]])).toEqual(["partner=4", "partner=7", "", "partner=4"]);
+    // While no league is shown (the store loading) nothing is claimed: the first league shown gets it.
+    expect(renders([["partner=4", null], ["partner=4", A]])).toEqual(["partner=4", "partner=4"]);
+  });
+
+  it("reads another league's address as none: a switch (before Next applies the switcher's drop), or a removal here or in another tab", () => {
+    // Switched to B with A's address still there: none; then the address is dropped, and B's own address reads.
+    expect(renders([["partner=4", A], ["partner=4", B], ["", B], ["partner=4", B]])).toEqual(["partner=4", "", "", "partner=4"]);
+    // The address not dropped (a browser that refuses), and back to A: A's own again.
+    expect(renders([["partner=4&give=101&get=401", A], ["partner=4&give=101&get=401", B], ["partner=4&give=101&get=401", A]])).toEqual(["partner=4&give=101&get=401", "", "partner=4&give=101&get=401"]);
+    // A league removed while it showed no address: nothing to read either way.
+    expect(renders([["", A], ["", B]])).toEqual(["", ""]);
   });
 });

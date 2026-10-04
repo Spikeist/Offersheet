@@ -97,6 +97,13 @@ export interface MarketInputs {
    * (the server doesn't ask for it then), and in other league types.
    */
   seasonValues?: Record<string, number>;
+  /**
+   * Phase 4c (planner reply to Checkpoint 4b, change 12): absent when FantasyCalc answered. "saved": it didn't, and a saved
+   * list from `listDate` (at most config.market.fantasyCalcStaleDays old) stands in, with a "values from <date>" note.
+   * "curve": the newest saved list is older than that (at most fantasyCalcCurveDays): its values only calibrate the
+   * model's own value curve (value on rest-of-season points, per position), which values every player, with a banner.
+   */
+  fallback?: { kind: "saved" | "curve"; listDate: string };
   /** Canonical ids of relevant players FantasyCalc knows (has a FantasyCalc player id), valued or not. */
   knownIds: string[];
   /** The top value in FantasyCalc's list for this format (valueFloor and waiverCreditMin are fractions of it). */

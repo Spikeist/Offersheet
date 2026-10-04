@@ -9,9 +9,10 @@
  */
 import { describe, expect, it } from "vitest";
 import { config } from "./config";
-import { BLEND_OFF_WARNING, buildLeagueModel, buildProjectionTable, preKickoffTable, projectLeaguePlayers, type LeagueModelConfig } from "./league";
+import type { AvailabilityContext } from "./availability";
+import { BLEND_OFF_CURVE_WARNING, BLEND_OFF_WARNING, buildLeagueModel, buildProjectionTable, marketCurveFit, preKickoffTable, projectLeaguePlayers, type LeagueModelConfig } from "./league";
 import type { LeagueModel, PlayerModel } from "./leagueModel";
-import type { Pos } from "./model";
+import type { InjuryStatus, PlayerInfo, Pos } from "./model";
 import { weeklySd } from "./projections";
 import { TEST_NOW, buildTestLeague, type TestLeagueSpec, type TestPlayer } from "./testLeague";
 
@@ -333,6 +334,65 @@ describe("the blend's table per league type (rule 2), and the warning without on
       spec.freeAgents = (spec.freeAgents ?? []).map((x) => ({ ...x, points: 0 }));
     });
     expect(buildLeagueModel(unprojected.snapshot, unprojected.inputs, OPTS, NO_RISK).warnings).not.toContain(BLEND_OFF_WARNING);
+  });
+
+  it("FantasyCalc's curve fallback blends nothing and says so in its own words, never as a list that didn't load (reviews of tracks MK and EF)", () => {
+    expect(BLEND_OFF_CURVE_WARNING).toBe("The trade-market blend is off: FantasyCalc didn't answer and its newest values are too old, so projections aren't pulled toward the trade market.");
+    for (const leagueType of ["redraft", "dynasty", "keeper"] as const) {
+      const league = blendLeague((spec) => (spec.leagueType = leagueType));
+      const market = league.inputs.market as NonNullable<typeof league.inputs.market>;
+      if (leagueType !== "redraft") market.format = { ...market.format, isDynasty: true };
+      // The dynasty league without its season list would warn that the list didn't load (the test above); in the fallback
+      // the lists loaded, too old to blend toward. The model inputs' banner speaks of trade values only (review of track
+      // EF, finding 2), so the model's own warning is what tells the user the projections aren't blended.
+      market.fallback = { kind: "curve", listDate: "2026-09-10T06:00:00.000Z" };
+      const model = buildLeagueModel(league.snapshot, league.inputs, OPTS, NO_RISK);
+      expect(Object.values(model.players).some((pm) => pm.blend), leagueType).toBe(false);
+      expect(model.warnings, leagueType).not.toContain(BLEND_OFF_WARNING);
+      expect(model.warnings.filter((w) => w === BLEND_OFF_CURVE_WARNING), leagueType).toHaveLength(1);
+      // Every valued player is an estimate there (market.curveMarketValues).
+      expect(player(model, "k9").value?.source, leagueType).toBe("estimate");
+    }
+    // The same conditions as the other warning: no blend weight, or nobody projected, and there is nothing to say.
+    const curve = (edit: (spec: TestLeagueSpec) => void = () => undefined) => {
+      const league = blendLeague(edit);
+      (league.inputs.market as NonNullable<typeof league.inputs.market>).fallback = { kind: "curve", listDate: "2026-09-10T06:00:00.000Z" };
+      return league;
+    };
+    const weightless = curve();
+    expect(buildLeagueModel(weightless.snapshot, weightless.inputs, OPTS, OFF).warnings).not.toContain(BLEND_OFF_CURVE_WARNING);
+    const unprojected = curve((spec) => {
+      for (const t of spec.teams) t.roster = t.roster.map((x) => ({ ...x, points: 0 }));
+      spec.freeAgents = (spec.freeAgents ?? []).map((x) => ({ ...x, points: 0 }));
+    });
+    expect(buildLeagueModel(unprojected.snapshot, unprojected.inputs, OPTS, NO_RISK).warnings).not.toContain(BLEND_OFF_CURVE_WARNING);
+    // With today's list, neither warning.
+    const fresh = blendLeague();
+    expect(buildLeagueModel(fresh.snapshot, fresh.inputs, OPTS, NO_RISK).warnings.filter((w) => w === BLEND_OFF_WARNING || w === BLEND_OFF_CURVE_WARNING)).toEqual([]);
+  });
+
+  it("FantasyCalc's curve fallback fits its value curve on the players the blend's curve takes: healthy, with a game left (review of track MK, finding 1)", () => {
+    // An IR WR worth 9,500 (16 a game when healthy, back around week 15: 48 ROS points over weeks 14–17's 25/75/100/100%).
+    // Fitted with him, his point (48, 9,500) would pool with k1–k3 (70–98 ROS points) and lift them to 3,875; fitted on the
+    // healthy WRs alone the curve runs through each of them (their old values rise with their points but for k9/k10).
+    const league = blendLeague((spec) => {
+      (spec.teams[0] as (typeof spec.teams)[number]).ir = [p("ir1", "WR", 16, { value: 9500, injury: "IR", injuryReturnWeek: 15 })];
+    });
+    (league.inputs.market as NonNullable<typeof league.inputs.market>).fallback = { kind: "curve", listDate: "2026-09-10T06:00:00.000Z" };
+    const model = buildLeagueModel(league.snapshot, league.inputs, OPTS, NO_RISK);
+    expect(player(model, "ir1").ros.total).toBeCloseTo(48, 9);
+    expect(player(model, "k1").value).toEqual({ value: expect.closeTo(1000, 9), source: "estimate" });
+    expect(player(model, "k3").value).toEqual({ value: expect.closeTo(3000, 9), source: "estimate" });
+    // The IR WR is still valued, off the healthy curve at his own ROS points (proportional below its lowest point).
+    expect(player(model, "ir1").value).toEqual({ value: expect.closeTo((1000 * 48) / 70, 9), source: "estimate" });
+    // The rule is step 3b's (league.marketCurveFit): no tag, an NFL team, a remaining week that isn't his bye.
+    const weeks = { weeks: [4, 5, 6] };
+    const ctx = (injury: InjuryStatus, hasTeam = true, byeWeek?: number) => ({ info: { injury } as PlayerInfo, ctx: { hasTeam, byeWeek } as AvailabilityContext });
+    expect(marketCurveFit(ctx("ACTIVE"), weeks)).toBe(true);
+    expect(marketCurveFit(ctx("QUESTIONABLE"), weeks)).toBe(false);
+    expect(marketCurveFit(ctx("ACTIVE", false), weeks)).toBe(false);
+    expect(marketCurveFit(ctx("ACTIVE", true, 4), { weeks: [4] })).toBe(false);
+    expect(marketCurveFit(ctx("ACTIVE", true, 4), weeks)).toBe(true);
   });
 
   it("keeper leagues read their redraft list (perception's), and redraft leagues their values", () => {

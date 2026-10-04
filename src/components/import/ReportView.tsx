@@ -40,14 +40,21 @@ const toneFor = (view: ImportReportView, setting: UnknownSetting) => (view.unkno
 export function ReportView({
   view,
   onPickTeam,
+  pickError,
   refresh,
   forget,
-}: ViewProps & { onPickTeam: (teamId: string) => void; refresh?: RefreshControl | undefined; forget?: ForgetControl | undefined }) {
+}: ViewProps & {
+  onPickTeam: (teamId: string) => void;
+  /** Why the last team pick wasn't kept (the browser refused it), or null. */
+  pickError?: string | null | undefined;
+  refresh?: RefreshControl | undefined;
+  forget?: ForgetControl | undefined;
+}) {
   return (
     <div className="space-y-6">
       <ReportHeader view={view} />
       <Glance view={view} />
-      <YourTeam view={view} onPickTeam={onPickTeam} />
+      <YourTeam view={view} onPickTeam={onPickTeam} pickError={pickError} />
       <ScoringCard view={view} />
       <div className="grid gap-6 lg:grid-cols-2">
         <LineupCard view={view} />
@@ -134,7 +141,7 @@ function Glance({ view }: ViewProps) {
   );
 }
 
-function YourTeam({ view, onPickTeam }: ViewProps & { onPickTeam: (teamId: string) => void }) {
+function YourTeam({ view, onPickTeam, pickError }: ViewProps & { onPickTeam: (teamId: string) => void; pickError?: string | null | undefined }) {
   const t = view.teams;
   return (
     <Card id="your-team" tone={t.myTeamSource === "none" || t.myTeamSource === "link" ? "warn" : "normal"}>
@@ -165,6 +172,11 @@ function YourTeam({ view, onPickTeam }: ViewProps & { onPickTeam: (teamId: strin
         <button type="button" onClick={() => onPickTeam(t.myTeamId ?? "")} className={cx(buttonClass("secondary", "sm"), "mt-2 min-h-11")}>
           Yes, that&apos;s my team
         </button>
+      ) : null}
+      {pickError ? (
+        <p role="alert" className="mt-2 text-sm font-semibold text-danger-fg">
+          {pickError}
+        </p>
       ) : null}
       {view.schedule.thisWeek ? <p className="mt-3 text-sm font-semibold">{view.schedule.thisWeek}</p> : null}
     </Card>
@@ -364,6 +376,8 @@ function TradesCard({ view }: ViewProps) {
           { label: "Trade deadline", value: t.deadline, tone: toneFor(view, "tradeDeadline") },
           { label: "Review", value: t.review, tone: toneFor(view, "tradeReview") },
           { label: "FAAB", value: t.faab },
+          // Phase 4c (planner reply to Checkpoint 4b, change 5): the order free agents go out in, one team each (§7).
+          { label: "Waiver order used", value: t.waiverOrder },
           { label: "This season so far", value: `${plural(a.trades, "trade")} · ${plural(a.adds, "player")} added (${plural(a.waivers, "waiver claim")}) · ${a.drops} dropped` },
           ...(a.tradedPicks !== undefined ? [{ label: "Traded draft picks", value: a.tradedPicks }] : []),
         ]}

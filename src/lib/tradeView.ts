@@ -6,24 +6,42 @@
  * A trade card (buildTradeCard) says, in this order:
  * - who it's with, what I give and what I get (each player with position, NFL team and an injury tag in words);
  * - the three numbers: "Helps you" (the Trade Score, 0–100), "Chance they accept" (the estimate rounded to 5%,
- *   labeled "Est." and with its label: Long shot, Possible, Decent, Likely) and "Overall" (0–100). A trade that
- *   doesn't help me (B ≤ 0, only the Analyzer shows one) scores 0; one whose odds couldn't be simulated shows "—".
- *   When the league's review could veto it (the veto rule, §11), the chance it goes through is shown too;
+ *   labeled "Est." and with its label: Long shot, Possible, Decent, Likely; ⚠️ a model value under 5% prints "<5%", never
+ *   rounded up: planner reply to Checkpoint 4b, answer 5; acceptance.displayAcceptance's number is unchanged, the filter
+ *   and the label read it) and "Overall" (0–100). A trade that doesn't help me (B ≤ 0, only the Analyzer shows one)
+ *   scores 0; one whose odds couldn't be simulated shows "—". When the league's review could veto it (the veto rule,
+ *   §11), the chance it goes through is shown too;
+ * - next to them, my real odds (planner reply to Checkpoint 4b, change 9: "Helps you" alone means nothing): "Title odds
+ *   12.1% → 13.4%" and "Playoff odds 65% → 69%" (oddsViews: one decimal for the title, whole percents for the playoffs,
+ *   as the planner wrote them; before = my odds before any trade, the search's baseline, which is the League page's
+ *   headline (every team after its likely pickups); after = before + ΔCH or ΔPO, from the very runs B came from; without
+ *   the before, the change in percentage points, never bare "points"), and "Win chance by week: Week 9: 68% → 64% ·
+ *   Week 13: 42% → 55%" (weeklyLine: TradeDetail.winChance's weeks moving at least config.explain.weeklyLineMin, at most
+ *   weeklyLineMax of them in week order, the drops first, then the largest gains; none in a points-only league, whose list
+ *   is empty, or when no week moves).
+ *   ⚠️ Never for an offer-first step (its numbers come from the 1,000-season screening block, not the card's runs); a Plan
+ *   B box prints its own, by the same rules (PlanB.dPO, dCH and winChance: Plan B's own simulation on the final block, the
+ *   card's runs' block, so from the same "before"; Phase 4c's polish of change 9: the box showed its three numbers alone);
  * - the risk flags, apart from the numbers (§10 guards): "Depends on an injured player" (with what his projection
  *   assumes: see the injury tags below), "Market check" (and, in the Analyzer, that a trade is normally hidden: it doesn't
- *   help me, saying what pulled it down (noHelpText), or the market check's hiding line);
+ *   help me, saying what pulled it down (noHelpText), or the market check's hiding line). ⚠️ The market check keeps the
+ *   model's trigger (g_mkt(me) below config.benefit.marketCheckBelow, the model's package: every player at max(v, W), the
+ *   roster-spot credit, the neutral throw-ins) but no number: "Market check: counting roster spots, you'd give up more
+ *   trade value than you get." (planner reply to Checkpoint 4b, change 3: the model's figures stay internal; the card's
+ *   only value number is FantasyCalc's own, below), and when the roster spot the trade costs me is what trips it, it says
+ *   so: "Market check: you'd get 2 players for 1, and counting the roster spot that costs you, …" (marketCheckText; final
+ *   review of Phase 4c, finding PAGES-6);
  * - the numbers behind the score in words (§10 "always show"): my lineup's change per week (regular season and
- *   playoffs), my playoff and title odds in percentage points ("Playoff odds +4.1 percentage points (62% to 66%)":
- *   never "points", which would read as fantasy points next to the lineup's; the end percents only when my odds before
- *   any trade are known and the whole percent moves), long-term value in dynasty and
- *   keeper leagues, trade value given and received (the page puts "Values: FantasyCalc" beside it, §2.9; since the
- *   value floor on both sides, planner reply to Checkpoint 4, change 4, it says that a player worth less than the best
- *   free agent counts at that free agent's value, and so does an open roster spot: ⚠️ always, since the card can't
- *   tell which players the floor lifted; with an IR player in the trade, review of track E, that only my active roster's
- *   spots count, since an IR slot isn't one: valueBasisText), the partner's weekly lineup change, and "You get 142 ROS
- *   pts, give 118" (§13), with a line when my starting lineup moves the other way (review of Phase 4b: "You get 96 ROS
- *   pts, give 295" read like a lopsided loss on a trade that gives a backup QB who never starts): "Your starting lineup
- *   still gains 25 ROS pts: …" (rosNoteOf, from TradeDetail.weekly);
+ *   playoffs), long-term value in dynasty and keeper leagues (ΔDyn, the model's, ", counting roster spots"), trade value
+ *   given and received by FantasyCalc's own values (planner reply to Checkpoint 4b, change 3, "one value number per
+ *   card": the plain sums of FantasyCalc's values, no floor, no roster-spot credit, no star premium, no neutral throw-ins:
+ *   the numbers a leaguemate can check; valueFact, through explain.fantasyCalcComparison like the reasons' value line, with
+ *   the page's "Values: FantasyCalc" link beside it, §2.9; ⚠️ ours: a player FantasyCalc doesn't value is named in words,
+ *   "You give 5,000 plus Tobias Thimble (no FantasyCalc value), you get 6,200", and without FantasyCalc's values the line
+ *   says they aren't available), the partner's weekly lineup change, and "You get 142 ROS pts, give 118" (§13), with a
+ *   line when my starting lineup moves the other way (review of Phase 4b: "You get 96 ROS pts, give 295" read like a
+ *   lopsided loss on a trade that gives a backup QB who never starts): "Your starting lineup still gains 25 ROS pts: …"
+ *   (rosNoteOf, from TradeDetail.weekly);
  * - the roster moves the trade forces (§7 roster legality: drops and adds for either side; Phase 4b's IR players: a
  *   received IR player who goes into an open IR slot, RosterChange.toIR, and a player dropped from the week an IR player
  *   comes back, RosterChange.displaced);
@@ -45,31 +63,48 @@
  *   (Probable, Questionable, Doubtful, Out, IR or PUP; not Suspended or NA), the card says once why his numbers can still
  *   look good: "Josh Jacobs: his projection assumes he returns at full strength, blended with the trade market." ⚠️ The
  *   tag doesn't say whether the market blend reached him (a player without a real FantasyCalc value, or a K or D/ST when
- *   they're included, isn't blended), so the sentence is said for every such player. Review of Phase 4b: a player I'd
+ *   they're included, isn't blended), so the sentence is said for every such player; but never "blended with the trade
+ *   market" while the blend is off for the whole league (CardContext.blendOn, marketBlendOn: FantasyCalc's curve
+ *   fallback, no FantasyCalc, a dynasty or keeper league without this season's list; review of track UIC, finding 3:
+ *   "His projection assumes he returns at full strength."). Review of Phase 4b: a player I'd
  *   get who is Out, on IR or on the PUP list was said four times (his tag, that sentence, the "Depends on an injured
  *   player" flag and explain.ts's caveat repeating the flag), so for him the sentence joins the flag ("Depends on an
  *   injured player: Jadarian Price (injured reserve). His projection assumes he returns at full strength, blended with
  *   the trade market.") and the caveat isn't repeated among the reasons: his tag and the flag say it. The sentence under
  *   the two lists stays for the other tagged players I'd get (Probable, Questionable, Doubtful), whom no flag names.
- * - "If they say no, try:" (TradeEvaluation.planB, the Trade Finder's cards without steps; since the review of track F a
- *   trade likelier to go through than the card): the other trade in words, each tagged player with his tag (the card's
- *   own for a player it shares with the card, else the search's tag for him on another idea, which knows his far date,
- *   else the snapshot's: ⚠️ PlanB carries no tags of its own), whether it's the same players of theirs or "A different
- *   set of their players", its three numbers (with the chance it goes through when a veto could cut it), "Also shown as
- *   trade idea 6." when the list shows it as a card of its own (its place in the sort shown), its own message to send
- *   them (planBPitch: a follow-up naming the trade from their side) and its own "Open in Analyzer" link, which says it
- *   comes from "If they say no, try:" (`from=planB`), so the Analyzer shows that trade as one offer, without "How to
- *   offer it" (review of Phase 4b: its first offer could be smaller than the trade they had just turned down, and its
- *   message proposed that smaller offer).
+ * - "If they say no, try:" (TradeEvaluation.planB, the Trade Finder's cards without steps; since the review of track
+ *   F a trade likelier to go through than the card): the other trade in words, each tagged player with his tag (the
+ *   card's own for a player it shares with the card, else the search's tag for him on another idea, which knows his
+ *   far date, else the snapshot's: ⚠️ PlanB carries no tags of its own), whether it's the same players of theirs or "A
+ *   different set of their players", its three numbers (with the chance it goes through when a veto could cut it), its
+ *   title and playoff odds before and after and its "Win chance by week" line (Phase 4c, change 9: as the card's, from
+ *   its own final-block simulation), "Also shown as trade idea 6." when the list shows it as a card of its own (its
+ *   place in the sort shown), its own message to send them (planBPitch: a follow-up naming the trade from their side)
+ *   and its own "Open in Analyzer" link, which says it comes from "If they say no, try:" (`from=planB`), so the
+ *   Analyzer shows that trade as one offer, without "How to offer it" (review of Phase 4b: its first offer could be
+ *   smaller than the trade they had just turned down, and its message proposed that smaller offer).
  * - Feedback versions (TradeCardView.versions): the versions the card shows, for "Which version did you send?" (the
  *   first offer and the full one with steps; this trade and Plan B's; this trade alone otherwise). The "Version:" line
  *   under the outcome buttons (versionLine) names the recorded version only when its key is one the card shows; a
  *   recorded version the card no longer shows (its Plan B or throw-in changed since, or the Analyzer's card for the same
- *   trade) reads "an earlier one" with its players, read from its key (CardFeedback.versionWords).
+ *   trade) reads "an earlier one" with its players, read from its key (CardFeedback.versionWords). Phase 4c (planner
+ *   reply to Checkpoint 4b, change 7 and answer 9): each version carries its model inputs (VersionChoice.inputs:
+ *   feedbackStore.VersionInputs), saved with the outcome: its acceptance features, raw g_mkt(P), B and the goal B was
+ *   weighted by (CardContext.goal: the settings the numbers were computed with); the card's own numbers for the version
+ *   that is the card's trade (its final simulation), the step's or Plan B's for theirs.
  *
  * The chance a version goes through when the league's review could veto it (throughText) is said when it prints
- * differently from the chance they accept, and as "under 5%" when both print as the display's floor while the veto cut
- * it below (review of Phase 4b: "5% … about 5% it goes through" next to a reason saying the veto halves the chance).
+ * differently from the chance they accept ("about 20%", or "under 5%" when it prints "<5%": review of Phase 4b, "5% …
+ * about 5% it goes through" next to a reason saying the veto halves the chance); nothing more when both print the same.
+ *
+ * The Trade Analyzer's card also has "Details" (DetailsView; planner reply to Checkpoint 4b, change 3: "the Analyzer can
+ * show them under 'Details'"): the model's own trade-value figures, both sides' g_mkt on its packages (every player at
+ * max(v, W), the roster-spot credit, the neutral throw-in rule), the partner's g as they see it (with the star premium,
+ * as the model clamps it), and B's market term as what "Helps you" would be without it (redraft leagues; dynasty and
+ * keeper leagues have none, and the line says so, and that Helps you counts this season only when their long-term values
+ * didn't load). While FantasyCalc's values aren't available, it says the figures are our own estimates (the curve
+ * fallback), and that Helps you counts no trade value when B has no market term then. Its intro names what the figures
+ * decide: the chance they accept and the Market check, and Helps you only when its trade-value part reads them.
  *
  * Planner addendum to Checkpoint 3 (lead decisions N2, N8):
  * - "Harder to get" next to each player I'd get whose premium for his manager earns the tag (TradeDetail.premium:
@@ -85,34 +120,54 @@
  * reasons already say (explain.ts words some of them).
  *
  * My odds before any trade (baselineLines; review of Phase 4): the Finder says them above its ideas ("Your odds before
- * any trade: 71% to make the playoffs, 15% to win the title.") and the Analyzer above its card ("before this trade";
- * the worker sends them with the evaluation), each with what they count: every team after the free-agent pickups
- * that would help it, the baseline every trade's numbers are measured from (§7), so they can differ from the League
- * page's odds, which take rosters as they stand (lead decision L3). The cards' end percents start from the same odds.
+ * any trade: 59% to make the playoffs, 9.9% to win the title.", the title with one decimal like the cards' odds) and the
+ * Analyzer above its card ("before this trade"; the worker sends them with the evaluation), each with what they count.
+ * Since Phase 4c (planner reply to Checkpoint 4b, change 9: "one baseline everywhere") they are the League page's
+ * headline odds, every team after the free-agent pickups that would help it (LeagueModel.odds; the trade context's
+ * baseline equals them exactly), and every card's odds start from them. Under them, once per page, what "Helps you"
+ * sums up (helpsInfoText: the planner's "Helps you (0–100) sums up how much your title and playoff odds rise, minus a
+ * cost for giving away trade value.", ⚠️ with "or plus a credit for gaining it" since the final review of Phase 4c, finding
+ * R4: B's market term works both ways, and on Parker's league a trade that gains value scored 23 from 14 on its odds
+ * alone; ⚠️ ours: in dynasty and keeper leagues, weighed against long-term value instead,
+ * and the odds alone when there's nothing to weigh them against: a redraft league while FantasyCalc's values aren't
+ * available, when B has no market term, or a dynasty or keeper league whose long-term values didn't load,
+ * TradeEvaluation.dynMissing; review of track UIC, finding 2). The pages' "How to read" says the same (valueFactsOf).
  *
- * The Finder's empty state says why there's nothing: the search's notes when it stopped before screening anything
- * (no team, season over, deadline passed, no odds, must-include players that can't work: TradeSearchResult.counts.
- * screened 0), else what the guards left out ("No trade ideas that help you"), else that nothing was found. Notes
- * that didn't stop the search (the K/D/ST note almost always) stay in the notes list.
+ * The Finder (buildFinderView): the pattern note above the list when the search found one (planner reply to Checkpoint
+ * 4b, change 6; TradeSearchResult.pattern, its text as the engine wrote it); "Chance they accept: at least" (change 10,
+ * minChanceOptions: Any, 10% … 50%, config.ranking.minChanceOptions) is the page's control, with a note naming the
+ * league's review when it has one (minChanceNote: the minimum reads the chance the trade goes through), and when the
+ * search says the minimum leaves few ideas (TradeSearchResult.filter.few: fewer than config.ranking.minChanceFew shown,
+ * and a lower setting would show more) a line says so and suggests a lower setting (fewText); what the minimum left out
+ * joins the hidden line ("3 trade ideas below your minimum chance"). Its empty state says why there's nothing: the search's notes
+ * when it stopped before screening anything (no team, season over, deadline passed, no odds, must-include players that
+ * can't work: TradeSearchResult.counts.screened 0), else that no idea reaches the minimum chance, else what the guards
+ * left out ("No trade ideas that help you"), else that nothing was found. Notes that didn't stop the search (the K/D/ST
+ * note almost always) stay in the notes list; a saved FantasyCalc list standing in ("Trade values from Sep 27: FantasyCalc
+ * didn't answer.", FantasyCalcLookup.note) joins them, since the cards quote its values.
  *
  * Numbers print like the League page's (src/lib/format.ts): one decimal for points per week, whole percents and whole
  * values, a real minus sign. No jargon ("EV", "σ", "V*", "g_mkt" never appear).
  *
  * Also here: the Finder's list (buildFinderView: the cards in the chosen sort through rank.ts sortTrades, the hidden
- * counts, notes and warnings, the empty states), the search's progress in words (progressView), the Analyzer's
- * choices (analyzerChoices) and the links between the pages (finderHref, analyzerHref and what they carry back:
- * a team id and player ids only, never league ids or names; ⚠️ a URL query, as M13 says, so the server that serves the
- * page sees those ids like any address: the privacy page says so).
+ * counts, notes and warnings, the empty states), the search's progress in words (progressView; a re-filter's shows the
+ * ranking alone), the Analyzer's choices (analyzerChoices) and the links between the pages (finderHref, analyzerHref and
+ * what they carry back: a team id and player ids only, never league ids or names; ⚠️ a URL query, as M13 says, so the
+ * server that serves the page sees those ids like any address: the privacy page says so).
  */
 import { displayAcceptance } from "@/engine/acceptance";
+import { futureValuesLoaded, tradeScore } from "@/engine/benefit";
+import { blendValues } from "@/engine/blend";
 import { config } from "@/engine/config";
 import type { TradeAnalysis } from "@/engine/evaluate";
-import { injuryTags } from "@/engine/explain";
-import { tradeActiveSpots } from "@/engine/irSlots";
+import { fantasyCalcComparison, injuryTags, myFantasyCalcGain } from "@/engine/explain";
+import type { MarketInputs } from "@/engine/inputs";
+import { fantasyCalcFallbackText, valuesForTerm } from "@/engine/market";
 import { POSITIONS, type InjuryStatus, type LeagueSnapshot, type PlayerInfo, type Pos } from "@/engine/model";
 import { sortTrades } from "@/engine/rank";
-import type { TradeSettings } from "@/engine/settings";
+import type { Goal, TradeSettings } from "@/engine/settings";
 import type {
+  AcceptanceFeatures,
   InjuryTag,
   PlanB,
   PremiumFact,
@@ -127,7 +182,7 @@ import type {
   TradeSort,
   TradeStep,
 } from "@/engine/tradeModel";
-import { feedbackFor, type FeedbackOutcome, type FeedbackReason, type FeedbackRecord, type FeedbackSent, type FeedbackVersion } from "./feedbackStore";
+import { feedbackFor, type FeedbackOutcome, type FeedbackReason, type FeedbackRecord, type FeedbackSent, type FeedbackVersion, type VersionInputs } from "./feedbackStore";
 import { fmtNum, fmtSigned, fmtWhole, plural } from "./format";
 import { INJURY_LABEL, PLATFORM_LABEL, posLabel } from "./labels";
 
@@ -157,26 +212,46 @@ const MINUS = "−";
 export function percentText(p: number): string {
   if (!Number.isFinite(p)) return "—";
   if (p > 0 && p < 0.005) return "<1%";
-  if (p < 1 && p > 0.995) return ">99%";
+  if (p < 1 && p >= 0.995) return ">99%";
   return `${Math.round(p * 100)}%`;
 }
 
-/** An acceptance estimate as shown (§11: the nearest 5%). */
+/** Under the display's step (config.acceptance.displayStep, 5%): an estimate the card prints as "<5%" (planner reply to Checkpoint 4b, answer 5). */
+function underStep(p: number): boolean {
+  return Number.isFinite(p) && p < config.acceptance.displayStep - 1e-9;
+}
+
+/**
+ * An acceptance estimate as shown (§11: the nearest 5%), "<5%" for a model value under 5%: never rounded up to the step
+ * (planner reply to Checkpoint 4b, answer 5). acceptance.displayAcceptance's number, which the minimum-chance filter and
+ * the label read, is unchanged: only the words are.
+ */
 export function acceptText(p: number): string {
+  if (underStep(p)) return `<${Math.round(config.acceptance.displayStep * 100)}%`;
   return `${Math.round(displayAcceptance(p) * 100)}%`;
+}
+
+/** The same for screen readers: "under 5%" for "<5%", else the printed percent. */
+export function acceptSrText(p: number): string {
+  return underStep(p) ? `under ${Math.round(config.acceptance.displayStep * 100)}%` : acceptText(p);
 }
 
 /**
  * The chance a version goes through when the league's review could veto it, next to the chance they accept (the file
- * header): "about 20%" when it prints differently; "under 5%" when both print as the display's floor (§11: an estimate is
- * never shown below displayStep) while the veto cut it below that floor; null when there's nothing more to say (it
- * prints the same and isn't below the floor: the reason that the league reviews trades says the rest).
+ * header): "about 20%" when it prints differently, "under 5%" when it prints "<5%" and the chance they accept doesn't;
+ * null when both print the same (the reason that the league reviews trades says the rest).
  */
 export function throughText(pAccept: number, pComplete: number): string | null {
-  if (!Number.isFinite(pComplete)) return null;
-  if (Math.abs(displayAcceptance(pComplete) - displayAcceptance(pAccept)) > 1e-9) return `about ${acceptText(pComplete)}`;
-  const floor = config.acceptance.displayStep;
-  return pComplete > 0 && pComplete < floor - 1e-12 && pComplete < pAccept - 1e-12 ? `under ${Math.round(floor * 100)}%` : null;
+  if (!Number.isFinite(pComplete) || acceptText(pComplete) === acceptText(pAccept)) return null;
+  return underStep(pComplete) ? acceptSrText(pComplete) : `about ${acceptText(pComplete)}`;
+}
+
+/** A title chance with one decimal, as the planner writes it ("12.1%"); "<0.1%" and ">99.9%" when it only rounds there. */
+export function titleOddsText(p: number): string {
+  if (!Number.isFinite(p)) return "—";
+  if (p > 0 && p < 0.0005) return "<0.1%";
+  if (p < 1 && p >= 0.9995) return ">99.9%";
+  return `${(Math.min(1, Math.max(0, p)) * 100).toFixed(1)}%`;
 }
 
 /**
@@ -395,23 +470,30 @@ export function seasonEndOf(settings: Pick<LeagueSnapshot["settings"], "regularS
   return weeks.length ? Math.max(...weeks) : undefined;
 }
 
-/** What a hurt player's projection assumes (the file header), for one player or several. */
-function assumesFullReturn(several: boolean): string {
-  return several ? "their projections assume they return at full strength, blended with the trade market." : "his projection assumes he returns at full strength, blended with the trade market.";
+/**
+ * What a hurt player's projection assumes (the file header), for one player or several: "blended with the trade market"
+ * only while the blend is on (`blendOn`: CardContext.blendOn, marketBlendOn; review of track UIC, finding 3: the cards said
+ * so in FantasyCalc's curve fallback, without FantasyCalc, and in a dynasty league without this season's list, next to
+ * the page's warning that the blend was off).
+ */
+function assumesFullReturn(several: boolean, blendOn = true): string {
+  const blend = blendOn ? ", blended with the trade market" : "";
+  return several ? `their projections assume they return at full strength${blend}.` : `his projection assumes he returns at full strength${blend}.`;
 }
 
 /**
  * The card's once-per-card sentence for the players I'd get who carry an injury tag (the file header): "Josh Jacobs: his
- * projection assumes he returns at full strength, blended with the trade market." (their projections, for several); null
- * when none does. `flagged` (the "Depends on an injured player" flag's players, TradeEvaluation.flags.injured) are left
- * out: the flag says it for them (review of Phase 4b).
+ * projection assumes he returns at full strength, blended with the trade market." (their projections, for several;
+ * without the blend's words while the blend is off: `blendOn`, assumesFullReturn); null when none does. `flagged` (the
+ * "Depends on an injured player" flag's players, TradeEvaluation.flags.injured) are left out: the flag says it for them
+ * (review of Phase 4b).
  */
-export function incomingInjuryNote(tags: readonly InjuryTag[], snapshot: Pick<LeagueSnapshot, "players">, flagged: readonly string[] = []): string | null {
+export function incomingInjuryNote(tags: readonly InjuryTag[], snapshot: Pick<LeagueSnapshot, "players">, flagged: readonly string[] = [], blendOn = true): string | null {
   const names = tags
     .filter((t) => t.side === "get" && INJURED_NOTE.has(t.status) && !flagged.includes(t.playerId))
     .map((t) => snapshot.players[t.playerId]?.name ?? "A player who's no longer in this league's data");
   if (!names.length) return null;
-  return `${listText(names)}: ${assumesFullReturn(names.length > 1)}`;
+  return `${listText(names)}: ${assumesFullReturn(names.length > 1, blendOn)}`;
 }
 
 /**
@@ -456,11 +538,11 @@ export interface StepView {
   lead: string;
   /** The first offer in words ("Wiggleton Spoons for Cornelius Snoot"), or the player to add ("Tobias Thimble"). */
   what: string;
-  /** "Est. 35%": the chance they accept, rounded like the card's (kept on one line). */
+  /** "Est. 35%": the chance they accept, rounded like the card's (kept on one line; "Est. <5%" under 5%). */
   est: string;
   /**
-   * "about 20% it goes through" when the league's review could veto this version and that rounds differently ("under 5%
-   * it goes through" below the display's floor: throughText); else null.
+   * "about 20% it goes through" when the league's review could veto this version and that prints differently ("under 5%
+   * it goes through" when it prints "<5%": throughText); else null.
    */
   through: string | null;
   /** The estimate for screen readers: "an estimated 35% chance they accept" (", about 20% that it goes through"). */
@@ -501,6 +583,14 @@ export interface PlanBView {
    * ("under 5%" below the display's floor: throughText); else null.
    */
   acceptNote: string | null;
+  /**
+   * Phase 4c (planner reply to Checkpoint 4b, change 9, "real odds on every card"): its title and playoff odds before and
+   * after, as the card prints its own (oddsViews: before = the card's, the search's baseline; after = before + Plan B's own
+   * ΔCH or ΔPO, from its final-block simulation); empty when the Plan B carries none (PlanB.dPO and dCH absent).
+   */
+  odds: OddsView[];
+  /** Its weeks whose win chance moves (weeklyLine on PlanB.winChance, the card's rule), or null. */
+  weekly: WeeklyLineView | null;
   /** "Also shown as trade idea 6." when the Finder's list shows the same trade as a card of its own (its place in the sort shown); else null. */
   also: string | null;
   /** Its own message to send them (planBPitch): a follow-up naming this trade from their side. */
@@ -513,10 +603,41 @@ export interface PlanBView {
   text: string;
 }
 
-/** One version of a trade idea the user may have sent (the feedback's "Which version did you send?"), with its words. */
+/**
+ * One version of a trade idea the user may have sent (the feedback's "Which version did you send?"), with its words and
+ * (Phase 4c, FeedbackSent.inputs) its model inputs.
+ */
 export interface VersionChoice extends FeedbackSent {
   /** "The first offer", "With Tobias Thimble added", "This trade" or "The “If they say no” trade". */
   label: string;
+}
+
+/** One of my odds next to "Helps you" (the file header; planner reply to Checkpoint 4b, change 9). */
+export interface OddsView {
+  /** "Title odds" or "Playoff odds". */
+  label: string;
+  /** "12.1% → 13.4%"; "+1.3 percentage points" without my odds before any trade; "unknown". */
+  value: string;
+  /** The same for screen readers: "from 12.1% to 13.4%". */
+  srValue: string;
+}
+
+/** "Win chance by week: Week 9: 68% → 64% · Week 13: 42% → 55%" (the file header). */
+export interface WeeklyLineView {
+  label: string;
+  /** The weeks shown, in week order: "Week 9: 68% → 64%", and for screen readers "week 9 from 68% to 64%". */
+  weeks: { week: number; text: string; srText: string }[];
+  /** The whole line. */
+  text: string;
+}
+
+/** The Trade Analyzer's "Details" (the file header): the model's own trade-value figures. */
+export interface DetailsView {
+  /** "Details". */
+  summary: string;
+  /** What they are, in a sentence. */
+  intro: string;
+  items: string[];
 }
 
 export interface TradeCardView {
@@ -536,6 +657,12 @@ export interface TradeCardView {
     acceptNote: string | null;
     overall: NumberView;
   };
+  /** My title odds, then my playoff odds, before and after the trade (oddsViews), next to "Helps you". */
+  odds: OddsView[];
+  /** The weeks whose win chance the trade moves (weeklyLine), or null. */
+  weekly: WeeklyLineView | null;
+  /** The Trade Analyzer's "Details" (the model's trade-value figures); null on the Trade Finder's cards. */
+  details: DetailsView | null;
   /** "How to offer it" (offer first, then what to add if they say no), or null when the trade has no steps. */
   steps: StepsView | null;
   /** "If they say no, try:" (Plan B), or null when the trade has none (it has steps, nothing qualified, or it's the Analyzer's). */
@@ -580,6 +707,24 @@ export interface CardContext {
    * from there when the card doesn't have him (it knows his far ESPN date; PlanB carries no tags of its own).
    */
   knownTags?: ReadonlyMap<string, InjuryTag> | undefined;
+  /**
+   * FantasyCalc's own values (fantasyCalcLookup, from the model inputs the page holds): the card's value line. Absent: the
+   * line says they aren't available.
+   */
+  fantasyCalc?: FantasyCalcLookup | undefined;
+  /**
+   * Whether the market blend reaches anyone in this league (marketBlendOn, from the model inputs the page holds): a hurt
+   * player's projection is "blended with the trade market" only then (assumesFullReturn; review of track UIC, finding 3).
+   * Absent: on.
+   */
+  blendOn?: boolean | undefined;
+  /**
+   * "What matters most" as the numbers were computed (TradeSettings.goal of the search or the evaluation): saved with each
+   * version's model inputs (VersionChoice.inputs). Absent: saved as unknown (null).
+   */
+  goal?: Goal | null | undefined;
+  /** The Trade Analyzer's card: with "Details" (the model's trade-value figures). */
+  details?: boolean | undefined;
 }
 
 /** A 0–100 score as printed: its number; 0 for a trade that doesn't help me (B ≤ 0); "—" when B is unknown. */
@@ -589,27 +734,63 @@ function scoreView(score: number | null, b: number | null): NumberView {
   return { value: "—", srText: "not scored: the season couldn't be simulated" };
 }
 
-/** "+4.1 percentage points (62% to 66%)": the end percents only when my odds before any trade are known and the whole percent moves. */
-function oddsFact(d: number | null, before: number | null | undefined): string {
-  if (d === null || !Number.isFinite(d)) return "Unknown";
-  const change = pointsChange(d);
-  if (before === null || before === undefined || !Number.isFinite(before)) return change;
-  const after = Math.min(1, Math.max(0, before + d));
-  return percentText(after) !== percentText(before) ? `${change} (${percentText(before)} to ${percentText(after)})` : change;
+/**
+ * One of my odds next to "Helps you" (the file header): "12.1% → 13.4%" from my odds before any trade and the change the
+ * trade makes (after = before + change, kept within 0–100%), each printed by `text`; the change alone in percentage points
+ * when the odds before aren't known; "unknown" without the change.
+ */
+function oddsView(label: string, d: number | null, before: number | null | undefined, text: (p: number) => string): OddsView {
+  if (d === null || !Number.isFinite(d)) return { label, value: "unknown", srValue: "unknown" };
+  if (before === null || before === undefined || !Number.isFinite(before)) return { label, value: pointsChange(d), srValue: pointsChange(d) };
+  const from = text(before);
+  const to = text(Math.min(1, Math.max(0, before + d)));
+  return { label, value: `${from} → ${to}`, srValue: `from ${from} to ${to}` };
+}
+
+/** My title odds (one decimal) and playoff odds (whole percents), before and after the trade (the file header). */
+export function oddsViews(e: Pick<TradeEvaluation, "dPO" | "dCH">, baseline: CardContext["baseline"]): OddsView[] {
+  return [oddsView("Title odds", e.dCH, baseline?.pTitle, titleOddsText), oddsView("Playoff odds", e.dPO, baseline?.pPlayoffs, percentText)];
+}
+
+/**
+ * "Win chance by week" (the file header): from TradeDetail.winChance, the weeks whose chance to win moves at least
+ * config.explain.weeklyLineMin, at most weeklyLineMax of them, shown in week order: ⚠️ the weeks it drops first, the
+ * largest drop first, then the largest gains (ties: the earlier week; final review of Phase 4c, finding R8: the line is
+ * there to show whether a trade just moves a bye problem to another week, and "the largest moves" hid a 3.9-point drop
+ * behind two gains); null when none moves, the list is empty (a points-only league) or absent (no odds).
+ */
+export function weeklyLine(winChance: TradeDetail["winChance"], cfg: { readonly weeklyLineMin: number; readonly weeklyLineMax: number } = config.explain): WeeklyLineView | null {
+  const moves: { week: number; before: number; after: number }[] = [];
+  for (const w of winChance ?? []) {
+    if (!w || !Number.isFinite(w.week) || w.before === null || w.after === null || !Number.isFinite(w.before) || !Number.isFinite(w.after)) continue;
+    if (Math.abs(w.after - w.before) >= cfg.weeklyLineMin - 1e-9) moves.push({ week: w.week, before: w.before, after: w.after });
+  }
+  const change = (m: { before: number; after: number }) => m.after - m.before;
+  const drops = moves.filter((m) => change(m) < 0).sort((a, b) => change(a) - change(b) || a.week - b.week);
+  const gains = moves.filter((m) => change(m) >= 0).sort((a, b) => change(b) - change(a) || a.week - b.week);
+  const top = [...drops, ...gains].slice(0, Math.max(0, Math.floor(cfg.weeklyLineMax))).sort((a, b) => a.week - b.week);
+  if (!top.length) return null;
+  const label = "Win chance by week";
+  const weeks = top.map((w) => {
+    const from = percentText(w.before);
+    const to = percentText(w.after);
+    return { week: w.week, text: `Week ${w.week}: ${from} → ${to}`, srText: `week ${w.week} from ${from} to ${to}` };
+  });
+  return { label, weeks, text: `${label}: ${weeks.map((w) => w.text).join(" · ")}` };
 }
 
 /**
  * Why a trade that doesn't help me (B ≤ 0: trade ideas leave it out, only the Analyzer shows it) doesn't, by what pulled
  * B down (§10). Review of Phase 4: "it wouldn't raise your chances this season" also showed on trades that do raise them,
  * whose B the trade-value term ("Protect my trade value", planner addendum to Checkpoint 3 §3) or long-term value pulled
- * to 0 or below, next to the card's own "Playoff odds +1.8 percentage points".
+ * to 0 or below, next to the card's own playoff odds rising.
  * - Dynasty and keeper leagues with long-term values (λ and B_future known, §10): this season against long-term value,
  *   weighed by the Win now ↔ Future setting.
- * - Redraft: my chances go up (B_win > 0) while I'd give up more trade value than I get (g_mkt(me) < 0, as the card's
- *   values show) → that trade value, weighed by "Protect my trade value". Since the value floor on both sides (planner
- *   reply to Checkpoint 4, change 4, which replaced lead decision N10) the market term and the card's values read the same
- *   g_mkt(me), so a B ≤ 0 with B_win > 0 always has g_mkt(me) < 0; only numbers that break that rule fall back to
- *   "overall", which stays true.
+ * - Redraft: my chances go up (B_win > 0) while I'd give up more trade value than I get by the model's count (g_mkt(me) <
+ *   0: every player at max(v, W), the roster-spot credit, the neutral throw-ins; ⚠️ "counting roster spots", since the
+ *   card's own values are FantasyCalc's, which can read differently) → that trade value, weighed by "Protect my trade
+ *   value". The market term reads that same g_mkt(me), so a B ≤ 0 with B_win > 0 always has g_mkt(me) < 0; only numbers
+ *   that break that rule fall back to "overall", which stays true.
  * - Otherwise: it wouldn't raise my chances this season.
  */
 function noHelpText(e: Pick<TradeEvaluation, "bWin" | "bFuture" | "lambda" | "gMine">): string {
@@ -622,7 +803,7 @@ function noHelpText(e: Pick<TradeEvaluation, "bWin" | "bFuture" | "lambda" | "gM
   }
   if (up(e.bWin)) {
     return Number.isFinite(e.gMine) && e.gMine < 0
-      ? `Doesn't help you overall: it raises your chances this season, but you'd give up more trade value than that's worth at your “Protect my trade value” setting, ${leave}`
+      ? `Doesn't help you overall: it raises your chances this season, but counting roster spots, you'd give up more trade value than that's worth at your “Protect my trade value” setting, ${leave}`
       : `Doesn't help you overall, ${leave}`;
   }
   return `Doesn't help you: it wouldn't raise your chances this season, ${leave}`;
@@ -640,17 +821,21 @@ export function tradeWords(p: Pick<TradeProposal, "give" | "get">, snapshot: Sna
   return `${side(p.give)} for ${side(p.get)}`;
 }
 
+/** "an estimated 35% chance they accept"; "an estimated chance under 5% that they accept" for "<5%". */
+function acceptSrPhrase(p: number): string {
+  return underStep(p) ? `an estimated chance ${acceptSrText(p)} that they accept` : `an estimated ${acceptText(p)} chance they accept`;
+}
+
 /**
- * A step's estimate, the way the card shows its own: the chance they accept, and the chance it goes through when the
- * league's review could veto that version, only when it prints differently ("Est. 5%, about 5% it goes through" said
- * nothing more; the card's own note already says a veto vote could stop the ranked trade), or as "under 5%" below the
- * display's floor (throughText).
+ * A step's estimate, the way the card shows its own: the chance they accept ("<5%" under 5%), and the chance it goes
+ * through when the league's review could veto that version, only when it prints differently ("Est. 5%, about 5% it goes
+ * through" said nothing more; the card's own note already says a veto vote could stop the ranked trade; throughText).
  */
 function stepAccept(s: Pick<TradeStep, "pAccept" | "pComplete">): { est: string; through: string | null; sr: string } {
   const est = acceptText(s.pAccept);
   const through = throughText(s.pAccept, s.pComplete);
-  if (!through) return { est: `Est. ${est}`, through: null, sr: `an estimated ${est} chance they accept` };
-  return { est: `Est. ${est}`, through: `${through} it goes through`, sr: `an estimated ${est} chance they accept, ${through} that it goes through` };
+  if (!through) return { est: `Est. ${est}`, through: null, sr: acceptSrPhrase(s.pAccept) };
+  return { est: `Est. ${est}`, through: `${through} it goes through`, sr: `${acceptSrPhrase(s.pAccept)}, ${through} that it goes through` };
 }
 
 /** "How to offer it" (TradeEvaluation.steps; the file header), or null without steps. */
@@ -681,11 +866,16 @@ const PLAN_B_KIND: Readonly<Record<PlanB["kind"], string>> = {
   otherTarget: "A different set of their players",
 };
 
-/** What planBView reads besides the Plan B: the card's own injury tags, the search's tags for its other ideas (CardContext.knownTags) and the season's end (seasonEndOf). */
+/**
+ * What planBView reads besides the Plan B: the card's own injury tags, the search's tags for its other ideas
+ * (CardContext.knownTags), the season's end (seasonEndOf), and my odds before any trade (CardContext.baseline: the box's
+ * odds start from the card's "before"; absent, they show the change in percentage points, as the card's do).
+ */
 export interface PlanBContext {
   cardTags?: readonly InjuryTag[] | undefined;
   knownTags?: ReadonlyMap<string, InjuryTag> | undefined;
   seasonEnd?: number | undefined;
+  baseline?: CardContext["baseline"];
 }
 
 /**
@@ -712,8 +902,9 @@ export function planBPitch(p: Pick<TradeProposal, "give" | "get">, snapshot: Sna
  * explain.injuryTags from the snapshot with the week now; ⚠️ PlanB carries no tags of its own, so a conflicted Probable,
  * Questionable or Doubtful player only Plan B has gets no far date), which kind it is, its three numbers as the card prints
  * its own (Helps you, the chance they accept rounded to 5% with "Est." and its label, Overall), the chance it goes
- * through when a veto could cut it (throughText), its own message (planBPitch) and its Analyzer link (marked
- * `from=planB`). `also` is the Finder list's to fill (buildFinderView).
+ * through when a veto could cut it (throughText), its odds and weekly line as the card prints its own (Phase 4c, change 9:
+ * oddsViews from the card's "before", `ctx.baseline`, and weeklyLine; none when the Plan B carries no odds), its own
+ * message (planBPitch) and its Analyzer link (marked `from=planB`). `also` is the Finder list's to fill (buildFinderView).
  */
 export function planBView(planB: TradeEvaluation["planB"], snapshot: SnapshotPart, ctx: PlanBContext = {}): PlanBView | null {
   if (!planB) return null;
@@ -733,6 +924,10 @@ export function planBView(planB: TradeEvaluation["planB"], snapshot: SnapshotPar
   const acceptNote = through ? `Counting ${REVIEW_WORDS[snapshot.settings.tradeReview]}, ${through} it goes through.` : null;
   const give = side(planB.proposal.give, "give");
   const get = side(planB.proposal.get, "get");
+  // Its odds as the card prints its own (change 9), from the card's "before": none when the Plan B carries none.
+  const odds = planB.dPO !== undefined || planB.dCH !== undefined ? oddsViews({ dPO: planB.dPO ?? null, dCH: planB.dCH ?? null }, ctx.baseline) : [];
+  const weekly = weeklyLine(planB.winChance);
+  const oddsText = [...odds.map((o) => `${o.label} ${o.value}`), ...(weekly ? [weekly.text] : [])].map((t) => ` · ${t}`).join("");
   return {
     heading: PLAN_B_HEADING,
     kindText: PLAN_B_KIND[planB.kind],
@@ -741,11 +936,13 @@ export function planBView(planB: TradeEvaluation["planB"], snapshot: SnapshotPar
     numbers,
     numberParts,
     acceptNote,
+    odds,
+    weekly,
     also: null,
     pitch: planBPitch(planB.proposal, snapshot),
     analyzerHref: analyzerHref(planB.proposal, { from: "planB" }),
     key: planB.key,
-    text: `${give} for ${get} · ${numbers}${acceptNote ? ` · ${acceptNote}` : ""}`,
+    text: `${give} for ${get} · ${numbers}${acceptNote ? ` · ${acceptNote}` : ""}${oddsText}`,
   };
 }
 
@@ -755,41 +952,210 @@ export function planBAlsoText(place: number): string {
 }
 
 /**
- * The versions of a trade idea its card shows (TradeCardView.versions; the feedback's "Which version did you send?"),
- * each with its key and estimate: with steps, the first offer and the full version (the throw-in added); with a Plan
- * B, this trade and Plan B's; else this trade alone ("full").
+ * A version's model inputs for the feedback (the file header; FeedbackSent.inputs): its acceptance features, raw
+ * g_mkt(P), B, and the goal B was weighted by. feedbackStore.ts keeps only finite numbers.
  */
-export function versionChoices(e: Pick<TradeEvaluation, "key" | "pAccept" | "pComplete" | "steps" | "planB">, snapshot: SnapshotPart): VersionChoice[] {
-  const s = e.steps;
-  if (s) {
-    return [
-      { version: "offerFirst", key: s.offerFirst.key, pAccept: s.offerFirst.pAccept, pComplete: s.offerFirst.pComplete, label: "The first offer" },
-      { version: "full", key: s.ifNo.full.key, pAccept: s.ifNo.full.pAccept, pComplete: s.ifNo.full.pComplete, label: `With ${assetView({ kind: "player", id: s.ifNo.add }, snapshot).name} added` },
-    ];
-  }
-  const self: VersionChoice = { version: "full", key: e.key, pAccept: e.pAccept, pComplete: e.pComplete, label: "This trade" };
-  const p = e.planB;
-  return p ? [self, { version: "planB", key: p.key, pAccept: p.pAccept, pComplete: p.pComplete, label: "The “If they say no” trade" }] : [self];
+function versionInputs(x: { features?: AcceptanceFeatures | undefined; gPartner?: number | undefined; b: number | null }, goal: Goal | null): VersionInputs {
+  return {
+    features: x.features ? { ...x.features } : null,
+    gPartner: typeof x.gPartner === "number" && Number.isFinite(x.gPartner) ? x.gPartner : null,
+    b: x.b !== null && Number.isFinite(x.b) ? x.b : null,
+    goal,
+  };
 }
 
 /**
- * What my "Trade value" counts besides FantasyCalc's values (the file header): a player worth less than the best free
- * agent at that free agent's value (planner reply to Checkpoint 4, change 4), and an open roster spot at it too (§9).
- * Without an IR player in the trade, the side getting fewer players gets the spot (the two packages mirror each other).
- * With one (review of track E), only my active roster counts, since an IR slot isn't a roster spot: an open spot on it
- * adds to what I get, a spot it fills to what I give, and none when it gains and loses as many players
- * (returners.tradeActiveSpots, the engine's rule 5 read from the league).
+ * The versions of a trade idea its card shows (TradeCardView.versions; the feedback's "Which version did you send?"),
+ * each with its key, estimate and model inputs (the file header: the card's own when the version is the card's trade,
+ * else the step's or Plan B's; `goal`: "What matters most" as the numbers were computed, null when unknown): with steps,
+ * the first offer and the full version (the throw-in added); with a Plan B, this trade and Plan B's; else this trade
+ * alone ("full").
  */
-function valueBasisText(e: TradeEvaluation, snapshot: SnapshotPart): string {
-  const floor = "a player worth less than the best free agent counts at that free agent's value";
-  const give = e.proposal.give.flatMap((a) => (a.kind === "player" ? [a.id] : []));
-  const get = e.proposal.get.flatMap((a) => (a.kind === "player" ? [a.id] : []));
-  const { spots, irMoved } = tradeActiveSpots(snapshot, e.detail.myTeamId, e.proposal.partnerId, give, get);
-  if (!irMoved) return e.proposal.give.length !== e.proposal.get.length ? "an open roster spot on the side getting fewer players counts at the best free agent's value, and so does any player worth less than that free agent" : floor;
-  const notIr = "an IR slot isn't a roster spot";
-  if (spots.give > spots.recv) return `an open spot on your active roster counts at the best free agent's value, as does any player worth less than that free agent; ${notIr}`;
-  if (spots.recv > spots.give) return `each spot your active roster fills counts at the best free agent's value, as does any player worth less than that free agent; ${notIr}`;
-  return `${floor}; ${notIr}, so no open spot counts`;
+export function versionChoices(e: Pick<TradeEvaluation, "key" | "pAccept" | "pComplete" | "steps" | "planB" | "features" | "gPartner" | "b">, snapshot: SnapshotPart, goal: Goal | null = null): VersionChoice[] {
+  const own = versionInputs(e, goal);
+  const of = (step: TradeStep): VersionInputs => (step.key === e.key ? own : versionInputs(step, goal));
+  const s = e.steps;
+  if (s) {
+    return [
+      { version: "offerFirst", key: s.offerFirst.key, pAccept: s.offerFirst.pAccept, pComplete: s.offerFirst.pComplete, inputs: of(s.offerFirst), label: "The first offer" },
+      { version: "full", key: s.ifNo.full.key, pAccept: s.ifNo.full.pAccept, pComplete: s.ifNo.full.pComplete, inputs: of(s.ifNo.full), label: `With ${assetView({ kind: "player", id: s.ifNo.add }, snapshot).name} added` },
+    ];
+  }
+  const self: VersionChoice = { version: "full", key: e.key, pAccept: e.pAccept, pComplete: e.pComplete, inputs: own, label: "This trade" };
+  const p = e.planB;
+  return p ? [self, { version: "planB", key: p.key, pAccept: p.pAccept, pComplete: p.pComplete, inputs: versionInputs(p, goal), label: "The “If they say no” trade" }] : [self];
+}
+
+// ---------------------------------------------------------------------------------------------
+// FantasyCalc's own values: the card's one value number (planner reply to Checkpoint 4b, change 3)
+
+/**
+ * FantasyCalc's own values on the page (the file header), from the model inputs the pages already hold (ModelInputs.market):
+ * a player's value in the league's perception list (market.valuesForTerm "perception": a keeper league's redraft list, else
+ * the format's own), when it is a positive finite number, else null. `available` false (every value null) while the trade
+ * values are our own estimates (MarketInputs.fallback "curve": no FantasyCalc value is quoted then) or none loaded. ⚠️ The
+ * engine's rule for the reasons and the pitch (evaluate.ts explainContextOf: a player whose PlayerModel.value comes from
+ * FantasyCalc, market.marketValues), so the card's value line and its words read the same numbers (tradeView.test.ts
+ * checks the two against each other).
+ */
+export interface FantasyCalcLookup {
+  available: boolean;
+  value: (playerId: string) => number | null;
+  /** "Trade values from Sep 27: FantasyCalc didn't answer." while a saved list stands in (MarketInputs.fallback "saved"); else null. */
+  note: string | null;
+  /** True while the trade values are our own estimates (MarketInputs.fallback "curve"; the Analyzer's "Details" says so). */
+  estimated?: boolean | undefined;
+}
+
+const NO_FANTASYCALC: FantasyCalcLookup = { available: false, value: () => null, note: null };
+
+export function fantasyCalcLookup(market: MarketInputs | null | undefined): FantasyCalcLookup {
+  if (!market) return NO_FANTASYCALC;
+  if (market.fallback?.kind === "curve") return { ...NO_FANTASYCALC, estimated: true };
+  const { values } = valuesForTerm(market, "perception");
+  return {
+    available: true,
+    value: (id) => {
+      const v = Object.prototype.hasOwnProperty.call(values, id) ? values[id] : undefined;
+      return typeof v === "number" && Number.isFinite(v) && v > 0 ? v : null;
+    },
+    note: market.fallback?.kind === "saved" ? fantasyCalcFallbackText(market.fallback) : null,
+  };
+}
+
+/**
+ * Whether the market blend (§6 step 8) reaches anyone in this league, from the model inputs the page holds: blend.ts
+ * blendValues, the engine's own test (this season's FantasyCalc list; none in FantasyCalc's curve fallback, without
+ * FantasyCalc, or in a dynasty or keeper league whose list for this season didn't load), with a blend weight above 0 (blend.ts
+ * marketBlend). ⚠️ League-wide: a player without a real FantasyCalc value, or at a position the blend doesn't reach, isn't
+ * blended even while it's on (the file header). Review of track UIC, finding 3.
+ */
+export function marketBlendOn(market: MarketInputs | null | undefined, leagueType: LeagueSnapshot["settings"]["leagueType"]): boolean {
+  return config.marketBlend.weight > 0 && blendValues(market, leagueType) !== null;
+}
+
+/**
+ * What the pages' "How to read" says about trade values, long-term values and the market blend (HowToRead.tsx; review of
+ * track UIC, findings 2 and 3), from the model inputs the page holds, by the engine's own tests.
+ */
+export interface ValueFacts {
+  /** FantasyCalc's own values are on the cards (fantasyCalcLookup: not in the curve fallback, nor without FantasyCalc), so Helps you counts trade value in a redraft league. */
+  valuesOn: boolean;
+  /** Dynasty and keeper leagues: long-term values loaded (benefit.futureValuesLoaded), so Helps you counts them; true in a redraft league. */
+  longTermOn: boolean;
+  /** The market blend reaches anyone (marketBlendOn). */
+  blendOn: boolean;
+}
+
+export function valueFactsOf(market: MarketInputs | null | undefined, leagueType: LeagueSnapshot["settings"]["leagueType"]): ValueFacts {
+  return {
+    valuesOn: fantasyCalcLookup(market).available,
+    longTermOn: leagueType === "redraft" || futureValuesLoaded(leagueType, market ?? null),
+    blendOn: marketBlendOn(market, leagueType),
+  };
+}
+
+/** The card's "Trade value" line's words when FantasyCalc's values aren't available (the file header). */
+export const VALUES_UNAVAILABLE = "Unknown: FantasyCalc's trade values aren't available right now";
+
+/**
+ * The card's "Trade value" fact (the file header): what I give and what I get by FantasyCalc's own values (the plain sums,
+ * explain.fantasyCalcComparison, the same the reasons' value line reads), with the "Values: FantasyCalc" link (kind
+ * "values"). ⚠️ Ours: an asset FantasyCalc doesn't value (a player it has no value for, a pick) is named instead of
+ * counted, "You give 5,000 plus Tobias Thimble (no FantasyCalc value), you get 6,200"; a side with nothing is "nothing".
+ * Without FantasyCalc's values: VALUES_UNAVAILABLE, no link.
+ */
+function valueFact(e: Pick<TradeEvaluation, "proposal">, snapshot: SnapshotPart, fc: FantasyCalcLookup | undefined): FactView {
+  if (!fc?.available) return { label: "Trade value", value: VALUES_UNAVAILABLE };
+  // explain.ts's own reading (the reasons' value line), one side at a time.
+  const side = (assets: readonly TradeAsset[]): string => {
+    if (!assets.length) return "nothing";
+    const read = fantasyCalcComparison({ give: assets, get: [] }, { fantasyCalcValue: fc.value });
+    if (read.kind === "known") return fmtWhole(read.theyGet);
+    const missing = read.kind === "missing" ? read.assets : [...assets];
+    const valued = sumOf(assets.filter((a) => !missing.includes(a)), fc);
+    const names = `${listText(missing.map((a) => assetView(a, snapshot).name))} (${missing.length === 1 ? "no FantasyCalc value" : "no FantasyCalc values"})`;
+    return missing.length === assets.length ? names : `${fmtWhole(valued)} plus ${names}`;
+  };
+  return { label: "Trade value", value: `You give ${side(e.proposal.give)}, you get ${side(e.proposal.get)}`, kind: "values" };
+}
+
+/** The FantasyCalc values of players FantasyCalc values, summed. */
+function sumOf(assets: readonly TradeAsset[], fc: FantasyCalcLookup): number {
+  let total = 0;
+  for (const a of assets) if (a.kind === "player") total += fc.value(a.id) ?? 0;
+  return total;
+}
+
+// ---------------------------------------------------------------------------------------------
+// The Trade Analyzer's "Details": the model's own trade-value figures (the file header)
+
+/** A side's g_mkt in words: "you'd get 12% less trade value than you give", "they'd get 14% more …", "about what …". */
+function gainWords(g: number, who: "you" | "they", capped = false): string {
+  if (g === Number.POSITIVE_INFINITY) return `${who}'d get trade value without giving any up`;
+  if (!Number.isFinite(g)) return "unknown";
+  const r = Math.round(Math.abs(g) * 100);
+  if (r === 0) return `${who}'d get about what ${who} give`;
+  const atLeast = capped ? "at least " : "";
+  return `${who}'d get ${atLeast}${r}% ${g > 0 ? "more" : "less"} trade value than ${who} give`;
+}
+
+/** A B as the Trade Score prints it ("35"; 0 when B ≤ 0; "—" unknown). */
+function scoreText(b: number | null): string {
+  if (b === null || !Number.isFinite(b)) return "—";
+  return String(tradeScore(b) ?? 0);
+}
+
+/** What the model's trade-value figures count, after the intro's first sentence (detailsView). */
+const DETAILS_COUNT =
+  "they count roster spots: every player counts at least what the best free agent is worth, the extra player in an uneven trade adds nothing when he's worth no more than that, and the side getting fewer players is credited the roster spot it opens; your side counts the free-agent moves the card says the trade counts on too.";
+
+/**
+ * "Details" (the file header): the model's own trade-value figures, which decide the chance they accept and the Market
+ * check, and in a redraft league Helps you's trade-value part: both sides' g_mkt on its packages, the partner's g as they
+ * see it (AcceptanceFeatures.g: with the star premium, clamped to config.acceptance.gClamp, "at least" at the clamp), and
+ * B's market term as Helps you without it (redraft: B_win's score next to B's; dynasty and keeper leagues have no market
+ * term, B_future carries the value change, and when their long-term values didn't load, TradeEvaluation.dynMissing, B is
+ * B_win alone: review of track UIC, finding 2). `values` (the page's FantasyCalcLookup): while FantasyCalc's values aren't
+ * available, the intro says the figures are our own estimates (the curve fallback) or that FantasyCalc's values aren't
+ * available, and a redraft B without a market term (evaluate.ts: κ = 0 in the curve fallback) says Helps you counts no
+ * trade value then, rather than "counting trade value by your setting". The intro names Helps you only when its trade-value
+ * part reads these figures (a redraft B with a market term), so it never contradicts the last line.
+ */
+export function detailsView(
+  e: Pick<TradeEvaluation, "gMine" | "gPartner" | "features" | "b" | "bWin" | "lambda" | "dynMissing">,
+  leagueType: LeagueSnapshot["settings"]["leagueType"],
+  values: Pick<FantasyCalcLookup, "available" | "estimated"> = { available: true },
+): DetailsView {
+  const [lo, hi] = config.acceptance.gClamp;
+  const g = e.features.g;
+  const capped = Number.isFinite(g) && (g >= hi - 1e-9 || g <= lo + 1e-9);
+  const items = [
+    `Your side, counting roster spots: ${gainWords(e.gMine, "you")}.`,
+    `Their side, counting roster spots: ${gainWords(e.gPartner, "they")}.`,
+    `Their side as they see it (their best players count a little extra): ${gainWords(g, "they", capped)}.`,
+  ];
+  // Whether Helps you's trade-value part reads these figures (a redraft B with a market term).
+  let helpsReads = false;
+  if (leagueType === "redraft") {
+    const noTerm = e.b !== null && e.bWin !== null && Number.isFinite(e.b) && Number.isFinite(e.bWin) && Math.abs(e.b - e.bWin) < 1e-9;
+    helpsReads = values.available || !noTerm;
+    items.push(
+      helpsReads
+        ? `Helps you from your odds alone: ${scoreText(e.bWin)}; counting trade value by your “Protect my trade value” setting: ${scoreText(e.b)}.`
+        : `Helps you counts no trade value while FantasyCalc's values aren't available: ${scoreText(e.b)}, from your odds alone.`,
+    );
+  } else if (e.dynMissing) {
+    items.push("Helps you has no trade-value part here, and long-term trade values aren't available, so it counts this season only.");
+  } else {
+    items.push("Helps you has no trade-value part here: in dynasty and keeper leagues it counts the change in your roster's long-term value instead.");
+  }
+  const lead = `The model's own trade-value figures, behind the chance they accept${helpsReads ? ", Helps you" : ""} and the Market check.`;
+  let intro: string;
+  if (values.available) intro = `${lead} Unlike the card's trade values (FantasyCalc's own), ${DETAILS_COUNT}`;
+  else if (values.estimated) intro = `${lead} While FantasyCalc's values aren't available, they use our own estimates, and ${DETAILS_COUNT}`;
+  else intro = `${lead} FantasyCalc's values aren't available right now; ${DETAILS_COUNT}`;
+  return { summary: "Details", intro, items };
 }
 
 /**
@@ -816,11 +1182,16 @@ export function rosNoteOf(e: Pick<TradeEvaluation, "ros"> & { detail: Pick<Trade
 /**
  * The roster moves a trade forces on one side (§7 legality; Phase 4b's IR players), in sentences, the side's own words
  * (`who`): drops and adds as before; a received IR player who goes into an open IR slot ("Jordan Mason goes to your IR
- * slot (no roster spot until he's back)."); and a player dropped from the week an IR player comes back ("From week 7,
- * when Alec Pierce comes back from IR, you'd drop Marvin Harrison Jr. (WR, ARI)."). The IR fields may be absent
- * (RosterChange: none).
+ * slot (no roster spot until he's back)."); my free-agent moves after the trade that my baseline doesn't make (faMovesLine;
+ * final review of Phase 4c, finding R1); and a player dropped from the week an IR player comes back ("From week 7,
+ * when Alec Pierce comes back from IR, you'd drop Marvin Harrison Jr. (WR, ARI)."). When the one released is the returner
+ * himself (RosterChange.displaced's `returner`; §7: on a full roster from his return he's a bench player like any other,
+ * returners.ts), it says it's a choice: "From week 7, when Alec Pierce comes back from IR, you'd release him instead of
+ * dropping someone else." (review of track UIC, finding 7: "you'd drop Alec Pierce" right after "when Alec Pierce comes
+ * back" read like a mistake; ⚠️ ours: no why, since the player kept instead can be one the rules keep whatever he's worth,
+ * such as a streamed position's only kicker). The IR fields may be absent (RosterChange: none).
  */
-function requiredLines(change: RosterChange, who: { drop: string; dropLater: string; pickUp: string; their: string; ir: string }, snapshot: SnapshotPart): string[] {
+function requiredLines(change: RosterChange, who: { drop: string; dropLater: string; release: string; pickUp: string; their: string; ir: string; would: string }, snapshot: SnapshotPart): string[] {
   const phrase = (id: string) => playerPhrase(id, snapshot);
   const plain = (id: string) => snapshot.players[id]?.name ?? "a player who's no longer in this league's data";
   const out: string[] = [];
@@ -832,12 +1203,73 @@ function requiredLines(change: RosterChange, who: { drop: string; dropLater: str
     const names = listText(toIR.map(plain));
     out.push(`${names.charAt(0).toUpperCase()}${names.slice(1)} ${one ? "goes" : "go"} to ${who.ir} IR ${one ? "slot" : "slots"} (no roster ${one ? "spot" : "spots"} until ${one ? "he's" : "they're"} back).`);
   }
+  // The free-agent moves after the trade (now), before the drops an IR player's return brings (later in the season).
+  const moves = faMovesLine(change.faMoves, who.would, snapshot);
+  if (moves) out.push(moves);
   for (const d of change.displaced ?? []) {
     if (!d || typeof d.playerId !== "string") continue;
     const when = Number.isFinite(d.week) ? `From week ${d.week}, when ${plain(d.returner)} comes back from IR, ` : `When ${plain(d.returner)} comes back from IR, `;
-    out.push(`${when}${who.dropLater} ${phrase(d.playerId)}.`);
+    out.push(d.playerId === d.returner ? `${when}${who.release} him instead of dropping someone else.` : `${when}${who.dropLater} ${phrase(d.playerId)}.`);
   }
   return out;
+}
+
+/**
+ * The free-agent moves after the trade that the side's baseline doesn't make (RosterChange.faMoves; final review of Phase
+ * 4c, finding R1), in one sentence: "This trade's numbers count on one more free-agent move: you'd drop Kyle Monangai (RB,
+ * CHI) and pick up Malik Willis (QB, MIA) to start in week 7." A lone pickup who starts in one or two of the counted weeks
+ * says which ("to start in weeks 7 and 13"); without a pickup of its own, a drop made in place of one the baseline makes
+ * says so ("you'd drop Kyle Monangai (RB, CHI) rather than Romeo Doubs (WR, NE)": the League page's pickups stand, with
+ * another drop), and a drop says whom it makes room for when that's one of the League page's pickups (RosterChange.faMoves
+ * `room`; verification of the final review, finding VF-1: "you'd drop Kyle Monangai (RB, CHI)." alone gave no reason): "…
+ * to make room for Malik Washington (WR, CHI), the pickup the League page suggests". Null without such moves.
+ */
+function faMovesLine(fa: RosterChange["faMoves"], would: string, snapshot: SnapshotPart): string | null {
+  if (!fa || (!fa.adds.length && !fa.drops.length)) return null;
+  const phrase = (id: string) => playerPhrase(id, snapshot);
+  const parts: string[] = [];
+  const room = !fa.adds.length ? [...new Set(fa.room ?? [])] : [];
+  const roomText = room.length ? ` to make room for ${listText(room.map(phrase))}, ${room.length === 1 ? "the pickup" : "pickups"} the League page suggests` : "";
+  if (fa.drops.length) parts.push(`drop ${listText(fa.drops.map(phrase))}${!fa.adds.length && fa.kept?.length ? ` rather than ${listText(fa.kept.map(phrase))}` : ""}${roomText}`);
+  if (fa.adds.length) {
+    const [only] = fa.adds;
+    const weeks = fa.adds.length === 1 && only !== undefined ? (fa.starts?.[only] ?? []).filter((w) => Number.isFinite(w)) : [];
+    const when = weeks.length >= 1 && weeks.length <= 2 ? ` to start in ${weeks.length === 1 ? "week" : "weeks"} ${listText(weeks.map(String))}` : "";
+    parts.push(`pick up ${listText(fa.adds.map(phrase))}${when}`);
+  }
+  const one = Math.max(fa.adds.length, fa.drops.length) === 1;
+  return `This trade's numbers count on ${one ? "one more free-agent move" : "more free-agent moves"}: ${would} ${parts.join(one ? " and " : ", and ")}.`;
+}
+
+/**
+ * The Market check's words (the file header; the model's trigger, no number): "Market check: counting roster spots, you'd
+ * give up more trade value than you get." (", much more …, so trade ideas leave it out." when the market guard hides it,
+ * the Analyzer's). ⚠️ When the roster spot the trade costs me is what trips it (final review of Phase 4c, finding PAGES-6:
+ * on Parker's live #1 card the flag sat beside FantasyCalc's own values reading about even, 4,667 given for 4,475, the
+ * model's −15.3% coming from the credit W for the spot his 2-for-1 fills, and only "counting roster spots" hinted why):
+ * I'd get more players onto my active roster than I give from it, and by FantasyCalc's own values alone (the card's value
+ * line: every player valued) the check wouldn't fire (my FantasyCalc gain at least config.benefit.marketCheckBelow, or
+ * marketHideBelow for the hiding line), it says so: "Market check: you'd get 2 players for 1, and counting the roster spot
+ * that costs you, you'd give up more trade value than you get."
+ */
+export function marketCheckText(e: Pick<TradeEvaluation, "proposal" | "flags" | "required"> & { detail: Pick<TradeDetail, "myTeamId"> }, snapshot: SnapshotPart, fc: FantasyCalcLookup | undefined): string {
+  const hidden = e.flags.hiddenByMarket;
+  const much = hidden ? "much more" : "more";
+  const tail = hidden ? ", so trade ideas leave it out." : ".";
+  const give = e.proposal.give.flatMap((a) => (a.kind === "player" ? [a.id] : []));
+  const get = e.proposal.get.flatMap((a) => (a.kind === "player" ? [a.id] : []));
+  // Active roster spots: a player I give from my IR opens none, one I receive into an open IR slot fills none.
+  const myIR = new Set(snapshot.teams.find((t) => t.id === e.detail.myTeamId)?.ir ?? []);
+  const spots = get.length - (e.required.me.toIR?.length ?? 0) - give.filter((id) => !myIR.has(id)).length;
+  if (spots > 0 && fc?.available && give.length === e.proposal.give.length && get.length === e.proposal.get.length) {
+    const read = fantasyCalcComparison(e.proposal, { fantasyCalcValue: fc.value });
+    const bar = hidden ? config.benefit.marketHideBelow : config.benefit.marketCheckBelow;
+    if (read.kind === "known" && read.theyGet > 0 && myFantasyCalcGain(read) >= bar - 1e-9) {
+      const what = spots === 1 ? "the roster spot that costs you" : `the ${spots} roster spots that cost you`;
+      return `Market check: you'd get ${get.length} players for ${give.length}, and counting ${what}, you'd give up ${much} trade value than you get${tail}`;
+    }
+  }
+  return `Market check: counting roster spots, you'd give up ${much} trade value than you get${tail}`;
 }
 
 export function buildTradeCard(e: TradeEvaluation, ctx: CardContext): TradeCardView {
@@ -846,6 +1278,8 @@ export function buildTradeCard(e: TradeEvaluation, ctx: CardContext): TradeCardV
   const showsVeto = e.detail.vetoRisk || Math.abs(displayAcceptance(e.pComplete) - displayAcceptance(e.pAccept)) > 1e-9;
   const through = showsVeto ? throughText(e.pAccept, e.pComplete) : null;
   const flagged = [...new Set(e.flags.injured)];
+  // Whether a hurt player's projection is blended with the trade market (CardContext.blendOn).
+  const blendOn = ctx.blendOn ?? true;
 
   const flags: FlagView[] = [];
   if (flagged.length) {
@@ -855,36 +1289,31 @@ export function buildTradeCard(e: TradeEvaluation, ctx: CardContext): TradeCardV
       return `${info?.name ?? "a player"}${status ? ` (${status})` : ""}`;
     });
     // What his projection assumes joins the flag (the file header: said once, not again under the lists or in the reasons).
-    const assumes = assumesFullReturn(flagged.length > 1);
+    const assumes = assumesFullReturn(flagged.length > 1, blendOn);
     flags.push({ kind: "injured", text: `Depends on ${flagged.length === 1 ? "an injured player" : "injured players"}: ${listText(who)}. ${assumes.charAt(0).toUpperCase()}${assumes.slice(1)}` });
   }
   if (e.flags.hiddenByBenefit) flags.push({ kind: "noHelp", text: noHelpText(e) });
-  if (e.flags.marketCheck && Number.isFinite(e.gMine)) {
-    const less = `you'd get ${Math.round(-e.gMine * 100)}% less trade value than you give`;
-    flags.push(
-      e.flags.hiddenByMarket
-        ? { kind: "hiddenByMarket", text: `Market check: ${less}, so trade ideas leave it out.` }
-        : { kind: "market", text: `Market check: ${less}.` },
-    );
-  }
+  // The model's trigger, no number (the file header: planner reply to Checkpoint 4b, change 3), naming the roster spot when
+  // it's what trips the check (marketCheckText).
+  if (e.flags.marketCheck) flags.push({ kind: e.flags.hiddenByMarket ? "hiddenByMarket" : "market", text: marketCheckText(e, snapshot, ctx.fantasyCalc) });
   if (e.b === null && !e.flags.hiddenByBenefit) flags.push({ kind: "noOdds", text: "Not scored: your playoff odds couldn't be worked out, so this trade has no Helps you or Overall number." });
 
-  const facts: FactView[] = [
-    { label: "Your lineup", value: `${perWeek(e.dPPW)} in the regular season, ${fmtSigned(e.dPPWPlayoffs, 1)} in the playoffs` },
-    { label: "Playoff odds", value: oddsFact(e.dPO, ctx.baseline?.pPlayoffs) },
-    { label: "Title odds", value: oddsFact(e.dCH, ctx.baseline?.pTitle) },
-  ];
-  if (e.dDyn !== null && Number.isFinite(e.dDyn)) facts.push({ label: "Long-term value", value: `${signedWhole(e.dDyn)} for your roster` });
+  // My odds before and after sit next to the three numbers (oddsViews), not among these.
+  const facts: FactView[] = [{ label: "Your lineup", value: `${perWeek(e.dPPW)} in the regular season, ${fmtSigned(e.dPPWPlayoffs, 1)} in the playoffs` }];
+  if (e.dDyn !== null && Number.isFinite(e.dDyn)) facts.push({ label: "Long-term value", value: `${signedWhole(e.dDyn)} for your roster, counting roster spots` });
   else if (e.dynMissing) facts.push({ label: "Long-term value", value: "Unknown: long-term values didn't load" });
-  // The value floor on both sides (planner reply to Checkpoint 4, change 4) and the open-spot credit: said on every card
-  // (the file header, valueBasisText).
-  facts.push({ label: "Trade value", value: `You give ${fmtWhole(e.value.given)}, you get ${fmtWhole(e.value.received)} (${valueBasisText(e, snapshot)})`, kind: "values" });
+  // FantasyCalc's own values: the card's one value number (the file header, valueFact).
+  facts.push(valueFact(e, snapshot, ctx.fantasyCalc));
   facts.push({ label: "Their lineup", value: perWeek(e.partnerDeltaLineup) });
 
   // The roster moves the trade forces, mine first (§7; Phase 4b's IR slots and returns: requiredLines).
   const required = [
-    ...requiredLines(e.required.me, { drop: "You'd drop", dropLater: "you'd drop", pickUp: "You'd pick up", their: "your", ir: "your" }, snapshot),
-    ...requiredLines(e.required.partner, { drop: `${partnerName} would drop`, dropLater: `${partnerName} would drop`, pickUp: `${partnerName} would pick up`, their: "their", ir: possessive(partnerName) }, snapshot),
+    ...requiredLines(e.required.me, { drop: "You'd drop", dropLater: "you'd drop", release: "you'd release", pickUp: "You'd pick up", their: "your", ir: "your", would: "you'd" }, snapshot),
+    ...requiredLines(
+      e.required.partner,
+      { drop: `${partnerName} would drop`, dropLater: `${partnerName} would drop`, release: `${partnerName} would release`, pickUp: `${partnerName} would pick up`, their: "their", ir: possessive(partnerName), would: `${partnerName} would` },
+      snapshot,
+    ),
   ];
 
   // Injury tags in words on both sides (the evaluation's; else, a core without them, tags from the snapshot: tagsOf).
@@ -909,15 +1338,19 @@ export function buildTradeCard(e: TradeEvaluation, ctx: CardContext): TradeCardV
     }),
     numbers: {
       helps: scoreView(e.tradeScore, e.b),
-      accept: { value: acceptText(e.pAccept), srText: null },
+      accept: { value: acceptText(e.pAccept), srText: underStep(e.pAccept) ? acceptSrText(e.pAccept) : null },
       acceptLabel: `Est. · ${e.acceptLabel}`,
       acceptNote: through ? `Counting ${REVIEW_WORDS[snapshot.settings.tradeReview]}, ${through} it goes through.` : null,
       overall: scoreView(e.overall, e.b),
     },
+    odds: oddsViews(e, ctx.baseline),
+    weekly: weeklyLine(e.detail.winChance),
+    // Without the page's lookup, as the value line reads it: FantasyCalc's values unavailable (valueFact).
+    details: ctx.details ? detailsView(e, snapshot.settings.leagueType, ctx.fantasyCalc ?? NO_FANTASYCALC) : null,
     steps: stepsView(e.steps, snapshot),
-    planB: planBView(e.planB, snapshot, { cardTags: tags, knownTags: ctx.knownTags, seasonEnd: end }),
-    injuryNote: incomingInjuryNote(tags, snapshot, flagged),
-    versions: versionChoices(e, snapshot),
+    planB: planBView(e.planB, snapshot, { cardTags: tags, knownTags: ctx.knownTags, seasonEnd: end, baseline: ctx.baseline }),
+    injuryNote: incomingInjuryNote(tags, snapshot, flagged, blendOn),
+    versions: versionChoices(e, snapshot, ctx.goal ?? null),
     flags,
     facts,
     ros: `You get ${fmtWhole(e.ros.received)} ROS pts, give ${fmtWhole(e.ros.given)}`,
@@ -936,28 +1369,69 @@ export function buildTradeCard(e: TradeEvaluation, ctx: CardContext): TradeCardV
 
 /**
  * My odds before any trade in words (the Finder's line above its ideas, the Analyzer's above its card) and what they
- * count: every team after the free-agent pickups that would help it (§7's baseline, the one every trade's numbers are
- * measured from), where the League page's odds take rosters as they stand (lead decision L3). Review of Phase 4: the
- * Finder said "Your odds now: 71%" while the League page said 76%, so a card's "(71% to 77%)" read as a 1-point gain.
- * Null when the season wasn't simulated.
+ * count (the file header): the League page's headline odds, every team after the free-agent pickups that would help it
+ * (planner reply to Checkpoint 4b, change 9: one baseline everywhere), the title with one decimal like the cards' odds.
+ * Review of Phase 4: the Finder said "Your odds now: 71%" while the League page said 76%, so a card's "(71% to 77%)" read
+ * as a 1-point gain; since Phase 4c the two are the same odds. Null when the season wasn't simulated.
  */
 export function baselineLines(baseline: CardContext["baseline"], page: "finder" | "analyzer"): { text: string; note: string } | null {
   if (!baseline || baseline.pPlayoffs === null || !Number.isFinite(baseline.pPlayoffs)) return null;
-  const title = baseline.pTitle !== null && Number.isFinite(baseline.pTitle) ? `, ${percentText(baseline.pTitle)} to win the title` : "";
+  const title = baseline.pTitle !== null && Number.isFinite(baseline.pTitle) ? `, ${titleOddsText(baseline.pTitle)} to win the title` : "";
   return {
     text: `Your odds ${page === "finder" ? "before any trade" : "before this trade"}: ${percentText(baseline.pPlayoffs)} to make the playoffs${title}.`,
-    note: `Like ${page === "finder" ? "every trade idea's numbers" : "the trade's numbers"}, they count the free-agent pickups that would help each team, so they can differ from the League page's odds, which take rosters as they stand.`,
+    note: `As on the League page, they count the free-agent pickups that would help each team, and ${page === "finder" ? "every trade idea's" : "the trade's"} odds start from them.`,
   };
+}
+
+/**
+ * What "Helps you" sums up, said once per page (the file header; planner reply to Checkpoint 4b, change 9): the planner's
+ * sentence in redraft leagues, with the credit for gaining trade value (final review of Phase 4c, finding R4: the market
+ * term is κ × g_mkt(me), either sign); ⚠️ ours: in dynasty and keeper leagues weighed against long-term value (B_future, by Win
+ * now ↔ Future) instead of a trade-value cost, and the odds alone when there's nothing to weigh them against: a redraft
+ * league while FantasyCalc's values aren't available (`valuesOn` false: B has no market term then), a dynasty or keeper
+ * league whose long-term values didn't load (`longTermOn` false: TradeEvaluation.dynMissing, B = B_win; review of track
+ * UIC, finding 2).
+ */
+export function helpsInfoText(leagueType: LeagueSnapshot["settings"]["leagueType"], valuesOn = true, longTermOn = true): string {
+  const lead = "Helps you (0–100) sums up how much your title and playoff odds rise";
+  if (leagueType !== "redraft") return longTermOn ? `${lead}, weighed against the change in your roster's long-term value.` : `${lead}.`;
+  return valuesOn ? `${lead}, minus a cost for giving away trade value or plus a credit for gaining it.` : `${lead}.`;
 }
 
 // ---------------------------------------------------------------------------------------------
 // The Trade Finder
 
+/** "Chance they accept: at least" (planner reply to Checkpoint 4b, change 10): config.ranking.minChanceOptions, "Any" for 0. */
+export const MIN_CHANCE_OPTIONS: readonly { value: number; label: string }[] = config.ranking.minChanceOptions.map((v) => ({ value: v, label: v > 0 ? `${Math.round(v * 100)}%` : "Any" }));
+
+/**
+ * The note under "Chance they accept: at least" in a league that reviews trades (the minimum reads the chance the trade
+ * goes through, which the veto rule can cut), naming the review as the cards' "Counting …, about 20% it goes through."
+ * does (REVIEW_WORDS: "a league veto vote", "the commissioner's review"; review of track UIC, finding 5: an ESPN league
+ * with a review period and no veto votes reads as commissioner review); null when the league doesn't review trades.
+ */
+export function minChanceNote(tradeReview: LeagueSnapshot["settings"]["tradeReview"]): string | null {
+  if (tradeReview === "none") return null;
+  return `Judged on the chance the trade goes through, which ${REVIEW_WORDS[tradeReview]} can cut.`;
+}
+
+/** The option for a minimum chance ("30%", "Any"); the nearest option's label for a number that isn't one. */
+export function minChanceLabel(minChance: number): string {
+  const exact = MIN_CHANCE_OPTIONS.find((o) => Math.abs(o.value - minChance) < 1e-9);
+  return exact?.label ?? (minChance > 0 ? `${Math.round(minChance * 100)}%` : "Any");
+}
+
 export interface FinderView {
-  /** "Your odds before any trade: 62% to make the playoffs, 9% to win the title." (null when not simulated; baselineLines). */
+  /** "Your odds before any trade: 59% to make the playoffs, 9.9% to win the title." (null when not simulated; baselineLines). */
   baseline: string | null;
-  /** What those odds count, and why they can differ from the League page's (null with no baseline). */
+  /** What those odds count: the League page's (null with no baseline). */
   baselineNote: string | null;
+  /** What "Helps you" sums up, once for the list (helpsInfoText); null without cards. */
+  helpsInfo: string | null;
+  /** The pattern note above the list (TradeSearchResult.pattern's text), or null. */
+  pattern: string | null;
+  /** "Only 4 trade ideas to show at “at least 50%”. Try a lower setting to see more." when the minimum leaves few (fewText), or null. */
+  few: string | null;
   cards: TradeCardView[];
   /** "25 trade ideas, sorted by Overall." ("" when none). */
   countText: string;
@@ -965,7 +1439,7 @@ export interface FinderView {
   statusText: string;
   /** "Left out: 10 that wouldn't help you, and 2 …" (null when none). */
   hidden: string | null;
-  /** "Looked at 1,234 trade ideas, checked the best 200 closely, … That took 4.2 seconds." */
+  /** "Looked at 1,234 trade ideas, checked 200 closely, … That took 4.2 seconds." (searchedText) */
   searched: string | null;
   notes: string[];
   warnings: string[];
@@ -973,31 +1447,60 @@ export interface FinderView {
   empty: { title: string; text: string[] } | null;
 }
 
+/**
+ * What was left out on purpose (§10 guards, and Phase 4c's minimum chance): "… 10 trade ideas that wouldn't help you, 1
+ * trade idea where, counting roster spots, you'd get over 35% less trade value than you give, and 3 trade ideas below your
+ * minimum chance." (⚠️ the market guard's words count roster spots, as the card's Market check does: the threshold is the
+ * model's own count).
+ */
 function hiddenText(hidden: TradeSearchResult["hidden"]): string | null {
   const parts: string[] = [];
   if (hidden.byBenefit > 0) parts.push(`${plural(hidden.byBenefit, "trade idea")} that wouldn't help you`);
-  if (hidden.byMarket > 0) parts.push(`${plural(hidden.byMarket, "trade idea")} where you'd get over ${Math.round(-config.benefit.marketHideBelow * 100)}% less trade value than you give`);
+  if (hidden.byMarket > 0) parts.push(`${plural(hidden.byMarket, "trade idea")} where, counting roster spots, you'd get over ${Math.round(-config.benefit.marketHideBelow * 100)}% less trade value than you give`);
+  const byChance = hidden.byChance ?? 0;
+  if (byChance > 0) parts.push(`${plural(byChance, "trade idea")} below your minimum chance`);
   return parts.length ? `Left out on purpose: ${listText(parts)}.` : null;
 }
 
+/**
+ * When the minimum chance leaves few ideas (TradeSearchResult.filter.few: fewer than config.ranking.minChanceFew shown,
+ * and a lower setting would show more), the line that says so and suggests a lower setting (planner reply to Checkpoint
+ * 4b, change 10): "Only 4 trade ideas to show at “at least 50%”. Try a lower setting to see more." ⚠️ "to show": counted
+ * on the list shown (some ideas that reach the minimum can still give way to the list's variety rules); null otherwise.
+ */
+export function fewText(result: Pick<TradeSearchResult, "filter" | "trades">): string | null {
+  const f = result.filter;
+  if (!f?.few || !(f.minChance > 0)) return null;
+  const n = result.trades.length;
+  return `Only ${plural(n, "trade idea")} to show at “at least ${minChanceLabel(f.minChance)}”. Try a lower setting to see more.`;
+}
+
+/**
+ * What the search looked at: "Looked at 15,873 trade ideas, checked 208 closely, and played out your season 5,000 times
+ * with each of the best 60. That took 5.1 seconds." ⚠️ Not "the best 208" (review of track UIC, finding 6): exact
+ * evaluation takes the best config.search.exactEvaluationMax by screening and, on top of them, the lean companions
+ * (search.ts: the same trades without a neutral throw-in), which missed that cut.
+ */
 function searchedText(result: TradeSearchResult): string | null {
   const c = result.counts;
   if (!c.screened) return null;
   const total = result.timings.total;
   const time = typeof total === "number" && Number.isFinite(total) ? ` That took ${secondsText(total)}.` : "";
   const sims = c.simFinal ? `, and played out your season ${fmtWhole(config.simulation.finalSims)} times with each of the best ${fmtWhole(c.simFinal)}` : "";
-  return `Looked at ${fmtWhole(c.screened)} ${c.screened === 1 ? "trade idea" : "trade ideas"}, checked the best ${fmtWhole(c.exact)} closely${sims}.${time}`;
+  return `Looked at ${fmtWhole(c.screened)} ${c.screened === 1 ? "trade idea" : "trade ideas"}, checked ${fmtWhole(c.exact)} closely${sims}.${time}`;
 }
 
 /**
  * An evaluation's note as the Finder lists it, once for all its ideas. The engine words the week in progress for one
- * trade (evaluate.ts: "Week 4 is under way, so this trade can't change it: its odds count week 4 as it stands.", right
+ * trade (evaluate.ts: "Week 4 is under way: these odds play it with today's rosters, before and after the trade.", right
  * under the Analyzer's card), which read oddly under a list of 18 (review of Phase 4: "this trade" named none of them).
+ * Phase 4c: worded as what the model does (it plays the week under way with today's rosters), not as a platform rule (a
+ * trade accepted on Thursday night can still change who plays on Sunday once a review period ends).
  * ⚠️ Matched on the engine's words: any other note passes through as it is.
  */
 export function listNote(note: string): string {
-  const m = /^Week (\d+) is under way, so this trade can't change it\b/.exec(note);
-  return m ? `Week ${m[1]} is under way, so no trade can change it: every idea's odds count week ${m[1]} as it stands.` : note;
+  const m = /^Week (\d+) is under way: these odds play it with today's rosters\b/.exec(note);
+  return m ? `Week ${m[1]} is under way: every idea's odds play it with today's rosters, before and after the trade.` : note;
 }
 
 /**
@@ -1010,11 +1513,25 @@ export function knownTagsOf(trades: readonly Pick<TradeEvaluation, "flags">[]): 
   return out;
 }
 
-export function buildFinderView(args: { result: TradeSearchResult; sort: TradeSort; snapshot: SnapshotPart; partnerId: string | null; lastNflWeek?: number | undefined }): FinderView {
+export function buildFinderView(args: {
+  result: TradeSearchResult;
+  sort: TradeSort;
+  snapshot: SnapshotPart;
+  partnerId: string | null;
+  lastNflWeek?: number | undefined;
+  /** FantasyCalc's own values (the cards' value line, fantasyCalcLookup); absent: the cards say they aren't available. */
+  fantasyCalc?: FantasyCalcLookup | undefined;
+  /** "What matters most" as the search weighted B (the feedback's version inputs). */
+  goal?: Goal | null | undefined;
+  /** Whether the market blend reaches anyone (marketBlendOn: CardContext.blendOn); absent: on. */
+  blendOn?: boolean | undefined;
+}): FinderView {
   const { result, snapshot } = args;
   const baseline = result.baseline;
   const knownTags = knownTagsOf(result.trades);
-  const sorted = sortTrades(result.trades, args.sort).map((e) => buildTradeCard(e, { snapshot, baseline, lastNflWeek: args.lastNflWeek, knownTags }));
+  const sorted = sortTrades(result.trades, args.sort).map((e) =>
+    buildTradeCard(e, { snapshot, baseline, lastNflWeek: args.lastNflWeek, knownTags, fantasyCalc: args.fantasyCalc, goal: args.goal, blendOn: args.blendOn }),
+  );
   // A Plan B that is also a card of its own says so, with that card's place in this sort (review of track F: the same
   // trade showed twice without a word).
   const place = new Map(sorted.map((c, i) => [c.key, i + 1]));
@@ -1026,7 +1543,8 @@ export function buildFinderView(args: { result: TradeSearchResult; sort: TradeSo
   const odds = baselineLines(baseline, "finder");
   const hidden = hiddenText(result.hidden);
   let empty: FinderView["empty"] = null;
-  // The search's notes, then each distinct note of the evaluations themselves (TradeDetail.notes), once, worded for the list.
+  // The search's notes, then each distinct note of the evaluations themselves (TradeDetail.notes), once, worded for the
+  // list, then a saved FantasyCalc list standing in (the cards quote its values).
   let notes = [...result.notes];
   for (const e of result.trades) {
     for (const n of e.detail.notes) {
@@ -1034,11 +1552,20 @@ export function buildFinderView(args: { result: TradeSearchResult; sort: TradeSo
       if (!notes.includes(note)) notes.push(note);
     }
   }
+  const fcNote = args.fantasyCalc?.note;
+  if (fcNote && cards.length && !notes.includes(fcNote)) notes.push(fcNote);
+  const minChance = result.filter?.minChance ?? 0;
   if (!cards.length) {
     // Notes explain the emptiness only when the search stopped before screening anything (see the header).
     if (result.counts.screened === 0 && notes.length) {
       empty = { title: "No trade ideas right now", text: notes };
       notes = [];
+    } else if (minChance > 0 && (result.filter?.few || (result.hidden.byChance ?? 0) > 0)) {
+      // Every idea the guards keep falls below the minimum chance (rank.ts applies it after them; a lower setting shows them).
+      empty = {
+        title: "No trade ideas at this minimum chance",
+        text: [`Every trade idea that would otherwise show is below “at least ${minChanceLabel(minChance)}”. Try a lower setting to see more.`, ...(hidden ? [hidden] : [])],
+      };
     } else if (hidden) {
       empty = { title: "No trade ideas that help you", text: [hidden] };
     } else {
@@ -1052,6 +1579,10 @@ export function buildFinderView(args: { result: TradeSearchResult; sort: TradeSo
   return {
     baseline: odds?.text ?? null,
     baselineNote: odds?.note ?? null,
+    // Long-term values counted unless the engine says they're missing (TradeEvaluation.dynMissing: B is B_win alone then).
+    helpsInfo: cards.length ? helpsInfoText(snapshot.settings.leagueType, args.fantasyCalc?.available ?? true, !result.trades.some((e) => e.dynMissing)) : null,
+    pattern: cards.length && result.pattern?.text ? result.pattern.text : null,
+    few: cards.length ? fewText(result) : null,
     cards,
     countText: cards.length ? `${plural(cards.length, "trade idea")}, sorted by ${sortLabel}.` : "",
     statusText: cards.length ? `Found ${plural(cards.length, "trade idea")}.` : `${empty?.title ?? "No trade ideas right now"}.`,
@@ -1064,9 +1595,13 @@ export function buildFinderView(args: { result: TradeSearchResult; sort: TradeSo
   };
 }
 
+/** "What matters most" (TradeSettings.goal) as the Settings page names it. */
+export const GOAL_LABEL: Readonly<Record<Goal, string>> = { title: "Win the title", balanced: "Balanced", playoffs: "Make the playoffs" };
+
 /**
- * What the search's settings let a trade idea be, in one line ("Up to 2 players a side and 1 untouchable."), and, in a
- * redraft league whose "Protect my trade value" isn't the default, that setting too (it changes how ideas are scored).
+ * What the search's settings let a trade idea be, in one line ("Up to 2 players a side and 1 untouchable."), and the
+ * settings that change how ideas are scored when they aren't the default: "What matters most" (Phase 4c) and, in a redraft
+ * league, "Protect my trade value".
  */
 export function settingsSummary(settings: TradeSettings, platform: LeagueSnapshot["platform"], leagueType: LeagueSnapshot["settings"]["leagueType"] = "redraft"): string {
   const pos = (ps: readonly Pos[]) => listText(ps.map((p) => posLabel(p, platform)));
@@ -1077,18 +1612,23 @@ export function settingsSummary(settings: TradeSettings, platform: LeagueSnapsho
   if (settings.avoidPositions.length) parts.push(`never getting ${pos(settings.avoidPositions)}`);
   if (settings.includeKDefIdp) parts.push(`kickers, ${platform === "espn" ? "D/STs" : "team defenses"} and IDP players included`);
   const text = listText(parts);
+  const goal = settings.goal !== config.benefit.goalDefault && GOAL_LABEL[settings.goal] ? ` What matters most: ${GOAL_LABEL[settings.goal]}.` : "";
   // The level as the Settings page names it ("High", "Low").
   const level = `${settings.protectValue.charAt(0).toUpperCase()}${settings.protectValue.slice(1)}`;
   const protect = leagueType === "redraft" && settings.protectValue !== config.benefit.protectValueDefault ? ` Protect my trade value: ${level}.` : "";
-  return `${text.charAt(0).toUpperCase()}${text.slice(1)}.${protect}`;
+  return `${text.charAt(0).toUpperCase()}${text.slice(1)}.${goal}${protect}`;
 }
 
 // ---------------------------------------------------------------------------------------------
 // Progress (M14's progress bar)
 
 const STAGE_ORDER: readonly TradeSearchStage[] = ["setup", "screening", "exact", "simScreen", "simFinal", "rank"];
-/** Each stage's share of the bar: a rough guide to where the time goes, not a measurement. */
-const STAGE_WEIGHT: Record<TradeSearchStage, number> = { setup: 0.1, screening: 0.3, exact: 0.25, simScreen: 0.2, simFinal: 0.13, rank: 0.02 };
+/**
+ * Each stage's share of the bar: a rough guide to where the time goes, not a measurement. Phase 4c (the exhaustive
+ * candidates): screening about 45% of a search on Parker's league (the 4c measurements: context 0.3 s, screening 2.2 s,
+ * exact 1.2 s, simulations 0.5 s and 0.7 s, steps and words 0.2 s).
+ */
+const STAGE_WEIGHT: Record<TradeSearchStage, number> = { setup: 0.05, screening: 0.45, exact: 0.24, simScreen: 0.1, simFinal: 0.12, rank: 0.04 };
 
 /** Each stage in plain words. */
 export const STAGE_LABEL: Record<TradeSearchStage, string> = {
@@ -1110,12 +1650,23 @@ export interface ProgressView {
   valueText: string;
 }
 
-export function progressView(p: TradeSearchProgress | null): ProgressView {
-  const stage = p?.stage ?? "setup";
-  const index = Math.max(0, STAGE_ORDER.indexOf(stage));
-  const before = STAGE_ORDER.slice(0, index).reduce((s, st) => s + STAGE_WEIGHT[st], 0);
+/**
+ * The progress bar in words. `mode` "refilter" (Phase 4c: the minimum chance changed, and the worker ranks the same ideas
+ * again: search.ts refilterSearch) shows the ranking and words alone, the whole bar for the "rank" stage; a search, and a
+ * re-filter that had to search afresh (any other stage), the stages by STAGE_WEIGHT.
+ */
+export function progressView(p: TradeSearchProgress | null, mode: "search" | "refilter" = "search"): ProgressView {
+  const stage = p?.stage ?? (mode === "refilter" ? "rank" : "setup");
   const share = p && p.total > 0 ? Math.min(1, Math.max(0, p.done / p.total)) : 0;
-  const percent = Math.min(99, Math.max(0, Math.floor((before + STAGE_WEIGHT[stage] * share) * 100)));
+  let fraction: number;
+  if (mode === "refilter" && stage === "rank") {
+    fraction = share;
+  } else {
+    const index = Math.max(0, STAGE_ORDER.indexOf(stage));
+    const before = STAGE_ORDER.slice(0, index).reduce((s, st) => s + STAGE_WEIGHT[st], 0);
+    fraction = before + STAGE_WEIGHT[stage] * share;
+  }
+  const percent = Math.min(99, Math.max(0, Math.floor(fraction * 100)));
   const detail = p && p.total > 1 ? `${fmtWhole(Math.min(p.done, p.total))} of ${fmtWhole(p.total)}` : null;
   const label = STAGE_LABEL[stage];
   return { label, detail, percent, valueText: detail ? `${label}: ${detail}` : label };
@@ -1306,9 +1857,11 @@ export function analyzerChoices(snapshot: SnapshotPart, myTeamId: string | null,
 
 /** The Analyzer's result in words: my odds before the trade, the card, or why the trade can't be made, and the notes. */
 export interface AnalysisView {
-  /** "Your odds before this trade: 62% to make the playoffs, 9% to win the title." and what they count (baselineLines), with a card only; null otherwise. */
+  /** "Your odds before this trade: 62% to make the playoffs, 9.9% to win the title." and what they count (baselineLines), with a card only; null otherwise. */
   baseline: string | null;
   baselineNote: string | null;
+  /** What "Helps you" sums up (helpsInfoText), with a card only; null otherwise. */
+  helpsInfo: string | null;
   card: TradeCardView | null;
   illegal: string | null;
   notes: string[];
@@ -1316,25 +1869,41 @@ export interface AnalysisView {
 
 /**
  * The Analyzer's result in words. `analysis.baseline` (my odds before any trade, which the worker sends with the
- * evaluation: src/workers/engine.worker.ts) gives the card's odds their end points and the line above it, so a trade
- * reads the same as on the Trade Finder (review of Phase 4: the Finder's "+9.1 percentage points (63% to 72%)" read
- * "+9.1 percentage points" here). Without it, the card shows the changes alone. `from` "planB" (a trade opened from a
- * card's "If they say no, try:", evaluated without "How to offer it": the worker's `steps: false`) says so first among
- * the notes, with a card.
+ * evaluation: src/workers/engine.worker.ts) gives the card's odds their "before" and the line above it, so a trade reads
+ * the same as on the Trade Finder (review of Phase 4: the Finder's "+9.1 percentage points (63% to 72%)" read "+9.1
+ * percentage points" here). Without it, the card shows the changes alone. The card has "Details" (the model's
+ * trade-value figures: detailsView), and the Finder's odds and weekly lines. `from` "planB" (a trade opened from a card's
+ * "If they say no, try:", evaluated without "How to offer it": the worker's `steps: false`) says so first among the
+ * notes, with a card; a saved FantasyCalc list standing in says so last (the card quotes its values). `fantasyCalc`: the
+ * card's value line (fantasyCalcLookup); `goal`: "What matters most" as the evaluation weighted B (the feedback's inputs);
+ * `blendOn`: whether the market blend reaches anyone (marketBlendOn: CardContext.blendOn).
  */
 export function buildAnalysisView(
   analysis: TradeAnalysis & { baseline?: CardContext["baseline"] },
   snapshot: SnapshotPart,
   lastNflWeek?: number,
-  opts: { from?: AnalyzerFrom | null | undefined } = {},
+  opts: { from?: AnalyzerFrom | null | undefined; fantasyCalc?: FantasyCalcLookup | undefined; goal?: Goal | null | undefined; blendOn?: boolean | undefined } = {},
 ): AnalysisView {
   const baseline = analysis.baseline ?? null;
-  const card = analysis.evaluation && !analysis.illegal ? buildTradeCard(analysis.evaluation, { snapshot, baseline, lastNflWeek }) : null;
+  const card =
+    analysis.evaluation && !analysis.illegal
+      ? buildTradeCard(analysis.evaluation, { snapshot, baseline, lastNflWeek, fantasyCalc: opts.fantasyCalc, goal: opts.goal, blendOn: opts.blendOn, details: true })
+      : null;
   const odds = card ? baselineLines(baseline, "analyzer") : null;
   // A note the card's reasons already say isn't said twice.
   const said = new Set(card?.reasons ?? []);
   const notes = [...new Set(analysis.notes)].filter((n) => !said.has(n));
-  return { baseline: odds?.text ?? null, baselineNote: odds?.note ?? null, card, illegal: analysis.illegal, notes: card && opts.from === "planB" ? [FROM_PLAN_B_NOTE, ...notes] : notes };
+  const fcNote = card ? opts.fantasyCalc?.note : null;
+  if (fcNote && !notes.includes(fcNote)) notes.push(fcNote);
+  return {
+    baseline: odds?.text ?? null,
+    baselineNote: odds?.note ?? null,
+    // Long-term values counted unless the engine says they're missing (TradeEvaluation.dynMissing).
+    helpsInfo: card ? helpsInfoText(snapshot.settings.leagueType, opts.fantasyCalc?.available ?? true, !card.evaluation.dynMissing) : null,
+    card,
+    illegal: analysis.illegal,
+    notes: card && opts.from === "planB" ? [FROM_PLAN_B_NOTE, ...notes] : notes,
+  };
 }
 
 // ---------------------------------------------------------------------------------------------

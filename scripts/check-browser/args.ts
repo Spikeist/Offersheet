@@ -4,8 +4,8 @@
  * The documented form is `npm run check:browser -- --team 3`. Without the "--" (or when a shell drops it), npm keeps
  * the options as its own settings and passes them on as environment variables: `--team 3` becomes npm_config_team
  * "true" plus a stray "3" argument, `--team=3` becomes npm_config_team "3", `--show` npm_config_show "true", and
- * `--no-shots` an empty npm_config_shots (seen with npm 10 on Windows PowerShell). resolveArgs reads those too, so
- * both forms work; options given after "--" win. One stray value goes back to the one option that lost it; with two
+ * `--no-shots` an empty npm_config_shots (seen with npm 10 on Windows PowerShell), `--second-league`
+ * npm_config_second_league "true". resolveArgs reads those too, so both forms work; options given after "--" win. One stray value goes back to the one option that lost it; with two
  * (`--team 3 --max-search 15`) npm doesn't say which was whose, so the error says to put "--" first.
  */
 
@@ -18,8 +18,16 @@ export interface CheckBrowserArgs {
   shots: boolean;
   /** --max-search <seconds>: the Trade Finder's full search must finish within this (CLAUDE.md §12: 10 seconds). */
   maxSearchSeconds: number;
+  /**
+   * --second-league: also adds the public ESPN test league (SECOND_LEAGUE, CLAUDE.md §17 Phase 0), switches to it and
+   * back, and checks each page shows the league it should, settings and feedback per league, and Remove (Phase 4c).
+   */
+  secondLeague: boolean;
   help: boolean;
 }
+
+/** The public ESPN test league the --second-league check adds (CLAUDE.md §2.2, §17 Phase 0: viewable to the public). */
+export const SECOND_LEAGUE = { leagueId: "899513", season: "2026" } as const;
 
 /** §12's performance target for a full trade search. */
 export const DEFAULT_MAX_SEARCH_SECONDS = 10;
@@ -37,6 +45,8 @@ export const USAGE = [
   "  --show               show the browser window",
   "  --no-shots           no screenshots (they go to .cache/check-browser/shots, names replaced by placeholders)",
   "  --max-search <s>     the longest a full trade search may take (default 10 seconds)",
+  "  --second-league      also add the public ESPN test league 899513 (2026), switch to it and back, and check that",
+  "                       each page shows the right league and settings and feedback stay per league; then remove it",
   "  --help               this text",
   "",
   "Chrome: CHROME_PATH, else its usual install places. Exit code 0: every check passed; 1: a check failed;",
@@ -47,7 +57,7 @@ const TEAM_ID = /^[A-Za-z0-9_-]{1,40}$/;
 
 /** The command line's options, and any bare values left over (pure). */
 export function parseArgs(argv: readonly string[]): { args: CheckBrowserArgs; positionals: string[] } | { error: string } {
-  const args: CheckBrowserArgs = { team: null, show: false, shots: true, maxSearchSeconds: DEFAULT_MAX_SEARCH_SECONDS, help: false };
+  const args: CheckBrowserArgs = { team: null, show: false, shots: true, maxSearchSeconds: DEFAULT_MAX_SEARCH_SECONDS, secondLeague: false, help: false };
   const positionals: string[] = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i] as string;
@@ -77,6 +87,9 @@ export function parseArgs(argv: readonly string[]): { args: CheckBrowserArgs; po
         break;
       case "--no-shots":
         args.shots = false;
+        break;
+      case "--second-league":
+        args.secondLeague = true;
         break;
       case "--max-search": {
         const v = Number(value());
@@ -120,6 +133,7 @@ export function resolveArgs(parsed: { args: CheckBrowserArgs; positionals: reado
   }
   if (npmTeam && npmTeam !== "true" && !args.team && TEAM_ID.test(npmTeam)) args.team = npmTeam;
   if (env.npm_config_show === "true") args.show = true;
+  if (env.npm_config_second_league === "true") args.secondLeague = true;
   if (env.npm_config_shots === "false" || env.npm_config_shots === "") args.shots = false;
   const max = Number(npmMax);
   if (args.maxSearchSeconds === DEFAULT_MAX_SEARCH_SECONDS && npmMax && npmMax !== "true" && Number.isFinite(max) && max > 0) args.maxSearchSeconds = max;

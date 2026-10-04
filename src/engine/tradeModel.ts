@@ -40,6 +40,22 @@ export interface RosterChange {
    * empty: none.
    */
   displaced?: { playerId: string; week: number; returner: string }[];
+  /**
+   * Phase 4c (final review, finding R1): my free-agent moves after the trade that my baseline doesn't make. The free-agent
+   * optimizer after the trade (V*(after), §7, run on my roster once the moves above are made) picks up `adds` and drops
+   * `drops` where my baseline V*(T), the one every number compares with (the League page's "Free-agent pickups that would
+   * help"), doesn't (evaluate.ts freeAgentMovesOf). The trade's numbers count on them: B's lineups, and its market term,
+   * where each counts at max(v, W) like a traded player (a player worth more than the best free agent cut to make room
+   * costs his value, as if traded away). So the card names them. `starts`: for each pickup, the NFL weeks he starts in my
+   * expected-value lineup after the trade, among the weeks team numbers count ("to start in week 7"). `kept`: players my
+   * baseline drops who stay on my roster after the trade (the card's "rather than …" when the trade brings no pickup of
+   * its own, only a different drop). `room` (verification of the final review, finding VF-1): the pickups my baseline
+   * makes too whose spot one of `drops` opens after the trade (the card's "to make room for …" when the trade brings no
+   * pickup of its own); absent or empty: none. My side only (the partner's estimate reads the trade itself); absent when
+   * there's no such pickup and no such drop of a player worth more than the waiver credit W (evaluate.ts faShown: a drop
+   * swap between bench players worth at most W isn't named; the market term counts every such move all the same).
+   */
+  faMoves?: { adds: string[]; drops: string[]; kept: string[]; starts: Record<string, number[]>; room?: string[] };
 }
 
 /** §11's features for the partner, as the model used them (the feedback export stores them). */
@@ -113,16 +129,30 @@ export interface TradeEvaluation {
   /** A keeper league whose dynasty values didn't load: ΔDyn is missing and the card says so (Checkpoint 2). */
   dynMissing: boolean;
   /**
-   * My package values (§9, perception): what I give and what I get, each player at max(v, W) (the value floor on both
-   * sides, planner reply to Checkpoint 4, change 4: a player worth less than the best free agent counts at that free
-   * agent's value W), plus W for each open roster spot on the side that gets fewer players. Roster spots are my active
-   * roster's (review of Phase 4b track E: an IR slot isn't one, market.ts's header): W on what I get for each spot it
-   * opens, on what I give for each it fills, which is the same thing when no IR player moves.
+   * My package values (§9, perception; market.packageValues, the model's own figures: the card quotes FantasyCalc's raw
+   * values instead, planner reply to Checkpoint 4b, change 3). ⚠️ Since the final review of Phase 4c (finding R1) my
+   * package holds my free-agent moves after the trade that my baseline doesn't make too (RosterChange.faMoves: each pickup
+   * as received, each drop as given, every one with an active roster spot), so g_mkt(me), B's market term, ΔDyn and the
+   * Market check read what my roster really gains and loses; the partner's package and g read the trade itself. First the
+   * neutral throw-ins are left out (Phase 4c, change 2
+   * and the lead's matched pairs; market.ts's header, "Neutral throw-ins"): players worth at most W on the side giving more
+   * players, up to the difference in player counts, then matched pairs of such players, one from each side, each with the
+   * roster spot he moves. Then what I give and what I get, each player left at max(v, W) (the value floor on both sides,
+   * planner reply to Checkpoint 4, change 4: a player worth less than the best free agent counts at that free agent's
+   * value W), plus W for each open roster spot on the side that gets fewer players. Roster spots are my active roster's
+   * (review of Phase 4b track E: an IR slot isn't one, market.ts's header): W on what I get for each spot it opens, on what
+   * I give for each it fills, which is the same thing when no IR player moves. So an even swap of two players worth at most
+   * W reads 0 given and 0 received (both left out), and, ⚠️ when no IR player moves, a throw-in worth at most W adds
+   * nothing to either number. A trade that moves an IR player can break that (review POL-3; market.ts's header, "⚠️ The
+   * exception, IR moves"; market.test.ts): a cheap IR player left in counts W with no roster spot behind him, and a
+   * player worth more than W who moves without one (into or out of an IR slot) can leave cheap players in, each adding W
+   * to both numbers. With W 600, giving 5,000 for 3,000 (into my open IR slot) and 4,000 reads 5,000 given and 7,000
+   * received; adding a 200 throw-in of mine reads 5,600 and 7,600.
    */
   value: { given: number; received: number };
   /**
-   * g_mkt for my side and the partner's (§9), on those packages (each player at max(v, W)), without the star premium (the
-   * partner's perceived g, with it, is features.g).
+   * g_mkt for my side and the partner's (§9), on those packages (the neutral throw-ins left out, each player left at max(v,
+   * W)), without the star premium (the partner's perceived g, with it, is features.g).
    */
   gMine: number;
   gPartner: number;
@@ -164,9 +194,12 @@ export interface TradeEvaluation {
    * exactly evaluated trade with the same partner that still helps (B > 0, Helps you at least config.search.planB.
    * minHelpsShare of the card's, not hidden by the market guard) and, ⚠️ since the review of track F, is likelier to go
    * through (P_complete at least config.search.steps.minAcceptGain above the card's), the same players of theirs first,
-   * with at most config.ranking.perGivenPlayerInTop20 boxes adding the same player of mine, and ⚠️ never a trade the list
-   * shows as a card itself (final review of Phase 4b) (src/engine/planB.ts). Absent when none qualifies, on a card with
-   * steps, and in the Analyzer.
+   * with at most config.ranking.perGivenPlayerInTop20 boxes adding the same player of mine, and ⚠️ never a trade the
+   * search bars from the boxes (search.ts barredFromBoxes: a trade the list shows as a card itself, final review of Phase
+   * 4b, or such a card plus more players who don't make it minAcceptGain likelier, Phase 4c; and since the final review of
+   * Phase 4c a version a card's steps show, or one another card with its partner matches or beats on both Helps you and
+   * P_complete: planB.ts dominatedByCard) (src/engine/planB.ts). Absent when none qualifies, on a card with steps, and in
+   * the Analyzer.
    */
   planB?: PlanB;
   /** Plain-English reasons (§13), most important first (src/engine/explain.ts). */
@@ -202,6 +235,20 @@ export interface PlanB {
   overall: number;
   /** "samePlayers": a different package for the same players of theirs; "otherTarget": a different target. */
   kind: "samePlayers" | "otherTarget";
+  /** Phase 4c (change 7): its acceptance features and raw g_mkt(P), stored with feedback when it's the one sent. */
+  features?: AcceptanceFeatures;
+  gPartner?: number;
+  /**
+   * Phase 4c (planner reply to Checkpoint 4b, change 9, "real odds on every card"): the changes in my P(playoffs) and
+   * P(title) and my win chance by week before and after (TradeDetail.winChance's shape and rules), from Plan B's own
+   * simulation on the final block, the runs its B came from: the card's basis, so they start from the same "before" (the
+   * search's baseline) and the box prints them as the card prints its own. dCH null when the league's title odds are
+   * unknown. Absent when its numbers aren't the final block's (planB.ts toPlanB: never in the search) and on a Plan B
+   * made before these fields.
+   */
+  dPO?: number | null;
+  dCH?: number | null;
+  winChance?: TradeDetail["winChance"];
 }
 
 /** One version of a trade in "Offer first / if they say no" (§4 of the addendum): exact evaluation + the screening simulation. */
@@ -222,6 +269,8 @@ export interface TradeStep {
   required: { me: RosterChange; partner: RosterChange };
   /** This version's explanation facts (the pitch names the offer-first version and reads its partner-side facts). */
   detail: TradeDetail;
+  /** Phase 4c (planner reply to Checkpoint 4b, change 7): this version's acceptance features, stored with feedback when it's the one sent. */
+  features?: AcceptanceFeatures;
 }
 
 /**
@@ -302,13 +351,29 @@ export interface TradeDetail {
   /**
    * My remaining regular-season weeks (that team numbers count) the League page would flag as risky before the trade:
    * under config.leaguePage.riskyWinChance to win (on the printed whole percent), or riskyByes or more of my likely
-   * starters on bye (likely starter: in my V* EV lineup in at least half of the counted weeks he plays).
+   * starters on bye (likely starter: in my V* EV lineup in at least half of the counted weeks he plays; Phase 4c: never
+   * one at a position I stream, whose bye the streaming replacement covers: evaluate.ts riskyWeeksOf).
    */
   riskyWeeks: number[];
   /** Plain-English notes about this evaluation (benefit.benefitNotes: title odds missing, long-term values missing; evaluate.ts's own). */
   notes: string[];
   /** The star premium on each player the partner gives (§1 of the addendum); absent before the addendum. */
   premium?: PremiumFact[];
+  /**
+   * Phase 4c (planner reply to Checkpoint 4b, change 9): my chance to win each remaining regular-season week's game,
+   * before and after the trade, from the same simulation runs as B (the final block when the numbers are final, the
+   * screening block before that), one entry per week I have a head-to-head game (LeagueModel.weeks order; a multi-week
+   * game at its first week). Null where the week's chance isn't defined. The card shows the weeks that move at least
+   * config.explain.weeklyLineMin (up to weeklyLineMax, the drops first, then the largest gains, in week order). An empty list in a points-only
+   * league (its games don't change the standings); absent without odds.
+   */
+  winChance?: { week: number; before: number | null; after: number | null }[];
+  /**
+   * Phase 4c (the pattern note's "injury cover" driver, change 6): my ΔPPW in scenario lineups minus my ΔPPW in expected-value
+   * lineups, points a week: the part of the gain that comes from covering injuries and byes rather than from the average
+   * lineup. Absent without scenarios.
+   */
+  depthCover?: number;
 }
 
 /** Sort options (§13): Overall (default), Helps you (B), Chance they accept (P_complete, among B > 0). */
@@ -331,10 +396,11 @@ export interface TradeSearchResult {
   myTeamId: string | null;
   baseline: { pPlayoffs: number | null; pTitle: number | null; expWins: number | null };
   /** Trades the ranking kept out by default (§10 guards: B ≤ 0, or g_mkt(me) below marketHideBelow), counted. */
-  hidden: { byBenefit: number; byMarket: number };
+  hidden: { byBenefit: number; byMarket: number; /** Phase 4c: finalists under the minimum chance (TradeSettings.minChance). */ byChance?: number };
   /**
    * Trades the final ranking's variety rules left out (§13 diversity, rank.ts RankedTrades.dropped: over the per-partner
-   * cap in the top 20, over the per-core cap, filler variants, and over Phase 4b's given-player cap in the top 20),
+   * cap in the top 20, over the per-core cap, filler variants (with the cards folded into another card's steps since the
+   * final review of Phase 4c: search.ts foldedCards), and over Phase 4b's given-player cap in the top 20),
    * counted so a page can say so. The search always sets it (every key, 0 when it stops before ranking); optional only
    * so that fakes needn't (end-of-Phase-4 review, finding 5).
    */
@@ -346,4 +412,28 @@ export interface TradeSearchResult {
   /** Plain-English notes (for example: "Kickers and D/STs are left out; turn them on in Settings."). */
   notes: string[];
   warnings: string[];
+  /**
+   * Phase 4c (planner reply to Checkpoint 4b, change 10): the minimum chance applied (TradeSettings.minChance, judged on
+   * P_complete as the card prints it, before the diversity caps); `qualifying`: how many finalists pass the §10 guards and
+   * the minimum, before the caps; `few`: the list shows fewer than config.ranking.minChanceFew ideas and the same finalists
+   * would show more at a lower setting (never at "Any"), so the page suggests one. Absent when the search stopped before
+   * ranking.
+   */
+  filter?: { minChance: number; qualifying: number; few: boolean };
+  /** Phase 4c (change 6): the pattern note above the list, when at least patternMinCount of the uncapped top patternTop give one player of mine. */
+  pattern?: PatternNote;
+}
+
+/**
+ * The Trade Finder's pattern note (planner reply to Checkpoint 4b, change 6): when at least config.explain.patternMinCount of
+ * the top config.explain.patternTop by Overall, ranked WITHOUT the given-player cap, give the same player of mine. `drivers`
+ * are the model's own reasons that most often account for those trades' gains (src/engine/pattern.ts), in the order the text
+ * names them; `text` is the one line the page shows.
+ */
+export interface PatternNote {
+  playerId: string;
+  count: number;
+  of: number;
+  drivers: ("byeCover" | "incomingByes" | "slotGain" | "injuryCover")[];
+  text: string;
 }

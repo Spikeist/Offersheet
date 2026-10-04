@@ -16,6 +16,11 @@
  *    redraft list in the league's format ("dynasty leagues use redraftValue here too, since B_win is about this
  *    season"). A separate list counts only when it holds a real value (an empty one is missing, as
  *    market.valuesForTerm reads it). No table, no blend anywhere (league.ts warns when the market loaded without one).
+ *    A saved list (Phase 4c, MarketInputs.fallback kind "saved": FantasyCalc didn't answer, the list is at most
+ *    config.market.fantasyCalcStaleDays old) is read as today's. ⚠️ The curve fallback (kind "curve": the newest list
+ *    is older than that; market.ts's header) has no table: its values only calibrate the model's own value curve, and
+ *    blending our projections toward a curve of our own projections would only undo rank inversions with no market
+ *    information in it (ours: the lead's "no FantasyCalc values used directly" there).
  * 3. Ours: his base rate b before the blend (§6 step 1: points per game when he plays, his matchups taken out), not his
  *    rest-of-season total (review of track A). ⚠️ A total mixes in how many games he plays, which his market value
  *    prices only roughly: on totals, a player out for weeks whose value holds up (a stash for the playoffs) got the
@@ -43,18 +48,27 @@
  *    read the curve with their own point in it, as before the review. Everyone else reads it flat beyond its ends, never
  *    extrapolated. ⚠️ A position with fewer than config.marketBlend.minPlayers curve points gets no blend.
  * 5. b′ = (1 − w)·b + w·R_pos(v), w = config.marketBlend.weight (clamped to [0, 1]); his factor f = b′ / b, and f = 1
- *    when b is 0 (ROS = 0 stays 0).
+ *    when b is 0 (ROS = 0 stays 0). Phase 4c (planner reply to Checkpoint 4b, change 4): f is then clamped to
+ *    config.marketBlend.factorClamp [0.75, 1.35], since extreme factors are where data glitches (a fallback base rate, a
+ *    role change the projections haven't caught yet) and market hype concentrate; b′ = f × b with the clamped f.
+ *    BlendFactor keeps the factor before the clamp (fRaw) and the bound it hit (clamped), both only when it hit one;
+ *    `market` stays the curve's number. A factor exactly on a bound isn't clamped. The checkpoint report's "10 most
+ *    extreme factors, with a reason for each" reads blendRecords: each factor with his base rate's source (a fallback
+ *    or not), games played, injury status and age when known, and which curve he read (ownPoint: an end of the value
+ *    range reads the curve with his own point in it; a curve point inside it, the curve without him; a player off the
+ *    curve, the whole curve).
  * 6. Applying it (applyBlend): b × f, every week's p × f (his byes, availability and week shape stay as they were), each
  *    week's σ recomputed from the scaled p (§6 step 5), and the ROS summary × f, so ROS′ = (1 − w)·ROS + w·(his ROS at
- *    the market's rate): the planner's formula per game played. league.ts builds the projection table from the scaled
+ *    the market's rate): the planner's formula per game played (with a clamped f, ROS′ = f × ROS instead, and
+ *    PlayerModel.blend.clamped says which bound). league.ts builds the projection table from the scaled
  *    models, so everything after it (free agents, needs, trade chips, V*, both lineups of every trade, the season
  *    simulation, the estimate curve for unvalued players and the waiver credit W) reads blended points.
  */
 import { config } from "./config";
 import type { MarketInputs } from "./inputs";
-import type { PlayerBlend, PlayerModel } from "./leagueModel";
+import type { BaseRateSource, PlayerBlend, PlayerModel } from "./leagueModel";
 import { curveValue, isotonicFit, type IsotonicCurve } from "./market";
-import type { LeagueSettings, Pos } from "./model";
+import type { InjuryStatus, LeagueSettings, Pos } from "./model";
 import { weeklySd, type ProjectionConfig } from "./projections";
 
 /** The config.marketBlend keys this module reads, widened from config's `as const` literals so tests and calibration can vary them. */
@@ -62,6 +76,8 @@ export interface MarketBlendConfig {
   readonly weight: number;
   readonly positions: readonly Pos[];
   readonly minPlayers: number;
+  /** f is clamped to [low, high] (rule 5; Phase 4c). */
+  readonly factorClamp: readonly [number, number];
 }
 
 /** Canonical player id → this season's FantasyCalc value (the blend's table, rule 2). */
@@ -87,7 +103,8 @@ function withValues(table: BlendTable | undefined): BlendTable | undefined {
  * it is: when it loaded but holds nobody, the blend reaches nobody, and nothing failed to load.
  */
 export function blendValues(market: MarketInputs | null | undefined, leagueType: LeagueSettings["leagueType"]): BlendTable | null {
-  if (!market) return null;
+  // The curve fallback's lists only calibrate the model's own value curve (rule 2): nothing to blend toward.
+  if (!market || market.fallback?.kind === "curve") return null;
   if (leagueType === "redraft") return market.values;
   if (leagueType === "keeper") {
     const redraft = withValues(market.redraftValues);
@@ -114,14 +131,20 @@ export interface BlendFactor {
   ours: number;
   /** R_pos(v): the points per game the position's curve gives his value (a curve point inside the value range: the curve fitted without him). */
   market: number;
-  /** b′ = (1 − w)·ours + w·market: his base rate after the blend (0 when ours is 0: nothing to scale). */
+  /** b′ = f × ours: his base rate after the blend, (1 − w)·ours + w·market unless f was clamped (0 when ours is 0: nothing to scale). */
   used: number;
-  /** used ÷ ours: what his base rate and weekly points are multiplied by (1 when ours is 0). */
+  /** used ÷ ours: what his base rate and weekly points are multiplied by, after the clamp (1 when ours is 0). */
   f: number;
   /** v, his value in the blend's table. */
   value: number;
   /** He is one of the curve's points (healthy, with a game left); the others are read off the curve. */
   fit: boolean;
+  /** Phase 4c (rule 5): the factor before config.marketBlend.factorClamp, ((1 − w)·ours + w·market) ÷ ours; only when it hit a bound. */
+  fRaw?: number;
+  /** The bound f was clamped to; absent when it wasn't. */
+  clamped?: "low" | "high";
+  /** A curve point at an end of his position's value range, who read the curve with his own point in it (rule 4); absent otherwise. */
+  ownPoint?: true;
 }
 
 /** One configured position: how many players the blend reaches there, how many of them the curve is fitted on, and whether it was blended. */
@@ -156,6 +179,13 @@ function curveAt(curve: IsotonicCurve, v: number): number {
   return first === undefined ? 0 : curveValue(curve, Math.max(v, first));
 }
 
+/** config.marketBlend.factorClamp as [low, high] (rule 5): a bound that isn't a finite number doesn't clamp, nor does a pair out of order. */
+function clampBounds(range: readonly [number, number] | undefined): [number, number] {
+  const lo = range && Number.isFinite(range[0]) ? range[0] : 0;
+  const hi = range && Number.isFinite(range[1]) ? range[1] : Number.POSITIVE_INFINITY;
+  return lo <= hi ? [lo, hi] : [0, Number.POSITIVE_INFINITY];
+}
+
 /** A player on the way to his factor. */
 interface Point {
   id: string;
@@ -166,12 +196,13 @@ interface Point {
 
 /**
  * The blend's factors (the file header, rules 1, 4 and 5) for `players` (each id once; a repeat is ignored) against the
- * blend's table `values` (null: no blend). Deterministic whatever the players' order: each fit pools equal values first
- * and sorts its points.
+ * blend's table `values` (null: no blend), each clamped to cfg.factorClamp. Deterministic whatever the players' order:
+ * each fit pools equal values first and sorts its points.
  */
 export function marketBlend(players: readonly BlendInput[], values: BlendTable | null, cfg: MarketBlendConfig = config.marketBlend): MarketBlend {
   const weight = Number.isFinite(cfg.weight) ? Math.min(1, Math.max(0, cfg.weight)) : 0;
   if (!values || weight <= 0) return noBlend();
+  const [lo, hi] = clampBounds(cfg.factorClamp);
   const positions = [...new Set(cfg.positions)];
   const wanted = new Set<Pos>(positions);
   const byPos = new Map<Pos, Point[]>();
@@ -205,8 +236,13 @@ export function marketBlend(players: readonly BlendInput[], values: BlendTable |
       const inside = others.some((m) => m.v <= g.v) && others.some((m) => m.v >= g.v);
       const curve = inside ? isotonicFit(others.map((m) => ({ x: m.v, y: m.rate }))) : full;
       const market = Math.max(0, curveAt(curve, g.v));
-      const used = g.rate > 0 ? (1 - weight) * g.rate + weight * market : 0;
-      factors.set(g.id, { ours: g.rate, market, used, f: g.rate > 0 ? used / g.rate : 1, value: g.v, fit: g.fit });
+      const blendedRate = g.rate > 0 ? (1 - weight) * g.rate + weight * market : 0;
+      const fRaw = g.rate > 0 ? blendedRate / g.rate : 1;
+      // Rule 5's clamp (Phase 4c): a factor past a bound is the bound; one on it isn't clamped.
+      const clamped = g.rate > 0 ? (fRaw < lo ? "low" : fRaw > hi ? "high" : null) : null;
+      const f = clamped === "low" ? lo : clamped === "high" ? hi : fRaw;
+      const used = clamped ? f * g.rate : blendedRate;
+      factors.set(g.id, { ours: g.rate, market, used, f, value: g.v, fit: g.fit, ...(clamped ? { fRaw, clamped } : {}), ...(g.fit && !inside ? { ownPoint: true as const } : {}) });
     }
   }
   return { weight, factors, positions: out };
@@ -223,7 +259,8 @@ export function blendFactor(blend: MarketBlend, id: string): number {
  * week's σ from the scaled p (§6 step 5: c_pos × p + d_pos, 0 when p is 0). PlayerModel.blend, on the ros.total basis
  * the tables show, while he has points left: ours = ros.total before, used = ros.total after (= f × ours), market =
  * ours + (used − ours) ÷ w = his ROS at the market's rate (ours × R_pos(v) ÷ b), so used = (1 − w)·ours + w·market
- * exactly. The same model, untouched, when the blend doesn't reach him or his base rate is 0.
+ * exactly. With a clamped factor (rule 5): market = ours × R_pos(v) ÷ b still (the market's number), used = ours × the
+ * bound, and `clamped` names it. The same model, untouched, when the blend doesn't reach him or his base rate is 0.
  */
 export function applyBlend(pm: PlayerModel, pos: Pos, blend: MarketBlend, cfg: Pick<ProjectionConfig, "sigma"> = config.projections): PlayerModel {
   const factor = blend.factors.get(pm.id);
@@ -235,7 +272,8 @@ export function applyBlend(pm: PlayerModel, pos: Pos, blend: MarketBlend, cfg: P
   });
   const ours = pm.ros.total;
   const used = ours * f;
-  const shown: PlayerBlend | null = ours > 0 ? { ours, market: ours + (used - ours) / blend.weight, used, weight: blend.weight } : null;
+  const market = factor.clamped ? (ours * factor.market) / factor.ours : ours + (used - ours) / blend.weight;
+  const shown: PlayerBlend | null = ours > 0 ? { ours, market, used, weight: blend.weight, ...(factor.clamped ? { clamped: factor.clamped } : {}) } : null;
   return {
     ...pm,
     base: { ...pm.base, b: pm.base.b * f },
@@ -243,4 +281,90 @@ export function applyBlend(pm: PlayerModel, pos: Pos, blend: MarketBlend, cfg: P
     ros: { ...pm.ros, total: used, regular: pm.ros.regular * f, playoffs: pm.ros.playoffs * f },
     ...(shown ? { blend: shown } : {}),
   };
+}
+
+// ---------------------------------------------------------------------------------------------
+// The factors with what explains them (the Checkpoint 4c report: "the 10 most extreme factors before the clamp, with the
+// reason for each")
+
+/** Base-rate sources without a weekly projection (projections.ts): Sleeper's season line ÷ 17, his own points per game, or nothing. */
+const FALLBACK_SOURCES: ReadonlySet<BaseRateSource> = new Set<BaseRateSource>(["season", "actual", "none"]);
+
+/** One blended player's factor with the facts that explain it (blendRecords). Points are per game played. */
+export interface BlendRecord {
+  id: string;
+  /** His position (PlayerInfo.pos), when known. */
+  pos: Pos | null;
+  /** The factor before the clamp (rule 5) and after it, and the bound it hit (null: none). */
+  fRaw: number;
+  f: number;
+  clamped: "low" | "high" | null;
+  /** His base rate before the blend, the curve's number for his value, and his base rate after it (BlendFactor's). */
+  ours: number;
+  market: number;
+  used: number;
+  /** His value in the blend's table. */
+  value: number;
+  /**
+   * Which curve he read (rule 4): "withoutHim" (a curve point inside his position's value range: the curve fitted on the
+   * others), "ownPoint" (a curve point at an end of it: the curve with his own point in it), "offCurve" (not a curve
+   * point: an injury tag, no game left, or no rate; the whole curve).
+   */
+  curve: "withoutHim" | "ownPoint" | "offCurve";
+  /**
+   * His base rate's source (PlayerModel.base.source; null without a model) and whether it is a fallback: no weekly
+   * projection from either source, so Sleeper's season line ÷ 17 ("season"), his own points per game ("actual") or none.
+   */
+  source: BaseRateSource | null;
+  fallback: boolean;
+  /** Games he played this season (PlayerModel.base.games; null without a model). */
+  games: number | null;
+  /** His injury status and age (PlayerInfo), null when unknown. */
+  injury: InjuryStatus | null;
+  age: number | null;
+}
+
+/** What blendRecords reads of a player beyond his factor (PlayerInfo's fields). */
+export interface BlendRecordInfo {
+  readonly pos?: Pos;
+  readonly injury?: InjuryStatus;
+  readonly age?: number;
+}
+
+/** How extreme a factor is: |ln f| (×1.5 and ×0.667 are equally far from 1); a factor that isn't positive counts as infinitely far. */
+function extremeness(f: number): number {
+  return f > 0 && Number.isFinite(f) ? Math.abs(Math.log(f)) : Number.POSITIVE_INFINITY;
+}
+
+/**
+ * Every factor of `blend` with the facts that explain it (BlendRecord), the most extreme before the clamp first (|ln fRaw|;
+ * ties: the smaller id). Pure: `players` is the build's models (PlayerModel.base: its source and games, unchanged by the
+ * blend; league.ts LeaguePlayers.players or LeagueModel.players), `info` his PlayerInfo (snapshot.players). Players whose
+ * base rate is 0 (f 1, nothing to scale) are left out.
+ */
+export function blendRecords(blend: MarketBlend, players: Readonly<Record<string, Pick<PlayerModel, "base"> | undefined>>, info: (id: string) => BlendRecordInfo | undefined): BlendRecord[] {
+  const out: BlendRecord[] = [];
+  for (const [id, factor] of blend.factors) {
+    if (!(factor.ours > 0)) continue;
+    const base = players[id]?.base;
+    const who = info(id);
+    out.push({
+      id,
+      pos: who?.pos ?? null,
+      fRaw: factor.fRaw ?? factor.f,
+      f: factor.f,
+      clamped: factor.clamped ?? null,
+      ours: factor.ours,
+      market: factor.market,
+      used: factor.used,
+      value: factor.value,
+      curve: !factor.fit ? "offCurve" : factor.ownPoint ? "ownPoint" : "withoutHim",
+      source: base?.source ?? null,
+      fallback: base ? FALLBACK_SOURCES.has(base.source) : false,
+      games: base ? base.games : null,
+      injury: who?.injury ?? null,
+      age: who?.age !== undefined && Number.isFinite(who.age) ? who.age : null,
+    });
+  }
+  return out.sort((a, b) => extremeness(b.fRaw) - extremeness(a.fRaw) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 }

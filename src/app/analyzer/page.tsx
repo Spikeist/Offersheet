@@ -9,9 +9,10 @@ export const metadata: Metadata = {
 };
 
 /**
- * CLAUDE.md §14 item 5. The page reads the imported league from this tab's sessionStorage and evaluates trades in the
- * browser's Web Worker. It reads the trade from the address with useSearchParams, so it sits in a Suspense boundary
- * (Next prerenders the fallback, the same "Loading your league…" the page shows first).
+ * CLAUDE.md §14 item 5. The page reads the league this tab shows from the leagues saved in this browser (IndexedDB:
+ * src/lib/leagueStore.ts, Phase 4c) and evaluates trades in the browser's Web Worker. It reads the trade from the
+ * address with useSearchParams, so it sits in a Suspense boundary (Next prerenders the fallback, the same "Loading your
+ * league…" the page shows first).
  */
 export default function AnalyzerRoute() {
   return (

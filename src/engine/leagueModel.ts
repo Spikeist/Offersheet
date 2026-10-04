@@ -57,6 +57,13 @@ export interface LeagueModel {
    * setup).
    */
   odds: SeasonOdds | null;
+  /**
+   * Phase 4c (planner reply to Checkpoint 4b, change 9, "one baseline everywhere"): `odds` is the headline, every team
+   * after its free-agent pickups (V*(T), one free agent per team), on the same seasons and scores as the trade search's
+   * baseline, so the League page and every card's "before" agree; this is the second line, every team as it stands.
+   * Null when `odds` is.
+   */
+  oddsAsRostersStand?: SeasonOdds | null;
   /** Milliseconds per stage, when the caller passed a clock. */
   timings: Record<string, number>;
   /** Plain-English notes about gaps (a source missing, a player without projections). */
@@ -108,6 +115,11 @@ export interface PlayerBlend {
   market: number;
   used: number;
   weight: number;
+  /**
+   * Phase 4c (planner reply to Checkpoint 4b, change 4): the factor hit config.marketBlend.factorClamp, so `used` is ours ×
+   * the clamp's bound rather than the blend (market stays the market's number). Absent when it didn't.
+   */
+  clamped?: "low" | "high";
 }
 
 /** LeagueModel.faAllocation (§7 one free agent, one team). */
@@ -210,7 +222,8 @@ export interface TeamModel {
    * each adds the best free agent left to it in the allocation order (one free agent, one team: no team earlier in
    * LeagueModel.faAllocation's order claimed him; planner reply to Checkpoint 4, change 3), dropping a player or into an
    * open roster spot, while it raises the team's rest-of-season lineup points by at least
-   * config.freeAgentOptimizer.faMinGain, at most faMaxMoves of them; never a kicker or a team defense (streamed or
+   * config.freeAgentOptimizer.faMinGain (⚠️ a pickup that drops a less valuable player in a near-tie can raise them up to
+   * config.lineups.dropNearTieWeekly a week less: optimizer.ts's header), at most faMaxMoves of them; never a kicker or a team defense (streamed or
    * kept), nor a position the team streams. Empty when no move qualifies. No free agent shows in two teams' moves
    * (except under league.ts faAllocation "independent", Checkpoint 4's rule for reports). Lineup costs and trade chips
    * are measured from the roster after these moves (V*), so a trade never gets credit for a pickup the team could make
@@ -232,6 +245,12 @@ export interface TeamModel {
    * rosters and injury tags, not the ones at kickoff (league.ts preKickoffTable).
    */
   score: { mean: number[]; sd: number[] };
+  /**
+   * Phase 4c ("one baseline everywhere"): the same distribution for the team after its free-agent pickups, V*(T) (one free
+   * agent per team, IR returners and the drop at return), as the trade search's baseline prices it; LeagueModel.odds
+   * simulates these. The week in progress keeps `score`'s week (⚠️ the model plays a week under way with today's rosters).
+   */
+  scoreWithPickups?: { mean: number[]; sd: number[] };
 }
 
 /** A rostered player's star premium for his owner (TeamModel.premiums). */
@@ -253,7 +272,7 @@ export interface FaMove {
   /**
    * ROS lineup points the move gains (the roster after it minus the roster before it), with expected-value
    * lineups and with scenario lineups (null without scenarios). The optimizer chooses by the scenario gain when
-   * scenarios run (at least faMinGain: the same lineups B is measured in, so no trade gets credit for a depth pickup
+   * scenarios run (at least faMinGain, ⚠️ but for a near-tie's cheaper drop: optimizer.ts's header; the same lineups B is measured in, so no trade gets credit for a depth pickup
    * the team could make anyway; Phase 4 review), else by the EV gain. So with scenarios gainEv can be below
    * faMinGain, even below 0, for a pickup that adds depth.
    */

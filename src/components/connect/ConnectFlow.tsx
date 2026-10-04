@@ -13,8 +13,14 @@
  * One group (not a phone copy plus a desktop copy) keeps the same inputs, names and keyboard behavior
  * at every width. Arrow keys move between the available platforms, and turning a phone sideways
  * doesn't lose focus. The radios are visually hidden, so their label shows the keyboard focus ring.
+ *
+ * Phase 4c (planner reply to Checkpoint 4b, change 11): each import is saved in this browser as a new league,
+ * or as an update of the same league already saved, and becomes the league shown (finishImport.ts). With
+ * leagues saved already, a line under the form says so (the switcher's "Add league" opens this page).
  */
 import { useState } from "react";
+import { plural } from "@/lib/format";
+import { useSavedLeagues } from "../league/useLeagueInputs";
 import { Badge, cx } from "../ui";
 import { EspnConnect } from "./EspnConnect";
 import { SleeperConnect } from "./SleeperConnect";
@@ -93,13 +99,26 @@ export function PlatformPicker({ value, onChange }: { value: PlatformChoice; onC
   );
 }
 
+/**
+ * What the page says when leagues are saved in this browser already (Phase 4c, planner reply to Checkpoint 4b, change
+ * 11): another import joins them, or updates the saved copy of the same league (pure; null with none saved).
+ */
+export function savedLeaguesNote(count: number): string | null {
+  if (!count) return null;
+  return `You have ${plural(count, "league")} saved in this browser. A league you import joins ${count === 1 ? "it" : "them"} (or updates its saved copy) and shows right away; switch leagues at the top of any page.`;
+}
+
 export function ConnectFlow() {
   const [platform, setPlatform] = useState<PlatformChoice>("espn");
+  const saved = useSavedLeagues();
+  const note = savedLeaguesNote(saved?.leagues.length ?? 0);
 
   return (
     <div className="space-y-4 sm:space-y-6">
       <PlatformPicker value={platform} onChange={setPlatform} />
       {platform === "espn" ? <EspnConnect /> : <SleeperConnect />}
+      {/* Under the form, so on a phone the league box and the Import button stay on the first screen (§14 item 1). */}
+      {note ? <p className="max-w-2xl text-sm text-muted">{note}</p> : null}
     </div>
   );
 }

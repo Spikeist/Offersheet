@@ -2,32 +2,88 @@
 /**
  * The imported league and its model inputs, as the League page, the Trade Finder and the Trade Analyzer load
  * them (CLAUDE.md §14 items 3–5; Phase 4 wave 2 decision M13: the trade pages share the League page's loading
- * rather than copy it). It reads the import from this tab's sessionStorage, gets the league's model inputs
- * (projections and values, §6 and §9) from this page view's latest answer, else this tab's stored copy (reused
- * only while under 6 hours old: modelStore.ts MODEL_REUSE_MAX_AGE_MS), else the server, and resolves "my team"
- * the way every page does (the user's pick, else the platform's: src/lib/myTeam.ts).
+ * rather than copy it). It gets the league's model inputs (projections and values, §6 and §9) from this page view's
+ * latest answer, else the stored copy (reused only while under 6 hours old: modelStore.ts MODEL_REUSE_MAX_AGE_MS),
+ * else the server, and resolves "my team" the way every page does (the user's pick, else the platform's:
+ * src/lib/myTeam.ts).
+ *
+ * Phase 4c (planner reply to Checkpoint 4b, change 11): saved leagues live in the league store (IndexedDB,
+ * src/lib/leagueStore.ts). The pages read the league this tab shows with useCurrentLeague (undefined while the store
+ * loads: never a flash of "No league imported yet"), the switcher's list with useSavedLeagues, where leagues are kept
+ * with useLeagueStorage, and the league's inputs with useSavedLeagueInputs (the stored copy is the league's own, so
+ * another league's never stands in).
  *
  * One request at a time: the model request is shared by key (sharedRequest.ts), so React StrictMode's mount →
- * unmount → mount in development sends one, and it's aborted once the page is gone. A model response is kept
- * in this tab (keepModelResponse: a newer snapshot replaces the stored import, keeping the team pick), then one
- * change notification; whatever the browser refuses to store, the page still has in memory. React state is only
- * set in async callbacks (the react-hooks lint rules).
+ * unmount → mount in development sends one, and it's aborted once the page is gone. A model response is kept for its
+ * saved league (leagueStore.ts keepModelResponse: a newer snapshot replaces the stored import, keeping the team pick);
+ * whatever the browser refuses to store, the page still has in memory. React state is only set in async callbacks (the
+ * react-hooks lint rules).
  */
 import { useEffect, useEffectEvent, useMemo, useState } from "react";
 import type { ModelInputs } from "@/engine/inputs";
 import type { LeagueSnapshot } from "@/engine/model";
 import { callApi, isApiError, isModelResponse, type ModelResponse } from "@/lib/api";
-import { IMPORT_STORAGE_KEY, myTeamKey, parseMyTeamPick, readStoredImport, type StoredImport, type StoredImportRead } from "@/lib/importStore";
-import { MODEL_STORAGE_KEY, keepModelResponse, modelForSnapshot, modelKey, modelRequest, parseStoredModel, withImportedTeam } from "@/lib/modelStore";
+import type { MyTeamPick, StoredImport } from "@/lib/importStore";
+import {
+  currentLeagueFrom,
+  currentLeaguePartsOf,
+  leagueStore,
+  useLeagueStoreState,
+  type CurrentLeagueRead,
+  type SavedLeaguesRead,
+  type StorageStatus,
+} from "@/lib/leagueStore";
+import { modelForSnapshot, modelKey, modelRequest, withImportedTeam, type StoredModel } from "@/lib/modelStore";
 import { resolveMyTeam, type ResolvedMyTeam } from "@/lib/myTeam";
-import { browserSessionStorage, notifySessionChange, useSessionValue } from "@/lib/useSessionValue";
 import { createRequestSharer, type JoinedRequest } from "./sharedRequest";
 
-/** This tab's stored import as the pages read it; undefined while storage hasn't been read (server render, hydration). */
-export function useStoredImport(): StoredImportRead | undefined {
-  const raw = useSessionValue(IMPORT_STORAGE_KEY);
-  return useMemo(() => (raw === undefined ? undefined : readStoredImport(raw)), [raw]);
+// ---------------------------------------------------------------------------------------------
+// Phase 4c: the league store
+
+/**
+ * The league this tab shows (leagueStore.ts CurrentLeagueRead): "ok" with its import and "my team" pick, "outdated"
+ * (saved by an earlier version: the page asks for it again, naming it when it can), or "none"; undefined while the store
+ * (or that league's import) loads.
+ */
+export function useCurrentLeague(): CurrentLeagueRead | undefined {
+  const parts = currentLeaguePartsOf(useLeagueStoreState());
+  const { ready, league, loaded, pick, outdatedTabImport } = parts;
+  return useMemo(() => currentLeagueFrom({ ready, league, loaded, pick, outdatedTabImport }), [ready, league, loaded, pick, outdatedTabImport]);
 }
+
+/** The saved leagues in the switcher's order and the one this tab shows; undefined while the store loads. */
+export function useSavedLeagues(): SavedLeaguesRead | undefined {
+  const { status, leagues, currentId } = useLeagueStoreState();
+  return useMemo(() => (status === "ready" ? { leagues, currentId } : undefined), [status, leagues, currentId]);
+}
+
+/**
+ * Where saved leagues are kept for this page (leagueStore.ts StorageStatus): IndexedDB; this page's memory (a banner
+ * should say they last only until the page closes: its `message`); or gone while the page was open (reload: its
+ * `message`). Undefined while the store loads.
+ */
+export function useLeagueStorage(): StorageStatus | undefined {
+  const { status, storage } = useLeagueStoreState();
+  return status === "ready" ? storage : undefined;
+}
+
+/** A saved league's stored model inputs (whatever league data they were built for): null when none, undefined while loading. */
+export function useSavedModel(id: string): StoredModel | null | undefined {
+  const { status, models } = useLeagueStoreState();
+  return status === "ready" ? models.get(id) : undefined;
+}
+
+/** The league's model inputs and "my team" for the league this tab shows (useCurrentLeague's "ok"; see the header). */
+export function useSavedLeagueInputs(current: Extract<CurrentLeagueRead, { kind: "ok" }>): LeagueInputs {
+  const id = current.league.id;
+  const storedModel = useSavedModel(id);
+  return useInputsCore(current.stored, storedModel, current.pick, (response) => {
+    void leagueStore()?.keepModelResponse(id, { response, savedAt: new Date().toISOString() });
+  });
+}
+
+// ---------------------------------------------------------------------------------------------
+// The inputs: shared by the pages
 
 export type InputsOutcome = { ok: true; response: ModelResponse } | { ok: false; message: string };
 
@@ -72,22 +128,6 @@ interface Fetched {
   inputs: ModelInputs;
 }
 
-/**
- * Keeps a model response in this tab (keepModelResponse: a newer snapshot replaces the stored
- * import, keeping the team pick, and the inputs are stored with it), then one change notification.
- * Whatever the browser refuses to store, the page still has in memory; it fetches again next time.
- */
-function keepResponse(stored: StoredImport, response: ModelResponse, requestTag: string): Fetched {
-  const res = withImportedTeam(response, stored);
-  const snap = res.import.snapshot;
-  const storage = browserSessionStorage();
-  if (storage) {
-    const kept = keepModelResponse(storage, { stored, response: res, savedAt: new Date().toISOString() });
-    if (kept.importSaved || kept.modelSaved) notifySessionChange();
-  }
-  return { tags: [requestTag, leagueTag(snap)], snapshot: snap, inputs: res.model };
-}
-
 export interface LeagueInputs {
   /** The league data and its model inputs, once there are any (the newest snapshot: a fetch may bring a newer one). */
   pair: { snapshot: LeagueSnapshot; inputs: ModelInputs } | null;
@@ -101,22 +141,23 @@ export interface LeagueInputs {
   refreshInputs(): Promise<InputsOutcome>;
 }
 
-/** The league's model inputs and "my team" for a stored import (see the header). */
-export function useLeagueInputs(stored: StoredImport): LeagueInputs {
+/**
+ * The inputs for a stored import, from this page view's latest answer, else `storedModel` (when it was built for this
+ * very snapshot and is still fresh), else the server; `keep` stores an answer (after withImportedTeam: the team the
+ * platform found at import carries over). `storedModel` is undefined while it hasn't been read (nothing is fetched yet).
+ */
+function useInputsCore(stored: StoredImport, storedModel: StoredModel | null | undefined, pick: MyTeamPick | undefined, keep: (response: ModelResponse) => void): LeagueInputs {
   const snapshot = stored.response.snapshot;
   const requestTag = leagueTag(snapshot);
-  const pickRaw = useSessionValue(myTeamKey(snapshot));
-  const pick = useMemo(() => parseMyTeamPick(pickRaw), [pickRaw]);
-  const modelRaw = useSessionValue(MODEL_STORAGE_KEY);
   // When the page opened: stored inputs built over MODEL_REUSE_MAX_AGE_MS before it are fetched again.
   const [openedAt] = useState(() => Date.now());
   // undefined while storage hasn't been read; null when nothing stored (and fresh) matches this snapshot.
   const storedInputs = useMemo(
-    () => (modelRaw === undefined ? undefined : (modelForSnapshot(parseStoredModel(modelRaw), snapshot, { now: openedAt }) ?? null)),
-    [modelRaw, snapshot, openedAt],
+    () => (storedModel === undefined ? undefined : (modelForSnapshot(storedModel ?? undefined, snapshot, { now: openedAt }) ?? null)),
+    [storedModel, snapshot, openedAt],
   );
 
-  // This page view's latest answer, else this tab's stored copy, else fetch.
+  // This page view's latest answer, else the stored copy, else fetch.
   const [fetched, setFetched] = useState<Fetched | null>(null);
   const [fetchError, setFetchError] = useState<{ tag: string; message: string } | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -129,13 +170,20 @@ export function useLeagueInputs(stored: StoredImport): LeagueInputs {
   const fetchFailed = fetchError !== null && fetchError.tag === fetchTag;
   const needFetch = storedInputs !== undefined && !pair && !fetchFailed;
 
+  /** Keeps an answer (in memory for this page view, and stored) and says which stored-import tags it answers. */
+  const remember = (response: ModelResponse): Fetched => {
+    const res = withImportedTeam(response, stored);
+    keep(res);
+    return { tags: [requestTag, leagueTag(res.import.snapshot)], snapshot: res.import.snapshot, inputs: res.model };
+  };
+
   const startFetch = useEffectEvent((tag: string) => {
     const joined = joinInputsRequest(stored);
     let live = true;
     joined.promise.then(
       (outcome) => {
         if (!live) return;
-        if (outcome.ok) setFetched(keepResponse(stored, outcome.response, requestTag));
+        if (outcome.ok) setFetched(remember(outcome.response));
         else setFetchError({ tag, message: outcome.message });
       },
       () => {
@@ -161,7 +209,7 @@ export function useLeagueInputs(stored: StoredImport): LeagueInputs {
     retry: () => setAttempt((a) => a + 1),
     async refreshInputs() {
       const outcome = await requestInputs(stored, true);
-      if (outcome.ok) setFetched(keepResponse(stored, outcome.response, requestTag));
+      if (outcome.ok) setFetched(remember(outcome.response));
       return outcome;
     },
   };

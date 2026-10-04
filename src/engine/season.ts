@@ -1,8 +1,9 @@
 /**
  * The season simulation wired to the League model (CLAUDE.md §8; §14 "League": playoff odds next to the
  * standings; §17 Phase 3). buildSimSetup turns a LeagueSnapshot and its LeagueModel into sim.ts's
- * SimSetup; seasonOdds runs it and maps the result to LeagueModel.odds (SeasonOdds). Pure and
- * deterministic: no I/O, no clock; the only randomness is sim.ts's common-random-numbers matrix, drawn
+ * SimSetup; seasonOdds runs it and maps the result to a SeasonOdds: LeagueModel.odds on pickupSeasonModel(model)
+ * (every team after its free-agent pickups), LeagueModel.oddsAsRostersStand on the model itself ("Drawn weeks"
+ * below). Pure and deterministic: no I/O, no clock; the only randomness is sim.ts's common-random-numbers matrix, drawn
  * from config.simulation.seed (or the caller's), so two builds from the same snapshot give identical odds.
  *
  * The setup (buildSimSetup)
@@ -33,13 +34,18 @@
  * - Drawn weeks: every model week of a remaining game (a bye needs none), every median week, every
  *   remaining regular week still to score in a points-only league (points for accrue weekly; a week
  *   whose matchups are all decided is in the platform's points for already) and every model week of a
- *   playoff round still to play. Each team's score in a drawn week is TeamModel.score at that model
- *   week: the scenario mean and the law-of-total-variance SD (teamValue.ts), and for a week in progress
- *   the whole week as if none of its games had started (lead decision D6: live scores aren't read, so its
- *   games are played from projections; league.ts preKickoffTable). ⚠️ That rebuild uses today's rosters
- *   and injury tags: no record of either from before kickoff is kept, so a player tagged after the game
- *   he already played counts as missing it, and a roster move since kickoff moves his week. The note says
- *   so (weekUnderWayNote).
+ *   playoff round still to play. Each team's score in a drawn week is the SeasonModel's at that model
+ *   week: for LeagueModel.odds, the headline (Phase 4c, "one baseline everywhere"), TeamModel.scoreWithPickups,
+ *   every team after its free-agent pickups (pickupSeasonModel; league.ts step 8a), the trade search's baseline,
+ *   whose trades swap in their two teams' rows (evaluate.ts); for LeagueModel.oddsAsRostersStand, TeamModel.score,
+ *   every team as it stands. Either is the scenario mean and the law-of-total-variance SD (teamValue.ts), and for a week
+ *   in progress the whole week as if none of its games had started (lead decision D6: live scores aren't read, so its
+ *   games are played from projections; league.ts preKickoffTable; the score with pickups keeps the team's own week: ⚠️ the
+ *   model plays a week under way with today's rosters). ⚠️ That rebuild uses today's rosters and injury tags: no record of either from before
+ *   kickoff is kept, so a player tagged after the game he already played counts as missing it, and a roster move since
+ *   kickoff moves his week. The note says so (weekUnderWayNote). ⚠️ The odds with pickups aren't the same just before
+ *   and just after the week's first kickoff (the odds as rosters stand are): before it a team's pickups can still play
+ *   the week, after it they can't, and its free-agent optimizer stops counting that week (league.ts "Game days").
  * - The regular season is over once every remaining regular-season week has matchups and every
  *   regular-season matchup is decided: the records are final (the current week can still be the last
  *   regular week, in the days between its last game and the platform's rollover).
@@ -109,6 +115,22 @@ export interface SeasonConfig {
 export type SeasonModel = Pick<LeagueModel, "weeks" | "regularWeeks" | "playoffWeeks" | "inProgressWeek"> & {
   readonly teams: readonly Pick<TeamModel, "id" | "score">[];
 };
+
+/**
+ * The season LeagueModel.odds simulates (Phase 4c, "one baseline everywhere"; the file header, "Drawn weeks"): the same
+ * weeks with every team's TeamModel.scoreWithPickups as its score (every team after its free-agent pickups: league.ts
+ * step 8a), the trade search's baseline (evaluate.ts builds it with this too). A team without one (a model built before
+ * Phase 4c) keeps its score as it stands.
+ */
+export function pickupSeasonModel(model: Pick<LeagueModel, "weeks" | "regularWeeks" | "playoffWeeks" | "inProgressWeek"> & { readonly teams: readonly Pick<TeamModel, "id" | "score" | "scoreWithPickups">[] }): SeasonModel {
+  return {
+    weeks: model.weeks,
+    regularWeeks: model.regularWeeks,
+    playoffWeeks: model.playoffWeeks,
+    inProgressWeek: model.inProgressWeek,
+    teams: model.teams.map((t) => ({ id: t.id, score: t.scoreWithPickups ?? t.score })),
+  };
+}
 
 export interface SimSetupResult {
   setup: SimSetup;
@@ -653,11 +675,12 @@ function eliminatedTeams(built: SimSetupResult): boolean[] {
 }
 
 /**
- * LeagueModel.odds (§8; the file header): the setup from buildSimSetup, `sims` seasons (default
- * config.simulation.finalSims) on the common-random-numbers matrix of `seed` (default
- * config.simulation.seed), or on `normals` when given (a trade's "before" and "after" share it). Null
- * when nothing is left to simulate, when the rest of the regular season has no schedule
- * (oddsSkippedWarning gives the warning), or when `sims` is below 1.
+ * A season's odds (§8; the file header): LeagueModel.oddsAsRostersStand on the League model itself, LeagueModel.odds
+ * on pickupSeasonModel(model) (league.ts step 8b), the trade context's baseline on the same (evaluate.ts). The setup
+ * from buildSimSetup, `sims` seasons (default config.simulation.finalSims) on the common-random-numbers matrix of
+ * `seed` (default config.simulation.seed), or on `normals` when given (both League model odds share it, and so do a
+ * trade's "before" and "after"). Null when nothing is left to simulate, when the rest of the regular season has no
+ * schedule (oddsSkippedWarning gives the warning), or when `sims` is below 1.
  */
 export function seasonOdds(snapshot: LeagueSnapshot, model: SeasonModel, opts: { sims?: number; seed?: number; normals?: SimNormals } = {}, cfg: SeasonConfig = config): SeasonOdds | null {
   const sims = Math.floor(opts.sims ?? cfg.simulation.finalSims);

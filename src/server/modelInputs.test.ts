@@ -31,7 +31,7 @@ import {
 import { FIXTURE, fakeHttp, fantasyCalcWith, fixtureFantasyCalcResponse, type FakeRoute } from "@/data/testSupport";
 import { config } from "@/engine/config";
 import type { FantasyCalcFormat } from "@/engine/inputs";
-import { fantasyCalcFormatLabel } from "@/engine/market";
+import { fantasyCalcFallbackText, fantasyCalcFormatLabel, marketValues, noteDay } from "@/engine/market";
 import type { LeagueSettings, LeagueSnapshot, PlayerInfo, Pos, Scoring, StatLine, Team } from "@/engine/model";
 import { actualPoints, expectedPoints } from "@/engine/scoring";
 import { isModelResponse } from "@/lib/api";
@@ -44,6 +44,7 @@ import {
   buildModelInputs,
   collapseWeekWarnings,
   fantasyCalcNotes,
+  fantasyCalcUsed,
   marketFormats,
   MODEL_SOURCES,
   modelWeekPlan,
@@ -424,7 +425,10 @@ describe("assembleModelInputs: FantasyCalc (§9, §2.9)", () => {
       "Trade values: 16 teams → FantasyCalc's 14-team values.",
       expect.stringMatching(/^Trade values: TE premium \+0\.5 per reception → FantasyCalc's TE\+ values/),
       "Trade values: keeper league → FantasyCalc's redraft values for how managers see a trade this season.",
+      // Phase 4c: the redraft list is a saved copy (FantasyCalc didn't answer), 7 hours old: read as its own, and dated.
+      "Trade values from Sep 30: FantasyCalc didn't answer.",
     ]);
+    expect(out.market?.fallback).toEqual({ kind: "saved", listDate: "2026-09-30T05:00:00.000Z" });
     expect(out.sources.find((s) => s.source === MODEL_SOURCES.fantasyCalc)).toEqual({ source: "FantasyCalc values", fetchedAt: "2026-09-30T05:00:00.000Z", stale: true });
   });
 
@@ -444,17 +448,21 @@ describe("assembleModelInputs: FantasyCalc (§9, §2.9)", () => {
     expect(out.market?.values).not.toHaveProperty("9221");
     expect(out.market?.knownIds).toEqual(["4046", "9221"]);
     // The notes are the dynasty list's alone: the season list adds none (review of track A: a note in dynasty leagues
-    // only, where the blend reads a list in every league type; the League page's "Projected points" names it).
-    expect(out.notes).toEqual(fantasyCalcNotes(f.values));
+    // only, where the blend reads a list in every league type; the League page's "Projected points" names it). Phase 4c:
+    // the season list is a saved copy (FantasyCalc didn't answer), so its date follows, said of the blend: the trade values
+    // (the dynasty list) are FantasyCalc's answer, so there is no fallback (review of track MK).
+    expect(out.notes).toEqual([...fantasyCalcNotes(f.values), "The trade-market blend uses FantasyCalc's redraft values from Sep 30: FantasyCalc didn't answer."]);
+    expect(out.market).not.toHaveProperty("fallback");
     expect(out.notes[0]).toBe(`Trade values: FantasyCalc ${fantasyCalcFormatLabel(f.values)}.`);
     expect(fantasyCalcFormatLabel(seasonFormat)).toBe("10 teams · half-PPR · 1 QB · redraft · TE+");
     // The season list's own mode note ("dynasty league → … redraft values") isn't a trade-values note either.
     expect(out.notes.filter((n) => n.includes("dynasty league →"))).toEqual([]);
     expect(out.sources.find((s) => s.source === MODEL_SOURCES.fantasyCalc)).toEqual({ source: "FantasyCalc values", fetchedAt: "2026-09-30T04:00:00.000Z", stale: true });
-    // Without the season list: no seasonValues, the same notes (the League model says the blend is off).
+    // Without the season list: no seasonValues, the format notes alone (the League model says the blend is off).
     const without = assembleModelInputs(snapshot({}, dynasty), sources({ fantasyCalc: { values: fantasyCalc.values, players: null } }), NOW);
     expect(without.market).not.toHaveProperty("seasonValues");
-    expect(without.notes).toEqual(out.notes);
+    expect(without.market).not.toHaveProperty("fallback");
+    expect(without.notes).toEqual(fantasyCalcNotes(f.values));
   });
 
   it("the format in words for a redraft league: the list's label, then each substitution (the Import Report hides the ones it shows itself)", () => {
@@ -470,6 +478,104 @@ describe("assembleModelInputs: FantasyCalc (§9, §2.9)", () => {
     expect(out.notes).toEqual([]);
     expect(out.sources.map((s) => s.source)).not.toContain(MODEL_SOURCES.fantasyCalc);
     expect(out.warnings.filter((w) => w.code !== "NO_SLEEPER_ID")).toEqual(warnings);
+  });
+});
+
+describe("assembleModelInputs: FantasyCalc's fallbacks (Phase 4c; planner reply to Checkpoint 4b, change 12)", () => {
+  const format = marketFormats(SETTINGS).values;
+  const DAY_MS = 24 * HOUR;
+  const rows = () => [fcRow("Quill Arbuckle", "QB", 5000, { sleeperId: "4046" }), fcRow("Rory Bellweather", "RB", 9000, { sleeperId: "9221" })];
+  /** A list FantasyCalc served an hour ago (null), or a saved copy that stood in, served `daysAgo` days before NOW. */
+  const list = (f: FantasyCalcFormat, daysAgo: number | null) => valuesLoad(f, rows(), daysAgo === null ? { fetchedAt: NOW.getTime() - HOUR } : { stale: true, fromCache: true, fetchedAt: NOW.getTime() - daysAgo * DAY_MS });
+  const iso = (daysAgo: number) => new Date(NOW.getTime() - daysAgo * DAY_MS).toISOString();
+
+  it("FantasyCalc answered: its values, no fallback, no date note", () => {
+    const out = assembleModelInputs(snapshot(), sources({ fantasyCalc: { values: list(format, null), players: null } }), NOW);
+    expect(out.market).not.toHaveProperty("fallback");
+    expect(out.market?.values).toEqual({ "4046": 5000, "9221": 9000 });
+    expect(out.notes).toEqual(fantasyCalcNotes(format));
+    expect(out.sources.find((x) => x.source === MODEL_SOURCES.fantasyCalc)).not.toHaveProperty("stale");
+    expect(out.warnings.map((w) => w.code)).not.toContain("FANTASYCALC_VALUES_ESTIMATED");
+  });
+
+  it("FantasyCalc down with a 3-day-old copy: read as FantasyCalc's own, dated (fallback saved), with a stale stamp", () => {
+    const out = assembleModelInputs(snapshot(), sources({ fantasyCalc: { values: list(format, 3), players: null } }), NOW);
+    expect(out.market?.fallback).toEqual({ kind: "saved", listDate: iso(3) });
+    expect(out.market?.values).toEqual({ "4046": 5000, "9221": 9000 });
+    expect(out.notes).toEqual([...fantasyCalcNotes(format), "Trade values from Sep 27: FantasyCalc didn't answer."]);
+    expect(out.sources.find((x) => x.source === MODEL_SOURCES.fantasyCalc)).toEqual({ source: "FantasyCalc values", fetchedAt: iso(3), stale: true });
+    expect(out.warnings.map((w) => w.code)).not.toContain("FANTASYCALC_VALUES_ESTIMATED");
+    // The engine reads the saved list as FantasyCalc's own.
+    expect(marketValues([{ id: "4046", pos: "QB" }], { "4046": 200 }, out.market)["4046"]).toEqual({ value: 5000, source: "fantasycalc" });
+  });
+
+  it("a 20-day-old copy: it only calibrates the model's own curve (fallback curve), and the banner is a warning", () => {
+    const out = assembleModelInputs(snapshot(), sources({ fantasyCalc: { values: list(format, 20), players: null } }), NOW);
+    const fallback = { kind: "curve" as const, listDate: iso(20) };
+    expect(out.market?.fallback).toEqual(fallback);
+    // The old list is carried for the curve's calibration (MarketInputs.fallback says so).
+    expect(out.market?.values).toEqual({ "4046": 5000, "9221": 9000 });
+    expect(out.warnings).toContainEqual({ code: "FANTASYCALC_VALUES_ESTIMATED", message: fantasyCalcFallbackText(fallback), platformPath: "values/current" });
+    expect(fantasyCalcFallbackText(fallback)).toMatch(/^Trade values are our own estimates, not FantasyCalc's: .* from Sep 10, is more than 7 days old\./);
+    expect(out.notes).toEqual(fantasyCalcNotes(format)); // no "values from" note: the banner says it
+    expect(out.sources.find((x) => x.source === MODEL_SOURCES.fantasyCalc)).toEqual({ source: "FantasyCalc values", fetchedAt: iso(20), stale: true });
+    // The engine values nobody by the old list directly: a curve on today's points (too few players here for one: the floor).
+    const values = marketValues([{ id: "4046", pos: "QB" }, { id: "9221", pos: "RB" }], { "4046": 200, "9221": 150 }, out.market);
+    expect(Object.values(values).map((v) => v.source)).toEqual(["floor", "floor"]);
+  });
+
+  it("a copy past 90 days (the cache drops it, so only a hand-built load has one): no market values", () => {
+    const out = assembleModelInputs(snapshot(), sources({ fantasyCalc: { values: list(format, 100), players: null } }), NOW);
+    expect(out.market).toBeNull();
+    expect(out.notes).toEqual([]);
+    expect(out.warnings).toContainEqual({ code: "FANTASYCALC_UNAVAILABLE", message: "FantasyCalc's values couldn't be loaded (its newest saved list is more than 90 days old), so players have no market values yet.", platformPath: "values/current" });
+  });
+
+  it("a keeper league's redraft list or a dynasty league's season list older than 7 days next to a readable own list is left out", () => {
+    const keeper: LeagueSettings = { ...SETTINGS, leagueType: "keeper" };
+    const k = marketFormats(keeper);
+    const kept = assembleModelInputs(snapshot({}, keeper), sources({ fantasyCalc: { values: list(k.values, null), redraft: list(k.redraft as FantasyCalcFormat, 20), players: null } }), NOW);
+    expect(kept.market).not.toHaveProperty("redraftValues");
+    expect(kept.market).not.toHaveProperty("fallback");
+    const dynasty: LeagueSettings = { ...SETTINGS, leagueType: "dynasty" };
+    const d = marketFormats(dynasty);
+    const dyn = assembleModelInputs(snapshot({}, dynasty), sources({ fantasyCalc: { values: list(d.values, 2), season: list(d.season as FantasyCalcFormat, 20), players: null } }), NOW);
+    expect(dyn.market).not.toHaveProperty("seasonValues");
+    expect(dyn.market?.fallback).toEqual({ kind: "saved", listDate: iso(2) });
+  });
+
+  it("a dynasty league's saved season list is the blend's alone: its own note, no trade-values fallback; said once when the trade values' note names its day (review of track MK)", () => {
+    const dynasty: LeagueSettings = { ...SETTINGS, leagueType: "dynasty" };
+    const d = marketFormats(dynasty);
+    const season = d.season as FantasyCalcFormat;
+    const build = (ownDays: number | null, seasonDays: number | null) => assembleModelInputs(snapshot({}, dynasty), sources({ fantasyCalc: { values: list(d.values, ownDays), season: list(season, seasonDays), players: null } }), NOW);
+    // The trade values are FantasyCalc's answer: no fallback, and the note names the blend.
+    const seasonOnly = build(null, 3);
+    expect(seasonOnly.market).not.toHaveProperty("fallback");
+    expect(seasonOnly.market?.seasonValues).toEqual({ "4046": 5000, "9221": 9000 });
+    expect(seasonOnly.notes).toEqual([...fantasyCalcNotes(d.values), "The trade-market blend uses FantasyCalc's redraft values from Sep 27: FantasyCalc didn't answer."]);
+    expect(fantasyCalcUsed({ values: list(d.values, null), season: list(season, 3) }, NOW)).toMatchObject({ fallback: null, seasonListDate: iso(3) });
+    // Both saved, the same day: the trade values' note says it.
+    const sameDay = build(3, 3);
+    expect(sameDay.market?.fallback).toEqual({ kind: "saved", listDate: iso(3) });
+    expect(sameDay.notes).toEqual([...fantasyCalcNotes(d.values), "Trade values from Sep 27: FantasyCalc didn't answer."]);
+    // Different days: both, each with its own.
+    const twoDays = build(2, 5);
+    expect(twoDays.market?.fallback).toEqual({ kind: "saved", listDate: iso(2) });
+    expect(twoDays.notes).toEqual([...fantasyCalcNotes(d.values), "Trade values from Sep 28: FantasyCalc didn't answer.", "The trade-market blend uses FantasyCalc's redraft values from Sep 25: FantasyCalc didn't answer."]);
+    // A fresh season list sets nothing.
+    expect(fantasyCalcUsed({ values: list(d.values, 2), season: list(season, null) }, NOW)).not.toHaveProperty("seasonListDate");
+  });
+
+  it("a keeper league's two old lists both calibrate (the dynasty list as values, the redraft one for perception), dated by the older", () => {
+    const keeper: LeagueSettings = { ...SETTINGS, leagueType: "keeper" };
+    const k = marketFormats(keeper);
+    const out = assembleModelInputs(snapshot({}, keeper), sources({ fantasyCalc: { values: list(k.values, 20), redraft: list(k.redraft as FantasyCalcFormat, 25), players: null } }), NOW);
+    expect(out.market?.fallback).toEqual({ kind: "curve", listDate: iso(25) });
+    expect(out.market?.redraftValues).toEqual({ "4046": 5000, "9221": 9000 });
+    // A redraft copy past 90 days is dropped even here.
+    const dynastyList = list(k.values, 20);
+    expect(fantasyCalcUsed({ values: dynastyList, redraft: list(k.redraft as FantasyCalcFormat, 100) }, NOW)).toEqual({ values: dynastyList, fallback: { kind: "curve", listDate: iso(20) } });
   });
 });
 
@@ -991,8 +1097,10 @@ describe("buildModelInputs (loading: §0.9 politeness, §2.10 caching)", () => {
       const fake = fakeHttp(routes);
       const out = await buildModelInputs({ snapshot: s, http: fake.http, resolver: { defenseId }, now: NOW });
       const fcCalls = fake.calls.filter((c) => c.url.includes("fantasycalc"));
-      expect(fcCalls.map((c) => c.url)).toEqual([fantasyCalcValuesUrl(formats.values), fantasyCalcValuesUrl(redraftFormat), FANTASYCALC_PLAYERS_URL]);
-      expect(fcCalls[1]?.opts?.maxRetries).toBe(0); // FantasyCalc didn't answer the first list: the second gets no retry
+      // FantasyCalc didn't answer the first list: the outage memory (fantasyCalcGate) holds it off, so the second is read
+      // from the server cache only (cacheOnly, no retry: the fake serves its route as that copy), and /players isn't asked.
+      expect(fcCalls.map((c) => c.url)).toEqual([fantasyCalcValuesUrl(formats.values), fantasyCalcValuesUrl(redraftFormat)]);
+      expect(fcCalls[1]?.opts).toMatchObject({ maxRetries: 0, cacheOnly: true });
       expect(out.market?.format).toEqual(redraftFormat);
       expect(out.market?.format.isDynasty).toBe(false);
       expect(out.market?.values["9221"]).toBeGreaterThan(0);
@@ -1101,25 +1209,39 @@ describe("buildModelInputs (loading: §0.9 politeness, §2.10 caching)", () => {
     expect(fake.calls.find((c) => c.url === fantasyCalcValuesUrl(seasonFormat))?.opts?.maxRetries).toBe(1);
   });
 
-  it("right after a saved copy stood in for the first list (FantasyCalc failed to answer it), a later list is asked once, without a retry: dynasty and keeper leagues (review of track A)", async () => {
-    const dynasty = loadSnapshot({}, { leagueType: "dynasty" });
-    const formats = marketFormats(dynasty.settings);
-    const routes = fullRoutes(dynasty);
-    routes[fantasyCalcValuesUrl(formats.values)] = { ...(routes[fantasyCalcValuesUrl(formats.values)] as FakeRoute), stale: true };
-    const fake = fakeHttp(routes);
-    const out = await buildModelInputs({ snapshot: dynasty, http: fake.http, resolver: { defenseId }, now: NOW });
-    expect(fake.calls.find((c) => c.url === fantasyCalcValuesUrl(formats.season as FantasyCalcFormat))?.opts?.maxRetries).toBe(0);
-    expect(out.market?.seasonValues?.["9221"]).toBeGreaterThan(0); // a fresh or saved copy still serves
-    expect(out.sources.find((x) => x.source === MODEL_SOURCES.fantasyCalc)?.stale).toBe(true);
+  it("right after a saved copy stood in for the first list, a later list is read from the cache only when FantasyCalc didn't answer (the outage memory), else asked once, without a retry: dynasty and keeper leagues (review of track A; review POL-2)", async () => {
+    // How the first list's live request failed: FantasyCalc didn't answer (a 503: the fake's default), or it answered with
+    // a body the checks turned down (a 200).
+    const unanswered = { status: 503, isHtml: false };
+    const rejected = { status: 200, isHtml: false };
+    for (const [liveFailure, laterOpts] of [
+      [unanswered, { maxRetries: 0, cacheOnly: true }],
+      [rejected, { maxRetries: 0 }],
+    ] as const) {
+      const dynasty = loadSnapshot({}, { leagueType: "dynasty" });
+      const formats = marketFormats(dynasty.settings);
+      const routes = fullRoutes(dynasty);
+      routes[fantasyCalcValuesUrl(formats.values)] = { ...(routes[fantasyCalcValuesUrl(formats.values)] as FakeRoute), stale: true, liveFailure };
+      const fake = fakeHttp(routes);
+      const out = await buildModelInputs({ snapshot: dynasty, http: fake.http, resolver: { defenseId }, now: NOW });
+      const seasonCall = fake.calls.find((c) => c.url === fantasyCalcValuesUrl(formats.season as FantasyCalcFormat));
+      expect(seasonCall?.opts, `live ${liveFailure.status}`).toMatchObject(laterOpts);
+      // Read from the cache only exactly when FantasyCalc didn't answer.
+      expect(seasonCall?.opts?.cacheOnly === true, `live ${liveFailure.status}`).toBe(liveFailure === unanswered);
+      expect(out.market?.seasonValues?.["9221"]).toBeGreaterThan(0); // a fresh or saved copy still serves
+      expect(out.sources.find((x) => x.source === MODEL_SOURCES.fantasyCalc)?.stale).toBe(true);
 
-    const keeper = loadSnapshot({}, { leagueType: "keeper" });
-    const keeperFormats = marketFormats(keeper.settings);
-    const keeperRoutes = fullRoutes(keeper);
-    keeperRoutes[fantasyCalcValuesUrl(keeperFormats.values)] = { ...(keeperRoutes[fantasyCalcValuesUrl(keeperFormats.values)] as FakeRoute), stale: true };
-    const keeperFake = fakeHttp(keeperRoutes);
-    const keeperOut = await buildModelInputs({ snapshot: keeper, http: keeperFake.http, resolver: { defenseId }, now: NOW });
-    expect(keeperFake.calls.find((c) => c.url === fantasyCalcValuesUrl(keeperFormats.redraft as FantasyCalcFormat))?.opts?.maxRetries).toBe(0);
-    expect(keeperOut.market?.redraftValues?.["9221"]).toBeGreaterThan(0);
+      const keeper = loadSnapshot({}, { leagueType: "keeper" });
+      const keeperFormats = marketFormats(keeper.settings);
+      const keeperRoutes = fullRoutes(keeper);
+      keeperRoutes[fantasyCalcValuesUrl(keeperFormats.values)] = { ...(keeperRoutes[fantasyCalcValuesUrl(keeperFormats.values)] as FakeRoute), stale: true, liveFailure };
+      const keeperFake = fakeHttp(keeperRoutes);
+      const keeperOut = await buildModelInputs({ snapshot: keeper, http: keeperFake.http, resolver: { defenseId }, now: NOW });
+      const redraftCall = keeperFake.calls.find((c) => c.url === fantasyCalcValuesUrl(keeperFormats.redraft as FantasyCalcFormat));
+      expect(redraftCall?.opts, `live ${liveFailure.status}`).toMatchObject(laterOpts);
+      expect(redraftCall?.opts?.cacheOnly === true, `live ${liveFailure.status}`).toBe(liveFailure === unanswered);
+      expect(keeperOut.market?.redraftValues?.["9221"]).toBeGreaterThan(0);
+    }
   });
 
   it("dynasty leagues: this season's list failing only leaves the blend off (the League model says so); their own list failing isn't followed by it", async () => {
@@ -1140,6 +1262,199 @@ describe("buildModelInputs (loading: §0.9 politeness, §2.10 caching)", () => {
     expect(fake.calls.map((c) => c.url).filter((u) => u.includes("fantasycalc"))).toEqual([fantasyCalcValuesUrl(formats.values)]);
     expect(none.market).toBeNull();
     expect(none.warnings.map((w) => w.code)).toEqual(["FANTASYCALC_UNAVAILABLE"]);
+  });
+
+  describe("FantasyCalc's fallbacks through the loader (Phase 4c; planner reply to Checkpoint 4b, change 12)", () => {
+    const DAY_MS = 24 * HOUR;
+    /** The routes with the league's own list (and any `others`) answered by a saved copy FantasyCalc served `daysAgo` days ago. */
+    const savedRoutes = (s: LeagueSnapshot, daysAgo: number, which: (formats: ReturnType<typeof marketFormats>) => FantasyCalcFormat[] = (f) => [f.values]) => {
+      const routes = fullRoutes(s);
+      for (const f of which(marketFormats(s.settings))) routes[fantasyCalcValuesUrl(f)] = { ...(routes[fantasyCalcValuesUrl(f)] as FakeRoute), stale: true, fetchedAt: NOW.getTime() - daysAgo * DAY_MS };
+      return routes;
+    };
+
+    it("a 3-day-old copy stands in: the values, a dated note, a stale stamp; a dynasty league still reads its season list (from the cache, while FantasyCalc is held off)", async () => {
+      const s = loadSnapshot({}, { leagueType: "dynasty" });
+      const formats = marketFormats(s.settings);
+      const fake = fakeHttp(savedRoutes(s, 3));
+      const out = await buildModelInputs({ snapshot: s, http: fake.http, resolver: { defenseId }, now: NOW });
+      expect(out.market?.values["9221"]).toBeGreaterThan(0);
+      expect(out.market?.seasonValues?.["9221"]).toBeGreaterThan(0);
+      expect(out.market?.fallback).toEqual({ kind: "saved", listDate: new Date(NOW.getTime() - 3 * DAY_MS).toISOString() });
+      expect(out.notes).toContain("Trade values from Sep 27: FantasyCalc didn't answer.");
+      expect(out.warnings).toEqual([]);
+      expect(out.sources.find((x) => x.source === MODEL_SOURCES.fantasyCalc)?.stale).toBe(true);
+      // FantasyCalc didn't answer the first list: the outage memory holds it off, so the season list is read from the server
+      // cache only (cacheOnly, no retry: a fresh or saved copy still serves; the fake serves its route as that copy), and
+      // /players isn't asked while FantasyCalc is held off, though that copy is fresh.
+      expect(fake.calls.find((c) => c.url === fantasyCalcValuesUrl(formats.season as FantasyCalcFormat))?.opts).toMatchObject({ maxRetries: 0, cacheOnly: true });
+      expect(fake.calls.map((c) => c.url).filter((u) => u.includes("fantasycalc"))).toEqual([fantasyCalcValuesUrl(formats.values), fantasyCalcValuesUrl(formats.season as FantasyCalcFormat)]);
+    });
+
+    it("a 20-day-old copy: the curve fallback and its banner; a dynasty league's season list isn't asked (the curve blends nothing), nor /players (review of track MK)", async () => {
+      const s = loadSnapshot({}, { leagueType: "dynasty" });
+      const formats = marketFormats(s.settings);
+      const fake = fakeHttp(savedRoutes(s, 20));
+      const out = await buildModelInputs({ snapshot: s, http: fake.http, resolver: { defenseId }, now: NOW });
+      // FantasyCalc served no list fresh: /players, which widens knownIds alone (only the reports read it), isn't asked.
+      expect(fake.calls.map((c) => c.url).filter((u) => u.includes("fantasycalc"))).toEqual([fantasyCalcValuesUrl(formats.values)]);
+      const fallback = { kind: "curve" as const, listDate: new Date(NOW.getTime() - 20 * DAY_MS).toISOString() };
+      expect(out.market?.fallback).toEqual(fallback);
+      expect(out.market).not.toHaveProperty("seasonValues");
+      expect([...(out.market?.knownIds ?? [])].sort()).toEqual(Object.keys(out.market?.values ?? {}).sort());
+      expect(out.warnings).toEqual([{ code: "FANTASYCALC_VALUES_ESTIMATED", message: fantasyCalcFallbackText(fallback), platformPath: "values/current" }]);
+    });
+
+    it("FantasyCalc answered no list (a saved copy stood in for each): /players isn't asked either, so no warning about it (review of track MK)", async () => {
+      const s = loadSnapshot();
+      const fake = fakeHttp(savedRoutes(s, 3));
+      const out = await buildModelInputs({ snapshot: s, http: fake.http, resolver: { defenseId }, now: NOW });
+      expect(fake.calls.map((c) => c.url).filter((u) => u.includes("fantasycalc"))).toEqual([fantasyCalcValuesUrl(marketFormats(s.settings).values)]);
+      expect(out.market?.fallback?.kind).toBe("saved");
+      expect(out.market?.values["9221"]).toBeGreaterThan(0);
+      expect(out.warnings).toEqual([]);
+    });
+
+    it("a keeper league's old dynasty copy with its redraft list failed, or too old even for the curve: the curve fallback, and a warning that perception is fitted to the dynasty list (review of track MK)", async () => {
+      const s = loadSnapshot({}, { leagueType: "keeper" });
+      const formats = marketFormats(s.settings);
+      const redraftUrl = fantasyCalcValuesUrl(formats.redraft as FantasyCalcFormat);
+      const failed = savedRoutes(s, 20);
+      failed[redraftUrl] = { status: 503, json: null };
+      const out = await buildModelInputs({ snapshot: s, http: fakeHttp(failed).http, resolver: { defenseId }, now: NOW });
+      const fallback = { kind: "curve" as const, listDate: new Date(NOW.getTime() - 20 * DAY_MS).toISOString() };
+      expect(out.market?.fallback).toEqual(fallback);
+      expect(out.market?.format.isDynasty).toBe(true);
+      expect(out.market).not.toHaveProperty("redraftValues");
+      expect(out.warnings).toEqual([
+        // FantasyCalc didn't answer the dynasty list (its saved copy stood in): the redraft list isn't asked (the outage
+        // memory), and the cache holds no copy of it (the fake's 503).
+        { code: "FANTASYCALC_REDRAFT_UNAVAILABLE", message: "FantasyCalc's redraft values couldn't be loaded (FantasyCalc redraft values: not asked while FantasyCalc isn't answering (HTTP 503)), so our estimates of how managers see a trade are fitted to its dynasty values.", platformPath: "values/current" },
+        { code: "FANTASYCALC_VALUES_ESTIMATED", message: fantasyCalcFallbackText(fallback), platformPath: "values/current" },
+      ]);
+      // A redraft copy past 90 days (only a stale clock serves one: the cache deletes it) says why.
+      const expired = savedRoutes(s, 20);
+      expired[redraftUrl] = { ...(expired[redraftUrl] as FakeRoute), stale: true, fetchedAt: NOW.getTime() - 100 * DAY_MS };
+      const old = await buildModelInputs({ snapshot: s, http: fakeHttp(expired).http, resolver: { defenseId }, now: NOW });
+      expect(old.market).not.toHaveProperty("redraftValues");
+      expect(old.warnings[0]).toEqual({
+        code: "FANTASYCALC_REDRAFT_UNAVAILABLE",
+        message: "FantasyCalc's redraft values couldn't be loaded (FantasyCalc didn't answer, and its newest saved list, from Jun 22, is more than 90 days old), so our estimates of how managers see a trade are fitted to its dynasty values.",
+        platformPath: "values/current",
+      });
+    });
+
+    it("FantasyCalc down and no copy: no market values, as before Phase 4c", async () => {
+      const s = loadSnapshot();
+      const routes = fullRoutes(s);
+      routes[fantasyCalcValuesUrl(marketFormats(s.settings).values)] = { status: 503, json: null };
+      const out = await buildModelInputs({ snapshot: s, http: fakeHttp(routes).http, resolver: { defenseId }, now: NOW });
+      expect(out.market).toBeNull();
+      expect(out.warnings.map((w) => w.code)).toEqual(["FANTASYCALC_UNAVAILABLE"]);
+    });
+
+    it("through the real client and cache: 20 days into a FantasyCalc outage a build asks for its list twice (one retry) and never for /players, and the 20-day-old copy calibrates the curve (review of track MK)", async () => {
+      const start = new Date(NOW.getTime() - 20 * DAY_MS);
+      vi.useFakeTimers({ now: start });
+      try {
+        const s = loadSnapshot();
+        const bodies = fullRoutes(s);
+        let fantasyCalcDown = false;
+        const attempts: string[] = [];
+        const fetchImpl = (async (url: string | URL) => {
+          const u = String(url);
+          attempts.push(u);
+          if (fantasyCalcDown && u.startsWith("https://api.fantasycalc.com/")) return new Response("", { status: 503 });
+          const route = bodies[u];
+          const body = typeof route === "function" ? undefined : route?.json;
+          return new Response(JSON.stringify(body ?? null), { status: route ? 200 : 404, headers: { "content-type": "application/json" } });
+        }) as typeof fetch;
+        const http = createHttpClient({ fetchImpl, cache: new MemoryCache() });
+        const before = await settle(buildModelInputs({ snapshot: s, http, resolver: { defenseId }, now: start }));
+        expect(before.market).not.toHaveProperty("fallback");
+        expect(attempts).toContain(FANTASYCALC_PLAYERS_URL); // FantasyCalc answered: /players too (its copy is kept 7 days)
+        // Twenty days later FantasyCalc is down: the list's copy (kept 90 days) stands in, /players' copy is long gone.
+        vi.setSystemTime(NOW);
+        fantasyCalcDown = true;
+        attempts.length = 0;
+        const out = await settle(buildModelInputs({ snapshot: s, http, resolver: { defenseId }, now: NOW }));
+        const valuesUrl = fantasyCalcValuesUrl(marketFormats(s.settings).values);
+        expect(attempts.filter((u) => u.startsWith("https://api.fantasycalc.com/"))).toEqual([valuesUrl, valuesUrl]);
+        expect(out.market?.fallback?.kind).toBe("curve");
+        expect(noteDay(out.market?.fallback?.listDate ?? "")).toBe("Sep 10");
+        expect(out.warnings.map((w) => w.code)).toEqual(["FANTASYCALC_VALUES_ESTIMATED"]);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("through the real client and cache: a build a minute after one found FantasyCalc down asks it nothing (the outage memory, Phase 4c's polish) and reads the same saved copy; one past the hold asks again", async () => {
+      const start = new Date(NOW.getTime() - 3 * DAY_MS);
+      vi.useFakeTimers({ now: start });
+      try {
+        const s = loadSnapshot();
+        const bodies = fullRoutes(s);
+        let fantasyCalcDown = false;
+        const attempts: string[] = [];
+        const fetchImpl = (async (url: string | URL) => {
+          const u = String(url);
+          attempts.push(u);
+          if (fantasyCalcDown && u.startsWith("https://api.fantasycalc.com/")) return new Response("", { status: 503 });
+          const route = bodies[u];
+          const body = typeof route === "function" ? undefined : route?.json;
+          return new Response(JSON.stringify(body ?? null), { status: route ? 200 : 404, headers: { "content-type": "application/json" } });
+        }) as typeof fetch;
+        const http = createHttpClient({ fetchImpl, cache: new MemoryCache() });
+        await settle(buildModelInputs({ snapshot: s, http, resolver: { defenseId }, now: start }));
+        // Three days later FantasyCalc is down: the first build asks twice (its retry); its 3-day-old copy stands in.
+        vi.setSystemTime(NOW);
+        fantasyCalcDown = true;
+        const fantasyCalcAsks = () => attempts.filter((u) => u.startsWith("https://api.fantasycalc.com/")).length;
+        let before = fantasyCalcAsks();
+        const first = await settle(buildModelInputs({ snapshot: s, http, resolver: { defenseId }, now: NOW }));
+        expect(fantasyCalcAsks() - before).toBe(2);
+        expect(first.market?.fallback?.kind).toBe("saved");
+        expect(Math.abs(Date.parse(first.market?.fallback?.listDate ?? "") - start.getTime())).toBeLessThan(60_000); // fetched just after `start`
+        // A minute later: nothing asked of FantasyCalc, the same saved copy, the same note.
+        const later = new Date(NOW.getTime() + 60_000);
+        vi.setSystemTime(later);
+        before = fantasyCalcAsks();
+        const second = await settle(buildModelInputs({ snapshot: s, http, resolver: { defenseId }, now: later }));
+        expect(fantasyCalcAsks() - before).toBe(0);
+        expect(second.market?.values).toEqual(first.market?.values);
+        expect(second.market?.fallback).toEqual(first.market?.fallback);
+        expect(second.notes).toEqual(first.notes);
+        // Past the 5-minute hold: FantasyCalc is asked again (twice: still down).
+        const past = new Date(NOW.getTime() + 6 * 60_000);
+        vi.setSystemTime(past);
+        before = fantasyCalcAsks();
+        await settle(buildModelInputs({ snapshot: s, http, resolver: { defenseId }, now: past }));
+        expect(fantasyCalcAsks() - before).toBe(2);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("keeper leagues: an old dynasty copy beside a fresh redraft list lets the redraft list stand in; an old redraft copy beside a fresh dynasty list is left out; both old, the curve", async () => {
+      const s = loadSnapshot({}, { leagueType: "keeper" });
+      const formats = marketFormats(s.settings);
+      const redraftFormat = formats.redraft as FantasyCalcFormat;
+      const dynastyOld = await buildModelInputs({ snapshot: s, http: fakeHttp(savedRoutes(s, 20)).http, resolver: { defenseId }, now: NOW });
+      expect(dynastyOld.market?.format).toEqual(redraftFormat);
+      expect(dynastyOld.market).not.toHaveProperty("fallback");
+      expect(dynastyOld.warnings).toEqual([
+        { code: "FANTASYCALC_DYNASTY_UNAVAILABLE", message: "FantasyCalc's dynasty values couldn't be loaded (FantasyCalc didn't answer, and its newest saved list, from Sep 10, is more than 7 days old), so this season's redraft values stand in for long-term worth.", platformPath: "values/current" },
+      ]);
+      const redraftOld = await buildModelInputs({ snapshot: s, http: fakeHttp(savedRoutes(s, 20, (f) => [f.redraft as FantasyCalcFormat])).http, resolver: { defenseId }, now: NOW });
+      expect(redraftOld.market?.format.isDynasty).toBe(true);
+      expect(redraftOld.market).not.toHaveProperty("redraftValues");
+      expect(redraftOld.warnings.map((w) => w.code)).toEqual(["FANTASYCALC_REDRAFT_UNAVAILABLE"]);
+      const bothOld = await buildModelInputs({ snapshot: s, http: fakeHttp(savedRoutes(s, 20, (f) => [f.values, f.redraft as FantasyCalcFormat])).http, resolver: { defenseId }, now: NOW });
+      expect(bothOld.market?.fallback?.kind).toBe("curve");
+      expect(bothOld.market?.format.isDynasty).toBe(true);
+      expect(bothOld.market?.redraftValues?.["9221"]).toBeGreaterThan(0);
+      expect(bothOld.warnings.map((w) => w.code)).toEqual(["FANTASYCALC_VALUES_ESTIMATED"]);
+    });
   });
 
   it("dynasty leagues once the season is over: no season list (nothing is left to project, so nothing to blend)", async () => {

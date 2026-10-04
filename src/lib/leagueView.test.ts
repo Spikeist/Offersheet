@@ -5,12 +5,16 @@
  * name is made up.
  */
 import { describe, expect, it } from "vitest";
-import { BEFORE_KICKOFF, NOW, PRE_KICKOFF, leagueFixture, nameOf, type LeagueFixture } from "@/components/league/testFixtures";
+import { BEFORE_KICKOFF, NOW, PICKUP_GAIN, PRE_KICKOFF, leagueFixture, nameOf, type LeagueFixture } from "@/components/league/testFixtures";
 import { config } from "@/engine/config";
 import type { BaseRateSource, SeasonOdds, TeamModel, WeekOdds } from "@/engine/leagueModel";
-import { fantasyCalcFormat } from "@/engine/market";
+import { fantasyCalcFallbackText, fantasyCalcFormat } from "@/engine/market";
 import { weekUnderWayNote } from "@/engine/season";
+import { fmtNum, fmtWhole } from "./format";
+import { waiverOrderText } from "./importReport";
+import { titleOddsText } from "./tradeView";
 import {
+  AS_ROSTERS_STAND_LABEL,
   BEST_TARGET_HARDER_LABEL,
   BEST_TARGET_LABEL,
   BEST_TARGET_MIN,
@@ -18,6 +22,7 @@ import {
   BIGGER_UPGRADE_LABEL,
   FREE_AGENT_PICKUPS_LABEL,
   HARDER_TO_GET_TAG,
+  ODDS_BASIS_TEXT,
   RISKY_BYES,
   RISKY_WIN_CHANCE,
   SEASON_OVER_PARTNERS_TEXT,
@@ -25,6 +30,10 @@ import {
   SETTINGS_HREF,
   STARTER_TAG,
   UNDER_WAY_TEXT,
+  VALUES_ESTIMATED_LINE,
+  VALUES_ESTIMATED_TITLE,
+  WAIVER_ORDER_LABEL,
+  YOUR_ODDS_LABEL,
   availabilityNoteText,
   blendIsOwnPoint,
   blendText,
@@ -32,13 +41,26 @@ import {
   heatStep,
   likelyStarters,
   oddsCell,
+  pickupsUnderWayNote,
+  rosterAfterPickups,
+  scheduleByeRule,
   shortName,
+  titleCell,
   type LeagueViewInput,
   type PartnerCard,
   type PlayerRow,
 } from "./leagueView";
 
 const TZ = "America/Chicago";
+
+/** The standings caption's last words in a Phase 4c model: its odds count each team's pickups. */
+const COUNTING = ", counting each team's free-agent pickups that would help";
+
+/** How far the market may move a projection (config.marketBlend.factorClamp), as the page words it: up "35%", down "25%". */
+const CAP = {
+  up: `${Math.round((config.marketBlend.factorClamp[1] - 1) * 100)}%`,
+  down: `${Math.round((1 - config.marketBlend.factorClamp[0]) * 100)}%`,
+};
 
 function view(opts: Parameters<typeof leagueFixture>[0] = {}, extra: Partial<LeagueViewInput> = {}) {
   const f = leagueFixture(opts);
@@ -66,8 +88,11 @@ describe("buildLeagueView: header (§14 item 3)", () => {
       inProgress: "Week 12 is under way, so team numbers start with week 13.",
       projections: "Sleeper",
       valuesFormat: "8 teams · half-PPR · 1 QB · redraft",
+      // FantasyCalc answered: no fallback to note (the "FantasyCalc's fallbacks" block below has them).
+      valuesNote: null,
       weeksLeft: "6 weeks left: 3 regular season, 3 playoffs",
     });
+    expect(v.valuesBanner).toBeNull();
     // Before the week's first kickoff, nothing is in progress.
     expect(before.header.inProgress).toBeNull();
     expect(before.header.weekLine).toBe("Week 12 · as of Thu, Nov 26, 9:55 AM");
@@ -192,22 +217,43 @@ function myGame(f: LeagueFixture, week: number, edit: Partial<WeekOdds["games"][
   f.model.odds = { ...odds, weekly: odds.weekly.map((wk) => (wk.week === week ? { ...wk, games: wk.games.map((g) => (g.teamId === "1" ? { ...g, ...edit } : g)) } : wk)) };
 }
 
-/** Puts the given players' byes in `week` (only ros.bye: what the schedule's bye list reads). */
+/**
+ * Puts the given players' byes in `week`, as a model has them: ros.bye, and that week's projection a bye (no points: the
+ * likely starters' weekly lineups and the bye list read PlayerModel.weekly), his old bye week a full one again (the
+ * fixture's points: his base rate, available).
+ */
 function byeIn(f: LeagueFixture, ids: string[], week: number) {
+  const at = f.model.weeks.indexOf(week);
   for (const id of ids) {
     const pm = f.model.players[id];
     if (!pm) throw new Error(`fixture player ${id} missing`);
-    f.model.players[id] = { ...pm, ros: { ...pm.ros, bye: { status: "upcoming", week } } };
+    const full = pm.base.b;
+    const weekly = pm.weekly.map((w, i) => (i === at ? { ...w, p: 0, a: 0, bye: true, sd: 0 } : w.bye ? { ...w, p: full, a: 1, bye: false, sd: 0.5 * full + 2 } : w));
+    f.model.players[id] = { ...pm, weekly, ros: { ...pm.ros, bye: { status: "upcoming", week } } };
   }
+}
+
+/** Sets a player's availability per model week (his points: his base rate × a; a bye week stays a bye), as an injury would. */
+function availability(f: LeagueFixture, id: string, a: readonly number[]) {
+  const pm = f.model.players[id];
+  if (!pm) throw new Error(`fixture player ${id} missing`);
+  const weekly = pm.weekly.map((w, i) => {
+    if (w.bye) return w;
+    const ai = a[i] ?? 1;
+    const p = pm.base.b * ai;
+    return { ...w, a: ai, p, sd: p > 0 ? 0.5 * p + 2 : 0 };
+  });
+  f.model.players[id] = { ...pm, weekly };
 }
 
 describe("buildLeagueView: standings and playoff odds (§8; §17 Checkpoint 3: next to the current standings)", () => {
   it("lists every team in today's standings order, with its record, points for, playoff and title odds and projected final record", () => {
+    // Title odds with one decimal (titleCell), as the headline and every trade idea print them; playoff odds whole.
     expect(v.standings?.rows.map((r) => [r.rank, r.teamId, r.name, r.isMine, r.record, r.pointsFor, r.playoffs?.text, r.bye, r.title.text, r.finalRecord, r.eliminated])).toEqual([
-      [1, "2", "Gravel Gophers", false, "8–3", "1210.3", "93%", null, "47%", "9.8–4.2", false],
-      [2, "1", "Moonbeam Mudcats", true, "7–4", "1180.4", "86%", null, "43%", "8.5–5.5", false],
-      [3, "3", "Quasar Quokkas", false, "5–6", "1100", "21%", null, "10%", "6.5–7.5", false],
-      [4, "4", "Tundra Tortoises", false, "2–9", "990.5", "<1%", null, "<1%", "3.3–10.7", false],
+      [1, "2", "Gravel Gophers", false, "8–3", "1210.3", "93%", null, "47.0%", "9.8–4.2", false],
+      [2, "1", "Moonbeam Mudcats", true, "7–4", "1180.4", "86%", null, "43.0%", "8.5–5.5", false],
+      [3, "3", "Quasar Quokkas", false, "5–6", "1100", "21%", null, "10.0%", "6.5–7.5", false],
+      [4, "4", "Tundra Tortoises", false, "2–9", "990.5", "<1%", null, "<0.1%", "3.3–10.7", false],
     ]);
     expect(v.standings?.empty).toBeNull();
     // The team table keeps its own order (projected points per week).
@@ -236,6 +282,20 @@ describe("buildLeagueView: standings and playoff odds (§8; §17 Checkpoint 3: n
     expect(oddsCell(1)).toEqual({ text: "100%", srText: null });
   });
 
+  it("prints title odds with one decimal, as the headline and every trade idea do: <0.1% and >99.9% when they only round there, — when unknown (said in words)", () => {
+    // Review of track UIP: the headline read "9.9% title" over my row's "10%".
+    const ps = [0, 0.0001, 0.0004, 0.0005, 0.0998, 0.099, 0.43, 0.999, 0.9996, 1, null, Number.NaN];
+    expect(ps.map((p) => titleCell(p).text)).toEqual(["0.0%", "<0.1%", "<0.1%", "0.1%", "10.0%", "9.9%", "43.0%", "99.9%", ">99.9%", "100.0%", "—", "—"]);
+    expect(titleCell(0.0002)).toEqual({ text: "<0.1%", srText: "less than 0.1%" });
+    expect(titleCell(0.9999)).toEqual({ text: ">99.9%", srText: "more than 99.9%" });
+    expect(titleCell(null)).toEqual({ text: "—", srText: "unknown" });
+    // Every printed title is the cards' own words for the same number (tradeView.ts titleOddsText).
+    for (const p of [0.0002, 0.099, 0.4321, 0.9999]) expect(titleCell(p).text).toBe(titleOddsText(p));
+    // My row prints what the headline prints.
+    const mine = v.standings?.rows.find((r) => r.isMine);
+    expect(`${mine?.title.text} title`).toBe(v.standings?.mine?.headline.at(-1)?.text);
+  });
+
   it("shows the Bye column only when the league has byes and their odds are known; a team's unknown bye odds print —", () => {
     expect(v.standings?.showBye).toBe(false);
     const byes = of(withByes(leagueFixture()));
@@ -259,8 +319,8 @@ describe("buildLeagueView: standings and playoff odds (§8; §17 Checkpoint 3: n
       const s = standings(n);
       expect(s?.showPlayoffs, `${n} playoff teams`).toBe(false);
       expect(s?.rows.every((r) => r.playoffs === null)).toBe(true);
-      expect(s?.rows.map((r) => r.title.text)).toEqual(["47%", "43%", "10%", "<1%"]);
-      expect(s?.caption).toBe("Standings today by your league's rules, with each team's chance to win the title, and its projected final record, from 5,000 simulated seasons");
+      expect(s?.rows.map((r) => r.title.text)).toEqual(["47.0%", "43.0%", "10.0%", "<0.1%"]);
+      expect(s?.caption).toBe(`Standings today by your league's rules, with each team's chance to win the title, and its projected final record, from 5,000 simulated seasons${COUNTING}`);
     }
     expect(standings(2)?.showPlayoffs).toBe(true);
     expect(v.standings?.rows.map((r) => r.playoffs?.text)).toEqual(["93%", "86%", "21%", "<1%"]);
@@ -290,18 +350,20 @@ describe("buildLeagueView: standings and playoff odds (§8; §17 Checkpoint 3: n
     const pointsOnly = of(g).standings;
     expect(pointsOnly?.pointsOnly).toBe(true);
     expect(pointsOnly?.rows.every((r) => r.finalRecord === null)).toBe(true);
-    expect(pointsOnly?.caption).toBe("Standings today by your league's rules, with each team's chance to make the playoffs and win the title, from 5,000 simulated seasons");
+    expect(pointsOnly?.caption).toBe(`Standings today by your league's rules, with each team's chance to make the playoffs and win the title, from 5,000 simulated seasons${COUNTING}`);
   });
 
   it("captions the table, and lists the odds' notes except any the warnings box already shows", () => {
     expect(v.standings?.caption).toBe(
-      "Standings today by your league's rules, with each team's chance to make the playoffs and win the title, and its projected final record, from 5,000 simulated seasons",
+      `Standings today by your league's rules, with each team's chance to make the playoffs and win the title, and its projected final record, from 5,000 simulated seasons${COUNTING}`,
     );
     expect(of(withByes(leagueFixture())).standings?.caption).toContain("chance to make the playoffs, get a first-round bye and win the title, and its projected final record");
+    // Game day: right after the engine's note about the week under way, when the odds count pickups from (Phase 4c).
     expect(v.standings?.notes).toEqual([
       "Odds from 5,000 simulated seasons.",
       "Ties in the standings go to points for, the league's rule.",
       weekUnderWayNote(12),
+      pickupsUnderWayNote(12, 13),
     ]);
     expect(before.standings?.notes).toHaveLength(2);
     // A note the engine also raised as a warning is shown once, in the warnings box.
@@ -319,7 +381,7 @@ describe("buildLeagueView: standings and playoff odds (§8; §17 Checkpoint 3: n
     const f = leagueFixture();
     f.model.odds = null;
     const none = of(f);
-    expect(none.standings).toEqual({ rows: [], showPlayoffs: false, showBye: false, pointsOnly: false, caption: "", notes: [], empty: "Playoff odds aren't available for this league right now." });
+    expect(none.standings).toEqual({ mine: null, basis: null, rows: [], showPlayoffs: false, showBye: false, pointsOnly: false, caption: "", notes: [], empty: "Playoff odds aren't available for this league right now." });
     expect(none.schedule).toBeNull();
     expect(none.eliminated).toBeNull();
     const g = leagueFixture();
@@ -375,12 +437,100 @@ describe("buildLeagueView: standings and playoff odds (§8; §17 Checkpoint 3: n
   });
 });
 
+describe("buildLeagueView: one baseline everywhere (planner reply to Checkpoint 4b, change 9)", () => {
+  it("leads the standings with my odds (every team after its free-agent pickups, what trade ideas start from) and, smaller, the same as rosters stand", () => {
+    // Printed as every trade idea prints my odds before it (tradeView.ts oddsViews): playoffs whole, the title with one decimal.
+    expect(v.standings?.mine).toEqual({
+      headline: [
+        { text: "86% playoffs", srText: null },
+        { text: "43.0% title", srText: null },
+      ],
+      asRostersStand: [
+        { text: "82% playoffs", srText: null },
+        { text: "40.0% title", srText: null },
+      ],
+      text: `${YOUR_ODDS_LABEL}: 86% playoffs · 43.0% title`,
+      asRostersStandText: `${AS_ROSTERS_STAND_LABEL}: 82% playoffs · 40.0% title`,
+    });
+    expect(v.standings?.mine?.headline[1]?.text).toBe(`${titleOddsText(0.43)} title`);
+    expect(YOUR_ODDS_LABEL).toBe("Your odds");
+    expect(AS_ROSTERS_STAND_LABEL).toBe("As rosters stand");
+    expect(v.standings?.basis).toBe(`${ODDS_BASIS_TEXT} “As rosters stand” counts no pickups.`);
+    expect(ODDS_BASIS_TEXT).toBe("These odds count the free-agent pickups that would help each team (listed on its roster): trade ideas start from the same odds.");
+    // The table, the schedule and "Your season's over" read the headline (LeagueModel.odds), never the second line; my
+    // row prints the headline's numbers (the title with one decimal there too: review of track UIP).
+    expect(v.standings?.rows.find((r) => r.isMine)).toMatchObject({ playoffs: { text: "86%" }, title: { text: "43.0%" } });
+    expect(v.schedule?.rows.map((r) => r.win.text)).toEqual(["54%", "56%", "38%"]);
+    const f = leagueFixture();
+    const stand = f.model.oddsAsRostersStand as SeasonOdds;
+    f.model.oddsAsRostersStand = { ...stand, teams: stand.teams.map((t) => (t.teamId === "1" ? { ...t, eliminated: true } : t)) };
+    expect(of(f).eliminated).toBeNull();
+  });
+
+  it("prints the headline as trade ideas print my odds before them: playoff odds only with 2+ playoff teams, the title with one decimal, symbolic odds in words, unknown ones as unknown", () => {
+    // Team 4 (<1% both ways): read out in words.
+    const four = view({ myTeamId: "4" }).standings?.mine;
+    expect(four?.headline).toEqual([
+      { text: "<1% playoffs", srText: "less than 1% playoffs" },
+      { text: "<0.1% title", srText: "less than 0.1% title" },
+    ]);
+    expect(four?.text).toBe("Your odds: <1% playoffs · <0.1% title");
+    // One playoff team: the title alone, as the table shows it (no Playoffs column).
+    const one = leagueFixture();
+    for (const key of ["odds", "oddsAsRostersStand"] as const) {
+      const o = one.model[key] as SeasonOdds;
+      one.model[key] = { ...o, playoffTeams: 1, teams: o.teams.map((t) => ({ ...t, pPlayoffs: t.pTitle ?? 0 })) };
+    }
+    expect(of(one).standings?.mine).toMatchObject({ text: "Your odds: 43.0% title", asRostersStandText: "As rosters stand: 40.0% title" });
+    // Title odds unknown (a played playoff round we can't read): said in words, not "— title".
+    const unknown = leagueFixture();
+    unknown.model.odds = { ...oddsOf(unknown), teams: oddsOf(unknown).teams.map((t) => ({ ...t, pTitle: null })) };
+    expect(of(unknown).standings?.mine?.headline).toEqual([
+      { text: "86% playoffs", srText: null },
+      { text: "title unknown", srText: null },
+    ]);
+  });
+
+  it("has no headline without a team, and no second line or basis in a model built before Phase 4c (its odds are as rosters stand)", () => {
+    const none = view({ myTeamId: null }).standings;
+    expect(none?.mine).toBeNull();
+    // What the odds count still says so; there's no second line to mention.
+    expect(none?.basis).toBe(ODDS_BASIS_TEXT);
+    const old = leagueFixture();
+    delete old.model.oddsAsRostersStand;
+    const built = of(old).standings;
+    expect(built?.mine).toEqual({ headline: v.standings?.mine?.headline, asRostersStand: null, text: v.standings?.mine?.text, asRostersStandText: null });
+    expect(built?.basis).toBeNull();
+    expect(built?.caption).not.toContain("pickups");
+    expect(built?.notes).not.toContain(pickupsUnderWayNote(12, 13));
+  });
+
+  it("says while a week is under way that the odds count pickups from the next week only (league.ts \"Game days\"), after the engine's own note about that week", () => {
+    // What the model does (it plays the week under way with today's rosters), never a platform rule: a free agent whose
+    // game hasn't started can still be picked up and started (review of track UIP).
+    expect(pickupsUnderWayNote(12, 13)).toBe("While week 12 is under way, these odds count free-agent pickups from week 13 on: week 12 is played with today's rosters.");
+    expect(pickupsUnderWayNote(17, undefined)).toBe("Week 17 is under way and it's the last week, so these odds play it with today's rosters, without free-agent pickups.");
+    for (const n of [pickupsUnderWayNote(12, 13), pickupsUnderWayNote(17, undefined)]) expect(n).not.toMatch(/can't play/);
+    const notes = v.standings?.notes ?? [];
+    expect(notes.indexOf(pickupsUnderWayNote(12, 13))).toBe(notes.indexOf(weekUnderWayNote(12)) + 1);
+    // Before kickoff the odds count the pickups in this week too: nothing to say.
+    expect(before.standings?.notes.some((n) => n.includes("free-agent pickups"))).toBe(false);
+    // The engine's note missing (another league's notes): still said, last.
+    const f = leagueFixture();
+    f.model.odds = { ...oddsOf(f), notes: oddsOf(f).notes.filter((n) => n !== weekUnderWayNote(12)) };
+    expect(of(f).standings?.notes.at(-1)).toBe(pickupsUnderWayNote(12, 13));
+  });
+});
+
 describe("buildLeagueView: my remaining schedule (§8: each remaining week's risk)", () => {
   it("lists each remaining game: opponent, both teams' projected points, my win chance, my likely starters on bye, and a risky week in words", () => {
     expect(v.schedule?.rows.map((r) => [r.weekText, r.opponentId, r.opponent, r.mine, r.theirs, r.win.text, r.median, r.byes?.text ?? null, r.risk?.reasons ?? null, r.underWay])).toEqual([
+      // Projected points with each team's pickups (TeamModel.scoreWithPickups), as the odds beside them count them: mine
+      // with my pickup from week 13 on (game day: the engine plays week 12 with today's rosters), team 4's and team 2's
+      // without any to make.
       ["12", "3", "Quasar Quokkas", "91.4", "88", "54%", null, null, null, UNDER_WAY_TEXT],
-      ["13", "4", "Tundra Tortoises", "90", "85", "56%", null, null, null, null],
-      ["14", "2", "Gravel Gophers", "84", "94", "38%", null, "D. Quibble", "under 40% to win", null],
+      ["13", "4", "Tundra Tortoises", "91.5", "85", "56%", null, null, null, null],
+      ["14", "2", "Gravel Gophers", "85.5", "94", "38%", null, "D. Quibble", "under 40% to win", null],
     ]);
     expect(v.schedule?.showMedian).toBe(false);
     expect(v.schedule?.empty).toBeNull();
@@ -391,15 +541,29 @@ describe("buildLeagueView: my remaining schedule (§8: each remaining week's ris
     expect(before.schedule?.rows[0]?.underWay).toBeNull();
   });
 
-  it("uses the simulator's own numbers (TeamModel.score): a week in progress shows its pre-game projection, not the partial lineup", () => {
+  it("uses the odds' own numbers (TeamModel.scoreWithPickups, Phase 4c): a week in progress shows its pre-game projection, not the partial lineup", () => {
     const f = leagueFixture();
-    // Team 1's week 12 lineup value is a partial week on game day; its score keeps the pre-kickoff projection.
-    expect(f.model.teams.find((t) => t.id === "1")?.scen?.lv[0]).toBe(82);
-    expect(f.model.teams.find((t) => t.id === "1")?.score.mean[0]).toBe(PRE_KICKOFF["1"]);
+    // Team 1's week 12 lineup value is a partial week on game day; its scores keep the pre-kickoff projection, and the
+    // pickups count from week 13 (the engine plays a week under way with today's rosters).
+    const mine = f.model.teams.find((t) => t.id === "1");
+    expect(mine?.scen?.lv[0]).toBe(82);
+    expect(mine?.score.mean[0]).toBe(PRE_KICKOFF["1"]);
+    expect(mine?.scoreWithPickups?.mean[0]).toBe(PRE_KICKOFF["1"]);
     expect(v.schedule?.rows[0]?.mine).toBe("91.4");
+    expect(v.schedule?.rows[1]?.mine).toBe(fmtNum(mine?.scoreWithPickups?.mean[1] ?? Number.NaN, 1));
+    expect(v.schedule?.rows[1]?.mine).not.toBe(fmtNum(mine?.score.mean[1] ?? Number.NaN, 1));
     // Scores missing for a week: "—", never a made-up number.
-    f.model.teams = f.model.teams.map((t) => (t.id === "3" ? { ...t, score: { mean: [], sd: [] } } : t));
+    f.model.teams = f.model.teams.map((t) => (t.id === "3" ? { ...t, scoreWithPickups: { mean: [], sd: [] } } : t));
     expect(of(f).schedule?.rows[0]?.theirs).toBe("—");
+    // A model built before Phase 4c has no scores with pickups (its odds are as rosters stand): the scores themselves.
+    const g = leagueFixture();
+    g.model.teams = g.model.teams.map((t) => ({ ...t, scoreWithPickups: undefined }));
+    delete g.model.oddsAsRostersStand;
+    expect(of(g).schedule?.rows.map((r) => [r.mine, r.theirs])).toEqual([
+      ["91.4", "88"],
+      ["90", "85"],
+      ["84", "94"],
+    ]);
   });
 
   it("builds on a fixture whose scores keep TeamModel.score's contract: the LV itself, except a week in progress keeps its pre-kickoff projection (the week's LV before kickoff)", () => {
@@ -413,9 +577,16 @@ describe("buildLeagueView: my remaining schedule (§8: each remaining week's ris
     }
     // Only team 1 has players in the game that kicked off, so only its week 12 LV is a partial week.
     expect(live.model.teams.map((t) => lv(t)[0] === PRE_KICKOFF[t.id])).toEqual([false, true, true, true]);
-    // Before kickoff the page shows week 12's LV itself.
-    expect(before.schedule?.rows[0]?.mine).toBe("91.4");
-    expect(before.schedule?.rows[0]?.mine).toBe(`${lv(pre.model.teams[0] as TeamModel)[0]}`);
+    // Phase 4c: each team's scores with its pickups are its scores plus what they add (PICKUP_GAIN), from the week in
+    // progress on before kickoff, and from the next week on game day (week 12 keeps the score's).
+    for (const t of pre.model.teams) expect(t.scoreWithPickups?.mean, `team ${t.id} before kickoff`).toEqual(t.score.mean.map((x) => x + (PICKUP_GAIN[t.id] ?? 0)));
+    for (const t of live.model.teams) {
+      expect(t.scoreWithPickups?.mean, `team ${t.id} on game day`).toEqual(t.score.mean.map((x, i) => (i === 0 ? x : x + (PICKUP_GAIN[t.id] ?? 0))));
+      expect(t.scoreWithPickups?.sd).toEqual(t.score.sd);
+    }
+    // Before kickoff the page shows week 12's LV with my pickups.
+    expect(before.schedule?.rows[0]?.mine).toBe("92.9");
+    expect(before.schedule?.rows[0]?.mine).toBe(fmtNum((lv(pre.model.teams[0] as TeamModel)[0] ?? Number.NaN) + (PICKUP_GAIN["1"] ?? 0), 1));
   });
 
   it(`flags a risky week in words: my chance to win under ${Math.round(RISKY_WIN_CHANCE * 100)}% as printed, or ${RISKY_BYES}+ likely starters on bye`, () => {
@@ -451,28 +622,197 @@ describe("buildLeagueView: my remaining schedule (§8: each remaining week's ris
     expect(RISKY_BYES).toBe(config.leaguePage.riskyByes);
   });
 
-  it("counts only likely starters on bye: my best lineup by projected points per game left (ROS points ÷ games left)", () => {
+  it("counts only likely starters on bye: in my best lineup each week (projected points that week) in at least half the weeks they play, the trade cards' rule", () => {
     const f = leagueFixture();
-    // QB, RB, RB, WR, FLEX, D/ST, in lineup order; the TE and the third WR sit.
+    // QB, RB, RB, WR, FLEX, D/ST every week team numbers count (13–17), by position; the TE and the third WR sit.
     expect(likelyStarters(f.snapshot, f.model, "1")).toEqual(["101", "102", "103", "104", "105", "MIN"]);
     // Bench players and IR players on bye aren't listed.
     byeIn(f, ["106", "108", "107"], 13);
     expect(of(f).schedule?.rows[1]?.byes).toBeNull();
-    // A player whose points per game left sink (hurt, most of his games at 0) drops out; the next best takes the FLEX.
-    const pm = f.model.players["105"];
-    if (!pm) throw new Error("fixture WR missing");
-    f.model.players["105"] = { ...pm, ros: { ...pm.ros, total: 6 } };
+    // A player hurt for most of his games (projected 0 until week 17) drops out; the next best takes the FLEX.
+    availability(f, "105", [1, 0, 0, 0, 0, 0.5]);
     expect(likelyStarters(f.snapshot, f.model, "1")).toEqual(["101", "102", "103", "104", "106", "MIN"]);
     byeIn(f, ["105"], 13);
     expect(of(f).schedule?.rows[1]?.byes).toMatchObject({ text: "W. Spoons", count: 1 });
     // No games left, or no model: never a starter.
     const g = leagueFixture();
-    const qb = g.model.players["101"];
-    if (!qb) throw new Error("fixture QB missing");
-    g.model.players["101"] = { ...qb, ros: { ...qb.ros, gamesLeft: 0 } };
+    availability(g, "101", [0, 0, 0, 0, 0, 0]);
     delete g.model.players.MIN;
     expect(likelyStarters(g.snapshot, g.model, "1")).toEqual(["102", "103", "104", "105"]);
     expect(likelyStarters(g.snapshot, g.model, "99")).toEqual([]);
+  });
+
+  it("counts a player as a likely starter when he's in the lineup in at least half the weeks he plays, never the week in progress", () => {
+    // Spoons outscores Oddfellow at FLEX from week 15 on (3 of the 5 weeks that count): he starts, Oddfellow doesn't.
+    const f = leagueFixture();
+    availability(f, "105", [1, 1, 1, 0.8, 0.8, 0.8]);
+    expect(likelyStarters(f.snapshot, f.model, "1")).toEqual(["101", "102", "103", "104", "106", "MIN"]);
+    // 2 of the 4 weeks he plays (a bye in week 17): exactly half still counts.
+    availability(f, "105", [1, 1, 1, 0.8, 0.8, 1]);
+    byeIn(f, ["105"], 17);
+    expect(likelyStarters(f.snapshot, f.model, "1")).toContain("105");
+    // A week under way doesn't count: Oddfellow starting only in week 12 (today) isn't a likely starter.
+    const g = leagueFixture();
+    availability(g, "105", [1, 0.5, 0.5, 0.5, 0.5, 0.5]);
+    expect(likelyStarters(g.snapshot, g.model, "1")).toEqual(["101", "102", "103", "104", "106", "MIN"]);
+  });
+
+  it("counts the streaming replacement where I stream: a rostered D/ST it outscores isn't a likely starter (the trade cards' rule)", () => {
+    // Review of track UIP: the page listed a D/ST its team streams as a starter on bye, in a week no trade idea called risky.
+    const f = leagueFixture();
+    expect(f.model.streaming.byTeam["1"]?.positions).toEqual(["DEF"]);
+    // The replacement (6.6) projects under the Vikings (7), so they start every week.
+    expect(likelyStarters(f.snapshot, f.model, "1")).toContain("MIN");
+    // A replacement who projects higher every week starts instead.
+    f.model.streaming = { ...f.model.streaming, replacement: { DEF: f.model.weeks.map(() => 7.5) } };
+    expect(likelyStarters(f.snapshot, f.model, "1")).toEqual(["101", "102", "103", "104", "105"]);
+    byeIn(f, ["102", "104", "MIN"], 13);
+    expect(of(f).schedule?.rows[1]).toMatchObject({ byes: { text: "D. Quibble, N. McSprocket", count: 2 }, risk: null });
+    // Higher in 2 of the 5 weeks that count: the Vikings still start in 3, so they're a likely starter.
+    const g = leagueFixture();
+    g.model.streaming = { ...g.model.streaming, replacement: { DEF: [6.6, 7.5, 7.5, 6, 6, 6] } };
+    expect(likelyStarters(g.snapshot, g.model, "1")).toContain("MIN");
+    // A team that doesn't stream its D/ST starts its own.
+    expect(likelyStarters(g.snapshot, g.model, "2")).toContain("DET");
+  });
+
+  it("Phase 4c (lead decision): never counts or lists a likely starter at a position I stream on bye: the streaming replacement covers his slot (evaluate.ts riskyWeeksOf's rule)", () => {
+    // The Vikings start every week (the replacement, 6.6, projects under their 7), but I stream D/ST: their bye in week 13,
+    // with two other starters', is two starters off, not three.
+    const f = leagueFixture();
+    expect(likelyStarters(f.snapshot, f.model, "1")).toContain("MIN");
+    byeIn(f, ["102", "104", "MIN"], 13);
+    expect(of(f).schedule?.rows[1]).toMatchObject({ byes: { text: "D. Quibble, N. McSprocket", count: 2 }, risk: null });
+    // Not streaming D/ST (my setting): the Vikings' bye counts, and three starters off flags the week.
+    const g = leagueFixture();
+    g.model.streaming = { ...g.model.streaming, byTeam: { ...g.model.streaming.byTeam, "1": { positions: [], source: "setting", adds: {} } } };
+    byeIn(g, ["102", "104", "MIN"], 13);
+    expect(of(g).schedule?.rows[1]).toMatchObject({ byes: { count: 3 }, risk: { reasons: "3 starters on bye" } });
+    // The note and the explainer say so; a team streaming nothing isn't told.
+    expect(v.schedule?.note).toContain("in at least half the weeks they play. D/STs don't count: you stream them, so the streaming replacement covers their byes. A week is flagged risky");
+    expect(v.schedule?.note).not.toContain("where you stream");
+    expect(v.explain.find((e) => e.title === "Playoff odds")?.text).toContain(" are on bye, not counting D/STs, whose byes the streaming replacement covers since you stream them.");
+    const noStream = of(g);
+    expect(noStream.schedule?.note).not.toContain("don't count");
+    expect(noStream.explain.find((e) => e.title === "Playoff odds")?.text).not.toContain("not counting");
+  });
+
+  it("Phase 4c (lead decision): a streamed QB's bye still counts, since only a streamed K or D/ST covers it (config.leaguePage.streamCoversBye)", () => {
+    // I stream QB and D/ST: my QB, RB1 and WR1 off in week 13 are three starters on bye (a streamed QB's replacement is much
+    // weaker), and the note names only the D/STs as covered.
+    const f = leagueFixture();
+    f.model.streaming = { ...f.model.streaming, byTeam: { ...f.model.streaming.byTeam, "1": { positions: ["QB", "DEF"], source: "setting", adds: {} } } };
+    expect(likelyStarters(f.snapshot, f.model, "1")).toContain("101");
+    byeIn(f, ["101", "102", "104"], 13);
+    const view13 = of(f);
+    expect(view13.schedule?.rows[1]).toMatchObject({ byes: { count: 3 }, risk: { reasons: "3 starters on bye" } });
+    expect(view13.schedule?.note).toContain("D/STs don't count: you stream them");
+    expect(view13.schedule?.note).not.toContain("quarterbacks");
+  });
+
+  it("counts my IR returners from their expected return week (league.ts step 5b): a bye before it isn't listed, one after it is", () => {
+    /** Team 1 with Fiddlesticks (IR) back in week 14 (ESPN's date), a returner the model lists with his team, his bye in `bye`. */
+    const returner = (bye: number) => {
+      const f = leagueFixture();
+      const info = f.snapshot.players["107"];
+      if (!info) throw new Error("fixture WR missing");
+      f.snapshot = { ...f.snapshot, players: { ...f.snapshot.players, "107": { ...info, injuryReturnWeek: 14 } } };
+      availability(f, "107", [0, 0, 0.75, 1, 1, 1]);
+      f.model.teams = f.model.teams.map((t) => (t.id === "1" ? { ...t, players: { ...t.players, "107": { mvLoseEv: 3, mvLoseScen: 3, autoAdd: null, surplusScore: 0 } } } : t));
+      byeIn(f, ["107"], bye);
+      return f;
+    };
+    // Back in week 14, his bye in week 13: on IR then anyway, so it isn't my crunch, though he starts once he's back.
+    const early = returner(13);
+    expect(likelyStarters(early.snapshot, early.model, "1", { afterPickups: true })).toContain("107");
+    expect(of(early).schedule?.rows[1]?.byes).toBeNull();
+    // His bye in week 14, once he's back: listed with Quibble's.
+    const late = returner(14);
+    expect(likelyStarters(late.snapshot, late.model, "1", { afterPickups: true })).toContain("107");
+    expect(of(late).schedule?.rows[2]?.byes).toEqual({ text: "D. Quibble, H. Fiddlesticks", title: `${nameOf("102")}, ${nameOf("107")}`, count: 2 });
+    // An IR player the model doesn't list with his team (not back within the weeks left) never starts.
+    expect(likelyStarters(leagueFixture().snapshot, leagueFixture().model, "1")).not.toContain("107");
+  });
+
+  it("counts my likely starters after my free-agent pickups (Phase 4c: the odds and points beside them count them), on the roster V*(T) leaves", () => {
+    // Team 1's pickup (Freeman for the TE) doesn't start, so the fixture's starters are the same either way.
+    const f = leagueFixture();
+    expect(likelyStarters(f.snapshot, f.model, "1", { afterPickups: true })).toEqual(likelyStarters(f.snapshot, f.model, "1"));
+    // A pickup that drops my FLEX receiver: his backup starts there instead, and his bye counts; Oddfellow's doesn't.
+    f.model.teams = f.model.teams.map((t) => (t.id === "1" ? { ...t, faMoves: [{ add: "901", drop: "105", gainEv: 4, gainScen: 4 }] } : t));
+    expect(likelyStarters(f.snapshot, f.model, "1", { afterPickups: true })).toEqual(["101", "102", "103", "104", "106", "MIN"]);
+    byeIn(f, ["106"], 13);
+    expect(of(f).schedule?.rows[1]?.byes).toMatchObject({ text: "W. Spoons", count: 1 });
+    // A model built before Phase 4c (odds as rosters stand): the roster as it stands, so Spoons sits.
+    delete f.model.oddsAsRostersStand;
+    expect(of(f).schedule?.rows[1]?.byes).toBeNull();
+  });
+
+  it("scheduleByeRule, the schedule's bye rule the league report reads too (review POL-1): the pool after my pickups with my returners, likely starters without a position I stream, a returner's bye only from his week", () => {
+    const f = leagueFixture();
+    // Fiddlesticks (IR) back in week 14, a returner the model lists with team 1; a pickup drops Oddfellow for Freeman.
+    const info = f.snapshot.players["107"];
+    if (!info) throw new Error("fixture WR missing");
+    f.snapshot = { ...f.snapshot, players: { ...f.snapshot.players, "107": { ...info, injuryReturnWeek: 14 } } };
+    availability(f, "107", [0, 0, 0.75, 1, 1, 1]);
+    f.model.teams = f.model.teams.map((t) =>
+      t.id === "1" ? { ...t, faMoves: [{ add: "901", drop: "105", gainEv: 4, gainScen: 4 }], players: { ...t.players, "107": { mvLoseEv: 3, mvLoseScen: 3, autoAdd: null, surplusScore: 0 } } } : t,
+    );
+    byeIn(f, ["106", "107", "MIN"], 13);
+    const rule = scheduleByeRule(f.snapshot, f.model, "1", undefined);
+    expect(rule.pickups).toBe(true);
+    // The pool: the roster after the pickup (Freeman in Oddfellow's place), then the returner.
+    expect(rule.players).toEqual(["101", "102", "103", "104", "901", "106", "108", "MIN", "107"]);
+    // The likely starters after the pickup, but for the Vikings: I stream D/ST.
+    const likely = likelyStarters(f.snapshot, f.model, "1", { afterPickups: true });
+    expect(likely).toContain("MIN");
+    expect(rule.starters).toEqual(likely.filter((id) => id !== "MIN"));
+    // Fiddlesticks starts once he's back (at FLEX, over Spoons), so he's a likely starter whose week-13 bye won't count.
+    expect(rule.starters).toContain("107");
+    // Off in any of a game's weeks the model has: Spoons and the Vikings in week 13; Fiddlesticks isn't back until 14.
+    expect(["106", "MIN", "107"].map((id) => rule.onBye(id, [13]))).toEqual([true, true, false]);
+    expect([rule.onBye("106", [12, 13]), rule.onBye("106", [14]), rule.onBye("106", [99])]).toEqual([true, false, false]);
+    // A model built before Phase 4c (odds as rosters stand): no pickups, the roster as it stands.
+    delete f.model.oddsAsRostersStand;
+    const stands = scheduleByeRule(f.snapshot, f.model, "1", undefined);
+    expect(stands.pickups).toBe(false);
+    expect(stands.players).toEqual(["101", "102", "103", "104", "105", "106", "108", "MIN", "107"]);
+    // No such team: nobody.
+    expect(scheduleByeRule(f.snapshot, f.model, "99", undefined)).toMatchObject({ players: [], starters: [] });
+
+    // A likely starter the snapshot lists on the active roster and IR alike (a data error) is an active player, as the
+    // engine reads him (league.ts TeamWork.ir): listed once, his week-13 bye counts though his IR tag says week 15.
+    const g = leagueFixture();
+    availability(g, "105", [1, 0, 0, 0, 0, 0.5]);
+    const spoons = g.snapshot.players["106"];
+    if (!spoons) throw new Error("fixture WR missing");
+    g.snapshot = {
+      ...g.snapshot,
+      teams: g.snapshot.teams.map((t) => (t.id === "1" ? { ...t, ir: [...t.ir, "106"] } : t)),
+      players: { ...g.snapshot.players, "106": { ...spoons, injury: "IR", injuryReturnWeek: 15 } },
+    };
+    byeIn(g, ["106"], 13);
+    const both = scheduleByeRule(g.snapshot, g.model, "1", undefined);
+    expect(both.starters).toContain("106");
+    expect(both.players.filter((id) => id === "106")).toHaveLength(1);
+    expect(both.onBye("106", [13])).toBe(true);
+    expect(of(g).schedule?.rows[1]?.byes).toMatchObject({ text: "W. Spoons", count: 1 });
+  });
+
+  it("applies a team's free-agent pickups in order, as the optimizer does (optimizer.ts applyStep): in the drop's place, or at the end for an open spot", () => {
+    expect(rosterAfterPickups(["a", "b", "c"], [])).toEqual(["a", "b", "c"]);
+    expect(rosterAfterPickups(["a", "b", "c"], [{ add: "x", drop: "b" }])).toEqual(["a", "x", "c"]);
+    expect(rosterAfterPickups(["a", "b"], [{ add: "x", drop: null }])).toEqual(["a", "b", "x"]);
+    // A later move can swap an earlier pickup away; each id once.
+    expect(
+      rosterAfterPickups(
+        ["a", "b", "a"],
+        [
+          { add: "x", drop: null },
+          { add: "y", drop: "x" },
+        ],
+      ),
+    ).toEqual(["a", "b", "y"]);
   });
 
   it("shows the median game's chance in median-game leagues", () => {
@@ -495,7 +835,7 @@ describe("buildLeagueView: my remaining schedule (§8: each remaining week's ris
     const f = leagueFixture();
     myGame(f, 13, { opponentId: null, pWin: null });
     // "—" read as "no game": there's nothing to win, which isn't an unknown chance.
-    expect(of(f).schedule?.rows[1]).toMatchObject({ opponentId: null, opponent: "Bye week", mine: "90", theirs: null, win: { text: "—", srText: "no game" }, risk: null });
+    expect(of(f).schedule?.rows[1]).toMatchObject({ opponentId: null, opponent: "Bye week", mine: "91.5", theirs: null, win: { text: "—", srText: "no game" }, risk: null });
     // Three likely starters off in a week without a game: listed, not flagged (the simulator plays nothing for a bye, so it can't move the odds), and the note says why.
     byeIn(f, ["102", "104", "105"], 13);
     expect(of(f).schedule?.rows[1]).toMatchObject({ byes: { count: 3 }, risk: null });
@@ -530,7 +870,7 @@ describe("buildLeagueView: my remaining schedule (§8: each remaining week's ris
     const rows = of(f).schedule?.rows;
     expect(rows?.map((r) => [r.week, r.weekText, r.weekLabel, r.opponent, r.mine, r.theirs, r.byes?.text ?? null])).toEqual([
       [12, "12", "Week 12", "Quasar Quokkas", "91.4", "88", null],
-      [13, "13–14", "Weeks 13–14", "Tundra Tortoises", "174", "168", "D. Quibble"],
+      [13, "13–14", "Weeks 13–14", "Tundra Tortoises", "177", "168", "D. Quibble"],
     ]);
     // Every week still to play: nothing to say about it.
     expect(rows?.[1]?.underWay).toBeNull();
@@ -567,8 +907,22 @@ describe("buildLeagueView: my remaining schedule (§8: each remaining week's ris
 
   it("captions the table and says who counts as a likely starter and when a week is flagged", () => {
     expect(v.schedule?.caption).toBe("Your remaining regular-season games: the opponent, projected points for you and them, and your chance to win each week");
-    expect(v.schedule?.note).toBe(
-      `"On bye" names your likely starters who are off that week: your best lineup by each player's projected points per game left. A week is flagged risky when your chance to win it is under 40%, or when ${RISKY_BYES} or more of those starters are on bye.`,
+    const starters = `"On bye" names your likely starters who are off that week: players in your best lineup, after your free-agent pickups, in at least half the weeks they play. D/STs don't count: you stream them, so the streaming replacement covers their byes. A week is flagged risky when your chance to win it is under 40%, or when ${RISKY_BYES} or more of those starters are on bye.`;
+    expect(before.schedule?.note).toBe(`Projected points and chances count each team's free-agent pickups that would help, as the odds above do. ${starters}`);
+    // While a week is under way the pickups count from the next week, as the odds' notes say: the model plays the week
+    // under way with today's rosters (review of track UIP: the row of that week counted no pickups, though the note said so).
+    expect(v.schedule?.note).toBe(`Projected points and chances count each team's free-agent pickups that would help from week 13 on, as the odds above do: week 12 is played with today's rosters. ${starters}`);
+    // …and when the week under way is the last one, none at all.
+    const last = leagueFixture();
+    last.model = { ...last.model, weeks: [12], regularWeeks: [12], playoffWeeks: [] };
+    last.model.odds = { ...oddsOf(last), weekly: oddsOf(last).weekly.filter((wk) => wk.week === 12) };
+    expect(of(last).schedule?.note).toMatch(/^Projected points and chances play week 12 with today's rosters, without free-agent pickups, as the odds above do\. "On bye"/);
+    for (const note of [v.schedule?.note, before.schedule?.note, of(last).schedule?.note]) expect(note).not.toMatch(/can't play/);
+    // A model built before Phase 4c: its odds and points count no pickups, and the note doesn't say they do.
+    const f = leagueFixture();
+    delete f.model.oddsAsRostersStand;
+    expect(of(f).schedule?.note).toBe(
+      `"On bye" names your likely starters who are off that week: players in your best lineup in at least half the weeks they play. D/STs don't count: you stream them, so the streaming replacement covers their byes. A week is flagged risky when your chance to win it is under 40%, or when ${RISKY_BYES} or more of those starters are on bye.`,
     );
   });
 
@@ -583,10 +937,10 @@ describe("buildLeagueView: my remaining schedule (§8: each remaining week's ris
       [14, "38%", null],
     ]);
     expect(pointsOnly.schedule?.note).toBe(
-      `Your league ranks teams by total points, so these games don't change the standings: only your points count. "On bye" names your likely starters who are off that week: your best lineup by each player's projected points per game left. A week is flagged risky when ${RISKY_BYES} or more of those starters are on bye.`,
+      `Your league ranks teams by total points, so these games don't change the standings: only your points count. Projected points and chances count each team's free-agent pickups that would help from week 13 on, as the odds above do: week 12 is played with today's rosters. "On bye" names your likely starters who are off that week: players in your best lineup, after your free-agent pickups, in at least half the weeks they play. D/STs don't count: you stream them, so the streaming replacement covers their byes. A week is flagged risky when ${RISKY_BYES} or more of those starters are on bye.`,
     );
     expect(pointsOnly.explain.find((e) => e.title === "Playoff odds")?.text).toContain(
-      `Your remaining schedule flags a week as risky when ${RISKY_BYES} or more of your likely starters (your best lineup by projected points per game left) are on bye.`,
+      `Your remaining schedule flags a week as risky when ${RISKY_BYES} or more of your likely starters (players in your best lineup, after your free-agent pickups, in at least half the weeks they play) are on bye, not counting D/STs, whose byes the streaming replacement covers since you stream them.`,
     );
   });
 });
@@ -1255,12 +1609,38 @@ describe("buildLeagueView: the market blend (§6 step 8, PlayerModel.blend; plan
     expect(blendIsOwnPoint({ ours: 120.3, market: 120.4 })).toBe(false);
   });
 
-  it("says in 'Projected points' which positions were blended, how far and that it is per game; nothing when nobody was", () => {
+  it("says in 'Projected points' which positions were blended, how far (at most config.marketBlend.factorClamp's bounds) and that it is per game; nothing when nobody was", () => {
     const text = (f: LeagueFixture) => of(f, { now: BEFORE_KICKOFF }).explain.find((e) => e.title === "Projected points")?.text ?? "";
     expect(text(blended())).toContain(
-      "Then, for RBs with a FantasyCalc trade value, points per game are pulled halfway toward what our model gives healthy players with about the same trade value, so a projection the trade market disagrees with counts for less; byes and injuries stay as projected (a player's breakdown shows both numbers).",
+      `Then, for RBs with a FantasyCalc trade value, points per game are pulled halfway toward what our model gives healthy players with about the same trade value, at most ${CAP.up} up or ${CAP.down} down, so a projection the trade market disagrees with counts for less; byes and injuries stay as projected (a player's breakdown shows both numbers).`,
     );
     expect(text(leagueFixture({ gameDay: false }))).not.toContain("trade market");
+  });
+
+  it("says when the market moved a player as far as it may (PlayerBlend.clamped; planner reply to Checkpoint 4b, change 4), worded from config.marketBlend.factorClamp", () => {
+    const [lo, hi] = config.marketBlend.factorClamp;
+    // Capped high: ours × hi, where the half-and-half blend would be more.
+    const high = { ours: 100, market: 200, used: 100 * hi, weight: 0.5, clamped: "high" as const };
+    expect(blendText(high)).toEqual({
+      text: `Our projection 100 · Trade market 200 · Used ${fmtWhole(100 * hi)} (capped: the market moves him up at most ${CAP.up})`,
+      title: `Rest-of-season points. Our projection: our own model's. Trade market: the same games at the points per game our model gives healthy players with his trade value. Used: 50% ours and 50% the market's would be 150, but the market moves a projection at most ${CAP.up} up and ${CAP.down} down, so his stops at ${CAP.up} above ours, which every number on this page uses.`,
+    });
+    const low = { ours: 200, market: 50, used: 200 * lo, weight: 0.5, clamped: "low" as const };
+    expect(blendText(low).text).toBe(`Our projection 200 · Trade market 50 · Used ${fmtWhole(200 * lo)} (capped: the market moves him down at most ${CAP.down})`);
+    expect(blendText(low).title).toContain(`would be 125, but the market moves a projection at most ${CAP.up} up and ${CAP.down} down, so his stops at ${CAP.down} below ours`);
+    // The words follow the clamp, never a fixed number.
+    expect(blendText(high, "redraft", null, [0.8, 1.2]).text).toContain("(capped: the market moves him up at most 20%)");
+    expect(blendText(low, "redraft", null, [0.8, 1.2]).title).toContain("at most 20% up and 20% down, so his stops at 20% below ours");
+    // A factor inside the clamp says nothing about it.
+    expect(blendText({ ours: 210.4, market: 169.6, used: 190, weight: 0.5 }).text).not.toContain("capped");
+    // On the page: a capped player's breakdown and his hover.
+    const f = blended();
+    const pm = f.model.players["103"];
+    if (!pm?.blend) throw new Error("fixture blend missing");
+    f.model.players["103"] = { ...pm, blend: { ...pm.blend, ours: 150, market: 400, used: 150 * hi, clamped: "high" } };
+    const row = of(f, { now: BEFORE_KICKOFF }).rosters.find((r) => r.teamId === "1")?.players.find((p) => p.id === "103");
+    expect(row?.blend?.text).toBe(`Our projection 150 · Trade market 400 · Used ${fmtWhole(150 * hi)} (capped: the market moves him up at most ${CAP.up})`);
+    expect(row?.weeksText).toContain(`(capped: the market moves him up at most ${CAP.up})`);
   });
 });
 
@@ -1361,25 +1741,70 @@ describe("buildLeagueView: each team's free-agent pickups (§7 V*, TeamModel.faM
 });
 
 describe("buildLeagueView: one free agent, one team (§7; LeagueModel.faAllocation; planner reply to Checkpoint 4, change 3)", () => {
-  const withAllocation = (faAllocation: NonNullable<LeagueFixture["model"]["faAllocation"]>, opts: Parameters<typeof leagueFixture>[0] = {}) => {
+  const withAllocation = (faAllocation: NonNullable<LeagueFixture["model"]["faAllocation"]>, opts: Parameters<typeof leagueFixture>[0] = {}, edit?: (f: LeagueFixture) => void) => {
     const f = leagueFixture(opts);
     f.model = { ...f.model, faAllocation };
+    edit?.(f);
     return of(f);
   };
+  /** The snapshot as the Phase 4c adapters leave a league whose order resets weekly: every team ranked by the reset order. */
+  const weeklyReset = (f: LeagueFixture) => {
+    const ranks: Record<string, number> = { "3": 1, "1": 2, "2": 3, "4": 4 };
+    f.snapshot = {
+      ...f.snapshot,
+      settings: { ...f.snapshot.settings, waiverOrderUsed: "weeklyReset" },
+      teams: f.snapshot.teams.map((t) => ({ ...t, waiverRank: ranks[t.id] as number, liveWaiverRank: ranks[t.id] as number })),
+    };
+  };
+  /** A FAAB league whose every team reports its budget left. */
+  const faab = (f: LeagueFixture) => {
+    f.snapshot = {
+      ...f.snapshot,
+      settings: { ...f.snapshot.settings, faabBudget: 100, waiverOrderUsed: "faab" },
+      teams: f.snapshot.teams.map((t, i) => ({ ...t, faabRemaining: 100 - 10 * i })),
+    };
+  };
 
-  it("says above the rosters how free agents are shared out, and where my team picks", () => {
-    expect(withAllocation({ basis: "waiver", order: ["3", "1", "2", "4"] }).pickupsNote).toBe("Free-agent pickups: each free agent goes to one team only, in your league's waiver order. Your team picks 2nd of 4.");
-    expect(withAllocation({ basis: "faab", order: ["1", "2", "3", "4"] }).pickupsNote).toBe("Free-agent pickups: each free agent goes to one team only, in FAAB order (the most budget left first). Your team picks 1st of 4.");
-    // "Wasn't available", never "doesn't report" (review of track F): an import saved before the adapters read ESPN's
-    // waiver order has none although the league reports one.
-    expect(withAllocation({ basis: "gain", order: ["2", "4", "3", "1"] }).pickupsNote).toBe(
+  /** The Import Report's "Waiver order used" row for the fixture's snapshot after `edit` (importReport.ts waiverOrderText: its words are pinned there). */
+  const rowFor = (edit?: (f: LeagueFixture) => void) => {
+    const f = leagueFixture();
+    edit?.(f);
+    return waiverOrderText(f.snapshot);
+  };
+
+  it("says above the rosters how free agents are shared out, where my team picks, and the waiver order used, word for word the Import Report's row (planner reply to Checkpoint 4b, change 5)", () => {
+    const reset = withAllocation({ basis: "waiver", order: ["3", "1", "2", "4"] }, {}, weeklyReset);
+    expect(reset.pickupsNote).toEqual({ text: "Free-agent pickups: each free agent goes to one team only. Your team picks 2nd of 4.", waiverOrder: rowFor(weeklyReset) });
+    expect(reset.pickupsNote?.waiverOrder).toMatch(/weekly reset/i);
+    expect(WAIVER_ORDER_LABEL).toBe("Waiver order used");
+    const budgets = withAllocation({ basis: "faab", order: ["1", "2", "3", "4"] }, {}, faab);
+    expect(budgets.pickupsNote).toEqual({ text: "Free-agent pickups: each free agent goes to one team only. Your team picks 1st of 4.", waiverOrder: rowFor(faab) });
+    expect(budgets.pickupsNote?.waiverOrder).toMatch(/FAAB/);
+    // No order reported (the fixture's snapshot ranks no team): the biggest gain first, as the Import Report says.
+    const gain = withAllocation({ basis: "gain", order: ["2", "4", "3", "1"] });
+    expect(gain.pickupsNote).toEqual({ text: "Free-agent pickups: each free agent goes to one team only. Your team picks 4th of 4.", waiverOrder: waiverOrderText(leagueFixture().snapshot) });
+  });
+
+  it("names the basis in words instead when the snapshot doesn't read as the allocation's basis (it can't name the order then)", () => {
+    expect(withAllocation({ basis: "waiver", order: ["3", "1", "2", "4"] }).pickupsNote).toEqual({
+      text: "Free-agent pickups: each free agent goes to one team only, in your league's waiver order. Your team picks 2nd of 4.",
+      waiverOrder: null,
+    });
+    expect(withAllocation({ basis: "faab", order: ["1", "2", "3", "4"] }, {}, weeklyReset).pickupsNote).toEqual({
+      text: "Free-agent pickups: each free agent goes to one team only, in FAAB order (the most budget left first). Your team picks 1st of 4.",
+      waiverOrder: null,
+    });
+    // "Wasn't available", never "doesn't report" (review of track F).
+    expect(withAllocation({ basis: "gain", order: ["2", "4", "3", "1"] }, {}, weeklyReset).pickupsNote?.text).toBe(
       "Free-agent pickups: each free agent goes to one team only, the team that gains the most from its best pickup first (your league's waiver order wasn't available). Your team picks 4th of 4.",
     );
-    expect(withAllocation({ basis: "gain", order: ["2", "4", "3", "1"] }).pickupsNote).not.toContain("doesn't report");
   });
 
   it("leaves out where I pick without a team, and says nothing for a model built before Phase 4b or once the season is over", () => {
-    expect(withAllocation({ basis: "waiver", order: ["3", "2", "4"] }, { myTeamId: null }).pickupsNote).toBe("Free-agent pickups: each free agent goes to one team only, in your league's waiver order.");
+    expect(withAllocation({ basis: "waiver", order: ["3", "2", "4"] }, { myTeamId: null }, weeklyReset).pickupsNote).toEqual({
+      text: "Free-agent pickups: each free agent goes to one team only.",
+      waiverOrder: rowFor(weeklyReset),
+    });
     expect(v.pickupsNote).toBeNull();
     const over = leagueFixture();
     over.model = {
@@ -1594,7 +2019,7 @@ describe("buildLeagueView: how these numbers work", () => {
     const o = config.freeAgentOptimizer;
     // Judged with injuries and byes simulated (scenarios ran, no starter limits): review of Phase 4.
     expect(text).toContain(
-      `Free-agent pickups: Each team is measured after the free-agent pickups that would help it, made one at a time: each time the add (dropping a player, or into an open roster spot) that adds the most lineup points with injuries and byes simulated (so a backup who'd start when a starter is hurt or on bye counts), as long as it adds at least ${o.faMinGain}, up to ${o.faMaxMoves} pickups. Kickers and D/STs are never picked up (they're streamed or kept), nor is a position the team streams, and a player its starting lineup needs is never dropped. Lineup cost, trade chips and partners all start from those rosters, so a trade never gets credit for a pickup a team could make anyway. Each team is measured on its own, so two teams may count on the same free agent.`,
+      `Free-agent pickups: Each team is measured after the free-agent pickups that would help it, made one at a time: each time the add (dropping a player, or into an open roster spot) that adds the most lineup points with injuries and byes simulated (so a backup who'd start when a starter is hurt or on bye counts), as long as it adds at least ${o.faMinGain}, up to ${o.faMaxMoves} pickups. When the player it would drop has trade value and dropping a less valuable one instead costs at most ${config.lineups.dropNearTieWeekly} points a week, the less valuable one goes (any player worth less than the best free agent counts as worth that much), so a pickup can add a little less. Kickers and D/STs are never picked up (they're streamed or kept), nor is a position the team streams, and a player its starting lineup needs is never dropped. Lineup cost, trade chips and partners all start from those rosters, so a trade never gets credit for a pickup a team could make anyway. Each team is measured on its own, so two teams may count on the same free agent.`,
     );
     // One free agent, one team (planner reply to Checkpoint 4, change 3): with an allocation, the last sentence says how
     // free agents are shared out instead (a model built before Phase 4b, like the fixture's, keeps the old one).
@@ -1642,12 +2067,17 @@ describe("buildLeagueView: how these numbers work", () => {
     const off = "this league's dynasty values didn't load this time, so that check is off.";
     // A redraft league: no guard, nothing said.
     expect(pickups(leagueFixture())).not.toMatch(/dynasty/);
+    // ⚠️ The near-ties in whom a pickup drops (verification of the final review of Phase 4c, finding VF-1) apply where the
+    // guard doesn't (no long-term values, as roster legality's), and are said only there.
+    const nearTie = "When the player it would drop has trade value and dropping a less valuable one instead costs at most";
     // A keeper league with its dynasty list (the market's own format): the guard is on.
     const keeper = leagueFixture();
     keeper.snapshot = { ...keeper.snapshot, settings: { ...keeper.snapshot.settings, leagueType: "keeper" } };
     keeper.model.market = { ...keeper.model.market, format: fantasyCalcFormat(keeper.snapshot.settings) };
     expect(keeper.model.market.format?.isDynasty).toBe(true);
     expect(pickups(keeper)).toContain(guard);
+    expect(pickups(keeper)).not.toContain(nearTie);
+    expect(pickups(leagueFixture())).toContain(nearTie);
     // Its dynasty list didn't load (the server falls back to the redraft list): the guard is off, and the text says so.
     const fallback = leagueFixture();
     fallback.snapshot = keeper.snapshot;
@@ -1655,6 +2085,7 @@ describe("buildLeagueView: how these numbers work", () => {
     expect(fallback.model.market.format?.isDynasty).toBe(false);
     expect(pickups(fallback)).not.toContain(guard);
     expect(pickups(fallback)).toContain(off);
+    expect(pickups(fallback)).toContain(nearTie);
     // FantasyCalc down: no values at all, in a dynasty league too.
     const down = leagueFixture();
     down.snapshot = { ...keeper.snapshot, settings: { ...keeper.snapshot.settings, leagueType: "dynasty" } };
@@ -1672,7 +2103,19 @@ describe("buildLeagueView: how these numbers work", () => {
     const weekText =
       'Once a week\'s first game kicks off, the team numbers (points per week, team ROS points, positional strength, needs, lineup cost, free-agent pickups, trade chips and partners) count from the next week, week 13: lineups are locking and week 12\'s points are being scored, so it no longer says how good a team is. A player\'s own ROS points still count his week 12 game if it hasn\'t kicked off; one that has shows "Game already started".';
     // The playoff odds still play that week, from pre-game projections (§8; lead decision D6).
+    // What the model does with the pickups, never a platform rule (review of track UIP: "a pickup made now can't play in
+    // week 12" wasn't true: a free agent whose game hasn't started can be picked up and started).
     expect(v.explain.find((e) => e.title === "Week 12 is under way")?.text).toBe(
+      `${weekText} The playoff odds still play all of week 12's games from projections, as if none had started: live scores aren't read yet, and the rosters and injury news are today's, without free-agent pickups. Each team's free-agent pickups count from week 13 on.`,
+    );
+    // The last week under way: no week is left to count pickups in.
+    const last = leagueFixture();
+    last.model = { ...last.model, weeks: [12], regularWeeks: [12], playoffWeeks: [] };
+    expect(of(last).explain.find((e) => e.title === "Week 12 is under way")?.text).toMatch(/and the rosters and injury news are today's, without free-agent pickups\.$/);
+    // A model built before Phase 4c counts no pickups, so nothing is said about them.
+    const old = leagueFixture();
+    delete old.model.oddsAsRostersStand;
+    expect(of(old).explain.find((e) => e.title === "Week 12 is under way")?.text).toBe(
       `${weekText} The playoff odds still play all of week 12's games from projections, as if none had started: live scores aren't read yet, and the rosters and injury news are today's.`,
     );
     expect(before.explain.map((e) => e.title)).not.toContain("Week 12 is under way");
@@ -1684,8 +2127,16 @@ describe("buildLeagueView: how these numbers work", () => {
 
   it("explains the playoff odds with the simulation's own numbers and the league's rules (§8)", () => {
     expect(v.explain.find((e) => e.title === "Playoff odds")?.text).toBe(
-      `We play out the rest of the season 5,000 times. Each week, every team's score is drawn around its projected starting lineup (its average over the 32 simulated runs of injuries and byes), with a spread that covers its starters' week-to-week swings and how much injuries and byes could change the lineup. Each simulated game adds to today's records. Each simulated season is then ranked by your league's rules: win percentage, then points for. The top 2 make the playoffs and meet for the title. A team's chance of a playoff spot or the title is the share of those seasons where it happened. Each time the odds are worked out, every team and week gets the same random draws (common random numbers), so when trade ideas compare the odds before and after a trade, the difference comes from the trade, not from the luck of the draw. Your remaining schedule flags a week as risky when your chance to win it is under ${Math.round(RISKY_WIN_CHANCE * 100)}%, or when ${RISKY_BYES} or more of your likely starters (your best lineup by projected points per game left) are on bye.`,
+      `We play out the rest of the season 5,000 times. Each week, every team's score is drawn around its projected starting lineup (its average over the 32 simulated runs of injuries and byes), with a spread that covers its starters' week-to-week swings and how much injuries and byes could change the lineup. Every team's lineup counts the free-agent pickups that would help it (listed on its roster); trade ideas start from these same odds. Your odds as rosters stand, with no team's pickups, are the smaller line under yours. Each simulated game adds to today's records. Each simulated season is then ranked by your league's rules: win percentage, then points for. The top 2 make the playoffs and meet for the title. A team's chance of a playoff spot or the title is the share of those seasons where it happened. Each time the odds are worked out, every team and week gets the same random draws (common random numbers), so when trade ideas compare the odds before and after a trade, the difference comes from the trade, not from the luck of the draw. Your remaining schedule flags a week as risky when your chance to win it is under ${Math.round(RISKY_WIN_CHANCE * 100)}%, or when ${RISKY_BYES} or more of your likely starters (players in your best lineup, after your free-agent pickups, in at least half the weeks they play) are on bye, not counting D/STs, whose byes the streaming replacement covers since you stream them.`,
     );
+    // Without a team there's no second line to point to; a model built before Phase 4c counts no pickups at all.
+    const noTeam = view({ myTeamId: null }).explain.find((e) => e.title === "Playoff odds")?.text ?? "";
+    expect(noTeam).toContain("Every team's lineup counts the free-agent pickups that would help it (listed on its roster); trade ideas start from these same odds. Each simulated game");
+    const old = leagueFixture();
+    delete old.model.oddsAsRostersStand;
+    const oldText = of(old).explain.find((e) => e.title === "Playoff odds")?.text ?? "";
+    expect(oldText).not.toContain("free-agent pickups");
+    expect(oldText).toContain("of your likely starters (players in your best lineup in at least half the weeks they play) are on bye, not counting D/STs, whose byes the streaming replacement covers since you stream them.");
   });
 
   it("words the league's own playoff rules: byes, re-seeding, the tiebreaker, division winners, median games, and what's assumed", () => {
@@ -1741,7 +2192,7 @@ describe("buildLeagueView: how these numbers work", () => {
     // The odds named are the ones the standings show: a bye only when the league has byes whose odds are known.
     expect(text((f) => withByes(f))).toContain("A team's chance of a playoff spot, a bye or the title is the share of those seasons where it happened.");
     expect(text((f) => withByes(f, {}))).toContain("A team's chance of a playoff spot or the title is the share");
-    expect(text((f) => (f.model = { ...f.model, scenarios: 0 }))).toContain("drawn around its projected starting lineup, with a spread that covers its starters' week-to-week swings. Each");
+    expect(text((f) => (f.model = { ...f.model, scenarios: 0 }))).toContain("drawn around its projected starting lineup, with a spread that covers its starters' week-to-week swings. Every team's lineup counts");
     // The schedule's risk rule only when the schedule shows; no paragraph without odds.
     expect(text(() => {}, { myTeamId: null })).not.toContain("remaining schedule");
     expect(text((f) => (f.model.odds = null))).toBe("");
@@ -1773,6 +2224,90 @@ describe("buildLeagueView: how these numbers work", () => {
     ).toContain("get a flat minimum value, whatever they project");
     // Sleeper's name for team defenses.
     expect(valuesText((f) => (f.snapshot = { ...f.snapshot, platform: "sleeper" }))).toContain("At K and DEF, FantasyCalc values too few players");
+  });
+});
+
+describe("buildLeagueView: FantasyCalc's fallbacks (planner reply to Checkpoint 4b, change 12; MarketInputs.fallback)", () => {
+  const SAVED = { kind: "saved" as const, listDate: "2026-11-22T09:00:00.000Z" };
+  const CURVE = { kind: "curve" as const, listDate: "2026-11-02T09:00:00.000Z" };
+  /** The fixture with FantasyCalc's fallback in its model inputs, as src/server/modelInputs.ts leaves them. */
+  const withFallback = (fallback: typeof SAVED | typeof CURVE, edit?: (f: LeagueFixture) => void) => {
+    const f = leagueFixture();
+    const market = { values: {}, knownIds: [], topValue: 10722, fetchedAt: "2026-11-22T09:00:00.000Z", format: f.model.market.format as NonNullable<LeagueFixture["model"]["market"]["format"]>, fallback };
+    f.inputs = { ...f.inputs, market };
+    if (fallback.kind === "saved") f.inputs = { ...f.inputs, notes: [...f.inputs.notes, fantasyCalcFallbackText(fallback)] };
+    else {
+      f.inputs = { ...f.inputs, warnings: [...f.inputs.warnings, { code: "FANTASYCALC_VALUES_ESTIMATED", message: fantasyCalcFallbackText(fallback), platformPath: "values/current" }] };
+      // Every value is the curve's estimate (market.curveMarketValues), K and D/ST at the floor.
+      for (const pm of Object.values(f.model.players)) if (pm.value?.source === "fantasycalc") pm.value = { ...pm.value, source: "estimate" };
+    }
+    edit?.(f);
+    return of(f);
+  };
+
+  it("dates a saved list next to the values credit, once (the inputs' own note isn't repeated), and in the explainer", () => {
+    const saved = withFallback(SAVED);
+    expect(fantasyCalcFallbackText(SAVED)).toBe("Trade values from Nov 22: FantasyCalc didn't answer.");
+    expect(saved.header.valuesNote).toBe("Trade values from Nov 22: FantasyCalc didn't answer.");
+    expect(saved.header.valuesFormat).toBe("8 teams · half-PPR · 1 QB · redraft");
+    expect(saved.valuesBanner).toBeNull();
+    expect(saved.notes).toEqual(["Sleeper hasn't published week 18 projections yet."]);
+    expect(saved.explain.find((e) => e.title === "Trade values")?.text).toContain(
+      "Values come from FantasyCalc in your league's format (8 teams · half-PPR · 1 QB · redraft), from its list of Nov 22: FantasyCalc didn't answer this time, so the newest list we saved stands in.",
+    );
+    // FantasyCalc's own values: no "~" on them, and their hover says so.
+    const quibble = saved.rosters.find((r) => r.teamId === "1")?.players.find((p) => p.id === "102");
+    expect(quibble?.value).toMatchObject({ text: "2,400", estimated: false, title: "FantasyCalc trade value" });
+  });
+
+  it("puts a banner at the top when every value is our own estimate (the curve), in place of the inputs' warning, and says so where the values show", () => {
+    const curve = withFallback(CURVE);
+    expect(curve.valuesBanner).toEqual({ title: VALUES_ESTIMATED_TITLE, text: fantasyCalcFallbackText(CURVE) });
+    expect(VALUES_ESTIMATED_TITLE).toBe("FantasyCalc is unavailable");
+    expect(curve.valuesBanner?.text).toContain("Trade values are our own estimates, not FantasyCalc's");
+    // Said once: not in the warnings box too.
+    expect(curve.warnings).toEqual(["Sleeper's week 17 projections didn't load.", "No projection for Dabney Drifter."]);
+    expect(curve.header.valuesNote).toBe(VALUES_ESTIMATED_LINE);
+    expect(VALUES_ESTIMATED_LINE).toBe("Every value shown is our own estimate for now.");
+    // An estimate's hover no longer says FantasyCalc doesn't value him; "~" marks every one.
+    const quibble = curve.rosters.find((r) => r.teamId === "1")?.players.find((p) => p.id === "102");
+    expect(quibble?.value).toEqual({ text: "~2,400", estimated: true, title: "Our estimate from his projected points (FantasyCalc's values aren't available right now)", srText: "(our estimate)" });
+    // The explainer: every value ours, never "Players FantasyCalc doesn't value"; the flat minimum where the old list values too few.
+    const values = curve.explain.find((e) => e.title === "Trade values")?.text ?? "";
+    expect(values).toBe(
+      "Every value is our own estimate for now (the note at the top of the page says why), in your league's format (8 teams · half-PPR · 1 QB · redraft): each player's comes from his projected points for the rest of the season, on a curve fitted to FantasyCalc's list from Nov 2, marked ~. Where your league doesn't match one of FantasyCalc's formats exactly: 4 teams → FantasyCalc's 8-team values. At K and D/ST, FantasyCalc's list values too few players to fit a curve, so each gets a flat minimum value (~107), whatever he projects, also marked ~.",
+    );
+    expect(values).not.toContain("doesn't value");
+    // Nothing is pulled toward the market meanwhile, and the explainer says so.
+    expect(curve.explain.find((e) => e.title === "Projected points")?.text).toContain("While FantasyCalc is unavailable, projections aren't pulled toward the trade market: the values are our own estimates.");
+    // "Harder to get" ranks the top 12 by our own estimates then (premium.ts eliteIds), not FantasyCalc's list (review of track UIP).
+    const harder = curve.explain.find((e) => e.title === HARDER_TO_GET_TAG)?.text ?? "";
+    expect(harder).toContain(`one of the top ${config.acceptance.starPremium.eliteTop} players by trade value (our own estimates while FantasyCalc is unavailable), so expect`);
+    expect(harder).not.toContain("FantasyCalc's, in your league's format");
+    // A saved list is FantasyCalc's own: it says so.
+    expect(withFallback(SAVED).explain.find((e) => e.title === HARDER_TO_GET_TAG)?.text).toContain("players by trade value (FantasyCalc's, in your league's format)");
+  });
+
+  it("says long-term value and the pickups' dynasty guard are off in a dynasty or keeper league while the values are our estimates", () => {
+    const dynasty = withFallback(CURVE, (f) => {
+      f.snapshot = { ...f.snapshot, settings: { ...f.snapshot.settings, leagueType: "dynasty" } };
+      f.model.market = { ...f.model.market, format: fantasyCalcFormat(f.snapshot.settings) };
+    });
+    expect(dynasty.explain.find((e) => e.title === "Trade values")?.text).toContain("Long-term value is left out of trade ideas until FantasyCalc is back: our estimates say nothing about later seasons.");
+    const pickups = dynasty.explain.find((e) => e.title === "Free-agent pickups")?.text ?? "";
+    expect(pickups).toContain("but while the values are our own estimates (FantasyCalc is unavailable) that check is off.");
+    expect(pickups).not.toContain("is never dropped for him.");
+  });
+
+  it("shows the banner from the inputs' warning alone (inputs without the fallback field), and nothing when FantasyCalc answered", () => {
+    const f = leagueFixture();
+    f.inputs = { ...f.inputs, warnings: [...f.inputs.warnings, { code: "FANTASYCALC_VALUES_ESTIMATED", message: "(the server's words)" }] };
+    const warned = of(f);
+    expect(warned.valuesBanner).toEqual({ title: VALUES_ESTIMATED_TITLE, text: "(the server's words)" });
+    expect(warned.warnings).not.toContain("(the server's words)");
+    expect(warned.header.valuesNote).toBe(VALUES_ESTIMATED_LINE);
+    expect(v.valuesBanner).toBeNull();
+    expect(v.header.valuesNote).toBeNull();
   });
 });
 

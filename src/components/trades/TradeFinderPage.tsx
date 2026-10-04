@@ -1,31 +1,59 @@
 "use client";
 /**
- * The Trade Finder (CLAUDE.md §12, §13, §14 item 4; Phase 4 wave 2 decisions M12–M14). It loads the imported league
- * and its model inputs the way the League page does (useLeagueInputs.ts), reads the league's settings (the Settings
- * page saves them; every setting goes with the search), and runs the trade search in the engine's Web Worker (§3)
+ * The Trade Finder (CLAUDE.md §12, §13, §14 item 4; Phase 4 wave 2 decisions M12–M14). It loads the league this tab
+ * shows (one of the leagues saved in this browser: src/lib/leagueStore.ts, Phase 4c) and its model inputs the way the
+ * League page does (useLeagueInputs.ts), reads the league's settings and feedback (the Settings page and the cards save
+ * them, per league; every setting goes with the search), and runs the trade search in the engine's Web Worker (§3)
  * as soon as it has all three: with every other team, or with one (the partner filter). The address's `?partner=`
- * picks it (the League page's partner cards link here that way); it's read with useSearchParams, which on a client
- * navigation already holds the new address while the page renders (window.location still holds the old one until
- * the navigation commits), so the app route wraps the page in <Suspense> (src/app/trades/page.tsx). A partner picked
+ * picks it (the League page's partner cards link here that way); the page's top component reads it with useSearchParams
+ * (through finderMemory.ts useLeagueQuery, never in the keyed part below it), which on a client navigation already holds
+ * the new address while the page renders (window.location still holds the old one until the navigation commits), so
+ * the app route wraps the page in <Suspense> (src/app/trades/page.tsx). A partner picked
  * here is written back into the address (history.replaceState, which Next keeps in step with useSearchParams) and
  * holds until the address names another one (a link here, the nav's Trades). A change of partner, of a setting
- * (saved here or in another tab), of the league data or of "my team" starts a new search, and the one under way
- * stops; so does leaving the page. The sort (Overall by default, Helps you, Chance they accept: §13) only reorders
- * the ideas found (rank.ts sortTrades, through src/lib/tradeView.ts).
+ * (saved here or in another tab; "What matters most" among them, since it changes B), of the league data or of "my
+ * team" starts a new search, and the one under way stops; so does leaving the page. The sort (Overall by default, Helps
+ * you, Chance they accept: §13) only reorders the ideas found (rank.ts sortTrades, through src/lib/tradeView.ts).
+ *
+ * "Chance they accept: at least" (Phase 4c; planner reply to Checkpoint 4b, change 10): Any, 10% … 50% (the default 10%,
+ * saved per league with the other settings: TradeSettings.minChance, changeSavedSettings). The search ranks with the
+ * minimum it was started with; changing the minimum alone never searches again: the worker ranks the same ideas again
+ * (engineClient.ts refilterTrades, engine.worker.ts `refilter`, search.ts refilterSearch), its progress the ranking
+ * alone. The search key leaves the minimum out (searchKeyFor), so remembered ideas ranked at another minimum are
+ * re-filtered too. When the worker can't re-filter (a kickoff since, or it no longer holds the search) it searches afresh,
+ * and the page shows that search's progress, its status line a search's. The minimum reads the chance the trade goes
+ * through (P_complete), which the control says in a league that reviews trades, naming the review as the cards do
+ * ("which a league veto vote can cut", "which the commissioner's review can cut": tradeView.ts minChanceNote; review of
+ * track UIC, finding 5).
+ *
+ * What the cards and "How to read" say about values follows the league's data (tradeView.ts valueFactsOf, from the
+ * model inputs: FantasyCalc's values, long-term values, the market blend; review of track UIC, findings 2 and 3).
  *
  * States: loading the league, loading projections (or failed, with Try again), no team picked (a link to the Import
- * Report), searching (a progress bar with the stage in plain words, and Stop), stopped (Search again), failed (Try
- * again), and done: my odds before any trade (with what they count: src/lib/tradeView.ts baselineLines), the ideas as
- * cards, what was left out on purpose, notes and warnings, or an empty state that says why there's nothing (no team,
- * season over, deadline passed, nothing found). While a new search runs, and after it's stopped or has failed, the
- * last ideas found for the same partner stay on screen, dimmed.
+ * Report), searching or re-filtering (a progress bar with the stage in plain words, and Stop), stopped (Search again),
+ * failed (Try again), and done: my odds before any trade (with what they count: src/lib/tradeView.ts baselineLines,
+ * the League page's headline odds since Phase 4c) and what "Helps you" sums up, the pattern note when the search found
+ * one (change 6), a line when the minimum leaves few ideas, the ideas as cards, what was left out on purpose, notes and
+ * warnings, or an empty state that says why there's nothing (no team, season over, deadline passed, none at this
+ * minimum, nothing found). While a new search or re-filter runs, and after it's stopped or has failed, the last ideas
+ * found for the same partner stay on screen, dimmed.
+ *
+ * Another league (the switcher at the top of every page, Phase 4c): the page starts fresh for it (one page state per
+ * saved league), and its engine client, ideas, address and sort are that league's own (finderMemory.ts), so nothing
+ * from one league shows in another: ⚠️ an address read under one league is read as none under another (a switch, a
+ * removal here or in another tab) and dropped (finderMemory.ts useLeagueQuery; review of track ML). A feedback press
+ * shows on its card at once (the league store applies it), and the card says what it did once the browser has kept it,
+ * or in an alert on the card when it refused (FeedbackControls awaits useFeedback.ts saveFeedbackPress; Phase 4c, the
+ * crossTrack of track ML: it replaced the page-wide alert). Each press saves the sent version's model inputs, with "What
+ * matters most" as the search weighted B (Done.goal).
  *
  * Coming back (review of Phase 4; finderMemory.ts): the trade pages share one engine client, whose worker keeps its
  * evaluation context between them. A search whose ideas were found before in this tab (same league data, inputs, team,
- * settings and partner) and still hold (no kickoff since, the same deadline readings: src/workers/freshness.ts) shows
- * them again at once instead of searching, in the sort the page was left in; the Analyzer's "Back to the Trade
- * Finder" returns to this page's address, partner included; and when the user left through an idea's "Open in
- * Analyzer" (its own, or its "If they say no, try:" one), that link comes back into view with focus on it.
+ * settings but the minimum chance, and partner) and still hold (no kickoff since, the same deadline readings:
+ * src/workers/freshness.ts) shows them again at once instead of searching, in the sort the page was left in; the
+ * Analyzer's "Back to the Trade Finder" returns to this page's address, partner included; and when the user left through
+ * an idea's "Open in Analyzer" (its own, or its "If they say no, try:" one), that link comes back into view with focus on
+ * it.
  *
  * Accessibility: one status line (role="status") stays mounted through every state, so each change is announced
  * (the stage while searching, then what was found); the progress bar's numbers are read on demand. A button that
@@ -33,62 +61,68 @@
  * Try again (the projections) → the status line, which shows while they load. Whenever a search's results come in
  * (a page-started one too: the first load, a settings change) and focus was left on nothing, on the status line or
  * on a control that went away (Stop, a dimmed card's button), it moves to the results' heading (or, coming back from
- * the Analyzer, to the "Open in Analyzer" link used). Controls are native selects with labels, every target at least
- * 44 px tall. The search starts a tick after its effect, so React StrictMode's first run is cancelled before it starts
- * and the worker searches once.
+ * the Analyzer, to the "Open in Analyzer" link used); a re-filter started from the minimum's select leaves focus there.
+ * Controls are native selects with labels, every target at least 44 px tall. The search starts a tick after its effect,
+ * so React StrictMode's first run is cancelled before it starts and the worker searches once.
  */
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
-import { memo, useCallback, useEffect, useEffectEvent, useMemo, useRef, useState, type ReactNode, type Ref } from "react";
+import { memo, useCallback, useEffect, useEffectEvent, useId, useMemo, useRef, useState, type ReactNode, type Ref } from "react";
 import type { LeagueSettings, LeagueSnapshot } from "@/engine/model";
-import type { TradeSettings } from "@/engine/settings";
-import type { TradeSearchResult, TradeSort } from "@/engine/tradeModel";
+import { defaultTradeSettings, type Goal, type TradeSettings } from "@/engine/settings";
+import type { TradeEvaluation, TradeSearchProgress, TradeSearchResult, TradeSort } from "@/engine/tradeModel";
 import { EngineError, type TradeSearchHandle } from "@/lib/engineClient";
 import type { FeedbackChange, FeedbackRecord } from "@/lib/feedbackStore";
-import type { StoredImport } from "@/lib/importStore";
-import { modelKey, modelRequest } from "@/lib/modelStore";
+import type { SaveResult } from "@/lib/importStore";
+import type { CurrentLeagueRead } from "@/lib/leagueStore";
+import { modelRequest } from "@/lib/modelStore";
 import { settingsFingerprint } from "@/lib/settingsStore";
 import {
   ANALYZER_PATH,
+  MIN_CHANCE_OPTIONS,
   SORT_OPTIONS,
   buildFinderView,
   cardFeedback,
+  fantasyCalcLookup,
   finderHref,
   isTradeSort,
+  minChanceNote,
   partnerOrNull,
   progressView,
   readFinderPartner,
   settingsSummary,
   teamNameOf,
+  valueFactsOf,
   type FinderView,
   type ProgressView,
   type SnapshotPart,
+  type ValueFacts,
 } from "@/lib/tradeView";
 import { contextStillValid } from "@/workers/freshness";
 import { NoImportCard } from "../NoImportCard";
-import { leagueTag, useLeagueInputs, useStoredImport } from "../league/useLeagueInputs";
+import { leagueTag, useCurrentLeague, useSavedLeagueInputs } from "../league/useLeagueInputs";
 import { revealResult } from "../reveal";
-import { saveTradeFeedback, useFeedbackRecords } from "../settings/useFeedback";
-import { useLeagueSettings } from "../settings/useLeagueSettings";
+import { saveFeedbackPress, useSavedFeedback } from "../settings/useFeedback";
+import { changeSavedSettings, useSavedLeagueSettings } from "../settings/useLeagueSettings";
 import { Callout, Card, FOCUS_TARGET, Spinner, buttonClass, cx, inputClass } from "../ui";
-import { recallSearch, rememberFinderAddress, rememberReturn, rememberSearch, rememberSort, rememberedSort, takeReturnTarget, tradeEngine } from "./finderMemory";
+import { recallSearchEntry, rememberFinderAddress, rememberReturn, rememberSearch, rememberSort, rememberedSort, takeReturnTarget, tradeEngine, useLeagueQuery } from "./finderMemory";
 import { HowToRead } from "./HowToRead";
 import { LeagueLoading } from "./LeagueLoading";
 import { SearchProgress } from "./SearchProgress";
 import { TradeCard } from "./TradeCard";
 
 export const FINDER_TITLE = "Trade Finder";
-export const NO_IMPORT_TEXT = "Connect your ESPN or Sleeper league to get trade ideas for your team. Imports stay in this browser tab only.";
+export const NO_IMPORT_TEXT = "Connect your ESPN or Sleeper league to get trade ideas for your team. Leagues you import stay saved in this browser until you remove them.";
 export const NO_TEAM_TEXT = "Pick your team on the Import Report to see trade ideas.";
 
 const linkClass = "font-semibold text-brand-strong underline underline-offset-2 dark:text-brand";
 
 export function TradeFinderPage() {
-  const read = useStoredImport();
+  const read = useCurrentLeague();
+  // The address's partner, while it's this league's (finderMemory.ts useLeagueQuery: kept here, across a switch).
+  const query = useLeagueQuery();
   if (read === undefined) return <LeagueLoading />;
-  if (read.kind !== "ok") return <NoImportCard outdated={read.kind === "outdated"} text={NO_IMPORT_TEXT} />;
-  const stored = read.stored;
-  if (!modelRequest(stored)) {
+  if (read.kind !== "ok") return <NoImportCard read={read} text={NO_IMPORT_TEXT} />;
+  if (!modelRequest(read.stored)) {
     return (
       <Card className="mx-auto max-w-xl text-center">
         <h1 className="text-2xl font-black tracking-tight">Not available for this league yet</h1>
@@ -96,11 +130,17 @@ export function TradeFinderPage() {
       </Card>
     );
   }
-  // One page state per league: importing another league starts fresh (and stops the old worker).
-  return <LoadedFinder key={modelKey(stored.response.snapshot)} stored={stored} />;
+  // One page state per saved league: switching to or importing another starts fresh (finderMemory.ts: its own worker).
+  return <LoadedFinder key={read.league.id} read={read} query={query} />;
 }
 
-/** What a search is for: the league data, the inputs' build, my team, every setting and the partner (finderMemory.ts keys its ideas by it). */
+/** Every setting but the minimum chance: changing the minimum alone re-filters the ideas found instead of searching (the header). */
+const SEARCH_SETTINGS = (Object.keys(defaultTradeSettings()) as (keyof TradeSettings)[]).filter((k) => k !== "minChance");
+
+/**
+ * What a search is for: the league data, the inputs' build, my team, every setting but the minimum chance (the header),
+ * and the partner (finderMemory.ts keys its ideas by it).
+ */
 export function searchKeyFor(args: {
   snapshot: Pick<LeagueSnapshot, "platform" | "leagueId" | "season" | "fetchedAt">;
   builtAt: string;
@@ -108,7 +148,7 @@ export function searchKeyFor(args: {
   settings: TradeSettings;
   partnerId: string | null;
 }): string {
-  return `${leagueTag(args.snapshot)}|${args.builtAt}|${args.myTeamId}|${settingsFingerprint(args.settings)}|${args.partnerId ?? "*"}`;
+  return `${leagueTag(args.snapshot)}|${args.builtAt}|${args.myTeamId}|${settingsFingerprint(args.settings, SEARCH_SETTINGS)}|${args.partnerId ?? "*"}`;
 }
 
 /** One search: what it's for (searchKeyFor) and the attempt (Search again, Try again). */
@@ -116,9 +156,43 @@ export function searchTagFor(args: Parameters<typeof searchKeyFor>[0] & { attemp
   return `${searchKeyFor(args)}|${args.attempt}`;
 }
 
+/**
+ * Whether ideas found need ranking again for the minimum chance shown (the header): they were ranked at another one.
+ * A search that stopped before ranking (no TradeSearchResult.filter) holds for any minimum.
+ */
+export function needsRefilter(result: Pick<TradeSearchResult, "filter">, minChance: number): boolean {
+  return result.filter !== undefined && Math.abs(result.filter.minChance - minChance) > 1e-9;
+}
+
+/** A run's progress as the page keeps it: its tag, the bar, and whether a re-filter turned into a new search. */
+export type RunProgress = { tag: string; view: ProgressView; searching?: boolean };
+
+/**
+ * A re-filter's progress, step by step (the header): the ranking's alone, the whole bar, until the worker answers with a
+ * new search (any stage but "rank"); from then on, for good, a search's (its own ranking comes last, near the bar's end).
+ */
+export function refilterProgress(): (p: TradeSearchProgress | null) => { view: ProgressView; searching: boolean } {
+  let searching = false;
+  return (p) => {
+    if (p && p.stage !== "rank") searching = true;
+    return { view: progressView(p, searching ? "search" : "refilter"), searching };
+  };
+}
+
+/**
+ * What the searching state shows for the run under way (`runTag`): its own progress, else the bar's start; and whether
+ * it reads as a re-filter (the status line): a re-filter (`refilter`) the worker hasn't turned into a new search.
+ */
+export function runShown(progress: RunProgress | null, runTag: string | null, refilter: boolean): { view: ProgressView; refilter: boolean } {
+  const own = progress && progress.tag === runTag ? progress : null;
+  const asRefilter = refilter && !own?.searching;
+  return { view: own ? own.view : progressView(null, asRefilter ? "refilter" : "search"), refilter: asRefilter };
+}
+
 type FocusTo = "status" | "stop" | "again";
 
-type Done = { tag: string; key: string; kind: "done"; result: TradeSearchResult; partnerId: string | null };
+/** Ideas found: the search's tag and key, the result, its partner, the moment it was for and the goal B was weighted by. */
+type Done = { tag: string; key: string; kind: "done"; result: TradeSearchResult; partnerId: string | null; nowIso: string; goal: Goal };
 type Outcome = Done | { tag: string; kind: "error"; message: string } | { tag: string; kind: "stopped" };
 
 /** The page's state for its status line and body (pure: FinderBody renders it; tests render each). */
@@ -127,7 +201,7 @@ export type FinderState =
   | { kind: "fetchError"; message: string; onRetry: () => void }
   | { kind: "noTeam" }
   | { kind: "settings" }
-  | { kind: "searching"; progress: ProgressView; onStop: () => void; previous: FinderView | null }
+  | { kind: "searching"; progress: ProgressView; onStop: () => void; previous: FinderView | null; refilter?: boolean }
   | { kind: "stopped"; onAgain: () => void; previous: FinderView | null }
   | { kind: "error"; message: string; onRetry: () => void; previous: FinderView | null }
   | { kind: "done"; view: FinderView };
@@ -140,7 +214,7 @@ export function finderStatus(state: FinderState): string {
     case "settings":
       return "Loading your settings…";
     case "searching":
-      return `Searching for trade ideas: ${state.progress.label.charAt(0).toLowerCase()}${state.progress.label.slice(1)}…`;
+      return state.refilter ? "Showing the trade ideas at your minimum chance…" : `Searching for trade ideas: ${state.progress.label.charAt(0).toLowerCase()}${state.progress.label.slice(1)}…`;
     case "stopped":
       return "Search stopped.";
     case "done":
@@ -150,18 +224,21 @@ export function finderStatus(state: FinderState): string {
   }
 }
 
-function LoadedFinder({ stored }: { stored: StoredImport }) {
-  const snapshot = stored.response.snapshot;
-  const { pair, myTeam, error: fetchError, retry: retryFetch } = useLeagueInputs(stored);
-  const { settings, key: leagueKey } = useLeagueSettings(snapshot);
-  const records = useFeedbackRecords();
-  // The address's query (see the header: never window.location, which lags a client navigation). Null outside Next.
-  const query = useSearchParams()?.toString() ?? "";
+/** `query`: the address's query while it's this league's (useLeagueQuery, in TradeFinderPage: never window.location, which lags a client navigation). */
+function LoadedFinder({ read, query }: { read: Extract<CurrentLeagueRead, { kind: "ok" }>; query: string }) {
+  const snapshot = read.stored.response.snapshot;
+  // The saved league's id: this page's engine client, address and sort are that league's (finderMemory.ts).
+  const leagueId = read.league.id;
+  const { pair, myTeam, error: fetchError, retry: retryFetch } = useSavedLeagueInputs(read);
+  const { settings, key: leagueKey } = useSavedLeagueSettings(read.league.leagueKey);
+  const records = useSavedFeedback(read.league.leagueKey);
   // A partner picked here, and the query it was picked under (null = every team).
   const [picked, setPicked] = useState<{ id: string | null; query: string } | null>(null);
-  // The sort the page was left in, in this tab (finderMemory.ts), else Overall.
-  const [sort, setSort] = useState<TradeSort>(() => rememberedSort() ?? "overall");
+  // The sort this league's page was left in, in this tab (finderMemory.ts), else Overall.
+  const [sort, setSort] = useState<TradeSort>(() => rememberedSort(leagueId) ?? "overall");
   const [attempt, setAttempt] = useState(0);
+  // Why the minimum chance couldn't be saved (the store put the page back), or null.
+  const [minChanceError, setMinChanceError] = useState<string | null>(null);
 
   const myTeamId = myTeam?.myTeamId ?? null;
   const league = pair && myTeamId ? pair.snapshot : null;
@@ -179,24 +256,38 @@ function LoadedFinder({ stored }: { stored: StoredImport }) {
   };
   const pickSort = (value: TradeSort) => {
     setSort(value);
-    rememberSort(value);
+    rememberSort(leagueId, value);
+  };
+  // The minimum chance: saved with the league's settings; the page's copy changes at once, and the ideas are re-filtered.
+  const pickMinChance = (value: number) => {
+    setMinChanceError(null);
+    void changeSavedSettings(leagueKey, (s) => ({ ...s, minChance: value })).then((saved) => {
+      if (!saved.ok) setMinChanceError(saved.message);
+    });
   };
   const searchKey = pair && myTeamId && settings ? searchKeyFor({ snapshot: pair.snapshot, builtAt: pair.inputs.builtAt, myTeamId, settings, partnerId }) : null;
   const searchTag = searchKey ? `${searchKey}|${attempt}` : null;
 
   // The Analyzer's "Back to the Trade Finder" comes back to this address, partner included (finderMemory.ts).
   useEffect(() => {
-    if (league) rememberFinderAddress(finderHref(partnerId));
-  }, [league, partnerId]);
+    if (league) rememberFinderAddress(leagueId, finderHref(partnerId));
+  }, [league, leagueId, partnerId]);
 
-  // The search, in the trade pages' engine worker (finderMemory.ts tradeEngine: shared with the Analyzer, never disposed here).
+  // The search, in the trade pages' engine worker (finderMemory.ts tradeEngine: this league's, shared with the Analyzer, never disposed here).
   const handleRef = useRef<TradeSearchHandle | null>(null);
   // Coming back from the Analyzer: the idea whose "Open in Analyzer" was used (and which link), to bring back into view when its search's ideas show.
   const returnRef = useRef<{ tag: string; cardKey: string; href: string | null } | null>(null);
-  const [progress, setProgress] = useState<{ tag: string; view: ProgressView } | null>(null);
+  // `searching`: a re-filter the worker answers with a new search (the header), so the status line says it searches.
+  const [progress, setProgress] = useState<RunProgress | null>(null);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   // The last ideas found (kept when a later search runs, stops or fails: shown dimmed for the same partner).
   const [lastDone, setLastDone] = useState<Done | null>(null);
+
+  /** Progress for a run (`tag`), changed only when the bar or the status line shows it (fewer renders while the cards wait). */
+  const showProgress = (tag: string, view: ProgressView, searching = false) =>
+    setProgress((prev) =>
+      prev && prev.tag === tag && prev.view.percent === view.percent && prev.view.label === view.label && !!prev.searching === searching ? prev : { tag, view, searching },
+    );
 
   const startSearch = useEffectEvent((tag: string, key: string) => {
     if (!pair || !myTeamId || !settings) return undefined;
@@ -208,22 +299,20 @@ function LoadedFinder({ stored }: { stored: StoredImport }) {
     const timer = setTimeout(() => {
       const back = takeReturnTarget(key);
       const nowMs = Date.now();
-      // The ideas this search found before in this tab, while they still hold (finderMemory.ts): shown again at once.
-      const known = recall ? recallSearch(key, (iso) => contextStillValid(Date.parse(iso), nowMs, job.model, job.snapshot)) : null;
+      // The ideas this search found before in this tab, while they still hold (finderMemory.ts): shown again at once
+      // (re-filtered next when they were ranked at another minimum chance).
+      const known = recall ? recallSearchEntry(key, (iso) => contextStillValid(Date.parse(iso), nowMs, job.model, job.snapshot)) : null;
       if (known) {
         returnRef.current = back ? { tag, ...back } : null;
-        const done: Done = { tag, key, kind: "done", result: known, partnerId: job.partnerId };
+        const done: Done = { tag, key, kind: "done", result: known.result, partnerId: job.partnerId, nowIso: known.nowIso, goal: job.settings.goal };
         setOutcome(done);
         setLastDone(done);
         return;
       }
       const nowIso = new Date(nowMs).toISOString();
       setProgress({ tag, view: progressView(null) });
-      const handle = tradeEngine().searchTrades({ ...job, nowIso }, (p) => {
-        if (!live) return;
-        const view = progressView(p);
-        // Only a change the bar or the status line shows (not every step): fewer renders while the cards wait.
-        setProgress((prev) => (prev && prev.tag === tag && prev.view.percent === view.percent && prev.view.label === view.label ? prev : { tag, view }));
+      const handle = tradeEngine(leagueId).searchTrades({ ...job, nowIso }, (p) => {
+        if (live) showProgress(tag, progressView(p));
       });
       handleRef.current = handle;
       handle.promise.then(
@@ -231,7 +320,7 @@ function LoadedFinder({ stored }: { stored: StoredImport }) {
           // Remembered even when a newer search took over meanwhile: these ideas are this search's.
           rememberSearch(key, nowIso, result);
           if (!live) return;
-          const done: Done = { tag, key, kind: "done", result, partnerId: job.partnerId };
+          const done: Done = { tag, key, kind: "done", result, partnerId: job.partnerId, nowIso, goal: job.settings.goal };
           setOutcome(done);
           setLastDone(done);
         },
@@ -254,6 +343,61 @@ function LoadedFinder({ stored }: { stored: StoredImport }) {
     return startSearch(searchTag, searchKey);
   }, [searchTag, searchKey]);
 
+  const current = outcome && outcome.tag === searchTag ? outcome : null;
+  const doneResult = current?.kind === "done" ? current : null;
+  // The minimum chance changed since these ideas were ranked (the header): the worker ranks them again.
+  const minChance = settings?.minChance;
+  const refilterTag = doneResult && minChance !== undefined && needsRefilter(doneResult.result, minChance) ? `${doneResult.tag}|min:${minChance}` : null;
+
+  const startRefilter = useEffectEvent((tag: string, done: Done) => {
+    if (!pair || !myTeamId || !settings) return undefined;
+    const job = { snapshot: pair.snapshot, model: pair.inputs, myTeamId, settings, partnerId: done.partnerId, result: done.result };
+    let live = true;
+    let handle: TradeSearchHandle | null = null;
+    // Its progress is the ranking's alone, unless the worker has to search afresh (any other stage).
+    const step = refilterProgress();
+    // A tick later, as a search starts (StrictMode's first run is cancelled before it starts).
+    const timer = setTimeout(() => {
+      const nowIso = new Date().toISOString();
+      setProgress({ tag, ...step(null) });
+      const h = tradeEngine(leagueId).refilterTrades({ ...job, nowIso }, (p) => {
+        if (!live) return;
+        const shown = step(p);
+        showProgress(tag, shown.view, shown.searching);
+      });
+      handle = h;
+      handleRef.current = h;
+      h.promise.then(
+        (result) => {
+          // The same search's ideas at the new minimum, under the same key (finderMemory.ts).
+          rememberSearch(done.key, nowIso, result);
+          if (!live) return;
+          const next: Done = { ...done, result, nowIso };
+          setOutcome(next);
+          setLastDone(next);
+        },
+        (err: unknown) => {
+          if (!live || (err instanceof EngineError && err.cancelled)) return;
+          if (err instanceof EngineError && err.detail) console.error("Trade search (re-filter):", err.detail);
+          setOutcome({ tag: done.tag, kind: "error", message: err instanceof Error ? err.message : "Something went wrong while crunching the numbers." });
+        },
+      );
+    }, 0);
+    return () => {
+      live = false;
+      clearTimeout(timer);
+      const h: TradeSearchHandle | null = handle;
+      if (h) {
+        h.cancel();
+        if (handleRef.current === h) handleRef.current = null;
+      }
+    };
+  });
+  useEffect(() => {
+    if (!refilterTag || !doneResult) return;
+    return startRefilter(refilterTag, doneResult);
+  }, [refilterTag, doneResult]);
+
   // Focus when a button goes away (see the header).
   const statusRef = useRef<HTMLParagraphElement>(null);
   const resultsRef = useRef<HTMLHeadingElement>(null);
@@ -266,18 +410,18 @@ function LoadedFinder({ stored }: { stored: StoredImport }) {
     revealResult(focusTo.to === "status" ? statusRef.current : focusTo.to === "stop" ? stopRef.current : againRef.current);
   }, [focusTo]);
 
-  const current = outcome && outcome.tag === searchTag ? outcome : null;
-  const doneResult = current?.kind === "done" ? current : null;
+  // The ideas shown are done once they're ranked at the minimum shown (not while a re-filter runs).
+  const shownDone = doneResult && !refilterTag ? doneResult : null;
   useEffect(() => {
-    if (!doneResult) return;
+    if (!shownDone) return;
     // Coming back from the Analyzer: the "Open in Analyzer" link used, back in view and focused (see the header).
     const back = returnRef.current;
     returnRef.current = null;
-    if (back && back.tag === doneResult.tag && revealIdea(back.cardKey, back.href)) return;
+    if (back && back.tag === shownDone.tag && revealIdea(back.cardKey, back.href)) return;
     // Focus left on nothing, on the status line or on a control that went away (Stop; a dimmed card's button) → the results.
     const active = document.activeElement;
     if (!active || active === document.body || active === statusRef.current || !active.isConnected) resultsRef.current?.focus({ preventScroll: true });
-  }, [doneResult]);
+  }, [shownDone]);
 
   const again = () => {
     moveFocus("stop");
@@ -295,15 +439,24 @@ function LoadedFinder({ stored }: { stored: StoredImport }) {
   const shownOutcome = doneResult ?? (lastDone && lastDone.partnerId === partnerId ? lastDone : null);
   // The NFL's last week, for injury tags' "Out for the season" (tradeView.ts seasonEndOf).
   const lastNflWeek = pair?.inputs.nfl?.lastWeek;
+  // FantasyCalc's own values, the cards' one value number (tradeView.ts fantasyCalcLookup).
+  const market = pair?.inputs.market;
+  const fantasyCalc = useMemo(() => fantasyCalcLookup(market), [market]);
+  // What the league's data lets the cards and "How to read" say about values and the market blend (tradeView.ts
+  // valueFactsOf; null until the inputs load: the usual words).
+  const leagueType = (pair?.snapshot ?? snapshot).settings.leagueType;
+  const facts = useMemo(() => (pair ? valueFactsOf(market, leagueType) : null), [pair, market, leagueType]);
+  const blendOn = facts?.blendOn;
   const view = useMemo(
-    () => (shownOutcome && league ? buildFinderView({ result: shownOutcome.result, sort, snapshot: league, partnerId: shownOutcome.partnerId, lastNflWeek }) : null),
-    [shownOutcome, sort, league, lastNflWeek],
+    () =>
+      shownOutcome && league
+        ? buildFinderView({ result: shownOutcome.result, sort, snapshot: league, partnerId: shownOutcome.partnerId, lastNflWeek, fantasyCalc, goal: shownOutcome.goal, blendOn })
+        : null,
+    [shownOutcome, sort, league, lastNflWeek, fantasyCalc, blendOn],
   );
 
-  const onFeedback = useCallback(
-    (evaluation: TradeSearchResult["trades"][number], change: FeedbackChange) => saveTradeFeedback({ leagueKey, evaluation, change }),
-    [leagueKey],
-  );
+  // A press shows at once (the league store applies it); the card says what it did once the browser has kept it.
+  const onFeedback = useCallback((evaluation: TradeEvaluation, change: FeedbackChange) => saveFeedbackPress({ leagueKey, evaluation, change }), [leagueKey]);
   // "Open in Analyzer" remembers the idea and the link used, to come back to it (finderMemory.ts).
   const shownKey = shownOutcome?.key ?? null;
   const onOpenAnalyzer = useCallback(
@@ -328,8 +481,12 @@ function LoadedFinder({ stored }: { stored: StoredImport }) {
   else if (!settings) state = { kind: "settings" };
   else if (current?.kind === "stopped") state = { kind: "stopped", onAgain: again, previous: view };
   else if (current?.kind === "error") state = { kind: "error", message: current.message, onRetry: again, previous: view };
-  else if (current?.kind === "done" && view) state = { kind: "done", view };
-  else state = { kind: "searching", progress: progress && progress.tag === searchTag ? progress.view : progressView(null), onStop: stop, previous: view };
+  else if (shownDone && view) state = { kind: "done", view };
+  else {
+    // A re-filter the worker answers with a new search says so (the header).
+    const run = runShown(progress, refilterTag ?? searchTag, refilterTag !== null);
+    state = { kind: "searching", progress: run.view, onStop: stop, previous: view, refilter: run.refilter };
+  }
 
   const controls =
     league && myTeamId && settings ? (
@@ -340,6 +497,10 @@ function LoadedFinder({ stored }: { stored: StoredImport }) {
         onPartner={pickPartner}
         sort={sort}
         onSort={pickSort}
+        minChance={settings.minChance}
+        onMinChance={pickMinChance}
+        minChanceNote={minChanceNote(league.settings.tradeReview)}
+        minChanceError={minChanceError}
         summary={settingsSummary(settings, league.platform, league.settings.leagueType)}
       />
     ) : null;
@@ -348,7 +509,8 @@ function LoadedFinder({ stored }: { stored: StoredImport }) {
     <FinderFrame
       state={state}
       teamName={league && myTeamId ? teamNameOf(league, myTeamId) : null}
-      leagueType={(pair?.snapshot ?? snapshot).settings.leagueType}
+      leagueType={leagueType}
+      facts={facts}
       controls={controls}
       statusRef={statusRef}
       resultsRef={resultsRef}
@@ -378,7 +540,10 @@ function revealIdea(cardKey: string, href: string | null): boolean {
   return true;
 }
 
-/** The partner filter and the sort (native selects, labeled), and what the settings let a trade idea be. */
+/**
+ * The partner filter, the sort and the minimum chance (native selects, labeled; the minimum's note, in a league that
+ * reviews trades, and a save that failed, read with it), and what the settings let a trade idea be.
+ */
 export function FinderControls({
   snapshot,
   myTeamId,
@@ -386,6 +551,10 @@ export function FinderControls({
   onPartner,
   sort,
   onSort,
+  minChance,
+  onMinChance,
+  minChanceNote = null,
+  minChanceError = null,
   summary,
 }: {
   snapshot: Pick<LeagueSnapshot, "teams">;
@@ -394,12 +563,20 @@ export function FinderControls({
   onPartner: (id: string | null) => void;
   sort: TradeSort;
   onSort: (sort: TradeSort) => void;
+  /** "Chance they accept: at least" (TradeSettings.minChance: one of MIN_CHANCE_OPTIONS). */
+  minChance: number;
+  onMinChance: (minChance: number) => void;
+  minChanceNote?: string | null | undefined;
+  minChanceError?: string | null | undefined;
   summary: string;
 }) {
   const others = snapshot.teams.filter((t) => t.id !== myTeamId);
+  const noteId = useId();
+  const errorId = useId();
+  const described = [minChanceNote ? noteId : null, minChanceError ? errorId : null].filter(Boolean).join(" ");
   return (
     <Card>
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid gap-3 sm:grid-cols-3">
         <div>
           <label htmlFor="finder-partner" className="text-sm font-bold">
             Trade partner
@@ -432,6 +609,37 @@ export function FinderControls({
             ))}
           </select>
         </div>
+        <div>
+          <label htmlFor="finder-min-chance" className="text-sm font-bold">
+            Chance they accept: at least
+          </label>
+          <select
+            id="finder-min-chance"
+            value={String(minChance)}
+            aria-describedby={described || undefined}
+            onChange={(e) => {
+              const value = Number(e.target.value);
+              if (MIN_CHANCE_OPTIONS.some((o) => o.value === value)) onMinChance(value);
+            }}
+            className={cx(inputClass, "mt-1")}
+          >
+            {MIN_CHANCE_OPTIONS.map((o) => (
+              <option key={o.value} value={String(o.value)}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+          {minChanceNote ? (
+            <p id={noteId} className="mt-1 text-xs text-muted">
+              {minChanceNote}
+            </p>
+          ) : null}
+          {minChanceError ? (
+            <p id={errorId} role="alert" className="mt-1 text-xs font-semibold text-danger-fg">
+              {minChanceError}
+            </p>
+          ) : null}
+        </div>
       </div>
       <p className="mt-3 text-sm text-muted">
         {summary}{" "}
@@ -448,6 +656,11 @@ interface FrameProps {
   teamName: string | null;
   /** Says how Helps you weighs later seasons (HowToRead); default redraft. */
   leagueType?: LeagueSettings["leagueType"] | undefined;
+  /**
+   * What the league's data lets "How to read" say about values and the market blend (tradeView.ts valueFactsOf); absent or
+   * null: the usual words. Long-term values also count as missing when a card shown says so (TradeEvaluation.dynMissing).
+   */
+  facts?: ValueFacts | null | undefined;
   controls: ReactNode;
   statusRef?: Ref<HTMLParagraphElement> | undefined;
   resultsRef?: Ref<HTMLHeadingElement> | undefined;
@@ -457,7 +670,8 @@ interface FrameProps {
   leagueKey: string;
   /** The league, to name a recorded version a card no longer shows (tradeView.ts cardFeedback's versionWords); absent: unnamed. */
   snapshot?: SnapshotPart | null | undefined;
-  onFeedback: (evaluation: TradeSearchResult["trades"][number], change: FeedbackChange) => ReturnType<typeof saveTradeFeedback>;
+  /** Saves a card's feedback press; its promise says whether the browser kept it (the card says so). */
+  onFeedback: (evaluation: TradeSearchResult["trades"][number], change: FeedbackChange) => SaveResult | Promise<SaveResult>;
   /** A card's "Open in Analyzer" was used (its TradeEvaluation.key, and the link's address): the page remembers it, to come back to it. */
   onOpenAnalyzer?: ((cardKey: string, href?: string) => void) | undefined;
 }
@@ -467,9 +681,12 @@ interface FrameProps {
  * keeps the element and each new text is announced. It shows with a spinner while the page waits, and is read to
  * screen readers only otherwise.
  */
-export function FinderFrame({ state, teamName, leagueType = "redraft", controls, statusRef, resultsRef, againRef, stopRef, records, leagueKey, snapshot, onFeedback, onOpenAnalyzer }: FrameProps) {
+export function FinderFrame({ state, teamName, leagueType = "redraft", facts, controls, statusRef, resultsRef, againRef, stopRef, records, leagueKey, snapshot, onFeedback, onOpenAnalyzer }: FrameProps) {
   const text = finderStatus(state);
   const waiting = state.kind === "fetching" || state.kind === "settings";
+  // The ideas on screen (dimmed ones included): a card whose long-term values are missing says Helps you counts this season only.
+  const shown = state.kind === "done" ? state.view : state.kind === "searching" || state.kind === "stopped" || state.kind === "error" ? state.previous : null;
+  const longTermOn = (facts?.longTermOn ?? true) && !(shown?.cards.some((c) => c.evaluation.dynMissing) ?? false);
   return (
     <div className="space-y-6">
       <header>
@@ -513,12 +730,12 @@ export function FinderFrame({ state, teamName, leagueType = "redraft", controls,
         onFeedback={onFeedback}
         onOpenAnalyzer={onOpenAnalyzer}
       />
-      <HowToRead leagueType={leagueType} />
+      <HowToRead leagueType={leagueType} valuesOn={facts?.valuesOn ?? true} longTermOn={longTermOn} blendOn={facts?.blendOn ?? true} />
     </div>
   );
 }
 
-function FinderBody({ state, resultsRef, againRef, stopRef, records, leagueKey, snapshot, onFeedback, onOpenAnalyzer }: Omit<FrameProps, "teamName" | "leagueType" | "controls" | "statusRef">) {
+function FinderBody({ state, resultsRef, againRef, stopRef, records, leagueKey, snapshot, onFeedback, onOpenAnalyzer }: Omit<FrameProps, "teamName" | "leagueType" | "facts" | "controls" | "statusRef">) {
   const previous =
     (state.kind === "searching" || state.kind === "stopped" || state.kind === "error") && state.previous ? (
       <div className="opacity-60 transition-opacity">
@@ -597,10 +814,10 @@ function FinderBody({ state, resultsRef, againRef, stopRef, records, leagueKey, 
 }
 
 /**
- * The ideas found: my odds before any trade and what they count, the count, the cards (or why there are none), what
- * was left out on purpose, notes and warnings. Each card's item carries its key (data-trade-key), so a return from the
- * Analyzer can bring it back into view. Memoized: the progress bar re-renders the page while a new search runs, and
- * these cards don't change.
+ * The ideas found: my odds before any trade and what they count, what "Helps you" sums up, the count, the pattern note
+ * and the few-ideas line above the list, the cards (or why there are none), what was left out on purpose, notes and
+ * warnings. Each card's item carries its key (data-trade-key), so a return from the Analyzer can bring it back into
+ * view. Memoized: the progress bar re-renders the page while a new search runs, and these cards don't change.
  */
 const Results = memo(function Results({
   view,
@@ -629,6 +846,7 @@ const Results = memo(function Results({
         </h2>
         {view.baseline ? <p className="mt-1 text-sm font-semibold">{view.baseline}</p> : null}
         {view.baselineNote ? <p className="mt-0.5 text-xs text-muted">{view.baselineNote}</p> : null}
+        {view.helpsInfo ? <p className="mt-0.5 text-xs text-muted">{view.helpsInfo}</p> : null}
         {view.countText ? <p className="mt-1 text-sm text-muted">{view.countText}</p> : null}
       </div>
       {view.warnings.length ? (
@@ -640,6 +858,8 @@ const Results = memo(function Results({
           </ul>
         </Callout>
       ) : null}
+      {view.pattern ? <Callout>{view.pattern}</Callout> : null}
+      {view.few ? <p className="text-sm font-semibold">{view.few}</p> : null}
       {view.empty ? (
         <Card>
           <h3 className="text-lg font-extrabold tracking-tight">{view.empty.title}</h3>

@@ -13,11 +13,20 @@
  * - Win now ↔ Future (λ, §10): dynasty and keeper leagues only. "Automatic" (null) is the default by my
  *   playoff odds (config.benefit.lambda); the slider starts at the keeper default in a keeper league and
  *   at the bubble default (balanced) in a dynasty one. Keeper costs aren't modeled, and the page says so.
+ * - What matters most (Phase 4c; planner reply to Checkpoint 4b, change 8; TradeSettings.goal): Win the title (the
+ *   default, config.benefit.goalDefault) / Balanced / Make the playoffs, each with one line saying how it weighs the
+ *   title and playoff odds in Helps you (config.benefit.goals' weights, never fixed numbers). Every league type: in
+ *   dynasty and keeper leagues it weighs this season's part (B_win), and the help says later seasons count by Win now ↔
+ *   Future.
  * - Protect my trade value (planner addendum to Checkpoint 3, §3; lead decision N3): Low / Medium / High (κ =
  *   config.benefit.protectValue: how much Helps you counts the trade value given up or gained, so the user keeps value
  *   for later deals before the deadline), Medium (config.benefit.protectValueDefault) marked as the default. Redraft
  *   leagues only: dynasty and keeper leagues have no market term in Helps you (their long-term value counts instead,
- *   through Win now ↔ Future). The help says depth for injuries and byes is counted either way.
+ *   through Win now ↔ Future). The help says depth for injuries and byes is counted either way. Phase 4c (planner reply
+ *   to Checkpoint 4b, change 12): while the league's values are our own estimates (FantasyCalc's curve fallback,
+ *   `valuesEstimated`), Helps you leaves trade value out (evaluate.ts: κ = 0), so a note says the setting does nothing
+ *   until FantasyCalc is back; Win now ↔ Future gets the same note in dynasty and keeper leagues, whose long-term value
+ *   is left out then too (benefit.futureValuesLoaded).
  * - Max players per side: 1 to config.search.maxPerSideAllowed.
  * - Untouchables (my players: roster, IR and taxi) and must-include players (any team's, mine first) need
  *   my team; without it the page points to the Import Report. A player is never both: marking one moves him
@@ -34,7 +43,7 @@
  */
 import { config } from "@/engine/config";
 import { POSITIONS, type LeagueSnapshot, type PlayerInfo, type Pos } from "@/engine/model";
-import { PLAYOFF_WEIGHT_RANGE, PROTECT_VALUE_LEVELS, normalizeTradeSettings, type ProtectValue, type TradeSettings } from "@/engine/settings";
+import { GOALS, PLAYOFF_WEIGHT_RANGE, PROTECT_VALUE_LEVELS, normalizeTradeSettings, type Goal, type ProtectValue, type TradeSettings } from "@/engine/settings";
 import { fmtNum } from "@/lib/format";
 import { LEAGUE_TYPE_LABEL, PLATFORM_LABEL, posLabel } from "@/lib/labels";
 
@@ -80,6 +89,13 @@ export interface SettingsView {
   league: { name: string; platformLabel: string; season: number; typeLabel: string; dynastyOrKeeper: boolean };
   /** The league has saved settings (false: the defaults). */
   stored: boolean;
+  /**
+   * The Trade Finder's "Chance they accept: at least" when the saved settings hold one other than the default (it's saved
+   * with them, and Reset to defaults sets it back too; final review of Phase 4c, finding PAGES-5: a league whose only change
+   * was that minimum read as customized, with nothing on this page to say how): "The Trade Finder's “Chance they accept:
+   * at least” is 30%, set on the Trade Finder. Reset to defaults sets it back to 10% too."; else null.
+   */
+  finderMinimum: string | null;
   /** "Positions I stream weekly"; null when the league starts none of the streamable positions. */
   stream: { choices: Choice<Pos>[]; help: string } | null;
   playoffWeight: { choices: Choice<number>[]; help: string };
@@ -93,9 +109,16 @@ export interface SettingsView {
     automaticText: string;
     help: string;
     keeperNote: string | null;
+    /** Why later seasons don't count for now, while the league's values are our own estimates (FantasyCalc's curve fallback); else null. */
+    estimatedNote: string | null;
   } | null;
-  /** "Protect my trade value": Low / Medium / High; redraft leagues only (null otherwise). */
-  protectValue: { choices: Choice<ProtectValue>[]; help: string } | null;
+  /** "What matters most" (TradeSettings.goal): Win the title / Balanced / Make the playoffs, each with its line of help; every league type. */
+  goal: { choices: (Choice<Goal> & { help: string })[]; help: string };
+  /**
+   * "Protect my trade value": Low / Medium / High; redraft leagues only (null otherwise). `note`: why it does nothing for now,
+   * while the league's values are our own estimates (FantasyCalc's curve fallback); else null.
+   */
+  protectValue: { choices: Choice<ProtectValue>[]; help: string; note: string | null } | null;
   maxPerSide: { choices: Choice<number>[]; help: string };
   players: PlayersView;
   positions: { target: Choice<Pos>[]; avoid: Choice<Pos>[]; note: string | null };
@@ -113,6 +136,11 @@ export interface SettingsViewInput {
   myTeamId: string | null;
   settings: TradeSettings;
   stored: boolean;
+  /**
+   * The league's latest model inputs say its trade values are our own estimates (MarketInputs.fallback kind "curve":
+   * FantasyCalc didn't answer and its newest saved list is too old to read as its own); absent or false otherwise.
+   */
+  valuesEstimated?: boolean;
 }
 
 /** The order positions are listed in (QB, RB, WR, TE, K, P, DEF, DL, LB, DB). */
@@ -209,6 +237,28 @@ export function lambdaText(value: number): string {
 /** "Protect my trade value" levels in words (each one's weight is config.benefit.protectValue): the level, capitalized. */
 export const PROTECT_VALUE_LABEL: Record<ProtectValue, string> = { low: "Low", medium: "Medium", high: "High" };
 
+/** "What matters most" in words (TradeSettings.goal; planner reply to Checkpoint 4b, change 8). */
+export const GOAL_LABEL: Record<Goal, string> = { title: "Win the title", balanced: "Balanced", playoffs: "Make the playoffs" };
+
+/**
+ * A goal's line of help: how it weighs the title and playoff odds in Helps you, with config.benefit.goals' weights
+ * ("Weighs your title odds most (85%), playoff odds 15%.").
+ */
+export function goalHelp(goal: Goal, weights: { readonly playoffs: number; readonly title: number } = config.benefit.goals[goal]): string {
+  const title = pct(weights.title);
+  const playoffs = pct(weights.playoffs);
+  if (goal === "title") return `Weighs your title odds most (${title}), playoff odds ${playoffs}.`;
+  if (goal === "playoffs") return `Weighs your playoff odds most (${playoffs}), title odds ${title}.`;
+  return `Weighs your title odds ${title} and your playoff odds ${playoffs}.`;
+}
+
+/** Why "Protect my trade value" does nothing for now (SettingsView.protectValue.note): the trade values are our own estimates. */
+export const PROTECT_VALUE_ESTIMATED_NOTE =
+  "For now this setting changes nothing: FantasyCalc isn't available, so this league's trade values are our own estimates, and Helps you leaves trade value out until FantasyCalc is back.";
+/** Why later seasons don't count for now (SettingsView.lambda.estimatedNote), in a dynasty or keeper league. */
+export const LAMBDA_ESTIMATED_NOTE =
+  "For now Helps you counts this season only: FantasyCalc isn't available, so this league's values are our own estimates, which say nothing about later seasons.";
+
 /** Where the Win now ↔ Future slider starts when "Automatic" is turned off. */
 export function lambdaStart(leagueType: LeagueSnapshot["settings"]["leagueType"]): number {
   return leagueType === "keeper" ? config.benefit.lambda.keeper : config.benefit.lambda.bubble;
@@ -221,6 +271,16 @@ function playoffWeights(saved: number): number[] {
   for (let w = lo; w <= hi + 1e-9; w += 0.25) out.push(Math.round(w * 100) / 100);
   if (!out.some((w) => Math.abs(w - saved) < 1e-9)) out.push(saved);
   return out.sort((a, b) => a - b);
+}
+
+/** "30%", or "Any" for no minimum: the Trade Finder's own labels for "Chance they accept: at least". */
+const minChanceWords = (m: number): string => (m > 0 ? `${Math.round(m * 100)}%` : "Any");
+
+/** SettingsView.finderMinimum: said only for saved settings whose minimum isn't the default. */
+export function finderMinimumText(minChance: number, stored: boolean): string | null {
+  const def = config.ranking.minChanceDefault;
+  if (!stored || !Number.isFinite(minChance) || Math.abs(minChance - def) < 1e-9) return null;
+  return `The Trade Finder's “Chance they accept: at least” is ${minChanceWords(minChance)}, set on the Trade Finder. Reset to defaults sets it back to ${minChanceWords(def)} too.`;
 }
 
 export function buildSettingsView(input: SettingsViewInput): SettingsView {
@@ -263,8 +323,23 @@ export function buildSettingsView(input: SettingsViewInput): SettingsView {
             : `Set from your playoff odds: later seasons count ${pct(lam.contender)} when you're ${pct(lam.contenderAt)} or better to make the playoffs, ${pct(lam.bubble)} from ${pct(lam.bubbleAt)} to ${pct(lam.contenderAt)}, and ${pct(lam.rebuild)} below ${pct(lam.bubbleAt)}.`,
         help: "A trade can help you this season, in later seasons, or both. This sets how much later seasons count when Offer Sheet scores a trade for you.",
         keeperNote: type === "keeper" ? "What it costs to keep a player next season isn't part of the score yet." : null,
+        estimatedNote: input.valuesEstimated ? LAMBDA_ESTIMATED_NOTE : null,
       }
     : null;
+
+  // "What matters most" (TradeSettings.goal): every league type; in dynasty and keeper leagues it weighs this season's part.
+  const goal = {
+    choices: GOALS.map((g) => ({
+      value: g,
+      label: GOAL_LABEL[g],
+      ...(g === config.benefit.goalDefault ? { detail: "default" } : {}),
+      help: goalHelp(g),
+      checked: g === s.goal,
+    })),
+    help: dynastyOrKeeper
+      ? "For this season, Helps you scores a trade by how much it raises your title and playoff odds (how much later seasons count is set under Win now or build for the future). This sets which of the two counts more."
+      : "Helps you scores a trade by how much it raises your title and playoff odds. This sets which of the two counts more.",
+  };
 
   const protectValue =
     type === "redraft"
@@ -278,6 +353,7 @@ export function buildSettingsView(input: SettingsViewInput): SettingsView {
           help:
             "How much Helps you counts trade value, so you keep some for later deals before your trade deadline: giving up more value than you get lowers it, getting more raises it. " +
             "High protects your value the most; Low goes for the biggest lineup gain now. Your bench's worth as cover for injuries and byes counts either way.",
+          note: input.valuesEstimated ? PROTECT_VALUE_ESTIMATED_NOTE : null,
         }
       : null;
 
@@ -319,8 +395,10 @@ export function buildSettingsView(input: SettingsViewInput): SettingsView {
   return {
     league: { name: snapshot.name, platformLabel: PLATFORM_LABEL[platform], season: snapshot.season, typeLabel: LEAGUE_TYPE_LABEL[type], dynastyOrKeeper },
     stored: input.stored,
+    finderMinimum: finderMinimumText(s.minChance, input.stored),
     stream,
     playoffWeight,
+    goal,
     lambda,
     protectValue,
     maxPerSide,
@@ -386,6 +464,7 @@ export type SettingsEdit =
   | { kind: "playoffWeight"; value: number }
   /** null = Automatic. */
   | { kind: "lambda"; value: number | null }
+  | { kind: "goal"; value: Goal }
   | { kind: "protectValue"; value: ProtectValue }
   | { kind: "maxPerSide"; value: number }
   | { kind: "untouchable"; id: string; on: boolean }
@@ -418,6 +497,9 @@ export function applySettingsEdit(settings: TradeSettings, edit: SettingsEdit, n
       break;
     case "lambda":
       next = { ...s, lambda: edit.value };
+      break;
+    case "goal":
+      next = { ...s, goal: edit.value };
       break;
     case "protectValue":
       next = { ...s, protectValue: edit.value };

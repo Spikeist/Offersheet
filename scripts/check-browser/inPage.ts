@@ -14,7 +14,10 @@
  *   is measured. A checkbox or radio is measured by its label. "Harder to get" tags (tagLeaves), the "You" badge that
  *   marks my team, and noImport(): the page's "No league imported yet" (or "Offer Sheet was updated") card, so a wait
  *   fails at once. Texts come back whole: Node cuts them only after cleaning them (report.ts cutText), so a name is
- *   never cut in two where its rule can't find it.
+ *   never cut in two where its rule can't find it. Phase 4c: the league store's rows (storeRows: IndexedDB
+ *   "offersheet", read only, never creating the database), the tab's league (tabLeague), a saved league's import,
+ *   settings and feedback, and whether a heading shows a league's own name (showsName: compared in the page, so the
+ *   name itself never comes back to Node).
  * - CARD_HELPERS: a trade card as data (its give and get lists with their tags, the three numbers, the chance it goes
  *   through when the league's review cuts it, links, buttons).
  * - sanitizeCall(rules): replaces team, owner and league names and the league id in the page's text and attributes
@@ -185,6 +188,71 @@ function eventsSince(mark) {
 function longtasksSince(mark) {
   return (window.__check ? window.__check.longtasks : []).filter((l) => l.t >= mark).map((l) => l.d);
 }
+// The league store (src/lib/leagueStore.ts): IndexedDB "offersheet", one row per league in each store; the tab's league
+// (a saved league's id, "<platform>:<8 hex>:<season>") in sessionStorage. Read only, and never by creating the database:
+// opened without a version only when it's there already (an open of a missing one would create it empty).
+const STORE_DB = "offersheet";
+const TAB_LEAGUE_KEY = "offersheet:current-league:v1";
+async function storeRows(store) {
+  if (typeof indexedDB === "undefined" || typeof indexedDB.databases !== "function") return [];
+  if (!(await indexedDB.databases()).some((d) => d.name === STORE_DB)) return [];
+  const db = await new Promise((resolve, reject) => {
+    const req = indexedDB.open(STORE_DB);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+  try {
+    if (!db.objectStoreNames.contains(store)) return [];
+    return await new Promise((resolve, reject) => {
+      const q = db.transaction(store, "readonly").objectStore(store).getAll();
+      q.onsuccess = () => resolve(q.result);
+      q.onerror = () => reject(q.error);
+    });
+  } finally {
+    db.close();
+  }
+}
+function tabLeague() {
+  try {
+    return sessionStorage.getItem(TAB_LEAGUE_KEY);
+  } catch (e) {
+    return null;
+  }
+}
+// A saved league's settings and feedback key: its id without the season.
+const leagueKeyOf = (id) => (id ? id.replace(/:\d{4}$/, "") : null);
+// A saved league's import (the tab's league when no id is given), or null.
+async function savedImport(id) {
+  const want = id === undefined ? tabLeague() : id;
+  const row = (await storeRows("imports")).find((r) => r.id === want);
+  return row && row.stored ? row.stored : null;
+}
+async function savedLeagueIds() {
+  return (await storeRows("leagues")).map((r) => r.id);
+}
+// One league's feedback records (its saved id), or every league's.
+async function savedFeedback(id) {
+  const key = id === undefined ? undefined : leagueKeyOf(id);
+  return (await storeRows("feedback")).filter((r) => key === undefined || r.leagueKey === key).flatMap((r) => (Array.isArray(r.records) ? r.records : []));
+}
+// One league's saved settings (its saved id), or null (the defaults).
+async function savedSettings(id) {
+  const key = leagueKeyOf(id);
+  const row = (await storeRows("settings")).find((r) => r.leagueKey === key);
+  return row && row.settings ? row.settings : null;
+}
+// The names an import holds, as the cleaning needs them (report.ts LeagueNames).
+function namesOf(stored) {
+  const s = stored && stored.response && stored.response.snapshot;
+  if (!s) return null;
+  return { leagueName: s.name, teams: s.teams.map((t) => ({ id: String(t.id), name: t.name, ownerName: t.ownerName })), players: Object.values(s.players).map((p) => p.name).filter(Boolean) };
+}
+// Whether a heading or title shows a league's own name (whitespace collapsed as txt() collapses it).
+function showsName(el, stored) {
+  const s = stored && stored.response && stored.response.snapshot;
+  return !!el && !!s && typeof s.name === "string" && s.name.trim().length > 0 && txt(el) === s.name.replace(/\s+/g, " ").trim();
+}
+const switcherButton = () => document.querySelector("[data-league-switcher] > button");
 `;
 
 export const CARD_HELPERS = String.raw`
@@ -200,8 +268,10 @@ function acceptThrough(a) {
   const dt = [...a.querySelectorAll("dt")].find((d) => txt(d) === "Chance they accept");
   const dl = dt ? dt.closest("dl") : null;
   const note = dl ? dl.nextElementSibling : null;
-  const m = note && note.tagName === "P" ? /about (\d+(?:\.\d+)?)% it goes through/.exec(txt(note)) : null;
-  return m ? m[1] + "%" : null;
+  const t = note && note.tagName === "P" ? txt(note) : "";
+  const m = /about (\d+(?:\.\d+)?)% it goes through/.exec(t);
+  if (m) return m[1] + "%";
+  return /under 5% it goes through/.test(t) ? "<5%" : null;
 }
 function sideLists(a, title) {
   return [...a.querySelectorAll("h4")].filter((h) => txt(h) === title).map((h) => h.parentElement).filter(Boolean);

@@ -50,6 +50,19 @@ describe("the top-12 list (eliteIds)", () => {
     const elite = eliteIds(market({ dyn: 9000, both: 5000 }, { red: 8000, both: 7000 }), { ...config.acceptance.starPremium, eliteTop: 1 });
     expect([...elite]).toEqual(["red"]);
   });
+
+  it("the curve fallback (Phase 4c): the model's own values rank the top players, never the weeks-old list; without them nobody is elite", () => {
+    const values = { old1: 9000, old2: 8000 };
+    const old: MarketInputs = { ...market(values), fallback: { kind: "curve", listDate: "2026-09-10T00:00:00.000Z" } };
+    const two = { ...config.acceptance.starPremium, eliteTop: 2 };
+    expect(eliteIds(old, two).size).toBe(0);
+    const model: Record<string, number> = { a: 3000, b: 5000, c: 0, old1: 100 };
+    // Each id once; a value of 0 never counts.
+    expect([...eliteIds(old, two, { ids: ["a", "b", "c", "old1", "a"], value: (id) => model[id] ?? 0 })].sort()).toEqual(["a", "b"]);
+    // A saved list (kind "saved") is FantasyCalc's own: read as usual, and the model's values aren't asked.
+    const saved: MarketInputs = { ...market(values), fallback: { kind: "saved", listDate: "2026-09-30T00:00:00.000Z" } };
+    expect([...eliteIds(saved, { ...two, eliteTop: 1 }, { ids: ["a"], value: () => 99_999 })]).toEqual(["old1"]);
+  });
 });
 
 describe("one team's premiums (teamPremiums)", () => {
@@ -147,16 +160,37 @@ describe("the partner's perceived package (perceivedPackage)", () => {
   it("the premium sits on the floored value: v′ = max(v, W) × (1 + e) (planner reply to Checkpoint 4, change 4)", () => {
     const cheap = { ...values, junk: 300, scrap: 120 };
     const W = 752;
-    // The partner gives "junk" (300 < W, e 0.1) for my "scrap" (120 < W): it gives 752 × 1.1, gets 752.
-    const p = perceivedPackage({ players: ["scrap"] }, { players: ["junk"] }, cheap, W, (id) => (id === "junk" ? 0.1 : 0));
+    // The partner gives "junk" (300 < W, e 0.1) for my "mine" (5,000): nobody worth at most W on my side to pair him with,
+    // so he stays in, standing for the roster spot the partner fills: it gives 752 × 1.1, gets 5,000.
+    const p = perceivedPackage({ players: ["mine"] }, { players: ["junk"] }, cheap, W, (id) => (id === "junk" ? 0.1 : 0));
     expect(p.give).toBeCloseTo(W * 1.1, 9);
-    expect(p.recv).toBe(W);
-    expect(p.g).toBeCloseTo(1 / 1.1 - 1, 12);
-    // With e 0 it is the floored package exactly: even.
-    expect(perceivedPackage({ players: ["scrap"] }, { players: ["junk"] }, cheap, W, () => 0)).toStrictEqual(tradePackage({ players: ["scrap"] }, { players: ["junk"] }, cheap, W));
-    expect(tradePackage({ players: ["scrap"] }, { players: ["junk"] }, cheap, W).g).toBe(0);
+    expect(p.recv).toBe(5000);
+    expect(p.g).toBeCloseTo(5000 / (W * 1.1) - 1, 12);
+    // With e 0 it is the floored package exactly.
+    expect(perceivedPackage({ players: ["mine"] }, { players: ["junk"] }, cheap, W, () => 0)).toStrictEqual(tradePackage({ players: ["mine"] }, { players: ["junk"] }, cheap, W));
+    expect(tradePackage({ players: ["mine"] }, { players: ["junk"] }, cheap, W)).toStrictEqual({ recv: 5000, give: W, g: 5000 / W - 1 });
+    // Two players worth less than W swapped are a matched pair (Phase 4c), left out on the raw values whatever the premium:
+    // even (Checkpoint 4b: W × 1.1 against W).
+    expect(perceivedPackage({ players: ["scrap"] }, { players: ["junk"] }, cheap, W, (id) => (id === "junk" ? 0.1 : 0))).toStrictEqual({ recv: 0, give: 0, g: 0 });
     // Above W nothing changes: the premium on the player's own value.
     expect(perceivedPackage({ players: ["mine"] }, { players: ["theirs"] }, cheap, W, () => 0.2).give).toBeCloseTo(5000 * 1.2, 9);
+  });
+
+  it("leaves out the raw package's neutral throw-ins, chosen on raw values whatever the premium (Phase 4c: the same players on every side)", () => {
+    const cheap = { ...values, junk: 300 };
+    const W = 752;
+    // The partner gives theirs (e 0.2) and junk (300, at most W; a toy premium of 0.1 lifts v′ to 827.2, over W) for mine:
+    // a 2-for-1, so junk is its neutral throw-in, left out with his spot, as on my side.
+    const e = (id: string) => (id === "junk" ? 0.1 : id === "theirs" ? 0.2 : 0);
+    const p = perceivedPackage({ players: ["mine"] }, { players: ["theirs", "junk"] }, cheap, W, e);
+    expect(p.recv).toBe(5000);
+    expect(p.give).toBeCloseTo(5000 * 1.2, 9);
+    expect(p.g).toBeCloseTo(-1000 / 6000, 12);
+    // The raw packages leave him out too, and mirror each other.
+    expect(tradePackage({ players: ["mine"] }, { players: ["theirs", "junk"] }, cheap, W)).toStrictEqual({ recv: 5000, give: 5000, g: 0 });
+    expect(tradePackage({ players: ["theirs", "junk"] }, { players: ["mine"] }, cheap, W)).toStrictEqual({ recv: 5000, give: 5000, g: 0 });
+    // With every e 0 it is the raw package exactly.
+    expect(perceivedPackage({ players: ["mine"] }, { players: ["theirs", "junk"] }, cheap, W, () => 0)).toStrictEqual(tradePackage({ players: ["mine"] }, { players: ["theirs", "junk"] }, cheap, W));
   });
 
   it("premiumFacts: one per player, a player without a premium at e 0", () => {
@@ -207,6 +241,19 @@ describe("TeamModel.premiums (the League model, step 9)", () => {
     // The league's top-12 players are spread over its teams: each team's elite players are among the 12.
     const elite = eliteIds(inputs.market);
     const flagged = model.teams.flatMap((t) => Object.entries(t.premiums ?? {}).filter(([, p]) => p.elite).map(([id]) => id));
+    for (const id of flagged) expect(elite.has(id)).toBe(true);
+  });
+
+  it("the curve fallback (Phase 4c): the elite flags follow the model's own values, the same function the trade context uses", () => {
+    const { snapshot, inputs } = smallLeague(11);
+    const curveInputs = { ...inputs, market: { ...(inputs.market as MarketInputs), fallback: { kind: "curve" as const, listDate: "2026-09-10T00:00:00.000Z" } } };
+    const model = buildLeagueModel(snapshot, curveInputs, { now: TEST_NOW, scenarios: 0, sims: 0 });
+    // No value is FantasyCalc's own now.
+    expect(Object.values(model.players).some((p) => p.value?.source === "fantasycalc")).toBe(false);
+    const elite = eliteIds(curveInputs.market, config.acceptance.starPremium, { ids: Object.keys(snapshot.players), value: (id) => model.players[id]?.value?.value ?? 0 });
+    expect(elite.size).toBe(config.acceptance.starPremium.eliteTop);
+    const flagged = model.teams.flatMap((t) => Object.entries(t.premiums ?? {}).filter(([, p]) => p.elite).map(([id]) => id));
+    expect(flagged.length).toBeGreaterThan(0);
     for (const id of flagged) expect(elite.has(id)).toBe(true);
   });
 });

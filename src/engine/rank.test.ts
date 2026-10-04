@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { displayAcceptance } from "./acceptance";
 import { config } from "./config";
 import { mulberry32 } from "./rng";
-import { assetId, rankTrades, sortTrades, type RankConfig } from "./rank";
+import { assetId, meetsMinChance, rankTrades, sortTrades, type RankConfig } from "./rank";
 import { tradeEvaluation } from "./tradeTestFixtures";
 import type { TradeAsset, TradeEvaluation } from "./tradeModel";
 
@@ -85,7 +86,8 @@ describe("rankTrades: hidden by default (§10 guards)", () => {
       tradeEvaluation({ key: "good", b: 5, pComplete: 0.5, give: ["p13"], get: ["p14"] }),
     ];
     const r = rankTrades(trades, byNumber);
-    expect(r.hidden).toEqual({ byBenefit: 4, byMarket: 1 });
+    expect(r.hidden).toEqual({ byBenefit: 4, byMarket: 1, byChance: 0 });
+    expect(r.qualifying).toBe(2);
     expect(keys(r.trades)).toEqual(["good", "edge"]);
     expect(r.dropped).toEqual({ partnerCap: 0, core: 0, filler: 0, givenPlayer: 0 });
   });
@@ -121,12 +123,12 @@ describe("rankTrades: hidden by default (§10 guards)", () => {
       byNumber,
     );
     expect(keys(r.trades)).toEqual(["ok"]);
-    expect(r.hidden).toEqual({ byBenefit: 0, byMarket: 0 });
+    expect(r.hidden).toEqual({ byBenefit: 0, byMarket: 0, byChance: 0 });
     expect(r.dropped).toEqual({ partnerCap: 0, core: 0, filler: 0, givenPlayer: 0 });
   });
 
   it("handles no trades", () => {
-    expect(rankTrades([], byNumber)).toEqual({ trades: [], hidden: { byBenefit: 0, byMarket: 0 }, dropped: { partnerCap: 0, core: 0, filler: 0, givenPlayer: 0 } });
+    expect(rankTrades([], byNumber)).toEqual({ trades: [], hidden: { byBenefit: 0, byMarket: 0, byChance: 0 }, qualifying: 0, dropped: { partnerCap: 0, core: 0, filler: 0, givenPlayer: 0 } });
   });
 });
 
@@ -136,10 +138,26 @@ describe("rankTrades: diversity rules (§13)", () => {
     const base = tradeEvaluation({ key: "base", b: 5, pComplete: 0.6, give: ["p1"], get: ["p20"] });
     const filler = tradeEvaluation({ key: "filler", b: 5 * (1 + f) - 0.01, pComplete: 0.5, give: ["p1", "p2"], get: ["p20"] }); // EG below base
     const real = tradeEvaluation({ key: "real", b: 5 * (1 + f) + 0.5, pComplete: 0.4, give: ["p1"], get: ["p20", "p3"] }); // +B ≥ cutoff
-    const atCutoff = tradeEvaluation({ key: "atCutoff", b: 5 * (1 - f), pComplete: 0.5, give: ["p1"], get: ["p20", "p4"] }); // |ΔB| = 0.2 × B: not under it
+    // |ΔB| = 0.2 × B: not under it (likelier than base, so not the dominated variant of the next test; EG still below real's).
+    const atCutoff = tradeEvaluation({ key: "atCutoff", b: 5 * (1 - f), pComplete: 0.62, give: ["p1"], get: ["p20", "p4"] });
     const r = rankTrades([filler, real, base, atCutoff], valueOf({ p1: 10, p20: 10 }), { ...rankCfg(), perCore: 10 });
     expect(keys(r.trades)).toEqual(["base", "real", "atCutoff"]);
     expect(r.dropped.filler).toBe(1);
+  });
+
+  it("⚠️ a bigger variant no more helpful and less likely than its kept smaller trade is filler too, however far its B falls (final review of Phase 4c, finding R5)", () => {
+    // Parker's Team 2: Rico Dowdle → Jordan Mason (Helps you 3, 45%) above the same trade plus Kalif Raymond (1, 40%).
+    const lean = tradeEvaluation({ key: "lean", b: 0.18, pComplete: 0.45, give: ["p1"], get: ["p20"] });
+    const worse = tradeEvaluation({ key: "worse", b: 0.06, pComplete: 0.4, give: ["p1"], get: ["p20", "p3"] });
+    const r = rankTrades([lean, worse], byNumber, { ...rankCfg(), perCore: 10 });
+    expect(keys(r.trades)).toEqual(["lean"]);
+    expect(r.dropped.filler).toBe(1);
+    // The same B, less likely: filler. The same chance (and a B 20% or more lower): not this rule (the fixtures of the other
+    // rules lean on it). A likelier one (a sweetener, ranked below) stays; so does a more helpful one.
+    expect(keys(rankTrades([lean, { ...worse, b: 0.18, key: "same" }], byNumber, { ...rankCfg(), perCore: 10 }).trades)).toEqual(["lean"]);
+    expect(keys(rankTrades([lean, { ...worse, pComplete: 0.45, key: "even" }], byNumber, { ...rankCfg(), perCore: 10 }).trades)).toEqual(["lean", "even"]);
+    expect(keys(rankTrades([lean, { ...worse, pComplete: 0.5, key: "likelier" }], byNumber, { ...rankCfg(), perCore: 10 }).trades)).toEqual(["lean", "likelier"]);
+    expect(keys(rankTrades([lean, { ...worse, b: 0.5, pComplete: 0.1, key: "helps" }], byNumber, { ...rankCfg(), perCore: 10 }).trades)).toEqual(["lean", "helps"]);
   });
 
   it("a filler needs the same partner, a proper subset, and a variant ranked below its smaller trade", () => {
@@ -337,6 +355,106 @@ describe("rankTrades: the given-player cap (planner reply to Checkpoint 4, answe
     void _cap;
     expect(rankTrades(trades, byNumber, old).trades).toHaveLength(config.ranking.perGivenPlayerInTop20);
     expect(rankTrades(trades, byNumber, { ...rankCfg(), perGivenPlayerInTop20: Number.POSITIVE_INFINITY }).trades).toHaveLength(4);
+  });
+
+  it("⚠️ never counts or checks the exempt players (my must-include players, in every trade); my others still count", () => {
+    // Five trades give "wilson" alone, then four give him with "nix" (review of track SR, finding 1: a must-include
+    // Wilson cut the list to 3 cards).
+    const trades = [...[0, 1, 2, 3, 4].map((i) => t(`w${i}`, 50 - i, ["wilson"])), ...[0, 1, 2, 3].map((i) => t(`n${i}`, 40 - i, ["wilson", "nix"]))];
+    const capped = rankTrades(trades, byNumber);
+    expect(keys(capped.trades)).toEqual(["w0", "w1", "w2"]);
+    expect(capped.dropped.givenPlayer).toBe(6);
+    const exempt = rankTrades(trades, byNumber, rankCfg(), { givenCapExempt: ["wilson"] });
+    // Every "wilson" trade alone is kept; "nix" (not exempt) is held to the cap.
+    expect(keys(exempt.trades)).toEqual(["w0", "w1", "w2", "w3", "w4", "n0", "n1", "n2"]);
+    expect(exempt.dropped).toEqual({ partnerCap: 0, core: 0, filler: 0, givenPlayer: 1 });
+    // The other rules still apply to them: four trades with one partner keep three in the top 20.
+    const onePartner = [0, 1, 2, 3].map((i) => t(`p${i}`, 30 - i, ["wilson"], "7"));
+    expect(rankTrades(onePartner, byNumber, rankCfg(), { givenCapExempt: ["wilson"] }).dropped).toEqual({ partnerCap: 1, core: 0, filler: 0, givenPlayer: 0 });
+    // An empty list exempts nobody.
+    expect(rankTrades(trades, byNumber, rankCfg(), { givenCapExempt: [] })).toEqual(capped);
+  });
+});
+
+describe("rankTrades: the minimum chance (planner reply to Checkpoint 4b, change 10)", () => {
+  const t = (key: string, b: number, pComplete: number, o: Parameters<typeof tradeEvaluation>[0] = {}) => tradeEvaluation({ key, partnerId: `t-${key}`, b, pComplete, give: [`m-${key}`], get: [`g-${key}`], ...o });
+  const trades = [
+    t("a", 5, 0.5),
+    t("b", 9, 0.07), // a long shot (printed 5%) that would rank second (EG 0.63)
+    t("c", 3, 0.1), // exactly at the bar
+    t("d", 2, 0.3),
+    t("hurts", -1, 0.05), // hidden by benefit first
+    t("lopsided", 6, 0.05, { gMine: config.benefit.marketHideBelow - 0.05 }), // hidden by the market guard first
+  ];
+
+  it("counts trades under it as byChance (only those the guards keep) and never shows them; qualifying = what's left", () => {
+    const r = rankTrades(trades, byNumber, rankCfg(), { minChance: 0.1 });
+    expect(keys(r.trades)).toEqual(["a", "d", "c"]); // Overall order: EG 2.5, 0.6, 0.3
+    expect(r.hidden).toEqual({ byBenefit: 1, byMarket: 1, byChance: 1 });
+    expect(r.qualifying).toBe(3);
+    const r30 = rankTrades(trades, byNumber, rankCfg(), { minChance: 0.3 });
+    expect(keys(r30.trades)).toEqual(["a", "d"]);
+    expect(r30.hidden.byChance).toBe(2);
+    expect(r30.qualifying).toBe(2);
+  });
+
+  it("0 (Any) or no minimum removes nothing", () => {
+    for (const r of [rankTrades(trades, byNumber, rankCfg(), { minChance: 0 }), rankTrades(trades, byNumber, rankCfg(), {}), rankTrades(trades, byNumber)]) {
+      expect(keys(r.trades)).toEqual(["a", "b", "d", "c"]);
+      expect(r.hidden).toEqual({ byBenefit: 1, byMarket: 1, byChance: 0 });
+      expect(r.qualifying).toBe(4);
+    }
+  });
+
+  it("is applied before the diversity rules, so the list fills with trades that qualify", () => {
+    // Partner 7: three long shots at the top, then three that qualify; the partner cap keeps 3 in the top 20.
+    const p7 = (key: string, b: number, pComplete: number) => tradeEvaluation({ key, partnerId: "7", b, pComplete, give: [`m-${key}`], get: [`g-${key}`] });
+    const list = [p7("l1", 40, 0.05), p7("l2", 30, 0.06), p7("l3", 30, 0.06), p7("q1", 5, 0.3), p7("q2", 4, 0.3), p7("q3", 3, 0.35)];
+    const none = rankTrades(list, byNumber);
+    expect(keys(none.trades)).toEqual(["l1", "l2", "l3"]);
+    expect(none.dropped.partnerCap).toBe(3);
+    const filtered = rankTrades(list, byNumber, rankCfg(), { minChance: 0.1 });
+    expect(keys(filtered.trades)).toEqual(["q1", "q2", "q3"]);
+    expect(filtered.dropped.partnerCap).toBe(0);
+    expect(filtered.hidden.byChance).toBe(3);
+  });
+
+  it("⚠️ judged on P_complete as the card prints it (the nearest 5%; review of track SR, finding 3)", () => {
+    // 7.5% prints "10%" and meets "at least 10%"; 7.49% prints "5%" and doesn't.
+    expect(meetsMinChance(0.1, 0.1)).toBe(true);
+    expect(meetsMinChance(0.075, 0.1)).toBe(true);
+    expect(meetsMinChance(0.0749, 0.1)).toBe(false);
+    expect(meetsMinChance(0.175, 0.2)).toBe(true);
+    expect(meetsMinChance(0.1749, 0.2)).toBe(false);
+    expect(meetsMinChance(0.475, 0.5)).toBe(true);
+    // A positive chance prints at least 5%, never enough for 10%.
+    expect(meetsMinChance(0.02, 0.1)).toBe(false);
+    expect(meetsMinChance(Number.NaN, 0.1)).toBe(false);
+    expect(meetsMinChance(Number.NaN, 0)).toBe(true);
+    expect(meetsMinChance(0.01, undefined)).toBe(true);
+    // The same rule as the card's printed number, for every option and every chance on a fine grid.
+    for (const m of config.ranking.minChanceOptions) {
+      for (let i = 0; i <= 1000; i++) {
+        const p = i / 1000;
+        expect(meetsMinChance(p, m), `${p} at ${m}`).toBe(!(m > 0) || displayAcceptance(p) >= m - 1e-9);
+      }
+    }
+    // In the ranking: a trade at 8% (printed 10%) is shown under "at least 10%", one at 7% (printed 5%) isn't.
+    const r = rankTrades([t("p8", 4, 0.08), t("p7", 4, 0.07)], byNumber, rankCfg(), { minChance: 0.1 });
+    expect(keys(r.trades)).toEqual(["p8"]);
+    expect(r.hidden.byChance).toBe(1);
+  });
+
+  it("float noise at the bar counts as at it; the input order never matters", () => {
+    expect(meetsMinChance(0.075 - 1e-12, 0.1)).toBe(true);
+    expect(meetsMinChance(0.1 - 1e-12, 0.1)).toBe(true);
+    const first = rankTrades(trades, byNumber, rankCfg(), { minChance: 0.1 });
+    for (let s = 1; s <= 4; s++) {
+      const again = rankTrades(shuffle(trades, s), byNumber, rankCfg(), { minChance: 0.1 });
+      expect(keys(again.trades)).toEqual(keys(first.trades));
+      expect(again.hidden).toEqual(first.hidden);
+      expect(again.qualifying).toBe(first.qualifying);
+    }
   });
 });
 

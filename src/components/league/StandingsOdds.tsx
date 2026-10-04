@@ -13,10 +13,17 @@
  * name shrink the column's minimum width, so it can't push the Title column off-screen). A points-only
  * league is ranked by points for, so there they show on phones and the record, which decides nothing,
  * only on wider screens. With fewer than 2 playoff teams there's no Playoffs column (the title goes to
- * the top of the standings). Symbolic odds ("<1%", ">99%", "—") are spelled out for screen readers, and
- * an eliminated team says so in words ("Out"), never by color alone.
+ * the top of the standings). Symbolic odds ("<1%", ">99%", a title's "<0.1%" and ">99.9%", "—") are spelled out for
+ * screen readers, and an eliminated team says so in words ("Out"), never by color alone.
+ *
+ * Phase 4c (planner reply to Checkpoint 4b, change 9, "one baseline everywhere"): my odds lead the card ("Your odds: 59%
+ * playoffs · 9.9% title", every team after its free-agent pickups, what trade ideas start from, printed as they print
+ * them), with the same as rosters stand as a smaller second line and one line saying what the odds count, above the
+ * table; they wrap at 375 px. The Title column prints with one decimal too ("9.9%", leagueView.ts titleCell), so my row
+ * reads like the headline above it; two more characters a cell, inside the table's own scroller.
  */
-import type { LeagueView, OddsCell } from "@/lib/leagueView";
+import { Fragment } from "react";
+import { AS_ROSTERS_STAND_LABEL, YOUR_ODDS_LABEL, type LeagueView, type OddsCell, type OddsPart } from "@/lib/leagueView";
 import { Badge, Card, CardTitle, cx } from "../ui";
 
 /** Wide screens only (sm and up): hidden on phones. */
@@ -35,6 +42,39 @@ export function OddsText({ cell }: { cell: OddsCell }) {
 
 const oddsCellClass = "py-2.5 pr-2 text-right align-top tabular-nums sm:pr-3";
 
+/** "59% playoffs · <1% title": my odds' parts, a symbolic one read out in words. */
+function OddsParts({ parts }: { parts: readonly OddsPart[] }) {
+  return parts.map((p, i) => (
+    <Fragment key={p.text}>
+      {i ? " · " : null}
+      {p.srText ? (
+        <>
+          <span aria-hidden>{p.text}</span>
+          <span className="sr-only">{p.srText}</span>
+        </>
+      ) : (
+        p.text
+      )}
+    </Fragment>
+  ));
+}
+
+/** My odds above the table: the headline (with every team's pickups) and, smaller, the same as rosters stand. */
+function MyOddsLines({ mine }: { mine: NonNullable<NonNullable<LeagueView["standings"]>["mine"]> }) {
+  return (
+    <div className="mb-2">
+      <p className="text-base font-extrabold tabular-nums">
+        {YOUR_ODDS_LABEL}: <OddsParts parts={mine.headline} />
+      </p>
+      {mine.asRostersStand ? (
+        <p className="text-sm text-muted tabular-nums">
+          {AS_ROSTERS_STAND_LABEL}: <OddsParts parts={mine.asRostersStand} />
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 export function StandingsOdds({ view }: { view: LeagueView }) {
   const s = view.standings;
   if (!s) return null;
@@ -45,6 +85,8 @@ export function StandingsOdds({ view }: { view: LeagueView }) {
         <p className="text-sm text-muted">{s.empty}</p>
       ) : (
         <>
+          {s.mine ? <MyOddsLines mine={s.mine} /> : null}
+          {s.basis ? <p className="mb-3 text-xs text-muted">{s.basis}</p> : null}
           {/* relative: keeps the cells' screen-reader text inside this scroller, not widening the page. */}
           <div className="relative -mx-4 overflow-x-auto sm:mx-0">
             <table className="w-full min-w-[18rem] text-sm">

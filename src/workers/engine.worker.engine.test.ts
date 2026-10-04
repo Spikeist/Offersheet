@@ -6,6 +6,8 @@
  * between slices, and the Analyzer reuses the search's evaluation context, sending the search's own odds before any
  * trade with its evaluation. The handler runs with real timers, as in a worker. A trade opened from a card's "If they
  * say no, try:" (review of Phase 4b) loses its steps and gets its words again, through the engine's own withWords.
+ * Phase 4c: a re-filter at another minimum chance ranks the search's ideas again under "rank" alone, on the same context,
+ * and gives what a fresh search at that minimum gives.
  */
 import { describe, expect, it } from "vitest";
 import { analyzeTrade, buildTradeContext, tradeInternals, withWords } from "@/engine/evaluate";
@@ -135,6 +137,36 @@ describe("the worker protocol with the real trade engine", () => {
     expect(structuredClone(analysis)).toEqual(analysis);
     expect(h.contexts()).toBe(1);
     console.info(`[worker+engine] Analyzer on the cached context: ${ms.toFixed(0)} ms`);
+  });
+
+  it("re-filters a search's ideas at another minimum chance with no new search, giving what a fresh search at that minimum gives (Phase 4c)", { timeout: 180_000 }, async () => {
+    const h = run();
+    h.handle(request(1));
+    const searched = await until(h.posted, 1, ["trades", "error"]);
+    expect(searched.type, searched.type === "error" ? searched.detail : "").toBe("trades");
+    const first = (searched as Extract<EngineResponse, { type: "trades" }>).result;
+    expect(first.filter?.minChance).toBe(defaultTradeSettings().minChance);
+    // Any (0): the worker ranks the same finalists again, on the same context.
+    const any = { ...defaultTradeSettings(), minChance: 0 };
+    h.handle({ ...request(2, { settings: any }), type: "refilter", of: 1 });
+    const refiltered = await until(h.posted, 2, ["trades", "error"]);
+    expect(refiltered.type, refiltered.type === "error" ? refiltered.detail : "").toBe("trades");
+    const again = (refiltered as Extract<EngineResponse, { type: "trades" }>).result;
+    const stages = h.posted.filter((p) => p.response.id === 2 && p.response.type === "progress").map((p) => (p.response as Extract<EngineResponse, { type: "progress" }>).progress.stage);
+    expect(new Set(stages)).toEqual(new Set(["rank"]));
+    expect(h.contexts()).toBe(1);
+    // It reads like the search: the search's own timings, the re-filter's apart.
+    expect(again.timings.screening).toBe(first.timings.screening);
+    expect(typeof again.timings.refilter).toBe("number");
+    // A fresh search at Any on a new handler gives the same list.
+    const fresh = run();
+    fresh.handle(request(3, { settings: any }));
+    const freshDone = await until(fresh.posted, 3, ["trades", "error"]);
+    const freshResult = (freshDone as Extract<EngineResponse, { type: "trades" }>).result;
+    const shape = (r: TradeSearchResult) => ({ keys: r.trades.map((t) => t.key), filter: r.filter, hidden: r.hidden, pattern: r.pattern ?? null, overall: r.trades.map((t) => t.overall), planB: r.trades.map((t) => t.planB?.key ?? null) });
+    expect(shape(again)).toEqual(shape(freshResult));
+    expect(again.filter?.minChance).toBe(0);
+    console.info(`[worker+engine] re-filter to Any: ${first.trades.length} → ${again.trades.length} ideas in ${Math.round(again.timings.refilter ?? Number.NaN)} ms`);
   });
 
   it("words a trade opened from 'If they say no, try:' without its steps: same numbers, a message for the trade itself (review of Phase 4b)", { timeout: 120_000 }, () => {

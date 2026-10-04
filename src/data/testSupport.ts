@@ -169,6 +169,11 @@ export interface FakeRoute {
   fromCache?: boolean;
   /** A saved copy served because the live request failed (HttpResponse.stale). */
   stale?: boolean;
+  /**
+   * With `stale`: the failed live answer it stood in for (HttpResponse.liveFailure, as the real client reports it). Default
+   * a 503 (the source didn't answer); a 200 body the caller rejected: { status: 200, isHtml: false }.
+   */
+  liveFailure?: { status: number; isHtml: boolean };
   fetchedAt?: number;
 }
 
@@ -192,7 +197,7 @@ export function fakeHttp(routes: Record<string, FakeRoute | ((attempt: number) =
         json: route.json,
         text,
         fromCache: route.fromCache ?? route.stale ?? false,
-        ...(route.stale ? { stale: true } : {}),
+        ...(route.stale ? { stale: true, liveFailure: route.liveFailure ?? { status: 503, isHtml: false } } : {}),
         ...(route.fetchedAt !== undefined ? { fetchedAt: route.fetchedAt } : {}),
       };
     },

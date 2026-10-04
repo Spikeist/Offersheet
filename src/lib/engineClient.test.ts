@@ -1,15 +1,16 @@
 /**
  * The engine client (CLAUDE.md §3: the engine runs in a Web Worker; Phase 4 wave 2 decision M12): replies are
  * matched by request id, errors reject, a search reports progress and can be stopped (or is stopped by a newer
- * one), and the main thread takes over when there's no worker or it fails. A fake worker and a fake main-thread
- * engine stand in for the real ones (Vitest runs in Node).
+ * one), a re-filter (Phase 4c) names its result by the request that brought it and runs like a search, and the main
+ * thread takes over when there's no worker or it fails. A fake worker and a fake main-thread engine stand in for the
+ * real ones (Vitest runs in Node).
  */
 import { describe, expect, it } from "vitest";
 import type { LeagueModel } from "@/engine/leagueModel";
 import { defaultTradeSettings } from "@/engine/settings";
 import type { TradeSearchResult } from "@/engine/tradeModel";
 import type { AnalyzerResult, EngineRequest, EngineResponse } from "@/workers/engine.worker";
-import { ENGINE_STOPPED, EngineError, SEARCH_CANCELLED, createEngineClient, type LeagueJob, type MainThreadEngine, type TradesJob, type WorkerLike } from "./engineClient";
+import { ENGINE_STOPPED, EngineError, SEARCH_CANCELLED, createEngineClient, createLeagueEngine, type LeagueJob, type MainThreadEngine, type TradesJob, type WorkerLike } from "./engineClient";
 
 class FakeWorker implements WorkerLike {
   onmessage: ((event: MessageEvent) => void) | null = null;
@@ -355,6 +356,71 @@ describe("createEngineClient: the trade search (M12)", () => {
   });
 });
 
+describe("createEngineClient: re-filtering a search's ideas (Phase 4c; planner reply to Checkpoint 4b, change 10)", () => {
+  it("names the result by the request that brought it, never sends the result itself, and reports progress like a search", async () => {
+    const worker = new FakeWorker();
+    const client = createEngineClient({ createWorker: () => worker });
+    const search = client.searchTrades(tradesJob("5"));
+    const found = searchResult("found");
+    worker.reply({ type: "trades", id: 1, result: found });
+    const first = await search.promise;
+    const settings = { ...defaultTradeSettings(), minChance: 0.3 };
+    const seen: string[] = [];
+    const refilter = client.refilterTrades({ ...tradesJob("5"), settings, result: first }, (p) => seen.push(`${p.stage} ${p.done}/${p.total}`));
+    const sent = worker.posted[1] as EngineRequest & { of?: number };
+    expect(sent).toMatchObject({ type: "refilter", id: 2, of: 1, partnerId: "5", settings: { minChance: 0.3 } });
+    expect("result" in sent).toBe(false);
+    worker.reply({ type: "progress", id: 2, progress: { stage: "rank", done: 3, total: 17 } });
+    const again = searchResult("re-ranked");
+    worker.reply({ type: "trades", id: 2, result: again });
+    await expect(refilter.promise).resolves.toBe(again);
+    expect(seen).toEqual(["rank 3/17"]);
+    // A re-filtered result can be re-filtered again: by its own request's id.
+    client.refilterTrades({ ...tradesJob("5"), settings: { ...settings, minChance: 0.5 }, result: again });
+    expect(worker.posted[2]).toMatchObject({ type: "refilter", id: 3, of: 2 });
+  });
+
+  it("sends -1 for a result it didn't hand out (another client's, or a copy): the worker then searches afresh", () => {
+    const worker = new FakeWorker();
+    const client = createEngineClient({ createWorker: () => worker });
+    client.refilterTrades({ ...tradesJob(), result: searchResult("elsewhere") });
+    expect(worker.posted[0]).toMatchObject({ type: "refilter", id: 1, of: -1 });
+  });
+
+  it("is one at a time with searches: a re-filter stops a search under way, a search stops a re-filter, and Stop works", async () => {
+    const worker = new FakeWorker();
+    const client = createEngineClient({ createWorker: () => worker });
+    const search = client.searchTrades(tradesJob());
+    const refilter = client.refilterTrades({ ...tradesJob(), result: searchResult("x") });
+    await expect(search.promise).rejects.toMatchObject({ cancelled: true });
+    const next = client.searchTrades(tradesJob());
+    await expect(refilter.promise).rejects.toMatchObject({ cancelled: true });
+    expect(worker.posted.map((m) => [m.type, m.id])).toEqual([
+      ["trades", 1],
+      ["cancel", 1],
+      ["refilter", 2],
+      ["cancel", 2],
+      ["trades", 3],
+    ]);
+    const last = client.refilterTrades({ ...tradesJob(), result: searchResult("y") });
+    last.cancel();
+    await expect(last.promise).rejects.toMatchObject({ message: SEARCH_CANCELLED, cancelled: true });
+    await expect(next.promise).rejects.toMatchObject({ cancelled: true });
+  });
+
+  it("runs on the main thread without a worker, and refuses after dispose", async () => {
+    const main = mainThreadEngine();
+    const client = createEngineClient({ createWorker: () => null, startMainThread: main.start });
+    const a = client.refilterTrades({ ...tradesJob(), result: searchResult("z") });
+    await flush();
+    expect(main.sent.map((m) => [m.type, m.id])).toEqual([["refilter", 1]]);
+    main.post({ type: "trades", id: 1, result: searchResult("main") });
+    await expect(a.promise).resolves.toMatchObject({ notes: ["main"] });
+    client.dispose();
+    await expect(client.refilterTrades({ ...tradesJob(), result: searchResult("late") }).promise).rejects.toMatchObject({ message: ENGINE_STOPPED });
+  });
+});
+
 describe("createEngineClient: the Trade Analyzer", () => {
   it("sends the proposal and resolves with the analysis and my odds before any trade; an engine error rejects", async () => {
     const worker = new FakeWorker();
@@ -373,5 +439,53 @@ describe("createEngineClient: the Trade Analyzer", () => {
     const main = mainThreadEngine();
     const client = createEngineClient({ createWorker: () => null, startMainThread: main.start });
     await expect(client.analyzeTrade({ ...job(), proposal: { partnerId: "2", give: [], get: [] } })).resolves.toEqual(analysis);
+  });
+});
+
+describe("createLeagueEngine: one client for one saved league at a time (planner reply to Checkpoint 4b, change 11)", () => {
+  it("keeps the client while the same league asks, and stops it (its worker and its search) when another league asks", async () => {
+    const workers: FakeWorker[] = [];
+    const engine = createLeagueEngine(() =>
+      createEngineClient({
+        createWorker: () => {
+          const w = new FakeWorker();
+          workers.push(w);
+          return w;
+        },
+      }),
+    );
+    expect(engine.leagueId()).toBeNull();
+    const a = engine.forLeague("espn:0000abcd:2026");
+    expect(engine.forLeague("espn:0000abcd:2026")).toBe(a);
+    const search = a.searchTrades(tradesJob());
+    expect(workers).toHaveLength(1);
+    const b = engine.forLeague("sleeper:12345678:2026");
+    expect(b).not.toBe(a);
+    expect(engine.leagueId()).toBe("sleeper:12345678:2026");
+    // The first league's search rejects as cancelled, its worker is gone, and its client takes nothing more.
+    await expect(search.promise).rejects.toMatchObject({ cancelled: true });
+    expect(workers[0]?.terminated).toBe(true);
+    await expect(a.buildLeague(job())).rejects.toMatchObject({ message: ENGINE_STOPPED });
+    // The second league's client starts its own worker.
+    void b.buildLeague(job()).catch(() => undefined);
+    expect(workers).toHaveLength(2);
+    expect(workers[1]?.terminated).toBe(false);
+    // Coming back to the first league: a new client, never the stopped one.
+    const again = engine.forLeague("espn:0000abcd:2026");
+    expect(again).not.toBe(a);
+    expect(workers[1]?.terminated).toBe(true);
+  });
+
+  it("release stops the client; the next request makes a new one", () => {
+    let made = 0;
+    const engine = createLeagueEngine(() => {
+      made++;
+      return createEngineClient({ createWorker: () => null });
+    });
+    const a = engine.forLeague("espn:0000abcd:2026");
+    engine.release();
+    expect(engine.leagueId()).toBeNull();
+    expect(engine.forLeague("espn:0000abcd:2026")).not.toBe(a);
+    expect(made).toBe(2);
   });
 });

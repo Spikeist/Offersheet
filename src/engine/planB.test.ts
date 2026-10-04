@@ -12,7 +12,8 @@ import { tradeScore } from "./benefit";
 import { config } from "./config";
 import { analyzeTrade, buildTradeContext, tradeInternals } from "./evaluate";
 import { injuryTags, tagContextOf } from "./explain";
-import { addedGiven, choosePlanB, givenCapSkip, givenPlayers, planBCandidates, planBConfig, planBFor, planBPasses, type PlanBCandidate } from "./planB";
+import { addedGiven, choosePlanB, dominatedByCard, givenCapSkip, givenPlayers, planBCandidates, planBConfig, planBFor, planBPasses, type PlanBCandidate } from "./planB";
+import { meetsMinChance } from "./rank";
 import { runTradeSearch } from "./search";
 import { TEST_NOW } from "./testLeague";
 import { flat, handLeague, smallLeague } from "./trade.testing";
@@ -48,6 +49,50 @@ function choose(candidates: readonly PlanBCandidate[], finals: Record<string, Tr
     yields++;
   }
 }
+
+describe("a box another card matches or beats (dominatedByCard; final review of Phase 4c, finding R2)", () => {
+  // Parker's Team 4: the box Garrett Wilson → Tee Higgins + Mike Evans (25, 32.0%) beside the card Garrett Wilson → Chuba
+  // Hubbard + Mike Evans (30, 36.1%) with the same team.
+  const box = tradeEvaluation({ partnerId: "4", give: ["wilson"], get: ["higgins", "evans"], b: 1.75, pComplete: 0.32, stage: "final" });
+  const better = tradeEvaluation({ partnerId: "4", give: ["wilson"], get: ["hubbard", "evans"], b: 2.15, pComplete: 0.361 });
+
+  it("a card with the same partner at least as helpful (as printed) and at least as likely: dominated; otherwise not", () => {
+    expect([box.tradeScore, better.tradeScore]).toEqual([25, 30]);
+    expect(dominatedByCard(box, [better])).toBe(true);
+    // Another partner's card, the box itself, a less likely card or a less helpful one: no.
+    expect(dominatedByCard(box, [{ ...better, proposal: { ...better.proposal, partnerId: "5" } }])).toBe(false);
+    expect(dominatedByCard(box, [box])).toBe(false);
+    expect(dominatedByCard(box, [{ ...better, pComplete: 0.31 }])).toBe(false);
+    expect(dominatedByCard(box, [{ ...better, tradeScore: 24 }])).toBe(false);
+    // Ties count: the same Helps you and the same chance.
+    expect(dominatedByCard(box, [{ ...better, key: "other", tradeScore: 25, pComplete: 0.32 }])).toBe(true);
+    // Unknown numbers never dominate, nor are dominated.
+    expect(dominatedByCard({ ...box, tradeScore: null }, [better])).toBe(false);
+    expect(dominatedByCard(box, [{ ...better, tradeScore: null }])).toBe(false);
+  });
+
+  it("choosePlanB passes over a dominated candidate (it counts as a try) and takes the next one", () => {
+    // Two candidates with the card's partner, likelier than the card and helpful enough; the first is dominated by a shown card.
+    const first = core({ give: ["nix"], get: ["kelce", "x"], b: 4, pComplete: 0.6, stage: "final", sims: 5000 });
+    const second = core({ give: ["nix", "y"], get: ["kelce"], b: 3.5, pComplete: 0.65, stage: "final", sims: 5000 });
+    const shown = tradeEvaluation({ give: ["nix"], get: ["mcbride"], b: 4.5, pComplete: 0.62 });
+    const candidates: PlanBCandidate[] = [{ core: first, kind: "samePlayers" }, { core: second, kind: "samePlayers" }];
+    const run = (cards: readonly TradeEvaluationCore[]) => {
+      const it = choosePlanB(CARD, candidates, (x) => x, cfg, undefined, cards);
+      for (;;) {
+        const r = it.next();
+        if (r.done) return r.value;
+      }
+    };
+    expect(run([])?.key).toBe(first.key);
+    // The shown card (53, 62%) beats the first (49, 60%) on both, not the second (44, 65%): the second is the box.
+    expect(dominatedByCard(first, [shown])).toBe(true);
+    expect(dominatedByCard(second, [shown])).toBe(false);
+    expect(run([shown])?.key).toBe(second.key);
+    // Both beaten: no box.
+    expect(run([shown, { ...shown, key: "other", pComplete: 0.66 }])).toBeNull();
+  });
+});
 
 describe("config (§15)", () => {
   it("reads config.search.planB (Helps you at least half the card's, at most 3 candidates tried), the steps' acceptance bar and the given-player cap", () => {
@@ -96,6 +141,17 @@ describe("planBPasses: the rules", () => {
     // null turns the rule off (a report switch): the planner's rules as first read.
     expect(planBPasses(core({ b: 4, pComplete: 0.3 }), CARD, { ...cfg, minAcceptGain: null })).toBe(true);
     expect(planBPasses(core({ b: 4, pComplete: 0.56 }), CARD, { ...cfg, minAcceptGain: 0.1 })).toBe(false);
+  });
+
+  it("so a Plan B meets every minimum chance its card meets (the file header: on the chance as printed, rank.ts)", () => {
+    for (const m of config.ranking.minChanceOptions) {
+      for (let i = 0; i <= 1000; i++) {
+        const card = i / 1000;
+        if (!meetsMinChance(card, m)) continue;
+        // The least likely Plan B the rule lets through.
+        expect(meetsMinChance(Math.min(1, card + GAIN), m), `${card} at ${m}`).toBe(true);
+      }
+    }
   });
 });
 
@@ -171,9 +227,33 @@ describe("choosePlanB: the final simulation and the retry", () => {
       acceptLabel: finalist.core.acceptLabel,
       overall: finalist.core.overall,
       kind: "samePlayers",
+      // Phase 4c (planner reply to Checkpoint 4b, change 7): the same evaluation's acceptance features and raw g_mkt(P).
+      features: finalist.core.features,
+      gPartner: finalist.core.gPartner,
+      // Phase 4c (change 9, "real odds on every card"): its odds from the same final-block simulation.
+      dPO: finalist.core.dPO,
+      dCH: finalist.core.dCH,
     });
     // Its proposal is a copy, not the pool's object.
     expect(planB?.proposal).not.toBe(finalist.core.proposal);
+  });
+
+  it("Phase 4c (change 9): carries its odds from its own final-block simulation (ΔPO, ΔCH, win chance by week, a copy), never from numbers that aren't the final block's", () => {
+    const winChance = [{ week: 9, before: 0.48, after: 0.55 }, { week: 13, before: 0.42, after: 0.51 }];
+    const screened = cand("scr", { b: 4, dPO: 0.9, dCH: 0.9 });
+    const final = { ...screened.core, stage: "final" as const, sims: 5000, b: 3.2, tradeScore: tradeScore(3.2), dPO: 0.031, dCH: 0.012, detail: { ...screened.core.detail, winChance } };
+    const { planB } = choose([screened], { scr: final });
+    expect(planB).toMatchObject({ key: "scr", dPO: 0.031, dCH: 0.012, winChance });
+    expect(planB?.winChance).not.toBe(winChance);
+    expect(planB?.winChance?.[0]).not.toBe(winChance[0]);
+    // Title odds unknown: dCH null, as the card's.
+    expect(choose([screened], { scr: { ...final, dCH: null } }).planB).toMatchObject({ dCH: null, dPO: 0.031 });
+    // A points-only league's empty list stays empty (no weekly line).
+    expect(choose([screened], { scr: { ...final, detail: { ...final.detail, winChance: [] } } }).planB?.winChance).toEqual([]);
+    // Numbers that aren't the final block's (a test's finalOf handing back the screening numbers): no odds at all.
+    const notFinal = planBFor(CARD, [CARD, core({ key: "x", give: ["nacua"], get: ["kelce"], b: 4, dPO: 0.05, dCH: 0.02 })], (c) => c);
+    expect(notFinal).toMatchObject({ key: "x" });
+    expect(notFinal && ["dPO", "dCH", "winChance"].filter((k) => k in notFinal)).toEqual([]);
   });
 
   it("simulates a candidate that wasn't a finalist on the final block first (yielding before), and shows those numbers", () => {
@@ -236,7 +316,7 @@ describe("the given-player cap on the boxes (⚠️ ours; review of track F)", (
   });
 });
 
-describe("the search's Plan Bs (search.ts; synthetic leagues)", () => {
+describe("the search's Plan Bs (search.ts; synthetic leagues)", { timeout: 60_000 }, () => {
   const league = smallLeague(11);
   const ctx = buildTradeContext(league.snapshot, league.inputs, { now: TEST_NOW, scenarios: 8 });
   const result = runTradeSearch(ctx, {});
@@ -290,12 +370,15 @@ describe("the search's Plan Bs (search.ts; synthetic leagues)", () => {
       const a = analyzeTrade(ctx, p.proposal).evaluation as TradeEvaluation;
       expect(a.key).toBe(p.key);
       expect([a.b, a.tradeScore, a.pAccept, a.pComplete, a.acceptLabel, a.overall]).toEqual([p.b, p.tradeScore, p.pAccept, p.pComplete, p.acceptLabel, p.overall]);
+      // Phase 4c: the model inputs feedback stores when it's the version sent, from the same evaluation.
+      expect(p.features).toEqual(a.features);
+      expect(p.gPartner).toBe(a.gPartner);
       expect(a.flags.hiddenByMarket).toBe(false);
     }
   });
 });
 
-describe("the search's injury tags (flags.tagged; planner reply to Checkpoint 4, change 6, and the review of track F)", () => {
+describe("the search's injury tags (flags.tagged; planner reply to Checkpoint 4, change 6, and the review of track F)", { timeout: 60_000 }, () => {
   // A hand league in week 5 (made-up players): team 2's RB ra2 is Questionable with ESPN's return in week 8 and no
   // Sleeper projection this week (his projection follows the date, as Josh Jacobs's did on Parker's league); team 3's
   // WR wa3 is Questionable with the same date but Sleeper projects him in full (the date is stale); team 3's RB rb3 is

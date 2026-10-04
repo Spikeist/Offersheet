@@ -65,9 +65,16 @@ export const TeamSchema = z.object({
    * The team's place in the waiver order as it stands, 1 = first claim (mTeam; Phase 4b). Both test leagues: a 1..10
    * permutation, at the weekly reset (waiverOrderReset; Sep 30, before that week's first waiver run) 11 − playoffSeed for
    * all 10 teams of each: the 0-3 team ranks 1. Mid-week it isn't reverse standings: in Parker's league
-   * (WAIVERS_TRADITIONAL) a team whose claim goes through moves to the back until the next reset (the normalizer's header).
+   * (WAIVERS_TRADITIONAL) a team whose claim goes through moves to the back until the next reset (./waivers.ts).
    */
   waiverRank: z.number().nullish(),
+  /**
+   * The team's playoff seed if the season ended today, 1 = best (mTeam; Phase 4c): ESPN's standings with the league's own
+   * tiebreaker (Parker's league on Sep 30: win %, then points for, its TOTAL_POINTS_SCORED rule), the division winners
+   * first in a league with divisions. A 1..10 permutation in both test leagues; the weekly reset waiver order is
+   * numTeams + 1 − playoffSeed (./waivers.ts: ✅ in both, which seed by points for; ⚠️ under another seeding rule).
+   */
+  playoffSeed: z.number().nullish(),
   /**
    * ESPN's own season counters (mTeam). `trades` counts accepted trades, including one still in review (Parker's fixture).
    * `acquisitionBudgetSpent`: the FAAB the team has spent (the public test league, budget 200: 0–33 a team; 0 in Parker's,
@@ -160,7 +167,20 @@ export const SettingsSchema = z.object({
   }),
   /** keeperCountFuture: read as next season's keeper count (inferred from its name; no ESPN keeper league was probed). */
   draftSettings: z.object({ keeperCount: z.number().nullish(), keeperCountFuture: z.number().nullish() }).nullish(),
-  acquisitionSettings: z.object({ isUsingAcquisitionBudget: z.boolean().nullish(), acquisitionBudget: z.number().nullish() }).nullish(),
+  acquisitionSettings: z
+    .object({
+      isUsingAcquisitionBudget: z.boolean().nullish(),
+      acquisitionBudget: z.number().nullish(),
+      /**
+       * FREEAGENCY / WAIVERS_TRADITIONAL / WAIVERS_CONTINUOUS: ESPN's own list (settings.typeNames.acquisitionTypes of GET
+       * /seasons/{season}?view=proTeamSchedules_wl). WAIVERS_TRADITIONAL in Parker's league, WAIVERS_CONTINUOUS in the public
+       * test league. A string, not an enum: a value ESPN adds later mustn't fail the import (./waivers.ts reads it).
+       */
+      acquisitionType: z.string().nullish(),
+      /** The waiver order resets every week to reverse standings (true in both test leagues; ./waivers.ts, Phase 4c). */
+      waiverOrderReset: z.boolean().nullish(),
+    })
+    .nullish(),
 });
 
 export const StatusSchema = z.object({
@@ -172,6 +192,8 @@ export const StatusSchema = z.object({
   isActive: z.boolean().nullish(),
   /** When the league was activated for this season (epoch ms; both test leagues): anything acquired before it is from an earlier season. */
   activatedDate: z.number().nullish(),
+  /** ⚠️ Read as "the commissioner has edited the waiver order" from its name (false in both test leagues; ./waivers.ts, Phase 4c). */
+  isWaiverOrderEdited: z.boolean().nullish(),
 });
 
 /** view=mSettings&view=mTeam&view=mRoster&view=mMatchup&view=mStatus */

@@ -20,28 +20,44 @@
  * Planner reply to Checkpoint 4, change 6: every injury-tagged player on either side carries his tag in words under his
  * name ("Out — expected back week 8"; a tinted tag that wraps, so a long one never widens the card past a 375 px
  * screen), and when a player I'd get is tagged, one line under the two lists says his projection assumes he returns at
- * full strength, blended with the trade market (for a player the "Depends on an injured player" flag names, the flag
- * says it instead: src/lib/tradeView.ts). A Finder card without steps can show "If they say no, try:": the other trade
- * (each tagged player with his tag in words after his name), which kind it is, its three numbers in words (each kept on
- * one line, the estimate's label apart), "Also shown as trade idea 6." when the list has it as a card of its own, its own
- * "Message to send them" with Copy, and its own "Open in Analyzer" (both named for screen readers). Review of Phase 4b:
- * it sits after the card's own reasons, message and "Open in Analyzer", just before the feedback buttons, so the card's
- * flags, facts and reasons read as the card's (they sat under a Plan B that didn't include their player). The feedback
- * buttons get the card's versions (FeedbackControls asks which one was sent when there are two).
+ * full strength, blended with the trade market while the blend is on (for a player the "Depends on an injured player"
+ * flag names, the flag says it instead: src/lib/tradeView.ts). A Finder card without steps can show "If they say no,
+ * try:": the other trade (each tagged player with his tag in words after his name), which kind it is, its three numbers
+ * in words (each kept on one line, the estimate's label apart), its own odds and weekly line as the card's (Phase 4c,
+ * change 9), "Also shown as trade idea 6." when the list has it as a card of its own, its own "Message to send them"
+ * with Copy, and its own "Open in Analyzer" (both named for screen readers). Review of Phase 4b: it sits after the
+ * card's own reasons, message and "Open in Analyzer", just before the feedback buttons, so the card's flags, facts and
+ * reasons read as the card's (they sat under a Plan B that didn't include their player). The feedback buttons get the
+ * card's versions (FeedbackControls asks which one was sent when there are two).
  * Under "You get 142 ROS pts, give 118", a line when my starting lineup moves the other way from those points (a backup
  * given away scores nothing for me). The roster moves the trade forces include Phase 4b's IR slots and returns.
+ * Planner reply to Checkpoint 4b (Phase 4c): under the three numbers (after the veto note, which stays right under
+ * them), my real odds, "Title odds 12.1% → 13.4% · Playoff odds 65% → 69%" (change 9; each kept on one line, the arrow
+ * said as "from … to" for screen readers), and "Win chance by week: Week 9: 68% → 64% · Week 13: 42% → 55%" when the
+ * trade moves a week's chance enough; the trade value line is FantasyCalc's own (change 3), and the Trade Analyzer's
+ * card has "Details" (a closed 44 px disclosure: the model's own trade-value figures). An estimate under 5% prints
+ * "<5%" (answer 5), said "under 5%" to screen readers.
+ * The feedback buttons wait for the browser to keep a press (onFeedback returns the save's promise: change 7's
+ * FeedbackControls), so a refused press is said on the card itself.
  * It's an <article> named by its heading; the heading level is the page's to choose.
  */
 import Link from "next/link";
 import { Fragment, useId } from "react";
 import type { FeedbackChange } from "@/lib/feedbackStore";
 import type { SaveResult } from "@/lib/importStore";
-import type { AssetView, CardFeedback, InjuryTone, NumberView, PlanBView, StepsView, TradeCardView } from "@/lib/tradeView";
+import type { AssetView, CardFeedback, DetailsView, InjuryTone, NumberView, OddsView, PlanBView, StepsView, TradeCardView, WeeklyLineView } from "@/lib/tradeView";
 import { CopyButton } from "../CopyButton";
 import { HarderToGetBadge } from "../league/HarderToGetBadge";
 import { ValuesCredit } from "../league/ValuesCredit";
 import { buttonClass, cx } from "../ui";
 import { FeedbackControls } from "./FeedbackControls";
+
+/**
+ * The dot between the items of a line ("Title odds … · Playoff odds …", "Week 9: … · Week 13: …", a step's estimate, Plan
+ * B's three numbers): a no-break space before it, so a line breaks only after the dot and never starts with one (final
+ * review of Phase 4c, finding PAGES-7: a Plan B box's weekly line wrapped to "· Week 13: 43% → 53%").
+ */
+const SEP = `${String.fromCharCode(0xa0)}· `;
 
 /** An injury tag's tint by its tone (the words say it all; the tint only helps scanning). */
 const TAG_CLASS: Record<InjuryTone, string> = {
@@ -92,6 +108,82 @@ function Score({ label, number, sub }: { label: string; number: NumberView; sub?
   );
 }
 
+/**
+ * My odds before and after the trade, next to the three numbers: each odds kept on one line (it wraps between them on a
+ * 320 px phone), the arrow said as "from … to" to screen readers; then the weeks whose win chance moves, each kept whole.
+ */
+function OddsLines({ odds, weekly }: { odds: OddsView[]; weekly: WeeklyLineView | null }) {
+  return (
+    <div className="mt-2 space-y-0.5 text-sm">
+      {odds.length ? (
+        <p>
+          {odds.map((o, i) => (
+            <Fragment key={o.label}>
+              {i > 0 ? <span aria-hidden>{SEP}</span> : null}
+              {i > 0 ? <span className="sr-only">, </span> : null}
+              <span className="whitespace-nowrap">
+                <span className="font-semibold">{o.label}</span>{" "}
+                {o.srValue === o.value ? (
+                  <span className="tabular-nums">{o.value}</span>
+                ) : (
+                  <>
+                    <span aria-hidden className="tabular-nums">
+                      {o.value}
+                    </span>
+                    <span className="sr-only">{o.srValue}</span>
+                  </>
+                )}
+              </span>
+            </Fragment>
+          ))}
+        </p>
+      ) : null}
+      {weekly ? (
+        <p className="text-muted">
+          <span className="font-semibold">{weekly.label}:</span>{" "}
+          {weekly.weeks.map((w, i) => (
+            <Fragment key={w.week}>
+              {i > 0 ? <span aria-hidden>{SEP}</span> : null}
+              {i > 0 ? <span className="sr-only">, </span> : null}
+              <span aria-hidden className="whitespace-nowrap tabular-nums">
+                {w.text}
+              </span>
+              <span className="sr-only">{w.srText}</span>
+            </Fragment>
+          ))}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+/** The Trade Analyzer's "Details": the model's own trade-value figures, behind a closed 44 px summary named for screen readers. */
+function Details({ details, name }: { details: DetailsView; name: string }) {
+  return (
+    <details className="mt-3 rounded-xl border border-line">
+      <summary className="flex min-h-11 items-center justify-between gap-2 px-3 text-sm font-bold">
+        <span>
+          {details.summary}
+          <span className="sr-only"> ({name})</span>
+        </span>
+        <span aria-hidden className="text-muted">
+          ▾
+        </span>
+      </summary>
+      <div className="border-t border-line p-3 text-sm leading-relaxed">
+        <p className="text-muted">{details.intro}</p>
+        <ul className="mt-2 list-disc space-y-1 pl-5">
+          {details.items.map((item) => (
+            <li key={item} className="break-words">
+              {item}
+            </li>
+          ))}
+        </ul>
+      </div>
+    </details>
+  );
+}
+
 /** "How to offer it": the first offer, then what to add if they say no, each with its estimate. */
 function Steps({ steps }: { steps: StepsView }) {
   return (
@@ -101,7 +193,7 @@ function Steps({ steps }: { steps: StepsView }) {
         {steps.items.map((s) => (
           <li key={s.lead} className="break-words">
             <span className="font-semibold">{s.lead}</span> {s.what}
-            <span aria-hidden> · </span>
+            <span aria-hidden>{SEP}</span>
             <span className="sr-only">, </span>
             <span aria-hidden className="font-semibold">
               <span className="whitespace-nowrap tabular-nums">{s.est}</span>
@@ -141,8 +233,9 @@ function Message({ text, name, className }: { text: string; name: string; classN
 /**
  * "If they say no, try:" (Plan B): the other trade in words (tags after the names), which kind it is, its three numbers
  * (each kept on one line, the estimate's label apart, so nothing breaks inside "(Est. · Likely)" on a 375 px phone; the
- * chance it goes through when a veto could cut it), whether the list shows it as an idea of its own, its own message to
- * send them and its own "Open in Analyzer", both named for screen readers by the card.
+ * chance it goes through when a veto could cut it), its own odds and weekly line laid out as the card's (OddsLines;
+ * Phase 4c, change 9: none when the Plan B carries no odds), whether the list shows it as an idea of its own, its own
+ * message to send them and its own "Open in Analyzer", both named for screen readers by the card.
  */
 function PlanBBox({ planB, name, showLink, onOpen }: { planB: PlanBView; name: string; showLink: boolean; onOpen?: ((href: string) => void) | undefined }) {
   const which = `if they say no, try: ${planB.give} for ${planB.get}; ${name}`;
@@ -159,7 +252,7 @@ function PlanBBox({ planB, name, showLink, onOpen }: { planB: PlanBView; name: s
       <p className="mt-1 font-semibold">
         {planB.numberParts.map((part, i) => (
           <Fragment key={part.text}>
-            {i > 0 ? " · " : null}
+            {i > 0 ? SEP : null}
             <span className="whitespace-nowrap">{part.text}</span>
             {part.label ? (
               <>
@@ -171,6 +264,7 @@ function PlanBBox({ planB, name, showLink, onOpen }: { planB: PlanBView; name: s
         ))}
       </p>
       {planB.acceptNote ? <p className="text-muted">{planB.acceptNote}</p> : null}
+      {planB.odds.length || planB.weekly ? <OddsLines odds={planB.odds} weekly={planB.weekly} /> : null}
       {planB.also ? <p className="text-muted">{planB.also}</p> : null}
       <Message text={planB.pitch} name={which} className="mt-2" />
       {showLink ? (
@@ -190,7 +284,8 @@ export interface TradeCardProps {
   rank?: number;
   headingLevel?: "h2" | "h3";
   feedback: CardFeedback;
-  onFeedback: (change: FeedbackChange) => SaveResult;
+  /** Saves one press (the page: useFeedback.ts saveFeedbackPress); its promise says whether the browser kept it. */
+  onFeedback: (change: FeedbackChange) => SaveResult | Promise<SaveResult>;
   /** "Open in Analyzer" (the Finder's cards; Plan B's too). */
   showAnalyzerLink?: boolean;
   /**
@@ -224,7 +319,9 @@ export function TradeCard({ card, rank, headingLevel = "h3", feedback, onFeedbac
         <Score label="Chance they accept" number={n.accept} sub={n.acceptLabel} />
         <Score label="Overall" number={n.overall} />
       </dl>
+      {/* The veto note right under the numbers it qualifies (`npm run check:browser` reads it as the <dl>'s next element). */}
       {n.acceptNote ? <p className="mt-2 text-sm text-muted">{n.acceptNote}</p> : null}
+      <OddsLines odds={card.odds} weekly={card.weekly} />
       {card.steps ? <Steps steps={card.steps} /> : null}
 
       {card.flags.length ? (
@@ -258,6 +355,7 @@ export function TradeCard({ card, rank, headingLevel = "h3", feedback, onFeedbac
           </div>
         ))}
       </dl>
+      {card.details ? <Details details={card.details} name={name} /> : null}
 
       {card.required.length ? (
         <div className="mt-3 rounded-xl bg-surface-muted px-3 py-2 text-sm">

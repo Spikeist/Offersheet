@@ -3,7 +3,8 @@
  * pages (the Trade Finder after the League page: Phase 4 wave 2), then Settings (§14 item 6), the page
  * you're on marked for screen readers (aria-current) and visibly, 44 px targets, and a phone layout
  * that wraps rather than overflows, with a shorter "Report" label and tighter links below sm so the
- * five links keep one row at 375 px. Static render (first render only), with usePathname mocked.
+ * five links keep one row at 375 px. Phase 4c: the league switcher sits next to the logo (LeagueSwitcher.test.ts),
+ * the nav on a row of its own below lg. Static render (first render only), with usePathname mocked.
  */
 import { createElement, type ComponentProps } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -151,5 +152,21 @@ describe("SiteHeader", () => {
     expect(row).toEqual(expect.arrayContaining(["flex", "flex-wrap", "justify-between"]));
     const nav = /<nav aria-label="Main" class="([^"]*)">/.exec(html)?.[1]?.split(" ");
     expect(nav).toEqual(expect.arrayContaining(["ml-auto", "flex", "flex-wrap"]));
+  });
+
+  it("gives the nav a row of its own below lg, with or without the league switcher, so the rows never move when it appears (Phase 4c)", () => {
+    const html = headerAt("/");
+    const nav = /<nav aria-label="Main" class="([^"]*)">/.exec(html)?.[1]?.split(" ");
+    expect(nav).toEqual(expect.arrayContaining(["basis-full", "justify-end", "lg:basis-auto"]));
+    // The header's row anchors the switcher's panel on phones.
+    expect(/<header class="bg-navy text-navy-contrast"><div class="([^"]*)">/.exec(html)?.[1]?.split(" ")).toContain("relative");
+  });
+
+  it("renders no league switcher on the server (the league store is read in the browser), only its empty status line", () => {
+    const html = headerAt("/league");
+    expect(html).not.toContain("data-league-switcher");
+    expect(html).toContain('<p role="status" class="sr-only"></p>');
+    // The storage banner shows only once the store says leagues can't be kept.
+    expect(html).not.toContain('role="alert"');
   });
 });

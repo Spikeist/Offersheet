@@ -179,6 +179,11 @@ export const config = {
     weight: 0.5,
     positions: ["QB", "RB", "WR", "TE"] as readonly Pos[],
     minPlayers: 10,
+    /**
+     * Phase 4c (planner reply to Checkpoint 4b, change 4): f is clamped to this range after the blend. Extreme factors are
+     * where data glitches (a fallback base rate, a role change the projections haven't caught) and market hype concentrate.
+     */
+    factorClamp: [0.75, 1.35] as const,
   },
 
   /** §7 Lineups, team strength and needs. */
@@ -201,6 +206,26 @@ export const config = {
      * (LeagueSettings.irEligible), so this default doesn't apply there.
      */
     irEligibleDefault: ["IR", "PUP"] as readonly InjuryStatus[],
+    /**
+     * Forced drops (§7: roster legality's rules 1 and 2, and the roster spot an IR player needs from his return,
+     * returners.ts; final review of Phase 4c, finding R6, ⚠️ ours) where a keep value is the lineup cost alone (redraft
+     * leagues, and dynasty or keeper ones without long-term values): among the candidates whose keep value is within this
+     * many projected points a week of the lowest (× the weights of the weeks it counts: ROS lineup points), the one with the
+     * lowest trade value floored at the waiver credit W goes (teamValue.lowestKeepValue; between players worth at most W,
+     * whom every package counts at W, the lineup decides as before). On Parker's league (Oct 4 09:24Z) a 2-for-1 cut Kyle
+     * Monangai (worth [value]) where Marvin Harrison Jr. ([value] ≤ W [value]) cost the lineup 0.02 points a week more: noise, while
+     * the trade value lost was real. ⚠️ The free-agent optimizer's cuts follow the same rule (verification of that review,
+     * finding VF-1; optimizer.ts's header, league.nearTieRos): a pickup whose best cut is worth more than W cuts a cheaper
+     * player instead when that swap is within this of it (my moves after a trade are charged in my market term). 0.2
+     * rather than the review's example of 0.5: at 0.5, without the floor, a returner's team kept a rookie worth 756 over a
+     * D/ST worth 0.37 points a week of its lineup, which moved Parker's baseline playoff odds 1.2 points. At 0.2 with the
+     * floor (verification finding VF-4), against 0 on the same data: the headline odds (every team after its pickups) are
+     * the same for every team, and so is every team's roster after its pickups (Team 5 pairs its two pickups with its two
+     * cuts the other way round); the odds as rosters stand move, by 0.26 points of playoff odds at most (Parker's 65.06% →
+     * 65.04%), because Team 6's IR rookie Jordyn Tyson, worth more than W, keeps his spot from week 5 and Emanuel Wilson
+     * goes, where exact ties released Tyson (Team 6: 1 ROS point, 104.9 → 104.8 points a week; 86.9% → 86.8% playoffs).
+     */
+    dropNearTieWeekly: 0.2,
   },
 
   /** §7 Needs, trade chips and best trade partners (League page). */
@@ -290,6 +315,13 @@ export const config = {
   leaguePage: {
     riskyWinChance: 0.4,
     riskyByes: 3,
+    /**
+     * Phase 4c (lead decision): the positions whose streamed slot covers a likely starter's bye in the risky-week count
+     * (evaluate.ts riskyWeeksOf and leagueView.ts scheduleByeRule leave a starter there out when the team streams it): a
+     * streaming kicker or D/ST is about as good as a rostered one. A streamed QB's or TE's replacement is much weaker (with TE
+     * streamed on Parker's data, Brock Bowers' 11.8 a week would get a 6.1 one), so their byes still count.
+     */
+    streamCoversBye: ["K", "DEF"] as readonly Pos[],
   },
 
   /** §9 Market value layer. */
@@ -309,11 +341,32 @@ export const config = {
      * so the cut is our assumption (⚠️ unverified; TE values move ×1.149 / ×1.29 in Phase 0).
      */
     tepPlusPlusAt: 0.75,
+    /**
+     * Phase 4c (planner reply to Checkpoint 4b, change 12): when FantasyCalc doesn't answer, the last saved list stands in
+     * for up to this many days, with a "values from <date>" note.
+     */
+    fantasyCalcStaleDays: 7,
+    /**
+     * … after that, the model's own value curve values every player: an old list (at most this many days old) only
+     * calibrates the curve of value on rest-of-season points, with a clear banner. Older or none: no values.
+     */
+    fantasyCalcCurveDays: 90,
   },
 
   /** §10 Benefit, Trade Score and Overall. */
   benefit: {
-    weights: { playoffs: 0.35, title: 0.65 },
+    /**
+     * Phase 4c (planner reply to Checkpoint 4b, change 8): B's weights by the per-league setting "What matters most"
+     * (TradeSettings.goal). B_win = 100 × (playoffs × ΔPO + title × ΔCH). B_ref stays 6 (the planner: "uniform gains move ΔPO
+     * and ΔCH about equally in Parker's league"). ⚠️ Measured for Checkpoint 4c: they don't, a uniform +3 points a week moves
+     * ΔPO about twice as much as ΔCH there, so "Win the title" reads about a fifth lower than Balanced (a planner question).
+     */
+    goals: {
+      title: { playoffs: 0.15, title: 0.85 },
+      balanced: { playoffs: 0.35, title: 0.65 },
+      playoffs: { playoffs: 0.7, title: 0.3 },
+    },
+    goalDefault: "title" as "title" | "balanced" | "playoffs",
     /**
      * "Protect my trade value" (planner addendum to Checkpoint 3, §3): κ in redraft B = B_win + κ × clamp(g_mkt(me),
      * marketSanityClamp), by the user's setting (TradeSettings.protectValue). At medium, giving 25% more value than you
@@ -401,7 +454,14 @@ export const config = {
     keptPerPartner: 30,
     exactEvaluationMax: 200,
     screeningGWindow: [-0.35, 0.6] as const,
-    finalists: 40,
+    /**
+     * Trades that get the final simulation. 60 since Phase 4c (planner reply to Checkpoint 4b, change 1; 40 before): the
+     * minimum chance and the diversity caps apply after it, so more trades that qualify remain for the list (the Finder
+     * re-filters from them). ⚠️ No promise of a full list: on Parker's league the exact trades give only a few players of
+     * mine, and the given-player cap binds first (the 2026-10-04 00:51Z dump: 9 of my players in the 200 exact trades, 17
+     * of 25 cards at the default 10%; Checkpoint 4c).
+     */
+    finalists: 60,
     resultsShown: 25,
     /**
      * An extension step (§12) adds one player to my side, one to theirs, or one to each (a 1-for-1 becomes a 2-for-1,
@@ -409,13 +469,21 @@ export const config = {
      * pairExtensionTop best single additions on each side (Phase 4 wave 2 decision M7; for speed).
      */
     pairExtensionTop: 5,
+    /**
+     * Phase 4c (planner reply to Checkpoint 4b, change 1): exhaustive candidates per partner on top of the beams, so a
+     * two-player package is found even when neither half helps on its own: every 1-for-2 and 2-for-1 from the give and get
+     * pools, and every 2-for-2 from the top twoForTwoTop of each pool (in pool order). maxPerSide still caps each side.
+     */
+    exhaustive: { twoForTwoTop: 6 },
     /** Get pool H (planner addendum to Checkpoint 3, §2): the top getPool untagged players by MV_add(me, j), plus the top this many "Harder to get" ones. */
     getPoolTagged: 3,
     /**
      * "Offer first / if they say no" (planner addendum to Checkpoint 3, §4). A throw-in is one of my players whose loss
      * costs me at most throwInMaxCost ROS lineup points against my free-agent-optimized roster, in scenario lineups.
      * A step is shown only when it raises the chance they accept by at least minAcceptGain and the offer-first version
-     * is at least minOfferFirst likely; a throw-in added "if they say no" must keep B at least minBShare of the offer's.
+     * prints (acceptance.displayAcceptance, the nearest 5%) at least minOfferFirst, and in case 1 at least the user's minimum
+     * chance too (Phase 4c, evaluate.offerFirstBar); a throw-in added "if they say no" must keep B at least minBShare of the
+     * offer's.
      * preScreen is a performance knob, not a model number (lead decision N4, ⚠️ ours): when the throw-in is added "if they
      * say no", only the best this many candidates by the screening's quick estimate of the chance they accept get exact
      * evaluation (evaluate.ts tradeSteps; the Checkpoint 4 report measures how often that misses the exact choice).
@@ -448,6 +516,15 @@ export const config = {
     perGivenPlayerInTop20: 3,
     perCore: 2,
     fillerCutoffFraction: 0.2,
+    /**
+     * Phase 4c (planner reply to Checkpoint 4b, change 10): the Trade Finder's "Chance they accept: at least …" filter
+     * (TradeSettings.minChance, on P_complete as the card prints it), applied before the diversity caps; the options it
+     * offers, its default, and below how many shown ideas the page suggests a lower setting (when one would show more:
+     * TradeSearchResult.filter.few).
+     */
+    minChanceOptions: [0, 0.1, 0.2, 0.3, 0.4, 0.5] as readonly number[],
+    minChanceDefault: 0.1,
+    minChanceFew: 5,
   },
 
   /**
@@ -487,6 +564,32 @@ export const config = {
     valueMultipleAbove: 1,
     /** The pitch mentions the trade value the partner gains only up to this share (from valueEven): a bigger gain tells a sharp manager it's an overpay. */
     pitchValueMax: 0.25,
+    /**
+     * Phase 4c (planner reply to Checkpoint 4b, change 9): a card's "Win chance by week" line lists the weeks whose win
+     * chance moves at least weeklyLineMin (3 points), at most weeklyLineMax of them (the weeks it drops first, then the
+     * largest gains: final review of Phase 4c, finding R8; shown in week order).
+     */
+    weeklyLineMin: 0.03,
+    weeklyLineMax: 4,
+    /**
+     * Phase 4c (change 6): the Trade Finder's pattern note shows when at least patternMinCount of the uncapped top
+     * patternTop (the ranking without the given-player cap) give the same player of mine.
+     */
+    patternMinCount: 5,
+    patternTop: 10,
+    /**
+     * The pattern note's drivers (src/engine/pattern.ts; the lead's Phase 4c design): one is named when it holds in at least
+     * patternDriverShare of that player's trades in the list (half: the words, "usually" among them, assume at least
+     * half), at most patternDriversMax of them.
+     */
+    patternDriverShare: 0.5,
+    patternDriversMax: 3,
+    /**
+     * The pattern note's "injury cover" driver (src/engine/pattern.ts; ⚠️ ours, the lead's Phase 4c design): a trade's
+     * TradeDetail.depthCover (my ΔPPW in scenario lineups minus in expected-value lineups) is at least this many points a
+     * week. Display only.
+     */
+    patternDepthCoverMin: 0.5,
   },
 } as const;
 

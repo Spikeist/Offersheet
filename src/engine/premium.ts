@@ -14,7 +14,10 @@
  * - e_elite = elite (0.10) when j is among the top eliteTop (12) by FantasyCalc value in the league's format: the
  *   perception list of MarketInputs (market.valuesForTerm: the redraft list in a keeper league), FantasyCalc values only
  *   (estimates and floors never), the whole list (free agents included, not only rostered players), ties at the cut by
- *   the smaller id. No market → nobody is elite.
+ *   the smaller id. No market → nobody is elite. ⚠️ The curve fallback (Phase 4c, MarketInputs.fallback kind "curve":
+ *   no FantasyCalc value is current; market.ts's header): the top eliteTop by the model's own values (the curve's
+ *   estimates) among the league's players (snapshot.players, free agents included), ours: a list weeks old would name
+ *   players whose value has moved since.
  * - e = e_rank + e_elite. Dynasty leagues only: a rebuilding team (its baseline P(playoffs) below rebuild.below, 25%)
  *   halves e (rebuild.factor) for a player at rebuild.positions (RB, WR: PlayerInfo.pos) aged rebuild.age (27) or older.
  *   An unknown age or an unknown P(playoffs) changes nothing. No contender multiplier: contenders already weigh lineup
@@ -24,8 +27,10 @@
  * Where it's used (perceivedPackage; acceptance.ts, evaluate.ts): the partner's perceived package puts v′_j = max(v_j, W)
  * × (1 + e_j) in place of v_j for each player the partner gives: the premium on the value every package counts him at
  * (planner reply to Checkpoint 4, change 4: each player at max(v, W), market.packageValues), the waiver credit W per open
- * spot and pick values unchanged; with config.market.studExponent γ, v′ is raised to γ as v would be. That gives the
- * partner's perceived g, the g feature of the acceptance model (quick and full). Everything else stays without the
+ * spot and pick values unchanged; with config.market.studExponent γ, v′ is raised to γ as v would be. The neutral
+ * throw-ins (Phase 4c, market.ts's header) are chosen on the raw values, not on v′: the perceived package leaves out the
+ * same players as the raw one (and as mine), so a cheap player of theirs never escapes the rule by his premium. That
+ * gives the partner's perceived g, the g feature of the acceptance model (quick and full). Everything else stays without the
  * premium (raw): my g_mkt and B, the partner's g_mkt on the card, its trade history, the screening window (§12) and ⚠️
  * the veto rule (league members judge a trade by the market, not by the owner's attachment to his player). These are
  * starting assumptions: Phase 6 fits a scale factor for e from Accepted and Rejected outcomes alongside the β refit
@@ -58,18 +63,31 @@ const byId = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 // ---------------------------------------------------------------------------------------------
 // The elite list (e_elite)
 
+/** The model's own values of the league's players (eliteIds in the curve fallback). */
+export interface EliteEstimates {
+  /** The players to rank (the league's: rostered and free agents). */
+  ids: Iterable<string>;
+  /** His perception value in the model (0 without one). */
+  value: (id: string) => number;
+}
+
 /**
  * The ids of the top eliteTop players by FantasyCalc value on the perception list of `market` (market.valuesForTerm:
  * MarketInputs.redraftValues in a keeper league, else `values`): positive finite values only, ties at the cut by the
- * smaller id. Empty without a market.
+ * smaller id. Empty without a market. In the curve fallback (MarketInputs.fallback kind "curve"; the file header) the
+ * list is weeks old, so `estimates` (the model's own values) are ranked instead; none passed → nobody is elite.
  */
-export function eliteIds(market: MarketInputs | null | undefined, cfg: StarPremiumConfig = config.acceptance.starPremium): Set<string> {
+export function eliteIds(market: MarketInputs | null | undefined, cfg: StarPremiumConfig = config.acceptance.starPremium, estimates?: EliteEstimates): Set<string> {
   const out = new Set<string>();
   const top = isFiniteNumber(cfg.eliteTop) ? Math.max(0, Math.floor(cfg.eliteTop)) : 0;
   if (!market || top === 0) return out;
-  const list = Object.entries(valuesForTerm(market, "perception").values)
-    .filter(([, v]) => isFiniteNumber(v) && v > 0)
-    .sort((a, b) => b[1] - a[1] || byId(a[0], b[0]));
+  const entries: [string, number][] =
+    market.fallback?.kind === "curve"
+      ? estimates
+        ? [...new Set(estimates.ids)].map((id): [string, number] => [id, estimates.value(id)])
+        : []
+      : Object.entries(valuesForTerm(market, "perception").values);
+  const list = entries.filter(([, v]) => isFiniteNumber(v) && v > 0).sort((a, b) => b[1] - a[1] || byId(a[0], b[0]));
   for (const [id] of list.slice(0, top)) out.add(id);
   return out;
 }
@@ -150,9 +168,12 @@ export interface LeaguePremiumInput {
   pPlayoffs: (teamId: string) => number | null;
 }
 
-/** Every team's premiums (team id → player id → PlayerPremium): every rostered player, active, IR and taxi. */
+/**
+ * Every team's premiums (team id → player id → PlayerPremium): every rostered player, active, IR and taxi. In the curve
+ * fallback the elite list ranks `value` over snapshot.players (eliteIds).
+ */
 export function leaguePremiums(x: LeaguePremiumInput, cfg: StarPremiumConfig = config.acceptance.starPremium): Map<string, Record<string, PlayerPremium>> {
-  const elite = eliteIds(x.market, cfg);
+  const elite = eliteIds(x.market, cfg, { ids: Object.keys(x.snapshot.players), value: x.value });
   const out = new Map<string, Record<string, PlayerPremium>>();
   for (const team of x.snapshot.teams) {
     const players = [...team.roster, ...team.ir, ...team.taxi].map((id): PremiumPlayer => {
@@ -186,8 +207,9 @@ function entryValue(entry: number | { readonly value: number } | undefined): num
  * `recv` (my give) and gives `give` (my get), with v′ = max(v, W) × (1 + e) in place of v for each player in `give`
  * (premium(id) = his e for the partner, 0 when absent or not finite): the premium on the floored value (planner reply to
  * Checkpoint 4, change 4). What it receives (floored at W by tradePackage), its picks and the waiver credit W unchanged
- * (`spots`: the partner's moves on and off its active roster, as tradePackage takes them). With every e 0 it equals
- * tradePackage exactly. Its g is the partner's perceived g (acceptance's g feature).
+ * (`spots`: the partner's moves on and off its active roster, as tradePackage takes them), and the neutral throw-ins
+ * chosen on `values` itself, the raw values (Phase 4c: the same players as the raw package leaves out). With every e 0 it
+ * equals tradePackage exactly. Its g is the partner's perceived g (acceptance's g feature).
  */
 export function perceivedPackage(recv: PackageSide, give: PackageSide, values: ValueLookup, W: number, premium: (id: string) => number, cfg: MarketConfig = config.market, spots?: ActiveSpots): PackageValue {
   const floor = isFiniteNumber(W) && W > 0 ? W : 0;
@@ -197,5 +219,5 @@ export function perceivedPackage(recv: PackageSide, give: PackageSide, values: V
     const e = premium(id);
     table[id] = Math.max(entryValue(values[id]), floor) * (1 + (isFiniteNumber(e) ? e : 0));
   }
-  return tradePackage(recv, give, table, W, cfg, spots);
+  return tradePackage(recv, give, table, W, cfg, spots, values);
 }

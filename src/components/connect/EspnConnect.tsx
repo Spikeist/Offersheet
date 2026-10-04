@@ -9,6 +9,11 @@
  * private-league options are scrolled into view and focused (reveal.ts). A team from a pasted team
  * link isn't sent as "my team": ESPN uses the same kind of link for every team's page, so it's kept
  * in the browser as a pick the user confirms on the Import Report (finishImport).
+ *
+ * Every league imported is saved in this browser and shown (finishImport.ts; Phase 4c, planner reply to
+ * Checkpoint 4b, change 11). The session's ESPN cookies belong to an ESPN account, not to a league, so
+ * they cover every league of that account: while they're saved the page says so, and that another
+ * league needs only its link.
  */
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -24,6 +29,9 @@ import { SeasonSelect } from "./SeasonSelect";
 
 const LOADING_TEXT = "Importing from ESPN… The first import can take up to a minute while we load the player database.";
 const ESPN_COOKIES_FORGOTTEN = "Done. Your ESPN cookies are gone from this browser session.";
+/** While the session holds ESPN cookies: they're the account's, so every league of that account imports with them. */
+export const ESPN_COOKIES_SAVED =
+  "Your ESPN cookies are saved for this browser session. They work for every league of that ESPN account, private ones included, so to add another league just paste its link.";
 
 type ImportError = { code: AppErrorCode; message: string };
 /** What to bring into view after an action: the field that needs fixing, the error, the private-league options, or the "cookies are gone" line. */
@@ -96,7 +104,7 @@ export function EspnConnect() {
       revealNext(isPrivateError(res.error) ? "private" : "error");
       return;
     }
-    const saved = finishImport({ platform: "espn", season, leagueId }, res, parsed.teamId);
+    const saved = await finishImport({ platform: "espn", season, leagueId }, res, parsed.teamId);
     if (!saved.ok) {
       setBusy(false);
       setError({ code: "INTERNAL", message: saved.message });
@@ -201,7 +209,7 @@ export function EspnConnect() {
 
         {session?.connected ? (
           <div className="mt-4">
-            <Callout tone="ok">Your ESPN cookies are saved for this browser session, so private leagues you belong to will import too.</Callout>
+            <Callout tone="ok">{ESPN_COOKIES_SAVED}</Callout>
           </div>
         ) : null}
         {/* Always mounted: "Forget my credentials" removes the panel its button sits in. */}

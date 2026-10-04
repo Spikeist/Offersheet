@@ -14,6 +14,26 @@
  * - The best move has the largest exact EV gain. Ties (within 1e-9): an open spot first (nobody is lost),
  *   then the lower market value dropped (keep the more valuable player), then the smaller ids (the drop, then
  *   the add): Phase 2's waiver ties.
+ * - ⚠️ Near-ties in whom a move cuts (verification of the final review of Phase 4c, finding VF-1; ours: roster legality's
+ *   rule for forced drops, evaluate.ts dropOrder, applied to the drops this optimizer chooses; OptimizerSetup.dropNearTie
+ *   and dropValueFloor). The trade evaluation counts my free-agent moves after a trade in my market term and the card names
+ *   them (evaluate.ts freeAgentMovesOf), so whom a move cuts costs trade value, not only lineup points. With dropNearTie
+ *   above 0 (league.ts: config.lineups.dropNearTieWeekly × the weeks' weights, ROS points; 0 with long-term values, as
+ *   legality's keep values read them): when the best move above cuts a player worth more than dropValueFloor (the waiver
+ *   credit W; every package counts a player worth at most W at W), the move made is its free agent for whichever droppable
+ *   player (the rules above) is worth least, values floored at W, among those whose swap gains at least the best move's
+ *   gain − dropNearTie and more than 0 (ties: the larger gain, then the ties above). Its free agent is always the best
+ *   move's: then which free agents a run adds depends only on the best moves, so greedy determinism ("The pool" below)
+ *   holds as before (a near-tie among different free agents would let one a run never adds change its moves). The swap
+ *   may gain less than faMinGain: the best move decides that a pickup is worth making, the near-tie only whom it cuts.
+ *   Between drops worth at most W the gain decides, as without the tolerance; an open-spot add never gives way (it cuts
+ *   nobody). Exact: the best move is found as above, then its free agent is priced for each cheaper droppable player
+ *   (scenario-judged runs prune by the swap bounds below at that bar). On Parker's league (Oct 4 09:24Z) Bo Nix → Jadarian
+ *   Price had my V*(after) pick up Malik Willis for Josh Allen's week-7 bye and cut Kyle Monangai (worth [value] > W [value])
+ *   where cutting Marvin Harrison Jr. ([value]) cost 0.09 ROS points: the card said to drop Monangai and my market term charged
+ *   him; now the move cuts Harrison (and the next one, the baseline's Malik Washington, Rico Dowdle), the roster Rico
+ *   Dowdle + Bo Nix → Jadarian Price leaves, and the trade reads the same g_mkt(me). ⚠️ So each move can give up to
+ *   dropNearTie ROS points (0.2 a week on Parker's league) to keep a player's trade value.
  * - Free-agent candidates: the free agents with a model that aren't on the roster, not at
  *   config.streaming.optimizerExcluded positions (K, DEF: streamed or kept, never picked up here) or at the
  *   team's streamed positions, not already added by this run, and within positionLimits after the move
@@ -218,6 +238,14 @@ export interface OptimizerSetup {
   readonly maxRosterSize: number;
   /** Market value (perception) for drop ties: the less valuable player goes. (Not `valueOf`: every object has one.) */
   readonly dropValue: (id: string) => number;
+  /**
+   * ⚠️ Near-ties in whom a move cuts (the file header; verification of the final review of Phase 4c, finding VF-1): ROS
+   * points (the units of the moves' gains) within which the best move's free agent comes in for a player worth less
+   * (dropValue floored at dropValueFloor) than the one the best move cuts. 0 or absent: exact ties only (as before).
+   */
+  readonly dropNearTie?: number;
+  /** The waiver credit W: near-ties' drop values are floored at it (only a best move cutting a player worth more can give way). Absent: 0. */
+  readonly dropValueFloor?: number;
   readonly dynasty?: DynastyGuard | null;
   /**
    * Judge optimize()'s moves in scenario lineups (the file header, "Judging moves in scenario lineups"): the scenarios
@@ -445,6 +473,41 @@ export function createOptimizer(setup: OptimizerSetup, cfg: OptimizerConfig = op
   // lineups: an exact scenario search there would solve every free agent and every drop, too slow for Phase 5's MFL).
   const S = setup.scenarios !== undefined && Number.isFinite(setup.scenarios) ? Math.max(0, Math.floor(setup.scenarios)) : 0;
   const judgeScen = S > 0 && !limited;
+  // Near-ties in whom a move cuts (the file header): the tolerance (ROS points) and the floor (W) on the drops' values.
+  const nearTie = setup.dropNearTie !== undefined && Number.isFinite(setup.dropNearTie) && setup.dropNearTie > 0 ? setup.dropNearTie : 0;
+  const valueFloor = setup.dropValueFloor !== undefined && Number.isFinite(setup.dropValueFloor) && setup.dropValueFloor > 0 ? setup.dropValueFloor : 0;
+  /** A drop's value as near-ties read it: dropValue floored at W (an open-spot add, `null`, counts as W). */
+  const flooredValue = (drop: string | null): number => (drop === null ? valueFloor : Math.max(setup.dropValue(drop) || 0, valueFloor));
+  /** Between two near-ties: the lower floored drop value, then better()'s order (the larger gain first). */
+  const nearBetter = (a: Move, b: Move): boolean => {
+    const va = flooredValue(a.drop);
+    const vb = flooredValue(b.drop);
+    return va !== vb ? va < vb : better(a, b, setup.dropValue);
+  };
+  /** Whether a near-tie could replace the best move: it cuts a player worth more than W (nothing floors below W). */
+  const contested = (best: Move | null): best is Move => nearTie > 0 && best !== null && best.drop !== null && flooredValue(best.drop) > valueFloor;
+  /**
+   * The move a scan makes (the file header, near-ties): `best`, the best move by the rules above, unless it cuts a player
+   * worth more than W; then the same free agent for another of `droppable` (indices into `rows`, the scan's team rows) worth
+   * less (floored), when that swap gains at least best's gain − nearTie and more than 0: the lowest floored value, then
+   * better()'s order (the larger gain first). `price(ks, a, bar)` prices dropping each k of `ks` for `a` exactly, leaving
+   * out the ones a rule forbids (and may leave out any whose bound is under `bar`).
+   */
+  const nearTiePick = (best: Move | null, rows: readonly TableRow[], droppable: readonly number[], price: (ks: readonly number[], a: TableRow, bar: number) => readonly Move[]): Move | null => {
+    if (!contested(best)) return best;
+    const a = setup.rows.get(best.add);
+    if (!a) return best;
+    const top = flooredValue(best.drop);
+    const ks = droppable.filter((k) => {
+      const id = rows[k]?.id;
+      return id !== undefined && id !== best.drop && flooredValue(id) < top;
+    });
+    if (!ks.length) return best;
+    const bar = Math.max(best.gain - nearTie, 0);
+    let pick: Move = best;
+    for (const m of price(ks, a, bar)) if (m.gain >= bar - EPS && m.gain > EPS && nearBetter(m, pick)) pick = m;
+    return pick;
+  };
 
   const evaluate = (roster: readonly string[], stream: StreamSpec = NO_STREAM) => {
     const key = rosterKey(roster, stream);
@@ -628,15 +691,18 @@ export function createOptimizer(setup: OptimizerSetup, cfg: OptimizerConfig = op
       for (let w = 0; w < W; w++) if ((weights[w] ?? 0) > 0 && ((cur.solved.seat[w] as Int32Array)[k] as number) >= 0) return false;
       return true;
     };
-    // Each drop's best free agent, per candidate set ("all": every able one; "closed": those an open spot can't take).
-    const picked = new Map<string, Move | null>();
-    const dropMove = (k: number, dropCands: readonly FreeAgentCandidate[], tag: string): Move | null => {
-      const key = `${k}|${tag}`;
-      if (picked.has(key)) return picked.get(key) ?? null;
+    /**
+     * Per drop k: which free agents may come in for him (position limits without him, the dynasty guard, and the lineup-fill
+     * rule: without him every slot fillable before still is, or the free agent restores it), and the roster's EV lineups
+     * without him (solved when first needed).
+     */
+    const dropRules = new Map<number, { allowed: (a: TableRow) => boolean; minus: () => SolvedWeeks }>();
+    const rulesOf = (k: number): { allowed: (a: TableRow) => boolean; minus: () => SolvedWeeks } => {
+      const known = dropRules.get(k);
+      if (known) return known;
       const kRow = teamRows[k] as TableRow;
       const left = withoutOne(positions, kRow.pos);
       const restRoster = roster.filter((id) => id !== kRow.id);
-      // Not needed to fill the lineup: without him every slot fillable before still is, or the free agent restores it.
       if (fillBefore === null) fillBefore = fillCount(entries(roster, stream), slots);
       const before = fillBefore;
       const restEntries = entries(restRoster, stream);
@@ -653,7 +719,33 @@ export function createOptimizer(setup: OptimizerSetup, cfg: OptimizerConfig = op
         return ok;
       };
       const dynOk = (a: TableRow): boolean => !dyn || dyn.value(kRow.id) - dyn.value(a.id) <= dyn.maxDrop + EPS;
-      const allowed = (a: TableRow) => positionAllows(limits, left, a.pos) && dynOk(a) && fillOk(a);
+      let solvedMinus: SolvedWeeks | null = null;
+      const rules = {
+        allowed: (a: TableRow) => positionAllows(limits, left, a.pos) && dynOk(a) && fillOk(a),
+        minus: (): SolvedWeeks => {
+          if (!solvedMinus) {
+            stats.dropsSolved++;
+            solvedMinus = solveEvWeeks(
+              teamEval(
+                teamRows.filter((_, j) => j !== k),
+                slots,
+              ),
+              W,
+            );
+          }
+          return solvedMinus;
+        },
+      };
+      dropRules.set(k, rules);
+      return rules;
+    };
+    // Each drop's best free agent, per candidate set ("all": every able one; "closed": those an open spot can't take).
+    const picked = new Map<string, Move | null>();
+    const dropMove = (k: number, dropCands: readonly FreeAgentCandidate[], tag: string): Move | null => {
+      const key = `${k}|${tag}`;
+      if (picked.has(key)) return picked.get(key) ?? null;
+      const kRow = teamRows[k] as TableRow;
+      const { allowed, minus } = rulesOf(k);
       let move: Move | null = null;
       // A player who starts in no week that counts costs nothing to lose, and the best lineup with the free agent never
       // holds him, so the swap gains exactly what adding the free agent alone gains: no lineup to solve again.
@@ -661,17 +753,23 @@ export function createOptimizer(setup: OptimizerSetup, cfg: OptimizerConfig = op
         const pick = pickFreeAgent(cur.solved, dropCands, weights, allowed);
         if (pick) move = { add: pick.row.id, drop: kRow.id, gain: pick.gain };
       } else {
-        stats.dropsSolved++;
-        const minus = teamEval(
-          teamRows.filter((_, j) => j !== k),
-          slots,
-        );
-        const solvedMinus = solveEvWeeks(minus, W);
+        const solvedMinus = minus();
         const pick = limited ? pickLimited(solvedMinus, dropCands, allowed) : pickFreeAgent(solvedMinus, dropCands, weights, allowed);
         if (pick) move = { add: pick.row.id, drop: kRow.id, gain: rosValue(solvedMinus.lv, weights) - cur.evRos + pick.gain };
       }
       picked.set(key, move);
       return move;
+    };
+    /** Dropping k for the free agent `a` (the near-ties: the best move's own free agent), exactly; null when a rule forbids it. */
+    const swapFor = (k: number, a: TableRow): Move | null => {
+      const { allowed, minus } = rulesOf(k);
+      if (!allowed(a)) return null;
+      const mask = slotMask(slots, a.pos, a.eligible);
+      const id = (teamRows[k] as TableRow).id;
+      // A player benched in every week that counts: the swap gains exactly what adding him alone gains (dropMove's shortcut).
+      if (!limited && benched(k)) return { add: a.id, drop: id, gain: addGainExact(cur.solved, a, mask, weights).gain };
+      const solvedMinus = minus();
+      return { add: a.id, drop: id, gain: rosValue(solvedMinus.lv, weights) - cur.evRos + addGainExact(solvedMinus, a, mask, weights).gain };
     };
 
     const search = (open: boolean, only: ((id: string) => boolean) | null): Move | null => {
@@ -784,7 +882,9 @@ export function createOptimizer(setup: OptimizerSetup, cfg: OptimizerConfig = op
         const m = dropMove(k, dropCands, closed ? "closed" : "all");
         if (m) consider(m);
       }
-      return best;
+      // Near-ties (the file header): when the best move cuts a player worth more than W, its free agent for another droppable
+      // player worth less, within nearTie of it (each priced exactly: swapFor).
+      return nearTiePick(best, teamRows, droppable, (ks, a) => ks.flatMap((k) => swapFor(k, a) ?? []));
     };
 
     let first: { move: Move | null } | null = null;
@@ -941,7 +1041,11 @@ export function createOptimizer(setup: OptimizerSetup, cfg: OptimizerConfig = op
       return ok;
     };
     let best: Move | null = null;
+    // Every move priced, by add and drop, for the near-ties below (only with a tolerance).
+    const priced = new Map<string, Move>();
+    const moveKey = (add: string, drop: string | null) => `${add}\u0000${drop ?? ""}`;
     const consider = (m: Move) => {
+      if (nearTie > 0) priced.set(moveKey(m.add, m.drop), m);
       if (!(m.gain >= minGain - EPS)) return;
       if (!best || better(m, best, setup.dropValue)) best = m;
     };
@@ -1019,7 +1123,25 @@ export function createOptimizer(setup: OptimizerSetup, cfg: OptimizerConfig = op
       if (openFits) consider({ add: a.id, drop: null, gain: gains.add });
       ks.forEach((k, j) => consider({ add: a.id, drop: (teamRows[k] as TableRow).id, gain: gains.swaps[j] as number }));
     }
-    return best;
+    // Near-ties (the file header): when the best move cuts a player worth more than W, its free agent for another droppable
+    // player worth less, within nearTie of it: the swaps priced above as they are, the rest pruned by their bounds as above
+    // and priced at once (scenarioMoveGains prices each swap on its own: the same bits as above).
+    return nearTiePick(best, teamRows, droppable, (ks, a, bar) => {
+      const mask = slotMask(slots, a.pos, a.eligible);
+      const known: Move[] = [];
+      const rest: number[] = [];
+      for (const k of ks) {
+        const m = priced.get(moveKey(a.id, (teamRows[k] as TableRow).id));
+        if (m) known.push(m);
+        else if (pairOk(k, a)) rest.push(k);
+      }
+      const bounds = rest.length ? swapBounds(a, mask, rest) : null;
+      const solve = rest.filter((_, j) => ((bounds as Float64Array)[j] as number) >= bar - EPS);
+      if (!solve.length) return known;
+      stats.dropsSolved++;
+      const gains = scenarioMoveGains(cur.cells, solve, a, mask, weights, false);
+      return [...known, ...solve.map((k, j) => ({ add: a.id, drop: (teamRows[k] as TableRow).id, gain: gains.swaps[j] as number }))];
+    });
   };
 
   /** The best move from `roster` (null when no move qualifies or none exists): scanMoves' best. */

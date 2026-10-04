@@ -20,12 +20,13 @@ import {
   streamedPositions,
   streamingAdds,
   tableWithStreaming,
+  teamRosterScorer,
   teamWeeks,
   weekKickedOff,
   type BuildLeagueModelOptions,
   type LeagueModelConfig,
 } from "./league";
-import type { LeagueModel, TeamModel } from "./leagueModel";
+import type { LeagueModel, SeasonOdds, TeamModel } from "./leagueModel";
 import { prepareLeagueSlots, prepareSlots } from "./lineup";
 import type { LeagueSnapshot, Pos, SlotDef, Transaction } from "./model";
 import { surplusScores } from "./needs";
@@ -848,6 +849,35 @@ describe("the weekly score the season simulator draws (§8; TeamModel.score)", (
   });
 });
 
+describe("the score with pickups (Phase 4c, one baseline everywhere; TeamModel.scoreWithPickups, LeagueModel.odds)", () => {
+  it("each team's V*(T) priced as TeamModel.score prices a roster; the team's own score when V*(T) made no move; the odds simulate it", () => {
+    const league = randomLeague({ teams: 4, seed: 17, freeAgentsPerPosition: 4 });
+    league.snapshot.schedule = range(4, 14).flatMap((week) => [
+      { week, teamA: "1", teamB: String(2 + (week % 3)), isPlayoff: false },
+      { week, teamA: ["3", "4", "2"][week % 3] as string, teamB: ["4", "2", "3"][week % 3] as string, isPlayoff: false },
+    ]);
+    for (const scenarios of [0, 16]) {
+      const opts = { now: TEST_NOW, scenarios, seed: 3 };
+      const model = buildLeagueModel(league.snapshot, league.inputs, opts);
+      const marginals = leagueMarginals(league.snapshot, league.inputs, opts);
+      const score = teamRosterScorer(league.snapshot, league.inputs, opts);
+      let moved = 0;
+      for (const t of model.teams) {
+        const vstar = marginals.vStar(t.id);
+        const priced = score(vstar?.roster ?? [], t.id);
+        expect(t.scoreWithPickups?.mean, `S = ${scenarios}, team ${t.id}`).toHaveLength(model.weeks.length);
+        t.scoreWithPickups?.mean.forEach((m, w) => expect(m, `S = ${scenarios}, team ${t.id}, week index ${w}`).toBeCloseTo(priced?.mean[w] as number, 9));
+        t.scoreWithPickups?.sd.forEach((s, w) => expect(s, `S = ${scenarios}, team ${t.id}, week index ${w}`).toBeCloseTo(priced?.sd[w] as number, 9));
+        if (vstar?.moves.length) moved++;
+        else expect(t.scoreWithPickups, `S = ${scenarios}, team ${t.id}`).toEqual(t.score);
+      }
+      expect(moved, `S = ${scenarios}`).toBeGreaterThan(0);
+      expect(model.odds).not.toBeNull();
+      expect(model.odds?.teams).not.toEqual(model.oddsAsRostersStand?.teams);
+    }
+  });
+});
+
 describe("the week in progress in the simulation (lead decision D6): its games are played from projections as if none had started", () => {
   const EARLY = "2026-09-29T17:00:00.000Z"; // before TEST_NOW (20:00Z)
   const LATE = "2026-09-30T00:15:00.000Z";
@@ -903,6 +933,48 @@ describe("the week in progress in the simulation (lead decision D6): its games a
       expect(teamOf(untagged, "1").score.mean[0], `S = ${scenarios}`).toBeCloseTo(112, 9);
       expect(teamOf(live, "1").score.mean[0], `S = ${scenarios}`).toBeCloseTo(97, 9);
       expect(teamOf(live, "2").score.mean[0], `S = ${scenarios}`).toBeCloseTo(112, 9);
+    }
+  });
+
+  it("Phase 4c: the odds as rosters stand are the same either side of the first kickoff; the headline odds (with pickups) move by what the pickups add to the week under way (⚠️ the file header, Game days)", () => {
+    // A 14-point free-agent WR who plays tonight. Team 1 gets him (one free agent, one team: the identical teams tie on his
+    // gain, so snapshot order decides): +3 a week before the kickoff and after it (he starts over the 13-point WR2, who
+    // takes the FLEX from the 11-point WR).
+    const fa = buildTestLeague({
+      teams: [team("1", starters("1").map((x) => ({ ...x, nflTeam: "EAR" }))), team("2", starters("2").map((x) => ({ ...x, nflTeam: "LAT" })))],
+      freeAgents: [p("fa-wr", "WR", 14, { nflTeam: "LAT" })],
+      kickoffs: { 4: { EAR: EARLY, LAT: LATE } },
+    });
+    fa.snapshot.schedule = league.snapshot.schedule;
+    fa.snapshot.settings.playoffTeams = 2;
+    const week4 = (odds: SeasonOdds | null | undefined): number => odds?.weekly[0]?.games.find((g) => g.teamId === "1")?.pWin as number;
+    const one = (m: LeagueModel): TeamModel => teamOf(m, "1");
+    for (const scenarios of [0, 16]) {
+      const opts = { scenarios, sims: 2000, settings: NO_STREAMING };
+      const live = buildLeagueModel(fa.snapshot, fa.inputs, { ...opts, now: TEST_NOW }, NO_RISK);
+      const before = buildLeagueModel(fa.snapshot, fa.inputs, { ...opts, now: BEFORE }, NO_RISK);
+      expect(live.inProgressWeek).toBe(4);
+      for (const m of [live, before]) {
+        expect(one(m).faMoves.map((x) => x.add), `S = ${scenarios}`).toEqual(["fa-wr"]);
+        expect(teamOf(m, "2").faMoves, `S = ${scenarios}`).toEqual([]);
+      }
+      // As rosters stand: the same odds either side of the kickoff (only the week-under-way note is new).
+      expect(live.oddsAsRostersStand?.teams, `S = ${scenarios}`).toEqual(before.oddsAsRostersStand?.teams);
+      expect(live.oddsAsRostersStand?.weekly, `S = ${scenarios}`).toEqual(before.oddsAsRostersStand?.weekly);
+      // With pickups: before the kickoff the pickup plays week 4 (112 + 3); once the week is under way it's held at the
+      // team's score as it stands (the model plays it with today's rosters); every later week counts him either way.
+      expect(one(before).scoreWithPickups?.mean[0], `S = ${scenarios}`).toBeCloseTo(115, 9);
+      expect([one(live).scoreWithPickups?.mean[0], one(live).scoreWithPickups?.sd[0]], `S = ${scenarios}`).toEqual([one(live).score.mean[0], one(live).score.sd[0]]);
+      expect(one(live).score.mean[0], `S = ${scenarios}`).toBeCloseTo(112, 9);
+      one(live).scoreWithPickups?.mean.slice(1).forEach((x, w) => expect(x, `S = ${scenarios}, week index ${w + 1}`).toBeCloseTo(one(before).scoreWithPickups?.mean[w + 1] as number, 9));
+      // So the headline's week-4 chance drops back to a coin flip with team 1's identical rival at the kickoff, the odds as
+      // rosters stand don't move, and on game day the two agree about the week under way.
+      expect(week4(before.odds), `S = ${scenarios}`).toBeGreaterThan(week4(live.odds));
+      expect(week4(live.odds), `S = ${scenarios}`).toBe(week4(live.oddsAsRostersStand));
+      // teamRosterScorer (scripts) prices V*(T)'s roster with the pickup in the week under way: only that week differs.
+      const priced = teamRosterScorer(fa.snapshot, fa.inputs, { ...opts, now: TEST_NOW }, NO_RISK)([...(fa.snapshot.teams[0]?.roster ?? []), "fa-wr"], "1");
+      expect(priced?.mean[0], `S = ${scenarios}`).toBeCloseTo(115, 9);
+      priced?.mean.slice(1).forEach((x, w) => expect(x, `S = ${scenarios}, week index ${w + 1}`).toBeCloseTo(one(live).scoreWithPickups?.mean[w + 1] as number, 9));
     }
   });
 });
@@ -1610,8 +1682,8 @@ describe("edge cases", () => {
     expect(buildLeagueModel(league.snapshot, league.inputs, { now: TEST_NOW, scenarios: 4 }).timings).toEqual({});
     let t = 0;
     const timings = buildLeagueModel(league.snapshot, league.inputs, { now: TEST_NOW, scenarios: 4, clock: () => (t += 1) }).timings;
-    expect(Object.keys(timings)).toEqual(["projections", "availability scenarios", "market values", "streaming", "EV lineups and the free-agent optimizer", "scenario lineups and marginal values", "trade chips", "needs and partners", "season simulation", "total"]);
-    expect(timings.total).toBe(9);
+    expect(Object.keys(timings)).toEqual(["projections", "availability scenarios", "market values", "streaming", "EV lineups and the free-agent optimizer", "scenario lineups and marginal values", "teams after their pickups", "trade chips", "needs and partners", "season simulation", "total"]);
+    expect(timings.total).toBe(10);
     // No simulation (sims 0): no stage for it, and no odds.
     const none = buildLeagueModel(league.snapshot, league.inputs, { now: TEST_NOW, scenarios: 4, sims: 0, clock: () => (t += 1) });
     expect(Object.keys(none.timings)).not.toContain("season simulation");

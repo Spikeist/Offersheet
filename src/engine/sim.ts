@@ -34,8 +34,11 @@
  *   of uniforms (u1, u2), in that order, gives two normals, √(−2 ln(1 − u1))·cos(2πu2) and then
  *   √(−2 ln(1 − u1))·sin(2πu2) (an odd count drops the last sine). The matrix therefore depends only on
  *   the seed, the sim index, the week index and the team index (for a given shape), never on the means,
- *   the schedule or the other sims, and the first k sims of an n-sim matrix are the k-sim matrix: a
- *   1,000-sim screening run can read the first 1,000 sims of the 5,000-sim final matrix.
+ *   the schedule or the other sims, and the first k sims of an n-sim matrix are the k-sim matrix. So the
+ *   League model's 5,000 seasons (LeagueModel.odds and oddsAsRostersStand, one matrix for both) are the first
+ *   5,000 of the trade search's matrix of 5,000 + 1,000 (evaluate.ts): its final block, whose baseline is
+ *   therefore LeagueModel.odds exactly; its screening block is the next 1,000 (Phase 4c: before, the screening
+ *   block came first).
  * - The "before" run and every "after" run of a trade share one matrix (SimOptions.normals). A trade
  *   changes means and SDs, never the weeks or the teams, so the shape always fits; identical inputs give
  *   identical outputs bit for bit (a trade that changes nothing moves no odds), and a trade's deltas
@@ -152,7 +155,9 @@
  *
  * Outputs are averages over the sims. weekly[k].pWin[t] = team t's wins in its game starting that week
  * (a multi-week game counts in its first drawn week) / sims, NaN without a game; pMedianWin likewise for
- * median weeks, null for other weeks.
+ * median weeks, null for other weeks. A trade's "Win chance by week" (TradeDetail.winChance, Phase 4c) is my
+ * pWin from the baseline run and from the trade's run on the same block of draws (evaluate.ts winChanceOf), never
+ * in a points-only league, whose games don't change the standings (evaluate.ts runSim lists none there).
  *
  * Performance: simulateSeason validates the setup and flattens it into typed arrays once (SimState);
  * each sim is simulateOne, which allocates nothing (the standings sort is an insertion sort over the

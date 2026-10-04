@@ -10,7 +10,9 @@
  * are used (§6: ESPN's are averaged with Sleeper's only when the two agree). Phase 3 adds what the
  * season simulation reads (§8): how ties in the standings are broken (the league's seeding
  * tiebreaker, or unknown with points for assumed) and the weeks with final scores; a matchup that
- * spans several NFL weeks counts in all of them.
+ * spans several NFL weeks counts in all of them. Phase 4c adds the "Waiver order used" row (§7 one
+ * free agent, one team; planner reply to Checkpoint 4b, change 5): the order the engine hands free
+ * agents out in, read from the same snapshot (waiverOrderText).
  */
 import { config } from "@/engine/config";
 import type { ModelInputs } from "@/engine/inputs";
@@ -136,7 +138,8 @@ export interface ImportReportView {
     pointsOnly: boolean;
     divisions: { name: string; teams: string[] }[];
   };
-  trades: { deadline: string; review: string; faab: string };
+  /** waiverOrder: the "Waiver order used" row (waiverOrderText), e.g. "Weekly reset (reverse standings)". */
+  trades: { deadline: string; review: string; faab: string; waiverOrder: string };
   teams: {
     rows: TeamRow[];
     /** For the "Your team" picker, alphabetical; `note` marks the platform's team or the one from the user's link. */
@@ -548,6 +551,63 @@ function buildSeason(snapshot: LeagueSnapshot, teamName: (id: string) => string,
   };
 }
 
+/**
+ * The adapters' warning codes for a waiver order read with a caveat (src/adapters/espn/waivers.ts ESPN_WAIVER_CODES,
+ * src/adapters/sleeper/waivers.ts WAIVER_TYPE_UNKNOWN and WAIVER_RESET_BEFORE_GAMES; importReport.test.ts checks they
+ * match), as literals so this page doesn't load the adapters. A pair lists ESPN's code, then Sleeper's.
+ */
+export const WAIVER_WARNING_CODES = {
+  noWaivers: "ESPN_NO_WAIVERS",
+  edited: "ESPN_WAIVER_ORDER_EDITED",
+  resetUnknown: ["ESPN_WAIVER_RESET_UNKNOWN", "WAIVER_TYPE_UNKNOWN"],
+  beforeGames: ["ESPN_WAIVER_RESET_BEFORE_GAMES", "WAIVER_RESET_BEFORE_GAMES"],
+} as const;
+
+/**
+ * What the engine hands free agents out by (§7 one free agent, one team): src/engine/league.ts allocationOrder's basis
+ * from the same snapshot, its two checks restated so this page doesn't load the engine's league model
+ * (importReport.test.ts checks they agree): FAAB budgets left when the league uses FAAB and every team reports a budget
+ * (a finite number ≥ 0); else the waiver ranks when every team has one (a whole number ≥ 1); else the biggest gain first.
+ */
+export function allocationBasis(snapshot: Pick<LeagueSnapshot, "settings" | "teams">): "faab" | "waiver" | "gain" {
+  const teams = snapshot.teams;
+  const budget = (b: number | undefined) => typeof b === "number" && Number.isFinite(b) && b >= 0;
+  const rank = (r: number | undefined) => typeof r === "number" && Number.isInteger(r) && r >= 1;
+  if (snapshot.settings.faabBudget !== undefined && teams.length > 0 && teams.every((t) => budget(t.faabRemaining))) return "faab";
+  if (teams.length > 0 && teams.every((t) => rank(t.waiverRank))) return "waiver";
+  return "gain";
+}
+
+/**
+ * The "Waiver order used" row (Phase 4c; planner reply to Checkpoint 4b, change 5): the engine's basis (allocationBasis),
+ * worded by LeagueSettings.waiverOrderUsed and the adapter's caveats (WAIVER_WARNING_CODES). A weekly reset order says
+ * when the commissioner's edited order is in place until the reset (ESPN keeps the reset order then). A live order is
+ * qualified by the reason its adapter gave: a reset rule the league doesn't report, or a league that resets weekly but
+ * hasn't played a game (no standings to reset to); with neither it is rolling waivers. A FAAB league says what breaks ties
+ * between equal budgets when it's the weekly reset order (an ESPN league whose order resets weekly: its teams carry
+ * ESPN's live rank apart, Team.liveWaiverRank), and one whose budgets the engine can't use says which budget is missing:
+ * the league's own (settings.faabBudget), or some team's.
+ */
+export function waiverOrderText(snapshot: Pick<LeagueSnapshot, "settings" | "teams" | "warnings">): string {
+  const basis = allocationBasis(snapshot);
+  const warned = new Set(snapshot.warnings.map((w) => w.code));
+  const warnedAny = (codes: readonly string[]) => codes.some((c) => warned.has(c));
+  const used = snapshot.settings.waiverOrderUsed;
+  // A FAAB league whose ties go by the weekly reset order (the adapter kept the platform's live rank apart).
+  const resetTies = used === "faab" && snapshot.teams.some((t) => t.liveWaiverRank !== undefined);
+  if (basis === "faab") return resetTies ? "FAAB budget left (the most left picks first; ties by the weekly reset order)" : "FAAB budget left (the most left picks first)";
+  if (basis === "gain") return warned.has(WAIVER_WARNING_CODES.noWaivers) ? "None, free agency: the team that gains the most picks first" : "Not reported (the team that gains the most picks first)";
+  if (used === "weeklyReset") return warned.has(WAIVER_WARNING_CODES.edited) ? "Weekly reset (reverse standings; the commissioner's edited order lasts until the reset)" : "Weekly reset (reverse standings)";
+  if (used === "faab") {
+    const order = resetTies ? "Weekly reset order" : "Waiver order";
+    return snapshot.settings.faabBudget === undefined ? `${order} (the league's FAAB budget wasn't reported)` : `${order} (not every team's FAAB budget was reported)`;
+  }
+  if (used !== "live") return "The league's waiver order";
+  if (warnedAny(WAIVER_WARNING_CODES.resetUnknown)) return "Live order (the league doesn't say whether it resets weekly)";
+  if (warnedAny(WAIVER_WARNING_CODES.beforeGames)) return "Live order (no games played yet)";
+  return "Live order (rolling waivers)";
+}
+
 function deadlineText(st: LeagueSettings, timeZone: string, short: boolean): string {
   const d = st.tradeDeadline;
   if (!d || (d.date === undefined && d.week === undefined)) return "No trade deadline";
@@ -744,6 +804,7 @@ export function buildImportReport(response: ImportResponse, opts: ReportOptions)
     deadline: deadlineUnknown ? UNKNOWN_SETTING_TEXT : deadlineText(settings, opts.timeZone, false),
     review: reviewUnknown ? UNKNOWN_SETTING_TEXT : TRADE_REVIEW_LABEL[settings.tradeReview],
     faab: settings.faabBudget !== undefined ? `$${fmtNum(settings.faabBudget)} FAAB budget` : "No FAAB budget reported",
+    waiverOrder: waiverOrderText(snapshot),
   };
   const deadlineTile: GlanceTile = {
     id: "deadline",

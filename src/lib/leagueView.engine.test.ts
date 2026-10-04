@@ -8,8 +8,12 @@
  * adding up (Σ playoff % ≈ playoff teams × 100, Σ title % ≈ 100), projected final records over the whole
  * season, the schedule's points equal to the simulator's means and its opponents to the snapshot's
  * schedule, Parker's week 13 bye crunch flagged, the engine's notes, and a week under way played from
- * pre-game projections. Synthetic projections (engine/testLeague.ts) with the real 2026 NFL schedule (byes
- * and kickoffs from the committed ESPN fixture). Team names are placeholders; public NFL player names only.
+ * pre-game projections. Phase 4c (planner reply to Checkpoint 4b, change 9, "one baseline everywhere"): the page's
+ * odds and the schedule's points are the ones with every team's free-agent pickups (LeagueModel.odds,
+ * TeamModel.scoreWithPickups), my odds as rosters stand the smaller second line (LeagueModel.oddsAsRostersStand), and
+ * the likely starters' roster after the pickups (rosterAfterPickups) is the engine's own V*(T). Synthetic projections
+ * (engine/testLeague.ts) with the real 2026 NFL schedule (byes and kickoffs from the committed ESPN fixture). Team names
+ * are placeholders; public NFL player names only.
  */
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -21,14 +25,17 @@ import { fakeResolver as sleeperResolver, loadTestLeague, rawOf } from "@/adapte
 import { LeagueView } from "@/components/league/LeagueView";
 import { nflScheduleSchema, reduceNflSchedule, toNflScheduleInputs } from "@/data/nflSchedule";
 import { config } from "@/engine/config";
+import { buildTradeContext, tradeInternals } from "@/engine/evaluate";
 import type { ModelInputs } from "@/engine/inputs";
-import { buildLeagueModel } from "@/engine/league";
+import { buildLeagueModel, buildLeagueModelWithContext } from "@/engine/league";
 import type { LeagueModel, SeasonOdds, TeamModel } from "@/engine/leagueModel";
 import type { LeagueSnapshot } from "@/engine/model";
 import { weekUnderWayNote } from "@/engine/season";
+import { evStarter, isStreamId } from "@/engine/teamValue";
 import { syntheticInputs } from "@/engine/testLeague";
 import { fmtNum, fmtWhole, recordText } from "./format";
-import { RISKY_BYES, RISKY_WIN_CHANCE, UNDER_WAY_TEXT, buildLeagueView, type OddsCell } from "./leagueView";
+import { RISKY_BYES, RISKY_WIN_CHANCE, UNDER_WAY_TEXT, buildLeagueView, likelyStarters, oddsCell, pickupsUnderWayNote, rosterAfterPickups, type OddsCell } from "./leagueView";
+import { titleOddsText } from "./tradeView";
 
 const TZ = "America/Chicago";
 const sum = (xs: readonly number[]) => xs.reduce((a, b) => a + b, 0);
@@ -41,6 +48,16 @@ function printed(cell: OddsCell | null | undefined): number {
   if (text === ">99%") return 100;
   const m = /^(\d+)%$/.exec(text);
   if (!m) throw new Error(`not a printed probability: "${text}"`);
+  return Number(m[1]);
+}
+
+/** A printed title chance (one decimal, titleCell) as a percent: "<0.1%" → 0 and ">99.9%" → 100, so it is within 0.05 points of the engine's. */
+function printedTitle(cell: OddsCell | null | undefined): number {
+  const text = cell?.text ?? "";
+  if (text === "<0.1%") return 0;
+  if (text === ">99.9%") return 100;
+  const m = /^(\d+\.\d)%$/.exec(text);
+  if (!m) throw new Error(`not a printed title chance: "${text}"`);
   return Number(m[1]);
 }
 
@@ -78,7 +95,7 @@ describe("Parker's league (committed ESPN fixture, synthetic inputs, the real 20
     expect(before.view.eliminated).toBeNull();
   });
 
-  it("prints each team's odds within half a point of the engine's, so the columns add up: Σ playoffs ≈ 600%, Σ byes ≈ 200%, Σ titles ≈ 100%", () => {
+  it("prints each team's odds within half a point of the engine's (title odds, with one decimal, within 0.05), so the columns add up: Σ playoffs ≈ 600%, Σ byes ≈ 200%, Σ titles ≈ 100%", () => {
     // Parker's league: 6 playoff teams, the top 2 seeds get byes.
     const playoffTeams = 6;
     const byes = 2;
@@ -94,11 +111,13 @@ describe("Parker's league (committed ESPN fixture, synthetic inputs, the real 20
       const o = oddsOf(r.teamId);
       expect(Math.abs(printed(r.playoffs) - 100 * (o?.pPlayoffs ?? Number.NaN)), r.teamId).toBeLessThanOrEqual(0.5);
       expect(Math.abs(printed(r.bye) - 100 * (o?.pBye ?? Number.NaN)), r.teamId).toBeLessThanOrEqual(0.5);
-      expect(Math.abs(printed(r.title) - 100 * (o?.pTitle ?? Number.NaN)), r.teamId).toBeLessThanOrEqual(0.5);
+      expect(Math.abs(printedTitle(r.title) - 100 * (o?.pTitle ?? Number.NaN)), r.teamId).toBeLessThanOrEqual(0.05 + 1e-9);
     }
     expect(Math.abs(sum(standings.rows.map((r) => printed(r.playoffs))) - 100 * playoffTeams)).toBeLessThanOrEqual(0.5 * n);
     expect(Math.abs(sum(standings.rows.map((r) => printed(r.bye))) - 100 * byes)).toBeLessThanOrEqual(0.5 * n);
-    expect(Math.abs(sum(standings.rows.map((r) => printed(r.title))) - 100)).toBeLessThanOrEqual(0.5 * n);
+    expect(Math.abs(sum(standings.rows.map((r) => printedTitle(r.title))) - 100)).toBeLessThanOrEqual(0.05 * n + 1e-9);
+    // My row's title prints what the headline prints (review of track UIP: "9.9%" over "10%").
+    expect(standings.mine?.headline.at(-1)?.text).toBe(`${standings.rows.find((r) => r.isMine)?.title.text} title`);
   });
 
   it("shows today's record and the projected final record over the whole regular season (wins first, one decimal)", () => {
@@ -125,16 +144,17 @@ describe("Parker's league (committed ESPN fixture, synthetic inputs, the real 20
     expect(explain).not.toContain("assumed");
   });
 
-  it("lists my remaining games week by week against the snapshot's schedule, with the simulator's means as projected points and its win chances", () => {
+  it("lists my remaining games week by week against the snapshot's schedule, with the means the headline odds draw around (scores with pickups) as projected points and their win chances", () => {
     expect(schedule.empty).toBeNull();
     expect(schedule.rows.map((r) => r.week)).toEqual(range(PARKER.currentWeek, Math.max(...snapshot.settings.regularSeasonWeeks)));
     const mine = teamOf(before.model, me);
+    const withPickups = (t: TeamModel) => t.scoreWithPickups as NonNullable<TeamModel["scoreWithPickups"]>;
     for (const r of schedule.rows) {
       const m = snapshot.schedule.find((x) => !x.isPlayoff && x.week === r.week && (x.teamA === me || x.teamB === me));
       expect(r.opponentId, `week ${r.week}`).toBe(m?.teamA === me ? m?.teamB : m?.teamA);
       const k = before.model.weeks.indexOf(r.week);
-      expect(r.mine).toBe(fmtNum(mine.score.mean[k] as number, 1));
-      expect(r.theirs).toBe(fmtNum(teamOf(before.model, r.opponentId as string).score.mean[k] as number, 1));
+      expect(r.mine).toBe(fmtNum(withPickups(mine).mean[k] as number, 1));
+      expect(r.theirs).toBe(fmtNum(withPickups(teamOf(before.model, r.opponentId as string)).mean[k] as number, 1));
       const games = before.odds.weekly.find((w) => w.week === r.week)?.games ?? [];
       const my = games.find((g) => g.teamId === me);
       const their = games.find((g) => g.teamId === r.opponentId);
@@ -169,19 +189,87 @@ describe("Parker's league (committed ESPN fixture, synthetic inputs, the real 20
     }
   });
 
-  it("plays a week under way from pre-game projections: its lineups count only the games left, the odds are the ones from before kickoff, and the page says so", () => {
+  it("plays a week under way from pre-game projections: its lineups count only the games left, the odds as rosters stand are the ones from before kickoff, and the page says so", () => {
     expect(gameDay.model.inProgressWeek).toBe(PARKER.currentWeek);
     // Thursday's teams have kicked off, so some lineup is a partial week; the simulator's week 4 isn't.
     const partial = gameDay.model.teams.filter((t) => (t.scen?.lv[0] ?? 0) < (teamOf(before.model, t.id).scen?.lv[0] ?? 0) - 1e-9);
     expect(partial.length).toBeGreaterThan(0);
     for (const t of gameDay.model.teams) expect(t.score).toEqual(teamOf(before.model, t.id).score);
-    expect(gameDay.odds.teams).toEqual(before.odds.teams);
-    expect(gameDay.odds.weekly).toEqual(before.odds.weekly);
+    // Phase 3's identity holds for the odds as rosters stand (Phase 4c: the headline, with pickups, can move at the first
+    // kickoff, since each team's pickups count from the next week on; league.ts "Game days").
+    const stands = (p: typeof before) => p.model.oddsAsRostersStand as SeasonOdds;
+    expect(stands(gameDay).teams).toEqual(stands(before).teams);
+    expect(stands(gameDay).weekly).toEqual(stands(before).weekly);
+    // On game day the week under way keeps each team's score as it stands: the engine plays it with today's rosters.
+    for (const t of gameDay.model.teams) {
+      expect(t.scoreWithPickups?.mean[0], `team ${t.id}`).toBe(t.score.mean[0]);
+      expect(t.scoreWithPickups?.sd[0], `team ${t.id}`).toBe(t.score.sd[0]);
+    }
     expect(gameDay.view.standings?.notes).toContain(weekUnderWayNote(PARKER.currentWeek));
+    // …and the odds' notes say the pickups count from the next week, right after the engine's note.
+    const notes = gameDay.view.standings?.notes ?? [];
+    expect(notes.indexOf(pickupsUnderWayNote(PARKER.currentWeek, PARKER.currentWeek + 1))).toBe(notes.indexOf(weekUnderWayNote(PARKER.currentWeek)) + 1);
+    expect(before.view.standings?.notes.some((n) => n.includes("free-agent pickups"))).toBe(false);
     const rows = gameDay.view.schedule?.rows ?? [];
-    expect(rows[0]).toMatchObject({ week: PARKER.currentWeek, underWay: UNDER_WAY_TEXT, mine: schedule.rows[0]?.mine, win: schedule.rows[0]?.win });
+    // Week 4's points are its score as it stands on game day (before kickoff they count the pickups too).
+    const k = gameDay.model.weeks.indexOf(PARKER.currentWeek);
+    expect(rows[0]).toMatchObject({ week: PARKER.currentWeek, underWay: UNDER_WAY_TEXT, mine: fmtNum(teamOf(gameDay.model, me).score.mean[k] as number, 1) });
+    expect(rows[0]?.win).toEqual(oddsCell(gameDay.odds.weekly.find((w) => w.week === PARKER.currentWeek)?.games.find((g) => g.teamId === me)?.pWin ?? null));
     expect(rows.slice(1).every((r) => r.underWay === null)).toBe(true);
+    // The note under the schedule says so too, as what the model does (review of track UIP: never "a pickup can't play").
+    expect(gameDay.view.schedule?.note).toContain(`free-agent pickups that would help from week ${PARKER.currentWeek + 1} on, as the odds above do: week ${PARKER.currentWeek} is played with today's rosters.`);
+    expect(before.view.schedule?.note).toContain("free-agent pickups that would help, as the odds above do.");
+    expect(gameDay.html).not.toMatch(/can(&#x27;|')t play/);
   });
+
+  it("leads the odds card with my odds with every team's pickups (the trade search's baseline), and the same as rosters stand under them", () => {
+    const head = before.odds.teams.find((t) => t.teamId === me);
+    const stand = (before.model.oddsAsRostersStand as SeasonOdds).teams.find((t) => t.teamId === me);
+    // As every trade idea prints my odds before it: playoffs in whole percents, the title with one decimal (tradeView.ts).
+    expect(standings.mine?.text).toBe(`Your odds: ${oddsCell(head?.pPlayoffs ?? null).text} playoffs · ${titleOddsText(head?.pTitle ?? Number.NaN)} title`);
+    expect(standings.mine?.asRostersStandText).toBe(`As rosters stand: ${oddsCell(stand?.pPlayoffs ?? null).text} playoffs · ${titleOddsText(stand?.pTitle ?? Number.NaN)} title`);
+    // Both odds add up (each simulates every team's season: 6 playoff spots, 1 champion).
+    const sums = (o: SeasonOdds) => [sum(o.teams.map((t) => t.pPlayoffs)), sum(o.teams.map((t) => t.pTitle ?? Number.NaN))];
+    expect(sums(before.model.oddsAsRostersStand as SeasonOdds)[0]).toBeCloseTo(6, 9);
+    expect(sums(before.model.oddsAsRostersStand as SeasonOdds)[1]).toBeCloseTo(1, 9);
+    expect(before.html).toContain(`<p class="text-base font-extrabold tabular-nums">${standings.mine?.text.replace(/</g, "&lt;")}</p>`);
+  });
+
+  it("counts likely starters on the roster after the free-agent pickups: rosterAfterPickups gives the engine's own V*(T) for every team", () => {
+    const build = buildLeagueModelWithContext(snapshot, inputs, { now: NOW });
+    for (const w of build.context.work) {
+      const team = build.model.teams.find((t) => t.id === w.team.id) as TeamModel;
+      expect(rosterAfterPickups(w.team.roster, team.faMoves), `team ${w.team.id}`).toEqual([...w.vstar.roster]);
+    }
+    // Some team makes pickups here, so the check isn't empty.
+    expect(build.model.teams.some((t) => t.faMoves.length > 0)).toBe(true);
+  });
+
+  it("flags the weeks the trade cards call risky (evaluate.ts riskyWeeksOf), from the same likely starters, for every team as mine", () => {
+    // Review of track UIP: the page picked one lineup by points per game left, which flagged weeks no card's "Covers your
+    // risky week" mentioned (a streamed D/ST counted as a starter on bye). Now both read the same starters: V*(T)'s lineup
+    // each counted week, streaming rows and IR returners in, at least half the weeks he plays; and (Phase 4c lead decision)
+    // neither counts one at a position the team streams on bye (the streaming replacement covers it: on this fixture the
+    // check fails when only one side applies that rule).
+    let flagged = 0;
+    for (const t of snapshot.teams) {
+      const mine: LeagueSnapshot = { ...snapshot, myTeamId: t.id };
+      const model = buildLeagueModel(mine, inputs, { now: NOW });
+      const view = buildLeagueView({ snapshot: mine, model, inputs, myTeamSource: "platform", timeZone: TZ, now: NOW.toISOString() });
+      const I = tradeInternals(buildTradeContext(mine, inputs, { now: NOW }));
+      const page = (view.schedule?.rows ?? []).filter((r) => r.risk !== null && r.week !== model.inProgressWeek).map((r) => r.week);
+      expect(page, `team ${t.id}`).toEqual([...I.riskyWeeks]);
+      flagged += page.length;
+      // The starters themselves: the engine's, but for a player it releases at a returner's return (the model doesn't say who).
+      const base = I.me?.base;
+      if (!base) throw new Error(`no trade baseline for team ${t.id}`);
+      const displaced = new Set(base.displaced.map((d) => d.id));
+      const engine = base.ev.team.rows.flatMap((r, k) => (!isStreamId(r.id) && evStarter(base.ev, k, I.weights) && !displaced.has(r.id) ? [r.id] : []));
+      expect(likelyStarters(mine, model, t.id, { afterPickups: true }).filter((id) => !displaced.has(id)).sort(), `team ${t.id}`).toEqual(engine.sort());
+    }
+    // Parker's week 13 crunch at least, so the check isn't empty.
+    expect(flagged).toBeGreaterThan(0);
+  }, 60_000);
 
   it("shows 'Streaming picks this week' from the engine: Parker streams K and D/ST (the default), the best free agents by this week's points, none whose game has started", () => {
     expect(before.model.streaming.byTeam[me]).toMatchObject({ positions: ["K", "DEF"], source: "setting" });
@@ -221,9 +309,9 @@ describe("Parker's league (committed ESPN fixture, synthetic inputs, the real 20
     expect(spanning.view.standings?.notes).toContain("The matchups of weeks 3–4 are under way: only their weeks still to play are simulated (the points already scored aren't read).");
     const row = spanning.view.schedule?.rows[0];
     expect(row).toMatchObject({ week: 4, weekText: "3–4", weekLabel: "Weeks 3–4", opponentId: opp, underWay: "Week 3 already played: its points aren't counted, so these numbers cover week 4 only" });
-    // Week 4's numbers alone: the simulator's means for week 4, as in the unedited league.
+    // Week 4's numbers alone: the headline odds' means for week 4 (the scores with pickups), as in the unedited league.
     const k = spanning.model.weeks.indexOf(4);
-    expect(row?.mine).toBe(fmtNum(teamOf(spanning.model, me).score.mean[k] as number, 1));
+    expect(row?.mine).toBe(fmtNum(teamOf(spanning.model, me).scoreWithPickups?.mean[k] as number, 1));
     expect(row?.mine).toBe(schedule.rows[0]?.mine);
     expect(spanning.view.schedule?.rows.slice(1).every((r) => r.underWay === null)).toBe(true);
   });
@@ -243,7 +331,7 @@ describe("The Sleeper test league (minimized fixture, synthetic inputs): Sleeper
     expect(rows.filter((r) => r.isMine).map((r) => r.teamId)).toEqual([snapshot.myTeamId]);
     expect(sum(odds.teams.map((x) => x.pPlayoffs))).toBeCloseTo(snapshot.settings.playoffTeams, 9);
     expect(sum(odds.teams.map((x) => x.pTitle ?? Number.NaN))).toBeCloseTo(1, 9);
-    expect(Math.abs(sum(rows.map((r) => printed(r.title))) - 100)).toBeLessThanOrEqual(0.5 * rows.length);
+    expect(Math.abs(sum(rows.map((r) => printedTitle(r.title))) - 100)).toBeLessThanOrEqual(0.05 * rows.length + 1e-9);
     expect(odds).toMatchObject({ tiebreaker: { rule: "pointsFor", assumed: false }, reseed: { value: true, assumed: false } });
     expect(view.standings?.notes).toContain("Ties in the standings go to points for, the league's rule.");
     expect(view.standings?.notes).toContain("The playoffs re-seed after each round: the best seed left plays the worst.");

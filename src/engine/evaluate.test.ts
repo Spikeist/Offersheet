@@ -410,6 +410,6 @@ describe("the Trade Analyzer on a legal trade", () => {
     const ev = analyzeTrade(ctx, trade("2", ["wb1"], ["wa2"])).evaluation;
     expect(tradeInternals(ctx).inProgress).toBe(true);
     expect(ev?.detail.weekly[0]?.before).toBe(ev?.detail.weekly[0]?.after);
-    expect(ev?.detail.notes[0]).toBe("Week 5 is under way, so this trade can't change it: its odds count week 5 as it stands.");
+    expect(ev?.detail.notes[0]).toBe("Week 5 is under way: these odds play it with today's rosters, before and after the trade.");
   });
 });

@@ -1,10 +1,10 @@
 /**
  * The user's trade settings, per league, in this browser (CLAUDE.md §12 "User settings", §14 item 6
  * "Settings"; Phase 4 lead decision L12). One localStorage entry, SETTINGS_STORAGE_KEY, holds
- * { [leagueKey]: TradeSettings } for every league whose settings the user changed. Unlike the import and the
- * League page's model inputs (sessionStorage: this tab only), settings outlast the tab: they're preferences,
- * and the same league imported tomorrow keeps them. They hold no credentials and no names: positions,
- * numbers, on/off flags and canonical player ids.
+ * { [leagueKey]: TradeSettings } for every league whose settings the user changed. Settings outlast the tab
+ * (before Phase 4c the import and the League page's model inputs didn't: they lived in sessionStorage, this tab
+ * only): they're preferences, and the same league imported tomorrow keeps them. They hold no credentials and no
+ * names: positions, numbers, on/off flags and canonical player ids.
  *
  * leagueKey(league) = "<platform>:<8 hex digits>": a short hash (FNV-1a with MurmurHash3's finalizer,
  * src/engine/rng.ts) of the platform and the league id, so the raw league id never sits in storage that
@@ -22,6 +22,14 @@
  * English (storage blocked, or full) instead of throwing. "Reset to defaults" removes the league's entry,
  * so later changes to the defaults reach it. Pure functions over an injected storage, like importStore.ts;
  * the pages' hooks are in src/components/settings.
+ *
+ * Phase 4c (planner reply to Checkpoint 4b, change 11): settings move to the league store's IndexedDB
+ * (src/lib/leagueStore.ts), one row per league under the same leagueKey (so a renewed ESPN league still keeps
+ * them), normalized the same way. Its migration copies every league's entry from SETTINGS_STORAGE_KEY once per
+ * browser, leagues without a saved import included (they attach when that league is imported), and removing a
+ * league deletes its old entry too. The pages no longer read or write localStorage: ⚠️ loadLeagueSettings,
+ * saveLeagueSettings and resetLeagueSettings (the pre-4c writers and their reader) are kept with their tests, unused
+ * since 4c.
  */
 import type { LeagueSnapshot } from "@/engine/model";
 import { fmix32, hash32 } from "@/engine/rng";
@@ -45,6 +53,11 @@ export function leagueKey(league: LeagueRef): string {
 /** The keys leagueKey makes (anything else under SETTINGS_STORAGE_KEY is ignored; "__proto__" never matches). */
 const LEAGUE_KEY = /^[a-z]+:[0-9a-f]{8}$/;
 
+/** Whether a key is one leagueKey makes ("espn:1a2b3c4d"). */
+export function isLeagueKey(key: unknown): key is string {
+  return typeof key === "string" && LEAGUE_KEY.test(key);
+}
+
 function isRecord(x: unknown): x is Record<string, unknown> {
   return !!x && typeof x === "object" && !Array.isArray(x);
 }
@@ -60,7 +73,7 @@ export function parseStoredSettings(raw: string | null | undefined): Record<stri
   }
   if (!isRecord(data)) return {};
   const out: Record<string, TradeSettings> = {};
-  for (const [key, value] of Object.entries(data)) if (LEAGUE_KEY.test(key) && isRecord(value)) out[key] = normalizeTradeSettings(value);
+  for (const [key, value] of Object.entries(data)) if (isLeagueKey(key) && isRecord(value)) out[key] = normalizeTradeSettings(value);
   return out;
 }
 
@@ -70,7 +83,7 @@ export interface LeagueSettingsRead {
   stored: boolean;
 }
 
-/** This league's settings from the stored value (useLocalValue's string, or null when nothing is stored). */
+/** This league's settings from the stored value (the localStorage text, or null when nothing is stored). */
 export function readLeagueSettings(raw: string | null | undefined, key: string): LeagueSettingsRead {
   const own = parseStoredSettings(raw)[key];
   return own ? { settings: own, stored: true } : { settings: defaultTradeSettings(), stored: false };

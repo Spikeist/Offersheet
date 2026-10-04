@@ -10,24 +10,49 @@
  * Standings and odds (§8; §17 Checkpoint 3: "next to the current standings"): their own table, in
  * today's standings order by the league's rules (TeamOdds.rank), apart from the team table, which is
  * ranked by projected points per week and carries the chips: one table with both orders and every
- * column wouldn't fit a phone. Odds print as whole percents; "0%" and "100%" only when certain, "<1%"
- * and ">99%" when they merely round there (oddsCell), "—" when unknown. The Playoffs column needs 2+
+ * column wouldn't fit a phone. Playoff and bye odds print as whole percents; "0%" and "100%" only when certain, "<1%"
+ * and ">99%" when they merely round there (oddsCell), "—" when unknown; title odds with one decimal (titleCell, below:
+ * "<0.1%" and ">99.9%" when they merely round to 0 or 100). The Playoffs column needs 2+
  * playoff teams and the Bye column byes with known odds (oddsShown); the caption and the explainer name
  * only the odds shown. A points-only league is ranked by points for, so they show on phones there (and
  * the record doesn't). When my team is certainly out in a redraft league, the page says "Your season's
  * over — no trade helps this year." (§8), and the Trade partners card offers no partners (it says why).
  *
+ * One baseline everywhere (Phase 4c; planner reply to Checkpoint 4b, change 9): the odds are LeagueModel.odds, every
+ * team after the free-agent pickups that would help it (V*(T), one free agent per team: TeamModel.scoreWithPickups),
+ * the trade search's own baseline, so the League page and every trade idea's "before" agree. My odds lead the card
+ * ("Your odds: 59% playoffs · 9.9% title", printed as the trade ideas print my odds before them: StandingsView.mine),
+ * with the same as rosters stand (LeagueModel.oddsAsRostersStand: no team's pickups) as a smaller second line, and a
+ * line says what the odds count (StandingsView.basis). While a week is under way they count pickups only from the next
+ * week: the engine plays the week under way with today's rosters (league.ts "Game days": each team's scoreWithPickups keeps
+ * its score as it stands that week). That's the model's rule, not the platforms': a free agent whose game hasn't started
+ * can still be picked up and started (review of track UIP), so the odds' notes, the schedule's note and the explainer say
+ * what the model does, never why a pickup couldn't play (pickupsUnderWayNote). A model built before Phase 4c has none of
+ * this: its odds are as rosters stand, so there's no second line and no basis line.
+ *
  * My remaining schedule (§8 "show each remaining week's risk"): each remaining regular-season week the
- * simulation plays (SeasonOdds.weekly): the opponent, both teams' projected points (TeamModel.score, the
- * simulator's means: for a week in progress, the whole week as if none of its games had started), my win
- * chance (and the median game's), and my likely starters on bye. Likely starters = my best lineup (the
- * engine's exact solver) by each active-roster player's projected points per game left (his ROS points ÷
- * his NFL team's games left), so injured and fading players drop out and nobody is counted twice. A
- * week is flagged risky in words when my win chance is under RISKY_WIN_CHANCE (as printed) or RISKY_BYES
- * or more likely starters are off in a week that counts (both from config.leaguePage): a fantasy bye week
- * without a median game can't change the standings (its Win cell says "no game"). A multi-week matchup
- * whose first weeks are already played says its numbers cover only the weeks still to play (the
- * simulation doesn't read the points scored).
+ * simulation plays (SeasonOdds.weekly): the opponent, both teams' projected points (the means the odds draw
+ * around: TeamModel.scoreWithPickups, else TeamModel.score in a model built before Phase 4c; for a week in
+ * progress, the whole week as if none of its games had started, with today's rosters), my win chance (and the median
+ * game's), and my likely starters on bye. Likely starters are the trade cards' own (evaluate.ts riskyWeeksOf, whose
+ * "Covers your risky week N" must name the weeks this page flags; review of track UIP): each week team numbers count, my
+ * best lineup (the engine's exact solver) from each player's projected points that week, on my active roster after my
+ * free-agent pickups (rosterAfterPickups: TeamModel.faMoves applied in order, the optimizer's own roster V*(T), the one
+ * the odds and points beside them count) with my IR returners and a streaming row for each position I stream (the
+ * streaming replacement that week, so a rostered kicker or D/ST the streamer outscores isn't one); a likely starter is
+ * in it in at least half of the counted weeks he plays (teamValue.evStarter's rule), and a returner's bye counts only from
+ * his expected return week (availability.expectedReturnWeek). ⚠️ A likely starter at a position I stream is never counted
+ * (nor listed) on bye (Phase 4c lead decision on the review of track UIP's design question, the same rule as
+ * riskyWeeksOf): his slot's streaming row starts that week's streaming replacement when he's off, so his bye is no crunch
+ * (Parker's kicker had been the 4th of week 13's four); the note says so. scheduleByeRule holds this bye rule, and the
+ * league report's remaining schedule reads it there too (scripts/league-report.ts; review POL-1: it had kept its own copy,
+ * which still counted the kicker, from the roster as it stood). ⚠️ The one difference left: a player the engine
+ * releases from a returner's week to make room (league.ts step 5b) stays on the page's roster, since the model doesn't
+ * say who (on 5 dumps × 10 teams the risky weeks agreed every time). A week is flagged risky in words when my win chance is
+ * under RISKY_WIN_CHANCE (as printed) or RISKY_BYES or more likely starters are off in a week that counts (both from
+ * config.leaguePage): a fantasy bye week without a median game can't change the standings (its Win cell says "no
+ * game"). A multi-week matchup whose first weeks are already played says its numbers cover only the weeks still to play
+ * (the simulation doesn't read the points scored).
  *
  * Team points shown here are plain projected lineup points (Σ LV over the weeks team numbers count).
  * The engine's ROS(T) weights playoff weeks by config.lineups.playoffWeight for trade math; "Lineup
@@ -38,7 +63,9 @@
  * Free-agent pickups (§7 V*; planner reply to Checkpoint 3, model change 2; Phase 4 lead decision L3): each roster
  * lists the moves the free-agent optimizer makes for its team (TeamModel.faMoves, in order; never a kicker or a
  * D/ST), each with what it adds in the lineups the optimizer picks and keeps moves by, so every shown gain is at
- * least config.freeAgentOptimizer.faMinGain and the list reads in the optimizer's order: with injuries and byes
+ * least config.freeAgentOptimizer.faMinGain (⚠️ but for a pickup that drops a less valuable player in a near-tie, which
+ * can add up to config.lineups.dropNearTieWeekly a week less: optimizer.ts's header; the explainer says so) and the list
+ * reads in the optimizer's order: with injuries and byes
  * simulated (FaMove.gainScen) when it judges in scenario lineups (scenarios ran and no starter limits bind:
  * optimizer.ts "Judging moves in scenario lineups"), else on projected (expected-value) lineups (gainEv). The title
  * gives the other number too when there is one (review of Phase 4: the page showed the expected-value gains, "+1
@@ -76,8 +103,10 @@
  *
  * One free agent, one team (§7; planner reply to Checkpoint 4, change 3; LeagueModel.faAllocation): the free agents
  * the rosters' pickups take go to one team each, in the league's waiver order, in FAAB order, or, when neither was
- * available, the team that gains the most first; one line above the rosters says which, and where my team picks
- * (LeagueView.pickupsNote), and the "Free-agent pickups" explainer says it too. ⚠️ "Wasn't available", not "isn't
+ * available, the team that gains the most first; the lines above the rosters say so, where my team picks, and which
+ * order was used (LeagueView.pickupsNote; Phase 4c, planner reply to Checkpoint 4b, change 5: "Waiver order used:
+ * Weekly reset (reverse standings)", the Import Report's own row, importReport.ts waiverOrderText, so the two pages
+ * can't word it differently), and the "Free-agent pickups" explainer says it too. ⚠️ "Wasn't available", not "isn't
  * reported" (review of track F): an import saved before the adapters read ESPN's waiver order has none, though the league
  * reports it. A model built before Phase 4b has no allocation: no line, and the explainer keeps saying each team is
  * measured alone.
@@ -96,25 +125,57 @@
  * text (blendText); the explainer's "Projected points" says which positions were blended, how far, per game, and in a
  * dynasty league that the blend reads this season's values, not the dynasty values the page shows (review of track A).
  * A player at the top or bottom of his position's value range, whose market number is his own projection, reads "Trade
- * market: no comparison (top value at his position)" instead of three equal numbers (review of Phase 4b).
+ * market: no comparison (top value at his position)" instead of three equal numbers (review of Phase 4b). Phase 4c
+ * (planner reply to Checkpoint 4b, change 4): the market moves a projection at most config.marketBlend.factorClamp's
+ * bounds (35% up, 25% down), so a capped player's line says so ("Used 239 (capped: the market moves him up at most
+ * 35%)"; PlayerBlend.clamped), and so does the explainer.
+ *
+ * FantasyCalc's fallbacks (Phase 4c; planner reply to Checkpoint 4b, change 12; MarketInputs.fallback). A saved list
+ * standing in (kind "saved": FantasyCalc didn't answer, the list is at most config.market.fantasyCalcStaleDays old) is
+ * dated next to the header's values credit ("Trade values from Sep 27: FantasyCalc didn't answer.", market.ts
+ * fantasyCalcFallbackText, the model inputs' own note, so the notes don't repeat it). The model's own value curve (kind
+ * "curve": every value is our estimate, off a curve fitted to an older list) is a banner at the top of the page
+ * (LeagueView.valuesBanner: the same words, in place of the inputs' FANTASYCALC_VALUES_ESTIMATED warning), the
+ * header's values line says every value is our estimate, and the values' hover and the explainer stop saying an estimate
+ * is for a player FantasyCalc doesn't value.
  *
  * Game days (LeagueModel.inProgressWeek; CLAUDE.md §7, Phase 2 review decisions): once a game of the
  * current week has kicked off, the team numbers (Proj/wk, team ROS points, strength, needs, lineup
  * costs, the free-agent pickups, trade chips, partners) skip that week, as the engine's do. The header, the
  * team table and the heatmap say which weeks they count, and a player's row for a game already under way
  * shows "—" and "Game already started" (not a 0% chance to play).
+ *
+ * Title odds print with one decimal everywhere on the page (titleCell: the headline and the table's Title column alike,
+ * as every trade idea prints my odds before it; review of track UIP: the headline read "9.9%" over my row's "10%"); the
+ * playoff and bye odds in whole percents (oddsCell), as the cards print playoff odds.
  */
+import { expectedReturnWeek } from "@/engine/availability";
 import { config } from "@/engine/config";
-import type { FantasyCalcFormat, ModelInputs } from "@/engine/inputs";
-import type { AvailabilityNote, LeagueModel, LineupValues, PlayerModel, PlayerPremium, SeasonOdds, SlotStrength, TeamModel, TeamOdds, TradePartner, ValueSource, WeekOdds } from "@/engine/leagueModel";
+import type { FantasyCalcFormat, MarketInputs, ModelInputs } from "@/engine/inputs";
+import type {
+  AvailabilityNote,
+  FaMove,
+  LeagueModel,
+  LineupValues,
+  PlayerModel,
+  PlayerPremium,
+  SeasonOdds,
+  SlotStrength,
+  TeamModel,
+  TeamOdds,
+  TradePartner,
+  ValueSource,
+  WeekOdds,
+} from "@/engine/leagueModel";
 import { prepareLeagueSlots, solveLineup, type LineupPlayer } from "@/engine/lineup";
-import { fantasyCalcFormat, fantasyCalcFormatLabel } from "@/engine/market";
+import { fantasyCalcFallbackText, fantasyCalcFormat, fantasyCalcFormatLabel, noteDay } from "@/engine/market";
 import { POSITIONS, type InjuryStatus, type LeagueSettings, type LeagueSnapshot, type Platform, type PlayerInfo, type Pos, type Team } from "@/engine/model";
-import { DIVISION_RULE_ASSUMED, weekList } from "@/engine/season";
+import { DIVISION_RULE_ASSUMED, weekList, weekUnderWayNote } from "@/engine/season";
 import { fmtNum, fmtSigned, fmtWhole, formatShortDateTime, plural, recordText } from "./format";
+import { allocationBasis, waiverOrderText } from "./importReport";
 import { INJURY_LABEL, PLATFORM_LABEL, posLabel } from "./labels";
 import type { MyTeamSource } from "./myTeam";
-import { HARDER_TO_GET_TAG, finderHref, harderToGetWho, premiumReasons } from "./tradeView";
+import { HARDER_TO_GET_TAG, finderHref, harderToGetWho, premiumReasons, titleOddsText } from "./tradeView";
 
 /** The "Harder to get" tag's words and reasons are shared with the trade cards (src/lib/tradeView.ts). */
 export { HARDER_TO_GET_TAG, premiumReasons };
@@ -138,6 +199,35 @@ export const SEASON_OVER_PARTNERS_TEXT = "Your season's over, so no trade partne
  * full, with the rosters and injury news being today's).
  */
 export const UNDER_WAY_TEXT = "Under way: projected as if no game had started (live scores aren't read)";
+
+/** The standings card's headline (the file header, "One baseline everywhere"): my odds, every team after its pickups (LeagueModel.odds). */
+export const YOUR_ODDS_LABEL = "Your odds";
+/** …and its smaller second line: the same with every team as it stands (LeagueModel.oddsAsRostersStand). */
+export const AS_ROSTERS_STAND_LABEL = "As rosters stand";
+/** What the odds count (StandingsView.basis): the same baseline as every trade idea's "before". */
+export const ODDS_BASIS_TEXT = "These odds count the free-agent pickups that would help each team (listed on its roster): trade ideas start from the same odds.";
+
+/**
+ * The odds' note while a week is under way (league.ts "Game days"; review of track EV): the odds count free-agent pickups
+ * only from the next week, and play the week under way with today's rosters. That's what the model does, not a platform
+ * rule (a free agent whose game hasn't started can still be picked up and started), so it's said that way (review of
+ * track UIP: it read "one made now can't play in week 4"). `next`: the first week the team numbers count (none when the
+ * week under way is the last one).
+ */
+export function pickupsUnderWayNote(week: number, next: number | undefined): string {
+  if (next === undefined) return `Week ${week} is under way and it's the last week, so these odds play it with today's rosters, without free-agent pickups.`;
+  return `While week ${week} is under way, these odds count free-agent pickups from week ${next} on: week ${week} is played with today's rosters.`;
+}
+
+/** The label of the line above the rosters that names the order free agents went out in: the Import Report's row (importReport.ts waiverOrderText). */
+export const WAIVER_ORDER_LABEL = "Waiver order used";
+
+/** FantasyCalc's curve fallback (the file header): the banner's title (its words are market.ts fantasyCalcFallbackText's)… */
+export const VALUES_ESTIMATED_TITLE = "FantasyCalc is unavailable";
+/** …and what the header's values line adds. */
+export const VALUES_ESTIMATED_LINE = "Every value shown is our own estimate for now.";
+/** The model inputs' warning for the curve fallback (src/server/modelInputs.ts): the page shows it as the banner instead. */
+const VALUES_ESTIMATED_CODE = "FANTASYCALC_VALUES_ESTIMATED";
 
 export type StrengthWindow = "ros" | "next";
 export type HeatStep = "strong" | "above" | "average" | "below" | "weak";
@@ -434,6 +524,7 @@ export interface StandingsRow {
   playoffs: OddsCell | null;
   /** null when the Bye column is hidden (StandingsView.showBye false). */
   bye: OddsCell | null;
+  /** With one decimal, as the headline and every trade idea print title odds (titleCell). */
   title: OddsCell;
   /** The expected final regular-season record, one decimal ("8.6–5.4", "8.5–4.5–1.0" with ties); null in a points-only league. */
   finalRecord: string | null;
@@ -441,7 +532,34 @@ export interface StandingsRow {
   eliminated: boolean;
 }
 
+/** One of my odds in the standings card's headline lines: "59% playoffs", "title unknown". */
+export interface OddsPart {
+  text: string;
+  /** A symbolic one in words for screen readers ("less than 1% playoffs"); null when `text` reads fine as it is. */
+  srText: string | null;
+}
+
+/**
+ * My odds above the standings table (the file header, "One baseline everywhere"; planner reply to Checkpoint 4b, change
+ * 9): the headline (LeagueModel.odds: every team after its free-agent pickups, what trade ideas start from) and, smaller,
+ * the same as rosters stand (LeagueModel.oddsAsRostersStand). Playoff odds only where the table shows them (2+ playoff
+ * teams), then title odds, printed as trade ideas print my odds before them (oddsPart: playoffs in whole percents, the
+ * title with one decimal).
+ */
+export interface MyOdds {
+  headline: OddsPart[];
+  /** Null when the model has no odds as rosters stand (one built before Phase 4c: its odds are as rosters stand). */
+  asRostersStand: OddsPart[] | null;
+  /** Each line in words: "Your odds: 59% playoffs · 9.9% title", "As rosters stand: 65% playoffs · 12.1% title". */
+  text: string;
+  asRostersStandText: string | null;
+}
+
 export interface StandingsView {
+  /** My odds, the card's headline; null without a team (or when my team isn't in the odds). */
+  mine: MyOdds | null;
+  /** What the odds count (ODDS_BASIS_TEXT, and that "As rosters stand" counts none when that line shows); null in a model built before Phase 4c. */
+  basis: string | null;
   /** Today's standings order (rank 1 first); empty when there are no odds (`empty` says so). */
   rows: StandingsRow[];
   /** 2+ teams make the playoffs (oddsShown): with none or one, the title goes to the top of the final standings, and the Title column says it all. */
@@ -454,7 +572,7 @@ export interface StandingsView {
    */
   pointsOnly: boolean;
   caption: string;
-  /** SeasonOdds.notes the page doesn't already show as a warning. */
+  /** SeasonOdds.notes the page doesn't already show as a warning, and, while a week is under way, when the odds count pickups from (pickupsUnderWayNote). */
   notes: string[];
   empty: string | null;
 }
@@ -470,14 +588,17 @@ export interface ScheduleRow {
   opponentId: string | null;
   /** The opponent's name, or "Bye week" when there's none. */
   opponent: string;
-  /** Projected points over the game's remaining weeks (TeamModel.score means): mine, and theirs (null on a bye). */
+  /**
+   * Projected points over the game's remaining weeks, the means the odds draw around (TeamModel.scoreWithPickups; score
+   * in a model built before Phase 4c), so they match the win chance beside them: mine, and theirs (null on a bye).
+   */
   mine: string;
   theirs: string | null;
   /** My chance to win the game; on a bye week "—", said as "no game" (not "unknown"). */
   win: OddsCell;
   /** Median-game leagues: my chance to beat the league median that week; null otherwise. */
   median: OddsCell | null;
-  /** My likely starters on bye (short names, lineup order), and the same with full names for hover; null when none are. */
+  /** My likely starters on bye (likelyStarters: after my free-agent pickups; short names, by position), and the same with full names for hover; null when none are. */
   byes: { text: string; title: string; count: number } | null;
   /** In words, never color alone: the badge's label, the short reasons shown beside it, and the full sentence (hover, screen readers). */
   risk: { label: string; reasons: string; text: string } | null;
@@ -513,9 +634,20 @@ export interface LeagueView {
     projections: string;
     /** The FantasyCalc format label, or null when values are unavailable. */
     valuesFormat: string | null;
+    /**
+     * FantasyCalc's fallback, next to the values credit (the file header): a saved list's date ("Trade values from Sep 27:
+     * FantasyCalc didn't answer."), or VALUES_ESTIMATED_LINE when every value is our estimate; null when FantasyCalc answered.
+     */
+    valuesNote: string | null;
     /** "10 weeks left: 7 regular season, 3 playoffs". */
     weeksLeft: string;
   };
+  /**
+   * FantasyCalc's curve fallback (the file header): every value is our own estimate. A banner at the top of the page, in
+   * place of the model inputs' FANTASYCALC_VALUES_ESTIMATED warning (market.ts fantasyCalcFallbackText's words); null
+   * otherwise.
+   */
+  valuesBanner: { title: string; text: string } | null;
   myTeam: {
     id: string | null;
     name: string | null;
@@ -539,10 +671,11 @@ export interface LeagueView {
   partners: { cards: PartnerCard[]; empty: string | null };
   /**
    * One free agent, one team (LeagueModel.faAllocation; the file header): "Free-agent pickups: each free agent goes to one
-   * team only, in your league's waiver order. Your team picks 3rd of 10."; null without an allocation (an older model) or
-   * once no week is left.
+   * team only. Your team picks 4th of 10." and the order used, the Import Report's row ("Weekly reset (reverse
+   * standings)", shown after WAIVER_ORDER_LABEL; null when the Import Report's reading of the snapshot doesn't match the
+   * allocation's basis: `text` names the basis then); null without an allocation (an older model) or once no week is left.
    */
-  pickupsNote: string | null;
+  pickupsNote: { text: string; waiverOrder: string | null } | null;
   /** "Streaming picks this week" and who streams what (§7); null once no week is left, or when the lineup starts no K or D/ST and nobody streams. */
   streaming: StreamingView | null;
   rosters: RosterCard[];
@@ -678,6 +811,9 @@ const VALUE_TITLE: Record<ValueSource, string> = {
   floor: "Our minimum value (FantasyCalc values too few players at his position to estimate)",
 };
 
+/** An estimate's hover in FantasyCalc's curve fallback, where every value is ours (the file header): not "FantasyCalc doesn't value him". */
+const ESTIMATED_VALUE_TITLE = "Our estimate from his projected points (FantasyCalc's values aren't available right now)";
+
 /** What "~" means, read to screen readers after the value. */
 const VALUE_SR: Record<ValueSource, string | null> = {
   fantasycalc: null,
@@ -718,6 +854,8 @@ interface PlayerContext {
    * league, whose blend reads another list (this season's values) than the one the page shows.
    */
   blendMedians: ReadonlyMap<Pos, number>;
+  /** FantasyCalc's curve fallback: every value is our own estimate (the file header). */
+  valuesEstimated: boolean;
 }
 
 function kickedOff(ctx: PlayerContext, info: PlayerInfo | undefined): boolean {
@@ -864,11 +1002,16 @@ function blendEndOf(ctx: PlayerContext, pm: PlayerModel, pos: Pos | undefined): 
  * read "Our projection 313 · Trade market 313 · Used 313", as if the market agreed, when it has nothing to compare him
  * with; his line says so ("Trade market: no comparison (top value at his position)"; `end` from blendEndOf, else "his value
  * is at the end of his position's range").
+ * Phase 4c (planner reply to Checkpoint 4b, change 4): the market moves a projection at most `clamp`'s bounds
+ * (config.marketBlend.factorClamp), so a capped player (PlayerBlend.clamped) reads "Used 239 (capped: the market moves him
+ * up at most 35%)", and the title gives the blend he'd have had uncapped ((1 − w) × ours + w × market) and where the cap
+ * stops him; the percents come from `clamp`, never a fixed number.
  */
 export function blendText(
   b: NonNullable<PlayerModel["blend"]>,
   leagueType: LeagueSnapshot["settings"]["leagueType"] = "redraft",
   end: "top" | "bottom" | null = null,
+  clamp: readonly [number, number] = config.marketBlend.factorClamp,
 ): { text: string; title: string } {
   const value = leagueType === "dynasty" ? "trade value this season (FantasyCalc's redraft values)" : "trade value";
   if (blendIsOwnPoint(b)) {
@@ -882,10 +1025,21 @@ export function blendText(
       title: `Rest-of-season points. Our projection: our own model's. Trade market: none for him: ${why}, so the market can't say more than our projection, which every number on this page uses as it is.`,
     };
   }
+  const mix = `${pct(1 - b.weight)} ours and ${pct(b.weight)} the market's`;
+  const cap = blendCapWords(clamp);
+  const capped = b.clamped === "high" ? ` (capped: the market moves him up at most ${cap.up})` : b.clamped === "low" ? ` (capped: the market moves him down at most ${cap.down})` : "";
+  const used = b.clamped
+    ? `Used: ${mix} would be ${fmtWhole((1 - b.weight) * b.ours + b.weight * b.market)}, but the market moves a projection at most ${cap.up} up and ${cap.down} down, so his stops at ${b.clamped === "high" ? `${cap.up} above` : `${cap.down} below`} ours, which every number on this page uses.`
+    : `Used: ${mix}, which every number on this page uses.`;
   return {
-    text: `Our projection ${fmtWhole(b.ours)} · Trade market ${fmtWhole(b.market)} · Used ${fmtWhole(b.used)}`,
-    title: `Rest-of-season points. Our projection: our own model's. Trade market: the same games at the points per game our model gives healthy players with his ${value}. Used: ${pct(1 - b.weight)} ours and ${pct(b.weight)} the market's, which every number on this page uses.`,
+    text: `Our projection ${fmtWhole(b.ours)} · Trade market ${fmtWhole(b.market)} · Used ${fmtWhole(b.used)}${capped}`,
+    title: `Rest-of-season points. Our projection: our own model's. Trade market: the same games at the points per game our model gives healthy players with his ${value}. ${used}`,
   };
+}
+
+/** How far the market blend may move a projection, in whole percents (config.marketBlend.factorClamp [0.75, 1.35] → up "35%", down "25%"). */
+function blendCapWords(clamp: readonly [number, number] = config.marketBlend.factorClamp): { up: string; down: string } {
+  return { up: pct(clamp[1] - 1), down: pct(1 - clamp[0]) };
 }
 
 function byeText(pm: PlayerModel | undefined): string {
@@ -923,7 +1077,12 @@ function playerRow(ctx: PlayerContext, id: string, group: PlayerRow["group"], te
     gamesText: pm ? plural(pm.ros.gamesLeft, "game") : "—",
     byeText: byeText(pm),
     value: value
-      ? { text: `${value.source === "fantasycalc" ? "" : "~"}${fmtWhole(value.value)}`, estimated: value.source !== "fantasycalc", title: VALUE_TITLE[value.source], srText: VALUE_SR[value.source] }
+      ? {
+          text: `${value.source === "fantasycalc" ? "" : "~"}${fmtWhole(value.value)}`,
+          estimated: value.source !== "fantasycalc",
+          title: value.source === "estimate" && ctx.valuesEstimated ? ESTIMATED_VALUE_TITLE : VALUE_TITLE[value.source],
+          srText: VALUE_SR[value.source],
+        }
       : null,
     lineupCost: cost === null ? null : fmtNum(cost, 1),
     blend,
@@ -1378,6 +1537,20 @@ export function oddsCell(p: number | null): OddsCell {
   return { text: `${Math.round(p * 100)}%`, srText: null };
 }
 
+/**
+ * A title chance as the page prints it, the headline and the table's Title column alike (review of track UIP: the
+ * headline read "9.9% title" over my row's "10%"): one decimal, as every trade idea prints my title odds before it
+ * (tradeView.ts titleOddsText: "9.9%"; title odds are often small, where the decimal counts), "<0.1%" and ">99.9%" when
+ * it merely rounds to 0 or 100 (read out in words), "—" when unknown (null; NaN too).
+ */
+export function titleCell(p: number | null): OddsCell {
+  if (p === null || !Number.isFinite(p)) return { text: "—", srText: "unknown" };
+  const text = titleOddsText(p);
+  if (text.startsWith("<")) return { text, srText: `less than ${text.slice(1)}` };
+  if (text.startsWith(">")) return { text, srText: `more than ${text.slice(1)}` };
+  return { text, srText: null };
+}
+
 /** A fantasy bye week's Win cell: there's no game to win, which isn't an unknown chance. */
 const NO_GAME: OddsCell = { text: "—", srText: "no game" };
 
@@ -1407,6 +1580,45 @@ interface OddsContext {
   myTeamId: string | null;
   /** Everything the warnings box already says: notes repeating it aren't listed twice. */
   warnings: readonly string[];
+  /** The NFL regular season's last week (inputs.nfl.lastWeek, as the engine reads it), for an IR returner's expected return week. */
+  lastNflWeek: number | undefined;
+}
+
+/**
+ * A headline part, printed as every trade idea prints my odds before it (tradeView.ts oddsViews: the planner's "Title odds
+ * 12.1% → 13.4%" and "Playoff odds 65% → 69%"), so the two can be read against each other, and as the table prints them:
+ * playoff odds in whole percents (oddsCell: "59% playoffs"), title odds with one decimal (titleCell: "9.9% title"); a
+ * symbolic one ("<1%", "<0.1%") in words for screen readers, and unknown in words ("title unknown").
+ */
+function oddsPart(p: number | null, label: "playoffs" | "title"): OddsPart {
+  const cell = label === "playoffs" ? oddsCell(p) : titleCell(p);
+  if (cell.srText === "unknown" || p === null) return { text: `${label} unknown`, srText: null };
+  return { text: `${cell.text} ${label}`, srText: cell.srText ? `${cell.srText} ${label}` : null };
+}
+
+/**
+ * My odds, the standings card's headline (MyOdds; the file header, "One baseline everywhere"): the headline from `odds`
+ * (LeagueModel.odds) and the second line from LeagueModel.oddsAsRostersStand when the model has it, each with playoff odds
+ * when the table shows them, then title odds. Null without a team or when my team isn't in the odds.
+ */
+function myOddsOf(c: OddsContext, odds: SeasonOdds, showPlayoffs: boolean): MyOdds | null {
+  const me = c.myTeamId;
+  const head = me ? odds.teams.find((t) => t.teamId === me) : undefined;
+  if (!me || !head) return null;
+  const parts = (o: TeamOdds): OddsPart[] => [...(showPlayoffs ? [oddsPart(o.pPlayoffs, "playoffs")] : []), oddsPart(o.pTitle, "title")];
+  const line = (label: string, ps: readonly OddsPart[]) => `${label}: ${ps.map((p) => p.text).join(" · ")}`;
+  const stand = c.model.oddsAsRostersStand?.teams.find((t) => t.teamId === me);
+  const headline = parts(head);
+  const asRostersStand = stand ? parts(stand) : null;
+  return { headline, asRostersStand, text: line(YOUR_ODDS_LABEL, headline), asRostersStandText: asRostersStand ? line(AS_ROSTERS_STAND_LABEL, asRostersStand) : null };
+}
+
+/**
+ * The model's odds count every team's free-agent pickups (a Phase 4c model: it has the odds as rosters stand too, null
+ * only when the headline is). A model built before Phase 4c has none: its odds are as rosters stand.
+ */
+function oddsCountPickups(model: LeagueModel): boolean {
+  return model.oddsAsRostersStand !== undefined;
 }
 
 /**
@@ -1415,14 +1627,20 @@ interface OddsContext {
  * projected final record. The Playoffs column shows only when 2+ teams make the playoffs and the Bye
  * column only when the league has byes and their odds are known (oddsShown; unknown playoffs make bye
  * and title odds null: the title column then prints "—" and a note says why). Null once no week is
- * left (the page says the season is over); no odds otherwise → `empty`.
+ * left (the page says the season is over); no odds otherwise → `empty`. Phase 4c (the file header, "One baseline
+ * everywhere"): my odds lead it (myOddsOf), a line says what the odds count (ODDS_BASIS_TEXT), and while a week is
+ * under way its notes say the odds count pickups from the next week (pickupsUnderWayNote, after the engine's own note
+ * about that week).
  */
 function standingsView(c: OddsContext): StandingsView | null {
   if (!c.model.weeks.length) return null;
   const pointsOnly = c.snapshot.settings.pointsOnly;
   const odds = c.odds;
-  if (!odds) return { rows: [], showPlayoffs: false, showBye: false, pointsOnly, caption: "", notes: [], empty: "Playoff odds aren't available for this league right now." };
+  if (!odds) return { mine: null, basis: null, rows: [], showPlayoffs: false, showBye: false, pointsOnly, caption: "", notes: [], empty: "Playoff odds aren't available for this league right now." };
   const { playoffs: showPlayoffs, bye: showBye } = oddsShown(odds);
+  const mine = myOddsOf(c, odds, showPlayoffs);
+  const pickups = oddsCountPickups(c.model);
+  const basis = pickups ? `${ODDS_BASIS_TEXT}${mine?.asRostersStand ? ` “${AS_ROSTERS_STAND_LABEL}” counts no pickups.` : ""}` : null;
   const rows: StandingsRow[] = odds.teams
     .filter((o) => c.teamById.has(o.teamId))
     .sort((a, b) => a.rank - b.rank)
@@ -1437,44 +1655,229 @@ function standingsView(c: OddsContext): StandingsView | null {
         pointsFor: fmtNum(team.pointsFor, 1),
         playoffs: showPlayoffs ? oddsCell(o.pPlayoffs) : null,
         bye: showBye ? oddsCell(o.pBye) : null,
-        title: oddsCell(o.pTitle),
+        title: titleCell(o.pTitle),
         finalRecord: pointsOnly ? null : finalRecordText(o),
         eliminated: o.eliminated,
       };
     });
   const chances = listText([...(showPlayoffs ? ["make the playoffs"] : []), ...(showBye ? ["get a first-round bye"] : []), "win the title"]);
   const said = new Set(c.warnings);
+  const notes = odds.notes.filter((n) => !said.has(n));
+  // While a week is under way the odds count pickups from the next week on (the file header): said right after the
+  // engine's own note about that week, or last.
+  const from = teamFrom(c.model);
+  const live = from > 0 ? c.model.inProgressWeek : null;
+  if (pickups && live !== null) {
+    const at = notes.indexOf(weekUnderWayNote(live));
+    notes.splice(at >= 0 ? at + 1 : notes.length, 0, pickupsUnderWayNote(live, c.model.weeks[from]));
+  }
   return {
+    mine,
+    basis,
     rows,
     showPlayoffs,
     showBye,
     pointsOnly,
-    caption: `Standings today by your league's rules, with each team's chance to ${chances}${pointsOnly ? "" : ", and its projected final record"}, from ${fmtWhole(odds.sims)} simulated seasons`,
-    notes: [...new Set(odds.notes.filter((n) => !said.has(n)))],
+    caption: `Standings today by your league's rules, with each team's chance to ${chances}${pointsOnly ? "" : ", and its projected final record"}, from ${fmtWhole(odds.sims)} simulated seasons${pickups ? ", counting each team's free-agent pickups that would help" : ""}`,
+    notes: [...new Set(notes)],
     empty: null,
   };
 }
 
 /**
- * My likely starters (the rule the schedule's bye list uses; see the header): my best lineup, by the
- * engine's exact solver over the league's slots, from each active-roster player's projected points per
- * game left (his ROS points ÷ his NFL team's games left, so availability counts: an injured or suspended
- * player's missed games pull him down). Nobody at 0 counts. In lineup order (slot by slot, best first).
+ * A team's active roster after its free-agent pickups (TeamModel.faMoves, in the order the optimizer makes them): each
+ * add takes its drop's place, or joins at the end for an open spot (optimizer.ts applyStep), so it is V*(T)'s roster, the
+ * one the odds and the schedule's points price (leagueView.engine.test.ts checks it against the engine's own). Each id once.
  */
-export function likelyStarters(snapshot: LeagueSnapshot, model: LeagueModel, teamId: string): string[] {
-  const team = snapshot.teams.find((t) => t.id === teamId);
-  if (!team) return [];
-  const players: LineupPlayer[] = [];
-  for (const id of team.roster) {
-    const info = snapshot.players[id];
-    const pm = model.players[id];
-    if (!info || !pm) continue;
-    const games = pm.ros.gamesLeft;
-    players.push({ id, pos: info.pos, eligible: info.eligible, points: games > 0 && Number.isFinite(pm.ros.total) ? pm.ros.total / games : 0 });
+export function rosterAfterPickups(roster: readonly string[], moves: readonly Pick<FaMove, "add" | "drop">[]): string[] {
+  let out = [...new Set(roster)];
+  for (const m of moves) out = m.drop === null ? [...out, m.add] : out.map((id) => (id === m.drop ? m.add : id));
+  return out;
+}
+
+/** A streaming row's id in likelyStarters' lineups: the engine's own prefix (isStreamId), which no player id carries. */
+const STREAM_ROW = "stream:";
+
+/**
+ * The indexes into model.weeks that team numbers count, as the engine weights them (league.ts teamWeeks, teamValue.ts
+ * weekWeights): from teamFrom on, a regular-season week, or a playoff week while playoff weeks carry a weight.
+ */
+function countedWeekIndexes(model: LeagueModel): number[] {
+  const regular = new Set(model.regularWeeks);
+  const playoffs = new Set((model.playoffWeight ?? config.lineups.playoffWeight) > 0 ? model.playoffWeeks : []);
+  const out: number[] = [];
+  for (let i = teamFrom(model); i < model.weeks.length; i++) {
+    const w = model.weeks[i] as number;
+    if (regular.has(w) || playoffs.has(w)) out.push(i);
   }
-  return solveLineup(players, prepareLeagueSlots(snapshot.settings))
-    .starters.filter((s) => s.points > 0)
-    .map((s) => s.id);
+  return out;
+}
+
+/**
+ * The players likelyStarters picks a team's likely starters from: its active roster (`afterPickups`: after its free-agent
+ * pickups, rosterAfterPickups; else as it stands) and its IR returners (the IR players TeamModel.players lists; as the
+ * engine reads them, league.ts TeamWork.ir, never one the snapshot also lists on the active roster: a data error, he's an
+ * active player), each one the snapshot and the model know. Empty without the team.
+ */
+function starterPool(snapshot: LeagueSnapshot, model: LeagueModel, teamId: string, afterPickups: boolean): { roster: string[]; returners: string[] } {
+  const team = snapshot.teams.find((t) => t.id === teamId);
+  if (!team) return { roster: [], returners: [] };
+  const tm = model.teams.find((t) => t.id === teamId);
+  const modeled = (id: string) => snapshot.players[id] !== undefined && model.players[id] !== undefined;
+  const roster = rosterAfterPickups(team.roster, afterPickups ? (tm?.faMoves ?? []) : []).filter(modeled);
+  const returners = [...new Set(team.ir)].filter((id) => tm?.players[id] !== undefined && !team.roster.includes(id) && !roster.includes(id) && modeled(id));
+  return { roster, returners };
+}
+
+/**
+ * My likely starters (the rule the schedule's bye list and its risky weeks use, which then leave out the positions I
+ * stream: scheduleByeRule; see the header), the trade cards' own (evaluate.ts riskyWeeksOf, teamValue.ts evStarter; review
+ * of track UIP: the page used to pick one lineup by ROS points per game left, which flagged weeks no card mentioned and
+ * listed a D/ST its team streams). Each week team numbers count (countedWeekIndexes), my best lineup by the engine's
+ * exact solver over the league's slots, from each player's projected points that week (PlayerModel.weekly: his bye, his
+ * injuries and his matchup), among my active roster (`afterPickups`, Phase 4c, the schedule's: the roster after my
+ * free-agent pickups, rosterAfterPickups, as the odds and points beside it count them; else as it stands), my IR
+ * returners (the IR players TeamModel.players lists: no points until they're back) and one row per position I stream at
+ * that week's streaming replacement (LeagueModel.streaming: a rostered kicker or D/ST starts only in the weeks he
+ * projects higher). A likely starter is in it in at least half of the counted weeks he plays (points above 0); nobody
+ * who never plays. By position, then more ROS points, then id. ⚠️ A player the engine releases from a returner's week
+ * to make room (league.ts step 5b) stays on this roster: the model doesn't say who.
+ */
+export function likelyStarters(snapshot: LeagueSnapshot, model: LeagueModel, teamId: string, opts: { afterPickups?: boolean } = {}): string[] {
+  if (!snapshot.teams.some((t) => t.id === teamId)) return [];
+  const { roster, returners } = starterPool(snapshot, model, teamId, opts.afterPickups === true);
+  const ids = [...roster, ...returners];
+  const streamed = model.streaming?.byTeam[teamId]?.positions ?? [];
+  const slots = prepareLeagueSlots(snapshot.settings);
+  const finite = (x: number | undefined) => (x !== undefined && Number.isFinite(x) ? x : 0);
+  const row = (id: string, w: number): LineupPlayer => {
+    const info = snapshot.players[id] as PlayerInfo;
+    return { id, pos: info.pos, eligible: info.eligible, points: finite(model.players[id]?.weekly[w]?.p) };
+  };
+  const plays = new Map<string, number>();
+  const seated = new Map<string, number>();
+  for (const w of countedWeekIndexes(model)) {
+    // The engine's row order (league.ts StreamSpec): the active roster, the streaming rows, then the returners.
+    const players: LineupPlayer[] = [
+      ...roster.map((id) => row(id, w)),
+      ...streamed.map((pos): LineupPlayer => ({ id: `${STREAM_ROW}${pos}`, pos, eligible: [pos], points: finite(model.streaming?.replacement[pos]?.[w]) })),
+      ...returners.map((id) => row(id, w)),
+    ];
+    const lineup = new Set(solveLineup(players, slots).starters.map((s) => s.id));
+    for (const p of players) {
+      if (!(p.points > 0)) continue;
+      plays.set(p.id, (plays.get(p.id) ?? 0) + 1);
+      if (lineup.has(p.id)) seated.set(p.id, (seated.get(p.id) ?? 0) + 1);
+    }
+  }
+  const posIndex = (id: string) => POS_ORDER.get(snapshot.players[id]?.pos as Pos) ?? 99;
+  const ros = (id: string) => finite(model.players[id]?.ros.total);
+  return ids
+    .filter((id) => {
+      const n = plays.get(id) ?? 0;
+      return n > 0 && 2 * (seated.get(id) ?? 0) >= n;
+    })
+    .sort((a, b) => posIndex(a) - posIndex(b) || ros(b) - ros(a) || (a < b ? -1 : a > b ? 1 : 0));
+}
+
+/**
+ * An IR returner's expected return week, as the engine reads it (league.ts step 5b: availability.expectedReturnWeek on
+ * what his availability reads, his tag alone when Sleeper found his ESPN return date stale): his byes before it aren't my
+ * crunch (evaluate.ts riskyWeeksOf), since he's on IR then anyway. Null when he isn't back within the weeks left.
+ */
+function returnWeekOf(snapshot: LeagueSnapshot, model: LeagueModel, id: string, lastNflWeek: number | undefined): number | null {
+  const info = snapshot.players[id];
+  if (!info) return null;
+  const avail = model.players[id]?.availabilityNote?.used === "sleeper" ? { injury: info.injury } : info;
+  return expectedReturnWeek(avail, { weeks: model.weeks, currentWeek: snapshot.currentWeek, hasTeam: Boolean(info.nflTeam), ...(lastNflWeek !== undefined ? { lastNflWeek } : {}) });
+}
+
+/** The NFL regular season's last week as the engine reads it (league.ts nflLastWeek: inputs.nfl.lastWeek, a whole week ≥ 1), else undefined. */
+export function lastNflWeekOf(inputs: Pick<ModelInputs, "nfl">): number | undefined {
+  const last = inputs.nfl?.lastWeek;
+  return typeof last === "number" && Number.isInteger(last) && last >= 1 ? last : undefined;
+}
+
+/** The schedule's bye rule for one team (scheduleByeRule). */
+export interface ScheduleByeRule {
+  /** The odds, and so the schedule's points and chances, count every team's free-agent pickups (oddsCountPickups). */
+  readonly pickups: boolean;
+  /**
+   * The players whose byes the schedule could name: my active roster (after my free-agent pickups when `pickups`,
+   * rosterAfterPickups; else as it stands), then my IR returners, likelyStarters' own pool.
+   */
+  readonly players: readonly string[];
+  /**
+   * My likely starters whose byes count (likelyStarters on that pool), in its order (by position, then more ROS points,
+   * then id): ⚠️ never one at a position I stream (the file header).
+   */
+  readonly starters: readonly string[];
+  /** Whether `id` is off in any of `weeks` (NFL weeks; one the model doesn't have counts for nobody): his NFL team's bye that week, a returner's only from his expected return week. */
+  onBye(id: string, weeks: readonly number[]): boolean;
+}
+
+/**
+ * The schedule's bye rule (the file header; §8 "show each remaining week's risk"): scheduleView's, and the league
+ * report's (scripts/league-report.ts remainingSchedule reads it here, so the report can't drift from the page: review
+ * POL-1 found it still counting a streamed kicker on bye, from the roster as it stood). Whether the odds count the
+ * pickups; my likely starters (likelyStarters, after my free-agent pickups when the odds count them), leaving out ⚠️ any
+ * at a position I stream (Phase 4c lead decision on the review of track UIP's design question: his slot's streaming row
+ * starts that week's streaming replacement when he's off, so his bye is no crunch; evaluate.ts riskyWeeksOf, the cards'
+ * rule; by position, so in a league that starts two at a position I stream the second isn't counted either); and whether
+ * a player is off in a game's weeks: his NFL team's bye in one of them (PlayerModel.weekly), an IR returner's only from
+ * his expected return week (returnWeekOf, with `lastNflWeek`, lastNflWeekOf: before it he's on IR anyway, evaluate.ts
+ * riskyWeeksOf's rule; a returner as the engine reads him, so a player the snapshot lists on the active roster and IR
+ * alike counts as active, as he did not before). Without the team: no players.
+ */
+export function scheduleByeRule(snapshot: LeagueSnapshot, model: LeagueModel, teamId: string, lastNflWeek: number | undefined): ScheduleByeRule {
+  const pickups = oddsCountPickups(model);
+  const pool = starterPool(snapshot, model, teamId, pickups);
+  const streamed = new Set<Pos>(streamCoveredPositions(model, teamId));
+  const starters = likelyStarters(snapshot, model, teamId, { afterPickups: pickups }).filter((id) => !streamed.has(snapshot.players[id]?.pos as Pos));
+  // The returners (IR players the model lists with the team and not also on its active roster, as the engine reads them:
+  // evaluate.ts riskyWeeksOf's returnersOf) and their expected return weeks (null: not back within the weeks left).
+  const back = new Map(pool.returners.map((id) => [id, returnWeekOf(snapshot, model, id, lastNflWeek)]));
+  const weekIndex = new Map(model.weeks.map((w, i) => [w, i]));
+  const withMe = (id: string, week: number): boolean => {
+    const b = back.get(id);
+    return b === undefined || (b !== null && week >= b);
+  };
+  return {
+    pickups,
+    players: [...pool.roster, ...pool.returners],
+    starters,
+    onBye: (id, weeks) =>
+      weeks.some((week) => {
+        const i = weekIndex.get(week);
+        return i !== undefined && withMe(id, week) && model.players[id]?.weekly[i]?.bye === true;
+      }),
+  };
+}
+
+/**
+ * Who counts as a likely starter, in words (likelyStarters), for the schedule's note and the explainer: "players in your
+ * best lineup, after your free-agent pickups, in at least half the weeks they play".
+ */
+function likelyStartersWords(pickups: boolean): string {
+  return `players in your best lineup${pickups ? ", after your free-agent pickups," : ""} in at least half the weeks they play`;
+}
+
+/**
+ * The positions the team streams (LeagueModel.streaming.byTeam) whose streaming replacement covers a likely starter's bye
+ * (config.leaguePage.streamCoversBye: K and D/ST; Phase 4c lead decisions, evaluate.ts riskyWeeksOf): a streamed QB's or
+ * TE's replacement is much weaker, so their byes still count.
+ */
+function streamCoveredPositions(model: LeagueModel, teamId: string): Pos[] {
+  return (model.streaming?.byTeam[teamId]?.positions ?? []).filter((p) => config.leaguePage.streamCoversBye.includes(p));
+}
+
+/**
+ * The positions my team streams whose byes the streaming replacement covers (streamCoveredPositions), in words, for the bye
+ * count's exception: "kickers and D/STs"; null when there are none (or no team is picked).
+ */
+function streamedByeWords(model: LeagueModel, teamId: string | null, platform: Platform): string | null {
+  const positions = teamId ? streamCoveredPositions(model, teamId) : [];
+  return positions.length ? listText(positions.map((p) => positionPlural(p, platform))) : null;
 }
 
 /**
@@ -1504,9 +1907,14 @@ function matchupWeeks(snapshot: LeagueSnapshot, me: string, opponentId: string |
 /**
  * My remaining schedule (§8 "show each remaining week's risk"; see the header): one row per game of
  * mine in SeasonOdds.weekly, with both teams' projected points summed over the game's remaining weeks
- * (TeamModel.score means, the numbers the simulation draws around), my win chance (and median-game
- * chance), my likely starters on bye, and a risk flag in words. Null without odds or once no
- * regular-season week is left to play; no team picked, or none of my games left → `empty`.
+ * (the means the simulation draws around: TeamModel.scoreWithPickups, the headline odds', else TeamModel.score in a
+ * model built before Phase 4c), my win chance (and median-game chance), my likely starters on bye (scheduleByeRule:
+ * likelyStarters after my free-agent pickups, as the odds count them, ⚠️ none at a position I stream; a starter's bye is
+ * his NFL team's bye week among the game's weeks left, a returner's only from his expected return week, as evaluate.ts
+ * riskyWeeksOf counts them), and a risk flag in words.
+ * The note under it says what the points and chances count, while a week is under way too (pickups from the next week
+ * on: the week under way is played with today's rosters), and who counts as a likely starter. Null without odds or once
+ * no regular-season week is left to play; no team picked, or none of my games left → `empty`.
  */
 function scheduleView(c: OddsContext): ScheduleView | null {
   const odds = c.odds;
@@ -1517,9 +1925,16 @@ function scheduleView(c: OddsContext): ScheduleView | null {
   const settings = c.snapshot.settings;
   const weekIndex = new Map(c.model.weeks.map((w, i) => [w, i]));
   const teamModels = new Map(c.model.teams.map((t) => [t.id, t]));
-  // Σ score means over the weeks the model has; null when it has none of them (or no scores).
+  // The bye rule (scheduleByeRule, the league report's too): likely starters after my pickups when the odds count them,
+  // ⚠️ none at a position I stream (his slot's streaming row starts that week's replacement when he's off: Phase 4c lead
+  // decision; evaluate.ts riskyWeeksOf, the cards' rule), a returner's bye only from his expected return week.
+  const byeRule = scheduleByeRule(c.snapshot, c.model, me, c.lastNflWeek);
+  const pickups = byeRule.pickups;
+  // Σ score means over the weeks the model has, the ones the odds beside them draw around; null when it has none of
+  // them (or no scores).
   const projected = (teamId: string, weeks: readonly number[]): number | null => {
-    const mean = teamModels.get(teamId)?.score?.mean;
+    const t = teamModels.get(teamId);
+    const mean = (t?.scoreWithPickups ?? t?.score)?.mean;
     let total = 0;
     let any = false;
     for (const w of weeks) {
@@ -1531,7 +1946,6 @@ function scheduleView(c: OddsContext): ScheduleView | null {
     }
     return any ? total : null;
   };
-  const starters = likelyStarters(c.snapshot, c.model, me);
   const limit = pct(RISKY_WIN_CHANCE);
   // A points-only league's games don't count in the standings (only points do), so a low win chance isn't a risk there.
   const h2h = !settings.pointsOnly;
@@ -1546,10 +1960,7 @@ function scheduleView(c: OddsContext): ScheduleView | null {
     const weeks = matchupWeeks(c.snapshot, me, game.opponentId, wk.week);
     const remaining = weeks.filter((w) => weekIndex.has(w));
     const counted = remaining.length ? remaining : [wk.week];
-    const off = starters.filter((id) => {
-      const bye = c.model.players[id]?.ros.bye;
-      return bye?.status === "upcoming" && bye.week !== undefined && counted.includes(bye.week);
-    });
+    const off = byeRule.starters.filter((id) => byeRule.onBye(id, counted));
     const names = off.map((id) => {
       const info = c.snapshot.players[id];
       return { short: info ? shortName(info.name, info.pos) : id, full: info?.name ?? id };
@@ -1592,11 +2003,25 @@ function scheduleView(c: OddsContext): ScheduleView | null {
     });
   }
   if (!rows.length) return none(h2h ? "Your team has no regular-season games left to play." : "Your league ranks teams by total points, so there's no weekly schedule to show.");
+  // While a week is under way the odds count pickups from the next week on (the file header), and so do these numbers.
+  const from = teamFrom(c.model);
+  const live = from > 0 ? c.model.inProgressWeek : null;
+  const next = c.model.weeks[from];
+  const pickupsText = !pickups
+    ? ""
+    : live === null
+      ? "Projected points and chances count each team's free-agent pickups that would help, as the odds above do. "
+      : next === undefined
+        ? `Projected points and chances play week ${live} with today's rosters, without free-agent pickups, as the odds above do. `
+        : `Projected points and chances count each team's free-agent pickups that would help from week ${next} on, as the odds above do: week ${live} is played with today's rosters. `;
+  // The positions I stream aren't counted on bye (scheduleByeRule).
+  const streamedWords = streamedByeWords(c.model, me, c.snapshot.platform);
+  const streams = streamedWords ? ` ${capitalize(streamedWords)} don't count: you stream them, so the streaming replacement covers their byes.` : "";
   return {
     rows,
     showMedian,
     caption: `Your remaining regular-season games: the opponent, projected points for you and them, and your chance to win${showMedian ? " and to beat the league median" : ""} each week`,
-    note: `${h2h ? "" : "Your league ranks teams by total points, so these games don't change the standings: only your points count. "}"On bye" names your likely starters who are off that week: your best lineup by each player's projected points per game left. A week is flagged risky when ${riskRule(h2h, "your chance to win it", "those starters")}.${noGameWeek ? " A bye week without a game can't change the standings, so it isn't flagged." : ""}${showMedian ? " Median: your chance of a top-half score that week, which counts as a second game." : ""}`,
+    note: `${h2h ? "" : "Your league ranks teams by total points, so these games don't change the standings: only your points count. "}${pickupsText}"On bye" names your likely starters who are off that week: ${likelyStartersWords(pickups)}.${streams} A week is flagged risky when ${riskRule(h2h, "your chance to win it", "those starters")}.${noGameWeek ? " A bye week without a game can't change the standings, so it isn't flagged." : ""}${showMedian ? " Median: your chance of a top-half score that week, which counts as a second game." : ""}`,
     empty: null,
   };
 }
@@ -1642,9 +2067,11 @@ function pageNotes(notes: readonly string[], said: readonly string[]): string[] 
  * How the players FantasyCalc doesn't value got theirs (§9, src/engine/market.ts marketValues): a
  * curve estimate from projected points, or, at a position where FantasyCalc values too few players
  * for a curve (it has no kickers, defenses or IDP), a flat minimum whatever he projects. Says only
- * what this league's players actually got.
+ * what this league's players actually got. In FantasyCalc's curve fallback (`curve`: every value is our
+ * estimate, and the "Trade values" explainer says so first) only the flat minimum is left to explain: never
+ * "Players FantasyCalc doesn't value get our estimate", which would say the others are FantasyCalc's.
  */
-function unvaluedText(snapshot: LeagueSnapshot, model: LeagueModel): string {
+function unvaluedText(snapshot: LeagueSnapshot, model: LeagueModel, curve = false): string {
   let estimates = false;
   const floorPositions = new Set<Pos>();
   const floorValues = new Set<string>();
@@ -1661,8 +2088,11 @@ function unvaluedText(snapshot: LeagueSnapshot, model: LeagueModel): string {
     const positions = listText(POSITIONS.filter((p) => floorPositions.has(p)).map((p) => posLabel(p, snapshot.platform)));
     const [only] = floorValues;
     const amount = floorValues.size === 1 && only !== undefined ? ` (~${only})` : "";
-    floor = `At ${positions}, FantasyCalc values too few players to estimate from, so those without a FantasyCalc value get a flat minimum value${amount}, whatever they project`;
+    floor = curve
+      ? `At ${positions}, FantasyCalc's list values too few players to fit a curve, so each gets a flat minimum value${amount}, whatever he projects`
+      : `At ${positions}, FantasyCalc values too few players to estimate from, so those without a FantasyCalc value get a flat minimum value${amount}, whatever they project`;
   }
+  if (curve) return floor ? ` ${floor}, also marked ~.` : "";
   if (estimates && floor) return ` ${estimate}. ${floor}. Both are marked ~.`;
   if (estimates) return ` ${estimate}, marked ~.`;
   if (floor) return ` ${floor}, marked ~.`;
@@ -1745,6 +2175,10 @@ interface ExplainContext {
   odds: SeasonOdds | null;
   /** My remaining schedule is shown (a team is picked and games are left), so its risk rule is explained too. */
   schedule: boolean;
+  /** FantasyCalc's fallback (MarketInputs.fallback; the file header), or null when FantasyCalc answered. */
+  fallback: MarketInputs["fallback"] | null;
+  /** The standings card shows my odds as rosters stand under the headline (StandingsView.mine), so the explainer points to them. */
+  asRostersStandShown: boolean;
 }
 
 const TIEBREAKER_WORDS: Record<SeasonOdds["tiebreaker"]["rule"], string> = {
@@ -1770,15 +2204,18 @@ function divisionRuleAssumed(snapshot: LeagueSnapshot): boolean {
 
 /**
  * "Playoff odds" in "How these numbers work" (§8): seasons simulated, weekly scores drawn around the
- * projected lineups with their spread, today's records, the league's seeding rule (and what's assumed),
- * the playoff spots, byes and bracket (or where the title goes without a bracket: 0 or 1 playoff team,
- * worded like the engine's note), the odds the standings show (oddsShown), common random numbers, and
+ * projected lineups with their spread (Phase 4c: each team's lineup after the free-agent pickups that would help it,
+ * the starting point trade ideas use, with the odds as rosters stand under mine), today's records, the league's seeding
+ * rule (and what's assumed), the playoff spots, byes and bracket (or where the title goes without a bracket: 0 or 1
+ * playoff team, worded like the engine's note), the odds the standings show (oddsShown), common random numbers, and
  * the schedule's risk rule.
  */
 function oddsExplainText(c: ExplainContext, odds: SeasonOdds): string {
   const s = c.snapshot.settings;
   const scen = c.model.scenarios;
-  const draws = `Each week, every team's score is drawn around its projected starting lineup${scen ? ` (its average over the ${scen} simulated runs of injuries and byes)` : ""}, with a spread that covers its starters' week-to-week swings${scen ? " and how much injuries and byes could change the lineup" : ""}.`;
+  const pickups = oddsCountPickups(c.model);
+  const asStands = c.asRostersStandShown ? " Your odds as rosters stand, with no team's pickups, are the smaller line under yours." : "";
+  const draws = `Each week, every team's score is drawn around its projected starting lineup${scen ? ` (its average over the ${scen} simulated runs of injuries and byes)` : ""}, with a spread that covers its starters' week-to-week swings${scen ? " and how much injuries and byes could change the lineup" : ""}.${pickups ? ` Every team's lineup counts the free-agent pickups that would help it (listed on its roster); trade ideas start from these same odds.${asStands}` : ""}`;
   const assumedRule = odds.tiebreaker.assumed ? " (assumed: the platform doesn't say which tiebreaker your league uses)" : "";
   // Worded like the tiebreaker and the bracket: an inferred rule reads as one (the standings notes say so too).
   const divisionsFirst =
@@ -1800,17 +2237,22 @@ function oddsExplainText(c: ExplainContext, odds: SeasonOdds): string {
           : "There are no playoffs, so the title goes to the top of the final standings.";
   const shown = oddsShown(odds);
   const chances = listText([...(shown.playoffs ? ["a playoff spot"] : []), ...(shown.bye ? ["a bye"] : []), "the title"], "or");
-  const risk = c.schedule ? ` Your remaining schedule flags a week as risky when ${riskRule(!s.pointsOnly, "your chance to win it", "your likely starters (your best lineup by projected points per game left)")}.` : "";
+  const starters = `your likely starters (${likelyStartersWords(pickups)})`;
+  // The positions I stream aren't counted on bye (scheduleView; evaluate.ts riskyWeeksOf).
+  const streamedWords = streamedByeWords(c.model, c.model.myTeamId ?? null, c.snapshot.platform);
+  const streamed = streamedWords ? `, not counting ${streamedWords}, whose byes the streaming replacement covers since you stream them` : "";
+  const risk = c.schedule ? ` Your remaining schedule flags a week as risky when ${riskRule(!s.pointsOnly, "your chance to win it", starters)}${streamed}.` : "";
   return `We play out the rest of the season ${fmtWhole(odds.sims)} times. ${draws} ${ranking} ${playoffs} A team's chance of ${chances} is the share of those seasons where it happened. Each time the odds are worked out, every team and week gets the same random draws (common random numbers), so when trade ideas compare the odds before and after a trade, the difference comes from the trade, not from the luck of the draw.${risk}`;
 }
 
 /**
  * The market blend in "Projected points" (§6 step 8; PlayerModel.blend): the positions of the players it reached, how far
- * it pulls (the weight) and toward what, per game (byes and injuries stay the model's), and which values it reads in a
- * dynasty league (this season's, not the dynasty values the page shows); "" when it reached nobody (no values, or none
- * at a blended position).
+ * it pulls (the weight) and toward what, per game (byes and injuries stay the model's), how far at most (Phase 4c:
+ * config.marketBlend.factorClamp), and which values it reads in a dynasty league (this season's, not the dynasty values
+ * the page shows); "" when it reached nobody (no values, or none at a blended position), but in FantasyCalc's curve
+ * fallback (`curve`), where it says the projections aren't pulled toward the market while the values are our own.
  */
-function blendExplainText(snapshot: LeagueSnapshot, model: LeagueModel): string {
+function blendExplainText(snapshot: LeagueSnapshot, model: LeagueModel, curve = false): string {
   let weight = 0;
   const positions = new Set<Pos>();
   for (const [id, pm] of Object.entries(model.players)) {
@@ -1819,15 +2261,40 @@ function blendExplainText(snapshot: LeagueSnapshot, model: LeagueModel): string 
     const pos = snapshot.players[id]?.pos;
     if (pos) positions.add(pos);
   }
-  if (!positions.size) return "";
+  if (!positions.size) return curve ? " While FantasyCalc is unavailable, projections aren't pulled toward the trade market: the values are our own estimates." : "";
   const who = listText(POSITIONS.filter((x) => positions.has(x)).map((x) => `${posLabel(x, snapshot.platform)}s`));
   const how = weight === 0.5 ? "halfway" : `${pct(weight)} of the way`;
   const value = snapshot.settings.leagueType === "dynasty" ? "a FantasyCalc trade value this season (its redraft values, not the dynasty values shown here)" : "a FantasyCalc trade value";
-  return ` Then, for ${who} with ${value}, points per game are pulled ${how} toward what our model gives healthy players with about the same trade value, so a projection the trade market disagrees with counts for less; byes and injuries stay as projected (a player's breakdown shows both numbers).`;
+  const cap = blendCapWords();
+  return ` Then, for ${who} with ${value}, points per game are pulled ${how} toward what our model gives healthy players with about the same trade value, at most ${cap.up} up or ${cap.down} down, so a projection the trade market disagrees with counts for less; byes and injuries stay as projected (a player's breakdown shows both numbers).`;
+}
+
+/**
+ * "Trade values" in "How these numbers work" (§9; the file header, "FantasyCalc's fallbacks"): FantasyCalc's values in
+ * the league's format, from a saved list's day when one stands in, or every value our own estimate in the curve
+ * fallback (no long-term value in dynasty and keeper leagues then: benefit.futureValuesLoaded); a keeper league's two
+ * lists; the format's substitutions; and how players FantasyCalc doesn't value got theirs (unvaluedText).
+ */
+function valuesExplainText(c: ExplainContext): string {
+  const { snapshot, model, values, fallback } = c;
+  if (!values.label) return "FantasyCalc's values couldn't be loaded, so trade values are missing for now. Refresh to try again.";
+  const day = fallback ? (noteDay(fallback.listDate) ?? "an earlier day") : "";
+  const substitutions = values.substitutions.length ? ` Where your league doesn't match one of FantasyCalc's formats exactly: ${values.substitutions.join("; ")}.` : "";
+  if (fallback?.kind === "curve") {
+    const longTerm = snapshot.settings.leagueType === "redraft" ? "" : " Long-term value is left out of trade ideas until FantasyCalc is back: our estimates say nothing about later seasons.";
+    return `Every value is our own estimate for now (the note at the top of the page says why), in your league's format (${values.label}): each player's comes from his projected points for the rest of the season, on a curve fitted to FantasyCalc's list from ${day}, marked ~.${longTerm}${substitutions}${unvaluedText(snapshot, model, true)}`;
+  }
+  const saved = fallback?.kind === "saved" ? `, from its list of ${day}: FantasyCalc didn't answer this time, so the newest list we saved stands in` : "";
+  const keeper = c.keeper
+    ? model.market.format?.isDynasty === false
+      ? " In a keeper league these are its redraft values, how managers see a trade this season; its dynasty values, for long-term worth, didn't load this time."
+      : " In a keeper league these are its redraft values, how managers see a trade this season; its dynasty values, for long-term worth, come into play with trade suggestions."
+    : "";
+  return `Values come from FantasyCalc in your league's format (${values.label})${saved}.${keeper}${substitutions}${unvaluedText(snapshot, model)}`;
 }
 
 function buildExplain(c: ExplainContext): ExplainItem[] {
-  const { snapshot, model, values } = c;
+  const { snapshot, model } = c;
   const p = config.projections;
   const weeks = model.weeks;
   const first = weeks[0];
@@ -1844,7 +2311,7 @@ function buildExplain(c: ExplainContext): ExplainItem[] {
       title: "Projected points",
       text: seasonOver
         ? "The season is over, so nothing is projected: projections aren't requested once no fantasy weeks are left."
-        : `A player's points per game start from ${c.source.from}. Recent form counts too: up to ${pct(p.actualWeight)} once he has played ${p.actualFullGames} games.${matchup}${blendExplainText(snapshot, model)}`,
+        : `A player's points per game start from ${c.source.from}. Recent form counts too: up to ${pct(p.actualWeight)} once he has played ${p.actualFullGames} games.${matchup}${blendExplainText(snapshot, model, c.fallback?.kind === "curve")}`,
     },
     {
       title: "Availability",
@@ -1856,7 +2323,7 @@ function buildExplain(c: ExplainContext): ExplainItem[] {
         ? `Team numbers use each team's best lineup in ${model.scenarios} simulated runs of injuries and byes, so a bench player who fills in when a starter is hurt or on bye gets credit. A lineup built from average availability would miss that.`
         : "Team numbers use each team's best lineup from each week's average projections.",
     },
-    ...(seasonOver ? [] : [{ title: "Streaming", text: streamingExplainText(snapshot) }, { title: "Free-agent pickups", text: pickupsExplainText(snapshot, model) }]),
+    ...(seasonOver ? [] : [{ title: "Streaming", text: streamingExplainText(snapshot) }, { title: "Free-agent pickups", text: pickupsExplainText(snapshot, model, c.fallback?.kind === "curve") }]),
     {
       title: "Rest-of-season (ROS) points",
       text:
@@ -1870,16 +2337,14 @@ function buildExplain(c: ExplainContext): ExplainItem[] {
     const next = weeks[c.from];
     items.push({
       title: `Week ${inProgress} is under way`,
-      text: `Once a week's first game kicks off, the team numbers (points per week, team ROS points, positional strength, needs, lineup cost, free-agent pickups, trade chips and partners) ${next === undefined ? "have no full week left to count" : `count from the next week, week ${next}`}: lineups are locking and week ${inProgress}'s points are being scored, so it no longer says how good a team is. A player's own ROS points still count his week ${inProgress} game if it hasn't kicked off; one that has shows "Game already started".${c.odds ? ` The playoff odds still play all of week ${inProgress}'s games from projections, as if none had started: live scores aren't read yet, and the rosters and injury news are today's.` : ""}`,
+      text: `Once a week's first game kicks off, the team numbers (points per week, team ROS points, positional strength, needs, lineup cost, free-agent pickups, trade chips and partners) ${next === undefined ? "have no full week left to count" : `count from the next week, week ${next}`}: lineups are locking and week ${inProgress}'s points are being scored, so it no longer says how good a team is. A player's own ROS points still count his week ${inProgress} game if it hasn't kicked off; one that has shows "Game already started".${c.odds ? ` The playoff odds still play all of week ${inProgress}'s games from projections, as if none had started: live scores aren't read yet, and the rosters and injury news are today's${oddsCountPickups(model) ? ", without free-agent pickups" : ""}.${oddsCountPickups(model) && next !== undefined ? ` Each team's free-agent pickups count from week ${next} on.` : ""}` : ""}`,
     });
   }
   if (c.odds) items.push({ title: "Playoff odds", text: oddsExplainText(c, c.odds) });
   items.push(
     {
       title: "Trade values",
-      text: values.label
-        ? `Values come from FantasyCalc in your league's format (${values.label}).${c.keeper ? (model.market.format?.isDynasty === false ? " In a keeper league these are its redraft values, how managers see a trade this season; its dynasty values, for long-term worth, didn't load this time." : " In a keeper league these are its redraft values, how managers see a trade this season; its dynasty values, for long-term worth, come into play with trade suggestions.") : ""}${values.substitutions.length ? ` Where your league doesn't match one of FantasyCalc's formats exactly: ${values.substitutions.join("; ")}.` : ""}${unvaluedText(snapshot, model)}`
-        : "FantasyCalc's values couldn't be loaded, so trade values are missing for now. Refresh to try again.",
+      text: valuesExplainText(c),
     },
     {
       title: "Needs, trade chips and partners",
@@ -1887,17 +2352,20 @@ function buildExplain(c: ExplainContext): ExplainItem[] {
     },
   );
   // A model built before the planner's addendum has no premiums, so nobody is marked.
-  if (model.teams.some((t) => t.premiums)) items.push({ title: HARDER_TO_GET_TAG, text: harderExplainText() });
+  if (model.teams.some((t) => t.premiums)) items.push({ title: HARDER_TO_GET_TAG, text: harderExplainText(c.fallback?.kind === "curve") });
   return items;
 }
 
 /**
  * "Harder to get" in "How these numbers work" (the file header), from config.acceptance.starPremium (tradeView.ts
  * harderToGetWho: his team's two most valuable players by default, among the top 12), that the chance they accept counts
- * it, how partner cards lead (with N12's floor, config.needs.bestTargetMin), and that mine are never marked.
+ * it, how partner cards lead (with N12's floor, config.needs.bestTargetMin), and that mine are never marked. Whose top 12:
+ * FantasyCalc's list in the league's format, or, in FantasyCalc's curve fallback (`curve`), our own estimates (premium.ts
+ * eliteIds ranks the model's values then; review of track UIP).
  */
-function harderExplainText(): string {
-  return `Managers value their own best players a bit above their trade value. Another team's player marked ${HARDER_TO_GET_TAG} is ${harderToGetWho("his team's")} (FantasyCalc's, in your league's format), so expect his manager to want a little extra for him: trade ideas count that in the chance they accept. Partner cards lead with the best of their trade chips: the unmarked one who'd add the most to your lineup, if he adds at least ${bestTargetMinWords()} a week. A marked player who'd add more than any unmarked one is named next, or alone when no unmarked one adds that much (he too has to add at least ${bestTargetMinWords()} a week to lead). Your own players are never marked.`;
+function harderExplainText(curve = false): string {
+  const list = curve ? "our own estimates while FantasyCalc is unavailable" : "FantasyCalc's, in your league's format";
+  return `Managers value their own best players a bit above their trade value. Another team's player marked ${HARDER_TO_GET_TAG} is ${harderToGetWho("his team's")} (${list}), so expect his manager to want a little extra for him: trade ideas count that in the chance they accept. Partner cards lead with the best of their trade chips: the unmarked one who'd add the most to your lineup, if he adds at least ${bestTargetMinWords()} a week. A marked player who'd add more than any unmarked one is named next, or alone when no unmarked one adds that much (he too has to add at least ${bestTargetMinWords()} a week to lead). Your own players are never marked.`;
 }
 
 /**
@@ -1917,21 +2385,27 @@ function streamingExplainText(snapshot: LeagueSnapshot): string {
  * "Free-agent pickups" in "How these numbers work" (§7 V*): how the optimizer picks (one move at a time, the most lineup
  * points in the lineups it judges moves in: with injuries and byes simulated, so depth counts, when it judges in scenario
  * lineups, else projected lineups (pickupsJudgedInScenarios; review of Phase 4), at least faMinGain, at most faMaxMoves),
+ * ⚠️ whom a pickup drops in a near-tie (config.lineups.dropNearTieWeekly; optimizer.ts's header; verification of the final
+ * review of Phase 4c, finding VF-1: only where the engine applies it, without the dynasty guard's long-term values),
  * what it never touches, the dynasty guard in dynasty and keeper leagues (only when their dynasty values loaded, as the
  * engine applies it: benefit.futureValuesLoaded, a dynasty format with values; otherwise the text says the check is
  * off: review of track A2), that every team number trades are judged by starts from those rosters, and the known
  * approximation.
  */
-function pickupsExplainText(snapshot: LeagueSnapshot, model: LeagueModel): string {
+function pickupsExplainText(snapshot: LeagueSnapshot, model: LeagueModel, curve = false): string {
   const o = config.freeAgentOptimizer;
   const platform = snapshot.platform;
-  const guardOn = model.market.format?.isDynasty === true && model.market.topValue > 0;
+  // FantasyCalc's curve fallback (`curve`; the file header): the dynasty list is only a curve's calibration then, so the
+  // engine has no long-term values and no guard (benefit.futureValuesLoaded).
+  const guardOn = model.market.format?.isDynasty === true && model.market.topValue > 0 && !curve;
   const dynasty =
     snapshot.settings.leagueType === "redraft"
       ? ""
       : guardOn
         ? " In a dynasty or keeper league, a player worth clearly more in dynasty value than the free agent is never dropped for him."
-        : " In a dynasty or keeper league, a player worth clearly more in dynasty value than the free agent is normally never dropped for him, but this league's dynasty values didn't load this time, so that check is off.";
+        : curve
+          ? " In a dynasty or keeper league, a player worth clearly more in dynasty value than the free agent is normally never dropped for him, but while the values are our own estimates (FantasyCalc is unavailable) that check is off."
+          : " In a dynasty or keeper league, a player worth clearly more in dynasty value than the free agent is normally never dropped for him, but this league's dynasty values didn't load this time, so that check is off.";
   const most = pickupsJudgedInScenarios(snapshot, model)
     ? "the most lineup points with injuries and byes simulated (so a backup who'd start when a starter is hurt or on bye counts)"
     : "the most projected lineup points";
@@ -1939,7 +2413,11 @@ function pickupsExplainText(snapshot: LeagueSnapshot, model: LeagueModel): strin
   const shared = model.faAllocation
     ? ` Each free agent goes to one team only, ${allocationHow(model.faAllocation.basis)}: each team picks from the free agents the teams before it left, and in a trade the two teams pick again from the ones every other team left.`
     : " Each team is measured on its own, so two teams may count on the same free agent.";
-  return `Each team is measured after the free-agent pickups that would help it, made one at a time: each time the add (dropping a player, or into an open roster spot) that adds ${most}, as long as it adds at least ${o.faMinGain}, up to ${plural(o.faMaxMoves, "pickup")}. ${capitalize(positionPlural("K", platform))} and ${positionPlural("DEF", platform)} are never picked up (they're streamed or kept), nor is a position the team streams, and a player its starting lineup needs is never dropped.${dynasty} Lineup cost, trade chips and partners all start from those rosters, so a trade never gets credit for a pickup a team could make anyway.${shared}`;
+  // ⚠️ Near-ties in whom a pickup drops (optimizer.ts's header; verification of the final review of Phase 4c, finding VF-1),
+  // where the engine applies them: without long-term values (the dynasty guard off), as roster legality does.
+  const tie = config.lineups.dropNearTieWeekly;
+  const nearTie = !guardOn && Number.isFinite(tie) && tie > 0 ? ` When the player it would drop has trade value and dropping a less valuable one instead costs at most ${fmtNum(tie)} points a week, the less valuable one goes (any player worth less than the best free agent counts as worth that much), so a pickup can add a little less.` : "";
+  return `Each team is measured after the free-agent pickups that would help it, made one at a time: each time the add (dropping a player, or into an open roster spot) that adds ${most}, as long as it adds at least ${o.faMinGain}, up to ${plural(o.faMaxMoves, "pickup")}.${nearTie} ${capitalize(positionPlural("K", platform))} and ${positionPlural("DEF", platform)} are never picked up (they're streamed or kept), nor is a position the team streams, and a player its starting lineup needs is never dropped.${dynasty} Lineup cost, trade chips and partners all start from those rosters, so a trade never gets credit for a pickup a team could make anyway.${shared}`;
 }
 
 /** How free agents are shared out (LeagueModel.faAllocation.basis), in words: the waiver order, FAAB, or the biggest gain first. */
@@ -1950,15 +2428,22 @@ function allocationHow(basis: NonNullable<LeagueModel["faAllocation"]>["basis"])
 }
 
 /**
- * The line above the rosters (LeagueView.pickupsNote; the file header): how free agents are shared out, and where my team
- * picks ("Your team picks 3rd of 10."); null without an allocation (a model built before Phase 4b) or without teams.
+ * The lines above the rosters (LeagueView.pickupsNote; the file header): how free agents are shared out, where my team
+ * picks ("Your team picks 4th of 10."), and the order used, word for word the Import Report's "Waiver order used" row
+ * (importReport.ts waiverOrderText; Phase 4c, planner reply to Checkpoint 4b, change 5) when its reading of the snapshot
+ * (allocationBasis, the engine's rule restated) is the allocation's basis; else the basis in words, as before. Null
+ * without an allocation (a model built before Phase 4b) or without teams.
  */
-function pickupsNoteOf(model: LeagueModel, myTeamId: string | null): string | null {
+function pickupsNoteOf(snapshot: LeagueSnapshot, model: LeagueModel, myTeamId: string | null): LeagueView["pickupsNote"] {
   const a = model.faAllocation;
   if (!a || !a.order.length) return null;
   const place = myTeamId ? a.order.indexOf(myTeamId) : -1;
   const mine = place >= 0 ? ` Your team picks ${ordinal(place + 1)} of ${a.order.length}.` : "";
-  return `Free-agent pickups: each free agent goes to one team only, ${allocationHow(a.basis)}.${mine}`;
+  const waiverOrder = allocationBasis(snapshot) === a.basis ? waiverOrderText(snapshot) : null;
+  return {
+    text: waiverOrder ? `Free-agent pickups: each free agent goes to one team only.${mine}` : `Free-agent pickups: each free agent goes to one team only, ${allocationHow(a.basis)}.${mine}`,
+    waiverOrder,
+  };
 }
 
 const EXCLUDED_WORDS: Partial<Record<Pos, string>> = { K: "kickers", P: "punters", DEF: "team defenses", DL: "defensive players", LB: "defensive players", DB: "defensive players" };
@@ -1990,6 +2475,12 @@ export function buildLeagueView(input: LeagueViewInput): LeagueView {
   const keeper = snapshot.settings.leagueType === "keeper";
   const values = valuesShown(snapshot.settings, model.market.format);
   const source = projectionSource(snapshot, model);
+  // FantasyCalc's fallback (the file header): a saved list stands in ("saved"), or every value is our own estimate
+  // ("curve", whose banner replaces the inputs' warning; the warning alone, from inputs without the field, counts too).
+  const fallback = inputs.market?.fallback ?? null;
+  const estimatedWarning = inputs.warnings.find((w) => w.code === VALUES_ESTIMATED_CODE);
+  const valuesEstimated = fallback?.kind === "curve" || estimatedWarning !== undefined;
+  const savedNote = fallback?.kind === "saved" ? fantasyCalcFallbackText(fallback) : null;
   // Lineup points weight playoff weeks (the model's: the user's playoff weight setting) when any is among the counted weeks.
   const playoffWeight: number = model.playoffWeight ?? config.lineups.playoffWeight;
   const playoffWeighted = playoffWeight !== 1 && countedWeeks.some((w) => model.playoffWeeks.includes(w));
@@ -2004,6 +2495,7 @@ export function buildLeagueView(input: LeagueViewInput): LeagueView {
     hasPlayoffs: model.playoffWeeks.length > 0,
     myTeamId,
     blendMedians: blendMediansOf(snapshot, model),
+    valuesEstimated,
   };
   const stamp = (iso: string) => formatShortDateTime(iso, timeZone, input.now);
 
@@ -2122,10 +2614,18 @@ export function buildLeagueView(input: LeagueViewInput): LeagueView {
     { label: `League data from ${platformLabel}`, value: stamp(snapshot.fetchedAt) },
     ...inputs.sources.map((s) => ({ label: s.source, value: `${stamp(s.fetchedAt)}${s.stale ? " (a saved copy: the live fetch failed)" : ""}` })),
   ];
-  const warnings = [...new Set([...inputs.warnings.map((w) => w.message), ...model.warnings])];
+  // The curve fallback's warning is the banner (valuesBanner), not one more line in the warnings box.
+  const warnings = [...new Set([...inputs.warnings.filter((w) => w.code !== VALUES_ESTIMATED_CODE).map((w) => w.message), ...model.warnings])];
+  const valuesBanner =
+    fallback?.kind === "curve"
+      ? { title: VALUES_ESTIMATED_TITLE, text: fantasyCalcFallbackText(fallback) }
+      : estimatedWarning
+        ? { title: VALUES_ESTIMATED_TITLE, text: estimatedWarning.message }
+        : null;
 
-  // Standings, odds and my remaining schedule (§8).
-  const oddsContext: OddsContext = { snapshot, model, odds, teamById, teamName, myTeamId, warnings };
+  // Standings, odds and my remaining schedule (§8). The NFL's last week as the engine reads it (league.ts nflLastWeek).
+  const lastNflWeek = lastNflWeekOf(inputs);
+  const oddsContext: OddsContext = { snapshot, model, odds, teamById, teamName, myTeamId, warnings, lastNflWeek };
   const standings = standingsView(oddsContext);
   const schedule = scheduleView(oddsContext);
 
@@ -2157,8 +2657,10 @@ export function buildLeagueView(input: LeagueViewInput): LeagueView {
       inProgress: inProgressLine,
       projections: source.label,
       valuesFormat: values.label,
+      valuesNote: savedNote ?? (valuesEstimated ? VALUES_ESTIMATED_LINE : null),
       weeksLeft,
     },
+    valuesBanner,
     myTeam: { id: myTeamId, name: myName, source: myTeamId ? input.myTeamSource : "none", hint },
     eliminated,
     standings,
@@ -2168,15 +2670,29 @@ export function buildLeagueView(input: LeagueViewInput): LeagueView {
     chipLegend: `trade chip: worth at least ${config.needs.chipMinGap} more lineup pts to another team than to his own`,
     heatmap,
     partners: { cards, empty: partnersEmpty },
-    pickupsNote: weeks.length ? pickupsNoteOf(model, myTeamId) : null,
+    pickupsNote: weeks.length ? pickupsNoteOf(snapshot, model, myTeamId) : null,
     streaming,
     rosters,
     freeAgents,
     lineupCostTitle: `Rest-of-season lineup points his team would lose without him${playoffWeighted ? `, with playoff weeks counted ${playoffWeight}×` : ""}`,
-    explain: buildExplain({ snapshot, model, values, keeper, source, from, playoffWeighted, playoffWeight, odds, schedule: (schedule?.rows.length ?? 0) > 0 }),
+    explain: buildExplain({
+      snapshot,
+      model,
+      values,
+      keeper,
+      source,
+      from,
+      playoffWeighted,
+      playoffWeight,
+      odds,
+      schedule: (schedule?.rows.length ?? 0) > 0,
+      fallback,
+      asRostersStandShown: (standings?.mine?.asRostersStand ?? null) !== null,
+    }),
     sources,
     warnings,
-    notes: pageNotes(inputs.notes, values.said),
+    // A saved list's date shows next to the values credit (header.valuesNote), so the inputs' note isn't repeated.
+    notes: pageNotes(inputs.notes, [...values.said, ...(savedNote ? [savedNote] : [])]),
     over: weeks.length === 0,
     playoffsLeft: ctx.hasPlayoffs,
   };

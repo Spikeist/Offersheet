@@ -10,10 +10,29 @@
  * and a top-12 one ("Harder to get", as the League fixture's premiums say); steppedFull() and steppedOffer() are the
  * two kinds of "Offer first / if they say no" (TradeSteps), with Tobias Thimble (TE, JAX) as my throw-in.
  */
+import type { MarketInputs } from "@/engine/inputs";
 import type { LeagueSnapshot } from "@/engine/model";
 import { tradeEvaluation, type EvaluationFixture } from "@/engine/tradeTestFixtures";
 import type { PremiumFact, TradeEvaluation, TradeSearchResult, TradeStep } from "@/engine/tradeModel";
+import { fantasyCalcLookup, type FantasyCalcLookup } from "@/lib/tradeView";
 import { leagueFixture } from "../league/testFixtures";
+
+/**
+ * FantasyCalc's list for this league (Phase 4c: the cards' one value number is FantasyCalc's own, src/lib/tradeView.ts
+ * fantasyCalcLookup): Wiggleton Spoons 5,000 and Cornelius Snoot 5,400, a few others; Tobias Thimble (108) has none.
+ */
+export const TRADE_MARKET: MarketInputs = {
+  format: { isDynasty: false, numQbs: 1, numTeams: 10, ppr: 1, substitutions: [] },
+  fetchedAt: "2026-10-01T12:00:00.000Z",
+  values: { "106": 5000, "204": 5400, "105": 1500, "203": 3200, "202": 9000, "107": 2600 },
+  knownIds: [],
+  topValue: 9000,
+};
+
+/** The cards' FantasyCalc lookup for TRADE_MARKET. */
+export function tradeFantasyCalc(): FantasyCalcLookup {
+  return fantasyCalcLookup(TRADE_MARKET);
+}
 
 /** The fictional league (ESPN; my team "1"), optionally with another trade review setting. */
 export function tradeSnapshot(over: { tradeReview?: LeagueSnapshot["settings"]["tradeReview"]; myTeamId?: string | null } = {}): LeagueSnapshot {

@@ -17,14 +17,19 @@
  *   3. Sleeper's season projections (§6's last-resort base rate; 6 hours),
  *   4. Sleeper's stats for the completed weeks (6 hours),
  *   5. FantasyCalc values in the league's format (keeper leagues: the dynasty and the redraft list,
- *      §9, each asked for whatever happens to the other; dynasty leagues with weeks left to project: the
+ *      §9, each loaded whatever happens to the other, ⚠️ though once FantasyCalc doesn't answer the first, the second is
+ *      read from the server cache only, not asked: the outage memory below; dynasty leagues with weeks left to project: the
  *      redraft list in their format too, after their own list loaded, for the market blend, §6 step 8,
  *      MarketInputs.seasonValues) and FantasyCalc /players for knownIds (24 hours; the crosswalk's cache
- *      entry). Each list is a format of its own, fetched at most once a day (§2.9).
+ *      entry; Phase 4c: only when FantasyCalc served some list fresh in the build, see loadFantasyCalc). Each list
+ *      is a format of its own, fetched at most once a day (§2.9).
  * Steps 2–4 go through one SleeperGate (src/data/sleeperProjections.ts; review DATA-1, PERF-1): once
  * Sleeper stops answering, nothing more is asked of it in this build, nor in the builds of the next few
  * minutes, so an outage costs the build that finds it 2 requests and the builds after it none (what the
- * server cache holds is still read), and what's left out is one SLEEPER_DOWN warning.
+ * server cache holds is still read), and what's left out is one SLEEPER_DOWN warning. Step 5's value lists go through
+ * a FantasyCalcGate the same way (src/data/fantasyCalcValues.ts; Phase 4c's polish): once FantasyCalc stops answering,
+ * nothing more is asked of it for 5, then 10, at most 15 minutes, and the lists come from the server cache meanwhile
+ * (a format with no copy there gets none: FANTASYCALC_UNAVAILABLE says it wasn't asked).
  * Once the season is over (no fantasy week left: currentWeek > lastWeek), or before it has started
  * (the league's season comes after the one being played: a league renewed in January or February for
  * next season, review DATA-3), only step 5 runs: nothing is left to project, or nothing is published
@@ -36,6 +41,22 @@
  * Every FantasyCalc list step 5 read also goes to the local FantasyCalc archive (planner reply to
  * Checkpoint 4, change 7: src/server/fantasyCalcArchive.ts; one copy per format per day, local disk
  * only, in the background), for Phase 6's backtest of the market blend.
+ * FantasyCalc's fallbacks (Phase 4c; planner reply to Checkpoint 4b, change 12: FantasyCalc stays the only
+ * market source): its lists stay in the server cache up to config.market.fantasyCalcCurveDays (90) days
+ * (src/data/fantasyCalcValues.ts), and when it doesn't answer, the copy the cache still holds stands in by its
+ * age at the build time (fantasyCalcListUse; fantasyCalcUsed): at most fantasyCalcStaleDays (7) old, as
+ * FantasyCalc's own values, MarketInputs.fallback { kind "saved", listDate } and a note ("Trade values from Sep
+ * 28: FantasyCalc didn't answer."); older, only to calibrate the model's own value curve (src/engine/market.ts
+ * curveMarketValues: every player valued from his projected points), fallback { kind "curve", listDate } and a
+ * FANTASYCALC_VALUES_ESTIMATED warning, the banner's words (market.fantasyCalcFallbackText); none: no values,
+ * FANTASYCALC_UNAVAILABLE as before. A keeper league whose dynasty list is too old but whose redraft list stands
+ * in uses the redraft list as before (FANTASYCALC_DYNASTY_UNAVAILABLE), and a too-old redraft list next to a
+ * usable dynasty one is left out (FANTASYCALC_REDRAFT_UNAVAILABLE; in the curve fallback too, when the old dynasty
+ * list has no redraft list beside it: perception is then fitted to the dynasty list); a dynasty league's season list
+ * (the blend's) is asked for only after its own list stood in or loaded, and read only when fresh or saved. It is no
+ * trade value, so a saved copy of it makes no fallback (review of track MK): its own note says the blend reads it
+ * ("The trade-market blend uses FantasyCalc's redraft values from Sep 30: FantasyCalc didn't answer."; once, when the
+ * trade values' note names the same day).
  *
  * assembleModelInputs is the pure part (no I/O, time passed in): league scoring (expectedPoints for
  * projections, actualPoints for stat lines, §5), the FantasyCalc join (marketInputsFrom: Sleeper ids on
@@ -58,15 +79,22 @@
  *   because it stopped answering becomes one warning.
  * - A keeper league whose dynasty list fails still gets its redraft list, the one the League page shows
  *   (§9 perception; review DATA-2): the market is then in the redraft format, whose isDynasty false tells
- *   a reader of the future term that it's missing, with a FANTASYCALC_DYNASTY_UNAVAILABLE warning. When
- *   FantasyCalc didn't answer the first list at all, the second is asked once, without a retry (a saved
- *   copy still stands in).
+ *   a reader of the future term that it's missing, with a FANTASYCALC_DYNASTY_UNAVAILABLE warning. How a later
+ *   list is loaded depends on how the first one failed (loadFantasyCalc). FantasyCalc didn't answer it (no response, 429,
+ *   5xx or a web page, whether a saved copy then stood in or not): the outage memory holds FantasyCalc off, so the later
+ *   lists are read from the server cache only (a copy within the 24-hour TTL as FantasyCalc's answer, an older one as a
+ *   saved copy standing in) and one with no copy there isn't asked: a keeper league's FANTASYCALC_*_UNAVAILABLE warning
+ *   says so ("not asked while FantasyCalc isn't answering"); a dynasty league's season list gets no warning here (the
+ *   League model says the blend is off). ⚠️ Phase 4c's polish (review POL-2) changed this: before the outage memory, such a list was asked
+ *   once, without a retry (review DATA-2). FantasyCalc answered with a body the checks turned down and a saved copy stood
+ *   in: a later list is still asked once, without a retry (review of track A). Any other failure (a 404, or a body turned
+ *   down with no saved copy) leaves a later list its retry.
  */
 import type { EspnProjections } from "@/adapters/espn/projections";
 import { LAST_NFL_WEEK } from "@/adapters/sleeper/normalize";
 import type { HttpClient } from "@/adapters/types";
 import { fetchFantasyCalcPlayers, type FantasyCalcPlayerIds } from "@/data/fantasyCalcPlayers";
-import { loadFantasyCalcValues, marketInputsFrom, type FantasyCalcValuesLoad, type MarketFormats } from "@/data/fantasyCalcValues";
+import { fantasyCalcGate, fantasyCalcListUse, loadFantasyCalcValues, marketInputsFrom, type FantasyCalcAgeConfig, type FantasyCalcGate, type FantasyCalcListUse, type FantasyCalcValuesLoad, type MarketFormats } from "@/data/fantasyCalcValues";
 import { loadNflSchedule, toNflScheduleInputs, type NflSchedule } from "@/data/nflSchedule";
 import {
   loadSleeperSeasonProjections,
@@ -83,7 +111,7 @@ import {
 import type { PlayerIdResolver } from "@/data/types";
 import { config } from "@/engine/config";
 import type { FantasyCalcFormat, InputSourceStamp, MarketInputs, ModelInputs, PlayerInputs } from "@/engine/inputs";
-import { fantasyCalcFormat, fantasyCalcFormatLabel } from "@/engine/market";
+import { fantasyCalcFallbackText, fantasyCalcFormat, fantasyCalcFormatLabel, noteDay } from "@/engine/market";
 import { POSITIONS, type ImportWarning, type LeagueSettings, type LeagueSnapshot, type Pos, type Scoring, type StatLine } from "@/engine/model";
 import { actualPoints, expectedPoints, playedGame } from "@/engine/scoring";
 import { redactSecrets } from "@/lib/errors";
@@ -183,11 +211,15 @@ export function marketFormats(settings: LeagueSettings): MarketFormats {
 // ---------------------------------------------------------------------------------------------
 // The pure assembly
 
-/** FantasyCalc as loaded: the league's own list, and for keeper leagues the redraft list. */
+/**
+ * FantasyCalc as loaded: the league's own list, and for keeper leagues the redraft list. A list may be a saved copy
+ * (`stale`, with the time FantasyCalc served it): fantasyCalcUsed reads each by its age (Phase 4c).
+ */
 export interface FantasyCalcLoads {
   /**
    * The league's own list (§9). A keeper league whose dynasty list couldn't be loaded gets its redraft
-   * list here instead (its format says isDynasty false) and no `redraft`.
+   * list here instead (its format says isDynasty false) and no `redraft`. In the curve fallback, a saved copy older
+   * than config.market.fantasyCalcStaleDays (and a keeper league's redraft copy as old, as `redraft`).
    */
   values: FantasyCalcValuesLoad;
   /** Keeper leagues: the redraft list (perception, §9); missing when it couldn't be loaded. */
@@ -197,7 +229,7 @@ export interface FantasyCalcLoads {
    * MarketInputs.seasonValues); missing when it couldn't be loaded (the League model then says the blend is off).
    */
   season?: FantasyCalcValuesLoad;
-  /** FantasyCalc /players (widens knownIds); null when it couldn't be loaded. */
+  /** FantasyCalc /players (widens knownIds); null when it couldn't be loaded, or wasn't asked (FantasyCalc served no list fresh: loadFantasyCalc). */
   players: readonly FantasyCalcPlayerIds[] | null;
 }
 
@@ -354,6 +386,65 @@ export function fantasyCalcNotes(values: FantasyCalcFormat, redraft?: FantasyCal
   return [head, ...subs.map((s) => `Trade values: ${s}.`)];
 }
 
+/** The lists of a FantasyCalc load the market reads (fantasyCalcUsed), and the fallback they make. */
+export interface FantasyCalcUsed {
+  values: FantasyCalcValuesLoad;
+  redraft?: FantasyCalcValuesLoad;
+  season?: FantasyCalcValuesLoad;
+  /** MarketInputs.fallback, the trade values' (`values`, `redraft`); null when FantasyCalc answered for both. */
+  fallback: NonNullable<MarketInputs["fallback"]> | null;
+  /**
+   * A dynasty league's season list read as a saved copy: when FantasyCalc served it (ISO). It is no trade value (the market
+   * blend's table alone), so it makes no fallback, only its own note (seasonListNote; review of track MK).
+   */
+  seasonListDate?: string;
+}
+
+/** The note for a dynasty league's season list read as a saved copy (FantasyCalcUsed.seasonListDate): "The trade-market blend uses FantasyCalc's redraft values from Sep 30: FantasyCalc didn't answer." */
+export function seasonListNote(listDate: string): string {
+  return `The trade-market blend uses FantasyCalc's redraft values from ${noteDay(listDate) ?? "an earlier day"}: FantasyCalc didn't answer.`;
+}
+
+/** The oldest fetch time of `loads`, ISO (`now` when none is known), as marketInputsFrom dates the market. */
+function oldestTime(loads: ReadonlyArray<{ fetchedAt?: number }>, now: Date): string {
+  const times = loads.map((l) => l.fetchedAt).filter((t): t is number => t !== undefined && Number.isFinite(t));
+  return new Date(times.length ? Math.min(...times) : now.getTime()).toISOString();
+}
+
+/**
+ * Which loaded FantasyCalc lists the market reads at `now`, the build time, and its fallback (pure; Phase 4c, planner reply
+ * to Checkpoint 4b, change 12; the header), by each list's age (fantasyCalcListUse):
+ * - the league's own list (`values`) "fresh" or "saved": the market as before Phase 4c, a keeper league's redraft list and
+ *   a dynasty league's season list read only when "fresh" or "saved" too (an older one is left out: the loader warns for
+ *   the redraft list, and the League model says the blend is off without the season list); fallback "saved" when a trade
+ *   value list read (`values`, a keeper league's `redraft`) is a saved copy (listDate: the oldest such copy's time), else
+ *   null. A saved season list is no trade value (the blend reads it alone: review of track MK, a fresh dynasty list next
+ *   to it was announced as "Trade values from …"), so it only sets seasonListDate;
+ * - `values` "curve": the curve fallback: it and a keeper league's redraft list (unless "expired") only calibrate the
+ *   model's own curve, no season list (no blend then); listDate: the oldest list read;
+ * - `values` "expired": nothing (null).
+ */
+export function fantasyCalcUsed(loads: Pick<FantasyCalcLoads, "values" | "redraft" | "season">, now: Date, cfg: FantasyCalcAgeConfig = config.market): FantasyCalcUsed | null {
+  const ageOf = (l: FantasyCalcValuesLoad): FantasyCalcListUse => fantasyCalcListUse(l, now, cfg);
+  const own = ageOf(loads.values);
+  if (own === "expired") return null;
+  if (own === "curve") {
+    const redraft = loads.redraft && ageOf(loads.redraft) !== "expired" ? loads.redraft : undefined;
+    return { values: loads.values, ...(redraft ? { redraft } : {}), fallback: { kind: "curve", listDate: oldestTime([loads.values, ...(redraft ? [redraft] : [])], now) } };
+  }
+  const readable = (l: FantasyCalcValuesLoad | undefined): FantasyCalcValuesLoad | undefined => (l && (ageOf(l) === "fresh" || ageOf(l) === "saved") ? l : undefined);
+  const redraft = readable(loads.redraft);
+  const season = readable(loads.season);
+  const saved = [loads.values, redraft].filter((l): l is FantasyCalcValuesLoad => l !== undefined && ageOf(l) === "saved");
+  return {
+    values: loads.values,
+    ...(redraft ? { redraft } : {}),
+    ...(season ? { season } : {}),
+    fallback: saved.length ? { kind: "saved", listDate: oldestTime(saved, now) } : null,
+    ...(season && ageOf(season) === "saved" ? { seasonListDate: oldestTime([season], now) } : {}),
+  };
+}
+
 /** A stamp from the loads that delivered data: the oldest fetch time (`now` when none is known), stale when any was. */
 function stamp(source: string, loads: ReadonlyArray<{ fetchedAt?: number; stale: boolean }>, now: Date): InputSourceStamp | null {
   if (!loads.length) return null;
@@ -422,19 +513,25 @@ export function assembleModelInputs(snapshot: LeagueSnapshot, loaded: ModelSourc
     players[id] = inputs;
   }
 
-  // FantasyCalc (§9): values joined to canonical ids, keeper leagues' redraft list, dynasty leagues' season list (the market blend's), knownIds.
+  // FantasyCalc (§9): values joined to canonical ids, keeper leagues' redraft list, dynasty leagues' season list (the market
+  // blend's), knownIds; the lists read by their age, and the fallback they make (Phase 4c: fantasyCalcUsed).
   const fc = loaded.fantasyCalc;
-  const market: MarketInputs | null = fc
-    ? marketInputsFrom({
-        values: fc.values,
-        ...(fc.redraft ? { redraft: fc.redraft } : {}),
-        ...(fc.season ? { season: fc.season } : {}),
-        fantasyCalcPlayers: fc.players,
-        players: snapshot.players,
-        relevantIds: ids,
-        now,
-      })
-    : null;
+  const used = fc ? fantasyCalcUsed(fc, now) : null;
+  const market: MarketInputs | null =
+    fc && used
+      ? {
+          ...marketInputsFrom({
+            values: used.values,
+            ...(used.redraft ? { redraft: used.redraft } : {}),
+            ...(used.season ? { season: used.season } : {}),
+            fantasyCalcPlayers: fc.players,
+            players: snapshot.players,
+            relevantIds: ids,
+            now,
+          }),
+          ...(used.fallback ? { fallback: used.fallback } : {}),
+        }
+      : null;
 
   const warnings: ImportWarning[] = [];
   if (plan.notStarted) {
@@ -445,6 +542,12 @@ export function assembleModelInputs(snapshot: LeagueSnapshot, loaded: ModelSourc
     });
   }
   warnings.push(...collapseWeekWarnings(loaded.warnings));
+  // FantasyCalc's curve fallback: the banner's words, next to the loaders' own warnings (Phase 4c).
+  if (used?.fallback?.kind === "curve") warnings.push({ code: "FANTASYCALC_VALUES_ESTIMATED", message: fantasyCalcFallbackText(used.fallback), platformPath: "values/current" });
+  if (fc && !used) {
+    // A list too old even for the curve (the loader never passes one; hand-built loads can).
+    warnings.push({ code: "FANTASYCALC_UNAVAILABLE", message: `FantasyCalc's values couldn't be loaded (its newest saved list is more than ${config.market.fantasyCalcCurveDays} days old), so players have no market values yet.`, platformPath: "values/current" });
+  }
   if (plan.lastWeekUnknown) {
     warnings.push({ code: "SEASON_WEEKS_UNKNOWN", message: `The league's settings don't list its season weeks, so projections run through NFL week ${plan.lastWeek}.`, platformPath: "settings.regularSeasonWeeks" });
   }
@@ -465,12 +568,17 @@ export function assembleModelInputs(snapshot: LeagueSnapshot, loaded: ModelSourc
   const stamps = [
     stamp(MODEL_SOURCES.sleeperProjections, projectionLoads, now),
     stamp(MODEL_SOURCES.sleeperStats, stats && stats.weeks.size ? [stats] : [], now),
-    market && fc ? { source: MODEL_SOURCES.fantasyCalc, fetchedAt: market.fetchedAt, ...(fc.values.stale || fc.redraft?.stale || fc.season?.stale ? { stale: true } : {}) } : null,
+    market && used ? { source: MODEL_SOURCES.fantasyCalc, fetchedAt: market.fetchedAt, ...(used.values.stale || used.redraft?.stale || used.season?.stale ? { stale: true } : {}) } : null,
     stamp(MODEL_SOURCES.nflSchedule, loaded.schedule ? [loaded.schedule] : [], now),
   ];
   for (const s of stamps) if (s) sources.push(s);
 
-  const notes = fc ? fantasyCalcNotes(fc.values.format, fc.redraft?.format) : [];
+  // The format notes, then a saved list's date (Phase 4c: "Trade values from Sep 28: FantasyCalc didn't answer."), then a
+  // dynasty league's saved season list's own (the blend's; once, when the trade values' note names the same day).
+  const savedNote = used?.fallback?.kind === "saved" ? fantasyCalcFallbackText(used.fallback) : null;
+  const seasonDate = used?.seasonListDate;
+  const seasonNote = seasonDate !== undefined && !(used?.fallback?.kind === "saved" && noteDay(used.fallback.listDate) === noteDay(seasonDate)) ? seasonListNote(seasonDate) : null;
+  const notes = used ? [...fantasyCalcNotes(used.values.format, used.redraft?.format), ...(savedNote ? [savedNote] : []), ...(seasonNote ? [seasonNote] : [])] : [];
 
   return {
     version: 1,
@@ -547,7 +655,7 @@ async function loadSleeper<T extends SleeperLoadMeta>(source: { what: string; co
 
 type ValuesAttempt = { load: FantasyCalcValuesLoad } | { error: unknown };
 
-async function tryFantasyCalcValues(http: HttpClient, format: FantasyCalcFormat, opts: { maxRetries?: number } = {}): Promise<ValuesAttempt> {
+async function tryFantasyCalcValues(http: HttpClient, format: FantasyCalcFormat, opts: { maxRetries?: number; gate?: FantasyCalcGate } = {}): Promise<ValuesAttempt> {
   try {
     return { load: await loadFantasyCalcValues(http, format, opts) };
   } catch (error) {
@@ -566,55 +674,122 @@ function fantasyCalcDidntAnswer(err: unknown): boolean {
   return typeof status !== "number" || status === 0 || status === 429 || status >= 500;
 }
 
+/** A list attempt with its use at the build time (fantasyCalcListUse): readable ("fresh" or "saved"), "curve" or "expired" (Phase 4c). */
+type ListOutcome = { load: FantasyCalcValuesLoad; use: FantasyCalcListUse } | { error: unknown };
+
+function outcomeOf(attempt: ValuesAttempt, now: Date): ListOutcome {
+  return "load" in attempt ? { load: attempt.load, use: fantasyCalcListUse(attempt.load, now) } : attempt;
+}
+
+/** The list when FantasyCalc served it, or when a saved copy may stand in for it as its own ("fresh" or "saved"). */
+const readableLoad = (o: ListOutcome | undefined): FantasyCalcValuesLoad | undefined => (o && "load" in o && (o.use === "fresh" || o.use === "saved") ? o.load : undefined);
+
+/** The list when it is a saved copy only the curve fallback may read ("curve"). */
+const curveLoad = (o: ListOutcome | undefined): FantasyCalcValuesLoad | undefined => (o && "load" in o && o.use === "curve" ? o.load : undefined);
+
+/** Why a list can't be read as values, in words: the loader's error, or how old the saved copy is (Phase 4c). */
+function outcomeReason(o: ListOutcome): string {
+  if ("error" in o) return reasonOf(o.error);
+  const day = o.load.fetchedAt !== undefined && Number.isFinite(o.load.fetchedAt) ? noteDay(new Date(o.load.fetchedAt).toISOString()) : null;
+  const days = o.use === "expired" ? config.market.fantasyCalcCurveDays : config.market.fantasyCalcStaleDays;
+  return `FantasyCalc didn't answer, and its newest saved list${day ? `, from ${day},` : ""} is more than ${days} days old`;
+}
+
 /**
- * FantasyCalc's lists for the league (§9). A keeper league asks for both lists whatever happens to the
- * first (review DATA-2): the redraft one is what the League page shows. A dynasty league asks for its
+ * FantasyCalc's lists for the league (§9). A keeper league loads both lists whatever happens to the
+ * first (review DATA-2): the redraft one is what the League page shows (⚠️ during an outage the second is read from
+ * the server cache only, not asked: below). A dynasty league asks for its
  * season list (`formats.season`, the market blend's, §6 step 8) only once its own list loaded: without
  * that there's no market to blend with. The season list failing isn't a warning here: the League model
- * says the blend is off (src/engine/league.ts BLEND_OFF_WARNING). Right after FantasyCalc failed to
- * answer the first list (it didn't answer, or a saved copy stood in for a live answer it couldn't use),
- * a later list is asked once, without a retry (a fresh or saved copy still serves; review DATA-2, and the
- * review of track A for the saved copy). /players is asked for only when a list loaded.
+ * says the blend is off (src/engine/league.ts BLEND_OFF_WARNING). After the first list, a later one depends on how
+ * the first failed (the header's last choice): when FantasyCalc didn't answer it (no response, 429, 5xx or a web page,
+ * a saved copy standing in or not), the outage memory holds FantasyCalc off and a later list is read from the server
+ * cache only (Phase 4c's polish, below; review POL-2: it replaced review DATA-2's one attempt without a retry); when a
+ * saved copy stood in for a live answer the checks turned down, a later list is asked once, without a retry (a fresh
+ * or saved copy still serves; review of track A); otherwise it keeps its retry.
+ * Phase 4c (the header): a list counts as loaded when it's readable at `now` ("fresh", or a saved copy at most
+ * fantasyCalcStaleDays old); when no list is, but a saved copy at most fantasyCalcCurveDays old is, the curve fallback
+ * takes it (and a keeper league's other old list; when that one is missing, FANTASYCALC_REDRAFT_UNAVAILABLE says the
+ * dynasty list calibrates perception, as in the readable case: review of track MK); a dynasty league's season list is
+ * asked only after a readable own list (the curve fallback blends nothing). /players is asked for only when FantasyCalc
+ * served some list fresh in this build (a live answer, or its copy within the 24-hour TTL; review of track MK): it
+ * widens knownIds alone, which only the reports read, so once every list came from a saved copy or failed (the curve
+ * fallback always) it would only cost 2 more requests to a host that isn't answering, and past its own 7-day copy add a
+ * warning next to the estimates banner. knownIds then counts the players a value list names.
+ * Phase 4c's polish: every list goes through the build's FantasyCalcGate (fantasyCalcGate: the outage memory, the
+ * header). While it holds FantasyCalc off, a list is read from the server cache only (loadFantasyCalcValues: a copy within
+ * the TTL as FantasyCalc's answer, an older one as a saved copy standing in, none as a "not asked" failure), so the
+ * build that finds an outage costs its own list's 2 attempts and nothing more, and /players isn't asked then either.
  */
-async function loadFantasyCalc(http: HttpClient, formats: MarketFormats, warnings: ImportWarning[]): Promise<FantasyCalcLoads | null> {
-  const own = await tryFantasyCalcValues(http, formats.values);
-  const failedToAnswer = "error" in own ? fantasyCalcDidntAnswer(own.error) : own.load.stale;
-  const later = failedToAnswer ? { maxRetries: 0 } : {};
-  const second = formats.redraft ? await tryFantasyCalcValues(http, formats.redraft, later) : undefined;
+async function loadFantasyCalc(http: HttpClient, formats: MarketFormats, warnings: ImportWarning[], now: Date): Promise<FantasyCalcLoads | null> {
+  // The build's outage memory (fantasyCalcGate): every list goes through it, and none is asked while it holds FantasyCalc off.
+  const gate = fantasyCalcGate(http, now);
+  const ownAttempt = await tryFantasyCalcValues(http, formats.values, { gate });
+  const own = outcomeOf(ownAttempt, now);
+  // A later list after a first that failed (the doc above): FantasyCalc not answering has the gate hold it off (read from
+  // the cache only, whatever the retries); a saved copy standing in for an answer the checks turned down leaves it one
+  // attempt without a retry.
+  const failedToAnswer = "error" in ownAttempt ? fantasyCalcDidntAnswer(ownAttempt.error) : ownAttempt.load.stale;
+  const later = failedToAnswer ? { maxRetries: 0, gate } : { gate };
+  const second = formats.redraft ? outcomeOf(await tryFantasyCalcValues(http, formats.redraft, later), now) : undefined;
   let values: FantasyCalcValuesLoad;
   let redraft: FantasyCalcValuesLoad | undefined;
-  if ("load" in own) {
-    values = own.load;
-    if (second && "load" in second) redraft = second.load;
+  const ownLoad = readableLoad(own);
+  const secondLoad = readableLoad(second);
+  const ownOld = curveLoad(own);
+  const secondOld = curveLoad(second);
+  if (ownLoad) {
+    values = ownLoad;
+    if (secondLoad) redraft = secondLoad;
     else if (second) {
       warnings.push({
         code: "FANTASYCALC_REDRAFT_UNAVAILABLE",
-        message: `FantasyCalc's redraft values couldn't be loaded (${reasonOf(second.error)}), so dynasty values stand in for how managers see a trade.`,
+        message: `FantasyCalc's redraft values couldn't be loaded (${outcomeReason(second)}), so dynasty values stand in for how managers see a trade.`,
         platformPath: "values/current",
       });
     }
-  } else if (second && "load" in second) {
-    values = second.load;
+  } else if (secondLoad) {
+    values = secondLoad;
     warnings.push({
       code: "FANTASYCALC_DYNASTY_UNAVAILABLE",
-      message: `FantasyCalc's dynasty values couldn't be loaded (${reasonOf(own.error)}), so this season's redraft values stand in for long-term worth.`,
+      message: `FantasyCalc's dynasty values couldn't be loaded (${outcomeReason(own)}), so this season's redraft values stand in for long-term worth.`,
       platformPath: "values/current",
     });
+  } else if (ownOld || secondOld) {
+    // The curve fallback (Phase 4c): no list young enough to read as FantasyCalc's own; the newest saved one only
+    // calibrates the model's own value curve (assembleModelInputs words it). A keeper league's two old lists both go
+    // (dynasty as `values`, redraft for perception); with only its redraft list old, it stands in as `values` (its format
+    // says isDynasty false, as when the dynasty list fails outright).
+    if (ownOld) {
+      values = ownOld;
+      if (secondOld) redraft = secondOld;
+      else if (second) {
+        // A keeper league's redraft list failed (or is too old even for the curve): perception reads the dynasty list
+        // (market.valuesForTerm), so the curve for how managers see a trade is fitted to it. Said as in the readable case.
+        warnings.push({
+          code: "FANTASYCALC_REDRAFT_UNAVAILABLE",
+          message: `FantasyCalc's redraft values couldn't be loaded (${outcomeReason(second)}), so our estimates of how managers see a trade are fitted to its dynasty values.`,
+          platformPath: "values/current",
+        });
+      }
+    } else values = secondOld as FantasyCalcValuesLoad;
   } else {
-    const reasons = [...new Set([own.error, ...(second ? [second.error] : [])].map(reasonOf))];
+    const reasons = [...new Set([own, ...(second ? [second] : [])].map(outcomeReason))];
     warnings.push({ code: "FANTASYCALC_UNAVAILABLE", message: `FantasyCalc's values couldn't be loaded (${reasons.join("; ")}), so players have no market values yet.`, platformPath: "values/current" });
     return null;
   }
-  let season: FantasyCalcValuesLoad | undefined;
-  if (formats.season && "load" in own) {
-    const got = await tryFantasyCalcValues(http, formats.season, later);
-    if ("load" in got) season = got.load;
-  }
+  const seasonOutcome = formats.season && ownLoad ? outcomeOf(await tryFantasyCalcValues(http, formats.season, later), now) : undefined;
+  const season = readableLoad(seasonOutcome);
+  // /players only when FantasyCalc served some list fresh in this build (the doc above): knownIds is all it widens. Never
+  // while the outage memory holds FantasyCalc off (a list read fresh from the cache then is no answer of today's).
+  const served = [own, second, seasonOutcome].some((o) => o !== undefined && "load" in o && !o.load.stale);
   let players: FantasyCalcPlayerIds[] | null = null;
-  try {
-    players = (await fetchFantasyCalcPlayers(http)).players;
-  } catch (err) {
-    warnings.push({ code: "FANTASYCALC_PLAYERS_UNAVAILABLE", message: `FantasyCalc's player list couldn't be loaded (${reasonOf(err)}), so only players with a value count as known to FantasyCalc.`, platformPath: "players" });
+  if (served && gate.down() === undefined) {
+    try {
+      players = (await fetchFantasyCalcPlayers(http)).players;
+    } catch (err) {
+      warnings.push({ code: "FANTASYCALC_PLAYERS_UNAVAILABLE", message: `FantasyCalc's player list couldn't be loaded (${reasonOf(err)}), so only players with a value count as known to FantasyCalc.`, platformPath: "players" });
+    }
   }
   return { values, ...(redraft ? { redraft } : {}), ...(season ? { season } : {}), players };
 }
@@ -668,7 +843,7 @@ export async function buildModelInputs(args: BuildModelInputsArgs): Promise<Mode
 
   // A dynasty league's season list is the market blend's (§6 step 8): asked for only while weeks are left to project.
   const formats = marketFormats(snapshot.settings);
-  const fantasyCalc = await loadFantasyCalc(http, plan.seasonOver || plan.notStarted ? { values: formats.values, ...(formats.redraft ? { redraft: formats.redraft } : {}) } : formats, warnings);
+  const fantasyCalc = await loadFantasyCalc(http, plan.seasonOver || plan.notStarted ? { values: formats.values, ...(formats.redraft ? { redraft: formats.redraft } : {}) } : formats, warnings, now);
   // Every list read goes to the local FantasyCalc archive too, in the background: the build doesn't wait (never throws).
   archiveFantasyCalcLists(args.fantasyCalcArchive === undefined ? defaultFantasyCalcArchiver() : args.fantasyCalcArchive, fantasyCalc);
 

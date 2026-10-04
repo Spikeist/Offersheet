@@ -7,11 +7,15 @@
  * alternatives behind it).
  *
  * Candidates (planBCandidates): the search's exactly evaluated trades, each with its best numbers (the final
- * simulation's for a finalist, else the screening simulation's), other than the card itself and ⚠️ any other trade the
- * list shows as a card, above or below it (final review of Phase 4b: a box naming another card is circular, the user
- * sees that card anyway; on Parker's league, the 2026-10-03 21:29Z dump, 2 of 6 boxes on the main list did, and 11 of 15
- * on the one-partner lists of Teams 8, 4 and 9, 10 of them the first card), with the card's partner (any other trade
- * with that team differs from the card in at least one player), that pass the rules on those numbers (planBPasses):
+ * simulation's for a finalist, else the screening simulation's), other than the card itself and ⚠️ the trades the search
+ * bars from the boxes (planBCandidates' `shown`: search.ts barredFromBoxes, the one place the rule lives). Those are every
+ * trade the list shows as a card, above or below it (final review of Phase 4b: a box naming another card is circular, the
+ * user sees that card anyway; on Parker's league, the 2026-10-03 21:29Z dump, 2 of 6 boxes on the main list did, and 11
+ * of 15 on the one-partner lists of Teams 8, 4 and 9, 10 of them the first card), and since Phase 4c a card plus more
+ * players who don't make it config.search.steps.minAcceptGain likelier to go through (the same card again, no easier to
+ * say yes to; players worth at most W at first, any player since the final review of Phase 4c, findings R2 and PAGES-1).
+ * Candidates are with the card's partner (any other trade with that team differs
+ * from the card in at least one player) and pass the rules on those numbers (planBPasses):
  * - legal, and it helps me: B known and above 0 (so its Helps you and Overall are numbers);
  * - its Helps you (the Trade Score as the card prints it, a whole number) is at least minHelpsShare × the card's
  *   (⚠️ the printed numbers, so the rule agrees with what the user reads);
@@ -31,9 +35,11 @@
  *
  * The choice (choosePlanB): the first candidate, in that order, that isn't passed over (`skip`, below) and whose numbers
  * on the final block of seasons (the card's basis) still pass the rules: a finalist's are its own (stage "final"); any
- * other is simulated on that block first (the caller's `finalOf`). One that fails is passed over; at most `tries`
- * candidates are tried (a skipped one isn't tried: it needs no simulation). ⚠️ A candidate's place comes from mixed
- * numbers (the finalists' final ones, the others' screening ones), as the design reads; the chosen one's are final.
+ * other is simulated on that block first (the caller's `finalOf`). ⚠️ Nor may another card the list shows, with the same
+ * partner, match or beat it on both Helps you (as printed) and P_complete (dominatedByCard; final review of Phase 4c,
+ * finding R2): that card is the better "try again", and it's on the list already. One that fails is passed over; at most
+ * `tries` candidates are tried (a skipped one isn't tried: it needs no simulation). ⚠️ A candidate's place comes from
+ * mixed numbers (the finalists' final ones, the others' screening ones), as the design reads; the chosen one's are final.
  *
  * The given-player cap on the boxes (⚠️ ours, review of track F; planner reply to Checkpoint 4, answer 7: "Same player
  * given in many ideas: cap it at 3 in the top 20", which rank.ts applies to the cards): the boxes offer my players too,
@@ -52,6 +58,16 @@
  *
  * Progress: choosePlanB is a generator that yields right before each simulation it asks for, so the search can report
  * progress (and a worker can stop it) between a card's steps and its Plan B's simulation.
+ *
+ * The chosen Plan B carries its numbers on the final block and (Phase 4c, planner reply to Checkpoint 4b, change 7) the
+ * same evaluation's acceptance features and raw g_mkt(P) (PlanB.features, gPartner), which feedback stores when it's the
+ * version sent, and (change 9, "real odds on every card") its odds from that same final-block simulation (PlanB.dPO, dCH
+ * and winChance: the box prints "Title odds a → b · Playoff odds a → b" and the weekly line as the card prints its own,
+ * from the same "before"; a re-filter reuses the simulation, search.ts finalByKey, so its odds equal a fresh search's).
+ * The minimum chance (Phase 4c, change 10) needs no rule here: a Plan B is at least minAcceptGain likelier
+ * to go through than its card, which the minimum let through (on the chance as printed, rank.ts: a card printing at the
+ * bar is at most half a display step under it, less than minAcceptGain), so it prints at or above the minimum too; ⚠️ not
+ * under the report switch minAcceptGain null, which can pick a Plan B under it.
  */
 import { expectedGain } from "./benefit";
 import { config } from "./config";
@@ -141,7 +157,8 @@ export function givenCapSkip(card: Pick<TradeProposal, "give">, inBoxes: Readonl
 
 /**
  * Plan B's candidates for `card` among `pool` (the search's exact trades with their best numbers), best first (the file
- * header), never one of `shown` (the keys of the trades the list shows as cards: the file header).
+ * header), never one of `shown` (the keys barred from the boxes: search.ts barredFromBoxes, the cards and the cards plus
+ * cheap players who don't make them likelier; the file header).
  */
 export function planBCandidates(card: TradeEvaluationCore, pool: readonly TradeEvaluationCore[], cfg: PlanBConfig = planBConfig(), shown: Iterable<string> = []): PlanBCandidate[] {
   const target = sideKey(card.proposal.get);
@@ -160,8 +177,15 @@ export function planBCandidates(card: TradeEvaluationCore, pool: readonly TradeE
 
 const copyProposal = (p: TradeProposal): TradeProposal => ({ partnerId: p.partnerId, give: p.give.map((a) => ({ ...a })), get: p.get.map((a) => ({ ...a })) });
 
-/** A trade's Plan B from its numbers on the final block (planBPasses held: B, Helps you and Overall are numbers). */
+/**
+ * A trade's Plan B from its numbers on the final block (planBPasses held: B, Helps you and Overall are numbers), with its
+ * acceptance features and raw g_mkt(P) (Phase 4c, planner reply to Checkpoint 4b, change 7: feedback stores the sent
+ * version's model inputs; from the same evaluation as the numbers), and its odds from the same simulation (change 9: ΔPO,
+ * ΔCH and my win chance by week, the box's odds lines), copied only when the numbers are the final block's (stage
+ * "final", the card's basis: the search's always are; a test's finalOf may hand back other numbers).
+ */
 function toPlanB(c: TradeEvaluationCore, kind: PlanB["kind"]): PlanB {
+  const final = c.stage === "final";
   return {
     proposal: copyProposal(c.proposal),
     key: c.key,
@@ -172,15 +196,44 @@ function toPlanB(c: TradeEvaluationCore, kind: PlanB["kind"]): PlanB {
     acceptLabel: c.acceptLabel,
     overall: c.overall as number,
     kind,
+    features: { ...c.features },
+    gPartner: c.gPartner,
+    ...(final ? { dPO: c.dPO, dCH: c.dCH } : {}),
+    ...(final && c.detail.winChance ? { winChance: c.detail.winChance.map((w) => ({ ...w })) } : {}),
   };
+}
+
+/** A card the list shows, as dominatedByCard reads it. */
+export type ShownCard = Pick<TradeEvaluationCore, "key" | "proposal" | "tradeScore" | "pComplete">;
+
+/**
+ * Whether a card the list shows, another trade with the same partner, matches or beats `candidate` on both Helps you (the
+ * Trade Score as printed, as minHelpsShare reads it) and the chance it goes through (P_complete): then that card is at
+ * least as good a "try again" as the box would be, and the user already sees it (⚠️ ours, final review of Phase 4c,
+ * finding R2: on Parker's league, Oct 4 09:24Z, the box Garrett Wilson → Tee Higgins + Mike Evans, 25 and 32.0%, sat on a
+ * card for Team 4 while the list showed Garrett Wilson → Chuba Hubbard + Mike Evans, 30 and 36.1%, with the same team).
+ * Numbers that aren't finite never dominate.
+ */
+export function dominatedByCard(candidate: ShownCard, cards: readonly ShownCard[]): boolean {
+  if (!isFiniteNumber(candidate.tradeScore) || !isFiniteNumber(candidate.pComplete)) return false;
+  return cards.some(
+    (c) =>
+      c.key !== candidate.key &&
+      c.proposal.partnerId === candidate.proposal.partnerId &&
+      isFiniteNumber(c.tradeScore) &&
+      isFiniteNumber(c.pComplete) &&
+      c.tradeScore >= (candidate.tradeScore as number) &&
+      c.pComplete >= (candidate.pComplete as number) - EPS,
+  );
 }
 
 /**
  * The card's Plan B (the file header): the first of `candidates` (planBCandidates' order) that `skip` doesn't pass over
- * and whose numbers on the final block pass the rules, trying at most cfg.tries (a skipped candidate isn't tried); null
- * when none does. `finalOf` gives a candidate's numbers on the final block (the search: its cache of finalists' numbers,
- * else simulateTrade "final"); it's called only for a candidate whose numbers aren't final yet (stage other than
- * "final"), and the generator yields right before each such call.
+ * and whose numbers on the final block pass the rules and that no card of `cards` (the list's cards; dominatedByCard)
+ * matches or beats, trying at most cfg.tries (a skipped candidate isn't tried); null when none does. `finalOf` gives a
+ * candidate's numbers on the final block (the search: its cache of finalists' numbers, else simulateTrade "final"); it's
+ * called only for a candidate whose numbers aren't final yet (stage other than "final"), and the generator yields right
+ * before each such call.
  */
 export function* choosePlanB(
   card: Pick<TradeEvaluationCore, "tradeScore" | "pComplete">,
@@ -188,6 +241,7 @@ export function* choosePlanB(
   finalOf: (core: TradeEvaluationCore) => TradeEvaluationCore,
   cfg: PlanBConfig = planBConfig(),
   skip?: (candidate: PlanBCandidate) => boolean,
+  cards: readonly ShownCard[] = [],
 ): Generator<void, PlanB | null, void> {
   const tries = Math.max(0, Math.floor(cfg.tries));
   let tried = 0;
@@ -200,12 +254,12 @@ export function* choosePlanB(
       yield;
       numbers = finalOf(numbers);
     }
-    if (planBPasses(numbers, card, cfg)) return toPlanB(numbers, candidate.kind);
+    if (planBPasses(numbers, card, cfg) && !dominatedByCard(numbers, cards)) return toPlanB(numbers, candidate.kind);
   }
   return null;
 }
 
-/** choosePlanB run to the end on the calling thread (tests, scripts); `shown` as planBCandidates reads it. */
+/** choosePlanB run to the end on the calling thread (tests, scripts); `shown` as planBCandidates reads it, `cards` as choosePlanB. */
 export function planBFor(
   card: TradeEvaluationCore,
   pool: readonly TradeEvaluationCore[],
@@ -213,8 +267,9 @@ export function planBFor(
   cfg: PlanBConfig = planBConfig(),
   skip?: (candidate: PlanBCandidate) => boolean,
   shown: Iterable<string> = [],
+  cards: readonly ShownCard[] = [],
 ): PlanB | null {
-  const it = choosePlanB(card, planBCandidates(card, pool, cfg, shown), finalOf, cfg, skip);
+  const it = choosePlanB(card, planBCandidates(card, pool, cfg, shown), finalOf, cfg, skip, cards);
   for (;;) {
     const r = it.next();
     if (r.done) return r.value;

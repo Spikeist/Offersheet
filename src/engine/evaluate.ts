@@ -6,10 +6,11 @@
  * common random numbers; every tunable number comes from config.
  *
  * The context (buildTradeContext; M1). Built once, reused by every search and Analyzer call on the same league:
- * - The League model's steps 1–6 (league.ts buildLeagueModelWithContext, no simulation of its own): projections,
+ * - The League model's steps 1–6 and 8a (league.ts buildLeagueModelWithContext, no simulation of its own): projections,
  *   scenarios, values, streaming, every team's lineups, its free-agent-optimized roster V*(T) (from scratch) and
- *   lineup costs, trade chips, surplus scores and MV_add's bases. It reads only the settings the League model reads
- *   (streamPositions, playoffWeight); the search and the Analyzer take the rest per call.
+ *   lineup costs, trade chips, surplus scores and MV_add's bases, and every team's V*(T) priced finally (step 8a:
+ *   LeagueModelBuild.pickups, the lineups behind TeamModel.scoreWithPickups; the baseline below). It reads only the
+ *   settings the League model reads (streamPositions, playoffWeight); the search and the Analyzer take the rest per call.
  * - The baseline (L6): every team at V*(T), whose moves are judged in scenario lineups when scenarios run, the lineups
  *   B is measured in (optimizer.ts; review of track E, item 1: an EV-judged V* skipped depth pickups, so a trade
  *   bringing the same depth got credit for them). Each team's weekly score for the simulator comes from V*(T)'s lineups the
@@ -17,24 +18,39 @@
  *   and sqrt(Σ σ²) without scenarios), streaming rows and IR returners included, finally priced (sideEval: the roster
  *   spot a returner needs from his week; "IR players" below). ⚠️ The week in progress (LeagueModel.inProgressWeek):
  *   its score stays each team's TeamModel.score week-0 value (rosters as they stand, as before kickoff) before and
- *   after every trade, since a trade or a pickup can't change a week under way. A trade made before kickoff counts
- *   the current week in full (⚠️ the platform's review period isn't modeled).
+ *   after every trade (⚠️ the model plays a week under way with today's rosters). A trade made before kickoff counts
+ *   the current week in full (⚠️ the platform's review period isn't modeled). So the baseline moves at the week's first
+ *   kickoff (league.ts "Game days"): before it a team's pickups play the week, after it they don't, and V*(T) is judged
+ *   without the week (ω = 0). On Parker's league (Oct 4 data) that moved a team's P(playoffs) by up to 1.3 points and
+ *   mine by 0.2; B compares both sides under the same rule either way.
+ * - One baseline everywhere (Phase 4c; planner reply to Checkpoint 4b, change 9): that baseline is the League model's
+ *   own. league.ts prices every team's V*(T) the same way (finalRunLineups and pickupScore, the functions sideEval runs:
+ *   step 8a) for TeamModel.scoreWithPickups, and LeagueModel.odds simulates those scores on the first finalSims seasons of
+ *   the simulation seed's matrix. The context reuses those final lineups for its baseline (LeagueModelBuild.pickups) and
+ *   builds its setup from the same scores (season.pickupSeasonModel), so the baseline odds on the final block below are
+ *   LeagueModel.odds exactly (every team's odds, weekly win chances, notes): the League page's headline and every card's
+ *   "before" are one number (evaluate.baseline.test.ts checks it).
  * - One SimSetup (season.buildSimSetup on the baseline scores) and one common-random-numbers matrix (sim.simNormals of
- *   the simulation seed) of screeningSims + finalSims seasons in two blocks (review of track E, item 2): the screening
- *   simulation reads the first screeningSims seasons, the final one (the search's finalists, the Analyzer, and the
- *   baseline odds every profile reads) the next finalSims, seasons the screening never saw. Choosing trades on the
- *   screening's seasons and showing B from the same seasons would show the luck that chose them (the shown B was above
- *   other seeds' for 21 of 25 trades). Within each block every run shares the draws (common random numbers). The
- *   baseline odds of each block go through the same code as every trade's "after" run, so a trade that changes neither
- *   side's V* moves nothing.
+ *   the simulation seed) of finalSims + screeningSims seasons in two blocks (review of track E, item 2): the final
+ *   simulation (the search's finalists, the Analyzer, and the baseline odds every profile reads) reads the first
+ *   finalSims seasons, the League model's own (Phase 4c: so the baseline is LeagueModel.odds; before, the screening block
+ *   came first), the screening simulation the next screeningSims, seasons the final simulation never reads. Choosing
+ *   trades on the screening's seasons and showing B from the same seasons would show the luck that chose them (the shown
+ *   B was above other seeds' for 21 of 25 trades). Within each block every run shares the draws (common random numbers).
+ *   The baseline odds of each block go through the same code as every trade's "after" run, so a trade that changes
+ *   neither side's V* moves nothing.
  * - Once: partner profiles (acceptance.partnerProfile, P(playoffs) from the finalSims baseline), hot players, the
  *   deadline urgency, perception values and the waiver credit W (the League model's), long-term values and MyDynTotal
  *   when they loaded (benefit.futureValuesLoaded), the league median of every slot instance over the hole weeks (the
  *   holeWeeks weeks from the first week team numbers count; EV lineups for screening, the exact mode's for exact
- *   evaluation), every team's rank at every instance (TradeDetail.partnerSlots), my risky weeks (TradeDetail), and the
- *   star premium of every rostered player for his own team (planner addendum to Checkpoint 3, §1; lead decision N1:
- *   premium.leaguePremiums, the League model's own function, with each team's P(playoffs) from this finalSims baseline
- *   for the dynasty rebuilding rule), which also tags "Harder to get" players (§2; N2: the search's get pool reads it).
+ *   evaluation), every team's rank at every instance (TradeDetail.partnerSlots), my risky weeks (TradeDetail.riskyWeeks:
+ *   riskyWeeksOf, the League page's rule, src/lib/leagueView.ts scheduleView; ⚠️ Phase 4c lead decision: a likely
+ *   starter at a streamed K or D/ST, config.leaguePage.streamCoversBye, is never counted on bye, since the streaming
+ *   replacement covers his slot, on both),
+ *   and the star premium of every rostered player for his own team (planner addendum to Checkpoint 3, §1; lead decision
+ *   N1: premium.leaguePremiums, the League model's own function, with each team's P(playoffs) from this finalSims
+ *   baseline for the dynasty rebuilding rule), which also tags "Harder to get" players (§2; N2: the search's get pool
+ *   reads it).
  * - Notes (TradeContext.notes): no team picked (nothing can be evaluated), no weeks left, my team certainly
  *   eliminated in a redraft league, the trade deadline passed, no odds (the schedule didn't load or the simulator
  *   refused it: B can't be computed). Any of them stops the search (no trades); the Analyzer still evaluates, with
@@ -105,8 +121,16 @@
  *   evaluation); in dynasty and keeper leagues with long-term values, ⚠️ (L7's reading of "plus normalized market
  *   value") removal cost ÷ the roster's largest removal cost + v_dyn ÷ the top dynasty value. Only players with a model
  *   are dropped (one without projections isn't known to be worthless); ties: teamValue.lowestKeepValue's (the lower
- *   perception value, then the smaller id). These forced moves are TradeEvaluation.required, per side, with rule 5's IR
- *   placements and the displacements the trade brings (rosterChangeOf).
+ *   perception value, then the smaller id). ⚠️ Where the keep value is the lineup cost alone (redraft leagues, and dynasty
+ *   or keeper leagues without long-term values), near-ties count as ties (final review of Phase 4c, finding R6, ours:
+ *   dropOrder): among the candidates within config.lineups.dropNearTieWeekly points a week (× the weeks' weights) of the
+ *   lowest keep value, the lowest perception value floored at W goes (then the lower keep value), so a 2-for-1 cuts a
+ *   near-free bench player worth at most W rather than a tradable one (on Parker's league, Oct 4 09:24Z: Marvin Harrison
+ *   Jr., worth 610, rather than Kyle Monangai, [value], 0.02 points a week apart), and between players worth at most W the
+ *   lineup decides as before (the free-agent optimizer's cuts follow the same rule since the verification of that review,
+ *   finding VF-1: optimizer.ts's header). These forced moves are TradeEvaluation.required, per side, with rule 5's IR
+ *   placements, the displacements the trade brings (rosterChangeOf) and, on my side, my free-agent moves after the trade
+ *   that my baseline doesn't make (RosterChange.faMoves: freeAgentMovesOf; "Exact evaluation" below).
  *
  * IR players (planner reply to Checkpoint 4, change 5 and answer 11; league.ts step 5b; returners.ts). Each team's IR
  * players expected back within the season (its returners) ride with its lineup rows everywhere a lineup is solved here:
@@ -114,8 +138,10 @@
  * both sides of every exact trade; B, n, h, the card's odds and the simulations) also puts a returner back on the active
  * roster from his return week: when that leaves it over maxRosterSize or his position over its limit, the lowest keep
  * value player goes from that week on (returners.finalLineups: its keep value over the weeks from the return on, in the
- * exact mode's lineups; ⚠️ the returner himself a candidate, so a return never lowers a side; never one the lineup needs,
- * one a position's minimum needs, or the last one at a position the side streams; at his position when its limit binds),
+ * exact mode's lineups; ⚠️ the returner himself a candidate, so a return never lowers a side by more than the near-tie
+ * tolerance (returners.ts: a returner worth more than W can keep his spot over a cheaper bench player); never one the
+ * lineup needs, one a position's minimum needs, or the last one at a position the side streams; at his position when its
+ * limit binds),
  * SideEval.displaced. Screening and legality don't (⚠️ the marginal machinery compares like with like without it). The
  * optimizer's memoized scenario lineups of a roster are reused only when nothing is displaced; else the lineups are
  * priced again where the dropped player started. The packages' open-spot credit counts each side's active-roster moves
@@ -151,21 +177,60 @@
  * player at max(v, W): planner reply to Checkpoint 4, change 4, which replaces lead decision N10; each side's open-spot
  * credit W from its own moves on and off its ACTIVE roster after rule 5 (spotsOf: an IR slot isn't a roster spot, review
  * of track E; market.ts's header), so with an IR player in the trade my package and the partner's needn't mirror each
- * other; the raw g_mkt(P), no
- * premium, on the card and for the veto rule, g_mkt(me) on the card and for B's market term) and the partner's perceived g
+ * other; spotsOf also names each side's own IR movers, ActiveSpots.inactive: a player it gives from its IR slot and one
+ * it receives into an open IR slot, so the neutral throw-in rule of Phase 4c (planner reply to Checkpoint 4b, change 2;
+ * market.packageValues) removes no roster-spot credit with one who took none; the raw g_mkt(P), no
+ * premium, on the card and for the veto rule, g_mkt(me) on the card and for B's market term; ⚠️ my package also holds my
+ * free-agent moves after the trade that my baseline doesn't make, final review of Phase 4c, finding R1:
+ * freeAgentMovesOf, the set differences of V*(after) and V*(T), each pickup as received and each drop as given, every one
+ * with an active roster spot (a player received and dropped at once leaves both), so a cut the trade makes necessary
+ * costs his value as a traded player would; ⚠️ and whom such a pickup cuts follows the optimizer's near-tie rule
+ * (verification of the final review, finding VF-1; optimizer.ts's header: where keep values are lineup costs alone, as
+ * legality's, a cut worth more than W gives way to a cheaper one whose swap is within config.lineups.dropNearTieWeekly a
+ * week), so the charge is never a coin flip between near-equal bench players. On Parker's league (Oct 4 09:24Z) Bo Nix →
+ * Jadarian Price had my V*(after) pick up Malik Willis for Josh Allen's week-7 bye and cut Kyle Monangai, worth [value],
+ * where cutting Marvin Harrison Jr. ([value]) cost 0.09 ROS points: R1's charge alone read g_mkt(me) −2.6%, the same as
+ * Monangai + Nix → Price; with the near-tie rule the pickup cuts Harrison (and the baseline's Malik Washington, Rico
+ * Dowdle), which leaves me the roster Rico Dowdle + Nix → Price does, and both read +8.4%. The card names those moves
+ * (RosterChange.faMoves, with the baseline's pickups a drop makes room for); ⚠️ a baseline drop the trade makes
+ * unnecessary isn't credited (the baseline's free-agent moves weigh trade value in near-ties only, so a cut it
+ * recommends isn't counted as a loss avoided), and the partner's
+ * package is the trade's alone, since its estimate reads the trade it's offered) and the partner's perceived g
  * (premium.perceivedPackage: v′ = max(v, W) × (1 + e) on what it gives, the g feature; N1); the card's values (my
  * package, floored the same way), ROS points (§6 step 7) given and received, the injured flag; acceptance(...) with hot
  * and urg; TradeDetail.premium, one PremiumFact per player the partner gives. ΔDyn (dynasty and keeper leagues with
  * long-term values): my package on the future values and the future term's W, floored the same way (so a player worth
  * less than W given for nothing moves it by 0) with my active-roster spots; MyDynTotal raw (benefit.rosterValue).
+ * TradeDetail.depthCover (Phase 4c; the pattern note's injury cover, planner reply to Checkpoint 4b, change 6): my ΔPPW in
+ * scenario lineups minus my ΔPPW in the same rosters' EV lineups (both finally priced: SideEval.ev), the part of the
+ * weekly gain only injuries and byes show; absent without scenarios.
  *
  * The simulation (M4): the baseline SimSetup with my team's and the partner's mean and SD rows replaced by their
  * after-V* scores (every other team, and the week in progress, unchanged), simulateSeason on the screening block
  * or the final block; ΔPO, ΔCH (null when title odds are unknown: benefit's titleMissing rule), ΔEW against the
- * baseline on the same block. Then benefit() (λ = settings.lambda ?? the default by my finalSims baseline
+ * baseline on the same block. TradeDetail.winChance (Phase 4c; planner reply to Checkpoint 4b, change 9, "Win chance by
+ * week"): from the same two runs, my head-to-head win chance before and after in each week sim.ts lists (a game's first
+ * drawn week: a multi-week game at its first week still to play), a week without a game with an opponent left out
+ * (winChanceOf); the final block's on a final trade and in the Analyzer, the screening block's on a screened one or a
+ * step. ⚠️ None in a points-only league (review of track EV; an empty list): its scheduled games don't change the
+ * standings (sim.ts plays them only for points against; the League page says so), so a weekly line there would show
+ * moves in games that count for nothing, and riskyWeeks counts byes only there (TradeDetail.weekly keeps my projected
+ * points by week). Then benefit() (λ = settings.lambda ?? the default by my finalSims baseline
  * P(playoffs); κ = the "Protect my trade value" level's, redraft leagues only: planner addendum to Checkpoint 3, §3, N3;
- * the market term reads g_mkt(me), each player at max(v, W) on both sides: benefit.ts's header), tradeNumbers,
- * tradeFlags (on the same g_mkt(me)), and benefitNotes into the detail's notes.
+ * the market term reads g_mkt(me), each player at max(v, W) on both sides: benefit.ts's header; B_win's ΔPO / ΔCH weights
+ * by the per-call "What matters most" goal, TradeSettings.goal: Phase 4c, change 8), tradeNumbers, tradeFlags (on the
+ * same g_mkt(me)), and benefitNotes into the detail's notes. The search, the Analyzer, the steps' versions and Plan B's
+ * final simulations pass the call's goal and protectValue (a cached context may hold older settings).
+ * ⚠️ κ = 0 when the trade values are our own estimates (Phase 4c lead decision; valuesEstimated: FantasyCalc's curve
+ * fallback, MarketInputs.fallback kind "curve"): g_mkt(me) is then computed from values the model derives from its own
+ * ROS points, so the market term would count lineup points a second time on top of B_win (the long-term term is already
+ * off there: benefit.futureValuesLoaded). simulateTrade is the one place κ is chosen (the search's trades, the Analyzer,
+ * the steps' versions and Plan B alike), and it adds ESTIMATED_VALUES_NOTE to the detail's notes in a redraft league (the
+ * only kind with a market term; the search says it once, search.ts). The guards (the Market check flag, the hide
+ * threshold) and the partner's g still read the estimated values. With no FantasyCalc values at all (valuesMissing:
+ * MarketInputs null, no saved list to stand in) every package is empty and every g is 0, so the chance they accept reads
+ * every trade as even on trade value: simulateTrade adds NO_VALUES_NOTE to the detail's notes, in every league type (the
+ * search says it once too; Phase 4c's polish: the cards said only that each trade's values were unknown).
  *
  * "Offer first / if they say no" (planner addendum to Checkpoint 3, §4; lead decision N4; tradeSteps). A throw-in is one of
  * my active-roster players with a model whose lineup cost in the exact mode (TeamPlayerValue.mvLoseScen with scenarios, else
@@ -182,14 +247,30 @@
  *   screening's quick P_accept, which moves with g, h and n, halved by the veto rule as P_complete is; then the screening's
  *   ΔROS) and only the best config.search.steps.preScreen get exact evaluation (the Checkpoint 4 report measures how often
  *   that misses the exact choice).
- * - Steps are kept only when P_complete(full) − P_complete(offer first) ≥ minAcceptGain and P_complete(offer first) ≥
- *   minOfferFirst (⚠️ on P_complete, the card's "Chance they accept"). ⚠️ Under the value floor (planner reply to
- *   Checkpoint 4, change 4) a throw-in worth less than W adds W to both sides of every package (his floored value on the
- *   side that gets him, the roster spot he takes on the other; nothing on either when that side gave more players):
- *   the value difference doesn't move, but each g, a ratio, edges toward 0, while the extra player costs the complexity
- *   term. So besides their lineup, such a throw-in moves the chance they accept through g: up when they lose value, down
- *   when they gain. A trade just past the veto line (g_mkt(P) < veto.gBelow) can come back above it with him, so the
- *   veto no longer cuts P_complete: a step from value nobody gains (market.ts's header; reported to the planner).
+ * - Steps are kept only when P_complete(full) − P_complete(offer first) ≥ minAcceptGain (⚠️ on P_complete, the card's
+ *   "Chance they accept") and the offer-first version prints at least its bar (offerFirstBar): minOfferFirst, and in case 1,
+ *   whose offer-first version is a trade the card doesn't show, the user's minimum chance too: max(minOfferFirst,
+ *   TradeSettings.minChance) (⚠️ ours, Phase 4c lead decision: a step must never advise offering first a version under the
+ *   minimum the user set; case 2's offer-first version is the card itself, which the Trade Finder's minimum already holds,
+ *   and in the Analyzer the user's own trade). "Prints": P_complete as the card prints it (acceptance.displayAcceptance,
+ *   the nearest 5%; rank.meetsMinChance, the minimum chance's own rule), so a version printed at the bar meets it (Phase 4b
+ *   compared the raw P_complete with minOfferFirst). The search's re-filtering (search.ts refilterSearch) recomputes the
+ *   steps with each new minimum. Phase 4c (planner reply to Checkpoint 4b, change 2, and answer 6, with the lead's
+ *   matched pairs; market.packageValues has the rule and its reading): a throw-in worth at most W is left out of both
+ *   sides' totals with his roster-spot credit, or left in where a credit stood, before any g or the market term, so when
+ *   every player moves with an active roster spot he moves no g, whichever side he's added to: through value such a
+ *   throw-in can only lower the chance they accept (the complexity term: with n, h and hot held fixed P_accept never
+ *   rises), so a step that adds one raises the chance only through the partner's lineup (n, h) or a hot streak (hot), and
+ *   one that adds a throw-in worth more than W through value too. (⚠️ Review of NT, finding 2: this said flatly that such
+ *   a throw-in "can only lower" the chance; on Parker's league, the 00:51Z dump, the steps that add Rico Dowdle, worth [value]
+ *   ≤ W [value], raise it 7.6 to 8.2 points through n and h, he fills a hole in Team 2's lineup, the partner's g 0% in both
+ *   versions.) (Under Phase 4b's value floor alone he added W to both sides of every package, so each g, a ratio, edged
+ *   toward 0: up for a partner losing value, down for one gaining, and a trade just past the veto line could come back
+ *   above it; the planner's step alone still did when the partner gave d more players, at least d of them worth at most
+ *   W: review of track EF, finding 1.) ⚠️ A version that moves an IR player can be the exception market.ts's header
+ *   states precisely; on Parker's league (the 2026-10-04 00:51Z dump on the weekly reset order) no shown card, step or
+ *   Plan B is. The search also evaluates the lean version of every shortlisted trade with such a throw-in (search.ts,
+ *   "Lean companions"), so a card offering him has been weighed against the same trade without him.
  * - ⚠️ The offer-first version must help me (B > 0 on the screening block; review of the addendum, engine findings 1 and
  *   10): case 1's lean version, case 2's ranked trade (so minBShare only ever compares positive B: with an offer at B −5,
  *   "B ≥ 0.8 × the offer's B" would ask for B ≥ −4, a better B rather than at most a fifth less, and coach a trade that
@@ -198,7 +279,8 @@
  * stage evaluated are reused); the Analyzer gives the analyzed trade steps too, ⚠️ only when the Trade Finder could show it
  * (B > 0 and not hidden by the market guard: never "how to offer it" on a card that says the trade doesn't help), and none
  * when a context note stops the search. TradeStep.detail is each version's explanation facts: the pitch names the
- * offer-first version (explain.ts).
+ * offer-first version (explain.ts); TradeStep.features its acceptance features (Phase 4c, planner reply to Checkpoint 4b,
+ * change 7: feedback stores the version actually sent).
  *
  * Phase 4b removed the before/after variant (TradeContextOptions.beforeAddendum, lead decision N5: the model before the
  * planner's addendum to Checkpoint 3, kept for the Checkpoint 4 report's comparison only); Checkpoint 4b compares against
@@ -211,7 +293,9 @@
  * in screening, legality or V*'s moves), and from one week, his expected return week R (the return distribution's
  * median), while his points follow his availability week by week (TradeEvaluation.required names, per side, the received
  * IR players placed in IR slots and the displacements the trade brings: rosterChangeOf);
- * an IR player counts at max(v, W) in every package though no free agent could take his IR slot; the search's get pool
+ * an IR player counts at max(v, W) in every package though no free agent could take his IR slot (unless the neutral
+ * throw-in rule leaves him out, and with IR moves that rule can let a cheap throw-in move g: market.ts's header, "The
+ * exception"); the search's get pool
  * judges an open IR slot of mine before the trade; a player received from an active roster never goes to IR; the review
  * period isn't modeled; draft picks are deferred.
  */
@@ -220,7 +304,7 @@ import { benefit, benefitNotes, futureValuesLoaded, injuredReceived, protectValu
 import { config } from "./config";
 import { explainTrade, injuryTags, tagContextOf, type ExplainContext } from "./explain";
 import type { ModelInputs } from "./inputs";
-import { ODDS_REFUSED_WARNING, buildLeagueModelWithContext, claimedBy, type FaAllocationMode, type LeagueContext, type TeamBase, type TeamWork } from "./league";
+import { ODDS_REFUSED_WARNING, buildLeagueModelWithContext, claimedBy, finalRunLineups, nearTieRos, pickupScore, type FaAllocationMode, type LeagueContext, type TeamBase, type TeamWork } from "./league";
 import type { LeagueModel, PlayerPremium, SeasonOdds, SlotInstance } from "./leagueModel";
 import { marketValues, valuesForTerm, waiverCredit, type ActiveSpots } from "./market";
 import { lineupTotal, prepareRoster } from "./lineup";
@@ -228,9 +312,10 @@ import { instancePointsInto } from "./needs";
 import { POSITIONS, type InjuryStatus, type LeagueSnapshot, type PlayerInfo, type Pos, type Team } from "./model";
 import { FULL_POOL, fillCount, poolRestriction, returnersOf, rosterKey, type OptimizedRoster, type PoolRestriction, type StreamSpec } from "./optimizer";
 import { leaguePremiums, perceivedPackage, premiumFacts } from "./premium";
-import { activeSpots, finalLineups, irAfterTrade, irEligibleStatuses, type Displacement } from "./returners";
-import { buildSimSetup, oddsSkippedWarning, seasonOdds, type SeasonModel, type SimSetupResult } from "./season";
-import { defaultTradeSettings, normalizeTradeSettings, type ProtectValue, type TradeSettings } from "./settings";
+import { meetsMinChance } from "./rank";
+import { activeSpots, irAfterTrade, irEligibleStatuses, type Displacement, type FinalLineups } from "./returners";
+import { buildSimSetup, oddsSkippedWarning, pickupSeasonModel, seasonOdds, type SeasonModel, type SimSetupResult } from "./season";
+import { defaultTradeSettings, normalizeTradeSettings, type Goal, type ProtectValue, type TradeSettings } from "./settings";
 import { simNormals, simulateSeason, type SimNormals } from "./sim";
 import {
   addGainExact,
@@ -238,14 +323,12 @@ import {
   addUpperBoundWeeks,
   evInstancePoints,
   evRemovalCosts,
-  evScore,
   evStarter,
   isStreamId,
   lowestKeepValue,
   ppw,
   rosValue,
   scenarioRemovalCosts,
-  scenarioScore,
   scenarioValues,
   solveEvWeeks,
   teamEval,
@@ -310,6 +393,48 @@ export const NO_WEEKS_NOTE = "No weeks are left in this season, so there are no 
 export const SEASON_OVER_NOTE = "Your season's over — no trade helps this year.";
 export const DEADLINE_PASSED_NOTE = "Your league's trade deadline has passed.";
 export const NO_ODDS_NOTE = "Trade ideas need your playoff odds, and they couldn't be worked out from this league's schedule, so trades can't be scored.";
+/**
+ * B without its market term in FantasyCalc's curve fallback (the file header, "The simulation"; estimatedValuesNotes). Only
+ * "Helps you" leaves trade value out: the values shown, the guards and the partner's g (so the chance they accept) still
+ * read the estimates, and the note says so (review of track EF, finding 3).
+ */
+export const ESTIMATED_VALUES_NOTE = "While FantasyCalc is unavailable, “Helps you” leaves trade value out, and the chance they accept uses our own estimates of trade value.";
+
+/**
+ * Whether the trade values are the model's own estimates: FantasyCalc's curve fallback (Phase 4c; MarketInputs.fallback
+ * kind "curve": market.curveMarketValues values every player off a curve of an old list's values on this season's ROS
+ * points). B's market term is off then (simulateTrade: κ = 0).
+ */
+export function valuesEstimated(I: Pick<TradeInternals, "inputs">): boolean {
+  return I.inputs.market?.fallback?.kind === "curve";
+}
+
+/** ESTIMATED_VALUES_NOTE when the values are estimated (valuesEstimated) in a league whose B has a market term (redraft), else none. */
+export function estimatedValuesNotes(I: Pick<TradeInternals, "inputs" | "snapshot">): string[] {
+  return valuesEstimated(I) && I.snapshot.settings.leagueType === "redraft" ? [ESTIMATED_VALUES_NOTE] : [];
+}
+
+/**
+ * No FantasyCalc values at all (valuesMissing: ModelInputs.market null, FantasyCalc unreadable with no saved list to stand
+ * in; Phase 4c's polish, review of track UIC). Every value is then missing and W is 0, so every package is empty and every
+ * g is 0: the partner's g, perceived or not (a star premium multiplies nothing), and hist (no past trade has values), so
+ * the chance they accept reads every trade as even on trade value; g_mkt(me) is 0 too, so B's market term adds nothing and
+ * the Market check never fires. Each card already says its trade values are unknown, and the info line and How to read
+ * that Helps you leaves trade value out (src/lib/tradeView.ts), while nothing said what the chance they accept does then:
+ * this note does, once per search (search.ts) and with each evaluation (the Analyzer's notes), in every league type
+ * (every acceptance estimate reads g).
+ */
+export const NO_VALUES_NOTE = "While FantasyCalc's trade values aren't available, the chance they accept treats every trade as even on trade value.";
+
+/** Whether no trade values loaded at all (ModelInputs.market null): NO_VALUES_NOTE's case. */
+export function valuesMissing(I: Pick<TradeInternals, "inputs">): boolean {
+  return !I.inputs.market;
+}
+
+/** NO_VALUES_NOTE when no trade values loaded (valuesMissing), else none. */
+export function missingValuesNotes(I: Pick<TradeInternals, "inputs">): string[] {
+  return valuesMissing(I) ? [NO_VALUES_NOTE] : [];
+}
 
 // ---------------------------------------------------------------------------------------------
 // The context's internals (search.ts and the tests read them; the pages only see TradeContext)
@@ -362,10 +487,17 @@ export interface TeamState {
   baseEv: { lv: Float64Array; ros: number; hole: Float64Array };
 }
 
-interface MyOdds {
+/** My odds from one simulation run (runSim). */
+export interface MyOdds {
   pPlayoffs: number;
   pTitle: number | null;
   expWins: number;
+  /**
+   * My head-to-head win chance in each week sim.ts lists (SimResult.weekly: a game's first drawn week, and median weeks),
+   * in its order; null in a week I have no game with an opponent (a bye, a median game alone). Empty in a points-only
+   * league (⚠️ its games don't change the standings: the file header, "The simulation").
+   */
+  weekly: { week: number; pWin: number | null }[];
 }
 
 /** Which block of simulated seasons a run reads: the screening's or the final one (the file header, M4). */
@@ -373,10 +505,13 @@ export type SimStage = "screen" | "final";
 
 export interface SimState {
   built: SimSetupResult;
-  /** The two blocks of one common-random-numbers matrix: the first screeningSims seasons, then the next finalSims. */
+  /** The two blocks of one common-random-numbers matrix: the first finalSims seasons (the final block), then the next screeningSims. */
   blocks: Record<SimStage, SimNormals>;
   seed: number;
-  /** The baseline on the final block, as the League page reads odds: eliminated, weekly win chances, P(playoffs). */
+  /**
+   * The baseline on the final block: LeagueModel.odds exactly (the same setup and seasons; the file header), which the
+   * League page reads too: eliminated, weekly win chances, P(playoffs).
+   */
   odds: SeasonOdds;
   base: Record<SimStage, MyOdds>;
 }
@@ -570,7 +705,7 @@ export function buildTradeContext(snapshot: LeagueSnapshot, inputs: ModelInputs,
     ...(opts.faAllocation !== undefined ? { faAllocation: opts.faAllocation } : {}),
     ...(opts.irReturners !== undefined ? { irReturners: opts.irReturners } : {}),
   });
-  const { model, context: league, bases } = built;
+  const { model, context: league, bases, pickups } = built;
   mark("league model");
 
   const { W, S, tw, lp, instances, index } = league;
@@ -644,7 +779,8 @@ export function buildTradeContext(snapshot: LeagueSnapshot, inputs: ModelInputs,
     timings,
   };
 
-  // The baseline: every team at V*(T), in the exact mode and in EV lineups.
+  // The baseline: every team at V*(T), in the exact mode (the League model's own final lineups of V*(T), behind
+  // TeamModel.scoreWithPickups: LeagueModelBuild.pickups) and in EV lineups.
   const claimRanks = new Map((league.allocation?.order ?? []).map((ti, k) => [ti, k]));
   I.teams = league.work.map((t: TeamWork, ti) => {
     const state: TeamState = {
@@ -661,7 +797,7 @@ export function buildTradeContext(snapshot: LeagueSnapshot, inputs: ModelInputs,
       base: null as unknown as SideEval,
       baseEv: { lv: t.vstar.solved.lv, ros: t.vstar.evRos, hole: avgOver(evInstancePoints(t.vstar.solved, index), holeIdx, instances.length) },
     };
-    state.base = sideEval(I, state, t.vstar);
+    state.base = sideEval(I, state, t.vstar, t.stream, pickups[ti]);
     return state;
   });
   for (const t of I.teams) I.byId.set(t.id, t);
@@ -696,14 +832,9 @@ export function buildTradeContext(snapshot: LeagueSnapshot, inputs: ModelInputs,
     I.future = { values: fValues, credit: waiverCredit(fValues, league.freeAgentIds, top, config.market), top: Number.isFinite(top) && top > 0 ? top : 0, myTotal: rosterValue(myIds, fValues) };
   }
 
-  // The season simulation: one setup, one matrix, the baseline at both counts.
-  const seasonModel: SeasonModel = {
-    weeks,
-    regularWeeks: lp.weeks.regularWeeks,
-    playoffWeeks: lp.weeks.playoffWeeks,
-    inProgressWeek: tw.inProgressWeek,
-    teams: I.teams.map((t) => ({ id: t.id, score: { mean: Array.from(t.base.score.mean), sd: Array.from(t.base.score.sd) } })),
-  };
+  // The season simulation: one setup, one matrix, the baseline on both blocks. The setup is LeagueModel.odds's: every
+  // team's TeamModel.scoreWithPickups (season.pickupSeasonModel), the scores of the baseline lineups above.
+  const seasonModel: SeasonModel = pickupSeasonModel(model);
   let simWarning: string | null = null;
   if (W > 0) {
     simWarning = oddsSkippedWarning(snapshot, seasonModel);
@@ -714,17 +845,19 @@ export function buildTradeContext(snapshot: LeagueSnapshot, inputs: ModelInputs,
           const { screen: screenSims, final: finalSims } = simCounts();
           const Wk = setup.setup.weeks.length;
           const T = setup.setup.teams.length;
-          // One matrix of screeningSims + finalSims seasons: the screening reads the first block, the final simulation
-          // (and its baseline) the second, seasons the screening never saw (no selection bias in the shown B).
-          const all = simNormals(simSeed, screenSims + finalSims, Wk, T);
+          // One matrix of finalSims + screeningSims seasons: the final simulation (and its baseline) reads the first block,
+          // the League model's own seasons (so its baseline odds are LeagueModel.odds), and the screening the next one,
+          // seasons the final simulation never reads (no selection bias in the shown B).
+          const all = simNormals(simSeed, finalSims + screenSims, Wk, T);
           const per = Wk * T;
           const blocks: Record<SimStage, SimNormals> = {
-            screen: { sims: screenSims, weeks: Wk, teams: T, z: all.z.subarray(0, screenSims * per) },
-            final: { sims: finalSims, weeks: Wk, teams: T, z: all.z.subarray(screenSims * per, (screenSims + finalSims) * per) },
+            final: { sims: finalSims, weeks: Wk, teams: T, z: all.z.subarray(0, finalSims * per) },
+            screen: { sims: screenSims, weeks: Wk, teams: T, z: all.z.subarray(finalSims * per, (finalSims + screenSims) * per) },
           };
           const odds = seasonOdds(snapshot, seasonModel, { sims: finalSims, seed: simSeed, normals: blocks.final });
           if (odds) {
-            const sim: SimState = { built: setup, blocks, seed: simSeed, odds, base: { screen: { pPlayoffs: 0, pTitle: null, expWins: 0 }, final: { pPlayoffs: 0, pTitle: null, expWins: 0 } } };
+            const unknown: MyOdds = { pPlayoffs: 0, pTitle: null, expWins: 0, weekly: [] };
+            const sim: SimState = { built: setup, blocks, seed: simSeed, odds, base: { screen: unknown, final: unknown } };
             I.sim = sim;
             if (I.me) {
               sim.base.screen = runSim(I, null, null, "screen");
@@ -800,15 +933,23 @@ export function buildTradeContext(snapshot: LeagueSnapshot, inputs: ModelInputs,
  * each starter once. Likely starter: in my V* EV lineup (its final pricing: returners in, the roster spot one needs from
  * his week, SideEval.ev) in at least half of the counted weeks he plays. A starter's bye counts only in a week his row can
  * score for me (review of track E): a returner's from his expected return week on, a displaced player's before the week
- * his displacement starts (a bye he'd sit on IR for, or after he's dropped, isn't my crunch). In a points-only league
- * every counted week counts on its own (byes only). Empty without odds.
+ * his displacement starts (a bye he'd sit on IR for, or after he's dropped, isn't my crunch). ⚠️ Never a likely starter at
+ * a position I stream whose streaming replacement covers his bye (StreamSpec.positions within
+ * config.leaguePage.streamCoversBye: K and D/ST; Phase 4c lead decisions on the reviews of tracks UIP and polish): his
+ * slot's streaming row starts that week's streaming replacement when he's off, about as good as he is, so his bye is no
+ * crunch; a streamed QB's or TE's replacement is much weaker, so their byes still count (on Parker's league, the 2026-10-04 09:24Z dump, his kicker was the 4th of week 13's starters on
+ * bye; week 13 stays risky with the other 3). ⚠️ By position: a league that starts two at a position I stream still gets
+ * one streamer (league.ts step 5a), and a second starter there off the same week isn't counted either. leagueView.ts
+ * scheduleView applies the same rule to the League page's bye list (leagueView.engine.test.ts checks the two agree).
+ * In a points-only league every counted week counts on its own (byes only). Empty without odds.
  */
 function riskyWeeksOf(I: TradeInternals): number[] {
   const me = I.me;
   const odds = I.sim?.odds;
   if (!me || !odds) return [];
   const solved = me.base.ev;
-  const starters = solved.team.rows.flatMap((r, k) => (!isStreamId(r.id) && evStarter(solved, k, I.weights) ? [r.id] : []));
+  const streamed = new Set<Pos>(me.stream.positions.filter((p) => config.leaguePage.streamCoversBye.includes(p)));
+  const starters = solved.team.rows.flatMap((r, k) => (!isStreamId(r.id) && !streamed.has(r.pos) && evStarter(solved, k, I.weights) ? [r.id] : []));
   const weekIndex = new Map(I.league.lp.weeks.weeks.map((w, i) => [w, i]));
   const counted = new Set(I.regWeeks);
   // The week indexes a starter is on my active roster: a returner from his return, a displaced player before his drop.
@@ -856,46 +997,27 @@ function matchupWeeksOf(snapshot: LeagueSnapshot, me: string, opponentId: string
 
 /**
  * A team's roster priced in the exact mode (SideEval), from an optimizer run's roster made with `spec` (the team's
- * streaming rows and the returners of its IR after the trade; default its own, TeamState.stream): scenario lineups with
- * S > 0 (the law-of-total-variance score, instance points), else its EV lineups; finally priced (returners.finalLineups:
- * from a returner's week, the roster spot he needs, when it's full: the file header, "IR players"). Memoized by team,
- * roster and spec, so a roster the trade leaves as it was gives the very same numbers (the no-op test). The week in
- * progress keeps TeamModel.score's week-0 value (the file header).
+ * streaming rows and the returners of its IR after the trade; default its own, TeamState.stream): league.ts
+ * finalRunLineups, the League model's own pricing of every team's V*(T) (scenario lineups with S > 0: the
+ * law-of-total-variance score, instance points; else its EV lineups; finally priced, returners.finalLineups: from a
+ * returner's week, the roster spot he needs, when it's full: the file header, "IR players"), and its score by
+ * league.pickupScore, TeamModel.scoreWithPickups's rule (the week in progress keeps TeamModel.score's week-0 value: the
+ * file header). `priced`: those final lineups when the caller has them (the baseline: the League model's,
+ * LeagueModelBuild.pickups). Memoized by team, roster and spec, so a roster the trade leaves as it was gives the very same
+ * numbers (the no-op test).
  */
-export function sideEval(I: TradeInternals, t: Pick<TeamState, "index" | "stream">, run: OptimizedRoster, spec: StreamSpec = t.stream): SideEval {
+export function sideEval(I: TradeInternals, t: Pick<TeamState, "index" | "stream">, run: OptimizedRoster, spec: StreamSpec = t.stream, priced?: FinalLineups): SideEval {
   const key = `${t.index}\u0004${rosterKey(run.roster, spec)}`;
   const hit = I.sideMemo.get(key);
   if (hit) return hit;
-  const { W, S, league } = I;
-  // The roster's lineups before any displacement: the optimizer's own scenario lineups when it judged in them (V* passed
-  // through it), else solved here with their cells kept (the displacement prices from them).
-  const raw = S > 0 ? (league.optimizer.scenarioValuesOf(run.roster, spec) ?? scenarioValues(run.team, W, S, league.index, true, true)) : null;
-  const final = finalLineups(league.returnerSetup, run.roster, spec, { ev: run.solved, scen: raw });
-  let lv: Float64Array;
-  let score: WeeklyScore;
-  let perWeek: Float64Array[];
-  if (final.scen) {
-    const v = final.scen;
-    lv = v.mean;
-    score = scenarioScore(v);
-    perWeek = v.instances as Float64Array[];
-  } else {
-    lv = final.ev.lv;
-    score = evScore(final.ev);
-    perWeek = evInstancePoints(final.ev, league.index);
-  }
-  if (I.inProgress && W > 0) {
-    const pre = I.model.teams[t.index]?.score;
-    if (pre) {
-      score.mean[0] = pre.mean[0] as number;
-      score.sd[0] = pre.sd[0] as number;
-    }
-  }
+  const { league } = I;
+  const final = priced ?? finalRunLineups(league, run, spec);
+  const perWeek = final.scen ? (final.scen.instances as Float64Array[]) : evInstancePoints(final.ev, league.index);
   const out: SideEval = {
     roster: run.roster,
     displaced: final.displaced,
-    lv,
-    score,
+    lv: final.scen ? final.scen.mean : final.ev.lv,
+    score: pickupScore(league, final, I.model.teams[t.index]?.score),
     regular: avgOver(perWeek, I.regIdx, I.instances.length),
     hole: avgOver(perWeek, I.holeIdx, I.instances.length),
     ev: final.ev,
@@ -948,9 +1070,14 @@ export interface LegalSide {
 
 /**
  * A side's moves on and off its active roster (returners.activeSpots: what §9's open-spot credit counts, market.ts's
- * header): `given` and `received` from the side's point of view, less the IR players legality's rule 5 placed.
+ * header): `given` and `received` from the side's point of view, less the IR players legality's rule 5 placed; and those
+ * IR players themselves (ActiveSpots.inactive, the side's own: one it gives from its IR slot, one it receives into an open
+ * IR slot), each of whom moves without an active roster spot, so the neutral throw-in rule (planner reply to Checkpoint 4b,
+ * change 2: market.packageValues) removes no roster-spot credit with him. `inactive` is absent when no IR player of the
+ * side moves. activeSpots itself names them (Phase 4c), so a reader outside the engine (irSlots.tradeActiveSpots) gets the
+ * same packages.
  */
-function spotsOf(side: Pick<LegalSide, "givenIR" | "toIR">, given: readonly string[], received: readonly string[]): ActiveSpots {
+export function spotsOf(side: Pick<LegalSide, "givenIR" | "toIR">, given: readonly string[], received: readonly string[]): ActiveSpots {
   return activeSpots(given, received, side);
 }
 
@@ -1006,9 +1133,11 @@ function legalityQuiet(I: TradeInternals, before: readonly string[], given: read
 /**
  * Keep values of a roster's players (the file header): removal cost in the mode, plus the dynasty part, for the active
  * roster's players only (never a streaming row or a returner: neither is ever dropped). `raw` holds the EV removal costs
- * (ROS points) in EV mode, so legality can track the roster's EV ROS after a drop.
+ * (ROS points) in EV mode, so legality can track the roster's EV ROS after a drop. `tie`: the near-tie dropOrder reads
+ * (config.lineups.dropNearTieWeekly × the weeks' weights, ROS lineup points) when the keep values are lineup costs alone
+ * (no long-term part), else 0.
  */
-function keepValues(I: TradeInternals, roster: readonly string[], stream: StreamSpec, mode: LineupMode, solvedEv: SolvedWeeks | null): { keep: Map<string, number>; raw: Map<string, number> | null } {
+function keepValues(I: TradeInternals, roster: readonly string[], stream: StreamSpec, mode: LineupMode, solvedEv: SolvedWeeks | null): { keep: Map<string, number>; raw: Map<string, number> | null; tie: number } {
   const costs = new Map<string, number>();
   let raw: Map<string, number> | null = null;
   const onRoster = new Set(roster);
@@ -1027,23 +1156,35 @@ function keepValues(I: TradeInternals, roster: readonly string[], stream: Stream
     raw = costs;
   }
   const f = I.future;
-  if (!f || I.snapshot.settings.leagueType === "redraft") return { keep: costs, raw };
+  if (!f || I.snapshot.settings.leagueType === "redraft") return { keep: costs, raw, tie: nearTieOf(I) };
   let max = 0;
   for (const v of costs.values()) if (v > max) max = v;
   const keep = new Map<string, number>();
   for (const [id, cost] of costs) keep.set(id, (max > EPS ? cost / max : 0) + (f.top > 0 ? (f.values[id] ?? 0) / f.top : 0));
-  return { keep, raw };
+  return { keep, raw, tie: 0 };
+}
+
+/**
+ * config.lineups.dropNearTieWeekly in ROS lineup points: × the sum of the weeks' weights (the weeks team numbers count;
+ * league.nearTieRos, the optimizer's tolerance too).
+ */
+function nearTieOf(I: Pick<TradeInternals, "weights">): number {
+  return nearTieRos(config.lineups.dropNearTieWeekly, I.weights);
 }
 
 /**
  * The candidates in drop order: the lowest keep value first, ties as teamValue.lowestKeepValue (the lower perception
- * value, then the smaller id). Candidates without a keep value (no model) aren't dropped. Lazily, one at a time: the
- * first is usually the one dropped.
+ * value, then the smaller id). With `tie` > 0 (keepValues: keep values that are lineup costs alone; final review of Phase
+ * 4c, finding R6), each next one is lowestKeepValue's near-tie pick among the candidates left: the lowest perception value
+ * floored at the waiver credit W, whose keep value is within `tie` of the lowest left (ties: the lower keep value), so a
+ * near-free bench player worth W or less goes before one worth more, while between players worth at most W (replaceable:
+ * every package counts them at W) the lineup decides as before. Candidates without a keep value (no model) aren't dropped.
+ * Lazily, one at a time: the first is usually the one dropped.
  */
-function* dropOrder(I: TradeInternals, keep: ReadonlyMap<string, number>, candidates: readonly string[]): Generator<string, void, void> {
+function* dropOrder(I: TradeInternals, keep: ReadonlyMap<string, number>, candidates: readonly string[], tie = 0): Generator<string, void, void> {
   const list = candidates.flatMap((id) => (keep.has(id) ? [{ id, keep: keep.get(id) as number, value: I.values[id] ?? 0 }] : []));
   while (list.length) {
-    const id = lowestKeepValue(list) as string;
+    const id = lowestKeepValue(list, tie, I.credit) as string;
     yield id;
     list.splice(
       list.findIndex((c) => c.id === id),
@@ -1378,7 +1519,7 @@ export function legalSide(
       while (countNow(pos) > cap) {
         const cands = roster.filter((id) => !inbound.has(id) && hasRow(id) && I.league.posOf(id) === pos);
         const kv = cands.length ? keepValues(I, roster, spec, mode, evMode ? ev() : null) : null;
-        const k = kv ? dropOrder(I, kv.keep, cands).next().value : undefined;
+        const k = kv ? dropOrder(I, kv.keep, cands, kv.tie).next().value : undefined;
         if (k === undefined) return { illegal: `${who} can have at most ${posWords(pos, limit)}.` };
         drop(k, kv?.raw ?? null);
       }
@@ -1432,7 +1573,7 @@ export function legalSide(
         }
         return false;
       };
-      for (const id of kv ? dropOrder(I, kv.keep, cands) : []) {
+      for (const id of kv ? dropOrder(I, kv.keep, cands, kv.tie) : []) {
         if (sparedIn(id)) {
           k = id;
           break;
@@ -1942,7 +2083,7 @@ export function tradeSides(I: TradeInternals, me: TeamState, partner: TeamState,
  * league, Oct 3, my own IR WR displaces a bench WR from week 7 in the baseline, so every card would repeat it. `toIR` and
  * `displaced` are present only when not empty ("absent or empty: none").
  */
-export function rosterChangeOf(I: TradeInternals, legal: Pick<LegalSide, "change" | "toIR">, after: Pick<SideEval, "displaced">, side: Pick<TeamState, "base">): RosterChange {
+export function rosterChangeOf(I: TradeInternals, legal: Pick<LegalSide, "change" | "toIR">, after: Pick<SideEval, "displaced">, side: Pick<TeamState, "base">, faMoves?: RosterChange["faMoves"]): RosterChange {
   const weeks = I.league.lp.weeks.weeks;
   const key = (d: Displacement) => `${d.id}\u0004${d.from}\u0004${d.returner}`;
   const before = new Set(side.base.displaced.map(key));
@@ -1955,7 +2096,72 @@ export function rosterChangeOf(I: TradeInternals, legal: Pick<LegalSide, "change
     adds: [...legal.change.adds],
     ...(legal.toIR.length ? { toIR: [...legal.toIR] } : {}),
     ...(displaced.length ? { displaced } : {}),
+    ...(faMoves && (faMoves.adds.length || faMoves.drops.length) ? { faMoves } : {}),
   };
+}
+
+/**
+ * A side's free-agent moves after a trade that its baseline doesn't make (RosterChange.faMoves; final review of Phase 4c,
+ * finding R1: on Parker's league, Oct 4 09:24Z, Bo Nix → Jadarian Price left my QB slot empty in Josh Allen's week-7 bye,
+ * so my V*(after) picked up Malik Willis and cut Kyle Monangai, worth [value], a move the card didn't name and the market term
+ * didn't count). Set differences of the two optimizer runs, so the order of their steps doesn't matter: `adds`, the free
+ * agents `after` ends with that it didn't start with and `base` (V*(T)) didn't pick up either; `drops`, the players
+ * `after` started with and dropped that `base` didn't drop; `kept`, the players `base` drops who are still on `after`'s
+ * roster (traded away or dropped by legality, a player isn't kept); `room` (verification of the final review, finding
+ * VF-1: "you'd drop Kyle Monangai" alone gave no reason), the pickups on `after`'s roster that `base` makes too and whose
+ * spot one of `drops` opened, through `after`'s moves (a pickup later swapped for another passes the spot on), so the card
+ * can say whom a drop without a pickup of its own makes room for. Each list in its run's roster order.
+ */
+export function freeAgentMovesOf(base: Pick<OptimizedRoster, "start" | "roster">, after: Pick<OptimizedRoster, "start" | "roster"> & { readonly moves?: OptimizedRoster["moves"] }): { adds: string[]; drops: string[]; kept: string[]; room: string[] } {
+  const baseStart = new Set(base.start);
+  const baseEnd = new Set(base.roster);
+  const afterStart = new Set(after.start);
+  const afterEnd = new Set(after.roster);
+  const baseDrops = base.start.filter((id) => !baseEnd.has(id));
+  const baseAdds = new Set(base.roster.filter((id) => !baseStart.has(id)));
+  const dropped = new Set(baseDrops);
+  const adds = after.roster.filter((id) => !afterStart.has(id) && !baseAdds.has(id));
+  const drops = after.start.filter((id) => !afterEnd.has(id) && !dropped.has(id));
+  // Whose spot each pickup holds: the player its move dropped (null: an open spot), passed on through swaps of pickups.
+  const spotOf = new Map<string, string | null>();
+  for (const m of after.moves ?? []) {
+    if (m.drop !== null && spotOf.has(m.drop)) {
+      spotOf.set(m.add, spotOf.get(m.drop) ?? null);
+      spotOf.delete(m.drop);
+    } else spotOf.set(m.add, m.drop);
+  }
+  const dropSet = new Set(drops);
+  return {
+    adds,
+    drops,
+    kept: baseDrops.filter((id) => afterEnd.has(id)),
+    room: after.roster.filter((id) => baseAdds.has(id) && !afterStart.has(id) && dropSet.has(spotOf.get(id) ?? "")),
+  };
+}
+
+/**
+ * Whether the card names a side's free-agent moves (RosterChange.faMoves): a pickup the baseline doesn't make, or a drop
+ * of a player worth more than the waiver credit W (his value is the market term's cost). ⚠️ Ours: a drop swap alone
+ * between bench players worth at most W (the baseline's pickup made dropping Rico Dowdle rather than Marvin Harrison Jr.,
+ * both worth at most W on Parker's league) moves no trade value and the lineup by a hair, so the card doesn't say it; the
+ * market term reads every move either way (such a player counts W, as the roster spot he stands for would).
+ */
+function faShown(I: Pick<TradeInternals, "values" | "credit">, fa: { adds: readonly string[]; drops: readonly string[] }): boolean {
+  return fa.adds.length > 0 || fa.drops.some((id) => (I.values[id] ?? 0) > I.credit);
+}
+
+/**
+ * The NFL weeks each player of `ids` starts in a side's expected-value lineups (SideEval.ev, finally priced), among the
+ * weeks team numbers count (weight above 0), in week order: RosterChange.faMoves' `starts`.
+ */
+function startWeeksOf(I: TradeInternals, ev: SolvedWeeks, ids: readonly string[]): Record<string, number[]> {
+  const weeks = I.league.lp.weeks.weeks;
+  const out: Record<string, number[]> = {};
+  for (const id of ids) {
+    const k = ev.team.rows.findIndex((r) => r.id === id);
+    out[id] = k < 0 ? [] : weeks.flatMap((week, w) => ((I.weights[w] as number) > 0 && ((ev.seat[w] as Int32Array)[k] as number) >= 0 ? [week] : []));
+  }
+  return out;
 }
 
 /** An exactly evaluated trade with what its simulation needs. */
@@ -1990,13 +2196,24 @@ export function evaluateExact(I: TradeInternals, proposal: TradeProposal, maxPer
 
   const dPPW = ppw(mine.lv, weeks, I.regWeeks) - ppw(me.base.lv, weeks, I.regWeeks);
   const dPPWPlayoffs = ppw(mine.lv, weeks, I.poWeeks) - ppw(me.base.lv, weeks, I.poWeeks);
+  // The depth cover (TradeDetail.depthCover): the part of ΔPPW, scenario lineups, that the same rosters' EV lineups don't
+  // see (both finally priced: SideEval.ev); only with scenarios.
+  const depthCover = I.S > 0 ? dPPW - (ppw(mine.ev.lv, weeks, I.regWeeks) - ppw(me.base.ev.lv, weeks, I.regWeeks)) : null;
   const delta = partnerLineupDelta(partner.base.lv, theirs.lv, I.from);
   const hole = holeFeature(holeSlots(I, partner.base.hole, theirs.hole, I.medians.exact), receivedStarters(I, theirs.ev, give));
   // Each side's open-spot credit follows its own active roster after rule 5 (an IR slot isn't a roster spot: market.ts's
   // header), so with an IR player in the trade my package and the partner's needn't mirror each other.
   const mySpots = spotsOf(mineLegal, give, get);
   const theirSpots = spotsOf(theirLegal, get, give);
-  const myPkg = tradePackage({ players: get }, { players: give }, I.values, I.credit, config.market, mySpots);
+  // My free-agent moves after the trade that my baseline doesn't make (the file header, "Exact evaluation"; final review of
+  // Phase 4c, finding R1) join my package: each pickup as received, each drop as given, each with an active roster spot
+  // (a player received and dropped at once leaves both). The partner's package is the trade's alone.
+  const fa = freeAgentMovesOf(me.vstar, after.mine);
+  const both = new Set(fa.drops.filter((id) => get.includes(id)));
+  const myRecv = [...get.filter((id) => !both.has(id)), ...fa.adds];
+  const myGive = [...give, ...fa.drops.filter((id) => !both.has(id))];
+  const myPkgSpots: ActiveSpots = { ...mySpots, recv: mySpots.recv - both.size + fa.adds.length, give: mySpots.give + fa.drops.length - both.size };
+  const myPkg = tradePackage({ players: myRecv }, { players: myGive }, I.values, I.credit, config.market, myPkgSpots);
   const gPartner = tradePackage({ players: give }, { players: get }, I.values, I.credit, config.market, theirSpots).g;
   // The partner's g as it perceives it (the star premium on what it gives): the g feature only; the veto reads gPartner.
   const gPerceived = perceivedG(I, partner.id, give, get, gPartner, theirSpots);
@@ -2013,14 +2230,14 @@ export function evaluateExact(I: TradeInternals, proposal: TradeProposal, maxPer
   // package (planner reply to Checkpoint 4, change 4): a player worth less than the best free agent is replaceable, and
   // V*(me) already counts that, so dumping him is no long-term gain either. MyDynTotal stays raw (rosterValue).
   const dynasty = f && I.snapshot.settings.leagueType !== "redraft" ? (() => {
-    const pkg = tradePackage({ players: get }, { players: give }, f.values, f.credit, config.market, mySpots);
+    const pkg = tradePackage({ players: myRecv }, { players: myGive }, f.values, f.credit, config.market, myPkgSpots);
     return { delta: pkg.recv - pkg.give, total: f.myTotal };
   })() : null;
 
   const partnerRanks = I.ranks.get(partner.id) as Int32Array;
   const slotChanges = (before: Float64Array, after: Float64Array): SlotChange[] => I.instances.map((inst, i) => ({ key: inst.key, before: before[i] as number, after: after[i] as number }));
   const notes: string[] = [];
-  if (I.inProgress && I.model.inProgressWeek !== null) notes.push(`Week ${I.model.inProgressWeek} is under way, so this trade can't change it: its odds count week ${I.model.inProgressWeek} as it stands.`);
+  if (I.inProgress && I.model.inProgressWeek !== null) notes.push(`Week ${I.model.inProgressWeek} is under way: these odds play it with today's rosters, before and after the trade.`);
   if (I.snapshot.settings.leagueType === "keeper") notes.push("Keeper costs aren't modeled.");
   const detail: TradeDetail = {
     myTeamId: me.id,
@@ -2042,6 +2259,7 @@ export function evaluateExact(I: TradeInternals, proposal: TradeProposal, maxPer
     notes,
     // One fact per player the partner gives (e may be 0).
     premium: premiumFacts(get, I.premiums.get(partner.id)),
+    ...(depthCover !== null ? { depthCover } : {}),
   };
   const gMine = myPkg.g;
   const injured = injuredReceived(get, I.snapshot.players);
@@ -2051,7 +2269,10 @@ export function evaluateExact(I: TradeInternals, proposal: TradeProposal, maxPer
     illegal: null,
     stage: "exact",
     sims: 0,
-    required: { me: rosterChangeOf(I, mineLegal, mine, me), partner: rosterChangeOf(I, theirLegal, theirs, partner) },
+    required: {
+      me: rosterChangeOf(I, mineLegal, mine, me, faShown(I, fa) ? { adds: fa.adds, drops: fa.drops, kept: fa.kept, starts: startWeeksOf(I, mine.ev, fa.adds), ...(fa.room.length ? { room: fa.room } : {}) } : undefined),
+      partner: rosterChangeOf(I, theirLegal, theirs, partner),
+    },
     b: null,
     tradeScore: null,
     pAccept: accept.pAccept,
@@ -2108,7 +2329,31 @@ function runSim(I: TradeInternals, mine: SideEval | null, theirs: { partner: Tea
   const res = simulateSeason({ ...setup, mean, sd }, { sims: normals.sims, seed: sim.seed, normals });
   const o = res.teams[me.index];
   const titleKnown = sim.built.playoffsKnown && res.playoffsKnown && o !== undefined && Number.isFinite(o.pTitle);
-  return { pPlayoffs: o?.pPlayoffs ?? 0, pTitle: titleKnown ? (o as { pTitle: number }).pTitle : null, expWins: o?.expWins ?? 0 };
+  // My head-to-head win chance per listed week (sim.ts: NaN without a game that week, here null). None in a points-only
+  // league: sim.ts still plays its scheduled games (points against), but they don't change the standings (the file header).
+  const weekly = setup.pointsOnly
+    ? []
+    : res.weekly.map((wk) => {
+        const p = wk.pWin[me.index];
+        return { week: wk.week, pWin: p !== undefined && Number.isFinite(p) ? p : null };
+      });
+  return { pPlayoffs: o?.pPlayoffs ?? 0, pTitle: titleKnown ? (o as { pTitle: number }).pTitle : null, expWins: o?.expWins ?? 0, weekly };
+}
+
+/**
+ * TradeDetail.winChance (the file header, "The simulation"): my head-to-head win chance before (the baseline run on the
+ * block) and after (the trade's run on it), per week sim.ts lists in order (a game's first drawn week); a week without a
+ * game with an opponent in either run is left out, and so is every week of a points-only league (runSim lists none). The
+ * two runs share the setup, so their weeks and games are the same.
+ */
+export function winChanceOf(before: Pick<MyOdds, "weekly">, after: Pick<MyOdds, "weekly">): NonNullable<TradeDetail["winChance"]> {
+  const out: NonNullable<TradeDetail["winChance"]> = [];
+  for (const b of before.weekly) {
+    const a = after.weekly.find((x) => x.week === b.week)?.pWin ?? null;
+    if (b.pWin === null && a === null) continue;
+    out.push({ week: b.week, before: b.pWin, after: a });
+  }
+  return out;
 }
 
 /** Seasons simulated at each stage (config.simulation). */
@@ -2117,32 +2362,40 @@ export function simCounts(): { screen: number; final: number } {
 }
 
 /**
- * The trade's season simulation (M4) on the `stage` block of seasons (screening or final), and every number that follows from it: ΔPO, ΔCH, ΔEW, B and its
- * parts (benefit, with λ = the setting or the default by my finalSims baseline P(playoffs), and κ = the "Protect my trade
- * value" level's: benefit.protectValueWeight), the Trade Score and Overall, the flags, and benefitNotes in the detail's notes. Without odds
- * (the context's note), B stays null. `protectValue` is the user's per-call setting (TradeSettings.protectValue); absent,
- * the context's settings' (the search and the Analyzer always pass theirs: a cached context may hold older settings).
+ * The trade's season simulation (M4) on the `stage` block of seasons (screening or final), and every number that follows
+ * from it: ΔPO, ΔCH, ΔEW, my win chance by week before and after (TradeDetail.winChance, winChanceOf: the baseline and the
+ * trade's run on that block; empty in a points-only league), B and its parts (benefit, with λ = the setting or the default
+ * by my finalSims baseline P(playoffs), κ = the "Protect my trade value" level's: benefit.protectValueWeight, or 0 when the
+ * values are our own estimates (valuesEstimated), and B_win's weights by the "What matters most" goal), the Trade Score and
+ * Overall, the flags, and benefitNotes (and estimatedValuesNotes, missingValuesNotes) in the detail's notes.
+ * Without odds (the context's note), B stays null and winChance absent. `protectValue` and `goal` are the user's per-call
+ * settings (TradeSettings.protectValue, TradeSettings.goal); absent, the context's settings' (the search and the Analyzer
+ * always pass theirs: a cached context may hold older settings, and neither setting rebuilds it).
  */
-export function simulateTrade(I: TradeInternals, x: ExactTrade, stage: SimStage, lambda: number | null, protectValue?: ProtectValue): TradeEvaluationCore {
+export function simulateTrade(I: TradeInternals, x: ExactTrade, stage: SimStage, lambda: number | null, protectValue?: ProtectValue, goal?: Goal): TradeEvaluationCore {
   const ev = x.evaluation;
   const final = stage === "final";
   const sims = simCounts()[stage];
   let dPO: number | null = null;
   let dCH: number | null = null;
   let dEW: number | null = null;
+  let winChance: TradeDetail["winChance"];
   if (I.sim && I.me) {
     const base = I.sim.base[stage];
     const after = runSim(I, x.mine, { partner: x.partner, side: x.theirs }, stage);
     dPO = after.pPlayoffs - base.pPlayoffs;
     dCH = after.pTitle !== null && base.pTitle !== null ? after.pTitle - base.pTitle : null;
     dEW = after.expWins - base.expWins;
+    winChance = winChanceOf(base, after);
   }
-  const kappa = protectValueWeight(protectValue ?? I.settings.protectValue);
-  const b = benefit({ leagueType: I.snapshot.settings.leagueType, dPO, dCH, gMine: ev.gMine, dynasty: x.dynasty, myPPlayoffs: I.sim ? I.sim.base.final.pPlayoffs : null, lambda, kappa });
+  // κ: the "Protect my trade value" level's, but 0 when the trade values are our own estimates (valuesEstimated: the market
+  // term would count lineup points twice; the file header, "The simulation"), with ESTIMATED_VALUES_NOTE.
+  const kappa = valuesEstimated(I) ? 0 : protectValueWeight(protectValue ?? I.settings.protectValue);
+  const b = benefit({ leagueType: I.snapshot.settings.leagueType, dPO, dCH, gMine: ev.gMine, dynasty: x.dynasty, myPPlayoffs: I.sim ? I.sim.base.final.pPlayoffs : null, lambda, kappa, goal: goal ?? I.settings.goal });
   const numbers = tradeNumbers(b, { pAccept: ev.pAccept, pComplete: ev.pComplete, label: ev.acceptLabel });
   const { titleMissing: _titleMissing, ...cardNumbers } = numbers;
   void _titleMissing;
-  const notes = [...ev.detail.notes, ...benefitNotes(b)];
+  const notes = [...ev.detail.notes, ...benefitNotes(b), ...estimatedValuesNotes(I), ...missingValuesNotes(I)];
   return {
     ...ev,
     ...cardNumbers,
@@ -2152,7 +2405,7 @@ export function simulateTrade(I: TradeInternals, x: ExactTrade, stage: SimStage,
     dCH,
     dEW,
     flags: tradeFlags({ gMine: ev.gMine, b: b.b, injured: ev.flags.injured }),
-    detail: { ...ev.detail, notes },
+    detail: { ...ev.detail, notes, ...(winChance ? { winChance } : {}) },
   };
 }
 
@@ -2171,7 +2424,7 @@ export interface StepConfig {
   readonly throwInMaxCost: number;
   /** Steps are shown when the full version's P_complete is at least this above the offer-first's, … */
   readonly minAcceptGain: number;
-  /** … and the offer-first version's is at least this. */
+  /** … and the offer-first version's, as the card prints it, is at least this (in case 1, at least the user's minimum chance too: offerFirstBar). */
   readonly minOfferFirst: number;
   /** Case 2: the throw-in added must keep B at least this share of the offer's B (both on the screening block). */
   readonly minBShare: number;
@@ -2213,7 +2466,7 @@ export function throwIns(I: TradeInternals, settings: Pick<TradeSettings, "inclu
 }
 
 /** The settings the steps read: the search's (or the Analyzer's) per-call settings. */
-export type StepSettings = Pick<TradeSettings, "lambda" | "protectValue" | "includeKDefIdp" | "untouchables" | "mustInclude">;
+export type StepSettings = Pick<TradeSettings, "lambda" | "protectValue" | "goal" | "minChance" | "includeKDefIdp" | "untouchables" | "mustInclude">;
 
 export interface StepOptions {
   settings: StepSettings;
@@ -2229,22 +2482,49 @@ export interface StepOptions {
   cfg?: StepConfig;
 }
 
-/** A version of a trade, exactly evaluated with the screening simulation; null when it's illegal (every roster rule re-checked). */
+/**
+ * A version of a trade, exactly evaluated with the screening simulation; null when it's illegal (every roster rule
+ * re-checked). ⚠️ Returned with `proposal`'s own order of players (verification of the final review of Phase 4c, finding
+ * VF-2): versions are cached by key (each side's players sorted), so one cached for another order came back in that order
+ * (a card's case-2 attempt cached [A, B], and another card asking for [B, A] got [A, B]), and a re-filter, whose cache
+ * holds the versions an earlier minimum's cards asked for, could list a step's players in another order than a fresh
+ * search. A version not cached yet is evaluated in the key's order (inKeyOrder), so its numbers never depend on which card
+ * asked first either (the search's own exact trades, cached in the search's order, are the same for both).
+ */
 export function tradeVersion(I: TradeInternals, proposal: TradeProposal, opts: Pick<StepOptions, "settings" | "maxPerSide" | "versions">): TradeVersion | null {
   const key = proposalKey(proposal);
-  const known = opts.versions?.get(key);
-  if (known) return known;
-  const x = evaluateExact(I, proposal, opts.maxPerSide);
-  if ("illegal" in x) return null;
-  const version: TradeVersion = { x, screen: simulateTrade(I, x, "screen", opts.settings.lambda, opts.settings.protectValue) };
-  opts.versions?.set(key, version);
-  return version;
+  let version = opts.versions?.get(key);
+  if (!version) {
+    const x = evaluateExact(I, inKeyOrder(proposal), opts.maxPerSide);
+    if ("illegal" in x) return null;
+    version = { x, screen: simulateTrade(I, x, "screen", opts.settings.lambda, opts.settings.protectValue, opts.settings.goal) };
+    opts.versions?.set(key, version);
+  }
+  return inProposalOrder(version, proposal);
 }
 
-/** A version's step (TradeStep): its proposal, its screening-block numbers, its forced moves and its explanation facts. */
+/** A proposal with each side's assets in key order (assetKey, sorted as proposalKey sorts them). */
+export function inKeyOrder(p: TradeProposal): TradeProposal {
+  const sorted = (xs: readonly TradeAsset[]) => [...xs].sort((a, b) => byId(assetKey(a), assetKey(b)));
+  return { partnerId: p.partnerId, give: sorted(p.give), get: sorted(p.get) };
+}
+
+/** A version of `proposal`'s key listing its players in `proposal`'s order: the version itself when it already does. */
+function inProposalOrder(v: TradeVersion, proposal: TradeProposal): TradeVersion {
+  const sameOrder = (a: readonly TradeAsset[], b: readonly TradeAsset[]) => a.length === b.length && a.every((x, i) => assetKey(x) === assetKey(b[i] as TradeAsset));
+  const have = v.screen.proposal;
+  if (sameOrder(have.give, proposal.give) && sameOrder(have.get, proposal.get)) return v;
+  const ordered: TradeProposal = { partnerId: have.partnerId, give: proposal.give.map((a) => ({ ...a })), get: proposal.get.map((a) => ({ ...a })) };
+  return { x: { ...v.x, evaluation: { ...v.x.evaluation, proposal: ordered } }, screen: { ...v.screen, proposal: ordered } };
+}
+
+/**
+ * A version's step (TradeStep): its proposal, its screening-block numbers, its forced moves, its explanation facts and its
+ * acceptance features (planner reply to Checkpoint 4b, change 7: feedback stores the sent version's).
+ */
 function stepOf(v: TradeVersion): TradeStep {
   const c = v.screen;
-  return { proposal: c.proposal, key: c.key, b: c.b, tradeScore: c.tradeScore, pAccept: c.pAccept, pComplete: c.pComplete, acceptLabel: c.acceptLabel, gMine: c.gMine, gPartner: c.gPartner, required: c.required, detail: c.detail };
+  return { proposal: c.proposal, key: c.key, b: c.b, tradeScore: c.tradeScore, pAccept: c.pAccept, pComplete: c.pComplete, acceptLabel: c.acceptLabel, gMine: c.gMine, gPartner: c.gPartner, required: c.required, detail: c.detail, features: c.features };
 }
 
 /**
@@ -2272,6 +2552,16 @@ export function addCandidates(I: TradeInternals, proposal: TradeProposal, throwI
   const partner = I.byId.get(proposal.partnerId);
   if (!partner || !(candidates.length > cfg.preScreen)) return candidates;
   return preScreenOrder(I, partner, give, get, candidates).slice(0, Math.max(0, Math.floor(cfg.preScreen)));
+}
+
+/**
+ * The chance the offer-first version must print (the file header, "Offer first"; rank.meetsMinChance judges it):
+ * minOfferFirst, and in case 1 (`ranked` "full": the offer first is the lean version, not the card) at least the user's
+ * minimum chance (TradeSettings.minChance) too.
+ */
+export function offerFirstBar(ranked: TradeSteps["ranked"], minChance: number, cfg: Pick<StepConfig, "minOfferFirst"> = stepConfig()): number {
+  const own = Number.isFinite(cfg.minOfferFirst) ? cfg.minOfferFirst : 0;
+  return ranked === "full" && Number.isFinite(minChance) ? Math.max(own, minChance) : own;
 }
 
 /** Whether a version helps me: its B (screening block) is known and above 0 (the file header: the offer first must help). */
@@ -2329,7 +2619,7 @@ export function tradeSteps(I: TradeInternals, ranked: TradeVersion, opts: StepOp
     rankedAs = "offerFirst";
   }
   const first = offer.screen.pComplete;
-  if (!(full.screen.pComplete - first >= cfg.minAcceptGain - EPS) || !(first >= cfg.minOfferFirst - EPS)) return null;
+  if (!(full.screen.pComplete - first >= cfg.minAcceptGain - EPS) || !meetsMinChance(first, offerFirstBar(rankedAs, opts.settings.minChance, cfg))) return null;
   return { offerFirst: stepOf(offer), ifNo: { add, full: stepOf(full) }, ranked: rankedAs };
 }
 
@@ -2352,6 +2642,9 @@ export function explainContextOf(I: TradeInternals): ExplainContext {
       const v = I.league.lp.players[id]?.value;
       return v && v.source === "fantasycalc" ? v.value : null;
     },
+    // My odds before any trade on the final block: the card's "before" (TradeSearchResult.baseline, the Analyzer's), so the
+    // reasons' odds line quotes the change the card prints (explain.ts oddsLine).
+    baseline: I.sim && I.me ? { pPlayoffs: I.sim.base.final.pPlayoffs, pTitle: I.sim.base.final.pTitle } : null,
   };
 }
 
@@ -2373,7 +2666,7 @@ export function assetValue(I: TradeInternals): (asset: TradeAsset) => number {
 // The Trade Analyzer
 
 export interface AnalyzeOptions {
-  /** The settings the evaluation reads per call (lambda and protectValue; the rest is the context's). Default: defaultTradeSettings(). */
+  /** The settings the evaluation reads per call (lambda, protectValue and goal; the rest is the context's). Default: defaultTradeSettings(). */
   settings?: TradeSettings;
   clock?: () => number;
 }
@@ -2396,7 +2689,7 @@ export function analyzeTrade(ctx: TradeContext, proposal: TradeProposal, opts: A
   const maxPerSide = Math.max(1, Math.floor(config.search.analyzerMaxPerSide));
   const exact = evaluateExact(I, proposal, maxPerSide);
   if ("illegal" in exact) return { evaluation: null, illegal: exact.illegal, notes };
-  const core = simulateTrade(I, exact, "final", settings.lambda, settings.protectValue);
+  const core = simulateTrade(I, exact, "final", settings.lambda, settings.protectValue, settings.goal);
   for (const n of core.detail.notes) if (!notes.includes(n)) notes.push(n);
   // "Offer first / if they say no" for the analyzed trade too (N4: useful for counteroffers), from its numbers on the
   // screening block, its versions within the Analyzer's per-side maximum. ⚠️ Only for a trade the Trade Finder could show
@@ -2404,6 +2697,6 @@ export function analyzeTrade(ctx: TradeContext, proposal: TradeProposal, opts: A
   // trade doesn't help never says how to land it; and none when a context note stops the search (the deadline passed,
   // the season's over, no odds, …): the Analyzer still evaluates, but there's nothing to offer.
   const shown = core.b !== null && core.b > 0 && !core.flags.hiddenByMarket; // B > 0: not hidden by benefit either
-  const steps = I.blocked || !shown ? null : tradeSteps(I, { x: exact, screen: simulateTrade(I, exact, "screen", settings.lambda, settings.protectValue) }, { settings, maxPerSide });
+  const steps = I.blocked || !shown ? null : tradeSteps(I, { x: exact, screen: simulateTrade(I, exact, "screen", settings.lambda, settings.protectValue, settings.goal) }, { settings, maxPerSide });
   return { evaluation: withWords(I, steps ? { ...core, steps } : core), illegal: null, notes };
 }

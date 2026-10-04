@@ -45,6 +45,9 @@ describe("buildLeagueModel when the season simulator refuses the setup", () => {
     expect(normal.odds).not.toBeNull();
     expect(normal.warnings).toEqual([]);
     expect(refused.odds).toBeNull();
+    expect(refused.oddsAsRostersStand).toBeNull();
+    expect(normal.oddsAsRostersStand).not.toBeNull();
+    // One warning, though two seasons are simulated (with pickups and as rosters stand: league.ts step 8).
     expect(refused.warnings).toEqual([ODDS_REFUSED_WARNING]);
     expect(ODDS_REFUSED_WARNING).toBe("The playoff odds couldn't be worked out from this league's schedule, so they're left out.");
     // Nothing of the internal message reaches any text the page shows.
@@ -58,6 +61,7 @@ describe("buildLeagueModel when the season simulator refuses the setup", () => {
   it("the same for a refusal while the setup is built (buildSimSetup's RangeError names a team id)", () => {
     const refused = build(new RangeError("buildSimSetup: team 7 has no weekly score in the League model"));
     expect(refused.odds).toBeNull();
+    expect(refused.oddsAsRostersStand).toBeNull();
     expect(refused.warnings).toEqual([ODDS_REFUSED_WARNING]);
     expect(JSON.stringify(refused.warnings)).not.toContain("team 7");
   });

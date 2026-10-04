@@ -3,17 +3,20 @@
  * planner's reply to Checkpoint 4 (change 4, which replaces lead decision N10): the partner's g feature reads its
  * perceived g (the star premium on what it gives) in screening and in exact evaluation, while the card's g, my side and
  * the veto rule read the raw g; TradeDetail.premium; the context's premiums (P(playoffs) from its own baseline, every team
- * at V*); κ by the "Protect my trade value" level in redraft B, none in dynasty and keeper leagues; and every package with
- * each player at max(v, W) on both sides: B's market term, the card's values and g's, ΔDyn and the partner's g. Phase 4b
- * removed the before-addendum variant (N5) these tests used to compare with.
+ * at V*); κ by the "Protect my trade value" level in redraft B, none in dynasty and keeper leagues, and none while the values
+ * are our own estimates (FantasyCalc's curve fallback, a Phase 4c lead decision); and every package with
+ * each player at max(v, W) on both sides: B's market term, the card's values and g's, ΔDyn and the partner's g, after
+ * Phase 4c's neutral throw-ins (planner reply to Checkpoint 4b, change 2: a player worth at most W on the side giving more
+ * players is left out with his roster spot, then matched pairs of such players, one from each side; market.packageValues).
+ * Phase 4b removed the before-addendum variant (N5) these tests used to compare with.
  */
 import { describe, expect, it } from "vitest";
 import { gFeature } from "./acceptance";
 import { protectValueWeight, tradePackage } from "./benefit";
 import { config } from "./config";
-import { analyzeTrade, buildTradeContext, evaluateExact, harderToGetFor, perceivedG, premiumOf, screenTrade, tradeInternals, type ExactTrade, type TeamState, type TradeContextOptions } from "./evaluate";
+import { ESTIMATED_VALUES_NOTE, NO_VALUES_NOTE, analyzeTrade, buildTradeContext, evaluateExact, harderToGetFor, perceivedG, premiumOf, screenTrade, tradeInternals, valuesEstimated, valuesMissing, type ExactTrade, type TeamState, type TradeContextOptions } from "./evaluate";
 import { leaguePremiums, perceivedPackage, premiumFacts } from "./premium";
-import { runTradeSearch } from "./search";
+import { runTradeSearch, searchStateOf, type SearchState } from "./search";
 import { defaultTradeSettings, PROTECT_VALUE_LEVELS, type ProtectValue } from "./settings";
 import type { TestLeagueSpec, TestPlayer } from "./testLeague";
 import { TEST_NOW } from "./testLeague";
@@ -193,6 +196,131 @@ describe("κ, \"Protect my trade value\" (N3)", () => {
       expect(new Set(bs).size, leagueType).toBe(1);
     }
   });
+
+  describe("⚠️ FantasyCalc's curve fallback: the values are our own estimates, so κ = 0 (Phase 4c lead decision)", () => {
+    /** The hand league with FantasyCalc's list too old to read as today's (MarketInputs.fallback kind "curve"). */
+    const estimated = (season: SeasonSpec = {}) => {
+      const { snapshot, inputs } = handLeague(() => undefined, season);
+      if (inputs.market) inputs.market.fallback = { kind: "curve", listDate: "2026-09-10T06:00:00.000Z" };
+      return buildTradeContext(snapshot, inputs, { now: TEST_NOW, scenarios: 8 });
+    };
+    const est = estimated();
+
+    it("the Analyzer: B = B_win at every level though g_mkt(me) < 0, and the note says why", () => {
+      expect(valuesEstimated(tradeInternals(est))).toBe(true);
+      for (const level of PROTECT_VALUE_LEVELS) {
+        const a = analyzeTrade(est, proposal, settingsAt(level));
+        const ev = a.evaluation as TradeEvaluation;
+        // The estimates (a curve of the old list's values on this season's points) still see me giving more than I get.
+        expect(ev.gMine, level).toBeLessThan(-0.2);
+        expect(ev.bWin, level).not.toBeNull();
+        expect(ev.b, level).toBe(ev.bWin);
+        expect(a.notes, level).toContain(ESTIMATED_VALUES_NOTE);
+        expect(ev.detail.notes, level).toContain(ESTIMATED_VALUES_NOTE);
+      }
+      // With FantasyCalc's own list the same trade's B has its market term, and there's no note.
+      const fresh = analyzeTrade(context(() => undefined, {}, { scenarios: 8 }), proposal);
+      expect(fresh.evaluation?.b).toBeCloseTo((fresh.evaluation?.bWin as number) + protectValueWeight("medium") * clampG(fresh.evaluation?.gMine as number), 12);
+      expect(fresh.notes).not.toContain(ESTIMATED_VALUES_NOTE);
+    });
+
+    it("the note says only “Helps you” leaves trade value out: the values shown and the chance they accept still read the estimates (review of track EF, finding 3)", () => {
+      expect(ESTIMATED_VALUES_NOTE).toBe("While FantasyCalc is unavailable, “Helps you” leaves trade value out, and the chance they accept uses our own estimates of trade value.");
+      const I = tradeInternals(est);
+      const ev = analyzeTrade(est, proposal).evaluation as TradeEvaluation;
+      const give = ["wa1"];
+      const get = ["wa3"];
+      // The card's values and both g's are the estimates' packages (each player at max(v, W), W the estimates' own).
+      const mine = tradePackage({ players: get }, { players: give }, I.values, I.credit);
+      expect(ev.value).toEqual({ given: mine.give, received: mine.recv });
+      expect(ev.gMine).toBe(mine.g);
+      expect(ev.gPartner).toBe(tradePackage({ players: give }, { players: get }, I.values, I.credit).g);
+      // The chance they accept reads them: the partner gains on the estimates, and its g feature and value term say so.
+      expect(ev.features.g).toBe(gFeature(perceivedG(I, "3", give, get)));
+      expect(ev.features.g).toBeGreaterThan(0);
+      expect(ev.detail.terms.value).toBeCloseTo(config.acceptance.beta.gain * ev.features.g, 12);
+      // …and so do the guards: the Market check reads the estimated g_mkt(me) (below −15% here).
+      expect(ev.flags.marketCheck).toBe(ev.gMine < config.benefit.marketCheckBelow);
+      expect(ev.flags.marketCheck).toBe(true);
+    });
+
+    it("the search (its trades, steps and Plan Bs): B = B_win everywhere, and the note once", () => {
+      const r = runTradeSearch(est, { settings: { ...defaultTradeSettings(), minChance: 0 } });
+      expect(r.trades.length).toBeGreaterThan(0);
+      expect(r.notes.filter((n) => n === ESTIMATED_VALUES_NOTE)).toHaveLength(1);
+      for (const t of r.trades) {
+        expect(t.b, t.key).toBe(t.bWin);
+        for (const step of t.steps ? [t.steps.offerFirst, t.steps.ifNo.full] : []) expect(step.detail.notes).toContain(ESTIMATED_VALUES_NOTE);
+      }
+      // Every exact trade (Plan B's pool, a finalist's final numbers) and every version the steps evaluated: the one κ.
+      const st = searchStateOf(r) as SearchState;
+      expect(st.planBPool.length).toBeGreaterThan(r.trades.length);
+      for (const c of st.planBPool) expect(c.b, c.key).toBe(c.bWin);
+      for (const v of st.versions.values()) expect(v.screen.b, v.screen.key).toBe(v.screen.bWin);
+    });
+
+    it("dynasty and keeper leagues have no market term to switch off: no note (their long-term term says it's missing)", () => {
+      for (const leagueType of ["dynasty", "keeper"] as const) {
+        const a = analyzeTrade(estimated({ leagueType }), proposal);
+        expect(a.notes, leagueType).not.toContain(ESTIMATED_VALUES_NOTE);
+        expect(a.evaluation?.dynMissing, leagueType).toBe(true);
+        expect(a.evaluation?.b, leagueType).toBe(a.evaluation?.bWin);
+      }
+    });
+  });
+});
+
+describe("Phase 4c's polish: no FantasyCalc values at all (MarketInputs null): the chance they accept reads every trade as even on trade value, and a note says so", () => {
+  /** The hand league with no market at all (FantasyCalc unreadable, no saved list to stand in). */
+  const valueless = (season: SeasonSpec = {}) => {
+    const { snapshot, inputs } = handLeague(() => undefined, season);
+    return buildTradeContext(snapshot, { ...inputs, market: null }, { now: TEST_NOW, scenarios: 8 });
+  };
+  const none = valueless();
+  const proposals = [trade("3", ["wa1"], ["wa3"]), trade("2", ["wa1", "wc1"], ["q2"]), trade("4", ["rb1"], ["ra4", "wb4"])];
+
+  it("every g is 0 (no values, W 0), even the partner's perceived one, so value moves no estimate; each evaluation carries the note", () => {
+    const I = tradeInternals(none);
+    expect(valuesMissing(I)).toBe(true);
+    expect(valuesEstimated(I)).toBe(false);
+    expect(I.credit).toBe(0);
+    for (const proposal of proposals) {
+      const a = analyzeTrade(none, proposal);
+      const ev = a.evaluation as TradeEvaluation;
+      const at = `${proposal.give.length}-for-${proposal.get.length} with Team ${proposal.partnerId}`;
+      expect([ev.gMine, ev.gPartner, ev.features.g], at).toEqual([0, 0, 0]);
+      expect(ev.value, at).toEqual({ given: 0, received: 0 });
+      expect(ev.detail.terms.value, at).toBe(0);
+      expect(ev.flags.marketCheck, at).toBe(false);
+      expect(ev.b, at).toBe(ev.bWin);
+      expect(a.notes, at).toContain(NO_VALUES_NOTE);
+      expect(ev.detail.notes, at).toContain(NO_VALUES_NOTE);
+      expect(a.notes, at).not.toContain(ESTIMATED_VALUES_NOTE);
+    }
+    expect(NO_VALUES_NOTE).toBe("While FantasyCalc's trade values aren't available, the chance they accept treats every trade as even on trade value.");
+  });
+
+  it("the search says it once (its steps' versions carry it too); with values, FantasyCalc's own or the curve's estimates, there's no such note", () => {
+    const r = runTradeSearch(none, { settings: { ...defaultTradeSettings(), minChance: 0 } });
+    expect(r.trades.length).toBeGreaterThan(0);
+    expect(r.notes.filter((n) => n === NO_VALUES_NOTE)).toHaveLength(1);
+    for (const t of r.trades) for (const step of t.steps ? [t.steps.offerFirst, t.steps.ifNo.full] : []) expect(step.detail.notes).toContain(NO_VALUES_NOTE);
+    const fresh = context(() => undefined, {}, { scenarios: 8 });
+    expect(analyzeTrade(fresh, proposals[0] as TradeProposal).notes).not.toContain(NO_VALUES_NOTE);
+    expect(runTradeSearch(fresh, { settings: { ...defaultTradeSettings(), minChance: 0 } }).notes).not.toContain(NO_VALUES_NOTE);
+    const { snapshot, inputs } = handLeague();
+    if (inputs.market) inputs.market.fallback = { kind: "curve", listDate: "2026-09-10T06:00:00.000Z" };
+    expect(analyzeTrade(buildTradeContext(snapshot, inputs, { now: TEST_NOW, scenarios: 8 }), proposals[0] as TradeProposal).notes).not.toContain(NO_VALUES_NOTE);
+  });
+
+  it("in dynasty and keeper leagues too: every acceptance estimate reads g (their long-term term says it's missing on its own)", () => {
+    for (const leagueType of ["dynasty", "keeper"] as const) {
+      const a = analyzeTrade(valueless({ leagueType }), proposals[0] as TradeProposal);
+      expect(a.notes, leagueType).toContain(NO_VALUES_NOTE);
+      expect(a.evaluation?.features.g, leagueType).toBe(0);
+      expect(a.evaluation?.dynMissing, leagueType).toBe(true);
+    }
+  });
 });
 
 describe("the value floor at W on both sides (planner reply to Checkpoint 4, change 4; replaces N10)", () => {
@@ -220,33 +348,35 @@ describe("the value floor at W on both sides (planner reply to Checkpoint 4, cha
     // After the trade my roster is V*(me)'s: the spot he opens takes the free agent V*(me) picks up anyway.
     const x = exact(ctx, dump);
     expect([...x.mine.roster]).toEqual([...me.vstar.roster]);
-    // His floored W against the open spot's W: even, on the card too.
+    // Phase 4c (the neutral throw-in rule, planner reply to Checkpoint 4b, change 2): he and the spot he opens are left
+    // out of both packages, nothing against nothing: even, on the card too (Phase 4b: his floored W against the spot's W).
     expect(x.evaluation.gMine).toBe(0);
     for (const level of PROTECT_VALUE_LEVELS) {
       const ev = analyzeTrade(ctx, dump, settingsAt(level)).evaluation as TradeEvaluation;
       for (const k of ["dPO", "dCH", "dEW", "bWin", "b", "gMine"] as const) expect(ev[k], `${level} ${k}`).toBe(0);
       expect(ev.tradeScore, level).toBeNull();
       expect(ev.flags.hiddenByBenefit, level).toBe(true);
-      expect(ev.value, level).toEqual({ given: W, received: W });
+      expect(ev.value, level).toEqual({ given: 0, received: 0 });
       expect(ev.flags.marketCheck, level).toBe(false);
-      // Team 2 gets him (W, floored) for the roster spot he takes (W): even for it too.
+      // Team 2 gets nothing that counts either (he's left out with the roster spot he takes): even for it too.
       expect(ev.gPartner, level).toBe(0);
     }
   });
 
-  it("a mixed package: the cheap player counts W, the others their value, on every number the card shows", () => {
+  it("a mixed package: the cheap player on the side giving more is left out with his spot, the others count their value, on every number the card shows", () => {
     // My WR1 (4,900) and my bench WR (240) for Team 2's RB1 (4,900; its #2 and a top-12 player).
     const give = ["wa1", "wc1"];
     const get = ["ra2"];
     const ev = exact(ctx, trade("2", give, get)).evaluation;
-    // I give 4,900 + W and get 4,900 + W (the spot I open): even.
-    expect(ev.value).toEqual({ given: 4900 + W, received: 4900 + W });
+    // Phase 4c (neutral throw-ins, change 2): my bench WR, worth less than W on the side giving more players, is left out
+    // with the spot he opens: I give 4,900 and get 4,900, even (Phase 4b: 4,900 + W on both sides).
+    expect(ev.value).toEqual({ given: 4900, received: 4900 });
     expect(ev.gMine).toBe(0);
     expect(ev.gMine).toBe(tradePackage({ players: get }, { players: give }, I.values, I.credit).g);
     // Team 2's g: even at market; as it sees it, its RB1 at 4,900 × 1.15 (the premium on the floored value, here his own).
     expect(ev.gPartner).toBe(0);
     expect(ev.features.g).toBe(gFeature(perceivedG(I, "2", give, get)));
-    expect(perceivedG(I, "2", give, get)).toBeCloseTo((4900 + W) / (4900 * 1.15 + W) - 1, 12);
+    expect(perceivedG(I, "2", give, get)).toBeCloseTo(4900 / (4900 * 1.15) - 1, 12);
     for (const level of PROTECT_VALUE_LEVELS) {
       const a = analyzeTrade(ctx, trade("2", give, get), settingsAt(level)).evaluation as TradeEvaluation;
       // B is B_win alone: the market term reads the floored g, 0.
@@ -259,50 +389,48 @@ describe("the value floor at W on both sides (planner reply to Checkpoint 4, cha
   it("a cheap throw-in adds 0 value; the complexity term still counts him", () => {
     const lean = exact(ctx, trade("2", ["wa1"], ["ra2"])).evaluation;
     const full = exact(ctx, trade("2", ["wa1", "wc1"], ["ra2"])).evaluation;
-    // The value difference is the same (0 here): he adds W to what I give and W for the spot it opens on what I get.
-    expect(full.value.received - full.value.given).toBe(lean.value.received - lean.value.given);
-    expect(full.value).toEqual({ given: lean.value.given + W, received: lean.value.received + W });
+    // Phase 4c (neutral throw-ins, change 2): he and the spot he opens are left out, so both packages are the lean
+    // version's (Phase 4b: W more on each side).
+    expect(full.value).toEqual(lean.value);
     expect([lean.gMine, full.gMine, lean.gPartner, full.gPartner]).toEqual([0, 0, 0, 0]);
     // One player more: c = 1, and its term in z.
     expect([lean.features.c, full.features.c]).toEqual([0, 1]);
     expect(full.detail.terms.complexity).toBeCloseTo(-config.acceptance.beta.complexity, 12);
   });
 
-  it("⚠️ away from even, a cheap throw-in still adds 0 value but edges every g toward 0, so the market guard and the veto can flip (reported to the planner)", () => {
-    // My WR1 (4,900) for Team 2's WR1 (4,225), and the same with my bench WR (240, below W) thrown in.
+  it("away from even, a cheap throw-in on the side already giving at least as many players moves no g, so it can't lift a trade past the market guard or the veto, and only lowers acceptance (Phase 4c, change 2; on the side giving fewer players: acceptance.test.ts and market.test.ts)", () => {
+    // My WR1 (4,900) for Team 2's WR1 (4,225), and the same with my bench WR (240, below W) thrown in: he's left out of
+    // both packages with the spot he opens. (Phase 4b: he added W to both sides, edging every g toward 0.)
     const lean = exact(ctx, trade("2", ["wa1"], ["wa2"])).evaluation;
     const full = exact(ctx, trade("2", ["wa1", "wc1"], ["wa2"])).evaluation;
-    expect(full.value.received - full.value.given).toBe(lean.value.received - lean.value.given);
-    expect(full.value).toEqual({ given: lean.value.given + W, received: lean.value.received + W });
-    // Each g × PV_give / (PV_give + W): mine over what I give, the partner's over what it gives (what I get).
-    expect(full.gMine).toBeCloseTo((lean.gMine * lean.value.given) / (lean.value.given + W), 12);
-    expect(full.gPartner).toBeCloseTo((lean.gPartner * lean.value.received) / (lean.value.received + W), 12);
-    expect(lean.gMine).toBeLessThan(full.gMine);
-    expect(full.gMine).toBeLessThan(0);
-    expect(lean.gPartner).toBeGreaterThan(full.gPartner);
-    expect(full.gPartner).toBeGreaterThan(0);
+    expect(full.value).toEqual(lean.value);
+    expect([full.gMine, full.gPartner]).toEqual([lean.gMine, lean.gPartner]);
+    expect(full.gMine).toBeCloseTo((4225 - 4900) / 4900, 12);
+    expect(full.gPartner).toBeCloseTo((4900 - 4225) / 4225, 12);
+    // Their lineup doesn't move (both bench WRs), so the extra player only costs the complexity term.
+    expect(full.partnerDeltaLineup).toBeCloseTo(lean.partnerDeltaLineup, 12);
+    expect(full.pAccept).toBeLessThan(lean.pAccept);
 
-    // The hide threshold: my WR1 for Team 2's WR2 (2,500) reads −49% for me (hidden); with him −34.7% (shown, still a
-    // market check).
+    // The hide threshold: my WR1 for Team 2's WR2 (2,500) reads −49% for me (hidden), and with him too.
     const hidden = exact(ctx, trade("2", ["wa1"], ["wb2"])).evaluation;
-    const shown = exact(ctx, trade("2", ["wa1", "wc1"], ["wb2"])).evaluation;
+    const still = exact(ctx, trade("2", ["wa1", "wc1"], ["wb2"])).evaluation;
     expect(hidden.gMine).toBeCloseTo((2500 - 4900) / 4900, 12);
+    expect(still.gMine).toBe(hidden.gMine);
     expect(hidden.flags).toMatchObject({ hiddenByMarket: true, marketCheck: true });
-    expect(shown.gMine).toBeCloseTo(-2400 / (4900 + W), 12);
-    expect(shown.flags).toMatchObject({ hiddenByMarket: false, marketCheck: true });
+    expect(still.flags).toMatchObject({ hiddenByMarket: true, marketCheck: true });
 
     // The veto, in a league that votes on trades: my RB rc1 (2,500) for Team 2's WR1 (4,225) reads −40.8% for Team 2
-    // (vetoed); with him −27.6%, so the veto no longer halves P_complete.
+    // (vetoed), and with him too: the veto still halves P_complete.
     const vote = context(edit, { tradeReview: "league_vote" });
-    const Wv = tradeInternals(vote).credit;
-    expect(Wv).toBe(W);
+    expect(tradeInternals(vote).credit).toBe(W);
     const vetoed = exact(vote, trade("2", ["rc1"], ["wa2"])).evaluation;
-    const lifted = exact(vote, trade("2", ["rc1", "wc1"], ["wa2"])).evaluation;
+    const withHim = exact(vote, trade("2", ["rc1", "wc1"], ["wa2"])).evaluation;
     expect(vetoed.gPartner).toBeCloseTo((2500 - 4225) / 4225, 12);
-    expect(lifted.gPartner).toBeCloseTo(-1725 / (4225 + Wv), 12);
-    expect([vetoed.detail.vetoRisk, lifted.detail.vetoRisk]).toEqual([true, false]);
+    expect(withHim.gPartner).toBe(vetoed.gPartner);
+    expect([vetoed.detail.vetoRisk, withHim.detail.vetoRisk]).toEqual([true, true]);
     expect(vetoed.pComplete).toBeCloseTo(vetoed.pAccept * config.acceptance.veto.factor, 12);
-    expect(lifted.pComplete).toBe(lifted.pAccept);
+    expect(withHim.pComplete).toBeCloseTo(withHim.pAccept * config.acceptance.veto.factor, 12);
+    expect(withHim.pComplete).toBeLessThanOrEqual(vetoed.pComplete);
   });
 
   it("two players worth less than W swapped: g = 0 for both sides, so B = B_win = 0 (the market check and the hide threshold read the same g)", () => {
@@ -314,7 +442,9 @@ describe("the value floor at W on both sides (planner reply to Checkpoint 4, cha
     for (const level of PROTECT_VALUE_LEVELS) {
       const ev = analyzeTrade(plain, trade("2", ["wc1"], ["wc2"]), settingsAt(level)).evaluation as TradeEvaluation;
       expect([ev.bWin, ev.gMine, ev.gPartner, ev.b], level).toEqual([0, 0, 0, 0]);
-      expect(ev.value, level).toEqual({ given: Ip.credit, received: Ip.credit });
+      // A matched pair of players worth at most W (Phase 4c, market.neutralThrowIns): both left out with their spots,
+      // nothing against nothing (Checkpoint 4b counted W against W: the same g).
+      expect(ev.value, level).toEqual({ given: 0, received: 0 });
       expect(ev.flags, level).toMatchObject({ hiddenByBenefit: true, marketCheck: false, hiddenByMarket: false });
     }
     // Two cheap players of different values read the same: each counts W.

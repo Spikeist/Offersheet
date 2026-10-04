@@ -105,9 +105,24 @@ export function summaryLines(report: CheckReport): string[] {
 /** The names of an imported league (its stored snapshot), as the cleaning needs them. */
 export interface LeagueNames {
   leagueName?: string | undefined;
+  /** More leagues' names (mergeLeagueNames: a second league imported), each replaced by "<league name>" too. */
+  alsoLeagueNames?: readonly string[] | undefined;
   teams: ReadonlyArray<{ id: string; name?: string | undefined; ownerName?: string | undefined }>;
   /** Public NFL player names: a league's name strictly inside one is left alone (see the header). */
   players: readonly string[];
+}
+
+/**
+ * Two leagues' names as one (pure; `--second-league`): the second league's teams become "Team <prefix><id>" and "Owner
+ * <prefix><id>" ("Team L2-3"), so they never read as the first league's teams, and its league name "<league name>".
+ */
+export function mergeLeagueNames(first: LeagueNames, second: LeagueNames, prefix: string): LeagueNames {
+  return {
+    leagueName: first.leagueName,
+    alsoLeagueNames: [...(first.alsoLeagueNames ?? []), ...(second.leagueName ? [second.leagueName] : []), ...(second.alsoLeagueNames ?? [])],
+    teams: [...first.teams, ...second.teams.map((t) => ({ ...t, id: `${prefix}${t.id}` }))],
+    players: [...new Set([...first.players, ...second.players])],
+  };
 }
 
 /** Names shorter than this are left alone (too ambiguous; the .env.local scrubber's own floor). */
@@ -133,7 +148,7 @@ export function placeholderPairs(names: LeagueNames): Array<[string, string]> {
     if (t.name?.trim()) pairs.push([t.name.trim(), `Team ${t.id}`]);
     for (const owner of ownerNames(t.ownerName)) pairs.push([owner, `Owner ${t.id}`]);
   }
-  if (names.leagueName?.trim()) pairs.push([names.leagueName.trim(), LEAGUE_NAME_PLACEHOLDER]);
+  for (const league of [names.leagueName, ...(names.alsoLeagueNames ?? [])]) if (league?.trim()) pairs.push([league.trim(), LEAGUE_NAME_PLACEHOLDER]);
   return pairs.sort((a, b) => b[0].length - a[0].length);
 }
 

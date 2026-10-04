@@ -10,29 +10,38 @@ import { normalizeEspnLeague } from "@/adapters/espn/normalize";
 import { NOW, PARKER, fakeResolver, parkerBundle } from "@/adapters/espn/test-helpers";
 import { config } from "@/engine/config";
 import type { ModelInputs } from "@/engine/inputs";
-import { buildLeagueModel, buildLeagueModelWithContext, leagueMarginals } from "@/engine/league";
+import { buildLeagueModel, leagueMarginals } from "@/engine/league";
 import type { FaMove, LeagueModel } from "@/engine/leagueModel";
-import { applyStep, returnersOf } from "@/engine/optimizer";
+import type { LeagueSnapshot, Pos } from "@/engine/model";
+import { returnersOf } from "@/engine/optimizer";
 import { finalLineups } from "@/engine/returners";
-import { rosValue, scenarioValues } from "@/engine/teamValue";
-import { buildSimSetup, seasonOdds } from "@/engine/season";
+import { buildSimSetup, pickupSeasonModel, seasonOdds } from "@/engine/season";
+import { GOALS } from "@/engine/settings";
 import { simNormals } from "@/engine/sim";
 import { syntheticInputs } from "@/engine/testLeague";
-import { RISKY_BYES, RISKY_WIN_CHANCE, buildLeagueView, likelyStarters } from "@/lib/leagueView";
+import { waiverOrderText } from "@/lib/importReport";
+import { RISKY_BYES, RISKY_WIN_CHANCE, buildLeagueView, lastNflWeekOf, likelyStarters, rosterAfterPickups } from "@/lib/leagueView";
 import {
   DEFAULT_DUMP_DIR,
+  FANTASYCALC_PLAYERS_UNAVAILABLE,
+  GOAL_WORDS,
   OPTIMIZER_EXAMPLES,
   SCALE_GAINS,
   SE_BATCHES,
+  TOY_SCORE_AT_GAIN,
+  asWeeklyResetData,
   bRefFor,
   batchRuns,
   batchSe,
   benefitWin,
+  blendLines,
   buildReport,
+  byGoal,
   commandText,
   displayPath,
   dumpNote,
   duplicatePickups,
+  fantasyCalcPlayersRead,
   flagValue,
   loadDump,
   noOpCheck,
@@ -43,17 +52,20 @@ import {
   ordinal,
   parseLeagueReport,
   pct,
+  pickupsEffect,
   placeholders,
+  pre4cText,
   remainingSchedule,
   resetWaiverOrder,
-  rosterScorer,
   scaleCheck,
+  scaleFrom,
   seasonReport,
   simTiming,
   statusShort,
   titleUnknownReason,
   tradeScore,
-  waiverOrderCaveat,
+  waiverOrderNote,
+  waiverRanksPre4c,
   type SeasonReport,
   type SharedRun,
 } from "./league-report";
@@ -78,9 +90,13 @@ function inProgressInputs(): ModelInputs {
 }
 
 describe("league report: the Trade Score arithmetic (CLAUDE.md §10)", () => {
-  it("B = 100 × (0.35 ΔPO + 0.65 ΔCH) from config.benefit.weights", () => {
-    expect(benefitWin(0.1, 0.05)).toBeCloseTo(100 * (config.benefit.weights.playoffs * 0.1 + config.benefit.weights.title * 0.05), 12);
-    expect(benefitWin(0.1, 0.05)).toBeCloseTo(6.75, 12);
+  it("B = 100 × (w_PO ΔPO + w_CH ΔCH) under each goal's weights (config.benefit.goals; the default goal's without one)", () => {
+    for (const g of GOALS) expect(benefitWin(0.1, 0.05, g)).toBeCloseTo(100 * (config.benefit.goals[g].playoffs * 0.1 + config.benefit.goals[g].title * 0.05), 12);
+    // Win the title 0.15 / 0.85, Balanced 0.35 / 0.65 (the weights before Phase 4c), Make the playoffs 0.70 / 0.30.
+    expect([benefitWin(0.1, 0.05, "title"), benefitWin(0.1, 0.05, "balanced"), benefitWin(0.1, 0.05, "playoffs")].map((x) => Number(x.toFixed(9)))).toEqual([5.75, 6.75, 8.5]);
+    expect(config.benefit.goalDefault).toBe("title");
+    expect(benefitWin(0.1, 0.05)).toBe(benefitWin(0.1, 0.05, "title"));
+    expect(byGoal((g) => GOAL_WORDS[g])).toEqual({ title: "Win the title", balanced: "Balanced", playoffs: "Make the playoffs" });
   });
 
   it("the Trade Score matches §10's sample values (B_ref 6 since Checkpoint 3), and is hidden (null) for B ≤ 0", () => {
@@ -143,35 +159,63 @@ describe("league report: Parker's league (committed sanitized fixture) with synt
   const season: SeasonReport = seasonReport(snapshot, inputs, model, { now: NOW, clock, runs: 1, warmups: 0, buildRuns: 0 });
   const me = PARKER.myTeamId;
 
-  it("has odds for every team from the model's own simulation", () => {
+  it("has odds for every team from the model's own simulation: the headline with pickups, and as rosters stand", () => {
     const odds = season.odds as NonNullable<SeasonReport["odds"]>;
     expect(odds).not.toBeNull();
-    expect(odds.sims).toBe(config.simulation.finalSims);
-    expect(odds.teams.map((t) => t.rank).sort((a, b) => a - b)).toEqual(range(1, 10));
-    expect(sum(odds.teams.map((t) => t.pPlayoffs))).toBeCloseTo(odds.playoffTeams, 9);
-    expect(sum(odds.teams.map((t) => t.pTitle as number))).toBeCloseTo(1, 9);
+    // Phase 4c's one baseline: the report's odds are the League model's, the headline with every team's pickups.
+    expect(odds).toBe(model.odds);
+    expect(season.stand).toBe(model.oddsAsRostersStand);
+    for (const o of [odds, season.stand as NonNullable<SeasonReport["stand"]>]) {
+      expect(o.sims).toBe(config.simulation.finalSims);
+      expect(o.teams.map((t) => t.rank).sort((a, b) => a - b)).toEqual(range(1, 10));
+      expect(sum(o.teams.map((t) => t.pPlayoffs))).toBeCloseTo(o.playoffTeams, 9);
+      expect(sum(o.teams.map((t) => t.pTitle as number))).toBeCloseTo(1, 9);
+    }
+    // The simulator's setup is the headline's: every team's scoreWithPickups.
+    const built = season.built as NonNullable<SeasonReport["built"]>;
+    expect(built.setup.teams.length).toBe(snapshot.teams.length);
+    expect(buildSimSetup(snapshot, pickupSeasonModel(model))).toEqual(built);
   });
 
-  it("lists every remaining regular-season game of mine with the simulator's scores, my win chance and the page's risk rule", () => {
+  it("lists every remaining regular-season game of mine with the simulator's scores with pickups, both win chances and the page's risk rule", () => {
     const rows = season.schedule as NonNullable<SeasonReport["schedule"]>;
     expect(rows.map((r) => r.week)).toEqual(range(4, 14));
     const my = model.teams.find((t) => t.id === me) as LeagueModel["teams"][number];
-    const starters = new Set(likelyStarters(snapshot, model, me));
+    const mine = my.scoreWithPickups as NonNullable<typeof my.scoreWithPickups>;
+    expect(mine).toBeDefined();
+    // The League page's bye rule (review POL-1): likely starters on the roster after my free-agent pickups, as the odds
+    // count it, and none at a position I stream (K and D/ST by default).
+    const streamed = new Set<Pos>(model.streaming.byTeam[me]?.positions ?? []);
+    expect([...streamed].sort()).toEqual(["DEF", "K"]);
+    const likely = likelyStarters(snapshot, model, me, { afterPickups: true });
+    const starters = new Set(likely.filter((id) => !streamed.has(snapshot.players[id]?.pos as Pos)));
     const team = snapshot.teams.find((t) => t.id === me) as (typeof snapshot.teams)[number];
+    expect(my.faMoves.length).toBeGreaterThan(0); // the pickups change the roster here, so "after pickups" is checked
+    // The players who can be listed: the roster after my pickups and my IR returners (Alec Pierce: back in week 7, his
+    // bye is week 13, so his NFL team's bye week is the one that counts).
+    const pool = [...rosterAfterPickups(team.roster, my.faMoves), ...team.ir.filter((id) => my.players[id] !== undefined)].filter((id) => model.players[id] !== undefined);
+    // My kicker is one of my likely starters, but I stream K: his week-6 bye is listed, never counted.
+    const kicker = likely.find((id) => snapshot.players[id]?.pos === "K") as string;
+    expect(snapshot.players[kicker]?.name).toBe("Trey Smack");
+    expect(model.players[kicker]?.ros.bye.week).toBe(6);
+    expect(rows.find((r) => r.week === 6)?.byes).toContainEqual({ id: kicker, starter: false });
     for (const r of rows) {
       const wi = model.weeks.indexOf(r.week);
       expect(r.weeks).toEqual([r.week]);
-      expect(r.mine.mean).toBe(my.score.mean[wi]);
-      expect(r.mine.sd).toBeCloseTo(my.score.sd[wi] as number, 12);
+      expect(r.mine.mean).toBe(mine.mean[wi]);
+      expect(r.mine.sd).toBeCloseTo(mine.sd[wi] as number, 12);
       const game = season.odds?.weekly.find((w) => w.week === r.week)?.games.find((g) => g.teamId === me);
       expect(r.opponentId).toBe(game?.opponentId);
       expect(r.pWin).toBe(game?.pWin);
+      expect(r.pWinStand).toBe(season.stand?.weekly.find((w) => w.week === r.week)?.games.find((g) => g.teamId === me)?.pWin);
       const opp = model.teams.find((t) => t.id === r.opponentId);
-      expect(r.theirs?.mean).toBe(opp?.score.mean[wi]);
-      // On bye: exactly my active-roster players whose bye is this week; starters flagged by the page's own rule.
-      const expected = team.roster.filter((id) => model.players[id]?.ros.bye.status === "upcoming" && model.players[id]?.ros.bye.week === r.week);
+      expect(r.theirs?.mean).toBe(opp?.scoreWithPickups?.mean[wi]);
+      // On bye: exactly those players whose bye is this week; starters flagged by the page's own rule, listed first.
+      const expected = pool.filter((id) => model.players[id]?.ros.bye.status === "upcoming" && model.players[id]?.ros.bye.week === r.week);
       expect(r.byes.map((b) => b.id).sort()).toEqual([...expected].sort());
       for (const b of r.byes) expect(b.starter).toBe(starters.has(b.id));
+      const flagged = r.byes.map((b) => b.starter);
+      expect(flagged).toEqual([...flagged].sort((a, b) => Number(b) - Number(a)));
       const low = Math.round((r.pWin as number) * 100) < Math.round(RISKY_WIN_CHANCE * 100);
       const many = r.byes.filter((b) => b.starter).length >= RISKY_BYES;
       expect(r.risk.some((x) => x.includes("to win"))).toBe(low);
@@ -182,114 +226,108 @@ describe("league report: Parker's league (committed sanitized fixture) with synt
 
   // With common random numbers, more points in every week never cost a game, so P(playoffs) and expected wins
   // can't fall; title odds rise here too (not a theorem per season: a better seed changes the bracket path).
-  it("the scale check: more lineup points raise my odds on the shared matrix, and B and the score follow §10", () => {
+  it("the scale check from the one baseline: more lineup points raise my odds on the shared matrix, and B and the score follow §10 under each goal", () => {
     const check = season.scale as NonNullable<SeasonReport["scale"]>;
-    expect(season.scaleMatchesModel).toBe(true);
+    // Both baselines reproduce the model's own odds bit for bit: the headline (with pickups) and as rosters stand.
+    expect(season.scaleMatchesModel).toEqual({ pickups: true, stand: true });
+    expect(check.from).toBe(0); // no week under way in this fixture
+    expect(scaleFrom(model)).toBe(0);
     const rows = check.rows as NonNullable<typeof check.rows>;
     expect(rows.map((r) => r.gain)).toEqual([...SCALE_GAINS]);
-    let last = { dPO: 0, dCH: 0, dEW: 0, B: 0 };
+    let last = { dPO: 0, dCH: 0, dEW: 0, B: byGoal(() => 0) };
     for (const r of rows) {
       expect(r.dPO).toBeGreaterThanOrEqual(last.dPO);
       expect(r.dCH).toBeGreaterThanOrEqual(last.dCH);
       expect(r.dEW).toBeGreaterThan(last.dEW);
-      expect(r.B).toBeGreaterThan(last.B);
-      expect(r.B).toBeCloseTo(benefitWin(r.dPO, r.dCH), 12);
-      expect(r.score).toBe(tradeScore(r.B));
-      // Every change carries its Monte Carlo standard error (batch means), which a real gain makes positive.
-      for (const k of ["dPO", "dCH", "dEW", "B"] as const) expect(r.se[k]).toBeGreaterThanOrEqual(0);
-      expect(r.se.B).toBeGreaterThan(0);
+      for (const g of GOALS) {
+        expect(r.B[g]).toBeGreaterThan(last.B[g]);
+        expect(r.B[g]).toBeCloseTo(benefitWin(r.dPO, r.dCH, g), 12);
+        expect(r.score[g]).toBe(tradeScore(r.B[g]));
+        // Every change carries its Monte Carlo standard error (batch means), which a real gain makes positive.
+        expect(r.se.B[g]).toBeGreaterThan(0);
+      }
+      for (const k of ["dPO", "dCH", "dEW"] as const) expect(r.se[k]).toBeGreaterThanOrEqual(0);
       last = r;
     }
     expect([check.batches, check.batchSims]).toEqual([SE_BATCHES, config.simulation.finalSims / SE_BATCHES]);
     expect(check.titleUnknown).toBeNull();
     const at3 = rows.find((r) => r.gain === 3) as (typeof rows)[number];
-    expect(check.bRefAtToyGain).toBeCloseTo(bRefFor(at3.B, 63) as number, 12);
-    // B_ref is B(+3) times a constant (−1 / ln 0.37 = bRefFor(1, 63)), and so is its standard error.
-    expect(check.bRefSe).toBeCloseTo(at3.se.B * (bRefFor(1, 63) as number), 12);
-    // A zero gain moves nothing on the shared matrix, in the whole run or in any batch.
-    const built = buildSimSetup(snapshot, model) as NonNullable<ReturnType<typeof buildSimSetup>>;
+    for (const g of GOALS) {
+      expect(check.bRef[g].value).toBeCloseTo(bRefFor(at3.B[g], TOY_SCORE_AT_GAIN) as number, 12);
+      // B_ref is B(+3) times a constant (−1 / ln 0.37 = bRefFor(1, 63)), and so is its standard error.
+      expect(check.bRef[g].se).toBeCloseTo(at3.se.B[g] * (bRefFor(1, 63) as number), 12);
+    }
+    // A zero gain moves nothing on the shared matrix, in the whole run or in any batch; nor does a gain from past the last week.
+    const pick = pickupSeasonModel(model);
+    const built = buildSimSetup(snapshot, pick) as NonNullable<ReturnType<typeof buildSimSetup>>;
     const seed = config.simulation.seed;
     const run = { sims: 1000, seed, normals: simNormals(seed, 1000, built.setup.weeks.length, built.setup.teams.length) };
     const my = model.teams.find((t) => t.id === me) as LeagueModel["teams"][number];
-    const zero = scaleCheck(snapshot, model, me, my.score, run, [0]);
-    expect(zero?.rows?.[0]).toMatchObject({ dPO: 0, dCH: 0, dEW: 0, B: 0, score: null, se: { dPO: 0, dCH: 0, dEW: 0, B: 0 } });
+    const zeroes = { dPO: 0, dCH: 0, dEW: 0, B: byGoal(() => 0), score: byGoal(() => null), se: { dPO: 0, dCH: 0, dEW: 0, B: byGoal(() => 0) } };
+    expect(scaleCheck(snapshot, pick, me, my.scoreWithPickups as NonNullable<typeof my.scoreWithPickups>, run, { gains: [0] })?.rows?.[0]).toMatchObject(zeroes);
+    expect(scaleCheck(snapshot, pick, me, my.scoreWithPickups as NonNullable<typeof my.scoreWithPickups>, run, { gains: [3], from: model.weeks.length })?.rows?.[0]).toMatchObject(zeroes);
   });
 
   describe("the scale check's standard errors (review: 5,000 seasons still leave Monte Carlo error)", () => {
-    const built = buildSimSetup(snapshot, model) as NonNullable<ReturnType<typeof buildSimSetup>>;
+    const pick = pickupSeasonModel(model);
+    const built = buildSimSetup(snapshot, pick) as NonNullable<ReturnType<typeof buildSimSetup>>;
     const W = built.setup.weeks.length;
     const T = built.setup.teams.length;
     const my = model.teams.find((t) => t.id === me) as LeagueModel["teams"][number];
+    const base = my.scoreWithPickups as NonNullable<typeof my.scoreWithPickups>;
     const runOf = (seed: number, sims: number): SharedRun => ({ sims, seed, normals: simNormals(seed, sims, W, T) });
-    const row3 = (run: SharedRun) => scaleCheck(snapshot, model, me, my.score, run, [3])?.rows?.[0] as NonNullable<NonNullable<ReturnType<typeof scaleCheck>>["rows"]>[number];
+    const row3 = (run: SharedRun) => scaleCheck(snapshot, pick, me, base, run, { gains: [3] })?.rows?.[0] as NonNullable<NonNullable<ReturnType<typeof scaleCheck>>["rows"]>[number];
 
     it("come from batches that replay the run's own seasons: the batch values average to the run's, and SE = their SD / √batches", () => {
       const run = runOf(config.simulation.seed, 2000);
-      const plus3 = { ...model, teams: model.teams.map((t) => (t.id === me ? { ...t, score: { mean: t.score.mean.map((m) => m + 3), sd: t.score.sd } } : t)) };
-      const mine = (m: typeof model, r: SharedRun) => seasonOdds(snapshot, m, { sims: r.sims, seed: r.seed, normals: r.normals })?.teams.find((t) => t.teamId === me) as NonNullable<LeagueModel["odds"]>["teams"][number];
+      const plus3 = { ...pick, teams: pick.teams.map((t) => (t.id === me ? { ...t, score: { mean: t.score.mean.map((m) => m + 3), sd: t.score.sd } } : t)) };
+      const mine = (m: typeof pick, r: SharedRun) => seasonOdds(snapshot, m, { sims: r.sims, seed: r.seed, normals: r.normals })?.teams.find((t) => t.teamId === me) as NonNullable<LeagueModel["odds"]>["teams"][number];
       const parts = batchRuns(run);
-      const before = parts.map((p) => mine(model, p));
+      const before = parts.map((p) => mine(pick, p));
       const after = parts.map((p) => mine(plus3, p));
-      const full = mine(model, run);
+      const full = mine(pick, run);
       expect(mean(before.map((o) => o.pPlayoffs))).toBeCloseTo(full.pPlayoffs, 12);
       expect(mean(before.map((o) => o.pTitle as number))).toBeCloseTo(full.pTitle as number, 12);
       expect(mean(before.map((o) => o.expWins))).toBeCloseTo(full.expWins, 12);
-      const Bs = parts.map((_, j) => {
-        const [b, a] = [before[j], after[j]] as [typeof full, typeof full];
-        return benefitWin(a.pPlayoffs - b.pPlayoffs, (a.pTitle as number) - (b.pTitle as number));
-      });
       const row = row3(run);
-      expect(row.B).toBeCloseTo(mean(Bs), 10);
-      expect(row.se.B).toBeCloseTo(sd(Bs) / Math.sqrt(SE_BATCHES), 12);
+      for (const g of GOALS) {
+        const Bs = parts.map((_, j) => {
+          const [b, a] = [before[j], after[j]] as [typeof full, typeof full];
+          return benefitWin(a.pPlayoffs - b.pPlayoffs, (a.pTitle as number) - (b.pTitle as number), g);
+        });
+        expect(row.B[g]).toBeCloseTo(mean(Bs), 10);
+        expect(row.se.B[g]).toBeCloseTo(sd(Bs) / Math.sqrt(SE_BATCHES), 12);
+      }
     });
 
     // An SD from 24 seeds is itself good to about ±15%, so the band sits about 3 of those from 1 each side: it
     // catches a standard error off by a missing √batches (4.5×) or taken from one batch, not sampling noise.
     it("measure what another seed would change: B(+3)'s spread over 24 seeds is about its standard error", () => {
       const rows = range(1, 24).map((seed) => row3(runOf(seed, 1000)));
-      const ratio = sd(rows.map((r) => r.B)) / mean(rows.map((r) => r.se.B));
+      const ratio = sd(rows.map((r) => r.B.title)) / mean(rows.map((r) => r.se.B.title));
       expect(ratio).toBeGreaterThan(0.5);
       expect(ratio).toBeLessThan(2);
     });
   });
 
-  it("the free-agent baseline (V*: all my pickups) re-prices the roster exactly as the model priced it, or says why it's skipped", () => {
-    const wv = season.vstar as NonNullable<SeasonReport["vstar"]>;
-    expect(wv).not.toBeNull();
-    const my = model.teams.find((t) => t.id === me) as LeagueModel["teams"][number];
-    if (my.faMoves.length === 0) {
-      expect(wv).toEqual({ skipped: expect.stringContaining("no free-agent pickup") });
-      return;
-    }
-    if ("skipped" in wv) throw new Error(`skipped: ${wv.skipped}`);
-    expect(wv.moves).toEqual(my.faMoves);
-    expect(wv.reproduced).toBe(0);
-    // ROS(V*) = ROS(T) + the pickups' gains, but for the roster spot an IR returner needs from his week (league.ts step
-    // 5b): final pricing only, so it can cost the two rosters differently (review of track E: here the team as it stands
-    // drops one player at the return, while V*, whose first pickup dropped him, releases the returner himself). The gap
-    // is exactly that difference: what the displacement costs T minus what it costs V*, each from its own raw lineups.
-    const { context } = buildLeagueModelWithContext(snapshot, inputs, { now: NOW, scenarios: S });
-    const t = context.work.find((w) => w.team.id === me);
-    if (!t || t.scenRos === null || !my.scen) throw new Error("no scenario lineups");
-    const vRoster = my.faMoves.reduce<string[]>((r, m) => applyStep(r, m), [...t.ids]);
-    const vEval = context.optimizer.evaluate(vRoster, t.stream);
-    const vFinal = finalLineups(context.returnerSetup, vRoster, t.stream, { ev: vEval.solved, scen: scenarioValues(vEval.team, context.W, context.S, context.index, true, true) });
-    const costT = t.scenRos - my.scen.ros;
-    const costV = context.scenRosOf(vRoster, t.stream) - rosValue((vFinal.scen as NonNullable<typeof vFinal.scen>).mean, context.weights);
-    expect(Math.abs(wv.rosDiff - (costT - costV))).toBeLessThan(1e-6);
-    // Without IR returners the two are the same roster spot's worth: no gap at all.
-    if (returnersOf(t.stream).length === 0) expect(Math.abs(wv.rosDiff)).toBeLessThan(1e-6);
-    expect(wv.check.rows?.map((r) => r.gain)).toEqual([...SCALE_GAINS]);
-    // The pickups alone: the V* baseline against the roster as it is, on the same matrix.
-    const cur = (season.scale as NonNullable<SeasonReport["scale"]>).base;
-    const move = wv.move as NonNullable<typeof wv.move>;
-    expect(move.dPO).toBe(wv.check.base.pPlayoffs - cur.pPlayoffs);
-    expect(move.dCH).toBe((wv.check.base.pTitle as number) - (cur.pTitle as number));
-    expect(move.dEW).toBe(wv.check.base.expWins - cur.expWins);
-    expect(move.B).toBeCloseTo(benefitWin(move.dPO, move.dCH), 12);
-    expect(move.score).toBe(tradeScore(move.B));
-    // The V* roster really differs: its baseline odds moved.
-    expect(wv.check.base).not.toEqual(cur);
+  it("the scale check as rosters stand (the second line), and every team's pickups' own effect paired on the same seasons", () => {
+    const pickups = season.scale as NonNullable<SeasonReport["scale"]>;
+    const stand = season.scaleStand as NonNullable<SeasonReport["scaleStand"]>;
+    const mineStand = season.stand?.teams.find((t) => t.teamId === me);
+    expect(stand.base).toEqual({ pPlayoffs: mineStand?.pPlayoffs, pTitle: mineStand?.pTitle, expWins: mineStand?.expWins });
+    expect(stand.rows?.map((r) => r.gain)).toEqual([...SCALE_GAINS]);
+    // Every team's pickups move my odds (a fact of the fixture: some team picks someone up), and their effect is the
+    // difference of the two baselines, with a standard error from the same batches paired.
+    const p = season.pickups as NonNullable<SeasonReport["pickups"]>;
+    expect(p).toEqual(pickupsEffect(pickups, stand, config.simulation.finalSims));
+    expect(p.dPO).toBe(pickups.base.pPlayoffs - stand.base.pPlayoffs);
+    expect(p.dCH).toBe((pickups.base.pTitle as number) - (stand.base.pTitle as number));
+    expect(p.dEW).toBe(pickups.base.expWins - stand.base.expWins);
+    expect(model.teams.some((t) => t.faMoves.length > 0)).toBe(true);
+    expect(pickups.base).not.toEqual(stand.base);
+    for (const k of ["dPO", "dCH", "dEW"] as const) expect(Number.isFinite(p.se[k])).toBe(true);
+    // Unknown title odds: no effect.
+    expect(pickupsEffect({ ...pickups, base: { ...pickups.base, pTitle: null } }, stand, config.simulation.finalSims)).toBeNull();
   });
 
   it("the free-agent optimizer: moves per team and their count distribution, and the named examples by the model's own rules (leagueMarginals)", () => {
@@ -347,31 +385,100 @@ describe("league report: a week in progress", () => {
   const live = inProgressInputs();
   const model = buildLeagueModel(snapshot, live, { now: NOW, scenarios: S });
 
-  it("re-prices every team's weekly scores exactly as the model did, the week in progress from before kickoff", () => {
+  it("the headline holds the week under way at its score as rosters stand, and the scale check's gain starts the week after", () => {
     expect(model.inProgressWeek).toBe(4);
-    const scoreOf = rosterScorer(snapshot, live, model, NOW);
-    for (const t of snapshot.teams) {
-      const tm = model.teams.find((x) => x.id === t.id) as LeagueModel["teams"][number];
-      expect(scoreOf(t.roster, t.id)).toEqual(tm.score);
+    expect(scaleFrom(model)).toBe(1);
+    // TeamModel.scoreWithPickups keeps the as-stands score for the week in progress (the model plays a week under way with today's rosters).
+    for (const t of model.teams) {
+      const p = t.scoreWithPickups as NonNullable<typeof t.scoreWithPickups>;
+      expect([p.mean[0], p.sd[0]]).toEqual([t.score.mean[0], t.score.sd[0]]);
     }
-    // And the same without scenarios (expected-value lineups).
-    const ev = buildLeagueModel(snapshot, live, { now: NOW, scenarios: 0, sims: 0 });
-    const evScore = rosterScorer(snapshot, live, ev, NOW);
-    for (const t of snapshot.teams) expect(evScore(t.roster, t.id)).toEqual(ev.teams.find((x) => x.id === t.id)?.score);
-    // My team streams (K and D/ST by default): its scores need its streaming rows, which the re-pricing adds.
-    expect(model.streaming.byTeam[PARKER.myTeamId]?.positions.length).toBeGreaterThan(0);
+    const season = seasonReport(snapshot, live, model, { now: NOW, clock, runs: 1, warmups: 0, buildRuns: 0 });
+    expect(season.scale?.from).toBe(1);
+    expect(season.scaleMatchesModel).toEqual({ pickups: true, stand: true });
+    // A gain only in the week under way moves nothing: it's never added there.
+    const pick = pickupSeasonModel(model);
+    const built = buildSimSetup(snapshot, pick) as NonNullable<ReturnType<typeof buildSimSetup>>;
+    const seed = config.simulation.seed;
+    const run = { sims: 500, seed, normals: simNormals(seed, 500, built.setup.weeks.length, built.setup.teams.length) };
+    const my = model.teams.find((t) => t.id === PARKER.myTeamId) as LeagueModel["teams"][number];
+    const base = my.scoreWithPickups as NonNullable<typeof my.scoreWithPickups>;
+    const fromWeek1 = scaleCheck(snapshot, pick, PARKER.myTeamId, base, run, { gains: [3], from: 1 })?.rows?.[0];
+    const everyWeek = scaleCheck(snapshot, pick, PARKER.myTeamId, base, run, { gains: [3], from: 0 })?.rows?.[0];
+    expect(fromWeek1?.dEW).toBeGreaterThan(0);
+    expect(fromWeek1?.dEW).toBeLessThan(everyWeek?.dEW as number);
   });
 
-  it("the schedule marks the week under way, and the report says the scale check includes it", () => {
+  it("the schedule marks the week under way, and the report says the scale check starts the week after it", () => {
     const odds = model.odds as NonNullable<LeagueModel["odds"]>;
-    const built = buildSimSetup(snapshot, model) as NonNullable<ReturnType<typeof buildSimSetup>>;
-    const rows = remainingSchedule(snapshot, model, odds, built) as NonNullable<ReturnType<typeof remainingSchedule>>;
+    const built = buildSimSetup(snapshot, pickupSeasonModel(model)) as NonNullable<ReturnType<typeof buildSimSetup>>;
+    const rows = remainingSchedule(snapshot, model, odds, built, model.oddsAsRostersStand ?? null, lastNflWeekOf(live)) as NonNullable<ReturnType<typeof remainingSchedule>>;
     expect(rows[0]).toMatchObject({ week: 4, underWay: true });
     expect(rows.slice(1).every((r) => !r.underWay)).toBe(true);
     const { doc } = buildReport(snapshot, live, { now: NOW, clock, scenarios: S, runs: 1, warmups: 0, buildRuns: 0 });
-    expect(doc).toContain("week 4 in progress included");
+    expect(doc).toContain("weeks 5–17: regular season and playoffs; week 4 is under way, and a trade's evaluation holds a week under way at its score as rosters stand, so the gain starts the week after");
     expect(doc).toContain("| 4 (under way: projected as if no game had started) |");
     expect(doc).toContain("a week in progress as if none of its games had started, with today's rosters and injury news");
+  });
+});
+
+describe("league report: the remaining schedule's byes and risky weeks are the League page's (review POL-1)", () => {
+  /**
+   * The report's rows against the League page's (buildLeagueView's schedule) for one model: the same games, the same
+   * likely starters on bye (the page's "On bye" names, in its order, are the report's bold ones) and the same risky weeks
+   * and reasons. Returns how many listed players at a position the team streams are likely starters (excluded, never bold)
+   * and how many weeks are flagged, so the callers can check the comparison isn't empty.
+   */
+  function compareWithPage(mine: LeagueSnapshot, modelInputs: ModelInputs, model: LeagueModel, label: string): { excluded: number; flagged: number } {
+    const me = mine.myTeamId as string;
+    const odds = model.odds as NonNullable<LeagueModel["odds"]>;
+    const built = buildSimSetup(mine, pickupSeasonModel(model)) as NonNullable<ReturnType<typeof buildSimSetup>>;
+    const rows = remainingSchedule(mine, model, odds, built, model.oddsAsRostersStand ?? null, lastNflWeekOf(modelInputs)) as NonNullable<ReturnType<typeof remainingSchedule>>;
+    const page = buildLeagueView({ snapshot: mine, model, inputs: modelInputs, myTeamSource: "you", timeZone: "UTC", now: NOW.toISOString() }).schedule?.rows ?? [];
+    expect(rows.map((r) => r.week), label).toEqual(page.map((p) => p.week));
+    const streamed = new Set<Pos>(model.streaming.byTeam[me]?.positions ?? []);
+    const likely = new Set(likelyStarters(mine, model, me, { afterPickups: true }));
+    let excluded = 0;
+    let flagged = 0;
+    rows.forEach((r, k) => {
+      const p = page[k];
+      const at = `${label}, week ${r.week}`;
+      const bold = r.byes.filter((b) => b.starter).map((b) => mine.players[b.id]?.name ?? b.id);
+      expect(bold.join(", "), at).toBe(p?.byes?.title ?? "");
+      expect(bold.length, at).toBe(p?.byes?.count ?? 0);
+      expect(r.risk.length > 0, at).toBe(p?.risk !== null);
+      expect(r.risk.some((x) => x.includes("likely starters on bye")), at).toBe(p?.risk?.reasons.includes("starters on bye") ?? false);
+      expect(r.risk.some((x) => x.includes("to win")), at).toBe(p?.risk?.reasons.includes("to win") ?? false);
+      for (const b of r.byes) {
+        if (!streamed.has(mine.players[b.id]?.pos as Pos)) continue;
+        expect(b.starter, `${at}: ${b.id} plays a position I stream`).toBe(false);
+        if (likely.has(b.id)) excluded++;
+      }
+      if (r.risk.length) flagged++;
+    });
+    return { excluded, flagged };
+  }
+
+  it("for every team as mine: the same likely starters on bye, in the same order, and the same risky weeks; a streamed kicker or D/ST who's a likely starter is listed, never counted", () => {
+    let excluded = 0;
+    let flagged = 0;
+    for (const t of snapshot.teams) {
+      const mine: LeagueSnapshot = { ...snapshot, myTeamId: t.id };
+      const got = compareWithPage(mine, inputs, buildLeagueModel(mine, inputs, { now: NOW, scenarios: 0 }), `team ${t.id}`);
+      excluded += got.excluded;
+      flagged += got.flagged;
+    }
+    // Not empty: weeks are flagged, and streamed likely starters on bye are left out (Trey Smack's week 6 on Parker's team).
+    expect(flagged).toBeGreaterThan(0);
+    expect(excluded).toBeGreaterThan(0);
+  });
+
+  it("on game day too, the week under way included (the page flags it as the report does)", () => {
+    const live = inProgressInputs();
+    const mine: LeagueSnapshot = { ...snapshot, myTeamId: PARKER.myTeamId };
+    const model = buildLeagueModel(mine, live, { now: NOW, scenarios: 0 });
+    expect(model.inProgressWeek).toBe(4);
+    expect(compareWithPage(mine, live, model, "game day").flagged).toBeGreaterThan(0);
   });
 });
 
@@ -411,18 +518,28 @@ describe("league report: the whole offline report", () => {
     ])
       expect(doc).toContain(heading);
     expect(doc).toContain(`Team ${PARKER.myTeamId} (you)`);
+    // The schedule's byes are the League page's (review POL-1): after my pickups, my streamed kicker listed, not bold.
+    expect(doc).toContain(`**Bold** = a likely starter whose bye counts, the League page's "On bye" rule (src/lib/leagueView.ts scheduleByeRule, the same code): in your best lineup after your free-agent pickups in at least half the weeks he plays, never one at a position you stream (K, D/ST: the streaming replacement covers his bye).`);
+    const schedule = doc.slice(doc.indexOf("## Your remaining schedule"), doc.indexOf("## Trade Score scale check"));
+    expect(schedule).toMatch(/\n\| 6 \| [^\n]*\bTrey Smack\b[^\n]*\|\n/);
+    expect(schedule).not.toContain("**Trey Smack**");
     expect(doc.match(/\*\*Pass\.\*\*/g)).toHaveLength(2);
     expect(doc).not.toContain("FAIL");
     expect(doc).toContain("Σ P(playoffs) = 6.000 (6 playoff teams) · Σ P(bye) = 2.000 (2 byes) · Σ P(title) = 1.000.");
     expect(doc).toContain("| +3 pt/wk |");
     expect(doc).toContain("B_ref that maps this league's +3 to a Trade Score of 63");
-    // The scale check owns up to its Monte Carlo error: no "not noise" claim, ± on every change, B_ref to one decimal.
+    // The scale check owns up to its Monte Carlo error: no "not noise" claim, ± on every change, B_ref to one decimal,
+    // B and the Trade Score under every goal, twice (the one baseline, and as rosters stand).
     expect(doc).not.toContain("not noise");
     expect(doc).toContain(`± is its Monte Carlo standard error, by batch means: the 5,000 seasons split into ${SE_BATCHES} batches of 250`);
-    expect(doc).toMatch(/\| \+3 pt\/wk \| [+-]\d\.\d{4} ± \d\.\d{4} \| [+-]\d\.\d{4} ± \d\.\d{4} \| [+-]\d+\.\d{3} ± \d+\.\d{3} \| -?\d+\.\d{2} ± \d+\.\d{2} \|/);
-    expect(doc).toMatch(/−B\(\+3\) \/ ln 0\.37 = \*\*\d+\.\d ± \d+\.\d\*\* \(± its Monte Carlo standard error, as B\(\+3\)'s; two standard errors span \d+\.\d–\d+\.\d\)/);
-    const wv = season.vstar;
-    if (wv && !("skipped" in wv) && wv.move) expect(doc).toMatch(/The pickups alone, against your roster as it is: ΔPO [+-]\d\.\d{4} ± \d\.\d{4}, ΔCH [+-]\d\.\d{4} ± \d\.\d{4}, Δ expected wins [+-]\d+\.\d{3} ± \d+\.\d{3}, B -?\d+\.\d{2} ± \d+\.\d{2}/);
+    expect(doc).toContain("| Lineup gain | ΔPO | ΔCH | Δ expected wins | Win the title: B / Trade Score | Balanced: B / Trade Score | Make the playoffs: B / Trade Score | Toy league B / score |");
+    const row3 = /\| \+3 pt\/wk \| [+-]\d\.\d{4} ± \d\.\d{4} \| [+-]\d\.\d{4} ± \d\.\d{4} \| [+-]\d+\.\d{3} ± \d+\.\d{3} \| (-?\d+\.\d{2} ± \d+\.\d{2} \/ (\d+|– \(B ≤ 0\)) \| ){3}≈ 5 \/ ≈ 63 \|/g;
+    expect(doc.match(row3)).toHaveLength(2);
+    expect(doc).toMatch(/: Win the title \*\*\d+\.\d ± \d+\.\d\*\* \(with it: \+1 → \d+, \+3 → 63, \+6 → \d+\); Balanced \*\*\d+\.\d ± \d+\.\d\*\*/);
+    expect(doc).toContain("**From the one baseline (every team after its free-agent pickups)**");
+    expect(doc).toContain("**As rosters stand** (TeamModel.score: every team as it is today, Checkpoint 4b's basis)");
+    expect(doc).toContain("Baseline check: the baseline run reproduces the League model's own odds for your team bit for bit (LeagueModel.odds; same seed, same matrix), and so does the as-rosters-stand run (LeagueModel.oddsAsRostersStand).");
+    if (season.pickups) expect(doc).toMatch(/Every team's free-agent pickups, for your team \(the one baseline against as rosters stand, the same seasons\): ΔPO [+-]\d\.\d{4} ± \d\.\d{4}, ΔCH [+-]\d\.\d{4} ± \d\.\d{4}, Δ expected wins [+-]\d+\.\d{3} ± \d+\.\d{3}\./);
     // Build timings: EV lineups and S scenarios, each without and with the simulation.
     expect(season.buildTimings.map((b) => [b.scenarios, b.sims])).toEqual([
       [0, 0],
@@ -583,6 +700,42 @@ describe("league report: the whole offline report", () => {
     expect(titleUnknownReason(short, odds, { ...mine, pTitle: 0.1 })).toBeNull(); // title odds known
   });
 
+  it("measures the FantasyCalc ID match only when its player list was read, which the data shows (review of track R, R-7), and says why not otherwise", () => {
+    const market = inputs.market as NonNullable<ModelInputs["market"]>;
+    const opts = { now: NOW, clock, scenarios: 0, runs: 1, warmups: 0, buildRuns: 0 };
+    const rates = (doc: string) => doc.slice(doc.indexOf("## FantasyCalc match rates"), doc.indexOf("## Depth"));
+    // The player list read: knownIds names a player beyond the value rows (FantasyCalc lists him without a value).
+    const read: ModelInputs = { ...inputs, market: { ...market, knownIds: [...market.knownIds, "fc-only"] } };
+    expect(fantasyCalcPlayersRead(read.market as NonNullable<ModelInputs["market"]>)).toBe(true);
+    const fresh = rates(buildReport(snapshot, read, opts).doc);
+    expect(fresh).toContain("- ID match (FantasyCalc knows the player): ");
+    expect(fresh).toContain("(target ≥ 98%)");
+    expect(fresh).toContain("- Has a value in this format: ");
+    // A saved list while another list came fresh (a dynasty league's season list, a keeper league's redraft list): the
+    // server read the player list, so the match is measured (it said "wasn't asked" before).
+    const savedRead: ModelInputs = { ...read, market: { ...(read.market as NonNullable<ModelInputs["market"]>), fallback: { kind: "saved", listDate: "2026-09-27T09:00:00.000Z" } } };
+    const both = rates(buildReport(snapshot, savedRead, opts).doc);
+    expect(both).toContain("- ID match (FantasyCalc knows the player): ");
+    expect(both).toContain("- Has a value in the list from 2026-09-27T09:00:00.000Z: ");
+    // Every list a saved copy: knownIds is the value rows only, so no match, and why.
+    const saved: ModelInputs = { ...inputs, market: { ...market, fallback: { kind: "saved", listDate: "2026-09-27T09:00:00.000Z" } } };
+    expect(fantasyCalcPlayersRead(saved.market as NonNullable<ModelInputs["market"]>)).toBe(false);
+    const { doc } = buildReport(snapshot, saved, opts);
+    expect(rates(doc)).toContain(
+      "- ID match: not measured. MarketInputs.knownIds names no player beyond FantasyCalc's value lists, so its player list wasn't read in this build (or added nobody), and the match would only repeat the value rate below. FantasyCalc didn't answer this build (a saved list stands in, from 2026-09-27T09:00:00.000Z), and its player list is asked only when it serves a list fresh.",
+    );
+    expect(rates(doc)).not.toContain("(target ≥ 98%)");
+    expect(rates(doc)).toContain("- Has a value in the list from 2026-09-27T09:00:00.000Z: ");
+    // The data line names the fallback in the app's own words (market.fantasyCalcFallbackText).
+    expect(doc).toContain("(⚠️ Trade values from Sep 27: FantasyCalc didn't answer.)");
+    // FantasyCalc answered but its player list failed: its warning is the reason.
+    const failed: ModelInputs = { ...inputs, warnings: [...inputs.warnings, { code: FANTASYCALC_PLAYERS_UNAVAILABLE, message: "FantasyCalc's player list couldn't be loaded (timeout).", platformPath: "players" }] };
+    expect(rates(buildReport(snapshot, failed, opts).doc)).toContain(`Its player list couldn't be loaded (the \`${FANTASYCALC_PLAYERS_UNAVAILABLE}\` warning above).`);
+    // Other value lists count as value rows too.
+    expect(fantasyCalcPlayersRead({ knownIds: ["a", "b"], values: { a: 1 }, seasonValues: { b: 2 } })).toBe(false);
+    expect(fantasyCalcPlayersRead({ knownIds: ["a", "c"], values: { a: 1 }, redraftValues: { b: 2 } })).toBe(true);
+  });
+
   it("says why there are no odds when the rest of the schedule didn't load", () => {
     const partial = { ...snapshot, schedule: snapshot.schedule.filter((m) => m.decided) };
     const { doc, season } = buildReport(partial, inputs, { now: NOW, clock, scenarios: 0, runs: 1, warmups: 0, buildRuns: 0 });
@@ -645,22 +798,78 @@ describe("league report: Phase 4b (the market blend, one free agent one team, IR
     expect(parseLeagueReport("### Team 4\n\n| Player | Pos | NFL | St | ROS |\n|---|---|---|---|---|\n| A B (IR) | WR | NYJ | IR | no projection |\n").rosters.get("4")?.get("A B")).toEqual({ status: "IR", ros: null, slot: "ir" });
   });
 
-  it("the weekly reset waiver order (reverse standings) and the ⚠️ on ESPN's live order (CLAUDE.md §2.2)", () => {
+  it("the waiver order used (planner reply to Checkpoint 4b, answer 2), and the ⚠️ on data from before the 4c adapter with the weekly reset order", () => {
     const reset = resetWaiverOrder(model) as string[];
     const ranks = new Map((model.odds?.teams ?? []).map((x) => [x.teamId, x.rank]));
     expect(reset).toHaveLength(snapshot.teams.length);
     for (let i = 1; i < reset.length; i++) expect(ranks.get(reset[i - 1] as string) as number).toBeGreaterThan(ranks.get(reset[i] as string) as number);
     expect(resetWaiverOrder({ odds: null })).toBeNull();
-    const name = (id: string) => `Team ${id}`;
-    const live = model.faAllocation?.order ?? [];
-    const caveat = waiverOrderCaveat(live, reset, PARKER.myTeamId, name);
-    expect(caveat).toMatch(/^⚠️ ESPN gives the waiver order as it stands when the league is imported\. Parker's league resets it every week to reverse standings/);
-    if (reset.some((id, i) => id !== live[i])) expect(caveat).toContain(`The weekly reset order from today's standings: ${reset.map(name).join(" > ")} (you'd claim ${ordinal(reset.indexOf(PARKER.myTeamId) + 1)}, against ${ordinal(live.indexOf(PARKER.myTeamId) + 1)} now).`);
-    expect(waiverOrderCaveat(["1", "2"], ["1", "2"], "1", name)).toContain("Today it is the weekly reset order (reverse standings).");
-    expect(waiverOrderCaveat(["1", "2"], null, "1", name)).not.toContain("reset order from today's standings");
+    const name = (id: string) => `Team ${id}${id === PARKER.myTeamId ? " (you)" : ""}`;
+    const order = model.faAllocation?.order ?? [];
+    // The fixture through the 4c adapter: its order resets weekly, so waiverRank is the reset order (reverse standings),
+    // the same as today's standings reversed, and the note names it as the Import Report does.
+    expect(snapshot.settings.waiverOrderUsed).toBe("weeklyReset");
+    expect(waiverRanksPre4c(snapshot)).toBe(false);
+    expect(order).toEqual(reset);
+    const note = waiverOrderNote(snapshot, order, reset, PARKER.myTeamId, name);
+    expect(note).toBe(`Waiver order used: ${waiverOrderText(snapshot)}: ${order.map(name).join(" > ")}; you claim ${ordinal(order.indexOf(PARKER.myTeamId) + 1)}.`);
+    expect(section("The free-agent optimizer (V*)")).toContain(note);
+    expect(doc).toContain(`- Waiver order used: ${waiverOrderText(snapshot)}\n`);
+    // Data from before the 4c adapter (no waiverOrderUsed, every team ranked: ESPN's live order then): the ⚠️ and the reset order.
+    const { waiverOrderUsed: _used, ...settings } = snapshot.settings;
+    void _used;
+    const old = { ...snapshot, settings };
+    expect(waiverRanksPre4c(old)).toBe(true);
+    expect(waiverRanksPre4c({ ...old, teams: old.teams.map((t, i) => (i === 0 ? { ...t, waiverRank: undefined } : t)) })).toBe(false);
+    const live = [...order].reverse();
+    const warned = waiverOrderNote(old, live, reset, PARKER.myTeamId, name);
+    expect(warned).toMatch(/^⚠️ This data comes from before the 4c adapter: its waiver ranks are ESPN's live order on the day of the import \(/);
+    expect(warned).toContain(`The weekly reset order from today's standings (reverse standings): ${reset.map(name).join(" > ")}; you would claim ${ordinal(reset.indexOf(PARKER.myTeamId) + 1)}.`);
+    expect(waiverOrderNote(old, reset, reset, PARKER.myTeamId, name)).toContain("Today the two orders are the same.");
+    expect(waiverOrderNote(old, live, null, PARKER.myTeamId, name)).not.toContain("reset order from today's standings");
     expect([ordinal(1), ordinal(2), ordinal(3), ordinal(4), ordinal(11), ordinal(12), ordinal(21), ordinal(103)]).toEqual(["1st", "2nd", "3rd", "4th", "11th", "12th", "21st", "103rd"]);
-    // On the allocation line of the optimizer section (a waiver-order allocation).
-    expect(section("The free-agent optimizer (V*)")).toContain(waiverOrderCaveat(live, reset, PARKER.myTeamId, (id) => `Team ${id}${id === PARKER.myTeamId ? " (you)" : ""}`));
+  });
+
+  it("puts a dump from before the 4c adapter on the weekly reset order first (asWeeklyResetData; review of track R, R-4): the model, the data line and the allocation line", () => {
+    const name = (id: string) => `Team ${id}${id === PARKER.myTeamId ? " (you)" : ""}`;
+    // The fixture through the 4c adapter: its waiverRank is the reset order (ESPN's playoff seeds reversed).
+    const reset = model.faAllocation?.order ?? [];
+    expect(reset).toHaveLength(snapshot.teams.length);
+    // The same data as a dump from before the 4c adapter: no waiverOrderUsed, no live rank apart, ESPN's live order in waiverRank.
+    const live = [...reset].reverse();
+    const { waiverOrderUsed: _used, ...settings } = snapshot.settings;
+    void _used;
+    const old: LeagueSnapshot = {
+      ...snapshot,
+      settings,
+      teams: snapshot.teams.map((t) => {
+        const { liveWaiverRank: _live, ...rest } = t;
+        void _live;
+        return { ...rest, waiverRank: live.indexOf(t.id) + 1 };
+      }),
+    };
+    expect(waiverRanksPre4c(old)).toBe(true);
+    const conv = asWeeklyResetData(old);
+    // The dump carries no playoff seeds, so the reset order is the overall standings reversed (worst win %, then fewer points
+    // for): in this league, seeded by points for, the adapter's own order.
+    expect(conv.pre4c).toEqual({ live, used: reset, waiverOrderUsed: "weeklyReset" });
+    expect(conv.snapshot.settings.waiverOrderUsed).toBe("weeklyReset");
+    expect(conv.snapshot.teams.map((t) => [t.waiverRank, t.liveWaiverRank])).toEqual(snapshot.teams.map((t) => [reset.indexOf(t.id) + 1, live.indexOf(t.id) + 1]));
+    const b = buildReport(old, inputs, { now: NOW, clock, scenarios: 0, runs: 1, warmups: 0, buildRuns: 0 });
+    expect(b.pre4c).toEqual(conv.pre4c);
+    expect(b.snapshot).toEqual(conv.snapshot);
+    expect(b.model.faAllocation?.order).toEqual(reset);
+    const p = conv.pre4c as NonNullable<typeof conv.pre4c>;
+    const text = pre4cText(p, PARKER.myTeamId, name);
+    expect(text).toMatch(/^⚠️ This dump comes from before the 4c adapter, so its waiver ranks are ESPN's live order on the day of the import \(/);
+    expect(text).toContain(`every number here runs on the weekly reset order from today's standings: ${reset.map(name).join(" > ")}; you claim ${ordinal(reset.indexOf(PARKER.myTeamId) + 1)},`);
+    expect(b.doc).toContain(`- Waiver order used: Weekly reset (reverse standings). ${text}\n`);
+    expect(b.doc).toContain(`${waiverOrderNote(b.snapshot, reset, resetWaiverOrder(b.model), PARKER.myTeamId, name, p)}`);
+    expect(waiverOrderNote(b.snapshot, reset, resetWaiverOrder(b.model), PARKER.myTeamId, name, p)).toBe(`Waiver order used: Weekly reset (reverse standings): ${reset.map(name).join(" > ")}; you claim ${ordinal(reset.indexOf(PARKER.myTeamId) + 1)}. ${text}`);
+    // Data from the 4c adapter comes through unchanged.
+    expect(asWeeklyResetData(snapshot)).toEqual({ snapshot, pre4c: null });
+    expect(report.pre4c).toBeNull();
+    expect(report.snapshot).toBe(snapshot);
   });
 
   it("the market blend: the build's own blend per position, the players it moved, and the League page's breakdown lines", () => {
@@ -683,14 +892,31 @@ describe("league report: Phase 4b (the market blend, one free agent one team, IR
     for (const p of b.positions) expect(s).toContain(`| ${p.pos} | ${p.players} | ${p.fit} | ${p.blended ? "yes" : "no (under 10 curve points)"} |`);
     expect(s).toContain(`- Players the blend reaches: **${b.reached}** (${b.scaled} with a base rate above 0); players whose rest-of-season points it moved (PlayerModel.blend): **${b.moved}**.`);
     expect(s).toContain(`**${b.rosterLines + b.freeAgentLines}** lines, ${b.rosterLines} on the rosters and ${b.freeAgentLines} in the free-agent lists; **${b.noComparison}** of them read "Trade market: no comparison"`);
+    // The clamp (Phase 4c, planner change 4; review of track R, R-6): in the formula, and every factor it cut.
+    const [lo, hi] = config.marketBlend.factorClamp;
+    expect(b.clamp).toEqual(config.marketBlend.factorClamp);
+    expect(s).toContain(`Then the factor f = b′ / b is clamped to [${lo}, ${hi}] (config.marketBlend.factorClamp; Phase 4c, planner reply to Checkpoint 4b, change 4`);
+    expect(b.clamped.map((c) => c.id).sort()).toEqual([...blend.factors].filter(([, f]) => f.clamped).map(([id]) => id).sort());
+    for (const c of b.clamped) expect(c.f).toBe(c.bound === "high" ? hi : lo);
+    expect(s).toContain(b.clamped.length ? `- The clamp cut **${b.clamped.length}** factor` : `- The clamp cut no factor (every f within [${lo}, ${hi}]).`);
+    // A clamped factor is listed with its factor before and after the clamp, the most extreme first.
+    const [id, f] = [...blend.factors].find(([, x]) => x.ours > 0) as [string, NonNullable<ReturnType<typeof blend.factors.get>>];
+    const cut = new Map(blend.factors);
+    cut.set(id, { ...f, fRaw: 2, f: hi, used: f.ours * hi, clamped: "high" });
+    cut.set("zz-low", { ...f, fRaw: 0.7, f: lo, used: f.ours * lo, clamped: "low" });
+    const lines = blendLines(snapshot, inputs, model, { lp: { ...context.lp, blend: { ...blend, factors: cut } } }, NOW);
+    expect(lines.clamped).toContainEqual({ id, fRaw: 2, f: hi, bound: "high" });
+    expect(lines.clamped).toContainEqual({ id: "zz-low", fRaw: 0.7, f: lo, bound: "low" });
+    const far = (x: number) => Math.abs(Math.log(x));
+    for (let i = 1; i < lines.clamped.length; i++) expect(far((lines.clamped[i - 1] as (typeof lines.clamped)[number]).fRaw)).toBeGreaterThanOrEqual(far((lines.clamped[i] as (typeof lines.clamped)[number]).fRaw));
   });
 
   it("one free agent, one team: the allocation's basis and order, and no free agent in two teams' pickups", () => {
-    expect(model.faAllocation?.basis).toBe("waiver"); // the fixture's teams carry ESPN's waiver ranks
+    expect(model.faAllocation?.basis).toBe("waiver"); // the fixture's teams carry waiver ranks (the 4c adapter: the weekly reset order)
     expect(model.faAllocation?.order).toHaveLength(snapshot.teams.length);
     expect(duplicatePickups(model.teams)).toEqual([]);
     const s = section("The free-agent optimizer (V*)");
-    expect(s).toContain(`**One free agent, one team** (§7; planner reply to Checkpoint 4, change 3): teams claim free agents in the league's waiver order (ESPN's waiver ranks): ${(model.faAllocation?.order ?? []).map((id) => `Team ${id}${id === PARKER.myTeamId ? " (you)" : ""}`).join(" > ")};`);
+    expect(s).toContain(`**One free agent, one team** (§7; planner reply to Checkpoint 4, change 3): teams claim free agents in the league's waiver order (Team.waiverRank): ${(model.faAllocation?.order ?? []).map((id) => `Team ${id}${id === PARKER.myTeamId ? " (you)" : ""}`).join(" > ")};`);
     expect(s).toContain("Free agents in two or more teams' pickups: **0**.");
     expect(s).not.toContain("Each team is optimized on its own");
     // Each team counted once, most teams first.
