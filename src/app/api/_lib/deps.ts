@@ -17,6 +17,11 @@ import "server-only";
  *   whose Redis address can't be used (a connection string in KV_REST_API_URL, say: the client can't be built), logged
  *   first as "redis_config_invalid" by its error's name only (its message can hold the password; review CA-5).
  * - The memory tier sweeps expired entries on a timer every minute while the process runs (review CA-8).
+ * - On Vercel without a SESSION_SECRET of 32+ characters (no shared store, no ESPN cookie sessions, no signed imports) the
+ *   log says "session_secret_missing" first (final review SEC-9; `npm run vercel:secret -- --live` adds one).
+ *
+ * The model routes' build from a signed import gets getModelOnlyDeps (final review F3): the shared client and the NFL team
+ * codes, without the player-ID crosswalk an import needs.
  * - Anywhere else (this computer: the stable copy, `npm run dev`, even with KV_* variables in .env.local) → the file
  *   cache, exactly as before.
  *
@@ -41,12 +46,14 @@ import "server-only";
 import path from "node:path";
 import type { HttpClient, ImportDeps } from "@/adapters/types";
 import { loadPlayerIdResolver } from "@/data";
+import { STATIC_DEFENSE_IDS } from "@/data/teamCodes";
+import type { PlayerIdResolver } from "@/data/types";
 import { FileCache, MemoryLruCache, MINUTE, RedisCache, RedisCacheLock, SharedCacheBreaker, TieredCache, type Cache, type CacheLock } from "@/server/cache";
 import { timeLeftMs } from "@/server/deadline";
 import { createHttpClient } from "@/server/http";
 import { cacheLimits, deadlines } from "@/server/limits";
 import { errorNameOf, logEvent } from "@/server/log";
-import { getRedis, type RedisLike } from "@/server/redis";
+import { getRedis, MIN_SECRET_CHARS, type RedisLike } from "@/server/redis";
 
 type Env = Readonly<Record<string, string | undefined>>;
 
@@ -79,6 +86,9 @@ export interface ServerCache {
  */
 export function selectServerCache(env: Env = process.env, redis?: RedisLike | null): ServerCache {
   if (!env.VERCEL) return { kind: "file", cache: new FileCache(fileCacheDir(env)) };
+  // Without SESSION_SECRET (32+ characters) on Vercel there is no shared store, no ESPN cookie session and no signed
+  // import (final review SEC-9: a deployment without it ran quietly on per-instance memory): said by name, once per process.
+  if ((env.SESSION_SECRET ?? "").length < MIN_SECRET_CHARS) logEvent({ event: "session_secret_missing" });
   let client = redis;
   if (client === undefined) {
     try {
@@ -115,4 +125,24 @@ export function getHttp(): HttpClient {
 export async function getImportDeps(now: Date = new Date()): Promise<ImportDeps> {
   const client = getHttp();
   return { http: client, resolver: await loadPlayerIdResolver({ http: client, now }), now };
+}
+
+/**
+ * What a model build from a signed import needs (src/server/modelInputs.ts buildModelInputs): the shared client, the clock,
+ * and of the player-ID crosswalk only its NFL team codes (the ESPN schedule's abbreviations → Sleeper's codes).
+ */
+export interface ModelDeps {
+  http: HttpClient;
+  resolver: Pick<PlayerIdResolver, "defenseId">;
+  now: Date;
+}
+
+/**
+ * A model build's dependencies without the crosswalk (final review F3: building it read 1.43 MB of the model function's
+ * 2.43 MB from the shared cache on a cold instance, and about 0.28 s of CPU, for nothing but team codes): the team codes
+ * come from Sleeper's 32 codes and the hand-typed aliases (src/data/teamCodes.ts STATIC_DEFENSE_IDS, which maps every ESPN
+ * abbreviation as the crosswalk does: teamCodes.test.ts).
+ */
+export async function getModelOnlyDeps(now: Date = new Date()): Promise<ModelDeps> {
+  return { http: getHttp(), resolver: STATIC_DEFENSE_IDS, now };
 }

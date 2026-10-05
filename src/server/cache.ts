@@ -452,39 +452,48 @@ export class CacheEntryTooLargeError extends Error {
 const gzipAsync = promisify(gzip);
 const gunzipAsync = promisify(gunzip);
 
-/** The derivedKey label (src/server/redis.ts) of the key that encrypts the shared cache's values. */
-export const CACHE_ENC_LABEL = "cache-enc/v1";
+/**
+ * The derivedKey label (src/server/redis.ts) of the key that encrypts the shared cache's values. v2 since the final review
+ * (SEC-5): each value is bound to the Redis key it's stored under (below), and v1's values, which weren't, read as misses.
+ */
+export const CACHE_ENC_LABEL = "cache-enc/v2";
 /** An encrypted value: this prefix, then base64(12-byte IV | 16-byte GCM tag | ciphertext of the gzipped envelope). */
-const ENCRYPTED_PREFIX = "e1.";
+const ENCRYPTED_PREFIX = "e2.";
 const IV_BYTES = 12;
 const TAG_BYTES = 16;
 
 /**
  * How an entry is stored in Redis: the envelope as JSON, gzipped (level 6), then with `key` encrypted with AES-256-GCM
  * (a random IV per value; lead, Checkpoint 7a: the free plan has no encryption at rest, and a private ESPN league's body
- * names its members, so Upstash holds only ciphertext it can't read), as text (Upstash's REST API carries text). Without a
+ * names its members, so Upstash holds only ciphertext it can't read), as text (Upstash's REST API carries text). The
+ * Redis key it's stored under (`storeKey`) is the cipher's additional authenticated data (final review SEC-5: without it,
+ * whoever holds the database's token could move a private league's value onto a public league's key, and the app would
+ * decrypt it and serve it to that league's visitors), so a value read under any other key fails the tag check. Without a
  * key (measurements and tests), plain base64 of the gzip.
  */
-export async function encodeSharedEntry(envelope: { storedAt: number; expiresAt: number; value: unknown }, key?: Buffer | null): Promise<string> {
+export async function encodeSharedEntry(envelope: { storedAt: number; expiresAt: number; value: unknown }, key?: Buffer | null, storeKey = ""): Promise<string> {
   const packed = await gzipAsync(Buffer.from(JSON.stringify(envelope), "utf8"), { level: 6 });
   if (!key) return packed.toString("base64");
   const iv = randomBytes(IV_BYTES);
   const cipher = createCipheriv("aes-256-gcm", key, iv);
+  cipher.setAAD(Buffer.from(storeKey, "utf8"));
   const sealed = Buffer.concat([cipher.update(packed), cipher.final()]);
   return ENCRYPTED_PREFIX + Buffer.concat([iv, cipher.getAuthTag(), sealed]).toString("base64");
 }
 
 /**
  * The envelope of a stored entry; throws when it isn't one (the caller reads that as a miss): with `key`, only a value
- * encodeSharedEntry encrypted under that key (a changed SESSION_SECRET, a tampered or a plain value fails the tag check).
+ * encodeSharedEntry encrypted under that key for that `storeKey` (a changed SESSION_SECRET, a tampered or a plain value,
+ * or one moved from another key fails the tag check).
  */
-export async function decodeSharedEntry<T>(stored: string, key?: Buffer | null): Promise<Envelope<T>> {
+export async function decodeSharedEntry<T>(stored: string, key?: Buffer | null, storeKey = ""): Promise<Envelope<T>> {
   let packed: Buffer;
   if (key) {
     if (!stored.startsWith(ENCRYPTED_PREFIX)) throw new TypeError("not an encrypted cache entry");
     const raw = Buffer.from(stored.slice(ENCRYPTED_PREFIX.length), "base64");
     if (raw.length < IV_BYTES + TAG_BYTES) throw new TypeError("not an encrypted cache entry");
     const decipher = createDecipheriv("aes-256-gcm", key, raw.subarray(0, IV_BYTES));
+    decipher.setAAD(Buffer.from(storeKey, "utf8"));
     decipher.setAuthTag(raw.subarray(IV_BYTES, IV_BYTES + TAG_BYTES));
     packed = Buffer.concat([decipher.update(raw.subarray(IV_BYTES + TAG_BYTES)), decipher.final()]);
   } else {
@@ -563,8 +572,8 @@ function undecodable(err: unknown): void {
  * contract: maxAge per caller, retention per entry, an expired entry never served).
  * - Key: keyPrefix() + "c:" + hmacId("cache-key/v1", key): the raw key (league ids, usernames, credential scopes) never
  *   reaches Upstash, and a reader of the store can't test guesses without SESSION_SECRET.
- * - Value: encodeSharedEntry (JSON → gzip → AES-256-GCM under derivedKey(CACHE_ENC_LABEL), a key from SESSION_SECRET →
- *   text), written with SET … PX retention, so Redis deletes it when its
+ * - Value: encodeSharedEntry (JSON → gzip → AES-256-GCM under derivedKey(CACHE_ENC_LABEL), a key from SESSION_SECRET,
+ *   bound to its Redis key: final review SEC-5 → text), written with SET … PX retention, so Redis deletes it when its
  *   retention ends; a zero retention deletes the key (nothing may be served). An entry over maxEntryBytes as stored isn't
  *   written (CacheEntryTooLargeError; Upstash takes 10 MB a request).
  * - An entry past its retention by the reader's clock is a miss, not deleted here: Redis's own expiry (PX) deletes it, and
@@ -609,7 +618,7 @@ export class RedisCache implements Cache {
     if (typeof stored !== "string" || !stored) return undefined;
     let env: Envelope<T>;
     try {
-      env = await decodeSharedEntry<T>(stored, this.encKey);
+      env = await decodeSharedEntry<T>(stored, this.encKey, k);
       if (!env || typeof env !== "object" || typeof env.storedAt !== "number" || !Number.isFinite(env.storedAt)) throw new TypeError("not a cache entry");
     } catch (err) {
       undecodable(err);
@@ -630,7 +639,7 @@ export class RedisCache implements Cache {
       return;
     }
     if (!this.encKey) throw new Error("SESSION_SECRET is missing or too short");
-    const stored = await encodeSharedEntry({ storedAt: now, expiresAt: now + retain, value }, this.encKey);
+    const stored = await encodeSharedEntry({ storedAt: now, expiresAt: now + retain, value }, this.encKey, k);
     if (stored.length > this.maxEntryBytes) throw new CacheEntryTooLargeError(stored.length);
     await this.breaker.run(() => this.redis.set(k, stored, { px: Math.ceil(retain) }), null);
   }

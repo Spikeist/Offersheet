@@ -339,7 +339,10 @@ describe("the feedback card", () => {
       expect(checkboxes(html)).toContainEqual(["Share anonymous feedback", true]);
       expect(text).toContain(SHARE_TEXT);
       expect(text).toContain("never your league's ID, names, usernames or the notes you type");
-      expect(text).toContain("The privacy policy lists exactly what's sent.");
+      // It lists what's sent, not "exactly" (review POL-9: the policy summarizes some fields with "such as").
+      expect(text).toContain("The privacy policy lists what's sent.");
+      expect(text).not.toContain("lists exactly");
+      expect(SHARE_TEXT).toContain("an anonymous copy, to help improve it:");
       expect(html).toMatch(/<a class="[^"]*" href="\/privacy">privacy policy<\/a>/);
       // The card no longer says nothing is sent.
       expect(text).not.toContain("Nothing is sent anywhere");
@@ -372,7 +375,8 @@ describe("the feedback card", () => {
   it("says what the exported file holds: ID numbers, numbers and notes, no names, leagues only numbered (review)", () => {
     const text = textOf(render({ feedback: records }));
     expect(text).toContain("The file holds player and team ID numbers and Offer Sheet's numbers for each trade, plus any notes you typed and the random code each one's anonymous copies carry.");
-    expect(text).toContain("It has no names, and it numbers your leagues (league-1, league-2) rather than saying which they are.");
+    // Notes are kept as typed, so they can hold names (review POL-24).
+    expect(text).toContain("Apart from what your notes say, it has no names, and it numbers your leagues (league-1, league-2) rather than saying which they are.");
   });
 
   describe("keyboard focus through Delete: each step takes away the button pressed, so focus moves to what took its place (review)", () => {

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { LeagueImportError } from "@/adapters/types";
-import { dataSourceStamps, importErrorResponse, isSameOrigin, readJsonBody, scrubSwids } from "./respond";
+import { busyResponse, dataSourceStamps, importErrorResponse, isSameOrigin, readJsonBody, scrubSwids, workRefusedResponse } from "./respond";
 import { fakeResolver } from "./testFakes";
 
 const URL = "http://localhost:3000/api/x";
@@ -107,6 +107,28 @@ describe("importErrorResponse", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("on Vercel the day's BUSY waits until its slice allowance next grows, not the day's end (final review SEC-2)", async () => {
+    const at = Date.UTC(2026, 9, 4, 13, 30, 0); // slice 6: 7/12 of the day is open until 14:00
+    const vercel = busyResponse("espn", "day", at, { VERCEL: "1" });
+    expect(vercel.headers.get("retry-after")).toBe("1800");
+    expect(await vercel.json()).toEqual({ error: { code: "BUSY", message: "Offer Sheet has used today's share of requests to ESPN. Try again in about 30 minutes." } });
+    expect(busyResponse("espn", "day", at, {}).headers.get("retry-after")).toBe(String(10.5 * 3600)); // no slices: midnight
+    expect(busyResponse("espn", "share", at, { VERCEL: "1" }).headers.get("retry-after")).toBe(String(10.5 * 3600));
+  });
+
+  it("the daily work budget's refusals (final review SEC-1, F1): BUSY, the visitor's own day until midnight, the server's until its slice grows", async () => {
+    const at = Date.UTC(2026, 9, 4, 1, 0, 0);
+    for (const limit of ["client", "group"] as const) {
+      const res = workRefusedResponse(limit, at);
+      expect(res.status).toBe(503);
+      expect(res.headers.get("retry-after")).toBe(String(23 * 3600));
+      expect(await res.json()).toEqual({ error: { code: "BUSY", message: "Your connection has used today's share of requests to Offer Sheet. Try again in about 23 hours." } });
+    }
+    const day = workRefusedResponse("day", at);
+    expect(day.headers.get("retry-after")).toBe(String(5 * 3600));
+    expect(await day.json()).toEqual({ error: { code: "BUSY", message: "Offer Sheet has used its share of free server time for now. Try again in about 5 hours." } });
   });
 
   it("the client's own share of the day answers BUSY in words about its connection (review RL-4)", async () => {

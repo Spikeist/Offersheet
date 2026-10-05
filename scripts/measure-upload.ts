@@ -11,8 +11,8 @@
  * check) and the replay with the server's own public data (importEspnUpload, importSleeperUpload), against the server's
  * own read of the same bodies (importEspnLeagueForModel, importSleeperLeague). It prints:
  * - sizes: the platform's bodies as decoded and gzipped (what a browser downloads, about), the upload's JSON and its gzip
- *   (what it sends; Vercel takes at most 4.5 MB, uploadLimits.compressedBytes 3 MB), and the signed import the League page
- *   sends back (the snapshot and its model part, gzipped);
+ *   (what it sends; Vercel takes at most 4.5 MB, uploadLimits.compressedBytes 2 MB since the final review's SEC-1), and the
+ *   signed import the League page sends back (the snapshot and its model part, gzipped; signedUploadLimits 1 MB);
  * - the server's CPU for an upload (the reader, then the replay and normalizing) against its own read of the raw bodies,
  *   and the browser's CPU for reading and trimming (Node standing in for a phone), medians of a few runs after a warm-up;
  * - whether the two imports are identical (they must be: src/adapters/upload.test.ts proves it on the committed

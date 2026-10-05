@@ -20,8 +20,10 @@ import {
   feedbackFileDueAt,
   feedbackPullArgs,
   feedbackPullFile,
+  flaggedDays,
   formatFeedbackPull,
   formatPruned,
+  monthDays,
   newestDayIn,
   parseFeedbackEntries,
   pruneFeedbackFiles,
@@ -90,7 +92,7 @@ describe("reading, checking and counting", () => {
     await storeFeedback(redis, copyOf(A, [{ outcome: "sent", sent: { version: "full", key: "2|give:106|get:204", pAccept: 0.38, pComplete: 0.38 } }]), { now, env: PREVIEW });
     await storeFeedback(redis, copyOf(B, [{ report: { reason: "never-accept" } }]), { now, env: PREVIEW });
     await storeFeedback(redis, copyOf(A, [{ outcome: "sent", sent: { version: "full", key: "2|give:106|get:204", pAccept: 0.38, pComplete: 0.38 } }, { outcome: "accepted" }]), { now, env: PREVIEW });
-    await redis.lpush("os:preview:fb:2026-10", "{not json", JSON.stringify({ v: 1, rid: A, leagueId: "12345678" }));
+    await redis.lpush("os:preview:fb:2026-10-04", "{not json", JSON.stringify({ v: 1, rid: A, leagueId: "12345678" }));
     now = Date.UTC(2026, 8, 20);
     await storeFeedback(redis, copyOf(C, [{ outcome: "rejected" }]), { now, env: PREVIEW });
     await storeFeedback(redis, copyOf(C, [{ outcome: "rejected" }], true), { now: now + 1000, env: PREVIEW });
@@ -98,8 +100,13 @@ describe("reading, checking and counting", () => {
     await storeFeedback(redis, copyOf(B, [{ outcome: "sent" }]), { now: T0, env: { VERCEL: "1", VERCEL_ENV: "production" } });
 
     const before = redis.stats.commands;
-    const raw = await readFeedbackMonths(redis, "os:preview:", pullMonths(T0, 3));
-    expect(redis.stats.commands - before).toBe(3);
+    const { byMonth: raw, byDay } = await readFeedbackMonths(redis, "os:preview:", pullMonths(T0, 3), T0);
+    // One LRANGE a day (final review SEC-3: a list per day), none after today: October's 4, September's 30, August's 31.
+    expect(redis.stats.commands - before).toBe(4 + 30 + 31);
+    expect([...byDay]).toEqual([
+      ["2026-10-04", 5],
+      ["2026-09-20", 2],
+    ]);
     const parsed = new Map([...raw].map(([month, entries]) => [month, parseFeedbackEntries(entries)] as const));
     expect(parsed.get("2026-10")?.invalid).toBe(2);
     expect(parsed.get("2026-10")?.events.map((e) => [e.rid, e.outcome ?? e.reason, e.day])).toEqual([
@@ -109,8 +116,8 @@ describe("reading, checking and counting", () => {
     ]);
     expect(parsed.get("2026-08")).toEqual({ events: [], invalid: 0 });
 
-    const summary = summarizeFeedback(parsed);
-    expect(summary).toMatchObject({ copies: 5, invalid: 2, records: 3, takenBack: 1 });
+    const summary = summarizeFeedback(parsed, byDay);
+    expect(summary).toMatchObject({ copies: 5, invalid: 2, records: 3, takenBack: 1, flagged: [] });
     expect(summary.byOutcome).toEqual([
       ["accepted", 1],
       ["none", 1],
@@ -135,6 +142,36 @@ describe("reading, checking and counting", () => {
     expect(formatFeedbackPull(summarizeFeedback(new Map()), { env: "production", months: 1 }, [])).toContain("Nothing stored.");
   });
 
+  it("reads a month's days newest first, none after today (final review SEC-3)", () => {
+    expect(monthDays("2026-10", T0)).toEqual(["2026-10-04", "2026-10-03", "2026-10-02", "2026-10-01"]);
+    expect(monthDays("2026-09", T0)).toHaveLength(30);
+    expect(monthDays("2024-02", T0)).toHaveLength(29);
+    expect(monthDays("2026-11", T0)).toEqual([]);
+  });
+
+  it("names the days to check (final review SEC-3): a day at the store's daily cap, or 3 times a usual day's and at least 20", () => {
+    expect(feedbackLimits.maxPerDay).toBe(100);
+    const days = new Map([
+      ["2026-10-01", 6],
+      ["2026-10-02", 8],
+      ["2026-10-03", 100],
+      ["2026-10-04", 7],
+      ["2026-10-05", 45],
+      ["2026-10-06", 9],
+    ]);
+    expect(flaggedDays(days)).toEqual([
+      { day: "2026-10-03", copies: 100, why: "cap" },
+      { day: "2026-10-05", copies: 45, why: "spike" },
+    ]);
+    // A few copies a day never read as a spike, however uneven.
+    expect(flaggedDays(new Map([["2026-10-01", 1], ["2026-10-02", 12]]))).toEqual([]);
+    expect(flaggedDays(new Map())).toEqual([]);
+    const text = formatFeedbackPull({ ...summarizeFeedback(new Map(), days), copies: 1, records: 1 }, { env: "preview", months: 1 }, []);
+    expect(text).toContain("Days to check (a flood of forged copies crowds out at most its own day: Phase 6 drops or down-weights these days):");
+    expect(text).toContain("  2026-10-03     100  at the day's cap: its oldest copies were let go");
+    expect(text).toContain("  2026-10-05      45  over 3 times a usual day's");
+  });
+
   it("writes each month under data-local/feedback-server/<env>/", () => {
     const root = path.join("D:", "project", "data-local");
     expect(feedbackPullFile(root, "production", "2026-10")).toBe(path.join(root, "feedback-server", "production", "2026-10.json"));
@@ -144,7 +181,7 @@ describe("reading, checking and counting", () => {
     const redis = new FakeRedis(() => T0);
     const e = copyOf(A, [{ outcome: "countered" }]);
     await storeFeedback(redis, e, { now: T0, env: PREVIEW });
-    const [entries] = [...(await readFeedbackMonths(redis, "os:preview:", ["2026-10"])).values()];
+    const [entries] = [...(await readFeedbackMonths(redis, "os:preview:", ["2026-10"], T0)).byMonth.values()];
     const stored: StoredFeedbackEvent = { ...e, day: "2026-10-04" };
     expect(parseFeedbackEntries(entries ?? [])).toEqual({ events: [stored], invalid: 0 });
   });

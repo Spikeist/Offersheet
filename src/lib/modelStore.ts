@@ -14,7 +14,7 @@
 import type { ModelInputs } from "@/engine/inputs";
 import type { LeagueSnapshot } from "@/engine/model";
 import { browserFetchLimits } from "@/server/limits";
-import type { EspnModelBody, ModelResponse, SleeperModelBody } from "./api";
+import type { EspnModelBody, ImportResponse, ModelResponse, SleeperModelBody } from "./api";
 import type { StoredImport } from "./importStore";
 import { normalizeSleeperUsername } from "./sleeperInput";
 
@@ -141,6 +141,18 @@ export function importDataAgeMs(stored: Pick<StoredImport, "response"> & Partial
   const issuedAt = stored.response.signed?.issuedAt;
   if (typeof issuedAt === "number" && Number.isFinite(issuedAt) && Number.isFinite(fetchedAt)) return sinceSaved + Math.max(0, issuedAt - fetchedAt);
   return Math.max(sinceSaved, crossClock);
+}
+
+/**
+ * The age "Already up to date (fetched … ago)" quotes after the League page's Refresh, on one clock at a time like the
+ * Import Report's (review E2E-3: the page compared this device's clock with the server's fetchedAt, so a clock 3 minutes
+ * fast read 15 s old data as "3 min ago"): the saved import's own age (importDataAgeMs) when the answer carries that same
+ * league data (nothing newer yet, or the saved copy sent back signed), else the answer's age as it just arrived (the
+ * server's time of answering against its data's, when it signed it). Pure.
+ */
+export function refreshAnswerAgeMs(stored: Pick<StoredImport, "response"> & Partial<Pick<StoredImport, "savedAt">>, answer: ImportResponse, now: number): number {
+  if (answer.snapshot.fetchedAt === stored.response.snapshot.fetchedAt) return importDataAgeMs(stored, now);
+  return importDataAgeMs({ response: answer, savedAt: new Date(now).toISOString() }, now);
 }
 
 export function modelPlan(stored: Pick<StoredImport, "response"> & Partial<Pick<StoredImport, "savedAt">>, opts: { now: number; refresh: boolean; browserReads: boolean }): ModelPlan | null {

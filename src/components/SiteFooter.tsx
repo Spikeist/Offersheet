@@ -25,7 +25,7 @@ export const FOOTER_LINKS = [
 export const FOOTER_CREDITS = "Projections and stats: Sleeper and ESPN · Player IDs: DynastyProcess · NFL schedule: ESPN";
 
 export const FOOTER_INDEPENDENT =
-  "Offer Sheet is a free, independent beta. It is not affiliated with or endorsed by ESPN, Sleeper, Yahoo, Fleaflicker, MyFantasyLeague, Fantrax, FantasyCalc or the NFL.";
+  "Offer Sheet is a free, independent beta. It is not affiliated with or endorsed by ESPN, Sleeper, Yahoo, Fleaflicker, MyFantasyLeague, Fantrax, FantasyCalc, DynastyProcess or the NFL.";
 
 export function SiteFooter() {
   return (

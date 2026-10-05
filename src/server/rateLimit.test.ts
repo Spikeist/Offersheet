@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { rateLimits } from "./limits";
-import { CLIENT_ID_LABEL, clientIp, clientKey, createMemoryLimiter, createSharedLimiter, ipBucket, ipv6Groups, processLimiter, type RatelimitRedis } from "./rateLimit";
+import { CLIENT_ID_LABEL, clientIds, clientIp, clientKey, createMemoryLimiter, createSharedLimiter, ipBucket, ipGroup, ipv6Groups, processLimiter, type RatelimitRedis } from "./rateLimit";
 import { FakeRedis, hmacId } from "./redis";
 
 const SECRET = "s".repeat(40);
@@ -72,6 +72,51 @@ describe("the client (track RL: per IP, by an HMAC, IPv6 by /64)", () => {
     expect(local).toBe(clientKey(req({ "x-real-ip": "203.0.113.9" }), {}));
     expect(local).not.toBe(hmacId(CLIENT_ID_LABEL, "203.0.113.9", env));
     expect(local).not.toContain("203");
+  });
+});
+
+describe("the client's group (final review SEC-2: an IPv4 /24, an IPv6 /48)", () => {
+  it("groups IPv4 by its /24 and IPv6 by its /48, the mapped forms as IPv4; anything else is unknown", () => {
+    expect(ipGroup("203.0.113.9")).toBe("203.0.113.0/24");
+    expect(ipGroup("203.0.113.250:8080")).toBe("203.0.113.0/24");
+    expect(ipGroup("::ffff:203.0.113.9")).toBe("203.0.113.0/24");
+    expect(ipGroup("2001:db8:abcd:12::1")).toBe("2001:db8:abcd::/48");
+    expect(ipGroup("2001:DB8:ABCD:FFFF:1:2:3:4")).toBe("2001:db8:abcd::/48");
+    expect(ipGroup("[2001:db8:0:1::1]:443")).toBe("2001:db8:0::/48");
+    for (const bad of [undefined, "", "not an address", "999.1.1.1"]) expect(ipGroup(bad)).toBe("unknown");
+  });
+
+  it("ids: the client's (clientKey) and its group's, both HMACs under SESSION_SECRET, never an address; IPv6 marked", () => {
+    const env = { SESSION_SECRET: SECRET };
+    const v4 = clientIds(req({ "x-real-ip": "203.0.113.9" }), env);
+    expect(v4).toEqual({ client: clientKey(req({ "x-real-ip": "203.0.113.9" }), env), group: hmacId(CLIENT_ID_LABEL, "203.0.113.0/24", env), ipv6: false });
+    expect(clientIds(req({ "x-real-ip": "203.0.113.77" }), env).group).toBe(v4.group);
+    expect(clientIds(req({ "x-real-ip": "203.0.114.9" }), env).group).not.toBe(v4.group);
+    // Eight /64s of one /48: eight clients, one group (review SEC-2's probe B).
+    const v6 = Array.from({ length: 8 }, (_, n) => clientIds(req({ "x-real-ip": `2001:db8:abcd:${(n + 1).toString(16)}::1` }), env));
+    expect(new Set(v6.map((i) => i.client)).size).toBe(8);
+    expect(new Set(v6.map((i) => i.group))).toEqual(new Set([hmacId(CLIENT_ID_LABEL, "2001:db8:abcd::/48", env)]));
+    expect(v6.every((i) => i.ipv6)).toBe(true);
+    expect(JSON.stringify([v4, ...v6])).not.toMatch(/203\.0\.113|2001:db8/);
+  });
+
+  it("a group's window allows rateLimits.groupFactor times the limit, in memory and in Redis (its own keys)", async () => {
+    expect(rateLimits.groupFactor).toBe(10);
+    const limits = { ...rateLimits, import: { limit: 2, windowS: 600 } };
+    const mem = createMemoryLimiter({ limits });
+    let allowed = 0;
+    for (let i = 0; i < 25; i++) if ((await mem.check("import", "g", T0, "group")).allowed) allowed++;
+    expect(allowed).toBe(20);
+    expect((await mem.check("import", "g", T0)).allowed).toBe(true); // the same id as a client: its own window
+    vi.useFakeTimers({ now: T0 });
+    const redis = new FakeRedis(() => Date.now());
+    const { client } = ratelimitRedis(redis);
+    const shared = createSharedLimiter(client, { prefix: "os:preview:", limits });
+    allowed = 0;
+    for (let i = 0; i < 25; i++) if ((await shared.check("import", "g", T0, "group")).allowed) allowed++;
+    expect(allowed).toBe(20);
+    const window = Math.floor(T0 / 600_000);
+    expect(redis.keys()).toEqual([`os:preview:rl:import:g:g:${window}`]);
   });
 });
 

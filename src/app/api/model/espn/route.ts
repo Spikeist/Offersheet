@@ -2,7 +2,7 @@
 import { importEspnLeagueForModel } from "@/adapters/espn";
 import { buildModelInputs } from "@/server/modelInputs";
 import { espnCredentialsFor } from "@/server/session";
-import { getImportDeps } from "../../_lib/deps";
+import { getImportDeps, getModelOnlyDeps } from "../../_lib/deps";
 import { withRoute } from "../../_lib/route";
 import { createEspnModelHandler } from "./handler";
 
@@ -19,6 +19,7 @@ export const POST = withRoute(
     importLeague: importEspnLeagueForModel,
     buildInputs: buildModelInputs,
     getDeps: () => getImportDeps(),
+    getModelDeps: () => getModelOnlyDeps(),
     credentialsFor: (request, leagueId) => espnCredentialsFor(request, leagueId),
   }),
   { platform: "espn" },

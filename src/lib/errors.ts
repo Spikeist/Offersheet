@@ -193,6 +193,6 @@ export function errorForStatus(status: number, retryAfter?: string | null): { co
   }
   if (status === 504 || status === 408) return { code: "SOURCE_SLOW", message: "Offer Sheet took too long to answer. Try again in a few minutes." };
   if (status === 413) return { code: "INVALID_REQUEST", message: "That request is too large for Offer Sheet." };
-  if (status === 502 || status === 503) return { code: "INTERNAL", message: "Offer Sheet isn't available right now. Try again in a few minutes." };
+  if (status === 502 || status === 503) return { code: "INTERNAL", message: "Offer Sheet isn't available right now. Try again later." };
   return { code: "INTERNAL", message: errorMessage("INTERNAL") };
 }

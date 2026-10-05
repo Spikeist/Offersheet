@@ -10,19 +10,26 @@
  *   needs the store's REST address and token in .env.local (KV_REST_API_URL and KV_REST_API_TOKEN, or
  *   UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN) and SESSION_SECRET, as `npm run beta:log` does: it says only
  *   whether each is set, never a value, and having them there never switches the app itself to Upstash (only on Vercel).
- * - Read-only: one LRANGE per month (`os:<env>:fb:<YYYY-MM>`, newest first in the store). Every entry is checked against
- *   the store's own schema (StoredFeedbackEventSchema); one that doesn't parse is counted, never printed or written.
+ * - Read-only: one LRANGE per UTC day of each month read (`os:<env>:fb:<YYYY-MM-DD>`, newest first in the store; final
+ *   review SEC-3: the store keeps one list per day, src/server/feedbackSink.ts), about 400 commands for 13 months. Every
+ *   entry is checked against the store's own schema (StoredFeedbackEventSchema); one that doesn't parse is counted, never
+ *   printed or written.
+ * - Days to check (final review SEC-3): a day whose list is at the store's daily cap (feedbackLimits.maxPerDay: its oldest
+ *   copies were let go) or holds SPIKE_FACTOR times the median of the days with copies (and at least SPIKE_MIN) is named
+ *   with its count. A flood of forged copies can crowd out at most its own day, so Phase 6 drops or down-weights those
+ *   days before the acceptance refit.
  * - Writes `data-local/feedback-server/<env>/<YYYY-MM>.json` in the project folder (git-ignored, like all of data-local/):
  *   the month's copies oldest first, each as stored (the copy and the UTC day it arrived), replacing the file a previous
  *   pull wrote. A month with no copies writes no file. Previews and production go to their own folders, so a preview's
  *   test presses never mix with real feedback.
- * - Downloaded copies follow the store's own rule (review FB-R2; the privacy page: each month's feedback is deleted a year
- *   after the last one that month): every run, with --live or without (offline: it only deletes local files), first deletes
- *   each month file under data-local/feedback-server/ (both folders) whose time is up, feedbackLimits.retainDays after the
- *   UTC day of its newest copy began (never later than the store drops that month's list: its year runs from the copy's
- *   arrival), or after its month began for a file it can't read; a month already due isn't written. It prints which
- *   files went and the day the next one is due, so Parker can run it again then. ⚠️ Between runs nothing deletes them: the
- *   rule holds as long as the script is run at least that often (Checkpoint 7a's steps say so).
+ * - Downloaded copies follow the store's own rule (review FB-R2; the store deletes each day's feedback a year after that
+ *   day): every run, with --live or without (offline: it only deletes local files), first deletes each month file under
+ *   data-local/feedback-server/ (both folders) whose time is up, feedbackLimits.retainDays after the UTC day of its newest
+ *   copy began (never later than the store drops that day's list: its year runs from the copy's arrival; the month's older
+ *   days stay in the file up to a month longer than in the store), or after its month began for a file it can't read; a
+ *   month already due isn't written. It prints which files went and the day the next one is due, so Parker can run it
+ *   again then. ⚠️ Between runs nothing deletes them: the rule holds as long as the script is run at least that often
+ *   (Checkpoint 7a's steps say so).
  * - Prints counts only: copies and records (a record's copies share its random id: the latest copy is the record as it
  *   stands), and per record as it stands its outcome, report reason, version sent, platform, league type and goal, and the
  *   copies taken back. Never a player id, a number or an id.
@@ -46,7 +53,7 @@ export interface FeedbackPullArgs {
   months: number;
 }
 
-/** The store keeps a month's list a year past its last copy, so 13 months reach every list it can hold. */
+/** The store keeps a day's list a year past that day, so 13 months reach every list it can hold. */
 export const MAX_MONTHS = 13;
 
 /** The command line (see the header), or what's wrong with it. */
@@ -68,10 +75,62 @@ export function pullMonths(now: number, months: number): string[] {
   return Array.from({ length: months }, (_, i) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - i, 1)).toISOString().slice(0, 7));
 }
 
-/** Each month's raw entries, as the store holds them (newest first; one LRANGE a month). */
-export async function readFeedbackMonths(redis: Pick<RedisLike, "lrange">, prefix: string, months: readonly string[]): Promise<Map<string, string[]>> {
-  const out = new Map<string, string[]>();
-  for (const month of months) out.set(month, await redis.lrange(`${prefix}fb:${month}`, 0, -1));
+/** A month's UTC days ("2026-10-01" …), newest first, none after `now`'s day. */
+export function monthDays(month: string, now: number): string[] {
+  const [y, m] = month.split("-").map(Number) as [number, number];
+  const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const today = new Date(now).toISOString().slice(0, 10);
+  const out: string[] = [];
+  for (let d = last; d >= 1; d--) {
+    const day = `${month}-${String(d).padStart(2, "0")}`;
+    if (day <= today) out.push(day);
+  }
+  return out;
+}
+
+/** What the store holds for the months read: each month's raw entries (newest first) and each day's count of entries. */
+export interface FeedbackRead {
+  byMonth: Map<string, string[]>;
+  byDay: Map<string, number>;
+}
+
+/** Each month's raw entries as the store holds them, newest first, from its days' lists (one LRANGE a day; see the header). */
+export async function readFeedbackMonths(redis: Pick<RedisLike, "lrange">, prefix: string, months: readonly string[], now: number = Date.now()): Promise<FeedbackRead> {
+  const byMonth = new Map<string, string[]>();
+  const byDay = new Map<string, number>();
+  for (const month of months) {
+    const entries: string[] = [];
+    for (const day of monthDays(month, now)) {
+      const list = await redis.lrange(`${prefix}fb:${day}`, 0, -1);
+      if (list.length) byDay.set(day, list.length);
+      entries.push(...list);
+    }
+    byMonth.set(month, entries);
+  }
+  return { byMonth, byDay };
+}
+
+/** A day with this many times the median of the days with copies, and at least SPIKE_MIN, is named (see the header). */
+export const SPIKE_FACTOR = 3;
+export const SPIKE_MIN = 20;
+
+/** A day to check before using its copies (see the header). */
+export interface FlaggedDay {
+  day: string;
+  copies: number;
+  why: "cap" | "spike";
+}
+
+/** The days to check (pure; see the header), oldest first. */
+export function flaggedDays(byDay: ReadonlyMap<string, number>, cap: number = feedbackLimits.maxPerDay): FlaggedDay[] {
+  const counts = [...byDay.values()].filter((n) => n > 0).sort((a, b) => a - b);
+  const mid = Math.floor(counts.length / 2);
+  const median = counts.length ? (counts.length % 2 ? (counts[mid] as number) : ((counts[mid - 1] as number) + (counts[mid] as number)) / 2) : 0;
+  const out: FlaggedDay[] = [];
+  for (const [day, copies] of [...byDay].sort(([a], [b]) => a.localeCompare(b))) {
+    if (copies >= cap) out.push({ day, copies, why: "cap" });
+    else if (copies >= SPIKE_MIN && copies >= SPIKE_FACTOR * median) out.push({ day, copies, why: "spike" });
+  }
   return out;
 }
 
@@ -110,6 +169,8 @@ export interface FeedbackPullSummary {
   byGoal: Array<[string, number]>;
   /** Per month: copies and unreadable entries. */
   months: Array<{ month: string; copies: number; invalid: number }>;
+  /** The days to check before using their copies (flaggedDays; final review SEC-3). */
+  flagged: FlaggedDay[];
 }
 
 function counted(map: Map<string, number>): Array<[string, number]> {
@@ -122,9 +183,10 @@ function bump(map: Map<string, number>, key: string): void {
 
 /**
  * Counts over the months read (pure): copies, unreadable entries, and per record as it stands (its latest copy: the
- * newest month's, the later one within a month) its outcome, reason, version, platform, league type and goal.
+ * newest month's, the later one within a month) its outcome, reason, version, platform, league type and goal; and the days
+ * to check (`byDay`: each day's count of entries, FeedbackRead.byDay).
  */
-export function summarizeFeedback(byMonth: ReadonlyMap<string, { events: readonly StoredFeedbackEvent[]; invalid: number }>): FeedbackPullSummary {
+export function summarizeFeedback(byMonth: ReadonlyMap<string, { events: readonly StoredFeedbackEvent[]; invalid: number }>, byDay: ReadonlyMap<string, number> = new Map()): FeedbackPullSummary {
   const latest = new Map<string, StoredFeedbackEvent>();
   const months: FeedbackPullSummary["months"] = [];
   let copies = 0;
@@ -167,6 +229,7 @@ export function summarizeFeedback(byMonth: ReadonlyMap<string, { events: readonl
     byLeagueType: counted(byLeagueType),
     byGoal: counted(byGoal),
     months,
+    flagged: flaggedDays(byDay),
   };
 }
 
@@ -189,6 +252,10 @@ export function formatFeedbackPull(summary: FeedbackPullSummary, args: FeedbackP
   block("By goal", summary.byGoal);
   lines.push("", "By month (copies, unreadable):");
   for (const m of summary.months) lines.push(`  ${m.month}  ${String(m.copies).padStart(6)}  ${m.invalid}`);
+  if (summary.flagged.length) {
+    lines.push("", "Days to check (a flood of forged copies crowds out at most its own day: Phase 6 drops or down-weights these days):");
+    for (const f of summary.flagged) lines.push(`  ${f.day}  ${String(f.copies).padStart(6)}  ${f.why === "cap" ? "at the day's cap: its oldest copies were let go" : `over ${SPIKE_FACTOR} times a usual day's`}`);
+  }
   lines.push("", written.length ? `Wrote ${written.length} file(s): ${written.join(", ")}` : "Wrote no files.");
   return lines.join("\n");
 }
@@ -208,7 +275,7 @@ const MONTH_FILE = /^(\d{4}-(?:0[1-9]|1[0-2]))\.json$/;
 
 /**
  * When a downloaded month's copies are due for deletion (ms): feedbackLimits.retainDays after the UTC day of its newest
- * copy began (`newestDay`, "2026-10-04"), never later than the store drops that month's list (its year runs from the newest
+ * copy began (`newestDay`, "2026-10-04"), never later than the store drops that day's list (its year runs from the newest
  * copy's arrival); without a newest day (a file that can't be read), the same span after the month began.
  */
 export function feedbackFileDueAt(month: string, newestDay: string | null): number {
@@ -311,7 +378,7 @@ async function main(): Promise<void> {
   }
   const now = Date.now();
   const months = pullMonths(now, args.months);
-  const raw = await readFeedbackMonths(redis, keyPrefix({ VERCEL_ENV: args.env }), months);
+  const { byMonth: raw, byDay } = await readFeedbackMonths(redis, keyPrefix({ VERCEL_ENV: args.env }), months, now);
   const parsed = new Map([...raw].map(([month, entries]) => [month, parseFeedbackEntries(entries)] as const));
   const written: string[] = [];
   const pulledAt = new Date(now).toISOString();
@@ -325,7 +392,7 @@ async function main(): Promise<void> {
     writeFileSync(file, `${JSON.stringify({ kind: "offersheet-feedback-server", version: 1, env: args.env, month, pulledAt, count: m.events.length, events: m.events }, null, 2)}\n`);
     written.push(path.relative(ROOT, file).split(path.sep).join("/"));
   }
-  console.log(formatFeedbackPull(summarizeFeedback(parsed), args, written));
+  console.log(formatFeedbackPull(summarizeFeedback(parsed, byDay), args, written));
 }
 
 if (isMainModule(import.meta.url)) {

@@ -4,9 +4,11 @@
  * posted to the model routes (src/server/importToken.ts). Both come as Content-Type application/gzip (a gzip file, not a
  * Content-Encoding: nothing between the browser and the route unpacks it).
  *
- * - The body is refused unread once it passes uploadLimits.compressedBytes, and while unpacking once it passes
- *   uploadLimits.unpackedBytes (a zip bomb stops there); then it must be UTF-8 JSON in the shape below (zod, strict: an
- *   unknown field is refused). Anything wrong is BAD_UPLOAD, which the browser answers by asking the server to read the
+ * - The body is refused unread once it passes its compressed cap, and while unpacking once it passes its unpacked cap (a
+ *   zip bomb stops there): uploadLimits for a league upload, signedUploadLimits for a signed import (final review SEC-1:
+ *   both lowered, 2 MB / 6 MB and 1 MB / 4 MB, since parsing is the cost); then it must be UTF-8 JSON in the shape below
+ *   (zod, strict: an unknown field is refused), a league upload's parts only the league-data reads a browser makes, each
+ *   once (uploadPartsProblem). Anything wrong is BAD_UPLOAD, which the browser answers by asking the server to read the
  *   league itself (src/lib/leagueFetch.ts), so a user never sees it.
  * - An import upload's ESPN text has its SWIDs pseudonymized before it's parsed (src/adapters/espn/swid.ts), as the
  *   server's own read does (the browser already did; this is the server's guarantee).
@@ -20,10 +22,10 @@ import { ESPN_READS_BASE } from "@/adapters/espn/leagueData";
 import { pseudonymizeSwids } from "@/adapters/espn/swid";
 import { SLEEPER_API } from "@/adapters/sleeper/leagueData";
 import { mapSleeperScoring } from "@/adapters/sleeper/scoringMap";
-import { UPLOAD_VERSION, uploadShapeProblem, uploadTimesProblem, type LeagueUpload } from "@/adapters/upload";
+import { UPLOAD_VERSION, isLeagueDataRead, uploadShapeProblem, uploadTimesProblem, type LeagueUpload, type UploadPart } from "@/adapters/upload";
 import type { LeagueSnapshot } from "@/engine/model";
 import { SLEEPER_USERNAME_INVALID, normalizeSleeperUsername } from "@/lib/sleeperInput";
-import { browserFetchLimits, uploadLimits, uploadShapeLimits } from "@/server/limits";
+import { browserFetchLimits, signedUploadLimits, uploadLimits, uploadShapeLimits } from "@/server/limits";
 import { relevantPlayerIds } from "@/server/modelInputs";
 
 const gunzipAsync = promisify(gunzip);
@@ -140,9 +142,27 @@ const sleeperUploadSchema = z.strictObject({
 });
 
 /**
+ * Why an upload's parts aren't what a browser's read of a league makes, or null (final review SEC-1): a part at an address
+ * the browser path never reads (src/adapters/upload.ts isLeagueDataRead: anything but the league-data reads, such as
+ * projections or player lists, the server's own to read), or the same request twice (the browser keeps one answer per
+ * address and ESPN filter: src/adapters/upload.ts recordingClient). Either way the server would only parse and keep more
+ * than an honest read sends.
+ */
+export function uploadPartsProblem(parts: readonly Pick<UploadPart, "url" | "filter">[]): string | null {
+  const seen = new Set<string>();
+  for (const p of parts) {
+    if (!isLeagueDataRead(p.url)) return "a response the browser doesn't read";
+    const key = `${p.url}\u0000${p.filter ?? ""}`;
+    if (seen.has(key)) return "the same response twice";
+    seen.add(key);
+  }
+  return null;
+}
+
+/**
  * A league upload posted to an import route (see the header): unpacked, its ESPN SWIDs pseudonymized, parsed and checked
- * (its shape, the platform's own addresses, every part at most browserFetchLimits.maxPartAgeMs older than the upload, and
- * no more in it than a real league holds: uploadShapeLimits, review BF-R1).
+ * (its shape, the platform's own league-data addresses, each once, every part at most browserFetchLimits.maxPartAgeMs
+ * older than the upload, and no more in it than a real league holds: uploadShapeLimits, review BF-R1).
  */
 export async function readLeagueUpload(request: Request, platform: "espn" | "sleeper"): Promise<UploadRead<LeagueUpload>> {
   const text = await readGzipText(request);
@@ -152,6 +172,8 @@ export async function readLeagueUpload(request: Request, platform: "espn" | "sle
   const parsed = (platform === "espn" ? espnUploadSchema : sleeperUploadSchema).safeParse(json);
   if (!parsed.success) return { ok: false, why: "not an upload" };
   const upload = parsed.data as LeagueUpload;
+  const parts = uploadPartsProblem(upload.parts);
+  if (parts) return { ok: false, why: parts };
   const times = uploadTimesProblem(upload, browserFetchLimits.maxPartAgeMs);
   if (times) return { ok: false, why: times };
   const shape = uploadShapeProblem(upload, uploadShapeLimits) ?? (platform === "sleeper" ? sleeperScoringProblem(upload) : null);
@@ -224,11 +246,12 @@ const espnSignedSchema = z.strictObject({ ...signedImportShape, leagueId: espnLe
 const sleeperSignedSchema = z.strictObject({ ...signedImportShape, leagueId: sleeperLeagueId, username: sleeperUsername.optional() });
 
 /**
- * A model route's gzip body (see the header). The import comes back as it was parsed, not as zod copied it, so its
- * signature is checked on exactly what the browser sent (src/server/importToken.ts).
+ * A model route's gzip body (see the header), within its own caps (signedUploadLimits; final review SEC-1: checking the
+ * signature hashes the whole snapshot). The import comes back as it was parsed, not as zod copied it, so its signature is
+ * checked on exactly what the browser sent (src/server/importToken.ts).
  */
 export async function readSignedModelUpload(request: Request, platform: "espn" | "sleeper"): Promise<UploadRead<SignedModelUpload>> {
-  const text = await readGzipText(request);
+  const text = await readGzipText(request, signedUploadLimits);
   if (!text.ok) return text;
   const json = parseJsonText(text.value);
   if (json === undefined) return { ok: false, why: "not JSON" };

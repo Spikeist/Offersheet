@@ -91,6 +91,36 @@ describe("the Upstash client getRedis builds (no network: the SDK's fetch is stu
     await expect(client?.lpushTrimExpire("k", ["v"], 10, 1_000)).rejects.toThrow();
   });
 
+  it("sends incrExpire as one MULTI/EXEC transaction (final review POL-2): INCRBY and PEXPIRE for each counter in one request to /multi-exec", async () => {
+    const sent: { url: string; commands: unknown[][] }[] = [];
+    let answer: unknown = [{ result: 3 }, { result: 1 }, { result: 12 }, { result: 1 }];
+    vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
+      sent.push({ url: String(url), commands: JSON.parse(String(init.body)) as unknown[][] });
+      return new Response(JSON.stringify(answer), { status: 200, headers: { "content-type": "application/json" } });
+    });
+    const client = getRedis(env);
+    expect(
+      await client?.incrExpire([
+        { key: "os:preview:work:client:c:2026-10-04", by: 3, ttlMs: 3_600_000 },
+        { key: "os:preview:work:2026-10-04", by: 3, ttlMs: 3_600_000.4 },
+      ]),
+    ).toEqual([3, 12]);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.url.endsWith("/multi-exec")).toBe(true);
+    expect(sent[0]?.commands).toEqual([
+      ["incrby", "os:preview:work:client:c:2026-10-04", 3],
+      ["pexpire", "os:preview:work:client:c:2026-10-04", 3_600_000],
+      ["incrby", "os:preview:work:2026-10-04", 3],
+      ["pexpire", "os:preview:work:2026-10-04", 3_600_001],
+    ]);
+    // Nothing to count: no request.
+    expect(await client?.incrExpire([])).toEqual([]);
+    expect(sent).toHaveLength(1);
+    // A command that failed inside the transaction rejects (the caller counts in its own process instead).
+    answer = [{ result: 1 }, { error: "ERR something" }];
+    await expect(client?.incrExpire([{ key: "k", by: 1, ttlMs: 10 }])).rejects.toThrow();
+  });
+
   it("retries a network error only redisClientLimits.retries times, briefly (review CA-1: the SDK's default was 5 retries over about 4 s), then rejects", async () => {
     let attempts = 0;
     vi.stubGlobal("fetch", async () => {
@@ -166,6 +196,24 @@ describe("FakeRedis", () => {
     expect(await r.del("c", "nope")).toBe(1);
     expect(r.stats.commands).toBeGreaterThan(10);
     expect(r.stats.bytesOut).toBeGreaterThan(0);
+  });
+
+  it("incrExpire: every counter's increment and expiry in one step (the expiry set again each time), counted as 2 commands a counter", async () => {
+    let now = 0;
+    const r = new FakeRedis(() => now);
+    await r.set("a", "5"); // a counter without an expiry gets one
+    const before = r.stats.commands;
+    expect(await r.incrExpire([{ key: "a", by: 2, ttlMs: 100 }, { key: "b", by: 1, ttlMs: 50 }])).toEqual([7, 1]);
+    expect(r.stats.commands - before).toBe(4);
+    expect([r.ttlMs("a"), r.ttlMs("b")]).toEqual([100, 50]);
+    now = 30;
+    expect(await r.incrExpire([{ key: "b", by: 1, ttlMs: 50 }])).toEqual([2]);
+    expect(r.ttlMs("b")).toBe(50); // until 80 now, not 50
+    now = 80;
+    expect(r.keys()).toEqual(["a"]);
+    now = 100;
+    expect(r.keys()).toEqual([]);
+    expect(await r.incrExpire([{ key: "a", by: 1, ttlMs: 10 }])).toEqual([1]); // "a" was gone: it starts again
   });
 
   it("lpushTrimExpire: the push, the trim to the newest `keep` and the expiry in one step, counted as 3 commands", async () => {

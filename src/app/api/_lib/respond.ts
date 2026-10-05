@@ -6,9 +6,11 @@
  *
  * Friendly errors (planner reply to Checkpoint 4c, Part B, B1; track RL): an import that fails because Offer Sheet used
  * today's budget of requests to its platform answers BUSY ("Offer Sheet has used today's share of requests to ESPN. Try
- * again in about 6 hours.", Retry-After: the next UTC midnight), or, for the client's own share of it, "Your connection has
- * used today's share of requests to ESPN. …", whether the adapter let BudgetExhaustedError through (ESPN) or turned it
- * into SOURCE_DOWN (Sleeper's adapter catches its client's errors); one whose deadline came first answers SOURCE_SLOW,
+ * again in about 6 hours.", Retry-After: the next UTC midnight, or on Vercel when the day's slice allowance next grows),
+ * or, for the client's own share of it, "Your connection has used today's share of requests to ESPN. …", whether the
+ * adapter let BudgetExhaustedError through (ESPN) or turned it into SOURCE_DOWN (Sleeper's adapter catches its client's
+ * errors); the daily work budget's refusals (workRefusedResponse; final review SEC-1, F1) are BUSY too; one whose
+ * deadline came first answers SOURCE_SLOW,
  * naming the source that was slow ("ESPN is answering slowly right now, so Offer Sheet stopped waiting. …"), or, when the
  * time went to Offer Sheet's own queue or cache or ran out before the source was asked, "Offer Sheet is busy right now. Try
  * again in a few minutes." All read what the request's scope noted (src/server/deadline.ts), so a plain outage still reads
@@ -19,8 +21,8 @@ import { LeagueImportError, type ImportErrorCode } from "@/adapters/types";
 import type { PlayerIdResolver } from "@/data/types";
 import type { Platform } from "@/engine/model";
 import type { ApiErrorResponse, DataSourceStamp } from "@/lib/api";
-import { errorMessage, errorStatus, isImportErrorCode, redactSecrets, type AppErrorCode } from "@/lib/errors";
-import { isBudgetExhaustedError, secondsUntilUtcMidnight, type BudgetLimit, type BudgetPlatform } from "@/server/budget";
+import { errorMessage, errorStatus, isImportErrorCode, redactSecrets, waitWords, type AppErrorCode } from "@/lib/errors";
+import { isBudgetExhaustedError, secondsUntilAllowanceGrows, secondsUntilUtcMidnight, type BudgetLimit, type BudgetPlatform, type QuotaLimit } from "@/server/budget";
 import { DEADLINE_CUTS, requestScope, type RequestScope } from "@/server/deadline";
 import { errorNameOf, logDevDetail, logEvent } from "@/server/log";
 
@@ -28,10 +30,15 @@ import { errorNameOf, logDevDetail, logEvent } from "@/server/log";
 const MAX_BODY_CHARS = 16_384;
 
 export function jsonResponse(body: unknown, init: { status?: number; headers?: Headers } = {}): Response {
+  return jsonTextResponse(JSON.stringify(body), init);
+}
+
+/** A JSON answer already serialized (the model routes' memory of built answers, src/app/api/model/memo.ts). */
+export function jsonTextResponse(text: string, init: { status?: number; headers?: Headers } = {}): Response {
   const headers = init.headers ?? new Headers();
   headers.set("content-type", "application/json; charset=utf-8");
   headers.set("cache-control", "no-store");
-  return new Response(JSON.stringify(body), { status: init.status ?? 200, headers });
+  return new Response(text, { status: init.status ?? 200, headers });
 }
 
 export function errorResponse(code: AppErrorCode, message: string = errorMessage(code), headers?: Headers): Response {
@@ -187,12 +194,32 @@ const SOURCE_LABEL: Readonly<Record<string, string>> = { espn: "ESPN", sleeper: 
 
 /**
  * BUSY for `platform` (see the header): Offer Sheet's whole day of requests to it (`by` "day"), or the client's share of it
- * ("share"), with Retry-After until every budget starts again (the next UTC midnight) and the same wait in words.
+ * ("share"), with Retry-After until it can be used again and the same wait in words: a share at the next UTC midnight; the
+ * day on Vercel when its slice allowance next grows (src/server/budget.ts; final review SEC-2), elsewhere (no slices) at
+ * the next UTC midnight.
  */
-export function busyResponse(platform: BudgetPlatform | Platform, by: BudgetLimit = "day", now: number = Date.now()): Response {
-  const retryAfterS = secondsUntilUtcMidnight(now);
+export function busyResponse(platform: BudgetPlatform | Platform, by: BudgetLimit = "day", now: number = Date.now(), env: Readonly<Record<string, string | undefined>> = process.env): Response {
+  const retryAfterS = by === "day" && env.VERCEL ? secondsUntilAllowanceGrows(now) : secondsUntilUtcMidnight(now);
   const message = errorMessage("BUSY", { source: SOURCE_LABEL[platform] ?? "this platform", retryAfterS, ...(by === "share" ? { ownShare: true } : {}) });
   return errorResponse("BUSY", message, new Headers({ "retry-after": String(retryAfterS) }));
+}
+
+/** What a request the server's whole day of work refused is told (workRefusedResponse; the wait follows in words). */
+export const WORK_DAY_REFUSED = "Offer Sheet has used its share of free server time for now.";
+
+/**
+ * BUSY for a request the daily work budget refused (src/server/budget.ts; final review SEC-1, F1): the client's or its
+ * group's day ("Your connection has used today's share of requests to Offer Sheet. Try again in about 6 hours.";
+ * Retry-After: the next UTC midnight), or the whole server's (WORK_DAY_REFUSED, "Try again in about 2 hours."; Retry-After:
+ * when the day's slice allowance next grows).
+ */
+export function workRefusedResponse(limit: QuotaLimit, now: number = Date.now()): Response {
+  if (limit === "day") {
+    const retryAfterS = secondsUntilAllowanceGrows(now);
+    return errorResponse("BUSY", `${WORK_DAY_REFUSED} Try again ${waitWords(retryAfterS) ?? "later"}.`, new Headers({ "retry-after": String(retryAfterS) }));
+  }
+  const retryAfterS = secondsUntilUtcMidnight(now);
+  return errorResponse("BUSY", errorMessage("BUSY", { source: "Offer Sheet", ownShare: true, retryAfterS }), new Headers({ "retry-after": String(retryAfterS) }));
 }
 
 /**

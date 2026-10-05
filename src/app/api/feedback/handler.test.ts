@@ -9,6 +9,8 @@ import { tradeSnapshot } from "@/components/trades/testFixtures";
 import type { FeedbackEvent } from "@/lib/feedbackEvent";
 import { feedbackEventOf, feedbackShareContext } from "@/lib/feedbackShare";
 import { applyFeedback, type FeedbackRecord } from "@/lib/feedbackStore";
+import { POSITIONS } from "@/engine/model";
+import { createDailyQuota } from "@/server/budget";
 import { feedbackLimits, rateLimits } from "@/server/limits";
 import { setLogStoreForTests } from "@/server/log";
 import { createMemoryLimiter } from "@/server/rateLimit";
@@ -60,7 +62,7 @@ describe("the handler", () => {
     expect(res.status).toBe(202);
     expect(await res.json()).toEqual({ stored: true });
     expect(res.headers.get("cache-control")).toBe("no-store");
-    expect(await redis.lrange("os:preview:fb:2026-10", 0, -1)).toEqual([JSON.stringify({ ...copy(), day: "2026-10-04" })]);
+    expect(await redis.lrange("os:preview:fb:2026-10-04", 0, -1)).toEqual([JSON.stringify({ ...copy(), day: "2026-10-04" })]);
   });
 
   it("without a store (npm run dev, the stable copy, check:browser): 202 { stored: false }, nothing kept", async () => {
@@ -115,6 +117,76 @@ describe("the handler", () => {
     ]);
     expect(logged.join("\n")).not.toMatch(/zorblax|12345678|not json/);
     expect(feedbackLimits.invalidLogEveryMs).toBe(10 * 60_000);
+  });
+});
+
+describe("the store's bounds (final review SEC-3, F4)", () => {
+  it("refuses a copy bigger than feedbackLimits.maxStoredBytes as stored (400, logged as INVALID_TOO_LARGE), stores nothing", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const redis = new FakeRedis(() => T0);
+    const handler = createFeedbackHandler({ store: () => redis, now: () => T0, env: () => ({ VERCEL: "1", VERCEL_ENV: "preview" }) });
+    // 32 lineup slots with long keys: a copy the schema takes, bigger than any real one.
+    const subsets = Array.from({ length: 1 << POSITIONS.length }, (_, m) => POSITIONS.filter((_p, i) => m & (1 << i))).sort((x, y) => y.length - x.length);
+    const slots = Object.fromEntries(subsets.slice(0, 32).map((set) => [set.join("/"), 30]));
+    const long = -0.12345678901234568;
+    const four = (n: number) => Array.from({ length: 4 }, (_, i) => ({ id: `espn:${4_000_000 + n * 10 + i}`, pos: "WR" as const }));
+    const numbers = { helps: 100, chance: 85, overall: 100, b: long, b3: -long, pAccept: -long, pComplete: -long, dPO: long, dCH: long, dPPW: long, gMine: long, gPartner: long };
+    const features = { g: long, n: long, h: 1, c: 6, a: -2, hist: long, ctx: -0.8, hot: -0.15, urg: 0.2, z: long };
+    const version = { version: "full", versionTrade: { give: four(3), get: four(4) }, versionAccept: { pAccept: -long, pComplete: -long }, versionInputs: { features, gPartner: long, b: long, b3: -long, helpsReason: "odds", goal: "playoffs", week: 17 } };
+    const huge = { ...copy(), format: { ...copy().format, slots }, trade: { give: four(1), get: four(2) }, numbers, features, ...version };
+    expect(JSON.stringify(huge).length).toBeGreaterThan(feedbackLimits.maxStoredBytes);
+    const res = await handler(post(huge));
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe("INVALID_REQUEST");
+    expect(redis.keys()).toEqual([]);
+    expect(spy.mock.calls.map((c) => String(c[0]))).toEqual(['{"route":"server","event":"feedback_invalid","code":"INVALID_TOO_LARGE","status":400}']);
+  });
+
+  it("each client and group may send so many copies a UTC day: past either, 429 RATE_LIMITED until the day ends, nothing stored", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const redis = new FakeRedis(() => T0);
+    const quota = createDailyQuota({ name: "fbq", redis, prefix: "os:preview:", perClient: 2, perGroup: 4 });
+    const route = withRoute("feedback", createFeedbackHandler({ store: () => redis, quota: () => quota, now: () => T0, env: () => ({ VERCEL: "1", VERCEL_ENV: "preview" }) }), {
+      limiter: createMemoryLimiter(),
+      now: () => T0,
+      after: () => {},
+    });
+    const from = (ip: string) => post(copy(), { ...SAME_SITE, "x-real-ip": ip });
+    expect((await route(from("203.0.113.9"))).status).toBe(202);
+    expect((await route(from("203.0.113.9"))).status).toBe(202);
+    const over = await route(from("203.0.113.9"));
+    expect(over.status).toBe(429);
+    expect(over.headers.get("retry-after")).toBe(String(5.5 * 3600));
+    expect(((await over.json()) as { error: { code: string; message: string } }).error).toEqual({ code: "RATE_LIMITED", message: "You're going a bit fast. Try again in about 6 hours." });
+    // Another address in the same /24: its own client count, but the group's (4: the refused copy counted too) is shared.
+    expect((await route(from("203.0.113.77"))).status).toBe(202);
+    expect((await route(from("203.0.113.78"))).status).toBe(429);
+    // Another network: its own counts.
+    expect((await route(from("198.51.100.7"))).status).toBe(202);
+    expect(await redis.lrange("os:preview:fb:2026-10-04", 0, -1)).toHaveLength(4);
+    expect([feedbackLimits.perClientPerDay, feedbackLimits.perGroupPerDay, feedbackLimits.maxPerDay]).toEqual([30, 60, 100]);
+  });
+
+  it("a client over its day of copies is refused before the rate limiter asks Redis anything (withRoute's pre-check)", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const redis = new FakeRedis(() => T0);
+    const quota = createDailyQuota({ name: "fbq", redis, prefix: "os:preview:", perClient: 1, perGroup: 10 });
+    const check = vi.fn(createMemoryLimiter().check);
+    const route = withRoute("feedback", createFeedbackHandler({ store: () => redis, quota: () => quota, now: () => T0, env: () => ({ VERCEL: "1", VERCEL_ENV: "preview" }) }), {
+      limiter: { check },
+      feedbackQuota: quota,
+      now: () => T0,
+      after: () => {},
+    });
+    expect((await route(post(copy()))).status).toBe(202);
+    expect((await route(post(copy()))).status).toBe(429); // the handler's charge finds the client over
+    expect(check).toHaveBeenCalledTimes(2);
+    const commands = redis.stats.commands;
+    const known = await route(post(copy()));
+    expect(known.status).toBe(429);
+    expect(known.headers.get("retry-after")).toBe(String(5.5 * 3600));
+    expect(check).toHaveBeenCalledTimes(2); // refused before the limiter
+    expect(redis.stats.commands).toBe(commands);
   });
 });
 

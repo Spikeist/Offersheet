@@ -49,7 +49,7 @@ import { fmtWhole } from "@/lib/format";
 import { refreshOutcomeText } from "@/lib/importReport";
 import type { CurrentLeagueRead } from "@/lib/leagueStore";
 import { buildLeagueView, type LeagueView as LeagueViewModel } from "@/lib/leagueView";
-import { modelRequest } from "@/lib/modelStore";
+import { modelRequest, refreshAnswerAgeMs } from "@/lib/modelStore";
 import type { MyTeamSource } from "@/lib/myTeam";
 import { LEAGUE_MODEL_SETTINGS, settingsFingerprint } from "@/lib/settingsStore";
 import { NoImportCard } from "../NoImportCard";
@@ -58,7 +58,7 @@ import { revealResult } from "../reveal";
 import { useSavedLeagueSettings } from "../settings/useLeagueSettings";
 import { Callout, Card, FOCUS_TARGET, Spinner, buttonClass, cx } from "../ui";
 import { LeagueView } from "./LeagueView";
-import { leagueTag, useCurrentLeague, useSavedLeagueInputs } from "./useLeagueInputs";
+import { INPUTS_UNREACHABLE, leagueTag, useCurrentLeague, useSavedLeagueInputs, type InputsOutcome } from "./useLeagueInputs";
 
 export { joinInputsRequest, type InputsOutcome } from "./useLeagueInputs";
 
@@ -274,13 +274,24 @@ function LoadedLeague({ current }: { current: Extract<CurrentLeagueRead, { kind:
     setRefreshing(true);
     setRefreshError(null);
     setRefreshStatus(null);
-    const outcome = await refreshInputs();
-    setRefreshing(false);
+    let outcome: InputsOutcome;
+    try {
+      outcome = await refreshInputs();
+    } catch {
+      outcome = { ok: false, message: INPUTS_UNREACHABLE };
+    } finally {
+      // Refresh always works again afterwards (review E2E-1: a request that threw left it "Refreshing…" for good).
+      setRefreshing(false);
+    }
     if (!outcome.ok) {
       setRefreshError(outcome.message);
       return;
     }
-    setRefreshStatus(refreshOutcomeText({ before, after: outcome.response.import.snapshot.fetchedAt, now: new Date(), platform: snapshot.platform, timeZone }));
+    // The data's age on one clock at a time, as the Import Report's Refresh (review E2E-3): the saved import's own when
+    // the answer is that same league data, else the answer's as it arrived.
+    const answered = Date.now();
+    const ageMs = refreshAnswerAgeMs(current.stored, outcome.response.import, answered);
+    setRefreshStatus(refreshOutcomeText({ before, after: outcome.response.import.snapshot.fetchedAt, now: new Date(answered), platform: snapshot.platform, timeZone, ageMs }));
   }
 
   // 4. Focus after Try again: its button is gone, so focus goes to the status line (it says what's

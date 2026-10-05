@@ -2,10 +2,11 @@ import { describe, expect, it, vi } from "vitest";
 import { LeagueImportError, type ImportResult, type SleeperImportRequest } from "@/adapters/types";
 import type { ModelInputs } from "@/engine/inputs";
 import { isModelResponse, type ModelResponse } from "@/lib/api";
-import { importSignatureProblem, signImport } from "@/server/importToken";
+import { signImport, signatureProblem } from "@/server/importToken";
 import type { BuildModelInputsArgs } from "@/server/modelInputs";
 import { fakeDeps, fakeResult, gzipRequest, jsonRequest } from "../../_lib/testFakes";
 import { createSleeperImportHandler } from "../../import/sleeper/handler";
+import { createModelMemo } from "../memo";
 import { createSleeperModelHandler } from "./handler";
 
 const URL = "http://localhost:3000/api/model/sleeper";
@@ -217,7 +218,8 @@ describe("POST /api/model/sleeper with the import the browser saved, signed (Par
       },
       getDeps: async () => fakeDeps(),
       sign: (platform, content) => signImport(platform, content, NOW().getTime(), SIGN_ENV),
-      verify: (platform, content, signature) => importSignatureProblem(platform, content, signature, NOW().getTime(), SIGN_ENV),
+      verify: (platform, digest, signature) => signatureProblem(platform, digest, signature, NOW().getTime(), SIGN_ENV),
+      memo: createModelMemo(),
       now: NOW,
     });
     const snapshot = sleeperResult().snapshot;
@@ -231,5 +233,9 @@ describe("POST /api/model/sleeper with the import the browser saved, signed (Par
     expect(isModelResponse(again)).toBe(true);
     expect(again.import).toMatchObject({ readBy: "server", modelPart: {}, signed: { issuedAt: NOW().getTime() } });
     expect(reads).toEqual([{ season: 2026, leagueId: LEAGUE, username: "zorblax_q" }]);
+    // The same signed import again: this instance's memory answers, without a build (final review SEC-1).
+    const builds = built.length;
+    expect(await (await handler(gzipRequest(URL, body()))).json()).toEqual({ model: fakeModel(), signedImport: true });
+    expect(built).toHaveLength(builds);
   });
 });

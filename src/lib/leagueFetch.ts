@@ -24,9 +24,10 @@
  * signature (src/server/importToken.ts), which builds the numbers without reading the league again; the league is read
  * again first (the browser path, else the server's) once its data is older than the server's league TTL (10 minutes,
  * browserFetchLimits.reimportAfterMs), as the server's own re-import effectively did, and on Refresh (at most once a
- * minute, refreshEveryMs); an import without a signature (saved before signing, or a server without SESSION_SECRET) or
- * an ESPN league read with cookies takes today's request (the server reads the league itself). So the privacy policy's
- * "reading it again first when its copy is more than 10 minutes old".
+ * minute, refreshEveryMs); an import without a signature (saved before signing, or a server without SESSION_SECRET), an
+ * ESPN league read with cookies, and every league in a browser that can't gzip (no CompressionStream, review E2E-1: it can
+ * send neither an upload nor a signed import) take today's request (the server reads the league itself). So the privacy
+ * policy's "reading it again first when its copy is more than 10 minutes old".
  *
  * POLICY_FEATURES.browserReads (src/lib/site.ts) switches the browser path off as a whole (every read goes the server's way).
  * Client-safe: no React, no server modules (src/server/limits.ts is plain numbers). The read itself (src/lib/leagueRead.ts:
@@ -112,11 +113,18 @@ export async function gzipText(text: string): Promise<Uint8Array<ArrayBuffer>> {
 
 /**
  * POSTs a value as gzipped JSON (Content-Type application/gzip) to one of our routes and reads the answer as callApi
- * does; "too-large" (nothing sent) when it would pass uploadLimits.compressedBytes.
+ * does; "not-sent" (nothing sent) when it would pass uploadLimits.compressedBytes, or when this browser couldn't gzip it
+ * (review E2E-1: a browser without CompressionStream threw here, and the League page never got its numbers). Either way
+ * the caller asks the same route with today's JSON request instead.
  */
-export async function postGzipJson<T>(url: string, value: unknown, opts: { fetchImpl?: typeof fetch; signal?: AbortSignal; gzip?: (text: string) => Promise<Uint8Array<ArrayBuffer>> } = {}): Promise<T | ApiErrorResponse | "too-large"> {
-  const bytes = await (opts.gzip ?? gzipText)(JSON.stringify(value));
-  if (bytes.byteLength > uploadLimits.compressedBytes) return "too-large";
+export async function postGzipJson<T>(url: string, value: unknown, opts: { fetchImpl?: typeof fetch; signal?: AbortSignal; gzip?: (text: string) => Promise<Uint8Array<ArrayBuffer>> } = {}): Promise<T | ApiErrorResponse | "not-sent"> {
+  let bytes: Uint8Array<ArrayBuffer>;
+  try {
+    bytes = await (opts.gzip ?? gzipText)(JSON.stringify(value));
+  } catch {
+    return "not-sent";
+  }
+  if (bytes.byteLength > uploadLimits.compressedBytes) return "not-sent";
   const doFetch = opts.fetchImpl ?? ((input: RequestInfo | URL, init?: RequestInit) => fetch(input, init));
   let res: Response;
   try {
@@ -165,7 +173,7 @@ export async function importLeague(args: ImportLeagueArgs): Promise<ImportOutcom
   if (read.kind === "error") return { error: read.error };
   if (read.kind === "fallback") return serverImport();
   const res = await postGzipJson<ImportOutcome>(url, read.upload, { fetchImpl, ...(signal ? { signal } : {}), ...(deps.gzip ? { gzip: deps.gzip } : {}) });
-  if (res === "too-large" || (isApiError(res) && SERVER_RETRY_CODES.has(res.error.code))) return serverImport();
+  if (res === "not-sent" || (isApiError(res) && SERVER_RETRY_CODES.has(res.error.code))) return serverImport();
   return res;
 }
 
@@ -200,7 +208,9 @@ export function signedModelBody(request: StoredImport["request"], imported: Impo
 
 /**
  * The league's model inputs for a saved import (see the header): sent back signed when its data is fresh, read again
- * first when it's older or on Refresh, else (no signature, ESPN cookies) today's request, where the server reads it.
+ * first when it's older or on Refresh, else (no signature, ESPN cookies) today's request, where the server reads it. A
+ * browser that can't gzip (no CompressionStream: Safari before 16.4, Firefox before 113) can send neither an upload nor a
+ * signed import, so it takes today's request every time, as its imports take the server path (review E2E-1).
  * Rejects with the signal's reason once `signal` aborts.
  */
 export async function loadModelInputs(stored: StoredImport, opts: { refresh?: boolean; signal?: AbortSignal; deps?: LeagueFetchDeps } = {}): Promise<ModelOutcome> {
@@ -210,7 +220,8 @@ export async function loadModelInputs(stored: StoredImport, opts: { refresh?: bo
   const fetchImpl = deps.fetchImpl ?? ((input: RequestInfo | URL, init?: RequestInit) => fetch(input, init));
   const withSignal = (input: string, init?: RequestInit) => fetchImpl(input, { ...init, ...(signal ? { signal } : {}) });
   const snapshot = stored.response.snapshot;
-  const plan = modelPlan(stored, { now: clock(), refresh: opts.refresh ?? false, browserReads: deps.browserReads ?? POLICY_FEATURES.browserReads });
+  const gzipOk = deps.gzip !== undefined || canGzip();
+  const plan = modelPlan(stored, { now: clock(), refresh: opts.refresh ?? false, browserReads: (deps.browserReads ?? POLICY_FEATURES.browserReads) && gzipOk });
   if (!plan) return { ok: false, message: MODEL_PLATFORMS_ONLY };
   const platform = snapshot.platform as "espn" | "sleeper";
   const url = `/api/model/${platform}`;
@@ -228,13 +239,14 @@ export async function loadModelInputs(stored: StoredImport, opts: { refresh?: bo
   const signedBody = plan.kind === "server" ? null : signedModelBody(stored.request, imported);
   if (signedBody) {
     const res = await postGzipJson<unknown>(url, signedBody, { fetchImpl, ...(signal ? { signal } : {}), ...(deps.gzip ? { gzip: deps.gzip } : {}) });
-    if (res !== "too-large" && !isApiError(res)) {
+    if (res !== "not-sent" && !isApiError(res)) {
       if (isSignedModelResponse(res)) return { ok: true, response: { import: imported, model: res.model } };
       if (isModelResponse(res) && modelKey(res.import.snapshot) === modelKey(snapshot)) return { ok: true, response: res };
       return { ok: false, message: MODEL_UNREADABLE };
     }
     if (isApiError(res) && !SERVER_RETRY_CODES.has(res.error.code)) return { ok: false, message: res.error.message };
-    // Too large, or a body the route couldn't use: today's request below (the server reads the league itself).
+    // Not sent (too large, or this browser couldn't gzip it), or a body the route couldn't use: today's request below
+    // (the server reads the league itself).
   }
 
   const req = modelRequest({ request: stored.request, response: imported }, plan.kind === "server" && plan.refresh);

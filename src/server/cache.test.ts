@@ -302,12 +302,16 @@ describe("RedisCache (the shared cache in Upstash)", () => {
     const k = cache.storeKey(KEY);
     expect(redis.ttlMs(k)).toBe(10 * MINUTE);
     const raw = (await redis.get(k)) as string;
-    expect(raw).toMatch(/^e1.[A-Za-z0-9+/]+=*$/);
+    expect(raw).toMatch(/^e2\.[A-Za-z0-9+/]+=*$/);
+    expect(CACHE_ENC_LABEL).toBe("cache-enc/v2");
     const encKey = derivedKey(CACHE_ENC_LABEL, SHARED_ENV);
-    expect(await decodeSharedEntry(raw, encKey)).toEqual({ storedAt: T0, expiresAt: T0 + 10 * MINUTE, value: { n: 1 } });
-    // Upstash holds only ciphertext: no plain gzip, and another secret's key (or none) can't read it.
+    expect(await decodeSharedEntry(raw, encKey, k)).toEqual({ storedAt: T0, expiresAt: T0 + 10 * MINUTE, value: { n: 1 } });
+    // Upstash holds only ciphertext: no plain gzip, and another secret's key (or none) can't read it, nor can the right key
+    // read it as another entry's (final review SEC-5: the value is bound to its Redis key).
     await expect(decodeSharedEntry(raw)).rejects.toThrow();
-    await expect(decodeSharedEntry(raw, derivedKey(CACHE_ENC_LABEL, { SESSION_SECRET: "t".repeat(40) }))).rejects.toThrow();
+    await expect(decodeSharedEntry(raw, derivedKey(CACHE_ENC_LABEL, { SESSION_SECRET: "t".repeat(40) }), k)).rejects.toThrow();
+    await expect(decodeSharedEntry(raw, encKey)).rejects.toThrow();
+    await expect(decodeSharedEntry(raw, encKey, cache.storeKey("another entry"))).rejects.toThrow();
     // The same value written twice reads the same but is stored differently (a random IV per value).
     await cache.set(KEY, { n: 1 }, 10 * MINUTE, T0);
     expect(await redis.get(k)).not.toBe(raw);
@@ -316,6 +320,27 @@ describe("RedisCache (the shared cache in Upstash)", () => {
     expect(((await redis.get(cache.storeKey("long"))) as string).length).toBeLessThan(5_000);
     now = T0 + 10 * MINUTE; // Redis deletes it when its retention ends
     expect(await redis.get(k)).toBeNull();
+  });
+
+  it("a value moved onto another entry's key (what anyone holding the database's token could do) reads as a miss there (final review SEC-5)", async () => {
+    // Real time (T0): the unreadable-entry report is once a minute per process, and later tests read it at T0 + 7 and 8 days.
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const redis = new FakeRedis();
+      const cache = new RedisCache(redis, { env: SHARED_ENV });
+      const privateKey = `espn:${credentialScope("s2", "{swid}")}:2026:111111:league`;
+      const publicKey = "espn:public:2026:222222:league";
+      await cache.set(privateKey, httpEntry(5, "p"), HOUR);
+      await cache.set(publicKey, httpEntry(5, "q"), HOUR);
+      const sealed = (await redis.get(cache.storeKey(privateKey))) as string;
+      await redis.set(cache.storeKey(publicKey), sealed, { px: HOUR });
+      expect(await cache.get(publicKey, HOUR)).toBeUndefined();
+      // The value still reads under its own key, and a moved value is reported like any unreadable one (by name only).
+      expect(await cache.get(privateKey, HOUR)).toMatchObject({ value: httpEntry(5, "p") });
+      expect(log.mock.calls.map((c) => JSON.parse(String(c[0])) as { event: string }).map((e) => e.event)).toEqual(["cache_entry_unreadable"]);
+    } finally {
+      log.mockRestore();
+    }
   });
 
   it("doesn't write an entry over maxEntryBytes as stored: CacheEntryTooLarge, which the HTTP client logs by name", async () => {
@@ -361,7 +386,7 @@ describe("RedisCache (the shared cache in Upstash)", () => {
       expect(await cache.get(KEY, HOUR)).toBeUndefined();
       await redis.set(cache.storeKey("other"), Buffer.from("{}").toString("base64"));
       expect(await cache.get("other", HOUR)).toBeUndefined();
-      await redis.set(cache.storeKey("json"), await encodeSharedEntry({ storedAt: Number.NaN, expiresAt: 0, value: 1 } as never, derivedKey(CACHE_ENC_LABEL, SHARED_ENV)));
+      await redis.set(cache.storeKey("json"), await encodeSharedEntry({ storedAt: Number.NaN, expiresAt: 0, value: 1 } as never, derivedKey(CACHE_ENC_LABEL, SHARED_ENV), cache.storeKey("json")));
       await redis.set(cache.storeKey("plain"), await encodeSharedEntry({ storedAt: T0 + 8 * DAY, expiresAt: T0 + 9 * DAY, value: 1 }));
       expect(await cache.get("plain", HOUR)).toBeUndefined(); // a plain (unencrypted) value is never read
       expect(await cache.get("json", HOUR)).toBeUndefined();

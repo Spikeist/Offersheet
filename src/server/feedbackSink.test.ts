@@ -8,11 +8,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { z } from "zod";
 import { tradeSnapshot } from "@/components/trades/testFixtures";
+import { POSITIONS } from "@/engine/model";
 import type { AcceptanceFeatures } from "@/engine/tradeModel";
 import type { FeedbackEvent, StoredFeedbackEvent } from "@/lib/feedbackEvent";
 import { feedbackEventOf, feedbackShareContext, newShareId } from "@/lib/feedbackShare";
 import { FEEDBACK_OUTCOMES, FEEDBACK_REASONS, FEEDBACK_VERSIONS, applyFeedback, type FeedbackChange, type FeedbackEvaluation, type FeedbackRecord } from "@/lib/feedbackStore";
-import { FeedbackEventSchema, StoredFeedbackEventSchema, feedbackMonthKey, feedbackStoreFor, refusedCopyCode, resetFeedbackSinkForTests, storeFeedback, storedFeedbackEvent } from "./feedbackSink";
+import { FeedbackEventSchema, StoredFeedbackEventSchema, feedbackDayKey, feedbackStoreFor, fitsFeedbackStore, refusedCopyCode, resetFeedbackSinkForTests, storeFeedback, storedFeedbackEvent, storedFeedbackText } from "./feedbackSink";
 import { feedbackLimits } from "./limits";
 import { FakeRedis, type RedisLike } from "./redis";
 
@@ -226,48 +227,94 @@ describe("FeedbackEventSchema: every copy the browser builds, and nothing else",
 });
 
 describe("storeFeedback (Redis on Vercel; FakeRedis here)", () => {
-  it("LPUSHes the copy and its day to this UTC month's list and keeps the list a year past its last copy: one transaction, 3 commands a copy", async () => {
+  it("LPUSHes the copy and its day to this UTC day's list and keeps the list a year past that day: one transaction, 3 commands a copy (final review SEC-3)", async () => {
     let now = T0;
     const redis = new FakeRedis(() => now);
     const e = events()[0] as FeedbackEvent;
     expect(await storeFeedback(redis, e, { now, env: PREVIEW })).toBe(true);
-    const key = "os:preview:fb:2026-10";
-    expect(feedbackMonthKey(now, PREVIEW)).toBe(key);
+    const key = "os:preview:fb:2026-10-04";
+    expect(feedbackDayKey(now, PREVIEW)).toBe(key);
     expect(redis.keys()).toEqual([key]);
     expect(await redis.lrange(key, 0, -1)).toEqual([JSON.stringify({ ...e, day: "2026-10-04" })]);
+    expect(storedFeedbackText(e, now)).toBe(JSON.stringify({ ...e, day: "2026-10-04" }));
     expect(redis.ttlMs(key)).toBe(feedbackLimits.retainDays * DAY);
     expect(redis.stats.commands).toBe(3 + 1); // LPUSH, LTRIM, PEXPIRE in one transaction (+ the LRANGE above)
-    // A month later: a new list; the old one's year runs from its own last copy.
-    now = Date.UTC(2026, 10, 2, 0, 0, 0);
+    // The next day: a new list; the old one's year runs from its own last copy.
+    now = Date.UTC(2026, 9, 5, 0, 0, 1);
     expect(await storeFeedback(redis, e, { now, env: PREVIEW })).toBe(true);
-    expect(redis.keys().sort()).toEqual([key, "os:preview:fb:2026-11"]);
+    expect(redis.keys().sort()).toEqual([key, "os:preview:fb:2026-10-05"]);
     expect(redis.ttlMs(key)).toBe(feedbackLimits.retainDays * DAY - (now - T0));
     // Production's lists are apart from previews'; off Vercel the prefix is "local".
-    expect(feedbackMonthKey(T0, { VERCEL: "1", VERCEL_ENV: "production" })).toBe("os:production:fb:2026-10");
-    expect(feedbackMonthKey(T0, {})).toBe("os:local:fb:2026-10");
+    expect(feedbackDayKey(T0, { VERCEL: "1", VERCEL_ENV: "production" })).toBe("os:production:fb:2026-10-04");
+    expect(feedbackDayKey(T0, {})).toBe("os:local:fb:2026-10-04");
   });
 
-  it("keeps the newest feedbackLimits.maxPerMonth a month (the transaction's LTRIM)", async () => {
-    const redis = new FakeRedis(() => T0);
-    const key = feedbackMonthKey(T0, PREVIEW);
-    const filler = Array.from({ length: feedbackLimits.maxPerMonth }, (_, i) => `old-${i}`);
+  it("keeps the newest feedbackLimits.maxPerDay a day (the transaction's LTRIM): a flood crowds out its own day only (final review SEC-3)", async () => {
+    let now = T0 - DAY;
+    const redis = new FakeRedis(() => now);
+    // A real copy the day before, then a full day of forged ones.
+    const real = events()[1] as FeedbackEvent;
+    expect(await storeFeedback(redis, real, { now, env: PREVIEW })).toBe(true);
+    now = T0;
+    const key = feedbackDayKey(T0, PREVIEW);
+    const filler = Array.from({ length: feedbackLimits.maxPerDay }, (_, i) => `old-${i}`);
     await redis.lpush(key, ...filler);
     const before = redis.stats.commands;
     const e = events()[2] as FeedbackEvent;
     expect(await storeFeedback(redis, e, { now: T0, env: PREVIEW })).toBe(true);
     expect(redis.stats.commands - before).toBe(3);
     const list = await redis.lrange(key, 0, -1);
-    expect(list).toHaveLength(feedbackLimits.maxPerMonth);
+    expect(list).toHaveLength(feedbackLimits.maxPerDay);
     expect(list[0]).toBe(JSON.stringify({ ...e, day: "2026-10-04" }));
     // LPUSH puts the newest first: the oldest filler copy is the one let go.
-    expect(list[1]).toBe(`old-${feedbackLimits.maxPerMonth - 1}`);
+    expect(list[1]).toBe(`old-${feedbackLimits.maxPerDay - 1}`);
     expect(list.at(-1)).toBe("old-1");
+    // The day before keeps its real copy whatever this day holds.
+    expect(await redis.lrange(feedbackDayKey(T0 - DAY, PREVIEW), 0, -1)).toEqual([JSON.stringify({ ...real, day: "2026-10-03" })]);
+  });
+
+  it("bounds the store (final review F4): every copy the browser builds fits feedbackLimits.maxStoredBytes; the biggest the schema takes doesn't", () => {
+    expect(feedbackLimits.maxStoredBytes).toBe(2_048);
+    // Every kind of copy feedbackShare.ts builds, and each made as big as a real trade makes it: the Analyzer's 4 players a
+    // side with ESPN ids, a version of 4 a side, a league that starts many kinds of slots, every number at its longest.
+    const all = events();
+    const long = -0.12345678901234568;
+    const four = (n: number) => Array.from({ length: 4 }, (_, i) => ({ id: `espn:${4_000_000 + n * 10 + i}`, pos: "WR" as const }));
+    const features = { g: long, n: long, h: 1, c: 6, a: -2, hist: long, ctx: -0.8, hot: -0.15, urg: 0.2, z: long };
+    const big = (x: FeedbackEvent): FeedbackEvent => ({
+      ...x,
+      format: { ...x.format, slots: { QB: 1, RB: 2, WR: 3, TE: 1, "RB/WR/TE": 2, "QB/RB/WR/TE": 1, K: 1, DEF: 1, "DL/LB/DB": 2, DL: 1, LB: 1, DB: 1 } },
+      trade: { give: four(1), get: four(2) },
+      numbers: { helps: 100, chance: 85, overall: 100, b: long, b3: -long, pAccept: -long, pComplete: -long, dPO: long, dCH: long, dPPW: long, gMine: long, gPartner: long },
+      features,
+      ...(x.version
+        ? {
+            versionTrade: { give: four(3), get: four(4) },
+            versionAccept: { pAccept: -long, pComplete: -long },
+            versionInputs: { features, gPartner: long, b: long, b3: -long, helpsReason: "odds" as const, goal: "playoffs" as const, week: 17 },
+          }
+        : {}),
+    });
+    let largest = 0;
+    for (const e of [...all, ...all.map(big)]) {
+      const parsed = FeedbackEventSchema.safeParse(e);
+      expect(parsed.success, JSON.stringify(parsed.error?.issues)).toBe(true);
+      largest = Math.max(largest, Buffer.byteLength(storedFeedbackText(e, T0)));
+      expect(fitsFeedbackStore(e, T0), String(Buffer.byteLength(storedFeedbackText(e, T0)))).toBe(true);
+    }
+    expect(largest).toBeGreaterThan(1_500);
+    // The schema takes bigger ones (32 slots with long keys): those aren't stored.
+    const subsets = Array.from({ length: 1 << POSITIONS.length }, (_, m) => POSITIONS.filter((_p, i) => m & (1 << i))).sort((a, b) => b.length - a.length);
+    const slots = Object.fromEntries(subsets.slice(0, 32).map((s) => [s.join("/"), 30]));
+    const huge: FeedbackEvent = { ...big(all.find((x) => x.version) as FeedbackEvent), format: { ...(all[0] as FeedbackEvent).format, slots } };
+    expect(FeedbackEventSchema.safeParse(huge).success).toBe(true);
+    expect(fitsFeedbackStore(huge, T0)).toBe(false);
   });
 
   it("never leaves a list without its expiry (review FB-R5): the push, trim and expiry go in one transaction, all or none", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     const e = events()[0] as FeedbackEvent;
-    const key = feedbackMonthKey(T0, PREVIEW);
+    const key = feedbackDayKey(T0, PREVIEW);
     // storeFeedback never sends the three commands one by one: a store whose single commands fail still keeps the copy
     // with its year.
     class SingleCommandsDown extends FakeRedis {

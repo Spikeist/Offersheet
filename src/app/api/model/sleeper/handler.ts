@@ -17,6 +17,11 @@
  * When the signature checks out (src/server/importToken.ts) and names this league, the numbers are built from it without
  * reading the league again ({ model, signedImport: true }); otherwise the league is read again as above, and the answer
  * carries the new, signed import. A gzip body that can't be read at all answers BAD_UPLOAD.
+ *
+ * The final review's limits on this work (SEC-1, F1, F3), as the ESPN model route (src/app/api/model/espn/handler.ts): an
+ * answer built from a signed import is remembered on this instance until its token stops being good (../memo.ts); a big
+ * build and a league read again after a signature that didn't check out are charged to the day's work budget first; the
+ * signed path's build gets the NFL team codes, not the whole player-ID crosswalk (getModelDeps).
  * A factory with injected dependencies, tested without the network.
  */
 import type { ImportDeps, ImportResult, SleeperImportRequest } from "@/adapters/types";
@@ -24,12 +29,16 @@ import type { ModelInputs } from "@/engine/inputs";
 import type { LeagueSnapshot, Platform } from "@/engine/model";
 import type { ImportResponse, ModelResponse, SignedModelResponse } from "@/lib/api";
 import { isPlausibleSeason, seasonRangeMessage } from "@/lib/season";
-import { importSignatureProblem, signImport, type ImportSignature, type SignedContent } from "@/server/importToken";
+import { chargeWork, modelBuildExtraUnits, type QuotaVerdict } from "@/server/budget";
+import { importDigest, signatureProblem, signImport, type ImportSignature, type SignedContent } from "@/server/importToken";
+import { browserFetchLimits, workLimits } from "@/server/limits";
 import type { BuildModelInputsArgs } from "@/server/modelInputs";
-import { errorResponse, importErrorResponse, isSameOrigin, jsonResponse, logUnexpected, readJsonBody } from "../../_lib/respond";
+import type { ModelDeps } from "../../_lib/deps";
+import { errorResponse, importErrorResponse, isSameOrigin, jsonResponse, jsonTextResponse, logUnexpected, readJsonBody, workRefusedResponse } from "../../_lib/respond";
 import { sleeperModelBodySchema } from "../../_lib/schemas";
-import { isGzipRequest, readSignedModelUpload } from "../../_lib/upload";
+import { isGzipRequest, modelWorkOf, readSignedModelUpload } from "../../_lib/upload";
 import { sleeperImportResponse } from "../../import/sleeper/handler";
+import { modelMemo, modelMemoKey, type ModelMemo } from "../memo";
 
 export interface SleeperModelHandlerDeps {
   /** importSleeperLeague. */
@@ -37,18 +46,34 @@ export interface SleeperModelHandlerDeps {
   /** buildModelInputs (src/server/modelInputs.ts). */
   buildInputs: (args: BuildModelInputsArgs) => Promise<ModelInputs>;
   getDeps: () => Promise<ImportDeps>;
-  /** src/server/importToken.ts signImport and importSignatureProblem (test hooks). */
+  /** What a build from a signed import needs (no crosswalk: src/app/api/_lib/deps.ts getModelOnlyDeps); default getDeps. */
+  getModelDeps?: () => Promise<ModelDeps>;
+  /** src/server/importToken.ts signImport and signatureProblem, by the content's importDigest (test hooks). */
   sign?: (platform: Platform, content: SignedContent) => ImportSignature | undefined;
-  verify?: (platform: Platform, content: SignedContent, signature: ImportSignature) => string | null;
+  verify?: (platform: Platform, contentDigest: string, signature: ImportSignature) => string | null;
+  /** The answers already built (../memo.ts; default the process's) and the work budget's extra charge (test hooks). */
+  memo?: ModelMemo;
+  chargeWork?: (units: number) => Promise<QuotaVerdict>;
   now?: () => Date;
+}
+
+/** The signed content's digest (src/server/importToken.ts importDigest), or null when it can't be made (nested too deep). */
+function digestOf(content: SignedContent): string | null {
+  try {
+    return importDigest(content);
+  } catch {
+    return null;
+  }
 }
 
 export function createSleeperModelHandler(d: SleeperModelHandlerDeps): (request: Request) => Promise<Response> {
   const sign = d.sign ?? ((platform: Platform, content: SignedContent) => signImport(platform, content));
-  const verify = d.verify ?? ((platform: Platform, content: SignedContent, signature: ImportSignature) => importSignatureProblem(platform, content, signature));
+  const verify = d.verify ?? ((platform: Platform, contentDigest: string, signature: ImportSignature) => signatureProblem(platform, contentDigest, signature));
+  const charge = d.chargeWork ?? ((units: number) => chargeWork(units));
+  const memo = (): ModelMemo => d.memo ?? modelMemo();
 
   /** The model inputs for a snapshot; a builder that throws is a bug on our side (INTERNAL, logged by name). */
-  async function build(snapshot: LeagueSnapshot, deps: ImportDeps): Promise<ModelInputs | Response> {
+  async function build(snapshot: LeagueSnapshot, deps: ModelDeps): Promise<ModelInputs | Response> {
     try {
       return await d.buildInputs({ snapshot, http: deps.http, resolver: deps.resolver, now: deps.now });
     } catch (err) {
@@ -57,8 +82,20 @@ export function createSleeperModelHandler(d: SleeperModelHandlerDeps): (request:
     }
   }
 
-  /** The league read again (the header's first paragraph), its import signed. */
-  async function reimport(req: SleeperImportRequest): Promise<Response> {
+  /** Charges `units` more of this request's work (the header); a refusal's answer, or null to go on. */
+  async function paid(units: number): Promise<Response | null> {
+    if (!(units > 0)) return null;
+    const verdict = await charge(units);
+    return verdict === "ok" ? null : workRefusedResponse(verdict);
+  }
+
+  /**
+   * The league read again (the header's first paragraph), its import signed. `extraUnits`: what reading it costs past what
+   * the request paid (a signed import's request paid for a build only), charged before the league is read.
+   */
+  async function reimport(req: SleeperImportRequest, extraUnits = 0): Promise<Response> {
+    const refused = await paid(extraUnits);
+    if (refused) return refused;
     let imported: ImportResponse;
     let deps: ImportDeps;
     try {
@@ -68,6 +105,9 @@ export function createSleeperModelHandler(d: SleeperModelHandlerDeps): (request:
     } catch (err) {
       return importErrorResponse(err, { platform: "sleeper", season: req.season });
     }
+    // A league bigger than a request pays for costs its extra units before it's built (the header).
+    const refusedBuild = await paid(modelBuildExtraUnits(modelWorkOf(imported.snapshot)));
+    if (refusedBuild) return refusedBuild;
     // The builder turns every source failure into a warning; if it throws anyway, that's a bug on our side.
     const model = await build(imported.snapshot, deps);
     if (model instanceof Response) return model;
@@ -83,18 +123,31 @@ export function createSleeperModelHandler(d: SleeperModelHandlerDeps): (request:
     const now = d.now?.() ?? new Date();
     if (!isPlausibleSeason(body.season, now)) return errorResponse("INVALID_REQUEST", seasonRangeMessage(now));
     const snapshot = body.import.snapshot;
-    const ours = snapshot.platform === "sleeper" && snapshot.leagueId === body.leagueId && snapshot.season === body.season && verify("sleeper", body.import, body.signed) === null;
-    if (!ours) return reimport({ season: body.season, leagueId: body.leagueId, ...(body.username ? { username: body.username } : {}) });
-    let deps: ImportDeps;
+    const digest = digestOf(body.import);
+    const ours = digest !== null && snapshot.platform === "sleeper" && snapshot.leagueId === body.leagueId && snapshot.season === body.season && verify("sleeper", digest, body.signed) === null;
+    // Not ours: the league is read again, which this request (it paid for a build only) pays the rest of first.
+    if (!ours || digest === null) {
+      const req: SleeperImportRequest = { season: body.season, leagueId: body.leagueId, ...(body.username ? { username: body.username } : {}) };
+      return reimport(req, workLimits.units.modelServer - workLimits.units.modelSigned);
+    }
+    // The same signed import, built on this instance before: the same answer, without a build (the header).
+    const key = modelMemoKey("sleeper", digest);
+    const remembered = memo().get(key, now.getTime());
+    if (remembered !== undefined) return jsonTextResponse(remembered);
+    const refused = await paid(modelBuildExtraUnits(modelWorkOf(snapshot as unknown as LeagueSnapshot)));
+    if (refused) return refused;
+    let deps: ModelDeps;
     try {
-      deps = await d.getDeps();
+      deps = await (d.getModelDeps ?? d.getDeps)();
     } catch (err) {
       return importErrorResponse(err, { platform: "sleeper", season: body.season });
     }
     const model = await build(snapshot as unknown as LeagueSnapshot, deps);
     if (model instanceof Response) return model;
     const response: SignedModelResponse = { model, signedImport: true };
-    return jsonResponse(response);
+    const text = JSON.stringify(response);
+    memo().set(key, text, body.signed.issuedAt + browserFetchLimits.tokenMaxAgeMs, now.getTime());
+    return jsonTextResponse(text);
   }
 
   return async function POST(request: Request): Promise<Response> {

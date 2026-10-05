@@ -6,7 +6,7 @@ import type { PolicyFeatures } from "@/lib/site";
 /** The feedback page's description (its metadata), as the page says it today. */
 export function feedbackDescription(features: PolicyFeatures): string {
   return features.anonymousFeedback
-    ? "How to tell Offer Sheet what happened to its trade ideas, or what went wrong: anonymous, and only if you want to."
+    ? "How to tell Offer Sheet what happened to its trade ideas, or what went wrong. The copies it gets are anonymous, and you can turn them off."
     : "How to record what happens to Offer Sheet's trade ideas, and how to reach us.";
 }
 
@@ -35,15 +35,15 @@ export function FeedbackGuide({ features }: { features: PolicyFeatures }) {
         <h2 className="text-lg font-extrabold">On every trade idea</h2>
         <p className="mt-2 text-sm leading-relaxed">
           Each trade idea on the Trade Finder and the Trade Analyzer has buttons for what happened: Sent, Accepted, Rejected and Countered. If something looks wrong,
-          press Report and pick a reason: Doesn&apos;t help me, They&apos;d never accept, Player info is wrong, League settings look wrong, or Other, with a note if you
-          like.
+          press &ldquo;Report a problem&rdquo; and pick a reason (Doesn&apos;t help me, They&apos;d never accept, Player info is wrong, League settings look wrong,
+          or Other), and add a note if you like.
         </p>
         <ul className="mt-2 list-disc space-y-1.5 pl-5 text-sm leading-relaxed">
           <li>Every press is saved with that league in this browser.</li>
           {shared ? (
             <>
               <li>
-                Unless you turn it off, an anonymous copy also goes to Offer Sheet, to make its estimates better: what you pressed, the players as ID numbers, your
+                Unless you turn it off, an anonymous copy also goes to Offer Sheet, to help improve it: what you pressed, the players as ID numbers, your
                 league&apos;s format and Offer Sheet&apos;s numbers for the trade. Never your league&apos;s ID, names or usernames.
               </li>
               <li>A note you type with a report stays in this browser. It&apos;s never sent.</li>
@@ -74,7 +74,7 @@ export function FeedbackGuide({ features }: { features: PolicyFeatures }) {
           <Link href="/privacy" className="font-semibold underline underline-offset-2">
             privacy policy
           </Link>{" "}
-          {shared ? "lists exactly what's sent and how long it's kept." : "says what's kept."}
+          {shared ? "lists what's sent and how long it's kept." : "says what's kept."}
         </p>
       </Card>
 

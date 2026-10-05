@@ -12,7 +12,8 @@ import { createEspnSessionHandlers } from "@/app/api/session/espn/handler";
 import { ROUTE_KINDS, deadlineMsOf, noteCut, requestScope, timeLeftMs, type RouteKind } from "@/server/deadline";
 import { deadlines, rateLimits } from "@/server/limits";
 import { setLogStoreForTests } from "@/server/log";
-import { clientKey, createMemoryLimiter, resetProcessLimiterForTests } from "@/server/rateLimit";
+import { createDailyQuota } from "@/server/budget";
+import { clientIds, clientKey, createMemoryLimiter, resetProcessLimiterForTests } from "@/server/rateLimit";
 import { FakeRedis, resetRedisForTests } from "@/server/redis";
 import { errorResponse, jsonResponse } from "./respond";
 import { withRoute } from "./route";
@@ -124,6 +125,74 @@ describe("withRoute: the per-IP rate limit", () => {
       resetRedisForTests();
       resetProcessLimiterForTests();
     }
+  });
+});
+
+describe("withRoute: an IPv6 /48 and the daily work budget (final review SEC-1, SEC-2, F1)", () => {
+  const v6 = (n: number) => new Request("http://localhost:3001/api/import/espn", { method: "POST", headers: { "x-real-ip": `2001:db8:abcd:${n.toString(16)}::1` } });
+
+  it("an IPv6 request counts against its /48 too, at rateLimits.groupFactor times the limit: a /48's many /64s aren't many clients", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const limiter = createMemoryLimiter({ limits: { ...rateLimits, import: { limit: 2, windowS: 600 } } });
+    const route = withRoute("import", ok, { limiter, now: () => T0, work: null });
+    let allowed = 0;
+    for (let n = 1; n <= 15; n++) for (let i = 0; i < 2; i++) if ((await route(v6(n))).status === 200) allowed++;
+    expect(allowed).toBe(2 * rateLimits.groupFactor); // 30 asked from 15 /64s, the /48's 20 allowed
+    // IPv4 addresses each count for themselves (no group tier in the windows).
+    for (let n = 1; n <= 15; n++) expect((await route(post(`198.51.100.${n}`))).status).toBe(200);
+  });
+
+  it("charges each import and League page request its units when it arrives; past the client's, its group's or the server's day: BUSY before the handler", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const work = createDailyQuota({ name: "work", perClient: 10, perGroup: 14, perDay: 1_000, processShare: 1, slices: 1, burstShare: 1 });
+    const handler = vi.fn(ok);
+    const route = withRoute("import", handler, { limiter: createMemoryLimiter(), now: () => T0, work });
+    const json = (ip: string) => new Request("http://localhost:3001/api/import/espn", { method: "POST", headers: { "x-real-ip": ip, "content-type": "application/json" } });
+    // A league the server reads itself costs 6 units: the client's 10 allow one.
+    expect((await route(json("203.0.113.9"))).status).toBe(200);
+    const refused = await route(json("203.0.113.9"));
+    expect(refused.status).toBe(503);
+    expect(refused.headers.get("retry-after")).toBe(String(6 * 3600));
+    expect(await refused.json()).toEqual({ error: { code: "BUSY", message: "Your connection has used today's share of requests to Offer Sheet. Try again in about 6 hours." } });
+    expect(handler).toHaveBeenCalledTimes(1);
+    // The next request of that client is refused from memory: the limiter isn't even asked.
+    const check = vi.fn(createMemoryLimiter().check);
+    const known = withRoute("import", handler, { limiter: { check }, now: () => T0, work });
+    expect((await known(json("203.0.113.9"))).status).toBe(503);
+    expect(check).not.toHaveBeenCalled();
+    // Another address in the same /24: its own day, but the group's 14 is shared (6 + 6 refused + 6 > 14).
+    expect((await route(json("203.0.113.10"))).status).toBe(503);
+    // A session request costs no units.
+    expect((await withRoute("session", ok, { limiter: createMemoryLimiter(), now: () => T0, work })(json("203.0.113.10"))).status).toBe(200);
+  });
+
+  it("the server's whole day: BUSY in words, Retry-After when its slice allowance next grows", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const at = Date.UTC(2026, 9, 4, 1, 0, 0); // 01:00 UTC: a quarter of the day is open until 06:00
+    const work = createDailyQuota({ name: "work", perClient: 1_000, perGroup: 1_000, perDay: 40, processShare: 1, slices: 12, burstShare: 0.25 });
+    const route = withRoute("model", ok, { limiter: createMemoryLimiter(), now: () => at, work });
+    const json = (ip: string) => new Request("http://localhost:3001/api/model/espn", { method: "POST", headers: { "x-real-ip": ip, "content-type": "application/json" } });
+    expect((await route(json("203.0.113.9"))).status).toBe(200); // 10 units of the quarter's 10
+    const busy = await route(json("198.51.100.7"));
+    expect(busy.status).toBe(503);
+    expect(busy.headers.get("retry-after")).toBe(String(5 * 3600));
+    expect(await busy.json()).toEqual({ error: { code: "BUSY", message: "Offer Sheet has used its share of free server time for now. Try again in about 5 hours." } });
+  });
+
+  it("the handler's scope carries the client's and its group's ids (HMACs); none is the address", async () => {
+    let seen: { client?: string; group?: string } = {};
+    await withRoute(
+      "import",
+      async () => {
+        const scope = requestScope();
+        seen = { ...(scope?.client ? { client: scope.client } : {}), ...(scope?.group ? { group: scope.group } : {}) };
+        return jsonResponse({});
+      },
+      { limiter: createMemoryLimiter(), work: null },
+    )(post("203.0.113.77"));
+    const ids = clientIds(post("203.0.113.77"));
+    expect(seen).toEqual({ client: ids.client, group: ids.group });
+    expect(JSON.stringify(seen)).not.toContain("203.0.113");
   });
 });
 

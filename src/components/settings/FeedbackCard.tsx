@@ -35,7 +35,7 @@ export const SHARE_LABEL = "Share anonymous feedback";
 
 /** What a copy holds and never holds, in one sentence (the privacy policy's list, shortened), before its link. */
 export const SHARE_TEXT =
-  "When it's on, each press also sends Offer Sheet an anonymous copy, to make its estimates better: what you pressed, the players as ID numbers, your league's format and Offer Sheet's numbers for the trade, never your league's ID, names, usernames or the notes you type. This choice is saved in this browser, for every league.";
+  "When it's on, each press also sends Offer Sheet an anonymous copy, to help improve it: what you pressed, the players as ID numbers, your league's format and Offer Sheet's numbers for the trade, never your league's ID, names, usernames or the notes you type. This choice is saved in this browser, for every league.";
 
 /** The card's words for a count (undefined while the browser's storage is read), with how many leagues it spans. */
 export function feedbackCountText(count: number | undefined, leagues = 1): string {
@@ -117,7 +117,7 @@ function SharingToggle({ on, onChange, error }: NonNullable<FeedbackCardViewProp
         <Link href="/privacy" className="font-semibold underline underline-offset-2">
           privacy policy
         </Link>{" "}
-        lists exactly what&apos;s sent.
+        lists what&apos;s sent.
       </p>
       {error ? (
         <div className="mt-2">
@@ -183,7 +183,8 @@ export function FeedbackCardView({ count, leagues = 1, confirming, note, onExpor
       ) : null}
       <p className="mt-3 text-xs text-muted">
         The file holds player and team ID numbers and Offer Sheet&apos;s numbers for each trade, plus any notes you typed and the random code each one&apos;s
-        anonymous copies carry. It has no names, and it numbers your leagues (league-1, league-2) rather than saying which they are.
+        anonymous copies carry. Apart from what your notes say, it has no names, and it numbers your leagues (league-1, league-2) rather than saying which they
+        are.
       </p>
     </Card>
   );

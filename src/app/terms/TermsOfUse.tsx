@@ -11,7 +11,10 @@ export const TERMS_LAST_UPDATED = "October 4, 2026";
  * research, "/terms outline"). A draft for Parker, not legal advice: reports/privacy-terms-draft.md carries the same
  * text for the planner. What it says has to stay true of the app:
  *   - free, non-commercial, no accounts, no ads, read-only (CLAUDE.md §1, §19, §20);
- *   - every number is an estimate (the projections, the season simulation, "Chance they accept": CLAUDE.md §6–§11);
+ *   - the numbers it works out or quotes are estimates (the projections, the season simulation, "Chance they accept", the
+ *     trade values: CLAUDE.md §6–§11); the league's own records, points and settings are the platform's (review POL-21);
+ *   - which leagues to connect: your own, or public ones, every Sleeper league among them (the research outline's "or
+ *     public ones"; review POL-22, ⚠️ Parker's call at Checkpoint 7a);
  *   - the sources and their terms: ESPN's API is unofficial (CLAUDE.md §2.2, §19), Sleeper's is free for non-commercial
  *     use, FantasyCalc's values are non-commercial and must be credited (§2.9), DynastyProcess's ID map is GPL-3.0 and
  *     stays on the server; the NFL schedule is ESPN's (src/data/nflSchedule.ts nflScheduleUrl: the app downloads nothing
@@ -42,8 +45,8 @@ export function TermsOfUse({ features }: { features: PolicyFeatures }) {
       <Card>
         <h2 className="text-lg font-extrabold">Estimates, not promises</h2>
         <p className="mt-2 text-sm leading-relaxed">
-          Every number Offer Sheet shows is an estimate: projections, playoff and title odds, &ldquo;Helps you&rdquo;, &ldquo;Chance they accept&rdquo; and
-          &ldquo;Overall&rdquo;, and the trade values it quotes. Players get hurt, managers change their minds, and data can be late or wrong. You decide what to offer
+          The numbers Offer Sheet works out or quotes are estimates: projections, playoff and title odds, &ldquo;Helps you&rdquo;, &ldquo;Chance they accept&rdquo; and
+          &ldquo;Overall&rdquo;, and the trade values it shows. Players get hurt, managers change their minds, and data can be late or wrong. You decide what to offer
           and what to accept, and those decisions are yours.
         </p>
       </Card>
@@ -70,7 +73,7 @@ export function TermsOfUse({ features }: { features: PolicyFeatures }) {
         <h2 className="text-lg font-extrabold">Your part</h2>
         <p className="mt-2 text-sm leading-relaxed">When you use Offer Sheet, you agree to:</p>
         <ul className="mt-2 list-disc space-y-1.5 pl-5 text-sm leading-relaxed">
-          <li>connect only leagues you&apos;re in, or leagues their managers have made public;</li>
+          <li>connect only leagues you&apos;re in, or public ones (any Sleeper league, or an ESPN league its manager made viewable to the public);</li>
           <li>
             keep your ESPN cookies to yourself: they work like a password, so paste them only into Offer Sheet&apos;s Connect page, on a computer you trust;
           </li>
@@ -83,11 +86,12 @@ export function TermsOfUse({ features }: { features: PolicyFeatures }) {
         <h2 className="text-lg font-extrabold">Feedback</h2>
         {features.anonymousFeedback ? (
           <p className="mt-2 text-sm leading-relaxed">
-            When you mark what happened to a trade idea or report a problem with one, Offer Sheet may use an anonymous copy to improve its estimates. The{" "}
+            When you mark what happened to a trade idea or report a problem with one, Offer Sheet may use an anonymous copy to improve its estimates and fix what it
+            gets wrong. The{" "}
             <Link href="/privacy" className="font-semibold underline underline-offset-2">
               privacy policy
             </Link>{" "}
-            says exactly what&apos;s sent. You can turn it off in{" "}
+            says what&apos;s sent. You can turn it off in{" "}
             <Link href="/settings" className="font-semibold underline underline-offset-2">
               Settings
             </Link>

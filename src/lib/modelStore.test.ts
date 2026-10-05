@@ -5,6 +5,7 @@ import { TTL } from "@/server/cache";
 import { browserFetchLimits } from "@/server/limits";
 import type { ModelResponse } from "./api";
 import { IMPORT_FORMAT_VERSION, type StoredImport } from "./importStore";
+import { refreshOutcomeText } from "./importReport";
 import {
   MODEL_REUSE_MAX_AGE_MS,
   MODEL_STORAGE_KEY,
@@ -15,6 +16,7 @@ import {
   modelPlan,
   modelRequest,
   parseStoredModel,
+  refreshAnswerAgeMs,
   snapshotOrder,
   storedModelForLeague,
   withImportedTeam,
@@ -270,6 +272,29 @@ describe("modelPlan: how the League page gets a saved import's numbers (Part B, 
     // Saved "in the future" (this clock moved back since): the old reading.
     expect(importDataAgeMs(unsigned(new Date(NOW + 60_000).toISOString()), NOW)).toBe(90_000);
     expect(importDataAgeMs(resp("whenever") as unknown as StoredImport, NOW)).toBe(Number.POSITIVE_INFINITY);
+  });
+
+  it("refreshAnswerAgeMs: the League page's Refresh line quotes the data's age on one clock at a time, as the Import Report's (review E2E-3)", () => {
+    // The server read the league 5 s before it answered and signed it; this browser, its clock 3 minutes fast, saved the
+    // answer as it arrived and presses Refresh 10 s later.
+    const serverNow = Date.parse("2026-10-05T03:00:00.000Z");
+    const skew = 3 * 60_000;
+    const fetchedAt = new Date(serverNow - 5_000).toISOString();
+    const saved = {
+      savedAt: new Date(serverNow + skew).toISOString(),
+      response: { snapshot: { platform: "espn", leagueId: "4242", season: 2026, fetchedAt }, notes: [], signed: { issuedAt: serverNow, token: "t" } },
+    } as unknown as StoredImport;
+    const deviceNow = serverNow + skew + 10_000;
+    // The same league data came back (the saved copy sent back signed, or nothing newer yet): 15 s old, not 3 min 15 s.
+    expect(refreshAnswerAgeMs(saved, saved.response, deviceNow)).toBe(15_000);
+    expect(refreshOutcomeText({ before: fetchedAt, after: fetchedAt, now: new Date(deviceNow), platform: "espn", timeZone: "UTC", ageMs: refreshAnswerAgeMs(saved, saved.response, deviceNow) })).toBe(
+      "Already up to date (fetched 15 s ago; Refresh works once a minute)",
+    );
+    // Before, the page compared this device's clock with the server's fetchedAt.
+    expect(refreshOutcomeText({ before: fetchedAt, after: fetchedAt, now: new Date(deviceNow), platform: "espn", timeZone: "UTC" })).toBe("Already up to date (fetched 3 min ago; Refresh works once a minute)");
+    // A newer answer, signed as the server answered: its own age as it arrived (2 s), whatever this clock says.
+    const newer = { ...saved.response, snapshot: { ...saved.response.snapshot, fetchedAt: new Date(serverNow + 8_000).toISOString() }, signed: { issuedAt: serverNow + 10_000, token: "u" } };
+    expect(refreshAnswerAgeMs(saved, newer, deviceNow)).toBe(2_000);
   });
 
   it("withImportedTeam drops the signature of an import it changes (the server signed the snapshot as it was)", () => {

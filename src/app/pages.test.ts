@@ -16,9 +16,13 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { FANTASYCALC_OUTAGE_HOLD_MS, FANTASYCALC_OUTAGE_MAX_HOLD_MS } from "@/data/fantasyCalcValues";
 import { config } from "@/engine/config";
+import { FOOTER_INDEPENDENT } from "@/components/SiteFooter";
 import { CONTACT_EMAIL, CONTACT_PENDING, POLICY_FEATURES, type PolicyFeatures } from "@/lib/site";
+import { createBudget, createDailyQuota, msUntilUtcMidnight } from "@/server/budget";
 import { HOUR, TTL } from "@/server/cache";
-import { feedbackLimits, logLimits, rateLimits } from "@/server/limits";
+import { browserFetchLimits, budgets, feedbackLimits, logLimits, rateLimits, workLimits } from "@/server/limits";
+import { StoredLogEventSchema } from "@/server/log";
+import { FakeRedis } from "@/server/redis";
 import nextConfig, { BROWSER_FETCH_ORIGINS, FRAMING_ONLY_CSP, PERMISSIONS_POLICY, VERCEL_TOOLBAR_SOURCES, contentSecurityPolicy, securityHeaders } from "../../next.config";
 import ErrorPage from "./error";
 import { FeedbackGuide, feedbackDescription } from "./feedback/FeedbackGuide";
@@ -26,7 +30,7 @@ import FeedbackPage, { metadata as feedbackMetadata } from "./feedback/page";
 import GlobalError from "./global-error";
 import NotFound from "./not-found";
 import Home from "./page";
-import { PRIVACY_LAST_UPDATED, PrivacyPolicy, countedKinds } from "./privacy/PrivacyPolicy";
+import { DAY_COUNT_DELETED, PRIVACY_LAST_UPDATED, PrivacyPolicy, countedKinds } from "./privacy/PrivacyPolicy";
 import PrivacyPage from "./privacy/page";
 import { TERMS_LAST_UPDATED, TermsOfUse } from "./terms/TermsOfUse";
 import TermsPage from "./terms/page";
@@ -168,10 +172,12 @@ describe("the public pages describe what's built (review PG-1)", () => {
     expect(exists("src/lib/feedbackShare.ts")).toBe(true);
     // "turn off “Share anonymous feedback” on the Settings page"
     expect(sourcesUnder("src/components/settings", "src/app/settings").some((s) => s.includes("Share anonymous feedback"))).toBe(true);
-    // "We keep at most the newest 5,000 a month … a year after the last one that month."
+    // "We keep at most the newest 100 a day … a year after the last one that day." (one list per day since the final
+    // review's SEC-3)
     const sink = source("src/server/feedbackSink.ts");
-    expect(sink).toMatch(/feedbackLimits\.maxPerMonth/);
+    expect(sink).toMatch(/feedbackLimits\.maxPerDay/);
     expect(sink).toMatch(/feedbackLimits\.retainDays/);
+    expect(sink).toMatch(/fb:\$\{new Date\(at\)\.toISOString\(\)\.slice\(0, 10\)\}/);
   });
 });
 
@@ -206,15 +212,53 @@ describe("privacy page, whichever features are on", () => {
     expect(text).toContain("deletes the cookie right away. League data our server copied with it expires within about 10 minutes (older weeks' transactions within 6 hours)");
   });
 
-  it.each(ALL)("%o: says the rate limits count a one-way code of the IP address, never the address, kept at Upstash one window, from limits.ts (fact 3, review PG-6)", (f) => {
+  it.each(ALL)("%o: says the request counts use codes made from the IP address and its block with a secret key, kept at Upstash one window, and the day's counts until the day ends, from limits.ts (fact 3; reviews PG-6, SEC-4, POL-1, POL-17, F2)", (f) => {
     const { text } = privacy(f);
     expect([rateLimits.import.windowS, rateLimits.model.windowS, rateLimits.session.windowS, rateLimits.feedback.windowS]).toEqual([600, 600, 600, 3600]);
+    // The day's counts (src/server/budget.ts): the shares of the server's requests to ESPN and Sleeper only, the work
+    // budget and the feedback copies, each key kept until the UTC day ends and a minute (the next test checks it against
+    // the code).
+    expect(Object.keys(budgets.perClientPerDay).sort()).toEqual(["espn", "sleeper"]);
+    expect([budgets.clientKeyMarginMs, workLimits.keyMarginMs]).toEqual([60_000, 60_000]);
+    expect(DAY_COUNT_DELETED).toBe("a minute after the day ends (midnight UTC)");
     const longest = f.anonymousFeedback ? "an hour" : "10 minutes";
-    expect(text).toContain(`To keep things fair, our server counts requests under a one-way code made from your IP address, never the address itself. The counts it keeps at Upstash are deleted within ${longest}.`);
     expect(text).toContain(
-      `It counts them under a one-way code made from your IP address with a secret key, never the address itself. Each count kept at Upstash is deleted one window after it starts, so within ${longest}. A count a server holds in its memory is deleted soon after its window ends while that server keeps running, and is gone when it shuts down.`,
+      `To keep things fair, our server counts requests under codes made from your IP address, and from the block of nearby addresses it's in, with a secret key, never the addresses themselves. The counts it keeps at Upstash are deleted within ${longest}, or for a count of the whole day, a minute after the day ends (midnight UTC).`,
+    );
+    expect(text).toContain(
+      `, and how much it does in a day for one visitor and for the block of nearby addresses the visitor's address is in: the work of importing leagues and working out League pages, ${f.anonymousFeedback ? "the requests it makes to ESPN or Sleeper, and the anonymous feedback copies it takes" : "and the requests it makes to ESPN or Sleeper"}. It counts these under codes made from your IP address and from that block, each with a secret key, never the addresses themselves: without that key, a code can't be turned back into an address. Each short-window count kept at Upstash is deleted one window after it starts, so within ${longest}; each day's count, a minute after the day ends (midnight UTC). A count a server holds in its memory is deleted soon after its window or day ends while that server keeps running, and is gone when it shuts down.`,
     );
     expect(text).not.toContain("deleted when their window ends");
+    // Review POL-17: an HMAC of an IP address can be undone by whoever holds the key (try every address), so not "one-way".
+    expect(text).not.toContain("one-way code");
+    // Review POL-1: the day's counts were missing, and every count read as gone within the window.
+    expect(text).not.toContain(`The counts it keeps at Upstash are deleted within ${longest}.`);
+  });
+
+  it("the day's counts are deleted as the page says: src/server/budget.ts keeps each key under a visitor's or a block's code until the UTC day ends and a minute (reviews SEC-4, POL-1, F2)", async () => {
+    // 00:05 UTC, the day's first requests: each key lives almost a whole day, never an hour.
+    const now = Date.UTC(2026, 9, 4, 0, 5, 0);
+    const dayEnd = msUntilUtcMidnight(now);
+    expect(dayEnd + 60_000).toBe(23 * 60 * 60_000 + 55 * 60_000 + 60_000);
+    // The shares of the server's requests to ESPN and Sleeper (per block of addresses).
+    const shares = new FakeRedis(() => now);
+    const budget = createBudget({ redis: shares, prefix: "os:test:", perClient: budgets.perClientPerDay });
+    for (const platform of ["espn", "sleeper"] as const) expect(await budget.take(platform, now, "group-hmac")).toBe("ok");
+    const shareKeys = shares.keys().filter((k) => k.includes("budget:client:"));
+    expect(shareKeys).toHaveLength(2);
+    for (const key of shareKeys) expect(shares.ttlMs(key)).toBe(dayEnd + budgets.clientKeyMarginMs);
+    // The work budget and the feedback copies (per visitor and per block), as the process's own quotas are made.
+    for (const quota of [
+      { name: "work", perClient: workLimits.perClientPerDay, perGroup: workLimits.perGroupPerDay, perDay: workLimits.perDay },
+      { name: "fbq", perClient: feedbackLimits.perClientPerDay, perGroup: feedbackLimits.perGroupPerDay },
+    ]) {
+      const redis = new FakeRedis(() => now);
+      const q = createDailyQuota({ ...quota, redis, prefix: "os:test:" });
+      expect(await q.charge(1, { client: "client-hmac", group: "group-hmac" }, now)).toBe("ok");
+      const keys = redis.keys().filter((k) => k.includes("client-hmac") || k.includes("group-hmac"));
+      expect(keys).toHaveLength(2);
+      for (const key of redis.keys()) expect(redis.ttlMs(key)).toBe(dayEnd + workLimits.keyMarginMs);
+    }
   });
 
   it.each(ALL)("%o: says what the logs keep and for how long: Vercel's hour, our own 14 days, never league data (fact 5)", (f) => {
@@ -223,16 +267,32 @@ describe("privacy page, whichever features are on", () => {
     expect(text).toContain(
       "keeps a log of the requests it serves for Offer Sheet for 1 hour on our plan: the method, the web address and its query, the status, the type of browser and the region. Vercel can see IP addresses.",
     );
-    expect(text).toContain("Our own error log keeps, for 14 days, only which part of Offer Sheet had a problem and what kind");
+    expect(text).toContain("Our own error log keeps, for up to 14 days, only when something went wrong, which part of Offer Sheet had the problem and what kind");
     expect(text).toContain("Never league data, names, IDs, usernames, cookies or IP addresses.");
   });
 
   it.each(ALL)("%o: says Offer Sheet is independent of every service it reads or names, as the footer does, and links the terms", (f) => {
     const { html, text } = privacy(f);
     expect(text).toContain(
-      "Offer Sheet is an independent project, not affiliated with or endorsed by ESPN, Sleeper, Yahoo, Fleaflicker, MyFantasyLeague, Fantrax, FantasyCalc or the NFL. See also the terms of use .",
+      "Offer Sheet is an independent project, not affiliated with or endorsed by ESPN, Sleeper, Yahoo, Fleaflicker, MyFantasyLeague, Fantrax, FantasyCalc, DynastyProcess or the NFL. See also the terms of use .",
     );
     expect(links(html).filter((l) => l.href === "/terms").map((l) => l.text)).toEqual(["terms of use"]);
+  });
+
+  it.each(ALL)("%o: the footer, the privacy page and the terms name the same services Offer Sheet isn't affiliated with (review POL-23)", (f) => {
+    const named = (sentence: string, lead: string) => {
+      const from = sentence.indexOf(lead);
+      expect(from, `"${lead}" in: ${sentence}`).toBeGreaterThanOrEqual(0);
+      const rest = sentence.slice(from + lead.length);
+      return rest
+        .slice(0, rest.indexOf("."))
+        .split(/, | or /)
+        .map((s) => s.replace(/^the /, "").trim());
+    };
+    const footer = named(FOOTER_INDEPENDENT, "affiliated with or endorsed by ");
+    expect(footer).toContain("DynastyProcess");
+    expect(named(privacy(f).text, "not affiliated with or endorsed by ")).toEqual(footer);
+    expect(named(terms(f).text, "affiliated with, endorsed by or sponsored by ")).toEqual(footer);
   });
 
   it.each(ALL)("%o: names the providers and links their privacy policies (fact 6)", (f) => {
@@ -248,11 +308,20 @@ describe("privacy page, whichever features are on", () => {
         ? "Upstash keeps our server's copies, the request counts, the anonymous feedback and the error log"
         : "Upstash keeps our server's copies, the request counts and the error log",
     );
+    // Review POL-6: where the server runs (vercel.json: the functions' one region, iad1, Washington, D.C.).
+    expect((JSON.parse(source("vercel.json")) as { regions?: string[] }).regions).toEqual(["iad1"]);
+    expect(text).toContain("Vercel hosts Offer Sheet and runs its server, in Vercel's US East region near Washington, D.C. ( Vercel's privacy policy ).");
   });
 
-  it.each(ALL)("%o: says an installed iPhone app keeps its own saved leagues, and Safari's 7 days (fact 7)", (f) => {
-    expect(privacy(f).text).toContain(
-      "Safari may delete what a site saved in your browser, your saved leagues, settings and feedback included, after you use Safari for 7 days without visiting Offer Sheet. If you add Offer Sheet to your Home Screen, the app you open from there keeps its own saved leagues, apart from Safari's, so import your leagues again inside it.",
+  it.each(ALL)("%o: says an installed iPhone app keeps its own saved leagues and settings, the sharing choice too, and Safari's 7 days (fact 7, review POL-16)", (f) => {
+    const { text } = privacy(f);
+    expect(text).toContain(
+      "Safari may delete what a site saved in your browser, your saved leagues, settings and feedback included, after you use Safari for 7 days without visiting Offer Sheet.",
+    );
+    expect(text).toContain(
+      f.anonymousFeedback
+        ? "If you add Offer Sheet to your Home Screen, the app you open from there keeps its own saved leagues and settings, apart from Safari's, “Share anonymous feedback” included, so import your leagues again inside it, and turn sharing off there too if you want it off."
+        : "If you add Offer Sheet to your Home Screen, the app you open from there keeps its own saved leagues and settings, apart from Safari's, so import your leagues again inside it.",
     );
   });
 
@@ -315,6 +384,37 @@ describe("privacy page, whichever features are on", () => {
     expect(text).toContain("Your espn_s2 cookie is never stored on our server or written to logs");
     expect(text).toContain("stops working after 12 hours");
   });
+
+  it.each(ALL)("%o: says the ESPN cookies reach our server once in plain and then inside the encrypted cookie with every request, opened only to read the league (review POL-25)", (f) => {
+    const { text } = privacy(f);
+    // src/server/session.ts: the sealed cookie's Path is "/", so the browser sends it with every request to the site.
+    expect(source("src/server/session.ts")).toMatch(/path:\s*"\/"/);
+    expect(text).toContain("You type them into Offer Sheet once, and they travel to our server inside that request, never in a web address.");
+    expect(text).toContain("Your browser sends that encrypted cookie back with each request to Offer Sheet, as browsers do with a site's cookies.");
+    expect(text).toContain("Our server opens the encrypted cookie only to read your league, and sends your ESPN cookies only to ESPN.");
+    expect(text).toContain(
+      "If you connect with ESPN cookies, they're kept only in an encrypted cookie in your browser for this session. Our server opens it only to read your league, and sends them only to ESPN. They're never saved with your leagues.",
+    );
+    for (const claim of ["They travel from your browser to our server once", "only ever sent to ESPN"]) expect(text).not.toContain(claim);
+  });
+
+  it.each(ALL)("%o: says the error log keeps the time too, for up to 14 days (review POL-15)", (f) => {
+    const { text } = privacy(f);
+    // src/server/log.ts: each stored entry carries the time it was logged (`at`), and a day's list goes
+    // logLimits.retainDays after the day began.
+    expect(Object.keys(StoredLogEventSchema.shape)).toContain("at");
+    expect(text).toContain(
+      "Our own error log keeps, for up to 14 days, only when something went wrong, which part of Offer Sheet had the problem and what kind: an error code, the data source involved (ESPN or Sleeper, for example), the status it answered with, the error's type and how long the request took.",
+    );
+  });
+
+  it.each(ALL)("%o: names whom it shares data with instead of saying it shares none (review POL-18)", (f) => {
+    const { text } = privacy(f);
+    expect(text).toContain(
+      "No accounts, no ads and no tracking or analytics. We don't sell your data or share it with anyone but the services that run Offer Sheet and the sites it reads for you (below), and we don't build profiles of you or your leaguemates.",
+    );
+    expect(text).not.toContain("We don't sell or share your data");
+  });
 });
 
 describe("privacy page without browser reading (today: our server reads every league)", () => {
@@ -361,25 +461,32 @@ describe("privacy page with browser reading (track BF)", () => {
   it.each(WITH_BROWSER)("%o: says the browser reads public ESPN and Sleeper leagues itself, what ESPN and Sleeper see, and that no cookies go with it (fact 1)", (f) => {
     const { text } = privacy(f);
     expect(text).toContain(
-      "Your browser reads public ESPN leagues and Sleeper leagues straight from ESPN and Sleeper, and sends our server only the parts Offer Sheet needs. Our server still reads a league itself while you're connected with ESPN cookies (a private ESPN league needs them), when your browser can't, and when it can't use the copy your browser saved.",
+      "Your browser reads public ESPN leagues and Sleeper leagues straight from ESPN and Sleeper, and sends our server only the parts Offer Sheet needs. Our server still reads some leagues itself: private ESPN leagues and any other ESPN league you import with ESPN cookies, and any league your browser can't read or whose saved copy our server can't use.",
     );
     expect(text).toContain(
       "Like any site your browser talks to, they see your IP address, which league (or Sleeper username) your browser asks for, and that the request comes from Offer Sheet. Your browser sends them no cookies with these requests.",
     );
     expect(text).toContain("Our server uses what your browser sends for that one request: it never saves it.");
-    // What the upload holds (track BF: src/adapters/upload.ts trimEspnBody and trimSleeperBody, the Sleeper username's
-    // lookup for the user's team; src/lib/leagueFetch.ts never sends a username's list of leagues).
+    // What the upload holds (track BF: src/adapters/upload.ts trimEspnBody and trimSleeperBody, Sleeper's traded picks and
+    // drafts among them (review POL-14), the Sleeper username's lookup for the user's team; src/lib/leagueFetch.ts never
+    // sends a username's list of leagues).
     expect(text).toContain(
-      "(the league's settings, teams and owners' names, rosters, schedule and transactions, for ESPN its free agents, projections and injured players' expected return dates, and for Sleeper the username you entered, which finds your team)",
+      "(the league's settings, teams and owners' names, rosters, schedule and results, and transactions; for ESPN also its free agents, projections and injured players' expected return dates; for Sleeper also its traded draft picks and drafts, and the username you entered, which finds your team)",
     );
     expect(text).toContain("If your browser can't reach ESPN or Sleeper (some ad blockers and work or school networks stop it), our server reads the league itself instead.");
-    expect(text).toContain("It does the same for your ESPN leagues, public ones too, while you're connected with your ESPN cookies, which a private league needs (below).");
+    // Review POL-12: a league imported with ESPN cookies stays the server's to read (src/lib/modelStore.ts modelPlan, the
+    // Import Report's Refresh: ImportResponse.usedEspnCookies), even after the cookies are forgotten; one imported without
+    // them is read by the browser even while they're connected.
+    expect(text).toContain(
+      "It does the same for private ESPN leagues and any other ESPN league you import while you're connected with your ESPN cookies (below), and it keeps reading such a league itself, even after you forget the cookies.",
+    );
+    expect(text).not.toContain("while you're connected with ESPN cookies (a private ESPN league needs them)");
   });
 
-  it.each(WITH_BROWSER)("%o: lists every league our server still reads itself, and never keeps what the browser sends (fact 2; review PG-1)", (f) => {
+  it.each(WITH_BROWSER)("%o: lists every league our server still reads itself, and never keeps what the browser sends (fact 2; reviews PG-1, POL-12)", (f) => {
     const { text } = privacy(f);
     expect(text).toContain(
-      "League data our server reads itself (private ESPN leagues, any ESPN league while you're connected with ESPN cookies, any league your browser couldn't read, and any league whose saved copy our server couldn't use): about 10 minutes.",
+      "League data our server reads itself (private ESPN leagues and any other ESPN league you import with ESPN cookies, any league your browser couldn't read, and any league whose saved copy our server couldn't use): about 10 minutes.",
     );
     expect(text).toContain("A Sleeper username lookup our server makes (which leagues that username is in): 10 minutes.");
     expect(text).toContain("League data your browser sends our server is never among these copies.");
@@ -391,11 +498,28 @@ describe("privacy page with browser reading (track BF)", () => {
 
   it.each(WITH_BROWSER)("%o: says the League page sends the saved league back, read again first when its copy is over 10 minutes old, and when the server reads it itself", (f) => {
     const { text } = privacy(f);
+    // Review POL-11: a league saved before browser reading is over 10 minutes old, so the browser reads it again first;
+    // the server reads it itself when it can't check the signature (src/server/importToken.ts: keys changed, too old).
     expect(text).toContain(
-      "When you open the League page, your browser sends the league it saved to our server (reading it again first when its copy is more than 10 minutes old), and our server adds the projections and trade values for its players and scores the projections with your league's scoring rules. If our server can't use the copy your browser sends (one saved before Offer Sheet read leagues in your browser, for example), it reads the league itself.",
+      "When you open the League page, your browser sends the league it saved to our server (reading it again first when its copy is more than 10 minutes old), and our server adds the projections and trade values for its players and scores the projections with your league's scoring rules. If our server can't check the copy your browser sends (after Offer Sheet's keys change, for example), it reads the league itself.",
+    );
+    expect(text).not.toContain("one saved before Offer Sheet read leagues in your browser");
+    // The model routes' memory (src/app/api/model/memo.ts; the final review's SEC-1): the answer built from a signed import,
+    // in the instance's memory only, until the token stops being good (its issue time plus tokenMaxAgeMs).
+    expect(browserFetchLimits.tokenMaxAgeMs).toBe(15 * 60_000);
+    for (const handler of ["src/app/api/model/espn/handler.ts", "src/app/api/model/sleeper/handler.ts"]) {
+      expect(source(handler)).toMatch(/memo\(\)\.set\([^)]*issuedAt \+ browserFetchLimits\.tokenMaxAgeMs/);
+    }
+    expect(source("src/app/api/model/memo.ts")).toContain("never in Redis");
+    expect(text).toContain(
+      "So that the same copy sent again doesn't cost it the same work twice, a server keeps the projections and values it worked out from it in its memory, never at Upstash: it stops using them when that copy stops being good, 15 minutes after Offer Sheet read the league, and deletes them soon after while it keeps running.",
     );
     expect(text).toContain("If you enter a username, your browser asks Sleeper which leagues it's in, to find your leagues and your team (if your browser can't reach Sleeper, our server asks instead and keeps that lookup for 10 minutes).");
-    expect(text).toContain("Your browser sends the username to our server with the league you import, only to find your team there");
+    // Review POL-13: the username goes with the League page's requests too (src/lib/leagueFetch.ts signedModelBody,
+    // src/lib/modelStore.ts modelRequest).
+    expect(text).toContain(
+      "Your browser sends the username to our server with the league you import, and whenever the League page asks for that league's numbers, only to find your team there. It saves the username with each league you import with it, so it can find your team again.",
+    );
   });
 });
 
@@ -403,8 +527,10 @@ describe("privacy page without anonymous feedback (today: feedback stays in the 
   it.each(WITHOUT_FEEDBACK)("%o: says settings and feedback never leave the browser, and names no feedback the server keeps", (f) => {
     const { html, text } = privacy(f);
     expect(text).toContain("These are saved with each league in this browser's IndexedDB storage, so they're there the next time you use Offer Sheet. They're read only in your browser and never sent to our server.");
-    for (const claim of ["Anonymous feedback", "anonymous copy", "Share anonymous feedback", "an hour for feedback", "a month, at Upstash"]) expect(text).not.toContain(claim);
-    expect(text).toContain("our server limits how many requests one visitor can send in 10 minutes.");
+    for (const claim of ["Anonymous feedback", "anonymous copy", "Share anonymous feedback", "an hour for feedback", "a month, at Upstash", "turn sharing off"]) expect(text).not.toContain(claim);
+    expect(text).toContain(
+      "our server limits how many requests one visitor can send in 10 minutes, and how much it does in a day for one visitor and for the block of nearby addresses the visitor's address is in: the work of importing leagues and working out League pages, and the requests it makes to ESPN or Sleeper.",
+    );
     expect(links(html).filter((l) => l.href === "/settings" || l.href === "/feedback")).toEqual([]);
   });
 });
@@ -413,43 +539,62 @@ describe("privacy page with anonymous feedback (track FB)", () => {
   it.each(WITH_FEEDBACK)("%o: lists what the anonymous copy holds and never holds, the day it arrived, how long it's kept, and how to turn it off (fact 4)", (f) => {
     const { html, text } = privacy(f);
     expect(text).toContain(
-      "When you mark what happened to a trade idea or report a problem with it, your browser also sends Offer Sheet an anonymous copy, to improve its estimates: never your league's ID, names, usernames or the notes you type. You can turn this off in Settings.",
+      "When you mark what happened to a trade idea or report a problem with it, your browser also sends Offer Sheet an anonymous copy, to help improve it: never your league's ID, names, usernames or the notes you type. You can turn this off in Settings.",
     );
-    expect(text).toContain("Unless you turn it off, it also sends Offer Sheet an anonymous copy, used only to improve how Offer Sheet estimates trades.");
+    // Review POL-8: "Player info is wrong" and "League settings look wrong" reports go to the adapters' bug queue too
+    // (CLAUDE.md §11 "How the data is used"), so not "only to improve how Offer Sheet estimates trades".
+    expect(text).toContain("Unless you turn it off, it also sends Offer Sheet an anonymous copy, used only to improve Offer Sheet: how it estimates trades, and anything it reads or shows wrong.");
     for (const field of [
-      "what you pressed (the outcome, or the report's reason) and which version of the idea you sent;",
+      // Review POL-10: each copy is the record as it stands (src/lib/feedbackShare.ts feedbackEventOf), and clearing sends one
+      // without what was cleared.
+      "the trade idea's outcome and report reason as they stand after your press (when you clear one, a copy without it follows, so the earlier copies no longer count), and which version of the idea you sent;",
       "the platform (ESPN or Sleeper), the season and the week;",
       "your league's format: the number of teams, whether it's redraft, keeper or dynasty, the points per catch and per passing touchdown, any tight-end premium, whether it starts a second quarterback, how many of each lineup slot it starts, and how many teams make the playoffs;",
       "your “What matters most” setting;",
       // Review FB-R7: the version sent, when it isn't the card's trade (src/lib/feedbackShare.ts versionTrade).
       "the players in the trade, and in the version you sent when it differs, as ID numbers with their positions;",
+      // Review POL-9: the sent version's own estimate and inputs (feedbackShare.ts versionAccept, versionInputs).
+      "for the version you sent: Offer Sheet's estimate for it, and what that estimate and its score were worked out from;",
       "a random code your browser makes for that one record",
     ]) {
       expect(text).toContain(field);
     }
+    expect(text).not.toContain("what you pressed (the outcome, or the report's reason)");
     // The server adds the day it arrived (review PG-1).
     expect(text).toContain("Our server stores it with the day it arrived (the date, not the time).");
     expect(text).toContain(
       "It never holds your league's ID, team IDs, team or owner names, usernames, ESPN member IDs (SWIDs), cookies, the code your browser files your league under, or any note you type: notes stay in your browser.",
     );
-    expect([feedbackLimits.maxPerMonth, feedbackLimits.retainDays]).toEqual([5_000, 365]);
-    expect(text).toContain("We keep at most the newest 5,000 a month, at Upstash, and delete each month's feedback a year after the last one that month.");
-    // Review FB-R2: scripts/feedback-pull.ts deletes its downloaded copies by the store's rule (pruneFeedbackFiles).
-    expect(text).toContain("Offer Sheet's developer downloads it from there to study it, and deletes the downloaded copies on the same schedule.");
-    // Review FB-R3: only the browser (and an export) keeps a record's random code; Delete recalls nothing sent.
+    // One list per day of arrival since the final review's SEC-3 (src/server/feedbackSink.ts feedbackDayKey).
+    expect([feedbackLimits.maxPerDay, feedbackLimits.retainDays]).toEqual([100, 365]);
+    expect(text).toContain("We keep at most the newest 100 a day, at Upstash, and delete each day's feedback a year after the last one that day.");
+    expect(text).not.toContain("a month, at Upstash");
+    // Reviews FB-R2, POL-4: scripts/feedback-pull.ts writes one file a month and deletes a month's file on its first run a
+    // year after that month's newest copy (pruneFeedbackFiles), and nothing between runs, so the page commits to a run at
+    // least once a month: a month's older days stay up to a month longer than in the store, plus the gap between runs.
+    expect(source("scripts/feedback-pull.ts")).toMatch(/data-local\/feedback-server\/<env>\/<YYYY-MM>\.json/);
     expect(text).toContain(
-      "Offer Sheet can't tell which copies are yours. The random code a record's copies carry stays only in your browser (and in any file you save with “Export feedback”), so only someone with your browser or that file could match copies to you. Turning sharing off stops new copies; deleting your saved feedback doesn't take back copies already sent.",
+      "Offer Sheet's developer downloads it from there to study it, at least once a month, and keeps each month's download until a year after that month's last copy, deleting it at the first download after that, so a downloaded copy is kept at most about two months longer than at Upstash.",
+    );
+    expect(text).not.toContain("on the same schedule");
+    // Reviews FB-R3, POL-3, SEC-6: every copy carries its record's random code, but only the browser (and an export) knows
+    // whose it is; the players, the format and the week could still point to a public league. Delete recalls nothing sent.
+    // The feedback route's daily copy quota (src/server/budget.ts feedbackQuota) counts copies per visitor and block until
+    // the day ends: said, so "nothing ties it to you" doesn't overclaim.
+    expect(text).toContain(
+      "Offer Sheet stores nothing with a copy that ties it to you: no IP address, account, league ID or name. (The day's limit on copies counts them under codes made from your IP address and its block, above, and those counts are deleted a minute after the day ends (midnight UTC).) Each copy carries its record's random code, but only your browser (and any file you save with “Export feedback”) keeps that code with your feedback, so only someone with your browser or that file could match copies to you by it. Still, the players in a trade, with your league's format and the week, could lead someone who searched public leagues to yours. Offer Sheet never tries to match copies to anyone. Turning sharing off stops new copies; deleting your saved feedback doesn't take back copies already sent.",
     );
     expect(text).toContain("It includes each record's random code, which matches it to its anonymous copies.");
-    expect(text).toContain("Anonymous copies already sent stay at Upstash for their year (above).");
-    for (const claim of ["isn't linked to you", "no way to pick out yours"]) expect(text).not.toContain(claim);
+    // Review POL-7: the month cap can drop copies sooner, and the downloads hold some too.
+    expect(text).toContain("Anonymous copies already sent aren't affected: they're deleted on their own schedule (above).");
+    for (const claim of ["isn't linked to you", "no way to pick out yours", "can't tell which copies are yours", "stays only in your browser", "for their year"]) expect(text).not.toContain(claim);
     expect(text).toContain("To stop sending it, turn off “Share anonymous feedback” on the Settings page");
     expect(links(html).filter((l) => l.href === "/settings")).toHaveLength(1);
     expect(text).toContain(
       "Your settings never leave your browser, except your “What matters most” setting in the anonymous feedback above. Your feedback stays here too, apart from that anonymous copy, which leaves out your notes.",
     );
     expect(text).not.toContain("They're read only in your browser and never sent to our server.");
-    expect(text).toContain("(10 minutes for imports and the League page, an hour for feedback)");
+    expect(text).toContain("(10 minutes for imports, the League page and ESPN cookies, an hour for feedback)");
     expect(countedKinds(f)).toContain("feedback");
     // Track FB: the saved record keeps the random code its copies carry (src/lib/feedbackStore.ts FeedbackRecord.rid), and
     // the week, season and goal its numbers were computed for (FeedbackRecord.basis, VersionInputs.week; review FB-R6).
@@ -492,7 +637,9 @@ describe("terms page (Part B, B3)", () => {
 
   it.each(ALL)("%o: says the numbers are estimates and the decisions are yours, and names the sources it reads, the NFL schedule ESPN's (review PG-2)", (f) => {
     const { text } = terms(f);
-    expect(text).toContain("Every number Offer Sheet shows is an estimate: projections, playoff and title odds, “Helps you”, “Chance they accept” and “Overall”, and the trade values it quotes.");
+    // Review POL-21: the league's own records, points and settings are the platform's, not estimates.
+    expect(text).toContain("The numbers Offer Sheet works out or quotes are estimates: projections, playoff and title odds, “Helps you”, “Chance they accept” and “Overall”, and the trade values it shows.");
+    expect(text).not.toContain("Every number Offer Sheet shows is an estimate");
     expect(text).toContain("You decide what to offer and what to accept, and those decisions are yours.");
     expect(text).toContain("ESPN's league data comes through an unofficial interface that ESPN doesn't support, so it can change or stop working at any time.");
     expect(text).toContain("trade values from FantasyCalc, player ID maps from DynastyProcess, and the NFL schedule from ESPN.");
@@ -503,7 +650,8 @@ describe("terms page (Part B, B3)", () => {
 
   it.each(ALL)("%o: asks users to connect only their own or public leagues, keep cookies private, not scrape or resell values", (f) => {
     const { text } = terms(f);
-    expect(text).toContain("connect only leagues you're in, or leagues their managers have made public;");
+    // Review POL-22 (Parker's call at Checkpoint 7a): Sleeper leagues are public by design, so "made public" read oddly.
+    expect(text).toContain("connect only leagues you're in, or public ones (any Sleeper league, or an ESPN league its manager made viewable to the public);");
     expect(text).toContain("keep your ESPN cookies to yourself: they work like a password");
     expect(text).toContain("not scrape Offer Sheet, point automated tools at it, overload it, or get around its limits;");
     expect(text).toContain("not sell, republish or reuse its trade values or other data, commercially or in bulk.");
@@ -525,7 +673,10 @@ describe("terms page (Part B, B3)", () => {
   it.each(WITH_FEEDBACK)("%o: says feedback is anonymous with an opt-out (linking the privacy policy and Settings)", (f) => {
     const { html, text } = terms(f);
     expect(links(html).map((l) => l.href)).toEqual(["/privacy", "/settings"]);
-    expect(text).toContain("Offer Sheet may use an anonymous copy to improve its estimates.");
+    expect(text).toContain("Offer Sheet may use an anonymous copy to improve its estimates and fix what it gets wrong.");
+    // Review POL-9: the privacy policy lists what's sent, summarizing some of it, so not "exactly".
+    expect(text).toContain("The privacy policy says what's sent.");
+    expect(text).not.toContain("exactly");
     expect(text).toContain("You can turn it off in Settings .");
   });
 });
@@ -534,7 +685,11 @@ describe("feedback page (Part B, B3)", () => {
   it.each(ALL)("%o: explains the buttons on every trade idea, and has no form (nothing the public types is stored on the server), only the contact line", (f) => {
     const { html, text } = feedback(f);
     expect(text).toContain("Each trade idea on the Trade Finder and the Trade Analyzer has buttons for what happened: Sent, Accepted, Rejected and Countered.");
-    expect(text).toContain("Doesn't help me, They'd never accept, Player info is wrong, League settings look wrong, or Other, with a note if you like.");
+    // Review POL-20: the button reads "Report a problem", and its note goes with any reason.
+    expect(source("src/components/trades/FeedbackControls.tsx")).toContain("Report a problem<span");
+    expect(text).toContain(
+      "If something looks wrong, press “Report a problem” and pick a reason (Doesn't help me, They'd never accept, Player info is wrong, League settings look wrong, or Other), and add a note if you like.",
+    );
     expect(text).toContain("Every press is saved with that league in this browser.");
     expect(html).not.toMatch(/<(form|textarea|input)\b/);
     expect(text).toContain(`Contact: ${CONTACT_PENDING}`);
@@ -557,9 +712,13 @@ describe("feedback page (Part B, B3)", () => {
     expect(text).toContain("A note you type with a report stays in this browser. It's never sent.");
     expect(text).toContain("To stop sending copies, turn off “Share anonymous feedback” on the Settings page");
     expect(text).toContain("Never your league's ID, names or usernames.");
-    expect(text).toContain("The privacy policy lists exactly what's sent and how long it's kept.");
+    expect(text).toContain("an anonymous copy also goes to Offer Sheet, to help improve it:");
+    // Review POL-9: not "exactly" (the policy summarizes some fields).
+    expect(text).toContain("The privacy policy lists what's sent and how long it's kept.");
+    expect(text).not.toContain("exactly");
     expect(links(html).map((l) => l.href)).toEqual(["/settings", "/privacy"]);
-    expect(feedbackDescription(f)).toBe("How to tell Offer Sheet what happened to its trade ideas, or what went wrong: anonymous, and only if you want to.");
+    // Review POL-19: sharing is on unless turned off, so not "only if you want to".
+    expect(feedbackDescription(f)).toBe("How to tell Offer Sheet what happened to its trade ideas, or what went wrong. The copies it gets are anonymous, and you can turn them off.");
   });
 });
 

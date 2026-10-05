@@ -8,13 +8,18 @@
  *    (our own pages' requests say same-origin; a typed address says none, and curl says nothing: those pass).
  * 2. The per-IP rate limit for the route's kind (src/server/rateLimit.ts), before the handler: over it, 429 with
  *    Retry-After and { error: { code: "RATE_LIMITED", message: "You're going a bit fast. Try again in about 8 minutes." } }
- *    (the wait in words is the Retry-After's). A route can opt out (`rateLimited: false`: "Forget my credentials", which
- *    asks nothing of any source and must work even for a client over its limits). A limiter that can't be built or
- *    fails lets the request through (fail open, logged by the error's name).
+ *    (the wait in words is the Retry-After's); an IPv6 request is also counted against its /48 (final review SEC-2). Then
+ *    the daily work budget (on Vercel only; src/server/budget.ts admissionUnits, the work budget; final review SEC-1, F1):
+ *    an import or a League page request costs its units, counted against the client, its group and the server's day; over
+ *    any of them, BUSY (respond.ts workRefusedResponse). A visitor this process already knows is over its day is refused
+ *    first, before the rate limiter asks Redis anything, and so is one over its day of feedback copies on the feedback
+ *    route (RATE_LIMITED, as its handler answers; final review SEC-3). A route can opt out of both (`rateLimited: false`:
+ *    "Forget my credentials", which asks nothing of any source and must work even for a client over its limits). A
+ *    limiter or a budget that can't be built or fails lets the request through (fail open, logged by the error's name).
  * 3. The handler runs inside the request's scope (src/server/deadline.ts): its deadline (import 45 s, model 90 s, session
- *    and feedback 10 s) bounds every outbound request it makes, the scope carries the client's id (its share of each
- *    platform's daily budget, src/server/budget.ts), and it collects what the deadline or a budget cut, which the import
- *    routes turn into words (src/app/api/_lib/respond.ts).
+ *    and feedback 10 s) bounds every outbound request it makes, the scope carries the client's and its group's ids (the
+ *    work the handler charges, and the group's share of each platform's daily budget, src/server/budget.ts), and it
+ *    collects what the deadline or a budget cut, which the import routes turn into words (src/app/api/_lib/respond.ts).
  * 4. A handler that throws (each catches its own errors, so this is a bug) answers INTERNAL, logged by error name.
  * 5. The log (src/server/log.ts; allowlisted fields only): a refusal (once per client and window), an answer with status
  *    500 or more (its code, status and time), and each source the deadline cut, by why ("deadline_slow": a source took the
@@ -26,20 +31,26 @@
 import { after } from "next/server";
 import { isApiError } from "@/lib/api";
 import { errorMessage } from "@/lib/errors";
+import { admissionUnits, feedbackQuota, secondsUntilUtcMidnight, workBudget, type DailyQuota, type QuotaVerdict } from "@/server/budget";
 import { DEADLINE_CUTS, newRequestScope, runInRequestScope, type RequestScope, type RouteKind } from "@/server/deadline";
 import { errorNameOf, flushRequestLogs, LOG_PLATFORMS, logEvent, type LogPlatform } from "@/server/log";
-import { clientKey, processLimiter, type RateLimiter, type RateVerdict } from "@/server/rateLimit";
-import { errorResponse, isSameOrigin, logUnexpected } from "./respond";
+import { clientIds, processLimiter, type ClientIds, type RateLimiter, type RateVerdict } from "@/server/rateLimit";
+import { errorResponse, isSameOrigin, logUnexpected, workRefusedResponse } from "./respond";
 
 export type RouteHandler = (request: Request) => Promise<Response>;
 
 export interface RouteOptions {
   /** The platform the route serves (its log lines name it). */
   platform?: "espn" | "sleeper";
-  /** false: no rate limit for this handler (step 2 of the header); the origin check still applies. */
+  /** false: no rate limit or work budget for this handler (step 2 of the header); the origin check still applies. */
   rateLimited?: boolean;
-  /** Test hooks: the limiter (default the process's), the clock, the environment and next/server's after(). */
+  /**
+   * Test hooks: the limiter (default the process's), the daily work budget and the feedback route's daily copies (default
+   * the process's: on Vercel only; null: none), the clock, the environment and next/server's after().
+   */
   limiter?: RateLimiter;
+  work?: DailyQuota | null;
+  feedbackQuota?: DailyQuota | null;
   now?: () => number;
   env?: Readonly<Record<string, string | undefined>>;
   after?: (task: () => Promise<void>) => void;
@@ -86,12 +97,47 @@ function scheduleFlush(scope: RequestScope, schedule: ((task: () => Promise<void
   }
 }
 
-/** The client's rate-limit id (src/server/rateLimit.ts clientKey), or undefined if it can't be made (never expected). */
-function clientOf(request: Request, env: RouteOptions["env"]): string | undefined {
+/** The client's ids (src/server/rateLimit.ts clientIds), or undefined if they can't be made (never expected). */
+function idsOf(request: Request, env: RouteOptions["env"]): ClientIds | undefined {
   try {
-    return clientKey(request, env);
+    return clientIds(request, env);
   } catch {
     return undefined;
+  }
+}
+
+/** The daily work budget (the option, else the process's), or null when it can't be built (fail open, logged by name). */
+function workOf(opts: RouteOptions): DailyQuota | null {
+  if (opts.work !== undefined) return opts.work;
+  try {
+    return workBudget();
+  } catch (err) {
+    logEvent({ event: "work_budget_error", errorName: errorNameOf(err) });
+    return null;
+  }
+}
+
+/** The feedback route's daily copies (the option, else the process's: the same one its handler charges), or null. */
+function feedbackQuotaOf(opts: RouteOptions): DailyQuota | null {
+  if (opts.feedbackQuota !== undefined) return opts.feedbackQuota;
+  try {
+    return feedbackQuota();
+  } catch {
+    return null;
+  }
+}
+
+const ALLOWED: RateVerdict = { allowed: true, retryAfterS: 0, firstRefusal: false };
+
+/** One rate-limit check (step 2 of the header); a limiter that rejects anyway lets the request through (fail open). */
+async function rateCheck(opts: RouteOptions, kind: RouteKind, id: string, now: number, tier: "client" | "group"): Promise<RateVerdict> {
+  try {
+    // The process's limiter is built here, inside the try: one that can't be built fails open like one that fails.
+    const limiter = opts.limiter ?? processLimiter();
+    return await limiter.check(kind, id, now, tier);
+  } catch (err) {
+    logEvent({ event: "limiter_error", errorName: errorNameOf(err) });
+    return ALLOWED;
   }
 }
 
@@ -100,26 +146,44 @@ export function withRoute(kind: RouteKind, handler: RouteHandler, opts: RouteOpt
   const now = opts.now ?? Date.now;
   return async function route(request: Request): Promise<Response> {
     const startedAt = now();
-    const client = clientOf(request, opts.env);
-    const scope = newRequestScope(kind, startedAt, undefined, client);
+    const ids = idsOf(request, opts.env);
+    const scope = newRequestScope(kind, startedAt, undefined, ids?.client, ids?.group);
     try {
       return await runInRequestScope(scope, async () => {
         // Another site's request (step 1 of the header): refused before it's counted, for any method.
         if (!isSameOrigin(request)) return errorResponse("BAD_ORIGIN");
         if (opts.rateLimited !== false) {
-          let verdict: RateVerdict;
-          try {
-            // The process's limiter is built here, inside the try: one that can't be built fails open like one that fails.
-            const limiter = opts.limiter ?? processLimiter();
-            verdict = client === undefined ? { allowed: true, retryAfterS: 0, firstRefusal: false } : await limiter.check(kind, client, startedAt);
-          } catch (err) {
-            // The limiters never reject; if one does anyway, the request goes on (fail open).
-            logEvent({ event: "limiter_error", errorName: errorNameOf(err) });
-            verdict = { allowed: true, retryAfterS: 0, firstRefusal: false };
+          // What the request costs the day's work budget (step 2 of the header): an import or a League page request.
+          const units = admissionUnits(kind, request);
+          const work = units > 0 ? workOf(opts) : null;
+          // A visitor (or the server's day) this process already knows is over its day of work: refused before anything
+          // is counted or asked of Redis (step 2 of the header; final review SEC-1, F1).
+          const known = ids ? work?.refusedAlready(ids, startedAt) : null;
+          if (known) return workRefusedResponse(known, startedAt);
+          // Likewise a visitor already over its day of feedback copies (the handler charges them; final review SEC-3):
+          // refused as the handler would, without the rate limiter's Redis commands.
+          if (kind === "feedback" && ids && feedbackQuotaOf(opts)?.refusedAlready(ids, startedAt)) {
+            const retryAfterS = secondsUntilUtcMidnight(startedAt);
+            return errorResponse("RATE_LIMITED", errorMessage("RATE_LIMITED", { retryAfterS }), new Headers({ "retry-after": String(retryAfterS) }));
           }
+          // The client's window, and an IPv6 client's /48 too (final review SEC-2).
+          let verdict = ids ? await rateCheck(opts, kind, ids.client, startedAt, "client") : ALLOWED;
+          if (verdict.allowed && ids?.ipv6) verdict = await rateCheck(opts, kind, ids.group, startedAt, "group");
           if (!verdict.allowed) {
             if (verdict.firstRefusal) logEvent({ event: "rate_limited", code: "RATE_LIMITED", ...(opts.platform ? { platform: opts.platform } : {}), status: 429 });
             return errorResponse("RATE_LIMITED", errorMessage("RATE_LIMITED", { retryAfterS: verdict.retryAfterS }), new Headers({ "retry-after": String(verdict.retryAfterS) }));
+          }
+          // Charged: over the client's, its group's or the server's day, refused before the handler reads its body.
+          if (work && ids) {
+            let charged: QuotaVerdict = "ok";
+            try {
+              const v = work.charge(units, ids, startedAt);
+              charged = typeof v === "string" ? v : await v;
+            } catch (err) {
+              // The budgets never reject; if one does anyway, the request goes on (fail open).
+              logEvent({ event: "work_budget_error", errorName: errorNameOf(err) });
+            }
+            if (charged !== "ok") return workRefusedResponse(charged, startedAt);
           }
         }
         let res: Response;

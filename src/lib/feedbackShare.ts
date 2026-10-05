@@ -16,9 +16,9 @@
  * queues a copy shows a one-time note on the card until the first copy this browser sends has left (shareNoteDue,
  * markShareNoted; SHARE_NOTE_TEXT), so a press undone at once never uses it up.
  *
- * The event (FeedbackEvent, v 1), field by field: exactly what the privacy page's "Anonymous feedback" lists
- * (src/app/privacy/PrivacyPolicy.tsx), each copy the whole record as it stands (a later copy with the same rid replaces
- * the earlier one when the copies are read: scripts/feedback-pull.ts):
+ * The event (FeedbackEvent, v 1), field by field: what the privacy page's "Anonymous feedback" lists in words, some fields
+ * summarized with "such as" (src/app/privacy/PrivacyPolicy.tsx; review POL-9), each copy the whole record as it stands (a
+ * later copy with the same rid replaces the earlier one when the copies are read: scripts/feedback-pull.ts):
  *   rid            the record's share id (feedbackStore.ts FeedbackRecord.rid): random, made in this browser, kept with the
  *                  record so a later press on it (Accepted after Sent) can be matched to the earlier copy
  *   kind           which buttons the press was ("outcome": Sent, Accepted, Rejected, Countered; "report": Report)

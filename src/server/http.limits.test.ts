@@ -400,4 +400,26 @@ describe("the daily budgets", () => {
     expect((await asRequest(45_000, () => http.get(`${ESPN}?view=mSettings`), "client-b")).status).toBe(200);
     expect((await http.get(`${ESPN}?view=mStatus`)).status).toBe(200);
   });
+
+  it("the share is the request's group's (final review SEC-2: an IPv4 /24, an IPv6 /48), and a request with a visitor's ESPN cookies may use the day's reserve", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const budget = createBudget({ perDay: { espn: 3, sleeper: 100, fantasycalc: 100, github: 100 }, perClient: { espn: 10 }, reserved: { espn: 1 } });
+    const take = vi.spyOn(budget, "take");
+    const f = fakeFetch([{ status: 200, body: "{}" }]);
+    const http = createHttpClient({ fetchImpl: f.impl, budget });
+    const scope = newRequestScope("import", Date.now(), 45_000, "client-a", "group-1");
+    await runInRequestScope(scope, async () => {
+      expect((await http.get(`${ESPN}?view=mTeam`)).status).toBe(200);
+      expect((await http.get(`${ESPN}?view=mRoster`)).status).toBe(200);
+      // Without cookies the day's 3 less the reserve's 1 are spent; with them, the reserve is there.
+      await expect(http.get(`${ESPN}?view=mStatus`)).rejects.toMatchObject({ name: "BudgetExhaustedError", by: "day" });
+      expect((await http.get(`${ESPN}?view=mStatus`, { cookie: "espn_s2=x; SWID={y}" })).status).toBe(200);
+    });
+    expect(take.mock.calls.map((c) => [c[2], c[3]])).toEqual([
+      ["group-1", undefined],
+      ["group-1", undefined],
+      ["group-1", undefined],
+      ["group-1", { privileged: true }],
+    ]);
+  });
 });

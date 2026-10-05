@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildTeamCodeIndex, cleanTeamCode, deriveTeamAliases, SLEEPER_TEAM_CODES, STATIC_TEAM_ALIASES, TEAM_ALIAS_MIN_SUPPORT, type TeamCodeObservation } from "./teamCodes";
+import { buildTeamCodeIndex, cleanTeamCode, deriveTeamAliases, SLEEPER_TEAM_CODES, STATIC_DEFENSE_IDS, STATIC_TEAM_ALIASES, TEAM_ALIAS_MIN_SUPPORT, type TeamCodeObservation } from "./teamCodes";
 import { fixtureDynastyRows, fixtureEspnProTeams, fixtureNflverseGames, fixtureSleeperPlayers } from "./testSupport";
 
 describe("team codes (synthetic)", () => {
@@ -109,6 +109,17 @@ describe("team codes (committed fixtures)", () => {
     expect(pairs).toEqual({ WSH: "WAS", LAR: "LA" });
     expect(STATIC_TEAM_ALIASES.WSH).toBe("WAS");
     expect(index.toSleeper("LA")).toBe("LAR");
+  });
+
+  it("STATIC_DEFENSE_IDS (a model build's team codes without the crosswalk; final review F3) maps every ESPN abbreviation as the crosswalk built from the data does", () => {
+    const espnTeams = fixtureEspnProTeams();
+    expect(espnTeams).toHaveLength(32);
+    for (const t of espnTeams) {
+      for (const code of [t.abbrev, t.abbrev.toLowerCase(), ` ${t.abbrev} `]) expect(STATIC_DEFENSE_IDS.defenseId(code), code).toBe(index.toSleeper(code));
+      expect(STATIC_DEFENSE_IDS.defenseId(t.abbrev)).toBeDefined();
+    }
+    expect(STATIC_DEFENSE_IDS.defenseId("WSH")).toBe("WAS");
+    expect(STATIC_DEFENSE_IDS.defenseId("FA")).toBeUndefined();
   });
 
   it("ESPN team nicknames match Sleeper's DEF rows", () => {

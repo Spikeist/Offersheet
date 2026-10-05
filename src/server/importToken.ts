@@ -56,7 +56,12 @@ export function canonicalJson(value: unknown): string {
   return `{${keys.map((k) => `${JSON.stringify(k)}:${canonicalJson(record[k])}`).join(",")}}`;
 }
 
-function digest(content: SignedContent): string {
+/**
+ * The sha256 (hex) of what a token covers, its canonical JSON (see the header). Computed once per request: the model routes
+ * check the signature with it (signatureProblem) and file the answer they build under it (final review SEC-1: a signed
+ * import posted again is answered from memory, src/app/api/model/memo.ts).
+ */
+export function importDigest(content: SignedContent): string {
   return createHash("sha256").update(canonicalJson({ snapshot: content.snapshot, modelPart: content.modelPart })).digest("hex");
 }
 
@@ -69,11 +74,11 @@ export function signImport(platform: Platform, content: SignedContent, now: numb
   const key = derivedKey(IMPORT_TOKEN_LABEL, env);
   if (!key) return undefined;
   const issuedAt = Math.floor(now);
-  return { issuedAt, token: tokenFor(key, platform, issuedAt, digest(content)) };
+  return { issuedAt, token: tokenFor(key, platform, issuedAt, importDigest(content)) };
 }
 
-/** Why a signature doesn't check out, or null when it does (see the header). Never throws. */
-export function importSignatureProblem(platform: Platform, content: SignedContent, signature: ImportSignature, now: number = Date.now(), env: Env = process.env): string | null {
+/** Why a signature doesn't check out for content whose importDigest is `contentDigest`, or null when it does. Never throws. */
+export function signatureProblem(platform: Platform, contentDigest: string, signature: ImportSignature, now: number = Date.now(), env: Env = process.env): string | null {
   const key = derivedKey(IMPORT_TOKEN_LABEL, env);
   if (!key) return "no key to check it with";
   const { issuedAt, token } = signature;
@@ -83,10 +88,15 @@ export function importSignatureProblem(platform: Platform, content: SignedConten
   let expected: Buffer;
   let given: Buffer;
   try {
-    expected = Buffer.from(tokenFor(key, platform, issuedAt, digest(content)));
+    expected = Buffer.from(tokenFor(key, platform, issuedAt, contentDigest));
     given = Buffer.from(token);
   } catch {
     return "malformed";
   }
   return expected.length === given.length && timingSafeEqual(expected, given) ? null : "doesn't match";
+}
+
+/** Why a signature doesn't check out, or null when it does (see the header). Never throws. */
+export function importSignatureProblem(platform: Platform, content: SignedContent, signature: ImportSignature, now: number = Date.now(), env: Env = process.env): string | null {
+  return signatureProblem(platform, importDigest(content), signature, now, env);
 }

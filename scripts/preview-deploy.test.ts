@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { deploymentUrl, isAllowlist, jsonOf, looksProtected, MAX_FILES, parseDeployArgs, protectionOn, ROOT, uploadProblems } from "./preview-deploy";
+import { deploymentUrl, envNames, isAllowlist, jsonOf, looksProtected, MAX_FILES, parseDeployArgs, protectionOn, ROOT, uploadPaths, uploadProblems } from "./preview-deploy";
 
 describe("preview:deploy never deploys production", () => {
   it("takes only --live, and refuses anything that could reach production", () => {
@@ -33,6 +33,44 @@ describe("the upload checks", () => {
     expect(uploadProblems({ ...ok, fileCount: MAX_FILES + 1 }).join(" ")).toContain("files");
     expect(uploadProblems({ ...ok, framework: { slug: "other" } }).join(" ")).toContain("framework");
     expect(uploadProblems({ framework: { slug: "nextjs" } }).join(" ")).toContain("no files");
+  });
+});
+
+describe("only committed content deploys (final review SEC-8)", () => {
+  const dry = { fileCount: 3, totalSize: 1_000, framework: { slug: "nextjs" }, files: [{ path: "src/app/page.tsx", size: 900 }, { path: "package.json", size: 50 }, String.raw`public\icons\icon-192.png`] };
+
+  it("the upload's paths read with forward slashes", () => {
+    expect(uploadPaths(dry)).toEqual(["src/app/page.tsx", "package.json", "public/icons/icon-192.png"]);
+  });
+
+  it("refuses a file git doesn't track, or one changed since the last commit; names a few", () => {
+    const tracked = new Set(["src/app/page.tsx", "package.json", "public/icons/icon-192.png"]);
+    expect(uploadProblems(dry, { tracked, changed: new Set() })).toEqual([]);
+    const untracked = uploadProblems({ ...dry, files: [...dry.files, "src/app/debug-capture.json"] }, { tracked, changed: new Set() });
+    expect(untracked.join(" ")).toContain("1 file(s) that aren't committed as they are (untracked, or changed since the last commit), e.g. src/app/debug-capture.json");
+    const changed = uploadProblems(dry, { tracked, changed: new Set(["package.json"]) });
+    expect(changed.join(" ")).toContain("e.g. package.json");
+    // Without git's state (the old checks alone) a dry run's own problems still show.
+    expect(uploadProblems(dry)).toEqual([]);
+  });
+});
+
+describe("the preview's variables, by name only (final review SEC-9)", () => {
+  it("reads the names `vercel env ls <target> --format json` lists for the target, never a value", () => {
+    const json = {
+      envs: [
+        { key: "SESSION_SECRET", value: undefined, type: "sensitive", target: ["preview"] },
+        { key: "KV_REST_API_URL", value: "https://example.upstash.io", type: "encrypted", target: ["production", "preview"] },
+        { key: "PROD_ONLY", target: ["production"] },
+        { key: "ALL", target: "preview" },
+        { key: 7 },
+      ],
+    };
+    expect([...envNames(json, "preview")].sort()).toEqual(["ALL", "KV_REST_API_URL", "SESSION_SECRET"]);
+    expect([...envNames(json, "production")].sort()).toEqual(["KV_REST_API_URL", "PROD_ONLY"]);
+    expect(envNames({ envs: [] }, "preview").size).toBe(0);
+    expect(envNames(null, "preview").size).toBe(0);
+    expect(envNames(jsonOf('Vercel CLI 62.2.0\n{"envs":[{"key":"SESSION_SECRET","target":["preview"]}]}'), "preview").has("SESSION_SECRET")).toBe(true);
   });
 });
 

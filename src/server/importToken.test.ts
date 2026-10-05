@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { browserFetchLimits } from "./limits";
-import { canonicalJson, importSignatureProblem, signImport } from "./importToken";
+import { canonicalJson, importDigest, importSignatureProblem, signatureProblem, signImport } from "./importToken";
 
 const ENV = { SESSION_SECRET: "import-token tests: a made-up secret, never a real one" };
 const T0 = Date.UTC(2026, 9, 4, 20);
@@ -30,6 +30,18 @@ describe("signImport and importSignatureProblem", () => {
     const back = JSON.parse(JSON.stringify(content())) as ReturnType<typeof content>;
     const reordered = { modelPart: back.modelPart, snapshot: Object.fromEntries(Object.entries(back.snapshot).reverse()) };
     expect(importSignatureProblem("espn", reordered, sig, T0 + 60_000, ENV)).toBeNull();
+  });
+
+  it("checks by the content's digest, computed once (final review SEC-1: the model routes file their answers under it)", () => {
+    const sig = signImport("espn", content(), T0, ENV);
+    if (!sig) throw new Error("expected a signature");
+    const back = JSON.parse(JSON.stringify(content())) as ReturnType<typeof content>;
+    const digest = importDigest({ modelPart: back.modelPart, snapshot: Object.fromEntries(Object.entries(back.snapshot).reverse()) });
+    expect(digest).toBe(importDigest(content()));
+    expect(digest).toMatch(/^[0-9a-f]{64}$/);
+    expect(signatureProblem("espn", digest, sig, T0, ENV)).toBeNull();
+    expect(signatureProblem("espn", importDigest({ ...content(), modelPart: {} }), sig, T0, ENV)).toBe("doesn't match");
+    expect(signatureProblem("espn", digest, sig, T0 + browserFetchLimits.tokenMaxAgeMs + 1, ENV)).toBe("too old");
   });
 
   it("refuses a changed snapshot or model part, another platform, another secret, a stale or future issue time, and a malformed token", () => {

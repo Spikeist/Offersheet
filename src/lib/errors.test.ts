@@ -82,7 +82,7 @@ describe("error codes → messages", () => {
     expect(errorForStatus(429, "600")).toEqual({ code: "RATE_LIMITED", message: "You're going a bit fast. Try again in about 10 minutes." });
     expect(errorForStatus(504)).toEqual({ code: "SOURCE_SLOW", message: "Offer Sheet took too long to answer. Try again in a few minutes." });
     expect(errorForStatus(413).code).toBe("INVALID_REQUEST");
-    expect(errorForStatus(503)).toEqual({ code: "INTERNAL", message: "Offer Sheet isn't available right now. Try again in a few minutes." });
+    expect(errorForStatus(503)).toEqual({ code: "INTERNAL", message: "Offer Sheet isn't available right now. Try again later." });
     expect(errorForStatus(500)).toEqual({ code: "INTERNAL", message: "Something went wrong on our side. Please try again." });
   });
 

@@ -5,6 +5,8 @@
  *
  *   npm run check:leaks                exit 1 on any "hard" hit
  *   npm run check:leaks -- --verbose   also list every soft hit per file
+ *   … -- --files <list>                scan exactly the files named in <list> (one project-relative path a line) instead
+ *                                      of git's: npm run preview:deploy scans the exact upload with it (final review SEC-8)
  *
  * Sources of identities (all git-ignored):
  *   fixtures/raw/**\/redaction-map.json   raw → placeholder maps written by each probe's Redactor
@@ -221,8 +223,21 @@ async function main() {
   const watchlists = [...findFiles(path.join(ROOT, "fixtures", "raw"), "watchlist.json"), ...findFiles(path.join(ROOT, "data-local"), "watchlist.json")];
   const needles = [...needlesFromEnv(), ...needlesFromMaps(maps, names, counters), ...needlesFromWatchlists(watchlists, names, counters)];
 
-  const files = execFileSync("git", ["ls-files", "-z", "--cached", "--others", "--exclude-standard"], { cwd: ROOT, encoding: "utf8" })
-    .split("\0")
+  // --files <list>: exactly the files the list names (preview:deploy's upload); else every file git would commit.
+  const at = process.argv.indexOf("--files");
+  let listed: string[] | null = null;
+  if (at >= 0) {
+    try {
+      listed = readFileSync(path.resolve(ROOT, process.argv[at + 1] ?? ""), "utf8")
+        .split(/\r?\n/)
+        .map((l) => l.trim().replace(/\\/g, "/"))
+        .filter(Boolean);
+    } catch {
+      console.log("❌ --files: the list couldn't be read.");
+      process.exit(1);
+    }
+  }
+  const files = (listed ?? execFileSync("git", ["ls-files", "-z", "--cached", "--others", "--exclude-standard"], { cwd: ROOT, encoding: "utf8" }).split("\0"))
     .filter(Boolean)
     .filter((f) => !BINARY.test(f));
 

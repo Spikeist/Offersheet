@@ -11,7 +11,7 @@
 import { fetchEspnLeagueData, filterHeaderOf, type EspnGet } from "@/adapters/espn/leagueData";
 import { pseudonymizeSwids } from "@/adapters/espn/swid";
 import { UNCACHED_POLICIES, fetchSleeperLeagueData, leagueChoicesOf } from "@/adapters/sleeper/leagueData";
-import { LeagueImportError, type HttpClient, type ImportErrorCode, type SleeperImportRequest } from "@/adapters/types";
+import { LeagueImportError, type HttpClient, type HttpResponse, type ImportErrorCode, type SleeperImportRequest } from "@/adapters/types";
 import { UPLOAD_VERSION, recordingClient, trimEspnBody, trimSleeperBody, type LeagueUpload } from "@/adapters/upload";
 import { chooseLeagueResponse, type ApiErrorResponse, type EspnImportBody, type SleeperChooseLeagueResponse, type SleeperImportBody } from "./api";
 import { errorMessage } from "./errors";
@@ -46,6 +46,44 @@ function everyRequestAnswered(parts: readonly { status: number }[]): boolean {
   return parts.every((p) => p.status !== 0);
 }
 
+/** "No answer" (status 0), as the browser's client says it (src/lib/browserHttp.ts). */
+const NO_ANSWER: HttpResponse = { status: 0, ok: false, isHtml: false, json: undefined, text: "", fromCache: false };
+
+/**
+ * A client over `inner` that stops asking once a request got no answer (review E2E-2). Such a read goes the server's way
+ * whatever else it gets (everyRequestAnswered), so every later request answers "no answer" at once instead of trying
+ * the platform, each with its own retries: a CORS refusal of ESPN's filtered views (the league view itself passes) kept
+ * a read going for 20–60 s before the server was even asked, and the League page's re-read paid it again. The adapters
+ * read the rest as they read any request that got no answer, the recording client keeps each as a part without one, and
+ * the read falls back as before, only sooner.
+ *
+ * Requests go one at a time, each checked as its turn comes: Sleeper's half asks its last batch (matchups, transactions,
+ * picks, drafts) all at once, and a request already waiting in the browser's client would otherwise still go out, with
+ * its retries. That costs nothing: a read asks one host, and the browser's client asks a host one request at a time
+ * anyway (src/lib/browserHttp.ts). A page that left still rejects (the signal); a cache-only request, which the browser's
+ * client answers "no answer" without asking anyone, stops nothing.
+ */
+export function untilNoAnswer(inner: HttpClient): HttpClient {
+  let gaveUp = false;
+  let turn: Promise<unknown> = Promise.resolve();
+  return {
+    get(url, opts) {
+      const ask = async (): Promise<HttpResponse> => {
+        if (gaveUp) return { ...NO_ANSWER };
+        const res = await inner.get(url, opts);
+        if (res.status === 0 && !opts?.cacheOnly) gaveUp = true;
+        return res;
+      };
+      const mine = turn.then(ask);
+      turn = mine.then(
+        () => undefined,
+        () => undefined,
+      );
+      return mine;
+    },
+  };
+}
+
 /** A platform's error in the words the import route would answer with (src/app/api/_lib/respond.ts importErrorResponse). */
 export function importErrorOf(err: LeagueImportError, platform: "espn" | "sleeper", season: number): ApiErrorResponse["error"] {
   return { code: err.code, message: errorMessage(err.code, { platform, adapterMessage: err.message, season }) };
@@ -53,7 +91,7 @@ export function importErrorOf(err: LeagueImportError, platform: "espn" | "sleepe
 
 /** The browser path's read of an ESPN league. */
 async function readEspn(body: EspnImportBody, http: HttpClient, clock: () => number, cookies: EspnCookieState): Promise<BrowserRead> {
-  const recorder = recordingClient(http, trimEspnBody, clock);
+  const recorder = recordingClient(untilNoAnswer(http), trimEspnBody, clock);
   const get: EspnGet = (url, request) => {
     const headers = filterHeaderOf(request);
     return recorder.get(url, { ...(headers ? { headers } : {}), transformText: (text) => pseudonymizeSwids(text) });
@@ -80,7 +118,7 @@ async function readSleeper(body: SleeperImportBody, http: HttpClient, clock: () 
   const leagueId = typed?.leagueId ?? picked;
   if (!username && !leagueId) return { kind: "fallback" };
   const req: SleeperImportRequest = { season: body.season, ...(username ? { username } : {}), ...(leagueId ? { leagueId } : {}) };
-  const recorder = recordingClient(http, trimSleeperBody, clock);
+  const recorder = recordingClient(untilNoAnswer(http), trimSleeperBody, clock);
   try {
     const data = await fetchSleeperLeagueData(req, recorder, UNCACHED_POLICIES);
     // Part of the league didn't reach the browser (everyRequestAnswered): the server reads all of it.

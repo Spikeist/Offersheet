@@ -12,8 +12,8 @@
  *   store can't hold a route past Vercel's maxDuration (set a little above the deadline in each route.ts). Outside a scope
  *   (scripts, tests, the stable copy's background work started outside a route) there is no deadline: timeLeftMs() is
  *   Infinity and nothing changes.
- * - The client (withRoute: its rate-limit id, an HMAC of its IP address's bucket, src/server/rateLimit.ts clientKey), for
- *   its share of each platform's daily budget (src/server/budget.ts).
+ * - The client and its group (withRoute: HMACs of its IP address's bucket and of its /24 or /48, src/server/rateLimit.ts
+ *   clientIds), for the daily work budget and the group's share of each platform's daily budget (src/server/budget.ts).
  * - What the request didn't do, by budget platform ("espn", "sleeper", "fantasycalc", "github"; "other" for any other host;
  *   "cache" for the server cache), each with its cause (CutReason): a source that took the time ("slow": an attempt still
  *   in flight when the deadline came, or a wait for an answer another request's fetch was getting), Offer Sheet's own waits
@@ -66,8 +66,13 @@ export interface RequestScope {
   readonly order: number;
   /** Epoch ms after which no outbound attempt starts. */
   readonly deadlineAt: number;
-  /** The client's id (withRoute; see the header), for its share of each platform's daily budget; none outside withRoute. */
+  /** The client's id (withRoute; see the header), for its daily work budget; none outside withRoute. */
   readonly client?: string;
+  /**
+   * The client's group's id (withRoute: src/server/rateLimit.ts clientIds, the HMAC of the IPv4 /24 or IPv6 /48; final
+   * review SEC-2), for its share of each platform's daily budget and its group's daily work budget; none outside withRoute.
+   */
+  readonly group?: string;
   /** Outbound requests this request didn't make or cut short, by cause and budget platform ("other", "cache"). */
   readonly cut: Readonly<Record<CutReason, Set<string>>>;
   /** Log entries (serialized, src/server/log.ts) waiting for the write after the response. */
@@ -90,11 +95,22 @@ export function nextArrival(): number {
 
 /**
  * A new scope for a request of `route` that started at `startedAt` (its deadline from limits.deadlines unless given), for
- * `client` (withRoute's clientKey) when known.
+ * `client` and its `group` (withRoute's clientIds) when known.
  */
-export function newRequestScope(route: RouteKind, startedAt: number, deadlineMs: number = deadlineMsOf(route), client?: string): RequestScope {
+export function newRequestScope(route: RouteKind, startedAt: number, deadlineMs: number = deadlineMsOf(route), client?: string, group?: string): RequestScope {
   const cut = Object.fromEntries(CUT_REASONS.map((r) => [r, new Set<string>()])) as Record<CutReason, Set<string>>;
-  return { route, startedAt, order: nextArrival(), deadlineAt: startedAt + deadlineMs, ...(client !== undefined ? { client } : {}), cut, pendingLogs: [], flushed: false, lateSeen: false };
+  return {
+    route,
+    startedAt,
+    order: nextArrival(),
+    deadlineAt: startedAt + deadlineMs,
+    ...(client !== undefined ? { client } : {}),
+    ...(group !== undefined ? { group } : {}),
+    cut,
+    pendingLogs: [],
+    flushed: false,
+    lateSeen: false,
+  };
 }
 
 /** Runs `fn` inside `scope`: everything it awaits, and every task it starts, sees the scope (requestScope()). */

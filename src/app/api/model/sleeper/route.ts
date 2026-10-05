@@ -1,7 +1,7 @@
 /** POST /api/model/sleeper: see ./handler.ts; its rate limit, deadline and log: ../../_lib/route.ts (withRoute). */
 import { importSleeperLeague } from "@/adapters/sleeper";
 import { buildModelInputs } from "@/server/modelInputs";
-import { getImportDeps } from "../../_lib/deps";
+import { getImportDeps, getModelOnlyDeps } from "../../_lib/deps";
 import { withRoute } from "../../_lib/route";
 import { createSleeperModelHandler } from "./handler";
 
@@ -18,6 +18,7 @@ export const POST = withRoute(
     importLeague: importSleeperLeague,
     buildInputs: buildModelInputs,
     getDeps: () => getImportDeps(),
+    getModelDeps: () => getModelOnlyDeps(),
   }),
   { platform: "sleeper" },
 );

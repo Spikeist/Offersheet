@@ -7,11 +7,13 @@ import { LeagueImportError, type EspnImportRequest } from "@/adapters/types";
 import type { ModelInputs } from "@/engine/inputs";
 import { isModelResponse, type ModelResponse } from "@/lib/api";
 import type { BuildModelInputsArgs } from "@/server/modelInputs";
-import { importSignatureProblem, signImport } from "@/server/importToken";
+import { importDigest, signImport, signatureProblem } from "@/server/importToken";
+import { browserFetchLimits, workLimits } from "@/server/limits";
 import { espnCredentialsFor, saveEspnCredentials } from "@/server/session";
 import { fakeDeps, fakeResult, gzipRequest, jsonRequest } from "../../_lib/testFakes";
 import { createEspnImportHandler } from "../../import/espn/handler";
-import { createEspnModelHandler } from "./handler";
+import { createModelMemo, modelMemoKey } from "../memo";
+import { createEspnModelHandler, type EspnModelHandlerDeps } from "./handler";
 
 const URL = "http://localhost:3000/api/model/espn";
 const IMPORT_URL = "http://localhost:3000/api/import/espn";
@@ -279,7 +281,7 @@ describe("POST /api/model/espn with the import the browser saved, signed (Part B
   const issued = NOW().getTime() - 60_000;
   const snapshot = fakeResult().snapshot;
 
-  function signedSetup() {
+  function signedSetup(over: Partial<EspnModelHandlerDeps> = {}) {
     const reads: EspnImportRequest[] = [];
     const built: BuildModelInputsArgs[] = [];
     const deps = fakeDeps();
@@ -295,8 +297,10 @@ describe("POST /api/model/espn with the import the browser saved, signed (Part B
       getDeps: async () => deps,
       credentialsFor: (request, leagueId) => espnCredentialsFor(request, leagueId, ENV),
       sign: (platform, content) => signImport(platform, content, NOW().getTime(), SIGN_ENV),
-      verify: (platform, content, signature) => importSignatureProblem(platform, content, signature, NOW().getTime(), SIGN_ENV),
+      verify: (platform, digest, signature) => signatureProblem(platform, digest, signature, NOW().getTime(), SIGN_ENV),
+      memo: createModelMemo(),
       now: NOW,
+      ...over,
     });
     return { handler, reads, built, deps };
   }
@@ -335,5 +339,80 @@ describe("POST /api/model/espn with the import the browser saved, signed (Part B
     expect(bad.status).toBe(400);
     expect((await errorOf(bad)).code).toBe("BAD_UPLOAD");
     expect(reads).toHaveLength(3);
+  });
+
+  it("answers the same signed import again from this instance's memory, without a build, while its token is good (final review SEC-1)", async () => {
+    let now = NOW().getTime();
+    const memo = createModelMemo();
+    const { handler, built, reads } = signedSetup({ memo, now: () => new Date(now), verify: (platform, digest, signature) => signatureProblem(platform, digest, signature, now, SIGN_ENV) });
+    const first = await (await handler(gzipRequest(URL, body()))).text();
+    const second = await (await handler(gzipRequest(URL, body()))).text();
+    expect(second).toBe(first);
+    expect(JSON.parse(first)).toEqual({ model: fakeModel(), signedImport: true });
+    expect(built).toHaveLength(1);
+    const key = modelMemoKey("espn", importDigest({ snapshot: JSON.parse(JSON.stringify(snapshot)) as unknown, modelPart: { espn: ESPN } }));
+    expect(memo.get(key, now)).toBe(first);
+    // Another import (another league here: its own signature) is built for itself.
+    const otherSnapshot = { ...snapshot, leagueId: "5151" };
+    const otherSigned = signImport("espn", { snapshot: otherSnapshot, modelPart: { espn: ESPN } }, issued, SIGN_ENV);
+    const other = JSON.parse(JSON.stringify({ v: 1, leagueId: "5151", season: 2026, import: { snapshot: otherSnapshot, modelPart: { espn: ESPN } }, signed: otherSigned })) as unknown;
+    expect((await handler(gzipRequest(URL, other))).status).toBe(200);
+    expect(built).toHaveLength(2);
+    // At the token's last moment the answer is gone (built again); past it the token is too (the league is read again).
+    now = issued + browserFetchLimits.tokenMaxAgeMs;
+    expect(memo.get(key, now)).toBeUndefined();
+    expect((await handler(gzipRequest(URL, body()))).status).toBe(200);
+    expect(built).toHaveLength(3);
+    now += 1;
+    const late = (await (await handler(gzipRequest(URL, body()))).json()) as ModelResponse;
+    expect(late.import).toMatchObject({ readBy: "server" });
+    expect(reads).toHaveLength(1);
+  });
+
+  it("charges a build bigger than the request paid for first, and a signature that doesn't check out the re-read's units first: refused, BUSY and nothing done (final review SEC-1, F1)", async () => {
+    const charged: number[] = [];
+    let verdict: "ok" | "client" | "day" = "ok";
+    const chargeWork = async (units: number) => {
+      charged.push(units);
+      return verdict;
+    };
+    // Parker's league is far below the work a request pays for: no extra charge.
+    const plain = signedSetup({ chargeWork });
+    expect((await plain.handler(gzipRequest(URL, body()))).status).toBe(200);
+    expect(charged).toEqual([]);
+    // A league of 3,000 players with 10 scoring rules (30,000 units of work): (30,000 − 15,000) / 5,000 = 3 more units.
+    const ids = Array.from({ length: 3_000 }, (_, i) => String(10_000 + i));
+    const bigSnapshot = { ...snapshot, teams: [{ id: "1", name: "x", ownerName: "y", roster: ids, ir: [], taxi: [] }], freeAgents: [], settings: { scoring: { rules: Array.from({ length: 10 }, () => ({ kind: "range", stat: "rush_yd", min: 100, max: 199, points: 1 })) } } };
+    const bigSigned = signImport("espn", { snapshot: bigSnapshot, modelPart: { espn: ESPN } }, issued, SIGN_ENV);
+    const bigBody = JSON.parse(JSON.stringify({ v: 1, leagueId: "4242", season: 2026, import: { snapshot: bigSnapshot, modelPart: { espn: ESPN } }, signed: bigSigned })) as unknown;
+    const big = signedSetup({ chargeWork });
+    expect((await big.handler(gzipRequest(URL, bigBody))).status).toBe(200);
+    expect(charged).toEqual([3]);
+    verdict = "client";
+    const refused = signedSetup({ chargeWork });
+    const res = await refused.handler(gzipRequest(URL, bigBody));
+    expect(res.status).toBe(503);
+    expect(res.headers.get("retry-after")).toMatch(/^\d+$/);
+    expect(await errorOf(res)).toMatchObject({ code: "BUSY", message: expect.stringContaining("Your connection has used today's share of requests to Offer Sheet.") });
+    expect(refused.built).toHaveLength(0);
+    // A signature that doesn't check out: the league read costs a server read's units past the build the request paid for.
+    charged.length = 0;
+    verdict = "day";
+    const reread = signedSetup({ chargeWork });
+    const busy = await reread.handler(gzipRequest(URL, body({ snapshot: { ...snapshot, name: "Changed in the browser" } })));
+    expect(busy.status).toBe(503);
+    expect((await errorOf(busy)).message).toMatch(/^Offer Sheet has used its share of free server time for now\. Try again /);
+    expect(charged).toEqual([workLimits.units.modelServer - workLimits.units.modelSigned]);
+    expect(reread.reads).toHaveLength(0);
+    expect(reread.built).toHaveLength(0);
+  });
+
+  it("a build from a signed import gets getModelDeps (no crosswalk: final review F3); a league read again, the import's getDeps", async () => {
+    const light = { ...fakeDeps(), resolver: { defenseId: () => "WAS" } };
+    const { handler, built, deps } = signedSetup({ getModelDeps: async () => light });
+    await handler(gzipRequest(URL, body()));
+    expect(built[0]?.resolver).toBe(light.resolver);
+    await handler(gzipRequest(URL, body({ snapshot: { ...snapshot, name: "Changed in the browser" } })));
+    expect(built[1]?.resolver).toBe(deps.resolver);
   });
 });

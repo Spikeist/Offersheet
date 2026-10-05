@@ -51,8 +51,9 @@ describe("SiteFooter", () => {
   it("credits the other sources and says Offer Sheet is a free, independent beta affiliated with none of them", () => {
     expect(FOOTER_CREDITS).toBe("Projections and stats: Sleeper and ESPN · Player IDs: DynastyProcess · NFL schedule: ESPN");
     expect(text).toContain(FOOTER_CREDITS);
+    // DynastyProcess too, as the terms and the privacy page say (review POL-23: the footer credits its ID map).
     expect(FOOTER_INDEPENDENT).toBe(
-      "Offer Sheet is a free, independent beta. It is not affiliated with or endorsed by ESPN, Sleeper, Yahoo, Fleaflicker, MyFantasyLeague, Fantrax, FantasyCalc or the NFL.",
+      "Offer Sheet is a free, independent beta. It is not affiliated with or endorsed by ESPN, Sleeper, Yahoo, Fleaflicker, MyFantasyLeague, Fantrax, FantasyCalc, DynastyProcess or the NFL.",
     );
     expect(text).toContain(FOOTER_INDEPENDENT);
     expect(text).toContain("© 2026 Offer Sheet");

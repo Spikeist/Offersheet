@@ -13,15 +13,20 @@
  *   prove an id is a player's (a short all-digit league id has a Sleeper id's form), and a hostile client could still
  *   spell data out in the bounded numbers. A copy is at most respond.ts's request cap (16 KB).
  * - storeFeedback: the copy, plus the UTC day it arrived ("day": the date, never the time; nothing else is added: no IP
- *   address, no client id, no header), as one JSON line LPUSHed to this month's list, `prefix + "fb:" + YYYY-MM` (the UTC
- *   month of arrival; src/server/redis.ts keyPrefix: preview and production apart), trimmed to its newest
- *   feedbackLimits.maxPerMonth, its expiry reset to feedbackLimits.retainDays: one MULTI/EXEC transaction
- *   (RedisLike.lpushTrimExpire, review FB-R5), applied whole or not at all, so no list is ever left without its expiry and
- *   each month's feedback is deleted a year after the last one that month (the privacy page's words). Each copy costs 3
- *   commands (LPUSH, LTRIM, PEXPIRE: Upstash bills a transaction's commands one by one), plus the rate limit's
- *   (src/server/rateLimit.ts). The write gives up after feedbackLimits.writeTimeoutMs; a failure is logged by the error's
- *   name only and the copy is dropped (the browser never retries: the press is saved there either way). ⚠️ A transaction
- *   Upstash applied whose answer was lost (or came after the timeout) is kept though the route says stored: false.
+ *   address, no client id, no header), as one JSON line LPUSHed to that day's list, `prefix + "fb:" + YYYY-MM-DD` (the UTC
+ *   day of arrival; src/server/redis.ts keyPrefix: preview and production apart; final review SEC-3: a month's list kept
+ *   its newest 5,000, so a flood of forged copies from many IPv6 /64s could push a whole month's real outcomes out; a day's
+ *   list confines a flood to its own day), trimmed to its newest feedbackLimits.maxPerDay, its expiry reset to
+ *   feedbackLimits.retainDays: one MULTI/EXEC transaction (RedisLike.lpushTrimExpire, review FB-R5), applied whole or not
+ *   at all, so no list is ever left without its expiry and each day's feedback is deleted a year after that day (the
+ *   privacy page's words). Each copy costs 3 commands (LPUSH, LTRIM, PEXPIRE: Upstash bills a transaction's commands one by
+ *   one), plus the rate limit's (src/server/rateLimit.ts) and the daily copy quota's (src/server/budget.ts feedbackQuota:
+ *   feedbackLimits.perClientPerDay copies a client and perGroupPerDay a group may send a UTC day; the route checks it). The
+ *   write gives up after feedbackLimits.writeTimeoutMs; a failure is logged by the error's name only and the copy is
+ *   dropped (the browser never retries: the press is saved there either way). ⚠️ A transaction Upstash applied whose
+ *   answer was lost (or came after the timeout) is kept though the route says stored: false.
+ * - A copy bigger than feedbackLimits.maxStoredBytes as stored (storedFeedbackText) is refused by the route (final review F4:
+ *   the store's bound counts copies of at most that size).
  * - feedbackStoreFor: Redis on Vercel only (src/server/redis.ts redisConfigured; `npm run dev`, the stable copy, the tests
  *   and check:browser have none, so they store nothing and answer { stored: false }). A Redis address that can't be used
  *   (UrlError) is logged once by its name, and the route answers as if there were no store.
@@ -172,14 +177,24 @@ export const StoredFeedbackEventSchema = EventShape.extend({ day: z.string().reg
 
 const DAY_MS = 24 * 60 * 60_000;
 
-/** The list a copy arriving at `at` goes to: `prefix + "fb:" + YYYY-MM` (UTC). */
-export function feedbackMonthKey(at: number, env: Env = process.env): string {
-  return `${keyPrefix(env)}fb:${new Date(at).toISOString().slice(0, 7)}`;
+/** The list a copy arriving at `at` goes to: `prefix + "fb:" + YYYY-MM-DD` (UTC). */
+export function feedbackDayKey(at: number, env: Env = process.env): string {
+  return `${keyPrefix(env)}fb:${new Date(at).toISOString().slice(0, 10)}`;
 }
 
 /** The copy as stored: the event and the UTC day it arrived, nothing else. */
 export function storedFeedbackEvent(event: FeedbackEvent, at: number): StoredFeedbackEvent {
   return { ...event, day: new Date(at).toISOString().slice(0, 10) };
+}
+
+/** The copy as the store keeps it, as text (its size is what feedbackLimits.maxStoredBytes bounds). */
+export function storedFeedbackText(event: FeedbackEvent, at: number): string {
+  return JSON.stringify(storedFeedbackEvent(event, at));
+}
+
+/** Whether a copy fits the store's bound (feedbackLimits.maxStoredBytes as stored; final review F4). */
+export function fitsFeedbackStore(event: FeedbackEvent, at: number): boolean {
+  return Buffer.byteLength(storedFeedbackText(event, at), "utf8") <= feedbackLimits.maxStoredBytes;
 }
 
 let configSaid = false;
@@ -199,16 +214,16 @@ export function feedbackStoreFor(env: Env = process.env): RedisLike | null {
 }
 
 /**
- * Stores one copy (the header): LPUSH to its month's list, LTRIM to the newest feedbackLimits.maxPerMonth and PEXPIRE to
+ * Stores one copy (the header): LPUSH to its day's list, LTRIM to the newest feedbackLimits.maxPerDay and PEXPIRE to
  * feedbackLimits.retainDays, in one transaction (RedisLike.lpushTrimExpire: all three or none); true once written. Never
  * throws: a failure or a write slower than feedbackLimits.writeTimeoutMs is logged by the error's name and answers false.
  */
 export async function storeFeedback(store: RedisLike, event: FeedbackEvent, opts: { now?: number; env?: Env; timeoutMs?: number } = {}): Promise<boolean> {
   const now = opts.now ?? Date.now();
-  const key = feedbackMonthKey(now, opts.env ?? process.env);
-  const entry = JSON.stringify(storedFeedbackEvent(event, now));
+  const key = feedbackDayKey(now, opts.env ?? process.env);
+  const entry = storedFeedbackText(event, now);
   try {
-    await withTimeout(store.lpushTrimExpire(key, [entry], feedbackLimits.maxPerMonth, feedbackLimits.retainDays * DAY_MS), opts.timeoutMs ?? feedbackLimits.writeTimeoutMs);
+    await withTimeout(store.lpushTrimExpire(key, [entry], feedbackLimits.maxPerDay, feedbackLimits.retainDays * DAY_MS), opts.timeoutMs ?? feedbackLimits.writeTimeoutMs);
     return true;
   } catch (err) {
     logEvent({ event: "feedback_store_failed", platform: "upstash", errorName: errorNameOf(err) });

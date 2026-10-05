@@ -94,7 +94,21 @@ export const leagueTag = (s: Pick<LeagueSnapshot, "platform" | "leagueId" | "sea
 /** The pages' model requests in flight, shared by league and league data (see the header). */
 const inputRequests = createRequestSharer<InputsOutcome>();
 
-const UNREACHABLE = "We couldn't reach Offer Sheet. Check your connection and try again.";
+/** What the pages say when a model request ended without an answer (no connection, or something unexpected). */
+export const INPUTS_UNREACHABLE = "We couldn't reach Offer Sheet. Check your connection and try again.";
+
+/**
+ * A model request's outcome, never a rejection (review E2E-1): a request that throws reads as INPUTS_UNREACHABLE, so the
+ * League page's Refresh always ends (its button never stays "Refreshing…"). Not for a request with a signal: a page that
+ * left must not be told it couldn't reach Offer Sheet.
+ */
+export async function settledInputs(request: Promise<InputsOutcome>): Promise<InputsOutcome> {
+  try {
+    return await request;
+  } catch {
+    return { ok: false, message: INPUTS_UNREACHABLE };
+  }
+}
 
 /**
  * The model request for the stored import that is already in flight, or a new one (a page load's,
@@ -132,7 +146,7 @@ export interface LeagueInputs {
   error: string | null;
   /** Fetch the inputs again after a failure (Try again). */
   retry(): void;
-  /** The Refresh button: the inputs again with refresh (the server fetches data over a minute old); kept on success. */
+  /** The Refresh button: the inputs again with refresh (the server fetches data over a minute old); kept on success. Never rejects. */
   refreshInputs(): Promise<InputsOutcome>;
 }
 
@@ -182,7 +196,7 @@ function useInputsCore(stored: StoredImport, storedModel: StoredModel | null | u
         else setFetchError({ tag, message: outcome.message });
       },
       () => {
-        if (live) setFetchError({ tag, message: UNREACHABLE });
+        if (live) setFetchError({ tag, message: INPUTS_UNREACHABLE });
       },
     );
     return () => {
@@ -203,7 +217,7 @@ function useInputsCore(stored: StoredImport, storedModel: StoredModel | null | u
     error: !pair && fetchFailed ? fetchError.message : null,
     retry: () => setAttempt((a) => a + 1),
     async refreshInputs() {
-      const outcome = await requestInputs(stored, true);
+      const outcome = await settledInputs(requestInputs(stored, true));
       if (outcome.ok) setFetched(remember(outcome.response));
       return outcome;
     },

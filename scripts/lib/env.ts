@@ -52,6 +52,15 @@ export const ENV_VARS = [
   // feedback:pull). The token is a secret; the URL names the database. The local app never uses them (src/server/redis.ts).
   "KV_REST_API_URL",
   "KV_REST_API_TOKEN",
+  // The same store under Upstash's own names, which src/server/redis.ts reads first and the scripts accept too (final
+  // review SEC-7: listed so check:leaks and every output scrubber know their values), the Marketplace's read-only token,
+  // and the redis:// connection strings the Marketplace also offers, whose text carries the password. Offer Sheet never
+  // needs the last three: they're listed only so a pasted value is caught.
+  "UPSTASH_REDIS_REST_URL",
+  "UPSTASH_REDIS_REST_TOKEN",
+  "KV_REST_API_READ_ONLY_TOKEN",
+  "KV_URL",
+  "REDIS_URL",
 ] as const;
 export type EnvVar = (typeof ENV_VARS)[number];
 

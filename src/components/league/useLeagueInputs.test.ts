@@ -18,7 +18,7 @@ import { leagueKey } from "@/lib/settingsStore";
 import { useSavedFeedback } from "../settings/useFeedback";
 import { useSavedLeagueSettings } from "../settings/useLeagueSettings";
 import { leagueFixture } from "./testFixtures";
-import { useCurrentLeague, useLeagueStorage, useSavedLeagueInputs, useSavedLeagues, useSavedModel } from "./useLeagueInputs";
+import { INPUTS_UNREACHABLE, settledInputs, useCurrentLeague, useLeagueStorage, useSavedLeagueInputs, useSavedLeagues, useSavedModel, type InputsOutcome } from "./useLeagueInputs";
 
 /** The store's state the hooks see: null = the real hook (the server's: loading). */
 const env = vi.hoisted(() => ({ state: null as LeagueStoreState | null }));
@@ -97,5 +97,16 @@ describe("the league store's hooks", () => {
     expect(render(leagueStoreStateOf({ imports: [stored] }), Inputs)).toBe("<p>pair=none myTeam=none error=none</p>");
     const stale = { ...model, model: { ...f.inputs, builtAt: "2026-01-01T00:00:00.000Z" } };
     expect(render(leagueStoreStateOf({ imports: [stored], models: { [id]: stale } }), Inputs)).toBe("<p>pair=none myTeam=none error=none</p>");
+  });
+});
+
+describe("settledInputs: a model request never rejects to the page (review E2E-1)", () => {
+  it("passes an outcome through, and reads a request that threw as 'couldn't reach Offer Sheet', so Refresh always ends", async () => {
+    const answered: InputsOutcome = { ok: false, message: "ESPN isn't answering right now. Try again in a few minutes." };
+    expect(await settledInputs(Promise.resolve(answered))).toBe(answered);
+    // A browser without CompressionStream threw here before (src/lib/leagueFetch.ts), and the League page's Refresh stayed
+    // "Refreshing…" for good.
+    expect(await settledInputs(Promise.reject(new ReferenceError("CompressionStream is not defined")))).toEqual({ ok: false, message: INPUTS_UNREACHABLE });
+    expect(INPUTS_UNREACHABLE).toBe("We couldn't reach Offer Sheet. Check your connection and try again.");
   });
 });

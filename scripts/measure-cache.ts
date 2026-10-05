@@ -13,9 +13,12 @@
  *    form as from the raw body (src/data/reduce.ts; the loaders, the pre-game archive, the Sleeper import, the
  *    crosswalk's sources), compared with node's isDeepStrictEqual, plus the sizes and the reducer's own time.
  * 2. Bytes per entry type: as the file cache stores it, as RedisCache stores it (gzip + base64) raw, and reduced.
- * 3. Sessions through the shared cache (TieredCache: memory, then FakeRedis; the cross-instance lock): one ESPN session
- *    (Parker's league: the Connect import, then the League page's model build) and one Sleeper session (the public test
- *    league, sanitized, in data-local/), each "before" (no reducers) and "after": Redis commands and bytes, live fetches
+ * 3. Sessions on the server path through the shared cache (TieredCache: memory, then FakeRedis; the cross-instance lock):
+ *    one ESPN session (Parker's league: the import route reading the league, then the League page's build from its signed
+ *    import, not reading it again, with the crosswalk's team codes only) and one Sleeper session (the public test league,
+ *    sanitized, in data-local/; final review F5: the sessions read the league twice before, the flow before signed
+ *    imports, and the browser path's numbers per route are Checkpoint 7a's table), each "before" (no reducers) and
+ *    "after": Redis commands and bytes, live fetches
  *    and CPU, for a cold Redis (the day's first visitor), a new instance (Redis warm, memory empty), a warm instance
  *    (the same league within its 10 minutes) and a warm instance with a new league (review CA-3: its league data gone
  *    from memory and Redis, the league-independent data still warm).
@@ -40,11 +43,12 @@ import path from "node:path";
 import { performance } from "node:perf_hooks";
 import { isDeepStrictEqual } from "node:util";
 import { gzipSync } from "node:zlib";
-import { importEspnLeague, importEspnLeagueForModel } from "@/adapters/espn";
+import { importEspnLeagueForModel } from "@/adapters/espn";
 import { importSleeperLeague, normalizeSleeperLeague, sleeperUrls } from "@/adapters/sleeper";
 import type { HttpClient, HttpRequestOptions, HttpResponse } from "@/adapters/types";
 import { loadPlayerIdResolver, resolverFromData } from "@/data";
 import { DYNASTYPROCESS_IDS_URL, DYNASTYPROCESS_REDUCER, parseDynastyProcessCsv } from "@/data/dynastyProcess";
+import { STATIC_DEFENSE_IDS } from "@/data/teamCodes";
 import { FANTASYCALC_PLAYERS_URL, fantasyCalcPlayersSchema, reduceFantasyCalcPlayers } from "@/data/fantasyCalcPlayers";
 import { fantasyCalcValuesUrl } from "@/data/fantasyCalcValues";
 import { nflScheduleCacheKey } from "@/data/nflSchedule";
@@ -629,20 +633,23 @@ function espnLeague(): (EspnLeague & { label: string }) | null {
   return null;
 }
 
-/** The ESPN session: the Connect import, then the League page's model build (the model route imports again). */
+/**
+ * The ESPN session on the server path (final review F5: private leagues and the fallbacks; a public league's browser path
+ * is Checkpoint 7a's per-route table): the import route reads the league (src/app/api/import/espn: importEspnLeagueForModel,
+ * with the crosswalk), then the League page's build from the signed import, without reading the league again and with
+ * only the crosswalk's team codes (src/app/api/model/espn: getModelOnlyDeps, final review F3).
+ */
 async function espnSession(http: HttpClient, league: EspnLeague): Promise<void> {
   const deps = { http, resolver: await loadPlayerIdResolver({ http, now: NOW }), now: NOW };
-  await importEspnLeague({ leagueId: league.leagueId, season: league.season }, deps);
   const got = await importEspnLeagueForModel({ leagueId: league.leagueId, season: league.season }, deps);
-  await buildModelInputs({ snapshot: got.result.snapshot, http, resolver: deps.resolver, now: NOW, espn: got.espn, projectionArchive: null, fantasyCalcArchive: null });
+  await buildModelInputs({ snapshot: got.result.snapshot, http, resolver: STATIC_DEFENSE_IDS, now: NOW, espn: got.espn, projectionArchive: null, fantasyCalcArchive: null });
 }
 
-/** The Sleeper session: the import by league ID, then the League page's model build. */
+/** The Sleeper session on the server path (as espnSession): the import by league ID, then the build from its signed import. */
 async function sleeperSession(http: HttpClient): Promise<void> {
   const deps = { http, resolver: await loadPlayerIdResolver({ http, now: NOW }), now: NOW };
-  await importSleeperLeague({ season: SEASON, leagueId: FIXTURE_LEAGUE_ID }, deps);
-  const again = await importSleeperLeague({ season: SEASON, leagueId: FIXTURE_LEAGUE_ID }, deps);
-  await buildModelInputs({ snapshot: again.snapshot, http, resolver: deps.resolver, now: NOW, projectionArchive: null, fantasyCalcArchive: null });
+  const imported = await importSleeperLeague({ season: SEASON, leagueId: FIXTURE_LEAGUE_ID }, deps);
+  await buildModelInputs({ snapshot: imported.snapshot, http, resolver: STATIC_DEFENSE_IDS, now: NOW, projectionArchive: null, fantasyCalcArchive: null });
 }
 
 interface SessionNumbers {
@@ -841,7 +848,8 @@ async function main(): Promise<void> {
   const fixture = sleeperFixture();
   const league = espnLeague();
   const leagueCached = league !== null;
-  console.log("\n## 3. Sessions through the shared cache (memory, then Redis; FakeRedis counts commands and bytes)\n");
+  console.log("\n## 3. Sessions on the server path through the shared cache (memory, then Redis; FakeRedis counts commands and bytes)\n");
+  console.log("The server path: private leagues and the fallbacks (the import route reads the league; the League page builds from its signed import without reading it again). A public league read by the browser, and import and model as separate Vercel functions with the rate limits and budgets counted, are Checkpoint 7a's per-route table (final review F5); here one instance serves both steps and no budget or rate-limit command is counted.");
   console.log("Before: no reducers (raw bodies, gzip + base64). After: reduced bodies. Bytes are what each command carries (the wire's size, give or take a few bytes of JSON).");
   console.log(`ESPN: ${league ? `${league.label}, the ESPN league .cache/app holds` : "none in .cache/app (league data is kept 10 minutes)"}. Sleeper: the public test league, sanitized (data-local/).`);
   console.log(`Free tier: how many such sessions a day Upstash's free plan allows alone (${Math.round(FREE_COMMANDS_PER_DAY).toLocaleString("en-US")} commands, ${mb(FREE_BYTES_PER_DAY)} a day; bandwidth counted both ways ⚠️).\n`);

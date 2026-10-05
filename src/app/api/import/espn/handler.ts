@@ -24,9 +24,11 @@ import type { LeagueUpload } from "@/adapters/upload";
 import type { Platform } from "@/engine/model";
 import type { ImportReader, ImportResponse } from "@/lib/api";
 import { isPlausibleSeason, seasonRangeMessage } from "@/lib/season";
+import { chargeWork, type QuotaVerdict } from "@/server/budget";
 import { signImport, type ImportSignature, type SignedContent } from "@/server/importToken";
+import { workLimits } from "@/server/limits";
 import type { CredentialSource, EspnCredentials } from "@/server/session";
-import { dataSourceStamps, errorResponse, importErrorResponse, isSameOrigin, jsonResponse, readJsonBody, scrubSwids } from "../../_lib/respond";
+import { dataSourceStamps, errorResponse, importErrorResponse, isSameOrigin, jsonResponse, readJsonBody, scrubSwids, workRefusedResponse } from "../../_lib/respond";
 import { espnImportBodySchema } from "../../_lib/schemas";
 import { isGzipRequest, readLeagueUpload, uploadedImportProblem } from "../../_lib/upload";
 
@@ -39,6 +41,8 @@ export interface EspnImportHandlerDeps {
   credentialsFor: (request: Request, leagueId: string) => Promise<{ credentials?: EspnCredentials; source: CredentialSource }>;
   /** src/server/importToken.ts signImport (a test hook). */
   sign?: (platform: Platform, content: SignedContent) => ImportSignature | undefined;
+  /** The daily work budget's extra charge (src/server/budget.ts chargeWork; a test hook). */
+  chargeWork?: (units: number) => Promise<QuotaVerdict>;
   now?: () => Date;
 }
 
@@ -68,6 +72,7 @@ export function espnImportResponse(
 
 export function createEspnImportHandler(d: EspnImportHandlerDeps): (request: Request) => Promise<Response> {
   const sign = d.sign ?? ((platform: Platform, content: SignedContent) => signImport(platform, content));
+  const charge = d.chargeWork ?? ((units: number) => chargeWork(units));
 
   /** A league the browser read (see the header). */
   async function fromUpload(request: Request): Promise<Response> {
@@ -79,6 +84,12 @@ export function createEspnImportHandler(d: EspnImportHandlerDeps): (request: Req
     if (!isPlausibleSeason(season, now)) return errorResponse("INVALID_REQUEST", seasonRangeMessage(now));
     try {
       const { credentials, source } = await d.credentialsFor(request, leagueId);
+      if (credentials) {
+        // The server reads the league itself (below): what that costs past the upload's units, charged first (final
+        // review SEC-1; src/server/budget.ts).
+        const verdict = await charge(workLimits.units.importServer - workLimits.units.importUpload);
+        if (verdict !== "ok") return workRefusedResponse(verdict);
+      }
       const deps = await d.getDeps();
       // Connected with ESPN cookies: the server reads the league itself (with them), whatever the browser sent.
       if (credentials) return jsonResponse(espnImportResponse(await d.importLeague({ leagueId, season, credentials }, deps), deps, { credentials, source, readBy: "server" }, sign));

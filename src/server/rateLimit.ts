@@ -5,21 +5,23 @@
  * - The client: the IP address from `x-real-ip`, else the first `x-forwarded-for` (Vercel overwrites both with the real
  *   client address; locally Next sets x-forwarded-for to the socket's, and a value there is untrusted, which is fine for a
  *   local server). IPv4 as is; IPv6 by its /64 (one household or phone gets a whole /64, so one address each would be no
- *   limit); none or unreadable: one shared "unknown" client. The address never reaches a key, a log or a value: with
- *   Redis it goes in only as hmacId("client-id/v1", bucket) (src/server/redis.ts, an HMAC under SESSION_SECRET);
- *   without, as an HMAC under a random key this process draws at start.
+ *   limit); none or unreadable: one shared "unknown" client. Its group (final review SEC-2; ipGroup): the IPv4 address's /24
+ *   or the IPv6 address's /48 (a household gets a /56, a free tunnel broker a /48 of 65,536 /64s). The address never
+ *   reaches a key, a log or a value: with Redis it goes in only as hmacId("client-id/v1", bucket or group)
+ *   (src/server/redis.ts, an HMAC under SESSION_SECRET); without, as an HMAC under a random key this process draws at start.
  * - Limits (limits.rateLimits): import 30 and model 30 per 10 minutes, session 20 per 10 minutes, feedback 60 per hour,
  *   per client and route kind, in fixed windows aligned to the clock (the window an attempt falls in is
- *   floor(now / window)). Over: 429 with Retry-After (the seconds left in the window) and RATE_LIMITED.
+ *   floor(now / window)); an IPv6 request also counts against its /48 at rateLimits.groupFactor times the limit (the
+ *   "group" tier; review SEC-2). Over: 429 with Retry-After (the seconds left in the window) and RATE_LIMITED.
  * - With Redis (on Vercel only: off Vercel nothing here contacts Upstash, even with its variables in .env.local):
  *   @upstash/ratelimit's fixed window (one EVALSHA running INCRBY, plus PEXPIRE on a window's first request: 2–3 Upstash
- *   commands a check), one limiter per route kind created once per process (module scope), its ephemeral cache on (a
- *   client already refused in this window is refused again without Redis), analytics and telemetry off. Keys:
- *   `prefix + "rl:" + kind + ":" + client + ":" + window`, gone when the window ends (so a client's hash is kept at most an
- *   hour, the longest window). A check slower than limits.rateLimits.timeoutMs, or failing, lets the request through,
- *   counted in this process's own windows instead (fail open, as without Redis), and Redis is left alone for
- *   limits.rateLimits.redisRetryAfterMs (logged once). A Redis client that can't be built (a malformed address) is logged
- *   by its error's name only, and the process's own windows are used.
+ *   commands a check), one limiter per route kind and tier created once per process (module scope), its ephemeral cache on
+ *   (a client already refused in this window is refused again without Redis), analytics and telemetry off. Keys:
+ *   `prefix + "rl:" + kind + ":" + client + ":" + window` (a group's: "rl:" + kind + ":g:" …), gone when the window ends
+ *   (so a client's hash is kept at most an hour, the longest window). A check slower than limits.rateLimits.timeoutMs, or
+ *   failing, lets the request through, counted in this process's own windows instead (fail open, as without Redis), and
+ *   Redis is left alone for limits.rateLimits.redisRetryAfterMs (logged once). A Redis client that can't be built (a
+ *   malformed address) is logged by its error's name only, and the process's own windows are used.
  * - Without Redis (local, the stable copy, tests, a preview before Upstash is connected): this process's own windows,
  *   at most limits.rateLimits.memoryMaxKeys clients.
  * - Memory: a client whose window has ended is dropped from this process (its own windows, and the record of clients the
@@ -47,12 +49,26 @@ export interface RateVerdict {
   firstRefusal: boolean;
 }
 
+/**
+ * What a check counts: a client (clientKey: an IPv4 address or IPv6 /64) at its kind's limit, or an IPv6 client's /48
+ * (ClientIds.group) at rateLimits.groupFactor times it (final review SEC-2).
+ */
+export type RateTier = "client" | "group";
+
 export interface RateLimiter {
-  /** Counts one request of `client` (clientKey) to a route of `kind` and says whether it may go on. Never rejects. */
-  check(kind: RouteKind, client: string, now?: number): Promise<RateVerdict>;
+  /**
+   * Counts one request of `client` (clientKey; for the "group" tier, ClientIds.group) to a route of `kind` and says whether
+   * it may go on. Never rejects.
+   */
+  check(kind: RouteKind, client: string, now?: number, tier?: RateTier): Promise<RateVerdict>;
 }
 
 export type KindLimits = Readonly<Record<RouteKind, { readonly limit: number; readonly windowS: number }>>;
+
+/** A tier's limit: the kind's for a client, rateLimits.groupFactor times it for a group. */
+function tierLimit(limit: number, tier: RateTier): number {
+  return tier === "group" ? limit * rateLimits.groupFactor : limit;
+}
 
 // ---------------------------------------------------------------------------------------------
 // The client
@@ -125,17 +141,48 @@ export function ipBucket(ip: string | undefined): string {
   return `${groups.slice(0, 4).join(":")}::/64`;
 }
 
+/**
+ * The group an address counts in too (final review SEC-2): an IPv4 address's /24 ("203.0.113.0/24"), an IPv6 address's
+ * /48 ("2001:db8:abcd::/48": a household gets a /56, a free tunnel broker a /48 of 65,536 /64s), "unknown" for none or
+ * anything unreadable. The daily budgets count per group (src/server/budget.ts), and the rate limit counts an IPv6 request
+ * against its /48 as well as its /64 (rateLimits.groupFactor).
+ */
+export function ipGroup(ip: string | undefined): string {
+  const bucket = ipBucket(ip);
+  if (bucket === "unknown") return bucket;
+  if (bucket.endsWith("::/64")) return `${bucket.slice(0, -"::/64".length).split(":").slice(0, 3).join(":")}::/48`;
+  return `${bucket.split(".").slice(0, 3).join(".")}.0/24`;
+}
+
 /** This process's own HMAC key, for client ids without SESSION_SECRET (never stored, never the same twice). */
 const PROCESS_KEY = randomBytes(32);
+
+/** A bucket's id (see the header): hmacId(CLIENT_ID_LABEL, text) with SESSION_SECRET, else an HMAC under this process's key. */
+function idOf(text: string, env: Env): string {
+  if (derivedKey(CLIENT_ID_LABEL, env)) return hmacId(CLIENT_ID_LABEL, text, env);
+  return createHmac("sha256", PROCESS_KEY).update(text).digest("base64url").slice(0, 32);
+}
 
 /**
  * The client's id for the limiter (see the header): hmacId(CLIENT_ID_LABEL, bucket) with SESSION_SECRET (the same on every
  * instance, as Redis needs), else an HMAC under this process's random key. Never the address itself.
  */
 export function clientKey(request: Request, env: Env = process.env): string {
-  const bucket = ipBucket(clientIp(request));
-  if (derivedKey(CLIENT_ID_LABEL, env)) return hmacId(CLIENT_ID_LABEL, bucket, env);
-  return createHmac("sha256", PROCESS_KEY).update(bucket).digest("base64url").slice(0, 32);
+  return idOf(ipBucket(clientIp(request)), env);
+}
+
+/** A request's ids (see the header): its client's (clientKey), its group's (ipGroup, the same HMAC), and whether it's IPv6. */
+export interface ClientIds {
+  client: string;
+  group: string;
+  ipv6: boolean;
+}
+
+/** The request's ids (ClientIds): never the address, nor its group, in the clear. */
+export function clientIds(request: Request, env: Env = process.env): ClientIds {
+  const ip = clientIp(request);
+  const bucket = ipBucket(ip);
+  return { client: idOf(bucket, env), group: idOf(ipGroup(ip), env), ipv6: bucket.endsWith("/64") };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -165,12 +212,13 @@ export function createMemoryLimiter(opts: { limits?: KindLimits; maxKeys?: numbe
   return {
     /** Clients this process remembers (tests). */
     size: () => counts.size,
-    async check(kind, client, now = Date.now()) {
+    async check(kind, client, now = Date.now(), tier = "client") {
       sweep(now);
-      const { limit, windowS } = limits[kind];
+      const { windowS } = limits[kind];
+      const limit = tierLimit(limits[kind].limit, tier);
       const windowMs = windowS * 1000;
       const windowEnd = (Math.floor(now / windowMs) + 1) * windowMs;
-      const key = `${kind}:${client}`;
+      const key = tier === "group" ? `group:${kind}:${client}` : `${kind}:${client}`;
       let entry = counts.get(key);
       if (!entry || entry.windowEnd !== windowEnd) {
         if (!entry && counts.size >= maxKeys) {
@@ -214,55 +262,57 @@ export function createSharedLimiter(redis: RatelimitRedis, opts: SharedLimiterOp
   const fallback = opts.fallback ?? createMemoryLimiter({ limits });
   const timeoutMs = opts.timeoutMs ?? rateLimits.timeoutMs;
   const retryAfterMs = opts.redisRetryAfterMs ?? rateLimits.redisRetryAfterMs;
-  const limiters = new Map<RouteKind, Ratelimit>();
+  /** One limiter per kind and tier ("import", "import:g" …). */
+  const limiters = new Map<string, Ratelimit>();
   /**
-   * Each kind's ephemeral cache (@upstash/ratelimit's: a refused client's key → its window's end), ours so ended windows
+   * Each limiter's ephemeral cache (@upstash/ratelimit's: a refused client's key → its window's end), ours so ended windows
    * can be swept (the library drops one only when that client is checked again).
    */
-  const refused = new Map<RouteKind, Map<string, number>>();
+  const refused = new Map<string, Map<string, number>>();
   let redisDownUntil = Number.NEGATIVE_INFINITY;
   const sweep = sweeper(opts.sweepEveryMs ?? rateLimits.sweepEveryMs, (now) => {
     for (const blocked of refused.values()) for (const [k, reset] of blocked) if (reset <= now) blocked.delete(k);
   });
 
-  const limiterFor = (kind: RouteKind): Ratelimit => {
-    let limiter = limiters.get(kind);
+  const limiterFor = (kind: RouteKind, tier: RateTier): Ratelimit => {
+    const name = tier === "group" ? `${kind}:g` : kind;
+    let limiter = limiters.get(name);
     if (!limiter) {
-      const { limit, windowS } = limits[kind];
+      const { windowS } = limits[kind];
       const blocked = new Map<string, number>();
-      refused.set(kind, blocked);
+      refused.set(name, blocked);
       limiter = new Ratelimit({
         redis,
-        limiter: Ratelimit.fixedWindow(limit, `${windowS} s`),
-        prefix: `${opts.prefix}rl:${kind}`,
+        limiter: Ratelimit.fixedWindow(tierLimit(limits[kind].limit, tier), `${windowS} s`),
+        prefix: `${opts.prefix}rl:${name}`,
         ephemeralCache: blocked,
         analytics: false,
         timeout: timeoutMs,
         enableTelemetry: false,
       });
-      limiters.set(kind, limiter);
+      limiters.set(name, limiter);
     }
     return limiter;
   };
 
-  const failOpen = (kind: RouteKind, client: string, now: number, event: string, err?: unknown): Promise<RateVerdict> => {
+  const failOpen = (kind: RouteKind, client: string, now: number, tier: RateTier, event: string, err?: unknown): Promise<RateVerdict> => {
     redisDownUntil = now + retryAfterMs;
     logEvent({ event, platform: "upstash", ...(err !== undefined ? { errorName: errorNameOf(err) } : {}) });
-    return fallback.check(kind, client, now);
+    return fallback.check(kind, client, now, tier);
   };
 
   return {
     /** Refused clients this process remembers (tests). */
     refusedInMemory: () => [...refused.values()].reduce((n, m) => n + m.size, 0),
-    async check(kind, client, now = Date.now()) {
+    async check(kind, client, now = Date.now(), tier = "client") {
       sweep(now);
-      if (now < redisDownUntil) return fallback.check(kind, client, now);
+      if (now < redisDownUntil) return fallback.check(kind, client, now, tier);
       try {
-        const r = await limiterFor(kind).limit(client);
-        if (r.reason === "timeout") return failOpen(kind, client, now, "limiter_timeout");
+        const r = await limiterFor(kind, tier).limit(client);
+        if (r.reason === "timeout") return failOpen(kind, client, now, tier, "limiter_timeout");
         return { allowed: r.success, retryAfterS: Math.max(1, Math.ceil((r.reset - now) / 1000)), firstRefusal: !r.success && r.reason !== "cacheBlock" };
       } catch (err) {
-        return failOpen(kind, client, now, "limiter_error", err);
+        return failOpen(kind, client, now, tier, "limiter_error", err);
       }
     },
   };

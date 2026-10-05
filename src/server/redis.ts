@@ -30,8 +30,8 @@ import { Redis } from "@upstash/redis";
 import { redisClientLimits } from "./limits";
 
 /**
- * The commands Offer Sheet uses, as strings in and out (a subset of @upstash/redis; FakeRedis implements the same), and one
- * transaction made of them (lpushTrimExpire).
+ * The commands Offer Sheet uses, as strings in and out (a subset of @upstash/redis; FakeRedis implements the same), and two
+ * transactions made of them (lpushTrimExpire, incrExpire).
  */
 export interface RedisLike {
   get(key: string): Promise<string | null>;
@@ -51,6 +51,14 @@ export interface RedisLike {
    * LPUSH (before the trim).
    */
   lpushTrimExpire(key: string, values: readonly string[], keep: number, ttlMs: number): Promise<number>;
+  /**
+   * For each entry, INCRBY `by` and PEXPIRE `ttlMs`, all in one MULTI/EXEC transaction (Upstash's /multi-exec: one
+   * request, applied whole or not at all), so a counter never exists without its expiry, not even when the answer is lost
+   * after Upstash applied it (review POL-2: an INCR, then a separate PEXPIRE on the first increment only, could leave a
+   * count of a visitor's IP hash with no expiry). Every call sets the expiry again (idempotent: callers pass the same end).
+   * Upstash bills two commands an entry. The counters' values after the increments, in the entries' order.
+   */
+  incrExpire(entries: ReadonlyArray<{ key: string; by: number; ttlMs: number }>): Promise<number[]>;
 }
 
 type Env = Readonly<Record<string, string | undefined>>;
@@ -118,6 +126,14 @@ function wrap(client: Redis): RedisLike {
         .pexpire(key, ttlMs)
         .exec();
       return length;
+    },
+    async incrExpire(entries) {
+      if (!entries.length) return [];
+      // multi(): Upstash's transaction endpoint, as lpushTrimExpire; exec() throws if any command failed.
+      const tx = client.multi();
+      for (const e of entries) tx.incrby(e.key, e.by).pexpire(e.key, Math.max(1, Math.ceil(e.ttlMs)));
+      const answers = (await tx.exec()) as unknown[];
+      return entries.map((_, i) => Number(answers[2 * i]));
     },
   };
 }
@@ -304,6 +320,23 @@ export class FakeRedis implements RedisLike {
     list.unshift(...[...values].reverse());
     this.store.set(key, { value: FakeRedis.trimmed(list, 0, keep - 1), expiresAt: this.clock() + ttlMs });
     return list.length;
+  }
+
+  /**
+   * RedisLike.incrExpire: every INCRBY and PEXPIRE applied in one step (it never calls the single commands, so a test that
+   * makes one of them fail can't split it), its commands counted as Upstash bills them (two an entry).
+   */
+  async incrExpire(entries: ReadonlyArray<{ key: string; by: number; ttlMs: number }>): Promise<number[]> {
+    const out: number[] = [];
+    for (const { key, by, ttlMs } of entries) {
+      this.count(key, String(by));
+      this.count(key);
+      const e = this.live(key);
+      const next = (e && typeof e.value === "string" ? Number(e.value) : 0) + by;
+      this.store.set(key, { value: String(next), expiresAt: this.clock() + Math.max(1, Math.ceil(ttlMs)) });
+      out.push(next);
+    }
+    return out;
   }
 
   async lrange(key: string, start: number, stop: number): Promise<string[]> {

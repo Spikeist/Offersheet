@@ -72,6 +72,20 @@ export interface TeamCodeIndex {
   readonly derived: readonly DerivedTeamAlias[];
 }
 
+/**
+ * NFL team codes without the crosswalk's data (final review F3): Sleeper's 32 codes and the hand-typed aliases, which is
+ * all a model build reads of the crosswalk (src/server/modelInputs.ts: the ESPN NFL schedule's abbreviations → Sleeper's
+ * codes; ESPN's only code that isn't Sleeper's is WSH). teamCodes.test.ts checks it maps every ESPN abbreviation as the
+ * crosswalk built from the committed data does. Built on first use.
+ */
+let staticIndex: TeamCodeIndex | undefined;
+export const STATIC_DEFENSE_IDS: { defenseId(teamCode: string): string | undefined } = {
+  defenseId(teamCode: string): string | undefined {
+    staticIndex ??= buildTeamCodeIndex({ sleeperCodes: SLEEPER_TEAM_CODES });
+    return staticIndex.toSleeper(teamCode);
+  },
+};
+
 /** Upper-cased, trimmed code; null for "no team". */
 export function cleanTeamCode(code: string | null | undefined): string | null {
   if (typeof code !== "string") return null;

@@ -58,6 +58,12 @@ export const rateLimits = {
   model: { limit: 30, windowS: 600 },
   session: { limit: 20, windowS: 600 },
   feedback: { limit: 60, windowS: 3600 },
+  /**
+   * IPv6 (review SEC-2): a /64 is one client, but a household gets a /56 and a free tunnel broker a /48 (65,536 /64s), so
+   * each IPv6 request also counts against its address's /48, at this many times the /64's limit (a phone carrier's pool can
+   * put many subscribers in one /48, so it can't be one client's limit). IPv4 addresses are scarce: one address, one count.
+   */
+  groupFactor: 10,
   /** A Redis check slower than this lets the request through, counted in the process's own window instead (logged). */
   timeoutMs: 1_000,
   /** After Redis fails or times out, the process's own window is used this long before Redis is asked again. */
@@ -79,11 +85,25 @@ export const rateLimits = {
 export const budgets = {
   perDay: { espn: 4_000, sleeper: 15_000, fantasycalc: 200, github: 100 },
   /**
-   * On Vercel only: each client's share of a platform's day (the same client id as the rate limits), counted on league
-   * requests only (league-independent data is fetched once for everyone), so a few clients can't spend the whole day's
-   * budget for everyone. About 30 cold server-side imports of either kind a day.
+   * On Vercel only: each client's share of a platform's day, counted on league requests only (league-independent data is
+   * fetched once for everyone), so a few clients can't spend the whole day's budget for everyone. About 30 cold server-side
+   * imports of either kind a day. A client here is its address's group (review SEC-2: an IPv4 /24, an IPv6 /48; one person
+   * can hold a whole /48), the same group id as the daily work budget's (workLimits).
    */
   perClientPerDay: { espn: 400, sleeper: 1_500 },
+  /**
+   * Kept for requests that carry a visitor's ESPN cookies (review SEC-2): a private league has no browser path, so reads
+   * without cookies (public leagues the server reads itself) stop this far short of the day's budget, and an attacker's
+   * cookie-less imports can't leave private leagues unreadable for the rest of the day.
+   */
+  reservedForCookies: { espn: 1_000 },
+  /**
+   * The day in slices (review SEC-2: "so a burst can only take one slice"): by the end of slice i of `slices` (2 hours each)
+   * at most (i + 1) / slices of a day's budget may have been spent, unused budget carried on, but never less than
+   * burstShare of it, so the first hours of a UTC day (the US evening) still have a quarter of the day.
+   */
+  slices: 12,
+  burstShare: 0.25,
   /** How long a day's counter key lives in Redis (a day and a margin). */
   keyTtlMs: 2 * 24 * 60 * 60_000,
   /** A client's share counter lives until its UTC day ends and this margin (instances' clocks differ a little). */
@@ -91,6 +111,57 @@ export const budgets = {
   /** The process's own share counts (no Redis, or Redis down): at most this many clients a day; past it, the oldest go. */
   memoryMaxClients: 20_000,
   /** A Redis count slower than this lets the attempt through, counted in the process's own budget instead (logged). */
+  timeoutMs: 1_000,
+  /** After Redis fails or times out, the process's own count is used this long before Redis is asked again. */
+  redisRetryAfterMs: 60_000,
+} as const;
+
+/**
+ * The daily work budget (final review SEC-1, F1; src/server/budget.ts workBudget, charged by withRoute and the import and
+ * model handlers): what the server's own work for visitors may cost a day, on Vercel only. Vercel's Hobby plan pauses
+ * the whole project for up to 30 days once a month's Active CPU (4 hours) or Fast Origin Transfer (10 GB: request and
+ * response bytes) runs out, and the per-IP windows alone let one client spend that in days. So every import and League
+ * page request costs units, counted per UTC day against the client (its IPv4 address or IPv6 /64), its group (the IPv4 /24
+ * or IPv6 /48 it's in) and the whole server; past any of them the request is refused with BUSY (Retry-After: when the
+ * day, or for the server's day the next slice, starts).
+ *
+ * A unit is about 100 ms of the server's CPU or about 75 KB of request body, as measured at Checkpoint 7a's final review
+ * (i9 desktop; ⚠️ Vercel's CPUs may be slower, so the day's 4,000 units are about 400 CPU-seconds, under the 480 a month's
+ * 4 hours allow a day, and about 300 MB of transfer, under its 333): a Sleeper import read by the browser about 3 units,
+ * an ESPN one about 10, a League page build 5, a league the server reads itself 6 (a build with it 10). Real use is far
+ * below a client's 500 a day (about 33 ESPN imports with their League page builds, 60 Sleeper ones).
+ */
+export const workLimits = {
+  /** Request-body bytes per unit (Content-Length; a body without one costs its cap). */
+  unitBytes: 75_000,
+  /** What a request costs when it arrives, besides its body's bytes, by what it asks for (src/server/budget.ts admissionUnits). */
+  units: {
+    /** A league the browser read, to the import route. */
+    importUpload: 2,
+    /** A league the server reads itself (the import route's JSON body, or an upload while ESPN cookies are connected). */
+    importServer: 6,
+    /** A League page build from the import the browser saved, signed (a replay of the same import costs the same: memoized). */
+    modelSigned: 4,
+    /** A League page build that reads the league itself first. */
+    modelServer: 10,
+  },
+  /** A model build costs one more unit for every modelWorkPerUnit of its work (modelWorkOf) past modelWorkIncluded. */
+  modelWorkIncluded: 15_000,
+  modelWorkPerUnit: 5_000,
+  perClientPerDay: 500,
+  perGroupPerDay: 2_000,
+  /** The whole server's day, in slices like the outbound budgets (budgets.slices, budgets.burstShare). */
+  perDay: 4_000,
+  /**
+   * Redis down or slow: each process counts its own and may spend at most this share of the day (fail open, but a
+   * process can't spend the whole server's day; ⚠️ many processes together still can).
+   */
+  processShare: 0.25,
+  /** A day's counter lives until its UTC day ends and this margin (instances' clocks differ a little). */
+  keyMarginMs: 60_000,
+  /** The process's own counts and its record of refused clients: at most this many a day; past it, the oldest go. */
+  memoryMaxKeys: 20_000,
+  /** A Redis count slower than this lets the request through, counted in the process's own budget instead (logged). */
   timeoutMs: 1_000,
   /** After Redis fails or times out, the process's own count is used this long before Redis is asked again. */
   redisRetryAfterMs: 60_000,
@@ -129,13 +200,32 @@ export const deadlines = {
 
 /**
  * Browser uploads of league data (track BF; src/app/api/_lib/upload.ts): the gzip body a browser sends the import routes
- * (the league it read itself) and the model routes (the import it saved, signed), refused unread past compressedBytes and
- * refused while unpacking past unpackedBytes (a zip bomb stops there). Vercel takes at most 4.5 MB a request body.
- * Measured (Checkpoint 7a): an ESPN league's upload about 0.5 MB gzip, a Sleeper league's under 0.1 MB.
+ * (the league it read itself), refused unread past compressedBytes and refused while unpacking past unpackedBytes (a zip
+ * bomb stops there). Vercel takes at most 4.5 MB a request body. Measured (Checkpoint 7a): Parker's ESPN league's upload
+ * 0.55 MB gzip, 2.26 MB unpacked; a Sleeper league's under 0.1 MB. Final review SEC-1: the caps were 3 and 20 MB, and a
+ * 19 KB body unpacking to 20 MB cost 1.3–1.9 s of CPU before it was refused; at 6 MB about a third of that.
  */
 export const uploadLimits = {
-  compressedBytes: 3_000_000,
-  unpackedBytes: 20_000_000,
+  compressedBytes: 2_000_000,
+  unpackedBytes: 6_000_000,
+} as const;
+
+/**
+ * The import the browser saved, signed, posted to the model routes (final review SEC-1: its own caps; Parker's is 25 KB
+ * gzip, 113 KB unpacked). Reading it and checking its signature hashes the whole snapshot, so its size is the cost.
+ */
+export const signedUploadLimits = {
+  compressedBytes: 1_000_000,
+  unpackedBytes: 4_000_000,
+} as const;
+
+/**
+ * The model routes' memory of answers they built from a signed import (final review SEC-1; src/app/api/model/memo.ts): the
+ * same signed import posted again within its token's life (browserFetchLimits.tokenMaxAgeMs) gets the answer already built
+ * on this instance instead of a new build. At most this many bytes of answers per instance (about 145 KB each).
+ */
+export const modelMemoLimits = {
+  maxBytes: 24_000_000,
 } as const;
 
 /**
@@ -164,11 +254,12 @@ export const uploadShapeLimits = {
   /**
    * The model build's work for an import the browser read: the players it scores (rostered and free agents) times the
    * scoring rules, a stepped rule ("every 5 passing yards") counted steppedRuleWeight times (it sums up to about 200
-   * terms: about 11 µs against a range rule's 1.4, measured). At the cap a model build's scoring takes 2.4–3.4 s
-   * (measured: 3,000 players × 50 rules, 1,500 × 10 stepped, 1,000 × 100 + 5 stepped); Parker's league is about 3,800
-   * (0.13 s), a 32-team league of 1,600 players with 25 rules 40,000.
+   * terms: about 11 µs against a range rule's 1.4, measured). At 150,000 a model build's scoring took 2.4–3.4 s
+   * (measured: 3,000 players × 50 rules, 1,500 × 10 stepped, 1,000 × 100 + 5 stepped), so the cap is 60,000 since the
+   * final review (SEC-1: about 1.4 s); Parker's league is about 3,800 (0.13 s), a 32-team league of 1,600 players with 25
+   * rules 40,000. A bigger real league is read by the server itself (the browser's upload is refused).
    */
-  modelWork: 150_000,
+  modelWork: 60_000,
   steppedRuleWeight: 10,
 } as const;
 
@@ -230,16 +321,29 @@ export const logLimits = {
 
 /**
  * The anonymous feedback store (track FB; src/server/feedbackSink.ts, the route src/app/api/feedback; its rate limit is
- * rateLimits.feedback, its deadline deadlines.feedbackMs). With Redis on Vercel, one list per UTC month of arrival
- * (`prefix + "fb:" + YYYY-MM`): each copy LPUSHed, the list trimmed to its newest maxPerMonth and its expiry reset to
- * retainDays, in one transaction (3 commands a copy; review FB-R5), so a month's list goes a year after the last copy that
- * month (the privacy page's words); `npm run feedback:pull` deletes its downloaded copies by the same rule (review FB-R2).
- * ⚠️ A year is the lead's design, a question for Parker at Checkpoint 7a. At the cap, about 1.1 KB a copy and at most 13
- * month lists alive, the store holds about 75 MB at most: under a third of the free tier's 256 MB (Checkpoint 7a's table).
+ * rateLimits.feedback, its deadline deadlines.feedbackMs). With Redis on Vercel, one list per UTC day of arrival
+ * (`prefix + "fb:" + YYYY-MM-DD`; final review SEC-3: a month's list kept its newest 5,000, so 84 IPv6 /64s at the hourly
+ * limit could push a month's real outcomes out with forged copies; now a flood crowds out its own day at most): each copy
+ * LPUSHed, the list trimmed to its newest maxPerDay and its expiry reset to retainDays, in one transaction (3 commands a
+ * copy; review FB-R5), so a day's list goes a year after that day (the privacy page's words); `npm run feedback:pull`
+ * deletes its downloaded copies by the same rule (review FB-R2) and flags days with unusual counts for Phase 6 to drop or
+ * down-weight. Each client (an IPv4 address or IPv6 /64) may send perClientPerDay copies a UTC day and each group (an IPv4
+ * /24 or IPv6 /48) perGroupPerDay; past either the route answers RATE_LIMITED until the day ends.
+ * ⚠️ A year is the lead's design, a question for Parker at Checkpoint 7a. The store's bound (final review F4): at most
+ * maxPerDay copies of at most maxStoredBytes in each of the 366 days alive, about 75 MB, under a third of the free tier's
+ * 256 MB, which the cache, the limits, the budgets and the log share; real copies (about 1.0–1.2 KB, Parker's top 10) a
+ * full year of full days would make about 45 MB.
  */
 export const feedbackLimits = {
-  maxPerMonth: 5_000,
+  maxPerDay: 100,
   retainDays: 365,
+  /**
+   * The largest copy stored, as stored (JSON with its day; final review F4: the schema accepts copies up to about 3.3 KB,
+   * real ones are about 1.0–1.2 KB); a bigger copy is refused (400, never stored).
+   */
+  maxStoredBytes: 2_048,
+  perClientPerDay: 30,
+  perGroupPerDay: 60,
   /** The store's write gives up after this long (the copy is dropped; the browser never waits for it, nor retries). */
   writeTimeoutMs: 2_000,
   /**

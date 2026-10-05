@@ -9,9 +9,9 @@ import { ESPN_READS_BASE } from "@/adapters/espn/leagueData";
 import { swidPseudonym } from "@/adapters/espn/swid";
 import { SLEEPER_API } from "@/adapters/sleeper/leagueData";
 import type { LeagueUpload } from "@/adapters/upload";
-import { browserFetchLimits } from "@/server/limits";
+import { browserFetchLimits, signedUploadLimits, uploadLimits, uploadShapeLimits } from "@/server/limits";
 import { gzipRequest, jsonRequest } from "./testFakes";
-import { isGzipRequest, readGzipText, readLeagueUpload, readSignedModelUpload } from "./upload";
+import { isGzipRequest, readGzipText, readLeagueUpload, readSignedModelUpload, uploadPartsProblem } from "./upload";
 
 const URL = "http://localhost:3000/api/import/espn";
 const SWID = "{00000000-0000-4000-8000-0000000000AB}";
@@ -64,7 +64,7 @@ describe("readLeagueUpload", () => {
     expect(await bad(espnUpload({ request: { leagueId: "not-a-league", season: 2026 } }))).toBe(false);
     expect(await bad(espnUpload({ parts: [{ url: "https://evil.example/x", status: 200, at: 1_999_000 }] }))).toBe(false);
     expect(await bad(espnUpload({ parts: [{ url: `${SLEEPER_API}/state/nfl`, status: 200, at: 1_999_000 }] }))).toBe(false);
-    const part = { url: `${ESPN_READS_BASE}/seasons/2026/x`, status: 200, at: 1_999_000 };
+    const part = { url: `${ESPN_READS_BASE}/seasons/2026/segments/0/leagues/4242?view=mTransactions2&scoringPeriodId=1`, status: 200, at: 1_999_000 };
     expect(await bad(espnUpload({ parts: Array.from({ length: browserFetchLimits.maxParts + 1 }, () => part) }))).toBe(false);
     expect(await bad(espnUpload({ parts: [{ ...part, at: 2_000_000 - browserFetchLimits.maxPartAgeMs - 1 }] }))).toBe(false);
     expect(await bad(espnUpload({ parts: [{ ...part, at: 2_000_001 }] }))).toBe(false);
@@ -75,6 +75,46 @@ describe("readLeagueUpload", () => {
     expect(read.ok && read.value.request).toEqual({ leagueId: "123456789012345678", season: 2026, username: "zorblax_q" });
     expect(await bad({ ...sleeper, request: { leagueId: "https://sleeper.com/leagues/123456789012345678", season: 2026 } }, "sleeper")).toBe(false);
     expect(await bad({ ...sleeper, request: { leagueId: "123456789012345678", season: 2026, username: "zorblax q" } }, "sleeper")).toBe(false);
+  });
+});
+
+describe("what an upload may hold (final review SEC-1)", () => {
+  it("only the league-data reads a browser makes, each once: anything else the server reads itself, a repeat, a stranger's address", () => {
+    const league = `${ESPN_READS_BASE}/seasons/2026/segments/0/leagues/4242?view=mSettings&view=mTeam`;
+    const freeAgents = `${ESPN_READS_BASE}/seasons/2026/segments/0/leagues/4242?view=kona_player_info&scoringPeriodId=4`;
+    expect(uploadPartsProblem([{ url: league }, { url: freeAgents, filter: '{"players":{"filterSlotIds":{"value":[0]}}}' }, { url: freeAgents, filter: '{"players":{"filterSlotIds":{"value":[2]}}}' }])).toBeNull();
+    expect(uploadPartsProblem([{ url: `${SLEEPER_API}/league/123456789012345678` }, { url: `${SLEEPER_API}/league/123456789012345678/rosters` }, { url: `${SLEEPER_API}/state/nfl` }])).toBeNull();
+    expect(uploadPartsProblem([{ url: league }, { url: league }])).toBe("the same response twice");
+    expect(uploadPartsProblem([{ url: freeAgents, filter: "{}" }, { url: freeAgents, filter: "{}" }])).toBe("the same response twice");
+    for (const url of [
+      `${ESPN_READS_BASE}/seasons/2026/segments/0/leaguedefaults/3?view=kona_player_info`, // projections: the server's to read
+      `${ESPN_READS_BASE}/seasons/2026?view=proTeamSchedules_wl`, // the NFL schedule
+      "https://api.sleeper.app/projections/nfl/2026/4?season_type=regular&position=QB",
+      "https://api.sleeper.app/v1/players/nfl",
+      "https://evil.example/v1/league/1",
+    ])
+      expect(uploadPartsProblem([{ url }]), url).toBe("a response the browser doesn't read");
+  });
+
+  it("readLeagueUpload refuses an upload with such a part, and the caps are the final review's (6 MB unpacked, 2 MB packed; a model build 60,000)", async () => {
+    const league = { url: `${ESPN_READS_BASE}/seasons/2026/segments/0/leagues/4242?view=mSettings`, status: 200, json: {}, at: 1_999_000 };
+    expect((await readLeagueUpload(gzipRequest(URL, espnUpload({ parts: [league, league] })), "espn")).ok).toBe(false);
+    const schedule = { url: `${ESPN_READS_BASE}/seasons/2026?view=proTeamSchedules_wl`, status: 200, json: {}, at: 1_999_000 };
+    expect(await readLeagueUpload(gzipRequest(URL, espnUpload({ parts: [league, schedule] })), "espn")).toEqual({ ok: false, why: "a response the browser doesn't read" });
+    expect(uploadLimits).toEqual({ compressedBytes: 2_000_000, unpackedBytes: 6_000_000 });
+    expect(signedUploadLimits).toEqual({ compressedBytes: 1_000_000, unpackedBytes: 4_000_000 });
+    expect(uploadShapeLimits.modelWork).toBe(60_000);
+    // A bomb that unpacks past the cap (7 MB of an empty list's commas) is refused while unpacking.
+    const bomb = `{"v":1,"platform":"espn","request":{"leagueId":"4242","season":2026},"sentAt":2000000,"parts":[{"url":"${league.url}","status":200,"at":1999000,"json":[${"[],".repeat(2_333_333)}[]]}]}`;
+    expect(await readLeagueUpload(gzipRequest(URL, bomb), "espn")).toEqual({ ok: false, why: "not gzip, or too large unpacked" });
+  });
+
+  it("a signed import has its own, smaller caps (its signature's check hashes the whole snapshot)", async () => {
+    const snapshot = { platform: "sleeper", leagueId: "123456789012345678", season: 2026, pad: "x".repeat(signedUploadLimits.unpackedBytes) };
+    const body = { v: 1, leagueId: "123456789012345678", season: 2026, import: { snapshot, modelPart: {} }, signed: { issuedAt: 5, token: "t" } };
+    expect(await readSignedModelUpload(gzipRequest(URL, body), "sleeper")).toEqual({ ok: false, why: "not gzip, or too large unpacked" });
+    const fits = { ...body, import: { snapshot: { ...snapshot, pad: "x".repeat(signedUploadLimits.unpackedBytes - 1_000) }, modelPart: {} } };
+    expect((await readSignedModelUpload(gzipRequest(URL, fits), "sleeper")).ok).toBe(true);
   });
 });
 

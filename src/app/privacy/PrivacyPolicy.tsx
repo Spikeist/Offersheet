@@ -4,7 +4,7 @@ import { Card } from "@/components/ui";
 import { FANTASYCALC_OUTAGE_HOLD_MS, FANTASYCALC_OUTAGE_MAX_HOLD_MS } from "@/data/fantasyCalcValues";
 import { config } from "@/engine/config";
 import type { PolicyFeatures } from "@/lib/site";
-import { feedbackLimits, logLimits, rateLimits } from "@/server/limits";
+import { browserFetchLimits, budgets, feedbackLimits, logLimits, rateLimits, workLimits } from "@/server/limits";
 
 /** When this policy last changed (Parker's local date). Update it with every change below, a feature turned on included. */
 export const PRIVACY_LAST_UPDATED = "October 4, 2026";
@@ -17,6 +17,19 @@ function windowWords(seconds: number): string {
   if (seconds % 3600 === 0) return seconds === 3600 ? "an hour" : `${seconds / 3600} hours`;
   return `${Math.round(seconds / 60)} minutes`;
 }
+
+/** A short wait in words: "a minute", "2 minutes". */
+function minutesWords(ms: number): string {
+  const m = Math.max(1, Math.round(ms / 60_000));
+  return m === 1 ? "a minute" : `${m} minutes`;
+}
+
+/**
+ * When a day's counts kept under a visitor's codes are deleted (reviews SEC-4, POL-1, F2): src/server/budget.ts keeps
+ * each until its UTC day ends plus a margin, budgets.clientKeyMarginMs for the shares of the requests to ESPN and Sleeper,
+ * workLimits.keyMarginMs for the daily work budget and the feedback copies (createDailyQuota); the longer of them.
+ */
+export const DAY_COUNT_DELETED = `${minutesWords(Math.max(budgets.clientKeyMarginMs, workLimits.keyMarginMs))} after the day ends (midnight UTC)`;
 
 /** A number of days in words: "a year" for 365, else "N days". */
 const daysWords = (days: number): string => (days === 365 ? "a year" : `${days} days`);
@@ -39,12 +52,19 @@ export function countedKinds(features: PolicyFeatures): Array<"import" | "model"
  *     the Sleeper username lookup is the server's (src/adapters/sleeper/fetch.ts). With browserReads (track BF): public
  *     ESPN leagues (no session cookies connected) and Sleeper leagues are read by the browser (src/lib/browserHttp.ts:
  *     credentials "omit", no cookie ever; src/lib/leagueFetch.ts), which uploads the parts the adapters' schemas keep
- *     (src/app/api/_lib/upload.ts); the server pseudonymizes SWIDs, completes the import with its own public data and
- *     never writes browser-supplied data to the cache. The server still reads a league itself while ESPN cookies are
- *     connected (every ESPN league, public ones too), after a CORS/network failure or a timeout, and when the League
- *     page's saved import carries no valid signature (src/server/importToken.ts; leagues saved before browser reading,
- *     for example). The League page sends the saved import back, after reading the league again when its copy is older
- *     than the league TTL.
+ *     (src/app/api/_lib/upload.ts: the league's settings, members, rosters, matchups, transactions, Sleeper's traded picks
+ *     and drafts and the username's lookup, ESPN's free agents, projections and player cards; review POL-14); the server
+ *     pseudonymizes SWIDs, completes the import with its own public data and never writes browser-supplied data to the
+ *     cache. The server still reads a league itself: an ESPN league imported while ESPN cookies are connected (every ESPN
+ *     league the Connect page imports then, public ones too) and every later read of it, cookies or not
+ *     (ImportResponse.usedEspnCookies: src/lib/modelStore.ts modelPlan, the Import Report's Refresh; review POL-12; a
+ *     league imported without them is read by the browser even while they're connected), after a CORS/network failure or
+ *     a timeout, in a browser without CompressionStream (src/lib/leagueFetch.ts canGzip; review E2E-1), and when the
+ *     model route can't check the saved import's signature (src/server/importToken.ts: SESSION_SECRET changed, or the
+ *     token too old by the server's clock; review POL-11: a league saved before browser reading is older than 10 minutes,
+ *     so the browser reads it again first). The League page sends the saved import back, after reading the league again
+ *     when its copy is older than the league TTL; a Sleeper username goes with the import and with every model request
+ *     (leagueFetch.ts signedModelBody, modelStore.ts modelRequest; review POL-13).
  *   - The server's cache (fact 2; track CA): src/server/cache.ts (TTL.league 10 min; TTL.closedTransactions 6 h for
  *     ESPN's transactions and Sleeper's transactions and matchups of league weeks that ended over a week ago:
  *     src/adapters/espn/fetch.ts closedCache, src/adapters/sleeper/fetch.ts CLOSED_WEEK_POLICY; public sources up to
@@ -65,29 +85,57 @@ export function countedKinds(features: PolicyFeatures): Array<"import" | "model"
  *     cached; private-league keys carry a one-way fingerprint of the cookies (credentialScope).
  *   - Rate limits (fact 3; track RL): src/server/rateLimit.ts: per route kind, per client = hmacId("client-id/v1", the
  *     IP address, IPv6 by its /64), fixed windows from limits.rateLimits (import, model and session 10 minutes; feedback
- *     an hour, counted only once the feedback route exists). At Upstash, @upstash/ratelimit's fixed window sets a key's
- *     expiry to one window at the window's first request (PEXPIRE), so a count is deleted one window after it starts
- *     (it can outlive the window's end, never a window's length). In memory (no Redis, Redis down, and the record of
- *     refused clients) a count whose window ended is swept while the instance handles requests (review PG-6).
+ *     an hour, counted only once the feedback route exists); an IPv6 request also against its /48's id (the final
+ *     review's SEC-2: rateLimits.groupFactor; ipGroup: "the block of nearby addresses", an IPv4 /24 or IPv6 /48). At
+ *     Upstash, @upstash/ratelimit's fixed window sets a key's expiry to one window at the window's first request
+ *     (PEXPIRE), so a count is deleted one window after it starts (it can outlive the window's end, never a window's
+ *     length). In memory (no Redis, Redis down, and the record of refused clients) a count whose window ended is swept
+ *     while the instance handles requests (review PG-6). The codes are HMACs under a key derived from SESSION_SECRET:
+ *     whoever holds that secret could try every IPv4 address (and IPv6 /64) against them, so the page says a code can't
+ *     be turned back into an address only without the key, not that it's one-way (review POL-17).
+ *   - The day's counts (reviews SEC-4, POL-1, F2; src/server/budget.ts, on Vercel only), every one kept with its expiry in
+ *     one transaction (RedisLike.incrExpire) until its UTC day ends plus a minute (DAY_COUNT_DELETED): the shares of the
+ *     server's own requests to ESPN and Sleeper made for a visitor's request (budgets.perClientPerDay, per group: a
+ *     league read itself, a server-path fallback, and Sleeper's NFL state for any Sleeper import), the daily work budget
+ *     (workLimits: imports and League page builds, per client, per group and for the whole server) and the feedback
+ *     route's daily copies (feedbackLimits.perClientPerDay, perGroupPerDay). In memory (no Redis, or Redis down) each
+ *     process's own counts, cleared on a later day.
+ *   - The model routes' memory (src/app/api/model/memo.ts; the final review's SEC-1): the answer built from a signed
+ *     import, kept in the instance's memory (never Redis) until the token stops being good (its issue time plus
+ *     browserFetchLimits.tokenMaxAgeMs, 15 minutes); an expired answer is never served, and is deleted by the next read
+ *     or write. The answer holds model inputs (projections and values by player id), never the league's names.
  *   - Anonymous feedback (fact 4; track FB, with anonymousFeedback): the event is built in the browser from the local
  *     record (src/lib/feedbackShare.ts) with only the fields listed on the page (zod-strict on the server,
  *     src/app/api/feedback; the version's players only when they aren't the card's, review FB-R7); src/server/feedbackSink.ts
- *     adds the UTC day it arrived, keeps the newest feedbackLimits.maxPerMonth per month and deletes each month's list
- *     feedbackLimits.retainDays after its last entry (one transaction sets the expiry with every copy, review FB-R5);
- *     scripts/feedback-pull.ts deletes its downloaded copies by the same rule on every run (review FB-R2: "on the same
- *     schedule"); "Share anonymous feedback" in Settings (on by default, stored per browser), the one-time note until the
- *     first copy leaves. Notes never leave the browser. Only the browser keeps a record's random code (and the export
- *     carries it: review FB-R3), so the server can't tell whose copies are whose; Delete saved feedback recalls nothing
- *     sent. Without it (today): nothing about feedback reaches the server.
- *   - Logs (fact 5; track RL): src/server/log.ts's allowlist (route, event, code, platform, status, errorName, ms), kept
- *     in Redis on Vercel only, each day's list deleted logLimits.retainDays (14) after the day began; Vercel's own
- *     runtime logs are kept 1 hour on the Hobby plan (vercel.com/docs/logs/runtime, 2026-08-28).
- *   - Providers (fact 6): Vercel (hosting), Upstash (the cache, the rate limits, the error log, and the feedback store
- *     with anonymousFeedback).
- *   - iPhone (fact 7): research, 2026-10-04: an installed Home Screen app keeps its own storage (firt.dev); Safari deletes
- *     what a site saved after 7 days of Safari use without a visit (MDN storage quotas, 2026-01).
+ *     adds the UTC day it arrived, keeps the newest feedbackLimits.maxPerDay per day of arrival (the final review's SEC-3:
+ *     one list per day) and deletes each day's list feedbackLimits.retainDays after its last entry (one transaction sets
+ *     the expiry with every copy, review FB-R5);
+ *     scripts/feedback-pull.ts writes one file a month and deletes it on its first run a year after that month's newest copy
+ *     (review FB-R2; a month's older days stay up to a month longer than in the store), and nothing between runs, so the
+ *     page commits to a run at least once a month and says "at most about two months longer than at Upstash" (review
+ *     POL-4: the Checkpoint 7a steps and the 7b go/no-go list carry it); "Share anonymous feedback" in Settings (on by
+ *     default, stored per browser), the one-time
+ *     note until the first copy leaves. Each copy is the record as it stands (its outcome and reason together; clearing
+ *     both sends one without either: feedbackShare.ts feedbackEventOf `removed`; review POL-10), with the sent version's
+ *     estimate and inputs (versionAccept, versionInputs; review POL-9). Notes never leave the browser. Every copy carries
+ *     its record's random code (rid), but only the browser (and an export: review FB-R3) knows which league and record it
+ *     belongs to; the players, the league's format and the week could still lead someone who searched public leagues to
+ *     the league, which the page says (reviews POL-3, SEC-6). Delete saved feedback recalls nothing sent. Without it
+ *     (today): nothing about feedback reaches the server.
+ *   - Logs (fact 5; track RL): src/server/log.ts's allowlist (route, event, code, platform, status, errorName, ms) and
+ *     the time it was logged (`at`; review POL-15), kept in Redis on Vercel only, each day's list deleted
+ *     logLimits.retainDays (14) after the day began (so up to 14 days); Vercel's own runtime logs are kept 1 hour on the
+ *     Hobby plan (vercel.com/docs/logs/runtime, 2026-08-28).
+ *   - Providers (fact 6): Vercel (hosting; the functions run in iad1, US East near Washington, D.C.: vercel.json
+ *     regions; review POL-6), Upstash (the cache, the rate limits and the day's counts, the error log, and the feedback
+ *     store with anonymousFeedback).
+ *   - iPhone (fact 7): research, 2026-10-04: an installed Home Screen app keeps its own storage (firt.dev, 2023: ⚠️
+ *     unverified elsewhere, to be checked on an iPhone before Checkpoint 7b; review POL-16), so its own "Share anonymous
+ *     feedback" choice too (localStorage, on by default: src/lib/feedbackShare.ts); Safari deletes what a site saved after
+ *     7 days of Safari use without a visit (MDN storage quotas, 2026-01).
  *   - Contact (fact 8): src/lib/site.ts CONTACT_EMAIL (src/components/ContactLine.tsx).
- *   - src/server/session.ts: the sealed, httpOnly, session-only cookie; 12-hour seal.
+ *   - src/server/session.ts: the sealed, httpOnly, session-only cookie (Path=/: the browser sends it with every request
+ *     to the site, and the ESPN import and model routes open it; review POL-25); 12-hour seal.
  *   - src/lib/leagueStore.ts (Phase 4c): every imported league is saved in this browser's IndexedDB, database
  *     "offersheet", until the user removes it or clears the site's data: the import (the snapshot, with team and owner
  *     names and the league id, and the request summary, never credentials), the "my team" pick, the latest model inputs
@@ -125,13 +173,16 @@ export function PrivacyPolicy({ features }: { features: PolicyFeatures }) {
       <Card>
         <h2 className="text-lg font-extrabold">The short version</h2>
         <ul className="mt-2 list-disc space-y-1.5 pl-5 text-sm leading-relaxed">
-          <li>No accounts, no ads and no tracking or analytics. We don&apos;t sell or share your data, and we don&apos;t build profiles of you or your leaguemates.</li>
+          <li>
+            No accounts, no ads and no tracking or analytics. We don&apos;t sell your data or share it with anyone but the services that run Offer Sheet and the
+            sites it reads for you (below), and we don&apos;t build profiles of you or your leaguemates.
+          </li>
           <li>Offer Sheet only reads your league. It can&apos;t send offers or change anything.</li>
           {browserReads ? (
             <li>
               Your browser reads public ESPN leagues and Sleeper leagues straight from ESPN and Sleeper, and sends our server only the parts Offer Sheet needs. Our
-              server still reads a league itself while you&apos;re connected with ESPN cookies (a private ESPN league needs them), when your browser can&apos;t, and
-              when it can&apos;t use the copy your browser saved.
+              server still reads some leagues itself: private ESPN leagues and any other ESPN league you import with ESPN cookies, and any league your browser
+              can&apos;t read or whose saved copy our server can&apos;t use.
             </li>
           ) : (
             <li>
@@ -156,17 +207,18 @@ export function PrivacyPolicy({ features }: { features: PolicyFeatures }) {
           </li>
           {anonymousFeedback ? (
             <li>
-              When you mark what happened to a trade idea or report a problem with it, your browser also sends Offer Sheet an anonymous copy, to improve its estimates:
-              never your league&apos;s ID, names, usernames or the notes you type. You can turn this off in Settings.
+              When you mark what happened to a trade idea or report a problem with it, your browser also sends Offer Sheet an anonymous copy, to help improve it: never
+              your league&apos;s ID, names, usernames or the notes you type. You can turn this off in Settings.
             </li>
           ) : null}
           <li>
-            To keep things fair, our server counts requests under a one-way code made from your IP address, never the address itself. The counts it keeps at Upstash
-            are deleted within {longestWindow}.
+            To keep things fair, our server counts requests under codes made from your IP address, and from the block of nearby addresses it&apos;s in, with a secret
+            key, never the addresses themselves. The counts it keeps at Upstash are deleted within {longestWindow}, or for a count of the whole day,{" "}
+            {DAY_COUNT_DELETED}.
           </li>
           <li>
-            If you connect with ESPN cookies, they&apos;re kept only in an encrypted cookie in your browser for this session, and only ever sent to ESPN. They&apos;re never
-            saved with your leagues.
+            If you connect with ESPN cookies, they&apos;re kept only in an encrypted cookie in your browser for this session. Our server opens it only to read your
+            league, and sends them only to ESPN. They&apos;re never saved with your leagues.
           </li>
         </ul>
       </Card>
@@ -182,13 +234,14 @@ export function PrivacyPolicy({ features }: { features: PolicyFeatures }) {
             </p>
             <p className="mt-2 text-sm leading-relaxed">
               Your browser then sends our server only the parts of the answers Offer Sheet reads (the league&apos;s settings, teams and owners&apos; names, rosters,
-              schedule and transactions, for ESPN its free agents, projections and injured players&apos; expected return dates, and for Sleeper the username you
-              entered, which finds your team), and our server turns them into the Import Report with public data it keeps itself, such as player lists and
-              projections. Our server uses what your browser sends for that one request: it never saves it.
+              schedule and results, and transactions; for ESPN also its free agents, projections and injured players&apos; expected return dates; for Sleeper also its
+              traded draft picks and drafts, and the username you entered, which finds your team), and our server turns them into the Import Report with public data
+              it keeps itself, such as player lists and projections. Our server uses what your browser sends for that one request: it never saves it.
             </p>
             <p className="mt-2 text-sm leading-relaxed">
               If your browser can&apos;t reach ESPN or Sleeper (some ad blockers and work or school networks stop it), our server reads the league itself instead. It
-              does the same for your ESPN leagues, public ones too, while you&apos;re connected with your ESPN cookies, which a private league needs (below).
+              does the same for private ESPN leagues and any other ESPN league you import while you&apos;re connected with your ESPN cookies (below), and it keeps
+              reading such a league itself, even after you forget the cookies.
             </p>
           </>
         ) : (
@@ -216,7 +269,10 @@ export function PrivacyPolicy({ features }: { features: PolicyFeatures }) {
             <>
               When you open the League page, your browser sends the league it saved to our server (reading it again first when its copy is more than 10 minutes old),
               and our server adds the projections and trade values for its players and scores the projections with your league&apos;s scoring rules. If our server
-              can&apos;t use the copy your browser sends (one saved before Offer Sheet read leagues in your browser, for example), it reads the league itself.
+              can&apos;t check the copy your browser sends (after Offer Sheet&apos;s keys change, for example), it reads the league itself. So that the same copy sent
+              again doesn&apos;t cost it the same work twice, a server keeps the projections and values it worked out from it in its memory, never at Upstash: it
+              stops using them when that copy stops being good, {minutesWords(browserFetchLimits.tokenMaxAgeMs)} after Offer Sheet read the league, and deletes them
+              soon after while it keeps running.
             </>
           ) : (
             <>
@@ -248,7 +304,7 @@ export function PrivacyPolicy({ features }: { features: PolicyFeatures }) {
         <ul className="mt-2 list-disc space-y-1.5 pl-5 text-sm leading-relaxed">
           <li>
             {browserReads
-              ? "League data our server reads itself (private ESPN leagues, any ESPN league while you're connected with ESPN cookies, any league your browser couldn't read, and any league whose saved copy our server couldn't use): about 10 minutes."
+              ? "League data our server reads itself (private ESPN leagues and any other ESPN league you import with ESPN cookies, any league your browser couldn't read, and any league whose saved copy our server couldn't use): about 10 minutes."
               : "League data (settings, rosters, schedule and transactions): about 10 minutes."}{" "}
             Transactions and matchups from weeks that ended more than a week ago rarely change, so they may be kept for up to 6 hours.
           </li>
@@ -285,11 +341,14 @@ export function PrivacyPolicy({ features }: { features: PolicyFeatures }) {
         <p className="mt-2 text-sm leading-relaxed">
           To keep Offer Sheet free and fair for everyone, our server limits how many requests one visitor can send{" "}
           {anonymousFeedback
-            ? `in a short window (${importWindow} for imports and the League page, ${windowWords(rateLimits.feedback.windowS)} for feedback)`
+            ? `in a short window (${importWindow} for imports, the League page and ESPN cookies, ${windowWords(rateLimits.feedback.windowS)} for feedback)`
             : `in ${importWindow}`}
-          . It counts them under a one-way code made from your IP address with a secret key, never the address itself. Each count kept at Upstash is deleted one
-          window after it starts, so within {longestWindow}. A count a server holds in its memory is deleted soon after its window ends while that server keeps
-          running, and is gone when it shuts down.
+          , and how much it does in a day for one visitor and for the block of nearby addresses the visitor&apos;s address is in: the work of importing leagues and
+          working out League pages, {anonymousFeedback ? "the requests it makes to ESPN or Sleeper, and the anonymous feedback copies it takes" : "and the requests it makes to ESPN or Sleeper"}
+          . It counts these under codes made from your IP address and from that block, each with a secret key, never the addresses themselves: without that key, a
+          code can&apos;t be turned back into an address. Each short-window count kept at Upstash is deleted one window after it starts, so within{" "}
+          {longestWindow}; each day&apos;s count, {DAY_COUNT_DELETED}. A count a server holds in its memory is deleted soon after its window or day ends while that
+          server keeps running, and is gone when it shuts down.
         </p>
       </Card>
 
@@ -298,10 +357,14 @@ export function PrivacyPolicy({ features }: { features: PolicyFeatures }) {
           <h2 className="text-lg font-extrabold">Anonymous feedback</h2>
           <p className="mt-2 text-sm leading-relaxed">
             When you press Sent, Accepted, Rejected or Countered on a trade idea, or report a problem with one, your browser saves it with that league (below). Unless
-            you turn it off, it also sends Offer Sheet an anonymous copy, used only to improve how Offer Sheet estimates trades. The copy holds:
+            you turn it off, it also sends Offer Sheet an anonymous copy, used only to improve Offer Sheet: how it estimates trades, and anything it reads or shows
+            wrong. The copy holds:
           </p>
           <ul className="mt-2 list-disc space-y-1.5 pl-5 text-sm leading-relaxed">
-            <li>what you pressed (the outcome, or the report&apos;s reason) and which version of the idea you sent;</li>
+            <li>
+              the trade idea&apos;s outcome and report reason as they stand after your press (when you clear one, a copy without it follows, so the earlier copies no
+              longer count), and which version of the idea you sent;
+            </li>
             <li>the platform (ESPN or Sleeper), the season and the week;</li>
             <li>
               your league&apos;s format: the number of teams, whether it&apos;s redraft, keeper or dynasty, the points per catch and per passing touchdown, any
@@ -313,6 +376,7 @@ export function PrivacyPolicy({ features }: { features: PolicyFeatures }) {
               Offer Sheet&apos;s numbers for the trade (Helps you, the chance they accept, Overall, and the figures behind them, such as the change in your playoff and
               title odds) and what its estimate of the chance they accept was worked out from;
             </li>
+            <li>for the version you sent: Offer Sheet&apos;s estimate for it, and what that estimate and its score were worked out from;</li>
             <li>a random code your browser makes for that one record, so a later change to it (an outcome after &ldquo;Sent&rdquo;) can be matched to it.</li>
           </ul>
           <p className="mt-2 text-sm leading-relaxed">Our server stores it with the day it arrived (the date, not the time).</p>
@@ -321,14 +385,18 @@ export function PrivacyPolicy({ features }: { features: PolicyFeatures }) {
             under, or any note you type: notes stay in your browser.
           </p>
           <p className="mt-2 text-sm leading-relaxed">
-            We keep at most the newest {feedbackLimits.maxPerMonth.toLocaleString("en-US")} a month, at Upstash, and delete each month&apos;s feedback{" "}
-            {daysWords(feedbackLimits.retainDays)} after the last one that month. Offer Sheet&apos;s developer downloads it from there to study it, and deletes the
-            downloaded copies on the same schedule.
+            We keep at most the newest {feedbackLimits.maxPerDay.toLocaleString("en-US")} a day, at Upstash, and delete each day&apos;s feedback{" "}
+            {daysWords(feedbackLimits.retainDays)} after the last one that day. Offer Sheet&apos;s developer downloads it from there to study it, at least once a
+            month, and keeps each month&apos;s download until {daysWords(feedbackLimits.retainDays)} after that month&apos;s last copy, deleting it at the first
+            download after that, so a downloaded copy is kept at most about two months longer than at Upstash.
           </p>
           <p className="mt-2 text-sm leading-relaxed">
-            Offer Sheet can&apos;t tell which copies are yours. The random code a record&apos;s copies carry stays only in your browser (and in any file you save with
-            &ldquo;Export feedback&rdquo;), so only someone with your browser or that file could match copies to you. Turning sharing off stops new copies; deleting
-            your saved feedback doesn&apos;t take back copies already sent.
+            Offer Sheet stores nothing with a copy that ties it to you: no IP address, account, league ID or name. (The day&apos;s limit on copies counts them under
+            codes made from your IP address and its block, above, and those counts are deleted {DAY_COUNT_DELETED}.) Each copy carries its record&apos;s random code,
+            but only your browser (and any file you save with &ldquo;Export feedback&rdquo;) keeps that code with your feedback, so only someone with your browser or
+            that file could match copies to you by it. Still, the players in a trade, with your league&apos;s format and the week, could lead someone who searched
+            public leagues to yours. Offer Sheet never tries to match copies to anyone. Turning sharing off stops new copies; deleting your saved feedback
+            doesn&apos;t take back copies already sent.
           </p>
           <p className="mt-2 text-sm leading-relaxed">
             To stop sending it, turn off &ldquo;Share anonymous feedback&rdquo; on the{" "}
@@ -377,7 +445,7 @@ export function PrivacyPolicy({ features }: { features: PolicyFeatures }) {
           <li>
             &ldquo;Reset to defaults&rdquo; on the Settings page removes a league&apos;s settings, &ldquo;Delete saved feedback&rdquo; removes all of your feedback,
             removing a league removes both for that league, and clearing this site&apos;s data in your browser removes everything.
-            {anonymousFeedback ? " Anonymous copies already sent stay at Upstash for their year (above)." : null}
+            {anonymousFeedback ? " Anonymous copies already sent aren't affected: they're deleted on their own schedule (above)." : null}
           </li>
           <li>
             If you used Offer Sheet before October 4, 2026, your settings and feedback were in this browser&apos;s local storage (&ldquo;offersheet:settings:v1&rdquo;
@@ -392,17 +460,18 @@ export function PrivacyPolicy({ features }: { features: PolicyFeatures }) {
         <h2 className="text-lg font-extrabold">ESPN cookies (private leagues only)</h2>
         <ul className="mt-2 list-disc space-y-1.5 pl-5 text-sm leading-relaxed">
           <li>They work like a password to your ESPN account, so we treat them like one. We never ask for your ESPN password.</li>
-          <li>They travel from your browser to our server once, inside the request, never in a web address.</li>
+          <li>You type them into Offer Sheet once, and they travel to our server inside that request, never in a web address.</li>
           <li>
             Our server puts them straight into a cookie in your browser that is encrypted with a key only our server has, can&apos;t be read by the page&apos;s scripts, and is
-            deleted when you close your browser. Even if your browser restores its session, the encrypted cookie stops working after 12 hours.
+            deleted when you close your browser. Your browser sends that encrypted cookie back with each request to Offer Sheet, as browsers do with a site&apos;s
+            cookies. Even if your browser restores its session, the encrypted cookie stops working after 12 hours.
           </li>
           <li>
             They&apos;re never saved with your leagues. A private league you saved stays saved after they&apos;re gone, but reading it again needs them again.
           </li>
           <li>
-            Our server reads them only to read your league, and sends them only to ESPN. Your espn_s2 cookie is never stored on our server or written to logs, and your
-            SWID is kept only as the one-way pseudonym described above.
+            Our server opens the encrypted cookie only to read your league, and sends your ESPN cookies only to ESPN. Your espn_s2 cookie is never stored on our server
+            or written to logs, and your SWID is kept only as the one-way pseudonym described above.
           </li>
           <li>
             &ldquo;Forget my credentials&rdquo; on the{" "}
@@ -422,7 +491,8 @@ export function PrivacyPolicy({ features }: { features: PolicyFeatures }) {
             <>
               Sleeper leagues are public. If you enter a username, your browser asks Sleeper which leagues it&apos;s in, to find your leagues and your team (if your
               browser can&apos;t reach Sleeper, our server asks instead and keeps that lookup for 10 minutes). Your browser sends the username to our server with the
-              league you import, only to find your team there, and saves it with each league you import with it, so it can find your team again.
+              league you import, and whenever the League page asks for that league&apos;s numbers, only to find your team there. It saves the username with each league
+              you import with it, so it can find your team again.
             </>
           ) : (
             <>
@@ -462,9 +532,9 @@ export function PrivacyPolicy({ features }: { features: PolicyFeatures }) {
           status, the type of browser and the region. Vercel can see IP addresses.
         </p>
         <p className="mt-2 text-sm leading-relaxed">
-          Our own error log keeps, for {logLimits.retainDays} days, only which part of Offer Sheet had a problem and what kind: an error code, the data source involved
-          (ESPN or Sleeper, for example), the status it answered with, the error&apos;s type and how long the request took. Never league data, names, IDs, usernames,
-          cookies or IP addresses.
+          Our own error log keeps, for up to {logLimits.retainDays} days, only when something went wrong, which part of Offer Sheet had the problem and what kind: an
+          error code, the data source involved (ESPN or Sleeper, for example), the status it answered with, the error&apos;s type and how long the request took. Never
+          league data, names, IDs, usernames, cookies or IP addresses.
         </p>
       </Card>
 
@@ -472,7 +542,7 @@ export function PrivacyPolicy({ features }: { features: PolicyFeatures }) {
         <h2 className="text-lg font-extrabold">Who handles the data</h2>
         <ul className="mt-2 list-disc space-y-1.5 pl-5 text-sm leading-relaxed">
           <li>
-            Vercel hosts Offer Sheet and runs its server (
+            Vercel hosts Offer Sheet and runs its server, in Vercel&apos;s US East region near Washington, D.C. (
             <a href="https://vercel.com/legal/privacy-policy" target="_blank" rel="noopener noreferrer" className="font-semibold underline underline-offset-2">
               Vercel&apos;s privacy policy
             </a>
@@ -492,8 +562,9 @@ export function PrivacyPolicy({ features }: { features: PolicyFeatures }) {
         <h2 className="text-lg font-extrabold">On an iPhone or iPad</h2>
         <p className="mt-2 text-sm leading-relaxed">
           Safari may delete what a site saved in your browser, your saved leagues, settings and feedback included, after you use Safari for 7 days without visiting
-          Offer Sheet. If you add Offer Sheet to your Home Screen, the app you open from there keeps its own saved leagues, apart from Safari&apos;s, so import your
-          leagues again inside it.
+          Offer Sheet. If you add Offer Sheet to your Home Screen, the app you open from there keeps its own saved leagues and settings, apart from Safari&apos;s
+          {anonymousFeedback ? ", “Share anonymous feedback” included" : ""}, so import your leagues again inside it
+          {anonymousFeedback ? ", and turn sharing off there too if you want it off" : ""}.
         </p>
       </Card>
 
@@ -503,8 +574,8 @@ export function PrivacyPolicy({ features }: { features: PolicyFeatures }) {
         <p className="mt-2 text-sm leading-relaxed">If this policy changes, we&apos;ll update it here and change the date above.</p>
         <ContactLine className="mt-2 text-sm leading-relaxed" />
         <p className="mt-2 text-sm leading-relaxed">
-          Offer Sheet is an independent project, not affiliated with or endorsed by ESPN, Sleeper, Yahoo, Fleaflicker, MyFantasyLeague, Fantrax, FantasyCalc or the
-          NFL. See also the{" "}
+          Offer Sheet is an independent project, not affiliated with or endorsed by ESPN, Sleeper, Yahoo, Fleaflicker, MyFantasyLeague, Fantrax, FantasyCalc,
+          DynastyProcess or the NFL. See also the{" "}
           <Link href="/terms" className="font-semibold underline underline-offset-2">
             terms of use
           </Link>

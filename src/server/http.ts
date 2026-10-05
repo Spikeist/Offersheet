@@ -351,8 +351,12 @@ export function createHttpClient(options: HttpClientOptions = {}): HttpClient {
     if (opts.cookie) headers.Cookie = opts.cookie;
     const noResponse = (): Cached => ({ status: 0, contentType: "", text: "", fetchedAt: Date.now() });
     const independent = isLeagueIndependent(opts);
-    // A league request made for an API request also counts against its client's share (the header; src/server/budget.ts).
-    const client = independent ? undefined : requestScope()?.client;
+    // A league request made for an API request also counts against its client's share (the header; src/server/budget.ts):
+    // its group's (an IPv4 /24 or IPv6 /48: final review SEC-2), else its own.
+    const scope = requestScope();
+    const client = independent ? undefined : (scope?.group ?? scope?.client);
+    // One carrying a visitor's ESPN cookies may use the day's reserve (src/server/budget.ts; review SEC-2).
+    const takeOpts = opts.cookie ? { privileged: true } : undefined;
     /** The answer a retry would have replaced: what the caller gets when the retry can't go out (deadline or budget). */
     let previous: Cached | undefined;
     /**
@@ -370,7 +374,7 @@ export function createHttpClient(options: HttpClientOptions = {}): HttpClient {
       // The day's budget and the client's share (the header): every attempt counts, before it goes out.
       const budget = platform ? budgetOf() : null;
       if (budget && platform) {
-        const asked = budget.take(platform, Date.now(), client);
+        const asked = budget.take(platform, Date.now(), client, takeOpts);
         // A shared count (Redis) is waited for no longer than the deadline (each of its commands has its own timeout too).
         const verdict = typeof asked === "string" ? asked : await withinDeadline(asked);
         if (verdict === LATE) return outOfTime("busy", "upstash");

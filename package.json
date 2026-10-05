@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "engines": {
-    "node": ">=22"
+    "node": "22.x"
   },
   "scripts": {
     "dev": "next dev -H 127.0.0.1 -p 3001",
@@ -36,6 +36,8 @@
     "measure:cache": "tsx scripts/measure-cache.ts",
     "measure:upload": "tsx scripts/measure-upload.ts",
     "beta:log": "tsx scripts/beta-log.ts",
+    "preview:deploy": "tsx scripts/preview-deploy.ts",
+    "vercel:secret": "tsx scripts/vercel-secret.ts",
     "snapshot:projections": "tsx scripts/snapshot-projections.ts",
     "feedback:summary": "tsx scripts/feedback-summary.ts",
     "feedback:pull": "tsx scripts/feedback-pull.ts",

@@ -5,6 +5,7 @@ vi.mock("server-only", () => ({}));
 import { LeagueImportError, type EspnImportRequest } from "@/adapters/types";
 import { espnCredentialsFor, saveEspnCredentials } from "@/server/session";
 import { fakeDeps, fakeResult, gzipRequest, jsonRequest } from "../../_lib/testFakes";
+import { workLimits } from "@/server/limits";
 import { createEspnImportHandler } from "./handler";
 
 const URL = "http://localhost:3000/api/import/espn";
@@ -184,10 +185,11 @@ describe("POST /api/import/espn with a league the browser read (Part B, track BF
   });
   const SIGNED = { issuedAt: T, token: "made-up-token" };
 
-  function uploadSetup(env: Record<string, string> = ENV) {
+  function uploadSetup(env: Record<string, string> = ENV, chargeWork?: (units: number) => Promise<"ok" | "client" | "group" | "day">) {
     const uploads: unknown[] = [];
     const reads: EspnImportRequest[] = [];
     const handler = createEspnImportHandler({
+      ...(chargeWork ? { chargeWork } : {}),
       importLeague: async (req) => {
         reads.push(req);
         return { result: fakeResult({ name: "Read by the server" }), espn: {} };
@@ -224,6 +226,32 @@ describe("POST /api/import/espn with a league the browser read (Part B, track BF
     expect(uploads).toHaveLength(0);
     expect(reads).toEqual([{ leagueId: "4242", season: 2026, credentials: CREDS }]);
     expect(await res.json()).toMatchObject({ snapshot: { name: "Read by the server" }, usedEspnCookies: true, espnCookieSource: "session", readBy: "server" });
+  });
+
+  it("a server read in place of the upload costs its extra units first (final review SEC-1): refused, BUSY and nothing read", async () => {
+    const saved = new Headers();
+    await saveEspnCredentials(new Request(URL), saved, CREDS, ENV);
+    const cookie = (saved.getSetCookie()[0] ?? "").split(";")[0] ?? "";
+    const charged: number[] = [];
+    let verdict: "ok" | "group" = "ok";
+    const { handler, reads } = uploadSetup(ENV, async (units) => {
+      charged.push(units);
+      return verdict;
+    });
+    expect((await handler(gzipRequest(URL, upload(), { cookie }))).status).toBe(200);
+    expect(charged).toEqual([workLimits.units.importServer - workLimits.units.importUpload]);
+    verdict = "group";
+    const res = await handler(gzipRequest(URL, upload(), { cookie }));
+    expect(res.status).toBe(503);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe("BUSY");
+    expect(reads).toHaveLength(1);
+    // A replay of the upload costs nothing more: its request paid for it.
+    const plain = uploadSetup(ENV, async (units) => {
+      charged.push(units);
+      return "day";
+    });
+    expect((await plain.handler(gzipRequest(URL, upload()))).status).toBe(200);
+    expect(charged).toHaveLength(2);
   });
 
   it("answers BAD_UPLOAD to a body it can't use (the browser then asks with JSON), and maps the replay's errors like any import's", async () => {

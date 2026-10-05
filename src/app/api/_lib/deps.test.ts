@@ -39,11 +39,32 @@ describe("app/api/_lib/deps.ts selectServerCache", () => {
     const { selectServerCache } = await import("./deps");
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
-      const picked = selectServerCache({ VERCEL: "1", VERCEL_ENV: "preview" }, null);
+      const picked = selectServerCache({ VERCEL: "1", VERCEL_ENV: "preview", SESSION_SECRET: SECRET }, null);
       expect(picked.kind).toBe("memory");
       expect(picked.cache).toBeInstanceOf(MemoryLruCache);
       expect(picked.lock).toBeUndefined();
       expect(log.mock.calls.map((c) => JSON.parse(String(c[0])) as { event: string }).map((e) => e.event)).toEqual(["cache_memory_only"]);
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it("on Vercel without SESSION_SECRET (or one too short): says so by name first (final review SEC-9: such a deployment ran quietly on memory alone)", async () => {
+    const { selectServerCache } = await import("./deps");
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      for (const env of [{ VERCEL: "1", VERCEL_ENV: "preview" }, { VERCEL: "1", VERCEL_ENV: "preview", SESSION_SECRET: "too short", KV_REST_API_URL: "https://example.upstash.io", KV_REST_API_TOKEN: "t" }]) {
+        log.mockClear();
+        expect(selectServerCache(env).kind).toBe("memory");
+        expect(log.mock.calls.map((c) => JSON.parse(String(c[0])) as Record<string, unknown>)).toEqual([
+          { route: "server", event: "session_secret_missing" },
+          { route: "server", event: "cache_memory_only" },
+        ]);
+      }
+      // Off Vercel nothing is said: this computer has no shared store to miss.
+      log.mockClear();
+      expect(selectServerCache({}, null).kind).toBe("file");
+      expect(log).not.toHaveBeenCalled();
     } finally {
       log.mockRestore();
     }
