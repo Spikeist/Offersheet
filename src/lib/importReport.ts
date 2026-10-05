@@ -24,7 +24,8 @@ import { POSITIONS, type ImportWarning, type LeagueSettings, type LeagueSnapshot
 import { espnSleeperAgreement } from "@/engine/projections";
 import { rateFor, ruleApplies } from "@/engine/scoring";
 import { reseedRuleAssumed } from "@/engine/season";
-import type { EspnCookieSource, ImportResponse } from "./api";
+import { browserFetchLimits } from "@/server/limits";
+import type { EspnCookieSource, ImportReader, ImportResponse } from "./api";
 import { fmtNum, fmtPoints, fmtSigned, formatDate, formatDateTime, formatTime, plural, recordText, weeksText } from "./format";
 import type { MyTeamPickSource } from "./importStore";
 import { LEAGUE_TYPE_LABEL, PLATFORM_LABEL, TRADE_REVIEW_LABEL, posLabel, statGroup, statLabel } from "./labels";
@@ -101,6 +102,8 @@ export interface ImportReportView {
     cookieNote?: string;
     /** The import used cookies saved in this browser session, so the report offers "Forget my ESPN cookies". */
     canForgetEspnCookies: boolean;
+    /** Who read the league (Part B, track BF; absent for an import saved before browser reading). */
+    readBy?: ImportReader;
   };
   /** Settings the platform doesn't expose, shown as UNKNOWN_SETTING_TEXT in the warn tone. */
   unknown: UnknownSetting[];
@@ -930,6 +933,9 @@ export function buildImportReport(response: ImportResponse, opts: ReportOptions)
   };
 
   const timestamps: LabeledValue[] = [{ label: `League data from ${platformLabel}`, value: formatDateTime(snapshot.fetchedAt, opts.timeZone) }];
+  // Who read it (Part B, track BF): this browser, straight from the platform, or Offer Sheet's server.
+  const reader = readerText(response.readBy, platformLabel);
+  if (reader) timestamps.push({ label: "League data read by", value: reader });
   for (const src of response.dataSources ?? []) {
     let value: string;
     if (src.available === false) value = `Unavailable${src.note ? `: ${src.note}` : ""}`;
@@ -958,6 +964,7 @@ export function buildImportReport(response: ImportResponse, opts: ReportOptions)
       ...(response.usedEspnCookies && response.espnCookieSource ? { espnCookieSource: response.espnCookieSource } : {}),
       ...(cookies.note ? { cookieNote: cookies.note } : {}),
       canForgetEspnCookies: cookies.canForget,
+      ...(response.readBy ? { readBy: response.readBy } : {}),
     },
     unknown,
     glance,
@@ -990,15 +997,38 @@ export function buildImportReport(response: ImportResponse, opts: ReportOptions)
 }
 
 /**
+ * Who read the league, for the Import Report's data line (Part B, track BF): "Your browser, straight from ESPN" or
+ * "Offer Sheet's server"; undefined for an import saved before browser reading (it doesn't say).
+ */
+export function readerText(readBy: ImportReader | undefined, platformLabel: string): string | undefined {
+  if (readBy === "browser") return `Your browser, straight from ${platformLabel}`;
+  if (readBy === "server") return "Offer Sheet's server";
+  return undefined;
+}
+
+/**
+ * Whether a Refresh now would ask for nothing newer (§2.10: at most once a minute, browserFetchLimits.refreshEveryMs; Part
+ * B, track BF: the browser reads a league itself, with no copy of its own to serve, so the page holds Refresh back the
+ * way the server's one-minute copies do). `ageMs` is the league data's age (src/lib/modelStore.ts importDataAgeMs: each
+ * part on one clock, so a device clock set differently from the server's doesn't let every press through, review
+ * BF-R4). An age that can't be told (not a number, or below 0) never holds it back.
+ */
+export function refreshTooSoon(ageMs: number): boolean {
+  return Number.isFinite(ageMs) && ageMs >= 0 && ageMs < browserFetchLimits.refreshEveryMs;
+}
+
+/**
  * What the Refresh button achieved, for an always-mounted status line (§2.10: league data cached
  * under a minute ago is served again, so a second Refresh within the minute changes nothing).
- * `before`/`after` are the snapshot's fetchedAt; the time is passed in.
+ * `before`/`after` are the snapshot's fetchedAt; the time is passed in. `ageMs`, when known, is the data's age for
+ * "fetched … ago" (importDataAgeMs, on one clock at a time); otherwise `now` − `after`.
  */
-export function refreshOutcomeText(args: { before: string; after: string; now: Date; platform: Platform; timeZone: string }): string {
+export function refreshOutcomeText(args: { before: string; after: string; now: Date; platform: Platform; timeZone: string; ageMs?: number }): string {
   const before = Date.parse(args.before);
   const after = Date.parse(args.after);
   if (Number.isFinite(after) && !(Number.isFinite(before) && after <= before)) return `Refreshed: ${PLATFORM_LABEL[args.platform]} data from ${formatTime(args.after, args.timeZone)}`;
-  const seconds = Number.isFinite(after) ? Math.max(0, Math.round((args.now.getTime() - after) / 1000)) : 0;
+  const ageMs = args.ageMs !== undefined && Number.isFinite(args.ageMs) ? args.ageMs : Number.isFinite(after) ? args.now.getTime() - after : 0;
+  const seconds = Math.max(0, Math.round(ageMs / 1000));
   const ago = seconds < 120 ? `${seconds} s` : `${Math.round(seconds / 60)} min`;
   return `Already up to date (fetched ${ago} ago; Refresh works once a minute)`;
 }

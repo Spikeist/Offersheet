@@ -27,10 +27,17 @@
  * stays mounted, and a failed save is an alert. When a press takes away the control just used, focus moves to what took
  * its place: Report → the reasons' legend; Cancel → Report; Save report → the "Reported" line; Undo → Report; an outcome
  * that asks → the choice's legend; a version chosen, or Cancel there → the outcome button pressed.
+ *
+ * Phase 7a (planner reply to Checkpoint 4c, Part B, B2; track FB): a press the browser kept may also queue an anonymous
+ * copy (the page's onChange: useFeedback.ts saveFeedbackPress, its result's `shared`). Until the first copy this browser
+ * sends has left, such a press's status line adds: "Sent anonymously to help improve Offer Sheet. You can turn this off in
+ * Settings." (src/lib/feedbackShare.ts shareNoteDue, SHARE_NOTE_LEAD), Settings a link inside the sentence; the next
+ * press's status replaces it. A press undone before its copy left never uses the note up (review FB-R1).
  */
+import Link from "next/link";
 import { useEffect, useId, useRef, useState, type Ref } from "react";
+import { shareNoteDue, SHARE_NOTE_LEAD, type FeedbackSaveResult } from "@/lib/feedbackShare";
 import { FEEDBACK_NOTE_MAX, FEEDBACK_OUTCOMES, FEEDBACK_REASONS, FEEDBACK_SAVE_FAILED, OUTCOME_LABEL, REASON_LABEL, type FeedbackChange, type FeedbackOutcome, type FeedbackReason, type FeedbackSent } from "@/lib/feedbackStore";
-import type { SaveResult } from "@/lib/importStore";
 import { versionLine, type CardFeedback, type VersionChoice } from "@/lib/tradeView";
 import { revealResult } from "../reveal";
 import { Callout, FOCUS_TARGET, buttonClass, cx, inputClass } from "../ui";
@@ -38,8 +45,11 @@ import { Callout, FOCUS_TARGET, buttonClass, cx, inputClass } from "../ui";
 export interface FeedbackControlsProps {
   /** What's saved for this trade idea. */
   feedback: CardFeedback;
-  /** Saves one press (the page: saveFeedbackPress with the league's key and the evaluation); resolves once the browser kept it, or with why not. */
-  onChange: (change: FeedbackChange) => SaveResult | Promise<SaveResult>;
+  /**
+   * Saves one press (the page: saveFeedbackPress with the league's key and the evaluation); resolves once the browser kept
+   * it, or with why not, and (Phase 7a) whether an anonymous copy is on its way (`shared`).
+   */
+  onChange: (change: FeedbackChange) => FeedbackSaveResult | Promise<FeedbackSaveResult>;
   /** The trade's heading, to name the groups for screen readers ("Trade with Gravel Gophers"). */
   tradeName: string;
   /**
@@ -135,6 +145,8 @@ export function FeedbackControls({ feedback, onChange, tradeName, versions = [] 
   // An outcome waiting for its version (the choice is open).
   const [choosing, setChoosing] = useState<FeedbackOutcome | null>(null);
   const [status, setStatus] = useState("");
+  // The one-time note on the first anonymous copy (the header), shown with the status it came with.
+  const [shareNote, setShareNote] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [focus, setFocus] = useState<{ n: number; to: FocusTo } | null>(null);
   const legendRef = useRef<HTMLLegendElement>(null);
@@ -152,9 +164,12 @@ export function FeedbackControls({ feedback, onChange, tradeName, versions = [] 
   }, [focus]);
   const moveFocus = (to: FocusTo) => setFocus((f) => ({ n: (f?.n ?? 0) + 1, to }));
 
-  /** Saves a press and says what it did once the browser kept it (or, refused, why not: the store has put the card back). */
+  /**
+   * Saves a press and says what it did once the browser kept it (or, refused, why not: the store has put the card back),
+   * with the one-time note while no anonymous copy has left this browser yet (the header).
+   */
   async function save(change: FeedbackChange, done: string): Promise<boolean> {
-    let saved: SaveResult;
+    let saved: FeedbackSaveResult;
     try {
       saved = await onChange(change);
     } catch {
@@ -163,10 +178,12 @@ export function FeedbackControls({ feedback, onChange, tradeName, versions = [] 
     if (!saved.ok) {
       setError(saved.message);
       setStatus("");
+      setShareNote(false);
       return false;
     }
     setError(null);
     setStatus(done);
+    setShareNote(saved.shared === true && shareNoteDue());
     return true;
   }
 
@@ -330,9 +347,18 @@ export function FeedbackControls({ feedback, onChange, tradeName, versions = [] 
         </button>
       )}
 
-      {/* Always mounted, so each press is announced. */}
-      <p role="status" className={status ? "mt-2 text-sm font-semibold" : "sr-only"}>
+      {/* Always mounted, so each press is announced (with the one-time note when it comes: the header). */}
+      <p role="status" className={status || shareNote ? "mt-2 text-sm font-semibold" : "sr-only"}>
         {status}
+        {shareNote ? (
+          <span className="mt-1 block font-normal text-muted">
+            {SHARE_NOTE_LEAD}{" "}
+            <Link href="/settings" className="font-semibold underline underline-offset-2">
+              Settings
+            </Link>
+            .
+          </span>
+        ) : null}
       </p>
       {error ? (
         <div className="mt-2">

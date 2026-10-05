@@ -562,7 +562,9 @@ function DataCard({ view, refresh, forget }: ViewProps & { refresh?: RefreshCont
         </p>
       ) : null}
       <p className="mt-3 text-sm text-muted">
-        Our server keeps a copy of league data for about 10 minutes, to go easy on {view.league.platformLabel}.{" "}
+        {view.league.readBy === "browser"
+          ? `Your browser read this league from ${view.league.platformLabel} itself; our server didn't keep a copy of it.`
+          : `Our server keeps a copy of league data for about 10 minutes, to go easy on ${view.league.platformLabel}.`}{" "}
         {refresh ? "Refresh fetches it again (at most once a minute)." : "To refresh, import again."}
       </p>
       <div className="mt-3 flex flex-wrap items-center gap-2">

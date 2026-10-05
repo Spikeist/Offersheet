@@ -68,7 +68,7 @@ export interface PolicyFeatures {
  * privacy policy and the terms: set their LAST_UPDATED to that day. Once both are on for good, the words for "off" (and
  * these flags) can go.
  */
-export const POLICY_FEATURES: Readonly<PolicyFeatures> = { browserReads: false, anonymousFeedback: false };
+export const POLICY_FEATURES: Readonly<PolicyFeatures> = { browserReads: true, anonymousFeedback: true };
 
 /** The address the site falls back to off Vercel: the stable copy's (Part A, `npm run stable`, port 3000). */
 export const LOCAL_SITE_URL = "http://127.0.0.1:3000";

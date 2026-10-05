@@ -154,9 +154,9 @@ describe("the shared store (Redis on Vercel only)", () => {
   it("a failing or slow store never rejects and is said on the console only", async () => {
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
     const entry = JSON.stringify({ route: "server", event: "x", at: T0 });
-    const failing = { lpush: async () => Promise.reject(Object.assign(new Error("ERR max requests limit exceeded"), { name: "UpstashError" })) } as unknown as RedisLike;
+    const failing = { lpushTrimExpire: async () => Promise.reject(Object.assign(new Error("ERR max requests limit exceeded"), { name: "UpstashError" })) } as unknown as RedisLike;
     await expect(writeLogEntries(failing, [entry], { now: T0, env: VERCEL })).resolves.toBeUndefined();
-    const hanging = { lpush: () => new Promise<number>(() => {}) } as unknown as RedisLike;
+    const hanging = { lpushTrimExpire: () => new Promise<number>(() => {}) } as unknown as RedisLike;
     await expect(writeLogEntries(hanging, [entry], { now: T0, env: VERCEL, timeoutMs: 20 })).resolves.toBeUndefined();
     expect(lines(spy)).toEqual([
       '{"route":"server","event":"log_write_failed","platform":"upstash","errorName":"UpstashError"}',

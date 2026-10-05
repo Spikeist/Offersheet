@@ -101,20 +101,27 @@ import {
   type SleeperTradedPick,
   type SleeperTransaction,
 } from "./schemas";
+import { LAST_NFL_WEEK, assertSupported, leagueWeekSetting } from "./leagueData";
 import { faabRemainingOf, sleeperWaiverOrder, type SleeperWaiverOrder } from "./waivers";
 
 export { faabRemainingOf, waiverRankOf } from "./waivers";
 
 /** Free agents kept per position (CLAUDE.md §4 LeagueSnapshot.freeAgents: "top 50 per position"; config.import). */
 export const FREE_AGENTS_PER_POSITION = config.import.freeAgentsPerPosition;
-/** Last week of the NFL regular season; fantasy playoffs can't run past it. */
-export const LAST_NFL_WEEK = 18;
+/** Last week of the NFL regular season; fantasy playoffs can't run past it (./leagueData.ts, browser-safe). */
+export { LAST_NFL_WEEK };
 /**
  * Tradable draft picks cover "the current season + up to 3 future years", and leagues can't change
  * that (Sleeper's help center, support.sleeper.com/en/articles/4047901; planner reply to Checkpoint 1,
  * answer 8) ✅.
  */
 export const FUTURE_PICK_SEASONS = 3;
+/**
+ * The most draft rounds a league's picks are listed for (review BF-R1: draft_rounds drives a loop, and a league the
+ * browser sends is the browser's word). Sleeper's leagues run 3–8 rounds in 244 surveyed 2026 leagues; a startup or
+ * redraft-length draft stays well under this.
+ */
+export const MAX_DRAFT_ROUNDS = 50;
 /**
  * How Sleeper breaks ties in the standings (§8) ✅: "If two or more teams finish with the same record,
  * the default standings tiebreakers are: Points For, Higher Points Against. The team with more Points
@@ -209,7 +216,6 @@ export const SLOT_ELIGIBLE: Readonly<Record<string, readonly Pos[]>> = {
 const BENCH_SLOT = "BN";
 
 const LEAGUE_TYPES: Readonly<Record<number, LeagueSettings["leagueType"]>> = { 0: "redraft", 1: "keeper", 2: "dynasty" };
-const GUILLOTINE_TYPE = 3;
 
 /** Sleeper injury_status → normalized (Phase 0 decision; DNR and COV count as OUT, planner reply). */
 const INJURY_MAP: Readonly<Record<string, InjuryStatus>> = {
@@ -283,6 +289,16 @@ function range(from: number, to: number): number[] {
   return out;
 }
 
+/**
+ * Adds `value` to the list kept under `key`, in place (review BF-R1: copying the list for every row made grouping
+ * quadratic in the rows that share a key, and a league the browser sends can have any number of them).
+ */
+function pushTo<K, V>(map: Map<K, V[]>, key: K, value: V): void {
+  const list = map.get(key);
+  if (list) list.push(value);
+  else map.set(key, [value]);
+}
+
 const round2 = (x: number) => Math.round(x * 100) / 100;
 
 // ---------------------------------------------------------------------------------------------
@@ -308,7 +324,7 @@ function buildDivisions(divisionsCount: number, rosters: SleeperRoster[], warn: 
   for (const r of rosters) {
     const d = r.settings?.division;
     if (typeof d !== "number" || d <= 0) missing.push(r.roster_id);
-    else byDivision.set(String(d), [...(byDivision.get(String(d)) ?? []), String(r.roster_id)]);
+    else pushTo(byDivision, String(d), String(r.roster_id));
   }
   if (missing.length) {
     const teams = missing.sort((a, b) => a - b);
@@ -397,12 +413,14 @@ function buildSettings(league: SleeperLeague, rosters: SleeperRoster[], scoring:
   }
 
   const numTeams = num(s, "num_teams") ?? league.total_rosters ?? rosters.length;
-  const startWeek = num(s, "start_week") || 1;
+  // Whole weeks in 1…LAST_NFL_WEEK + 1, as ./leagueData.ts reads them (review BF-R1: they drive loops over the weeks).
+  const startWeek = leagueWeekSetting(num(s, "start_week") || 1);
   let playoffStart = num(s, "playoff_week_start") ?? 0;
   if (!playoffStart) {
     playoffStart = 15;
     warn({ code: "PLAYOFF_START_MISSING", message: "The league doesn't say when its playoffs start; assumed NFL week 15 (the most common start).", platformPath: "settings.playoff_week_start" });
   }
+  playoffStart = leagueWeekSetting(playoffStart);
   const playoffTeams = num(s, "playoff_teams") ?? 0;
   if (!playoffTeams) warn({ code: "PLAYOFF_TEAMS_MISSING", message: "The league doesn't say how many teams make the playoffs.", platformPath: "settings.playoff_teams" });
   let roundType = num(s, "playoff_round_type");
@@ -623,7 +641,7 @@ function weekMatchups(week: number, rows: SleeperMatchup[], decided: boolean, wa
   const byId = new Map<number, SleeperMatchup[]>();
   const loose: number[] = [];
   for (const r of rows) {
-    if (typeof r.matchup_id === "number") byId.set(r.matchup_id, [...(byId.get(r.matchup_id) ?? []), r]);
+    if (typeof r.matchup_id === "number") pushTo(byId, r.matchup_id, r);
     else loose.push(r.roster_id);
   }
   const done = decided ? { decided: true } : {};
@@ -694,25 +712,38 @@ function buildTransactions(raw: Record<number, unknown>, warn: (w: ImportWarning
  * round of every open season, then traded_picks moves them (roster_id = original team, owner_id =
  * current owner). Open seasons: this season if its draft hasn't finished, else from next season,
  * through season + FUTURE_PICK_SEASONS (Sleeper's documented window), or the last season
- * traded_picks mentions if that is ever later.
+ * traded_picks mentions if that is ever later, up to one season more (review BF-R1: a traded row further out is left
+ * out with a warning, and at most MAX_DRAFT_ROUNDS rounds are listed, since the league's own numbers drive the loop
+ * below and a league the browser sends is the browser's word).
  */
 function buildDraftPicks(league: SleeperLeague, rosterIds: number[], tradedRaw: unknown, draftsRaw: unknown, leagueType: LeagueSettings["leagueType"], warn: (w: ImportWarning) => void, notes: string[]): DraftPick[] | undefined {
   if (leagueType === "redraft" || num(league.settings, "pick_trading") === 0) return undefined;
-  const season = Number(league.season);
+  const season = Number(league.season); // a whole year: normalizeSleeperLeague checks it
   const traded = parseArrayLenient(TradedPickSchema, tradedRaw);
   if (traded.bad) warn({ code: "TRADED_PICKS_UNREADABLE", message: `${traded.bad} traded-pick row(s) didn't have the expected shape and were skipped.`, platformPath: `traded_picks${traded.firstBadPath ?? ""}` });
   const drafts = parseArrayLenient(DraftSchema, draftsRaw).rows as SleeperDraft[];
   // In season (or later) this season's draft has happened even if the drafts list couldn't be read.
   const thisDraftDone = drafts.some((d) => Number(d.season) === season && d.status === "complete") || ["in_season", "post_season", "complete"].includes(league.status ?? "");
   const firstOpen = thisDraftDone ? season + 1 : season;
-  const lastTraded = traded.rows.reduce((mx, p) => Math.max(mx, Number(p.season)), 0);
+  const windowEnd = season + FUTURE_PICK_SEASONS + 1;
+  let lastTraded = 0;
+  let pastWindow = 0;
+  for (const p of traded.rows) {
+    const s = Number(p.season);
+    if (!Number.isFinite(s)) continue; // never a key below either
+    if (s > windowEnd) pastWindow++;
+    else if (s > lastTraded) lastTraded = s;
+  }
+  if (pastWindow)
+    warn({ code: "TRADED_PICK_OUT_OF_RANGE", message: `${pastWindow} traded-pick row(s) name a season after ${windowEnd}, past the seasons Sleeper lets leagues trade, and were left out.`, platformPath: "traded_picks[].season" });
   const lastOpen = Math.max(season + FUTURE_PICK_SEASONS, lastTraded);
   let rounds = num(league.settings, "draft_rounds");
   if (!rounds) {
     rounds = traded.rows.reduce((mx, p) => Math.max(mx, p.round), 0);
-    warn({ code: "DRAFT_ROUNDS_MISSING", message: rounds ? `The league doesn't say how many draft rounds it has; assumed ${rounds} from traded picks.` : "The league doesn't say how many draft rounds it has, so pick ownership is unknown.", platformPath: "settings.draft_rounds" });
+    warn({ code: "DRAFT_ROUNDS_MISSING", message: rounds ? `The league doesn't say how many draft rounds it has; assumed ${Math.min(rounds, MAX_DRAFT_ROUNDS)} from traded picks.` : "The league doesn't say how many draft rounds it has, so pick ownership is unknown.", platformPath: "settings.draft_rounds" });
     if (!rounds) return undefined;
-  }
+  } else if (rounds > MAX_DRAFT_ROUNDS) warn({ code: "DRAFT_ROUNDS_CAPPED", message: `The league says it has ${rounds} draft rounds; picks are listed for the first ${MAX_DRAFT_ROUNDS}.`, platformPath: "settings.draft_rounds" });
+  rounds = Math.min(rounds, MAX_DRAFT_ROUNDS);
   const owner = new Map<string, number>();
   const key = (s: number, r: number, orig: number) => `${s}|${r}|${orig}`;
   for (let s = firstOpen; s <= lastOpen; s++) for (let r = 1; r <= rounds; r++) for (const id of rosterIds) owner.set(key(s, r, id), id);
@@ -850,6 +881,9 @@ export function normalizeSleeperLeague(raw: SleeperRawLeague, ctx: SleeperNormal
   const state = parseOrThrow(StateSchema, raw.state, "state");
   const league = parseOrThrow(LeagueSchema, raw.league, "league");
   assertSupported(league);
+  // A year, as Sleeper always sends it (review BF-R1: the season drives the draft picks' loop over seasons, and a league
+  // the browser sends is the browser's word).
+  if (!/^\d{4}$/.test(league.season)) throw new LeagueImportError("BAD_RESPONSE", "Sleeper sent a league whose season isn't a year.", { platform: "sleeper", path: "league.season" });
   const users = parseArrayOrThrow(LeagueUserSchema, raw.users ?? [], "users");
   const rosters = parseArrayOrThrow(RosterSchema, raw.rosters, "rosters");
 
@@ -974,12 +1008,8 @@ function weeksText(weeks: readonly number[]): string {
   return contiguous ? `weeks ${weeks[0]}–${weeks.at(-1)}` : `weeks ${weeks.slice(0, -1).join(", ")} and ${weeks.at(-1)}`;
 }
 
-/** Guillotine (type 3) and non-NFL leagues aren't supported (planner answer 9). */
-export function assertSupported(league: Pick<SleeperLeague, "settings" | "sport">): void {
-  if (league.sport && league.sport !== "nfl") throw new LeagueImportError("UNSUPPORTED_LEAGUE", "That Sleeper league isn't an NFL league.", { platform: "sleeper", path: "sport" });
-  if (num(league.settings, "type") === GUILLOTINE_TYPE)
-    throw new LeagueImportError("UNSUPPORTED_LEAGUE", "This is a guillotine league: the lowest-scoring team is eliminated every week. Offer Sheet doesn't support guillotine leagues yet.", { platform: "sleeper", path: "settings.type" });
-}
+/** Guillotine (type 3) and non-NFL leagues aren't supported (planner answer 9; ./leagueData.ts, browser-safe). */
+export { assertSupported };
 
 function currentWeekFor(season: number, state: { week: number; season: string; season_type?: string | null }, settings: LeagueSettings, warn: (w: ImportWarning) => void): { week: number; over: boolean } {
   const stateSeason = Number(state.season);
@@ -1031,7 +1061,7 @@ function rankFreeAgents(
     }
   }
   const byPos = new Map<Pos, Array<{ id: string; points: number; info: PlayerInfo }>>();
-  for (const [id, c] of candidates) byPos.set(c.info.pos, [...(byPos.get(c.info.pos) ?? []), { id, points: c.sum / c.n, info: c.info }]);
+  for (const [id, c] of candidates) pushTo(byPos, c.info.pos, { id, points: c.sum / c.n, info: c.info });
   const out: string[] = [];
   for (const pos of POSITIONS) {
     const list = (byPos.get(pos) ?? []).sort((a, b) => b.points - a.points || a.id.localeCompare(b.id)).slice(0, FREE_AGENTS_PER_POSITION);

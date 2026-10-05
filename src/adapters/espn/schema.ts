@@ -4,7 +4,11 @@
  * and trimmed to the fields normalize.ts uses. z.object strips unknown fields; optional fields are
  * nullish because ESPN sends null for some of them. A missing required field becomes a
  * LeagueImportError("BAD_RESPONSE") that names its JSON path.
+ *
+ * The browser builds these too (track BF: it reads public leagues itself), so zod's eval-compiled parsers are turned off
+ * there first (src/lib/zodJitless.ts: it must be this module's first import).
  */
+import "@/lib/zodJitless";
 import { z } from "zod";
 import { LeagueImportError } from "@/adapters/types";
 

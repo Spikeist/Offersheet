@@ -2,7 +2,9 @@
  * The checks of `npm run check:browser`, page by page, in the order a user goes (each a step of the report):
  *
  * 1. Connect (/connect, a full load): the league link box and the Import button on the first screen (§14 item 1),
- *    the layout; then the public-link import with ESPN_LEAGUE_ID (and ESPN_SEASON when set), timed.
+ *    the layout; then the public-link import with ESPN_LEAGUE_ID (and ESPN_SEASON when set), timed; and which path read
+ *    the league (Part B, track BF: this browser, straight from ESPN, is expected for a public league without cookies; the
+ *    saved import's readBy and the browser's own reads from ESPN, readPathOf).
  * 2. Import Report: the layout; the team: --team <id> picked in "Which team is yours?", else the report's own choice.
  * 3. League (the nav's link): built and timed; the layout; "Harder to get" never on my own players (my roster, my rows
  *    in the tables, "You could give" in the partner cards), and my team marked. The places it counts in must be found:
@@ -143,8 +145,11 @@ async function screenshot(ctx: StepContext, name: string): Promise<void> {
  */
 export function healthCheck(ctx: StepContext, step: string, expected: (e: PageEvent) => boolean = () => false): void {
   const events = ctx.page.eventsOf(step).filter((e) => !expected(e));
-  const bad = events.filter((e) => e.kind !== "console warning");
-  const warnings = events.length - bad.length;
+  // The browser's own reads of a league from ESPN or Sleeper (Part B, track BF) are expected, and counted.
+  const reads = events.filter((e) => e.kind === "platform read").length;
+  if (reads) ctx.report.note(step, "platformReads", reads);
+  const bad = events.filter((e) => e.kind !== "console warning" && e.kind !== "platform read");
+  const warnings = events.filter((e) => e.kind === "console warning").length;
   if (warnings) ctx.report.note(step, "consoleWarnings", warnings);
   ctx.report.check(
     step,
@@ -226,6 +231,34 @@ export async function connectStep(ctx: StepContext): Promise<void> {
   ctx.names = names;
   ctx.onNames(names);
   report.note(step, "teams", names.teams.length);
+
+  // Which path read the league (Part B, track BF): with no ESPN cookies connected, this browser reads a public league from
+  // ESPN itself and sends it up; the saved import says who read it (readBy), and the step saw the browser's own reads.
+  const saved = await page.run<{ readBy: string | null; signed: boolean } | null>(
+    `const s = await savedImport(); return s && s.response ? { readBy: s.response.readBy ?? null, signed: Boolean(s.response.signed) } : null;`,
+  );
+  const espnReads = page.eventsOf(step).filter((e) => e.kind === "platform read" && e.text.includes("lm-api-reads.fantasy.espn.com")).length;
+  const path = readPathOf(saved?.readBy ?? null, espnReads);
+  report.note(step, "readBy", path.readBy);
+  report.note(step, "browserReadsFromEspn", espnReads);
+  report.note(step, "signedImport", saved?.signed ?? false);
+  report.check(step, path.readBy === "browser", path.text, path.text);
+}
+
+/**
+ * Which path read the league (pure; the Connect step): "browser" when the saved import says the browser read it and the
+ * browser was seen reading ESPN; "server" when the server did (after the browser tried, when it was seen trying: a
+ * fallback); "unknown" for an import that doesn't say (one saved before browser reading). With the words for the report.
+ */
+export function readPathOf(readBy: string | null, platformReads: number): { readBy: "browser" | "server" | "unknown"; text: string } {
+  if (readBy === "browser" && platformReads > 0) return { readBy: "browser", text: `read the league in this browser, straight from ESPN (${pl(platformReads, "request")}), and sent it up (track BF)` };
+  if (readBy === "browser") return { readBy: "unknown", text: "the import says this browser read the league, but no read from ESPN was seen" };
+  if (readBy === "server")
+    return {
+      readBy: "server",
+      text: platformReads > 0 ? `Offer Sheet's server read the league after this browser tried (${pl(platformReads, "request")} to ESPN): the browser path fell back` : "Offer Sheet's server read the league: the browser path didn't run",
+    };
+  return { readBy: "unknown", text: "the saved import doesn't say who read the league" };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -238,6 +271,9 @@ export async function importReportStep(ctx: StepContext): Promise<void> {
   await page.waitFor(`document.getElementById("my-team")`, 30_000, "the Import Report");
   await sleep(400);
   layoutChecks(ctx, step, await measurePage(ctx));
+  // Who read the league, in the report's data card (Part B, track BF: "League data read by").
+  const readBy = await page.run<string | null>(`const dt = [...document.querySelectorAll("dt")].find((d) => txt(d) === "League data read by"); return dt && dt.nextElementSibling ? txt(dt.nextElementSibling) : null;`);
+  report.check(step, readBy !== null, `the data card says who read the league: ${readBy ?? ""}`, `the data card doesn't say who read the league ("League data read by")`);
   const choice = await page.run<{ value: string; options: string[] }>(`
     const sel = document.getElementById("my-team");
     return { value: sel.value, options: [...sel.options].map((o) => o.value).filter(Boolean) };

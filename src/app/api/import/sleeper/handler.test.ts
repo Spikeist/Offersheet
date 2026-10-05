@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { LeagueImportError, type SleeperImportRequest } from "@/adapters/types";
-import { fakeDeps, fakeResult, jsonRequest } from "../../_lib/testFakes";
+import { fakeDeps, fakeResult, gzipRequest, jsonRequest } from "../../_lib/testFakes";
 import { createSleeperImportHandler, type AdapterLeagueChoice } from "./handler";
 
 const URL = "http://localhost:3000/api/import/sleeper";
@@ -27,8 +27,12 @@ function setup(importLeague: (req: SleeperImportRequest) => Promise<ReturnType<t
       calls.push(req);
       return importLeague(req);
     },
+    importUpload: async () => {
+      throw new Error("no upload in these tests (upload.test.ts covers them)");
+    },
     getDeps: async () => fakeDeps(),
     choicesOf: (err) => (err instanceof ChoiceError ? err.choices : undefined),
+    sign: () => undefined,
     now: NOW,
   });
   return { handler, calls };
@@ -130,5 +134,70 @@ describe("POST /api/import/sleeper", () => {
     const foreign = await handler(jsonRequest(URL, { season: 2026, username: "zorblax_q" }, { origin: "https://evil.example" }));
     expect(foreign.status).toBe(403);
     expect(calls).toHaveLength(0);
+  });
+});
+
+describe("POST /api/import/sleeper with a league the browser read (Part B, track BF)", () => {
+  const upload = (over: Record<string, unknown> = {}) => ({
+    v: 1,
+    platform: "sleeper",
+    request: { leagueId: "111111111111111111", season: 2026, username: "zorblax_q" },
+    sentAt: 1_000,
+    parts: [{ url: "https://api.sleeper.app/v1/league/111111111111111111", status: 200, json: { league_id: "111111111111111111" }, at: 900 }],
+    ...over,
+  });
+
+  it("imports it by replaying the upload, says the browser read it, signs it (no model part for Sleeper), and never offers a picker", async () => {
+    const uploads: unknown[] = [];
+    const handler = createSleeperImportHandler({
+      importLeague: async () => {
+        throw new Error("the browser read this league");
+      },
+      importUpload: async (u) => {
+        uploads.push(u);
+        return fakeResult({ platform: "sleeper" });
+      },
+      getDeps: async () => fakeDeps(),
+      choicesOf: () => undefined,
+      sign: (platform, content) => (platform === "sleeper" && JSON.stringify(content.modelPart) === "{}" ? { issuedAt: 1, token: "made-up" } : undefined),
+      now: NOW,
+    });
+    const res = await handler(gzipRequest(URL, upload()));
+    expect(res.status).toBe(200);
+    expect(uploads).toEqual([upload()]);
+    expect(await json(res)).toMatchObject({ readBy: "browser", modelPart: {}, signed: { issuedAt: 1, token: "made-up" }, dataSources: [{ name: "Sleeper players" }] });
+    for (const bad of [upload({ platform: "espn" }), upload({ request: { leagueId: "111111111111111111", season: 2026, username: "two words" } }), upload({ parts: "x" })]) {
+      const r = await handler(gzipRequest(URL, bad));
+      expect(r.status).toBe(400);
+      expect(((await json(r)).error as { code: string }).code).toBe("BAD_UPLOAD");
+    }
+  });
+
+  it("answers the JSON path's imports as read by the server", async () => {
+    const { handler } = setup();
+    expect(await json(await handler(jsonRequest(URL, { season: 2026, leagueId: "111111111111111111" })))).toMatchObject({ readBy: "server", modelPart: {} });
+  });
+
+  it("doesn't sign an import whose model build would cost more than any real league's: BAD_UPLOAD (review BF-R1)", async () => {
+    const rule = { kind: "range", stat: "rush_yd", min: 100, max: 199, points: 1 } as const;
+    const heavy = fakeResult({
+      platform: "sleeper",
+      teams: Array.from({ length: 30 }, (_, t) => ({ id: String(t), roster: Array.from({ length: 60 }, (_, i) => `${t}-${i}`), ir: [], taxi: [] })) as never,
+      freeAgents: [],
+      settings: { scoring: { perStat: {}, rules: Array.from({ length: 100 }, () => rule), unmapped: [] } } as never,
+    });
+    const signed: unknown[] = [];
+    const handler = createSleeperImportHandler({
+      importLeague: async () => fakeResult({ platform: "sleeper" }),
+      importUpload: async () => heavy,
+      getDeps: async () => fakeDeps(),
+      choicesOf: () => undefined,
+      sign: (_platform, content) => (signed.push(content), { issuedAt: 1, token: "made-up" }),
+      now: NOW,
+    });
+    const res = await handler(gzipRequest(URL, upload()));
+    expect(res.status).toBe(400);
+    expect(((await json(res)).error as { code: string }).code).toBe("BAD_UPLOAD");
+    expect(signed).toHaveLength(0);
   });
 });

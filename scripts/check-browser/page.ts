@@ -13,7 +13,13 @@
  * - requests to the app that failed (HTTP 400 and up, or a network error other than a cancel or an abort: Next
  *   cancels prefetches and the app aborts what a page no longer needs);
  * - any request to another host (the app's pages only talk to their own server; the FantasyCalc and platform links
- *   are links, not requests);
+ *   are links, not requests), except the browser's own reads of a league from ESPN and Sleeper (Part B, track BF: the
+ *   CSP's connect-src, next.config.ts BROWSER_FETCH_ORIGINS), which are recorded as "platform read" (not a problem: the
+ *   steps count them, which is how the Connect step tells which path read the league), and as "platform failure" when
+ *   one fails (a CORS refusal, a network error: a problem). Only the league-data requests count as reads
+ *   (src/adapters/upload.ts isLeagueDataRead, review BF-R6): any other request to those hosts (projections, stats, the
+ *   players list, the NFL schedule, which the server reads) is "other host", a problem. Their texts carry the host and
+ *   what was read, never an id (platformReadText);
  * - console warnings, counted for the summary but not failures.
  * The in-page instrumentation (inPage.ts INSTRUMENT) is added to every new document.
  *
@@ -28,12 +34,52 @@
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { isLeagueDataRead } from "@/adapters/upload";
+import { BROWSER_FETCH_ORIGINS } from "../../next.config";
 import type { CdpClient, CdpEvent } from "./cdp";
 import { CARD_HELPERS, CSP_MARK, INSTRUMENT, PAGE_HELPERS, RESTORE_CALL } from "./inPage";
 
 export const PHONE = { width: 375, height: 812, deviceScaleFactor: 2 } as const;
 
-export type PageEventKind = "console error" | "exception" | "failed request" | "other host" | "csp violation" | "console warning";
+export type PageEventKind = "console error" | "exception" | "failed request" | "other host" | "csp violation" | "console warning" | "platform read" | "platform failure";
+
+/** Whether a request goes to ESPN's or Sleeper's API, the hosts the CSP lets the page read (next.config.ts BROWSER_FETCH_ORIGINS). */
+export function isPlatformHost(url: string): boolean {
+  return BROWSER_FETCH_ORIGINS.some((origin) => url === origin || url.startsWith(`${origin}/`));
+}
+
+/**
+ * Whether a request is the browser's own read of a league (the header): one of the league-data requests the browser path
+ * makes (src/adapters/upload.ts isLeagueDataRead). Anything else to those hosts (projections, stats, the players list, the
+ * NFL schedule: the server's to read) counts as another host, a problem (review BF-R6).
+ */
+export function isPlatformRead(url: string): boolean {
+  return isPlatformHost(url) && isLeagueDataRead(url);
+}
+
+/**
+ * The path words of the platform reads the app makes (src/adapters/sleeper/leagueData.ts sleeperUrls), and of Sleeper's
+ * public data the server reads (so a request the browser shouldn't make says what it was); anything else is an id.
+ */
+const PATH_WORDS = new Set(["v1", "league", "leagues", "user", "nfl", "state", "users", "rosters", "matchups", "transactions", "traded_picks", "drafts", "projections", "stats", "players"]);
+
+/**
+ * A platform read in words without any id (pure): the method, the host and what was read: ESPN's views ("view=mSettings,
+ * mTeam, …"), Sleeper's path with every number as "#" and anything else that isn't one of its words (a username) as "…"
+ * ("/v1/league/#/matchups/#", "/v1/user/…").
+ */
+export function platformReadText(url: string, method: string): string {
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return `${method} (an address that can't be read)`;
+  }
+  const views = u.searchParams.getAll("view");
+  if (views.length) return `${method} ${u.host} view=${views.join(",")}`;
+  const parts = u.pathname.split("/").map((p) => (p === "" || PATH_WORDS.has(p) ? p : /^\d+$/.test(p) ? "#" : "…"));
+  return `${method} ${u.host}${parts.join("/")}`;
+}
 
 export interface PageEvent {
   step: string;
@@ -212,8 +258,13 @@ export class PageSession {
       case "Network.requestWillBeSent": {
         const req = (p.request ?? {}) as { url?: unknown; method?: unknown };
         const url = str(req.url);
-        this.requests.set(str(p.requestId), { url, method: str(req.method) || "GET" });
-        if (url && !LOCAL_SCHEMES.test(url) && !url.startsWith(this.origin)) this.record("other host", where, `${str(req.method) || "GET"} ${url}`);
+        const method = str(req.method) || "GET";
+        this.requests.set(str(p.requestId), { url, method });
+        // The browser's own read of a league (the header): expected, counted, and kept without its ids.
+        if (url && isPlatformRead(url)) this.record("platform read", where, platformReadText(url, method));
+        // Anything else to those hosts is data the server reads (review BF-R6): a problem, kept without ids too.
+        else if (url && isPlatformHost(url)) this.record("other host", where, `${platformReadText(url, method)} (not a league read: the server's to read)`);
+        else if (url && !LOCAL_SCHEMES.test(url) && !url.startsWith(this.origin)) this.record("other host", where, `${method} ${url}`);
         break;
       }
       case "Network.responseReceived": {
@@ -228,8 +279,10 @@ export class PageSession {
         const req = this.requests.get(id);
         this.requests.delete(id);
         const error = str(p.errorText);
-        if (p.canceled === true || error === "net::ERR_ABORTED" || !req || !req.url.startsWith(this.origin)) break;
-        this.record("failed request", where, `${error} ${req.method} ${this.shortUrl(req.url)}`);
+        if (p.canceled === true || error === "net::ERR_ABORTED" || !req) break;
+        // A platform read that failed (a CORS refusal, a network error): the browser path didn't work (the header).
+        if (isPlatformHost(req.url)) this.record("platform failure", where, `${error} ${platformReadText(req.url, req.method)}`);
+        else if (req.url.startsWith(this.origin)) this.record("failed request", where, `${error} ${req.method} ${this.shortUrl(req.url)}`);
         break;
       }
       case "Network.loadingFinished":

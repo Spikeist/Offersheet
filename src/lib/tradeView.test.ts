@@ -13,9 +13,14 @@ import { defaultTradeSettings } from "@/engine/settings";
 import type { TradeAnalysis } from "@/engine/evaluate";
 import type { MarketInputs } from "@/engine/inputs";
 import type { PlayerInfo } from "@/engine/model";
-import { buildTradeContext, explainContextOf, tradeInternals } from "@/engine/evaluate";
+import { HELPS_FLOOR_NOTE, HELPS_FLOOR_NOTE_PLAYOFFS, helpsScaleNotes, type HelpsScale } from "@/engine/benefit";
+import { buildTradeContext, evaluateExact, explainContextOf, simulateTrade, tradeInternals, type SimState } from "@/engine/evaluate";
+import type { HelpsCalibration } from "@/engine/leagueModel";
+import { smallLeague } from "@/engine/trade.testing";
+import { TEST_NOW } from "@/engine/testLeague";
 import { explainTrade } from "@/engine/explain";
 import { randomLeague } from "@/engine/testLeague";
+import { FIXTURE_B3 } from "@/engine/tradeTestFixtures";
 import type { InjuryTag, TradeEvaluation, TradeStep } from "@/engine/tradeModel";
 import { GLOOP_PREMIUM, SNOOT_PREMIUM, evaluation, searchResult, step, steppedFull, steppedOffer, tradeSnapshot } from "@/components/trades/testFixtures";
 import { applyFeedback } from "./feedbackStore";
@@ -47,6 +52,7 @@ import {
   harderToGetWho,
   HELPS_SCALE_TEXT,
   helpsInfoText,
+  helpsReasonOf,
   lineupEquivalentText,
   incomingInjuryNote,
   INJURED_REASON,
@@ -1168,12 +1174,17 @@ describe("buildFinderView: a Plan B that is a card of its own says so (review of
 });
 
 describe("feedback versions (which version was sent; planner reply to Checkpoint 4, change 6)", () => {
-  /** A version's model inputs as the card makes them (Phase 4c, planner reply to Checkpoint 4b, change 7). */
+  /**
+   * A version's model inputs as the card makes them (Phase 4c, planner reply to Checkpoint 4b, change 7), with the card's
+   * B₃ (the fixtures' FIXTURE_B3) and its scale's reason (none: the fixtures' notes are empty) since Phase 7a.
+   */
+  const SCALE = { b3: FIXTURE_B3, helpsReason: null };
   const inputsOf = (x: { features?: TradeEvaluation["features"] | undefined; gPartner?: number | undefined; b: number | null }, goal: "title" | "balanced" | "playoffs" | null = null) => ({
     features: x.features ? { ...x.features } : null,
     gPartner: x.gPartner ?? null,
     b: x.b,
     goal,
+    ...SCALE,
   });
 
   it("a plain card: this trade alone, as the full version, with its model inputs", () => {
@@ -1188,12 +1199,12 @@ describe("feedback versions (which version was sent; planner reply to Checkpoint
     const offer = e.steps?.offerFirst as TradeStep;
     const withFeatures = { ...e, steps: e.steps && { ...e.steps, offerFirst: { ...offer, features: { ...e.features, g: 0.07, z: -0.4 } } } };
     expect(versionChoices(withFeatures, snapshot, "balanced")).toEqual([
-      { version: "offerFirst", key: offer.key, pAccept: 0.35, pComplete: 0.35, inputs: { features: { ...e.features, g: 0.07, z: -0.4 }, gPartner: offer.gPartner, b: offer.b, goal: "balanced" }, label: "The first offer" },
+      { version: "offerFirst", key: offer.key, pAccept: 0.35, pComplete: 0.35, inputs: { features: { ...e.features, g: 0.07, z: -0.4 }, gPartner: offer.gPartner, b: offer.b, goal: "balanced", ...SCALE }, label: "The first offer" },
       // The full version is the card's trade (TradeSteps.ranked "full"): its final numbers.
       { version: "full", key: e.steps?.ifNo.full.key, pAccept: 0.55, pComplete: 0.55, inputs: inputsOf(e, "balanced"), label: "With Tobias Thimble added" },
     ]);
     // A step without features (older engines): none, the rest kept.
-    expect(versionChoices(e, snapshot)[0]?.inputs).toEqual({ features: null, gPartner: offer.gPartner, b: offer.b, goal: null });
+    expect(versionChoices(e, snapshot)[0]?.inputs).toEqual({ features: null, gPartner: offer.gPartner, b: offer.b, goal: null, ...SCALE });
   });
 
   it("with a Plan B: this trade, then the one to try if they say no, each with its inputs", () => {
@@ -1201,11 +1212,11 @@ describe("feedback versions (which version was sent; planner reply to Checkpoint
     const e = evaluation({ planB: { ...planB, features: { g: 0.1, n: 0.2, h: 0, c: 0, a: 1, hist: null, ctx: 0, hot: 0, urg: 0, z: 0.1 }, gPartner: 0.08 } });
     expect(versionChoices(e, snapshot, "title")).toEqual([
       { version: "full", key: e.key, pAccept: 0.4, pComplete: 0.4, inputs: inputsOf(e, "title"), label: "This trade" },
-      { version: "planB", key: "2|give:106|get:203", pAccept: 0.5, pComplete: 0.45, inputs: { features: { g: 0.1, n: 0.2, h: 0, c: 0, a: 1, hist: null, ctx: 0, hot: 0, urg: 0, z: 0.1 }, gPartner: 0.08, b: 2, goal: "title" }, label: "The “If they say no” trade" },
+      { version: "planB", key: "2|give:106|get:203", pAccept: 0.5, pComplete: 0.45, inputs: { features: { g: 0.1, n: 0.2, h: 0, c: 0, a: 1, hist: null, ctx: 0, hot: 0, urg: 0, z: 0.1 }, gPartner: 0.08, b: 2, goal: "title", ...SCALE }, label: "The “If they say no” trade" },
     ]);
     expect(buildTradeCard(e, { snapshot }).versions).toHaveLength(2);
     // A Plan B without its features (an older engine): none.
-    expect(versionChoices(evaluation({ planB }), snapshot)[1]?.inputs).toEqual({ features: null, gPartner: null, b: 2, goal: null });
+    expect(versionChoices(evaluation({ planB }), snapshot)[1]?.inputs).toEqual({ features: null, gPartner: null, b: 2, goal: null, ...SCALE });
   });
 
   it("names the recorded version by its key: the card's label when it shows that version, else 'an earlier one' with its players (review of Phase 4b)", () => {
@@ -1484,5 +1495,55 @@ describe("Phase 4c: the card's words that the planner's reply to Checkpoint 4b c
     const c4 = buildTradeCard(evaluation({ gMine: -0.2, detail: { winChance: [{ week: 9, before: 0.68, after: 0.64 }] } }), { snapshot, baseline: { pPlayoffs: 0.6, pTitle: 0.1 }, fantasyCalc: FC, details: true });
     const words = [...c4.odds.map((o) => `${o.label} ${o.value} ${o.srValue}`), c4.weekly?.text ?? "", ...(c4.details?.items ?? []), c4.details?.intro ?? "", ...c4.facts.map((f) => f.value), ...c4.flags.map((f) => f.text)].join(" ");
     for (const jargon of [" EV ", "σ", "V*", "g_mkt", "B_win", "κ", "kappa", "NaN", "undefined", "Infinity"]) expect(words).not.toContain(jargon);
+  });
+});
+
+describe("the Helps you scale in the feedback's version inputs (Phase 7a, track FB; track SC's crossTrack)", () => {
+  it("reads back every reason benefit.helpsScaleNotes writes, among other notes", () => {
+    const scales: Array<Pick<HelpsScale, "reason" | "oddsNamed" | "lambda" | "gainReads">> = [
+      { reason: "odds", oddsNamed: "title", lambda: null, gainReads: 63 },
+      { reason: "odds", oddsNamed: "playoff", lambda: 0.5, gainReads: 40 },
+      { reason: "lambda", oddsNamed: "title", lambda: 0.95, gainReads: 33 },
+      { reason: "lambda", oddsNamed: "playoff", lambda: 1, gainReads: 0 },
+      { reason: null, oddsNamed: "title", lambda: null, gainReads: 63 },
+    ];
+    for (const scale of scales) {
+      const notes = ["Kickers and D/STs are left out; turn them on in Settings.", ...helpsScaleNotes(scale)];
+      expect(helpsReasonOf(notes), JSON.stringify(scale)).toBe(scale.reason);
+    }
+    expect([HELPS_FLOOR_NOTE, HELPS_FLOOR_NOTE_PLAYOFFS].map((n) => helpsReasonOf([n]))).toEqual(["odds", "odds"]);
+    expect(helpsReasonOf(undefined)).toBeNull();
+    expect(helpsReasonOf([])).toBeNull();
+  });
+
+  it("every version of a card carries the card's B₃ and its scale's reason (steps and Plan B are scored on the card's B₃)", () => {
+    const planB = { proposal: { partnerId: "2", give: [{ kind: "player" as const, id: "106" }], get: [{ kind: "player" as const, id: "203" }] }, key: "2|give:106|get:203", b: 2, tradeScore: 98, pAccept: 0.5, pComplete: 0.45, acceptLabel: "Decent", overall: 86, kind: "otherTarget" as const };
+    const floored = evaluation({ b3: 0.5, planB, detail: { notes: [HELPS_FLOOR_NOTE] } });
+    expect(versionChoices(floored, snapshot, "title").map((v) => [v.version, v.inputs?.b3, v.inputs?.helpsReason])).toEqual([
+      ["full", 0.5, "odds"],
+      ["planB", 0.5, "odds"],
+    ]);
+    const stepped = steppedFull({ detail: { notes: helpsScaleNotes({ reason: "lambda", oddsNamed: "title", lambda: 0.95, gainReads: 33 }) } });
+    expect(versionChoices(stepped, snapshot).map((v) => [v.version, v.inputs?.b3, v.inputs?.helpsReason])).toEqual([
+      ["offerFirst", FIXTURE_B3, "lambda"],
+      ["full", FIXTURE_B3, "lambda"],
+    ]);
+    // An evaluation without B₃ (made before Phase 7a): unknown.
+    expect(versionChoices({ ...evaluation(), b3: null }, snapshot)[0]?.inputs).toMatchObject({ b3: null, helpsReason: null });
+  });
+
+  it("on the engine's own evaluation: a floored scale (my odds barely move) reads 'odds' with the floor's B₃", { timeout: 60_000 }, () => {
+    const { snapshot: league, inputs } = smallLeague(11);
+    const ctx = buildTradeContext(league, inputs, { now: TEST_NOW, scenarios: 0 });
+    const I = tradeInternals(ctx);
+    const sim = I.sim as SimState;
+    sim.calibration = { ...(sim.calibration as HelpsCalibration), dPO: 0.0004, dCH: 0.0002 };
+    const me = I.me as NonNullable<typeof I.me>;
+    const partner = I.byId.get("2") as NonNullable<ReturnType<typeof I.byId.get>>;
+    const x = evaluateExact(I, { partnerId: "2", give: [{ kind: "player", id: me.roster[0] as string }], get: [{ kind: "player", id: partner.roster[0] as string }] }, 4);
+    if ("illegal" in x) throw new Error(x.illegal);
+    const e = simulateTrade(I, x, "final", null);
+    expect(helpsReasonOf(e.detail.notes)).toBe("odds");
+    expect(versionChoices(e, league, "title")[0]?.inputs).toMatchObject({ b3: config.benefit.helpsFloor, helpsReason: "odds" });
   });
 });

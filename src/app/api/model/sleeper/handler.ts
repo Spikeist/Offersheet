@@ -11,15 +11,25 @@
  * username Sleeper doesn't know is only a warning, never an error). Errors of the import map
  * exactly as in the import route; a model source that fails is a warning inside `model.warnings`,
  * never an error response (only a bug in the builder is: a generic INTERNAL, logged by error name).
+ *
+ * Part B (planner reply to Checkpoint 4c, B1: browser fetching; track BF): the League page sends the import it saved
+ * instead, with the server's signature (a gzip SignedModelBody, src/lib/api.ts; src/app/api/_lib/upload.ts reads it).
+ * When the signature checks out (src/server/importToken.ts) and names this league, the numbers are built from it without
+ * reading the league again ({ model, signedImport: true }); otherwise the league is read again as above, and the answer
+ * carries the new, signed import. A gzip body that can't be read at all answers BAD_UPLOAD.
  * A factory with injected dependencies, tested without the network.
  */
 import type { ImportDeps, ImportResult, SleeperImportRequest } from "@/adapters/types";
 import type { ModelInputs } from "@/engine/inputs";
-import type { ImportResponse, ModelResponse } from "@/lib/api";
+import type { LeagueSnapshot, Platform } from "@/engine/model";
+import type { ImportResponse, ModelResponse, SignedModelResponse } from "@/lib/api";
 import { isPlausibleSeason, seasonRangeMessage } from "@/lib/season";
+import { importSignatureProblem, signImport, type ImportSignature, type SignedContent } from "@/server/importToken";
 import type { BuildModelInputsArgs } from "@/server/modelInputs";
-import { dataSourceStamps, errorResponse, importErrorResponse, isSameOrigin, jsonResponse, logUnexpected, readJsonBody } from "../../_lib/respond";
+import { errorResponse, importErrorResponse, isSameOrigin, jsonResponse, logUnexpected, readJsonBody } from "../../_lib/respond";
 import { sleeperModelBodySchema } from "../../_lib/schemas";
+import { isGzipRequest, readSignedModelUpload } from "../../_lib/upload";
+import { sleeperImportResponse } from "../../import/sleeper/handler";
 
 export interface SleeperModelHandlerDeps {
   /** importSleeperLeague. */
@@ -27,38 +37,74 @@ export interface SleeperModelHandlerDeps {
   /** buildModelInputs (src/server/modelInputs.ts). */
   buildInputs: (args: BuildModelInputsArgs) => Promise<ModelInputs>;
   getDeps: () => Promise<ImportDeps>;
+  /** src/server/importToken.ts signImport and importSignatureProblem (test hooks). */
+  sign?: (platform: Platform, content: SignedContent) => ImportSignature | undefined;
+  verify?: (platform: Platform, content: SignedContent, signature: ImportSignature) => string | null;
   now?: () => Date;
 }
 
 export function createSleeperModelHandler(d: SleeperModelHandlerDeps): (request: Request) => Promise<Response> {
+  const sign = d.sign ?? ((platform: Platform, content: SignedContent) => signImport(platform, content));
+  const verify = d.verify ?? ((platform: Platform, content: SignedContent, signature: ImportSignature) => importSignatureProblem(platform, content, signature));
+
+  /** The model inputs for a snapshot; a builder that throws is a bug on our side (INTERNAL, logged by name). */
+  async function build(snapshot: LeagueSnapshot, deps: ImportDeps): Promise<ModelInputs | Response> {
+    try {
+      return await d.buildInputs({ snapshot, http: deps.http, resolver: deps.resolver, now: deps.now });
+    } catch (err) {
+      logUnexpected("model_inputs", err, "sleeper");
+      return errorResponse("INTERNAL");
+    }
+  }
+
+  /** The league read again (the header's first paragraph), its import signed. */
+  async function reimport(req: SleeperImportRequest): Promise<Response> {
+    let imported: ImportResponse;
+    let deps: ImportDeps;
+    try {
+      deps = await d.getDeps();
+      // Exactly what POST /api/import/sleeper answers (src/app/api/import/sleeper/handler.ts).
+      imported = sleeperImportResponse(await d.importLeague(req, deps), deps, "server", sign);
+    } catch (err) {
+      return importErrorResponse(err, { platform: "sleeper", season: req.season });
+    }
+    // The builder turns every source failure into a warning; if it throws anyway, that's a bug on our side.
+    const model = await build(imported.snapshot, deps);
+    if (model instanceof Response) return model;
+    const response: ModelResponse = { import: imported, model };
+    return jsonResponse(response);
+  }
+
+  /** A saved import with its signature (the header's Part B paragraph). */
+  async function fromSignedImport(request: Request): Promise<Response> {
+    const read = await readSignedModelUpload(request, "sleeper");
+    if (!read.ok) return errorResponse("BAD_UPLOAD");
+    const body = read.value;
+    const now = d.now?.() ?? new Date();
+    if (!isPlausibleSeason(body.season, now)) return errorResponse("INVALID_REQUEST", seasonRangeMessage(now));
+    const snapshot = body.import.snapshot;
+    const ours = snapshot.platform === "sleeper" && snapshot.leagueId === body.leagueId && snapshot.season === body.season && verify("sleeper", body.import, body.signed) === null;
+    if (!ours) return reimport({ season: body.season, leagueId: body.leagueId, ...(body.username ? { username: body.username } : {}) });
+    let deps: ImportDeps;
+    try {
+      deps = await d.getDeps();
+    } catch (err) {
+      return importErrorResponse(err, { platform: "sleeper", season: body.season });
+    }
+    const model = await build(snapshot as unknown as LeagueSnapshot, deps);
+    if (model instanceof Response) return model;
+    const response: SignedModelResponse = { model, signedImport: true };
+    return jsonResponse(response);
+  }
+
   return async function POST(request: Request): Promise<Response> {
     if (!isSameOrigin(request)) return errorResponse("BAD_ORIGIN");
+    if (isGzipRequest(request)) return fromSignedImport(request);
     const body = await readJsonBody(request, sleeperModelBodySchema);
     if (!body.ok) return errorResponse("INVALID_REQUEST", body.message);
     const { season, leagueId, username, refresh } = body.data;
     const now = d.now?.() ?? new Date();
     if (!isPlausibleSeason(season, now)) return errorResponse("INVALID_REQUEST", seasonRangeMessage(now));
-
-    const req: SleeperImportRequest = { season, leagueId, ...(username ? { username } : {}), ...(refresh ? { refresh: true } : {}) };
-    let imported: ImportResponse;
-    let deps: ImportDeps;
-    try {
-      deps = await d.getDeps();
-      const result = await d.importLeague(req, deps);
-      // Exactly what POST /api/import/sleeper answers (src/app/api/import/sleeper/handler.ts).
-      imported = { ...result, dataSources: dataSourceStamps(deps.resolver) };
-    } catch (err) {
-      return importErrorResponse(err, { platform: "sleeper", season });
-    }
-    // The builder turns every source failure into a warning; if it throws anyway, that's a bug on our side.
-    let model: ModelInputs;
-    try {
-      model = await d.buildInputs({ snapshot: imported.snapshot, http: deps.http, resolver: deps.resolver, now: deps.now });
-    } catch (err) {
-      logUnexpected("model_inputs", err, "sleeper");
-      return errorResponse("INTERNAL");
-    }
-    const response: ModelResponse = { import: imported, model };
-    return jsonResponse(response);
+    return reimport({ season, leagueId, ...(username ? { username } : {}), ...(refresh ? { refresh: true } : {}) });
   };
 }

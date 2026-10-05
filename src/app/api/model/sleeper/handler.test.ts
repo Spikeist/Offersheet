@@ -2,8 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 import { LeagueImportError, type ImportResult, type SleeperImportRequest } from "@/adapters/types";
 import type { ModelInputs } from "@/engine/inputs";
 import { isModelResponse, type ModelResponse } from "@/lib/api";
+import { importSignatureProblem, signImport } from "@/server/importToken";
 import type { BuildModelInputsArgs } from "@/server/modelInputs";
-import { fakeDeps, fakeResult, jsonRequest } from "../../_lib/testFakes";
+import { fakeDeps, fakeResult, gzipRequest, jsonRequest } from "../../_lib/testFakes";
 import { createSleeperImportHandler } from "../../import/sleeper/handler";
 import { createSleeperModelHandler } from "./handler";
 
@@ -48,9 +49,24 @@ function setup(opts: { importLeague?: (req: SleeperImportRequest) => Promise<Imp
       return (opts.buildInputs ?? (async () => fakeModel()))(args);
     },
     getDeps: async () => deps,
+    sign: () => undefined,
     now: NOW,
   });
   return { handler, calls, built, deps };
+}
+
+/** The import route's handler as these tests compare with it (unsigned, no browser uploads). */
+function importHandlerWith(importLeague: (req: SleeperImportRequest) => Promise<ImportResult>) {
+  return createSleeperImportHandler({
+    importLeague,
+    importUpload: async () => {
+      throw new Error("no upload in these tests");
+    },
+    getDeps: async () => fakeDeps(),
+    choicesOf: () => undefined,
+    sign: () => undefined,
+    now: NOW,
+  });
 }
 
 async function errorOf(res: Response): Promise<{ code: string; message: string }> {
@@ -66,7 +82,7 @@ describe("POST /api/model/sleeper (CLAUDE.md §6, §9: the League page's model i
     expect(calls).toEqual([{ season: 2026, leagueId: LEAGUE }]);
     const body = (await res.json()) as ModelResponse;
     expect(isModelResponse(body)).toBe(true);
-    const importHandler = createSleeperImportHandler({ importLeague: async () => sleeperResult(), getDeps: async () => fakeDeps(), choicesOf: () => undefined, now: NOW });
+    const importHandler = importHandlerWith(async () => sleeperResult());
     expect(body.import).toEqual(await (await importHandler(jsonRequest(IMPORT_URL, { season: 2026, leagueId: LEAGUE }))).json());
     expect(body.model).toEqual(fakeModel());
     expect(built).toHaveLength(1);
@@ -94,14 +110,9 @@ describe("POST /api/model/sleeper (CLAUDE.md §6, §9: the League page's model i
   it("asks the adapter for the same league and user as POST /api/import/sleeper does, so the re-import finds the user's team", async () => {
     const { handler, calls } = setup();
     const importCalls: SleeperImportRequest[] = [];
-    const importHandler = createSleeperImportHandler({
-      importLeague: async (req) => {
-        importCalls.push(req);
-        return sleeperResult();
-      },
-      getDeps: async () => fakeDeps(),
-      choicesOf: () => undefined,
-      now: NOW,
+    const importHandler = importHandlerWith(async (req) => {
+      importCalls.push(req);
+      return sleeperResult();
     });
     for (const body of [{ season: 2026, leagueId: LEAGUE, username: "zorblax_q" }, { season: 2026, leagueId: LEAGUE, username: "zorblax_q", refresh: true }, { season: 2026, leagueId: LEAGUE }]) {
       await handler(jsonRequest(URL, body));
@@ -133,7 +144,7 @@ describe("POST /api/model/sleeper (CLAUDE.md §6, §9: the League page's model i
     expect(err.code).toBe(code);
     expect(err.message).toContain(message);
     expect(built).toHaveLength(0);
-    const viaImport = createSleeperImportHandler({ importLeague: fail, getDeps: async () => fakeDeps(), choicesOf: () => undefined, now: NOW });
+    const viaImport = importHandlerWith(fail);
     expect(err).toEqual(await errorOf(await viaImport(jsonRequest(IMPORT_URL, { season: 2026, leagueId: LEAGUE }))));
   });
 
@@ -186,5 +197,39 @@ describe("POST /api/model/sleeper (CLAUDE.md §6, §9: the League page's model i
     expect(foreign.status).toBe(403);
     expect((await errorOf(foreign)).code).toBe("BAD_ORIGIN");
     expect(calls).toHaveLength(0);
+  });
+});
+
+describe("POST /api/model/sleeper with the import the browser saved, signed (Part B, track BF)", () => {
+  const SIGN_ENV = { SESSION_SECRET: "model route tests: a made-up secret, never a real one" };
+
+  it("builds the numbers from a signed import without reading the league; another league's, or a changed one, is read again with the body's username", async () => {
+    const reads: SleeperImportRequest[] = [];
+    const built: BuildModelInputsArgs[] = [];
+    const handler = createSleeperModelHandler({
+      importLeague: async (req) => {
+        reads.push(req);
+        return sleeperResult();
+      },
+      buildInputs: async (args) => {
+        built.push(args);
+        return fakeModel();
+      },
+      getDeps: async () => fakeDeps(),
+      sign: (platform, content) => signImport(platform, content, NOW().getTime(), SIGN_ENV),
+      verify: (platform, content, signature) => importSignatureProblem(platform, content, signature, NOW().getTime(), SIGN_ENV),
+      now: NOW,
+    });
+    const snapshot = sleeperResult().snapshot;
+    const signed = signImport("sleeper", { snapshot, modelPart: {} }, NOW().getTime(), SIGN_ENV);
+    const body = (over: Record<string, unknown> = {}) => JSON.parse(JSON.stringify({ v: 1, leagueId: LEAGUE, season: 2026, username: "zorblax_q", import: { snapshot, modelPart: {} }, signed, ...over })) as unknown;
+    const res = await handler(gzipRequest(URL, body()));
+    expect(await res.json()).toEqual({ model: fakeModel(), signedImport: true });
+    expect(reads).toHaveLength(0);
+    expect(built[0]?.snapshot).toEqual(snapshot);
+    const again = (await (await handler(gzipRequest(URL, body({ import: { snapshot: { ...snapshot, name: "Changed" }, modelPart: {} } })))).json()) as ModelResponse;
+    expect(isModelResponse(again)).toBe(true);
+    expect(again.import).toMatchObject({ readBy: "server", modelPart: {}, signed: { issuedAt: NOW().getTime() } });
+    expect(reads).toEqual([{ season: 2026, leagueId: LEAGUE, username: "zorblax_q" }]);
   });
 });

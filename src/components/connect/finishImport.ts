@@ -10,10 +10,12 @@
  * importAgain imports a league once more from its request summary (the "Import again" of a league saved by an earlier
  * version of Offer Sheet: NoImportCard), the way the Connect page does: ESPN by league id and season (the session's
  * ESPN cookies, if any, go along, as on the Connect page), Sleeper by league id, with the username it was imported with
- * so the user's team is found again.
+ * so the user's team is found again. Part B (track BF): read by this browser where it can (src/lib/leagueFetch.ts
+ * importLeague; a private ESPN league is then asked of the server too, which holds the session's cookies, if any).
  */
-import { callApi, isApiError, isChooseLeague, type EspnImportBody, type ImportResponse, type SleeperChooseLeagueResponse, type SleeperImportBody } from "@/lib/api";
+import { isApiError, isChooseLeague, type EspnImportBody, type ImportResponse, type SleeperImportBody } from "@/lib/api";
 import type { ImportRequestSummary } from "@/lib/importStore";
+import { importLeague } from "@/lib/leagueFetch";
 import { saveLeagueImport, type SaveImportResult } from "@/lib/leagueStore";
 import { normalizeSleeperUsername } from "@/lib/sleeperInput";
 
@@ -45,9 +47,9 @@ export function importAgainRequest(request: ImportRequestSummary): { url: string
 /** Imports a league again from its request summary and saves it (it becomes the league this tab shows). */
 export async function importAgain(request: ImportRequestSummary): Promise<SaveImportResult> {
   const req = importAgainRequest(request);
-  if (!req) return { ok: false, message: IMPORT_AGAIN_UNAVAILABLE };
-  const res = await callApi<ImportResponse | SleeperChooseLeagueResponse>(req.url, { method: "POST", body: req.body });
+  if (!req || (request.platform !== "espn" && request.platform !== "sleeper")) return { ok: false, message: IMPORT_AGAIN_UNAVAILABLE };
+  const res = await importLeague({ platform: request.platform, body: req.body });
   if (isApiError(res)) return { ok: false, message: res.error.message };
   if (isChooseLeague(res) || !("snapshot" in res)) return { ok: false, message: IMPORT_AGAIN_UNAVAILABLE };
-  return finishImport(request, res);
+  return finishImport(request, res satisfies ImportResponse);
 }

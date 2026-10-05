@@ -7,8 +7,9 @@ import { LeagueImportError, type EspnImportRequest } from "@/adapters/types";
 import type { ModelInputs } from "@/engine/inputs";
 import { isModelResponse, type ModelResponse } from "@/lib/api";
 import type { BuildModelInputsArgs } from "@/server/modelInputs";
+import { importSignatureProblem, signImport } from "@/server/importToken";
 import { espnCredentialsFor, saveEspnCredentials } from "@/server/session";
-import { fakeDeps, fakeResult, jsonRequest } from "../../_lib/testFakes";
+import { fakeDeps, fakeResult, gzipRequest, jsonRequest } from "../../_lib/testFakes";
 import { createEspnImportHandler } from "../../import/espn/handler";
 import { createEspnModelHandler } from "./handler";
 
@@ -63,14 +64,29 @@ function setup(opts: Setup = {}) {
     },
     getDeps: async () => deps,
     credentialsFor: (request, leagueId) => espnCredentialsFor(request, leagueId, env),
+    sign: () => undefined,
     now: NOW,
   });
   return { handler, calls, built, deps };
 }
 
+/** The import route's handler as these tests compare with it (unsigned, no browser uploads). */
+function importHandlerWith(importLeague: (req: EspnImportRequest) => Promise<EspnModelImport>, env: Record<string, string> = ENV) {
+  return createEspnImportHandler({
+    importLeague,
+    importUpload: async () => {
+      throw new Error("no upload in these tests");
+    },
+    getDeps: async () => fakeDeps(),
+    credentialsFor: (r, id) => espnCredentialsFor(r, id, env),
+    sign: () => undefined,
+    now: NOW,
+  });
+}
+
 /** POST /api/import/espn's own answer for the same league, adapter result and session. */
 async function importRouteAnswer(body: unknown, headers: Record<string, string> = {}, env: Record<string, string> = ENV): Promise<unknown> {
-  const importHandler = createEspnImportHandler({ importLeague: async () => fakeResult(), getDeps: async () => fakeDeps(), credentialsFor: (r, id) => espnCredentialsFor(r, id, env), now: NOW });
+  const importHandler = importHandlerWith(async () => ({ result: fakeResult(), espn: ESPN }), env);
   return (await importHandler(jsonRequest(IMPORT_URL, body, headers))).json();
 }
 
@@ -164,7 +180,8 @@ describe("POST /api/model/espn (CLAUDE.md §6, §9: the League page's model inpu
     expect(text.toLowerCase()).not.toContain(bare.toLowerCase());
     expect(text).toContain("League of {SWID}");
     expect(text).toContain("owner {SWID}");
-    expect(errors).toHaveBeenCalledTimes(1);
+    // Logged once for the import (scrubbed before it's signed, as the import route does) and once for the model inputs.
+    expect(errors).toHaveBeenCalledTimes(2);
   });
 
   it("replaces SWID-shaped values that slip into the model inputs, without cookies too", async () => {
@@ -194,7 +211,7 @@ describe("POST /api/model/espn (CLAUDE.md §6, §9: the League page's model inpu
     expect(err.message).toContain(message);
     expect(err.message).not.toContain("internal detail");
     expect(built).toHaveLength(0);
-    const viaImport = createEspnImportHandler({ importLeague: fail, getDeps: async () => fakeDeps(), credentialsFor: (r, id) => espnCredentialsFor(r, id, ENV), now: NOW });
+    const viaImport = importHandlerWith(fail);
     expect(err).toEqual(await errorOf(await viaImport(jsonRequest(IMPORT_URL, { leagueId: "4242", season: 2026 }))));
   });
 
@@ -254,5 +271,69 @@ describe("POST /api/model/espn (CLAUDE.md §6, §9: the League page's model inpu
     const asText = new Request(URL, { method: "POST", headers: { "content-type": "text/plain", host: "localhost:3000" }, body: JSON.stringify({ leagueId: "4242", season: 2026 }) });
     expect((await handler(asText)).status).toBe(400);
     expect(calls).toHaveLength(0);
+  });
+});
+
+describe("POST /api/model/espn with the import the browser saved, signed (Part B, track BF)", () => {
+  const SIGN_ENV = { SESSION_SECRET: "model route tests: a made-up secret, never a real one" };
+  const issued = NOW().getTime() - 60_000;
+  const snapshot = fakeResult().snapshot;
+
+  function signedSetup() {
+    const reads: EspnImportRequest[] = [];
+    const built: BuildModelInputsArgs[] = [];
+    const deps = fakeDeps();
+    const handler = createEspnModelHandler({
+      importLeague: async (req) => {
+        reads.push(req);
+        return { result: fakeResult({ name: "Read again" }), espn: ESPN };
+      },
+      buildInputs: async (args) => {
+        built.push(args);
+        return fakeModel();
+      },
+      getDeps: async () => deps,
+      credentialsFor: (request, leagueId) => espnCredentialsFor(request, leagueId, ENV),
+      sign: (platform, content) => signImport(platform, content, NOW().getTime(), SIGN_ENV),
+      verify: (platform, content, signature) => importSignatureProblem(platform, content, signature, NOW().getTime(), SIGN_ENV),
+      now: NOW,
+    });
+    return { handler, reads, built, deps };
+  }
+
+  /** The body the League page sends: the saved import (as JSON would carry it) with the server's signature. */
+  function body(over: { snapshot?: unknown; modelPart?: unknown; leagueId?: string } = {}) {
+    const imported = { snapshot: over.snapshot ?? snapshot, modelPart: over.modelPart ?? { espn: ESPN } };
+    const signed = signImport("espn", { snapshot, modelPart: { espn: ESPN } }, issued, SIGN_ENV);
+    return JSON.parse(JSON.stringify({ v: 1, leagueId: over.leagueId ?? "4242", season: 2026, import: imported, signed })) as unknown;
+  }
+
+  it("builds the numbers from it without reading the league again, and doesn't send the import back", async () => {
+    const { handler, reads, built, deps } = signedSetup();
+    const res = await handler(gzipRequest(URL, body()));
+    expect(res.status).toBe(200);
+    expect(reads).toHaveLength(0);
+    expect(await res.json()).toEqual({ model: fakeModel(), signedImport: true });
+    expect(built).toHaveLength(1);
+    expect(built[0]?.snapshot).toEqual(snapshot);
+    expect(built[0]?.espn).toEqual(ESPN);
+    expect(built[0]?.http).toBe(deps.http);
+  });
+
+  it("reads the league itself when the signature doesn't check out, for the body's league, and answers the new import, signed", async () => {
+    const { handler, reads } = signedSetup();
+    for (const b of [body({ snapshot: { ...snapshot, name: "Changed in the browser" } }), body({ modelPart: { espn: {} } }), body({ leagueId: "5151" })]) {
+      const res = await handler(gzipRequest(URL, b));
+      expect(res.status).toBe(200);
+      const answer = (await res.json()) as ModelResponse;
+      expect(isModelResponse(answer)).toBe(true);
+      expect(answer.import).toMatchObject({ snapshot: { name: "Read again" }, readBy: "server", modelPart: { espn: ESPN }, signed: { issuedAt: NOW().getTime() } });
+    }
+    expect(reads.map((r) => r.leagueId)).toEqual(["4242", "4242", "5151"]);
+    // A body it can't read at all: BAD_UPLOAD (the browser then sends the JSON body).
+    const bad = await handler(gzipRequest(URL, { v: 1, leagueId: "4242", season: 2026 }));
+    expect(bad.status).toBe(400);
+    expect((await errorOf(bad)).code).toBe("BAD_UPLOAD");
+    expect(reads).toHaveLength(3);
   });
 });

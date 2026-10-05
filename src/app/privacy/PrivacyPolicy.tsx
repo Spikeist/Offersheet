@@ -71,10 +71,14 @@ export function countedKinds(features: PolicyFeatures): Array<"import" | "model"
  *     refused clients) a count whose window ended is swept while the instance handles requests (review PG-6).
  *   - Anonymous feedback (fact 4; track FB, with anonymousFeedback): the event is built in the browser from the local
  *     record (src/lib/feedbackShare.ts) with only the fields listed on the page (zod-strict on the server,
- *     src/app/api/feedback); src/server/feedbackSink.ts adds the UTC day it arrived, keeps the newest
- *     feedbackLimits.maxPerMonth per month and deletes each month's list feedbackLimits.retainDays after its last entry;
- *     "Share anonymous feedback" in Settings (on by default, stored per browser), the one-time note on the first press.
- *     Notes never leave the browser. Without it (today): nothing about feedback reaches the server.
+ *     src/app/api/feedback; the version's players only when they aren't the card's, review FB-R7); src/server/feedbackSink.ts
+ *     adds the UTC day it arrived, keeps the newest feedbackLimits.maxPerMonth per month and deletes each month's list
+ *     feedbackLimits.retainDays after its last entry (one transaction sets the expiry with every copy, review FB-R5);
+ *     scripts/feedback-pull.ts deletes its downloaded copies by the same rule on every run (review FB-R2: "on the same
+ *     schedule"); "Share anonymous feedback" in Settings (on by default, stored per browser), the one-time note until the
+ *     first copy leaves. Notes never leave the browser. Only the browser keeps a record's random code (and the export
+ *     carries it: review FB-R3), so the server can't tell whose copies are whose; Delete saved feedback recalls nothing
+ *     sent. Without it (today): nothing about feedback reaches the server.
  *   - Logs (fact 5; track RL): src/server/log.ts's allowlist (route, event, code, platform, status, errorName, ms), kept
  *     in Redis on Vercel only, each day's list deleted logLimits.retainDays (14) after the day began; Vercel's own
  *     runtime logs are kept 1 hour on the Hobby plan (vercel.com/docs/logs/runtime, 2026-08-28).
@@ -97,8 +101,9 @@ export function countedKinds(features: PolicyFeatures): Array<"import" | "model"
  *     a trade was opened from); never prefetched (prefetch={false}).
  *   - src/lib/feedbackStore.ts: the local feedback records (the newest 500 per league; the trade's player, pick and
  *     partner team IDs, Offer Sheet's numbers and features, which version was sent with its key, estimate and model
- *     inputs, when each button was pressed, the typed note). "Export feedback" numbers the leagues; "Delete saved
- *     feedback" removes it all.
+ *     inputs, when each button was pressed, the typed note; with anonymousFeedback also the share id and the season, week
+ *     and goal of the numbers, FeedbackRecord.basis and VersionInputs.week). "Export feedback" numbers the leagues and keeps
+ *     the share id; "Delete saved feedback" removes it all.
  *   - src/server/modelInputs.ts: the server scores every player's projections and stats with the league's scoring rules
  *     and joins FantasyCalc values. The FantasyCalc request carries only the league's format (src/engine/market.ts
  *     fantasyCalcFormat); Sleeper's projection and stats requests carry the season, week numbers and the positions the
@@ -177,8 +182,9 @@ export function PrivacyPolicy({ features }: { features: PolicyFeatures }) {
             </p>
             <p className="mt-2 text-sm leading-relaxed">
               Your browser then sends our server only the parts of the answers Offer Sheet reads (the league&apos;s settings, teams and owners&apos; names, rosters,
-              schedule and transactions, and for ESPN its free agents and projections), and our server turns them into the Import Report with public data it keeps
-              itself, such as player lists and projections. Our server uses what your browser sends for that one request: it never saves it.
+              schedule and transactions, for ESPN its free agents, projections and injured players&apos; expected return dates, and for Sleeper the username you
+              entered, which finds your team), and our server turns them into the Import Report with public data it keeps itself, such as player lists and
+              projections. Our server uses what your browser sends for that one request: it never saves it.
             </p>
             <p className="mt-2 text-sm leading-relaxed">
               If your browser can&apos;t reach ESPN or Sleeper (some ad blockers and work or school networks stop it), our server reads the league itself instead. It
@@ -302,7 +308,7 @@ export function PrivacyPolicy({ features }: { features: PolicyFeatures }) {
               tight-end premium, whether it starts a second quarterback, how many of each lineup slot it starts, and how many teams make the playoffs;
             </li>
             <li>your &ldquo;What matters most&rdquo; setting;</li>
-            <li>the players in the trade, as ID numbers with their positions;</li>
+            <li>the players in the trade, and in the version you sent when it differs, as ID numbers with their positions;</li>
             <li>
               Offer Sheet&apos;s numbers for the trade (Helps you, the chance they accept, Overall, and the figures behind them, such as the change in your playoff and
               title odds) and what its estimate of the chance they accept was worked out from;
@@ -316,8 +322,13 @@ export function PrivacyPolicy({ features }: { features: PolicyFeatures }) {
           </p>
           <p className="mt-2 text-sm leading-relaxed">
             We keep at most the newest {feedbackLimits.maxPerMonth.toLocaleString("en-US")} a month, at Upstash, and delete each month&apos;s feedback{" "}
-            {daysWords(feedbackLimits.retainDays)} after the last one that month. It isn&apos;t linked to you, so there&apos;s no way to pick out yours to delete it
-            sooner; turning sharing off stops new copies.
+            {daysWords(feedbackLimits.retainDays)} after the last one that month. Offer Sheet&apos;s developer downloads it from there to study it, and deletes the
+            downloaded copies on the same schedule.
+          </p>
+          <p className="mt-2 text-sm leading-relaxed">
+            Offer Sheet can&apos;t tell which copies are yours. The random code a record&apos;s copies carry stays only in your browser (and in any file you save with
+            &ldquo;Export feedback&rdquo;), so only someone with your browser or that file could match copies to you. Turning sharing off stops new copies; deleting
+            your saved feedback doesn&apos;t take back copies already sent.
           </p>
           <p className="mt-2 text-sm leading-relaxed">
             To stop sending it, turn off &ldquo;Share anonymous feedback&rdquo; on the{" "}
@@ -354,14 +365,19 @@ export function PrivacyPolicy({ features }: { features: PolicyFeatures }) {
             happened, it also keeps which version you sent (a card can show more than one): its players as ID numbers too, Offer Sheet&apos;s estimate for it, and the
             numbers that estimate and its score were worked out from, such as how much trade value and lineup the other team would gain and how much the trade helps
             you, along with your &ldquo;What matters most&rdquo; setting.
+            {anonymousFeedback
+              ? " It also keeps the week and season Offer Sheet's numbers were worked out for, your “What matters most” setting for the trade's own numbers, and the random code its anonymous copies carry (above)."
+              : null}
           </li>
           <li>
             &ldquo;Export feedback&rdquo; on the Settings page downloads your feedback as a file. In the file your leagues are only numbered (league-1, league-2), and your
             notes appear exactly as you typed them.
+            {anonymousFeedback ? " It includes each record's random code, which matches it to its anonymous copies." : null}
           </li>
           <li>
             &ldquo;Reset to defaults&rdquo; on the Settings page removes a league&apos;s settings, &ldquo;Delete saved feedback&rdquo; removes all of your feedback,
             removing a league removes both for that league, and clearing this site&apos;s data in your browser removes everything.
+            {anonymousFeedback ? " Anonymous copies already sent stay at Upstash for their year (above)." : null}
           </li>
           <li>
             If you used Offer Sheet before October 4, 2026, your settings and feedback were in this browser&apos;s local storage (&ldquo;offersheet:settings:v1&rdquo;
@@ -405,8 +421,8 @@ export function PrivacyPolicy({ features }: { features: PolicyFeatures }) {
           {browserReads ? (
             <>
               Sleeper leagues are public. If you enter a username, your browser asks Sleeper which leagues it&apos;s in, to find your leagues and your team (if your
-              browser can&apos;t reach Sleeper, our server asks instead and keeps that lookup for 10 minutes). Your browser saves the username with each league you import
-              with it, so it can find your team again.
+              browser can&apos;t reach Sleeper, our server asks instead and keeps that lookup for 10 minutes). Your browser sends the username to our server with the
+              league you import, only to find your team there, and saves it with each league you import with it, so it can find your team again.
             </>
           ) : (
             <>

@@ -4,7 +4,7 @@ vi.mock("server-only", () => ({}));
 
 import { LeagueImportError, type EspnImportRequest } from "@/adapters/types";
 import { espnCredentialsFor, saveEspnCredentials } from "@/server/session";
-import { fakeDeps, fakeResult, jsonRequest } from "../../_lib/testFakes";
+import { fakeDeps, fakeResult, gzipRequest, jsonRequest } from "../../_lib/testFakes";
 import { createEspnImportHandler } from "./handler";
 
 const URL = "http://localhost:3000/api/import/espn";
@@ -19,10 +19,14 @@ function setup(importLeague: (req: EspnImportRequest) => Promise<ReturnType<type
   const handler = createEspnImportHandler({
     importLeague: async (req) => {
       calls.push(req);
-      return importLeague(req);
+      return { result: await importLeague(req), espn: {} };
+    },
+    importUpload: async () => {
+      throw new Error("no upload in these tests (upload.test.ts covers them)");
     },
     getDeps: async () => fakeDeps(),
     credentialsFor: (request, leagueId) => espnCredentialsFor(request, leagueId, env),
+    sign: () => undefined,
     now: NOW,
   });
   return { handler, calls };
@@ -165,5 +169,108 @@ describe("POST /api/import/espn", () => {
     const foreign = await handler(jsonRequest(URL, { leagueId: "4242", season: 2026 }, { origin: "https://evil.example" }));
     expect(foreign.status).toBe(403);
     expect(calls).toHaveLength(0);
+  });
+});
+
+describe("POST /api/import/espn with a league the browser read (Part B, track BF)", () => {
+  const T = Date.UTC(2026, 8, 29, 23);
+  const upload = (over: Record<string, unknown> = {}) => ({
+    v: 1,
+    platform: "espn",
+    request: { leagueId: "4242", season: 2026 },
+    sentAt: T,
+    parts: [{ url: "https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/2026/segments/0/leagues/4242?view=mSettings", status: 200, json: { members: [{ id: CREDS.swid }] }, at: T }],
+    ...over,
+  });
+  const SIGNED = { issuedAt: T, token: "made-up-token" };
+
+  function uploadSetup(env: Record<string, string> = ENV) {
+    const uploads: unknown[] = [];
+    const reads: EspnImportRequest[] = [];
+    const handler = createEspnImportHandler({
+      importLeague: async (req) => {
+        reads.push(req);
+        return { result: fakeResult({ name: "Read by the server" }), espn: {} };
+      },
+      importUpload: async (u) => {
+        uploads.push(u);
+        return { result: fakeResult(), espn: { "4046": { 4: 17.9 } } };
+      },
+      getDeps: async () => fakeDeps(),
+      credentialsFor: (request, leagueId) => espnCredentialsFor(request, leagueId, env),
+      sign: (platform, content) => (platform === "espn" && content.snapshot ? SIGNED : undefined),
+      now: NOW,
+    });
+    return { handler, uploads, reads };
+  }
+
+  it("imports it by replaying the upload (its SWIDs pseudonymized first), says the browser read it, and signs the import with its model part", async () => {
+    const { handler, uploads, reads } = uploadSetup();
+    const res = await handler(gzipRequest(URL, upload()));
+    expect(res.status).toBe(200);
+    expect(reads).toHaveLength(0);
+    expect(uploads).toHaveLength(1);
+    expect(JSON.stringify(uploads[0])).not.toContain(CREDS.swid.slice(1, -1));
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body).toMatchObject({ snapshot: { name: "The Gloopdorf Invitational" }, usedEspnCookies: false, readBy: "browser", modelPart: { espn: { "4046": { 4: 17.9 } } }, signed: SIGNED });
+  });
+
+  it("reads the league itself while ESPN cookies are connected, whatever the browser sent", async () => {
+    const saved = new Headers();
+    await saveEspnCredentials(new Request(URL), saved, CREDS, ENV);
+    const cookie = (saved.getSetCookie()[0] ?? "").split(";")[0] ?? "";
+    const { handler, uploads, reads } = uploadSetup();
+    const res = await handler(gzipRequest(URL, upload(), { cookie }));
+    expect(uploads).toHaveLength(0);
+    expect(reads).toEqual([{ leagueId: "4242", season: 2026, credentials: CREDS }]);
+    expect(await res.json()).toMatchObject({ snapshot: { name: "Read by the server" }, usedEspnCookies: true, espnCookieSource: "session", readBy: "server" });
+  });
+
+  it("answers BAD_UPLOAD to a body it can't use (the browser then asks with JSON), and maps the replay's errors like any import's", async () => {
+    const { handler, uploads } = uploadSetup();
+    for (const bad of [upload({ v: 2 }), upload({ extra: true }), upload({ parts: [{ url: "https://evil.example/", status: 200, at: T }] }), "not json"]) {
+      const res = await handler(gzipRequest(URL, bad));
+      expect(res.status).toBe(400);
+      expect(await errorOf(res)).toEqual({ code: "BAD_UPLOAD", message: "Offer Sheet couldn't use the league data your browser read. Try again in a moment." });
+    }
+    expect(uploads).toHaveLength(0);
+    expect((await errorOf(await handler(gzipRequest(URL, upload({ request: { leagueId: "4242", season: 2030 } }))))).message).toBe("Pick a season from 2018 to 2026.");
+    const failing = createEspnImportHandler({
+      importLeague: async () => ({ result: fakeResult(), espn: {} }),
+      importUpload: async () => {
+        throw new LeagueImportError("PRIVATE_LEAGUE", "private", { platform: "espn", status: 401 });
+      },
+      getDeps: async () => fakeDeps(),
+      credentialsFor: (request, leagueId) => espnCredentialsFor(request, leagueId, ENV),
+      sign: () => undefined,
+      now: NOW,
+    });
+    const res = await failing(gzipRequest(URL, upload()));
+    expect(res.status).toBe(403);
+    expect((await errorOf(res)).code).toBe("PRIVATE_LEAGUE");
+    const foreign = await handler(gzipRequest(URL, upload(), { origin: "https://evil.example" }));
+    expect(foreign.status).toBe(403);
+  });
+
+  it("doesn't sign an import whose model build would cost more than any real league's: BAD_UPLOAD, and the browser asks the server (review BF-R1)", async () => {
+    const rule = { kind: "stepped", stat: "pass_yd", every: 5, points: 0.2 } as const;
+    const heavy = fakeResult({
+      teams: [{ id: "1", roster: Array.from({ length: 1_000 }, (_, i) => String(i)), ir: [], taxi: [] }] as never,
+      freeAgents: [],
+      settings: { scoring: { perStat: {}, rules: Array.from({ length: 50 }, () => rule), unmapped: [] } } as never,
+    });
+    const signed: unknown[] = [];
+    const handler = createEspnImportHandler({
+      importLeague: async () => ({ result: fakeResult(), espn: {} }),
+      importUpload: async () => ({ result: heavy, espn: {} }),
+      getDeps: async () => fakeDeps(),
+      credentialsFor: (request, leagueId) => espnCredentialsFor(request, leagueId, ENV),
+      sign: (_platform, content) => (signed.push(content), SIGNED),
+      now: NOW,
+    });
+    const res = await handler(gzipRequest(URL, upload()));
+    expect(res.status).toBe(400);
+    expect((await errorOf(res)).code).toBe("BAD_UPLOAD");
+    expect(signed).toHaveLength(0);
   });
 });

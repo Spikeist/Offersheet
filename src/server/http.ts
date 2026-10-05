@@ -78,12 +78,19 @@
  *   (src/app/api/_lib/respond.ts). A joiner of a fetch its starter's share refused asks itself. Without Redis the check is
  *   synchronous, so local timing is as before.
  */
+import { responseOf, retryAfterMs } from "@/adapters/httpShared";
 import type { HttpClient, HttpRequestOptions, HttpResponse } from "@/adapters/types";
 import { BudgetExhaustedError, budgetPlatformOf, isBudgetExhaustedError, outboundBudget, type OutboundBudget } from "./budget";
 import type { Cache, CacheEntry, CacheLock } from "./cache";
 import { LATE, nextArrival, noteCut, requestScope, timeLeftMs, withinDeadline } from "./deadline";
 import { deadlines } from "./limits";
 import { errorNameOf, logEvent } from "./log";
+
+/**
+ * The parse helpers live in src/adapters/httpShared.ts (track BF: the browser's own client reads answers the same way);
+ * these two stay importable from here, as before.
+ */
+export { quoteBigInts, retryAfterMs } from "@/adapters/httpShared";
 
 export const USER_AGENT = "OfferSheet/0.1 (non-commercial fantasy trade helper; read-only)";
 
@@ -133,86 +140,6 @@ function bucketFor(host: string): string {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
-}
-
-function looksLikeHtml(contentType: string, text: string): boolean {
-  if (/text\/html|application\/xhtml\+xml/i.test(contentType)) return true;
-  const head = text.slice(0, 1024).trimStart();
-  if (head.startsWith("{") || head.startsWith("[")) return false;
-  return /<(!doctype\s+html|html[\s>])/i.test(head);
-}
-
-/** Retry-After in ms (delta-seconds or an HTTP date), or undefined. */
-export function retryAfterMs(value: string | null | undefined, now: number): number | undefined {
-  if (!value) return undefined;
-  const seconds = Number(value);
-  if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000);
-  const at = Date.parse(value);
-  return Number.isFinite(at) ? Math.max(0, at - now) : undefined;
-}
-
-function isDigit(code: number): boolean {
-  return code >= 48 && code <= 57;
-}
-
-/** Quote bare integers of 16+ digits (outside strings) so JSON.parse keeps every digit. */
-export function quoteBigInts(text: string, minDigits = 16): string {
-  let out = "";
-  let last = 0;
-  let inString = false;
-  for (let i = 0; i < text.length; ) {
-    const c = text.charCodeAt(i);
-    if (inString) {
-      if (c === 92) i += 2;
-      else {
-        if (c === 34) inString = false;
-        i++;
-      }
-      continue;
-    }
-    if (c === 34) {
-      inString = true;
-      i++;
-      continue;
-    }
-    if (c === 45 || isDigit(c)) {
-      const start = i;
-      let j = c === 45 ? i + 1 : i;
-      const intStart = j;
-      while (j < text.length && isDigit(text.charCodeAt(j))) j++;
-      const intDigits = j - intStart;
-      let integer = true;
-      if (text[j] === ".") {
-        integer = false;
-        j++;
-        while (j < text.length && isDigit(text.charCodeAt(j))) j++;
-      }
-      if (text[j] === "e" || text[j] === "E") {
-        integer = false;
-        j++;
-        if (text[j] === "+" || text[j] === "-") j++;
-        while (j < text.length && isDigit(text.charCodeAt(j))) j++;
-      }
-      if (integer && intDigits >= minDigits) {
-        out += `${text.slice(last, start)}"${text.slice(start, j)}"`;
-        last = j;
-      }
-      i = Math.max(j, i + 1);
-      continue;
-    }
-    i++;
-  }
-  return last === 0 ? text : out + text.slice(last);
-}
-
-function parseJson(text: string, bigInts: boolean): unknown {
-  const t = text.trimStart();
-  if (!(t.startsWith("{") || t.startsWith("[") || t === "null")) return undefined;
-  try {
-    return JSON.parse(bigInts ? quoteBigInts(text) : text);
-  } catch {
-    return undefined;
-  }
 }
 
 /** What the cache holds under a key (see the header: a change here bumps CACHE_FORMAT). */
@@ -486,15 +413,7 @@ export function createHttpClient(options: HttpClientOptions = {}): HttpClient {
     }
   }
 
-  const toResponse = (c: Cached, fromCache: boolean, bigInts: boolean, fetchedAt: number | undefined): HttpResponse => ({
-    status: c.status,
-    ok: c.status >= 200 && c.status < 300,
-    isHtml: looksLikeHtml(c.contentType, c.text),
-    json: parseJson(c.text, bigInts),
-    text: c.text,
-    fromCache,
-    ...(fetchedAt !== undefined ? { fetchedAt } : {}),
-  });
+  const toResponse = (c: Cached, fromCache: boolean, bigInts: boolean, fetchedAt: number | undefined): HttpResponse => responseOf(c, { fromCache, bigInts, fetchedAt });
   const fromEntry = (e: CacheEntry<Cached>, bigInts: boolean) => toResponse(e.value, true, bigInts, e.value.fetchedAt ?? e.storedAt);
 
   async function readCache(key: string, maxAgeMs: number): Promise<CacheEntry<Cached> | undefined> {

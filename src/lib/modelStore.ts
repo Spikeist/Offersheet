@@ -13,6 +13,7 @@
  */
 import type { ModelInputs } from "@/engine/inputs";
 import type { LeagueSnapshot } from "@/engine/model";
+import { browserFetchLimits } from "@/server/limits";
 import type { EspnModelBody, ModelResponse, SleeperModelBody } from "./api";
 import type { StoredImport } from "./importStore";
 import { normalizeSleeperUsername } from "./sleeperInput";
@@ -95,6 +96,73 @@ export function modelRequest(stored: Pick<StoredImport, "request" | "response">,
 }
 
 /**
+ * How the League page gets a saved import's model inputs (Part B, track BF; src/lib/leagueFetch.ts loadModelInputs), or
+ * null for a platform without a model route:
+ * - "signed": the saved import goes back with its signature (the server builds the numbers without reading the league):
+ *   its league data is under browserFetchLimits.reimportAfterMs (10 minutes) old and it carries a signature under
+ *   tokenMaxAgeMs old (by this browser's clock: the server checks again), and no Refresh asks for newer data.
+ * - "reimport": the league is read again first (the browser path where it applies, else the server's), then sent with
+ *   the new signature: data older than that, or a Refresh (at most once a minute: refreshEveryMs, as the server's own
+ *   copies), for a league the browser may read (Sleeper; ESPN read without cookies), with browser reading on.
+ * - "server": today's request, the server reads the league itself (`refresh`: skip its copies over a minute old): an
+ *   import without a signature whose data is fresh (saved before signing, or signed by no one: the "re-import path"
+ *   the design keeps), an ESPN league read with cookies once it must be read again (a fresh, signed one goes back
+ *   signed like any other), and everything while browser reading is off (POLICY_FEATURES
+ *   .browserReads: then the browser sends only the league's ID and season, and a Sleeper username, as the privacy page
+ *   says without it).
+ * A time that can't be read counts as old. Ages are measured on one clock at a time (importDataAgeMs, review BF-R4), so a
+ * device clock set differently from the server's changes nothing.
+ */
+export type ModelPlan = { kind: "signed" } | { kind: "reimport"; refresh: boolean } | { kind: "server"; refresh: boolean };
+
+/**
+ * How long ago this browser saved the import (now − savedAt, both its own clock), or undefined when that can't be told
+ * (no readable savedAt, or the device clock moved back since).
+ */
+function sinceSavedMs(stored: Partial<Pick<StoredImport, "savedAt">>, now: number): number | undefined {
+  const savedAt = Date.parse(stored.savedAt ?? "");
+  return Number.isFinite(savedAt) && now >= savedAt ? now - savedAt : undefined;
+}
+
+/**
+ * How old a saved import's league data is now (ms), each part on one clock (review BF-R4: comparing this device's clock
+ * with the server's times read a device clock 30 s behind as "not fresh", and every import was read again): the data's
+ * age when the server answered (signed.issuedAt − snapshot.fetchedAt, both the server's clock) plus the time since this
+ * browser saved the answer (now − savedAt, both this browser's clock; it saves an answer as it arrives). An import without
+ * a signature has no server time of answering: the older of now − savedAt and now − fetchedAt (the old reading, exact
+ * when the clocks agree). Without a readable savedAt (or with the device clock moved back since), now − fetchedAt as
+ * before; a time that can't be read at all is old (Infinity). Pure.
+ */
+export function importDataAgeMs(stored: Pick<StoredImport, "response"> & Partial<Pick<StoredImport, "savedAt">>, now: number): number {
+  const fetchedAt = Date.parse(stored.response.snapshot.fetchedAt);
+  const crossClock = Number.isFinite(fetchedAt) ? now - fetchedAt : Number.POSITIVE_INFINITY;
+  const sinceSaved = sinceSavedMs(stored, now);
+  if (sinceSaved === undefined) return crossClock;
+  const issuedAt = stored.response.signed?.issuedAt;
+  if (typeof issuedAt === "number" && Number.isFinite(issuedAt) && Number.isFinite(fetchedAt)) return sinceSaved + Math.max(0, issuedAt - fetchedAt);
+  return Math.max(sinceSaved, crossClock);
+}
+
+export function modelPlan(stored: Pick<StoredImport, "response"> & Partial<Pick<StoredImport, "savedAt">>, opts: { now: number; refresh: boolean; browserReads: boolean }): ModelPlan | null {
+  const response = stored.response;
+  const platform = response.snapshot.platform;
+  if (platform !== "espn" && platform !== "sleeper") return null;
+  const age = importDataAgeMs(stored, opts.now);
+  // Refresh asks for newer data at most once a minute (data under a minute old is already as new as Refresh gets).
+  const wantsNewer = opts.refresh && !(age >= 0 && age < browserFetchLimits.refreshEveryMs);
+  if (!opts.browserReads) return { kind: "server", refresh: wantsNewer };
+  const fresh = age >= 0 && age < browserFetchLimits.reimportAfterMs;
+  const signature = response.signed;
+  // The signature's age: since this browser saved it (the server signed it as it answered), else the server's time against
+  // this clock as before. The server checks again on its own clock (src/server/importToken.ts).
+  const tokenAge = sinceSavedMs(stored, opts.now) ?? (signature ? opts.now - signature.issuedAt : Number.POSITIVE_INFINITY);
+  const signed = signature !== undefined && Number.isFinite(signature.issuedAt) && tokenAge < browserFetchLimits.tokenMaxAgeMs;
+  if (fresh && !wantsNewer) return signed ? { kind: "signed" } : { kind: "server", refresh: false };
+  const browserReadable = platform === "sleeper" || !response.usedEspnCookies;
+  return browserReadable ? { kind: "reimport", refresh: wantsNewer } : { kind: "server", refresh: wantsNewer };
+}
+
+/**
  * The stored inputs when they were built for exactly this snapshot (same league, same fetchedAt) and
  * are still fresh: built less than `maxAgeMs` (default MODEL_REUSE_MAX_AGE_MS) before `now` (epoch
  * ms). Inputs without a readable build time count as old.
@@ -123,7 +191,10 @@ export function withImportedTeam(response: ModelResponse, stored: StoredImport):
   if (snap.myTeamId || !known || !snap.teams.some((t) => t.id === known)) return response;
   // (A reply is only shape-checked lightly, so a missing list is tolerated.)
   const warnings = (snap.warnings ?? []).filter((w) => !TEAM_LOOKUP_WARNINGS.has(w.code));
-  return { ...response, import: { ...response.import, snapshot: { ...snap, myTeamId: known, warnings } } };
+  // The server's signature covered the snapshot as it was (Part B, track BF): this one is no longer it, so it goes.
+  const { signed: _signed, ...unsigned } = response.import;
+  void _signed;
+  return { ...response, import: { ...unsigned, snapshot: { ...snap, myTeamId: known, warnings } } };
 }
 
 /**

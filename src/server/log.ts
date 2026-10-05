@@ -162,9 +162,9 @@ export async function writeLogEntries(store: RedisLike, entries: readonly string
     for (const [key, day] of byDay) {
       const ttl = logDayTtlMs(day.at, now);
       if (ttl <= 0) continue;
-      await store.lpush(key, ...day.entries);
-      await store.ltrim(key, 0, logLimits.keepPerDay - 1);
-      await store.pexpire(key, ttl);
+      // One transaction (MULTI/EXEC: all or nothing), so a day's list never exists without its expiry (Checkpoint 7a,
+      // after review FB-R5: separate commands could leave a list past the privacy page's 14 days if the PEXPIRE failed).
+      await store.lpushTrimExpire(key, day.entries, logLimits.keepPerDay, ttl);
     }
   })();
   try {

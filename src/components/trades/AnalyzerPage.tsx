@@ -7,7 +7,8 @@
  * browser: src/lib/leagueStore.ts, Phase 4c) the way the League page does (useLeagueInputs.ts), sends the league's
  * settings with every evaluation, and reads and saves its feedback per league (useFeedback.ts saveFeedbackPress: the card
  * says what a press did once the browser has kept it, or why not; each press saves the sent version's model inputs, with
- * "What matters most" as the evaluation weighted B).
+ * "What matters most" as the evaluation weighted B; Phase 7a, track FB: and, while "Share anonymous feedback" is on, sends
+ * an anonymous copy, src/lib/feedbackShare.ts).
  *
  * Phase 4c (planner reply to Checkpoint 4b): the card is the Trade Finder's, with my title and playoff odds before and
  * after and the weeks whose win chance moves (change 9), its trade values FantasyCalc's own (change 3: tradeView.ts
@@ -59,8 +60,8 @@ import type { LeagueSettings, LeagueSnapshot } from "@/engine/model";
 import type { Goal, TradeSettings } from "@/engine/settings";
 import type { TradeEvaluation } from "@/engine/tradeModel";
 import { EngineError } from "@/lib/engineClient";
+import { feedbackShareContext, type FeedbackSaveResult } from "@/lib/feedbackShare";
 import type { FeedbackChange, FeedbackRecord } from "@/lib/feedbackStore";
-import type { SaveResult } from "@/lib/importStore";
 import type { CurrentLeagueRead } from "@/lib/leagueStore";
 import { modelRequest } from "@/lib/modelStore";
 import { settingsFingerprint } from "@/lib/settingsStore";
@@ -151,8 +152,6 @@ function LoadedAnalyzer({ current, query }: { current: Extract<CurrentLeagueRead
   const { pair, myTeam, error: fetchError, retry: retryFetch } = useSavedLeagueInputs(current);
   const { settings, key: leagueKey } = useSavedLeagueSettings(current.league.leagueKey);
   const records = useSavedFeedback(current.league.leagueKey);
-  // A press shows at once (the league store applies it); the card says what it did once the browser has kept it.
-  const onFeedback = useCallback((evaluation: TradeEvaluation, change: FeedbackChange) => saveFeedbackPress({ leagueKey, evaluation, change }), [leagueKey]);
   // The trade as edited here, and the query it was edited under.
   const [edited, setEdited] = useState<{ draft: AnalyzerDraft; query: string } | null>(null);
 
@@ -172,6 +171,11 @@ function LoadedAnalyzer({ current, query }: { current: Extract<CurrentLeagueRead
 
   const latest = useRef(0);
   const [evaluated, setEvaluated] = useState<Evaluated | null>(null);
+  // A press shows at once (the league store applies it); the card says what it did once the browser has kept it. Phase 7a
+  // (track FB): its anonymous copy reads the league's format and the goal the evaluation shown was computed with.
+  const shownGoal = evaluated?.goal ?? null;
+  const share = useMemo(() => (league ? feedbackShareContext(league, shownGoal) : null), [league, shownGoal]);
+  const onFeedback = useCallback((evaluation: TradeEvaluation, change: FeedbackChange) => saveFeedbackPress({ leagueKey, evaluation, change, share }), [leagueKey, share]);
   const [working, setWorking] = useState<string | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   const sectionRef = useRef<HTMLElement>(null);
@@ -502,7 +506,7 @@ export function AnalysisResult({
    */
   facts?: ValueFacts | null | undefined;
   /** Saves a feedback press; its promise says whether the browser kept it (the card says so). */
-  onFeedback: (evaluation: NonNullable<AnalysisView["card"]>["evaluation"], change: FeedbackChange) => SaveResult | Promise<SaveResult>;
+  onFeedback: (evaluation: NonNullable<AnalysisView["card"]>["evaluation"], change: FeedbackChange) => FeedbackSaveResult | Promise<FeedbackSaveResult>;
 }) {
   const card = view.card;
   return (

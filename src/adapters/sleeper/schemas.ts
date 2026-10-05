@@ -3,8 +3,11 @@
  * boundary). Only the fields the normalizer uses are declared; unknown fields are stripped. A
  * missing or mistyped required field becomes LeagueImportError("BAD_RESPONSE") naming its JSON path.
  *
- * Browser-safe: no node: imports (planner: the normalizer may later run in the browser, §2.3).
+ * Browser-safe: no node: imports (planner: the normalizer may later run in the browser, §2.3). The browser builds these
+ * (track BF: it reads Sleeper leagues itself), so zod's eval-compiled parsers are turned off there first
+ * (src/lib/zodJitless.ts: it must be this module's first import).
  */
+import "@/lib/zodJitless";
 import { z } from "zod";
 import { LeagueImportError } from "@/adapters/types";
 

@@ -682,7 +682,8 @@ describe("FeedbackControls", () => {
 
     it("a plain card saves its one version with the outcome, without asking, its model inputs and the goal included", () => {
       const e = evaluation();
-      const inputs = { features: { ...e.features }, gPartner: e.gPartner, b: e.b, goal: "title" };
+      // Phase 7a: with the card's B₃ and its scale's reason (none here: the fixture's notes are empty).
+      const inputs = { features: { ...e.features }, gPartner: e.gPartner, b: e.b, goal: "title", b3: e.b3, helpsReason: null };
       expect(outcomeAction(NONE, plain, "sent")).toEqual({ action: "save", change: { outcome: "sent", sent: { version: "full", key: plain[0]?.key, pAccept: 0.4, pComplete: 0.4, inputs } } });
     });
 

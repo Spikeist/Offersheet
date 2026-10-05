@@ -46,8 +46,8 @@
  */
 import Link from "next/link";
 import { Fragment, useId } from "react";
+import type { FeedbackSaveResult } from "@/lib/feedbackShare";
 import type { FeedbackChange } from "@/lib/feedbackStore";
-import type { SaveResult } from "@/lib/importStore";
 import type { AssetView, CardFeedback, DetailsView, InjuryTone, NumberView, OddsView, PlanBView, StepsView, TradeCardView, WeeklyLineView } from "@/lib/tradeView";
 import { CopyButton } from "../CopyButton";
 import { HarderToGetBadge } from "../league/HarderToGetBadge";
@@ -288,8 +288,11 @@ export interface TradeCardProps {
   rank?: number;
   headingLevel?: "h2" | "h3";
   feedback: CardFeedback;
-  /** Saves one press (the page: useFeedback.ts saveFeedbackPress); its promise says whether the browser kept it. */
-  onFeedback: (change: FeedbackChange) => SaveResult | Promise<SaveResult>;
+  /**
+   * Saves one press (the page: useFeedback.ts saveFeedbackPress); its promise says whether the browser kept it, and
+   * whether an anonymous copy is on its way (Phase 7a: the card's one-time note, FeedbackControls).
+   */
+  onFeedback: (change: FeedbackChange) => FeedbackSaveResult | Promise<FeedbackSaveResult>;
   /** "Open in Analyzer" (the Finder's cards; Plan B's too). */
   showAnalyzerLink?: boolean;
   /**

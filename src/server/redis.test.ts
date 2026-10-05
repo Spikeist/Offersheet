@@ -70,6 +70,27 @@ describe("the Upstash client getRedis builds (no network: the SDK's fetch is stu
     expect(sent.flatMap((s) => s.commands)[2]).toEqual(["set", "k", stored, "px", 1_000]);
   });
 
+  it("sends lpushTrimExpire as one MULTI/EXEC transaction (review FB-R5): LPUSH, LTRIM and PEXPIRE in one request to /multi-exec", async () => {
+    const sent: { url: string; commands: unknown[][] }[] = [];
+    let answer: unknown = [{ result: 3 }, { result: "OK" }, { result: 1 }];
+    vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
+      sent.push({ url: String(url), commands: JSON.parse(String(init.body)) as unknown[][] });
+      return new Response(JSON.stringify(answer), { status: 200, headers: { "content-type": "application/json" } });
+    });
+    const client = getRedis(env);
+    expect(await client?.lpushTrimExpire("os:preview:fb:2026-10", ['{"v":1}'], 5_000, 86_400_000)).toBe(3);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.url.endsWith("/multi-exec")).toBe(true);
+    expect(sent[0]?.commands).toEqual([
+      ["lpush", "os:preview:fb:2026-10", '{"v":1}'],
+      ["ltrim", "os:preview:fb:2026-10", 0, 4_999],
+      ["pexpire", "os:preview:fb:2026-10", 86_400_000],
+    ]);
+    // A command that failed inside the transaction rejects (the copy counts as not stored).
+    answer = [{ result: 1 }, { result: "OK" }, { error: "ERR something" }];
+    await expect(client?.lpushTrimExpire("k", ["v"], 10, 1_000)).rejects.toThrow();
+  });
+
   it("retries a network error only redisClientLimits.retries times, briefly (review CA-1: the SDK's default was 5 retries over about 4 s), then rejects", async () => {
     let attempts = 0;
     vi.stubGlobal("fetch", async () => {
@@ -145,5 +166,18 @@ describe("FakeRedis", () => {
     expect(await r.del("c", "nope")).toBe(1);
     expect(r.stats.commands).toBeGreaterThan(10);
     expect(r.stats.bytesOut).toBeGreaterThan(0);
+  });
+
+  it("lpushTrimExpire: the push, the trim to the newest `keep` and the expiry in one step, counted as 3 commands", async () => {
+    let now = 0;
+    const r = new FakeRedis(() => now);
+    await r.lpush("l", "a", "b");
+    const before = r.stats.commands;
+    expect(await r.lpushTrimExpire("l", ["c", "d"], 3, 100)).toBe(4);
+    expect(r.stats.commands - before).toBe(3);
+    expect(await r.lrange("l", 0, -1)).toEqual(["d", "c", "b"]);
+    expect(r.ttlMs("l")).toBe(100);
+    now = 100;
+    expect(r.keys()).toEqual([]);
   });
 });

@@ -1570,7 +1570,8 @@ export class LeagueStoreClient {
   /**
    * Keeps a model response (POST /api/model/…, after modelStore.ts withImportedTeam) for a saved league: modelStore.ts's
    * replace rule against the import stored right now (snapshotOrder): older league data stores nothing; newer
-   * replaces the import (its request kept, "my team" by pickAfterImport) and stores the inputs; the same stores the inputs.
+   * replaces the import (its request kept, "my team" by pickAfterImport) and stores the inputs; the same stores the inputs,
+   * and the import too when the answer's is signed and the stored one isn't (Part B, track BF: src/server/importToken.ts).
    */
   async keepModelResponse(id: string, args: { response: ModelResponse; savedAt: string }): Promise<{ importSaved: boolean; modelSaved: boolean }> {
     const snap = args.response.import.snapshot;
@@ -1582,7 +1583,10 @@ export class LeagueStoreClient {
         const order = snapshotOrder(current.stored.response.snapshot.fetchedAt, snap.fetchedAt);
         if (order === "older") return null;
         let replaced: { stored: StoredImport; league: SavedLeague; pick: MyTeamPick | undefined } | null = null;
-        if (order === "newer") {
+        // The same league data, now signed (Part B, track BF: the server read it again from its copy and signed it): kept
+        // too, so the next build sends it back instead of asking the server to read the league again.
+        const signsSame = order === "same" && args.response.import.signed !== undefined && current.stored.response.signed === undefined;
+        if (order === "newer" || signsSame) {
           const stored = toStoredImport({ request: current.stored.request, response: args.response.import, savedAt: args.savedAt });
           const prev = checkSavedLeague(await tx.get("leagues", id));
           const existing = pickOfRow(await tx.get("picks", id), id);

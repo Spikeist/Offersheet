@@ -29,7 +29,10 @@ import { createHmac, hkdfSync } from "node:crypto";
 import { Redis } from "@upstash/redis";
 import { redisClientLimits } from "./limits";
 
-/** The commands Offer Sheet uses, as strings in and out (a subset of @upstash/redis; FakeRedis implements the same). */
+/**
+ * The commands Offer Sheet uses, as strings in and out (a subset of @upstash/redis; FakeRedis implements the same), and one
+ * transaction made of them (lpushTrimExpire).
+ */
 export interface RedisLike {
   get(key: string): Promise<string | null>;
   mget(...keys: string[]): Promise<Array<string | null>>;
@@ -41,6 +44,13 @@ export interface RedisLike {
   lpush(key: string, ...values: string[]): Promise<number>;
   ltrim(key: string, start: number, stop: number): Promise<"OK">;
   lrange(key: string, start: number, stop: number): Promise<string[]>;
+  /**
+   * LPUSH `values`, LTRIM to the newest `keep` and PEXPIRE `ttlMs`, in one MULTI/EXEC transaction (Upstash's /multi-exec:
+   * one request, applied whole or not at all), so a list never outlives its expiry because the PEXPIRE after its LPUSH
+   * failed (review FB-R5: the feedback store). Upstash bills the three commands one by one. The list's length after the
+   * LPUSH (before the trim).
+   */
+  lpushTrimExpire(key: string, values: readonly string[], keep: number, ttlMs: number): Promise<number>;
 }
 
 type Env = Readonly<Record<string, string | undefined>>;
@@ -99,6 +109,16 @@ function wrap(client: Redis): RedisLike {
     lpush: (key, ...values) => client.lpush(key, ...values),
     ltrim: (key, start, stop) => client.ltrim(key, start, stop) as Promise<"OK">,
     lrange: (key, start, stop) => client.lrange<string>(key, start, stop),
+    async lpushTrimExpire(key, values, keep, ttlMs) {
+      // multi(): Upstash's transaction endpoint (a pipeline() would not be atomic); exec() throws if any command failed.
+      const [length] = await client
+        .multi()
+        .lpush(key, ...values)
+        .ltrim(key, 0, keep - 1)
+        .pexpire(key, ttlMs)
+        .exec();
+      return length;
+    },
   };
 }
 
@@ -259,13 +279,31 @@ export class FakeRedis implements RedisLike {
   async ltrim(key: string, start: number, stop: number): Promise<"OK"> {
     this.count(key);
     const e = this.live(key);
-    if (e && Array.isArray(e.value)) {
-      const n = e.value.length;
-      const from = start < 0 ? Math.max(0, n + start) : start;
-      const to = stop < 0 ? n + stop : Math.min(stop, n - 1);
-      e.value = from > to ? [] : e.value.slice(from, to + 1);
-    }
+    if (e && Array.isArray(e.value)) e.value = FakeRedis.trimmed(e.value, start, stop);
     return "OK";
+  }
+
+  /** LTRIM's rule: the elements from `start` to `stop`, both included, negative counting from the end. */
+  private static trimmed(list: string[], start: number, stop: number): string[] {
+    const n = list.length;
+    const from = start < 0 ? Math.max(0, n + start) : start;
+    const to = stop < 0 ? n + stop : Math.min(stop, n - 1);
+    return from > to ? [] : list.slice(from, to + 1);
+  }
+
+  /**
+   * RedisLike.lpushTrimExpire: the transaction applied whole in one step (it never calls the single commands, so a test
+   * that makes one of them fail can't split it), its 3 commands counted as Upstash bills them.
+   */
+  async lpushTrimExpire(key: string, values: readonly string[], keep: number, ttlMs: number): Promise<number> {
+    this.count(key, ...values);
+    this.count(key);
+    this.count(key);
+    const e = this.live(key);
+    const list = e && Array.isArray(e.value) ? [...e.value] : [];
+    list.unshift(...[...values].reverse());
+    this.store.set(key, { value: FakeRedis.trimmed(list, 0, keep - 1), expiresAt: this.clock() + ttlMs });
+    return list.length;
   }
 
   async lrange(key: string, start: number, stop: number): Promise<string[]> {

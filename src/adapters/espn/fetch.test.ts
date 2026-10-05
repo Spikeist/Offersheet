@@ -223,7 +223,9 @@ describe("fetchEspnLeague requests", () => {
       for (const c of http.calls) {
         const sp = c.url.includes("mTransactions2") ? Number(new URL(c.url).searchParams.get("scoringPeriodId")) : undefined;
         const closed = sp !== undefined && sp < 4 - 1; // periods 1–2 at week 4
-        const expected = !c.url.includes("/leagues/") ? { ttlMs: TTL.nflSchedule } : closed ? { ttlMs: TTL.closedTransactions, retainMs: TTL.closedTransactions } : { ttlMs: refresh ? TTL.leagueRefresh : TTL.league, retainMs: TTL.league };
+        // The NFL schedule is league-independent (cache.public: the shared cache's lock, and an outage over the day's
+        // budget rather than BUSY; Part B, track RL's request); league data isn't.
+        const expected = !c.url.includes("/leagues/") ? { ttlMs: TTL.nflSchedule, public: true } : closed ? { ttlMs: TTL.closedTransactions, retainMs: TTL.closedTransactions } : { ttlMs: refresh ? TTL.leagueRefresh : TTL.league, retainMs: TTL.league };
         expect({ url: c.url, ...c.opts.cache, key: undefined }).toEqual({ url: c.url, ...expected, key: undefined });
       }
     }

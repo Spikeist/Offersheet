@@ -367,6 +367,11 @@ describe("privacy page with browser reading (track BF)", () => {
       "Like any site your browser talks to, they see your IP address, which league (or Sleeper username) your browser asks for, and that the request comes from Offer Sheet. Your browser sends them no cookies with these requests.",
     );
     expect(text).toContain("Our server uses what your browser sends for that one request: it never saves it.");
+    // What the upload holds (track BF: src/adapters/upload.ts trimEspnBody and trimSleeperBody, the Sleeper username's
+    // lookup for the user's team; src/lib/leagueFetch.ts never sends a username's list of leagues).
+    expect(text).toContain(
+      "(the league's settings, teams and owners' names, rosters, schedule and transactions, for ESPN its free agents, projections and injured players' expected return dates, and for Sleeper the username you entered, which finds your team)",
+    );
     expect(text).toContain("If your browser can't reach ESPN or Sleeper (some ad blockers and work or school networks stop it), our server reads the league itself instead.");
     expect(text).toContain("It does the same for your ESPN leagues, public ones too, while you're connected with your ESPN cookies, which a private league needs (below).");
   });
@@ -390,6 +395,7 @@ describe("privacy page with browser reading (track BF)", () => {
       "When you open the League page, your browser sends the league it saved to our server (reading it again first when its copy is more than 10 minutes old), and our server adds the projections and trade values for its players and scores the projections with your league's scoring rules. If our server can't use the copy your browser sends (one saved before Offer Sheet read leagues in your browser, for example), it reads the league itself.",
     );
     expect(text).toContain("If you enter a username, your browser asks Sleeper which leagues it's in, to find your leagues and your team (if your browser can't reach Sleeper, our server asks instead and keeps that lookup for 10 minutes).");
+    expect(text).toContain("Your browser sends the username to our server with the league you import, only to find your team there");
   });
 });
 
@@ -415,7 +421,8 @@ describe("privacy page with anonymous feedback (track FB)", () => {
       "the platform (ESPN or Sleeper), the season and the week;",
       "your league's format: the number of teams, whether it's redraft, keeper or dynasty, the points per catch and per passing touchdown, any tight-end premium, whether it starts a second quarterback, how many of each lineup slot it starts, and how many teams make the playoffs;",
       "your “What matters most” setting;",
-      "the players in the trade, as ID numbers with their positions;",
+      // Review FB-R7: the version sent, when it isn't the card's trade (src/lib/feedbackShare.ts versionTrade).
+      "the players in the trade, and in the version you sent when it differs, as ID numbers with their positions;",
       "a random code your browser makes for that one record",
     ]) {
       expect(text).toContain(field);
@@ -427,6 +434,15 @@ describe("privacy page with anonymous feedback (track FB)", () => {
     );
     expect([feedbackLimits.maxPerMonth, feedbackLimits.retainDays]).toEqual([5_000, 365]);
     expect(text).toContain("We keep at most the newest 5,000 a month, at Upstash, and delete each month's feedback a year after the last one that month.");
+    // Review FB-R2: scripts/feedback-pull.ts deletes its downloaded copies by the store's rule (pruneFeedbackFiles).
+    expect(text).toContain("Offer Sheet's developer downloads it from there to study it, and deletes the downloaded copies on the same schedule.");
+    // Review FB-R3: only the browser (and an export) keeps a record's random code; Delete recalls nothing sent.
+    expect(text).toContain(
+      "Offer Sheet can't tell which copies are yours. The random code a record's copies carry stays only in your browser (and in any file you save with “Export feedback”), so only someone with your browser or that file could match copies to you. Turning sharing off stops new copies; deleting your saved feedback doesn't take back copies already sent.",
+    );
+    expect(text).toContain("It includes each record's random code, which matches it to its anonymous copies.");
+    expect(text).toContain("Anonymous copies already sent stay at Upstash for their year (above).");
+    for (const claim of ["isn't linked to you", "no way to pick out yours"]) expect(text).not.toContain(claim);
     expect(text).toContain("To stop sending it, turn off “Share anonymous feedback” on the Settings page");
     expect(links(html).filter((l) => l.href === "/settings")).toHaveLength(1);
     expect(text).toContain(
@@ -435,6 +451,16 @@ describe("privacy page with anonymous feedback (track FB)", () => {
     expect(text).not.toContain("They're read only in your browser and never sent to our server.");
     expect(text).toContain("(10 minutes for imports and the League page, an hour for feedback)");
     expect(countedKinds(f)).toContain("feedback");
+    // Track FB: the saved record keeps the random code its copies carry (src/lib/feedbackStore.ts FeedbackRecord.rid), and
+    // the week, season and goal its numbers were computed for (FeedbackRecord.basis, VersionInputs.week; review FB-R6).
+    expect(text).toContain(
+      "along with your “What matters most” setting. It also keeps the week and season Offer Sheet's numbers were worked out for, your “What matters most” setting for the trade's own numbers, and the random code its anonymous copies carry (above).",
+    );
+  });
+
+  it.each(WITHOUT_FEEDBACK)("%o: says nothing of a random code, downloads or copies already sent", (f) => {
+    const { text } = privacy(f);
+    for (const claim of ["random code", "downloads it", "copies already sent", "week and season"]) expect(text).not.toContain(claim);
   });
 });
 

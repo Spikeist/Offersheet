@@ -154,9 +154,11 @@ describe("joinInputsRequest: one model request per page load", () => {
     vi.unstubAllGlobals();
   });
 
+  // A league read with ESPN cookies: the server reads it itself, so the page sends one JSON request (src/lib/
+  // leagueFetch.ts loadModelInputs; leagueFetch.test.ts covers the browser's own reads and signed imports).
   const stored = (leagueId = "4242"): StoredImport => {
     const snapshot = { ...f.snapshot, leagueId };
-    return { version: IMPORT_FORMAT_VERSION, savedAt: NOW, request: { platform: "espn", season: 2026, leagueId }, response: { snapshot, notes: [] } };
+    return { version: IMPORT_FORMAT_VERSION, savedAt: NOW, request: { platform: "espn", season: 2026, leagueId }, response: { snapshot, notes: [], usedEspnCookies: true } };
   };
   const tick = () => new Promise((r) => setTimeout(r, 0));
 

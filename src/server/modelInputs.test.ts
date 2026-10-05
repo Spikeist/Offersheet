@@ -53,6 +53,7 @@ import {
   relevantPlayerIds,
   roundPoints,
   startablePositions,
+  statsWeeksStarted,
   weeksText,
   type ModelSources,
 } from "./modelInputs";
@@ -236,6 +237,15 @@ describe("modelWeekPlan (§6 step 1: lookback weeks; the weeks the inputs cover)
     expect(modelWeekPlan(snapshot({ season: 2027, currentWeek: 18 }), feb)).toMatchObject({ seasonOver: true, notStarted: false });
   });
 
+  it("a season before the one being played is over whatever its week says (review BF-R2): nothing is asked for it", () => {
+    // A snapshot made from what a browser sent can say any week; a past season's sources would be asked for nobody else.
+    expect(modelWeekPlan(snapshot({ season: 2025, currentWeek: 4 }), NOW)).toMatchObject({ seasonOver: true, notStarted: false, projectionWeeks: [], statsWeeks: [] });
+    expect(modelWeekPlan(snapshot({ season: 2019, currentWeek: 1 }), NOW)).toMatchObject({ seasonOver: true, projectionWeeks: [], statsWeeks: [] });
+    // In January the season being played is still last calendar year's: its playoffs go on.
+    expect(modelWeekPlan(snapshot({ season: 2026, currentWeek: 17 }), new Date("2027-01-02T12:00:00.000Z"))).toMatchObject({ seasonOver: false, projectionWeeks: weeks(14, 17) });
+    expect(modelWeekPlan(snapshot({ season: 2025, currentWeek: 17 }), new Date("2027-01-02T12:00:00.000Z"))).toMatchObject({ seasonOver: true, projectionWeeks: [] });
+  });
+
   it("falls back to NFL week 18 when the settings list no season weeks", () => {
     expect(modelWeekPlan(snapshot({}, { regularSeasonWeeks: [], playoffWeeks: [] }), NOW)).toEqual({
       lastWeek: 18,
@@ -245,6 +255,18 @@ describe("modelWeekPlan (§6 step 1: lookback weeks; the weeks the inputs cover)
       projectionWeeks: weeks(1, 18),
       statsWeeks: [1, 2, 3],
     });
+  });
+});
+
+describe("statsWeeksStarted (review BF-R2: stats only for weeks the NFL has begun)", () => {
+  it("keeps the weeks up to the latest one whose first game kicked off; all of them without a schedule or kickoff times", () => {
+    // The schedule's kickoffs: week 3 Sep 21, week 4 Sep 27–28, week 5 Oct 4; NOW is Sep 30.
+    expect(statsWeeksStarted([1, 2, 3], schedule(), NOW)).toEqual([1, 2, 3]);
+    expect(statsWeeksStarted(weeks(1, 17), schedule(), NOW)).toEqual([1, 2, 3, 4]);
+    expect(statsWeeksStarted(weeks(1, 17), schedule(), new Date("2026-10-05T12:00:00.000Z"))).toEqual(weeks(1, 5));
+    expect(statsWeeksStarted(weeks(1, 17), schedule(), new Date("2026-09-01T12:00:00.000Z"))).toEqual([]);
+    expect(statsWeeksStarted(weeks(1, 17), null, NOW)).toEqual(weeks(1, 17));
+    expect(statsWeeksStarted(weeks(1, 17), schedule({ kickoffs: {} }), NOW)).toEqual(weeks(1, 17));
   });
 });
 
@@ -1467,6 +1489,41 @@ describe("buildModelInputs (loading: §0.9 politeness, §2.10 caching)", () => {
     expect(fake.calls.map((c) => c.url)).toEqual([fantasyCalcValuesUrl(marketFormats(s.settings).values), FANTASYCALC_PLAYERS_URL]);
     expect(out.market?.format.isDynasty).toBe(true);
     expect(out.market).not.toHaveProperty("seasonValues");
+  });
+});
+
+describe("buildModelInputs: what a snapshot can make the server ask for (review BF-R2)", () => {
+  /** The Sleeper and ESPN addresses a build of `s` asks for (every one answered from the committed fixtures, or 404). */
+  async function asked(s: LeagueSnapshot): Promise<string[]> {
+    const fake = fakeHttp(fullRoutes(loadSnapshot()));
+    await buildModelInputs({ snapshot: s, http: fake.http, resolver: { defenseId }, now: NOW, projectionArchive: null, fantasyCalcArchive: null });
+    return fake.calls.map((c) => c.url).filter((u) => !u.includes("fantasycalc"));
+  }
+
+  it("any lineup of offense positions asks for the same Sleeper lists (a lineup a browser sent can't pick new ones)", async () => {
+    const lineups = [
+      SETTINGS.lineup,
+      [{ slot: "QB", count: 1, eligible: ["QB"] }],
+      [{ slot: "RB", count: 2, eligible: ["RB"] }, { slot: "TE", count: 1, eligible: ["TE"] }],
+      [{ slot: "K", count: 1, eligible: ["K"] }, { slot: "D/ST", count: 1, eligible: ["DEF"] }],
+    ] as LeagueSettings["lineup"][];
+    const all = await Promise.all(lineups.map((lineup) => asked(loadSnapshot({}, { lineup }))));
+    for (const urls of all) expect(urls).toEqual(all[0]);
+    expect(all[0]?.filter((u) => u.startsWith("https://api.sleeper.app/")).every((u) => u.includes(LOAD_POSITIONS.map((p) => `position[]=${p}`).join("&")))).toBe(true);
+  });
+
+  it("a past season asks nothing of Sleeper or ESPN, whatever week the snapshot says", async () => {
+    expect(await asked(loadSnapshot({ season: 2025, currentWeek: 4 }))).toEqual([]);
+    expect(await asked(loadSnapshot({ season: 2019, currentWeek: 2 }))).toEqual([]);
+  });
+
+  it("stats only for the weeks the NFL has begun, though the snapshot says week 18 (empty weeks are never cached)", async () => {
+    const s = loadSnapshot({ currentWeek: 18 }, { playoffWeeks: [15, 16, 17, 18] });
+    const latestBegun = Math.max(...Object.keys(fixtureSchedule().kickoffs).map(Number).filter((w) => (firstKickoffOf(fixtureSchedule(), w) ?? Number.POSITIVE_INFINITY) <= NOW.getTime()));
+    expect(latestBegun).toBeGreaterThanOrEqual(3);
+    expect(latestBegun).toBeLessThan(10);
+    const stats = (await asked(s)).filter((u) => u.includes("/stats/"));
+    expect(stats).toEqual(weeks(1, latestBegun).map((w) => sleeperStatsUrl(2026, w, LOAD_POSITIONS)));
   });
 });
 

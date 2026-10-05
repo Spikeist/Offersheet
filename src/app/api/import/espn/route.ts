@@ -1,5 +1,5 @@
 /** POST /api/import/espn: see ./handler.ts; its rate limit, deadline and log: ../../_lib/route.ts (withRoute). */
-import { importEspnLeague } from "@/adapters/espn";
+import { importEspnLeagueForModel, importEspnUpload } from "@/adapters/espn";
 import { espnCredentialsFor } from "@/server/session";
 import { getImportDeps } from "../../_lib/deps";
 import { withRoute } from "../../_lib/route";
@@ -12,7 +12,8 @@ export const maxDuration = 60;
 export const POST = withRoute(
   "import",
   createEspnImportHandler({
-    importLeague: importEspnLeague,
+    importLeague: importEspnLeagueForModel,
+    importUpload: importEspnUpload,
     getDeps: () => getImportDeps(),
     credentialsFor: (request, leagueId) => espnCredentialsFor(request, leagueId),
   }),

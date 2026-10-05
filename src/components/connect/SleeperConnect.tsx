@@ -15,11 +15,16 @@
  *
  * Results appear below the form, which on a phone is below the fold, so an error or the league list
  * is scrolled into view and focused (reveal.ts).
+ *
+ * Part B (planner reply to Checkpoint 4c, B1: browser fetching; track BF): this browser reads Sleeper itself, the
+ * username's leagues included (Offer Sheet hears nothing until a league is picked), and sends Offer Sheet only what it
+ * needs (src/lib/leagueFetch.ts importLeague); when it can't reach Sleeper, Offer Sheet's server reads it, as before.
  */
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { callApi, isApiError, isChooseLeague, type ImportResponse, type SleeperChooseLeagueResponse } from "@/lib/api";
+import { isApiError, isChooseLeague, type SleeperChooseLeagueResponse } from "@/lib/api";
+import { importLeague } from "@/lib/leagueFetch";
 import { savedLeagueId } from "@/lib/leagueStore";
 import { defaultSeason, newestSeason } from "@/lib/season";
 import {
@@ -61,7 +66,7 @@ export function batchOutcomeText(imported: number, total: number): string {
  * becomes the league this tab shows (not once the page that asked for it is gone: sleeperBatch.ts).
  */
 async function importChosen(leagueId: string, username: string, season: number, makeCurrent: () => boolean): Promise<BatchOutcome> {
-  const res = await callApi<ImportResponse | SleeperChooseLeagueResponse>("/api/import/sleeper", { method: "POST", body: { season, username, chooseLeagueId: leagueId } });
+  const res = await importLeague({ platform: "sleeper", body: { season, username, chooseLeagueId: leagueId } });
   if (isApiError(res)) return { ok: false, message: res.error.message };
   if (isChooseLeague(res) || !("snapshot" in res)) return { ok: false, message: NOT_SENT };
   const saved = await finishImport({ platform: "sleeper", season, leagueId: res.snapshot.leagueId, username }, res, undefined, { makeCurrent: makeCurrent() });
@@ -154,7 +159,7 @@ export function SleeperConnect() {
     }
     setBusy(true);
     const body = { season, ...(name ? { username: name } : {}), ...(leagueId ? { leagueId } : {}) };
-    const res = await callApi<ImportResponse | SleeperChooseLeagueResponse>("/api/import/sleeper", { method: "POST", body });
+    const res = await importLeague({ platform: "sleeper", body });
     if (isApiError(res)) {
       setBusy(false);
       fail(sleeperServerError(res.error, currentMode));

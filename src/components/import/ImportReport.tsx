@@ -11,10 +11,11 @@
  * A team pick shows at once; one the browser refuses to keep is put back, and an alert under the choice says why.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
-import { callApi, isApiError, type EspnImportBody, type EspnSessionStatus, type ImportResponse, type SleeperImportBody } from "@/lib/api";
-import { buildImportReport, refreshOutcomeText } from "@/lib/importReport";
+import { callApi, isApiError, type EspnImportBody, type EspnSessionStatus, type SleeperImportBody } from "@/lib/api";
+import { buildImportReport, refreshOutcomeText, refreshTooSoon } from "@/lib/importReport";
+import { importLeague } from "@/lib/leagueFetch";
 import { saveMyTeamPick, type CurrentLeagueRead } from "@/lib/leagueStore";
-import { storedModelForLeague } from "@/lib/modelStore";
+import { importDataAgeMs, storedModelForLeague } from "@/lib/modelStore";
 import { NoImportCard } from "../NoImportCard";
 import { finishImport } from "../connect/finishImport";
 import { useCurrentLeague, useSavedModel } from "../league/useLeagueInputs";
@@ -77,17 +78,28 @@ function LoadedReport({ current }: { current: Extract<CurrentLeagueRead, { kind:
     });
   }
 
-  /** Refresh (§2.10): the same league again, skipping server copies older than a minute. The stored team pick stays. */
+  /**
+   * Refresh (§2.10): the same league again, skipping copies older than a minute: read by this browser where it can (Part
+   * B, track BF: src/lib/leagueFetch.ts importLeague), else by the server. League data under a minute old is as new as
+   * Refresh gets, so then nothing is asked (the line says so). The stored team pick stays.
+   */
   async function refresh() {
     const { platform, leagueId, season, fetchedAt: before } = snapshot;
     let body: EspnImportBody | SleeperImportBody;
     if (platform === "espn") body = { leagueId, season, refresh: true };
     else if (platform === "sleeper") body = { season, leagueId, ...(stored.request.username ? { username: stored.request.username } : {}), refresh: true };
     else return;
-    setRefreshing(true);
     setRefreshError(null);
     setRefreshStatus(null);
-    const res = await callApi<ImportResponse>(`/api/import/${platform}`, { method: "POST", body });
+    const now = new Date();
+    // The data's age on one clock at a time (review BF-R4): a device clock set differently from the server's doesn't matter.
+    const age = importDataAgeMs(stored, now.getTime());
+    if (refreshTooSoon(age)) {
+      setRefreshStatus(refreshOutcomeText({ before, after: before, now, platform, timeZone, ageMs: age }));
+      return;
+    }
+    setRefreshing(true);
+    const res = await importLeague({ platform, body, espnCookies: stored.response.usedEspnCookies ? "connected" : "unknown" });
     setRefreshing(false);
     if (isApiError(res)) {
       setRefreshError(res.error.message);
@@ -105,7 +117,10 @@ function LoadedReport({ current }: { current: Extract<CurrentLeagueRead, { kind:
       setRefreshError(saved.message);
       return;
     }
-    setRefreshStatus(refreshOutcomeText({ before, after: res.snapshot.fetchedAt, now: new Date(), platform, timeZone }));
+    // The answer's own age (just arrived: the server's time of answering against its data's, when it signed it).
+    const answered = new Date();
+    const ageMs = importDataAgeMs({ response: res, savedAt: answered.toISOString() }, answered.getTime());
+    setRefreshStatus(refreshOutcomeText({ before, after: res.snapshot.fetchedAt, now: answered, platform, timeZone, ageMs }));
   }
 
   /** "Forget my ESPN cookies": the sealed session cookie is deleted; this league stays saved in the browser. */

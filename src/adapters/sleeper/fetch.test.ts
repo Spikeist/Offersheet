@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { LeagueImportError, type HttpResponse } from "@/adapters/types";
 import { IMPORT_PROJECTIONS_REDUCER } from "@/data/reduce";
 import { TTL } from "@/server/cache";
-import { FREE_AGENT_RANK_WEEKS, fetchSleeperLeague, freeAgentRankWeeks, leagueChoicesOf, parseSleeperLeagueId, PROJECTIONS_POLICY, requireJson, SleeperLeagueChoiceError, sleeperUrls, startablePositions } from "./fetch";
+import { FREE_AGENT_RANK_WEEKS, IDP_POSITIONS, OFFENSE_POSITIONS, fetchSleeperLeague, freeAgentRankWeeks, leagueChoicesOf, parseSleeperLeagueId, PROJECTIONS_POLICY, projectionPositions, requireJson, SleeperLeagueChoiceError, sleeperUrls, startablePositions } from "./fetch";
 import { importSleeperLeague } from "./index";
 import { fakeHttp, fakeResolver, json, loadTestLeague, type TestLeague } from "./test-helpers";
 
@@ -251,9 +251,27 @@ describe("helpers", () => {
     expect(parseSleeperLeagueId("")).toBeUndefined();
   });
 
-  it("requests projections for the positions the league can start, in canonical order", () => {
+  it("reads the positions the league can start, in canonical order", () => {
     expect(startablePositions(["QB", "RB", "WR", "TE", "FLEX", "SUPER_FLEX", "K", "DEF", "BN"])).toEqual(["QB", "RB", "WR", "TE", "K", "DEF"]);
     expect(startablePositions(["QB", "IDP_FLEX", "REC_FLEX", "BN"])).toEqual(["QB", "WR", "TE", "DL", "LB", "DB"]);
+  });
+
+  it("asks for projections as one of two fixed groups, whatever the lineup (review BF-R2)", () => {
+    expect(OFFENSE_POSITIONS).toEqual(["QB", "RB", "WR", "TE", "K", "DEF"]);
+    expect(projectionPositions(startablePositions(["QB", "RB", "WR", "TE", "FLEX", "K", "DEF", "BN"]))).toEqual(OFFENSE_POSITIONS);
+    expect(projectionPositions(startablePositions(["QB", "RB", "BN"]))).toEqual(OFFENSE_POSITIONS);
+    expect(projectionPositions(startablePositions(["QB", "IDP_FLEX", "REC_FLEX", "BN"]))).toEqual([...OFFENSE_POSITIONS, ...IDP_POSITIONS]);
+    expect(projectionPositions(["P"])).toEqual([]);
+    expect(projectionPositions(startablePositions(["BN"]))).toEqual([]);
+  });
+
+  it("a league that starts fewer positions asks for the same projection lists as any other (review BF-R2)", async () => {
+    const t = loadTestLeague();
+    t.league.roster_positions = ["QB", "RB", "BN", "BN"];
+    const http = fakeHttp(routesFor(t));
+    await fetchSleeperLeague({ season: 2026, leagueId: String(t.league.league_id) }, { http });
+    const urls = http.calls.map((c) => c.url).filter((u) => u.includes("/projections/"));
+    expect(urls).toEqual([4, 5, 6].map((w) => sleeperUrls.projections(2026, w, OFFENSE_POSITIONS)));
   });
 
   it("ranks free agents over this week and the next two, capped at NFL week 18", () => {

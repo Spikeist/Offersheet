@@ -18,8 +18,9 @@
  * or as an update of the same league already saved, and becomes the league shown (finishImport.ts). With
  * leagues saved already, a line under the form says so (the switcher's "Add league" opens this page).
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { plural } from "@/lib/format";
+import { warmUpBrowserRead } from "@/lib/leagueFetch";
 import { useSavedLeagues } from "../league/useLeagueInputs";
 import { Badge, cx } from "../ui";
 import { EspnConnect } from "./EspnConnect";
@@ -34,7 +35,8 @@ type PlatformOption =
 const OPTIONS: readonly PlatformOption[] = [
   { id: "espn", name: "ESPN", note: "League link or ID", enabled: true },
   { id: "sleeper", name: "Sleeper", note: "Username or league ID", enabled: true },
-  { id: "yahoo", name: "Yahoo", note: "Waiting on Yahoo's approval", enabled: false, badge: "Coming soon", badgeTone: "warn" },
+  // The home page's words (src/app/page.tsx: "Sign in with your Yahoo account." "Waiting for Yahoo's approval"), the badge short enough for a card.
+  { id: "yahoo", name: "Yahoo", note: "Sign in with your Yahoo account", enabled: false, badge: "Waiting for approval", badgeTone: "warn" },
   { id: "other", name: "Fleaflicker, MFL, Fantrax", note: "Fantrax: public leagues", enabled: false, badge: "Later", badgeTone: "muted" },
   { id: "manual", name: "Manual entry", note: "NFL.com, CBS and others", enabled: false, badge: "Later", badgeTone: "muted" },
 ];
@@ -108,10 +110,19 @@ export function savedLeaguesNote(count: number): string | null {
   return `You have ${plural(count, "league")} saved in this browser. A league you import joins ${count === 1 ? "it" : "them"} (or updates its saved copy) and shows right away; switch leagues at the top of any page.`;
 }
 
+/** How long after the page shows that the browser's league reader is loaded ahead of the first Import (warmUpBrowserRead). */
+const WARM_UP_AFTER_MS = 1_000;
+
 export function ConnectFlow() {
   const [platform, setPlatform] = useState<PlatformChoice>("espn");
   const saved = useSavedLeagues();
   const note = savedLeaguesNote(saved?.leagues.length ?? 0);
+  // Part B (track BF): the code that reads a league in this browser isn't in the page's first load; fetch it once the
+  // page has settled, so Import doesn't wait for it.
+  useEffect(() => {
+    const timer = setTimeout(warmUpBrowserRead, WARM_UP_AFTER_MS);
+    return () => clearTimeout(timer);
+  }, []);
 
   return (
     <div className="space-y-4 sm:space-y-6">

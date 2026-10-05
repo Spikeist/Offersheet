@@ -22,8 +22,9 @@
 import { useEffect, useEffectEvent, useMemo, useState } from "react";
 import type { ModelInputs } from "@/engine/inputs";
 import type { LeagueSnapshot } from "@/engine/model";
-import { callApi, isApiError, isModelResponse, type ModelResponse } from "@/lib/api";
+import type { ModelResponse } from "@/lib/api";
 import type { MyTeamPick, StoredImport } from "@/lib/importStore";
+import { loadModelInputs } from "@/lib/leagueFetch";
 import {
   currentLeagueFrom,
   currentLeaguePartsOf,
@@ -33,7 +34,7 @@ import {
   type SavedLeaguesRead,
   type StorageStatus,
 } from "@/lib/leagueStore";
-import { modelForSnapshot, modelKey, modelRequest, withImportedTeam, type StoredModel } from "@/lib/modelStore";
+import { modelForSnapshot, modelKey, withImportedTeam, type StoredModel } from "@/lib/modelStore";
 import { resolveMyTeam, type ResolvedMyTeam } from "@/lib/myTeam";
 import { createRequestSharer, type JoinedRequest } from "./sharedRequest";
 
@@ -90,7 +91,7 @@ export type InputsOutcome = { ok: true; response: ModelResponse } | { ok: false;
 /** A league's data as one tag: which league, and which fetch of it. */
 export const leagueTag = (s: Pick<LeagueSnapshot, "platform" | "leagueId" | "season" | "fetchedAt">) => `${modelKey(s)}|${s.fetchedAt}`;
 
-/** The pages' model requests in flight, shared by URL and body (see the header). */
+/** The pages' model requests in flight, shared by league and league data (see the header). */
 const inputRequests = createRequestSharer<InputsOutcome>();
 
 const UNREACHABLE = "We couldn't reach Offer Sheet. Check your connection and try again.";
@@ -101,23 +102,17 @@ const UNREACHABLE = "We couldn't reach Offer Sheet. Check your connection and tr
  * page that joined it has left.
  */
 export function joinInputsRequest(stored: StoredImport): JoinedRequest<InputsOutcome> {
-  const req = modelRequest(stored, false);
-  const key = req ? `${req.url} ${JSON.stringify(req.body)}` : leagueTag(stored.response.snapshot);
-  return inputRequests.join(key, (signal) => requestInputs(stored, false, signal));
+  return inputRequests.join(`model ${leagueTag(stored.response.snapshot)}`, (signal) => requestInputs(stored, false, signal));
 }
 
 /**
- * The stored import's model inputs from the server (with the Sleeper username it was imported with,
- * so the re-import finds the user's team). `signal` aborts the request.
+ * The stored import's model inputs (src/lib/leagueFetch.ts loadModelInputs; Part B, track BF): the import sent back
+ * signed while its data is fresh, else read again first (by this browser where it can), or today's request where the
+ * server reads it (with the Sleeper username it was imported with, so the re-import finds the user's team). `signal`
+ * aborts it.
  */
 export async function requestInputs(stored: StoredImport, refresh: boolean, signal?: AbortSignal): Promise<InputsOutcome> {
-  const snapshot = stored.response.snapshot;
-  const req = modelRequest(stored, refresh);
-  if (!req) return { ok: false, message: "Offer Sheet works with ESPN and Sleeper leagues for now." };
-  const res = await callApi<ModelResponse>(req.url, { method: "POST", body: req.body }, signal ? (input, init) => fetch(input, { ...init, signal }) : undefined);
-  if (isApiError(res)) return { ok: false, message: res.error.message };
-  if (!isModelResponse(res) || modelKey(res.import.snapshot) !== modelKey(snapshot)) return { ok: false, message: "We couldn't read the projections for this league. Try again in a moment." };
-  return { ok: true, response: res };
+  return loadModelInputs(stored, { refresh, ...(signal ? { signal } : {}) });
 }
 
 /** Model inputs fetched in this page view (kept in memory too, in case the browser won't store them). */

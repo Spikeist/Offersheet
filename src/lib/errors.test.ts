@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { IMPORT_ERROR_CODES, errorForStatus, errorMessage, errorStatus, isImportErrorCode, redactSecrets, retryAfterSeconds, waitWords, type AppErrorCode } from "./errors";
 
-const ALL_CODES: AppErrorCode[] = [...IMPORT_ERROR_CODES, "INVALID_REQUEST", "SESSION_UNAVAILABLE", "BAD_ORIGIN", "RATE_LIMITED", "BUSY", "SOURCE_SLOW", "INTERNAL"];
+const ALL_CODES: AppErrorCode[] = [...IMPORT_ERROR_CODES, "INVALID_REQUEST", "BAD_UPLOAD", "SESSION_UNAVAILABLE", "BAD_ORIGIN", "RATE_LIMITED", "BUSY", "SOURCE_SLOW", "INTERNAL"];
 
 describe("error codes → messages", () => {
   it("uses the spec's exact wording for a wrong season (CLAUDE.md §2.2)", () => {

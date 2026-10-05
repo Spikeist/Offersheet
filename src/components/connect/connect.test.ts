@@ -3,6 +3,9 @@
  * always-mounted live regions and wording that the review asked for, and the compact phone layout
  * from the planner's reply to Checkpoint 1 (CLAUDE.md §14 item 1). Fictional names only.
  */
+import { readFileSync, readdirSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { createElement, isValidElement, type ReactElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -77,9 +80,18 @@ describe("ConnectFlow (first render)", () => {
   it("names each radio by its label: the platform, then its note and badge", () => {
     expect(radioFor(radios, "espn").text).toBe("ESPN League link or ID");
     expect(radioFor(radios, "sleeper").text).toBe("Sleeper Username or league ID");
-    expect(radioFor(radios, "yahoo").text).toBe("Yahoo Waiting on Yahoo's approval Coming soon");
+    // As the home page says it (Part B, B3): waiting for Yahoo's approval, never "Coming soon".
+    expect(radioFor(radios, "yahoo").text).toBe("Yahoo Sign in with your Yahoo account Waiting for approval");
     expect(radioFor(radios, "other").text).toBe("Fleaflicker, MFL, Fantrax Fantrax: public leagues Later");
     expect(radioFor(radios, "manual").text).toBe("Manual entry NFL.com, CBS and others Later");
+  });
+
+  it("never says 'Coming soon' anywhere on the Connect page's components (Part B, B3: the home page says what Yahoo waits for)", () => {
+    const dir = fileURLToPath(new URL("./", import.meta.url));
+    const sources = readdirSync(dir).filter((f) => /\.tsx?$/.test(f) && !/\.test\.tsx?$/.test(f));
+    expect(sources.length).toBeGreaterThan(5);
+    for (const f of sources) expect(readFileSync(path.join(dir, f), "utf8"), f).not.toMatch(/coming soon/i);
+    expect(textOf(html)).not.toMatch(/coming soon/i);
   });
 
   it("keeps the platforms that aren't ready disabled, unchecked and off the phone layout", () => {

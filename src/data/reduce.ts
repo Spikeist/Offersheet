@@ -31,9 +31,9 @@
  * terms ask for one fetch a day per format), and ESPN's NFL schedule (its cache entry is shared with the ESPN import,
  * whose request this track doesn't own; ~6 KB a read to gain).
  */
+import { quoteBigInts } from "@/adapters/httpShared";
 import { hasProjection } from "@/adapters/sleeper/normalize";
 import { StatRowSchema } from "@/adapters/sleeper/schemas";
-import { quoteBigInts } from "@/server/http";
 
 /** A fetch-time reducer (see the header). */
 export interface BodyReducer {

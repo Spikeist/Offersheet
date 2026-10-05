@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { callApi, isApiError, isChooseLeague } from "./api";
+import { callApi, chooseLeagueResponse, isApiError, isChooseLeague, isSignedModelResponse } from "./api";
 import { commissionerMessage, ESPN_PUBLIC_SETTING_PATH } from "./commissioner";
 
 function fakeFetch(respond: () => Promise<Response>) {
@@ -39,6 +39,40 @@ describe("callApi", () => {
     expect(isApiError({ error: "x" })).toBe(false);
     expect(isChooseLeague({ chooseLeague: { username: "u", season: 2026, leagues: [] } })).toBe(true);
     expect(isChooseLeague({ snapshot: {} })).toBe(false);
+    // The model routes' answer to a signed import (Part B, track BF): the inputs alone.
+    expect(isSignedModelResponse({ model: { version: 1 }, signedImport: true })).toBe(true);
+    expect(isSignedModelResponse({ model: { version: 2 }, signedImport: true })).toBe(false);
+    expect(isSignedModelResponse({ import: {}, model: { version: 1 } })).toBe(false);
+  });
+
+  it("words a reply that isn't ours by its status (track RL's request): a firewall's 429 with its wait, a body too large, a timeout", async () => {
+    const page = (status: number, headers: Record<string, string> = {}) => fakeFetch(async () => new Response("<html>nope</html>", { status, headers })).impl;
+    expect(await callApi("/x", { method: "GET" }, page(429, { "retry-after": "120" }))).toEqual({ error: { code: "RATE_LIMITED", message: "You're going a bit fast. Try again in about 2 minutes." } });
+    expect(await callApi("/x", { method: "POST", body: {} }, page(413))).toEqual({ error: { code: "INVALID_REQUEST", message: "That request is too large for Offer Sheet." } });
+    expect(await callApi("/x", { method: "GET" }, page(504))).toMatchObject({ error: { code: "SOURCE_SLOW" } });
+    // A 200 that isn't JSON is still ours to call unexpected.
+    expect(await callApi("/x", { method: "GET" }, page(200))).toMatchObject({ error: { code: "INTERNAL" } });
+  });
+});
+
+describe("chooseLeagueResponse (the league picker, from the server's lookup or the browser's)", () => {
+  it("puts the supported leagues first, then by name, in the picker's shape", () => {
+    const choices = [
+      { leagueId: "3", name: "Zeta", teams: 18, status: "in_season", leagueType: "guillotine" as const, bestBall: false, supported: false },
+      { leagueId: "2", name: "Beta", teams: 12, status: "in_season", supported: true },
+      { leagueId: "1", name: "Alpha", teams: null, status: null, leagueType: "redraft" as const, bestBall: true, supported: true },
+    ];
+    expect(chooseLeagueResponse("zorblax_q", 2026, choices)).toEqual({
+      chooseLeague: {
+        username: "zorblax_q",
+        season: 2026,
+        leagues: [
+          { id: "1", name: "Alpha", teams: null, status: null, leagueType: "redraft", bestBall: true, supported: true },
+          { id: "2", name: "Beta", teams: 12, status: "in_season", leagueType: null, bestBall: false, supported: true },
+          { id: "3", name: "Zeta", teams: 18, status: "in_season", leagueType: "guillotine", bestBall: false, supported: false },
+        ],
+      },
+    });
   });
 });
 

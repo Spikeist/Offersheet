@@ -1041,6 +1041,18 @@ describe("model responses (the League page's POST /api/model/…)", () => {
     expect(client.getState().models.get(idA)?.snapshotFetchedAt).toBe(T1);
   });
 
+  it("keeps the import too when the same league data comes back signed and the saved one isn't (Part B, track BF)", async () => {
+    const b = newBrowser();
+    const { client } = b.tab();
+    const stored = imported(A);
+    await client.saveImport({ request: stored.request, response: stored.response, savedAt: stored.savedAt });
+    const signedReply = (): ModelResponse => ({ ...reply(A.fetchedAt), import: { ...reply(A.fetchedAt).import, signed: { issuedAt: 1, token: "made-up" } } });
+    expect(await client.keepModelResponse(idA, { response: signedReply(), savedAt: "2026-10-04T12:00:00.000Z" })).toEqual({ importSaved: true, modelSaved: true });
+    expect(currentLeagueRead(client.getState())).toMatchObject({ kind: "ok", stored: { request: stored.request, response: { signed: { issuedAt: 1, token: "made-up" } } } });
+    // Once signed, the same data's answers store only the inputs again.
+    expect(await client.keepModelResponse(idA, { response: signedReply(), savedAt: "2026-10-04T12:01:00.000Z" })).toEqual({ importSaved: false, modelSaved: true });
+  });
+
   it("stores nothing for older league data, another league's, or a league no longer saved", async () => {
     const b = newBrowser();
     const { client } = b.tab();

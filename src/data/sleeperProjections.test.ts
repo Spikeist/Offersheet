@@ -69,9 +69,15 @@ afterEach(() => {
 });
 
 describe("request shape (CLAUDE.md §2.3 undocumented endpoints)", () => {
-  it("asks for the league's startable positions minus P, in the Sleeper adapter's order, whatever order they come in", () => {
+  it("asks for one of two fixed groups, in the Sleeper adapter's order: the offense, plus the IDP positions for a league that starts one (review BF-R2)", () => {
     expect(sleeperRequestPositions(["DEF", "P", "TE", "QB", "K", "WR", "RB", "TE"])).toEqual(POS);
-    expect(sleeperRequestPositions(["LB", "DB", "DL", "P"])).toEqual(["DL", "LB", "DB"]);
+    // A league's own set never picks the URL: any offense set asks for the whole offense (Parker's league: unchanged).
+    for (const set of [["QB"], ["TE", "K"], ["RB", "WR", "TE"], ["DEF"]] as const) expect(sleeperRequestPositions(set)).toEqual(POS);
+    expect(sleeperRequestPositions(["LB", "DB", "DL", "P"])).toEqual([...POS, "DL", "LB", "DB"]);
+    expect(sleeperRequestPositions(["QB", "LB"])).toEqual([...POS, "DL", "LB", "DB"]);
+    // P alone (Sleeper doesn't project punters), or nothing: no request.
+    expect(sleeperRequestPositions(["P"])).toEqual([]);
+    expect(sleeperRequestPositions([])).toEqual([]);
     expect(sleeperStatsUrl(SEASON, 3, ["QB", "DEF"])).toBe("https://api.sleeper.app/stats/nfl/2026/3?season_type=regular&position[]=QB&position[]=DEF");
     expect(sleeperSeasonProjectionsUrl(SEASON, ["QB", "RB"])).toBe("https://api.sleeper.app/projections/nfl/2026?season_type=regular&position[]=QB&position[]=RB");
     expect(projUrl(5)).toBe("https://api.sleeper.app/projections/nfl/2026/5?season_type=regular&position[]=QB&position[]=RB&position[]=WR&position[]=TE&position[]=K&position[]=DEF");
@@ -586,10 +592,10 @@ describe("the Sleeper gate: a build stops at the first request Sleeper doesn't a
     const first = await settle(sleeperBuild(sleeperGate(http, NOW), [4, 5, 6], [1, 2]));
     expect(first.warnings).toEqual([]);
     expect(f.attempts).toHaveLength(6);
-    // Sleeper goes down; a build for another league (other positions, other URLs) finds out: 2 attempts.
+    // Sleeper goes down; a build for another league (an IDP league: the other group of positions, other URLs) finds out: 2 attempts.
     down = true;
     vi.setSystemTime(at(MINUTE));
-    const other = await settle(loadSleeperWeeklyProjections(sleeperGate(http, at(MINUTE)), SEASON, [4, 5], ["QB"]));
+    const other = await settle(loadSleeperWeeklyProjections(sleeperGate(http, at(MINUTE)), SEASON, [4, 5], ["DL"]));
     expect(other.warnings.map((w) => w.code)).toEqual(["SLEEPER_DOWN", "SLEEPER_DOWN"]);
     expect(f.attempts).toHaveLength(8);
     // Build 3, the first league during the hold: its lists come from the cache; a week it never read isn't asked.

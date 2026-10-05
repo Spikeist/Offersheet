@@ -1,6 +1,7 @@
 /**
  * Test doubles for the import route handlers (no network). Fictional data only.
  */
+import { gzipSync } from "node:zlib";
 import type { HttpClient, HttpRequestOptions, HttpResponse, ImportDeps, ImportResult } from "@/adapters/types";
 import type { PlayerIdResolver } from "@/data/types";
 import type { LeagueSnapshot } from "@/engine/model";
@@ -56,4 +57,9 @@ export function fakeResult(overrides: Partial<LeagueSnapshot> = {}): ImportResul
 
 export function jsonRequest(url: string, body: unknown, headers: Record<string, string> = {}): Request {
   return new Request(url, { method: "POST", headers: { "content-type": "application/json", host: "localhost:3000", ...headers }, body: JSON.stringify(body) });
+}
+
+/** A gzip body as the browser sends one (track BF: src/lib/leagueFetch.ts postGzipJson): JSON, gzipped, application/gzip. */
+export function gzipRequest(url: string, body: unknown, headers: Record<string, string> = {}): Request {
+  return new Request(url, { method: "POST", headers: { "content-type": "application/gzip", host: "localhost:3000", ...headers }, body: gzipSync(Buffer.from(typeof body === "string" ? body : JSON.stringify(body))) });
 }

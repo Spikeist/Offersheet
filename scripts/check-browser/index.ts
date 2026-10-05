@@ -246,7 +246,7 @@ async function run(args: CheckBrowserArgs): Promise<number> {
     // Anything the browser reported after the last step, and the server's own error lines.
     page.step = "After the checks";
     await sleep(500);
-    if (page.eventsOf(page.step).some((e) => e.kind !== "console warning")) healthCheck(ctx, page.step);
+    if (page.eventsOf(page.step).some((e) => e.kind !== "console warning" && e.kind !== "platform read")) healthCheck(ctx, page.step);
     const appErrors = server.appErrors();
     report.check("Server", appErrors.length === 0, "the app logged no errors on the server", `the app logged ${appErrors.length} error line(s) on the server`, appErrors);
 

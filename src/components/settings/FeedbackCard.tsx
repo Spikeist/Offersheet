@@ -15,13 +15,27 @@
  * feedback" again; "Yes, delete it" → the status line saying it's done, or, when the browser refused,
  * "Delete saved feedback" again, with an alert saying why. FeedbackCardView is the card in each state (no
  * state of its own, so tests render it); FeedbackCard holds the state and moves focus.
+ *
+ * Phase 7a (planner reply to Checkpoint 4c, Part B, B2; track FB): "Share anonymous feedback", a checkbox (on by default,
+ * saved in this browser for every league: src/lib/feedbackShare.ts), with one sentence on what each anonymous copy holds
+ * and never holds, and a link to the privacy policy, which lists it field by field. Unchecked, presses are still saved
+ * here; nothing is sent. A choice the browser won't keep holds for the page and says so (an alert under the checkbox).
+ * Delete's question says the anonymous copies already sent aren't affected (review FB-R3).
  */
+import Link from "next/link";
 import { useEffect, useId, useMemo, useRef, useState, type Ref } from "react";
 import { feedbackExportFileName } from "@/lib/feedbackStore";
 import { plural } from "@/lib/format";
 import { revealResult } from "../reveal";
 import { Callout, Card, CardTitle, FOCUS_TARGET, buttonClass, cx } from "../ui";
-import { deleteFeedback, downloadFeedback, useSavedFeedback } from "./useFeedback";
+import { deleteFeedback, downloadFeedback, setFeedbackSharing, useFeedbackSharing, useSavedFeedback } from "./useFeedback";
+
+/** The sharing checkbox's label (pages.test.ts checks the Settings page has it: the privacy policy names it). */
+export const SHARE_LABEL = "Share anonymous feedback";
+
+/** What a copy holds and never holds, in one sentence (the privacy policy's list, shortened), before its link. */
+export const SHARE_TEXT =
+  "When it's on, each press also sends Offer Sheet an anonymous copy, to make its estimates better: what you pressed, the players as ID numbers, your league's format and Offer Sheet's numbers for the trade, never your league's ID, names, usernames or the notes you type. This choice is saved in this browser, for every league.";
 
 /** The card's words for a count (undefined while the browser's storage is read), with how many leagues it spans. */
 export function feedbackCountText(count: number | undefined, leagues = 1): string {
@@ -30,10 +44,16 @@ export function feedbackCountText(count: number | undefined, leagues = 1): strin
   return `${plural(count, "trade idea")} with feedback saved in this browser${leagues > 1 ? `, across ${leagues} leagues` : ""}.`;
 }
 
-/** The confirmation's question: every league's feedback goes, so it says so when there are several. */
+/** What Delete doesn't do (deleteQuestionText; review FB-R3): the anonymous copies already sent stay. */
+export const DELETE_KEEPS_SENT = "Anonymous copies already sent aren't affected.";
+
+/**
+ * The confirmation's question: every league's feedback goes, so it says so when there are several; and the anonymous
+ * copies already sent aren't taken back (the privacy policy says how long they stay).
+ */
 export function deleteQuestionText(count: number, leagues = 1): string {
   const where = leagues > 2 ? ` in all ${leagues} leagues` : leagues === 2 ? " in both leagues" : "";
-  return `Delete the feedback on ${plural(count, "trade idea")}${where}? You can't undo this.`;
+  return `Delete the feedback on ${plural(count, "trade idea")}${where}? You can't undo this. ${DELETE_KEEPS_SENT}`;
 }
 
 /** The card's scope, in its explanation (the page above it edits one league; this card doesn't). */
@@ -74,20 +94,53 @@ export interface FeedbackCardViewProps {
   onAsk: () => void;
   onKeep: () => void;
   onDelete: () => void;
+  /**
+   * "Share anonymous feedback" (the header): whether it's on, what a change does, and why the browser wouldn't keep the
+   * last change (or null). Absent: the checkbox isn't shown (tests of the card's other parts).
+   */
+  sharing?: { on: boolean; onChange: (on: boolean) => void; error: string | null } | undefined;
   /** The elements focus moves to (deleteStep). */
   refs?: { delete?: Ref<HTMLButtonElement>; question?: Ref<HTMLParagraphElement>; status?: Ref<HTMLParagraphElement> };
 }
 
+/** The sharing checkbox, its sentence and the privacy policy's link (the header). */
+function SharingToggle({ on, onChange, error }: NonNullable<FeedbackCardViewProps["sharing"]>) {
+  const textId = useId();
+  return (
+    <div className="mt-4 rounded-xl border border-line p-3">
+      <label className="flex min-h-11 cursor-pointer items-center gap-3 font-semibold">
+        <input type="checkbox" checked={on} aria-describedby={textId} onChange={(e) => onChange(e.target.checked)} className="size-5 shrink-0 accent-brand" />
+        <span>{SHARE_LABEL}</span>
+      </label>
+      <p id={textId} className="mt-1 text-sm leading-relaxed text-muted">
+        {SHARE_TEXT} The{" "}
+        <Link href="/privacy" className="font-semibold underline underline-offset-2">
+          privacy policy
+        </Link>{" "}
+        lists exactly what&apos;s sent.
+      </p>
+      {error ? (
+        <div className="mt-2">
+          <Callout tone="danger" role="alert">
+            {error}
+          </Callout>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 /** The card in one state (FeedbackCard holds the state). */
-export function FeedbackCardView({ count, leagues = 1, confirming, note, onExport, onAsk, onKeep, onDelete, refs }: FeedbackCardViewProps) {
+export function FeedbackCardView({ count, leagues = 1, confirming, note, onExport, onAsk, onKeep, onDelete, sharing, refs }: FeedbackCardViewProps) {
   const questionId = useId();
   return (
     <Card id="feedback">
       <CardTitle eyebrow="Feedback">Your trade feedback</CardTitle>
       <p className="text-sm leading-relaxed text-muted">
-        On each trade idea you can mark what happened (Sent, Accepted, Rejected or Countered) or report a problem with it. Offer Sheet keeps that in this browser
-        only, with the trade&apos;s numbers, so you can export it and help improve the estimates. Nothing is sent anywhere. {FEEDBACK_SCOPE_TEXT}
+        On each trade idea you can mark what happened (Sent, Accepted, Rejected or Countered) or report a problem with it. Offer Sheet keeps that in this browser,
+        with the trade&apos;s numbers, so you can export it. {FEEDBACK_SCOPE_TEXT}
       </p>
+      {sharing ? <SharingToggle {...sharing} /> : null}
       <p className="mt-3 font-semibold">{feedbackCountText(count, leagues)}</p>
       <div className="mt-3 flex flex-wrap gap-2">
         <button type="button" onClick={onExport} disabled={!count} className={buttonClass("primary")}>
@@ -129,8 +182,8 @@ export function FeedbackCardView({ count, leagues = 1, confirming, note, onExpor
         </Callout>
       ) : null}
       <p className="mt-3 text-xs text-muted">
-        The file holds player and team ID numbers and Offer Sheet&apos;s numbers for each trade, plus any notes you typed. It has no names, and it numbers your
-        leagues (league-1, league-2) rather than saying which they are.
+        The file holds player and team ID numbers and Offer Sheet&apos;s numbers for each trade, plus any notes you typed and the random code each one&apos;s
+        anonymous copies carry. It has no names, and it numbers your leagues (league-1, league-2) rather than saying which they are.
       </p>
     </Card>
   );
@@ -138,6 +191,8 @@ export function FeedbackCardView({ count, leagues = 1, confirming, note, onExpor
 
 export function FeedbackCard() {
   const records = useSavedFeedback();
+  const sharingOn = useFeedbackSharing();
+  const [sharingError, setSharingError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [note, setNote] = useState<FeedbackNote | null>(null);
@@ -191,6 +246,14 @@ export function FeedbackCard() {
       onAsk={() => go("ask")}
       onKeep={() => go("keep")}
       onDelete={() => void deleteNow()}
+      sharing={{
+        on: sharingOn,
+        onChange: (on) => {
+          const saved = setFeedbackSharing(on);
+          setSharingError(saved.ok ? null : saved.message);
+        },
+        error: sharingError,
+      }}
       refs={{ delete: deleteRef, question: questionRef, status: statusRef }}
     />
   );

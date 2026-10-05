@@ -2,14 +2,17 @@ import { describe, expect, it } from "vitest";
 import type { ModelInputs } from "@/engine/inputs";
 import type { LeagueSnapshot } from "@/engine/model";
 import { TTL } from "@/server/cache";
+import { browserFetchLimits } from "@/server/limits";
 import type { ModelResponse } from "./api";
 import { IMPORT_FORMAT_VERSION, type StoredImport } from "./importStore";
 import {
   MODEL_REUSE_MAX_AGE_MS,
   MODEL_STORAGE_KEY,
   checkStoredModel,
+  importDataAgeMs,
   modelForSnapshot,
   modelKey,
+  modelPlan,
   modelRequest,
   parseStoredModel,
   snapshotOrder,
@@ -200,5 +203,82 @@ describe("the pieces the league store shares (Phase 4c: src/lib/leagueStore.ts k
     // A time that can't be read is never older: the response is the server's answer for this league just now.
     expect(snapshotOrder("2026-09-30T02:00:00.000Z", "soon")).toBe("newer");
     expect(snapshotOrder("whenever", "2026-09-30T01:00:00.000Z")).toBe("newer");
+  });
+});
+
+describe("modelPlan: how the League page gets a saved import's numbers (Part B, track BF)", () => {
+  const NOW = Date.parse("2026-10-04T20:00:00.000Z");
+  const ago = (ms: number) => new Date(NOW - ms).toISOString();
+  const resp = (fetchedAt: string, over: Record<string, unknown> = {}) => ({ response: { snapshot: { platform: "espn", leagueId: "4242", season: 2026, fetchedAt }, notes: [], ...over } }) as unknown as Pick<StoredImport, "response">;
+  const signed = { signed: { issuedAt: NOW - 120_000, token: "t" } };
+  const plan = (stored: Pick<StoredImport, "response">, refresh = false, browserReads = true) => modelPlan(stored, { now: NOW, refresh, browserReads });
+
+  it("sends a fresh signed import back; reads a stale one again first (the browser's way where it can); a fresh unsigned one is the server's", () => {
+    expect(browserFetchLimits.reimportAfterMs).toBe(TTL.league);
+    expect(plan(resp(ago(60_000), signed))).toEqual({ kind: "signed" });
+    expect(plan(resp(ago(browserFetchLimits.reimportAfterMs + 1), signed))).toEqual({ kind: "reimport", refresh: false });
+    expect(plan(resp(ago(60_000)))).toEqual({ kind: "server", refresh: false });
+    expect(plan(resp(ago(browserFetchLimits.reimportAfterMs + 1)))).toEqual({ kind: "reimport", refresh: false });
+    // A signature older than the route takes, or a time that can't be read, counts as none / as old.
+    expect(plan(resp(ago(60_000), { signed: { issuedAt: NOW - browserFetchLimits.tokenMaxAgeMs - 1, token: "t" } }))).toEqual({ kind: "server", refresh: false });
+    expect(plan(resp("whenever", signed))).toEqual({ kind: "reimport", refresh: false });
+  });
+
+  it("Refresh reads again at most once a minute; a league read with ESPN cookies, or browser reading off, is the server's", () => {
+    expect(plan(resp(ago(2 * 60_000), signed), true)).toEqual({ kind: "reimport", refresh: true });
+    expect(plan(resp(ago(30_000), signed), true)).toEqual({ kind: "signed" });
+    expect(plan(resp(ago(30_000)), true)).toEqual({ kind: "server", refresh: false });
+    expect(plan(resp(ago(2 * 60_000), { ...signed, usedEspnCookies: true }), true)).toEqual({ kind: "server", refresh: true });
+    expect(plan(resp(ago(60 * 60_000), { usedEspnCookies: true }))).toEqual({ kind: "server", refresh: false });
+    expect(plan(resp(ago(60 * 60_000)), false, false)).toEqual({ kind: "server", refresh: false });
+    // Browser reading off: the saved import is never sent, signed or not (the privacy page's words without it).
+    expect(plan(resp(ago(60_000), signed), false, false)).toEqual({ kind: "server", refresh: false });
+    expect(plan(resp(ago(2 * 60_000), signed), true, false)).toEqual({ kind: "server", refresh: true });
+    // Sleeper is always the browser's to read again; another platform has no model route.
+    expect(plan({ response: { ...resp(ago(60 * 60_000)).response, snapshot: { ...resp(ago(60 * 60_000)).response.snapshot, platform: "sleeper" } } })).toEqual({ kind: "reimport", refresh: false });
+    expect(plan({ response: { ...resp(ago(1)).response, snapshot: { ...resp(ago(1)).response.snapshot, platform: "yahoo" } } })).toBeNull();
+  });
+
+  it("measures ages on one clock at a time (review BF-R4): a device clock behind or ahead of the server's changes no plan", () => {
+    // The server read the league 2 s before it answered and signed it; this browser saved the answer as it arrived and
+    // opens the League page 3 s later, all by its own clock, which is off from the server's by `skew`.
+    const serverNow = Date.parse("2026-10-04T20:00:00.000Z");
+    const savedImport = (skew: number) =>
+      ({
+        savedAt: new Date(serverNow + skew).toISOString(),
+        response: { snapshot: { platform: "espn", leagueId: "4242", season: 2026, fetchedAt: new Date(serverNow - 2_000).toISOString() }, notes: [], signed: { issuedAt: serverNow, token: "t" } },
+      }) as unknown as StoredImport;
+    for (const skew of [0, -5_000, -30_000, -120_000, 5 * 60_000, 11 * 60_000, -6 * 60 * 60_000, 9 * 60 * 60_000]) {
+      const at = (afterSaveMs: number) => serverNow + skew + afterSaveMs;
+      expect(importDataAgeMs(savedImport(skew), at(3_000))).toBe(5_000);
+      expect(modelPlan(savedImport(skew), { now: at(3_000), refresh: false, browserReads: true })).toEqual({ kind: "signed" });
+      // Refresh 5 s after the import: nothing newer to read yet; a minute later it reads again.
+      expect(modelPlan(savedImport(skew), { now: at(5_000), refresh: true, browserReads: true })).toEqual({ kind: "signed" });
+      expect(modelPlan(savedImport(skew), { now: at(60_000), refresh: true, browserReads: true })).toEqual({ kind: "reimport", refresh: true });
+      // Ten minutes after (the data 10 min 2 s old): read again first.
+      expect(modelPlan(savedImport(skew), { now: at(browserFetchLimits.reimportAfterMs), refresh: false, browserReads: true })).toEqual({ kind: "reimport", refresh: false });
+    }
+  });
+
+  it("importDataAgeMs: without a signature, the older of the two readings; a time it can't read, or a clock moved back, reads as before or as old", () => {
+    const fetchedAt = ago(90_000);
+    const unsigned = (savedAt: string | undefined) => ({ ...(savedAt === undefined ? {} : { savedAt }), ...resp(fetchedAt) }) as unknown as StoredImport;
+    expect(importDataAgeMs(unsigned(ago(60_000)), NOW)).toBe(90_000); // clocks agree: the data's own age
+    expect(importDataAgeMs(unsigned(new Date(NOW - 60_000 + 10 * 60_000).toISOString()), NOW + 10 * 60_000)).toBe(10 * 60_000 + 90_000);
+    expect(importDataAgeMs(unsigned(undefined), NOW)).toBe(90_000);
+    expect(importDataAgeMs(unsigned("whenever"), NOW)).toBe(90_000);
+    // Saved "in the future" (this clock moved back since): the old reading.
+    expect(importDataAgeMs(unsigned(new Date(NOW + 60_000).toISOString()), NOW)).toBe(90_000);
+    expect(importDataAgeMs(resp("whenever") as unknown as StoredImport, NOW)).toBe(Number.POSITIVE_INFINITY);
+  });
+
+  it("withImportedTeam drops the signature of an import it changes (the server signed the snapshot as it was)", () => {
+    const stored = { version: IMPORT_FORMAT_VERSION, savedAt: SAVED_AT, request: { platform: "espn", season: 2026, leagueId: "4242" }, response: { snapshot: { platform: "espn", leagueId: "4242", season: 2026, fetchedAt: ago(0), teams: [{ id: "2" }], myTeamId: "2", warnings: [] }, notes: [] } } as unknown as StoredImport;
+    const reply = { import: { snapshot: { ...stored.response.snapshot, myTeamId: null }, notes: [], ...signed }, model: inputs() } as unknown as ModelResponse;
+    const carried = withImportedTeam(reply, stored);
+    expect(carried.import.snapshot.myTeamId).toBe("2");
+    expect(carried.import).not.toHaveProperty("signed");
+    const untouched = { ...reply, import: { ...reply.import, snapshot: { ...reply.import.snapshot, myTeamId: "2" } } } as ModelResponse;
+    expect(withImportedTeam(untouched, stored)).toBe(untouched);
   });
 });

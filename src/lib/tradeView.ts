@@ -160,7 +160,7 @@
  * server that serves the page sees those ids like any address: the privacy page says so).
  */
 import { displayAcceptance } from "@/engine/acceptance";
-import { HELPS_AT_GAIN, futureValuesLoaded, lineupEquivalent, tradeScore } from "@/engine/benefit";
+import { HELPS_AT_GAIN, HELPS_FLOOR_NOTE, HELPS_FLOOR_NOTE_PLAYOFFS, futureValuesLoaded, helpsLambdaNote, lineupEquivalent, tradeScore } from "@/engine/benefit";
 import { blendValues } from "@/engine/blend";
 import { config } from "@/engine/config";
 import type { TradeAnalysis } from "@/engine/evaluate";
@@ -186,7 +186,7 @@ import type {
   TradeSort,
   TradeStep,
 } from "@/engine/tradeModel";
-import { feedbackFor, type FeedbackOutcome, type FeedbackReason, type FeedbackRecord, type FeedbackSent, type FeedbackVersion, type VersionInputs } from "./feedbackStore";
+import { feedbackFor, type FeedbackOutcome, type FeedbackReason, type FeedbackRecord, type FeedbackSent, type FeedbackVersion, type HelpsReason, type VersionInputs } from "./feedbackStore";
 import { fmtNum, fmtSigned, fmtWhole, plural } from "./format";
 import { INJURY_LABEL, PLATFORM_LABEL, posLabel } from "./labels";
 
@@ -957,29 +957,65 @@ export function planBAlsoText(place: number): string {
   return `Also shown as trade idea ${place}.`;
 }
 
+/** The "Helps you" scale a card's versions share (TradeEvaluation.b3 and why it departs from 63; helpsReasonOf). */
+interface ScaleInputs {
+  b3: number | null;
+  helpsReason: HelpsReason | null;
+}
+
+/** The first words of benefit.helpsLambdaNote, before its percent (helpsReasonOf). */
+const LAMBDA_NOTE_LEAD = (() => {
+  const sample = helpsLambdaNote(0.123, 45);
+  const at = sample.indexOf("12%");
+  return at > 0 ? sample.slice(0, at) : "";
+})();
+
+/**
+ * Why a card's "Helps you" scale departs from "+3 points a week reads 63" (benefit.ts HelpsScale.reason; Phase 7a, the
+ * feedback's version inputs: track SC's crossTrack for FB), read off the evaluation's notes, which carry
+ * benefit.helpsScaleNotes for its scale (evaluate.ts simulateTrade, on every simulated evaluation: the Finder's cards and
+ * the Analyzer's): "odds" for the floor note (title or playoff odds barely move), "lambda" for the Win now ↔ Future note,
+ * null for neither. The engine keeps HelpsScale out of TradeEvaluation, so the words are its record here; tradeView.test.ts
+ * checks this reads back every reason helpsScaleNotes writes.
+ */
+export function helpsReasonOf(notes: readonly string[] | undefined): HelpsReason | null {
+  if (!notes) return null;
+  if (notes.some((n) => n === HELPS_FLOOR_NOTE || n === HELPS_FLOOR_NOTE_PLAYOFFS)) return "odds";
+  if (LAMBDA_NOTE_LEAD && notes.some((n) => n.startsWith(LAMBDA_NOTE_LEAD))) return "lambda";
+  return null;
+}
+
 /**
  * A version's model inputs for the feedback (the file header; FeedbackSent.inputs): its acceptance features, raw
- * g_mkt(P), B, and the goal B was weighted by. feedbackStore.ts keeps only finite numbers.
+ * g_mkt(P), B, the goal B was weighted by, and (Phase 7a) the card's B₃ and the scale's reason, which every version of a
+ * card shares (its steps and its Plan B are scored on the card's B₃). feedbackStore.ts keeps only finite numbers.
  */
-function versionInputs(x: { features?: AcceptanceFeatures | undefined; gPartner?: number | undefined; b: number | null }, goal: Goal | null): VersionInputs {
+function versionInputs(x: { features?: AcceptanceFeatures | undefined; gPartner?: number | undefined; b: number | null }, goal: Goal | null, scale: ScaleInputs): VersionInputs {
   return {
     features: x.features ? { ...x.features } : null,
     gPartner: typeof x.gPartner === "number" && Number.isFinite(x.gPartner) ? x.gPartner : null,
     b: x.b !== null && Number.isFinite(x.b) ? x.b : null,
     goal,
+    b3: scale.b3,
+    helpsReason: scale.helpsReason,
   };
 }
 
 /**
  * The versions of a trade idea its card shows (TradeCardView.versions; the feedback's "Which version did you send?"),
  * each with its key, estimate and model inputs (the file header: the card's own when the version is the card's trade,
- * else the step's or Plan B's; `goal`: "What matters most" as the numbers were computed, null when unknown): with steps,
- * the first offer and the full version (the throw-in added); with a Plan B, this trade and Plan B's; else this trade
- * alone ("full").
+ * else the step's or Plan B's; `goal`: "What matters most" as the numbers were computed, null when unknown; the card's B₃
+ * and its scale's reason, helpsReasonOf, for every version): with steps, the first offer and the full version (the
+ * throw-in added); with a Plan B, this trade and Plan B's; else this trade alone ("full").
  */
-export function versionChoices(e: Pick<TradeEvaluation, "key" | "pAccept" | "pComplete" | "steps" | "planB" | "features" | "gPartner" | "b">, snapshot: SnapshotPart, goal: Goal | null = null): VersionChoice[] {
-  const own = versionInputs(e, goal);
-  const of = (step: TradeStep): VersionInputs => (step.key === e.key ? own : versionInputs(step, goal));
+export function versionChoices(
+  e: Pick<TradeEvaluation, "key" | "pAccept" | "pComplete" | "steps" | "planB" | "features" | "gPartner" | "b"> & Partial<Pick<TradeEvaluation, "b3" | "detail">>,
+  snapshot: SnapshotPart,
+  goal: Goal | null = null,
+): VersionChoice[] {
+  const scale: ScaleInputs = { b3: typeof e.b3 === "number" && Number.isFinite(e.b3) && e.b3 > 0 ? e.b3 : null, helpsReason: helpsReasonOf(e.detail?.notes) };
+  const own = versionInputs(e, goal, scale);
+  const of = (step: TradeStep): VersionInputs => (step.key === e.key ? own : versionInputs(step, goal, scale));
   const s = e.steps;
   if (s) {
     return [
@@ -989,7 +1025,7 @@ export function versionChoices(e: Pick<TradeEvaluation, "key" | "pAccept" | "pCo
   }
   const self: VersionChoice = { version: "full", key: e.key, pAccept: e.pAccept, pComplete: e.pComplete, inputs: own, label: "This trade" };
   const p = e.planB;
-  return p ? [self, { version: "planB", key: p.key, pAccept: p.pAccept, pComplete: p.pComplete, inputs: versionInputs(p, goal), label: "The “If they say no” trade" }] : [self];
+  return p ? [self, { version: "planB", key: p.key, pAccept: p.pAccept, pComplete: p.pComplete, inputs: versionInputs(p, goal, scale), label: "The “If they say no” trade" }] : [self];
 }
 
 // ---------------------------------------------------------------------------------------------

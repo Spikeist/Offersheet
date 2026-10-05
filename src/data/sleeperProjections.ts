@@ -7,7 +7,9 @@
  *   actual stats        /stats/nfl/{season}/{week}?season_type=regular&position[]=…
  * Repeated position[] combines positions, and the filter matches fantasy_positions (FB and CB rows come
  * back too). P is never requested: Sleeper doesn't project punters, and punting stats have no canonical
- * keys (src/adapters/espn/scoringMap.ts).
+ * keys (src/adapters/espn/scoringMap.ts). Every list asks for one of two fixed groups of positions, the offense (QB,
+ * RB, WR, TE, K, DEF), plus DL, LB and DB for a league that starts one of them (sleeperRequestPositions; review BF-R2:
+ * a list per lineup let a browser-sent lineup pick lists the server fetched for nobody else).
  *
  * - The weekly URLs and cache policy are the Sleeper adapter's (sleeperUrls.projections, projectionsPolicy: each NFL
  *   week its own entry, served 6 hours for the current week, the next 2 and past weeks and 24 hours for later weeks,
@@ -58,13 +60,13 @@
  * - Stats rows: players with gp > 0 only (gp is 1 or absent on /stats, never 0; Phase 0 cache check), in
  *   raw /stats keys, which are the canonical keys.
  */
-import { PROJECTIONS_POLICY, projectionsPolicy, SLEEPER_PROJECTIONS, sleeperUrls, type CachePolicy } from "@/adapters/sleeper/fetch";
+import { PROJECTIONS_POLICY, projectionPositions, projectionsPolicy, SLEEPER_PROJECTIONS, sleeperUrls, type CachePolicy } from "@/adapters/sleeper/fetch";
 import { hasProjection, LAST_NFL_WEEK } from "@/adapters/sleeper/normalize";
 import { normalizeProjectionStats } from "@/adapters/sleeper/scoringMap";
 import { parseArrayLenient, StatRowSchema, type SleeperStatRow } from "@/adapters/sleeper/schemas";
 import type { HttpClient, HttpRequestOptions, HttpResponse } from "@/adapters/types";
 import { config } from "@/engine/config";
-import { POSITIONS, type ImportWarning, type Pos, type StatLine } from "@/engine/model";
+import type { ImportWarning, Pos, StatLine } from "@/engine/model";
 import { MINUTE } from "@/server/cache";
 import { MODEL_PROJECTIONS_REDUCER, reducedKey, SEASON_PROJECTIONS_REDUCER, STATS_REDUCER, type BodyReducer } from "./reduce";
 
@@ -90,12 +92,13 @@ export function sleeperCacheKey(url: string): string {
 }
 
 /**
- * Positions to request: the given ones (the league's startable positions) minus P, in canonical order,
- * the order the Sleeper adapter uses, so the same league asks for the same URLs.
+ * Positions to request for a league that starts `positions`: one of two fixed groups, the offense, plus the IDP
+ * positions for a league that starts one (src/adapters/sleeper/fetch.ts projectionPositions, the import's own rule; P
+ * never), in canonical order. So every league asks for the same URLs, whatever its lineup (review BF-R2: a lineup a
+ * browser sent could otherwise pick lists nobody else asks for).
  */
 export function sleeperRequestPositions(positions: Iterable<Pos>): Pos[] {
-  const wanted = new Set(positions);
-  return POSITIONS.filter((p) => p !== "P" && wanted.has(p));
+  return projectionPositions(positions);
 }
 
 /** Distinct NFL regular-season weeks, in order. */

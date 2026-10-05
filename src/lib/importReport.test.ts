@@ -12,7 +12,9 @@ import { allocationOrder } from "@/engine/league";
 import { fantasyCalcFormat } from "@/engine/market";
 import type { LeagueSettings, LeagueSnapshot, PlayerInfo, Scoring, Team } from "@/engine/model";
 import type { ImportResponse } from "./api";
-import { UNKNOWN_SETTING_TEXT, WAIVER_WARNING_CODES, allocationBasis, buildImportReport, refreshOutcomeText, ruleText } from "./importReport";
+import { browserFetchLimits } from "@/server/limits";
+import { UNKNOWN_SETTING_TEXT, WAIVER_WARNING_CODES, allocationBasis, buildImportReport, readerText, refreshOutcomeText, refreshTooSoon, ruleText } from "./importReport";
+import { importDataAgeMs } from "./modelStore";
 
 // A small synthetic league. Every name is made up.
 const TZ = "America/New_York";
@@ -740,6 +742,50 @@ describe("buildImportReport: players, schedule, activity, notes and timestamps",
       { label: "FantasyCalc players", value: "Unavailable: timed out" },
       { label: "Sleeper projections", value: "Tue, Sep 29, 2026, 4:30 AM EDT" },
     ]);
+  });
+
+  it("says who read the league, right under its time (Part B, track BF); an import saved before doesn't say", () => {
+    const byBrowser = buildImportReport(response(snapshot(), { readBy: "browser" }), { timeZone: TZ });
+    expect(byBrowser.timestamps.slice(0, 2)).toEqual([
+      { label: "League data from ESPN", value: "Tue, Sep 29, 2026, 7:00 PM EDT" },
+      { label: "League data read by", value: "Your browser, straight from ESPN" },
+    ]);
+    expect(byBrowser.league.readBy).toBe("browser");
+    const byServer = buildImportReport(response(snapshot(), { readBy: "server" }), { timeZone: TZ });
+    expect(byServer.timestamps[1]).toEqual({ label: "League data read by", value: "Offer Sheet's server" });
+    expect(readerText(undefined, "ESPN")).toBeUndefined();
+    expect(v.league).not.toHaveProperty("readBy");
+  });
+});
+
+describe("refreshTooSoon (Part B, track BF: Refresh at most once a minute, the browser's reads included)", () => {
+  it("holds Refresh back while the league data is under a minute old; an age that can't be told never does", () => {
+    expect(refreshTooSoon(0)).toBe(true);
+    expect(refreshTooSoon(59_999)).toBe(true);
+    expect(refreshTooSoon(browserFetchLimits.refreshEveryMs)).toBe(false);
+    expect(refreshTooSoon(-1)).toBe(false);
+    expect(refreshTooSoon(Number.NaN)).toBe(false);
+    expect(refreshTooSoon(Number.POSITIVE_INFINITY)).toBe(false);
+  });
+
+  it("measures the age on one clock at a time (review BF-R4): a device clock behind or ahead of the server's still holds a second press back", () => {
+    // An import the server signed 2 s after it read the league; this browser saved it as it arrived.
+    const serverNow = Date.parse("2026-10-04T20:00:00.000Z");
+    for (const skewMs of [0, -5_000, -30_000, -120_000, 5 * 60_000, 11 * 60_000, -6 * 60 * 60_000]) {
+      const savedAt = serverNow + skewMs;
+      const stored = { savedAt: new Date(savedAt).toISOString(), response: { snapshot: { fetchedAt: new Date(serverNow - 2_000).toISOString() }, signed: { issuedAt: serverNow, token: "t" } } } as never;
+      // A press 5 s after the import, by this device's clock: still under a minute (7 s) whatever the skew.
+      expect(importDataAgeMs(stored, savedAt + 5_000)).toBe(7_000);
+      expect(refreshTooSoon(importDataAgeMs(stored, savedAt + 5_000))).toBe(true);
+      expect(refreshTooSoon(importDataAgeMs(stored, savedAt + 60_000))).toBe(false);
+    }
+  });
+
+  it("says how long ago the data was fetched from the age given, else from the clock", () => {
+    const now = new Date("2026-09-30T02:09:00.000Z");
+    const base = { before: "2026-09-30T02:08:00.000Z", after: "2026-09-30T02:08:00.000Z", now, platform: "espn" as const, timeZone: TZ };
+    expect(refreshOutcomeText(base)).toBe("Already up to date (fetched 60 s ago; Refresh works once a minute)");
+    expect(refreshOutcomeText({ ...base, ageMs: 7_000 })).toBe("Already up to date (fetched 7 s ago; Refresh works once a minute)");
   });
 });
 

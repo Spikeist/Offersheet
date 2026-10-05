@@ -127,10 +127,94 @@ export const deadlines = {
   slowAnswerMs: 5_000,
 } as const;
 
-/** Browser uploads of league data (src/app/api/_lib/upload.ts). */
+/**
+ * Browser uploads of league data (track BF; src/app/api/_lib/upload.ts): the gzip body a browser sends the import routes
+ * (the league it read itself) and the model routes (the import it saved, signed), refused unread past compressedBytes and
+ * refused while unpacking past unpackedBytes (a zip bomb stops there). Vercel takes at most 4.5 MB a request body.
+ * Measured (Checkpoint 7a): an ESPN league's upload about 0.5 MB gzip, a Sleeper league's under 0.1 MB.
+ */
 export const uploadLimits = {
   compressedBytes: 3_000_000,
   unpackedBytes: 20_000_000,
+} as const;
+
+/**
+ * What a league the browser read may hold (track BF, review BF-R1; src/adapters/upload.ts uploadShapeProblem, and
+ * src/app/api/_lib/upload.ts for the import it makes). The server's work on an upload grows with these counts (the
+ * normalizers' grouping and trade matching, and the model build's scoring: every relevant player's projected weeks under
+ * every scoring rule), and a size cap alone doesn't bound that. No real league comes near them, so an upload past any of
+ * them is refused (BAD_UPLOAD) and the browser asks the server to read the league itself, which then reads it from the
+ * platform. Real leagues for comparison: ESPN has at most 20 teams; 1,325 captured Sleeper leagues had at most 32 teams,
+ * 148 scoring keys and 65 lineup spots; Parker's ESPN league has 10 teams, 164 rostered players and 9 scoring rules.
+ */
+export const uploadShapeLimits = {
+  /** Entries of any one list or object in any part (the longest real ones: an ESPN free-agent list, 500 players). */
+  maxEntries: 2_000,
+  /** How deep any part nests (real bodies: about 11). */
+  maxDepth: 40,
+  espn: { teams: 32, rosterEntries: 1_000, scoringItems: 300, matchupPeriodWeeks: 100, transactions: 5_000 },
+  sleeper: { rosters: 40, rosterPlayers: 2_000, scoringKeys: 400, rosterPositions: 150 },
+  /**
+   * Scoring rules (thresholds, ranges: everything but a per-unit rate) a Sleeper upload's scoring settings make: the
+   * import itself scores every free agent's projected weeks under all of them (250 surveyed 2026 leagues: at most 16
+   * yardage-tier and points- or yards-allowed keys, the keys that make rules). Checked on the server only
+   * (src/app/api/_lib/upload.ts), where the scoring map is.
+   */
+  sleeperScoringRules: 100,
+  /**
+   * The model build's work for an import the browser read: the players it scores (rostered and free agents) times the
+   * scoring rules, a stepped rule ("every 5 passing yards") counted steppedRuleWeight times (it sums up to about 200
+   * terms: about 11 µs against a range rule's 1.4, measured). At the cap a model build's scoring takes 2.4–3.4 s
+   * (measured: 3,000 players × 50 rules, 1,500 × 10 stepped, 1,000 × 100 + 5 stepped); Parker's league is about 3,800
+   * (0.13 s), a 32-team league of 1,600 players with 25 rules 40,000.
+   */
+  modelWork: 150_000,
+  steppedRuleWeight: 10,
+} as const;
+
+/** How long the League page treats a league's data as current, the server's league TTL (§2.10): see browserFetchLimits. */
+const REIMPORT_AFTER_MS = 10 * 60_000;
+
+/**
+ * Browser fetching (track BF; planner reply to Checkpoint 4c, Part B, B1: "Sleeper: fetch from the browser … ESPN public
+ * leagues … fetch them from the browser too"). The browser's own client (src/lib/browserHttp.ts) and what the server
+ * accepts from it (src/adapters/upload.ts, src/server/importToken.ts, src/lib/leagueFetch.ts). Browser-safe: plain
+ * numbers, read by client code too.
+ */
+export const browserFetchLimits = {
+  /** One request at a time per host, this long apart (ms; the server's own client waits 600 and 120). */
+  hostGapMs: { "lm-api-reads.fantasy.espn.com": 250, "api.sleeper.app": 60 } as Readonly<Record<string, number>>,
+  /** Any other host (never asked today: the CSP allows only the two above). */
+  defaultGapMs: 250,
+  /** Retries after a 429, a 5xx or no answer (a network error, a timeout), with backoff and jitter. */
+  retries: 2,
+  /** The first backoff wait; doubled each retry, plus up to backoffJitterMs. */
+  backoffMs: 500,
+  backoffJitterMs: 250,
+  /** A Retry-After longer than this isn't waited for: the answer so far is the answer (someone is waiting on the page). */
+  retryAfterCapMs: 10_000,
+  /** Each request's own timeout (ms). */
+  timeoutMs: 20_000,
+  /** Parts of one upload (ESPN: the league, a period's transactions each, a list per position, the cards; Sleeper ≈ 40). */
+  maxParts: 120,
+  /**
+   * The oldest response an upload may carry, by the browser's own clock (sentAt − a part's time): the browser sends what it
+   * read right away, so anything older is refused (the client then asks the server to read the league itself).
+   */
+  maxPartAgeMs: 10 * 60_000,
+  /**
+   * How long a signed import stays good for the model route (the issue time, by the server's clock), and the clock skew
+   * allowed. The League page sends one back only while its league data is under reimportAfterMs old (src/lib/modelStore.ts
+   * modelPlan), so the server takes it that long plus 5 minutes for the request itself (review BF-R7: it took 6 hours);
+   * an older token makes the model route read the league itself. (The numbers built from it are reused for up to 6 hours,
+   * a rule of their own: src/lib/modelStore.ts MODEL_REUSE_MAX_AGE_MS.)
+   */
+  tokenMaxAgeMs: REIMPORT_AFTER_MS + 5 * 60_000,
+  tokenFutureSkewMs: 60_000,
+  /** The League page reads a league again before building its numbers once its data is this old (the server's league TTL, §2.10). */
+  reimportAfterMs: REIMPORT_AFTER_MS,
+  /** Refresh reads a league again at most this often (§2.10: once a minute, as the server's own copies). */
+  refreshEveryMs: 60_000,
 } as const;
 
 /**
@@ -144,8 +228,23 @@ export const logLimits = {
   writeTimeoutMs: 2_000,
 } as const;
 
-/** The anonymous feedback store (src/server/feedbackSink.ts). */
+/**
+ * The anonymous feedback store (track FB; src/server/feedbackSink.ts, the route src/app/api/feedback; its rate limit is
+ * rateLimits.feedback, its deadline deadlines.feedbackMs). With Redis on Vercel, one list per UTC month of arrival
+ * (`prefix + "fb:" + YYYY-MM`): each copy LPUSHed, the list trimmed to its newest maxPerMonth and its expiry reset to
+ * retainDays, in one transaction (3 commands a copy; review FB-R5), so a month's list goes a year after the last copy that
+ * month (the privacy page's words); `npm run feedback:pull` deletes its downloaded copies by the same rule (review FB-R2).
+ * ⚠️ A year is the lead's design, a question for Parker at Checkpoint 7a. At the cap, about 1.1 KB a copy and at most 13
+ * month lists alive, the store holds about 75 MB at most: under a third of the free tier's 256 MB (Checkpoint 7a's table).
+ */
 export const feedbackLimits = {
   maxPerMonth: 5_000,
   retainDays: 365,
+  /** The store's write gives up after this long (the copy is dropped; the browser never waits for it, nor retries). */
+  writeTimeoutMs: 2_000,
+  /**
+   * A refused copy is logged at most this often per server instance (review FB-R8): at most 144 lines a day each, well under
+   * the error log's day list (logLimits.keepPerDay), so a flood of bad copies can't push the day's other lines out.
+   */
+  invalidLogEveryMs: 10 * 60_000,
 } as const;

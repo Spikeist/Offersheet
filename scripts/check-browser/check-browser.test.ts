@@ -12,7 +12,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { DEFAULT_MAX_SEARCH_SECONDS, SECOND_LEAGUE, USAGE, parseArgs, resolveArgs, type CheckBrowserArgs } from "./args";
 import { chromeArgs, chromeCandidates, devtoolsUrl, exited, findChrome, killTree, waitForDevtools } from "./chrome";
 import { CARD_HELPERS, CSP_MARK, INSTRUMENT, NAME_REPLACER, PAGE_HELPERS, RESTORE_CALL, sanitizeCall } from "./inPage";
-import { consoleCallKind, cspIssueText, keptText, logEntryKind, TEXT_KEEP_MAX } from "./page";
+import { consoleCallKind, cspIssueText, isPlatformHost, isPlatformRead, keptText, logEntryKind, platformReadText, TEXT_KEEP_MAX } from "./page";
 import {
   CheckReport,
   cleanValue,
@@ -33,7 +33,7 @@ import {
   type LeagueNames,
 } from "./report";
 import { freePort, newestChange, productionBuild, StartError, startNextServer } from "./server";
-import { isMissingPage404, MISSING_PAGE, NARROW_PHONE_WIDTH, READ_SITE_FILES, sameRow, siteFileChecks, sidelessCards, skipReason, sortInversions, STATIC_PAGES, STEPS, type SiteFiles } from "./steps";
+import { isMissingPage404, MISSING_PAGE, NARROW_PHONE_WIDTH, READ_SITE_FILES, readPathOf, sameRow, siteFileChecks, sidelessCards, skipReason, sortInversions, STATIC_PAGES, STEPS, type SiteFiles } from "./steps";
 
 const parsed = (argv: string[]) => {
   const p = parseArgs(argv);
@@ -512,6 +512,66 @@ describe("the checks' own rules", () => {
     // The switcher pushed to a row of its own, right under the logo's (the 44 px the header grew by).
     expect(sameRow(logo, { top: 52, bottom: 96 })).toBe(false);
     expect(sameRow({ top: 52, bottom: 96 }, logo)).toBe(false);
+  });
+});
+
+describe("the browser's own reads of a league (Part B, track BF)", () => {
+  it("are the two league APIs only, recorded without any id or username", () => {
+    expect(isPlatformRead("https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/2026/segments/0/leagues/12345678?view=mSettings")).toBe(true);
+    expect(isPlatformRead("https://api.sleeper.app/v1/state/nfl")).toBe(true);
+    expect(isPlatformRead("https://api.sleeper.app.evil.example/v1")).toBe(false);
+    expect(isPlatformRead("https://fantasy.espn.com/football/league?leagueId=12345678")).toBe(false);
+    const espn = platformReadText("https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/2026/segments/0/leagues/12345678?view=mSettings&view=mTeam", "GET");
+    expect(espn).toBe("GET lm-api-reads.fantasy.espn.com view=mSettings,mTeam");
+    expect(platformReadText("https://api.sleeper.app/v1/league/123456789012345678/matchups/3", "GET")).toBe("GET api.sleeper.app/v1/league/#/matchups/#");
+    expect(platformReadText("https://api.sleeper.app/v1/user/zorblaxq", "GET")).toBe("GET api.sleeper.app/v1/user/…");
+    expect(platformReadText("https://api.sleeper.app/v1/user/123/leagues/nfl/2026", "OPTIONS")).toBe("OPTIONS api.sleeper.app/v1/user/#/leagues/nfl/#");
+    for (const t of [espn, platformReadText("https://api.sleeper.app/v1/user/zorblaxq", "GET")]) expect(t).not.toMatch(/12345678|zorblaxq/);
+  });
+
+  it("count only the league-data requests as reads; anything else to those hosts is the server's to read, a problem (review BF-R6)", () => {
+    const espnLeague = "https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/2026/segments/0/leagues/12345678";
+    for (const url of [
+      `${espnLeague}?view=mSettings&view=mTeam&view=mRoster&view=mMatchup&view=mStatus`,
+      `${espnLeague}?view=mTransactions2&scoringPeriodId=3`,
+      `${espnLeague}?view=kona_player_info&scoringPeriodId=4`,
+      `${espnLeague}?view=kona_playercard`,
+      "https://api.sleeper.app/v1/state/nfl",
+      "https://api.sleeper.app/v1/user/zorblaxq",
+      "https://api.sleeper.app/v1/user/123/leagues/nfl/2026",
+      "https://api.sleeper.app/v1/league/123456789012345678",
+      "https://api.sleeper.app/v1/league/123456789012345678/users",
+      "https://api.sleeper.app/v1/league/123456789012345678/rosters",
+      "https://api.sleeper.app/v1/league/123456789012345678/matchups/3",
+      "https://api.sleeper.app/v1/league/123456789012345678/transactions/2",
+      "https://api.sleeper.app/v1/league/123456789012345678/traded_picks",
+      "https://api.sleeper.app/v1/league/123456789012345678/drafts",
+    ])
+      expect(isPlatformRead(url), url).toBe(true);
+    for (const url of [
+      "https://api.sleeper.app/projections/nfl/2026/5?season_type=regular&position[]=QB",
+      "https://api.sleeper.app/stats/nfl/2026/3?season_type=regular&position[]=QB",
+      "https://api.sleeper.app/v1/players/nfl",
+      "https://api.sleeper.app/v1/league/123456789012345678/winners_bracket",
+      "https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/2026?view=proTeamSchedules_wl",
+      "https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/2026/segments/0/leaguedefaults/3?view=kona_player_info",
+      `${espnLeague}?view=mSettings&view=kona_game_state`,
+      `${espnLeague}`,
+    ]) {
+      expect(isPlatformRead(url), url).toBe(false);
+      expect(isPlatformHost(url), url).toBe(true);
+    }
+    expect(isPlatformHost("https://api.sleeper.app.evil.example/v1")).toBe(false);
+    // Said without ids, but with what it was.
+    expect(platformReadText("https://api.sleeper.app/projections/nfl/2026/5?season_type=regular", "GET")).toBe("GET api.sleeper.app/projections/nfl/#/#");
+  });
+
+  it("say which path read the league: the browser (seen reading ESPN), the server (after the browser tried, or not), or unknown", () => {
+    expect(readPathOf("browser", 12)).toMatchObject({ readBy: "browser", text: "read the league in this browser, straight from ESPN (12 requests), and sent it up (track BF)" });
+    expect(readPathOf("browser", 0).readBy).toBe("unknown");
+    expect(readPathOf("server", 1)).toMatchObject({ readBy: "server", text: expect.stringContaining("fell back") });
+    expect(readPathOf("server", 0)).toMatchObject({ readBy: "server", text: expect.stringContaining("didn't run") });
+    expect(readPathOf(null, 0).readBy).toBe("unknown");
   });
 });
 

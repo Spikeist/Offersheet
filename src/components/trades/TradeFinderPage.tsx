@@ -45,7 +45,8 @@
  * shows on its card at once (the league store applies it), and the card says what it did once the browser has kept it,
  * or in an alert on the card when it refused (FeedbackControls awaits useFeedback.ts saveFeedbackPress; Phase 4c, the
  * crossTrack of track ML: it replaced the page-wide alert). Each press saves the sent version's model inputs, with "What
- * matters most" as the search weighted B (Done.goal).
+ * matters most" as the search weighted B (Done.goal), and (Phase 7a, track FB), while "Share anonymous feedback" is on,
+ * sends an anonymous copy (src/lib/feedbackShare.ts; the card's one-time note says so the first time).
  *
  * Coming back (review of Phase 4; finderMemory.ts): the trade pages share one engine client, whose worker keeps its
  * evaluation context between them. A search whose ideas were found before in this tab (same league data, inputs, team,
@@ -71,8 +72,8 @@ import type { LeagueSettings, LeagueSnapshot } from "@/engine/model";
 import { defaultTradeSettings, type Goal, type TradeSettings } from "@/engine/settings";
 import type { TradeEvaluation, TradeSearchProgress, TradeSearchResult, TradeSort } from "@/engine/tradeModel";
 import { EngineError, type TradeSearchHandle } from "@/lib/engineClient";
+import { feedbackShareContext, type FeedbackSaveResult } from "@/lib/feedbackShare";
 import type { FeedbackChange, FeedbackRecord } from "@/lib/feedbackStore";
-import type { SaveResult } from "@/lib/importStore";
 import type { CurrentLeagueRead } from "@/lib/leagueStore";
 import { modelRequest } from "@/lib/modelStore";
 import { settingsFingerprint } from "@/lib/settingsStore";
@@ -455,8 +456,11 @@ function LoadedFinder({ read, query }: { read: Extract<CurrentLeagueRead, { kind
     [shownOutcome, sort, league, lastNflWeek, fantasyCalc, blendOn],
   );
 
-  // A press shows at once (the league store applies it); the card says what it did once the browser has kept it.
-  const onFeedback = useCallback((evaluation: TradeEvaluation, change: FeedbackChange) => saveFeedbackPress({ leagueKey, evaluation, change }), [leagueKey]);
+  // A press shows at once (the league store applies it); the card says what it did once the browser has kept it. Phase 7a
+  // (track FB): its anonymous copy reads the league's format and the goal the cards shown were computed with.
+  const shownGoal = shownOutcome?.goal ?? null;
+  const share = useMemo(() => (league ? feedbackShareContext(league, shownGoal) : null), [league, shownGoal]);
+  const onFeedback = useCallback((evaluation: TradeEvaluation, change: FeedbackChange) => saveFeedbackPress({ leagueKey, evaluation, change, share }), [leagueKey, share]);
   // "Open in Analyzer" remembers the idea and the link used, to come back to it (finderMemory.ts).
   const shownKey = shownOutcome?.key ?? null;
   const onOpenAnalyzer = useCallback(
@@ -670,8 +674,8 @@ interface FrameProps {
   leagueKey: string;
   /** The league, to name a recorded version a card no longer shows (tradeView.ts cardFeedback's versionWords); absent: unnamed. */
   snapshot?: SnapshotPart | null | undefined;
-  /** Saves a card's feedback press; its promise says whether the browser kept it (the card says so). */
-  onFeedback: (evaluation: TradeSearchResult["trades"][number], change: FeedbackChange) => SaveResult | Promise<SaveResult>;
+  /** Saves a card's feedback press; its promise says whether the browser kept it (the card says so), and whether an anonymous copy is on its way. */
+  onFeedback: (evaluation: TradeSearchResult["trades"][number], change: FeedbackChange) => FeedbackSaveResult | Promise<FeedbackSaveResult>;
   /** A card's "Open in Analyzer" was used (its TradeEvaluation.key, and the link's address): the page remembers it, to come back to it. */
   onOpenAnalyzer?: ((cardKey: string, href?: string) => void) | undefined;
 }

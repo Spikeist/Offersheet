@@ -14,12 +14,18 @@
  * Checkpoint 4b, change 11). The session's ESPN cookies belong to an ESPN account, not to a league, so
  * they cover every league of that account: while they're saved the page says so, and that another
  * league needs only its link.
+ *
+ * Part B (planner reply to Checkpoint 4c, B1: browser fetching; track BF): while no ESPN cookies are connected, this
+ * browser reads the league from ESPN itself and sends Offer Sheet only what it needs (src/lib/leagueFetch.ts
+ * importLeague); a private league's answer then shows the same two choices as before. With cookies connected, or when the
+ * browser can't reach ESPN, Offer Sheet's server reads it, as before.
  */
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { callApi, isApiError, type EspnSessionStatus, type ImportResponse } from "@/lib/api";
+import { callApi, isApiError, type EspnSessionStatus } from "@/lib/api";
 import { parseEspnLeagueInput } from "@/lib/espnLink";
 import type { AppErrorCode } from "@/lib/errors";
+import { importLeague, type EspnCookieState } from "@/lib/leagueFetch";
 import { defaultSeason, newestSeason, seasonFromLink } from "@/lib/season";
 import { revealResult } from "../reveal";
 import { Badge, Callout, Card, CardTitle, FOCUS_TARGET, Spinner, buttonClass, cx, inputClass } from "../ui";
@@ -87,7 +93,8 @@ export function EspnConnect() {
 
   const revealNext = (target: Reveal["target"]) => setReveal((r) => ({ n: (r?.n ?? 0) + 1, target }));
 
-  async function runImport() {
+  /** `cookies`: whether ESPN cookies are connected, when the page knows better than its state (just saved). */
+  async function runImport(cookies: EspnCookieState = session ? (session.connected ? "connected" : "none") : "unknown") {
     if (!parsed.ok) {
       // After the render that ties the message to the field (aria-describedby), so it's read on focus.
       setShowInputError(true);
@@ -97,11 +104,17 @@ export function EspnConnect() {
     const leagueId = parsed.leagueId;
     setBusy(true);
     setError(null);
-    const res = await callApi<ImportResponse>("/api/import/espn", { method: "POST", body: { leagueId, season } });
+    const res = await importLeague({ platform: "espn", body: { leagueId, season }, espnCookies: cookies });
     if (isApiError(res)) {
       setBusy(false);
       setError(res.error);
       revealNext(isPrivateError(res.error) ? "private" : "error");
+      return;
+    }
+    if (!("snapshot" in res)) {
+      setBusy(false);
+      setError({ code: "INTERNAL", message: "Something went wrong on our side. Please try again." });
+      revealNext("error");
       return;
     }
     const saved = await finishImport({ platform: "espn", season, leagueId }, res, parsed.teamId);
@@ -237,7 +250,8 @@ export function EspnConnect() {
               if (s.connected) setForgetNote(null);
             }}
             onCookiesSaved={() => {
-              void runImport();
+              // The session's state may not have re-rendered yet: the cookies are connected now.
+              void runImport("connected");
             }}
             onForget={() => {
               void forgetCookies();

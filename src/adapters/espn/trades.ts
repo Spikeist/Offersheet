@@ -196,10 +196,13 @@ function groupRows(rows: readonly TradeRow[]): TradeRow[][] {
       }
     }
   });
+  // Pushed in place (not a copy per row: rows sharing a key would make that quadratic, review BF-R1).
   const groups = new Map<number, TradeRow[]>();
   rows.forEach((r, i) => {
     const root = find(i);
-    groups.set(root, [...(groups.get(root) ?? []), r]);
+    const group = groups.get(root);
+    if (group) group.push(r);
+    else groups.set(root, [r]);
   });
   return [...groups.keys()].sort((a, b) => a - b).map((k) => groups.get(k) as TradeRow[]);
 }
@@ -238,8 +241,12 @@ function describe(rows: TradeRow[], index: number, reviewMs: number | undefined)
       moves.push(m);
     }
   const known: string[] = [];
+  const isKnown = new Set<string>(); // a set beside the list: many rows naming many teams stay linear (review BF-R1)
   const add = (t: string | null | undefined) => {
-    if (t && !known.includes(t)) known.push(t);
+    if (t && !isKnown.has(t)) {
+      isKnown.add(t);
+      known.push(t);
+    }
   };
   for (const a of accepts) add(String(a.row.teamId));
   for (const m of moves) {
@@ -306,7 +313,11 @@ export function tradeHistory(rows: readonly TradeRow[], acquisitions: readonly T
   const outcomes = new Map<number, Outcome>();
   const used = new Set<TradeAcquisition>();
   const byPlayer = new Map<string, TradeAcquisition[]>();
-  for (const a of acquisitions) byPlayer.set(a.playerId, [...(byPlayer.get(a.playerId) ?? []), a]);
+  for (const a of acquisitions) {
+    const list = byPlayer.get(a.playerId);
+    if (list) list.push(a);
+    else byPlayer.set(a.playerId, [a]);
+  }
 
   /** Still waiting (within its review + slack, or when its end can't be told), else unresolved. */
   const waitingOrUnresolved = (g: Group): Outcome => (g.reviewEndsAt === undefined || ctx.now <= g.reviewEndsAt + REFILL_LATE_MS ? { kind: "pending" } : { kind: "unresolved" });

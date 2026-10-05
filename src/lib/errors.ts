@@ -11,6 +11,12 @@ export type AppErrorCode =
   | ImportErrorCode
   /** The request body failed validation. */
   | "INVALID_REQUEST"
+  /**
+   * League data or a saved import the browser sent (track BF: a gzip body, src/app/api/_lib/upload.ts) couldn't be used:
+   * too large, unreadable, or not in the expected shape. The browser then asks the server to read the league itself
+   * (src/lib/leagueFetch.ts), so a user doesn't see it.
+   */
+  | "BAD_UPLOAD"
   /** SESSION_SECRET is missing, so credentials can't be kept. */
   | "SESSION_UNAVAILABLE"
   /** A state-changing request came from another site. */
@@ -57,6 +63,7 @@ const STATUS: Record<AppErrorCode, number> = {
   SOURCE_DOWN: 502,
   BAD_RESPONSE: 502,
   INVALID_REQUEST: 400,
+  BAD_UPLOAD: 400,
   SESSION_UNAVAILABLE: 503,
   BAD_ORIGIN: 403,
   RATE_LIMITED: 429,
@@ -150,6 +157,8 @@ export function errorMessage(code: AppErrorCode, ctx: ErrorContext = {}): string
       return `${source} sent data in a shape we didn't expect, so we stopped instead of guessing.${detail ? ` (${detail})` : ""}`;
     case "INVALID_REQUEST":
       return detail || "Something in the form isn't right. Check it and try again.";
+    case "BAD_UPLOAD":
+      return "Offer Sheet couldn't use the league data your browser read. Try again in a moment.";
     case "SESSION_UNAVAILABLE":
       return "Saving ESPN cookies isn't available on this server right now.";
     case "BAD_ORIGIN":

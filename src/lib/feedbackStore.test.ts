@@ -111,7 +111,8 @@ describe("applyFeedback: one record per trade idea", () => {
       leagueKey: LEAGUE,
       tradeKey: "2|give:101|get:202,203",
       proposal: evaluation().proposal,
-      numbers: { b: 4.2, tradeScore: 50, pAccept: 0.42, pComplete: 0.42, overall: 25, dPO: 0.04, dCH: 0.02, dPPW: 2.6, gMine: -0.03, gPartner: -0.08 },
+      // B₃ is null here: an evaluation from before Phase 7a has none (the scale's tests below).
+      numbers: { b: 4.2, tradeScore: 50, pAccept: 0.42, pComplete: 0.42, overall: 25, dPO: 0.04, dCH: 0.02, dPPW: 2.6, gMine: -0.03, gPartner: -0.08, b3: null },
       features: FEATURES,
       outcome: { kind: "sent", at: T1 },
     });
@@ -366,14 +367,19 @@ describe("the export file", () => {
 
 describe("the sent version's model inputs (planner reply to Checkpoint 4b, change 7)", () => {
   const INPUTS = { features: FEATURES, gPartner: -0.1, b: 4.2, goal: "title" as const };
+  /**
+   * INPUTS as a record keeps them: Phase 7a's B₃, the scale's reason and the week are null when the press didn't carry them
+   * (a press without a basis).
+   */
+  const STORED = { ...INPUTS, b3: null, helpsReason: null, week: null };
   const sent = (version: "offerFirst" | "full" | "planB", inputs?: unknown) => ({ version, key: `${version}-key`, pAccept: 0.3, pComplete: 0.3, ...(inputs !== undefined ? { inputs: inputs as typeof INPUTS } : {}) });
 
   it("keeps them with the version sent, and they follow it: a later version without inputs drops them, clearing the outcome clears them", () => {
     let list = applyFeedback([], { leagueKey: LEAGUE, evaluation: evaluation(), change: { outcome: "sent", sent: sent("offerFirst", INPUTS) }, at: T1 });
-    expect(list[0]?.versionInputs).toEqual(INPUTS);
+    expect(list[0]?.versionInputs).toEqual(STORED);
     // A later outcome without a version keeps them (the same sending).
     list = applyFeedback(list, { leagueKey: LEAGUE, evaluation: evaluation(), change: { outcome: "accepted" }, at: T2 });
-    expect(list[0]?.versionInputs).toEqual(INPUTS);
+    expect(list[0]?.versionInputs).toEqual(STORED);
     // Another version named without inputs: the earlier version's never stay with it.
     list = applyFeedback(list, { leagueKey: LEAGUE, evaluation: evaluation(), change: { outcome: "countered", sent: sent("planB") }, at: T2 });
     expect(list[0]).toMatchObject({ version: "planB" });
@@ -387,15 +393,15 @@ describe("the sent version's model inputs (planner reply to Checkpoint 4b, chang
   it("keeps only the known fields, numbers that weren't finite and goals that aren't one as null", () => {
     const odd = { features: { ...FEATURES, z: Number.NaN, extra: 1 }, gPartner: Number.POSITIVE_INFINITY, b: "4", goal: "fun", junk: true };
     const [r] = applyFeedback([], { leagueKey: LEAGUE, evaluation: evaluation(), change: { outcome: "sent", sent: sent("full", odd) }, at: T1 });
-    expect(r?.versionInputs).toEqual({ features: { ...FEATURES, z: null }, gPartner: null, b: null, goal: null });
+    expect(r?.versionInputs).toEqual({ features: { ...FEATURES, z: null }, gPartner: null, b: null, goal: null, b3: null, helpsReason: null, week: null });
     const [noFeatures] = applyFeedback([], { leagueKey: LEAGUE, evaluation: evaluation(), change: { outcome: "sent", sent: sent("full", { b: 1, goal: "playoffs" }) }, at: T1 });
-    expect(noFeatures?.versionInputs).toEqual({ features: null, gPartner: null, b: 1, goal: "playoffs" });
+    expect(noFeatures?.versionInputs).toEqual({ features: null, gPartner: null, b: 1, goal: "playoffs", b3: null, helpsReason: null, week: null });
   });
 
   it("round-trips through the storage and the export; one that isn't an object, or without a version, is left out", () => {
     const [r] = applyFeedback([], { leagueKey: LEAGUE, evaluation: evaluation(), change: { outcome: "sent", sent: sent("full", INPUTS) }, at: T1 });
     expect(parseFeedback(JSON.stringify([r]))).toEqual([r]);
-    expect(parseFeedbackExport(feedbackExportText([r as FeedbackRecord], T3))?.[0]?.versionInputs).toEqual(INPUTS);
+    expect(parseFeedbackExport(feedbackExportText([r as FeedbackRecord], T3))?.[0]?.versionInputs).toEqual(STORED);
     expect(parseFeedback(JSON.stringify([{ ...r, versionInputs: "lots" }]))[0]?.versionInputs).toBeUndefined();
     const { version: _v, ...noVersion } = r as FeedbackRecord;
     void _v;
@@ -431,5 +437,95 @@ describe("the pieces the league store uses (Phase 4c: one list per league in Ind
     const other = { ...at("a", T1), leagueKey: "sleeper:00000001" };
     expect(mergeFeedbackRecords(stored, [other])).toHaveLength(3);
     expect(mergeFeedbackRecords([], Array.from({ length: FEEDBACK_MAX_RECORDS + 2 }, (_, i) => at(`t${i}`, T1)))[0]?.tradeKey).toBe("t2");
+  });
+});
+
+describe("Phase 7a (track FB): the scale B₃ and the record's share id", () => {
+  // Share ids: 16 bytes' worth (the last character A, Q, g or w: review FB-R4).
+  const RID = "AAAAAAAAAAAAAAAAAAAAAA";
+  const OTHER_RID = "BBBBBBBBBBBBBBBBBBBBBQ";
+
+  it("keeps the card's B₃ with its numbers, null when the evaluation has none or it isn't a number", () => {
+    const [r] = applyFeedback([], { leagueKey: LEAGUE, evaluation: evaluation(undefined, { b3: 6.2 }), change: { outcome: "sent" }, at: T1 });
+    expect(r?.numbers.b3).toBe(6.2);
+    const [nan] = applyFeedback([], { leagueKey: LEAGUE, evaluation: evaluation(undefined, { b3: Number.NaN }), change: { outcome: "sent" }, at: T1 });
+    expect(nan?.numbers.b3).toBeNull();
+    // A record stored before 7a reads its B₃ as unknown.
+    const { b3: _b3, ...oldNumbers } = (r as FeedbackRecord).numbers;
+    void _b3;
+    expect(parseFeedback(JSON.stringify([{ ...r, numbers: oldNumbers }]))[0]?.numbers.b3).toBeNull();
+  });
+
+  it("keeps the sent version's B₃ and the scale's reason; a B₃ not above 0 or a reason that isn't one reads null", () => {
+    const sent = (inputs: unknown) => ({ version: "full" as const, key: "k", pAccept: 0.3, pComplete: 0.3, inputs: inputs as never });
+    const inputs = { features: FEATURES, gPartner: -0.1, b: 4.2, goal: "title" as const, b3: 0.5, helpsReason: "odds" as const };
+    const [r] = applyFeedback([], { leagueKey: LEAGUE, evaluation: evaluation(), change: { outcome: "sent", sent: sent(inputs) }, at: T1 });
+    expect(r?.versionInputs).toEqual({ ...inputs, week: null });
+    expect(parseFeedback(JSON.stringify([r]))[0]?.versionInputs).toEqual({ ...inputs, week: null });
+    for (const [b3, helpsReason] of [
+      [0, "floor"],
+      [-1, null],
+      ["6", 7],
+    ] as const) {
+      const [odd] = applyFeedback([], { leagueKey: LEAGUE, evaluation: evaluation(), change: { outcome: "sent", sent: sent({ ...inputs, b3, helpsReason }) }, at: T1 });
+      expect(odd?.versionInputs).toMatchObject({ b3: null, helpsReason: null });
+    }
+    const [lambda] = applyFeedback([], { leagueKey: LEAGUE, evaluation: evaluation(), change: { outcome: "sent", sent: sent({ ...inputs, helpsReason: "lambda" }) }, at: T1 });
+    expect(lambda?.versionInputs?.helpsReason).toBe("lambda");
+  });
+
+  it("a new record takes the press's share id; a record keeps the first it gets; one made before 7a gets one on its next press", () => {
+    let list = applyFeedback([], { leagueKey: LEAGUE, evaluation: evaluation(), change: { outcome: "sent", rid: RID }, at: T1 });
+    expect(list[0]?.rid).toBe(RID);
+    list = applyFeedback(list, { leagueKey: LEAGUE, evaluation: evaluation(), change: { outcome: "accepted", rid: OTHER_RID }, at: T2 });
+    expect(list[0]?.rid).toBe(RID);
+    // Without one (a caller that passes none, or a record from before 7a), and then a press that carries one.
+    let old = applyFeedback([], { leagueKey: LEAGUE, evaluation: evaluation("b"), change: { outcome: "sent" }, at: T1 });
+    expect(old[0]).not.toHaveProperty("rid");
+    old = applyFeedback(old, { leagueKey: LEAGUE, evaluation: evaluation("b"), change: { report: { reason: "other" }, rid: OTHER_RID }, at: T2 });
+    expect(old[0]?.rid).toBe(OTHER_RID);
+    // Something that isn't a share id is never taken (22 characters that can't end 16 bytes included).
+    for (const rid of ["short", `${RID}x`, "AAAAAAAAAAAAAAAAAAAA+/", "", "BBBBBBBBBBBBBBBBBBBBBB"]) {
+      expect(applyFeedback([], { leagueKey: LEAGUE, evaluation: evaluation(), change: { outcome: "sent", rid }, at: T1 })[0]).not.toHaveProperty("rid");
+    }
+    // Clearing what isn't there makes nothing, share id or not.
+    expect(applyFeedback([], { leagueKey: LEAGUE, evaluation: evaluation(), change: { outcome: null, rid: RID }, at: T1 })).toEqual([]);
+  });
+
+  it("keeps the numbers' basis from the press that made the record, and the week of the press that recorded a version (review FB-R6)", () => {
+    const week5 = { season: 2026, week: 5, goal: "title" as const };
+    const week6 = { season: 2026, week: 6, goal: "balanced" as const };
+    const inputs = { features: FEATURES, gPartner: -0.1, b: 4.2, goal: "balanced" as const, b3: 6, helpsReason: null };
+    let list = applyFeedback([], { leagueKey: LEAGUE, evaluation: evaluation(), change: { report: { reason: "never-accept" }, rid: RID, basis: week5 }, at: T1 });
+    expect(list[0]?.basis).toEqual(week5);
+    list = applyFeedback(list, { leagueKey: LEAGUE, evaluation: evaluation(), change: { outcome: "sent", sent: { version: "full", key: "k", pAccept: 0.3, pComplete: 0.3, inputs }, rid: RID, basis: week6 }, at: T2 });
+    // The record's numbers are still its first press's; the version's inputs are this press's.
+    expect(list[0]?.basis).toEqual(week5);
+    expect(list[0]?.versionInputs).toEqual({ ...inputs, week: 6 });
+    // A later outcome naming no version keeps the version's inputs and their week.
+    list = applyFeedback(list, { leagueKey: LEAGUE, evaluation: evaluation(), change: { outcome: "accepted", rid: RID, basis: { ...week6, week: 7 } }, at: T3 });
+    expect(list[0]?.versionInputs?.week).toBe(6);
+    // Storage and the export read it back; a basis that isn't one is left out (season, week), a goal that isn't one reads null.
+    expect(parseFeedback(JSON.stringify(list))[0]?.basis).toEqual(week5);
+    expect(parseFeedbackExport(feedbackExportText(list, T3))?.[0]?.basis).toEqual(week5);
+    for (const bad of [{ ...week5, season: 1999 }, { ...week5, week: 2.5 }, { ...week5, week: 31 }, "week 5", null]) {
+      expect(parseFeedback(JSON.stringify([{ ...list[0], basis: bad }]))[0]).not.toHaveProperty("basis");
+    }
+    expect(parseFeedback(JSON.stringify([{ ...list[0], basis: { ...week5, goal: "fun" } }]))[0]?.basis).toEqual({ ...week5, goal: null });
+    // A record made before (or by a press without one) has none, and a later press doesn't give it one: its numbers'
+    // week is unknown.
+    let old = applyFeedback([], { leagueKey: LEAGUE, evaluation: evaluation("b"), change: { outcome: "sent", rid: RID }, at: T1 });
+    old = applyFeedback(old, { leagueKey: LEAGUE, evaluation: evaluation("b"), change: { report: { reason: "other" }, rid: RID, basis: week6 }, at: T2 });
+    expect(old[0]).not.toHaveProperty("basis");
+  });
+
+  it("reads the share id back (storage and export alike), and leaves out one that isn't one", () => {
+    const [r] = applyFeedback([], { leagueKey: LEAGUE, evaluation: evaluation(), change: { outcome: "sent", rid: RID }, at: T1 });
+    expect(parseFeedback(JSON.stringify([r]))[0]?.rid).toBe(RID);
+    // The export renumbers leagues and record ids, and keeps the random share id (it identifies nothing).
+    expect(feedbackExport([r as FeedbackRecord], T3).records[0]?.rid).toBe(RID);
+    expect(parseFeedbackExport(feedbackExportText([r as FeedbackRecord], T3))?.[0]?.rid).toBe(RID);
+    expect(parseFeedback(JSON.stringify([{ ...r, rid: "x" }]))[0]).not.toHaveProperty("rid");
+    expect(parseFeedback(JSON.stringify([{ ...r, rid: 42 }]))[0]).not.toHaveProperty("rid");
   });
 });

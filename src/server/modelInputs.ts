@@ -15,7 +15,8 @@
  *      archive (§2.3, src/server/projectionArchive.ts; local disk only, in the background; when the
  *      schedule failed, only weeks after the current one count as before kickoff),
  *   3. Sleeper's season projections (§6's last-resort base rate; 6 hours),
- *   4. Sleeper's stats for the completed weeks (6 hours),
+ *   4. Sleeper's stats for the completed weeks (6 hours), up to the latest week the schedule of step 1 shows begun
+ *      (statsWeeksStarted, review BF-R2: a week not begun has an empty list, never cached),
  *   5. FantasyCalc values in the league's format (keeper leagues: the dynasty and the redraft list,
  *      §9, each loaded whatever happens to the other, ⚠️ though once FantasyCalc doesn't answer the first, the second is
  *      read from the server cache only, not asked: the outage memory below; dynasty leagues with weeks left to project: the
@@ -30,7 +31,8 @@
  * a FantasyCalcGate the same way (src/data/fantasyCalcValues.ts; Phase 4c's polish): once FantasyCalc stops answering,
  * nothing more is asked of it for 5, then 10, at most 15 minutes, and the lists come from the server cache meanwhile
  * (a format with no copy there gets none: FANTASYCALC_UNAVAILABLE says it wasn't asked).
- * Once the season is over (no fantasy week left: currentWeek > lastWeek), or before it has started
+ * Once the season is over (no fantasy week left: currentWeek > lastWeek; or the league's season comes before the one
+ * being played, review BF-R2), or before it has started
  * (the league's season comes after the one being played: a league renewed in January or February for
  * next season, review DATA-3), only step 5 runs: nothing is left to project, or nothing is published
  * yet, so asking for schedules, projections and stats would only load the sources (§0.9), while dynasty
@@ -136,7 +138,11 @@ export interface ModelWeekPlan {
   lastWeek: number;
   /** The settings list no season weeks, so lastWeek is the NFL's last regular-season week (a warning says so). */
   lastWeekUnknown: boolean;
-  /** No fantasy week is left (currentWeek > lastWeek): nothing to project, so only FantasyCalc is loaded. */
+  /**
+   * No fantasy week is left (currentWeek > lastWeek), or the league's season comes before the season being played,
+   * defaultSeason(now) (review BF-R2: a past season is over whatever a snapshot's week says, and a snapshot made from what a
+   * browser sent can say any week): nothing to project, so only FantasyCalc is loaded.
+   */
   seasonOver: boolean;
   /**
    * The league's season hasn't started: it comes after the season being played, defaultSeason(now) (a
@@ -165,7 +171,7 @@ export function modelWeekPlan(snapshot: Pick<LeagueSnapshot, "season" | "current
   const lastWeekUnknown = seasonWeeks.length === 0;
   const lastWeek = lastWeekUnknown ? LAST_NFL_WEEK : Math.max(...seasonWeeks);
   const current = snapshot.currentWeek;
-  const seasonOver = current > lastWeek;
+  const seasonOver = current > lastWeek || snapshot.season < defaultSeason(now);
   const notStarted = !seasonOver && snapshot.season > defaultSeason(now);
   const idle = seasonOver || notStarted;
   return {
@@ -176,6 +182,23 @@ export function modelWeekPlan(snapshot: Pick<LeagueSnapshot, "season" | "current
     projectionWeeks: idle ? [] : weekRange(current - Math.max(0, lookbackWeeks), Math.min(lastWeek, LAST_NFL_WEEK)),
     statsWeeks: idle ? [] : weekRange(1, Math.min(current - 1, LAST_NFL_WEEK)),
   };
+}
+
+/**
+ * The stats weeks worth asking Sleeper for at `now` (review BF-R2): those up to the latest NFL week whose first game has
+ * kicked off by the season's schedule. A week not begun has no stats, and Sleeper's empty list for it is never cached, so
+ * every build would ask again; a snapshot made from what a browser sent can name any current week. Without a schedule
+ * (or one without kickoff times) the weeks as planned.
+ */
+export function statsWeeksStarted(weeks: readonly number[], schedule: Pick<NflSchedule, "kickoffs"> | null, now: Date): number[] {
+  if (!schedule || !Object.keys(schedule.kickoffs).length) return [...weeks];
+  let latest = 0;
+  for (const key of Object.keys(schedule.kickoffs)) {
+    const week = Number(key);
+    const first = firstKickoffOf(schedule, week);
+    if (Number.isInteger(week) && first !== null && first <= now.getTime() && week > latest) latest = week;
+  }
+  return weeks.filter((w) => w <= latest);
 }
 
 /** Every rostered player (roster, IR, taxi, team by team) and every snapshot free agent, once each, in that order. */
@@ -839,8 +862,10 @@ export async function buildModelInputs(args: BuildModelInputsArgs): Promise<Mode
       );
     }
     seasonLoad = await loadSleeper({ what: "season projections", code: "SEASON_PROJECTIONS_UNAVAILABLE", path: "projections/season" }, () => loadSleeperSeasonProjections(sleeper, season, positions), warnings);
-    if (plan.statsWeeks.length) {
-      stats = await loadSleeper({ what: "stats", code: "SLEEPER_STATS_UNAVAILABLE", path: "stats" }, () => loadSleeperStats(sleeper, season, plan.statsWeeks, positions), warnings);
+    // Only weeks the NFL has begun (statsWeeksStarted): a real league's completed weeks always are.
+    const statsWeeks = statsWeeksStarted(plan.statsWeeks, schedule, now);
+    if (statsWeeks.length) {
+      stats = await loadSleeper({ what: "stats", code: "SLEEPER_STATS_UNAVAILABLE", path: "stats" }, () => loadSleeperStats(sleeper, season, statsWeeks, positions), warnings);
     }
   }
 

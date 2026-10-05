@@ -34,22 +34,43 @@
  *   (mergeFeedbackRecords), and deleting feedback deletes that old list too. The pages no longer read or write
  *   localStorage: ⚠️ saveFeedback and clearFeedback (the pre-4c writers) are kept with their tests, unused since 4c.
  * - Numbers and features that weren't finite (B before a simulation, for example) are kept as null.
+ * - Phase 7a (planner reply to Checkpoint 4c, A2 and Part B, B2; track FB):
+ *   - B₃, the "Helps you" scale the card's numbers were scored on (TradeEvaluation.b3), is kept with the numbers
+ *     (FeedbackNumbers.b3) and with the sent version's inputs (VersionInputs.b3), with why the scale departs from "+3
+ *     points a week reads 63" (VersionInputs.helpsReason: benefit.ts HelpsScale.reason, "odds" when my odds barely move,
+ *     "lambda" for the Win now ↔ Future setting), so Phase 6 can compare Helps you across leagues and goals. A record made
+ *     before 7a reads null for both (unknown).
+ *   - `rid`, the record's share id: a random code made in this browser for the anonymous copy each press sends while
+ *     "Share anonymous feedback" is on (src/lib/feedbackShare.ts), so the server can match a later press on the same
+ *     record (Accepted after Sent) to the earlier copy. Derived from nothing (16 random bytes, isShareId); a press passes
+ *     it in its change (FeedbackChange.rid: the league store hands each press to applyFeedback as it is), and a record
+ *     keeps the first one it gets (a record made before 7a gets one on its next press).
+ *   - `basis` (review FB-R6): what the card's numbers were computed from besides the trade, the league data's season and
+ *     NFL week and "What matters most" (FeedbackBasis), kept with the numbers when the record is made, so an outcome
+ *     pressed a week later still says which week and goal the record's numbers belong to. The press passes it
+ *     (FeedbackChange.basis); a version the press records keeps that press's week with its inputs (VersionInputs.week),
+ *     since its numbers come from the card on screen then. A record made before has none (its copies read the week and
+ *     goal on screen, as before).
  *
  * Privacy: a record holds no names, no league id and nothing about anyone's account: player ids (canonical:
- * Sleeper's), the platform's team id of the partner, the league's short hash, the model's numbers and features,
- * which version was sent (its key: the same team and player ids) and the time of each press. The note is the user's
- * own words (trimmed, at most FEEDBACK_NOTE_MAX characters).
+ * Sleeper's), the platform's team id of the partner, the league's short hash, the model's numbers and features (with the
+ * season, week and goal they were computed for), which version was sent (its key: the same team and player ids), the
+ * time of each press and its random share id. The note is the user's own words (trimmed, at most FEEDBACK_NOTE_MAX
+ * characters).
  * The short hash isn't anonymous (an ESPN league id is a small number: hashing every possible id finds it in
  * seconds, and the record id made from it gives it away the same way), so the export, a file meant to be
- * shared, numbers the leagues instead and makes each record id again from that number (feedbackExport).
- * Nothing here is sent anywhere: the server-side store, anonymized and with an opt-out, is Phase 7's.
+ * shared, numbers the leagues instead and makes each record id again from that number (feedbackExport). The share id
+ * stays in the export (it's random, and it lets Phase 6 tell an exported record from its anonymous copy).
+ * The anonymous copy (Phase 7a) is built from a record by src/lib/feedbackShare.ts, which leaves out everything above
+ * that could identify a league or a person: the short hash, the record id, the partner's team id, the times and the note.
  *
  * Reading never throws and never trusts the stored value (bad JSON or another shape counts as no feedback, and
  * a malformed record is skipped); writing reports failure in plain English. Pure functions over an injected
  * storage (like importStore.ts); the pages' hooks are in src/components/settings/useFeedback.ts.
  */
+import type { HelpsScale } from "@/engine/benefit";
 import { fmix32, hash32 } from "@/engine/rng";
-import { GOALS } from "@/engine/settings";
+import { GOALS, type Goal } from "@/engine/settings";
 import type { AcceptanceFeatures, TradeAsset, TradeEvaluation, TradeProposal } from "@/engine/tradeModel";
 import type { SaveResult, StorageLike } from "./importStore";
 
@@ -106,17 +127,52 @@ export interface FeedbackSent {
   inputs?: VersionInputs | undefined;
 }
 
+/** Why the "Helps you" scale departs from "+3 points a week reads 63" (benefit.ts HelpsScale.reason; null: it doesn't). */
+export type HelpsReason = NonNullable<HelpsScale["reason"]>;
+
+/** The reasons a record may name (HelpsReason). */
+export const HELPS_REASONS = ["odds", "lambda"] as const satisfies readonly HelpsReason[];
+
 /**
  * The model inputs of the version sent (planner reply to Checkpoint 4b, change 7: g, n, h, c, a, hist, ctx, the star
  * premium and B), as the card's numbers were computed: its acceptance features (g is the partner's perceived g, with the
  * star premium), the raw g_mkt(P) (so the premium is g's difference from it), B, and the goal B was weighted by. Null where
  * a number wasn't finite or the version doesn't carry it.
+ * Phase 7a (planner reply to Checkpoint 4c, A2; the header): B₃, the scale its Helps you was scored on (every version of a
+ * card shares the card's), and the scale's reason; and (review FB-R6) `week`, the NFL week of the league data its numbers
+ * came from (the press that recorded the version: FeedbackChange.basis). Optional only so that code building inputs before
+ * 7a still compiles: a record read back always has all three, null when unknown.
  */
 export interface VersionInputs {
   features: FeedbackFeatures | null;
   gPartner: number | null;
   b: number | null;
-  goal: "title" | "balanced" | "playoffs" | null;
+  goal: Goal | null;
+  b3?: number | null;
+  helpsReason?: HelpsReason | null;
+  week?: number | null;
+}
+
+/**
+ * What a card's numbers were computed from besides the trade (the header, review FB-R6): the league data's season and NFL
+ * week, and "What matters most" as the card's numbers were computed (null when unknown).
+ */
+export interface FeedbackBasis {
+  season: number;
+  week: number;
+  goal: Goal | null;
+}
+
+/** A season a basis may name (the server's schema takes the same: src/server/feedbackSink.ts). */
+const isSeason = (x: unknown): x is number => Number.isInteger(x) && (x as number) >= 2000 && (x as number) <= 2100;
+
+/** An NFL week a basis may name: 0 (before the season) to 30 (the server's schema takes the same). */
+export const isFeedbackWeek = (x: unknown): x is number => Number.isInteger(x) && (x as number) >= 0 && (x as number) <= 30;
+
+/** A basis as a record keeps it: undefined unless its season and week are ones (a goal that isn't one reads null). */
+function basisOf(x: unknown): FeedbackBasis | undefined {
+  if (!isRecordLike(x) || !isSeason(x.season) || !isFeedbackWeek(x.week)) return undefined;
+  return { season: x.season, week: x.week, goal: (GOALS as readonly unknown[]).includes(x.goal) ? (x.goal as Goal) : null };
 }
 
 /** The part of Offer Sheet a report points at (§11 "How the data is used"). */
@@ -154,9 +210,14 @@ export interface FeedbackNumbers {
   dPPW: number | null;
   gMine: number | null;
   gPartner: number | null;
+  /** Phase 7a: B₃, the scale Helps you and Overall were scored on (TradeEvaluation.b3); null when unknown (before 7a). */
+  b3: number | null;
 }
 
-const NUMBER_KEYS = ["b", "tradeScore", "pAccept", "pComplete", "overall", "dPO", "dCH", "dPPW", "gMine", "gPartner"] as const satisfies readonly (keyof FeedbackNumbers)[];
+const NUMBER_KEYS = ["b", "tradeScore", "pAccept", "pComplete", "overall", "dPO", "dCH", "dPPW", "gMine", "gPartner", "b3"] as const satisfies readonly (keyof FeedbackNumbers)[];
+
+/** TradeEvaluation's fields a record's numbers come from (B₃ optional: an evaluation made before Phase 7a has none). */
+export type FeedbackNumberSource = Pick<TradeEvaluation, Exclude<keyof FeedbackNumbers, "b3">> & { b3?: number | null | undefined };
 
 /** §11's features as the model used them (AcceptanceFeatures), null where one wasn't finite. */
 export type FeedbackFeatures = { [K in keyof AcceptanceFeatures]: number | null };
@@ -166,6 +227,11 @@ const FEATURE_KEYS = ["g", "n", "h", "c", "a", "hist", "ctx", "hot", "urg", "z"]
 export interface FeedbackRecord {
   /** "fb-" and 8 hex digits, from the league, the trade and when the record was made. */
   id: string;
+  /**
+   * Phase 7a: the record's share id (the header): random, made in this browser, the one thing the anonymous copies of
+   * its presses share (src/lib/feedbackShare.ts). Absent on a record made before 7a until its next press.
+   */
+  rid?: string;
   /** When the record was made (ISO): the first button pressed for this trade idea. */
   savedAt: string;
   leagueKey: string;
@@ -173,6 +239,11 @@ export interface FeedbackRecord {
   proposal: TradeProposal;
   numbers: FeedbackNumbers;
   features: FeedbackFeatures;
+  /**
+   * Phase 7a (review FB-R6): the season, week and goal the numbers and features were computed for (the header), from the
+   * press that made the record; absent on a record made before, or by a press that passed none.
+   */
+  basis?: FeedbackBasis;
   outcome?: { kind: FeedbackOutcome; at: string };
   /** Which version was sent (the header), with the outcome only; absent = unknown. */
   version?: FeedbackVersion;
@@ -186,21 +257,39 @@ export interface FeedbackRecord {
 }
 
 /** The parts of a trade's evaluation a record keeps (a full TradeEvaluation fits). */
-export type FeedbackEvaluation = Pick<TradeEvaluation, "key" | "proposal" | "features" | keyof FeedbackNumbers>;
+export type FeedbackEvaluation = Pick<TradeEvaluation, "key" | "proposal" | "features"> & FeedbackNumberSource;
 
 /**
  * One press: set (or, with null, clear) the outcome or the report. An outcome may say which version was sent (`sent`:
- * recorded with it; without it, a version already recorded stays).
+ * recorded with it; without it, a version already recorded stays). Phase 7a: `rid`, the share id the record takes when
+ * it has none yet (the header; a share id it already has is never replaced), and `basis`, what the card's numbers were
+ * computed from (a new record keeps it; a version this press records keeps its week). The pages' presses carry both
+ * (src/components/settings/useFeedback.ts saveFeedbackPress); without them a new record has neither.
  */
-export type FeedbackChange = { outcome: FeedbackOutcome | null; sent?: FeedbackSent | undefined } | { report: { reason: FeedbackReason; note?: string | undefined } | null };
+export type FeedbackChange = ({ outcome: FeedbackOutcome | null; sent?: FeedbackSent | undefined } | { report: { reason: FeedbackReason; note?: string | undefined } | null }) & {
+  rid?: string | undefined;
+  basis?: FeedbackBasis | undefined;
+};
+
+/**
+ * A record's share id (the header): 16 random bytes in base64url, 22 characters, the last of which carries only the 16th
+ * byte's top 2 bits (so it is A, Q, g or w). The server's schema accepts exactly these (src/server/feedbackSink.ts; review
+ * FB-R4: no other text of 22 characters, a username's for example, can pass for one).
+ */
+export const SHARE_ID_PATTERN = /^[A-Za-z0-9_-]{21}[AQgw]$/;
+
+/** Whether a value is a share id (FeedbackRecord.rid). */
+export function isShareId(x: unknown): x is string {
+  return typeof x === "string" && SHARE_ID_PATTERN.test(x);
+}
 
 export const FEEDBACK_SAVE_FAILED =
   "Your browser wouldn't let Offer Sheet save this (its storage is full or blocked for this site), so it wasn't kept. Allow site data for Offer Sheet and try again.";
 
 const finite = (x: unknown): number | null => (typeof x === "number" && Number.isFinite(x) ? x : null);
 
-/** The card's numbers, as a record keeps them. */
-export function feedbackNumbers(evaluation: Pick<TradeEvaluation, keyof FeedbackNumbers>): FeedbackNumbers {
+/** The card's numbers, as a record keeps them (B₃ null when the evaluation has none). */
+export function feedbackNumbers(evaluation: FeedbackNumberSource): FeedbackNumbers {
   const out = {} as FeedbackNumbers;
   for (const k of NUMBER_KEYS) out[k] = finite(evaluation[k]);
   return out;
@@ -215,16 +304,21 @@ function feedbackFeatures(features: AcceptanceFeatures | Record<string, unknown>
 
 /**
  * The sent version's model inputs as a record keeps them (a press's FeedbackSent.inputs, or a stored record's): only
- * the known fields, numbers that weren't finite as null, a goal that isn't one of "What matters most" as null;
- * undefined when it isn't an object at all.
+ * the known fields, numbers that weren't finite as null, a goal that isn't one of "What matters most" as null, B₃ that
+ * isn't above 0, a scale reason that isn't one of HELPS_REASONS and a week that isn't one as null (Phase 7a; null too on
+ * inputs from before it); undefined when it isn't an object at all.
  */
 function versionInputsOf(x: unknown): VersionInputs | undefined {
   if (!isRecordLike(x)) return undefined;
+  const b3 = finite(x.b3);
   return {
     features: isRecordLike(x.features) ? feedbackFeatures(x.features) : null,
     gPartner: finite(x.gPartner),
     b: finite(x.b),
-    goal: (GOALS as readonly unknown[]).includes(x.goal) ? (x.goal as VersionInputs["goal"]) : null,
+    goal: (GOALS as readonly unknown[]).includes(x.goal) ? (x.goal as Goal) : null,
+    b3: b3 !== null && b3 > 0 ? b3 : null,
+    helpsReason: (HELPS_REASONS as readonly unknown[]).includes(x.helpsReason) ? (x.helpsReason as HelpsReason) : null,
+    week: isFeedbackWeek(x.week) ? x.week : null,
   };
 }
 
@@ -254,7 +348,10 @@ export function feedbackFor(records: readonly FeedbackRecord[], leagueKey: strin
 /**
  * The list after one press (see the header): the trade idea's record made (with the card's numbers) or
  * updated, moved to the newest end, removed once it holds neither an outcome nor a report, and the list cut
- * to the newest FEEDBACK_MAX_RECORDS. Clearing what isn't there changes nothing. Pure: `records` isn't changed.
+ * to the newest FEEDBACK_MAX_RECORDS. Clearing what isn't there changes nothing. A record without a share id takes the
+ * change's (FeedbackChange.rid; one it has is kept); a new record keeps the change's basis (FeedbackChange.basis: an
+ * existing record keeps its own, or none, since its numbers are its first press's), and a version the change records
+ * keeps the change's week with its inputs. Pure: `records` isn't changed.
  */
 export function applyFeedback(
   records: readonly FeedbackRecord[],
@@ -265,16 +362,20 @@ export function applyFeedback(
   const existing = index >= 0 ? records[index] : undefined;
   const clearing = "outcome" in change ? change.outcome === null : change.report === null;
   if (!existing && clearing) return [...records];
+  const rid = existing?.rid ?? (isShareId(change.rid) ? change.rid : undefined);
+  const basis = basisOf(change.basis);
   const next: FeedbackRecord = existing
-    ? { ...existing }
+    ? { ...existing, ...(rid ? { rid } : {}) }
     : {
         id: recordId(leagueKey, evaluation.key, at),
+        ...(rid ? { rid } : {}),
         savedAt: at,
         leagueKey,
         tradeKey: evaluation.key,
         proposal: copyProposal(evaluation.proposal),
         numbers: feedbackNumbers(evaluation),
         features: feedbackFeatures(evaluation.features),
+        ...(basis ? { basis } : {}),
       };
   if ("outcome" in change) {
     if (change.outcome === null) {
@@ -292,9 +393,10 @@ export function applyFeedback(
         if (isText(sent.key)) next.versionKey = sent.key;
         else delete next.versionKey;
         next.versionAccept = { pAccept: finite(sent.pAccept), pComplete: finite(sent.pComplete) };
-        // The inputs belong to the version named now: an earlier version's never stay with this one.
+        // The inputs belong to the version named now: an earlier version's never stay with this one. Their week is this
+        // press's (the card on screen now), whatever week the record's own numbers are from.
         const inputs = versionInputsOf(sent.inputs);
-        if (inputs) next.versionInputs = inputs;
+        if (inputs) next.versionInputs = { ...inputs, week: basis?.week ?? inputs.week ?? null };
         else delete next.versionInputs;
       }
     }
@@ -348,7 +450,20 @@ export function parseFeedbackRecord(x: unknown): FeedbackRecord | null {
   const proposal = parseProposal(x.proposal);
   const numbers = parseNumbers(x.numbers);
   if (!proposal || !numbers || !isRecordLike(x.features)) return null;
-  const record: FeedbackRecord = { id: x.id, savedAt: x.savedAt, leagueKey: x.leagueKey, tradeKey: x.tradeKey, proposal, numbers, features: feedbackFeatures(x.features) };
+  // Phase 7a's basis; one that isn't readable is left out (the copies read the league data on screen instead).
+  const basis = basisOf(x.basis);
+  const record: FeedbackRecord = {
+    id: x.id,
+    // Phase 7a's share id; one that isn't one is left out (the record's next press gives it a new one).
+    ...(isShareId(x.rid) ? { rid: x.rid } : {}),
+    savedAt: x.savedAt,
+    leagueKey: x.leagueKey,
+    tradeKey: x.tradeKey,
+    proposal,
+    numbers,
+    features: feedbackFeatures(x.features),
+    ...(basis ? { basis } : {}),
+  };
   const o = x.outcome;
   if (o !== undefined) {
     if (!isRecordLike(o) || !(FEEDBACK_OUTCOMES as readonly unknown[]).includes(o.kind) || !isText(o.at)) return null;

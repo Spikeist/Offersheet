@@ -15,7 +15,19 @@ import { IMPORT_FORMAT_VERSION, OUTDATED_IMPORT_TITLE, type StoredImport } from 
 import { leagueStoreStateOf, savedLeagueId, type LeagueStoreState } from "@/lib/leagueStore";
 import { modelKey, type StoredModel } from "@/lib/modelStore";
 import { leagueKey } from "@/lib/settingsStore";
-import { FEEDBACK_SCOPE_TEXT, FeedbackCardView, deleteQuestionText, deleteStep, feedbackCountText, type DeleteFocus, type DeleteStep, type FeedbackNote } from "./FeedbackCard";
+import {
+  FEEDBACK_SCOPE_TEXT,
+  FeedbackCardView,
+  SHARE_LABEL,
+  SHARE_TEXT,
+  deleteQuestionText,
+  deleteStep,
+  feedbackCountText,
+  type DeleteFocus,
+  type DeleteStep,
+  type FeedbackCardViewProps,
+  type FeedbackNote,
+} from "./FeedbackCard";
 import { SaveStatus, SettingsForm, focusAfterRemoval } from "./SettingsForm";
 import { NO_LEAGUE_TITLE, OUTDATED_TEXT, SettingsPage } from "./SettingsPage";
 import { buildSettingsView } from "./settingsView";
@@ -279,6 +291,8 @@ describe("with a league", () => {
       ["Automatic", "Set from your playoff odds: la"],
       ["Include kickers and D/STs in trade ideas", "Off by default: managers rarel"],
       ["Include draft picks", "Adds future draft picks, yours"],
+      // Phase 7a (track FB): the feedback card's sharing choice, the same way.
+      ["Share anonymous feedback", "When it's on, each press also "],
     ]);
   });
 });
@@ -318,6 +332,28 @@ describe("the feedback card", () => {
     expect(feedbackCountText(1)).toBe("1 trade idea with feedback saved in this browser.");
   });
 
+  it("offers 'Share anonymous feedback' (Phase 7a, track FB): on by default, with what a copy holds and never holds, and the privacy policy's link", () => {
+    for (const html of [render(), render({ league: "current", myTeam: "1", feedback: records })]) {
+      const text = textOf(html);
+      expect(html).toMatch(/<label class="[^"]*min-h-11[^"]*"><input type="checkbox"[^>]*checked=""[^>]*\/><span>Share anonymous feedback<\/span><\/label>/);
+      expect(checkboxes(html)).toContainEqual(["Share anonymous feedback", true]);
+      expect(text).toContain(SHARE_TEXT);
+      expect(text).toContain("never your league's ID, names, usernames or the notes you type");
+      expect(text).toContain("The privacy policy lists exactly what's sent.");
+      expect(html).toMatch(/<a class="[^"]*" href="\/privacy">privacy policy<\/a>/);
+      // The card no longer says nothing is sent.
+      expect(text).not.toContain("Nothing is sent anywhere");
+      expect(text).toContain("Offer Sheet keeps that in this browser, with the trade's numbers, so you can export it.");
+    }
+    const view = (sharing: FeedbackCardViewProps["sharing"]) => renderToStaticMarkup(createElement(FeedbackCardView, { count: 0, confirming: false, note: null, onExport: () => {}, onAsk: () => {}, onKeep: () => {}, onDelete: () => {}, sharing }));
+    // Off: unchecked. A choice the browser wouldn't keep: an alert under it.
+    const off = view({ on: false, onChange: () => {}, error: "Your browser wouldn't let Offer Sheet save this choice." });
+    expect(checkboxes(off)).toEqual([["Share anonymous feedback", false]]);
+    expect(off).toMatch(/role="alert"[^>]*>.*Your browser wouldn&#x27;t let Offer Sheet save this choice\./);
+    // Without `sharing` (tests of the card's other parts), no checkbox.
+    expect(view(undefined)).not.toContain(SHARE_LABEL);
+  });
+
   it("says it covers every league's feedback, and how many leagues when there are several, since Delete takes them all (review of track ML)", () => {
     // Feedback from another league too: the page edits this league, the card covers both.
     const other = records.map((r) => ({ ...r, leagueKey: "sleeper:12345678", tradeKey: `other-${r.tradeKey}` }));
@@ -325,16 +361,17 @@ describe("the feedback card", () => {
     expect(text).toContain(FEEDBACK_SCOPE_TEXT);
     expect(text).toContain("4 trade ideas with feedback saved in this browser, across 2 leagues.");
     expect(feedbackCountText(5, 3)).toBe("5 trade ideas with feedback saved in this browser, across 3 leagues.");
-    expect(deleteQuestionText(2)).toBe("Delete the feedback on 2 trade ideas? You can't undo this.");
-    expect(deleteQuestionText(4, 2)).toBe("Delete the feedback on 4 trade ideas in both leagues? You can't undo this.");
-    expect(deleteQuestionText(5, 3)).toBe("Delete the feedback on 5 trade ideas in all 3 leagues? You can't undo this.");
+    // Review FB-R3: Delete doesn't take back the anonymous copies already sent, and says so.
+    expect(deleteQuestionText(2)).toBe("Delete the feedback on 2 trade ideas? You can't undo this. Anonymous copies already sent aren't affected.");
+    expect(deleteQuestionText(4, 2)).toBe("Delete the feedback on 4 trade ideas in both leagues? You can't undo this. Anonymous copies already sent aren't affected.");
+    expect(deleteQuestionText(5, 3)).toBe("Delete the feedback on 5 trade ideas in all 3 leagues? You can't undo this. Anonymous copies already sent aren't affected.");
     const asking = renderToStaticMarkup(createElement(FeedbackCardView, { count: 4, leagues: 2, confirming: true, note: null, onExport: () => {}, onAsk: () => {}, onKeep: () => {}, onDelete: () => {} }));
-    expect(textOf(asking)).toContain("Delete the feedback on 4 trade ideas in both leagues? You can't undo this.");
+    expect(textOf(asking)).toContain("Delete the feedback on 4 trade ideas in both leagues? You can't undo this. Anonymous copies already sent aren't affected.");
   });
 
   it("says what the exported file holds: ID numbers, numbers and notes, no names, leagues only numbered (review)", () => {
     const text = textOf(render({ feedback: records }));
-    expect(text).toContain("The file holds player and team ID numbers and Offer Sheet's numbers for each trade, plus any notes you typed.");
+    expect(text).toContain("The file holds player and team ID numbers and Offer Sheet's numbers for each trade, plus any notes you typed and the random code each one's anonymous copies carry.");
     expect(text).toContain("It has no names, and it numbers your leagues (league-1, league-2) rather than saying which they are.");
   });
 
@@ -347,7 +384,7 @@ describe("the feedback card", () => {
     function hasTarget(html: string, focus: DeleteFocus): boolean {
       if (focus === "delete") return deleteButton.test(html);
       if (focus === "status") return /<p role="status" tabindex="-1" class="[^"]*">Deleted\. No feedback is saved in this browser now\.<\/p>/.test(html);
-      const question = /<p id="([^"]+)" tabindex="-1" class="[^"]*">Delete the feedback on 2 trade ideas\? You can&#x27;t undo this\.<\/p>/.exec(html);
+      const question = /<p id="([^"]+)" tabindex="-1" class="[^"]*">Delete the feedback on 2 trade ideas\? You can&#x27;t undo this\. Anonymous copies already sent aren&#x27;t affected\.<\/p>/.exec(html);
       // The confirmation is a group named by its question.
       return !!question && html.includes(`<div role="group" aria-labelledby="${question[1]}"`);
     }
