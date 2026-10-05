@@ -34,7 +34,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { deadlines } from "./limits";
 
 /** The kinds of API route, each with its own rate limit and deadline (src/server/limits.ts). */
-export const ROUTE_KINDS = ["import", "model", "session", "feedback"] as const;
+export const ROUTE_KINDS = ["import", "model", "session", "feedback", "health"] as const;
 export type RouteKind = (typeof ROUTE_KINDS)[number];
 
 /** Each route kind's deadline in ms (limits.deadlines). */
@@ -48,6 +48,8 @@ export function deadlineMsOf(kind: RouteKind): number {
       return deadlines.sessionMs;
     case "feedback":
       return deadlines.feedbackMs;
+    case "health":
+      return deadlines.healthMs;
   }
 }
 

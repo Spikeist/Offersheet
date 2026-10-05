@@ -89,6 +89,22 @@ describe("app/api/_lib/deps.ts selectServerCache", () => {
     expect(selectServerCache({ SESSION_SECRET: SECRET }).kind).toBe("file");
   });
 
+  it("says why it isn't the shared cache, by name only (/api/health; planner reply to Checkpoint 7a, §1)", async () => {
+    const { selectServerCache } = await import("./deps");
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const kv = { VERCEL: "1", VERCEL_ENV: "preview", SESSION_SECRET: SECRET, KV_REST_API_URL: "https://example.upstash.io", KV_REST_API_TOKEN: "t" };
+      expect(selectServerCache(kv).reason).toBeUndefined();
+      expect(selectServerCache({}, null).reason).toBe("not_on_vercel");
+      expect(selectServerCache({ ...kv, SESSION_SECRET: "short" }).reason).toBe("session_secret_missing");
+      expect(selectServerCache({ ...kv, OFFERSHEET_NETWORK: "off" }).reason).toBe("network_off");
+      expect(selectServerCache({ VERCEL: "1", VERCEL_ENV: "preview", SESSION_SECRET: SECRET }).reason).toBe("store_variables_missing");
+      expect(selectServerCache({ ...kv, KV_REST_API_URL: "rediss://default:MADE-UP-PASSWORD@example-db.upstash.invalid:6379" }).reason).toBe("store_address_invalid");
+    } finally {
+      log.mockRestore();
+    }
+  });
+
   it("on Vercel it asks redis.ts by default: configured means shared; a short SESSION_SECRET or the offline guard means memory only", async () => {
     const { selectServerCache } = await import("./deps");
     const log = vi.spyOn(console, "error").mockImplementation(() => {});

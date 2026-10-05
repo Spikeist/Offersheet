@@ -85,15 +85,25 @@ function firstSet(env: Env, names: readonly string[]): string | undefined {
  */
 export const REDIS_OPT_IN_ENV = "OFFERSHEET_REDIS";
 
+/** Why this process may not use Redis (redisOffReason), by name only: never a variable's content. */
+export type RedisOffReason = "network_off" | "not_on_vercel" | "session_secret_missing" | "store_variables_missing";
+
 /**
- * True when this process may use Redis: on Vercel (or opted in, REDIS_OPT_IN_ENV), an endpoint and token are set,
- * SESSION_SECRET is long enough, and the network is on.
+ * Why this process may not use Redis, or null when it may: the network is on, it runs on Vercel (or opted in,
+ * REDIS_OPT_IN_ENV), SESSION_SECRET is long enough, and an endpoint and token are set. /api/health reports it
+ * (planner reply to Checkpoint 7a, §1).
  */
+export function redisOffReason(env: Env = process.env): RedisOffReason | null {
+  if (env.OFFERSHEET_NETWORK === "off") return "network_off";
+  if (!env.VERCEL && env[REDIS_OPT_IN_ENV] !== "1") return "not_on_vercel";
+  if ((env.SESSION_SECRET ?? "").length < MIN_SECRET_CHARS) return "session_secret_missing";
+  if (!(firstSet(env, URL_VARS) && firstSet(env, TOKEN_VARS))) return "store_variables_missing";
+  return null;
+}
+
+/** True when this process may use Redis (redisOffReason is null). */
 export function redisConfigured(env: Env = process.env): boolean {
-  if (env.OFFERSHEET_NETWORK === "off") return false;
-  if (!env.VERCEL && env[REDIS_OPT_IN_ENV] !== "1") return false;
-  if ((env.SESSION_SECRET ?? "").length < MIN_SECRET_CHARS) return false;
-  return Boolean(firstSet(env, URL_VARS) && firstSet(env, TOKEN_VARS));
+  return redisOffReason(env) === null;
 }
 
 /** An adapter from @upstash/redis to RedisLike (its option objects differ from Redis's argument order). */

@@ -53,7 +53,7 @@ import { timeLeftMs } from "@/server/deadline";
 import { createHttpClient } from "@/server/http";
 import { cacheLimits, deadlines } from "@/server/limits";
 import { errorNameOf, logEvent } from "@/server/log";
-import { getRedis, MIN_SECRET_CHARS, type RedisLike } from "@/server/redis";
+import { getRedis, MIN_SECRET_CHARS, redisOffReason, type RedisLike, type RedisOffReason } from "@/server/redis";
 
 type Env = Readonly<Record<string, string | undefined>>;
 
@@ -69,11 +69,16 @@ export function fileCacheDir(env: Readonly<Record<string, string | undefined>> =
 /** Which cache the server runs on (see the header). */
 export type ServerCacheKind = "shared" | "memory" | "file";
 
+/** Why the cache isn't the shared one, by name only (/api/health reports it): Redis's own reasons, or an unusable address. */
+export type ServerCacheReason = RedisOffReason | "store_address_invalid";
+
 export interface ServerCache {
   kind: ServerCacheKind;
   cache: Cache;
   /** The cross-instance lock (the shared cache only). */
   lock?: CacheLock;
+  /** Why it isn't the shared cache (memory and file only). */
+  reason?: ServerCacheReason;
 }
 
 /**
@@ -85,11 +90,12 @@ export interface ServerCache {
  * rules).
  */
 export function selectServerCache(env: Env = process.env, redis?: RedisLike | null): ServerCache {
-  if (!env.VERCEL) return { kind: "file", cache: new FileCache(fileCacheDir(env)) };
+  if (!env.VERCEL) return { kind: "file", cache: new FileCache(fileCacheDir(env)), reason: "not_on_vercel" };
   // Without SESSION_SECRET (32+ characters) on Vercel there is no shared store, no ESPN cookie session and no signed
   // import (final review SEC-9: a deployment without it ran quietly on per-instance memory): said by name, once per process.
   if ((env.SESSION_SECRET ?? "").length < MIN_SECRET_CHARS) logEvent({ event: "session_secret_missing" });
   let client = redis;
+  let invalid = false;
   if (client === undefined) {
     try {
       client = getRedis(env);
@@ -97,6 +103,7 @@ export function selectServerCache(env: Env = process.env, redis?: RedisLike | nu
       // An address the SDK refuses (its message can carry the password): the name only, and this instance's memory alone.
       logEvent({ event: "redis_config_invalid", platform: "upstash", errorName: errorNameOf(err) });
       client = null;
+      invalid = true;
     }
   }
   const memory = new MemoryLruCache(cacheLimits.memoryBytes, { sweepEveryMs: MINUTE });
@@ -109,14 +116,22 @@ export function selectServerCache(env: Env = process.env, redis?: RedisLike | nu
     };
   }
   logEvent({ event: "cache_memory_only" });
-  return { kind: "memory", cache: memory };
+  return { kind: "memory", cache: memory, reason: invalid ? "store_address_invalid" : (redisOffReason(env) ?? "store_variables_missing") };
+}
+
+let server: ServerCache | undefined;
+
+/** The process's cache (selectServerCache, once per process): what getHttp's client stores in, and what /api/health reports. */
+export function getServerCache(): ServerCache {
+  server ??= selectServerCache();
+  return server;
 }
 
 let http: HttpClient | undefined;
 
 export function getHttp(): HttpClient {
   if (!http) {
-    const { cache, lock } = selectServerCache();
+    const { cache, lock } = getServerCache();
     http = createHttpClient({ cache, ...(lock ? { lock } : {}) });
   }
   return http;

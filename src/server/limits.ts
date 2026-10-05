@@ -48,6 +48,15 @@ export const redisClientLimits = {
 } as const;
 
 /**
+ * /api/health's check of the shared store (planner reply to Checkpoint 7a, §1; src/app/api/health/handler.ts): one SET, GET
+ * and DEL of a random key, each waiting at most stepTimeoutMs; the key expires after keyTtlMs if its DEL never arrives.
+ */
+export const healthLimits = {
+  stepTimeoutMs: 2_000,
+  keyTtlMs: 60_000,
+} as const;
+
+/**
  * Per-IP rate limits on every API route (track RL; src/server/rateLimit.ts, src/app/api/_lib/route.ts withRoute):
  * requests per fixed window, per client (an HMAC of the IP address, IPv6 by /64), per route kind. Generous on purpose:
  * mobile carriers put many people behind one address. Production's coarse layer in front (one Vercel WAF rule on /api/*)
@@ -58,6 +67,8 @@ export const rateLimits = {
   model: { limit: 30, windowS: 600 },
   session: { limit: 20, windowS: 600 },
   feedback: { limit: 60, windowS: 3600 },
+  /** /api/health (planner reply to Checkpoint 7a, §1): a check by hand, so a few a minute is plenty. */
+  health: { limit: 12, windowS: 600 },
   /**
    * IPv6 (review SEC-2): a /64 is one client, but a household gets a /56 and a free tunnel broker a /48 (65,536 /64s), so
    * each IPv6 request also counts against its address's /48, at this many times the /64's limit (a phone carrier's pool can
@@ -177,6 +188,7 @@ export const deadlines = {
   modelMs: 90_000,
   sessionMs: 10_000,
   feedbackMs: 10_000,
+  healthMs: 10_000,
   /** No outbound attempt starts with less time than this left (it couldn't finish anyway); the answer so far is used. */
   minAttemptMs: 1_000,
   /**
