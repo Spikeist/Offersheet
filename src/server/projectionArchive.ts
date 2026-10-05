@@ -66,6 +66,7 @@ import type { SleeperStatRow } from "@/adapters/sleeper/schemas";
 import type { NflScheduleData } from "@/data/nflSchedule";
 import { sleeperPositionOf, type SleeperProjectionWeek } from "@/data/sleeperProjections";
 import { POSITIONS } from "@/engine/model";
+import { errorNameOf, logEvent } from "./log";
 
 const gzipAsync = promisify(gzip);
 const gunzipAsync = promisify(gunzip);
@@ -440,7 +441,7 @@ export function createProjectionArchiver(opts: { root?: string } = {}): Projecti
       if (knownCurrent(file, positions, fetchedAt)) return { status: "unchanged", file };
       const stored = await readStored(file);
       if ("otherVersion" in stored) return { status: "failed", error: "OtherVersion" };
-      if ("unreadable" in stored) console.error("[offer-sheet] projection archive: an unreadable snapshot is replaced");
+      if ("unreadable" in stored) logEvent({ event: "projection_archive_replaced" });
       const { record, replaced } = mergeSnapshot("snapshot" in stored ? stored.snapshot : null, fetch);
       if (replaced.length) await writeSnapshot(file, record);
       // Every position asked for is now checked against this fetch, and each stored group is as new as its own fetch.
@@ -448,7 +449,7 @@ export function createProjectionArchiver(opts: { root?: string } = {}): Projecti
       for (const [position, group] of Object.entries(record.groups)) noteCurrent(file, [position], Date.parse(group.fetchedAt));
       return replaced.length ? { status: "archived", file, replaced } : { status: "unchanged", file };
     } catch (err) {
-      console.error(`[offer-sheet] projection archive: a week wasn't archived (${errorName(err)})`);
+      logEvent({ event: "projection_archive_failed", errorName: errorNameOf(err) });
       return { status: "failed", error: errorName(err) };
     }
   }
@@ -470,7 +471,7 @@ export function createProjectionArchiver(opts: { root?: string } = {}): Projecti
         const positions = [...input.positions];
         return enqueue(file, () => write(file, { ...head, groups }, positions));
       } catch (err) {
-        console.error(`[offer-sheet] projection archive: a week wasn't archived (${errorName(err)})`);
+        logEvent({ event: "projection_archive_failed", errorName: errorNameOf(err) });
         return done({ status: "failed", error: errorName(err) });
       }
     },

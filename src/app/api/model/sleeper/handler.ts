@@ -55,7 +55,7 @@ export function createSleeperModelHandler(d: SleeperModelHandlerDeps): (request:
     try {
       model = await d.buildInputs({ snapshot: imported.snapshot, http: deps.http, resolver: deps.resolver, now: deps.now });
     } catch (err) {
-      logUnexpected("Sleeper model inputs", err);
+      logUnexpected("model_inputs", err, "sleeper");
       return errorResponse("INTERNAL");
     }
     const response: ModelResponse = { import: imported, model };

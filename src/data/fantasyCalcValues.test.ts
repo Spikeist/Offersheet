@@ -99,7 +99,9 @@ describe("loadFantasyCalcValues (CLAUDE.md §2.10: 24 h per format)", () => {
     const { http, calls } = fakeHttp({ [url]: { json: valuesWith(capture(url), FANTASYCALC_REDRAFT_MIN_PLAYERS), fetchedAt: 42 } });
     const load = await loadFantasyCalcValues(http, REDRAFT_10);
     expect(calls).toHaveLength(1);
-    expect(calls[0]?.opts?.cache).toEqual({ key: `fantasycalc:${url}`, ttlMs: TTL.fantasyCalc, retainMs: FANTASYCALC_RETAIN_MS, staleIfError: true });
+    // League-independent (public: the shared cache's lock); not reduced, so its key stays shared with the stable copy (one fetch a day per format).
+    expect(calls[0]?.opts?.cache).toEqual({ key: `fantasycalc:${url}`, ttlMs: TTL.fantasyCalc, retainMs: FANTASYCALC_RETAIN_MS, staleIfError: true, public: true });
+    expect(calls[0]?.opts?.transformText).toBeUndefined();
     expect(FANTASYCALC_RETAIN_MS).toBe(config.market.fantasyCalcCurveDays * DAY);
     expect(FANTASYCALC_RETAIN_MS).toBeGreaterThan(STALE_PUBLIC_RETAIN_MS);
     expect(calls[0]?.opts).toMatchObject({ maxRetries: 1, timeoutMs: FANTASYCALC_VALUES_TIMEOUT_MS });
@@ -306,6 +308,11 @@ describe("the outage memory (Phase 4c's polish; CLAUDE.md §0.9: the Sleeper gat
     expect(fantasyCalcOutcome(saved({ status: 503, isHtml: false }))).toEqual({ answered: false, reason: "HTTP 503" });
     expect(fantasyCalcOutcome(saved({ status: 0, isHtml: false }))).toEqual({ answered: false, reason: "no response" });
     expect(fantasyCalcOutcome(saved({ status: 200, isHtml: true }))).toEqual({ answered: false, reason: "a web page instead of data" });
+    // Checkpoint 7a (review RL-2): a request its own deadline cut says nothing about FantasyCalc, a saved copy standing in
+    // for one neither; a budget cut does (the day's requests are used up), like no answer.
+    expect(fantasyCalcOutcome({ ...live(0), cut: "deadline" })).toBeNull();
+    expect(fantasyCalcOutcome({ ...saved({ status: 0, isHtml: false }), cut: "deadline" })).toBeNull();
+    expect(fantasyCalcOutcome({ ...live(0), cut: "budget" })).toEqual({ answered: false, reason: "no response" });
     // A 200 body the checks turned down (too few rows): FantasyCalc answered, so no hold.
     expect(fantasyCalcOutcome(saved({ status: 200, isHtml: false }))).toEqual({ answered: true });
     // A client that doesn't say why its copy stood in: counted as no answer.

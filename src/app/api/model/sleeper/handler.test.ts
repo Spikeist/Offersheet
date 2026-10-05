@@ -163,7 +163,8 @@ describe("POST /api/model/sleeper (CLAUDE.md §6, §9: the League page's model i
     }
     const logged = errors.mock.calls.flat().join(" ");
     expect(logged).not.toContain("secret-ish detail");
-    expect(logged).toContain("Sleeper model inputs failed unexpectedly (RangeError)");
+    // The log takes allowlisted fields only (src/server/log.ts): the step, the platform and the error's name.
+    expect(logged).toContain(JSON.stringify({ route: "server", event: "unexpected_model_inputs", platform: "sleeper", errorName: "RangeError" }));
   });
 
   it("validates the request before calling Sleeper: the league ID is required here", async () => {

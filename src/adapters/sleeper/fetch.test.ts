@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { LeagueImportError, type HttpResponse } from "@/adapters/types";
+import { IMPORT_PROJECTIONS_REDUCER } from "@/data/reduce";
 import { TTL } from "@/server/cache";
 import { FREE_AGENT_RANK_WEEKS, fetchSleeperLeague, freeAgentRankWeeks, leagueChoicesOf, parseSleeperLeagueId, PROJECTIONS_POLICY, requireJson, SleeperLeagueChoiceError, sleeperUrls, startablePositions } from "./fetch";
 import { importSleeperLeague } from "./index";
@@ -63,8 +64,12 @@ describe("fetchSleeperLeague by league ID", () => {
     expect(http.calls).toHaveLength(new Set(http.calls.map((c) => c.url)).size); // nothing fetched twice
     for (const [url, opts] of byUrl) {
       expect(opts?.bigIntsAsStrings).toBe(true);
-      expect(opts?.cache?.key).toBe(`sleeper:${url}`);
       const projections = url.includes("/projections/");
+      // The projection weeks are reduced at fetch time to what the import reads, under a key of their own
+      // (src/data/reduce.ts), and league-independent (public: the shared cache's lock); league data isn't.
+      expect(opts?.cache?.key).toBe(projections ? `sleeper:${url}#${IMPORT_PROJECTIONS_REDUCER.id}` : `sleeper:${url}`);
+      expect(opts?.transformText).toBe(projections ? IMPORT_PROJECTIONS_REDUCER.reduce : undefined);
+      expect(opts?.cache?.public).toBe(projections ? true : undefined);
       const want = projections ? TTL.projections : closedWeek(url) ? TTL.closedTransactions : TTL.league;
       expect(opts?.cache?.ttlMs).toBe(want);
       expect(opts?.cache?.retainMs).toBe(projections ? TTL.projectionsLater : want); // every week's projections are kept 24 hours (projectionsPolicy)

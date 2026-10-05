@@ -5,6 +5,8 @@ export const metadata: Metadata = {
   title: "Settings",
   description:
     "Your Offer Sheet settings for each league: the positions you stream weekly, how much playoff weeks count, and what trade ideas may include. Saved in your browser.",
+  // Only this browser's saved data shows here: nothing for a search engine (Part B, B3; robots.txt and the sitemap).
+  robots: { index: false },
 };
 
 /**

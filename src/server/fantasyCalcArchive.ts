@@ -55,6 +55,7 @@ import { gunzip, gzip } from "node:zlib";
 import { z } from "zod";
 import type { FantasyCalcRequest } from "@/data/fantasyCalcValues";
 import { defaultSeason } from "@/lib/season";
+import { errorNameOf, logEvent } from "./log";
 import { dataLocalRoot, projectionArchiveEnabled } from "./projectionArchive";
 
 const gzipAsync = promisify(gzip);
@@ -346,7 +347,7 @@ function errorName(err: unknown): string {
 }
 
 function logFailure(err: unknown): void {
-  console.error(`[offer-sheet] FantasyCalc archive: a list wasn't archived (${errorName(err)})`);
+  logEvent({ event: "fantasycalc_archive_failed", errorName: errorNameOf(err) });
 }
 
 /**
@@ -383,7 +384,7 @@ export function createFantasyCalcArchiver(opts: { root?: string } = {}): Fantasy
       if (stored.has(file)) return { status: "unchanged", file };
       const found = await readStored(file);
       if ("otherVersion" in found) return { status: "failed", error: "OtherVersion" };
-      if ("unreadable" in found) console.error("[offer-sheet] FantasyCalc archive: an unreadable snapshot is replaced");
+      if ("unreadable" in found) logEvent({ event: "fantasycalc_archive_replaced" });
       const { record, write: changed } = mergeFantasyCalcSnapshot("snapshot" in found ? found.snapshot : null, fresh);
       if (changed) await writeSnapshot(file, record);
       stored.add(file);

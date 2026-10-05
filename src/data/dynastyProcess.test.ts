@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { STALE_PUBLIC_RETAIN_MS, TTL } from "@/server/cache";
-import { DYNASTYPROCESS_COLUMNS, DYNASTYPROCESS_IDS_URL, DYNASTYPROCESS_MIN_ROWS, DYNASTYPROCESS_TIMEOUT_MS, fetchDynastyProcessIds, parseDynastyProcessCsv } from "./dynastyProcess";
+import { DYNASTYPROCESS_CACHE_KEY, DYNASTYPROCESS_COLUMNS, DYNASTYPROCESS_IDS_URL, DYNASTYPROCESS_MIN_ROWS, DYNASTYPROCESS_REDUCER, DYNASTYPROCESS_TIMEOUT_MS, fetchDynastyProcessIds, parseDynastyProcessCsv } from "./dynastyProcess";
 import { fakeHttp, fixtureDynastyCsv, fixtureDynastyRows, padDynastyCsv } from "./testSupport";
 
 const HEADER = "mfl_id,sportradar_id,gsis_id,sleeper_id,espn_id,yahoo_id,fleaflicker_id,name,position,team,birthdate";
@@ -44,7 +44,10 @@ describe("DynastyProcess db_playerids.csv", () => {
     const res = await fetchDynastyProcessIds(http);
     expect(res.rows).toHaveLength(fixtureDynastyRows().length + DYNASTYPROCESS_MIN_ROWS);
     expect(res).toMatchObject({ fromCache: true, stale: false });
-    expect(calls[0]?.opts?.cache).toEqual({ key: `dynastyprocess:${DYNASTYPROCESS_IDS_URL}`, ttlMs: TTL.idMap, retainMs: STALE_PUBLIC_RETAIN_MS, staleIfError: true });
+    // Reduced at fetch time under a key of its own (src/data/reduce.ts), league-independent (public: the shared cache's lock).
+    expect(calls[0]?.opts?.cache).toEqual({ key: `dynastyprocess:${DYNASTYPROCESS_IDS_URL}#${DYNASTYPROCESS_REDUCER.id}`, ttlMs: TTL.idMap, retainMs: STALE_PUBLIC_RETAIN_MS, staleIfError: true, public: true });
+    expect(calls[0]?.opts?.cache?.key).toBe(DYNASTYPROCESS_CACHE_KEY);
+    expect(calls[0]?.opts?.transformText).toBe(DYNASTYPROCESS_REDUCER.reduce);
     expect(calls[0]?.opts).toMatchObject({ maxRetries: 1, timeoutMs: DYNASTYPROCESS_TIMEOUT_MS });
     await expect(fetchDynastyProcessIds(fakeHttp({ [DYNASTYPROCESS_IDS_URL]: { status: 503 } }).http)).rejects.toMatchObject({ code: "SOURCE_DOWN", detail: { status: 503 } });
   });

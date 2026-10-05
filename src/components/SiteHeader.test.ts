@@ -4,8 +4,11 @@
  * you're on marked for screen readers (aria-current) and visibly, 44 px targets, and a phone layout
  * that wraps rather than overflows, with a shorter "Report" label and tighter links below sm so the
  * five links keep one row at 375 px. Phase 4c: the league switcher sits next to the logo (LeagueSwitcher.test.ts),
- * the nav on a row of its own below lg. Static render (first render only), with usePathname mocked.
+ * the nav on a row of its own below lg. Part B: a "Beta" pill next to the logo, set tight below sm so the switcher keeps
+ * the first row on a 320 px phone (review PG-4; check:browser measures it with the real switcher). Static render (first
+ * render only), with usePathname mocked.
  */
+import { readFileSync } from "node:fs";
 import { createElement, type ComponentProps } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
@@ -131,6 +134,41 @@ describe("SiteHeader", () => {
     expect(home?.text).toBe("Offer Sheet");
     expect(home?.inner).toMatch(/^<svg viewBox="0 0 32 32" aria-hidden="true"/);
     expect(home?.inner).toContain('<span class="sr-only text-lg sm:not-sr-only">Offer Sheet</span>');
+  });
+
+  it("shows a 'Beta' pill next to the logo, a visible word outside the home link, so the link's name stays 'Offer Sheet' (Part B, B3)", () => {
+    const html = headerAt("/");
+    expect(links(html).find((l) => l.href === "/")?.text).toBe("Offer Sheet");
+    const pill = /<\/a><span class="([^"]*)">Beta<\/span><\/div>/.exec(html)?.[1]?.split(" ");
+    if (!pill) throw new Error("no Beta pill right after the home link");
+    expect(pill).not.toContain("sr-only");
+    expect(pill).toEqual(expect.arrayContaining(["border", "text-accent", "rounded-full"]));
+    // The logo and the pill stay together, in a group that doesn't shrink.
+    expect(html).toMatch(/<div class="flex shrink-0 items-center sm:gap-1\.5"><a class="[^"]*" href="\/">/);
+  });
+
+  it("sets the logo, the pill and the row tight below sm, so the league switcher stays on their row on a 320 px phone (review PG-4)", () => {
+    const html = headerAt("/");
+    const row = /<header class="bg-navy text-navy-contrast"><div class="([^"]*)">/.exec(html)?.[1]?.split(" ") ?? [];
+    expect(row).toEqual(expect.arrayContaining(["gap-x-2", "sm:gap-x-3", "px-4"]));
+    expect(row).not.toContain("gap-x-3");
+    // No space in the group below sm but the home link's own 6 px padding; from sm up, as before.
+    const group = /<div class="(flex shrink-0 items-center[^"]*)"><a /.exec(html)?.[1]?.split(" ");
+    expect(group).toEqual(["flex", "shrink-0", "items-center", "sm:gap-1.5"]);
+    const pill = /<span class="([^"]*)">Beta<\/span>/.exec(html)?.[1]?.split(" ") ?? [];
+    expect(pill).toEqual(expect.arrayContaining(["px-1", "sm:px-2", "border", "text-xs"]));
+    expect(pill).not.toContain("px-2");
+    const home = links(html).find((l) => l.href === "/")?.classes ?? [];
+    expect(home).toEqual(expect.arrayContaining(["-ml-1.5", "px-1.5"]));
+
+    // The budget, in CSS px (Tailwind's spacing unit is 4 px): a 320 px phone leaves 288 px inside the row's 16 px sides.
+    // The home link: the 32 px mark plus 6 px each side, less its 6 px pull. The pill: its word (34 px in Chrome on
+    // Windows: Segoe UI, the widest of the system fonts the site uses) plus 4 px each side and a 1 px border each side.
+    // Then the row's 8 px gap and the switcher's basis (LeagueSwitcher.tsx, read from its classes).
+    const basisRem = Number(/flex-\[1_1_(\d+(?:\.\d+)?)rem\]/.exec(readFileSync(new URL("./LeagueSwitcher.tsx", import.meta.url), "utf8"))?.[1]);
+    expect(basisRem).toBeGreaterThan(0);
+    const firstRow = 32 + 2 * 6 - 6 + (34 + 2 * 4 + 2) + 8 + basisRem * 16; // 282 with the 12rem basis
+    expect(firstRow).toBeLessThanOrEqual(320 - 2 * 16 - 4); // a few px to spare for other fonts
   });
 
   it("gives every link a 44 px tap target", () => {

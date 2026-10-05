@@ -6,6 +6,8 @@ import { AnalyzerPage } from "@/components/trades/AnalyzerPage";
 export const metadata: Metadata = {
   title: "Trade Analyzer",
   description: "Build any trade, a counteroffer included, and see how much it helps your team and how likely the other manager is to accept. Runs in your browser.",
+  // Only this browser's saved data shows here: nothing for a search engine (Part B, B3; robots.txt and the sitemap).
+  robots: { index: false },
 };
 
 /**

@@ -214,7 +214,7 @@ describe("the fs layer (a temporary folder)", () => {
     await writeFile(file, v2);
     expect(await createFantasyCalcArchiver({ root: dir }).archive(list([row("1", 910)]))).toEqual({ status: "failed", error: "OtherVersion" });
     expect(await readFile(file)).toEqual(v2);
-    expect(errors.mock.calls.map((c) => String(c[0]))).toEqual(["[offer-sheet] FantasyCalc archive: an unreadable snapshot is replaced"]);
+    expect(errors.mock.calls.map((c) => String(c[0]))).toEqual([JSON.stringify({ route: "server", event: "fantasycalc_archive_replaced" })]);
     for (const [message] of errors.mock.calls) expect(String(message)).not.toContain(dir);
   });
 
@@ -225,7 +225,7 @@ describe("the fs layer (a temporary folder)", () => {
     const outcome = await createFantasyCalcArchiver({ root: blocked }).archive(list([row("1", 900)]));
     expect(outcome.status).toBe("failed");
     expect(errors).toHaveBeenCalledTimes(1);
-    expect(String(errors.mock.calls[0]?.[0])).toMatch(/^\[offer-sheet\] FantasyCalc archive: a list wasn't archived \(\w+\)$/);
+    expect(String(errors.mock.calls[0]?.[0])).toMatch(/^\{"route":"server","event":"fantasycalc_archive_failed","errorName":"\w+"\}$/);
     expect(String(errors.mock.calls[0]?.[0])).not.toContain(dir);
   });
 
@@ -244,7 +244,7 @@ describe("the fs layer (a temporary folder)", () => {
     };
     const errors = vi.spyOn(console, "error").mockImplementation(() => {});
     expect(() => archiveFantasyCalcLists(throwing, { values })).not.toThrow();
-    expect(String(errors.mock.calls[0]?.[0])).toBe("[offer-sheet] FantasyCalc archive: a list wasn't archived (TypeError)");
+    expect(String(errors.mock.calls[0]?.[0])).toBe(JSON.stringify({ route: "server", event: "fantasycalc_archive_failed", errorName: "TypeError" }));
     const rejecting: FantasyCalcArchiver = { archive: () => Promise.reject(new Error("x")), flush: async () => {} };
     expect(() => archiveFantasyCalcLists(rejecting, { values })).not.toThrow();
     expect(() => archiveFantasyCalcLists(null, { values })).not.toThrow();

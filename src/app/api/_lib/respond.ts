@@ -1,7 +1,18 @@
 /**
  * Shared plumbing for the API route handlers: JSON responses (never cached), request-body parsing
  * with zod, a same-origin check for requests that use or change credentials, and the mapping from
- * adapter errors to { error: { code, message } }. Nothing here logs request bodies or cookies.
+ * adapter errors to { error: { code, message } }. Nothing here logs request bodies or cookies: the
+ * log takes allowlisted fields only (src/server/log.ts).
+ *
+ * Friendly errors (planner reply to Checkpoint 4c, Part B, B1; track RL): an import that fails because Offer Sheet used
+ * today's budget of requests to its platform answers BUSY ("Offer Sheet has used today's share of requests to ESPN. Try
+ * again in about 6 hours.", Retry-After: the next UTC midnight), or, for the client's own share of it, "Your connection has
+ * used today's share of requests to ESPN. …", whether the adapter let BudgetExhaustedError through (ESPN) or turned it
+ * into SOURCE_DOWN (Sleeper's adapter catches its client's errors); one whose deadline came first answers SOURCE_SLOW,
+ * naming the source that was slow ("ESPN is answering slowly right now, so Offer Sheet stopped waiting. …"), or, when the
+ * time went to Offer Sheet's own queue or cache or ran out before the source was asked, "Offer Sheet is busy right now. Try
+ * again in a few minutes." All read what the request's scope noted (src/server/deadline.ts), so a plain outage still reads
+ * SOURCE_DOWN.
  */
 import type { z } from "zod";
 import { LeagueImportError, type ImportErrorCode } from "@/adapters/types";
@@ -9,6 +20,9 @@ import type { PlayerIdResolver } from "@/data/types";
 import type { Platform } from "@/engine/model";
 import type { ApiErrorResponse, DataSourceStamp } from "@/lib/api";
 import { errorMessage, errorStatus, isImportErrorCode, redactSecrets, type AppErrorCode } from "@/lib/errors";
+import { isBudgetExhaustedError, secondsUntilUtcMidnight, type BudgetLimit, type BudgetPlatform } from "@/server/budget";
+import { DEADLINE_CUTS, requestScope, type RequestScope } from "@/server/deadline";
+import { errorNameOf, logDevDetail, logEvent } from "@/server/log";
 
 /** Request bodies are tiny (an ID, a season, two cookies); anything bigger is refused unread. */
 const MAX_BODY_CHARS = 16_384;
@@ -156,17 +170,59 @@ function asImportError(err: unknown): { code: ImportErrorCode; message: string }
   return undefined;
 }
 
-/** Server log for unexpected failures: redacted, and only the error's name in production. */
-export function logUnexpected(where: string, err: unknown): void {
-  const name = err instanceof Error ? err.name : typeof err;
-  const detail = process.env.NODE_ENV === "development" && err instanceof Error ? `: ${redactSecrets(err.message).slice(0, 500)}` : "";
-  console.error(`[offer-sheet] ${where} failed unexpectedly (${name})${detail}`);
+/** Where an unexpected failure happened: the step of the route, as the log's event names it ("unexpected_import" …). */
+export type UnexpectedStep = "import" | "model_inputs" | "session_save" | "session_forget" | "route";
+
+/**
+ * The log line for an unexpected failure (a bug on our side): its step, its error's name only (src/server/log.ts) and the
+ * platform; in local development (`npm run dev`) also its message, redacted, on a second console line (logDevDetail).
+ */
+export function logUnexpected(step: UnexpectedStep, err: unknown, platform?: Platform): void {
+  logEvent({ event: `unexpected_${step}`, ...(platform ? { platform } : {}), errorName: errorNameOf(err) });
+  logDevDetail(err);
+}
+
+/** The names a budget or a slow source goes by in an error message (the league's platforms by their own labels). */
+const SOURCE_LABEL: Readonly<Record<string, string>> = { espn: "ESPN", sleeper: "Sleeper", fantasycalc: "FantasyCalc", github: "DynastyProcess's player ID list" };
+
+/**
+ * BUSY for `platform` (see the header): Offer Sheet's whole day of requests to it (`by` "day"), or the client's share of it
+ * ("share"), with Retry-After until every budget starts again (the next UTC midnight) and the same wait in words.
+ */
+export function busyResponse(platform: BudgetPlatform | Platform, by: BudgetLimit = "day", now: number = Date.now()): Response {
+  const retryAfterS = secondsUntilUtcMidnight(now);
+  const message = errorMessage("BUSY", { source: SOURCE_LABEL[platform] ?? "this platform", retryAfterS, ...(by === "share" ? { ownShare: true } : {}) });
+  return errorResponse("BUSY", message, new Headers({ "retry-after": String(retryAfterS) }));
+}
+
+/**
+ * SOURCE_SLOW (see the header) for a request whose deadline came first: naming the slow source (the league's own platform
+ * when it was one of them, else the only one, else "one of our data sources"); when no source was slow (the time went to
+ * Offer Sheet's own queue or cache, or ran out before the source was asked) it says Offer Sheet is busy instead, so a
+ * source that never got the request is never called slow.
+ */
+function slowResponse(cut: RequestScope["cut"], platform: Platform): Response {
+  const slow = cut.slow;
+  if (!slow.size) return errorResponse("SOURCE_SLOW", errorMessage("SOURCE_SLOW", { busyHere: true }));
+  const named = slow.has(platform) ? platform : slow.size === 1 ? [...slow][0] : undefined;
+  const source = named ? SOURCE_LABEL[named] : undefined;
+  return errorResponse("SOURCE_SLOW", errorMessage("SOURCE_SLOW", source ? { source } : {}));
 }
 
 export function importErrorResponse(err: unknown, ctx: { platform: Platform; season?: number }): Response {
+  if (isBudgetExhaustedError(err)) return busyResponse(err.platform, err.by);
   const known = asImportError(err);
-  if (known) return errorResponse(known.code, errorMessage(known.code, { platform: ctx.platform, adapterMessage: known.message, season: ctx.season }));
-  logUnexpected(`${ctx.platform} import`, err);
+  if (known) {
+    const cut = requestScope()?.cut;
+    if (known.code === "SOURCE_DOWN" && cut) {
+      // Sleeper's adapter turns its client's errors into SOURCE_DOWN: the scope still knows what refused or cut the request.
+      if (cut.share.has(ctx.platform)) return busyResponse(ctx.platform, "share");
+      if (cut.budget.has(ctx.platform)) return busyResponse(ctx.platform, "day");
+      if (DEADLINE_CUTS.some((reason) => cut[reason].size > 0)) return slowResponse(cut, ctx.platform);
+    }
+    return errorResponse(known.code, errorMessage(known.code, { platform: ctx.platform, adapterMessage: known.message, season: ctx.season }));
+  }
+  logUnexpected("import", err, ctx.platform);
   return errorResponse("INTERNAL");
 }
 
@@ -214,7 +270,7 @@ function bareGuid(swid: string): string | undefined {
  * Safety net for §0.5 (SWIDs are secrets everywhere): replaces anything shaped like a SWID in a
  * response body, braced or %7B-encoded, plus the known SWIDs (the user's own cookie) in any form or
  * case, bare included. (Bare GUIDs in general stay: ESPN uses them for transaction IDs.) Adapters
- * shouldn't emit any; if one does, it's logged (count only) as a bug.
+ * shouldn't emit any; if one does, it's logged as a bug ("swid_scrubbed", nothing of the body; `where` stays out of the log).
  */
 export function scrubSwids<T>(body: T, where: string, knownSwids: readonly string[] = []): T {
   const text = JSON.stringify(body);
@@ -229,6 +285,7 @@ export function scrubSwids<T>(body: T, where: string, knownSwids: readonly strin
     });
   }
   if (!hits) return body;
-  console.error(`[offer-sheet] ${where}: replaced ${hits} SWID-like value(s) in the response; the adapter should not emit them`);
+  logEvent({ event: "swid_scrubbed", platform: "espn" });
+  logDevDetail(new Error(`${where}: replaced ${hits} SWID-like value(s) in the response; the adapter should not emit them`));
   return JSON.parse(out) as T;
 }

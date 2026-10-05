@@ -6,6 +6,10 @@
  * What it records, each tagged with the step that was running (PageEvent):
  * - console errors and failed assertions (page and workers), uncaught exceptions, and browser log errors other than
  *   the network's (those are the requests below);
+ * - Content-Security-Policy violations (Part B: production builds send a full policy), enforced or report-only: in the
+ *   page, the browser's own log line (any level) and the instrumentation's securitypolicyviolation listener (inPage.ts
+ *   CSP_MARK), which also catches what Chrome blocks without a log line (an eval); in a worker, the CSP issue Chrome
+ *   files for it (CDP Audits.issueAdded, measured with Chrome 154: a worker's violation shows nowhere else);
  * - requests to the app that failed (HTTP 400 and up, or a network error other than a cancel or an abort: Next
  *   cancels prefetches and the app aborts what a page no longer needs);
  * - any request to another host (the app's pages only talk to their own server; the FantasyCalc and platform links
@@ -25,11 +29,11 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { CdpClient, CdpEvent } from "./cdp";
-import { CARD_HELPERS, INSTRUMENT, PAGE_HELPERS, RESTORE_CALL } from "./inPage";
+import { CARD_HELPERS, CSP_MARK, INSTRUMENT, PAGE_HELPERS, RESTORE_CALL } from "./inPage";
 
 export const PHONE = { width: 375, height: 812, deviceScaleFactor: 2 } as const;
 
-export type PageEventKind = "console error" | "exception" | "failed request" | "other host" | "console warning";
+export type PageEventKind = "console error" | "exception" | "failed request" | "other host" | "csp violation" | "console warning";
 
 export interface PageEvent {
   step: string;
@@ -76,6 +80,41 @@ export function keptText(text: string): string {
   return text.length > TEXT_KEEP_MAX ? `(a ${text.length}-character text, not kept)` : text;
 }
 
+/** A browser log line about a Content-Security-Policy (Chrome: "Refused to … because it violates the following Content Security Policy directive", "[Report Only] …"). */
+const CSP_TEXT = /Content[- ]Security[- ]Policy/i;
+
+/**
+ * What a browser log entry (CDP Log.entryAdded) counts as (pure): a CSP violation at any level (a report-only one
+ * included), an error other than the network's (requests are watched apart), or nothing.
+ */
+export function logEntryKind(entry: { level?: unknown; source?: unknown; text?: unknown }): PageEventKind | null {
+  const text = str(entry.text);
+  if (CSP_TEXT.test(text)) return "csp violation";
+  if (entry.level === "error" && entry.source !== "network") return "console error";
+  return null;
+}
+
+/**
+ * A CSP issue Chrome filed (CDP Audits.issueAdded) in words (pure), or null for any other issue: the directive, what kind
+ * of violation, report-only or not, and where.
+ */
+export function cspIssueText(issue: unknown): string | null {
+  const i = (issue ?? {}) as { code?: unknown; details?: { contentSecurityPolicyIssueDetails?: Record<string, unknown> } };
+  if (i.code !== "ContentSecurityPolicyIssue") return null;
+  const d = i.details?.contentSecurityPolicyIssueDetails ?? {};
+  const at = (d.sourceCodeLocation ?? {}) as { url?: unknown; lineNumber?: unknown };
+  const blocked = str(d.blockedURL);
+  return `CSP issue: ${str(d.violatedDirective) || "?"} (${str(d.contentSecurityPolicyViolationType) || "?"}${d.isReportOnly === true ? ", report-only" : ""})${blocked ? ` blocked ${blocked}` : ""}${at.url ? ` at ${str(at.url)}:${str(at.lineNumber)}` : ""}`;
+}
+
+/** What a console call (CDP Runtime.consoleAPICalled) counts as (pure): the instrumentation's CSP report, an error, a warning, or nothing. */
+export function consoleCallKind(type: string, text: string): PageEventKind | null {
+  if (text.startsWith(CSP_MARK)) return "csp violation";
+  if (type === "error" || type === "assert") return "console error";
+  if (type === "warning") return "console warning";
+  return null;
+}
+
 /** Requests that aren't the app's and aren't worth flagging: inline data, blobs and the browser's own pages. */
 const LOCAL_SCHEMES = /^(data:|blob:|about:|chrome:|chrome-extension:|devtools:)/;
 
@@ -100,7 +139,7 @@ export class PageSession {
     const { sessionId } = await cdp.send<{ sessionId: string }>("Target.attachToTarget", { targetId, flatten: true });
     const page = new PageSession(cdp, sessionId, origin);
     for (const domain of ["Page", "Runtime", "Log", "Network"]) await page.send(`${domain}.enable`);
-    await page.send("Emulation.setDeviceMetricsOverride", { width: PHONE.width, height: PHONE.height, deviceScaleFactor: PHONE.deviceScaleFactor, mobile: true });
+    await page.setWidth();
     await page.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 5 });
     await page.send("Emulation.setFocusEmulationEnabled", { enabled: true });
     await page.send("Page.addScriptToEvaluateOnNewDocument", { source: INSTRUMENT });
@@ -112,6 +151,11 @@ export class PageSession {
 
   send<T = Record<string, unknown>>(method: string, params: Record<string, unknown> = {}, timeoutMs?: number): Promise<T> {
     return this.cdp.send<T>(method, params, this.sessionId, timeoutMs);
+  }
+
+  /** Emulates the phone at `width` CSS px (its height, pixel ratio and touch unchanged); none: the phone's own 375 px. */
+  async setWidth(width: number = PHONE.width): Promise<void> {
+    await this.send("Emulation.setDeviceMetricsOverride", { width, height: PHONE.height, deviceScaleFactor: PHONE.deviceScaleFactor, mobile: true });
   }
 
   private record(kind: PageEventKind, where: "page" | "worker", text: string): void {
@@ -131,6 +175,9 @@ export class PageSession {
         if (child && (type === "worker" || type === "shared_worker" || type === "service_worker")) {
           this.workers.add(child);
           void this.cdp.send("Runtime.enable", {}, child).catch(() => undefined);
+          // The worker's own log lines, and its issues: Chrome files a worker's CSP violation only as an issue (Audits).
+          void this.cdp.send("Log.enable", {}, child).catch(() => undefined);
+          void this.cdp.send("Audits.enable", {}, child).catch(() => undefined);
           void this.cdp.send("Runtime.runIfWaitingForDebugger", {}, child).catch(() => undefined);
         }
         break;
@@ -139,9 +186,9 @@ export class PageSession {
         this.workers.delete(str(p.sessionId));
         break;
       case "Runtime.consoleAPICalled": {
-        const type = str(p.type);
-        if (type === "error" || type === "assert") this.record("console error", where, consoleText(p.args));
-        else if (type === "warning") this.record("console warning", where, consoleText(p.args));
+        const text = consoleText(p.args);
+        const kind = consoleCallKind(str(p.type), text);
+        if (kind) this.record(kind, where, text);
         break;
       }
       case "Runtime.exceptionThrown": {
@@ -149,10 +196,17 @@ export class PageSession {
         this.record("exception", where, str(d.exception?.description) || str(d.text));
         break;
       }
+      case "Audits.issueAdded": {
+        // Workers only: the page's violations are already its log lines and the instrumentation's reports.
+        const text = where === "worker" ? cspIssueText(p.issue) : null;
+        if (text) this.record("csp violation", where, text);
+        break;
+      }
       case "Log.entryAdded": {
         const entry = (p.entry ?? {}) as { level?: unknown; source?: unknown; text?: unknown };
-        // Network errors arrive as requests below; everything else the browser logs as an error counts here.
-        if (entry.level === "error" && entry.source !== "network") this.record("console error", where, `${str(entry.source)}: ${str(entry.text)}`);
+        // Network errors arrive as requests below; a CSP violation counts at any level; any other error counts here.
+        const kind = logEntryKind(entry);
+        if (kind) this.record(kind, where, `${str(entry.source)}: ${str(entry.text)}`);
         break;
       }
       case "Network.requestWillBeSent": {

@@ -6,7 +6,9 @@
  * - INSTRUMENT, added to every new document: a log of what the status lines and the progress bar say, and when
  *   (MutationObserver), the main thread's long tasks, and each answer of the engine's Web Worker (the Worker
  *   constructor is wrapped to listen to its messages): a search's own per-stage timings and counts, which the
- *   Trade Finder shows only as one total.
+ *   Trade Finder shows only as one total. Part B: every Content-Security-Policy violation the document sees (enforced
+ *   or report-only: the securitypolicyviolation event) becomes a console error starting with CSP_MARK, which page.ts
+ *   counts as a CSP violation, so one can't pass unnoticed whatever level the browser logs it at.
  * - PAGE_HELPERS, in scope for every check: text, waits, React-friendly select and input setters, and measure(): page
  *   overflow at 375 px, elements past the right edge outside a horizontal scroll or clip container, and tap targets
  *   under 44 px tall or 24 px wide. A link is exempt only inside a sentence (WCAG 2.5.8's inline exception): an inline
@@ -26,9 +28,20 @@
  *   so later checks read the real page (measurements are taken before, on the real text).
  */
 
+/** How the instrumentation's CSP reports start (page.ts consoleCallKind counts them as CSP violations). */
+export const CSP_MARK = "[check:csp]";
+
 export const INSTRUMENT = String.raw`(() => {
   if (window.__check) return;
   const C = (window.__check = { events: [], longtasks: [], engine: [] });
+  document.addEventListener(
+    "securitypolicyviolation",
+    (e) => {
+      const where = e.sourceFile ? " at " + e.sourceFile + ":" + e.lineNumber : "";
+      console.error("${CSP_MARK} " + (e.disposition === "report" ? "report-only " : "") + e.effectiveDirective + " blocked " + (e.blockedURI || "inline") + where);
+    },
+    true,
+  );
   const txt = (e) => ((e && e.textContent) || "").replace(/\s+/g, " ").trim();
   const snap = () => {
     const status = [...document.querySelectorAll("p[role=status]")].map(txt).filter(Boolean).join(" | ");

@@ -6,18 +6,21 @@ import { Badge, Card, buttonClass } from "@/components/ui";
  * (offersheet.vercel.app, as of 2026-09-29): what the app does, how it works and the platforms it
  * supports. Changes on purpose: the "Trade Score" became the three numbers of the planner's
  * Checkpoint 0 decision A (Helps you, Chance they accept, Overall); every feature and platform says
- * honestly whether it's available yet (a "Coming soon" badge on what later phases build); and Fantrax
+ * honestly whether it's available yet (a badge on what later phases build); and Fantrax
  * (public leagues, a Phase 5 stretch goal) is listed like on the Connect page and in the footer.
  * Phase 4: trade ideas (the Trade Finder) and the Trade Analyzer are available, so "Get ranked trade
  * ideas" is badged available and the two features they deliver (the season played out with and without
  * each trade; the other manager's side) describe how Offer Sheet works today, without a badge.
+ * Part B (planner reply to Checkpoint 4c, B3, the public beta): the landing page's title and descriptions are the
+ * layout's (src/lib/site.ts), the header carries a "Beta" pill, and Yahoo says what it waits for ("Waiting for Yahoo's
+ * approval") instead of promising it soon; ESPN and Sleeper are available, the others "Later".
  */
 
-type Status = "now" | "soon" | "later";
+type Status = "now" | "waiting" | "later";
 
 const STATUS_BADGE = {
   now: { label: "Available now", tone: "brand" },
-  soon: { label: "Coming soon", tone: "warn" },
+  waiting: { label: "Waiting for Yahoo's approval", tone: "warn" },
   later: { label: "Later", tone: "muted" },
 } as const;
 
@@ -56,7 +59,7 @@ const WHY: { title: string; body: string; status?: Status }[] = [
 const PLATFORMS: { name: string; note: string; status: Status }[] = [
   { name: "ESPN", note: "Paste your league link. Private league? Ask your commissioner to make it viewable to the public, or connect with your ESPN cookies on a computer.", status: "now" },
   { name: "Sleeper", note: "Your username or a league ID.", status: "now" },
-  { name: "Yahoo", note: "Waiting on Yahoo's approval.", status: "soon" },
+  { name: "Yahoo", note: "Sign in with your Yahoo account.", status: "waiting" },
   { name: "Fleaflicker", note: "League ID.", status: "later" },
   { name: "MyFantasyLeague", note: "League ID.", status: "later" },
   { name: "Fantrax", note: "Public leagues only.", status: "later" },

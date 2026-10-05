@@ -7,7 +7,9 @@
  * 3. League (the nav's link): built and timed; the layout; "Harder to get" never on my own players (my roster, my rows
  *    in the tables, "You could give" in the partner cards), and my team marked. The places it counts in must be found:
  *    a table row marked mine (one per table at most), and a "You could give" line in every partner card (the cards
- *    that link to the Trade Finder for their team).
+ *    that link to the Trade Finder for their team). Then, on a NARROW_PHONE_WIDTH (320 px) phone for a moment, the
+ *    header's first row keeps the logo, the Beta pill and the league switcher (review PG-4: the pill once pushed the
+ *    switcher to a row of its own there, moving the page when it appeared).
  * 4. Trade Finder (the nav's link): a full search in the production worker, timed from the first progress update to
  *    the results (at most --max-search seconds, §12's 10 by default), with the engine's own per-stage timings; every
  *    card with its three numbers and both sides ("You give", "You get"); "Harder to get" never on a player I'd give;
@@ -30,9 +32,14 @@
  *    league's Trade Finder with a team in its address, Remove (with its confirmation) deletes the test league, the league
  *    shown, and what it saved, and nothing of the first league's; the tab moves to the first league, the status line says
  *    so, and its Trade Finder opens for every team, never on the removed league's address.
- * 9. Home and Privacy (full loads): the layout.
- * After each step: no console errors (page or worker), uncaught exceptions, failed requests to the app, or requests to
- * any other site. Screenshots, when on, go to the shots folder after the page's names are replaced with placeholders,
+ * 9. The public pages (full loads; Part B, B3): Home, Privacy, Terms and Feedback (each its own step: the layout and its
+ *    heading), an address the app doesn't have (the branded 404 page, its expected 404 the one failed request allowed),
+ *    and the site's files, read from the home page: the production build's security headers (the full
+ *    Content-Security-Policy, enforced or report-only, with the two league APIs in connect-src; no X-Powered-By), the
+ *    manifest and its icons, the tab and iPhone icons, the sharing image, robots.txt and the sitemap. They need no
+ *    league, so they run even when the import stopped the steps before them (`independent`).
+ * After each step: no console errors (page or worker), CSP violations (Part B: enforced or report-only, page or worker),
+ * uncaught exceptions, failed requests to the app, or requests to any other site. Screenshots, when on, go to the shots folder after the page's names are replaced with placeholders,
  * put back right after (one that can't be saved is a skip: it's a record to look at, not a check of the app).
  *
  * Texts these checks look for are the app's own (status lines, headings, button names); when one changes, the check
@@ -46,7 +53,7 @@
 import { LEAGUE_ID_PLACEHOLDER, mergeLeagueNames, nameRules, type CheckReport, type LeagueNames } from "./report";
 import { sanitizeCall } from "./inPage";
 import { SECOND_LEAGUE, type CheckBrowserArgs } from "./args";
-import type { PageSession } from "./page";
+import type { PageEvent, PageSession } from "./page";
 
 export interface CardInfo {
   heading: string;
@@ -130,16 +137,19 @@ async function screenshot(ctx: StepContext, name: string): Promise<void> {
   }
 }
 
-/** The step's console errors, exceptions, failed requests and requests to other sites, as one check. */
-export function healthCheck(ctx: StepContext, step: string): void {
-  const events = ctx.page.eventsOf(step);
+/**
+ * The step's console errors, CSP violations, exceptions, failed requests and requests to other sites, as one check.
+ * `expected` names events the step causes on purpose (the missing page's own 404), which don't count.
+ */
+export function healthCheck(ctx: StepContext, step: string, expected: (e: PageEvent) => boolean = () => false): void {
+  const events = ctx.page.eventsOf(step).filter((e) => !expected(e));
   const bad = events.filter((e) => e.kind !== "console warning");
   const warnings = events.length - bad.length;
   if (warnings) ctx.report.note(step, "consoleWarnings", warnings);
   ctx.report.check(
     step,
     bad.length === 0,
-    "no console errors, failed requests or requests to other sites",
+    "no console errors, CSP violations, failed requests or requests to other sites",
     `${pl(bad.length, "problem")} in the browser`,
     bad.map((e) => `${e.kind} (${e.where}): ${e.text}`),
   );
@@ -268,6 +278,7 @@ export async function leagueStep(ctx: StepContext): Promise<void> {
   if (!report.check(step, state === "ready", `built the League page in ${took} s`, `the League page didn't load: ${state.replace(/^error: /, "")}`)) return;
   await sleep(600);
   layoutChecks(ctx, step, await measurePage(ctx));
+  await narrowHeaderCheck(ctx, step);
 
   if (!ctx.myTeam) {
     report.skip(step, `"Harder to get" on your own players: no team picked`);
@@ -318,6 +329,48 @@ export async function leagueStep(ctx: StepContext): Promise<void> {
     );
   }
   await screenshot(ctx, "03-league");
+}
+
+/** The narrowest phone the header's first row is checked at (review PG-4): a 320 px screen, or a larger one at its biggest display size. */
+export const NARROW_PHONE_WIDTH = 320;
+
+/** Whether two boxes share a row (pure): they overlap from top to bottom. */
+export function sameRow(a: { top: number; bottom: number }, b: { top: number; bottom: number }): boolean {
+  return a.top < b.bottom && b.top < a.bottom;
+}
+
+/**
+ * The header's first row on a NARROW_PHONE_WIDTH phone (review PG-4): with a league saved, the league switcher sits on the
+ * row of the logo and the Beta pill, so the header's rows don't move when it appears after the store loads. The phone's
+ * own width is put back afterwards, whatever happened.
+ */
+export async function narrowHeaderCheck(ctx: StepContext, step: string): Promise<void> {
+  const { page, report } = ctx;
+  await page.setWidth(NARROW_PHONE_WIDTH);
+  try {
+    await sleep(400);
+    const r = await page.run<{ width: number; home: { top: number; bottom: number } | null; pill: { top: number; bottom: number } | null; switcher: { top: number; bottom: number } | null }>(`
+      const row = document.querySelector("header > div");
+      const home = row && row.querySelector("a[href='/']");
+      const pill = row && [...row.querySelectorAll("span")].find((s) => txt(s) === "Beta");
+      const sw = row && row.querySelector("[data-league-switcher]");
+      return { width: innerWidth, home: home ? box(home) : null, pill: pill ? box(pill) : null, switcher: sw ? box(sw) : null };
+    `);
+    if (!r.home || !r.pill || !r.switcher) {
+      const missing = [!r.home && "the logo's home link", !r.pill && "the Beta pill", !r.switcher && "the league switcher"].filter(Boolean).join(", ");
+      report.fail(step, `at ${r.width} px the header is missing ${missing}`);
+      return;
+    }
+    report.check(
+      step,
+      sameRow(r.home, r.pill) && sameRow(r.home, r.switcher),
+      `at ${r.width} px the logo, the Beta pill and the league switcher share the header's first row`,
+      `at ${r.width} px the header's first row breaks: the logo at ${r.home.top}–${r.home.bottom} px, the pill at ${r.pill.top}–${r.pill.bottom}, the switcher at ${r.switcher.top}–${r.switcher.bottom}`,
+    );
+  } finally {
+    await page.setWidth();
+    await sleep(400);
+  }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -942,29 +995,185 @@ export async function secondLeagueStep(ctx: StepContext): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------------------------
-// 9. Home and Privacy
+// 9. The public pages and the site's files
 
-export async function staticPagesStep(ctx: StepContext): Promise<void> {
-  for (const [step, pathname, shot] of [
-    ["Home", "/", "08-home"],
-    ["Privacy", "/privacy", "09-privacy"],
-  ] as const) {
-    ctx.page.step = step;
-    await ctx.page.navigate(pathname);
-    const loaded = await ctx.page.waitFor<boolean>(`!!document.querySelector("h1")`, 30_000, `the ${step} page`).catch(() => false);
-    if (!ctx.report.check(step, loaded, `the page loaded`, `the page didn't load`)) continue;
+/** The pages anyone can read (Part B, B3), each checked with a full load at phone width; `h1` is its heading when it has a fixed one. */
+export const STATIC_PAGES: ReadonlyArray<{ step: string; pathname: string; shot: string; h1?: string }> = [
+  { step: "Home", pathname: "/", shot: "08-home" },
+  { step: "Privacy", pathname: "/privacy", shot: "09-privacy", h1: "Privacy" },
+  { step: "Terms", pathname: "/terms", shot: "10-terms", h1: "Terms of use" },
+  { step: "Feedback", pathname: "/feedback", shot: "11-feedback", h1: "Feedback" },
+];
+
+/** An address the app doesn't have: the branded 404 page (src/app/not-found.tsx). */
+export const MISSING_PAGE = { step: "Missing page", pathname: "/no-such-page", shot: "12-not-found", h1: "Page not found" } as const;
+
+/** The missing page's own document request: the one failed request that step expects. */
+export function isMissingPage404(e: Pick<PageEvent, "kind" | "text">): boolean {
+  return e.kind === "failed request" && e.text === `HTTP 404 ${MISSING_PAGE.pathname}`;
+}
+
+/** What the home page's response and the site's files say (read in the page: same-origin requests only). */
+export interface SiteFiles {
+  csp: string | null;
+  cspReportOnly: string | null;
+  permissions: string | null;
+  poweredBy: string | null;
+  manifest: { startUrl: string | null; icons: Array<{ src: string; sizes: string; purpose: string; ok: boolean; type: string | null }> } | null;
+  icons: Array<{ rel: string; href: string; ok: boolean; type: string | null }>;
+  og: { ok: boolean; type: string | null; width: string | null; height: string | null; alt: boolean } | null;
+  robots: string;
+  sitemap: string;
+}
+
+/** The checks on the site's files and headers (pure; Part B, B3 and B4): [passed, what passed, what failed]. */
+export function siteFileChecks(f: SiteFiles): Array<[boolean, string, string]> {
+  const policy = f.csp?.includes("script-src") ? f.csp : f.cspReportOnly?.includes("script-src") ? f.cspReportOnly : null;
+  const mode = policy !== null && policy === f.csp ? "enforced" : "report-only";
+  const connect = /(?:^|;)\s*connect-src ([^;]*)/.exec(policy ?? "")?.[1]?.trim().split(/\s+/) ?? [];
+  const icons = f.manifest?.icons ?? [];
+  const anySizes = new Set(icons.filter((i) => i.purpose === "any").map((i) => i.sizes));
+  const locs = [...f.sitemap.matchAll(/<loc>([^<]*)<\/loc>/g)].map((m) => {
+    try {
+      return new URL(m[1] ?? "").pathname;
+    } catch {
+      return m[1] ?? "";
+    }
+  });
+  return [
+    [policy !== null, `the production build sends the full Content-Security-Policy (${mode})`, "the home page's response has no full Content-Security-Policy (no script-src)"],
+    [
+      connect.includes("'self'") && connect.includes("https://api.sleeper.app") && connect.includes("https://lm-api-reads.fantasy.espn.com"),
+      "its connect-src allows the site and the two league APIs the browser reads",
+      `its connect-src is "${connect.join(" ")}"`,
+    ],
+    [
+      !!f.permissions && f.poweredBy === null,
+      "a Permissions-Policy, and no X-Powered-By header",
+      `Permissions-Policy ${f.permissions ? "sent" : "missing"}, X-Powered-By ${f.poweredBy === null ? "absent" : "sent"}`,
+    ],
+    [
+      !!f.manifest && anySizes.has("192x192") && anySizes.has("512x512") && icons.some((i) => i.purpose === "maskable") && icons.every((i) => i.ok && i.type === "image/png"),
+      `the manifest lists 192 and 512 px icons and a maskable one, each served as a PNG (it opens on ${f.manifest?.startUrl ?? "?"})`,
+      f.manifest ? `the manifest's icons: ${icons.map((i) => `${i.src} ${i.sizes} ${i.purpose} ${i.ok ? i.type : "failed"}`).join(", ") || "none"}` : "no manifest linked, or it didn't load",
+    ],
+    [
+      f.icons.some((i) => i.rel === "apple-touch-icon") && f.icons.some((i) => i.rel !== "apple-touch-icon") && f.icons.every((i) => i.ok && (i.type ?? "").startsWith("image/")),
+      `the tab and iPhone icons load (${f.icons.length})`,
+      `the icons: ${f.icons.map((i) => `${i.rel} ${i.href} ${i.ok ? i.type : "failed"}`).join(", ") || "none linked"}`,
+    ],
+    [
+      !!f.og && f.og.ok && f.og.type === "image/png" && f.og.width === "1200" && f.og.height === "630" && f.og.alt,
+      "the sharing image loads: a 1200 × 630 PNG with alt text",
+      f.og ? `the sharing image: ${f.og.ok ? f.og.type : "failed"}, ${f.og.width} × ${f.og.height}, alt text ${f.og.alt ? "set" : "missing"}` : "no og:image",
+    ],
+    [/Disallow: \/api\//.test(f.robots) && /Sitemap: /.test(f.robots), "robots.txt keeps crawlers off /api/ and names the sitemap", "robots.txt doesn't say Disallow: /api/ and Sitemap:"],
+    [["/", "/connect", "/privacy", "/terms", "/feedback"].every((p) => locs.includes(p)), "the sitemap lists the public pages", `the sitemap lists ${locs.join(", ") || "nothing"}`],
+  ];
+}
+
+/** One public page: a full load, its heading, the layout, a screenshot and the health check. */
+async function publicPage(ctx: StepContext, page: { step: string; pathname: string; shot: string; h1?: string }, expected?: (e: PageEvent) => boolean): Promise<void> {
+  const { step } = page;
+  ctx.page.step = step;
+  await ctx.page.navigate(page.pathname);
+  const h1 = await ctx.page.waitFor<string>(`txt(document.querySelector("main h1")) || null`, 30_000, `the ${step} page`).catch(() => null);
+  if (ctx.report.check(step, h1 !== null, "the page loaded", "the page didn't load")) {
+    if (page.h1) ctx.report.check(step, h1 === page.h1, `its heading reads "${page.h1}"`, `its heading reads "${h1}", not "${page.h1}"`);
     await sleep(500);
     layoutChecks(ctx, step, await measurePage(ctx));
-    await screenshot(ctx, shot);
-    healthCheck(ctx, step);
+    await screenshot(ctx, page.shot);
   }
+  healthCheck(ctx, step, expected);
+}
+
+/** In the page (with PAGE_HELPERS): the home page's own headers and the site's files (see siteFileChecks). */
+export const READ_SITE_FILES = `
+  const get = async (url) => {
+    try {
+      const r = await fetch(url, { cache: "no-store" });
+      return { ok: r.ok, type: (r.headers.get("content-type") || "").split(";")[0].trim() || null, r: r };
+    } catch (e) {
+      return { ok: false, type: null, r: null };
+    }
+  };
+  const home = await get("/");
+  const h = home.r ? home.r.headers : new Headers();
+  let manifest = null;
+  const ml = document.querySelector('link[rel="manifest"]');
+  if (ml) {
+    const m = await get(ml.getAttribute("href"));
+    const json = m.ok ? await m.r.json().catch(() => null) : null;
+    if (json) {
+      const icons = [];
+      for (const i of json.icons || []) {
+        const r = await get(i.src);
+        icons.push({ src: i.src, sizes: i.sizes || "", purpose: i.purpose || "any", ok: r.ok, type: r.type });
+      }
+      manifest = { startUrl: json.start_url || null, icons: icons };
+    }
+  }
+  const icons = [];
+  for (const l of document.querySelectorAll('link[rel~="icon"], link[rel="apple-touch-icon"]')) {
+    const r = await get(l.getAttribute("href"));
+    icons.push({ rel: l.getAttribute("rel"), href: l.getAttribute("href"), ok: r.ok, type: r.type });
+  }
+  const meta = (p) => {
+    const m = document.querySelector('meta[property="' + p + '"]');
+    return m ? m.getAttribute("content") : null;
+  };
+  let og = null;
+  const ogUrl = meta("og:image");
+  if (ogUrl) {
+    // Its absolute URL names the site's own address (metadataBase), not this server's port: read its path here.
+    const u = new URL(ogUrl, location.href);
+    const r = await get(u.pathname + u.search);
+    og = { ok: r.ok, type: r.type, width: meta("og:image:width"), height: meta("og:image:height"), alt: !!meta("og:image:alt") };
+  }
+  const text = async (url) => {
+    const r = await get(url);
+    return r.ok ? await r.r.text() : "";
+  };
+  return {
+    csp: h.get("content-security-policy"),
+    cspReportOnly: h.get("content-security-policy-report-only"),
+    permissions: h.get("permissions-policy"),
+    poweredBy: h.get("x-powered-by"),
+    manifest: manifest,
+    icons: icons,
+    og: og,
+    robots: await text("/robots.txt"),
+    sitemap: await text("/sitemap.xml"),
+  };
+`;
+
+export async function staticPagesStep(ctx: StepContext): Promise<void> {
+  for (const page of STATIC_PAGES) await publicPage(ctx, page);
+  await publicPage(ctx, MISSING_PAGE, isMissingPage404);
+
+  const step = "Site files";
+  ctx.page.step = step;
+  await ctx.page.navigate("/");
+  const files = await ctx.page.run<SiteFiles>(READ_SITE_FILES);
+  for (const [ok, pass, fail] of siteFileChecks(files)) ctx.report.check(step, ok, pass, fail);
+  healthCheck(ctx, step);
+}
+
+export interface Step {
+  name: string;
+  run: (ctx: StepContext) => Promise<void>;
+  health: boolean;
+  /** A stop here (the import) leaves the league-bound steps after it nothing to check. */
+  essential?: true;
+  /** Needs no league: runs even after an essential step stopped. */
+  independent?: true;
 }
 
 /**
- * The steps, in order, with the health check after each (the static pages check their own). An essential step that
- * stops (the import) leaves nothing for the others to check: they're skipped.
+ * The steps, in order, with the health check after each (the public pages check their own). An essential step that
+ * stops (the import) leaves nothing for the league-bound steps to check: they're skipped; the public pages still run.
  */
-export const STEPS: ReadonlyArray<{ name: string; run: (ctx: StepContext) => Promise<void>; health: boolean; essential?: true }> = [
+export const STEPS: readonly Step[] = [
   { name: "Connect", run: connectStep, health: true, essential: true },
   { name: "Import Report", run: importReportStep, health: true },
   { name: "League", run: leagueStep, health: true },
@@ -973,6 +1182,11 @@ export const STEPS: ReadonlyArray<{ name: string; run: (ctx: StepContext) => Pro
   { name: "Analyzer", run: analyzerStep, health: true },
   { name: "Settings", run: settingsStep, health: true },
   { name: "Second league", run: secondLeagueStep, health: true },
-  { name: "Home and Privacy", run: staticPagesStep, health: false },
+  { name: "Public pages", run: staticPagesStep, health: false, independent: true },
 ];
+
+/** Why a step is skipped (pure): the stop that came before it, unless it needs no league; null: it runs. */
+export function skipReason(step: Pick<Step, "independent">, stop: string | null): string | null {
+  return stop && !step.independent ? `not checked: ${stop}` : null;
+}
 

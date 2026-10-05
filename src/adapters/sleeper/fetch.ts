@@ -13,7 +13,10 @@
  *   here: player facts come from deps.resolver, and injury status and NFL team from the projection
  *   rows (fresher).
  * - Projections: this NFL week and the next two (FREE_AGENT_RANK_WEEKS, capped at week 18), so a
- *   free agent on bye or out this week still ranks by the weeks he's projected to play.
+ *   free agent on bye or out this week still ranks by the weeks he's projected to play. Each body is reduced at fetch
+ *   time to what the import reads (importProjectionsPolicy; src/data/reduce.ts IMPORT_PROJECTIONS_REDUCER) and marked
+ *   league-independent (cache.public) for the shared cache (planner reply to Checkpoint 4c, Part B, B1). League data,
+ *   Sleeper's NFL state, user lookups and their keys are as before.
  * - Every body is parsed with bigIntsAsStrings: Sleeper sends a few 19-digit IDs as bare numbers.
  * - 404 / 400 / a literal `null` body → *_NOT_FOUND; 5xx, 429 and network failures (after the
  *   client's retries) → SOURCE_DOWN; a body that isn't JSON → BAD_RESPONSE. Optional endpoints
@@ -23,6 +26,7 @@ import { LeagueImportError, type HttpClient, type HttpResponse, type ImportDeps,
 import { POSITIONS, type ImportWarning, type Pos } from "@/engine/model";
 import { parseSleeperLeagueInput } from "@/lib/sleeperInput";
 import { config } from "@/engine/config";
+import { IMPORT_PROJECTIONS_REDUCER, reducedKey, type BodyReducer } from "@/data/reduce";
 import { PROJECTIONS_NEAR_WEEKS, TTL, leagueTtl } from "@/server/cache";
 import { LAST_NFL_WEEK, SLOT_ELIGIBLE, assertSupported, type SleeperRawLeague } from "./normalize";
 import { LeagueListItemSchema, LeagueSchema, StateSchema, UserSchema, num, parseArrayOrThrow, parseOrThrow } from "./schemas";
@@ -117,6 +121,16 @@ export interface CachePolicy {
   league: boolean;
   /** Only bodies this accepts are cached. */
   cacheIf?: (res: HttpResponse) => boolean;
+  /**
+   * League-independent data (HttpRequestOptions cache.public: the projection weeks), never league data or a user lookup:
+   * with the shared cache one server instance fetches it for all (Part B, src/server/http.ts).
+   */
+  public?: boolean;
+  /**
+   * A fetch-time reducer (src/data/reduce.ts): the body keeps only what the import reads, filed under the URL's key plus
+   * the reducer's suffix (reducedKey). The import's projection weeks: IMPORT_PROJECTIONS_REDUCER.
+   */
+  reducer?: BodyReducer;
 }
 
 /** League data: served 10 minutes (1 minute after Refresh), and kept 10 minutes either way. */
@@ -173,6 +187,19 @@ export function projectionsPolicy(week: number, currentWeek: number): CachePolic
   return week <= currentWeek + PROJECTIONS_NEAR_WEEKS ? NEAR_PROJECTIONS_POLICY : LATER_PROJECTIONS_POLICY;
 }
 
+/**
+ * How the import's projection weeks are fetched (planner reply to Checkpoint 4c, Part B, B1; src/data/reduce.ts): the
+ * week's projectionsPolicy, league-independent (public), each body reduced to what the import reads
+ * (IMPORT_PROJECTIONS_REDUCER: every row's player object and real rows' stats) under a cache entry of its own. ⚠️ The
+ * model build's loader reads the same URLs reduced its own way (MODEL_PROJECTIONS_REDUCER), so the two no longer share a
+ * copy: an import and a model build in the same 6 hours ask Sleeper for these weeks once each, and the injury tags and
+ * teams the import reads here can come from a fetch up to about 6 hours apart from the model's projections of the same
+ * weeks (review CA-10; src/data/sleeperProjections.ts header).
+ */
+export function importProjectionsPolicy(week: number, currentWeek: number): CachePolicy {
+  return { ...projectionsPolicy(week, currentWeek), public: true, reducer: IMPORT_PROJECTIONS_REDUCER };
+}
+
 interface Getter {
   required(url: string, what: string, notFound: ImportErrorCode, notFoundMessage: string, policy?: CachePolicy): Promise<unknown>;
   /** undefined (plus a warning) when the response can't be used. */
@@ -184,7 +211,13 @@ interface Getter {
 function getter(http: HttpClient, warnings: ImportWarning[], defaultPolicy: CachePolicy): Getter {
   let oldest: number | undefined;
   const get = async (url: string, p: CachePolicy) => {
-    const res = await http.get(url, { cache: { key: `sleeper:${url}`, ttlMs: p.ttlMs, retainMs: p.retainMs }, bigIntsAsStrings: true, ...(p.cacheIf ? { cacheIf: p.cacheIf } : {}) });
+    const key = p.reducer ? reducedKey(`sleeper:${url}`, p.reducer) : `sleeper:${url}`;
+    const res = await http.get(url, {
+      cache: { key, ttlMs: p.ttlMs, retainMs: p.retainMs, ...(p.public ? { public: true } : {}) },
+      bigIntsAsStrings: true,
+      ...(p.cacheIf ? { cacheIf: p.cacheIf } : {}),
+      ...(p.reducer ? { transformText: p.reducer.reduce } : {}),
+    });
     if (p.league && res.fetchedAt !== undefined) oldest = Math.min(oldest ?? res.fetchedAt, res.fetchedAt);
     return res;
   };
@@ -294,6 +327,8 @@ export async function fetchSleeperLeague(req: SleeperImportRequest, deps: Pick<I
   const g = getter(deps.http, warnings, leaguePolicy(req.refresh));
 
   const { leagueId, userId } = await resolveLeagueId(req, g, warnings);
+  // ⚠️ Sleeper's NFL state is the same for everyone, but it isn't marked league-independent (cache.public): it's tiny and
+  // required, and over the day's budget a required request should answer BUSY like the league's own (src/server/http.ts).
   const stateJson = await g.required(sleeperUrls.state(), "state", "SOURCE_DOWN", "Sleeper's season calendar couldn't be read.");
   const state = parseOrThrow(StateSchema, stateJson, "state");
 
@@ -333,7 +368,7 @@ export async function fetchSleeperLeague(req: SleeperImportRequest, deps: Pick<I
     Promise.all(legs.map((l) => g.optional(sleeperUrls.transactions(id, l), `transactions/${l}`, "TRANSACTIONS_MISSING", policyFor(l)))),
     g.optional(sleeperUrls.tradedPicks(id), "traded_picks", "TRADED_PICKS_MISSING"),
     g.optional(sleeperUrls.drafts(id), "drafts", "DRAFTS_MISSING"),
-    Promise.all(projectionWeeks.map((w) => g.optional(sleeperUrls.projections(season, w, positions), `projections/${w}`, "PROJECTIONS_UNREADABLE", projectionsPolicy(w, projectionWeek ?? w)))),
+    Promise.all(projectionWeeks.map((w) => g.optional(sleeperUrls.projections(season, w, positions), `projections/${w}`, "PROJECTIONS_UNREADABLE", importProjectionsPolicy(w, projectionWeek ?? w)))),
   ]);
 
   const matchups: Record<number, unknown> = {};

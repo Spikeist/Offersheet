@@ -13,6 +13,7 @@ import { LeagueImportError, type HttpClient, type HttpResponse } from "@/adapter
 import type { SleeperPlayerLite } from "@/data/types";
 import { STALE_PUBLIC_RETAIN_MS, TTL } from "@/server/cache";
 import { normalizeId } from "./ids";
+import { jsonReducer, pickKeys, reducedKey, reducerId } from "./reduce";
 import { checkedJson, getPublicSource, sourceError, tooFewRows } from "./source";
 import { cleanTeamCode } from "./teamCodes";
 
@@ -31,6 +32,11 @@ export const SLEEPER_LIST_TIMEOUT_MS = 30_000;
 
 export function sleeperPlayersUrl(position: string): string {
   return `https://api.sleeper.app/v1/players/nfl?position=${encodeURIComponent(position)}&active=true`;
+}
+
+/** A position list's cache key: its URL's, plus the reducer's suffix (src/data/reduce.ts reducedKey; SLEEPER_PLAYERS_REDUCER below). */
+export function sleeperPlayersCacheKey(position: string): string {
+  return reducedKey(`sleeper:${sleeperPlayersUrl(position)}`, SLEEPER_PLAYERS_REDUCER);
 }
 
 /** Everything the crosswalk keeps from a Sleeper player: the public facts plus the platform ids. */
@@ -70,6 +76,22 @@ const rowSchema = z.object({
 
 export const sleeperPlayersSchema = z.record(z.string(), rowSchema);
 export type SleeperPlayersResponse = z.infer<typeof sleeperPlayersSchema>;
+
+/** The fields a list's player keeps (rowSchema's: everything the check and reduceSleeperPlayers read). */
+export const SLEEPER_PLAYER_FIELDS: readonly string[] = Object.keys(rowSchema.shape);
+
+/**
+ * The fetch-time reducer of a players list (planner reply to Checkpoint 4c, Part B, B1; src/data/reduce.ts): each player
+ * keeps rowSchema's fields as they came (about a quarter of a list's bytes; the rest, from news stamps to birth cities,
+ * nothing reads). Consumers: sleeperListCheck (the schema, its row count) and reduceSleeperPlayers, which the crosswalk
+ * builds on. A list the schema doesn't take stays as it is (the check's error, word for word). The id's fingerprint
+ * follows SLEEPER_PLAYER_FIELDS, so a field added to rowSchema files the new form under a new key by itself (review
+ * CA-7: the old form, without it, is never read for the new code); its version names the code.
+ */
+export const SLEEPER_PLAYERS_REDUCER = jsonReducer(reducerId("sleeper-players", 1, [SLEEPER_PLAYER_FIELDS]), (json) => {
+  if (!sleeperPlayersSchema.safeParse(json).success) return undefined;
+  return Object.fromEntries(Object.entries(json as Record<string, object>).map(([id, player]) => [id, pickKeys(player, SLEEPER_PLAYER_FIELDS)]));
+});
 
 function blankToNull(s: string | null | undefined): string | null {
   const t = s?.trim();
@@ -195,7 +217,14 @@ export async function fetchSleeperPlayers(http: HttpClient, positions: readonly 
     const got = await getPublicSource(
       http,
       url,
-      { key: `sleeper:${url}`, ttlMs: savedOnly ? STALE_PUBLIC_RETAIN_MS : TTL.sleeperPlayers, timeoutMs: SLEEPER_LIST_TIMEOUT_MS, maxRetries: savedOnly ? 0 : 1, refetchBadCopy: !savedOnly },
+      {
+        key: sleeperPlayersCacheKey(position),
+        ttlMs: savedOnly ? STALE_PUBLIC_RETAIN_MS : TTL.sleeperPlayers,
+        timeoutMs: SLEEPER_LIST_TIMEOUT_MS,
+        maxRetries: savedOnly ? 0 : 1,
+        refetchBadCopy: !savedOnly,
+        transformText: SLEEPER_PLAYERS_REDUCER.reduce,
+      },
       sleeperListCheck(position),
     );
     const { res } = got;

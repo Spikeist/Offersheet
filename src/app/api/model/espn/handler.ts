@@ -69,7 +69,7 @@ export function createEspnModelHandler(d: EspnModelHandlerDeps): (request: Reque
     try {
       model = await d.buildInputs({ snapshot: imported.snapshot, http: deps.http, resolver: deps.resolver, now: deps.now, espn });
     } catch (err) {
-      logUnexpected("ESPN model inputs", err);
+      logUnexpected("model_inputs", err, "espn");
       return errorResponse("INTERNAL");
     }
     const response: ModelResponse = { import: imported, model };

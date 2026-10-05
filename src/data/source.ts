@@ -62,6 +62,12 @@ export interface PublicSourceRequest {
    * holds, a retained older one standing in (stale), or the check's failure on a status-0 response. No refetch either.
    */
   cacheOnly?: boolean;
+  /**
+   * A fetch-time reducer (src/data/reduce.ts; HttpRequestOptions.transformText): the body keeps only what the check and
+   * its readers use. `key` must then be the reduced form's own (reducedKey), so no copy of the code reads a shape it
+   * doesn't expect.
+   */
+  transformText?: (text: string) => string;
 }
 
 /** The response plus the checked value, or the reason the body isn't usable. */
@@ -79,6 +85,8 @@ export type PublicSourceResult<T> = { res: HttpResponse; value: T } | { res: Htt
  *   through `check` too, and each response object is checked only once;
  * - `cacheOnly` (a caller holding off a source it found down) asks nothing: the cache's copy, a retained one standing in
  *   (stale), or the check's failure on a status-0 response (HttpRequestOptions.cacheOnly).
+ * - Every request is league-independent data (cache.public: with the shared cache one server instance fetches it for all,
+ *   src/server/http.ts), reduced at fetch time when the caller gives a reducer (`transformText`).
  */
 export async function getPublicSource<T>(http: HttpClient, url: string, req: PublicSourceRequest, check: (res: HttpResponse) => T): Promise<PublicSourceResult<T>> {
   const checked = new WeakMap<HttpResponse, { value: T } | { error: unknown }>();
@@ -96,11 +104,12 @@ export async function getPublicSource<T>(http: HttpClient, url: string, req: Pub
   };
   const request = (ttlMs: number) =>
     http.get(url, {
-      cache: { key: req.key, ttlMs, retainMs: STALE_PUBLIC_RETAIN_MS, staleIfError: true },
+      cache: { key: req.key, ttlMs, retainMs: STALE_PUBLIC_RETAIN_MS, staleIfError: true, public: true },
       cacheIf: (res) => "value" in run(res),
       maxRetries: req.maxRetries,
       timeoutMs: req.timeoutMs,
       ...(req.cacheOnly ? { cacheOnly: true } : {}),
+      ...(req.transformText ? { transformText: req.transformText } : {}),
     });
   let res = await request(req.ttlMs);
   // A fresh saved copy that fails the check: no copy is younger than -Infinity, so this is one live

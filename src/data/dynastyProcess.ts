@@ -8,6 +8,7 @@ import { parse } from "csv-parse/sync";
 import { LeagueImportError, type HttpClient, type HttpResponse } from "@/adapters/types";
 import { TTL } from "@/server/cache";
 import { normalizeId } from "./ids";
+import { reducedKey, reducerId, type BodyReducer } from "./reduce";
 import { checkedResponse, getPublicSource, tooFewRows } from "./source";
 import { cleanTeamCode } from "./teamCodes";
 
@@ -79,6 +80,49 @@ export function parseDynastyProcessCsv(text: string): DynastyRow[] {
   }));
 }
 
+/** A CSV value as written back: quoted (inner quotes doubled) only when it holds a quote, a comma or a line break. */
+function csvValue(v: string | undefined): string {
+  const s = v ?? "";
+  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+/**
+ * The fetch-time reducer of the ID map (planner reply to Checkpoint 4c, Part B, B1; src/data/reduce.ts): the CSV keeps the
+ * DYNASTYPROCESS_COLUMNS (10 of its 35: what parseDynastyProcessCsv reads), every record in order, each value as
+ * csv-parse read it with parseDynastyProcessCsv's own options (a cell a short row lacks is written empty, which every
+ * reader takes as blank, like "NA"), so parseDynastyProcessCsv reads the same rows from either; a third of the bytes
+ * and of its parse time. A text it can't read, or without those columns, stays as it is (the check's error, word for
+ * word). Consumers: checkDynastyCsv (and its row floor), the crosswalk. The id's fingerprint follows DYNASTYPROCESS_COLUMNS
+ * (src/data/reduce.ts reducerId); its version names the code.
+ */
+export const DYNASTYPROCESS_REDUCER: BodyReducer = {
+  id: reducerId("dynastyprocess", 1, [DYNASTYPROCESS_COLUMNS]),
+  reduce(text: string): string {
+    let records: Record<string, string | undefined>[];
+    try {
+      records = parse(text, {
+        bom: true,
+        skip_empty_lines: true,
+        relax_column_count: true,
+        columns: (header: string[]) => {
+          const names = header.map((h) => h.trim());
+          if (DYNASTYPROCESS_COLUMNS.some((c) => !names.includes(c))) throw new Error("not the ID map");
+          return names;
+        },
+      }) as Record<string, string | undefined>[];
+    } catch {
+      return text;
+    }
+    if (!records.length) return text;
+    const lines = [DYNASTYPROCESS_COLUMNS.join(",")];
+    for (const r of records) lines.push(DYNASTYPROCESS_COLUMNS.map((c) => csvValue(r[c])).join(","));
+    return `${lines.join("\n")}\n`;
+  },
+};
+
+/** The ID map's cache key: its URL's, plus the reducer's suffix (src/data/reduce.ts reducedKey). */
+export const DYNASTYPROCESS_CACHE_KEY = reducedKey(`dynastyprocess:${DYNASTYPROCESS_IDS_URL}`, DYNASTYPROCESS_REDUCER);
+
 function checkDynastyCsv(res: HttpResponse): DynastyRow[] {
   checkedResponse(res, WHAT);
   const rows = parseDynastyProcessCsv(res.text);
@@ -96,7 +140,12 @@ export interface DynastyProcessLoad {
 
 /** Fetch and check the CSV: only a complete file is cached (24 h), and a saved copy stands in for up to 7 days when GitHub fails. */
 export async function fetchDynastyProcessIds(http: HttpClient): Promise<DynastyProcessLoad> {
-  const got = await getPublicSource(http, DYNASTYPROCESS_IDS_URL, { key: `dynastyprocess:${DYNASTYPROCESS_IDS_URL}`, ttlMs: TTL.idMap, timeoutMs: DYNASTYPROCESS_TIMEOUT_MS, maxRetries: 1 }, checkDynastyCsv);
+  const got = await getPublicSource(
+    http,
+    DYNASTYPROCESS_IDS_URL,
+    { key: DYNASTYPROCESS_CACHE_KEY, ttlMs: TTL.idMap, timeoutMs: DYNASTYPROCESS_TIMEOUT_MS, maxRetries: 1, transformText: DYNASTYPROCESS_REDUCER.reduce },
+    checkDynastyCsv,
+  );
   if ("error" in got) throw got.error;
   const { res } = got;
   return { rows: got.value, fromCache: res.fromCache, stale: res.stale === true, ...(res.fetchedAt !== undefined ? { fetchedAt: res.fetchedAt } : {}) };

@@ -23,6 +23,7 @@
  */
 import { LeagueImportError, type HttpClient } from "@/adapters/types";
 import { HOUR, MINUTE } from "@/server/cache";
+import { LATE, noteCut, withinDeadline } from "@/server/deadline";
 import { resolverFromData, type CrosswalkSourceKey, type PlayerIdCrosswalk } from "./crosswalk";
 import { fetchDynastyProcessIds } from "./dynastyProcess";
 import { fetchFantasyCalcPlayers } from "./fantasyCalcPlayers";
@@ -184,7 +185,13 @@ export async function loadPlayerIdResolver(deps: { http: HttpClient; now?: Date 
     if (now.getTime() >= entry.refreshAt && !entry.building) startBuild(deps.http, entry, now).catch(() => {});
     return entry.current;
   }
-  return entry.building ?? startBuild(deps.http, entry, now);
+  if (!entry.building) return startBuild(deps.http, entry, now);
+  // Another request's first build is in flight (Checkpoint 7a, review RL-1): wait for it no longer than this request's own
+  // deadline (outside a request, as long as it takes), then answer that the player ID lists are still loading.
+  const built = await withinDeadline(entry.building);
+  if (built !== LATE) return built;
+  noteCut("slow", "other");
+  throw new LeagueImportError("SOURCE_DOWN", "the player ID lists are still loading");
 }
 
 /** The build in flight for this client (tests and scripts that want to wait for a background rebuild). */

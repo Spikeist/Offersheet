@@ -1,0 +1,13 @@
+# Allowlist for `vercel deploy` (Checkpoint 7a). The CLI uploads this folder but ignores .gitignore, so without
+# this file it would upload fixtures/raw (raw API captures), data-local (strangers' leagues, archives), reports and
+# the caches. Everything is ignored except what the build needs; add a line here only for a file the build reads.
+/*
+!/src
+!/public
+!/package.json
+!/package-lock.json
+!/next.config.ts
+!/tsconfig.json
+!/postcss.config.mjs
+!/eslint.config.mjs
+!/vercel.json

@@ -88,6 +88,78 @@ describe("importErrorResponse", () => {
     expect((await importErrorResponse(lookalike, { platform: "sleeper" }).json()) as unknown).toMatchObject({ error: { code: "USER_NOT_FOUND" } });
   });
 
+  it("a used-up daily budget answers BUSY for the platform, with Retry-After until the next UTC midnight and that wait in words (track RL)", async () => {
+    vi.useFakeTimers({ now: Date.UTC(2026, 9, 4, 18, 0, 0), toFake: ["Date"] });
+    try {
+      const { BudgetExhaustedError } = await import("@/server/budget");
+      const res = importErrorResponse(new BudgetExhaustedError("espn"), { platform: "espn", season: 2026 });
+      expect(res.status).toBe(503);
+      expect(res.headers.get("retry-after")).toBe(String(6 * 3600));
+      expect(await res.json()).toEqual({ error: { code: "BUSY", message: "Offer Sheet has used today's share of requests to ESPN. Try again in about 6 hours." } });
+      // Sleeper's adapter turns its client's error into SOURCE_DOWN; the request's scope still knows it was the budget.
+      const { newRequestScope, noteCut, runInRequestScope } = await import("@/server/deadline");
+      const scope = newRequestScope("import", Date.now());
+      const sleeper = await runInRequestScope(scope, async () => {
+        noteCut("budget", "sleeper");
+        return importErrorResponse(new LeagueImportError("SOURCE_DOWN", "Sleeper couldn't be reached.", { platform: "sleeper" }), { platform: "sleeper" });
+      });
+      expect(await sleeper.json()).toEqual({ error: { code: "BUSY", message: "Offer Sheet has used today's share of requests to Sleeper. Try again in about 6 hours." } });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("the client's own share of the day answers BUSY in words about its connection (review RL-4)", async () => {
+    vi.useFakeTimers({ now: Date.UTC(2026, 9, 4, 23, 30, 0), toFake: ["Date"] });
+    try {
+      const { BudgetExhaustedError } = await import("@/server/budget");
+      const res = importErrorResponse(new BudgetExhaustedError("espn", "share"), { platform: "espn" });
+      expect(res.status).toBe(503);
+      expect(res.headers.get("retry-after")).toBe("1800");
+      expect(await res.json()).toEqual({ error: { code: "BUSY", message: "Your connection has used today's share of requests to ESPN. Try again in about 30 minutes." } });
+      const { newRequestScope, noteCut, runInRequestScope } = await import("@/server/deadline");
+      const sleeper = await runInRequestScope(newRequestScope("import", Date.now()), async () => {
+        noteCut("share", "sleeper");
+        return importErrorResponse(new LeagueImportError("SOURCE_DOWN", "x", { platform: "sleeper" }), { platform: "sleeper" });
+      });
+      expect(((await sleeper.json()) as { error: { message: string } }).error.message).toBe("Your connection has used today's share of requests to Sleeper. Try again in about 30 minutes.");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a request whose deadline came first answers SOURCE_SLOW, naming only a source that was slow; a plain outage stays SOURCE_DOWN (review RL-8)", async () => {
+    const { newRequestScope, noteCut, runInRequestScope } = await import("@/server/deadline");
+    type Cuts = Partial<Record<"slow" | "busy" | "skipped", string[]>>;
+    const down = new LeagueImportError("SOURCE_DOWN", "ESPN isn't responding right now.", { platform: "espn" });
+    const answer = async (cuts: Cuts) => {
+      const scope = newRequestScope("import", Date.now());
+      const res = await runInRequestScope(scope, async () => {
+        for (const [reason, platforms] of Object.entries(cuts)) for (const p of platforms ?? []) noteCut(reason as keyof Cuts, p);
+        return importErrorResponse(down, { platform: "espn" });
+      });
+      return { status: res.status, body: (await res.json()) as { error: { code: string; message: string } } };
+    };
+    expect(await answer({ slow: ["espn", "sleeper"] })).toEqual({ status: 504, body: { error: { code: "SOURCE_SLOW", message: "ESPN is answering slowly right now, so Offer Sheet stopped waiting. Try again in a few minutes." } } });
+    expect((await answer({ slow: ["fantasycalc"] })).body.error.message).toBe("FantasyCalc is answering slowly right now, so Offer Sheet stopped waiting. Try again in a few minutes.");
+    expect((await answer({ slow: ["sleeper", "github"] })).body.error.message).toBe("One of our data sources is answering slowly right now, so Offer Sheet stopped waiting. Try again in a few minutes.");
+    // The reviewer's case: Sleeper's player list took the time, and the ESPN league request never went out.
+    expect((await answer({ slow: ["sleeper"], skipped: ["espn"] })).body.error.message).toBe("Sleeper is answering slowly right now, so Offer Sheet stopped waiting. Try again in a few minutes.");
+    // Nothing was slow: the time went to Offer Sheet's own queue or cache, or ran out before ESPN was asked.
+    const busy = "Offer Sheet is busy right now. Try again in a few minutes.";
+    expect(await answer({ busy: ["espn"], skipped: ["espn"] })).toEqual({ status: 504, body: { error: { code: "SOURCE_SLOW", message: busy } } });
+    expect((await answer({ busy: ["cache"] })).body.error.message).toBe(busy);
+    expect((await answer({ skipped: ["espn"] })).body.error.message).toBe(busy);
+    expect((await answer({})).body.error.code).toBe("SOURCE_DOWN");
+    // A cut never turns a user's own mistake into "slow".
+    const scope = newRequestScope("import", Date.now());
+    const notFound = await runInRequestScope(scope, async () => {
+      noteCut("slow", "espn");
+      return importErrorResponse(new LeagueImportError("LEAGUE_NOT_FOUND", "no"), { platform: "espn" });
+    });
+    expect(notFound.status).toBe(404);
+  });
+
   it("turns anything else into a generic 500", async () => {
     const errors = vi.spyOn(console, "error").mockImplementation(() => {});
     const res = importErrorResponse(new RangeError("secret-ish detail"), { platform: "espn" });
@@ -118,8 +190,9 @@ describe("scrubSwids and dataSourceStamps", () => {
     const out = scrubSwids(body, "test", [own]);
     expect(JSON.stringify(out)).not.toMatch(/00000000-0000-4000-8000-0000000000(42|43|44)|abcd/i);
     expect(out).toEqual({ braced: "{SWID}", encoded: "x={SWID}&y={SWID}", bare: "owner {SWID}", ownEncoded: "{SWID}" });
+    // Logged as a bug, allowlisted fields only (src/server/log.ts): nothing of the body, the count or the caller's words.
     expect(errors).toHaveBeenCalledTimes(1);
-    expect(String(errors.mock.calls[0]?.[0])).toContain("replaced 5 SWID-like value(s)");
+    expect(String(errors.mock.calls[0]?.[0])).toBe(JSON.stringify({ route: "server", event: "swid_scrubbed", platform: "espn" }));
   });
 
   it("uses the resolver's status() when it has one", () => {

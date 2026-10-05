@@ -343,7 +343,7 @@ describe("createProjectionArchiver (the fs layer)", () => {
     await writeFile(fileOf(5), gzipSync(Buffer.from("{not json")));
     expect(await createProjectionArchiver({ root: dir }).archive(input([qb("90002", 251)]))).toMatchObject({ status: "archived", replaced: ["QB"] });
     expect((await readProjectionSnapshot(fileOf(5)))?.groups.QB?.players["90002"]?.stats.pass_yd).toBe(251);
-    expect(log).toHaveBeenCalledWith("[offer-sheet] projection archive: an unreadable snapshot is replaced");
+    expect(log).toHaveBeenCalledWith(JSON.stringify({ route: "server", event: "projection_archive_replaced" }));
     const v2 = gzipSync(Buffer.from(JSON.stringify({ version: 2, season: SEASON, week: 5 })));
     await writeFile(fileOf(5), v2);
     expect(await createProjectionArchiver({ root: dir }).archive(input([qb("90002", 252)], { fetchedAt: BEFORE + HOUR }))).toEqual({ status: "failed", error: "OtherVersion" });
@@ -360,7 +360,7 @@ describe("createProjectionArchiver (the fs layer)", () => {
     expect(outcome.status).toBe("failed");
     expect(log).toHaveBeenCalledTimes(1);
     const logged = String(log.mock.calls[0]?.[0]);
-    expect(logged).toMatch(/^\[offer-sheet\] projection archive: a week wasn't archived \(\w+\)$/);
+    expect(logged).toMatch(/^\{"route":"server","event":"projection_archive_failed","errorName":"\w+"\}$/);
     expect(logged).not.toContain(dir);
     // A broken input (no rows array) is an outcome too.
     const broken = { ...input([qb("90002", 250)]), rows: null } as unknown as ProjectionArchiveInput;

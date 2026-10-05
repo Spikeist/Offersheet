@@ -41,7 +41,7 @@ export function createEspnSessionHandlers(opts: { env?: () => EnvLike } = {}): E
       try {
         await saveEspnCredentials(request, headers, check.value, env());
       } catch (err) {
-        logUnexpected("saving ESPN cookies", err);
+        logUnexpected("session_save", err, "espn");
         return errorResponse("INTERNAL");
       }
       const status: EspnSessionStatus = { connected: true, available: true };
@@ -54,7 +54,7 @@ export function createEspnSessionHandlers(opts: { env?: () => EnvLike } = {}): E
       try {
         await forgetEspnCredentials(request, headers, env());
       } catch (err) {
-        logUnexpected("forgetting ESPN cookies", err);
+        logUnexpected("session_forget", err, "espn");
         return errorResponse("INTERNAL");
       }
       const status: EspnSessionStatus = { connected: false, available: sessionAvailable(env()) };

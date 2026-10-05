@@ -63,6 +63,13 @@ export interface HttpResponse {
    * fantasyCalcValues.ts's outage memory). Absent on a copy served without a live attempt (cacheOnly).
    */
   liveFailure?: { status: number; isHtml: boolean };
+  /**
+   * Checkpoint 7a (src/server/http.ts responseCut): the server's client never sent this request, or stopped waiting for it,
+   * because the request it runs for ran out of time ("deadline") or the platform's daily budget or the visitor's share of it
+   * was used up ("budget"). It comes back as "no response" (status 0) or a saved copy standing in; an outage memory must not
+   * read a "deadline" cut as the source being down (it stops only this request's build).
+   */
+  cut?: "deadline" | "budget";
 }
 
 export interface HttpRequestOptions {
@@ -73,11 +80,19 @@ export interface HttpRequestOptions {
    * Cache key and TTL (§2.10). Keys of private data must include credentialScope. A copy younger than
    * ttlMs is served; the stored copy is deleted after retainMs (default ttlMs; Refresh lowers ttlMs,
    * not retainMs). With staleIfError, a failed live fetch serves a retained older copy (marked stale).
+   * `public`: league-independent data, the same for every user (projections, stats, player lists, ID maps, trade
+   * values, the NFL schedule; never league data, a user lookup or anything fetched with credentials). With the shared
+   * cache (Part B, src/server/cache.ts RedisCacheLock) one server instance fetches such an entry while the others wait
+   * for its copy; the daily budgets treat it as a public source (src/server/http.ts).
    */
-  cache?: { key: string; ttlMs: number; retainMs?: number; staleIfError?: boolean };
+  cache?: { key: string; ttlMs: number; retainMs?: number; staleIfError?: boolean; public?: boolean };
   /** Only bodies this accepts are cached (and count as a success for staleIfError); default: every 200 non-HTML body. */
   cacheIf?: (res: HttpResponse) => boolean;
-  /** Rewrites a body before it is parsed or cached (e.g. ESPN SWIDs to one-way pseudonyms). */
+  /**
+   * Rewrites a body before it is parsed or cached (e.g. ESPN SWIDs to one-way pseudonyms, or a fetch-time reducer that
+   * keeps only what our code reads: src/data/reduce.ts). It sees every live answer (errors and HTML pages too), so it
+   * must hand back any text it doesn't recognize unchanged.
+   */
   transformText?: (text: string) => string;
   /** Parse 16+ digit integers as strings (Sleeper sends some 19-digit IDs as bare numbers). */
   bigIntsAsStrings?: boolean;

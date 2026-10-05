@@ -33,6 +33,8 @@
     "league:report": "tsx scripts/league-report.ts",
     "trade:report": "tsx scripts/trade-report.ts",
     "measure:stat-sd": "tsx scripts/measure-stat-sd.ts",
+    "measure:cache": "tsx scripts/measure-cache.ts",
+    "beta:log": "tsx scripts/beta-log.ts",
     "snapshot:projections": "tsx scripts/snapshot-projections.ts",
     "feedback:summary": "tsx scripts/feedback-summary.ts",
     "gen:espn-constants": "tsx scripts/gen-espn-constants.ts",
@@ -43,6 +45,8 @@
     "prepare": "git config core.hooksPath .githooks || exit 0"
   },
   "dependencies": {
+    "@upstash/ratelimit": "2.2.0",
+    "@upstash/redis": "1.39.0",
     "csv-parse": "^7.0.3",
     "iron-session": "^9.0.1",
     "next": "16.3.7",

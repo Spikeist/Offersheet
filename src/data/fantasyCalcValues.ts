@@ -328,7 +328,10 @@ function failureWords(x: { status: number; isHtml: boolean } | undefined): strin
  * TTL); else whether FantasyCalc answered: the live answer's own status, or, for a saved copy standing in, the failed
  * answer it stood in for (HttpResponse.liveFailure; a client that doesn't report it counts as no answer).
  */
-export function fantasyCalcOutcome(res: Pick<HttpResponse, "status" | "isHtml" | "fromCache" | "stale" | "liveFailure">): FantasyCalcOutcome | null {
+export function fantasyCalcOutcome(res: Pick<HttpResponse, "status" | "isHtml" | "fromCache" | "stale" | "liveFailure" | "cut">): FantasyCalcOutcome | null {
+  // Cut by the request's own deadline (Checkpoint 7a, review RL-2): FantasyCalc wasn't asked or waited for long enough,
+  // which says nothing about it; a saved copy standing in for the cut carries the mark too.
+  if (res.cut === "deadline") return null;
   if (res.stale) return res.liveFailure && !notAnswering(res.liveFailure) ? { answered: true } : { answered: false, reason: failureWords(res.liveFailure) };
   if (res.fromCache) return null;
   return notAnswering(res) ? { answered: false, reason: failureWords(res) } : { answered: true };

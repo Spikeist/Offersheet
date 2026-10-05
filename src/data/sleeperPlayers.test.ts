@@ -8,6 +8,8 @@ import {
   SLEEPER_LIST_MIN_ROWS,
   SLEEPER_LIST_TIMEOUT_MS,
   SLEEPER_PLAYER_POSITIONS,
+  SLEEPER_PLAYERS_REDUCER,
+  sleeperPlayersCacheKey,
   sleeperPlayersSchema,
   sleeperPlayersUrl,
   toLite,
@@ -117,11 +119,15 @@ describe("fetchSleeperPlayers", () => {
     const { http, calls } = fakeHttp(routes());
     const load = await fetchSleeperPlayers(http);
     expect(calls.map((c) => c.url)).toEqual(SLEEPER_PLAYER_POSITIONS.map(sleeperPlayersUrl));
-    for (const c of calls) {
-      expect(c.opts?.cache).toEqual({ key: `sleeper:${c.url}`, ttlMs: TTL.sleeperPlayers, retainMs: STALE_PUBLIC_RETAIN_MS, staleIfError: true });
+    calls.forEach((c, i) => {
+      // Reduced at fetch time under a key of its own (src/data/reduce.ts), league-independent (public: the shared cache's lock).
+      const position = SLEEPER_PLAYER_POSITIONS[i] as string;
+      expect(c.opts?.cache).toEqual({ key: sleeperPlayersCacheKey(position), ttlMs: TTL.sleeperPlayers, retainMs: STALE_PUBLIC_RETAIN_MS, staleIfError: true, public: true });
+      expect(sleeperPlayersCacheKey(position)).toBe(`sleeper:${c.url}#${SLEEPER_PLAYERS_REDUCER.id}`);
+      expect(c.opts?.transformText).toBe(SLEEPER_PLAYERS_REDUCER.reduce);
       expect(c.opts).toMatchObject({ maxRetries: 1, timeoutMs: SLEEPER_LIST_TIMEOUT_MS });
       expect(typeof c.opts?.cacheIf).toBe("function");
-    }
+    });
     expect(new Set(load.players.map((p) => p.id))).toEqual(allIds());
     expect(load.players.filter((p) => p.id === "90002")).toHaveLength(1); // listed under QB and TE
     expect(load.failed).toEqual([]);

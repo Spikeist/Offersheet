@@ -11,8 +11,8 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { DEFAULT_MAX_SEARCH_SECONDS, SECOND_LEAGUE, USAGE, parseArgs, resolveArgs, type CheckBrowserArgs } from "./args";
 import { chromeArgs, chromeCandidates, devtoolsUrl, exited, findChrome, killTree, waitForDevtools } from "./chrome";
-import { CARD_HELPERS, INSTRUMENT, NAME_REPLACER, PAGE_HELPERS, RESTORE_CALL, sanitizeCall } from "./inPage";
-import { keptText, TEXT_KEEP_MAX } from "./page";
+import { CARD_HELPERS, CSP_MARK, INSTRUMENT, NAME_REPLACER, PAGE_HELPERS, RESTORE_CALL, sanitizeCall } from "./inPage";
+import { consoleCallKind, cspIssueText, keptText, logEntryKind, TEXT_KEEP_MAX } from "./page";
 import {
   CheckReport,
   cleanValue,
@@ -33,7 +33,7 @@ import {
   type LeagueNames,
 } from "./report";
 import { freePort, newestChange, productionBuild, StartError, startNextServer } from "./server";
-import { sidelessCards, sortInversions } from "./steps";
+import { isMissingPage404, MISSING_PAGE, NARROW_PHONE_WIDTH, READ_SITE_FILES, sameRow, siteFileChecks, sidelessCards, skipReason, sortInversions, STATIC_PAGES, STEPS, type SiteFiles } from "./steps";
 
 const parsed = (argv: string[]) => {
   const p = parseArgs(argv);
@@ -311,6 +311,13 @@ describe("the in-page JavaScript", () => {
     const call = sanitizeCall(nameRules({ teams: [{ id: "3", name: "Gravel Gophers", ownerName: "A" }, { id: "4", name: 'quote " and \\ slash' }], players: [] }, [["12345", "<league id>"]]));
     expect(() => new Function(`return (async () => {\n${PAGE_HELPERS}\n${call}\n})`)).not.toThrow();
     expect(() => new Function(`return (async () => {\n${PAGE_HELPERS}\n${RESTORE_CALL}\n})`)).not.toThrow();
+    expect(() => new Function(`return (async () => {\n${PAGE_HELPERS}\n${READ_SITE_FILES}\n})`)).not.toThrow();
+  });
+
+  it("reports every CSP violation the page sees, enforced or report-only, as a console error page.ts counts (Part B)", () => {
+    expect(INSTRUMENT).toContain('document.addEventListener(\n    "securitypolicyviolation"');
+    expect(INSTRUMENT).toContain(`console.error("${CSP_MARK} " + (e.disposition === "report" ? "report-only " : "")`);
+    expect(CSP_MARK).toBe("[check:csp]");
   });
 
   it("the page's name replacer gives exactly what report.ts gives, on the same texts", () => {
@@ -352,6 +359,124 @@ describe("the in-page JavaScript", () => {
   });
 });
 
+describe("what the browser reports (page.ts), Part B: CSP violations count wherever they show", () => {
+  it("a browser log line about the Content-Security-Policy is a CSP violation at any level, a report-only one included", () => {
+    expect(logEntryKind({ level: "error", source: "security", text: "Refused to load the script 'https://x.example/a.js' because it violates the following Content Security Policy directive: \"script-src 'self'\"." })).toBe("csp violation");
+    expect(logEntryKind({ level: "warning", source: "security", text: "[Report Only] Refused to connect to 'https://x.example/' because it violates the following Content Security Policy directive: \"connect-src 'self'\"." })).toBe("csp violation");
+    expect(logEntryKind({ level: "verbose", source: "other", text: "content-security-policy: something" })).toBe("csp violation");
+  });
+
+  it("other log lines: errors count but the network's (requests are watched apart); anything quieter doesn't", () => {
+    expect(logEntryKind({ level: "error", source: "javascript", text: "Uncaught TypeError: x" })).toBe("console error");
+    expect(logEntryKind({ level: "error", source: "network", text: "Failed to load resource" })).toBeNull();
+    expect(logEntryKind({ level: "warning", source: "other", text: "Something deprecated" })).toBeNull();
+  });
+
+  it("a worker's CSP violation, which Chrome files only as an issue (Audits), in words; other issues aren't violations", () => {
+    const issue = {
+      code: "ContentSecurityPolicyIssue",
+      details: {
+        contentSecurityPolicyIssueDetails: {
+          violatedDirective: "script-src",
+          isReportOnly: false,
+          contentSecurityPolicyViolationType: "kEvalViolation",
+          sourceCodeLocation: { scriptId: "3", url: "http://127.0.0.1:3000/_next/static/chunks/w.js", lineNumber: 0, columnNumber: 56 },
+        },
+      },
+    };
+    expect(cspIssueText(issue)).toBe("CSP issue: script-src (kEvalViolation) at http://127.0.0.1:3000/_next/static/chunks/w.js:0");
+    const reportOnly = { code: "ContentSecurityPolicyIssue", details: { contentSecurityPolicyIssueDetails: { violatedDirective: "connect-src", isReportOnly: true, contentSecurityPolicyViolationType: "kURLViolation", blockedURL: "https://x.example/" } } };
+    expect(cspIssueText(reportOnly)).toBe("CSP issue: connect-src (kURLViolation, report-only) blocked https://x.example/");
+    expect(cspIssueText({ code: "MixedContentIssue", details: {} })).toBeNull();
+    expect(cspIssueText(undefined)).toBeNull();
+  });
+
+  it("console calls: the instrumentation's CSP report, then errors and failed asserts, then warnings", () => {
+    expect(consoleCallKind("error", `${CSP_MARK} report-only script-src-elem blocked https://x.example/a.js`)).toBe("csp violation");
+    expect(consoleCallKind("log", `${CSP_MARK} anything`)).toBe("csp violation");
+    expect(consoleCallKind("error", "boom")).toBe("console error");
+    expect(consoleCallKind("assert", "x")).toBe("console error");
+    expect(consoleCallKind("warning", "careful")).toBe("console warning");
+    expect(consoleCallKind("log", "fine")).toBeNull();
+  });
+});
+
+describe("the public pages and the site's files (Part B, B3)", () => {
+  const good: SiteFiles = {
+    csp: "default-src 'self'; script-src 'self' 'unsafe-inline'; connect-src 'self' https://api.sleeper.app https://lm-api-reads.fantasy.espn.com; frame-ancestors 'none'",
+    cspReportOnly: null,
+    permissions: "camera=()",
+    poweredBy: null,
+    manifest: {
+      startUrl: "/league",
+      icons: [
+        { src: "/icons/icon-192.png", sizes: "192x192", purpose: "any", ok: true, type: "image/png" },
+        { src: "/icons/icon-512.png", sizes: "512x512", purpose: "any", ok: true, type: "image/png" },
+        { src: "/icons/maskable-512.png", sizes: "512x512", purpose: "maskable", ok: true, type: "image/png" },
+      ],
+    },
+    icons: [
+      { rel: "icon", href: "/favicon.ico", ok: true, type: "image/x-icon" },
+      { rel: "icon", href: "/icon.svg?1", ok: true, type: "image/svg+xml" },
+      { rel: "apple-touch-icon", href: "/apple-icon.png?2", ok: true, type: "image/png" },
+    ],
+    og: { ok: true, type: "image/png", width: "1200", height: "630", alt: true },
+    robots: "User-Agent: *\nAllow: /\nDisallow: /api/\n\nSitemap: http://127.0.0.1:3000/sitemap.xml\n",
+    sitemap: ["/", "/connect", "/privacy", "/terms", "/feedback"].map((p) => `<url><loc>http://127.0.0.1:3000${p}</loc></url>`).join(""),
+  };
+  const failed = (f: SiteFiles) => siteFileChecks(f).filter(([ok]) => !ok).map(([, , why]) => why);
+
+  it("checks Home, Privacy, Terms and Feedback, then a missing page, as the last step", () => {
+    expect(STATIC_PAGES.map((p) => [p.step, p.pathname])).toEqual([
+      ["Home", "/"],
+      ["Privacy", "/privacy"],
+      ["Terms", "/terms"],
+      ["Feedback", "/feedback"],
+    ]);
+    expect(MISSING_PAGE).toMatchObject({ pathname: "/no-such-page", h1: "Page not found" });
+    expect(STEPS.at(-1)).toMatchObject({ name: "Public pages", health: false });
+  });
+
+  it("runs the public pages even when the import stopped the steps before them: they need no league", () => {
+    expect(STEPS.filter((s) => s.independent).map((s) => s.name)).toEqual(["Public pages"]);
+    expect(STEPS.filter((s) => s.essential).map((s) => s.name)).toEqual(["Connect"]);
+    const stop = "the league wasn't imported";
+    expect(STEPS.map((s) => [s.name, skipReason(s, stop)])).toEqual([
+      ...STEPS.slice(0, -1).map((s) => [s.name, `not checked: ${stop}`]),
+      ["Public pages", null],
+    ]);
+    expect(STEPS.every((s) => skipReason(s, null) === null)).toBe(true);
+  });
+
+  it("the missing page's own 404 is the one failed request that step allows", () => {
+    expect(isMissingPage404({ kind: "failed request", text: "HTTP 404 /no-such-page" })).toBe(true);
+    expect(isMissingPage404({ kind: "failed request", text: "HTTP 404 /api/model/espn" })).toBe(false);
+    expect(isMissingPage404({ kind: "failed request", text: "HTTP 500 /no-such-page" })).toBe(false);
+    expect(isMissingPage404({ kind: "console error", text: "HTTP 404 /no-such-page" })).toBe(false);
+  });
+
+  it("passes a production build's files and headers, enforced or report-only", () => {
+    expect(failed(good)).toEqual([]);
+    expect(siteFileChecks(good)[0]?.[1]).toBe("the production build sends the full Content-Security-Policy (enforced)");
+    const reportOnly = { ...good, csp: "frame-ancestors 'none'", cspReportOnly: good.csp };
+    expect(failed(reportOnly)).toEqual([]);
+    expect(siteFileChecks(reportOnly)[0]?.[1]).toBe("the production build sends the full Content-Security-Policy (report-only)");
+  });
+
+  it("fails what's missing or wrong, saying what it found", () => {
+    expect(failed({ ...good, csp: "frame-ancestors 'none'" })).toEqual(["the home page's response has no full Content-Security-Policy (no script-src)", 'its connect-src is ""']);
+    expect(failed({ ...good, csp: "script-src 'self'; connect-src 'self' https://api.sleeper.app" })).toEqual(["its connect-src is \"'self' https://api.sleeper.app\""]);
+    expect(failed({ ...good, poweredBy: "Next.js" })).toEqual(["Permissions-Policy sent, X-Powered-By sent"]);
+    const noMaskable = { ...good, manifest: { startUrl: "/league", icons: good.manifest?.icons.slice(0, 2) ?? [] } };
+    expect(failed(noMaskable)).toHaveLength(1);
+    expect(failed({ ...good, manifest: null })).toEqual(["no manifest linked, or it didn't load"]);
+    expect(failed({ ...good, icons: good.icons.slice(0, 2) })).toHaveLength(1);
+    expect(failed({ ...good, og: { ...good.og!, width: "800" } })).toEqual(["the sharing image: image/png, 800 × 630, alt text set"]);
+    expect(failed({ ...good, robots: "User-Agent: *\nAllow: /\n" })).toEqual(["robots.txt doesn't say Disallow: /api/ and Sitemap:"]);
+    expect(failed({ ...good, sitemap: "<url><loc>http://127.0.0.1:3000/</loc></url>" })).toEqual(["the sitemap lists /"]);
+  });
+});
+
 describe("the checks' own rules", () => {
   const card = (helps: string | null, accept: string | null, overall: string | null, acceptThrough: string | null = null) => ({ helps, accept, acceptThrough, overall });
 
@@ -376,6 +501,17 @@ describe("the checks' own rules", () => {
     const p = { name: "Fictional Player", text: "Fictional Player WR", tagged: false };
     expect(sidelessCards([{ give: [p], get: [p] }])).toEqual([]);
     expect(sidelessCards([{ give: [p], get: [p] }, { give: [], get: [p] }])).toEqual(['idea 2: 0 under "You give", 1 under "You get"']);
+  });
+
+  it("the header's first row is checked on a 320 px phone: boxes that overlap top to bottom share a row (review PG-4)", () => {
+    expect(NARROW_PHONE_WIDTH).toBe(320);
+    // The logo (44 px, centered) and the 22 px pill and the 44 px switcher beside them.
+    const logo = { top: 8, bottom: 52 };
+    expect(sameRow(logo, { top: 19, bottom: 41 })).toBe(true);
+    expect(sameRow(logo, { top: 8, bottom: 52 })).toBe(true);
+    // The switcher pushed to a row of its own, right under the logo's (the 44 px the header grew by).
+    expect(sameRow(logo, { top: 52, bottom: 96 })).toBe(false);
+    expect(sameRow({ top: 52, bottom: 96 }, logo)).toBe(false);
   });
 });
 

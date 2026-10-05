@@ -37,7 +37,9 @@ describe("FantasyCalc /players", () => {
     expect(load.players).toHaveLength(FANTASYCALC_MIN_ROWS);
     expect(load.players.filter((p) => p.sleeperId)).toHaveLength(100); // the fixture's rows; the filler has no ids
     expect(load).toMatchObject({ fromCache: false, stale: false });
-    expect(calls[0]?.opts?.cache).toEqual({ key: `fantasycalc:${FANTASYCALC_PLAYERS_URL}`, ttlMs: TTL.fantasyCalc, retainMs: STALE_PUBLIC_RETAIN_MS, staleIfError: true });
+    // League-independent (public: the shared cache's lock); not reduced, so its key stays shared with the stable copy (one fetch a day).
+    expect(calls[0]?.opts?.cache).toEqual({ key: `fantasycalc:${FANTASYCALC_PLAYERS_URL}`, ttlMs: TTL.fantasyCalc, retainMs: STALE_PUBLIC_RETAIN_MS, staleIfError: true, public: true });
+    expect(calls[0]?.opts?.transformText).toBeUndefined();
     expect(calls[0]?.opts).toMatchObject({ maxRetries: 1, timeoutMs: FANTASYCALC_TIMEOUT_MS });
     const bad = fakeHttp({ [FANTASYCALC_PLAYERS_URL]: { json: fantasyCalcWith([{ id: 1, name: "Zorblax Quintavious", position: "QB" }, { id: 2, position: "RB" }]) } });
     await expect(fetchFantasyCalcPlayers(bad.http)).rejects.toMatchObject({ code: "BAD_RESPONSE", detail: { path: "[1].name" } });

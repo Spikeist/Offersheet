@@ -223,7 +223,8 @@ describe("POST /api/model/espn (CLAUDE.md §6, §9: the League page's model inpu
     }
     const logged = errors.mock.calls.flat().join(" ");
     expect(logged).not.toContain(CREDS.espnS2);
-    expect(logged).toContain("ESPN model inputs failed unexpectedly (TypeError)");
+    // The log takes allowlisted fields only (src/server/log.ts): the step, the platform and the error's name.
+    expect(logged).toContain(JSON.stringify({ route: "server", event: "unexpected_model_inputs", platform: "espn", errorName: "TypeError" }));
   });
 
   it("a builder that throws an import error is still our bug, not ESPN's: INTERNAL, not an import error", async () => {

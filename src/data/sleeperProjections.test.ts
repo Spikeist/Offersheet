@@ -22,6 +22,7 @@ import {
   SLEEPER_OUTAGE_HOLD_MS,
   sleeperCacheKey,
   sleeperGate,
+  sleeperListCacheKey,
   sleeperOutageHoldMs,
   sleeperRequestPositions,
   sleeperSeasonProjectionsUrl,
@@ -29,6 +30,7 @@ import {
   type SleeperGate,
   type SleeperProjectionWeek,
 } from "./sleeperProjections";
+import { IMPORT_PROJECTIONS_REDUCER, MODEL_PROJECTIONS_REDUCER, reducedKey, SEASON_PROJECTIONS_REDUCER, STATS_REDUCER } from "./reduce";
 import { fakeHttp } from "./testSupport";
 
 const SEASON = 2026;
@@ -75,7 +77,7 @@ describe("request shape (CLAUDE.md §2.3 undocumented endpoints)", () => {
     expect(projUrl(5)).toBe("https://api.sleeper.app/projections/nfl/2026/5?season_type=regular&position[]=QB&position[]=RB&position[]=WR&position[]=TE&position[]=K&position[]=DEF");
   });
 
-  it("uses the Sleeper import's cache entries (same URL, key and policy: served 6 hours, kept 24), with a shorter timeout and one retry (§2.10, review PERF-1)", async () => {
+  it("asks for the Sleeper import's URLs under the same policy (served 6 hours, kept 24), each body reduced its own way under its own key, with a shorter timeout and one retry (§2.10, review PERF-1; Part B's reducers)", async () => {
     const t = loadTestLeague();
     const id = String(t.league.league_id);
     const positions = startablePositions(t.league.roster_positions);
@@ -97,8 +99,12 @@ describe("request shape (CLAUDE.md §2.3 undocumented endpoints)", () => {
     for (const w of [4, 5, 6]) {
       const call = mine.calls.find((c) => c.url === sleeperUrls.projections(SEASON, w, positions));
       const theirs = adapterOpts.get(call?.url ?? "");
-      expect(call?.opts?.cache).toEqual(theirs?.cache);
-      expect(call?.opts?.cache).toEqual({ key: sleeperCacheKey(call?.url ?? ""), ttlMs: TTL.projections, retainMs: TTL.projectionsLater });
+      // Same URL and policy; the import reads every row's player object, the model only real rows (src/data/reduce.ts).
+      expect(call?.opts?.cache).toEqual({ ...theirs?.cache, key: sleeperListCacheKey(call?.url ?? "", MODEL_PROJECTIONS_REDUCER) });
+      expect(theirs?.cache?.key).toBe(reducedKey(sleeperCacheKey(call?.url ?? ""), IMPORT_PROJECTIONS_REDUCER));
+      expect(call?.opts?.cache).toEqual({ key: sleeperListCacheKey(call?.url ?? "", MODEL_PROJECTIONS_REDUCER), ttlMs: TTL.projections, retainMs: TTL.projectionsLater, public: true });
+      expect(sleeperListCacheKey(call?.url ?? "", MODEL_PROJECTIONS_REDUCER)).toBe(`${sleeperCacheKey(call?.url ?? "")}#${MODEL_PROJECTIONS_REDUCER.id}`);
+      expect(call?.opts?.transformText).toBe(MODEL_PROJECTIONS_REDUCER.reduce);
       expect(call?.opts?.cacheIf).toBe(theirs?.cacheIf); // an empty list is never cached
       expect(call?.opts?.bigIntsAsStrings).toBe(theirs?.bigIntsAsStrings);
       // The client's defaults are a 30 s timeout and 3 retries.
@@ -137,11 +143,11 @@ describe("per-week cache policy (CLAUDE.md §2.10: the current NFL week and the 
     const ttlOf = (url: string) => calls.find((c) => c.url === url)?.opts?.cache;
     for (let w = 1; w <= 17; w++) {
       const ttl = w <= 6 ? TTL.projections : TTL.projectionsLater;
-      expect(ttlOf(projUrl(w)), `week ${w}`).toEqual({ key: sleeperCacheKey(projUrl(w)), ttlMs: ttl, retainMs: TTL.projectionsLater });
+      expect(ttlOf(projUrl(w)), `week ${w}`).toEqual({ key: sleeperListCacheKey(projUrl(w), MODEL_PROJECTIONS_REDUCER), ttlMs: ttl, retainMs: TTL.projectionsLater, public: true });
       expect(calls.find((c) => c.url === projUrl(w))?.opts?.cacheIf).toBe(PROJECTIONS_POLICY.cacheIf);
     }
-    expect(ttlOf(seasonUrl)).toEqual({ key: sleeperCacheKey(seasonUrl), ttlMs: TTL.projections, retainMs: TTL.projections });
-    expect(ttlOf(statsUrl(3))).toEqual({ key: sleeperCacheKey(statsUrl(3)), ttlMs: TTL.projections, retainMs: TTL.projections });
+    expect(ttlOf(seasonUrl)).toEqual({ key: sleeperListCacheKey(seasonUrl, SEASON_PROJECTIONS_REDUCER), ttlMs: TTL.projections, retainMs: TTL.projections, public: true });
+    expect(ttlOf(statsUrl(3))).toEqual({ key: sleeperListCacheKey(statsUrl(3), STATS_REDUCER), ttlMs: TTL.projections, retainMs: TTL.projections, public: true });
     // Without a current week, every week is served 6 hours (the TTL before Checkpoint 2).
     const bare = fakeHttp({ [projUrl(12)]: { json: rows } });
     await loadSleeperWeeklyProjections(gate(bare.http), SEASON, [12], POS);
@@ -319,7 +325,7 @@ describe("weekly projections (CLAUDE.md §6 step 1–2)", () => {
     expect(requests).toEqual([projUrl(4), projUrl(5), projUrl(5)]);
     expect(again.weeks.get(4)?.size).toBe(180);
     expect(again.fromCache).toBe(true);
-    expect(cache.keys()).toEqual([sleeperCacheKey(projUrl(4))]);
+    expect(cache.keys()).toEqual([sleeperListCacheKey(projUrl(4), MODEL_PROJECTIONS_REDUCER)]);
     expect(PROJECTIONS_POLICY.ttlMs).toBe(TTL.projections);
   });
 });
@@ -330,7 +336,8 @@ describe("season projections (CLAUDE.md §6 step 1 fallback)", () => {
     const { http, calls } = fakeHttp({ [seasonUrl]: { json: rows } });
     const load = await loadSleeperSeasonProjections(gate(http), SEASON, ["P", ...POS]);
     expect(calls.map((c) => c.url)).toEqual([seasonUrl]);
-    expect(calls[0]?.opts?.cache).toEqual({ key: sleeperCacheKey(seasonUrl), ttlMs: TTL.projections, retainMs: TTL.projections });
+    expect(calls[0]?.opts?.cache).toEqual({ key: sleeperListCacheKey(seasonUrl, SEASON_PROJECTIONS_REDUCER), ttlMs: TTL.projections, retainMs: TTL.projections, public: true });
+    expect(calls[0]?.opts?.transformText).toBe(SEASON_PROJECTIONS_REDUCER.reduce);
     expect(calls[0]?.opts).toMatchObject({ timeoutMs: SLEEPER_MODEL_TIMEOUT_MS, maxRetries: SLEEPER_MODEL_MAX_RETRIES });
     expect(load.perGame.size).toBe(40);
     const games = config.projections.seasonGames;
@@ -376,7 +383,8 @@ describe("actual stats (CLAUDE.md §6 step 1: actual_ppg and games played)", () 
     const load = await loadSleeperStats(gate(http), SEASON, [2, 1], POS);
     expect(calls.map((c) => c.url)).toEqual([statsUrl(1), statsUrl(2)]);
     for (const c of calls) {
-      expect(c.opts?.cache).toEqual({ key: sleeperCacheKey(c.url), ttlMs: TTL.projections, retainMs: TTL.projections });
+      expect(c.opts?.cache).toEqual({ key: sleeperListCacheKey(c.url, STATS_REDUCER), ttlMs: TTL.projections, retainMs: TTL.projections, public: true });
+      expect(c.opts?.transformText).toBe(STATS_REDUCER.reduce);
       expect(c.opts?.cacheIf).toBe(PROJECTIONS_POLICY.cacheIf);
       expect(c.opts).toMatchObject({ timeoutMs: SLEEPER_MODEL_TIMEOUT_MS, maxRetries: SLEEPER_MODEL_MAX_RETRIES });
     }
@@ -539,6 +547,25 @@ describe("the Sleeper gate: a build stops at the first request Sleeper doesn't a
     // Per client: another client (another process) knows nothing of it.
     expect(sleeperGate(fakeHttp({}).http, at(51 * MINUTE)).down()).toBeUndefined();
     expect([0, 1, 2, 3, 4, 5].map(sleeperOutageHoldMs)).toEqual([0, 5, 10, 15, 15, 15].map((m) => m * MINUTE));
+  });
+
+  it("a request its own deadline cut stops only that build: no outage is remembered, and the next build asks (Checkpoint 7a, review RL-2)", async () => {
+    let cut = true;
+    const calls: string[] = [];
+    const http: HttpClient = {
+      async get(url) {
+        calls.push(url);
+        return cut ? { ...json(undefined, 0), cut: "deadline" as const } : json(rowsOf(PROJ(4)));
+      },
+    };
+    const first = await loadSleeperWeeklyProjections(sleeperGate(http, at(0)), SEASON, [4, 5], POS);
+    expect(calls).toHaveLength(1); // the build stops at the cut request
+    expect(first.warnings.map((w) => w.code)).toEqual(["SLEEPER_DOWN", "SLEEPER_DOWN"]);
+    cut = false;
+    const before = calls.length;
+    const next = await loadSleeperWeeklyProjections(sleeperGate(http, at(1)), SEASON, [4, 5], POS);
+    expect(calls.length - before).toBe(2); // no hold: Sleeper is asked again at once
+    expect(next.warnings).toEqual([]);
   });
 
   it("a 404 or an empty list is an answer, not an outage: the rest is asked for, and so is the next build", async () => {

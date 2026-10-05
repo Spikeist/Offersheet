@@ -117,6 +117,7 @@ import { actualPoints, expectedPoints, playedGame } from "@/engine/scoring";
 import { redactSecrets } from "@/lib/errors";
 import { defaultSeason } from "@/lib/season";
 import { archiveFantasyCalcLists, defaultFantasyCalcArchiver, type FantasyCalcArchiver } from "./fantasyCalcArchive";
+import { errorNameOf, logEvent } from "./log";
 import { defaultProjectionArchiver, firstKickoffOf, type ProjectionArchiver } from "./projectionArchive";
 
 /** Source names on the League page (InputSourceStamp.source). */
@@ -634,10 +635,12 @@ function reasonOf(err: unknown): string {
   return "couldn't be reached";
 }
 
-/** A loader that threw instead of reporting a warning is a bug: logged by error name only (never bodies or URLs). */
-function logUnexpected(what: string, err: unknown): void {
-  const name = err instanceof Error ? err.name : typeof err;
-  console.error(`[offer-sheet] model inputs: ${what} failed unexpectedly (${name})`);
+/**
+ * A loader that threw instead of reporting a warning is a bug: logged by its warning code and error name only (never
+ * bodies, URLs or messages; src/server/log.ts).
+ */
+function logUnexpected(code: string, err: unknown): void {
+  logEvent({ event: "model_load_failed", code, platform: "sleeper", errorName: errorNameOf(err) });
 }
 
 /** A Sleeper loader (they report failures as warnings); one that throws anyway degrades to a warning too. */
@@ -647,7 +650,7 @@ async function loadSleeper<T extends SleeperLoadMeta>(source: { what: string; co
     warnings.push(...got.warnings);
     return got;
   } catch (err) {
-    logUnexpected(`Sleeper ${source.what}`, err);
+    logUnexpected(source.code, err);
     warnings.push({ code: source.code, message: `Sleeper's ${source.what} couldn't be loaded, so they're left out.`, platformPath: source.path });
     return null;
   }

@@ -191,7 +191,9 @@ describe("loadNflSchedule (CLAUDE.md §2.10: 7 days)", () => {
     const s = await loadNflSchedule(http, 2026, resolver);
     expect(URL_2026).toBe("https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/2026?view=proTeamSchedules_wl");
     expect(calls).toHaveLength(1);
-    expect(calls[0]?.opts?.cache).toEqual({ key: "espn:proTeamSchedules:2026", ttlMs: TTL.nflSchedule, retainMs: STALE_PUBLIC_RETAIN_MS, staleIfError: true });
+    // League-independent (public: the shared cache's lock); not reduced, so the ESPN import still shares its copy.
+    expect(calls[0]?.opts?.cache).toEqual({ key: "espn:proTeamSchedules:2026", ttlMs: TTL.nflSchedule, retainMs: STALE_PUBLIC_RETAIN_MS, staleIfError: true, public: true });
+    expect(calls[0]?.opts?.transformText).toBeUndefined();
     expect(calls[0]?.opts).toMatchObject({ maxRetries: 1, timeoutMs: NFL_SCHEDULE_TIMEOUT_MS });
     expect(calls[0]?.opts?.cookie).toBeUndefined();
     expect(s).toMatchObject({ season: 2026, fromCache: false, stale: false, fetchedAt: 1_790_000_000_000, lastWeek: 18 });

@@ -21,6 +21,7 @@ import {
   projectionLines,
   seasonPerGameLines,
   SLEEPER_OUTAGE_HOLD_MS,
+  sleeperListCacheKey,
   sleeperSeasonProjectionsUrl,
   sleeperStatsUrl,
   type SleeperLoadMeta,
@@ -28,6 +29,7 @@ import {
   type SleeperStatsLoad,
   type SleeperWeeklyProjectionsLoad,
 } from "@/data/sleeperProjections";
+import { MODEL_PROJECTIONS_REDUCER } from "@/data/reduce";
 import { FIXTURE, fakeHttp, fantasyCalcWith, fixtureFantasyCalcResponse, type FakeRoute } from "@/data/testSupport";
 import { config } from "@/engine/config";
 import type { FantasyCalcFormat } from "@/engine/inputs";
@@ -932,9 +934,10 @@ describe("buildModelInputs (loading: §0.9 politeness, §2.10 caching)", () => {
       fantasyCalcValuesUrl(formats.values),
       FANTASYCALC_PLAYERS_URL,
     ]);
-    // The Sleeper requests share the adapter's cache entries (key sleeper:<url>, 6 hours).
+    // The Sleeper requests use the adapter's URLs and policy (6 hours), each body reduced at fetch time to what the model
+    // reads, under a key of its own (sleeper:<url>#<reducer>; src/data/reduce.ts).
     const projectionCall = fake.calls[1];
-    expect(projectionCall?.opts?.cache).toMatchObject({ key: `sleeper:${projectionCall?.url}`, ttlMs: 6 * HOUR });
+    expect(projectionCall?.opts?.cache).toMatchObject({ key: sleeperListCacheKey(projectionCall?.url ?? "", MODEL_PROJECTIONS_REDUCER), ttlMs: 6 * HOUR, public: true });
 
     expect(out.warnings).toEqual([]);
     expect(out.sources.map((x) => x.source)).toEqual(["Sleeper projections", "Sleeper stats", "FantasyCalc values", "NFL schedule (ESPN)"]);
@@ -1064,7 +1067,7 @@ describe("buildModelInputs (loading: §0.9 politeness, §2.10 caching)", () => {
       expect(out.warnings).toEqual([{ code: "SLEEPER_STATS_UNAVAILABLE", message: "Sleeper's stats couldn't be loaded, so they're left out.", platformPath: "stats" }]);
       expect(out.players["9221"]?.actual).toEqual({});
       expect(Object.keys(out.players["9221"]?.sleeper ?? {})).toHaveLength(17); // the other loads still ran
-      expect(logged.mock.calls).toEqual([["[offer-sheet] model inputs: Sleeper stats failed unexpectedly (Error)"]]);
+      expect(logged.mock.calls).toEqual([[JSON.stringify({ route: "server", event: "model_load_failed", code: "SLEEPER_STATS_UNAVAILABLE", platform: "sleeper", errorName: "Error" })]]);
     } finally {
       vi.doUnmock("@/data/sleeperProjections");
       vi.resetModules();
@@ -1498,7 +1501,7 @@ describe("buildModelInputs: per-week projection caching and the pre-game archive
     for (const c of projectionCalls) {
       const week = Number(/\/2026\/(\d+)\?/.exec(c.url)?.[1]);
       const ttl = week <= 6 ? TTL.projections : TTL.projectionsLater;
-      expect(c.opts?.cache, `week ${week}`).toEqual({ key: `sleeper:${c.url}`, ttlMs: ttl, retainMs: TTL.projectionsLater });
+      expect(c.opts?.cache, `week ${week}`).toEqual({ key: sleeperListCacheKey(c.url, MODEL_PROJECTIONS_REDUCER), ttlMs: ttl, retainMs: TTL.projectionsLater, public: true });
     }
     // The season projections and the stats keep 6 hours.
     for (const c of fake.calls.filter((x) => x.url.startsWith("https://api.sleeper.app/") && !projectionCalls.includes(x))) expect(c.opts?.cache?.ttlMs).toBe(TTL.projections);

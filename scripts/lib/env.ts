@@ -48,6 +48,10 @@ export const ENV_VARS = [
   "SESSION_SECRET",
   // Not a secret (CLAUDE.md §0.5): 1 = development imports Parker's ESPN league with the .env.local cookies.
   "USE_ENV_COOKIES",
+  // Checkpoint 7a, optional: the beta's shared store (Upstash) for the --live scripts that read it (beta:log,
+  // feedback:pull). The token is a secret; the URL names the database. The local app never uses them (src/server/redis.ts).
+  "KV_REST_API_URL",
+  "KV_REST_API_TOKEN",
 ] as const;
 export type EnvVar = (typeof ENV_VARS)[number];
 

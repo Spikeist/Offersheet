@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HttpClient, HttpRequestOptions, HttpResponse } from "@/adapters/types";
 import { DAY, HOUR, MemoryCache, MINUTE, STALE_PUBLIC_RETAIN_MS, TTL } from "@/server/cache";
+import { newRequestScope, runInRequestScope } from "@/server/deadline";
 import { createHttpClient } from "@/server/http";
 import { DYNASTYPROCESS_IDS_URL } from "./dynastyProcess";
 import { FANTASYCALC_PLAYERS_URL } from "./fantasyCalcPlayers";
@@ -75,6 +76,21 @@ afterEach(() => {
 });
 
 describe("loadPlayerIdResolver", () => {
+  it("a request that joins another request's first build waits no longer than its own deadline (Checkpoint 7a, review RL-1)", async () => {
+    const g = gated(fakeHttp(routes()).http);
+    g.close();
+    const first = loadPlayerIdResolver({ http: g.http, now: NOW }); // starts the build, outside any request: no deadline
+    await flush();
+    const scope = newRequestScope("import", Date.now(), 30); // a request with 30 ms left
+    const t0 = Date.now();
+    await expect(runInRequestScope(scope, () => loadPlayerIdResolver({ http: g.http, now: NOW }))).rejects.toMatchObject({ code: "SOURCE_DOWN", message: "the player ID lists are still loading" });
+    expect(Date.now() - t0).toBeLessThan(2_000);
+    expect([...scope.cut.slow]).toEqual(["other"]);
+    g.open();
+    const r = await first; // the build itself carries on and serves everyone after
+    expect(await loadPlayerIdResolver({ http: g.http, now: NOW })).toBe(r);
+  });
+
   it("loads all three sources and maps ids from each", async () => {
     const { http, calls } = fakeHttp(routes());
     const r = await loadPlayerIdResolver({ http, now: NOW });

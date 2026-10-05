@@ -7,6 +7,8 @@ export const metadata: Metadata = {
   title: "Trade Finder",
   description:
     "Trade ideas for your fantasy football team, ranked by how much they raise your playoff and title odds and how likely the other manager is to say yes. Runs in your browser.",
+  // Only this browser's saved data shows here: nothing for a search engine (Part B, B3; robots.txt and the sitemap).
+  robots: { index: false },
 };
 
 /**
