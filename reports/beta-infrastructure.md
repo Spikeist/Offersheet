@@ -42,7 +42,7 @@ CLAUDE.md Section 3 is the reference; this is the summary with the arithmetic.
     fixtures and Parker's capture).
 - **Signed import:** the import comes back with an HMAC token (15 minutes). The League page sends it back (23 KB gzip),
   and the model route builds without reading any league data. A replay of the same signed import costs a lookup.
-- **Live check:** `npm run check:browser -- --live --team 3` read Parker's league in the browser (23 ESPN reads),
+- **Live check:** `npm run check:browser -- --live --team 3` read Parker's league in the browser (23 requests to ESPN: 12 reads and 11 CORS preflights),
   uploaded it, built the League page from the signed import and ran a full search. 84 passed, 0 failed.
 
 ## Limits and budgets (B1, after the final review)
