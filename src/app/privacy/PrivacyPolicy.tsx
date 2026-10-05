@@ -1,167 +1,119 @@
 import Link from "next/link";
 import { ContactLine } from "@/components/ContactLine";
 import { Card } from "@/components/ui";
-import { FANTASYCALC_OUTAGE_HOLD_MS, FANTASYCALC_OUTAGE_MAX_HOLD_MS } from "@/data/fantasyCalcValues";
 import { config } from "@/engine/config";
 import type { PolicyFeatures } from "@/lib/site";
-import { browserFetchLimits, budgets, feedbackLimits, logLimits, rateLimits, workLimits } from "@/server/limits";
+import { DAY, HOUR, MINUTE, TTL } from "@/server/cache";
+import { browserFetchLimits, feedbackLimits, logLimits, snapshotLimits } from "@/server/limits";
 
-/** When this policy last changed (Parker's local date). Update it with every change below, a feature turned on included. */
-export const PRIVACY_LAST_UPDATED = "October 4, 2026";
+/** When this policy last changed. Update it with every change below, a feature turned on included (the go/no-go sets it to launch day). */
+export const PRIVACY_LAST_UPDATED = "October 5, 2026";
 
-/** A hold in whole minutes, for the FantasyCalc sentence. */
-const minutes = (ms: number): number => Math.round(ms / 60_000);
-
-/** A time window in words: "10 minutes", "an hour", "2 hours". */
-function windowWords(seconds: number): string {
-  if (seconds % 3600 === 0) return seconds === 3600 ? "an hour" : `${seconds / 3600} hours`;
-  return `${Math.round(seconds / 60)} minutes`;
+/** A length of time in words: "a day", "an hour", "3 hours", "15 minutes". */
+export function durationWords(ms: number): string {
+  if (ms === DAY) return "a day";
+  if (ms === HOUR) return "an hour";
+  if (ms % HOUR === 0) return `${ms / HOUR} hours`;
+  return `${Math.round(ms / MINUTE)} minutes`;
 }
 
-/** A short wait in words: "a minute", "2 minutes". */
-function minutesWords(ms: number): string {
-  const m = Math.max(1, Math.round(ms / 60_000));
-  return m === 1 ? "a minute" : `${m} minutes`;
+/** A list in words: "a", "a and b", "a, b and c". */
+export function listWords(items: readonly string[]): string {
+  return items.length < 2 ? (items[0] ?? "") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
 }
 
-/**
- * When a day's counts kept under a visitor's codes are deleted (reviews SEC-4, POL-1, F2): src/server/budget.ts keeps
- * each until its UTC day ends plus a margin, budgets.clientKeyMarginMs for the shares of the requests to ESPN and Sleeper,
- * workLimits.keyMarginMs for the daily work budget and the feedback copies (createDailyQuota); the longer of them.
- */
-export const DAY_COUNT_DELETED = `${minutesWords(Math.max(budgets.clientKeyMarginMs, workLimits.keyMarginMs))} after the day ends (midnight UTC)`;
+/** How long anonymous feedback is kept, in words: "12 months" for 365 days, else "N days". */
+export const feedbackKeptWords = (days: number): string => (days === 365 ? "12 months" : `${days} days`);
 
-/** A number of days in words: "a year" for 365, else "N days". */
-const daysWords = (days: number): string => (days === 365 ? "a year" : `${days} days`);
-
-/** The route kinds whose requests the server counts: the feedback route exists only with anonymous feedback. */
-export function countedKinds(features: PolicyFeatures): Array<"import" | "model" | "session" | "feedback"> {
-  return features.anonymousFeedback ? ["import", "model", "session", "feedback"] : ["import", "model", "session"];
-}
+const P = "mt-2 text-sm leading-relaxed";
+const UL = "mt-2 list-disc space-y-1.5 pl-5 text-sm leading-relaxed";
+const A = "font-semibold underline underline-offset-2";
 
 /**
  * The privacy policy's text (CLAUDE.md §14: it must match what the app actually does; update it whenever data handling
- * changes). Part B (planner reply to Checkpoint 4c, B3: "/privacy, rewritten to match what the app really does"; the
- * lead's Part B design, "Privacy facts" 1–8, which Part B's final review checks against the code). Its words follow
- * `features` (src/lib/site.ts POLICY_FEATURES; review PG-1): until track BF's browser reading and track FB's anonymous
- * feedback are built, the page says what the app does without them; src/app/pages.test.ts pins both. What each part
- * relies on:
- *   - Reading a league (fact 1). Without browserReads (today): the server reads every league itself, the import route
- *     and, for the League page, the model route (src/lib/api.ts EspnModelBody, SleeperModelBody: the league's ID and
- *     season and a Sleeper username, nothing saved in the browser), private ESPN leagues with the session's cookies;
- *     the Sleeper username lookup is the server's (src/adapters/sleeper/fetch.ts). With browserReads (track BF): public
- *     ESPN leagues (no session cookies connected) and Sleeper leagues are read by the browser (src/lib/browserHttp.ts:
- *     credentials "omit", no cookie ever; src/lib/leagueFetch.ts), which uploads the parts the adapters' schemas keep
- *     (src/app/api/_lib/upload.ts: the league's settings, members, rosters, matchups, transactions, Sleeper's traded picks
- *     and drafts and the username's lookup, ESPN's free agents, projections and player cards; review POL-14); the server
- *     pseudonymizes SWIDs, completes the import with its own public data and never writes browser-supplied data to the
- *     cache. The server still reads a league itself: an ESPN league imported while ESPN cookies are connected (every ESPN
- *     league the Connect page imports then, public ones too) and every later read of it, cookies or not
- *     (ImportResponse.usedEspnCookies: src/lib/modelStore.ts modelPlan, the Import Report's Refresh; review POL-12; a
- *     league imported without them is read by the browser even while they're connected), after a CORS/network failure or
- *     a timeout, in a browser without CompressionStream (src/lib/leagueFetch.ts canGzip; review E2E-1), and when the
- *     model route can't check the saved import's signature (src/server/importToken.ts: SESSION_SECRET changed, or the
- *     token too old by the server's clock; review POL-11: a league saved before browser reading is older than 10 minutes,
- *     so the browser reads it again first). The League page sends the saved import back, after reading the league again
- *     when its copy is older than the league TTL; a Sleeper username goes with the import and with every model request
- *     (leagueFetch.ts signedModelBody, modelStore.ts modelRequest; review POL-13).
- *   - The server's cache (fact 2; track CA): src/server/cache.ts (TTL.league 10 min; TTL.closedTransactions 6 h for
- *     ESPN's transactions and Sleeper's transactions and matchups of league weeks that ended over a week ago:
- *     src/adapters/espn/fetch.ts closedCache, src/adapters/sleeper/fetch.ts CLOSED_WEEK_POLICY; public sources up to
- *     STALE_PUBLIC_RETAIN_MS, 7 days; FantasyCalc's value lists up to FANTASYCALC_RETAIN_MS,
- *     config.market.fantasyCalcCurveDays (90) days, one per league format, read fresh only within a day and otherwise
- *     only while FantasyCalc doesn't answer: a list at most config.market.fantasyCalcStaleDays (7) old stands in, an
- *     older one only calibrates our own value estimates, src/server/modelInputs.ts; "Once FantasyCalc answers, we don't
- *     ask it for that list again for a day", not "at most once a day": while it doesn't answer,
- *     src/data/fantasyCalcValues.ts's outage memory asks it nothing for FANTASYCALC_OUTAGE_HOLD_MS (5 minutes), doubling
- *     to at most FANTASYCALC_OUTAGE_MAX_HOLD_MS (15), per server instance). With Redis (src/app/api/_lib/deps.ts): a
- *     memory tier per instance (MemoryLruCache: an expired copy is never served, and is deleted when read or by a sweep
- *     that runs only while the instance handles requests, so a paused instance keeps it until it runs again or stops:
- *     review PG-6) in front of Upstash (RedisCache: SET … PX, the entry's retention), whose keys are
- *     hmacId("cache-key/v1", key) (src/server/redis.ts: an HMAC under a key derived from SESSION_SECRET), so league ids,
- *     usernames and credential scopes never reach a key; the database is the one Parker creates through the Vercel
- *     Marketplace, in Upstash's US East region (iad1; ⚠️ only if he picks it, the Checkpoint 7a steps; and with no
- *     Upstash backup turned on). src/adapters/espn: member IDs (SWIDs) become one-way pseudonyms before a body is
- *     cached; private-league keys carry a one-way fingerprint of the cookies (credentialScope).
- *   - Rate limits (fact 3; track RL): src/server/rateLimit.ts: per route kind, per client = hmacId("client-id/v1", the
- *     IP address, IPv6 by its /64), fixed windows from limits.rateLimits (import, model and session 10 minutes; feedback
- *     an hour, counted only once the feedback route exists); an IPv6 request also against its /48's id (the final
- *     review's SEC-2: rateLimits.groupFactor; ipGroup: "the block of nearby addresses", an IPv4 /24 or IPv6 /48). At
- *     Upstash, @upstash/ratelimit's fixed window sets a key's expiry to one window at the window's first request
- *     (PEXPIRE), so a count is deleted one window after it starts (it can outlive the window's end, never a window's
- *     length). In memory (no Redis, Redis down, and the record of refused clients) a count whose window ended is swept
- *     while the instance handles requests (review PG-6). The codes are HMACs under a key derived from SESSION_SECRET:
- *     whoever holds that secret could try every IPv4 address (and IPv6 /64) against them, so the page says a code can't
- *     be turned back into an address only without the key, not that it's one-way (review POL-17).
- *   - The day's counts (reviews SEC-4, POL-1, F2; src/server/budget.ts, on Vercel only), every one kept with its expiry in
- *     one transaction (RedisLike.incrExpire) until its UTC day ends plus a minute (DAY_COUNT_DELETED): the shares of the
- *     server's own requests to ESPN and Sleeper made for a visitor's request (budgets.perClientPerDay, per group: a
- *     league read itself, a server-path fallback, and Sleeper's NFL state for any Sleeper import), the daily work budget
- *     (workLimits: imports and League page builds, per client, per group and for the whole server) and the feedback
- *     route's daily copies (feedbackLimits.perClientPerDay, perGroupPerDay). In memory (no Redis, or Redis down) each
- *     process's own counts, cleared on a later day.
- *   - The model routes' memory (src/app/api/model/memo.ts; the final review's SEC-1): the answer built from a signed
- *     import, kept in the instance's memory (never Redis) until the token stops being good (its issue time plus
- *     browserFetchLimits.tokenMaxAgeMs, 15 minutes); an expired answer is never served, and is deleted by the next read
- *     or write. The answer holds model inputs (projections and values by player id), never the league's names.
- *   - Anonymous feedback (fact 4; track FB, with anonymousFeedback): the event is built in the browser from the local
- *     record (src/lib/feedbackShare.ts) with only the fields listed on the page (zod-strict on the server,
- *     src/app/api/feedback; the version's players only when they aren't the card's, review FB-R7); src/server/feedbackSink.ts
- *     adds the UTC day it arrived, keeps the newest feedbackLimits.maxPerDay per day of arrival (the final review's SEC-3:
- *     one list per day) and deletes each day's list feedbackLimits.retainDays after its last entry (one transaction sets
- *     the expiry with every copy, review FB-R5);
- *     scripts/feedback-pull.ts writes one file a month and deletes it on its first run a year after that month's newest copy
- *     (review FB-R2; a month's older days stay up to a month longer than in the store), and nothing between runs, so the
- *     page commits to a run at least once a month and says "at most about two months longer than at Upstash" (review
- *     POL-4: the Checkpoint 7a steps and the 7b go/no-go list carry it); "Share anonymous feedback" in Settings (on by
- *     default, stored per browser), the one-time
- *     note until the first copy leaves. Each copy is the record as it stands (its outcome and reason together; clearing
- *     both sends one without either: feedbackShare.ts feedbackEventOf `removed`; review POL-10), with the sent version's
- *     estimate and inputs (versionAccept, versionInputs; review POL-9). Notes never leave the browser. Every copy carries
- *     its record's random code (rid), but only the browser (and an export: review FB-R3) knows which league and record it
- *     belongs to; the players, the league's format and the week could still lead someone who searched public leagues to
- *     the league, which the page says (reviews POL-3, SEC-6). Delete saved feedback recalls nothing sent. Without it
- *     (today): nothing about feedback reaches the server.
- *   - Logs (fact 5; track RL): src/server/log.ts's allowlist (route, event, code, platform, status, errorName, ms) and
- *     the time it was logged (`at`; review POL-15), kept in Redis on Vercel only, each day's list deleted
- *     logLimits.retainDays (14) after the day began (so up to 14 days); Vercel's own runtime logs are kept 1 hour on the
- *     Hobby plan (vercel.com/docs/logs/runtime, 2026-08-28).
- *   - Providers (fact 6): Vercel (hosting; the functions run in iad1, US East near Washington, D.C.: vercel.json
- *     regions; review POL-6), Upstash (the cache, the rate limits and the day's counts, the error log, and the feedback
- *     store with anonymousFeedback).
- *   - iPhone (fact 7): research, 2026-10-04: an installed Home Screen app keeps its own storage (firt.dev, 2023: ⚠️
- *     unverified elsewhere, to be checked on an iPhone before Checkpoint 7b; review POL-16), so its own "Share anonymous
- *     feedback" choice too (localStorage, on by default: src/lib/feedbackShare.ts); Safari deletes what a site saved after
- *     7 days of Safari use without a visit (MDN storage quotas, 2026-01).
- *   - Contact (fact 8): src/lib/site.ts CONTACT_EMAIL (src/components/ContactLine.tsx).
- *   - src/server/session.ts: the sealed, httpOnly, session-only cookie (Path=/: the browser sends it with every request
- *     to the site, and the ESPN import and model routes open it; review POL-25); 12-hour seal.
- *   - src/lib/leagueStore.ts (Phase 4c): every imported league is saved in this browser's IndexedDB, database
- *     "offersheet", until the user removes it or clears the site's data: the import (the snapshot, with team and owner
- *     names and the league id, and the request summary, never credentials), the "my team" pick, the latest model inputs
- *     (reused while under 6 hours old: modelStore.ts), settings and feedback (per leagueKey, settingsStore.ts: no
- *     season). Each tab keeps the saved league id it shows in sessionStorage ("offersheet:current-league:v1"), and tabs
- *     tell each other about changes with those ids only. src/workers/engine.worker.ts: the League math, the trade search
- *     and the Trade Analyzer run in the browser. The pre-4c storage (localStorage "offersheet:settings:v1" and
- *     "offersheet:feedback:v1") is copied in once and left unused; removing a league or deleting feedback deletes it.
- *   - src/lib/tradeView.ts finderHref / analyzerHref: links to the Trade Finder for one team and to a trade in the
- *     Analyzer carry team and player IDs in the URL query, never names or the league ID (`from=planB` says only where
- *     a trade was opened from); never prefetched (prefetch={false}).
- *   - src/lib/feedbackStore.ts: the local feedback records (the newest 500 per league; the trade's player, pick and
- *     partner team IDs, Offer Sheet's numbers and features, which version was sent with its key, estimate and model
- *     inputs, when each button was pressed, the typed note; with anonymousFeedback also the share id and the season, week
- *     and goal of the numbers, FeedbackRecord.basis and VersionInputs.week). "Export feedback" numbers the leagues and keeps
- *     the share id; "Delete saved feedback" removes it all.
- *   - src/server/modelInputs.ts: the server scores every player's projections and stats with the league's scoring rules
- *     and joins FantasyCalc values. The FantasyCalc request carries only the league's format (src/engine/market.ts
- *     fantasyCalcFormat); Sleeper's projection and stats requests carry the season, week numbers and the positions the
- *     lineup starts, never names or IDs; the player lists and ID maps don't depend on the league; the NFL schedule only
- *     on its season.
+ * changes). Checkpoint 7b (planner reply to Checkpoint 7a, 3, 4 and 5.4): shortened for users ("The short version" first,
+ * with the cookie line; the detailed part after it from about 3,000 words to about 1,250, pages.test.ts holding it there);
+ * implementation details cut (the browser database's name, tabs' session codes and messages, the old storage keys, how
+ * trade-page addresses carry IDs, how the model routes reuse a signed import, the rate limits' windows and counts);
+ * feedback kept up to 12 months with no download promise; the daily totals and FantasyCalc's conditions added. Its words
+ * follow `features` (src/lib/site.ts POLICY_FEATURES; review PG-1): each sentence that rests on a feature shows only while
+ * the feature is built, and src/app/pages.test.ts fails while a flag and the code disagree. What each part relies on:
+ *   - Cookies: src/server/session.ts is the only code that sets one (the sealed, httpOnly, session-only
+ *     "offersheet_session", Path=/, SESSION_SEAL_TTL_SECONDS: a 12-hour seal, so a cookie a browser restores with its
+ *     session stops working then), through src/app/api/session/espn (connect, forget); no browser code writes a cookie.
+ *   - Reading a league (with browserReads): src/lib/browserHttp.ts (credentials "omit"), src/lib/leagueFetch.ts and the
+ *     upload's parts (src/app/api/_lib/upload.ts: the league's settings, members, rosters, matchups and transactions,
+ *     ESPN's free agents, projections and player cards, Sleeper's traded picks and drafts and the username); the server
+ *     never caches browser-supplied data. The model routes keep the answer they build from a saved league the browser
+ *     sends (src/app/api/model/memo.ts: per instance, in memory only) until the import's token expires,
+ *     browserFetchLimits.tokenMaxAgeMs (15 minutes) after the league was read (review of Checkpoint 7b's text: "doesn't
+ *     keep them" was false while that holds ESPN's projections from the upload, players[id].espn). The server reads a
+ *     league itself after a CORS, network or timeout failure, without CompressionStream, for an ESPN league imported while
+ *     ESPN cookies were connected (every later read too, ImportResponse.usedEspnCookies) and when it can't check a saved
+ *     import's signature (src/server/importToken.ts). Without browserReads: the server reads every league.
+ *   - The browser: src/lib/leagueStore.ts (IndexedDB) keeps each league's import, "my team", model inputs (reused under 6
+ *     hours: src/lib/modelStore.ts MODEL_REUSE_MAX_AGE_MS), settings and feedback (src/lib/settingsStore.ts,
+ *     src/lib/feedbackStore.ts: the newest 500 per league) until removed; the League math, the trade search and the
+ *     Analyzer run in the browser (src/workers/engine.worker.ts). The League page reads a league again when its copy is
+ *     over browserFetchLimits.reimportAfterMs (10 minutes) old.
+ *   - The server's copies: src/server/cache.ts TTL (league 10 minutes; closed weeks' transactions and matchups 6 hours;
+ *     public sources STALE_PUBLIC_RETAIN_MS, a week; FantasyCalc's lists kept FANTASYCALC_RETAIN_MS,
+ *     config.market.fantasyCalcCurveDays days, for outages). FantasyCalc: only a usable list is cached
+ *     (src/data/fantasyCalcValues.ts getPublicSource's check), and a cached one is served fresh for TTL.fantasyCalc, so
+ *     "once our server has a format's list, it doesn't ask for it again for 3 hours", never "at most once every 3 hours":
+ *     during an outage the gate (fantasyCalcGate) probes every 5 to 15 minutes per instance, and a 404 or a list that fails
+ *     the checks is asked again by the next build (review of Checkpoint 7b's text; HEAD's "once FantasyCalc answers",
+ *     review POL-2). Only League page builds ask (src/server/modelInputs.ts), and the snapshot cron for a format one read
+ *     that day or the day before (src/server/snapshots.ts, through the same loader and cache): "only when needed". Upstash
+ *     keys are HMACs (src/server/redis.ts hmacId), values AES-256-GCM encrypted (RedisCache), SWIDs pseudonymized before
+ *     caching, private-league keys carry a credential fingerprint. In memory (the cache's memory tier, MemoryLruCache, and the model
+ *     routes' answers): never served once due, deleted on a later read or sweep while the instance handles requests (a
+ *     paused instance holds them until it runs again or stops: review PG-6), gone when it stops. The database: Upstash's
+ *     US East region (us-east-1) with backups off (planner reply to Checkpoint 7a, 1; ⚠️ Parker checks backups in
+ *     Upstash's console, and the 7b go/no-go re-checks it).
+ *   - The public-data archive (with publicArchive; planner reply to Checkpoint 7a, 4.4 and 6.3): the snapshot cron
+ *     (vercel.json, src/app/api/cron/snapshot, src/server/snapshots.ts) keeps Sleeper's pre-game projections and the day's
+ *     FantasyCalc lists at Upstash, each snapshotLimits.retainDays (730: 2 seasons) after its last write, never shown. Not
+ *     "data we fetch anyway": a run fetches what the model builds' cache doesn't hold. For it, League page builds note the
+ *     formats they read (src/app/api/cron/snapshot/formats.ts: format keys only, a set per UTC day kept
+ *     snapshotLimits.formatsInUseRetainDays, 3), which "Daily totals" says.
+ *   - Limits (src/server/rateLimit.ts, src/server/budget.ts): the short version's sentence, the planner's words (4.2):
+ *     every count under an HMAC of the IP address (or its block) with a key derived from SESSION_SECRET; a window's count at
+ *     Upstash goes one window after it starts (an hour at most), a day's count a minute after the UTC day ends, a count in
+ *     a server's memory soon after (or with the server): "deleted within a day".
+ *   - The daily totals (planner reply to Checkpoint 7a, 2.7: `npm run usage:report`; src/server/usage.ts USAGE_COUNTERS):
+ *     imports, League page builds, work units, refusals and the server's requests per source, per UTC day, with no
+ *     identifier, each kept usageLimits.retainDays (400) after its day's last count: "about 13 months".
+ *   - Anonymous feedback (with anonymousFeedback): src/lib/feedbackShare.ts builds the copy, the route's strict schema
+ *     (src/server/feedbackSink.ts) refuses anything else and adds the UTC day; each day's list goes
+ *     feedbackLimits.retainDays (365) after its last copy. With feedbackTotalsOnly (planner reply to Checkpoint 7a, 4.3):
+ *     studying it keeps only totals and fitted numbers (`npm run feedback:report`, scripts/feedback-report.ts, reads the
+ *     store and writes totals only; it replaced `npm run feedback:pull`, which saved the copies themselves). The copy's
+ *     goal field is described by what it weighs, not by the setting's label, which Checkpoint 7b rewords (5.2).
+ *   - FantasyCalc never shown (with fantasyCalcHidden; 5.4): no value number or value comparison anywhere in the app.
+ *   - Logs: src/server/log.ts's allowlist (the time, route, event, code, platform, status, error name, duration), each
+ *     day's list deleted logLimits.retainDays (14) after the day began; Vercel's runtime logs are kept 1 hour on Hobby
+ *     (vercel.com/docs/logs/runtime, 2026-08-28).
+ *   - Providers: Vercel (functions in iad1: vercel.json), Upstash, and Google for the contact address's Gmail inbox
+ *     (review of Checkpoint 7b's text: the pages publish it).
+ *   - Other sources: src/data/sleeperProjections.ts sleeperRequestPositions (the offense, plus DL, LB and DB for a league
+ *     that starts one), src/engine/market.ts fantasyCalcFormat; FantasyCalc's links (src/components/league/ValuesCredit.tsx
+ *     FANTASYCALC_LINK) send only the site's origin.
+ *   - iPhone: Safari deletes a site's storage after 7 days of use without a visit (MDN); an installed Home Screen app keeps
+ *     its own storage (firt.dev, 2023, a secondary source: hence "may" until it's checked on an iPhone).
+ *   - Contact: src/lib/site.ts CONTACT_EMAIL (src/components/ContactLine.tsx).
  */
 export function PrivacyPolicy({ features }: { features: PolicyFeatures }) {
-  const { browserReads, anonymousFeedback } = features;
-  const longestWindow = windowWords(Math.max(...countedKinds(features).map((k) => rateLimits[k].windowS)));
-  const importWindow = windowWords(rateLimits.import.windowS);
+  const { browserReads, anonymousFeedback, fantasyCalcHidden, publicArchive, feedbackTotalsOnly } = features;
+  const itself = browserReads ? " itself" : "";
+  const upstashKeeps = [
+    "our server's copies",
+    "the per-visitor counts",
+    "the daily totals",
+    ...(publicArchive ? ["the public data above"] : []),
+    ...(anonymousFeedback ? ["the anonymous feedback"] : []),
+    "the error log",
+  ];
   return (
     <article className="mx-auto max-w-3xl space-y-6">
       <header>
@@ -172,54 +124,44 @@ export function PrivacyPolicy({ features }: { features: PolicyFeatures }) {
 
       <Card>
         <h2 className="text-lg font-extrabold">The short version</h2>
-        <ul className="mt-2 list-disc space-y-1.5 pl-5 text-sm leading-relaxed">
+        <ul className={UL}>
           <li>
             No accounts, no ads and no tracking or analytics. We don&apos;t sell your data or share it with anyone but the services that run Offer Sheet and the
             sites it reads for you (below), and we don&apos;t build profiles of you or your leaguemates.
           </li>
           <li>Offer Sheet only reads your league. It can&apos;t send offers or change anything.</li>
+          <li>Offer Sheet sets no cookies, except one encrypted cookie if you connect a private ESPN league.</li>
+          <li>
+            If you connect with ESPN cookies, they&apos;re kept only in that encrypted cookie, for this browser session. Our server opens it only to read your
+            league, and sends them only to ESPN.
+          </li>
           {browserReads ? (
             <li>
               Your browser reads public ESPN leagues and Sleeper leagues straight from ESPN and Sleeper, and sends our server only the parts Offer Sheet needs. Our
-              server still reads some leagues itself: private ESPN leagues and any other ESPN league you import with ESPN cookies, and any league your browser
-              can&apos;t read or whose saved copy our server can&apos;t use.
+              server still reads some leagues itself, such as private ESPN leagues.
             </li>
           ) : (
             <li>
-              Our server reads your league from ESPN or Sleeper and scores each player&apos;s projections with your league&apos;s rules. The League page&apos;s math
-              (lineups, needs, trade partners, playoff odds), the trade search and the Trade Analyzer all run in your browser.
+              Our server reads your league from ESPN or Sleeper and scores its players&apos; projections with your league&apos;s rules. The League page, the trade
+              search and the Trade Analyzer do their math in your browser.
             </li>
           )}
           <li>
-            The leagues you import stay saved in this browser, with your team pick, your settings for each, the projections the League page loaded for them and any
-            feedback you give on trade ideas, until you remove a league or clear this site&apos;s data.
-            {browserReads ? null : (
-              <>
-                {" "}
-                What&apos;s saved is read only in your browser: our server gets only what it needs to read a league again (its ID and season, and a Sleeper username
-                you entered).
-              </>
-            )}
+            The leagues you import stay saved in this browser, with your team pick, settings, projections and feedback, until you remove a league or clear this
+            site&apos;s data.
           </li>
           <li>
-            Our server keeps copies of what it reads{browserReads ? " itself" : ""} for a limited time (league data for about 10 minutes), filed under codes that hide
-            league IDs, then deletes them.{browserReads ? " It never keeps the league data your browser sends it." : null}
+            Our server keeps copies of what it reads{itself} for a limited time (league data for about 10 minutes), filed under codes that hide league IDs, then
+            deletes them.{browserReads ? " It never adds the league data your browser sends it to those copies." : null}
           </li>
           {anonymousFeedback ? (
             <li>
-              When you mark what happened to a trade idea or report a problem with it, your browser also sends Offer Sheet an anonymous copy, to help improve it: never
-              your league&apos;s ID, names, usernames or the notes you type. You can turn this off in Settings.
+              When you mark what happened to a trade idea or report a problem with it, your browser also sends Offer Sheet an anonymous copy, to help improve it:
+              never your league&apos;s ID, names, usernames or the notes you type. We keep it for up to {feedbackKeptWords(feedbackLimits.retainDays)}. You can
+              turn this off in Settings.
             </li>
           ) : null}
-          <li>
-            To keep things fair, our server counts requests under codes made from your IP address, and from the block of nearby addresses it&apos;s in, with a secret
-            key, never the addresses themselves. The counts it keeps at Upstash are deleted within {longestWindow}, or for a count of the whole day,{" "}
-            {DAY_COUNT_DELETED}.
-          </li>
-          <li>
-            If you connect with ESPN cookies, they&apos;re kept only in an encrypted cookie in your browser for this session. Our server opens it only to read your
-            league, and sends them only to ESPN. They&apos;re never saved with your leagues.
-          </li>
+          <li>Our server has per-visitor limits, counted under codes made from your IP address with a secret key, deleted within a day.</li>
         </ul>
       </Card>
 
@@ -227,331 +169,181 @@ export function PrivacyPolicy({ features }: { features: PolicyFeatures }) {
         <h2 className="text-lg font-extrabold">Reading your league</h2>
         {browserReads ? (
           <>
-            <p className="mt-2 text-sm leading-relaxed">
-              When you connect a public ESPN league or a Sleeper league, your browser reads it straight from ESPN or Sleeper. Like any site your browser talks to, they
-              see your IP address, which league (or Sleeper username) your browser asks for, and that the request comes from Offer Sheet. Your browser sends them no
-              cookies with these requests.
+            <p className={P}>
+              Your browser reads public ESPN and Sleeper leagues without cookies, but as with any site, ESPN and Sleeper see your IP address, which league it asks
+              for, and that the request comes from Offer Sheet. It sends our server only the parts Offer Sheet uses (the ones it saves, below, and extras such as
+              ESPN&apos;s projections). Our server doesn&apos;t save them, but holds the numbers it works out from them in memory for up to{" "}
+              {durationWords(browserFetchLimits.tokenMaxAgeMs)}.
             </p>
-            <p className="mt-2 text-sm leading-relaxed">
-              Your browser then sends our server only the parts of the answers Offer Sheet reads (the league&apos;s settings, teams and owners&apos; names, rosters,
-              schedule and results, and transactions; for ESPN also its free agents, projections and injured players&apos; expected return dates; for Sleeper also its
-              traded draft picks and drafts, and the username you entered, which finds your team), and our server turns them into the Import Report with public data
-              it keeps itself, such as player lists and projections. Our server uses what your browser sends for that one request: it never saves it.
+            <p className={P}>
+              Our server reads a league itself for private ESPN leagues and any ESPN league imported with ESPN cookies (even after you forget them), when your
+              browser can&apos;t (some ad blockers and networks block it), and when our server can&apos;t use the copy your browser saved.
             </p>
-            <p className="mt-2 text-sm leading-relaxed">
-              If your browser can&apos;t reach ESPN or Sleeper (some ad blockers and work or school networks stop it), our server reads the league itself instead. It
-              does the same for private ESPN leagues and any other ESPN league you import while you&apos;re connected with your ESPN cookies (below), and it keeps
-              reading such a league itself, even after you forget the cookies.
+            <p className={P}>
+              If you enter a Sleeper username, your browser (or our server, if your browser can&apos;t) asks Sleeper which leagues it&apos;s in. The username is saved
+              with those leagues and sent to our server with their requests, only to find your team.
             </p>
           </>
         ) : (
-          <p className="mt-2 text-sm leading-relaxed">
-            When you connect a league, our server reads it from ESPN or Sleeper (a private ESPN league with the ESPN cookies you give it, below), turns it into the
-            Import Report with public data it keeps itself, such as player lists and projections, and sends that to your browser.
-          </p>
+          <>
+            <p className={P}>
+              When you connect a league, our server reads it from ESPN or Sleeper (a private ESPN league with the ESPN cookies you give it, below) and adds public
+              data to make the Import Report.
+            </p>
+            <p className={P}>
+              A Sleeper username you enter is used only to find your leagues and your team. Your browser saves it with those leagues, to find your team again.
+            </p>
+          </>
         )}
       </Card>
 
       <Card>
-        <h2 className="text-lg font-extrabold">Your leagues in this browser</h2>
-        <p className="mt-2 text-sm leading-relaxed">
-          Your browser saves each league you import in its IndexedDB storage (in a database called &ldquo;offersheet&rdquo;), next to any other leagues you&apos;ve
-          imported, until you remove it or clear this site&apos;s data. What&apos;s saved is what the Import Report shows: the league&apos;s settings, teams and
-          owners&apos; names as the platform gives them, rosters, schedule and transactions, and the league&apos;s ID, so it can be read again. Your pick of &ldquo;Your
-          team&rdquo; is saved with it.
+        <h2 className="text-lg font-extrabold">What stays in your browser</h2>
+        <p className={P}>
+          Your browser saves each league you import: what the Import Report shows (settings, teams and owners&apos; names, rosters, schedule and transactions), its
+          ID, your team pick and settings, the projections and trade values our server sent, and your feedback on trade ideas, notes included, for the latest 500
+          ideas.{" "}
+          {anonymousFeedback
+            ? "Your settings never leave your browser, except the one setting the anonymous feedback includes."
+            : "Your settings and feedback never leave your browser."}
         </p>
-        <p className="mt-2 text-sm leading-relaxed">
-          Each browser tab remembers which of your saved leagues it shows, in that tab&apos;s session storage: only a short code made from the league&apos;s ID, and its
-          season. Your tabs tell each other when you change something, with those codes only.
+        <p className={P}>
+          {browserReads
+            ? "Opening the League page sends the saved league to our server, which adds projections and trade values for its players."
+            : "Opening the League page has our server read your league again (usually from its short-lived copy) and add projections and trade values for its players; it gets only what it needs to read the league (its ID and season, and a Sleeper username)."}{" "}
+          The math (lineups, odds, trade ideas) runs in your browser.
         </p>
-        <p className="mt-2 text-sm leading-relaxed">
-          {browserReads ? (
-            <>
-              When you open the League page, your browser sends the league it saved to our server (reading it again first when its copy is more than 10 minutes old),
-              and our server adds the projections and trade values for its players and scores the projections with your league&apos;s scoring rules. If our server
-              can&apos;t check the copy your browser sends (after Offer Sheet&apos;s keys change, for example), it reads the league itself. So that the same copy sent
-              again doesn&apos;t cost it the same work twice, a server keeps the projections and values it worked out from it in its memory, never at Upstash: it
-              stops using them when that copy stops being good, {minutesWords(browserFetchLimits.tokenMaxAgeMs)} after Offer Sheet read the league, and deletes them
-              soon after while it keeps running.
-            </>
-          ) : (
-            <>
-              When you open the League page, our server reads your league again (usually from its short-lived copy) along with the projections and trade values for
-              its players, and scores the projections with your league&apos;s scoring rules.
-            </>
-          )}{" "}
-          Your browser saves the latest projections and values with the league, and uses them again for up to 6 hours. The League page&apos;s math (lineups, needs,
-          trade partners, playoff odds) runs in your browser; your league isn&apos;t sent to anyone else to be analyzed.
-        </p>
-        <p className="mt-2 text-sm leading-relaxed">
-          The Trade Finder and the Trade Analyzer use the same projections and values, kept and fetched the same way, and they search for and score trades in your
-          browser too. A link to the Trade Finder for one team, or to a trade in the Trade Analyzer, carries only that team&apos;s ID number and the players&apos; ID
-          numbers in its web address (never names or your league&apos;s ID; a trade opened from &ldquo;If they say no, try&rdquo; also says so there), and the Finder
-          and the Analyzer put the team you pick and the trade you evaluate into their address the same way. Offer Sheet never loads these addresses ahead of time, so
-          our server sees one only when you open it, like any web address.
-        </p>
-        <p className="mt-2 text-sm leading-relaxed">
-          &ldquo;Remove&rdquo; in the league menu at the top of every page deletes a league from this browser: its import, your team pick, its projections, and its
-          settings and feedback (those stay while another season of the same league is saved, since they&apos;re shared).
+        <p className={P}>
+          To delete: &ldquo;Remove&rdquo; in the league menu deletes a league and what&apos;s saved with it (its settings and feedback stay while another season of
+          it is saved). On the Settings page, &ldquo;Reset to defaults&rdquo; removes a league&apos;s settings and &ldquo;Delete saved feedback&rdquo; your
+          feedback; clearing this site&apos;s data removes everything.
         </p>
       </Card>
 
       <Card>
         <h2 className="text-lg font-extrabold">Our server&apos;s copies</h2>
-        <p className="mt-2 text-sm leading-relaxed">
-          To go easy on ESPN, Sleeper and the other sources, our server keeps copies of what it reads{browserReads ? " itself" : ""}, then deletes them:
+        <p className={P}>
+          Our server keeps copies of what it reads{itself}, then deletes them: league data after about 10 minutes (older weeks&apos; transactions and matchups after
+          up to 6 hours), a Sleeper username lookup after 10 minutes, public data that isn&apos;t about any league after up to a week, and FantasyCalc&apos;s trade
+          value lists after up to {config.market.fantasyCalcCurveDays} days, in case FantasyCalc is down. Once it has a format&apos;s list, it doesn&apos;t ask
+          FantasyCalc for it again for {durationWords(TTL.fantasyCalc)}, and asks only when needed.
         </p>
-        <ul className="mt-2 list-disc space-y-1.5 pl-5 text-sm leading-relaxed">
-          <li>
-            {browserReads
-              ? "League data our server reads itself (private ESPN leagues and any other ESPN league you import with ESPN cookies, any league your browser couldn't read, and any league whose saved copy our server couldn't use): about 10 minutes."
-              : "League data (settings, rosters, schedule and transactions): about 10 minutes."}{" "}
-            Transactions and matchups from weeks that ended more than a week ago rarely change, so they may be kept for up to 6 hours.
-          </li>
-          <li>A Sleeper username lookup{browserReads ? " our server makes" : ""} (which leagues that username is in): 10 minutes.</li>
-          <li>
-            Public data that isn&apos;t about any league (player lists, projections and stats, player ID maps and the NFL schedule): up to a week, so a saved copy can
-            stand in if a source is down.
-          </li>
-          <li>
-            FantasyCalc&apos;s trade value lists (public too, one per league format, not about any one league): up to {config.market.fantasyCalcCurveDays} days.
-            Once FantasyCalc answers, we don&apos;t ask it for that list again for a day. If it doesn&apos;t answer, we wait {minutes(FANTASYCALC_OUTAGE_HOLD_MS)}{" "}
-            minutes before asking it again (up to {minutes(FANTASYCALC_OUTAGE_MAX_HOLD_MS)} while it stays down), and the newest saved list stands in for up to{" "}
-            {config.market.fantasyCalcStaleDays} days; after that, an older one is used only to work out our own estimates of trade values until FantasyCalc is back.
-          </li>
-        </ul>
-        <p className="mt-2 text-sm leading-relaxed">
-          These copies are kept at Upstash, the database service we use through Vercel, in its US East region, each filed under a code made with a secret key only our
-          server has, so league IDs and usernames never appear in the database&apos;s keys, and each copy is encrypted with another such key before it is stored,
-          so Upstash holds only text it can&apos;t read. Upstash deletes each copy when its time is up. Our servers may also hold
-          copies in their memory: a server stops using a copy when its time is up and deletes it soon after while it keeps running, and everything in its memory is
-          gone when it shuts down.{browserReads ? " League data your browser sends our server is never among these copies." : null}
+        <p className={P}>
+          The copies are kept at Upstash under codes made with a secret key, so league IDs and usernames never appear there, and encrypted, so Upstash can&apos;t
+          read them. A private ESPN league&apos;s copies are also filed under a fingerprint of your cookies, so typing its ID isn&apos;t enough to see them, and ESPN
+          member IDs (SWIDs) are replaced with one-way pseudonyms. Anything our servers hold in memory stops being used once it&apos;s due, is deleted soon after
+          while the server keeps working, and is gone when it shuts down.
         </p>
-        <p className="mt-2 text-sm leading-relaxed">
-          Data from a private ESPN league is filed under a one-way fingerprint of your cookies too, so someone else who types the same league ID can&apos;t see it.
-        </p>
-        <p className="mt-2 text-sm leading-relaxed">
-          ESPN league data includes every member&apos;s ESPN member ID (the SWID), yours among them. Before our server keeps a copy, it replaces every member ID with a
-          one-way pseudonym, so the saved copy holds no SWIDs.
-        </p>
+        {publicArchive ? (
+          <p className={P}>
+            We also keep public data, Sleeper&apos;s pre-game projections and FantasyCalc&apos;s daily trade value lists, up to{" "}
+            {snapshotLimits.retainDays / 365} seasons, to measure how accurate our numbers are. It isn&apos;t about any league or person and is never shown.
+          </p>
+        ) : null}
       </Card>
 
       <Card>
-        <h2 className="text-lg font-extrabold">Limits on requests</h2>
-        <p className="mt-2 text-sm leading-relaxed">
-          To keep Offer Sheet free and fair for everyone, our server limits how many requests one visitor can send{" "}
-          {anonymousFeedback
-            ? `in a short window (${importWindow} for imports, the League page and ESPN cookies, ${windowWords(rateLimits.feedback.windowS)} for feedback)`
-            : `in ${importWindow}`}
-          , and how much it does in a day for one visitor and for the block of nearby addresses the visitor&apos;s address is in: the work of importing leagues and
-          working out League pages, {anonymousFeedback ? "the requests it makes to ESPN or Sleeper, and the anonymous feedback copies it takes" : "and the requests it makes to ESPN or Sleeper"}
-          . It counts these under codes made from your IP address and from that block, each with a secret key, never the addresses themselves: without that key, a
-          code can&apos;t be turned back into an address. Each short-window count kept at Upstash is deleted one window after it starts, so within{" "}
-          {longestWindow}; each day&apos;s count, {DAY_COUNT_DELETED}. A count a server holds in its memory is deleted soon after its window or day ends while that
-          server keeps running, and is gone when it shuts down.
+        <h2 className="text-lg font-extrabold">Daily totals</h2>
+        <p className={P}>
+          Each day (UTC), our server counts the leagues imported, League pages built, the work they took, requests refused and requests made to each source, and
+          keeps these totals about 13 months.
+          {publicArchive ? ` It also notes which league formats were used, for ${snapshotLimits.formatsInUseRetainDays} days.` : null} None of this says who made
+          the requests.
         </p>
       </Card>
 
       {anonymousFeedback ? (
         <Card>
           <h2 className="text-lg font-extrabold">Anonymous feedback</h2>
-          <p className="mt-2 text-sm leading-relaxed">
-            When you press Sent, Accepted, Rejected or Countered on a trade idea, or report a problem with one, your browser saves it with that league (below). Unless
-            you turn it off, it also sends Offer Sheet an anonymous copy, used only to improve Offer Sheet: how it estimates trades, and anything it reads or shows
-            wrong. The copy holds:
+          <p className={P}>
+            Each anonymous copy is used only to improve Offer Sheet. It holds what you pressed and which version you sent; the platform, season and week; your
+            league&apos;s format (teams, league type, main scoring settings, lineup and playoff spots) and how you weigh the title against the playoffs; the players
+            as ID numbers with positions; Offer Sheet&apos;s numbers for the trade and what they came from; a random code that links later changes to the same
+            record; and the date it arrived.
           </p>
-          <ul className="mt-2 list-disc space-y-1.5 pl-5 text-sm leading-relaxed">
-            <li>
-              the trade idea&apos;s outcome and report reason as they stand after your press (when you clear one, a copy without it follows, so the earlier copies no
-              longer count), and which version of the idea you sent;
-            </li>
-            <li>the platform (ESPN or Sleeper), the season and the week;</li>
-            <li>
-              your league&apos;s format: the number of teams, whether it&apos;s redraft, keeper or dynasty, the points per catch and per passing touchdown, any
-              tight-end premium, whether it starts a second quarterback, how many of each lineup slot it starts, and how many teams make the playoffs;
-            </li>
-            <li>your &ldquo;What matters most&rdquo; setting;</li>
-            <li>the players in the trade, and in the version you sent when it differs, as ID numbers with their positions;</li>
-            <li>
-              Offer Sheet&apos;s numbers for the trade (Helps you, the chance they accept, Overall, and the figures behind them, such as the change in your playoff and
-              title odds) and what its estimate of the chance they accept was worked out from;
-            </li>
-            <li>for the version you sent: Offer Sheet&apos;s estimate for it, and what that estimate and its score were worked out from;</li>
-            <li>a random code your browser makes for that one record, so a later change to it (an outcome after &ldquo;Sent&rdquo;) can be matched to it.</li>
-          </ul>
-          <p className="mt-2 text-sm leading-relaxed">Our server stores it with the day it arrived (the date, not the time).</p>
-          <p className="mt-2 text-sm leading-relaxed">
-            It never holds your league&apos;s ID, team IDs, team or owner names, usernames, ESPN member IDs (SWIDs), cookies, the code your browser files your league
-            under, or any note you type: notes stay in your browser.
+          <p className={P}>
+            It never holds your league&apos;s ID in any form, team IDs, team or owner names, usernames, ESPN member IDs, cookies, your IP address or your notes.
+            Only your browser, and a file you export, can tell which copies are yours, though the players, format and week could lead someone who searched public
+            leagues to yours. We never try to match copies to anyone.
           </p>
-          <p className="mt-2 text-sm leading-relaxed">
-            We keep at most the newest {feedbackLimits.maxPerDay.toLocaleString("en-US")} a day, at Upstash, and delete each day&apos;s feedback{" "}
-            {daysWords(feedbackLimits.retainDays)} after the last one that day. Offer Sheet&apos;s developer downloads it from there to study it, at least once a
-            month, and keeps each month&apos;s download until {daysWords(feedbackLimits.retainDays)} after that month&apos;s last copy, deleting it at the first
-            download after that, so a downloaded copy is kept at most about two months longer than at Upstash.
-          </p>
-          <p className="mt-2 text-sm leading-relaxed">
-            Offer Sheet stores nothing with a copy that ties it to you: no IP address, account, league ID or name. (The day&apos;s limit on copies counts them under
-            codes made from your IP address and its block, above, and those counts are deleted {DAY_COUNT_DELETED}.) Each copy carries its record&apos;s random code,
-            but only your browser (and any file you save with &ldquo;Export feedback&rdquo;) keeps that code with your feedback, so only someone with your browser or
-            that file could match copies to you by it. Still, the players in a trade, with your league&apos;s format and the week, could lead someone who searched
-            public leagues to yours. Offer Sheet never tries to match copies to anyone. Turning sharing off stops new copies; deleting your saved feedback
-            doesn&apos;t take back copies already sent.
-          </p>
-          <p className="mt-2 text-sm leading-relaxed">
-            To stop sending it, turn off &ldquo;Share anonymous feedback&rdquo; on the{" "}
-            <Link href="/settings" className="font-semibold underline underline-offset-2">
+          <p className={P}>
+            We keep anonymous feedback for up to {feedbackKeptWords(feedbackLimits.retainDays)}, then delete it.
+            {feedbackTotalsOnly ? " When we study it, we keep only totals and the numbers our estimates learn from it, never individual copies." : null} Turning
+            off &ldquo;Share anonymous feedback&rdquo; on the{" "}
+            <Link href="/settings" className={A}>
               Settings page
-            </Link>
-            . That choice is saved in this browser, for every league. The{" "}
-            <Link href="/feedback" className="font-semibold underline underline-offset-2">
-              feedback page
             </Link>{" "}
-            says more.
+            stops new copies; deleting your saved feedback doesn&apos;t take back copies already sent (more on the{" "}
+            <Link href="/feedback" className={A}>
+              feedback page
+            </Link>
+            ).
           </p>
         </Card>
       ) : null}
 
       <Card>
-        <h2 className="text-lg font-extrabold">Settings and trade feedback in this browser</h2>
-        <p className="mt-2 text-sm leading-relaxed">
-          These are saved with each league in this browser&apos;s IndexedDB storage, so they&apos;re there the next time you use Offer Sheet.{" "}
-          {anonymousFeedback
-            ? "Your settings never leave your browser, except your “What matters most” setting in the anonymous feedback above. Your feedback stays here too, apart from that anonymous copy, which leaves out your notes."
-            : "They're read only in your browser and never sent to our server."}
-        </p>
-        <ul className="mt-2 list-disc space-y-1.5 pl-5 text-sm leading-relaxed">
-          <li>
-            Settings: what you choose on the Settings page for a league, and the &ldquo;Chance they accept: at least&rdquo; you pick on the Trade Finder. Each
-            league&apos;s settings are filed under a short code made from its league ID (without the season, so a league renewed for next season keeps them), and hold
-            player ID numbers and positions, never names.
-          </li>
-          <li>
-            Trade feedback: when you mark what happened to a trade idea or report a problem with it (on the Trade Finder or the Trade Analyzer), it&apos;s saved with
-            that league, for its latest 500 trade ideas, under the same short code as that league&apos;s settings. It holds the players and picks in the trade and the
-            other team (all as ID numbers), Offer Sheet&apos;s numbers for the trade, when you pressed each button, and any note you typed. When you mark what
-            happened, it also keeps which version you sent (a card can show more than one): its players as ID numbers too, Offer Sheet&apos;s estimate for it, and the
-            numbers that estimate and its score were worked out from, such as how much trade value and lineup the other team would gain and how much the trade helps
-            you, along with your &ldquo;What matters most&rdquo; setting.
-            {anonymousFeedback
-              ? " It also keeps the week and season Offer Sheet's numbers were worked out for, your “What matters most” setting for the trade's own numbers, and the random code its anonymous copies carry (above)."
-              : null}
-          </li>
-          <li>
-            &ldquo;Export feedback&rdquo; on the Settings page downloads your feedback as a file. In the file your leagues are only numbered (league-1, league-2), and your
-            notes appear exactly as you typed them.
-            {anonymousFeedback ? " It includes each record's random code, which matches it to its anonymous copies." : null}
-          </li>
-          <li>
-            &ldquo;Reset to defaults&rdquo; on the Settings page removes a league&apos;s settings, &ldquo;Delete saved feedback&rdquo; removes all of your feedback,
-            removing a league removes both for that league, and clearing this site&apos;s data in your browser removes everything.
-            {anonymousFeedback ? " Anonymous copies already sent aren't affected: they're deleted on their own schedule (above)." : null}
-          </li>
-          <li>
-            If you used Offer Sheet before October 4, 2026, your settings and feedback were in this browser&apos;s local storage (&ldquo;offersheet:settings:v1&rdquo;
-            and &ldquo;offersheet:feedback:v1&rdquo;) and a tab&apos;s league in its session storage. Offer Sheet copied them into the new storage once and left the old
-            copies as they were, unused. Removing a league or deleting your feedback deletes the old copies too, and a tab&apos;s session storage goes when you close the
-            tab.
-          </li>
-        </ul>
-      </Card>
-
-      <Card>
         <h2 className="text-lg font-extrabold">ESPN cookies (private leagues only)</h2>
-        <ul className="mt-2 list-disc space-y-1.5 pl-5 text-sm leading-relaxed">
-          <li>They work like a password to your ESPN account, so we treat them like one. We never ask for your ESPN password.</li>
-          <li>You type them into Offer Sheet once, and they travel to our server inside that request, never in a web address.</li>
+        <ul className={UL}>
+          <li>They work like a password, so we treat them like one. We never ask for your ESPN password.</li>
           <li>
-            Our server puts them straight into a cookie in your browser that is encrypted with a key only our server has, can&apos;t be read by the page&apos;s scripts, and is
-            deleted when you close your browser. Your browser sends that encrypted cookie back with each request to Offer Sheet, as browsers do with a site&apos;s
-            cookies. Even if your browser restores its session, the encrypted cookie stops working after 12 hours.
+            They reach our server inside a request, never in a web address, and go into a cookie encrypted with a key only our server has and hidden from the
+            page&apos;s scripts. Your browser sends it with each request to Offer Sheet and deletes it when you close your browser; even if your browser restores
+            its session, it stops working after 12 hours.
           </li>
-          <li>
-            They&apos;re never saved with your leagues. A private league you saved stays saved after they&apos;re gone, but reading it again needs them again.
-          </li>
-          <li>
-            Our server opens the encrypted cookie only to read your league, and sends your ESPN cookies only to ESPN. Your espn_s2 cookie is never stored on our server
-            or written to logs, and your SWID is kept only as the one-way pseudonym described above.
-          </li>
+          <li>Our server never stores or logs your espn_s2 cookie, and your ESPN cookies are never saved with your leagues.</li>
           <li>
             &ldquo;Forget my credentials&rdquo; on the{" "}
-            <Link href="/connect" className="font-semibold underline underline-offset-2">
+            <Link href="/connect" className={A}>
               Connect page
             </Link>{" "}
-            (or &ldquo;Forget my ESPN cookies&rdquo; on the Import Report) deletes the cookie right away. League data our server copied with it expires within about 10
-            minutes (older weeks&apos; transactions within 6 hours) and is then deleted.
+            (or &ldquo;Forget my ESPN cookies&rdquo; on the Import Report) deletes the cookie right away; league data our server copied with it is deleted within
+            about 10 minutes (older weeks&apos; transactions within 6 hours).
           </li>
         </ul>
-      </Card>
-
-      <Card>
-        <h2 className="text-lg font-extrabold">Sleeper</h2>
-        <p className="mt-2 text-sm leading-relaxed">
-          {browserReads ? (
-            <>
-              Sleeper leagues are public. If you enter a username, your browser asks Sleeper which leagues it&apos;s in, to find your leagues and your team (if your
-              browser can&apos;t reach Sleeper, our server asks instead and keeps that lookup for 10 minutes). Your browser sends the username to our server with the
-              league you import, and whenever the League page asks for that league&apos;s numbers, only to find your team there. It saves the username with each league
-              you import with it, so it can find your team again.
-            </>
-          ) : (
-            <>
-              Sleeper leagues are public. If you enter a username, our server uses it only to look up your leagues and find your team, and keeps that lookup for 10
-              minutes. Your browser saves the username with each league you import with it, so the League page can find your team again.
-            </>
-          )}
-        </p>
       </Card>
 
       <Card>
         <h2 className="text-lg font-extrabold">Other sources</h2>
-        <p className="mt-2 text-sm leading-relaxed">
-          Our server also downloads public data: player lists and weekly projections and stats from Sleeper, player ID maps from DynastyProcess, trade values from
-          FantasyCalc, and the NFL schedule. Some of these requests are shaped by your league&apos;s settings:
-        </p>
-        <ul className="mt-2 list-disc space-y-1.5 pl-5 text-sm leading-relaxed">
-          <li>
-            Sleeper&apos;s projection and stats requests carry only the season, week numbers up to your league&apos;s last playoff week, and the positions your league
-            starts (for example, whether it uses a kicker or IDP).
-          </li>
-          <li>
-            The FantasyCalc request carries only your league&apos;s format: the number of teams, points per catch, how many quarterbacks start, dynasty or not, and any
-            tight-end premium.
-          </li>
-        </ul>
-        <p className="mt-2 text-sm leading-relaxed">
-          They never carry names or IDs. The other requests (player lists, player ID maps and the NFL schedule) don&apos;t depend on your league at all (the schedule only
-          on the season), so nothing about you or your league is sent with them.
+        <p className={P}>
+          Our server also downloads public data: player lists, projections and stats from Sleeper, the NFL schedule from ESPN, player ID maps from DynastyProcess, and
+          trade values from FantasyCalc{fantasyCalcHidden ? ", which Offer Sheet uses in its own numbers but never shows" : null}. These requests carry no names or
+          IDs, only things like the season, the week and your league&apos;s format. If you follow a link to FantasyCalc, it can see that you came from Offer Sheet,
+          but not from which page.
         </p>
       </Card>
 
       <Card>
         <h2 className="text-lg font-extrabold">Logs</h2>
-        <p className="mt-2 text-sm leading-relaxed">
-          Vercel, which hosts Offer Sheet, keeps a log of the requests it serves for Offer Sheet for 1 hour on our plan: the method, the web address and its query, the
-          status, the type of browser and the region. Vercel can see IP addresses.
-        </p>
-        <p className="mt-2 text-sm leading-relaxed">
-          Our own error log keeps, for up to {logLimits.retainDays} days, only when something went wrong, which part of Offer Sheet had the problem and what kind: an
-          error code, the data source involved (ESPN or Sleeper, for example), the status it answered with, the error&apos;s type and how long the request took. Never
-          league data, names, IDs, usernames, cookies or IP addresses.
+        <p className={P}>
+          Vercel, our host, logs each request it serves (its web address and the browser type, for example), keeps that log for 1 hour, and can see IP addresses.
+          Our own error log keeps only what went wrong, where and when (an error code and the source involved, for example), for up to {logLimits.retainDays} days:
+          never league data, names, IDs, usernames, cookies or IP addresses.
         </p>
       </Card>
 
       <Card>
         <h2 className="text-lg font-extrabold">Who handles the data</h2>
-        <ul className="mt-2 list-disc space-y-1.5 pl-5 text-sm leading-relaxed">
+        <ul className={UL}>
           <li>
-            Vercel hosts Offer Sheet and runs its server, in Vercel&apos;s US East region near Washington, D.C. (
-            <a href="https://vercel.com/legal/privacy-policy" target="_blank" rel="noopener noreferrer" className="font-semibold underline underline-offset-2">
+            Vercel hosts Offer Sheet and runs its server, in its US East region near Washington, D.C. (
+            <a href="https://vercel.com/legal/privacy-policy" target="_blank" rel="noopener noreferrer" className={A}>
               Vercel&apos;s privacy policy
             </a>
             ).
           </li>
           <li>
-            Upstash keeps our server&apos;s copies, the request counts{anonymousFeedback ? ", the anonymous feedback" : ""} and the error log (
-            <a href="https://upstash.com/trust/privacy.pdf" target="_blank" rel="noopener noreferrer" className="font-semibold underline underline-offset-2">
+            Upstash, our database service, in its US East region with backups turned off, keeps {listWords(upstashKeeps)} (
+            <a href="https://upstash.com/trust/privacy.pdf" target="_blank" rel="noopener noreferrer" className={A}>
               Upstash&apos;s privacy policy
+            </a>
+            ).
+          </li>
+          <li>
+            Google keeps the emails you send us (your address and message) in Offer Sheet&apos;s Gmail inbox, used only to answer you. Ask, and we&apos;ll delete them
+            (
+            <a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer" className={A}>
+              Google&apos;s privacy policy
             </a>
             ).
           </li>
@@ -560,23 +352,21 @@ export function PrivacyPolicy({ features }: { features: PolicyFeatures }) {
 
       <Card>
         <h2 className="text-lg font-extrabold">On an iPhone or iPad</h2>
-        <p className="mt-2 text-sm leading-relaxed">
-          Safari may delete what a site saved in your browser, your saved leagues, settings and feedback included, after you use Safari for 7 days without visiting
-          Offer Sheet. If you add Offer Sheet to your Home Screen, the app you open from there keeps its own saved leagues and settings, apart from Safari&apos;s
-          {anonymousFeedback ? ", “Share anonymous feedback” included" : ""}, so import your leagues again inside it
-          {anonymousFeedback ? ", and turn sharing off there too if you want it off" : ""}.
+        <p className={P}>
+          Safari may delete what Offer Sheet saved if you use Safari for 7 days without visiting Offer Sheet. A Home Screen app may keep its own saved leagues and
+          settings{anonymousFeedback ? " (“Share anonymous feedback” included)" : ""}, apart from Safari&apos;s, so you may need to import your leagues there again.
         </p>
       </Card>
 
       <Card>
         <h2 className="text-lg font-extrabold">Children, changes and contact</h2>
-        <p className="mt-2 text-sm leading-relaxed">Offer Sheet isn&apos;t directed at children under 13.</p>
-        <p className="mt-2 text-sm leading-relaxed">If this policy changes, we&apos;ll update it here and change the date above.</p>
-        <ContactLine className="mt-2 text-sm leading-relaxed" />
-        <p className="mt-2 text-sm leading-relaxed">
-          Offer Sheet is an independent project, not affiliated with or endorsed by ESPN, Sleeper, Yahoo, Fleaflicker, MyFantasyLeague, Fantrax, FantasyCalc,
-          DynastyProcess or the NFL. See also the{" "}
-          <Link href="/terms" className="font-semibold underline underline-offset-2">
+        <p className={P}>
+          Offer Sheet isn&apos;t directed at children under 13. If this policy changes, we&apos;ll update it here and change the date above.
+        </p>
+        <ContactLine className={P} />
+        <p className={P}>
+          See also the{" "}
+          <Link href="/terms" className={A}>
             terms of use
           </Link>
           .

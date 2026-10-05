@@ -127,8 +127,12 @@ export interface FeedbackSent {
   inputs?: VersionInputs | undefined;
 }
 
-/** Why the "Helps you" scale departs from "+3 points a week reads 63" (benefit.ts HelpsScale.reason; null: it doesn't). */
-export type HelpsReason = NonNullable<HelpsScale["reason"]>;
+/**
+ * Why the "Helps you" scale departs from "+3 points a week reads 63" (benefit.ts HelpsScale.reason, "odds": it's floored; null:
+ * it doesn't). "lambda", Checkpoint 7a's Win now ↔ Future note, went with its λ cap (planner reply to Checkpoint 7a, §2
+ * question 6): the engine no longer gives it, but records and copies made before can still name it.
+ */
+export type HelpsReason = NonNullable<HelpsScale["reason"]> | "lambda";
 
 /** The reasons a record may name (HelpsReason). */
 export const HELPS_REASONS = ["odds", "lambda"] as const satisfies readonly HelpsReason[];

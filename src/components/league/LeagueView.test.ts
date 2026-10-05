@@ -49,7 +49,7 @@ function between(html: string, start: string, end: string): string {
   return html.slice(from, to);
 }
 
-const CREDIT = /<a href="https:\/\/fantasycalc\.com" target="_blank" rel="noopener noreferrer"[^>]*>Values: FantasyCalc<span class="sr-only"> \(opens in a new tab\)<\/span><\/a>/g;
+const CREDIT = /<a href="https:\/\/fantasycalc\.com" target="_blank" rel="noopener" referrerPolicy="origin"[^>]*>Values: FantasyCalc<span class="sr-only"> \(opens in a new tab\)<\/span><\/a>/g;
 
 /** RegExp source for a class attribute's value (right after class="): hidden on phones, a table cell from sm up (375 px)… */
 const WIDE_ONLY = '(?=(?:[^"]*\\s)?hidden[\\s"])(?=[^"]*sm:table-cell[\\s"])[^"]*';

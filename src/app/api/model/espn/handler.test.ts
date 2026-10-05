@@ -401,7 +401,8 @@ describe("POST /api/model/espn with the import the browser saved, signed (Part B
     const reread = signedSetup({ chargeWork });
     const busy = await reread.handler(gzipRequest(URL, body({ snapshot: { ...snapshot, name: "Changed in the browser" } })));
     expect(busy.status).toBe(503);
-    expect((await errorOf(busy)).message).toMatch(/^Offer Sheet has used its share of free server time for now\. Try again /);
+    // The server's day: the beta at capacity (planner reply to Checkpoint 7a, §2 question 7), the reset time in UTC.
+    expect((await errorOf(busy)).message).toMatch(/^The beta is at capacity today\. It resets at \d{1,2}:\d{2} [AP]M UTC\.$/);
     expect(charged).toEqual([workLimits.units.modelServer - workLimits.units.modelSigned]);
     expect(reread.reads).toHaveLength(0);
     expect(reread.built).toHaveLength(0);

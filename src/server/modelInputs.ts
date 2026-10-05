@@ -21,9 +21,12 @@
  *      §9, each loaded whatever happens to the other, ⚠️ though once FantasyCalc doesn't answer the first, the second is
  *      read from the server cache only, not asked: the outage memory below; dynasty leagues with weeks left to project: the
  *      redraft list in their format too, after their own list loaded, for the market blend, §6 step 8,
- *      MarketInputs.seasonValues) and FantasyCalc /players for knownIds (24 hours; the crosswalk's cache
- *      entry; Phase 4c: only when FantasyCalc served some list fresh in the build, see loadFantasyCalc). Each list
- *      is a format of its own, fetched at most once a day (§2.9).
+ *      MarketInputs.seasonValues). Each list is a format of its own, refreshed at most once every 3 hours and only
+ *      when a build reads it (FantasyCalc's conditions of 2026-10-05, reports/fantasycalc-permission.md: TTL.fantasyCalc;
+ *      a day before; an answer the checks turn down holds that format off for as long, review of Checkpoint 7b's server
+ *      work: src/data/fantasyCalcValues.ts FantasyCalcGate.rejected), and /values/current is the only FantasyCalc endpoint
+ *      asked: its /players list, which once widened knownIds, isn't (knownIds is the players the value lists name; only the
+ *      reports read it).
  * Steps 2–4 go through one SleeperGate (src/data/sleeperProjections.ts; review DATA-1, PERF-1): once
  * Sleeper stops answering, nothing more is asked of it in this build, nor in the builds of the next few
  * minutes, so an outage costs the build that finds it 2 requests and the builds after it none (what the
@@ -84,7 +87,7 @@
  *   a reader of the future term that it's missing, with a FANTASYCALC_DYNASTY_UNAVAILABLE warning. How a later
  *   list is loaded depends on how the first one failed (loadFantasyCalc). FantasyCalc didn't answer it (no response, 429,
  *   5xx or a web page, whether a saved copy then stood in or not): the outage memory holds FantasyCalc off, so the later
- *   lists are read from the server cache only (a copy within the 24-hour TTL as FantasyCalc's answer, an older one as a
+ *   lists are read from the server cache only (a copy within the 3-hour TTL as FantasyCalc's answer, an older one as a
  *   saved copy standing in) and one with no copy there isn't asked: a keeper league's FANTASYCALC_*_UNAVAILABLE warning
  *   says so ("not asked while FantasyCalc isn't answering"); a dynasty league's season list gets no warning here (the
  *   League model says the blend is off). ⚠️ Phase 4c's polish (review POL-2) changed this: before the outage memory, such a list was asked
@@ -95,7 +98,6 @@
 import type { EspnProjections } from "@/adapters/espn/projections";
 import { LAST_NFL_WEEK } from "@/adapters/sleeper/normalize";
 import type { HttpClient } from "@/adapters/types";
-import { fetchFantasyCalcPlayers, type FantasyCalcPlayerIds } from "@/data/fantasyCalcPlayers";
 import { fantasyCalcGate, fantasyCalcListUse, loadFantasyCalcValues, marketInputsFrom, type FantasyCalcAgeConfig, type FantasyCalcGate, type FantasyCalcListUse, type FantasyCalcValuesLoad, type MarketFormats } from "@/data/fantasyCalcValues";
 import { loadNflSchedule, toNflScheduleInputs, type NflSchedule } from "@/data/nflSchedule";
 import {
@@ -253,8 +255,6 @@ export interface FantasyCalcLoads {
    * MarketInputs.seasonValues); missing when it couldn't be loaded (the League model then says the blend is off).
    */
   season?: FantasyCalcValuesLoad;
-  /** FantasyCalc /players (widens knownIds); null when it couldn't be loaded, or wasn't asked (FantasyCalc served no list fresh: loadFantasyCalc). */
-  players: readonly FantasyCalcPlayerIds[] | null;
 }
 
 /** What buildModelInputs loaded (hand-built in tests). A source that couldn't be loaded at all is null. */
@@ -548,7 +548,6 @@ export function assembleModelInputs(snapshot: LeagueSnapshot, loaded: ModelSourc
             values: used.values,
             ...(used.redraft ? { redraft: used.redraft } : {}),
             ...(used.season ? { season: used.season } : {}),
-            fantasyCalcPlayers: fc.players,
             players: snapshot.players,
             relevantIds: ids,
             now,
@@ -737,15 +736,13 @@ function outcomeReason(o: ListOutcome): string {
  * fantasyCalcStaleDays old); when no list is, but a saved copy at most fantasyCalcCurveDays old is, the curve fallback
  * takes it (and a keeper league's other old list; when that one is missing, FANTASYCALC_REDRAFT_UNAVAILABLE says the
  * dynasty list calibrates perception, as in the readable case: review of track MK); a dynasty league's season list is
- * asked only after a readable own list (the curve fallback blends nothing). /players is asked for only when FantasyCalc
- * served some list fresh in this build (a live answer, or its copy within the 24-hour TTL; review of track MK): it
- * widens knownIds alone, which only the reports read, so once every list came from a saved copy or failed (the curve
- * fallback always) it would only cost 2 more requests to a host that isn't answering, and past its own 7-day copy add a
- * warning next to the estimates banner. knownIds then counts the players a value list names.
+ * asked only after a readable own list (the curve fallback blends nothing). FantasyCalc's /players isn't asked at all
+ * (its conditions of 2026-10-05 allow only /values/current; until then it widened knownIds, which only the reports read,
+ * when FantasyCalc served some list fresh in the build): knownIds counts the players a value list names.
  * Phase 4c's polish: every list goes through the build's FantasyCalcGate (fantasyCalcGate: the outage memory, the
  * header). While it holds FantasyCalc off, a list is read from the server cache only (loadFantasyCalcValues: a copy within
  * the TTL as FantasyCalc's answer, an older one as a saved copy standing in, none as a "not asked" failure), so the
- * build that finds an outage costs its own list's 2 attempts and nothing more, and /players isn't asked then either.
+ * build that finds an outage costs its own list's 2 attempts and nothing more.
  */
 async function loadFantasyCalc(http: HttpClient, formats: MarketFormats, warnings: ImportWarning[], now: Date): Promise<FantasyCalcLoads | null> {
   // The build's outage memory (fantasyCalcGate): every list goes through it, and none is asked while it holds FantasyCalc off.
@@ -806,18 +803,7 @@ async function loadFantasyCalc(http: HttpClient, formats: MarketFormats, warning
   }
   const seasonOutcome = formats.season && ownLoad ? outcomeOf(await tryFantasyCalcValues(http, formats.season, later), now) : undefined;
   const season = readableLoad(seasonOutcome);
-  // /players only when FantasyCalc served some list fresh in this build (the doc above): knownIds is all it widens. Never
-  // while the outage memory holds FantasyCalc off (a list read fresh from the cache then is no answer of today's).
-  const served = [own, second, seasonOutcome].some((o) => o !== undefined && "load" in o && !o.load.stale);
-  let players: FantasyCalcPlayerIds[] | null = null;
-  if (served && gate.down() === undefined) {
-    try {
-      players = (await fetchFantasyCalcPlayers(http)).players;
-    } catch (err) {
-      warnings.push({ code: "FANTASYCALC_PLAYERS_UNAVAILABLE", message: `FantasyCalc's player list couldn't be loaded (${reasonOf(err)}), so only players with a value count as known to FantasyCalc.`, platformPath: "players" });
-    }
-  }
-  return { values, ...(redraft ? { redraft } : {}), ...(season ? { season } : {}), players };
+  return { values, ...(redraft ? { redraft } : {}), ...(season ? { season } : {}) };
 }
 
 /**

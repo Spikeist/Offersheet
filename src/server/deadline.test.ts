@@ -8,8 +8,8 @@ afterEach(() => {
 
 describe("the request scope (track RL: each API request's deadline)", () => {
   it("has a deadline per route kind from limits.deadlines", () => {
-    expect(ROUTE_KINDS.map((k) => deadlineMsOf(k))).toEqual([deadlines.importMs, deadlines.modelMs, deadlines.sessionMs, deadlines.feedbackMs, deadlines.healthMs]);
-    expect(deadlines).toMatchObject({ importMs: 45_000, modelMs: 90_000, sessionMs: 10_000, feedbackMs: 10_000, healthMs: 10_000 });
+    expect(ROUTE_KINDS.map((k) => deadlineMsOf(k))).toEqual([deadlines.importMs, deadlines.modelMs, deadlines.sessionMs, deadlines.feedbackMs, deadlines.healthMs, deadlines.cronMs]);
+    expect(deadlines).toMatchObject({ importMs: 45_000, modelMs: 90_000, sessionMs: 10_000, feedbackMs: 10_000, healthMs: 10_000, cronMs: 110_000 });
     const scope = newRequestScope("model", 1_000);
     expect(scope).toMatchObject({ route: "model", startedAt: 1_000, deadlineAt: 91_000, pendingLogs: [], flushed: false });
     expect(scope.client).toBeUndefined();

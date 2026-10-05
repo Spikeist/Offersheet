@@ -42,8 +42,10 @@ describe("folding in the searches (smallLeague 30 and 67, scenario lineups)", { 
     it(`seed ${seed}: no card's steps name another card; the cards that did are gone from the list ranked without folding`, () => {
       // W at the best free agent's value (withWaiverStash: Checkpoint 4c's rule, which the folding here was measured on);
       // A3's W, the best free agent left unclaimed, is lower in seed 30 (1,237 against 3,064) and leaves no folding there.
+      // And the fallback playoff weight (league.ts step 5c not measured: 1.25, the weight before the planner's reply to
+      // Checkpoint 7a, §6.1), which the folding here was measured with.
       const lg = withWaiverStash(smallLeague(seed));
-      const ctx = buildTradeContext(lg.snapshot, lg.inputs, { now: TEST_NOW, scenarios: 8 });
+      const ctx = buildTradeContext(lg.snapshot, lg.inputs, { now: TEST_NOW, scenarios: 8, playoffWeightSims: 0 });
       const I = tradeInternals(ctx);
       for (const minChance of [0, 0.1]) {
         const r = runTradeSearch(ctx, { settings: settings(minChance) });

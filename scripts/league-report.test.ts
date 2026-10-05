@@ -11,7 +11,7 @@ import { NOW, PARKER, fakeResolver, parkerBundle } from "@/adapters/espn/test-he
 import { helpsScale, tradeScore } from "@/engine/benefit";
 import { config } from "@/engine/config";
 import type { ModelInputs } from "@/engine/inputs";
-import { buildLeagueModel, leagueMarginals, nearTieRos, teamWeeks } from "@/engine/league";
+import { buildLeagueModel, leagueMarginals, nearTieRos, playoffWeightFrom, teamWeeks } from "@/engine/league";
 import type { FaMove, LeagueModel } from "@/engine/leagueModel";
 import type { LeagueSnapshot, Pos } from "@/engine/model";
 import { returnersOf } from "@/engine/optimizer";
@@ -25,6 +25,7 @@ import { RISKY_BYES, RISKY_WIN_CHANCE, buildLeagueView, lastNflWeekOf, likelySta
 import { reportArgs } from "./lib/runMode";
 import {
   FANTASYCALC_PLAYERS_UNAVAILABLE,
+  PRICE_EXAMPLE_G,
   GOAL_WORDS,
   OPTIMIZER_EXAMPLES,
   SCALE_GAINS,
@@ -54,6 +55,8 @@ import {
   pct,
   pickupsEffect,
   placeholders,
+  playoffWeightLines,
+  playoffWeightSummary,
   pre4cText,
   remainingSchedule,
   resetWaiverOrder,
@@ -62,7 +65,11 @@ import {
   seasonReport,
   simTiming,
   statusShort,
+  thresholdText,
+  thresholdsLine,
+  thresholdsOf,
   titleUnknownReason,
+  tradeValuePriceWords,
   waiverOrderNote,
   waiverRanksPre4c,
   type SeasonReport,
@@ -199,8 +206,11 @@ describe("league report: Parker's league (committed sanitized fixture) with synt
       expect(r.pWinStand).toBe(season.stand?.weekly.find((w) => w.week === r.week)?.games.find((g) => g.teamId === me)?.pWin);
       const opp = model.teams.find((t) => t.id === r.opponentId);
       expect(r.theirs?.mean).toBe(opp?.scoreWithPickups?.mean[wi]);
-      // On bye: exactly those players whose bye is this week; starters flagged by the page's own rule, listed first.
-      const expected = pool.filter((id) => model.players[id]?.ros.bye.status === "upcoming" && model.players[id]?.ros.bye.week === r.week);
+      // On bye: exactly those players whose bye is this week, but for one the engine releases to make room for a returner
+      // before it (TeamModel.displacedWithPickups: he's off my roster by then; review of the engine track, Phase 7b);
+      // starters flagged by the page's own rule, listed first.
+      const releasedFrom = new Map((my.displacedWithPickups ?? []).map((d) => [d.id, d.week]));
+      const expected = pool.filter((id) => model.players[id]?.ros.bye.status === "upcoming" && model.players[id]?.ros.bye.week === r.week && r.week < (releasedFrom.get(id) ?? Number.POSITIVE_INFINITY));
       expect(r.byes.map((b) => b.id).sort()).toEqual([...expected].sort());
       for (const b of r.byes) expect(b.starter).toBe(starters.has(b.id));
       const flagged = r.byes.map((b) => b.starter);
@@ -252,6 +262,16 @@ describe("league report: Parker's league (committed sanitized fixture) with synt
       expect(at3.score[g]).toBe(63);
       expect(rows.find((r) => r.gain === 1)?.score[g]).toBeLessThan(63);
       expect(rows.find((r) => r.gain === 6)?.score[g]).toBeGreaterThan(63);
+    }
+    // "Protect my trade value" priced on these B₃ (planner reply to Checkpoint 7a, §2 question 5): giving 25% more value than
+    // you get costs 0.2 / 0.4 / 0.8 points a week under every goal, B −(B₃ / 3) × 0.4 at Medium.
+    const price = tradeValuePriceWords(check);
+    expect(PRICE_EXAMPLE_G).toBeCloseTo(-0.2, 12);
+    expect(price).toContain("κ = 1 / 2 / 4 points a week per 100% of trade value at Low / Medium / High");
+    expect(price).toContain("costs 0.2 at Low, 0.4 at Medium, 0.8 at High points a week under every goal");
+    for (const g of GOALS) {
+      const b = -((check.b3[g].value as number) / 3) * 0.4;
+      expect(price).toContain(`${GOAL_WORDS[g]} -${Math.abs(b).toFixed(2)}`);
     }
     // Without a +3 row among the gains, B₃ comes from its own run (no standard error), the same number.
     const pick3 = pickupSeasonModel(model);
@@ -503,6 +523,61 @@ describe("league report: conflicting ESPN signals when Sleeper's projections for
   });
 });
 
+describe("league report: the automatic playoff-week weight (planner reply to Checkpoint 7a, §6.1; league.ts step 5c)", () => {
+  const teamName = (id: string) => `Team ${id}${id === PARKER.myTeamId ? " (you)" : ""}`;
+  const model = buildLeagueModel(snapshot, inputs, { now: NOW, scenarios: 0 });
+
+  it("says ω, how it was measured, both runs, and ω under each goal from the same runs", () => {
+    const a = model.playoffWeightAuto;
+    expect(a?.basis).toBe("auto");
+    const runs = a?.runs;
+    if (!a || !runs) throw new Error("the fixture's weight wasn't measured");
+    const lines = playoffWeightLines(model, teamName);
+    expect(lines[0]).toContain(`Playoff weeks count **${model.playoffWeight}×**, set automatically from Team ${PARKER.myTeamId} (you)'s odds under “Win the title” (league.ts step 5c)`);
+    expect(lines.join("\n")).toContain(`Two runs on the headline's 5,000 seasons (common random numbers)`);
+    expect(lines).toContain("| Goal | B per point, regular season | B per point, playoffs | ω |");
+    for (const g of GOALS) {
+      const w = playoffWeightFrom(runs, g, a.sims);
+      const row = lines.find((l) => l.startsWith(`| ${GOAL_WORDS[g]}`));
+      expect(row, g).toContain(`| ${w.omega}×`);
+      if (g === "title") expect(row).toContain("(yours)");
+    }
+    expect(playoffWeightSummary(model)).toMatch(new RegExp(`^${model.playoffWeight.toString().replace(".", "\\.")}× \\(set automatically from your odds under “Win the title”: B per projected point \\d\\.\\d{4} in the regular season, \\d\\.\\d{4} in the playoffs`));
+    // The thresholds in ROS lineup points under this ω (review of the engine track, Phase 7b).
+    expect(lines).toContain(thresholdsLine(model));
+  });
+
+  it("states the thresholds in ROS lineup points under ω: config's × Σω ÷ Σω₀, config's alone at ω₀", () => {
+    const t = model.lineupThresholds;
+    if (!t) throw new Error("no thresholds");
+    expect(t.scale).not.toBe(1);
+    const line = thresholdsLine(model);
+    expect(line).toContain(`Σω ÷ Σω₀ = ${t.scale.toFixed(3)}`);
+    expect(line).toContain(`a free-agent pickup must gain at least ${t.faMinGain.toFixed(2)} (${config.freeAgentOptimizer.faMinGain} at ω₀)`);
+    expect(line).toContain(`a trade chip's gap must be at least ${t.chipMinGap.toFixed(2)} (${config.needs.chipMinGap})`);
+    expect(line).toContain(`a throw-in may cost at most ${(config.search.throwInMaxCost * t.scale).toFixed(2)} (${config.search.throwInMaxCost})`);
+    expect(thresholdText(t.chipMinGap, config.needs.chipMinGap, t.scale)).toBe(`${t.chipMinGap.toFixed(2)} (${config.needs.chipMinGap} × Σω ÷ Σω₀)`);
+    expect(thresholdText(config.needs.chipMinGap, config.needs.chipMinGap, 1)).toBe(`${config.needs.chipMinGap}`);
+    const fixed = buildLeagueModel(snapshot, inputs, { now: NOW, scenarios: 0, sims: 0 });
+    expect(fixed.lineupThresholds?.scale).toBe(1);
+    expect(thresholdsLine(fixed)).toBe(
+      `The thresholds in ROS lineup points are config's (playoff weeks at ω₀ = ${config.lineups.playoffWeight}): a free-agent pickup must gain at least ${config.freeAgentOptimizer.faMinGain}, a trade chip's gap must be at least ${config.needs.chipMinGap}, and a throw-in may cost at most ${config.search.throwInMaxCost}.`,
+    );
+    // A model built before Phase 7b (no lineupThresholds) reads as config's.
+    expect(thresholdsOf({})).toEqual({ scale: 1, faMinGain: config.freeAgentOptimizer.faMinGain, chipMinGap: config.needs.chipMinGap });
+  });
+
+  it("says why when it's the fallback, and what an older model had", () => {
+    const fixed = buildLeagueModel(snapshot, inputs, { now: NOW, scenarios: 0, sims: 0 });
+    expect(playoffWeightLines(fixed, teamName)).toEqual([`Playoff weeks count **${config.lineups.playoffWeight}×**: the fallback (config.lineups.playoffWeight), since there are no odds to measure it on.`, ""]);
+    expect(playoffWeightSummary(fixed)).toBe(`${config.lineups.playoffWeight}× (the fallback: there are no odds to measure it on)`);
+    const { playoffWeightAuto: _auto, ...older } = fixed;
+    void _auto;
+    expect(playoffWeightLines(older, teamName)).toEqual([`Playoff weeks count ${config.lineups.playoffWeight}× (a model built before the automatic weight).`]);
+    expect(playoffWeightSummary(older)).toBe(`${config.lineups.playoffWeight}×`);
+  });
+});
+
 describe("league report: the whole offline report", () => {
   it("renders every Phase 3 section and keeps the Phase 2 and wave-1 sections", () => {
     const { doc, season, timing } = buildReport(snapshot, inputs, { now: NOW, clock, scenarios: S, runs: 1, warmups: 0, buildRuns: 1 });
@@ -510,6 +585,7 @@ describe("league report: the whole offline report", () => {
       "## Standings and playoff odds",
       "## Your remaining schedule",
       "## “Helps you” scale check",
+      "## Playoff-week weight (automatic)",
       "## No-op check",
       "## Timings",
       "### Season simulation runtime",
@@ -544,6 +620,8 @@ describe("league report: the whole offline report", () => {
     expect(doc.match(row3)).toHaveLength(2);
     expect(doc).toMatch(/: Win the title \*\*\d+\.\d{2} ± \d+\.\d{2}\*\*; Balanced \*\*\d+\.\d{2} ± \d+\.\d{2}\*\*; Make the playoffs \*\*\d+\.\d{2} ± \d+\.\d{2}\*\*\./);
     expect(doc).toContain("**From the one baseline (every team after its free-agent pickups)**");
+    // "Protect my trade value" priced on the one baseline's B₃, once (a redraft league; planner reply to Checkpoint 7a, §2 question 5).
+    expect(doc.split("“Protect my trade value” is priced on the same B₃").length - 1).toBe(1);
     expect(doc).toContain("**As rosters stand** (TeamModel.score: every team as it is today, Checkpoint 4b's basis; Helps you on this basis's own B₃, its +3 row)");
     expect(doc).toContain("Baseline check: the baseline run reproduces the League model's own odds for your team bit for bit (LeagueModel.odds; same seed, same matrix), and so does the as-rosters-stand run (LeagueModel.oddsAsRostersStand). The +3 row is the League model's own \"Helps you\" calibration run bit for bit (LeagueModel.helpsCalibration: ΔPO and ΔCH).");
     if (season.pickups) expect(doc).toMatch(/Every team's free-agent pickups, for your team \(the one baseline against as rosters stand, the same seasons\): ΔPO [+-]\d\.\d{4} ± \d\.\d{4}, ΔCH [+-]\d\.\d{4} ± \d\.\d{4}, Δ expected wins [+-]\d+\.\d{3} ± \d+\.\d{3}\./);
@@ -564,7 +642,10 @@ describe("league report: the whole offline report", () => {
   it("reports the free-agent optimizer (Phase 4): every team's pickups with both gains, how many moves teams make, and the named examples with their chip gaps", () => {
     const { doc, model, optimizer } = buildReport(snapshot, inputs, { now: NOW, clock, scenarios: S, runs: 1, warmups: 0, buildRuns: 0 });
     const section = doc.slice(doc.indexOf("## The free-agent optimizer (V*)"), doc.indexOf("## Needs and trade chips, every team"));
-    expect(section).toContain(`while it gains at least ${config.freeAgentOptimizer.faMinGain}, at most ${config.freeAgentOptimizer.faMaxMoves} moves`);
+    // The model's own threshold (step 5c: config's × Σω ÷ Σω₀; review of the engine track, Phase 7b).
+    const th = thresholdsOf(model);
+    expect(th).toEqual(model.lineupThresholds);
+    expect(section).toContain(`while it gains at least ${thresholdText(th.faMinGain, config.freeAgentOptimizer.faMinGain, th.scale)}, at most ${config.freeAgentOptimizer.faMaxMoves} moves`);
     // What V* decides by (review finding: the report said EV after V* became scenario-judged): scenario lineups here.
     expect(optimizerJudging(snapshot, model)).toBe("scenario");
     expect(section).toContain(`Moves are judged by their gain in scenario lineups (S = ${S}), the lineups B and the lineup costs are measured in`);
@@ -578,7 +659,7 @@ describe("league report: the whole offline report", () => {
     // worth more than W and here one move gains less than faMinGain).
     const weights = teamWeeks(model, model.inProgressWeek, { ...config.lineups, playoffWeight: model.playoffWeight }).weights;
     const nearTie = nearTieRos(config.lineups.dropNearTieWeekly, weights);
-    for (const t of model.teams) for (const m of t.faMoves) expect(m.gainScen as number).toBeGreaterThanOrEqual(config.freeAgentOptimizer.faMinGain - nearTie - 1e-9);
+    for (const t of model.teams) for (const m of t.faMoves) expect(m.gainScen as number).toBeGreaterThanOrEqual(th.faMinGain - nearTie - 1e-9);
     expect(section).toMatch(/\*\*How many moves teams make:\*\* 0 moves: \d+ teams? · 1 move: \d+ teams? · /);
     const rows = section.split("\n").filter((l) => /^\| (Team \d+( \(you\))?)? \| \d \| add /.test(l));
     expect(rows).toHaveLength(model.teams.reduce((n, t) => n + t.faMoves.length, 0));
@@ -738,7 +819,9 @@ describe("league report: the whole offline report", () => {
     expect(r.doc).not.toContain("none (title odds unknown)");
   });
 
-  it("measures the FantasyCalc ID match only when its player list was read, which the data shows (review of track R, R-7), and says why not otherwise", () => {
+  // Four whole reports (each League model build now measures the automatic playoff weight too: league.ts step 5c), about 3.5 s
+  // alone: more than the default 5 s under the full suite's load.
+  it("measures the FantasyCalc ID match only when its player list was read, which the data shows (review of track R, R-7), and says why not otherwise", { timeout: 30_000 }, () => {
     const market = inputs.market as NonNullable<ModelInputs["market"]>;
     const opts = { now: NOW, clock, scenarios: 0, runs: 1, warmups: 0, buildRuns: 0 };
     const rates = (doc: string) => doc.slice(doc.indexOf("## FantasyCalc match rates"), doc.indexOf("## Depth"));

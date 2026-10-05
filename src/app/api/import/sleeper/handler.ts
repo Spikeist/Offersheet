@@ -18,6 +18,8 @@
  * - Every answer says who read the league (readBy), carries the import's model part (nothing for Sleeper) and, with
  *   SESSION_SECRET, the server's signature over it and the snapshot (src/server/importToken.ts), so the model route can
  *   build the numbers without reading the league again.
+ * - Every import answered (not a username's league list) is counted for usage:report by who read the league (planner
+ *   reply to Checkpoint 7a, §2 question 7; src/server/usage.ts import_sleeper_browser, import_sleeper_server; Vercel only).
  */
 import type { ImportDeps, ImportResult, SleeperImportRequest } from "@/adapters/types";
 import type { LeagueUpload } from "@/adapters/upload";
@@ -25,6 +27,7 @@ import type { Platform } from "@/engine/model";
 import { chooseLeagueResponse, type AdapterLeagueChoice, type ImportReader, type ImportResponse } from "@/lib/api";
 import { isPlausibleSeason, seasonRangeMessage } from "@/lib/season";
 import { signImport, type ImportSignature, type SignedContent } from "@/server/importToken";
+import { noteImport } from "@/server/usage";
 import { dataSourceStamps, errorResponse, importErrorResponse, isSameOrigin, jsonResponse, readJsonBody } from "../../_lib/respond";
 import { sleeperImportBodySchema } from "../../_lib/schemas";
 import { isGzipRequest, readLeagueUpload, uploadedImportProblem } from "../../_lib/upload";
@@ -74,7 +77,9 @@ export function createSleeperImportHandler(d: SleeperImportHandlerDeps): (reques
       const result = await d.importUpload(upload, deps);
       // Bigger than any real league's model (review BF-R1): not signed; the browser asks the server to read the league.
       if (uploadedImportProblem(result.snapshot)) return errorResponse("BAD_UPLOAD");
-      return jsonResponse(sleeperImportResponse(result, deps, "browser", sign));
+      const answer = jsonResponse(sleeperImportResponse(result, deps, "browser", sign));
+      noteImport("sleeper", "browser");
+      return answer;
     } catch (err) {
       return importErrorResponse(err, { platform: "sleeper", season: upload.request.season });
     }
@@ -98,7 +103,9 @@ export function createSleeperImportHandler(d: SleeperImportHandlerDeps): (reques
     };
     try {
       const deps = await d.getDeps();
-      return jsonResponse(sleeperImportResponse(await d.importLeague(req, deps), deps, "server", sign));
+      const answer = jsonResponse(sleeperImportResponse(await d.importLeague(req, deps), deps, "server", sign));
+      noteImport("sleeper", "server");
+      return answer;
     } catch (err) {
       const choices = d.choicesOf(err);
       if (choices?.length && username) return jsonResponse(chooseLeagueResponse(username, season, choices));

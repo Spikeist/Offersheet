@@ -46,11 +46,12 @@
  * riskyWeeksOf): his slot's streaming row starts that week's streaming replacement when he's off, so his bye is no crunch
  * (Parker's kicker had been the 4th of week 13's four); the note says so. scheduleByeRule holds this bye rule, and the
  * league report's remaining schedule reads it there too (scripts/league-report.ts; review POL-1: it had kept its own copy,
- * which still counted the kicker, from the roster as it stood). ⚠️ The one difference left: a player the engine
- * releases from a returner's week to make room (league.ts step 5b) stays on the page's roster, since the model doesn't
- * say who (on 5 dumps × 10 teams the risky weeks agreed every time). A week is flagged risky in words when my win chance is
- * under RISKY_WIN_CHANCE (as printed) or RISKY_BYES or more likely starters are off in a week that counts (both from
- * config.leaguePage): a fantasy bye week without a median game can't change the standings (its Win cell says "no
+ * which still counted the kicker, from the roster as it stood). A player the engine releases from a returner's week to
+ * make room (league.ts step 5b; TeamModel.displacedWithPickups) is off the page's roster from that week too (review of the
+ * engine track, Phase 7b: he used to stay, since the model didn't say who, and with the automatic playoff weight a player
+ * his release lets start counted on the cards' side only; ⚠️ a model built before Phase 7b still doesn't say). A week is
+ * flagged risky in words when my win chance is under RISKY_WIN_CHANCE (as printed) or RISKY_BYES or more likely starters
+ * are off in a week that counts (both from config.leaguePage): a fantasy bye week without a median game can't change the standings (its Win cell says "no
  * game"). A multi-week matchup whose first weeks are already played says its numbers cover only the weeks still to play
  * (the simulation doesn't read the points scored).
  *
@@ -63,7 +64,8 @@
  * Free-agent pickups (§7 V*; planner reply to Checkpoint 3, model change 2; Phase 4 lead decision L3): each roster
  * lists the moves the free-agent optimizer makes for its team (TeamModel.faMoves, in order; never a kicker or a
  * D/ST), each with what it adds in the lineups the optimizer picks and keeps moves by, so every shown gain is at
- * least config.freeAgentOptimizer.faMinGain (⚠️ but for a pickup that drops a less valuable player in a near-tie, which
+ * least LeagueModel.lineupThresholds.faMinGain (config.freeAgentOptimizer.faMinGain × Σω ÷ Σω₀ under the automatic playoff
+ * weight; ⚠️ but for a pickup that drops a less valuable player in a near-tie, which
  * can add up to config.lineups.dropNearTieWeekly a week less: optimizer.ts's header; the explainer says so) and the list
  * reads in the optimizer's order: with injuries and byes
  * simulated (FaMove.gainScen) when it judges in scenario lineups (scenarios ran and no starter limits bind:
@@ -1747,16 +1749,20 @@ function countedWeekIndexes(model: LeagueModel): number[] {
  * The players likelyStarters picks a team's likely starters from: its active roster (`afterPickups`: after its free-agent
  * pickups, rosterAfterPickups; else as it stands) and its IR returners (the IR players TeamModel.players lists; as the
  * engine reads them, league.ts TeamWork.ir, never one the snapshot also lists on the active roster: a data error, he's an
- * active player), each one the snapshot and the model know. Empty without the team.
+ * active player), each one the snapshot and the model know; and `gone`, the players the engine releases from a returner's
+ * week to make room (league.ts step 5b: TeamModel.displacedWithPickups after the pickups, else TeamModel.displaced), each
+ * with the NFL week he's off from (none in a model built before Phase 7b). Empty without the team.
  */
-function starterPool(snapshot: LeagueSnapshot, model: LeagueModel, teamId: string, afterPickups: boolean): { roster: string[]; returners: string[] } {
+function starterPool(snapshot: LeagueSnapshot, model: LeagueModel, teamId: string, afterPickups: boolean): { roster: string[]; returners: string[]; gone: Map<string, number> } {
   const team = snapshot.teams.find((t) => t.id === teamId);
-  if (!team) return { roster: [], returners: [] };
+  if (!team) return { roster: [], returners: [], gone: new Map() };
   const tm = model.teams.find((t) => t.id === teamId);
   const modeled = (id: string) => snapshot.players[id] !== undefined && model.players[id] !== undefined;
   const roster = rosterAfterPickups(team.roster, afterPickups ? (tm?.faMoves ?? []) : []).filter(modeled);
   const returners = [...new Set(team.ir)].filter((id) => tm?.players[id] !== undefined && !team.roster.includes(id) && !roster.includes(id) && modeled(id));
-  return { roster, returners };
+  const gone = new Map<string, number>();
+  for (const d of (afterPickups ? tm?.displacedWithPickups : tm?.displaced) ?? []) if (!gone.has(d.id)) gone.set(d.id, d.week);
+  return { roster, returners, gone };
 }
 
 /**
@@ -1770,19 +1776,28 @@ function starterPool(snapshot: LeagueSnapshot, model: LeagueModel, teamId: strin
  * returners (the IR players TeamModel.players lists: no points until they're back) and one row per position I stream at
  * that week's streaming replacement (LeagueModel.streaming: a rostered kicker or D/ST starts only in the weeks he
  * projects higher). A likely starter is in it in at least half of the counted weeks he plays (points above 0); nobody
- * who never plays. By position, then more ROS points, then id. ⚠️ A player the engine releases from a returner's week
- * to make room (league.ts step 5b) stays on this roster: the model doesn't say who.
+ * who never plays. By position, then more ROS points, then id. A player the engine releases from a returner's week to make
+ * room (league.ts step 5b; TeamModel.displaced, displacedWithPickups) scores nothing from that week on, as in the engine's
+ * lineups (review of the engine track, Phase 7b: he used to stay, so a player his release lets start could count on the
+ * cards' side only; ⚠️ a model built before Phase 7b doesn't say who, and he stays).
  */
 export function likelyStarters(snapshot: LeagueSnapshot, model: LeagueModel, teamId: string, opts: { afterPickups?: boolean } = {}): string[] {
   if (!snapshot.teams.some((t) => t.id === teamId)) return [];
-  const { roster, returners } = starterPool(snapshot, model, teamId, opts.afterPickups === true);
+  const { roster, returners, gone } = starterPool(snapshot, model, teamId, opts.afterPickups === true);
   const ids = [...roster, ...returners];
   const streamed = model.streaming?.byTeam[teamId]?.positions ?? [];
   const slots = prepareLeagueSlots(snapshot.settings);
   const finite = (x: number | undefined) => (x !== undefined && Number.isFinite(x) ? x : 0);
+  // The week index each released player is off the roster from (the engine masks his row from there: returners.ts).
+  const goneAt = new Map<string, number>();
+  for (const [id, week] of gone) {
+    const i = model.weeks.indexOf(week);
+    if (i >= 0) goneAt.set(id, i);
+  }
   const row = (id: string, w: number): LineupPlayer => {
     const info = snapshot.players[id] as PlayerInfo;
-    return { id, pos: info.pos, eligible: info.eligible, points: finite(model.players[id]?.weekly[w]?.p) };
+    const off = w >= (goneAt.get(id) ?? Number.POSITIVE_INFINITY);
+    return { id, pos: info.pos, eligible: info.eligible, points: off ? 0 : finite(model.players[id]?.weekly[w]?.p) };
   };
   const plays = new Map<string, number>();
   const seated = new Map<string, number>();
@@ -1842,7 +1857,11 @@ export interface ScheduleByeRule {
    * then id): ⚠️ never one at a position I stream (the file header).
    */
   readonly starters: readonly string[];
-  /** Whether `id` is off in any of `weeks` (NFL weeks; one the model doesn't have counts for nobody): his NFL team's bye that week, a returner's only from his expected return week. */
+  /**
+   * Whether `id` is off in any of `weeks` (NFL weeks; one the model doesn't have counts for nobody): his NFL team's bye that
+   * week, a returner's only from his expected return week, and a player the engine releases to make room for a returner only
+   * before he's released (TeamModel.displaced, displacedWithPickups).
+   */
   onBye(id: string, weeks: readonly number[]): boolean;
 }
 
@@ -1857,7 +1876,9 @@ export interface ScheduleByeRule {
  * a player is off in a game's weeks: his NFL team's bye in one of them (PlayerModel.weekly), an IR returner's only from
  * his expected return week (returnWeekOf, with `lastNflWeek`, lastNflWeekOf: before it he's on IR anyway, evaluate.ts
  * riskyWeeksOf's rule; a returner as the engine reads him, so a player the snapshot lists on the active roster and IR
- * alike counts as active, as he did not before). Without the team: no players.
+ * alike counts as active, as he did not before), and a player the engine releases from a returner's week to make room only
+ * before that week (TeamModel.displaced, displacedWithPickups: after it he isn't my starter; riskyWeeksOf's rule too).
+ * Without the team: no players.
  */
 export function scheduleByeRule(snapshot: LeagueSnapshot, model: LeagueModel, teamId: string, lastNflWeek: number | undefined): ScheduleByeRule {
   const pickups = oddsCountPickups(model);
@@ -1870,7 +1891,8 @@ export function scheduleByeRule(snapshot: LeagueSnapshot, model: LeagueModel, te
   const weekIndex = new Map(model.weeks.map((w, i) => [w, i]));
   const withMe = (id: string, week: number): boolean => {
     const b = back.get(id);
-    return b === undefined || (b !== null && week >= b);
+    const g = pool.gone.get(id);
+    return (b === undefined || (b !== null && week >= b)) && (g === undefined || week < g);
   };
   return {
     pickups,
@@ -2323,6 +2345,14 @@ function valuesExplainText(c: ExplainContext): string {
   return `Values come from FantasyCalc in your league's format (${values.label})${saved}.${keeper}${substitutions}${unvaluedText(snapshot, model)}`;
 }
 
+/**
+ * A trade chip's least gap as the model judged it, one decimal: LeagueModel.lineupThresholds (config.needs.chipMinGap × Σω ÷ Σω₀
+ * under the automatic playoff weight, league.ts step 5c; review of the engine track, Phase 7b), else config's.
+ */
+function chipMinGapText(model: Pick<LeagueModel, "lineupThresholds">): string {
+  return fmtNum(model.lineupThresholds?.chipMinGap ?? config.needs.chipMinGap, 1);
+}
+
 function buildExplain(c: ExplainContext): ExplainItem[] {
   const { snapshot, model } = c;
   const p = config.projections;
@@ -2378,7 +2408,7 @@ function buildExplain(c: ExplainContext): ExplainItem[] {
     },
     {
       title: "Needs, trade chips and partners",
-      text: `A need is a lineup slot where a team's starter is at least ${Math.abs(config.lineups.needZThreshold)} standard deviations below the league median, for the rest of the season or just the next ${config.lineups.strengthWeeks} weeks. A trade chip is a player worth at least ${config.needs.chipMinGap} more lineup points to another team than to his own: what he'd add to that team's lineup, measured after its free-agent pickups (so a pickup it could make anyway doesn't count, while one his arrival makes possible does), minus what his own team would lose without him.${excludedText(snapshot)} Trade partners are teams whose trade chips would start for you while yours would start for them; teams with a trade chip who would start for you, when none of yours would start for them, come after them.`,
+      text: `A need is a lineup slot where a team's starter is at least ${Math.abs(config.lineups.needZThreshold)} standard deviations below the league median, for the rest of the season or just the next ${config.lineups.strengthWeeks} weeks. A trade chip is a player worth at least ${chipMinGapText(model)} more lineup points to another team than to his own: what he'd add to that team's lineup, measured after its free-agent pickups (so a pickup it could make anyway doesn't count, while one his arrival makes possible does), minus what his own team would lose without him.${excludedText(snapshot)} Trade partners are teams whose trade chips would start for you while yours would start for them; teams with a trade chip who would start for you, when none of yours would start for them, come after them.`,
     },
   );
   // A model built before the planner's addendum has no premiums, so nobody is marked.
@@ -2724,7 +2754,7 @@ export function buildLeagueView(input: LeagueViewInput): LeagueView {
     schedule,
     teams: rows,
     teamsNote,
-    chipLegend: `trade chip: worth at least ${config.needs.chipMinGap} more lineup pts to another team than to his own`,
+    chipLegend: `trade chip: worth at least ${chipMinGapText(model)} more lineup pts to another team than to his own`,
     heatmap,
     partners: { cards, empty: partnersEmpty },
     pickupsNote: weeks.length ? pickupsNoteOf(snapshot, model, myTeamId, inactive) : null,

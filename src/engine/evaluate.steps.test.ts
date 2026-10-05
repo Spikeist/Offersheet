@@ -66,6 +66,12 @@ const settingsWith = (x: Partial<TradeSettings>): TradeSettings => ({ ...SETTING
 /** Thresholds that keep any qualifying version (to test the choice itself), and every candidate evaluated. */
 const permissive = (x: Partial<StepConfig> = {}): StepConfig => ({ ...stepConfig(), minAcceptGain: Number.NEGATIVE_INFINITY, minOfferFirst: 0, preScreen: Number.POSITIVE_INFINITY, ...x });
 const sideIds = (xs: readonly TradeAsset[]): string[] => xs.flatMap((a) => (a.kind === "player" ? [a.id] : []));
+/**
+ * Every context here keeps the fallback playoff weight (league.ts step 5c: TradeContextOptions.playoffWeightSims 0, the weight
+ * before the planner's reply to Checkpoint 7a, §6.1): these hand leagues' thresholds (throw-ins' lineup costs, each step's
+ * numbers) were measured with it, and the rules tested don't depend on how the weight is set.
+ */
+const FIXED_OMEGA = { playoffWeightSims: 0 } as const;
 
 function swapPlayer(spec: TestLeagueSpec, teamId: string, id: string, by: TestPlayer): void {
   const team = spec.teams.find((t) => t.id === teamId);
@@ -80,7 +86,7 @@ function context(edit: (spec: TestLeagueSpec) => void = () => undefined, season:
     swapPlayer(spec, "1", "wc1", flat("qx1", "QB", 15));
     edit(spec);
   }, season);
-  return buildTradeContext(snapshot, inputs, { now: TEST_NOW, scenarios: 0, ...opts });
+  return buildTradeContext(snapshot, inputs, { now: TEST_NOW, scenarios: 0, ...FIXED_OMEGA, ...opts });
 }
 
 /**
@@ -298,7 +304,8 @@ describe("case 2: the throw-in added if they say no", () => {
         const get = sideIds(v.screen.proposal.get);
         const floored = gByHand(I2, get, give, true);
         expect(v.screen.gMine, v.screen.key).toBeCloseTo(floored, 12);
-        expect(v.screen.b as number, v.screen.key).toBeCloseTo((v.screen.bWin as number) + kappa * Math.min(hi, Math.max(lo, floored)), 12);
+        // The term priced on the version's own scale (planner reply to Checkpoint 7a, §2 question 5): (B₃ / 3) × κ × clamp(g).
+        expect(v.screen.b as number, v.screen.key).toBeCloseTo((v.screen.bWin as number) + ((v.screen.b3 as number) / config.benefit.helpsGain) * kappa * Math.min(hi, Math.max(lo, floored)), 12);
         if ([...give, ...get].some((id) => (I2.values[id] ?? 0) < I2.credit)) {
           expect(Math.abs(gByHand(I2, get, give, false) - floored), v.screen.key).toBeGreaterThan(0.01);
           moved++;
@@ -353,7 +360,7 @@ describe("case 2: the throw-in added if they say no", () => {
       swapPlayer(spec, "1", "d1", flat("qb1", "QB", 12, { value: 1200, nflTeam: "B6" }));
       spec.freeAgents = (spec.freeAgents ?? []).map((f) => (f.id === "fq" ? flat("fq", "QB", 11, { value: 900 }) : f));
     });
-    const It = tradeInternals(buildTradeContext(snapshot, inputs, { now: TEST_NOW, scenarios: 0 }));
+    const It = tradeInternals(buildTradeContext(snapshot, inputs, { now: TEST_NOW, scenarios: 0, ...FIXED_OMEGA }));
     // My WR2 for Team 2's WR1; minBShare stays the planner's 0.8.
     const tieOffer = trade("2", ["wb1"], ["wa2"]);
     const wide = permissive({ throwInMaxCost: 30 });
@@ -451,7 +458,7 @@ function vetoInternals(wtValue: number, values: { te2?: number; tf2?: number } =
     900,
   );
   snapshot.transactions = [{ id: "add-1", type: "add", week: 4, timestamp: "2026-09-27T12:00:00.000Z", teams: ["2"], moves: [{ playerId: "wz2", from: null, to: "2" }] }];
-  return tradeInternals(buildTradeContext(snapshot, inputs, { now: TEST_NOW, scenarios: 0 }));
+  return tradeInternals(buildTradeContext(snapshot, inputs, { now: TEST_NOW, scenarios: 0, ...FIXED_OMEGA }));
 }
 
 describe("the thresholds (on P_complete, the card's chance they accept)", () => {
@@ -737,13 +744,14 @@ describe("determinism, the Analyzer and the search", () => {
     // value floor and β_need 1.2 of the planner's reply to Checkpoint 4, and seed 12's none since its given-player cap,
     // answer 7, left out the variants selling the same player again: facts of the synthetic data, deterministic).
     const league = smallLeague(67);
-    const c = buildTradeContext(league.snapshot, league.inputs, { now: TEST_NOW, scenarios: 8 });
+    const c = buildTradeContext(league.snapshot, league.inputs, { now: TEST_NOW, scenarios: 8, ...FIXED_OMEGA });
     const I2 = tradeInternals(c);
     let cached: ReturnType<typeof runTradeSearch> | null = null;
     /** The default search, run once. */
     const search = () => (cached ??= runTradeSearch(c, {}));
 
-    it("steps on shown trades, each fitting its trade; the ranked numbers unchanged; deterministic", () => {
+    // Two whole searches and every step's version again: about 2 s alone, past the default 5 s under the suite's parallel load.
+    it("steps on shown trades, each fitting its trade; the ranked numbers unchanged; deterministic", { timeout: 30_000 }, () => {
       const result = search();
       const withSteps = result.trades.filter((t) => t.steps);
       expect(withSteps.length).toBeGreaterThan(0);

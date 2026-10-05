@@ -24,7 +24,8 @@
  *   the memory tier serves alone and the lock lets every fetch through.
  * - ⚠️ Per instance, not shared (documented, accepted): the memory tier itself, the in-process single-flight
  *   (src/server/http.ts), the Sleeper and FantasyCalc outage memories (src/data/sleeperProjections.ts sleeperGate,
- *   src/data/fantasyCalcValues.ts fantasyCalcGate) and the player-ID crosswalk's memo (src/data/load.ts): each new
+ *   src/data/fantasyCalcValues.ts fantasyCalcGate, which also remembers the FantasyCalc answers its checks turned down for
+ *   TTL.fantasyCalc) and the player-ID crosswalk's memo (src/data/load.ts): each new
  *   instance builds its own from the shared copies, and each probes a source that's down once for itself.
  */
 import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID } from "node:crypto";
@@ -44,7 +45,13 @@ export const DAY = 24 * HOUR;
 /** Refresh intervals from §2.10. */
 export const TTL = {
   sleeperPlayers: DAY,
-  fantasyCalc: DAY,
+  /**
+   * Each format's FantasyCalc value list: FantasyCalc's conditions for free use (their reply of 2026-10-05,
+   * reports/fantasycalc-permission.md: their values update every 3 hours, so refresh "at most once every 3 hours, and only
+   * when someone needs it"); a day before. Only a model build that reads a list asks for it (nothing refreshes in the
+   * background), and copies are still kept FANTASYCALC_RETAIN_MS as the outage fallback.
+   */
+  fantasyCalc: 3 * HOUR,
   idMap: DAY,
   nflSchedule: 7 * DAY,
   /**
@@ -79,7 +86,8 @@ export const STALE_PUBLIC_RETAIN_MS = 7 * DAY;
  * FantasyCalc's value lists are kept longer (Phase 4c; planner reply to Checkpoint 4b, change 12): config.market.
  * fantasyCalcCurveDays (90) days, through this Cache like every other entry (a KV store in production keeps them the same
  * way; the dev-only archive in data-local/ is never read for it). A copy is still served fresh only within
- * TTL.fantasyCalc (24 hours: at most one request a day per format) and otherwise only when FantasyCalc fails
+ * TTL.fantasyCalc (3 hours since FantasyCalc's conditions of 2026-10-05: at most one request every 3 hours per format, and
+ * only when a build needs it) and otherwise only when FantasyCalc fails
  * (staleIfError); src/server/modelInputs.ts decides what an old copy may do: stand in for up to fantasyCalcStaleDays (7),
  * then only calibrate the model's own value curve (src/data/fantasyCalcValues.ts fantasyCalcListUse). Public data, about
  * 150–330 KB per format.

@@ -3,7 +3,8 @@
  *
  *   NFL      current week (Sleeper /state/nfl vs the schedule), 2026 schedule and bye weeks
  *            (nflverse + ESPN), cross-checked
- *   FC       FantasyCalc values (11 formats, once per day each), GET /players, docs and terms
+ *   FC       FantasyCalc values (11 formats, each at most once every 3 hours: the app's own cache entry), docs and terms
+ *            (only /values/current is asked: FantasyCalc's conditions of 2026-10-05)
  *   IDMAP    DynastyProcess player ID crosswalk
  *   XWALK    ID joins between FantasyCalc, DynastyProcess, the Sleeper players DB and ESPN
  *   PROJ-S   Sleeper projections (undocumented)

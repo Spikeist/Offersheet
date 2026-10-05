@@ -25,6 +25,10 @@
  *    500 or more (its code, status and time), and each source the deadline cut, by why ("deadline_slow": a source took the
  *    time; "deadline_busy": Offer Sheet's own queue or cache did; "deadline_skipped": a request never went out). With Redis
  *    on Vercel the lines also go to the shared store after the response (next/server's after()), never delaying it.
+ * 6. Usage (planner reply to Checkpoint 7a, §2 question 7 and §5.4; src/server/usage.ts, on Vercel only): a League page
+ *    build answered (a model route's 200: FantasyCalc's "sessions"), the work units charged on arrival, and every refusal
+ *    (the rate limit's, a visitor's day, the beta's capacity: respond.ts) are counted per UTC day without identifiers, in the
+ *    same after-response write as the log's lines (refusals ride along with a later write: they never cost one of their own).
  * Nothing here reads or logs a request body, a cookie, a header value or the client's address (only its HMAC, inside the
  * limiter and the budget).
  */
@@ -35,6 +39,7 @@ import { admissionUnits, feedbackQuota, secondsUntilUtcMidnight, workBudget, typ
 import { DEADLINE_CUTS, newRequestScope, runInRequestScope, type RequestScope, type RouteKind } from "@/server/deadline";
 import { errorNameOf, flushRequestLogs, LOG_PLATFORMS, logEvent, type LogPlatform } from "@/server/log";
 import { clientIds, processLimiter, type ClientIds, type RateLimiter, type RateVerdict } from "@/server/rateLimit";
+import { flushRequestUsage, hasUsageToWrite, noteRefusal, noteUsage } from "@/server/usage";
 import { errorResponse, isSameOrigin, logUnexpected, workRefusedResponse } from "./respond";
 
 export type RouteHandler = (request: Request) => Promise<Response>;
@@ -82,13 +87,18 @@ async function logOutcome(scope: RequestScope, res: Response, ms: number, platfo
   logEvent({ event: "error_response", ...(code ? { code } : {}), ...(platform ? { platform } : {}), status: res.status, ms });
 }
 
-/** Hands the request's log lines to the after-response write (only lines bound for the store wait there; see log.ts). */
-function scheduleFlush(scope: RequestScope, schedule: ((task: () => Promise<void>) => void) | undefined, env: RouteOptions["env"]): void {
-  if (!scope.pendingLogs.length) {
+/**
+ * Hands the request's log lines and usage counts to the after-response write (only what's bound for the store waits there;
+ * see log.ts and usage.ts): nothing to write, no after() at all.
+ */
+function scheduleFlush(scope: RequestScope, schedule: ((task: () => Promise<void>) => void) | undefined, env: RouteOptions["env"], now: number): void {
+  if (!scope.pendingLogs.length && !hasUsageToWrite(scope, now)) {
     scope.flushed = true;
     return;
   }
-  const task = () => flushRequestLogs(scope, env ? { env } : {});
+  const task = async () => {
+    await Promise.all([flushRequestLogs(scope, env ? { env } : {}), flushRequestUsage(scope, env ? { env } : {})]);
+  };
   try {
     (schedule ?? after)(task);
   } catch {
@@ -163,6 +173,7 @@ export function withRoute(kind: RouteKind, handler: RouteHandler, opts: RouteOpt
           // Likewise a visitor already over its day of feedback copies (the handler charges them; final review SEC-3):
           // refused as the handler would, without the rate limiter's Redis commands.
           if (kind === "feedback" && ids && feedbackQuotaOf(opts)?.refusedAlready(ids, startedAt)) {
+            noteRefusal("refused_visitor", startedAt);
             const retryAfterS = secondsUntilUtcMidnight(startedAt);
             return errorResponse("RATE_LIMITED", errorMessage("RATE_LIMITED", { retryAfterS }), new Headers({ "retry-after": String(retryAfterS) }));
           }
@@ -171,19 +182,23 @@ export function withRoute(kind: RouteKind, handler: RouteHandler, opts: RouteOpt
           if (verdict.allowed && ids?.ipv6) verdict = await rateCheck(opts, kind, ids.group, startedAt, "group");
           if (!verdict.allowed) {
             if (verdict.firstRefusal) logEvent({ event: "rate_limited", code: "RATE_LIMITED", ...(opts.platform ? { platform: opts.platform } : {}), status: 429 });
+            noteRefusal("refused_rate", startedAt);
             return errorResponse("RATE_LIMITED", errorMessage("RATE_LIMITED", { retryAfterS: verdict.retryAfterS }), new Headers({ "retry-after": String(verdict.retryAfterS) }));
           }
           // Charged: over the client's, its group's or the server's day, refused before the handler reads its body.
           if (work && ids) {
             let charged: QuotaVerdict = "ok";
+            let counted = false;
             try {
               const v = work.charge(units, ids, startedAt);
               charged = typeof v === "string" ? v : await v;
+              counted = true;
             } catch (err) {
               // The budgets never reject; if one does anyway, the request goes on (fail open).
               logEvent({ event: "work_budget_error", errorName: errorNameOf(err) });
             }
             if (charged !== "ok") return workRefusedResponse(charged, startedAt);
+            if (counted) noteUsage("work_units", units, startedAt);
           }
         }
         let res: Response;
@@ -193,11 +208,13 @@ export function withRoute(kind: RouteKind, handler: RouteHandler, opts: RouteOpt
           logUnexpected("route", err, opts.platform);
           res = errorResponse("INTERNAL");
         }
+        // A League page build answered: FantasyCalc's "session" (step 6 of the header).
+        if (kind === "model" && res.status === 200) noteUsage("model_builds");
         await logOutcome(scope, res, Math.max(0, Math.round(now() - startedAt)), opts.platform);
         return res;
       });
     } finally {
-      scheduleFlush(scope, opts.after, opts.env);
+      scheduleFlush(scope, opts.after, opts.env, now());
     }
   };
 }

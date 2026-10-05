@@ -205,11 +205,11 @@
  * Notes: the context's (no team, no weeks, season over, deadline passed, no odds: then no trades), B's own
  * (benefit.benefitNotes, once; and Phase 4c's evaluate.estimatedValuesNotes, once: no market term in B while the trade
  * values are our own estimates), the "Helps you" scale's (Phase 7a, planner reply to Checkpoint 4c, A2: benefit.
- * helpsScaleNotes once when B₃ for the search's goal and λ departs from "+3 a week reads 63": my odds barely move, or the
- * Win now ↔ Future setting past the λ cap; every trade, step and Plan B of the search is scored on
- * that one B₃, evaluate.helpsScaleOf), evaluate.missingValuesNotes once (no trade values at all: the chance they accept reads
- * every trade as even on value), positions left out by settings, must-include problems, emptied pools, and draft
- * picks (M11: ⚠️ deferred to Phase 5; with includePicks on in a dynasty or keeper league, a note says so).
+ * helpsScaleNotes once when B₃ for the search's goal and λ is floored: my odds barely move; every trade, step and Plan B of
+ * the search is scored on that one B₃, evaluate.helpsScaleOf, TradeSearchResult.helpsScale, and its B's market term priced
+ * on it: planner reply to Checkpoint 7a, §2 question 5), evaluate.missingValuesNotes once (no trade values at all: the
+ * chance they accept reads every trade as even on value), positions left out by settings, must-include problems, emptied
+ * pools, and draft picks (M11: ⚠️ deferred to Phase 5; with includePicks on in a dynasty or keeper league, a note says so).
  *
  * Progress (M8, M14): the generator yields between units of work (a batch of screens, each exact trade, each final
  * simulation, each shown trade's steps and Plan B: reported under the "rank" stage, one unit per shown trade, with a
@@ -441,8 +441,7 @@ function searchNotes(I: TradeInternals, settings: TradeSettings): string[] {
       goal: settings.goal,
     });
     notes.push(...benefitNotes(b));
-    // B₃ departs from "+3 a week reads 63" (planner reply to Checkpoint 4c, A2; review of track SC, SC-1): my odds barely
-    // move (the floor), or the Win now ↔ Future setting past the λ cap.
+    // B₃ is floored (planner reply to Checkpoint 4c, A2: "When it's floored, note it"): my odds barely move.
     notes.push(...helpsScaleNotes(helpsScaleOf(I, settings.lambda, settings.goal)));
     // B without its market term while the trade values are our own estimates (evaluate.simulateTrade: κ = 0).
     notes.push(...estimatedValuesNotes(I));
@@ -1089,6 +1088,8 @@ function resultOf(state: SearchState, done: Finished, timings: Record<string, nu
     warnings: [...I.warnings],
     filter: { minChance: settings.minChance, qualifying: ranked.qualifying, few: done.few },
     ...(done.pattern ? { pattern: done.pattern } : {}),
+    // The one scale every card, step and Plan B was scored on (and its B's market term priced on).
+    helpsScale: helpsScaleOf(I, settings.lambda, settings.goal),
   };
   states.set(result, state);
   return result;
@@ -1118,6 +1119,7 @@ export function* tradeSearch(ctx: TradeContext, opts: TradeSearchOptions = {}): 
       timings,
       notes: [...new Set(notes)],
       warnings: [...I.warnings],
+      helpsScale: helpsScaleOf(I, settings.lambda, settings.goal),
     };
   };
 

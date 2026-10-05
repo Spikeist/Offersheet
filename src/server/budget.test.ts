@@ -18,6 +18,7 @@ import {
   utcDay,
   workBudget,
 } from "./budget";
+import { TTL } from "./cache";
 import { newRequestScope, runInRequestScope } from "./deadline";
 import { budgets, feedbackLimits, signedUploadLimits, uploadLimits, workLimits } from "./limits";
 import { FakeRedis, type RedisLike } from "./redis";
@@ -31,7 +32,8 @@ afterEach(() => {
 
 describe("daily outbound budgets (track RL)", () => {
   it("counts ESPN's two hosts as ESPN, and budgets Sleeper, FantasyCalc and GitHub raw; other hosts aren't budgeted", () => {
-    expect(budgets.perDay).toEqual({ espn: 4_000, sleeper: 15_000, fantasycalc: 200, github: 100 });
+    // FantasyCalc's day is sized to its own 3-hour rule's bound (review of Checkpoint 7b's server work; the test below).
+    expect(budgets.perDay).toEqual({ espn: 4_000, sleeper: 15_000, fantasycalc: 1_500, github: 100 });
     expect(BUDGET_PLATFORMS).toEqual(["espn", "sleeper", "fantasycalc", "github"]);
     expect(budgetPlatformOf("lm-api-reads.fantasy.espn.com")).toBe("espn");
     expect(budgetPlatformOf("fan.api.espn.com")).toBe("espn");
@@ -40,6 +42,31 @@ describe("daily outbound budgets (track RL)", () => {
     expect(budgetPlatformOf("raw.githubusercontent.com")).toBe("github");
     expect(budgetPlatformOf("www66.myfantasyleague.com")).toBeUndefined();
     expect(budgetPlatformOf("example.invalid")).toBeUndefined();
+  });
+
+  it("FantasyCalc's day can't be spent by refreshes its 3-hour rule allows: all 144 formats refreshed as soon as each copy is 3 hours old, from any start, are never refused by the day's slices (review of Checkpoint 7b's server work)", () => {
+    const FORMATS = 144; // every format a league can ask for (src/server/snapshots.ts parseFormatKey)
+    const STEP = 5 * 60_000;
+    const DAY0 = Date.UTC(2026, 9, 6, 0, 0, 0);
+    /** Refused attempts when every format is refreshed whenever its copy is TTL.fantasyCalc old, from `startMin` minutes into the day. */
+    const refusedWith = (perDay: number, startMin: number): number => {
+      const budget = createBudget({ redis: null, prefix: "os:test:", perDay: { ...budgets.perDay, fantasycalc: perDay }, slices: budgets.slices, burstShare: budgets.burstShare });
+      const last = new Array<number>(FORMATS).fill(Number.NEGATIVE_INFINITY);
+      let refused = 0;
+      for (let t = DAY0 + startMin * 60_000; t < DAY0 + 24 * 3_600_000; t += STEP) {
+        for (let f = 0; f < FORMATS; f++) {
+          if (t - (last[f] as number) < TTL.fantasyCalc) continue;
+          if (budget.take("fantasycalc", t) === "ok") last[f] = t;
+          else refused++;
+        }
+      }
+      return refused;
+    };
+    vi.spyOn(console, "error").mockImplementation(() => {}); // the refusals at 400 are logged
+    expect(TTL.fantasyCalc).toBe(3 * 3_600_000);
+    for (const start of [0, 5, 60, 120, 175]) expect(refusedWith(budgets.perDay.fantasycalc, start), `from ${start} min`).toBe(0);
+    // At 400 a day (before the review) the same refreshes ran into the slices: a visitor could spend the day for everyone.
+    expect(refusedWith(400, 0)).toBeGreaterThan(0);
   });
 
   it("without Redis: this process's own count, answered at once (no promise, so local timing doesn't change), per UTC day", () => {

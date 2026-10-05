@@ -51,7 +51,7 @@
  *   sweep reads only its own envelope). Format 1, the one before formats existed, keeps its plain keys: no cached copy
  *   is lost on the update. ⚠️ A version that stores a wrong body under the right key and format (a bug in work in
  *   progress, in the development server or a --live report) still reaches the other copy while it's served fresh (up to
- *   10 minutes for league data, 6–24 hours for projections, player lists and value lists), and longer as a stand-in
+ *   10 minutes for league data, 3 hours for value lists, 6–24 hours for projections and player lists), and longer as a stand-in
  *   while its source is down (staleIfError).
  * - The request's deadline (planner reply to Checkpoint 4c, Part B, B1; track RL; src/server/deadline.ts): inside an API
  *   route no attempt starts with less than deadlines.minAttemptMs left, a wait in the host's queue or a backoff wait never
@@ -77,14 +77,25 @@
  *   BudgetExhaustedError (`by`: the day or the client's share), which the import routes answer with BUSY
  *   (src/app/api/_lib/respond.ts). A joiner of a fetch its starter's share refused asks itself. Without Redis the check is
  *   synchronous, so local timing is as before.
+ * - Usage (planner reply to Checkpoint 7a, §2 question 7; src/server/usage.ts, on Vercel only): every attempt to a budgeted
+ *   platform that goes out is counted per UTC day (outbound_<platform>), written after the API request's answer.
  */
 import { responseOf, retryAfterMs } from "@/adapters/httpShared";
 import type { HttpClient, HttpRequestOptions, HttpResponse } from "@/adapters/types";
-import { BudgetExhaustedError, budgetPlatformOf, isBudgetExhaustedError, outboundBudget, type OutboundBudget } from "./budget";
+import { BudgetExhaustedError, budgetPlatformOf, isBudgetExhaustedError, outboundBudget, type BudgetPlatform, type OutboundBudget } from "./budget";
 import type { Cache, CacheEntry, CacheLock } from "./cache";
 import { LATE, nextArrival, noteCut, requestScope, timeLeftMs, withinDeadline } from "./deadline";
 import { deadlines } from "./limits";
 import { errorNameOf, logEvent } from "./log";
+import { noteUsage, type UsageCounter } from "./usage";
+
+/** The usage counter of each budgeted platform's requests that went out (src/server/usage.ts; usage:report). */
+const OUTBOUND_COUNTER: Readonly<Record<BudgetPlatform, UsageCounter>> = {
+  espn: "outbound_espn",
+  sleeper: "outbound_sleeper",
+  fantasycalc: "outbound_fantasycalc",
+  github: "outbound_github",
+};
 
 /**
  * The parse helpers live in src/adapters/httpShared.ts (track BF: the browser's own client reads answers the same way);
@@ -387,6 +398,8 @@ export function createHttpClient(options: HttpClientOptions = {}): HttpClient {
       }
       const turn = await acquire(host);
       if (!("release" in turn)) return outOfTime(turn.cut);
+      // The attempt goes out: counted for usage:report by budgeted platform (src/server/usage.ts; on Vercel only).
+      if (platform) noteUsage(OUTBOUND_COUNTER[platform]);
       const askedMs = opts.timeoutMs ?? 30_000;
       const timeoutMs = Math.max(1, Math.min(askedMs, timeLeftMs()));
       let res: Response | undefined;

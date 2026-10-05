@@ -4,14 +4,23 @@
  *
  *   Sleeper players DB   /v1/players/nfl?position=<P>&active=true for QB RB WR TE K P DEF DL LB DB
  *   DynastyProcess       db_playerids.csv
- *   FantasyCalc          GET /players (documented; at most once a day)
+ *
+ * FantasyCalc's /players, the third source until Checkpoint 7b, isn't asked any more: FantasyCalc's conditions for free
+ * use (their reply of 2026-10-05, reports/fantasycalc-permission.md) allow only /values/current. It was the second source
+ * for ESPN, MFL and Fleaflicker ids (src/data/crosswalk.ts ID_SOURCE_PRIORITY), so the crosswalk is now DynastyProcess's and
+ * the Sleeper DB's, with the name match as the last resort as before (⚠️ measured offline on the 2026-10-05 cached bodies:
+ * ESPN ids mapped 7,421 → 7,393, the 28 lost all players DynastyProcess doesn't list, 9 of them on an NFL team: deep
+ * backups and rookies; MFL 6,445 → 6,415; Fleaflicker 930 → 520; the "same player" override of Sam Hartman's ESPN and MFL
+ * ids is lost, so his ESPN id maps to DynastyProcess's wrong Sleeper id again, read as an inactive player; Parker's league
+ * keeps 420 of its 421 players' ids, the one other a free agent the name match finds). The crosswalk then lists two
+ * sources (CrosswalkData.fantasyCalcPlayers left out: not a source, never "unavailable").
  *
  * Built to degrade, never to block (review DATA-2):
  * - Every body is checked (shape and row floors) before it is cached. When a live fetch fails, a saved
  *   copy up to 7 days old stands in and status() says so. Requests retry once; Sleeper's lists stop
  *   at the first one Sleeper doesn't serve.
- * - A source that still fails is left out and reported through status() / warnings(); only when all
- *   three fail does a build throw (SOURCE_DOWN).
+ * - A source that still fails is left out and reported through status() / warnings(); only when both
+ *   fail does a build throw (SOURCE_DOWN).
  * - A crosswalk is served from memory for RESOLVER_MEMO_MS. After that the same crosswalk keeps being
  *   served while a new one builds in the background, and the new one takes over once it's built,
  *   unless it's worse (a source lost, or problems where there were none).
@@ -19,14 +28,13 @@
  *   RESOLVER_MEMO_MS), so an outage costs a few requests an hour instead of a burst per import.
  * - Only the first build (nothing to serve yet) makes imports wait for it.
  *
- * The three hosts are fetched in parallel, one request at a time per host.
+ * The two hosts are fetched in parallel, one request at a time per host.
  */
 import { LeagueImportError, type HttpClient } from "@/adapters/types";
 import { HOUR, MINUTE } from "@/server/cache";
 import { LATE, noteCut, withinDeadline } from "@/server/deadline";
 import { resolverFromData, type CrosswalkSourceKey, type PlayerIdCrosswalk } from "./crosswalk";
 import { fetchDynastyProcessIds } from "./dynastyProcess";
-import { fetchFantasyCalcPlayers } from "./fantasyCalcPlayers";
 import { fetchSleeperPlayers, SLEEPER_PLAYER_POSITIONS, type SleeperPlayersLoad } from "./sleeperPlayers";
 import { utcStamp } from "./source";
 
@@ -109,9 +117,9 @@ function sleeperNote(load: SleeperPlayersLoad): string | undefined {
 
 async function buildFromSources(http: HttpClient, now: Date): Promise<PlayerIdCrosswalk> {
   const iso = now.toISOString();
-  const [sleeper, dynasty, fantasyCalc] = await Promise.allSettled([fetchSleeperPlayers(http), fetchDynastyProcessIds(http), fetchFantasyCalcPlayers(http)]);
-  if (sleeper.status === "rejected" && dynasty.status === "rejected" && fantasyCalc.status === "rejected") {
-    throw new LeagueImportError("SOURCE_DOWN", `Player ID sources are unavailable (${[sleeper.reason, dynasty.reason, fantasyCalc.reason].map(reason).join("; ")}). Try again in a few minutes.`);
+  const [sleeper, dynasty] = await Promise.allSettled([fetchSleeperPlayers(http), fetchDynastyProcessIds(http)]);
+  if (sleeper.status === "rejected" && dynasty.status === "rejected") {
+    throw new LeagueImportError("SOURCE_DOWN", `Player ID sources are unavailable (${[sleeper.reason, dynasty.reason].map(reason).join("; ")}). Try again in a few minutes.`);
   }
   const notes: Partial<Record<CrosswalkSourceKey, string>> = {};
   const fromCache: Partial<Record<CrosswalkSourceKey, boolean>> = {};
@@ -128,15 +136,14 @@ async function buildFromSources(http: HttpClient, now: Date): Promise<PlayerIdCr
   };
   settle("sleeper", sleeper);
   settle("dynastyProcess", dynasty);
-  settle("fantasyCalc", fantasyCalc);
   const sleeperLoad = sleeper.status === "fulfilled" ? sleeper.value : undefined;
   const sleeperProblems = sleeperLoad ? sleeperNote(sleeperLoad) : undefined;
   if (sleeperProblems) notes.sleeper = sleeperProblems;
+  // No FantasyCalc rows (see the header): left out, so the crosswalk doesn't name FantasyCalc as a source at all.
   return resolverFromData({
     sleeperPlayers: sleeperLoad ? sleeperLoad.players : null,
     sleeperCompletePositions: sleeperLoad ? sleeperLoad.complete : [],
     dynastyRows: dynasty.status === "fulfilled" ? dynasty.value.rows : null,
-    fantasyCalcPlayers: fantasyCalc.status === "fulfilled" ? fantasyCalc.value.players : null,
     fetchedAt,
     notes,
     fromCache,

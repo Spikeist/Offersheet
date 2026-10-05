@@ -4,8 +4,9 @@
  * withRoute (src/app/api/_lib/route.ts) runs every route handler inside a request scope held in AsyncLocalStorage, so
  * code deep inside an import or a model build (src/server/http.ts) can read the request's deadline without it being
  * passed down through the adapters and loaders:
- * - The deadline: limits.deadlines per route kind (import 45 s, model 90 s, session and feedback 10 s), counted from the
- *   request's start. The HTTP client never starts an attempt, a queue wait or a backoff wait that would end past it, caps
+ * - The deadline: limits.deadlines per route kind (import 45 s, model 90 s, session, feedback and health 10 s, the snapshot
+ *   cron 110 s), counted from the request's start. The HTTP client never starts an attempt, a queue wait or a backoff wait
+ *   that would end past it, caps
  *   each fetch's timeout at the time left, waits for a fetch another request started (single-flight) no longer than this
  *   request's own deadline, and gives a cache read or write at most limits.deadlines.cacheGraceMs past it, its own fetch
  *   (a cross-instance lock included) twice that (src/server/http.ts; withinDeadline below), so a slow source or a hanging
@@ -33,8 +34,12 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { deadlines } from "./limits";
 
-/** The kinds of API route, each with its own rate limit and deadline (src/server/limits.ts). */
-export const ROUTE_KINDS = ["import", "model", "session", "feedback", "health"] as const;
+/**
+ * The kinds of API route, each with its own rate limit and deadline (src/server/limits.ts). "cron": the daily snapshot cron
+ * (planner reply to Checkpoint 7a, §6.3; src/app/api/cron/snapshot), never charged to the daily work budget
+ * (src/server/budget.ts admissionUnits).
+ */
+export const ROUTE_KINDS = ["import", "model", "session", "feedback", "health", "cron"] as const;
 export type RouteKind = (typeof ROUTE_KINDS)[number];
 
 /** Each route kind's deadline in ms (limits.deadlines). */
@@ -50,6 +55,8 @@ export function deadlineMsOf(kind: RouteKind): number {
       return deadlines.feedbackMs;
     case "health":
       return deadlines.healthMs;
+    case "cron":
+      return deadlines.cronMs;
   }
 }
 

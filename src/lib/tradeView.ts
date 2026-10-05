@@ -160,7 +160,7 @@
  * server that serves the page sees those ids like any address: the privacy page says so).
  */
 import { displayAcceptance } from "@/engine/acceptance";
-import { HELPS_AT_GAIN, HELPS_FLOOR_NOTE, HELPS_FLOOR_NOTE_PLAYOFFS, futureValuesLoaded, helpsLambdaNote, lineupEquivalent, tradeScore } from "@/engine/benefit";
+import { HELPS_AT_GAIN, HELPS_FLOOR_NOTE, HELPS_FLOOR_NOTE_PLAYOFFS, futureValuesLoaded, lineupEquivalent, tradeScore } from "@/engine/benefit";
 import { blendValues } from "@/engine/blend";
 import { config } from "@/engine/config";
 import type { TradeAnalysis } from "@/engine/evaluate";
@@ -963,25 +963,18 @@ interface ScaleInputs {
   helpsReason: HelpsReason | null;
 }
 
-/** The first words of benefit.helpsLambdaNote, before its percent (helpsReasonOf). */
-const LAMBDA_NOTE_LEAD = (() => {
-  const sample = helpsLambdaNote(0.123, 45);
-  const at = sample.indexOf("12%");
-  return at > 0 ? sample.slice(0, at) : "";
-})();
-
 /**
  * Why a card's "Helps you" scale departs from "+3 points a week reads 63" (benefit.ts HelpsScale.reason; Phase 7a, the
  * feedback's version inputs: track SC's crossTrack for FB), read off the evaluation's notes, which carry
  * benefit.helpsScaleNotes for its scale (evaluate.ts simulateTrade, on every simulated evaluation: the Finder's cards and
- * the Analyzer's): "odds" for the floor note (title or playoff odds barely move), "lambda" for the Win now ↔ Future note,
- * null for neither. The engine keeps HelpsScale out of TradeEvaluation, so the words are its record here; tradeView.test.ts
- * checks this reads back every reason helpsScaleNotes writes.
+ * the Analyzer's): "odds" for the floor note (title or playoff odds barely move), else null. (Checkpoint 7a's "lambda", the
+ * Win now ↔ Future note, went with its λ cap: planner reply to Checkpoint 7a, §2 question 6.) The engine keeps HelpsScale out
+ * of TradeEvaluation, so the words are its record here; tradeView.test.ts checks this reads back every reason
+ * helpsScaleNotes writes.
  */
 export function helpsReasonOf(notes: readonly string[] | undefined): HelpsReason | null {
   if (!notes) return null;
   if (notes.some((n) => n === HELPS_FLOOR_NOTE || n === HELPS_FLOOR_NOTE_PLAYOFFS)) return "odds";
-  if (LAMBDA_NOTE_LEAD && notes.some((n) => n.startsWith(LAMBDA_NOTE_LEAD))) return "lambda";
   return null;
 }
 

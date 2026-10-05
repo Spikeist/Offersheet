@@ -111,14 +111,17 @@ describe("computeTagFor: what a League model computation is for (Phase 4 L12: th
   const tag = computeTagFor(base);
 
   it("changes with a setting the League model reads, so changing it computes the model again", () => {
-    expect(LEAGUE_MODEL_SETTINGS).toEqual(["streamPositions", "playoffWeight"]);
+    // The goal since the planner's reply to Checkpoint 7a (§6.1): the automatic playoff weight weighs my odds by it.
+    expect(LEAGUE_MODEL_SETTINGS).toEqual(["streamPositions", "goal"]);
     expect(computeTagFor({ ...base, settings: { ...base.settings, streamPositions: ["K", "DEF", "QB"] } })).not.toBe(tag);
     expect(computeTagFor({ ...base, settings: { ...base.settings, streamPositions: [] } })).not.toBe(tag);
-    expect(computeTagFor({ ...base, settings: { ...base.settings, playoffWeight: 1.5 } })).not.toBe(tag);
+    expect(computeTagFor({ ...base, settings: { ...base.settings, goal: "playoffs" } })).not.toBe(tag);
   });
 
   it("stays the same when only the trade search's settings change: the model would come out the same (review: no needless rebuild)", () => {
     const tradeOnly: Partial<TradeSettings>[] = [
+      // The manual playoff weight: no longer read (ω is set automatically).
+      { playoffWeight: 1.5 },
       { lambda: 0.8 },
       { maxPerSide: 3 },
       { untouchables: ["101"] },

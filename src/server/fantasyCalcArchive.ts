@@ -13,9 +13,13 @@
  * - FantasyCalc's terms (reports/probe-output/shared.md FC.terms): caching their responses is encouraged ("ideally
  *   retrieving results once per day"), only the documented endpoints may be called, and "reproducing or creating a
  *   material substitute for substantial portions of FantasyCalc's content on another website is prohibited". This
- *   archive adds no request (it keeps only lists the build already read, through the same 24-hour cache), calls no
- *   other endpoint, and stays on this computer: data-local/ is git-ignored, so nothing is committed or published.
- *   ⚠️ Our reading: consistent with those terms.
+ *   archive adds no request (it keeps only lists the build already read, through the same cache: 3 hours since
+ *   FantasyCalc's conditions of 2026-10-05, reports/fantasycalc-permission.md), calls no other endpoint, and stays on this
+ *   computer: data-local/ is git-ignored, so nothing is committed or published. ⚠️ Our reading: consistent with those
+ *   terms; Parker's first email to FantasyCalc described these private daily copies, and they didn't object.
+ * - On production a daily cron keeps the same day copies in the shared store (planner reply to Checkpoint 7a, §6.3;
+ *   src/server/snapshots.ts, by this module's pure core and codec: the formats League page builds read yesterday or today),
+ *   and `npm run snapshot:pull -- --live` copies them into these files (the day's first copy kept, as below).
  * - Only what a backtest of the blend needs: per player, his ids for the join (Sleeper's, the canonical id, §4; ESPN's
  *   for players without one), FantasyCalc's position and his value in the requested format, plus redraftValue (the
  *   baseline redraft number, src/data/fantasyCalcValues.ts) and FantasyCalc's ranks (overallRank, positionRank) when the
@@ -29,12 +33,13 @@
  * - The format key names the file: "<redraft|dynasty>-<1|2>qb-<n>team-ppr<0|0.5|1>" plus "-teplus" / "-teplusplus"
  *   for tep te+ / te++ (CLAUDE.md §0.7: only characters every file system takes). A format it can't name (anything
  *   outside FantasyCalc's parameters) is skipped.
- * - Merge rule: the first stored copy of a day is kept (each format is fetched at most once a day anyway, §2.10). A
- *   list without a fetch time, or without a single player, is skipped. An unreadable file is replaced; a file in
- *   another format version is left alone.
+ * - Merge rule: the first stored copy of a day is kept (a format's list is fetched at most once every 3 hours, §2.10, so a
+ *   day can see up to 8; one a day is enough for a backtest of the blend). A list without a fetch time, or without a
+ *   single player, is skipped. An unreadable file is replaced; a file in another format version is left alone.
  * - The pure core (fantasyCalcFormatKey, archiveDay, fantasyCalcSnapshotLocation, archivedValues,
- *   fantasyCalcSnapshotOf, mergeFantasyCalcSnapshot, fantasyCalcListsIn) is tested without disk. The fs layer
- *   (createFantasyCalcArchiver) follows the projection archive's rules (src/server/projectionArchive.ts): atomic writes
+ *   fantasyCalcSnapshotOf, mergeFantasyCalcSnapshot, fantasyCalcListsIn) is tested without disk, and so is the codec
+ *   (packFantasyCalcSnapshot, unpackFantasyCalcSnapshot: the file's bytes, which the shared store keeps in base64). The
+ *   fs layer (createFantasyCalcArchiver) follows the projection archive's rules (src/server/projectionArchive.ts): atomic writes
  *   (a temp file, then a rename, retried while Windows briefly locks the target), one write at a time per file within
  *   the process, and a memory of the files known to be stored, so the League page's repeated builds cost no disk I/O.
  *   Two processes filing the same day's list at the same moment (the dev server and a script) both write the same list;
@@ -253,7 +258,43 @@ export function fantasyCalcListsIn(loads: object | null | undefined): FantasyCal
 }
 
 // ---------------------------------------------------------------------------------------------
+// The codec: a day copy as stored, in a file or (base64) in the shared store
+
+/** A day copy's stored bytes: the gzip of its JSON (a file's whole content; src/server/snapshots.ts keeps them in base64). */
+export async function packFantasyCalcSnapshot(record: FantasyCalcSnapshot): Promise<Buffer> {
+  return gzipAsync(Buffer.from(JSON.stringify(record), "utf8"));
+}
+
+/** What stored bytes hold: a day copy, one that can't be read (replaced on the next write), or one of another format version (left alone). */
+export type UnpackedFantasyCalcSnapshot = { snapshot: FantasyCalcSnapshot } | { unreadable: true } | { otherVersion: true };
+
+/** Stored bytes back to a day copy (see UnpackedFantasyCalcSnapshot); never throws. */
+export async function unpackFantasyCalcSnapshot(body: Buffer): Promise<UnpackedFantasyCalcSnapshot> {
+  let json: unknown;
+  try {
+    json = JSON.parse((await gunzipAsync(body)).toString("utf8"));
+  } catch {
+    return { unreadable: true };
+  }
+  const version = (json as { version?: unknown } | null)?.version;
+  if (typeof version === "number" && version !== FANTASYCALC_ARCHIVE_VERSION) return { otherVersion: true };
+  const parsed = fantasyCalcSnapshotSchema.safeParse(json);
+  return parsed.success ? { snapshot: parsed.data as FantasyCalcSnapshot } : { unreadable: true };
+}
+
+// ---------------------------------------------------------------------------------------------
 // The fs layer
+
+/**
+ * The archive's folder: fantasycalc-snapshots in DATA_LOCAL_ENV's folder when it's set (the stable copy), else
+ * data-local/fantasycalc-snapshots in the working directory.
+ */
+export function fantasyCalcArchiveRoot(env: Readonly<Record<string, string | undefined>> = process.env): string {
+  const dataLocal = dataLocalRoot(env);
+  // Literal segments (= FANTASYCALC_ARCHIVE_DIR), like the projection archive's: the bundler's file tracing resolves this
+  // one folder instead of guessing (next.config.ts leaves data-local/ out of the server bundles' traces).
+  return dataLocal ? path.join(dataLocal, "fantasycalc-snapshots") : path.join(process.cwd(), "data-local", "fantasycalc-snapshots");
+}
 
 /** The archive file of a list: <root>/<season>/<YYYY-MM-DD>/<format key>.json.gz. */
 export function fantasyCalcSnapshotFile(root: string, location: FantasyCalcSnapshotLocation): string {
@@ -277,9 +318,13 @@ export async function readFantasyCalcSnapshot(file: string): Promise<FantasyCalc
 }
 
 /** What the fs layer finds on disk: a snapshot, none, one it can't read (replaced), or one of another version (left alone). */
-type StoredFile = { snapshot: FantasyCalcSnapshot | null } | { unreadable: true } | { otherVersion: true };
+export type StoredFantasyCalcFile = { snapshot: FantasyCalcSnapshot | null } | { unreadable: true } | { otherVersion: true };
 
-async function readStored(file: string): Promise<StoredFile> {
+/**
+ * One archive file as the fs layer (and `npm run snapshot:pull`) reads it before writing: see StoredFantasyCalcFile. Throws
+ * only when the file exists but can't be read (a lock, say: never overwrite what couldn't be read).
+ */
+export async function readStoredFantasyCalcFile(file: string): Promise<StoredFantasyCalcFile> {
   let body: Buffer;
   try {
     body = await readFile(file);
@@ -287,24 +332,18 @@ async function readStored(file: string): Promise<StoredFile> {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") return { snapshot: null };
     throw err; // e.g. a lock: don't overwrite what we couldn't read
   }
-  let json: unknown;
-  try {
-    json = JSON.parse((await gunzipAsync(body)).toString("utf8"));
-  } catch {
-    return { unreadable: true };
-  }
-  const version = (json as { version?: unknown } | null)?.version;
-  if (typeof version === "number" && version !== FANTASYCALC_ARCHIVE_VERSION) return { otherVersion: true };
-  const parsed = fantasyCalcSnapshotSchema.safeParse(json);
-  return parsed.success ? { snapshot: parsed.data as FantasyCalcSnapshot } : { unreadable: true };
+  return unpackFantasyCalcSnapshot(body);
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-/** Writes a snapshot atomically: a temp file next to it, then a rename (retried while Windows briefly locks the target). */
-async function writeSnapshot(file: string, record: FantasyCalcSnapshot): Promise<void> {
+/**
+ * Writes a snapshot atomically: a temp file next to it, then a rename (retried while Windows briefly locks the target). The
+ * fs layer's writes, and `npm run snapshot:pull`'s.
+ */
+export async function writeFantasyCalcSnapshotFile(file: string, record: FantasyCalcSnapshot): Promise<void> {
   await mkdir(path.dirname(file), { recursive: true });
-  const body = await gzipAsync(Buffer.from(JSON.stringify(record), "utf8"));
+  const body = await packFantasyCalcSnapshot(record);
   const tmp = `${file}.tmp-${process.pid}-${randomBytes(4).toString("hex")}`;
   await writeFile(tmp, body);
   for (let attempt = 0; ; attempt++) {
@@ -355,13 +394,7 @@ function logFailure(err: unknown): void {
  * else data-local/fantasycalc-snapshots in the working directory).
  */
 export function createFantasyCalcArchiver(opts: { root?: string } = {}): FantasyCalcArchiver {
-  const dataLocal = dataLocalRoot();
-  // Literal segments (= FANTASYCALC_ARCHIVE_DIR), like the projection archive's: the bundler's file tracing resolves
-  // this one folder instead of guessing. ⚠️ So once the folder exists, `next build` lists its files in the model
-  // routes' traces (it already lists data-local/, fixtures/ and .cache/ files for several routes): a deploy built on
-  // this computer (vercel build, --prebuilt) would upload them. Before Phase 7, next.config.ts should leave data-local/,
-  // fixtures/, .cache/ and reports/ out of tracing (outputFileTracingExcludes). A Git-based deploy doesn't have them.
-  const root = opts.root ?? (dataLocal ? path.join(dataLocal, "fantasycalc-snapshots") : path.join(process.cwd(), "data-local", "fantasycalc-snapshots"));
+  const root = opts.root ?? fantasyCalcArchiveRoot();
   /** Files known to hold their day's copy (written here, or found on disk). */
   const stored = new Set<string>();
   /** File → the tail of its write queue. */
@@ -382,11 +415,11 @@ export function createFantasyCalcArchiver(opts: { root?: string } = {}): Fantasy
   async function write(file: string, fresh: FantasyCalcSnapshot): Promise<FantasyCalcArchiveOutcome> {
     try {
       if (stored.has(file)) return { status: "unchanged", file };
-      const found = await readStored(file);
+      const found = await readStoredFantasyCalcFile(file);
       if ("otherVersion" in found) return { status: "failed", error: "OtherVersion" };
       if ("unreadable" in found) logEvent({ event: "fantasycalc_archive_replaced" });
       const { record, write: changed } = mergeFantasyCalcSnapshot("snapshot" in found ? found.snapshot : null, fresh);
-      if (changed) await writeSnapshot(file, record);
+      if (changed) await writeFantasyCalcSnapshotFile(file, record);
       stored.add(file);
       return changed ? { status: "archived", file } : { status: "unchanged", file };
     } catch (err) {

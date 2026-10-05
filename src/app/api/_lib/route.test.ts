@@ -15,6 +15,7 @@ import { setLogStoreForTests } from "@/server/log";
 import { createDailyQuota } from "@/server/budget";
 import { clientIds, clientKey, createMemoryLimiter, resetProcessLimiterForTests } from "@/server/rateLimit";
 import { FakeRedis, resetRedisForTests } from "@/server/redis";
+import { heldUsageForTests, resetUsageForTests, setUsageStoreForTests } from "@/server/usage";
 import { errorResponse, jsonResponse } from "./respond";
 import { withRoute } from "./route";
 
@@ -153,7 +154,8 @@ describe("withRoute: an IPv6 /48 and the daily work budget (final review SEC-1, 
     const refused = await route(json("203.0.113.9"));
     expect(refused.status).toBe(503);
     expect(refused.headers.get("retry-after")).toBe(String(6 * 3600));
-    expect(await refused.json()).toEqual({ error: { code: "BUSY", message: "Your connection has used today's share of requests to Offer Sheet. Try again in about 6 hours." } });
+    // A visitor's own day keeps its own words, with the reset time (planner reply to Checkpoint 7a, §2 question 7).
+    expect(await refused.json()).toEqual({ error: { code: "BUSY", message: "Your connection has used today's share of requests to Offer Sheet. It resets at 12:00 AM UTC.", resetAt: "2026-10-05T00:00:00.000Z" } });
     expect(handler).toHaveBeenCalledTimes(1);
     // The next request of that client is refused from memory: the limiter isn't even asked.
     const check = vi.fn(createMemoryLimiter().check);
@@ -166,7 +168,7 @@ describe("withRoute: an IPv6 /48 and the daily work budget (final review SEC-1, 
     expect((await withRoute("session", ok, { limiter: createMemoryLimiter(), now: () => T0, work })(json("203.0.113.10"))).status).toBe(200);
   });
 
-  it("the server's whole day: BUSY in words, Retry-After when its slice allowance next grows", async () => {
+  it("the server's whole day or its slice: the beta at capacity, in the planner's exact words, until its slice allowance next grows (Checkpoint 7a, §2 question 7)", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     const at = Date.UTC(2026, 9, 4, 1, 0, 0); // 01:00 UTC: a quarter of the day is open until 06:00
     const work = createDailyQuota({ name: "work", perClient: 1_000, perGroup: 1_000, perDay: 40, processShare: 1, slices: 12, burstShare: 0.25 });
@@ -176,7 +178,9 @@ describe("withRoute: an IPv6 /48 and the daily work budget (final review SEC-1, 
     const busy = await route(json("198.51.100.7"));
     expect(busy.status).toBe(503);
     expect(busy.headers.get("retry-after")).toBe(String(5 * 3600));
-    expect(await busy.json()).toEqual({ error: { code: "BUSY", message: "Offer Sheet has used its share of free server time for now. Try again in about 5 hours." } });
+    expect(await busy.json()).toEqual({ error: { code: "BUSY", message: "The beta is at capacity today. It resets at 6:00 AM UTC.", resetAt: "2026-10-04T06:00:00.000Z" } });
+    // The next request of anyone is refused from this process's memory the same way.
+    expect(await (await route(json("192.0.2.1"))).json()).toEqual({ error: { code: "BUSY", message: "The beta is at capacity today. It resets at 6:00 AM UTC.", resetAt: "2026-10-04T06:00:00.000Z" } });
   });
 
   it("the handler's scope carries the client's and its group's ids (HMACs); none is the address", async () => {
@@ -298,6 +302,69 @@ describe("withRoute: the request's scope", () => {
     });
     expect((await outside(post())).status).toBe(500);
     await vi.waitFor(async () => expect(await store.lrange(key, 0, -1)).toHaveLength(2));
+  });
+});
+
+describe("withRoute: usage for usage:report (planner reply to Checkpoint 7a, §2 question 7 and §5.4)", () => {
+  const json = (path: string, ip = "203.0.113.9") => new Request(`http://localhost:3001${path}`, { method: "POST", headers: { "x-real-ip": ip, "content-type": "application/json" } });
+
+  afterEach(() => {
+    setUsageStoreForTests(undefined);
+    resetUsageForTests();
+  });
+
+  it("a League page build answered is a session, counted with the work units charged on arrival, after the answer, through after()", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const store = new FakeRedis(() => T0);
+    setUsageStoreForTests(store);
+    const tasks: Array<() => Promise<void>> = [];
+    const work = createDailyQuota({ name: "work", perClient: 1_000, perGroup: 1_000, perDay: 4_000, processShare: 1, slices: 1, burstShare: 1 });
+    const opts = { limiter: createMemoryLimiter(), now: () => T0, work, after: (task: () => Promise<void>) => void tasks.push(task) };
+    expect((await withRoute("model", ok, opts)(json("/api/model/espn"))).status).toBe(200);
+    expect(store.stats.commands).toBe(0); // nothing before the answer
+    expect(tasks).toHaveLength(1);
+    await tasks[0]?.();
+    expect(await store.get("os:local:usage:2026-10-04:model_builds")).toBe("1");
+    expect(await store.get("os:local:usage:2026-10-04:work_units")).toBe("10"); // a League page build that reads the league
+    // A build that failed isn't a session (its units still count: they were charged).
+    await withRoute("model", async () => errorResponse("SOURCE_DOWN"), opts)(json("/api/model/espn"));
+    await tasks[1]?.();
+    expect(await store.get("os:local:usage:2026-10-04:model_builds")).toBe("1");
+    expect(await store.get("os:local:usage:2026-10-04:work_units")).toBe("20");
+    // An import answered isn't a session either (its handler counts it by platform and path).
+    await withRoute("import", ok, opts)(json("/api/import/espn"));
+    await tasks[2]?.();
+    expect(await store.get("os:local:usage:2026-10-04:model_builds")).toBe("1");
+  });
+
+  it("refusals ride along with a later write, never one of their own: a flood of rate-limited requests schedules no write", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const store = new FakeRedis(() => T0);
+    setUsageStoreForTests(store);
+    const tasks: Array<() => Promise<void>> = [];
+    const limiter = createMemoryLimiter({ limits: { ...rateLimits, import: { limit: 1, windowS: 600 } } });
+    const route = withRoute("import", ok, { limiter, now: () => T0, work: null, after: (task) => void tasks.push(task) });
+    expect((await route(json("/api/import/espn"))).status).toBe(200);
+    expect(tasks).toHaveLength(0); // nothing counted: no write
+    expect((await route(json("/api/import/espn"))).status).toBe(429); // the first refusal: nothing written yet, so due
+    expect(tasks).toHaveLength(1);
+    await tasks[0]?.();
+    expect(await store.get("os:local:usage:2026-10-04:refused_rate")).toBe("1");
+    for (let i = 0; i < 20; i++) expect((await route(json("/api/import/espn"))).status).toBe(429);
+    expect(tasks).toHaveLength(1); // held, no write of their own
+    expect(Object.fromEntries(heldUsageForTests())).toEqual({ "2026-10-04\u0000refused_rate": 20 });
+    // The next request that writes anyway carries them.
+    await withRoute("model", ok, { limiter: createMemoryLimiter(), now: () => T0, work: null, after: (task) => void tasks.push(task) })(json("/api/model/espn", "198.51.100.7"));
+    await tasks[1]?.();
+    expect(await store.get("os:local:usage:2026-10-04:refused_rate")).toBe("21");
+    expect(await store.get("os:local:usage:2026-10-04:model_builds")).toBe("1");
+  });
+
+  it("off Vercel nothing is counted, so nothing waits for after()", async () => {
+    setUsageStoreForTests(null);
+    const tasks: Array<() => Promise<void>> = [];
+    await withRoute("model", ok, { limiter: createMemoryLimiter(), now: () => T0, work: null, after: (task) => void tasks.push(task) })(json("/api/model/espn"));
+    expect(tasks).toHaveLength(0);
   });
 });
 

@@ -46,10 +46,14 @@ export const ENV_VARS = [
   "YAHOO_AUTH_CODE",
   "YAHOO_REFRESH_TOKEN",
   "SESSION_SECRET",
+  // Planner reply to Checkpoint 7a, §6.3: the daily snapshot cron's secret. It lives on Vercel (npm run vercel:secret -- --live
+  // --name CRON_SECRET) and is normally blank here; listed so check:leaks and every output scrubber know a value set here.
+  "CRON_SECRET",
   // Not a secret (CLAUDE.md §0.5): 1 = development imports Parker's ESPN league with the .env.local cookies.
   "USE_ENV_COOKIES",
-  // Checkpoint 7a, optional: the beta's shared store (Upstash) for the --live scripts that read it (beta:log,
-  // feedback:pull). The token is a secret; the URL names the database. The local app never uses them (src/server/redis.ts).
+  // Checkpoint 7a, optional: the beta's shared store (Upstash) for the --live scripts that read it (beta:log, usage:report,
+  // feedback:report, snapshot:pull). The token is a secret; the URL names the database. The local app never uses them
+  // (src/server/redis.ts).
   "KV_REST_API_URL",
   "KV_REST_API_TOKEN",
   // The same store under Upstash's own names, which src/server/redis.ts reads first and the scripts accept too (final

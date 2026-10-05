@@ -13,7 +13,7 @@ import { fakeResolver as espnFakeResolver, NOW as ESPN_NOW, PARKER, parkerBundle
 import { sleeperUrls } from "@/adapters/sleeper/fetch";
 import type { SleeperStatRow } from "@/adapters/sleeper/schemas";
 import type { HttpClient, HttpRequestOptions, HttpResponse } from "@/adapters/types";
-import { FANTASYCALC_PLAYERS_URL, type FantasyCalcPlayerIds } from "@/data/fantasyCalcPlayers";
+import { FANTASYCALC_PLAYERS_URL } from "@/data/fantasyCalcPlayers";
 import { FANTASYCALC_DYNASTY_MIN_PLAYERS, FANTASYCALC_REDRAFT_MIN_PLAYERS, fantasyCalcValuesUrl, type FantasyCalcValueRow, type FantasyCalcValuesLoad } from "@/data/fantasyCalcValues";
 import { nflScheduleUrl, reduceNflSchedule, type NflSchedule, type NflScheduleResponse } from "@/data/nflSchedule";
 import {
@@ -169,10 +169,6 @@ function seasonLoad(lines: Record<string, StatLine>, extra: Partial<SleeperLoadM
 let nextFcId = 100;
 function fcRow(name: string, position: string, value: number, ids: { sleeperId?: string; espnId?: string } = {}): FantasyCalcValueRow {
   return { fantasyCalcId: String(nextFcId++), name, position, sleeperId: ids.sleeperId ?? null, espnId: ids.espnId ?? null, mflId: null, fleaflickerId: null, team: null, value, redraftValue: null };
-}
-
-function fcPlayer(name: string, position: string, ids: { sleeperId?: string; espnId?: string } = {}): FantasyCalcPlayerIds {
-  return { fantasyCalcId: String(nextFcId++), name, position, sleeperId: ids.sleeperId ?? null, espnId: ids.espnId ?? null, mflId: null, fleaflickerId: null, team: null };
 }
 
 function valuesLoad(format: FantasyCalcFormat, rows: FantasyCalcValueRow[], extra: Partial<FantasyCalcValuesLoad> = {}): FantasyCalcValuesLoad {
@@ -402,7 +398,7 @@ describe("assembleModelInputs: players without a Sleeper id, and ESPN's projecti
 describe("assembleModelInputs: FantasyCalc (§9, §2.9)", () => {
   const format = marketFormats(SETTINGS).values;
 
-  it("joins the league-format values to canonical ids: Sleeper ids on sleeperId, espn: ids on espnId only when name and position match", () => {
+  it("joins the league-format values to canonical ids: Sleeper ids on sleeperId, espn: ids on espnId only when name and position match; knownIds is the players the lists name", () => {
     const rows = [
       fcRow("Quill Arbuckle", "QB", 5000, { sleeperId: "4046" }),
       fcRow("Nash Galloway", "WR", 7000, { sleeperId: "99999", espnId: "3900101" }),
@@ -410,14 +406,14 @@ describe("assembleModelInputs: FantasyCalc (§9, §2.9)", () => {
       fcRow("Rory Bellweather", "RB", 9000, { sleeperId: "9221" }),
       fcRow("Not In This League", "WR", 9500, { sleeperId: "1" }),
     ];
-    const listOnly = [fcPlayer("Wes Dunmore", "WR", { sleeperId: "5000" }), fcPlayer("Cole Hightower", "WR", { espnId: "5550002" })];
-    const fantasyCalc = { values: valuesLoad(format, rows, { fetchedAt: Date.parse("2026-09-30T06:00:00Z") }), players: listOnly };
+    const fantasyCalc = { values: valuesLoad(format, rows, { fetchedAt: Date.parse("2026-09-30T06:00:00Z") }) };
     const out = assembleModelInputs(snapshot(), sources({ fantasyCalc }), NOW);
+    // FantasyCalc's /players no longer widens knownIds (its conditions of 2026-10-05: only /values/current is called).
     expect(out.market).toEqual({
       format,
       fetchedAt: "2026-09-30T06:00:00.000Z",
       values: { "4046": 5000, "9221": 9000, "espn:3900101": 7000 },
-      knownIds: ["4046", "9221", "espn:3900101", "5000", "espn:5550002"],
+      knownIds: ["4046", "9221", "espn:3900101"],
       topValue: 9500,
     });
     expect(out.market).not.toHaveProperty("redraftValues");
@@ -425,7 +421,7 @@ describe("assembleModelInputs: FantasyCalc (§9, §2.9)", () => {
 
   it("an espn: id whose FantasyCalc row is at another position isn't matched", () => {
     const rows = [fcRow("Nash Galloway", "RB", 7000, { espnId: "3900101" }), ...Array.from({ length: 3 }, (_, i) => fcRow(`Filler ${i}`, "WR", 100 + i))];
-    const out = assembleModelInputs(snapshot(), sources({ fantasyCalc: { values: valuesLoad(format, rows), players: null } }), NOW);
+    const out = assembleModelInputs(snapshot(), sources({ fantasyCalc: { values: valuesLoad(format, rows) } }), NOW);
     expect(out.market?.values).toEqual({});
     expect(out.market?.knownIds).toEqual([]);
   });
@@ -437,7 +433,6 @@ describe("assembleModelInputs: FantasyCalc (§9, §2.9)", () => {
     const fantasyCalc = {
       values: valuesLoad(f.values, [fcRow("Quill Arbuckle", "QB", 4000, { sleeperId: "4046" })], { fetchedAt: Date.parse("2026-09-30T06:00:00Z") }),
       redraft: valuesLoad(redraftFormat, [fcRow("Quill Arbuckle", "QB", 5200, { sleeperId: "4046" })], { fetchedAt: Date.parse("2026-09-30T05:00:00Z"), stale: true }),
-      players: null,
     };
     const out = assembleModelInputs(snapshot({}, keeper), sources({ fantasyCalc }), NOW);
     expect(out.market).toMatchObject({ format: f.values, values: { "4046": 4000 }, redraftValues: { "4046": 5200 }, fetchedAt: "2026-09-30T05:00:00.000Z" });
@@ -463,7 +458,6 @@ describe("assembleModelInputs: FantasyCalc (§9, §2.9)", () => {
     const fantasyCalc = {
       values: valuesLoad(f.values, [fcRow("Quill Arbuckle", "QB", 4000, { sleeperId: "4046" })], { fetchedAt: Date.parse("2026-09-30T06:00:00Z") }),
       season: valuesLoad(seasonFormat, [fcRow("Quill Arbuckle", "QB", 5200, { sleeperId: "4046" }), fcRow("Rory Bellweather", "RB", 6100, { sleeperId: "9221" })], { fetchedAt: Date.parse("2026-09-30T04:00:00Z"), stale: true }),
-      players: null,
     };
     const out = assembleModelInputs(snapshot({}, dynasty), sources({ fantasyCalc }), NOW);
     expect(out.market).toMatchObject({ format: f.values, values: { "4046": 4000 }, seasonValues: { "4046": 5200, "9221": 6100 }, fetchedAt: "2026-09-30T04:00:00.000Z" });
@@ -483,7 +477,7 @@ describe("assembleModelInputs: FantasyCalc (§9, §2.9)", () => {
     expect(out.notes.filter((n) => n.includes("dynasty league →"))).toEqual([]);
     expect(out.sources.find((s) => s.source === MODEL_SOURCES.fantasyCalc)).toEqual({ source: "FantasyCalc values", fetchedAt: "2026-09-30T04:00:00.000Z", stale: true });
     // Without the season list: no seasonValues, the format notes alone (the League model says the blend is off).
-    const without = assembleModelInputs(snapshot({}, dynasty), sources({ fantasyCalc: { values: fantasyCalc.values, players: null } }), NOW);
+    const without = assembleModelInputs(snapshot({}, dynasty), sources({ fantasyCalc: { values: fantasyCalc.values } }), NOW);
     expect(without.market).not.toHaveProperty("seasonValues");
     expect(without.market).not.toHaveProperty("fallback");
     expect(without.notes).toEqual(fantasyCalcNotes(f.values));
@@ -514,7 +508,7 @@ describe("assembleModelInputs: FantasyCalc's fallbacks (Phase 4c; planner reply 
   const iso = (daysAgo: number) => new Date(NOW.getTime() - daysAgo * DAY_MS).toISOString();
 
   it("FantasyCalc answered: its values, no fallback, no date note", () => {
-    const out = assembleModelInputs(snapshot(), sources({ fantasyCalc: { values: list(format, null), players: null } }), NOW);
+    const out = assembleModelInputs(snapshot(), sources({ fantasyCalc: { values: list(format, null) } }), NOW);
     expect(out.market).not.toHaveProperty("fallback");
     expect(out.market?.values).toEqual({ "4046": 5000, "9221": 9000 });
     expect(out.notes).toEqual(fantasyCalcNotes(format));
@@ -523,7 +517,7 @@ describe("assembleModelInputs: FantasyCalc's fallbacks (Phase 4c; planner reply 
   });
 
   it("FantasyCalc down with a 3-day-old copy: read as FantasyCalc's own, dated (fallback saved), with a stale stamp", () => {
-    const out = assembleModelInputs(snapshot(), sources({ fantasyCalc: { values: list(format, 3), players: null } }), NOW);
+    const out = assembleModelInputs(snapshot(), sources({ fantasyCalc: { values: list(format, 3) } }), NOW);
     expect(out.market?.fallback).toEqual({ kind: "saved", listDate: iso(3) });
     expect(out.market?.values).toEqual({ "4046": 5000, "9221": 9000 });
     expect(out.notes).toEqual([...fantasyCalcNotes(format), "Trade values from Sep 27: FantasyCalc didn't answer."]);
@@ -534,7 +528,7 @@ describe("assembleModelInputs: FantasyCalc's fallbacks (Phase 4c; planner reply 
   });
 
   it("a 20-day-old copy: it only calibrates the model's own curve (fallback curve), and the banner is a warning", () => {
-    const out = assembleModelInputs(snapshot(), sources({ fantasyCalc: { values: list(format, 20), players: null } }), NOW);
+    const out = assembleModelInputs(snapshot(), sources({ fantasyCalc: { values: list(format, 20) } }), NOW);
     const fallback = { kind: "curve" as const, listDate: iso(20) };
     expect(out.market?.fallback).toEqual(fallback);
     // The old list is carried for the curve's calibration (MarketInputs.fallback says so).
@@ -549,7 +543,7 @@ describe("assembleModelInputs: FantasyCalc's fallbacks (Phase 4c; planner reply 
   });
 
   it("a copy past 90 days (the cache drops it, so only a hand-built load has one): no market values", () => {
-    const out = assembleModelInputs(snapshot(), sources({ fantasyCalc: { values: list(format, 100), players: null } }), NOW);
+    const out = assembleModelInputs(snapshot(), sources({ fantasyCalc: { values: list(format, 100) } }), NOW);
     expect(out.market).toBeNull();
     expect(out.notes).toEqual([]);
     expect(out.warnings).toContainEqual({ code: "FANTASYCALC_UNAVAILABLE", message: "FantasyCalc's values couldn't be loaded (its newest saved list is more than 90 days old), so players have no market values yet.", platformPath: "values/current" });
@@ -558,12 +552,12 @@ describe("assembleModelInputs: FantasyCalc's fallbacks (Phase 4c; planner reply 
   it("a keeper league's redraft list or a dynasty league's season list older than 7 days next to a readable own list is left out", () => {
     const keeper: LeagueSettings = { ...SETTINGS, leagueType: "keeper" };
     const k = marketFormats(keeper);
-    const kept = assembleModelInputs(snapshot({}, keeper), sources({ fantasyCalc: { values: list(k.values, null), redraft: list(k.redraft as FantasyCalcFormat, 20), players: null } }), NOW);
+    const kept = assembleModelInputs(snapshot({}, keeper), sources({ fantasyCalc: { values: list(k.values, null), redraft: list(k.redraft as FantasyCalcFormat, 20) } }), NOW);
     expect(kept.market).not.toHaveProperty("redraftValues");
     expect(kept.market).not.toHaveProperty("fallback");
     const dynasty: LeagueSettings = { ...SETTINGS, leagueType: "dynasty" };
     const d = marketFormats(dynasty);
-    const dyn = assembleModelInputs(snapshot({}, dynasty), sources({ fantasyCalc: { values: list(d.values, 2), season: list(d.season as FantasyCalcFormat, 20), players: null } }), NOW);
+    const dyn = assembleModelInputs(snapshot({}, dynasty), sources({ fantasyCalc: { values: list(d.values, 2), season: list(d.season as FantasyCalcFormat, 20) } }), NOW);
     expect(dyn.market).not.toHaveProperty("seasonValues");
     expect(dyn.market?.fallback).toEqual({ kind: "saved", listDate: iso(2) });
   });
@@ -572,7 +566,7 @@ describe("assembleModelInputs: FantasyCalc's fallbacks (Phase 4c; planner reply 
     const dynasty: LeagueSettings = { ...SETTINGS, leagueType: "dynasty" };
     const d = marketFormats(dynasty);
     const season = d.season as FantasyCalcFormat;
-    const build = (ownDays: number | null, seasonDays: number | null) => assembleModelInputs(snapshot({}, dynasty), sources({ fantasyCalc: { values: list(d.values, ownDays), season: list(season, seasonDays), players: null } }), NOW);
+    const build = (ownDays: number | null, seasonDays: number | null) => assembleModelInputs(snapshot({}, dynasty), sources({ fantasyCalc: { values: list(d.values, ownDays), season: list(season, seasonDays) } }), NOW);
     // The trade values are FantasyCalc's answer: no fallback, and the note names the blend.
     const seasonOnly = build(null, 3);
     expect(seasonOnly.market).not.toHaveProperty("fallback");
@@ -594,7 +588,7 @@ describe("assembleModelInputs: FantasyCalc's fallbacks (Phase 4c; planner reply 
   it("a keeper league's two old lists both calibrate (the dynasty list as values, the redraft one for perception), dated by the older", () => {
     const keeper: LeagueSettings = { ...SETTINGS, leagueType: "keeper" };
     const k = marketFormats(keeper);
-    const out = assembleModelInputs(snapshot({}, keeper), sources({ fantasyCalc: { values: list(k.values, 20), redraft: list(k.redraft as FantasyCalcFormat, 25), players: null } }), NOW);
+    const out = assembleModelInputs(snapshot({}, keeper), sources({ fantasyCalc: { values: list(k.values, 20), redraft: list(k.redraft as FantasyCalcFormat, 25) } }), NOW);
     expect(out.market?.fallback).toEqual({ kind: "curve", listDate: iso(25) });
     expect(out.market?.redraftValues).toEqual({ "4046": 5000, "9221": 9000 });
     // A redraft copy past 90 days is dropped even here.
@@ -628,7 +622,7 @@ describe("assembleModelInputs: schedule, stamps, warnings and the header", () =>
       weekly: weeklyLoad({ 4: { "4046": QB_LINE } }, { fetchedAt: Date.parse("2026-09-30T09:00:00Z") }),
       season: seasonLoad({ "4046": QB_LINE }, { fetchedAt: Date.parse("2026-09-30T08:00:00Z"), stale: true }),
       stats: statsLoad({ 1: { "4046": { gp: 1 } } }),
-      fantasyCalc: { values: valuesLoad(marketFormats(SETTINGS).values, [fcRow("Quill Arbuckle", "QB", 5000, { sleeperId: "4046" })], { fetchedAt: Date.parse("2026-09-30T07:00:00Z") }), players: [] },
+      fantasyCalc: { values: valuesLoad(marketFormats(SETTINGS).values, [fcRow("Quill Arbuckle", "QB", 5000, { sleeperId: "4046" })], { fetchedAt: Date.parse("2026-09-30T07:00:00Z") }) },
       schedule: schedule(),
     });
     expect(assembleModelInputs(snapshot(), loaded, NOW).sources).toEqual([
@@ -806,7 +800,7 @@ describe("assembleModelInputs on Parker's league (sanitized fixtures)", () => {
       value: r.value,
       redraftValue: null,
     }));
-    const withMarket = assembleModelInputs(parker, { ...loaded, fantasyCalc: { values: valuesLoad(format, valueRows), players: null } }, NOW);
+    const withMarket = assembleModelInputs(parker, { ...loaded, fantasyCalc: { values: valuesLoad(format, valueRows) } }, NOW);
     const market = withMarket.market;
     expect(market?.format).toEqual(format);
     // Every row whose Sleeper id is one of Parker's players (rostered or a free agent) is his value.
@@ -936,7 +930,6 @@ function fullRoutes(s: LeagueSnapshot): Record<string, FakeRoute> {
   routes[fantasyCalcValuesUrl(formats.values)] = { json: formats.values.isDynasty ? dynasty() : redraft(), fetchedAt: fetchedAt - HOUR };
   if (formats.redraft) routes[fantasyCalcValuesUrl(formats.redraft)] = { json: redraft(), fetchedAt: fetchedAt - HOUR };
   if (formats.season) routes[fantasyCalcValuesUrl(formats.season)] = { json: redraft(), fetchedAt: fetchedAt - HOUR };
-  routes[FANTASYCALC_PLAYERS_URL] = { json: fantasyCalcWith(fixtureFantasyCalcResponse() as unknown[]), fetchedAt };
   return routes;
 }
 
@@ -954,8 +947,9 @@ describe("buildModelInputs (loading: §0.9 politeness, §2.10 caching)", () => {
       sleeperSeasonProjectionsUrl(2026, LOAD_POSITIONS),
       ...[1, 2, 3].map((w) => sleeperStatsUrl(2026, w, LOAD_POSITIONS)),
       fantasyCalcValuesUrl(formats.values),
-      FANTASYCALC_PLAYERS_URL,
     ]);
+    // FantasyCalc's /players is never asked (its conditions of 2026-10-05: only /values/current).
+    expect(fake.calls.map((c) => c.url)).not.toContain(FANTASYCALC_PLAYERS_URL);
     // The Sleeper requests use the adapter's URLs and policy (6 hours), each body reduced at fetch time to what the model
     // reads, under a key of its own (sleeper:<url>#<reducer>; src/data/reduce.ts).
     const projectionCall = fake.calls[1];
@@ -1056,19 +1050,18 @@ describe("buildModelInputs (loading: §0.9 politeness, §2.10 caching)", () => {
     }
   });
 
-  it("a failing FantasyCalc /players only narrows knownIds: the market still loads, with one warning, mid-season and after it (review TQ-2)", async () => {
+  it("FantasyCalc's /players is never asked (its conditions of 2026-10-05: only /values/current): knownIds is the value lists' players, mid-season and after it, with no warning", async () => {
     for (const currentWeek of [4, 18]) {
       const s = loadSnapshot({ currentWeek });
       const routes = fullRoutes(s);
-      routes[FANTASYCALC_PLAYERS_URL] = { status: 503, json: null };
+      routes[FANTASYCALC_PLAYERS_URL] = { json: fantasyCalcWith(fixtureFantasyCalcResponse() as unknown[]) };
       const fake = fakeHttp(routes);
       const out = await buildModelInputs({ snapshot: s, http: fake.http, resolver: { defenseId }, now: NOW });
-      expect(fake.calls.map((c) => c.url)).toContain(FANTASYCALC_PLAYERS_URL);
+      expect(fake.calls.map((c) => c.url)).not.toContain(FANTASYCALC_PLAYERS_URL);
+      expect(fake.calls.filter((c) => c.url.includes("fantasycalc")).every((c) => c.url.startsWith("https://api.fantasycalc.com/values/current?"))).toBe(true);
       expect(out.market?.values["9221"]).toBeGreaterThan(0);
       expect([...(out.market?.knownIds ?? [])].sort()).toEqual(Object.keys(out.market?.values ?? {}).sort());
-      expect(out.warnings).toEqual([
-        { code: "FANTASYCALC_PLAYERS_UNAVAILABLE", message: "FantasyCalc's player list couldn't be loaded (FantasyCalc players: HTTP 503), so only players with a value count as known to FantasyCalc.", platformPath: "players" },
-      ]);
+      expect(out.warnings).toEqual([]);
     }
   });
 
@@ -1104,7 +1097,7 @@ describe("buildModelInputs (loading: §0.9 politeness, §2.10 caching)", () => {
     const fake = fakeHttp(routes);
     const out = await buildModelInputs({ snapshot: s, http: fake.http, resolver: { defenseId }, now: NOW });
     const fcCalls = fake.calls.map((c) => c.url).filter((u) => u.includes("fantasycalc"));
-    expect(fcCalls).toEqual([fantasyCalcValuesUrl(formats.values), fantasyCalcValuesUrl(formats.redraft as FantasyCalcFormat), FANTASYCALC_PLAYERS_URL]);
+    expect(fcCalls).toEqual([fantasyCalcValuesUrl(formats.values), fantasyCalcValuesUrl(formats.redraft as FantasyCalcFormat)]);
     expect(out.market?.format.isDynasty).toBe(true);
     expect(out.market?.values["9221"]).toBeGreaterThan(0);
     expect(out.market).not.toHaveProperty("redraftValues");
@@ -1172,7 +1165,7 @@ describe("buildModelInputs (loading: §0.9 politeness, §2.10 caching)", () => {
     routes[sleeperSeasonProjectionsUrl(2027, LOAD_POSITIONS)] = { json: [] };
     const fake = fakeHttp(routes);
     const out = await buildModelInputs({ snapshot: s, http: fake.http, resolver: { defenseId }, now: feb });
-    expect(fake.calls.map((c) => c.url)).toEqual([fantasyCalcValuesUrl(marketFormats(s.settings).values), FANTASYCALC_PLAYERS_URL]);
+    expect(fake.calls.map((c) => c.url)).toEqual([fantasyCalcValuesUrl(marketFormats(s.settings).values)]);
     expect(out.warnings.map((w) => w.code)).toEqual(["SEASON_NOT_STARTED"]);
     expect(out.market?.format.isDynasty).toBe(true);
     expect(out.sources.map((x) => x.source)).toEqual([MODEL_SOURCES.fantasyCalc]);
@@ -1196,7 +1189,7 @@ describe("buildModelInputs (loading: §0.9 politeness, §2.10 caching)", () => {
     routes[sleeperSeasonProjectionsUrl(2026, LOAD_POSITIONS)] = { json: rows(SLEEPER_SEASON_QB) };
     const fake = fakeHttp(routes);
     const out = await buildModelInputs({ snapshot: s, http: fake.http, resolver: { defenseId }, now: NOW, espn: { "9221": { 17: 14.456 } } });
-    expect(fake.calls.map((c) => c.url)).toEqual([fantasyCalcValuesUrl(marketFormats(s.settings).values), FANTASYCALC_PLAYERS_URL]);
+    expect(fake.calls.map((c) => c.url)).toEqual([fantasyCalcValuesUrl(marketFormats(s.settings).values)]);
     expect(out.warnings).toEqual([]);
     expect(out).toMatchObject({ currentWeek: 18, lastWeek: 17, nfl: { byeWeek: {}, kickoffs: {} } });
     expect(out.sources.map((x) => x.source)).toEqual([MODEL_SOURCES.fantasyCalc]);
@@ -1210,19 +1203,19 @@ describe("buildModelInputs (loading: §0.9 politeness, §2.10 caching)", () => {
     const formats = marketFormats(s.settings);
     const fake = fakeHttp(fullRoutes(s));
     const out = await buildModelInputs({ snapshot: s, http: fake.http, resolver: { defenseId }, now: NOW });
-    expect(fake.calls.map((c) => c.url)).toEqual([fantasyCalcValuesUrl(formats.values), fantasyCalcValuesUrl(formats.redraft as FantasyCalcFormat), FANTASYCALC_PLAYERS_URL]);
+    expect(fake.calls.map((c) => c.url)).toEqual([fantasyCalcValuesUrl(formats.values), fantasyCalcValuesUrl(formats.redraft as FantasyCalcFormat)]);
     expect(out.market?.format.isDynasty).toBe(true);
     expect(out.market?.redraftValues?.["9221"]).toBeGreaterThan(0);
     expect(out.warnings).toEqual([]);
   });
 
-  it("dynasty leagues ask for their dynasty list, then this season's list in their format (the market blend's, §6 step 8), then /players; perception keeps the dynasty values", async () => {
+  it("dynasty leagues ask for their dynasty list, then this season's list in their format (the market blend's, §6 step 8), and never /players; perception keeps the dynasty values", async () => {
     const s = loadSnapshot({}, { leagueType: "dynasty" });
     const formats = marketFormats(s.settings);
     const seasonFormat = formats.season as FantasyCalcFormat;
     const fake = fakeHttp(fullRoutes(s));
     const out = await buildModelInputs({ snapshot: s, http: fake.http, resolver: { defenseId }, now: NOW });
-    expect(fake.calls.map((c) => c.url).filter((u) => u.includes("fantasycalc"))).toEqual([fantasyCalcValuesUrl(formats.values), fantasyCalcValuesUrl(seasonFormat), FANTASYCALC_PLAYERS_URL]);
+    expect(fake.calls.map((c) => c.url).filter((u) => u.includes("fantasycalc"))).toEqual([fantasyCalcValuesUrl(formats.values), fantasyCalcValuesUrl(seasonFormat)]);
     expect(out.market?.format.isDynasty).toBe(true);
     expect(out.market?.values["9221"]).toBeGreaterThan(0);
     expect(out.market?.seasonValues?.["9221"]).toBeGreaterThan(0);
@@ -1397,8 +1390,8 @@ describe("buildModelInputs (loading: §0.9 politeness, §2.10 caching)", () => {
         const http = createHttpClient({ fetchImpl, cache: new MemoryCache() });
         const before = await settle(buildModelInputs({ snapshot: s, http, resolver: { defenseId }, now: start }));
         expect(before.market).not.toHaveProperty("fallback");
-        expect(attempts).toContain(FANTASYCALC_PLAYERS_URL); // FantasyCalc answered: /players too (its copy is kept 7 days)
-        // Twenty days later FantasyCalc is down: the list's copy (kept 90 days) stands in, /players' copy is long gone.
+        expect(attempts).not.toContain(FANTASYCALC_PLAYERS_URL); // only /values/current (FantasyCalc's conditions of 2026-10-05)
+        // Twenty days later FantasyCalc is down: the list's copy (kept 90 days) stands in.
         vi.setSystemTime(NOW);
         fantasyCalcDown = true;
         attempts.length = 0;
@@ -1486,7 +1479,7 @@ describe("buildModelInputs (loading: §0.9 politeness, §2.10 caching)", () => {
     const s = loadSnapshot({ currentWeek: 18 }, { leagueType: "dynasty" });
     const fake = fakeHttp(fullRoutes(s));
     const out = await buildModelInputs({ snapshot: s, http: fake.http, resolver: { defenseId }, now: NOW });
-    expect(fake.calls.map((c) => c.url)).toEqual([fantasyCalcValuesUrl(marketFormats(s.settings).values), FANTASYCALC_PLAYERS_URL]);
+    expect(fake.calls.map((c) => c.url)).toEqual([fantasyCalcValuesUrl(marketFormats(s.settings).values)]);
     expect(out.market?.format.isDynasty).toBe(true);
     expect(out.market).not.toHaveProperty("seasonValues");
   });

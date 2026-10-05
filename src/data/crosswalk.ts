@@ -86,7 +86,12 @@ export interface CrosswalkData {
    */
   sleeperCompletePositions?: readonly string[];
   dynastyRows: readonly DynastyRow[] | null;
-  fantasyCalcPlayers: readonly FantasyCalcPlayerIds[] | null;
+  /**
+   * FantasyCalc's /players rows; null when the source was unavailable; left out: not a source at all (the app since
+   * FantasyCalc's conditions of 2026-10-05, which allow only /values/current: src/data/load.ts), so status(), sources() and
+   * warnings() don't name it.
+   */
+  fantasyCalcPlayers?: readonly FantasyCalcPlayerIds[] | null;
   /** When the data was fetched (ISO): one time for all sources, or per source. Unknown → null. */
   fetchedAt?: string | null | Partial<Record<CrosswalkSourceKey, string | null>>;
   /** Why a source is missing or only partly loaded (plain text for the Import Report). */
@@ -408,7 +413,8 @@ export function resolverFromData(data: CrosswalkData): PlayerIdCrosswalk {
     if (f === undefined || f === null) return null;
     return typeof f === "string" ? f : (f[key] ?? null);
   };
-  const statusList: CrosswalkSourceStatus[] = CROSSWALK_SOURCES.map(({ key, name }) => {
+  // A source left out of the data (fantasyCalcPlayers undefined) isn't one: never listed, never "unavailable".
+  const statusList: CrosswalkSourceStatus[] = CROSSWALK_SOURCES.filter(({ key }) => key !== "fantasyCalc" || data.fantasyCalcPlayers !== undefined).map(({ key, name }) => {
     const n = rows[key];
     const note = data.notes?.[key];
     return {

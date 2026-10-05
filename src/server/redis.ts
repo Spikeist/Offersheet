@@ -1,7 +1,8 @@
 /**
  * The shared store for the public beta (planner reply to Checkpoint 4c, Part B: "Shared server cache: Upstash Redis's free
  * tier through the Vercel Marketplace … hashed keys"). One Redis database serves the server cache (src/server/cache.ts
- * RedisCache), the per-IP rate limits, the daily outbound budgets, the error log and the feedback store.
+ * RedisCache), the per-IP rate limits, the daily outbound budgets, the error log, the feedback store, the usage counts and
+ * the snapshot cron's archive of public data (src/server/snapshots.ts; planner reply to Checkpoint 7a, §6.3).
  *
  * - Configured only on Vercel: the Marketplace integration injects KV_REST_API_URL and KV_REST_API_TOKEN (Upstash's own
  *   names, UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN, work too). Locally nothing is set, so the stable copy,
@@ -30,8 +31,8 @@ import { Redis } from "@upstash/redis";
 import { redisClientLimits } from "./limits";
 
 /**
- * The commands Offer Sheet uses, as strings in and out (a subset of @upstash/redis; FakeRedis implements the same), and two
- * transactions made of them (lpushTrimExpire, incrExpire).
+ * The commands Offer Sheet uses, as strings in and out (a subset of @upstash/redis; FakeRedis implements the same), and
+ * three transactions made of them (lpushTrimExpire, incrExpire, saddExpire).
  */
 export interface RedisLike {
   get(key: string): Promise<string | null>;
@@ -44,6 +45,16 @@ export interface RedisLike {
   lpush(key: string, ...values: string[]): Promise<number>;
   ltrim(key: string, start: number, stop: number): Promise<"OK">;
   lrange(key: string, start: number, stop: number): Promise<string[]>;
+  /** SADD (planner reply to Checkpoint 7a, §6.3: src/server/snapshots.ts): the members added (0 for none, or all present). */
+  sadd(key: string, ...members: string[]): Promise<number>;
+  /** SMEMBERS: a set's members, in no particular order ([] when the key doesn't exist). */
+  smembers(key: string): Promise<string[]>;
+  /**
+   * SADD `members` and PEXPIRE `ttlMs`, in one MULTI/EXEC transaction (Upstash's /multi-exec: one request, applied whole or
+   * not at all), so a set never exists without its expiry (the snapshot cron's formats in use and its index of saved lists,
+   * src/server/snapshots.ts). Every call sets the expiry again. Upstash bills the two commands one by one. The members added.
+   */
+  saddExpire(key: string, members: readonly string[], ttlMs: number): Promise<number>;
   /**
    * LPUSH `values`, LTRIM to the newest `keep` and PEXPIRE `ttlMs`, in one MULTI/EXEC transaction (Upstash's /multi-exec:
    * one request, applied whole or not at all), so a list never outlives its expiry because the PEXPIRE after its LPUSH
@@ -79,9 +90,10 @@ function firstSet(env: Env, names: readonly string[]): string | undefined {
 }
 
 /**
- * The variable a `--live` script that reads the shared store on purpose sets ("1": beta:log, feedback:pull). Without it Redis
- * is used on Vercel only, so KV_* values someone puts in .env.local never switch `npm run dev`, the stable copy,
- * check:browser or a test to Upstash (lead, after review RL-5: the callers check VERCEL too; this is the one rule).
+ * The variable a `--live` script that reads the shared store on purpose sets ("1": beta:log, usage:report, feedback:report,
+ * snapshot:pull). Without it Redis is used on Vercel only, so KV_* values someone puts in .env.local never switch
+ * `npm run dev`, the stable copy, check:browser or a test to Upstash (lead, after review RL-5: the callers check VERCEL too;
+ * this is the one rule).
  */
 export const REDIS_OPT_IN_ENV = "OFFERSHEET_REDIS";
 
@@ -144,6 +156,22 @@ function wrap(client: Redis): RedisLike {
       for (const e of entries) tx.incrby(e.key, e.by).pexpire(e.key, Math.max(1, Math.ceil(e.ttlMs)));
       const answers = (await tx.exec()) as unknown[];
       return entries.map((_, i) => Number(answers[2 * i]));
+    },
+    sadd: (key, ...members) => {
+      const [first, ...rest] = members;
+      return first === undefined ? Promise.resolve(0) : client.sadd(key, first, ...rest);
+    },
+    smembers: (key) => client.smembers<string[]>(key),
+    async saddExpire(key, members, ttlMs) {
+      const [first, ...rest] = members;
+      if (first === undefined) return 0;
+      // multi(): Upstash's transaction endpoint, as lpushTrimExpire; exec() throws if any command failed.
+      const [added] = (await client
+        .multi()
+        .sadd(key, first, ...rest)
+        .pexpire(key, Math.max(1, Math.ceil(ttlMs)))
+        .exec()) as unknown[];
+      return Number(added);
     },
   };
 }
@@ -221,16 +249,16 @@ export function hmacId(label: string, text: string, env: Env = process.env): str
 }
 
 /**
- * In-memory RedisLike for tests and offline measurements: string values with PX expiry on an injected clock, lists,
+ * In-memory RedisLike for tests and offline measurements: string values with PX expiry on an injected clock, lists, sets,
  * and counters of the commands and bytes each command moved (what Upstash bills: commands and bandwidth).
  */
 export class FakeRedis implements RedisLike {
-  private store = new Map<string, { value: string | string[]; expiresAt?: number }>();
+  private store = new Map<string, { value: string | string[] | Set<string>; expiresAt?: number }>();
   readonly stats = { commands: 0, bytesIn: 0, bytesOut: 0 };
 
   constructor(private readonly clock: () => number = () => Date.now()) {}
 
-  private live(key: string): { value: string | string[]; expiresAt?: number } | undefined {
+  private live(key: string): { value: string | string[] | Set<string>; expiresAt?: number } | undefined {
     const e = this.store.get(key);
     if (!e) return undefined;
     if (e.expiresAt !== undefined && this.clock() >= e.expiresAt) {
@@ -359,6 +387,49 @@ export class FakeRedis implements RedisLike {
     const out = from > to ? [] : e.value.slice(from, to + 1);
     for (const v of out) this.stats.bytesOut += Buffer.byteLength(v);
     return out;
+  }
+
+  /** SADD's rule: the members not yet in the set are added (a new set keeps no expiry; an existing one keeps its own). */
+  private added(key: string, members: readonly string[]): { set: Set<string>; added: number; expiresAt?: number } {
+    const e = this.live(key);
+    const set = e && e.value instanceof Set ? e.value : new Set<string>();
+    let added = 0;
+    for (const m of members) {
+      if (set.has(m)) continue;
+      set.add(m);
+      added++;
+    }
+    return { set, added, ...(e?.expiresAt !== undefined ? { expiresAt: e.expiresAt } : {}) };
+  }
+
+  async sadd(key: string, ...members: string[]): Promise<number> {
+    this.count(key, ...members);
+    if (!members.length) return 0;
+    const { set, added, expiresAt } = this.added(key, members);
+    this.store.set(key, { value: set, ...(expiresAt !== undefined ? { expiresAt } : {}) });
+    return added;
+  }
+
+  async smembers(key: string): Promise<string[]> {
+    this.count(key);
+    const e = this.live(key);
+    if (!e || !(e.value instanceof Set)) return [];
+    const out = [...e.value];
+    for (const v of out) this.stats.bytesOut += Buffer.byteLength(v);
+    return out;
+  }
+
+  /**
+   * RedisLike.saddExpire: the SADD and the PEXPIRE applied in one step (it never calls the single commands, so a test that
+   * makes one of them fail can't split it), its 2 commands counted as Upstash bills them.
+   */
+  async saddExpire(key: string, members: readonly string[], ttlMs: number): Promise<number> {
+    if (!members.length) return 0;
+    this.count(key, ...members);
+    this.count(key);
+    const { set, added } = this.added(key, members);
+    this.store.set(key, { value: set, expiresAt: this.clock() + Math.max(1, Math.ceil(ttlMs)) });
+    return added;
   }
 
   /** Keys currently stored and not expired (tests: e.g. assert no raw id reached a key). */

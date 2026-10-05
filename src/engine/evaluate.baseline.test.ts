@@ -105,6 +105,10 @@ describe("one baseline everywhere: the trade context's baseline odds are LeagueM
       const sim = I.sim as SimState;
       expect(model.odds).not.toBeNull();
       expect(sim).not.toBeNull();
+      // One ω (league.ts step 5c, the automatic playoff weight, planner reply to Checkpoint 7a, §6.1): the context measures
+      // it on the same seasons as the League model, so every ROS(T) behind the two baselines weighs the playoff weeks alike.
+      expect(model.playoffWeightAuto?.basis).toBe("auto");
+      expect(I.model.playoffWeightAuto).toEqual(model.playoffWeightAuto);
       if (c.live) expect(model.inProgressWeek).toBe(6);
       if (c.ir) expect(I.teams.some((t) => t.base.displaced.length > 0 || t.ir.length > 0)).toBe(true);
       // Somebody picks up a free agent, so the two baselines can differ at all.
@@ -170,6 +174,18 @@ describe("the two blocks of seasons: the final block first (the League model's o
     expect(sim.blocks.screen.z).toEqual(all.z.subarray(final * per, (final + screen) * per));
     // The screening block is other seasons: its baseline isn't the final one's.
     expect(sim.base.screen.pPlayoffs).not.toBe(sim.base.final.pPlayoffs);
+    // A block of the matrix drawn alone (sim.simNormals from a season on) is that block.
+    expect(simNormals(sim.seed, screen, Wk, T, final).z).toEqual(all.z.subarray(final * per, (final + screen) * per));
+    expect(simNormals(sim.seed, 3, Wk, T, 7).z).toEqual(all.z.subarray(7 * per, 10 * per));
+    // The final block is the automatic playoff weight's own draws (league.ts step 5c drew them: the same seed and seasons),
+    // so only the screening block is drawn for the context; without that measurement both are drawn, the same numbers.
+    const I = tradeInternals(ctx);
+    expect(I.league.playoffWeightAuto.basis).toBe("auto");
+    expect(sim.blocks.final).toBe(I.league.playoffWeightSim?.normals);
+    const fixed = tradeInternals(hand(undefined, undefined, { playoffWeightSims: 0 }));
+    expect(fixed.league.playoffWeightSim).toBeNull();
+    expect((fixed.sim as SimState).blocks.final.z).toEqual(sim.blocks.final.z);
+    expect((fixed.sim as SimState).blocks.screen.z).toEqual(sim.blocks.screen.z);
   });
 });
 
@@ -334,7 +350,7 @@ describe("the goal reaches benefit() (\"What matters most\", planner reply to Ch
   it("B is benefit() with the call's goal; the context's settings' goal when the call passes none", () => {
     const bs = GOALS.map((goal) => {
       const s = simulateTrade(I, x, "final", null, undefined, goal);
-      const b = benefit({ leagueType: "redraft", dPO: s.dPO, dCH: s.dCH, gMine: s.gMine, dynasty: null, myPPlayoffs: sim.base.final.pPlayoffs, lambda: null, kappa: protectValueWeight(I.settings.protectValue), goal });
+      const b = benefit({ leagueType: "redraft", dPO: s.dPO, dCH: s.dCH, gMine: s.gMine, dynasty: null, myPPlayoffs: sim.base.final.pPlayoffs, lambda: null, kappa: protectValueWeight(I.settings.protectValue), b3: s.b3, goal });
       expect(s.b, goal).toBe(b.b);
       expect(s.bWin, goal).toBe(b.bWin);
       const w = config.benefit.goals[goal];

@@ -18,7 +18,7 @@
  *
  * The event (FeedbackEvent, v 1), field by field: what the privacy page's "Anonymous feedback" lists in words, some fields
  * summarized with "such as" (src/app/privacy/PrivacyPolicy.tsx; review POL-9), each copy the whole record as it stands (a
- * later copy with the same rid replaces the earlier one when the copies are read: scripts/feedback-pull.ts):
+ * later copy with the same rid replaces the earlier one when the copies are read: scripts/feedback-report.ts):
  *   rid            the record's share id (feedbackStore.ts FeedbackRecord.rid): random, made in this browser, kept with the
  *                  record so a later press on it (Accepted after Sent) can be matched to the earlier copy
  *   kind           which buttons the press was ("outcome": Sent, Accepted, Rejected, Countered; "report": Report)

@@ -1500,12 +1500,13 @@ describe("Phase 4c: the card's words that the planner's reply to Checkpoint 4b c
 
 describe("the Helps you scale in the feedback's version inputs (Phase 7a, track FB; track SC's crossTrack)", () => {
   it("reads back every reason benefit.helpsScaleNotes writes, among other notes", () => {
-    const scales: Array<Pick<HelpsScale, "reason" | "oddsNamed" | "lambda" | "gainReads">> = [
-      { reason: "odds", oddsNamed: "title", lambda: null, gainReads: 63 },
-      { reason: "odds", oddsNamed: "playoff", lambda: 0.5, gainReads: 40 },
-      { reason: "lambda", oddsNamed: "title", lambda: 0.95, gainReads: 33 },
-      { reason: "lambda", oddsNamed: "playoff", lambda: 1, gainReads: 0 },
-      { reason: null, oddsNamed: "title", lambda: null, gainReads: 63 },
+    // Planner reply to Checkpoint 7a, §2 question 6: the floor's "odds" is the only reason the engine writes (Checkpoint 7a's
+    // "lambda" went with its λ cap).
+    const scales: Array<Pick<HelpsScale, "reason" | "oddsNamed">> = [
+      { reason: "odds", oddsNamed: "title" },
+      { reason: "odds", oddsNamed: "playoff" },
+      { reason: null, oddsNamed: "title" },
+      { reason: null, oddsNamed: "playoff" },
     ];
     for (const scale of scales) {
       const notes = ["Kickers and D/STs are left out; turn them on in Settings.", ...helpsScaleNotes(scale)];
@@ -1523,10 +1524,10 @@ describe("the Helps you scale in the feedback's version inputs (Phase 7a, track 
       ["full", 0.5, "odds"],
       ["planB", 0.5, "odds"],
     ]);
-    const stepped = steppedFull({ detail: { notes: helpsScaleNotes({ reason: "lambda", oddsNamed: "title", lambda: 0.95, gainReads: 33 }) } });
+    const stepped = steppedFull({ detail: { notes: helpsScaleNotes({ reason: "odds", oddsNamed: "playoff" }) } });
     expect(versionChoices(stepped, snapshot).map((v) => [v.version, v.inputs?.b3, v.inputs?.helpsReason])).toEqual([
-      ["offerFirst", FIXTURE_B3, "lambda"],
-      ["full", FIXTURE_B3, "lambda"],
+      ["offerFirst", FIXTURE_B3, "odds"],
+      ["full", FIXTURE_B3, "odds"],
     ]);
     // An evaluation without B₃ (made before Phase 7a): unknown.
     expect(versionChoices({ ...evaluation(), b3: null }, snapshot)[0]?.inputs).toMatchObject({ b3: null, helpsReason: null });

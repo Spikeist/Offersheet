@@ -6,7 +6,10 @@
  *
  * - streamPositions: the positions the user streams every week (§7 streaming positions): default K and
  *   DEF (config.streaming.defaultPositions); only config.streaming.streamable positions (K, DEF, QB, TE).
- * - playoffWeight: ω for playoff weeks in ROS (§7), default config.lineups.playoffWeight.
+ * - playoffWeight: ω for playoff weeks in ROS (§7) until the planner's reply to Checkpoint 7a (§6.1), default
+ *   config.lineups.playoffWeight. ⚠️ The engine no longer reads it: the League model sets ω itself from my odds under my goal
+ *   (league.ts step 5c, LeagueModel.playoffWeightAuto). The field stays, normalized as before, while the Settings page still
+ *   shows its control (a later track removes it); changing it changes no number.
  * - lambda: §10's Win now (0) ↔ Future (1) slider for dynasty and keeper leagues; null = the default by
  *   my P(playoffs) (config.benefit.lambda).
  * - maxPerSide: 2 by default, up to config.search.maxPerSideAllowed (3).
@@ -17,18 +20,22 @@
  * - includePicks: include draft picks (dynasty and keeper leagues; off by default: ⚠️ pick values are
  *   unverified on a live dynasty league).
  * - protectValue: "Protect my trade value" (planner addendum to Checkpoint 3, §3): how much B charges for giving up
- *   more trade value than I get, κ in B = B_win + κ × clamp(g_mkt(me)) (redraft leagues; config.benefit.protectValue:
- *   low 2, medium 4 (the default), high 8). Dynasty and keeper leagues have no market term in B (B_future carries the
- *   value change), so the Settings page offers it in redraft leagues only.
+ *   more trade value than I get, in lineup points since the planner's reply to Checkpoint 7a (§2 question 5): κ points a week
+ *   per 100% of trade value in B = B_win + (B₃ / 3) × κ × clamp(g_mkt(me)) (redraft leagues; config.benefit.protectValue:
+ *   low 1, medium 2 (the default), high 4; benefit.ts's header). Dynasty and keeper leagues have no market term in B
+ *   (B_future carries the value change), so the Settings page offers it in redraft leagues only.
  * - goal: "What matters most" (planner reply to Checkpoint 4b, change 8): B's weights on ΔPO and ΔCH
- *   (config.benefit.goals: "title" 0.15 / 0.85, the default; "balanced" 0.35 / 0.65; "playoffs" 0.70 / 0.30).
+ *   (config.benefit.goals: "title" 0.15 / 0.85, the default; "balanced" 0.35 / 0.65; "playoffs" 0.70 / 0.30). Since the
+ *   planner's reply to Checkpoint 7a (§6.1) the League model reads it too: the automatic playoff-week weight weighs my odds
+ *   by it (league.ts step 5c), so it is one of the settings the League model is built with (src/lib/settingsStore.ts
+ *   LEAGUE_MODEL_SETTINGS).
  * - minChance: the Trade Finder's "Chance they accept: at least …" filter on P_complete (change 10): one of
  *   config.ranking.minChanceOptions (0 = Any), default config.ranking.minChanceDefault (10%).
  */
 import { config } from "./config";
 import { POSITIONS, type Pos } from "./model";
 
-/** "Protect my trade value" levels (config.benefit.protectValue gives each one's κ). */
+/** "Protect my trade value" levels (config.benefit.protectValue gives each one's κ, points a week per 100% of trade value). */
 export const PROTECT_VALUE_LEVELS = ["low", "medium", "high"] as const;
 export type ProtectValue = (typeof PROTECT_VALUE_LEVELS)[number];
 
@@ -39,6 +46,7 @@ export type Goal = (typeof GOALS)[number];
 export interface TradeSettings {
   version: 1;
   streamPositions: Pos[];
+  /** ⚠️ Not read by the engine since the planner's reply to Checkpoint 7a, §6.1 (the header): ω is set automatically. */
   playoffWeight: number;
   lambda: number | null;
   maxPerSide: number;
@@ -75,7 +83,7 @@ export function defaultTradeSettings(): TradeSettings {
   };
 }
 
-/** Playoff weights the setting accepts (a display range for the slider; outside it the default is used). */
+/** Playoff weights the (no longer read) setting accepts (a display range for the Settings control; outside it the default is used). */
 export const PLAYOFF_WEIGHT_RANGE: readonly [number, number] = [1, 2];
 
 const POS_SET: ReadonlySet<string> = new Set(POSITIONS);

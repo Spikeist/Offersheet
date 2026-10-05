@@ -121,6 +121,41 @@ describe("the Upstash client getRedis builds (no network: the SDK's fetch is stu
     await expect(client?.incrExpire([{ key: "k", by: 1, ttlMs: 10 }])).rejects.toThrow();
   });
 
+  it("sends saddExpire as one MULTI/EXEC transaction (planner reply to Checkpoint 7a, §6.3): SADD and PEXPIRE in one request to /multi-exec; SADD and SMEMBERS as plain commands", async () => {
+    const sent: { url: string; body: unknown }[] = [];
+    let answer: unknown = [{ result: 2 }, { result: 1 }];
+    vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body)) as unknown;
+      sent.push({ url: String(url), body });
+      const commands = String(url).endsWith("/pipeline") ? (body as unknown[][]) : null;
+      const reply = (c: unknown[]) => ({ result: c[0] === "smembers" ? ["redraft-1qb-10team-ppr1", "dynasty-2qb-12team-ppr1"] : c[0] === "sadd" ? 1 : "OK" });
+      const out = String(url).endsWith("/multi-exec") ? answer : commands ? commands.map(reply) : reply(body as unknown[]);
+      return new Response(JSON.stringify(out), { status: 200, headers: { "content-type": "application/json" } });
+    });
+    const client = getRedis(env);
+    expect(await client?.saddExpire("os:production:fc-formats:2026-10-05", ["redraft-1qb-10team-ppr1", "dynasty-2qb-12team-ppr1"], 259_200_000.5)).toBe(2);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.url.endsWith("/multi-exec")).toBe(true);
+    expect(sent[0]?.body).toEqual([
+      ["sadd", "os:production:fc-formats:2026-10-05", "redraft-1qb-10team-ppr1", "dynasty-2qb-12team-ppr1"],
+      ["pexpire", "os:production:fc-formats:2026-10-05", 259_200_001],
+    ]);
+    // Nothing to add: no request.
+    expect(await client?.saddExpire("k", [], 1_000)).toBe(0);
+    expect(await client?.sadd("k")).toBe(0);
+    expect(sent).toHaveLength(1);
+    expect(await client?.sadd("os:production:snap:fc-index:2026", "2026-10-05/redraft-1qb-10team-ppr1")).toBe(1);
+    expect(await client?.smembers("os:production:fc-formats:2026-10-05")).toEqual(["redraft-1qb-10team-ppr1", "dynasty-2qb-12team-ppr1"]);
+    const commands = sent.slice(1).flatMap((s) => (s.url.endsWith("/pipeline") ? (s.body as unknown[][]) : [s.body as unknown[]]));
+    expect(commands).toEqual([
+      ["sadd", "os:production:snap:fc-index:2026", "2026-10-05/redraft-1qb-10team-ppr1"],
+      ["smembers", "os:production:fc-formats:2026-10-05"],
+    ]);
+    // A command that failed inside the transaction rejects.
+    answer = [{ result: 1 }, { error: "ERR something" }];
+    await expect(client?.saddExpire("k", ["a"], 10)).rejects.toThrow();
+  });
+
   it("retries a network error only redisClientLimits.retries times, briefly (review CA-1: the SDK's default was 5 retries over about 4 s), then rejects", async () => {
     let attempts = 0;
     vi.stubGlobal("fetch", async () => {
@@ -214,6 +249,29 @@ describe("FakeRedis", () => {
     now = 100;
     expect(r.keys()).toEqual([]);
     expect(await r.incrExpire([{ key: "a", by: 1, ttlMs: 10 }])).toEqual([1]); // "a" was gone: it starts again
+  });
+
+  it("sets: SADD adds only new members (keeping a set's expiry), SMEMBERS lists them, saddExpire adds and sets the expiry in one step (2 commands)", async () => {
+    let now = 0;
+    const r = new FakeRedis(() => now);
+    expect(await r.sadd("s", "a", "b", "a")).toBe(2);
+    expect(await r.sadd("s", "b", "c")).toBe(1);
+    expect((await r.smembers("s")).sort()).toEqual(["a", "b", "c"]);
+    expect(await r.smembers("missing")).toEqual([]);
+    expect(await r.get("s")).toBeNull(); // a set isn't a string
+    const before = r.stats.commands;
+    expect(await r.saddExpire("t", ["x", "y"], 100)).toBe(2);
+    expect(r.stats.commands - before).toBe(2);
+    expect(r.ttlMs("t")).toBe(100);
+    now = 50;
+    expect(await r.saddExpire("t", ["y", "z"], 100)).toBe(1);
+    expect(r.ttlMs("t")).toBe(100); // set again: until 150 now
+    expect(await r.sadd("t", "w")).toBe(1);
+    expect(r.ttlMs("t")).toBe(100); // a plain SADD keeps it
+    expect(await r.saddExpire("t", [], 5)).toBe(0);
+    now = 150;
+    expect(r.keys()).toEqual(["s"]);
+    expect(await r.smembers("t")).toEqual([]);
   });
 
   it("lpushTrimExpire: the push, the trim to the newest `keep` and the expiry in one step, counted as 3 commands", async () => {

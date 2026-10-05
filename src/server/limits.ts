@@ -70,6 +70,11 @@ export const rateLimits = {
   /** /api/health (planner reply to Checkpoint 7a, §1): a check by hand, so a few a minute is plenty. */
   health: { limit: 12, windowS: 600 },
   /**
+   * /api/cron/snapshot (planner reply to Checkpoint 7a, §6.3): Vercel's cron calls it once a day, and a local test a few
+   * times; anything more is someone guessing at CRON_SECRET (the route answers 401 and does nothing).
+   */
+  cron: { limit: 10, windowS: 600 },
+  /**
    * IPv6 (review SEC-2): a /64 is one client, but a household gets a /56 and a free tunnel broker a /48 (65,536 /64s), so
    * each IPv6 request also counts against its address's /48, at this many times the /64's limit (a phone carrier's pool can
    * put many subscribers in one /48, so it can't be one client's limit). IPv4 addresses are scarce: one address, one count.
@@ -94,7 +99,19 @@ export const rateLimits = {
  * every instance; without Redis (local, or Redis down) each process counts its own.
  */
 export const budgets = {
-  perDay: { espn: 4_000, sleeper: 15_000, fantasycalc: 200, github: 100 },
+  /**
+   * FantasyCalc (planner reply to Checkpoint 7a, §5.4; reports/fantasycalc-permission.md): its own rule, each format's list
+   * at most once every 3 hours and only on demand, is kept per format by the cache (src/server/cache.ts TTL.fantasyCalc)
+   * and its single-flight lock, and by the gate's memory of answers the checks turned down (src/data/fantasyCalcValues.ts).
+   * So this day's budget is only the guard against a bug, sized to that rule's own bound (review of Checkpoint 7b's server
+   * work: at 400, anyone could spend the day's budget by asking for League pages in format after format, each refresh within
+   * the rule, and leave everyone's builds without values): the 144 formats a league can ask for (src/server/snapshots.ts
+   * parseFormatKey) refreshed every 3 hours are at most 144 × (⌊h / 3⌋ + 1) requests by hour h of a UTC day, 1,152 by its
+   * end, and the day's slices (below) open max((⌊h / 2⌋ + 1) / 12, 1/4) of the budget by then, so the budget must be at least
+   * 1,383 (the tightest moment: 9:00 UTC, 576 requests against 5 slices' share); 1,500 leaves room for retries. It was 200
+   * while a list was kept a day, then 400.
+   */
+  perDay: { espn: 4_000, sleeper: 15_000, fantasycalc: 1_500, github: 100 },
   /**
    * On Vercel only: each client's share of a platform's day, counted on league requests only (league-independent data is
    * fetched once for everyone), so a few clients can't spend the whole day's budget for everyone. About 30 cold server-side
@@ -189,6 +206,12 @@ export const deadlines = {
   sessionMs: 10_000,
   feedbackMs: 10_000,
   healthMs: 10_000,
+  /**
+   * The daily snapshot cron (planner reply to Checkpoint 7a, §6.3; src/server/snapshots.ts): Sleeper's NFL state and the NFL
+   * schedule (usually cached), two weeks of Sleeper's projections and at most snapshotLimits.fantasyCalcFormatsPerDay
+   * FantasyCalc lists, one request at a time; well under a minute when the sources answer.
+   */
+  cronMs: 110_000,
   /** No outbound attempt starts with less time than this left (it couldn't finish anyway); the answer so far is used. */
   minAttemptMs: 1_000,
   /**
@@ -332,13 +355,77 @@ export const logLimits = {
 } as const;
 
 /**
+ * The beta's usage counters (planner reply to Checkpoint 7a, §2 question 7: "Usage check: add npm run usage:report"; §5.4:
+ * FantasyCalc's sessions; src/server/usage.ts, read by `npm run usage:report -- --live`, scripts/usage-report.ts): one key per
+ * counter and UTC day in the shared store (Vercel only), no identifiers. A request that counts something costs one more
+ * transaction after its answer, two Upstash commands per counter it touched (a League page build usually 2 counters, an
+ * import 2: about 8 commands a session).
+ */
+export const usageLimits = {
+  /** A counter's key lives this long after its day's last count (the report reads 30 days and the month to date). */
+  retainDays: 400,
+  /** The after-response write gives up after this long (it never delays an answer; its counts are then dropped). */
+  writeTimeoutMs: 2_000,
+  /**
+   * Counts this process holds (every refusal; whatever is counted after a request's write) go out with the next request
+   * that writes anyway, else with the first request at least this long after their last write: a flood of refused requests
+   * costs at most one write this often per instance.
+   */
+  heldWriteEveryMs: 5 * 60_000,
+  /**
+   * FantasyCalc's free use (reports/fantasycalc-permission.md, their reply of 2026-10-05): about 10,000 sessions a month
+   * (a session: a League page model build answered); the report warns from 8,000, so Parker can write to them first.
+   */
+  fantasyCalcSessionsPerMonth: 10_000,
+  fantasyCalcSessionsWarnAt: 8_000,
+} as const;
+
+/**
+ * The daily snapshot cron (planner reply to Checkpoint 7a, §6.3: "a daily Vercel cron at 0 20 * * * … checks CRON_SECRET,
+ * takes a lock, and is idempotent … Upstash, compressed, kept up to 2 seasons"; src/server/snapshots.ts, the route
+ * src/app/api/cron/snapshot, its rate limit rateLimits.cron and its deadline deadlines.cronMs). Public data only: Sleeper's
+ * weekly projections and FantasyCalc's value lists, nothing about any league.
+ *
+ * Storage (gzip, then base64 in a string value; measured offline on the local archives and the Phase 0 captures): a week of
+ * projections for all nine positions is 37–39 KB gzip, about 52 KB stored, and one key per NFL week holds it, so at most
+ * about 0.95 MB a season; a list is about 6.2 KB stored (redraft, about 197 players) or 11.6 KB (dynasty, about 395), so a
+ * day at the cap is 74–139 KB. Two seasons at the cap every single day, dynasty lists only, would be about 105 MB of the
+ * free plan's 256 MB (next to the feedback store's bound, about 75 MB, and the cache's few MB). ⚠️ Real use is far less: a
+ * format is saved only on a day after someone's League page read it (yesterday or today), so about 12 lists a day in season
+ * and a few out of it come to about 20 MB a year, about 40 MB for the two seasons kept.
+ */
+export const snapshotLimits = {
+  /** A run's lock (SET NX PX), longer than any run (the route's maxDuration), so an overlapping delivery finds it taken. */
+  lockMs: 10 * 60_000,
+  /**
+   * FantasyCalc formats looked at a UTC day at most (each a list read, from the cache when it holds today's, and saved); past
+   * it the formats in use take turns, the longest unsaved first (src/server/snapshots.ts formatsToSave).
+   */
+  fantasyCalcFormatsPerDay: 12,
+  /** A saved snapshot is kept this long after its last write: two seasons. */
+  retainDays: 730,
+  /** The model builds' record of the formats they read, a set per UTC day, kept this long (the cron reads today's and yesterday's). */
+  formatsInUseRetainDays: 3,
+  /** Each store command (GET, SET, SMEMBERS …) waits at most this long; a slower one fails it and the run's later ones. */
+  redisTimeoutMs: 5_000,
+  /**
+   * No FantasyCalc format is started with less of the run's deadline (deadlines.cronMs) left than this: one list's request
+   * (FantasyCalc's own timeout is longer, but the HTTP client caps it at the time left) and its save; the rest wait a day.
+   */
+  listMinTimeLeftMs: 15_000,
+  /** The largest value written (base64 of the gzip; a real week of projections is about 52 KB): an unexpected giant isn't stored. */
+  maxValueChars: 1_000_000,
+} as const;
+
+/**
  * The anonymous feedback store (track FB; src/server/feedbackSink.ts, the route src/app/api/feedback; its rate limit is
  * rateLimits.feedback, its deadline deadlines.feedbackMs). With Redis on Vercel, one list per UTC day of arrival
  * (`prefix + "fb:" + YYYY-MM-DD`; final review SEC-3: a month's list kept its newest 5,000, so 84 IPv6 /64s at the hourly
  * limit could push a month's real outcomes out with forged copies; now a flood crowds out its own day at most): each copy
  * LPUSHed, the list trimmed to its newest maxPerDay and its expiry reset to retainDays, in one transaction (3 commands a
- * copy; review FB-R5), so a day's list goes a year after that day (the privacy page's words); `npm run feedback:pull`
- * deletes its downloaded copies by the same rule (review FB-R2) and flags days with unusual counts for Phase 6 to drop or
+ * copy; review FB-R5), so a day's list goes a year after that day (the privacy page's words; planner reply to Checkpoint
+ * 7a, §4 privacy item 3: "up to 12 months, then delete it"); `npm run feedback:report -- --live` reads the lists straight from
+ * the store and saves only aggregate counts (never a copy), flagging days with unusual counts for Phase 6 to drop or
  * down-weight. Each client (an IPv4 address or IPv6 /64) may send perClientPerDay copies a UTC day and each group (an IPv4
  * /24 or IPv6 /48) perGroupPerDay; past either the route answers RATE_LIMITED until the day ends.
  * ⚠️ A year is the lead's design, a question for Parker at Checkpoint 7a. The store's bound (final review F4): at most

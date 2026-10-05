@@ -38,6 +38,7 @@ import { FeedbackEventSchema, feedbackStoreFor, fitsFeedbackStore, refusedCopyCo
 import { feedbackLimits } from "@/server/limits";
 import { logEvent } from "@/server/log";
 import type { RedisLike } from "@/server/redis";
+import { noteRefusal } from "@/server/usage";
 import { errorResponse, jsonResponse, readJsonBody } from "../_lib/respond";
 
 export interface FeedbackHandlerDeps {
@@ -94,6 +95,7 @@ export function createFeedbackHandler(deps: FeedbackHandlerDeps = {}): (request:
         verdict = typeof v === "string" ? v : await v;
       }
       if (verdict !== "ok") {
+        noteRefusal("refused_visitor", now);
         const retryAfterS = secondsUntilUtcMidnight(now);
         return errorResponse("RATE_LIMITED", errorMessage("RATE_LIMITED", { retryAfterS }), new Headers({ "retry-after": String(retryAfterS) }));
       }

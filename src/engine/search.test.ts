@@ -218,15 +218,28 @@ describe("\"Protect my trade value\" per call (planner addendum to Checkpoint 3,
     expect(r).toEqual(runTradeSearch(ctxHigh, { settings: high }));
     expect(r.trades.length).toBeGreaterThan(0);
     const [lo, hi] = config.benefit.marketSanityClamp;
-    // B's market term reads g_mkt(me), the card's own, every player at max(v, W) (planner reply to Checkpoint 4, change 4).
+    // B's market term reads g_mkt(me), the card's own, every player at max(v, W) (planner reply to Checkpoint 4, change 4),
+    // priced on the card's B₃ (planner reply to Checkpoint 7a, §2 question 5).
     for (const t of r.trades) {
       expect(t.gMine).toBe(tradePackage({ players: ids(t, "get") }, { players: ids(t, "give") }, I.values, I.credit).g);
-      expect(t.b as number).toBeCloseTo((t.bWin as number) + config.benefit.protectValue.high * Math.min(hi, Math.max(lo, t.gMine)), 12);
+      expect(t.b as number).toBeCloseTo((t.bWin as number) + ((t.b3 as number) / config.benefit.helpsGain) * config.benefit.protectValue.high * Math.min(hi, Math.max(lo, t.gMine)), 12);
+      expect(t.marketWeekly as number).toBeCloseTo(config.benefit.protectValue.high * Math.min(hi, Math.max(lo, t.gMine)), 12);
     }
-    // The level moves trades in and out: the high list isn't the medium one. (Since Phase 4c's matched pairs, the neutral
-    // throw-in rule's second step, as many evaluated trades stop helping at high as at medium on this league, 7 each, where
-    // Phase 4c's first rule alone hid 9 and 18; the lists still differ: 11 cards at medium, 9 at high.)
-    expect(r.trades.map((t) => t.key)).not.toEqual(fullSearch().result.trades.map((t) => t.key));
+    // The level changes the numbers: the same cards read another B at high than at medium (the context's level), so a search
+    // that read the context's level would show. (Since the planner's reply to Checkpoint 7a, §2 question 5, high charges 4
+    // points a week per 100% of trade value and medium 2, priced on this league's B₃; on this league both levels show the same
+    // cards in the same order. Before, κ 8 against 4 in B units showed 9 cards against 11.)
+    const medium = fullSearch().result;
+    const both = r.trades.flatMap((t) => {
+      const m = medium.trades.find((x) => x.key === t.key);
+      return m ? [{ t, m }] : [];
+    });
+    expect(both.length).toBeGreaterThan(0);
+    expect(both.some(({ t, m }) => t.gMine !== 0 && t.b !== m.b)).toBe(true);
+    for (const { t, m } of both) {
+      expect(t.bWin, t.key).toBe(m.bWin);
+      expect(t.marketWeekly as number, t.key).toBeCloseTo(2 * (m.marketWeekly as number), 12);
+    }
   });
 });
 
@@ -241,6 +254,8 @@ describe("B's market term in both of the search's simulations: every player at m
   const kappa = config.benefit.protectValue[settings.protectValue];
   const [lo, hi] = config.benefit.marketSanityClamp;
   const clampG = (g: number) => Math.min(hi, Math.max(lo, g));
+  /** B's market term on an evaluation's own scale (planner reply to Checkpoint 7a, §2 question 5): (B₃ / 3) × κ × clamp(g). */
+  const termOf = (c: { b3: number | null }, g: number) => ((c.b3 as number) / config.benefit.helpsGain) * kappa * clampG(g);
   let result: TradeSearchResult | null = null;
   const run = () => (result ??= runTradeSearch(hctx, { partnerId: "4", settings }));
   /** g_mkt(me) without the floor, by hand (each player at his own value, W per open spot): the reading before change 4. */
@@ -251,7 +266,7 @@ describe("B's market term in both of the search's simulations: every player at m
     return (r - g) / g;
   };
 
-  it("the final simulation: every shown trade's B is B_win + κ × clamp(g_mkt(me)), the card's g, every player floored at W", () => {
+  it("the final simulation: every shown trade's B is B_win + (B₃ / 3) × κ × clamp(g_mkt(me)), the card's g, every player floored at W", () => {
     expect(HI.values.rc1 as number).toBeLessThan(HI.credit);
     const r = run();
     expect(r.trades.length).toBeGreaterThan(0);
@@ -263,7 +278,7 @@ describe("B's market term in both of the search's simulations: every player at m
       expect(t.gMine, t.key).toBe(floored);
       // The floor moves g on every trade here, so the unfloored g would give another B.
       expect(Math.abs(unflooredG(get, give) - floored), t.key).toBeGreaterThan(0.01);
-      expect(t.b as number, t.key).toBeCloseTo((t.bWin as number) + kappa * clampG(floored), 12);
+      expect(t.b as number, t.key).toBeCloseTo((t.bWin as number) + termOf(t, floored), 12);
     }
   });
 
@@ -296,7 +311,7 @@ describe("B's market term in both of the search's simulations: every player at m
     const side = (c: TradeEvaluationCore, s: "give" | "get") => c.proposal[s].flatMap((a) => (a.kind === "player" ? [a.id] : []));
     cores.forEach((c, i) => {
       expect(c.gMine, c.key).toBe(tradePackage({ players: side(c, "get") }, { players: side(c, "give") }, HI.values, HI.credit).g);
-      expect(c.b as number, c.key).toBeCloseTo((c.bWin as number) + kappa * clampG(c.gMine), 12);
+      expect(c.b as number, c.key).toBeCloseTo((c.bWin as number) + termOf(c, c.gMine), 12);
       const other = screen(rawOf(exact[i] as ExactTrade));
       expect(other.bWin, c.key).toBe(c.bWin);
       expect(Math.abs((other.b as number) - (c.b as number)), c.key).toBeGreaterThan(0);

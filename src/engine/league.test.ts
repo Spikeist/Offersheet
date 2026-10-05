@@ -1687,8 +1687,22 @@ describe("edge cases", () => {
     expect(buildLeagueModel(league.snapshot, league.inputs, { now: TEST_NOW, scenarios: 4 }).timings).toEqual({});
     let t = 0;
     const timings = buildLeagueModel(league.snapshot, league.inputs, { now: TEST_NOW, scenarios: 4, clock: () => (t += 1) }).timings;
-    expect(Object.keys(timings)).toEqual(["projections", "availability scenarios", "market values", "streaming", "EV lineups and the free-agent optimizer", "scenario lineups and marginal values", "teams after their pickups", "trade chips", "needs and partners", "season simulation", "total"]);
-    expect(timings.total).toBe(10);
+    expect(Object.keys(timings)).toEqual([
+      "projections",
+      "availability scenarios",
+      "market values",
+      "streaming",
+      "teams as they stand",
+      "playoff weight",
+      "EV lineups and the free-agent optimizer",
+      "scenario lineups and marginal values",
+      "teams after their pickups",
+      "trade chips",
+      "needs and partners",
+      "season simulation",
+      "total",
+    ]);
+    expect(timings.total).toBe(12);
     // No simulation (sims 0): no stage for it, and no odds.
     const none = buildLeagueModel(league.snapshot, league.inputs, { now: TEST_NOW, scenarios: 4, sims: 0, clock: () => (t += 1) });
     expect(Object.keys(none.timings)).not.toContain("season simulation");
@@ -1783,6 +1797,11 @@ describe("Parker's league (committed sanitized ESPN fixture) with synthetic inpu
 
   it("no lineup cost is below 0, and every free-agent move adds a free agent (never K or DEF), worth faMinGain, at most faMaxMoves a team", () => {
     const freeAgents = new Set(snapshot.freeAgents);
+    // ⚠️ But for a near-tie's cheaper cut (optimizer.ts's header; TeamModel.faMoves): a pickup whose best cut is worth more
+    // than W may cut a cheaper player instead, gaining up to config.lineups.dropNearTieWeekly a week less (× Σ ω), and more
+    // than 0. With the automatic playoff weight (step 5c) this fixture has one (team 4).
+    const { weights } = teamWeeks(model, model.inProgressWeek, { ...config.lineups, playoffWeight: model.playoffWeight });
+    const nearTie = nearTieRos(config.lineups.dropNearTieWeekly, weights);
     for (const t of model.teams) {
       for (const [id, v] of Object.entries(t.players)) {
         expect(v.mvLoseEv, `${t.id} ${id}`).toBeGreaterThanOrEqual(0);
@@ -1794,7 +1813,10 @@ describe("Parker's league (committed sanitized ESPN fixture) with synthetic inpu
         expect(freeAgents.has(m.add), m.add).toBe(true);
         expect(config.streaming.optimizerExcluded).not.toContain(snapshot.players[m.add]?.pos);
         // Judged in scenario lineups when they ran (review of track E, item 1).
-        expect(model.scenarios > 0 ? (m.gainScen as number) : m.gainEv).toBeGreaterThanOrEqual(config.freeAgentOptimizer.faMinGain - 1e-9);
+        const gain = model.scenarios > 0 ? (m.gainScen as number) : m.gainEv;
+        expect(gain).toBeGreaterThan(0);
+        // faMinGain under the model's ω (step 5c: config's × Σω ÷ Σω₀, LeagueModel.lineupThresholds).
+        expect(gain).toBeGreaterThanOrEqual((model.lineupThresholds?.faMinGain as number) - nearTie - 1e-9);
         if (m.drop !== null) expect(roster, m.drop).toContain(m.drop);
         else expect(roster.length).toBeLessThan(snapshot.settings.maxRosterSize);
         roster = applyStep(roster, m);
@@ -1817,6 +1839,9 @@ describe("Parker's league (committed sanitized ESPN fixture) with synthetic inpu
   });
 
   it("every trade chip is an active-roster player trade search includes, worth at least chipMinGap more to another team; biggest gap first", () => {
+    // chipMinGap under the model's ω (step 5c: config's × Σω ÷ Σω₀, LeagueModel.lineupThresholds).
+    const minGap = model.lineupThresholds?.chipMinGap as number;
+    expect(minGap).toBeCloseTo(config.needs.chipMinGap * (model.lineupThresholds?.scale as number), 12);
     let chips = 0;
     for (const t of model.teams) {
       const roster = snapshot.teams.find((x) => x.id === t.id)?.roster ?? [];
@@ -1826,7 +1851,7 @@ describe("Parker's league (committed sanitized ESPN fixture) with synthetic inpu
         expect(config.market.tradeSearchExcluded, c.playerId).not.toContain(snapshot.players[c.playerId]?.pos);
         expect(c.bestTeamId).not.toBe(t.id);
         expect(c.gap).toBeCloseTo(c.maxOther - c.cost, 9);
-        expect(c.gap).toBeGreaterThanOrEqual(config.needs.chipMinGap - 1e-9);
+        expect(c.gap).toBeGreaterThanOrEqual(minGap - 1e-9);
         expect(c.cost).toBeCloseTo(t.players[c.playerId]?.mvLoseScen as number, 9);
         if (i > 0) expect(t.chips[i - 1]?.gap as number).toBeGreaterThanOrEqual(c.gap - 1e-9);
       });
@@ -2099,36 +2124,40 @@ describe("streaming positions (§7; planner reply to Checkpoint 3, model change 
     expect(over.streaming.picks).toEqual([]);
   });
 
-  it("settings plumbing: my streamed positions and the playoff weight come from opts.settings (normalized), defaulting to K and D/ST and the config's weight", () => {
+  it("settings plumbing: my streamed positions come from opts.settings (normalized), defaulting to K and D/ST; the old playoff-weight setting isn't read (ω is step 5c's: here its fallback, the config's weight)", () => {
     const league = buildTestLeague({ teams: [team("1", starters("1")), team("2", starters("2"))], freeAgents: [...faKs(), p("fa-def", "DEF", 6), p("fa-qb", "QB", 12)], byeWeek: BYES });
     const dflt = buildLeagueModel(league.snapshot, league.inputs, OPTS, NO_RISK);
     expect(dflt.playoffWeight).toBe(config.lineups.playoffWeight);
+    // sims 0: no odds to measure ω on (planner reply to Checkpoint 7a, §6.1), so the fallback.
+    expect(dflt.playoffWeightAuto).toEqual({ omega: config.lineups.playoffWeight, basis: "fallback", reason: "noOdds", goal: "title", gain: config.lineups.playoffWeightAuto.gain, sims: 0, regularPerPoint: null, playoffPerPoint: null, ratio: null, clamped: null, runs: null });
     expect(dflt.streaming.byTeam["1"]).toMatchObject({ positions: ["K", "DEF"], source: "setting" });
     expect(modelSettings(undefined)).toEqual(defaultTradeSettings());
-    // A playoff weight of 1.5 and K + QB (listed in position order).
+    // A playoff weight of 1.5 (ignored now) and K + QB (listed in position order).
     const custom = buildLeagueModel(league.snapshot, league.inputs, { ...OPTS, settings: { ...defaultTradeSettings(), playoffWeight: 1.5, streamPositions: ["K", "QB"] } }, NO_RISK);
-    expect(custom.playoffWeight).toBe(1.5);
+    expect(custom.playoffWeight).toBe(config.lineups.playoffWeight);
     expect(custom.streaming.byTeam["1"]?.positions).toEqual(["QB", "K"]);
     const t1 = teamOf(custom, "1");
-    expect(t1.ev.ros).toBeCloseTo(rosValue(t1.ev.lv, weekWeights(custom.weeks, custom.regularWeeks, custom.playoffWeeks, { playoffWeight: 1.5 })), 9);
-    expect(t1.ev.ros).not.toBeCloseTo(rosValue(t1.ev.lv, weekWeights(custom.weeks, custom.regularWeeks, custom.playoffWeeks)), 3);
-    // Bad values fall back to their defaults (settings.ts normalizeTradeSettings): a weight out of range, RB (not streamable), a duplicate.
+    expect(t1.ev.ros).toBeCloseTo(rosValue(t1.ev.lv, weekWeights(custom.weeks, custom.regularWeeks, custom.playoffWeeks)), 9);
+    expect(t1.ev.ros).not.toBeCloseTo(rosValue(t1.ev.lv, weekWeights(custom.weeks, custom.regularWeeks, custom.playoffWeeks, { playoffWeight: 1.5 })), 3);
+    // Bad values fall back to their defaults (settings.ts normalizeTradeSettings): RB (not streamable), a duplicate.
     const bad = buildLeagueModel(league.snapshot, league.inputs, { ...OPTS, settings: { ...defaultTradeSettings(), playoffWeight: 7, streamPositions: ["RB", "K", "K"] } }, NO_RISK);
     expect(bad.playoffWeight).toBe(config.lineups.playoffWeight);
     expect(bad.streaming.byTeam["1"]?.positions).toEqual(["K"]);
-    // Without settings, a config tuned for calibration keeps its own playoff weight.
+    // A config tuned for calibration keeps its own fallback weight.
     const tuned: LeagueModelConfig = { ...NO_RISK, lineups: { ...NO_RISK.lineups, playoffWeight: 2 } };
     expect(buildLeagueModel(league.snapshot, league.inputs, OPTS, tuned).playoffWeight).toBe(2);
   });
 
-  it("chip display (L5): cost per week = cost ÷ Σ ω over the weeks team numbers count (the setting's playoff weight, a week in progress left out); starter = in his team's EV lineup in at least half of the counted weeks he plays", () => {
+  it("chip display (L5): cost per week = cost ÷ Σ ω over the weeks team numbers count (the model's ω, a week in progress left out); starter = in his team's EV lineup in at least half of the counted weeks he plays", () => {
     // Bo Nix behind Josh Allen: team 1's 25-point QB and an 18-point backup; team 2's QB scores 10. All play tonight.
     const withQb = (t: string, qb: number) => starters(t).map((x) => ({ ...x, nflTeam: "LAT", ...(x.pos === "QB" ? { points: qb } : {}) }));
     const league = buildTestLeague({ teams: [team("1", [...withQb("1", 25), p("1-qb2", "QB", 18, { nflTeam: "LAT" })]), team("2", withQb("2", 10))], kickoffs: { 4: { EAR: "2026-09-29T17:00:00.000Z", LAT: "2026-09-30T00:15:00.000Z" } } });
-    // A game has kicked off (EAR's): week 4 is in progress, so Σ ω = 10 regular-season weeks + 3 playoff weeks × 1.5.
+    // A game has kicked off (EAR's): week 4 is in progress, so Σ ω = 10 regular-season weeks + 3 playoff weeks × ω (here the
+    // fallback weight: no simulation; the old setting of 1.5 isn't read).
     const model = buildLeagueModel(league.snapshot, league.inputs, { ...OPTS, scenarios: 8, settings: { ...NO_STREAMING, playoffWeight: 1.5 } }, NO_RISK);
     expect(model.inProgressWeek).toBe(4);
-    const omega = 10 + 3 * 1.5;
+    expect(model.playoffWeight).toBe(config.lineups.playoffWeight);
+    const omega = 10 + 3 * model.playoffWeight;
     const chips = teamOf(model, "1").chips;
     expect(chips.find((c) => c.playerId === "1-qb")).toMatchObject({ cost: expect.closeTo(7 * omega, 9), costPerWeek: expect.closeTo(7, 9), starter: true });
     expect(chips.find((c) => c.playerId === "1-qb2")).toMatchObject({ cost: expect.closeTo(0, 9), costPerWeek: expect.closeTo(0, 9), starter: false });

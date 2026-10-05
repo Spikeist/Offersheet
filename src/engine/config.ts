@@ -188,7 +188,24 @@ export const config = {
 
   /** §7 Lineups, team strength and needs. */
   lineups: {
+    /**
+     * ω, the weight of a playoff week in every ROS(T) and lineup-point number (§7): until the planner's reply to Checkpoint 7a
+     * (§6.1) the user's setting, default 1.25. Since then the League model sets ω itself (playoffWeightAuto, below; league.ts
+     * step 5c), and this is the fallback when it can't be measured (no team picked, no odds, title odds unknown, no
+     * regular-season or no playoff week left to count, or my odds don't move) and the weight the measurement's own baseline
+     * reads (ω₀: the IR returners' roster spots, step 5c).
+     */
     playoffWeight: 1.25,
+    /**
+     * The automatic playoff-week weight (planner reply to Checkpoint 7a, §6.1; league.ts step 5c, LeagueModel.playoffWeightAuto):
+     * ω = (B per point in playoff weeks) ÷ (B per point in regular-season weeks), for my team under my goal ("What matters
+     * most", TradeSettings.goal), from two extra season simulations on the headline's seasons (common random numbers): my
+     * weekly score + `gain` points in the remaining regular-season weeks team numbers count only, then in the playoff weeks
+     * only; B per point = B_win of that run (ΔPO and ΔCH under the goal) ÷ (gain × the weeks changed). Clamped to `clamp`
+     * (one per-point B not above 0 while the other is: that end); ⚠️ rounded to `decimals` (ours: a display precision, far
+     * below the simulation's own noise, so the pages' "playoff weeks counted 1.63×" is the weight the numbers use).
+     */
+    playoffWeightAuto: { gain: 3, clamp: [0.5, 4] as const, decimals: 2 },
     needZThreshold: -0.5,
     strengthWeeks: 4,
     /**
@@ -233,7 +250,8 @@ export const config = {
     /**
      * Trade chips (CLAUDE.md §7; planner reply to Checkpoint 2, answer 2): gap = the most he'd add to
      * another team's lineup − what his own team would lose (ROS lineup points, free-agent-adjusted
-     * baselines); a chip when the gap is at least this.
+     * baselines); a chip when the gap is at least this. ROS lineup points at ω₀ (lineups.playoffWeight): under the automatic
+     * playoff weight it is × Σω ÷ Σω₀ (league.ts step 5c, LeagueModel.lineupThresholds; review of the engine track, Phase 7b).
      */
     chipMinGap: 10,
     /** Chips shown per team on the League page (every chip joins the §12 give pool). */
@@ -283,7 +301,9 @@ export const config = {
    * §7 The free-agent optimizer V*(X) (planner reply to Checkpoint 3, model change 2): repeatedly apply the best
    * add/drop while it improves ROS by at least faMinGain, at most faMaxMoves moves; in dynasty and keeper leagues
    * never drop a player whose dynasty value exceeds the added player's by more than faDynGuard × the top dynasty
-   * value (⚠️ the planner named the guard without a default; 5% of the top value is ours).
+   * value (⚠️ the planner named the guard without a default; 5% of the top value is ours). faMinGain is ROS lineup points at
+   * ω₀ (lineups.playoffWeight): under the automatic playoff weight it is × Σω ÷ Σω₀ (league.ts step 5c,
+   * LeagueModel.lineupThresholds; review of the engine track, Phase 7b).
    */
   freeAgentOptimizer: {
     faMinGain: 3,
@@ -392,11 +412,16 @@ export const config = {
     },
     goalDefault: "title" as "title" | "balanced" | "playoffs",
     /**
-     * "Protect my trade value" (planner addendum to Checkpoint 3, §3): κ in redraft B = B_win + κ × clamp(g_mkt(me),
-     * marketSanityClamp), by the user's setting (TradeSettings.protectValue). At medium, giving 25% more value than you
-     * get (g_mkt(me) = −0.20) costs 0.8 B, about 0.4 projected points a week in Parker's league.
+     * "Protect my trade value" (planner addendum to Checkpoint 3, §3; priced in lineup points since the planner's reply to
+     * Checkpoint 7a, §2 question 5): κ_pts by the user's setting (TradeSettings.protectValue), in projected points a week per
+     * 100% of trade value. Redraft B = B_win + (B₃ / helpsGain) × κ_pts × clamp(g_mkt(me), marketSanityClamp), B₃ the "Helps
+     * you" scale of the same evaluation (benefit.ts helpsScale), so the term reads exactly κ_pts × clamp(g_mkt(me)) points a
+     * week on that scale, in every league under every goal: at medium, giving 25% more value than you get (g_mkt(me) =
+     * −0.20) costs 0.4 points a week. (From the addendum to Checkpoint 3 until Checkpoint 7a: κ 2 / 4 / 8 in B units, which
+     * cost a different number of points a week in each league and under each goal: that example cost 0.48 points a week under
+     * "Win the title" in Parker's league, B₃ 4.96, and 0.31 under "Make the playoffs", B₃ 7.63.)
      */
-    protectValue: { low: 2, medium: 4, high: 8 },
+    protectValue: { low: 1, medium: 2, high: 4 },
     protectValueDefault: "medium" as "low" | "medium" | "high",
     marketSanityClamp: [-0.5, 0.5] as const,
     bFutureScale: 40,
@@ -413,12 +438,13 @@ export const config = {
     helpsGain: 3,
     helpsFloor: 0.5,
     /**
-     * ⚠️ Ours (review of track SC, finding SC-1): in dynasty and keeper leagues B₃ = (1 − λ) × B_win₃ follows the Win now ↔
-     * Future setting, with λ capped here. Uncapped, λ → 1 shrank B₃ to 0, so the floor became the whole scale and any
-     * long-term gain read about 100 ("≈ +36 pts/week"). The cap is the largest default λ (lambda.rebuild), so every default
-     * still reads +3 points a week as 63; past it (only by the slider) lineup gains this season read lower, and a note says so.
+     * Dynasty and keeper leagues with long-term values (planner reply to Checkpoint 7a, §2 question 6: "the dynasty scale
+     * follows the slider"): the scale is B_ref(λ) = (1 − λ) × B_win₃ + λ × F₁₀, F₁₀ = the B_future of gaining this share of
+     * my roster's long-term value: bFutureScale × helpsFutureShare = 40 × 0.10 = 4 (benefit.ts helpsScale). So 63 reads as
+     * good as +helpsGain points a week this season together with +10% long-term value, at the trade's λ. (It replaces review
+     * SC-1's cap on λ in B₃, helpsLambdaMax 0.75, and its note.)
      */
-    helpsLambdaMax: 0.75,
+    helpsFutureShare: 0.1,
     marketCheckBelow: -0.15,
     marketHideBelow: -0.35,
     /** §10 guard: a trade that depends on a player I'd receive with one of these statuses is flagged ("currently OUT or on IR"; PUP is a reserve list like IR). */
@@ -514,7 +540,8 @@ export const config = {
     getPoolTagged: 3,
     /**
      * "Offer first / if they say no" (planner addendum to Checkpoint 3, §4). A throw-in is one of my players whose loss
-     * costs me at most throwInMaxCost ROS lineup points against my free-agent-optimized roster, in scenario lineups.
+     * costs me at most throwInMaxCost ROS lineup points against my free-agent-optimized roster, in scenario lineups (at ω₀ =
+     * lineups.playoffWeight: × Σω ÷ Σω₀ under the automatic playoff weight, league.ts step 5c, LineupThresholds).
      * A step is shown only when it raises the chance they accept by at least minAcceptGain and the offer-first version
      * prints (acceptance.displayAcceptance, the nearest 5%) at least minOfferFirst, and in case 1 at least the user's minimum
      * chance too (Phase 4c, evaluate.offerFirstBar); a throw-in added "if they say no" must keep B at least minBShare of the

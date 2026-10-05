@@ -710,7 +710,8 @@ describe("the cached evaluation context (M12)", () => {
       { snapshot: { ...snapshot, fetchedAt: "2026-10-01T15:05:00.000Z" } },
       { model: { ...model, builtAt: "2026-10-01T15:06:00.000Z" } },
       { snapshot: { ...snapshot, leagueId: "5151" } },
-      { settings: { ...settings, playoffWeight: 1.25 } },
+      // The goal: the context's automatic playoff weight reads it (league.ts step 5c).
+      { settings: { ...settings, goal: "playoffs" } },
       { settings: { ...settings, streamPositions: ["K"] } },
     ];
     for (const change of changes) {
@@ -777,7 +778,10 @@ describe("contextStillValid and contextKey", () => {
 
   it("keys on the league, its data, the inputs, my team and only the settings the context reads", () => {
     const key = contextKey({ snapshot, model, myTeamId: "3" }, settings);
-    expect(key).toBe(`espn|4242|2026|2026-10-01T15:00:00.000Z|2026-10-01T15:01:00.000Z|3|{"playoffWeight":1.5,"streamPositions":["DEF","K","QB"]}`);
+    expect(key).toBe(`espn|4242|2026|2026-10-01T15:00:00.000Z|2026-10-01T15:01:00.000Z|3|{"goal":"title","streamPositions":["DEF","K","QB"]}`);
+    // The manual playoff weight isn't one of them any more (ω is set automatically); the goal is.
+    expect(contextKey({ snapshot, model, myTeamId: "3" }, { ...settings, playoffWeight: 1.25 })).toBe(key);
+    expect(contextKey({ snapshot, model, myTeamId: "3" }, { ...settings, goal: "balanced" })).not.toBe(key);
     expect(contextKey({ snapshot, model, myTeamId: null }, { ...settings, lambda: 0.9 })).toBe(key.replace("|3|", "|-|"));
   });
 });

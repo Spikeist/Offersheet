@@ -5,12 +5,14 @@
  * log takes allowlisted fields only (src/server/log.ts).
  *
  * Friendly errors (planner reply to Checkpoint 4c, Part B, B1; track RL): an import that fails because Offer Sheet used
- * today's budget of requests to its platform answers BUSY ("Offer Sheet has used today's share of requests to ESPN. Try
- * again in about 6 hours.", Retry-After: the next UTC midnight, or on Vercel when the day's slice allowance next grows),
- * or, for the client's own share of it, "Your connection has used today's share of requests to ESPN. …", whether the
- * adapter let BudgetExhaustedError through (ESPN) or turned it into SOURCE_DOWN (Sleeper's adapter catches its client's
- * errors); the daily work budget's refusals (workRefusedResponse; final review SEC-1, F1) are BUSY too; one whose
- * deadline came first answers SOURCE_SLOW,
+ * today's budget of requests to its platform answers BUSY with the beta's capacity message (planner reply to Checkpoint 7a,
+ * §2 question 7: "The beta is at capacity today. It resets at 2:00 AM UTC.", Retry-After and error.resetAt: the next UTC
+ * midnight, or on Vercel when the day's slice allowance next grows; the browser says the time in the visitor's own zone),
+ * or, for the client's own share of it, "Your connection has used today's share of requests to ESPN. It resets at …",
+ * whether the adapter let BudgetExhaustedError through (ESPN) or turned it into SOURCE_DOWN (Sleeper's adapter catches its
+ * client's errors); the daily work budget's refusals (workRefusedResponse; final review SEC-1, F1) are BUSY the same two
+ * ways (the server's day or its slice: the capacity message); every refusal is counted for usage:report
+ * (src/server/usage.ts); one whose deadline came first answers SOURCE_SLOW,
  * naming the source that was slow ("ESPN is answering slowly right now, so Offer Sheet stopped waiting. …"), or, when the
  * time went to Offer Sheet's own queue or cache or ran out before the source was asked, "Offer Sheet is busy right now. Try
  * again in a few minutes." All read what the request's scope noted (src/server/deadline.ts), so a plain outage still reads
@@ -21,10 +23,11 @@ import { LeagueImportError, type ImportErrorCode } from "@/adapters/types";
 import type { PlayerIdResolver } from "@/data/types";
 import type { Platform } from "@/engine/model";
 import type { ApiErrorResponse, DataSourceStamp } from "@/lib/api";
-import { errorMessage, errorStatus, isImportErrorCode, redactSecrets, waitWords, type AppErrorCode } from "@/lib/errors";
-import { isBudgetExhaustedError, secondsUntilAllowanceGrows, secondsUntilUtcMidnight, type BudgetLimit, type BudgetPlatform, type QuotaLimit } from "@/server/budget";
+import { errorMessage, errorStatus, isImportErrorCode, redactSecrets, type AppErrorCode, type ErrorContext } from "@/lib/errors";
+import { isBudgetExhaustedError, msUntilAllowanceGrows, msUntilUtcMidnight, type BudgetLimit, type BudgetPlatform, type QuotaLimit } from "@/server/budget";
 import { DEADLINE_CUTS, requestScope, type RequestScope } from "@/server/deadline";
 import { errorNameOf, logDevDetail, logEvent } from "@/server/log";
+import { noteRefusal } from "@/server/usage";
 
 /** Request bodies are tiny (an ID, a season, two cookies); anything bigger is refused unread. */
 const MAX_BODY_CHARS = 16_384;
@@ -41,8 +44,13 @@ export function jsonTextResponse(text: string, init: { status?: number; headers?
   return new Response(text, { status: init.status ?? 200, headers });
 }
 
-export function errorResponse(code: AppErrorCode, message: string = errorMessage(code), headers?: Headers): Response {
-  const body: ApiErrorResponse = { error: { code, message } };
+/**
+ * { error: { code, message } } with the code's status. `extra.resetAt` (epoch ms; a daily limit's answer, busyUntil) adds
+ * the moment the limit frees up as error.resetAt (ISO), which the browser says in the visitor's own time zone.
+ */
+export function errorResponse(code: AppErrorCode, message: string = errorMessage(code), headers?: Headers, extra: { resetAt?: number } = {}): Response {
+  const resetAt = extra.resetAt !== undefined && Number.isFinite(extra.resetAt) ? { resetAt: new Date(extra.resetAt).toISOString() } : {};
+  const body: ApiErrorResponse = { error: { code, message, ...resetAt } };
   return jsonResponse(body, { status: errorStatus(code), headers });
 }
 
@@ -193,33 +201,46 @@ export function logUnexpected(step: UnexpectedStep, err: unknown, platform?: Pla
 const SOURCE_LABEL: Readonly<Record<string, string>> = { espn: "ESPN", sleeper: "Sleeper", fantasycalc: "FantasyCalc", github: "DynastyProcess's player ID list" };
 
 /**
- * BUSY for `platform` (see the header): Offer Sheet's whole day of requests to it (`by` "day"), or the client's share of it
- * ("share"), with Retry-After until it can be used again and the same wait in words: a share at the next UTC midnight; the
- * day on Vercel when its slice allowance next grows (src/server/budget.ts; final review SEC-2), elsewhere (no slices) at
- * the next UTC midnight.
+ * BUSY until `resetAt` (epoch ms), when the limit frees up (planner reply to Checkpoint 7a, §2 question 7): Retry-After the
+ * seconds until then, the moment as error.resetAt, and the message (errorMessage BUSY with `ctx`) ending with its time in
+ * UTC, which the browser says in the visitor's own time zone (src/lib/errors.ts localizeResetTime).
  */
-export function busyResponse(platform: BudgetPlatform | Platform, by: BudgetLimit = "day", now: number = Date.now(), env: Readonly<Record<string, string | undefined>> = process.env): Response {
-  const retryAfterS = by === "day" && env.VERCEL ? secondsUntilAllowanceGrows(now) : secondsUntilUtcMidnight(now);
-  const message = errorMessage("BUSY", { source: SOURCE_LABEL[platform] ?? "this platform", retryAfterS, ...(by === "share" ? { ownShare: true } : {}) });
-  return errorResponse("BUSY", message, new Headers({ "retry-after": String(retryAfterS) }));
+function busyUntil(resetAt: number, now: number, ctx: ErrorContext): Response {
+  const retryAfterS = Math.max(1, Math.ceil((resetAt - now) / 1000));
+  return errorResponse("BUSY", errorMessage("BUSY", { ...ctx, resetAt, retryAfterS }), new Headers({ "retry-after": String(retryAfterS) }), { resetAt });
 }
 
-/** What a request the server's whole day of work refused is told (workRefusedResponse; the wait follows in words). */
-export const WORK_DAY_REFUSED = "Offer Sheet has used its share of free server time for now.";
+/**
+ * BUSY for `platform` (see the header): Offer Sheet's whole day of requests to it (`by` "day": the beta's shared capacity,
+ * "The beta is at capacity today. It resets at <time>.", planner reply to Checkpoint 7a, §2 question 7), or the client's
+ * share of it ("share": "Your connection has used today's share of requests to ESPN. It resets at <time>."). It resets, and
+ * Retry-After runs until: a share at the next UTC midnight; the day on Vercel when its slice allowance next grows
+ * (src/server/budget.ts; final review SEC-2), elsewhere (no slices) at the next UTC midnight. Counted for usage:report
+ * (src/server/usage.ts: refused_capacity or refused_visitor).
+ */
+export function busyResponse(platform: BudgetPlatform | Platform, by: BudgetLimit = "day", now: number = Date.now(), env: Readonly<Record<string, string | undefined>> = process.env): Response {
+  if (by === "day") {
+    noteRefusal("refused_capacity", now);
+    return busyUntil(now + (env.VERCEL ? msUntilAllowanceGrows(now) : msUntilUtcMidnight(now)), now, { capacity: true });
+  }
+  noteRefusal("refused_visitor", now);
+  return busyUntil(now + msUntilUtcMidnight(now), now, { source: SOURCE_LABEL[platform] ?? "this platform", ownShare: true });
+}
 
 /**
  * BUSY for a request the daily work budget refused (src/server/budget.ts; final review SEC-1, F1): the client's or its
- * group's day ("Your connection has used today's share of requests to Offer Sheet. Try again in about 6 hours.";
- * Retry-After: the next UTC midnight), or the whole server's (WORK_DAY_REFUSED, "Try again in about 2 hours."; Retry-After:
- * when the day's slice allowance next grows).
+ * group's day ("Your connection has used today's share of requests to Offer Sheet. It resets at 12:00 AM UTC.": the next
+ * UTC midnight), or the whole server's day or its current slice, the beta's shared capacity ("The beta is at capacity
+ * today. It resets at 2:00 AM UTC.": when the day's slice allowance next grows; planner reply to Checkpoint 7a, §2
+ * question 7). Counted for usage:report (src/server/usage.ts: refused_capacity or refused_visitor).
  */
 export function workRefusedResponse(limit: QuotaLimit, now: number = Date.now()): Response {
   if (limit === "day") {
-    const retryAfterS = secondsUntilAllowanceGrows(now);
-    return errorResponse("BUSY", `${WORK_DAY_REFUSED} Try again ${waitWords(retryAfterS) ?? "later"}.`, new Headers({ "retry-after": String(retryAfterS) }));
+    noteRefusal("refused_capacity", now);
+    return busyUntil(now + msUntilAllowanceGrows(now), now, { capacity: true });
   }
-  const retryAfterS = secondsUntilUtcMidnight(now);
-  return errorResponse("BUSY", errorMessage("BUSY", { source: "Offer Sheet", ownShare: true, retryAfterS }), new Headers({ "retry-after": String(retryAfterS) }));
+  noteRefusal("refused_visitor", now);
+  return busyUntil(now + msUntilUtcMidnight(now), now, { source: "Offer Sheet", ownShare: true });
 }
 
 /**

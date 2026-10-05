@@ -1,15 +1,27 @@
 /**
- * FantasyCalc market values (CLAUDE.md §2.9). Terms: non-commercial, at most one fetch per day per
- * format (enforced by the 24h cache + cross-process lock), documented endpoints only, and a visible
- * link to FantasyCalc.com wherever values are shown.
+ * FantasyCalc market values for the probes (CLAUDE.md §2.9). FantasyCalc's conditions for free use (their reply of
+ * 2026-10-05, reports/fantasycalc-permission.md): call only /values/current, and refresh each format's list at most once
+ * every 3 hours; non-commercial, and a visible link to FantasyCalc.com wherever values are shown.
  *
- * Verified in Phase 0 (reports/probe-output/shared.md): the docs list only GET /values/current and
- * GET /players (other endpoints risk an IP ban); the terms want attribution close to the values;
- * numTeams outside 8/10/12/14 silently returns 12-team values, so pick the nearest supported size;
- * tep is "te+" / "te++" and must be percent-encoded (URLSearchParams does this).
+ * - Only /values/current: the probes no longer ask for /players (review of Checkpoint 7b's server work; the app stopped at
+ *   the same time, src/data/load.ts).
+ * - The 3-hour rule across the probes AND the app (the same review: the probes kept their own 24-hour cache in
+ *   .cache/fantasycalc, so a format the app had refreshed minutes before was asked again): every list is read through the
+ *   app's own HTTP client and cache entry (src/server/http.ts, src/server/cache.ts FileCache in .cache/app, the folder the
+ *   stable copy shares; key `fantasycalc:<url>`, TTL.fantasyCalc, kept FANTASYCALC_RETAIN_MS: src/data/fantasyCalcValues.ts
+ *   loadFantasyCalcValues), so a copy any of them fetched within 3 hours is served without a request, and what a probe
+ *   fetches spares the app its next request. Only a body the app's own check accepts is cached (fantasyCalcValuesCheck),
+ *   so a probe never pins a list the app would turn down. A failed request throws (no saved copy stands in: a probe
+ *   reports what FantasyCalc answers). The probes' own cross-process lock stays, so two probes never ask at once.
+ *
+ * Verified in Phase 0 (reports/probe-output/shared.md): numTeams outside 8/10/12/14 silently returns 12-team values, so
+ * pick the nearest supported size; tep is "te+" / "te++" and must be percent-encoded (URLSearchParams does this).
  */
-import { TTL } from "./cache";
-import { getJson, type HttpResult } from "./http";
+import path from "node:path";
+import type { HttpClient } from "@/adapters/types";
+import { ROOT } from "./env";
+import { HttpError, requestLog, type HttpResult } from "./http";
+import { withLock } from "./cache";
 
 export interface FcFormat {
   isDynasty: boolean;
@@ -56,9 +68,68 @@ export function fantasyCalcUrl(f: FcFormat): string {
   return `https://api.fantasycalc.com/values/current?${q.toString()}`;
 }
 
-export async function getFantasyCalc(f: FcFormat): Promise<{ data: FcEntry[]; res: HttpResult }> {
+let appClient: Promise<HttpClient> | undefined;
+
+/** The app's own HTTP client on the app's file cache (.cache/app), made once per process (server modules load on first use). */
+function defaultAppClient(): Promise<HttpClient> {
+  appClient ??= (async () => {
+    const [{ FileCache }, { createHttpClient }] = await Promise.all([import("@/server/cache"), import("@/server/http")]);
+    return createHttpClient({ cache: new FileCache(path.join(ROOT, ".cache", "app")) });
+  })();
+  return appClient;
+}
+
+/**
+ * One format's /values/current list, through the app's cache entry and TTL (the file header): a copy fetched within
+ * TTL.fantasyCalc (3 hours) by the app, the stable copy or a probe is served without a request. Throws HttpError for an
+ * error status, an HTML page or a body that isn't JSON, as getJson did. `deps.http`: a test's client (default: the app's,
+ * on .cache/app).
+ */
+export async function getFantasyCalc(f: FcFormat, deps: { http?: HttpClient } = {}): Promise<{ data: FcEntry[]; res: HttpResult }> {
   const url = fantasyCalcUrl(f);
-  return getJson<FcEntry[]>(url, { cache: { key: `fantasycalc:${url}`, ttlMs: TTL.fantasyCalc, namespace: "fantasycalc" }, label: `FantasyCalc ${url.split("?")[1]}` });
+  const label = `FantasyCalc ${url.split("?")[1]}`;
+  const [{ FANTASYCALC_RETAIN_MS, TTL: APP_TTL }, { FANTASYCALC_VALUES_MAX_RETRIES, FANTASYCALC_VALUES_TIMEOUT_MS, fantasyCalcValuesCheck }] = await Promise.all([import("@/server/cache"), import("@/data/fantasyCalcValues")]);
+  const check = fantasyCalcValuesCheck({ isDynasty: f.isDynasty, numQbs: f.numQbs, numTeams: f.numTeams, ppr: f.ppr, ...(f.tep ? { tep: f.tep } : {}) });
+  const http = deps.http ?? (await defaultAppClient());
+  const key = `fantasycalc:${url}`;
+  const started = Date.now();
+  const ask = () =>
+    http.get(url, {
+      cache: { key, ttlMs: APP_TTL.fantasyCalc, retainMs: FANTASYCALC_RETAIN_MS, public: true },
+      cacheIf: (res) => {
+        try {
+          check(res);
+          return true;
+        } catch {
+          return false;
+        }
+      },
+      maxRetries: FANTASYCALC_VALUES_MAX_RETRIES,
+      timeoutMs: FANTASYCALC_VALUES_TIMEOUT_MS,
+    });
+  // With the app's client, the probes' cross-process lock too (scripts/lib/cache.ts): two probes run at once never ask for
+  // the same list together (the client reads the cache again inside it). A test's own client needs none.
+  const got = deps.http ? await ask() : await withLock("fantasycalc", key, ask);
+  const res: HttpResult = {
+    url,
+    finalUrl: url,
+    status: got.status,
+    ok: got.ok,
+    contentType: got.json !== undefined ? "application/json" : "",
+    isHtml: got.isHtml,
+    text: got.text,
+    json: got.json,
+    headers: {},
+    elapsedMs: Date.now() - started,
+    fromCache: got.fromCache,
+    ...(got.fromCache && got.fetchedAt !== undefined ? { cachedAt: got.fetchedAt } : {}),
+    attempts: got.fromCache ? 0 : 1,
+  };
+  requestLog.push({ url, status: res.status, ms: res.elapsedMs, fromCache: res.fromCache, attempts: res.attempts, label });
+  if (!res.ok) throw new HttpError(res, `HTTP ${res.status}`);
+  if (res.isHtml) throw new HttpError(res, "got an HTML page instead of JSON");
+  if (!Array.isArray(res.json)) throw new HttpError(res, "response body is not a JSON list");
+  return { data: res.json as FcEntry[], res };
 }
 
 export type FcIdField = "sleeperId" | "espnId" | "mflId" | "fleaflickerId";

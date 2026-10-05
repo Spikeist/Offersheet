@@ -74,7 +74,7 @@ describe("ReportView", () => {
     const html = render({ snapshot: snapshot(), notes: [] });
     // Two teams → FantasyCalc's smallest supported size (8).
     expect(html).toMatch(
-      /<dt[^>]*>Trade values<\/dt><dd[^>]*>FantasyCalc · 8 teams · non-PPR · 1 QB · redraft · <a href="https:\/\/fantasycalc\.com" target="_blank" rel="noopener noreferrer"[^>]*>Values: FantasyCalc<span class="sr-only"> \(opens in a new tab\)<\/span><\/a><\/dd>/,
+      /<dt[^>]*>Trade values<\/dt><dd[^>]*>FantasyCalc · 8 teams · non-PPR · 1 QB · redraft · <a href="https:\/\/fantasycalc\.com" target="_blank" rel="noopener" referrerPolicy="origin"[^>]*>Values: FantasyCalc<span class="sr-only"> \(opens in a new tab\)<\/span><\/a><\/dd>/,
     );
     expect(html).toMatch(/<li class="rounded-xl bg-surface-muted[^"]*">Trade values: 2 teams → FantasyCalc&#x27;s 8-team values\.<\/li>/);
     expect(html).not.toContain("No warnings. Everything we read mapped cleanly.");

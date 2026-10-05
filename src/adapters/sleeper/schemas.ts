@@ -37,7 +37,13 @@ export const LeagueSchema = z.object({
   sport: z.string().nullish(),
   status: z.string().nullish(),
   total_rosters: z.number().nullish(),
-  settings: z.record(z.string(), z.unknown()),
+  /**
+   * Every setting is kept (the normalizer reads them by name: num()). Declared: trade_review_days (Phase 7b; the trade review
+   * period, LeagueSettings.tradeReviewHours), the length of a league's veto vote in days: 0, 1 or 2 in the 250 crawled 2026
+   * leagues (33 / 40 / 177; reports/probe-output/sleeper-codes.json). A value that isn't a number reads as missing rather than
+   * failing the import (.catch): it's an optional setting.
+   */
+  settings: z.looseObject({ trade_review_days: z.number().nullish().catch(undefined) }),
   scoring_settings: z.record(z.string(), z.unknown()),
   roster_positions: z.array(z.string()),
 });

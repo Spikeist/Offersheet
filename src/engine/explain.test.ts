@@ -277,7 +277,7 @@ describe("my side", () => {
     ];
     for (const c of cases) {
       const raw = tradePackage({ players: c.get }, { players: c.give }, c.values, W);
-      const b = benefit({ leagueType: "redraft", dPO: c.dPO, dCH: c.dCH, gMine: raw.g, dynasty: null, myPPlayoffs: 0.7, kappa: config.benefit.protectValue.medium });
+      const b = benefit({ leagueType: "redraft", dPO: c.dPO, dCH: c.dCH, gMine: raw.g, dynasty: null, myPPlayoffs: 0.7, kappa: config.benefit.protectValue.medium, b3: 5 });
       expect(raw.g).toBeLessThan(config.explain.valueEven);
       expect(b.market).toBeLessThanOrEqual(0);
       expect(b.b as number).toBeGreaterThan(0);

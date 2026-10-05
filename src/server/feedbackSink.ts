@@ -16,10 +16,11 @@
  *   address, no client id, no header), as one JSON line LPUSHed to that day's list, `prefix + "fb:" + YYYY-MM-DD` (the UTC
  *   day of arrival; src/server/redis.ts keyPrefix: preview and production apart; final review SEC-3: a month's list kept
  *   its newest 5,000, so a flood of forged copies from many IPv6 /64s could push a whole month's real outcomes out; a day's
- *   list confines a flood to its own day), trimmed to its newest feedbackLimits.maxPerDay, its expiry reset to
- *   feedbackLimits.retainDays: one MULTI/EXEC transaction (RedisLike.lpushTrimExpire, review FB-R5), applied whole or not
- *   at all, so no list is ever left without its expiry and each day's feedback is deleted a year after that day (the
- *   privacy page's words). Each copy costs 3 commands (LPUSH, LTRIM, PEXPIRE: Upstash bills a transaction's commands one by
+ *   list confines a flood to its own day), trimmed to its newest feedbackLimits.maxPerDay, its expiry set to
+ *   feedbackLimits.retainDays after its UTC day began (feedbackDayTtlMs, as the error log's day lists: Checkpoint 7b, so no
+ *   copy outlives the privacy page's "up to 12 months"; before, each write reset the list to a full year, so a day's first
+ *   copy could be kept up to a day longer): one MULTI/EXEC transaction (RedisLike.lpushTrimExpire, review FB-R5), applied
+ *   whole or not at all, so no list is ever left without its expiry. Each copy costs 3 commands (LPUSH, LTRIM, PEXPIRE: Upstash bills a transaction's commands one by
  *   one), plus the rate limit's (src/server/rateLimit.ts) and the daily copy quota's (src/server/budget.ts feedbackQuota:
  *   feedbackLimits.perClientPerDay copies a client and perGroupPerDay a group may send a UTC day; the route checks it). The
  *   write gives up after feedbackLimits.writeTimeoutMs; a failure is logged by the error's name only and the copy is
@@ -30,7 +31,8 @@
  * - feedbackStoreFor: Redis on Vercel only (src/server/redis.ts redisConfigured; `npm run dev`, the stable copy, the tests
  *   and check:browser have none, so they store nothing and answer { stored: false }). A Redis address that can't be used
  *   (UrlError) is logged once by its name, and the route answers as if there were no store.
- * - Reading the store back: scripts/feedback-pull.ts (`npm run feedback:pull -- --live`), with StoredFeedbackEventSchema.
+ * - Reading the store back: scripts/feedback-report.ts (`npm run feedback:report -- --live`: totals only), with
+ *   StoredFeedbackEventSchema.
  */
 import { z } from "zod";
 import { POSITIONS, type Platform } from "@/engine/model";
@@ -177,6 +179,15 @@ export const StoredFeedbackEventSchema = EventShape.extend({ day: z.string().reg
 
 const DAY_MS = 24 * 60 * 60_000;
 
+/**
+ * How long the day list a copy arriving at `now` goes to may live: until feedbackLimits.retainDays after its UTC day began
+ * (the header; src/server/log.ts logDayTtlMs's rule), so no copy is kept longer than retainDays. Always above 0.
+ */
+export function feedbackDayTtlMs(now: number): number {
+  const dayStart = Math.floor(now / DAY_MS) * DAY_MS;
+  return dayStart + feedbackLimits.retainDays * DAY_MS - now;
+}
+
 /** The list a copy arriving at `at` goes to: `prefix + "fb:" + YYYY-MM-DD` (UTC). */
 export function feedbackDayKey(at: number, env: Env = process.env): string {
   return `${keyPrefix(env)}fb:${new Date(at).toISOString().slice(0, 10)}`;
@@ -215,7 +226,7 @@ export function feedbackStoreFor(env: Env = process.env): RedisLike | null {
 
 /**
  * Stores one copy (the header): LPUSH to its day's list, LTRIM to the newest feedbackLimits.maxPerDay and PEXPIRE to
- * feedbackLimits.retainDays, in one transaction (RedisLike.lpushTrimExpire: all three or none); true once written. Never
+ * feedbackLimits.retainDays after the list's UTC day began (feedbackDayTtlMs), in one transaction (RedisLike.lpushTrimExpire: all three or none); true once written. Never
  * throws: a failure or a write slower than feedbackLimits.writeTimeoutMs is logged by the error's name and answers false.
  */
 export async function storeFeedback(store: RedisLike, event: FeedbackEvent, opts: { now?: number; env?: Env; timeoutMs?: number } = {}): Promise<boolean> {
@@ -223,7 +234,7 @@ export async function storeFeedback(store: RedisLike, event: FeedbackEvent, opts
   const key = feedbackDayKey(now, opts.env ?? process.env);
   const entry = storedFeedbackText(event, now);
   try {
-    await withTimeout(store.lpushTrimExpire(key, [entry], feedbackLimits.maxPerDay, feedbackLimits.retainDays * DAY_MS), opts.timeoutMs ?? feedbackLimits.writeTimeoutMs);
+    await withTimeout(store.lpushTrimExpire(key, [entry], feedbackLimits.maxPerDay, feedbackDayTtlMs(now)), opts.timeoutMs ?? feedbackLimits.writeTimeoutMs);
     return true;
   } catch (err) {
     logEvent({ event: "feedback_store_failed", platform: "upstash", errorName: errorNameOf(err) });

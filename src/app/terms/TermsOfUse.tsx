@@ -3,26 +3,28 @@ import { ContactLine } from "@/components/ContactLine";
 import { Card } from "@/components/ui";
 import type { PolicyFeatures } from "@/lib/site";
 
-/** When these terms last changed (Parker's local date). Update it with every change below, a feature turned on included. */
-export const TERMS_LAST_UPDATED = "October 4, 2026";
+/** When these terms last changed. Update it with every change below, a feature turned on included (the go/no-go sets it to launch day). */
+export const TERMS_LAST_UPDATED = "October 5, 2026";
 
 /**
  * The terms of use (planner reply to Checkpoint 4c, B3: "New pages: /privacy … and /terms"; outline: the Part B
- * research, "/terms outline"). A draft for Parker, not legal advice: reports/privacy-terms-draft.md carries the same
- * text for the planner. What it says has to stay true of the app:
+ * research, "/terms outline"). Not legal advice: reports/privacy-terms-draft.md carries the same text for the planner.
+ * Checkpoint 7b (planner reply to Checkpoint 7a, 4 "Terms" 1–3 and 5.4): "Your part" in the planner's words (leagues
+ * you're in or allowed to view; not collecting information about other people; keeping ESPN cookies private), "You must
+ * be at least 13 to use Offer Sheet.", and FantasyCalc's values no longer among the numbers it shows. What it says has to
+ * stay true of the app:
  *   - free, non-commercial, no accounts, no ads, read-only (CLAUDE.md §1, §19, §20);
- *   - the numbers it works out or quotes are estimates (the projections, the season simulation, "Chance they accept", the
- *     trade values: CLAUDE.md §6–§11); the league's own records, points and settings are the platform's (review POL-21);
- *   - which leagues to connect: your own, or public ones, every Sleeper league among them (the research outline's "or
- *     public ones"; review POL-22, ⚠️ Parker's call at Checkpoint 7a);
+ *   - the numbers it works out are estimates (the projections, the season simulation, "Chance they accept": CLAUDE.md
+ *     §6–§11); the league's own records, points and settings are the platform's (review POL-21); FantasyCalc's values are
+ *     used in its own numbers and never shown (FantasyCalc's condition, planner reply to Checkpoint 7a, 5.4), said only
+ *     with `features.fantasyCalcHidden`, which pages.test.ts ties to the code that showed them;
  *   - the sources and their terms: ESPN's API is unofficial (CLAUDE.md §2.2, §19), Sleeper's is free for non-commercial
- *     use, FantasyCalc's values are non-commercial and must be credited (§2.9), DynastyProcess's ID map is GPL-3.0 and
+ *     use, FantasyCalc's values are non-commercial and credited with a link (§2.9), DynastyProcess's ID map is GPL-3.0 and
  *     stays on the server; the NFL schedule is ESPN's (src/data/nflSchedule.ts nflScheduleUrl: the app downloads nothing
  *     from nflverse, review PG-2);
  *   - feedback: with `features.anonymousFeedback` (track FB) an anonymous copy with an opt-out (the privacy page lists the
- *     fields); without it (today) it stays in the browser (src/lib/feedbackStore.ts), and the words say so (review PG-1);
- *   - saved leagues stay until removed or until the browser clears them (the privacy page says when: Safari's 7 days;
- *     review PG-7);
+ *     fields); without it it stays in the browser (src/lib/feedbackStore.ts), and the words say so (review PG-1);
+ *   - saved leagues stay until removed or until the browser clears them (the privacy page says when; review PG-7);
  *   - the contact line: src/lib/site.ts CONTACT_EMAIL.
  */
 export function TermsOfUse({ features }: { features: PolicyFeatures }) {
@@ -45,18 +47,19 @@ export function TermsOfUse({ features }: { features: PolicyFeatures }) {
       <Card>
         <h2 className="text-lg font-extrabold">Estimates, not promises</h2>
         <p className="mt-2 text-sm leading-relaxed">
-          The numbers Offer Sheet works out or quotes are estimates: projections, playoff and title odds, &ldquo;Helps you&rdquo;, &ldquo;Chance they accept&rdquo; and
-          &ldquo;Overall&rdquo;, and the trade values it shows. Players get hurt, managers change their minds, and data can be late or wrong. You decide what to offer
-          and what to accept, and those decisions are yours.
+          The numbers Offer Sheet works out are estimates: projections, playoff and title odds, &ldquo;Helps you&rdquo;, &ldquo;Chance they accept&rdquo; and
+          &ldquo;Overall&rdquo;. Players get hurt, managers change their minds, and data can be late or wrong. You decide what to offer and what to accept, and those
+          decisions are yours.
         </p>
       </Card>
 
       <Card>
         <h2 className="text-lg font-extrabold">Where the data comes from</h2>
         <p className="mt-2 text-sm leading-relaxed">
-          League data comes from ESPN and Sleeper, projections and stats from Sleeper and ESPN, trade values from FantasyCalc, player ID maps from DynastyProcess, and
-          the NFL schedule from ESPN. ESPN&apos;s league data comes through an unofficial interface that ESPN doesn&apos;t support, so it can change or stop working at
-          any time. Each of these services has its own terms, and your ESPN and Sleeper accounts stay under theirs.
+          League data comes from ESPN and Sleeper, projections and stats from Sleeper and ESPN, trade values from FantasyCalc
+          {features.fantasyCalcHidden ? " (Offer Sheet uses them in its own numbers and doesn't show them)" : null}, player ID maps from DynastyProcess, and the NFL
+          schedule from ESPN. ESPN&apos;s league data comes through an unofficial interface that ESPN doesn&apos;t support, so it can change or stop working at any
+          time. Each of these services has its own terms, and your ESPN and Sleeper accounts stay under theirs.
         </p>
       </Card>
 
@@ -71,14 +74,18 @@ export function TermsOfUse({ features }: { features: PolicyFeatures }) {
 
       <Card>
         <h2 className="text-lg font-extrabold">Your part</h2>
-        <p className="mt-2 text-sm leading-relaxed">When you use Offer Sheet, you agree to:</p>
+        <p className="mt-2 text-sm leading-relaxed">You must be at least 13 to use Offer Sheet. When you use it, you agree to these rules:</p>
         <ul className="mt-2 list-disc space-y-1.5 pl-5 text-sm leading-relaxed">
-          <li>connect only leagues you&apos;re in, or public ones (any Sleeper league, or an ESPN league its manager made viewable to the public);</li>
           <li>
-            keep your ESPN cookies to yourself: they work like a password, so paste them only into Offer Sheet&apos;s Connect page, on a computer you trust;
+            connect only leagues you&apos;re in, or leagues you&apos;re allowed to view (Sleeper leagues are public; an ESPN league is public only if its manager made
+            it viewable);
           </li>
-          <li>not scrape Offer Sheet, point automated tools at it, overload it, or get around its limits;</li>
-          <li>not sell, republish or reuse its trade values or other data, commercially or in bulk.</li>
+          <li>don&apos;t use Offer Sheet to collect information about other people;</li>
+          <li>
+            keep your ESPN cookies private: they work like a password, so never share them, and paste them into Offer Sheet only on a computer you trust;
+          </li>
+          <li>don&apos;t scrape Offer Sheet, point automated tools at it, overload it, or get around its limits;</li>
+          <li>don&apos;t sell, republish or reuse Offer Sheet&apos;s numbers or data, commercially or in bulk.</li>
         </ul>
       </Card>
 

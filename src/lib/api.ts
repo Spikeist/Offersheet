@@ -8,7 +8,7 @@ import type { ImportResult } from "@/adapters/types";
 import type { ModelInputs } from "@/engine/inputs";
 import type { LeagueSnapshot } from "@/engine/model";
 import type { AppErrorCode } from "./errors";
-import { errorForStatus, errorMessage } from "./errors";
+import { errorForStatus, errorMessage, localizeResetTime } from "./errors";
 
 /** Where the shared data (player ID maps and databases) came from and when. */
 export interface DataSourceStamp {
@@ -104,7 +104,16 @@ export function chooseLeagueResponse(username: string, season: number, choices: 
 }
 
 export interface ApiErrorResponse {
-  error: { code: AppErrorCode; message: string };
+  error: {
+    code: AppErrorCode;
+    message: string;
+    /**
+     * BUSY (a daily limit; planner reply to Checkpoint 7a, §2 question 7): when the limit frees up, ISO 8601. The message
+     * ends with that moment in UTC; readApiResponse says it in the visitor's own time zone (src/lib/errors.ts
+     * localizeResetTime).
+     */
+    resetAt?: string;
+  };
 }
 
 /** GET /api/session/espn. */
@@ -218,9 +227,12 @@ export const UNREACHABLE_MESSAGE = "We couldn't reach Offer Sheet. Check your co
 /**
  * One of our routes' answer, read (callApi, src/lib/leagueFetch.ts): its JSON, or an ApiErrorResponse for a reply that
  * isn't ours (a host's or a firewall's page: errorForStatus words it by its status, a Retry-After included; planner reply
- * to Checkpoint 4c, Part B, track RL's request).
+ * to Checkpoint 4c, Part B, track RL's request). An error of ours that says when a daily limit frees up (error.resetAt:
+ * the beta at capacity, a connection's share used up) gets that time in the visitor's own time zone (planner reply to
+ * Checkpoint 7a, §2 question 7; src/lib/errors.ts localizeResetTime), so every page that shows the message (Connect, the
+ * League page, the Import Report's Refresh) says "It resets at 7:00 PM." `timeZone` and `now` are test hooks.
  */
-export async function readApiResponse<T>(res: Response): Promise<T | ApiErrorResponse> {
+export async function readApiResponse<T>(res: Response, opts: { timeZone?: string; now?: number } = {}): Promise<T | ApiErrorResponse> {
   let data: unknown;
   try {
     data = await res.json();
@@ -228,6 +240,7 @@ export async function readApiResponse<T>(res: Response): Promise<T | ApiErrorRes
     return { error: res.ok ? { code: "INTERNAL", message: errorMessage("INTERNAL") } : errorForStatus(res.status, res.headers.get("retry-after")) };
   }
   if (!res.ok && !isApiError(data)) return { error: errorForStatus(res.status, res.headers.get("retry-after")) };
+  if (isApiError(data) && data.error.resetAt !== undefined) return { ...data, error: localizeResetTime(data.error, opts) } as ApiErrorResponse;
   return data as T | ApiErrorResponse;
 }
 

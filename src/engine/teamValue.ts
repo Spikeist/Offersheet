@@ -3,7 +3,8 @@
  * and MV_add, the free agent a team adds when it loses a player; planner reply to Checkpoint 1,
  * addition C: availability scenarios give depth its credit). Pure and deterministic: no I/O, no clock
  * and no randomness of its own (scenario availability arrives as flags drawn by availability.ts); the
- * only tunable number, playoffWeight, comes from config.lineups.
+ * only tunable number, playoffWeight, comes from the caller (the League model's ω: league.ts step 5c, the automatic
+ * playoff weight of the planner's reply to Checkpoint 7a, §6.1), else config.lineups (its fallback).
  *
  * Input: a ProjectionTable (league.ts builds it), one row per relevant player: his conditional points
  * c_w = b·m_w (what he scores in week w when he plays, §6 steps 1–2), his expected points p_w = c_w·a_w
@@ -57,7 +58,7 @@
  *   there is no scenario spread: sd = sqrt(Σ σ_{i,w}²) over the EV lineup's starters, σ_{i,w} =
  *   c_pos × p_w + d_pos (PlayerModel.weekly[w].sd; evScore). Under starter limits a forced starter who
  *   can't play (a benched-out MFL TE) scores 0 and adds no spread.
- * - ROS(T) = Σ_w ω_w LV(T, w): ω = 1 in regular-season weeks and playoffWeight in playoff weeks. A
+ * - ROS(T) = Σ_w ω_w LV(T, w): ω = 1 in regular-season weeks and playoffWeight (the League model's ω) in playoff weeks. A
  *   remaining week that is neither (no adapter produces one: their weeks are contiguous) weighs 0, as no
  *   fantasy game is played in it. PPW = the average LV over the remaining regular-season weeks (0 when
  *   none remain).

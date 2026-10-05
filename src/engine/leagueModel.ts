@@ -5,6 +5,7 @@
  */
 import type { FantasyCalcFormat } from "./inputs";
 import type { Pos } from "./model";
+import type { Goal } from "./settings";
 
 export type BaseRateSource = "espn+sleeper" | "sleeper" | "espn" | "season" | "actual" | "none";
 export type ValueSource = "fantasycalc" | "estimate" | "floor";
@@ -18,10 +19,25 @@ export interface LeagueModel {
   /** Availability scenarios per exact evaluation (§7), 0 when scenarios were skipped. */
   scenarios: number;
   /**
-   * ω for playoff weeks in every ROS(T) and lineup-point number (§7): the user's setting (TradeSettings.
-   * playoffWeight, default config.lineups.playoffWeight). Pages label lineup points with it.
+   * ω for playoff weeks in every ROS(T) and lineup-point number (§7): the free-agent optimizer, lineup costs, needs and
+   * strength, trade chips, partner fit and the trade search's shortlists. Since the planner's reply to Checkpoint 7a (§6.1)
+   * set automatically from my odds under my goal (playoffWeightAuto, league.ts step 5c), else config.lineups.playoffWeight
+   * (1.25, the old default); before, the user's setting (TradeSettings.playoffWeight, which the engine no longer reads).
+   * Pages label lineup points with it. Players' own ROS points (§6 step 7) are never weighted.
    */
   playoffWeight: number;
+  /**
+   * How playoffWeight was set (planner reply to Checkpoint 7a, §6.1; league.ts step 5c): measured ("auto") or the fallback,
+   * with why, the goal and both runs' B per point (the Settings page and the reports read it). Absent in a model built
+   * before Phase 7b.
+   */
+  playoffWeightAuto?: PlayoffWeightAuto;
+  /**
+   * The thresholds in ROS lineup points this model's team numbers were judged by (league.ts step 5c; LineupThresholds):
+   * config's × Σω ÷ Σω₀, so under ω they mean what they did at ω₀. A page that quotes one (the trade chips' least gap) reads
+   * it here. Absent in a model built before Phase 7b (config's then).
+   */
+  lineupThresholds?: LineupThresholds;
   /** Streaming positions (§7; planner reply to Checkpoint 3, model change 1): who streams what, and this week's picks. */
   streaming: StreamingSummary;
   /**
@@ -95,6 +111,81 @@ export interface HelpsCalibration {
   dPO: number;
   /** My P(title) change; null when the league's title odds are unknown (B₃ then counts the playoff odds alone, as every trade's B). */
   dCH: number | null;
+}
+
+/**
+ * Why the automatic playoff weight fell back to config.lineups.playoffWeight (PlayoffWeightAuto.reason; league.ts step 5c):
+ * - "noTeam": no team picked (ω is measured from my team's odds);
+ * - "noRegularWeeks": no regular-season week left that team numbers count (the planner: "If no regular-season weeks remain,
+ *   ω doesn't matter");
+ * - "noPlayoffWeeks": no playoff week left that they count (none listed, or the season's over);
+ * - "noOdds": the season wasn't simulated (sims 0), or can't be (the rest of the schedule didn't load, nothing left to
+ *   simulate, the simulator refused the setup);
+ * - "titleUnknown": my title odds are unknown (a played playoff round without a result we can match, fewer listed playoff
+ *   rounds than the bracket needs), so a playoff week's points can't be priced;
+ * - "noEffect": neither run moves my odds under my goal (both per-point B's at or below 0: a team certainly out, say);
+ * - "notFinite": a per-point B isn't a number.
+ */
+export type PlayoffWeightFallback = "noTeam" | "noRegularWeeks" | "noPlayoffWeeks" | "noOdds" | "titleUnknown" | "noEffect" | "notFinite";
+
+/** One run of the automatic playoff weight (PlayoffWeightAuto.runs): my weekly score + gain in `weeks`, against the base run. */
+export interface PlayoffWeightRun {
+  /** The NFL weeks my score gained points in (the counted weeks of that kind: a week under way is left out). */
+  weeks: number[];
+  /** My P(playoffs) and P(title) changes, fractions; dCH null when title odds are unknown. */
+  dPO: number;
+  dCH: number | null;
+}
+
+/**
+ * The automatic playoff-week weight (planner reply to Checkpoint 7a, §6.1; league.ts step 5c; LeagueModel.playoffWeightAuto).
+ * ω = playoffPerPoint ÷ regularPerPoint, clamped to config.lineups.playoffWeightAuto.clamp and rounded to its decimals; the
+ * fallback config.lineups.playoffWeight when it can't be measured (`reason`). Measured on my team as it stands, before any
+ * free-agent pickup (the odds as rosters stand: the pickups themselves depend on ω), on the headline's seasons.
+ */
+export interface PlayoffWeightAuto {
+  /** ω used (LeagueModel.playoffWeight). */
+  omega: number;
+  basis: "auto" | "fallback";
+  /** Why the fallback; null when measured. */
+  reason: PlayoffWeightFallback | null;
+  /** The goal ("What matters most", TradeSettings.goal) both runs' B_win weigh my odds by. */
+  goal: Goal;
+  /** Points a week added in each run (config.lineups.playoffWeightAuto.gain). */
+  gain: number;
+  /** Seasons simulated (each run on the same ones: common random numbers); 0 when nothing was simulated. */
+  sims: number;
+  /**
+   * B per projected point a week: B_win(ΔPO, ΔCH) under the goal ÷ (gain × the weeks changed), in the regular-season run and
+   * in the playoff run; null when that run wasn't made or its ΔCH is unknown.
+   */
+  regularPerPoint: number | null;
+  playoffPerPoint: number | null;
+  /** playoffPerPoint ÷ regularPerPoint before the clamp and the rounding; null unless both are above 0. */
+  ratio: number | null;
+  /**
+   * ω at an end of the clamp: the ratio fell outside it, or one per-point B wasn't above 0 while the other was ("low": only the
+   * regular season moves my odds; "high": only the playoffs do). Null otherwise, and for the fallback.
+   */
+  clamped: "low" | "high" | null;
+  /** The two runs' changes (null when they weren't made). */
+  runs: { regular: PlayoffWeightRun; playoffs: PlayoffWeightRun } | null;
+}
+
+/**
+ * The thresholds in ROS lineup points a League model judged team numbers by (LeagueModel.lineupThresholds; league.ts step 5c,
+ * lineupThresholdScale; review of the engine track, Phase 7b): config.freeAgentOptimizer.faMinGain and config.needs.chipMinGap
+ * × `scale` = Σω ÷ Σω₀ over the weeks team numbers count (ω this build's playoff weight, ω₀ config.lineups.playoffWeight),
+ * so each keeps the meaning it was calibrated with at ω₀ whatever ω the goal gives (scale 1 at ω₀, or when no week counts).
+ * The trade search's throw-ins scale config.search.throwInMaxCost by the same `scale` (evaluate.ts throwIns).
+ */
+export interface LineupThresholds {
+  /** Σω ÷ Σω₀ over the weeks team numbers count. */
+  scale: number;
+  /** The least gain of a free-agent move (TeamModel.faMoves; optimizer.ts), ROS lineup points. */
+  faMinGain: number;
+  /** The least gap of a trade chip (TradeChip.gap), ROS lineup points. */
+  chipMinGap: number;
 }
 
 export interface PlayerModel {
@@ -249,9 +340,9 @@ export interface TeamModel {
    * each adds the best free agent left to it in the allocation order (one free agent, one team: no team earlier in
    * LeagueModel.faAllocation's order claimed him; planner reply to Checkpoint 4, change 3), dropping a player or into an
    * open roster spot, while it raises the team's rest-of-season lineup points by at least
-   * config.freeAgentOptimizer.faMinGain (⚠️ a pickup that drops a less valuable player in a near-tie can raise them up to
-   * config.lineups.dropNearTieWeekly a week less: optimizer.ts's header), at most faMaxMoves of them; never a kicker or a team defense (streamed or
-   * kept), nor a position the team streams. Empty when no move qualifies. No free agent shows in two teams' moves
+   * LeagueModel.lineupThresholds.faMinGain (config.freeAgentOptimizer.faMinGain × Σω ÷ Σω₀; ⚠️ a pickup that drops a less
+   * valuable player in a near-tie can raise them up to config.lineups.dropNearTieWeekly a week less: optimizer.ts's header),
+   * at most faMaxMoves of them; never a kicker or a team defense (streamed or kept), nor a position the team streams. Empty when no move qualifies. No free agent shows in two teams' moves
    * (except under league.ts faAllocation "independent", Checkpoint 4's rule for reports). Lineup costs and trade chips
    * are measured from the roster after these moves (V*), so a trade never gets credit for a pickup the team could make
    * anyway. The League page lists them as "Free-agent pickups that would help".
@@ -278,6 +369,27 @@ export interface TeamModel {
    * simulates these. The week in progress keeps `score`'s week (⚠️ the model plays a week under way with today's rosters).
    */
   scoreWithPickups?: { mean: number[]; sd: number[] };
+  /**
+   * The roster spots IR returners take back from their return weeks (§7 IR players; league.ts step 5b,
+   * returners.finalLineups): who is released, from which week, and for which returner, on the team as it stands (the lineups
+   * behind ev, scen, strength, needs and score) and after its free-agent pickups (displacedWithPickups: V*(T)'s, behind
+   * scoreWithPickups and the trade search's baseline). Empty when nobody is. A released player plays nothing for the team
+   * from that week on, which the League page's likely starters mirror (leagueView.likelyStarters; review of the engine
+   * track, Phase 7b: without it the page and the cards could name different likely starters). Absent in a model built
+   * before Phase 7b.
+   */
+  displaced?: TeamDisplacement[];
+  displacedWithPickups?: TeamDisplacement[];
+}
+
+/** One roster spot an IR returner takes back (TeamModel.displaced; returners.Displacement with an NFL week). */
+export interface TeamDisplacement {
+  /** The player released: an active player, an earlier returner, or the returner himself (released at his return). */
+  id: string;
+  /** The NFL week (one of LeagueModel.weeks) he is off the roster from. */
+  week: number;
+  /** The returner who takes the spot. */
+  returner: string;
 }
 
 /** A rostered player's star premium for his owner (TeamModel.premiums). */
@@ -347,14 +459,14 @@ export interface Need {
 }
 
 /**
- * A trade chip (§7; planner reply to Checkpoint 2, answer 2): a player worth at least config.needs.
- * chipMinGap more rest-of-season lineup points to another team than to his own. Every number is ROS
- * lineup points (playoff weeks × playoffWeight, a week in progress skipped), measured against
+ * A trade chip (§7; planner reply to Checkpoint 2, answer 2): a player worth at least LeagueModel.lineupThresholds.
+ * chipMinGap (config.needs.chipMinGap × Σω ÷ Σω₀) more rest-of-season lineup points to another team than to his own.
+ * Every number is ROS lineup points (playoff weeks × playoffWeight, a week in progress skipped), measured against
  * free-agent-adjusted baselines, in scenario lineups when scenarios ran, else expected-value lineups.
  */
 export interface TradeChip {
   playerId: string;
-  /** maxOther − cost (≥ chipMinGap). */
+  /** maxOther − cost (≥ LeagueModel.lineupThresholds.chipMinGap). */
   gap: number;
   /** MV_lose(his team, i): what his team loses without him, after its free-agent moves (TeamPlayerValue). */
   cost: number;

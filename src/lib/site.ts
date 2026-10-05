@@ -9,11 +9,11 @@
  *   deployments too, without a protocol); elsewhere the stable copy's address (Part A: http://127.0.0.1:3000). Read at
  *   build time (the pages and these files are static). Never a page's own URL: metadata merging is shallow, so a
  *   canonical or og:url set in the root layout would make every page claim the home page's address.
- * - The contact line of the privacy policy, the terms and the feedback page: CONTACT_EMAIL, null until Parker picks an
- *   address (a Checkpoint 7a question; the 7b go/no-go list carries it). Until then the pages say so visibly
- *   (src/components/ContactLine.tsx).
- * - POLICY_FEATURES: which of Part B's wave-2 features (browser reading, anonymous feedback) those three pages describe;
- *   each page's words follow them, so the pages say what the app does today, whichever have landed.
+ * - The contact line of the privacy policy, the terms and the feedback page: CONTACT_EMAIL (planner reply to Checkpoint
+ *   7a, 3: Offer Sheet's own address; the pages name no person), shown by src/components/ContactLine.tsx.
+ * - POLICY_FEATURES: which features those three pages describe (Part B's browser reading and anonymous feedback, and
+ *   Checkpoint 7b's FantasyCalc values never shown, public-data archive and feedback studied in totals only); each page's
+ *   words follow them, so the pages say what the app does today, whichever have landed.
  */
 
 export const SITE_NAME = "Offer Sheet";
@@ -44,13 +44,10 @@ export const THEME_COLOR_DARK = "#060d18";
 /** The installed app's description (the web app manifest; Chrome shows up to 300 characters on its install screen). */
 export const APP_DESCRIPTION = "Trade ideas for your ESPN or Sleeper fantasy football league, ranked by how much they raise your playoff and title odds and how likely the other manager is to say yes. Free and read-only.";
 
-/** Parker's contact address for the privacy policy, the terms and the feedback page; null until he picks one. */
-export const CONTACT_EMAIL: string | null = null;
+/** Offer Sheet's contact address, on the privacy policy, the terms and the feedback page (planner reply to Checkpoint 7a, 3). */
+export const CONTACT_EMAIL = "offersheet.app@gmail.com";
 
-/** What the contact line says until there's an address. */
-export const CONTACT_PENDING = "to be added before launch";
-
-/** Part B's features that change what the privacy policy, the terms and the feedback page say (POLICY_FEATURES). */
+/** The features that change what the privacy policy, the terms and the feedback page say (POLICY_FEATURES). */
 export interface PolicyFeatures {
   /**
    * Track BF: the browser reads public ESPN leagues (no ESPN cookies connected) and Sleeper leagues itself and sends the
@@ -59,16 +56,39 @@ export interface PolicyFeatures {
   browserReads: boolean;
   /** Track FB: the outcome and Report buttons also send an anonymous copy, unless "Share anonymous feedback" is off. */
   anonymousFeedback: boolean;
+  /**
+   * Checkpoint 7b (planner reply to Checkpoint 7a, 5.4, FantasyCalc's condition): no FantasyCalc value number or value
+   * comparison shows anywhere in the app, so the privacy policy and the terms say Offer Sheet never shows them.
+   */
+  fantasyCalcHidden: boolean;
+  /**
+   * Checkpoint 7b (4.4 and 6.3): the snapshot cron keeps public data we fetch anyway (Sleeper's pre-game projections,
+   * FantasyCalc's daily lists) at Upstash for up to 2 seasons, and the privacy policy says so.
+   */
+  publicArchive: boolean;
+  /**
+   * Checkpoint 7b (4.3): studying the anonymous feedback keeps only totals and fitted numbers, never the copies themselves
+   * (`npm run feedback:pull`, which saves the copies, is replaced), and the privacy policy says so.
+   */
+  feedbackTotalsOnly: boolean;
 }
 
 /**
  * Which of those features the public pages describe as working (review PG-1: a policy must never describe what isn't
  * built). Off until the change that builds each one turns it on; src/app/pages.test.ts fails while a flag and the code
  * disagree (the code each page's sentences rest on), and pins the pages' words both ways. Turning one on changes the
- * privacy policy and the terms: set their LAST_UPDATED to that day. Once both are on for good, the words for "off" (and
- * these flags) can go.
+ * privacy policy (and, for fantasyCalcHidden, the terms): set their LAST_UPDATED to that day. Once a flag is on for good,
+ * its words for "off" (and the flag) can go. Checkpoint 7b's three (review of its text: sentences that rested on work not
+ * built yet) are each off until that work lands: the policy is public only from launch, and the go/no-go list needs them
+ * on. publicArchive and feedbackTotalsOnly went on on 2026-10-05 with the snapshot cron and `npm run feedback:report`.
  */
-export const POLICY_FEATURES: Readonly<PolicyFeatures> = { browserReads: true, anonymousFeedback: true };
+export const POLICY_FEATURES: Readonly<PolicyFeatures> = {
+  browserReads: true,
+  anonymousFeedback: true,
+  fantasyCalcHidden: false,
+  publicArchive: true,
+  feedbackTotalsOnly: true,
+};
 
 /** The address the site falls back to off Vercel: the stable copy's (Part A, `npm run stable`, port 3000). */
 export const LOCAL_SITE_URL = "http://127.0.0.1:3000";

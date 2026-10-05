@@ -9,7 +9,9 @@
  *   playoffMatchupPeriodLength is only cross-checked against matchupPeriods (warning on a mismatch).
  * - Trade review (planner answer 12, "trust what the API reports"): a 0-hour review period → none
  *   (trades process at once, whatever the veto votes); vetoVotesRequired > 0 → league_vote.
- *   INFERRED: a review period (revisionHours > 0) with no veto votes → commissioner.
+ *   INFERRED: a review period (revisionHours > 0) with no veto votes → commissioner. The period itself (Phase 7b, for the
+ *   planner's reply to Checkpoint 7a, §5.3): LeagueSettings.tradeReviewHours = revisionHours as ESPN reports it (a number
+ *   ≥ 0; 24 in both test leagues), else left out (unknown).
  * - League type: keeperCount and keeperCountFuture both 0 → redraft (verified). INFERRED: the larger
  *   of the two ≥ the active roster → dynasty, else keeper (no ESPN keeper/dynasty league was
  *   available to verify; ESPN has no flag; keeperCountFuture read as next season's keepers).
@@ -495,6 +497,9 @@ function settingsOf(L: EspnLeague, slots: SlotSummary, proTeams: EspnProTeam[] |
   } else notes.push("ESPN reports no trade deadline for this league.");
 
   const tradeReview = tradeReviewOf(s.tradeSettings, notes, unknown);
+  // The review period (the file header): revisionHours as reported; unknown when it isn't a number ≥ 0.
+  const revisionHours = s.tradeSettings.revisionHours;
+  const tradeReviewHours = typeof revisionHours === "number" && Number.isFinite(revisionHours) && revisionHours >= 0 ? revisionHours : undefined;
 
   // League type from the keeper counts: this season's and (read as) next season's.
   const keepNow = s.draftSettings?.keeperCount ?? 0;
@@ -566,6 +571,7 @@ function settingsOf(L: EspnLeague, slots: SlotSummary, proTeams: EspnProTeam[] |
     ...(seedingTiebreaker ? { seedingTiebreaker } : {}),
     tradeDeadline,
     tradeReview,
+    ...(tradeReviewHours !== undefined ? { tradeReviewHours } : {}),
     ...(acq?.isUsingAcquisitionBudget && typeof acq.acquisitionBudget === "number" ? { faabBudget: acq.acquisitionBudget } : {}),
     ...(unknown.length ? { unknownSettings: unknown } : {}),
   };

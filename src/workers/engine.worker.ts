@@ -4,7 +4,8 @@
  *
  * - `league`: build the League model (§6 projections, §7 lineups, needs and partners, §8 playoff odds,
  *   §9 values) from a snapshot, its model inputs and the user's settings for the league (src/engine/
- *   settings.ts: the positions my team streams and the playoff weight, Phase 4 lead decision L12).
+ *   settings.ts: the positions my team streams, Phase 4 lead decision L12, and the goal its automatic playoff weight
+ *   weighs my odds by, planner reply to Checkpoint 7a, §6.1).
  *   One reply: `league` (or `error`).
  * - `trades`: the trade search (§12, src/engine/search.ts) for the Trade Finder, with every other team or one
  *   partner. Replies: `progress` now and then, then `trades` with the result (or `error`, or `cancelled` when

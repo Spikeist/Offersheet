@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { callApi, chooseLeagueResponse, isApiError, isChooseLeague, isSignedModelResponse } from "./api";
+import type { LeagueSnapshot } from "@/engine/model";
+import { callApi, chooseLeagueResponse, isApiError, isChooseLeague, isSignedModelResponse, readApiResponse } from "./api";
 import { commissionerMessage, ESPN_PUBLIC_SETTING_PATH } from "./commissioner";
+import { resetSentence } from "./errors";
+import { IMPORT_FORMAT_VERSION, type StoredImport } from "./importStore";
+import { SERVER_RETRY_CODES, importLeague, loadModelInputs, postGzipJson } from "./leagueFetch";
 
 function fakeFetch(respond: () => Promise<Response>) {
   const calls: { url: string; init?: RequestInit }[] = [];
@@ -52,6 +56,44 @@ describe("callApi", () => {
     expect(await callApi("/x", { method: "GET" }, page(504))).toMatchObject({ error: { code: "SOURCE_SLOW" } });
     // A 200 that isn't JSON is still ours to call unexpected.
     expect(await callApi("/x", { method: "GET" }, page(200))).toMatchObject({ error: { code: "INTERNAL" } });
+  });
+});
+
+describe("a daily limit's answer says when it resets, in the visitor's own time (planner reply to Checkpoint 7a, §2 question 7)", () => {
+  const RESET = "2026-10-06T00:00:00.000Z";
+  const capacity = { error: { code: "BUSY", message: "The beta is at capacity today. It resets at 12:00 AM UTC.", resetAt: RESET } };
+  const busy = (body: unknown = capacity) => async () => new Response(JSON.stringify(body), { status: 503, headers: { "content-type": "application/json", "retry-after": "10800" } });
+  /** What this machine's browser would say (the tests run in the machine's own zone). */
+  const local = (): string => resetSentence(Date.parse(RESET), { timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, now: Date.now() });
+
+  it("readApiResponse words it in the given zone, and keeps resetAt", async () => {
+    const now = Date.UTC(2026, 9, 5, 21, 0, 0);
+    const read = await readApiResponse(await busy()(), { timeZone: "America/Chicago", now });
+    expect(read).toEqual({ error: { code: "BUSY", message: "The beta is at capacity today. It resets at 7:00 PM.", resetAt: RESET } });
+    const share = { error: { code: "BUSY", message: "Your connection has used today's share of requests to ESPN. It resets at 12:00 AM UTC.", resetAt: RESET } };
+    expect(await readApiResponse(await busy(share)(), { timeZone: "America/Los_Angeles", now })).toEqual({ error: { ...share.error, message: "Your connection has used today's share of requests to ESPN. It resets at 5:00 PM." } });
+    // Any other answer is passed through as it came.
+    const other = { error: { code: "LEAGUE_NOT_FOUND", message: "League not found for that season." } };
+    expect(await readApiResponse(Response.json(other, { status: 404 }), { timeZone: "America/Chicago", now })).toEqual(other);
+  });
+
+  it("every page that shows the message gets it in place, never a broken page: Connect and the Import Report's Refresh (importLeague), the League page (loadModelInputs), an upload's answer (postGzipJson)", async () => {
+    const expected = `The beta is at capacity today. ${local()}`;
+    // Connect, and the Import Report's Refresh: the import's answer, an error the page shows like any other.
+    const imported = await importLeague({ platform: "sleeper", body: { season: 2026, leagueId: "990001" }, deps: { fetchImpl: busy() as unknown as typeof fetch, browserReads: false } });
+    expect(imported).toEqual({ error: { code: "BUSY", message: expected, resetAt: RESET } });
+    // The League page: the model build's answer, in its error card (with Try again).
+    const stored: StoredImport = {
+      version: IMPORT_FORMAT_VERSION,
+      savedAt: new Date().toISOString(),
+      request: { platform: "sleeper", season: 2026, leagueId: "990001" },
+      response: { snapshot: { platform: "sleeper", leagueId: "990001", season: 2026, fetchedAt: new Date().toISOString() } as unknown as LeagueSnapshot, notes: [] },
+    };
+    expect(await loadModelInputs(stored, { deps: { fetchImpl: busy() as unknown as typeof fetch, browserReads: false } })).toEqual({ ok: false, message: expected });
+    // The browser path's upload: BUSY isn't one of the answers that send the page to the server path instead.
+    const upload = await postGzipJson<unknown>("/api/import/sleeper", { v: 1 }, { fetchImpl: busy() as unknown as typeof fetch, gzip: async () => new Uint8Array(10) });
+    expect(upload).toEqual({ error: { code: "BUSY", message: expected, resetAt: RESET } });
+    expect(SERVER_RETRY_CODES.has("BUSY")).toBe(false);
   });
 });
 

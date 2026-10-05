@@ -21,6 +21,7 @@ export interface FcResult {
   error?: string;
 }
 
+/** A FantasyCalc player as its value rows carry him (once also /players rows, which the probes no longer ask for). */
 export interface FcPlayerRecord {
   id: number;
   name: string;
@@ -42,7 +43,6 @@ export interface SharedState {
   /** Final week plan (needs the schedule's last regular-season week); null when no week is known. */
   plan: WeekPlan | null;
   fc: FcResult[];
-  fcPlayers: FcPlayerRecord[] | null;
   dpRows: CsvRow[] | null;
   sleeperDb: Record<string, SleeperPlayer> | null;
   /** Bytes of the Sleeper players DB response (§2.3 says ~5 MB). */
@@ -77,7 +77,6 @@ export function newState(): SharedState {
     nflStateSource: "",
     plan: null,
     fc: [],
-    fcPlayers: null,
     dpRows: null,
     sleeperDb: null,
     sleeperDbBytes: null,

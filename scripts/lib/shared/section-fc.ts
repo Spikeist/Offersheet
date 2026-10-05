@@ -1,16 +1,17 @@
 /**
- * FC — FantasyCalc market values (CLAUDE.md §2.9, §9). Eleven formats, each fetched at most once
- * per day (24 h cache + cross-process lock in lib/fantasycalc.ts): the redraft baseline, one
- * parameter varied at a time, and the two dynasty baselines. Plus GET /players, and the API docs and
- * terms, read from the site's JS bundle (they are client-rendered) and quoted verbatim.
+ * FC — FantasyCalc market values (CLAUDE.md §2.9, §9). Eleven formats, each read through the app's own cache entry
+ * (lib/fantasycalc.ts: at most one request every 3 hours a format, shared with the app and the stable copy, plus the
+ * probes' cross-process lock): the redraft baseline, one parameter varied at a time, and the two dynasty baselines. And
+ * the API docs and terms, read from the site's JS bundle (they are client-rendered) and quoted verbatim. GET /players
+ * isn't asked any more (FantasyCalc's conditions of 2026-10-05, reports/fantasycalc-permission.md: "call only
+ * /values/current"; review of Checkpoint 7b's server work): its committed Phase 0 sample (first 100 rows) stays as test data.
  */
-import { TTL } from "../cache";
 import type { Evidence } from "../checklist";
 import { fantasyCalcUrl, getFantasyCalc, type FcEntry, type FcFormat } from "../fantasycalc";
-import { getJson, type HttpResult } from "../http";
+import type { HttpResult } from "../http";
 import type { ProbeContext } from "../probe";
-import { addTeamCodes, errMsg, ev, freshness, note, saveFixture, saveRawSafe, type FcPlayerRecord, type FcResult, type SharedState } from "./context";
-import { belowFloor, compareFormats, compareNameSets, countsByPosition, fieldPresence, idCoverage, isPickId, pickKeyForms, pickRows, redraftGap, topEntry, valueRelations } from "./fc";
+import { addTeamCodes, errMsg, ev, freshness, note, saveFixture, saveRawSafe, type FcResult, type SharedState } from "./context";
+import { belowFloor, compareFormats, compareNameSets, countsByPosition, fieldPresence, idCoverage, pickKeyForms, pickRows, redraftGap, topEntry, valueRelations } from "./fc";
 import { documentedEndpoints, findLiteral, mainScriptSrc, routeChunk, stringLiterals, textBetween } from "./fc-docs";
 import { fetchFantasyCalcSite, FANTASYCALC_SITE } from "./fetch";
 import { fixtureLabels } from "./labels";
@@ -20,7 +21,7 @@ const BASE: FcFormat = { isDynasty: false, numQbs: 1, numTeams: 12, ppr: 1 };
 const DYNASTY: FcFormat = { isDynasty: true, numQbs: 1, numTeams: 12, ppr: 1 };
 
 /**
- * The daily format budget: 11 formats, each fetched at most once per day. numTeams=16 was dropped:
+ * The probe's formats: 11, each asked at most once every 3 hours (the app's cache entry). numTeams=16 was dropped:
  * it returns the 12-team values (see the decision below), so fetching it re-fetched the 12-team format.
  */
 export const FC_FORMATS: Array<{ name: string; format: FcFormat }> = [
@@ -37,7 +38,6 @@ export const FC_FORMATS: Array<{ name: string; format: FcFormat }> = [
   { name: "dynasty-2qb", format: { ...DYNASTY, numQbs: 2 } },
 ];
 
-export const FC_PLAYERS_URL = "https://api.fantasycalc.com/players";
 export const fcQuery = (f: FcFormat) => fantasyCalcUrl(f).split("?")[1] ?? "";
 
 /** Trimmed copy for committed fixtures: top entries, plus every pick and (optionally) every TE. */
@@ -145,9 +145,16 @@ export async function runFantasyCalc(p: ProbeContext, state: SharedState): Promi
   const get = (name: string) => state.fc.find((r) => r.name === name);
   const ok = state.fc.filter((r) => r.data);
   const fmtEvidence = state.fc.map((r) =>
-    r.data ? ev(p, r.res, "[]", { entries: r.data.length, top: `${r.data[0]?.player.name}: ${r.data[0]?.value}` }, freshness(r.res, "24 h")) : note(undefined, undefined, `${r.name}: ${r.error}`, fantasyCalcUrl(r.format)),
+    r.data ? ev(p, r.res, "[]", { entries: r.data.length, top: `${r.data[0]?.player.name}: ${r.data[0]?.value}` }, freshness(r.res, "the app's 3-hour")) : note(undefined, undefined, `${r.name}: ${r.error}`, fantasyCalcUrl(r.format)),
   );
-  (ok.length === FC_FORMATS.length ? cl.ok : ok.length ? cl.warn : cl.fail).call(cl, "FC", "FC.formats", "Formats fetched", `${ok.length}/${FC_FORMATS.length} formats returned JSON (each format at most once per day: 24 h cache)`, ...fmtEvidence);
+  (ok.length === FC_FORMATS.length ? cl.ok : ok.length ? cl.warn : cl.fail).call(
+    cl,
+    "FC",
+    "FC.formats",
+    "Formats fetched",
+    `${ok.length}/${FC_FORMATS.length} formats returned JSON (each format at most once every 3 hours, through the app's own cache entry: FantasyCalc's conditions of 2026-10-05)`,
+    ...fmtEvidence,
+  );
 
   const redraft = get("redraft")?.data;
   const dynasty = get("dynasty")?.data;
@@ -316,35 +323,8 @@ export async function runFantasyCalc(p: ProbeContext, state: SharedState): Promi
     note(undefined, undefined, "tested in redraft only (format budget); dynasty + tep not verified"),
   );
 
-  // ---- GET /players (documented; at most once per day)
-  try {
-    const { data, res } = await p.timed("fantasycalc", () =>
-      getJson<FcPlayerRecord[]>(FC_PLAYERS_URL, { cache: { key: `fantasycalc:${FC_PLAYERS_URL}`, ttlMs: TTL.fantasyCalc, namespace: "fantasycalc" }, label: "FantasyCalc /players" }),
-    );
-    if (!Array.isArray(data)) throw new Error("response is not an array");
-    state.fcPlayers = data;
-    await saveRawSafe(p, "fantasycalc:players", data, res);
-    await saveFixture(p, fixtureLabels.fcPlayers, data.slice(0, 100), res);
-    const pos = sortCounts(data.reduce<Record<string, number>>((m, x) => ((m[x.position] = (m[x.position] ?? 0) + 1), m), {}));
-    const keysP = [...new Set(data.flatMap((x) => Object.keys(x)))].sort();
-    const skill = data.filter((x) => ["QB", "RB", "WR", "TE"].includes(x.position));
-    const withSleeper = skill.filter((x) => x.sleeperId && !isPickId(x.sleeperId)).length;
-    const valued = new Set([...redraft, ...dynasty].filter((e) => e.player.position !== "PICK").map((e) => e.player.id));
-    const inValues = data.filter((x) => valued.has(x.id)).length;
-    const pickCount = data.filter((x) => x.position === "PICK").length;
-    (inValues === valued.size ? cl.ok : cl.warn).call(
-      cl,
-      "FC",
-      "FC.players",
-      "GET /players",
-      `HTTP ${res.status}: ${data.length} entries (${skill.length} QB/RB/WR/TE, ${withSleeper} of them with a sleeperId; ${pickCount} PICK rows); ${inValues}/${valued.size} players on the value rows appear here, so it is the widest FantasyCalc ID source (${Math.round(data.length / Math.max(1, valued.size))}× the valued players)`,
-      ev(p, res, "[].position", pos, freshness(res, "24 h")),
-      ev(p, res, "[] keys", keysP),
-    );
-    addTeamCodes(state, "FantasyCalc", data.map((x) => ({ code: x.maybeTeam, sleeperId: isPickId(x.sleeperId) ? null : x.sleeperId })));
-  } catch (err) {
-    cl.fail("FC", "FC.players", "GET /players", `failed: ${errMsg(err)}`, note(undefined, undefined, undefined, FC_PLAYERS_URL));
-  }
+  // GET /players isn't asked (the file header: FantasyCalc's conditions of 2026-10-05 allow only /values/current), so the
+  // value rows are FantasyCalc's only ids and team codes here.
   addTeamCodes(
     state,
     "FantasyCalc",
@@ -361,8 +341,8 @@ export async function runFantasyCalc(p: ProbeContext, state: SharedState): Promi
   const facts: string[] = [];
   if (docs.endpoints.length) facts.push(`documented endpoints: ${docs.endpoints.join(", ")}`);
   if (found("documented endpoints only") && found("other endpoints")) facts.push("calling any other endpoint \"may result in permanent IP bans\"");
-  if (found("/values/current refresh")) facts.push("/values/current at most hourly");
-  if (found("/players refresh")) facts.push(`/players at most daily (our 24 h cache: ${TTL.fantasyCalc >= 24 * 3600_000 ? "complies with both" : "too short"})`);
+  if (found("/values/current refresh")) facts.push("/values/current at most hourly (our 3-hour cache, FantasyCalc's condition for Offer Sheet of 2026-10-05, is within it)");
+  if (found("/players refresh")) facts.push("/players at most daily (not called: FantasyCalc's conditions of 2026-10-05 allow only /values/current)");
   if (found("a. non-commercial")) facts.push("non-commercial use only");
   if (found("c. attribution")) facts.push("attribution on every page, \"clearly visible and placed in close proximity to the displayed data\"");
   if (found("d. website reference")) facts.push("a visible link to FantasyCalc.com");
@@ -406,5 +386,4 @@ export async function runFantasyCalc(p: ProbeContext, state: SharedState): Promi
       `§9: valueFloor (1% of the top value = ${Math.round(floor)}) is above ${bf.below} players who do have a redraft value (${pct(bf.below, redraft.length)}; lowest ${bf.min ? `${bf.min.player.name} at ${bf.min.value}` : "?"}), so an uncovered player would outrank covered ones. Use min(valueFloor, the lowest covered value) instead?`,
     );
   if (found("public launch (2)")) cl.question("FantasyCalc's API docs ask apps to email them before a public launch (quoted in FC.terms). Add that to the Phase 7 checklist?");
-  cl.question("For item M in redraft leagues, should a player count as matched when he has an ID match in FantasyCalc at all (/players), or only when he has a redraft value?");
 }

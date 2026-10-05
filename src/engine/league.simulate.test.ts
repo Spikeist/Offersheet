@@ -28,10 +28,10 @@ vi.mock("./season", async (importOriginal) => {
 describe("buildLeagueModel when the season simulator refuses the setup", () => {
   const { snapshot } = normalizeEspnLeague(parkerBundle(), { leagueId: PARKER.leagueId, resolver: fakeResolver(), now: NOW, swid: PARKER.swid });
   const inputs = syntheticInputs(snapshot);
-  const build = (error: Error | null) => {
+  const build = (error: Error | null, playoffWeightSims?: number) => {
     refusal.error = error;
     try {
-      return buildLeagueModel(snapshot, inputs, { now: NOW, scenarios: 0 });
+      return buildLeagueModel(snapshot, inputs, { now: NOW, scenarios: 0, ...(playoffWeightSims !== undefined ? { playoffWeightSims } : {}) });
     } finally {
       refusal.error = null;
     }
@@ -53,8 +53,15 @@ describe("buildLeagueModel when the season simulator refuses the setup", () => {
     // Nothing of the internal message reaches any text the page shows.
     const text = JSON.stringify(refused);
     for (const part of [internal, "simulateSeason", "3–7", "weeks (5, 7)"]) expect(text, part).not.toContain(part);
-    expect(refused.teams).toEqual(normal.teams);
-    expect(refused.partners).toEqual(normal.partners);
+    // The automatic playoff weight (league.ts step 5c) has no odds to measure on either: it falls back to the config's
+    // weight, so the rest of the model is the one a build that doesn't measure it makes (playoffWeightSims 0).
+    expect(normal.playoffWeightAuto?.basis).toBe("auto");
+    expect(refused.playoffWeightAuto).toMatchObject({ basis: "fallback", reason: "noOdds" });
+    const unmeasured = build(null, 0);
+    expect(unmeasured.playoffWeightAuto).toMatchObject({ basis: "fallback", reason: "noOdds" });
+    expect(refused.playoffWeight).toBe(unmeasured.playoffWeight);
+    expect(refused.teams).toEqual(unmeasured.teams);
+    expect(refused.partners).toEqual(unmeasured.partners);
     expect(refused.players).toEqual(normal.players);
   });
 

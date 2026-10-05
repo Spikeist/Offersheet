@@ -27,14 +27,14 @@ import "server-only";
  *
  * The file cache's folder (fileCacheDir): FileCache's default, .cache/app in the working directory, unless CACHE_DIR_ENV
  * names another. The stable copy (planner reply to Checkpoint 4c, A1; scripts/stable.ts) runs from a sibling folder and
- * sets it to the main folder's .cache/app, so both copies share one cache: FantasyCalc stays at one fetch a day per format
+ * sets it to the main folder's .cache/app, so both copies share one cache: FantasyCalc stays at one fetch every 3 hours per format
  * (§2.9) and the platforms see one set of requests. Safe to share: the HTTP client stores raw responses only (status, type,
  * body, fetch time; ESPN's SWIDs replaced by the same one-way pseudonyms in every version), each written atomically
  * (a temp file, then a rename) with its own expiry that either process's sweep honours; the two copies run different
  * versions of the code, so an entry is read only in the shape and format this version stores (src/server/http.ts
  * isCachedResponse, CACHE_FORMAT: anything else is a miss, never an error). Bodies a fetch-time reducer shortens
  * (src/data/reduce.ts) are filed under keys of their own ("#<reducer>-r<version>-<fingerprint>"), so the stable copy
- * never reads one. FantasyCalc's lists keep their keys (no reducer), so the one fetch a day per format stays shared.
+ * never reads one. FantasyCalc's lists keep their keys (no reducer), so the one fetch every 3 hours per format stays shared.
  * ⚠️ The reduced bodies aren't shared (review CA-9): until the stable copy runs code with the same reducers
  * (`npm run stable` on a checkpoint after 7a), the two copies each fetch Sleeper's players lists, the DynastyProcess ID
  * map, and Sleeper's projections and stats for themselves (the players lists and the ID map up to twice a day instead
@@ -85,7 +85,7 @@ export interface ServerCache {
  * The server's cache for this environment (see the header). `redis` is the process's client: by default, on Vercel,
  * getRedis (null when Redis isn't configured; a client that can't be built is logged as "redis_config_invalid" by its
  * error's name only and taken as none); tests pass their own, or null for none. ⚠️ Off Vercel the file cache is used
- * whatever `redis` is: .env.local may hold the KV_* variables (`npm run feedback:pull -- --live` reads them, and
+ * whatever `redis` is: .env.local may hold the KV_* variables (`npm run feedback:report -- --live` reads them, and
  * `vercel env pull` writes them), and the stable copy and `npm run dev` must still never contact Upstash (Part B's ground
  * rules).
  */

@@ -1,12 +1,21 @@
 /**
  * The footer (CLAUDE.md §14 "Footer and layout"; planner reply to Checkpoint 4c, B3: "a feedback link, the attributions
- * (FantasyCalc wherever values show), and 'Not affiliated with ESPN or Sleeper…'"). Static render.
+ * (FantasyCalc wherever values show), and 'Not affiliated with ESPN or Sleeper…'"). Static render. Checkpoint 7b (planner
+ * reply to Checkpoint 7a, 5.4): its FantasyCalc link carries FantasyCalc's attributes and is plain HTML in every page's
+ * server render (the root layout around the page, usePathname mocked for the header).
  */
+import { readFileSync, readdirSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("next/navigation", () => ({ usePathname: () => "/league" }));
+
 import { ESPN_READS_BASE } from "@/adapters/espn/fetch";
 import { nflScheduleUrl } from "@/data/nflSchedule";
+import { FANTASYCALC_LINK, FANTASYCALC_URL, ValuesCredit } from "./league/ValuesCredit";
 import { FOOTER_CREDITS, FOOTER_INDEPENDENT, SiteFooter } from "./SiteFooter";
 
 const html = renderToStaticMarkup(createElement(SiteFooter));
@@ -25,6 +34,12 @@ function links(markup: string) {
   }));
 }
 
+const ROOT = fileURLToPath(new URL("../../", import.meta.url));
+const read = (file: string) => readFileSync(path.join(ROOT, file), "utf8");
+
+/** FantasyCalc's attributes, in the order React writes them (it keeps referrerPolicy's case; HTML attribute names aren't case-sensitive). */
+const FANTASYCALC_ATTRS = /^href="https:\/\/fantasycalc\.com" target="_blank" rel="noopener" referrerPolicy="origin" class="/;
+
 describe("SiteFooter", () => {
   it("links Feedback, Privacy and Terms in a labeled row, each a 44 px tap target", () => {
     const nav = /<nav aria-label="About Offer Sheet">([\s\S]*?)<\/nav>/.exec(html)?.[1];
@@ -40,18 +55,49 @@ describe("SiteFooter", () => {
     expect(nav.match(/<span aria-hidden="true" class="px-0.5">·<\/span>/g)).toHaveLength(2);
   });
 
-  it("credits FantasyCalc with a link (its terms ask for one wherever values show), opened safely in a new tab", () => {
-    const fc = links(html).find((l) => l.href === "https://fantasycalc.com");
-    expect(fc?.text).toBe("FantasyCalc");
-    expect(fc?.attrs).toContain('target="_blank"');
-    expect(fc?.attrs).toContain('rel="noopener noreferrer"');
+  it("credits FantasyCalc with a link back, in a new tab, with FantasyCalc's attributes: noopener, no noreferrer or nofollow, only the origin as referrer (5.4)", () => {
+    const fc = links(html).filter((l) => l.href === FANTASYCALC_URL);
+    expect(fc.map((l) => l.text)).toEqual(["FantasyCalc"]);
+    expect(fc[0]?.attrs).toMatch(FANTASYCALC_ATTRS);
+    expect(fc[0]?.attrs).not.toMatch(/noreferrer|nofollow/);
     expect(text).toContain("Trade values: FantasyCalc");
+    // The credit next to numbers on the League page, the Import Report and the trade cards carries the same attributes.
+    expect(FANTASYCALC_LINK).toEqual({ href: "https://fantasycalc.com", target: "_blank", rel: "noopener", referrerPolicy: "origin" });
+    const credit = links(renderToStaticMarkup(createElement(ValuesCredit)));
+    expect(credit).toHaveLength(1);
+    expect(credit[0]?.attrs).toMatch(FANTASYCALC_ATTRS);
   });
 
-  it("credits the other sources and says Offer Sheet is a free, independent beta affiliated with none of them", () => {
+  it("is in every page's server HTML: the root layout, the only layout, is a server component that renders it after every page, its FantasyCalc link a plain <a> (5.4)", async () => {
+    // Every page's layout is src/app/layout.tsx alone: no nested layout or template could leave the footer out.
+    const found: string[] = [];
+    const walk = (dir: string) => {
+      for (const e of readdirSync(path.join(ROOT, dir), { withFileTypes: true })) {
+        const p = `${dir}/${e.name}`;
+        if (e.isDirectory()) walk(p);
+        else if (/^(layout|template)\.[jt]sx?$/.test(e.name)) found.push(p);
+      }
+    };
+    walk("src/app");
+    expect(found).toEqual(["src/app/layout.tsx"]);
+    // Server components: the layout, the footer and the module its link attributes come from (not loaded by JavaScript).
+    for (const file of ["src/app/layout.tsx", "src/components/SiteFooter.tsx", "src/components/league/ValuesCredit.tsx"]) {
+      expect(read(file), file).not.toMatch(/^\s*["']use client["']/m);
+    }
+    // The layout's render around a page, as the server sends it: the page, then the footer with the plain link.
+    const { default: RootLayout } = await import("@/app/layout");
+    const page = renderToStaticMarkup(createElement(RootLayout, null, createElement("p", null, "A page of Offer Sheet")));
+    const fc = links(page).filter((l) => l.href === FANTASYCALC_URL);
+    expect(fc).toHaveLength(1);
+    expect(fc[0]?.attrs).toMatch(FANTASYCALC_ATTRS);
+    expect(page.indexOf("A page of Offer Sheet")).toBeLessThan(page.indexOf('href="https://fantasycalc.com"'));
+    expect(page.indexOf("<footer")).toBeGreaterThan(page.indexOf("A page of Offer Sheet"));
+  });
+
+  it("credits exactly the sources production uses and says Offer Sheet is a free, independent beta affiliated with none of them", () => {
     expect(FOOTER_CREDITS).toBe("Projections and stats: Sleeper and ESPN · Player IDs: DynastyProcess · NFL schedule: ESPN");
     expect(text).toContain(FOOTER_CREDITS);
-    // DynastyProcess too, as the terms and the privacy page say (review POL-23: the footer credits its ID map).
+    // DynastyProcess too, as the terms say (review POL-23: the footer credits its ID map).
     expect(FOOTER_INDEPENDENT).toBe(
       "Offer Sheet is a free, independent beta. It is not affiliated with or endorsed by ESPN, Sleeper, Yahoo, Fleaflicker, MyFantasyLeague, Fantrax, FantasyCalc, DynastyProcess or the NFL.",
     );
@@ -63,6 +109,17 @@ describe("SiteFooter", () => {
     expect(nflScheduleUrl(2026).startsWith(`${ESPN_READS_BASE}/`)).toBe(true);
     expect(text).toContain("NFL schedule: ESPN");
     expect(text).not.toContain("nflverse");
+    // Nothing in the app's code downloads from nflverse (its games were Phase 0's cross-check, and test fixtures).
+    const code: string[] = [];
+    const walk = (dir: string) => {
+      for (const e of readdirSync(path.join(ROOT, dir), { withFileTypes: true })) {
+        const p = `${dir}/${e.name}`;
+        if (e.isDirectory()) walk(p);
+        else if (/\.tsx?$/.test(e.name) && !/\.test\.tsx?$/.test(e.name) && !/testSupport|test-helpers/.test(e.name)) code.push(read(p));
+      }
+    };
+    walk("src");
+    expect(code.filter((c) => /nflverse\/nfldata|nflverse-data|github\.com\/nflverse/i.test(c))).toEqual([]);
   });
 
   it("has no Yahoo attribution yet: it joins only where Yahoo data shows (Phase 5)", () => {

@@ -75,6 +75,8 @@ describe("normalizeEspnLeague on Parker's league (sanitized fixtures)", () => {
   it("reads the league basics", () => {
     expect(s).toMatchObject({ platform: "espn", leagueId: PARKER.leagueId, season: 2026, name: "League 1", currentWeek: 4, fetchedAt: NOW.toISOString(), myTeamId: PARKER.myTeamId });
     expect(s.settings).toMatchObject({ numTeams: 10, leagueType: "redraft", benchSlots: 7, irSlots: 1, taxiSlots: 0, maxRosterSize: 16, medianGame: false, pointsOnly: false, tradeReview: "league_vote" });
+    // The review period as ESPN reports it (settings.tradeSettings.revisionHours; Phase 7b): 24 hours, 4 veto votes.
+    expect(s.settings.tradeReviewHours).toBe(24);
     expect(s.settings.faabBudget).toBeUndefined();
     expect(s.settings.divisions).toBeUndefined();
   });
@@ -352,7 +354,7 @@ describe("normalizeEspnLeague on the public test league (minimized fixture: TQB 
   });
 
   it("reads its settings: FAAB, a review period without veto votes (inferred commissioner), limits by position", () => {
-    expect(s.settings).toMatchObject({ numTeams: 10, benchSlots: 7, irSlots: 2, maxRosterSize: 15, playoffTeams: 4, playoffByes: 0, faabBudget: 200, tradeReview: "commissioner", leagueType: "redraft" });
+    expect(s.settings).toMatchObject({ numTeams: 10, benchSlots: 7, irSlots: 2, maxRosterSize: 15, playoffTeams: 4, playoffByes: 0, faabBudget: 200, tradeReview: "commissioner", tradeReviewHours: 24, leagueType: "redraft" });
     expect(s.settings.regularSeasonWeeks).toHaveLength(15);
     expect(s.settings.playoffWeeks).toEqual([16, 17]);
     expect(s.settings.positionLimits).toEqual({ QB: 2, RB: 10, WR: 10, TE: 10, K: 2, P: 0, DEF: 3, DL: 0, LB: 0, DB: 0 });
@@ -498,6 +500,7 @@ describe("normalizeEspnLeague edge cases", () => {
     league.settings.tradeSettings.vetoVotesRequired = 4;
     const { snapshot: s, notes } = run(league);
     expect(s.settings.tradeReview).toBe("none");
+    expect(s.settings.tradeReviewHours).toBe(0);
     expect(notes.join("\n")).toMatch(/4 veto votes but a 0-hour review period/);
     const missing = base();
     delete missing.settings.tradeSettings.revisionHours;
@@ -505,6 +508,24 @@ describe("normalizeEspnLeague edge cases", () => {
     const m = run(missing).snapshot;
     expect(m.settings.tradeReview).toBe("none");
     expect(m.settings.unknownSettings).toEqual(["tradeReview"]);
+    expect(m.settings.tradeReviewHours).toBeUndefined();
+  });
+
+  it("reads the review period as ESPN reports it, in hours (Phase 7b: LeagueSettings.tradeReviewHours); unknown unless it's a number ≥ 0", () => {
+    const settingsWith = (h: unknown, votes: unknown = 4) => {
+      const league = base();
+      if (h === undefined) delete league.settings.tradeSettings.revisionHours;
+      else league.settings.tradeSettings.revisionHours = h;
+      league.settings.tradeSettings.vetoVotesRequired = votes;
+      return run(league).snapshot.settings;
+    };
+    expect(settingsWith(48)).toMatchObject({ tradeReview: "league_vote", tradeReviewHours: 48 });
+    expect(settingsWith(24, 0)).toMatchObject({ tradeReview: "commissioner", tradeReviewHours: 24 });
+    // Veto votes without a period: a league vote whose length ESPN doesn't say.
+    expect(settingsWith(undefined)).toMatchObject({ tradeReview: "league_vote" });
+    expect(settingsWith(undefined).tradeReviewHours).toBeUndefined();
+    expect(settingsWith(null).tradeReviewHours).toBeUndefined();
+    expect(settingsWith(-1).tradeReviewHours).toBeUndefined();
   });
 
   it("warns about home-team bonus points and playoff round lengths that disagree with the schedule (review ESPN-10)", () => {

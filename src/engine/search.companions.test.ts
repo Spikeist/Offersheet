@@ -46,9 +46,12 @@ function rebuild(I: TradeInternals, settings: TradeSettings) {
 // smallLeague(6), EV lineups: its search shortlists Team 2's 1006 + 1012 → 1018 (1006 worth at most W, a neutral
 // throw-in) but not 1012 → 1018, whose screen the free-agent add in the roster spot 1006 opens beats. These narratives were
 // measured with W the best free agent's value (Checkpoint 4c's rule): a free agent nobody can use, worth that much
-// (withWaiverStash), keeps it, where A3's W (the best one left unclaimed) is lower in these leagues.
+// (withWaiverStash), keeps it, where A3's W (the best one left unclaimed) is lower in these leagues. And with the fallback
+// playoff weight (FIXED_OMEGA: league.ts step 5c not measured, 1.25, the weight before the planner's reply to Checkpoint 7a,
+// §6.1), which these leagues' shortlists and Plan B boxes were measured with.
+const FIXED_OMEGA = { playoffWeightSims: 0 } as const;
 const league6 = withWaiverStash(smallLeague(6));
-const ctx6 = buildTradeContext(league6.snapshot, league6.inputs, { now: TEST_NOW, scenarios: 0 });
+const ctx6 = buildTradeContext(league6.snapshot, league6.inputs, { now: TEST_NOW, scenarios: 0, ...FIXED_OMEGA });
 const I6 = tradeInternals(ctx6);
 const settings = settingsWith();
 const withCompanions = runTradeSearch(ctx6, { settings });
@@ -105,7 +108,7 @@ describe("the lean companions (search.ts)", { timeout: 60_000 }, () => {
       [11, 4],
     ] as const) {
       const lg = seed === 6 ? league6 : withWaiverStash(smallLeague(seed));
-      const ctx = seed === 6 ? ctx6 : buildTradeContext(lg.snapshot, lg.inputs, { now: TEST_NOW, scenarios });
+      const ctx = seed === 6 ? ctx6 : buildTradeContext(lg.snapshot, lg.inputs, { now: TEST_NOW, scenarios, ...FIXED_OMEGA });
       const I = tradeInternals(ctx);
       const r = seed === 6 ? withCompanions : runTradeSearch(ctx, { settings });
       const s = stateOf(r);
@@ -287,7 +290,7 @@ describe("the lean companions (search.ts)", { timeout: 60_000 }, () => {
       (memo ??= [6, 8, 12, 18, 59].map((seed) => {
         if (seed === 6) return { seed, I: I6, r: withCompanions };
         const lg = smallLeague(seed);
-        const ctx = buildTradeContext(lg.snapshot, lg.inputs, { now: TEST_NOW, scenarios: 0 });
+        const ctx = buildTradeContext(lg.snapshot, lg.inputs, { now: TEST_NOW, scenarios: 0, ...FIXED_OMEGA });
         return { seed, I: tradeInternals(ctx), r: runTradeSearch(ctx, { settings }) };
       }));
     const seedRun = (seed: number): Searched => searched().find((x) => x.seed === seed) as Searched;

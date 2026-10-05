@@ -48,6 +48,7 @@ import type { ModelDeps } from "../../_lib/deps";
 import { errorResponse, importErrorResponse, isSameOrigin, jsonResponse, jsonTextResponse, logUnexpected, readJsonBody, scrubSwids, workRefusedResponse } from "../../_lib/respond";
 import { espnModelBodySchema } from "../../_lib/schemas";
 import { isGzipRequest, modelWorkOf, readSignedModelUpload } from "../../_lib/upload";
+import { recordFormatsInUse } from "../../cron/snapshot/formats";
 import { espnImportResponse } from "../../import/espn/handler";
 import { modelMemo, modelMemoKey, type ModelMemo } from "../memo";
 
@@ -87,7 +88,8 @@ export function createEspnModelHandler(d: EspnModelHandlerDeps): (request: Reque
   /** The model inputs for a snapshot; a builder that throws is a bug on our side (INTERNAL, logged by name). */
   async function build(snapshot: LeagueSnapshot, espn: EspnProjections | undefined, deps: ModelDeps): Promise<ModelInputs | Response> {
     try {
-      return await d.buildInputs({ snapshot, http: deps.http, resolver: deps.resolver, now: deps.now, ...(espn ? { espn } : {}) });
+      // The FantasyCalc formats it read, for the daily snapshot cron (../../cron/snapshot/formats.ts; after the answer).
+      return recordFormatsInUse(snapshot.settings, await d.buildInputs({ snapshot, http: deps.http, resolver: deps.resolver, now: deps.now, ...(espn ? { espn } : {}) }));
     } catch (err) {
       logUnexpected("model_inputs", err, "espn");
       return errorResponse("INTERNAL");

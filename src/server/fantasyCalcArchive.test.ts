@@ -20,13 +20,18 @@ import {
   createFantasyCalcArchiver,
   defaultFantasyCalcArchiver,
   fantasyCalcArchiveEnabled,
+  fantasyCalcArchiveRoot,
   fantasyCalcFormatKey,
   fantasyCalcListsIn,
   fantasyCalcSnapshotFile,
   fantasyCalcSnapshotLocation,
   fantasyCalcSnapshotOf,
   mergeFantasyCalcSnapshot,
+  packFantasyCalcSnapshot,
   readFantasyCalcSnapshot,
+  readStoredFantasyCalcFile,
+  unpackFantasyCalcSnapshot,
+  writeFantasyCalcSnapshotFile,
   type ArchivableRow,
   type FantasyCalcArchiveInput,
   type FantasyCalcArchiveOutcome,
@@ -395,5 +400,40 @@ describe("buildModelInputs hands every FantasyCalc list it read to the archive (
     expect(down.lists).toEqual([]);
     const fake = fakeHttp(routesFor(s).routes);
     await expect(buildModelInputs({ snapshot: s, http: fake.http, resolver, now: NOW, fantasyCalcArchive: null })).resolves.toMatchObject({ market: { format: { isDynasty: false } } });
+  });
+});
+
+describe("the codec and the file helpers (the snapshot cron's store and snapshot:pull: planner reply to Checkpoint 7a, §6.3)", () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(path.join(os.tmpdir(), "offer-sheet-fc-codec-"));
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("packFantasyCalcSnapshot is a file's exact bytes; unpackFantasyCalcSnapshot reads them back, says unreadable or another version, and never throws", async () => {
+    const built = fantasyCalcSnapshotOf(list([row("1", 900), row("2", 800, { espnId: "3131" })]));
+    if (!("record" in built)) throw new Error("not built");
+    const packed = await packFantasyCalcSnapshot(built.record);
+    expect(await unpackFantasyCalcSnapshot(packed)).toEqual({ snapshot: built.record });
+    const out = await createFantasyCalcArchiver({ root: dir }).archive(list([row("1", 900), row("2", 800, { espnId: "3131" })]));
+    expect(await readFile("file" in out ? out.file : "")).toEqual(packed);
+    expect(await unpackFantasyCalcSnapshot(Buffer.from("not gzip"))).toEqual({ unreadable: true });
+    expect(await unpackFantasyCalcSnapshot(gzipSync(Buffer.from(JSON.stringify({ version: 1, players: 3 }))))).toEqual({ unreadable: true });
+    expect(await unpackFantasyCalcSnapshot(gzipSync(Buffer.from(JSON.stringify({ version: 2 }))))).toEqual({ otherVersion: true });
+  });
+
+  it("the root (the stable copy's OFFERSHEET_DATA_LOCAL, else data-local/ here), and the file reader and writer snapshot:pull uses", async () => {
+    expect(fantasyCalcArchiveRoot({ OFFERSHEET_DATA_LOCAL: path.join(dir, "main") })).toBe(path.join(dir, "main", "fantasycalc-snapshots"));
+    expect(fantasyCalcArchiveRoot({})).toBe(path.join(process.cwd(), "data-local", "fantasycalc-snapshots"));
+    const file = path.join(dir, "2026", "2026-10-03", "redraft-1qb-10team-ppr0.5.json.gz");
+    expect(await readStoredFantasyCalcFile(file)).toEqual({ snapshot: null });
+    const built = fantasyCalcSnapshotOf(list([row("1", 900)]));
+    if (!("record" in built)) throw new Error("not built");
+    await writeFantasyCalcSnapshotFile(file, built.record);
+    expect(await readStoredFantasyCalcFile(file)).toEqual({ snapshot: built.record });
+    await writeFile(file, "garbage");
+    expect(await readStoredFantasyCalcFile(file)).toEqual({ unreadable: true });
   });
 });

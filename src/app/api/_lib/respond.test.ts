@@ -88,14 +88,15 @@ describe("importErrorResponse", () => {
     expect((await importErrorResponse(lookalike, { platform: "sleeper" }).json()) as unknown).toMatchObject({ error: { code: "USER_NOT_FOUND" } });
   });
 
-  it("a used-up daily budget answers BUSY for the platform, with Retry-After until the next UTC midnight and that wait in words (track RL)", async () => {
+  it("a platform's whole day used up is the beta at capacity (planner reply to Checkpoint 7a, §2 question 7): BUSY, the exact words, Retry-After and resetAt the next UTC midnight", async () => {
     vi.useFakeTimers({ now: Date.UTC(2026, 9, 4, 18, 0, 0), toFake: ["Date"] });
     try {
       const { BudgetExhaustedError } = await import("@/server/budget");
       const res = importErrorResponse(new BudgetExhaustedError("espn"), { platform: "espn", season: 2026 });
       expect(res.status).toBe(503);
       expect(res.headers.get("retry-after")).toBe(String(6 * 3600));
-      expect(await res.json()).toEqual({ error: { code: "BUSY", message: "Offer Sheet has used today's share of requests to ESPN. Try again in about 6 hours." } });
+      const capacity = { error: { code: "BUSY", message: "The beta is at capacity today. It resets at 12:00 AM UTC.", resetAt: "2026-10-05T00:00:00.000Z" } };
+      expect(await res.json()).toEqual(capacity);
       // Sleeper's adapter turns its client's error into SOURCE_DOWN; the request's scope still knows it was the budget.
       const { newRequestScope, noteCut, runInRequestScope } = await import("@/server/deadline");
       const scope = newRequestScope("import", Date.now());
@@ -103,50 +104,74 @@ describe("importErrorResponse", () => {
         noteCut("budget", "sleeper");
         return importErrorResponse(new LeagueImportError("SOURCE_DOWN", "Sleeper couldn't be reached.", { platform: "sleeper" }), { platform: "sleeper" });
       });
-      expect(await sleeper.json()).toEqual({ error: { code: "BUSY", message: "Offer Sheet has used today's share of requests to Sleeper. Try again in about 6 hours." } });
+      expect(await sleeper.json()).toEqual(capacity);
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it("on Vercel the day's BUSY waits until its slice allowance next grows, not the day's end (final review SEC-2)", async () => {
+  it("on Vercel the beta's capacity resets when the day's slice allowance next grows, not at the day's end (final review SEC-2)", async () => {
     const at = Date.UTC(2026, 9, 4, 13, 30, 0); // slice 6: 7/12 of the day is open until 14:00
     const vercel = busyResponse("espn", "day", at, { VERCEL: "1" });
     expect(vercel.headers.get("retry-after")).toBe("1800");
-    expect(await vercel.json()).toEqual({ error: { code: "BUSY", message: "Offer Sheet has used today's share of requests to ESPN. Try again in about 30 minutes." } });
+    expect(await vercel.json()).toEqual({ error: { code: "BUSY", message: "The beta is at capacity today. It resets at 2:00 PM UTC.", resetAt: "2026-10-04T14:00:00.000Z" } });
     expect(busyResponse("espn", "day", at, {}).headers.get("retry-after")).toBe(String(10.5 * 3600)); // no slices: midnight
     expect(busyResponse("espn", "share", at, { VERCEL: "1" }).headers.get("retry-after")).toBe(String(10.5 * 3600));
   });
 
-  it("the daily work budget's refusals (final review SEC-1, F1): BUSY, the visitor's own day until midnight, the server's until its slice grows", async () => {
+  it("the daily work budget's refusals (final review SEC-1, F1): a visitor's own day in its own words until midnight; the server's day or slice is the beta at capacity, until the slice grows", async () => {
     const at = Date.UTC(2026, 9, 4, 1, 0, 0);
     for (const limit of ["client", "group"] as const) {
       const res = workRefusedResponse(limit, at);
       expect(res.status).toBe(503);
       expect(res.headers.get("retry-after")).toBe(String(23 * 3600));
-      expect(await res.json()).toEqual({ error: { code: "BUSY", message: "Your connection has used today's share of requests to Offer Sheet. Try again in about 23 hours." } });
+      expect(await res.json()).toEqual({ error: { code: "BUSY", message: "Your connection has used today's share of requests to Offer Sheet. It resets at 12:00 AM UTC.", resetAt: "2026-10-05T00:00:00.000Z" } });
     }
     const day = workRefusedResponse("day", at);
     expect(day.headers.get("retry-after")).toBe(String(5 * 3600));
-    expect(await day.json()).toEqual({ error: { code: "BUSY", message: "Offer Sheet has used its share of free server time for now. Try again in about 5 hours." } });
+    expect(await day.json()).toEqual({ error: { code: "BUSY", message: "The beta is at capacity today. It resets at 6:00 AM UTC.", resetAt: "2026-10-04T06:00:00.000Z" } });
   });
 
-  it("the client's own share of the day answers BUSY in words about its connection (review RL-4)", async () => {
+  it("the client's own share of the day answers BUSY in words about its connection, with the reset time (review RL-4)", async () => {
     vi.useFakeTimers({ now: Date.UTC(2026, 9, 4, 23, 30, 0), toFake: ["Date"] });
     try {
       const { BudgetExhaustedError } = await import("@/server/budget");
       const res = importErrorResponse(new BudgetExhaustedError("espn", "share"), { platform: "espn" });
       expect(res.status).toBe(503);
       expect(res.headers.get("retry-after")).toBe("1800");
-      expect(await res.json()).toEqual({ error: { code: "BUSY", message: "Your connection has used today's share of requests to ESPN. Try again in about 30 minutes." } });
+      expect(await res.json()).toEqual({ error: { code: "BUSY", message: "Your connection has used today's share of requests to ESPN. It resets at 12:00 AM UTC.", resetAt: "2026-10-05T00:00:00.000Z" } });
       const { newRequestScope, noteCut, runInRequestScope } = await import("@/server/deadline");
       const sleeper = await runInRequestScope(newRequestScope("import", Date.now()), async () => {
         noteCut("share", "sleeper");
         return importErrorResponse(new LeagueImportError("SOURCE_DOWN", "x", { platform: "sleeper" }), { platform: "sleeper" });
       });
-      expect(((await sleeper.json()) as { error: { message: string } }).error.message).toBe("Your connection has used today's share of requests to Sleeper. Try again in about 30 minutes.");
+      expect(((await sleeper.json()) as { error: { message: string } }).error.message).toBe("Your connection has used today's share of requests to Sleeper. It resets at 12:00 AM UTC.");
     } finally {
       vi.useRealTimers();
+    }
+  });
+
+  it("every refusal is counted for usage:report, held by the process (never a write of its own), on Vercel only (planner reply to Checkpoint 7a, §2 question 7)", async () => {
+    const { FakeRedis } = await import("@/server/redis");
+    const { heldUsageForTests, resetUsageForTests, setUsageStoreForTests } = await import("@/server/usage");
+    const at = Date.UTC(2026, 9, 4, 13, 30, 0);
+    resetUsageForTests();
+    setUsageStoreForTests(null); // off Vercel: nothing counted
+    busyResponse("espn", "day", at, {});
+    expect(heldUsageForTests().size).toBe(0);
+    const store = new FakeRedis(() => at);
+    setUsageStoreForTests(store);
+    try {
+      busyResponse("espn", "day", at, { VERCEL: "1" });
+      workRefusedResponse("day", at);
+      busyResponse("sleeper", "share", at, { VERCEL: "1" });
+      workRefusedResponse("client", at);
+      workRefusedResponse("group", at);
+      expect(Object.fromEntries(heldUsageForTests())).toEqual({ "2026-10-04\u0000refused_capacity": 2, "2026-10-04\u0000refused_visitor": 3 });
+      expect(store.stats.commands).toBe(0);
+    } finally {
+      setUsageStoreForTests(undefined);
+      resetUsageForTests();
     }
   });
 

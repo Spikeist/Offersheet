@@ -61,8 +61,16 @@ function printedTitle(cell: OddsCell | null | undefined): number {
   return Number(m[1]);
 }
 
+/**
+ * The fallback playoff-week weight (league.ts step 5c not measured: config.lineups.playoffWeight, the weight before the
+ * planner's reply to Checkpoint 7a, §6.1): this file's narratives (Parker's week-13 bye crunch on these synthetic inputs) were
+ * measured with it. The page-and-engine invariants run with the app's own configuration too (ω measured; review of the
+ * engine track, Phase 7b: pinned alone, they hid a likely starter the page and the cards disagreed on).
+ */
+const FIXED_OMEGA = { playoffWeightSims: 0 } as const;
+
 function pipeline(snapshot: LeagueSnapshot, inputs: ModelInputs, now: Date) {
-  const model = buildLeagueModel(snapshot, inputs, { now });
+  const model = buildLeagueModel(snapshot, inputs, { now, ...FIXED_OMEGA });
   const view = buildLeagueView({ snapshot, model, inputs, myTeamSource: "platform", timeZone: TZ, now: now.toISOString() });
   return { model, odds: model.odds as SeasonOdds, view, html: renderToStaticMarkup(createElement(LeagueView, { view })) };
 }
@@ -245,31 +253,42 @@ describe("Parker's league (committed ESPN fixture, synthetic inputs, the real 20
     expect(build.model.teams.some((t) => t.faMoves.length > 0)).toBe(true);
   });
 
-  it("flags the weeks the trade cards call risky (evaluate.ts riskyWeeksOf), from the same likely starters, for every team as mine", () => {
+  it("flags the weeks the trade cards call risky (evaluate.ts riskyWeeksOf), from the same likely starters, for every team as mine, with ω measured as in the app and with the fallback weight", () => {
     // Review of track UIP: the page picked one lineup by points per game left, which flagged weeks no card's "Covers your
     // risky week" mentioned (a streamed D/ST counted as a starter on bye). Now both read the same starters: V*(T)'s lineup
     // each counted week, streaming rows and IR returners in, at least half the weeks he plays; and (Phase 4c lead decision)
     // neither counts one at a position the team streams on bye (the streaming replacement covers it: on this fixture the
-    // check fails when only one side applies that rule).
+    // check fails when only one side applies that rule). Review of the engine track (Phase 7b): a player the engine releases
+    // at a returner's return (league.ts step 5b) is off the page's roster from that week too (TeamModel.displacedWithPickups),
+    // so the starters agree in full: with ω measured, team 10 here had two likely starters on the cards' side only (the tight
+    // end released in week 5, a starter in the one counted week before it, and the tight end his release lets start), while
+    // ω pinned to the fallback hid it.
     let flagged = 0;
-    for (const t of snapshot.teams) {
-      const mine: LeagueSnapshot = { ...snapshot, myTeamId: t.id };
-      const model = buildLeagueModel(mine, inputs, { now: NOW });
-      const view = buildLeagueView({ snapshot: mine, model, inputs, myTeamSource: "platform", timeZone: TZ, now: NOW.toISOString() });
-      const I = tradeInternals(buildTradeContext(mine, inputs, { now: NOW }));
-      const page = (view.schedule?.rows ?? []).filter((r) => r.risk !== null && r.week !== model.inProgressWeek).map((r) => r.week);
-      expect(page, `team ${t.id}`).toEqual([...I.riskyWeeks]);
-      flagged += page.length;
-      // The starters themselves: the engine's, but for a player it releases at a returner's return (the model doesn't say who).
-      const base = I.me?.base;
-      if (!base) throw new Error(`no trade baseline for team ${t.id}`);
-      const displaced = new Set(base.displaced.map((d) => d.id));
-      const engine = base.ev.team.rows.flatMap((r, k) => (!isStreamId(r.id) && evStarter(base.ev, k, I.weights) && !displaced.has(r.id) ? [r.id] : []));
-      expect(likelyStarters(mine, model, t.id, { afterPickups: true }).filter((id) => !displaced.has(id)).sort(), `team ${t.id}`).toEqual(engine.sort());
+    let released = 0;
+    for (const opts of [{}, FIXED_OMEGA]) {
+      for (const t of snapshot.teams) {
+        const mine: LeagueSnapshot = { ...snapshot, myTeamId: t.id };
+        const model = buildLeagueModel(mine, inputs, { now: NOW, ...opts });
+        const view = buildLeagueView({ snapshot: mine, model, inputs, myTeamSource: "platform", timeZone: TZ, now: NOW.toISOString() });
+        const I = tradeInternals(buildTradeContext(mine, inputs, { now: NOW, ...opts }));
+        const label = `team ${t.id}, ω ${model.playoffWeight}`;
+        const page = (view.schedule?.rows ?? []).filter((r) => r.risk !== null && r.week !== model.inProgressWeek).map((r) => r.week);
+        expect(page, label).toEqual([...I.riskyWeeks]);
+        flagged += page.length;
+        const base = I.me?.base;
+        if (!base) throw new Error(`no trade baseline for ${label}`);
+        // The model says who the engine releases, and from when: the trade baseline's own displacements (V*(T)'s lineups).
+        expect(teamOf(model, t.id).displacedWithPickups, label).toEqual(base.displaced.map((d) => ({ id: d.id, week: model.weeks[d.from], returner: d.returner })));
+        released += base.displaced.length;
+        // The starters themselves, in full: the engine's (V*(T)'s final lineups, a released player masked from his week).
+        const engine = base.ev.team.rows.flatMap((r, k) => (!isStreamId(r.id) && evStarter(base.ev, k, I.weights) ? [r.id] : []));
+        expect(likelyStarters(mine, model, t.id, { afterPickups: true }).sort(), label).toEqual(engine.sort());
+      }
     }
-    // Parker's week 13 crunch at least, so the check isn't empty.
+    // Parker's week 13 crunch at least, and some release, so the checks aren't empty.
     expect(flagged).toBeGreaterThan(0);
-  }, 60_000);
+    expect(released).toBeGreaterThan(0);
+  }, 180_000);
 
   it("shows 'Streaming picks this week' from the engine: Parker streams K and D/ST (the default), the best free agents by this week's points, none whose game has started", () => {
     expect(before.model.streaming.byTeam[me]).toMatchObject({ positions: ["K", "DEF"], source: "setting" });

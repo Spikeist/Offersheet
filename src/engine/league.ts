@@ -65,8 +65,8 @@
  *    lets shape a curve (marketCurveFit: healthy, a game left; review of track MK, finding 1: an injured player's old value
  *    prices games his ROS doesn't count, and pooled in it lifted the bottom of the curve, W included), and everyone is read
  *    off it.
- * 5. Per team (teamValue.ts): EV and scenario lineups of the team as it stands, ROS (playoff weeks × the user's
- *    playoff weight: opts.settings, TradeSettings.playoffWeight; LeagueModel.playoffWeight), PPW, slot strength
+ * 5. Per team (teamValue.ts): EV and scenario lineups of the team as it stands, ROS (playoff weeks × ω, the automatic
+ *    playoff weight of step 5c; LeagueModel.playoffWeight), PPW, slot strength
  *    and TeamModel.score, the weekly score the simulator draws (§8; teamValue.ts): with scenarios the scenario
  *    mean LV and sqrt(within-lineup variance + LV spread²), the law of total variance; without them the EV
  *    lineup's LV and sqrt(Σ σ²) of its starters. Then the free-agent-optimized baseline (§7; planner reply to
@@ -182,6 +182,43 @@
  *    player displaced from the current week on, a returner released then included: the week as the model priced it before
  *    kickoff (finalScore).
  *    BuildLeagueModelOptions.irReturners false is Checkpoint 4's rule: no returner, no displacement, no IR flags.
+ * 5c. The automatic playoff-week weight ω (planner reply to Checkpoint 7a, §6.1, which replaces the user's 1.25 setting;
+ *    config.lineups.playoffWeightAuto; measurePlayoffWeight, playoffWeightFrom; LeagueModel.playoffWeight and
+ *    playoffWeightAuto). ω = (B per point in playoff weeks) ÷ (B per point in regular-season weeks), for my team under my
+ *    goal ("What matters most": opts.settings, TradeSettings.goal), clamped to [0.5, 4] and ⚠️ rounded to 0.01 (ours). Two
+ *    runs with common random numbers on the headline's seasons (BuildLeagueModelOptions.playoffWeightSims, default
+ *    opts.sims; the seed opts.simSeed: the same seasons LeagueModel.odds plays): my weekly score + gain (3) in the
+ *    regular-season weeks team numbers count only (teamWeeks: a week under way is left out, as step 8c leaves it out), then
+ *    in the playoff weeks they count only, each against the base run on the same seasons; B per point = B_win(ΔPO, ΔCH)
+ *    under the goal (benefit.goalWeights) ÷ (gain × the weeks changed). One per-point B not above 0 while the other is
+ *    gives that end of the clamp. The fallback, config.lineups.playoffWeight (1.25, the old default), when it can't be
+ *    measured (LeagueModel.PlayoffWeightFallback: no team, no regular-season or no playoff week counted, no odds, title odds
+ *    unknown, neither run moving my odds, a per-point B that isn't a number); with sims 0 (no simulation: the tests' fast
+ *    builds) it isn't measured. ⚠️ The baseline (the lead's design): every team AS IT STANDS (oddsAsRostersStand's setup),
+ *    before the free-agent allocation, since every V*(T), the allocation and W depend on ω. In that setup only the IR
+ *    returners' roster spots (step 5b's displacement: keep values over the weeks from a return on, and their near-tie
+ *    tolerance) read ω and W: they read ω₀ = config.lineups.playoffWeight and W₀ = the best free agent's value, nothing
+ *    claimed yet (where step 4's fixed point starts). Streaming rows, the scenarios and the week in progress before its
+ *    kickoff (preKickoffTable) read neither. So the base run is oddsAsRostersStand's exactly unless a displacement turns on
+ *    ω or W (simulate then reuses it, and the measurement's draws: PlayoffWeightSim). ⚠️ One ω per build, from my team, for
+ *    every team (the planner's "per league, team and goal" read as my team and my goal), wherever ω was the user's setting
+ *    before: teamWeeks' weights, so every ROS(T) and what reads it (the free-agent optimizer and the allocation order's
+ *    gains, the near-tie tolerances, lineup costs, MV_add, trade chips and their cost per week, the chips that stay chips
+ *    behind partner fit, the IR returners' roster spots, and in evaluate.ts the screening's ΔROS, roster legality and the
+ *    get pool). Not weighted, as before: players' own ROS points (§6 step 7), PPW, strength and needs (window averages),
+ *    partner fit's per-week gains, the season simulation and B.
+ *    ⚠️ The thresholds in ROS lineup points keep the meaning they had at ω₀ (review of the engine track, Phase 7b;
+ *    lineupThresholdScale, LeagueContext.thresholds, LeagueModel.lineupThresholds): the free-agent optimizer's faMinGain (and
+ *    step 6's re-run bounds, which must read the optimizer's own), the trade chips' chipMinGap (and the chips that stay
+ *    chips, step 7) and the search's throwInMaxCost (evaluate.ts throwIns) were calibrated with every playoff week at ω₀;
+ *    with ω each is × Σω ÷ Σω₀ over the weeks team numbers count, the same as weighing those weeks so they add up to what
+ *    they did at ω₀ (the near-tie tolerances, dropNearTieWeekly × Σω, scale so already). Without it a threshold drifted with
+ *    the goal: on Parker's dump (Oct 4 09:24Z, his team 3) under "Make the playoffs" (ω 0.5) his own pickup gained 2.85
+ *    lineup points, under 3, and went to a playoff rival, so his shown playoff odds fell from 60.2% ("Win the title", ω
+ *    1.98) to 58.9%, and the league's trade chips went 36 / 27 / 15 by goal; scaled, 60.2% / 59.9% / 59.8% and 28 / 29 /
+ *    18 (and across ω's whole clamp his headline spans 59.8–61.0%, against 58.9–61.7% unscaled). ⚠️ Still one ω, mine, for
+ *    every team: the other teams' pickups and chips follow my goal's relative weight of the playoff weeks (5 of 10 teams'
+ *    pickups differ between "Win the title" and "Make the playoffs" there).
  * 6. Trade chips (§7; answer 2): gap_i = maxOther_i − cost_i ≥ chipMinGap, all in ROS lineup points in the
  *    lineup costs' mode (scenario lineups when scenarios ran, else EV). cost_i = MV_lose(own team, i) (step 5).
  *    maxOther_i = the largest MV_add(T′, i) over the other teams (ties: the smaller team id), floored at 0:
@@ -316,7 +353,7 @@
 import { config } from "./config";
 import { inactiveTeams } from "./acceptance";
 import { expectedAvailability, expectedReturnWeek, returnDateConflict, scenarioAvailability, type AvailabilityConfig, type AvailabilityContext, type AvailabilityPlayer } from "./availability";
-import { futureValuesLoaded } from "./benefit";
+import { futureValuesLoaded, goalWeights, type BenefitConfig } from "./benefit";
 import { applyBlend, blendValues, marketBlend, noBlend, type MarketBlend, type MarketBlendConfig } from "./blend";
 import type { ModelInputs, NflScheduleInputs, PlayerInputs } from "./inputs";
 import type {
@@ -326,14 +363,19 @@ import type {
   FaMove,
   HelpsCalibration,
   LeagueModel,
+  LineupThresholds,
   LineupValues,
   MarketSummary,
   PlayerModel,
+  PlayoffWeightAuto,
+  PlayoffWeightFallback,
+  PlayoffWeightRun,
   ProjectionSummary,
   SeasonOdds,
   SlotInstance,
   StreamingPick,
   StreamingTeam,
+  TeamDisplacement,
   TeamModel,
   TeamPlayerValue,
   TradeChip,
@@ -361,7 +403,7 @@ import { leaguePremiums, type StarPremiumConfig } from "./premium";
 import { baseRateSourceCounts, espnSleeperAgreement, projectPlayer, staleReturnCheck, weeklySd, type BaseRateContext, type ProjectionConfig, type SourceAgreement } from "./projections";
 import { finalLineups, returnerSpec, type FinalLineups, type FutureKeep, type ReturnerSetup } from "./returners";
 import { buildSimSetup, oddsSkippedWarning, pickupSeasonModel, seasonOdds, type SeasonConfig, type SeasonModel } from "./season";
-import { defaultTradeSettings, normalizeTradeSettings, type TradeSettings } from "./settings";
+import { defaultTradeSettings, normalizeTradeSettings, type Goal, type TradeSettings } from "./settings";
 import { simNormals, type SimNormals } from "./sim";
 import {
   addGainExact,
@@ -412,7 +454,10 @@ export interface LeagueModelConfig extends SeasonConfig {
   readonly marketBlend: MarketBlendConfig;
   readonly market: MarketConfig & { readonly tradeSearchExcluded: readonly Pos[] };
   readonly lineups: {
+    /** ω's fallback, and ω₀ of step 5c's own baseline (the file header). */
     readonly playoffWeight: number;
+    /** The automatic playoff weight (step 5c): points a week each run adds, ω's clamp, and the decimals it's rounded to. */
+    readonly playoffWeightAuto: { readonly gain: number; readonly clamp: readonly [number, number]; readonly decimals: number };
     readonly needZThreshold: number;
     readonly strengthWeeks: number;
     readonly scenarios: number;
@@ -452,8 +497,11 @@ export interface LeagueModelConfig extends SeasonConfig {
   };
   /** The star premium (the file header, step 9; premium.ts). */
   readonly acceptance: { readonly starPremium: StarPremiumConfig };
-  /** The "Helps you" calibration's weekly gain (step 8c; config.benefit.helpsGain). */
-  readonly benefit: { readonly helpsGain: number };
+  /**
+   * The "Helps you" calibration's weekly gain (step 8c; config.benefit.helpsGain), and B_win's weights by goal, which the
+   * automatic playoff weight reads (step 5c; benefit.goalWeights).
+   */
+  readonly benefit: { readonly helpsGain: number } & Pick<BenefitConfig, "goals" | "goalDefault">;
 }
 
 export interface BuildLeagueModelOptions {
@@ -465,14 +513,23 @@ export interface BuildLeagueModelOptions {
   seed?: number;
   /** Simulated seasons for LeagueModel.odds and oddsAsRostersStand (§8; default config.simulation.finalSims; 0 = no simulation, both null). */
   sims?: number;
-  /** The season simulation's common-random-numbers seed (default config.simulation.seed). */
+  /** The season simulation's common-random-numbers seed (default config.simulation.seed); the automatic playoff weight's too (step 5c). */
   simSeed?: number;
+  /**
+   * Simulated seasons for the automatic playoff weight (step 5c; planner reply to Checkpoint 7a, §6.1): default `sims`, so it
+   * is measured on the seasons LeagueModel.odds plays; 0 = not measured (ω is the fallback, config.lineups.playoffWeight).
+   * The trade context (evaluate.ts buildTradeContext) builds its League model without a simulation of its own (sims 0) and
+   * passes its final block's count here, with its seed, so its ω is the League page's.
+   */
+  playoffWeightSims?: number;
   /** Milliseconds (performance.now in the browser): LeagueModel.timings is filled only when given. */
   clock?: () => number;
   /**
-   * The user's settings (src/engine/settings.ts; Phase 4): the positions my team streams weekly and the playoff
-   * weight. Default: defaultTradeSettings(). Read through normalizeTradeSettings (a stored copy from an older
-   * version, or a bad value, falls back to its default); without them, the playoff weight is the config's.
+   * The user's settings (src/engine/settings.ts; Phase 4): the positions my team streams weekly and, since the planner's
+   * reply to Checkpoint 7a (§6.1), the goal ("What matters most"), which the automatic playoff weight weighs my odds by
+   * (step 5c; src/lib/settingsStore.ts LEAGUE_MODEL_SETTINGS). ⚠️ TradeSettings.playoffWeight, the old manual weight, isn't
+   * read. Default: defaultTradeSettings(). Read through normalizeTradeSettings (a stored copy from an older version, or a
+   * bad value, falls back to its default).
    */
   settings?: TradeSettings;
   /**
@@ -1198,8 +1255,22 @@ export interface LeagueContext {
   S: number;
   W: number;
   lp: LeaguePlayers;
+  /** The weeks team numbers count, with ω (step 5c) in the playoff weeks: `weights` is tw.weights. */
   tw: TeamWeeks;
   weights: Float64Array;
+  /** How ω was set (step 5c; LeagueModel.playoffWeightAuto): ω is playoffWeightAuto.omega. */
+  playoffWeightAuto: PlayoffWeightAuto;
+  /**
+   * The thresholds in ROS lineup points under ω (step 5c; LeagueModel.lineupThresholds): config's faMinGain and chipMinGap ×
+   * `scale` (lineupThresholdScale: Σω ÷ Σω₀ over the weeks team numbers count), so they mean what they did at ω₀. The
+   * optimizer's moves, step 6's re-run bounds, the trade chips and the chips that stay chips read these; evaluate.ts's
+   * throw-ins scale config.search.throwInMaxCost by `scale`.
+   */
+  thresholds: LineupThresholds;
+  /** Step 5c's draws and base run (every team as it stands), when it simulated: the headline's simulation reuses them. */
+  playoffWeightSim: PlayoffWeightSim | null;
+  /** The week in progress before its first kickoff (preKickoffOf: the streamed positions' free agents), built once when first asked. */
+  preKickoff: () => PreKickoff | null;
   table: ProjectionTable;
   valueOf: (id: string) => number;
   market: MarketSummary;
@@ -1296,17 +1367,41 @@ export function allocationOrder(teams: readonly AllocationTeam[], faabLeague: bo
 
 /**
  * A near-tie tolerance in points a week (config.lineups.dropNearTieWeekly) in ROS lineup points: × the sum of the weeks'
- * weights (the weeks team numbers count, the user's playoff weight). 0 for a tolerance that isn't a positive number.
+ * weights (the weeks team numbers count, ω in the playoff weeks: step 5c). 0 for a tolerance that isn't a positive number.
  * Roster legality's forced drops (evaluate.ts keepValues) and the optimizer's moves (OptimizerSetup.dropNearTie) read it.
  */
 export function nearTieRos(perWeek: number | undefined, weights: ArrayLike<number>): number {
   if (perWeek === undefined || !Number.isFinite(perWeek) || !(perWeek > 0)) return 0;
+  return perWeek * weightSum(weights);
+}
+
+/** Σ of the weeks' weights that are positive numbers (the weeks team numbers count). */
+function weightSum(weights: ArrayLike<number>): number {
   let sum = 0;
   for (let w = 0; w < weights.length; w++) {
     const x = weights[w] as number;
     if (Number.isFinite(x) && x > 0) sum += x;
   }
-  return perWeek * sum;
+  return sum;
+}
+
+/**
+ * The scale of the thresholds in ROS lineup points (step 5c; review of the engine track, Phase 7b; LineupThresholds): Σω ÷
+ * Σω₀ over the weeks team numbers count, `weights` with this build's ω in the playoff weeks and `base` with ω₀
+ * (config.lineups.playoffWeight), the weights those thresholds were calibrated with. config.freeAgentOptimizer.faMinGain,
+ * config.needs.chipMinGap and config.search.throwInMaxCost × this keep their meaning under any ω: the same decisions as
+ * weighing the weeks so they add up to Σω₀. 1 when either sum isn't a positive number (no week counts).
+ */
+export function lineupThresholdScale(weights: ArrayLike<number>, base: ArrayLike<number>): number {
+  const sum = weightSum(weights);
+  const sum0 = weightSum(base);
+  const scale = sum / sum0;
+  return sum > 0 && sum0 > 0 && Number.isFinite(scale) && scale > 0 ? scale : 1;
+}
+
+/** The thresholds in ROS lineup points for a build whose weights give `scale` (lineupThresholdScale): config's × scale. */
+export function lineupThresholds(scale: number, cfg: Pick<LeagueModelConfig, "freeAgentOptimizer" | "needs"> = config): LineupThresholds {
+  return { scale, faMinGain: cfg.freeAgentOptimizer.faMinGain * scale, chipMinGap: cfg.needs.chipMinGap * scale };
 }
 
 /**
@@ -1416,7 +1511,8 @@ function dynastyGuard(future: FutureKeep | null, cfg: LeagueModelConfig): Dynast
 function prepareLeague(snapshot: LeagueSnapshot, inputs: ModelInputs, opts: BuildLeagueModelOptions, cfg: LeagueModelConfig, mark: (stage: string) => void): LeagueContext {
   const S = scenarioCount(opts.scenarios ?? cfg.lineups.scenarios);
   const seed = opts.seed ?? cfg.lineups.scenarioSeed;
-  // The user's settings: my streamed positions (step 5a) and the playoff weight every ROS(T) uses.
+  // The user's settings: my streamed positions (step 5a) and my goal, which the automatic playoff weight weighs my odds by
+  // (step 5c; TradeSettings.playoffWeight, the old manual weight, isn't read).
   const settings = modelSettings(opts.settings, cfg);
   // IR returners (step 5b): on unless a report asks for Checkpoint 4's rule.
   const irOn = opts.irReturners !== false;
@@ -1426,8 +1522,11 @@ function prepareLeague(snapshot: LeagueSnapshot, inputs: ModelInputs, opts: Buil
   const lp = projectLeaguePlayers(snapshot, inputs, opts.now, cfg);
   const { weeks } = lp;
   const W = weeks.weeks.length;
-  const tw = teamWeeks(weeks, weekKickedOff(inputs.nfl, snapshot.currentWeek, opts.now.getTime()) ? snapshot.currentWeek : null, { ...cfg.lineups, playoffWeight: settings.playoffWeight });
-  const { weights } = tw;
+  const inProgressWeek = weekKickedOff(inputs.nfl, snapshot.currentWeek, opts.now.getTime()) ? snapshot.currentWeek : null;
+  // The weeks team numbers count, with ω₀ (config.lineups.playoffWeight) in the playoff weeks: what step 5c's own baseline
+  // reads before ω is known (its IR returners' roster spots). Every number after step 5c reads ω (`tw` below); the two
+  // differ only in their weights.
+  const tw0 = teamWeeks(weeks, inProgressWeek, cfg.lineups);
   mark("projections");
   const table = projectionTable(lp, S, seed, cfg, irOn);
   if (S > 0) mark("availability scenarios");
@@ -1444,7 +1543,7 @@ function prepareLeague(snapshot: LeagueSnapshot, inputs: ModelInputs, opts: Buil
   // player whose game has kicked off isn't worth less than one who plays later that week (review final check).
   // They are the blended points (step 3b), the ones every lineup reads.
   const rosPoints: Record<string, number> = {};
-  for (const id of modelIds) rosPoints[id] = (lp.players[id] as PlayerModel).weekly.slice(tw.from).reduce((s, w) => s + w.p, 0);
+  for (const id of modelIds) rosPoints[id] = (lp.players[id] as PlayerModel).weekly.slice(tw0.from).reduce((s, w) => s + w.p, 0);
   const values = marketValues(valuePlayers, rosPoints, inputs.market ?? null, cfg.market);
   for (const id of modelIds) (lp.players[id] as PlayerModel).value = values[id] ?? null;
   const freeAgentIds = lp.relevant.freeAgents.filter((id) => table.rows.has(id));
@@ -1494,8 +1593,77 @@ function prepareLeague(snapshot: LeagueSnapshot, inputs: ModelInputs, opts: Buil
   const withReturners = (base: StreamSpec, ir: readonly string[]): StreamSpec => (irOn ? returnerSpec(base, ir, (id) => table.rows.get(id), isReturner) : { rows: base.rows, positions: base.positions });
   const future = futureTerm(snapshot, inputs, valuePlayers, rosPoints, cfg);
 
-  // 5. Teams: EV lineups, V*(T) and its moves (the allocation, with the waiver credit W it leaves: step 4), and every
-  // V*(V*(T) − i). The inactive teams (A4; step 5a) make no pickups.
+  // The teams' rows: each active player with a model once (roster order), then its streaming rows and returners.
+  const specs = snapshot.teams.map((team) => {
+    const ids = [...new Set(team.roster)];
+    // A player listed on the active roster too (a data error) is an active player, never a second row.
+    const ir = [...new Set(team.ir)].filter((id) => !ids.includes(id));
+    const spec = withReturners({ rows: (byTeam[team.id]?.positions ?? []).flatMap((p) => stream.rows.get(p) ?? []), positions: byTeam[team.id]?.positions ?? [] }, ir);
+    return { team, ids, ir, rows: ids.flatMap((id) => table.rows.get(id) ?? []), spec };
+  });
+  type Spec = (typeof specs)[number];
+  // Each team as it stands: the EV and scenario lineups of exactly the rows the optimizer prices for its roster (optimizer.
+  // evaluate's), solved once. They don't read ω, so step 5c's baseline prices them, and step 5 keeps them (TeamWork.evalT,
+  // solved, scen).
+  const standing = specs.map((t) => {
+    const team = teamEval([...t.rows, ...t.spec.rows, ...returnersOf(t.spec)], slots);
+    return { team, solved: solveEvWeeks(team, W), scen: S > 0 ? scenarioValues(team, W, S, index, true, true) : null };
+  });
+  mark("teams as they stand");
+  /** The displacement's setup (step 5b; returners.finalLineups) with the weeks' weights `w` and W (`credit`, its near-ties' floor). */
+  const returnerSetupWith = (w: ArrayLike<number>, credit: number): ReturnerSetup => ({
+    slots,
+    weekCount: W,
+    scenarios: S,
+    weights: w,
+    maxRosterSize,
+    positionLimits: limits,
+    rosterMinimums: snapshot.settings.rosterMinimums,
+    info: (id) => snapshot.players[id],
+    dropValue: valueOf,
+    nearTieWeekly: cfg.lineups.dropNearTieWeekly ?? 0,
+    valueFloor: credit,
+    future,
+    returnIndex: (id) => {
+      const r = returnWeek(id);
+      return r === null ? null : (weekAt.get(r) ?? null);
+    },
+    index,
+  });
+  // The week in progress before its first kickoff (step 8; preKickoffOf), built once when first asked: by step 5c's baseline,
+  // else by TeamModel.score (buildLeagueModelWithContext).
+  let pre: PreKickoff | null | undefined;
+  const preKickoff = (): PreKickoff | null => (pre === undefined ? (pre = preKickoffOf({ W, snapshot, cfg, tw: tw0, lp, streamed, freeAgentIds }, inputs, opts, false)) : pre);
+
+  // 5c. The automatic playoff weight ω (the file header): my odds on every team as it stands, before the allocation (which
+  // reads ω), with ω₀ and W₀ = the best free agent's value (nothing claimed yet) where that setup reads them (the IR
+  // returners' roster spots). Then the weeks team numbers count, with ω.
+  const firstCredit = creditWithout(new Set());
+  const measured = measurePlayoffWeight(
+    snapshot,
+    { weeks: weeks.weeks, regularWeeks: weeks.regularWeeks, playoffWeeks: weeks.playoffWeeks, inProgressWeek: tw0.inProgressWeek },
+    myTeamKnown ? snapshot.myTeamId : null,
+    tw0.from,
+    settings.goal,
+    { sims: opts.playoffWeightSims ?? opts.sims ?? cfg.simulation.finalSims, seed: opts.simSeed ?? cfg.simulation.seed },
+    () => {
+      const setup0 = returnerSetupWith(tw0.weights, firstCredit);
+      const at = { S, W, byTeam, slots };
+      return specs.map((t, i) => {
+        const s = standing[i] as (typeof standing)[number];
+        return finalScore(at, { team: t.team, stream: t.spec }, t.ids, finalLineups(setup0, t.ids, t.spec, { ev: s.solved, scen: s.scen }), preKickoff());
+      });
+    },
+    cfg,
+  );
+  const tw = teamWeeks(weeks, inProgressWeek, { ...cfg.lineups, playoffWeight: measured.auto.omega });
+  const { weights } = tw;
+  // The thresholds in ROS lineup points keep the meaning they had at ω₀ (the file header, step 5c): × Σω ÷ Σω₀.
+  const thresholds = lineupThresholds(lineupThresholdScale(weights, tw0.weights), cfg);
+  mark("playoff weight");
+
+  // 5. Teams: V*(T) and its moves (the allocation, with the waiver credit W it leaves: step 4), and every V*(V*(T) − i).
+  // The inactive teams (A4; step 5a) make no pickups.
   // ⚠️ Near-ties in whom a move cuts (optimizer.ts's header; roster legality's rule, evaluate.ts keepValues): only where a
   // keep value is the lineup cost alone (no long-term values: the dynasty guard is off too), the values floored at W.
   const nearTie = future ? 0 : nearTieRos(cfg.lineups.dropNearTieWeekly, weights);
@@ -1518,16 +1686,8 @@ function prepareLeague(snapshot: LeagueSnapshot, inputs: ModelInputs, opts: Buil
         scenarios: S,
         instanceIndex: index,
       },
-      { faMinGain: cfg.freeAgentOptimizer.faMinGain, faMaxMoves: cfg.freeAgentOptimizer.faMaxMoves, optimizerExcluded: cfg.streaming.optimizerExcluded },
+      { faMinGain: thresholds.faMinGain, faMaxMoves: cfg.freeAgentOptimizer.faMaxMoves, optimizerExcluded: cfg.streaming.optimizerExcluded },
     );
-  const specs = snapshot.teams.map((team) => {
-    const ids = [...new Set(team.roster)];
-    // A player listed on the active roster too (a data error) is an active player, never a second row.
-    const ir = [...new Set(team.ir)].filter((id) => !ids.includes(id));
-    const spec = withReturners({ rows: (byTeam[team.id]?.positions ?? []).flatMap((p) => stream.rows.get(p) ?? []), positions: byTeam[team.id]?.positions ?? [] }, ir);
-    return { team, ids, ir, rows: ids.flatMap((id) => table.rows.get(id) ?? []), spec };
-  });
-  type Spec = (typeof specs)[number];
   /**
    * One allocation with the optimizer's near-tie cuts floored at `credit` (W): V*(T), team by team in the allocation order
    * (one free agent, one team), each against the free agents no earlier team claimed, an inactive team with no move (V*(T)
@@ -1573,34 +1733,15 @@ function prepareLeague(snapshot: LeagueSnapshot, inputs: ModelInputs, opts: Buil
     }
     return false;
   };
-  const firstCredit = creditWithout(new Set());
   const settled = independent
     ? { credit: firstCredit, pass: allocate(firstCredit), fix: { value: firstCredit, tried: [firstCredit], settled: "fixed" as const } }
     : waiverCreditFixedPoint(firstCredit, allocate, creditWithout, floorMatters, cfg.allocation.waiverCreditPasses);
   const credit = settled.credit;
   const { optimizer, vstars, claimed, allocation } = settled.pass;
   const market = marketSummary(modelIds, values, inputs.market ?? null, credit);
-  const returnerSetup: ReturnerSetup = {
-    slots,
-    weekCount: W,
-    scenarios: S,
-    weights,
-    maxRosterSize,
-    positionLimits: limits,
-    rosterMinimums: snapshot.settings.rosterMinimums,
-    info: (id) => snapshot.players[id],
-    dropValue: valueOf,
-    nearTieWeekly: cfg.lineups.dropNearTieWeekly ?? 0,
-    valueFloor: credit,
-    future,
-    returnIndex: (id) => {
-      const r = returnWeek(id);
-      return r === null ? null : (weekAt.get(r) ?? null);
-    },
-    index,
-  };
+  const returnerSetup = returnerSetupWith(weights, credit);
   const work: TeamWork[] = specs.map(({ team, ids, ir, rows, spec }, i) => {
-    const cur = optimizer.evaluate(ids, spec);
+    const cur = standing[i] as (typeof standing)[number];
     const vstar = vstars[i] as OptimizedRoster;
     const off = inactive.has(team.id);
     // excl(T): every other team's claims, the pool of every later run of T (greedy determinism: V*(T) against it is V*(T),
@@ -1624,8 +1765,8 @@ function prepareLeague(snapshot: LeagueSnapshot, inputs: ModelInputs, opts: Buil
       returnerScores: [],
       evalT: cur.team,
       solved: cur.solved,
-      evRos: cur.evRos,
-      scen: null,
+      evRos: rosValue(cur.solved.lv, weights),
+      scen: cur.scen,
       scenRos: null,
       vstar,
       vstarScen: null,
@@ -1656,10 +1797,10 @@ function prepareLeague(snapshot: LeagueSnapshot, inputs: ModelInputs, opts: Buil
   };
   for (const t of work) {
     const steps = t.vstar.moves;
-    if (S > 0) {
+    if (S > 0 && t.scen) {
       const noMove = steps.length === 0;
-      // Cells kept: V*(T)'s when it made no move, and the displacement prices the team's final lineups from them (step 5b).
-      t.scen = scenarioValues(t.evalT, W, S, index, true, true);
+      // Its scenario lineups as it stands (solved once, before step 5c), cells kept: V*(T)'s when it made no move, and the
+      // displacement prices the team's final lineups from them (step 5b).
       t.scenRos = rosValue(t.scen.mean, weights);
       scenMemo.set(rosterKey(t.ids, t.stream), t.scenRos);
       if (noMove) {
@@ -1718,6 +1859,10 @@ function prepareLeague(snapshot: LeagueSnapshot, inputs: ModelInputs, opts: Buil
     lp,
     tw,
     weights,
+    playoffWeightAuto: measured.auto,
+    thresholds,
+    playoffWeightSim: measured.sim,
+    preKickoff,
     table,
     valueOf,
     market,
@@ -1866,7 +2011,8 @@ function makeBase(ctx: LeagueContext, t: TeamWork, drop: string | null): AddBase
   // Under starter limits the re-run is skipped, and an inactive team (A4) makes no move: MV_add to it is the pinned formula.
   const moves = slots.limits === null && !t.inactive ? ctx.optimizer.rerunMoves(R, base.ids, 1) : 0;
   if (moves > 0) {
-    const minGain = ctx.cfg.freeAgentOptimizer.faMinGain;
+    // The optimizer's own threshold (step 5c: faMinGain × Σω ÷ Σω₀), so the bound skips only re-runs that can't move.
+    const minGain = ctx.thresholds.faMinGain;
     const always = new Set<Pos>(ctx.cfg.streaming.optimizerExcluded);
     const onBase = new Set(base.ids);
     const excluded = (pos: Pos) => always.has(pos) || t.stream.positions.includes(pos);
@@ -2009,7 +2155,8 @@ function tradeChipsAll(ctx: LeagueContext, bases: readonly TeamBase[]): TradeChi
   const { S, weights, work, cfg } = ctx;
   const excluded = new Set<Pos>(cfg.market.tradeSearchExcluded);
   const limited = ctx.slots.limits !== null;
-  const minGap = cfg.needs.chipMinGap;
+  // The least gap under ω (step 5c: chipMinGap × Σω ÷ Σω₀).
+  const minGap = ctx.thresholds.chipMinGap;
   const screenTeams = Number.isFinite(cfg.needs.chipScreenTeams) ? Math.max(1, Math.floor(cfg.needs.chipScreenTeams)) : 1;
   const addValue = addValueOf(ctx);
   // Σ ω over the weeks team numbers count: a chip's cost per week (lead decision L5).
@@ -2053,7 +2200,7 @@ function tradeChipsAll(ctx: LeagueContext, bases: readonly TeamBase[]): TradeChi
       }
       cands.push({ playerId: row.id, cost, best, ...display });
     });
-    return tradeChips(cands, cfg.needs);
+    return tradeChips(cands, { chipMinGap: minGap });
   });
 }
 
@@ -2099,7 +2246,7 @@ interface PreKickoff {
  * a script pricing a roster with pickups; a player's row doesn't depend on who else is in the table), and the streaming
  * rows from it.
  */
-function preKickoffOf(ctx: LeagueContext, inputs: ModelInputs, opts: BuildLeagueModelOptions, allFree: boolean): PreKickoff | null {
+function preKickoffOf(ctx: Pick<LeagueContext, "W" | "snapshot" | "cfg" | "tw" | "lp" | "streamed" | "freeAgentIds">, inputs: ModelInputs, opts: BuildLeagueModelOptions, allFree: boolean): PreKickoff | null {
   if (ctx.W === 0) return null;
   const { snapshot, cfg, tw, lp, streamed } = ctx;
   let table: ProjectionTable | null;
@@ -2134,7 +2281,13 @@ function preKickoffOf(ctx: LeagueContext, inputs: ModelInputs, opts: BuildLeague
  * asked to leave such a returner out of the week under way (he sat in the IR slot at kickoff); kept as is, since the week
  * is priced from projections and the best lineup, never from the lineup actually set.
  */
-function finalScore(ctx: LeagueContext, t: TeamWork, roster: readonly string[], final: FinalLineups, pre: PreKickoff | null): WeeklyScore {
+function finalScore(
+  ctx: Pick<LeagueContext, "S" | "W" | "byTeam" | "slots">,
+  t: { readonly team: Pick<Team, "id">; readonly stream: StreamSpec },
+  roster: readonly string[],
+  final: FinalLineups,
+  pre: PreKickoff | null,
+): WeeklyScore {
   const score = final.scen ? scenarioScore(final.scen) : evScore(final.ev);
   if (!pre || ctx.W === 0) return score;
   const outNow = new Set(final.displaced.filter((d) => d.from === 0).map((d) => d.id));
@@ -2258,8 +2411,8 @@ export function buildLeagueModelWithContext(snapshot: LeagueSnapshot, inputs: Mo
   if (work.some((t) => returnersOf(t.stream).length)) mark("IR returners");
 
   // The weekly score the season simulator draws (step 8): T as it stands, its streaming rows and returners included, and
-  // a week in progress with every game still to play (finalScore).
-  const pre = preKickoffOf(ctx, inputs, opts, false);
+  // a week in progress with every game still to play (finalScore; the pre-kickoff table step 5c may have built already).
+  const pre = ctx.preKickoff();
   const scores: WeeklyScore[] = work.map((t, ti) => finalScore(ctx, t, t.ids, finals[ti] as FinalLineups, pre));
   if (pre) mark("week in progress before kickoff");
 
@@ -2323,7 +2476,7 @@ export function buildLeagueModelWithContext(snapshot: LeagueSnapshot, inputs: Mo
       );
     };
     // D2: a side counts only chips that stay chips together (step 7 in the file header).
-    const stillChip = chipsStayChips(ctx, chipsAll, cfg.needs.chipMinGap);
+    const stillChip = chipsStayChips(ctx, chipsAll, ctx.thresholds.chipMinGap);
     const maxPerSide = Number.isFinite(cfg.search.maxPerSide) ? Math.max(1, Math.floor(cfg.search.maxPerSide)) : 1;
     /** One side's chips with what each alone adds to team `to`, and the ones that count for the fit. */
     const side = (from: number, to: number): { players: PartnerPlayer[]; counted: string[] } => {
@@ -2363,6 +2516,8 @@ export function buildLeagueModelWithContext(snapshot: LeagueSnapshot, inputs: Mo
     const score = scores[ti] as WeeklyScore;
     const withPickups = pickupScores[ti] as WeeklyScore;
     const final = finals[ti] as FinalLineups;
+    /** Step 5b's displacements with NFL weeks (TeamModel.displaced): the page's likely starters mirror them. */
+    const released = (f: FinalLineups): TeamDisplacement[] => f.displaced.map((d) => ({ id: d.id, week: weeks.weeks[d.from] as number, returner: d.returner }));
     return {
       id: t.team.id,
       ev: lineupValues(final.ev.lv, tw, weeks),
@@ -2374,6 +2529,8 @@ export function buildLeagueModelWithContext(snapshot: LeagueSnapshot, inputs: Mo
       faMoves: t.faMoves,
       score: { mean: Array.from(score.mean), sd: Array.from(score.sd) },
       scoreWithPickups: { mean: Array.from(withPickups.mean), sd: Array.from(withPickups.sd) },
+      displaced: released(final),
+      displacedWithPickups: released(pickups[ti] as FinalLineups),
     };
   });
 
@@ -2392,7 +2549,11 @@ export function buildLeagueModelWithContext(snapshot: LeagueSnapshot, inputs: Mo
     regularWeeks: weeks.regularWeeks,
     playoffWeeks: weeks.playoffWeeks,
     scenarios: S,
-    playoffWeight: ctx.settings.playoffWeight,
+    // ω (step 5c): measured from my odds under my goal, else the fallback.
+    playoffWeight: ctx.playoffWeightAuto.omega,
+    playoffWeightAuto: ctx.playoffWeightAuto,
+    // The thresholds in ROS lineup points this build judged by (step 5c: config's × Σω ÷ Σω₀).
+    lineupThresholds: { ...ctx.thresholds },
     streaming: { byTeam, replacement, picks: ctx.picks },
     // One free agent, one team (step 5): the basis and the order (team ids, first claim first); absent under "independent".
     ...(ctx.allocation ? { faAllocation: { basis: ctx.allocation.basis, order: ctx.allocation.order.map((i) => (work[i] as TeamWork).team.id) } } : {}),
@@ -2415,7 +2576,7 @@ export function buildLeagueModelWithContext(snapshot: LeagueSnapshot, inputs: Mo
   // baseline), every team as it stands (oddsAsRostersStand), and the "Helps you" calibration (8c), on the same seasons.
   const sims = opts.sims ?? cfg.simulation.finalSims;
   if (Number.isFinite(sims) && sims >= 1) {
-    const both = simulate(snapshot, model, Math.floor(sims), opts.simSeed ?? cfg.simulation.seed, cfg, ctx.tw.from);
+    const both = simulate(snapshot, model, Math.floor(sims), opts.simSeed ?? cfg.simulation.seed, cfg, ctx.tw.from, ctx.playoffWeightSim);
     model.odds = both.withPickups;
     model.oddsAsRostersStand = both.asRostersStand;
     model.helpsCalibration = both.calibration;
@@ -2456,7 +2617,10 @@ export const ODDS_REFUSED_WARNING = "The playoff odds couldn't be worked out fro
  * odds are left out with ODDS_REFUSED_WARNING instead of losing the whole League page. The RangeError's message stays out
  * of every user-facing text. Either way both are null (oddsAsRostersStand is null whenever odds is), and so is the "Helps
  * you" calibration (step 8c: with my team, the same seasons against LeagueModel.odds; `from`, teamWeeks' first counted
- * week).
+ * week). `reuse` (step 5c's PlayoffWeightSim, when it simulated): its draws when it played the same seasons (the same seed
+ * and count, the same drawn weeks and teams), and its base run as oddsAsRostersStand when every team's score as it stands
+ * is the one it played (a displacement that turned on ω or W makes them differ: then the run is made again). The numbers
+ * are the same either way, bit for bit; only the time differs.
  */
 function simulate(
   snapshot: LeagueSnapshot,
@@ -2465,6 +2629,7 @@ function simulate(
   seed: number,
   cfg: LeagueModelConfig,
   from: number,
+  reuse: PlayoffWeightSim | null = null,
 ): { withPickups: SeasonOdds | null; asRostersStand: SeasonOdds | null; calibration: HelpsCalibration | null } {
   const none = { withPickups: null, asRostersStand: null, calibration: null };
   const skipped = oddsSkippedWarning(snapshot, model);
@@ -2475,11 +2640,14 @@ function simulate(
   try {
     const built = buildSimSetup(snapshot, model);
     if (!built) return none;
-    const normals = simNormals(seed, sims, built.setup.weeks.length, built.setup.teams.length);
+    const Wk = built.setup.weeks.length;
+    const T = built.setup.teams.length;
+    const shared = reuse && reuse.sims === sims && reuse.seed === seed && reuse.normals.weeks === Wk && reuse.normals.teams === T ? reuse : null;
+    const normals = shared ? shared.normals : simNormals(seed, sims, Wk, T);
     const pickups = pickupSeasonModel(model);
     const withPickups = seasonOdds(snapshot, pickups, { sims, seed, normals }, cfg);
     if (!withPickups) return none;
-    const asRostersStand = seasonOdds(snapshot, model, { sims, seed, normals }, cfg);
+    const asRostersStand = shared && sameScores(model.teams, shared.scores) ? shared.odds : seasonOdds(snapshot, model, { sims, seed, normals }, cfg);
     const calibration = model.myTeamId === null ? null : helpsCalibrationOf(snapshot, pickups, model.myTeamId, withPickups, { sims, seed, normals }, from, cfg);
     return { withPickups, asRostersStand, calibration };
   } catch (err) {
@@ -2487,6 +2655,45 @@ function simulate(
     model.warnings.push(ODDS_REFUSED_WARNING);
     return none;
   }
+}
+
+/** Whether two lists of teams' weekly scores are the same teams with the same numbers, bit for bit (simulate's reuse). */
+function sameScores(a: readonly Pick<TeamModel, "id" | "score">[], b: PlayoffWeightSim["scores"]): boolean {
+  if (a.length !== b.length) return false;
+  const same = (x: ArrayLike<number>, y: ArrayLike<number>) => {
+    if (x.length !== y.length) return false;
+    for (let i = 0; i < x.length; i++) if (!Object.is(x[i], y[i])) return false;
+    return true;
+  };
+  return a.every((t, i) => {
+    const u = b[i];
+    return u !== undefined && t.id === u.id && same(t.score.mean, u.score.mean) && same(t.score.sd, u.score.sd);
+  });
+}
+
+/**
+ * My odds' changes from `gain` more projected points a week in the model weeks `at` (indexes into the season's weeks; σ
+ * unchanged, every other team as it is), simulated on `run`, which must be the seasons `base` was simulated on (common random
+ * numbers: the change is the gain's alone): the "Helps you" calibration (step 8c) and the automatic playoff weight's two runs
+ * (step 5c). Null when my team isn't in `base`, the gain isn't a number, or the run has no odds; ΔCH null when either title
+ * chance is unknown.
+ */
+function gainedOdds(
+  snapshot: LeagueSnapshot,
+  season: SeasonModel,
+  myTeamId: string,
+  base: SeasonOdds,
+  run: { sims: number; seed: number; normals: SimNormals },
+  at: (week: number) => boolean,
+  gain: number,
+  cfg: SeasonConfig,
+): { dPO: number; dCH: number | null } | null {
+  const before = base.teams.find((t) => t.teamId === myTeamId);
+  if (!before || !Number.isFinite(gain)) return null;
+  const teams = season.teams.map((t) => (t.id === myTeamId ? { id: t.id, score: { mean: t.score.mean.map((m, w) => (at(w) ? m + gain : m)), sd: [...t.score.sd] } } : t));
+  const after = seasonOdds(snapshot, { ...season, teams }, run, cfg)?.teams.find((t) => t.teamId === myTeamId);
+  if (!after) return null;
+  return { dPO: after.pPlayoffs - before.pPlayoffs, dCH: after.pTitle !== null && before.pTitle !== null ? after.pTitle - before.pTitle : null };
 }
 
 /**
@@ -2508,13 +2715,163 @@ export function helpsCalibrationOf(
   cfg: SeasonConfig & { readonly benefit: { readonly helpsGain: number } } = config,
 ): HelpsCalibration | null {
   const gain = cfg.benefit.helpsGain;
-  const before = base.teams.find((t) => t.teamId === myTeamId);
-  if (!before || !Number.isFinite(gain)) return null;
   const start = Number.isFinite(from) ? Math.max(0, Math.floor(from)) : 0;
-  const teams = season.teams.map((t) => (t.id === myTeamId ? { id: t.id, score: { mean: t.score.mean.map((m, w) => (w >= start ? m + gain : m)), sd: [...t.score.sd] } } : t));
-  const after = seasonOdds(snapshot, { ...season, teams }, run, cfg)?.teams.find((t) => t.teamId === myTeamId);
-  if (!after) return null;
-  return { gain, from: start, dPO: after.pPlayoffs - before.pPlayoffs, dCH: after.pTitle !== null && before.pTitle !== null ? after.pTitle - before.pTitle : null };
+  const d = gainedOdds(snapshot, season, myTeamId, base, run, (w) => w >= start, gain, cfg);
+  return d ? { gain, from: start, dPO: d.dPO, dCH: d.dCH } : null;
+}
+
+// ---------------------------------------------------------------------------------------------
+// The automatic playoff-week weight (step 5c; planner reply to Checkpoint 7a, §6.1)
+
+/**
+ * What step 5c leaves for the headline's simulation (simulate's `reuse`): the seasons it drew (`sims` of `seed`'s matrix, the
+ * first ones LeagueModel.odds plays) and its base run, every team as it stands (snapshot order) with ω₀ and W₀ wherever its IR
+ * returners' roster spots read them.
+ */
+export interface PlayoffWeightSim {
+  sims: number;
+  seed: number;
+  normals: SimNormals;
+  scores: readonly { readonly id: string; readonly score: { readonly mean: readonly number[]; readonly sd: readonly number[] } }[];
+  odds: SeasonOdds;
+}
+
+/** `x` rounded to `decimals` places (a whole number ≥ 0; else unrounded). */
+function roundTo(x: number, decimals: number): number {
+  if (!(Number.isInteger(decimals) && decimals >= 0)) return x;
+  const f = 10 ** decimals;
+  return Math.round(x * f) / f;
+}
+
+/**
+ * ω's fallback (step 5c): config.lineups.playoffWeight (1.25, the old default) and why, with whatever was measured
+ * (`measured`: the per-point B's and the runs, when they were made).
+ */
+export function playoffWeightFallback(
+  reason: PlayoffWeightFallback,
+  goal: Goal,
+  sims = 0,
+  cfg: Pick<LeagueModelConfig, "lineups"> = config,
+  measured?: Pick<PlayoffWeightAuto, "regularPerPoint" | "playoffPerPoint" | "runs">,
+): PlayoffWeightAuto {
+  return {
+    omega: cfg.lineups.playoffWeight,
+    basis: "fallback",
+    reason,
+    goal,
+    gain: cfg.lineups.playoffWeightAuto.gain,
+    sims,
+    regularPerPoint: measured?.regularPerPoint ?? null,
+    playoffPerPoint: measured?.playoffPerPoint ?? null,
+    ratio: null,
+    clamped: null,
+    runs: measured?.runs ?? null,
+  };
+}
+
+/**
+ * ω from step 5c's two runs (the file header): B per point = B_win(ΔPO, ΔCH) under `goal` (100 × (w_PO × ΔPO + w_CH × ΔCH),
+ * benefit.goalWeights) ÷ (gain × the run's weeks); ω = the playoff run's ÷ the regular-season run's, rounded to
+ * config.lineups.playoffWeightAuto.decimals and clamped to its clamp. One per-point B not above 0 while the other is: that
+ * end of the clamp ("high" when only the playoffs move my odds, "low" when only the regular season does). The fallback
+ * (playoffWeightFallback) when a run's ΔCH is unknown ("titleUnknown"), a per-point B isn't a number ("notFinite"), or neither
+ * is above 0 ("noEffect"). Pure: plain numbers in and out.
+ */
+export function playoffWeightFrom(runs: { regular: PlayoffWeightRun; playoffs: PlayoffWeightRun }, goal: Goal, sims: number, cfg: Pick<LeagueModelConfig, "lineups" | "benefit"> = config): PlayoffWeightAuto {
+  const { gain, clamp, decimals } = cfg.lineups.playoffWeightAuto;
+  const w = goalWeights(goal, cfg.benefit);
+  const perPoint = (r: PlayoffWeightRun): number | null => (r.dCH === null ? null : (100 * (w.playoffs * r.dPO + w.title * r.dCH)) / (gain * r.weeks.length));
+  const regularPerPoint = perPoint(runs.regular);
+  const playoffPerPoint = perPoint(runs.playoffs);
+  const measured = { regularPerPoint, playoffPerPoint, runs };
+  if (regularPerPoint === null || playoffPerPoint === null) return playoffWeightFallback("titleUnknown", goal, sims, cfg, measured);
+  if (!Number.isFinite(regularPerPoint) || !Number.isFinite(playoffPerPoint) || !(gain > 0)) return playoffWeightFallback("notFinite", goal, sims, cfg, measured);
+  if (!(regularPerPoint > 0) && !(playoffPerPoint > 0)) return playoffWeightFallback("noEffect", goal, sims, cfg, measured);
+  const lo = Math.min(clamp[0], clamp[1]);
+  const hi = Math.max(clamp[0], clamp[1]);
+  let omega: number;
+  let ratio: number | null = null;
+  let clamped: PlayoffWeightAuto["clamped"] = null;
+  if (!(regularPerPoint > 0)) {
+    omega = hi;
+    clamped = "high";
+  } else if (!(playoffPerPoint > 0)) {
+    omega = lo;
+    clamped = "low";
+  } else {
+    ratio = playoffPerPoint / regularPerPoint;
+    omega = Math.min(hi, Math.max(lo, roundTo(ratio, decimals)));
+    clamped = ratio < lo ? "low" : ratio > hi ? "high" : null;
+  }
+  return { omega, basis: "auto", reason: null, goal, gain, sims, regularPerPoint, playoffPerPoint, ratio, clamped, runs };
+}
+
+/**
+ * The automatic playoff-week weight (step 5c; the file header; planner reply to Checkpoint 7a, §6.1): ω for my team
+ * (`myTeamId`; null: none picked) under `goal`, from every team's weekly score as it stands (`scores`, snapshot order, asked
+ * only when a simulation runs) on `run`'s seasons (`sims` of `seed`'s matrix): a base run, then my score + gain in the
+ * regular-season weeks team numbers count only (model weeks from `from` on), then in the playoff weeks they count only, on
+ * the same seasons; playoffWeightFrom turns the two runs into ω. The fallback (playoffWeightFallback) when it can't be
+ * measured, in this order: no team, no regular-season week counted, no playoff week counted, a gain that isn't a positive
+ * number ("notFinite"), no simulation (sims below 1) or none possible ("noOdds": oddsSkippedWarning, buildSimSetup null, no
+ * odds, the simulator refusing the setup), my title odds unknown. `sim`: the draws and the base run (simulate's reuse),
+ * whenever the base run was simulated.
+ */
+export function measurePlayoffWeight(
+  snapshot: LeagueSnapshot,
+  season: Omit<SeasonModel, "teams">,
+  myTeamId: string | null,
+  from: number,
+  goal: Goal,
+  run: { sims: number; seed: number },
+  scores: () => readonly WeeklyScore[],
+  cfg: LeagueModelConfig = config,
+): { auto: PlayoffWeightAuto; sim: PlayoffWeightSim | null } {
+  const fallback = (reason: PlayoffWeightFallback, sims = 0, sim: PlayoffWeightSim | null = null) => ({ auto: playoffWeightFallback(reason, goal, sims, cfg), sim });
+  if (myTeamId === null) return fallback("noTeam");
+  const start = Number.isFinite(from) ? Math.max(0, Math.floor(from)) : 0;
+  /** The model weeks (indexes) of `kind` team numbers count: from `from` on. */
+  const counted = (kind: readonly number[]): number[] => {
+    const of = new Set(kind);
+    return season.weeks.flatMap((w, i) => (i >= start && of.has(w) ? [i] : []));
+  };
+  const regular = counted(season.regularWeeks);
+  const playoffs = counted(season.playoffWeeks);
+  if (!regular.length) return fallback("noRegularWeeks");
+  if (!playoffs.length) return fallback("noPlayoffWeeks");
+  const gain = cfg.lineups.playoffWeightAuto.gain;
+  if (!(Number.isFinite(gain) && gain > 0)) return fallback("notFinite");
+  const sims = Number.isFinite(run.sims) ? Math.floor(run.sims) : 0;
+  if (!(sims >= 1)) return fallback("noOdds");
+  const s = scores();
+  const model: SeasonModel = {
+    ...season,
+    teams: snapshot.teams.map((t, i) => ({ id: t.id, score: { mean: Array.from(s[i]?.mean ?? []), sd: Array.from(s[i]?.sd ?? []) } })),
+  };
+  try {
+    if (oddsSkippedWarning(snapshot, model) !== null) return fallback("noOdds");
+    const built = buildSimSetup(snapshot, model);
+    if (!built) return fallback("noOdds");
+    const on = { sims, seed: run.seed, normals: simNormals(run.seed, sims, built.setup.weeks.length, built.setup.teams.length) };
+    const base = seasonOdds(snapshot, model, on, cfg);
+    if (!base) return fallback("noOdds");
+    const sim: PlayoffWeightSim = { ...on, scores: model.teams, odds: base };
+    const mine = base.teams.find((t) => t.teamId === myTeamId);
+    if (!mine) return fallback("noTeam", sims, sim);
+    if (mine.pTitle === null) return fallback("titleUnknown", sims, sim);
+    const changed = (idx: readonly number[]) => {
+      const at = new Set(idx);
+      return gainedOdds(snapshot, model, myTeamId, base, on, (w) => at.has(w), gain, cfg);
+    };
+    const r = changed(regular);
+    const p = changed(playoffs);
+    if (!r || !p) return fallback("noOdds", sims, sim);
+    const weeksOf = (idx: readonly number[]) => idx.map((i) => season.weeks[i] as number);
+    return { auto: playoffWeightFrom({ regular: { weeks: weeksOf(regular), dPO: r.dPO, dCH: r.dCH }, playoffs: { weeks: weeksOf(playoffs), dPO: p.dPO, dCH: p.dCH } }, goal, sims, cfg), sim };
+  } catch (err) {
+    if (!(err instanceof RangeError)) throw err;
+    return fallback("noOdds");
+  }
 }
 
 // ---------------------------------------------------------------------------------------------

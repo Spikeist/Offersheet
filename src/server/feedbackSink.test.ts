@@ -13,7 +13,7 @@ import type { AcceptanceFeatures } from "@/engine/tradeModel";
 import type { FeedbackEvent, StoredFeedbackEvent } from "@/lib/feedbackEvent";
 import { feedbackEventOf, feedbackShareContext, newShareId } from "@/lib/feedbackShare";
 import { FEEDBACK_OUTCOMES, FEEDBACK_REASONS, FEEDBACK_VERSIONS, applyFeedback, type FeedbackChange, type FeedbackEvaluation, type FeedbackRecord } from "@/lib/feedbackStore";
-import { FeedbackEventSchema, StoredFeedbackEventSchema, feedbackDayKey, feedbackStoreFor, fitsFeedbackStore, refusedCopyCode, resetFeedbackSinkForTests, storeFeedback, storedFeedbackEvent, storedFeedbackText } from "./feedbackSink";
+import { FeedbackEventSchema, StoredFeedbackEventSchema, feedbackDayKey, feedbackDayTtlMs, feedbackStoreFor, fitsFeedbackStore, refusedCopyCode, resetFeedbackSinkForTests, storeFeedback, storedFeedbackEvent, storedFeedbackText } from "./feedbackSink";
 import { feedbackLimits } from "./limits";
 import { FakeRedis, type RedisLike } from "./redis";
 
@@ -227,7 +227,7 @@ describe("FeedbackEventSchema: every copy the browser builds, and nothing else",
 });
 
 describe("storeFeedback (Redis on Vercel; FakeRedis here)", () => {
-  it("LPUSHes the copy and its day to this UTC day's list and keeps the list a year past that day: one transaction, 3 commands a copy (final review SEC-3)", async () => {
+  it("LPUSHes the copy and its day to this UTC day's list and keeps the list a year from the day's start: one transaction, 3 commands a copy (final review SEC-3)", async () => {
     let now = T0;
     const redis = new FakeRedis(() => now);
     const e = events()[0] as FeedbackEvent;
@@ -237,13 +237,21 @@ describe("storeFeedback (Redis on Vercel; FakeRedis here)", () => {
     expect(redis.keys()).toEqual([key]);
     expect(await redis.lrange(key, 0, -1)).toEqual([JSON.stringify({ ...e, day: "2026-10-04" })]);
     expect(storedFeedbackText(e, now)).toBe(JSON.stringify({ ...e, day: "2026-10-04" }));
-    expect(redis.ttlMs(key)).toBe(feedbackLimits.retainDays * DAY);
+    // Checkpoint 7b: the year runs from the UTC day's start (00:00), not from the copy, so no copy outlives 12 months.
+    const dayStart = Date.UTC(2026, 9, 4);
+    expect(redis.ttlMs(key)).toBe(feedbackLimits.retainDays * DAY - (T0 - dayStart));
+    expect(feedbackDayTtlMs(T0)).toBe(feedbackLimits.retainDays * DAY - (T0 - dayStart));
     expect(redis.stats.commands).toBe(3 + 1); // LPUSH, LTRIM, PEXPIRE in one transaction (+ the LRANGE above)
-    // The next day: a new list; the old one's year runs from its own last copy.
+    // A later copy the same day leaves the list's end where it was: a year after the day began.
+    now = Date.UTC(2026, 9, 4, 23, 59, 59);
+    expect(await storeFeedback(redis, e, { now, env: PREVIEW })).toBe(true);
+    expect(redis.ttlMs(key)).toBe(feedbackLimits.retainDays * DAY - (now - dayStart));
+    // The next day: a new list with its own year; the old one still ends a year after its own day began.
     now = Date.UTC(2026, 9, 5, 0, 0, 1);
     expect(await storeFeedback(redis, e, { now, env: PREVIEW })).toBe(true);
     expect(redis.keys().sort()).toEqual([key, "os:preview:fb:2026-10-05"]);
-    expect(redis.ttlMs(key)).toBe(feedbackLimits.retainDays * DAY - (now - T0));
+    expect(redis.ttlMs(key)).toBe(feedbackLimits.retainDays * DAY - (now - dayStart));
+    expect(redis.ttlMs("os:preview:fb:2026-10-05")).toBe(feedbackLimits.retainDays * DAY - 1_000);
     // Production's lists are apart from previews'; off Vercel the prefix is "local".
     expect(feedbackDayKey(T0, { VERCEL: "1", VERCEL_ENV: "production" })).toBe("os:production:fb:2026-10-04");
     expect(feedbackDayKey(T0, {})).toBe("os:local:fb:2026-10-04");
@@ -327,7 +335,7 @@ describe("storeFeedback (Redis on Vercel; FakeRedis here)", () => {
     }
     const single = new SingleCommandsDown(() => T0);
     expect(await storeFeedback(single, e, { now: T0, env: PREVIEW })).toBe(true);
-    expect(single.ttlMs(key)).toBe(feedbackLimits.retainDays * DAY);
+    expect(single.ttlMs(key)).toBe(feedbackDayTtlMs(T0));
     // A transaction Upstash refuses or never gets keeps nothing: no list is left behind without its expiry.
     class TransactionDown extends FakeRedis {
       override lpushTrimExpire(): Promise<number> {

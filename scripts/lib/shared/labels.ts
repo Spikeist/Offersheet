@@ -10,6 +10,10 @@ const TOP_SLEEPER = "(top 150 QB/RB/WR/TE + 6 per K/DEF/IDP)";
 
 export const fixtureLabels = {
   fcValues: (query: string) => `fantasycalc/values?${query}`,
+  /**
+   * The Phase 0 sample of /players (first 100 rows): no longer fetched (FantasyCalc's conditions of 2026-10-05 allow only
+   * /values/current; section-fc.ts), but expected, so the end-of-run prune keeps it: src/data's tests read it.
+   */
   fcPlayers: "fantasycalc/players (first 100)",
   dpSubset: "dynastyprocess/db_playerids (rows for active Sleeper QB/RB/WR/TE/K)",
   nflGames: (season: number) => `nflverse/games ${season} REG`,

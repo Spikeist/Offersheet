@@ -12,12 +12,12 @@ import {
   defaultLambda,
   expectedGain,
   futureValuesLoaded,
-  helpsLambdaNote,
   helpsScale,
   helpsScaleNotes,
   injuredReceived,
   lineupEquivalent,
   marketSanity,
+  marketWeekly,
   overallScore,
   protectValueWeight,
   resolveLambda,
@@ -50,11 +50,13 @@ describe("Trade Score and Overall on the self-calibrating scale B₃ (§10; plan
     expect(HELPS_AT_GAIN).toBe(63);
   });
 
-  it("caps B₃'s λ at 0.75, at least every default λ, so every default reads +3 points a week as 63 (review of track SC, SC-1)", () => {
-    expect(config.benefit.helpsLambdaMax).toBe(0.75);
-    const { contender, bubble, rebuild, keeper } = config.benefit.lambda;
-    for (const lambda of [contender, bubble, rebuild, keeper]) expect(lambda).toBeLessThanOrEqual(config.benefit.helpsLambdaMax);
-    expect(config.benefit.helpsLambdaMax).toBeLessThan(1);
+  it("the dynasty scale's F₁₀ is the B_future of +10% long-term value, 40 × 0.10 = 4; review SC-1's λ cap is gone (planner reply to Checkpoint 7a, §2 question 6)", () => {
+    expect(config.benefit.helpsFutureShare).toBe(0.1);
+    expect(config.benefit.bFutureScale * config.benefit.helpsFutureShare).toBeCloseTo(4, 12);
+    expect(benefitFuture(4000, 40_000)).toBeCloseTo(config.benefit.bFutureScale * config.benefit.helpsFutureShare, 12);
+    expect("helpsLambdaMax" in config.benefit).toBe(false);
+    // F₁₀ is above the floor, so B_ref(λ) is floored only when λ × F₁₀ and B_win₃ both are under it (the file header).
+    expect(config.benefit.bFutureScale * config.benefit.helpsFutureShare).toBeGreaterThan(config.benefit.helpsFloor);
   });
 
   it("§10's samples: +1, +3 and +6 points a week (B = B₃/3, B₃, 2 B₃) read 28, 63 and 86 at any B₃", () => {
@@ -178,54 +180,85 @@ describe("B (§10)", () => {
     expect(benefitWin(0.04, null, titleOnly, "title")).toStrictEqual({ bWin: null, titleMissing: true });
   });
 
-  it("the market term: κ × clamp(g_mkt(me), ±0.5), κ by default the medium level's (4)", () => {
-    expect(marketSanity(0.2)).toBeCloseTo(0.8, 12);
-    expect(marketSanity(0.9)).toBe(2);
-    expect(marketSanity(-0.9)).toBe(-2);
-    expect(marketSanity(Number.POSITIVE_INFINITY)).toBe(2);
-    expect(marketSanity(Number.NaN)).toBe(0);
+  it("the market term's lineup price: κ × clamp(g_mkt(me), ±0.5) points a week, κ by default the medium level's (2) (planner reply to Checkpoint 7a, §2 question 5)", () => {
+    expect(marketWeekly(0.2)).toBeCloseTo(0.4, 12);
+    expect(marketWeekly(0.9)).toBe(1);
+    expect(marketWeekly(-0.9)).toBe(-1);
+    expect(marketWeekly(Number.POSITIVE_INFINITY)).toBe(1);
+    expect(marketWeekly(Number.NaN)).toBe(0);
     // A κ passed in replaces the default.
-    expect(marketSanity(0.2, 1)).toBeCloseTo(0.2, 12);
-    expect(marketSanity(-0.9, 1)).toBe(-0.5);
+    expect(marketWeekly(0.2, 1)).toBeCloseTo(0.2, 12);
+    expect(marketWeekly(-0.9, 4)).toBe(-2);
   });
 
-  it("redraft: B = B_win + the market term; no λ, no future term", () => {
-    const r = benefit({ leagueType: "redraft", dPO: 0.04, dCH: 0.02, gMine: -0.1, dynasty: null, myPPlayoffs: 0.6, lambda: 0.9 });
+  it("the market term in B units: (B₃ / 3) × κ × clamp(g_mkt(me)), so on the scale B₃ it reads κ × clamp(g_mkt(me)) points a week at any B₃", () => {
+    for (const b3 of [0.5, 2.1, 4.959, 6, 7.626, 11.7]) {
+      expect(marketSanity(0.2, b3), `B₃ ${b3}`).toBeCloseTo((b3 / 3) * 2 * 0.2, 12);
+      expect(lineupEquivalent(marketSanity(0.2, b3), b3), `B₃ ${b3}`).toBeCloseTo(0.4, 12);
+      expect(lineupEquivalent(marketSanity(-0.9, b3, 4), b3), `B₃ ${b3}`).toBeCloseTo(-2, 12);
+    }
+    // At B₃ 6 the medium level reads as Checkpoint 3's addendum's κ 4 did in B units.
+    expect(marketSanity(-0.1, 6)).toBeCloseTo(-0.4, 12);
+    // No scale (no calibration run: no odds or no team), or one that isn't above 0: no term.
+    for (const b3 of [null, undefined, 0, -1, Number.NaN]) expect(marketSanity(0.3, b3), String(b3)).toBe(0);
+  });
+
+  it("redraft: B = B_win + the market term on the evaluation's B₃; no λ, no future term", () => {
+    const r = benefit({ leagueType: "redraft", dPO: 0.04, dCH: 0.02, gMine: -0.1, dynasty: null, myPPlayoffs: 0.6, lambda: 0.9, b3: 6 });
     expect(r.b).toBeCloseTo(BWIN - 0.4, 12);
     expect(r).toMatchObject({ bFuture: null, lambda: null, dDyn: null, dynMissing: false, titleMissing: false });
     expect(r.market).toBeCloseTo(-0.4, 12);
+    expect(r.marketWeekly).toBeCloseTo(-0.2, 12);
+    // The same g on another scale: the same −0.2 points a week, another B.
+    const small = benefit({ leagueType: "redraft", dPO: 0.04, dCH: 0.02, gMine: -0.1, dynasty: null, myPPlayoffs: 0.6, b3: 1.5 });
+    expect(small.market).toBeCloseTo(-0.1, 12);
+    expect(small.marketWeekly).toBeCloseTo(-0.2, 12);
     // Dynasty numbers passed to a redraft league are ignored.
-    expect(benefit({ leagueType: "redraft", dPO: 0.04, dCH: 0.02, gMine: -0.1, dynasty: { delta: 1000, total: 1000 }, myPPlayoffs: 0.6 }).b).toBeCloseTo(BWIN - 0.4, 12);
+    expect(benefit({ leagueType: "redraft", dPO: 0.04, dCH: 0.02, gMine: -0.1, dynasty: { delta: 1000, total: 1000 }, myPPlayoffs: 0.6, b3: 6 }).b).toBeCloseTo(BWIN - 0.4, 12);
+    // Without a scale there's nothing to price the term on: B = B_win, and no lineup equivalent.
+    for (const b3 of [undefined, null, 0]) expect(benefit({ leagueType: "redraft", dPO: 0.04, dCH: 0.02, gMine: -0.1, dynasty: null, myPPlayoffs: 0.6, b3 }), String(b3)).toMatchObject({ b: expect.closeTo(BWIN, 12), market: 0, marketWeekly: null });
+    // κ 0 (evaluate.ts: FantasyCalc's curve fallback, or no values): no term, and no lineup equivalent either.
+    expect(benefit({ leagueType: "redraft", dPO: 0.04, dCH: 0.02, gMine: -0.1, dynasty: null, myPPlayoffs: 0.6, kappa: 0, b3: 6 })).toMatchObject({ b: expect.closeTo(BWIN, 12), market: 0, marketWeekly: null });
+    // Not simulated: no B, but the term is priced all the same.
+    expect(benefit({ leagueType: "redraft", dPO: null, dCH: null, gMine: -0.1, dynasty: null, myPPlayoffs: 0.6, b3: 6 })).toMatchObject({ b: null, marketWeekly: expect.closeTo(-0.2, 12) });
   });
 
-  it("κ by the 'Protect my trade value' level (planner addendum §3): low 2, medium 4 (the default), high 8", () => {
-    expect(config.benefit.protectValue).toStrictEqual({ low: 2, medium: 4, high: 8 });
+  it("κ by the 'Protect my trade value' level in points a week per 100% of trade value: low 1, medium 2 (the default), high 4 (planner reply to Checkpoint 7a, §2 question 5)", () => {
+    expect(config.benefit.protectValue).toStrictEqual({ low: 1, medium: 2, high: 4 });
     expect(config.benefit.protectValueDefault).toBe("medium");
-    expect(protectValueWeight("low")).toBe(2);
-    expect(protectValueWeight("medium")).toBe(4);
-    expect(protectValueWeight("high")).toBe(8);
+    expect(protectValueWeight("low")).toBe(1);
+    expect(protectValueWeight("medium")).toBe(2);
+    expect(protectValueWeight("high")).toBe(4);
     // Absent or unknown: the default level's.
-    expect(protectValueWeight(undefined)).toBe(4);
-    expect(protectValueWeight(null)).toBe(4);
-    expect(protectValueWeight("max" as ProtectValue)).toBe(4);
-    // B = B_win + κ × clamp(g_mkt(me)): giving 25% more value than I get (g_mkt(me) = −0.20) costs 0.4, 0.8 and 1.6 B.
-    const at = (level: ProtectValue) => benefit({ leagueType: "redraft", dPO: 0.04, dCH: 0.02, gMine: -0.2, dynasty: null, myPPlayoffs: 0.6, kappa: protectValueWeight(level) });
-    expect(at("low").b).toBeCloseTo(BWIN - 0.4, 12);
-    expect(at("medium").b).toBeCloseTo(BWIN - 0.8, 12);
-    expect(at("high").b).toBeCloseTo(BWIN - 1.6, 12);
-    expect(at("high").market).toBeCloseTo(-1.6, 12);
-    // The clamp still caps the term at ±0.5 × κ.
-    expect(benefit({ leagueType: "redraft", dPO: 0, dCH: 0, gMine: -0.9, dynasty: null, myPPlayoffs: 0.6, kappa: 8 }).b).toBe(-4);
+    expect(protectValueWeight(undefined)).toBe(2);
+    expect(protectValueWeight(null)).toBe(2);
+    expect(protectValueWeight("max" as ProtectValue)).toBe(2);
+    // The planner's check: at medium, giving 25% more value than I get (g_mkt(me) = −0.20) costs exactly 0.4 points a week, on
+    // any scale (Parker's B₃ under each goal, a floored one, others): its B is −(B₃ / 3) × 0.4. Low and high: 0.2 and 0.8.
+    const at = (level: ProtectValue, b3: number) => benefit({ leagueType: "redraft", dPO: 0.04, dCH: 0.02, gMine: -0.2, dynasty: null, myPPlayoffs: 0.6, kappa: protectValueWeight(level), b3 });
+    for (const b3 of [0.5, 4.959, 5.929, 7.626, 12]) {
+      expect(at("medium", b3).marketWeekly, `B₃ ${b3}`).toBeCloseTo(-0.4, 12);
+      expect(lineupEquivalent(at("medium", b3).market, b3), `B₃ ${b3}`).toBeCloseTo(-0.4, 12);
+      expect(at("medium", b3).b, `B₃ ${b3}`).toBeCloseTo(BWIN - (b3 / 3) * 0.4, 12);
+      expect(at("low", b3).marketWeekly, `B₃ ${b3}`).toBeCloseTo(-0.2, 12);
+      expect(at("high", b3).marketWeekly, `B₃ ${b3}`).toBeCloseTo(-0.8, 12);
+      expect(at("high", b3).market, `B₃ ${b3}`).toBeCloseTo((b3 / 3) * -0.8, 12);
+    }
+    // The clamp still caps the term at ±0.5 × κ points a week.
+    const capped = benefit({ leagueType: "redraft", dPO: 0, dCH: 0, gMine: -0.9, dynasty: null, myPPlayoffs: 0.6, kappa: protectValueWeight("high"), b3: 6 });
+    expect(capped.marketWeekly).toBe(-2);
+    expect(capped.b).toBe(-4);
   });
 
   it("the market term reads g_mkt(me), every player at max(v, W) after the neutral throw-ins (planner replies to Checkpoint 4, change 4, and to Checkpoint 4b, change 2)", () => {
-    const base = { leagueType: "redraft" as const, dPO: 0.04, dCH: 0.02, dynasty: null, myPPlayoffs: 0.6 };
+    // B₃ 6: the medium level's term is 4 × clamp(g) in B units there.
+    const base = { leagueType: "redraft" as const, dPO: 0.04, dCH: 0.02, dynasty: null, myPPlayoffs: 0.6, b3: 6 };
     const W = 628;
     const values = { junk: 300, scrap: 120, star: 5000, them: 5500 };
     const gMine = (get: string[], give: string[]) => tradePackage({ players: get }, { players: give }, values, W).g;
     // A player worth less than W given for nothing: he and his spot are left out: no market term at any κ.
     expect(gMine([], ["junk"])).toBe(0);
-    for (const kappa of [2, 4, 8]) expect(benefit({ ...base, gMine: gMine([], ["junk"]), kappa })).toMatchObject({ market: 0, b: expect.closeTo(BWIN, 12) });
+    for (const kappa of [1, 2, 4]) expect(benefit({ ...base, gMine: gMine([], ["junk"]), kappa })).toMatchObject({ market: 0, marketWeekly: 0, b: expect.closeTo(BWIN, 12) });
     // Two players worth less than W swapped: even, both ways.
     expect(gMine(["scrap"], ["junk"])).toBe(0);
     expect(gMine(["junk"], ["scrap"])).toBe(0);
@@ -236,23 +269,26 @@ describe("B (§10)", () => {
     expect(lean).toBeCloseTo(0.1, 12);
     expect(full).toBe(lean);
     expect(benefit({ ...base, gMine: full }).market).toBeCloseTo(4 * lean, 12);
+    expect(benefit({ ...base, gMine: full }).marketWeekly).toBeCloseTo(2 * lean, 12);
     // A negative g counts as such, at the level's κ, clamped.
-    expect(benefit({ ...base, gMine: -0.2, kappa: 8 }).market).toBeCloseTo(-1.6, 12);
-    expect(benefit({ ...base, gMine: -0.9, kappa: 2 }).market).toBe(-1);
+    expect(benefit({ ...base, gMine: -0.2, kappa: 4 }).market).toBeCloseTo(-1.6, 12);
+    expect(benefit({ ...base, gMine: -0.9, kappa: 1 }).market).toBe(-1);
     // Dynasty and keeper leagues have no market term.
-    for (const leagueType of ["dynasty", "keeper"] as const) expect(benefit({ ...base, leagueType, gMine: 0.3, dynasty: { delta: 1000, total: 40_000 } }).market).toBe(0);
+    for (const leagueType of ["dynasty", "keeper"] as const) expect(benefit({ ...base, leagueType, gMine: 0.3, dynasty: { delta: 1000, total: 40_000 } })).toMatchObject({ market: 0, marketWeekly: null });
   });
 
-  it("dynasty and keeper leagues have no market term, whatever κ (B_future carries the value change)", () => {
+  it("dynasty and keeper leagues have no market term, whatever κ and B₃ (B_future carries the value change; ⚠️ the planner's “stays inside the win-now part”: there is no term to place)", () => {
     for (const leagueType of ["dynasty", "keeper"] as const) {
-      const with4 = benefit({ leagueType, dPO: 0.04, dCH: 0.02, gMine: -0.3, dynasty: { delta: 1000, total: 40_000 }, myPPlayoffs: 0.6 });
-      for (const kappa of [1, 2, 8]) {
-        const r = benefit({ leagueType, dPO: 0.04, dCH: 0.02, gMine: -0.3, dynasty: { delta: 1000, total: 40_000 }, myPPlayoffs: 0.6, kappa });
-        expect(r.b, `${leagueType} κ ${kappa}`).toBe(with4.b);
-        expect(r.market).toBe(0);
+      const with2 = benefit({ leagueType, dPO: 0.04, dCH: 0.02, gMine: -0.3, dynasty: { delta: 1000, total: 40_000 }, myPPlayoffs: 0.6, b3: 4 });
+      for (const kappa of [1, 2, 4, 8]) {
+        for (const b3 of [undefined, 0.5, 4, 9]) {
+          const r = benefit({ leagueType, dPO: 0.04, dCH: 0.02, gMine: -0.3, dynasty: { delta: 1000, total: 40_000 }, myPPlayoffs: 0.6, kappa, b3 });
+          expect(r.b, `${leagueType} κ ${kappa} B₃ ${b3}`).toBe(with2.b);
+          expect(r).toMatchObject({ market: 0, marketWeekly: null });
+        }
       }
       // Without long-term values too.
-      expect(benefit({ leagueType, dPO: 0.04, dCH: 0.02, gMine: -0.3, dynasty: null, myPPlayoffs: 0.6, kappa: 8 })).toMatchObject({ market: 0, dynMissing: true });
+      expect(benefit({ leagueType, dPO: 0.04, dCH: 0.02, gMine: -0.3, dynasty: null, myPPlayoffs: 0.6, kappa: 4, b3: 6 })).toMatchObject({ market: 0, marketWeekly: null, dynMissing: true });
     }
   });
 
@@ -543,10 +579,11 @@ describe("package values with picks (§9; ΔDyn, MyDynTotal, the card's values)"
 describe("tradeNumbers: the card's numbers from B and the acceptance result", () => {
   const acc = acceptance({ leagueType: "redraft", tradeReview: "none" }, { teamId: "2", activity: { a: 1, rule: "active", trades: 2, recentTrades: 1, transactions: 5, lastWeek: 4 }, history: { hist: null, average: null, trades: 0, used: 0, skipped: 0, perTrade: [] }, pPlayoffs: 0.4 }, { gPartner: 0, deltaLineup: 2.5, h: 1, assets: 2, partnerReceives: [] });
 
-  it("assembles the three numbers and B's parts, the scores on the B₃ given (and B₃ itself)", () => {
-    const b = benefit({ leagueType: "redraft", dPO: 0.06, dCH: 0.04, gMine: 0.05, dynasty: null, myPPlayoffs: 0.5 });
+  it("assembles the three numbers and B's parts, the scores on the B₃ given (and B₃ itself), B's market term priced on the same B₃", () => {
+    const b = benefit({ leagueType: "redraft", dPO: 0.06, dCH: 0.04, gMine: 0.05, dynasty: null, myPPlayoffs: 0.5, b3: 4.2 });
     const n = tradeNumbers(b, acc, 4.2);
-    expect(n.b).toBeCloseTo(100 * (0.15 * 0.06 + 0.85 * 0.04) + 4 * 0.05, 12); // the default goal, "Win the title"
+    expect(n.b).toBeCloseTo(100 * (0.15 * 0.06 + 0.85 * 0.04) + (4.2 / 3) * 2 * 0.05, 12); // the default goal, "Win the title"; medium
+    expect(n.marketWeekly).toBeCloseTo(0.1, 12);
     expect(n.tradeScore).toBe(tradeScore(n.b, 4.2));
     expect(n.overall).toBe(overallScore(n.b, acc.pComplete, 4.2));
     expect(n.tradeScore).toBe(Math.round(100 * (1 - Math.exp(-(n.b as number) / 4.2))));
@@ -577,9 +614,11 @@ describe("tradeNumbers: the card's numbers from B and the acceptance result", ()
   });
 });
 
-describe("helpsScale: B₃, the B of +3 points a week under the same goal and λ (planner reply to Checkpoint 4c, A2)", () => {
+describe("helpsScale: B₃, the B of +3 points a week under the same goal (planner reply to Checkpoint 4c, A2); B_ref(λ) with long-term values (planner reply to Checkpoint 7a, §2 question 6)", () => {
   // A calibration run as the League model gives it: +3 points a week moved my playoff odds 6.2 points and my title odds 2.9.
   const run = { dPO: 0.062, dCH: 0.029 };
+  // F₁₀: the B_future of +10% long-term value.
+  const F10 = config.benefit.bFutureScale * config.benefit.helpsFutureShare;
 
   it("redraft: B₃ = B_win of the run under the goal's weights (no market term), so it follows the goal", () => {
     for (const goal of GOALS) {
@@ -587,15 +626,15 @@ describe("helpsScale: B₃, the B of +3 points a week under the same goal and λ
       const s = helpsScale(run, { leagueType: "redraft", myPPlayoffs: 0.6, goal, dynastyTotal: null });
       expect(s?.raw, goal).toBeCloseTo(100 * (w.playoffs * run.dPO + w.title * run.dCH), 12);
       // No λ in redraft: the odds' own response is B₃, +3 a week reads 63, nothing to note.
-      expect(s).toMatchObject({ b3: s?.raw, odds: s?.raw, floored: false, lambda: null, lambdaUsed: null, gainReads: 63, reason: null });
+      expect(s).toMatchObject({ b3: s?.raw, odds: s?.raw, floored: false, lambda: null, f10: null, gainReads: 63, futureReads: null, reason: null });
       expect(helpsScaleNotes(s)).toStrictEqual([]);
       // A trade worth exactly the run's B reads 63 under its own goal.
       expect(tradeScore(benefitWin(run.dPO, run.dCH, config.benefit, goal).bWin, s?.b3 ?? null), goal).toBe(63);
     }
     // The default goal ("Win the title") when none is given.
     expect(helpsScale(run, { leagueType: "redraft", myPPlayoffs: 0.6, dynastyTotal: null })).toStrictEqual(helpsScale(run, { leagueType: "redraft", myPPlayoffs: 0.6, goal: "title", dynastyTotal: null }));
-    // Ignores the long-term total in redraft leagues, and κ never enters (g_mkt(me) 0).
-    expect(helpsScale(run, { leagueType: "redraft", myPPlayoffs: 0.6, dynastyTotal: 50_000 })).toStrictEqual(helpsScale(run, { leagueType: "redraft", myPPlayoffs: 0.6, dynastyTotal: null }));
+    // Ignores the long-term total and λ in redraft leagues, and κ never enters (g_mkt(me) 0).
+    expect(helpsScale(run, { leagueType: "redraft", myPPlayoffs: 0.6, dynastyTotal: 50_000, lambda: 0.9 })).toStrictEqual(helpsScale(run, { leagueType: "redraft", myPPlayoffs: 0.6, dynastyTotal: null }));
   });
 
   it("the title odds unknown: the playoff term scaled up to the whole weight, as every trade's B", () => {
@@ -604,76 +643,73 @@ describe("helpsScale: B₃, the B of +3 points a week under the same goal and λ
     expect(s).toMatchObject({ oddsNamed: "playoff", reason: null, gainReads: 63 });
   });
 
-  it("dynasty and keeper: (1 − λ) × B_win of the run with long-term values (λ the setting or the default), B_win without them", () => {
-    const bWin = benefitWin(run.dPO, run.dCH).bWin as number;
-    // A contender (P(playoffs) 0.6 → λ 0.35), a rebuilder (0.1 → 0.75), Win now ↔ Future set to 0.2; keeper default 0.2.
-    expect(helpsScale(run, { leagueType: "dynasty", myPPlayoffs: 0.6, dynastyTotal: 40_000 })?.raw).toBeCloseTo(0.65 * bWin, 12);
-    expect(helpsScale(run, { leagueType: "dynasty", myPPlayoffs: 0.1, dynastyTotal: 40_000 })?.raw).toBeCloseTo(0.25 * bWin, 12);
-    expect(helpsScale(run, { leagueType: "dynasty", myPPlayoffs: 0.1, lambda: 0.2, dynastyTotal: 40_000 })?.raw).toBeCloseTo(0.8 * bWin, 12);
-    expect(helpsScale(run, { leagueType: "keeper", myPPlayoffs: 0.6, dynastyTotal: 40_000 })?.raw).toBeCloseTo(0.8 * bWin, 12);
-    expect(helpsScale(run, { leagueType: "dynasty", myPPlayoffs: 0.6, dynastyTotal: 40_000 })).toMatchObject({ odds: bWin, lambda: 0.35, lambdaUsed: 0.35 });
-    // Long-term values missing (or MyDynTotal ≤ 0): B = B_win for every trade, so B₃ = B_win of the run too, and no λ.
-    expect(helpsScale(run, { leagueType: "dynasty", myPPlayoffs: 0.1, dynastyTotal: null })?.raw).toBeCloseTo(bWin, 12);
-    expect(helpsScale(run, { leagueType: "keeper", myPPlayoffs: 0.6, dynastyTotal: 0 })?.raw).toBeCloseTo(bWin, 12);
-    expect(helpsScale(run, { leagueType: "keeper", myPPlayoffs: 0.6, dynastyTotal: 0 })).toMatchObject({ lambda: null, lambdaUsed: null, reason: null });
-    // A dynasty trade worth the run this season and nothing long-term: B = B₃, 63.
-    const s = helpsScale(run, { leagueType: "dynasty", myPPlayoffs: 0.6, dynastyTotal: 40_000 });
-    const trade = benefit({ leagueType: "dynasty", dPO: run.dPO, dCH: run.dCH, gMine: 0.3, dynasty: { delta: 0, total: 40_000 }, myPPlayoffs: 0.6 });
-    expect(tradeScore(trade.b, s?.b3 ?? null)).toBe(63);
-    // Every default λ (contender, bubble, rebuilder; keeper) reads that trade as 63, with no note.
-    for (const [leagueType, pPlayoffs] of [["dynasty", 0.6], ["dynasty", 0.3], ["dynasty", 0.1], ["keeper", 0.1]] as const) {
-      const d = helpsScale(run, { leagueType, myPPlayoffs: pPlayoffs, dynastyTotal: 40_000 });
-      expect(d, `${leagueType} ${pPlayoffs}`).toMatchObject({ gainReads: 63, reason: null });
-      expect(d?.lambdaUsed, `${leagueType} ${pPlayoffs}`).toBe(d?.lambda);
-    }
-  });
-
-  describe("the Win now ↔ Future slider past the largest default λ (review of track SC, SC-1)", () => {
+  describe("dynasty and keeper leagues with long-term values: B_ref(λ) = (1 − λ) × B_win₃ + λ × F₁₀, F₁₀ = 4", () => {
     const bWin = benefitWin(run.dPO, run.dCH).bWin as number; // 3.395: +3 a week moves the odds normally
-    const at = (lambda: number) => helpsScale(run, { leagueType: "dynasty", myPPlayoffs: 0.9, lambda, dynastyTotal: 40_000 });
+    const at = (lambda: number, leagueType: "dynasty" | "keeper" = "dynasty") => helpsScale(run, { leagueType, myPPlayoffs: 0.9, lambda, dynastyTotal: 40_000 });
 
-    it("B₃'s λ is capped at helpsLambdaMax: the scale stays (1 − 0.75) × B_win₃ up to λ 1, never the floor's degenerate scale", () => {
-      const capped = at(config.benefit.helpsLambdaMax);
-      expect(capped?.b3).toBeCloseTo(0.25 * bWin, 12);
-      for (const lambda of [0.8, 0.9, 0.95, 1]) {
+    it("at λ 0, 0.35, 0.75 and 1: B_win₃ at λ 0, F₁₀ alone at λ 1, never floored while the odds move", () => {
+      expect(F10).toBe(4);
+      for (const lambda of [0, 0.35, 0.75, 1]) {
+        for (const leagueType of ["dynasty", "keeper"] as const) {
+          const s = at(lambda, leagueType);
+          expect(s, `${leagueType} λ ${lambda}`).toMatchObject({ lambda, f10: F10, odds: bWin, floored: false, reason: null });
+          expect(s?.raw, `${leagueType} λ ${lambda}`).toBeCloseTo((1 - lambda) * bWin + lambda * F10, 12);
+          expect(s?.b3, `${leagueType} λ ${lambda}`).toBe(s?.raw);
+          expect(helpsScaleNotes(s), `${leagueType} λ ${lambda}`).toStrictEqual([]);
+        }
+      }
+      expect(at(0)?.raw).toBeCloseTo(bWin, 12);
+      expect(at(0.35)?.raw).toBeCloseTo(0.65 * 3.395 + 0.35 * 4, 12);
+      expect(at(0.75)?.raw).toBeCloseTo(0.25 * 3.395 + 0.75 * 4, 12);
+      expect(at(1)?.raw).toBe(4);
+    });
+
+    it("λ by the Win now ↔ Future setting, else the default by P(playoffs) (contender 0.35, bubble 0.5, rebuilder 0.75; keeper 0.2)", () => {
+      const mix = (lambda: number) => (1 - lambda) * bWin + lambda * F10;
+      expect(helpsScale(run, { leagueType: "dynasty", myPPlayoffs: 0.6, dynastyTotal: 40_000 })).toMatchObject({ lambda: 0.35, raw: expect.closeTo(mix(0.35), 12) });
+      expect(helpsScale(run, { leagueType: "dynasty", myPPlayoffs: 0.3, dynastyTotal: 40_000 })).toMatchObject({ lambda: 0.5, raw: expect.closeTo(mix(0.5), 12) });
+      expect(helpsScale(run, { leagueType: "dynasty", myPPlayoffs: 0.1, dynastyTotal: 40_000 })).toMatchObject({ lambda: 0.75, raw: expect.closeTo(mix(0.75), 12) });
+      expect(helpsScale(run, { leagueType: "dynasty", myPPlayoffs: 0.1, lambda: 0.2, dynastyTotal: 40_000 })).toMatchObject({ lambda: 0.2, raw: expect.closeTo(mix(0.2), 12) });
+      expect(helpsScale(run, { leagueType: "keeper", myPPlayoffs: 0.6, dynastyTotal: 40_000 })).toMatchObject({ lambda: 0.2, raw: expect.closeTo(mix(0.2), 12) });
+      // Long-term values missing (or MyDynTotal ≤ 0): B = B_win for every trade, so B₃ = B_win of the run too, and no λ.
+      expect(helpsScale(run, { leagueType: "dynasty", myPPlayoffs: 0.1, dynastyTotal: null })?.raw).toBeCloseTo(bWin, 12);
+      expect(helpsScale(run, { leagueType: "keeper", myPPlayoffs: 0.6, dynastyTotal: 0 })?.raw).toBeCloseTo(bWin, 12);
+      expect(helpsScale(run, { leagueType: "keeper", myPPlayoffs: 0.6, lambda: 0.9, dynastyTotal: 0 })).toMatchObject({ lambda: null, f10: null, futureReads: null, gainReads: 63, reason: null });
+    });
+
+    it("the mix: +3 a week this season together with +10% long-term value reads 63 at every λ; each part alone reads gainReads and futureReads", () => {
+      const trade = (lambda: number, weeklyRun: boolean, tenPct: boolean) =>
+        benefit({ leagueType: "dynasty", dPO: weeklyRun ? run.dPO : 0, dCH: weeklyRun ? run.dCH : 0, gMine: 0.3, dynasty: { delta: tenPct ? 4_000 : 0, total: 40_000 }, myPPlayoffs: 0.9, lambda }).b;
+      for (const lambda of [0, 0.2, 0.35, 0.5, 0.75, 0.9, 1]) {
         const s = at(lambda);
-        expect(s, `λ ${lambda}`).toMatchObject({ lambda, lambdaUsed: 0.75, floored: false });
-        expect(s?.b3, `λ ${lambda}`).toBeCloseTo(0.25 * bWin, 12);
+        const b3 = s?.b3 ?? null;
+        expect(tradeScore(trade(lambda, true, true), b3), `λ ${lambda}`).toBe(63);
+        expect(lineupEquivalent(trade(lambda, true, true), b3), `λ ${lambda}`).toBeCloseTo(3, 9);
+        expect(tradeScore(trade(lambda, true, false), b3) ?? 0, `λ ${lambda}`).toBe(s?.gainReads);
+        expect(tradeScore(trade(lambda, false, true), b3) ?? 0, `λ ${lambda}`).toBe(s?.futureReads);
       }
-      // λ 1: B is B_future alone; a 10% long-term gain (B_future 4) reads 4 / (0.25 × 3.395) of the scale, not 4 / 0.5.
-      const tenPct = benefit({ leagueType: "dynasty", dPO: 0, dCH: 0, gMine: 0, dynasty: { delta: 4_000, total: 40_000 }, myPPlayoffs: 0.9, lambda: 1 });
-      expect(tenPct.b).toBeCloseTo(4, 12);
-      expect(lineupEquivalent(tenPct.b, at(1)?.b3 ?? null)).toBeCloseTo((3 * 4) / (0.25 * bWin), 9);
+      // λ 0: the lineup gain alone is the scale; λ 1: the long-term gain alone (review SC-1's cap read it about 100 there).
+      expect(at(0)).toMatchObject({ gainReads: 63, futureReads: 0 });
+      expect(at(1)).toMatchObject({ gainReads: 0, futureReads: 63 });
+      expect(at(0.35)).toMatchObject({ gainReads: tradeScore(0.65 * bWin, at(0.35)?.b3 ?? null), futureReads: tradeScore(0.35 * 4, at(0.35)?.b3 ?? null) });
     });
 
-    it("the floor note never comes from λ while the odds move: the λ note says what +3 a week prints instead", () => {
-      for (const lambda of [0.8, 0.9, 0.95, 1]) {
-        const s = at(lambda);
-        const reads = tradeScore((1 - lambda) * bWin, s?.b3 ?? null) ?? 0;
-        expect(s, `λ ${lambda}`).toMatchObject({ reason: "lambda", gainReads: reads });
-        expect(helpsScaleNotes(s), `λ ${lambda}`).toStrictEqual([helpsLambdaNote(lambda, reads)]);
-        expect(helpsScaleNotes(s)).not.toContain(HELPS_FLOOR_NOTE);
+    it("the floor: B_ref(λ) is floored only when the odds barely move and λ × F₁₀ is small too, and then says so", () => {
+      // +3 a week moves B_win 0.2 (under the floor).
+      const flat = { dPO: 0.002, dCH: 0.002 };
+      const of = (lambda: number) => helpsScale(flat, { leagueType: "dynasty", myPPlayoffs: 0.9, lambda, dynastyTotal: 40_000 });
+      for (const lambda of [0, 0.05]) {
+        expect(of(lambda), `λ ${lambda}`).toMatchObject({ b3: 0.5, floored: true, reason: "odds" });
+        expect(helpsScaleNotes(of(lambda)), `λ ${lambda}`).toStrictEqual([HELPS_FLOOR_NOTE]);
       }
-      expect(helpsScaleNotes(at(0.9))).toStrictEqual(["Your Win now ↔ Future setting counts later seasons 90%, so adding 3 points a week to your lineup this season reads 33 on Helps you, not 63."]);
-      expect(helpsScaleNotes(at(1))).toStrictEqual(["Your Win now ↔ Future setting counts later seasons 100%, so adding 3 points a week to your lineup this season reads 0 on Helps you, not 63."]);
-      // Just past the cap, +3 a week still prints 63: nothing to note.
-      expect(at(0.751)).toMatchObject({ gainReads: 63, reason: null });
-    });
-
-    it("under the cap, (1 − λ) × B_win₃ below the floor while the odds move: floored, with the λ note, not the planner's", () => {
-      // +3 a week moves B_win 0.8 (above the floor); λ 0.5 halves it to 0.4, under the floor.
-      const s = helpsScale({ dPO: 0.008, dCH: 0.008 }, { leagueType: "dynasty", myPPlayoffs: 0.3, dynastyTotal: 40_000 });
-      expect(s).toMatchObject({ b3: 0.5, floored: true, lambda: 0.5, lambdaUsed: 0.5, reason: "lambda", gainReads: 55 });
-      expect(s?.raw).toBeCloseTo(0.4, 12);
-      expect(helpsScaleNotes(s)).toStrictEqual(["Your Win now ↔ Future setting counts later seasons 50%, so adding 3 points a week to your lineup this season reads 55 on Helps you, not 63."]);
-    });
-
-    it("odds that barely move: the planner's floor note, whatever λ", () => {
-      for (const lambda of [0, 0.5, 0.95, 1]) {
-        const s = helpsScale({ dPO: 0.002, dCH: 0.002 }, { leagueType: "dynasty", myPPlayoffs: 0.9, lambda, dynastyTotal: 40_000 });
-        expect(s, `λ ${lambda}`).toMatchObject({ b3: 0.5, floored: true, reason: "odds" });
-        expect(helpsScaleNotes(s), `λ ${lambda}`).toStrictEqual([HELPS_FLOOR_NOTE]);
+      expect(of(0.05)?.raw).toBeCloseTo(0.95 * 0.2 + 0.05 * 4, 12);
+      // From λ 0.1 (0.9 × 0.2 + 0.4 = 0.58) the long-term part carries the scale: no floor, no note; lineup gains read little.
+      for (const lambda of [0.1, 0.5, 0.95, 1]) {
+        expect(of(lambda), `λ ${lambda}`).toMatchObject({ floored: false, reason: null });
+        expect(of(lambda)?.raw, `λ ${lambda}`).toBeCloseTo((1 - lambda) * 0.2 + lambda * 4, 12);
+        expect(helpsScaleNotes(of(lambda)), `λ ${lambda}`).toStrictEqual([]);
       }
+      expect(of(0.5)?.gainReads).toBe(tradeScore(0.1, 2.1));
     });
   });
 
@@ -691,8 +727,9 @@ describe("helpsScale: B₃, the B of +3 points a week under the same goal and λ
       odds: 0,
       oddsNamed: "title",
       lambda: null,
-      lambdaUsed: null,
+      f10: null,
       gainReads: 0,
+      futureReads: null,
       reason: "odds",
     });
     expect(helpsScale({ dPO: -0.01, dCH: -0.01 }, { leagueType: "redraft", myPPlayoffs: 0.3, dynastyTotal: null })?.b3).toBe(0.5);

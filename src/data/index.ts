@@ -2,7 +2,8 @@
  * Shared data layer (CLAUDE.md §2.9, §3 src/data): the player ID crosswalk that gives every player
  * a canonical id (the Sleeper id when known, else `${platform}:${id}`) from the start.
  *
- *   loadPlayerIdResolver({ http, now })   server-side loader (Sleeper players DB, DynastyProcess, FantasyCalc)
+ *   loadPlayerIdResolver({ http, now })   server-side loader (Sleeper players DB, DynastyProcess; FantasyCalc's /players
+ *                                         isn't called since its conditions of 2026-10-05: ./fantasyCalcPlayers.ts)
  *   resolverFromData({ … })               pure builder used by the loader, tests and scripts
  */
 export { DEGRADED_MEMO_MS, loadPlayerIdResolver, rebuildDelayMs, RESOLVER_MEMO_MS, resolverBuildInFlight } from "./load";
@@ -18,7 +19,7 @@ export {
   type PlayerIdCrosswalk,
 } from "./crosswalk";
 export { DYNASTYPROCESS_COLUMNS, DYNASTYPROCESS_IDS_URL, DYNASTYPROCESS_MIN_ROWS, fetchDynastyProcessIds, parseDynastyProcessCsv, type DynastyProcessLoad, type DynastyRow } from "./dynastyProcess";
-export { FANTASYCALC_MIN_ROWS, FANTASYCALC_PLAYERS_URL, fetchFantasyCalcPlayers, reduceFantasyCalcPlayers, type FantasyCalcPlayerIds, type FantasyCalcPlayersLoad } from "./fantasyCalcPlayers";
+export { FANTASYCALC_MIN_ROWS, reduceFantasyCalcPlayers, type FantasyCalcPlayerIds } from "./fantasyCalcPlayers";
 export {
   FANTASYCALC_DYNASTY_MIN_PLAYERS,
   FANTASYCALC_OUTAGE_HOLD_MS,

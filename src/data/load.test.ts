@@ -9,6 +9,7 @@ import { DEGRADED_MEMO_MS, loadPlayerIdResolver, rebuildDelayMs, RESOLVER_MEMO_M
 import { SLEEPER_PLAYER_POSITIONS, sleeperPlayersUrl } from "./sleeperPlayers";
 import { utcStamp } from "./source";
 import { fakeHttp, fantasyCalcWith, padDynastyCsv, sleeperListsWith, type FakeRoute } from "./testSupport";
+import { DYNASTYPROCESS_MIN_ROWS } from "./dynastyProcess";
 
 const NOW = new Date("2026-09-29T21:00:00.000Z");
 const at = (ms: number) => new Date(NOW.getTime() + ms);
@@ -24,8 +25,12 @@ const DP_CSV = padDynastyCsv(
     // Not in Sleeper's active lists: retired or unsigned.
     "90004,4400004,NA,17004,NA,NA,NA,Orvald Tensk,CB,DAL\n",
 );
+/**
+ * FantasyCalc's /players, served if anyone asked: since FantasyCalc's conditions of 2026-10-05 (only /values/current) the
+ * loader never does, so its ESPN id 4400003 maps to nobody.
+ */
 const FC = fantasyCalcWith([{ id: 7, name: "Vexmund Orr", position: "TE", sleeperId: "90003", espnId: "4400003", mflId: "UNK", fleaflickerId: null, maybeTeam: "KC" }]);
-const SOURCE_REQUESTS = SLEEPER_PLAYER_POSITIONS.length + 2;
+const SOURCE_REQUESTS = SLEEPER_PLAYER_POSITIONS.length + 1;
 
 function routes(over: Record<string, FakeRoute | ((attempt: number) => FakeRoute)> = {}): Record<string, FakeRoute | ((attempt: number) => FakeRoute)> {
   return {
@@ -91,20 +96,20 @@ describe("loadPlayerIdResolver", () => {
     expect(await loadPlayerIdResolver({ http: g.http, now: NOW })).toBe(r);
   });
 
-  it("loads all three sources and maps ids from each", async () => {
+  it("loads both sources and maps ids from each; FantasyCalc's /players is never asked (its conditions of 2026-10-05) nor named", async () => {
     const { http, calls } = fakeHttp(routes());
     const r = await loadPlayerIdResolver({ http, now: NOW });
     expect(calls).toHaveLength(SOURCE_REQUESTS);
+    expect(calls.map((c) => c.url)).not.toContain(FANTASYCALC_PLAYERS_URL);
     expect(r.canonical("espn", "4400001")).toBe("90001"); // Sleeper DB
     expect(r.canonical("espn", "4400002")).toBe("90002"); // DynastyProcess
-    expect(r.canonical("espn", "4400003")).toBe("90003"); // FantasyCalc
+    expect(r.canonical("espn", "4400003")).toBeUndefined(); // only FantasyCalc's /players had it
     expect(r.canonical("mfl", "17002")).toBe("90002");
     expect(r.defenseId("Cowboys")).toBe("DAL");
     expect(r.sleeperPlayer("90001")?.name).toBe("Zorblax Quintavious");
     expect(r.sources()).toEqual([
       { name: "Sleeper players", fetchedAt: NOW.toISOString() },
       { name: "DynastyProcess player IDs", fetchedAt: NOW.toISOString() },
-      { name: "FantasyCalc players", fetchedAt: NOW.toISOString() },
     ]);
     expect(r.warnings()).toEqual([]);
     // Every Sleeper list loaded fully, so a player missing from them isn't active (and has no team).
@@ -115,7 +120,6 @@ describe("loadPlayerIdResolver", () => {
     const cached = Object.fromEntries(Object.entries(routes()).map(([u, v]) => [u, { ...(v as FakeRoute), fromCache: true }]));
     const r = await loadPlayerIdResolver({ http: fakeHttp(cached).http, now: NOW });
     expect(r.status().map((s) => [s.fromCache, s.fetchedAt])).toEqual([
-      [true, null],
       [true, null],
       [true, null],
     ]);
@@ -164,11 +168,11 @@ describe("loadPlayerIdResolver", () => {
 
   it("serves a degraded first build, retries after DEGRADED_MEMO_MS, and lets a healthy build take over", async () => {
     const s = switchable();
-    s.down.add(FANTASYCALC_PLAYERS_URL);
+    s.down.add(DYNASTYPROCESS_IDS_URL);
     const r = await loadPlayerIdResolver({ http: s.http, now: NOW });
-    expect(r.canonical("espn", "4400002")).toBe("90002");
-    expect(r.canonical("espn", "4400003")).toBeUndefined();
-    expect(r.status()[2]).toMatchObject({ available: false, note: "FantasyCalc players: HTTP 503" });
+    expect(r.canonical("espn", "4400001")).toBe("90001");
+    expect(r.canonical("espn", "4400002")).toBeUndefined();
+    expect(r.status()[1]).toMatchObject({ available: false, note: "DynastyProcess player IDs: HTTP 503" });
     expect(r.warnings()).toEqual([expect.objectContaining({ code: "ID_SOURCE_UNAVAILABLE" })]);
     const n = s.calls.length;
     expect(await loadPlayerIdResolver({ http: s.http, now: at(DEGRADED_MEMO_MS - 1) })).toBe(r);
@@ -177,7 +181,7 @@ describe("loadPlayerIdResolver", () => {
     expect(await loadPlayerIdResolver({ http: s.http, now: at(DEGRADED_MEMO_MS) })).toBe(r);
     const healthy = await resolverBuildInFlight(s.http);
     expect(healthy).not.toBe(r);
-    expect(healthy?.canonical("espn", "4400003")).toBe("90003");
+    expect(healthy?.canonical("espn", "4400002")).toBe("90002");
     expect(await loadPlayerIdResolver({ http: s.http, now: at(DEGRADED_MEMO_MS + 1) })).toBe(healthy);
     expect(DEGRADED_MEMO_MS).toBeLessThan(RESOLVER_MEMO_MS);
   });
@@ -185,8 +189,8 @@ describe("loadPlayerIdResolver", () => {
   it("keeps a healthy crosswalk over a degraded rebuild, and backs off 10 → 20 → 40 → 60 minutes while the outage lasts (review DATA-5)", async () => {
     const s = switchable();
     const healthy = await loadPlayerIdResolver({ http: s.http, now: NOW });
-    s.down.add(FANTASYCALC_PLAYERS_URL);
-    const fcRequests = () => s.calls.filter((c) => c.url === FANTASYCALC_PLAYERS_URL).length;
+    s.down.add(DYNASTYPROCESS_IDS_URL);
+    const fcRequests = () => s.calls.filter((c) => c.url === DYNASTYPROCESS_IDS_URL).length;
     let t = RESOLVER_MEMO_MS;
     const rebuildsAt: number[] = [];
     for (const wait of [0, 10 * MINUTE, 20 * MINUTE, 40 * MINUTE, HOUR, HOUR]) {
@@ -253,11 +257,10 @@ describe("loadPlayerIdResolver", () => {
     expect(r.status().map((s) => s.note)).toEqual([
       `couldn't be refreshed, so our saved copies of all 10 lists from ${utcStamp(copyAt)} are used`,
       `couldn't be refreshed, so our saved copy from ${utcStamp(copyAt)} is used`,
-      `couldn't be refreshed, so our saved copy from ${utcStamp(copyAt)} is used`,
     ]);
     expect(utcStamp(copyAt)).toBe("2026-09-27 14:05 UTC");
     expect(r.status().every((s) => s.available && s.fromCache && s.fetchedAt === new Date(copyAt).toISOString())).toBe(true);
-    expect(r.warnings().map((w) => w.code)).toEqual(["ID_SOURCE_PARTIAL", "ID_SOURCE_PARTIAL", "ID_SOURCE_PARTIAL"]);
+    expect(r.warnings().map((w) => w.code)).toEqual(["ID_SOURCE_PARTIAL", "ID_SOURCE_PARTIAL"]);
     // Saved lists may miss players added since, so absence doesn't mean "not active".
     expect(r.sleeperPlayer("90004")?.active).toBeNull();
   });
@@ -290,10 +293,11 @@ describe("loadPlayerIdResolver", () => {
     expect(hits).toHaveLength(SOURCE_REQUESTS); // nothing refetched within the 24 h TTLs
     // Cached copies keep the time they were really fetched (not the time of this build).
     const liveTimes = live.status().map((s) => s.fetchedAt);
-    expect(liveTimes).toEqual([NOW.toISOString(), NOW.toISOString(), NOW.toISOString()]);
+    expect(liveTimes).toEqual([NOW.toISOString(), NOW.toISOString()]);
     expect(cached?.status().every((s) => s.fromCache && !s.note)).toBe(true);
     expect(cached?.status().map((s) => s.fetchedAt)).toEqual(liveTimes);
-    expect(cached?.canonical("espn", "4400003")).toBe("90003");
+    expect(cached?.canonical("espn", "4400002")).toBe("90002");
+    expect(hits).not.toContain(FANTASYCALC_PLAYERS_URL);
     expect(TTL.sleeperPlayers).toBe(TTL.idMap);
   });
 });
@@ -341,7 +345,7 @@ describe("loadPlayerIdResolver through the real HttpClient during an outage (fak
     const r = await settle(loadPlayerIdResolver({ http: restarted, now: at(DAY + HOUR) }));
     expect(f.perHost.get("api.sleeper.app")).toBe(2); // the QB list and its one retry; the other lists came from saved copies
     expect(f.perHost.get("raw.githubusercontent.com")).toBe(1);
-    expect(f.perHost.get("api.fantasycalc.com")).toBe(1);
+    expect(f.perHost.get("api.fantasycalc.com")).toBeUndefined(); // never asked (FantasyCalc's conditions of 2026-10-05)
     expect(r.status()[0]).toMatchObject({ available: true, fromCache: true, fetchedAt, note: `couldn't be refreshed, so our saved copies of all 10 lists from ${utcStamp(Date.parse(fetchedAt ?? ""))} are used` });
     expect(r.canonical("espn", "4400001")).toBe("90001"); // Sleeper's own ESPN id still maps
     expect(r.sleeperPlayer("90001")).toMatchObject({ name: "Zorblax Quintavious", active: true });
@@ -357,31 +361,32 @@ describe("loadPlayerIdResolver through the real HttpClient during an outage (fak
     expect(f.perHost.get("api.sleeper.app")).toBe(2);
     expect(r.status()[0]).toMatchObject({ available: false, note: "Sleeper players (QB): HTTP 503" });
     expect(r.canonical("espn", "4400002")).toBe("90002");
-    expect(r.defenseId("KC")).toBe("KC"); // FantasyCalc's team codes stand in for Sleeper's
+    expect(r.defenseId("KC")).toBe("KC"); // Sleeper's 32 codes stand in for the players DB's
   });
 
-  it("never caches a rejected body: an empty FantasyCalc list is asked again on the next rebuild (review HTTP-1)", async () => {
+  it("never caches a rejected body: a short DynastyProcess list is asked again on the next rebuild (review HTTP-1)", async () => {
     vi.useFakeTimers({ now: NOW });
     const cache = new MemoryCache();
-    let fcAnswer: unknown = [];
-    let fcRequests = 0;
+    let dpAnswer = DP_CSV.slice(0, DP_CSV.indexOf("\n") + 1); // the header alone: below the row floor
+    let dpRequests = 0;
     const base = outageFetch();
     const fetchImpl = (async (url: string | URL, init?: RequestInit) => {
-      if (String(url) !== FANTASYCALC_PLAYERS_URL) return base.fetchImpl(url, init);
-      fcRequests++;
-      return new Response(JSON.stringify(fcAnswer), { status: 200, headers: { "content-type": "application/json" } });
+      if (String(url) !== DYNASTYPROCESS_IDS_URL) return base.fetchImpl(url, init);
+      dpRequests++;
+      return new Response(dpAnswer, { status: 200, headers: { "content-type": "text/plain" } });
     }) as typeof fetch;
     const http = createHttpClient({ fetchImpl, cache });
     const first = await settle(loadPlayerIdResolver({ http, now: NOW }));
-    expect(first.status()[2]).toMatchObject({ available: false, note: "FantasyCalc players: 0 rows, expected at least 1,000" });
-    expect(fcRequests).toBe(1); // a bad 200 isn't retried within the request
-    expect(cache.keys().some((k) => k.startsWith("fantasycalc:"))).toBe(false);
-    fcAnswer = FC;
+    expect(first.status()[1]).toMatchObject({ available: false, note: "DynastyProcess player IDs: the CSV has no rows" });
+    expect(DYNASTYPROCESS_MIN_ROWS).toBeGreaterThan(0);
+    expect(dpRequests).toBe(1); // a bad 200 isn't retried within the request
+    expect(cache.keys().some((k) => k.startsWith("dynastyprocess:"))).toBe(false);
+    dpAnswer = DP_CSV;
     vi.setSystemTime(at(DEGRADED_MEMO_MS));
     await loadPlayerIdResolver({ http, now: at(DEGRADED_MEMO_MS) });
     const fixed = await settle(resolverBuildInFlight(http) ?? Promise.resolve(undefined));
-    expect(fcRequests).toBe(2);
-    expect(fixed?.canonical("espn", "4400003")).toBe("90003");
-    expect(cache.keys().some((k) => k.startsWith("fantasycalc:"))).toBe(true);
+    expect(dpRequests).toBe(2);
+    expect(fixed?.canonical("espn", "4400002")).toBe("90002");
+    expect(cache.keys().some((k) => k.startsWith("dynastyprocess:"))).toBe(true);
   });
 });

@@ -313,17 +313,20 @@ function wholeCount(fn: string, name: string, x: number, min: number): number {
 
 /**
  * The common-random-numbers matrix (§8): `sims` × `weeks` × `teams` standard normals, sim n from
- * streamFor(seed, SEASON_STREAM, n) by Box–Muller (see the file header for the fill order).
+ * streamFor(seed, SEASON_STREAM, n) by Box–Muller (see the file header for the fill order). `first` (default 0) starts the
+ * matrix at that season: simNormals(seed, b, w, t, a) is seasons a … a + b − 1 of the seed's matrix, so a block of a longer
+ * matrix can be drawn alone (evaluate.ts: the screening block after a final block drawn elsewhere).
  */
-export function simNormals(seed: number, sims: number, weeks: number, teams: number): SimNormals {
+export function simNormals(seed: number, sims: number, weeks: number, teams: number, first = 0): SimNormals {
   wholeCount("simNormals", "sims", sims, 0);
   wholeCount("simNormals", "weeks", weeks, 0);
   wholeCount("simNormals", "teams", teams, 0);
+  wholeCount("simNormals", "first", first, 0);
   const per = weeks * teams;
   const z = new Float64Array(sims * per);
   const keySeed = mix32(seed, hash32(SEASON_STREAM));
   for (let n = 0; n < sims; n++) {
-    const rand = mulberry32(mix32(keySeed, n)); // = streamFor(seed, SEASON_STREAM, n)
+    const rand = mulberry32(mix32(keySeed, first + n)); // = streamFor(seed, SEASON_STREAM, first + n)
     let k = n * per;
     const end = k + per;
     while (k < end) {

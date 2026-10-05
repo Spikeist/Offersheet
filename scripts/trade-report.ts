@@ -35,16 +35,21 @@
  *    lines (TradeDetail.winChance: weeklyLines), and its next step: the offer-first steps with their players' tags (the
  *    search's own rule, taggerOf), or Plan B in its box's own words (tradeView.planBView: its players' tags as the card
  *    shows them, and since Phase 4c's polish its odds lines: planBOddsText), each with its numbers (review of track R,
- *    R-2); the counts over the top 10 and every card, the Plan B
+ *    R-2), and its trade value (tradeValueText: g_mkt(me) and B's market term in points a week on the card's scale,
+ *    TradeEvaluation.marketWeekly; planner reply to Checkpoint 7a, §2 question 5); the counts over the top 10 and every card, the Plan B
  *    boxes receiving an injury-tagged player among them (cardCounts); the pattern note (TradeSearchResult.pattern) when it
  *    shows.
  * 2. The goal setting (planner change 8): the same search on the same context under "Balanced" (TradeSettings.goal), the
  *    two top 10s side by side (goalCompare: each trade's place, B, Helps you and Overall under each goal; a trade the
- *    other list doesn't show gets the Analyzer's numbers under that goal, the same final block of seasons).
+ *    other list doesn't show gets the Analyzer's numbers under that goal, the same final block of seasons). ⚠️ Since Phase 7b
+ *    the goal also sets the playoff weeks' weight ω (league.ts step 5c): the same context holds it at the default goal's, so
+ *    the section isolates B's weights, and says the ω the app's own context under "Balanced" would use (omegaUnder).
  * 3. B₃ under each goal (Phase 7a; planner reply to Checkpoint 4c, A2: "Helps you" calibrates itself per league and goal;
  *    helpsScaleSection): the League model's calibration run (LeagueModel.helpsCalibration: ΔPO₃ and ΔCH₃ from +3 points a
  *    week in every week a trade can change), checked against the trade context's own run (evaluate.ts SimState.calibration,
- *    bit for bit), B₃ under each goal as the search scores it (evaluate.helpsScaleOf: raw, floored or not, used), and
+ *    bit for bit), B₃ under each goal as the search scores it (evaluate.helpsScaleOf: raw, floored or not, used; B_ref(λ) in a
+ *    dynasty or keeper league with long-term values, planner reply to Checkpoint 7a, §2 question 6) with what "Protect my
+ *    trade value" charges on it at Medium for giving 25% more value than you get (question 5), and
  *    league-report's scaleCheck from the one baseline (every team after its pickups: season.pickupSeasonModel,
  *    TeamModel.scoreWithPickups) for +1, +3 and +6 projected points a week (league-report's scaleFrom: a week under way is
  *    left out, as every trade's evaluation leaves it): ΔPO, ΔCH, B and Helps you on the new scale under each goal, its +3
@@ -79,6 +84,12 @@
  *    kickoffJump), and the weeks where every team's pickups move my win chance most (pickupWeeks: both teams' projected
  *    points with and without their pickups, and the pickups).
  *
+ * Phase 7b (planner reply to Checkpoint 7a, §6.1): the settings line names the playoff weeks' weight ω every ROS(T) of the
+ * search reads, set automatically from my odds under my goal (league.ts step 5c; league-report's playoffWeightSummary: the
+ * B per point in each part of the season), or the fallback and why, next to the League page's model's own ω; then the
+ * thresholds in ROS lineup points under that ω (league-report's thresholdsLine: config's × Σω ÷ Σω₀, so a pickup, a chip and
+ * a throw-in are judged by what those thresholds meant at ω₀; review of the engine track, Phase 7b).
+ *
  * Everything after the network is buildTradeReport (pure but for the clock it is given), which
  * scripts/trade-report.test.ts runs on a synthetic league.
  *
@@ -94,20 +105,20 @@ import { importEspnLeagueForModel } from "@/adapters/espn";
 import type { ImportDeps } from "@/adapters/types";
 import { loadPlayerIdResolver } from "@/data";
 import { acceptance, betaNeed, type AcceptanceLeague, type PartnerProfile, type TradeAcceptanceInput } from "@/engine/acceptance";
-import { HELPS_AT_GAIN, goalWeights, helpsScaleNotes, protectValueWeight, tradePackage, type HelpsScale } from "@/engine/benefit";
+import { HELPS_AT_GAIN, goalWeights, helpsScaleNotes, marketSanity, marketWeekly, protectValueWeight, tradePackage, type HelpsScale } from "@/engine/benefit";
 import { blendRecords, type BlendRecord } from "@/engine/blend";
 import { config } from "@/engine/config";
 import { analyzeTrade, buildTradeContext, helpsScaleOf, proposalKey, tradeInternals, type Screened, type TradeContext, type TradeInternals } from "@/engine/evaluate";
 import { injuryTags, tagContextOf } from "@/engine/explain";
 import type { MarketInputs, ModelInputs } from "@/engine/inputs";
-import { buildLeagueModel, firstKickoff } from "@/engine/league";
+import { buildLeagueModel, firstKickoff, playoffWeightFrom } from "@/engine/league";
 import type { BaseRateSource, FaMove, HelpsCalibration, LeagueModel, SeasonOdds, TeamOdds } from "@/engine/leagueModel";
 import { neutralThrowIns } from "@/engine/market";
 import type { InjuryStatus, LeagueSnapshot } from "@/engine/model";
 import { eliteIds, perceivedPackage, teamPremiums } from "@/engine/premium";
 import { atMostWaiverCredit, buildPools, leanCompanions, partnerCandidates, runRefilter, runTradeSearch, searchStateOf, shortlistOf } from "@/engine/search";
 import { buildSimSetup, pickupSeasonModel } from "@/engine/season";
-import { GOALS, defaultTradeSettings, normalizeTradeSettings, type Goal, type TradeSettings } from "@/engine/settings";
+import { GOALS, PROTECT_VALUE_LEVELS, defaultTradeSettings, normalizeTradeSettings, type Goal, type TradeSettings } from "@/engine/settings";
 import { simNormals } from "@/engine/sim";
 import type { InjuryTag, TradeAsset, TradeDetail, TradeEvaluation, TradeProposal, TradeSearchResult } from "@/engine/tradeModel";
 import { waiverOrderText } from "@/lib/importReport";
@@ -117,6 +128,7 @@ import { createHttpClient } from "@/server/http";
 import { buildModelInputs } from "@/server/modelInputs";
 import {
   GOAL_WORDS,
+  PRICE_EXAMPLE_G,
   asWeeklyResetData,
   byGoal,
   calibrationMatches,
@@ -125,10 +137,12 @@ import {
   loadDump,
   ordinal,
   placeholders,
+  playoffWeightSummary,
   pre4cText,
   resetWaiverOrder,
   scaleCheck,
   scaleFrom,
+  thresholdsLine,
   waiverRanksPre4c,
   type ByGoal,
   type Pre4cOrder,
@@ -259,6 +273,16 @@ export function chancePrinted(p: number): string {
 export function threeNumbers(t: Pick<TradeEvaluation, "tradeScore" | "pAccept" | "pComplete" | "acceptLabel" | "overall"> & { detail: Pick<TradeDetail, "vetoRisk"> }): string {
   const veto = t.detail.vetoRisk ? ` (goes through ${chancePrinted(t.pComplete)})` : "";
   return `${t.tradeScore ?? "–"} / ${chancePrinted(t.pAccept)} ${t.acceptLabel}${veto} / ${t.overall ?? "–"}`;
+}
+
+/**
+ * A card's trade-value part of Helps you (planner reply to Checkpoint 7a, §2 question 5): g_mkt(me) and B's market term in
+ * points a week on the card's scale (TradeEvaluation.marketWeekly, the Analyzer's "Trade value: … pts/week equivalent"):
+ * "−12.2% · −0.24 pts/wk"; "–" for the term when B has none (dynasty and keeper leagues, no FantasyCalc values).
+ */
+export function tradeValueText(t: Pick<TradeEvaluation, "gMine" | "marketWeekly">): string {
+  const g = t.gMine === Number.POSITIVE_INFINITY ? "+∞" : `${signed(100 * t.gMine, 1)}%`;
+  return `${g} · ${finite(t.marketWeekly) ? `${signed(t.marketWeekly, 2)} pts/wk` : "–"}`;
 }
 
 /** A Plan B's or a step's three numbers (no veto detail of its own: P_complete beside P_accept when they differ). */
@@ -1200,7 +1224,7 @@ function renderHeader(L: string[], snapshot: LeagueSnapshot, inputs: ModelInputs
   L.push(`- Waiver order used: ${waiverOrderText(snapshot)}.${r.pre4c ? ` ${pre4cText(r.pre4c, me, teamNameOf(me))} Section 7 compares the two orders.` : ""}`);
   L.push("");
   L.push(
-    `**Settings** (the app's defaults): What matters most: ${GOAL_WORDS[s.goal]} (${goalWeightsText(s.goal)}); Chance they accept: ${minChanceText(s.minChance)}; Protect my trade value: ${LEVEL_WORDS[s.protectValue]} (κ ${protectValueWeight(s.protectValue)}); max ${s.maxPerSide} players a side; streamed ${s.streamPositions.join(", ") || "none"}; P/K/D/ST/IDP ${s.includeKDefIdp ? "included" : "left out"}; β_need ${betaNeed(snapshot.settings.leagueType)}; W (the best free agent's trade value) ${thousands(Math.round(I.credit))}.`,
+    `**Settings** (the app's defaults): What matters most: ${GOAL_WORDS[s.goal]} (${goalWeightsText(s.goal)}); Chance they accept: ${minChanceText(s.minChance)}; Protect my trade value: ${LEVEL_WORDS[s.protectValue]} (κ ${protectValueWeight(s.protectValue)} points a week per 100% of trade value, priced on B₃: section 3); max ${s.maxPerSide} players a side; streamed ${s.streamPositions.join(", ") || "none"}; P/K/D/ST/IDP ${s.includeKDefIdp ? "included" : "left out"}; β_need ${betaNeed(snapshot.settings.leagueType)}; W (the best free agent's trade value) ${thousands(Math.round(I.credit))}; playoff weeks count ${playoffWeightSummary(I.model)} in every ROS(T): the search's shortlists, free-agent pickups and trade chips (planner reply to Checkpoint 7a, §6.1; the League page's model has the same, ${model.playoffWeight}×). ${thresholdsLine(I.model)}`,
     "",
   );
   const b = r.result.baseline;
@@ -1291,12 +1315,12 @@ function renderTop(L: string[], snapshot: LeagueSnapshot, inputs: ModelInputs, r
   }
   const b3 = top[0]?.b3 ?? null;
   L.push(
-    `The Trade Finder's first ${top.length} of ${trades.length} cards with the default settings, Overall order, Helps you and Overall on B₃ ${b3 === null ? "–" : fmt(b3, 2)} (section 3: ${HELPS_AT_GAIN} ≈ +${config.benefit.helpsGain} pts a week). The three numbers as the card prints them: Helps you / Chance they accept (with its label; "goes through" when the league vote's veto rule cuts it; under ${Math.round(100 * config.acceptance.displayStep)}% reads "<${Math.round(100 * config.acceptance.displayStep)}%") / Overall. Odds before → after: the search's baseline and the trade's change on the same ${thousands(config.simulation.finalSims)} seasons. Win chance by week: the weeks whose chance moves at least ${Math.round(100 * config.explain.weeklyLineMin)} points, at most ${config.explain.weeklyLineMax} (the largest), in week order. Injury tags in brackets are the card's words; the offer-first steps' players carry the same tags (the search's own rule), and a Plan B is quoted in its box's own words (tags in parentheses).`,
+    `The Trade Finder's first ${top.length} of ${trades.length} cards with the default settings, Overall order, Helps you and Overall on B₃ ${b3 === null ? "–" : fmt(b3, 2)} (section 3: ${HELPS_AT_GAIN} ≈ +${config.benefit.helpsGain} pts a week). The three numbers as the card prints them: Helps you / Chance they accept (with its label; "goes through" when the league vote's veto rule cuts it; under ${Math.round(100 * config.acceptance.displayStep)}% reads "<${Math.round(100 * config.acceptance.displayStep)}%") / Overall. Odds before → after: the search's baseline and the trade's change on the same ${thousands(config.simulation.finalSims)} seasons. Win chance by week: the weeks whose chance moves at least ${Math.round(100 * config.explain.weeklyLineMin)} points, at most ${config.explain.weeklyLineMax} (the largest), in week order. Injury tags in brackets are the card's words; the offer-first steps' players carry the same tags (the search's own rule), and a Plan B is quoted in its box's own words (tags in parentheses). Trade value: g_mkt(me), the model's own figure counting roster spots, and what "Protect my trade value" charges or credits for it in Helps you, in points a week on the card's scale (planner reply to Checkpoint 7a, §2 question 5: κ × clamp(g_mkt(me)), the Analyzer's "Trade value: … pts/week equivalent").`,
     "",
   );
-  L.push("| # | Partner | You give → you get | Helps / Chance / Overall | Title odds | Playoff odds | Win chance by week |", "|---|---|---|---|---|---|---|");
+  L.push("| # | Partner | You give → you get | Helps / Chance / Overall | Title odds | Playoff odds | Win chance by week | Trade value |", "|---|---|---|---|---|---|---|---|");
   top.forEach((t, i) =>
-    L.push(`| ${i + 1} | ${teamName(t.proposal.partnerId)} | ${sideText(snapshot, inputs, t, "give")} → ${sideText(snapshot, inputs, t, "get")} | ${threeNumbers(t)} | ${titleMove(b.pTitle, t.dCH)} | ${playoffMove(b.pPlayoffs, t.dPO)} | ${weeklyText(weeklyLines(t.detail.winChance))} |`),
+    L.push(`| ${i + 1} | ${teamName(t.proposal.partnerId)} | ${sideText(snapshot, inputs, t, "give")} → ${sideText(snapshot, inputs, t, "get")} | ${threeNumbers(t)} | ${titleMove(b.pTitle, t.dCH)} | ${playoffMove(b.pPlayoffs, t.dPO)} | ${weeklyText(weeklyLines(t.detail.winChance))} | ${tradeValueText(t)} |`),
   );
   L.push("");
   const sc: StepContext = { tagsOf: taggerOf(tradeInternals(r.ctx)), knownTags: knownTagsOf(trades), baseline: r.result.baseline };
@@ -1315,13 +1339,23 @@ function renderTop(L: string[], snapshot: LeagueSnapshot, inputs: ModelInputs, r
   L.push(p ? `**The pattern note** (${p.count} of the uncapped top ${p.of} give ${nameOf(snapshot, p.playerId)}; drivers: ${p.drivers.join(", ") || "none"}): "${p.text}"` : `**The pattern note** doesn't show: fewer than ${config.explain.patternMinCount} of the uncapped top ${config.explain.patternTop} give the same player of yours.`, "");
 }
 
+/**
+ * ω under `goal` for the context's League model (league.ts step 5c): from its measured runs (they don't depend on the goal,
+ * only their B per point does: league.playoffWeightFrom), else its fallback, the same under every goal.
+ */
+export function omegaUnder(model: Pick<LeagueModel, "playoffWeight" | "playoffWeightAuto">, goal: Goal): number {
+  const a = model.playoffWeightAuto;
+  return a?.runs ? playoffWeightFrom(a.runs, goal, a.sims).omega : model.playoffWeight;
+}
+
 function renderGoals(L: string[], snapshot: LeagueSnapshot, r: Report, teamName: (id: string) => string): void {
   const g = r.goals;
   const main = GOAL_WORDS[r.settings.goal];
   const other = GOAL_WORDS[g.goal];
+  const I = tradeInternals(r.ctx);
   L.push(`## 2. The goal setting: "${main}" against "${other}"`, "");
   L.push(
-    `The same search on the same context with "What matters most" set to ${other} (${goalWeightsText(g.goal)}; ${main}: ${goalWeightsText(r.settings.goal)}). Each column: the card's place (– when that list doesn't show it; its numbers are then the Analyzer's under that goal), B, Helps you and Overall. The chance they accept doesn't depend on the goal. ${g.common} of the top ${TOP_DETAIL} are in both lists; "${other}" shows ${g.result.trades.length} cards.`,
+    `The same search on the same context with "What matters most" set to ${other} (${goalWeightsText(g.goal)}; ${main}: ${goalWeightsText(r.settings.goal)}). Each column: the card's place (– when that list doesn't show it; its numbers are then the Analyzer's under that goal), B, Helps you and Overall. The chance they accept doesn't depend on the goal. ${g.common} of the top ${TOP_DETAIL} are in both lists; "${other}" shows ${g.result.trades.length} cards. ⚠️ Since the planner's reply to Checkpoint 7a (§6.1) the goal also sets the playoff weeks' weight in every ROS(T) (league.ts step 5c): this comparison holds it at ${main}'s ${I.model.playoffWeight}×, so it shows what B's weights alone change; the app under ${other} rebuilds its context with ${omegaUnder(I.model, g.goal)}×, which also moves every team's pickups and the search's shortlists.`,
     "",
   );
   L.push(`| Trade | Goes through | ${main}: # · B · Helps · Overall | ${other}: # · B · Helps · Overall |`, "|---|---|---|---|");
@@ -1344,19 +1378,22 @@ function renderScale(L: string[], r: Report): void {
   const weeks = r.model.weeks.slice(cal.from);
   const matches = (m: boolean | null, what: string) => (m === null ? "" : ` ${what} ${m ? "is the same run, bit for bit." : "is NOT the same run."}`);
   L.push(
-    `Planner reply to Checkpoint 4c, A2: Helps you = round(100 × (1 − e^(−B / B₃))) and Overall = round(100 × (1 − e^(−B × P_complete / B₃))), B₃ = the B of +${gain} projected points a week in every week a trade can change (weeks ${weeks[0] ?? "–"}–${weeks.at(-1) ?? "–"}${cal.from > 0 ? `; week ${r.model.inProgressWeek} is under way, held as rosters stand in every trade` : ""}), regular season and playoffs, from the one baseline (every team after its pickups: LeagueModel.odds), on its ${thousands(config.simulation.finalSims)} seasons (common random numbers), under the same goal (and λ, at most ${config.benefit.helpsLambdaMax}, in dynasty and keeper leagues), floored at ${config.benefit.helpsFloor}. The League model's run (LeagueModel.helpsCalibration): ΔPO₃ ${pts(cal.dPO, 2)}, ΔCH₃ ${cal.dCH === null ? "unknown" : pts(cal.dCH, 2)}.${matches(s.contextMatches, "The trade context's own run (its final block)")}`,
+    `Planner reply to Checkpoint 4c, A2: Helps you = round(100 × (1 − e^(−B / B₃))) and Overall = round(100 × (1 − e^(−B × P_complete / B₃))), B₃ = the B of +${gain} projected points a week in every week a trade can change (weeks ${weeks[0] ?? "–"}–${weeks.at(-1) ?? "–"}${cal.from > 0 ? `; week ${r.model.inProgressWeek} is under way, held as rosters stand in every trade` : ""}), regular season and playoffs, from the one baseline (every team after its pickups: LeagueModel.odds), on its ${thousands(config.simulation.finalSims)} seasons (common random numbers), under the same goal, floored at ${config.benefit.helpsFloor}; in a dynasty or keeper league with long-term values B_ref(λ) = (1 − λ) × that + λ × F₁₀, F₁₀ = ${fmt(config.benefit.bFutureScale * config.benefit.helpsFutureShare, 0)}, the B of +${Math.round(100 * config.benefit.helpsFutureShare)}% long-term value (planner reply to Checkpoint 7a, §2 question 6). "Protect my trade value" is priced on the same B₃ (question 5): B's market term = (B₃ / ${gain}) × κ × clamp(g_mkt(me)), κ ${PROTECT_VALUE_LEVELS.map((level) => protectValueWeight(level)).join(" / ")} points a week per 100% of trade value at Low / Medium / High, so the last column's 25%-more-value example costs the same points a week under every goal. The League model's run (LeagueModel.helpsCalibration): ΔPO₃ ${pts(cal.dPO, 2)}, ΔCH₃ ${cal.dCH === null ? "unknown" : pts(cal.dCH, 2)}.${matches(s.contextMatches, "The trade context's own run (its final block)")}`,
     "",
   );
-  L.push("| Goal | Weights | B₃ | Floored | +1 / +3 / +6 pts a week read |", "|---|---|---|---|---|");
+  const kMedium = protectValueWeight("medium");
+  const redraft = r.snapshot.settings.leagueType === "redraft";
+  L.push("| Goal | Weights | B₃ | Floored | +1 / +3 / +6 pts a week read | Giving 25% more value at Medium: B (pts a week) |", "|---|---|---|---|---|---|");
   for (const g of GOALS) {
     const b = s.b3[g];
     const reads = s.check?.rows ? s.check.rows.map((row) => `+${row.gain} → ${row.score[g] ?? "–"}`).join(", ") : "–";
-    L.push(`| ${GOAL_WORDS[g]}${g === r.settings.goal ? " (the app's default)" : ""} | ${goalWeightsText(g)} | ${b ? fmt(b.b3, 2) : "–"} | ${b ? (b.floored ? `yes (raw ${fmt(b.raw, 2)})` : "no") : "–"} | ${reads} |`);
+    const price = !redraft ? "– (no market term)" : b ? `${signed(marketSanity(PRICE_EXAMPLE_G, b.b3, kMedium), 2)} (${signed(marketWeekly(PRICE_EXAMPLE_G, kMedium), 1)})` : "–";
+    L.push(`| ${GOAL_WORDS[g]}${g === r.settings.goal ? " (the app's default)" : ""} | ${goalWeightsText(g)} | ${b ? fmt(b.b3, 2) : "–"} | ${b ? (b.floored ? `yes (raw ${fmt(b.raw, 2)})` : "no") : "–"} | ${reads} | ${price} |`);
   }
   L.push("");
-  // The note a search shows when its B₃ departs from "+3 a week reads 63" (benefit.helpsScaleNotes; review of track SC).
+  // The note a search shows when its B₃ is floored (benefit.helpsScaleNotes; review of track SC).
   const scaleNotes = GOALS.flatMap((g) => helpsScaleNotes(s.b3[g]).map((n) => `${GOAL_WORDS[g]}: “${n}”`));
-  L.push(scaleNotes.length ? `The searches' notes on the scale: ${scaleNotes.join("; ")}` : `No goal's B₃ departs from "+${gain} a week reads ${HELPS_AT_GAIN}": no search shows a note on the scale.`, "");
+  L.push(scaleNotes.length ? `The searches' notes on the scale: ${scaleNotes.join("; ")}` : `No goal's B₃ is floored: no search shows a note on the scale.`, "");
   const c = s.check;
   if (!c || !c.rows) {
     L.push(c ? `The scale check: title odds are unknown${c.titleUnknown ? ` (${c.titleUnknown})` : ""}, so its B can't be computed.` : "No scale check (no odds or no team).", "");
@@ -1630,7 +1667,7 @@ async function main(): Promise<void> {
   const anchors = [...report.anchors, ...report.premiumAnchors];
   console.log(
     scrubEverything(
-      `trade report written (${args.dump ? "offline" : "live"}) in ${ms(report.timing.total)}: ${c.shown} cards (Plan B ${c.planB}, steps ${c.steps}, injury-tagged received ${c.injuredGet}, Plan B boxes with one ${c.planBInjuredGet}); search ${ms(report.runtime.search.total)} warm, ${thousands(report.result.counts.screened)} screened; top card Helps you ${top?.tradeScore ?? "–"}, Overall ${top?.overall ?? "–"}; ${GAP_TRADE.get.join(" + ")} card ${report.gap.card ?? "–"}; anchors ${anchors.filter((a) => a.pass).length}/${anchors.length}; baseline = LeagueModel.odds ${report.odds.baselineEqual ? "yes" : "NO"}${report.pre4c ? "; a dump from before the 4c adapter, put on the weekly reset order" : ""}`,
+      `trade report written (${args.dump ? "offline" : "live"}) in ${ms(report.timing.total)}: ${c.shown} cards (Plan B ${c.planB}, steps ${c.steps}, injury-tagged received ${c.injuredGet}, Plan B boxes with one ${c.planBInjuredGet}); playoff weeks × ${report.model.playoffWeight} (${report.model.playoffWeightAuto?.basis ?? "?"}); search ${ms(report.runtime.search.total)} warm, ${thousands(report.result.counts.screened)} screened; top card Helps you ${top?.tradeScore ?? "–"}, Overall ${top?.overall ?? "–"}; ${GAP_TRADE.get.join(" + ")} card ${report.gap.card ?? "–"}; anchors ${anchors.filter((a) => a.pass).length}/${anchors.length}; baseline = LeagueModel.odds ${report.odds.baselineEqual ? "yes" : "NO"}${report.pre4c ? "; a dump from before the 4c adapter, put on the weekly reset order" : ""}`,
     ),
   );
 }

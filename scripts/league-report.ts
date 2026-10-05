@@ -39,10 +39,12 @@
  *   and Δ expected wins, B = 100 × (w_PO ΔPO + w_CH ΔCH) under each "What matters most" goal (benefit.goalWeights,
  *   config.benefit.goals; no market term: only lineup points move), B₃ under each goal (the +config.benefit.helpsGain row's
  *   B through benefit.helpsScale: floored at config.benefit.helpsFloor; ⚠️ without λ, as the rows' B, so in a dynasty or
- *   keeper league both lack the engine's (1 − λ) and the scores agree with the app's, unless the engine's B₃ departs by λ:
- *   past config.benefit.helpsLambdaMax, or (1 − λ) × B₃ under the floor, benefit.helpsScale's reason "lambda"), and Helps
+ *   keeper league with long-term values the app's scale is B_ref(λ) = (1 − λ) × this B₃ + λ × F₁₀ instead, planner reply
+ *   to Checkpoint 7a, §2 question 6, and its lineup gains read lower than these rows unless λ is 0), and Helps
  *   you on it (benefit.tradeScore: +3 reads 63 by construction, +1 and +6 about 28 and 86 when B grows in proportion), next
- *   to the planner's toy league. The +3 row is checked to equal the League model's own calibration run
+ *   to the planner's toy league; and (planner reply to Checkpoint 7a, §2 question 5) what "Protect my trade value" charges
+ *   on that B₃ (tradeValuePriceWords: the market term, (B₃ / 3) × κ × clamp(g_mkt(me)), at each level for giving 25% more
+ *   value than you get). The +3 row is checked to equal the League model's own calibration run
  *   (LeagueModel.helpsCalibration, step 8c) bit for bit. Common
  *   random numbers compare every row with the baseline season by season, which takes out the noise of comparing separate
  *   runs, but each change is still a Monte Carlo estimate from finalSims seasons (another seed gives a somewhat different
@@ -71,7 +73,7 @@
  * - Streaming positions (CLAUDE.md §7): which positions each team streams and why (your setting, or detected
  *   from its adds this season, with the counts), each streamed position's replacement per week and its
  *   average, and "Streaming picks this week" with their opponents (LeagueModel.streaming). The model is built
- *   with the default settings (K and DEF streamed, the config's playoff weight).
+ *   with the default settings (K and DEF streamed; since Phase 7b the automatic playoff weight under the default goal).
  * - Trade chips carry their cost per week and the "starter" tag (answer 3); lineup points are labeled with the
  *   model's playoff weight (LeagueModel.playoffWeight).
  * - Everything priced outside the model (the depth values) adds the team's streaming rows (league.tableWithStreaming,
@@ -130,6 +132,13 @@
  *   otherwise the report says why it isn't (the fallback, or the list's own warning), and the value rate says which list
  *   it read.
  *
+ * Phase 7b (planner reply to Checkpoint 7a, §6.1; league.ts step 5c): the automatic playoff-week weight's own section
+ * (playoffWeightLines): ω, measured or the fallback and why, both runs (my score + 3 in the regular-season weeks, then in the
+ * playoff weeks: ΔPO and ΔCH), and the B per point and ω under each goal from the same runs (league.playoffWeightFrom). Every
+ * "playoff weeks ×" label reads the model's ω (LeagueModel.playoffWeight). The thresholds in ROS lineup points under ω (review
+ * of the engine track; LeagueModel.lineupThresholds, config's × Σω ÷ Σω₀: thresholdsLine) are printed there, and the
+ * optimizer's and the trade chips' sections quote the model's own (thresholdText).
+ *
  * Everything after the network is buildReport (pure but for the clock and the model builds it times), which
  * scripts/league-report.test.ts runs offline on Parker's committed sanitized fixture with synthetic inputs.
  *
@@ -144,12 +153,12 @@ import { importEspnLeagueForModel } from "@/adapters/espn";
 import { espnWaiverOrder } from "@/adapters/espn/waivers";
 import type { ImportDeps } from "@/adapters/types";
 import { loadPlayerIdResolver } from "@/data";
-import { goalWeights, helpsScale, tradeScore } from "@/engine/benefit";
+import { goalWeights, helpsScale, marketSanity, marketWeekly, protectValueWeight, tradeScore } from "@/engine/benefit";
 import type { BlendPosition } from "@/engine/blend";
 import { config } from "@/engine/config";
 import type { MarketInputs, ModelInputs } from "@/engine/inputs";
-import { buildLeagueModel, buildLeagueModelWithContext, buildProjectionTable, leagueMarginals, streamIds, tableWithStreaming, teamWeeks, type LeagueContext, type LeagueMarginals } from "@/engine/league";
-import type { FaAllocation, FaMove, LeagueModel, PlayerModel, SeasonOdds, TeamOdds, TradeChip } from "@/engine/leagueModel";
+import { buildLeagueModel, buildLeagueModelWithContext, buildProjectionTable, leagueMarginals, playoffWeightFrom, streamIds, tableWithStreaming, teamWeeks, type LeagueContext, type LeagueMarginals } from "@/engine/league";
+import type { FaAllocation, FaMove, LeagueModel, LineupThresholds, PlayerModel, PlayoffWeightFallback, SeasonOdds, TeamOdds, TradeChip } from "@/engine/leagueModel";
 import { prepareLeagueSlots } from "@/engine/lineup";
 import { fantasyCalcFallbackText, fantasyCalcFormatLabel } from "@/engine/market";
 import { POSITIONS, type InjuryStatus, type LeagueSettings, type LeagueSnapshot, type PlayerInfo, type Pos, type Team } from "@/engine/model";
@@ -157,7 +166,7 @@ import { returnersOf } from "@/engine/optimizer";
 import { finalLineups } from "@/engine/returners";
 import { buildSimSetup, pickupSeasonModel, playoffRounds, seasonOdds, type SeasonModel, type SimSetupResult } from "@/engine/season";
 import { simNormals, simulateSeason, type SimNormals, type SimResult, type SimSetup } from "@/engine/sim";
-import { GOALS, type Goal } from "@/engine/settings";
+import { GOALS, PROTECT_VALUE_LEVELS, type Goal, type ProtectValue } from "@/engine/settings";
 import { evLineups, rosValue, scenarioLineups } from "@/engine/teamValue";
 import { waiverOrderText } from "@/lib/importReport";
 import { posLabel } from "@/lib/labels";
@@ -674,9 +683,12 @@ export function optimizerJudging(snapshot: LeagueSnapshot, model: Pick<LeagueMod
   return prepareLeagueSlots(snapshot.settings).limits !== null ? "evLimits" : "scenario";
 }
 
-/** The optimizer's rule in words (this report's and the trade report's optimizer sections): what its moves are judged by. */
-export function optimizerJudgingText(judging: OptimizerJudging, scenarios: number): string {
-  if (judging === "scenario") return `by their gain in scenario lineups (S = ${scenarios}), the lineups B and the lineup costs are measured in, so a depth pickup that rarely starts in the average-case lineup can still qualify; the expected-value gain is shown for reference (it can be under ${config.freeAgentOptimizer.faMinGain}, even below 0, for such a pickup)`;
+/**
+ * The optimizer's rule in words (this report's and the trade report's optimizer sections): what its moves are judged by.
+ * `minGain`: the least gain a move needs, as the report quotes it (thresholdText; default config.freeAgentOptimizer.faMinGain).
+ */
+export function optimizerJudgingText(judging: OptimizerJudging, scenarios: number, minGain: string = `${config.freeAgentOptimizer.faMinGain}`): string {
+  if (judging === "scenario") return `by their gain in scenario lineups (S = ${scenarios}), the lineups B and the lineup costs are measured in, so a depth pickup that rarely starts in the average-case lineup can still qualify; the expected-value gain is shown for reference (it can be under ${minGain}, even below 0, for such a pickup)`;
   if (judging === "evLimits") return `by their expected-value gain (⚠️ under starter limits the optimizer judges in expected-value lineups even when scenarios run); the scenario gain is shown for reference`;
   return "by their expected-value gain (this run has no availability scenarios)";
 }
@@ -1461,6 +1473,28 @@ function scaleTable(L: string[], check: ScaleCheck): void {
   L.push(`B₃, the B of +${gain} points a week, under each goal (± B(+${gain})'s Monte Carlo standard error): ${b3Words(check)}.`, "");
 }
 
+/** "Protect my trade value" levels in the Settings page's words. */
+const PROTECT_LEVEL_WORDS: Readonly<Record<ProtectValue, string>> = { low: "Low", medium: "Medium", high: "High" };
+
+/** g_mkt(me) the "Protect my trade value" line prices: giving 25% more value than you get (the planner's example). */
+export const PRICE_EXAMPLE_G = 1 / 1.25 - 1;
+
+/**
+ * What "Protect my trade value" charges on each goal's B₃ (planner reply to Checkpoint 7a, §2 question 5; benefit.marketWeekly
+ * and marketSanity, the engine's own functions): giving 25% more value than you get (g_mkt(me) −0.20) costs κ × 0.20 points a
+ * week at every level (Low, Medium, High), the same under every goal; in B, (B₃ / 3) × that, which depends on the goal's B₃.
+ */
+export function tradeValuePriceWords(check: Pick<ScaleCheck, "b3">): string {
+  const levels = PROTECT_VALUE_LEVELS.map((level) => `${fmt(-marketWeekly(PRICE_EXAMPLE_G, protectValueWeight(level)), 1)} at ${PROTECT_LEVEL_WORDS[level]}`).join(", ");
+  const medium = protectValueWeight("medium");
+  const perGoal = GOALS.map((g) => {
+    const b3 = check.b3[g].value;
+    return b3 === null ? `${GOAL_WORDS[g]} –` : `${GOAL_WORDS[g]} ${signed(marketSanity(PRICE_EXAMPLE_G, b3, medium), 2)}`;
+  }).join("; ");
+  const kappas = PROTECT_VALUE_LEVELS.map((level) => String(protectValueWeight(level))).join(" / ");
+  return `“Protect my trade value” is priced on the same B₃ (planner reply to Checkpoint 7a, §2 question 5: the market term = (B₃ / ${config.benefit.helpsGain}) × κ × clamp(g_mkt(me)), κ = ${kappas} points a week per 100% of trade value at Low / Medium / High): giving 25% more value than you get (g_mkt(me) −0.20) costs ${levels} points a week under every goal; in B at Medium: ${perGoal}.`;
+}
+
 /**
  * Each goal's B₃ in words: "Win the title **5.04 ± 0.21**; …" (floored ones say so, and so do B₃s from the playoff odds alone
  * when title odds are unknown).
@@ -1475,7 +1509,7 @@ export function b3Words(check: Pick<ScaleCheck, "b3">): string {
   }).join("; ");
 }
 
-function renderScale(L: string[], season: SeasonReport, model: LeagueModel): void {
+function renderScale(L: string[], season: SeasonReport, model: LeagueModel, leagueType: LeagueSnapshot["settings"]["leagueType"]): void {
   L.push("## “Helps you” scale check", "");
   const check = season.scale;
   const odds = season.odds;
@@ -1501,11 +1535,105 @@ function renderScale(L: string[], season: SeasonReport, model: LeagueModel): voi
   }
   L.push("**From the one baseline (every team after its free-agent pickups)**", "");
   scaleTable(L, check);
+  // The redraft market term's price on this B₃ (dynasty and keeper leagues have no market term: B_future carries value).
+  if (leagueType === "redraft") L.push(tradeValuePriceWords(check), "");
   L.push("**As rosters stand** (TeamModel.score: every team as it is today, Checkpoint 4b's basis; Helps you on this basis's own B₃, its +3 row)", "");
   if (season.scaleStand) {
     if (season.pickups) L.push(pickupsLine(season.pickups), "");
     scaleTable(L, season.scaleStand);
   } else L.push("Skipped: the model has no odds as rosters stand.", "");
+}
+
+/** Why the automatic playoff weight fell back to config.lineups.playoffWeight (PlayoffWeightAuto.reason), in words. */
+export const PLAYOFF_WEIGHT_FALLBACK_WORDS: Readonly<Record<PlayoffWeightFallback, string>> = {
+  noTeam: "no team is picked",
+  noRegularWeeks: "no regular-season week is left to count",
+  noPlayoffWeeks: "no playoff week is left to count",
+  noOdds: "there are no odds to measure it on",
+  titleUnknown: "title odds are unknown",
+  noEffect: "neither run moves your odds",
+  notFinite: "a B per point isn't a number",
+};
+
+/**
+ * ω in one phrase for a settings line: "1.63× (set automatically from your odds under “Win the title”: B per projected point
+ * 0.0488 in the regular season, 0.0257 in the playoffs)", or "1.25× (the fallback: title odds are unknown)".
+ */
+export function playoffWeightSummary(model: Pick<LeagueModel, "playoffWeight" | "playoffWeightAuto">): string {
+  const a = model.playoffWeightAuto;
+  if (!a) return `${model.playoffWeight}×`;
+  if (a.basis !== "auto") return `${a.omega}× (the fallback: ${PLAYOFF_WEIGHT_FALLBACK_WORDS[a.reason ?? "noOdds"]})`;
+  const per = (x: number | null) => (x === null ? "–" : fmt(x, 4));
+  return `${a.omega}× (set automatically from your odds under “${GOAL_WORDS[a.goal]}”: B per projected point ${per(a.regularPerPoint)} in the regular season, ${per(a.playoffPerPoint)} in the playoffs${a.clamped ? `; at the ${a.clamped === "high" ? "top" : "bottom"} of its clamp` : ""})`;
+}
+
+/** A model's thresholds in ROS lineup points (LeagueModel.lineupThresholds), config's for a model built before Phase 7b. */
+export function thresholdsOf(model: Pick<LeagueModel, "lineupThresholds">): LineupThresholds {
+  return model.lineupThresholds ?? { scale: 1, faMinGain: config.freeAgentOptimizer.faMinGain, chipMinGap: config.needs.chipMinGap };
+}
+
+/**
+ * A threshold in ROS lineup points as the report quotes it: config's `base` alone at scale 1 ("10"), else the model's value
+ * and where it comes from ("11.59 (10 × Σω ÷ Σω₀)"; league.ts step 5c, LeagueModel.lineupThresholds).
+ */
+export function thresholdText(value: number, base: number, scale: number): string {
+  return Math.abs(scale - 1) < 1e-12 ? `${base}` : `${fmt(value, 2)} (${base} × Σω ÷ Σω₀)`;
+}
+
+/**
+ * The thresholds in ROS lineup points under ω in one line (league.ts step 5c; review of the engine track, Phase 7b): what a
+ * free-agent pickup must gain, a trade chip's least gap and a throw-in's most lineup cost, each config's × Σω ÷ Σω₀ over the
+ * weeks team numbers count, so they keep the meaning they had at ω₀ (config.lineups.playoffWeight).
+ */
+export function thresholdsLine(model: Pick<LeagueModel, "lineupThresholds">): string {
+  const t = thresholdsOf(model);
+  const throwIn = config.search.throwInMaxCost;
+  if (Math.abs(t.scale - 1) < 1e-12) return `The thresholds in ROS lineup points are config's (playoff weeks at ω₀ = ${config.lineups.playoffWeight}): a free-agent pickup must gain at least ${config.freeAgentOptimizer.faMinGain}, a trade chip's gap must be at least ${config.needs.chipMinGap}, and a throw-in may cost at most ${throwIn}.`;
+  return `The thresholds in ROS lineup points keep the meaning they had at ω₀ = ${config.lineups.playoffWeight}: each is config's × Σω ÷ Σω₀ = ${fmt(t.scale, 3)} over the weeks team numbers count, so a free-agent pickup must gain at least ${fmt(t.faMinGain, 2)} (${config.freeAgentOptimizer.faMinGain} at ω₀), a trade chip's gap must be at least ${fmt(t.chipMinGap, 2)} (${config.needs.chipMinGap}), and a throw-in may cost at most ${fmt(throwIn * t.scale, 2)} (${throwIn}).`;
+}
+
+/** "weeks 5–14" (a run of consecutive weeks), else the list. */
+function weekSpan(weeks: readonly number[]): string {
+  if (!weeks.length) return "no weeks";
+  const consecutive = weeks.every((w, i) => i === 0 || w === (weeks[i - 1] as number) + 1);
+  return consecutive && weeks.length > 1 ? `weeks ${weeks[0]}–${weeks.at(-1)}` : `week${weeks.length > 1 ? "s" : ""} ${weeks.join(", ")}`;
+}
+
+/**
+ * The automatic playoff-week weight (planner reply to Checkpoint 7a, §6.1; league.ts step 5c; LeagueModel.playoffWeightAuto):
+ * ω and how it was set, both runs, and ω under each goal from the same runs (league.playoffWeightFrom: the runs don't depend on
+ * the goal, only their B per point does). Lines of markdown; a model built before Phase 7b says it has none.
+ */
+export function playoffWeightLines(model: Pick<LeagueModel, "playoffWeight" | "playoffWeightAuto" | "myTeamId" | "lineupThresholds">, teamName: (id: string) => string): string[] {
+  const a = model.playoffWeightAuto;
+  if (!a) return [`Playoff weeks count ${model.playoffWeight}× (a model built before the automatic weight).`];
+  const who = model.myTeamId === null ? "your team" : `${teamName(model.myTeamId)}`;
+  const head =
+    a.basis === "auto"
+      ? `Playoff weeks count **${a.omega}×**, set automatically from ${who}'s odds under “${GOAL_WORDS[a.goal]}” (league.ts step 5c): ω = B per projected point in the playoff weeks ÷ B per point in the regular-season weeks${a.clamped ? `, at the ${a.clamped === "high" ? "top" : "bottom"} of its clamp [${config.lineups.playoffWeightAuto.clamp.join(", ")}]` : ""}${a.ratio !== null ? ` (ratio ${fmt(a.ratio, 3)}, rounded to ${config.lineups.playoffWeightAuto.decimals} decimals)` : ""}.`
+      : `Playoff weeks count **${a.omega}×**: the fallback (config.lineups.playoffWeight), since ${PLAYOFF_WEIGHT_FALLBACK_WORDS[a.reason ?? "noOdds"]}.`;
+  const out = [head, ""];
+  if (!a.runs) return out;
+  const r = a.runs;
+  const pts = (x: number | null) => (x === null ? "–" : signed(100 * x, 2));
+  out.push(
+    `Two runs on the headline's ${thousands(a.sims)} seasons (common random numbers), every team as it stands (before any free-agent pickup: the pickups depend on ω): your weekly score +${a.gain} in the regular-season ${weekSpan(r.regular.weeks)} only: ΔPO ${pts(r.regular.dPO)}, ΔCH ${pts(r.regular.dCH)} points; +${a.gain} in the playoff ${weekSpan(r.playoffs.weeks)} only: ΔPO ${pts(r.playoffs.dPO)}, ΔCH ${pts(r.playoffs.dCH)} points. B per point = 100 × (w_PO ΔPO + w_CH ΔCH) ÷ (${a.gain} × the weeks changed). It weighs every ROS(T) (the free-agent optimizer, lineup costs, trade chips, the search's shortlists), never a player's own ROS points.`,
+    "",
+    "| Goal | B per point, regular season | B per point, playoffs | ω |",
+    "|---|---|---|---|",
+  );
+  for (const g of GOALS) {
+    const w = playoffWeightFrom(r, g, a.sims);
+    const omega = w.basis === "auto" ? `${w.omega}×${w.clamped ? ` (clamped ${w.clamped})` : ""}` : `${w.omega}× (fallback: ${PLAYOFF_WEIGHT_FALLBACK_WORDS[w.reason ?? "noOdds"]})`;
+    out.push(`| ${GOAL_WORDS[g]}${g === a.goal ? " (yours)" : ""} | ${w.regularPerPoint === null ? "–" : fmt(w.regularPerPoint, 4)} | ${w.playoffPerPoint === null ? "–" : fmt(w.playoffPerPoint, 4)} | ${omega} |`);
+  }
+  out.push("", thresholdsLine(model), "");
+  return out;
+}
+
+function renderPlayoffWeight(L: string[], model: LeagueModel, teamName: (id: string) => string): void {
+  L.push("## Playoff-week weight (automatic)", "");
+  L.push(...playoffWeightLines(model, teamName));
 }
 
 function renderNoOp(L: string[], season: SeasonReport): void {
@@ -1625,13 +1753,15 @@ function blockedText(b: ReturnType<LeagueMarginals["mvAddBlocked"]>, team: strin
  */
 function renderOptimizer(L: string[], snapshot: LeagueSnapshot, model: LeagueModel, opt: OptimizerReport, teamName: (id: string) => string, pre4c: Pre4cOrder | null): void {
   const o = config.freeAgentOptimizer;
+  const th = thresholdsOf(model);
+  const minGain = thresholdText(th.faMinGain, o.faMinGain, th.scale);
   const players = snapshot.players;
   const lineupPts = `lineup pts, playoff weeks × ${model.playoffWeight}`;
   const mode = model.scenarios > 0 ? `scenario lineups (S = ${model.scenarios})` : "expected-value lineups";
   const judging = optimizerJudging(snapshot, model);
   L.push("## The free-agent optimizer (V*)", "");
   L.push(
-    `CLAUDE.md §7 (planner reply to Checkpoint 3, model change 2): every team is measured after the free-agent pickups that would help it, one move at a time: the add (dropping a player, or into an open roster spot) with the largest gain in ${lineupPts}, while it gains at least ${o.faMinGain}, at most ${o.faMaxMoves} moves; never ${config.streaming.optimizerExcluded.join(" or ")} (streamed or kept) nor a position the team streams, never a player its starting lineup needs. Moves are judged ${optimizerJudgingText(judging, model.scenarios)}.${judging === "ev" ? "" : " The re-runs behind the lineup costs and MV_add below (from a team's optimized roster after a player leaves or joins) judge their moves by the expected-value gain."} Lineup costs (MV_lose), trade chips (MV_add) and partners compare rosters after these moves, so no trade is credited with a pickup a team could make anyway.`,
+    `CLAUDE.md §7 (planner reply to Checkpoint 3, model change 2): every team is measured after the free-agent pickups that would help it, one move at a time: the add (dropping a player, or into an open roster spot) with the largest gain in ${lineupPts}, while it gains at least ${minGain}, at most ${o.faMaxMoves} moves; never ${config.streaming.optimizerExcluded.join(" or ")} (streamed or kept) nor a position the team streams, never a player its starting lineup needs. Moves are judged ${optimizerJudgingText(judging, model.scenarios, minGain)}.${judging === "ev" ? "" : " The re-runs behind the lineup costs and MV_add below (from a team's optimized roster after a player leaves or joins) judge their moves by the expected-value gain."} Lineup costs (MV_lose), trade chips (MV_add) and partners compare rosters after these moves, so no trade is credited with a pickup a team could make anyway.`,
     "",
   );
   const alloc = model.faAllocation;
@@ -1660,7 +1790,7 @@ function renderOptimizer(L: string[], snapshot: LeagueSnapshot, model: LeagueMod
   }
   L.push("");
   L.push(
-    `**Named examples under V*** (${lineupPts}, ${mode}): his lineup cost (MV_lose: his team after its pickups, against the same team without him after it re-optimizes), and MV_add to each other team (that team after its pickups, plus him, minus the player it drops to make room when full, or its lowest keep value at his position when a position limit binds, then its optimizer re-run; unfloored here, a chip floors it at 0). Each re-run holds at most ${o.faMaxMoves} pickups, as a run from scratch could: at a team that used every move, one more pickup is an exchange that must beat its cheapest pickup, which it gives back (league.ts steps 5 and 6). A chip needs maxOther − cost ≥ ${config.needs.chipMinGap}.`,
+    `**Named examples under V*** (${lineupPts}, ${mode}): his lineup cost (MV_lose: his team after its pickups, against the same team without him after it re-optimizes), and MV_add to each other team (that team after its pickups, plus him, minus the player it drops to make room when full, or its lowest keep value at his position when a position limit binds, then its optimizer re-run; unfloored here, a chip floors it at 0). Each re-run holds at most ${o.faMaxMoves} pickups, as a run from scratch could: at a team that used every move, one more pickup is an exchange that must beat its cheapest pickup, which it gives back (league.ts steps 5 and 6). A chip needs maxOther − cost ≥ ${thresholdText(th.chipMinGap, config.needs.chipMinGap, th.scale)}.`,
     "",
   );
   for (const ex of opt.examples) {
@@ -1784,7 +1914,8 @@ function render(snapshot: LeagueSnapshot, inputs: ModelInputs, model: LeagueMode
   // Phase 3: the season simulation.
   renderStandings(L, season, snapshot, model, teamName);
   renderSchedule(L, season, snapshot, model, teamName);
-  renderScale(L, season, model);
+  renderScale(L, season, model, snapshot.settings.leagueType);
+  renderPlayoffWeight(L, model, teamName);
   renderNoOp(L, season);
 
   L.push("## Timings", "", "| Stage | Time |", "|---|---|");
@@ -1837,7 +1968,7 @@ function render(snapshot: LeagueSnapshot, inputs: ModelInputs, model: LeagueMode
   }
   L.push("");
   L.push(
-    `Trade chips (§7; planner reply to Checkpoint 2, answer 2): gap = maxOther − cost ≥ ${config.needs.chipMinGap} (${lineupPts}). cost = what his team loses without him (lineup cost: his team after its free-agent pickups, against the same team without him after it re-optimizes); maxOther = the most he'd add to another team's lineup: that team after its free-agent pickups, plus him, minus the player it would drop to make room when its roster is full (the one whose loss costs its lineup least, nobody refilling his spot), at his position instead when a position limit binds, then its optimizer re-run (at most ${config.freeAgentOptimizer.faMaxMoves} pickups, as from scratch: past the cap only an exchange for its cheapest pickup). ${config.market.tradeSearchExcluded.join(", ")} are never chips (left out of trade search). Every chip is listed; the League page shows the first ${config.needs.chipsShown} per team. For the page (planner reply to Checkpoint 3, answer 3): cost/wk = cost ÷ Σ ω over the weeks team numbers count (the page's "costs you 6.1 pts/wk"), and Starter = he's in his team's expected-value lineup after its free-agent pickups in at least half of those weeks in which he plays (the page's "starter" tag; never a player those pickups drop).`,
+    `Trade chips (§7; planner reply to Checkpoint 2, answer 2): gap = maxOther − cost ≥ ${thresholdText(thresholdsOf(model).chipMinGap, config.needs.chipMinGap, thresholdsOf(model).scale)} (${lineupPts}). cost = what his team loses without him (lineup cost: his team after its free-agent pickups, against the same team without him after it re-optimizes); maxOther = the most he'd add to another team's lineup: that team after its free-agent pickups, plus him, minus the player it would drop to make room when its roster is full (the one whose loss costs its lineup least, nobody refilling his spot), at his position instead when a position limit binds, then its optimizer re-run (at most ${config.freeAgentOptimizer.faMaxMoves} pickups, as from scratch: past the cap only an exchange for its cheapest pickup). ${config.market.tradeSearchExcluded.join(", ")} are never chips (left out of trade search). Every chip is listed; the League page shows the first ${config.needs.chipsShown} per team. For the page (planner reply to Checkpoint 3, answer 3): cost/wk = cost ÷ Σ ω over the weeks team numbers count (the page's "costs you 6.1 pts/wk"), and Starter = he's in his team's expected-value lineup after its free-agent pickups in at least half of those weeks in which he plays (the page's "starter" tag; never a player those pickups drop).`,
     "",
   );
   L.push("| Team | Player | Gap | Cost | Cost/wk | Starter | maxOther | Best team |", "|---|---|---|---|---|---|---|---|");
@@ -2074,7 +2205,7 @@ async function main(): Promise<void> {
   const t5000 = sim.simTimings.find((t) => t.sims === config.simulation.finalSims);
   console.log(
     scrubEverything(
-      `league report written: ${Object.keys(model.players).length} players, ${model.teams.length} teams, weeks ${model.weeks[0]}–${model.weeks.at(-1)}; Parker ${me ? `${fmt((me.scen ?? me.ev).ppw)} pts/wk${odds}` : "team unknown"}; ${t5000 ? `${thousands(t5000.sims)} seasons ${msFine(t5000.total)}; ` : ""}timings ${Object.entries(timings).map(([k, v]) => `${k} ${ms(v)}`).join(", ")}${pre4c ? `; a dump from before the 4c adapter, put on the ${pre4c.waiverOrderUsed === "live" ? "dump's own order" : "weekly reset order"}` : ""}`,
+      `league report written: ${Object.keys(model.players).length} players, ${model.teams.length} teams, weeks ${model.weeks[0]}–${model.weeks.at(-1)}; Parker ${me ? `${fmt((me.scen ?? me.ev).ppw)} pts/wk${odds}` : "team unknown"}; playoff weeks × ${model.playoffWeight} (${model.playoffWeightAuto?.basis === "auto" ? "automatic" : `fallback${model.playoffWeightAuto?.reason ? `: ${model.playoffWeightAuto.reason}` : ""}`}); ${t5000 ? `${thousands(t5000.sims)} seasons ${msFine(t5000.total)}; ` : ""}timings ${Object.entries(timings).map(([k, v]) => `${k} ${ms(v)}`).join(", ")}${pre4c ? `; a dump from before the 4c adapter, put on the ${pre4c.waiverOrderUsed === "live" ? "dump's own order" : "weekly reset order"}` : ""}`,
     ),
   );
 }

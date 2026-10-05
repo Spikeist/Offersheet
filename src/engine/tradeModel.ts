@@ -8,6 +8,7 @@
  * FantasyCalc units (perception term, §9); ROS points are §6 step 7's (Σ p over the remaining weeks).
  */
 import type { AcceptanceTerms, ActivitySummary, ContextTerm } from "./acceptance";
+import type { HelpsScale } from "./benefit";
 import type { InjuryStatus } from "./model";
 
 /** One side's asset in a trade: a player (canonical id) or a draft pick (dynasty and keeper leagues). */
@@ -114,11 +115,12 @@ export interface TradeEvaluation {
   /**
    * Phase 7a (planner reply to Checkpoint 4c, A2): B₃, the scale Helps you and Overall were scored on (benefit.helpsScale's
    * b3, floored at config.benefit.helpsFloor): the B of a uniform +config.benefit.helpsGain (3) projected points a week for
-   * my team, under the same goal and λ (capped at config.benefit.helpsLambdaMax), on the same baseline and seasons
-   * (evaluate.ts helpsScaleOf). The same for every
-   * trade of a search (its steps' and Plan B's numbers too) and for the Analyzer's call with the same settings. So B = B₃
-   * reads 63, and helpsGain × B / B₃ is what the trade is worth in lineup points a week (the Analyzer's Details,
-   * benefit.lineupEquivalent). Null before simulation or without odds.
+   * my team, under the same goal, on the same baseline and seasons (evaluate.ts helpsScaleOf); in a dynasty or keeper league
+   * with long-term values B_ref(λ) = (1 − λ) × that + λ × F₁₀, F₁₀ = 4, the B of +10% long-term value (planner reply to
+   * Checkpoint 7a, §2 question 6; λ the trade's). The same for every trade of a search (its steps' and Plan B's numbers too)
+   * and for the Analyzer's call with the same settings. So B = B₃ reads 63, and helpsGain × B / B₃ is what the trade is worth
+   * in lineup points a week (the Analyzer's Details, benefit.lineupEquivalent; in units of the scale's mix with long-term
+   * values). B's market term is priced on it too (marketWeekly). Null before simulation or without odds.
    */
   b3: number | null;
 
@@ -134,6 +136,16 @@ export interface TradeEvaluation {
   bWin: number | null;
   bFuture: number | null;
   lambda: number | null;
+  /**
+   * Planner reply to Checkpoint 7a, §2 question 5 ("Protect my trade value" priced in lineup points): B's market term (the
+   * redraft "Trade value" part, B − B_win) as projected points a week on this evaluation's scale, signed: κ ×
+   * clamp(g_mkt(me)), κ the setting's points a week per 100% of trade value (benefit.marketWeekly; helpsGain × (B − B_win) /
+   * b3 exactly). The Analyzer's Details print it ("Trade value: −0.4 pts/week equivalent."). Null when B has no market term:
+   * dynasty and keeper leagues (B_future carries the value change), FantasyCalc's curve fallback or no values at all (κ 0:
+   * evaluate.ts simulateTrade), and before simulation or without a scale. The engine sets it on every evaluation; optional
+   * only so that fakes and evaluations kept from before it needn't (absent reads as null).
+   */
+  marketWeekly?: number | null;
   /** Change in my roster's dynasty value (dynasty and keeper), null in redraft or when missing. */
   dDyn: number | null;
   /** A keeper league whose dynasty values didn't load: ΔDyn is missing and the card says so (Checkpoint 2). */
@@ -286,7 +298,8 @@ export interface TradeStep {
 
 /**
  * The two steps (§4 of the addendum). A throw-in is one of my players whose loss costs me at most
- * config.search.throwInMaxCost ROS lineup points (scenario lineups) against my free-agent-optimized roster.
+ * config.search.throwInMaxCost ROS lineup points (scenario lineups; × Σω ÷ Σω₀ under the automatic playoff weight: league.ts
+ * step 5c, LineupThresholds) against my free-agent-optimized roster.
  * - The ranked trade gives a throw-in (and keeps a player on my side without it): offer first = the trade without my
  *   lowest-value throw-in; if they say no, add it back (= the ranked trade). `ranked` = "full".
  * - Otherwise: offer first = the ranked trade; if they say no, add the throw-in that raises the chance they accept most
@@ -433,6 +446,13 @@ export interface TradeSearchResult {
   filter?: { minChance: number; qualifying: number; few: boolean };
   /** Phase 4c (change 6): the pattern note above the list, when at least patternMinCount of the uncapped top patternTop give one player of mine. */
   pattern?: PatternNote;
+  /**
+   * The search's one "Helps you" scale (evaluate.ts helpsScaleOf for its goal and λ): every card's, step's and Plan B's
+   * TradeEvaluation.b3, with what the tooltip words (planner reply to Checkpoint 7a, §2 question 6, "The tooltip follows the
+   * mix": λ, B_win₃ as `odds`, F₁₀ as `f10`, B_ref as `raw` and `b3`, and what +3 points a week and +10% long-term value read
+   * alone). Null without odds or a team. The search always sets it; optional only so that fakes needn't.
+   */
+  helpsScale?: HelpsScale | null;
 }
 
 /**

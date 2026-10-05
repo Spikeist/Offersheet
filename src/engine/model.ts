@@ -94,6 +94,16 @@ export interface LeagueSettings {
   seedingTiebreaker?: SeedingTiebreaker;
   tradeDeadline: { week?: number; date?: string } | null;
   tradeReview: "none" | "commissioner" | "league_vote";
+  /**
+   * Phase 7b (for the planner's reply to Checkpoint 7a, §5.3, "your league's <review period> review", and Phase 6's review
+   * periods): how long an accepted trade waits for review before it goes through, in hours, when the platform reports it.
+   * ESPN: settings.tradeSettings.revisionHours as reported (0 is its "no review", tradeReview "none"). Sleeper: with a veto
+   * vote (veto_auto_poll 1, tradeReview "league_vote") settings.trade_review_days × 24, the vote's length; with the vote off
+   * (veto_auto_poll 0) 0: ⚠️ Phase 0 saw trade_review_days alone hold no trade (reports/data-access.md; adapters/sleeper/
+   * normalize.ts); absent when veto_auto_poll is missing (tradeReview "none" is then only assumed, with its warning) or a
+   * code we don't know. Absent = unknown (not reported, or not a number ≥ 0).
+   */
+  tradeReviewHours?: number;
   faabBudget?: number;
   /** Settings the platform doesn't expose or we couldn't read: the Import Report shows them as unknown (§14). */
   unknownSettings?: UnknownSetting[];

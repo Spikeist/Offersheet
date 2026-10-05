@@ -6,7 +6,8 @@
  *
  * The outbound budgets:
  * - Platforms and limits (limits.budgets.perDay): ESPN (lm-api-reads and fan.api) 4,000 a day, Sleeper 15,000, FantasyCalc
- *   200, GitHub raw (the DynastyProcess ID map) 100. Other hosts aren't budgeted (none is used on the server today).
+ *   1,500 (sized to its own 3-hour rule's bound: limits.ts), GitHub raw (the DynastyProcess ID map) 100. Other hosts aren't
+ *   budgeted (none is used on the server today).
  * - Every live attempt counts, retries included, checked before it goes out (src/server/http.ts); cached copies, joined
  *   single-flight fetches and the browser's own requests don't. UTC days.
  * - In slices (on Vercel only; review SEC-2: a burst can take one slice): by the end of each of the day's
@@ -34,8 +35,9 @@
  * - Without Redis (local, the stable copy, tests, scripts, a preview before Upstash is connected): each process counts its
  *   own, synchronously, so the HTTP client's timing doesn't change.
  * - Over budget, the attempt doesn't go out (src/server/http.ts): a league request throws BudgetExhaustedError, `by` "day"
- *   or "share" (the import answers BUSY: "Offer Sheet has used today's share of requests to ESPN. Try again in about 6
- *   hours.", or for a client's share "Your connection has used today's share of requests to ESPN. …"); a league-independent
+ *   or "share" (the import answers BUSY: the beta's capacity message, "The beta is at capacity today. It resets at <time>."
+ *   (planner reply to Checkpoint 7a, §2 question 7), or for a client's share "Your connection has used today's share of
+ *   requests to ESPN. It resets at <time>.": src/app/api/_lib/respond.ts busyResponse); a league-independent
  *   one comes back as "no response", the loaders' usual path (a saved copy stands in, else their warning). Logged once
  *   per process, platform and day (a share: once per process, platform and day, whichever client).
  *
@@ -45,7 +47,8 @@
  *   import and League page request costs units (admissionUnits, charged by withRoute when it arrives; the handlers charge a
  *   big model build's extra units, chargeWork), counted per UTC day against its client (an IPv4 address or IPv6 /64), its
  *   group (an IPv4 /24 or IPv6 /48) and the server's whole day (in slices, as above). Past any of them the request is
- *   refused (src/app/api/_lib/route.ts workRefusedResponse: BUSY).
+ *   refused (src/app/api/_lib/respond.ts workRefusedResponse: BUSY; the server's day or its slice with the beta's capacity
+ *   message). Units charged are counted for usage:report (src/server/usage.ts work_units).
  * - The feedback route's copies (final review SEC-3): perClientPerDay and perGroupPerDay copies a client and a group may
  *   send a day (src/app/api/feedback/handler.ts).
  * - Counted in Redis like the budgets: one counter per quota, scope and UTC day (`prefix + name + ":" + day`, `prefix + name
@@ -59,6 +62,7 @@ import { requestScope } from "./deadline";
 import { logEvent, errorNameOf, withTimeout } from "./log";
 import { budgets, feedbackLimits, rateLimits, signedUploadLimits, uploadLimits, workLimits } from "./limits";
 import { getRedis, keyPrefix, type RedisLike } from "./redis";
+import { noteUsage } from "./usage";
 
 type Env = Readonly<Record<string, string | undefined>>;
 
@@ -608,15 +612,18 @@ export function modelBuildExtraUnits(modelWork: number): number {
  * Charges `units` more of the current request's work (a handler's extra: a big model build, a league the server reads
  * itself after the request paid for less) to its client, its group and the server's day (src/server/deadline.ts: the
  * request's scope), with `budget` (the process's work budget by default: on Vercel only). "ok" without a budget, outside a
- * request or for no units; never rejects (a budget that throws anyway lets the work go on).
+ * request or for no units; never rejects (a budget that throws anyway lets the work go on). Units charged are counted for
+ * usage:report (src/server/usage.ts work_units).
  */
 export async function chargeWork(units: number, now: number = Date.now(), budget: DailyQuota | null = workBudget()): Promise<QuotaVerdict> {
   const scope = requestScope();
   if (!budget || !scope || !(units > 0)) return "ok";
   try {
     const who: QuotaWho = { ...(scope.client !== undefined ? { client: scope.client } : {}), ...(scope.group !== undefined ? { group: scope.group } : {}) };
-    const verdict = budget.charge(units, who, now);
-    return typeof verdict === "string" ? verdict : await verdict;
+    const charged = budget.charge(units, who, now);
+    const verdict = typeof charged === "string" ? charged : await charged;
+    if (verdict === "ok") noteUsage("work_units", units, now);
+    return verdict;
   } catch {
     return "ok";
   }

@@ -81,7 +81,7 @@ describe("app/api/_lib/deps.ts selectServerCache", () => {
     expect((elsewhere.cache as FileCache).dir).toBe(path.resolve(path.join("D:", "x", ".cache", "app")));
   });
 
-  it("off Vercel it's the file cache whatever is configured: .env.local may hold KV_* (feedback:pull, vercel env pull), and this computer never contacts Upstash", async () => {
+  it("off Vercel it's the file cache whatever is configured: .env.local may hold KV_* (feedback:report, vercel env pull), and this computer never contacts Upstash", async () => {
     const { selectServerCache } = await import("./deps");
     const kv = { SESSION_SECRET: SECRET, KV_REST_API_URL: "https://example.upstash.io", KV_REST_API_TOKEN: "t" };
     expect(selectServerCache(kv).kind).toBe("file");

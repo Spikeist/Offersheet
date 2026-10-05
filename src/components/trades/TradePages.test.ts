@@ -337,7 +337,7 @@ describe("TradeCard (§13: each trade card shows)", () => {
     expect(withOdds).toContain(
       '<p><span class="whitespace-nowrap"><span class="font-semibold">Title odds</span> <span aria-hidden="true" class="tabular-nums">12.1% → 13.4%</span><span class="sr-only">from 12.1% to 13.4%</span></span><span aria-hidden="true">' + NBSP + '· </span><span class="sr-only">, </span><span class="whitespace-nowrap"><span class="font-semibold">Playoff odds</span> <span aria-hidden="true" class="tabular-nums">65% → 69%</span><span class="sr-only">from 65% to 69%</span></span></p>',
     );
-    expect(html).toMatch(/<a href="https:\/\/fantasycalc\.com" target="_blank" rel="noopener noreferrer" class="[^"]*">Values: FantasyCalc/);
+    expect(html).toMatch(/<a href="https:\/\/fantasycalc\.com" target="_blank" rel="noopener" referrerPolicy="origin" class="[^"]*">Values: FantasyCalc/);
   });
 
   it("keeps the chance it goes through right under the three numbers, before the odds (`npm run check:browser` reads it as the numbers' next element)", () => {

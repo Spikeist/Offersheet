@@ -6,7 +6,10 @@
  * `npm run league:report -- --live`: modelInputs.ts buildModelInputs) or `npm run snapshot:projections` reads a
  * week's projections fetched before that kickoff, this module keeps the last such snapshot, per week and
  * position, in git-ignored data-local/. Importing a league and the probes archive nothing themselves, and
- * no scheduled task runs; `npm run snapshot:projections` does it by hand:
+ * no scheduled task runs on this computer; `npm run snapshot:projections` does it by hand. On production a daily cron
+ * keeps the same snapshots in the shared store (planner reply to Checkpoint 7a, §6.3; src/server/snapshots.ts, by this
+ * module's pure core and codec), and `npm run snapshot:pull -- --live` merges them into these files
+ * (mergeProjectionSnapshots):
  *
  *   data-local/projection-snapshots/<season>/week-<WW>.json.gz  (gzip)
  *   { version: 1, season, week, firstKickoff: ISO | null,
@@ -36,7 +39,9 @@
  *   current week doesn't (can't tell, so it is skipped). So each group ends up holding the last
  *   pre-kickoff fetch of its week.
  * - The pure core (archivedStats, rowGroups, lastModifiedById, archivedGroups, beforeKickoff,
- *   mergeSnapshot, firstKickoffOf) is tested without disk. The fs layer (createProjectionArchiver)
+ *   mergeSnapshot, projectionArchiveFetch, mergeProjectionSnapshots, firstKickoffOf) is tested without disk, and so is the
+ *   codec (packProjectionSnapshot, unpackProjectionSnapshot: the file's bytes, which the shared store keeps in base64).
+ *   The fs layer (createProjectionArchiver)
  *   writes atomically (a temp file, then a rename, retried while Windows briefly locks the target; a
  *   crash can leave a small temp file behind), one write at a time per file within the process, and
  *   remembers how far each file is known to be up to date, so the League page's repeated builds (the
@@ -258,6 +263,20 @@ export interface ArchiveFetch {
 /** Why a fetch wasn't archived at all. */
 export type ArchiveSkip = "no fetch time" | "after kickoff" | "kickoff unknown" | "no projections";
 
+/**
+ * One fetched week ready to merge (pure; the shared store's archive in src/server/snapshots.ts, the fs layer's own steps
+ * below): the archiveSkip checks, then the groups (archivedGroups, with each group's latest last_modified from the raw
+ * rows), or why it can't be archived.
+ */
+export function projectionArchiveFetch(input: ProjectionArchiveInput): { fetch: ArchiveFetch } | { skipped: ArchiveSkip } {
+  const head = { season: input.season, week: input.week, currentWeek: input.currentWeek, firstKickoff: input.firstKickoff, fetchedAt: input.res.fetchedAt };
+  const skip = archiveSkip(head);
+  if (skip) return { skipped: skip };
+  const { groups } = archivedGroups(input.rows, input.positions, lastModifiedById(input.res.json));
+  if (!Object.keys(groups).length) return { skipped: "no projections" };
+  return { fetch: { ...head, groups } };
+}
+
 /** Whether a fetch can go in the archive (pure): the fetch time and kickoff checks, before anything is read. */
 export function archiveSkip(fetch: Omit<ArchiveFetch, "groups">): ArchiveSkip | undefined {
   const { fetchedAt, week, currentWeek, firstKickoff } = fetch;
@@ -297,8 +316,71 @@ export function mergeSnapshot(stored: ProjectionSnapshot | null, fetch: ArchiveF
   return { record, replaced: replaced.sort(byPosition) };
 }
 
+/**
+ * Two records of one week merged (pure; `npm run snapshot:pull` merges the shared store's copy into the local file): each
+ * position's group from the later fetch (both hold pre-kickoff fetches only, by the merge rule, so the later one is the
+ * last pre-kickoff copy), the first kickoff `other` knows, else the base's. `replaced` names the groups `other` brought
+ * (empty: the base already holds them all, or newer). A base of another season or week is ignored.
+ */
+export function mergeProjectionSnapshots(base: ProjectionSnapshot | null, other: ProjectionSnapshot): { record: ProjectionSnapshot; replaced: string[] } {
+  const same = base && base.season === other.season && base.week === other.week ? base : null;
+  const record: ProjectionSnapshot = {
+    version: PROJECTION_ARCHIVE_VERSION,
+    season: other.season,
+    week: other.week,
+    firstKickoff: other.firstKickoff ?? same?.firstKickoff ?? null,
+    groups: { ...(same?.groups ?? {}) },
+  };
+  const replaced: string[] = [];
+  for (const [position, group] of Object.entries(other.groups)) {
+    const newAt = Date.parse(group.fetchedAt);
+    const old = record.groups[position];
+    const oldAt = old ? Date.parse(old.fetchedAt) : Number.NEGATIVE_INFINITY;
+    if (!Number.isFinite(newAt) || (Number.isFinite(oldAt) && !(newAt > oldAt))) continue;
+    record.groups[position] = group;
+    replaced.push(position);
+  }
+  record.groups = inPositionOrder(record.groups);
+  return { record, replaced: replaced.sort(byPosition) };
+}
+
+// ---------------------------------------------------------------------------------------------
+// The codec: a snapshot as stored, in a file or (base64) in the shared store
+
+/** A snapshot's stored bytes: the gzip of its JSON (a file's whole content; src/server/snapshots.ts keeps them in base64). */
+export async function packProjectionSnapshot(record: ProjectionSnapshot): Promise<Buffer> {
+  return gzipAsync(Buffer.from(JSON.stringify(record), "utf8"));
+}
+
+/** What stored bytes hold: a snapshot, one that can't be read (replaced on the next write), or one of another format version (left alone). */
+export type UnpackedProjectionSnapshot = { snapshot: ProjectionSnapshot } | { unreadable: true } | { otherVersion: true };
+
+/** Stored bytes back to a snapshot (see UnpackedProjectionSnapshot); never throws. */
+export async function unpackProjectionSnapshot(body: Buffer): Promise<UnpackedProjectionSnapshot> {
+  let json: unknown;
+  try {
+    json = JSON.parse((await gunzipAsync(body)).toString("utf8"));
+  } catch {
+    return { unreadable: true };
+  }
+  const version = (json as { version?: unknown } | null)?.version;
+  if (typeof version === "number" && version !== PROJECTION_ARCHIVE_VERSION) return { otherVersion: true };
+  const parsed = projectionSnapshotSchema.safeParse(json);
+  return parsed.success ? { snapshot: parsed.data as ProjectionSnapshot } : { unreadable: true };
+}
+
 // ---------------------------------------------------------------------------------------------
 // The fs layer
+
+/**
+ * The archive's folder: projection-snapshots in DATA_LOCAL_ENV's folder when it's set (the stable copy), else
+ * data-local/projection-snapshots in the working directory.
+ */
+export function projectionArchiveRoot(env: Readonly<Record<string, string | undefined>> = process.env): string {
+  const dataLocal = dataLocalRoot(env);
+  // Literal segments (= PROJECTION_ARCHIVE_DIR), like FileCache's default folder, so the bundler's file tracing sees one fixed path.
+  return dataLocal ? path.join(dataLocal, "projection-snapshots") : path.join(process.cwd(), "data-local", "projection-snapshots");
+}
 
 /** The archive file of a week: <root>/<season>/week-<WW>.json.gz. */
 export function projectionSnapshotFile(root: string, season: number, week: number): string {
@@ -322,9 +404,13 @@ export async function readProjectionSnapshot(file: string): Promise<ProjectionSn
 }
 
 /** What the fs layer finds on disk: a snapshot, none, one it can't read (replaced), or one of another version (left alone). */
-type StoredFile = { snapshot: ProjectionSnapshot | null } | { unreadable: true } | { otherVersion: true };
+export type StoredProjectionFile = { snapshot: ProjectionSnapshot | null } | { unreadable: true } | { otherVersion: true };
 
-async function readStored(file: string): Promise<StoredFile> {
+/**
+ * One archive file as the fs layer (and `npm run snapshot:pull`) reads it before writing: see StoredProjectionFile. Throws
+ * only when the file exists but can't be read (a lock, say: never overwrite what couldn't be read).
+ */
+export async function readStoredProjectionFile(file: string): Promise<StoredProjectionFile> {
   let body: Buffer;
   try {
     body = await readFile(file);
@@ -332,24 +418,18 @@ async function readStored(file: string): Promise<StoredFile> {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") return { snapshot: null };
     throw err; // e.g. a lock: don't overwrite what we couldn't read
   }
-  let json: unknown;
-  try {
-    json = JSON.parse((await gunzipAsync(body)).toString("utf8"));
-  } catch {
-    return { unreadable: true };
-  }
-  const version = (json as { version?: unknown } | null)?.version;
-  if (typeof version === "number" && version !== PROJECTION_ARCHIVE_VERSION) return { otherVersion: true };
-  const parsed = projectionSnapshotSchema.safeParse(json);
-  return parsed.success ? { snapshot: parsed.data as ProjectionSnapshot } : { unreadable: true };
+  return unpackProjectionSnapshot(body);
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-/** Writes a snapshot atomically: a temp file next to it, then a rename (retried while Windows briefly locks the target). */
-async function writeSnapshot(file: string, record: ProjectionSnapshot): Promise<void> {
+/**
+ * Writes a snapshot atomically: a temp file next to it, then a rename (retried while Windows briefly locks the target). The
+ * fs layer's writes, and `npm run snapshot:pull`'s.
+ */
+export async function writeProjectionSnapshotFile(file: string, record: ProjectionSnapshot): Promise<void> {
   await mkdir(path.dirname(file), { recursive: true });
-  const body = await gzipAsync(Buffer.from(JSON.stringify(record), "utf8"));
+  const body = await packProjectionSnapshot(record);
   const tmp = `${file}.tmp-${process.pid}-${randomBytes(4).toString("hex")}`;
   await writeFile(tmp, body);
   for (let attempt = 0; ; attempt++) {
@@ -404,9 +484,7 @@ function errorName(err: unknown): string {
  * else data-local/projection-snapshots in the working directory).
  */
 export function createProjectionArchiver(opts: { root?: string } = {}): ProjectionArchiver {
-  const dataLocal = dataLocalRoot();
-  // Literal segments (= PROJECTION_ARCHIVE_DIR), like FileCache's default folder, so the bundler's file tracing sees one fixed path.
-  const root = opts.root ?? (dataLocal ? path.join(dataLocal, "projection-snapshots") : path.join(process.cwd(), "data-local", "projection-snapshots"));
+  const root = opts.root ?? projectionArchiveRoot();
   /** File → requested position → the latest fetch time the file is known to hold or to have been checked against. */
   const upTo = new Map<string, Map<string, number>>();
   /** File → the tail of its write queue. */
@@ -439,11 +517,11 @@ export function createProjectionArchiver(opts: { root?: string } = {}): Projecti
     const fetchedAt = fetch.fetchedAt as number;
     try {
       if (knownCurrent(file, positions, fetchedAt)) return { status: "unchanged", file };
-      const stored = await readStored(file);
+      const stored = await readStoredProjectionFile(file);
       if ("otherVersion" in stored) return { status: "failed", error: "OtherVersion" };
       if ("unreadable" in stored) logEvent({ event: "projection_archive_replaced" });
       const { record, replaced } = mergeSnapshot("snapshot" in stored ? stored.snapshot : null, fetch);
-      if (replaced.length) await writeSnapshot(file, record);
+      if (replaced.length) await writeProjectionSnapshotFile(file, record);
       // Every position asked for is now checked against this fetch, and each stored group is as new as its own fetch.
       noteCurrent(file, positions, fetchedAt);
       for (const [position, group] of Object.entries(record.groups)) noteCurrent(file, [position], Date.parse(group.fetchedAt));

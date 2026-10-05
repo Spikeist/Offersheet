@@ -17,6 +17,8 @@
  * - Every answer says who read the league (readBy), carries the import's model part (ESPN's league-scored projections,
  *   read from the same responses) and, with SESSION_SECRET, the server's signature over both and the snapshot
  *   (src/server/importToken.ts), so the model route can build the numbers without reading the league again.
+ * - Every import answered is counted for usage:report by who read the league (planner reply to Checkpoint 7a, §2 question
+ *   7; src/server/usage.ts import_espn_browser, import_espn_server; on Vercel only).
  */
 import type { EspnModelImport } from "@/adapters/espn";
 import type { EspnImportRequest, ImportDeps } from "@/adapters/types";
@@ -28,6 +30,7 @@ import { chargeWork, type QuotaVerdict } from "@/server/budget";
 import { signImport, type ImportSignature, type SignedContent } from "@/server/importToken";
 import { workLimits } from "@/server/limits";
 import type { CredentialSource, EspnCredentials } from "@/server/session";
+import { noteImport } from "@/server/usage";
 import { dataSourceStamps, errorResponse, importErrorResponse, isSameOrigin, jsonResponse, readJsonBody, scrubSwids, workRefusedResponse } from "../../_lib/respond";
 import { espnImportBodySchema } from "../../_lib/schemas";
 import { isGzipRequest, readLeagueUpload, uploadedImportProblem } from "../../_lib/upload";
@@ -92,11 +95,17 @@ export function createEspnImportHandler(d: EspnImportHandlerDeps): (request: Req
       }
       const deps = await d.getDeps();
       // Connected with ESPN cookies: the server reads the league itself (with them), whatever the browser sent.
-      if (credentials) return jsonResponse(espnImportResponse(await d.importLeague({ leagueId, season, credentials }, deps), deps, { credentials, source, readBy: "server" }, sign));
+      if (credentials) {
+        const answer = jsonResponse(espnImportResponse(await d.importLeague({ leagueId, season, credentials }, deps), deps, { credentials, source, readBy: "server" }, sign));
+        noteImport("espn", "server");
+        return answer;
+      }
       const got = await d.importUpload(upload, deps);
       // Bigger than any real league's model (review BF-R1): not signed; the browser asks the server to read the league.
       if (uploadedImportProblem(got.result.snapshot)) return errorResponse("BAD_UPLOAD");
-      return jsonResponse(espnImportResponse(got, deps, { source, readBy: "browser" }, sign));
+      const answer = jsonResponse(espnImportResponse(got, deps, { source, readBy: "browser" }, sign));
+      noteImport("espn", "browser");
+      return answer;
     } catch (err) {
       return importErrorResponse(err, { platform: "espn", season });
     }
@@ -114,7 +123,9 @@ export function createEspnImportHandler(d: EspnImportHandlerDeps): (request: Req
       const { credentials, source } = await d.credentialsFor(request, leagueId);
       const deps = await d.getDeps();
       const req: EspnImportRequest = { leagueId, season, ...(credentials ? { credentials } : {}), ...(myTeamId ? { myTeamId } : {}), ...(refresh ? { refresh: true } : {}) };
-      return jsonResponse(espnImportResponse(await d.importLeague(req, deps), deps, { ...(credentials ? { credentials } : {}), source, readBy: "server" }, sign));
+      const answer = jsonResponse(espnImportResponse(await d.importLeague(req, deps), deps, { ...(credentials ? { credentials } : {}), source, readBy: "server" }, sign));
+      noteImport("espn", "server");
+      return answer;
     } catch (err) {
       return importErrorResponse(err, { platform: "espn", season });
     }

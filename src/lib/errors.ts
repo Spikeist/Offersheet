@@ -24,8 +24,10 @@ export type AppErrorCode =
   /** Too many requests from this address for now (src/server/rateLimit.ts; the reply carries Retry-After). */
   | "RATE_LIMITED"
   /**
-   * Offer Sheet used today's budget of requests to the platform, or the client its share of it (src/server/budget.ts;
-   * Retry-After: the next UTC midnight).
+   * A daily limit refused the request (src/server/budget.ts; the answer carries Retry-After and error.resetAt, the moment
+   * the limit frees up): the beta's shared capacity (the server's day of work or its current slice, or a platform's
+   * server-wide day of requests: "The beta is at capacity today. It resets at <time>.", CAPACITY_SENTENCE), or the client's
+   * own share of it ("Your connection has used today's share of requests to ESPN. It resets at <time>.").
    */
   | "BUSY"
   /**
@@ -99,6 +101,17 @@ export interface ErrorContext {
   /** BUSY: the client's own share of the platform's day ran out (src/server/budget.ts), not Offer Sheet's whole day. */
   ownShare?: boolean;
   /**
+   * BUSY: the beta's shared capacity ran out (planner reply to Checkpoint 7a, §2 question 7: the server's day of work or
+   * its current slice, or a platform's server-wide day of requests), said in the planner's exact words (CAPACITY_SENTENCE).
+   */
+  capacity?: boolean;
+  /**
+   * BUSY: when the limit frees up (epoch ms). The message then ends with the time in UTC ("It resets at 12:00 AM UTC.",
+   * resetSentence) in place of the wait in words, and the answer carries the moment (error.resetAt), so the browser can say
+   * it in the visitor's own time zone instead (localizeResetTime, applied by src/lib/api.ts readApiResponse).
+   */
+  resetAt?: number;
+  /**
    * SOURCE_SLOW: no source was slow; the time went to Offer Sheet's own waits (its queue to a source, its cache) or ran out
    * before the source was asked, so it says Offer Sheet is busy instead of naming a source.
    */
@@ -118,6 +131,82 @@ export function waitWords(seconds: number | undefined): string | undefined {
   if (minutes < 60) return `in about ${minutes} minutes`;
   const hours = Math.max(1, Math.ceil((seconds - 300) / 3600));
   return hours === 1 ? "in about an hour" : `in about ${hours} hours`;
+}
+
+/**
+ * The capacity message's first sentence (planner reply to Checkpoint 7a, §2 question 7: "At the limit: show 'The beta is
+ * at capacity today. It resets at <time>.' Never a broken page."); the reset sentence follows it.
+ */
+export const CAPACITY_SENTENCE = "The beta is at capacity today.";
+
+/** "7:00 PM", "12:00 AM" (midnight), "12:30 PM": a clock time the way the app writes times (12-hour, no leading zero). */
+export function clockTime(hours: number, minutes: number): string {
+  const h = ((Math.trunc(hours) % 24) + 24) % 24;
+  return `${h % 12 === 0 ? 12 : h % 12}:${String(Math.trunc(minutes)).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`;
+}
+
+/** A moment's clock time and calendar day ("2026-10-05") in an IANA time zone, or undefined when the zone isn't known. */
+function zonedClock(at: number, timeZone: string): { hours: number; minutes: number; day: string } | undefined {
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", { timeZone, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }).formatToParts(new Date(at));
+    const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === type)?.value ?? "";
+    const hours = Number(part("hour")) % 24;
+    const minutes = Number(part("minute"));
+    if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return undefined;
+    return { hours, minutes, day: `${part("year")}-${part("month")}-${part("day")}` };
+  } catch {
+    return undefined;
+  }
+}
+
+/** Whether a time zone is UTC itself (a visitor's zone can be; then the server's sentence is already theirs). */
+function isUtcZone(timeZone: string): boolean {
+  return /^(etc\/)?(utc|uct|gmt|zulu|universal)$/i.test(timeZone.trim());
+}
+
+/**
+ * The sentence a daily limit's answer ends with (planner reply to Checkpoint 7a, §2 question 7): when the limit frees up,
+ * "It resets at 12:00 AM UTC." in UTC (the server's message, for any client), or in another IANA time zone, the visitor's
+ * own, "It resets at 7:00 PM." (with " tomorrow" when that's another calendar day there than `now`: a reset is always
+ * within a day). Pure: no Intl for UTC; a zone Intl doesn't know reads as UTC.
+ */
+export function resetSentence(resetAt: number, opts: { timeZone?: string; now?: number } = {}): string {
+  const zone = opts.timeZone;
+  const local = zone && !isUtcZone(zone) ? zonedClock(resetAt, zone) : undefined;
+  if (!local) {
+    const d = new Date(resetAt);
+    return `It resets at ${clockTime(d.getUTCHours(), d.getUTCMinutes())} UTC.`;
+  }
+  const today = zonedClock(opts.now ?? Date.now(), zone as string)?.day;
+  return `It resets at ${clockTime(local.hours, local.minutes)}${today !== undefined && local.day > today ? " tomorrow" : ""}.`;
+}
+
+/** The server's reset sentence (resetSentence in UTC) at the end of a message. */
+const UTC_RESET_SENTENCE = /It resets at \d{1,2}:\d{2} [AP]M UTC\.$/;
+
+/** The browser's IANA time zone, or undefined when it can't say. */
+function localTimeZone(): string | undefined {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * An answer's error with its reset time said in the visitor's own time zone (planner reply to Checkpoint 7a, §2 question 7:
+ * "It resets at <time>." in the visitor's time; src/lib/api.ts readApiResponse applies it to every answer of our routes):
+ * when the error carries resetAt (ISO) and its message ends with the server's UTC sentence, that sentence is replaced by
+ * resetSentence in `timeZone` (default: the browser's own). Anything else comes back unchanged (pure).
+ */
+export function localizeResetTime<E extends { message: string; resetAt?: unknown }>(error: E, opts: { timeZone?: string; now?: number } = {}): E {
+  if (typeof error.resetAt !== "string") return error;
+  const at = Date.parse(error.resetAt);
+  const found = UTC_RESET_SENTENCE.exec(error.message);
+  if (!Number.isFinite(at) || !found) return error;
+  const timeZone = opts.timeZone ?? localTimeZone();
+  if (!timeZone) return error;
+  return { ...error, message: `${error.message.slice(0, found.index)}${resetSentence(at, { timeZone, ...(opts.now !== undefined ? { now: opts.now } : {}) })}` };
 }
 
 /** A Retry-After header's value in seconds (delta-seconds or an HTTP date, against `now`), or undefined. */
@@ -166,10 +255,13 @@ export function errorMessage(code: AppErrorCode, ctx: ErrorContext = {}): string
     case "RATE_LIMITED":
       return `You're going a bit fast. Try again ${waitWords(ctx.retryAfterS) ?? "in a minute or two"}.`;
     case "BUSY": {
-      // Budgets start again at midnight UTC (the answer's Retry-After says how long that is).
-      const when = waitWords(ctx.retryAfterS) ?? "after midnight UTC";
+      // When the limit frees up: its moment in UTC (the browser says it in the visitor's own time: localizeResetTime),
+      // else the answer's Retry-After in words, else the day's end (budgets start again at midnight UTC).
+      const reset = ctx.resetAt !== undefined && Number.isFinite(ctx.resetAt) ? resetSentence(ctx.resetAt) : undefined;
+      const tail = reset ?? `Try again ${waitWords(ctx.retryAfterS) ?? "after midnight UTC"}.`;
+      if (ctx.capacity) return `${CAPACITY_SENTENCE} ${tail}`;
       const target = named ?? "this platform";
-      return ctx.ownShare ? `Your connection has used today's share of requests to ${target}. Try again ${when}.` : `Offer Sheet has used today's share of requests to ${target}. Try again ${when}.`;
+      return ctx.ownShare ? `Your connection has used today's share of requests to ${target}. ${tail}` : `Offer Sheet has used today's share of requests to ${target}. ${tail}`;
     }
     case "SOURCE_SLOW":
       if (ctx.busyHere) return "Offer Sheet is busy right now. Try again in a few minutes.";

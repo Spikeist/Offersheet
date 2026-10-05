@@ -1,5 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { IMPORT_ERROR_CODES, errorForStatus, errorMessage, errorStatus, isImportErrorCode, redactSecrets, retryAfterSeconds, waitWords, type AppErrorCode } from "./errors";
+import {
+  CAPACITY_SENTENCE,
+  IMPORT_ERROR_CODES,
+  clockTime,
+  errorForStatus,
+  errorMessage,
+  errorStatus,
+  isImportErrorCode,
+  localizeResetTime,
+  redactSecrets,
+  resetSentence,
+  retryAfterSeconds,
+  waitWords,
+  type AppErrorCode,
+} from "./errors";
 
 const ALL_CODES: AppErrorCode[] = [...IMPORT_ERROR_CODES, "INVALID_REQUEST", "BAD_UPLOAD", "SESSION_UNAVAILABLE", "BAD_ORIGIN", "RATE_LIMITED", "BUSY", "SOURCE_SLOW", "INTERNAL"];
 
@@ -75,6 +89,46 @@ describe("error codes → messages", () => {
     expect(retryAfterSeconds("120", now)).toBe(120);
     expect(retryAfterSeconds(new Date(now + 90_500).toUTCString(), now)).toBe(90);
     expect([retryAfterSeconds(null, now), retryAfterSeconds("", now), retryAfterSeconds("soon", now), retryAfterSeconds("0", now)]).toEqual([undefined, undefined, undefined, undefined]);
+  });
+
+  it("the beta at capacity, in the planner's exact words, with the time it resets (planner reply to Checkpoint 7a, §2 question 7)", () => {
+    const midnight = Date.UTC(2026, 9, 6, 0, 0, 0);
+    expect(errorMessage("BUSY", { capacity: true, resetAt: midnight })).toBe("The beta is at capacity today. It resets at 12:00 AM UTC.");
+    expect(errorMessage("BUSY", { capacity: true, resetAt: Date.UTC(2026, 9, 5, 14, 0, 0) })).toBe("The beta is at capacity today. It resets at 2:00 PM UTC.");
+    expect(errorMessage("BUSY", { capacity: true, retryAfterS: 1800 })).toBe("The beta is at capacity today. Try again in about 30 minutes."); // no moment: the wait in words
+    // A visitor's own day keeps its own words, with the same reset time.
+    expect(errorMessage("BUSY", { source: "ESPN", ownShare: true, resetAt: midnight })).toBe("Your connection has used today's share of requests to ESPN. It resets at 12:00 AM UTC.");
+    expect(CAPACITY_SENTENCE).toBe("The beta is at capacity today.");
+  });
+
+  it("clock times and reset sentences: 12-hour, the visitor's zone, \"tomorrow\" when it's another day there", () => {
+    expect([clockTime(0, 0), clockTime(9, 5), clockTime(12, 0), clockTime(12, 30), clockTime(19, 0), clockTime(23, 59)]).toEqual(["12:00 AM", "9:05 AM", "12:00 PM", "12:30 PM", "7:00 PM", "11:59 PM"]);
+    const midnight = Date.UTC(2026, 9, 6, 0, 0, 0);
+    const now = Date.UTC(2026, 9, 5, 21, 0, 0); // 4 PM in Chicago, 6 AM tomorrow in Tokyo
+    expect(resetSentence(midnight)).toBe("It resets at 12:00 AM UTC.");
+    expect(resetSentence(midnight, { timeZone: "America/Chicago", now })).toBe("It resets at 7:00 PM.");
+    expect(resetSentence(midnight, { timeZone: "America/New_York", now })).toBe("It resets at 8:00 PM.");
+    expect(resetSentence(midnight, { timeZone: "America/Los_Angeles", now })).toBe("It resets at 5:00 PM.");
+    expect(resetSentence(midnight, { timeZone: "Asia/Tokyo", now })).toBe("It resets at 9:00 AM.");
+    expect(resetSentence(midnight, { timeZone: "Asia/Tokyo", now: Date.UTC(2026, 9, 5, 14, 0, 0) })).toBe("It resets at 9:00 AM tomorrow."); // 11 PM there
+    expect(resetSentence(midnight, { timeZone: "Asia/Kolkata", now })).toBe("It resets at 5:30 AM.");
+    expect(resetSentence(midnight, { timeZone: "UTC", now })).toBe("It resets at 12:00 AM UTC.");
+    expect(resetSentence(midnight, { timeZone: "Not/AZone", now })).toBe("It resets at 12:00 AM UTC."); // unknown: UTC
+  });
+
+  it("localizeResetTime: the browser says the server's UTC reset time in the visitor's own zone; anything else is left alone", () => {
+    const now = Date.UTC(2026, 9, 5, 21, 0, 0);
+    const capacity = { code: "BUSY", message: "The beta is at capacity today. It resets at 12:00 AM UTC.", resetAt: "2026-10-06T00:00:00.000Z" };
+    expect(localizeResetTime(capacity, { timeZone: "America/Chicago", now })).toEqual({ ...capacity, message: "The beta is at capacity today. It resets at 7:00 PM." });
+    const share = { code: "BUSY", message: "Your connection has used today's share of requests to ESPN. It resets at 12:00 AM UTC.", resetAt: "2026-10-06T00:00:00.000Z" };
+    expect(localizeResetTime(share, { timeZone: "America/New_York", now }).message).toBe("Your connection has used today's share of requests to ESPN. It resets at 8:00 PM.");
+    // No moment, an unreadable one, or a message without the server's sentence: unchanged.
+    const plain = { code: "RATE_LIMITED", message: "You're going a bit fast. Try again in about 8 minutes." };
+    expect(localizeResetTime(plain, { timeZone: "America/Chicago", now })).toBe(plain);
+    const odd = { ...capacity, resetAt: "soon" };
+    expect(localizeResetTime(odd, { timeZone: "America/Chicago", now })).toBe(odd);
+    const older = { code: "BUSY", message: "Offer Sheet has used today's share of requests to ESPN. Try again in about 6 hours.", resetAt: "2026-10-06T00:00:00.000Z" };
+    expect(localizeResetTime(older, { timeZone: "America/Chicago", now })).toBe(older);
   });
 
   it("errorForStatus: a reply that isn't ours (a host's or firewall's page) still reads in words", () => {

@@ -19,7 +19,7 @@
 import { parse as parseCsv } from "csv-parse/sync";
 import { DAY, TTL, credentialScope } from "./lib/cache";
 import { FC_TEAM_SIZES, getFantasyCalc, matchRate, nearest, type FcFormat } from "./lib/fantasycalc";
-import { getJson, request } from "./lib/http";
+import { request } from "./lib/http";
 import { crawlAllowed, runProbe, type ProbeContext } from "./lib/probe";
 import { isMainModule } from "./lib/runMode";
 import { NEEDS_CRAWL, crawlGateNote } from "./lib/shared/crawl-gate";
@@ -44,7 +44,6 @@ const YEAR = 2026;
 const REUSE = process.argv.includes("--reuse");
 const SHAPES = process.argv.includes("--shapes");
 const DP_IDMAP_URL = "https://raw.githubusercontent.com/dynastyprocess/data/master/files/db_playerids.csv";
-const FC_PLAYERS_URL = "https://api.fantasycalc.com/players";
 const sleeperStatsUrl = (w: number) => `https://api.sleeper.app/stats/nfl/${YEAR}/${w}?season_type=regular`;
 /** Sleeper weekly projections for one position (undocumented; same URL and cache key as the shared probe, "projections:<url>"). */
 const sleeperProjectionsUrl = (w: number, position: string) => `https://api.sleeper.app/projections/nfl/${YEAR}/${w}?season_type=regular&position=${position}`;
@@ -994,21 +993,12 @@ async function checkM(x: Ctx, compiled: Map<string, Compiled>, players: Map<stri
   const rostered = x.rosterEntries.filter((r) => !players.get(r.id)?.custom).map((r) => ({ id: r.id, name: players.get(r.id)?.name ?? "?", pos: players.get(r.id)?.position ?? "?" }));
   const customSkill = x.rosterEntries.filter((r) => players.get(r.id)?.custom && OFFENSE.includes(players.get(r.id)?.position ?? "")).length;
   const m = matchRate(rostered, fc.data, "mflId");
-  // Classify misses against FantasyCalc's full player list (same cache key as the shared probe).
-  let allFc: Array<{ mflId?: unknown; name?: string }> = [];
-  try {
-    allFc = (await getJson<Array<{ mflId?: unknown; name?: string }>>(FC_PLAYERS_URL, { cache: { key: `fantasycalc:${FC_PLAYERS_URL}`, ttlMs: TTL.fantasyCalc, namespace: "fantasycalc" }, label: "FantasyCalc /players" })).data;
-  } catch {
-    // classification is optional
-  }
-  const known = new Set(allFc.map((f) => String(f.mflId ?? "")));
-  const noValue = m.misses.filter((pl) => known.has(pl.id));
-  const unknownId = m.misses.filter((pl) => !known.has(pl.id));
-  const idLevel = m.matched + noValue.length;
-  const summary = `value rows: ${m.matched}/${m.eligible} = ${pct(m.matched, m.eligible)} (target ≥ 98%); ID level (value rows + /players): ${idLevel}/${m.eligible} = ${pct(idLevel, m.eligible)}${customSkill ? `, not counting ${customSkill} custom players` : ""}; misses: ${m.misses.map((pl) => `${pl.name} (${pl.pos})`).join(", ") || "none"}${allFc.length ? `. In FantasyCalc's /players list by mflId: ${noValue.length} of ${m.misses.length} (so they just have no value in this format → valueFloor); unknown there: ${unknownId.length}` : ""}`;
-  cl.add("M", "M.matchRate", "FantasyCalc match rate (rostered QB/RB/WR/TE by mflId)", m.rate >= 0.98 ? "ok" : "warn", summary, { url: fc.res.url, status: fc.res.status, path: "[].player.mflId", sample: m.misses.slice(0, 20) }, { url: FC_PLAYERS_URL, path: "[].mflId (misses found)", sample: noValue.map((pl) => pl.name) });
+  // The misses aren't classified against FantasyCalc's /players list any more: FantasyCalc's conditions of 2026-10-05 allow
+  // only /values/current (review of Checkpoint 7b's server work), so a miss is a player with no value row in this format.
+  const summary = `value rows: ${m.matched}/${m.eligible} = ${pct(m.matched, m.eligible)} (target ≥ 98%)${customSkill ? `, not counting ${customSkill} custom players` : ""}; misses: ${m.misses.map((pl) => `${pl.name} (${pl.pos})`).join(", ") || "none"}`;
+  cl.add("M", "M.matchRate", "FantasyCalc match rate (rostered QB/RB/WR/TE by mflId)", m.rate >= 0.98 ? "ok" : "warn", summary, { url: fc.res.url, status: fc.res.status, path: "[].player.mflId", sample: m.misses.slice(0, 20) });
   if (m.rate < 0.98)
-    cl.issue(`§17 M target missed for this MFL league: ${m.matched}/${m.eligible} = ${pct(m.matched, m.eligible)} of rostered QB/RB/WR/TE have a FantasyCalc value row by mflId (target ≥ 98%); ${noValue.length} of the ${m.misses.length} misses are in FantasyCalc's /players list, i.e. they exist but have no value in this format (${fc.res.url.split("?")[1]}) — evidence M.matchRate — options: (a) count ID-level coverage (${pct(idLevel, m.eligible)}) and give value-less players config.valueFloor (as §9 already says); (b) keep the 98% target on value rows and accept deep-bench misses.`);
+    cl.issue(`§17 M target missed for this MFL league: ${m.matched}/${m.eligible} = ${pct(m.matched, m.eligible)} of rostered QB/RB/WR/TE have a FantasyCalc value row by mflId (target ≥ 98%) in this format (${fc.res.url.split("?")[1]}) — evidence M.matchRate — options: (a) give value-less players config.valueFloor (as §9 already says) and count only valued players; (b) keep the 98% target on value rows and accept deep-bench misses.`);
   cl.decision(`FantasyCalc format for this league: isDynasty=${format.isDynasty} (assumed from the A.leagueType signals: ${leagueType}), numQbs=${format.numQbs} (QB range allows ${qbMax} starters), numTeams=${format.numTeams}, ppr=${ppr}; the TE premium (TE ${compiled.get("TE")?.rates.rec ?? "?"} per catch) is not passed — the tep parameter is still unverified (shared probe).`);
 }
 

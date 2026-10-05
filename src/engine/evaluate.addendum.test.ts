@@ -12,7 +12,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { gFeature } from "./acceptance";
-import { protectValueWeight, tradePackage } from "./benefit";
+import { lineupEquivalent, protectValueWeight, tradePackage } from "./benefit";
 import { config } from "./config";
 import { ESTIMATED_VALUES_NOTE, NO_VALUES_NOTE, analyzeTrade, buildTradeContext, evaluateExact, harderToGetFor, perceivedG, premiumOf, screenTrade, tradeInternals, valuesEstimated, valuesMissing, type ExactTrade, type TeamState, type TradeContextOptions } from "./evaluate";
 import { leaguePremiums, perceivedPackage, premiumFacts } from "./premium";
@@ -169,7 +169,7 @@ describe("κ, \"Protect my trade value\" (N3)", () => {
   // My WR1 (4,900) for Team 3's WR1 (3,600): I give more trade value than I get (g_mkt(me) ≈ −0.27, inside the clamp).
   const proposal = trade("3", ["wa1"], ["wa3"]);
 
-  it("redraft: B = B_win + κ × clamp(g_mkt(me)) with κ 2 / 4 / 8 by level, on the same seasons", () => {
+  it("redraft: B = B_win + (B₃ / 3) × κ × clamp(g_mkt(me)) with κ 1 / 2 / 4 points a week by level, on the same seasons (planner reply to Checkpoint 7a, §2 question 5)", () => {
     const ctx = context(() => undefined, {}, { scenarios: 8 });
     const at = Object.fromEntries(PROTECT_VALUE_LEVELS.map((level) => [level, analyzeTrade(ctx, proposal, settingsAt(level)).evaluation as TradeEvaluation])) as Record<ProtectValue, TradeEvaluation>;
     const g = at.medium.gMine;
@@ -177,7 +177,11 @@ describe("κ, \"Protect my trade value\" (N3)", () => {
     for (const level of PROTECT_VALUE_LEVELS) {
       const ev = at[level];
       expect(ev.bWin, level).toBe(at.medium.bWin); // the simulation doesn't depend on κ
-      expect(ev.b as number).toBeCloseTo((ev.bWin as number) + protectValueWeight(level) * clampG(g), 12);
+      expect(ev.b3, level).toBe(at.medium.b3); // nor does the scale
+      expect(ev.b as number).toBeCloseTo((ev.bWin as number) + ((ev.b3 as number) / config.benefit.helpsGain) * protectValueWeight(level) * clampG(g), 12);
+      // The term reads exactly κ × clamp(g) points a week on the evaluation's scale (the Analyzer's "Trade value: … equivalent").
+      expect(ev.marketWeekly as number, level).toBeCloseTo(protectValueWeight(level) * clampG(g), 12);
+      expect(lineupEquivalent((ev.b as number) - (ev.bWin as number), ev.b3) as number, level).toBeCloseTo(ev.marketWeekly as number, 9);
       expect(protectValueWeight(level)).toBe(config.benefit.protectValue[level]);
     }
     expect(at.high.b as number).toBeLessThan(at.medium.b as number);
@@ -191,9 +195,10 @@ describe("κ, \"Protect my trade value\" (N3)", () => {
       const { snapshot, inputs } = handLeague(() => undefined, { leagueType });
       if (inputs.market) inputs.market.format = { ...inputs.market.format, isDynasty: true };
       const ctx = buildTradeContext(snapshot, inputs, { now: TEST_NOW, scenarios: 0 });
-      const bs = PROTECT_VALUE_LEVELS.map((level) => analyzeTrade(ctx, proposal, settingsAt(level)).evaluation?.b);
-      expect(bs[0], leagueType).not.toBeNull();
-      expect(new Set(bs).size, leagueType).toBe(1);
+      const evs = PROTECT_VALUE_LEVELS.map((level) => analyzeTrade(ctx, proposal, settingsAt(level)).evaluation);
+      expect(evs[0]?.b, leagueType).not.toBeNull();
+      expect(new Set(evs.map((e) => e?.b)).size, leagueType).toBe(1);
+      for (const e of evs) expect(e?.marketWeekly, leagueType).toBeNull();
     }
   });
 
@@ -215,12 +220,15 @@ describe("κ, \"Protect my trade value\" (N3)", () => {
         expect(ev.gMine, level).toBeLessThan(-0.2);
         expect(ev.bWin, level).not.toBeNull();
         expect(ev.b, level).toBe(ev.bWin);
+        expect(ev.marketWeekly, level).toBeNull(); // no term, so no lineup equivalent for the Analyzer to print
         expect(a.notes, level).toContain(ESTIMATED_VALUES_NOTE);
         expect(ev.detail.notes, level).toContain(ESTIMATED_VALUES_NOTE);
       }
       // With FantasyCalc's own list the same trade's B has its market term, and there's no note.
       const fresh = analyzeTrade(context(() => undefined, {}, { scenarios: 8 }), proposal);
-      expect(fresh.evaluation?.b).toBeCloseTo((fresh.evaluation?.bWin as number) + protectValueWeight("medium") * clampG(fresh.evaluation?.gMine as number), 12);
+      const fe = fresh.evaluation as TradeEvaluation;
+      expect(fe.b).toBeCloseTo((fe.bWin as number) + ((fe.b3 as number) / config.benefit.helpsGain) * protectValueWeight("medium") * clampG(fe.gMine), 12);
+      expect(fe.marketWeekly as number).toBeCloseTo(protectValueWeight("medium") * clampG(fe.gMine), 12);
       expect(fresh.notes).not.toContain(ESTIMATED_VALUES_NOTE);
     });
 
@@ -293,6 +301,8 @@ describe("Phase 4c's polish: no FantasyCalc values at all (MarketInputs null): t
       expect(ev.detail.terms.value, at).toBe(0);
       expect(ev.flags.marketCheck, at).toBe(false);
       expect(ev.b, at).toBe(ev.bWin);
+      // ⚠️ No values, no market term (κ 0: evaluate.ts simulateTrade), so no "Trade value" equivalent either.
+      expect(ev.marketWeekly, at).toBeNull();
       expect(a.notes, at).toContain(NO_VALUES_NOTE);
       expect(ev.detail.notes, at).toContain(NO_VALUES_NOTE);
       expect(a.notes, at).not.toContain(ESTIMATED_VALUES_NOTE);

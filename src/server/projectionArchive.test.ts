@@ -25,13 +25,20 @@ import {
   defaultProjectionArchiver,
   firstKickoffOf,
   lastModifiedById,
+  mergeProjectionSnapshots,
   mergeSnapshot,
+  packProjectionSnapshot,
   PROJECTION_ARCHIVE_DIR,
   projectionArchiveEnabled,
+  projectionArchiveFetch,
+  projectionArchiveRoot,
   projectionSnapshotFile,
   projectionSnapshotSchema,
   readProjectionSnapshot,
+  readStoredProjectionFile,
   rowGroups,
+  unpackProjectionSnapshot,
+  writeProjectionSnapshotFile,
   type ArchiveFetch,
   type ProjectionArchiveInput,
   type ProjectionSnapshot,
@@ -396,5 +403,53 @@ describe("where the archive is enabled (only where there is a local disk)", () =
     } finally {
       vi.unstubAllEnvs();
     }
+  });
+});
+
+describe("the codec, the record merge and the pure fetch (the snapshot cron's store and snapshot:pull: planner reply to Checkpoint 7a, §6.3)", () => {
+  it("packProjectionSnapshot is a file's exact bytes; unpackProjectionSnapshot reads them back, says unreadable or another version, and never throws", async () => {
+    const built = projectionArchiveFetch(input([qb("90001", 250)]));
+    if (!("fetch" in built)) throw new Error("not archived");
+    const { record } = mergeSnapshot(null, built.fetch);
+    const packed = await packProjectionSnapshot(record);
+    expect(await unpackProjectionSnapshot(packed)).toEqual({ snapshot: record });
+    await createProjectionArchiver({ root: dir }).archive(input([qb("90001", 250)]));
+    expect(await readFile(fileOf(5))).toEqual(packed);
+    expect(await unpackProjectionSnapshot(Buffer.from("not gzip"))).toEqual({ unreadable: true });
+    expect(await unpackProjectionSnapshot(gzipSync(Buffer.from(JSON.stringify({ version: 1, season: "x" }))))).toEqual({ unreadable: true });
+    expect(await unpackProjectionSnapshot(gzipSync(Buffer.from(JSON.stringify({ version: 2 }))))).toEqual({ otherVersion: true });
+  });
+
+  it("projectionArchiveFetch: the archive's checks, then the groups (with last_modified), or why not", () => {
+    const got = projectionArchiveFetch(input([qb("90001", 250, 7_000), rb("90002", 60)]));
+    expect(got).toEqual({ fetch: fetchOf(archivedGroups(parse([qb("90001", 250, 7_000), rb("90002", 60)]), POS, new Map([["90001", 7_000], ["90002", 1_000]])).groups) });
+    expect(projectionArchiveFetch(input([qb("90001", 250)], { fetchedAt: KICKOFF + 1 }))).toEqual({ skipped: "after kickoff" });
+    expect(projectionArchiveFetch(input([{ player_id: "90003", stats: { adp_dd_ppr: 30 } }]))).toEqual({ skipped: "no projections" });
+  });
+
+  it("mergeProjectionSnapshots: each position's later fetch wins, the newer first kickoff is kept, another week is ignored", () => {
+    const early = mergeSnapshot(null, fetchOf(archivedGroups(parse([qb("90001", 250), rb("90002", 60)]), POS).groups, { fetchedAt: BEFORE })).record;
+    const late = mergeSnapshot(null, fetchOf(archivedGroups(parse([qb("90001", 275)]), POS).groups, { fetchedAt: BEFORE + HOUR })).record;
+    const merged = mergeProjectionSnapshots(early, late);
+    expect(merged.replaced).toEqual(["QB"]);
+    expect(merged.record.groups.QB?.fetchedAt).toBe(iso(BEFORE + HOUR));
+    expect(merged.record.groups.RB?.fetchedAt).toBe(iso(BEFORE));
+    expect(Object.keys(merged.record.groups)).toEqual(["QB", "RB"]);
+    expect(mergeProjectionSnapshots(late, early).replaced).toEqual(["RB"]); // the older QB doesn't replace the newer
+    expect(mergeProjectionSnapshots(late, late).replaced).toEqual([]);
+    expect(mergeProjectionSnapshots({ ...late, week: 6 }, early)).toEqual({ record: early, replaced: ["QB", "RB"] });
+    expect(mergeProjectionSnapshots(null, { ...early, firstKickoff: null }).record.firstKickoff).toBeNull();
+    expect(mergeProjectionSnapshots(early, { ...late, firstKickoff: null }).record.firstKickoff).toBe(early.firstKickoff);
+  });
+
+  it("the root, and the file reader and writer snapshot:pull uses (atomic; a missing file is none, a locked one throws)", async () => {
+    expect(projectionArchiveRoot({ OFFERSHEET_DATA_LOCAL: path.join(dir, "main") })).toBe(path.join(dir, "main", "projection-snapshots"));
+    expect(projectionArchiveRoot({})).toBe(path.join(process.cwd(), "data-local", "projection-snapshots"));
+    expect(await readStoredProjectionFile(fileOf(9))).toEqual({ snapshot: null });
+    const { record } = mergeSnapshot(null, fetchOf(archivedGroups(parse([qb("90001", 250)]), POS).groups, { week: 9 }));
+    await writeProjectionSnapshotFile(fileOf(9), record);
+    expect(await readStoredProjectionFile(fileOf(9))).toEqual({ snapshot: record });
+    await writeFile(fileOf(9), "garbage");
+    expect(await readStoredProjectionFile(fileOf(9))).toEqual({ unreadable: true });
   });
 });

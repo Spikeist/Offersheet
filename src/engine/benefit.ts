@@ -1,9 +1,10 @@
 /**
  * Our benefit B, the Trade Score ("Helps you") and Overall, and the guards (CLAUDE.md §10; lead decision L6 of
- * the Phase 4 design; planner reply to Checkpoint 4c, A2: the self-calibrating scale B₃). Pure and deterministic: plain
- * numbers in, plain numbers out, no I/O and no clock; every tunable number comes from config.benefit (package values
- * from config.market). Everything here is from the user's side (§10): the partner's side only matters through
- * the chance they accept (src/engine/acceptance.ts).
+ * the Phase 4 design; planner reply to Checkpoint 4c, A2: the self-calibrating scale B₃; planner reply to Checkpoint 7a,
+ * §2 questions 5 and 6: "Protect my trade value" priced in lineup points, and the dynasty scale following the Win now ↔
+ * Future slider). Pure and deterministic: plain numbers in, plain numbers out, no I/O and no clock; every tunable number
+ * comes from config.benefit (package values from config.market). Everything here is from the user's side (§10): the
+ * partner's side only matters through the chance they accept (src/engine/acceptance.ts).
  *
  * The caller (src/engine/evaluate.ts) runs the season simulation on one common-random-numbers matrix with every
  * team at its free-agent-optimized roster V* (§7), before the trade and after it (L6: my roster after the trade
@@ -24,14 +25,25 @@
  *   on the Trade Score's scale. Benefit.titleMissing marks it,
  *   tradeNumbers passes it on, and benefitNotes words it. It holds for every trade in such a league, so a
  *   search says it once (TradeSearchResult.notes); TradeEvaluation has no field for it.
- * - Redraft: B = B_win + κ × clamp(g_mkt(me), marketSanityClamp), the market term (g_mkt(me) from perception values;
- *   +∞, a side that gives nothing of value, clamps to +0.5; NaN counts 0). κ is the user's "Protect my trade value"
- *   setting (planner addendum to Checkpoint 3, §3; TradeSettings.protectValue, lead decision N3): config.benefit.
- *   protectValue low 2, medium 4 (the default), high 8 (protectValueWeight; BenefitInputs.kappa). It keeps trade value
- *   for later deals before the deadline; depth for injuries and byes is already in B_win (scenario lineups). At medium,
- *   giving 25% more value than I get (g_mkt(me) = −0.20) costs 0.8 B, about 0.4 projected points a week in Parker's
- *   league. ⚠️ evaluate.ts passes κ = 0 in FantasyCalc's curve fallback (Phase 4c lead decision; evaluate.valuesEstimated:
- *   the values there come from our own ROS points, so the term would count lineup points twice), with a note.
+ * - Redraft: B = B_win + (B₃ / helpsGain) × κ × clamp(g_mkt(me), marketSanityClamp), the market term (g_mkt(me) from
+ *   perception values; +∞, a side that gives nothing of value, clamps to +0.5; NaN counts 0). κ is the user's "Protect my
+ *   trade value" setting (planner addendum to Checkpoint 3, §3; TradeSettings.protectValue, lead decision N3) as a lineup
+ *   price since the planner's reply to Checkpoint 7a, §2 question 5: config.benefit.protectValue low 1, medium 2 (the
+ *   default), high 4 projected points a week per 100% of trade value (protectValueWeight; BenefitInputs.kappa). B₃ is the
+ *   scale the same evaluation's Helps you and Overall read (helpsScale's b3 for the call's goal: in redraft the B of +3
+ *   points a week, floored at helpsFloor; BenefitInputs.b3), so on that scale the term is worth exactly κ × clamp(g_mkt(me))
+ *   points a week (Benefit.marketWeekly, the Analyzer's "Trade value: −0.4 pts/week equivalent"), in every league under
+ *   every goal: at medium, giving 25% more value than I get (g_mkt(me) = −0.20) costs 0.4 points a week. It keeps trade
+ *   value for later deals before the deadline; depth for injuries and byes is already in B_win (scenario lineups). So B now
+ *   depends on B₃: every B of an evaluation (its card, steps, Plan B, the screening and final simulations, the Analyzer)
+ *   must read the B₃ its scores read (evaluate.ts simulateTrade, the one place both are computed), and EG = B × P_complete
+ *   ranks on it. Without a scale (no calibration run: no odds or no team, when B is null anyway) there is no market term.
+ *   Before, κ was 2 / 4 / 8 in B units, so the same g cost more lineup points where B₃ was small (a team whose odds move
+ *   little, a goal with a small B₃) and less where it was large (review of track SC, SC-2). ⚠️ evaluate.ts passes κ = 0 in
+ *   FantasyCalc's curve fallback (Phase 4c lead decision; evaluate.valuesEstimated: the values there come from our own ROS
+ *   points, so the term would count lineup points twice), with a note, and ⚠️ ours, with no FantasyCalc values at all
+ *   (evaluate.valuesMissing: every g is 0 then, so the term is 0 either way; κ = 0 says there is no term to show:
+ *   Benefit.marketWeekly null).
  * - The value floor at W on both sides (planner reply to Checkpoint 4, change 4; it replaces lead decision N10, which
  *   floored only the players I give and only in the market term): every package counts each player at max(v, W)
  *   (market.packageValues, which tradePackage goes through), so g_mkt(me) itself is floored, and the market term, the
@@ -49,7 +61,10 @@
  *   exception market.ts's header states precisely. Picks keep their values (they open no roster spot, and aren't
  *   players: the rule counts players only).
  * - Dynasty and keeper: B = (1 − λ) × B_win + λ × B_future, B_future = bFutureScale × ΔDyn / MyDynTotal (gaining
- *   10% of my roster's value ≈ +4). No market term (L6), whatever κ (⚠️ N3: B_future carries the value change). ΔDyn = my package
+ *   10% of my roster's value ≈ +4). No market term (L6), whatever κ (⚠️ N3: B_future carries the value change). ⚠️ The
+ *   planner's reply to Checkpoint 7a (§2 question 5) adds "Dynasty and keeper: the term stays inside the win-now part": our
+ *   reading is that there is no term there to place, so nothing changes; were one added, it would sit inside B_win's (1 − λ)
+ *   share. ΔDyn = my package
  *   change in long-term (dynasty) values, the waiver credit and picks included, each player at max(v, W) like every
  *   package (tradePackage with the future term's values and W); MyDynTotal = my roster's long-term value before the
  *   trade, my picks included (rosterValue: ⚠️ raw, W = 0, since it is the scale of B_future, not a trade package).
@@ -75,33 +90,37 @@
  *
  * The three numbers (§10; planner reply to Checkpoint 4c, A2: "Helps you" calibrates itself per league and goal, so it means
  * the same thing everywhere): Helps you (the Trade Score) = round(100 × (1 − e^(−B / B₃))) and Overall = round(100 × (1 −
- * e^(−B × P_complete / B₃))) when B > 0, null otherwise (B ≤ 0 is hidden by default). B₃ (helpsScale) is the B of a uniform
- * +config.benefit.helpsGain (3) projected points a week for my team in every week a trade can change: the League model's
- * calibration run (league.ts helpsCalibrationOf, LeagueModel.helpsCalibration: ΔPO₃ and ΔCH₃, my odds' changes on the same
- * baseline, every team after its pickups, on the same seasons as every trade's final run) put through benefit() as a trade
- * that moves no trade value: g_mkt(me) 0 (no market term) and, in dynasty and keeper leagues, a long-term change of 0, so B₃
- * = (1 − λ) × B_win₃ there, λ capped (below; B_win₃ when long-term values are missing, as every trade's B is then B_win). It follows the goal
- * ("What matters most") and λ like every trade's B, so a trade worth +1, +3 or +6 points a week of lineup reads about 28, 63
- * or 86 in every league under every goal (63 = 100 × (1 − e^−1): B = B₃). B₃ is floored at config.benefit.helpsFloor (0.5):
- * below it my odds barely move with lineup changes (a team certainly out or locked in, the season's last weeks) and the
- * ratio would be mostly noise; helpsScaleNotes says so once per search and with each evaluation.
- * ⚠️ Ours (review of track SC):
- * - SC-1, λ: in dynasty and keeper leagues a high λ shrinks B₃ (+3 points a week this season weighs little for a rebuilding
- *   team), so long-term gains read high on the scale. Uncapped, λ → 1 took B₃ to 0, so the floor became the whole scale
- *   (any long-term gain read about 100, "≈ +36 pts/week"), and the floor note said "Your title odds barely move" while
- *   they moved normally. So B₃'s λ is capped at config.benefit.helpsLambdaMax (0.75, the largest default λ: every default
- *   still reads +3 as 63; HelpsScale.lambdaUsed), and the floor note is judged on the odds alone (HelpsScale.odds, B_win₃
- *   without λ: reason "odds"). When the odds move but the setting makes +3 a week print another number (λ above the cap,
- *   or (1 − λ) × B_win₃ under the floor: reason "lambda"), helpsLambdaNote says what it prints instead.
- * - SC-2, the floor note's odds: HELPS_FLOOR_NOTE names the title odds (the planner's words); HELPS_FLOOR_NOTE_PLAYOFFS the
- *   playoff odds when B₃ weighs them most (title odds unknown, or "Make the playoffs"), where the planner's words were false.
- * - SC-2, the market term (a question for the lead and the planner): the scale calibrates lineup gains only. The redraft
- *   market term κ × clamp(g_mkt(me)) stays in B units (the addendum's κ, priced at "about 0.4 points a week in Parker's
- *   league" under Balanced), so on this scale a trade-value change costs 3κ|g| / B₃ points a week: more on a team whose
- *   odds move little (a small or floored B₃), less under a goal with a larger B₃. Ranking (EG) doesn't depend on B₃.
- * The Analyzer's "≈ +X pts/week" is lineupEquivalent: helpsGain × B / B₃. Overall never exceeds Helps you (P_complete ≤
- * 0.85, config.acceptance.pAcceptClamp's top). EG = B × P_complete ranks (§13): under one B₃ Overall is a monotone function
- * of it. Don't add extra factors to Overall (§10). (Checkpoint 3 to Phase 4c: a fixed B_ref of 6 in place of B₃.)
+ * e^(−B × P_complete / B₃))) when B > 0, null otherwise (B ≤ 0 is hidden by default). B₃ (helpsScale; TradeEvaluation.b3)
+ * is built on the B of a uniform +config.benefit.helpsGain (3) projected points a week for my team in every week a trade can
+ * change: the League model's calibration run (league.ts helpsCalibrationOf, LeagueModel.helpsCalibration: ΔPO₃ and ΔCH₃, my
+ * odds' changes on the same baseline, every team after its pickups, on the same seasons as every trade's final run) as
+ * B_win₃ under the goal (benefitWin, no market term: g_mkt(me) 0; HelpsScale.odds).
+ * - Redraft, and dynasty and keeper leagues without long-term values (every trade's B is then B_win): B₃ = B_win₃. It
+ *   follows the goal ("What matters most") like every trade's B, so a trade worth +1, +3 or +6 points a week of lineup reads
+ *   about 28, 63 or 86 in every league under every goal (63 = 100 × (1 − e^−1): B = B₃).
+ * - Dynasty and keeper leagues with long-term values (planner reply to Checkpoint 7a, §2 question 6: "the dynasty scale
+ *   follows the slider"): B₃ = B_ref(λ) = (1 − λ) × B_win₃ + λ × F₁₀, F₁₀ = the B_future of gaining
+ *   config.benefit.helpsFutureShare (10%) of my roster's long-term value, bFutureScale × 0.10 = 4 (HelpsScale.f10), λ the
+ *   trade's (resolveLambda: the slider, else the default by my P(playoffs)). B_ref(λ) is the B of a trade worth +3 points a
+ *   week this season together with +10% long-term value, so that trade reads 63 at every λ; +3 a week alone reads
+ *   HelpsScale.gainReads ((1 − λ) × B_win₃ on the scale) and +10% alone futureReads (λ × F₁₀), the tooltip's mix. It
+ *   replaces review SC-1's (1 − λ) × B_win₃ with λ capped at 0.75 (config.benefit.helpsLambdaMax) and its λ note: λ → 1
+ *   shrank that scale to the floor, so any long-term gain read about 100, while B_ref(1) = F₁₀ reads +10% long-term value
+ *   as 63 at λ 1, and B_ref stays above the floor at any λ while the odds move.
+ * Helps you and Overall both read B₃ (B_ref(λ) in dynasty and keeper leagues with long-term values). B₃ is floored at
+ * config.benefit.helpsFloor (0.5): below it my odds barely move with lineup changes (a team certainly out or locked in, the
+ * season's last weeks) and the ratio would be mostly noise; helpsScaleNotes says so once per search and with each
+ * evaluation. A floored B_ref(λ) needs λ × F₁₀ under the floor too, so λ under 1/8, and B_win₃ under it: the note's "barely
+ * move" holds then. ⚠️ Ours (review of track SC, SC-2): HELPS_FLOOR_NOTE names the title odds (the planner's words);
+ * HELPS_FLOOR_NOTE_PLAYOFFS the playoff odds when B₃ weighs them most (title odds unknown, or "Make the playoffs"), where the
+ * planner's words were false.
+ * The market term (redraft) is priced on the same B₃ (above), so its lineup equivalent doesn't depend on B₃ (SC-2's
+ * question, answered by the planner's reply to Checkpoint 7a, question 5). The Analyzer's "≈ +X pts/week" is
+ * lineupEquivalent: helpsGain × B / B₃ (in a dynasty or keeper league with long-term values, in units of the scale's mix:
+ * "+3" is as good as +3 points a week this season together with +10% long-term value at the trade's λ). Overall never exceeds
+ * Helps you (P_complete ≤ 0.85, config.acceptance.pAcceptClamp's top). EG = B × P_complete ranks (§13): under one B₃ Overall
+ * is a monotone function of it. Don't add extra factors to Overall (§10). (Checkpoint 3 to Phase 4c: a fixed B_ref of 6 in
+ * place of B₃.)
  *
  * Guards (§10; TradeEvaluation.flags), apart from the three numbers: "Market check" when g_mkt(me) <
  * marketCheckBelow (−0.15); hidden by default when g_mkt(me) < marketHideBelow (−0.35) or when B ≤ 0 (a B not
@@ -112,10 +131,10 @@
  * values, W) gives TradeEvaluation.value (received = recv, given = give) and g_mkt(me), which the market term reads;
  * the partner's (swapped) tradePackage gives g_mkt(P) for acceptance.ts. Dynasty and keeper leagues with
  * futureValuesLoaded: ΔDyn = recv − give of tradePackage(get, give, future values, the future term's W) and
- * MyDynTotal = rosterValue(my players, future values, my picks' values). After the simulation: benefit({ ΔPO, ΔCH,
- * g_mkt(me), dynasty, my baseline P(playoffs), settings.lambda, κ = protectValueWeight(settings.protectValue),
- * goal = settings.goal }), then tradeNumbers(benefit, acceptance result, B₃ for the same goal and λ: evaluate.ts
- * helpsScaleOf) and tradeFlags({ g_mkt(me), B, injuredReceived(get, snapshot.players) }); benefitNotes(benefit) and
+ * MyDynTotal = rosterValue(my players, future values, my picks' values). After the simulation: B₃ for the call's goal and λ
+ * (evaluate.ts helpsScaleOf), then benefit({ ΔPO, ΔCH, g_mkt(me), dynasty, my baseline P(playoffs), settings.lambda, κ =
+ * protectValueWeight(settings.protectValue), b3 = that B₃, goal = settings.goal }), tradeNumbers(benefit, acceptance
+ * result, the same B₃) and tradeFlags({ g_mkt(me), B, injuredReceived(get, snapshot.players) }); benefitNotes(benefit) and
  * helpsScaleNotes(B₃'s scale) for the search's notes (the Analyzer's notes).
  */
 import type { AcceptanceResult } from "./acceptance";
@@ -138,7 +157,7 @@ export interface BenefitConfig {
   /** B_win's weights by "What matters most" (TradeSettings.goal; Phase 4c), and the default goal. */
   readonly goals: Readonly<Record<Goal, GoalWeights>>;
   readonly goalDefault: Goal;
-  /** κ by "Protect my trade value" level, and the default level. */
+  /** κ by "Protect my trade value" level (projected points a week per 100% of trade value), and the default level. */
   readonly protectValue: Readonly<Record<ProtectValue, number>>;
   readonly protectValueDefault: ProtectValue;
   readonly marketSanityClamp: readonly [number, number];
@@ -152,12 +171,13 @@ export interface BenefitConfig {
     readonly bubbleAt: number;
   };
   /**
-   * The "Helps you" scale (the file header, the three numbers): B₃ is the B of +helpsGain points a week, floored at helpsFloor;
-   * in dynasty and keeper leagues its λ is capped at helpsLambdaMax.
+   * The "Helps you" scale (the file header, the three numbers): B₃ is the B of +helpsGain points a week, and in dynasty and
+   * keeper leagues with long-term values B_ref(λ) = (1 − λ) × that + λ × F₁₀, F₁₀ = bFutureScale × helpsFutureShare; floored
+   * at helpsFloor. The redraft market term is priced on it (B₃ / helpsGain per point a week).
    */
   readonly helpsGain: number;
   readonly helpsFloor: number;
-  readonly helpsLambdaMax: number;
+  readonly helpsFutureShare: number;
   readonly marketCheckBelow: number;
   readonly marketHideBelow: number;
   readonly injuredStatuses: readonly InjuryStatus[];
@@ -221,18 +241,32 @@ export function benefitFuture(dDyn: number | null, myDynTotal: number | null, cf
 }
 
 /**
- * κ for a "Protect my trade value" level (TradeSettings.protectValue; the file header): config.benefit.protectValue
- * (low 2, medium 4, high 8). An unknown level (absent, or not one of the three) gets the default level's κ.
+ * κ for a "Protect my trade value" level (TradeSettings.protectValue; the file header): config.benefit.protectValue (low 1,
+ * medium 2, high 4), in projected points a week per 100% of trade value. An unknown level (absent, or not one of the three)
+ * gets the default level's κ.
  */
 export function protectValueWeight(level: ProtectValue | null | undefined, cfg: Pick<BenefitConfig, "protectValue" | "protectValueDefault"> = config.benefit): number {
   const k = level ? cfg.protectValue[level] : undefined;
   return isFiniteNumber(k) ? k : cfg.protectValue[cfg.protectValueDefault];
 }
 
-/** The redraft market term: κ × clamp(g_mkt(me), marketSanityClamp) (NaN counts 0); κ default: the default level's (protectValueWeight). */
-export function marketSanity(gMine: number, kappa?: number, cfg: BenefitConfig = config.benefit): number {
+/**
+ * The redraft market term's lineup equivalent (planner reply to Checkpoint 7a, §2 question 5): κ × clamp(g_mkt(me),
+ * marketSanityClamp) projected points a week, signed (NaN counts 0); κ default: the default level's (protectValueWeight).
+ * At medium (κ 2), g_mkt(me) = −0.20 (giving 25% more value than I get) is −0.4 points a week.
+ */
+export function marketWeekly(gMine: number, kappa?: number, cfg: Pick<BenefitConfig, "protectValue" | "protectValueDefault" | "marketSanityClamp"> = config.benefit): number {
   const k = isFiniteNumber(kappa) ? kappa : protectValueWeight(cfg.protectValueDefault, cfg);
   return k * clampTo(Number.isNaN(gMine) ? 0 : gMine, cfg.marketSanityClamp);
+}
+
+/**
+ * The redraft market term in B units: (B₃ / helpsGain) × marketWeekly(g_mkt(me), κ), so on the scale B₃ it is worth exactly
+ * marketWeekly points a week (helpsGain × term / B₃: lineupEquivalent). 0 without a scale (B₃ missing or not above 0).
+ */
+export function marketSanity(gMine: number, b3: number | null | undefined, kappa?: number, cfg: BenefitConfig = config.benefit): number {
+  if (!isFiniteNumber(b3) || !(b3 > 0) || !isFiniteNumber(cfg.helpsGain) || !(cfg.helpsGain > 0)) return 0;
+  return (b3 / cfg.helpsGain) * marketWeekly(gMine, kappa, cfg);
 }
 
 export interface BenefitInputs {
@@ -253,10 +287,18 @@ export interface BenefitInputs {
   /** TradeSettings.lambda: null or absent = the default by P(playoffs). */
   lambda?: number | null;
   /**
-   * κ, the redraft market term's weight: protectValueWeight(TradeSettings.protectValue). Absent = the default level's
-   * (medium, 4). Ignored in dynasty and keeper leagues (no market term).
+   * κ, the redraft market term's lineup price: protectValueWeight(TradeSettings.protectValue), projected points a week per
+   * 100% of trade value. Absent = the default level's (medium, 2); 0 = no market term (evaluate.ts: FantasyCalc's curve
+   * fallback, or no values). Ignored in dynasty and keeper leagues (no market term).
    */
   kappa?: number;
+  /**
+   * Planner reply to Checkpoint 7a, §2 question 5: B₃, the scale the same evaluation's Helps you and Overall read
+   * (helpsScale's b3 for the same goal; evaluate.ts helpsScaleOf), which prices the redraft market term: (B₃ / helpsGain) ×
+   * κ × clamp(g_mkt(me)). Absent, null or not above 0: no market term (B = B_win; there's no scale to price it on, and no
+   * scores either). Ignored in dynasty and keeper leagues.
+   */
+  b3?: number | null;
   /**
    * Phase 4c (planner reply to Checkpoint 4b, change 8): TradeSettings.goal, "What matters most". B_win's ΔPO / ΔCH
    * weights are config.benefit.goals[goal]; absent = config.benefit.goalDefault ("title": 0.15 / 0.85).
@@ -272,8 +314,17 @@ export interface Benefit {
   bFuture: number | null;
   /** λ used (dynasty and keeper); null in redraft leagues. */
   lambda: number | null;
-  /** The redraft market term inside B, κ × clamp(g_mkt(me)) (0 in dynasty and keeper leagues). */
+  /**
+   * The redraft market term inside B, (B₃ / helpsGain) × κ × clamp(g_mkt(me)) (marketSanity); 0 in dynasty and keeper
+   * leagues, at κ 0, and without a scale.
+   */
   market: number;
+  /**
+   * The market term's lineup equivalent, projected points a week, signed (marketWeekly: κ × clamp(g_mkt(me)); helpsGain ×
+   * market / B₃ exactly): the Analyzer's "Trade value: −0.4 pts/week equivalent" (planner reply to Checkpoint 7a, §2
+   * question 5). Null when B has no market term: dynasty and keeper leagues, κ 0, or no scale (BenefitInputs.b3).
+   */
+  marketWeekly: number | null;
   /** ΔDyn (dynasty and keeper), null in redraft leagues or when missing. */
   dDyn: number | null;
   /** A dynasty or keeper league whose long-term values are missing: B = B_win, and the card says so. */
@@ -286,16 +337,21 @@ export interface Benefit {
 export function benefit(x: BenefitInputs, cfg: BenefitConfig = config.benefit): Benefit {
   const { bWin, titleMissing } = benefitWin(x.dPO, x.dCH, cfg, x.goal);
   if (x.leagueType === "redraft") {
-    const market = marketSanity(x.gMine, x.kappa, cfg);
-    return { b: bWin === null ? null : bWin + market, bWin, bFuture: null, lambda: null, market, dDyn: null, dynMissing: false, titleMissing };
+    // The market term, priced on the evaluation's own scale (planner reply to Checkpoint 7a, §2 question 5): none at κ 0 or
+    // without a scale.
+    const kappa = isFiniteNumber(x.kappa) ? x.kappa : protectValueWeight(cfg.protectValueDefault, cfg);
+    const scaled = isFiniteNumber(x.b3) && x.b3 > 0 && isFiniteNumber(cfg.helpsGain) && cfg.helpsGain > 0;
+    const weekly = kappa !== 0 && scaled ? marketWeekly(x.gMine, kappa, cfg) : null;
+    const market = weekly === null ? 0 : marketSanity(x.gMine, x.b3, kappa, cfg);
+    return { b: bWin === null ? null : bWin + market, bWin, bFuture: null, lambda: null, market, marketWeekly: weekly, dDyn: null, dynMissing: false, titleMissing };
   }
   // resolveLambda is null only in redraft leagues; the fallback just narrows the type.
   const lambda = resolveLambda(x.leagueType, x.lambda, x.myPPlayoffs, cfg) ?? cfg.lambda.bubble;
   const dyn = x.dynasty;
   const bFuture = dyn ? benefitFuture(dyn.delta, dyn.total, cfg) : null;
-  if (bFuture === null || !dyn) return { b: bWin, bWin, bFuture: null, lambda, market: 0, dDyn: null, dynMissing: true, titleMissing };
+  if (bFuture === null || !dyn) return { b: bWin, bWin, bFuture: null, lambda, market: 0, marketWeekly: null, dDyn: null, dynMissing: true, titleMissing };
   const b = bWin === null ? null : (1 - lambda) * bWin + lambda * bFuture;
-  return { b, bWin, bFuture, lambda, market: 0, dDyn: dyn.delta, dynMissing: false, titleMissing };
+  return { b, bWin, bFuture, lambda, market: 0, marketWeekly: null, dDyn: dyn.delta, dynMissing: false, titleMissing };
 }
 
 /**
@@ -322,20 +378,26 @@ export interface HelpsScaleInputs {
   /** TradeSettings.goal ("What matters most"); absent = config.benefit.goalDefault. */
   goal?: Goal;
   /**
-   * MyDynTotal when long-term values loaded (dynasty and keeper leagues: evaluate.ts TradeInternals.future), so B₃ =
-   * (1 − λ) × B_win₃ like a trade with no long-term change; null without them (B₃ = B_win₃, as every trade's B is then
-   * B_win). Ignored in redraft leagues.
+   * MyDynTotal when long-term values loaded (dynasty and keeper leagues: evaluate.ts TradeInternals.future), so B₃ is
+   * B_ref(λ) (the file header; every trade's B weighs B_win by 1 − λ and B_future by λ); null without them (B₃ = B_win₃, as
+   * every trade's B is then B_win). Ignored in redraft leagues.
    */
   dynastyTotal: number | null;
 }
 
-/** "Helps you"'s scale for one goal and λ (helpsScale). */
+/**
+ * "Helps you"'s scale for one goal and λ (helpsScale): what the Trade Finder's and the Analyzer's tooltip words
+ * (TradeSearchResult.helpsScale, evaluate.ts TradeAnalysis.helpsScale). In a dynasty or keeper league with long-term values
+ * 63 reads as good as +helpsGain points a week this season (gainReads alone) together with +helpsFutureShare of the roster's
+ * long-term value (futureReads alone), mixed by λ: B_ref(λ) = (1 − λ) × odds + λ × f10 (planner reply to Checkpoint 7a, §2
+ * question 6: "The tooltip follows the mix").
+ */
 export interface HelpsScale {
-  /** B₃ as the scores use it: `raw` floored at config.benefit.helpsFloor. Always above 0. */
+  /** B₃ as the scores use it (B_ref(λ) with long-term values): `raw` floored at config.benefit.helpsFloor. Always above 0. TradeEvaluation.b3. */
   b3: number;
   /**
-   * B₃ before the floor: `odds`, times (1 − lambdaUsed) in a dynasty or keeper league with long-term values (the B of the
-   * calibration run with no long-term change, λ capped at helpsLambdaMax).
+   * B₃ before the floor: `odds`; in a dynasty or keeper league with long-term values B_ref(λ) = (1 − lambda) × odds + lambda ×
+   * f10, the B of a trade worth +helpsGain points a week this season together with +helpsFutureShare long-term value.
    */
   raw: number;
   /** raw is below helpsFloor (or not above 0): the scores read B against the floor. */
@@ -344,49 +406,56 @@ export interface HelpsScale {
   odds: number;
   /** The odds the floor note names: those B₃ weighs most (title odds, unless the goal weighs playoff odds more or title odds are unknown). */
   oddsNamed: "title" | "playoff";
-  /** λ of every trade's B (resolveLambda) in a dynasty or keeper league with long-term values; null elsewhere (no λ in B₃). */
+  /** λ of every trade's B (resolveLambda: the slider, else the default) in a dynasty or keeper league with long-term values; null elsewhere (no λ in B₃). */
   lambda: number | null;
-  /** λ in B₃'s factor: min(lambda, helpsLambdaMax); null with lambda. */
-  lambdaUsed: number | null;
   /**
-   * What +helpsGain points a week this season prints on this scale (its B, (1 − λ) × odds or odds, through tradeScore; 0
-   * when that B isn't above 0): HELPS_AT_GAIN (63) unless the scale departs (`reason`).
+   * F₁₀ (planner reply to Checkpoint 7a, §2 question 6): the B_future of gaining config.benefit.helpsFutureShare (10%) of my
+   * roster's long-term value, bFutureScale × helpsFutureShare (40 × 0.10 = 4), in a dynasty or keeper league with long-term
+   * values; null elsewhere (with `lambda`).
+   */
+  f10: number | null;
+  /**
+   * What +helpsGain points a week this season alone prints on this scale (its B: (1 − λ) × odds with long-term values, else
+   * odds; through tradeScore, 0 when that B isn't above 0): HELPS_AT_GAIN (63) in a redraft league unless floored.
    */
   gainReads: number;
   /**
-   * Why the scale departs from "+3 points a week reads 63", for the notes (helpsScaleNotes): "odds" when my odds barely move
-   * (`odds` below helpsFloor, so B₃ is floored whatever λ), "lambda" when the odds move but the Win now ↔ Future setting
-   * makes +3 a week print another number (λ above helpsLambdaMax, or (1 − λ) × odds below the floor), null otherwise.
+   * What +helpsFutureShare (10%) of my roster's long-term value alone prints (its B, λ × f10, through tradeScore; 0 when λ is
+   * 0); null without long-term values. With gainReads: the mix's two parts (both at once read HELPS_AT_GAIN unless floored).
    */
-  reason: "odds" | "lambda" | null;
+  futureReads: number | null;
+  /**
+   * "odds" when the scale is floored, so my odds barely move with lineup changes (the floor note, helpsScaleNotes; a floored
+   * B_ref(λ) means B_win₃ under the floor too: the file header), null otherwise. (Review SC-1's "lambda", the Win now ↔ Future
+   * setting's own note, went with its cap: planner reply to Checkpoint 7a, §2 question 6.)
+   */
+  reason: "odds" | null;
 }
 
 /**
  * B₃ (the file header): the calibration run's ΔPO₃ and ΔCH₃ (LeagueModel.helpsCalibration, evaluate.ts SimState.
  * calibration) as B_win under `x`'s goal (`odds`, benefitWin: title odds unknown → the playoff term scaled up, as every
- * trade's B), times 1 − λ in a dynasty or keeper league with long-term values (benefit()'s rule: MyDynTotal above 0) like a
- * trade with no long-term change, λ capped at helpsLambdaMax (⚠️ ours, review of track SC, SC-1), floored at helpsFloor.
+ * trade's B); in a dynasty or keeper league with long-term values (benefit()'s rule: MyDynTotal above 0) B_ref(λ) = (1 − λ)
+ * × odds + λ × F₁₀ (planner reply to Checkpoint 7a, §2 question 6), λ the trade's (resolveLambda); floored at helpsFloor.
  * Null without a run (no odds or no team) or when B₃ isn't a number (no ΔPO): then no B is either, and the scores are null.
  */
 export function helpsScale(run: Pick<HelpsCalibration, "dPO" | "dCH"> | null | undefined, x: HelpsScaleInputs, cfg: BenefitConfig = config.benefit): HelpsScale | null {
   if (!run) return null;
   const { bWin: odds, titleMissing } = benefitWin(run.dPO, run.dCH, cfg, x.goal);
   if (!isFiniteNumber(odds)) return null;
-  // Long-term values loaded: every trade's B weighs B_win by 1 − λ (benefit(): B_future null, so B = B_win, without them).
+  // Long-term values loaded: every trade's B mixes B_win and B_future by λ (benefit(): B_future null, so B = B_win, without them).
   const future = x.leagueType !== "redraft" && isFiniteNumber(x.dynastyTotal) && x.dynastyTotal > 0;
   // resolveLambda is null only in redraft leagues; the fallback just narrows the type.
   const lambda = future ? (resolveLambda(x.leagueType, x.lambda, x.myPPlayoffs, cfg) ?? cfg.lambda.bubble) : null;
-  const cap = isFiniteNumber(cfg.helpsLambdaMax) ? Math.min(1, Math.max(0, cfg.helpsLambdaMax)) : 1;
-  const lambdaUsed = lambda === null ? null : Math.min(lambda, cap);
-  const raw = lambdaUsed === null ? odds : (1 - lambdaUsed) * odds;
+  const f10 = lambda === null ? null : cfg.bFutureScale * cfg.helpsFutureShare;
+  const raw = lambda === null || f10 === null ? odds : (1 - lambda) * odds + lambda * f10;
   const floored = !(raw >= cfg.helpsFloor) || !(raw > 0);
   const b3 = floored ? cfg.helpsFloor : raw;
   if (!isFiniteNumber(b3) || !(b3 > 0)) return null;
   const gainReads = tradeScore(lambda === null ? odds : (1 - lambda) * odds, b3) ?? 0;
-  const oddsFlat = !(odds >= cfg.helpsFloor) || !(odds > 0);
-  const reason = oddsFlat ? "odds" : gainReads !== HELPS_AT_GAIN ? "lambda" : null;
+  const futureReads = lambda === null || f10 === null ? null : (tradeScore(lambda * f10, b3) ?? 0);
   const w = goalWeights(x.goal, cfg);
-  return { b3, raw, floored, odds, oddsNamed: titleMissing || w.playoffs > w.title ? "playoff" : "title", lambda, lambdaUsed, gainReads, reason };
+  return { b3, raw, floored, odds, oddsNamed: titleMissing || w.playoffs > w.title ? "playoff" : "title", lambda, f10, gainReads, futureReads, reason: floored ? "odds" : null };
 }
 
 /** The note when B₃ is floored because my odds barely move (planner reply to Checkpoint 4c, A2: "When it's floored, note it"). */
@@ -400,28 +469,21 @@ export const HELPS_FLOOR_NOTE = "Your title odds barely move with lineup changes
 export const HELPS_FLOOR_NOTE_PLAYOFFS = "Your playoff odds barely move with lineup changes right now.";
 
 /**
- * ⚠️ Ours (review of track SC, finding SC-1): the note when the Win now ↔ Future setting makes +helpsGain points a week this
- * season print another number than 63 (HelpsScale.reason "lambda"), in the cards' words for the setting: "Your Win now ↔
- * Future setting counts later seasons 90%, so adding 3 points a week to your lineup this season reads 33 on Helps you, not 63."
+ * The floor note, once per search (search.ts) and with each evaluation (the Analyzer's notes), when the scale is floored
+ * (HelpsScale.reason "odds"): HELPS_FLOOR_NOTE, or HELPS_FLOOR_NOTE_PLAYOFFS by HelpsScale.oddsNamed; else none. (The Win now
+ * ↔ Future note of review SC-1 went with its λ cap: planner reply to Checkpoint 7a, §2 question 6.)
  */
-export function helpsLambdaNote(lambda: number, reads: number, cfg: Pick<BenefitConfig, "helpsGain"> = config.benefit): string {
-  return `Your Win now ↔ Future setting counts later seasons ${Math.round(lambda * 100)}%, so adding ${cfg.helpsGain} points a week to your lineup this season reads ${reads} on Helps you, not ${HELPS_AT_GAIN}.`;
-}
-
-/**
- * Why the scale departs from "+3 points a week reads 63", once per search (search.ts) and with each evaluation (the
- * Analyzer's notes): the floor note when my odds barely move (HELPS_FLOOR_NOTE, or HELPS_FLOOR_NOTE_PLAYOFFS by
- * HelpsScale.oddsNamed: judged on the odds alone, never on λ, review of track SC, SC-1), the λ note (helpsLambdaNote), or none.
- */
-export function helpsScaleNotes(scale: Pick<HelpsScale, "reason" | "oddsNamed" | "lambda" | "gainReads"> | null | undefined): string[] {
-  if (!scale?.reason) return [];
-  if (scale.reason === "odds") return [scale.oddsNamed === "playoff" ? HELPS_FLOOR_NOTE_PLAYOFFS : HELPS_FLOOR_NOTE];
-  return scale.lambda === null ? [] : [helpsLambdaNote(scale.lambda, scale.gainReads)];
+export function helpsScaleNotes(scale: Pick<HelpsScale, "reason" | "oddsNamed"> | null | undefined): string[] {
+  if (scale?.reason !== "odds") return [];
+  return [scale.oddsNamed === "playoff" ? HELPS_FLOOR_NOTE_PLAYOFFS : HELPS_FLOOR_NOTE];
 }
 
 /**
  * What a B is worth in lineup points a week on the scale (the Analyzer's "≈ +X pts/week"; planner reply to Checkpoint 4c,
- * A2): helpsGain × B / B₃, so B = B₃ is +3. Signed (a B below 0 is a loss); null without B or B₃.
+ * A2): helpsGain × B / B₃, so B = B₃ is +3. Signed (a B below 0 is a loss); null without B or B₃. In a dynasty or keeper
+ * league with long-term values B₃ is B_ref(λ) (the file header), so the unit is the scale's mix: +3 is as good as +3 points a
+ * week this season together with +10% of the roster's long-term value at the trade's λ (exactly +3 points a week this
+ * season at λ 0; +10% long-term value alone at λ 1).
  */
 export function lineupEquivalent(b: number | null, b3: number | null, cfg: Pick<BenefitConfig, "helpsGain"> = config.benefit): number | null {
   return isFiniteNumber(b) && isFiniteNumber(b3) && b3 > 0 ? (cfg.helpsGain * b) / b3 : null;
@@ -450,14 +512,19 @@ export function overallScore(b: number | null, pComplete: number, b3: number | n
   return Math.round(100 * (1 - Math.exp(-(b * p) / b3)));
 }
 
-/** tradeNumbers' result: TradeEvaluation's fields of those names, plus titleMissing (Benefit's; TradeEvaluation has no field for it). */
+/**
+ * tradeNumbers' result: TradeEvaluation's fields of those names (marketWeekly always set here), plus titleMissing (Benefit's;
+ * TradeEvaluation has no field for it).
+ */
 export type TradeNumbers = Pick<TradeEvaluation, "b" | "tradeScore" | "pAccept" | "pComplete" | "acceptLabel" | "overall" | "bWin" | "bFuture" | "lambda" | "dDyn" | "dynMissing" | "b3"> & {
+  marketWeekly: number | null;
   titleMissing: boolean;
 };
 
 /**
- * The numbers a card shows from B, the acceptance result and B₃ (helpsScale's b3 for the same goal and λ; null without
- * one): B and its parts, the Trade Score, P_accept, P_complete, the label (acceptance.ts), Overall and B₃ itself
+ * The numbers a card shows from B, the acceptance result and B₃ (helpsScale's b3 for the same goal and λ, the scale B's
+ * market term was priced on: BenefitInputs.b3; null without one): B and its parts, the market term's lineup equivalent
+ * (Benefit.marketWeekly), the Trade Score, P_accept, P_complete, the label (acceptance.ts), Overall and B₃ itself
  * (TradeEvaluation's fields of those names); and titleMissing, which benefitNotes words.
  */
 export function tradeNumbers(b: Benefit, accept: Pick<AcceptanceResult, "pAccept" | "pComplete" | "label">, b3: number | null): TradeNumbers {
@@ -473,6 +540,7 @@ export function tradeNumbers(b: Benefit, accept: Pick<AcceptanceResult, "pAccept
     lambda: b.lambda,
     dDyn: b.dDyn,
     dynMissing: b.dynMissing,
+    marketWeekly: b.marketWeekly,
     b3: isFiniteNumber(b3) && b3 > 0 ? b3 : null,
     titleMissing: b.titleMissing,
   };

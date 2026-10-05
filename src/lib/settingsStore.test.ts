@@ -206,17 +206,18 @@ describe("settingsFingerprint", () => {
 
   it("normalizes first: a value the engine would read as the default fingerprints as the default", () => {
     expect(settingsFingerprint({ ...defaultTradeSettings(), playoffWeight: 99 })).toBe(settingsFingerprint(defaultTradeSettings()));
-    expect(settingsFingerprint({ ...defaultTradeSettings(), playoffWeight: 99 }, LEAGUE_MODEL_SETTINGS)).toBe(settingsFingerprint(defaultTradeSettings(), LEAGUE_MODEL_SETTINGS));
+    expect(settingsFingerprint({ ...defaultTradeSettings(), goal: "x" as TradeSettings["goal"] }, LEAGUE_MODEL_SETTINGS)).toBe(settingsFingerprint(defaultTradeSettings(), LEAGUE_MODEL_SETTINGS));
   });
 
   it("with fields, counts only those settings, in any order (the League page's tag passes LEAGUE_MODEL_SETTINGS)", () => {
     const base = settingsFingerprint(defaultTradeSettings(), LEAGUE_MODEL_SETTINGS);
     expect(settingsFingerprint({ ...defaultTradeSettings(), streamPositions: ["K"] }, LEAGUE_MODEL_SETTINGS)).not.toBe(base);
-    expect(settingsFingerprint({ ...defaultTradeSettings(), playoffWeight: 1.5 }, LEAGUE_MODEL_SETTINGS)).not.toBe(base);
-    const other = { ...defaultTradeSettings(), lambda: 0.4, maxPerSide: 3, untouchables: ["1"], mustInclude: ["2"], targetPositions: ["RB"], avoidPositions: ["TE"], includeKDefIdp: true, includePicks: true } satisfies TradeSettings;
+    expect(settingsFingerprint({ ...defaultTradeSettings(), goal: "playoffs" }, LEAGUE_MODEL_SETTINGS)).not.toBe(base);
+    // The manual playoff weight is no longer one of them (planner reply to Checkpoint 7a, §6.1: ω is set automatically).
+    const other = { ...defaultTradeSettings(), playoffWeight: 1.5, lambda: 0.4, maxPerSide: 3, untouchables: ["1"], mustInclude: ["2"], targetPositions: ["RB"], avoidPositions: ["TE"], includeKDefIdp: true, includePicks: true } satisfies TradeSettings;
     expect(settingsFingerprint(other, LEAGUE_MODEL_SETTINGS)).toBe(base);
     // The fields' order and repeats don't matter; the lists' order doesn't either.
-    expect(settingsFingerprint(mine, ["playoffWeight", "streamPositions", "playoffWeight"])).toBe(settingsFingerprint({ ...mine, streamPositions: ["TE", "DEF", "K"] }, LEAGUE_MODEL_SETTINGS));
+    expect(settingsFingerprint(mine, ["goal", "streamPositions", "goal"])).toBe(settingsFingerprint({ ...mine, streamPositions: ["TE", "DEF", "K"] }, LEAGUE_MODEL_SETTINGS));
   });
 });
 
@@ -243,6 +244,8 @@ describe("LEAGUE_MODEL_SETTINGS: every setting the League model reads, and only 
   /** A change to every setting outside the list (a setting added to TradeSettings fails to typecheck here until it's placed). */
   type TradeOnly = Exclude<keyof TradeSettings, "version" | (typeof LEAGUE_MODEL_SETTINGS)[number]>;
   const tradeOnly: { [K in TradeOnly]: TradeSettings[K] } = {
+    // The manual playoff weight: kept in the settings, no longer read (planner reply to Checkpoint 7a, §6.1).
+    playoffWeight: 1.75,
     lambda: 0.8,
     maxPerSide: 3,
     untouchables: [roster(0)[0] as string, roster(0)[8] as string], // my QB and my kicker
@@ -252,7 +255,6 @@ describe("LEAGUE_MODEL_SETTINGS: every setting the League model reads, and only 
     includeKDefIdp: true,
     includePicks: true,
     protectValue: "high",
-    goal: "playoffs",
     minChance: 0.3,
   };
 
@@ -265,7 +267,12 @@ describe("LEAGUE_MODEL_SETTINGS: every setting the League model reads, and only 
   });
 
   it("builds a different model when a setting on the list changes, so the list holds nothing extra", () => {
-    expect(build({ playoffWeight: 1.75 })).not.toEqual(defaults);
+    // The goal: the automatic playoff weight weighs my odds by it (league.ts step 5c), so its per-point B's (and, unless both
+    // sit at an end of the clamp, ω and every ROS(T)) move with it.
+    const goal = build({ goal: "playoffs" });
+    expect(goal).not.toEqual(defaults);
+    expect(goal.playoffWeightAuto?.goal).toBe("playoffs");
+    expect(goal.playoffWeightAuto?.playoffPerPoint).not.toBe(defaults.playoffWeightAuto?.playoffPerPoint);
     expect(build({ streamPositions: ["K", "DEF", "QB", "TE"] })).not.toEqual(defaults);
     expect(build({ streamPositions: [] })).not.toEqual(defaults);
   });

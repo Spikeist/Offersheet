@@ -7,7 +7,7 @@
  * rest-of-season lineup points by at least faMinGain, at most faMaxMoves moves. Lineup points are EV ROS (scenario ROS
  * when optimize() judges in scenario lineups: "Judging moves in scenario lineups" below):
  * Σ_w ω_w LV_w with expected-value lineups over the weeks team numbers count (the caller's weights: the
- * user's playoff weight, a week in progress at 0), the team's streaming rows included (teamValue.ts).
+ * League model's ω in the playoff weeks, league.ts step 5c; a week in progress at 0), the team's streaming rows included (teamValue.ts).
  * - A move adds one free agent: into an open active-roster spot (X has fewer than maxRosterSize players;
  *   every id on the roster takes a spot, with a model or not), or for a droppable player k (X − k + the best
  *   free agent for X − k).
@@ -201,7 +201,11 @@ const byId = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 
 /** The config keys the optimizer reads (config.freeAgentOptimizer, config.streaming.optimizerExcluded), widened for tests. */
 export interface OptimizerConfig {
-  /** A move is made only when it gains at least this many EV ROS points. */
+  /**
+   * A move is made only when it gains at least this many ROS points (in the lineups it judges moves in). The League model
+   * passes config.freeAgentOptimizer.faMinGain × Σω ÷ Σω₀, its own weights' sum against ω₀'s (league.ts step 5c,
+   * LeagueContext.thresholds), so the threshold means under ω what it did at ω₀.
+   */
   readonly faMinGain: number;
   /** At most this many moves per run. */
   readonly faMaxMoves: number;
@@ -228,7 +232,7 @@ export interface OptimizerSetup {
   /** Weeks each lineup is solved for (the table's weeks). */
   readonly weekCount: number;
   readonly slots: PreparedSlots;
-  /** ω per week over the weeks team numbers count (TeamWeeks.weights with the user's playoff weight). */
+  /** ω per week over the weeks team numbers count (TeamWeeks.weights with the League model's ω: league.ts step 5c). */
   readonly weights: ArrayLike<number>;
   /** The snapshot's free agents (ids without a row are skipped). */
   readonly freeAgents: readonly string[];

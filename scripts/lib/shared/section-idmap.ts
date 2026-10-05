@@ -169,23 +169,22 @@ export async function runCrosswalk(p: ProbeContext, state: SharedState): Promise
   if (!db) return;
   const dp = state.dpRows ?? [];
   const dpBySleeper = indexBy(dp, "sleeper_id");
+  // FantasyCalc's ids come from its value rows only: /players isn't asked (FantasyCalc's conditions of 2026-10-05 allow only
+  // /values/current; section-fc.ts).
   const fcRows = state.fc.flatMap((r) => r.data ?? []);
   const fcById = new Map<number, FcPlayerRecord>();
   for (const e of fcRows) if (e.player.position !== "PICK") fcById.set(e.player.id, e.player as unknown as FcPlayerRecord);
-  for (const x of state.fcPlayers ?? []) if (x.position !== "PICK" && !fcById.has(x.id)) fcById.set(x.id, x);
   const fcSkill = [...fcById.values()].filter((x) => SKILL.has(x.position));
-  const fcValued = new Set(fcRows.map((e) => e.player.id));
 
   // ---- FantasyCalc IDs per platform
   const idCount = (list: FcPlayerRecord[], f: keyof FcPlayerRecord) => list.filter((x) => !isBlankId(x[f]) && !isPickId(x[f])).length;
-  const valuedSkill = fcSkill.filter((x) => fcValued.has(x.id));
   const fields = ["sleeperId", "espnId", "mflId", "fleaflickerId"] as const;
   cl.ok(
     "XWALK",
     "XWALK.fcIds",
     "FantasyCalc IDs per platform",
-    `all ${fcSkill.length} FantasyCalc QB/RB/WR/TE (value rows ∪ /players): ${fields.map((f) => `${f} ${idCount(fcSkill, f)}`).join(", ")}; the ${valuedSkill.length} players with values: ${fields.map((f) => `${f} ${idCount(valuedSkill, f)}`).join(", ")}. "UNK" (FantasyCalc's placeholder mflId) counts as empty`,
-    note("player.{sleeperId,espnId,mflId,fleaflickerId}", { all: Object.fromEntries(fields.map((f) => [f, idCount(fcSkill, f)])), valued: Object.fromEntries(fields.map((f) => [f, idCount(valuedSkill, f)])) }),
+    `the ${fcSkill.length} FantasyCalc QB/RB/WR/TE on the value rows of the ${state.fc.filter((r) => r.data).length} formats: ${fields.map((f) => `${f} ${idCount(fcSkill, f)}`).join(", ")}. "UNK" (FantasyCalc's placeholder mflId) counts as empty`,
+    note("player.{sleeperId,espnId,mflId,fleaflickerId}", Object.fromEntries(fields.map((f) => [f, idCount(fcSkill, f)]))),
   );
 
   // ---- DynastyProcess ↔ Sleeper DB
@@ -331,7 +330,7 @@ export async function runCrosswalk(p: ProbeContext, state: SharedState): Promise
     "XWALK",
     "XWALK.fcCoverage",
     "FantasyCalc coverage of the Sleeper pool",
-    `top 250 Sleeper QB/RB/WR/TE by search_rank found by sleeperId: any FantasyCalc source ${topInFc}/${rel.top.length} (${pct(topInFc, rel.top.length)}), redraft values only ${share(rel.top, redraftIds)} (${pct(share(rel.top, redraftIds), rel.top.length)}), dynasty values ${share(rel.top, dynastyIds)}. All ${rel.all.length} active on a team: ${share(rel.all, fcBySleeper)} (${pct(share(rel.all, fcBySleeper), rel.all.length)})`,
+    `top 250 Sleeper QB/RB/WR/TE by search_rank found by sleeperId: any of FantasyCalc's value lists ${topInFc}/${rel.top.length} (${pct(topInFc, rel.top.length)}), redraft values only ${share(rel.top, redraftIds)} (${pct(share(rel.top, redraftIds), rel.top.length)}), dynasty values ${share(rel.top, dynastyIds)}. All ${rel.all.length} active on a team: ${share(rel.all, fcBySleeper)} (${pct(share(rel.all, fcBySleeper), rel.all.length)})`,
     note("top-250 missing from FantasyCalc", topMissingFc),
   );
 
@@ -341,7 +340,7 @@ export async function runCrosswalk(p: ProbeContext, state: SharedState): Promise
     const currentIds = rel.all.filter((x) => dpBySleeper.has(x.player_id)).map((x) => x.player_id);
     const fcFf = currentIds.filter((sid) => !isBlankId(fcBySleeper.get(sid)?.fleaflickerId)).length;
     cl.issue(
-      `Fleaflicker IDs: DynastyProcess fleaflicker_id is set for only ${gap.have} of ${gap.of} current QB/RB/WR/TE (IDMAP.coverage); FantasyCalc's fleaflickerId covers ${fcFf} of them (joined on sleeperId) — evidence: db_playerids.csv fleaflicker_id, api.fantasycalc.com/players fleaflickerId — options: for Phase 5, take Fleaflicker ids from FantasyCalc first, then match the rest by name + position + NFL team (manual confirm screen as fallback).`,
+      `Fleaflicker IDs: DynastyProcess fleaflicker_id is set for only ${gap.have} of ${gap.of} current QB/RB/WR/TE (IDMAP.coverage); FantasyCalc's value rows give a fleaflickerId for ${fcFf} of them (joined on sleeperId) — evidence: db_playerids.csv fleaflicker_id, /values/current [].player.fleaflickerId — options: for Phase 5, take Fleaflicker ids from the value rows a league's format loads, then match the rest by name + position + NFL team (manual confirm screen as fallback).`,
     );
   }
 }

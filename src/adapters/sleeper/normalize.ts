@@ -8,7 +8,17 @@
  * the Import Report never shows a guess as a fact (§0.12):
  * - settings.type 0/1/2 → redraft/keeper/dynasty; 3 = guillotine → rejected (planner answer 9).
  * - best_ball 1 → Sleeper sets the optimal lineup (allowed, with a note).
- * - veto_auto_poll 1 → 'league_vote', anything else → 'none' (planner answer 10).
+ * - veto_auto_poll 1 → 'league_vote', anything else → 'none' (planner answer 10). The review period (Phase 7b, for the
+ *   planner's reply to Checkpoint 7a, §5.3; LeagueSettings.tradeReviewHours): with a veto vote, trade_review_days × 24, the
+ *   vote's length (⚠️ Phase 0, reports/probe-output/sleeper-codes.json: 3 of 3 trades with a poll took at least that long,
+ *   below its 3-league minimum; trade_review_days is 0, 1 or 2 in the 250 crawled 2026 leagues), unknown when it's missing;
+ *   with the vote off (veto_auto_poll 0) 0: ⚠️ Phase 0 found trade_review_days alone holds no trade (reports/data-access.md:
+ *   "trade_review_days alone doesn't hold trades"; 0 of 34 trades in 12 such leagues had a poll, 16 of 24 with 1–2 review
+ *   days went through within 24 hours of being proposed, 10 of 10 with 0 days within 2 hours), so a league that doesn't
+ *   review trades has no review period, whatever trade_review_days says (our reading; the setting's raw value would claim a
+ *   1- or 2-day wait no trade showed). Unknown (left out) when veto_auto_poll is missing (75 of the 250 leagues, 73 of them
+ *   with trade_review_days 2; its "none" is only assumed, with TRADE_REVIEW_UNVERIFIED, on 2 trades in 1 league: review of
+ *   the engine track, Phase 7b) or a code we don't know (only 0 and 1 seen).
  * - position_limit_<pos> caps the ACTIVE roster (IR exempt).
  * - playoff_teams; byes = next power of two − playoff_teams; playoff_round_type 0 one-week rounds,
  *   1 two-week final, 2 two-week rounds (inferred: 2 leagues); missing → one-week rounds (defaulted).
@@ -470,6 +480,12 @@ function buildSettings(league: SleeperLeague, rosters: SleeperRoster[], scoring:
   const vetoPoll = num(s, "veto_auto_poll");
   const tradeReview: LeagueSettings["tradeReview"] = vetoPoll === 1 ? "league_vote" : "none";
   if (vetoPoll === undefined) warn({ code: "TRADE_REVIEW_UNVERIFIED", message: "The league has no veto setting; assumed trades aren't reviewed.", platformPath: "settings.veto_auto_poll" });
+  // The review period (the file header): the veto vote's length (unknown without trade_review_days, or with one that isn't a
+  // number of days ≥ 0 whose hours are a number: a forged 1e308 overflows); none at all with the vote off (veto_auto_poll 0);
+  // unknown when the veto setting is missing (its "none" is only assumed) or a code we don't know.
+  const reviewDays = num(s, "trade_review_days");
+  const voteHours = reviewDays !== undefined && reviewDays >= 0 ? reviewDays * 24 : undefined;
+  const tradeReviewHours = vetoPoll === 1 ? (voteHours !== undefined && Number.isFinite(voteHours) ? voteHours : undefined) : vetoPoll === 0 ? 0 : undefined;
 
   const bestBall = num(s, "best_ball") === 1;
   if (bestBall) notes.push("Best-ball league: lineups are set automatically (Sleeper starts each team's best lineup every week). Offer Sheet values every team by its best possible lineup, which is how best ball scores.");
@@ -502,6 +518,7 @@ function buildSettings(league: SleeperLeague, rosters: SleeperRoster[], scoring:
     seedingTiebreaker: SEEDING_TIEBREAKER,
     tradeDeadline,
     tradeReview,
+    ...(tradeReviewHours !== undefined ? { tradeReviewHours } : {}),
     ...(num(s, "waiver_type") === 2 && num(s, "waiver_budget") !== undefined ? { faabBudget: num(s, "waiver_budget") } : {}),
     ...(unknownSettings.length ? { unknownSettings } : {}),
   };

@@ -20,6 +20,7 @@ import {
   waiverRankOf as sleeperWaiverRankOf,
   type SleeperNormalizeContext,
 } from "./normalize";
+import { LeagueSchema } from "./schemas";
 import { mapSleeperScoring, normalizeProjectionStats } from "./scoringMap";
 import { ALL_SLEEPER_LISTS, crosswalkResolver, fakeResolver, loadTestLeague, projectionRowOf, rawOf, type TestLeague } from "./test-helpers";
 
@@ -80,6 +81,9 @@ describe("normalizeSleeperLeague: the public test league (minimized fixtures)", 
     expect(s.regularSeasonWeeks).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]);
     expect(s.playoffWeeks).toEqual([15, 16, 17]); // 6 teams → 3 one-week rounds (round type 0)
     expect(s).toMatchObject({ playoffTeams: 6, playoffByes: 2, medianGame: false, pointsOnly: false, tradeDeadline: { week: 11 }, tradeReview: "league_vote" });
+    // A league vote whose length the minimized fixture doesn't keep (no trade_review_days): unknown.
+    expect(t.league.settings.trade_review_days).toBeUndefined();
+    expect(s.tradeReviewHours).toBeUndefined();
     expect(s.playoffRoundWeeks).toBeUndefined();
     expect(s.playoffSeeding).toEqual({ reseed: true, divisionWinnersFirst: false });
     expect(s.divisions).toBeUndefined();
@@ -353,6 +357,52 @@ describe("normalizeSleeperLeague: codes and variants", () => {
     const missing = review(undefined);
     expect(missing.snapshot.settings.tradeReview).toBe("none");
     expect(codes(missing)).toContain("TRADE_REVIEW_UNVERIFIED");
+  });
+
+  it("reads the review period (Phase 7b: LeagueSettings.tradeReviewHours): a veto vote's trade_review_days × 24; none with the vote off, whatever the days; unknown without the veto setting", () => {
+    const hours = (poll: number | undefined, days: unknown) => {
+      const t = loadTestLeague();
+      if (poll === undefined) delete t.league.settings.veto_auto_poll;
+      else t.league.settings.veto_auto_poll = poll;
+      if (days === undefined) delete t.league.settings.trade_review_days;
+      else t.league.settings.trade_review_days = days;
+      return run(t).snapshot.settings;
+    };
+    // With a veto vote: the vote's length (0, 1 or 2 days in the crawled leagues).
+    expect(hours(1, 2)).toMatchObject({ tradeReview: "league_vote", tradeReviewHours: 48 });
+    expect(hours(1, 1)).toMatchObject({ tradeReview: "league_vote", tradeReviewHours: 24 });
+    expect(hours(1, 0)).toMatchObject({ tradeReview: "league_vote", tradeReviewHours: 0 });
+    // Its length unknown: missing, or not a number ≥ 0.
+    expect(hours(1, undefined).tradeReviewHours).toBeUndefined();
+    expect(hours(1, -1).tradeReviewHours).toBeUndefined();
+    // A number of days whose hours aren't a number (a forged 1e308 × 24 overflows): unknown, never Infinity.
+    expect(hours(1, 1e308).tradeReviewHours).toBeUndefined();
+    // With the vote off no trade waits (Phase 0: trade_review_days alone holds none, 0 of 34 trades in 12 such leagues had a
+    // poll), so no review period, whatever it says.
+    expect(hours(0, 2)).toMatchObject({ tradeReview: "none", tradeReviewHours: 0 });
+    expect(hours(0, undefined)).toMatchObject({ tradeReview: "none", tradeReviewHours: 0 });
+    // Without the veto setting (75 of the 250 crawled leagues, 73 of them with 2 review days) "none" is only assumed (its
+    // warning; Phase 0 saw 2 trades in 1 such league), so the period is unknown, never a definite "no review" (review of the
+    // engine track); likewise a veto code we don't know (only 0 and 1 seen).
+    const missing = hours(undefined, 2);
+    expect(missing.tradeReview).toBe("none");
+    expect(missing.tradeReviewHours).toBeUndefined();
+    expect(hours(undefined, undefined).tradeReviewHours).toBeUndefined();
+    const odd = hours(2, 2);
+    expect(odd.tradeReview).toBe("none");
+    expect(odd.tradeReviewHours).toBeUndefined();
+  });
+
+  it("keeps trade_review_days through the league schema, and reads one that isn't a number as missing rather than failing the import", () => {
+    const t = loadTestLeague();
+    expect(LeagueSchema.parse({ ...t.league, settings: { ...t.league.settings, trade_review_days: 2 } }).settings.trade_review_days).toBe(2);
+    const odd = LeagueSchema.parse({ ...t.league, settings: { ...t.league.settings, trade_review_days: "2" } });
+    expect(odd.settings.trade_review_days).toBeUndefined();
+    // Every other setting is still kept.
+    expect(odd.settings.veto_auto_poll).toBe(t.league.settings.veto_auto_poll);
+    t.league.settings.veto_auto_poll = 1;
+    t.league.settings.trade_review_days = "2";
+    expect(run(t).snapshot.settings.tradeReviewHours).toBeUndefined();
   });
 
   it("reads position limits (active roster, IR exempt) and ignores 0 / unknown positions", () => {
