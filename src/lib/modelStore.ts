@@ -198,15 +198,24 @@ const TEAM_LOOKUP_WARNINGS: ReadonlySet<string> = new Set(["USER_NOT_FOUND", "US
  * is known after all.
  */
 export function withImportedTeam(response: ModelResponse, stored: StoredImport): ModelResponse {
-  const snap = response.import.snapshot;
+  const imported = importWithImportedTeam(response.import, stored);
+  return imported === response.import ? response : { ...response, import: imported };
+}
+
+/**
+ * withImportedTeam for an import alone (the same rule): the import a page keeps without model inputs (leagueStore.ts
+ * keepImport; review of Phase 7b) carries the stored import's team over the same way.
+ */
+export function importWithImportedTeam(imported: ImportResponse, stored: StoredImport): ImportResponse {
+  const snap = imported.snapshot;
   const known = stored.response.snapshot.myTeamId;
-  if (snap.myTeamId || !known || !snap.teams.some((t) => t.id === known)) return response;
+  if (snap.myTeamId || !known || !snap.teams.some((t) => t.id === known)) return imported;
   // (A reply is only shape-checked lightly, so a missing list is tolerated.)
   const warnings = (snap.warnings ?? []).filter((w) => !TEAM_LOOKUP_WARNINGS.has(w.code));
   // The server's signature covered the snapshot as it was (Part B, track BF): this one is no longer it, so it goes.
-  const { signed: _signed, ...unsigned } = response.import;
+  const { signed: _signed, ...unsigned } = imported;
   void _signed;
-  return { ...response, import: { ...unsigned, snapshot: { ...snap, myTeamId: known, warnings } } };
+  return { ...unsigned, snapshot: { ...snap, myTeamId: known, warnings } };
 }
 
 /**

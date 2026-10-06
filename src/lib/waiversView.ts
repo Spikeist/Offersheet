@@ -10,9 +10,11 @@
  * (position, NFL team, bye, injury tag, waiver status when the platform reports it), his rest-of-season points and the
  * week's projection, "Better than" (my players at his position he out-projects, in the list's terms; when none of mine
  * there plays, who and why: "No TE of yours plays in week 5 (B. Bowers: bye)"), and the lineup gain with the player he'd
- * replace ("Drop R. Doubs") or an open roster spot; "Depth only" when he wouldn't start in a normal week. The gain prints
- * to config.waivers.gainDecimals, the precision the engine orders rows by (waivers.gainSteps). The page shows the first
- * config.waivers.rowsShown rows, then "Show all".
+ * replace ("Drop R. Doubs") or an open roster spot; "Depth only" when he wouldn't start in a normal week (said in words under
+ * the list whenever a row carries it: DEPTH_ONLY_WORDS). The gain prints to config.waivers.gainDecimals, the precision the
+ * engine orders rows by (waivers.gainSteps). The page shows the first config.waivers.rowsShown rows, then "Show all".
+ * Without lists, one line instead: no team picked (with a link to pick it), my redraft season over, or no week left
+ * (buildWaiversView; review of Phase 7b: the section showed nothing then, and the header's "Waivers" link led nowhere).
  */
 import { config } from "@/engine/config";
 import type { ModelInputs } from "@/engine/inputs";
@@ -27,11 +29,29 @@ import { shortName, type InjuryTone } from "./leagueView";
 export { WAIVERS_HREF, WAIVERS_SECTION_ID } from "./waiversLink";
 export const WAIVERS_TITLE = "Waiver upgrades";
 export const DEPTH_ONLY_TAG = "Depth only";
-export const DEPTH_ONLY_TITLE = "He wouldn't start for you in a normal week: what he adds comes from covering injuries and byes.";
+/**
+ * What "Depth only" means, in words that read right on a row with a gain and on a "No gain" row alike (review of Phase 7b:
+ * the old hover text, "what he adds comes from covering injuries and byes", only showed on hover, which phones and screen
+ * readers miss, and read oddly next to "No gain"): visible in the list's note whenever a row of it carries the tag
+ * (WaiverListView.note), and the tag's hover text (WaiverListView.depthOnlyTitle). The rest of the season's EV lineups
+ * count byes; one week's, only injuries can open his spot.
+ */
+export const DEPTH_ONLY_WORDS: Readonly<Record<"ros" | "week", string>> = {
+  ros: "he wouldn't start for you in a normal week, so he'd only play when injuries or byes open a spot",
+  week: "he wouldn't start for you that week, so he'd only play if an injury opens a spot",
+};
 export const NO_GAIN_TEXT = "No gain";
 export const CANT_FIT_TEXT = "No room";
 export const WAIVERS_INTRO = "Free agents who project for more points than one of your players at the same position, and what each would add to your starting lineup.";
 export const WAIVERS_SEASON_OVER = "Your season's over, so no pickup can help this year.";
+/**
+ * Instead of the lists when no team is picked, with a link to the Import Report's team picker (review of Phase 7b: the
+ * header's "Waivers" link led nowhere then, the section rendering nothing).
+ */
+export const WAIVERS_NO_TEAM = "Pick your team on the Import Report to see waiver upgrades for it.";
+export const WAIVERS_PICK_TEAM: Readonly<{ href: string; text: string }> = { href: "/import#your-team", text: "Pick your team" };
+/** Instead of the lists when no week is left for a pickup to help (the season over, or its last week under way). */
+export const WAIVERS_NO_WEEKS = "Waiver upgrades cover the weeks still to come, and none is left this season.";
 
 /** Which list (WaiverUpgrades): the rest of the season, the week under way, or the first week team numbers count. */
 export type WaiverListMode = "ros" | "underWay" | "week";
@@ -56,16 +76,24 @@ export interface WaiversView {
   /** The list shown first: "ros" unless there's none. */
   first: WaiverListMode;
   intro: string;
-  /** Instead of the lists: my redraft season is over (null otherwise). */
+  /**
+   * Instead of the lists: no team picked (WAIVERS_NO_TEAM), my redraft season over (WAIVERS_SEASON_OVER), or no week left
+   * for a pickup (WAIVERS_NO_WEEKS); null otherwise. The section shows either way, so the header's "Waivers" link always
+   * leads somewhere on a League page that's ready.
+   */
   empty: string | null;
+  /** With `empty` when no team is picked: the link to the Import Report's team picker (WAIVERS_PICK_TEAM); null otherwise. */
+  emptyLink: { href: string; text: string } | null;
 }
 
 export interface WaiverListView {
   mode: WaiverListMode;
   /** The toggle's label: "Rest of season", "This week", or "Next week" while the current week is under way. */
   label: string;
-  /** What the list's numbers count, in words. */
+  /** What the list's numbers count, in words; when a row of it is "Depth only", what that means too (DEPTH_ONLY_WORDS). */
   note: string;
+  /** The "Depth only" tag's hover text for this list (DEPTH_ONLY_WORDS, as a sentence). */
+  depthOnlyTitle: string;
   /**
    * While a week is under way, on the one-week lists: "Week 4 is under way: this list counts only its games still to
    * play." or "Week 4 is under way, so this list is for week 5."; else null.
@@ -155,18 +183,32 @@ function weeksWords(weeks: readonly number[]): string {
   return weeksText(weeks).replace(/^Weeks?/, (w) => w.toLowerCase());
 }
 
-/** The "Waiver upgrades" section (the file header); null when there's nothing to show (no team picked, no week left). */
+/** The section without lists: one line instead (WaiversView.empty), and the team picker's link when no team is picked. */
+function emptyView(empty: string, emptyLink: WaiversView["emptyLink"] = null): WaiversView {
+  return { ros: null, underWay: null, week: null, first: "ros", intro: WAIVERS_INTRO, empty, emptyLink };
+}
+
+/**
+ * The "Waiver upgrades" section (the file header). With no team picked (the model's team not in the league, as the League
+ * page reads it), a line and a link to pick it; with my redraft season over, or no week left for a pickup, a line instead
+ * of the lists (review of Phase 7b: the section rendered nothing, so the header's "Waivers" link led nowhere). Null only
+ * when the model has my team but no lists at all: built without them (BuildLeagueModelOptions.waiverUpgrades false, a
+ * caller that never shows them).
+ */
 export function buildWaiversView(input: WaiversInput): WaiversView | null {
   const { snapshot, model } = input;
+  const myTeamId = model.myTeamId && snapshot.teams.some((t) => t.id === model.myTeamId) ? model.myTeamId : null;
+  if (!myTeamId) return emptyView(WAIVERS_NO_TEAM, WAIVERS_PICK_TEAM);
   const w = model.waiverUpgrades;
-  if (!w || (!w.ros && !w.underWay && !w.week)) return null;
+  if (!w) return null;
   const mine = model.odds?.teams.find((t) => t.teamId === w.teamId);
-  if (mine?.eliminated && snapshot.settings.leagueType === "redraft") return { ros: null, underWay: null, week: null, first: "ros", intro: WAIVERS_INTRO, empty: WAIVERS_SEASON_OVER };
+  if (mine?.eliminated && snapshot.settings.leagueType === "redraft") return emptyView(WAIVERS_SEASON_OVER);
+  if (!w.ros && !w.underWay && !w.week) return emptyView(WAIVERS_NO_WEEKS);
   const labels = { underWay: w.underWay ? "This week" : null, week: w.week ? weekLabel(input, w.week) : null };
   const ros = w.ros ? listView(input, w.ros, "ros", w.teamId, labels) : null;
   const underWay = w.underWay ? listView(input, w.underWay, "underWay", w.teamId, labels) : null;
   const week = w.week ? listView(input, w.week, "week", w.teamId, labels) : null;
-  return { ros, underWay, week, first: ros ? "ros" : underWay ? "underWay" : "week", intro: WAIVERS_INTRO, empty: null };
+  return { ros, underWay, week, first: ros ? "ros" : underWay ? "underWay" : "week", intro: WAIVERS_INTRO, empty: null, emptyLink: null };
 }
 
 /** The first-week list's label: "Next week" while the current week is under way (the list is for the week after), else "This week". */
@@ -198,10 +240,14 @@ function listView(input: WaiversInput, list: WaiverList, mode: WaiverListMode, t
   const rows = list.rows.map((r) => rowView(input, list, r, mode, span, weekIndex, pickupWeek));
   const underWay =
     underWayWeek === null ? null : mode === "underWay" ? `Week ${underWayWeek} is under way: this list counts only its games still to play.` : nextWeek ? `Week ${underWayWeek} is under way, so this list is for week ${pickupWeek}.` : null;
+  // "Depth only" in words, visible under the list when a row of it carries the tag (DEPTH_ONLY_WORDS; review of Phase 7b).
+  const depthWords = DEPTH_ONLY_WORDS[mode === "ros" ? "ros" : "week"];
+  const depthNote = rows.some((r) => r.depthOnly) ? ` ${DEPTH_ONLY_TAG}: ${depthWords}.` : "";
   return {
     mode,
     label,
-    note,
+    note: `${note}${depthNote}`,
+    depthOnlyTitle: `${capitalize(depthWords)}.`,
     underWay,
     weekLabel: `Wk ${pickupWeek}`,
     rows,

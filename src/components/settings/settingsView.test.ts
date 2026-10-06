@@ -128,6 +128,10 @@ describe("the league's choices", () => {
     expect(dynasty.lambda).toMatchObject({ automatic: true, value: config.benefit.lambda.bubble, keeperNote: null });
     expect(dynasty.lambda?.automaticText).toBe("Set from your playoff odds: later seasons count 35% when you're 50% or better to make the playoffs, 50% from 20% to 50%, and 75% below 20%.");
     expect(dynasty.picks).toMatchObject({ checked: false });
+    // Picks wait for Phase 5: the help says what the choice does today, matching the Trade Finder's note with it on
+    // ("Draft picks aren't part of trade ideas yet."), never that it adds picks to trade ideas (review of Phase 7b).
+    expect(dynasty.picks?.help).toBe("Draft picks aren't part of trade ideas yet. Your choice is kept for when they are.");
+    expect(dynasty.picks?.help).not.toMatch(/Adds|FantasyCalc/);
     const keeper = view({ lambda: 0.35, includePicks: true }, { snap: snapshot({ leagueType: "keeper" }) });
     expect(keeper.lambda).toMatchObject({ automatic: false, value: 0.35, valueText: "Mostly this season: later seasons count 35%" });
     expect(keeper.lambda?.keeperNote).toMatch(/isn't part of the score/);

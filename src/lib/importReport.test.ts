@@ -614,8 +614,11 @@ describe("buildImportReport: teams and my team", () => {
     expect(sleeper("USER_NOT_IN_LEAGUE", "That Sleeper user doesn't manage a team in this league; pick your team.").teams.explain).toMatch(/^That Sleeper username doesn't manage a team in this league/);
     const cookies = buildImportReport(response(snapshot({ myTeamId: null, warnings: [{ code: "ESPN_MY_TEAM_NOT_FOUND", message: "The ESPN account in your cookies doesn't own a team in this league; pick your team.", platformPath: "teams[].owners" }] })), { timeZone: TZ });
     expect(cookies.teams.explain).toMatch(/^The ESPN account your cookies belong to doesn't own a team in this league/);
-    // Once a team is picked, the card says so instead.
-    expect(buildImportReport(response(snapshot({ platform: "sleeper", myTeamId: null, warnings: [{ code: "USER_NOT_FOUND", message: "…" }] })), { timeZone: TZ, myTeamId: "2" }).teams.explain).toBe("You picked this team. It's saved for this browser session.");
+    // Once a team is picked, the card says so instead. The pick is saved with the league in this browser's league store
+    // (Phase 4c), not for one browser session: the sentence matches /privacy's short version (review of Phase 7b).
+    const picked = buildImportReport(response(snapshot({ platform: "sleeper", myTeamId: null, warnings: [{ code: "USER_NOT_FOUND", message: "…" }] })), { timeZone: TZ, myTeamId: "2" }).teams.explain;
+    expect(picked).toBe("You picked this team. It's saved with this league in this browser.");
+    expect(picked).not.toMatch(/session/);
   });
 
   it("marks the platform's team in the picker", () => {

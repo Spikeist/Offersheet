@@ -410,8 +410,9 @@ export const config = {
     tradeSearchExcluded: ["P", "K", "DEF", "DL", "LB", "DB"] as readonly Pos[],
     /**
      * FantasyCalc's TE premium (§2.9): a league whose TEs get more points per catch than WRs asks for
-     * "te+" values, or "te++" from this premium up. FantasyCalc doesn't define te+ / te++ in points,
-     * so the cut is our assumption (⚠️ unverified; TE values move ×1.149 / ×1.29 in Phase 0).
+     * "te+" values, or "te++" from this premium up. ✅ Confirmed by FantasyCalc on 2026-10-05 (their reply, condition 5:
+     * reports/fantasycalc-permission.md; planner reply to Checkpoint 7a, 5.4); before, the cut was our assumption, as
+     * FantasyCalc doesn't define te+ / te++ in points (TE values move ×1.149 / ×1.29 in Phase 0).
      */
     tepPlusPlusAt: 0.75,
     /**

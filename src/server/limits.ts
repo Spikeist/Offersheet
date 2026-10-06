@@ -478,8 +478,20 @@ export const snapshotLimits = {
    * it the formats in use take turns, the longest unsaved first (src/server/snapshots.ts formatsToSave).
    */
   fantasyCalcFormatsPerDay: 12,
-  /** A saved snapshot is kept this long after its last write: two seasons. */
+  /**
+   * Two seasons: a week of projections is kept this long after its last write; a day's FantasyCalc lists and the day's index
+   * entries naming their formats this long after that UTC day began, so each record of which formats were in use goes two
+   * seasons after its own day (src/server/snapshots.ts dayRetainMs; review of Phase 7b: one index a season, its expiry set
+   * again by every save, kept a day's entries up to a season longer than its lists).
+   */
   retainDays: 730,
+  /**
+   * The turn order (src/server/snapshots.ts formatsToSave) reads the per-day index of saved lists back this many UTC days, one
+   * SMEMBERS a day. At fantasyCalcFormatsPerDay a day, every format in use is saved again within 12 days (144 formats a
+   * league can ask for, at most), so the window holds each format's newest save; one with none in it counts as never saved,
+   * which puts it first, as its age would.
+   */
+  turnLookbackDays: 14,
   /** The model builds' record of the formats they read, a set per UTC day, kept this long (the cron reads today's and yesterday's). */
   formatsInUseRetainDays: 3,
   /** Each store command (GET, SET, SMEMBERS …) waits at most this long; a slower one fails it and the run's later ones. */
@@ -498,8 +510,9 @@ export const snapshotLimits = {
  * rateLimits.feedback, its deadline deadlines.feedbackMs). With Redis on Vercel, one list per UTC day of arrival
  * (`prefix + "fb:" + YYYY-MM-DD`; final review SEC-3: a month's list kept its newest 5,000, so 84 IPv6 /64s at the hourly
  * limit could push a month's real outcomes out with forged copies; now a flood crowds out its own day at most): each copy
- * LPUSHed, the list trimmed to its newest maxPerDay and its expiry reset to retainDays, in one transaction (3 commands a
- * copy; review FB-R5), so a day's list goes a year after that day (the privacy page's words; planner reply to Checkpoint
+ * LPUSHed, the list trimmed to its newest maxPerDay and its expiry set to retainDays after its UTC day began
+ * (feedbackSink.ts feedbackDayTtlMs; Checkpoint 7b), in one transaction (3 commands a copy; review FB-R5), so a day's list
+ * goes a year after that day began and no copy is kept longer (the privacy page's words; planner reply to Checkpoint
  * 7a, §4 privacy item 3: "up to 12 months, then delete it"); `npm run feedback:report -- --live` reads the lists straight from
  * the store and saves only aggregate counts (never a copy), flagging days with unusual counts for Phase 6 to drop or
  * down-weight. Each client (an IPv4 address or IPv6 /64) may send perClientPerDay copies a UTC day and each group (an IPv4

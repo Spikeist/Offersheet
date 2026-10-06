@@ -843,7 +843,10 @@ function myTeamExplain(source: MyTeamSource, platformLabel: string, warnings: re
     case "platform":
       return `${platformLabel} told us which team is yours. You can change it here if that's wrong.`;
     case "you":
-      return "You picked this team. It's saved for this browser session.";
+      // Saved leagues (Phase 4c, src/lib/leagueStore.ts saveMyTeam): the pick lives in the league store's IndexedDB
+      // with its league until the league is removed, as /privacy's short version says, not for one browser session
+      // (review of Phase 7b).
+      return "You picked this team. It's saved with this league in this browser.";
     case "link":
       return `We took this team from the ${platformLabel} link you pasted. ${platformLabel} uses the same kind of link for every team's page, so check that it's yours, or pick the right one.`;
     case "none":

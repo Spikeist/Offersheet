@@ -13,7 +13,21 @@ import { buildLeagueModel, type LeagueModelConfig } from "@/engine/league";
 import type { LeagueModel, SeasonOdds } from "@/engine/leagueModel";
 import type { LeagueSnapshot, Pos } from "@/engine/model";
 import { TEST_NOW, buildTestLeague, type TestPlayer } from "@/engine/testLeague";
-import { CANT_FIT_TEXT, NO_GAIN_TEXT, WAIVERS_HREF, WAIVERS_SECTION_ID, WAIVERS_SEASON_OVER, buildWaiversView, waiverStatusText, type WaiverListView } from "./waiversView";
+import {
+  CANT_FIT_TEXT,
+  DEPTH_ONLY_TAG,
+  DEPTH_ONLY_WORDS,
+  NO_GAIN_TEXT,
+  WAIVERS_HREF,
+  WAIVERS_NO_TEAM,
+  WAIVERS_NO_WEEKS,
+  WAIVERS_PICK_TEAM,
+  WAIVERS_SECTION_ID,
+  WAIVERS_SEASON_OVER,
+  buildWaiversView,
+  waiverStatusText,
+  type WaiverListView,
+} from "./waiversView";
 
 const ZERO_MISS: Record<Pos, number> = { QB: 0, RB: 0, WR: 0, TE: 0, K: 0, P: 0, DEF: 0, DL: 0, LB: 0, DB: 0 };
 const NO_RISK: LeagueModelConfig = { ...config, projections: { ...config.projections, injuryRisk: { ...config.projections.injuryRisk, missShare: ZERO_MISS } } };
@@ -160,11 +174,48 @@ describe("buildWaiversView", () => {
     expect(r?.drop).toBeNull();
   });
 
-  it("nothing to show without a list; my redraft season over: one line instead", () => {
+  it("nothing to show from a model built without the lists; my redraft season over: one line instead", () => {
     expect(buildWaiversView({ snapshot: s.snapshot, model: { ...s.model, waiverUpgrades: null }, inputs: s.inputs, timeZone: NY, now: TEST_NOW.toISOString() })).toBeNull();
     const odds = { teams: [{ teamId: "1", eliminated: true }, { teamId: "2", eliminated: false }] } as unknown as SeasonOdds;
     const over = buildWaiversView({ snapshot: s.snapshot, model: { ...s.model, odds }, inputs: s.inputs, timeZone: NY, now: TEST_NOW.toISOString() });
-    expect(over).toEqual({ ros: null, underWay: null, week: null, first: "ros", intro: expect.any(String), empty: WAIVERS_SEASON_OVER });
+    expect(over).toEqual({ ros: null, underWay: null, week: null, first: "ros", intro: expect.any(String), empty: WAIVERS_SEASON_OVER, emptyLink: null });
+  });
+
+  it("no team picked, or no week left: the section still shows, with one line (and a link to pick the team) instead of the lists (review of Phase 7b)", () => {
+    // No team: the engine builds no lists (LeagueModel.waiverUpgrades null), and the header's "Waivers" link leads here.
+    const l = buildTestLeague({ platform: "espn", teams: [{ id: "1", roster: MINE }, { id: "2", roster: THEM }], freeAgents: FAS, byeWeek: { AAA: 9 } });
+    const noTeam = { ...l.snapshot, myTeamId: null };
+    const model = buildLeagueModel(noTeam, l.inputs, { now: TEST_NOW, sims: 0 }, NO_RISK);
+    expect(model.waiverUpgrades).toBeNull();
+    const none = buildWaiversView({ snapshot: noTeam, model, inputs: l.inputs, timeZone: NY, now: TEST_NOW.toISOString() });
+    expect(none).toEqual({ ros: null, underWay: null, week: null, first: "ros", intro: expect.any(String), empty: WAIVERS_NO_TEAM, emptyLink: { href: "/import#your-team", text: "Pick your team" } });
+    expect(WAIVERS_NO_TEAM).toBe("Pick your team on the Import Report to see waiver upgrades for it.");
+    expect(WAIVERS_PICK_TEAM.href).toBe("/import#your-team");
+    // A team the league doesn't have reads as none picked, as the League page reads it.
+    expect(buildWaiversView({ snapshot: s.snapshot, model: { ...s.model, myTeamId: "99" }, inputs: s.inputs, timeZone: NY, now: TEST_NOW.toISOString() })?.empty).toBe(WAIVERS_NO_TEAM);
+    // No week left for a pickup (the season over, or its last week under way): one line.
+    const done = { ...s.model, waiverUpgrades: { teamId: "1", ros: null, underWay: null, week: null } };
+    expect(buildWaiversView({ snapshot: s.snapshot, model: done, inputs: s.inputs, timeZone: NY, now: TEST_NOW.toISOString() })).toEqual({
+      ros: null,
+      underWay: null,
+      week: null,
+      first: "ros",
+      intro: expect.any(String),
+      empty: WAIVERS_NO_WEEKS,
+      emptyLink: null,
+    });
+  });
+
+  it("'Depth only' in words: under the list whenever a row carries it, and as the tag's hover, reading right on a 'No gain' row (review of Phase 7b)", () => {
+    const depth = row(v?.ros, "Fred Depth");
+    expect(depth?.depthOnly).toBe(true);
+    expect(depth?.gain.text).toBe(NO_GAIN_TEXT);
+    expect(v?.ros?.note).toContain(`${DEPTH_ONLY_TAG}: ${DEPTH_ONLY_WORDS.ros}.`);
+    expect(v?.ros?.depthOnlyTitle).toBe("He wouldn't start for you in a normal week, so he'd only play when injuries or byes open a spot.");
+    // A one-week list words it for that week.
+    expect(v?.week?.depthOnlyTitle).toBe("He wouldn't start for you that week, so he'd only play if an injury opens a spot.");
+    // A list without a depth-only row doesn't explain the tag.
+    for (const list of [v?.ros, v?.underWay, v?.week]) if (list && !list.rows.some((r) => r.depthOnly)) expect(list.note).not.toContain(DEPTH_ONLY_TAG);
   });
 });
 

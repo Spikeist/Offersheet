@@ -35,7 +35,9 @@
  * the odds alone, "counts this season only" as the cards' note says); a hurt player's projection is "blended with the
  * trade market" only while the blend is on (`blendOn`). Each defaults to on, so the page reads as before while the league's
  * data loads.
- * Planner reply to Checkpoint 4c (Phase 7a, A2): Helps you's scale, the same under every goal: 63 is about as good as
+ * Planner reply to Checkpoint 4c (Phase 7a, A2): Helps you's scale, the same whatever the league rewards ("What does your
+ * league reward?", the setting the goal became: planner reply to Checkpoint 7a, 5.2; review of Phase 7b: the page said
+ * "Under every goal", the setting's old word): 63 is about as good as
  * adding 3 points a week to your lineup for the rest of the season; in a dynasty or keeper league with long-term values,
  * together with 10% more long-term value, weighed by Win now ↔ Future (planner reply to Checkpoint 7a, §2 question 6: "the
  * tooltip follows the mix"); "a note on the page says so" only when the floor note shows (helpsScaleWords, from config and
@@ -122,7 +124,7 @@ export function helpsScaleWords(opts: HelpsScaleWordsOptions = {}): string {
   }
   const low = gain / 3;
   const high = gain * 2;
-  return `Under every goal, ${at(gain)} is about as good as adding ${fmtNum(gain, 1)} points a week to your lineup for the rest of the season (${at(low)} for ${fmtNum(low, 1)} ${fmtNum(low, 1) === "1" ? "point" : "points"} a week, ${at(high)} for ${fmtNum(high, 1)}).${note}`;
+  return `Whatever your league rewards, ${at(gain)} is about as good as adding ${fmtNum(gain, 1)} points a week to your lineup for the rest of the season (${at(low)} for ${fmtNum(low, 1)} ${fmtNum(low, 1) === "1" ? "point" : "points"} a week, ${at(high)} for ${fmtNum(high, 1)}).${note}`;
 }
 
 export const HOW_TO_READ_TITLE: Record<HowToReadPage, string> = {

@@ -23,6 +23,9 @@ import { snapshotLimits } from "./limits";
 import { packProjectionSnapshot, projectionSnapshotFile, readProjectionSnapshot, unpackProjectionSnapshot, type ProjectionArchiveInput } from "./projectionArchive";
 import { FakeRedis } from "./redis";
 import {
+  dayExpired,
+  dayRetainMs,
+  daysFromTo,
   fantasyCalcIndexKey,
   fantasyCalcSnapshotKey,
   formatsInUseKey,
@@ -30,7 +33,6 @@ import {
   localSnapshotStore,
   noteFormatsInUse,
   parseFormatKey,
-  parseIndexEntry,
   projectionSnapshotKey,
   resetFormatsInUseForTests,
   resetLocalSnapshotLockForTests,
@@ -41,6 +43,7 @@ import {
   snapshotStoreFor,
   snapshotWeeks,
   todaysList,
+  turnDays,
   unnotedFormats,
   utcDay,
   type SnapshotRun,
@@ -160,9 +163,28 @@ describe("keys, days and format keys", () => {
     expect(formatsInUseKey(P, "2026-10-05")).toBe("os:production:fc-formats:2026-10-05");
     expect(projectionSnapshotKey(P, 2026, 5)).toBe("os:production:snap:proj:2026:5");
     expect(fantasyCalcSnapshotKey(P, { season: 2026, day: "2026-10-05", key: "redraft-1qb-10team-ppr0.5" })).toBe("os:production:snap:fc:2026:2026-10-05:redraft-1qb-10team-ppr0.5");
-    expect(fantasyCalcIndexKey(P, 2026)).toBe("os:production:snap:fc-index:2026");
-    expect(parseIndexEntry("2026-10-05/redraft-1qb-10team-ppr0.5")).toEqual({ day: "2026-10-05", key: "redraft-1qb-10team-ppr0.5" });
-    for (const bad of ["2026-10-05", "x/redraft-1qb-10team-ppr0.5", "2026-10-05/redraft-1qb-16team-ppr1", "2026-10-05/../../x"]) expect(parseIndexEntry(bad)).toBeNull();
+    // One index set a day (review of Phase 7b: one a season kept every day's entries as long as its newest).
+    expect(fantasyCalcIndexKey(P, { season: 2026, day: "2026-10-05" })).toBe("os:production:snap:fc-index:2026:2026-10-05");
+  });
+
+  it("days: a span of UTC days, the turn order's window (this season only), and how long a day's records are kept", () => {
+    expect(daysFromTo("2026-02-27", "2026-03-02")).toEqual(["2026-02-27", "2026-02-28", "2026-03-01", "2026-03-02"]);
+    expect(daysFromTo("2026-10-06", "2026-10-05")).toEqual([]);
+    expect(daysFromTo("junk", "2026-10-05")).toEqual([]);
+    const window = turnDays("2026-10-07");
+    expect(window).toHaveLength(snapshotLimits.turnLookbackDays);
+    expect([window[0], window.at(-1)]).toEqual(["2026-10-07", "2026-09-24"]);
+    // Early March: the window stops at the season's first day (February's days are last season's).
+    expect(turnDays("2026-03-03")).toEqual(["2026-03-03", "2026-03-02", "2026-03-01"]);
+    expect(turnDays("not a day")).toEqual([]);
+    const start = Date.parse("2026-10-05T00:00:00.000Z");
+    expect(dayRetainMs("2026-10-05", start)).toBe(snapshotLimits.retainDays * DAY);
+    expect(dayRetainMs("2026-10-05", start + 23 * HOUR)).toBe(snapshotLimits.retainDays * DAY - 23 * HOUR);
+    expect(dayRetainMs("2026-10-05", start + snapshotLimits.retainDays * DAY + DAY)).toBe(1);
+    expect(dayRetainMs("junk", start)).toBe(1);
+    expect(dayExpired("2026-10-05", start + snapshotLimits.retainDays * DAY)).toBe(true);
+    expect(dayExpired("2026-10-05", start + snapshotLimits.retainDays * DAY - 1)).toBe(false);
+    expect(dayExpired("junk", start)).toBe(false);
   });
 
   it("UTC days and their NFL season (January and February belong to last year's season)", () => {
@@ -295,7 +317,7 @@ describe("the shared store (sharedSnapshotStore)", () => {
   it("the lock: one holder at a time, released only by its holder, gone after snapshotLimits.lockMs if never released", async () => {
     let now = WEDNESDAY;
     const redis = new FakeRedis(() => now);
-    const store = sharedSnapshotStore(redis, { env: PROD });
+    const store = sharedSnapshotStore(redis, { env: PROD, clock: () => now });
     const first = await store.lock();
     expect(first).not.toBeNull();
     expect(redis.ttlMs(snapshotLockKey(P))).toBe(snapshotLimits.lockMs);
@@ -315,7 +337,7 @@ describe("the shared store (sharedSnapshotStore)", () => {
   it("a week: saved as the base64 of the local file's bytes, kept two seasons; the same fetch again changes nothing; a later pre-kickoff fetch overwrites; after kickoff nothing", async () => {
     let now = WEDNESDAY;
     const redis = new FakeRedis(() => now);
-    const store = sharedSnapshotStore(redis, { env: PROD });
+    const store = sharedSnapshotStore(redis, { env: PROD, clock: () => now });
     const key = projectionSnapshotKey(P, 2026, 5);
     expect(await store.saveWeek(input(WEDNESDAY - HOUR))).toEqual({ status: "saved", replaced: ["QB", "RB", "WR", "TE", "K", "DEF", "DL", "LB", "DB"] });
     expect(redis.ttlMs(key)).toBe(snapshotLimits.retainDays * DAY);
@@ -341,7 +363,7 @@ describe("the shared store (sharedSnapshotStore)", () => {
 
   it("a week: an unreadable stored record is replaced (logged), one of another format version left alone", async () => {
     const redis = new FakeRedis(() => WEDNESDAY);
-    const store = sharedSnapshotStore(redis, { env: PROD });
+    const store = sharedSnapshotStore(redis, { env: PROD, clock: () => WEDNESDAY });
     const key = projectionSnapshotKey(P, 2026, 5);
     await redis.set(key, "not base64 gzip");
     expect(await store.saveWeek(input(WEDNESDAY - HOUR))).toMatchObject({ status: "saved" });
@@ -350,9 +372,9 @@ describe("the shared store (sharedSnapshotStore)", () => {
     expect(await store.saveWeek(input(WEDNESDAY - HOUR))).toEqual({ status: "failed", error: "OtherVersion" });
   });
 
-  it("a list: the day's first copy kept two seasons, indexed for snapshot:pull; a second copy of the day changes nothing", async () => {
+  it("a list: the day's first copy kept two seasons from its day, indexed in its day's set for snapshot:pull; a second copy of the day changes nothing", async () => {
     const redis = new FakeRedis(() => WEDNESDAY);
-    const store = sharedSnapshotStore(redis, { env: PROD });
+    const store = sharedSnapshotStore(redis, { env: PROD, clock: () => WEDNESDAY });
     const players = (bodyFor(redraft10) as Array<{ player: { id: number; sleeperId: string; position: string }; value: number }>).map((r) => ({
       fantasyCalcId: String(r.player.id),
       sleeperId: r.player.sleeperId,
@@ -364,16 +386,22 @@ describe("the shared store (sharedSnapshotStore)", () => {
     const list = { format: redraft10, players, fetchedAt: WEDNESDAY - 2 * HOUR };
     expect(await store.saveList(list)).toEqual({ status: "saved" });
     const where = { season: 2026, day: "2026-10-07", key: keyOf(redraft10) };
-    expect(redis.ttlMs(fantasyCalcSnapshotKey(P, where))).toBe(snapshotLimits.retainDays * DAY);
-    expect(await redis.smembers(fantasyCalcIndexKey(P, 2026))).toEqual(["2026-10-07/redraft-1qb-10team-ppr0.5"]);
-    expect(redis.ttlMs(fantasyCalcIndexKey(P, 2026))).toBe(snapshotLimits.retainDays * DAY);
+    // The list and its day's index set both go two seasons after 2026-10-07 began (20:05 UTC is 20 h 5 min into the day).
+    const keep = snapshotLimits.retainDays * DAY - (20 * HOUR + 5 * 60_000);
+    expect(dayRetainMs("2026-10-07", WEDNESDAY)).toBe(keep);
+    expect(redis.ttlMs(fantasyCalcSnapshotKey(P, where))).toBe(keep);
+    expect(await redis.smembers(fantasyCalcIndexKey(P, where))).toEqual(["redraft-1qb-10team-ppr0.5"]);
+    expect(redis.ttlMs(fantasyCalcIndexKey(P, where))).toBe(keep);
     const saved = await unpackFantasyCalcSnapshot(Buffer.from((await redis.get(fantasyCalcSnapshotKey(P, where))) as string, "base64"));
     expect("snapshot" in saved && Object.keys(saved.snapshot.players)).toHaveLength(160);
     expect("snapshot" in saved && saved.snapshot.format).toEqual({ isDynasty: false, numQbs: 1, numTeams: 10, ppr: 0.5 });
     expect(await store.saveList({ ...list, fetchedAt: WEDNESDAY })).toEqual({ status: "unchanged" });
     expect(await store.savedDays("2026-10-07")).toEqual(new Map([[keyOf(redraft10), "2026-10-07"]]));
-    // Another day's index entries count only up to the day asked about (and a junk entry never).
-    await redis.saddExpire(fantasyCalcIndexKey(P, 2026), [`2026-10-01/${keyOf(redraft10)}`, `2026-10-02/${keyOf(redraft12)}`, "2026-10-03/junk", "not-an-entry"], DAY);
+    // Other days' sets count only up to the day asked about, and a key that isn't a format never.
+    const day = (d: string) => fantasyCalcIndexKey(P, { season: 2026, day: d });
+    await redis.saddExpire(day("2026-10-01"), [keyOf(redraft10)], DAY);
+    await redis.saddExpire(day("2026-10-02"), [keyOf(redraft12)], DAY);
+    await redis.saddExpire(day("2026-10-03"), ["junk", "2026-10-03/redraft-1qb-10team-ppr0.5"], DAY);
     expect(await store.savedDays("2026-10-06")).toEqual(
       new Map([
         [keyOf(redraft10), "2026-10-01"],
@@ -386,14 +414,55 @@ describe("the shared store (sharedSnapshotStore)", () => {
         [keyOf(redraft12), "2026-10-02"],
       ]),
     );
+    // The turn order looks back snapshotLimits.turnLookbackDays days (one SMEMBERS a day): a list saved before that counts
+    // as never saved, which puts its format first, as its age would.
+    expect(snapshotLimits.turnLookbackDays).toBe(14);
+    await redis.saddExpire(day("2026-09-20"), [keyOf(dynasty12)], DAY);
+    expect((await store.savedDays("2026-10-03")).get(keyOf(dynasty12))).toBe("2026-09-20");
+    expect((await store.savedDays("2026-10-04")).has(keyOf(dynasty12))).toBe(false);
+    const sent = redis.stats.commands;
+    await store.savedDays("2026-10-07");
+    expect(redis.stats.commands - sent).toBe(snapshotLimits.turnLookbackDays);
     expect(await store.saveList({ ...list, fetchedAt: undefined })).toEqual({ status: "skipped", reason: "no fetch time" });
+  });
+
+  it("which formats were in use on a day is kept two seasons from that day, never longer: a later save leaves an earlier day's index alone (review of Phase 7b)", async () => {
+    let now = WEDNESDAY;
+    const redis = new FakeRedis(() => now);
+    const store = sharedSnapshotStore(redis, { env: PROD, clock: () => now });
+    const rare: FantasyCalcFormat = { isDynasty: true, numQbs: 2, numTeams: 14, ppr: 1, tep: "te++", substitutions: [] };
+    const players = [{ fantasyCalcId: "1", sleeperId: "2", espnId: null, position: "WR", value: 10, redraftValue: null }];
+    // A League page build on 2026-10-07 reads a rare format; the cron saves its list that day.
+    await recordFormats(redis, "2026-10-07", [rare]);
+    expect(await store.saveList({ format: rare, players, fetchedAt: WEDNESDAY - HOUR })).toEqual({ status: "saved" });
+    const first = { season: 2026, day: "2026-10-07", key: keyOf(rare) };
+    // Four days later the builds' own record is gone; the archive's list and its day's index remain.
+    now = WEDNESDAY + 4 * DAY;
+    expect(await redis.smembers(formatsInUseKey(P, "2026-10-07"))).toEqual([]);
+    expect(await redis.smembers(fantasyCalcIndexKey(P, first))).toEqual([keyOf(rare)]);
+    // A save late in the same season (2027-02-27) writes its own day's set and doesn't extend 2026-10-07's.
+    now = Date.parse("2027-02-27T20:05:00.000Z");
+    expect(await store.saveList({ format: rare, players, fetchedAt: now - HOUR })).toEqual({ status: "saved" });
+    expect(redis.ttlMs(fantasyCalcIndexKey(P, first))).toBe(Date.parse("2026-10-07T00:00:00.000Z") + snapshotLimits.retainDays * DAY - now);
+    // Two seasons after 2026-10-07 began, everything of that day is gone; the later day's records live on.
+    const ends = Date.parse("2026-10-07T00:00:00.000Z") + snapshotLimits.retainDays * DAY;
+    expect(new Date(ends).toISOString()).toBe("2028-10-06T00:00:00.000Z");
+    now = ends - 1;
+    expect(await redis.smembers(fantasyCalcIndexKey(P, first))).toEqual([keyOf(rare)]);
+    now = ends;
+    expect(await redis.smembers(fantasyCalcIndexKey(P, first))).toEqual([]);
+    expect(await redis.get(fantasyCalcSnapshotKey(P, first))).toBeNull();
+    expect(await redis.smembers(fantasyCalcIndexKey(P, { season: 2026, day: "2027-02-27" }))).toEqual([keyOf(rare)]);
+    expect(dayExpired("2026-10-07", ends)).toBe(true);
+    expect(dayExpired("2026-10-07", ends - 1)).toBe(false);
+    expect(dayExpired("2027-02-27", ends)).toBe(false);
   });
 
   it("a store command that fails or hangs: that save fails, by the error's name, and the run's store sends nothing more (one log line)", async () => {
     const errors = vi.spyOn(console, "error").mockImplementation(() => {});
     const redis = new FakeRedis(() => WEDNESDAY);
     const hanging = Object.assign(Object.create(redis) as FakeRedis, { get: () => new Promise<string | null>(() => {}) });
-    const store = sharedSnapshotStore(hanging, { env: PROD, timeoutMs: 20 });
+    const store = sharedSnapshotStore(hanging, { env: PROD, timeoutMs: 20, clock: () => WEDNESDAY });
     expect(await store.saveWeek(input(WEDNESDAY - HOUR))).toEqual({ status: "failed", error: "TimeoutError" });
     const sent = redis.stats.commands;
     expect(await store.saveWeek(input(WEDNESDAY - HOUR, { week: 6 }))).toEqual({ status: "failed", error: "TimeoutError" });
@@ -436,7 +505,7 @@ describe("runSnapshots on the shared store", () => {
   it("the Wednesday before week 5: weeks 5 and 6 saved, the formats used yesterday or today saved from today's lists; a second run changes nothing and asks only Sleeper's state again", async () => {
     let now = WEDNESDAY;
     const redis = new FakeRedis(() => now);
-    const store = sharedSnapshotStore(redis, { env: PROD });
+    const store = sharedSnapshotStore(redis, { env: PROD, clock: () => now });
     await recordFormats(redis, "2026-10-07", [redraft10, dynasty12]);
     await recordFormats(redis, "2026-10-06", [redraft10, redraft12]);
     const fake = cachingHttp(routes({ formats: [redraft10, redraft12, dynasty12] }), () => now);
@@ -472,7 +541,7 @@ describe("runSnapshots on the shared store", () => {
       fantasyCalcValuesUrl(dynasty12),
     ]);
     expect(redis.keys().filter((k) => k.includes(":snap:")).sort()).toEqual([
-      "os:production:snap:fc-index:2026",
+      "os:production:snap:fc-index:2026:2026-10-07",
       "os:production:snap:fc:2026:2026-10-07:dynasty-2qb-12team-ppr1-teplus",
       "os:production:snap:fc:2026:2026-10-07:redraft-1qb-10team-ppr0.5",
       "os:production:snap:fc:2026:2026-10-07:redraft-1qb-12team-ppr1",
@@ -495,7 +564,7 @@ describe("runSnapshots on the shared store", () => {
     const now = Date.parse("2026-10-09T20:10:00Z");
     const redis = new FakeRedis(() => now);
     const fake = cachingHttp(routes({ at: now - HOUR }), () => now);
-    const run = done(await runSnapshots({ http: fake.http, store: sharedSnapshotStore(redis, { env: PROD }), now: new Date(now) }));
+    const run = done(await runSnapshots({ http: fake.http, store: sharedSnapshotStore(redis, { env: PROD, clock: () => now }), now: new Date(now) }));
     expect(run.projections.weeks.map((w) => [w.week, w.status, w.reason])).toEqual([
       [5, "not fetched", "kicked off"],
       [6, "saved", undefined],
@@ -504,12 +573,12 @@ describe("runSnapshots on the shared store", () => {
     expect(await redis.get(projectionSnapshotKey(P, 2026, 5))).toBeNull();
 
     const post = cachingHttp(routes({ seasonType: "post" }), () => now);
-    const off = done(await runSnapshots({ http: post.http, store: sharedSnapshotStore(new FakeRedis(() => now), { env: PROD }), now: new Date(now) }));
+    const off = done(await runSnapshots({ http: post.http, store: sharedSnapshotStore(new FakeRedis(() => now), { env: PROD, clock: () => now }), now: new Date(now) }));
     expect(off.projections).toEqual({ skipped: "not in season", season: 2026, seasonType: "post", weeks: [], warnings: [] });
     expect(post.live).toEqual([sleeperUrls.state()]);
 
     const noState = cachingHttp({}, () => now);
-    const none = done(await runSnapshots({ http: noState.http, store: sharedSnapshotStore(new FakeRedis(() => now), { env: PROD }), now: new Date(now) }));
+    const none = done(await runSnapshots({ http: noState.http, store: sharedSnapshotStore(new FakeRedis(() => now), { env: PROD, clock: () => now }), now: new Date(now) }));
     expect(none.projections).toEqual({ skipped: "sleeper state unavailable", weeks: [], warnings: [] });
   });
 
@@ -518,7 +587,7 @@ describe("runSnapshots on the shared store", () => {
     const all = routes();
     delete all[nflScheduleUrl(2026)];
     const fake = cachingHttp(all, () => now);
-    const run = done(await runSnapshots({ http: fake.http, store: sharedSnapshotStore(new FakeRedis(() => now), { env: PROD }), now: new Date(now) }));
+    const run = done(await runSnapshots({ http: fake.http, store: sharedSnapshotStore(new FakeRedis(() => now), { env: PROD, clock: () => now }), now: new Date(now) }));
     expect(run.projections.warnings).toEqual(["NFL_SCHEDULE_UNAVAILABLE"]);
     expect(run.projections.weeks.map((w) => [w.week, w.status, w.reason])).toEqual([
       [5, "not fetched", "kickoff unknown"],
@@ -531,7 +600,7 @@ describe("runSnapshots on the shared store", () => {
     const redis = new FakeRedis(() => now);
     await recordFormats(redis, "2026-10-07", [redraft10]);
     const fake = cachingHttp(routes({ formats: [redraft10] }), () => now, { down: (u) => u.includes("/projections/") });
-    const run = done(await runSnapshots({ http: fake.http, store: sharedSnapshotStore(redis, { env: PROD }), now: new Date(now) }));
+    const run = done(await runSnapshots({ http: fake.http, store: sharedSnapshotStore(redis, { env: PROD, clock: () => now }), now: new Date(now) }));
     expect(run.projections.weeks.map((w) => [w.week, w.status, w.reason])).toEqual([
       [5, "not fetched", "projections unavailable"],
       [6, "not fetched", "projections unavailable"],
@@ -544,7 +613,7 @@ describe("runSnapshots on the shared store", () => {
     const now = WEDNESDAY;
     let clock = now;
     const redis = new FakeRedis(() => clock);
-    const store = sharedSnapshotStore(redis, { env: PROD });
+    const store = sharedSnapshotStore(redis, { env: PROD, clock: () => clock });
     const formats: FantasyCalcFormat[] = [];
     for (const numTeams of FANTASYCALC_TEAM_SIZES) for (const ppr of [0, 0.5, 1] as const) for (const numQbs of [1, 2] as const) if (formats.length < 14) formats.push({ isDynasty: false, numQbs, numTeams, ppr, substitutions: [] });
     await recordFormats(redis, "2026-10-07", formats);
@@ -581,7 +650,7 @@ describe("runSnapshots on the shared store", () => {
   it("FantasyCalc down: a saved copy from another day isn't saved as today's list, and the next run tries again", async () => {
     let now = WEDNESDAY;
     const redis = new FakeRedis(() => now);
-    const store = sharedSnapshotStore(redis, { env: PROD });
+    const store = sharedSnapshotStore(redis, { env: PROD, clock: () => now });
     await recordFormats(redis, "2026-10-07", [redraft10]);
     let down = true;
     const fake = cachingHttp(routes({ formats: [redraft10] }), () => now, { down: (u) => down && u.includes("fantasycalc") });
@@ -601,7 +670,7 @@ describe("runSnapshots on the shared store", () => {
     await recordFormats(redis, "2026-10-07", [redraft10, redraft12]);
     const fake = cachingHttp(routes({ formats: [redraft10, redraft12] }), () => now);
     const scope = newRequestScope("cron", Date.now(), snapshotLimits.listMinTimeLeftMs - 1_000);
-    const run = done(await runInRequestScope(scope, () => runSnapshots({ http: fake.http, store: sharedSnapshotStore(redis, { env: PROD }), now: new Date(now) })));
+    const run = done(await runInRequestScope(scope, () => runSnapshots({ http: fake.http, store: sharedSnapshotStore(redis, { env: PROD, clock: () => now }), now: new Date(now) })));
     expect(run.fantasyCalc).toMatchObject({ inUse: 2, lists: [], outOfTime: 2 });
     expect(fake.live.filter((u) => u.includes("fantasycalc"))).toEqual([]);
   });
@@ -611,7 +680,7 @@ describe("runSnapshots on the shared store", () => {
     const redis = new FakeRedis(() => now);
     await redis.set(snapshotLockKey(P), "someone else", { px: snapshotLimits.lockMs });
     const fake = cachingHttp(routes(), () => now);
-    expect(await runSnapshots({ http: fake.http, store: sharedSnapshotStore(redis, { env: PROD }), now: new Date(now) })).toEqual({ status: "locked", store: "shared" });
+    expect(await runSnapshots({ http: fake.http, store: sharedSnapshotStore(redis, { env: PROD, clock: () => now }), now: new Date(now) })).toEqual({ status: "locked", store: "shared" });
     expect(fake.live).toEqual([]);
     expect(redis.keys()).toEqual([snapshotLockKey(P)]);
   });

@@ -27,8 +27,9 @@
  *    snapshotLimits.fantasyCalcFormatsPerDay a UTC day counting those already saved today (so a duplicate run looks only at
  *    what the first one left), with the fields the local archive keeps (src/server/fantasyCalcArchive.ts). Past the cap the
  *    formats take turns (formatsToSave; review of Checkpoint 7b's server work: an order by key left the same formats out
- *    every day): the ones never saved this season first, then the ones whose newest saved list is oldest, so a format in
- *    steady use is saved again within about (formats in use ÷ the cap) days; the run's answer names the ones left out
+ *    every day): the ones with no list saved in the last snapshotLimits.turnLookbackDays days first (as never saved), then
+ *    the ones whose newest saved list is oldest, so a format in steady use is saved again within about (formats in use ÷ the
+ *    cap) days; the run's answer names the ones left out
  *    (overCapFormats) and the log says the cap was reached ("snapshot_over_cap"). A list is today's when FantasyCalc served
  *    it on the run's UTC day: a copy the cache holds from today costs no request (todaysList reads the cache alone first);
  *    otherwise the model build's loader asks FantasyCalc, at most once every 3 hours a format (TTL.fantasyCalc: FantasyCalc's
@@ -41,11 +42,15 @@
  *   fc-formats:<YYYY-MM-DD>                   the formats League page builds read that UTC day (a set of format keys)
  *   snap:proj:<season>:<week>                 a week's record (projectionArchive.ts ProjectionSnapshot)
  *   snap:fc:<season>:<YYYY-MM-DD>:<format>    a format's list of that day (fantasyCalcArchive.ts FantasyCalcSnapshot)
- *   snap:fc-index:<season>                    the lists saved for that season, "<YYYY-MM-DD>/<format>" (a set; snapshot:pull,
+ *   snap:fc-index:<season>:<YYYY-MM-DD>       the formats whose list of that day was saved (a set of format keys; snapshot:pull,
  *                                             and the run's turn order: each format's newest saved day)
  * each record stored as the base64 of its local file's bytes (the gzip of its JSON: packProjectionSnapshot,
- * packFantasyCalcSnapshot), each write setting its expiry to snapshotLimits.retainDays (two seasons). The storage arithmetic
- * is in src/server/limits.ts snapshotLimits. Anywhere else, the local archives in data-local/ (projectionArchive.ts,
+ * packFantasyCalcSnapshot). A week of projections is kept snapshotLimits.retainDays (two seasons) after its last write; a
+ * day's lists and its index set until retainDays after that UTC day began (dayRetainMs), whatever the time of the save, so
+ * the archive's record of which formats were in use on a day goes two seasons after that day. Review of Phase 7b: the index
+ * was one set a season, its expiry set again by every save, so a day's entries outlived its lists by up to a season (about
+ * 3 years in all, past the privacy page's "up to 2 seasons"); a set per day expires with its own lists. The storage
+ * arithmetic is in src/server/limits.ts snapshotLimits. Anywhere else, the local archives in data-local/ (projectionArchive.ts,
  * fantasyCalcArchive.ts) where they're on (`next dev`, the stable copy): `next dev` with CRON_SECRET in its own environment
  * runs the route end to end, the formats in use being those the local FantasyCalc archive holds for yesterday or today
  * (every local build files the lists it read), and the lock this process's. `npm run snapshot:pull -- --live`
@@ -129,27 +134,16 @@ export function fantasyCalcSnapshotKey(prefix: string, at: FantasyCalcSnapshotLo
   return `${prefix}snap:fc:${at.season}:${at.day}:${at.key}`;
 }
 
-/** The lists saved for a season (a set of fantasyCalcIndexEntry). */
-export function fantasyCalcIndexKey(prefix: string, season: number): string {
-  return `${prefix}snap:fc-index:${season}`;
+/**
+ * A UTC day's index: the format keys whose list of that day was saved (a set, kept as long as the day's lists: dayRetainMs).
+ * One set a day, not a season (the header: review of Phase 7b), so each entry goes with its own day's lists.
+ */
+export function fantasyCalcIndexKey(prefix: string, at: Pick<FantasyCalcSnapshotLocation, "season" | "day">): string {
+  return `${prefix}snap:fc-index:${at.season}:${at.day}`;
 }
 
-/** A list's entry in its season's index: "<YYYY-MM-DD>/<format key>". */
-export function fantasyCalcIndexEntry(at: Pick<FantasyCalcSnapshotLocation, "day" | "key">): string {
-  return `${at.day}/${at.key}`;
-}
-
-/** "YYYY-MM-DD" (a calendar day's shape; parseIndexEntry and the local folders check it). */
+/** "YYYY-MM-DD" (a calendar day's shape; the index's days and the local folders check it). */
 export const DAY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
-
-/** An index entry back to its day and format key, or null for anything else (a valid format key only). */
-export function parseIndexEntry(entry: string): { day: string; key: string } | null {
-  const slash = entry.indexOf("/");
-  if (slash < 0) return null;
-  const day = entry.slice(0, slash);
-  const key = entry.slice(slash + 1);
-  return DAY_PATTERN.test(day) && parseFormatKey(key) !== null ? { day, key } : null;
-}
 
 /** The UTC day of an epoch-ms time: "2026-10-05". */
 export function utcDay(ms: number): string {
@@ -159,6 +153,46 @@ export function utcDay(ms: number): string {
 /** The NFL season a UTC day falls in (src/lib/season.ts defaultSeason: the calendar year, or last year in January and February). */
 export function seasonOfDay(day: string): number {
   return defaultSeason(new Date(`${day}T12:00:00.000Z`));
+}
+
+/** The UTC days from `from` through `to` ("YYYY-MM-DD" each), oldest first; none when `from` is later or either isn't a day. */
+export function daysFromTo(from: string, to: string): string[] {
+  const start = Date.parse(`${from}T00:00:00.000Z`);
+  const end = Date.parse(`${to}T00:00:00.000Z`);
+  if (!DAY_PATTERN.test(from) || !DAY_PATTERN.test(to) || !Number.isFinite(start) || !Number.isFinite(end)) return [];
+  const out: string[] = [];
+  for (let t = start; t <= end; t += DAY_MS) out.push(utcDay(t));
+  return out;
+}
+
+/**
+ * How long, from `now`, a day's FantasyCalc records are kept (ms, at least 1): its lists and its index set both go
+ * snapshotLimits.retainDays after that UTC day began, whatever the time of the save (the header), so the archive's record of
+ * which formats were in use on a day lasts two seasons from that day and no longer (review of Phase 7b).
+ */
+export function dayRetainMs(day: string, now: number): number {
+  const ends = Date.parse(`${day}T00:00:00.000Z`) + snapshotLimits.retainDays * DAY_MS;
+  return Number.isFinite(ends) ? Math.max(1, ends - now) : 1;
+}
+
+/** Whether a day's FantasyCalc records are past their retention at `now` (dayRetainMs; snapshot:pull prunes its local copies by it). */
+export function dayExpired(day: string, now: number): boolean {
+  const ends = Date.parse(`${day}T00:00:00.000Z`) + snapshotLimits.retainDays * DAY_MS;
+  return Number.isFinite(ends) && ends <= now;
+}
+
+/**
+ * The days the turn order reads the index of (SnapshotStore.savedDays): `day` and the snapshotLimits.turnLookbackDays − 1
+ * before it, in `day`'s season only, newest first.
+ */
+export function turnDays(day: string): string[] {
+  if (!DAY_PATTERN.test(day)) return [];
+  const span = Math.max(1, Math.floor(snapshotLimits.turnLookbackDays));
+  const first = utcDay(Date.parse(`${day}T00:00:00.000Z`) - (span - 1) * DAY_MS);
+  const season = seasonOfDay(day);
+  return daysFromTo(first, day)
+    .filter((d) => seasonOfDay(d) === season)
+    .reverse();
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -193,12 +227,13 @@ export function parseFormatKey(key: string): FantasyCalcFormat | null {
  * The order the formats in use (used today or yesterday; valid keys only) are saved in (pure; the header's step 3), so that
  * past the day's cap they take turns instead of the same ones always being left out (review of Checkpoint 7b's server
  * work: by key, every dynasty format came before every redraft one, and the same redraft formats were never saved):
- * 1. the ones never saved this season (no day in `newestSaved`), then the one whose newest saved list is oldest;
+ * 1. the ones never saved (no day in `newestSaved`), then the one whose newest saved list is oldest;
  * 2. redraft lists before dynasty ones (⚠️ ours, the review's suggestion: the market blend reads a redraft list in every
  *    league type, so Phase 6's backtest of it needs them most);
  * 3. used both days, then today only, then yesterday only;
  * 4. the key.
- * `newestSaved`: format key → the newest day its list was saved this season (SnapshotStore.savedDays).
+ * `newestSaved`: format key → the newest day its list was saved (SnapshotStore.savedDays: the shared store looks back
+ * snapshotLimits.turnLookbackDays days, the local archives over the season).
  */
 export function formatsToSave(today: readonly string[], yesterday: readonly string[], newestSaved: ReadonlyMap<string, string> = new Map()): string[] {
   const valid = (keys: readonly string[]) => new Set(keys.filter((k) => parseFormatKey(k) !== null));
@@ -290,7 +325,8 @@ export interface SnapshotStore {
   formatsUsed(day: string): Promise<string[]>;
   /**
    * The format keys with a list saved in `day`'s NFL season, each with the newest day one was saved, up to `day` (so a key
-   * whose day is `day` is saved already today); formatsToSave takes turns by it.
+   * whose day is `day` is saved already today); formatsToSave takes turns by it. The shared store looks back
+   * snapshotLimits.turnLookbackDays days only (turnDays: one SMEMBERS a day), the local archives over the season.
    */
   savedDays(day: string): Promise<Map<string, string>>;
   /** Saves a fetched week by the archive's merge rule. Never rejects. */
@@ -301,15 +337,17 @@ export interface SnapshotStore {
 
 /**
  * The shared store (see the header's keys): one GET and, when the merge rule changes something, one SET a week; one SET NX
- * and one index transaction (SADD and PEXPIRE) a list; each command waits at most `timeoutMs` (snapshotLimits.redisTimeoutMs).
- * After a command fails or times out, every later command of this store (one run's) fails at once with the same error's
- * name, without being sent: a slow or failing Upstash costs a run one timeout, not one per command (which could outlast the
- * route's maxDuration); tomorrow's run does what this one couldn't.
+ * and one index transaction (SADD and PEXPIRE) a list, both expiring retainDays after the list's day began (dayRetainMs, by
+ * `clock`: the run's time); one SMEMBERS a day the turn order reads (turnDays); each command waits at most `timeoutMs`
+ * (snapshotLimits.redisTimeoutMs). After a command fails or times out, every later command of this store (one run's) fails
+ * at once with the same error's name, without being sent: a slow or failing Upstash costs a run one timeout, not one per
+ * command (which could outlast the route's maxDuration); tomorrow's run does what this one couldn't.
  */
-export function sharedSnapshotStore(redis: RedisLike, opts: { env?: Env; timeoutMs?: number } = {}): SnapshotStore {
+export function sharedSnapshotStore(redis: RedisLike, opts: { env?: Env; timeoutMs?: number; clock?: () => number } = {}): SnapshotStore {
   const prefix = keyPrefix(opts.env ?? process.env);
   const timeoutMs = opts.timeoutMs ?? snapshotLimits.redisTimeoutMs;
   const retainMs = snapshotLimits.retainDays * DAY_MS;
+  const clock = opts.clock ?? Date.now;
   /** The first failure's name: once set, nothing more is sent (see above). */
   let broken: string | null = null;
   const call = async <T>(command: () => Promise<T>): Promise<T> => {
@@ -347,7 +385,12 @@ export function sharedSnapshotStore(redis: RedisLike, opts: { env?: Env; timeout
     },
     formatsUsed: (day) => call(() => redis.smembers(formatsInUseKey(prefix, day))),
     async savedDays(day) {
-      return newestDays((await call(() => redis.smembers(fantasyCalcIndexKey(prefix, seasonOfDay(day))))).map(parseIndexEntry), day);
+      const entries: Array<{ day: string; key: string }> = [];
+      for (const d of turnDays(day)) {
+        const keys = await call(() => redis.smembers(fantasyCalcIndexKey(prefix, { season: seasonOfDay(d), day: d })));
+        for (const key of keys) if (parseFormatKey(key) !== null) entries.push({ day: d, key });
+      }
+      return newestDays(entries, day);
     },
     async saveWeek(input) {
       try {
@@ -379,9 +422,11 @@ export function sharedSnapshotStore(redis: RedisLike, opts: { env?: Env; timeout
         if ("skipped" in built) return { status: "skipped", reason: built.skipped };
         const value = (await packFantasyCalcSnapshot(built.record)).toString("base64");
         if (value.length > snapshotLimits.maxValueChars) return { status: "failed", error: "TooLarge" };
-        const set = await call(() => redis.set(fantasyCalcSnapshotKey(prefix, built.location), value, { nx: true, px: retainMs }));
+        // The list and its day's index go together, retainDays after the list's day began (the header).
+        const keepMs = dayRetainMs(built.location.day, clock());
+        const set = await call(() => redis.set(fantasyCalcSnapshotKey(prefix, built.location), value, { nx: true, px: keepMs }));
         // Indexed either way (idempotent), so a list whose entry an interrupted run left out is found again.
-        await call(() => redis.saddExpire(fantasyCalcIndexKey(prefix, built.location.season), [fantasyCalcIndexEntry(built.location)], retainMs));
+        await call(() => redis.saddExpire(fantasyCalcIndexKey(prefix, built.location), [built.location.key], keepMs));
         return set === "OK" ? { status: "saved" } : { status: "unchanged" };
       } catch (err) {
         return failed(err);
@@ -390,11 +435,11 @@ export function sharedSnapshotStore(redis: RedisLike, opts: { env?: Env; timeout
   };
 }
 
-/** Format key → the newest day among `entries` (index entries, or null for unreadable ones) on or before `upTo` (SnapshotStore.savedDays). */
-function newestDays(entries: Iterable<{ day: string; key: string } | null>, upTo: string): Map<string, string> {
+/** Format key → the newest day among `entries` (a day and a format key each) on or before `upTo` (SnapshotStore.savedDays). */
+function newestDays(entries: Iterable<{ day: string; key: string }>, upTo: string): Map<string, string> {
   const out = new Map<string, string>();
   for (const e of entries) {
-    if (!e || e.day > upTo) continue;
+    if (e.day > upTo) continue;
     const seen = out.get(e.key);
     if (seen === undefined || e.day > seen) out.set(e.key, e.day);
   }

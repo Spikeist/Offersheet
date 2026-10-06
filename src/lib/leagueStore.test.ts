@@ -1064,6 +1064,33 @@ describe("model responses (the League page's POST /api/model/…)", () => {
     expect(await client.keepModelResponse(idA, { response: reply(T1), savedAt: "2026-10-04T12:00:00.000Z" })).toEqual({ importSaved: false, modelSaved: false });
     expect(await rowsOf(b.factory as IDBFactory, "models")).toEqual([]);
   });
+
+  it("keepImport: a newer import without its numbers (the model route BUSY after the League page read the league again) replaces the import by the same rule, the stored numbers left alone (review of Phase 7b)", async () => {
+    const b = newBrowser();
+    const { client } = b.tab();
+    const stored = imported(A);
+    await client.saveImport({ request: stored.request, response: stored.response, savedAt: stored.savedAt });
+    await client.saveMyTeam(idA, "2");
+    expect(await client.keepModelResponse(idA, { response: reply(A.fetchedAt), savedAt: "2026-10-04T12:00:00.000Z" })).toEqual({ importSaved: false, modelSaved: true });
+    const fresh = { ...reply(T1).import, signed: { issuedAt: 2, token: "made-up" } };
+    expect(await client.keepImport(idA, { response: fresh, savedAt: "2026-10-04T12:05:00.000Z" })).toEqual({ importSaved: true });
+    expect(currentLeagueRead(client.getState())).toMatchObject({
+      kind: "ok",
+      stored: { request: stored.request, savedAt: "2026-10-04T12:05:00.000Z", response: { snapshot: { fetchedAt: T1 }, signed: { issuedAt: 2, token: "made-up" } } },
+      pick: { teamId: "2" },
+    });
+    // The numbers stored for the older data stay as they were (the page doesn't reuse them for the newer import).
+    expect(client.getState().models.get(idA)?.snapshotFetchedAt).toBe(A.fetchedAt);
+    // Stored on disk, for the next page too.
+    const rows = (await rowsOf(b.factory as IDBFactory, "imports")) as Array<{ id: string; stored: { response: { snapshot: { fetchedAt: string } } } }>;
+    expect(rows.map((r) => [r.id, r.stored.response.snapshot.fetchedAt])).toEqual([[idA, T1]]);
+    // The same data again, older data, another league's, or a league no longer saved: nothing.
+    expect(await client.keepImport(idA, { response: fresh, savedAt: "2026-10-04T12:06:00.000Z" })).toEqual({ importSaved: false });
+    expect(await client.keepImport(idA, { response: reply(A.fetchedAt).import, savedAt: "2026-10-04T12:06:00.000Z" })).toEqual({ importSaved: false });
+    expect(await client.keepImport(idA, { response: reply("2026-10-04T11:30:00.000Z", { leagueId: "999" }).import, savedAt: "2026-10-04T12:06:00.000Z" })).toEqual({ importSaved: false });
+    await client.removeLeague(idA);
+    expect(await client.keepImport(idA, { response: reply("2026-10-04T11:30:00.000Z").import, savedAt: "2026-10-04T12:06:00.000Z" })).toEqual({ importSaved: false });
+  });
 });
 
 describe("a browser that refuses or lacks storage", () => {

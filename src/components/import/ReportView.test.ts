@@ -205,6 +205,15 @@ describe("ReportView", () => {
       const details = technical(html);
       expect(details).toMatch(/^<details id="technical-details" class="[^"]*"><summary[^>]*>Technical details \(for bug reports\)/);
       expect(details).not.toMatch(/<details[^>]* open/);
+      // Its own heading (visually hidden), first in its body, so its sections' h3s nest under it, not under the card above
+      // ("Where this came from"; review of Phase 7b). No other h2 in the details.
+      expect(details).toMatch(/<\/summary><div[^>]*><h2 class="sr-only">Technical details \(for bug reports\)<\/h2>/);
+      expect(details.match(/<h2/g)).toHaveLength(1);
+      const outline = [...html.matchAll(/<h([1-6])[^>]*>([^<]*)</g)].map(([, level, words]) => `h${level} ${words}`);
+      const at = outline.indexOf("h2 Technical details (for bug reports)");
+      expect(at).toBeGreaterThan(outline.indexOf("h2 Where this came from"));
+      expect(outline.slice(at + 1).every((h) => h.startsWith("h3 "))).toBe(true);
+      expect(outline.slice(at + 1).length).toBeGreaterThan(0);
       expect(details).toContain("ESPN_SCORING_UNMAPPED · settings.scoringSettings.scoringItems[4] (statId 209)");
       expect(details).toContain("ESPN_PLAYER_MATCHED_BY_NAME · player.id");
       expect(details).toContain("Trades rebuilt from the rosters: …");

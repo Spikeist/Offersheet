@@ -11,26 +11,34 @@
  *   UPSTASH_REDIS_REST_TOKEN) and SESSION_SECRET (src/server/redis.ts gives no client without it), typed in by hand as for
  *   `npm run beta:log`; it says only whether each is set, never a value. Having them there never switches the app itself to
  *   Upstash (Vercel only).
- * - Read-only: for each season the store can still hold (this one and the two before: it keeps two seasons), one MGET of
- *   the 18 weeks' projection records and one SMEMBERS of the FantasyCalc index, then one MGET for each PULL_BATCH lists not
- *   on disk yet. Every record is checked before it's written: it unpacks, has the local archive's shape and version, and is
- *   what its key says (season, week; format, day). One that isn't is counted, never written.
+ * - Read-only in the store: for each season the store can still hold (this one and the two before: it keeps two seasons),
+ *   one MGET of the 18 weeks' projection records and one SMEMBERS of each day's FantasyCalc index the store can still hold
+ *   (the season's days of the last snapshotLimits.retainDays: pullDays; PULL_DAY_BATCH at a time), then one MGET for each
+ *   PULL_BATCH lists not on disk yet. Every record is checked before it's written: it unpacks, has the local archive's shape
+ *   and version, and is what its key says (season, week; format, day). One that isn't is counted, never written.
  * - Writes the local archives' own files (git-ignored data-local/, or OFFERSHEET_DATA_LOCAL's folder when it's set, as the
  *   stable copy's): data-local/projection-snapshots/<season>/week-WW.json.gz, merged with a file already there
  *   (src/server/projectionArchive.ts mergeProjectionSnapshots: each position's later pre-kickoff fetch wins), and
  *   data-local/fantasycalc-snapshots/<season>/<YYYY-MM-DD>/<format>.json.gz, never replacing a day's file already there
  *   (the archive keeps a day's first copy; either is that day's list). A file in another format version is left alone.
  *   Running it again writes only what's new.
+ * - Deletes, on every run, the local FantasyCalc lists of days past the store's own rule (src/server/snapshots.ts
+ *   dayExpired: retainDays after the day began; pruneLocalLists), so the copies it made keep the privacy page's "up to 2
+ *   seasons": which formats were in use on a day is kept no longer here than in the store (review of Phase 7b). Lists this
+ *   computer's own League page builds filed (src/server/fantasyCalcArchive.ts) share those folders and go by the same rule.
+ *   Sleeper's projections come from no one's use and are kept.
  * - Prints counts, seasons, weeks and days only: the data is public (Sleeper's projections, FantasyCalc's values).
  */
 import { existsSync } from "node:fs";
+import { readdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { LAST_NFL_WEEK } from "@/adapters/sleeper/normalize";
 import { defaultSeason } from "@/lib/season";
 import { fantasyCalcArchiveRoot, fantasyCalcFormatKey, fantasyCalcSnapshotFile, readStoredFantasyCalcFile, unpackFantasyCalcSnapshot, writeFantasyCalcSnapshotFile, type FantasyCalcSnapshot } from "@/server/fantasyCalcArchive";
+import { snapshotLimits } from "@/server/limits";
 import { mergeProjectionSnapshots, projectionArchiveRoot, projectionSnapshotFile, readStoredProjectionFile, unpackProjectionSnapshot, writeProjectionSnapshotFile, type ProjectionSnapshot } from "@/server/projectionArchive";
 import { REDIS_OPT_IN_ENV, getRedis, keyPrefix, type RedisLike } from "@/server/redis";
-import { fantasyCalcIndexKey, fantasyCalcSnapshotKey, parseIndexEntry, projectionSnapshotKey, seasonOfDay, utcDay } from "@/server/snapshots";
+import { DAY_PATTERN, dayExpired, daysFromTo, fantasyCalcIndexKey, fantasyCalcSnapshotKey, parseFormatKey, projectionSnapshotKey, seasonOfDay, utcDay } from "@/server/snapshots";
 import { flagValue, isMainModule, requireLive } from "./lib/runMode";
 
 export const PULL_ENVS = ["production", "preview"] as const;
@@ -38,6 +46,11 @@ export type PullEnv = (typeof PULL_ENVS)[number];
 
 /** Lists asked for in one MGET (each about 6–12 KB stored). */
 export const PULL_BATCH = 50;
+
+/** Days' indexes asked for at once (one SMEMBERS each: a season is up to 366 of them). */
+export const PULL_DAY_BATCH = 10;
+
+const DAY_MS = 24 * 60 * 60_000;
 
 /** The command line (see the header), or what's wrong with it. */
 export function snapshotPullArgs(argv: readonly string[]): { env: PullEnv } | { error: string } {
@@ -58,6 +71,14 @@ export function snapshotPullArgs(argv: readonly string[]): { env: PullEnv } | { 
 export function pullSeasons(now: number): number[] {
   const season = defaultSeason(new Date(now));
   return [season - 2, season - 1, season];
+}
+
+/**
+ * The days of `season` whose FantasyCalc index the store can still hold at `now`, oldest first: those of the last
+ * snapshotLimits.retainDays days (a day's index goes retainDays after the day began: src/server/snapshots.ts dayRetainMs).
+ */
+export function pullDays(season: number, now: number): string[] {
+  return daysFromTo(utcDay(now - snapshotLimits.retainDays * DAY_MS), utcDay(now)).filter((d) => seasonOfDay(d) === season && !dayExpired(d, now));
 }
 
 /** Where the files go: the local archives' folders (default: data-local/ as the app's archives choose it). */
@@ -91,8 +112,8 @@ export async function listRecordOf(text: string, season: number, entry: { day: s
   return ok ? s : "invalid";
 }
 
-/** One season's records copied into the local archives (see the header). */
-export async function pullSeason(redis: Pick<RedisLike, "mget" | "smembers">, prefix: string, season: number, roots: PullRoots): Promise<SeasonPull> {
+/** One season's records copied into the local archives (see the header); `now` decides which days' indexes are read (pullDays). */
+export async function pullSeason(redis: Pick<RedisLike, "mget" | "smembers">, prefix: string, season: number, roots: PullRoots, now: number): Promise<SeasonPull> {
   const out: SeasonPull = {
     season,
     projections: { inStore: 0, written: [], current: 0, invalid: 0, otherVersion: 0 },
@@ -126,10 +147,18 @@ export async function pullSeason(redis: Pick<RedisLike, "mget" | "smembers">, pr
     out.projections.written.push(week);
   }
 
-  const entries = (await redis.smembers(fantasyCalcIndexKey(prefix, season)))
-    .map(parseIndexEntry)
-    .filter((e): e is { day: string; key: string } => e !== null && seasonOfDay(e.day) === season)
-    .sort((a, b) => a.day.localeCompare(b.day) || a.key.localeCompare(b.key));
+  // Each day's index (src/server/snapshots.ts: one set a day of the format keys saved that day), a few days at a time.
+  const days = pullDays(season, now);
+  const entries: Array<{ day: string; key: string }> = [];
+  for (let i = 0; i < days.length; i += PULL_DAY_BATCH) {
+    const batch = days.slice(i, i + PULL_DAY_BATCH);
+    const sets = await Promise.all(batch.map((day) => redis.smembers(fantasyCalcIndexKey(prefix, { season, day }))));
+    for (const [j, keys] of sets.entries()) {
+      const day = batch[j] as string;
+      for (const key of keys) if (parseFormatKey(key) !== null) entries.push({ day, key });
+    }
+  }
+  entries.sort((a, b) => a.day.localeCompare(b.day) || a.key.localeCompare(b.key));
   out.fantasyCalc.indexed = entries.length;
   const missing = entries.filter((e) => {
     const here = existsSync(fantasyCalcSnapshotFile(roots.fantasyCalc, { season, ...e }));
@@ -142,7 +171,7 @@ export async function pullSeason(redis: Pick<RedisLike, "mget" | "smembers">, pr
     for (const [j, text] of values.entries()) {
       const entry = batch[j] as { day: string; key: string };
       if (text === null) {
-        out.fantasyCalc.gone++; // expired (the index outlives its oldest lists)
+        out.fantasyCalc.gone++; // expired since its index was read (a day's lists and index go together: dayRetainMs)
         continue;
       }
       const record = await listRecordOf(text, season, entry);
@@ -167,10 +196,54 @@ export async function pullSeason(redis: Pick<RedisLike, "mget" | "smembers">, pr
   return out;
 }
 
+/** What pruneLocalLists deleted: day folders, and the lists in them. */
+export interface LocalPrune {
+  days: number;
+  lists: number;
+}
+
+/**
+ * Deletes the local FantasyCalc lists of every day past the store's own rule (src/server/snapshots.ts dayExpired: retainDays
+ * after the day began; the header), one day folder at a time under `<root>/<season>/<YYYY-MM-DD>/`. Nothing else is
+ * touched: another name in the folders is left alone, and a folder that can't be read is skipped.
+ */
+export async function pruneLocalLists(root: string, now: number): Promise<LocalPrune> {
+  const out: LocalPrune = { days: 0, lists: 0 };
+  let seasons: string[];
+  try {
+    seasons = await readdir(root);
+  } catch {
+    return out; // no archive here yet
+  }
+  for (const season of seasons) {
+    if (!/^\d{4}$/.test(season)) continue;
+    let days: string[];
+    try {
+      days = await readdir(path.join(root, season));
+    } catch {
+      continue; // not a folder
+    }
+    for (const day of days) {
+      if (!DAY_PATTERN.test(day) || !dayExpired(day, now)) continue;
+      const dir = path.join(root, season, day);
+      let files: string[];
+      try {
+        files = await readdir(dir);
+      } catch {
+        continue; // not a folder
+      }
+      await rm(dir, { recursive: true, force: true });
+      out.days++;
+      out.lists += files.filter((f) => f.endsWith(".json.gz")).length;
+    }
+  }
+  return out;
+}
+
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
-/** The report (pure): counts, weeks and where the files went. */
-export function formatSnapshotPull(env: PullEnv, seasons: readonly SeasonPull[], roots: PullRoots, root: string): string {
+/** The report (pure): counts, weeks and where the files went, and the local lists pruned (pruneLocalLists) when there were any. */
+export function formatSnapshotPull(env: PullEnv, seasons: readonly SeasonPull[], roots: PullRoots, root: string, pruned: LocalPrune = { days: 0, lists: 0 }): string {
   const rel = (p: string) => (path.relative(root, p) || ".").split(path.sep).join("/");
   const lines = [`Offer Sheet snapshot archive: ${env}'s store, seasons ${seasons.map((s) => s.season).join(", ")}.`];
   for (const s of seasons) {
@@ -198,6 +271,9 @@ export function formatSnapshotPull(env: PullEnv, seasons: readonly SeasonPull[],
     lines.push(`  ${s.season}: projections: ${proj.join(", ")}.`, `  ${s.season}: FantasyCalc: ${lists.join(", ")}.`);
   }
   lines.push(`Files: ${rel(roots.projections)}/<season>/week-WW.json.gz and ${rel(roots.fantasyCalc)}/<season>/<day>/<format>.json.gz (git-ignored).`);
+  if (pruned.days > 0) {
+    lines.push(`Deleted ${plural(pruned.lists, "local FantasyCalc list")} of ${plural(pruned.days, "day")} more than ${snapshotLimits.retainDays} days ago, as the store deletes them.`);
+  }
   return lines.join("\n");
 }
 
@@ -224,9 +300,12 @@ async function main(): Promise<void> {
   process.chdir(ROOT);
   const roots: PullRoots = { projections: projectionArchiveRoot(), fantasyCalc: fantasyCalcArchiveRoot() };
   const prefix = keyPrefix({ VERCEL_ENV: args.env });
+  const now = Date.now();
+  // The store's own retention for the local copies first (the header), then what's new.
+  const pruned = await pruneLocalLists(roots.fantasyCalc, now);
   const seasons: SeasonPull[] = [];
-  for (const season of pullSeasons(Date.now())) seasons.push(await pullSeason(redis, prefix, season, roots));
-  console.log(formatSnapshotPull(args.env, seasons, roots, ROOT));
+  for (const season of pullSeasons(now)) seasons.push(await pullSeason(redis, prefix, season, roots, now));
+  console.log(formatSnapshotPull(args.env, seasons, roots, ROOT, pruned));
 }
 
 if (isMainModule(import.meta.url)) {

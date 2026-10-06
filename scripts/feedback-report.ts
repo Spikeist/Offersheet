@@ -13,7 +13,7 @@
  *   UPSTASH_REDIS_REST_TOKEN) and SESSION_SECRET, typed in by hand as for `npm run beta:log`; it says only whether each is
  *   set, never a value.
  * - Read-only: one LRANGE per UTC day's list (`os:<env>:fb:<YYYY-MM-DD>`), 366 for the whole year: the store keeps each
- *   day's list a year after its last copy arrived (feedbackLimits.retainDays) and deletes it itself, so there is nothing
+ *   day's list a year after that UTC day began (feedbackLimits.retainDays; feedbackSink.ts feedbackDayTtlMs) and deletes it itself, so there is nothing
  *   older to read and nothing here to delete. Every entry is checked against the store's own schema
  *   (StoredFeedbackEventSchema); one that doesn't parse is counted, never printed or kept.
  * - Keeps only aggregates, in memory, on the console and in data-local/feedback-report.md (git-ignored; each run replaces
@@ -50,7 +50,7 @@ export interface FeedbackReportArgs {
   days: number;
 }
 
-/** The store keeps a day's list a year after its last copy (feedbackLimits.retainDays), so this many days reach every list it holds. */
+/** The store keeps a day's list a year after that day began (feedbackLimits.retainDays), so this many days reach every list it holds. */
 export const MAX_DAYS = feedbackLimits.retainDays + 1;
 
 /** Where the report goes, under data-local/ (git-ignored). */

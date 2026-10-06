@@ -17,7 +17,7 @@ import type { LeagueSnapshot, Pos } from "@/engine/model";
 import { returnersOf } from "@/engine/optimizer";
 import { finalLineups } from "@/engine/returners";
 import { buildSimSetup, pickupSeasonModel, seasonOdds } from "@/engine/season";
-import { GOALS } from "@/engine/settings";
+import { GOALS, defaultTradeSettings } from "@/engine/settings";
 import { simNormals } from "@/engine/sim";
 import { syntheticInputs } from "@/engine/testLeague";
 import { waiverOrderText } from "@/lib/importReport";
@@ -30,6 +30,8 @@ import {
   OPTIMIZER_EXAMPLES,
   SCALE_GAINS,
   SE_BATCHES,
+  appB3Words,
+  appHelpsScales,
   asWeeklyResetData,
   b3Words,
   batchRuns,
@@ -263,6 +265,23 @@ describe("league report: Parker's league (committed sanitized fixture) with synt
       expect(rows.find((r) => r.gain === 1)?.score[g]).toBeLessThan(63);
       expect(rows.find((r) => r.gain === 6)?.score[g]).toBeGreaterThan(63);
     }
+    // The app's own B₃ under each goal (review of Phase 7b): off that goal's own League model (its own ω), the default goal's
+    // this check's own; the others as the app builds them.
+    const app = season.appB3 as NonNullable<SeasonReport["appB3"]>;
+    expect(app).toEqual(appHelpsScales(snapshot, inputs, model, NOW));
+    const defaultGoal = defaultTradeSettings().goal;
+    expect(app[defaultGoal]).toEqual({ b3: check.b3[defaultGoal].value, floored: false, omega: model.playoffWeight });
+    for (const g of GOALS.filter((x) => x !== defaultGoal)) {
+      const own = buildLeagueModel(snapshot, inputs, { now: NOW, scenarios: S, settings: { ...defaultTradeSettings(), goal: g } });
+      const mineOwn = own.odds?.teams.find((t) => t.teamId === me);
+      expect(app[g].omega).toBe(own.playoffWeight);
+      expect(app[g].b3).toBe(helpsScale(own.helpsCalibration, { leagueType: snapshot.settings.leagueType, myPPlayoffs: mineOwn?.pPlayoffs ?? null, goal: g, dynastyTotal: null })?.b3);
+    }
+    expect(appB3Words(app)).toMatch(/^Win the title \*\*\d+\.\d{2}\*\* \(ω [\d.]+×\); Balanced \*\*\d+\.\d{2}\*\* \(ω [\d.]+×\); Make the playoffs \*\*\d+\.\d{2}\*\* \(ω [\d.]+×\)$/);
+    // Priced on the app's own B₃ when it's given.
+    const appPrice = tradeValuePriceWords(check, app);
+    expect(appPrice).toContain("in B at Medium, on the app's own B₃ under each goal: ");
+    for (const g of GOALS) expect(appPrice).toContain(`${GOAL_WORDS[g]} -${Math.abs(-((app[g].b3 as number) / 3) * 0.4).toFixed(2)}`);
     // "Protect my trade value" priced on these B₃ (planner reply to Checkpoint 7a, §2 question 5): giving 25% more value than
     // you get costs 0.2 / 0.4 / 0.8 points a week under every goal, B −(B₃ / 3) × 0.4 at Medium.
     const price = tradeValuePriceWords(check);
@@ -579,8 +598,10 @@ describe("league report: the automatic playoff-week weight (planner reply to Che
 });
 
 describe("league report: the whole offline report", () => {
-  it("renders every Phase 3 section and keeps the Phase 2 and wave-1 sections", () => {
-    const { doc, season, timing } = buildReport(snapshot, inputs, { now: NOW, clock, scenarios: S, runs: 1, warmups: 0, buildRuns: 1 });
+  // A whole report with its build timings, and each other goal's own League model for its B₃ (review of Phase 7b): more than
+  // the default 5 s under the full suite's load.
+  it("renders every Phase 3 section and keeps the Phase 2 and wave-1 sections", { timeout: 30_000 }, () => {
+    const { doc, season, timing, model: built } = buildReport(snapshot, inputs, { now: NOW, clock, scenarios: S, runs: 1, warmups: 0, buildRuns: 1 });
     for (const heading of [
       "## Standings and playoff odds",
       "## Your remaining schedule",
@@ -634,6 +655,17 @@ describe("league report: the whole offline report", () => {
     ]);
     expect(season.buildTimings.filter((b) => b.sims > 0).every((b) => b.simulation !== null)).toBe(true);
     expect(season.buildTimings.filter((b) => b.sims === 0).every((b) => b.simulation === null)).toBe(true);
+    // Every variant measures the automatic playoff weight as the app does (review of Phase 7b): "without" leaves out the
+    // season simulation alone. With sims 0 by itself the model would skip that measurement and take the fallback ω.
+    const without = buildLeagueModel(snapshot, inputs, { now: NOW, scenarios: S, sims: 0, playoffWeightSims: config.simulation.finalSims });
+    expect(without.playoffWeight).toBe(built.playoffWeight);
+    expect(without.playoffWeightAuto?.basis).toBe(built.playoffWeightAuto?.basis);
+    expect(buildLeagueModel(snapshot, inputs, { now: NOW, scenarios: S, sims: 0 }).playoffWeight).toBe(config.lineups.playoffWeight);
+    expect(doc).toContain("| Lineups | Without the season simulation | With it | The build's own \"season simulation\" stage |");
+    expect(doc).toContain("both measure the automatic playoff weight on 5,000 seasons, as the app does, so the difference is the season simulation's alone");
+    // The app's own B₃ under every goal, below the one baseline's table (review of Phase 7b).
+    expect(doc).toContain(`⚠️ This check is on the default goal's baseline (playoff weeks count ${built.playoffWeight}×) for every goal's weights`);
+    expect(doc).toContain(`The app's own B₃ under each goal, off that goal's own League model: ${appB3Words(season.appB3 as NonNullable<typeof season.appB3>)}.`);
     expect(Object.keys(timing)).toEqual(["engine, expected-value lineups only (season simulation included)", `engine, with ${S} availability scenarios (season simulation included)`]);
     // Placeholders only: the fixture's team names never reach the report.
     for (const t of snapshot.teams) expect(t.name).toBe(`Team ${t.id}`);
@@ -1008,13 +1040,21 @@ describe("league report: Phase 4b (the market blend, one free agent one team, IR
     const view = buildLeagueView({ snapshot, model, inputs, myTeamSource: "you", timeZone: "UTC", now: NOW.toISOString() });
     expect(b.rosterLines).toBe(view.rosters.flatMap((r) => r.players).filter((p) => p.blend).length);
     expect(b.freeAgentLines).toBe(view.freeAgents.flatMap((g) => g.players).filter((p) => p.blend).length);
-    // The page's "no comparison" lines are players whose market number is their own; the page lists some of them.
-    expect(b.noComparison).toBeLessThanOrEqual(b.ownPoint);
+    // Phase 7b (planner reply to Checkpoint 7a, 5.4): the lines are words only (leagueView.blendText), counted by their
+    // words, every line in one of the four (review of Phase 7b: the report still quoted the old numeric line).
+    const w = b.words;
+    expect(w.leansUp + w.leansDown + w.capped + w.barely).toBe(b.rosterLines + b.freeAgentLines);
+    expect(w.leansUp + w.leansDown).toBeGreaterThan(0); // a fact of the synthetic inputs
     const s = section("Market-blended projections");
     expect(s).toContain("| Position | Players with a real value | Curve points (healthy, a game left) | Blended |");
     for (const p of b.positions) expect(s).toContain(`| ${p.pos} | ${p.players} | ${p.fit} | ${p.blended ? "yes" : "no (under 10 curve points)"} |`);
     expect(s).toContain(`- Players the blend reaches: **${b.reached}** (${b.scaled} with a base rate above 0); players whose rest-of-season points it moved (PlayerModel.blend): **${b.moved}**.`);
-    expect(s).toContain(`**${b.rosterLines + b.freeAgentLines}** lines, ${b.rosterLines} on the rosters and ${b.freeAgentLines} in the free-agent lists; **${b.noComparison}** of them read "Trade market: no comparison"`);
+    expect(s).toContain(
+      `**${b.rosterLines + b.freeAgentLines}** lines, ${b.rosterLines} on the rosters and ${b.freeAgentLines} in the free-agent lists. **${w.leansUp}** read "His projection leans up toward the trade market's view.", **${w.leansDown}** "…leans down…", **${w.capped}** add that the clamp cut it`,
+    );
+    expect(s).toContain(`**${w.barely}** "The trade market barely moves his projection."`);
+    // No number of the market's, and none of the old line's words.
+    expect(s).not.toMatch(/Trade market \d|Our projection \d|no comparison|three equal rounded numbers/);
     // The clamp (Phase 4c, planner change 4; review of track R, R-6): in the formula, and every factor it cut.
     const [lo, hi] = config.marketBlend.factorClamp;
     expect(b.clamp).toEqual(config.marketBlend.factorClamp);

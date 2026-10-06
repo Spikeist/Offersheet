@@ -38,6 +38,7 @@ import { browserFetchLimits, budgets, feedbackLimits, logLimits, rateLimits, sna
 import { StoredLogEventSchema } from "@/server/log";
 import { FakeRedis } from "@/server/redis";
 import { SESSION_SEAL_TTL_SECONDS } from "@/server/session";
+import { dayRetainMs } from "@/server/snapshots";
 import nextConfig, { BROWSER_FETCH_ORIGINS, FRAMING_ONLY_CSP, PERMISSIONS_POLICY, VERCEL_TOOLBAR_SOURCES, contentSecurityPolicy, securityHeaders } from "../../next.config";
 import ErrorPage from "./error";
 import { FeedbackGuide, feedbackDescription } from "./feedback/FeedbackGuide";
@@ -364,9 +365,14 @@ describe("privacy page, whichever features are on", () => {
     expect(text).toContain(
       "The copies are kept at Upstash under codes made with a secret key, so league IDs and usernames never appear there, and encrypted, so Upstash can't read them. A private ESPN league's copies are also filed under a fingerprint of your cookies, so typing its ID isn't enough to see them, and ESPN member IDs (SWIDs) are replaced with one-way pseudonyms. Anything our servers hold in memory stops being used once it's due, is deleted soon after while the server keeps working, and is gone when it shuts down.",
     );
-    // The ESPN cookies' Forget line names transactions only: ESPN's matchups come with the league itself (10 minutes).
+    // The ESPN cookies' Forget line names transactions only: ESPN's matchups come with the league itself (10 minutes). Review
+    // of Phase 7b: an import read with the cookies is signed too, and the League page sends it back while it's fresh
+    // (src/lib/modelStore.ts modelPlan, before it looks at usedEspnCookies), so the model route keeps what it works out from
+    // it (ESPN's league-scored projections included) in memory until the import's token expires: 15 minutes, not 10.
+    expect(browserFetchLimits.tokenMaxAgeMs).toBe(15 * MINUTE);
+    expect(source("src/app/api/model/espn/handler.ts")).toContain("memo().set(key, text, body.signed.issuedAt + browserFetchLimits.tokenMaxAgeMs");
     expect(text).toContain(
-      "“Forget my credentials” on the Connect page (or “Forget my ESPN cookies” on the Import Report) deletes the cookie right away; league data our server copied with it is deleted within about 10 minutes (older weeks' transactions within 6 hours).",
+      "“Forget my credentials” on the Connect page (or “Forget my ESPN cookies” on the Import Report) deletes the cookie right away; league data our server copied or worked out with it is deleted within about 15 minutes (older weeks' transactions within 6 hours).",
     );
   });
 
@@ -389,25 +395,33 @@ describe("privacy page, whichever features are on", () => {
     expect([feedbackKeptWords(365), feedbackKeptWords(180)]).toEqual(["12 months", "180 days"]);
   });
 
-  it.each(ALL)("%o: describes the public data kept to measure accuracy, about no league or person, up to 2 seasons and never shown, only once it's kept (4.4, 6.3)", (f) => {
-    // src/server/snapshots.ts: each saved week of projections and day's list expires snapshotLimits.retainDays after its
-    // last write. Not "data we fetch anyway": a run fetches what the model builds' cache doesn't already hold.
+  it.each(ALL)("%o: describes the public data kept to measure accuracy, up to 2 seasons and never shown, saying it shows which league formats were in use each day, only once it's kept (4.4, 6.3; review of Phase 7b)", (f) => {
+    // src/server/snapshots.ts: a week of projections expires snapshotLimits.retainDays after its last write; a day's
+    // FantasyCalc lists, saved only for the formats League page builds read that day or the day before, and the day's index
+    // naming their formats, retainDays after that day began (dayRetainMs). So the archive says which formats were in use
+    // each day, for 2 seasons, and no longer: the review found one index a season kept them up to about 3 years, and the
+    // page saying the archive "isn't about any league or person" while "Daily totals" said formats were noted for 3 days.
+    // Not "data we fetch anyway": a run fetches what the model builds' cache doesn't already hold.
     expect(snapshotLimits.retainDays).toBe(2 * 365);
+    expect(dayRetainMs("2026-10-07", Date.parse("2026-10-07T00:00:00.000Z"))).toBe(snapshotLimits.retainDays * DAY);
     const archive =
-      "We also keep public data, Sleeper's pre-game projections and FantasyCalc's daily trade value lists, up to 2 seasons, to measure how accurate our numbers are. It isn't about any league or person and is never shown.";
+      "We also keep public data, Sleeper's pre-game projections and FantasyCalc's daily lists for the league formats in use, up to 2 seasons, to measure how accurate our numbers are. It's never shown and says nothing about any league or person beyond which formats were in use each day.";
     if (f.publicArchive) expect(privacy(f).text).toContain(archive);
     else expect(privacy(f).text).not.toContain("pre-game projections");
+    expect(privacy(f).text).not.toContain("isn't about any league or person");
   });
 
-  it.each(ALL)("%o: says the daily totals (and, with the archive, the formats noted for 3 days) are about nobody, kept about 13 months, and leaves the limits to the short version (4.2; 2.7; 6.3)", (f) => {
+  it.each(ALL)("%o: says the daily totals are about nobody, kept about 13 months, and leaves the limits to the short version (4.2; 2.7; 6.3)", (f) => {
     const { text } = privacy(f);
     // src/app/api/cron/snapshot/formats.ts: League page builds note the formats they read, a set per UTC day kept
-    // snapshotLimits.formatsInUseRetainDays, so the cron knows which FantasyCalc lists to save.
+    // snapshotLimits.formatsInUseRetainDays, so the cron knows which FantasyCalc lists to save. That's which formats were in
+    // use each day, which the archive's sentence says is kept up to 2 seasons, so the totals don't name it again (review
+    // of Phase 7b: "for 3 days" read as all the archive kept of it).
     expect(snapshotLimits.formatsInUseRetainDays).toBe(3);
-    const formats = f.publicArchive ? " It also notes which league formats were used, for 3 days." : "";
     expect(text).toContain(
-      `Each day (UTC), our server counts the leagues imported, League pages built, the work they took, requests refused and requests made to each source, and keeps these totals about 13 months.${formats} None of this says who made the requests.`,
+      "Each day (UTC), our server counts the leagues imported, League pages built, the work they took, requests refused and requests made to each source, and keeps these totals about 13 months. None of this says who made the requests.",
     );
+    expect(text).not.toContain("for 3 days");
     // src/server/usage.ts keeps each day's counters usageLimits.retainDays after the day's last count: about 13 months.
     expect(Math.round((usageLimits.retainDays * 12) / 365)).toBe(13);
     // The limits are said once, in the short version, in the planner's words (the review: the detail repeated them).
@@ -451,9 +465,12 @@ describe("privacy page, whichever features are on", () => {
     expect(logLimits.retainDays).toBe(14);
     // src/server/log.ts: each stored entry carries the time it was logged (`at`) and the route.
     expect(Object.keys(StoredLogEventSchema.shape)).toEqual(expect.arrayContaining(["at", "route", "code", "platform", "status", "errorName", "ms"]));
+    // Review of Phase 7b: not "only what went wrong": the snapshot cron logs every run, done or not (one line a day).
+    expect(source("src/app/api/cron/snapshot/handler.ts")).toContain('logEvent({ event: "snapshot_run"');
     expect(text).toContain(
-      "Vercel, our host, logs each request it serves (its web address and the browser type, for example), keeps that log for 1 hour, and can see IP addresses. Our own error log keeps only what went wrong, where and when (an error code and the source involved, for example), for up to 14 days: never league data, names, IDs, usernames, cookies or IP addresses.",
+      "Vercel, our host, logs each request it serves (its web address and the browser type, for example), keeps that log for 1 hour, and can see IP addresses. Our own log keeps errors and a few routine events, where and when (an error code and the source involved, for example), for up to 14 days: never league data, names, IDs, usernames, cookies or IP addresses.",
     );
+    expect(text).not.toContain("only what went wrong");
   });
 
   it.each(ALL)("%o: names the providers, where they run, Upstash's backups off and what it keeps, and the contact inbox at Google, linking their privacy policies (fact 6; planner reply to Checkpoint 7a, 1)", (f) => {
@@ -519,10 +536,12 @@ describe("privacy page, whichever features are on", () => {
   });
 
   it("the detailed part (after the short version) stays at the length the planner gets at Checkpoint 7b, every feature on (4.2)", () => {
-    // The planner asked for "about 1,000 words". Checkpoint 7b reports 1,244 with every feature on (1,233 with today's
-    // flags): after the duplicates and the log's field list went, the review's additions (what the server holds in memory,
-    // when memory copies go, the cookie after a restored session, the contact inbox at Google) and the facts the reply
-    // added (the archive, the daily totals, FantasyCalc) are what's over. The cap is that count: longer needs the planner.
+    // The planner asked for "about 1,000 words". Checkpoint 7b reports 1,249 with every feature on (every flag is on today:
+    // src/lib/site.ts POLICY_FEATURES): after the duplicates and the log's field list went, the review's additions (what the
+    // server holds in memory, when memory copies go, the cookie after a restored session, the contact inbox at Google) and
+    // the facts the reply added (the archive, the daily totals, FantasyCalc) are what's over. The review of Phase 7b's
+    // corrections (the archive's formats in use, Forget's 15 minutes, the log's routine events) fit by dropping the daily
+    // totals' formats sentence and a few words. The cap is 1,250: longer needs the planner.
     const detail = (f: PolicyFeatures) => {
       const { text } = privacy(f);
       return text.slice(text.indexOf("Reading your league"));

@@ -14,7 +14,7 @@ import { buildLeagueModel, type LeagueModelConfig } from "@/engine/league";
 import type { Pos } from "@/engine/model";
 import { TEST_NOW, buildTestLeague, type TestPlayer } from "@/engine/testLeague";
 import { buildLeagueView } from "@/lib/leagueView";
-import { DEPTH_ONLY_TAG, WAIVERS_SECTION_ID, buildWaiversView, type WaiversView } from "@/lib/waiversView";
+import { DEPTH_ONLY_TAG, DEPTH_ONLY_WORDS, WAIVERS_INTRO, WAIVERS_NO_TEAM, WAIVERS_NO_WEEKS, WAIVERS_PICK_TEAM, WAIVERS_SECTION_ID, buildWaiversView, type WaiverRowView, type WaiversView } from "@/lib/waiversView";
 import { LeagueView } from "./LeagueView";
 import { WaiverUpgrades, WaiverUpgradesCard, WaiversViewContext } from "./WaiverUpgrades";
 import { NOW, leagueFixture } from "./testFixtures";
@@ -128,6 +128,36 @@ describe("WaiverUpgradesCard", () => {
     expect(html).toContain('<p class="font-extrabold wrap-anywhere">');
     expect(html).toMatch(/<dd class="wrap-anywhere">/);
     expect(html).toContain("grid-cols-[auto_minmax(0,1fr)]");
+  });
+});
+
+describe("WaiverUpgradesCard without lists, and 'Depth only' in words (review of Phase 7b)", () => {
+  it("no team picked: the section the header's link goes to, its heading, one line and a 44 px link to pick the team", () => {
+    const html = renderToStaticMarkup(createElement(WaiverUpgradesCard, { view: { ros: null, underWay: null, week: null, first: "ros", intro: WAIVERS_INTRO, empty: WAIVERS_NO_TEAM, emptyLink: WAIVERS_PICK_TEAM } }));
+    expect(html).toMatch(new RegExp(`^<section id="${WAIVERS_SECTION_ID}"`));
+    expect(html).toContain('<h2 tabindex="-1"');
+    const text = textOf(html);
+    expect(text).toContain("Waiver upgrades");
+    expect(text).toContain(WAIVERS_NO_TEAM);
+    expect(html).toMatch(/<a class="[^"]*min-h-11[^"]*" href="\/import#your-team">Pick your team<\/a>/);
+    expect(html).not.toContain('role="group"');
+  });
+
+  it("no week left: the line alone, no link", () => {
+    const html = renderToStaticMarkup(createElement(WaiverUpgradesCard, { view: { ros: null, underWay: null, week: null, first: "ros", intro: WAIVERS_INTRO, empty: WAIVERS_NO_WEEKS, emptyLink: null } }));
+    expect(textOf(html)).toContain(WAIVERS_NO_WEEKS);
+    expect(html).not.toContain("<a ");
+  });
+
+  it("a 'Depth only' tag carries its list's words as hover text, and the list says them where every reader sees them", () => {
+    const view = waiversView();
+    const list = view.ros;
+    if (!list) throw new Error("no list");
+    const depthRow: WaiverRowView = { ...(list.rows[0] as WaiverRowView), id: "deep", depthOnly: true };
+    const withDepth: WaiversView = { ...view, ros: { ...list, rows: [depthRow], note: `${list.note} ${DEPTH_ONLY_TAG}: ${DEPTH_ONLY_WORDS.ros}.` } };
+    const html = renderToStaticMarkup(createElement(WaiverUpgradesCard, { view: withDepth }));
+    expect(html).toContain(`<span title="${list.depthOnlyTitle.replace(/'/g, "&#x27;")}">`);
+    expect(textOf(html)).toContain(`${DEPTH_ONLY_TAG}: ${DEPTH_ONLY_WORDS.ros}.`);
   });
 });
 

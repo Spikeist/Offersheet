@@ -7,8 +7,10 @@
  * (src/lib/waiversView.ts); this file only lays it out.
  *
  * Where its view comes from: the League page (LeaguePage.tsx) builds it from the League model it computed and provides it
- * through WaiversViewContext; LeagueView.tsx places <WaiverUpgrades /> among its sections. Without a provider (or with no
- * list: no team picked, no week left) the section renders nothing.
+ * through WaiversViewContext; LeagueView.tsx places <WaiverUpgrades /> among its sections. Without a provider the section
+ * renders nothing; without lists (no team picked, my redraft season over, no week left) it shows its heading and one line
+ * instead (WaiversView.empty), with a "Pick your team" link to the Import Report when no team is picked (review of Phase 7b:
+ * the header's "Waivers" link led nowhere then).
  *
  * The site header's "Waivers" link goes to /league#waivers (WAIVERS_HREF). The League page computes for a few seconds
  * first, so when the section appears with that hash in the address it brings itself into view and moves keyboard focus to
@@ -20,8 +22,9 @@
  * buttons (the toggle's three buttons wrap rather than overflow on a narrow phone). The first config.waivers.rowsShown rows
  * show, then "Show all".
  */
+import Link from "next/link";
 import { createContext, use, useEffect, useRef, useState } from "react";
-import { DEPTH_ONLY_TAG, DEPTH_ONLY_TITLE, WAIVERS_SECTION_ID, WAIVERS_TITLE, type WaiverListMode, type WaiverListView, type WaiverRowView, type WaiversView } from "@/lib/waiversView";
+import { DEPTH_ONLY_TAG, WAIVERS_SECTION_ID, WAIVERS_TITLE, type WaiverListMode, type WaiverListView, type WaiverRowView, type WaiversView } from "@/lib/waiversView";
 import { browserSectionPage, revealSection } from "../NavLink";
 import { Badge, Card, CardTitle, buttonClass, cx } from "../ui";
 
@@ -58,6 +61,11 @@ export function WaiverUpgradesCard({ view }: { view: WaiversView }) {
       </CardTitle>
       <p className="-mt-1 mb-3 text-sm text-muted">{view.intro}</p>
       {view.empty ? <p className="text-sm">{view.empty}</p> : null}
+      {view.emptyLink ? (
+        <Link href={view.emptyLink.href} className="mt-1 inline-flex min-h-11 items-center font-bold underline underline-offset-2">
+          {view.emptyLink.text}
+        </Link>
+      ) : null}
       {lists.length > 1 ? (
         <div role="group" aria-label="Which weeks" className="mb-3 inline-flex max-w-full flex-wrap rounded-xl border border-line bg-surface-muted p-1">
           {lists.map((l) => (
@@ -91,7 +99,7 @@ function WaiverListBody({ list, all, onShowAll }: { list: WaiverListView; all: b
         <>
           <ul aria-label={list.caption} className="space-y-2">
             {rows.map((r) => (
-              <WaiverRowCard key={r.id} row={r} weekLabel={list.weekLabel} />
+              <WaiverRowCard key={r.id} row={r} weekLabel={list.weekLabel} depthOnlyTitle={list.depthOnlyTitle} />
             ))}
           </ul>
           {list.rows.length > list.shown ? (
@@ -107,7 +115,7 @@ function WaiverListBody({ list, all, onShowAll }: { list: WaiverListView; all: b
   );
 }
 
-function WaiverRowCard({ row: r, weekLabel }: { row: WaiverRowView; weekLabel: string }) {
+function WaiverRowCard({ row: r, weekLabel, depthOnlyTitle }: { row: WaiverRowView; weekLabel: string; depthOnlyTitle: string }) {
   return (
     <li className="rounded-xl border border-line px-3 py-2.5">
       <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1">
@@ -127,7 +135,7 @@ function WaiverRowCard({ row: r, weekLabel }: { row: WaiverRowView; weekLabel: s
                 </span>
               ) : null}
               {r.depthOnly ? (
-                <span title={DEPTH_ONLY_TITLE}>
+                <span title={depthOnlyTitle}>
                   <Badge>{DEPTH_ONLY_TAG}</Badge>
                 </span>
               ) : null}

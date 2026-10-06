@@ -243,7 +243,8 @@ export function fantasyCalcFormat(settings: LeagueSettings, mode: FantasyCalcMod
   let tep: "te+" | "te++" | undefined;
   if (premium > EPS) {
     tep = premium < config.market.tepPlusPlusAt - EPS ? "te+" : "te++";
-    substitutions.push(`TE premium +${fmt(premium)} per reception → FantasyCalc's ${tepWords(tep)} values (our mapping: FantasyCalc doesn't define TE+ or TE++ in points)`);
+    // The cut is FantasyCalc's own (config.market.tepPlusPlusAt: confirmed 2026-10-05), so the note no longer calls it ours.
+    substitutions.push(`TE premium +${fmt(premium)} per reception → FantasyCalc's ${tepWords(tep)} values (the cut FantasyCalc confirmed)`);
   } else if (premium < -EPS) {
     substitutions.push(`TEs get ${fmt(-premium)} fewer points per reception than WRs; FantasyCalc has no setting for that, so TE values assume the WR rate`);
   }

@@ -371,4 +371,30 @@ describe("loadModelInputs", () => {
     const wrong = routes(() => ({ body: { import: imported({ snapshot: { ...imported().snapshot, leagueId: "5151" } }), model } }));
     expect(await loadModelInputs(storedWith({}, minutesAgo(2)), { deps: deps(wrong.fetchImpl) })).toEqual({ ok: false, message: MODEL_UNREADABLE });
   });
+
+  it("a league read again, then the model route BUSY: the failure carries the fresh import, and sent back it costs one build, no read (review of Phase 7b)", async () => {
+    const stale = storedWith({ signed: SIGNED }, minutesAgo(browserFetchLimits.reimportAfterMs / 60_000 + 10));
+    const fresh = imported({ signed: { issuedAt: AT, token: "new" }, modelPart: {}, readBy: "browser" });
+    const busy = { status: 503, body: { error: { code: "BUSY", message: "Offer Sheet is busy right now. Try again in a minute." } } };
+    const r = routes((url) => (url === "/api/import/espn" ? { body: fresh } : busy));
+    const out = await loadModelInputs(stale, { deps: deps(r.fetchImpl) });
+    expect(out).toEqual({ ok: false, message: "Offer Sheet is busy right now. Try again in a minute.", import: fresh });
+    expect(r.calls.map((c) => [c.url, c.gzip])).toEqual([
+      ["/api/import/espn", true],
+      ["/api/model/espn", true],
+    ]);
+    // Kept as the page keeps it (saved now): the next try sends it back signed, without reading the league again.
+    const kept: StoredImport = { ...stale, savedAt: new Date(AT).toISOString(), response: fresh };
+    const again = routes((url) => (url === "/api/import/espn" ? { body: fresh } : { body: { model, signedImport: true } }));
+    const http = platform(espnAnswer());
+    expect(await loadModelInputs(kept, { deps: deps(again.fetchImpl, http) })).toEqual({ ok: true, response: { import: fresh, model } });
+    expect(again.calls.map((c) => [c.url, c.gzip])).toEqual([["/api/model/espn", true]]);
+    expect((again.calls[0]?.body as SignedModelBody).signed).toEqual({ issuedAt: AT, token: "new" });
+    expect(http.calls).toHaveLength(0);
+    // Without a read first, a failure carries no import (nothing new to keep); nor does a failed read.
+    const busyOnly = routes(() => busy);
+    expect(await loadModelInputs(storedWith({ signed: SIGNED }, minutesAgo(2)), { deps: deps(busyOnly.fetchImpl) })).toEqual({ ok: false, message: "Offer Sheet is busy right now. Try again in a minute." });
+    const readFails = routes(() => busy);
+    expect(await loadModelInputs(stale, { deps: deps(readFails.fetchImpl) })).not.toHaveProperty("import");
+  });
 });

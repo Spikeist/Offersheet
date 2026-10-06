@@ -22,7 +22,7 @@
 import { useEffect, useEffectEvent, useMemo, useState } from "react";
 import type { ModelInputs } from "@/engine/inputs";
 import type { LeagueSnapshot } from "@/engine/model";
-import type { ModelResponse } from "@/lib/api";
+import type { ImportResponse, ModelResponse } from "@/lib/api";
 import type { MyTeamPick, StoredImport } from "@/lib/importStore";
 import { loadModelInputs } from "@/lib/leagueFetch";
 import {
@@ -34,7 +34,7 @@ import {
   type SavedLeaguesRead,
   type StorageStatus,
 } from "@/lib/leagueStore";
-import { modelForSnapshot, modelKey, withImportedTeam, type StoredModel } from "@/lib/modelStore";
+import { importWithImportedTeam, modelForSnapshot, modelKey, withImportedTeam, type StoredModel } from "@/lib/modelStore";
 import { resolveMyTeam, type ResolvedMyTeam } from "@/lib/myTeam";
 import { createRequestSharer, type JoinedRequest } from "./sharedRequest";
 
@@ -78,18 +78,30 @@ export function useSavedModel(id: string): StoredModel | null | undefined {
 export function useSavedLeagueInputs(current: Extract<CurrentLeagueRead, { kind: "ok" }>): LeagueInputs {
   const id = current.league.id;
   const storedModel = useSavedModel(id);
-  return useInputsCore(current.stored, storedModel, current.pick, (response) => {
-    void leagueStore()?.keepModelResponse(id, { response, savedAt: new Date().toISOString() });
+  return useInputsCore(current.stored, storedModel, current.pick, {
+    keep: (response) => {
+      void leagueStore()?.keepModelResponse(id, { response, savedAt: new Date().toISOString() });
+    },
+    keepImport: (imported) => {
+      void leagueStore()?.keepImport(id, { response: imported, savedAt: new Date().toISOString() });
+    },
   });
 }
 
 // ---------------------------------------------------------------------------------------------
 // The inputs: shared by the pages
 
-export type InputsOutcome = { ok: true; response: ModelResponse } | { ok: false; message: string };
+/**
+ * A model request's outcome (src/lib/leagueFetch.ts ModelOutcome): the import and its inputs, or why not; a failure after the
+ * league was read again carries that fresh import (`import`), which the page keeps (useInputsCore; review of Phase 7b).
+ */
+export type InputsOutcome = { ok: true; response: ModelResponse } | { ok: false; message: string; import?: ImportResponse };
 
 /** A league's data as one tag: which league, and which fetch of it. */
 export const leagueTag = (s: Pick<LeagueSnapshot, "platform" | "leagueId" | "season" | "fetchedAt">) => `${modelKey(s)}|${s.fetchedAt}`;
+
+/** A page's model request for a league's data (leagueTag) on its `attempt`-th try: what a failure is filed under. */
+const fetchTagOf = (requestTag: string, attempt: number) => `${requestTag}|${attempt}`;
 
 /** The pages' model requests in flight, shared by league and league data (see the header). */
 const inputRequests = createRequestSharer<InputsOutcome>();
@@ -150,12 +162,42 @@ export interface LeagueInputs {
   refreshInputs(): Promise<InputsOutcome>;
 }
 
+/** A page load's failed model request (inputsFailure): the error and the fetch tags it answers, and the import to keep. */
+export interface InputsFailure {
+  error: { tags: string[]; message: string };
+  kept: ImportResponse | null;
+}
+
+/**
+ * A page load's failed model request (useInputsCore; pure): the error, under this fetch's tag (`tag`, `attempt`); with an
+ * import read again (InputsOutcome.import), that import to keep (after importWithImportedTeam: the stored import's team
+ * carries over, as an answer's does) and its tag with the same attempt too, the tag the page asks under once the store shows
+ * it, so the error stays and nothing is asked until Try again (review of Phase 7b).
+ */
+export function inputsFailure(x: { tag: string; attempt: number; message: string; imported: ImportResponse | undefined; stored: StoredImport }): InputsFailure {
+  if (!x.imported) return { error: { tags: [x.tag], message: x.message }, kept: null };
+  const kept = importWithImportedTeam(x.imported, x.stored);
+  return { error: { tags: [x.tag, fetchTagOf(leagueTag(kept.snapshot), x.attempt)], message: x.message }, kept };
+}
+
+/** How a page keeps what its model requests bring (useInputsCore): an answer, and an import read again whose numbers failed. */
+interface InputsKeepers {
+  keep: (response: ModelResponse) => void;
+  keepImport: (imported: ImportResponse) => void;
+}
+
 /**
  * The inputs for a stored import, from this page view's latest answer, else `storedModel` (when it was built for this
  * very snapshot and is still fresh), else the server; `keep` stores an answer (after withImportedTeam: the team the
  * platform found at import carries over). `storedModel` is undefined while it hasn't been read (nothing is fetched yet).
+ * A page load's request that read the league again and then failed (the model route BUSY under load, say) brings that
+ * fresh import (InputsOutcome.import): `keepImport` stores it (the same team rule), so Try again sends it back signed, one
+ * build, instead of reading the league again (review of Phase 7b). The error is filed under the kept import's tag too, so
+ * the newer import the store then shows waits for Try again rather than asking at once (under the load that refused it).
+ * Refresh keeps no such import: its numbers stay on screen, and its next press reads the league again anyway.
  */
-function useInputsCore(stored: StoredImport, storedModel: StoredModel | null | undefined, pick: MyTeamPick | undefined, keep: (response: ModelResponse) => void): LeagueInputs {
+function useInputsCore(stored: StoredImport, storedModel: StoredModel | null | undefined, pick: MyTeamPick | undefined, keepers: InputsKeepers): LeagueInputs {
+  const { keep, keepImport } = keepers;
   const snapshot = stored.response.snapshot;
   const requestTag = leagueTag(snapshot);
   // When the page opened: stored inputs built over MODEL_REUSE_MAX_AGE_MS before it are fetched again.
@@ -168,15 +210,17 @@ function useInputsCore(stored: StoredImport, storedModel: StoredModel | null | u
 
   // This page view's latest answer, else the stored copy, else fetch.
   const [fetched, setFetched] = useState<Fetched | null>(null);
-  const [fetchError, setFetchError] = useState<{ tag: string; message: string } | null>(null);
+  // The fetch tags a failure answers: its own, and the kept import's (see above).
+  const [fetchError, setFetchError] = useState<{ tags: string[]; message: string } | null>(null);
   const [attempt, setAttempt] = useState(0);
+  // fetchTagOf's format, written out: the React Compiler can't tell the tag (a string) from an object a call might change.
   const fetchTag = `${requestTag}|${attempt}`;
   const pair = useMemo(() => {
     if (fetched && fetched.tags.includes(requestTag)) return { snapshot: fetched.snapshot, inputs: fetched.inputs };
     if (storedInputs) return { snapshot, inputs: storedInputs };
     return null;
   }, [fetched, requestTag, storedInputs, snapshot]);
-  const fetchFailed = fetchError !== null && fetchError.tag === fetchTag;
+  const fetchFailed = fetchError !== null && fetchError.tags.includes(fetchTag);
   const needFetch = storedInputs !== undefined && !pair && !fetchFailed;
 
   /** Keeps an answer (in memory for this page view, and stored) and says which stored-import tags it answers. */
@@ -186,17 +230,24 @@ function useInputsCore(stored: StoredImport, storedModel: StoredModel | null | u
     return { tags: [requestTag, leagueTag(res.import.snapshot)], snapshot: res.import.snapshot, inputs: res.model };
   };
 
-  const startFetch = useEffectEvent((tag: string) => {
+  /** A failure (inputsFailure), its import kept when it brought one. */
+  const failed = (tag: string, n: number, message: string, imported: ImportResponse | undefined): InputsFailure["error"] => {
+    const f = inputsFailure({ tag, attempt: n, message, imported, stored });
+    if (f.kept) keepImport(f.kept);
+    return f.error;
+  };
+
+  const startFetch = useEffectEvent((tag: string, n: number) => {
     const joined = joinInputsRequest(stored);
     let live = true;
     joined.promise.then(
       (outcome) => {
         if (!live) return;
         if (outcome.ok) setFetched(remember(outcome.response));
-        else setFetchError({ tag, message: outcome.message });
+        else setFetchError(failed(tag, n, outcome.message, outcome.import));
       },
       () => {
-        if (live) setFetchError({ tag, message: INPUTS_UNREACHABLE });
+        if (live) setFetchError({ tags: [tag], message: INPUTS_UNREACHABLE });
       },
     );
     return () => {
@@ -206,8 +257,8 @@ function useInputsCore(stored: StoredImport, storedModel: StoredModel | null | u
   });
   useEffect(() => {
     if (!needFetch) return;
-    return startFetch(fetchTag);
-  }, [needFetch, fetchTag]);
+    return startFetch(fetchTag, attempt);
+  }, [needFetch, fetchTag, attempt]);
 
   const myTeam = useMemo(() => (pair ? resolveMyTeam(pair.snapshot, pick) : null), [pair, pick]);
 

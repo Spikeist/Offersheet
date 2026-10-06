@@ -27,7 +27,10 @@
  * minute, refreshEveryMs); an import without a signature (saved before signing, or a server without SESSION_SECRET), an
  * ESPN league read with cookies, and every league in a browser that can't gzip (no CompressionStream, review E2E-1: it can
  * send neither an upload nor a signed import) take today's request (the server reads the league itself). So the privacy
- * policy's "reading it again first when its copy is more than 10 minutes old".
+ * policy's "reading it again first when its copy is more than 10 minutes old". When the league was read again but the
+ * numbers then failed (the model route BUSY under load, say), the outcome carries the fresh import (ModelOutcome.import),
+ * which the pages keep (src/components/league/useLeagueInputs.ts, leagueStore.ts keepImport): the next try sends it back
+ * signed instead of reading the league again (review of Phase 7b).
  *
  * POLICY_FEATURES.browserReads (src/lib/site.ts) switches the browser path off as a whole (every read goes the server's way).
  * Client-safe: no React, no server modules (src/server/limits.ts is plain numbers). The read itself (src/lib/leagueRead.ts:
@@ -180,8 +183,13 @@ export async function importLeague(args: ImportLeagueArgs): Promise<ImportOutcom
 // ---------------------------------------------------------------------------------------------
 // The League page's numbers
 
-/** What the League page gets: the import (the one it sent, or one read again) and its model inputs, or why not, in words. */
-export type ModelOutcome = { ok: true; response: ModelResponse } | { ok: false; message: string };
+/**
+ * What the League page gets: the import (the one it sent, or one read again) and its model inputs, or why not, in words.
+ * A failure after the league was read again carries that fresh import (`import`; review of Phase 7b): when the model route
+ * then answers BUSY (its build slots or the day's work budget) the page keeps it, so its next try within
+ * browserFetchLimits.reimportAfterMs sends it back signed (one build) instead of reading the league again.
+ */
+export type ModelOutcome = { ok: true; response: ModelResponse } | { ok: false; message: string; import?: ImportResponse };
 
 export const MODEL_UNREADABLE = "We couldn't read the projections for this league. Try again in a moment.";
 export const MODEL_PLATFORMS_ONLY = "Offer Sheet works with ESPN and Sleeper leagues for now.";
@@ -227,6 +235,7 @@ export async function loadModelInputs(stored: StoredImport, opts: { refresh?: bo
   const url = `/api/model/${platform}`;
 
   let imported: ImportResponse = stored.response;
+  let readAgain = false;
   if (plan.kind === "reimport") {
     const body = importBodyOf(stored, plan.refresh);
     if (!body) return { ok: false, message: MODEL_PLATFORMS_ONLY };
@@ -234,7 +243,10 @@ export async function loadModelInputs(stored: StoredImport, opts: { refresh?: bo
     if (isApiError(got)) return { ok: false, message: got.error.message };
     if (!("snapshot" in got) || modelKey(got.snapshot) !== modelKey(snapshot)) return { ok: false, message: MODEL_UNREADABLE };
     imported = got;
+    readAgain = true;
   }
+  // A failure from here on: with the import just read again, when there is one (ModelOutcome).
+  const failed = (message: string): ModelOutcome => (readAgain ? { ok: false, message, import: imported } : { ok: false, message });
 
   const signedBody = plan.kind === "server" ? null : signedModelBody(stored.request, imported);
   if (signedBody) {
@@ -242,17 +254,17 @@ export async function loadModelInputs(stored: StoredImport, opts: { refresh?: bo
     if (res !== "not-sent" && !isApiError(res)) {
       if (isSignedModelResponse(res)) return { ok: true, response: { import: imported, model: res.model } };
       if (isModelResponse(res) && modelKey(res.import.snapshot) === modelKey(snapshot)) return { ok: true, response: res };
-      return { ok: false, message: MODEL_UNREADABLE };
+      return failed(MODEL_UNREADABLE);
     }
-    if (isApiError(res) && !SERVER_RETRY_CODES.has(res.error.code)) return { ok: false, message: res.error.message };
+    if (isApiError(res) && !SERVER_RETRY_CODES.has(res.error.code)) return failed(res.error.message);
     // Not sent (too large, or this browser couldn't gzip it), or a body the route couldn't use: today's request below
     // (the server reads the league itself).
   }
 
   const req = modelRequest({ request: stored.request, response: imported }, plan.kind === "server" && plan.refresh);
-  if (!req) return { ok: false, message: MODEL_PLATFORMS_ONLY };
+  if (!req) return failed(MODEL_PLATFORMS_ONLY);
   const res = await callApi<ModelResponse>(req.url, { method: "POST", body: req.body }, withSignal);
-  if (isApiError(res)) return { ok: false, message: res.error.message };
-  if (!isModelResponse(res) || modelKey(res.import.snapshot) !== modelKey(snapshot)) return { ok: false, message: MODEL_UNREADABLE };
+  if (isApiError(res)) return failed(res.error.message);
+  if (!isModelResponse(res) || modelKey(res.import.snapshot) !== modelKey(snapshot)) return failed(MODEL_UNREADABLE);
   return { ok: true, response: res };
 }

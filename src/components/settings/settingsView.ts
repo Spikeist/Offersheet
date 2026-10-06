@@ -46,7 +46,7 @@
  *   never both; turning "include" off clears the left-out positions from both lists, so no hidden choice
  *   can empty the search.
  * - Include K, D/ST and IDP: only when the league starts one of them, named after the ones it starts.
- * - Include draft picks: dynasty and keeper leagues only.
+ * - Include draft picks: dynasty and keeper leagues only. Picks aren't in the search yet (Phase 5), and the help says so.
  * Warnings: must-include players from two other teams (a trade is with one team), more must-include players
  * on a side than a trade allows, a player on both lists, saved players who left, targets the search can't use.
  */
@@ -463,8 +463,11 @@ export function buildSettingsView(input: SettingsViewInput): SettingsView {
         : null,
   };
 
+  // Picks in trades are deferred to Phase 5 (CLAUDE.md §12): with the box on, the Trade Finder says "Draft picks aren't part
+  // of trade ideas yet." (search.ts searchNotes), so the help says what the choice does today instead of promising picks in
+  // trade ideas (review of Phase 7b: the two lines contradicted each other).
   const picks = dynastyOrKeeper
-    ? { checked: s.includePicks, help: "Adds future draft picks, yours and theirs, to trade ideas. Off by default: pick values are FantasyCalc's and haven't been checked against a real dynasty league yet." }
+    ? { checked: s.includePicks, help: "Draft picks aren't part of trade ideas yet. Your choice is kept for when they are." }
     : null;
 
   return {

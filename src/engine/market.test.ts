@@ -129,12 +129,14 @@ describe("fantasyCalcFormat (§2.9 FantasyCalc parameters)", () => {
     expect(fantasyCalcFormatLabel(at(1))).toBe("10 teams · PPR · 1 QB · redraft");
   });
 
-  it("§2.9 TE premium from ESPN pointsOverrides (byPosition replaces the base rate) → te+ / te++, noted as our mapping", () => {
+  it("§2.9 TE premium from ESPN pointsOverrides (byPosition replaces the base rate) → te+ / te++, noted as the cut FantasyCalc confirmed (✅ 2026-10-05)", () => {
     const te = (teRec: number) => fantasyCalcFormat(league({ scoring: scoring({ rec: 0.5 }, { byPosition: { TE: { rec: teRec } } }) }));
     const plus = te(1); // +0.5 per catch
     expect(plus.tep).toBe("te+");
     expect(plus.ppr).toBe(0.5); // WRs keep the base rate
-    expect(plus.substitutions).toEqual(["TE premium +0.5 per reception → FantasyCalc's TE+ values (our mapping: FantasyCalc doesn't define TE+ or TE++ in points)"]);
+    expect(plus.substitutions).toEqual(["TE premium +0.5 per reception → FantasyCalc's TE+ values (the cut FantasyCalc confirmed)"]);
+    // Not called our assumption any more (FantasyCalc's reply, reports/fantasycalc-permission.md, condition 5).
+    expect(plus.substitutions.join(" ")).not.toMatch(/our mapping|doesn't define/);
     expect(fantasyCalcFormatLabel(plus)).toBe("10 teams · half-PPR · 1 QB · redraft · TE+");
     const plusPlus = te(1.5); // +1 per catch
     expect(plusPlus.tep).toBe("te++");

@@ -1053,6 +1053,49 @@ function sameJson(a: unknown, b: unknown): boolean {
   return a === b || JSON.stringify(a) === JSON.stringify(b);
 }
 
+/** A saved league's import replaced by a newer one (replaceStoredImport), with its switcher row and "my team" pick. */
+interface ReplacedImport {
+  stored: StoredImport;
+  league: SavedLeague;
+  pick: MyTeamPick | undefined;
+}
+
+/**
+ * Inside a write's transaction (keepModelResponse, keepImport): modelStore.ts's replace rule against the import stored
+ * right now (snapshotOrder). "skip": no import of that league is saved, or this one is older league data (store nothing);
+ * null: the same league data, kept as it is; else it replaced the import (its request kept, "my team" by pickAfterImport):
+ * newer league data, or the same now signed (Part B, track BF: the server read it again from its copy and signed it, so
+ * the next build sends it back instead of asking the server to read the league again).
+ */
+async function replaceStoredImport(tx: StoreTx, id: string, response: ImportResponse, savedAt: string): Promise<ReplacedImport | null | "skip"> {
+  const snap = response.snapshot;
+  const current = loadedImportOf(await tx.get("imports", id), id);
+  if (current.kind !== "ok" || savedLeagueId(snap) !== id) return "skip";
+  const order = snapshotOrder(current.stored.response.snapshot.fetchedAt, snap.fetchedAt);
+  if (order === "older") return "skip";
+  const signsSame = order === "same" && response.signed !== undefined && current.stored.response.signed === undefined;
+  if (order !== "newer" && !signsSame) return null;
+  const stored = toStoredImport({ request: current.stored.request, response, savedAt });
+  const prev = checkSavedLeague(await tx.get("leagues", id));
+  const existing = pickOfRow(await tx.get("picks", id), id);
+  const change = pickAfterImport(snap, existing);
+  const league = savedLeagueOf(stored, prev?.lastUsedAt ?? savedAt);
+  await tx.put("imports", { id, stored });
+  await tx.put("leagues", league);
+  if (change.kind === "clear") await tx.delete("picks", id);
+  return { stored, league, pick: change.kind === "clear" ? undefined : existing };
+}
+
+/** The page's state once replaceStoredImport's import is stored (a later write of the pick, still in flight, keeps its own). */
+function withReplacedImport(s: LeagueStoreState, id: string, r: ReplacedImport, settled: (key: string) => boolean): LeagueStoreState {
+  return {
+    ...s,
+    leagues: sortSavedLeagues([...s.leagues.filter((l) => l.id !== id), r.league]),
+    imports: withMap(s.imports, id, { kind: "ok", stored: r.stored }),
+    picks: settled(`picks:${id}`) ? withMap(s.picks, id, r.pick) : s.picks,
+  };
+}
+
 /** A row's fresh copy, keeping the current object when nothing in it changed (so memos downstream hold). */
 function keepSame<V>(current: V | undefined, fresh: V | undefined): V | undefined {
   return current !== undefined && fresh !== undefined && sameJson(current, fresh) ? current : fresh;
@@ -1578,47 +1621,41 @@ export class LeagueStoreClient {
     const out = await this.write({
       keys: [`leagues:${id}`, `imports:${id}`, `picks:${id}`],
       run: async (tx) => {
-        const current = loadedImportOf(await tx.get("imports", id), id);
-        if (current.kind !== "ok" || savedLeagueId(snap) !== id) return null;
-        const order = snapshotOrder(current.stored.response.snapshot.fetchedAt, snap.fetchedAt);
-        if (order === "older") return null;
-        let replaced: { stored: StoredImport; league: SavedLeague; pick: MyTeamPick | undefined } | null = null;
-        // The same league data, now signed (Part B, track BF: the server read it again from its copy and signed it): kept
-        // too, so the next build sends it back instead of asking the server to read the league again.
-        const signsSame = order === "same" && args.response.import.signed !== undefined && current.stored.response.signed === undefined;
-        if (order === "newer" || signsSame) {
-          const stored = toStoredImport({ request: current.stored.request, response: args.response.import, savedAt: args.savedAt });
-          const prev = checkSavedLeague(await tx.get("leagues", id));
-          const existing = pickOfRow(await tx.get("picks", id), id);
-          const change = pickAfterImport(snap, existing);
-          const league = savedLeagueOf(stored, prev?.lastUsedAt ?? args.savedAt);
-          await tx.put("imports", { id, stored });
-          await tx.put("leagues", league);
-          if (change.kind === "clear") await tx.delete("picks", id);
-          replaced = { stored, league, pick: change.kind === "clear" ? undefined : existing };
-        }
+        const replaced = await replaceStoredImport(tx, id, args.response.import, args.savedAt);
+        if (replaced === "skip") return null;
         const model: StoredModel = { version: 1, savedAt: args.savedAt, key: modelKey(snap), snapshotFetchedAt: snap.fetchedAt, model: args.response.model };
         await tx.put("models", { id, model });
         return { replaced, model };
       },
       commit: (s, r, settled) => {
         if (!r) return s;
-        let next: LeagueStoreState = { ...s, models: withMap(s.models, id, r.model) };
-        if (r.replaced) {
-          const { stored, league, pick } = r.replaced;
-          next = {
-            ...next,
-            leagues: sortSavedLeagues([...s.leagues.filter((l) => l.id !== id), league]),
-            imports: withMap(s.imports, id, { kind: "ok", stored }),
-            picks: settled(`picks:${id}`) ? withMap(s.picks, id, pick) : s.picks,
-          };
-        }
-        return next;
+        const next: LeagueStoreState = { ...s, models: withMap(s.models, id, r.model) };
+        return r.replaced ? withReplacedImport(next, id, r.replaced, settled) : next;
       },
       ids: [id],
     });
     if (!out.ok || !out.value) return { importSaved: false, modelSaved: false };
     return { importSaved: out.value.replaced !== null, modelSaved: true };
+  }
+
+  /**
+   * Keeps a newer import of a saved league without model inputs (review of Phase 7b): the League page read the league again
+   * for its numbers, and the model route then failed (BUSY under load, its build slots or the day's work budget). Kept by
+   * keepModelResponse's rule for the import (replaceStoredImport: newer league data, or the same now signed; "my team" by
+   * pickAfterImport), so the page's next try within browserFetchLimits.reimportAfterMs sends it back signed (one build)
+   * instead of reading the league again. The stored model inputs stay (built for older data, they're not reused for it).
+   */
+  async keepImport(id: string, args: { response: ImportResponse; savedAt: string }): Promise<{ importSaved: boolean }> {
+    const out = await this.write({
+      keys: [`leagues:${id}`, `imports:${id}`, `picks:${id}`],
+      run: async (tx) => {
+        const replaced = await replaceStoredImport(tx, id, args.response, args.savedAt);
+        return replaced === "skip" ? null : replaced;
+      },
+      commit: (s, r, settled) => (r ? withReplacedImport(s, id, r, settled) : s),
+      ids: [id],
+    });
+    return { importSaved: out.ok && out.value !== null };
   }
 
   /** Stops following other tabs and closes the storage (tests; a page never needs it). */

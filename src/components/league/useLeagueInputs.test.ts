@@ -10,6 +10,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { defaultTradeSettings } from "@/engine/settings";
+import type { ImportResponse } from "@/lib/api";
 import { applyFeedback, type FeedbackRecord } from "@/lib/feedbackStore";
 import { IMPORT_FORMAT_VERSION, type StoredImport } from "@/lib/importStore";
 import { leagueStoreStateOf, savedLeagueId, type LeagueStoreState } from "@/lib/leagueStore";
@@ -18,7 +19,7 @@ import { leagueKey } from "@/lib/settingsStore";
 import { useSavedFeedback } from "../settings/useFeedback";
 import { useSavedLeagueSettings } from "../settings/useLeagueSettings";
 import { leagueFixture } from "./testFixtures";
-import { INPUTS_UNREACHABLE, settledInputs, useCurrentLeague, useLeagueStorage, useSavedLeagueInputs, useSavedLeagues, useSavedModel, type InputsOutcome } from "./useLeagueInputs";
+import { INPUTS_UNREACHABLE, inputsFailure, leagueTag, settledInputs, useCurrentLeague, useLeagueStorage, useSavedLeagueInputs, useSavedLeagues, useSavedModel, type InputsOutcome } from "./useLeagueInputs";
 
 /** The store's state the hooks see: null = the real hook (the server's: loading). */
 const env = vi.hoisted(() => ({ state: null as LeagueStoreState | null }));
@@ -97,6 +98,29 @@ describe("the league store's hooks", () => {
     expect(render(leagueStoreStateOf({ imports: [stored] }), Inputs)).toBe("<p>pair=none myTeam=none error=none</p>");
     const stale = { ...model, model: { ...f.inputs, builtAt: "2026-01-01T00:00:00.000Z" } };
     expect(render(leagueStoreStateOf({ imports: [stored], models: { [id]: stale } }), Inputs)).toBe("<p>pair=none myTeam=none error=none</p>");
+  });
+});
+
+describe("inputsFailure: a page load's failed model request (review of Phase 7b)", () => {
+  const tag = `${leagueTag(f.snapshot)}|0`;
+  const message = "Offer Sheet is busy right now. Try again in a minute.";
+
+  it("without an import read again: the error under this fetch's tag, nothing to keep", () => {
+    expect(inputsFailure({ tag, attempt: 0, message, imported: undefined, stored })).toEqual({ error: { tags: [tag], message }, kept: null });
+  });
+
+  it("with one (the league read again, then BUSY): it's kept, and the error is filed under its tag too, so the page waits for Try again", () => {
+    const fresh: ImportResponse = { snapshot: { ...f.snapshot, fetchedAt: "2026-11-26T20:30:00.000Z" }, notes: [], signed: { issuedAt: 1, token: "made-up" } };
+    const out = inputsFailure({ tag, attempt: 2, message, imported: fresh, stored });
+    expect(out.kept).toEqual(fresh);
+    // Once the store shows the kept import, the page asks under its tag with the same attempt: the error answers it.
+    expect(out.error).toEqual({ tags: [tag, `${leagueTag(fresh.snapshot)}|2`], message });
+    // The stored import's team carries over to a read that didn't find it (and the signature, which covered the snapshot
+    // as it was, goes), as an answer's does (modelStore.ts withImportedTeam).
+    const withTeam: StoredImport = { ...stored, response: { ...stored.response, snapshot: { ...f.snapshot, myTeamId: "1" } } };
+    const kept = inputsFailure({ tag, attempt: 0, message, imported: fresh, stored: withTeam }).kept;
+    expect(kept?.snapshot.myTeamId).toBe("1");
+    expect(kept).not.toHaveProperty("signed");
   });
 });
 

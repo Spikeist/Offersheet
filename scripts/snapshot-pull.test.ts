@@ -3,7 +3,7 @@
  * it copies from the store (FakeRedis, filled by the cron's own store) into the local archives' files (a temporary folder),
  * the merge with files already there, what it refuses to write, and its report. No network.
  */
-import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises";
+import { mkdtemp, readdir, rm, writeFile, mkdir } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -11,11 +11,13 @@ import type { FantasyCalcFormat } from "@/engine/inputs";
 import type { Pos } from "@/engine/model";
 import { fantasyCalcFormatKey, fantasyCalcSnapshotFile, packFantasyCalcSnapshot, readFantasyCalcSnapshot, type ArchivableRow } from "@/server/fantasyCalcArchive";
 import { projectionSnapshotFile, readProjectionSnapshot, writeProjectionSnapshotFile, type ProjectionArchiveInput } from "@/server/projectionArchive";
+import { snapshotLimits } from "@/server/limits";
 import { FakeRedis } from "@/server/redis";
 import { fantasyCalcIndexKey, fantasyCalcSnapshotKey, projectionSnapshotKey, sharedSnapshotStore } from "@/server/snapshots";
-import { PULL_BATCH, formatSnapshotPull, pullSeason, pullSeasons, snapshotPullArgs, type PullRoots } from "./snapshot-pull";
+import { PULL_BATCH, PULL_DAY_BATCH, formatSnapshotPull, pruneLocalLists, pullDays, pullSeason, pullSeasons, snapshotPullArgs, type PullRoots } from "./snapshot-pull";
 
 const HOUR = 3_600_000;
+const DAY = 24 * HOUR;
 const P = "os:production:";
 const KICKOFF5 = Date.parse("2026-10-09T00:15:00.000Z");
 const WEDNESDAY = Date.parse("2026-10-07T20:05:00.000Z");
@@ -65,12 +67,23 @@ describe("snapshotPullArgs and the seasons", () => {
     expect(pullSeasons(Date.parse("2027-01-10T12:00:00Z"))).toEqual([2024, 2025, 2026]);
     expect(pullSeasons(Date.parse("2027-03-10T12:00:00Z"))).toEqual([2025, 2026, 2027]);
   });
+
+  it("each season's days whose index the store can still hold: the season's days of the last two seasons' worth, up to today", () => {
+    const days2026 = pullDays(2026, WEDNESDAY);
+    expect([days2026[0], days2026.at(-1), days2026.length]).toEqual(["2026-03-01", "2026-10-07", 221]);
+    expect(pullDays(2025, WEDNESDAY)).toHaveLength(365);
+    // 2024's season: only its days less than two seasons old (a day's index goes retainDays after it began).
+    const days2024 = pullDays(2024, WEDNESDAY);
+    expect([days2024[0], days2024.at(-1)]).toEqual(["2024-10-08", "2025-02-28"]);
+    expect(Date.parse("2024-10-08T00:00:00Z") + snapshotLimits.retainDays * DAY).toBeGreaterThan(WEDNESDAY);
+    expect(Date.parse("2024-10-07T00:00:00Z") + snapshotLimits.retainDays * DAY).toBeLessThanOrEqual(WEDNESDAY);
+  });
 });
 
 describe("pullSeason: the store's records into the local archives' files", () => {
   async function filled(): Promise<FakeRedis> {
     const redis = new FakeRedis(() => WEDNESDAY);
-    const store = sharedSnapshotStore(redis, { env: { VERCEL_ENV: "production" } });
+    const store = sharedSnapshotStore(redis, { env: { VERCEL_ENV: "production" }, clock: () => WEDNESDAY });
     expect(await store.saveWeek(week(5, WEDNESDAY - HOUR))).toMatchObject({ status: "saved" });
     expect(await store.saveWeek(week(6, WEDNESDAY - HOUR))).toMatchObject({ status: "saved" });
     expect(await store.saveList({ format: redraft10, players: players(3), fetchedAt: WEDNESDAY - 2 * HOUR })).toEqual({ status: "saved" });
@@ -80,7 +93,7 @@ describe("pullSeason: the store's records into the local archives' files", () =>
 
   it("writes each week and list as the local archive's own file, readable by its readers; running it again writes nothing", async () => {
     const redis = await filled();
-    const first = await pullSeason(redis, P, 2026, roots);
+    const first = await pullSeason(redis, P, 2026, roots, WEDNESDAY);
     expect(first).toEqual({
       season: 2026,
       projections: { inStore: 2, written: [5, 6], current: 0, invalid: 0, otherVersion: 0 },
@@ -93,12 +106,14 @@ describe("pullSeason: the store's records into the local archives' files", () =>
     expect(Object.keys(list?.players ?? {})).toEqual(["1", "2", "3"]);
 
     const before = redis.stats.commands;
-    const again = await pullSeason(redis, P, 2026, roots);
+    const again = await pullSeason(redis, P, 2026, roots, WEDNESDAY);
     expect(again.projections).toEqual({ inStore: 2, written: [], current: 2, invalid: 0, otherVersion: 0 });
     expect(again.fantasyCalc).toEqual({ indexed: 2, written: 0, here: 2, gone: 0, invalid: 0, otherVersion: 0 });
-    // One MGET of the weeks and one SMEMBERS of the index; no list is asked for (both are on disk).
-    expect(redis.stats.commands - before).toBe(2);
-    expect(await pullSeason(redis, P, 2025, roots)).toMatchObject({ projections: { inStore: 0 }, fantasyCalc: { indexed: 0 } });
+    // One MGET of the weeks and one SMEMBERS of each day's index (PULL_DAY_BATCH at a time); no list is asked for (both
+    // are on disk).
+    expect(redis.stats.commands - before).toBe(1 + pullDays(2026, WEDNESDAY).length);
+    expect(PULL_DAY_BATCH).toBeGreaterThan(1);
+    expect(await pullSeason(redis, P, 2025, roots, WEDNESDAY)).toMatchObject({ projections: { inStore: 0 }, fantasyCalc: { indexed: 0 } });
   });
 
   it("merges a week with the local file: each position's later pre-kickoff fetch wins", async () => {
@@ -108,7 +123,7 @@ describe("pullSeason: the store's records into the local archives' files", () =>
     const built = local.projectionArchiveFetch(week(5, WEDNESDAY + HOUR, ["QB"]));
     if (!("fetch" in built)) throw new Error("not archived");
     await writeProjectionSnapshotFile(projectionSnapshotFile(roots.projections, 2026, 5), local.mergeSnapshot(null, built.fetch).record);
-    const out = await pullSeason(redis, P, 2026, roots);
+    const out = await pullSeason(redis, P, 2026, roots, WEDNESDAY);
     expect(out.projections.written).toEqual([5, 6]);
     const merged = await readProjectionSnapshot(projectionSnapshotFile(roots.projections, 2026, 5));
     expect(merged?.groups.QB?.fetchedAt).toBe(new Date(WEDNESDAY + HOUR).toISOString());
@@ -124,27 +139,30 @@ describe("pullSeason: the store's records into the local archives' files", () =>
     const wrongAt = { season: 2026, day: "2026-10-06", key: fantasyCalcFormatKey(redraft10) as string };
     const dynastyRecord = { version: 1 as const, format: { isDynasty: true, numQbs: 2 as const, numTeams: 12, ppr: 1 as const }, fetchedAt: "2026-10-06T10:00:00.000Z", players: { "1": { pos: "WR", value: 5 } } };
     await redis.set(fantasyCalcSnapshotKey(P, wrongAt), (await packFantasyCalcSnapshot(dynastyRecord)).toString("base64"));
-    await redis.sadd(fantasyCalcIndexKey(P, 2026), "2026-10-06/redraft-1qb-10team-ppr0.5", "2026-10-05/redraft-1qb-10team-ppr0.5", "junk", "2027-03-02/redraft-1qb-10team-ppr0.5");
+    await redis.sadd(fantasyCalcIndexKey(P, { season: 2026, day: "2026-10-06" }), "redraft-1qb-10team-ppr0.5");
+    await redis.sadd(fantasyCalcIndexKey(P, { season: 2026, day: "2026-10-05" }), "redraft-1qb-10team-ppr0.5", "junk");
+    // A day after today isn't read.
+    await redis.sadd(fantasyCalcIndexKey(P, { season: 2026, day: "2027-02-02" }), "redraft-1qb-10team-ppr0.5");
     // The day's local copy of dynasty12 is there already: kept.
     const localFile = fantasyCalcSnapshotFile(roots.fantasyCalc, { season: 2026, day: "2026-10-07", key: fantasyCalcFormatKey(dynasty12) as string });
     await mkdir(path.dirname(localFile), { recursive: true });
     await writeFile(localFile, "the day's first copy");
-    const out = await pullSeason(redis, P, 2026, roots);
+    const out = await pullSeason(redis, P, 2026, roots, WEDNESDAY);
     expect(out.projections).toEqual({ inStore: 4, written: [5, 6], current: 0, invalid: 2, otherVersion: 0 });
-    // Indexed: today's two, the wrong one, the expired one (junk and another season's day are dropped).
+    // Indexed: today's two, the wrong one, the expired one (junk and a day after today are dropped).
     expect(out.fantasyCalc).toEqual({ indexed: 4, written: 1, here: 1, gone: 1, invalid: 1, otherVersion: 0 });
     await expect(readFantasyCalcSnapshot(fantasyCalcSnapshotFile(roots.fantasyCalc, wrongAt))).resolves.toBeNull();
   });
 
   it("asks for missing lists PULL_BATCH at a time", async () => {
     const redis = new FakeRedis(() => WEDNESDAY);
-    const store = sharedSnapshotStore(redis, { env: { VERCEL_ENV: "production" } });
+    const store = sharedSnapshotStore(redis, { env: { VERCEL_ENV: "production" }, clock: () => WEDNESDAY });
     const formats: FantasyCalcFormat[] = [];
     for (const numTeams of [8, 10, 12, 14]) for (const ppr of [0, 0.5, 1] as const) for (const numQbs of [1, 2] as const) for (const isDynasty of [false, true]) formats.push({ isDynasty, numQbs, numTeams, ppr, substitutions: [] });
     // 48 formats on two days each: 96 lists.
     for (const f of formats) for (const daysAgo of [0, 1]) await store.saveList({ format: f, players: players(2), fetchedAt: WEDNESDAY - 24 * HOUR * daysAgo });
     const mget = vi.spyOn(redis, "mget");
-    const out = await pullSeason(redis, P, 2026, roots);
+    const out = await pullSeason(redis, P, 2026, roots, WEDNESDAY);
     expect(out.fantasyCalc).toMatchObject({ indexed: 96, written: 96 });
     expect(mget.mock.calls.slice(1).map((c) => c.length)).toEqual([PULL_BATCH, 96 - PULL_BATCH]);
   });
@@ -170,5 +188,29 @@ describe("the report", () => {
         "Files: data-local/projection-snapshots/<season>/week-WW.json.gz and data-local/fantasycalc-snapshots/<season>/<day>/<format>.json.gz (git-ignored).",
       ].join("\n"),
     );
+    // With local lists pruned, a last line says how many.
+    const pruned = formatSnapshotPull("production", [], roots, dir, { days: 2, lists: 3 });
+    expect(pruned.split("\n").at(-1)).toBe(`Deleted 3 local FantasyCalc lists of 2 days more than ${snapshotLimits.retainDays} days ago, as the store deletes them.`);
+  });
+});
+
+describe("pruneLocalLists: the local copies kept no longer than the store keeps them (review of Phase 7b)", () => {
+  it("deletes the day folders of lists more than two seasons old, and nothing else", async () => {
+    const at = (season: number, day: string, key = "redraft-1qb-10team-ppr0.5") => fantasyCalcSnapshotFile(roots.fantasyCalc, { season, day, key });
+    const files = [at(2024, "2024-10-07"), at(2024, "2024-10-07", "dynasty-2qb-12team-ppr1"), at(2024, "2024-10-08"), at(2026, "2026-10-07")];
+    for (const f of files) {
+      await mkdir(path.dirname(f), { recursive: true });
+      await writeFile(f, "a list");
+    }
+    // Not a day folder, and a file beside the season folders: left alone.
+    await mkdir(path.join(roots.fantasyCalc, "2024", "notes"), { recursive: true });
+    await writeFile(path.join(roots.fantasyCalc, "README.txt"), "kept");
+    expect(await pruneLocalLists(roots.fantasyCalc, WEDNESDAY)).toEqual({ days: 1, lists: 2 });
+    expect((await readdir(path.join(roots.fantasyCalc, "2024"))).sort()).toEqual(["2024-10-08", "notes"]);
+    expect(await readdir(path.join(roots.fantasyCalc, "2026"))).toEqual(["2026-10-07"]);
+    expect((await readdir(roots.fantasyCalc)).sort()).toEqual(["2024", "2026", "README.txt"]);
+    // Again: nothing more to delete; no archive at all: nothing to do.
+    expect(await pruneLocalLists(roots.fantasyCalc, WEDNESDAY)).toEqual({ days: 0, lists: 0 });
+    expect(await pruneLocalLists(path.join(dir, "nowhere"), WEDNESDAY)).toEqual({ days: 0, lists: 0 });
   });
 });

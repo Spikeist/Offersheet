@@ -491,21 +491,28 @@ function TeamsCard({ view }: ViewProps) {
   );
 }
 
+/** The technical details' summary (§5.1), and the section's own heading for screen readers (TechnicalDetails). */
+const TECHNICAL_DETAILS_TITLE = "Technical details (for bug reports)";
+
 /**
  * "Technical details (for bug reports)" (§5.1), collapsed at the very bottom: every warning with its code and path, the
  * import's notes, the player-ID matching and the uncounted rules' stat IDs. Never the place for anything a user needs.
+ * Open, its body starts with an h2 of its own, visually hidden (the summary shows the words): its sections' h3s belong to
+ * it in a screen reader's list of headings, not to the card above ("Where this came from"; review of Phase 7b). A visible
+ * heading inside the summary was the other way, but some screen readers flatten a summary's content (it acts as a button).
  */
 function TechnicalDetails({ view }: ViewProps) {
   const t = view.technical;
   return (
     <details id="technical-details" className="group rounded-2xl border border-line bg-surface shadow-sm">
       <summary className="flex min-h-11 items-center justify-between gap-3 px-4 py-3 text-sm font-bold sm:px-5">
-        Technical details (for bug reports)
+        {TECHNICAL_DETAILS_TITLE}
         <span aria-hidden className="text-muted transition-transform group-open:rotate-180">
           ▾
         </span>
       </summary>
       <div className="space-y-4 border-t border-line px-4 pt-3 pb-4 sm:px-5">
+        <h2 className="sr-only">{TECHNICAL_DETAILS_TITLE}</h2>
         <p className="text-sm text-muted">What the import read and how, in the platforms&apos; own terms. You only need this to report a problem.</p>
         {t.note ? <p className="text-sm">{t.note}</p> : null}
         {t.sections.map((s) => (

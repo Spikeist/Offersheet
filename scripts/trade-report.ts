@@ -48,12 +48,15 @@
  *    helpsScaleSection): the League model's calibration run (LeagueModel.helpsCalibration: ΔPO₃ and ΔCH₃ from +3 points a
  *    week in every week a trade can change), checked against the trade context's own run (evaluate.ts SimState.calibration,
  *    bit for bit), B₃ under each goal as the search scores it (evaluate.helpsScaleOf: raw, floored or not, used; B_ref(λ) in a
- *    dynasty or keeper league with long-term values, planner reply to Checkpoint 7a, §2 question 6) with what "Protect my
- *    trade value" charges on it at Medium for giving 25% more value than you get (question 5), and
+ *    dynasty or keeper league with long-term values, planner reply to Checkpoint 7a, §2 question 6), each off the trade
+ *    context the app builds under that goal (its own ω, pickups, baseline and +3 run; review of Phase 7b: read off the
+ *    default goal's context, Balanced and Make the playoffs were 5.88 and 7.53 where the app uses 5.93 and 7.66), with what
+ *    "Protect my trade value" charges on it at Medium for giving 25% more value than you get (question 5), and
  *    league-report's scaleCheck from the one baseline (every team after its pickups: season.pickupSeasonModel,
- *    TeamModel.scoreWithPickups) for +1, +3 and +6 projected points a week (league-report's scaleFrom: a week under way is
- *    left out, as every trade's evaluation leaves it): ΔPO, ΔCH, B and Helps you on the new scale under each goal, its +3
- *    row checked to be the calibration run. Section 1's and 2's cards are scored on the same B₃ (their goal's).
+ *    TeamModel.scoreWithPickups; the default goal's ω) for +1, +3 and +6 projected points a week (league-report's
+ *    scaleFrom: a week under way is left out, as every trade's evaluation leaves it): ΔPO, ΔCH, B and Helps you on the new
+ *    scale under each goal, its +3 row checked to be the calibration run. Section 1's cards are scored on the default goal's
+ *    B₃; section 2's "Balanced" cards on the default goal's context (its caveat), so on that context's B₃ for Balanced.
  * 4. The search gap (change 1): Garrett Wilson → Chuba Hubbard + Mike Evans with their team (searchGap: its rank among
  *    that partner's screened candidates by the screening objective, the g window, the partner's keep, the exact
  *    shortlist, the finalists, the card; whether the beams alone screen it; its numbers), the screened counts per
@@ -514,22 +517,43 @@ export interface HelpsScaleSection {
   calibration: HelpsCalibration | null;
   /** The trade context's run on its final block (evaluate.ts SimState.calibration) is the same, bit for bit; null without either. */
   contextMatches: boolean | null;
-  /** B₃ under each goal as the search scores its cards (evaluate.helpsScaleOf with the report's settings' λ); null without odds. */
+  /**
+   * B₃ under each goal as the app's search scores its cards under that goal (evaluate.helpsScaleOf with the report's
+   * settings' λ), each on that goal's own trade context: since the planner's reply to Checkpoint 7a (§6.1) the goal sets the
+   * playoff weeks' weight ω, so each goal has its own pickups, baseline and +3 run (review of Phase 7b: every goal's B₃ was
+   * read off the default goal's context, Balanced 5.88 where the app uses 5.93); null without odds.
+   */
   b3: ByGoal<HelpsScale | null>;
+  /** Each goal's own context: its ω (LeagueModel.playoffWeight) and its calibration run (SimState.calibration; null without odds). */
+  omega: ByGoal<number>;
+  calibrations: ByGoal<HelpsCalibration | null>;
   /** league-report's scale check from the one baseline: +1, +3 and +6 a week, Helps you on its +3 row's B₃ (the same B₃). */
   check: ScaleCheck | null;
   /** The check's +3 row is the League model's calibration run, bit for bit (league-report calibrationMatches). */
   checkMatches: boolean | null;
 }
 
-/** Section 3: the calibration run, B₃ under each goal as the search uses it, and the scale check on the new scale. */
-export function helpsScaleSection(snapshot: LeagueSnapshot, model: LeagueModel, ctx: TradeContext, settings: TradeSettings): HelpsScaleSection {
+/**
+ * Section 3: the calibration run, B₃ under each goal as the search uses it, and the scale check on the new scale.
+ * `contextFor`: the trade context the app builds under a goal (the report's own `ctx` for the settings' goal); each goal's
+ * B₃ and ω are read off its own (HelpsScaleSection.b3). Without it every goal reads `ctx` (tests).
+ */
+export function helpsScaleSection(snapshot: LeagueSnapshot, model: LeagueModel, ctx: TradeContext, settings: TradeSettings, contextFor: (goal: Goal) => TradeContext = () => ctx): HelpsScaleSection {
   const I = tradeInternals(ctx);
   const calibration = model.helpsCalibration ?? null;
   const own = I.sim?.calibration ?? null;
   const contextMatches = calibration && own ? own.gain === calibration.gain && own.from === calibration.from && Object.is(own.dPO, calibration.dPO) && Object.is(own.dCH, calibration.dCH) : null;
   const check = scaleCheckOf(snapshot, model);
-  return { calibration, contextMatches, b3: byGoal((g) => helpsScaleOf(I, settings.lambda, g)), check, checkMatches: calibrationMatches(check, calibration) };
+  const contexts = byGoal((g) => (g === settings.goal ? I : tradeInternals(contextFor(g))));
+  return {
+    calibration,
+    contextMatches,
+    b3: byGoal((g) => helpsScaleOf(contexts[g], settings.lambda, g)),
+    omega: byGoal((g) => contexts[g].model.playoffWeight),
+    calibrations: byGoal((g) => contexts[g].sim?.calibration ?? null),
+    check,
+    checkMatches: calibrationMatches(check, calibration),
+  };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1158,7 +1182,8 @@ export function buildTradeReport(input: LeagueSnapshot, inputs: ModelInputs, opt
   lap("beams");
   const goals = goalCompare(ctx, result, settings);
   lap("goals");
-  const scale = helpsScaleSection(snapshot, league.model, ctx, settings);
+  // Section 3: each goal's B₃ off the context the app builds under that goal (its own ω; helpsScaleSection).
+  const scale = helpsScaleSection(snapshot, league.model, ctx, settings, (goal) => buildTradeContext(snapshot, inputs, { now, settings: { ...settings, goal }, ...sc }));
   lap("scale");
   const gap = searchGap(ctx, result, settings);
   lap("gap");
@@ -1212,7 +1237,7 @@ function renderHeader(L: string[], snapshot: LeagueSnapshot, inputs: ModelInputs
   const s = r.settings;
   const model = r.model;
   const me = r.result.myTeamId;
-  L.push("# Trade search: Parker's ESPN league (Checkpoint 7a)", "");
+  L.push("# Trade search: Parker's ESPN league (Checkpoint 7b)", "");
   L.push(
     `Generated by \`${opts.command ?? commandText("trade:report", [opts.mode === "live" ? "--live" : null])}\` on ${(opts.generatedAt ?? opts.now).toISOString().slice(0, 10)} through the real engine, as the app's Web Workers run it. Team, owner and league names are placeholders (you are Team ${me ?? "–"}); NFL player names are public.`,
     "",
@@ -1224,7 +1249,7 @@ function renderHeader(L: string[], snapshot: LeagueSnapshot, inputs: ModelInputs
   L.push(`- Waiver order used: ${waiverOrderText(snapshot)}.${r.pre4c ? ` ${pre4cText(r.pre4c, me, teamNameOf(me))} Section 7 compares the two orders.` : ""}`);
   L.push("");
   L.push(
-    `**Settings** (the app's defaults): What matters most: ${GOAL_WORDS[s.goal]} (${goalWeightsText(s.goal)}); Chance they accept: ${minChanceText(s.minChance)}; Protect my trade value: ${LEVEL_WORDS[s.protectValue]} (κ ${protectValueWeight(s.protectValue)} points a week per 100% of trade value, priced on B₃: section 3); max ${s.maxPerSide} players a side; streamed ${s.streamPositions.join(", ") || "none"}; P/K/D/ST/IDP ${s.includeKDefIdp ? "included" : "left out"}; β_need ${betaNeed(snapshot.settings.leagueType)}; W (the best free agent's trade value) ${thousands(Math.round(I.credit))}; playoff weeks count ${playoffWeightSummary(I.model)} in every ROS(T): the search's shortlists, free-agent pickups and trade chips (planner reply to Checkpoint 7a, §6.1; the League page's model has the same, ${model.playoffWeight}×). ${thresholdsLine(I.model)}`,
+    `**Settings** (the app's defaults): What matters most: ${GOAL_WORDS[s.goal]} (${goalWeightsText(s.goal)}); Chance they accept: ${minChanceText(s.minChance)}; Protect my trade value: ${LEVEL_WORDS[s.protectValue]} (κ ${protectValueWeight(s.protectValue)} points a week per 100% of trade value, priced on B₃: section 3); max ${s.maxPerSide} players a side; streamed ${s.streamPositions.join(", ") || "none"}; P/K/D/ST/IDP ${s.includeKDefIdp ? "included" : "left out"}; β_need ${betaNeed(snapshot.settings.leagueType)}; W (the trade value of the best free agent the allocation leaves unclaimed: §9, Checkpoint 7a) ${thousands(Math.round(I.credit))}; playoff weeks count ${playoffWeightSummary(I.model)} in every ROS(T): the search's shortlists, free-agent pickups and trade chips (planner reply to Checkpoint 7a, §6.1; the League page's model has the same, ${model.playoffWeight}×). ${thresholdsLine(I.model)}`,
     "",
   );
   const b = r.result.baseline;
@@ -1383,12 +1408,18 @@ function renderScale(L: string[], r: Report): void {
   );
   const kMedium = protectValueWeight("medium");
   const redraft = r.snapshot.settings.leagueType === "redraft";
-  L.push("| Goal | Weights | B₃ | Floored | +1 / +3 / +6 pts a week read | Giving 25% more value at Medium: B (pts a week) |", "|---|---|---|---|---|---|");
+  L.push(
+    `Each goal's B₃ below is the one the app's search scores that goal's cards on: off the trade context the app builds under that goal. Since the planner's reply to Checkpoint 7a (§6.1) the goal also sets the playoff weeks' weight ω, so each goal has its own pickups, baseline and +${gain} run (its ΔPO₃ / ΔCH₃ in the table). The "read" column is the scale check further down, on the default goal's baseline.`,
+    "",
+  );
+  L.push("| Goal | Weights | ω | ΔPO₃ / ΔCH₃ | B₃ | Floored | +1 / +3 / +6 pts a week read | Giving 25% more value at Medium: B (pts a week) |", "|---|---|---|---|---|---|---|---|");
   for (const g of GOALS) {
     const b = s.b3[g];
+    const own = s.calibrations[g];
+    const runText = own ? `${pts(own.dPO, 2)} / ${own.dCH === null ? "unknown" : pts(own.dCH, 2)}` : "–";
     const reads = s.check?.rows ? s.check.rows.map((row) => `+${row.gain} → ${row.score[g] ?? "–"}`).join(", ") : "–";
     const price = !redraft ? "– (no market term)" : b ? `${signed(marketSanity(PRICE_EXAMPLE_G, b.b3, kMedium), 2)} (${signed(marketWeekly(PRICE_EXAMPLE_G, kMedium), 1)})` : "–";
-    L.push(`| ${GOAL_WORDS[g]}${g === r.settings.goal ? " (the app's default)" : ""} | ${goalWeightsText(g)} | ${b ? fmt(b.b3, 2) : "–"} | ${b ? (b.floored ? `yes (raw ${fmt(b.raw, 2)})` : "no") : "–"} | ${reads} | ${price} |`);
+    L.push(`| ${GOAL_WORDS[g]}${g === r.settings.goal ? " (the app's default)" : ""} | ${goalWeightsText(g)} | ${s.omega[g]}× | ${runText} | ${b ? fmt(b.b3, 2) : "–"} | ${b ? (b.floored ? `yes (raw ${fmt(b.raw, 2)})` : "no") : "–"} | ${reads} | ${price} |`);
   }
   L.push("");
   // The note a search shows when its B₃ is floored (benefit.helpsScaleNotes; review of track SC).
@@ -1400,7 +1431,7 @@ function renderScale(L: string[], r: Report): void {
     return;
   }
   L.push(
-    `The scale check (league-report's scaleCheck): your weekly score + 1, 3 and 6 projected points in the same weeks, the same seasons (± one standard error by batch means). B = 100 × (w_PO ΔPO + w_CH ΔCH), no market term; Helps you on that goal's B₃ (its +${gain} row), so +${gain} reads 63 by construction. Baseline: playoffs ${pctPlain(c.base.pPlayoffs)}, title ${pctPlain(c.base.pTitle)}.${matches(s.checkMatches, `Its +${gain} row`)}`,
+    `The scale check (league-report's scaleCheck): your weekly score + 1, 3 and 6 projected points in the same weeks, the same seasons (± one standard error by batch means), on the default goal's baseline (ω ${r.model.playoffWeight}×) for every goal's weights, so the goals compare on one run. B = 100 × (w_PO ΔPO + w_CH ΔCH), no market term; Helps you on that goal's B(+${gain}) on this baseline (its +${gain} row), so +${gain} reads 63 by construction; the app's own B₃ under another goal is the table's above, from that goal's own baseline. Baseline: playoffs ${pctPlain(c.base.pPlayoffs)}, title ${pctPlain(c.base.pTitle)}.${matches(s.checkMatches, `Its +${gain} row`)}`,
     "",
   );
   L.push(`| Gain | ΔPO | ΔCH | ${GOALS.map((g) => `${GOAL_WORDS[g]}: B / Helps`).join(" | ")} | Checkpoint 3's B (0.35 / 0.65) |`, `|---|---|---|${GOALS.map(() => "---|").join("")}---|`);

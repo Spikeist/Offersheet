@@ -65,9 +65,9 @@
  *   rosters stand), and in the simulator's weekly score inputs (TeamModel.score and scoreWithPickups), which must all be
  *   exactly 0.
  * - Simulation runtime: simNormals and simulateSeason at 1,000 and 5,000 seasons (config.simulation
- *   screeningSims and finalSims), and buildLeagueModel with and without the simulation (expected-value
- *   lineups only, and S availability scenarios), each the median of TIMING_RUNS runs after TIMING_WARMUPS
- *   warm-up.
+ *   screeningSims and finalSims), and buildLeagueModel with and without the season simulation (expected-value
+ *   lineups only, and S availability scenarios; both measuring the automatic playoff weight, as the app does), each the
+ *   median of TIMING_RUNS runs after TIMING_WARMUPS warm-up.
  *
  * Phase 4, track A1 (planner reply to Checkpoint 3: model change 1, answers 1, 3 and 5):
  * - Streaming positions (CLAUDE.md §7): which positions each team streams and why (your setting, or detected
@@ -96,8 +96,9 @@
  *   them from the dump folder's waiver-ranks.json when it has one (the header says so).
  * - The market blend (§6 step 8; blendLines): the blend's weight and, per position, the players it reaches and the curve
  *   points (LeaguePlayers.blend), the players whose projection it moved (PlayerModel.blend), and the League page's
- *   player breakdown lines (buildLeagueView: PlayerRow.blend, rosters and free-agent lists), with how many read "no
- *   comparison" (a player at the end of his position's value range, whose market number is his own).
+ *   player breakdown lines (buildLeagueView: PlayerRow.blend, rosters and free-agent lists), counted by their words
+ *   (Phase 7b, planner reply to Checkpoint 7a, 5.4: words only, never a number of the market's, leagueView.blendText;
+ *   review of Phase 7b: the report still quoted the old "Our projection 210 · Trade market 170 · Used 190" line).
  * - One free agent, one team (§7; LeagueModel.faAllocation): the allocation's basis and order next to every team's
  *   pickups, and a check that no free agent is in two teams' pickups. A waiver-order allocation names the order used
  *   (waiverOrderNote, Phase 4c below).
@@ -166,7 +167,7 @@ import { returnersOf } from "@/engine/optimizer";
 import { finalLineups } from "@/engine/returners";
 import { buildSimSetup, pickupSeasonModel, playoffRounds, seasonOdds, type SeasonModel, type SimSetupResult } from "@/engine/season";
 import { simNormals, simulateSeason, type SimNormals, type SimResult, type SimSetup } from "@/engine/sim";
-import { GOALS, PROTECT_VALUE_LEVELS, type Goal, type ProtectValue } from "@/engine/settings";
+import { GOALS, PROTECT_VALUE_LEVELS, defaultTradeSettings, type Goal, type ProtectValue } from "@/engine/settings";
 import { evLineups, rosValue, scenarioLineups } from "@/engine/teamValue";
 import { waiverOrderText } from "@/lib/importReport";
 import { posLabel } from "@/lib/labels";
@@ -923,13 +924,18 @@ export interface BlendLines {
   scaled: number;
   /** Players whose rest-of-season points it moved (PlayerModel.blend: a weight above 0 and ROS above 0). */
   moved: number;
-  /** Of those, the ones whose market number is their own (the end of their position's value range: blendIsOwnPoint), and the others whose three rounded numbers are equal anyway. */
+  /** Of those, the ones whose market number is their own (the end of their position's value range: blendIsOwnPoint). */
   ownPoint: number;
-  equalRounded: number;
-  /** The League page's player breakdown lines (PlayerRow.blend) on the rosters and in the free-agent lists, and how many say "no comparison". */
+  /** The League page's player breakdown lines (PlayerRow.blend) on the rosters and in the free-agent lists. */
   rosterLines: number;
   freeAgentLines: number;
-  noComparison: number;
+  /**
+   * Those lines by their words (leagueView.blendText; Phase 7b: words only, planner reply to Checkpoint 7a, 5.4): leaning up
+   * or down toward the trade market's view, capped ("…, by the most it can": the clamp cut his factor), or "The trade market
+   * barely moves his projection." (his ROS prints the same before and after; the players at one end of their position's
+   * value range among them).
+   */
+  words: { leansUp: number; leansDown: number; capped: number; barely: number };
   /**
    * Phase 4c (planner reply to Checkpoint 4b, change 4; review of track R, R-6): the factor's clamp
    * (config.marketBlend.factorClamp) and every factor it cut (BlendFactor.clamped: the factor before the clamp, after it,
@@ -945,10 +951,18 @@ export function blendLines(snapshot: LeagueSnapshot, inputs: ModelInputs, model:
   const factors = [...blend.factors.values()];
   const moved = Object.values(model.players).flatMap((pm) => (pm.blend ? [pm.blend] : []));
   const ownPoint = moved.filter((b) => blendIsOwnPoint(b)).length;
-  const equalRounded = moved.filter((b) => !blendIsOwnPoint(b) && Math.round(b.ours) === Math.round(b.market) && Math.round(b.market) === Math.round(b.used)).length;
   const view = buildLeagueView({ snapshot, model, inputs, myTeamSource: "you", timeZone: "UTC", now: now.toISOString() });
   const rows = view.rosters.flatMap((r) => r.players).filter((p) => p.blend);
   const fa = view.freeAgents.flatMap((g) => g.players).filter((p) => p.blend);
+  // The lines by their words (BlendLines.words; leagueView.blendText's three sentences).
+  const texts = [...rows, ...fa].map((p) => p.blend?.text ?? "");
+  const capped = (t: string) => t.includes("by the most it can");
+  const words = {
+    leansUp: texts.filter((t) => !capped(t) && t.startsWith("His projection leans up")).length,
+    leansDown: texts.filter((t) => !capped(t) && t.startsWith("His projection leans down")).length,
+    capped: texts.filter(capped).length,
+    barely: texts.filter((t) => t.startsWith("The trade market barely moves")).length,
+  };
   const far = (f: number) => (f > 0 && Number.isFinite(f) ? Math.abs(Math.log(f)) : Number.POSITIVE_INFINITY);
   const clamped = [...blend.factors]
     .flatMap(([id, f]) => (f.clamped ? [{ id, fRaw: f.fRaw ?? f.f, f: f.f, bound: f.clamped }] : []))
@@ -960,10 +974,9 @@ export function blendLines(snapshot: LeagueSnapshot, inputs: ModelInputs, model:
     scaled: factors.filter((f) => f.ours > 0).length,
     moved: moved.length,
     ownPoint,
-    equalRounded,
     rosterLines: rows.length,
     freeAgentLines: fa.length,
-    noComparison: [...rows, ...fa].filter((p) => p.blend?.text.includes("no comparison")).length,
+    words,
     clamp: config.marketBlend.factorClamp,
     clamped,
   };
@@ -1251,14 +1264,19 @@ export function simTiming(setup: SimSetup, seed: number, sims: number, clock: ()
 
 export interface BuildTiming {
   scenarios: number;
-  /** Simulated seasons (0 = without the simulation). */
+  /** Simulated seasons of the headline odds (0 = without the season simulation; the playoff weight's runs happen either way). */
   sims: number;
   /** Median build time, ms, and the median of the build's own "season simulation" stage (null without it). */
   total: number;
   simulation: number | null;
 }
 
-/** buildLeagueModel with and without the simulation, EV lineups only and with S scenarios: medians of `runs` builds after `warmups`. */
+/**
+ * buildLeagueModel with and without the season simulation, EV lineups only and with S scenarios: medians of `runs` builds
+ * after `warmups`. Every variant measures the automatic playoff weight on finalSims seasons, as the app does
+ * (playoffWeightSims; league.ts step 5c): with `sims` 0 alone it would default to 0, skip that measurement and build another
+ * model (the fallback ω), so "without" would also leave out the ω runs and everything ω moves (review of Phase 7b).
+ */
 export function buildTimings(snapshot: LeagueSnapshot, inputs: ModelInputs, now: Date, scenarios: number, clock: () => number, runs = TIMING_RUNS, warmups = TIMING_WARMUPS): BuildTiming[] {
   const variants = [0, scenarios].flatMap((s) => [0, config.simulation.finalSims].map((sims) => ({ scenarios: s, sims })));
   return variants.map((v) => {
@@ -1266,7 +1284,7 @@ export function buildTimings(snapshot: LeagueSnapshot, inputs: ModelInputs, now:
     const stage: number[] = [];
     for (let i = 0; i < warmups + Math.max(1, runs); i++) {
       const t0 = clock();
-      const m = buildLeagueModel(snapshot, inputs, { now, scenarios: v.scenarios, sims: v.sims, clock });
+      const m = buildLeagueModel(snapshot, inputs, { now, scenarios: v.scenarios, sims: v.sims, playoffWeightSims: config.simulation.finalSims, clock });
       const dt = clock() - t0;
       if (i < warmups) continue;
       totals.push(dt);
@@ -1294,11 +1312,41 @@ export interface SeasonReport {
    * LeagueModel.helpsCalibration's; null when either is missing).
    */
   scaleMatchesModel: { pickups: boolean; stand: boolean | null; calibration: boolean | null } | null;
+  /**
+   * The app's own B₃ under each goal (appHelpsScales; review of Phase 7b): the scale check holds this report's model, the
+   * default goal's, for every goal's weights; the app under another goal builds its own model (its own playoff-week
+   * weight ω, so its own pickups, baseline and +3 run). Null without odds or a team.
+   */
+  appB3: ByGoal<AppB3> | null;
   /** Every team's pickups' own effect on my odds: the one baseline against as rosters stand, paired (pickupsEffect). */
   pickups: PickupsEffect | null;
   noOp: NoOpCheck | null;
   simTimings: SimTiming[];
   buildTimings: BuildTiming[];
+}
+
+/** One goal's B₃ as the app computes it under that goal (SeasonReport.appB3), with the ω its model used. */
+export interface AppB3 {
+  b3: number | null;
+  floored: boolean;
+  omega: number;
+}
+
+/**
+ * Each goal's B₃ off that goal's own League model (SeasonReport.appB3): this report's `model` for the default goal (built
+ * with the default settings), a model built with the goal for each other one (its helpsCalibration; benefit.helpsScale, no
+ * long-term part, as the scale check's). Null without odds or my team.
+ */
+export function appHelpsScales(snapshot: LeagueSnapshot, inputs: ModelInputs, model: LeagueModel, now: Date): ByGoal<AppB3> | null {
+  const me = model.myTeamId;
+  if (!me || !model.odds) return null;
+  const defaults = defaultTradeSettings();
+  const of = (m: LeagueModel, goal: Goal): AppB3 => {
+    const mine = m.odds?.teams.find((t) => t.teamId === me);
+    const s = mine ? helpsScale(m.helpsCalibration, { leagueType: snapshot.settings.leagueType, myPPlayoffs: mine.pPlayoffs, goal, dynastyTotal: null }) : null;
+    return { b3: s?.b3 ?? null, floored: s?.floored ?? false, omega: m.playoffWeight };
+  };
+  return byGoal((goal) => of(goal === defaults.goal ? model : buildLeagueModel(snapshot, inputs, { now, scenarios: model.scenarios, settings: { ...defaults, goal } }), goal));
 }
 
 export interface SeasonReportOptions {
@@ -1323,7 +1371,7 @@ export function seasonReport(snapshot: LeagueSnapshot, inputs: ModelInputs, mode
   const pickups = pickupSeasonModel(model);
   const built = buildSimSetup(snapshot, pickups);
   const builds = buildRuns > 0 ? buildTimings(snapshot, inputs, now, model.scenarios, clock, buildRuns, warmups) : [];
-  if (!odds || !built) return { odds, stand, built, schedule: null, scale: null, scaleStand: null, scaleMatchesModel: null, pickups: null, noOp: null, simTimings: [], buildTimings: builds };
+  if (!odds || !built) return { odds, stand, built, schedule: null, scale: null, scaleStand: null, scaleMatchesModel: null, appB3: null, pickups: null, noOp: null, simTimings: [], buildTimings: builds };
   // The League model's own seasons: both odds share the seed's first finalSims seasons (league.ts step 8b).
   const run: SharedRun = { sims: odds.sims, seed: odds.seed, normals: simNormals(odds.seed, odds.sims, built.setup.weeks.length, built.setup.teams.length) };
   const me = model.myTeamId;
@@ -1341,6 +1389,7 @@ export function seasonReport(snapshot: LeagueSnapshot, inputs: ModelInputs, mode
     scale,
     scaleStand,
     scaleMatchesModel: matchPickups === null ? null : { pickups: matchPickups, stand: me ? same(scaleStand, oddsOf(stand, me)) : null, calibration: calibrationMatches(scale, model.helpsCalibration) },
+    appB3: scale ? appHelpsScales(snapshot, inputs, model, now) : null,
     pickups: scale && scaleStand ? pickupsEffect(scale, scaleStand, run.sims) : null,
     noOp: noOpCheck(snapshot, inputs, model, built, now),
     simTimings: [config.simulation.screeningSims, config.simulation.finalSims].map((sims) => simTiming(built.setup, odds.seed, sims, clock, runs, warmups)),
@@ -1484,15 +1533,27 @@ export const PRICE_EXAMPLE_G = 1 / 1.25 - 1;
  * and marketSanity, the engine's own functions): giving 25% more value than you get (g_mkt(me) −0.20) costs κ × 0.20 points a
  * week at every level (Low, Medium, High), the same under every goal; in B, (B₃ / 3) × that, which depends on the goal's B₃.
  */
-export function tradeValuePriceWords(check: Pick<ScaleCheck, "b3">): string {
+export function tradeValuePriceWords(check: Pick<ScaleCheck, "b3">, app: ByGoal<AppB3> | null = null): string {
   const levels = PROTECT_VALUE_LEVELS.map((level) => `${fmt(-marketWeekly(PRICE_EXAMPLE_G, protectValueWeight(level)), 1)} at ${PROTECT_LEVEL_WORDS[level]}`).join(", ");
   const medium = protectValueWeight("medium");
+  // On the app's own B₃ under each goal when it's known (appHelpsScales; review of Phase 7b), else the check's.
   const perGoal = GOALS.map((g) => {
-    const b3 = check.b3[g].value;
+    const b3 = app ? app[g].b3 : check.b3[g].value;
     return b3 === null ? `${GOAL_WORDS[g]} –` : `${GOAL_WORDS[g]} ${signed(marketSanity(PRICE_EXAMPLE_G, b3, medium), 2)}`;
   }).join("; ");
   const kappas = PROTECT_VALUE_LEVELS.map((level) => String(protectValueWeight(level))).join(" / ");
-  return `“Protect my trade value” is priced on the same B₃ (planner reply to Checkpoint 7a, §2 question 5: the market term = (B₃ / ${config.benefit.helpsGain}) × κ × clamp(g_mkt(me)), κ = ${kappas} points a week per 100% of trade value at Low / Medium / High): giving 25% more value than you get (g_mkt(me) −0.20) costs ${levels} points a week under every goal; in B at Medium: ${perGoal}.`;
+  return `“Protect my trade value” is priced on the same B₃ (planner reply to Checkpoint 7a, §2 question 5: the market term = (B₃ / ${config.benefit.helpsGain}) × κ × clamp(g_mkt(me)), κ = ${kappas} points a week per 100% of trade value at Low / Medium / High): giving 25% more value than you get (g_mkt(me) −0.20) costs ${levels} points a week under every goal; in B at Medium${app ? ", on the app's own B₃ under each goal" : ""}: ${perGoal}.`;
+}
+
+/**
+ * The app's own B₃ under each goal in words (SeasonReport.appB3; review of Phase 7b): "Win the title **4.94** (ω 1.6×); …",
+ * floored ones saying so.
+ */
+export function appB3Words(app: ByGoal<AppB3>): string {
+  return GOALS.map((g) => {
+    const a = app[g];
+    return `${GOAL_WORDS[g]} ${a.b3 === null ? "none" : `**${fmt(a.b3, 2)}**${a.floored ? " (floored)" : ""}`} (ω ${a.omega}×)`;
+  }).join("; ");
 }
 
 /**
@@ -1525,7 +1586,7 @@ function renderScale(L: string[], season: SeasonReport, model: LeagueModel, leag
       : "The run is too short to split into batches, so the changes have no standard error (–).";
   const goals = GOALS.map((g) => `${GOAL_WORDS[g]} ${goalWeights(g).playoffs} / ${goalWeights(g).title}`).join(", ");
   L.push(
-    `CLAUDE.md §10 and the planner's reply to Checkpoint 4c (A2: "Helps you" calibrates itself per league and goal): your weekly score mean + x points in every remaining week a trade can change (weeks ${weeks[0] ?? "–"}–${weeks.at(-1) ?? "–"}: regular season and playoffs${check.from > 0 ? `; week ${model.inProgressWeek} is under way, and a trade's evaluation holds a week under way at its score as rosters stand, so the gain starts the week after` : ""}), σ unchanged, x = ${SCALE_GAINS.join(", ")}. From the one baseline: every team after its free-agent pickups (TeamModel.scoreWithPickups, the seasons LeagueModel.odds simulates, the trade search's baseline). Every row is ${sims} simulated seasons on the same common-random-numbers matrix (seed ${odds.seed}, the League model's own seasons): each season is played with and without the gain on the same random draws. That takes out the noise of comparing separate runs, but each change is still an estimate from ${sims} seasons, and another seed would give a somewhat different one. ${error} ΔPO and ΔCH are fractions; B = 100 × (w_PO ΔPO + w_CH ΔCH) under each "What matters most" goal (w_PO / w_CH: ${goals}; no market term: only lineup points move); B₃ = B(+${config.benefit.helpsGain}) under the same goal, at least ${config.benefit.helpsFloor} (benefit.helpsScale; the app's own B₃ is the same run, LeagueModel.helpsCalibration); Helps you = round(100 × (1 − e^(−B / B₃))), so +${config.benefit.helpsGain} reads 63 by construction. The planner's toy league (12 teams, 10 weeks left, the weights before Phase 4c): B ≈ ${SCALE_GAINS.map((g) => PLANNER_TOY[g]?.B ?? "–").join(" / ")}, scores ≈ ${SCALE_GAINS.map((g) => PLANNER_TOY[g]?.score ?? "–").join(" / ")}.`,
+    `CLAUDE.md §10 and the planner's reply to Checkpoint 4c (A2: "Helps you" calibrates itself per league and goal): your weekly score mean + x points in every remaining week a trade can change (weeks ${weeks[0] ?? "–"}–${weeks.at(-1) ?? "–"}: regular season and playoffs${check.from > 0 ? `; week ${model.inProgressWeek} is under way, and a trade's evaluation holds a week under way at its score as rosters stand, so the gain starts the week after` : ""}), σ unchanged, x = ${SCALE_GAINS.join(", ")}. From the one baseline: every team after its free-agent pickups (TeamModel.scoreWithPickups, the seasons LeagueModel.odds simulates, the trade search's baseline). Every row is ${sims} simulated seasons on the same common-random-numbers matrix (seed ${odds.seed}, the League model's own seasons): each season is played with and without the gain on the same random draws. That takes out the noise of comparing separate runs, but each change is still an estimate from ${sims} seasons, and another seed would give a somewhat different one. ${error} ΔPO and ΔCH are fractions; B = 100 × (w_PO ΔPO + w_CH ΔCH) under each "What matters most" goal (w_PO / w_CH: ${goals}; no market term: only lineup points move); B₃ = B(+${config.benefit.helpsGain}) under the same goal, at least ${config.benefit.helpsFloor} (benefit.helpsScale; under the default goal the app's own B₃ is the same run, LeagueModel.helpsCalibration; under another goal it comes from that goal's own model: below the table); Helps you = round(100 × (1 − e^(−B / B₃))), so +${config.benefit.helpsGain} reads 63 by construction. The planner's toy league (12 teams, 10 weeks left, the weights before Phase 4c): B ≈ ${SCALE_GAINS.map((g) => PLANNER_TOY[g]?.B ?? "–").join(" / ")}, scores ≈ ${SCALE_GAINS.map((g) => PLANNER_TOY[g]?.score ?? "–").join(" / ")}.`,
     "",
   );
   const m = season.scaleMatchesModel;
@@ -1535,8 +1596,16 @@ function renderScale(L: string[], season: SeasonReport, model: LeagueModel, leag
   }
   L.push("**From the one baseline (every team after its free-agent pickups)**", "");
   scaleTable(L, check);
+  // Review of Phase 7b: the check holds this model (the default goal's ω) for every goal's weights; the app's own B₃ under
+  // another goal comes from that goal's own model.
+  if (season.appB3) {
+    L.push(
+      `⚠️ This check is on the default goal's baseline (playoff weeks count ${model.playoffWeight}×) for every goal's weights, so the goals compare on one run. Since the planner's reply to Checkpoint 7a (§6.1) each goal sets the playoff weeks' weight ω itself, so the app under another goal builds its own baseline (other pickups, another +${config.benefit.helpsGain} run). The app's own B₃ under each goal, off that goal's own League model: ${appB3Words(season.appB3)}.`,
+      "",
+    );
+  }
   // The redraft market term's price on this B₃ (dynasty and keeper leagues have no market term: B_future carries value).
-  if (leagueType === "redraft") L.push(tradeValuePriceWords(check), "");
+  if (leagueType === "redraft") L.push(tradeValuePriceWords(check, season.appB3), "");
   L.push("**As rosters stand** (TeamModel.score: every team as it is today, Checkpoint 4b's basis; Helps you on this basis's own B₃, its +3 row)", "");
   if (season.scaleStand) {
     if (season.pickups) L.push(pickupsLine(season.pickups), "");
@@ -1679,8 +1748,11 @@ function renderRuntime(L: string[], season: SeasonReport): void {
     L.push("");
   }
   if (season.buildTimings.length) {
-    L.push("buildLeagueModel, the whole League model (the League page's Web Worker runs it):", "");
-    L.push("| Lineups | Without the simulation | With it | The build's own \"season simulation\" stage |", "|---|---|---|---|");
+    L.push(
+      `buildLeagueModel, the whole League model (the League page's Web Worker runs it), without and with its season simulation (the headline odds); both measure the automatic playoff weight on ${thousands(config.simulation.finalSims)} seasons, as the app does, so the difference is the season simulation's alone:`,
+      "",
+    );
+    L.push("| Lineups | Without the season simulation | With it | The build's own \"season simulation\" stage |", "|---|---|---|---|");
     for (const s of [...new Set(season.buildTimings.map((b) => b.scenarios))]) {
       const off = season.buildTimings.find((b) => b.scenarios === s && b.sims === 0);
       const on = season.buildTimings.find((b) => b.scenarios === s && b.sims > 0);
@@ -1846,7 +1918,7 @@ function renderBlend(L: string[], b: BlendLines, snapshot: LeagueSnapshot): void
     b.clamped.length
       ? `- The clamp cut **${b.clamped.length}** factor${b.clamped.length === 1 ? "" : "s"}: ${b.clamped.map((c) => `${playerLabel(snapshot.players[c.id], c.id)} ×${fmt(c.fRaw, 3)} → ×${fmt(c.f, 2)} (its ${c.bound === "high" ? "upper" : "lower"} bound)`).join("; ")}. The trade report's section 6 lists the most extreme factors with what each one's record shows.`
       : `- The clamp cut no factor (every f within [${lo}, ${hi}]).`,
-    `- The League page's player breakdown line ("Our projection 210 · Trade market 170 · Used 190", tap or hover on a player): **${b.rosterLines + b.freeAgentLines}** lines, ${b.rosterLines} on the rosters and ${b.freeAgentLines} in the free-agent lists; **${b.noComparison}** of them read "Trade market: no comparison" (a player at one end of his position's value range, whose market number is his own: ${b.ownPoint} such players in the model). Another ${b.equalRounded} of the model's blended players print three equal rounded numbers because the market and our projection agree to within a point.`,
+    `- The League page's player breakdown line (tap or hover on a player; in words only, never a number of the market's: planner reply to Checkpoint 7a, 5.4): **${b.rosterLines + b.freeAgentLines}** lines, ${b.rosterLines} on the rosters and ${b.freeAgentLines} in the free-agent lists. **${b.words.leansUp}** read "His projection leans up toward the trade market's view.", **${b.words.leansDown}** "…leans down…", **${b.words.capped}** add that the clamp cut it ("…, by the most it can: ${Math.round((hi - 1) * 100)}%." up, ${Math.round((1 - lo) * 100)}% down), and **${b.words.barely}** "The trade market barely moves his projection." (his rest-of-season points print the same before and after; it includes players at one end of their position's value range, whose market number is their own: ${b.ownPoint} such players in the model).`,
     "",
   );
 }

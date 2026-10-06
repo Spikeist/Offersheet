@@ -8,7 +8,7 @@ Written for the planner (who can't open the app) and Parker. Below is the full t
 
 - **Privacy, shorter.** "The short version" stays first and gains the cookie line: "Offer Sheet sets no cookies, except one encrypted cookie if you connect a private ESPN league." (Checked in the code: only the ESPN cookie session's connect and forget requests set a cookie, and nothing in the browser writes one.) Cut: the browser database's name, tabs' session codes and messages, the old storage keys and the migration paragraph, how trade-page addresses carry IDs, how the server reuses a saved league it was sent, and the rate limits' windows and counts, now "per-visitor limits, counted under codes made from your IP address with a secret key, deleted within a day". Sleeper usernames moved into "Reading your league", settings and feedback into "What stays in your browser"; the affiliation sentence is left to the footer, which every page has.
 - **Feedback:** "We keep anonymous feedback for up to 12 months, then delete it." The monthly-download promise and its mechanics are gone, and so is the tool they described: `npm run feedback:report` replaced `npm run feedback:pull`; it reads the store and saves totals only. So the page also says: "When we study it, we keep only totals and the numbers our estimates learn from it, never individual copies."
-- **New facts:** the public data kept to measure accuracy (Sleeper's pre-game projections and FantasyCalc's daily lists, up to 2 seasons, about no league or person, never shown; the daily snapshot cron keeps them); the daily totals (about nobody, kept about 13 months; with the archive, the league formats in use, noted for 3 days); Upstash in US East with backups off; FantasyCalc (once our server has a format's list, it doesn't ask for it again for 3 hours, and asks only when needed; copies up to 90 days; its links tell it only that a visit came from Offer Sheet).
+- **New facts:** the public data kept to measure accuracy (Sleeper's pre-game projections and FantasyCalc's daily lists for the league formats in use, up to 2 seasons, never shown, saying nothing about any league or person beyond which formats were in use each day; the daily snapshot cron keeps them); the daily totals (about nobody, kept about 13 months); Upstash in US East with backups off; FantasyCalc (once our server has a format's list, it doesn't ask for it again for 3 hours, and asks only when needed; copies up to 90 days; its links tell it only that a visit came from Offer Sheet).
 - **iPhone:** the Home Screen sentence says "may" (one secondary source so far).
 - **Terms:** "Your part" in the planner's words (leagues you're in or allowed to view; no collecting information about other people; ESPN cookies kept private), "You must be at least 13 to use Offer Sheet.", and trade values no longer among the numbers Offer Sheet "quotes".
 - **Contact:** offersheet.app@gmail.com on the privacy, terms and feedback pages. No person's name on any page, in the metadata, the footer, the manifest or the sharing image (a test checks them).
@@ -16,8 +16,8 @@ Written for the planner (who can't open the app) and Parker. Below is the full t
 
 ## After the review of this text
 
-- **Nothing the code doesn't do yet.** Three sentences rested on Checkpoint 7b work that wasn't built when they were written. Each now shows only while that work is in the code, like browser reading and anonymous feedback before them, and `src/app/pages.test.ts` fails, both ways, while a sentence and the code disagree:
-  - **FantasyCalc's values never shown** (5.4): still **off**. The trade cards' value line, the reasons and the pitch, the Analyzer's Details, the League page's Value column and How to read still show FantasyCalc's values or compare them. Once they're gone, the test asks for it to be turned on, and then the pages add the words below.
+- **Nothing the code doesn't do yet.** Three sentences rested on Checkpoint 7b work that wasn't built when they were written. Each shows only while that work is in the code, like browser reading and anonymous feedback before them, and `src/app/pages.test.ts` fails, both ways, while a sentence and the code disagree. All three are now **on**, so every sentence quoted below is on the pages:
+  - **FantasyCalc's values never shown** (5.4): **on** since 2026-10-05. No trade card, reason, pitch, Analyzer Details, League page or How to read shows a FantasyCalc value or compares values by them (`src/lib/fantasyCalcHidden.test.ts` guards the words, the pages test the code that showed them), so both "never shown" sentences (below) appear.
   - **The public-data archive** (4.4, 6.3): **on**. The snapshot cron is in `vercel.json`, with its route.
   - **Feedback studied in totals only** (4.3): **on**. `npm run feedback:pull` is gone.
 - **FantasyCalc's 3 hours.** The page said "at most once every 3 hours". That isn't so while FantasyCalc is down: each server asks again within 15 minutes. And after a list that fails our checks, the next League page asks again. It now says what the cache guarantees: "Once it has a format's list, it doesn't ask FantasyCalc for it again for 3 hours, and asks only when needed."
@@ -26,25 +26,32 @@ Written for the planner (who can't open the app) and Parker. Below is the full t
 - **Email.** The pages publish a Gmail address, so "Who handles the data" says: "Google keeps the emails you send us (your address and message) in Offer Sheet's Gmail inbox, used only to answer you. Ask, and we'll delete them."
 - **The archive's words.** It now says "We also keep public data", not "public data we fetch anyway": when no League page has fetched a week's projections or a day's list, the cron fetches it itself.
 
+## After the review of Phase 7b
+
+- **Which formats were in use.** The cron saves a FantasyCalc list only for the formats League pages read that day or the day before, so the archive shows which league formats were in use each day (a rare format can point to one league). The page said the archive "isn't about any league or person" and, under "Daily totals", that formats were noted "for 3 days", while the code kept a day's entry in a season-long index whose expiry every later save set again: up to about 3 years. Now each day's lists and the day's index go two seasons after that day began (`src/server/snapshots.ts` dayRetainMs), `npm run snapshot:pull` deletes its local copies by the same rule, and the page says: "We also keep public data, Sleeper's pre-game projections and FantasyCalc's daily lists for the league formats in use, up to 2 seasons, to measure how accurate our numbers are. It's never shown and says nothing about any league or person beyond which formats were in use each day." The daily totals no longer name the formats (the builds' own 3-day note is the same fact for less time).
+- **Forget my credentials.** An import read with ESPN cookies is signed too, and the League page sends it back while it's fresh, so the model route keeps what it works out from it (ESPN's league-scored projections included) in memory until 15 minutes after the import. The line now reads: "league data our server copied or worked out with it is deleted within about 15 minutes (older weeks' transactions within 6 hours)" (it said 10 minutes).
+- **Logs.** The error log also keeps a few routine events (the snapshot cron logs every run), so: "Our own log keeps errors and a few routine events, where and when …", not "only what went wrong".
+
 ## Choices made in this pass (for the planner)
 
-- **About 1,250 words, not 1,000.** The detailed part (everything after the short version) is 1,244 words as the app shows it today, and 1,244 once FantasyCalc's values are gone and the page says so. It was 3,042 at Checkpoint 7a and 1,286 after the first pass. The review cut the repeats of the short version (the limits sentence, the cookie sentence), the log's list of fields, the Export line and two re-read details. It added what the review found missing: what the server holds in memory and when it goes, the cookie after a restored session, and the Gmail inbox. What's left is what the reply asked to keep (what's collected, where it goes, how long, how to delete it, cookies, logs, providers, children, contact) plus the facts the reply added. The next cuts would drop facts, such as the list of what an anonymous copy holds. A test holds the detailed part at 1,250 words, so making it longer needs your OK. The short version is 288 words.
+- **About 1,250 words, not 1,000.** The detailed part (everything after the short version) is 1,249 words as the app shows it today, with every feature on (1,249 with every flag on, the most it can be). It was 3,042 at Checkpoint 7a and 1,286 after the first pass. The review cut the repeats of the short version (the limits sentence, the cookie sentence), the log's list of fields, the Export line and two re-read details. It added what the review found missing: what the server holds in memory and when it goes, the cookie after a restored session, and the Gmail inbox. What's left is what the reply asked to keep (what's collected, where it goes, how long, how to delete it, cookies, logs, providers, children, contact) plus the facts the reply added. The next cuts would drop facts, such as the list of what an anonymous copy holds. The review of Phase 7b's three corrections (above) fit by dropping the daily totals' formats sentence and a few words. A test holds the detailed part at 1,250 words, so making it longer needs your OK. The short version is 288 words.
 - **The anonymous copy's goal setting** is described by what it does ("how you weigh the title against the playoffs"), not by its label, since Checkpoint 7b renames the setting ("What does your league reward?"). Its scoring fields read "main scoring settings" (points per catch, per passing touchdown and the tight-end premium).
 - **"About 13 months"** for the daily totals: the counters are kept 400 days after their day, a little over 13 months.
 - **"Your part"** is a list of rules ("When you use it, you agree to these rules:"), so the planner's "don't use Offer Sheet to collect information about other people" fits as written; the other "not …" items now read "don't …".
 
-## Words that show once FantasyCalc's values are gone from the app
+## The "never shown" words (on since 2026-10-05)
 
 - Privacy, "Other sources": "…and trade values from FantasyCalc, which Offer Sheet uses in its own numbers but never shows."
 - Terms, "Where the data comes from": "…trade values from FantasyCalc (Offer Sheet uses them in its own numbers and doesn't show them), …"
 
 ## Checks before launch (Checkpoint 7b's go/no-go list)
 
-- **FantasyCalc's condition (5.4).** No value number or comparison is left in the app. Then the "never shown" sentences are turned on (`POLICY_FEATURES.fantasyCalcHidden`; the pages test asks for it), and both "Last updated" dates move.
+- **FantasyCalc's condition (5.4): done.** No value number or comparison is left in the app, and the "never shown" sentences are on (`POLICY_FEATURES.fantasyCalcHidden`, since 2026-10-05; both "Last updated" dates moved that day).
 - **Upstash** is in US East (us-east-1) with backups off: Parker checks backups in Upstash's console.
 - **The iPhone sentence** is checked on a real iPhone if Parker has one; until then it says "may".
 - **"Last updated"** (`PRIVACY_LAST_UPDATED`, `TERMS_LAST_UPDATED`, now October 5, 2026) is set to launch day.
-- **"Up to 12 months":** each day's feedback is deleted 365 days after that day's last copy, so the day's first copy can be kept up to a day longer than 12 months. Expiring each day's list 365 days after the day began would make it exact.
+- **"Up to 12 months": done.** Each day's feedback list now goes 365 days after that day began (`src/server/feedbackSink.ts` feedbackDayTtlMs), so no copy is kept longer than 12 months.
+- **"Up to 2 seasons" for the archive: done** (review of Phase 7b, above). Its local copies follow it only while `npm run snapshot:pull` runs now and then: each run deletes the lists of days past the store's rule.
 - **Old raw feedback downloads** (`data-local/feedback-server/`, from `feedback:pull`): there were none on this PC on 2026-10-05. `npm run feedback:report` says so if any turn up, and they should be deleted.
 - **Vercel's own cookies:** the cookie line covers Offer Sheet's own code. Vercel sets cookies of its own on protected previews (`_vercel_jwt`), and when a firewall rule challenges a visitor (`_vcrcs`). The 7b firewall rule should deny or rate-limit rather than challenge, or the line needs a qualifier.
 - **CLAUDE.md** still says the pages read "Contact: to be added before launch" (§14) and describes `feedback:pull` (§11, §16).
@@ -95,11 +102,11 @@ Our server keeps copies of what it reads itself, then deletes them: league data 
 
 The copies are kept at Upstash under codes made with a secret key, so league IDs and usernames never appear there, and encrypted, so Upstash can't read them. A private ESPN league's copies are also filed under a fingerprint of your cookies, so typing its ID isn't enough to see them, and ESPN member IDs (SWIDs) are replaced with one-way pseudonyms. Anything our servers hold in memory stops being used once it's due, is deleted soon after while the server keeps working, and is gone when it shuts down.
 
-We also keep public data, Sleeper's pre-game projections and FantasyCalc's daily trade value lists, up to 2 seasons, to measure how accurate our numbers are. It isn't about any league or person and is never shown.
+We also keep public data, Sleeper's pre-game projections and FantasyCalc's daily lists for the league formats in use, up to 2 seasons, to measure how accurate our numbers are. It's never shown and says nothing about any league or person beyond which formats were in use each day.
 
 ### Daily totals
 
-Each day (UTC), our server counts the leagues imported, League pages built, the work they took, requests refused and requests made to each source, and keeps these totals about 13 months. It also notes which league formats were used, for 3 days. None of this says who made the requests.
+Each day (UTC), our server counts the leagues imported, League pages built, the work they took, requests refused and requests made to each source, and keeps these totals about 13 months. None of this says who made the requests.
 
 ### Anonymous feedback
 
@@ -114,7 +121,7 @@ We keep anonymous feedback for up to 12 months, then delete it. When we study it
 - They work like a password, so we treat them like one. We never ask for your ESPN password.
 - They reach our server inside a request, never in a web address, and go into a cookie encrypted with a key only our server has and hidden from the page's scripts. Your browser sends it with each request to Offer Sheet and deletes it when you close your browser; even if your browser restores its session, it stops working after 12 hours.
 - Our server never stores or logs your espn_s2 cookie, and your ESPN cookies are never saved with your leagues.
-- “Forget my credentials” on the Connect page (or “Forget my ESPN cookies” on the Import Report) deletes the cookie right away; league data our server copied with it is deleted within about 10 minutes (older weeks' transactions within 6 hours).
+- “Forget my credentials” on the Connect page (or “Forget my ESPN cookies” on the Import Report) deletes the cookie right away; league data our server copied or worked out with it is deleted within about 15 minutes (older weeks' transactions within 6 hours).
 
 ### Other sources
 
@@ -122,7 +129,7 @@ Our server also downloads public data: player lists, projections and stats from 
 
 ### Logs
 
-Vercel, our host, logs each request it serves (its web address and the browser type, for example), keeps that log for 1 hour, and can see IP addresses. Our own error log keeps only what went wrong, where and when (an error code and the source involved, for example), for up to 14 days: never league data, names, IDs, usernames, cookies or IP addresses.
+Vercel, our host, logs each request it serves (its web address and the browser type, for example), keeps that log for 1 hour, and can see IP addresses. Our own log keeps errors and a few routine events, where and when (an error code and the source involved, for example), for up to 14 days: never league data, names, IDs, usernames, cookies or IP addresses.
 
 ### Who handles the data
 

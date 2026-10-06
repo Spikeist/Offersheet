@@ -313,7 +313,7 @@ describe("with a league", () => {
     expect(described).toEqual([
       ["Automatic", "Set from your playoff odds: la"],
       ["Include kickers and D/STs in trade ideas", "Off by default: managers rarel"],
-      ["Include draft picks", "Adds future draft picks, yours"],
+      ["Include draft picks", "Draft picks aren't part of tra"],
       // Phase 7a (track FB): the feedback card's sharing choice, the same way.
       ["Share anonymous feedback", "When it's on, each press also "],
     ]);
@@ -456,6 +456,10 @@ describe("the /settings route", () => {
     const route = await import("@/app/settings/page");
     expect(route.metadata.title).toBe("Settings");
     expect(String(route.metadata.description)).toContain("positions you stream weekly");
+    // Review of Phase 7b: playoff weeks' weight is automatic and read-only (planner reply to Checkpoint 7a, §6.1), and the
+    // goal is worded by what the league rewards (5.2), as the page's own NO_LEAGUE_TEXT says.
+    expect(String(route.metadata.description)).toContain("what your league rewards");
+    expect(String(route.metadata.description)).not.toMatch(/playoff weeks count/);
     const element = route.default();
     expect(element.type).toBe(SettingsPage);
   });

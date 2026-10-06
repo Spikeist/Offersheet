@@ -7,7 +7,9 @@
  *   request's parameters): the league's own list and a keeper league's redraft list (src/server/modelInputs.ts
  *   marketFormats), and a dynasty league's redraft list in its format when the build read one (the market blend's, while
  *   weeks are left to project). Nothing about the league, the person or the request: each key names one of the 144
- *   formats, shared by every league of that format.
+ *   formats, shared by every league of that format. ⚠️ A rare format can still point to one league, so the privacy page
+ *   says the archive shows which formats were in use each day, kept up to 2 seasons (src/server/snapshots.ts dayRetainMs;
+ *   review of Phase 7b).
  * - Where: on Vercel with the shared store only (src/server/snapshots.ts formatsInUseStore), into that UTC day's set
  *   (noteFormatsInUse: one SADD and PEXPIRE transaction, and only for keys this instance hasn't recorded that day, so most
  *   builds cost no Upstash command at all), after the answer (next/server's after(): never a delay to the League page).

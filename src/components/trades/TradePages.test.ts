@@ -572,8 +572,8 @@ describe("HowToRead (planner addendum to Checkpoint 3)", () => {
     expect(weeklyLineWords(0.01, 1)).toBe("by 1 percentage point or more (up to 1 week, the drops first, then the biggest gains)");
   });
 
-  it("says Helps you's scale under every goal, the mix with long-term value in dynasty and keeper leagues, and that a note says so only when the floor note shows (planner reply to Checkpoint 4c, A2; 7a, §2 question 6)", () => {
-    const words = "Under every goal, 63 is about as good as adding 3 points a week to your lineup for the rest of the season (28 for 1 point a week, 86 for 6).";
+  it("says Helps you's scale whatever the league rewards, the mix with long-term value in dynasty and keeper leagues, and that a note says so only when the floor note shows (planner reply to Checkpoint 4c, A2; 7a, §2 question 6 and 5.2)", () => {
+    const words = "Whatever your league rewards, 63 is about as good as adding 3 points a week to your lineup for the rest of the season (28 for 1 point a week, 86 for 6).";
     const note = " When that doesn't hold for your team right now, a note on the page says so.";
     expect(helpsScaleWords()).toBe(words);
     for (const page of ["finder", "analyzer"] as const) expect(how("redraft", page)).toContain(words);
@@ -612,8 +612,10 @@ describe("HowToRead (planner addendum to Checkpoint 3)", () => {
     expect(textOf(renderToStaticMarkup(createElement(HowToRead, { helpsScale: scale(null, { reason: "odds" }) })))).toContain(`${words}${note}`);
     // Not "in every league" (a dynasty league's scale is the mix), nor "under every setting".
     expect(how("dynasty")).not.toMatch(/in every league|under every setting/i);
+    // The setting is "What does your league reward?" (planner reply to Checkpoint 7a, 5.2): no "goal" left in the words.
+    for (const t of ["redraft", "dynasty", "keeper"] as const) expect(how(t)).not.toMatch(/goals?/i);
     // From config.benefit.helpsGain.
-    expect(helpsScaleWords({ gain: 6 })).toBe("Under every goal, 63 is about as good as adding 6 points a week to your lineup for the rest of the season (28 for 2 points a week, 86 for 12).");
+    expect(helpsScaleWords({ gain: 6 })).toBe("Whatever your league rewards, 63 is about as good as adding 6 points a week to your lineup for the rest of the season (28 for 2 points a week, 86 for 12).");
   });
 
   it("says Helps you counts trade value by the Protect my trade value setting in redraft leagues only", () => {

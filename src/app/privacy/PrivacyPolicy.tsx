@@ -72,11 +72,15 @@ const A = "font-semibold underline underline-offset-2";
  *     US East region (us-east-1) with backups off (planner reply to Checkpoint 7a, 1; ⚠️ Parker checks backups in
  *     Upstash's console, and the 7b go/no-go re-checks it).
  *   - The public-data archive (with publicArchive; planner reply to Checkpoint 7a, 4.4 and 6.3): the snapshot cron
- *     (vercel.json, src/app/api/cron/snapshot, src/server/snapshots.ts) keeps Sleeper's pre-game projections and the day's
- *     FantasyCalc lists at Upstash, each snapshotLimits.retainDays (730: 2 seasons) after its last write, never shown. Not
- *     "data we fetch anyway": a run fetches what the model builds' cache doesn't hold. For it, League page builds note the
- *     formats they read (src/app/api/cron/snapshot/formats.ts: format keys only, a set per UTC day kept
- *     snapshotLimits.formatsInUseRetainDays, 3), which "Daily totals" says.
+ *     (vercel.json, src/app/api/cron/snapshot, src/server/snapshots.ts) keeps Sleeper's pre-game projections (each week
+ *     snapshotLimits.retainDays, 730: 2 seasons, after its last write) and the day's FantasyCalc lists for the formats League
+ *     page builds read that day or the day before (src/app/api/cron/snapshot/formats.ts: format keys only, a set per UTC day
+ *     kept snapshotLimits.formatsInUseRetainDays, 3), each list and the day's index naming their formats until retainDays
+ *     after that day began (snapshots.ts dayRetainMs), never shown. So the archive says which formats were in use each day
+ *     for 2 seasons (review of Phase 7b: "isn't about any league or person" left that out, and the page said the formats were
+ *     noted for 3 days while one index a season kept them up to about 3 years); the builds' own 3-day record is the same
+ *     fact for less time, so "Daily totals" no longer names it. Not "data we fetch anyway": a run fetches what the model
+ *     builds' cache doesn't hold. `npm run snapshot:pull` deletes its local copies by the same rule (pruneLocalLists).
  *   - Limits (src/server/rateLimit.ts, src/server/budget.ts): the short version's sentence, the planner's words (4.2):
  *     every count under an HMAC of the IP address (or its block) with a key derived from SESSION_SECRET; a window's count at
  *     Upstash goes one window after it starts (an hour at most), a day's count a minute after the UTC day ends, a count in
@@ -92,8 +96,15 @@ const A = "font-semibold underline underline-offset-2";
  *     goal field is described by what it weighs, not by the setting's label, which Checkpoint 7b rewords (5.2).
  *   - FantasyCalc never shown (with fantasyCalcHidden; 5.4): no value number or value comparison anywhere in the app.
  *   - Logs: src/server/log.ts's allowlist (the time, route, event, code, platform, status, error name, duration), each
- *     day's list deleted logLimits.retainDays (14) after the day began; Vercel's runtime logs are kept 1 hour on Hobby
- *     (vercel.com/docs/logs/runtime, 2026-08-28).
+ *     day's list deleted logLimits.retainDays (14) after the day began: errors and a few routine events (review of Phase 7b:
+ *     the snapshot cron logs "snapshot_run" on every run, src/app/api/cron/snapshot/handler.ts, so not "only what went
+ *     wrong"); Vercel's runtime logs are kept 1 hour on Hobby (vercel.com/docs/logs/runtime, 2026-08-28).
+ *   - Forget (ESPN cookies): the cookie at once; the league data cached with it TTL.league (10 minutes; older weeks'
+ *     transactions 6 hours); and a League page that sends back a signed import read with the cookies (src/lib/modelStore.ts
+ *     modelPlan sends a fresh signed import before it looks at usedEspnCookies) leaves the answer built from it, ESPN's
+ *     league-scored projections included, in the model route's memory until browserFetchLimits.tokenMaxAgeMs after the
+ *     import (src/app/api/model/espn/handler.ts fromSignedImport): "copied or worked out with it ... within about 15
+ *     minutes" (review of Phase 7b: the page said 10 minutes).
  *   - Providers: Vercel (functions in iad1: vercel.json), Upstash, and Google for the contact address's Gmail inbox
  *     (review of Checkpoint 7b's text: the pages publish it).
  *   - Other sources: src/data/sleeperProjections.ts sleeperRequestPositions (the offense, plus DL, LB and DB for a league
@@ -236,8 +247,9 @@ export function PrivacyPolicy({ features }: { features: PolicyFeatures }) {
         </p>
         {publicArchive ? (
           <p className={P}>
-            We also keep public data, Sleeper&apos;s pre-game projections and FantasyCalc&apos;s daily trade value lists, up to{" "}
-            {snapshotLimits.retainDays / 365} seasons, to measure how accurate our numbers are. It isn&apos;t about any league or person and is never shown.
+            We also keep public data, Sleeper&apos;s pre-game projections and FantasyCalc&apos;s daily lists for the league formats in use, up to{" "}
+            {snapshotLimits.retainDays / 365} seasons, to measure how accurate our numbers are. It&apos;s never shown and says nothing about any league or person
+            beyond which formats were in use each day.
           </p>
         ) : null}
       </Card>
@@ -246,9 +258,7 @@ export function PrivacyPolicy({ features }: { features: PolicyFeatures }) {
         <h2 className="text-lg font-extrabold">Daily totals</h2>
         <p className={P}>
           Each day (UTC), our server counts the leagues imported, League pages built, the work they took, requests refused and requests made to each source, and
-          keeps these totals about 13 months.
-          {publicArchive ? ` It also notes which league formats were used, for ${snapshotLimits.formatsInUseRetainDays} days.` : null} None of this says who made
-          the requests.
+          keeps these totals about 13 months. None of this says who made the requests.
         </p>
       </Card>
 
@@ -297,8 +307,8 @@ export function PrivacyPolicy({ features }: { features: PolicyFeatures }) {
             <Link href="/connect" className={A}>
               Connect page
             </Link>{" "}
-            (or &ldquo;Forget my ESPN cookies&rdquo; on the Import Report) deletes the cookie right away; league data our server copied with it is deleted within
-            about 10 minutes (older weeks&apos; transactions within 6 hours).
+            (or &ldquo;Forget my ESPN cookies&rdquo; on the Import Report) deletes the cookie right away; league data our server copied or worked out with it is
+            deleted within about {durationWords(browserFetchLimits.tokenMaxAgeMs)} (older weeks&apos; transactions within 6 hours).
           </li>
         </ul>
       </Card>
@@ -317,8 +327,8 @@ export function PrivacyPolicy({ features }: { features: PolicyFeatures }) {
         <h2 className="text-lg font-extrabold">Logs</h2>
         <p className={P}>
           Vercel, our host, logs each request it serves (its web address and the browser type, for example), keeps that log for 1 hour, and can see IP addresses.
-          Our own error log keeps only what went wrong, where and when (an error code and the source involved, for example), for up to {logLimits.retainDays} days:
-          never league data, names, IDs, usernames, cookies or IP addresses.
+          Our own log keeps errors and a few routine events, where and when (an error code and the source involved, for example), for up to {logLimits.retainDays}{" "}
+          days: never league data, names, IDs, usernames, cookies or IP addresses.
         </p>
       </Card>
 
