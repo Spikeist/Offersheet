@@ -11,7 +11,8 @@
  *    a table row marked mine (one per table at most), and a "You could give" line in every partner card (the cards
  *    that link to the Trade Finder for their team). Then, on a NARROW_PHONE_WIDTH (320 px) phone for a moment, the
  *    header's first row keeps the logo, the Beta pill and the league switcher (review PG-4: the pill once pushed the
- *    switcher to a row of its own there, moving the page when it appeared).
+ *    switcher to a row of its own there, moving the page when it appeared); back at 375 px, its six links in two rows.
+ *    Step "Notices" (Phase 7b) then reads the Import Report again (below).
  * 4. Trade Finder (the nav's link): a full search in the production worker, timed from the first progress update to
  *    the results (at most --max-search seconds, §12's 10 by default), with the engine's own per-stage timings; every
  *    card with its three numbers and both sides ("You give", "You get"); "Harder to get" never on a player I'd give;
@@ -21,7 +22,8 @@
  *    outcome button (Rejected; on a card that shows two versions the first outcome asks which one, and the step picks the first) saves and clears; Report saves a reason and a
  *    note, and Undo removes it; the message's Copy puts it on the clipboard; the report form's tap targets.
  * 6. Analyzer (the card's "Open in Analyzer"): it evaluates the same trade with the same three numbers as the card;
- *    both sides shown, no tag on mine; the layout; "Back to the Trade Finder" shows the ideas again.
+ *    both sides shown, no tag on mine; the layout; "Back to the Trade Finder" shows the ideas again. Then step "Waivers"
+ *    (Phase 7b, below).
  * 7. Settings (the nav's link): the layout; a setting saves in this browser and "Reset to defaults" clears it.
  * 8. Second league (only with --second-league; Phase 4c, planner reply to Checkpoint 4b, change 11): the first idea gets
  *    an outcome (Sent); the switcher's "Add league" imports the public ESPN test league (args.ts SECOND_LEAGUE), whose
@@ -40,6 +42,34 @@
  *    Content-Security-Policy, enforced or report-only, with the two league APIs in connect-src; no X-Powered-By), the
  *    manifest and its icons, the tab and iPhone icons, the sharing image, robots.txt and the sitemap. They need no
  *    league, so they run even when the import stopped the steps before them (`independent`).
+ *
+ * Checkpoint 7b (planner reply to Checkpoint 7a; contracts.ts holds the rules, inPage.ts the readers):
+ * - FantasyCalc's conditions (5.4, reports/fantasycalc-permission.md: the UI never displays their values): no value number
+ *   or value comparison on a Trade Finder or Analyzer card (its reasons, message, Plan B and "Details" included), each
+ *   card crediting FantasyCalc ("These numbers weigh each player's trade value." then "Values: FantasyCalc") when values
+ *   loaded; on the League page no "Value" column or "~" estimate in the player tables, no number of the trade market's or
+ *   value comparison anywhere on the page (every breakdown opened, read and closed again; hover texts included), the
+ *   market blend in words; every link to FantasyCalc with rel exactly "noopener" and referrerpolicy "origin", and (step
+ *   "FantasyCalc links", with the public pages) one in the footer of every app page's own server HTML, fetched with a
+ *   plain GET before any script runs.
+ * - Notices (§5.1): the Import Report (step 2, and again as step "Notices" once the League page has loaded the
+ *   projections) shows no warning code, JSON path or field name, stat ID or player-ID matching above its technical details
+ *   (closed parts and hover texts included), which are closed and its last section, its "Notices" tile and "Things to
+ *   know" card agreeing; the League page (its breakdowns too) and the Trade Finder show none anywhere, their banner or
+ *   warnings box titled "Things to know". With --team (Parker's league): no notice, no banner, and the planner's quiet
+ *   line for the two rare uncounted rules: when his league's data differs, an "info" line says what it shows (never a
+ *   failure).
+ * - The Trade Finder's freshness line when the saved inputs have a time to say, and "Best time to look:" in season before
+ *   the deadline (5.3; tradeView.ts freshnessText, inTradingSeason and bestTimeText decide when and what).
+ * - Step "Waivers" (§6.2), after the Analyzer, from the Trade Finder: the header's Waivers link reveals "Waiver upgrades"
+ *   (in view, its heading focused), again from the top without a new history entry; its toggle (2 or 3 lists, 44 px
+ *   buttons, aria-pressed following a tap) and "Show all N" (aria-expanded); the header's six links in two rows at 375 px
+ *   (the League step).
+ * - Settings (5.2, §6.1, §2 question 5): "What does your league reward?" with the planner's three answers and hint; the
+ *   read-only playoff weight going from "Working it out…" to "N.N×, set automatically from your odds." within about 15 s,
+ *   worked out by the page's own engine worker without a request off the site; "Protect my trade value" without a number.
+ * - The Analyzer's "Back to the Trade Finder" isn't prefetched: with a partner in the Finder's address, no request names
+ *   the link's address until it's tapped (page.ts logs every request to the app).
  * After each step: no console errors (page or worker), CSP violations (Part B: enforced or report-only, page or worker),
  * uncaught exceptions, failed requests to the app, or requests to any other site. Screenshots, when on, go to the shots folder after the page's names are replaced with placeholders,
  * put back right after (one that can't be saved is a skip: it's a record to look at, not a check of the app).
@@ -52,10 +82,54 @@
  * opening it in a way that would create it. A saved league's id (a short hash of its league id, and its season) stays
  * in the page and in this process: it's compared, never printed or written.
  */
+import type { MarketInputs } from "@/engine/inputs";
+import type { LeagueSettings } from "@/engine/model";
+import { bestTimeText, freshnessText, inTradingSeason } from "@/lib/tradeView";
 import { LEAGUE_ID_PLACEHOLDER, mergeLeagueNames, nameRules, type CheckReport, type LeagueNames } from "./report";
-import { sanitizeCall } from "./inPage";
+import {
+  cleanCall,
+  PLAYOFF_WEIGHT_SHOWN,
+  READ_CARD_TEXTS,
+  READ_FANTASYCALC_LINKS,
+  READ_FINDER_NOTICES,
+  READ_FINDER_TIMING,
+  READ_IMPORT_NOTICES,
+  READ_LEAGUE_VALUES,
+  READ_NAV_LINKS,
+  READ_NOTICE_BANNERS,
+  READ_SETTINGS_SCORING,
+  READ_TRADING_LEAGUE,
+  READ_WAIVERS,
+  sanitizeCall,
+  STOP_PLAYOFF_WEIGHT,
+  WAIVER_SHOW_ALL,
+  waiverToggle,
+  WATCH_PLAYOFF_WEIGHT,
+} from "./inPage";
 import { SECOND_LEAGUE, type CheckBrowserArgs } from "./args";
-import type { PageEvent, PageSession } from "./page";
+import {
+  BLEND_WORDS,
+  creditProblems,
+  fantasyCalcLinkIssues,
+  fantasyCalcLinksInHtml,
+  freshnessLineOk,
+  MENTIONS_MARKET,
+  NAV_HREFS,
+  noticeCount,
+  noticeLeaks,
+  pageValueLeaks,
+  PARKER_QUIET_LINE,
+  PLAYOFF_WEIGHT_RANGE,
+  playoffWeightRead,
+  requestNamesAddress,
+  rowCount,
+  valueLeaks,
+  VALUES_CREDIT,
+  waiverToggleKind,
+  type CreditRead,
+  type FantasyCalcLink,
+} from "./contracts";
+import type { AppRequest, PageEvent, PageSession } from "./page";
 
 export interface CardInfo {
   heading: string;
@@ -102,6 +176,8 @@ export interface StepContext {
   onNames: (names: LeagueNames) => void;
   /** My team's id once known (null: none picked). */
   myTeam: string | null;
+  /** The League page was built in this run (its model inputs are saved and fresh: the Settings page's playoff weight reads them). */
+  leagueReady: boolean;
   /** The Trade Finder's first card, for the Analyzer's comparison. */
   firstCard: CardInfo | null;
   /** Why the remaining steps can't run (a failed import), or null. */
@@ -117,6 +193,40 @@ const pl = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 /** The in-page mark every timeline is measured from. */
 async function mark(page: PageSession): Promise<number> {
   return page.run<number>("return performance.now();");
+}
+
+/**
+ * The in-page prelude that defines clean(text) for a reader (inPage.ts cleanCall): the league's names and id replaced by
+ * report.ts's rules, so what comes back carries placeholders, never a name.
+ */
+function cleaning(ctx: StepContext): string {
+  return cleanCall(nameRules(ctx.names, [[ctx.leagueId, LEAGUE_ID_PLACEHOLDER]]));
+}
+
+/**
+ * Whether Parker's own expectations apply (Phase 7b: his league's notices, as the planner expects them): the run is on his
+ * league (ESPN_LEAGUE_ID, the first league) with his team picked through --team. Without --team they're left out.
+ */
+export function parkersLeague(args: Pick<CheckBrowserArgs, "team">): boolean {
+  return args.team !== null;
+}
+
+/**
+ * Waits until the main area's text stops changing (the same 4 times, 300 ms apart), at most `maxMs`: a page that reads
+ * saved data after its first render (the Import Report's model inputs) has shown it. Only a hash of the text comes back.
+ */
+async function settle(page: PageSession, maxMs = 8_000): Promise<void> {
+  const started = Date.now();
+  let last = "";
+  let same = 0;
+  while (Date.now() - started < maxMs && same < 3) {
+    const now = await page
+      .run<string>(`const m = document.querySelector("main"); const t = m ? m.textContent || "" : ""; let h = 5381; for (let i = 0; i < t.length; i++) h = (h * 33 + t.charCodeAt(i)) | 0; return t.length + ":" + h;`)
+      .catch(() => "");
+    same = now === last ? same + 1 : 0;
+    last = now;
+    await sleep(300);
+  }
 }
 
 function layoutChecks(ctx: StepContext, step: string, m: Measure, where = "the page"): void {
@@ -157,6 +267,368 @@ export function healthCheck(ctx: StepContext, step: string, expected: (e: PageEv
     "no console errors, CSP violations, failed requests or requests to other sites",
     `${pl(bad.length, "problem")} in the browser`,
     bad.map((e) => `${e.kind} (${e.where}): ${e.text}`),
+  );
+}
+
+// ---------------------------------------------------------------------------------------------
+// Checkpoint 7b's shared checks (planner reply to Checkpoint 7a; inPage.ts reads, contracts.ts decides)
+
+interface ImportNotices {
+  before: string;
+  details: { tag: string; open: boolean; summary: string } | null;
+  after: string[];
+  tile: string | null;
+  card: string[] | null;
+  scoring: boolean;
+  quiet: string[];
+  notCounted: string | null;
+}
+
+/** The technical details' summary (§5.1: "a collapsed 'Technical details (for bug reports)' section at the bottom"). */
+export const TECHNICAL_DETAILS = "Technical details (for bug reports)";
+
+/**
+ * The Import Report's notices (§5.1). Contract, any league: no warning code, JSON path, stat ID or player-ID matching in
+ * what a user sees or hears above the technical details; those closed on arrival and the page's last section; the
+ * "Notices" tile and the "Things to know" card agree. Parker's league (`parkers`): no notice (the tile reads "None", no
+ * card) and the scoring card's quiet line in the planner's words, as info lines when his league's data differs.
+ */
+export async function importNoticeChecks(ctx: StepContext, step: string, opts: { parkers: boolean; where?: string }): Promise<void> {
+  const { page, report } = ctx;
+  const where = opts.where ?? "the Import Report";
+  const r = await page.run<ImportNotices>(cleaning(ctx) + READ_IMPORT_NOTICES);
+  const leaks = noticeLeaks(r.before);
+  report.check(step, leaks.length === 0, `${where} shows no warning code, JSON path, stat ID or player-ID matching above its technical details`, `${where} shows internal text above its technical details (it belongs in them)`, leaks);
+  const d = r.details;
+  report.check(
+    step,
+    !!d && d.tag === "details" && !d.open && d.summary === TECHNICAL_DETAILS && r.after.length === 0,
+    `“${TECHNICAL_DETAILS}” is closed on arrival and ${where}'s last section`,
+    !d
+      ? `${where} has no technical details (details#technical-details)`
+      : d.tag !== "details"
+        ? `#technical-details is a <${d.tag}>, not a <details>`
+        : d.open
+          ? "the technical details are open on arrival"
+          : d.summary !== TECHNICAL_DETAILS
+            ? `the technical details' summary reads “${d.summary}”`
+            : `${pl(r.after.length, "section")} after the technical details`,
+    r.after,
+  );
+  const n = noticeCount(r.tile);
+  const listed = r.card?.length ?? 0;
+  report.check(
+    step,
+    n !== null && (n === 0 ? r.card === null : listed === n),
+    `the Notices tile (“${r.tile ?? ""}”) and the Things to know card agree`,
+    n === null
+      ? r.tile === null
+        ? "no Notices tile"
+        : `the Notices tile reads “${r.tile}”`
+      : n === 0
+        ? `the Notices tile reads None, but a Things to know card lists ${pl(listed, "notice")}`
+        : `the Notices tile says ${n}, the Things to know card lists ${listed}`,
+    r.card ?? [],
+  );
+  if (!opts.parkers) return;
+  // Parker's league: what the planner expects of his data (an info line when it differs, never a failure).
+  if (n === 0 && r.card === null) report.ok(step, "Parker's league: no notices (the tile reads None, and there's no Things to know card), as the planner expects");
+  else report.info(step, `Parker's league shows ${n === null ? "notices" : pl(n, "notice")} (the planner expected none): the league's data changed, or a notice is new`, r.card ?? []);
+  if (!r.scoring) report.info(step, "Parker's league: couldn't find the scoring card (its heading “How players score”) to read its quiet line");
+  else if (r.quiet.length === 1 && r.quiet[0] === PARKER_QUIET_LINE && r.notCounted === null) report.ok(step, `the scoring card says the rare uncounted rules quietly: “${PARKER_QUIET_LINE}”`);
+  else
+    report.info(step, "Parker's league: the scoring card's uncounted rules read differently from the planner's line (a rule is new, or one has scored this season)", [
+      ...r.quiet.map((q) => `quiet line: ${q}`),
+      ...(r.notCounted ? [`“Not counted yet” box: ${r.notCounted}`] : []),
+      `expected: ${PARKER_QUIET_LINE}`,
+    ]);
+}
+
+/**
+ * The League page's notices (§5.1): its "Things to know" banner speaks plainly when it's there, nothing on the page shows
+ * a code, path or stat ID (its closed parts and hover texts included: the technical details are the Import Report's
+ * alone); Parker's league (`parkers`) shows no banner (an info line when it does).
+ */
+export async function leagueNoticeChecks(ctx: StepContext, step: string, opts: { parkers: boolean; where?: string }): Promise<void> {
+  const { page, report } = ctx;
+  const where = opts.where ?? "the League page";
+  const r = await page.run<{ banners: Array<{ items: string[]; text: string }>; page: string }>(cleaning(ctx) + READ_NOTICE_BANNERS);
+  if (r.banners.length) {
+    const leaks = r.banners.flatMap((b) => noticeLeaks(b.text));
+    report.check(step, leaks.length === 0, `${where}'s Things to know banner speaks plainly: no code, path or stat ID`, `${where}'s Things to know banner shows internal text`, leaks);
+  }
+  const leaks = noticeLeaks(r.page);
+  report.check(step, leaks.length === 0, `${where} shows no warning code, JSON path, stat ID or player-ID matching anywhere (closed parts and hover texts included)`, `${where} shows internal text (it belongs in the Import Report's technical details)`, leaks);
+  if (!opts.parkers) return;
+  if (!r.banners.length) report.ok(step, "Parker's league: no Things to know banner, as the planner expects");
+  else report.info(step, "Parker's league shows a Things to know banner (the planner expected none, unless a player without a Sleeper id is a likely starter)", r.banners.flatMap((b) => b.items));
+}
+
+interface LeagueValues {
+  tables: number;
+  roster: number;
+  headers: string[];
+  tilde: string[];
+  titles: string[];
+  rows: number;
+  /** The breakdowns closed at first (each opened for the reading). */
+  closed: number;
+  opened: number;
+  breakdowns: string[];
+  /** Every word on the page (closed parts and hover texts included) while every breakdown was open. */
+  page: string;
+  leftOpen: number;
+  valuesLine: string | null;
+}
+
+/** A text's words around its first mention of the trade market, for a failure's details. */
+function aroundMarket(text: string): string {
+  const at = text.search(MENTIONS_MARKET);
+  return at < 0 ? text.slice(0, 120) : `${at > 60 ? "…" : ""}${text.slice(Math.max(0, at - 60), at + 90)}…`;
+}
+
+/**
+ * FantasyCalc's values on the League page (5.4): no "Value" column or "~" estimate in the roster and free-agent tables; no
+ * number of the trade market's and no value comparison anywhere on the page, every player's breakdown open (each opened,
+ * read, then closed again) and every hover text included; no code in a breakdown (§5.1: a breakdown is built only while
+ * it's open, so the notices' own scan of the page never sees one); and the market blend said in words ("toward the trade
+ * market's view", "barely moves"; an info line when it reached nobody).
+ */
+export async function leagueValueChecks(ctx: StepContext, step: string): Promise<void> {
+  const { page, report } = ctx;
+  const v = await page.run<LeagueValues>(cleaning(ctx) + READ_LEAGUE_VALUES, { timeoutMs: 120_000 });
+  report.note(step, "breakdownsOpened", v.opened);
+  if (
+    !report.check(
+      step,
+      v.roster > 0,
+      `found the rosters' player tables (${v.roster}) and the best free agents' (${v.tables - v.roster})`,
+      "couldn't find the rosters' player tables (captions ending “players with rest-of-season points”): the trade-value checks below can't be trusted",
+    )
+  )
+    return;
+  const valueHeads = v.headers.filter((h) => /\bvalues?\b/i.test(h));
+  report.check(step, valueHeads.length === 0 && v.tilde.length === 0, "no Value column and no “~” estimate in the roster and free-agent tables", "the player tables show trade values", [
+    ...valueHeads.map((h) => `a column headed “${h}”`),
+    ...v.tilde.map((c) => `a cell reading “${c}”`),
+  ]);
+  // Where the scan below must reach: every breakdown, opened (they're built only while open) and closed again.
+  report.check(
+    step,
+    v.opened > 0 && v.opened === v.closed && v.leftOpen === 0,
+    `opened every player's breakdown (${v.opened} of ${v.rows}) to read it, and closed them again`,
+    v.opened === 0
+      ? "no player's breakdown opened, so they couldn't be read: the trade-value checks below can't be trusted"
+      : v.opened < v.closed
+        ? `only ${v.opened} of the ${v.closed} closed breakdowns opened when tapped, so the others couldn't be read`
+        : `${v.leftOpen} breakdown(s) didn't close again`,
+  );
+  const leaks = pageValueLeaks(v.page);
+  report.check(
+    step,
+    leaks.length === 0,
+    "no trade-market number or value comparison anywhere on the League page (every breakdown open, hover texts included)",
+    `${pl(leaks.length, "trade value")} on the League page: Offer Sheet never displays FantasyCalc's values (their condition 4)`,
+    leaks,
+  );
+  const codes = [...new Set(v.breakdowns.flatMap(noticeLeaks))];
+  report.check(
+    step,
+    codes.length === 0,
+    "no warning code, JSON path or stat ID in any player's breakdown",
+    "the players' breakdowns show internal text (it belongs in the Import Report's technical details)",
+    codes,
+  );
+  const mentions = [...v.breakdowns, ...v.titles].filter((t) => MENTIONS_MARKET.test(t));
+  const unworded = mentions.filter((t) => !BLEND_WORDS.test(t)).map(aroundMarket);
+  const blended = v.breakdowns.filter((t) => BLEND_WORDS.test(t)).length;
+  if (!mentions.length) {
+    if (v.valuesLine && /unavailable right now/.test(v.valuesLine)) report.skip(step, "the market blend's words: FantasyCalc's values aren't loaded, so no projection leans toward the trade market");
+    else report.info(step, "no player's breakdown mentions the trade market: the market blend reached nobody this time (its words would be “toward the trade market's view” or “barely moves”)");
+    return;
+  }
+  report.check(
+    step,
+    unworded.length === 0,
+    `the market blend is said in words in ${blended} ${blended === 1 ? "player's breakdown" : "players' breakdowns"} (“toward the trade market's view”, “barely moves”)`,
+    `${pl(unworded.length, "breakdown or hover text")} mention the trade market without saying which way in words`,
+    unworded,
+  );
+}
+
+interface CardText {
+  text: string;
+  credit: CreditRead | null;
+}
+
+/** What the timing lines and the cards' credit depend on (inPage.ts READ_TRADING_LEAGUE). */
+export interface TradingLeague {
+  settings: { regularSeasonWeeks: number[]; playoffWeeks: number[]; tradeDeadline: LeagueSettings["tradeDeadline"]; tradeReviewHours: number | null };
+  currentWeek: number;
+  leagueWeek: number | null;
+  lastWeek: number | null;
+  kickoffs: Record<number, Record<string, string>> | null;
+  /** The tab's league has saved model inputs. */
+  inputs: boolean;
+  /** Its saved model inputs carry trade values (FantasyCalc's, or our estimates from an older list of theirs). */
+  hasMarket: boolean;
+  /** When FantasyCalc's list in them was fetched (MarketInputs.fetchedAt), and their sources' stamps (ModelInputs.sources). */
+  marketFetchedAt?: string | null;
+  sources?: Array<{ source: string; fetchedAt: string }>;
+}
+
+async function readTradingLeague(ctx: StepContext): Promise<TradingLeague | null> {
+  return ctx.page.run<TradingLeague | null>(READ_TRADING_LEAGUE).catch(() => null);
+}
+
+/**
+ * Whether the Trade Finder should say when to look, and in what words (pure; planner reply to Checkpoint 7a, 5.3): the
+ * app's own rules (tradeView.ts inTradingSeason: the season started, a week left, the deadline not passed; bestTimeText:
+ * the league's review period) on the tab's saved league.
+ */
+export function bestTimeExpectation(l: TradingLeague, now: Date): { inSeason: boolean; text: string } {
+  const settings = { regularSeasonWeeks: l.settings.regularSeasonWeeks, playoffWeeks: l.settings.playoffWeeks, tradeDeadline: l.settings.tradeDeadline } as unknown as LeagueSettings;
+  const inSeason = inTradingSeason({ settings, currentWeek: l.currentWeek, ...(l.leagueWeek !== null ? { leagueWeek: l.leagueWeek } : {}) }, now, {
+    ...(l.lastWeek !== null ? { lastWeek: l.lastWeek } : {}),
+    ...(l.kickoffs ? { nfl: { kickoffs: l.kickoffs } } : {}),
+  });
+  return { inSeason, text: bestTimeText(l.settings.tradeReviewHours === null ? {} : { tradeReviewHours: l.settings.tradeReviewHours }) };
+}
+
+/**
+ * The freshness line the Trade Finder should show (pure; 5.3), by the app's own rule (tradeView.ts freshnessText) on the
+ * tab's saved inputs at `now`: null when they carry neither FantasyCalc's time nor the projections' stamp (nothing to say),
+ * else the line, whose "… ago" words the check reads loosely (the page worked them out a moment earlier).
+ */
+export function freshnessExpectation(l: Pick<TradingLeague, "marketFetchedAt" | "sources">, now: Date): string | null {
+  const market = typeof l.marketFetchedAt === "string" ? ({ fetchedAt: l.marketFetchedAt } as MarketInputs) : null;
+  return freshnessText({ market, sources: l.sources ?? [] }, now.getTime());
+}
+
+/**
+ * FantasyCalc's values on trade cards (5.4: never shown, the reasons, the message, a Plan B and the Analyzer's "Details"
+ * included) and each card's credit: "These numbers weigh each player's trade value." then its "Values: FantasyCalc" link,
+ * when trade values are behind the numbers. `label` names a card in the details ("idea 3").
+ */
+export async function cardValueChecks(ctx: StepContext, step: string, label: (i: number) => string, league: TradingLeague | null): Promise<void> {
+  const { page, report } = ctx;
+  const cards = await page.run<CardText[]>(cleaning(ctx) + READ_CARD_TEXTS);
+  if (!cards.length) {
+    report.skip(step, "FantasyCalc's values on the cards: no card to read");
+    return;
+  }
+  const which = cards.length === 1 ? "the card" : `the ${cards.length} cards`;
+  const leaks = cards.flatMap((c, i) => valueLeaks(c.text).map((l) => `${label(i)}: ${l}`));
+  report.check(step, leaks.length === 0, `no FantasyCalc value or value comparison on ${which} (reasons, messages and closed parts included)`, `${pl(leaks.length, "trade value")} shown: Offer Sheet never displays FantasyCalc's values (their condition 4)`, leaks);
+  // Trade values are behind the numbers unless the saved inputs carry none (unknown: taken to be loaded, as the page does).
+  if (league && !league.hasMarket) {
+    report.skip(step, "the cards' FantasyCalc credit: this league's trade values didn't load, so the cards' numbers don't weigh them");
+    return;
+  }
+  const problems = cards.map((c, i) => creditProblems(c.credit).map((p) => `${label(i)}: ${p}`));
+  const wrong = problems.filter((p) => p.length).length;
+  report.check(
+    step,
+    wrong === 0,
+    `${cards.length === 1 ? "the card credits" : "every card credits"} FantasyCalc: “${VALUES_CREDIT}”, then its “Values: FantasyCalc” link (rel noopener, referrerpolicy origin)`,
+    `${pl(wrong, "card")} without FantasyCalc's credit as it should read`,
+    problems.flat(),
+  );
+}
+
+/** Every link to FantasyCalc on the page as it stands has FantasyCalc's attributes, the footer's among them (5.4). */
+export async function fantasyCalcDomCheck(ctx: StepContext, step: string): Promise<void> {
+  const links = await ctx.page.run<FantasyCalcLink[]>(READ_FANTASYCALC_LINKS);
+  const issues = fantasyCalcLinkIssues(links, { requireFooter: true });
+  ctx.report.check(step, issues.length === 0, `every link to FantasyCalc on the page (${links.length}, the footer's among them) has rel "noopener" and referrerpolicy "origin"`, `${pl(issues.length, "problem")} with the page's links to FantasyCalc`, issues);
+}
+
+/** The Trade Finder's warnings box (titled "Things to know", in plain words) and its whole page free of codes (§5.1). */
+export async function finderNoticeChecks(ctx: StepContext, step: string): Promise<void> {
+  const { page, report } = ctx;
+  const r = await page.run<{ results: boolean; boxes: Array<{ title: string | null; text: string }>; page: string }>(cleaning(ctx) + READ_FINDER_NOTICES);
+  if (r.boxes.length) {
+    const titles = r.boxes.filter((b) => b.title !== "Things to know").map((b) => `a warnings box titled “${b.title ?? "(no title)"}”`);
+    const leaks = r.boxes.flatMap((b) => noticeLeaks(b.text));
+    report.check(step, titles.length + leaks.length === 0, "its warnings box is titled “Things to know” and speaks plainly: no code, path or stat ID", "its warnings box isn't as it should be", [...titles, ...leaks]);
+  }
+  const leaks = noticeLeaks(r.page);
+  report.check(step, leaks.length === 0, "the Trade Finder shows no warning code, JSON path, stat ID or player-ID matching anywhere (closed parts and hover texts included)", "the Trade Finder shows internal text", leaks);
+}
+
+/** The Trade Finder's planner-worded "Best time to look:" lead (5.3). */
+const BEST_TIME_LEAD = "Best time to look: Tuesday or Wednesday, after Monday night's game.";
+
+interface FinderTiming {
+  header: boolean;
+  intro: number;
+  best: string | null;
+  bestAt: number;
+  fresh: string | null;
+  freshAt: number;
+}
+
+/** Which parts a freshness line has (pure): FantasyCalc's time, the projections' time. */
+function freshnessParts(line: string): string {
+  return [/^Trade values updated\b/.test(line) && "trade values", /\bProjections updated\b/.test(line) && "projections"].filter(Boolean).join(" and ") || "neither";
+}
+
+/**
+ * The Trade Finder's two lines under its intro (5.3): the freshness line, whenever the saved inputs carry a time to say
+ * (freshnessExpectation; with neither FantasyCalc's time nor the projections' there's nothing to say, a skip); "Best time
+ * to look:" in season before the trade deadline (bestTimeExpectation). Their exact parts and words follow the league's
+ * data: an info line when they differ from what the check works out (the build can be older than the source it reads).
+ */
+export async function finderTimingChecks(ctx: StepContext, step: string, league: TradingLeague | null): Promise<void> {
+  const { page, report } = ctx;
+  const t = await page.run<FinderTiming>(READ_FINDER_TIMING);
+  const under = (at: number) => t.intro >= 0 && at > t.intro;
+  // undefined: the saved league couldn't be read (a line is expected, as the page would say one with any time to give).
+  const fresh = league ? freshnessExpectation(league, new Date()) : undefined;
+  if (t.fresh === null && fresh === null) {
+    report.skip(step, "the freshness line: this league's saved inputs carry neither FantasyCalc's time nor the projections', so there's nothing to say");
+  } else {
+    const shown = report.check(
+      step,
+      t.fresh !== null && freshnessLineOk(t.fresh) && under(t.freshAt),
+      `the freshness line under the intro: “${t.fresh ?? ""}”`,
+      t.fresh === null ? "no freshness line (“Trade values updated … · Projections updated ….”) under the intro" : !freshnessLineOk(t.fresh) ? `the freshness line reads “${t.fresh}”` : "the freshness line isn't under the intro",
+    );
+    if (shown && t.fresh !== null && typeof fresh === "string" && freshnessParts(t.fresh) !== freshnessParts(fresh))
+      report.info(step, "the freshness line names other times than this league's saved inputs give", [`shown: ${t.fresh}`, `expected: ${fresh}`]);
+  }
+  if (!league) {
+    report.skip(step, "“Best time to look:”: this tab's saved league couldn't be read");
+    return;
+  }
+  const want = bestTimeExpectation(league, new Date());
+  if (!want.inSeason) {
+    if (t.best === null) report.ok(step, "out of season or past the trade deadline: no “Best time to look:” line");
+    else report.info(step, "“Best time to look:” shows, though the check reads this league as out of season or past its trade deadline", [t.best]);
+    return;
+  }
+  const shown = report.check(
+    step,
+    t.best !== null && t.best.startsWith(BEST_TIME_LEAD) && under(t.bestAt),
+    `in season before the trade deadline, it says when to look: “${t.best ?? ""}”`,
+    t.best === null ? "in season before the trade deadline, there's no “Best time to look:” line" : !t.best.startsWith(BEST_TIME_LEAD) ? `the “Best time to look:” line reads “${t.best}”` : "the “Best time to look:” line isn't under the intro",
+  );
+  if (shown && t.best !== want.text) report.info(step, "the “Best time to look:” line differs from what this league's review period gives", [`shown: ${t.best}`, `expected: ${want.text}`]);
+}
+
+/** The header's links on a phone (§6.2): the six (Waivers after League), in exactly two rows, each a 44 px tap target. */
+export async function navRowsCheck(ctx: StepContext, step: string): Promise<void> {
+  const r = await ctx.page.run<{ width: number; links: Array<{ href: string | null; text: string; top: number; bottom: number; width: number; height: number }> }>(READ_NAV_LINKS);
+  const hrefs = r.links.map((l) => l.href ?? "");
+  const same = hrefs.length === NAV_HREFS.length && NAV_HREFS.every((h, i) => hrefs[i] === h);
+  const rows = rowCount(r.links);
+  const small = r.links.filter((l) => l.height < 43.5 || l.width < 24);
+  ctx.report.check(
+    step,
+    same && rows === 2 && small.length === 0,
+    `at ${r.width} px the header's six links sit in two rows, each at least 44 px tall`,
+    !same ? `at ${r.width} px the header's links go to ${hrefs.join(", ") || "nothing"} (expected ${NAV_HREFS.join(", ")})` : rows !== 2 ? `at ${r.width} px the header's links take ${pl(rows, "row")}, not 2` : `${pl(small.length, "header link")} under 44 px tall or 24 px wide`,
+    r.links.map((l) => `${l.text} (${l.href ?? ""}): ${l.top}–${l.bottom} px, ${l.width} × ${l.height}`),
   );
 }
 
@@ -294,6 +766,10 @@ export async function importReportStep(ctx: StepContext): Promise<void> {
     report.skip(step, "no team picked (pass --team <id>): the Trade Finder, card and Analyzer checks need one");
   }
   report.note(step, "myTeam", ctx.myTeam);
+  // Phase 7b (§5.1): what the report says before the League page has loaded the projections (the Notices step reads it
+  // again after, with Parker's own expectations).
+  await settle(page);
+  await importNoticeChecks(ctx, step, { parkers: false });
   await screenshot(ctx, "02-import-report");
 }
 
@@ -312,9 +788,11 @@ export async function leagueStep(ctx: StepContext): Promise<void> {
   const took = seconds(Date.now() - started);
   report.note(step, "readySeconds", took);
   if (!report.check(step, state === "ready", `built the League page in ${took} s`, `the League page didn't load: ${state.replace(/^error: /, "")}`)) return;
+  ctx.leagueReady = true;
   await sleep(600);
   layoutChecks(ctx, step, await measurePage(ctx));
   await narrowHeaderCheck(ctx, step);
+  await navRowsCheck(ctx, step);
 
   if (!ctx.myTeam) {
     report.skip(step, `"Harder to get" on your own players: no team picked`);
@@ -365,6 +843,31 @@ export async function leagueStep(ctx: StepContext): Promise<void> {
     );
   }
   await screenshot(ctx, "03-league");
+  // Phase 7b: FantasyCalc's values never shown (5.4; every breakdown opened, read, closed again: after the screenshot),
+  // the notices (§5.1), and the links back to FantasyCalc.
+  await leagueValueChecks(ctx, step);
+  await leagueNoticeChecks(ctx, step, { parkers: parkersLeague(ctx.args) });
+  await fantasyCalcDomCheck(ctx, step);
+}
+
+// ---------------------------------------------------------------------------------------------
+// 3b. Notices (Phase 7b)
+
+/**
+ * The Import Report again, once the League page has loaded the league's projections (the notices read them while they're
+ * fresh): the same contract as the Import Report step's (§5.1), and Parker's league as the planner expects it (with
+ * --team): no notice, and the quiet line for its two rare uncounted rules.
+ */
+export async function noticesStep(ctx: StepContext): Promise<void> {
+  const step = "Notices";
+  const { page, report } = ctx;
+  page.step = step;
+  await page.click(`navLink("/import")`, "the nav's Report link");
+  const ready = await page.waitFor<boolean>(`location.pathname === "/import" && !!document.getElementById("my-team")`, 30_000, "the Import Report").catch(() => false);
+  if (!report.check(step, ready, `the Import Report opened again${ctx.leagueReady ? ", with the projections the League page loaded" : ""}`, "the Import Report didn't open again")) return;
+  await settle(page);
+  if (!parkersLeague(ctx.args)) report.skip(step, "Parker's own expectations (no notices, the quiet scoring line): they apply with --team, on his league");
+  await importNoticeChecks(ctx, step, { parkers: parkersLeague(ctx.args) });
 }
 
 /** The narrowest phone the header's first row is checked at (review PG-4): a 320 px screen, or a larger one at its biggest display size. */
@@ -508,6 +1011,13 @@ export async function finderStep(ctx: StepContext): Promise<void> {
   }
   layoutChecks(ctx, step, await measurePage(ctx));
   await screenshot(ctx, "04-trade-finder");
+  // Phase 7b: FantasyCalc's values never on a card, each card's credit (5.4), the warnings (§5.1), the links back to
+  // FantasyCalc, and the lines under the intro (5.3).
+  const league = await readTradingLeague(ctx);
+  if (cards.length) await cardValueChecks(ctx, step, (i) => `idea ${i + 1}`, league);
+  await finderNoticeChecks(ctx, step);
+  await fantasyCalcDomCheck(ctx, step);
+  await finderTimingChecks(ctx, step, league);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -660,7 +1170,10 @@ export async function analyzerStep(ctx: StepContext): Promise<void> {
     if (report.check(step, sideless.length === 0, "it shows what you give and what you get", `its card lacks a "You give" or "You get" player`, sideless)) {
       report.check(step, shown.tagsOnMySide === 0, `no "Harder to get" tag on a player you'd give`, `"Harder to get" shows on a player you'd give`);
     }
+    // Phase 7b (5.4): no FantasyCalc value on the card, its "Details" included, and its credit.
+    await cardValueChecks(ctx, step, () => "the Analyzer's card", await readTradingLeague(ctx));
   }
+  await fantasyCalcDomCheck(ctx, step);
   layoutChecks(ctx, step, await measurePage(ctx));
   await screenshot(ctx, "05-analyzer");
 
@@ -676,6 +1189,216 @@ export async function analyzerStep(ctx: StepContext): Promise<void> {
     `Back to the Trade Finder shows the ideas again in ${seconds(Date.now() - back)} s (${searchedAgain ? "after a new search" : "remembered, no new search"})`,
     "Back to the Trade Finder didn't show the ideas again",
   );
+  if (again === "done") await analyzerBackLinkCheck(ctx, step);
+}
+
+/** The Trade Analyzer's link back to the Trade Finder, found by its words (an expression for the page). */
+export const BACK_LINK = `[...document.querySelectorAll("main a")].find((a) => txt(a) === "Back to the Trade Finder")`;
+
+/**
+ * "Back to the Trade Finder" isn't prefetched (Phase 7b; AnalyzerPage.tsx: links whose address carries a team id reach
+ * the server only when opened). Its address must carry one for the check to mean anything (the header's own "/trades" is
+ * prefetched, and carries none), so the Trade Finder first shows one partner's ideas (the last partner: the second-league
+ * step picks the first and expects a fresh search); the Analyzer then opens from the Finder's own link, and no request
+ * names the back link's address, team id included, until it's tapped. The tap's own request is the proof the requests
+ * are seen at all: without it the check can't tell, and says so.
+ */
+async function analyzerBackLinkCheck(ctx: StepContext, step: string): Promise<void> {
+  const { page, report } = ctx;
+  const partners = await page.run<string[]>(`const s = document.getElementById("finder-partner"); return s ? [...s.options].map((o) => o.value).filter(Boolean) : [];`);
+  const partner = partners.length >= 2 ? (partners[partners.length - 1] as string) : null;
+  if (!partner) {
+    report.skip(step, "“Back to the Trade Finder” isn't prefetched: the Trade Finder offers too few partners to pick one");
+    return;
+  }
+  const from = await mark(page);
+  await page.run(`setSelect(document.getElementById("finder-partner"), ${JSON.stringify(partner)}); return true;`);
+  const searched = await page
+    .waitFor<boolean>(`location.search === ${JSON.stringify(`?partner=${partner}`)} && engineSince(${from}).some((e) => e.type === "trades") && ${FINDER_DONE} === "done"`, 120_000, "the one-partner search", 50)
+    .catch(() => false);
+  if (!searched) {
+    report.fail(step, "picking a partner on the Trade Finder didn't search, so the Analyzer's link back couldn't carry one");
+    return;
+  }
+  const opened = page.requestMark();
+  await page.click(`[...document.querySelectorAll("main a")].find((a) => a.getAttribute("href") === "/analyzer")`, "the Trade Finder's link to the Trade Analyzer");
+  const href = await page.waitFor<string>(`location.pathname === "/analyzer" && (() => { const a = ${BACK_LINK}; return a ? a.getAttribute("href") : null; })()`, 60_000, "“Back to the Trade Finder”").catch(() => null);
+  if (href === null) {
+    report.fail(step, "the Trade Analyzer opened from the Trade Finder has no “Back to the Trade Finder” link");
+    return;
+  }
+  if (!/[?&]partner=/.test(href)) {
+    report.skip(step, `“Back to the Trade Finder” isn't prefetched: its address (${href}) carries no team id, so a prefetch of it couldn't be told from the header's own`);
+    return;
+  }
+  // Time for a prefetch to happen: Next prefetches a link once it's on screen.
+  await sleep(2_000);
+  const before = page.appRequestsSince(opened).filter((r) => requestNamesAddress(r.path, href));
+  const tapped = page.requestMark();
+  await page.click(BACK_LINK, "Back to the Trade Finder");
+  const back = await page.waitFor<string>(FINDER_DONE, 120_000, "the Trade Finder", 50).catch(() => "no");
+  await sleep(300);
+  const after = page.appRequestsSince(tapped).filter((r) => requestNamesAddress(r.path, href));
+  const described = (list: AppRequest[]) => list.map((r) => `${r.method} ${r.path}${r.prefetch ? " (a prefetch)" : ""}`);
+  if (before.length) report.fail(step, `“Back to the Trade Finder” was fetched before it was tapped: its address, team id included, reached the server unasked`, described(before));
+  else if (after.length) report.ok(step, `“Back to the Trade Finder” isn't prefetched: no request for ${href} until it was tapped (then ${pl(after.length, "request")})`);
+  else report.skip(step, `“Back to the Trade Finder” isn't prefetched: no request for ${href} was seen, the tap's own included (Next had it in memory), so a prefetch couldn't have been seen either`);
+  if (back !== "done") report.fail(step, `“Back to the Trade Finder” (${href}) didn't show the partner's ideas again`);
+}
+
+// ---------------------------------------------------------------------------------------------
+// 6b. The waiver view (Phase 7b)
+
+/** The header's link to the League page's "Waiver upgrades" (src/lib/waiversLink.ts WAIVERS_HREF). */
+export const WAIVERS_HREF = "/league#waivers";
+
+/** What inPage.ts READ_WAIVERS reads (no names). */
+interface WaiversRead {
+  section: boolean;
+  /** Without the section: the League page says the season is over (nothing left to list). */
+  over?: boolean;
+  path: string;
+  hash: string;
+  history: number;
+  active: string;
+  heading?: string | null;
+  focused?: boolean;
+  headingTop?: number | null;
+  headingBottom?: number | null;
+  viewport?: number;
+  inView?: boolean;
+  toggle?: Array<{ label: string; pressed: string | null; height: number; width: number }> | null;
+  more?: { text: string; expanded: string | null; height: number; width: number } | null;
+  rows?: number;
+  list?: boolean;
+}
+
+/** The section revealed: the League page at /league#waivers, its heading focused and on screen (a waitFor expression). */
+export const WAIVERS_REVEALED = `(() => { const s = document.getElementById("waivers"); const h = s && s.querySelector("h2"); if (!h || document.activeElement !== h || location.pathname !== "/league" || location.hash !== "#waivers") return null; const r = h.getBoundingClientRect(); return r.height > 0 && r.top >= -1 && r.bottom <= innerHeight + 1; })()`;
+
+/** Whether the waiver view's toggle button `i` is the one pressed, alone (a waitFor expression). */
+export const togglePressed = (i: number) =>
+  `(() => { const bs = [...document.querySelectorAll('#waivers [role=group][aria-label="Which weeks"] button')]; return bs.length > ${i} && bs[${i}].getAttribute("aria-pressed") === "true" && bs.filter((b) => b.getAttribute("aria-pressed") === "true").length === 1; })()`;
+
+/** Why the section didn't count as revealed, in words. */
+function revealProblem(r: WaiversRead): string {
+  if (!r.section) return "the League page has no Waiver upgrades section (#waivers)";
+  if (r.path !== "/league" || r.hash !== "#waivers") return `the address is ${r.path}${r.hash}, not ${WAIVERS_HREF}`;
+  if (r.heading !== "Waiver upgrades") return `its heading reads “${r.heading ?? ""}”, not “Waiver upgrades”`;
+  if (!r.focused) return `keyboard focus is on ${r.active}, not its heading`;
+  if (!r.inView) return `its heading is at ${r.headingTop ?? "?"}–${r.headingBottom ?? "?"} px, off the ${r.viewport ?? "?"} px screen`;
+  return "it didn't come into view";
+}
+
+/**
+ * The waiver view (planner reply to Checkpoint 7a, §6.2), from the Trade Finder: the header's "Waivers" link opens the League
+ * page, and once it has computed, "Waiver upgrades" comes into view with keyboard focus on its heading; tapped again from the
+ * top of the page, the same, without a new history entry. At 375 px: its toggle (two lists, or three while a week is under
+ * way with games left), each button a 44 px target whose aria-pressed follows a tap; "Show all N" (when there's more to
+ * show) flips aria-expanded and shows all N; the section's layout.
+ */
+export async function waiversStep(ctx: StepContext): Promise<void> {
+  const step = "Waivers";
+  const { page, report } = ctx;
+  page.step = step;
+  if (!ctx.myTeam) {
+    report.skip(step, "the waiver view lists pickups for your team: no team picked");
+    return;
+  }
+  if ((await page.run<string>("return location.pathname;")) !== "/trades") {
+    await page.click(`navLink("/trades")`, "the nav's Trades link");
+    await page.waitFor<string>(FINDER_DONE, 300_000, "the Trade Finder", 50).catch(() => null);
+  }
+  await page.click(`navLink(${JSON.stringify(WAIVERS_HREF)})`, "the header's Waivers link");
+  const state = await page.waitFor<string>(LEAGUE_READY, 400_000, "the League page", 250).catch((err: unknown) => `error: ${err instanceof Error ? err.message : "it didn't load"}`);
+  if (!report.check(step, state === "ready", "the header's Waivers link opened the League page", `the League page didn't load from the Waivers link: ${state.replace(/^error: /, "")}`)) return;
+  const shown = await page.waitFor<boolean>(WAIVERS_REVEALED, 15_000, "“Waiver upgrades” to come into view").catch(() => false);
+  const first = await page.run<WaiversRead>(READ_WAIVERS);
+  if (!first.section) {
+    // The season is over for the league: no week left to pick anyone up for (WaiverUpgrades.tsx renders nothing then).
+    if (first.over) report.skip(step, "the waiver view: the League page says the season is over, so there's nothing to pick up for");
+    else report.fail(step, revealProblem(first));
+    return;
+  }
+  report.check(step, shown && first.heading === "Waiver upgrades", "once the League page has computed, “Waiver upgrades” comes into view with keyboard focus on its heading", revealProblem(first));
+
+  // Again from the top of the page, focus elsewhere: the same, and no new history entry (the address already ends in it).
+  await page.run(`window.scrollTo(0, 0); if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur(); await sleep(300); return true;`);
+  const top = await page.run<WaiversRead>(READ_WAIVERS);
+  await page.click(`navLink(${JSON.stringify(WAIVERS_HREF)})`, "the header's Waivers link");
+  const again = await page.waitFor<boolean>(WAIVERS_REVEALED, 10_000, "“Waiver upgrades” to come into view again").catch(() => false);
+  await sleep(300);
+  const second = await page.run<WaiversRead>(READ_WAIVERS);
+  if (top.inView) report.skip(step, "the Waivers link tapped again: the section is on the first screen already, so a second tap shows nothing new");
+  else
+    report.check(
+      step,
+      again && second.history === top.history,
+      `tapped again from the top of the page, it comes back into view with its heading focused, and the history stays at ${top.history} entries`,
+      again ? `the second tap added a history entry (${top.history} → ${second.history})` : revealProblem(second),
+    );
+
+  // The toggle: its buttons, each a 44 px target, and aria-pressed following a tap (then back).
+  const toggle = second.toggle ?? null;
+  if (!toggle) {
+    report.skip(step, second.list ? "the waiver view's toggle: it has one list, so no toggle" : "the waiver view's toggle: it shows no list (the season may be over for your team)");
+  } else {
+    const labels = toggle.map((b) => b.label);
+    const kind = waiverToggleKind(labels);
+    const small = toggle.filter((b) => b.height < 43.5 || b.width < 24);
+    report.check(
+      step,
+      kind !== null && small.length === 0,
+      `its toggle reads ${labels.map((l) => `“${l}”`).join(", ")}${kind === "three" ? " (a week under way with games left)" : ""}, each button at least 44 px tall`,
+      kind === null ? `its toggle reads ${labels.map((l) => `“${l}”`).join(", ")}` : `${pl(small.length, "toggle button")} under 44 px tall or 24 px wide`,
+      toggle.map((b) => `${b.label}: ${b.width} × ${b.height}, aria-pressed ${b.pressed ?? "missing"}`),
+    );
+    const was = toggle.findIndex((b) => b.pressed === "true");
+    const target = was === 0 ? 1 : 0;
+    let flipped = false;
+    let restored = false;
+    if (was >= 0 && toggle.length > 1) {
+      await page.click(waiverToggle(target), `the toggle's “${labels[target] ?? ""}”`);
+      flipped = await page.waitFor<boolean>(togglePressed(target), 5_000, "the toggle to follow the tap").catch(() => false);
+      await page.click(waiverToggle(was), `the toggle's “${labels[was] ?? ""}”`);
+      restored = await page.waitFor<boolean>(togglePressed(was), 5_000, "the toggle to follow the tap back").catch(() => false);
+    }
+    report.check(
+      step,
+      flipped && restored,
+      `tapping “${labels[target] ?? ""}” moves aria-pressed to it, and tapping “${labels[was] ?? ""}” moves it back`,
+      was < 0 ? "none of the toggle's buttons is pressed (aria-pressed)" : !flipped ? `tapping “${labels[target] ?? ""}” didn't move aria-pressed to it` : `tapping “${labels[was] ?? ""}” didn't move aria-pressed back`,
+    );
+  }
+
+  // "Show all N": aria-expanded flips, and all N rows show; "Show fewer" folds them again.
+  const listed = await page.run<WaiversRead>(READ_WAIVERS);
+  const more = listed.more ?? null;
+  if (!more) {
+    report.skip(step, `“Show all”: the list shows all ${pl(listed.rows ?? 0, "row")} already`);
+  } else {
+    const total = /^Show all (\d+)$/.exec(more.text);
+    await page.click(WAIVER_SHOW_ALL, `“${more.text}”`);
+    await sleep(400);
+    const open = await page.run<WaiversRead>(READ_WAIVERS);
+    await page.click(WAIVER_SHOW_ALL, `“${open.more?.text ?? "Show fewer"}”`);
+    await sleep(400);
+    const closed = await page.run<WaiversRead>(READ_WAIVERS);
+    const n = total ? Number(total[1]) : null;
+    report.check(
+      step,
+      n !== null && more.expanded === "false" && more.height >= 43.5 && open.more?.expanded === "true" && open.more.text === "Show fewer" && open.rows === n && closed.more?.expanded === "false" && closed.more.text === more.text,
+      `“${more.text}” shows all ${n ?? "?"} rows (aria-expanded true), and “Show fewer” folds them again`,
+      `“${more.text}” doesn't open and close the list as it should`,
+      [
+        `before: “${more.text}”, aria-expanded ${more.expanded ?? "missing"}, ${listed.rows ?? 0} rows, ${more.height} px tall`,
+        `after a tap: “${open.more?.text ?? "(gone)"}”, aria-expanded ${open.more?.expanded ?? "missing"}, ${open.rows ?? 0} rows`,
+        `after another: “${closed.more?.text ?? "(gone)"}”, aria-expanded ${closed.more?.expanded ?? "missing"}, ${closed.rows ?? 0} rows`,
+      ],
+    );
+  }
+  layoutChecks(ctx, step, await page.run<Measure>(`return measure(document.getElementById("waivers"));`), "the waiver view");
+  await screenshot(ctx, "05b-waivers");
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -683,18 +1406,100 @@ export async function analyzerStep(ctx: StepContext): Promise<void> {
 
 const MAX_LEGEND = "Most players per side";
 
+/** "What does your league reward?" and its three answers (planner reply to Checkpoint 7a, 5.2). */
+export const GOAL_LEGEND = "What does your league reward?";
+export const GOAL_CHOICES = ["Only the champion", "Top finishers too", "Making the playoffs"] as const;
+
+/**
+ * The Settings page's scoring questions: "What does your league reward?" with the planner's three answers and the bubble
+ * hint (5.2), and "Protect my trade value" explained without a number (§2 question 5: no exchange rate between trade value
+ * and points; redraft leagues only).
+ */
+export async function settingsScoringChecks(ctx: StepContext, step: string): Promise<void> {
+  const { page, report } = ctx;
+  const r = await page.run<{ goal: { labels: string[]; help: string | null } | null; protect: { help: string | null } | null; legends: string[] }>(READ_SETTINGS_SCORING);
+  const g = r.goal;
+  const labelsOk = !!g && g.labels.length === GOAL_CHOICES.length && GOAL_CHOICES.every((c, i) => g.labels[i] === c);
+  const hint = !!g?.help && g.help.includes("On the bubble?") && g.help.includes("It already counts getting into the playoffs.");
+  report.check(
+    step,
+    labelsOk && hint,
+    `“${GOAL_LEGEND}” offers ${GOAL_CHOICES.map((c) => `“${c}”`).join(", ")}, with the bubble hint`,
+    !g ? `no “${GOAL_LEGEND}” question (the page's questions: ${r.legends.join("; ")})` : !labelsOk ? `“${GOAL_LEGEND}” offers ${g.labels.map((l) => `“${l}”`).join(", ")}` : "its help lacks the planner's hint (“On the bubble? Keep “Only the champion.” It already counts getting into the playoffs.”)",
+  );
+  if (!r.protect) report.skip(step, "“Protect my trade value”: not on this page (redraft leagues only)");
+  else report.check(step, !!r.protect.help && !/\d/.test(r.protect.help), "“Protect my trade value” explains itself without a number", r.protect.help ? `“Protect my trade value”'s help has a number: “${r.protect.help}”` : "“Protect my trade value” has no help text");
+}
+
+/**
+ * The automatic playoff weight (planner reply to Checkpoint 7a, §6.1), read-only: "Playoff weeks count:" goes from "Working
+ * it out…" to "N.N×, set automatically from your odds." (or the default with its reason) within about 15 s of showing,
+ * N.N in [0.5, 4]; worked out by the Settings page's own engine worker from saved data: no request to ESPN, Sleeper or any
+ * other site. `from`: the in-page mark taken before the page opened (WATCH_PLAYOFF_WEIGHT was installed then).
+ */
+export async function playoffWeightCheck(ctx: StepContext, step: string, from: number): Promise<void> {
+  const { page, report } = ctx;
+  await page.waitFor(PLAYOFF_WEIGHT_SHOWN, 20_000, "the playoff weight").catch(() => null);
+  const seen = await page.run<Array<{ t: number; v: string }>>(STOP_PLAYOFF_WEIGHT);
+  const reads = seen.map((s) => ({ ...s, ...playoffWeightRead(s.v) }));
+  const first = reads[0];
+  const last = reads.at(-1);
+  if (!first || !last) {
+    report.fail(step, "the Settings page has no “Playoff weeks count:” line");
+    return;
+  }
+  const timeline = reads.map((r) => `${seconds(r.t - first.t)} s: ${r.v}`);
+  const took = seconds(last.t - first.t);
+  const working = reads.some((r) => r.state === "working");
+  if (last.state === "auto" || last.state === "default") {
+    const w = last.weight ?? Number.NaN;
+    const inRange = w >= PLAYOFF_WEIGHT_RANGE[0] && w <= PLAYOFF_WEIGHT_RANGE[1];
+    report.note(step, "playoffWeight", last.v);
+    report.check(
+      step,
+      inRange && took <= 15,
+      `“Playoff weeks count:” ${working ? `went from “Working it out…” to “${last.v}” in ${took} s` : `reads “${last.v}”`}`,
+      !inRange ? `the playoff weight in “${last.v}” is outside ${PLAYOFF_WEIGHT_RANGE[0]}–${PLAYOFF_WEIGHT_RANGE[1]}×` : `the playoff weight took ${took} s to work out (about 15 s at most)`,
+      timeline,
+    );
+  } else if (last.state === "waiting" && !ctx.leagueReady) {
+    report.skip(step, "“Playoff weeks count:” waits for the League page, which didn't load in this run");
+  } else {
+    report.fail(step, last.state === "working" ? "“Playoff weeks count:” still reads “Working it out…” after 20 s" : `“Playoff weeks count:” reads “${last.v}”`, timeline);
+  }
+  const engine = await page.run<EngineAnswer[]>(`return engineSince(${from});`);
+  const built = engine.filter((e) => e.type === "league").length;
+  const outside = page.eventsOf(step).filter((e) => e.kind === "platform read" || e.kind === "platform failure" || e.kind === "other host");
+  report.check(
+    step,
+    outside.length === 0,
+    `the Settings page's own engine worker (${pl(built, "League model")} built) asked ESPN, Sleeper and every other site nothing`,
+    `${pl(outside.length, "request")} left the site while the Settings page worked out the playoff weight`,
+    outside.map((e) => `${e.kind} (${e.where}): ${e.text}`),
+  );
+}
+
 export async function settingsStep(ctx: StepContext): Promise<void> {
   const step = "Settings";
   const { page, report } = ctx;
   page.step = step;
+  // Phase 7b: every value the playoff weight's line takes is recorded from before the page opens (the watcher survives
+  // the client-side navigation), so a brief "Working it out…" is seen too.
+  await page.run(WATCH_PLAYOFF_WEIGHT);
+  const from = await mark(page);
   await page.click(`navLink("/settings")`, "the nav's Settings link");
   const ready = await page
     .waitFor<string>(`location.pathname === "/settings" && (noImport() ? "no import" : byText("legend", ${JSON.stringify(MAX_LEGEND)}) ? "ready" : null)`, 60_000, "the Settings page")
     .catch(() => "no answer");
-  if (!report.check(step, ready === "ready", "the Settings page opened", ready === "no import" ? "the Settings page says no league is imported" : "the Settings page didn't open (its players-per-side choice is missing)")) return;
+  if (!report.check(step, ready === "ready", "the Settings page opened", ready === "no import" ? "the Settings page says no league is imported" : "the Settings page didn't open (its players-per-side choice is missing)")) {
+    await page.run(STOP_PLAYOFF_WEIGHT).catch(() => undefined);
+    return;
+  }
   await sleep(400);
   layoutChecks(ctx, step, await measurePage(ctx));
   await screenshot(ctx, "06-settings");
+  await settingsScoringChecks(ctx, step);
+  await playoffWeightCheck(ctx, step, from);
 
   // This league's saved settings in the league store, as a list of none or one (an expression for an async body).
   const stored = `[await savedSettings(tabLeague())].filter(Boolean)`;
@@ -832,6 +1637,10 @@ export async function secondLeagueStep(ctx: StepContext): Promise<void> {
   ctx.names = mergeLeagueNames(ctx.names, secondNames, "L2-");
   ctx.onNames(ctx.names);
   report.ok(step, `imported the test league through "Add league" (now ${pl((await page.run<string[]>(`return await savedLeagueIds();`)).length, "saved league")})`);
+  // Phase 7b (§5.1): another league's data, the same contract, once the report has shown what it reads after its first
+  // render (as in the Import Report step).
+  await settle(page);
+  await importNoticeChecks(ctx, step, { parkers: false, where: "the test league's Import Report" });
 
   // 3. The second league on every page.
   report.check(step, await page.run<boolean>(`return ${headingShows(second)};`), "the Import Report shows the test league", "the Import Report doesn't show the test league's name");
@@ -860,6 +1669,7 @@ export async function secondLeagueStep(ctx: StepContext): Promise<void> {
   const league2 = await page.waitFor<string>(LEAGUE_READY, 400_000, "the test league's League page", 250).catch((err: unknown) => `error: ${err instanceof Error ? err.message : "it didn't load"}`);
   if (report.check(step, league2 === "ready", "the League page built the test league", `the test league's League page didn't load: ${league2.replace(/^error: /, "")}`)) {
     report.check(step, await page.run<boolean>(`return ${headingShows(second)};`), "the League page shows the test league", "the League page doesn't show the test league's name");
+    await leagueNoticeChecks(ctx, step, { parkers: false, where: "the test league's League page" });
   }
   await page.click(`navLink("/trades")`, "the nav's Trades link");
   const finder2 = await page
@@ -1193,6 +2003,48 @@ export async function staticPagesStep(ctx: StepContext): Promise<void> {
   const files = await ctx.page.run<SiteFiles>(READ_SITE_FILES);
   for (const [ok, pass, fail] of siteFileChecks(files)) ctx.report.check(step, ok, pass, fail);
   healthCheck(ctx, step);
+
+  await fantasyCalcHtmlStep(ctx);
+}
+
+/** Every app page, whose server HTML must link back to FantasyCalc from its footer (planner reply to Checkpoint 7a, 5.4). */
+export const APP_PAGES = ["/", "/connect", "/import", "/league", "/trades", "/analyzer", "/settings", "/privacy", "/terms", "/feedback"] as const;
+
+/**
+ * FantasyCalc's attribution in the server's own HTML (Phase 7b; their condition 2: at least one link per page in plain
+ * server-rendered HTML, not loaded by JavaScript, not hidden): each app page read straight from the server (a plain HTTP
+ * GET, never the browser, so no script has run) has a link to https://fantasycalc.com in its footer, and every link to
+ * FantasyCalc in it has rel exactly "noopener" and referrerpolicy "origin" (contracts.ts fantasyCalcLinksInHtml). The
+ * pages need no league: the footer is the root layout's.
+ */
+export async function fantasyCalcHtmlStep(ctx: StepContext): Promise<void> {
+  const step = "FantasyCalc links";
+  ctx.page.step = step;
+  const problems: string[] = [];
+  let links = 0;
+  for (const pathname of APP_PAGES) {
+    try {
+      const res = await fetch(`${ctx.page.origin}${pathname}`, { headers: { accept: "text/html" }, signal: AbortSignal.timeout(30_000) });
+      const html = await res.text();
+      if (!res.ok) {
+        problems.push(`${pathname}: HTTP ${res.status}`);
+        continue;
+      }
+      const found = fantasyCalcLinksInHtml(html);
+      links += found.length;
+      problems.push(...fantasyCalcLinkIssues(found, { requireFooter: true }).map((p) => `${pathname}: ${p}`));
+    } catch (err) {
+      problems.push(`${pathname}: ${err instanceof Error ? err.name : "the request failed"}`);
+    }
+  }
+  ctx.report.note(step, "linksInServerHtml", links);
+  ctx.report.check(
+    step,
+    problems.length === 0,
+    `the server's HTML of every app page (${APP_PAGES.join(", ")}) links to fantasycalc.com from its footer before any script runs, every FantasyCalc link with rel "noopener" and referrerpolicy "origin"`,
+    `${pl(problems.length, "problem")} with the FantasyCalc links in the pages' server HTML`,
+    problems,
+  );
 }
 
 export interface Step {
@@ -1213,9 +2065,11 @@ export const STEPS: readonly Step[] = [
   { name: "Connect", run: connectStep, health: true, essential: true },
   { name: "Import Report", run: importReportStep, health: true },
   { name: "League", run: leagueStep, health: true },
+  { name: "Notices", run: noticesStep, health: true },
   { name: "Trade Finder", run: finderStep, health: true },
   { name: "Trade card", run: cardStep, health: true },
   { name: "Analyzer", run: analyzerStep, health: true },
+  { name: "Waivers", run: waiversStep, health: true },
   { name: "Settings", run: settingsStep, health: true },
   { name: "Second league", run: secondLeagueStep, health: true },
   { name: "Public pages", run: staticPagesStep, health: false, independent: true },

@@ -1,24 +1,98 @@
 /**
  * `npm run check:browser`: the parts that run without a browser (options, finding Chrome, the report and its name
- * cleaning, the server helpers, the sort and anchor rules) and a syntax check of the in-page JavaScript, which
- * TypeScript never sees; the page's name replacer is also run here, against report.ts's, on the same texts. The steps
- * themselves need the production build and Chrome: the script is their test. Every name here is fictional.
+ * cleaning, the server helpers, the sort and anchor rules, and Checkpoint 7b's rules: contracts.ts) and a syntax check of
+ * the in-page JavaScript, which TypeScript never sees; the page's name replacer is also run here, against report.ts's, on
+ * the same texts, and the server-HTML link reader on the footer as React renders it. The steps themselves need the
+ * production build and Chrome: the script is their test. Every name here is fictional.
  */
 import { spawn, type ChildProcess } from "node:child_process";
 import { mkdtemp, mkdir, rm, utimes, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { ReportView } from "@/components/import/ReportView";
+import { LeagueView } from "@/components/league/LeagueView";
+import { PlayerDetail } from "@/components/league/PlayerTable";
+import { leagueFixture, NOW as LEAGUE_NOW } from "@/components/league/testFixtures";
+import { ValuesCredit } from "@/components/league/ValuesCredit";
+import { SiteFooter } from "@/components/SiteFooter";
+import { AnalysisResult } from "@/components/trades/AnalyzerPage";
+import { evaluation, searchResult, steppedFull, tradeFantasyCalc, tradeSnapshot } from "@/components/trades/testFixtures";
+import { TradeCard } from "@/components/trades/TradeCard";
+import { FinderFrame } from "@/components/trades/TradeFinderPage";
+import type { PlayerBlend } from "@/engine/leagueModel";
+import type { LeagueSnapshot } from "@/engine/model";
+import type { TradeEvaluation } from "@/engine/tradeModel";
+import { planBFixture } from "@/engine/tradeTestFixtures";
+import type { ImportResponse } from "@/lib/api";
+import { buildImportReport } from "@/lib/importReport";
+import { buildLeagueView } from "@/lib/leagueView";
+import { NOTICE_TEXT, UNKNOWN_SETTING_NOTICE } from "@/lib/notices";
+import { bestTimeText, buildAnalysisView, buildFinderView, PROJECTIONS_SOURCE } from "@/lib/tradeView";
 import { DEFAULT_MAX_SEARCH_SECONDS, SECOND_LEAGUE, USAGE, parseArgs, resolveArgs, type CheckBrowserArgs } from "./args";
 import { chromeArgs, chromeCandidates, devtoolsUrl, exited, findChrome, killTree, waitForDevtools } from "./chrome";
-import { CARD_HELPERS, CSP_MARK, INSTRUMENT, NAME_REPLACER, PAGE_HELPERS, RESTORE_CALL, sanitizeCall } from "./inPage";
-import { consoleCallKind, cspIssueText, isPlatformHost, isPlatformRead, keptText, logEntryKind, platformReadText, TEXT_KEEP_MAX } from "./page";
+import {
+  attributesOf,
+  BLEND_WORDS,
+  bareValueNumbers,
+  breakdownLeaks,
+  codeTokens,
+  creditProblems,
+  decodeEntities,
+  fantasyCalcLinkIssues,
+  fantasyCalcLinksInHtml,
+  freshnessLineOk,
+  internalPaths,
+  isFantasyCalcHref,
+  NAV_HREFS,
+  noticeCount,
+  noticeLeaks,
+  pageValueLeaks,
+  PARKER_QUIET_LINE,
+  playoffWeightRead,
+  requestNamesAddress,
+  rowCount,
+  valueLeaks,
+  VALUES_CREDIT,
+  waiverToggleKind,
+  type CreditRead,
+} from "./contracts";
+import {
+  CARD_HELPERS,
+  cleanCall,
+  CSP_MARK,
+  INSTRUMENT,
+  NAME_REPLACER,
+  PAGE_HELPERS,
+  PLAYOFF_WEIGHT_SHOWN,
+  READ_CARD_TEXTS,
+  READ_FANTASYCALC_LINKS,
+  READ_FINDER_NOTICES,
+  READ_FINDER_TIMING,
+  READ_IMPORT_NOTICES,
+  READ_LEAGUE_VALUES,
+  READ_NAV_LINKS,
+  READ_NOTICE_BANNERS,
+  READ_SETTINGS_SCORING,
+  READ_TRADING_LEAGUE,
+  READ_WAIVERS,
+  RESTORE_CALL,
+  sanitizeCall,
+  STOP_PLAYOFF_WEIGHT,
+  WAIVER_SHOW_ALL,
+  waiverToggle,
+  WATCH_PLAYOFF_WEIGHT,
+} from "./inPage";
+import { consoleCallKind, cspIssueText, isPlatformHost, isPlatformRead, isPrefetchRequest, keptText, logEntryKind, platformReadText, TEXT_KEEP_MAX } from "./page";
 import {
   CheckReport,
   cleanValue,
   compileNameRules,
   cutText,
   formatLine,
+  INFO_NOTE,
   leagueNamesScrubber,
   leftoverChecker,
   leftoverNames,
@@ -33,7 +107,32 @@ import {
   type LeagueNames,
 } from "./report";
 import { freePort, newestChange, productionBuild, StartError, startNextServer } from "./server";
-import { isMissingPage404, MISSING_PAGE, NARROW_PHONE_WIDTH, READ_SITE_FILES, readPathOf, sameRow, siteFileChecks, sidelessCards, skipReason, sortInversions, STATIC_PAGES, STEPS, type SiteFiles } from "./steps";
+import {
+  APP_PAGES,
+  BACK_LINK,
+  bestTimeExpectation,
+  freshnessExpectation,
+  GOAL_CHOICES,
+  isMissingPage404,
+  MISSING_PAGE,
+  NARROW_PHONE_WIDTH,
+  parkersLeague,
+  READ_SITE_FILES,
+  readPathOf,
+  sameRow,
+  siteFileChecks,
+  sidelessCards,
+  skipReason,
+  sortInversions,
+  STATIC_PAGES,
+  STEPS,
+  TECHNICAL_DETAILS,
+  togglePressed,
+  WAIVERS_HREF,
+  WAIVERS_REVEALED,
+  type SiteFiles,
+  type TradingLeague,
+} from "./steps";
 
 const parsed = (argv: string[]) => {
   const p = parseArgs(argv);
@@ -150,6 +249,17 @@ describe("the report", () => {
     const clean = new CheckReport();
     clean.ok("Connect", "fine");
     expect(summaryLines(clean)).toEqual(["1 passed, 0 failed, 0 skipped.", "All checks passed."]);
+  });
+
+  it("says where the league's data differs from what a check expected (info) without failing the run (Phase 7b)", () => {
+    const r = new CheckReport();
+    r.ok("Notices", "fine");
+    r.info("Notices", "Parker's league shows 1 notice (the planner expected none)", ["Some player has no projections."]);
+    expect([r.count("info"), r.failed()]).toEqual([1, false]);
+    expect(summaryLines(r)).toEqual(["1 passed, 0 failed, 0 skipped, 1 to look at.", "All checks passed.", INFO_NOTE]);
+    expect(formatLine(r.lines[1]!)).toEqual(["  info  Parker's league shows 1 notice (the planner expected none)", "          - Some player has no projections."]);
+    r.fail("League", "a code shows");
+    expect(summaryLines(r)).toEqual(["1 passed, 1 failed, 0 skipped, 1 to look at.", "Failed in: League.", INFO_NOTE]);
   });
 
   it("prints a line with its first details", () => {
@@ -312,6 +422,43 @@ describe("the in-page JavaScript", () => {
     expect(() => new Function(`return (async () => {\n${PAGE_HELPERS}\n${call}\n})`)).not.toThrow();
     expect(() => new Function(`return (async () => {\n${PAGE_HELPERS}\n${RESTORE_CALL}\n})`)).not.toThrow();
     expect(() => new Function(`return (async () => {\n${PAGE_HELPERS}\n${READ_SITE_FILES}\n})`)).not.toThrow();
+  });
+
+  it("compiles Checkpoint 7b's readers, with the cleaning prelude where they return page text, and the expressions the steps wait on or tap", () => {
+    const clean = cleanCall(nameRules({ leagueName: "Fictional League", teams: [{ id: "3", name: "Gravel Gophers", ownerName: 'quote " and \\ slash' }], players: [] }, [["12345", "<league id>"]]));
+    const body = (reader: string) => `return (async () => {\n${PAGE_HELPERS}\n${CARD_HELPERS}\n${clean}\n${reader}\n})`;
+    for (const reader of [
+      READ_IMPORT_NOTICES,
+      READ_CARD_TEXTS,
+      READ_FANTASYCALC_LINKS,
+      READ_LEAGUE_VALUES,
+      READ_NOTICE_BANNERS,
+      READ_FINDER_NOTICES,
+      READ_FINDER_TIMING,
+      READ_TRADING_LEAGUE,
+      READ_NAV_LINKS,
+      READ_WAIVERS,
+      WATCH_PLAYOFF_WEIGHT,
+      STOP_PLAYOFF_WEIGHT,
+      READ_SETTINGS_SCORING,
+    ]) {
+      expect(() => new Function(body(reader)), reader.slice(0, 60)).not.toThrow();
+    }
+    for (const expression of [PLAYOFF_WEIGHT_SHOWN, WAIVER_SHOW_ALL, waiverToggle(1), WAIVERS_REVEALED, togglePressed(2), BACK_LINK]) {
+      expect(() => new Function(body(`return (${expression});`)), expression.slice(0, 60)).not.toThrow();
+    }
+  });
+
+  it("the cleaning prelude replaces the league's names as report.ts does (clean)", () => {
+    const names: LeagueNames = { leagueName: "Fictional League", teams: [{ id: "3", name: "BIG_DAWGS Club", ownerName: "Rowan Vale" }, { id: "4", name: "Squad 4000" }], players: ["Tess Calloway"] };
+    const rules = nameRules(names, [["12345", "<league id>"]]);
+    const clean = new Function(`${cleanCall(rules)}\nreturn clean;`)() as (t: string | null) => string;
+    const text = "Trade with BIG_DAWGS Club (Rowan Vale) for Squad 4000's star in Fictional League 12345; Tess Calloway stays.";
+    expect(clean(text)).toBe(replaceNames(text, compileNameRules(rules)));
+    // A team named like a code or a value is never taken for one once its name is replaced.
+    expect(codeTokens(clean(text))).toEqual([]);
+    expect(bareValueNumbers(clean(text))).toEqual([]);
+    expect(clean(null)).toBe("");
   });
 
   it("reports every CSP violation the page sees, enforced or report-only, as a console error page.ts counts (Part B)", () => {
@@ -512,6 +659,481 @@ describe("the checks' own rules", () => {
     // The switcher pushed to a row of its own, right under the logo's (the 44 px the header grew by).
     expect(sameRow(logo, { top: 52, bottom: 96 })).toBe(false);
     expect(sameRow({ top: 52, bottom: 96 }, logo)).toBe(false);
+  });
+});
+
+describe("Checkpoint 7b: notices in plain words (§5.1)", () => {
+  it("finds warning codes and the internals the planner named, but not lineup slot names or plain words", () => {
+    expect(codeTokens("Two rules: ESPN_SCORING_UNMAPPED and FANTASYCALC_REDRAFT_UNAVAILABLE, ESPN_SCORING_UNMAPPED again")).toEqual(["ESPN_SCORING_UNMAPPED", "FANTASYCALC_REDRAFT_UNAVAILABLE"]);
+    expect(codeTokens("SUPER_FLEX (QB/RB/WR/TE), REC_FLEX, D/ST, bonus_rec_te, A_B, Week 5")).toEqual([]);
+    expect(noticeLeaks("Rule statId 89 at settings.scoringSettings.scoringItems[3]; player.id 4321; Matched to the player database: 98%")).toEqual([
+      '"statId"',
+      '"scoringItems"',
+      '"player.id"',
+      '"Matched to the player database"',
+    ]);
+    expect(noticeLeaks("PLAYER_UNKNOWN: Some player")).toEqual(["the code PLAYER_UNKNOWN"]);
+    expect(noticeLeaks("Two rare rules aren't counted: 1-point safeties and blocked-kick return touchdowns. They almost never happen.")).toEqual([]);
+  });
+
+  it("finds the platforms' JSON paths, field names and stat-ID wording the adapters' warnings carry, but not plain words (review of the 7b checks)", () => {
+    for (const leak of [
+      "settings.scheduleSettings.playoffSeedingRule",
+      "teams[].owners",
+      "schedule[].winner",
+      "teams[].roster.entries[].acquisitionType",
+      "rosters[].settings.division",
+      "status.isWaiverOrderEdited",
+      "player.defaultPositionId",
+      "3 player(s) have an ESPN position we don't know (defaultPositionId 5) and were left out.",
+      "ESPN lists 2 keepers this season and 3 under keeperCountFuture.",
+      "ESPN stat id 209 isn't counted.",
+      "the stat IDs 101 and 102",
+      // The adapters' ID-matching words (the notices say it plainly: "We could only identify …").
+      "1 player isn't in any player ID source, so we matched him to the only active player with the same name.",
+      "The player ID sources disagree about who 2 ESPN player ids in this league belong to.",
+      "2 players matched a Sleeper id already used by another player.",
+    ])
+      expect(noticeLeaks(leak), leak).not.toEqual([]);
+    for (const plain of [
+      "Values: FantasyCalc · fantasycalc.com · offersheet.app@gmail.com · support.espn.com/hc/en-us/articles/360058038711",
+      "e.g. a bye week; A.J. Brown and D.J. Moore; St. Louis vs. LV; Marvin Harrison Jr. (WR, ARI); C. McCaffrey",
+      "D/ST, W/R/T, SUPER_FLEX, half-PPR, 12.5 pts, 1,283.7 lineup points, iPhone, DynastyProcess, JaMarr Chase, DeVonta Smith",
+      "Projection source: ESPN's and Sleeper's projections, averaged. They differ by 6% on average in week 5 (160 rostered players), within the 10% we allow.",
+      "Our reading of ESPN's setting: not yet checked on a league like yours. Read from ESPN's keeper count: ESPN has no dynasty setting.",
+    ])
+      expect(noticeLeaks(plain), plain).toEqual([]);
+    expect(internalPaths("at settings.scheduleSettings.playoffSeedingRule and teams[].owners, by stat ID")).toEqual(["settings.scheduleSettings.playoffSeedingRule", "teams[].owners", "stat ID"]);
+    // A path the named terms already cover is said once, by its term.
+    expect(noticeLeaks("ESPN_SCORING_UNMAPPED · settings.scoringSettings.scoringItems[4] (statId 209)")).toEqual(["the code ESPN_SCORING_UNMAPPED", '"statId"', '"scoringItems"']);
+  });
+
+  it("reads the Notices tile as a number, and keeps the planner's quiet line for Parker's league", () => {
+    expect([noticeCount("None"), noticeCount("1 notice"), noticeCount("3 notices"), noticeCount(" 2  notices "), noticeCount("Several"), noticeCount(null)]).toEqual([0, 1, 3, 2, null, null]);
+    expect(PARKER_QUIET_LINE).toBe("Two rare rules aren't counted: 1-point safeties and blocked-kick return touchdowns. They almost never happen.");
+    expect(TECHNICAL_DETAILS).toBe("Technical details (for bug reports)");
+  });
+
+  it("applies Parker's own expectations only with --team, on his league", () => {
+    expect(parkersLeague({ team: "3" })).toBe(true);
+    expect(parkersLeague({ team: null })).toBe(false);
+  });
+});
+
+describe("Checkpoint 7b: FantasyCalc's values are never shown (5.4)", () => {
+  it("finds the wordings the cards used until Phase 7b", () => {
+    expect(valueLeaks("Trade value: You give 6,500, you get 5,400 · Values: FantasyCalc")).toHaveLength(3);
+    expect(valueLeaks("By FantasyCalc's trade values, they get 18% more than they give, which makes a yes more likely.")).toHaveLength(2);
+    expect(valueLeaks("By FantasyCalc’s values, the two sides are about even.")).toHaveLength(1);
+    expect(valueLeaks("they give up about 9.3 times as much as they get")).toHaveLength(1);
+    expect(valueLeaks("you'd get 22% less trade value than you give")).toHaveLength(1);
+    // A card's facts are a term and its value (<dt>, <dd>): read without the colon, with values under 1,000 too.
+    expect(valueLeaks("Trade value You give 650, you get 540 Values: FantasyCalc")).toHaveLength(1);
+    expect(valueLeaks("Long-term value +350 for your roster, counting roster spots")).toHaveLength(1);
+    expect(valueLeaks("Long-term value: −1,350 for your roster")).toHaveLength(2);
+    expect(valueLeaks("Long-term value Up for your roster")).toEqual([]);
+    // A printed odds figure read out in words isn't a comparison: "<1%" is said "less than 1%".
+    expect(valueLeaks("Title odds <1% less than 1% · >99% more than 99% · <0.1% less than 0.1%")).toEqual([]);
+  });
+
+  it("finds a value-sized number with or without its commas, signed or not, with its context", () => {
+    expect(bareValueNumbers("Long-term value: +1,350 for your roster")).toEqual(['the number 1,350 ("Long-term value: +1,350 for your roster")']);
+    expect(bareValueNumbers("worth 6500 to them")).toHaveLength(1);
+    expect(bareValueNumbers("−2,100 in value")).toHaveLength(1);
+    // A comma or a period after a number in a sentence is punctuation; a decimal isn't a whole number.
+    expect(bareValueNumbers("You give 6,500, you get 5,400.")).toHaveLength(2);
+    expect(bareValueNumbers("a ratio of 1234.56, and 1,234.5")).toEqual([]);
+  });
+
+  it("leaves a card's own numbers alone: ROS points, odds, chances, the scale, the season, simulations, lineup points", () => {
+    const card = [
+      "Trade idea 1 Trade with Team 4 You give Fictional Player WR · DAL You get Other Player RB · MIN Out — expected back week 8",
+      "Helps you 63 Chance they accept 35% Est. · Possible Overall 22 about 25% it goes through.",
+      "Title odds 12.1% → 13.4% · Playoff odds 65% → 69% Win chance by week: Week 9: 68% → 64% · Week 13: 42% → 55%",
+      "You get 1,142 ROS pts, give 1,018 Your starting lineup still gains 1,025 ROS pts: ROS points count each player's projected points.",
+      "Your lineup +3.5 pts a week. These numbers weigh each player's trade value. Values: FantasyCalc (opens in a new tab)",
+      "Helps you 63 ≈ +3.0 pts/week. Trade value: −0.4 pts/week equivalent. Played out your season 5,000 times in the 2026 season.",
+      "They come out ahead on trade value, which makes a yes more likely. <5% under 5% it goes through 63 ≈ as good as adding 3 points a week",
+    ].join(" ");
+    expect(valueLeaks(card)).toEqual([]);
+  });
+
+  it("finds the wordings the app's own guard forbids too (src/lib/fantasyCalcHidden.test.ts), on a card or anywhere on the League page", () => {
+    for (const leak of [
+      "They get 14% more value.",
+      "they give up 8.5% more trade value than they get",
+      "Raises your roster's long-term value by 6%, counting roster spots.",
+      "Costs 3% of your roster's long-term value, counting roster spots.",
+      "Helps you from your odds alone: 41; counting trade value at your setting: 35.",
+    ]) {
+      expect(valueLeaks(leak), leak).not.toEqual([]);
+      expect(pageValueLeaks(leak), leak).not.toEqual([]);
+    }
+    // The breakdowns' old numbers wherever they'd show (a chip, a partner card), the cards' old wordings, the "~" estimates.
+    expect(pageValueLeaks("Worth +33 to Team 2 · costs you 6.1 pts/wk (Trade market 170)")).toHaveLength(1);
+    expect(pageValueLeaks("Best of their trade chips: Trade value: You give 6,500")).toHaveLength(1);
+    expect(pageValueLeaks("C. Olave (WR) ~1,234 · J. Doe ~ 87")).toHaveLength(2);
+    // The League page's own words: the blend, its explainer, the scale, chips and totals (no bare numbers on this page).
+    const page = [
+      "His projection leans up toward the trade market's view, by the most it can: 35%. The trade market barely moves his projection.",
+      "Then, for QB, RB, WR and TE with trade value, points per game are pulled halfway toward what our model gives healthy players with about the same trade value, at most 35% up or 25% down, so a projection the trade market disagrees with counts for less.",
+      "Worth +33 to Team 2 · costs you 6.1 pts/wk · 1,283.7 lineup pts · 5,000 simulated seasons · Values: FantasyCalc (10 teams · half-PPR · 1 QB · redraft)",
+      "63 ≈ as good as adding 3 points a week to your lineup this season together with 10% more long-term value for your roster.",
+    ].join(" ");
+    expect(pageValueLeaks(page)).toEqual([]);
+  });
+
+  it("finds the market's numbers in a League page breakdown, and the blend's words", () => {
+    expect(breakdownLeaks("Our projection 210 · Trade market 170 · Used 190")).toHaveLength(2);
+    expect(breakdownLeaks("Trade market: no comparison (top value at his position)")).toHaveLength(2);
+    expect(breakdownLeaks("Our projection 313 · Trade market: no comparison (lowest value at his position) · Used 313")).toHaveLength(3);
+    expect(breakdownLeaks("Used 77 (capped: what the uncapped blend would be 104)")).toHaveLength(1);
+    const now = "His projection leans up toward the trade market's view. Per game, his projection moves halfway toward what our model gives healthy players with about the same trade value, at most 35% up or 25% down. Wk 5: 12.3 pts, 85% · Q";
+    expect(breakdownLeaks(now)).toEqual([]);
+    expect(BLEND_WORDS.test(now)).toBe(true);
+    expect(BLEND_WORDS.test("The trade market barely moves his projection.")).toBe(true);
+    expect(BLEND_WORDS.test("His projection leans down toward the trade market's view, by the most it can: 25%.")).toBe(true);
+    expect(BLEND_WORDS.test("Trade market 170")).toBe(false);
+  });
+
+  it("checks a card's credit: the sentence, then the “Values: FantasyCalc” link with FantasyCalc's attributes, last", () => {
+    const good: CreditRead = { lead: VALUES_CREDIT, link: { href: "https://fantasycalc.com", rel: "noopener", referrerPolicy: "origin", text: "Values: FantasyCalc", last: true } };
+    expect(creditProblems(good)).toEqual([]);
+    expect(creditProblems(null)).toEqual([`no "${VALUES_CREDIT}" line with a FantasyCalc link`]);
+    expect(creditProblems({ ...good, lead: "Trade value: You give 6,500, you get 5,400 ·" })).toEqual(['the line before the link reads "Trade value: You give 6,500, you get 5,400 ·"']);
+    expect(creditProblems({ ...good, link: { ...good.link!, rel: "noopener noreferrer", referrerPolicy: null } })).toEqual([
+      'FantasyCalc link 1: rel is "noopener noreferrer", not exactly "noopener"',
+      "FantasyCalc link 1: referrerpolicy is missing, not \"origin\"",
+    ]);
+    expect(creditProblems({ ...good, link: { ...good.link!, last: false, text: "FantasyCalc" } })).toEqual(['the link reads "FantasyCalc"', "something follows the link"]);
+    expect(creditProblems({ lead: VALUES_CREDIT, link: null })).toEqual(["no link after the sentence"]);
+  });
+});
+
+describe("Checkpoint 7b: FantasyCalc's links in the server's HTML (5.4)", () => {
+  const footer = (a: string) => `<!DOCTYPE html><html><body><main><p>Page</p></main><footer class="mt-12"><nav aria-label="About"><a href="/privacy">Privacy</a></nav><p>Trade values: ${a}</p></footer></body></html>`;
+  const fc = '<a href="https://fantasycalc.com" target="_blank" rel="noopener" referrerPolicy="origin" class="font-semibold">FantasyCalc</a>';
+
+  it("reads the footer's link as React writes it (referrerPolicy in any case), and passes FantasyCalc's attributes", () => {
+    const links = fantasyCalcLinksInHtml(footer(fc));
+    expect(links).toEqual([{ href: "https://fantasycalc.com", rel: "noopener", referrerPolicy: "origin", inFooter: true, hiddenBy: null }]);
+    expect(fantasyCalcLinkIssues(links, { requireFooter: true })).toEqual([]);
+    // The real footer, rendered by React on the server.
+    const rendered = fantasyCalcLinksInHtml(`<html><body>${renderToStaticMarkup(createElement(SiteFooter))}</body></html>`);
+    expect(rendered).toEqual([expect.objectContaining({ href: "https://fantasycalc.com", rel: "noopener", referrerPolicy: "origin", inFooter: true, hiddenBy: null })]);
+    expect(fantasyCalcLinkIssues(rendered, { requireFooter: true })).toEqual([]);
+    // A card's "Values: FantasyCalc", outside the footer: its attributes count too.
+    const credit = fantasyCalcLinksInHtml(`<article><p>${VALUES_CREDIT} ${renderToStaticMarkup(createElement(ValuesCredit))}</p></article>`);
+    expect(credit).toEqual([expect.objectContaining({ rel: "noopener", referrerPolicy: "origin", inFooter: false })]);
+  });
+
+  it("fails a link without FantasyCalc's attributes, or a page without one in its footer", () => {
+    const issues = (a: string) => fantasyCalcLinkIssues(fantasyCalcLinksInHtml(footer(a)), { requireFooter: true });
+    expect(issues('<a href="https://fantasycalc.com" rel="noopener noreferrer" referrerpolicy="origin">FantasyCalc</a>')).toEqual(['FantasyCalc link 1 (footer): rel is "noopener noreferrer", not exactly "noopener"']);
+    expect(issues('<a href="https://fantasycalc.com" rel="nofollow noopener" referrerpolicy="origin">FantasyCalc</a>')).toHaveLength(1);
+    expect(issues('<a href="https://fantasycalc.com" rel="noopener">FantasyCalc</a>')).toEqual(['FantasyCalc link 1 (footer): referrerpolicy is missing, not "origin"']);
+    expect(issues("<a href='https://fantasycalc.com/redraft' rel='noopener' REFERRERPOLICY='no-referrer'>FantasyCalc</a>")).toEqual(['FantasyCalc link 1 (footer): referrerpolicy is "no-referrer", not "origin"']);
+    expect(issues("FantasyCalc")).toEqual(["no link to https://fantasycalc.com in the footer"]);
+    // A link elsewhere doesn't stand in for the footer's; one to www. is still checked.
+    const elsewhere = `<main>${fc}</main><footer><p>Trade values</p></footer>`;
+    expect(fantasyCalcLinkIssues(fantasyCalcLinksInHtml(elsewhere), { requireFooter: true })).toEqual(["no link to https://fantasycalc.com in the footer"]);
+    expect(fantasyCalcLinkIssues(fantasyCalcLinksInHtml('<p><a href="https://www.fantasycalc.com/" rel="noopener">x</a></p>'), { requireFooter: false })).toHaveLength(1);
+  });
+
+  it("doesn't count what a script holds, and says what hides a link from a reader without JavaScript", () => {
+    const script = `<html><body><footer><p>Trade values</p></footer><script>self.__next_f.push([1,"<a href=\\"https://fantasycalc.com\\" rel=\\"noopener\\" referrerPolicy=\\"origin\\">"])</script><!-- <a href="https://fantasycalc.com"> --></body></html>`;
+    expect(fantasyCalcLinksInHtml(script)).toEqual([]);
+    const streamed = `<div hidden id="S:0">${footer(fc)}</div>`;
+    expect(fantasyCalcLinksInHtml(streamed)[0]?.hiddenBy).toBe("div[hidden]");
+    expect(fantasyCalcLinkIssues(fantasyCalcLinksInHtml(streamed), { requireFooter: true })).toEqual(["the footer's FantasyCalc link is hidden without JavaScript (inside div[hidden])"]);
+    expect(fantasyCalcLinksInHtml(`<footer><details><summary>More</summary>${fc}</details></footer>`)[0]?.hiddenBy).toBe("details");
+    expect(fantasyCalcLinksInHtml(`<footer><details open><summary>More</summary>${fc}</details></footer>`)[0]?.hiddenBy).toBeNull();
+    expect(fantasyCalcLinksInHtml(`<footer><noscript>${fc}</noscript></footer>`)[0]?.hiddenBy).toBe("noscript");
+    expect(fantasyCalcLinksInHtml(`<footer><p style="display: none">${fc}</p></footer>`)[0]?.hiddenBy).toBe("p[style]");
+    // Void and self-closing elements (an icon's SVG) don't throw the open elements off; entities are read.
+    const svg = `<footer><svg viewBox="0 0 8 8"><path d="M0 0h8"/><circle r="1"/></svg><img src="/x.png" alt="x"><br><p>${'<a href="https://fantasycalc.com?a=1&amp;b=2" rel="noopener" referrerPolicy="origin">FantasyCalc</a>'}</p></footer>`;
+    expect(fantasyCalcLinksInHtml(svg)).toEqual([{ href: "https://fantasycalc.com?a=1&b=2", rel: "noopener", referrerPolicy: "origin", inFooter: true, hiddenBy: null }]);
+    expect(fantasyCalcLinksInHtml(`<footer></footer><p>${fc}</p>`)[0]?.inFooter).toBe(false);
+  });
+
+  it("knows FantasyCalc's addresses, and every app page is read", () => {
+    expect(["https://fantasycalc.com", "https://fantasycalc.com/", "http://www.fantasycalc.com/redraft", "https://FantasyCalc.com?x=1"].every(isFantasyCalcHref)).toBe(true);
+    expect(["https://fantasycalc.com.evil.example", "https://notfantasycalc.com", "/fantasycalc", null, undefined].some(isFantasyCalcHref)).toBe(false);
+    expect(APP_PAGES).toEqual(expect.arrayContaining(["/", "/league", "/trades", "/analyzer", "/settings", "/import", "/privacy", "/terms", "/feedback"]));
+  });
+});
+
+describe("Checkpoint 7b: the Trade Finder's timing lines (5.3)", () => {
+  it("reads the freshness line in each of its wordings", () => {
+    for (const ok of [
+      "Trade values updated 2 hours ago · Projections updated 5 hours ago.",
+      "Trade values updated just now · Projections updated 1 minute ago.",
+      "Trade values updated yesterday · Projections updated 3 days ago.",
+      "Trade values updated 25 minutes ago.",
+      "Projections updated 1 hour ago.",
+      "Trade values updated 2 hours ago\u00a0· Projections updated 5 hours ago.",
+    ])
+      expect(freshnessLineOk(ok), ok).toBe(true);
+    for (const bad of ["Trade values updated 2 hours ago", "Projections updated 5 hours ago · Trade values updated 2 hours ago.", "Trade values updated soon.", "Trade values: 6,500.", ""]) expect(freshnessLineOk(bad), bad).toBe(false);
+  });
+
+  const league = (over: Partial<TradingLeague> = {}): TradingLeague => ({
+    settings: { regularSeasonWeeks: Array.from({ length: 14 }, (_, i) => i + 1), playoffWeeks: [15, 16, 17], tradeDeadline: { date: "2026-12-02T17:00:00.000Z" }, tradeReviewHours: 24 },
+    currentWeek: 5,
+    leagueWeek: null,
+    lastWeek: 17,
+    kickoffs: null,
+    inputs: true,
+    hasMarket: true,
+    ...over,
+  });
+
+  it("expects “Best time to look:” in season before the deadline, in the words the league's review period gives (the app's own rules)", () => {
+    const inSeason = bestTimeExpectation(league(), new Date("2026-10-06T12:00:00Z"));
+    expect(inSeason.inSeason).toBe(true);
+    expect(inSeason.text).toBe("Best time to look: Tuesday or Wednesday, after Monday night's game. Trade values and projections have caught up with the weekend, and a trade still has time to clear your league's 1-day review before Thursday.");
+    expect(bestTimeExpectation(league(), new Date("2026-12-10T12:00:00Z")).inSeason).toBe(false);
+    expect(bestTimeExpectation(league({ settings: { ...league().settings, tradeDeadline: { week: 4 } } }), new Date("2026-10-06T12:00:00Z")).inSeason).toBe(false);
+    // Week 1 hasn't started until a kickoff of it has passed.
+    expect(bestTimeExpectation(league({ currentWeek: 1 }), new Date("2026-09-08T12:00:00Z")).inSeason).toBe(false);
+    expect(bestTimeExpectation(league({ currentWeek: 1, kickoffs: { 1: { KC: "2026-09-10T00:20:00Z" } } }), new Date("2026-09-11T12:00:00Z")).inSeason).toBe(true);
+    expect(bestTimeExpectation(league({ settings: { ...league().settings, tradeReviewHours: null } }), new Date("2026-10-06T12:00:00Z")).text).toContain("clear your league's review before Thursday.");
+    expect(bestTimeExpectation(league({ settings: { ...league().settings, tradeReviewHours: 48 } }), new Date("2026-10-06T12:00:00Z")).text).toContain("2-day review");
+  });
+
+  it("expects the freshness line by the app's own rule on the saved inputs' times, and none when they carry none (nothing to say: a skip)", () => {
+    const now = new Date("2026-10-06T12:00:00Z");
+    const projections = (fetchedAt: string) => [{ source: PROJECTIONS_SOURCE, fetchedAt }];
+    expect(freshnessExpectation({ marketFetchedAt: "2026-10-06T10:00:00Z", sources: projections("2026-10-06T07:00:00Z") }, now)).toBe("Trade values updated 2 hours ago · Projections updated 5 hours ago.");
+    expect(freshnessExpectation({ marketFetchedAt: null, sources: projections("2026-10-06T11:59:30Z") }, now)).toBe("Projections updated just now.");
+    expect(freshnessExpectation({ marketFetchedAt: "2026-10-05T09:00:00Z", sources: [{ source: "ESPN projections", fetchedAt: "2026-10-06T07:00:00Z" }] }, now)).toBe("Trade values updated yesterday.");
+    expect(freshnessExpectation({ marketFetchedAt: null, sources: [] }, now)).toBeNull();
+    expect(freshnessExpectation({}, now)).toBeNull();
+    for (const line of ["Trade values updated 2 hours ago · Projections updated 5 hours ago.", "Projections updated just now.", "Trade values updated yesterday."]) expect(freshnessLineOk(line), line).toBe(true);
+  });
+});
+
+describe("Checkpoint 7b: Settings, the waiver view and the header (5.2, §6.1, §6.2)", () => {
+  it("reads the playoff weight's line in each of its states", () => {
+    expect(playoffWeightRead("set automatically from your odds. Working it out…")).toEqual({ state: "working", weight: null });
+    expect(playoffWeightRead("1.6×, set automatically from your odds.")).toEqual({ state: "auto", weight: 1.6 });
+    expect(playoffWeightRead("1.3× (the default: lineup changes don't move your odds right now).")).toEqual({ state: "default", weight: 1.3 });
+    expect(playoffWeightRead("set automatically from your odds when the League page loads.")).toEqual({ state: "waiting", weight: null });
+    expect(playoffWeightRead("1.25")).toEqual({ state: "other", weight: null });
+  });
+
+  it("knows the goal's three answers", () => {
+    expect(GOAL_CHOICES).toEqual(["Only the champion", "Top finishers too", "Making the playoffs"]);
+  });
+
+  it("accepts the waiver view's toggle with two lists, or three while a week is under way, and nothing else", () => {
+    expect(waiverToggleKind(["Rest of season", "This week"])).toBe("two");
+    expect(waiverToggleKind(["Rest of season", "Next week"])).toBe("two");
+    expect(waiverToggleKind(["Rest of season", "This week", "Next week"])).toBe("three");
+    expect(waiverToggleKind(["This week", "Rest of season"])).toBeNull();
+    expect(waiverToggleKind(["Rest of season"])).toBeNull();
+    expect(waiverToggleKind(["Rest of season", "This week", "Value"])).toBeNull();
+    expect(WAIVERS_HREF).toBe("/league#waivers");
+  });
+
+  it("counts the rows the header's links sit in: six links, two rows", () => {
+    const row = (top: number) => ({ top, bottom: top + 44 });
+    expect(rowCount([row(60), row(60), row(60), row(104), row(104), row(104)])).toBe(2);
+    expect(rowCount([row(60), row(61), row(60), row(104), row(104), row(150)])).toBe(3);
+    expect(rowCount([row(60), row(60), row(60), row(60), row(60), row(60)])).toBe(1);
+    expect(rowCount([])).toBe(0);
+    expect(NAV_HREFS).toEqual(["/connect", "/import", "/league", "/league#waivers", "/trades", "/settings"]);
+  });
+});
+
+describe("Checkpoint 7b: the Analyzer's link back isn't prefetched", () => {
+  it("knows which requests name the link's address, team id included", () => {
+    const href = "/trades?partner=3";
+    expect(requestNamesAddress("/trades?partner=3&_rsc=1a2b3", href)).toBe(true);
+    expect(requestNamesAddress("/trades?_rsc=1a2b3&partner=3", href)).toBe(true);
+    expect(requestNamesAddress("/trades.rsc?partner=3", href)).toBe(true);
+    // The header's own /trades (no team id), another team, another page: not the link's address.
+    expect(requestNamesAddress("/trades?_rsc=1a2b3", href)).toBe(false);
+    expect(requestNamesAddress("/trades?partner=31&_rsc=1a2b3", href)).toBe(false);
+    expect(requestNamesAddress("/tradesx?partner=3", href)).toBe(false);
+    expect(requestNamesAddress("/analyzer?partner=3", href)).toBe(false);
+  });
+
+  it("tells Next's prefetches by their header, in any case", () => {
+    expect(isPrefetchRequest({ "Next-Router-Prefetch": "1", RSC: "1" })).toBe(true);
+    expect(isPrefetchRequest({ "next-router-prefetch": "1" })).toBe(true);
+    expect(isPrefetchRequest({ RSC: "1" })).toBe(false);
+    expect(isPrefetchRequest(undefined)).toBe(false);
+  });
+
+  it("runs the new steps where they belong: Notices after League, Waivers after the Analyzer", () => {
+    const names = STEPS.map((s) => s.name);
+    expect(names.indexOf("Notices")).toBe(names.indexOf("League") + 1);
+    expect(names.indexOf("Waivers")).toBe(names.indexOf("Analyzer") + 1);
+    expect(names.indexOf("Settings")).toBe(names.indexOf("Waivers") + 1);
+  });
+});
+
+describe("Checkpoint 7b: the rules pass the app's own pages, and catch its technical details (rendered from the app's test fixtures)", () => {
+  /**
+   * A page's words as the check reads them (inPage.ts pageText with `all` and `attributes`): every word a tap could show and
+   * the title and aria-label texts, from the page's server-rendered markup, scripts and styles left out.
+   */
+  const words = (html: string): string => {
+    const markup = html.replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, " ");
+    const hover: string[] = [];
+    for (const m of markup.matchAll(/<[a-zA-Z][\w:-]*([^>]*?)\/?>/g)) {
+      const attrs = attributesOf(m[1] ?? "");
+      for (const name of ["title", "aria-label"]) {
+        const v = attrs.get(name);
+        if (v) hover.push(v);
+      }
+    }
+    return decodeEntities([markup.replace(/<[^>]*>/g, " "), ...hover].join(" "))
+      .replace(/\s+/g, " ")
+      .trim();
+  };
+  const articles = (html: string): string[] => html.match(/<article\b[\s\S]*?<\/article>/g) ?? [];
+  const saved = () => ({ ok: true as const });
+  const noFeedback = { outcome: null, report: null, version: null, versionKey: null, versionWords: null };
+
+  it("every notice the app can word (src/lib/notices.ts) reads plainly: no code, path, field name or stat ID", () => {
+    const texts = Object.entries(NOTICE_TEXT)
+      .map(([code, word]) => word({ code, message: "Week 5 and week 7 are the weeks named.", platformPath: "settings.scoringSettings[2]", teams: ["1"] }, { myTeamId: "1" }))
+      .filter((t): t is string => typeof t === "string");
+    texts.push(...Object.values(UNKNOWN_SETTING_NOTICE));
+    expect(texts.length).toBeGreaterThan(40);
+    for (const t of texts) expect(noticeLeaks(t), t).toEqual([]);
+  });
+
+  it("the Import Report: nothing internal above its technical details (closed parts and hover texts included); they hold the codes and paths", () => {
+    const snapshot = {
+      platform: "espn",
+      leagueId: "4242",
+      season: 2026,
+      name: "The Gloopdorf Invitational",
+      fetchedAt: "2026-10-05T12:00:00.000Z",
+      currentWeek: 5,
+      settings: {
+        numTeams: 2,
+        leagueType: "redraft",
+        lineup: [{ slot: "QB", count: 1, eligible: ["QB"] }],
+        benchSlots: 5,
+        irSlots: 1,
+        taxiSlots: 0,
+        maxRosterSize: 7,
+        scoring: {
+          perStat: { pass_td: 4, rec: 1 },
+          rules: [],
+          unmapped: [
+            { platformKey: "209", label: "1pt Safety", points: 1, scoredThisSeason: false },
+            { platformKey: "93", label: "Blocked Punt or FG return for TD", points: 6, scoredThisSeason: false },
+          ],
+        },
+        regularSeasonWeeks: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
+        playoffWeeks: [15, 16, 17],
+        playoffTeams: 2,
+        playoffByes: 0,
+        medianGame: false,
+        pointsOnly: false,
+        tradeDeadline: { week: 11 },
+        tradeReview: "league_vote",
+        tradeReviewHours: 24,
+      },
+      teams: [
+        { id: "1", name: "Moonbeam Mudcats", ownerName: "Zorblax Quintavious", roster: ["777"], ir: [], taxi: [], record: { w: 2, l: 2, t: 0 }, pointsFor: 400, pointsAgainst: 390 },
+        { id: "3", name: "Quasar Quokkas", ownerName: "Quenby Flapdoodle", roster: [], ir: [], taxi: [], record: { w: 2, l: 2, t: 0 }, pointsFor: 390, pointsAgainst: 400 },
+      ],
+      myTeamId: "1",
+      players: { "777": { id: "777", name: "Trey Zorblax", pos: "QB", eligible: ["QB"], nflTeam: "GB", injury: "ACTIVE", ids: {} } },
+      schedule: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14].map((week) => ({ week, teamA: "1", teamB: "3", isPlayoff: false })),
+      transactions: [],
+      freeAgents: [],
+      warnings: [
+        { code: "ESPN_SCORING_UNMAPPED", message: "ESPN scoring rule “1pt Safety” (1 pts) isn't counted.", platformPath: "settings.scoringSettings.scoringItems[4] (statId 209)" },
+        { code: "ESPN_SCORING_UNMAPPED", message: "ESPN scoring rule “Blocked Punt or FG return for TD” (6 pts) isn't counted.", platformPath: "settings.scoringSettings.scoringItems[8] (statId 93)" },
+        { code: "ESPN_PLAYER_MATCHED_BY_NAME", message: "1 player isn't in any player ID source. Rostered: Trey Zorblax (QB, GB).", platformPath: "player.id", players: ["777"] },
+        { code: "ESPN_SEEDING_TIEBREAKER_UNKNOWN", message: "ESPN's seeding rule wasn't one we know.", platformPath: "settings.scheduleSettings.playoffSeedingRule" },
+        { code: "ESPN_POSITION_UNKNOWN", message: "1 player(s) have an ESPN position we don't know (defaultPositionId 99) and were left out.", platformPath: "player.defaultPositionId", teams: ["3"] },
+        { code: "TRADES_DISABLED", message: "Trading is turned off in this league.", platformPath: "settings.disable_trades" },
+      ],
+    } as unknown as LeagueSnapshot;
+    const view = buildImportReport({ snapshot, notes: ["Trades rebuilt from the rosters: teams[].roster.entries[].acquisitionType"] } as ImportResponse, { timeZone: "America/Chicago", myTeamId: "1" });
+    const html = renderToStaticMarkup(createElement(ReportView, { view, onPickTeam: () => {} }));
+    const at = html.indexOf('<details id="technical-details"');
+    expect(at).toBeGreaterThan(0);
+    const above = words(html.slice(0, at));
+    // The quiet line and a notice are there, in plain words, and the scoring card's closed "All scoring rules" is read.
+    expect(above).toContain(PARKER_QUIET_LINE);
+    expect(above).toContain("Trading is turned off in your league");
+    expect(above).toContain("All scoring rules");
+    expect(noticeLeaks(above)).toEqual([]);
+    expect(noticeLeaks(words(html.slice(at)))).toEqual(
+      expect.arrayContaining([
+        "the code ESPN_SCORING_UNMAPPED",
+        '"statId"',
+        '"scoringItems"',
+        '"player.id"',
+        'the path or field name "settings.scheduleSettings.playoffSeedingRule"',
+        'the path or field name "player.defaultPositionId"',
+        'the path or field name "teams[].roster.entries[].acquisitionType"',
+      ]),
+    );
+  });
+
+  it("the League page: no code, path or trade value anywhere, every player's breakdown and the market blend's words included", () => {
+    const f = leagueFixture();
+    const blends: Record<string, PlayerBlend> = {
+      "101": { ours: 431.7, market: 289.3, used: 360.5, weight: 0.5 },
+      "201": { ours: 123.4, market: 345.6, used: 166.59, weight: 0.5, clamped: "high" },
+      "301": { ours: 313.2, market: 313.2, used: 313.2, weight: 0.5 },
+    };
+    for (const [id, blend] of Object.entries(blends)) {
+      const pm = f.model.players[id];
+      if (!pm) throw new Error(`fixture player ${id} missing`);
+      f.model.players[id] = { ...pm, blend };
+    }
+    const view = buildLeagueView({ ...f, myTeamSource: "platform", timeZone: "America/Chicago", now: LEAGUE_NOW });
+    const html = renderToStaticMarkup(createElement(LeagueView, { view, refresh: { onRefresh: () => {}, refreshing: false, error: null, status: null } }));
+    const players = [...view.rosters.flatMap((r) => r.players), ...view.freeAgents.flatMap((g) => g.players)];
+    const details = players.map((player) => renderToStaticMarkup(createElement(PlayerDetail, { player, showLineupCost: true })));
+    const text = words([html, ...details].join(" "));
+    expect(details.length).toBeGreaterThan(20);
+    expect(details.filter((d) => BLEND_WORDS.test(decodeEntities(d)))).toHaveLength(3);
+    expect(noticeLeaks(text)).toEqual([]);
+    expect(pageValueLeaks(text)).toEqual([]);
+  });
+
+  it("the Trade Finder's page and cards (steps, Plan B, messages) and the Analyzer's card (Details): no code, path or trade value; each card credits FantasyCalc", () => {
+    const snapshot = tradeSnapshot();
+    const fantasyCalc = tradeFantasyCalc();
+    const trades: TradeEvaluation[] = [
+      evaluation({ key: "plain" }),
+      evaluation({ key: "planB", planB: planBFixture({ partnerId: "2", give: ["105"], get: ["203"] }) }),
+      { ...steppedFull(), key: "steps" },
+    ];
+    const finder = buildFinderView({ result: searchResult(trades, { hidden: { byBenefit: 1, byMarket: 2 } }), sort: "overall", snapshot, partnerId: null, fantasyCalc });
+    const timing = { bestTime: bestTimeText({ tradeReviewHours: 24 }), freshness: "Trade values updated 2 hours ago · Projections updated 5 hours ago." };
+    const page = renderToStaticMarkup(
+      createElement(FinderFrame, { state: { kind: "done", view: finder }, teamName: "Moonbeam Mudcats", timing, controls: null, records: [], leagueKey: "espn:0000abcd", onFeedback: saved }),
+    );
+    expect(noticeLeaks(words(page))).toEqual([]);
+    const analysis = buildAnalysisView({ evaluation: { ...trades[0]!, marketWeekly: -0.4 }, illegal: null, notes: [], helpsScale: null, baseline: { pPlayoffs: 0.62, pTitle: 0.09 } }, snapshot, undefined, { fantasyCalc });
+    const analyzer = renderToStaticMarkup(createElement(AnalysisResult, { view: analysis, stale: false, records: [], leagueKey: "espn:0000abcd", leagueType: "redraft", onFeedback: saved }));
+    expect(analyzer).toContain("How Helps you adds up for this trade.");
+    const cards = [...articles(page), ...articles(analyzer)];
+    expect(cards).toHaveLength(trades.length + 1);
+    for (const card of cards) {
+      const text = words(card);
+      expect(valueLeaks(text), text.slice(0, 80)).toEqual([]);
+      expect(noticeLeaks(text), text.slice(0, 80)).toEqual([]);
+      expect(text).toContain(`${VALUES_CREDIT} Values: FantasyCalc`);
+    }
+    // A card the way they were before Phase 7b is caught.
+    const old = renderToStaticMarkup(
+      createElement(TradeCard, { card: { ...finder.cards[0]!, facts: [{ label: "Trade value", value: "You give 6,500, you get 5,400" }] }, rank: 1, feedback: noFeedback, onFeedback: saved }),
+    );
+    expect(valueLeaks(words(old))).toHaveLength(3);
   });
 });
 

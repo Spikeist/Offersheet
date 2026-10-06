@@ -24,8 +24,14 @@
  *    --second-league (Phase 4c), also a second league (the public ESPN test league, args.ts SECOND_LEAGUE) added with
  *    the league switcher, switched to and back, then removed: each page shows the league it should, and settings and
  *    feedback stay per league. Its names are cleaned like the first league's ("Team L2-3").
+ *    Checkpoint 7b's checks (steps.ts lists them; contracts.ts holds their rules): FantasyCalc's values never shown and
+ *    its links as FantasyCalc asked (the footer's in every app page's server HTML), the plain-language notices, the Trade
+ *    Finder's timing lines, the waiver view (step "Waivers"), the Settings page's scoring questions and automatic playoff
+ *    weight, and the Analyzer's link back not prefetched.
  * 4. Prints one line per check as it goes, the numbers (timings and counts), and a summary; writes the same, cleaned,
- *    to .cache/check-browser/results.json, and screenshots (when on) to .cache/check-browser/shots/.
+ *    to .cache/check-browser/results.json, and screenshots (when on) to .cache/check-browser/shots/. An "info" line says
+ *    where the league's own data differs from what a check expected of it (Parker's notices, with --team): it doesn't
+ *    fail the run.
  * 5. Always stops Chrome and the server, whatever happened (an error, Ctrl+C, an uncaught exception): each process is
  *    tracked from the moment it's spawned, so one still starting is stopped too, and the exit hook kills every tree
  *    that's left. A profile that can't be removed (a Chrome left running) is said, with what to do.
@@ -39,7 +45,8 @@
  * was withheld, without saying what. Screenshots are taken while the page's own text has the same names replaced (put
  * back right after). The server's output is never printed, except the last lines of a start that failed.
  *
- * Exit code: 0 every check passed (skips allowed), 1 a check failed, 2 the check couldn't run, 130 stopped (Ctrl+C).
+ * Exit code: 0 every check passed (skips and info lines allowed), 1 a check failed, 2 the check couldn't run, 130
+ * stopped (Ctrl+C).
  */
 import type { ChildProcess } from "node:child_process";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
@@ -225,6 +232,7 @@ async function run(args: CheckBrowserArgs): Promise<number> {
         check.leftovers = leftoverChecker(names, [leagueId]);
       },
       myTeam: null,
+      leagueReady: false,
       firstCard: null,
       stop: null,
       shots: [],

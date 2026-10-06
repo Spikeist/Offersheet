@@ -23,6 +23,11 @@
  * - console warnings, counted for the summary but not failures.
  * The in-page instrumentation (inPage.ts INSTRUMENT) is added to every new document.
  *
+ * Apart from the events, every request to the app is logged in the order it was sent (appRequests: its path and query,
+ * and whether it was Next's router prefetching), so a check can tell whether an address reached the server before a link
+ * to it was tapped (Phase 7b: the Trade Analyzer's "Back to the Trade Finder", whose address carries a team id). The log
+ * stays in this process: it's never printed whole or written to the results file.
+ *
  * Texts are kept whole (never cut: a name cut in two can't be cleaned; the entry point cleans, then cuts); a text over
  * TEXT_KEEP_MAX characters isn't kept at all.
  *
@@ -93,6 +98,28 @@ export interface Box {
   y: number;
   width: number;
   height: number;
+}
+
+/** A request to the app (PageSession.appRequests), in the order it was sent. */
+export interface AppRequest {
+  /** Its place in the order: PageSession.requestMark() before an action, appRequestsSince(mark) after it. */
+  seq: number;
+  step: string;
+  method: string;
+  /** Its path and query, without the origin. */
+  path: string;
+  where: "page" | "worker";
+  /** Sent by Next's router to prefetch a page (its Next-Router-Prefetch header). */
+  prefetch: boolean;
+}
+
+/** The request log keeps at most this many (the oldest go first; marks stay valid: they compare `seq`). */
+const APP_REQUESTS_MAX = 20_000;
+
+/** Whether a request's headers say Next's router is prefetching (pure; the header's name in any case). */
+export function isPrefetchRequest(headers: unknown): boolean {
+  if (!headers || typeof headers !== "object") return false;
+  return Object.entries(headers as Record<string, unknown>).some(([name, value]) => name.toLowerCase() === "next-router-prefetch" && String(value).trim() !== "" && String(value).trim() !== "0");
 }
 
 /** An evaluation that threw in the page. */
@@ -168,6 +195,9 @@ export class PageSession {
   /** The step now running; events are tagged with it. */
   step = "setup";
   readonly events: PageEvent[] = [];
+  /** Every request to the app, in order (the file header). */
+  readonly appRequests: AppRequest[] = [];
+  private requestSeq = 0;
   private readonly workers = new Set<string>();
   private readonly requests = new Map<string, { url: string; method: string }>();
 
@@ -256,10 +286,11 @@ export class PageSession {
         break;
       }
       case "Network.requestWillBeSent": {
-        const req = (p.request ?? {}) as { url?: unknown; method?: unknown };
+        const req = (p.request ?? {}) as { url?: unknown; method?: unknown; headers?: unknown };
         const url = str(req.url);
         const method = str(req.method) || "GET";
         this.requests.set(str(p.requestId), { url, method });
+        if (url === this.origin || url.startsWith(`${this.origin}/`)) this.logAppRequest(url, method, where, isPrefetchRequest(req.headers));
         // The browser's own read of a league (the header): expected, counted, and kept without its ids.
         if (url && isPlatformRead(url)) this.record("platform read", where, platformReadText(url, method));
         // Anything else to those hosts is data the server reads (review BF-R6): a problem, kept without ids too.
@@ -294,6 +325,22 @@ export class PageSession {
   /** The app's URL without its origin (whole: the entry point cuts it after cleaning). */
   private shortUrl(url: string): string {
     return url.startsWith(this.origin) ? url.slice(this.origin.length) : url;
+  }
+
+  private logAppRequest(url: string, method: string, where: "page" | "worker", prefetch: boolean): void {
+    this.requestSeq++;
+    this.appRequests.push({ seq: this.requestSeq, step: this.step, method, path: this.shortUrl(url) || "/", where, prefetch });
+    if (this.appRequests.length > APP_REQUESTS_MAX) this.appRequests.splice(0, this.appRequests.length - APP_REQUESTS_MAX);
+  }
+
+  /** Where the request log stands now: the requests sent after it are appRequestsSince(it). */
+  requestMark(): number {
+    return this.requestSeq;
+  }
+
+  /** The requests to the app sent since a requestMark(), in order. */
+  appRequestsSince(mark: number): AppRequest[] {
+    return this.appRequests.filter((r) => r.seq > mark);
   }
 
   /** Events of one step (all kinds). */

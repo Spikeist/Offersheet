@@ -2,7 +2,10 @@
  * What `npm run check:browser` found, and how it's printed.
  *
  * - CheckReport collects one line per check (ok, FAIL or skip, with up to a few details) and the numbers worth keeping
- *   (timings, counts) per step; failed() decides the exit code (1 when any check failed).
+ *   (timings, counts) per step; failed() decides the exit code (1 when any check failed). An "info" line (Phase 7b) says
+ *   where the league's own data differs from what a check expected of it (Parker's league showing a notice the planner
+ *   expected it not to, say): something to look at, never a failure. Contract breaks (codes or values shown, a link
+ *   wrong) stay FAIL lines.
  * - Cleaning (CLAUDE.md §0.5–0.6): nothing printed or written may carry a leaguemate's name or the league id. The
  *   imported league's team names become "Team <id>", owner names (each co-owner too) "Owner <id>" and the league's name
  *   "<league name>" (placeholderPairs), in one pass over the text (replaceNames):
@@ -23,7 +26,7 @@
  *   (withholdLeftovers): a name is never printed, even when cleaning missed it. The league id itself is cleaned by
  *   scripts/lib/redact.ts (an .env.local value), and in the page by an extra rule (nameRules' `extra`).
  */
-export type CheckStatus = "ok" | "FAIL" | "skip";
+export type CheckStatus = "ok" | "FAIL" | "skip" | "info";
 
 export interface CheckLine {
   step: string;
@@ -59,6 +62,11 @@ export class CheckReport {
     this.add(step, "skip", text);
   }
 
+  /** The league's data differs from what a check expected of it (the header): said, with its details, never a failure. */
+  info(step: string, text: string, details: readonly string[] = []): void {
+    this.add(step, "info", text, details);
+  }
+
   /** One check: ok with `okText`, else FAIL with `failText` and its details. */
   check(step: string, passed: boolean, okText: string, failText: string, details: readonly string[] = []): boolean {
     if (passed) this.ok(step, okText);
@@ -88,15 +96,20 @@ export function formatLine(line: CheckLine, shown = DETAILS_SHOWN): string[] {
   return out;
 }
 
-/** The closing lines: how many checks passed, failed and were skipped, and what the exit code means. */
+/** What the summary says when there are info lines. */
+export const INFO_NOTE = "Lines marked info say where this league's data differs from what the check expected of it; they don't fail the check.";
+
+/** The closing lines: how many checks passed, failed and were skipped (and the info lines, when any), and what the exit code means. */
 export function summaryLines(report: CheckReport): string[] {
   const ok = report.count("ok");
   const failed = report.count("FAIL");
   const skipped = report.count("skip");
-  const head = `${ok} passed, ${failed} failed, ${skipped} skipped.`;
-  if (!failed) return [head, "All checks passed."];
+  const info = report.count("info");
+  const head = `${ok} passed, ${failed} failed, ${skipped} skipped${info ? `, ${info} to look at` : ""}.`;
+  const note = info ? [INFO_NOTE] : [];
+  if (!failed) return [head, "All checks passed.", ...note];
   const steps = [...new Set(report.lines.filter((l) => l.status === "FAIL").map((l) => l.step))];
-  return [head, `Failed in: ${steps.join(", ")}.`];
+  return [head, `Failed in: ${steps.join(", ")}.`, ...note];
 }
 
 // ---------------------------------------------------------------------------------------------

@@ -26,7 +26,16 @@
  *   with placeholders before a screenshot, by report.ts's rules (NAME_REPLACER is report.ts replaceNames, for the page;
  *   a test runs both on the same texts), and keeps what it changed: RESTORE_CALL puts it back right after the capture,
  *   so later checks read the real page (measurements are taken before, on the real text).
+ * - Phase 7b (Checkpoint 7b's checks; contracts.ts decides what they find): PAGE_HELPERS' pageText (the words a user
+ *   can see or hear, or, with `all`, every word a tap could show) and rendered(); cleanCall(rules), a prelude that defines
+ *   clean(text) with the same rules, so every text a reader returns has the league's names replaced already (a team
+ *   named like a code or a number is never taken for one, and no name comes back to Node); and the readers (READ_*):
+ *   the Import Report's notices, the League page's player tables and breakdowns (each opened for the reading and closed
+ *   again), its "Things to know" banner, the Trade Finder's warnings, timing lines and cards, the links to FantasyCalc, the
+ *   header's links, the waiver view, and the Settings page's goal, playoff weight (a MutationObserver installed before
+ *   the page opens: WATCH_PLAYOFF_WEIGHT) and "Protect my trade value".
  */
+import { VALUES_CREDIT } from "./contracts";
 
 /** How the instrumentation's CSP reports start (page.ts consoleCallKind counts them as CSP violations). */
 export const CSP_MARK = "[check:csp]";
@@ -266,6 +275,62 @@ function showsName(el, stored) {
   return !!el && !!s && typeof s.name === "string" && s.name.trim().length > 0 && txt(el) === s.name.replace(/\s+/g, " ").trim();
 }
 const switcherButton = () => document.querySelector("[data-league-switcher] > button");
+// Whether an element is rendered, its text there to see or hear (cache: a Map, one per reading): not in a script, style,
+// template or noscript, not display none (the hidden attribute included), and not in a closed <details> outside its
+// summary.
+function rendered(el, cache) {
+  if (!el) return false;
+  if (cache.has(el)) return cache.get(el);
+  let ok;
+  if (/^(SCRIPT|STYLE|TEMPLATE|NOSCRIPT)$/.test(el.tagName)) ok = false;
+  else if (getComputedStyle(el).display === "none") ok = false;
+  else {
+    const p = el.parentElement;
+    if (!p) ok = true;
+    else if (p.tagName === "DETAILS" && !p.open && [...p.children].find((c) => c.tagName === "SUMMARY") !== el) ok = false;
+    else ok = rendered(p, cache);
+  }
+  cache.set(el, ok);
+  return ok;
+}
+// The text under root in document order, whole (Node cleans it, then cuts it). By default what a user can see or hear
+// (screen-reader-only text included: it's read out); opts.all: every word a tap could show too (a closed <details>, a row
+// not opened), never a script's or a style's; opts.stop: up to that element (its own text and what follows left out, its
+// and their title and aria-label texts too); opts.attributes: the title and aria-label texts too.
+function pageText(root, opts) {
+  const o = opts || {};
+  if (!root) return "";
+  const cache = new Map();
+  const parts = [];
+  const beyond = (n) => !!o.stop && (o.stop.contains(n) || !!(o.stop.compareDocumentPosition(n) & Node.DOCUMENT_POSITION_FOLLOWING));
+  const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  for (let n = w.nextNode(); n; n = w.nextNode()) {
+    if (beyond(n)) break;
+    const el = n.parentElement;
+    if (!el || /^(SCRIPT|STYLE|NOSCRIPT)$/.test(el.tagName)) continue;
+    if (!o.all && (!rendered(el, cache) || getComputedStyle(el).visibility !== "visible")) continue;
+    if (n.nodeValue && n.nodeValue.trim()) parts.push(n.nodeValue);
+  }
+  if (o.attributes) {
+    for (const el of root.querySelectorAll("[title], [aria-label]")) {
+      if (beyond(el)) continue;
+      for (const a of ["title", "aria-label"]) {
+        const v = el.getAttribute(a);
+        if (v && v.trim()) parts.push(v);
+      }
+    }
+  }
+  return parts.join(" ").replace(/\s+/g, " ").trim();
+}
+// A link to FantasyCalc's site (www. too, so a link that strays is still checked).
+const isFantasyCalc = (a) => /^https?:\/\/(?:www\.)?fantasycalc\.com(?:[\/?#]|$)/i.test((a.getAttribute("href") || "").trim());
+// An element's label as it reads on screen: without its decorations (aria-hidden: a summary's "▾") or screen-reader-only words.
+function labelText(el) {
+  if (!el) return "";
+  const c = el.cloneNode(true);
+  for (const x of c.querySelectorAll('[aria-hidden="true"], .sr-only')) x.remove();
+  return txt(c);
+}
 `;
 
 export const CARD_HELPERS = String.raw`
@@ -460,3 +525,291 @@ return undo.length;
 
 /** The in-page call that undoes the last sanitizeCall (0 when there is nothing to undo). */
 export const RESTORE_CALL = `return typeof window.__checkRestore === "function" ? window.__checkRestore() : 0;`;
+
+// ---------------------------------------------------------------------------------------------
+// Phase 7b: Checkpoint 7b's readers (steps.ts reads, contracts.ts decides)
+
+/**
+ * The prelude that defines clean(text) in the page: the league's names and id replaced by their placeholders, by
+ * report.ts's rules (NAME_REPLACER, as the screenshots replace them). Every reader below that returns page text needs it
+ * in front: the texts come back cleaned, and a team named like a code or a number is never taken for one.
+ */
+export function cleanCall(rules: PageNameRules): string {
+  return NAME_REPLACER + "\nconst __names = compileNames(" + JSON.stringify({ rules: rules.rules, keep: rules.keep }) + ");\nconst clean = (t) => replaceNamesIn(t || \"\", __names);\n";
+}
+
+/**
+ * The Import Report's notices (planner reply to Checkpoint 7a, §5.1; needs cleanCall): every word above "Technical details
+ * (for bug reports)" (what a user can see or hear, what a tap could show: §5.1 puts everything technical in that one
+ * collapsed section, so a code in another closed part, "All scoring rules" say, or in a hover text is a leak too), that
+ * section (closed? what follows it in the page?), the "Notices" tile, the "Things to know" card's items, and the scoring
+ * card's quiet line and "Not counted yet" box.
+ */
+export const READ_IMPORT_NOTICES = String.raw`
+const main = document.querySelector("main");
+const details = document.getElementById("technical-details");
+const tileItem = [...document.querySelectorAll("section[aria-labelledby=glance-title] li")].find((li) => { const p = li.querySelector("p"); return !!p && txt(p) === "Notices"; });
+const tileParas = tileItem ? [...tileItem.querySelectorAll("p")] : [];
+const card = document.getElementById("notices");
+const scoring = [...document.querySelectorAll("main section")].find((s) => { const h = s.querySelector("h2"); return !!h && txt(h) === "How players score"; }) || null;
+const scoringParas = scoring ? [...scoring.querySelectorAll("p")] : [];
+const notCounted = scoringParas.find((p) => txt(p) === "Not counted yet");
+const after = [];
+if (details && main) {
+  for (let n = details; n && n !== main; n = n.parentElement) {
+    for (let s = n.nextElementSibling; s; s = s.nextElementSibling) if (visible(s) && txt(s)) after.push(clean(desc(s)));
+  }
+}
+return {
+  before: clean(pageText(main, { stop: details, all: true, attributes: true })),
+  details: details ? { tag: details.tagName.toLowerCase(), open: details.open === true, summary: labelText(details.querySelector("summary")) } : null,
+  after: after,
+  tile: tileParas[1] ? txt(tileParas[1]) : null,
+  card: card ? [...card.querySelectorAll("li")].map((li) => clean(txt(li))) : null,
+  scoring: !!scoring,
+  quiet: scoringParas.map(txt).filter((t) => /\brare rules? (?:isn't|aren't) counted\b/.test(t)).map(clean),
+  notCounted: notCounted && notCounted.parentElement ? clean(txt(notCounted.parentElement)) : null,
+};
+`;
+
+/**
+ * Every trade card on the page (needs cleanCall): all its text (closed parts, a Plan B, its message, the Analyzer's
+ * "Details", screen-reader text, and its title and aria-label texts), and its FantasyCalc credit: the words before its
+ * "Values: FantasyCalc" link on that line, and the link (is it the line's last thing?). The words come back as they are
+ * when they're the credit itself (contracts.ts VALUES_CREDIT: no name in them), else cleaned: the cleaning replaces a name
+ * wherever it shows, inside a word too, so an owner named "Val" would turn the right sentence into a wrong one.
+ */
+export const READ_CARD_TEXTS =
+  String.raw`
+const CREDIT = ` +
+  JSON.stringify(VALUES_CREDIT) +
+  String.raw`;
+return [...document.querySelectorAll("main article")].map((a) => {
+  const link = [...a.querySelectorAll("a[href]")].find(isFantasyCalc) || null;
+  const line = link ? link.parentElement : null;
+  const last = line ? [...line.childNodes].filter((c) => c.nodeType === 1 || (c.nodeType === 3 && c.nodeValue.trim())).pop() : null;
+  const lead = line ? lineText(line, link).replace(/\s+/g, " ").trim() : "";
+  return {
+    text: clean(pageText(a, { all: true, attributes: true })),
+    credit: line ? { lead: lead === CREDIT ? lead : clean(lead), link: { href: link.getAttribute("href"), rel: link.getAttribute("rel"), referrerPolicy: link.getAttribute("referrerpolicy"), text: visibleText(link), last: last === link } } : null,
+  };
+});
+`;
+
+/** Every link to FantasyCalc in the page as it stands (after JavaScript): its rel and referrerpolicy, and whether a footer holds it. */
+export const READ_FANTASYCALC_LINKS = String.raw`
+return [...document.querySelectorAll("a[href]")].filter(isFantasyCalc).map((a) => ({ href: (a.getAttribute("href") || "").trim(), rel: a.getAttribute("rel"), referrerPolicy: a.getAttribute("referrerpolicy"), inFooter: !!a.closest("footer"), hiddenBy: null }));
+`;
+
+/**
+ * The League page's player tables (the rosters' and the best free agents', by their captions) and every player's
+ * breakdown (needs cleanCall): their column headings, cells reading "~" and a number (the old estimate marker), the ROS
+ * cells' hover texts, then each breakdown, opened for the reading (a click on its button) and closed again, and the whole
+ * page's words while they're open (a breakdown is built only while it's open: PlayerTable.tsx); and the header's values
+ * line (it says "unavailable right now" without FantasyCalc's values).
+ */
+export const READ_LEAGUE_VALUES = String.raw`
+const captionOf = (t) => txt(t.querySelector("caption"));
+const isRoster = (t) => /: players with rest-of-season points$/.test(captionOf(t));
+const tables = [...document.querySelectorAll("main table")].filter((t) => isRoster(t) || /^Best free agents at /.test(captionOf(t)));
+const headers = [...new Set(tables.flatMap((t) => [...t.querySelectorAll("thead th")].map(txt)))];
+const tilde = tables.flatMap((t) => [...t.querySelectorAll("tbody td")].map(txt).filter((v) => /~\s*\d/.test(v)));
+const titles = tables.flatMap((t) => [...t.querySelectorAll("tbody td[title]")].map((td) => td.getAttribute("title") || ""));
+const buttons = tables.flatMap((t) => [...t.querySelectorAll("tbody th[scope=row] button[aria-expanded][aria-controls]")]);
+const closed = buttons.filter((b) => b.getAttribute("aria-expanded") === "false");
+for (const b of closed) b.click();
+await sleep(500);
+const opened = closed.filter((b) => b.getAttribute("aria-expanded") === "true");
+const breakdowns = opened.map((b) => document.getElementById(b.getAttribute("aria-controls"))).filter(Boolean).map((row) => clean(pageText(row, { all: true })));
+const page = clean(pageText(document.querySelector("main"), { all: true, attributes: true }));
+for (const b of opened) b.click();
+await sleep(300);
+const valuesLine = [...document.querySelectorAll("main header p")].find((p) => [...p.querySelectorAll("a[href]")].some(isFantasyCalc)) || null;
+return {
+  tables: tables.length,
+  roster: tables.filter(isRoster).length,
+  headers: headers,
+  tilde: tilde.map(clean),
+  titles: titles.map(clean),
+  rows: buttons.length,
+  closed: closed.length,
+  opened: opened.length,
+  breakdowns: breakdowns,
+  page: page,
+  leftOpen: opened.filter((b) => b.getAttribute("aria-expanded") === "true").length,
+  valuesLine: valuesLine ? clean(txt(valuesLine)) : null,
+};
+`;
+
+/**
+ * The League page's "Things to know" banner (the notices: planner reply to Checkpoint 7a, §5.1) and every word on the
+ * page a tap could show, with its title and aria-label texts (needs cleanCall).
+ */
+export const READ_NOTICE_BANNERS = String.raw`
+const main = document.querySelector("main");
+const banners = [...main.querySelectorAll("p")].filter((p) => txt(p) === "Things to know").map((p) => p.parentElement).filter(Boolean);
+return {
+  banners: banners.map((b) => ({ items: [...b.querySelectorAll("li")].map((li) => clean(txt(li))), text: clean(pageText(b, { all: true })) })),
+  page: clean(pageText(main, { all: true, attributes: true })),
+};
+`;
+
+/**
+ * The Trade Finder's warning boxes (the warn-toned boxes in its results, outside the cards: each titled "Things to know")
+ * and every word on the page a tap could show, with its title and aria-label texts (needs cleanCall).
+ */
+export const READ_FINDER_NOTICES = String.raw`
+const main = document.querySelector("main");
+const results = document.querySelector("section[aria-labelledby=results-title]");
+const boxes = results ? [...results.querySelectorAll("div")].filter((d) => d.classList.contains("bg-warn-bg") && !d.closest("article")) : [];
+return {
+  results: !!results,
+  boxes: boxes.map((b) => { const first = b.firstElementChild; return { title: first && first.tagName === "P" ? txt(first) : null, text: clean(pageText(b, { all: true })) }; }),
+  page: clean(pageText(main, { all: true, attributes: true })),
+};
+`;
+
+/**
+ * The Trade Finder's header (planner reply to Checkpoint 7a, 5.3): where its intro, "Best time to look:" and freshness
+ * lines are among its paragraphs, and the two lines' words (no names: the intro, which names my team, isn't returned).
+ */
+export const READ_FINDER_TIMING = String.raw`
+const header = document.querySelector("main header");
+const paras = header ? [...header.querySelectorAll("p")] : [];
+const at = (test) => paras.findIndex((p) => test(txt(p)));
+const intro = at((t) => /^Trades (?:for|ranked)\b/.test(t));
+const best = at((t) => t.startsWith("Best time to look:"));
+const fresh = at((t) => /^(?:Trade values|Projections) updated\b/.test(t));
+return { header: !!header, intro: intro, best: best >= 0 ? txt(paras[best]) : null, bestAt: best, fresh: fresh >= 0 ? txt(paras[fresh]) : null, freshAt: fresh };
+`;
+
+/**
+ * What the Trade Finder's timing lines and the cards' credit depend on, from the tab's saved league (no name, no id): its
+ * weeks, trade deadline, review period, current and league week, and from its saved model inputs the last week, the
+ * NFL's kickoff times, whether trade values loaded, and the times the freshness line reads (FantasyCalc's list, and the
+ * sources' stamps: tradeView.ts freshnessText). Null when the tab has no saved import.
+ */
+export const READ_TRADING_LEAGUE = String.raw`
+const saved = await savedImport();
+const snap = saved && saved.response && saved.response.snapshot;
+if (!snap) return null;
+const row = (await storeRows("models")).find((r) => r.id === tabLeague());
+const stored = row && row.model;
+const inputs = stored && stored.model ? stored.model : null;
+return {
+  settings: {
+    regularSeasonWeeks: snap.settings.regularSeasonWeeks || [],
+    playoffWeeks: snap.settings.playoffWeeks || [],
+    tradeDeadline: snap.settings.tradeDeadline === undefined ? null : snap.settings.tradeDeadline,
+    tradeReviewHours: typeof snap.settings.tradeReviewHours === "number" ? snap.settings.tradeReviewHours : null,
+  },
+  currentWeek: snap.currentWeek,
+  leagueWeek: typeof snap.leagueWeek === "number" ? snap.leagueWeek : null,
+  lastWeek: inputs && typeof inputs.lastWeek === "number" ? inputs.lastWeek : null,
+  kickoffs: inputs && inputs.nfl && inputs.nfl.kickoffs ? inputs.nfl.kickoffs : null,
+  inputs: !!inputs,
+  hasMarket: !!(inputs && inputs.market),
+  marketFetchedAt: inputs && inputs.market && typeof inputs.market.fetchedAt === "string" ? inputs.market.fetchedAt : null,
+  sources: inputs && Array.isArray(inputs.sources) ? inputs.sources.filter((s) => s && typeof s.source === "string" && typeof s.fetchedAt === "string").map((s) => ({ source: s.source, fetchedAt: s.fetchedAt })) : [],
+};
+`;
+
+/** The header's links as shown (planner reply to Checkpoint 7a, §6.2: six, in two rows at 375 px), each with its box. */
+export const READ_NAV_LINKS = String.raw`
+return {
+  width: innerWidth,
+  links: [...document.querySelectorAll("nav[aria-label=Main] a")].filter(visible).map((a) => Object.assign({ href: a.getAttribute("href"), text: pageText(a) }, box(a))),
+};
+`;
+
+/**
+ * The League page's "Waiver upgrades" (planner reply to Checkpoint 7a, §6.2), no names: whether it's there (and, when it
+ * isn't, whether the page says the season is over: LeagueView.tsx's "The season is over", which leaves the section
+ * nothing to list), its heading, whether that heading has keyboard focus and is on screen, the address and the history's
+ * length; its toggle's buttons (label, pressed, size), its "Show all N" button, and how many rows its list shows.
+ */
+export const READ_WAIVERS = String.raw`
+const s = document.getElementById("waivers");
+const a = document.activeElement;
+const active = a && a !== document.body ? a.tagName.toLowerCase() + (a.id ? "#" + a.id : "") : "the page";
+if (!s) return { section: false, over: [...document.querySelectorAll("main p")].some((p) => txt(p) === "The season is over"), path: location.pathname, hash: location.hash, history: history.length, active: active };
+const h = s.querySelector("h2");
+const hb = h ? h.getBoundingClientRect() : null;
+const group = s.querySelector('[role=group][aria-label="Which weeks"]');
+const more = [...s.querySelectorAll("button[aria-expanded]")].find((b) => /^Show (?:all \d+|fewer)$/.test(txt(b))) || null;
+const list = s.querySelector("ul[aria-label]");
+const size = (el) => { const r = el.getBoundingClientRect(); return { height: Math.round(r.height * 10) / 10, width: Math.round(r.width) }; };
+return {
+  section: true,
+  path: location.pathname,
+  hash: location.hash,
+  history: history.length,
+  active: active,
+  heading: h ? txt(h) : null,
+  focused: !!h && a === h,
+  headingTop: hb ? Math.round(hb.top) : null,
+  headingBottom: hb ? Math.round(hb.bottom) : null,
+  viewport: innerHeight,
+  inView: !!hb && hb.height > 0 && hb.top >= -1 && hb.bottom <= innerHeight + 1,
+  toggle: group ? [...group.querySelectorAll("button")].map((b) => Object.assign({ label: txt(b), pressed: b.getAttribute("aria-pressed") }, size(b))) : null,
+  more: more ? Object.assign({ text: txt(more), expanded: more.getAttribute("aria-expanded") }, size(more)) : null,
+  rows: list ? list.querySelectorAll(":scope > li").length : 0,
+  list: !!list,
+};
+`;
+
+/** The waiver view's toggle button `i` (0: "Rest of season"), for a tap. */
+export function waiverToggle(i: number): string {
+  return String.raw`[...document.querySelectorAll('#waivers [role=group][aria-label="Which weeks"] button')][` + String(i) + "]";
+}
+
+/** The waiver view's "Show all N" (or "Show fewer") button, for a tap. */
+export const WAIVER_SHOW_ALL = String.raw`[...document.querySelectorAll("#waivers button[aria-expanded]")].find((b) => /^Show (?:all \d+|fewer)$/.test(txt(b)))`;
+
+/**
+ * Before the Settings page opens (a client-side navigation keeps the document): records every value its "Playoff weeks
+ * count:" line takes, with when (window.__pw), so a "Working it out…" too brief to poll is still seen (planner reply to
+ * Checkpoint 7a, §6.1).
+ */
+export const WATCH_PLAYOFF_WEIGHT = String.raw`
+window.__pw = [];
+const read = () => {
+  const label = [...document.querySelectorAll("main p > span")].find((s) => txt(s) === "Playoff weeks count:");
+  const value = label && label.nextElementSibling ? txt(label.nextElementSibling) : null;
+  const last = window.__pw[window.__pw.length - 1];
+  if (value !== null && (!last || last.v !== value)) window.__pw.push({ t: performance.now(), v: value });
+};
+if (window.__pwWatch) window.__pwWatch.disconnect();
+window.__pwWatch = new MutationObserver(read);
+window.__pwWatch.observe(document, { subtree: true, childList: true, characterData: true });
+read();
+return true;
+`;
+
+/** The playoff weight's values so far, once it shows a weight ("×"), else null (a waitFor expression). */
+export const PLAYOFF_WEIGHT_SHOWN = String.raw`(() => { const s = window.__pw || []; const last = s[s.length - 1]; return last && last.v.indexOf("×") >= 0 ? s : null; })()`;
+
+/** Stops recording the playoff weight, and returns what it recorded. */
+export const STOP_PLAYOFF_WEIGHT = String.raw`
+if (window.__pwWatch) window.__pwWatch.disconnect();
+window.__pwWatch = null;
+return window.__pw || [];
+`;
+
+/**
+ * The Settings page's scoring questions (planner reply to Checkpoint 7a, 5.2 and §2 question 5), no names: "What does your
+ * league reward?" (its choices' labels, its help), "Protect my trade value"'s help, and every group's legend (for a
+ * failure's details).
+ */
+export const READ_SETTINGS_SCORING = String.raw`
+const helpOf = (fs) => { const id = fs ? fs.getAttribute("aria-describedby") : null; const el = id ? document.getElementById(id) : null; return el ? txt(el) : null; };
+const goalLegend = byText("legend", "What does your league reward?");
+const goal = goalLegend ? goalLegend.closest("fieldset") : null;
+const protectLegend = byText("legend", "Protect my trade value");
+const protect = protectLegend ? protectLegend.closest("fieldset") : null;
+return {
+  goal: goal ? { labels: [...goal.querySelectorAll("label")].map((l) => { const s = l.querySelector("span.font-semibold"); return s ? txt(s) : txt(l); }), help: helpOf(goal) } : null,
+  protect: protect ? { help: helpOf(protect) } : null,
+  legends: [...document.querySelectorAll("main legend")].map(txt),
+};
+`;
