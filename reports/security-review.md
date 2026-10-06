@@ -2,7 +2,7 @@
 
 Written for the planner and Parker. It is the "one focused pass" the planner asked for in the reply to Checkpoint 4c (B4: session cookies, same-origin checks, headers, dependency audit), plus §4's go/no-go checks from the reply to Checkpoint 7a.
 
-**Method:** four reviewers each took one area: sessions and credentials, request handling, headers/client/URLs, and dependencies. They read the code paths end to end and tested what they claimed, with scratch tests and drivers kept in git-ignored `data-local/security/`. A fifth agent then reproduced or refuted each finding and fixed the confirmed ones, with tests. The review ran on 2026-10-05 against the code after wave 1 (commit 2fc38be) and before waves 2 and 3. Their changes didn't touch sessions, routes or headers.
+**Method:** four reviewers each took one area: sessions and credentials, request handling, headers/client/URLs, and dependencies. They read the code paths end to end and tested what they claimed, with scratch tests and drivers kept in git-ignored `data-local/security/`. A fifth agent then reproduced or refuted each finding and fixed the confirmed ones, with tests. The review ran on 2026-10-05 against the code after wave 1 (commit 2fc38be) and before waves 2 and 3. Apart from this review's own fixes, the later changes didn't touch sessions or headers; in the routes they added the load test's fixes (the build cap, the budgets' counting, shared cache reads: `reports/load-test.md`) and the snapshot archive's per-day retention.
 
 ## Checked and found right (69 checks; the main ones)
 - **ESPN cookie session:**
@@ -49,10 +49,10 @@ Written for the planner and Parker. It is the "one focused pass" the planner ask
 | 5 | Platform allowances | medium | Refusals happen inside the function, so they still count as Vercel invocations; floods of OPTIONS or 405 requests never reach our code | Deferred to launch: the Vercel WAF rule on `/api/*` (go/no-go list) |
 | 6 | Error log | low | Rate-limit refusals and 5xx answers could fill a day's 1,000 log entries, and a forged upload could log "ESPN is down" | Fixed: a log throttle (one rate-limit line per 10 minutes per instance; repeats once a minute); forged uploads answer BAD_UPLOAD |
 | 7 | Client bundles | low | Nothing tested that client code can't reach server modules, so "the DynastyProcess map stays server-side" rested on convention | Fixed: `src/server/clientBundle.test.ts` follows the import graph from every client entry |
-| 8 | Next | low | Next's image optimizer (`/_next/image`) was on, unused and unlimited | Fixed: `images.unoptimized` (`src/server/nextConfig.test.ts`) |
+| 8 | Next | low | Next's image optimizer (`/_next/image`) was on, unused and unlimited | Fixed in Next's config: `images.unoptimized` (`src/server/nextConfig.test.ts`). ⚠️ On the 7b preview, Vercel's own optimizer still answers `/_next/image` for our icons (2026-10-06: `?url=/apple-icon.png&w=32` gave a 348-byte PNG). Other widths and other sites' images are refused (400), so the endpoint is bounded to a few hundred variants of 5 local icons. Accepted; a WAF custom rule can deny `/_next/image` at launch if wanted |
 | 9 | Cookies | info | The cookie has no `__Host-` prefix | Accepted for `*.vercel.app`, which is on the public suffix list, so a sibling app can't set our cookies. Revisit with a custom domain |
 | 10 | Licensing | info | Each saved ESPN import keeps the ESPN-to-Sleeper id pairs for its players, and DynastyProcess is the first source of those links | The map itself stays server-side. ⚠️ A per-league slice of id links reaches the user's browser: worth the GPL-3.0 review the spec plans before any downloadable version |
-| 11 | Headers | info | No HSTS header of our own | Vercel's domains are HSTS-preloaded; checked on the preview at Checkpoint 7b |
+| 11 | Headers | info | No HSTS header of our own | ✅ Vercel adds it: the 7b preview answers `Strict-Transport-Security: max-age=63072000; includeSubDomains; preload` (2026-10-06) |
 | 12 | URLs | info | The Analyzer's "Back to the Trade Finder" link (`?partner=<team id>`) prefetched | Fixed: `prefetch={false}` |
 | 13 | URLs | info | Phase 5: Yahoo team keys contain the league id | For Phase 5: put a per-league index in `?partner=`, not Yahoo's key |
 | 14 | Dependencies | info | `braces` advisory (dev only) | Accepted: unreachable from the build |

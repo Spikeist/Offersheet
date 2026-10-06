@@ -20,9 +20,9 @@ Written for the planner (who can't open the app) and Parker. Below is the full t
   - **FantasyCalc's values never shown** (5.4): **on** since 2026-10-05. No trade card, reason, pitch, Analyzer Details, League page or How to read shows a FantasyCalc value or compares values by them (`src/lib/fantasyCalcHidden.test.ts` guards the words, the pages test the code that showed them), so both "never shown" sentences (below) appear.
   - **The public-data archive** (4.4, 6.3): **on**. The snapshot cron is in `vercel.json`, with its route.
   - **Feedback studied in totals only** (4.3): **on**. `npm run feedback:pull` is gone.
-- **FantasyCalc's 3 hours.** The page said "at most once every 3 hours". That isn't so while FantasyCalc is down: each server asks again within 15 minutes. And after a list that fails our checks, the next League page asks again. It now says what the cache guarantees: "Once it has a format's list, it doesn't ask FantasyCalc for it again for 3 hours, and asks only when needed."
+- **FantasyCalc's 3 hours.** The page said "at most once every 3 hours". That isn't so while FantasyCalc is down: each server asks again within 15 minutes. And after a list that fails our checks, another server instance can ask again at once (the one that saw it holds off for 3 hours, in its own memory). It now says what the cache guarantees: "Once it has a format's list, it doesn't ask FantasyCalc for it again for 3 hours, and asks only when needed."
 - **What the server holds in memory.** "It never keeps the league data your browser sends it" was false. When the League page sends a saved league, the server keeps the numbers it works out from it (ESPN's own projections included) in its memory until 15 minutes after the league was read. Now: "It never adds the league data your browser sends it to those copies." and "Our server doesn't save them, but holds the numbers it works out from them in memory for up to 15 minutes." The page again says when memory copies go: "Anything our servers hold in memory stops being used once it's due, is deleted soon after while the server keeps working, and is gone when it shuts down."
-- **ESPN cookies.** The section's three bullets are pinned by tests, with the 12 hours read from the session's own setting. The caveat for a browser that restores its session is back ("even if your browser restores its session, it stops working after 12 hours"), and the repeat of the short version's "sends them only to ESPN" is gone.
+- **ESPN cookies.** The section's four bullets are pinned by tests, with the 12 hours read from the session's own setting. The caveat for a browser that restores its session is back ("even if your browser restores its session, it stops working after 12 hours"), and the repeat of the short version's "sends them only to ESPN" is gone.
 - **Email.** The pages publish a Gmail address, so "Who handles the data" says: "Google keeps the emails you send us (your address and message) in Offer Sheet's Gmail inbox, used only to answer you. Ask, and we'll delete them."
 - **The archive's words.** It now says "We also keep public data", not "public data we fetch anyway": when no League page has fetched a week's projections or a day's list, the cron fetches it itself.
 
@@ -47,14 +47,14 @@ Written for the planner (who can't open the app) and Parker. Below is the full t
 ## Checks before launch (Checkpoint 7b's go/no-go list)
 
 - **FantasyCalc's condition (5.4): done.** No value number or comparison is left in the app, and the "never shown" sentences are on (`POLICY_FEATURES.fantasyCalcHidden`, since 2026-10-05; both "Last updated" dates moved that day).
-- **Upstash** is in US East (us-east-1) with backups off: Parker checks backups in Upstash's console.
+- **Upstash** is in US East (us-east-1) with backups off: done (Parker checked backups in Upstash's console on 2026-10-05; `reports/beta-infrastructure.md`).
 - **The iPhone sentence** is checked on a real iPhone if Parker has one; until then it says "may".
 - **"Last updated"** (`PRIVACY_LAST_UPDATED`, `TERMS_LAST_UPDATED`, now October 5, 2026) is set to launch day.
 - **"Up to 12 months": done.** Each day's feedback list now goes 365 days after that day began (`src/server/feedbackSink.ts` feedbackDayTtlMs), so no copy is kept longer than 12 months.
 - **"Up to 2 seasons" for the archive: done** (review of Phase 7b, above). Its local copies follow it only while `npm run snapshot:pull` runs now and then: each run deletes the lists of days past the store's rule.
 - **Old raw feedback downloads** (`data-local/feedback-server/`, from `feedback:pull`): there were none on this PC on 2026-10-05. `npm run feedback:report` says so if any turn up, and they should be deleted.
 - **Vercel's own cookies:** the cookie line covers Offer Sheet's own code. Vercel sets cookies of its own on protected previews (`_vercel_jwt`), and when a firewall rule challenges a visitor (`_vcrcs`). The 7b firewall rule should deny or rate-limit rather than challenge, or the line needs a qualifier.
-- **CLAUDE.md** still says the pages read "Contact: to be added before launch" (§14) and describes `feedback:pull` (§11, §16).
+- **CLAUDE.md: done.** §14 gives the pages' contact line ("Contact: offersheet.app@gmail.com"), and §11 and §16 describe `feedback:report`, which replaced `feedback:pull`.
 
 ## Where each statement comes from
 

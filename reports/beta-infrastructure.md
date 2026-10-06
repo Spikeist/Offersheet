@@ -20,8 +20,9 @@ checked Upstash's console on 2026-10-05).
 - **Keys and values:** `os:<env>:c:` + an HMAC of the cache key (no league id, username or cookie fingerprint reaches
   Upstash); values gzipped, AES-256-GCM encrypted, bound to their key and deleted at their CLAUDE.md §2.10 retention.
 - **FantasyCalc every 3 hours (7b; planner reply to Checkpoint 7a, §5.4):** a list is fresh for 3 hours (a day at 7a),
-  so each format is asked for at most once every 3 hours, and only when a League page build needs it (⚠️ in an outage
-  each instance asks again within 15 minutes). Lists are kept 90 days as the outage fallback.
+  so each format is asked for at most once every 3 hours, and only when a League page build or the snapshot cron (a
+  format in use without today's copy) needs it (⚠️ in an outage each instance asks again within 15 minutes). Lists are
+  kept 90 days as the outage fallback.
 - **Tiers:** a 64 MB memory tier per instance in front of Upstash; each command waits at most 1 s, and a failure pauses
   Upstash for 60 s on that instance. Public data has a 20 s cross-instance lock. 7b: concurrent reads of one entry on an
   instance share one Upstash GET (50 cold League page builds on one instance: 69 cache commands, 1,173 before).
@@ -39,7 +40,7 @@ checked Upstash's console on 2026-10-05).
 | League page builds (7b) | 8 at once per instance, first come first served; a waiting build gives up with under 30 s of its 90 s left | BUSY "Offer Sheet is busy right now. Try again in a minute." (Retry-After 60) |
 | Deadlines | import 45 s, model 90 s, session, feedback and health 10 s, cron 110 s (maxDuration 60/120/15/15/15/120) | SOURCE_SLOW naming the slow source |
 | Uploads | league 2 MB packed / 6 MB unpacked; signed import 1 MB / 4 MB; model work ≤ 60,000 | BAD_UPLOAD → the browser asks the server instead |
-| Feedback store | 100 copies a day stored; 30 per visitor and 60 per address block a day; ≤ 2,048 B a copy | 429 (copies are fire-and-forget: the user sees nothing) |
+| Feedback store | 100 copies a day stored; 30 per visitor and 60 per address block a day; ≤ 2,048 B a copy | 429 past a visitor's or block's day; past 100 a day the oldest go; a bigger copy 400 (copies are fire-and-forget: the user sees nothing) |
 | Error log | the newest 1,000 lines a day, 14 days. 7b: one "rate_limited" line per 10 min per instance, and one a minute of each repeating failure | The rest dropped (the usage counters still count every refusal) |
 
 - **The capacity message (7b; planner reply to Checkpoint 7a, §2 question 7):** the server's day or slice of work, or a
@@ -109,7 +110,7 @@ checked Upstash's console on 2026-10-05).
   which their conditions forbid displaying or reproducing, and Sleeper's and the GPL DynastyProcess map's data to anyone;
   (2) be unreachable on protected previews without a managed bypass secret; (3) be a 0.5–1 MB public response anyone can
   request repeatedly, paid in Fast Data Transfer and edge requests (running out pauses a Hobby project). Cold reads already
-  fell from about 3.9 to about 2.1 MB (no `/players`; builds no longer read the crosswalk) and from 1,173 to 46 cache
+  fell from about 3.9 to about 2.1 MB (no `/players`; builds no longer read the crosswalk) and from 1,173 to 69 cache
   commands in a cold burst (shared reads). If Upstash bandwidth binds, the cheaper next step is caching a compact built
   crosswalk instead of the 1.1 MB of raw lists an import reads cold.
 

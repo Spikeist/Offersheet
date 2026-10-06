@@ -76,6 +76,6 @@ All swings are for one simulation seed unless a range is given. Discrete pickup 
 
 ## Rerun
 - The drivers are in data-local/stability/ (git-ignored), their outputs in data-local/stability/out/, and the new dump in data-local/stability/dump-oct5/. That folder isn't a parker-league* folder, so no report picks it up.
-- The drivers import ../../src, so run them from a checkpoint-7a worktree (node_modules as a junction) with the .ts files copied into its data-local/stability/. They work offline and read the dumps from this folder by absolute path.
+- The drivers import ../../src, so run them from a checkpoint-7a worktree (node_modules as a junction) with the .ts files copied into its data-local/stability/. They work offline and read the dumps, and the archive's Sleeper pull, from this folder by absolute path. ⚠️ A later pre-kickoff pull (Oct 5 21:00Z) has since replaced week 5 in data-local/projection-snapshots/, so the pairs built on the Oct 4 13:33Z pull no longer reproduce exactly (weeks 6–17 are still that pull).
 - Run `npx tsx data-local/stability/measure.ts` with the pairs listed in out/measure.txt, then sequence.ts, smoothPair.ts, attribution.ts, movers.ts (given dump-oct5's absolute path), blendCheck.ts, pickups.ts, kickers.ts and checkArchive.ts.
 - Never rerun fetchToday.ts: it makes the live dump, and it refuses while dump-oct5 exists.

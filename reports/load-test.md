@@ -1,6 +1,6 @@
 # Offline load test (B4): 50 requests at once against mocks
 
-Planner reply to Checkpoint 4c, B4: "50 imports at the same time against mocks" (the small live test is separate and still to do).
+Planner reply to Checkpoint 4c, B4: "50 imports at the same time against mocks", plus a small live test (the last section).
 Run on 2026-10-05 on the working copy of the time (commit 2fc38be plus uncommitted Phase 7b work): `npx tsx scripts/load-test.ts`, now `npm run load:test` (i9-10850K, Node 22.18; 4.4 minutes; options in the script's header). Its own tests: `scripts/load-test.test.ts`. A second agent verified this report; its corrections are applied below. The first version cited line numbers in that working copy; the fixes since (Fixed after the test, at the end) moved the code, so functions are named instead. A review of those fixes found four more problems, fixed since (Review of the fixes); the last table is the rerun after them.
 
 ## Method
@@ -146,3 +146,11 @@ Still open:
 - Scenario 6's answers carry NO_SLEEPER_ID ×50 since the first fixes' rerun; not looked into.
 - The outbound budget still remembers a day refusal that an attempt's in-flight count caused. Each attempt counts one, so that edge is a few attempts of a day of thousands (`budget.ts`'s header).
 - Refunds are sent once their count is known, after the attempt gave up; one an instance never sends (it stopped first) leaves its count.
+
+## The small live test (2026-10-06, the protected preview)
+Run by the lead on the Checkpoint 7b preview (commit 364d7ef), within the politeness limits. The public ESPN test league 899513 was sent through the server path (`vercel curl`, the owner's bypass), with each burst's requests started together:
+- **5 imports** (`POST /api/import/espn`): 5 × 200 in 10.0–10.5 s, all 10 teams.
+- **5 League page builds** (`POST /api/model/espn`): 5 × 200 in 6.55–6.76 s, 231 KB each.
+- **`/api/health`** before the bursts: the shared store, and its check reused within 5 minutes (the second call answered from the first).
+- ⚠️ Not measured: ESPN requests per burst (Vercel's logs weren't read). Single-flight shares one read per instance.
+The production build's own run on Parker's league (`npm run check:browser -- --live --team 3`, 2026-10-06) gave 126 passed, 0 failed, 3 skipped. The browser read the league in 5.7 s (23 platform reads), the League page took 4.1 s, and a full search 5.5 s.
