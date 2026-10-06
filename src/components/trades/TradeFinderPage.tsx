@@ -11,7 +11,7 @@
  * the app route wraps the page in <Suspense> (src/app/trades/page.tsx). A partner picked
  * here is written back into the address (history.replaceState, which Next keeps in step with useSearchParams) and
  * holds until the address names another one (a link here, the nav's Trades). A change of partner, of a setting
- * (saved here or in another tab; "What matters most" among them, since it changes B), of the league data or of "my
+ * (saved here or in another tab; what the league rewards among them, since it changes B), of the league data or of "my
  * team" starts a new search, and the one under way stops; so does leaving the page. The sort (Overall by default, Helps
  * you, Chance they accept: §13) only reorders the ideas found (rank.ts sortTrades, through src/lib/tradeView.ts).
  *
@@ -27,7 +27,13 @@
  * track UIC, finding 5).
  *
  * What the cards and "How to read" say about values follows the league's data (tradeView.ts valueFactsOf, from the
- * model inputs: FantasyCalc's values, long-term values, the market blend; review of track UIC, findings 2 and 3).
+ * model inputs: FantasyCalc's values, long-term values, the market blend; review of track UIC, findings 2 and 3), and "How
+ * to read" words Helps you's scale on the search's own (TradeSearchResult.helpsScale: the mix in a dynasty or keeper league
+ * with long-term values, planner reply to Checkpoint 7a, §2 question 6). Under the intro, in season, when to look and how
+ * fresh the data is (planner reply to Checkpoint 7a, 5.3: tradeView.ts finderTimingLines, from the league data and model
+ * inputs) at the current time: the page's clock (useMinuteClock: when it opened, moved on every minute and when its tab
+ * shows again), never the time of the ideas shown (review of Phase 7b: remembered ideas carry their search's time, so
+ * values 5 hours old read "updated 30 minutes ago").
  *
  * States: loading the league, loading projections (or failed, with Try again), no team picked (a link to the Import
  * Report), searching or re-filtering (a progress bar with the stage in plain words, and Stop), stopped (Search again),
@@ -44,8 +50,8 @@
  * removal here or in another tab) and dropped (finderMemory.ts useLeagueQuery; review of track ML). A feedback press
  * shows on its card at once (the league store applies it), and the card says what it did once the browser has kept it,
  * or in an alert on the card when it refused (FeedbackControls awaits useFeedback.ts saveFeedbackPress; Phase 4c, the
- * crossTrack of track ML: it replaced the page-wide alert). Each press saves the sent version's model inputs, with "What
- * matters most" as the search weighted B (Done.goal), and (Phase 7a, track FB), while "Share anonymous feedback" is on,
+ * crossTrack of track ML: it replaced the page-wide alert). Each press saves the sent version's model inputs, with what
+ * the league rewards as the search weighted B (Done.goal), and (Phase 7a, track FB), while "Share anonymous feedback" is on,
  * sends an anonymous copy (src/lib/feedbackShare.ts; the card's one-time note says so the first time).
  *
  * Coming back (review of Phase 4; finderMemory.ts): the trade pages share one engine client, whose worker keeps its
@@ -85,6 +91,7 @@ import {
   cardFeedback,
   fantasyCalcLookup,
   finderHref,
+  finderTimingLines,
   isTradeSort,
   minChanceNote,
   partnerOrNull,
@@ -93,6 +100,7 @@ import {
   settingsSummary,
   teamNameOf,
   valueFactsOf,
+  type FinderTimingView,
   type FinderView,
   type ProgressView,
   type SnapshotPart,
@@ -135,7 +143,11 @@ export function TradeFinderPage() {
   return <LoadedFinder key={read.league.id} read={read} query={query} />;
 }
 
-/** Every setting but the minimum chance: changing the minimum alone re-filters the ideas found instead of searching (the header). */
+/**
+ * Every setting but the minimum chance: changing the minimum alone re-filters the ideas found instead of searching (the
+ * header). (Since the planner's reply to Checkpoint 7a, §6.1, there's no playoff-weight setting: the League model sets the
+ * weight from the goal, which is one of these.)
+ */
 const SEARCH_SETTINGS = (Object.keys(defaultTradeSettings()) as (keyof TradeSettings)[]).filter((k) => k !== "minChance");
 
 /**
@@ -223,6 +235,31 @@ export function finderStatus(state: FinderState): string {
     default:
       return "";
   }
+}
+
+/** How often the page's clock moves (useMinuteClock): "updated … ago" counts whole minutes. */
+const CLOCK_STEP_MS = 60_000;
+
+/**
+ * The page's clock for its timing lines (the header; tradeView.ts finderTimingLines): the time the page opened, moved on
+ * every minute it stays open and at once when its tab shows again (a hidden tab's timers can wait), so "updated … ago"
+ * reads how old the data is now. Only the timing lines read it: the cards are memoized and don't render again.
+ */
+export function useMinuteClock(): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const tick = () => setNow(Date.now());
+    const timer = setInterval(tick, CLOCK_STEP_MS);
+    const onShow = () => {
+      if (document.visibilityState === "visible") tick();
+    };
+    document.addEventListener("visibilitychange", onShow);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", onShow);
+    };
+  }, []);
+  return now;
 }
 
 /** `query`: the address's query while it's this league's (useLeagueQuery, in TradeFinderPage: never window.location, which lags a client navigation). */
@@ -438,9 +475,13 @@ function LoadedFinder({ read, query }: { read: Extract<CurrentLeagueRead, { kind
 
   // The ideas shown: this search's, or (while it runs) the last ones found for the same partner, dimmed.
   const shownOutcome = doneResult ?? (lastDone && lastDone.partnerId === partnerId ? lastDone : null);
+  // When to look and how fresh the data is (tradeView.ts finderTimingLines), at the page's clock (the header): never the
+  // time of the ideas shown, which a remembered search keeps from when it ran.
+  const clock = useMinuteClock();
+  const timing = useMemo(() => (pair ? finderTimingLines({ snapshot: pair.snapshot, inputs: pair.inputs, now: new Date(clock) }) : null), [pair, clock]);
   // The NFL's last week, for injury tags' "Out for the season" (tradeView.ts seasonEndOf).
   const lastNflWeek = pair?.inputs.nfl?.lastWeek;
-  // FantasyCalc's own values, the cards' one value number (tradeView.ts fantasyCalcLookup).
+  // FantasyCalc's values as the page holds them, never shown (tradeView.ts fantasyCalcLookup).
   const market = pair?.inputs.market;
   const fantasyCalc = useMemo(() => fantasyCalcLookup(market), [market]);
   // What the league's data lets the cards and "How to read" say about values and the market blend (tradeView.ts
@@ -515,6 +556,7 @@ function LoadedFinder({ read, query }: { read: Extract<CurrentLeagueRead, { kind
       teamName={league && myTeamId ? teamNameOf(league, myTeamId) : null}
       leagueType={leagueType}
       facts={facts}
+      timing={timing}
       controls={controls}
       statusRef={statusRef}
       resultsRef={resultsRef}
@@ -665,6 +707,8 @@ interface FrameProps {
    * null: the usual words. Long-term values also count as missing when a card shown says so (TradeEvaluation.dynMissing).
    */
   facts?: ValueFacts | null | undefined;
+  /** When to look and how fresh the data is, under the intro (tradeView.ts finderTimingLines); absent or null: not shown. */
+  timing?: FinderTimingView | null | undefined;
   controls: ReactNode;
   statusRef?: Ref<HTMLParagraphElement> | undefined;
   resultsRef?: Ref<HTMLHeadingElement> | undefined;
@@ -685,7 +729,7 @@ interface FrameProps {
  * keeps the element and each new text is announced. It shows with a spinner while the page waits, and is read to
  * screen readers only otherwise.
  */
-export function FinderFrame({ state, teamName, leagueType = "redraft", facts, controls, statusRef, resultsRef, againRef, stopRef, records, leagueKey, snapshot, onFeedback, onOpenAnalyzer }: FrameProps) {
+export function FinderFrame({ state, teamName, leagueType = "redraft", facts, timing, controls, statusRef, resultsRef, againRef, stopRef, records, leagueKey, snapshot, onFeedback, onOpenAnalyzer }: FrameProps) {
   const text = finderStatus(state);
   const waiting = state.kind === "fetching" || state.kind === "settings";
   // The ideas on screen (dimmed ones included): a card whose long-term values are missing says Helps you counts this season only.
@@ -706,6 +750,8 @@ export function FinderFrame({ state, teamName, leagueType = "redraft", facts, co
             "Trades ranked by how much they help you and how likely the other manager is to say yes. The search runs in your browser."
           )}
         </p>
+        {timing?.bestTime ? <p className="mt-2 max-w-2xl text-sm text-muted">{timing.bestTime}</p> : null}
+        {timing?.freshness ? <p className="mt-1 text-xs text-muted">{timing.freshness}</p> : null}
         <p className="mt-2 text-sm">
           <Link href={ANALYZER_PATH} className={cx(linkClass, "inline-flex min-h-11 items-center")}>
             Build your own trade in the Trade Analyzer
@@ -734,12 +780,12 @@ export function FinderFrame({ state, teamName, leagueType = "redraft", facts, co
         onFeedback={onFeedback}
         onOpenAnalyzer={onOpenAnalyzer}
       />
-      <HowToRead leagueType={leagueType} valuesOn={facts?.valuesOn ?? true} longTermOn={longTermOn} blendOn={facts?.blendOn ?? true} />
+      <HowToRead leagueType={leagueType} valuesOn={facts?.valuesOn ?? true} longTermOn={longTermOn} blendOn={facts?.blendOn ?? true} helpsScale={shown?.helpsScale ?? null} />
     </div>
   );
 }
 
-function FinderBody({ state, resultsRef, againRef, stopRef, records, leagueKey, snapshot, onFeedback, onOpenAnalyzer }: Omit<FrameProps, "teamName" | "leagueType" | "facts" | "controls" | "statusRef">) {
+function FinderBody({ state, resultsRef, againRef, stopRef, records, leagueKey, snapshot, onFeedback, onOpenAnalyzer }: Omit<FrameProps, "teamName" | "leagueType" | "facts" | "timing" | "controls" | "statusRef">) {
   const previous =
     (state.kind === "searching" || state.kind === "stopped" || state.kind === "error") && state.previous ? (
       <div className="opacity-60 transition-opacity">
@@ -854,7 +900,7 @@ const Results = memo(function Results({
         {view.countText ? <p className="mt-1 text-sm text-muted">{view.countText}</p> : null}
       </div>
       {view.warnings.length ? (
-        <Callout tone="warn" title="Some data is missing">
+        <Callout tone="warn" title="Things to know">
           <ul className="list-disc space-y-0.5 pl-5">
             {view.warnings.map((w) => (
               <li key={w}>{w}</li>

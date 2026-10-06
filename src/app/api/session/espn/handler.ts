@@ -9,9 +9,9 @@
  */
 import type { EspnSessionStatus } from "@/lib/api";
 import { checkEspnCredentials } from "@/lib/espnCredentials";
-import { forgetEspnCredentials, readEspnCredentials, saveEspnCredentials, sessionAvailable, type EnvLike } from "@/server/session";
+import { forgetEspnCredentials, readEspnCredentials, saveEspnCredentials, SessionTooLargeError, sessionAvailable, type EnvLike } from "@/server/session";
 import { errorResponse, isSameOrigin, jsonResponse, logUnexpected, readJsonBody } from "../../_lib/respond";
-import { espnSessionBodySchema } from "../../_lib/schemas";
+import { ESPN_S2_TOO_LONG, espnSessionBodySchema } from "../../_lib/schemas";
 
 export interface EspnSessionHandlers {
   GET: (request: Request) => Promise<Response>;
@@ -41,6 +41,8 @@ export function createEspnSessionHandlers(opts: { env?: () => EnvLike } = {}): E
       try {
         await saveEspnCredentials(request, headers, check.value, env());
       } catch (err) {
+        // Too long to keep (B4 security review): the user's input, answered like the checks above, and not logged.
+        if (err instanceof SessionTooLargeError) return errorResponse("INVALID_REQUEST", ESPN_S2_TOO_LONG);
         logUnexpected("session_save", err, "espn");
         return errorResponse("INTERNAL");
       }

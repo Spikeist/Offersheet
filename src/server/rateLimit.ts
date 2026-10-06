@@ -13,6 +13,10 @@
  *   per client and route kind, in fixed windows aligned to the clock (the window an attempt falls in is
  *   floor(now / window)); an IPv6 request also counts against its /48 at rateLimits.groupFactor times the limit (the
  *   "group" tier; review SEC-2). Over: 429 with Retry-After (the seconds left in the window) and RATE_LIMITED.
+ * - Which kinds are shared (B4 security review; limits.rateLimits.sharedKinds): only the imports and League page builds
+ *   count in Redis; every other kind (health, session, cron, feedback) counts in each instance's own windows, always, so
+ *   requests that ask nothing of a platform cost no Upstash commands (an address at those routes' limits all day could
+ *   otherwise spend the free plan's commands for everyone).
  * - With Redis (on Vercel only: off Vercel nothing here contacts Upstash, even with its variables in .env.local):
  *   @upstash/ratelimit's fixed window (one EVALSHA running INCRBY, plus PEXPIRE on a window's first request: 2–3 Upstash
  *   commands a check), one limiter per route kind and tier created once per process (module scope), its ephemeral cache on
@@ -27,7 +31,8 @@
  * - Memory: a client whose window has ended is dropped from this process (its own windows, and the record of clients the
  *   shared limiter refused) within limits.rateLimits.sweepEveryMs, whenever a request comes, so no client's hash is kept
  *   past its window, at most an hour.
- * A refusal is logged once per client and window in each process (the first; later ones are counted nowhere).
+ * A refusal is marked once per client and window in each process (the first; later ones are counted nowhere), and the log
+ * keeps at most one such line every limits.logLimits.refusalEveryMs per instance (src/server/log.ts logThrottled).
  */
 import { createHmac, randomBytes } from "node:crypto";
 import { Ratelimit } from "@upstash/ratelimit";
@@ -249,7 +254,9 @@ export interface SharedLimiterOptions {
   /** Key prefix (keyPrefix()); "rl:<kind>" follows. */
   prefix: string;
   limits?: KindLimits;
-  /** Where checks go while Redis is down or slow (default: this process's own windows). */
+  /** The kinds counted in Redis (default limits.rateLimits.sharedKinds); every other kind goes to `fallback` (see the header). */
+  sharedKinds?: readonly RouteKind[];
+  /** Where checks go while Redis is down or slow, and those of the kinds not shared (default: this process's own windows). */
   fallback?: RateLimiter;
   timeoutMs?: number;
   redisRetryAfterMs?: number;
@@ -260,6 +267,7 @@ export interface SharedLimiterOptions {
 export function createSharedLimiter(redis: RatelimitRedis, opts: SharedLimiterOptions): RateLimiter & { refusedInMemory(): number } {
   const limits = opts.limits ?? rateLimits;
   const fallback = opts.fallback ?? createMemoryLimiter({ limits });
+  const sharedKinds: ReadonlySet<RouteKind> = new Set(opts.sharedKinds ?? rateLimits.sharedKinds);
   const timeoutMs = opts.timeoutMs ?? rateLimits.timeoutMs;
   const retryAfterMs = opts.redisRetryAfterMs ?? rateLimits.redisRetryAfterMs;
   /** One limiter per kind and tier ("import", "import:g" …). */
@@ -305,6 +313,8 @@ export function createSharedLimiter(redis: RatelimitRedis, opts: SharedLimiterOp
     /** Refused clients this process remembers (tests). */
     refusedInMemory: () => [...refused.values()].reduce((n, m) => n + m.size, 0),
     async check(kind, client, now = Date.now(), tier = "client") {
+      // A kind that asks nothing of a platform: this instance's own windows, no Upstash command (see the header).
+      if (!sharedKinds.has(kind)) return fallback.check(kind, client, now, tier);
       sweep(now);
       if (now < redisDownUntil) return fallback.check(kind, client, now, tier);
       try {

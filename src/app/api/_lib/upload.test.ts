@@ -9,7 +9,7 @@ import { ESPN_READS_BASE } from "@/adapters/espn/leagueData";
 import { swidPseudonym } from "@/adapters/espn/swid";
 import { SLEEPER_API } from "@/adapters/sleeper/leagueData";
 import type { LeagueUpload } from "@/adapters/upload";
-import { browserFetchLimits, signedUploadLimits, uploadLimits, uploadShapeLimits } from "@/server/limits";
+import { browserFetchLimits, signedUploadLimits, uploadLimits, uploadShapeLimits, workLimits } from "@/server/limits";
 import { gzipRequest, jsonRequest } from "./testFakes";
 import { isGzipRequest, readGzipText, readLeagueUpload, readSignedModelUpload, uploadPartsProblem } from "./upload";
 
@@ -43,6 +43,32 @@ describe("readGzipText", () => {
     expect((await readGzipText(notGzip)).ok).toBe(false);
     const latin1 = new Request(URL, { method: "POST", headers: { "content-type": "application/gzip" }, body: gzipSync(Buffer.from([0x7b, 0xff, 0x7d])) });
     expect(await readGzipText(latin1)).toEqual({ ok: false, why: "not UTF-8" });
+  });
+
+  it("charges a body's unpacked size past what its compressed size paid on arrival, before anything reads it; refused, it names the limit (B4 security review)", async () => {
+    expect(workLimits.unpackedUnitBytes).toBe(500_000);
+    const sized = (text: string) => {
+      const packed = gzipSync(Buffer.from(text), { level: 9 });
+      return () => new Request(URL, { method: "POST", headers: { "content-type": "application/gzip", "content-length": String(packed.length) }, body: packed });
+    };
+    // 3.9 MB of one letter (under both kinds' caps): about 4 KB gzipped (1 unit on arrival), 8 units unpacked.
+    const flat = sized(JSON.stringify({ junk: "x".repeat(3_900_000) }));
+    const charges: number[] = [];
+    const read = await readGzipText(flat(), uploadLimits, { charge: (units) => (charges.push(units), "ok") });
+    expect(read.ok).toBe(true);
+    expect(charges).toEqual([8 - 1]);
+    // Refused: no text comes back, only the limit (the routes answer BUSY, not BAD_UPLOAD).
+    expect(await readGzipText(flat(), uploadLimits, { charge: () => "client" })).toEqual({ ok: false, why: "past the day's work", refused: "client" });
+    expect(await readLeagueUpload(flat(), "espn", { charge: async () => "day" as const })).toEqual({ ok: false, why: "past the day's work", refused: "day" });
+    expect(await readSignedModelUpload(flat(), "espn", { charge: () => "group" })).toEqual({ ok: false, why: "past the day's work", refused: "group" });
+    // A body that compresses as real uploads do owes nothing more, and a body without Content-Length paid for its cap.
+    const never = (): "ok" => {
+      throw new Error("not charged");
+    };
+    expect((await readLeagueUpload(sized(JSON.stringify(espnUpload()))(), "espn", { charge: never })).ok).toBe(true);
+    expect((await readGzipText(gzipRequest(URL, { junk: "x".repeat(5_800_000) }), uploadLimits, { charge: never })).ok).toBe(true);
+    // Outside a request, or off Vercel, the default charge (src/server/budget.ts chargeWork) is free.
+    expect((await readGzipText(flat())).ok).toBe(true);
   });
 });
 

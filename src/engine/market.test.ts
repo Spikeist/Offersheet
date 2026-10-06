@@ -427,7 +427,7 @@ describe("the curve fallback (Phase 4c; planner reply to Checkpoint 4b, change 1
     expect(noteDay("nonsense")).toBeNull();
     expect(fantasyCalcFallbackText({ kind: "saved", listDate: "2026-09-28T06:00:00.000Z" })).toBe("Trade values from Sep 28: FantasyCalc didn't answer.");
     expect(fantasyCalcFallbackText({ kind: "curve", listDate: "2026-09-14T06:00:00.000Z" })).toBe(
-      "Trade values are our own estimates, not FantasyCalc's: FantasyCalc didn't answer, and the newest list we have, from Sep 14, is more than 7 days old. Each player's value comes from his projected points for the rest of the season, on a curve fitted to that list, so an injured player's value counts only the games he's expected to play. Read trade values as rough.",
+      "Trade values are our own estimates, not FantasyCalc's: FantasyCalc didn't answer, and the newest list we have, from Sep 14, is more than 7 days old. Each player's value comes from his projected points for the rest of the season, on a curve fitted to that list, so an injured player's value counts only the games he's expected to play. Read the chance they accept as rough: it weighs trade value.",
     );
     expect(fantasyCalcFallbackText({ kind: "saved", listDate: "?" })).toBe("Trade values from an earlier day: FantasyCalc didn't answer.");
   });

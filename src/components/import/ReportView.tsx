@@ -5,12 +5,18 @@
  * The FantasyCalc format sits in "Where this came from" with the "Values: FantasyCalc" link (§2.9).
  * Every button and button-like link is a 44 px target (the small ones too: review of Phase 4 measured
  * "Refresh league data" and "Import another league" at 36 px on a phone).
+ *
+ * Phase 7b (planner reply to Checkpoint 7a, §5.1): no warning code, JSON path, stat ID or ID-matching talk outside the
+ * collapsed "Technical details (for bug reports)" at the bottom. "Things to know" (right under the tiles, only when there
+ * is one) lists the plain-language notices; the scoring card says which uncounted rules matter and, quietly, the rare ones.
+ * A setting read with a caveat (ESPN's inferred readings) gets a small "our reading" line under its row.
  */
 import Link from "next/link";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import type { UnknownSetting } from "@/engine/model";
 import { fmtSigned, plural } from "@/lib/format";
-import type { ImportReportView } from "@/lib/importReport";
+import { POSITION_LIMITS_LABEL, type ImportReportView } from "@/lib/importReport";
+import { NOTICES_TITLE } from "@/lib/notices";
 import { ValuesCredit } from "../league/ValuesCredit";
 import { Badge, Callout, Card, CardTitle, FOCUS_TARGET, Facts, buttonClass, cx, inputClass } from "../ui";
 
@@ -37,6 +43,17 @@ export interface ForgetControl {
 /** Warn tone for a fact whose setting the platform doesn't expose. */
 const toneFor = (view: ImportReportView, setting: UnknownSetting) => (view.unknown.includes(setting) ? ("warn" as const) : ("normal" as const));
 
+/** A row's value with its setting's "our reading" line under it (ImportReportView.readings: ESPN's inferred readings), when it has one. */
+function withReading(value: ReactNode, reading: string | undefined): ReactNode {
+  if (!reading) return value;
+  return (
+    <>
+      {value}
+      <span className="mt-0.5 block text-xs font-normal text-muted">{reading}</span>
+    </>
+  );
+}
+
 export function ReportView({
   view,
   onPickTeam,
@@ -54,6 +71,7 @@ export function ReportView({
     <div className="space-y-6">
       <ReportHeader view={view} />
       <Glance view={view} />
+      <NoticesCard view={view} />
       <YourTeam view={view} onPickTeam={onPickTeam} pickError={pickError} />
       <ScoringCard view={view} />
       <div className="grid gap-6 lg:grid-cols-2">
@@ -65,12 +83,12 @@ export function ReportView({
         <PlayersCard view={view} />
       </div>
       <TeamsCard view={view} />
-      <WarningsCard view={view} />
       <DataCard view={view} refresh={refresh} forget={forget} />
       <Callout tone="info" title="Something doesn't match your league?">
         Then trade ideas would be off too. Check your league&apos;s settings page on {view.league.platformLabel}, then import again. A way to report problems from this page is
         coming.
       </Callout>
+      <TechnicalDetails view={view} />
     </div>
   );
 }
@@ -123,7 +141,7 @@ function Glance({ view }: ViewProps) {
             </>
           );
           const cls = cx("block h-full rounded-2xl border p-3 shadow-sm", t.tone === "warn" ? "border-warn-line bg-warn-bg" : "border-line bg-surface");
-          const target = t.id === "warnings" ? "#warnings" : t.id === "myTeam" ? "#your-team" : undefined;
+          const target = t.id === "notices" && view.notices.length ? "#notices" : t.id === "myTeam" ? "#your-team" : undefined;
           return (
             <li key={t.id}>
               {target ? (
@@ -138,6 +156,21 @@ function Glance({ view }: ViewProps) {
         })}
       </ul>
     </section>
+  );
+}
+
+/** "Things to know": the plain-language notices (src/lib/notices.ts), only when there is one (the "Notices" tile links here). */
+function NoticesCard({ view }: ViewProps) {
+  if (!view.notices.length) return null;
+  return (
+    <Card id="notices" tone="warn">
+      <CardTitle eyebrow="Notices">{NOTICES_TITLE}</CardTitle>
+      <ul className="list-disc space-y-1.5 pl-5 text-sm leading-relaxed">
+        {view.notices.map((n) => (
+          <li key={n.key}>{n.text}</li>
+        ))}
+      </ul>
+    </Card>
   );
 }
 
@@ -239,18 +272,14 @@ function ScoringCard({ view }: ViewProps) {
         )}
       </div>
 
-      {s.unmapped.length ? (
+      {s.uncounted ? (
         <div className="mt-5">
-          <Callout tone="warn" title={`Rules we couldn't map (${s.unmapped.length})`}>
-            <p>These count in your league, but we can&apos;t score them yet, so projections leave them out.</p>
-            <ul className="mt-1.5 list-disc space-y-0.5 pl-5">
-              {s.unmapped.map((u) => (
-                <li key={u.platformKey}>{u.text}</li>
-              ))}
-            </ul>
+          <Callout tone="warn" title="Not counted yet">
+            <p>{s.uncounted}</p>
           </Callout>
         </div>
       ) : null}
+      {s.quiet ? <p className="mt-4 text-sm text-muted">{s.quiet}</p> : null}
 
       <details className="group mt-5 rounded-xl border border-line">
         <summary className="flex items-center justify-between px-4 py-3 text-sm font-bold">
@@ -303,7 +332,7 @@ function LineupCard({ view }: ViewProps) {
             { label: "IR", value: l.ir },
             { label: "Taxi squad", value: l.taxi || "None" },
             { label: "Active roster spots", value: l.maxRosterSize },
-            ...l.limits.map((x) => ({ label: x.label, value: x.value })),
+            ...l.limits.map((x) => ({ label: x.label, value: x.label === POSITION_LIMITS_LABEL ? withReading(x.value, view.readings.positionLimits) : x.value })),
           ]}
         />
       </div>
@@ -330,12 +359,12 @@ function SeasonCard({ view }: ViewProps) {
           { label: "Regular season", value: s.regularSeason },
           { label: "Playoffs", value: s.playoffs, tone: playoffsTone },
           { label: "Playoff teams", value: s.playoffTeamsText, tone: playoffsTone },
-          { label: "Byes", value: s.byes, tone: playoffsTone },
+          { label: "Byes", value: withReading(s.byes, view.readings.byes), tone: playoffsTone },
           ...(s.rounds ? [{ label: "Round lengths", value: s.rounds }] : []),
           { label: "Seeding", value: s.seeding, tone: toneFor(view, "playoffSeeding") },
-          { label: "Ties in the standings", value: s.tiebreaker, tone: toneFor(view, "seedingTiebreaker") },
+          { label: "Ties in the standings", value: withReading(s.tiebreaker, view.readings.tiebreaker), tone: toneFor(view, "seedingTiebreaker") },
           { label: "Game vs the league median", value: s.medianGame ? "Yes, an extra win or loss each week" : "No" },
-          { label: "Points-only league", value: s.pointsOnly ? "Yes (no head-to-head)" : "No, head-to-head" },
+          { label: "Points-only league", value: withReading(s.pointsOnly ? "Yes (no head-to-head)" : "No, head-to-head", view.readings.pointsOnly) },
           ...(s.divisions.length
             ? [
                 {
@@ -356,11 +385,7 @@ function SeasonCard({ view }: ViewProps) {
           { label: "Final scores", value: view.schedule.results },
         ]}
       />
-      {view.schedule.missingRegularWeeks.length ? (
-        <div className="mt-3">
-          <Callout tone="warn">No matchups found for week {view.schedule.missingRegularWeeks.join(", ")}.</Callout>
-        </div>
-      ) : null}
+      {/* Remaining weeks without matchups are a notice ("Things to know"), said once; every gap is in the technical details. */}
     </Card>
   );
 }
@@ -374,7 +399,7 @@ function TradesCard({ view }: ViewProps) {
       <Facts
         items={[
           { label: "Trade deadline", value: t.deadline, tone: toneFor(view, "tradeDeadline") },
-          { label: "Review", value: t.review, tone: toneFor(view, "tradeReview") },
+          { label: "Review", value: withReading(t.review, view.readings.review), tone: toneFor(view, "tradeReview") },
           { label: "FAAB", value: t.faab },
           // Phase 4c (planner reply to Checkpoint 4b, change 5): the order free agents go out in, one team each (§7).
           { label: "Waiver order used", value: t.waiverOrder },
@@ -407,35 +432,14 @@ function PlayersCard({ view }: ViewProps) {
   return (
     <Card>
       <CardTitle eyebrow="Players">Rosters</CardTitle>
+      {/* How the players matched the player database is in the technical details (§5.1); a gap that matters is a notice. */}
       <Facts
         items={[
           { label: "Players on rosters", value: p.rostered },
           { label: "On IR / taxi", value: `${p.onIr} / ${p.onTaxi}` },
           { label: "Free agents loaded", value: p.freeAgents },
-          { label: "Matched to the player database", value: `${p.rostered - p.unmatched.length - p.missingDetails} of ${p.rostered}` },
         ]}
       />
-      {p.unmatched.length ? (
-        <div className="mt-3">
-          <Callout tone="warn" title={`Not matched to the player database (${p.unmatched.length})`}>
-            <p>We&apos;ll still use them, but without projections or trade values from other sources.</p>
-            <ul className="mt-1.5 list-disc space-y-0.5 pl-5">
-              {p.unmatched.map((u) => (
-                <li key={`${u.name}-${u.pos}-${u.team}`}>
-                  {u.name} ({u.pos}, {u.team})
-                </li>
-              ))}
-            </ul>
-          </Callout>
-        </div>
-      ) : null}
-      {p.missingDetails ? (
-        <div className="mt-3">
-          <Callout tone="warn">
-            {p.missingDetails} rostered player{p.missingDetails === 1 ? "" : "s"} came without any player details.
-          </Callout>
-        </div>
-      ) : null}
     </Card>
   );
 }
@@ -487,37 +491,42 @@ function TeamsCard({ view }: ViewProps) {
   );
 }
 
-function WarningsCard({ view }: ViewProps) {
-  // The platform's notes, then the trade-value format notes (§14) and the League page's (projection source).
-  const notes = [...new Set([...view.notes, ...view.valueNotes, ...view.modelNotes])];
-  const none = !view.warnings.length && !notes.length;
+/**
+ * "Technical details (for bug reports)" (§5.1), collapsed at the very bottom: every warning with its code and path, the
+ * import's notes, the player-ID matching and the uncounted rules' stat IDs. Never the place for anything a user needs.
+ */
+function TechnicalDetails({ view }: ViewProps) {
+  const t = view.technical;
   return (
-    <Card id="warnings">
-      <CardTitle eyebrow="Warnings and notes">Anything we weren&apos;t sure about</CardTitle>
-      {none ? <Callout tone="ok">No warnings. Everything we read mapped cleanly.</Callout> : null}
-      {notes.length ? (
-        <ul className="mb-3 space-y-2">
-          {notes.map((n) => (
-            <li key={n} className="rounded-xl bg-surface-muted px-3 py-2 text-sm">
-              {n}
-            </li>
-          ))}
-        </ul>
-      ) : null}
-      {view.warnings.length ? (
-        <ul className="space-y-2">
-          {view.warnings.map((w, i) => (
-            <li key={`${w.code}-${i}`} className="rounded-xl border border-warn-line bg-warn-bg px-3 py-2 text-sm text-warn-fg">
-              <p className="font-semibold">{w.message}</p>
-              <p className="mt-0.5 font-mono text-xs break-all opacity-80">
-                {w.code}
-                {w.platformPath ? ` · ${w.platformPath}` : ""}
-              </p>
-            </li>
-          ))}
-        </ul>
-      ) : null}
-    </Card>
+    <details id="technical-details" className="group rounded-2xl border border-line bg-surface shadow-sm">
+      <summary className="flex min-h-11 items-center justify-between gap-3 px-4 py-3 text-sm font-bold sm:px-5">
+        Technical details (for bug reports)
+        <span aria-hidden className="text-muted transition-transform group-open:rotate-180">
+          ▾
+        </span>
+      </summary>
+      <div className="space-y-4 border-t border-line px-4 pt-3 pb-4 sm:px-5">
+        <p className="text-sm text-muted">What the import read and how, in the platforms&apos; own terms. You only need this to report a problem.</p>
+        {t.note ? <p className="text-sm">{t.note}</p> : null}
+        {t.sections.map((s) => (
+          <div key={s.title}>
+            <h3 className="text-sm font-extrabold tracking-tight">{s.title}</h3>
+            <ul className="mt-1.5 space-y-2">
+              {s.items.map((item, i) => (
+                <li key={`${i}:${item.code ?? ""}:${item.text}`} className="rounded-xl bg-surface-muted px-3 py-2 text-sm break-words">
+                  <p>{item.text}</p>
+                  {item.code || item.path ? (
+                    <p className="mt-0.5 font-mono text-xs break-all text-muted">
+                      {[item.code, item.path].filter(Boolean).join(" · ")}
+                    </p>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>
+    </details>
   );
 }
 
@@ -529,6 +538,9 @@ function DataCard({ view, refresh, forget }: ViewProps & { refresh?: RefreshCont
     if (forgetDone) forgetNoteRef.current?.focus({ preventScroll: true });
   }, [forgetDone]);
 
+  // The trade-value format's substitutions (§14) and, once the League page has loaded them, the projection source and the
+  // inputs' own notes: plain words about where the numbers came from (the import's own notes are technical details).
+  const notes = [...new Set([...view.valueNotes, ...view.modelNotes])];
   return (
     <Card>
       <CardTitle eyebrow="Data">Where this came from</CardTitle>
@@ -545,6 +557,15 @@ function DataCard({ view, refresh, forget }: ViewProps & { refresh?: RefreshCont
           },
         ]}
       />
+      {notes.length ? (
+        <ul className="mt-3 space-y-2">
+          {notes.map((n) => (
+            <li key={n} className="rounded-xl bg-surface-muted px-3 py-2 text-sm">
+              {n}
+            </li>
+          ))}
+        </ul>
+      ) : null}
       {view.league.cookieNote || forget ? (
         <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
           {view.league.cookieNote ? <p className="text-sm text-muted">{view.league.cookieNote}</p> : null}

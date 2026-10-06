@@ -82,7 +82,7 @@ describe("the league store's hooks", () => {
       change: { outcome: "sent" },
       at: "2026-11-26T21:00:00.000Z",
     })[0] as FeedbackRecord;
-    const state = leagueStoreStateOf({ imports: [stored], settings: { [key]: { ...defaultTradeSettings(), playoffWeight: 1.5 } }, feedback: [record] });
+    const state = leagueStoreStateOf({ imports: [stored], settings: { [key]: { ...defaultTradeSettings(), maxPerSide: 3 } }, feedback: [record] });
     expect(render(state)).toBe("<p>current=ok leagues=1 storage=indexeddb settings=saved feedback=1 model=none</p>");
     expect(render(leagueStoreStateOf({}))).toBe("<p>current=none leagues=0 storage=indexeddb settings=defaults feedback=0 model=loading</p>");
     expect(render(leagueStoreStateOf({ outdatedTabImport: { request: null }, storage: { kind: "memory", message: "…" } }))).toContain("current=outdated leagues=0 storage=memory");

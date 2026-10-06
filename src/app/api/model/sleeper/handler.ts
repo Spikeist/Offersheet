@@ -16,12 +16,15 @@
  * instead, with the server's signature (a gzip SignedModelBody, src/lib/api.ts; src/app/api/_lib/upload.ts reads it).
  * When the signature checks out (src/server/importToken.ts) and names this league, the numbers are built from it without
  * reading the league again ({ model, signedImport: true }); otherwise the league is read again as above, and the answer
- * carries the new, signed import. A gzip body that can't be read at all answers BAD_UPLOAD.
+ * carries the new, signed import. A gzip body that can't be read at all answers BAD_UPLOAD; one whose unpacked size the
+ * day's work budget refuses answers BUSY (B4 security review: src/app/api/_lib/upload.ts).
  *
  * The final review's limits on this work (SEC-1, F1, F3), as the ESPN model route (src/app/api/model/espn/handler.ts): an
  * answer built from a signed import is remembered on this instance until its token stops being good (../memo.ts); a big
  * build and a league read again after a signature that didn't check out are charged to the day's work budget first; the
- * signed path's build gets the NFL team codes, not the whole player-ID crosswalk (getModelDeps).
+ * signed path's build gets the NFL team codes, not the whole player-ID crosswalk (getModelDeps); and at most
+ * limits.modelBuildLimits.concurrent builds run at once on an instance (Checkpoint 7b load test, risk 3:
+ * src/server/buildSlots.ts; none free in time: BUSY, "Offer Sheet is busy right now. Try again in a minute.").
  * A factory with injected dependencies, tested without the network.
  */
 import type { ImportDeps, ImportResult, SleeperImportRequest } from "@/adapters/types";
@@ -30,11 +33,12 @@ import type { LeagueSnapshot, Platform } from "@/engine/model";
 import type { ImportResponse, ModelResponse, SignedModelResponse } from "@/lib/api";
 import { isPlausibleSeason, seasonRangeMessage } from "@/lib/season";
 import { chargeWork, modelBuildExtraUnits, type QuotaVerdict } from "@/server/budget";
+import { modelBuildSlots, type BuildSlots } from "@/server/buildSlots";
 import { importDigest, signatureProblem, signImport, type ImportSignature, type SignedContent } from "@/server/importToken";
 import { browserFetchLimits, workLimits } from "@/server/limits";
 import type { BuildModelInputsArgs } from "@/server/modelInputs";
 import type { ModelDeps } from "../../_lib/deps";
-import { errorResponse, importErrorResponse, isSameOrigin, jsonResponse, jsonTextResponse, logUnexpected, readJsonBody, workRefusedResponse } from "../../_lib/respond";
+import { buildsBusyResponse, errorResponse, importErrorResponse, isSameOrigin, jsonResponse, jsonTextResponse, logUnexpected, readJsonBody, unreadUploadResponse, workRefusedResponse } from "../../_lib/respond";
 import { sleeperModelBodySchema } from "../../_lib/schemas";
 import { isGzipRequest, modelWorkOf, readSignedModelUpload } from "../../_lib/upload";
 import { recordFormatsInUse } from "../../cron/snapshot/formats";
@@ -55,6 +59,8 @@ export interface SleeperModelHandlerDeps {
   /** The answers already built (../memo.ts; default the process's) and the work budget's extra charge (test hooks). */
   memo?: ModelMemo;
   chargeWork?: (units: number) => Promise<QuotaVerdict>;
+  /** The instance's build slots (src/server/buildSlots.ts; default the process's; a test hook). */
+  slots?: BuildSlots;
   now?: () => Date;
 }
 
@@ -72,15 +78,23 @@ export function createSleeperModelHandler(d: SleeperModelHandlerDeps): (request:
   const verify = d.verify ?? ((platform: Platform, contentDigest: string, signature: ImportSignature) => signatureProblem(platform, contentDigest, signature));
   const charge = d.chargeWork ?? ((units: number) => chargeWork(units));
   const memo = (): ModelMemo => d.memo ?? modelMemo();
+  const slots = (): BuildSlots => d.slots ?? modelBuildSlots();
 
-  /** The model inputs for a snapshot; a builder that throws is a bug on our side (INTERNAL, logged by name). */
+  /**
+   * The model inputs for a snapshot, built in one of the instance's build slots (the header; none free in time: BUSY); a
+   * builder that throws is a bug on our side (INTERNAL, logged by name).
+   */
   async function build(snapshot: LeagueSnapshot, deps: ModelDeps): Promise<ModelInputs | Response> {
+    const release = await slots().acquire();
+    if (!release) return buildsBusyResponse();
     try {
       // The FantasyCalc formats it read, for the daily snapshot cron (../../cron/snapshot/formats.ts; after the answer).
       return recordFormatsInUse(snapshot.settings, await d.buildInputs({ snapshot, http: deps.http, resolver: deps.resolver, now: deps.now }));
     } catch (err) {
       logUnexpected("model_inputs", err, "sleeper");
       return errorResponse("INTERNAL");
+    } finally {
+      release();
     }
   }
 
@@ -119,8 +133,9 @@ export function createSleeperModelHandler(d: SleeperModelHandlerDeps): (request:
 
   /** A saved import with its signature (the header's Part B paragraph). */
   async function fromSignedImport(request: Request): Promise<Response> {
-    const read = await readSignedModelUpload(request, "sleeper");
-    if (!read.ok) return errorResponse("BAD_UPLOAD");
+    // Its unpacked size paid for first (B4 security review): refused, BUSY; unusable, BAD_UPLOAD.
+    const read = await readSignedModelUpload(request, "sleeper", { charge });
+    if (!read.ok) return unreadUploadResponse(read);
     const body = read.value;
     const now = d.now?.() ?? new Date();
     if (!isPlausibleSeason(body.season, now)) return errorResponse("INVALID_REQUEST", seasonRangeMessage(now));

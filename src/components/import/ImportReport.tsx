@@ -3,7 +3,8 @@
  * Import Report container (CLAUDE.md §14 item 2): reads the league this tab shows from the league store
  * (one of the leagues saved in this browser: src/lib/leagueStore.ts, Phase 4c; the Connect page saves each
  * import there and shows it), plus its "Your team" pick (the user's own, or one taken from a pasted ESPN
- * team link) and, when the League page has loaded them, its model inputs (for the projection-source note),
+ * team link) and, when the League page has loaded them, its model inputs (for the projection-source note; the notices read
+ * them only while they're fresh for this league data: modelStore.ts modelForSnapshot, the League page's reuse rule),
  * and renders the pure view model from src/lib/importReport.ts. It owns the page's requests: Refresh (the
  * same league again, saved over it, unless the league was removed while it ran), and "Forget my ESPN
  * cookies". A league saved by an earlier version of
@@ -15,7 +16,7 @@ import { callApi, isApiError, type EspnImportBody, type EspnSessionStatus, type 
 import { buildImportReport, refreshOutcomeText, refreshTooSoon } from "@/lib/importReport";
 import { importLeague } from "@/lib/leagueFetch";
 import { saveMyTeamPick, type CurrentLeagueRead } from "@/lib/leagueStore";
-import { importDataAgeMs, storedModelForLeague } from "@/lib/modelStore";
+import { importDataAgeMs, modelForSnapshot, storedModelForLeague } from "@/lib/modelStore";
 import { NoImportCard } from "../NoImportCard";
 import { finishImport } from "../connect/finishImport";
 import { useCurrentLeague, useSavedModel } from "../league/useLeagueInputs";
@@ -48,11 +49,15 @@ function LoadedReport({ current }: { current: Extract<CurrentLeagueRead, { kind:
   const leagueId = current.league.id;
   const snapshot = stored.response.snapshot;
   const storedModel = useSavedModel(leagueId);
+  // The stored inputs of any age name the projection source; only fresh ones (built for this very league data, under 6
+  // hours old: the League page's own reuse rule) feed the notices, so an outage that's over never shows as current.
+  const [openedAt] = useState(() => Date.now());
   const model = useMemo(() => storedModelForLeague(storedModel ?? undefined, snapshot)?.model ?? null, [storedModel, snapshot]);
+  const freshModel = useMemo(() => modelForSnapshot(storedModel ?? undefined, snapshot, { now: openedAt }) ?? null, [storedModel, snapshot, openedAt]);
   const timeZone = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC", []);
   const view = useMemo(
-    () => buildImportReport(stored.response, { timeZone, myTeamId: pick?.teamId ?? null, ...(pick ? { myTeamSource: pick.source } : {}), model }),
-    [stored.response, timeZone, pick, model],
+    () => buildImportReport(stored.response, { timeZone, myTeamId: pick?.teamId ?? null, ...(pick ? { myTeamSource: pick.source } : {}), model, freshModel }),
+    [stored.response, timeZone, pick, model, freshModel],
   );
 
   const [refreshing, setRefreshing] = useState(false);

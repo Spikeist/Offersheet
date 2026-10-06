@@ -448,8 +448,10 @@ export function estimatedValuesNotes(I: Pick<TradeInternals, "inputs" | "snapsho
  * in; Phase 4c's polish, review of track UIC). Every value is then missing and W is 0, so every package is empty and every
  * g is 0: the partner's g, perceived or not (a star premium multiplies nothing), and hist (no past trade has values), so
  * the chance they accept reads every trade as even on trade value; g_mkt(me) is 0 too, so B's market term adds nothing and
- * the Market check never fires. Each card already says its trade values are unknown, and the info line and How to read
- * that Helps you leaves trade value out (src/lib/tradeView.ts), while nothing said what the chance they accept does then:
+ * the Market check never fires. The cards then drop their "These numbers weigh each player's trade value." line (until
+ * Phase 7b they said their trade values were unknown; since the planner's reply to Checkpoint 7a, 5.4 no value or value
+ * comparison shows anywhere), and the info line and How to read say that Helps you leaves trade value out
+ * (src/lib/tradeView.ts), while nothing said what the chance they accept does then:
  * this note does, once per search (search.ts) and with each evaluation (the Analyzer's notes), in every league type
  * (every acceptance estimate reads g).
  */
@@ -744,6 +746,8 @@ export function buildTradeContext(snapshot: LeagueSnapshot, inputs: ModelInputs,
     playoffWeightSims: opts.playoffWeightSims ?? simCounts().final,
     simSeed,
     settings,
+    // The League page's "Waiver upgrades" lists (league.ts step 10): the trade search never shows them, so skip the work.
+    waiverUpgrades: false,
     ...(opts.scenarios !== undefined ? { scenarios: opts.scenarios } : {}),
     ...(opts.seed !== undefined ? { seed: opts.seed } : {}),
     ...(opts.faAllocation !== undefined ? { faAllocation: opts.faAllocation } : {}),
@@ -2728,7 +2732,11 @@ export function tradeSteps(I: TradeInternals, ranked: TradeVersion, opts: StepOp
 // ---------------------------------------------------------------------------------------------
 // Words (explain.ts) and values (rank.ts)
 
-/** The names and league facts explain.ts reads: the app's own names (snapshot teams and players), and FantasyCalc's values for the pitch. */
+/**
+ * The names and league facts explain.ts reads: the app's own names (snapshot teams and players), and FantasyCalc's values,
+ * which since Phase 7b only tell whether any trade value is behind a trade (planner reply to Checkpoint 7a, 5.4: the words
+ * never quote or compare them; until then the pitch and the reasons did).
+ */
 export function explainContextOf(I: TradeInternals): ExplainContext {
   return {
     teamName: (id) => teamName(I, id),
@@ -2739,7 +2747,7 @@ export function explainContextOf(I: TradeInternals): ExplainContext {
     slots: I.instances.map((inst, i) => ({ ...inst, eligible: I.slotEligible[i] ?? [] })),
     leagueType: I.snapshot.settings.leagueType,
     tradeDeadline: I.snapshot.settings.tradeDeadline,
-    // The pitch quotes FantasyCalc's own values (explain.ts): a perception value from FantasyCalc, never an estimate.
+    // FantasyCalc's own perception value, never an estimate: explain.ts reads only whether a trade has any (it never quotes one).
     fantasyCalcValue: (id) => {
       const v = I.league.lp.players[id]?.value;
       return v && v.source === "fantasycalc" ? v.value : null;

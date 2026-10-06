@@ -2,8 +2,11 @@
  * The site header (CLAUDE.md §14: mobile-first at 375 px): the main nav in the order you use the
  * pages (the Trade Finder after the League page: Phase 4 wave 2), then Settings (§14 item 6), the page
  * you're on marked for screen readers (aria-current) and visibly, 44 px targets, and a phone layout
- * that wraps rather than overflows, with a shorter "Report" label and tighter links below sm so the
- * five links keep one row at 375 px. Phase 4c: the league switcher sits next to the logo (LeagueSwitcher.test.ts),
+ * that never overflows, with a shorter "Report" label and tighter links below sm. Phase 7b: a "Waivers" link to the League
+ * page's section (planner reply to Checkpoint 7a, §6.2), never current, and on a phone the six links in two rows of three
+ * (a grid); a tap on it while the section is on the page brings it into view and focuses its heading itself, a second tap
+ * included (review: Next did nothing for an address already ending in #waivers, and never moved focus), checked on a fake
+ * page (the tests run without a DOM). Phase 4c: the league switcher sits next to the logo (LeagueSwitcher.test.ts),
  * the nav on a row of its own below lg. Part B: a "Beta" pill next to the logo, set tight below sm so the switcher keeps
  * the first row on a 320 px phone (review PG-4; check:browser measures it with the real switcher). Static render (first
  * render only), with usePathname mocked.
@@ -16,7 +19,8 @@ import { describe, expect, it, vi } from "vitest";
 const route = vi.hoisted(() => ({ pathname: "/" as string | null }));
 vi.mock("next/navigation", () => ({ usePathname: () => route.pathname }));
 
-import { NavLink, navCurrent } from "./NavLink";
+import { WAIVERS_HREF, WAIVERS_SECTION_ID } from "@/lib/waiversLink";
+import { NavLink, navCurrent, revealSection, revealSectionLink, samePageSection, type RevealableSection, type SectionPage } from "./NavLink";
 import { SiteHeader } from "./SiteHeader";
 
 /** Every link in some markup: where it goes, its aria-current, its classes and its text. */
@@ -67,6 +71,80 @@ describe("navCurrent", () => {
   });
 });
 
+describe("a nav link to a section of this page (review of the Waivers link)", () => {
+  /** A page at `pathname` + `hash` whose sections log what's done to them; `pushState` moves the address on. */
+  function page(pathname: string, hash: string, sections: readonly string[] = [WAIVERS_SECTION_ID]) {
+    const log: string[] = [];
+    const state = { pathname, hash };
+    const section = (id: string): RevealableSection => ({
+      scrollIntoView: (arg) => log.push(`${id}.scrollIntoView(${JSON.stringify(arg)})`),
+      focus: (options) => log.push(`${id}.focus(${JSON.stringify(options)})`),
+      querySelector: (selectors) => (selectors === '[tabindex="-1"]' ? { focus: (options) => log.push(`${id} heading.focus(${JSON.stringify(options)})`) } : null),
+    });
+    const p: SectionPage = {
+      get pathname() {
+        return state.pathname;
+      },
+      get hash() {
+        return state.hash;
+      },
+      getElementById: (id) => (sections.includes(id) ? section(id) : null),
+      pushState: (url) => {
+        log.push(`pushState(${url})`);
+        state.hash = url.slice(url.indexOf("#"));
+      },
+    };
+    return { p, log };
+  }
+
+  it("knows a link to a section of the page you're on, and only that", () => {
+    expect(samePageSection(WAIVERS_HREF, "/league")).toBe(WAIVERS_SECTION_ID);
+    expect(samePageSection(WAIVERS_HREF, "/league/")).toBe(WAIVERS_SECTION_ID);
+    expect(samePageSection("#waivers", "/trades")).toBe("waivers");
+    expect(samePageSection(WAIVERS_HREF, "/trades")).toBeNull();
+    expect(samePageSection("/league", "/league")).toBeNull();
+    expect(samePageSection("/league#", "/league")).toBeNull();
+  });
+
+  it("brings the section into view and moves focus to its heading without a second scroll", () => {
+    const { p, log } = page("/league", "");
+    expect(revealSection(p, WAIVERS_SECTION_ID)).toBe(true);
+    expect(log).toEqual([`${WAIVERS_SECTION_ID}.scrollIntoView({"block":"start"})`, `${WAIVERS_SECTION_ID} heading.focus({"preventScroll":true})`]);
+    expect(revealSection(p, "nowhere")).toBe(false);
+  });
+
+  it("a tap on the League page reveals the section and adds the hash to the address (one history entry)", () => {
+    const { p, log } = page("/league", "");
+    expect(revealSectionLink(WAIVERS_HREF, p)).toBe(true);
+    expect(log).toEqual([`${WAIVERS_SECTION_ID}.scrollIntoView({"block":"start"})`, `${WAIVERS_SECTION_ID} heading.focus({"preventScroll":true})`, `pushState(${WAIVERS_HREF})`]);
+    expect(p.hash).toBe(`#${WAIVERS_SECTION_ID}`);
+  });
+
+  it("a second tap, the address already ending in #waivers, still brings the section back and focuses it (Next did nothing)", () => {
+    const { p, log } = page("/league", "");
+    revealSectionLink(WAIVERS_HREF, p);
+    log.length = 0;
+    // The user scrolled back up to the standings, then taps Waivers again.
+    expect(revealSectionLink(WAIVERS_HREF, p)).toBe(true);
+    expect(log).toEqual([`${WAIVERS_SECTION_ID}.scrollIntoView({"block":"start"})`, `${WAIVERS_SECTION_ID} heading.focus({"preventScroll":true})`]);
+    // After a reload of /league#waivers, too: no new history entry, the section revealed.
+    const reloaded = page("/league", `#${WAIVERS_SECTION_ID}`);
+    expect(revealSectionLink(WAIVERS_HREF, reloaded.p)).toBe(true);
+    expect(reloaded.log).not.toContain(`pushState(${WAIVERS_HREF})`);
+  });
+
+  it("leaves the navigation to Next on another page, or while the section isn't on the page yet (the League page computing)", () => {
+    const elsewhere = page("/trades", "");
+    expect(revealSectionLink(WAIVERS_HREF, elsewhere.p)).toBe(false);
+    expect(elsewhere.log).toEqual([]);
+    const computing = page("/league", "", []);
+    expect(revealSectionLink(WAIVERS_HREF, computing.p)).toBe(false);
+    expect(computing.log).toEqual([]);
+    // A link to a page, not a section: never.
+    expect(revealSectionLink("/league", page("/league", "").p)).toBe(false);
+  });
+});
+
 describe("NavLink", () => {
   function leagueLinkAt(pathname: string) {
     route.pathname = pathname;
@@ -94,10 +172,21 @@ describe("NavLink", () => {
 });
 
 describe("SiteHeader", () => {
-  it("links Connect, Import report, League and Trades, in the order you use them, then Settings", () => {
+  it("links Connect, Import report, League, its Waivers section and Trades, in the order you use them, then Settings", () => {
     const nav = navLinks(headerAt("/"));
-    expect(nav.map((l) => l.href)).toEqual(["/connect", "/import", "/league", "/trades", "/settings"]);
-    expect(nav.map((l) => l.text)).toEqual(["Connect", "Report Import report", "League", "Trades", "Settings"]);
+    expect(nav.map((l) => l.href)).toEqual(["/connect", "/import", "/league", "/league#waivers", "/trades", "/settings"]);
+    expect(nav.map((l) => l.text)).toEqual(["Connect", "Report Import report", "League", "Waivers", "Trades", "Settings"]);
+  });
+
+  it("links Waivers to the League page's section (planner reply to Checkpoint 7a, §6.2), never marked current: League is", () => {
+    expect(WAIVERS_HREF).toBe(`/league#${WAIVERS_SECTION_ID}`);
+    for (const pathname of ["/league", "/league/", "/trades", "/"]) {
+      const waivers = navLinks(headerAt(pathname)).find((l) => l.text === "Waivers");
+      expect(waivers?.href, pathname).toBe(WAIVERS_HREF);
+      expect(waivers?.current, pathname).toBeUndefined();
+    }
+    expect(navLinks(headerAt("/league")).find((l) => l.href === "/league")?.current).toBe("page");
+    expect(navCurrent("/league", WAIVERS_HREF)).toBeUndefined();
   });
 
   it("says 'Report' on phones and 'Import report' from sm up: only one shows, so it's the link's name", () => {
@@ -173,29 +262,34 @@ describe("SiteHeader", () => {
 
   it("gives every link a 44 px tap target", () => {
     const all = links(headerAt("/league"));
-    expect(all).toHaveLength(6);
+    expect(all).toHaveLength(7);
     for (const l of all) expect(l.classes).toContain("min-h-11");
   });
 
-  it("sets the links closer together on phones so five fit one row at 375 px, and as before from sm up", () => {
+  it("sets the links closer together on phones, and as before from sm up", () => {
     const html = headerAt("/");
     for (const l of navLinks(html)) expect(l.classes).toEqual(expect.arrayContaining(["px-2", "sm:px-2.5"]));
     const nav = /<nav aria-label="Main" class="([^"]*)">/.exec(html)?.[1]?.split(" ");
     expect(nav).toEqual(expect.arrayContaining(["gap-0.5", "sm:gap-1"]));
   });
 
-  it("drops the nav to a second row rather than overflow on a narrow screen", () => {
+  it("lays the six links out on a phone as two rows of three centered links (they don't fit one row at 375 px), one row from sm up (Phase 7b)", () => {
     const html = headerAt("/");
     const row = /<header class="bg-navy text-navy-contrast"><div class="([^"]*)">/.exec(html)?.[1]?.split(" ");
     expect(row).toEqual(expect.arrayContaining(["flex", "flex-wrap", "justify-between"]));
-    const nav = /<nav aria-label="Main" class="([^"]*)">/.exec(html)?.[1]?.split(" ");
-    expect(nav).toEqual(expect.arrayContaining(["ml-auto", "flex", "flex-wrap"]));
+    const nav = /<nav aria-label="Main" class="([^"]*)">/.exec(html)?.[1]?.split(" ") ?? [];
+    expect(nav).toEqual(expect.arrayContaining(["ml-auto", "grid", "grid-cols-3", "sm:flex", "sm:flex-wrap", "sm:items-center"]));
+    // No one-row flex below sm (it would wrap one link onto a row of its own), and no fourth column.
+    expect(nav).not.toContain("flex");
+    expect(nav.filter((c) => /^grid-cols-/.test(c))).toEqual(["grid-cols-3"]);
+    expect(navLinks(html)).toHaveLength(6);
+    for (const l of navLinks(html)) expect(l.classes).toContain("justify-center");
   });
 
   it("gives the nav a row of its own below lg, with or without the league switcher, so the rows never move when it appears (Phase 4c)", () => {
     const html = headerAt("/");
     const nav = /<nav aria-label="Main" class="([^"]*)">/.exec(html)?.[1]?.split(" ");
-    expect(nav).toEqual(expect.arrayContaining(["basis-full", "justify-end", "lg:basis-auto"]));
+    expect(nav).toEqual(expect.arrayContaining(["basis-full", "sm:justify-end", "lg:basis-auto"]));
     // The header's row anchors the switcher's panel on phones.
     expect(/<header class="bg-navy text-navy-contrast"><div class="([^"]*)">/.exec(html)?.[1]?.split(" ")).toContain("relative");
   });

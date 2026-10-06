@@ -50,6 +50,23 @@ export class SessionUnavailableError extends Error {
   }
 }
 
+/**
+ * The credentials don't fit the one sealed cookie (B4 security review): the user's input, not a bug on our side, so the
+ * route answers INVALID_REQUEST instead of INTERNAL and logs nothing. The checks before the save
+ * (src/lib/espnCredentials.ts ESPN_S2_MAX_LENGTH) keep every value they accept within one cookie; this is the backstop.
+ */
+export class SessionTooLargeError extends Error {
+  constructor() {
+    super("The credentials are too long to keep in the session cookie.");
+    this.name = "SessionTooLargeError";
+  }
+}
+
+/** iron-session's refusal of a seal too big for one cookie (it has no error class of its own; chunking is off). */
+function isCookieTooBig(err: unknown): boolean {
+  return err instanceof Error && /cookie length is too big/i.test(err.message);
+}
+
 export function sessionAvailable(env: EnvLike = process.env): boolean {
   return (env.SESSION_SECRET?.trim().length ?? 0) >= MIN_SECRET_LENGTH;
 }
@@ -95,10 +112,16 @@ export async function readEspnCredentials(request: Request, env: EnvLike = proce
   return parsed.success ? parsed.data : undefined;
 }
 
+/** Seals the ESPN cookies into the session cookie; throws SessionTooLargeError when they can't fit one cookie (nothing is set). */
 export async function saveEspnCredentials(request: Request, responseHeaders: Headers, credentials: EspnCredentials, env: EnvLike = process.env): Promise<void> {
   const session = await openSession(request, responseHeaders, env);
   session.espn = { espnS2: credentials.espnS2, swid: credentials.swid };
-  await session.save();
+  try {
+    await session.save();
+  } catch (err) {
+    if (isCookieTooBig(err)) throw new SessionTooLargeError();
+    throw err;
+  }
 }
 
 /** "Forget my credentials": drops the ESPN cookies, and the whole cookie once nothing else is in it. */

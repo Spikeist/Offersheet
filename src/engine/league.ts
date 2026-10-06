@@ -313,6 +313,14 @@
  *    tag, from step 4's values and step 8's odds with pickups (dynasty leagues: a rebuilding team's older RBs and WRs
  *    count half; without odds, P(playoffs) is unknown and nothing is halved). Last, and read by nothing above it: no other
  *    number of the model depends on it.
+ * 10. "Waiver upgrades" (planner reply to Checkpoint 7a, §6.2; waivers.ts has the rules; LeagueModel.waiverUpgrades): with my
+ *    team, every free agent who projects for more points than one of my players at his position, with what picking him up
+ *    adds to my lineup (my active roster as it stands, my streaming rows and IR returners as steps 5a and 5b give them, the
+ *    scenario lineups of step 5 reused) and roster legality's drop, for the rest of the season (unweighted: a playoff week
+ *    counts once, as players' ROS points do) and for one week (the first week team numbers count), and while the current
+ *    week is under way for its games still to play too (my players whose games have started held where my lineup before
+ *    its first kickoff had them: the pre-kickoff table step 8 builds). Computed after step 7 (nothing of steps 8–9 reads
+ *    it, and nothing reads it); BuildLeagueModelOptions.waiverUpgrades false skips it.
  *
  * Game days (Phase 2 review decisions; LeagueModel.inProgressWeek): once any game of the current week has
  * kicked off (inputs.nfl.kickoffs[currentWeek] at or before `now`), every team-level number skips that
@@ -379,6 +387,7 @@ import type {
   TeamModel,
   TeamPlayerValue,
   TradeChip,
+  WaiverUpgrades,
 } from "./leagueModel";
 import { prepareLeagueSlots, type PreparedSlots } from "./lineup";
 import { marketSummary, marketValues, valuesForTerm, waiverCredit, type MarketConfig } from "./market";
@@ -440,6 +449,7 @@ import {
   type TeamEval,
   type WeeklyScore,
 } from "./teamValue";
+import { waiverUpgrades as waiverLists, type WaiverConfig } from "./waivers";
 
 /** Gains closer than this are zero (float noise, not a tunable). */
 const EPS = 1e-9;
@@ -502,6 +512,8 @@ export interface LeagueModelConfig extends SeasonConfig {
    * automatic playoff weight reads (step 5c; benefit.goalWeights).
    */
   readonly benefit: { readonly helpsGain: number } & Pick<BenefitConfig, "goals" | "goalDefault">;
+  /** "Waiver upgrades" (step 10; waivers.ts): its display rules. Absent: config.waivers. */
+  readonly waivers?: WaiverConfig["waivers"];
 }
 
 export interface BuildLeagueModelOptions {
@@ -545,6 +557,12 @@ export interface BuildLeagueModelOptions {
    * comparison only: the app never sets it.
    */
   irReturners?: boolean;
+  /**
+   * "Waiver upgrades" (step 10; planner reply to Checkpoint 7a, §6.2): true (the default) lists my team's free agents worth
+   * picking up (LeagueModel.waiverUpgrades); false skips them (null), for a caller that never shows them (the trade search's
+   * context, evaluate.ts buildTradeContext, could: it reads nothing of them).
+   */
+  waiverUpgrades?: boolean;
 }
 
 /** BuildLeagueModelOptions.faAllocation. */
@@ -1110,12 +1128,11 @@ export function tableWithStreaming(built: { players: LeaguePlayers; table: Proje
 }
 
 /**
- * The settings the model runs with (BuildLeagueModelOptions.settings): normalized (settings.ts), or the
- * defaults with the config's playoff weight (the same as defaultTradeSettings() unless a caller tunes the
- * config).
+ * The settings the model runs with (BuildLeagueModelOptions.settings): normalized (settings.ts), or the defaults. Since the
+ * planner's reply to Checkpoint 7a (§6.1) they hold no playoff weight (ω is step 5c's; a stored copy's old field is dropped).
  */
-export function modelSettings(raw: TradeSettings | undefined, cfg: Pick<LeagueModelConfig, "lineups"> = config): TradeSettings {
-  return raw ? normalizeTradeSettings(raw) : { ...defaultTradeSettings(), playoffWeight: cfg.lineups.playoffWeight };
+export function modelSettings(raw: TradeSettings | undefined): TradeSettings {
+  return raw ? normalizeTradeSettings(raw) : defaultTradeSettings();
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1513,7 +1530,7 @@ function prepareLeague(snapshot: LeagueSnapshot, inputs: ModelInputs, opts: Buil
   const seed = opts.seed ?? cfg.lineups.scenarioSeed;
   // The user's settings: my streamed positions (step 5a) and my goal, which the automatic playoff weight weighs my odds by
   // (step 5c; TradeSettings.playoffWeight, the old manual weight, isn't read).
-  const settings = modelSettings(opts.settings, cfg);
+  const settings = modelSettings(opts.settings);
   // IR returners (step 5b): on unless a report asks for Checkpoint 4's rule.
   const irOn = opts.irReturners !== false;
 
@@ -2360,6 +2377,60 @@ export function teamRosterScorer(snapshot: LeagueSnapshot, inputs: ModelInputs, 
 }
 
 /**
+ * Step 10 (the file header; waivers.ts): my team's "Waiver upgrades", from this build's own pieces: the projection table and
+ * its scenarios, my active roster as it stands (TeamWork.ids and rows) with my streaming rows and IR returners (TeamWork.
+ * stream), the lineups the build already solved for it (TeamWork.solved and scen), the free agents with a model, roster
+ * legality's limits, trade values and W for the drop's near-ties, and the long-term values the drop's keep value adds in
+ * dynasty and keeper leagues that have them (then no near-ties, as the optimizer's: step 5). While the current week is under
+ * way and some of its games haven't kicked off by `nowMs` (inputs.nfl.kickoffs; an unknown time hasn't), its "This week"
+ * list reads which of them have (gameStarted) and the week's table from before its first kickoff (ctx.preKickoff, the one
+ * step 8 builds).
+ */
+function waiverUpgradesOf(ctx: LeagueContext, t: TeamWork, nfl: NflScheduleInputs | undefined, nowMs: number): WaiverUpgrades {
+  const { snapshot, cfg, lp } = ctx;
+  const week = ctx.tw.inProgressWeek;
+  const gamesLeft = week !== null && Object.values(nfl?.kickoffs?.[week] ?? {}).some((iso) => !(typeof iso === "string" && Date.parse(iso) <= nowMs));
+  const pre = week !== null && gamesLeft ? ctx.preKickoff() : null;
+  return waiverLists(
+    {
+      teamId: t.team.id,
+      weeks: lp.weeks.weeks,
+      regularWeeks: lp.weeks.regularWeeks,
+      playoffWeeks: lp.weeks.playoffWeeks,
+      from: ctx.tw.from,
+      scenarios: ctx.S,
+      slots: ctx.slots,
+      table: ctx.table,
+      players: lp.players,
+      info: (id) => snapshot.players[id],
+      roster: t.ids,
+      rows: t.rows,
+      streamRows: t.stream.rows,
+      streamed: t.stream.positions,
+      returners: returnersOf(t.stream),
+      freeAgents: ctx.freeAgentIds,
+      startable: startablePositions(snapshot.settings),
+      maxRosterSize: ctx.maxRosterSize,
+      positionLimits: ctx.limits,
+      rosterMinimums: snapshot.settings.rosterMinimums,
+      value: ctx.valueOf,
+      credit: ctx.market.waiverCredit,
+      nearTieWeekly: ctx.returnerSetup.future ? 0 : (cfg.lineups.dropNearTieWeekly ?? 0),
+      future: ctx.returnerSetup.future,
+      standing: { ev: t.solved, scen: t.scen },
+      underWay:
+        week !== null && pre
+          ? {
+              started: (id) => gameStarted(snapshot.players[id]?.nflTeam ?? null, nfl, week, nowMs),
+              preRow: (id) => pre.table.rows.get(id),
+            }
+          : null,
+    },
+    { waivers: cfg.waivers ?? config.waivers },
+  );
+}
+
+/**
  * The League model (see the file header). `snapshot.myTeamId` is the user's team (null = none picked);
  * `opts.now` decides which current-week games have started, and so whether the current week is in progress.
  */
@@ -2542,6 +2613,10 @@ export function buildLeagueModelWithContext(snapshot: LeagueSnapshot, inputs: Mo
   };
   mark("needs and partners");
 
+  // 10. Waiver upgrades for my team (the file header; waivers.ts): read by nothing else in the model.
+  const waivers = opts.waiverUpgrades === false || myIndex < 0 ? null : waiverUpgradesOf(ctx, work[myIndex] as TeamWork, inputs.nfl, opts.now.getTime());
+  if (waivers) mark("waiver upgrades");
+
   const replacement: LeagueModel["streaming"]["replacement"] = {};
   for (const [pos, rep] of stream.replacement) replacement[pos] = Array.from(rep);
   const model: LeagueModel = {
@@ -2568,6 +2643,7 @@ export function buildLeagueModelWithContext(snapshot: LeagueSnapshot, inputs: Mo
     odds: null,
     oddsAsRostersStand: null,
     helpsCalibration: null,
+    waiverUpgrades: waivers,
     timings,
     warnings: modelWarnings(snapshot, inputs, lp, projection.sources, cfg),
   };

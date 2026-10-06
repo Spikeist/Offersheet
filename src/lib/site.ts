@@ -80,12 +80,14 @@ export interface PolicyFeatures {
  * privacy policy (and, for fantasyCalcHidden, the terms): set their LAST_UPDATED to that day. Once a flag is on for good,
  * its words for "off" (and the flag) can go. Checkpoint 7b's three (review of its text: sentences that rested on work not
  * built yet) are each off until that work lands: the policy is public only from launch, and the go/no-go list needs them
- * on. publicArchive and feedbackTotalsOnly went on on 2026-10-05 with the snapshot cron and `npm run feedback:report`.
+ * on. publicArchive and feedbackTotalsOnly went on on 2026-10-05 with the snapshot cron and `npm run feedback:report`,
+ * and fantasyCalcHidden the same day, once no page showed a FantasyCalc value or compared values by them
+ * (src/lib/fantasyCalcHidden.test.ts guards the words, pages.test.ts the code that showed them).
  */
 export const POLICY_FEATURES: Readonly<PolicyFeatures> = {
   browserReads: true,
   anonymousFeedback: true,
-  fantasyCalcHidden: false,
+  fantasyCalcHidden: true,
   publicArchive: true,
   feedbackTotalsOnly: true,
 };

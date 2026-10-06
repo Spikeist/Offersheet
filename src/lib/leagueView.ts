@@ -56,10 +56,13 @@
  * (the simulation doesn't read the points scored).
  *
  * Team points shown here are plain projected lineup points (Σ LV over the weeks team numbers count).
- * The engine's ROS(T) weights playoff weeks by config.lineups.playoffWeight for trade math; "Lineup
- * cost" (MV_lose, §7), the free-agent pickups' gains and trade chips' gaps keep that weighting, so the page
- * calls them "lineup pts", never "ROS pts", says where playoff weeks count extra, and the explainer
- * spells it out.
+ * The engine's ROS(T) weights playoff weeks by the League model's playoff weight for trade math (LeagueModel.playoffWeight:
+ * set automatically from my odds under my goal since the planner's reply to Checkpoint 7a, §6.1, else the fallback
+ * config.lineups.playoffWeight); "Lineup cost" (MV_lose, §7), the free-agent pickups' gains and trade chips' gaps keep that
+ * weighting, so the page calls them "lineup pts", never "ROS pts", says how playoff weeks count ("(playoffs count 2.0×)":
+ * one decimal, as the Settings page prints it, playoffWeightLabel; ⚠️ not said when it prints "1.0"), and the explainer
+ * spells it out with where the weight comes from (LeagueModel.playoffWeightAuto.basis), never that playoff weeks matter
+ * more: ω can be below 1 (a point in a playoff week can move my odds less than one in a regular-season week).
  *
  * Free-agent pickups (§7 V*; planner reply to Checkpoint 3, model change 2; Phase 4 lead decision L3): each roster
  * lists the moves the free-agent optimizer makes for its team (TeamModel.faMoves, in order; never a kicker or a
@@ -123,19 +126,24 @@
  * (LeagueModel.streaming.picks), says which positions I stream (my setting) and which other teams stream
  * (their adds), and how a streamed slot counts (where a flex of the lineup takes a streamed QB or TE, that
  * the replacement can start there too: the engine counts him as one more player that week); each roster says
- * what its team streams. Lineup points are labeled with the model's playoff weight (LeagueModel.playoffWeight,
- * the user's setting).
+ * what its team streams. Lineup points are labeled with the model's playoff weight (LeagueModel.playoffWeight, set
+ * automatically: above).
  *
  * The market blend (§6 step 8; planner reply to Checkpoint 4, change 1): a player whose projection the engine pulled
- * toward the trade market (PlayerModel.blend) shows "Our projection 210 · Trade market 170 · Used 190" at the top of his
- * breakdown, with what each number is in words under it (visible, so phones see it too), and at the top of his ROS hover
- * text (blendText); the explainer's "Projected points" says which positions were blended, how far, per game, and in a
- * dynasty league that the blend reads this season's values, not the dynasty values the page shows (review of track A).
- * A player at the top or bottom of his position's value range, whose market number is his own projection, reads "Trade
- * market: no comparison (top value at his position)" instead of three equal numbers (review of Phase 4b). Phase 4c
- * (planner reply to Checkpoint 4b, change 4): the market moves a projection at most config.marketBlend.factorClamp's
- * bounds (35% up, 25% down), so a capped player's line says so ("Used 239 (capped: the market moves him up at most
- * 35%)"; PlayerBlend.clamped), and so does the explainer.
+ * toward the trade market (PlayerModel.blend) says which way, in words, at the top of his breakdown (how the lean works
+ * under it, visible so phones see it too) and of his ROS hover text (blendText): "His projection leans up toward the trade
+ * market's view." Phase 4c (planner reply to Checkpoint 4b, change 4): the market moves a projection at most
+ * config.marketBlend.factorClamp's bounds (35% up, 25% down), so a capped player's line says so ("…, by the most it can:
+ * 35%."; PlayerBlend.clamped), and so does the explainer, whose "Projected points" says which positions were blended, how
+ * far, per game, and in a dynasty league that the blend reads this season's values, not the dynasty values Offer Sheet uses
+ * for long-term worth (review of track A). Planner reply to Checkpoint 7a, 5.4 (review of Phase 7b): no number of the
+ * market's. Until Phase 7b the line read "Our projection 210 · Trade market 170 · Used 190" ("Trade market": his ROS at the
+ * points per game his trade value implies, which rises with his FantasyCalc value, so it gave away FantasyCalc's order and
+ * a price for each player), a capped player's title what the uncapped blend "would be", and a player at either end of his
+ * position's value range "Trade market: no comparison (top value at his position)". With his ROS (= Used) in the table and
+ * the weight in the explainer, even "Our projection" alone gives the market's number back (2 × Used − ours), so the line
+ * says the direction only; a move the printed ROS doesn't show, the end-of-range players' none among them (their market
+ * number is their own: blendIsOwnPoint), reads "The trade market barely moves his projection."
  *
  * FantasyCalc's fallbacks (Phase 4c; planner reply to Checkpoint 4b, change 12; MarketInputs.fallback). A saved list
  * standing in (kind "saved": FantasyCalc didn't answer, the list is at most config.market.fantasyCalcStaleDays old) is
@@ -172,7 +180,6 @@ import type {
   TeamModel,
   TeamOdds,
   TradePartner,
-  ValueSource,
   WeekOdds,
 } from "@/engine/leagueModel";
 import { prepareLeagueSlots, solveLineup, type LineupPlayer } from "@/engine/lineup";
@@ -183,6 +190,7 @@ import { fmtNum, fmtSigned, fmtWhole, formatShortDateTime, plural, recordText } 
 import { allocationBasis, inactiveWindowText, waiverOrderText } from "./importReport";
 import { INJURY_LABEL, PLATFORM_LABEL, posLabel } from "./labels";
 import type { MyTeamSource } from "./myTeam";
+import { buildDataNotices } from "./notices";
 import { HARDER_TO_GET_TAG, finderHref, harderToGetWho, premiumReasons, titleOddsText } from "./tradeView";
 
 /** The "Harder to get" tag's words and reasons are shared with the trade cards (src/lib/tradeView.ts). */
@@ -232,10 +240,17 @@ export const WAIVER_ORDER_LABEL = "Waiver order used";
 
 /** FantasyCalc's curve fallback (the file header): the banner's title (its words are market.ts fantasyCalcFallbackText's)… */
 export const VALUES_ESTIMATED_TITLE = "FantasyCalc is unavailable";
-/** …and what the header's values line adds. */
-export const VALUES_ESTIMATED_LINE = "Every value shown is our own estimate for now.";
+/** …and what the header's values line adds (no value is shown, planner reply to Checkpoint 7a, 5.4: it says what they are). */
+export const VALUES_ESTIMATED_LINE = "Trade values are our own estimates for now.";
 /** The model inputs' warning for the curve fallback (src/server/modelInputs.ts): the page shows it as the banner instead. */
 const VALUES_ESTIMATED_CODE = "FANTASYCALC_VALUES_ESTIMATED";
+/**
+ * What the "Trade values" explainer says about showing them (planner reply to Checkpoint 7a, 5.4: Offer Sheet doesn't
+ * display FantasyCalc's values at all; the privacy policy's words: "uses in its own numbers but never shows").
+ */
+export const VALUES_HIDDEN_TEXT = "Offer Sheet uses them in its own numbers (the chance a manager accepts a trade, Helps you, and how far projections lean toward the trade market) but never shows them.";
+/** The same in FantasyCalc's curve fallback, where only the chance they accept reads trade value (no Helps you part, no blend). */
+export const VALUES_HIDDEN_ESTIMATED_TEXT = "Offer Sheet uses them in the chance a manager accepts a trade but never shows them.";
 
 export type StrengthWindow = "ros" | "next";
 export type HeatStep = "strong" | "above" | "average" | "below" | "weak";
@@ -404,13 +419,12 @@ export interface PlayerRow {
   splitText: string;
   gamesText: string;
   byeText: string;
-  /** `srText`: what "~" means, for screen readers ("(our estimate)", "(our minimum value)"); null for FantasyCalc's own value. */
-  value: { text: string; estimated: boolean; title: string; srText: string | null } | null;
   /** MV_lose (§7): lineup points his team loses without him (LeagueView.lineupCostTitle); null off the active roster. */
   lineupCost: string | null;
   /**
-   * The market blend (§6 step 8; PlayerModel.blend), for a player it reached: "Our projection 210 · Trade market 170 ·
-   * Used 190" (rest-of-season points, rounded) and what each number is, both shown in his breakdown; null for everyone else.
+   * The market blend (§6 step 8; PlayerModel.blend), for a player it reached (blendText): which way it moved his
+   * projection, in words ("His projection leans up toward the trade market's view."), and how the lean works, both shown in
+   * his breakdown; never a number of the market's (planner reply to Checkpoint 7a, 5.4). Null for everyone else.
    */
   blend: { text: string; title: string } | null;
   weeks: WeekRow[];
@@ -701,7 +715,12 @@ export interface LeagueView {
   lineupCostTitle: string;
   explain: ExplainItem[];
   sources: { label: string; value: string }[];
-  warnings: string[];
+  /**
+   * The yellow banner's lines (Phase 7b, planner reply to Checkpoint 7a, §5.1): only the plain-language notices
+   * (src/lib/notices.ts buildDataNotices, judged with this League model: players on my roster or likely starters on any),
+   * never a code, a path or ID-matching talk; FantasyCalc's curve fallback has its own banner (valuesBanner) instead.
+   */
+  notices: string[];
   /** The model inputs' notes the page doesn't already show (the values' format and its substitutions are shown once, elsewhere). */
   notes: string[];
   /** The season has no weeks left to project. */
@@ -822,22 +841,6 @@ function perWeekOf(team: TeamModel, model: LeagueModel, from: number): number | 
   return rest.length ? sum(rest) / rest.length : null;
 }
 
-const VALUE_TITLE: Record<ValueSource, string> = {
-  fantasycalc: "FantasyCalc trade value",
-  estimate: "Our estimate from his projected points (FantasyCalc doesn't value him)",
-  floor: "Our minimum value (FantasyCalc values too few players at his position to estimate)",
-};
-
-/** An estimate's hover in FantasyCalc's curve fallback, where every value is ours (the file header): not "FantasyCalc doesn't value him". */
-const ESTIMATED_VALUE_TITLE = "Our estimate from his projected points (FantasyCalc's values aren't available right now)";
-
-/** What "~" means, read to screen readers after the value. */
-const VALUE_SR: Record<ValueSource, string | null> = {
-  fantasycalc: null,
-  estimate: "(our estimate)",
-  floor: "(our minimum value)",
-};
-
 // ---------------------------------------------------------------------------------------------
 // Harder to get (planner addendum to Checkpoint 3, §2; the file header)
 
@@ -865,14 +868,6 @@ interface PlayerContext {
   hasPlayoffs: boolean;
   /** My team (other teams' players can carry "Harder to get"; mine never do). */
   myTeamId: string | null;
-  /**
-   * Per position, the median FantasyCalc value of the players the market blend reached (blendMediansOf): whether a player
-   * whose market number is his own is at the top or the bottom of his position's range (blendEndOf). Empty in a dynasty
-   * league, whose blend reads another list (this season's values) than the one the page shows.
-   */
-  blendMedians: ReadonlyMap<Pos, number>;
-  /** FantasyCalc's curve fallback: every value is our own estimate (the file header). */
-  valuesEstimated: boolean;
 }
 
 function kickedOff(ctx: PlayerContext, info: PlayerInfo | undefined): boolean {
@@ -979,79 +974,34 @@ export function blendIsOwnPoint(b: Pick<NonNullable<PlayerModel["blend"]>, "ours
 }
 
 /**
- * Per position, the median FantasyCalc value (PlayerModel.value, FantasyCalc's own) of the players the blend reached
- * (PlayerModel.blend), for blendEndOf; none in a dynasty league (its blend reads this season's values, the page shows
- * dynasty ones).
- */
-function blendMediansOf(snapshot: LeagueSnapshot, model: LeagueModel): Map<Pos, number> {
-  const out = new Map<Pos, number>();
-  if (snapshot.settings.leagueType === "dynasty") return out;
-  const byPos = new Map<Pos, number[]>();
-  for (const [id, pm] of Object.entries(model.players)) {
-    const pos = snapshot.players[id]?.pos;
-    if (!pm.blend || !pos || pm.value?.source !== "fantasycalc" || !Number.isFinite(pm.value.value)) continue;
-    const list = byPos.get(pos) ?? [];
-    list.push(pm.value.value);
-    byPos.set(pos, list);
-  }
-  for (const [pos, list] of byPos) {
-    const sorted = [...list].sort((a, b) => a - b);
-    const mid = Math.floor(sorted.length / 2);
-    out.set(pos, sorted.length % 2 ? (sorted[mid] as number) : ((sorted[mid - 1] as number) + (sorted[mid] as number)) / 2);
-  }
-  return out;
-}
-
-/** Which end of his position's value range a player whose market number is his own sits at (blendIsOwnPoint): by the position's median value; null when unknown. */
-function blendEndOf(ctx: PlayerContext, pm: PlayerModel, pos: Pos | undefined): "top" | "bottom" | null {
-  if (!pm.blend || !blendIsOwnPoint(pm.blend) || !pos || pm.value?.source !== "fantasycalc") return null;
-  const median = ctx.blendMedians.get(pos);
-  return median === undefined ? null : pm.value.value >= median ? "top" : "bottom";
-}
-
-/**
- * The market blend's line (§6 step 8; PlayerRow.blend): his rest-of-season points before the blend ("Our projection"),
- * the same games at the points per game his trade value implies ("Trade market": the position's curve of our points
- * per game on value, over healthy players), and the blend every number uses ("Used" = (1 − w) × ours + w × market),
- * each rounded; `title` says what each is, in words the breakdown shows. A dynasty league's blend reads this season's
- * values (FantasyCalc's redraft list), not the dynasty values the page shows, and says so.
- * Review of Phase 4b: a player whose market number is his own (blendIsOwnPoint: the top or bottom value at his position)
- * read "Our projection 313 · Trade market 313 · Used 313", as if the market agreed, when it has nothing to compare him
- * with; his line says so ("Trade market: no comparison (top value at his position)"; `end` from blendEndOf, else "his value
- * is at the end of his position's range").
- * Phase 4c (planner reply to Checkpoint 4b, change 4): the market moves a projection at most `clamp`'s bounds
- * (config.marketBlend.factorClamp), so a capped player (PlayerBlend.clamped) reads "Used 239 (capped: the market moves him
- * up at most 35%)", and the title gives the blend he'd have had uncapped ((1 − w) × ours + w × market) and where the cap
- * stops him; the percents come from `clamp`, never a fixed number.
+ * The market blend's line (§6 step 8; PlayerRow.blend; the file header): which way it moved his rest-of-season points, in
+ * words, never a number of the market's (planner reply to Checkpoint 7a, 5.4; review of Phase 7b). `text`: "His projection
+ * leans up toward the trade market's view." (or down); a capped player (PlayerBlend.clamped; Phase 4c, planner reply to
+ * Checkpoint 4b, change 4) "…, by the most it can: 35%." (the percents from `clamp`, config.marketBlend.factorClamp, never
+ * a fixed number); "The trade market barely moves his projection." when his ROS prints the same (whole points) before and
+ * after, a player at either end of his position's value range among them (blendIsOwnPoint: the market has nothing to
+ * compare him with, so his factor is exactly 1). `title`: how the lean works, per game, how far and at most how far; a
+ * dynasty league's blend reads this season's values (FantasyCalc's redraft list) and says so. ⚠️ The pre-blend number stays
+ * out too: with his ROS (= used) in the table and the weight here, it would give the market's number back.
  */
 export function blendText(
   b: NonNullable<PlayerModel["blend"]>,
   leagueType: LeagueSnapshot["settings"]["leagueType"] = "redraft",
-  end: "top" | "bottom" | null = null,
   clamp: readonly [number, number] = config.marketBlend.factorClamp,
 ): { text: string; title: string } {
   const value = leagueType === "dynasty" ? "trade value this season (FantasyCalc's redraft values)" : "trade value";
-  if (blendIsOwnPoint(b)) {
-    const where = end === "top" ? "top value at his position" : end === "bottom" ? "lowest value at his position" : "his value is at the end of his position's range";
-    const why =
-      end === null
-        ? `his ${value} is at one end of his position's range, with no other healthy player valued like him to compare with`
-        : `no other healthy player at his position has a ${value} as ${end === "top" ? "high" : "low"} as his`;
-    return {
-      text: `Our projection ${fmtWhole(b.ours)} · Trade market: no comparison (${where}) · Used ${fmtWhole(b.used)}`,
-      title: `Rest-of-season points. Our projection: our own model's. Trade market: none for him: ${why}, so the market can't say more than our projection, which every number on this page uses as it is.`,
-    };
-  }
-  const mix = `${pct(1 - b.weight)} ours and ${pct(b.weight)} the market's`;
   const cap = blendCapWords(clamp);
-  const capped = b.clamped === "high" ? ` (capped: the market moves him up at most ${cap.up})` : b.clamped === "low" ? ` (capped: the market moves him down at most ${cap.down})` : "";
-  const used = b.clamped
-    ? `Used: ${mix} would be ${fmtWhole((1 - b.weight) * b.ours + b.weight * b.market)}, but the market moves a projection at most ${cap.up} up and ${cap.down} down, so his stops at ${b.clamped === "high" ? `${cap.up} above` : `${cap.down} below`} ours, which every number on this page uses.`
-    : `Used: ${mix}, which every number on this page uses.`;
-  return {
-    text: `Our projection ${fmtWhole(b.ours)} · Trade market ${fmtWhole(b.market)} · Used ${fmtWhole(b.used)}${capped}`,
-    title: `Rest-of-season points. Our projection: our own model's. Trade market: the same games at the points per game our model gives healthy players with his ${value}. ${used}`,
-  };
+  const title = `Per game, his projection moves ${blendHowFar(b.weight)} toward what our model gives healthy players with about the same ${value}, at most ${cap.up} up or ${cap.down} down. Byes and injuries stay as projected, and every number on this page uses the result.`;
+  let text: string;
+  if (b.clamped) text = `His projection leans ${b.clamped === "high" ? "up" : "down"} toward the trade market's view, by the most it can: ${b.clamped === "high" ? cap.up : cap.down}.`;
+  else if (blendIsOwnPoint(b) || fmtWhole(b.used) === fmtWhole(b.ours)) text = "The trade market barely moves his projection.";
+  else text = `His projection leans ${b.used > b.ours ? "up" : "down"} toward the trade market's view.`;
+  return { text, title };
+}
+
+/** How far the blend pulls a projection per game, in words: weight 0.5 → "halfway", else "40% of the way". */
+function blendHowFar(weight: number): string {
+  return weight === 0.5 ? "halfway" : `${pct(weight)} of the way`;
 }
 
 /** How far the market blend may move a projection, in whole percents (config.marketBlend.factorClamp [0.75, 1.35] → up "35%", down "25%"). */
@@ -1077,8 +1027,7 @@ function playerRow(ctx: PlayerContext, id: string, group: PlayerRow["group"], te
   const tv = team?.players[id];
   const cost = tv ? (tv.mvLoseScen ?? tv.mvLoseEv) : null;
   const ros = pm ? pm.ros.total : null;
-  const value = pm?.value ?? null;
-  const blend = pm?.blend ? blendText(pm.blend, ctx.snapshot.settings.leagueType, blendEndOf(ctx, pm, info?.pos)) : null;
+  const blend = pm?.blend ? blendText(pm.blend, ctx.snapshot.settings.leagueType) : null;
   return {
     id,
     name: info?.name ?? `Unknown player (${id})`,
@@ -1093,14 +1042,6 @@ function playerRow(ctx: PlayerContext, id: string, group: PlayerRow["group"], te
     splitText: pm ? (ctx.hasPlayoffs ? `${fmtWhole(pm.ros.regular)} / ${fmtWhole(pm.ros.playoffs)}` : fmtWhole(pm.ros.regular)) : "—",
     gamesText: pm ? plural(pm.ros.gamesLeft, "game") : "—",
     byeText: byeText(pm),
-    value: value
-      ? {
-          text: `${value.source === "fantasycalc" ? "" : "~"}${fmtWhole(value.value)}`,
-          estimated: value.source !== "fantasycalc",
-          title: value.source === "estimate" && ctx.valuesEstimated ? ESTIMATED_VALUE_TITLE : VALUE_TITLE[value.source],
-          srText: VALUE_SR[value.source],
-        }
-      : null,
     lineupCost: cost === null ? null : fmtNum(cost, 1),
     blend,
     weeks,
@@ -1610,7 +1551,7 @@ interface OddsContext {
   teamById: ReadonlyMap<string, Team>;
   teamName: (id: string) => string;
   myTeamId: string | null;
-  /** Everything the warnings box already says: notes repeating it aren't listed twice. */
+  /** Everything the banner already says (LeagueView.notices): notes repeating it aren't listed twice. */
   warnings: readonly string[];
   /** The NFL regular season's last week (inputs.nfl.lastWeek, as the engine reads it), for an IR returner's expected return week. */
   lastNflWeek: number | undefined;
@@ -2082,7 +2023,7 @@ function scheduleView(c: OddsContext): ScheduleView | null {
 // Trade values and notes
 
 interface ValuesShown {
-  /** The FantasyCalc format the page's values are in (a keeper league's redraft list), or null without values. */
+  /** The FantasyCalc format the page names for its values (a keeper league's redraft list), or null without values. */
   label: string | null;
   /** Where that format differs from the league, for the explainer. */
   substitutions: string[];
@@ -2092,9 +2033,9 @@ interface ValuesShown {
 
 /**
  * The values' FantasyCalc format (§2.9, §9). A keeper league's market format is its dynasty list (the
- * future term); the page shows its redraft values (perception). Both formats share their size, PPR
- * and TE substitutions and differ in one line saying which list is used, which the explainer's
- * keeper sentence covers, so only the shared ones are listed.
+ * future term); the page names its redraft list's format (perception), whose values it never shows (planner
+ * reply to Checkpoint 7a, 5.4). Both formats share their size, PPR and TE substitutions and differ in one
+ * line saying which list is used, which the explainer's keeper sentence covers, so only the shared ones are listed.
  */
 function valuesShown(settings: LeagueSettings, market: FantasyCalcFormat | null): ValuesShown {
   if (!market) return { label: null, substitutions: [], said: [] };
@@ -2119,35 +2060,32 @@ function pageNotes(notes: readonly string[], said: readonly string[]): string[] 
  * How the players FantasyCalc doesn't value got theirs (§9, src/engine/market.ts marketValues): a
  * curve estimate from projected points, or, at a position where FantasyCalc values too few players
  * for a curve (it has no kickers, defenses or IDP), a flat minimum whatever he projects. Says only
- * what this league's players actually got. In FantasyCalc's curve fallback (`curve`: every value is our
- * estimate, and the "Trade values" explainer says so first) only the flat minimum is left to explain: never
- * "Players FantasyCalc doesn't value get our estimate", which would say the others are FantasyCalc's.
+ * what this league's players actually got, in words: no value is shown (planner reply to Checkpoint 7a, 5.4; until
+ * Phase 7b the page showed the values, estimates marked ~, and named the flat minimum). In FantasyCalc's curve fallback
+ * (`curve`: every value is our estimate, and the "Trade values" explainer says so first) only the flat minimum is left to
+ * explain: never "Players FantasyCalc doesn't value get our estimate", which would say the others are FantasyCalc's.
  */
 function unvaluedText(snapshot: LeagueSnapshot, model: LeagueModel, curve = false): string {
   let estimates = false;
   const floorPositions = new Set<Pos>();
-  const floorValues = new Set<string>();
   for (const [id, pm] of Object.entries(model.players)) {
     if (pm.value?.source === "estimate") estimates = true;
     if (pm.value?.source !== "floor") continue;
     const pos = snapshot.players[id]?.pos;
     if (pos) floorPositions.add(pos);
-    floorValues.add(fmtWhole(pm.value.value));
   }
   const estimate = "Players FantasyCalc doesn't value (it skips deep bench players) get our estimate from their projected points";
   let floor = "";
   if (floorPositions.size) {
     const positions = listText(POSITIONS.filter((p) => floorPositions.has(p)).map((p) => posLabel(p, snapshot.platform)));
-    const [only] = floorValues;
-    const amount = floorValues.size === 1 && only !== undefined ? ` (~${only})` : "";
     floor = curve
-      ? `At ${positions}, FantasyCalc's list values too few players to fit a curve, so each gets a flat minimum value${amount}, whatever he projects`
-      : `At ${positions}, FantasyCalc values too few players to estimate from, so those without a FantasyCalc value get a flat minimum value${amount}, whatever they project`;
+      ? `At ${positions}, FantasyCalc's list values too few players to fit a curve, so each gets a flat minimum value, whatever he projects`
+      : `At ${positions}, FantasyCalc values too few players to estimate from, so those without a FantasyCalc value get a flat minimum value, whatever they project`;
   }
-  if (curve) return floor ? ` ${floor}, also marked ~.` : "";
-  if (estimates && floor) return ` ${estimate}. ${floor}. Both are marked ~.`;
-  if (estimates) return ` ${estimate}, marked ~.`;
-  if (floor) return ` ${floor}, marked ~.`;
+  if (curve) return floor ? ` ${floor}.` : "";
+  if (estimates && floor) return ` ${estimate}. ${floor}.`;
+  if (estimates) return ` ${estimate}.`;
+  if (floor) return ` ${floor}.`;
   return "";
 }
 
@@ -2221,8 +2159,10 @@ interface ExplainContext {
   from: number;
   /** Playoff weeks are among the weeks team numbers count, so lineup points weight them. */
   playoffWeighted: boolean;
-  /** ω for playoff weeks (LeagueModel.playoffWeight: the user's setting). */
-  playoffWeight: number;
+  /** ω for playoff weeks as the page prints it (playoffWeightLabel of LeagueModel.playoffWeight: "2.0"). */
+  playoffWeight: string;
+  /** How ω was set (LeagueModel.playoffWeightAuto.basis): "auto" from my odds, "fallback" the default; absent in an older model. */
+  playoffWeightBasis: "auto" | "fallback" | null;
   /** The season simulation, when it ran (§8). */
   odds: SeasonOdds | null;
   /** My remaining schedule is shown (a team is picked and games are left), so its risk rule is explained too. */
@@ -2301,8 +2241,10 @@ function oddsExplainText(c: ExplainContext, odds: SeasonOdds): string {
  * The market blend in "Projected points" (§6 step 8; PlayerModel.blend): the positions of the players it reached, how far
  * it pulls (the weight) and toward what, per game (byes and injuries stay the model's), how far at most (Phase 4c:
  * config.marketBlend.factorClamp), and which values it reads in a dynasty league (this season's, not the dynasty values
- * the page shows); "" when it reached nobody (no values, or none at a blended position), but in FantasyCalc's curve
- * fallback (`curve`), where it says the projections aren't pulled toward the market while the values are our own.
+ * Offer Sheet uses for long-term worth, which no page shows: planner reply to Checkpoint 7a, 5.4), and that a player's
+ * breakdown says which way his leans (blendText: in words, never a number); "" when it reached nobody (no values, or none
+ * at a blended position), but in FantasyCalc's curve fallback (`curve`), where it says the projections aren't pulled toward
+ * the market while the values are our own.
  */
 function blendExplainText(snapshot: LeagueSnapshot, model: LeagueModel, curve = false): string {
   let weight = 0;
@@ -2315,17 +2257,19 @@ function blendExplainText(snapshot: LeagueSnapshot, model: LeagueModel, curve = 
   }
   if (!positions.size) return curve ? " While FantasyCalc is unavailable, projections aren't pulled toward the trade market: the values are our own estimates." : "";
   const who = listText(POSITIONS.filter((x) => positions.has(x)).map((x) => `${posLabel(x, snapshot.platform)}s`));
-  const how = weight === 0.5 ? "halfway" : `${pct(weight)} of the way`;
-  const value = snapshot.settings.leagueType === "dynasty" ? "a FantasyCalc trade value this season (its redraft values, not the dynasty values shown here)" : "a FantasyCalc trade value";
+  const value =
+    snapshot.settings.leagueType === "dynasty" ? "a FantasyCalc trade value this season (its redraft values, not the dynasty values Offer Sheet uses for long-term worth)" : "a FantasyCalc trade value";
   const cap = blendCapWords();
-  return ` Then, for ${who} with ${value}, points per game are pulled ${how} toward what our model gives healthy players with about the same trade value, at most ${cap.up} up or ${cap.down} down, so a projection the trade market disagrees with counts for less; byes and injuries stay as projected (a player's breakdown shows both numbers).`;
+  return ` Then, for ${who} with ${value}, points per game are pulled ${blendHowFar(weight)} toward what our model gives healthy players with about the same trade value, at most ${cap.up} up or ${cap.down} down, so a projection the trade market disagrees with counts for less; byes and injuries stay as projected (a player's breakdown says which way his leans).`;
 }
 
 /**
  * "Trade values" in "How these numbers work" (§9; the file header, "FantasyCalc's fallbacks"): FantasyCalc's values in
  * the league's format, from a saved list's day when one stands in, or every value our own estimate in the curve
- * fallback (no long-term value in dynasty and keeper leagues then: benefit.futureValuesLoaded); a keeper league's two
- * lists; the format's substitutions; and how players FantasyCalc doesn't value got theirs (unvaluedText).
+ * fallback (no long-term value in dynasty and keeper leagues then: benefit.futureValuesLoaded); that Offer Sheet uses
+ * them in its own numbers and never shows them (planner reply to Checkpoint 7a, 5.4: VALUES_HIDDEN_TEXT, the privacy
+ * policy's words); a keeper league's two lists; the format's substitutions; and how players FantasyCalc doesn't value got
+ * theirs (unvaluedText).
  */
 function valuesExplainText(c: ExplainContext): string {
   const { snapshot, model, values, fallback } = c;
@@ -2334,7 +2278,7 @@ function valuesExplainText(c: ExplainContext): string {
   const substitutions = values.substitutions.length ? ` Where your league doesn't match one of FantasyCalc's formats exactly: ${values.substitutions.join("; ")}.` : "";
   if (fallback?.kind === "curve") {
     const longTerm = snapshot.settings.leagueType === "redraft" ? "" : " Long-term value is left out of trade ideas until FantasyCalc is back: our estimates say nothing about later seasons.";
-    return `Every value is our own estimate for now (the note at the top of the page says why), in your league's format (${values.label}): each player's comes from his projected points for the rest of the season, on a curve fitted to FantasyCalc's list from ${day}, marked ~.${longTerm}${substitutions}${unvaluedText(snapshot, model, true)}`;
+    return `Every trade value is our own estimate for now (the note at the top of the page says why), in your league's format (${values.label}): each player's comes from his projected points for the rest of the season, on a curve fitted to FantasyCalc's list from ${day}. ${VALUES_HIDDEN_ESTIMATED_TEXT}${longTerm}${substitutions}${unvaluedText(snapshot, model, true)}`;
   }
   const saved = fallback?.kind === "saved" ? `, from its list of ${day}: FantasyCalc didn't answer this time, so the newest list we saved stands in` : "";
   const keeper = c.keeper
@@ -2342,7 +2286,27 @@ function valuesExplainText(c: ExplainContext): string {
       ? " In a keeper league these are its redraft values, how managers see a trade this season; its dynasty values, for long-term worth, didn't load this time."
       : " In a keeper league these are its redraft values, how managers see a trade this season; its dynasty values, for long-term worth, come into play with trade suggestions."
     : "";
-  return `Values come from FantasyCalc in your league's format (${values.label})${saved}.${keeper}${substitutions}${unvaluedText(snapshot, model)}`;
+  return `Trade values come from FantasyCalc in your league's format (${values.label})${saved}. ${VALUES_HIDDEN_TEXT}${keeper}${substitutions}${unvaluedText(snapshot, model)}`;
+}
+
+/**
+ * A playoff-week weight as the page prints it, one decimal (planner reply to Checkpoint 7a, §6.1): "2.0", "1.3" (the
+ * fallback 1.25), "0.5". The Settings page prints it the same (src/components/settings/settingsView.ts playoffWeightText;
+ * src/components/settings/settingsView.test.ts checks the two agree).
+ */
+export function playoffWeightLabel(omega: number): string {
+  return Number.isFinite(omega) ? omega.toFixed(1) : "1.0";
+}
+
+/**
+ * Where the playoff weight comes from, in the explainer's brackets (the file header): set from my odds (it can be below 1:
+ * a playoff week's points can matter less than a regular-season week's), or the default when it couldn't be measured;
+ * null (no brackets) for a model that doesn't say (built before Phase 7b, without LeagueModel.playoffWeightAuto).
+ */
+function playoffWeightWhy(basis: "auto" | "fallback" | null): string | null {
+  if (basis === "fallback") return "the default weight: it couldn't be set from your odds this time";
+  if (basis === "auto") return "set automatically from how much a point in a playoff week moves your odds next to one in a regular-season week";
+  return null;
 }
 
 /**
@@ -2365,7 +2329,8 @@ function buildExplain(c: ExplainContext): ExplainItem[] {
     : c.source.sleeperWeekly
       ? ` Each week is then adjusted for the matchup (between ${p.weekShapeClamp[0]}× and ${p.weekShapeClamp[1]}× his usual).`
       : " There's no week-to-week matchup adjustment: it comes from Sleeper's weekly projections, which didn't load.";
-  const lineupPoints = `starting-lineup points over the rest of the season${c.playoffWeighted ? `, with playoff weeks counted ${c.playoffWeight}× (they decide titles), so they don't add up exactly with ROS points` : ""}`;
+  const why = playoffWeightWhy(c.playoffWeightBasis);
+  const lineupPoints = `starting-lineup points over the rest of the season${c.playoffWeighted ? `, with playoff weeks counted ${c.playoffWeight}×${why ? ` (${why})` : ""}, so they don't add up exactly with ROS points` : ""}`;
   const items: ExplainItem[] = [
     {
       title: "Projected points",
@@ -2449,7 +2414,8 @@ function streamingExplainText(snapshot: LeagueSnapshot, allocated: boolean): str
 /**
  * "Free-agent pickups" in "How these numbers work" (§7 V*): how the optimizer picks (one move at a time, the most lineup
  * points in the lineups it judges moves in: with injuries and byes simulated, so depth counts, when it judges in scenario
- * lineups, else projected lineups (pickupsJudgedInScenarios; review of Phase 4), at least faMinGain, at most faMaxMoves),
+ * lineups, else projected lineups (pickupsJudgedInScenarios; review of Phase 4), at least the model's faMinGain (one
+ * decimal: LeagueModel.lineupThresholds, config's × Σω ÷ Σω₀ under the automatic playoff weight), at most faMaxMoves),
  * ⚠️ whom a pickup drops in a near-tie (config.lineups.dropNearTieWeekly; optimizer.ts's header; verification of the final
  * review of Phase 4c, finding VF-1: only where the engine applies it, without the dynasty guard's long-term values),
  * what it never touches, the dynasty guard in dynasty and keeper leagues (only when their dynasty values loaded, as the
@@ -2489,7 +2455,7 @@ function pickupsExplainText(snapshot: LeagueSnapshot, model: LeagueModel, curve 
   // where the engine applies them: without long-term values (the dynasty guard off), as roster legality does.
   const tie = config.lineups.dropNearTieWeekly;
   const nearTie = !guardOn && Number.isFinite(tie) && tie > 0 ? ` When the player it would drop has trade value and dropping a less valuable one instead costs at most ${fmtNum(tie)} points a week, the less valuable one goes (any player worth less than the best free agent no team is expected to pick up counts as worth that much), so a pickup can add a little less.` : "";
-  return `Each team is measured after the free-agent pickups that would help it, made one at a time: each time the add (dropping a player, or into an open roster spot) that adds ${most}, as long as it adds at least ${o.faMinGain}, up to ${plural(o.faMaxMoves, "pickup")}.${nearTie} ${capitalize(positionPlural("K", platform))} and ${positionPlural("DEF", platform)} are never picked up (they're streamed or kept), nor is a position the team streams, and a player its starting lineup needs is never dropped.${dynasty} Lineup cost, trade chips and partners all start from those rosters, so a trade never gets credit for a pickup a team could make anyway.${shared}`;
+  return `Each team is measured after the free-agent pickups that would help it, made one at a time: each time the add (dropping a player, or into an open roster spot) that adds ${most}, as long as it adds at least ${fmtNum(model.lineupThresholds?.faMinGain ?? o.faMinGain, 1)}, up to ${plural(o.faMaxMoves, "pickup")}.${nearTie} ${capitalize(positionPlural("K", platform))} and ${positionPlural("DEF", platform)} are never picked up (they're streamed or kept), nor is a position the team streams, and a player its starting lineup needs is never dropped.${dynasty} Lineup cost, trade chips and partners all start from those rosters, so a trade never gets credit for a pickup a team could make anyway.${shared}`;
 }
 
 /** How free agents are shared out (LeagueModel.faAllocation.basis), in words: the waiver order, FAAB, or the biggest gain first. */
@@ -2563,9 +2529,10 @@ export function buildLeagueView(input: LeagueViewInput): LeagueView {
   const estimatedWarning = inputs.warnings.find((w) => w.code === VALUES_ESTIMATED_CODE);
   const valuesEstimated = fallback?.kind === "curve" || estimatedWarning !== undefined;
   const savedNote = fallback?.kind === "saved" ? fantasyCalcFallbackText(fallback) : null;
-  // Lineup points weight playoff weeks (the model's: the user's playoff weight setting) when any is among the counted weeks.
-  const playoffWeight: number = model.playoffWeight ?? config.lineups.playoffWeight;
-  const playoffWeighted = playoffWeight !== 1 && countedWeeks.some((w) => model.playoffWeeks.includes(w));
+  // Lineup points weight playoff weeks (the model's weight, set automatically: LeagueModel.playoffWeight) when any is among
+  // the counted weeks. The model's playoff weight, one decimal as the Settings page prints it (the file header).
+  const playoffWeight = playoffWeightLabel(model.playoffWeight ?? config.lineups.playoffWeight);
+  const playoffWeighted = playoffWeight !== "1.0" && countedWeeks.some((w) => model.playoffWeeks.includes(w));
   const weighting = playoffWeighted ? `(playoffs count ${playoffWeight}×)` : null;
   const nowMs = Date.parse(input.now);
   const ctx: PlayerContext = {
@@ -2576,8 +2543,6 @@ export function buildLeagueView(input: LeagueViewInput): LeagueView {
     playoffWeeks: new Set(model.playoffWeeks),
     hasPlayoffs: model.playoffWeeks.length > 0,
     myTeamId,
-    blendMedians: blendMediansOf(snapshot, model),
-    valuesEstimated,
   };
   const stamp = (iso: string) => formatShortDateTime(iso, timeZone, input.now);
 
@@ -2701,8 +2666,24 @@ export function buildLeagueView(input: LeagueViewInput): LeagueView {
     { label: `League data from ${platformLabel}`, value: stamp(snapshot.fetchedAt) },
     ...inputs.sources.map((s) => ({ label: s.source, value: `${stamp(s.fetchedAt)}${s.stale ? " (a saved copy: the live fetch failed)" : ""}` })),
   ];
-  // The curve fallback's warning is the banner (valuesBanner), not one more line in the warnings box.
-  const warnings = [...new Set([...inputs.warnings.filter((w) => w.code !== VALUES_ESTIMATED_CODE).map((w) => w.message), ...model.warnings])];
+  // The yellow banner: the notices alone (src/lib/notices.ts; Phase 7b, planner reply to Checkpoint 7a, §5.1), judged with
+  // this League model: a player's data problem matters on my roster, or for a likely starter on any roster (likelyStarters
+  // after its pickups, so a free agent a team would pick up and start counts for that team; a player without projections,
+  // whom that rule can't pick, by his team's need at his position, the positions it streams, or FantasyCalc's value). The
+  // curve fallback's notice is the values banner (valuesBanner), not one more line.
+  const notices = buildDataNotices({
+    snapshot,
+    myTeamId,
+    inputs,
+    model: {
+      warnings: model.warnings,
+      players: model.players,
+      likelyStarters: () => new Map(snapshot.teams.flatMap((t) => likelyStarters(snapshot, model, t.id, { afterPickups: true }).map((id) => [id, t.id] as const))),
+      streams: (teamId) => model.streaming?.byTeam[teamId]?.positions ?? [],
+    },
+  })
+    .notices.filter((n) => !n.key.startsWith(VALUES_ESTIMATED_CODE))
+    .map((n) => n.text);
   const valuesBanner =
     fallback?.kind === "curve"
       ? { title: VALUES_ESTIMATED_TITLE, text: fantasyCalcFallbackText(fallback) }
@@ -2712,7 +2693,7 @@ export function buildLeagueView(input: LeagueViewInput): LeagueView {
 
   // Standings, odds and my remaining schedule (§8). The NFL's last week as the engine reads it (league.ts nflLastWeek).
   const lastNflWeek = lastNflWeekOf(inputs);
-  const oddsContext: OddsContext = { snapshot, model, odds, teamById, teamName, myTeamId, warnings, lastNflWeek };
+  const oddsContext: OddsContext = { snapshot, model, odds, teamById, teamName, myTeamId, warnings: notices, lastNflWeek };
   const standings = standingsView(oddsContext);
   const schedule = scheduleView(oddsContext);
 
@@ -2771,13 +2752,14 @@ export function buildLeagueView(input: LeagueViewInput): LeagueView {
       from,
       playoffWeighted,
       playoffWeight,
+      playoffWeightBasis: model.playoffWeightAuto?.basis ?? null,
       odds,
       schedule: (schedule?.rows.length ?? 0) > 0,
       fallback,
       asRostersStandShown: (standings?.mine?.asRostersStand ?? null) !== null,
     }),
     sources,
-    warnings,
+    notices,
     // A saved list's date shows next to the values credit (header.valuesNote), so the inputs' note isn't repeated.
     notes: pageNotes(inputs.notes, [...values.said, ...(savedNote ? [savedNote] : [])]),
     over: weeks.length === 0,

@@ -10,27 +10,35 @@ import { describe, expect, it } from "vitest";
 import { config } from "@/engine/config";
 import type { LeagueSnapshot, Pos, SlotDef } from "@/engine/model";
 import { defaultTradeSettings, type TradeSettings } from "@/engine/settings";
+import type { PlayoffWeightAuto } from "@/engine/leagueModel";
+import { playoffWeightLabel } from "@/lib/leagueView";
+import { GOAL_LABEL as FINDER_GOAL_LABEL } from "@/lib/tradeView";
 import {
+  FALLBACK_WORDS,
   GOAL_LABEL,
   LAMBDA_ESTIMATED_NOTE,
   PROTECT_VALUE_ESTIMATED_NOTE,
+  PROTECT_VALUE_HELP,
   applySettingsEdit,
   buildSettingsView,
   goalHelp,
   lambdaStart,
   lambdaText,
+  playoffWeightText,
   startablePositions,
+  type PlayoffWeightRead,
   type SettingsView,
 } from "./settingsView";
 import { LINEUP, PLAYERS, snapshot } from "./testFixtures";
 
-const view = (settings: Partial<TradeSettings> = {}, opts: { myTeamId?: string | null; snap?: LeagueSnapshot; stored?: boolean; valuesEstimated?: boolean } = {}): SettingsView =>
+const view = (settings: Partial<TradeSettings> = {}, opts: { myTeamId?: string | null; snap?: LeagueSnapshot; stored?: boolean; valuesEstimated?: boolean; playoffWeight?: PlayoffWeightRead } = {}): SettingsView =>
   buildSettingsView({
     snapshot: opts.snap ?? snapshot(),
     myTeamId: opts.myTeamId === undefined ? "1" : opts.myTeamId,
     settings: { ...defaultTradeSettings(), ...settings },
     stored: opts.stored ?? false,
     ...(opts.valuesEstimated !== undefined ? { valuesEstimated: opts.valuesEstimated } : {}),
+    ...(opts.playoffWeight !== undefined ? { playoffWeight: opts.playoffWeight } : {}),
   });
 
 const checked = <T>(choices: { value: T; checked: boolean }[]) => choices.filter((c) => c.checked).map((c) => c.value);
@@ -75,14 +83,34 @@ describe("the league's choices", () => {
     expect(startablePositions(snapshot())).toEqual(["QB", "RB", "WR", "TE", "K", "DEF"]);
   });
 
-  it("offers playoff weights in quarter steps from 1× to 2×, the default marked, and a saved value off those steps", () => {
-    const v = view();
-    expect(v.playoffWeight.choices.map((c) => c.label)).toEqual(["1×", "1.25×", "1.5×", "1.75×", "2×"]);
-    expect(checked(v.playoffWeight.choices)).toEqual([config.lineups.playoffWeight]);
-    expect(v.playoffWeight.choices.find((c) => c.value === config.lineups.playoffWeight)?.detail).toBe("default");
-    const odd = view({ playoffWeight: 1.1 });
-    expect(odd.playoffWeight.choices.map((c) => c.label)).toEqual(["1×", "1.1×", "1.25×", "1.5×", "1.75×", "2×"]);
-    expect(checked(odd.playoffWeight.choices)).toEqual([1.1]);
+  it("shows the playoff weight read-only, set automatically from my odds, one decimal, with what it affects (planner reply to Checkpoint 7a, §6.1)", () => {
+    const help =
+      "It only affects shortlists, free-agent rankings (and so the pickups your odds count), needs and trade chips. Final scores come from playing out the season, which weighs each week by its real effect on your odds.";
+    const auto = (omega: number): PlayoffWeightAuto => ({ omega, basis: "auto", reason: null, goal: "title", gain: 3, sims: 5000, regularPerPoint: 0.5, playoffPerPoint: omega * 0.5, ratio: omega, clamped: null, runs: null });
+    const fallback = (reason: PlayoffWeightAuto["reason"]): PlayoffWeightAuto => ({ omega: config.lineups.playoffWeight, basis: "fallback", reason, goal: "title", gain: 3, sims: 0, regularPerPoint: null, playoffPerPoint: null, ratio: null, clamped: null, runs: null });
+    // Known: the League model's weight, one decimal as the League page labels it.
+    expect(view({}, { playoffWeight: { kind: "known", omega: 2, auto: auto(2) } }).playoffWeight).toEqual({
+      label: "Playoff weeks count",
+      value: "2.0×, set automatically from your odds.",
+      help,
+      text: `Playoff weeks count: 2.0×, set automatically from your odds. ${help}`,
+    });
+    expect(view({}, { playoffWeight: { kind: "known", omega: 0.55, auto: auto(0.55) } }).playoffWeight.value).toBe("0.6×, set automatically from your odds.");
+    // The fallback says why, in plain words (the default 1.25 prints 1.3).
+    expect(view({}, { playoffWeight: { kind: "known", omega: 1.25, auto: fallback("noTeam") } }).playoffWeight.value).toBe("1.3× (the default: pick your team on the Import Report to set it from your odds).");
+    for (const reason of ["noTeam", "noRegularWeeks", "noPlayoffWeeks", "noOdds", "titleUnknown", "noEffect", "notFinite"] as const) {
+      const value = view({}, { playoffWeight: { kind: "known", omega: 1.25, auto: fallback(reason) } }).playoffWeight.value;
+      expect(value).toBe(`1.3× (the default: ${FALLBACK_WORDS[reason]}).`);
+      expect(value).not.toMatch(/noTeam|noOdds|undefined|null/);
+    }
+    // Being worked out, or not known yet (no fresh saved inputs: the League page sets it).
+    expect(view({}, { playoffWeight: { kind: "working" } }).playoffWeight.value).toBe("set automatically from your odds. Working it out…");
+    expect(view().playoffWeight.text).toBe(`Playoff weeks count: set automatically from your odds when the League page loads. ${help}`);
+    expect(view({}, { playoffWeight: { kind: "unknown" } }).playoffWeight).toEqual(view().playoffWeight);
+    // The same one decimal as the League page's labels (src/lib/leagueView.ts playoffWeightLabel).
+    for (const w of [0.5, 1, 1.25, 1.6, 2, 3.95, 4]) expect(playoffWeightText(w)).toBe(playoffWeightLabel(w));
+    // No control any more: nothing to pick.
+    expect(JSON.stringify(view().playoffWeight)).not.toContain("choices");
   });
 
   it("offers 1 to the allowed maximum players per side, the default marked", () => {
@@ -116,9 +144,14 @@ describe("the league's choices", () => {
       { value: "high", label: "High", checked: false },
     ]);
     expect(config.benefit.protectValueDefault).toBe("medium");
+    // In points a week (planner reply to Checkpoint 7a, §2 question 5), with no exchange rate between trade value and points
+    // (review of Phase 7b): with one, the Analyzer's "Trade value: −0.4 pts/week equivalent." read back as the trade's value
+    // comparison (5.4). The same words at every level.
     expect(redraft.protectValue?.help).toBe(
-      "How much Helps you counts trade value, so you keep some for later deals before your trade deadline: giving up more value than you get lowers it, getting more raises it. High protects your value the most; Low goes for the biggest lineup gain now. Your bench's worth as cover for injuries and byes counts either way.",
+      "How much Helps you counts trade value, so you keep some for later deals before your trade deadline: giving up more value than you get lowers it, getting more raises it, in projected points a week, like a change to your lineup. High protects your value the most; Low goes for the biggest lineup gain now. Your bench's worth as cover for injuries and byes counts either way.",
     );
+    for (const protectValue of ["low", "high"] as const) expect(view({ protectValue }).protectValue?.help).toBe(PROTECT_VALUE_HELP);
+    expect(PROTECT_VALUE_HELP).not.toMatch(/\d/);
     expect(checked(view({ protectValue: "high" }).protectValue?.choices ?? [])).toEqual(["high"]);
     // Dynasty and keeper leagues have no market term in Helps you (long-term value counts instead): no choice there.
     expect(view({}, { snap: snapshot({ leagueType: "dynasty" }) }).protectValue).toBeNull();
@@ -127,29 +160,35 @@ describe("the league's choices", () => {
     expect(JSON.stringify(redraft.protectValue)).not.toMatch(/κ|kappa|g_mkt|market term/i);
   });
 
-  it("offers 'What matters most' (Win the title, the default / Balanced / Make the playoffs) in every league type, each with its weights from config (planner reply to Checkpoint 4b, change 8)", () => {
+  it("offers 'What does your league reward?' (Only the champion, the default / Top finishers too / Making the playoffs) in every league type, each with its weights from config (planner reply to Checkpoint 4b, change 8; 7a, 5.2)", () => {
     const pct = (x: number) => `${Math.round(x * 100)}%`;
     const g = config.benefit.goals;
     const redraft = view();
+    expect(redraft.goal.legend).toBe("What does your league reward?");
     expect(redraft.goal.choices).toEqual([
-      { value: "title", label: "Win the title", detail: "default", help: `Weighs your title odds most (${pct(g.title.title)}), playoff odds ${pct(g.title.playoffs)}.`, checked: true },
-      { value: "balanced", label: "Balanced", help: `Weighs your title odds ${pct(g.balanced.title)} and your playoff odds ${pct(g.balanced.playoffs)}.`, checked: false },
-      { value: "playoffs", label: "Make the playoffs", help: `Weighs your playoff odds most (${pct(g.playoffs.playoffs)}), title odds ${pct(g.playoffs.title)}.`, checked: false },
+      { value: "title", label: "Only the champion", detail: "default", help: `Weighs your title odds most (${pct(g.title.title)}), playoff odds ${pct(g.title.playoffs)}.`, checked: true },
+      { value: "balanced", label: "Top finishers too", help: `Weighs your title odds ${pct(g.balanced.title)} and your playoff odds ${pct(g.balanced.playoffs)}.`, checked: false },
+      { value: "playoffs", label: "Making the playoffs", help: `Weighs your playoff odds most (${pct(g.playoffs.playoffs)}), title odds ${pct(g.playoffs.title)}.`, checked: false },
     ]);
+    // The same labels as the Trade Finder's settings line (src/lib/tradeView.ts, kept apart for this page's bundle).
+    expect(GOAL_LABEL).toEqual(FINDER_GOAL_LABEL);
     // The planner's words for the default, with today's config.
     expect(goalHelp("title")).toBe("Weighs your title odds most (85%), playoff odds 15%.");
     expect(config.benefit.goalDefault).toBe("title");
-    expect(GOAL_LABEL).toEqual({ title: "Win the title", balanced: "Balanced", playoffs: "Make the playoffs" });
+    expect(GOAL_LABEL).toEqual({ title: "Only the champion", balanced: "Top finishers too", playoffs: "Making the playoffs" });
     // The numbers follow the weights given, never fixed ones.
     expect(goalHelp("playoffs", { playoffs: 0.6, title: 0.4 })).toBe("Weighs your playoff odds most (60%), title odds 40%.");
-    expect(redraft.goal.help).toBe("Helps you scores a trade by how much it raises your title and playoff odds. This sets which of the two counts more.");
+    // The planner's helper line last: no auto-switching by odds (planner reply to Checkpoint 7a, 5.2).
+    expect(redraft.goal.help).toBe(
+      "Helps you scores a trade by how much it raises your title and playoff odds. Pick what your league's prizes reward. On the bubble? Keep “Only the champion.” It already counts getting into the playoffs.",
+    );
     expect(checked(view({ goal: "playoffs" }).goal.choices)).toEqual(["playoffs"]);
     // Dynasty and keeper leagues too: it weighs this season's part, and the help says where later seasons are set.
     for (const leagueType of ["dynasty", "keeper"] as const) {
       const v = view({ goal: "balanced" }, { snap: snapshot({ leagueType }) });
       expect(checked(v.goal.choices)).toEqual(["balanced"]);
       expect(v.goal.help).toBe(
-        "For this season, Helps you scores a trade by how much it raises your title and playoff odds (how much later seasons count is set under Win now or build for the future). This sets which of the two counts more.",
+        "For this season, Helps you scores a trade by how much it raises your title and playoff odds (how much later seasons count is set under Win now or build for the future). Pick what your league's prizes reward. On the bubble? Keep “Only the champion.” It already counts getting into the playoffs.",
       );
     }
     // Plain words: no Greek letters or model terms.
@@ -164,7 +203,7 @@ describe("the league's choices", () => {
     );
     expect(view({}, { snap: snapshot({ leagueType: "dynasty" }) }).lambda?.estimatedNote).toBeNull();
     for (const leagueType of ["dynasty", "keeper"] as const) expect(view({}, { snap: snapshot({ leagueType }), valuesEstimated: true }).lambda?.estimatedNote).toBe(LAMBDA_ESTIMATED_NOTE);
-    // What matters most still counts then (the odds don't depend on trade values): no note.
+    // What the league rewards still counts then (the odds don't depend on trade values): no note.
     expect(JSON.stringify(view({}, { valuesEstimated: true }).goal)).not.toContain("FantasyCalc");
   });
 
@@ -278,10 +317,9 @@ describe("applySettingsEdit", () => {
   const base = defaultTradeSettings();
   const name = (id: string) => PLAYERS.find((p) => p.id === id)?.name ?? id;
 
-  it("toggles streamed positions, and sets the weight, λ (null = Automatic), players per side and the include flags", () => {
+  it("toggles streamed positions, and sets λ (null = Automatic), players per side and the include flags", () => {
     expect(applySettingsEdit(base, { kind: "stream", pos: "QB", on: true }).settings.streamPositions).toEqual(["K", "DEF", "QB"]);
     expect(applySettingsEdit(base, { kind: "stream", pos: "K", on: false }).settings.streamPositions).toEqual(["DEF"]);
-    expect(applySettingsEdit(base, { kind: "playoffWeight", value: 1.75 }).settings.playoffWeight).toBe(1.75);
     expect(applySettingsEdit(base, { kind: "lambda", value: 0.6 }).settings.lambda).toBe(0.6);
     expect(applySettingsEdit({ ...base, lambda: 0.6 }, { kind: "lambda", value: null }).settings.lambda).toBeNull();
     expect(applySettingsEdit(base, { kind: "maxPerSide", value: 3 }).settings.maxPerSide).toBe(3);
@@ -294,8 +332,10 @@ describe("applySettingsEdit", () => {
   });
 
   it("normalizes: a value out of range falls back to the default, a position nobody can stream is ignored", () => {
-    expect(applySettingsEdit(base, { kind: "playoffWeight", value: 4 }).settings.playoffWeight).toBe(config.lineups.playoffWeight);
     expect(applySettingsEdit(base, { kind: "maxPerSide", value: 7 }).settings.maxPerSide).toBe(config.search.maxPerSide);
+    // An older version's playoff weight (gone since the planner's reply to Checkpoint 7a, §6.1) loads without error and is dropped.
+    const old = { ...base, playoffWeight: 1.75 } as unknown as TradeSettings;
+    expect(applySettingsEdit(old, { kind: "maxPerSide", value: 3 }).settings).toEqual({ ...base, maxPerSide: 3 });
     expect(applySettingsEdit(base, { kind: "stream", pos: "RB", on: true }).settings.streamPositions).toEqual(["K", "DEF"]);
     // A level that doesn't exist (an old page, a tampered store) falls back to the default.
     expect(applySettingsEdit(base, { kind: "protectValue", value: "extreme" as unknown as "high" }).settings.protectValue).toBe(config.benefit.protectValueDefault);

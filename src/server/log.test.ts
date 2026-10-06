@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { newRequestScope, runInRequestScope } from "./deadline";
 import { logLimits } from "./limits";
-import { LogEventSchema, StoredLogEventSchema, errorNameOf, flushRequestLogs, logDayKey, logDayTtlMs, logDevDetail, logEvent, logStore, withTimeout, writeLogEntries } from "./log";
+import { LogEventSchema, StoredLogEventSchema, errorNameOf, flushRequestLogs, logDayKey, logDayTtlMs, logDevDetail, logEvent, logStore, logThrottled, resetLogThrottleForTests, withTimeout, writeLogEntries } from "./log";
 import { FakeRedis, type RedisLike } from "./redis";
 
 const DAY = 24 * 60 * 60_000;
@@ -14,6 +14,7 @@ function lines(spy: { mock: { calls: unknown[][] } }): string[] {
 
 afterEach(() => {
   vi.useRealTimers();
+  resetLogThrottleForTests();
 });
 
 describe("logEvent: the allowlist (track RL: logs never record credentials or league data)", () => {
@@ -81,6 +82,59 @@ describe("logEvent: the allowlist (track RL: logs never record credentials or le
     logDevDetail(err, { NODE_ENV: "development" });
     expect(lines(spy)).toHaveLength(1);
     expect(lines(spy)[0]).toMatch(/^\[offer-sheet\] development only: bad cookie espn_s2=\[redacted\] for \{SWID\}$/);
+  });
+});
+
+describe("lines a visitor can set off at will (B4 security review: a flood of them pushed a day's real lines out)", () => {
+  it("one rate_limited line every logLimits.refusalEveryMs per instance, whatever its route", () => {
+    expect([logLimits.refusalEveryMs, logLimits.repeatEveryMs, logLimits.keepPerDay]).toEqual([600_000, 60_000, 1_000]);
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    for (let i = 0; i < 50; i++) logEvent({ route: i % 2 ? "session" : "health", event: "rate_limited", code: "RATE_LIMITED", status: 429 }, { now: T0 + i * 1_000, store: null });
+    expect(lines(spy)).toEqual(['{"route":"health","event":"rate_limited","code":"RATE_LIMITED","status":429}']);
+    logEvent({ route: "cron", event: "rate_limited", code: "RATE_LIMITED", status: 429 }, { now: T0 + logLimits.refusalEveryMs, store: null });
+    expect(lines(spy)).toHaveLength(2);
+    // A whole day at most 144, against the store's 1,000 a day.
+    expect((24 * 60 * 60_000) / logLimits.refusalEveryMs).toBe(144);
+  });
+
+  it("one line a minute of each repeating failure (route, event, code, platform, status, error name); other lines are never throttled", () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const down = { event: "error_response", code: "SOURCE_DOWN", platform: "espn", status: 502 } as const;
+    for (let i = 0; i < 100; i++) logEvent({ route: "import", ...down, ms: i }, { now: T0 + i * 100, store: null });
+    logEvent({ route: "import", ...down, platform: "sleeper" }, { now: T0 + 1, store: null }); // another platform: its own line
+    logEvent({ route: "model", ...down }, { now: T0 + 2, store: null }); // another route
+    logEvent({ route: "import", event: "unexpected_import", platform: "espn", errorName: "TypeError" }, { now: T0 + 3, store: null });
+    logEvent({ route: "import", event: "unexpected_import", platform: "espn", errorName: "TypeError" }, { now: T0 + 4, store: null });
+    logEvent({ route: "import", event: "deadline_slow", platform: "espn", ms: 45_000 }, { now: T0 + 5, store: null });
+    logEvent({ route: "import", event: "deadline_slow", platform: "espn", ms: 45_001 }, { now: T0 + 6, store: null });
+    for (let i = 0; i < 5; i++) logEvent({ event: "cache_write_failed", errorName: "Error" }, { now: T0 + 7, store: null });
+    expect(lines(spy).map((l) => JSON.parse(l) as { event: string })).toHaveLength(3 + 1 + 1 + 5);
+    // A minute on, the outage shows again.
+    logEvent({ route: "import", ...down }, { now: T0 + logLimits.repeatEveryMs, store: null });
+    expect(lines(spy)).toHaveLength(11);
+    expect(logThrottled({ route: "import", ...down }, T0 + logLimits.repeatEveryMs + 1)).toBe(true);
+    expect(logThrottled({ route: "server", event: "budget_exhausted", platform: "espn" }, T0)).toBe(false);
+  });
+
+  it("a flood never reaches the store: the review's 25 refused saves a window wrote 50 lines, now 2", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const redis = new FakeRedis(() => T0);
+    const scope = newRequestScope("session", T0);
+    await runInRequestScope(scope, async () => {
+      for (let i = 0; i < 25; i++) {
+        logEvent({ event: "unexpected_session_save", platform: "espn", errorName: "Error" }, { now: T0 + i, store: redis, env: VERCEL });
+        logEvent({ event: "error_response", code: "INTERNAL", platform: "espn", status: 500 }, { now: T0 + i, store: redis, env: VERCEL });
+      }
+    });
+    await flushRequestLogs(scope, { store: redis, env: VERCEL, now: T0 });
+    expect(await redis.lrange("os:preview:log:2026-10-04", 0, -1)).toHaveLength(2);
+  });
+
+  it("stays bounded: past logLimits.throttleMaxKeys lines remembered, the oldest is forgotten", () => {
+    for (let i = 0; i <= logLimits.throttleMaxKeys; i++) expect(logThrottled({ route: "import", event: "error_response", status: 500 + (i % 99), code: `C${i}` }, T0)).toBe(false);
+    // The first one was forgotten (logged again), the last one is still remembered.
+    expect(logThrottled({ route: "import", event: "error_response", status: 500, code: "C0" }, T0 + 1)).toBe(false);
+    expect(logThrottled({ route: "import", event: "error_response", status: 500 + (logLimits.throttleMaxKeys % 99), code: `C${logLimits.throttleMaxKeys}` }, T0 + 1)).toBe(true);
   });
 });
 

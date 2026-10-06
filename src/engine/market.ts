@@ -505,7 +505,7 @@ export function noteDay(iso: string): string | null {
 export function fantasyCalcFallbackText(fallback: NonNullable<MarketInputs["fallback"]>, cfg: FallbackTextConfig = config.market): string {
   const day = noteDay(fallback.listDate) ?? "an earlier day";
   if (fallback.kind === "saved") return `Trade values from ${day}: FantasyCalc didn't answer.`;
-  return `Trade values are our own estimates, not FantasyCalc's: FantasyCalc didn't answer, and the newest list we have, from ${day}, is more than ${cfg.fantasyCalcStaleDays} days old. Each player's value comes from his projected points for the rest of the season, on a curve fitted to that list, so an injured player's value counts only the games he's expected to play. Read trade values as rough.`;
+  return `Trade values are our own estimates, not FantasyCalc's: FantasyCalc didn't answer, and the newest list we have, from ${day}, is more than ${cfg.fantasyCalcStaleDays} days old. Each player's value comes from his projected points for the rest of the season, on a curve fitted to that list, so an injured player's value counts only the games he's expected to play. Read the chance they accept as rough: it weighs trade value.`;
 }
 
 // ---------------------------------------------------------------------------------------------

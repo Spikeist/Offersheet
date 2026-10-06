@@ -28,7 +28,7 @@ Written for the planner (who can't open the app) and Parker. Below is the full t
 
 ## Choices made in this pass (for the planner)
 
-- **About 1,250 words, not 1,000.** The detailed part (everything after the short version) is 1,233 words as the app shows it today, and 1,244 once FantasyCalc's values are gone and the page says so. It was 3,042 at Checkpoint 7a and 1,286 after the first pass. The review cut the repeats of the short version (the limits sentence, the cookie sentence), the log's list of fields, the Export line and two re-read details. It added what the review found missing: what the server holds in memory and when it goes, the cookie after a restored session, and the Gmail inbox. What's left is what the reply asked to keep (what's collected, where it goes, how long, how to delete it, cookies, logs, providers, children, contact) plus the facts the reply added. The next cuts would drop facts, such as the list of what an anonymous copy holds. A test holds the detailed part at 1,250 words, so making it longer needs your OK. The short version is 288 words.
+- **About 1,250 words, not 1,000.** The detailed part (everything after the short version) is 1,244 words as the app shows it today, and 1,244 once FantasyCalc's values are gone and the page says so. It was 3,042 at Checkpoint 7a and 1,286 after the first pass. The review cut the repeats of the short version (the limits sentence, the cookie sentence), the log's list of fields, the Export line and two re-read details. It added what the review found missing: what the server holds in memory and when it goes, the cookie after a restored session, and the Gmail inbox. What's left is what the reply asked to keep (what's collected, where it goes, how long, how to delete it, cookies, logs, providers, children, contact) plus the facts the reply added. The next cuts would drop facts, such as the list of what an anonymous copy holds. A test holds the detailed part at 1,250 words, so making it longer needs your OK. The short version is 288 words.
 - **The anonymous copy's goal setting** is described by what it does ("how you weigh the title against the playoffs"), not by its label, since Checkpoint 7b renames the setting ("What does your league reward?"). Its scoring fields read "main scoring settings" (points per catch, per passing touchdown and the tight-end premium).
 - **"About 13 months"** for the daily totals: the counters are kept 400 days after their day, a little over 13 months.
 - **"Your part"** is a list of rules ("When you use it, you agree to these rules:"), so the planner's "don't use Offer Sheet to collect information about other people" fits as written; the other "not …" items now read "don't …".
@@ -118,7 +118,7 @@ We keep anonymous feedback for up to 12 months, then delete it. When we study it
 
 ### Other sources
 
-Our server also downloads public data: player lists, projections and stats from Sleeper, the NFL schedule from ESPN, player ID maps from DynastyProcess, and trade values from FantasyCalc. These requests carry no names or IDs, only things like the season, the week and your league's format. If you follow a link to FantasyCalc, it can see that you came from Offer Sheet, but not from which page.
+Our server also downloads public data: player lists, projections and stats from Sleeper, the NFL schedule from ESPN, player ID maps from DynastyProcess, and trade values from FantasyCalc, which Offer Sheet uses in its own numbers but never shows. These requests carry no names or IDs, only things like the season, the week and your league's format. If you follow a link to FantasyCalc, it can see that you came from Offer Sheet, but not from which page.
 
 ### Logs
 
@@ -158,7 +158,7 @@ The numbers Offer Sheet works out are estimates: projections, playoff and title 
 
 ### Where the data comes from
 
-League data comes from ESPN and Sleeper, projections and stats from Sleeper and ESPN, trade values from FantasyCalc, player ID maps from DynastyProcess, and the NFL schedule from ESPN. ESPN's league data comes through an unofficial interface that ESPN doesn't support, so it can change or stop working at any time. Each of these services has its own terms, and your ESPN and Sleeper accounts stay under theirs.
+League data comes from ESPN and Sleeper, projections and stats from Sleeper and ESPN, trade values from FantasyCalc (Offer Sheet uses them in its own numbers and doesn't show them), player ID maps from DynastyProcess, and the NFL schedule from ESPN. ESPN's league data comes through an unofficial interface that ESPN doesn't support, so it can change or stop working at any time. Each of these services has its own terms, and your ESPN and Sleeper accounts stay under theirs.
 
 ### Not affiliated
 

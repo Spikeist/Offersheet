@@ -64,8 +64,11 @@ export const sleeperModelBodySchema = z.object({
   refresh: refreshField,
 });
 
+/** What a too-long espn_s2 is told (the schema below, and a value too long to keep: src/server/session.ts SessionTooLargeError). */
+export const ESPN_S2_TOO_LONG = "That espn_s2 value is too long.";
+
 /** Raw strings only; src/lib/espnCredentials.ts does the real checks (and the same ones in the browser). */
 export const espnSessionBodySchema = z.object({
-  espnS2: z.string({ error: "Paste your espn_s2 cookie." }).max(ESPN_S2_MAX_LENGTH + 100, "That espn_s2 value is too long."),
+  espnS2: z.string({ error: "Paste your espn_s2 cookie." }).max(ESPN_S2_MAX_LENGTH + 100, ESPN_S2_TOO_LONG),
   swid: z.string({ error: "Paste your SWID cookie." }).max(200, "That SWID is too long."),
 });

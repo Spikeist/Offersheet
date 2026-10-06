@@ -4,7 +4,7 @@
  * withRoute (another site's request refused, the per-IP "health" rate limit, the 10 s deadline, the log); it is never
  * charged to the daily work budget (src/server/budget.ts admissionUnits).
  *
- *   GET → 200 { status, environment, region, store, storeReason, storeCheck } (no-store)
+ *   GET → 200 { status, environment, region, store, storeReason, storeCheck, storeCheckAgeS } (no-store)
  *
  * - environment: Vercel's VERCEL_ENV ("preview", "production"), else "local"; region: VERCEL_REGION (e.g. "iad1"), else null.
  * - store: the process's cache (../_lib/deps.ts getServerCache): "shared" (this instance's memory in front of Upstash),
@@ -16,6 +16,10 @@
  *   only: an Upstash error's message can carry its address). It goes to Upstash directly, past the cache's breaker, so it
  *   says whether Upstash answers now. A GET or DEL of a millisecond or two from iad1 means the database sits in the same
  *   region (US East); another region takes tens of milliseconds. 3 Upstash commands a check.
+ * - storeCheckAgeS: how old that check is, in seconds (null without one). An instance checks the store at most once every
+ *   healthLimits.checkEveryMs (5 minutes) and answers with that check in between, requests at the same moment sharing one
+ *   (B4 security review: anyone may ask, and a check per request let one address spend thousands of the free plan's Upstash
+ *   commands a day). A new deployment's first answer is fresh.
  * - status: "degraded" on Vercel when the store isn't shared or its check failed (the app still works, on per-instance
  *   memory), else "ok".
  * Never a secret: no address, token, key, stored value or variable's content, only names of states and timings.
@@ -38,15 +42,21 @@ export interface HealthBody {
   store: ServerCacheKind;
   storeReason: ServerCacheReason | null;
   storeCheck: StoreCheck | null;
+  storeCheckAgeS: number | null;
 }
 
 export interface HealthOptions {
-  /** Test hooks: the environment, the process's cache, its Redis client, the clock (ms, fractional) and each step's wait. */
+  /**
+   * Test hooks: the environment, the process's cache, its Redis client, the clock that times each step (ms, fractional),
+   * each step's wait, the time of day (epoch ms) and how long a check stands (default healthLimits.checkEveryMs).
+   */
   env?: Env;
   server?: () => ServerCache;
   redis?: () => RedisLike | null;
   clock?: () => number;
   stepTimeoutMs?: number;
+  now?: () => number;
+  checkEveryMs?: number;
 }
 
 /** VERCEL_ENV as a plain lowercase word (keyPrefix's rule), else "local". */
@@ -87,19 +97,31 @@ async function checkStore(client: RedisLike, env: Env, clock: () => number, step
   }
 }
 
+/** A store check now: the process's Redis client (its error's name when it can't be built), then checkStore. */
+async function freshCheck(opts: HealthOptions, env: Env): Promise<StoreCheck | null> {
+  let client: RedisLike | null = null;
+  try {
+    client = (opts.redis ?? (() => getRedis()))();
+  } catch (err) {
+    return { ok: false, step: "set", errorName: errorNameOf(err) };
+  }
+  return client ? checkStore(client, env, opts.clock ?? (() => performance.now()), opts.stepTimeoutMs ?? healthLimits.stepTimeoutMs) : null;
+}
+
 export function createHealthHandler(opts: HealthOptions = {}): (request: Request) => Promise<Response> {
+  /** This instance's latest store check (see the header): when it began, and its result (shared while it runs). */
+  let latest: { at: number; check: Promise<StoreCheck | null> } | undefined;
   return async function health(): Promise<Response> {
     const env = opts.env ?? process.env;
     const server = (opts.server ?? getServerCache)();
     let storeCheck: StoreCheck | null = null;
+    let storeCheckAgeS: number | null = null;
     if (server.kind === "shared") {
-      let client: RedisLike | null = null;
-      try {
-        client = (opts.redis ?? (() => getRedis()))();
-      } catch (err) {
-        storeCheck = { ok: false, step: "set", errorName: errorNameOf(err) };
-      }
-      if (client) storeCheck = await checkStore(client, env, opts.clock ?? (() => performance.now()), opts.stepTimeoutMs ?? healthLimits.stepTimeoutMs);
+      const now = (opts.now ?? Date.now)();
+      const everyMs = opts.checkEveryMs ?? healthLimits.checkEveryMs;
+      if (!latest || now < latest.at || now - latest.at >= everyMs) latest = { at: now, check: freshCheck(opts, env) };
+      storeCheck = await latest.check;
+      storeCheckAgeS = storeCheck ? Math.floor((now - latest.at) / 1000) : null;
     }
     const degraded = Boolean(env.VERCEL) && (server.kind !== "shared" || storeCheck?.ok !== true);
     const body: HealthBody = {
@@ -109,6 +131,7 @@ export function createHealthHandler(opts: HealthOptions = {}): (request: Request
       store: server.kind,
       storeReason: server.reason ?? null,
       storeCheck,
+      storeCheckAgeS,
     };
     return jsonResponse(body);
   };

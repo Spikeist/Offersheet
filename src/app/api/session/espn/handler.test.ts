@@ -1,9 +1,26 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
+/** A test hook (B4 security review): the save fails as iron-session does for a seal too big for one cookie. */
+const saveHook = vi.hoisted(() => ({ tooLarge: false }));
+vi.mock("@/server/session", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/server/session")>();
+  return {
+    ...actual,
+    saveEspnCredentials: async (...args: Parameters<typeof actual.saveEspnCredentials>) => {
+      if (saveHook.tooLarge) throw new actual.SessionTooLargeError();
+      return actual.saveEspnCredentials(...args);
+    },
+  };
+});
+
 import { SESSION_COOKIE_NAME } from "@/server/session";
 import { createEspnSessionHandlers } from "./handler";
+
+afterEach(() => {
+  saveHook.tooLarge = false;
+});
 
 // Fake values only.
 const SECRET = "unit-test-secret-that-is-at-least-32-chars!!";
@@ -70,6 +87,24 @@ describe("/api/session/espn", () => {
     expect(missing.status).toBe(400);
     const notJson = await handlers.POST(req("POST", { raw: "espn_s2=abc" }));
     expect(notJson.status).toBe(400);
+  });
+
+  it("an espn_s2 too long for the session cookie is the user's mistake: 400 in words, nothing set, nothing logged (B4 security review)", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    // Past the checks' cap (src/lib/espnCredentials.ts ESPN_S2_MAX_LENGTH): it used to pass them and fail the save (500, two log lines).
+    for (const espnS2 of ["A".repeat(3_000), "A".repeat(2_050)]) {
+      const res = await handlers.POST(req("POST", { body: { espnS2, swid: SWID } }));
+      expect(res.status).toBe(400);
+      expect(((await res.json()) as { error: { code: string } }).error.code).toBe("INVALID_REQUEST");
+      expect(res.headers.getSetCookie()).toHaveLength(0);
+    }
+    // And should a save still find it too big (the backstop), the same kind of answer, not INTERNAL.
+    saveHook.tooLarge = true;
+    const res = await handlers.POST(req("POST", { body: { espnS2: S2, swid: SWID } }));
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: { code: "INVALID_REQUEST", message: "That espn_s2 value is too long." } });
+    expect(res.headers.getSetCookie()).toHaveLength(0);
+    expect(logged).not.toHaveBeenCalled();
   });
 
   it("refuses requests from another site", async () => {

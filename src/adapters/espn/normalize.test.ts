@@ -270,6 +270,24 @@ describe("normalizeEspnLeague on Parker's league (sanitized fixtures)", () => {
     expect(s.settings.unknownSettings).toBeUndefined();
   });
 
+  it("says whether each rule it can't count has scored this season, from the season lines (Phase 7b, planner reply to Checkpoint 7a, §5.1)", () => {
+    // Neither 1-point safeties (209) nor blocked-kick return TDs (93) are on any season line yet.
+    expect(s.settings.scoring.unmapped.map((u) => [u.platformKey, u.scoredThisSeason])).toEqual([
+      ["209", false],
+      ["93", false],
+    ]);
+    // A D/ST that returned a blocked kick for a TD this season: 93 has scored.
+    const bundle = parkerBundle();
+    const dst = (bundle.league as Json).teams.flatMap((t: Json) => t.roster?.entries ?? []).find((e: Json) => e.playerPoolEntry.player.defaultPositionId === 16) as Json;
+    const season = (dst.playerPoolEntry.player.stats as Json[]).find((x) => x.statSourceId === 0 && x.statSplitTypeId === 0) as Json;
+    season.stats = { ...season.stats, "93": 1 };
+    expect(parker({}, bundle).snapshot.settings.scoring.unmapped.find((u) => u.platformKey === "93")?.scoredThisSeason).toBe(true);
+    // No season line at all came back: unknown.
+    const bare = parkerBundle();
+    for (const t of (bare.league as Json).teams as Json[]) for (const e of (t.roster?.entries ?? []) as Json[]) e.playerPoolEntry.player.stats = [];
+    expect(parker({}, { ...bare, freeAgents: [] }).snapshot.settings.scoring.unmapped.every((u) => u.scoredThisSeason === undefined)).toBe(true);
+  });
+
   it("says that an accepted trade still in review isn't counted, and where ESPN's own trade counters show more trades (review ESPN-4)", () => {
     // Period 4 has one TRADE_ACCEPT without a status (in its 24-hour review); ESPN counts it for Team 6 and Team 10.
     expect(s.transactions.filter((t) => t.type === "trade")).toHaveLength(0);
@@ -454,6 +472,23 @@ describe("normalizeEspnLeague edge cases", () => {
     // "NA" means "not an active NFL player"; an unknown ESPN status is treated as healthy, with a warning.
     expect(byEspn(entries[2].playerId)?.injury).toBe("ACTIVE");
     expect(s.warnings.find((w) => w.code === "ESPN_INJURY_UNKNOWN")?.message).toMatch(/PATERNITY.*treated as healthy/);
+  });
+
+  it("leaves out a rostered player whose ESPN position we don't know, naming his team on the warning (Phase 7b: ImportWarning.teams, so the notices can tell the user's roster)", () => {
+    const league = base();
+    const odd = (teamIndex: number, id: number) => {
+      const e = clone(league.teams[teamIndex].roster.entries[0]);
+      e.playerId = e.playerPoolEntry.id = e.playerPoolEntry.player.id = id;
+      e.playerPoolEntry.player.defaultPositionId = 8;
+      league.teams[teamIndex].roster.entries.push(e);
+    };
+    odd(0, 999101);
+    odd(2, 999102);
+    const s = run(league).snapshot;
+    expect(Object.values(s.players).some((p) => p.ids.espn === "999101" || p.ids.espn === "999102")).toBe(false);
+    const w = s.warnings.find((x) => x.code === "ESPN_POSITION_UNKNOWN");
+    expect(w).toMatchObject({ message: "2 player(s) have an ESPN position we don't know (defaultPositionId 8) and were left out.", platformPath: "player.defaultPositionId" });
+    expect(w?.teams).toEqual([String(league.teams[0].id), String(league.teams[2].id)]);
   });
 
   it("reads divisions, keeper/dynasty (inferred from keeperCount), points-only, no deadline and no review", () => {
@@ -832,6 +867,8 @@ describe("normalizeEspnLeague edge cases", () => {
     const collision = s.warnings.find((w) => w.code === "ESPN_ID_COLLISION")?.message;
     expect(collision).toMatch(/^1 player matched a Sleeper id already used by another player, so he keeps his ESPN id: /);
     expect(collision).toContain(`${loser?.name} (${loser?.pos}`);
+    // His canonical id rides along (ImportWarning.players), so the notices can tell whose roster he's on.
+    expect(s.warnings.find((w) => w.code === "ESPN_ID_COLLISION")?.players).toEqual(["espn:3043078"]);
     expect(idNotes(notes)).toEqual([]);
     expect(codes(s)).not.toContain("ESPN_ID_CONFLICT");
   });
@@ -852,7 +889,7 @@ describe("normalizeEspnLeague edge cases", () => {
     const s = run(league, {}, { resolver: withNames }).snapshot;
     expect(s.players["99001"]).toMatchObject({ name: kicker.fullName, pos: "K", ids: { espn: String(kicker.id), sleeper: "99001" } });
     expect(queries).toContainEqual({ name: kicker.fullName, position: "K", team: expect.any(String) });
-    expect(s.warnings).toContainEqual(expect.objectContaining({ code: "ESPN_PLAYER_MATCHED_BY_NAME", message: expect.stringContaining(kicker.fullName) }));
+    expect(s.warnings).toContainEqual(expect.objectContaining({ code: "ESPN_PLAYER_MATCHED_BY_NAME", message: expect.stringContaining(kicker.fullName), players: ["99001"] }));
     // Without the fallback the player keeps his ESPN id, and nothing is claimed.
     const plain = run(base(), {}, { resolver: { ...resolver, canonical: withNames.canonical } }).snapshot;
     expect(plain.players[`espn:${kicker.id}`]).toBeDefined();
@@ -871,6 +908,7 @@ describe("normalizeEspnLeague edge cases", () => {
     const w = s.warnings.find((x) => x.code === "ESPN_ID_CONFLICT");
     expect(w?.message).toContain(rostered.fullName);
     expect(w?.message).toMatch(/^The player ID sources disagree about who 1 ESPN player id in this league belongs to/);
+    expect(w?.players).toEqual([Object.values(s.players).find((p) => p.ids.espn === String(rostered.id))?.id]);
     expect(idNotes(notes)).toEqual([]);
     expect(codes(run(base()).snapshot)).not.toContain("ESPN_ID_CONFLICT");
   });

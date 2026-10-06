@@ -120,8 +120,8 @@ describe("computeTagFor: what a League model computation is for (Phase 4 L12: th
 
   it("stays the same when only the trade search's settings change: the model would come out the same (review: no needless rebuild)", () => {
     const tradeOnly: Partial<TradeSettings>[] = [
-      // The manual playoff weight: no longer read (ω is set automatically).
-      { playoffWeight: 1.5 },
+      // An older version's stored manual playoff weight: no longer a setting (ω is set automatically).
+      { playoffWeight: 1.5 } as unknown as Partial<TradeSettings>,
       { lambda: 0.8 },
       { maxPerSide: 3 },
       { untouchables: ["101"] },

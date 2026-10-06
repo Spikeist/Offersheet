@@ -17,6 +17,7 @@ import {
   playedStatLines,
   projectionLines,
   seasonPerGameLine,
+  SLEEPER_BUDGET_WHY,
   SLEEPER_MODEL_MAX_RETRIES,
   SLEEPER_MODEL_TIMEOUT_MS,
   SLEEPER_OUTAGE_HOLD_MS,
@@ -571,6 +572,25 @@ describe("the Sleeper gate: a build stops at the first request Sleeper doesn't a
     const before = calls.length;
     const next = await loadSleeperWeeklyProjections(sleeperGate(http, at(1)), SEASON, [4, 5], POS);
     expect(calls.length - before).toBe(2); // no hold: Sleeper is asked again at once
+    expect(next.warnings).toEqual([]);
+  });
+
+  it("a request Offer Sheet's own daily Sleeper budget refused stops only that build, in words that say Sleeper wasn't asked (Checkpoint 7b)", async () => {
+    let cut = true;
+    const calls: string[] = [];
+    const http: HttpClient = {
+      async get(url) {
+        calls.push(url);
+        return cut ? { ...json(undefined, 0), cut: "budget" as const } : json(rowsOf(PROJ(4)));
+      },
+    };
+    const first = await loadSleeperWeeklyProjections(sleeperGate(http, at(0)), SEASON, [4, 5], POS);
+    expect(calls).toHaveLength(1); // the build stops at the refused request
+    expect(first.warnings.map((w) => w.message)).toEqual([4, 5].map((w) => `Sleeper's projections for week ${w} are left out: Sleeper stopped answering (${SLEEPER_BUDGET_WHY}).`));
+    cut = false;
+    const before = calls.length;
+    const next = await loadSleeperWeeklyProjections(sleeperGate(http, at(1)), SEASON, [4, 5], POS);
+    expect(calls.length - before).toBe(2); // no instance-wide hold: the next build asks Sleeper at once
     expect(next.warnings).toEqual([]);
   });
 

@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import { LeagueImportError, type ImportResult, type SleeperImportRequest } from "@/adapters/types";
 import type { ModelInputs } from "@/engine/inputs";
 import { isModelResponse, type ModelResponse } from "@/lib/api";
+import { createBuildSlots } from "@/server/buildSlots";
+import { newRequestScope, runInRequestScope } from "@/server/deadline";
 import { signImport, signatureProblem } from "@/server/importToken";
 import type { BuildModelInputsArgs } from "@/server/modelInputs";
 import { fakeDeps, fakeResult, gzipRequest, jsonRequest } from "../../_lib/testFakes";
@@ -198,6 +200,43 @@ describe("POST /api/model/sleeper (CLAUDE.md §6, §9: the League page's model i
     expect(foreign.status).toBe(403);
     expect((await errorOf(foreign)).code).toBe("BAD_ORIGIN");
     expect(calls).toHaveLength(0);
+  });
+});
+
+describe("POST /api/model/sleeper: the instance's build slots (Checkpoint 7b load test, risk 3)", () => {
+  it("a build takes one of the instance's slots for its build only; none free in time: BUSY in words, nothing built, the league read once", async () => {
+    const slots = createBuildSlots(1, 30_000);
+    const calls: SleeperImportRequest[] = [];
+    let builds = 0;
+    const handler = createSleeperModelHandler({
+      importLeague: async (req) => {
+        calls.push(req);
+        return sleeperResult();
+      },
+      buildInputs: async () => {
+        builds++;
+        return fakeModel();
+      },
+      getDeps: async () => fakeDeps(),
+      sign: () => undefined,
+      slots,
+      now: NOW,
+    });
+    const held = await slots.acquire(); // another build holds the one slot
+    // A request 70 s into its 90 s: under 30 s left, so its build doesn't wait.
+    const busy = await runInRequestScope(newRequestScope("model", Date.now() - 70_000), () => handler(jsonRequest(URL, { season: 2026, leagueId: LEAGUE })));
+    expect(busy.status).toBe(503);
+    expect(busy.headers.get("retry-after")).toBe("60");
+    expect(await errorOf(busy)).toEqual({ code: "BUSY", message: "Offer Sheet is busy right now. Try again in a minute." });
+    expect(calls).toHaveLength(1); // the league was read (no slot needed for that), then its build found none
+    expect(builds).toBe(0);
+    // A request with time to spare waits for the slot, and builds once it's free.
+    const waiting = runInRequestScope(newRequestScope("model", Date.now()), () => handler(jsonRequest(URL, { season: 2026, leagueId: LEAGUE })));
+    await vi.waitFor(() => expect(slots.waiting()).toBe(1));
+    held?.();
+    expect((await waiting).status).toBe(200);
+    expect(builds).toBe(1);
+    expect([slots.running(), slots.waiting()]).toEqual([0, 0]);
   });
 });
 

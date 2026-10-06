@@ -242,6 +242,13 @@ function range0(a: number, b: number): number[] {
 /** Every ESPN statId the adapter understands → its canonical reading. */
 export const ESPN_READINGS: Readonly<Record<number, EspnReading>> = buildReadings();
 
+/**
+ * ESPN stats that never appear on weekly lines (their readings say so: points and yards allowed per game): a rule on one
+ * can't score in any week, whatever a season line holds, so it never counts as having scored this season (Phase 7b,
+ * normalize.ts withScoredThisSeason; src/lib/notices.ts).
+ */
+export const ESPN_SEASON_ONLY_STAT_IDS: ReadonlySet<number> = new Set([126, 137, 197]);
+
 /** The canonical key a StatRef names for a position (team D/ST vs everyone else). */
 export function keyFor(ref: StatRef, pos: Pos): string {
   return typeof ref === "string" ? ref : pos === "DEF" ? ref.DEF : ref.other;

@@ -8,19 +8,28 @@
  * - Positions I stream weekly: the streamable positions (config.streaming.streamable: K, DEF, QB, TE) this
  *   league's lineup starts; K and DEF are on by default. It applies to my team only; other teams count as
  *   streaming a position after config.streaming.detectAdds adds there this season.
- * - Playoff weight: 1× to 2× (PLAYOFF_WEIGHT_RANGE) in quarter steps, the default marked, plus a saved value
- *   off those steps so the page never hides what's saved.
+ * - Playoff weeks count (planner reply to Checkpoint 7a, §6.1): read-only since the League model sets the weight itself,
+ *   from my odds under my goal (LeagueModel.playoffWeight and playoffWeightAuto, one decimal as the League page labels it:
+ *   playoffWeightText), with what it affects; its fallback says why in plain words (FALLBACK_WORDS). The page passes what it
+ *   knows (SettingsViewInput.playoffWeight: worked out from the league's saved inputs, usePlayoffWeight.ts); before that,
+ *   it's set automatically when the League page loads. The manual 1×–2× control is gone.
  * - Win now ↔ Future (λ, §10): dynasty and keeper leagues only. "Automatic" (null) is the default by my
  *   playoff odds (config.benefit.lambda); the slider starts at the keeper default in a keeper league and
  *   at the bubble default (balanced) in a dynasty one. Keeper costs aren't modeled, and the page says so.
- * - What matters most (Phase 4c; planner reply to Checkpoint 4b, change 8; TradeSettings.goal): Win the title (the
- *   default, config.benefit.goalDefault) / Balanced / Make the playoffs, each with one line saying how it weighs the
- *   title and playoff odds in Helps you (config.benefit.goals' weights, never fixed numbers). Every league type: in
- *   dynasty and keeper leagues it weighs this season's part (B_win), and the help says later seasons count by Win now ↔
- *   Future.
+ * - What does your league reward? (Phase 4c's "What matters most", planner reply to Checkpoint 4b, change 8; framed by
+ *   the league's prizes since the planner's reply to Checkpoint 7a, 5.2, with no auto-switching; TradeSettings.goal): Only
+ *   the champion (the default, config.benefit.goalDefault: "title") / Top finishers too ("balanced") / Making the
+ *   playoffs ("playoffs"), each with one line saying how it weighs the title and playoff odds in Helps you
+ *   (config.benefit.goals' weights, never fixed numbers), and the planner's helper line ("On the bubble? Keep “Only the
+ *   champion.” It already counts getting into the playoffs."). Every league type: in dynasty and keeper leagues it weighs
+ *   this season's part (B_win), and the help says later seasons count by Win now ↔ Future.
  * - Protect my trade value (planner addendum to Checkpoint 3, §3; lead decision N3): Low / Medium / High (κ =
  *   config.benefit.protectValue: how much Helps you counts the trade value given up or gained, so the user keeps value
- *   for later deals before the deadline), Medium (config.benefit.protectValueDefault) marked as the default. Redraft
+ *   for later deals before the deadline), Medium (config.benefit.protectValueDefault) marked as the default, its help
+ *   saying it counts in projected points a week like a lineup change (planner reply to Checkpoint 7a, §2 question 5) with
+ *   ⚠️ no exchange rate (PROTECT_VALUE_HELP: review of Phase 7b, a planner question): "giving 25% more trade value than you
+ *   get costs about 0.4 points a week" next to the Analyzer's "Trade value: −0.4 pts/week equivalent." turned that line
+ *   back into the trade's value comparison (planner reply to Checkpoint 7a, 5.4: none in the Analyzer's Details). Redraft
  *   leagues only: dynasty and keeper leagues have no market term in Helps you (their long-term value counts instead,
  *   through Win now ↔ Future). The help says depth for injuries and byes is counted either way. Phase 4c (planner reply
  *   to Checkpoint 4b, change 12): while the league's values are our own estimates (FantasyCalc's curve fallback,
@@ -42,9 +51,9 @@
  * on a side than a trade allows, a player on both lists, saved players who left, targets the search can't use.
  */
 import { config } from "@/engine/config";
+import type { PlayoffWeightAuto, PlayoffWeightFallback } from "@/engine/leagueModel";
 import { POSITIONS, type LeagueSnapshot, type PlayerInfo, type Pos } from "@/engine/model";
-import { GOALS, PLAYOFF_WEIGHT_RANGE, PROTECT_VALUE_LEVELS, normalizeTradeSettings, type Goal, type ProtectValue, type TradeSettings } from "@/engine/settings";
-import { fmtNum } from "@/lib/format";
+import { GOALS, PROTECT_VALUE_LEVELS, normalizeTradeSettings, type Goal, type ProtectValue, type TradeSettings } from "@/engine/settings";
 import { LEAGUE_TYPE_LABEL, PLATFORM_LABEL, posLabel } from "@/lib/labels";
 
 /** One option of a choice group: its value, its words, and whether it's chosen. */
@@ -98,7 +107,11 @@ export interface SettingsView {
   finderMinimum: string | null;
   /** "Positions I stream weekly"; null when the league starts none of the streamable positions. */
   stream: { choices: Choice<Pos>[]; help: string } | null;
-  playoffWeight: { choices: Choice<number>[]; help: string };
+  /**
+   * "Playoff weeks count", read-only (planner reply to Checkpoint 7a, §6.1; the file header): `label` "Playoff weeks count",
+   * `value` its reading ("2.0×, set automatically from your odds."), `help` what it affects; `text` the whole line.
+   */
+  playoffWeight: { label: string; value: string; help: string; text: string };
   /** Win now ↔ Future: dynasty and keeper leagues only. */
   lambda: {
     automatic: boolean;
@@ -112,8 +125,12 @@ export interface SettingsView {
     /** Why later seasons don't count for now, while the league's values are our own estimates (FantasyCalc's curve fallback); else null. */
     estimatedNote: string | null;
   } | null;
-  /** "What matters most" (TradeSettings.goal): Win the title / Balanced / Make the playoffs, each with its line of help; every league type. */
-  goal: { choices: (Choice<Goal> & { help: string })[]; help: string };
+  /**
+   * "What does your league reward?" (TradeSettings.goal): Only the champion / Top finishers too / Making the playoffs, each
+   * with its line of help; `help` what it sets and the planner's helper line (planner reply to Checkpoint 7a, 5.2); every
+   * league type.
+   */
+  goal: { legend: string; choices: (Choice<Goal> & { help: string })[]; help: string };
   /**
    * "Protect my trade value": Low / Medium / High; redraft leagues only (null otherwise). `note`: why it does nothing for now,
    * while the league's values are our own estimates (FantasyCalc's curve fallback); else null.
@@ -141,6 +158,57 @@ export interface SettingsViewInput {
    * FantasyCalc didn't answer and its newest saved list is too old to read as its own); absent or false otherwise.
    */
   valuesEstimated?: boolean;
+  /**
+   * The automatic playoff-week weight as the page knows it (usePlayoffWeight.ts: a League model built from the league's
+   * saved inputs with these settings); absent: not known ("set automatically when the League page loads").
+   */
+  playoffWeight?: PlayoffWeightRead;
+}
+
+/**
+ * What the Settings page knows of the automatic playoff-week weight (SettingsViewInput.playoffWeight): nothing yet
+ * ("unknown": no fresh saved inputs to work it out from), being worked out ("working"), or the League model's
+ * (LeagueModel.playoffWeight as `omega`, playoffWeightAuto as `auto`).
+ */
+export type PlayoffWeightRead = { kind: "unknown" } | { kind: "working" } | { kind: "known"; omega: number; auto: PlayoffWeightAuto | null };
+
+/**
+ * A playoff-week weight as the pages print it, one decimal (planner reply to Checkpoint 7a, §6.1): "2.0", "1.3" (the
+ * fallback 1.25), "0.5". The League page's "(playoffs count 2.0×)" labels print the same (src/lib/leagueView.ts).
+ */
+export function playoffWeightText(omega: number): string {
+  return Number.isFinite(omega) ? omega.toFixed(1) : "—";
+}
+
+/** Why the automatic playoff weight fell back to the default (PlayoffWeightAuto.reason), in plain words. */
+export const FALLBACK_WORDS: Readonly<Record<PlayoffWeightFallback, string>> = {
+  noTeam: "pick your team on the Import Report to set it from your odds",
+  noRegularWeeks: "no regular-season weeks are left, so it doesn't matter",
+  noPlayoffWeeks: "no playoff weeks are left to count",
+  noOdds: "your odds couldn't be worked out",
+  titleUnknown: "your title odds aren't known",
+  noEffect: "lineup changes don't move your odds right now",
+  notFinite: "your odds couldn't be measured",
+};
+
+/** What the automatic playoff-week weight affects (the planner's words; ⚠️ ours: the pickups the odds count, so it never reads as leaving the odds alone). */
+export const PLAYOFF_WEIGHT_HELP =
+  "It only affects shortlists, free-agent rankings (and so the pickups your odds count), needs and trade chips. Final scores come from playing out the season, which weighs each week by its real effect on your odds.";
+
+/** "Playoff weeks count" in words (SettingsView.playoffWeight; the file header). */
+export function playoffWeightView(read: PlayoffWeightRead | undefined): SettingsView["playoffWeight"] {
+  const label = "Playoff weeks count";
+  let value: string;
+  if (read?.kind === "known") {
+    const w = `${playoffWeightText(read.omega)}×`;
+    const reason = read.auto?.basis === "fallback" && read.auto.reason ? FALLBACK_WORDS[read.auto.reason] : null;
+    value = reason ? `${w} (the default: ${reason}).` : `${w}, set automatically from your odds.`;
+  } else if (read?.kind === "working") {
+    value = "set automatically from your odds. Working it out…";
+  } else {
+    value = "set automatically from your odds when the League page loads.";
+  }
+  return { label, value, help: PLAYOFF_WEIGHT_HELP, text: `${label}: ${value} ${PLAYOFF_WEIGHT_HELP}` };
 }
 
 /** The order positions are listed in (QB, RB, WR, TE, K, P, DEF, DL, LB, DB). */
@@ -237,8 +305,29 @@ export function lambdaText(value: number): string {
 /** "Protect my trade value" levels in words (each one's weight is config.benefit.protectValue): the level, capitalized. */
 export const PROTECT_VALUE_LABEL: Record<ProtectValue, string> = { low: "Low", medium: "Medium", high: "High" };
 
-/** "What matters most" in words (TradeSettings.goal; planner reply to Checkpoint 4b, change 8). */
-export const GOAL_LABEL: Record<Goal, string> = { title: "Win the title", balanced: "Balanced", playoffs: "Make the playoffs" };
+/**
+ * "What does your league reward?" in words (TradeSettings.goal; planner reply to Checkpoint 4b, change 8, reframed by the
+ * planner's reply to Checkpoint 7a, 5.2): the same labels as the Trade Finder's (src/lib/tradeView.ts GOAL_LABEL, kept apart
+ * so this page doesn't load the trade pages' words; settingsView.test.ts checks the two agree).
+ */
+export const GOAL_LABEL: Record<Goal, string> = { title: "Only the champion", balanced: "Top finishers too", playoffs: "Making the playoffs" };
+
+/** The goal's question (SettingsView.goal.legend; planner reply to Checkpoint 7a, 5.2). */
+export const GOAL_LEGEND = "What does your league reward?";
+
+/** The planner's helper line under it (planner reply to Checkpoint 7a, 5.2: no auto-switching by playoff odds). */
+export const GOAL_BUBBLE_HINT = "On the bubble? Keep “Only the champion.” It already counts getting into the playoffs.";
+
+/**
+ * "Protect my trade value"'s help (the file header): what it does, in projected points a week like a lineup change (planner
+ * reply to Checkpoint 7a, §2 question 5), and what High and Low are for. ⚠️ No exchange rate between trade value and points
+ * (review of Phase 7b, a planner question): with one ("giving 25% more trade value than you get costs about 0.4 points a
+ * week"), the Analyzer's "Trade value: −0.4 pts/week equivalent." read back as the trade's own value comparison, which
+ * Offer Sheet doesn't show (planner reply to Checkpoint 7a, 5.4).
+ */
+export const PROTECT_VALUE_HELP =
+  "How much Helps you counts trade value, so you keep some for later deals before your trade deadline: giving up more value than you get lowers it, getting more raises it, in projected points a week, like a change to your lineup. " +
+  "High protects your value the most; Low goes for the biggest lineup gain now. Your bench's worth as cover for injuries and byes counts either way.";
 
 /**
  * A goal's line of help: how it weighs the title and playoff odds in Helps you, with config.benefit.goals' weights
@@ -262,15 +351,6 @@ export const LAMBDA_ESTIMATED_NOTE =
 /** Where the Win now ↔ Future slider starts when "Automatic" is turned off. */
 export function lambdaStart(leagueType: LeagueSnapshot["settings"]["leagueType"]): number {
   return leagueType === "keeper" ? config.benefit.lambda.keeper : config.benefit.lambda.bubble;
-}
-
-/** The playoff weights offered: quarter steps across PLAYOFF_WEIGHT_RANGE, plus a saved value off those steps. */
-function playoffWeights(saved: number): number[] {
-  const [lo, hi] = PLAYOFF_WEIGHT_RANGE;
-  const out: number[] = [];
-  for (let w = lo; w <= hi + 1e-9; w += 0.25) out.push(Math.round(w * 100) / 100);
-  if (!out.some((w) => Math.abs(w - saved) < 1e-9)) out.push(saved);
-  return out.sort((a, b) => a - b);
 }
 
 /** "30%", or "Any" for no minimum: the Trade Finder's own labels for "Chance they accept: at least". */
@@ -302,15 +382,8 @@ export function buildSettingsView(input: SettingsViewInput): SettingsView {
       }
     : null;
 
-  const playoffWeight = {
-    choices: playoffWeights(s.playoffWeight).map((w) => ({
-      value: w,
-      label: `${fmtNum(w)}×`,
-      ...(w === config.lineups.playoffWeight ? { detail: "default" } : {}),
-      checked: Math.abs(w - s.playoffWeight) < 1e-9,
-    })),
-    help: `When Offer Sheet adds up your lineup's points for the rest of the season, each playoff week counts this many times a regular-season week. 1× counts them the same.`,
-  };
+  // Read-only since the planner's reply to Checkpoint 7a, §6.1 (the file header).
+  const playoffWeight = playoffWeightView(input.playoffWeight);
 
   const lambda = dynastyOrKeeper
     ? {
@@ -327,8 +400,10 @@ export function buildSettingsView(input: SettingsViewInput): SettingsView {
       }
     : null;
 
-  // "What matters most" (TradeSettings.goal): every league type; in dynasty and keeper leagues it weighs this season's part.
+  // "What does your league reward?" (TradeSettings.goal): every league type; in dynasty and keeper leagues it weighs this
+  // season's part. The planner's helper line last (planner reply to Checkpoint 7a, 5.2).
   const goal = {
+    legend: GOAL_LEGEND,
     choices: GOALS.map((g) => ({
       value: g,
       label: GOAL_LABEL[g],
@@ -336,9 +411,11 @@ export function buildSettingsView(input: SettingsViewInput): SettingsView {
       help: goalHelp(g),
       checked: g === s.goal,
     })),
-    help: dynastyOrKeeper
-      ? "For this season, Helps you scores a trade by how much it raises your title and playoff odds (how much later seasons count is set under Win now or build for the future). This sets which of the two counts more."
-      : "Helps you scores a trade by how much it raises your title and playoff odds. This sets which of the two counts more.",
+    help: `${
+      dynastyOrKeeper
+        ? "For this season, Helps you scores a trade by how much it raises your title and playoff odds (how much later seasons count is set under Win now or build for the future). Pick what your league's prizes reward."
+        : "Helps you scores a trade by how much it raises your title and playoff odds. Pick what your league's prizes reward."
+    } ${GOAL_BUBBLE_HINT}`,
   };
 
   const protectValue =
@@ -350,9 +427,7 @@ export function buildSettingsView(input: SettingsViewInput): SettingsView {
             ...(level === config.benefit.protectValueDefault ? { detail: "default" } : {}),
             checked: level === s.protectValue,
           })),
-          help:
-            "How much Helps you counts trade value, so you keep some for later deals before your trade deadline: giving up more value than you get lowers it, getting more raises it. " +
-            "High protects your value the most; Low goes for the biggest lineup gain now. Your bench's worth as cover for injuries and byes counts either way.",
+          help: PROTECT_VALUE_HELP,
           note: input.valuesEstimated ? PROTECT_VALUE_ESTIMATED_NOTE : null,
         }
       : null;
@@ -461,7 +536,6 @@ function playersView(snapshot: SnapshotPart, myTeamId: string | null, s: TradeSe
 
 export type SettingsEdit =
   | { kind: "stream"; pos: Pos; on: boolean }
-  | { kind: "playoffWeight"; value: number }
   /** null = Automatic. */
   | { kind: "lambda"; value: number | null }
   | { kind: "goal"; value: Goal }
@@ -491,9 +565,6 @@ export function applySettingsEdit(settings: TradeSettings, edit: SettingsEdit, n
   switch (edit.kind) {
     case "stream":
       next = { ...s, streamPositions: toggled(s.streamPositions, edit.pos, edit.on) };
-      break;
-    case "playoffWeight":
-      next = { ...s, playoffWeight: edit.value };
       break;
     case "lambda":
       next = { ...s, lambda: edit.value };

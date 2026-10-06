@@ -23,6 +23,7 @@
 import Link from "next/link";
 import type { Ref } from "react";
 import { FREE_AGENT_PICKUPS_LABEL, WAIVER_ORDER_LABEL, type FreeAgentPickups, type LeagueView as LeagueViewModel } from "@/lib/leagueView";
+import { NOTICES_TITLE } from "@/lib/notices";
 import type { RefreshControl } from "../import/ReportView";
 import { Badge, Callout, Card, CardTitle, FOCUS_TARGET, Facts, cx } from "../ui";
 import { PlayerTable } from "./PlayerTable";
@@ -33,6 +34,7 @@ import { StrengthHeatmap } from "./StrengthHeatmap";
 import { TeamTable } from "./TeamTable";
 import { TradePartners } from "./TradePartners";
 import { ValuesCredit } from "./ValuesCredit";
+import { WaiverUpgrades } from "./WaiverUpgrades";
 
 type ViewProps = { view: LeagueViewModel };
 
@@ -57,11 +59,12 @@ export function LeagueView({ view, refresh, headingRef }: ViewProps & { refresh?
       ) : null}
       {view.eliminated ? <Callout>{view.eliminated}</Callout> : null}
       {view.over ? <Callout title="The season is over">There are no weeks left to project for this league.</Callout> : null}
-      {view.warnings.length ? (
-        <Callout tone="warn" title="Some data is missing">
+      {/* The yellow banner shows notices only (src/lib/notices.ts, §5.1): the rest is in the Import Report's technical details. */}
+      {view.notices.length ? (
+        <Callout tone="warn" title={NOTICES_TITLE}>
           <ul className="list-disc space-y-0.5 pl-5">
-            {view.warnings.map((w) => (
-              <li key={w}>{w}</li>
+            {view.notices.map((n) => (
+              <li key={n}>{n}</li>
             ))}
           </ul>
         </Callout>
@@ -71,6 +74,7 @@ export function LeagueView({ view, refresh, headingRef }: ViewProps & { refresh?
       <TeamTable view={view} />
       <StrengthHeatmap heatmap={view.heatmap} />
       <TradePartners view={view} />
+      <WaiverUpgrades />
       <StreamingPicks view={view} />
       <Rosters view={view} />
       <FreeAgents view={view} />

@@ -99,6 +99,13 @@ const nextConfig: NextConfig = {
   /** No "X-Powered-By: Next.js" header. */
   poweredByHeader: false,
   /**
+   * No image optimizer (B4 security review): no page uses next/image (the icons and the sharing image are files and
+   * metadata routes of their own), and /_next/image would otherwise be open to anyone, outside withRoute's rate limits
+   * and work budget, every width and format of the app's own images a transformation counted against the Hobby plan.
+   * `next start` then answers /_next/image with a 404, and a Vercel build sets no image optimization up.
+   */
+  images: { unoptimized: true },
+  /**
    * Keep local data out of the server bundles' file traces: the archives under data-local/, raw captures under
    * fixtures/, the file cache and the reports could otherwise be listed in a route's trace (a literal default path in
    * src/server/projectionArchive.ts and fantasyCalcArchive.ts is enough) and uploaded with a deploy built on this

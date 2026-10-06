@@ -415,8 +415,26 @@ export class MemoryLruCache implements MemoryTier {
  * `l1` first, so a failed `l2` write still leaves the copy in this instance and reaches the caller like a FileCache write
  * failure (the HTTP client logs it by name and serves the response). ⚠️ An instance can serve its own copy while another
  * instance has stored a newer one, within the reader's own maxAge only (a Refresh's 1 minute reads Redis again).
+ *
+ * Concurrent reads of one key share one `l2` read (Checkpoint 7b load test, finding 4: in a cold burst every request sent
+ * its own Upstash GET for each entry it missed in memory, 1,173 shared-cache commands for about 23 entries; 69 since): a
+ * read that finds another in flight for the same key waits for that one. The shared read asks `l2` for its copy at any
+ * age, and each caller then applies its own maxAge and its own clock's expiry, and keeps the copy in memory only when it
+ * accepts it (or this instance's own newer copy: MemoryTier.fill). A read a caller joins was sent before that caller
+ * began, so it can miss a write another instance finished in between; when its copy is of no use to that caller (a miss,
+ * or outside its maxAge or retention), the caller reads once more, through a read sent after the joined one settled
+ * (shared in turn with whoever else needs one), so every read sees the writes that finished before it began (review of
+ * the Checkpoint 7b load-test fixes, finding 2: a lock waiter's copy, src/server/http.ts fetchShared, joined a read sent
+ * before the lock holder's write, missed the holder's copy and fetched the source again, the duplicate fetch the lock is
+ * there to prevent). That costs a second GET only where the first was of no use: a cold burst's misses (one more per
+ * entry and burst), a Refresh joining an older copy. A failed or timed-out read (the shared cache's breaker and timeout:
+ * RedisCache, SharedCacheBreaker) is a miss for every caller that shared it; while the breaker leaves Redis alone, a read
+ * once more sends nothing. Nothing is remembered once a read settles: the next read asks `l2` again.
  */
 export class TieredCache implements Cache {
+  /** `l2` reads in flight, by key (see the class doc); each settles as a copy or undefined, never a rejection. */
+  private readonly reading = new Map<string, Promise<CacheEntry<unknown> | undefined>>();
+
   constructor(
     readonly l1: MemoryTier,
     readonly l2: Cache,
@@ -429,18 +447,40 @@ export class TieredCache implements Cache {
     } catch {
       // the memory tier never throws; belt and braces
     }
-    let entry: CacheEntry<T> | undefined;
+    // This caller's own bounds (its maxAge, its clock): a copy outside them is a miss here, and isn't kept for it.
+    const usable = (e: CacheEntry<unknown> | undefined): e is CacheEntry<unknown> => e !== undefined && now - e.storedAt <= maxAgeMs && now < e.expiresAt;
+    const shared = this.readShared(key, now);
+    let entry = await shared.read;
+    // A joined read was sent before this caller began: of no use here, once more through one sent after it (the class doc).
+    if (shared.joined && !usable(entry)) entry = await this.readShared(key, now).read;
+    if (!usable(entry)) return undefined;
+    const copy = entry as CacheEntry<T>;
     try {
-      entry = await this.l2.get<T>(key, maxAgeMs, now);
+      return this.l1.fill(key, copy, now) ?? copy;
     } catch {
-      return undefined; // an unreadable shared cache is a miss
+      return copy;
     }
-    if (!entry) return undefined;
+  }
+
+  /**
+   * `l2`'s copy of `key` at any age, one read for all concurrent callers (see the class doc), and whether this caller joined
+   * one already in flight (sent before it began); an unreadable shared cache is a miss.
+   */
+  private readShared(key: string, now: number): { read: Promise<CacheEntry<unknown> | undefined>; joined: boolean } {
+    const running = this.reading.get(key);
+    if (running) return { read: running, joined: true };
+    let read: Promise<CacheEntry<unknown> | undefined>;
     try {
-      return this.l1.fill(key, entry, now) ?? entry;
+      read = this.l2.get<unknown>(key, Number.POSITIVE_INFINITY, now).catch(() => undefined);
     } catch {
-      return entry;
+      return { read: Promise.resolve(undefined), joined: false }; // a shared cache that throws at once: a miss, as one that rejects
     }
+    this.reading.set(key, read);
+    // Registered first, so it runs before any caller's continuation: a caller that reads once more never joins this one.
+    void read.then(() => {
+      if (this.reading.get(key) === read) this.reading.delete(key);
+    });
+    return { read, joined: false };
   }
 
   async set<T>(key: string, value: T, retainMs: number, now: number = Date.now()): Promise<void> {

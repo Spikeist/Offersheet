@@ -6,8 +6,9 @@
  * - the three numbers side by side: Helps you, Chance they accept (with "Est." and its label; the chance it goes
  *   through when the league's review could veto it), Overall;
  * - the risk flags apart from the numbers, each saying what it is in words (not color alone);
- * - "You get 142 ROS pts, give 118", the numbers behind the score in words, with the trade values' "Values:
- *   FantasyCalc" link beside them (§2.9), and any roster moves the trade forces;
+ * - "You get 142 ROS pts, give 118", the numbers behind the score in words, then a sentence saying the numbers weigh trade
+ *   value with the "Values: FantasyCalc" link after it (§2.9; TradeCardView.valuesCredit: no trade value is ever shown,
+ *   planner reply to Checkpoint 7a, 5.4), and any roster moves the trade forces;
  * - the reasons, the pitch message (opened on demand) with Copy, "Open in Analyzer" (the Finder's cards), and the
  *   feedback buttons (FeedbackControls). "Open in Analyzer" carries the trade's ids in its address, so it's never
  *   prefetched: the server sees that address only when the user opens it (the privacy page says so). Using it tells
@@ -34,9 +35,8 @@
  * Planner reply to Checkpoint 4b (Phase 4c): under the three numbers (after the veto note, which stays right under
  * them), my real odds, "Title odds 12.1% → 13.4% · Playoff odds 65% → 69%" (change 9; each kept on one line, the arrow
  * said as "from … to" for screen readers), and "Win chance by week: Week 9: 68% → 64% · Week 13: 42% → 55%" when the
- * trade moves a week's chance enough; the trade value line is FantasyCalc's own (change 3), and the Trade Analyzer's
- * card has "Details" (a closed 44 px disclosure: the model's own trade-value figures). An estimate under 5% prints
- * "<5%" (answer 5), said "under 5%" to screen readers.
+ * trade moves a week's chance enough, and the Trade Analyzer's card has "Details" (a closed 44 px disclosure: what Helps you
+ * is worth in points a week). An estimate under 5% prints "<5%" (answer 5), said "under 5%" to screen readers.
  * The feedback buttons wait for the browser to keep a press (onFeedback returns the save's promise: change 7's
  * FeedbackControls), so a refused press is said on the card itself.
  * Planner reply to Checkpoint 4c (Phase 7a, A2): "Helps you" has a tooltip saying what its scale means ("63 ≈ as good as
@@ -161,7 +161,7 @@ function OddsLines({ odds, weekly }: { odds: OddsView[]; weekly: WeeklyLineView 
   );
 }
 
-/** The Trade Analyzer's "Details": the model's own trade-value figures, behind a closed 44 px summary named for screen readers. */
+/** The Trade Analyzer's "Details": what Helps you is worth in points a week, behind a closed 44 px summary named for screen readers. */
 function Details({ details, name }: { details: DetailsView; name: string }) {
   return (
     <details className="mt-3 rounded-xl border border-line">
@@ -350,18 +350,16 @@ export function TradeCard({ card, rank, headingLevel = "h3", feedback, onFeedbac
         {card.facts.map((f) => (
           <div key={f.label} className="grid gap-0.5 py-1.5 sm:grid-cols-[minmax(0,10rem)_1fr] sm:gap-3">
             <dt className="font-semibold text-muted">{f.label}</dt>
-            <dd className="min-w-0 break-words">
-              {f.value}
-              {f.kind === "values" ? (
-                <>
-                  {" "}
-                  · <ValuesCredit className="text-xs" />
-                </>
-              ) : null}
-            </dd>
+            <dd className="min-w-0 break-words">{f.value}</dd>
           </div>
         ))}
       </dl>
+      {/* The attribution after a sentence (a link inside a sentence, so its line needn't be a 44 px target). */}
+      {card.valuesCredit ? (
+        <p className="mt-1 text-xs text-muted">
+          {card.valuesCredit} <ValuesCredit className="text-xs" />
+        </p>
+      ) : null}
       {card.details ? <Details details={card.details} name={name} /> : null}
 
       {card.required.length ? (

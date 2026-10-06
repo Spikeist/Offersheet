@@ -11,7 +11,7 @@ vi.mock("server-only", () => ({}));
 import { createEspnSessionHandlers } from "@/app/api/session/espn/handler";
 import { ROUTE_KINDS, deadlineMsOf, noteCut, requestScope, timeLeftMs, type RouteKind } from "@/server/deadline";
 import { deadlines, rateLimits } from "@/server/limits";
-import { setLogStoreForTests } from "@/server/log";
+import { resetLogThrottleForTests, setLogStoreForTests } from "@/server/log";
 import { createDailyQuota } from "@/server/budget";
 import { clientIds, clientKey, createMemoryLimiter, resetProcessLimiterForTests } from "@/server/rateLimit";
 import { FakeRedis, resetRedisForTests } from "@/server/redis";
@@ -29,6 +29,7 @@ function logLines(spy: { mock: { calls: unknown[][] } }): Array<Record<string, u
 
 afterEach(() => {
   setLogStoreForTests(undefined);
+  resetLogThrottleForTests();
   vi.restoreAllMocks();
 });
 
@@ -51,6 +52,14 @@ describe("withRoute: the per-IP rate limit", () => {
     // Another client, and another kind of route, have their own windows.
     expect((await route(post("198.51.100.7"))).status).toBe(200);
     expect((await withRoute("session", ok, { limiter, now: () => T0 })(post())).status).toBe(200);
+  });
+
+  it("many clients over the limit write one log line every 10 minutes per instance, not one each (B4 security review)", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const limiter = createMemoryLimiter({ limits: { ...rateLimits, session: { limit: 1, windowS: 600 } } });
+    const route = withRoute("session", ok, { limiter, now: () => T0, platform: "espn" });
+    for (let n = 1; n <= 30; n++) for (let i = 0; i < 3; i++) await route(post(`198.51.100.${n}`));
+    expect(logLines(spy).filter((l) => l.event === "rate_limited")).toHaveLength(1);
   });
 
   it("a forged cross-site request is refused before it's counted, so another site can't spend a visitor's limit", async () => {
@@ -145,7 +154,7 @@ describe("withRoute: an IPv6 /48 and the daily work budget (final review SEC-1, 
 
   it("charges each import and League page request its units when it arrives; past the client's, its group's or the server's day: BUSY before the handler", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
-    const work = createDailyQuota({ name: "work", perClient: 10, perGroup: 14, perDay: 1_000, processShare: 1, slices: 1, burstShare: 1 });
+    const work = createDailyQuota({ name: "work", perClient: 10, perGroup: 12, perDay: 1_000, processShare: 1, slices: 1, burstShare: 1 });
     const handler = vi.fn(ok);
     const route = withRoute("import", handler, { limiter: createMemoryLimiter(), now: () => T0, work });
     const json = (ip: string) => new Request("http://localhost:3001/api/import/espn", { method: "POST", headers: { "x-real-ip": ip, "content-type": "application/json" } });
@@ -162,8 +171,10 @@ describe("withRoute: an IPv6 /48 and the daily work budget (final review SEC-1, 
     const known = withRoute("import", handler, { limiter: { check }, now: () => T0, work });
     expect((await known(json("203.0.113.9"))).status).toBe(503);
     expect(check).not.toHaveBeenCalled();
-    // Another address in the same /24: its own day, but the group's 14 is shared (6 + 6 refused + 6 > 14).
-    expect((await route(json("203.0.113.10"))).status).toBe(503);
+    // Another address in the same /24: its own day, but the group's 12 is shared. The refused request above counted nowhere
+    // (Checkpoint 7b load test, defect 2), so this one fits (6 + 6) and a third address's doesn't (6 + 6 + 6 > 12).
+    expect((await route(json("203.0.113.10"))).status).toBe(200);
+    expect((await route(json("203.0.113.11"))).status).toBe(503);
     // A session request costs no units.
     expect((await withRoute("session", ok, { limiter: createMemoryLimiter(), now: () => T0, work })(json("203.0.113.10"))).status).toBe(200);
   });

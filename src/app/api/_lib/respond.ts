@@ -12,11 +12,14 @@
  * whether the adapter let BudgetExhaustedError through (ESPN) or turned it into SOURCE_DOWN (Sleeper's adapter catches its
  * client's errors); the daily work budget's refusals (workRefusedResponse; final review SEC-1, F1) are BUSY the same two
  * ways (the server's day or its slice: the capacity message); every refusal is counted for usage:report
- * (src/server/usage.ts); one whose deadline came first answers SOURCE_SLOW,
+ * (src/server/usage.ts); a League page build that finds no free build slot on its instance in time answers BUSY with
+ * "Offer Sheet is busy right now. Try again in a minute." (buildsBusyResponse; Checkpoint 7b load test, risk 3: a moment's
+ * crowd, not a daily limit, so it isn't counted as a refusal); one whose deadline came first answers SOURCE_SLOW,
  * naming the source that was slow ("ESPN is answering slowly right now, so Offer Sheet stopped waiting. …"), or, when the
  * time went to Offer Sheet's own queue or cache or ran out before the source was asked, "Offer Sheet is busy right now. Try
  * again in a few minutes." All read what the request's scope noted (src/server/deadline.ts), so a plain outage still reads
- * SOURCE_DOWN.
+ * SOURCE_DOWN. An import of a league the browser read answers BAD_UPLOAD for a platform failure only its upload reports
+ * (uploadImportErrorResponse; B4 security review: the server asked the platform nothing, so it isn't an outage it saw).
  */
 import type { z } from "zod";
 import { LeagueImportError, type ImportErrorCode } from "@/adapters/types";
@@ -26,6 +29,7 @@ import type { ApiErrorResponse, DataSourceStamp } from "@/lib/api";
 import { errorMessage, errorStatus, isImportErrorCode, redactSecrets, type AppErrorCode, type ErrorContext } from "@/lib/errors";
 import { isBudgetExhaustedError, msUntilAllowanceGrows, msUntilUtcMidnight, type BudgetLimit, type BudgetPlatform, type QuotaLimit } from "@/server/budget";
 import { DEADLINE_CUTS, requestScope, type RequestScope } from "@/server/deadline";
+import { modelBuildLimits } from "@/server/limits";
 import { errorNameOf, logDevDetail, logEvent } from "@/server/log";
 import { noteRefusal } from "@/server/usage";
 
@@ -243,6 +247,19 @@ export function workRefusedResponse(limit: QuotaLimit, now: number = Date.now())
   return busyUntil(now + msUntilUtcMidnight(now), now, { source: "Offer Sheet", ownShare: true });
 }
 
+/** The words of a League page build that found no free build slot in time (buildsBusyResponse). */
+export const BUILDS_BUSY_MESSAGE = "Offer Sheet is busy right now. Try again in a minute.";
+
+/**
+ * BUSY for a League page build that found no free build slot on this instance in time (Checkpoint 7b load test, risk 3;
+ * src/server/buildSlots.ts): BUILDS_BUSY_MESSAGE with Retry-After modelBuildLimits.retryAfterS. A moment's crowd on one
+ * instance, not a daily limit: no reset time, and not counted as a refusal for usage:report (withRoute's log line, an
+ * error_response of BUSY with status 503, records it).
+ */
+export function buildsBusyResponse(): Response {
+  return errorResponse("BUSY", BUILDS_BUSY_MESSAGE, new Headers({ "retry-after": String(modelBuildLimits.retryAfterS) }));
+}
+
 /**
  * SOURCE_SLOW (see the header) for a request whose deadline came first: naming the slow source (the league's own platform
  * when it was one of them, else the only one, else "one of our data sources"); when no source was slow (the time went to
@@ -272,6 +289,32 @@ export function importErrorResponse(err: unknown, ctx: { platform: Platform; sea
   }
   logUnexpected("import", err, ctx.platform);
   return errorResponse("INTERNAL");
+}
+
+/**
+ * An import of a league the browser read, failed (B4 security review). Replaying an upload asks the platform nothing, so a
+ * failure that would answer 5xx (SOURCE_DOWN, BAD_RESPONSE: a response the upload lacks, or one it says the platform
+ * failed) is the upload's word, not an outage the server saw: BAD_UPLOAD, which the browser meets by asking the server to
+ * read the league itself (an honest browser never sends such an upload: its own run of the same requests fails first and
+ * falls back to that), and which isn't logged as the platform's failure (a forged upload could make ESPN look down in
+ * the error log). When a budget or the deadline cut one of the server's own reads in it (the NFL schedule, Sleeper's state
+ * and projections), and for any other error, the answer is importErrorResponse's.
+ */
+export function uploadImportErrorResponse(err: unknown, ctx: { platform: Platform; season?: number }): Response {
+  const known = asImportError(err);
+  const cut = requestScope()?.cut;
+  const cutHere = cut !== undefined && (cut.share.size > 0 || cut.budget.size > 0 || DEADLINE_CUTS.some((reason) => cut[reason].size > 0));
+  if (known && errorStatus(known.code) >= 500 && !cutHere) return errorResponse("BAD_UPLOAD");
+  return importErrorResponse(err, ctx);
+}
+
+/**
+ * The answer to a gzip body a route couldn't use (src/app/api/_lib/upload.ts UploadRead): BUSY when the daily work budget
+ * refused what its unpacked size costs (B4 security review; workRefusedResponse), else BAD_UPLOAD (the browser then asks
+ * the server to read the league itself).
+ */
+export function unreadUploadResponse(read: { refused?: QuotaLimit }): Response {
+  return read.refused ? workRefusedResponse(read.refused) : errorResponse("BAD_UPLOAD");
 }
 
 interface SourceStatusLike {

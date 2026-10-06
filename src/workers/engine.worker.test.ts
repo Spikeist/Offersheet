@@ -83,8 +83,8 @@ const snapshot = {
   settings: { tradeDeadline: { week: 13, date: DEADLINE } },
 } as unknown as LeagueSnapshot;
 const model = { version: 1, builtAt: "2026-10-01T15:01:00.000Z", nfl: { byeWeek: {}, kickoffs: { 4: { KC: THURSDAY, BUF: SUNDAY } } } } as unknown as ModelInputs;
-/** The user streams QB too, and counts playoff weeks 1.5×. */
-const settings: TradeSettings = { ...defaultTradeSettings(), streamPositions: ["K", "DEF", "QB"], playoffWeight: 1.5 };
+/** The user streams QB too (the playoff weight is no setting any more: the League model sets it, planner reply to Checkpoint 7a, §6.1). */
+const settings: TradeSettings = { ...defaultTradeSettings(), streamPositions: ["K", "DEF", "QB"] };
 const NOW = "2026-10-01T16:00:00.000Z";
 const withoutSettings: Omit<LeagueRequest, "settings"> = { type: "league", id: 7, snapshot, model, myTeamId: "3", nowIso: "2026-09-30T02:00:00.000Z" };
 const request: LeagueRequest = { ...withoutSettings, settings };
@@ -779,8 +779,9 @@ describe("contextStillValid and contextKey", () => {
   it("keys on the league, its data, the inputs, my team and only the settings the context reads", () => {
     const key = contextKey({ snapshot, model, myTeamId: "3" }, settings);
     expect(key).toBe(`espn|4242|2026|2026-10-01T15:00:00.000Z|2026-10-01T15:01:00.000Z|3|{"goal":"title","streamPositions":["DEF","K","QB"]}`);
-    // The manual playoff weight isn't one of them any more (ω is set automatically); the goal is.
-    expect(contextKey({ snapshot, model, myTeamId: "3" }, { ...settings, playoffWeight: 1.25 })).toBe(key);
+    // The manual playoff weight isn't one of them any more (ω is set automatically; an older version's stored one counts for
+    // nothing); the goal is.
+    expect(contextKey({ snapshot, model, myTeamId: "3" }, { ...settings, playoffWeight: 1.25 } as TradeSettings)).toBe(key);
     expect(contextKey({ snapshot, model, myTeamId: "3" }, { ...settings, goal: "balanced" })).not.toBe(key);
     expect(contextKey({ snapshot, model, myTeamId: null }, { ...settings, lambda: 0.9 })).toBe(key.replace("|3|", "|-|"));
   });

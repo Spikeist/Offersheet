@@ -1,5 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { gzipSync } from "node:zlib";
+import { describe, expect, it, vi } from "vitest";
 import { LeagueImportError, type SleeperImportRequest } from "@/adapters/types";
+import { workLimits } from "@/server/limits";
 import { fakeDeps, fakeResult, gzipRequest, jsonRequest } from "../../_lib/testFakes";
 import { createSleeperImportHandler, type AdapterLeagueChoice } from "./handler";
 
@@ -171,6 +173,42 @@ describe("POST /api/import/sleeper with a league the browser read (Part B, track
       expect(r.status).toBe(400);
       expect(((await json(r)).error as { code: string }).code).toBe("BAD_UPLOAD");
     }
+  });
+
+  it("a replay that fails as a Sleeper outage would is the upload's (BAD_UPLOAD, nothing logged), and a body's unpacked size is paid for first (B4 security review)", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    const charged: number[] = [];
+    const handlerWith = (importUpload: () => Promise<ReturnType<typeof fakeResult>>, verdict: "ok" | "group" = "ok") =>
+      createSleeperImportHandler({
+        importLeague: async () => fakeResult({ platform: "sleeper" }),
+        importUpload,
+        getDeps: async () => fakeDeps(),
+        choicesOf: () => undefined,
+        chargeWork: async (units) => (charged.push(units), verdict),
+        now: NOW,
+      });
+    const down = handlerWith(async () => {
+      throw new LeagueImportError("SOURCE_DOWN", "Sleeper isn't responding right now.", { platform: "sleeper" });
+    });
+    const res = await down(gzipRequest(URL, upload()));
+    expect(res.status).toBe(400);
+    expect(((await json(res)).error as { code: string }).code).toBe("BAD_UPLOAD");
+    expect(logged).not.toHaveBeenCalled();
+    // A league the user typed wrong is still the platform's own answer.
+    const missing = handlerWith(async () => {
+      throw new LeagueImportError("LEAGUE_NOT_FOUND", "No Sleeper league with that ID.", { platform: "sleeper" });
+    });
+    expect((await missing(gzipRequest(URL, upload()))).status).toBe(404);
+    // 1.2 million zeros in a field nothing reads: a few KB gzipped, 1.2 MB unpacked, so its unpacked size costs more.
+    const text = JSON.stringify(upload({ parts: [{ url: "https://api.sleeper.app/v1/league/111111111111111111", status: 200, json: { league_id: "111111111111111111", pad: "0".repeat(1_200_000) }, at: 900 }] }));
+    const packed = gzipSync(Buffer.from(text));
+    const post = () => new Request(URL, { method: "POST", headers: { "content-type": "application/gzip", "content-length": String(packed.length), host: "localhost:3000" }, body: packed });
+    const imports: unknown[] = [];
+    const refused = await handlerWith(async () => (imports.push(1), fakeResult({ platform: "sleeper" })), "group")(post());
+    expect(refused.status).toBe(503);
+    expect(((await json(refused)).error as { code: string }).code).toBe("BUSY");
+    expect(imports).toHaveLength(0);
+    expect(charged).toEqual([Math.ceil(Buffer.byteLength(text) / workLimits.unpackedUnitBytes) - Math.ceil(packed.length / workLimits.unitBytes)]);
   });
 
   it("answers the JSON path's imports as read by the server", async () => {

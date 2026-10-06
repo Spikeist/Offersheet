@@ -1,9 +1,16 @@
+import { gzipSync } from "node:zlib";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
+import { importEspnLeagueForModel, importEspnUpload } from "@/adapters/espn";
 import { LeagueImportError, type EspnImportRequest } from "@/adapters/types";
+import { newRequestScope, noteCut, runInRequestScope } from "@/server/deadline";
+import { setLogStoreForTests } from "@/server/log";
+import { createMemoryLimiter } from "@/server/rateLimit";
+import { FakeRedis } from "@/server/redis";
 import { espnCredentialsFor, saveEspnCredentials } from "@/server/session";
+import { withRoute } from "../../_lib/route";
 import { fakeDeps, fakeResult, gzipRequest, jsonRequest } from "../../_lib/testFakes";
 import { workLimits } from "@/server/limits";
 import { createEspnImportHandler } from "./handler";
@@ -278,6 +285,81 @@ describe("POST /api/import/espn with a league the browser read (Part B, track BF
     expect((await errorOf(res)).code).toBe("PRIVATE_LEAGUE");
     const foreign = await handler(gzipRequest(URL, upload(), { origin: "https://evil.example" }));
     expect(foreign.status).toBe(403);
+  });
+
+  it("a body that unpacks far past what its compressed size paid on arrival pays for the rest before it's read (B4 security review): refused, BUSY and nothing replayed", async () => {
+    const charged: number[] = [];
+    let verdict: "ok" | "client" = "client";
+    const { handler, uploads } = uploadSetup(ENV, async (units) => {
+      charged.push(units);
+      return verdict;
+    });
+    // The review's body: 150,000 copies of one SWID in a field nothing reads, about 17 KB gzipped and 5.9 MB unpacked.
+    const league = "https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/2026/segments/0/leagues/4242?view=mSettings";
+    const text = JSON.stringify(upload({ parts: [{ url: league, status: 200, json: { junk: `${CREDS.swid} `.repeat(150_000) }, at: T }] }));
+    const packed = gzipSync(Buffer.from(text), { level: 9 });
+    const post = () => new Request(URL, { method: "POST", headers: { "content-type": "application/gzip", "content-length": String(packed.length), host: "localhost:3000" }, body: packed });
+    const refused = await handler(post());
+    expect(refused.status).toBe(503);
+    expect((await errorOf(refused)).code).toBe("BUSY");
+    expect(uploads).toHaveLength(0);
+    // Its unpacked bytes' units, less the compressed bytes' units its arrival paid (src/server/budget.ts admissionUnits).
+    expect(charged).toEqual([Math.ceil(Buffer.byteLength(text) / workLimits.unpackedUnitBytes) - Math.ceil(packed.length / workLimits.unitBytes)]);
+    expect(charged[0]).toBeGreaterThanOrEqual(10);
+    verdict = "ok";
+    expect((await handler(post())).status).toBe(200);
+    // A body that compresses as real uploads do (4–5 times) owes nothing more: no charge.
+    const honest = gzipSync(Buffer.from(JSON.stringify(upload())));
+    const res = await handler(new Request(URL, { method: "POST", headers: { "content-type": "application/gzip", "content-length": String(honest.length), host: "localhost:3000" }, body: honest }));
+    expect(res.status).toBe(200);
+    expect(charged).toHaveLength(2);
+  });
+
+  it("a replay that fails as an ESPN outage would is the upload's, not ESPN's (B4 security review): BAD_UPLOAD, nothing logged; a cut of the server's own reads is said as before", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    const failingWith = (err: unknown) =>
+      createEspnImportHandler({
+        importLeague: async () => ({ result: fakeResult(), espn: {} }),
+        importUpload: async () => {
+          throw err;
+        },
+        getDeps: async () => fakeDeps(),
+        credentialsFor: (request, leagueId) => espnCredentialsFor(request, leagueId, ENV),
+        sign: () => undefined,
+        now: NOW,
+      });
+    for (const err of [new LeagueImportError("SOURCE_DOWN", "ESPN isn't responding right now.", { platform: "espn" }), new LeagueImportError("BAD_RESPONSE", "Missing required field at teams[0]", { platform: "espn" })]) {
+      const res = await failingWith(err)(gzipRequest(URL, upload()));
+      expect(res.status).toBe(400);
+      expect((await errorOf(res)).code).toBe("BAD_UPLOAD");
+    }
+    expect(logged).not.toHaveBeenCalled();
+    // A budget that cut one of the server's own reads inside the replay (the NFL schedule) is still said as the budget.
+    const busy = await runInRequestScope(newRequestScope("import", Date.now()), async () => {
+      noteCut("budget", "espn");
+      return failingWith(new LeagueImportError("SOURCE_DOWN", "x", { platform: "espn" }))(gzipRequest(URL, upload()));
+    });
+    expect(busy.status).toBe(503);
+    expect((await errorOf(busy)).code).toBe("BUSY");
+  });
+
+  it("the review's forged upload (no parts at all) through withRoute and the real adapter: BAD_UPLOAD, and the error log stays empty", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const store = new FakeRedis();
+    setLogStoreForTests(store);
+    try {
+      const handler = createEspnImportHandler({ importLeague: importEspnLeagueForModel, importUpload: importEspnUpload, getDeps: async () => fakeDeps(), credentialsFor: async () => ({ source: "none" }), sign: () => undefined, now: NOW });
+      const tasks: Array<Promise<void>> = [];
+      const route = withRoute("import", handler, { platform: "espn", limiter: createMemoryLimiter(), work: null, after: (task) => void tasks.push(task()) });
+      const res = await route(gzipRequest(URL, upload({ parts: [] }), { "x-real-ip": "203.0.113.7" }));
+      await Promise.all(tasks);
+      expect(res.status).toBe(400);
+      expect((await errorOf(res)).code).toBe("BAD_UPLOAD");
+      // It used to answer 502 SOURCE_DOWN and store an "ESPN is down" line the server never saw.
+      expect(store.keys()).toEqual([]);
+    } finally {
+      setLogStoreForTests(undefined);
+    }
   });
 
   it("doesn't sign an import whose model build would cost more than any real league's: BAD_UPLOAD, and the browser asks the server (review BF-R1)", async () => {

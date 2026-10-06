@@ -162,22 +162,46 @@ describe("shared windows (Redis, @upstash/ratelimit's fixed window)", () => {
     vi.useFakeTimers({ now: T0 });
     const redis = new FakeRedis(() => Date.now());
     const { client, calls } = ratelimitRedis(redis);
-    const limits = { ...rateLimits, session: { limit: 2, windowS: 600 } };
+    const limits = { ...rateLimits, model: { limit: 2, windowS: 600 } };
     const id = hmacId(CLIENT_ID_LABEL, "203.0.113.9", { SESSION_SECRET: SECRET });
     const a = createSharedLimiter(client, { prefix: "os:preview:", limits });
     const b = createSharedLimiter(client, { prefix: "os:preview:", limits }); // another instance
-    expect((await a.check("session", id)).allowed).toBe(true);
-    expect((await b.check("session", id)).allowed).toBe(true);
-    expect(await a.check("session", id)).toEqual({ allowed: false, retryAfterS: 600, firstRefusal: true });
+    expect((await a.check("model", id)).allowed).toBe(true);
+    expect((await b.check("model", id)).allowed).toBe(true);
+    expect(await a.check("model", id)).toEqual({ allowed: false, retryAfterS: 600, firstRefusal: true });
     // Upstash bills the script's own commands: INCRBY each check, PEXPIRE on the window's first.
     expect(redis.stats.commands).toBe(4);
     const window = Math.floor(T0 / 600_000);
-    expect(redis.keys()).toEqual([`os:preview:rl:session:${id}:${window}`]);
+    expect(redis.keys()).toEqual([`os:preview:rl:model:${id}:${window}`]);
     expect(redis.ttlMs(redis.keys()[0] as string)).toBe(600_000);
     expect(redis.keys().join(" ")).not.toContain("203.0.113");
     // Refused again by a's ephemeral cache, without Redis, and not a "first" refusal.
-    expect(await a.check("session", id)).toMatchObject({ allowed: false, firstRefusal: false });
+    expect(await a.check("model", id)).toMatchObject({ allowed: false, firstRefusal: false });
     expect(calls).toHaveLength(3);
+  });
+
+  it("only the imports and League page builds count in Redis; every other kind counts in each instance's own windows, without a command (B4 security review)", async () => {
+    vi.useFakeTimers({ now: T0 });
+    expect(rateLimits.sharedKinds).toEqual(["import", "model"]);
+    const redis = new FakeRedis(() => Date.now());
+    const { client, calls } = ratelimitRedis(redis);
+    const a = createSharedLimiter(client, { prefix: "os:preview:" });
+    const b = createSharedLimiter(client, { prefix: "os:preview:" }); // another instance
+    for (const kind of ["health", "session", "cron", "feedback"] as const) {
+      const { limit } = rateLimits[kind];
+      for (let i = 0; i < limit; i++) expect((await a.check(kind, "c")).allowed).toBe(true);
+      expect(await a.check(kind, "c")).toMatchObject({ allowed: false, firstRefusal: true });
+      // Each instance counts its own: the other one's window is fresh.
+      expect((await b.check(kind, "c")).allowed).toBe(true);
+      // An IPv6 group's window too.
+      expect((await a.check(kind, "g", T0, "group")).allowed).toBe(true);
+    }
+    expect(calls).toHaveLength(0);
+    expect(redis.stats.commands).toBe(0);
+    expect(redis.keys()).toEqual([]);
+    // The shared kinds still go to Redis.
+    expect((await a.check("import", "c")).allowed).toBe(true);
+    expect(calls).toHaveLength(1);
   });
 
   it("fails open to the process's own windows when Redis errs or is slow, logged once, and leaves Redis alone a while", async () => {
@@ -206,12 +230,12 @@ describe("shared windows (Redis, @upstash/ratelimit's fixed window)", () => {
     vi.useFakeTimers({ now: T0 });
     const redis = new FakeRedis(() => Date.now());
     const { client } = ratelimitRedis(redis);
-    const l = createSharedLimiter(client, { prefix: "os:preview:", limits: { ...rateLimits, session: { limit: 1, windowS: 600 } }, sweepEveryMs: 60_000 });
-    await l.check("session", "refused");
-    expect((await l.check("session", "refused")).allowed).toBe(false);
+    const l = createSharedLimiter(client, { prefix: "os:preview:", limits: { ...rateLimits, import: { limit: 1, windowS: 600 } }, sweepEveryMs: 60_000 });
+    await l.check("import", "refused");
+    expect((await l.check("import", "refused")).allowed).toBe(false);
     expect(l.refusedInMemory()).toBe(1);
     vi.setSystemTime(T0 + 600_000 + 60_000);
-    await l.check("session", "someone-else");
+    await l.check("import", "someone-else");
     expect(l.refusedInMemory()).toBe(0);
   });
 });

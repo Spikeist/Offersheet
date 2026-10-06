@@ -87,6 +87,14 @@ export interface LeagueModel {
    * card's Helps you and Overall. Null when `odds` is or without my team; absent in a model built before Phase 7a.
    */
   helpsCalibration?: HelpsCalibration | null;
+  /**
+   * "Waiver upgrades" for my team (planner reply to Checkpoint 7a, §6.2; league.ts step 10, src/engine/waivers.ts): every free
+   * agent who projects for more points than one of my players at his position, with what picking him up adds to my lineup
+   * and whom it drops, for the rest of the season and for one week (two while a week is under way: its games still to play,
+   * and the next week). Null without my team (or when the build skipped it: BuildLeagueModelOptions.waiverUpgrades false);
+   * absent in a model built before Phase 7b.
+   */
+  waiverUpgrades?: WaiverUpgrades | null;
   /** Milliseconds per stage, when the caller passed a clock. */
   timings: Record<string, number>;
   /** Plain-English notes about gaps (a source missing, a player without projections). */
@@ -111,6 +119,92 @@ export interface HelpsCalibration {
   dPO: number;
   /** My P(title) change; null when the league's title odds are unknown (B₃ then counts the playoff odds alone, as every trade's B). */
   dCH: number | null;
+}
+
+/**
+ * "Waiver upgrades" (LeagueModel.waiverUpgrades; planner reply to Checkpoint 7a, §6.2; src/engine/waivers.ts has the rules):
+ * my team's lists, "Rest of season" and one week ("This week"; while a week is under way, "This week" for its games still
+ * to play and "Next week").
+ */
+export interface WaiverUpgrades {
+  teamId: string;
+  /** "Rest of season": every remaining week team numbers count (a week under way left out). Null when no week is left. */
+  ros: WaiverList | null;
+  /**
+   * "This week" while the current week is under way (LeagueModel.inProgressWeek): its games still to play, the week
+   * "Streaming picks this week" lists, my players whose games have started held where my lineup before its first kickoff
+   * had them (waivers.ts). Null when no week is under way, none of its games is left, or no week after it is left.
+   */
+  underWay: WaiverList | null;
+  /**
+   * The first week team numbers count: the current week ("This week"), or while the current week is under way the next one
+   * ("Next week"). Null when no week is left.
+   */
+  week: WaiverList | null;
+}
+
+/** One of the lists (WaiverUpgrades). */
+export interface WaiverList {
+  /** The NFL weeks the lineup gains count (one for a one-week list), ascending. */
+  weeks: number[];
+  /** The positions listed, in POSITIONS order: rest of season, every position the lineup starts that I don't stream; one week, all of them. */
+  positions: Pos[];
+  /**
+   * Whether my streaming rows (StreamingSummary) were in the lineups the gains compare: yes for the rest of the season (a
+   * pickup competes with the streamer the model assumes, wherever a flex takes his position too), no for one week (that
+   * week's streaming pickup is the decision the list is for: compared with my roster as it stands, a kicker fills the slot
+   * of one on bye instead of beating the streamer the model already counted).
+   */
+  streaming: boolean;
+  /**
+   * Most lineup gain first as the page shows it (config.waivers.gainDecimals: two gains that print the same tie, and every
+   * gain that prints as no gain is one tie), a row whose move can't be made last; then more points, then the smaller id.
+   */
+  rows: WaiverRow[];
+  /**
+   * My active players with projections at the listed positions who score nothing in the list's terms, so no free agent is
+   * listed as "better than" them (waivers.ts): on bye that week, out (injured, suspended, for the rest of the season), or,
+   * in the week under way, with their games already started. Roster order.
+   */
+  idle: WaiverIdle[];
+}
+
+/** One of my players who scores nothing in a waiver list's terms (WaiverList.idle). */
+export interface WaiverIdle {
+  playerId: string;
+  /** His primary position. */
+  pos: Pos;
+  /** On bye that week; his game in the week under way has started; or out (no points, whatever the reason). */
+  why: "bye" | "started" | "out";
+}
+
+/** One free agent in a waiver list (waivers.ts). */
+export interface WaiverRow {
+  playerId: string;
+  /** His points in the list's terms: rest-of-season points (PlayerModel.ros.total) or that week's projection (PlayerModel.weekly[w].p). */
+  points: number;
+  /**
+   * My active players at his position (with projections) he out-projects in the same terms, most points first; never one
+   * who scores nothing there (WaiverList.idle). Empty when none of mine there scores.
+   */
+  betterThan: string[];
+  /**
+   * What picking him up adds to my lineup over the list's weeks, unweighted (a playoff week counts once, as players' ROS
+   * points do): ROS(R + him − drop) − ROS(R), my roster as it stands, in scenario lineups (expected-value lineups without
+   * scenarios). Null when he can't join my roster (every player who could make room is needed).
+   */
+  gain: number | null;
+  /**
+   * The player he'd replace on my roster (the engine's best drop: waivers.ts), or null for an open roster spot (or when gain
+   * is null). The same in every list, but in the week under way when that player's game has started (he's locked): there
+   * the next one in the drop order.
+   */
+  drop: string | null;
+  /**
+   * He wouldn't start for me in any of the list's weeks in expected-value lineups (no injuries simulated; config.waivers.
+   * startsMinPoints), even with the drop gone: his gain, if any, comes from covering injuries and byes. The page says "depth only".
+   */
+  depthOnly: boolean;
 }
 
 /**
@@ -216,8 +310,8 @@ export interface PlayerModel {
   availabilityNote?: AvailabilityNote;
   /**
    * The market blend (§6 step 8; planner reply to Checkpoint 4, change 1), for players it moved: present only when his
-   * weight is above 0 and his own projection isn't 0. The player detail shows "Our projection 210 · Trade market 170 ·
-   * Used 190".
+   * weight is above 0 and his own projection isn't 0. The League page's player detail says in words which way it leans
+   * (src/lib/leagueView.ts blendText; no number since Phase 7b: FantasyCalc's values are never displayed).
    */
   blend?: PlayerBlend;
 }

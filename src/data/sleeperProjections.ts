@@ -298,11 +298,16 @@ export function sleeperGate(http: HttpClient, now: Date): SleeperGate {
       }
       const res = await request(url, SLEEPER_MODEL_MAX_RETRIES, policy, reducer);
       if (!res || notAnswering(res)) {
+        // Cut by this request's own deadline (Checkpoint 7a, review RL-2) or by Offer Sheet's own daily Sleeper budget or
+        // its share for the visitor's network (Checkpoint 7b, as fantasyCalcValues.ts fantasyCalcOutcome): Sleeper wasn't
+        // slow or wasn't asked, so only this build stops asking. The instance-wide hold is left alone: a share one visitor's
+        // requests can use up must not hold every build on the instance off Sleeper.
+        if (res?.cut === "deadline" || res?.cut === "budget") {
+          tripped = res.cut === "deadline" ? SLEEPER_DEADLINE_WHY : SLEEPER_BUDGET_WHY;
+          return { why: tripped, down: true };
+        }
         const reason = (res && unusable(res)) || "no response";
         tripped = reason;
-        // Cut by this request's own deadline (Checkpoint 7a, review RL-2): Sleeper wasn't slow, this request ran out of
-        // time, so only this build stops asking; the instance-wide hold is left alone.
-        if (res?.cut === "deadline") return { why: "this request ran out of time", down: true };
         // A build running alongside may have started the hold already: one outage, one doubling.
         if (!(h.downUntil > at)) {
           h.outages += 1;
@@ -321,6 +326,12 @@ export function sleeperGate(http: HttpClient, now: Date): SleeperGate {
     },
   };
 }
+
+/** Why a build stopped asking Sleeper after its request ran out of time (not an outage: no instance-wide hold). */
+export const SLEEPER_DEADLINE_WHY = "this request ran out of time";
+
+/** Why a build stopped asking Sleeper after Offer Sheet's own daily budget (or the network's share of it) refused a request. */
+export const SLEEPER_BUDGET_WHY = "not asked: Offer Sheet has used today's share of requests to Sleeper";
 
 /** A week or list left out because Sleeper stopped answering (SLEEPER_DOWN; `what` is plural: "projections for week 5"). */
 function downWarning(what: string, why: string, path: string): ImportWarning {

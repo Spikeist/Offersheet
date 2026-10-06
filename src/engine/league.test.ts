@@ -1699,10 +1699,11 @@ describe("edge cases", () => {
       "teams after their pickups",
       "trade chips",
       "needs and partners",
+      "waiver upgrades",
       "season simulation",
       "total",
     ]);
-    expect(timings.total).toBe(12);
+    expect(timings.total).toBe(13);
     // No simulation (sims 0): no stage for it, and no odds.
     const none = buildLeagueModel(league.snapshot, league.inputs, { now: TEST_NOW, scenarios: 4, sims: 0, clock: () => (t += 1) });
     expect(Object.keys(none.timings)).not.toContain("season simulation");
@@ -2132,15 +2133,15 @@ describe("streaming positions (§7; planner reply to Checkpoint 3, model change 
     expect(dflt.playoffWeightAuto).toEqual({ omega: config.lineups.playoffWeight, basis: "fallback", reason: "noOdds", goal: "title", gain: config.lineups.playoffWeightAuto.gain, sims: 0, regularPerPoint: null, playoffPerPoint: null, ratio: null, clamped: null, runs: null });
     expect(dflt.streaming.byTeam["1"]).toMatchObject({ positions: ["K", "DEF"], source: "setting" });
     expect(modelSettings(undefined)).toEqual(defaultTradeSettings());
-    // A playoff weight of 1.5 (ignored now) and K + QB (listed in position order).
-    const custom = buildLeagueModel(league.snapshot, league.inputs, { ...OPTS, settings: { ...defaultTradeSettings(), playoffWeight: 1.5, streamPositions: ["K", "QB"] } }, NO_RISK);
+    // A stored copy from before Phase 7b with a playoff weight of 1.5 (ignored now) and K + QB (listed in position order).
+    const custom = buildLeagueModel(league.snapshot, league.inputs, { ...OPTS, settings: { ...defaultTradeSettings(), playoffWeight: 1.5, streamPositions: ["K", "QB"] } as TradeSettings }, NO_RISK);
     expect(custom.playoffWeight).toBe(config.lineups.playoffWeight);
     expect(custom.streaming.byTeam["1"]?.positions).toEqual(["QB", "K"]);
     const t1 = teamOf(custom, "1");
     expect(t1.ev.ros).toBeCloseTo(rosValue(t1.ev.lv, weekWeights(custom.weeks, custom.regularWeeks, custom.playoffWeeks)), 9);
     expect(t1.ev.ros).not.toBeCloseTo(rosValue(t1.ev.lv, weekWeights(custom.weeks, custom.regularWeeks, custom.playoffWeeks, { playoffWeight: 1.5 })), 3);
     // Bad values fall back to their defaults (settings.ts normalizeTradeSettings): RB (not streamable), a duplicate.
-    const bad = buildLeagueModel(league.snapshot, league.inputs, { ...OPTS, settings: { ...defaultTradeSettings(), playoffWeight: 7, streamPositions: ["RB", "K", "K"] } }, NO_RISK);
+    const bad = buildLeagueModel(league.snapshot, league.inputs, { ...OPTS, settings: { ...defaultTradeSettings(), playoffWeight: 7, streamPositions: ["RB", "K", "K"] } as TradeSettings }, NO_RISK);
     expect(bad.playoffWeight).toBe(config.lineups.playoffWeight);
     expect(bad.streaming.byTeam["1"]?.positions).toEqual(["K"]);
     // A config tuned for calibration keeps its own fallback weight.
@@ -2154,7 +2155,7 @@ describe("streaming positions (§7; planner reply to Checkpoint 3, model change 
     const league = buildTestLeague({ teams: [team("1", [...withQb("1", 25), p("1-qb2", "QB", 18, { nflTeam: "LAT" })]), team("2", withQb("2", 10))], kickoffs: { 4: { EAR: "2026-09-29T17:00:00.000Z", LAT: "2026-09-30T00:15:00.000Z" } } });
     // A game has kicked off (EAR's): week 4 is in progress, so Σ ω = 10 regular-season weeks + 3 playoff weeks × ω (here the
     // fallback weight: no simulation; the old setting of 1.5 isn't read).
-    const model = buildLeagueModel(league.snapshot, league.inputs, { ...OPTS, scenarios: 8, settings: { ...NO_STREAMING, playoffWeight: 1.5 } }, NO_RISK);
+    const model = buildLeagueModel(league.snapshot, league.inputs, { ...OPTS, scenarios: 8, settings: { ...NO_STREAMING, playoffWeight: 1.5 } as TradeSettings }, NO_RISK);
     expect(model.inProgressWeek).toBe(4);
     expect(model.playoffWeight).toBe(config.lineups.playoffWeight);
     const omega = 10 + 3 * model.playoffWeight;

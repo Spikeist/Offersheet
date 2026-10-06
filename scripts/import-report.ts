@@ -41,7 +41,7 @@ import { loadPlayerIdResolver } from "@/data";
 import type { CrosswalkConflict, CrosswalkSourceKey, IdSource, SleeperPlayerLite } from "@/data/types";
 import type { LeagueSnapshot } from "@/engine/model";
 import type { ImportResponse } from "@/lib/api";
-import { buildImportReport, type ImportReportView } from "@/lib/importReport";
+import { POSITION_LIMITS_LABEL, buildImportReport, type ImportReportView } from "@/lib/importReport";
 import { toStoredImport } from "@/lib/importStore";
 import { FileCache } from "@/server/cache";
 import { createHttpClient } from "@/server/http";
@@ -98,9 +98,11 @@ function placeholders(result: ImportResult, label: string): ImportResponse {
 function render(view: ImportReportView, heading: string, opts: { aggregatesOnly?: boolean } = {}): string {
   const L: string[] = [`## ${heading}`, ""];
   const l = view.league;
-  L.push(`**${l.name}** · ${l.platformLabel} · ${l.season} season · week ${l.currentWeek} · ${l.numTeams} teams · ${l.leagueTypeLabel}${l.bestBall ? " · best ball" : ""}`, "");
+  L.push(`**${l.name}** · ${l.platformLabel} · ${l.season} season · week ${l.currentWeek} · ${l.numTeams} teams · ${l.leagueTypeLabel}${view.readings.leagueType ? ` [${view.readings.leagueType}]` : ""}${l.bestBall ? " · best ball" : ""}`, "");
   if (l.cookieNote) L.push(l.cookieNote, "");
   L.push("**At a glance**", "", ...view.glance.map((g) => `- ${g.label}: ${g.value}${g.detail ? ` (${g.detail})` : ""}`), "");
+  // The notices (src/lib/notices.ts; planner reply to Checkpoint 7a, §5.1): the page's "Things to know", word for word.
+  L.push(`**Things to know (${view.notices.length})**`, "", ...(view.notices.length ? view.notices.map((n) => `- ${n.text}`) : ["- None: nothing that changes what you see or decide."]), "");
   const sc = view.scoring;
   L.push(`**Scoring: ${sc.formatLabel}**`, "");
   L.push(`- Per catch: ${sc.receptions.map((r) => `${r.pos} ${r.text}`).join(" · ")}${sc.tePremium ? ` (TE premium +${sc.tePremium})` : ""}`);
@@ -109,14 +111,29 @@ function render(view: ImportReportView, heading: string, opts: { aggregatesOnly?
   if (sc.defenseSummary) L.push(`- D/ST: ${sc.defenseSummary}`);
   for (const b of sc.defenseBuckets) L.push(`- ${b.title}: ${b.lines.map((x) => `${x.range} ${x.points > 0 ? "+" : ""}${x.points}`).join(", ")}`);
   L.push(`- Every per-unit rate (${sc.allRules.length}): ${sc.allRules.map((r) => `${r.label} ${r.value}`).join(" · ")}`);
-  L.push(sc.unmapped.length ? `- Rules we couldn't map (${sc.unmapped.length}): ${sc.unmapped.map((u) => u.text).join("; ")}` : "- Rules we couldn't map: none", "");
+  // The scoring card's lines: the uncounted rules that matter (a warn box), then the quiet line for rare ones.
+  if (sc.uncounted) L.push(`- Not counted yet: ${sc.uncounted}`);
+  if (sc.quiet) L.push(`- Quiet line: ${sc.quiet}`);
+  if (!sc.uncounted && !sc.quiet) L.push("- Every scoring rule is counted.");
+  L.push("");
   const lu = view.lineup;
+  // A setting read with a caveat carries the page's "our reading" line (ImportReportView.readings), here in brackets.
+  const reading = (key: keyof ImportReportView["readings"]) => (view.readings[key] ? ` [${view.readings[key]}]` : "");
   L.push("**Lineup and roster**", "", `- Starters: ${lu.startersText}`, `- Bench ${lu.bench} · IR ${lu.ir} · taxi ${lu.taxi} · max active roster ${lu.maxRosterSize}`);
-  if (lu.limits.length) L.push(`- Position limits: ${lu.limits.map((x) => `${x.label} ${x.value}`).join(", ")}`);
+  if (lu.limits.length) L.push(`- Position limits: ${lu.limits.map((x) => `${x.label} ${x.value}${x.label === POSITION_LIMITS_LABEL ? reading("positionLimits") : ""}`).join(", ")}`);
   L.push("");
   const se = view.season;
-  L.push("**Season and playoffs**", "", `- Regular season: ${se.regularSeason}`, `- Playoffs: ${se.playoffs} · ${se.playoffTeams} teams · byes: ${se.byes}${se.rounds ? ` · rounds: ${se.rounds}` : ""}`, `- Seeding: ${se.seeding}`, `- Ties in the standings: ${se.tiebreaker}`, `- Median game: ${se.medianGame ? "yes" : "no"} · points only: ${se.pointsOnly ? "yes" : "no"} · divisions: ${se.divisions.length || "none"}`, "");
-  L.push("**Trades**", "", `- Deadline: ${view.trades.deadline}`, `- Review: ${view.trades.review}`, `- FAAB: ${view.trades.faab}`, `- Waiver order used: ${view.trades.waiverOrder}`, "");
+  L.push(
+    "**Season and playoffs**",
+    "",
+    `- Regular season: ${se.regularSeason}`,
+    `- Playoffs: ${se.playoffs} · ${se.playoffTeams} teams · byes: ${se.byes}${reading("byes")}${se.rounds ? ` · rounds: ${se.rounds}` : ""}`,
+    `- Seeding: ${se.seeding}`,
+    `- Ties in the standings: ${se.tiebreaker}${reading("tiebreaker")}`,
+    `- Median game: ${se.medianGame ? "yes" : "no"} · points only: ${se.pointsOnly ? "yes" : "no"}${reading("pointsOnly")} · divisions: ${se.divisions.length || "none"}`,
+    "",
+  );
+  L.push("**Trades**", "", `- Deadline: ${view.trades.deadline}`, `- Review: ${view.trades.review}${reading("review")}`, `- FAAB: ${view.trades.faab}`, `- Waiver order used: ${view.trades.waiverOrder}`, "");
   L.push("**Trade values**", "", `- ${view.values.text}`, "");
   const t = view.teams;
   L.push("**Teams** (names replaced with placeholders)", "", `- ${t.rows.length} teams; your team: ${t.myTeamId ? `Team ${t.myTeamId} (${t.myTeamSource === "platform" ? "found by the platform" : "picked"})` : "not identified: the user picks it"}`);
@@ -125,12 +142,25 @@ function render(view: ImportReportView, heading: string, opts: { aggregatesOnly?
     for (const r of t.rows) L.push(`| ${r.rank} | ${r.name}${r.isMine ? " (you)" : ""} | ${r.owner} | ${r.record} | ${r.pointsFor} | ${r.pointsAgainst} | ${r.rosterCount} | ${r.irCount} |`);
   }
   const p = view.players;
-  L.push("", "**Players**", "", `- ${p.total} players known: ${p.rostered} rostered (${p.onIr} on IR, ${p.onTaxi} on taxi), ${p.freeAgents} free agents`, `- Not matched to the player database: ${p.unmatched.length ? p.unmatched.map((u) => `${u.name} (${u.pos}, ${u.team})`).join("; ") : "none"}`, `- Missing details: ${p.missingDetails}`);
+  L.push("", "**Players**", "", `- ${p.total} players known: ${p.rostered} rostered (${p.onIr} on IR, ${p.onTaxi} on taxi), ${p.freeAgents} free agents`);
   L.push("", "**Schedule and activity**", "", `- ${view.schedule.matchups} matchups (${view.schedule.weeks})${view.schedule.missingRegularWeeks.length ? `; missing weeks ${view.schedule.missingRegularWeeks.join(", ")}` : ""}`, `- Final scores: ${view.schedule.results}`, `- Trades ${view.activity.trades} · adds ${view.activity.adds} · drops ${view.activity.drops} · waiver claims ${view.activity.waivers}${view.activity.tradedPicks !== undefined ? ` · traded picks ${view.activity.tradedPicks}` : ""}`);
-  L.push("", `**Notes (${view.notes.length})**`, "", ...view.notes.map((n) => `- ${n}`));
-  L.push("", `**Warnings (${view.warnings.length})**`, "", ...view.warnings.map((w) => `- \`${w.code}\` ${w.message}${w.platformPath ? ` (${w.platformPath})` : ""}`));
-  L.push("", "**Data timestamps**", "", ...view.timestamps.map((x) => `- ${x.label}: ${x.value}`), "");
+  L.push("", "**Data timestamps**", "", ...view.timestamps.map((x) => `- ${x.label}: ${x.value}`));
+  const dataNotes = [...new Set([...view.valueNotes, ...view.modelNotes])];
+  if (dataNotes.length) L.push(...dataNotes.map((n) => `- ${n}`));
+  L.push("", ...renderTechnical(view), "");
   return L.join("\n");
+}
+
+/** The collapsed "Technical details (for bug reports)" at the page's bottom: every warning (code, path), note, ID match and stat ID. */
+export function renderTechnical(view: Pick<ImportReportView, "technical">): string[] {
+  const L = ["**Technical details (for bug reports)** (collapsed on the page)", ""];
+  if (view.technical.note) L.push(view.technical.note, "");
+  for (const s of view.technical.sections) {
+    L.push(`*${s.title} (${s.items.length})*`, "");
+    for (const item of s.items) L.push(`- ${item.code ? `\`${item.code}\` ` : ""}${item.text}${item.path ? ` (${item.path})` : ""}`);
+    L.push("");
+  }
+  return L;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -177,14 +207,15 @@ export const OFFLINE_OVERRIDES_TEXT = "## Player ID overrides (the whole crosswa
 export function offlineReport(dump: Dump, opts: { root: string; dir: string; timeZone: string; command: string; generatedAt: Date }): { doc: string; response: ImportResponse } {
   const team = dump.snapshot.myTeamId;
   const response: ImportResponse = { snapshot: { ...dump.snapshot, myTeamId: null }, notes: [], usedEspnCookies: false };
-  const view = buildImportReport(response, { timeZone: opts.timeZone, model: dump.inputs, ...(team ? { myTeamId: team, myTeamSource: "you" as const } : {}) });
+  // The dump's inputs were built for its own snapshot, at the same time: fresh for it, as the League page reuses them.
+  const view = buildImportReport(response, { timeZone: opts.timeZone, model: dump.inputs, freshModel: dump.inputs, ...(team ? { myTeamId: team, myTeamSource: "you" as const } : {}) });
   const doc = [
     "# Import Report contents",
     "",
     `Generated by \`${opts.command}\` on ${opts.generatedAt.toISOString().slice(0, 10)} from a saved dump, with no network (offline is the default; \`-- --live\` imports the league through the real adapters, cache and ID crosswalk). Team, owner and league names are placeholders.`,
     "",
     `- ${dumpNote(opts.root, opts.dir, dump)}`,
-    "- A dump keeps the import's snapshot and the model inputs, not the import's own notes (the Notes list below holds only what the report itself adds), the crosswalk or a Sleeper league.",
+    "- A dump keeps the import's snapshot and the model inputs, not the import's own notes (so the technical details below have no \"Import notes\"), the crosswalk or a Sleeper league. The report shows the Import Report as it reads once the League page has loaded the model inputs: the notices judge your roster (the League page also judges other teams' likely starters).",
     "",
     render(view, `ESPN: Parker's league (the saved dump, as imported through the public link)`),
     OFFLINE_SLEEPER_TEXT,

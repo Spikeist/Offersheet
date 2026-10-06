@@ -18,7 +18,14 @@ export type EspnCredentialsCheck =
 /** espn_s2 is a long URL-encoded token; allow the characters it (or its decoded form) can contain. */
 const ESPN_S2_CHARS = /^[A-Za-z0-9%+/=_.\-]+$/;
 export const ESPN_S2_MIN_LENGTH = 40;
-export const ESPN_S2_MAX_LENGTH = 4000;
+/**
+ * The longest espn_s2 accepted (B4 security review). The server keeps the two cookies in one sealed cookie
+ * (src/server/session.ts), and a cookie holds at most 4,096 bytes with its attributes: 2,777 characters of espn_s2 beside
+ * a SWID (measured in production; iron-session's seal grows a third over the session's JSON). At 4,000 a longer value
+ * passed these checks and failed the save (500, "Something went wrong on our side", two error-log lines each). Real values
+ * are a few hundred characters; the longest accepted one seals into a 3,055-byte cookie (src/server/session.test.ts).
+ */
+export const ESPN_S2_MAX_LENGTH = 2_000;
 const GUID = /^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$/;
 
 function tidy(raw: string, cookieName: string): string {

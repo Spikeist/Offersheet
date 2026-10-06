@@ -158,12 +158,14 @@ describe("the store's bounds (final review SEC-3, F4)", () => {
     expect(over.status).toBe(429);
     expect(over.headers.get("retry-after")).toBe(String(5.5 * 3600));
     expect(((await over.json()) as { error: { code: string; message: string } }).error).toEqual({ code: "RATE_LIMITED", message: "You're going a bit fast. Try again in about 6 hours." });
-    // Another address in the same /24: its own client count, but the group's (4: the refused copy counted too) is shared.
+    // Another address in the same /24: its own client count, but the group's 4 is shared (the refused copy counted nowhere:
+    // Checkpoint 7b load test, defect 2), so two more fit and a third doesn't.
     expect((await route(from("203.0.113.77"))).status).toBe(202);
-    expect((await route(from("203.0.113.78"))).status).toBe(429);
+    expect((await route(from("203.0.113.78"))).status).toBe(202);
+    expect((await route(from("203.0.113.79"))).status).toBe(429);
     // Another network: its own counts.
     expect((await route(from("198.51.100.7"))).status).toBe(202);
-    expect(await redis.lrange("os:preview:fb:2026-10-04", 0, -1)).toHaveLength(4);
+    expect(await redis.lrange("os:preview:fb:2026-10-04", 0, -1)).toHaveLength(5);
     expect([feedbackLimits.perClientPerDay, feedbackLimits.perGroupPerDay, feedbackLimits.maxPerDay]).toEqual([30, 60, 100]);
   });
 

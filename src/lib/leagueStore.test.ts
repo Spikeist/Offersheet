@@ -155,7 +155,7 @@ const C = snap({ leagueId: "5151", name: "Charlie League" });
 const idA = savedLeagueId(A);
 const idB = savedLeagueId(B);
 const idC = savedLeagueId(C);
-const mine: TradeSettings = { ...defaultTradeSettings(), untouchables: ["4046"], playoffWeight: 1.5 };
+const mine: TradeSettings = { ...defaultTradeSettings(), untouchables: ["4046"], maxPerSide: 3 };
 
 /** Lets timers and fake-indexeddb's queued work run. */
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -928,11 +928,11 @@ describe("settings and feedback", () => {
     const { client } = b.tab();
     await client.start();
     const key = leagueKey(A);
-    const saving = client.updateSettings(key, (s) => ({ ...s, playoffWeight: 1.5, maxPerSide: 9 }));
-    expect(savedSettingsRead(client.getState(), key)?.settings.playoffWeight).toBe(1.5); // before the disk
+    const saving = client.updateSettings(key, (s) => ({ ...s, lambda: 0.4, maxPerSide: 9 }));
+    expect(savedSettingsRead(client.getState(), key)?.settings.lambda).toBe(0.4); // before the disk
     expect(await saving).toEqual({ ok: true });
-    expect(savedSettingsRead(client.getState(), key)).toEqual({ settings: { ...defaultTradeSettings(), playoffWeight: 1.5 }, stored: true });
-    expect(await rowsOf(b.factory as IDBFactory, "settings")).toEqual([{ leagueKey: key, settings: { ...defaultTradeSettings(), playoffWeight: 1.5 } }]);
+    expect(savedSettingsRead(client.getState(), key)).toEqual({ settings: { ...defaultTradeSettings(), lambda: 0.4 }, stored: true });
+    expect(await rowsOf(b.factory as IDBFactory, "settings")).toEqual([{ leagueKey: key, settings: { ...defaultTradeSettings(), lambda: 0.4 } }]);
     expect(await client.resetSettings(key)).toEqual({ ok: true });
     expect(savedSettingsRead(client.getState(), key)).toEqual({ settings: defaultTradeSettings(), stored: false });
     expect(await client.updateSettings("espn:4242", () => mine)).toEqual({ ok: false, message: SETTINGS_SAVE_FAILED });
@@ -1088,8 +1088,8 @@ describe("a browser that refuses or lacks storage", () => {
     const { client } = b.tab(new MemoryStorage(), { openBackend: async () => ({ backend, storage: { kind: "indexeddb" } }) });
     await client.updateSettings(leagueKey(A), () => mine);
     control.failing = true;
-    const saving = client.updateSettings(leagueKey(A), (s) => ({ ...s, playoffWeight: 1.75 }));
-    expect(client.getState().settings.get(leagueKey(A))?.playoffWeight).toBe(1.75);
+    const saving = client.updateSettings(leagueKey(A), (s) => ({ ...s, lambda: 0.75 }));
+    expect(client.getState().settings.get(leagueKey(A))?.lambda).toBe(0.75);
     expect(await saving).toEqual({ ok: false, message: SETTINGS_SAVE_FAILED });
     expect(client.getState().settings.get(leagueKey(A))).toEqual(mine);
     expect(await client.saveImport({ request: imported(A).request, response: imported(A).response, savedAt: imported(A).savedAt })).toEqual({ ok: false, message: IMPORT_SAVE_FAILED });

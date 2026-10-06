@@ -5,11 +5,12 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HttpResponse } from "@/adapters/types";
-import { BudgetExhaustedError, createBudget, type BudgetVerdict, type OutboundBudget } from "./budget";
+import { BudgetExhaustedError, createBudget, utcDay, type BudgetLimit, type BudgetVerdict, type OutboundBudget, type TakeOptions } from "./budget";
 import { HOUR, MemoryCache, type Cache, type CacheLock } from "./cache";
 import { newRequestScope, runInRequestScope, type RequestScope } from "./deadline";
 import { createHttpClient, responseCut } from "./http";
-import { deadlines } from "./limits";
+import { budgets, deadlines } from "./limits";
+import { FakeRedis } from "./redis";
 
 type Answer = { status: number; body?: string } | "hang" | "network error";
 
@@ -415,11 +416,222 @@ describe("the daily budgets", () => {
       await expect(http.get(`${ESPN}?view=mStatus`)).rejects.toMatchObject({ name: "BudgetExhaustedError", by: "day" });
       expect((await http.get(`${ESPN}?view=mStatus`, { cookie: "espn_s2=x; SWID={y}" })).status).toBe(200);
     });
-    expect(take.mock.calls.map((c) => [c[2], c[3]])).toEqual([
+    // (The options also carry each attempt's receipt, for a refund: review of the Checkpoint 7b load-test fixes, finding 1.)
+    expect(take.mock.calls.map((c) => [c[2], c[3]?.privileged])).toEqual([
       ["group-1", undefined],
       ["group-1", undefined],
       ["group-1", undefined],
-      ["group-1", { privileged: true }],
+      ["group-1", true],
     ]);
+  });
+});
+
+describe("an attempt counts only when it goes out (Checkpoint 7b load test, defect 1)", () => {
+  const PER_DAY = { espn: 100, sleeper: 100, fantasycalc: 100, github: 100 };
+
+  it("one the deadline cuts in the queue costs nothing: counted once it was next in line, its count goes back (the load test: 82 counted for 35 sent)", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const dayKey = `os:preview:budget:espn:${utcDay(Date.now())}`;
+    const redis = new FakeRedis();
+    const budget = createBudget({ redis, prefix: "os:preview:", perDay: PER_DAY });
+    const f = fakeFetch(["hang", { status: 200 }]);
+    const http = createHttpClient({ fetchImpl: f.impl, budget });
+    const held = http.get(ESPN, { timeoutMs: 60_000 }); // outside a route: ESPN's turn is held
+    await vi.waitFor(() => expect(f.calls).toHaveLength(1));
+    // Time enough to be counted ahead of its turn (budgets.countAheadMinMs), not to get it.
+    const { res, scope } = await asRequest(deadlines.minAttemptMs + budgets.countAheadMinMs + 200, async (scope) => {
+      const answer = http.get(`${ESPN}?view=mTeam`);
+      await vi.waitFor(async () => expect(await redis.get(dayKey)).toBe("2")); // next in line: counted while it waits
+      return { res: await answer, scope };
+    });
+    expect(responseCut(res)).toBe("deadline");
+    expect([...scope.cut.busy]).toEqual(["espn"]);
+    // Cut in the queue: it never went out, and its count went back (OutboundBudget.refund).
+    await vi.waitFor(async () => expect(await redis.get(dayKey)).toBe("1"));
+    f.release();
+    expect((await held).status).toBe(200);
+    expect(f.calls).toHaveLength(1);
+    expect(await redis.get(dayKey)).toBe("1");
+  });
+
+  it("a refusal at the turn hands it on at once: the next request waits no gap for a request that never went out", async () => {
+    vi.useFakeTimers({ now: Date.UTC(2026, 9, 4, 18, 0, 0) });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const starts: number[] = [];
+    const impl = (async () => {
+      starts.push(Date.now());
+      return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
+    }) as unknown as typeof fetch;
+    const take = vi.fn((_p: string, _now?: number, client?: string): BudgetVerdict => (client === "over-its-share" ? "share" : "ok"));
+    const http = createHttpClient({ fetchImpl: impl, budget: { take } });
+    const t0 = Date.now();
+    const runs = [
+      asRequest(45_000, () => http.get(`${ESPN}?r=1`), "a"),
+      asRequest(45_000, () => http.get(`${ESPN}?r=2`), "over-its-share").catch((e: Error) => e.name),
+      asRequest(45_000, () => http.get(`${ESPN}?r=3`), "b"),
+    ];
+    for (let i = 0; i < 30; i++) await vi.advanceTimersByTimeAsync(100);
+    const [, refused] = await Promise.all(runs);
+    expect(refused).toBe("BudgetExhaustedError");
+    expect(take).toHaveBeenCalledTimes(3);
+    // ESPN's gap is 600 ms: the 3rd request went out one gap after the 1st, not two (the 2nd's turn ended unused).
+    expect(starts.map((s) => s - t0)).toEqual([0, 600]);
+  });
+
+  it("a limit this process already knows is reached refuses the attempt before it queues: no wait for a turn it can't use", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const f = fakeFetch(["hang"]);
+    const take = vi.fn((): BudgetVerdict => "ok");
+    const refusedAlready = vi.fn((_p: string, _now?: number, client?: string): BudgetLimit | null => (client === "over-its-share" ? "share" : null));
+    const http = createHttpClient({ fetchImpl: f.impl, budget: { take, refusedAlready } });
+    const held = http.get(ESPN, { timeoutMs: 60_000 }); // outside a route: ESPN's turn, held
+    await vi.waitFor(() => expect(f.calls).toHaveLength(1));
+    const started = Date.now();
+    const scope = newRequestScope("import", Date.now(), 45_000, "over-its-share");
+    await expect(runInRequestScope(scope, () => http.get(`${ESPN}?view=mTeam`))).rejects.toMatchObject({ name: "BudgetExhaustedError", by: "share" });
+    expect(Date.now() - started).toBeLessThan(500);
+    expect([...scope.cut.share]).toEqual(["espn"]);
+    expect(take).toHaveBeenCalledTimes(1); // the held request's: the refused one never asked to be counted
+    f.release();
+    expect((await held).status).toBe(200);
+  });
+
+  it("the count overlaps the wait for the turn: with a store answering in 400 ms, three ESPN requests go out at 400, 1,000 and 1,600 ms (review of the Checkpoint 7b load-test fixes, finding 1)", async () => {
+    vi.useFakeTimers({ now: Date.UTC(2026, 9, 4, 18, 0, 0) });
+    const t0 = Date.now();
+    const starts: number[] = [];
+    const impl = (async () => {
+      starts.push(Date.now() - t0);
+      return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
+    }) as unknown as typeof fetch;
+    // A shared count answering in 400 ms (under the budget's 1 s timeout: it never falls back to the process's own counts).
+    const take = vi.fn(() => new Promise<BudgetVerdict>((r) => setTimeout(() => r("ok"), 400)));
+    const http = createHttpClient({ fetchImpl: impl, budget: { take }, maxRetries: 0 });
+    const runs = [1, 2, 3].map((i) => http.get(`${ESPN}?r=${i}`));
+    for (let i = 0; i < 40; i++) await vi.advanceTimersByTimeAsync(100);
+    await Promise.all(runs);
+    // Counted only once its turn had come, each held ESPN's turn through its count: 400, 1,400 and 2,400 ms.
+    expect(starts).toEqual([400, 1_000, 1_600]);
+    expect(take).toHaveBeenCalledTimes(3);
+  });
+
+  it("a count that leaves the attempt too little time: it doesn't go out, the turn passes on unused, the cut is Offer Sheet's store's, and the count goes back once it's known (finding 1)", async () => {
+    vi.useFakeTimers({ now: Date.UTC(2026, 9, 4, 18, 0, 0) });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const starts: number[] = [];
+    const impl = (async () => {
+      starts.push(Date.now());
+      return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
+    }) as unknown as typeof fetch;
+    // The first count answers in 1,150 ms (a slow store), the later ones at once; each fills in its receipt.
+    let first = true;
+    const take = vi.fn((_p: string, _now?: number, _client?: string, opts?: TakeOptions): BudgetVerdict | Promise<BudgetVerdict> => {
+      if (opts?.receipt) opts.receipt.counted = { where: "shared", taken: [] };
+      if (!first) return "ok";
+      first = false;
+      return new Promise<BudgetVerdict>((r) => setTimeout(() => r("ok"), 1_150));
+    });
+    const refund = vi.fn();
+    const http = createHttpClient({ fetchImpl: impl, budget: { take, refund }, maxRetries: 0 });
+    const t0 = Date.now();
+    const scope = newRequestScope("import", t0, deadlines.minAttemptMs + 300); // its turn comes at once, with 1.3 s left
+    let res: HttpResponse | undefined;
+    void runInRequestScope(scope, () => http.get(ESPN)).then((r) => (res = r));
+    await vi.advanceTimersByTimeAsync(300);
+    // At 300 ms its count hasn't answered and only deadlines.minAttemptMs is left: no attempt that couldn't finish.
+    expect(res).toMatchObject({ status: 0 });
+    expect(responseCut(res as HttpResponse)).toBe("deadline");
+    expect([...scope.cut.busy]).toEqual(["upstash"]);
+    expect([...scope.cut.slow]).toEqual([]); // not put down to ESPN
+    expect(starts).toEqual([]);
+    // The turn passed on unused: the next request goes out at once, without ESPN's 600 ms gap.
+    const next = http.get(`${ESPN}?view=mTeam`);
+    await vi.advanceTimersByTimeAsync(5);
+    expect((await next).status).toBe(200);
+    expect(starts.map((s) => s - t0)).toEqual([expect.any(Number)]);
+    expect((starts[0] as number) - t0).toBeLessThan(310);
+    // The slow count answers "ok" at 1,150 ms: it's given back then.
+    expect(refund).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(900);
+    expect(refund).toHaveBeenCalledTimes(1);
+    expect(refund.mock.calls[0]?.[0]).toMatchObject({ counted: { where: "shared" } });
+  });
+
+  it("a refusal its count brings while it waits takes the attempt out of the queue at once: no wait for a turn it can't use (finding 1)", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const f = fakeFetch(["hang"]);
+    let answer!: (v: BudgetVerdict) => void;
+    const take = vi.fn((_p: string, _now?: number, client?: string): BudgetVerdict | Promise<BudgetVerdict> => (client === "over-its-share" ? new Promise<BudgetVerdict>((r) => (answer = r)) : "ok"));
+    const http = createHttpClient({ fetchImpl: f.impl, budget: { take } });
+    const held = http.get(ESPN, { timeoutMs: 60_000 }); // outside a route: ESPN's turn, held
+    await vi.waitFor(() => expect(f.calls).toHaveLength(1));
+    const scope = newRequestScope("import", Date.now(), 45_000, "over-its-share");
+    const refused = runInRequestScope(scope, () => http.get(`${ESPN}?view=mTeam`)).catch((e: unknown) => e);
+    await vi.waitFor(() => expect(take).toHaveBeenCalledTimes(2)); // next in line: its count is asked while it waits
+    const started = Date.now();
+    answer("share");
+    expect(await refused).toMatchObject({ name: "BudgetExhaustedError", by: "share" });
+    expect(Date.now() - started).toBeLessThan(500); // the held turn never came: it left the queue
+    expect([...scope.cut.share]).toEqual(["espn"]);
+    f.release();
+    expect((await held).status).toBe(200);
+    expect(f.calls).toHaveLength(1);
+  });
+
+  it("only the attempt next in line is counted while it waits: five queued behind a held turn add one count, and each counts once it's next (finding 1)", async () => {
+    const dayKey = `os:preview:budget:sleeper:${utcDay(Date.now())}`;
+    const redis = new FakeRedis();
+    const budget = createBudget({ redis, prefix: "os:preview:", perDay: PER_DAY });
+    const f = fakeFetch(["hang", { status: 200 }]);
+    const http = createHttpClient({ fetchImpl: f.impl, budget });
+    const held = http.get(SLEEPER, { timeoutMs: 60_000 }); // outside a route: Sleeper's turn is held
+    await vi.waitFor(() => expect(f.calls).toHaveLength(1));
+    const queued = [1, 2, 3, 4, 5].map((i) => asRequest(45_000, () => http.get(`${SLEEPER}?r=${i}`)));
+    await vi.waitFor(async () => expect(await redis.get(dayKey)).toBe("2")); // the held one, and the one next in line
+    await new Promise((r) => setTimeout(r, 50));
+    expect(await redis.get(dayKey)).toBe("2"); // the four behind it aren't counted while they wait
+    f.release();
+    expect((await held).status).toBe(200);
+    expect((await Promise.all(queued)).map((r) => r.status)).toEqual([200, 200, 200, 200, 200]);
+    expect(await redis.get(dayKey)).toBe("6"); // each counted once, the moment it was next in line
+    expect(f.calls).toHaveLength(6);
+  });
+
+  it("a deadline that cuts many waiting attempts at once doesn't count each as it comes first in line: only one counted ahead, and given back (finding 1)", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const dayKey = `os:preview:budget:espn:${utcDay(Date.now())}`;
+    const redis = new FakeRedis();
+    const budget = createBudget({ redis, prefix: "os:preview:", perDay: PER_DAY });
+    const take = vi.spyOn(budget, "take");
+    const f = fakeFetch(["hang", { status: 200 }]);
+    const http = createHttpClient({ fetchImpl: f.impl, budget });
+    const held = http.get(ESPN, { timeoutMs: 60_000 }); // outside a route: ESPN's turn is held
+    await vi.waitFor(() => expect(f.calls).toHaveLength(1));
+    // Five imports that started together, with one deadline: their waits are cut at the same moment.
+    const scopes = [1, 2, 3, 4, 5].map(() => newRequestScope("import", Date.now(), deadlines.minAttemptMs + budgets.countAheadMinMs + 200));
+    const cut = await Promise.all(scopes.map((s, i) => runInRequestScope(s, () => http.get(`${ESPN}?r=${i}`))));
+    expect(cut.map((r) => responseCut(r))).toEqual(Array(5).fill("deadline"));
+    // Counted: the held request and the first in line (its count given back); the four that came first as the others were
+    // cut were already at their own cut, so none was counted.
+    expect(take).toHaveBeenCalledTimes(2);
+    await vi.waitFor(async () => expect(await redis.get(dayKey)).toBe("1"));
+    f.release();
+    expect((await held).status).toBe(200);
+  });
+
+  it("a budget that throws at the turn (it never should) doesn't keep the host's turn: the next request goes out", async () => {
+    let first = true;
+    const take = vi.fn((): BudgetVerdict => {
+      if (first) {
+        first = false;
+        throw new Error("a bug");
+      }
+      return "ok";
+    });
+    const f = fakeFetch([{ status: 200 }]);
+    const http = createHttpClient({ fetchImpl: f.impl, budget: { take } });
+    await expect(http.get(SLEEPER)).rejects.toThrow("a bug");
+    expect((await http.get(SLEEPER)).status).toBe(200);
+    expect(f.calls).toHaveLength(1);
   });
 });

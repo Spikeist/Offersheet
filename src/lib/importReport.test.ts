@@ -126,7 +126,7 @@ describe("buildImportReport: at a glance", () => {
   const tile = (id: string) => view.glance.find((t) => t.id === id);
 
   it("summarizes the league in eight tiles", () => {
-    expect(view.glance.map((t) => t.id)).toEqual(["league", "scoring", "starters", "roster", "playoffs", "deadline", "myTeam", "warnings"]);
+    expect(view.glance.map((t) => t.id)).toEqual(["league", "scoring", "starters", "roster", "playoffs", "deadline", "myTeam", "notices"]);
     expect(tile("league")).toMatchObject({ value: "4 teams · Redraft", detail: "ESPN" });
     expect(tile("scoring")).toMatchObject({ value: "Half-PPR", detail: "4-pt passing TD · TE premium +0.5" });
     expect(tile("starters")?.value).toBe("QB, 2 RB, 2 WR, TE, FLEX, D/ST, K");
@@ -134,12 +134,17 @@ describe("buildImportReport: at a glance", () => {
     expect(tile("playoffs")).toMatchObject({ value: "4 teams", detail: "Weeks 15–17" });
     expect(tile("deadline")).toMatchObject({ value: "Wed, Dec 2, 2026 (week 13)", detail: "League vote: managers can veto trades" });
     expect(tile("myTeam")).toMatchObject({ value: "Moonbeam Mudcats", detail: "Found by ESPN", tone: "normal" });
-    expect(tile("warnings")).toMatchObject({ value: "2 items", detail: "1 scoring rule we couldn't map", tone: "warn" });
+    // Notices only (src/lib/notices.ts): the schedule's missing week 14; the warning, the rare rule and Team 2's kicker aren't.
+    expect(tile("notices")).toMatchObject({ value: "1 notice", tone: "warn" });
   });
 
-  it("doesn't count an unmapped rule twice when the adapter also warned about it", () => {
-    const warned = snapshot({ warnings: [{ code: "ESPN_TQB", message: "Team QB mapped to QB." }, { code: "ESPN_SCORING_UNMAPPED", message: "1-point safety isn't counted." }] });
-    expect(buildImportReport(response(warned), { timeZone: TZ }).glance.find((t) => t.id === "warnings")).toMatchObject({ value: "2 items", detail: "1 scoring rule we couldn't map" });
+  it("counts notices, never warnings: a warning the user needn't see, a rare rule or an adapter's own words add none (§5.1)", () => {
+    const full = snapshot({ schedule: [...snapshot().schedule, { week: 14, teamA: "1", teamB: "2", isPlayoff: false }], warnings: [{ code: "ESPN_TQB_AS_QB", message: "Team QB mapped to QB." }, { code: "ESPN_SCORING_UNMAPPED", message: "1-point safety isn't counted." }] });
+    expect(buildImportReport(response(full), { timeZone: TZ }).glance.find((t) => t.id === "notices")).toEqual({ id: "notices", label: "Notices", value: "None", tone: "normal" });
+    const disabled = { ...full, warnings: [...full.warnings, { code: "TRADES_DISABLED", message: "Trading is turned off in this league, so no trade can go through.", platformPath: "settings.disable_trades" }] };
+    const v = buildImportReport(response(disabled), { timeZone: TZ });
+    expect(v.glance.find((t) => t.id === "notices")).toMatchObject({ value: "1 notice", tone: "warn" });
+    expect(v.notices).toEqual([{ key: "TRADES_DISABLED", text: "Trading is turned off in your league, so no trade can go through." }]);
   });
 
   it("describes the league header", () => {
@@ -215,8 +220,16 @@ describe("buildImportReport: scoring", () => {
     expect(rows.rec).toBe("1 (TE: 0)"); // a 0 for a player position is still shown
   });
 
-  it("shows rules we couldn't map, with their points", () => {
+  it("keeps the rules we couldn't map, with their points, and says a rare one quietly (§5.1)", () => {
     expect(view.scoring.unmapped).toEqual([{ platformKey: "espn:209", label: "1-point safety", points: 1, text: "1-point safety: +1" }]);
+    expect(view.scoring.uncounted).toBeNull();
+    expect(view.scoring.quiet).toBe("One rare rule isn't counted: 1-point safeties. It almost never happens.");
+    // One that scored this season (or a common one) is a notice, here and among the report's notices.
+    const scored = { ...espnScoring, unmapped: [{ platformKey: "93", label: "Blocked Punt or FG return for TD", points: 6, scoredThisSeason: true }] };
+    const v = buildImportReport(response(snapshot({}, { scoring: scored })), { timeZone: TZ });
+    const text = "Offer Sheet doesn't count one of your league's scoring rules yet, so projections leave its points out: blocked-kick return touchdowns (+6).";
+    expect(v.scoring).toMatchObject({ uncounted: text, quiet: null });
+    expect(v.notices.map((n) => n.text)).toContain(text);
   });
 
   it("reads Sleeper-style scoring: PPR, bonus keys and bucket keys", () => {
@@ -527,6 +540,27 @@ describe("buildImportReport: lineup, season and trades", () => {
     ).toBe("Waiver order (the league's FAAB budget wasn't reported)");
   });
 
+  it("marks ESPN's settings read with a caveat with a plain 'our reading' line, never Sleeper's (their readings are notices; a review of Phase 7b)", () => {
+    const espn = buildImportReport(
+      response(snapshot({}, { leagueType: "keeper", tradeReview: "commissioner", playoffByes: 2, pointsOnly: true, seedingTiebreaker: "headToHead" })),
+      { timeZone: TZ },
+    );
+    expect(espn.readings).toEqual({
+      leagueType: "Read from ESPN's keeper count: ESPN has no dynasty setting.",
+      review: "Our reading: ESPN reports a review period but no veto votes.",
+      byes: "Worked out from the bracket: ESPN doesn't list byes.",
+      pointsOnly: "Our reading of ESPN's scoring type.",
+      tiebreaker: "Our reading of ESPN's setting: not yet checked on a league like yours.",
+      positionLimits: "Our reading of a setting ESPN doesn't document.",
+    });
+    // The league type has no row of its own: its reading is the League tile's detail.
+    expect(espn.glance.find((t) => t.id === "league")).toMatchObject({ value: "4 teams · Keeper", detail: "Read from ESPN's keeper count: ESPN has no dynasty setting." });
+    // Read as reported: a league vote, no byes, points for (seen live), redraft; and nothing for a setting shown as unknown.
+    expect(buildImportReport(response(snapshot({}, { positionLimits: undefined, seedingTiebreaker: "pointsFor" })), { timeZone: TZ }).readings).toEqual({});
+    expect(buildImportReport(response(snapshot({}, { tradeReview: "commissioner", unknownSettings: ["tradeReview"] })), { timeZone: TZ }).readings.review).toBeUndefined();
+    expect(buildImportReport(response(snapshot({ platform: "sleeper" }, { leagueType: "keeper", playoffByes: 2 })), { timeZone: TZ }).readings).toEqual({});
+  });
+
   it("notes best ball", () => {
     const v = buildImportReport(response(snapshot({}, { bestBall: true, leagueType: "dynasty", taxiSlots: 3 })), { timeZone: TZ });
     expect(v.league.bestBall).toBe(true);
@@ -565,9 +599,23 @@ describe("buildImportReport: teams and my team", () => {
   it("asks the user to pick when the platform couldn't tell", () => {
     const v = buildImportReport(response(snapshot({ myTeamId: null })), { timeZone: TZ });
     expect(v.teams).toMatchObject({ myTeamId: null, myTeamSource: "none" });
-    expect(v.teams.explain).toMatch(/^We couldn't tell which team is yours/);
+    expect(v.teams.explain).toBe("We couldn't tell which team is yours (ESPN doesn't say for this kind of import). Pick it so trade ideas are for your team.");
     expect(v.glance.find((t) => t.id === "myTeam")).toMatchObject({ value: "Not picked yet", tone: "warn" });
     expect(v.schedule.thisWeek).toBeUndefined();
+  });
+
+  it("says why the platform couldn't tell, from the import's own warning, while no team is picked (a review of Phase 7b)", () => {
+    const sleeper = (code: string, message: string) => buildImportReport(response(snapshot({ platform: "sleeper", myTeamId: null, warnings: [{ code, message, platformPath: "user" }] })), { timeZone: TZ });
+    const typo = sleeper("USER_NOT_FOUND", 'There\'s no Sleeper user named "parkr", so we couldn\'t tell which team is yours. Pick your team.');
+    expect(typo.teams.explain).toBe('We couldn\'t find a Sleeper user named "parkr", so we couldn\'t tell which team is yours. Check the username, or pick your team here so trade ideas are for your team.');
+    expect(typo.teams.explain).not.toContain("doesn't say for this kind of import");
+    // Not a notice: the Your team card is where the user picks.
+    expect(typo.notices.map((n) => n.key)).not.toContain("USER_NOT_FOUND");
+    expect(sleeper("USER_NOT_IN_LEAGUE", "That Sleeper user doesn't manage a team in this league; pick your team.").teams.explain).toMatch(/^That Sleeper username doesn't manage a team in this league/);
+    const cookies = buildImportReport(response(snapshot({ myTeamId: null, warnings: [{ code: "ESPN_MY_TEAM_NOT_FOUND", message: "The ESPN account in your cookies doesn't own a team in this league; pick your team.", platformPath: "teams[].owners" }] })), { timeZone: TZ });
+    expect(cookies.teams.explain).toMatch(/^The ESPN account your cookies belong to doesn't own a team in this league/);
+    // Once a team is picked, the card says so instead.
+    expect(buildImportReport(response(snapshot({ platform: "sleeper", myTeamId: null, warnings: [{ code: "USER_NOT_FOUND", message: "…" }] })), { timeZone: TZ, myTeamId: "2" }).teams.explain).toBe("You picked this team. It's saved for this browser session.");
   });
 
   it("marks the platform's team in the picker", () => {
@@ -734,6 +782,106 @@ describe("buildImportReport: players, schedule, activity, notes and timestamps",
     expect(v.notes).toEqual(["Rosters include 1 player on IR."]);
   });
 
+  it("keeps everything raw in the technical details, and nowhere else: codes, paths, ID matching, the schedule's gaps, stat IDs (§5.1)", () => {
+    expect(v.technical).toEqual({
+      // Team 2's kicker isn't in Sleeper's data, and only the League page can tell whether he starts.
+      note: "1 player on other teams has incomplete data (listed below). The League page points out any of them who are likely starters.",
+      sections: [
+        { title: "Import warnings", items: [{ text: "Team QB mapped to QB.", code: "ESPN_TQB", path: "players[].defaultPositionId" }] },
+        { title: "Import notes", items: [{ text: "Rosters include 1 player on IR." }] },
+        {
+          title: "Player matching",
+          items: [
+            { text: "6 of 8 rostered players matched to Sleeper's player database." },
+            { text: "Not in Sleeper's player database: Pip Wobbleton (K, FA)." },
+            { text: "1 rostered player came without any player details." },
+          ],
+        },
+        { title: "Schedule", items: [{ text: "No matchups in the league's schedule for week 14 of the regular season." }] },
+        { title: "Scoring rules not counted", items: [{ text: "1-point safety: +1", path: "ESPN statId espn:209" }] },
+      ],
+    });
+    // The notices are plain words only (here: the schedule's gap in week 14, said once: the Season card lists the weeks that loaded).
+    expect(v.notices).toEqual([{ key: "schedule-gaps", text: "Your league's schedule has no matchups in week 14, so that week is left out of the playoff odds." }]);
+  });
+
+  /** Model inputs the League page stored (built for this snapshot, with an entry for every rostered player by default). */
+  function storedInputs(extra: Partial<ModelInputs> = {}): ModelInputs {
+    const projected = { sleeper: { 4: 10 }, actual: {} };
+    return {
+      version: 1,
+      season: 2026,
+      currentWeek: 4,
+      lastWeek: 17,
+      builtAt: "2026-09-30T02:00:00.000Z",
+      nfl: { byeWeek: {}, kickoffs: {} },
+      players: Object.fromEntries(["9001", "9002", "9003", "9004", "9005", "9006"].map((id) => [id, projected])),
+      espnProjections: true,
+      market: null,
+      sources: [],
+      warnings: [],
+      notes: [],
+      ...extra,
+    };
+  }
+
+  it("makes a notice of a player on my roster who isn't in Sleeper's data, or without player details, and lists the fresh model inputs' warnings once the League page loaded them", () => {
+    const mine = snapshot({ teams: snapshot().teams.map((t) => (t.id === "1" ? { ...t, roster: [...t.roster, "espn:31337", "ghost-2"] } : t.id === "2" ? { ...t, roster: ["9004"] } : t)) });
+    const base = storedInputs();
+    const model = storedInputs({
+      players: { ...base.players, "espn:31337": { sleeper: {}, espn: { 4: 7 }, actual: {} } },
+      warnings: [
+        { code: "PROJECTIONS_WEEK_UNAVAILABLE", message: "Sleeper's projections for week 6 couldn't be read (timeout), so that week is left out.", platformPath: "projections/6" },
+        { code: "NO_SLEEPER_ID", message: "1 player has no Sleeper id, so Sleeper's projections and stats don't cover him (ESPN's own projections still cover him): Pip Wobbleton." },
+      ],
+    });
+    const v = buildImportReport(response(mine), { timeZone: TZ, model, freshModel: model });
+    expect(v.notices.map((n) => n.text)).toEqual([
+      "A player on your roster came without any player details, so he's left out.",
+      "We couldn't find Pip Wobbleton (K, your team) in Sleeper's data, so his projections come from ESPN alone.",
+      "Your league's schedule has no matchups in week 14, so that week is left out of the playoff odds.",
+      "Sleeper's projections for week 6 didn't load, so that week skips the matchup adjustment. Refresh later to try again.",
+    ]);
+    expect(v.technical.note).toBeNull();
+    expect(v.technical.sections.find((s) => s.title === "Projection and trade-value warnings")?.items.map((i) => i.code)).toEqual(["PROJECTIONS_WEEK_UNAVAILABLE", "NO_SLEEPER_ID"]);
+  });
+
+  it("reads stored inputs' outages only while they're fresh for this league data, so an old one never shows as current (a review of Phase 7b)", () => {
+    // Inputs stored days ago, during a FantasyCalc outage, for older league data: they still name the projection source.
+    const old = storedInputs({ builtAt: "2026-09-27T02:00:00.000Z", warnings: [{ code: "FANTASYCALC_UNAVAILABLE", message: "FantasyCalc's values couldn't be loaded (timeout), so players have no market values yet.", platformPath: "values/current" }], notes: ["Trade values from Sep 26: FantasyCalc didn't answer."] });
+    const stale = buildImportReport(response(snapshot()), { timeZone: TZ, model: old, freshModel: null });
+    expect(stale.notices.map((n) => n.key)).toEqual(["schedule-gaps"]);
+    expect(stale.glance.find((t) => t.id === "notices")?.value).toBe("1 notice");
+    expect(stale.technical.sections.map((s) => s.title)).not.toContain("Projection and trade-value warnings");
+    expect(stale.modelNotes).toHaveLength(1);
+    expect(stale.modelNotes[0]).toMatch(/^Projection source: /);
+    // The same inputs fresh: their outage is a notice, and their own note shows.
+    const fresh = buildImportReport(response(snapshot()), { timeZone: TZ, model: old, freshModel: old });
+    expect(fresh.notices.map((n) => n.text)).toContain("FantasyCalc's trade values didn't load, so trade ideas can't weigh trade value. Refresh later to try again.");
+    expect(fresh.modelNotes).toContain("Trade values from Sep 26: FantasyCalc didn't answer.");
+  });
+
+  it("lists rostered players without projections in the technical details, other teams' among the ones the League page judges", () => {
+    // Team 4's receiver has nothing to project from (the inputs are fresh for this league data, so his entry is all there is).
+    const inputs = storedInputs({ players: { ...storedInputs().players, "9006": { sleeper: { 4: null }, actual: {} } } });
+    const v = buildImportReport(response(snapshot()), { timeZone: TZ, freshModel: inputs });
+    expect(v.notices.map((n) => n.text)).not.toContainEqual(expect.stringContaining("Humbert Fiddlesticks"));
+    // Team 2's kicker (not in Sleeper's data) and Team 4's receiver: both for the League page to judge.
+    expect(v.technical.note).toBe("2 players on other teams have incomplete data (listed below). The League page points out any of them who are likely starters.");
+    expect(v.technical.sections.find((s) => s.title === "Players without projections")?.items).toEqual([
+      { text: "Nothing to project from in any source, so they count as 0 points: Pip Wobbleton (K, Gravel Gophers); Humbert Fiddlesticks (WR, Tundra Tortoises)." },
+    ]);
+    // On my roster it's a notice.
+    const mine = buildImportReport(response(snapshot()), { timeZone: TZ, freshModel: storedInputs({ players: { ...storedInputs().players, "9001": { sleeper: {}, actual: {} } } }) });
+    expect(mine.notices.map((n) => n.text)).toContain("We have no projections for Fizzwick Pemberton (QB, your team), so he counts as 0 points.");
+  });
+
+  it("says the schedule's gap once: no odds at all when no game is left to play (season.ts oddsSkippedWarning)", () => {
+    const none = buildImportReport(response(snapshot({ schedule: [] })), { timeZone: TZ });
+    expect(none.notices).toEqual([{ key: "schedule-gaps", text: "Your league's schedule is missing the rest of the regular season, so there are no playoff odds for now. Refresh later to try again." }]);
+    expect(none.technical.sections.find((s) => s.title === "Schedule")?.items).toEqual([{ text: "No matchups in the league's schedule for weeks 1–14 of the regular season." }]);
+  });
+
   it("shows when each data source was fetched", () => {
     expect(v.timestamps).toEqual([
       { label: "League data from ESPN", value: "Tue, Sep 29, 2026, 7:00 PM EDT" },
@@ -833,7 +981,8 @@ describe("buildImportReport: the League page's projection source (§6)", () => {
       ...extra,
     };
   }
-  const notesFor = (model: ModelInputs | null, snap = snapshot()) => buildImportReport(response(snap), { timeZone: TZ, model }).modelNotes;
+  // Inputs built for this very league data (fresh): the projection source and their own notes.
+  const notesFor = (model: ModelInputs | null, snap = snapshot()) => buildImportReport(response(snap), { timeZone: TZ, model, freshModel: model }).modelNotes;
 
   it("says nothing until the League page has loaded this league's inputs", () => {
     expect(notesFor(null)).toEqual([]);
@@ -857,6 +1006,8 @@ describe("buildImportReport: the League page's projection source (§6)", () => {
   it("uses Sleeper's alone in Sleeper leagues, and passes the inputs' own notes through without repeating the format", () => {
     const own = inputs({ "9001": { sleeper: { 4: 20 }, actual: {} } }, { notes: ["FantasyCalc values: 8 teams · half-PPR · 1 QB · redraft · TE+", "FantasyCalc: 4 teams → FantasyCalc's 8-team values", "Sleeper's week 17 projections didn't load."] });
     expect(notesFor(own, snapshot({ platform: "sleeper" }))).toEqual(["Projection source: Sleeper's projections, scored with your league's rules.", "Sleeper's week 17 projections didn't load."]);
+    // Inputs that aren't fresh for this league data still name the projection source, never their own (an outage's) notes.
+    expect(buildImportReport(response(snapshot({ platform: "sleeper" })), { timeZone: TZ, model: own }).modelNotes).toEqual(["Projection source: Sleeper's projections, scored with your league's rules."]);
   });
 
   it("names the source that actually loaded, and says nothing about sources once the season is over (review PERF-3)", () => {
@@ -902,14 +1053,14 @@ describe("buildImportReport: a Sleeper league as its adapter reads it (§8; Slee
       expect(v.season.seeding).toBe("Re-seeded after each round; division winners are seeded first");
       expect(v.notes).toContain(note);
       expect(v.warnings).toEqual([]);
-      expect(v.glance.find((g) => g.id === "warnings")?.tone).toBe("normal");
+      expect(v.glance.find((g) => g.id === "notices")?.tone).toBe("normal");
     }
     for (const v of [sleeperReport(withDivisions(3)), sleeperReport(withDivisions(2, 4))]) {
       // Still seeded that way (Sleeper documents that every division winner makes the playoffs), but ⚠️.
       expect(v.season.seeding).toBe("Re-seeded after each round; division winners are seeded first");
       expect(v.notes.some((n) => n.startsWith("Playoff seeding:"))).toBe(false);
       expect(v.warnings).toEqual([expect.objectContaining({ code: "SETTING_INFERRED", platformPath: "settings.divisions" })]);
-      expect(v.glance.find((g) => g.id === "warnings")?.tone).toBe("warn");
+      expect(v.glance.find((g) => g.id === "notices")?.tone).toBe("warn");
       expect(v.season.tiebreaker).toBe("Points for");
     }
   });

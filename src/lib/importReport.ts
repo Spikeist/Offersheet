@@ -15,6 +15,17 @@
  * agents out in, read from the same snapshot (waiverOrderText). Phase 7a adds the "Inactive teams" row
  * (planner reply to Checkpoint 4c, A4: "Team 6: inactive, no pickups assumed."; inactiveTeamsView), the
  * engine's own rule on the same snapshot (acceptance.inactiveTeams).
+ *
+ * Phase 7b (planner reply to Checkpoint 7a, §5.1: plain-language data notices; src/lib/notices.ts decides): the user never
+ * sees a warning code, a JSON path, a stat ID or ID-matching talk outside the technical details. "Things to know" lists the
+ * notices (only what can change what the user sees or decides; the "Notices" tile counts them); the scoring section says
+ * which uncounted rules matter and, quietly, the rare ones; and a collapsed "Technical details (for bug reports)" at the
+ * bottom keeps everything raw (every warning with its code and path, the import's notes, the player-ID matching, the
+ * players without projections, the schedule's gaps, the uncounted rules with their stat IDs). With no League model here,
+ * other teams' players are judged there (the notices say so). The model inputs the notices read must be fresh for this
+ * league data (ReportOptions.freshModel); older ones only name the projection source. ESPN's settings read with a caveat
+ * show a plain "our reading" line under their rows (readings), and the "Your team" card says why the platform couldn't tell
+ * which team is the user's (notices.ts myTeamWarningText).
  */
 import { inactiveRuleBlock, inactiveTeams, transactedWithin, transactionWeek } from "@/engine/acceptance";
 import { config } from "@/engine/config";
@@ -30,6 +41,7 @@ import { fmtNum, fmtPoints, fmtSigned, formatDate, formatDateTime, formatTime, p
 import type { MyTeamPickSource } from "./importStore";
 import { LEAGUE_TYPE_LABEL, PLATFORM_LABEL, TRADE_REVIEW_LABEL, posLabel, statGroup, statLabel } from "./labels";
 import { resolveMyTeam, type MyTeamSource } from "./myTeam";
+import { buildDataNotices, myTeamWarningText, unjudgedText, type Notice } from "./notices";
 
 /** How a setting the platform doesn't expose (or we couldn't read) is shown (§14 item 2). */
 export const UNKNOWN_SETTING_TEXT = "Unknown — check your league's settings";
@@ -46,7 +58,7 @@ export const TIEBREAKER_TEXT: Readonly<Record<SeedingTiebreaker, string>> = { po
 export const TIEBREAKER_UNKNOWN_TEXT = "Unknown (points for assumed)";
 
 export interface GlanceTile {
-  id: "league" | "scoring" | "starters" | "roster" | "playoffs" | "deadline" | "myTeam" | "warnings";
+  id: "league" | "scoring" | "starters" | "roster" | "playoffs" | "deadline" | "myTeam" | "notices";
   label: string;
   value: string;
   detail?: string;
@@ -107,6 +119,8 @@ export interface ImportReportView {
   };
   /** Settings the platform doesn't expose, shown as UNKNOWN_SETTING_TEXT in the warn tone. */
   unknown: UnknownSetting[];
+  /** Settings read with a caveat (ESPN's inferred readings: espnReadings), each a plain line under its row (the league type's: the League tile's detail). */
+  readings: Partial<Record<ReadingKey, string>>;
   glance: GlanceTile[];
   scoring: {
     formatLabel: string;
@@ -117,7 +131,12 @@ export interface ImportReportView {
     defenseBuckets: { title: string; lines: BucketLine[] }[];
     defenseSummary?: string;
     allRules: ScoringRow[];
-    unmapped: { label: string; platformKey: string; points: number; text: string }[];
+    /** Every rule the import couldn't count, as the platform names it (the technical details list them with their stat IDs). */
+    unmapped: { label: string; platformKey: string; points: number; scoredThisSeason?: boolean; text: string }[];
+    /** The uncounted rules that matter (common, or scored this season), in plain words; also one of the notices. */
+    uncounted: string | null;
+    /** The quiet line for rare uncounted rules ("Two rare rules aren't counted: … They almost never happen."). */
+    quiet: string | null;
   };
   lineup: {
     starters: { slot: string; count: number; eligible: string }[];
@@ -178,7 +197,7 @@ export interface ImportReportView {
    */
   schedule: { matchups: number; weeks: string; missingRegularWeeks: number[]; thisWeek?: string; results: string };
   activity: { trades: number; adds: number; drops: number; waivers: number; tradedPicks?: number };
-  /** The platform's notes, passed through. */
+  /** The platform's notes, passed through (raw: the technical details list them). */
   notes: string[];
   /** FantasyCalc trade values (§2.9): the format(s) requested for this league, in words. */
   values: { text: string; formats: string[] };
@@ -186,8 +205,27 @@ export interface ImportReportView {
   valueNotes: string[];
   /** From this league's stored model inputs, once the League page has loaded them: the projection source, then the inputs' own notes. */
   modelNotes: string[];
+  /** The import's warnings, passed through (raw: the technical details list them, with their codes and paths). */
   warnings: ImportWarning[];
+  /** Plain-language notices (src/lib/notices.ts): only what can change what the user sees or decides. */
+  notices: Notice[];
+  /** Technical details (for bug reports): everything raw, under a line when other teams' players are listed there unjudged. */
+  technical: { note: string | null; sections: TechnicalSection[] };
   timestamps: LabeledValue[];
+}
+
+/** One part of the technical details: every warning (code and path), note and player-ID gap of one kind. */
+export interface TechnicalSection {
+  title: string;
+  items: TechnicalItem[];
+}
+
+export interface TechnicalItem {
+  text: string;
+  /** A warning's code. */
+  code?: string;
+  /** Where it was read: a warning's platform path, an uncounted rule's stat ID. */
+  path?: string;
 }
 
 export interface ReportOptions {
@@ -197,8 +235,17 @@ export interface ReportOptions {
   myTeamId?: string | null;
   /** Where the stored pick came from (default "you"). */
   myTeamSource?: MyTeamPickSource;
-  /** This league's model inputs, stored by the League page (sessionStorage), for the projection-source note. */
+  /**
+   * This league's model inputs as the League page stored them, of any age and for any of this league's data: only the
+   * projection-source note reads them (it names the week it measured).
+   */
   model?: ModelInputs | null;
+  /**
+   * The same inputs when they're fresh for this very league data (modelStore.modelForSnapshot: built for this snapshot,
+   * under 6 hours old), else null: the notices, the inputs' own notes and their warnings in the technical details read only
+   * these, so an outage that's over, or a check made on older rosters, never shows as current (a review of Phase 7b).
+   */
+  freshModel?: ModelInputs | null;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -409,7 +456,7 @@ function scoringRows(scoring: Scoring, platform: Platform): ScoringRow[] {
   return rows.sort((a, b) => a.group - b.group || a.label.localeCompare(b.label)).map(({ key, label, value }) => ({ key, label, value }));
 }
 
-function buildScoring(settings: LeagueSettings, platform: Platform, hasDefSlot: boolean): ImportReportView["scoring"] {
+function buildScoring(settings: LeagueSettings, platform: Platform, hasDefSlot: boolean): Omit<ImportReportView["scoring"], "uncounted" | "quiet"> {
   const s = settings.scoring;
   const receptions = (["RB", "WR", "TE"] as const).map((pos) => {
     const points = receptionPoints(s, pos);
@@ -487,12 +534,15 @@ function limitText(table: Partial<Record<Pos, number>> | undefined, platform: Pl
   return POSITIONS.flatMap((pos) => (table?.[pos] === undefined ? [] : [`${posLabel(pos, platform)} ${table[pos]}`])).join(" · ");
 }
 
+/** The Lineup card's row for the position limits (LeagueSettings.positionLimits): ESPN's carries an "our reading" line. */
+export const POSITION_LIMITS_LABEL = "Most players allowed per position";
+
 function buildLineup(settings: LeagueSettings, platform: Platform): ImportReportView["lineup"] {
   const starters = settings.lineup.map((s) => ({ slot: slotName(s, platform), count: s.count, eligible: s.eligible.map((p) => posLabel(p, platform)).join("/") }));
   const startersText = starters.map((s) => (s.count > 1 ? `${s.count} ${s.slot}` : s.slot)).join(", ") || "None";
   const limits: LabeledValue[] = [];
   const max = limitText(settings.positionLimits, platform);
-  if (max) limits.push({ label: "Most players allowed per position", value: max });
+  if (max) limits.push({ label: POSITION_LIMITS_LABEL, value: max });
   const starterLimits = POSITIONS.flatMap((pos) => {
     const l = settings.starterLimits?.[pos];
     return l ? [`${posLabel(pos, platform)} ${l.min === l.max ? l.min : `${l.min}–${l.max}`}`] : [];
@@ -673,6 +723,29 @@ export function inactiveTeamsView(snapshot: Pick<LeagueSnapshot, "teams" | "tran
   }
 }
 
+/** A setting read with a caveat, for the plain "our reading" line under its row (ImportReportView.readings). */
+export type ReadingKey = "leagueType" | "review" | "byes" | "pointsOnly" | "tiebreaker" | "positionLimits";
+
+/**
+ * ESPN's settings the adapter reads with a caveat (src/adapters/espn/normalize.ts settingsOf: its own notes say so, in
+ * the technical details), as plain lines under their rows, so a card never shows a guess as a fact (§0.12; a review of
+ * Phase 7b: Sleeper's such readings are notices, SETTING_INFERRED). The league type from the keeper counts (ESPN has no
+ * dynasty flag); a commissioner's review read from a review period without veto votes (tradeReviewOf); byes worked out from
+ * the bracket; a points-only league read from ESPN's scoring type; a standings tiebreaker read from its name alone (only
+ * points for has been seen in a live league: SEEDING_RULES_SEEN_LIVE); the position limits, read from a field ESPN doesn't
+ * document. None for a setting the card already shows as unknown.
+ */
+export function espnReadings(st: LeagueSettings, unknown: ReadonlySet<UnknownSetting>): Partial<Record<ReadingKey, string>> {
+  const out: Partial<Record<ReadingKey, string>> = {};
+  if (st.leagueType !== "redraft") out.leagueType = "Read from ESPN's keeper count: ESPN has no dynasty setting.";
+  if (st.tradeReview === "commissioner" && !unknown.has("tradeReview")) out.review = "Our reading: ESPN reports a review period but no veto votes.";
+  if ((st.playoffByes ?? 0) > 0 && !unknown.has("playoffs")) out.byes = "Worked out from the bracket: ESPN doesn't list byes.";
+  if (st.pointsOnly) out.pointsOnly = "Our reading of ESPN's scoring type.";
+  if ((st.seedingTiebreaker === "headToHead" || st.seedingTiebreaker === "divisionRecord") && !unknown.has("seedingTiebreaker")) out.tiebreaker = "Our reading of ESPN's setting: not yet checked on a league like yours.";
+  if (st.positionLimits) out.positionLimits = "Our reading of a setting ESPN doesn't document.";
+  return out;
+}
+
 function deadlineText(st: LeagueSettings, timeZone: string, short: boolean): string {
   const d = st.tradeDeadline;
   if (!d || (d.date === undefined && d.week === undefined)) return "No trade deadline";
@@ -760,7 +833,12 @@ function buildSchedule(snapshot: LeagueSnapshot, myTeamId: string | null, teamNa
 
 // ---------------------------------------------------------------------------------------------
 
-function myTeamExplain(source: MyTeamSource, platformLabel: string): string {
+/**
+ * The "Your team" card's sentence. With no team yet, the import's own reason when it gave one (a Sleeper username we
+ * couldn't find or look up, ESPN cookies whose account owns no team here: notices.ts myTeamWarningText, a review of Phase
+ * 7b), else that the platform doesn't say for this kind of import (a public link, a Sleeper league without a username).
+ */
+function myTeamExplain(source: MyTeamSource, platformLabel: string, warnings: readonly ImportWarning[]): string {
   switch (source) {
     case "platform":
       return `${platformLabel} told us which team is yours. You can change it here if that's wrong.`;
@@ -769,7 +847,7 @@ function myTeamExplain(source: MyTeamSource, platformLabel: string): string {
     case "link":
       return `We took this team from the ${platformLabel} link you pasted. ${platformLabel} uses the same kind of link for every team's page, so check that it's yours, or pick the right one.`;
     case "none":
-      return `We couldn't tell which team is yours (${platformLabel} doesn't say for this kind of import). Pick it so trade ideas are for your team.`;
+      return myTeamWarningText(warnings) ?? `We couldn't tell which team is yours (${platformLabel} doesn't say for this kind of import). Pick it so trade ideas are for your team.`;
   }
 }
 
@@ -831,12 +909,21 @@ function projectionNote(snapshot: LeagueSnapshot, model: ModelInputs): string | 
   return `${sleeperOnly}. ESPN's own projections differ from them by ${pct(agreement.meanRelDiff)} on average ${measured}, more than the ${limit} we allow, so we don't average them in.`;
 }
 
-/** The projection-source note, then the inputs' own notes minus what the "Trade values" row and its notes already say. */
-function modelNotes(snapshot: LeagueSnapshot, model: ModelInputs | null | undefined, values: ImportReportView["values"], valueNotes: readonly string[]): string[] {
-  if (!model) return [];
+/**
+ * The projection-source note (from the stored inputs, of any age: it names the week it measured), then the fresh inputs'
+ * own notes (a saved FantasyCalc list's date is an outage's: only while the inputs are fresh) minus what the "Trade values"
+ * row and its notes already say.
+ */
+function modelNotes(
+  snapshot: LeagueSnapshot,
+  model: ModelInputs | null | undefined,
+  fresh: ModelInputs | null | undefined,
+  values: ImportReportView["values"],
+  valueNotes: readonly string[],
+): string[] {
   const said = [...values.formats, ...valueNotes.map((n) => n.replace(/^Trade values: /, "").replace(/[.]$/, ""))].filter(Boolean);
-  const own = model.notes.filter((n) => !said.some((s) => n.includes(s)));
-  const source = projectionNote(snapshot, model);
+  const own = (fresh?.notes ?? []).filter((n) => !said.some((s) => n.includes(s)));
+  const source = model ? projectionNote(snapshot, model) : null;
   return [...new Set([...(source ? [source] : []), ...own])];
 }
 
@@ -863,6 +950,7 @@ export function buildImportReport(response: ImportResponse, opts: ReportOptions)
   const lineup = buildLineup(settings, platform);
   const season = buildSeason(snapshot, teamName, unknownSet);
   const players = buildPlayers(snapshot);
+  const schedule = buildSchedule(snapshot, myTeamId, teamName);
   const warnings = snapshot.warnings;
 
   const trades = {
@@ -881,12 +969,17 @@ export function buildImportReport(response: ImportResponse, opts: ReportOptions)
   };
 
   const benchText = [`${lineup.bench} bench`, `${lineup.ir} IR`, ...(lineup.taxi ? [`${lineup.taxi} taxi`] : [])].join(" · ");
-  // Adapters warn once per unmapped scoring rule (ESPN_SCORING_UNMAPPED, SCORING_RULE_UNMAPPED/PARTIAL);
-  // count only the unmapped rules no warning already covers, so nothing is counted twice.
-  const unmappedWarned = warnings.filter((w) => /SCORING/.test(w.code) && /UNMAPPED|PARTIAL/.test(w.code)).length;
-  const warnCount = warnings.length + Math.max(0, scoring.unmapped.length - unmappedWarned);
+  // The notices (src/lib/notices.ts): the import and, once the League page has loaded them and while they're fresh for this
+  // league data, the model inputs; no League model here, so other teams' players are judged on the League page (the
+  // technical details say so).
+  const fresh = opts.freshModel ?? null;
+  const data = buildDataNotices({ snapshot, myTeamId, inputs: fresh });
+  const noticeCount = data.notices.length;
+  const readings = platform === "espn" ? espnReadings(settings, unknownSet) : {};
+  // The league type has no row of its own: its reading is the League tile's detail.
+  const leagueDetail = settings.bestBall ? "Best ball" : (readings.leagueType ?? PLATFORM_LABEL[platform]);
   const glance: GlanceTile[] = [
-    { id: "league", label: "League", value: `${settings.numTeams} teams · ${LEAGUE_TYPE_LABEL[settings.leagueType]}`, detail: settings.bestBall ? "Best ball" : PLATFORM_LABEL[platform], tone: "normal" },
+    { id: "league", label: "League", value: `${settings.numTeams} teams · ${LEAGUE_TYPE_LABEL[settings.leagueType]}`, detail: leagueDetail, tone: "normal" },
     {
       id: "scoring",
       label: "Scoring",
@@ -913,13 +1006,7 @@ export function buildImportReport(response: ImportResponse, opts: ReportOptions)
       detail: MY_TEAM_DETAIL[myTeamSource](platformLabel),
       tone: myTeamId && myTeamSource !== "link" ? "normal" : "warn",
     },
-    {
-      id: "warnings",
-      label: "Warnings",
-      value: warnCount ? plural(warnCount, "item") : "None",
-      detail: scoring.unmapped.length ? `${plural(scoring.unmapped.length, "scoring rule")} we couldn't map` : undefined,
-      tone: warnCount ? "warn" : "normal",
-    },
+    { id: "notices", label: "Notices", value: noticeCount ? plural(noticeCount, "notice") : "None", tone: noticeCount ? "warn" : "normal" },
   ];
 
   // Adds and drops count players moved (an add/drop pair is one transaction; a waiver claim is an add too).
@@ -967,8 +1054,9 @@ export function buildImportReport(response: ImportResponse, opts: ReportOptions)
       ...(response.readBy ? { readBy: response.readBy } : {}),
     },
     unknown,
+    readings,
     glance,
-    scoring,
+    scoring: { ...scoring, uncounted: data.scoring.notice, quiet: data.scoring.quiet },
     lineup,
     season,
     trades,
@@ -982,18 +1070,74 @@ export function buildImportReport(response: ImportResponse, opts: ReportOptions)
         }),
       myTeamId,
       myTeamSource,
-      explain: myTeamExplain(myTeamSource, platformLabel),
+      explain: myTeamExplain(myTeamSource, platformLabel, warnings),
     },
     players,
-    schedule: buildSchedule(snapshot, myTeamId, teamName),
+    schedule,
     activity,
     notes: response.notes,
     values: market.values,
     valueNotes: market.notes,
-    modelNotes: modelNotes(snapshot, opts.model, market.values, market.notes),
+    modelNotes: modelNotes(snapshot, opts.model ?? fresh, fresh, market.values, market.notes),
     warnings,
+    notices: data.notices,
+    technical: {
+      note: unjudgedText(data.unjudged),
+      sections: technicalSections(response, fresh, { players, unmapped: scoring.unmapped, platformLabel, missingWeeks: schedule.missingRegularWeeks, noProjections: data.noProjections, teamName }),
+    },
     timestamps,
   };
+}
+
+/**
+ * The technical details (for bug reports; §5.1): everything raw, notices included. The import's warnings and the fresh
+ * model inputs' (each with its code and path), the import's own notes, how the rostered players matched Sleeper's player
+ * database (ID matching is said nowhere else), the rostered players without projections (the League page says the ones
+ * that matter), the regular-season weeks without matchups, and the scoring rules not counted, with their stat IDs.
+ */
+function technicalSections(
+  response: ImportResponse,
+  model: ModelInputs | null,
+  c: {
+    players: ImportReportView["players"];
+    unmapped: ImportReportView["scoring"]["unmapped"];
+    platformLabel: string;
+    missingWeeks: readonly number[];
+    noProjections: readonly string[];
+    teamName: (id: string) => string;
+  },
+): TechnicalSection[] {
+  const { players, unmapped, platformLabel } = c;
+  const snapshot = response.snapshot;
+  const warned = (ws: readonly ImportWarning[]): TechnicalItem[] => ws.map((w) => ({ text: w.message, code: w.code, ...(w.platformPath ? { path: w.platformPath } : {}) }));
+  const sections: TechnicalSection[] = [];
+  if (snapshot.warnings?.length) sections.push({ title: "Import warnings", items: warned(snapshot.warnings) });
+  if (model?.warnings?.length) sections.push({ title: "Projection and trade-value warnings", items: warned(model.warnings) });
+  if (response.notes?.length) sections.push({ title: "Import notes", items: response.notes.map((text) => ({ text })) });
+  const matched = players.rostered - players.unmatched.length - players.missingDetails;
+  const matching: TechnicalItem[] = [{ text: `${matched} of ${plural(players.rostered, "rostered player")} matched to Sleeper's player database.` }];
+  if (players.unmatched.length) matching.push({ text: `Not in Sleeper's player database: ${players.unmatched.map((u) => `${u.name} (${u.pos}, ${u.team})`).join("; ")}.` });
+  if (players.missingDetails) matching.push({ text: `${plural(players.missingDetails, "rostered player")} came without any player details.` });
+  sections.push({ title: "Player matching", items: matching });
+  if (c.noProjections.length) {
+    const teamOf = new Map(snapshot.teams.flatMap((t) => [...t.roster, ...t.ir, ...t.taxi].map((id) => [id, t.id] as const)));
+    const label = (id: string) => {
+      const p = snapshot.players[id];
+      const team = teamOf.get(id);
+      return `${p?.name ?? id} (${[p ? posLabel(p.pos, snapshot.platform) : null, team !== undefined ? c.teamName(team) : null].filter(Boolean).join(", ")})`;
+    };
+    sections.push({ title: "Players without projections", items: [{ text: `Nothing to project from in any source, so they count as 0 points: ${c.noProjections.map(label).join("; ")}.` }] });
+  }
+  if (c.missingWeeks.length) sections.push({ title: "Schedule", items: [{ text: `No matchups in the league's schedule for ${weeksText(c.missingWeeks).toLowerCase()} of the regular season.` }] });
+  if (unmapped.length)
+    sections.push({
+      title: "Scoring rules not counted",
+      items: unmapped.map((u) => ({
+        text: `${u.text}${u.scoredThisSeason === true ? " (scored this season)" : u.scoredThisSeason === false ? " (hasn't scored this season)" : ""}`,
+        path: `${platformLabel} ${snapshot.platform === "espn" ? "statId" : "rule"} ${u.platformKey}`,
+      })),
+    });
+  return sections;
 }
 
 /**

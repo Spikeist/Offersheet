@@ -29,11 +29,23 @@ export interface LeagueSnapshot {
   transactions: Transaction[];
   /** Canonical ids: top 50 per position by projection (derive as player DB minus rostered when needed). */
   freeAgents: string[];
+  /**
+   * Each kept free agent's waiver status, when the platform reports it (planner reply to Checkpoint 7a, §6.2: "On waivers
+   * until Wed", "Free agent now"): ESPN only (src/adapters/espn/freeAgentStatus.ts). Absent on other platforms and in imports
+   * saved before Phase 7b; a free agent without an entry has no status shown.
+   */
+  freeAgentStatus?: Record<string, FreeAgentStatus>;
   /** Where the platform supports traded picks. */
   draftPicks?: DraftPick[];
   /** Anything we couldn't map, with platform field paths. */
   warnings: ImportWarning[];
 }
+
+/**
+ * A free agent's waiver status as the platform reported it at the import (LeagueSnapshot.freeAgentStatus): on waivers, until
+ * the platform processes them (`until`, ISO, when it says), or a free agent anyone can add now.
+ */
+export type FreeAgentStatus = { kind: "waivers"; until?: string } | { kind: "freeAgent" };
 
 export interface LeagueSettings {
   numTeams: number;
@@ -131,8 +143,13 @@ export interface Scoring {
   byPosition?: Partial<Record<Pos, Record<string, number>>>;
   /** Everything that isn't a plain per-unit rate (§5). */
   rules: ScoringRule[];
-  /** Shown in the Import Report. */
-  unmapped: { platformKey: string; label: string; points: number }[];
+  /**
+   * Shown in the Import Report. `scoredThisSeason` (Phase 7b, planner reply to Checkpoint 7a, §5.1; src/lib/notices.ts): the
+   * rule's stat has scored this season in this league (ESPN: some rostered player's or listed free agent's season line
+   * carries it at a value other than 0), false when no line does; absent when unknown (no season line came back, another
+   * platform, or an import saved before). A rule that scored, or a common one, is a notice; a rare one a quiet line.
+   */
+  unmapped: { platformKey: string; label: string; points: number; scoredThisSeason?: boolean }[];
 }
 
 /** One canonical key, or a composite stat such as pass_yd + rush_yd. */
@@ -254,6 +271,18 @@ export interface ImportWarning {
   code: string;
   message: string;
   platformPath?: string;
+  /**
+   * The canonical ids of the players a player-level warning is about (Phase 7b; ESPN_PLAYER_MATCHED_BY_NAME, ESPN_ID_CONFLICT,
+   * ESPN_ID_COLLISION), so src/lib/notices.ts can tell whose roster each is on: a notice only for your roster or a likely
+   * starter. Absent on other warnings and on imports saved before (the notices then go by the names the message lists).
+   */
+  players?: string[];
+  /**
+   * The ids of the teams whose rosters a warning is about, when its players have no canonical id (Phase 7b;
+   * ESPN_POSITION_UNKNOWN: rostered players left out because ESPN gave them a position we don't know), so the notices can
+   * tell when one was on the user's roster. Absent on other warnings and on imports saved before.
+   */
+  teams?: string[];
 }
 
 /** A stat line in canonical (Sleeper) keys: actual stats for a game, or projected means. */

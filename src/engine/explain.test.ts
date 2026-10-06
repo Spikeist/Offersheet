@@ -12,9 +12,9 @@ import { FIXTURE_PLAYERS, acceptanceTerms, activitySummary, contextTerm, explain
 const QUIET: EvaluationFixture = { dPO: 0, dCH: 0, dPPW: 0, dPPWPlayoffs: 0 };
 
 /**
- * FantasyCalc's own values (ExplainContext.fantasyCalcValue; Phase 4c, planner reply to Checkpoint 4b, change 3: every
- * value number in the words is FantasyCalc's): by default every fixture player at 5,000, so a fixture trade with as many
- * players each way reads even; players the fixtures don't know have none.
+ * FantasyCalc's own values (ExplainContext.fantasyCalcValue): by default every fixture player at 5,000; players the fixtures
+ * don't know have none. Since the planner's reply to Checkpoint 7a (5.4) they're never quoted: they only say the trade has
+ * trade value behind it, and the value line words the model's g_mkt(P) (the fixture's gPartner).
  */
 const FC_EVEN: Partial<ExplainContext> = { fantasyCalcValue: (id) => (Object.hasOwn(FIXTURE_PLAYERS, id) ? 5000 : null) };
 
@@ -27,7 +27,8 @@ const reasonsOf = (over: EvaluationFixture = {}, ctxOver: Partial<ExplainContext
 const fc = (table: Record<string, number>): Partial<ExplainContext> => ({ fantasyCalcValue: (id) => table[id] ?? null });
 /**
  * FantasyCalc values that give the partner a raw gain of `gain` when I give `give` and get `get`: each of their players
- * (my `get`) at 4,000, mine shared so that what they get is (1 + gain) × what they give.
+ * (my `get`) at 4,000, mine shared so that what they get is (1 + gain) × what they give. ⚠️ Since the planner's reply to
+ * Checkpoint 7a (5.4) the words never read these sums: tests pass them to show they don't move the value line.
  */
 function fcGain(give: readonly string[], get: readonly string[], gain: number): Partial<ExplainContext> {
   const table: Record<string, number> = {};
@@ -36,7 +37,12 @@ function fcGain(give: readonly string[], get: readonly string[], gain: number): 
   return fc(table);
 }
 
-const EVEN = "By FantasyCalc's trade values, the two sides are about even.";
+/** The value line's three readings (the model's g_mkt(P), in words only: planner reply to Checkpoint 7a, 5.4). */
+const EVEN = "The two sides are about even on trade value.";
+const AHEAD_YES = "They come out ahead on trade value, which makes a yes more likely.";
+const AHEAD_ONLY = "They come out ahead on trade value.";
+const BEHIND = "They give up more trade value than they get, so expect pushback.";
+const MOSTLY = "Mostly a trade-value win: you get more trade value than you give.";
 const BARE = "Barely changes your starting lineup.";
 /** The veto caveat: the model's count (review of track UIC, finding 1). */
 const VETO = "Your league reviews trades, and counting roster spots, this one is uneven enough to risk a veto, so the chance it goes through is halved.";
@@ -54,8 +60,6 @@ describe("explain config (§15)", () => {
       longTermMin: 0.01,
       futureFirstLambda: 0.5,
       holeRankFromBottom: 0.5,
-      valueMultipleAbove: 1,
-      pitchValueMax: 0.25,
       // Phase 4c (planner reply to Checkpoint 4b, changes 6 and 9): the card's "Win chance by week" line and the Trade
       // Finder's pattern note (src/engine/pattern.ts).
       weeklyLineMin: 0.03,
@@ -70,7 +74,7 @@ describe("explain config (§15)", () => {
 });
 
 describe("§13's example reasons", () => {
-  it("words them as the spec does, trade value by FantasyCalc's own values (planner reply to Checkpoint 4b, change 3)", () => {
+  it("words them as the spec does, trade value in words only (planner reply to Checkpoint 7a, 5.4)", () => {
     const r = reasonsOf(
       {
         give: ["kelce"],
@@ -90,7 +94,7 @@ describe("§13's example reasons", () => {
     expect(r).toEqual([
       "Your RB2 spot goes from 9.1 to 14.3 projected points per week.",
       "They're 9th of 10 at TE, and this gives them a starter.",
-      "By FantasyCalc's trade values, they give up 8% more than they get, so expect pushback.",
+      BEHIND,
       "Active trader: 3 trades this season.",
     ]);
   });
@@ -201,23 +205,19 @@ describe("my side", () => {
     expect(reasonsOf({ dPPW: 0.9, dPPWPlayoffs: -1.5 })).toEqual(["In the regular season your starting lineup gains 0.9 projected points per week.", EVEN, "In the playoffs your starting lineup loses 1.5 projected points per week."]);
   });
 
-  it("reads the value line on FantasyCalc's own values whatever the model's packages say, its clause only when the model agrees (planner reply to Checkpoint 4b, change 3)", () => {
-    const valueLine = (r: readonly string[]) => r.find((x) => x.startsWith("By FantasyCalc")) ?? null;
-    // The model credits them a roster spot (+17%), FantasyCalc reads even: even, nothing about a yes.
-    expect(valueLine(reasonsOf({ gPartner: 0.17, gMine: 1 / 1.17 - 1, detail: { terms: acceptanceTerms({ value: 1.02 }) } }))).toBe(EVEN);
-    // FantasyCalc says they get 12% more, the model (floor, spots) that they lose: the number alone.
-    expect(valueLine(reasonsOf({ gPartner: -0.3, gMine: 1 / 0.7 - 1, detail: { terms: acceptanceTerms({ value: -2.7 }) } }, fcGain(["nix"], ["kelce"], 0.12)))).toBe(
-      "By FantasyCalc's trade values, they get 12% more than they give.",
-    );
-    // Both say so: the clause too.
-    expect(valueLine(reasonsOf({ gPartner: 0.12, gMine: 1 / 1.12 - 1, detail: { terms: acceptanceTerms({ value: 0.72 }) } }, fcGain(["nix"], ["kelce"], 0.12)))).toBe(
-      "By FantasyCalc's trade values, they get 12% more than they give, which makes a yes more likely.",
-    );
-    // They give up 11% more than they get on FantasyCalc's values (a −10% gain): pushback when the model agrees, else the number alone.
-    expect(valueLine(reasonsOf({ gPartner: -0.08, gMine: 1 / 0.92 - 1, detail: { terms: acceptanceTerms({ value: -0.72 }) } }, fcGain(["nix"], ["kelce"], -0.1)))).toBe(
-      "By FantasyCalc's trade values, they give up 11% more than they get, so expect pushback.",
-    );
-    expect(valueLine(reasonsOf({ gPartner: 0.01, gMine: -0.01 / 1.01 }, fcGain(["nix"], ["kelce"], -0.1)))).toBe("By FantasyCalc's trade values, they give up 11% more than they get.");
+  it("words the value line as the model reads trade value, its g_mkt(P), whatever FantasyCalc's plain sums say, and never with a number (planner reply to Checkpoint 7a, 5.4)", () => {
+    const valueLine = (r: readonly string[]) => r.find((x) => x === EVEN || x.startsWith("They come out ahead on trade value") || x === BEHIND) ?? null;
+    // The model credits them a roster spot (+17%) while FantasyCalc's plain sums read even: the model's reading.
+    expect(valueLine(reasonsOf({ gPartner: 0.17, gMine: 1 / 1.17 - 1, detail: { terms: acceptanceTerms({ value: 1.02 }) } }))).toBe(AHEAD_YES);
+    // FantasyCalc's sums say they get 12% more, the model (floor, spots) that they lose: the model's reading.
+    expect(valueLine(reasonsOf({ gPartner: -0.3, gMine: 1 / 0.7 - 1, detail: { terms: acceptanceTerms({ value: -2.7 }) } }, fcGain(["nix"], ["kelce"], 0.12)))).toBe(BEHIND);
+    // Both say so.
+    expect(valueLine(reasonsOf({ gPartner: 0.12, gMine: 1 / 1.12 - 1, detail: { terms: acceptanceTerms({ value: 0.72 }) } }, fcGain(["nix"], ["kelce"], 0.12)))).toBe(AHEAD_YES);
+    expect(valueLine(reasonsOf({ gPartner: -0.08, gMine: 1 / 0.92 - 1, detail: { terms: acceptanceTerms({ value: -0.72 }) } }, fcGain(["nix"], ["kelce"], -0.1)))).toBe(BEHIND);
+    // The sums say they give up 11% more; the model reads about even.
+    expect(valueLine(reasonsOf({ gPartner: 0.01, gMine: -0.01 / 1.01 }, fcGain(["nix"], ["kelce"], -0.1)))).toBe(EVEN);
+    // No digit in any of the three.
+    for (const text of [EVEN, AHEAD_YES, AHEAD_ONLY, BEHIND, MOSTLY]) expect(text).not.toMatch(/\d/);
     // A slot line keeps its words (its numbers are regular-season averages already).
     expect(reasonsOf({ dPPW: 1, dPPWPlayoffs: 3, detail: { mySlots: [{ key: "RB2", before: 9, after: 12 }] } })[0]).toBe("Your RB2 spot goes from 9 to 12 projected points per week.");
   });
@@ -228,22 +228,18 @@ describe("my side", () => {
     expect(reasonsOf({ dPPW: -0.8 })).toEqual([EVEN, "Your starting lineup loses 0.8 projected points per week."]);
   });
 
-  it("says a redraft B that only the trade value explains is mostly a trade-value win, its percent FantasyCalc's own (change 3)", () => {
+  it("says a redraft B that only the trade value explains is mostly a trade-value win, in words only, as the model reads it (planner reply to Checkpoint 7a, 5.4)", () => {
     const even = config.explain.valueEven;
-    // I give Bo Nix for Travis Kelce: FantasyCalc's values say I get 30% more (their gain is −1/1.3 + 1).
+    // I give Bo Nix for Travis Kelce: FantasyCalc's plain sums say I get 30% more (their gain is −1/1.3 + 1).
     const fc30 = fcGain(["nix"], ["kelce"], 1 / 1.3 - 1);
     // B is all market term here (B_win 0: no odds change).
-    expect(reasonsOf({ b: 0.3, bWin: 0, gMine: 0.3 }, fc30)[0]).toBe("Mostly a trade-value win: by FantasyCalc's trade values, you get 30% more than you give.");
+    expect(reasonsOf({ b: 0.3, bWin: 0, gMine: 0.3 }, fc30)[0]).toBe(MOSTLY);
     expect(reasonsOf({ b: 0.3, bWin: 0, gMine: 0.3 }, fc30)).not.toContain(BARE);
-    // ⚠️ FantasyCalc's values read even (the model's g comes from its roster-spot count): no number, the model's reading.
-    expect(reasonsOf({ b: 0.3, bWin: 0, gMine: 0.3 })[0]).toBe("Mostly a trade-value win: counting roster spots, you get more trade value than you give.");
+    // FantasyCalc's sums read even (the model's g comes from its roster-spot count): the same words, the model's reading.
+    expect(reasonsOf({ b: 0.3, bWin: 0, gMine: 0.3 })[0]).toBe(MOSTLY);
     // I give nothing of value.
-    expect(reasonsOf({ give: [], get: ["kelce"], b: 0.3, bWin: 0, gMine: Number.POSITIVE_INFINITY, gPartner: -1 })[0]).toBe(
-      "Mostly a trade-value win: by FantasyCalc's trade values, you get trade value without giving any up.",
-    );
-    expect(reasonsOf({ b: 0.05, bWin: 0, gMine: even }, fcGain(["nix"], ["kelce"], 1 / (1 + even) - 1))[0]).toBe(
-      `Mostly a trade-value win: by FantasyCalc's trade values, you get ${Math.round(even * 100)}% more than you give.`,
-    );
+    expect(reasonsOf({ give: [], get: ["kelce"], b: 0.3, bWin: 0, gMine: Number.POSITIVE_INFINITY, gPartner: -1 })[0]).toBe(MOSTLY);
+    expect(reasonsOf({ b: 0.05, bWin: 0, gMine: even }, fcGain(["nix"], ["kelce"], 1 / (1 + even) - 1))[0]).toBe(MOSTLY);
     // Not when something else explains it, the model's value gain is small, B ≤ 0 or unknown, or the league isn't redraft.
     expect(reasonsOf({ b: 0.3, bWin: 0, gMine: 0.3, dPPW: 1 }, fc30)[0]).toBe("Your starting lineup gains 1 projected point per week.");
     expect(reasonsOf({ b: 0.3, bWin: 0, gMine: 0.3, dPO: 0.01 }, fc30)[0]).toBe("Raises your playoff odds by 1 percentage point.");
@@ -255,7 +251,7 @@ describe("my side", () => {
 
   it("only when the market term itself (B − B_win) is positive and most of B, every player at max(v, W) (the value floor on both sides)", () => {
     const fc30 = fcGain(["nix"], ["kelce"], 1 / 1.3 - 1);
-    const WIN = "Mostly a trade-value win: by FantasyCalc's trade values, you get 30% more than you give.";
+    const WIN = MOSTLY;
     // B − B_win is the term: positive and at least B_win → the line (B_win may be below 0: the term carries all of B).
     expect(reasonsOf({ b: 0.06, bWin: 0.02, gMine: 0.3 }, fc30)[0]).toBe(WIN);
     expect(reasonsOf({ b: 0.06, bWin: 0.03, gMine: 0.3 }, fc30)[0]).toBe(WIN);
@@ -293,26 +289,18 @@ describe("my side", () => {
     expect(reasonsOf({ b: null }).join(" ")).not.toContain("Doesn't help");
   });
 
-  it("dynasty and keeper leagues: my roster's long-term value, placed by how much the trade leans to the future, counting roster spots as the card's fact does", () => {
+  it("dynasty and keeper leagues: my roster's long-term value, in words only (FantasyCalc's dynasty values: planner reply to Checkpoint 7a, 5.4), placed by how much the trade leans to the future", () => {
     const scale = config.benefit.bFutureScale; // B_future = scale × ΔDyn / MyDynTotal
     const dyn = { leagueType: "dynasty" as const };
     const future = reasonsOf({ dPPW: 2, dPO: 0.02, dCH: 0, bFuture: 0.06 * scale, lambda: 0.75 }, dyn);
-    expect(future.slice(0, 3)).toEqual([
-      "Your starting lineup gains 2 projected points per week.",
-      "Raises your roster's long-term value by 6%, counting roster spots.",
-      "Raises your playoff odds by 2 percentage points.",
-    ]);
+    expect(future.slice(0, 3)).toEqual(["Your starting lineup gains 2 projected points per week.", "Raises your roster's long-term value.", "Raises your playoff odds by 2 percentage points."]);
     const now = reasonsOf({ dPPW: 2, dPO: 0.02, dCH: 0, bFuture: 0.06 * scale, lambda: 0.35 }, dyn);
-    expect(now.slice(0, 3)).toEqual([
-      "Your starting lineup gains 2 projected points per week.",
-      "Raises your playoff odds by 2 percentage points.",
-      "Raises your roster's long-term value by 6%, counting roster spots.",
-    ]);
-    // Review of track UIC (finding 4): the percent is the model's ΔDyn, every player at least the best free agent's worth and
-    // the roster-spot credit counted, so it says so; FantasyCalc's own sums (the value line) can read the trade as even.
+    expect(now.slice(0, 3)).toEqual(["Your starting lineup gains 2 projected points per week.", "Raises your playoff odds by 2 percentage points.", "Raises your roster's long-term value."]);
     const loss = reasonsOf({ dPPW: 2, bFuture: -0.04 * scale, lambda: 0.5 }, { ...dyn, ...fc({ nix: 5000, kelce: 5000 }) });
-    expect(loss).toContain("Costs 4% of your roster's long-term value, counting roster spots.");
+    expect(loss).toContain("Lowers your roster's long-term value.");
     expect(loss).toContain(EVEN);
+    expect([...future, ...loss].join(" ")).not.toMatch(/\d+%/);
+    // Under longTermMin (1%), or rounding to 0%: not said.
     expect(reasonsOf({ dPPW: 2, bFuture: 0.004 * scale, lambda: 0.5 }, dyn).join(" ")).not.toContain("long-term");
     // Redraft leagues never say it.
     expect(reasonsOf({ dPPW: 2, bFuture: 0.06 * scale, lambda: 0.5 }).join(" ")).not.toContain("long-term");
@@ -367,60 +355,60 @@ describe("their side", () => {
     expect(reasonsOf({ partnerDeltaLineup: 0.7, detail: { terms: acceptanceTerms({ need: 0.08 }) } }).join(" ")).not.toContain("their starting lineup");
   });
 
-  it("words trade value from their side, by FantasyCalc's own values: more for them, even, or less (expect pushback)", () => {
-    // The model reads the same way here (its package g as the fixture's mirrored packages give it).
+  it("words trade value from their side as the model reads it: they come out ahead, about even, or they give up more (expect pushback)", () => {
     const side = (gain: number, over: EvaluationFixture = {}) => reasonsOf({ gPartner: gain, gMine: 1 / (1 + gain) - 1, ...over }, fcGain(["nix"], ["kelce"], gain));
-    expect(side(0.11, { detail: { terms: acceptanceTerms({ value: 0.67 }) } })).toContain("By FantasyCalc's trade values, they get 11% more than they give, which makes a yes more likely.");
+    expect(side(0.11, { detail: { terms: acceptanceTerms({ value: 0.67 }) } })).toContain(AHEAD_YES);
     expect(side(0.03)).toContain(EVEN);
-    expect(side(1 / 1.15 - 1, { detail: { terms: acceptanceTerms({ value: -1.17 }) } })).toContain("By FantasyCalc's trade values, they give up 15% more than they get, so expect pushback.");
-    // They'd get nothing FantasyCalc values: a one-sided trade from me.
-    expect(reasonsOf({ give: [], get: ["kelce"], gMine: Number.POSITIVE_INFINITY, gPartner: -1 })).toContain("By FantasyCalc's trade values, they'd give up trade value and get none back, so expect pushback.");
+    expect(side(1 / 1.15 - 1, { detail: { terms: acceptanceTerms({ value: -1.17 }) } })).toContain(BEHIND);
+    // A one-sided trade from me (they'd get nothing), and one they'd get for nothing.
+    expect(reasonsOf({ give: [], get: ["kelce"], gMine: Number.POSITIVE_INFINITY, gPartner: -1 })).toContain(BEHIND);
+    expect(reasonsOf({ give: ["nix"], get: [], gMine: -1, gPartner: Number.POSITIVE_INFINITY })).toContain(AHEAD_YES);
+    // A g the model couldn't read: nothing about trade value.
+    expect(reasonsOf({ gPartner: Number.NaN, gMine: Number.NaN })).toEqual([BARE]);
   });
 
-  it("says in words when FantasyCalc doesn't value a player or a pick, instead of a percent (⚠️ ours)", () => {
-    const line = (r: readonly string[]) => r.find((x) => x.startsWith("FantasyCalc has no")) ?? null;
-    // Tobias the backup has no FantasyCalc value (an estimate in the model).
+  it("⚠️ says nothing about trade value when none is behind the trade (no lookup; or no FantasyCalc value for any of its players and a g of 0, as with no values at all)", () => {
+    const valueLine = (r: readonly string[]) => r.find((x) => x === EVEN || x.startsWith("They come out ahead") || x === BEHIND) ?? null;
     const ctx = fc({ nix: 5000, kelce: 5000 });
-    expect(line(reasonsOf({ give: ["nix", "kyren"], get: ["kelce"] }, ctx))).toBe("FantasyCalc has no trade value for Kyren Williams, so its values can't compare the two sides.");
-    expect(line(reasonsOf({ give: ["nix", "kyren"], get: ["kelce", "laporta"] }, ctx))).toBe("FantasyCalc has no trade value for Kyren Williams or Sam LaPorta, so its values can't compare the two sides.");
-    // A pick, named for me: mine is "your", another team's by its name.
+    // A player FantasyCalc doesn't value (an estimate in the model) beside ones it does: the model's reading, never naming FantasyCalc.
+    expect(valueLine(reasonsOf({ give: ["nix", "kyren"], get: ["kelce"] }, ctx))).toBe(EVEN);
+    expect(valueLine(reasonsOf({ give: ["nix", "kyren"], get: ["kelce"], gPartner: 0.2, gMine: 1 / 1.2 - 1 }, ctx))).toBe(AHEAD_YES);
+    // Picks beside a valued player, the same.
     const pick = {
       partnerId: "7",
       give: [{ kind: "player" as const, id: "nix" }, { kind: "pick" as const, season: 2027, round: 2, originalTeamId: "3" }],
       get: [{ kind: "pick" as const, season: 2028, round: 1, originalTeamId: "7" }],
     };
-    expect(line(reasonsOf({ proposal: pick }, ctx))).toBe("FantasyCalc has no trade value for your 2027 2nd-round pick or Team 7's 2028 1st-round pick, so its values can't compare the two sides.");
-    // None of the trade's players at all (a kicker for a D/ST; the curve fallback): not named one by one.
-    expect(reasonsOf({ give: ["kyren"], get: ["laporta"] }, ctx)).toContain("There are no FantasyCalc trade values to compare for this trade.");
-    expect(reasonsOf({ give: ["kyren"], get: ["laporta"] }, fc({}))).toContain("There are no FantasyCalc trade values to compare for this trade.");
-    // No percent next to it, and the pitch says nothing about value.
-    expect(reasonsOf({ give: ["nix", "kyren"], get: ["kelce"] }, ctx).join(" ")).not.toMatch(/\d+% more/);
-    expect(explain({ give: ["nix", "kyren"], get: ["kelce"] }, ctx).pitch).not.toContain("trade value");
+    expect(valueLine(reasonsOf({ proposal: pick }, ctx))).toBe(EVEN);
+    // None of its players valued by FantasyCalc: our estimates still read (FantasyCalc's curve fallback) when they move g …
+    expect(valueLine(reasonsOf({ give: ["kyren"], get: ["laporta"], gPartner: -0.2, gMine: 0.25 }, ctx))).toBe(BEHIND);
+    // … and with a g of exactly 0 (no values loaded: every g is 0; or a kicker for a D/ST at the same flat minimum), nothing.
+    expect(valueLine(reasonsOf({ give: ["kyren"], get: ["laporta"] }, ctx))).toBeNull();
+    expect(valueLine(reasonsOf({ give: ["kyren"], get: ["laporta"] }, fc({})))).toBeNull();
+    expect(reasonsOf({ give: ["kyren"], get: ["laporta"] }, fc({})).join(" ")).not.toMatch(/FantasyCalc|trade value/);
     // Without FantasyCalc's values at all (no lookup), nothing is said about trade value.
     expect(explainTrade(tradeEvaluation({ ...QUIET }), explainContext()).reasons).toEqual([BARE]);
+    // The pitch never says anything about value.
+    expect(explain({ give: ["nix", "kyren"], get: ["kelce"] }, ctx).pitch).not.toContain("trade value");
   });
 
-  it("words a value gap above valueMultipleAbove as a multiple (at most one decimal), and below it as a percent", () => {
-    expect(config.explain.valueMultipleAbove).toBe(1);
+  it("words any gap the same, however large: never a percent or a multiple (planner reply to Checkpoint 7a, 5.4)", () => {
     // They give up `over` more than they get: their gain is 1 / (1 + over) − 1.
     const pushback = (over: number) => reasonsOf({ gMine: over, detail: { terms: acceptanceTerms({ value: -4.5 }) } }, fcGain(["nix"], ["kelce"], 1 / (1 + over) - 1));
-    expect(pushback(8)).toContain("By FantasyCalc's trade values, they give up about 9 times as much as they get, so expect pushback.");
-    expect(pushback(8.25)).toContain("By FantasyCalc's trade values, they give up about 9.3 times as much as they get, so expect pushback.");
-    expect(pushback(1.5)).toContain("By FantasyCalc's trade values, they give up about 2.5 times as much as they get, so expect pushback.");
-    expect(pushback(1)).toContain("By FantasyCalc's trade values, they give up 100% more than they get, so expect pushback."); // at the threshold: a percent
+    for (const over of [8, 8.25, 1.5, 1]) expect(pushback(over)).toContain(BEHIND);
     const theyGet = (gain: number) => reasonsOf({ gPartner: gain, gMine: 1 / (1 + gain) - 1, detail: { terms: acceptanceTerms({ value: 3 }) } }, fcGain(["nix"], ["kelce"], gain));
-    expect(theyGet(2)).toContain("By FantasyCalc's trade values, they get about 3 times as much as they give, which makes a yes more likely.");
-    expect(theyGet(0.44)).toContain("By FantasyCalc's trade values, they get 44% more than they give, which makes a yes more likely.");
-    expect(reasonsOf({ b: 0.3, bWin: 0, gMine: 3 }, fcGain(["nix"], ["kelce"], 1 / 4 - 1))[0]).toBe("Mostly a trade-value win: by FantasyCalc's trade values, you get about 4 times as much as you give.");
+    for (const gain of [2, 0.44]) expect(theyGet(gain)).toContain(AHEAD_YES);
+    expect(reasonsOf({ b: 0.3, bWin: 0, gMine: 3 }, fcGain(["nix"], ["kelce"], 1 / 4 - 1))[0]).toBe(MOSTLY);
+    expect([...pushback(8), ...theyGet(2)].join(" ")).not.toMatch(/\d+%|times as much/);
   });
 
-  it("reads trade value within valueEven either way as even, on FantasyCalc's own sums", () => {
+  it("reads trade value within valueEven either way as even, on the model's g_mkt(P)", () => {
     const even = config.explain.valueEven;
     const value = (gain: number) => reasonsOf({ gPartner: gain, gMine: 1 / (1 + gain) - 1, detail: { terms: acceptanceTerms({ value: 0.3 }) } }, fcGain(["nix"], ["kelce"], gain));
-    expect(value(even)).toContain(`By FantasyCalc's trade values, they get ${Math.round(even * 100)}% more than they give, which makes a yes more likely.`);
+    expect(value(even)).toContain(AHEAD_YES);
     expect(value(even - 0.001)).toContain(EVEN);
     expect(value(-even + 0.001)).toContain(EVEN);
-    expect(value(-even)).toContain("By FantasyCalc's trade values, they give up 5% more than they get, so expect pushback.");
+    expect(value(-even)).toContain(BEHIND);
   });
 
   it("compares FantasyCalc's plain sums, both ways (fantasyCalcComparison)", () => {
@@ -527,25 +515,23 @@ describe("caveats and notes", () => {
   it("leaves the market check to the card's flag and keeps their side's value line", () => {
     const gain = (gMine: number) => 1 / (1 + gMine) - 1;
     const check = reasonsOf({ dPPW: 2, gMine: -0.15 - 0.03, detail: { terms: acceptanceTerms({ value: 0.75 }) } }, fcGain(["nix"], ["kelce"], gain(-0.18)));
-    expect(check).toContain("By FantasyCalc's trade values, they get 22% more than they give, which makes a yes more likely.");
+    expect(check).toContain(AHEAD_YES);
     expect(check.join(" ")).not.toMatch(/Market check|you give up|left out|hidden|hides/i);
     const hidden = reasonsOf({ dPPW: 2, gMine: -0.4, detail: { terms: acceptanceTerms({ value: 3 }) } }, fcGain(["nix"], ["kelce"], gain(-0.4)));
-    expect(hidden).toContain("By FantasyCalc's trade values, they get 67% more than they give, which makes a yes more likely.");
+    expect(hidden).toContain(AHEAD_YES);
     expect(hidden.join(" ")).not.toMatch(/Market check|left out|hidden|hides/i);
-    // I get nothing FantasyCalc values back.
-    expect(reasonsOf({ give: ["nix"], get: [], dPPW: 2, gMine: -1, gPartner: Number.POSITIVE_INFINITY })).toContain(
-      "By FantasyCalc's trade values, they get trade value without giving any up, which makes a yes more likely.",
-    );
+    // I get nothing back.
+    expect(reasonsOf({ give: ["nix"], get: [], dPPW: 2, gMine: -1, gPartner: Number.POSITIVE_INFINITY })).toContain(AHEAD_YES);
   });
 
-  it("the veto risk, counting roster spots: the model's count, which can be far from FantasyCalc's own (review of track UIC, finding 1)", () => {
+  it("the veto risk, counting roster spots: the model's count, which can be far from FantasyCalc's plain sums (review of track UIC, finding 1)", () => {
     expect(config.acceptance.veto.factor).toBe(0.5);
     expect(reasonsOf({ dPPW: 2, gMine: 0.5, detail: { vetoRisk: true } })).toContain(VETO);
-    // Two players of mine, each worth less than the best free agent, for one of theirs worth their sum: FantasyCalc reads
-    // the trade as even, while the model's package (one of them a neutral throw-in, the other counted at the best free
-    // agent's worth) has them give up 45%, past the veto line. The caveat says whose count it is.
+    // Two players of mine, each worth less than the best free agent, for one of theirs worth their sum: FantasyCalc's sums
+    // read the trade as even, while the model's package (one of them a neutral throw-in, the other counted at the best free
+    // agent's worth) has them give up 45%, past the veto line. The caveat says whose count it is, as the value line reads it.
     const cheap = reasonsOf({ give: ["nix", "kyren"], get: ["kelce"], dPPW: 2, gMine: 0.82, gPartner: -0.45, detail: { vetoRisk: true } }, fc({ nix: 600, kyren: 500, kelce: 1100 }));
-    expect(cheap).toContain(EVEN);
+    expect(cheap).toContain(BEHIND);
     expect(cheap).toContain(VETO);
     expect(cheap.join(" ")).not.toContain("one this uneven");
     // No veto risk, no caveat.
@@ -574,7 +560,7 @@ describe("caveats and notes", () => {
     expect(r).toEqual([
       "Your RB1 spot goes from 12 to 17.5 projected points per week.",
       "Raises your playoff odds by 5 and your title odds by 2 percentage points.",
-      "By FantasyCalc's trade values, they give up 12% more than they get, so expect pushback.",
+      BEHIND,
       `Quiet lately: no moves in ${config.acceptance.activity.quietWeeks} weeks.`,
       "Depends on an injured player: Christian McCaffrey is on injured reserve, and the numbers assume he returns as expected.",
       "Your WR2 spot drops from 11 to 9.5 projected points per week.",
@@ -623,53 +609,35 @@ describe("the pitch", () => {
     expect(slotPitch(["kyren"], "X1", sleeperSlots)).toContain("Hey! This would upgrade your X spot");
   });
 
-  it("else their slot or lineup gain, then the trade value they gain", () => {
-    // FantasyCalc's own values (the context's): Puka Nacua 5,000, Kyren Williams 4,500 → they get 11% more.
+  it("else their slot or lineup gain, and never the trade value they gain (planner reply to Checkpoint 7a, 5.4)", () => {
+    // FantasyCalc's own values (the context's): Puka Nacua 5,000, Kyren Williams 4,500 → they'd get 11% more: not said.
     const slot = explain({ give: ["nacua"], get: ["kyren"], gMine: -0.1, partnerDeltaLineup: 2.2, detail: { partnerSlots: [{ key: "WR2", before: 7, after: 12.4, rank: 7 }] } }, fc({ nacua: 5000, kyren: 4500 })).pitch;
-    expect(slot).toBe(
-      "Hey! Puka Nacua would upgrade your WR2 spot from 7 to 12.4 projected points a week. Also, by FantasyCalc's trade values, you'd get about 11% more than you give. Would you trade Kyren Williams for Puka Nacua? Let me know what you think!",
-    );
+    expect(slot).toBe("Hey! Puka Nacua would upgrade your WR2 spot from 7 to 12.4 projected points a week. Would you trade Kyren Williams for Puka Nacua? Let me know what you think!");
     const lineup = explain({ give: ["nacua", "kyren"], get: ["bijan"], partnerDeltaLineup: 1.3 }).pitch;
     expect(lineup).toBe("Hey! This adds about 1.3 projected points a week to your starting lineup. Would you trade Bijan Robinson for Puka Nacua and Kyren Williams? Let me know what you think!");
     const value = explain({ give: ["nacua"], get: ["kyren"], gMine: -0.2, partnerDeltaLineup: -2 }, fc({ nacua: 5000, kyren: 4000 })).pitch;
-    expect(value).toBe("Hey! By FantasyCalc's trade values, you'd get about 25% more than you give. Would you trade Kyren Williams for Puka Nacua? Let me know what you think!");
+    expect(value).toBe("Hey! Would you trade Kyren Williams for Puka Nacua? Let me know what you think!");
     const plain = explain({ give: ["nacua"], get: ["kyren"], gMine: 0.1, partnerDeltaLineup: -2 }, fc({ nacua: 4500, kyren: 5000 })).pitch;
     expect(plain).toBe("Hey! Would you trade Kyren Williams for Puka Nacua? Let me know what you think!");
   });
 
-  it("mentions the value they gain only when it's modest: at least +5% (the planner), at most pitchValueMax (⚠️ ours); never a loss", () => {
-    const max = config.explain.pitchValueMax;
-    expect(max).toBe(0.25);
-    expect(config.explain.valueEven).toBe(0.05);
-    const valuePitch = (gain: number, over: EvaluationFixture = {}) => explain({ give: ["nacua"], get: ["kyren"], ...over }, fc({ nacua: 4000 * (1 + gain), kyren: 4000 })).pitch;
-    expect(valuePitch(0.2)).toContain("By FantasyCalc's trade values, you'd get about 20% more than you give.");
-    expect(valuePitch(max)).toContain(`By FantasyCalc's trade values, you'd get about ${Math.round(max * 100)}% more than you give.`);
-    expect(valuePitch(0.05)).toContain("By FantasyCalc's trade values, you'd get about 5% more than you give.");
-    expect(valuePitch(0.049)).toBe("Hey! Would you trade Kyren Williams for Puka Nacua? Let me know what you think!");
-    expect(valuePitch(0.44)).toBe("Hey! Would you trade Kyren Williams for Puka Nacua? Let me know what you think!");
-    expect(valuePitch(-0.2)).toBe("Hey! Would you trade Kyren Williams for Puka Nacua? Let me know what you think!");
-    // A big value gain: the lineup fit leads alone.
-    const fit = valuePitch(0.44, { partnerDeltaLineup: 2, detail: { partnerSlots: [{ key: "WR2", before: 7, after: 12, rank: 7 }] } });
-    expect(fit).toBe("Hey! Puka Nacua would upgrade your WR2 spot from 7 to 12 projected points a week. Would you trade Kyren Williams for Puka Nacua? Let me know what you think!");
-    expect(valuePitch(0.1, { partnerDeltaLineup: 2, detail: { partnerSlots: [{ key: "WR2", before: 7, after: 12, rank: 7 }] } })).toContain(
-      "Puka Nacua would upgrade your WR2 spot from 7 to 12 projected points a week. Also, by FantasyCalc's trade values, you'd get about 10% more than you give.",
-    );
-  });
-
-  it("⚠️ quotes FantasyCalc's own values, never the model's package (final review of Phase 4b: the floor at W and the roster-spot credit aren't FantasyCalc's)", () => {
+  it("never mentions trade value, whatever the gain, FantasyCalc's sums or the model's package (planner reply to Checkpoint 7a, 5.4)", () => {
     const ask = "Would you trade Kyren Williams for Puka Nacua? Let me know what you think!";
-    // The model's package g says they gain 17% (a roster spot credited, a player floored); FantasyCalc says 3%: nothing.
+    const valuePitch = (gain: number, over: EvaluationFixture = {}) => explain({ give: ["nacua"], get: ["kyren"], ...over }, fc({ nacua: 4000 * (1 + gain), kyren: 4000 })).pitch;
+    for (const gain of [0.2, 0.25, 0.05, 0.049, 0.44, -0.2]) expect(valuePitch(gain), String(gain)).toBe(`Hey! ${ask}`);
+    // A lineup fit leads alone, whatever the value.
+    for (const gain of [0.1, 0.44]) {
+      expect(valuePitch(gain, { partnerDeltaLineup: 2, detail: { partnerSlots: [{ key: "WR2", before: 7, after: 12, rank: 7 }] } })).toBe(
+        `Hey! Puka Nacua would upgrade your WR2 spot from 7 to 12 projected points a week. ${ask}`,
+      );
+    }
+    // The model's package g either way, with or without FantasyCalc's values, a pick, two for one, a lookup that throws.
     expect(explain({ give: ["nacua"], get: ["kyren"], gPartner: 0.17, gMine: 1 / 1.17 - 1 }, fc({ nacua: 4581, kyren: 4452 })).pitch).toBe(`Hey! ${ask}`);
-    // And the other way: the package g says they lose, FantasyCalc says they gain 12%.
-    expect(explain({ give: ["nacua"], get: ["kyren"], gPartner: -0.1, gMine: 1 / 0.9 - 1 }, fc({ nacua: 5600, kyren: 5000 })).pitch).toContain("By FantasyCalc's trade values, you'd get about 12% more than you give.");
-    // Without FantasyCalc's values, or with a player FantasyCalc doesn't value (an estimate), or a pick: nothing about value.
+    expect(explain({ give: ["nacua"], get: ["kyren"], gPartner: -0.1, gMine: 1 / 0.9 - 1 }, fc({ nacua: 5600, kyren: 5000 })).pitch).toBe(`Hey! ${ask}`);
     expect(explainTrade(tradeEvaluation({ ...QUIET, give: ["nacua"], get: ["kyren"], gPartner: 0.1, gMine: 1 / 1.1 - 1 }), explainContext()).pitch).toBe(`Hey! ${ask}`);
-    expect(explain({ give: ["nacua", "nix"], get: ["kyren"] }, fc({ nacua: 5000, kyren: 5000 })).pitch).not.toContain("trade value");
     const pick = { partnerId: "7", give: [{ kind: "player" as const, id: "nacua" }, { kind: "pick" as const, season: 2027, round: 2, originalTeamId: "3" }], get: [{ kind: "player" as const, id: "kyren" }] };
-    expect(explain({ proposal: pick }, fc({ nacua: 5000, kyren: 4800 })).pitch).not.toContain("trade value");
-    // Two for one: the sums (Nacua 3,000 + Bo Nix 2,500 for Kyren Williams 5,000: they get 10% more), no spot credit.
-    expect(explain({ give: ["nacua", "nix"], get: ["kyren"] }, fc({ nacua: 3000, nix: 2500, kyren: 5000 })).pitch).toContain("By FantasyCalc's trade values, you'd get about 10% more than you give.");
-    // A context that throws for a player is no value either.
+    expect(explain({ proposal: pick }, fc({ nacua: 5000, kyren: 4800 })).pitch).not.toMatch(/trade value|FantasyCalc|\d+%/);
+    expect(explain({ give: ["nacua", "nix"], get: ["kyren"] }, fc({ nacua: 3000, nix: 2500, kyren: 5000 })).pitch).not.toMatch(/trade value|FantasyCalc|\d+%/);
     expect(explain({ give: ["nacua"], get: ["kyren"] }, { fantasyCalcValue: () => { throw new Error("boom"); } }).pitch).toBe(`Hey! ${ask}`);
   });
 
@@ -794,10 +762,10 @@ describe("the star premium (planner addendum to Checkpoint 3, §1; lead decision
     });
     const hole = "They're 9th of 10 at RB2, and this gives them a starter.";
     const contender = "They're contending (over 60% to make the playoffs), so lineup help counts extra.";
-    // Phase 4c: the value line quotes FantasyCalc's own sums, 11,000 for 9,000 (+22%), with no clause: the model's package
-    // (two roster spots charged at W) reads +4.7%, under valueEven.
+    // The value line words the model's package (two roster spots charged at W): +4.7%, under valueEven, so about even
+    // (FantasyCalc's plain sums, 11,000 for 9,000, aren't read: planner reply to Checkpoint 7a, 5.4).
     const raw = fc({ bijan: 4000, kyren: 3500, jacobs: 3500, jsn: 9000 });
-    const value = "By FantasyCalc's trade values, they get 22% more than they give.";
+    const value = EVEN;
     // The premium moved the estimate 1.24 (logit units), the hole 0.76, the market reading 0.28: the contender line is left out.
     expect(reasonsOf(jsnTrade(true), raw)).toEqual([BARE, `Jaxon Smith-Njigba is their best player and a top-${TOP} player by trade value, ${EXTRA}`, hole, value]);
     expect(reasonsOf(jsnTrade(false), raw)).toEqual([BARE, hole, value, contender]);
@@ -823,19 +791,19 @@ describe("the star premium (planner addendum to Checkpoint 3, §1; lead decision
       reasonsOf(
         { give: ["jefferson"], get: ["nacua", "kyren"], gPartner, gMine: 1 / (1 + gPartner) - 1, detail: { premium: facts, terms: acceptanceTerms({ value: perceived }) } },
         fcGain(["jefferson"], ["nacua", "kyren"], gPartner),
-      ).find((r) => r.startsWith("By FantasyCalc"));
+      ).find((r) => r.startsWith("They come out ahead on trade value"));
     // +6.4% on market values, −5.7% in their eyes (Puka Nacua: their #2 and top-12, e = 0.15).
-    expect(valueOf(-0.51, 0.064)).toBe("By FantasyCalc's trade values, they get 6% more than they give.");
-    expect(valueOf(0, 0.064)).toBe("By FantasyCalc's trade values, they get 6% more than they give.");
+    expect(valueOf(-0.51, 0.064)).toBe(AHEAD_ONLY);
+    expect(valueOf(0, 0.064)).toBe(AHEAD_ONLY);
     // Still a gain in their eyes, but under valueEven (+12% on the market, +3% counting the premium): to them it's about even.
     const even = config.explain.valueEven;
-    expect(valueOf(GAIN * 0.03, 0.12)).toBe("By FantasyCalc's trade values, they get 12% more than they give.");
-    expect(valueOf(GAIN * (even - 0.001), 0.12)).toBe("By FantasyCalc's trade values, they get 12% more than they give.");
+    expect(valueOf(GAIN * 0.03, 0.12)).toBe(AHEAD_ONLY);
+    expect(valueOf(GAIN * (even - 0.001), 0.12)).toBe(AHEAD_ONLY);
     // At valueEven or more in their eyes (+30% on the market, +24% with their #2's premium): the clause stays.
-    expect(valueOf(GAIN * even, 0.12)).toBe("By FantasyCalc's trade values, they get 12% more than they give, which makes a yes more likely.");
-    expect(valueOf(1.43, 0.3, [premiumFact("nacua", { rank: 2 })])).toBe("By FantasyCalc's trade values, they get 30% more than they give, which makes a yes more likely.");
+    expect(valueOf(GAIN * even, 0.12)).toBe(AHEAD_YES);
+    expect(valueOf(1.43, 0.3, [premiumFact("nacua", { rank: 2 })])).toBe(AHEAD_YES);
     // Without a premium the value line is as before, whatever the term.
-    expect(valueOf(-0.51, 0.064, [])).toBe("By FantasyCalc's trade values, they get 6% more than they give, which makes a yes more likely.");
+    expect(valueOf(-0.51, 0.064, [])).toBe(AHEAD_YES);
   });
 
   it("says they'd still come out ahead, not that they'll want more, when counting the premium they still gain at least valueEven (addendum review)", () => {
@@ -844,14 +812,13 @@ describe("the star premium (planner addendum to Checkpoint 3, §1; lead decision
     // Parker's league: they'd get 44% more on market values and still 39% more counting their #2's premium (Est. 70%):
     // "expect them to want a little extra" would contradict the value line and suggest sweetening an offer they'd like.
     const flowers = premiumReasons(facts, { get: ["nacua"], gPartner: 0.44, gMine: 1 / 1.44 - 1 }, GAIN * 0.386);
-    expect(flowers).toEqual([BARE, "By FantasyCalc's trade values, they get 44% more than they give, which makes a yes more likely.", `Puka Nacua is their second-best player, ${AHEAD}`]);
+    expect(flowers).toEqual([BARE, AHEAD_YES, `Puka Nacua is their second-best player, ${AHEAD}`]);
     expect(flowers.join(" ")).not.toContain("a little extra");
-    // ⚠️ Phase 4c: FantasyCalc's own values must say they come out ahead too (the value line quotes them): when they read
-    // even (the model's +44% comes from its roster-spot count), the planner's words.
+    // Phase 7b (planner reply to Checkpoint 7a, 5.4): FantasyCalc's plain sums aren't read any more (Phase 4c needed them to
+    // agree, since the value line quoted them): even on them, or with a player FantasyCalc doesn't value, the model's words.
     const evenOnFc = premiumReasons(facts, { get: ["nacua"], gPartner: 0.44, gMine: 1 / 1.44 - 1 }, GAIN * 0.386, fcGain(["bijan"], ["nacua"], 0.02));
-    expect(evenOnFc).toEqual([BARE, EVEN, `Puka Nacua is their second-best player, ${EXTRA}`]);
-    // A player FantasyCalc doesn't value: no comparison, the planner's words.
-    expect(premiumLineOf(premiumReasons(facts, { get: ["nacua"], gPartner: 0.44, gMine: 1 / 1.44 - 1 }, GAIN * 0.386, fc({ nacua: 4000 })))).toBe(`Puka Nacua is their second-best player, ${EXTRA}`);
+    expect(evenOnFc).toEqual(flowers);
+    expect(premiumLineOf(premiumReasons(facts, { get: ["nacua"], gPartner: 0.44, gMine: 1 / 1.44 - 1 }, GAIN * 0.386, fc({ nacua: 4000 })))).toBe(`Puka Nacua is their second-best player, ${AHEAD}`);
     // The cut is valueEven in their eyes (the value line's "even" band): at it they still come out ahead; under it the planner's words.
     const at = (perceivedG: number) => premiumLineOf(premiumReasons(facts, { get: ["nacua"], gPartner: 0.12, gMine: 1 / 1.12 - 1 }, GAIN * perceivedG));
     expect(at(even)).toBe(`Puka Nacua is their second-best player, ${AHEAD}`);
@@ -870,7 +837,7 @@ describe("the star premium (planner addendum to Checkpoint 3, §1; lead decision
     // They get 60% more on market values either way: the clamp (±0.5) leaves the premium nothing to move (weight 0), and it's still said.
     const clampedFixture: EvaluationFixture = { give: ["bijan"], get: ["nacua"], gMine: 1 / 1.6 - 1, detail: { premium: [premiumFact("nacua", { rank: 2 })], terms: acceptanceTerms({ value: 3 }) } };
     const fc60 = fcGain(["bijan"], ["nacua"], 0.6);
-    expect(reasonsOf(clampedFixture, fc60)).toEqual([BARE, "By FantasyCalc's trade values, they get 60% more than they give, which makes a yes more likely.", `Puka Nacua is their second-best player, ${AHEAD}`]);
+    expect(reasonsOf(clampedFixture, fc60)).toEqual([BARE, AHEAD_YES, `Puka Nacua is their second-best player, ${AHEAD}`]);
     // Three lines moved the estimate more than it (their #2 at even value: 0.43): it takes the history line's place (0.45).
     const crowded = reasonsOf({
       give: ["bijan"],
@@ -906,7 +873,7 @@ describe("the star premium (planner addendum to Checkpoint 3, §1; lead decision
     }, fcGain(["wilson", "nix"], ["nacua", "kyren"], 0.37));
     expect(team10).toEqual([
       BARE,
-      "By FantasyCalc's trade values, they get 37% more than they give, which makes a yes more likely.",
+      AHEAD_YES,
       "It costs their starting lineup 3.9 projected points per week, a harder sell.",
       `Kyren Williams is their second-best player, ${AHEAD}`,
     ]);
@@ -927,7 +894,7 @@ describe("the star premium (planner addendum to Checkpoint 3, §1; lead decision
     }, fcGain(["wilson"], ["jsn"], 1 / 2.1 - 1));
     expect(analyzer).toEqual([
       "Your starting lineup gains 3.9 projected points per week.",
-      "By FantasyCalc's trade values, they give up about 2.1 times as much as they get, so expect pushback.",
+      BEHIND,
       "It costs their starting lineup 4.5 projected points per week, a harder sell.",
       `Jaxon Smith-Njigba is their best player and a top-${TOP} player by trade value, ${EXTRA}`,
     ]);
@@ -935,7 +902,7 @@ describe("the star premium (planner addendum to Checkpoint 3, §1; lead decision
     expect(reasonsOf(clampedFixture, fc60, { ...config.explain, partnerReasons: 1 })).toEqual([BARE, `Puka Nacua is their second-best player, ${AHEAD}`]);
     expect(reasonsOf({ ...clampedFixture, detail: { ...clampedFixture.detail, terms: acceptanceTerms({ value: 3, activity: 0.35 }), activity: activitySummary({ a: 1, rule: "active", trades: 2 }) } }, fc60, { ...config.explain, partnerReasons: 2 })).toEqual([
       BARE,
-      "By FantasyCalc's trade values, they get 60% more than they give, which makes a yes more likely.",
+      AHEAD_YES,
       `Puka Nacua is their second-best player, ${AHEAD}`,
     ]);
     expect(reasonsOf(clampedFixture, fc60, { ...config.explain, partnerReasons: 0 })).toEqual([BARE]);
@@ -991,20 +958,18 @@ describe("the pitch with steps (planner addendum to Checkpoint 3, §4; lead deci
     expect(words(reordered).pitch).toBe(words(ranked).pitch);
   });
 
-  it("reads the offer-first version's trade value, and its lineup change back from its need term", () => {
-    // Ranked: Puka Nacua and Bo Nix for Kyren Williams; by FantasyCalc's values they'd get 30% more trade value (too much to
-    // mention). Offer first: Nacua alone, 10% more.
+  it("reads the offer-first version's lineup change back from its need term (and, since the planner's reply to Checkpoint 7a, 5.4, never its trade value)", () => {
+    // Ranked: Puka Nacua and Bo Nix for Kyren Williams; by FantasyCalc's values they'd get 30% more trade value. Offer first:
+    // Nacua alone, 10% more. Neither is said.
     const values = fc({ nacua: 5500, nix: 1000, kyren: 5000 });
     const ranked = tradeEvaluation({ give: ["nacua", "nix"], get: ["kyren"], gMine: 1 / 1.3 - 1, partnerDeltaLineup: 4, detail: { terms: acceptanceTerms({ need: 0.48 }) } });
     expect(words(ranked, values).pitch).toBe("Hey! This adds about 4 projected points a week to your starting lineup. Would you trade Kyren Williams for Puka Nacua and Bo Nix? Let me know what you think!");
     const need = (delta: number) => config.acceptance.beta.need * (delta / config.acceptance.nScale);
     const lean = (detail: EvaluationFixture["detail"], ctx: Partial<ExplainContext> = values) => words(withSteps(ranked, "nix", { offerFirst: { gMine: 1 / 1.1 - 1, detail } }), ctx).pitch;
     const ask = "Would you trade Kyren Williams for Puka Nacua? Let me know what you think!";
-    expect(lean({ terms: acceptanceTerms({ need: need(1.3) }) })).toBe(
-      `Hey! This adds about 1.3 projected points a week to your starting lineup. Also, by FantasyCalc's trade values, you'd get about 10% more than you give. ${ask}`,
-    );
+    expect(lean({ terms: acceptanceTerms({ need: need(1.3) }) })).toBe(`Hey! This adds about 1.3 projected points a week to your starting lineup. ${ask}`);
     expect(lean({ terms: acceptanceTerms({ need: need(2.2) }), partnerSlots: [{ key: "WR2", before: 7, after: 12.4, rank: 7 }] })).toBe(
-      `Hey! Puka Nacua would upgrade your WR2 spot from 7 to 12.4 projected points a week. Also, by FantasyCalc's trade values, you'd get about 10% more than you give. ${ask}`,
+      `Hey! Puka Nacua would upgrade your WR2 spot from 7 to 12.4 projected points a week. ${ask}`,
     );
     // A change under lineupChangeMin, or one it can't read back, says nothing (even value: nothing about value either).
     const even = fc({ nacua: 5000, nix: 1000, kyren: 5000 });

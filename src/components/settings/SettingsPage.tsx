@@ -21,6 +21,11 @@
  * page reuses, only while it's fresh: modelStore.ts modelForSnapshot) say its trade values are our own estimates
  * (MarketInputs.fallback kind "curve"), Protect my trade value and Win now ↔ Future say they change nothing for now. The
  * page fetches nothing for it: without a fresh saved copy it says nothing.
+ *
+ * Planner reply to Checkpoint 7a, §6.1: "Playoff weeks count" is read-only, the League model's automatic weight, worked out
+ * from the same fresh saved copy in an engine worker of this page's own (usePlayoffWeight.ts), again whenever a setting the
+ * League model reads changes (the goal among them); without a fresh copy the page says it's set automatically when the
+ * League page loads.
  */
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -35,13 +40,14 @@ import { FeedbackCard } from "./FeedbackCard";
 import { SettingsForm, type SettingsStatus } from "./SettingsForm";
 import { applySettingsEdit, buildSettingsView, type SettingsEdit } from "./settingsView";
 import { changeSavedSettings, resetSavedSettings, useSavedLeagueSettings } from "./useLeagueSettings";
+import { usePlayoffWeight } from "./usePlayoffWeight";
 
 /** How long "Saved." stays on screen. */
 const SAVED_SHOWN_MS = 3000;
 
 export const NO_LEAGUE_TITLE = "Settings are saved for each league";
 export const NO_LEAGUE_TEXT =
-  "The positions you stream, how much playoff weeks count and what trade ideas may include are saved for each league you import. Connect your league to choose them.";
+  "The positions you stream, what your league rewards and what trade ideas may include are saved for each league you import. Connect your league to choose them.";
 export const OUTDATED_TEXT = "Import your league again to change its settings.";
 
 function Waiting({ text }: { text: string }) {
@@ -100,13 +106,16 @@ function LeagueSettings({ current }: { current: Extract<CurrentLeagueRead, { kin
   const myTeamId = useMemo(() => resolveMyTeam(snapshot, pick).myTeamId, [snapshot, pick]);
   const league = useSavedLeagueSettings(current.league.leagueKey);
   const storage = useLeagueStorage();
-  // The league's trade values are our own estimates for now (the file header): read off its saved model inputs, while fresh.
+  // The league's saved model inputs, while fresh (the file header): whether its trade values are our own estimates for now,
+  // and the automatic playoff-week weight worked out from them (usePlayoffWeight.ts).
   const savedModel = useSavedModel(current.league.id);
   const [openedAt] = useState(() => Date.now());
-  const valuesEstimated = useMemo(() => modelForSnapshot(savedModel ?? undefined, snapshot, { now: openedAt })?.market?.fallback?.kind === "curve", [savedModel, snapshot, openedAt]);
+  const freshInputs = useMemo(() => modelForSnapshot(savedModel ?? undefined, snapshot, { now: openedAt }) ?? null, [savedModel, snapshot, openedAt]);
+  const valuesEstimated = freshInputs?.market?.fallback?.kind === "curve";
+  const playoffWeight = usePlayoffWeight({ snapshot, inputs: freshInputs, myTeamId, settings: league.settings });
   const view = useMemo(
-    () => (league.settings ? buildSettingsView({ snapshot, myTeamId, settings: league.settings, stored: league.stored, valuesEstimated }) : null),
-    [snapshot, myTeamId, league.settings, league.stored, valuesEstimated],
+    () => (league.settings ? buildSettingsView({ snapshot, myTeamId, settings: league.settings, stored: league.stored, valuesEstimated, playoffWeight }) : null),
+    [snapshot, myTeamId, league.settings, league.stored, valuesEstimated, playoffWeight],
   );
 
   const [status, setStatus] = useState<SettingsStatus | null>(null);

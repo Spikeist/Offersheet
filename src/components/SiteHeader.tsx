@@ -1,23 +1,28 @@
 /**
  * The site header (CLAUDE.md §14: mobile-first, works at 375 px): the logo home link and the main
- * nav in the order you use the pages (Connect, Import report, League, Trades: the Trade Finder, §14
- * item 4, from which the Trade Analyzer is one link away: Trades is marked current there too), then
- * Settings (§14 item 6, Phase 4). The page you're on is marked by NavLink.
+ * nav in the order you use the pages (Connect, Import report, League, Waivers: a section of the League
+ * page, Trades: the Trade Finder, §14 item 4, from which the Trade Analyzer is one link away: Trades is
+ * marked current there too), then Settings (§14 item 6, Phase 4). The page you're on is marked by NavLink.
  *
  * Fitting 375 px: below sm only the mark shows. The "Offer Sheet" wordmark text is visually hidden,
- * but it stays the home link's accessible name. The five links don't fit beside the mark on a phone,
- * so the nav drops to its own row under it. To keep that one row at 375 px (Phase 4 wave 2: measured
- * in headless Chrome, about 330–339 px of links in the 343 px row), "Import report" reads "Report"
+ * but it stays the home link's accessible name. The links don't fit beside the mark on a phone,
+ * so the nav drops below it (Phase 4 wave 2 measured five links at about 330–339 px of the 343 px
+ * row in headless Chrome; Phase 7b's six take two rows: below). "Import report" reads "Report"
  * below sm (its accessible name follows what's shown) and the links sit closer (NavLink's padding,
- * the nav's gap). On narrower screens, or with larger text, the links wrap again instead of pushing
- * the page sideways. The home link and the nav links are 44 px tap targets.
+ * the nav's gap). The home link and the nav links are 44 px tap targets.
  *
  * Phase 4c (planner reply to Checkpoint 4b, change 11): the league switcher (LeagueSwitcher.tsx) sits next to the
- * logo, and the nav has a row of its own below lg (basis-full: 1024 px fits the logo, the switcher and the five links
+ * logo, and the nav has a row of its own below lg (basis-full: 1024 px fits the logo, the switcher and the links
  * in one row), with or without the switcher, so the header's rows never move when it appears after the store loads.
- * At 375 px the first row is the logo and the switcher (both 44 px tall), the second the five links, as before. The
- * header's row is the switcher's panel's anchor on phones (relative). A banner under the header says when leagues
+ * The header's row is the switcher's panel's anchor on phones (relative). A banner under the header says when leagues
  * can't be kept in this browser (StorageNotice).
+ *
+ * Phase 7b (planner reply to Checkpoint 7a, §6.2: "Waiver upgrades (League page, linked from the nav)"): a sixth link,
+ * "Waivers", to the League page's section (/league#waivers, src/lib/waiversLink.ts), after League. Six links don't fit one
+ * row at 375 px (five already took about 335 of the 343 px), so below sm the nav is a grid of three columns, two rows of
+ * three centered links (Connect, Report, League / Waivers, Trades, Settings): 44 px more header on a phone, and no
+ * crowding or wrapping that depends on the font. From sm up the links sit in one row, as before (640 px fits the six).
+ * At 375 px the first row is the logo and the switcher (both 44 px tall), then the nav's two rows.
  *
  * Part B (planner reply to Checkpoint 4c, B3: "Home: … add a 'Beta' label"): a "Beta" pill sits next to the logo, a word
  * (not color alone), outside the home link so the link's name stays "Offer Sheet". The logo and the pill stay together
@@ -30,6 +35,7 @@
  * src/components/logoGeometry.ts, as the app icons and the sharing image are.
  */
 import Link from "next/link";
+import { WAIVERS_HREF } from "@/lib/waiversLink";
 import { LeagueSwitcher, StorageNotice } from "./LeagueSwitcher";
 import { LogoMark } from "./LogoMark";
 import { NavLink } from "./NavLink";
@@ -53,13 +59,14 @@ export function SiteHeader() {
             <BetaPill />
           </div>
           <LeagueSwitcher />
-          <nav aria-label="Main" className="ml-auto flex basis-full flex-wrap items-center justify-end gap-0.5 text-sm font-bold sm:gap-1 lg:basis-auto">
+          <nav aria-label="Main" className="ml-auto grid basis-full grid-cols-3 gap-0.5 text-sm font-bold sm:flex sm:flex-wrap sm:items-center sm:justify-end sm:gap-1 lg:basis-auto">
             <NavLink href="/connect">Connect</NavLink>
             <NavLink href="/import">
               <span className="sm:hidden">Report</span>
               <span className="hidden sm:inline">Import report</span>
             </NavLink>
             <NavLink href="/league">League</NavLink>
+            <NavLink href={WAIVERS_HREF}>Waivers</NavLink>
             <NavLink href="/trades" alsoOn={["/analyzer"]}>
               Trades
             </NavLink>

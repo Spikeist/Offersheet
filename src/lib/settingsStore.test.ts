@@ -62,7 +62,7 @@ class FullStorage extends MemoryStorage {
 
 const ESPN = { platform: "espn" as const, leagueId: "4242" };
 const SLEEPER = { platform: "sleeper" as const, leagueId: "1048576000123456789" };
-const mine: TradeSettings = { ...defaultTradeSettings(), streamPositions: ["K", "DEF", "TE"], playoffWeight: 1.5, untouchables: ["4046"], maxPerSide: 3 };
+const mine: TradeSettings = { ...defaultTradeSettings(), streamPositions: ["K", "DEF", "TE"], goal: "balanced", untouchables: ["4046"], maxPerSide: 3 };
 
 describe("leagueKey", () => {
   it("is the platform and 8 hex digits, the same every time, and never the raw league id", () => {
@@ -114,8 +114,8 @@ describe("saving and reading a league's settings", () => {
 
   it("saves settings normalized: out-of-range values fall back to the defaults", () => {
     const storage = new MemoryStorage();
-    saveLeagueSettings(storage, leagueKey(ESPN), { ...mine, playoffWeight: 7, maxPerSide: 9, streamPositions: ["K", "RB", "K"] as TradeSettings["streamPositions"] });
-    expect(loadLeagueSettings(storage, leagueKey(ESPN)).settings).toEqual({ ...mine, playoffWeight: config.lineups.playoffWeight, maxPerSide: config.search.maxPerSide, streamPositions: ["K"] });
+    saveLeagueSettings(storage, leagueKey(ESPN), { ...mine, maxPerSide: 9, streamPositions: ["K", "RB", "K"] as TradeSettings["streamPositions"] });
+    expect(loadLeagueSettings(storage, leagueKey(ESPN)).settings).toEqual({ ...mine, maxPerSide: config.search.maxPerSide, streamPositions: ["K"] });
   });
 
   it("'Reset to defaults' removes the league's entry, and the whole value with the last one", () => {
@@ -143,8 +143,9 @@ describe("tolerance: whatever the browser holds or does", () => {
   it("ignores entries that aren't under a league key or aren't settings, and normalizes an older version's entry", () => {
     const key = leagueKey(ESPN);
     const entries = JSON.stringify({
-      // An older version's entry: no streamPositions or includePicks, a weight out of range.
-      [key]: { version: 0, playoffWeight: 5, untouchables: ["4046", 17, "4046"], targetPositions: ["RB", "XX"] },
+      // An older version's entry: no streamPositions or includePicks, and the playoff weight the Settings page set before the
+      // planner's reply to Checkpoint 7a, §6.1 (dropped: the League model sets it now).
+      [key]: { version: 0, playoffWeight: 1.5, untouchables: ["4046", 17, "4046"], targetPositions: ["RB", "XX"] },
       "espn:4242": { ...mine },
       [leagueKey(SLEEPER)]: "K,DEF",
     });
@@ -154,6 +155,7 @@ describe("tolerance: whatever the browser holds or does", () => {
     const all = parseStoredSettings(raw);
     expect(Object.keys(all)).toEqual([key]);
     expect(all[key]).toEqual({ ...defaultTradeSettings(), untouchables: ["4046"], targetPositions: ["RB"] });
+    expect(all[key]).not.toHaveProperty("playoffWeight");
     expect(Object.getPrototypeOf(all)).toBe(Object.prototype);
     expect((all as Record<string, unknown>).includePicks).toBeUndefined();
   });
@@ -191,7 +193,7 @@ describe("settingsFingerprint", () => {
     const base = settingsFingerprint(defaultTradeSettings());
     const changes: Partial<TradeSettings>[] = [
       { streamPositions: ["K"] },
-      { playoffWeight: 1.5 },
+      { goal: "playoffs" },
       { lambda: 0.4 },
       { maxPerSide: 3 },
       { untouchables: ["1"] },
@@ -205,7 +207,8 @@ describe("settingsFingerprint", () => {
   });
 
   it("normalizes first: a value the engine would read as the default fingerprints as the default", () => {
-    expect(settingsFingerprint({ ...defaultTradeSettings(), playoffWeight: 99 })).toBe(settingsFingerprint(defaultTradeSettings()));
+    // An older version's playoff weight (gone since the planner's reply to Checkpoint 7a, §6.1) counts for nothing.
+    expect(settingsFingerprint({ ...defaultTradeSettings(), playoffWeight: 1.5 } as unknown as TradeSettings)).toBe(settingsFingerprint(defaultTradeSettings()));
     expect(settingsFingerprint({ ...defaultTradeSettings(), goal: "x" as TradeSettings["goal"] }, LEAGUE_MODEL_SETTINGS)).toBe(settingsFingerprint(defaultTradeSettings(), LEAGUE_MODEL_SETTINGS));
   });
 
@@ -213,8 +216,8 @@ describe("settingsFingerprint", () => {
     const base = settingsFingerprint(defaultTradeSettings(), LEAGUE_MODEL_SETTINGS);
     expect(settingsFingerprint({ ...defaultTradeSettings(), streamPositions: ["K"] }, LEAGUE_MODEL_SETTINGS)).not.toBe(base);
     expect(settingsFingerprint({ ...defaultTradeSettings(), goal: "playoffs" }, LEAGUE_MODEL_SETTINGS)).not.toBe(base);
-    // The manual playoff weight is no longer one of them (planner reply to Checkpoint 7a, §6.1: ω is set automatically).
-    const other = { ...defaultTradeSettings(), playoffWeight: 1.5, lambda: 0.4, maxPerSide: 3, untouchables: ["1"], mustInclude: ["2"], targetPositions: ["RB"], avoidPositions: ["TE"], includeKDefIdp: true, includePicks: true } satisfies TradeSettings;
+    // The manual playoff weight is gone (planner reply to Checkpoint 7a, §6.1: ω is set automatically).
+    const other = { ...defaultTradeSettings(), lambda: 0.4, maxPerSide: 3, untouchables: ["1"], mustInclude: ["2"], targetPositions: ["RB"], avoidPositions: ["TE"], includeKDefIdp: true, includePicks: true } satisfies TradeSettings;
     expect(settingsFingerprint(other, LEAGUE_MODEL_SETTINGS)).toBe(base);
     // The fields' order and repeats don't matter; the lists' order doesn't either.
     expect(settingsFingerprint(mine, ["goal", "streamPositions", "goal"])).toBe(settingsFingerprint({ ...mine, streamPositions: ["TE", "DEF", "K"] }, LEAGUE_MODEL_SETTINGS));
@@ -244,8 +247,6 @@ describe("LEAGUE_MODEL_SETTINGS: every setting the League model reads, and only 
   /** A change to every setting outside the list (a setting added to TradeSettings fails to typecheck here until it's placed). */
   type TradeOnly = Exclude<keyof TradeSettings, "version" | (typeof LEAGUE_MODEL_SETTINGS)[number]>;
   const tradeOnly: { [K in TradeOnly]: TradeSettings[K] } = {
-    // The manual playoff weight: kept in the settings, no longer read (planner reply to Checkpoint 7a, §6.1).
-    playoffWeight: 1.75,
     lambda: 0.8,
     maxPerSide: 3,
     untouchables: [roster(0)[0] as string, roster(0)[8] as string], // my QB and my kicker
@@ -264,6 +265,9 @@ describe("LEAGUE_MODEL_SETTINGS: every setting the League model reads, and only 
     for (const [field, value] of Object.entries(tradeOnly)) {
       expect(build({ [field]: value }), `${field} changed the League model: add it to LEAGUE_MODEL_SETTINGS`).toEqual(defaults);
     }
+    // An older version's stored playoff weight (the manual setting, gone since the planner's reply to Checkpoint 7a, §6.1)
+    // changes nothing either.
+    expect(build({ playoffWeight: 1.75 } as unknown as Partial<TradeSettings>)).toEqual(defaults);
   });
 
   it("builds a different model when a setting on the list changes, so the list holds nothing extra", () => {

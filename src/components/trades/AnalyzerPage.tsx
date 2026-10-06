@@ -7,13 +7,16 @@
  * browser: src/lib/leagueStore.ts, Phase 4c) the way the League page does (useLeagueInputs.ts), sends the league's
  * settings with every evaluation, and reads and saves its feedback per league (useFeedback.ts saveFeedbackPress: the card
  * says what a press did once the browser has kept it, or why not; each press saves the sent version's model inputs, with
- * "What matters most" as the evaluation weighted B; Phase 7a, track FB: and, while "Share anonymous feedback" is on, sends
+ * what the league rewards ("What does your league reward?", TradeSettings.goal) as the evaluation weighted B; Phase 7a,
+ * track FB: and, while "Share anonymous feedback" is on, sends
  * an anonymous copy, src/lib/feedbackShare.ts).
  *
  * Phase 4c (planner reply to Checkpoint 4b): the card is the Trade Finder's, with my title and playoff odds before and
- * after and the weeks whose win chance moves (change 9), its trade values FantasyCalc's own (change 3: tradeView.ts
- * fantasyCalcLookup from the model inputs this page holds), and "Details", the model's own trade-value figures, which only
- * the Analyzer shows ("the Analyzer can show them under 'Details'"). What "Helps you" sums up is said once, above the card.
+ * after and the weeks whose win chance moves (change 9), and "Details", which only the Analyzer shows: since the planner's
+ * reply to Checkpoint 7a (§2 question 5 and 5.4) what Helps you is worth in points a week, never a trade value (no
+ * FantasyCalc value shows anywhere: tradeView.ts fantasyCalcLookup, from the model inputs this page holds, only says
+ * whether values are behind the numbers). What "Helps you" sums up is said once, above the card, and "How to read" words
+ * its scale on the evaluation's own (TradeAnalysis.helpsScale).
  * What the card and "How to read" say about values follows the league's data (tradeView.ts valueFactsOf: FantasyCalc's
  * values, long-term values, the market blend; review of track UIC, findings 2 and 3).
  *
@@ -135,7 +138,7 @@ interface Evaluated {
   analysis: AnalyzerResult;
   /** "planB": opened from "If they say no, try:" and evaluated without "How to offer it" (the header). */
   from: AnalyzerFrom | null;
-  /** "What matters most" as the evaluation weighted B (the feedback's version inputs). */
+  /** What the league rewards (TradeSettings.goal) as the evaluation weighted B (the feedback's version inputs). */
   goal: Goal;
 }
 
@@ -246,7 +249,7 @@ function LoadedAnalyzer({ current, query }: { current: Extract<CurrentLeagueRead
   const choices = useMemo(() => (league ? analyzerChoices(league, myTeamId, draft) : null), [league, myTeamId, draft]);
   // The NFL's last week, for injury tags' "Out for the season" (tradeView.ts seasonEndOf).
   const lastNflWeek = pair?.inputs.nfl?.lastWeek;
-  // FantasyCalc's own values, the card's one value number (tradeView.ts fantasyCalcLookup).
+  // FantasyCalc's values as the page holds them, never shown (tradeView.ts fantasyCalcLookup).
   const market = pair?.inputs.market;
   const fantasyCalc = useMemo(() => fantasyCalcLookup(market), [market]);
   // What the league's data lets the card and "How to read" say about values and the market blend (tradeView.ts valueFactsOf).
@@ -283,7 +286,8 @@ function LoadedAnalyzer({ current, query }: { current: Extract<CurrentLeagueRead
           scored. It runs in your browser.
         </p>
         <p className="mt-2 text-sm">
-          <Link href={backHref} className={cx(linkClass, "inline-flex min-h-11 items-center")}>
+          {/* No prefetch: the address can carry a team id (?partner=), and links that carry ids reach the server only when opened (CLAUDE.md §14; B4 review). */}
+          <Link href={backHref} prefetch={false} className={cx(linkClass, "inline-flex min-h-11 items-center")}>
             Back to the Trade Finder
           </Link>
         </p>
@@ -551,6 +555,7 @@ export function AnalysisResult({
           valuesOn={facts?.valuesOn ?? true}
           longTermOn={(facts?.longTermOn ?? true) && !card.evaluation.dynMissing}
           blendOn={facts?.blendOn ?? true}
+          helpsScale={view.helpsScale}
         />
       ) : null}
     </section>

@@ -68,6 +68,16 @@ describe("import:report from a saved dump", () => {
     expect(response.snapshot.name).toBe("League 1");
   });
 
+  it("renders the notices, the quiet scoring line and, last, the technical details with the codes and paths (planner reply to Checkpoint 7a, §5.1)", () => {
+    expect(doc).toContain("- Quiet line: Two rare rules aren't counted: 1-point safeties and blocked-kick return touchdowns. They almost never happen.");
+    expect(doc).toMatch(/\*\*Things to know \(\d+\)\*\*/);
+    const technical = doc.indexOf("**Technical details (for bug reports)** (collapsed on the page)");
+    expect(technical).toBeGreaterThan(0);
+    expect(doc.slice(0, technical)).not.toMatch(/ESPN_[A-Z_]+|statId|scoringItems/);
+    expect(doc.slice(technical)).toContain("- `ESPN_SCORING_UNMAPPED` ESPN scoring rule “1pt Safety” (1 pts) isn't counted: 1-point safeties have no canonical stat. (settings.scoringSettings.scoringItems[4] (statId 209))");
+    expect(doc.slice(technical)).toContain("- 1pt Safety: +1 (hasn't scored this season) (ESPN statId 209)");
+  });
+
   it("can still save the Import Report page's record (--response-out), in the app's current format", () => {
     const stored = toStoredImport({ request: { platform: "espn", season: response.snapshot.season, leagueId: "{leagueId}" }, response, savedAt: "2026-10-04T12:00:00.000Z" });
     expect(stored.version).toBe(IMPORT_FORMAT_VERSION);

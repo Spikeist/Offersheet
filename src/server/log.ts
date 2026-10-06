@@ -21,6 +21,12 @@
  *   the response (withRoute hands it to next/server's after()): one LPUSH, LTRIM and PEXPIRE per request that logged
  *   anything, never a delay to the response; outside one (or after that write) an entry is written on its own. A write
  *   that fails is said on the console only.
+ * - Lines a visitor can set off at will are throttled per instance (B4 security review: a few addresses' forged uploads and
+ *   rate-limit refusals could push a day's real lines out of the store's logLimits.keepPerDay; logThrottled): one
+ *   "rate_limited" line every logLimits.refusalEveryMs, whatever its route (the usage counters count every refusal:
+ *   src/server/usage.ts), and one line every logLimits.repeatEveryMs of each repeating failure ("error_response",
+ *   "unexpected_*", "deadline_*" with the same route, code, platform, status and error name). The others are dropped,
+ *   console and store alike.
  * Locally (no Redis) nothing changes but the console line's shape. Never throws.
  */
 import { z } from "zod";
@@ -113,20 +119,61 @@ export function logDayTtlMs(at: number, now: number): number {
   return dayStart + logLimits.retainDays * DAY_MS - now;
 }
 
+/** The throttle's memory (logThrottled): a line's key → when this instance last logged it, oldest first. */
+const lastLogged = new Map<string, number>();
+
+/**
+ * Whether `event` is a line a visitor can set off at will and one like it was logged too recently on this instance (see
+ * the header; B4 security review): "rate_limited" at most once every logLimits.refusalEveryMs, whatever its route, and
+ * "error_response", "unexpected_*" and "deadline_*" at most once every logLimits.repeatEveryMs for the same route, event,
+ * code, platform, status and error name. A line let through is remembered (at most logLimits.throttleMaxKeys keys).
+ */
+export function logThrottled(event: LogEvent, now: number): boolean {
+  let key: string;
+  let everyMs: number;
+  if (event.event === "rate_limited") {
+    key = "rate_limited";
+    everyMs = logLimits.refusalEveryMs;
+  } else if (event.event === "error_response" || event.event.startsWith("unexpected_") || event.event.startsWith("deadline_")) {
+    key = [event.route, event.event, event.code ?? "", event.platform ?? "", event.status ?? "", event.errorName ?? ""].join("|");
+    everyMs = logLimits.repeatEveryMs;
+  } else {
+    return false;
+  }
+  const last = lastLogged.get(key);
+  if (last !== undefined && now >= last && now - last < everyMs) return true;
+  lastLogged.delete(key);
+  if (lastLogged.size >= logLimits.throttleMaxKeys) {
+    // Full: the line logged longest ago is forgotten (it may be logged once more, a little early).
+    const oldest = lastLogged.keys().next().value;
+    if (oldest !== undefined) lastLogged.delete(oldest);
+  }
+  lastLogged.set(key, now);
+  return false;
+}
+
+/** Test hook: forget what the throttle let through. */
+export function resetLogThrottleForTests(): void {
+  lastLogged.clear();
+}
+
 /**
  * Logs one event (see the header): checked against the allowlist (anything else is logged as "invalid_log_event", without
- * its content), one JSON line on the console, and with Redis on Vercel the store. Never throws.
+ * its content), throttled when it's a line a visitor can set off at will (logThrottled), one JSON line on the console,
+ * and with Redis on Vercel the store. Never throws.
  */
 export function logEvent(input: LogInput, opts: { now?: number; env?: Env; store?: RedisLike | null } = {}): void {
   try {
     const scope = requestScope();
     const parsed = LogEventSchema.safeParse({ ...input, route: input.route ?? scope?.route ?? "server" });
     const event: LogEvent = parsed.success ? parsed.data : { route: scope?.route ?? "server", event: "invalid_log_event" };
+    const at = opts.now ?? Date.now();
+    if (logThrottled(event, at)) return;
     console.error(JSON.stringify(event));
     const env = opts.env ?? process.env;
     const store = opts.store === undefined ? logStore(env) : opts.store;
     if (!store) return;
-    const entry = JSON.stringify({ ...event, at: opts.now ?? Date.now() });
+    const entry = JSON.stringify({ ...event, at });
     if (scope && !scope.flushed) scope.pendingLogs.push(entry);
     else void writeLogEntries(store, [entry], { env });
   } catch {

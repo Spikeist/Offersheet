@@ -8,14 +8,38 @@
  * - Platforms and limits (limits.budgets.perDay): ESPN (lm-api-reads and fan.api) 4,000 a day, Sleeper 15,000, FantasyCalc
  *   1,500 (sized to its own 3-hour rule's bound: limits.ts), GitHub raw (the DynastyProcess ID map) 100. Other hosts aren't
  *   budgeted (none is used on the server today).
- * - Every live attempt counts, retries included, checked before it goes out (src/server/http.ts); cached copies, joined
- *   single-flight fetches and the browser's own requests don't. UTC days.
+ * - Every live attempt that goes out counts, retries included (src/server/http.ts). It's counted while it waits for its
+ *   host's turn, from the moment it's next in line (one its deadline is about to cut only if its turn comes:
+ *   limits.budgets.countAheadMinMs), so the count's round trips overlap the request ahead of it and the host's gap
+ *   (review of the Checkpoint 7b load-test fixes, finding 1: counted only once its turn had come, it held the turn through
+ *   them, and a store answering in 400 ms made each ESPN request hold the turn 800 ms longer); an attempt that doesn't go
+ *   out after all (the deadline cut its wait, or its count came back too late to send it) gets its count back (`refund`,
+ *   with the receipt `take` filled in; Checkpoint 7b load test, defect 1: counted before it queued and never given back,
+ *   82 attempts were counted for 35 sent). A limit this process already knows is reached refuses it before it queues
+ *   (OutboundBudget.refusedAlready: nothing counted, nothing asked). Cached copies, joined single-flight fetches and the
+ *   browser's own requests don't count. UTC days.
+ * - A refused attempt counts nowhere (it doesn't go out): not in the day, not in its client's share, not in the reserve.
+ *   The process's own counts check every limit first and count only an attempt they all allow; with Redis each count is
+ *   taken as it's checked, and a refusal gives back the counts the attempt already took, in one transaction with their
+ *   expiries (giveBack; Checkpoint 7b load test: an attempt the day refused stayed in its client's share, and one its
+ *   share refused stayed in the share's count). ⚠️ Until a count goes back (one round trip for a refusal; for an attempt
+ *   that didn't go out, the rest of its wait for its turn) other attempts read it: at the very edge of a limit an attempt
+ *   can be refused that a moment later would have fit, and this process then remembers that limit as reached (the day
+ *   until its allowance next grows). Each attempt counts one, and only the attempts next in line at each host are counted
+ *   while they wait, so that edge is a few attempts of a day of thousands. No count is kept, but a give-back or a refund
+ *   that fails leaves its count (logged by name; Redis is then left alone a while), and so does a refund the instance
+ *   never sends (sent once its count is known: best effort).
  * - In slices (on Vercel only; review SEC-2: a burst can take one slice): by the end of each of the day's
  *   limits.budgets.slices (2 hours each) at most that share of the day may be spent, unused budget carried on, but never
  *   less than budgets.burstShare of it (slicedAllowance). A refusal by the day's slice is said like a refusal by the day;
  *   its Retry-After is when the allowance next grows (msUntilAllowanceGrows).
  * - A reserve for requests that carry a visitor's ESPN cookies (on Vercel only; review SEC-2: private leagues have no
  *   browser path): requests without cookies stop budgets.reservedForCookies short of the day (`take`'s `privileged`).
+ *   Anyone can paste cookies (made-up ones pass the format check, a throwaway account's pass ESPN's), so each client may
+ *   take at most budgets.reservedPerClientPerDay of the reserve a day (B4 security review): counted once the open part of
+ *   the day is spent, `prefix + "budget:reserve:" + platform + ":" + client + ":" + day` with Redis; past it, the attempt is
+ *   refused like the day ("day": the beta's capacity message), and this process asks Redis nothing more for that client
+ *   while it knows the open part is spent.
  * - Each client's share (on Vercel only; limits.budgets.perClientPerDay: ESPN 400, Sleeper 1,500 a day): a league request
  *   made for an API request also counts against that client's share of the platform's day, checked first, so a client over
  *   its share spends nothing of the day's budget and a few clients can't spend it for everyone. The client is the request's
@@ -45,10 +69,11 @@
  * - The work budget (final review SEC-1, F1: Vercel's Hobby plan pauses the whole project for up to 30 days once a month's
  *   Active CPU or Fast Origin Transfer runs out, and nothing capped the server's work for one client or for everyone): each
  *   import and League page request costs units (admissionUnits, charged by withRoute when it arrives; the handlers charge a
- *   big model build's extra units, chargeWork), counted per UTC day against its client (an IPv4 address or IPv6 /64), its
- *   group (an IPv4 /24 or IPv6 /48) and the server's whole day (in slices, as above). Past any of them the request is
- *   refused (src/app/api/_lib/respond.ts workRefusedResponse: BUSY; the server's day or its slice with the beta's capacity
- *   message). Units charged are counted for usage:report (src/server/usage.ts work_units).
+ *   big model build's extra units, chargeWork, and a gzip body's unpacked size past what its compressed size paid,
+ *   unpackedExtraUnits, as soon as it's unpacked: B4 security review), counted per UTC day against its client (an IPv4
+ *   address or IPv6 /64), its group (an IPv4 /24 or IPv6 /48) and the server's whole day (in slices, as above). Past any of
+ *   them the request is refused (src/app/api/_lib/respond.ts workRefusedResponse: BUSY; the server's day or its slice with
+ *   the beta's capacity message). Units charged are counted for usage:report (src/server/usage.ts work_units).
  * - The feedback route's copies (final review SEC-3): perClientPerDay and perGroupPerDay copies a client and a group may
  *   send a day (src/app/api/feedback/handler.ts).
  * - Counted in Redis like the budgets: one counter per quota, scope and UTC day (`prefix + name + ":" + day`, `prefix + name
@@ -57,6 +82,25 @@
  *   it can be used again (a client and a group: the day's end; the server's day: when its slice allowance grows), so a
  *   refused visitor costs no more Redis commands here (withRoute asks the quota before the rate limiter: refusedAlready).
  *   Redis down: this process's own counts, the server's day at limits.workLimits.processShare of it.
+ * - A refused charge costs no one anything (Checkpoint 7b load test, defect 2: a charge the client's limit refused still
+ *   added its units to its group and to the server's day, 162 units for 27 refused imports, so a visitor already over its
+ *   own day could spend everyone's). The process's own counts check every scope first and count a charge only when all
+ *   allow it. With Redis (chargeShared) the client's own count comes first, alone, and only a charge it allows goes on to
+ *   its group's and the server's day, in one transaction: a charge refused by its client's limit never touches anyone
+ *   else's counter (review of the Checkpoint 7b load-test fixes, finding 3: counted with the others in one transaction, a
+ *   burst from a visitor over its own day held up to about 900 units, 30 requests at 29 each, in its group's and the
+ *   server's counters until each give-back landed, and another visitor's charge that fit could be refused meanwhile, and
+ *   that refusal remembered for the whole instance: the server's day until its allowance grew, a group until midnight).
+ *   A refusal gives every count it took back in one more transaction (giveBackUnits). A refusal by the client's limit is
+ *   remembered at once (4 commands in all). A refusal by the group or the server's day is judged again on the give-back's
+ *   own answer, the counters as they stand with this charge's units back: if the charge fits there it's charged again,
+ *   once, and only a limit still reached there is remembered. ⚠️ What's left: the units of a charge the group or the day
+ *   itself refused stay in those counters until its give-back lands (one round trip; longer while its instance's event
+ *   loop is busy, which a League page build can hold about 0.5 s), so another charge at the very edge of that limit can
+ *   still be refused, and the limit remembered, when its own give-back lands first; such charges are at the edge already
+ *   (each at most one request's units, 29 at most). Nothing refused stays counted, except after a failure: a give-back
+ *   that fails leaves its units, and Redis failing between the client's count and the rest leaves the client's (logged by
+ *   name; the charge is then counted by this process, and Redis is left alone a while).
  */
 import { requestScope } from "./deadline";
 import { logEvent, errorNameOf, withTimeout } from "./log";
@@ -152,19 +196,51 @@ export function secondsUntilAllowanceGrows(now: number): number {
   return Math.max(1, Math.ceil(msUntilAllowanceGrows(now) / 1000));
 }
 
+/**
+ * What an attempt `take` allowed counted (TakeOptions.receipt; review of the Checkpoint 7b load-test fixes, finding 1), so
+ * `refund` gives back exactly that if the attempt doesn't go out after all: this process's own counts (the day's slot, the
+ * client's share and its share of the reserve, as counted that day), or the Redis counters it took with their expiries.
+ * Filled in by take only when it answers "ok"; its callers just pass it back.
+ */
+export interface BudgetReceipt {
+  counted?: { where: "local"; day: string; slot: string; share?: string; reserve?: string } | { where: "shared"; taken: ReadonlyArray<{ key: string; ttlMs: number }> };
+  /** Set by refund: a receipt is given back at most once. */
+  refunded?: boolean;
+}
+
 export interface TakeOptions {
   /** The request carries a visitor's ESPN cookies: it may use the reserve (limits.budgets.reservedForCookies). */
   privileged?: boolean;
+  /** Filled in when the attempt is allowed: what it counted, for `refund` (BudgetReceipt). */
+  receipt?: BudgetReceipt;
 }
 
 export interface OutboundBudget {
   /**
-   * Whether one more attempt to `platform` may go out now, counting it if so: "ok", or the limit that refused it. `client`
-   * (a league request made for an API request: its group's id, see the header) also counts it against that client's
-   * share. A verdict when it's known at once (the process's own counts, or a limit already reached), else a promise
-   * (Redis round trips). Never rejects.
+   * Whether one more attempt to `platform` may go out now, counting it if so: "ok", or the limit that refused it (a refused
+   * attempt counts nowhere: see the header). `client` (a league request made for an API request: its group's id, see the
+   * header) also counts it against that client's share. A verdict when it's known at once (the process's own counts, or a
+   * limit already reached), else a promise (Redis round trips). Never rejects. The HTTP client asks it while the attempt
+   * waits for its host's turn, once it's next in line (src/server/http.ts), and gives the count back (`refund`, with
+   * `opts.receipt`) if the attempt doesn't go out after all.
    */
   take(platform: BudgetPlatform, now?: number, client?: string, opts?: TakeOptions): BudgetVerdict | Promise<BudgetVerdict>;
+  /**
+   * The limit this process already knows refuses one more attempt now (a day or a slice seen spent, a client seen over its
+   * share or its share of the reserve), or null: nothing is counted and nothing asked. The HTTP client asks it before an
+   * attempt waits for its host's turn, so a request a known limit refuses doesn't queue (Checkpoint 7b load test, defect 1).
+   * Optional: a budget without it is asked only by `take`.
+   */
+  refusedAlready?(platform: BudgetPlatform, now?: number, client?: string, opts?: TakeOptions): BudgetLimit | null;
+  /**
+   * Gives back what an attempt `take` allowed counted (its receipt), when it didn't go out after all (src/server/http.ts:
+   * the deadline cut its wait for its host's turn, or its count came back too late to send it; review of the Checkpoint 7b
+   * load-test fixes, finding 1): this process's own counts at once, Redis's in one transaction with their expiries, as a
+   * refusal's give-back. At most once per receipt; nothing for an empty one (the attempt was refused) or one whose day's
+   * counts have started again. Never rejects. With Redis left alone after a failure it's skipped: the count stays, as a
+   * failed give-back's does. Optional: a budget without it keeps every count.
+   */
+  refund?(receipt: BudgetReceipt, now?: number): void | Promise<void>;
 }
 
 export interface BudgetOptions {
@@ -179,6 +255,11 @@ export interface BudgetOptions {
    * outboundBudget, passes limits.budgets.reservedForCookies).
    */
   reserved?: Readonly<Partial<Record<BudgetPlatform, number>>>;
+  /**
+   * Each client's share of that reserve a day (see the header; B4 security review). Absent: none (the process's budget on
+   * Vercel passes limits.budgets.reservedPerClientPerDay).
+   */
+  reservedPerClient?: Readonly<Partial<Record<BudgetPlatform, number>>>;
   /**
    * The day's slices and the least share open (see the header). Absent: no slices (1 and 1; the process's budget passes
    * limits.budgets.slices and burstShare).
@@ -198,6 +279,7 @@ export function createBudget(opts: BudgetOptions = {}): OutboundBudget {
   const perDay = opts.perDay ?? budgets.perDay;
   const perClient = opts.perClient ?? {};
   const reserved: Readonly<Partial<Record<BudgetPlatform, number>>> = opts.reserved ?? {};
+  const reservedPerClient: Readonly<Partial<Record<BudgetPlatform, number>>> = opts.reservedPerClient ?? {};
   const slices = opts.slices ?? 1;
   const burstShare = opts.burstShare ?? 1;
   const timeoutMs = opts.timeoutMs ?? budgets.timeoutMs;
@@ -211,6 +293,13 @@ export function createBudget(opts: BudgetOptions = {}): OutboundBudget {
   const localShares = new Map<string, number>();
   /** Clients known to be over their share for `shareDay` ("platform\0client"; with Redis: no more commands for them today). */
   const sharesOver = new Set<string>();
+  /** The process's own counts of each client's attempts in the reserve for `shareDay` ("platform\0client" → attempts). */
+  const localReserve = new Map<string, number>();
+  /**
+   * Clients known to be past their share of the reserve for `shareDay` ("platform\0client"; with Redis: no command for them
+   * while this process knows the open part of the day is spent).
+   */
+  const reserveOver = new Set<string>();
   let shareDay = "";
   /** Refusals already logged ("event:platform:day"). */
   const logged = new Set<string>();
@@ -220,7 +309,7 @@ export function createBudget(opts: BudgetOptions = {}): OutboundBudget {
   const allowanceOf = (platform: BudgetPlatform, privileged: boolean, now: number): number =>
     slicedAllowance(Math.max(0, perDay[platform] - (privileged ? 0 : (reserved[platform] ?? 0))), now, slices, burstShare);
 
-  const logOnce = (event: "budget_exhausted" | "budget_share_exhausted", platform: BudgetPlatform, day: string): void => {
+  const logOnce = (event: "budget_exhausted" | "budget_share_exhausted" | "budget_reserve_share_exhausted", platform: BudgetPlatform, day: string): void => {
     const mark = `${event}:${platform}:${day}`;
     if (logged.has(mark)) return;
     for (const m of logged) if (!m.endsWith(`:${day}`)) logged.delete(m); // the old days' marks go
@@ -241,11 +330,40 @@ export function createBudget(opts: BudgetOptions = {}): OutboundBudget {
     return now < all || (!privileged && now < open);
   };
 
+  /** The open part of the day (what requests without cookies may spend) known spent in this process, until it grows. */
+  const openKnownSpent = (platform: BudgetPlatform, now: number): boolean => now < (overUntil.get(`${platform}\u0000open`) ?? Number.NEGATIVE_INFINITY);
+
+  /** Seen spent: requests without cookies are refused without a command until the allowance grows (refuseDay's rule). */
+  const markOpenSpent = (platform: BudgetPlatform, now: number): void => {
+    if (openKnownSpent(platform, now)) return;
+    overUntil.set(`${platform}\u0000open`, now + msUntilAllowanceGrows(now, slices, burstShare));
+    logOnce("budget_exhausted", platform, utcDay(now));
+  };
+
   const newShareDay = (day: string): void => {
     if (shareDay === day) return;
     localShares.clear(); // a new day: every share starts again
     sharesOver.clear();
+    localReserve.clear();
+    reserveOver.clear();
     shareDay = day;
+  };
+
+  /** The client and its share of the reserve, when one applies: an attempt with cookies, made for a client, on a platform with one. */
+  const reserveOf = (platform: BudgetPlatform, privileged: boolean, client: string | undefined): { client: string; share: number } | undefined => {
+    const share = reservedPerClient[platform];
+    return privileged && client !== undefined && share !== undefined ? { client, share } : undefined;
+  };
+
+  /**
+   * A client past its share of the reserve (see the header): refused like the day (the beta's capacity message; the open
+   * part grows again with the next slice). `remember`: Redis said so (no command for it while the open part is known spent).
+   */
+  const refuseReserve = (platform: BudgetPlatform, client: string, day: string, remember = false): "day" => {
+    newShareDay(day);
+    if (remember && reserveOver.size < maxClients) reserveOver.add(`${platform}\u0000${client}`);
+    logOnce("budget_reserve_share_exhausted", platform, day);
+    return "day";
   };
 
   /** `remember`: Redis said so (it's remembered, so the client costs no more commands today; the process's own counts refuse anyway). */
@@ -256,49 +374,117 @@ export function createBudget(opts: BudgetOptions = {}): OutboundBudget {
     return "share";
   };
 
-  const takeLocal = (platform: BudgetPlatform, slot: string, privileged: boolean, now: number): "ok" | "day" => {
+  /** One more in `counts` under `k`, keeping at most maxClients keys (full: the one counted longest ago starts again). */
+  const countIn = (counts: Map<string, number>, k: string): void => {
+    if (!counts.has(k) && counts.size >= maxClients) {
+      const oldest = counts.keys().next().value;
+      if (oldest !== undefined) counts.delete(oldest);
+    }
+    counts.set(k, (counts.get(k) ?? 0) + 1);
+  };
+
+  /**
+   * The process's own counts (no Redis, or Redis down): the client's share, the day (its open part without cookies) and,
+   * past the open part, the client's share of the reserve, checked in that order; the attempt is counted in each only when
+   * all of them allow it (see the header: a refused attempt counts nowhere, so one without cookies never eats into the
+   * reserve, and one the day refuses spends nothing of its client's share).
+   */
+  const takeLocal = (platform: BudgetPlatform, slot: string, privileged: boolean, now: number, client: string | undefined, share: number | undefined, receipt?: BudgetReceipt): BudgetVerdict => {
+    const day = utcDay(now);
+    const shareKey = client !== undefined && share !== undefined ? `${platform}\u0000${client}` : undefined;
+    if (shareKey !== undefined) {
+      newShareDay(day);
+      if ((localShares.get(shareKey) ?? 0) + 1 > (share as number)) return refuseShare(platform, client as string, day);
+    }
     const n = (local.get(slot) ?? 0) + 1;
-    if (local.size > 64) for (const k of local.keys()) if (!k.endsWith(slot.slice(slot.indexOf(":")))) local.delete(k);
-    // A refused attempt isn't counted (it didn't go out), so one without cookies never eats into the reserve.
     if (n > allowanceOf(platform, privileged, now)) return refuseDay(platform, privileged, now);
+    // Past the open part, an attempt with cookies is the reserve's: within its client's share of it (see the header).
+    const reserve = reserveOf(platform, privileged, client);
+    const reserveKey = reserve && n > allowanceOf(platform, false, now) ? `${platform}\u0000${reserve.client}` : undefined;
+    if (reserve && reserveKey !== undefined) {
+      newShareDay(day);
+      if ((localReserve.get(reserveKey) ?? 0) + 1 > reserve.share) return refuseReserve(platform, reserve.client, day);
+    }
+    if (local.size > 64) for (const k of local.keys()) if (!k.endsWith(slot.slice(slot.indexOf(":")))) local.delete(k);
     local.set(slot, n);
+    if (shareKey !== undefined) countIn(localShares, shareKey);
+    if (reserveKey !== undefined) countIn(localReserve, reserveKey);
+    if (receipt) receipt.counted = { where: "local", day, slot, ...(shareKey !== undefined ? { share: shareKey } : {}), ...(reserveKey !== undefined ? { reserve: reserveKey } : {}) };
     return "ok";
   };
 
-  /** One more attempt in the client's share, counted in this process (whether it's within the share). */
-  const takeShareLocal = (platform: BudgetPlatform, client: string, day: string, share: number): boolean => {
-    newShareDay(day);
-    const k = `${platform}\u0000${client}`;
-    const n = (localShares.get(k) ?? 0) + 1;
-    if (!localShares.has(k) && localShares.size >= maxClients) {
-      // Full: the client counted longest ago starts again (memory stays bounded).
-      const oldest = localShares.keys().next().value;
-      if (oldest !== undefined) localShares.delete(oldest);
-    }
-    localShares.set(k, n);
-    return n <= share;
+  /** One less in `counts` under `k` (a refund), never below 0; nothing for a key no longer kept. */
+  const countOut = (counts: Map<string, number>, k: string | undefined): void => {
+    const n = k === undefined ? undefined : counts.get(k);
+    if (k !== undefined && n !== undefined && n > 0) counts.set(k, n - 1);
   };
 
-  /** One more attempt in the client's share, counted in Redis with its expiry (whether it's within the share). Rejects on Redis trouble. */
-  const takeShareShared = async (store: RedisLike, platform: BudgetPlatform, client: string, day: string, share: number, now: number): Promise<boolean> => {
-    const key = `${prefix}budget:client:${platform}:${client}:${day}`;
-    const [n] = await withTimeout(store.incrExpire([{ key, by: 1, ttlMs: msUntilUtcMidnight(now) + budgets.clientKeyMarginMs }]), timeoutMs);
-    return (n ?? Number.POSITIVE_INFINITY) <= share;
-  };
-
-  const takeShared = async (store: RedisLike, platform: BudgetPlatform, slot: string, day: string, now: number, client: string | undefined, share: number | undefined, privileged: boolean): Promise<BudgetVerdict> => {
-    const key = `${prefix}budget:${platform}:${day}`;
+  /**
+   * Gives back the counts a refused attempt took in Redis (see the header), all in one transaction with the expiries they
+   * were taken with (a counter never exists without its expiry). Never rejects: a store that fails here leaves the counts
+   * (logged by the error's name) and is left alone for redisRetryAfterMs, as after any failure.
+   */
+  const giveBack = async (store: RedisLike, taken: ReadonlyArray<{ key: string; ttlMs: number }>, now: number): Promise<void> => {
+    if (!taken.length) return;
     try {
-      // The client's share first: a client over it spends nothing of the day's budget.
-      if (client !== undefined && share !== undefined && !(await takeShareShared(store, platform, client, day, share, now))) return refuseShare(platform, client, day, true);
-      const [n] = await withTimeout(store.incrExpire([{ key, by: 1, ttlMs: budgets.keyTtlMs }]), timeoutMs);
-      return (n ?? Number.POSITIVE_INFINITY) <= allowanceOf(platform, privileged, now) ? "ok" : refuseDay(platform, privileged, now);
+      await withTimeout(store.incrExpire(taken.map(({ key, ttlMs }) => ({ key, by: -1, ttlMs }))), timeoutMs);
     } catch (err) {
       redisDownUntil = now + retryAfterMs;
       logEvent({ event: "budget_redis_error", platform: "upstash", errorName: errorNameOf(err) });
-      if (client !== undefined && share !== undefined && !takeShareLocal(platform, client, day, share)) return refuseShare(platform, client, day);
-      return takeLocal(platform, slot, privileged, now);
     }
+  };
+
+  const takeShared = async (store: RedisLike, platform: BudgetPlatform, slot: string, day: string, now: number, client: string | undefined, share: number | undefined, privileged: boolean, receipt?: BudgetReceipt): Promise<BudgetVerdict> => {
+    const reserve = reserveOf(platform, privileged, client);
+    const reserveKey = reserve ? `${prefix}budget:reserve:${platform}:${reserve.client}:${day}` : "";
+    const clientTtlMs = msUntilUtcMidnight(now) + budgets.clientKeyMarginMs;
+    /** The counts this attempt has taken so far: a refusal gives them back (see the header). */
+    const taken: Array<{ key: string; ttlMs: number }> = [];
+    /** One more in `key`, with its expiry (one transaction); the count after it. Rejects on Redis trouble. */
+    const count = async (key: string, ttlMs: number): Promise<number> => {
+      const [n] = await withTimeout(store.incrExpire([{ key, by: 1, ttlMs }]), timeoutMs);
+      taken.push({ key, ttlMs });
+      return n ?? Number.POSITIVE_INFINITY;
+    };
+    const refused = async (limit: BudgetLimit): Promise<BudgetLimit> => {
+      await giveBack(store, taken, now);
+      return limit;
+    };
+    try {
+      // The client's share first: a client over it spends nothing of the day's budget.
+      if (client !== undefined && share !== undefined && (await count(`${prefix}budget:client:${platform}:${client}:${day}`, clientTtlMs)) > share) return refused(refuseShare(platform, client, day, true));
+      // The open part known spent: an attempt with cookies is the reserve's, and a client past its share of the reserve is
+      // refused before the day's counter is touched (see the header).
+      const reserveFirst = reserve !== undefined && openKnownSpent(platform, now);
+      if (reserve && reserveFirst && (await count(reserveKey, clientTtlMs)) > reserve.share) return refused(refuseReserve(platform, reserve.client, day, true));
+      const n = await count(`${prefix}budget:${platform}:${day}`, budgets.keyTtlMs);
+      if (n > allowanceOf(platform, privileged, now)) return refused(refuseDay(platform, privileged, now));
+      if (privileged && n > allowanceOf(platform, false, now)) {
+        // In the reserve: the open part is spent (this process now refuses attempts without cookies without asking), and the
+        // attempt counts against its client's share of the reserve, unless it already did (above).
+        markOpenSpent(platform, now);
+        if (reserve && !reserveFirst && (await count(reserveKey, clientTtlMs)) > reserve.share) return refused(refuseReserve(platform, reserve.client, day, true));
+      }
+      if (receipt) receipt.counted = { where: "shared", taken: [...taken] };
+      return "ok";
+    } catch (err) {
+      redisDownUntil = now + retryAfterMs;
+      logEvent({ event: "budget_redis_error", platform: "upstash", errorName: errorNameOf(err) });
+      return takeLocal(platform, slot, privileged, now, client, share, receipt);
+    }
+  };
+
+  /** What this process already knows refuses an attempt now (OutboundBudget.refusedAlready): nothing counted, nothing asked. */
+  const knownRefusal = (platform: BudgetPlatform, now: number, client: string | undefined, privileged: boolean): BudgetLimit | null => {
+    if (dayKnownOver(platform, privileged, now)) return "day";
+    if (client !== undefined) {
+      newShareDay(utcDay(now));
+      // Known over its share from Redis today: refused without another command.
+      if (perClient[platform] !== undefined && sharesOver.has(`${platform}\u0000${client}`)) return "share";
+      // Known past its share of the reserve while the open part is known spent: likewise (see the header).
+      if (privileged && reserveOver.has(`${platform}\u0000${client}`) && openKnownSpent(platform, now)) return "day";
+    }
+    return null;
   };
 
   return {
@@ -306,18 +492,31 @@ export function createBudget(opts: BudgetOptions = {}): OutboundBudget {
       const day = utcDay(now);
       const slot = `${platform}:${day}`;
       const privileged = takeOpts?.privileged === true;
-      if (dayKnownOver(platform, privileged, now)) return "day";
+      const known = knownRefusal(platform, now, client, privileged);
+      if (known) return known;
       const share = client !== undefined ? perClient[platform] : undefined;
-      if (client !== undefined && share !== undefined) {
-        newShareDay(day);
-        // Known over its share from Redis today: refused without another command.
-        if (sharesOver.has(`${platform}\u0000${client}`)) return "share";
+      if (!redis || now < redisDownUntil) return takeLocal(platform, slot, privileged, now, client, share, takeOpts?.receipt);
+      return takeShared(redis, platform, slot, day, now, client, share, privileged, takeOpts?.receipt);
+    },
+    refusedAlready(platform, now = Date.now(), client, takeOpts) {
+      return knownRefusal(platform, now, client, takeOpts?.privileged === true);
+    },
+    refund(receipt, now = Date.now()) {
+      const counted = receipt.counted;
+      if (!counted || receipt.refunded) return;
+      receipt.refunded = true;
+      if (counted.where === "local") {
+        countOut(local, counted.slot);
+        // The shares and the reserve start again each day (newShareDay): another day's counts went with them.
+        if (shareDay === counted.day) {
+          countOut(localShares, counted.share);
+          countOut(localReserve, counted.reserve);
+        }
+        return;
       }
-      if (!redis || now < redisDownUntil) {
-        if (client !== undefined && share !== undefined && !takeShareLocal(platform, client, day, share)) return refuseShare(platform, client, day);
-        return takeLocal(platform, slot, privileged, now);
-      }
-      return takeShared(redis, platform, slot, day, now, client, share, privileged);
+      // Redis left alone after a failure: skipped, and the count stays (as a give-back that fails).
+      if (!redis || now < redisDownUntil) return;
+      return giveBack(redis, counted.taken, now);
     },
   };
 }
@@ -352,7 +551,7 @@ function budgetFor(env: Env): OutboundBudget {
   return createBudget({
     redis: vercelRedis(env),
     prefix: keyPrefix(env),
-    ...(onVercel ? { perClient: budgets.perClientPerDay, reserved: budgets.reservedForCookies, slices: budgets.slices, burstShare: budgets.burstShare } : {}),
+    ...(onVercel ? { perClient: budgets.perClientPerDay, reserved: budgets.reservedForCookies, reservedPerClient: budgets.reservedPerClientPerDay, slices: budgets.slices, burstShare: budgets.burstShare } : {}),
   });
 }
 
@@ -373,6 +572,12 @@ export interface QuotaWho {
   client?: string;
   group?: string;
 }
+
+/** A charge's counter values by scope (createDailyQuota). */
+type QuotaValues = { client?: number; group?: number; day?: number };
+
+/** One of a charge's scopes (createDailyQuota): the limit it is, its key in this process's own counts and in Redis. */
+type QuotaScope = { scope: QuotaLimit; local: string; key: (day: string) => string };
 
 export interface DailyQuota {
   /**
@@ -450,55 +655,106 @@ export function createDailyQuota(opts: DailyQuotaOptions): DailyQuota & { rememb
   };
 
   /** The first limit `values` break (client, then group, then the day), or null. */
-  const verdictOf = (values: { client?: number; group?: number; day?: number }, now: number, share = 1): QuotaLimit | null => {
+  const verdictOf = (values: QuotaValues, now: number, share = 1): QuotaLimit | null => {
     if (values.client !== undefined && values.client > opts.perClient) return "client";
     if (values.group !== undefined && values.group > opts.perGroup) return "group";
     if (values.day !== undefined && values.day > dayAllowance(now, share)) return "day";
     return null;
   };
 
+  /** A charge's scopes for `who`: the client's, the group's and the server's day (when the quota has one). */
+  const scopesOf = (who: QuotaWho): QuotaScope[] => [
+    ...(who.client !== undefined ? [{ scope: "client" as const, local: `c\u0000${who.client}`, key: (day: string) => `${prefix}${opts.name}:client:${who.client}:${day}` }] : []),
+    ...(who.group !== undefined ? [{ scope: "group" as const, local: `g\u0000${who.group}`, key: (day: string) => `${prefix}${opts.name}:group:${who.group}:${day}` }] : []),
+    ...(opts.perDay !== undefined ? [{ scope: "day" as const, local: "day", key: (day: string) => `${prefix}${opts.name}:${day}` }] : []),
+  ];
+
+  /**
+   * The process's own counts (no Redis, or Redis down): every scope checked first, and the charge counted only when all of
+   * them allow it (see the header: a refused charge costs no one anything).
+   */
   const chargeLocal = (units: number, who: QuotaWho, now: number): QuotaVerdict => {
     const day = utcDay(now);
     if (countDay !== day) {
       counts.clear(); // a new day: every count starts again
       countDay = day;
     }
-    const add = (k: string): number => {
-      if (!counts.has(k) && counts.size >= maxKeys) {
+    const scopes = scopesOf(who);
+    const values: QuotaValues = {};
+    for (const s of scopes) values[s.scope] = (counts.get(s.local) ?? 0) + units;
+    // The process's own count of the server's day: at most processShare of it (another instance may be counting too).
+    const limit = verdictOf(values, now, processShare);
+    if (limit) return refuse(limit, who, now);
+    for (const s of scopes) {
+      if (!counts.has(s.local) && counts.size >= maxKeys) {
         const oldest = counts.keys().next().value;
         if (oldest !== undefined && oldest !== "day") counts.delete(oldest);
       }
-      const n = (counts.get(k) ?? 0) + units;
-      counts.set(k, n);
-      return n;
-    };
-    const values = {
-      ...(who.client !== undefined ? { client: add(`c\u0000${who.client}`) } : {}),
-      ...(who.group !== undefined ? { group: add(`g\u0000${who.group}`) } : {}),
-      ...(opts.perDay !== undefined ? { day: add("day") } : {}),
-    };
-    // The process's own count of the server's day: at most processShare of it (another instance may be counting too).
-    const limit = verdictOf(values, now, processShare);
-    return limit ? refuse(limit, who, now) : "ok";
+      counts.set(s.local, values[s.scope] as number);
+    }
+    return "ok";
   };
 
+  /**
+   * Gives a refused charge's units back to every counter it added them to (see the header), in one transaction with the same
+   * expiries: the counters' values after it, in `entries`' order (the re-judging below reads them). Never rejects: a store
+   * that fails here leaves them counted (logged by the error's name) and is left alone for redisRetryAfterMs, as after any
+   * failure; then undefined.
+   */
+  const giveBackUnits = async (store: RedisLike, entries: ReadonlyArray<{ key: string; by: number; ttlMs: number }>, now: number): Promise<number[] | undefined> => {
+    try {
+      return await withTimeout(store.incrExpire(entries.map(({ key, by, ttlMs }) => ({ key, by: -by, ttlMs }))), timeoutMs);
+    } catch (err) {
+      redisDownUntil = now + retryAfterMs;
+      logEvent({ event: `${opts.name}_redis_error`, platform: "upstash", errorName: errorNameOf(err) });
+      return undefined;
+    }
+  };
+
+  /**
+   * The charge with Redis (see the header): the client's own count first, alone; only a charge it allows goes on to the
+   * group's and the server's day, in one transaction. A refusal gives back every count it took (giveBackUnits). One by the
+   * client's own limit is remembered at once; one by the group or the server's day is judged again on the counters as the
+   * give-back left them, with this charge's units added back: a charge that fits there was refused only for units another
+   * refused charge held in flight, so it's charged again (once) and nothing is remembered for it; a limit still reached
+   * there is remembered (refuse).
+   */
   const chargeShared = async (store: RedisLike, units: number, who: QuotaWho, now: number): Promise<QuotaVerdict> => {
     const day = utcDay(now);
     const ttlMs = msUntilUtcMidnight(now) + keyMarginMs;
-    const entries: Array<{ key: string; by: number; ttlMs: number; scope: "client" | "group" | "day" }> = [];
-    if (who.client !== undefined) entries.push({ key: `${prefix}${opts.name}:client:${who.client}:${day}`, by: units, ttlMs, scope: "client" });
-    if (who.group !== undefined) entries.push({ key: `${prefix}${opts.name}:group:${who.group}:${day}`, by: units, ttlMs, scope: "group" });
-    if (opts.perDay !== undefined) entries.push({ key: `${prefix}${opts.name}:${day}`, by: units, ttlMs, scope: "day" });
-    if (!entries.length) return "ok";
+    const entryOf = (s: QuotaScope) => ({ key: s.key(day), by: units, ttlMs });
+    const scopes = scopesOf(who);
+    const stages = [scopes.filter((s) => s.scope === "client"), scopes.filter((s) => s.scope !== "client")].filter((stage) => stage.length > 0);
+    if (!stages.length) return "ok";
     try {
-      const got = await withTimeout(
-        store.incrExpire(entries.map(({ key, by, ttlMs: t }) => ({ key, by, ttlMs: t }))),
-        timeoutMs,
-      );
-      const values: { client?: number; group?: number; day?: number } = {};
-      entries.forEach((e, i) => (values[e.scope] = got[i] ?? Number.POSITIVE_INFINITY));
-      const limit = verdictOf(values, now);
-      return limit ? refuse(limit, who, now) : "ok";
+      for (let round = 0; ; round++) {
+        const counted: QuotaScope[] = [];
+        const values: QuotaValues = {};
+        let limit: QuotaLimit | null = null;
+        for (const stage of stages) {
+          const got = await withTimeout(store.incrExpire(stage.map(entryOf)), timeoutMs);
+          stage.forEach((s, i) => (values[s.scope] = got[i] ?? Number.POSITIVE_INFINITY));
+          counted.push(...stage);
+          limit = verdictOf(values, now);
+          if (limit) break;
+        }
+        if (!limit) return "ok";
+        if (limit === "client") {
+          // The client's own limit (its count never reached the group or the day): remembered at once, so this instance
+          // refuses its next requests without a command, then its count goes back.
+          refuse(limit, who, now);
+          await giveBackUnits(store, counted.map(entryOf), now);
+          return limit;
+        }
+        const after = await giveBackUnits(store, counted.map(entryOf), now);
+        if (!after) return refuse(limit, who, now); // the give-back failed: its units stay counted, and the refusal stands
+        const fits: QuotaValues = {};
+        counted.forEach((s, i) => (fits[s.scope] = (after[i] ?? Number.POSITIVE_INFINITY) + units));
+        const again = verdictOf(fits, now);
+        if (again) return refuse(again, who, now);
+        // It fits on the counters as they stand: charged again, once; refused again, it isn't remembered.
+        if (round > 0) return limit;
+      }
     } catch (err) {
       redisDownUntil = now + retryAfterMs;
       logEvent({ event: `${opts.name}_redis_error`, platform: "upstash", errorName: errorNameOf(err) });
@@ -600,6 +856,16 @@ export function admissionUnits(kind: string, request: Request): number {
   if (kind === "import") return isGzipBody(request) ? u.importUpload + bodyUnits(request, uploadLimits.compressedBytes) : u.importServer;
   if (kind === "model") return isGzipBody(request) ? u.modelSigned + bodyUnits(request, signedUploadLimits.compressedBytes) : u.modelServer;
   return 0;
+}
+
+/**
+ * What a gzip body still owes once it's unpacked (B4 security review; limits.workLimits.unpackedUnitBytes): its unpacked
+ * size's units past the units its compressed size paid when it arrived (admissionUnits: by Content-Length, else its cap
+ * `capBytes`), so a body pays for whichever is more. 0 for a body that compresses as real uploads do.
+ */
+export function unpackedExtraUnits(request: Request, capBytes: number, unpackedBytes: number): number {
+  const owed = Math.ceil(Math.max(0, unpackedBytes) / workLimits.unpackedUnitBytes);
+  return Math.max(0, owed - bodyUnits(request, capBytes));
 }
 
 /** A model build's extra units past what its request paid (limits.workLimits.modelWorkIncluded; modelWorkOf's units). */

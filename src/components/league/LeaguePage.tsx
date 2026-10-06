@@ -52,12 +52,14 @@ import { buildLeagueView, type LeagueView as LeagueViewModel } from "@/lib/leagu
 import { modelRequest, refreshAnswerAgeMs } from "@/lib/modelStore";
 import type { MyTeamSource } from "@/lib/myTeam";
 import { LEAGUE_MODEL_SETTINGS, settingsFingerprint } from "@/lib/settingsStore";
+import { buildWaiversView } from "@/lib/waiversView";
 import { NoImportCard } from "../NoImportCard";
 import type { RefreshControl } from "../import/ReportView";
 import { revealResult } from "../reveal";
 import { useSavedLeagueSettings } from "../settings/useLeagueSettings";
 import { Callout, Card, FOCUS_TARGET, Spinner, buttonClass, cx } from "../ui";
 import { LeagueView } from "./LeagueView";
+import { WaiversViewContext } from "./WaiverUpgrades";
 import { INPUTS_UNREACHABLE, leagueTag, useCurrentLeague, useSavedLeagueInputs, type InputsOutcome } from "./useLeagueInputs";
 
 export { joinInputsRequest, type InputsOutcome } from "./useLeagueInputs";
@@ -261,6 +263,8 @@ function LoadedLeague({ current }: { current: Extract<CurrentLeagueRead, { kind:
     () => (shown ? buildLeagueView({ snapshot: shown.snapshot, model: shown.result, inputs: shown.inputs, myTeamSource: shown.myTeamSource, timeZone, now: shown.nowIso }) : null),
     [shown, timeZone],
   );
+  // "Waiver upgrades" (WaiverUpgrades.tsx): its own view from the same model, provided to LeagueView's section below.
+  const waivers = useMemo(() => (shown ? buildWaiversView({ snapshot: shown.snapshot, model: shown.result, inputs: shown.inputs, timeZone, now: shown.nowIso }) : null), [shown, timeZone]);
 
   // 3. Refresh: the model route again with refresh (the server fetches data over a minute old).
   const [refreshing, setRefreshing] = useState(false);
@@ -328,5 +332,9 @@ function LoadedLeague({ current }: { current: Extract<CurrentLeagueRead, { kind:
       headingRef,
     };
   }
-  return <LeagueFrame state={state} leagueName={snapshot.name} statusRef={statusRef} />;
+  return (
+    <WaiversViewContext value={waivers}>
+      <LeagueFrame state={state} leagueName={snapshot.name} statusRef={statusRef} />
+    </WaiversViewContext>
+  );
 }

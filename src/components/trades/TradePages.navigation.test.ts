@@ -31,14 +31,14 @@ import { IMPORT_FORMAT_VERSION, type StoredImport } from "@/lib/importStore";
 import { leagueStoreStateOf, savedLeagueId, type LeagueStoreState } from "@/lib/leagueStore";
 import { buildLeagueView } from "@/lib/leagueView";
 import { modelKey } from "@/lib/modelStore";
-import { buildFinderView, buildTradeCard } from "@/lib/tradeView";
+import { PROJECTIONS_SOURCE, buildFinderView, buildTradeCard } from "@/lib/tradeView";
 import { NOW, leagueFixture } from "../league/testFixtures";
 import { TradePartners } from "../league/TradePartners";
 import { AnalyzerPage } from "./AnalyzerPage";
 import { rememberFinderAddress, rememberReturn, resetFinderMemory, takeReturn, takeReturnTarget } from "./finderMemory";
 import { TradeCard } from "./TradeCard";
 import { FinderFrame, TradeFinderPage } from "./TradeFinderPage";
-import { evaluation, searchResult, tradeSnapshot } from "./testFixtures";
+import { TRADE_MARKET, evaluation, searchResult, tradeSnapshot } from "./testFixtures";
 
 const f = leagueFixture();
 /** The saved league's id: the trade pages' memory is per league (finderMemory.ts). */
@@ -84,6 +84,32 @@ describe("the pages follow useSearchParams, never window.location (client naviga
     expect(html.match(/checked=""/g)).toHaveLength(2);
     expect(html).toContain("You give Glimmer Oddfellow; you get Ignatius Fumblewick.");
     expect(html).not.toMatch(/<option value="4" selected="">/);
+  });
+});
+
+describe("the Trade Finder's timing lines (planner reply to Checkpoint 7a, 5.3)", () => {
+  it("reads when to look and how fresh the data is from the saved league's inputs, at the current time (review of Phase 7b)", () => {
+    const HOUR = 3600_000;
+    const now = Date.now();
+    const savedAt = new Date(now).toISOString();
+    // Trade values a little over 2 hours old, projections a little over 5 (the minute's margin keeps the words still).
+    const model = {
+      ...f.inputs,
+      builtAt: savedAt,
+      market: { ...TRADE_MARKET, fetchedAt: new Date(now - 2 * HOUR - 60_000).toISOString() },
+      sources: [{ source: PROJECTIONS_SOURCE, fetchedAt: new Date(now - 5 * HOUR - 60_000).toISOString() }],
+    };
+    const stored: StoredImport = { version: IMPORT_FORMAT_VERSION, savedAt, request: { platform: "espn", season: 2026, leagueId: f.snapshot.leagueId }, response: { snapshot: f.snapshot, notes: [] } };
+    env.state = leagueStoreStateOf({ imports: [stored], models: { [LEAGUE]: { version: 1, savedAt, key: modelKey(f.snapshot), snapshotFetchedAt: f.snapshot.fetchedAt, model } } });
+    const text = renderToStaticMarkup(createElement(TradeFinderPage))
+      .replace(/<[^>]+>/g, " ")
+      .replace(/&#x27;/g, "'")
+      .replace(/\s+/g, " ");
+    // The fixture league: week 12 of 14 before its week-13 deadline, its "no review" only assumed (no period reported).
+    expect(text).toContain(
+      "Best time to look: Tuesday or Wednesday, after Monday night's game. Trade values and projections have caught up with the weekend, and a trade still has time to clear your league's review before Thursday.",
+    );
+    expect(text).toContain("Trade values updated 2 hours ago · Projections updated 5 hours ago.");
   });
 });
 

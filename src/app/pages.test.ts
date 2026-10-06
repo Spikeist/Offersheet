@@ -131,11 +131,22 @@ const codeOf = (text: string): string => text.replace(/\/\*[\s\S]*?\*\//g, "").r
  * and Analyzer Details"). POLICY_FEATURES.fantasyCalcHidden may be on only while none of these is left.
  */
 const FANTASYCALC_DISPLAYS: ReadonlyArray<{ what: string; file: string; pattern: RegExp }> = [
-  { what: "the trade card's value line (“Trade value: You give …, you get …”)", file: "src/lib/tradeView.ts", pattern: /You give \$\{/ },
+  // The value line's own template ("You give ${side(e.proposal.give)}, …") or its label; the Analyzer's draft summary ("You
+  // give Bo Nix; you get Travis Kelce.") names players and isn't one.
+  { what: "the trade card's value line (“Trade value: You give …, you get …”)", file: "src/lib/tradeView.ts", pattern: /You give \$\{side\(|label: "Trade value"/ },
   { what: "the Analyzer's Details (“you'd get 12% more trade value than you give”)", file: "src/lib/tradeView.ts", pattern: /trade value than \$\{who\} give/ },
   { what: "the reasons and the pitch (“By FantasyCalc's trade values, …”)", file: "src/engine/explain.ts", pattern: /By FantasyCalc's trade values|FantasyCalc's trade values, you/ },
   { what: "the League page's Value column and player breakdown", file: "src/components/league/PlayerTable.tsx", pattern: /<ValueText\b/ },
   { what: "How to read (“The trade values on the card are FantasyCalc's own”)", file: "src/components/trades/HowToRead.tsx", pattern: /trade values on the card are FantasyCalc/ },
+  // The market blend's line in a player's breakdown: the market's points ("Trade market 170", a price that rises with his
+  // FantasyCalc value), ours before the blend (with the ROS shown, it gives the market's back), what the uncapped blend
+  // "would be", and which end of FantasyCalc's range he's at ("no comparison (top value at his position)").
+  { what: "the League page's player breakdown (“Our projection 210 · Trade market 170 · Used 190”)", file: "src/lib/leagueView.ts", pattern: /Our projection \$\{|Trade market \$\{|would be \$\{|top value at his position|no comparison \(/ },
+  // The long-term value change in percents ("Raises your roster's long-term value by 6%").
+  { what: "the long-term value reasons (“Raises your roster's long-term value by 6%”)", file: "src/engine/explain.ts", pattern: /long-term value by \$\{|% of your roster's long-term value/ },
+  // An exchange rate between trade value and points: with it, the Analyzer's "Trade value: −0.4 pts/week equivalent."
+  // reads back as the trade's own value comparison.
+  { what: "Settings' rate for Protect my trade value (“giving 25% more trade value than you get costs about 0.4 points a week”)", file: "src/components/settings/settingsView.ts", pattern: /more trade value than you get costs/ },
 ];
 
 describe("home page", () => {

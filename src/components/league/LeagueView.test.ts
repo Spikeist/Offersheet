@@ -13,7 +13,7 @@ import type { SeasonOdds } from "@/engine/leagueModel";
 import { weekUnderWayNote } from "@/engine/season";
 import { fantasyCalcFallbackText } from "@/engine/market";
 import { waiverOrderText } from "@/lib/importReport";
-import { SEASON_OVER_PARTNERS_TEXT, SEASON_OVER_TEXT, UNDER_WAY_TEXT, buildLeagueView, pickupsUnderWayNote } from "@/lib/leagueView";
+import { SEASON_OVER_PARTNERS_TEXT, SEASON_OVER_TEXT, UNDER_WAY_TEXT, buildLeagueView, pickupsUnderWayNote, playoffWeightLabel } from "@/lib/leagueView";
 import type { RefreshControl } from "../import/ReportView";
 import { LeagueView } from "./LeagueView";
 import { PlayerDetail } from "./PlayerTable";
@@ -85,7 +85,7 @@ describe("LeagueView header", () => {
     expect(busy).not.toMatch(/<button[^>]*disabled=""/);
   });
 
-  it("links 'Values: FantasyCalc' next to every set of values, opening in a new tab (§2.9)", () => {
+  it("links 'Values: FantasyCalc' in every section its values feed, opening in a new tab (§2.9), though no value shows (planner reply to Checkpoint 7a, 5.4)", () => {
     expect(html.match(CREDIT)).toHaveLength(4); // header, team table, rosters, free agents
     const sections = {
       header: between(html, "<header", "</header>"),
@@ -94,9 +94,9 @@ describe("LeagueView header", () => {
       freeAgents: between(html, "Best available", "How these numbers work"),
     };
     for (const [name, markup] of Object.entries(sections)) expect(markup.match(CREDIT) ?? [], name).toHaveLength(1);
-    // Both tables with a Value column sit in a section with its credit.
-    expect(sections.rosters).toContain(">Value</th>");
-    expect(sections.freeAgents).toContain(">Value</th>");
+    // Neither table has a Value column any more.
+    expect(sections.rosters).not.toContain(">Value</th>");
+    expect(sections.freeAgents).not.toContain(">Value</th>");
   });
 
   it("dates a saved FantasyCalc list next to the values credit, and puts a banner under the header when every value is our estimate (planner reply to Checkpoint 4b, change 12)", () => {
@@ -112,16 +112,16 @@ describe("LeagueView header", () => {
     expect(header).toContain('(8 teams · half-PPR · 1 QB · redraft)<span class="block font-semibold text-navy-contrast">Trade values from Nov 22: FantasyCalc didn&#x27;t answer.</span></p>');
     expect(saved).not.toContain("FantasyCalc is unavailable");
     const curve = withFallback({ kind: "curve", listDate: "2026-11-02T09:00:00.000Z" });
-    expect(between(curve, "<header", "</header>")).toContain('<span class="block font-semibold text-navy-contrast">Every value shown is our own estimate for now.</span>');
+    expect(between(curve, "<header", "</header>")).toContain('<span class="block font-semibold text-navy-contrast">Trade values are our own estimates for now.</span>');
     // The banner, right under the header (before the warnings), in words: its title and the fallback's text, once.
     expect(curve).toMatch(/<\/header><div class="[^"]*"><p class="font-bold">FantasyCalc is unavailable<\/p><div class="mt-1"><p>Trade values are our own estimates, not FantasyCalc&#x27;s: FantasyCalc didn&#x27;t answer, and the newest list we have, from Nov 2/);
     expect(curve.match(/Trade values are our own estimates, not FantasyCalc/g)).toHaveLength(1);
-    expect(curve.indexOf("FantasyCalc is unavailable")).toBeLessThan(curve.indexOf("Some data is missing"));
+    expect(curve.indexOf("FantasyCalc is unavailable")).toBeLessThan(curve.indexOf("Things to know"));
     expect(html).not.toContain("FantasyCalc is unavailable");
   });
 
-  it("lists the data gaps", () => {
-    expect(text).toContain("Some data is missing Sleeper's week 17 projections didn't load. No projection for Dabney Drifter.");
+  it("lists the data notices, in plain words (planner reply to Checkpoint 7a, §5.1: the banner shows notices only)", () => {
+    expect(text).toContain("Things to know Sleeper's projections for week 17 didn't load, so that week skips the matchup adjustment. Refresh later to try again. No projection for Dabney Drifter.");
   });
 });
 
@@ -145,7 +145,7 @@ describe("LeagueView standings and playoff odds (§8; §17 Checkpoint 3)", () =>
 
   it("comes right after the header and warnings, before my schedule and the team table", () => {
     const at = (s: string) => html.indexOf(s);
-    expect(at("Some data is missing")).toBeLessThan(at(">Playoff odds<"));
+    expect(at("Things to know")).toBeLessThan(at(">Playoff odds<"));
     expect(at(">Playoff odds<")).toBeLessThan(at(">Your remaining games<"));
     expect(at(">Your remaining games<")).toBeLessThan(at(">Projected strength<"));
   });
@@ -245,7 +245,7 @@ describe("LeagueView standings and playoff odds (§8; §17 Checkpoint 3)", () =>
     const over = renderFixture(g);
     const message = "Your season&#x27;s over — no trade helps this year.";
     expect(over).toContain(message);
-    expect(over.indexOf(message)).toBeLessThan(over.indexOf("Some data is missing"));
+    expect(over.indexOf(message)).toBeLessThan(over.indexOf("Things to know"));
     expect(over.indexOf("</header>")).toBeLessThan(over.indexOf(message));
     // …and the Trade partners card offers none, saying why (no "Pick your team" link: a team is picked).
     const partners = between(over, "Best fits for your team", 'id="rosters-title"');
@@ -364,7 +364,8 @@ describe("LeagueView team table", () => {
 
   it("gives every chip its full meaning for screen readers, trade chips under their own label ('Surplus' is gone)", () => {
     expect(html).toContain('<span class="sr-only">Need at RB1 (rest of season): 11.8 pts/wk vs the league median 14</span>');
-    const w = config.lineups.playoffWeight;
+    // The weight as the page prints it, one decimal: config's fallback 1.25 reads 1.3 (planner reply to Checkpoint 7a, §6.1).
+    const w = playoffWeightLabel(config.lineups.playoffWeight);
     // A bench chip: his gap and what he costs his team a week (Checkpoint 3 answer 3), the title saying both in full.
     expect(html).toContain(
       `<span aria-hidden="true">C. Snoot: worth +31 to you · costs his team 0.7 pts/wk</span><span class="sr-only">Cornelius Snoot (RB): worth 31.2 more lineup pts (playoffs count ${w}×) to Moonbeam Mudcats (your team) than to his own team. Moonbeam Mudcats (your team) would gain 35.2 with him (after its free-agent pickups); his team would lose 4 without him, 0.7 a week.</span>`,
@@ -599,10 +600,12 @@ describe("LeagueView rosters", () => {
   it("heads each roster with its free-agent pickups (how many, what they add), highlighted for mine, so they show while collapsed, and lists them in its body", () => {
     const summaries = [...html.matchAll(/<summary[^>]*>(.*?)<\/summary>/g)].map((m) => m[1] ?? "");
     const mine = summaries.find((s) => s.includes("Moonbeam Mudcats")) ?? "";
-    const w = config.lineups.playoffWeight;
+    // The weight as the page prints it, one decimal (planner reply to Checkpoint 7a, §6.1); escaped for the pattern.
+    const w = playoffWeightLabel(config.lineups.playoffWeight);
+    const wRe = w.replace(".", "\\.");
     expect(mine).toMatch(
       new RegExp(
-        `<span title="Free-agent pickups that would help: add Floopy Freeman \\(RB, CAR\\), drop Tobias Thimble: \\+3\\.9 lineup pts \\(playoffs count ${w}×\\)" class="mt-2 block rounded-lg bg-brand-soft [^"]*break-words[^"]*"><span class="font-bold">Free-agent pickups that would help:</span> <span class="whitespace-nowrap tabular-nums font-extrabold">1, \\+3\\.9 lineup pts</span> \\(playoffs count ${w}×\\)</span>`,
+        `<span title="Free-agent pickups that would help: add Floopy Freeman \\(RB, CAR\\), drop Tobias Thimble: \\+3\\.9 lineup pts \\(playoffs count ${wRe}×\\)" class="mt-2 block rounded-lg bg-brand-soft [^"]*break-words[^"]*"><span class="font-bold">Free-agent pickups that would help:</span> <span class="whitespace-nowrap tabular-nums font-extrabold">1, \\+3\\.9 lineup pts</span> \\(playoffs count ${wRe}×\\)</span>`,
       ),
     );
     const theirs = summaries.find((s) => s.includes("Quasar Quokkas")) ?? "";
@@ -638,7 +641,7 @@ describe("LeagueView rosters", () => {
     // Nothing sits over the button's lower edge any more (the old negative margin cut it to 36 px).
     expect(html).not.toContain("-mt-2");
     // Collapsed: the controlled row is there, its breakdown is built only when opened.
-    expect(html).toMatch(new RegExp(`<tr id="${button?.[1]}" hidden="" class="border-b border-line"><td colSpan="6"[^>]*></td></tr>`, "i"));
+    expect(html).toMatch(new RegExp(`<tr id="${button?.[1]}" hidden="" class="border-b border-line"><td colSpan="5"[^>]*></td></tr>`, "i"));
     // Every disclosure controls its own breakdown.
     const ids = [...html.matchAll(/aria-controls="(weeks-[^"]+)"/g)].map((m) => m[1]);
     expect(new Set(ids).size).toBe(ids.length);
@@ -647,12 +650,12 @@ describe("LeagueView rosters", () => {
   it("heads the IR and taxi groups with row-group headers over their own rows, and names the group in each of those players' buttons", () => {
     expect(html).not.toContain('scope="colgroup"');
     // The heading and its players share one row group (tbody).
-    const irGroups = [...html.matchAll(/<tbody><tr><th scope="rowgroup" colSpan="6"[^>]*>Injured reserve<\/th><\/tr>([\s\S]*?)<\/tbody>/g)].map((m) => m[1] ?? "");
+    const irGroups = [...html.matchAll(/<tbody><tr><th scope="rowgroup" colSpan="5"[^>]*>Injured reserve<\/th><\/tr>([\s\S]*?)<\/tbody>/g)].map((m) => m[1] ?? "");
     expect(irGroups).toHaveLength(2);
     expect(irGroups[0]).toContain("Humbert Fiddlesticks");
     // A Doubtful player in an IR slot: his badge says Doubtful, so the group name is what says IR.
     expect(irGroups[1]).toMatch(/<span class="font-bold break-words">Rupert Wimbleton<\/span><\/span><span class="sr-only">, injured reserve<\/span><span class="block pl-4 text-xs text-muted">RB · PIT · bye done<span[^>]*><span aria-hidden="true">D<\/span><span class="sr-only">Doubtful<\/span><\/span><\/span>/);
-    expect(html).toMatch(/<tbody><tr><th scope="rowgroup" colSpan="6"[^>]*>Taxi squad<\/th><\/tr><tr[^>]*><th scope="row"[^>]*><button[^>]*>.*?Ferdinand Puddle<\/span><\/span><span class="sr-only">, taxi squad<\/span>/);
+    expect(html).toMatch(/<tbody><tr><th scope="rowgroup" colSpan="5"[^>]*>Taxi squad<\/th><\/tr><tr[^>]*><th scope="row"[^>]*><button[^>]*>.*?Ferdinand Puddle<\/span><\/span><span class="sr-only">, taxi squad<\/span>/);
     // Active players' buttons say no group.
     expect(between(html, "Fizzwick Pemberton", "</button>")).not.toMatch(/injured reserve|taxi squad/);
   });
@@ -663,7 +666,9 @@ describe("LeagueView rosters", () => {
     const qb = view.rosters[0]?.players.find((p) => p.id === "101");
     if (!qb) throw new Error("fixture QB missing");
     const detail = renderToStaticMarkup(createElement(PlayerDetail, { player: qb, showLineupCost: true }));
-    expect(textOf(detail)).toContain("Games left 5 games Value 7,342 Lineup cost 58.2");
+    expect(textOf(detail)).toContain("Games left 5 games Lineup cost 58.2");
+    // No trade value (planner reply to Checkpoint 7a, 5.4).
+    expect(textOf(detail)).not.toMatch(/Value|7,342/);
     expect(detail).toContain('<caption class="sr-only">Fizzwick Pemberton: projected points week by week</caption>');
     expect(detail).toMatch(/<th scope="row"[^>]*>15<span[^>]*>playoffs<\/span><\/th><td[^>]*>22<\/td><td[^>]*>100%<\/td>/);
     // Not "0 pts, 0%" under "Chance he plays": his game has kicked off.
@@ -696,7 +701,7 @@ describe("LeagueView rosters", () => {
     expect(renderToStaticMarkup(createElement(PlayerDetail, { player: qb, showLineupCost: true }))).not.toContain("ESPN:");
   });
 
-  it("shows the market blend's line at the top of a blended player's breakdown (§6 step 8), and what each number is in visible words under it (phones have no hover)", () => {
+  it("says at the top of a blended player's breakdown which way the trade market moved his projection (§6 step 8), in words with how it works under them (phones have no hover), never a number of the market's (planner reply to Checkpoint 7a, 5.4)", () => {
     const f = leagueFixture();
     const pm = f.model.players["101"];
     if (!pm) throw new Error("fixture QB missing");
@@ -706,20 +711,22 @@ describe("LeagueView rosters", () => {
     if (!qb) throw new Error("fixture QB missing");
     const detail = renderToStaticMarkup(createElement(PlayerDetail, { player: qb, showLineupCost: true }));
     expect(detail).toMatch(
-      /<p class="mb-2 text-xs leading-relaxed break-words"><span class="font-medium">Our projection 210 · Trade market 170 · Used 190<\/span><span class="block text-muted">Rest-of-season points\. [^<]*<\/span><\/p>/,
+      /<p class="mb-2 text-xs leading-relaxed break-words"><span class="font-medium">His projection leans down toward the trade market&#x27;s view\.<\/span><span class="block text-muted">Per game, his projection moves halfway toward [^<]*<\/span><\/p>/,
     );
     // The words are on screen for everyone, not in a hover or screen-reader-only text.
-    expect(detail).not.toMatch(/title="Rest-of-season/);
-    expect(textOf(detail)).toContain("Our projection 210 · Trade market 170 · Used 190 Rest-of-season points. Our projection: our own model's. Trade market: the same games at the points per game");
+    expect(detail).not.toMatch(/title="Per game/);
+    expect(textOf(detail)).toContain("His projection leans down toward the trade market's view. Per game, his projection moves halfway toward what our model gives healthy players with about the same trade value");
+    // Neither the market's number (170) nor ours before the blend (210), which gives it back with his ROS.
+    expect(textOf(detail)).not.toMatch(/Our projection|Trade market \d|\b170\b|\b210\b/);
     // An unblended player's breakdown has no such line.
     const rb = view.rosters[0]?.players.find((p) => p.id === "102");
     if (!rb) throw new Error("fixture RB missing");
-    expect(renderToStaticMarkup(createElement(PlayerDetail, { player: rb, showLineupCost: true }))).not.toContain("Trade market");
+    expect(renderToStaticMarkup(createElement(PlayerDetail, { player: rb, showLineupCost: true }))).not.toContain("trade market");
   });
 
-  it("says what ~ means for screen readers: our estimate, or our flat minimum value", () => {
-    expect(html).toContain('~180<span class="sr-only"> (our estimate)</span>');
-    expect(html).toContain('~107<span class="sr-only"> (our minimum value)</span>');
+  it("shows no trade value, FantasyCalc's own, our estimates or the flat minimum (planner reply to Checkpoint 7a, 5.4)", () => {
+    expect(html).not.toMatch(/~\d|7,342|\(our estimate\)|\(our minimum value\)/);
+    expect(html).not.toContain(">Value</th>");
   });
 });
 

@@ -24,7 +24,9 @@
  * 5. The log (src/server/log.ts; allowlisted fields only): a refusal (once per client and window), an answer with status
  *    500 or more (its code, status and time), and each source the deadline cut, by why ("deadline_slow": a source took the
  *    time; "deadline_busy": Offer Sheet's own queue or cache did; "deadline_skipped": a request never went out). With Redis
- *    on Vercel the lines also go to the shared store after the response (next/server's after()), never delaying it.
+ *    on Vercel the lines also go to the shared store after the response (next/server's after()), never delaying it. All of
+ *    them are lines a visitor can set off at will, so the log throttles them per instance (B4 security review: log.ts
+ *    logThrottled; one refusal line every 10 minutes, one line a minute of each repeating failure).
  * 6. Usage (planner reply to Checkpoint 7a, §2 question 7 and §5.4; src/server/usage.ts, on Vercel only): a League page
  *    build answered (a model route's 200: FantasyCalc's "sessions"), the work units charged on arrival, and every refusal
  *    (the rate limit's, a visitor's day, the beta's capacity: respond.ts) are counted per UTC day without identifiers, in the

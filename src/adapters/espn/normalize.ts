@@ -82,15 +82,20 @@
  *   the snapshot (rostered and kept free agents), each crosswalk override ("same player") becomes
  *   one Import Report note, every name match is named in ESPN_PLAYER_MATCHED_BY_NAME, and the other
  *   ID conflicts are named in ESPN_ID_CONFLICT. A player is listed only when he keeps the Sleeper id
- *   (not after a collision, ESPN_ID_COLLISION).
+ *   (not after a collision, ESPN_ID_COLLISION). Each of the three carries the players' canonical ids
+ *   (ImportWarning.players, Phase 7b), so the notices (src/lib/notices.ts) can tell whose roster each is on. A rostered
+ *   player whose ESPN position we don't know is left out: ESPN_POSITION_UNKNOWN names his team (ImportWarning.teams).
+ * - Scoring rules we can't count (Scoring.unmapped, Phase 7b; planner reply to Checkpoint 7a, §5.1): each says whether
+ *   its stat scored this season (scoredThisSeason, from the season lines of rostered players and listed free agents),
+ *   so the notices can tell a rule that matters from a rare one.
  */
 import type { CrosswalkConflict, CrosswalkSourceKey, PlayerIdResolver } from "@/data/types";
 import { returnDateConflict } from "@/engine/availability";
 import { config } from "@/engine/config";
-import type { ImportWarning, InjuryStatus, LeagueSettings, LeagueSnapshot, Matchup, MatchupResult, PlayerInfo, Pos, SeedingTiebreaker, Team, Transaction, UnknownSetting } from "@/engine/model";
+import type { ImportWarning, InjuryStatus, LeagueSettings, LeagueSnapshot, Matchup, MatchupResult, PlayerInfo, Pos, Scoring, SeedingTiebreaker, Team, Transaction, UnknownSetting } from "@/engine/model";
 import { ESPN_PRO_TEAMS } from "./constants";
 import { POSITION_ID, SLOT, eligiblePositions, mapInjury, positionIdsFor, positionOf, slotInfo } from "./positions";
-import { buildEspnScoring } from "./scoringMap";
+import { ESPN_SEASON_ONLY_STAT_IDS, buildEspnScoring } from "./scoringMap";
 import { summarizeSlots, type SlotSummary } from "./slots";
 import { normalizeSwid } from "./swid";
 import {
@@ -110,6 +115,7 @@ import {
   type EspnTransaction,
   type EspnTransactionItem,
 } from "./schema";
+import { espnFreeAgentStatus } from "./freeAgentStatus";
 import { TRADE_ROW_TYPES, tradeHistory, type RebuiltTrade, type TradeAcquisition, type TradeMove, type TradeRow } from "./trades";
 import { espnWaiverOrder, faabRemainingOf } from "./waivers";
 import { weekOfCalendarDate, weekOfInstant, weekWindows, type WeekWindow } from "./weeks";
@@ -858,6 +864,27 @@ function freeAgentsOf(pool: EspnPoolPlayer[], rostered: ReadonlySet<number>, all
 }
 
 // ---------------------------------------------------------------------------------------------
+// Scoring rules we can't count: have they scored this season?
+
+/**
+ * Scoring.unmapped with each rule's scoredThisSeason (Phase 7b, planner reply to Checkpoint 7a, §5.1: an uncounted rule that
+ * has scored in this league this season is a notice, src/lib/notices.ts): whether its stat (platformKey, the ESPN statId)
+ * is on some season line (actual: statSourceId 0, statSplitTypeId 0, this season) of a rostered player or a listed free
+ * agent at a value other than 0. A stat that never appears on weekly lines can't score (ESPN_SEASON_ONLY_STAT_IDS). Left
+ * unknown (as it came) when no such line came back at all.
+ */
+function withScoredThisSeason(unmapped: Scoring["unmapped"], players: readonly EspnPlayer[], season: number): Scoring["unmapped"] {
+  const lines = players.flatMap((p) => (p.stats ?? []).filter((s) => s.seasonId === season && s.statSourceId === 0 && s.statSplitTypeId === 0));
+  if (!lines.length) return unmapped;
+  return unmapped.map((u) => {
+    const statId = Number(u.platformKey);
+    if (!Number.isInteger(statId)) return u;
+    const scored = !ESPN_SEASON_ONLY_STAT_IDS.has(statId) && lines.some((s) => (s.stats?.[String(statId)] ?? 0) !== 0);
+    return { ...u, scoredThisSeason: scored };
+  });
+}
+
+// ---------------------------------------------------------------------------------------------
 // Teams' records (the standings and the waiver order read the same numbers)
 
 /** A team's W-L-T, points for and points against as the snapshot carries them (ESPN's points to cents). */
@@ -882,7 +909,8 @@ export function normalizeEspnLeague(raw: EspnRawBundle, ctx: EspnNormalizeContex
   const slots = summarizeSlots(L.settings.rosterSettings.lineupSlotCounts, warnings);
   const settings = settingsOf(L, slots, proTeams, warnings, notes);
   const built = buildEspnScoring(L.settings.scoringSettings.scoringItems, slots.scoringCtx);
-  settings.scoring = built.scoring;
+  const seasonPlayers = [...L.teams.flatMap((t) => (t.roster?.entries ?? []).map((e) => e.playerPoolEntry.player)), ...pool.map((x) => x.player)];
+  settings.scoring = { ...built.scoring, unmapped: withScoredThisSeason(built.scoring.unmapped, seasonPlayers, L.seasonId) };
   warnings.push(...built.warnings);
 
   // The waiver order (./waivers.ts): the weekly reset order where the league resets weekly, else ESPN's live rank.
@@ -902,6 +930,9 @@ export function normalizeEspnLeague(raw: EspnRawBundle, ctx: EspnNormalizeContex
   const rostered = new Set<number>();
   const members = new Map((L.members ?? []).map((m) => [normalizeSwid(m.id), m]));
   const hcByTeam: string[] = [];
+  // Rostered players left out for a position ESPN gives that we don't know: their teams, by that position id (the
+  // ESPN_POSITION_UNKNOWN warning's `teams`, so the notices can say when one was on the user's roster).
+  const unknownPositionTeams = new Map<number, Set<string>>();
   const teams: Team[] = L.teams.map((t) => {
     const roster: string[] = [];
     const ir: string[] = [];
@@ -910,7 +941,9 @@ export function normalizeEspnLeague(raw: EspnRawBundle, ctx: EspnNormalizeContex
       rostered.add(e.playerPoolEntry.player.id);
       const info = players.info(e.playerPoolEntry.player);
       if (!info) {
-        if (e.playerPoolEntry.player.defaultPositionId === POSITION_ID.HC) hc++;
+        const positionId = e.playerPoolEntry.player.defaultPositionId;
+        if (positionId === POSITION_ID.HC) hc++;
+        else unknownPositionTeams.set(positionId, (unknownPositionTeams.get(positionId) ?? new Set<string>()).add(String(t.id)));
         continue;
       }
       playerInfos[info.id] = info;
@@ -971,6 +1004,8 @@ export function normalizeEspnLeague(raw: EspnRawBundle, ctx: EspnNormalizeContex
   for (const w of [...settings.playoffWeeks, ...settings.regularSeasonWeeks]) if (w > finalWeek) finalWeek = w;
   finalWeek = L.status.finalScoringPeriod ?? finalWeek;
   const freeAgents = freeAgentsOf(pool, rostered, slots.positions, players, season, week, finalWeek - week + 1);
+  // Their waiver status as ESPN reports it (./freeAgentStatus.ts: "On waivers until Wed" on the League page).
+  const freeAgentStatus = espnFreeAgentStatus(pool, freeAgents, (x) => players.info(x.player)?.id);
   for (const x of pool) {
     const info = players.info(x.player);
     if (info && freeAgents.includes(info.id)) playerInfos[info.id] ??= info;
@@ -1041,7 +1076,10 @@ export function normalizeEspnLeague(raw: EspnRawBundle, ctx: EspnNormalizeContex
   if (sk.tqb || slots.lineup.some((s) => s.slot === "TQB"))
     warnings.push({ code: "ESPN_TQB_AS_QB", message: `ESPN's team-QB position (TQB) is treated as a QB${sk.tqb ? ` (${sk.tqb} TQB unit${sk.tqb > 1 ? "s" : ""})` : ""}: it's scored with QB stats and can fill QB spots in our lineups.`, platformPath: "player.defaultPositionId = 15; settings.rosterSettings.lineupSlotCounts[\"1\"]" });
   if (sk.hc) warnings.push({ code: "ESPN_HC_UNMAPPED", message: `${sk.hc} head coach${sk.hc > 1 ? "es" : ""} (HC) left out${hcByTeam.length ? ` (on ${hcByTeam.join(", ")})` : ""}: head coaches aren't supported.`, platformPath: "player.defaultPositionId = 14" });
-  for (const [id, n] of sk.unknown) warnings.push({ code: "ESPN_POSITION_UNKNOWN", message: `${n} player(s) have an ESPN position we don't know (defaultPositionId ${id}) and were left out.`, platformPath: "player.defaultPositionId" });
+  for (const [id, n] of sk.unknown) {
+    const onTeams = [...(unknownPositionTeams.get(id) ?? [])];
+    warnings.push({ code: "ESPN_POSITION_UNKNOWN", message: `${n} player(s) have an ESPN position we don't know (defaultPositionId ${id}) and were left out.`, platformPath: "player.defaultPositionId", ...(onTeams.length ? { teams: onTeams } : {}) });
+  }
   for (const [status, n] of sk.unknownInjury) warnings.push({ code: "ESPN_INJURY_UNKNOWN", message: `${n} player(s) have an ESPN injury status we don't map (${status}); they're treated as healthy.`, platformPath: "player.injuryStatus" });
   // Player-id flags cover the players in the snapshot only (rostered and kept free agents, not the
   // rest of ESPN's free-agent pool), and name every one of them (§2.9 crosswalk rules).
@@ -1057,19 +1095,22 @@ export function normalizeEspnLeague(raw: EspnRawBundle, ctx: EspnNormalizeContex
     return out;
   };
   const names = (xs: readonly NamedPlayer[]) => xs.map((x) => x.label).join("; ");
+  // Each named player's canonical id (ImportWarning.players: src/lib/notices.ts tells whose roster he's on).
+  const idOfEspn = new Map(Object.values(playerInfos).map((p) => [Number(p.ids.espn), p.id]));
+  const ids = (xs: readonly NamedPlayer[]) => xs.flatMap((x) => idOfEspn.get(x.espnId) ?? []);
   const byName = snapshotOnly(sk.byName);
   if (byName.length) {
     const onRosters = byName.filter((x) => rostered.has(x.espnId));
     const freeAgentsByName = byName.filter((x) => !rostered.has(x.espnId));
     const where = [onRosters.length ? `On rosters: ${names(onRosters)}.` : "", freeAgentsByName.length ? `Free agents: ${names(freeAgentsByName)}.` : ""].filter(Boolean).join(" ");
     const one = byName.length === 1;
-    warnings.push({ code: "ESPN_PLAYER_MATCHED_BY_NAME", message: `${plural(byName.length, "player")} ${one ? "isn't" : "aren't"} in any player ID source, so we matched ${one ? "him" : "each"} to the only active player with the same name, position and NFL team. ${where}`, platformPath: "player.id" });
+    warnings.push({ code: "ESPN_PLAYER_MATCHED_BY_NAME", message: `${plural(byName.length, "player")} ${one ? "isn't" : "aren't"} in any player ID source, so we matched ${one ? "him" : "each"} to the only active player with the same name, position and NFL team. ${where}`, platformPath: "player.id", players: ids(byName) });
   }
   const conflicts = snapshotOnly(sk.conflicts);
-  if (conflicts.length) warnings.push({ code: "ESPN_ID_CONFLICT", message: `The player ID sources disagree about who ${plural(conflicts.length, "ESPN player id")} in this league belong${conflicts.length === 1 ? "s" : ""} to; each was matched by the crosswalk's tie-break, so check: ${names(conflicts)}.`, platformPath: "player.id" });
+  if (conflicts.length) warnings.push({ code: "ESPN_ID_CONFLICT", message: `The player ID sources disagree about who ${plural(conflicts.length, "ESPN player id")} in this league belong${conflicts.length === 1 ? "s" : ""} to; each was matched by the crosswalk's tie-break, so check: ${names(conflicts)}.`, platformPath: "player.id", players: ids(conflicts) });
   for (const o of snapshotOnly(sk.overrides)) notes.push(idOverrideNote(o, o.conflict));
   const collisions = snapshotOnly(sk.collisions);
-  if (collisions.length) warnings.push({ code: "ESPN_ID_COLLISION", message: `${plural(collisions.length, "player")} matched a Sleeper id already used by another player, so ${collisions.length === 1 ? "he keeps his" : "they keep their"} ESPN id: ${names(collisions)}.`, platformPath: "player.id" });
+  if (collisions.length) warnings.push({ code: "ESPN_ID_COLLISION", message: `${plural(collisions.length, "player")} matched a Sleeper id already used by another player, so ${collisions.length === 1 ? "he keeps his" : "they keep their"} ESPN id: ${names(collisions)}.`, platformPath: "player.id", players: ids(collisions) });
   if (L.teams.every((t) => !(t.roster?.entries ?? []).length))
     warnings.push({ code: "ESPN_EMPTY_ROSTERS", message: "Every roster is empty (the league may not have drafted yet).", platformPath: "teams[].roster.entries" });
 
@@ -1087,6 +1128,7 @@ export function normalizeEspnLeague(raw: EspnRawBundle, ctx: EspnNormalizeContex
     schedule,
     transactions,
     freeAgents,
+    ...(freeAgentStatus ? { freeAgentStatus } : {}),
     warnings,
   };
   return { snapshot, notes };

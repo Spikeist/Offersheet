@@ -1,0 +1,7 @@
+# Files that must stay byte-exact on every checkout (Checkpoint 7b load test, finding 5). With core.autocrlf=true (Git for
+# Windows' default) a fresh checkout wrote every tracked fixture and the app icon with CRLF, and 5 tests failed: the
+# DynastyProcess CSV fixture, which the tests pad with LF rows (csv-parse reads every record by the first line's ending),
+# and src/app/icon.svg, which scripts/make-icons.ts writes byte for byte. "-text": no end-of-line conversion either way
+# (safe for binary files too, unlike eol=lf), so a checkout holds exactly what's committed (LF).
+fixtures/** -text
+src/app/icon.svg -text

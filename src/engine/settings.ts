@@ -6,10 +6,10 @@
  *
  * - streamPositions: the positions the user streams every week (§7 streaming positions): default K and
  *   DEF (config.streaming.defaultPositions); only config.streaming.streamable positions (K, DEF, QB, TE).
- * - playoffWeight: ω for playoff weeks in ROS (§7) until the planner's reply to Checkpoint 7a (§6.1), default
- *   config.lineups.playoffWeight. ⚠️ The engine no longer reads it: the League model sets ω itself from my odds under my goal
- *   (league.ts step 5c, LeagueModel.playoffWeightAuto). The field stays, normalized as before, while the Settings page still
- *   shows its control (a later track removes it); changing it changes no number.
+ * - (playoffWeight: ω for playoff weeks in ROS, §7, the user's setting until the planner's reply to Checkpoint 7a, §6.1. The
+ *   League model sets ω itself now, from my odds under my goal: league.ts step 5c, LeagueModel.playoffWeightAuto, which the
+ *   Settings page shows read-only. A copy stored by an older version still carries it: normalizeTradeSettings drops it,
+ *   like any other field it doesn't know, so it loads without error and changes nothing.)
  * - lambda: §10's Win now (0) ↔ Future (1) slider for dynasty and keeper leagues; null = the default by
  *   my P(playoffs) (config.benefit.lambda).
  * - maxPerSide: 2 by default, up to config.search.maxPerSideAllowed (3).
@@ -46,8 +46,6 @@ export type Goal = (typeof GOALS)[number];
 export interface TradeSettings {
   version: 1;
   streamPositions: Pos[];
-  /** ⚠️ Not read by the engine since the planner's reply to Checkpoint 7a, §6.1 (the header): ω is set automatically. */
-  playoffWeight: number;
   lambda: number | null;
   maxPerSide: number;
   untouchables: string[];
@@ -68,7 +66,6 @@ export function defaultTradeSettings(): TradeSettings {
   return {
     version: 1,
     streamPositions: [...config.streaming.defaultPositions],
-    playoffWeight: config.lineups.playoffWeight,
     lambda: null,
     maxPerSide: config.search.maxPerSide,
     untouchables: [],
@@ -82,9 +79,6 @@ export function defaultTradeSettings(): TradeSettings {
     minChance: config.ranking.minChanceDefault,
   };
 }
-
-/** Playoff weights the (no longer read) setting accepts (a display range for the Settings control; outside it the default is used). */
-export const PLAYOFF_WEIGHT_RANGE: readonly [number, number] = [1, 2];
 
 const POS_SET: ReadonlySet<string> = new Set(POSITIONS);
 
@@ -105,20 +99,19 @@ function ids(x: unknown): string[] {
 /**
  * A stored or posted settings object, made safe to use: every field is checked and anything missing or
  * out of range falls back to its default (never throws). Positions are deduplicated and limited to known
- * ones (streamPositions to config.streaming.streamable).
+ * ones (streamPositions to config.streaming.streamable). Fields it doesn't know (an older version's playoffWeight
+ * among them) are dropped.
  */
 export function normalizeTradeSettings(raw: unknown): TradeSettings {
   const d = defaultTradeSettings();
   if (!raw || typeof raw !== "object") return d;
   const r = raw as Record<string, unknown>;
   const stream = Array.isArray(r.streamPositions) ? positions(r.streamPositions, new Set(config.streaming.streamable)) : d.streamPositions;
-  const pw = typeof r.playoffWeight === "number" && Number.isFinite(r.playoffWeight) && r.playoffWeight >= PLAYOFF_WEIGHT_RANGE[0] && r.playoffWeight <= PLAYOFF_WEIGHT_RANGE[1] ? r.playoffWeight : d.playoffWeight;
   const lambda = typeof r.lambda === "number" && Number.isFinite(r.lambda) && r.lambda >= 0 && r.lambda <= 1 ? r.lambda : null;
   const mps = typeof r.maxPerSide === "number" && Number.isInteger(r.maxPerSide) && r.maxPerSide >= 1 && r.maxPerSide <= config.search.maxPerSideAllowed ? r.maxPerSide : d.maxPerSide;
   return {
     version: 1,
     streamPositions: stream,
-    playoffWeight: pw,
     lambda,
     maxPerSide: mps,
     untouchables: ids(r.untouchables),

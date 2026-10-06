@@ -1,9 +1,10 @@
 "use client";
 /**
  * A table of players with their rest-of-season points (CLAUDE.md §6 step 7, §14 item 3): ROS points
- * split into regular season and playoffs, games left, bye status, value (§9) and lineup cost (§7
- * MV_lose). Tapping a player (a disclosure button) shows the week-by-week breakdown; on wider
- * screens a small bar strip shows the weeks at a glance and hovering it lists them.
+ * split into regular season and playoffs, games left, bye status and lineup cost (§7 MV_lose). No trade value: planner
+ * reply to Checkpoint 7a, 5.4 (Offer Sheet doesn't display FantasyCalc's values at all; a "Value" column and breakdown
+ * row showed them, our estimates marked ~, until Phase 7b). Tapping a player (a disclosure button) shows the week-by-week
+ * breakdown; on wider screens a small bar strip shows the weeks at a glance and hovering it lists them.
  *
  * Phones (375 px) get two columns, player and ROS points; the rest moves into the breakdown, so the
  * page never scrolls sideways.
@@ -16,9 +17,11 @@
  *
  * A player whose ESPN return date conflicts with his tag (CLAUDE.md §6 step 3) gets a short line under
  * his position line, inside the button (so it's part of his button's name), with the full sentence on
- * hover and at the top of his breakdown. A player the market blend reached (§6 step 8) shows "Our projection
- * 210 · Trade market 170 · Used 190" at the top of his breakdown, with what each number is in words under it (visible
- * text, not a hover: phones have none), and at the top of the ROS cell's hover text.
+ * hover and at the top of his breakdown. A player the market blend reached (§6 step 8) says which way it moved his
+ * projection, in words ("His projection leans up toward the trade market's view."), at the top of his breakdown, with how
+ * the lean works under it (visible text, not a hover: phones have none), and at the top of the ROS cell's hover text; never
+ * a number of the market's (planner reply to Checkpoint 7a, 5.4: until Phase 7b "Our projection 210 · Trade market 170 ·
+ * Used 190").
  *
  * Another team's player his manager would want a little extra for (planner addendum to Checkpoint 3, §2) carries a
  * gold "Harder to get" pill on his position line, after any injury badge: words, part of his button's name, with why
@@ -42,16 +45,6 @@ function InjuryBadge({ injury }: { injury: NonNullable<PlayerRow["injury"]> }) {
       <span aria-hidden>{injury.short}</span>
       <span className="sr-only">{injury.long}</span>
     </Badge>
-  );
-}
-
-function ValueText({ value }: { value: PlayerRow["value"] }) {
-  if (!value) return <span className="text-muted">—</span>;
-  return (
-    <span title={value.title}>
-      {value.text}
-      {value.srText ? <span className="sr-only">{` ${value.srText}`}</span> : null}
-    </span>
   );
 }
 
@@ -112,8 +105,8 @@ function WeekTable({ player }: { player: PlayerRow }) {
 }
 
 /**
- * The breakdown under a player: the conflict note and the market blend's line (Our projection · Trade market · Used,
- * CLAUDE.md §6 step 8, with what each is in words) when he has them, the columns phones don't show, then his
+ * The breakdown under a player: the conflict note and the market blend's line (which way it moved his projection, in
+ * words, CLAUDE.md §6 step 8, with how the lean works) when he has them, the columns phones don't show, then his
  * week-by-week points.
  */
 export function PlayerDetail({ player, showLineupCost }: { player: PlayerRow; showLineupCost: boolean }) {
@@ -127,16 +120,10 @@ export function PlayerDetail({ player, showLineupCost }: { player: PlayerRow; sh
           <span className="block text-muted">{p.blend.title}</span>
         </p>
       ) : null}
-      <dl className="grid grid-cols-3 gap-2 text-xs">
+      <dl className="grid grid-cols-2 gap-2 text-xs">
         <div>
           <dt className="text-muted">Games left</dt>
           <dd className="font-bold">{p.gamesText}</dd>
-        </div>
-        <div>
-          <dt className="text-muted">Value</dt>
-          <dd className="font-bold">
-            <ValueText value={p.value} />
-          </dd>
         </div>
         {showLineupCost ? (
           <div>
@@ -193,9 +180,6 @@ function PlayerRows({ player, columns, showLineupCost, scaleMax }: { player: Pla
         </td>
         <td className="hidden py-2 pr-3 text-right align-top whitespace-nowrap tabular-nums sm:table-cell">{p.gamesText}</td>
         <td className="hidden py-2 pr-3 align-top md:table-cell">{p.weeks.length ? <WeekStrip weeks={p.weeks} text={p.weeksText} max={scaleMax} /> : null}</td>
-        <td className="hidden py-2 pr-3 text-right align-top tabular-nums sm:table-cell">
-          <ValueText value={p.value} />
-        </td>
         {showLineupCost ? <td className="hidden py-2 text-right align-top tabular-nums sm:table-cell">{p.lineupCost ?? <span className="text-muted">—</span>}</td> : null}
       </tr>
       {/* The row is always there for aria-controls; its content is built only when opened (a league has hundreds of players). */}
@@ -233,7 +217,7 @@ export function PlayerTable({
   /** The Lineup cost column's definition (LeagueView.lineupCostTitle). */
   lineupCostTitle?: string;
 }) {
-  const columns = showLineupCost ? 6 : 5;
+  const columns = showLineupCost ? 5 : 4;
   const scaleMax = Math.max(0, ...players.flatMap((p) => p.weeks.map((w) => w.points)));
   return (
     <div className="-mx-4 sm:mx-0">
@@ -253,9 +237,6 @@ export function PlayerTable({
             </th>
             <th scope="col" className="hidden py-2 pr-3 font-bold md:table-cell">
               Weeks
-            </th>
-            <th scope="col" className="hidden py-2 pr-3 text-right font-bold sm:table-cell">
-              Value
             </th>
             {showLineupCost ? (
               <th scope="col" className="hidden py-2 text-right font-bold sm:table-cell">

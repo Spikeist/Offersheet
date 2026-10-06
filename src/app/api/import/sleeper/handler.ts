@@ -13,8 +13,10 @@
  *   ID and the username typed; src/app/api/_lib/upload.ts reads and checks it), imported by replaying it through the
  *   adapter's league-data half with the server's own NFL state and projections (importUpload). One it can't use answers
  *   BAD_UPLOAD (the browser then asks again with JSON, and the server reads the league itself), and so does one holding
- *   more than any real league (review BF-R1: src/app/api/_lib/upload.ts, before the replay and after it). The browser picks among a
- *   username's leagues itself, so an upload never answers { chooseLeague }.
+ *   more than any real league (review BF-R1: src/app/api/_lib/upload.ts, before the replay and after it), and one whose
+ *   replay fails as a Sleeper outage would (B4 security review: respond.ts uploadImportErrorResponse); one whose unpacked
+ *   size the day's work budget refuses answers BUSY. The browser picks among a username's leagues itself, so an upload
+ *   never answers { chooseLeague }.
  * - Every answer says who read the league (readBy), carries the import's model part (nothing for Sleeper) and, with
  *   SESSION_SECRET, the server's signature over it and the snapshot (src/server/importToken.ts), so the model route can
  *   build the numbers without reading the league again.
@@ -26,9 +28,10 @@ import type { LeagueUpload } from "@/adapters/upload";
 import type { Platform } from "@/engine/model";
 import { chooseLeagueResponse, type AdapterLeagueChoice, type ImportReader, type ImportResponse } from "@/lib/api";
 import { isPlausibleSeason, seasonRangeMessage } from "@/lib/season";
+import { chargeWork, type QuotaVerdict } from "@/server/budget";
 import { signImport, type ImportSignature, type SignedContent } from "@/server/importToken";
 import { noteImport } from "@/server/usage";
-import { dataSourceStamps, errorResponse, importErrorResponse, isSameOrigin, jsonResponse, readJsonBody } from "../../_lib/respond";
+import { dataSourceStamps, errorResponse, importErrorResponse, isSameOrigin, jsonResponse, readJsonBody, unreadUploadResponse, uploadImportErrorResponse } from "../../_lib/respond";
 import { sleeperImportBodySchema } from "../../_lib/schemas";
 import { isGzipRequest, readLeagueUpload, uploadedImportProblem } from "../../_lib/upload";
 
@@ -44,6 +47,8 @@ export interface SleeperImportHandlerDeps {
   choicesOf: (err: unknown) => AdapterLeagueChoice[] | undefined;
   /** src/server/importToken.ts signImport (a test hook). */
   sign?: (platform: Platform, content: SignedContent) => ImportSignature | undefined;
+  /** The daily work budget's extra charge (src/server/budget.ts chargeWork; a test hook). */
+  chargeWork?: (units: number) => Promise<QuotaVerdict>;
   now?: () => Date;
 }
 
@@ -64,17 +69,25 @@ export function sleeperImportResponse(
 
 export function createSleeperImportHandler(d: SleeperImportHandlerDeps): (request: Request) => Promise<Response> {
   const sign = d.sign ?? ((platform: Platform, content: SignedContent) => signImport(platform, content));
+  const charge = d.chargeWork ?? ((units: number) => chargeWork(units));
 
   /** A league the browser read (see the header). */
   async function fromUpload(request: Request): Promise<Response> {
-    const read = await readLeagueUpload(request, "sleeper");
-    if (!read.ok) return errorResponse("BAD_UPLOAD");
+    // Its unpacked size paid for first (B4 security review): refused, BUSY; unusable, BAD_UPLOAD.
+    const read = await readLeagueUpload(request, "sleeper", { charge });
+    if (!read.ok) return unreadUploadResponse(read);
     const upload = read.value;
     const now = d.now?.() ?? new Date();
     if (!isPlausibleSeason(upload.request.season, now)) return errorResponse("INVALID_REQUEST", seasonRangeMessage(now));
     try {
       const deps = await d.getDeps();
-      const result = await d.importUpload(upload, deps);
+      let result: ImportResult;
+      try {
+        result = await d.importUpload(upload, deps);
+      } catch (err) {
+        // A platform failure only the upload reports is the upload's (B4 security review): BAD_UPLOAD, not logged as Sleeper's.
+        return uploadImportErrorResponse(err, { platform: "sleeper", season: upload.request.season });
+      }
       // Bigger than any real league's model (review BF-R1): not signed; the browser asks the server to read the league.
       if (uploadedImportProblem(result.snapshot)) return errorResponse("BAD_UPLOAD");
       const answer = jsonResponse(sleeperImportResponse(result, deps, "browser", sign));

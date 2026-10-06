@@ -8,10 +8,10 @@ import { describe, expect, it } from "vitest";
 import { BEFORE_KICKOFF, NOW, PICKUP_GAIN, PRE_KICKOFF, leagueFixture, nameOf, type LeagueFixture } from "@/components/league/testFixtures";
 import { inactiveTeams } from "@/engine/acceptance";
 import { config } from "@/engine/config";
-import type { BaseRateSource, SeasonOdds, TeamModel, WeekOdds } from "@/engine/leagueModel";
+import type { BaseRateSource, PlayoffWeightAuto, SeasonOdds, TeamModel, WeekOdds } from "@/engine/leagueModel";
 import { fantasyCalcFallbackText, fantasyCalcFormat } from "@/engine/market";
 import { weekUnderWayNote } from "@/engine/season";
-import { fmtNum, fmtWhole } from "./format";
+import { fmtNum } from "./format";
 import { waiverOrderText } from "./importReport";
 import { titleOddsText } from "./tradeView";
 import {
@@ -33,6 +33,8 @@ import {
   UNDER_WAY_TEXT,
   VALUES_ESTIMATED_LINE,
   VALUES_ESTIMATED_TITLE,
+  VALUES_HIDDEN_ESTIMATED_TEXT,
+  VALUES_HIDDEN_TEXT,
   WAIVER_ORDER_LABEL,
   YOUR_ODDS_LABEL,
   availabilityNoteText,
@@ -43,6 +45,7 @@ import {
   likelyStarters,
   oddsCell,
   pickupsUnderWayNote,
+  playoffWeightLabel,
   rosterAfterPickups,
   scheduleByeRule,
   shortName,
@@ -62,6 +65,30 @@ const CAP = {
   up: `${Math.round((config.marketBlend.factorClamp[1] - 1) * 100)}%`,
   down: `${Math.round((1 - config.marketBlend.factorClamp[0]) * 100)}%`,
 };
+
+/**
+ * The fixture's playoff weight, config's fallback (1.25), as the page prints it: one decimal, "1.3" (planner reply to
+ * Checkpoint 7a, §6.1: the Settings page prints it the same).
+ */
+const PW = playoffWeightLabel(config.lineups.playoffWeight);
+
+/** An automatic playoff weight as the League model reports it (LeagueModel.playoffWeightAuto; league.ts step 5c). */
+function autoWeight(omega: number, basis: PlayoffWeightAuto["basis"] = "auto"): PlayoffWeightAuto {
+  const measured = basis === "auto";
+  return {
+    omega,
+    basis,
+    reason: measured ? null : "noOdds",
+    goal: "title",
+    gain: 3,
+    sims: measured ? 1000 : 0,
+    regularPerPoint: measured ? 0.4 : null,
+    playoffPerPoint: measured ? 0.4 * omega : null,
+    ratio: measured ? omega : null,
+    clamped: null,
+    runs: null,
+  };
+}
 
 function view(opts: Parameters<typeof leagueFixture>[0] = {}, extra: Partial<LeagueViewInput> = {}) {
   const f = leagueFixture(opts);
@@ -173,9 +200,23 @@ describe("buildLeagueView: header (§14 item 3)", () => {
       { label: "Sleeper projections", value: "Thu, Nov 26, 2:00 PM" },
       { label: "FantasyCalc values", value: "Wed, Nov 25, 5:00 PM (a saved copy: the live fetch failed)" },
     ]);
-    expect(v.warnings).toEqual(["Sleeper's week 17 projections didn't load.", "No projection for Dabney Drifter."]);
+    expect(v.notices).toEqual(["Sleeper's projections for week 17 didn't load, so that week skips the matchup adjustment. Refresh later to try again.", "No projection for Dabney Drifter."]);
     // The server's value notes repeat the header's format and the explainer's substitutions, so only the other note shows.
     expect(v.notes).toEqual(["Sleeper hasn't published week 18 projections yet."]);
+  });
+
+  it("says when another team's likely starter has no projections, judged without them, since our points can't make him one (a review of Phase 7b)", () => {
+    // Team 2's top RB, Mortimer Gloop, with nothing to project from: 0 points every week, so he starts nowhere in our lineups.
+    const f = leagueFixture();
+    const pm = f.model.players["202"];
+    if (!pm) throw new Error("fixture player missing");
+    f.model.players["202"] = { ...pm, base: { ...pm.base, b: 0, source: "none" }, weekly: pm.weekly.map((w) => ({ ...w, p: 0 })), ros: { ...pm.ros, total: 0, regular: 0, playoffs: 0 } };
+    const gloop = "We have no projections for Mortimer Gloop (RB, Gravel Gophers), so he counts as 0 points.";
+    // Without FantasyCalc's values nothing says he'd start (Team 2 has two other projected RBs for its two RB spots).
+    expect(of(f).notices).not.toContain(gloop);
+    // FantasyCalc rates him above an RB his team starts: a likely starter, said on the banner.
+    f.inputs = { ...f.inputs, market: { format: fantasyCalcFormat(f.snapshot.settings), fetchedAt: "2026-11-25T23:00:00.000Z", values: { "202": 7900, "203": 6100, "204": 4200 }, knownIds: [], topValue: 10722 } };
+    expect(of(f).notices).toContain(gloop);
   });
 
   it("drops every value note the server writes (src/server/modelInputs.ts), keeper leagues' included, so nothing shows twice", async () => {
@@ -375,7 +416,7 @@ describe("buildLeagueView: standings and playoff odds (§8; §17 Checkpoint 3: n
     f.model.warnings = [...f.model.warnings, dup];
     const once = of(f);
     expect(once.standings?.notes).not.toContain(dup);
-    expect(once.warnings).toContain(dup);
+    expect(once.notices).toContain(dup);
   });
 
   it("says when there are no odds, and shows no standings once no week is left", () => {
@@ -1015,7 +1056,7 @@ describe("buildLeagueView: team table (§7 needs and trade chips)", () => {
     ]);
     expect(v.teams.flatMap((t) => t.chips.map((c) => c.text)).some((x) => x.includes("costs them"))).toBe(false);
     // The title gives every part, to a tenth, in lineup points weighted like lineup cost, and per week; a starter says so.
-    const w = `(playoffs count ${config.lineups.playoffWeight}×)`;
+    const w = `(playoffs count ${PW}×)`;
     expect(t2[0]?.title).toBe(
       `Cornelius Snoot (RB): worth 31.2 more lineup pts ${w} to Moonbeam Mudcats (your team) than to his own team. Moonbeam Mudcats (your team) would gain 35.2 with him (after its free-agent pickups); his team would lose 4 without him, 0.7 a week.`,
     );
@@ -1438,17 +1479,17 @@ describe("buildLeagueView: rosters with ROS points (§6 step 7)", () => {
     expect(player("2", "206")).toMatchObject({ group: "ir", injury: { short: "D", long: "Doubtful", tone: "warn" }, lineupCost: null });
   });
 
-  it("shows values, saying what ~ means (an estimate or a flat minimum), and the lineup cost (scenario MV_lose, else expected-value)", () => {
-    expect(player("1", "101").value).toEqual({ text: "7,342", estimated: false, title: "FantasyCalc trade value", srText: null });
-    expect(player("1", "108").value).toMatchObject({ text: "~180", estimated: true, srText: "(our estimate)" });
-    expect(player("1", "MIN").value).toMatchObject({ text: "~107", estimated: true, srText: "(our minimum value)" });
+  it("shows no trade values (planner reply to Checkpoint 7a, 5.4), and the lineup cost (scenario MV_lose, else expected-value)", () => {
+    // Offer Sheet uses FantasyCalc's values in its own numbers but never shows them: no row carries one, FantasyCalc's own,
+    // our estimates and the flat minimum alike (src/lib/fantasyCalcHidden.test.ts guards every page's words).
+    for (const row of [...v.rosters.flatMap((r) => r.players), ...v.freeAgents.flatMap((g) => g.players)]) expect(row).not.toHaveProperty("value");
     expect(player("1", "101").lineupCost).toBe("58.2");
     expect(player("1", "106").lineupCost).toBe("2"); // no scenario value: expected-value lineups
     expect(player("1", "107").lineupCost).toBeNull(); // IR: not in the lineup
   });
 
   it("defines lineup cost in lineup points, with the playoff weighting while playoff weeks count", () => {
-    expect(v.lineupCostTitle).toBe(`Rest-of-season lineup points his team would lose without him, with playoff weeks counted ${config.lineups.playoffWeight}×`);
+    expect(v.lineupCostTitle).toBe(`Rest-of-season lineup points his team would lose without him, with playoff weeks counted ${PW}×`);
     const f = leagueFixture();
     f.model = { ...f.model, weeks: [12, 13, 14], regularWeeks: [12, 13, 14], playoffWeeks: [] };
     expect(of(f).lineupCostTitle).toBe("Rest-of-season lineup points his team would lose without him");
@@ -1549,34 +1590,43 @@ describe("buildLeagueView: the market blend (§6 step 8, PlayerModel.blend; plan
     return f;
   };
 
-  it("shows our projection, the trade market's and the blend used, rounded, in a blended player's breakdown and hover (after his conflict note)", () => {
+  /** How the lean works in a redraft or keeper league (blendText's title), the weight 0.5 and today's clamp. */
+  const HOW = `Per game, his projection moves halfway toward what our model gives healthy players with about the same trade value, at most ${CAP.up} up or ${CAP.down} down. Byes and injuries stay as projected, and every number on this page uses the result.`;
+  /** A line with no number but the clamp's percents: neither the market's number nor ours before the blend (with his ROS shown and the weight, ours gives the market's back). */
+  const noNumbers = (line: { text: string; title: string } | null | undefined) => `${line?.text ?? ""} ${line?.title ?? ""}`.replaceAll(CAP.up, "").replaceAll(CAP.down, "");
+
+  it("says which way the trade market moved a blended player's projection, in words, in his breakdown and hover (after his conflict note), never a number of the market's (planner reply to Checkpoint 7a, 5.4)", () => {
     const view = of(blended(), { now: BEFORE_KICKOFF });
     const rb = view.rosters.find((r) => r.teamId === "1")?.players.find((p) => p.id === "103") as PlayerRow;
-    expect(rb.blend).toEqual({
-      text: "Our projection 210 · Trade market 170 · Used 190",
-      title:
-        "Rest-of-season points. Our projection: our own model's. Trade market: the same games at the points per game our model gives healthy players with his trade value. Used: 50% ours and 50% the market's, which every number on this page uses.",
-    });
+    expect(rb.blend).toEqual({ text: "His projection leans down toward the trade market's view.", title: HOW });
     expect(rb.weeksText.split("\n").slice(0, 2)).toEqual([rb.availabilityNote?.long, rb.blend?.text]);
     // Nobody else was blended, so nobody else has the line.
     expect(view.rosters.flatMap((r) => r.players).filter((p) => p.blend).map((p) => p.id)).toEqual(["103"]);
-    expect(blendText({ ours: 100, market: 140, used: 110, weight: 0.25 }).title).toContain("Used: 75% ours and 25% the market's");
+    // Up; another weight.
+    expect(blendText({ ours: 100, market: 140, used: 120, weight: 0.5 }).text).toBe("His projection leans up toward the trade market's view.");
+    expect(blendText({ ours: 100, market: 140, used: 110, weight: 0.25 }).title).toContain("his projection moves 25% of the way toward what our model gives");
+    // No number of the market's, nor ours before the blend (review of Phase 7b: "Our projection 210 · Trade market 170 · Used 190").
+    expect(noNumbers(rb.blend)).not.toMatch(/\d/);
+    expect(`${rb.blend?.text} ${rb.blend?.title} ${rb.weeksText}`).not.toMatch(/Our projection|Trade market \d|Used \d|\b210\b|\b170\b/);
   });
 
-  it("in a dynasty league, says the trade market is this season's values, not the dynasty values the page shows (review of track A)", () => {
+  it("in a dynasty league, says the blend reads this season's values, not the dynasty values Offer Sheet uses for long-term worth (review of track A)", () => {
     const b = { ours: 100, market: 140, used: 120, weight: 0.5 };
-    expect(blendText(b, "dynasty").title).toContain("healthy players with his trade value this season (FantasyCalc's redraft values).");
-    for (const type of ["redraft", "keeper"] as const) expect(blendText(b, type).title).toContain("healthy players with his trade value. Used:");
+    expect(blendText(b, "dynasty").title).toContain("healthy players with about the same trade value this season (FantasyCalc's redraft values), at most");
+    for (const type of ["redraft", "keeper"] as const) expect(blendText(b, type).title).toBe(HOW);
     const dynasty = blended();
     dynasty.snapshot = { ...dynasty.snapshot, settings: { ...dynasty.snapshot.settings, leagueType: "dynasty" } };
     const view = of(dynasty, { now: BEFORE_KICKOFF });
     expect(view.rosters.find((r) => r.teamId === "1")?.players.find((p) => p.id === "103")?.blend?.title).toBe(blendText(b, "dynasty").title);
-    expect(view.explain.find((e) => e.title === "Projected points")?.text).toContain("with a FantasyCalc trade value this season (its redraft values, not the dynasty values shown here), points per game are pulled halfway");
+    const explained = view.explain.find((e) => e.title === "Projected points")?.text ?? "";
+    expect(explained).toContain("with a FantasyCalc trade value this season (its redraft values, not the dynasty values Offer Sheet uses for long-term worth), points per game are pulled halfway");
+    // The page shows no values (5.4), dynasty ones included.
+    expect(explained).not.toMatch(/shown here|values the page shows/);
   });
 
-  it("says the market has no comparison for a player at the top or bottom of his position's value range, never three equal numbers (review of Phase 4b)", () => {
-    // Blended RBs: Gloop (7,900, the top value: his market number is his own), Snoot (4,200, read off the curve) and
-    // Quibble (2,400, the lowest: his own number too).
+  it("says the market barely moves a player whose printed ROS doesn't change, one at either end of his position's value range among them, never which end (review of Phase 4b; 7b)", () => {
+    // Blended RBs: Gloop (the top value: his market number is his own), Snoot (read off the curve) and Quibble (the lowest:
+    // his own number too); and a player the market moves by under half a point.
     const f = leagueFixture({ gameDay: false });
     const set = (id: string, blend: { ours: number; market: number; used: number; weight: number }) => {
       const pm = f.model.players[id];
@@ -1586,24 +1636,21 @@ describe("buildLeagueView: the market blend (§6 step 8, PlayerModel.blend; plan
     set("202", { ours: 313.2, market: 313.2, used: 313.2, weight: 0.5 });
     set("204", { ours: 150, market: 130, used: 140, weight: 0.5 });
     set("102", { ours: 120.4, market: 120.4, used: 120.4, weight: 0.5 });
+    set("203", { ours: 88.1, market: 88.6, used: 88.35, weight: 0.5 });
     const rows = of(f, { now: BEFORE_KICKOFF }).rosters.flatMap((r) => r.players);
     const row = (id: string) => rows.find((p) => p.id === id)?.blend;
-    expect(row("202")).toEqual({
-      text: "Our projection 313 · Trade market: no comparison (top value at his position) · Used 313",
-      title:
-        "Rest-of-season points. Our projection: our own model's. Trade market: none for him: no other healthy player at his position has a trade value as high as his, so the market can't say more than our projection, which every number on this page uses as it is.",
-    });
-    expect(row("102")?.text).toBe("Our projection 120 · Trade market: no comparison (lowest value at his position) · Used 120");
-    expect(row("102")?.title).toContain("no other healthy player at his position has a trade value as low as his");
-    expect(row("204")?.text).toBe("Our projection 150 · Trade market 130 · Used 140");
-    // The hover's breakdown says the same.
-    expect(rows.find((p) => p.id === "202")?.weeksText).toContain("Trade market: no comparison (top value at his position)");
-    // Which end isn't known (a dynasty league shows other values than the blend reads): said without it.
-    expect(blendText({ ours: 313.2, market: 313.2, used: 313.2, weight: 0.5 }).text).toBe("Our projection 313 · Trade market: no comparison (his value is at the end of his position's range) · Used 313");
+    const BARELY = "The trade market barely moves his projection.";
+    expect(row("202")).toEqual({ text: BARELY, title: HOW });
+    expect(row("102")?.text).toBe(BARELY);
+    expect(row("203")?.text).toBe(BARELY);
+    expect(row("204")?.text).toBe("His projection leans down toward the trade market's view.");
+    expect(rows.find((p) => p.id === "202")?.weeksText).toContain(BARELY);
+    // Never which end of his position's FantasyCalc range he's at (it named FantasyCalc's top player), nor any number.
     const dynasty = { ...f, snapshot: { ...f.snapshot, settings: { ...f.snapshot.settings, leagueType: "dynasty" as const } } };
-    const dynRow = of(dynasty, { now: BEFORE_KICKOFF }).rosters.flatMap((r) => r.players).find((p) => p.id === "202")?.blend;
-    expect(dynRow?.text).toBe("Our projection 313 · Trade market: no comparison (his value is at the end of his position's range) · Used 313");
-    expect(dynRow?.title).toContain("his trade value this season (FantasyCalc's redraft values) is at one end of his position's range");
+    for (const p of [...rows, ...of(dynasty, { now: BEFORE_KICKOFF }).rosters.flatMap((r) => r.players)].filter((x) => x.blend)) {
+      expect(`${p.blend?.text} ${p.blend?.title} ${p.weeksText}`, p.id).not.toMatch(/top value|lowest value|no comparison|end of his position/);
+      expect(noNumbers(p.blend), p.id).not.toMatch(/\d/);
+    }
     // Equal to floating-point precision (another blend weight), and only then.
     expect(blendIsOwnPoint({ ours: 200, market: 200 * (1 + 4e-16) })).toBe(true);
     expect(blendIsOwnPoint({ ours: 200, market: 200.01 })).toBe(false);
@@ -1613,35 +1660,33 @@ describe("buildLeagueView: the market blend (§6 step 8, PlayerModel.blend; plan
   it("says in 'Projected points' which positions were blended, how far (at most config.marketBlend.factorClamp's bounds) and that it is per game; nothing when nobody was", () => {
     const text = (f: LeagueFixture) => of(f, { now: BEFORE_KICKOFF }).explain.find((e) => e.title === "Projected points")?.text ?? "";
     expect(text(blended())).toContain(
-      `Then, for RBs with a FantasyCalc trade value, points per game are pulled halfway toward what our model gives healthy players with about the same trade value, at most ${CAP.up} up or ${CAP.down} down, so a projection the trade market disagrees with counts for less; byes and injuries stay as projected (a player's breakdown shows both numbers).`,
+      `Then, for RBs with a FantasyCalc trade value, points per game are pulled halfway toward what our model gives healthy players with about the same trade value, at most ${CAP.up} up or ${CAP.down} down, so a projection the trade market disagrees with counts for less; byes and injuries stay as projected (a player's breakdown says which way his leans).`,
     );
     expect(text(leagueFixture({ gameDay: false }))).not.toContain("trade market");
   });
 
-  it("says when the market moved a player as far as it may (PlayerBlend.clamped; planner reply to Checkpoint 4b, change 4), worded from config.marketBlend.factorClamp", () => {
+  it("says when the market moved a player as far as it may (PlayerBlend.clamped; planner reply to Checkpoint 4b, change 4), worded from config.marketBlend.factorClamp, never what the blend would have been", () => {
     const [lo, hi] = config.marketBlend.factorClamp;
     // Capped high: ours × hi, where the half-and-half blend would be more.
     const high = { ours: 100, market: 200, used: 100 * hi, weight: 0.5, clamped: "high" as const };
-    expect(blendText(high)).toEqual({
-      text: `Our projection 100 · Trade market 200 · Used ${fmtWhole(100 * hi)} (capped: the market moves him up at most ${CAP.up})`,
-      title: `Rest-of-season points. Our projection: our own model's. Trade market: the same games at the points per game our model gives healthy players with his trade value. Used: 50% ours and 50% the market's would be 150, but the market moves a projection at most ${CAP.up} up and ${CAP.down} down, so his stops at ${CAP.up} above ours, which every number on this page uses.`,
-    });
+    expect(blendText(high)).toEqual({ text: `His projection leans up toward the trade market's view, by the most it can: ${CAP.up}.`, title: HOW });
     const low = { ours: 200, market: 50, used: 200 * lo, weight: 0.5, clamped: "low" as const };
-    expect(blendText(low).text).toBe(`Our projection 200 · Trade market 50 · Used ${fmtWhole(200 * lo)} (capped: the market moves him down at most ${CAP.down})`);
-    expect(blendText(low).title).toContain(`would be 125, but the market moves a projection at most ${CAP.up} up and ${CAP.down} down, so his stops at ${CAP.down} below ours`);
+    expect(blendText(low).text).toBe(`His projection leans down toward the trade market's view, by the most it can: ${CAP.down}.`);
+    // The uncapped blend (150, 125: it gives the market's number back) is never said (review of Phase 7b).
+    for (const b of [high, low]) expect(noNumbers(blendText(b))).not.toMatch(/\d|would be/);
     // The words follow the clamp, never a fixed number.
-    expect(blendText(high, "redraft", null, [0.8, 1.2]).text).toContain("(capped: the market moves him up at most 20%)");
-    expect(blendText(low, "redraft", null, [0.8, 1.2]).title).toContain("at most 20% up and 20% down, so his stops at 20% below ours");
+    expect(blendText(high, "redraft", [0.8, 1.2]).text).toBe("His projection leans up toward the trade market's view, by the most it can: 20%.");
+    expect(blendText(low, "redraft", [0.8, 1.2]).title).toContain("at most 20% up or 20% down.");
     // A factor inside the clamp says nothing about it.
-    expect(blendText({ ours: 210.4, market: 169.6, used: 190, weight: 0.5 }).text).not.toContain("capped");
+    expect(blendText({ ours: 210.4, market: 169.6, used: 190, weight: 0.5 }).text).not.toContain("the most it can");
     // On the page: a capped player's breakdown and his hover.
     const f = blended();
     const pm = f.model.players["103"];
     if (!pm?.blend) throw new Error("fixture blend missing");
     f.model.players["103"] = { ...pm, blend: { ...pm.blend, ours: 150, market: 400, used: 150 * hi, clamped: "high" } };
     const row = of(f, { now: BEFORE_KICKOFF }).rosters.find((r) => r.teamId === "1")?.players.find((p) => p.id === "103");
-    expect(row?.blend?.text).toBe(`Our projection 150 · Trade market 400 · Used ${fmtWhole(150 * hi)} (capped: the market moves him up at most ${CAP.up})`);
-    expect(row?.weeksText).toContain(`(capped: the market moves him up at most ${CAP.up})`);
+    expect(row?.blend?.text).toBe(`His projection leans up toward the trade market's view, by the most it can: ${CAP.up}.`);
+    expect(row?.weeksText).toContain(`by the most it can: ${CAP.up}.`);
   });
 });
 
@@ -1651,7 +1696,7 @@ describe("buildLeagueView: each team's free-agent pickups (§7 V*, TeamModel.faM
     f.model.teams = f.model.teams.map((t) => (t.id === teamId ? { ...t, faMoves } : t));
     return of(f).rosters.find((r) => r.teamId === teamId)?.pickups;
   };
-  const w = `(playoffs count ${config.lineups.playoffWeight}×)`;
+  const w = `(playoffs count ${PW}×)`;
 
   it("lists a team's pickups in order, each with what it adds with injuries and byes simulated, the gain the optimizer picks moves by (weighted like lineup cost, and saying so), and the projected one in its title", () => {
     // Review of Phase 4: the optimizer picks and keeps moves by their gain in scenario lineups when scenarios run, so
@@ -1661,7 +1706,7 @@ describe("buildLeagueView: each team's free-agent pickups (§7 V*, TeamModel.faM
         {
           move: `add ${nameOf("901")} (RB, CAR), drop ${nameOf("108")}`,
           gain: "+3.9 lineup pts",
-          title: `Add ${nameOf("901")} (RB, CAR), drop ${nameOf("108")}: +3.9 lineup pts with injuries and byes simulated (+4.6 on projected lineups), playoffs count ${config.lineups.playoffWeight}×.`,
+          title: `Add ${nameOf("901")} (RB, CAR), drop ${nameOf("108")}: +3.9 lineup pts with injuries and byes simulated (+4.6 on projected lineups), playoffs count ${PW}×.`,
         },
       ],
       summary: "1, +3.9 lineup pts",
@@ -1672,7 +1717,7 @@ describe("buildLeagueView: each team's free-agent pickups (§7 V*, TeamModel.faM
     // Two pickups (no scenarios for this team, so no simulated gain: the projected ones, saying so): into an open spot, then for a bench WR; the summary adds them up.
     expect(roster("3")?.pickups).toMatchObject({
       items: [
-        { move: `add ${nameOf("902")} (RB, NE) into an open spot`, gain: "+3.4 lineup pts", title: `Add ${nameOf("902")} (RB, NE) into an open spot: +3.4 lineup pts on projected lineups, playoffs count ${config.lineups.playoffWeight}×.` },
+        { move: `add ${nameOf("902")} (RB, NE) into an open spot`, gain: "+3.4 lineup pts", title: `Add ${nameOf("902")} (RB, NE) into an open spot: +3.4 lineup pts on projected lineups, playoffs count ${PW}×.` },
         { move: `add ${nameOf("901")} (RB, CAR), drop ${nameOf("305")}`, gain: "+3.1 lineup pts" },
       ],
       summary: "2, +6.5 lineup pts",
@@ -1694,7 +1739,7 @@ describe("buildLeagueView: each team's free-agent pickups (§7 V*, TeamModel.faM
     const limited = leagueFixture();
     limited.snapshot = { ...limited.snapshot, settings: { ...limited.snapshot.settings, starterLimits: { QB: { min: 1, max: 1 } } } };
     expect(ev(limited)).toMatchObject({
-      items: [{ gain: "+4.6 lineup pts", title: `Add ${nameOf("901")} (RB, CAR), drop ${nameOf("108")}: +4.6 lineup pts on projected lineups (+3.9 with injuries and byes simulated), playoffs count ${config.lineups.playoffWeight}×.` }],
+      items: [{ gain: "+4.6 lineup pts", title: `Add ${nameOf("901")} (RB, CAR), drop ${nameOf("108")}: +4.6 lineup pts on projected lineups (+3.9 with injuries and byes simulated), playoffs count ${PW}×.` }],
       summary: "1, +4.6 lineup pts",
     });
     // No scenarios.
@@ -1703,13 +1748,13 @@ describe("buildLeagueView: each team's free-agent pickups (§7 V*, TeamModel.faM
     expect(ev(none)?.items[0]).toEqual({
       move: `add ${nameOf("901")} (RB, CAR), drop ${nameOf("108")}`,
       gain: "+4.6 lineup pts",
-      title: `Add ${nameOf("901")} (RB, CAR), drop ${nameOf("108")}: +4.6 lineup pts on projected lineups, playoffs count ${config.lineups.playoffWeight}×.`,
+      title: `Add ${nameOf("901")} (RB, CAR), drop ${nameOf("108")}: +4.6 lineup pts on projected lineups, playoffs count ${PW}×.`,
     });
   });
 
   it("says one lineup point in the singular", () => {
     expect(withMoves("1", [{ add: "901", drop: "108", gainEv: 1.02, gainScen: 3.5 }])?.items[0]?.title).toBe(
-      `Add ${nameOf("901")} (RB, CAR), drop ${nameOf("108")}: +3.5 lineup pts with injuries and byes simulated (+1 on projected lineups), playoffs count ${config.lineups.playoffWeight}×.`,
+      `Add ${nameOf("901")} (RB, CAR), drop ${nameOf("108")}: +3.5 lineup pts with injuries and byes simulated (+1 on projected lineups), playoffs count ${PW}×.`,
     );
     const f = leagueFixture();
     f.model = { ...f.model, scenarios: 0 };
@@ -1723,7 +1768,7 @@ describe("buildLeagueView: each team's free-agent pickups (§7 V*, TeamModel.faM
     expect(withMoves("3", [{ add: "902", drop: null, gainEv: Number.NaN, gainScen: null }])).toBeNull();
     // A depth pickup: it adds little, even less than nothing, to projected lineups, and more once injuries and byes are simulated.
     expect(withMoves("3", [{ add: "902", drop: null, gainEv: Number.NaN, gainScen: null }, { add: "901", drop: "305", gainEv: -0.4, gainScen: 3.5 }])?.items).toEqual([
-      { move: `add ${nameOf("901")} (RB, CAR), drop ${nameOf("305")}`, gain: "+3.5 lineup pts", title: `Add ${nameOf("901")} (RB, CAR), drop ${nameOf("305")}: +3.5 lineup pts with injuries and byes simulated (−0.4 on projected lineups), playoffs count ${config.lineups.playoffWeight}×.` },
+      { move: `add ${nameOf("901")} (RB, CAR), drop ${nameOf("305")}`, gain: "+3.5 lineup pts", title: `Add ${nameOf("901")} (RB, CAR), drop ${nameOf("305")}: +3.5 lineup pts with injuries and byes simulated (−0.4 on projected lineups), playoffs count ${PW}×.` },
     ]);
   });
 
@@ -2046,19 +2091,45 @@ describe("buildLeagueView: streaming positions (§7; planner reply to Checkpoint
     expect(of(noFlex).explain.find((e) => e.title === "Streaming")?.text).toMatch(/still gets one streamer\.$/);
   });
 
-  it("labels lineup points with the model's playoff weight (the user's setting), not config's", () => {
+  it("labels lineup points with the model's playoff weight (set automatically from my odds), one decimal, and says where it comes from (planner reply to Checkpoint 7a, §6.1)", () => {
+    const ros = (x: ReturnType<typeof of>) => x.explain.find((e) => e.title === "Rest-of-season (ROS) points")?.text ?? "";
     const f = leagueFixture();
     f.model.playoffWeight = 1.5;
+    f.model.playoffWeightAuto = autoWeight(1.5);
     const custom = of(f);
     expect(custom.teams.find((t) => t.id === "2")?.chips[0]?.title).toContain("worth 31.2 more lineup pts (playoffs count 1.5×) to");
     expect(custom.lineupCostTitle).toBe("Rest-of-season lineup points his team would lose without him, with playoff weeks counted 1.5×");
-    expect(custom.explain.find((e) => e.title === "Rest-of-season (ROS) points")?.text).toContain("with playoff weeks counted 1.5× (they decide titles)");
+    expect(ros(custom)).toContain(
+      "with playoff weeks counted 1.5× (set automatically from how much a point in a playoff week moves your odds next to one in a regular-season week), so they don't add up exactly with ROS points.",
+    );
     expect(custom.rosters.find((r) => r.teamId === "1")?.pickups?.weighting).toBe("(playoffs count 1.5×)");
-    // A weight of 1: lineup points are plain projected points, so nothing is labeled.
-    f.model.playoffWeight = 1;
-    const plain = of(f);
-    expect(plain.teams.find((t) => t.id === "2")?.chips[0]?.title).not.toContain("playoffs count");
-    expect(plain.lineupCostTitle).toBe("Rest-of-season lineup points his team would lose without him");
+    // One decimal, as the Settings page prints it (the engine keeps two: config.lineups.playoffWeightAuto.decimals).
+    expect([2, 1.63, 1.25, 0.5, Number.NaN].map(playoffWeightLabel)).toEqual(["2.0", "1.6", "1.3", "0.5", "1.0"]);
+    f.model.playoffWeight = 1.63;
+    f.model.playoffWeightAuto = autoWeight(1.63);
+    expect(of(f).rosters.find((r) => r.teamId === "1")?.pickups?.weighting).toBe("(playoffs count 1.6×)");
+    // Below 1 (a point in a playoff week moves my odds less than one in a regular-season week): labeled the same, and
+    // nothing says playoff weeks matter more.
+    f.model.playoffWeight = 0.6;
+    f.model.playoffWeightAuto = autoWeight(0.6);
+    const low = of(f);
+    expect(low.lineupCostTitle).toBe("Rest-of-season lineup points his team would lose without him, with playoff weeks counted 0.6×");
+    expect(ros(low)).toContain("with playoff weeks counted 0.6× (set automatically from how much a point in a playoff week moves your odds");
+    expect(low.explain.map((e) => e.text).join(" ")).not.toMatch(/decide titles|count more/);
+    // The fallback: config's weight, saying it couldn't be set from my odds.
+    f.model.playoffWeight = config.lineups.playoffWeight;
+    f.model.playoffWeightAuto = autoWeight(config.lineups.playoffWeight, "fallback");
+    expect(ros(of(f))).toContain(`with playoff weeks counted ${PW}× (the default weight: it couldn't be set from your odds this time), so they don't add up exactly with ROS points.`);
+    // A weight that prints 1.0: lineup points are plain projected points, so nothing is labeled.
+    for (const omega of [1, 1.04]) {
+      f.model.playoffWeight = omega;
+      f.model.playoffWeightAuto = autoWeight(omega);
+      const plain = of(f);
+      expect(plain.teams.find((t) => t.id === "2")?.chips[0]?.title).not.toContain("playoffs count");
+      expect(plain.lineupCostTitle).toBe("Rest-of-season lineup points his team would lose without him");
+      expect(ros(plain)).not.toContain("playoff weeks counted");
+      expect(plain.rosters.find((r) => r.teamId === "1")?.pickups?.weighting).toBeNull();
+    }
   });
 });
 
@@ -2070,10 +2141,11 @@ describe("buildLeagueView: free agents", () => {
       ["D/ST", ["SEA", "NYG"]],
     ]);
     const drifter = v.freeAgents[1]?.players[0];
-    expect(drifter).toMatchObject({ nflTeam: "FA", byeText: "bye unknown", value: null, lineupCost: null, group: "fa" });
+    expect(drifter).toMatchObject({ nflTeam: "FA", byeText: "bye unknown", lineupCost: null, group: "fa" });
     expect(drifter?.injury).toEqual({ short: "NA", long: "Not an active NFL player", tone: "muted" });
     expect(drifter?.weeks.every((w) => w.note === "Not an active NFL player")).toBe(true);
-    expect(v.freeAgents[0]?.players[1]?.value).toBeNull();
+    // No trade values on free agents either (planner reply to Checkpoint 7a, 5.4).
+    expect(v.freeAgents.flatMap((g) => g.players).some((p) => "value" in p)).toBe(false);
   });
 });
 
@@ -2116,7 +2188,7 @@ describe("buildLeagueView: how these numbers work", () => {
     expect(text).toContain(`${config.lineups.scenarios} simulated runs of injuries and byes`);
     expect(text).toContain("from week 12 through week 17 (the last playoff week)");
     expect(text).toContain(
-      `Lineup cost and the gains of each team's free-agent pickups (listed on its roster) are in lineup points: starting-lineup points over the rest of the season, with playoff weeks counted ${config.lineups.playoffWeight}× (they decide titles), so they don't add up exactly with ROS points.`,
+      `Lineup cost and the gains of each team's free-agent pickups (listed on its roster) are in lineup points: starting-lineup points over the rest of the season, with playoff weeks counted ${PW}×, so they don't add up exactly with ROS points.`,
     );
     expect(text).toContain("Lineup cost is how many his team would lose without him, after its free-agent pickups (it would pick up a free agent in his place when that helps); it's never negative.");
     // The free-agent optimizer (§7 V*) with config's numbers: kickers and D/STs never, the guard only in dynasty and keeper leagues.
@@ -2302,24 +2374,29 @@ describe("buildLeagueView: how these numbers work", () => {
     expect(text((f) => (f.model.odds = null))).toBe("");
   });
 
-  it("says how unvalued players got their values: an estimate from projected points, and a flat minimum where FantasyCalc values too few (K, D/ST)", () => {
+  it("says how unvalued players got their values, without an amount: an estimate from projected points, and a flat minimum where FantasyCalc values too few (K, D/ST) (planner reply to Checkpoint 7a, 5.4: no value shows)", () => {
     const valuesText = (edit: (f: LeagueFixture) => void) => {
       const f = leagueFixture();
       f.model.market = { ...f.model.market, format: { isDynasty: false, numQbs: 1, numTeams: 8, ppr: 0.5, substitutions: [] } };
       edit(f);
       return of(f).explain.find((e) => e.title === "Trade values")?.text;
     };
-    const intro = "Values come from FantasyCalc in your league's format (8 teams · half-PPR · 1 QB · redraft).";
+    const intro = `Trade values come from FantasyCalc in your league's format (8 teams · half-PPR · 1 QB · redraft). ${VALUES_HIDDEN_TEXT}`;
+    expect(VALUES_HIDDEN_TEXT).toBe(
+      "Offer Sheet uses them in its own numbers (the chance a manager accepts a trade, Helps you, and how far projections lean toward the trade market) but never shows them.",
+    );
     const estimate = "Players FantasyCalc doesn't value (it skips deep bench players) get our estimate from their projected points";
-    const floor = "At K and D/ST, FantasyCalc values too few players to estimate from, so those without a FantasyCalc value get a flat minimum value (~107), whatever they project";
-    expect(valuesText(() => {})).toBe(`${intro} ${estimate}. ${floor}. Both are marked ~.`);
+    const floor = "At K and D/ST, FantasyCalc values too few players to estimate from, so those without a FantasyCalc value get a flat minimum value, whatever they project";
+    expect(valuesText(() => {})).toBe(`${intro} ${estimate}. ${floor}.`);
+    // Nothing marked "~" any more, and no amount quoted.
+    expect(valuesText(() => {})).not.toMatch(/~|107/);
     const only = (source: "estimate" | "floor") => (f: LeagueFixture) => {
       for (const pm of Object.values(f.model.players)) if (pm.value && pm.value.source !== source) pm.value = { ...pm.value, source: "fantasycalc" };
     };
-    expect(valuesText(only("estimate"))).toBe(`${intro} ${estimate}, marked ~.`);
-    expect(valuesText(only("floor"))).toBe(`${intro} ${floor}, marked ~.`);
+    expect(valuesText(only("estimate"))).toBe(`${intro} ${estimate}.`);
+    expect(valuesText(only("floor"))).toBe(`${intro} ${floor}.`);
     expect(valuesText(only("fantasycalc" as never))).toBe(intro);
-    // Different minimums at different positions: no single amount to quote.
+    // Different minimums at different positions: the same words.
     expect(
       valuesText((f) => {
         const k = f.model.players["904"];
@@ -2357,11 +2434,12 @@ describe("buildLeagueView: FantasyCalc's fallbacks (planner reply to Checkpoint 
     expect(saved.valuesBanner).toBeNull();
     expect(saved.notes).toEqual(["Sleeper hasn't published week 18 projections yet."]);
     expect(saved.explain.find((e) => e.title === "Trade values")?.text).toContain(
-      "Values come from FantasyCalc in your league's format (8 teams · half-PPR · 1 QB · redraft), from its list of Nov 22: FantasyCalc didn't answer this time, so the newest list we saved stands in.",
+      `Trade values come from FantasyCalc in your league's format (8 teams · half-PPR · 1 QB · redraft), from its list of Nov 22: FantasyCalc didn't answer this time, so the newest list we saved stands in. ${VALUES_HIDDEN_TEXT}`,
     );
-    // FantasyCalc's own values: no "~" on them, and their hover says so.
+    // Its values aren't shown either (planner reply to Checkpoint 7a, 5.4).
     const quibble = saved.rosters.find((r) => r.teamId === "1")?.players.find((p) => p.id === "102");
-    expect(quibble?.value).toMatchObject({ text: "2,400", estimated: false, title: "FantasyCalc trade value" });
+    expect(quibble).toBeDefined();
+    expect(quibble).not.toHaveProperty("value");
   });
 
   it("puts a banner at the top when every value is our own estimate (the curve), in place of the inputs' warning, and says so where the values show", () => {
@@ -2370,17 +2448,19 @@ describe("buildLeagueView: FantasyCalc's fallbacks (planner reply to Checkpoint 
     expect(VALUES_ESTIMATED_TITLE).toBe("FantasyCalc is unavailable");
     expect(curve.valuesBanner?.text).toContain("Trade values are our own estimates, not FantasyCalc's");
     // Said once: not in the warnings box too.
-    expect(curve.warnings).toEqual(["Sleeper's week 17 projections didn't load.", "No projection for Dabney Drifter."]);
+    expect(curve.notices).toEqual(["Sleeper's projections for week 17 didn't load, so that week skips the matchup adjustment. Refresh later to try again.", "No projection for Dabney Drifter."]);
     expect(curve.header.valuesNote).toBe(VALUES_ESTIMATED_LINE);
-    expect(VALUES_ESTIMATED_LINE).toBe("Every value shown is our own estimate for now.");
-    // An estimate's hover no longer says FantasyCalc doesn't value him; "~" marks every one.
+    expect(VALUES_ESTIMATED_LINE).toBe("Trade values are our own estimates for now.");
+    // No value shows, our estimates included (planner reply to Checkpoint 7a, 5.4).
     const quibble = curve.rosters.find((r) => r.teamId === "1")?.players.find((p) => p.id === "102");
-    expect(quibble?.value).toEqual({ text: "~2,400", estimated: true, title: "Our estimate from his projected points (FantasyCalc's values aren't available right now)", srText: "(our estimate)" });
+    expect(quibble).toBeDefined();
+    expect(quibble).not.toHaveProperty("value");
     // The explainer: every value ours, never "Players FantasyCalc doesn't value"; the flat minimum where the old list values too few.
     const values = curve.explain.find((e) => e.title === "Trade values")?.text ?? "";
     expect(values).toBe(
-      "Every value is our own estimate for now (the note at the top of the page says why), in your league's format (8 teams · half-PPR · 1 QB · redraft): each player's comes from his projected points for the rest of the season, on a curve fitted to FantasyCalc's list from Nov 2, marked ~. Where your league doesn't match one of FantasyCalc's formats exactly: 4 teams → FantasyCalc's 8-team values. At K and D/ST, FantasyCalc's list values too few players to fit a curve, so each gets a flat minimum value (~107), whatever he projects, also marked ~.",
+      `Every trade value is our own estimate for now (the note at the top of the page says why), in your league's format (8 teams · half-PPR · 1 QB · redraft): each player's comes from his projected points for the rest of the season, on a curve fitted to FantasyCalc's list from Nov 2. ${VALUES_HIDDEN_ESTIMATED_TEXT} Where your league doesn't match one of FantasyCalc's formats exactly: 4 teams → FantasyCalc's 8-team values. At K and D/ST, FantasyCalc's list values too few players to fit a curve, so each gets a flat minimum value, whatever he projects.`,
     );
+    expect(VALUES_HIDDEN_ESTIMATED_TEXT).toBe("Offer Sheet uses them in the chance a manager accepts a trade but never shows them.");
     expect(values).not.toContain("doesn't value");
     // Nothing is pulled toward the market meanwhile, and the explainer says so.
     expect(curve.explain.find((e) => e.title === "Projected points")?.text).toContain("While FantasyCalc is unavailable, projections aren't pulled toward the trade market: the values are our own estimates.");
@@ -2408,7 +2488,7 @@ describe("buildLeagueView: FantasyCalc's fallbacks (planner reply to Checkpoint 
     f.inputs = { ...f.inputs, warnings: [...f.inputs.warnings, { code: "FANTASYCALC_VALUES_ESTIMATED", message: "(the server's words)" }] };
     const warned = of(f);
     expect(warned.valuesBanner).toEqual({ title: VALUES_ESTIMATED_TITLE, text: "(the server's words)" });
-    expect(warned.warnings).not.toContain("(the server's words)");
+    expect(warned.notices).not.toContain("(the server's words)");
     expect(warned.header.valuesNote).toBe(VALUES_ESTIMATED_LINE);
     expect(v.valuesBanner).toBeNull();
     expect(v.header.valuesNote).toBeNull();

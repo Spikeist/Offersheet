@@ -17,7 +17,8 @@
  * is under 10 minutes old) and names this league, the numbers are built from it without reading the league again, and the answer
  * is { model, signedImport: true } (the browser has the import). Otherwise (an import saved before signing, another
  * server secret, an import changed in the browser) the league is read again as above, and the answer carries the new,
- * signed import. A gzip body that can't be read at all answers BAD_UPLOAD (the browser then sends the JSON body).
+ * signed import. A gzip body that can't be read at all answers BAD_UPLOAD (the browser then sends the JSON body); one whose
+ * unpacked size the day's work budget refuses answers BUSY (B4 security review: src/app/api/_lib/upload.ts).
  *
  * The final review's limits on this work (SEC-1, F1, F3): an answer built from a signed import is kept in this instance's
  * memory until the token stops being good (../memo.ts), so the same signed import posted again is answered without a new
@@ -26,6 +27,10 @@
  * first (refused: BUSY, nothing built); and the signed path's build gets only what it reads of the player-ID crosswalk,
  * the NFL team codes (getModelDeps: src/app/api/_lib/deps.ts getModelOnlyDeps), not the whole crosswalk a cold instance
  * would otherwise build from 1.4 MB of the shared cache.
+ *
+ * At most limits.modelBuildLimits.concurrent builds run at once on an instance (Checkpoint 7b load test, risk 3:
+ * src/server/buildSlots.ts): a build waits for a slot in the order its request arrived, and one that finds none free in
+ * time answers BUSY ("Offer Sheet is busy right now. Try again in a minute."). A remembered answer needs no slot.
  *
  * ESPN cookies never travel in this request: they come from the sealed session cookie (or, in
  * development only, with USE_ENV_COOKIES=1, from .env.local for Parker's own league) and go only to
@@ -40,12 +45,13 @@ import type { LeagueSnapshot, Platform } from "@/engine/model";
 import type { ModelResponse, SignedModelResponse } from "@/lib/api";
 import { isPlausibleSeason, seasonRangeMessage } from "@/lib/season";
 import { chargeWork, modelBuildExtraUnits, type QuotaVerdict } from "@/server/budget";
+import { modelBuildSlots, type BuildSlots } from "@/server/buildSlots";
 import { importDigest, signatureProblem, signImport, type ImportSignature, type SignedContent } from "@/server/importToken";
 import { browserFetchLimits, workLimits } from "@/server/limits";
 import type { BuildModelInputsArgs } from "@/server/modelInputs";
 import type { CredentialSource, EspnCredentials } from "@/server/session";
 import type { ModelDeps } from "../../_lib/deps";
-import { errorResponse, importErrorResponse, isSameOrigin, jsonResponse, jsonTextResponse, logUnexpected, readJsonBody, scrubSwids, workRefusedResponse } from "../../_lib/respond";
+import { buildsBusyResponse, errorResponse, importErrorResponse, isSameOrigin, jsonResponse, jsonTextResponse, logUnexpected, readJsonBody, scrubSwids, unreadUploadResponse, workRefusedResponse } from "../../_lib/respond";
 import { espnModelBodySchema } from "../../_lib/schemas";
 import { isGzipRequest, modelWorkOf, readSignedModelUpload } from "../../_lib/upload";
 import { recordFormatsInUse } from "../../cron/snapshot/formats";
@@ -67,6 +73,8 @@ export interface EspnModelHandlerDeps {
   /** The answers already built (../memo.ts; default the process's) and the work budget's extra charge (test hooks). */
   memo?: ModelMemo;
   chargeWork?: (units: number) => Promise<QuotaVerdict>;
+  /** The instance's build slots (src/server/buildSlots.ts; default the process's; a test hook). */
+  slots?: BuildSlots;
   now?: () => Date;
 }
 
@@ -84,15 +92,23 @@ export function createEspnModelHandler(d: EspnModelHandlerDeps): (request: Reque
   const verify = d.verify ?? ((platform: Platform, contentDigest: string, signature: ImportSignature) => signatureProblem(platform, contentDigest, signature));
   const charge = d.chargeWork ?? ((units: number) => chargeWork(units));
   const memo = (): ModelMemo => d.memo ?? modelMemo();
+  const slots = (): BuildSlots => d.slots ?? modelBuildSlots();
 
-  /** The model inputs for a snapshot; a builder that throws is a bug on our side (INTERNAL, logged by name). */
+  /**
+   * The model inputs for a snapshot, built in one of the instance's build slots (the header; none free in time: BUSY); a
+   * builder that throws is a bug on our side (INTERNAL, logged by name).
+   */
   async function build(snapshot: LeagueSnapshot, espn: EspnProjections | undefined, deps: ModelDeps): Promise<ModelInputs | Response> {
+    const release = await slots().acquire();
+    if (!release) return buildsBusyResponse();
     try {
       // The FantasyCalc formats it read, for the daily snapshot cron (../../cron/snapshot/formats.ts; after the answer).
       return recordFormatsInUse(snapshot.settings, await d.buildInputs({ snapshot, http: deps.http, resolver: deps.resolver, now: deps.now, ...(espn ? { espn } : {}) }));
     } catch (err) {
       logUnexpected("model_inputs", err, "espn");
       return errorResponse("INTERNAL");
+    } finally {
+      release();
     }
   }
 
@@ -138,8 +154,9 @@ export function createEspnModelHandler(d: EspnModelHandlerDeps): (request: Reque
 
   /** A saved import with its signature (the header's Part B paragraph). */
   async function fromSignedImport(request: Request): Promise<Response> {
-    const read = await readSignedModelUpload(request, "espn");
-    if (!read.ok) return errorResponse("BAD_UPLOAD");
+    // Its unpacked size paid for first (B4 security review): refused, BUSY; unusable, BAD_UPLOAD.
+    const read = await readSignedModelUpload(request, "espn", { charge });
+    if (!read.ok) return unreadUploadResponse(read);
     const body = read.value;
     const now = d.now?.() ?? new Date();
     if (!isPlausibleSeason(body.season, now)) return errorResponse("INVALID_REQUEST", seasonRangeMessage(now));

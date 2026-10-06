@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkEspnCredentials, normalizeEspnS2, normalizeSwid } from "./espnCredentials";
+import { ESPN_S2_MAX_LENGTH, checkEspnCredentials, normalizeEspnS2, normalizeSwid } from "./espnCredentials";
 
 // Obviously fake values: an all-zero GUID and a made-up token.
 const FAKE_SWID = "{00000000-0000-4000-8000-000000000000}";
@@ -20,6 +20,15 @@ describe("normalizeEspnS2", () => {
     expect(normalizeEspnS2("tooShort")).toBeUndefined();
     expect(normalizeEspnS2(`${FAKE_S2}; SWID=${FAKE_SWID}`)).toBeUndefined();
     expect(normalizeEspnS2(`${FAKE_S2} extra`)).toBeUndefined();
+  });
+
+  it("accepts nothing longer than the sealed session cookie can hold (B4 security review: 2,000, not 4,000)", () => {
+    expect(ESPN_S2_MAX_LENGTH).toBe(2_000);
+    const longest = `AEB${"x".repeat(ESPN_S2_MAX_LENGTH - 3)}`;
+    expect(normalizeEspnS2(longest)).toBe(longest);
+    expect(normalizeEspnS2(`${longest}x`)).toBeUndefined();
+    // What a value too long used to reach (a 500 on save): now the same "doesn't look right" as any other bad value.
+    expect(checkEspnCredentials({ espnS2: "A".repeat(3_000), swid: FAKE_SWID })).toMatchObject({ ok: false, field: "espnS2" });
   });
 });
 

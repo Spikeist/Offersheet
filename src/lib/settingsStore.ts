@@ -132,7 +132,8 @@ export function resetLeagueSettings(storage: StorageLike, key: string): SaveResu
  * The settings the League model reads (src/engine/league.ts buildLeagueModel, through modelSettings): the
  * positions my team streams and, since the planner's reply to Checkpoint 7a (§6.1), the goal ("What matters most"),
  * which the automatic playoff-week weight weighs my odds by (league.ts step 5c). The manual playoff weight left the list
- * then: the engine no longer reads it. The others (Win now ↔ Future, players per side, untouchables, must-include
+ * then, and the settings with it (src/engine/settings.ts: a copy stored before still loads, without it). The others (Win
+ * now ↔ Future, players per side, untouchables, must-include
  * players, positions to target or avoid, what else trade ideas include) are the trade search's alone, so changing one of
  * them doesn't compute the League page's model again (it would come out the same, after a dimmed "Updating the
  * numbers…"); the engine worker keys its cached trade context by these too (engine.worker.ts contextKey), so a new goal

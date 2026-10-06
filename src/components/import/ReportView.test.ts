@@ -117,6 +117,24 @@ describe("ReportView", () => {
     expect(html).not.toContain("No trade deadline");
   });
 
+  it("puts a plain 'our reading' line under an ESPN setting read with a caveat (a review of Phase 7b)", () => {
+    // The made-up league's commissioner review is ESPN's inferred reading; so are 2 byes and a head-to-head tiebreaker.
+    const html = render({ snapshot: snapshot({}, { playoffByes: 2, seedingTiebreaker: "headToHead" }), notes: [] });
+    expect(html).toMatch(/<dt[^>]*>Review<\/dt><dd[^>]*>The commissioner reviews trades<span class="[^"]*text-muted[^"]*">Our reading: ESPN reports a review period but no veto votes\.<\/span><\/dd>/);
+    expect(html).toMatch(/<dt[^>]*>Byes<\/dt><dd[^>]*>2 byes for the top seeds<span[^>]*>Worked out from the bracket: ESPN doesn&#x27;t list byes\.<\/span><\/dd>/);
+    expect(html).toMatch(/<dt[^>]*>Ties in the standings<\/dt><dd[^>]*>Head-to-head record<span[^>]*>Our reading of ESPN&#x27;s setting: not yet checked on a league like yours\.<\/span><\/dd>/);
+    // A setting read as reported has none.
+    expect(render({ snapshot: snapshot({}, { tradeReview: "league_vote" }), notes: [] })).toMatch(/<dt[^>]*>Review<\/dt><dd[^>]*>League vote: managers can veto trades<\/dd>/);
+  });
+
+  it("says a schedule gap once, as a notice, not again under the Season card (a review of Phase 7b)", () => {
+    // No matchups at all: no game left to play, so no odds.
+    const html = render({ snapshot: snapshot(), notes: [] });
+    expect(html).toContain("Your league&#x27;s schedule is missing the rest of the regular season, so there are no playoff odds for now.");
+    expect(html).not.toContain("No matchups found");
+    expect(html.slice(html.indexOf('<details id="technical-details"'))).toContain("No matchups in the league&#x27;s schedule for weeks 1–14 of the regular season.");
+  });
+
   it("says how ties in the standings are broken, in the warn tone when unknown, and which weeks have final scores (§8)", () => {
     const known = render({ snapshot: snapshot({ schedule: [{ week: 1, teamA: "1", teamB: "3", isPlayoff: false, result: { pointsA: 101.5, pointsB: 99, winnerId: "1" } }] }, { seedingTiebreaker: "pointsFor" }), notes: [] });
     expect(known).toMatch(/<dt[^>]*>Ties in the standings<\/dt><dd class="(?![^"]*text-warn-fg)[^"]*">Points for<\/dd>/);
@@ -149,6 +167,58 @@ describe("ReportView", () => {
     expect(html).toMatch(/<dt[^>]*>Waiver order used<\/dt><dd[^>]*>[^<]*<\/dd><\/div><div[^>]*><dt[^>]*>Inactive teams<\/dt><dd[^>]*><ul[^>]*><li>Quasar Quokkas: inactive, no pickups assumed\.<\/li><\/ul><p[^>]*>No transactions this season, so we assume it makes no free-agent pickups\.<\/p><\/dd>/);
     // Nobody inactive: the row says why, as plain text (a league without any transaction can't tell its teams apart).
     expect(render({ snapshot: snapshot(), notes: [] })).toMatch(/<dt[^>]*>Inactive teams<\/dt><dd[^>]*>None assumed: this league shows no transactions this season, so every team is assumed to make its free-agent pickups\.<\/dd>/);
+  });
+
+  describe("notices and technical details (planner reply to Checkpoint 7a, §5.1)", () => {
+    const technical = (html: string) => html.slice(html.indexOf('<details id="technical-details"'));
+    const beforeTechnical = (html: string) => html.slice(0, html.indexOf('<details id="technical-details"'));
+    // Parker's two rare rules, as his ESPN import warns about them, plus a free agent matched by name.
+    const parkerLike = snapshot(
+      {
+        warnings: [
+          { code: "ESPN_SCORING_UNMAPPED", message: "ESPN scoring rule “1pt Safety” (1 pts) isn't counted: 1-point safeties have no canonical stat.", platformPath: "settings.scoringSettings.scoringItems[4] (statId 209)" },
+          { code: "ESPN_SCORING_UNMAPPED", message: "ESPN scoring rule “Blocked Punt or FG return for TD” (6 pts) isn't counted: blocked punt or field-goal return TDs have no canonical stat.", platformPath: "settings.scoringSettings.scoringItems[8] (statId 93)" },
+          { code: "ESPN_PLAYER_MATCHED_BY_NAME", message: "1 player isn't in any player ID source, so we matched him to the only active player with the same name, position and NFL team. Free agents: Trey Zorblax (K, GB).", platformPath: "player.id", players: ["777"] },
+        ],
+        players: { "777": { id: "777", name: "Trey Zorblax", pos: "K", eligible: ["K"], nflTeam: "GB", injury: "ACTIVE", ids: {} } },
+        freeAgents: ["777"],
+        schedule: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14].map((week) => ({ week, teamA: "1", teamB: "3", isPlayoff: false })),
+      },
+      {
+        scoring: {
+          ...settings.scoring,
+          unmapped: [
+            { platformKey: "209", label: "1pt Safety", points: 1, scoredThisSeason: false },
+            { platformKey: "93", label: "Blocked Punt or FG return for TD", points: 6, scoredThisSeason: false },
+          ],
+        },
+      },
+    );
+
+    it("shows no code, path, stat ID or ID-matching talk outside the collapsed technical details at the very bottom, and the rare rules as a quiet line", () => {
+      const html = render({ snapshot: parkerLike, notes: ["Trades rebuilt from the rosters: …"] });
+      expect(beforeTechnical(html)).not.toMatch(/ESPN_[A-Z_]+|statId|scoringItems|player ID|matched him|Trades rebuilt/);
+      expect(html).toContain("Two rare rules aren&#x27;t counted: 1-point safeties and blocked-kick return touchdowns. They almost never happen.");
+      expect(html).not.toContain('id="notices"');
+      // The tile says there's nothing to check, and links nowhere.
+      expect(html).toMatch(/<div class="[^"]*"><p class="[^"]*">Notices<\/p><p class="[^"]*">None<\/p><\/div>/);
+      const details = technical(html);
+      expect(details).toMatch(/^<details id="technical-details" class="[^"]*"><summary[^>]*>Technical details \(for bug reports\)/);
+      expect(details).not.toMatch(/<details[^>]* open/);
+      expect(details).toContain("ESPN_SCORING_UNMAPPED · settings.scoringSettings.scoringItems[4] (statId 209)");
+      expect(details).toContain("ESPN_PLAYER_MATCHED_BY_NAME · player.id");
+      expect(details).toContain("Trades rebuilt from the rosters: …");
+      expect(details).toContain("ESPN statId 93");
+      expect(details.endsWith("</details></div>")).toBe(true);
+    });
+
+    it("lists the notices right under the tiles, the tile linking to them", () => {
+      const warnings = [...parkerLike.warnings, { code: "TRADES_DISABLED", message: "Trading is turned off in this league, so no trade can go through.", platformPath: "settings.disable_trades" }];
+      const html = render({ snapshot: { ...parkerLike, warnings }, notes: [] });
+      expect(html).toMatch(/<a href="#notices"[^>]*><p[^>]*>Notices<\/p><p[^>]*>1 notice<\/p><\/a>/);
+      expect(html).toMatch(/<section id="notices"[^>]*><div[^>]*><div[^>]*><p[^>]*>Notices<\/p><h2[^>]*>Things to know<\/h2><\/div><\/div><ul[^>]*><li>Trading is turned off in your league, so no trade can go through\.<\/li><\/ul><\/section>/);
+      expect(html.indexOf('id="notices"')).toBeLessThan(html.indexOf('id="your-team"'));
+    });
   });
 
   it("lists a per-unit rate on a sum of stats with the other rates", () => {

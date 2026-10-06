@@ -78,6 +78,45 @@ describe("cross-instance single-flight (HttpClientOptions.lock)", () => {
     expect(await b.get("https://example.invalid/projections/4", PUBLIC)).toMatchObject({ json: { v: "fresh" }, fromCache: true });
   });
 
+  it("a waiter finds the holder's copy even when its read joins one sent before the holder's write: one fetch (review of the Checkpoint 7b load-test fixes, finding 2)", async () => {
+    const redis = new FakeRedis();
+    // Instance b's view of the store: an entry's GET runs when it's sent (as Redis orders commands) but answers 250 ms later
+    // while `slow` is on (a slow Upstash answer, or one waiting behind other work on the instance).
+    const slow = { on: false };
+    const viewB: RedisLike = Object.assign(Object.create(redis) as RedisLike, {
+      async get(key: string) {
+        const value = await redis.get(key);
+        if (slow.on && key.includes(":c:")) await tick(250);
+        return value;
+      },
+    });
+    let fetches = 0;
+    const fetchImpl = (async () => {
+      fetches++;
+      await tick(100);
+      return new Response('{"v":1}', { status: 200, headers: { "content-type": "application/json" } });
+    }) as unknown as typeof fetch;
+    const on = (r: RedisLike) =>
+      createHttpClient({ fetchImpl, budget: null, maxRetries: 0, cache: new TieredCache(new MemoryLruCache(), new RedisCache(r, { env: ENV })), lock: new RedisCacheLock(r, { env: ENV, pollMs: 20, waitMs: 3_000 }) });
+    const a = on(redis);
+    const b = on(viewB);
+    const url = "https://example.invalid/projections/4";
+    const holder = a.get(url, PUBLIC); // takes the lock; its fetch answers at about 100 ms, then it writes and releases
+    await tick(10);
+    const waiter = b.get(url, PUBLIC); // misses, finds the lock taken, polls it every 20 ms
+    await tick(70);
+    slow.on = true; // another request on b reads the entry: its GET goes now (nothing there yet) and answers at about 330 ms
+    const arrival = b.get(url, PUBLIC);
+    await tick(5);
+    slow.on = false;
+    const res = await Promise.all([holder, waiter, arrival]);
+    expect(res.map((r) => r.status)).toEqual([200, 200, 200]);
+    // The waiter's look for the holder's copy joined the arrival's read, sent before the write; it read once more, found the
+    // copy, and the arrival joined the waiter's fetch: the source was asked once, the lock's point.
+    expect(fetches).toBe(1);
+    expect(res[1]).toMatchObject({ fromCache: true, json: { v: 1 } });
+  });
+
   it("a holder whose answer can't be cached (a 404) frees the waiter at once: it asks for itself, without waiting out the lock", async () => {
     const redis = new FakeRedis();
     const f = heldFetch(404, "null");

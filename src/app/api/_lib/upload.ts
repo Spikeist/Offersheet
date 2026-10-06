@@ -10,6 +10,10 @@
  *   (zod, strict: an unknown field is refused), a league upload's parts only the league-data reads a browser makes, each
  *   once (uploadPartsProblem). Anything wrong is BAD_UPLOAD, which the browser answers by asking the server to read the
  *   league itself (src/lib/leagueFetch.ts), so a user never sees it.
+ * - Once unpacked, a body pays for its unpacked size too (B4 security review; src/server/budget.ts unpackedExtraUnits,
+ *   limits.workLimits.unpackedUnitBytes), before anything reads it: withRoute charged it by its compressed size on arrival,
+ *   and repetitive JSON compresses without bound. Refused (`refused`: the limit), the route answers BUSY as for any day's
+ *   work (respond.ts workRefusedResponse), never BAD_UPLOAD (the browser would then ask the server to read the league).
  * - An import upload's ESPN text has its SWIDs pseudonymized before it's parsed (src/adapters/espn/swid.ts), as the
  *   server's own read does (the browser already did; this is the server's guarantee).
  * - Nothing here logs or keeps a body: what the browser sends serves that one request and is never cached (a forged copy
@@ -25,6 +29,7 @@ import { mapSleeperScoring } from "@/adapters/sleeper/scoringMap";
 import { UPLOAD_VERSION, isLeagueDataRead, uploadShapeProblem, uploadTimesProblem, type LeagueUpload, type UploadPart } from "@/adapters/upload";
 import type { LeagueSnapshot } from "@/engine/model";
 import { SLEEPER_USERNAME_INVALID, normalizeSleeperUsername } from "@/lib/sleeperInput";
+import { chargeWork, unpackedExtraUnits, type QuotaLimit, type QuotaVerdict } from "@/server/budget";
 import { browserFetchLimits, signedUploadLimits, uploadLimits, uploadShapeLimits } from "@/server/limits";
 import { relevantPlayerIds } from "@/server/modelInputs";
 
@@ -36,7 +41,13 @@ export function isGzipRequest(request: Request): boolean {
   return type === "application/gzip" || type === "application/x-gzip";
 }
 
-export type UploadRead<T> = { ok: true; value: T } | { ok: false; why: string };
+/** A body read, or why it can't be used; `refused`: the daily work budget's limit that refused its unpacked size (see the header). */
+export type UploadRead<T> = { ok: true; value: T } | { ok: false; why: string; refused?: QuotaLimit };
+
+export interface UploadReadOptions {
+  /** Charges the current request's work (default src/server/budget.ts chargeWork: on Vercel only; a test hook). */
+  charge?: (units: number) => QuotaVerdict | Promise<QuotaVerdict>;
+}
 
 /** The body's bytes, or null as soon as they pass `max` (never buffers more than that). */
 async function readBytesCapped(request: Request, max: number): Promise<Uint8Array | null> {
@@ -65,8 +76,8 @@ async function readBytesCapped(request: Request, max: number): Promise<Uint8Arra
   return bytes;
 }
 
-/** A gzip body unpacked to text within the caps (see the header). */
-export async function readGzipText(request: Request, limits: { compressedBytes: number; unpackedBytes: number } = uploadLimits): Promise<UploadRead<string>> {
+/** A gzip body unpacked to text within the caps, its unpacked size paid for (see the header). */
+export async function readGzipText(request: Request, limits: { compressedBytes: number; unpackedBytes: number } = uploadLimits, opts: UploadReadOptions = {}): Promise<UploadRead<string>> {
   if (!isGzipRequest(request)) return { ok: false, why: "not gzip" };
   let packed: Uint8Array | null;
   try {
@@ -80,6 +91,12 @@ export async function readGzipText(request: Request, limits: { compressedBytes: 
     unpacked = await gunzipAsync(packed, { maxOutputLength: limits.unpackedBytes });
   } catch {
     return { ok: false, why: "not gzip, or too large unpacked" };
+  }
+  // What the unpacked text costs past what the compressed body paid on arrival, before anything reads it (the header).
+  const extra = unpackedExtraUnits(request, limits.compressedBytes, unpacked.byteLength);
+  if (extra > 0) {
+    const verdict = await (opts.charge ?? ((units: number) => chargeWork(units)))(extra);
+    if (verdict !== "ok") return { ok: false, why: "past the day's work", refused: verdict };
   }
   try {
     return { ok: true, value: new TextDecoder("utf-8", { fatal: true }).decode(unpacked) };
@@ -160,12 +177,13 @@ export function uploadPartsProblem(parts: readonly Pick<UploadPart, "url" | "fil
 }
 
 /**
- * A league upload posted to an import route (see the header): unpacked, its ESPN SWIDs pseudonymized, parsed and checked
- * (its shape, the platform's own league-data addresses, each once, every part at most browserFetchLimits.maxPartAgeMs
- * older than the upload, and no more in it than a real league holds: uploadShapeLimits, review BF-R1).
+ * A league upload posted to an import route (see the header): unpacked and its unpacked size paid for, its ESPN SWIDs
+ * pseudonymized, parsed and checked (its shape, the platform's own league-data addresses, each once, every part at most
+ * browserFetchLimits.maxPartAgeMs older than the upload, and no more in it than a real league holds: uploadShapeLimits,
+ * review BF-R1).
  */
-export async function readLeagueUpload(request: Request, platform: "espn" | "sleeper"): Promise<UploadRead<LeagueUpload>> {
-  const text = await readGzipText(request);
+export async function readLeagueUpload(request: Request, platform: "espn" | "sleeper", opts: UploadReadOptions = {}): Promise<UploadRead<LeagueUpload>> {
+  const text = await readGzipText(request, uploadLimits, opts);
   if (!text.ok) return text;
   const json = parseJsonText(platform === "espn" ? pseudonymizeSwids(text.value) : text.value);
   if (json === undefined) return { ok: false, why: "not JSON" };
@@ -247,11 +265,11 @@ const sleeperSignedSchema = z.strictObject({ ...signedImportShape, leagueId: sle
 
 /**
  * A model route's gzip body (see the header), within its own caps (signedUploadLimits; final review SEC-1: checking the
- * signature hashes the whole snapshot). The import comes back as it was parsed, not as zod copied it, so its signature is
- * checked on exactly what the browser sent (src/server/importToken.ts).
+ * signature hashes the whole snapshot) and its unpacked size paid for. The import comes back as it was parsed, not as zod
+ * copied it, so its signature is checked on exactly what the browser sent (src/server/importToken.ts).
  */
-export async function readSignedModelUpload(request: Request, platform: "espn" | "sleeper"): Promise<UploadRead<SignedModelUpload>> {
-  const text = await readGzipText(request, signedUploadLimits);
+export async function readSignedModelUpload(request: Request, platform: "espn" | "sleeper", opts: UploadReadOptions = {}): Promise<UploadRead<SignedModelUpload>> {
+  const text = await readGzipText(request, signedUploadLimits, opts);
   if (!text.ok) return text;
   const json = parseJsonText(text.value);
   if (json === undefined) return { ok: false, why: "not JSON" };

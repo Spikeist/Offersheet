@@ -73,7 +73,7 @@ describe("usage counters (src/server/usage.ts)", () => {
     // Nothing identifying in any key: the day and the counter's name only.
     for (const k of store.keys()) expect(k).toMatch(/^os:preview:usage:\d{4}-\d{2}-\d{2}:[a-z_]+$/);
     // Counted after the write (work the request left running): held by the process, not lost.
-    await runInRequestScope(scope, async () => noteUsage("outbound_sleeper"));
+    await runInRequestScope(scope, async () => noteUsage("outbound_sleeper", 1, T0)); // T0's day, whatever today's is
     expect(Object.fromEntries(heldUsageForTests())).toEqual({ "2026-10-05\u0000outbound_sleeper": 1 });
   });
 

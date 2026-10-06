@@ -3,8 +3,8 @@
  * The Settings page's form for one league (CLAUDE.md §14 item 6, §12 "User settings", §7 "Streaming
  * positions"): lays out the view model (settingsView.ts), mobile-first (375 px): the league's card (saved or
  * defaults, Reset to defaults, and the Trade Finder's minimum chance when the saved one isn't the default), then your
- * lineup (streamed positions, playoff weight), how trade ideas are scored
- * (Phase 4c: What matters most, each option with its line of help; Win now ↔ Future in dynasty and keeper leagues or
+ * lineup (streamed positions; the playoff weight, read-only since the planner's reply to Checkpoint 7a, §6.1), how trade
+ * ideas are scored (Phase 4c: What does your league reward?, each option with its line of help; Win now ↔ Future in dynasty and keeper leagues or
  * Protect my trade value in redraft ones, with a note while the league's values are our own estimates), what a trade
  * idea can be (players per side, what else to include), players (untouchables, must-include) and positions (target,
  * avoid). Every word comes from the view model; each change is one SettingsEdit that the page saves at once
@@ -188,7 +188,7 @@ function CheckRow({
 }
 
 /**
- * A radio and its label (a 44 px row) for a choice that needs a line of help (What matters most): `detail` is short and part
+ * A radio and its label (a 44 px row) for a choice that needs a line of help (What does your league reward?): `detail` is short and part
  * of its name ("default"); `description` is the line under it, linked by aria-describedby. The native radio shows which one
  * is chosen (its dot), so it never rests on color.
  */
@@ -216,7 +216,7 @@ function RadioRow<T extends string>({
         <input type="radio" name={name} value={value} checked={checked} onChange={() => onChange(value)} aria-describedby={descriptionId} className="size-5 shrink-0 accent-brand" />
         <span className="min-w-0">
           <span className="font-semibold break-words">{label}</span>
-          {/* A real space before the detail, so its accessible name reads "Win the title default" (final review of Phase 4c, finding PAGES-4). */}
+          {/* A real space before the detail, so its accessible name reads "Only the champion default" (final review of Phase 4c, finding PAGES-4). */}
           {detail ? (
             <>
               {" "}
@@ -270,16 +270,18 @@ function LineupCard({ view, onEdit }: EditProps) {
             </div>
           </Group>
         ) : null}
-        <Group legend="Playoff weeks count" help={view.playoffWeight.help}>
-          <Segmented name="playoff-weight" choices={view.playoffWeight.choices} onChange={(value) => onEdit({ kind: "playoffWeight", value })} />
-        </Group>
+        {/* Read-only (planner reply to Checkpoint 7a, §6.1): the League model sets it from your odds. */}
+        <p className="text-sm leading-relaxed">
+          <span className="text-base font-extrabold tracking-tight">{view.playoffWeight.label}:</span> <span className="font-semibold">{view.playoffWeight.value}</span>{" "}
+          <span className="text-muted">{view.playoffWeight.help}</span>
+        </p>
       </div>
     </Card>
   );
 }
 
 /**
- * How trade ideas are scored for me (Phase 4c): What matters most (planner reply to Checkpoint 4b, change 8), then Win now
+ * How trade ideas are scored for me (Phase 4c): What does your league reward? (planner reply to Checkpoint 4b, change 8; 7a, 5.2), then Win now
  * ↔ Future (dynasty and keeper leagues) or Protect my trade value (redraft), each with its note while the league's values
  * are our own estimates.
  */
@@ -288,7 +290,7 @@ function ScoringCard({ view, onEdit }: EditProps) {
     <Card>
       <CardTitle eyebrow="Scoring">How trade ideas are scored</CardTitle>
       <div className="space-y-6">
-        <Group legend="What matters most" help={view.goal.help}>
+        <Group legend={view.goal.legend} help={view.goal.help}>
           <div className="space-y-1">
             {view.goal.choices.map((c) => (
               <RadioRow key={c.value} name="goal" value={c.value} label={c.label} detail={c.detail} description={c.help} checked={c.checked} onChange={(value) => onEdit({ kind: "goal", value })} />

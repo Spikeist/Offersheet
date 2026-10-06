@@ -12,8 +12,10 @@
  *   src/app/api/_lib/upload.ts reads and checks it), imported by replaying it through the adapter's league-data half with
  *   the server's own NFL schedule (importUpload). One it can't use answers BAD_UPLOAD (the browser then asks again with
  *   JSON, and the server reads the league itself), and so does one holding more than any real league (review BF-R1:
- *   src/app/api/_lib/upload.ts, before the replay and after it). While ESPN cookies are connected (the session's, or .env.local's in
- *   development) the server reads the league itself whatever the browser sent, as the privacy policy says.
+ *   src/app/api/_lib/upload.ts, before the replay and after it), and one whose replay fails as an ESPN outage would (B4
+ *   security review: respond.ts uploadImportErrorResponse); one whose unpacked size the day's work budget refuses answers
+ *   BUSY. While ESPN cookies are connected (the session's, or .env.local's in development) the server reads the league
+ *   itself whatever the browser sent, as the privacy policy says.
  * - Every answer says who read the league (readBy), carries the import's model part (ESPN's league-scored projections,
  *   read from the same responses) and, with SESSION_SECRET, the server's signature over both and the snapshot
  *   (src/server/importToken.ts), so the model route can build the numbers without reading the league again.
@@ -31,7 +33,7 @@ import { signImport, type ImportSignature, type SignedContent } from "@/server/i
 import { workLimits } from "@/server/limits";
 import type { CredentialSource, EspnCredentials } from "@/server/session";
 import { noteImport } from "@/server/usage";
-import { dataSourceStamps, errorResponse, importErrorResponse, isSameOrigin, jsonResponse, readJsonBody, scrubSwids, workRefusedResponse } from "../../_lib/respond";
+import { dataSourceStamps, errorResponse, importErrorResponse, isSameOrigin, jsonResponse, readJsonBody, scrubSwids, unreadUploadResponse, uploadImportErrorResponse, workRefusedResponse } from "../../_lib/respond";
 import { espnImportBodySchema } from "../../_lib/schemas";
 import { isGzipRequest, readLeagueUpload, uploadedImportProblem } from "../../_lib/upload";
 
@@ -79,8 +81,9 @@ export function createEspnImportHandler(d: EspnImportHandlerDeps): (request: Req
 
   /** A league the browser read (see the header). */
   async function fromUpload(request: Request): Promise<Response> {
-    const read = await readLeagueUpload(request, "espn");
-    if (!read.ok) return errorResponse("BAD_UPLOAD");
+    // Its unpacked size paid for first (B4 security review): refused, BUSY; unusable, BAD_UPLOAD.
+    const read = await readLeagueUpload(request, "espn", { charge });
+    if (!read.ok) return unreadUploadResponse(read);
     const upload = read.value;
     const { leagueId, season } = upload.request;
     const now = d.now?.() ?? new Date();
@@ -100,7 +103,13 @@ export function createEspnImportHandler(d: EspnImportHandlerDeps): (request: Req
         noteImport("espn", "server");
         return answer;
       }
-      const got = await d.importUpload(upload, deps);
+      let got: EspnModelImport;
+      try {
+        got = await d.importUpload(upload, deps);
+      } catch (err) {
+        // A platform failure only the upload reports is the upload's (B4 security review): BAD_UPLOAD, not logged as ESPN's.
+        return uploadImportErrorResponse(err, { platform: "espn", season });
+      }
       // Bigger than any real league's model (review BF-R1): not signed; the browser asks the server to read the league.
       if (uploadedImportProblem(got.result.snapshot)) return errorResponse("BAD_UPLOAD");
       const answer = jsonResponse(espnImportResponse(got, deps, { source, readBy: "browser" }, sign));

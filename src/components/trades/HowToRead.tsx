@@ -17,15 +17,17 @@
  * (change 2 doubled its weight in redraft and keeper leagues), and its cap (config.acceptance.pAcceptClamp: "never above
  * 85%"); "If they say no, try" has its own message, and opens in the Analyzer as one offer (no smaller first offer, the
  * Analyzer's "How to offer it" says so).
- * Planner reply to Checkpoint 4b (Phase 4c): Helps you weighs the title and playoff odds by "What matters most" (change
- * 8), and the card shows those odds before and after, with the weeks whose win chance moves (change 9: weeklyLineWords,
+ * Planner reply to Checkpoint 4b (Phase 4c): Helps you weighs the title and playoff odds by the league's goal (change 8;
+ * since the planner's reply to Checkpoint 7a, 5.2, the setting "What does your league reward?", "What matters most"
+ * before), and the card shows those odds before and after, with the weeks whose win chance moves (change 9: weeklyLineWords,
  * from config.explain; "If they say no, try" shows its own odds too); an estimate under 5% shows "<5%" (answer 5); the
  * Finder's "Chance they accept: at least" and its default (change 10: config.ranking.minChanceDefault), judged on the
- * chance the trade goes through; the card's trade values are FantasyCalc's own (change 3), while the chance they
- * accept, Helps you and the Market check count roster spots, a throw-in worth no more than W, the best free agent no team is expected to pick up,
- * adding nothing (change 2), and the Analyzer's "Details" shows those figures; my side counts the free-agent moves a card says
- * the trade counts on too (final review of Phase 4c, finding R1: evaluate.ts freeAgentMovesOf), and the weekly line lists
- * the weeks it drops first (finding R8).
+ * chance the trade goes through; trade values come from FantasyCalc and are never shown (planner reply to Checkpoint 7a,
+ * 5.4: the card said they were FantasyCalc's own until Phase 7b), while the chance they accept, Helps you and the Market
+ * check count roster spots, a throw-in worth no more than W, the best free agent no team is expected to pick up, adding
+ * nothing (change 2), and the Analyzer's "Details" shows what Helps you is worth in points a week; my side counts the
+ * free-agent moves a card says the trade counts on too (final review of Phase 4c, finding R1: evaluate.ts
+ * freeAgentMovesOf), and the weekly line lists the weeks it drops first (finding R8).
  * Review of track UIC (findings 2 and 3): what it says about values follows the league's data (src/lib/tradeView.ts
  * ValueFacts, the engine's own tests, from the model inputs the page holds): Helps you counts trade value in a redraft
  * league only while FantasyCalc's values are available (`valuesOn`: B has no market term in the curve fallback, and none
@@ -33,15 +35,18 @@
  * the odds alone, "counts this season only" as the cards' note says); a hurt player's projection is "blended with the
  * trade market" only while the blend is on (`blendOn`). Each defaults to on, so the page reads as before while the league's
  * data loads.
- * Planner reply to Checkpoint 4c (Phase 7a, A2): Helps you's scale, the same in every league and under every goal: 63 is
- * about as good as adding 3 points a week to your lineup for the rest of the season, unless a note says otherwise
- * (helpsScaleWords, from config).
+ * Planner reply to Checkpoint 4c (Phase 7a, A2): Helps you's scale, the same under every goal: 63 is about as good as
+ * adding 3 points a week to your lineup for the rest of the season; in a dynasty or keeper league with long-term values,
+ * together with 10% more long-term value, weighed by Win now ↔ Future (planner reply to Checkpoint 7a, §2 question 6: "the
+ * tooltip follows the mix"); "a note on the page says so" only when the floor note shows (helpsScaleWords, from config and
+ * the search's or the evaluation's scale).
  * A native <details>, closed at first; its summary is a 44 px target.
  */
+import type { HelpsScale } from "@/engine/benefit";
 import { config } from "@/engine/config";
 import type { LeagueSettings } from "@/engine/model";
 import { fmtNum } from "@/lib/format";
-import { HARDER_TO_GET_TAG, harderToGetWho, minChanceLabel } from "@/lib/tradeView";
+import { GOAL_LABEL, HARDER_TO_GET_TAG, harderToGetWho, minChanceLabel } from "@/lib/tradeView";
 
 export type HowToReadPage = "finder" | "analyzer";
 
@@ -73,19 +78,51 @@ export function weeklyLineWords(min: number = config.explain.weeklyLineMin, max:
   return `by ${n} percentage ${n === 1 ? "point" : "points"} or more (up to ${max} ${max === 1 ? "week" : "weeks"}, the drops first, then the biggest gains)`;
 }
 
+/** What helpsScaleWords reads (each optional: the redraft wording, without the floor's note, when absent). */
+export interface HelpsScaleWordsOptions {
+  /** The search's or the evaluation's scale (TradeSearchResult.helpsScale, TradeAnalysis.helpsScale); null or absent: not known yet. */
+  scale?: HelpsScale | null | undefined;
+  leagueType?: LeagueSettings["leagueType"] | undefined;
+  /** Dynasty and keeper leagues: long-term values loaded (ValueFacts.longTermOn), so the scale is the mix. */
+  longTermOn?: boolean | undefined;
+  /** Points a week that read 63 (config.benefit.helpsGain). */
+  gain?: number | undefined;
+}
+
 /**
- * The "Helps you" scale in words (planner reply to Checkpoint 4c, A2; benefit.ts's header, the three numbers): "In every
- * league and under every goal, 63 is about as good as adding 3 points a week to your lineup for the rest of the season (28
- * for 1 point a week, 86 for 6); when that doesn't hold for your team right now, a note on the page says so." A gain of g
- * points a week reads round(100 × (1 − e^(−g / helpsGain))) when B grows in proportion to the gain (B = B₃ at helpsGain,
- * config.benefit.helpsGain). Review of track SC, SC-1: not "under every setting": the scale departs when the odds barely
- * move (the floor) or a Win now ↔ Future setting past the largest default λ, and benefit.helpsScaleNotes says so then.
+ * The "Helps you" scale in words (planner reply to Checkpoint 4c, A2; benefit.ts's header, the three numbers): "Under every
+ * goal, 63 is about as good as adding 3 points a week to your lineup for the rest of the season (28 for 1 point a week, 86
+ * for 6)." A gain of g points a week reads round(100 × (1 − e^(−g / helpsGain))) when B grows in proportion to the gain (B =
+ * B₃ at helpsGain, config.benefit.helpsGain). Then "When that doesn't hold for your team right now, a note on the page says
+ * so." only when that note shows (the floor: HelpsScale.reason "odds", benefit.helpsScaleNotes). In a dynasty or keeper
+ * league with long-term values the scale follows the mix (planner reply to Checkpoint 7a, §2 question 6): "In a dynasty
+ * league, 63 is about as good as adding 3 points a week to your lineup this season together with 10% more long-term value for
+ * your roster, weighed by your Win now ↔ Future setting: 3 points a week alone reads 50, and 10% more long-term value alone
+ * reads 26." (what each alone reads when the scale is known: HelpsScale.gainReads and futureReads); at Win now ↔ Future's
+ * ends, this season alone or long-term value alone.
  */
-export function helpsScaleWords(gain: number = config.benefit.helpsGain): string {
+export function helpsScaleWords(opts: HelpsScaleWordsOptions = {}): string {
+  const gain = opts.gain ?? config.benefit.helpsGain;
   const at = (g: number) => Math.round(100 * (1 - Math.exp(-g / gain)));
+  const scale = opts.scale ?? null;
+  const later = opts.leagueType === "keeper" || opts.leagueType === "dynasty" ? opts.leagueType : null;
+  const note = scale?.reason === "odds" ? " When that doesn't hold for your team right now, a note on the page says so." : "";
+  const share = `${Math.round(config.benefit.helpsFutureShare * 100)}% more long-term value`;
+  // The mix (B_ref(λ)) with long-term values: the scale says so when it's known (λ set), else the league type does.
+  const mix = scale ? scale.lambda !== null && scale.f10 !== null : later !== null && opts.longTermOn !== false;
+  if (mix) {
+    const where = `In a ${later ?? "dynasty or keeper"} league`;
+    const lambda = scale?.lambda ?? Number.NaN;
+    if (lambda >= 1) return `${where} with your Win now ↔ Future setting at Future, ${at(gain)} is about as good as adding ${share} to your roster.${note}`;
+    // Win now ↔ Future at Win now (λ 0) counts this season only: the season's words below.
+    if (!(lambda <= 0)) {
+      const alone = scale && scale.futureReads !== null ? `: ${fmtNum(gain, 1)} points a week alone reads ${scale.gainReads}, and ${share} alone reads ${scale.futureReads}` : "";
+      return `${where}, ${at(gain)} is about as good as adding ${fmtNum(gain, 1)} points a week to your lineup this season together with ${share} for your roster, weighed by your Win now ↔ Future setting${alone}.${note}`;
+    }
+  }
   const low = gain / 3;
   const high = gain * 2;
-  return `In every league and under every goal, ${at(gain)} is about as good as adding ${fmtNum(gain, 1)} points a week to your lineup for the rest of the season (${at(low)} for ${fmtNum(low, 1)} ${fmtNum(low, 1) === "1" ? "point" : "points"} a week, ${at(high)} for ${fmtNum(high, 1)}); when that doesn't hold for your team right now, a note on the page says so.`;
+  return `Under every goal, ${at(gain)} is about as good as adding ${fmtNum(gain, 1)} points a week to your lineup for the rest of the season (${at(low)} for ${fmtNum(low, 1)} ${fmtNum(low, 1) === "1" ? "point" : "points"} a week, ${at(high)} for ${fmtNum(high, 1)}).${note}`;
 }
 
 export const HOW_TO_READ_TITLE: Record<HowToReadPage, string> = {
@@ -111,15 +148,18 @@ export function HowToRead({
   valuesOn = true,
   longTermOn = true,
   blendOn = true,
+  helpsScale = null,
 }: {
   leagueType?: LeagueSettings["leagueType"] | undefined;
   page?: HowToReadPage | undefined;
-  /** FantasyCalc's own values are available (ValueFacts.valuesOn): Helps you counts trade value in a redraft league. */
+  /** FantasyCalc's values loaded (ValueFacts.valuesOn): Helps you counts trade value in a redraft league. */
   valuesOn?: boolean | undefined;
   /** Dynasty and keeper leagues: long-term values loaded (ValueFacts.longTermOn), so Helps you counts them. */
   longTermOn?: boolean | undefined;
   /** The market blend reaches anyone (ValueFacts.blendOn): a hurt player's projection is blended with the trade market. */
   blendOn?: boolean | undefined;
+  /** The search's or the evaluation's "Helps you" scale (helpsScaleWords); null or absent before there is one. */
+  helpsScale?: HelpsScale | null | undefined;
 }) {
   const later = leagueType === "redraft" ? null : leagueType === "keeper" ? "keeper" : "dynasty";
   const analyzer = page === "analyzer";
@@ -132,9 +172,9 @@ export function HowToRead({
       <div className="space-y-2 border-t border-line px-4 py-3 text-sm leading-relaxed sm:px-5">
         <p>
           <span className="font-bold">Helps you</span> (0–100) is how much the trade raises your chances this season: Offer Sheet plays out the rest of your season
-          thousands of times with and without it, and weighs your title and playoff odds by your &ldquo;What matters most&rdquo; setting in Settings (the title
-          counts most unless you change it). Each card shows those odds before and after the trade, and the weeks whose chance to win your game moves{" "}
-          {weeklyLineWords()}.{helpsValueWords(later, valuesOn, longTermOn)} {helpsScaleWords()}
+          thousands of times with and without it, and weighs your title and playoff odds by your &ldquo;What does your league reward?&rdquo; setting in Settings
+          (&ldquo;{GOAL_LABEL[config.benefit.goalDefault]}&rdquo; unless you change it). Each card shows those odds before and after the trade, and the weeks whose
+          chance to win your game moves {weeklyLineWords()}.{helpsValueWords(later, valuesOn, longTermOn)} {helpsScaleWords({ scale: helpsScale, leagueType, longTermOn })}
         </p>
         <p>
           <span className="font-bold">Chance they accept</span> is an estimate (Est.), rounded to 5% (&ldquo;&lt;{step}&rdquo; when it&apos;s lower) and never above{" "}
@@ -181,13 +221,14 @@ export function HowToRead({
           {blendOn ? ", blended with the trade market, which prices his injury in" : ""}.
         </p>
         <p>
-          ROS points are each player&apos;s projected points for the rest of the season. The trade values on the card are FantasyCalc&apos;s own, the numbers anyone can
-          check on FantasyCalc. The chance they accept{helpsCountsValue ? ", Helps you" : ""} and the Market check count roster spots too: every player counts at least
-          what the best free agent no team is expected to pick up is worth, an extra player in an uneven trade adds nothing when he&apos;s worth no more than that (the team getting him would cut
-          someone like him), and the side getting fewer players is credited the roster spot it opens (an IR slot isn&apos;t one). Your side
-          also counts the free-agent moves a card says the trade counts on: a player you&apos;d cut for them counts as if you traded him.{" "}
+          ROS points are each player&apos;s projected points for the rest of the season. Trade values come from FantasyCalc: Offer Sheet uses them in its own
+          numbers but doesn&apos;t show them. The chance they accept{helpsCountsValue ? ", Helps you" : ""} and the Market check count roster spots too: every
+          player counts at least what the best free agent no team is expected to pick up is worth, an extra player in an uneven trade adds nothing when he&apos;s
+          worth no more than that (the team getting him would cut someone like him), and the side getting fewer players is credited the roster spot it opens (an IR
+          slot isn&apos;t one). Your side also counts the free-agent moves a card says the trade counts on: a player you&apos;d cut for them counts as if you traded
+          him.{" "}
           {analyzer
-            ? "“Details” shows those figures. The Trade Finder leaves out trades that wouldn't help you, or where, counting roster spots, you'd give up much more trade value than you get; here they still show, with a warning."
+            ? "“Details” shows what Helps you is worth in points a week. The Trade Finder leaves out trades that wouldn't help you, or where, counting roster spots, you'd give up much more trade value than you get; here they still show, with a warning."
             : "Trades that wouldn't help you, or where, counting roster spots, you'd give up much more trade value than you get, are left out."}
         </p>
       </div>

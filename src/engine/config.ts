@@ -202,8 +202,8 @@ export const config = {
      * most", TradeSettings.goal), from two extra season simulations on the headline's seasons (common random numbers): my
      * weekly score + `gain` points in the remaining regular-season weeks team numbers count only, then in the playoff weeks
      * only; B per point = B_win of that run (ΔPO and ΔCH under the goal) ÷ (gain × the weeks changed). Clamped to `clamp`
-     * (one per-point B not above 0 while the other is: that end); ⚠️ rounded to `decimals` (ours: a display precision, far
-     * below the simulation's own noise, so the pages' "playoff weeks counted 1.63×" is the weight the numbers use).
+     * (one per-point B not above 0 while the other is: that end); ⚠️ rounded to `decimals` (ours: far below the
+     * simulation's own noise). The pages print it with one decimal ("Playoff weeks count: 2.0×").
      */
     playoffWeightAuto: { gain: 3, clamp: [0.5, 4] as const, decimals: 2 },
     needZThreshold: -0.5,
@@ -365,6 +365,36 @@ export const config = {
      * streamed on Parker's data, Brock Bowers' 11.8 a week would get a 6.1 one), so their byes still count.
      */
     streamCoversBye: ["K", "DEF"] as readonly Pos[],
+  },
+
+  /**
+   * §14 "League": "Waiver upgrades" (planner reply to Checkpoint 7a, §6.2; src/engine/waivers.ts, league.ts step 10): every
+   * free agent who projects for more points than one of my players at his position, with what picking him up adds to my
+   * lineup. Display rules only: no odds, projection or trade number depends on them.
+   */
+  waivers: {
+    /**
+     * A pickup "starts" when he adds more than this many projected points to my expected-value lineups (no injuries
+     * simulated) over the weeks a list counts, with the player he'd replace on the roster gone; otherwise whatever he adds
+     * comes from covering injuries and byes, and the page tags him "depth only". A few hundredths of a point isn't a start.
+     */
+    startsMinPoints: 0.05,
+    /**
+     * At most perPositionCap rows per position at these positions (kickers and team defenses: only the best few matter),
+     * at a position I stream in a one-week list (its slot is filled from the free agents every week), and at a position
+     * where none of my players with projections scores in the list's weeks (nobody on my roster there, or all of them on
+     * bye, out or with games already started: every free agent there is "better"): the best by the list's points.
+     * "Streaming picks this week" lists as many (streaming.picksShown).
+     */
+    cappedPositions: ["K", "DEF"] as readonly Pos[],
+    perPositionCap: 3,
+    /**
+     * The page shows each lineup gain to this many decimals ("+2.2 pts"), and rows are ordered by the gain as shown: two
+     * gains that print the same are a tie, decided by points, and every gain that rounds to 0 or below ("No gain") is one.
+     */
+    gainDecimals: 1,
+    /** Rows the League page shows before "Show all" (display only). */
+    rowsShown: 10,
   },
 
   /** §9 Market value layer. */
@@ -622,10 +652,6 @@ export const config = {
      * hole (holes are judged over the next config.acceptance.holeWeeks weeks: an injury or a bye), worded as one.
      */
     holeRankFromBottom: 0.5,
-    /** A value gap above this share ("X% more trade value") reads as a multiple instead: "about 9.3 times as much trade value". */
-    valueMultipleAbove: 1,
-    /** The pitch mentions the trade value the partner gains only up to this share (from valueEven): a bigger gain tells a sharp manager it's an overpay. */
-    pitchValueMax: 0.25,
     /**
      * Phase 4c (planner reply to Checkpoint 4b, change 9): a card's "Win chance by week" line lists the weeks whose win
      * chance moves at least weeklyLineMin (3 points), at most weeklyLineMax of them (the weeks it drops first, then the

@@ -12,7 +12,7 @@ import { config } from "@/engine/config";
 import { defaultTradeSettings } from "@/engine/settings";
 import type { TradeAnalysis } from "@/engine/evaluate";
 import type { MarketInputs } from "@/engine/inputs";
-import type { PlayerInfo } from "@/engine/model";
+import type { LeagueSettings, PlayerInfo } from "@/engine/model";
 import { HELPS_FLOOR_NOTE, HELPS_FLOOR_NOTE_PLAYOFFS, helpsScaleNotes, type HelpsScale } from "@/engine/benefit";
 import { buildTradeContext, evaluateExact, explainContextOf, simulateTrade, tradeInternals, type SimState } from "@/engine/evaluate";
 import type { HelpsCalibration } from "@/engine/leagueModel";
@@ -22,6 +22,7 @@ import { explainTrade } from "@/engine/explain";
 import { randomLeague } from "@/engine/testLeague";
 import { FIXTURE_B3 } from "@/engine/tradeTestFixtures";
 import type { InjuryTag, TradeEvaluation, TradeStep } from "@/engine/tradeModel";
+import { MODEL_SOURCES } from "@/server/modelInputs";
 import { GLOOP_PREMIUM, SNOOT_PREMIUM, evaluation, searchResult, step, steppedFull, steppedOffer, tradeSnapshot } from "@/components/trades/testFixtures";
 import { applyFeedback } from "./feedbackStore";
 import {
@@ -30,14 +31,17 @@ import {
   IR_SLOT_TEXT,
   PLAN_B_HEADING,
   MIN_CHANCE_OPTIONS,
+  PROJECTIONS_SOURCE,
   STAGE_LABEL,
-  VALUES_UNAVAILABLE,
+  VALUES_CREDIT_TEXT,
   acceptSrText,
   acceptText,
   analyzerChoices,
+  noticeWarnings,
   analyzerHref,
   assetView,
   baselineLines,
+  bestTimeText,
   buildAnalysisView,
   buildFinderView,
   buildTradeCard,
@@ -49,12 +53,17 @@ import {
   fantasyCalcLookup,
   fewText,
   finderHref,
+  finderTimingLines,
+  freshnessText,
   harderToGetWho,
   HELPS_SCALE_TEXT,
+  GOAL_LABEL,
   helpsInfoText,
+  helpsScaleText,
   helpsReasonOf,
   lineupEquivalentText,
   incomingInjuryNote,
+  inTradingSeason,
   INJURED_REASON,
   injuryTagText,
   knownTagsOf,
@@ -74,12 +83,14 @@ import {
   readAnalyzerDraft,
   readAnalyzerFrom,
   readFinderPartner,
+  reviewPeriodWords,
   rosNoteOf,
   seasonEndOf,
   secondsText,
   settingsSummary,
   teamNameOf,
   throughText,
+  timeAgoText,
   titleOddsText,
   tradeWords,
   proposalFromKey,
@@ -102,6 +113,19 @@ const MARKET: MarketInputs = {
 const FC = fantasyCalcLookup(MARKET);
 const card = (o: Parameters<typeof evaluation>[0] = {}, baseline?: { pPlayoffs: number | null; pTitle: number | null }) => buildTradeCard(evaluation(o), { snapshot, baseline: baseline ?? null, fantasyCalc: FC });
 const fact = (c: ReturnType<typeof card>, label: string) => c.facts.find((f) => f.label === label)?.value;
+/** A "Helps you" scale (benefit.HelpsScale) for the wording tests: with long-term values (λ set) unless `lambda` is null. */
+const helpsScaleFixture = (o: { lambda: number | null; gainReads?: number; futureReads?: number | null }): HelpsScale => ({
+  b3: 4.65,
+  raw: 4.65,
+  floored: false,
+  odds: 5,
+  oddsNamed: "title",
+  lambda: o.lambda,
+  f10: o.lambda === null ? null : 4,
+  gainReads: o.gainReads ?? 63,
+  futureReads: o.lambda === null ? null : (o.futureReads ?? 0),
+  reason: null,
+});
 
 /** Every word a card shows, for the no-jargon check. */
 const allText = (c: ReturnType<typeof card>) =>
@@ -318,10 +342,9 @@ describe("buildTradeCard (§13: what each card shows)", () => {
     expect(flag({ give: ["106"], get: ["204", "201"], gMine: -0.2 })).toBe(generic);
   });
 
-  it("says the numbers behind the score in words (§10 'always show'): lineup, trade values (FantasyCalc's own), their lineup", () => {
+  it("says the numbers behind the score in words (§10 'always show'): lineup and their lineup, never a trade value (planner reply to Checkpoint 7a, 5.4)", () => {
     expect(c.facts).toEqual([
       { label: "Your lineup", value: "+2 pts a week in the regular season, +2 in the playoffs" },
-      { label: "Trade value", value: "You give 5,000, you get 5,400", kind: "values" },
       { label: "Their lineup", value: "0 pts a week" },
     ]);
     expect(fact(card({ partnerDeltaLineup: -1.26 }), "Their lineup")).toBe("−1.3 pts a week");
@@ -379,25 +402,20 @@ describe("buildTradeCard (§13: what each card shows)", () => {
     expect(c.weekly).toBeNull();
   });
 
-  it("gives trade values by FantasyCalc's own values: the plain sums, one value number per card (planner reply to Checkpoint 4b, change 3)", () => {
-    const value = (o: Parameters<typeof evaluation>[0], fc: FantasyCalcLookup | undefined = FC) => fact(buildTradeCard(evaluation(o), { snapshot, fantasyCalc: fc }), "Trade value");
-    // No floor, no roster-spot credit: Glimmer Oddfellow (1,500) and Wiggleton Spoons (5,000) for Cornelius Snoot (5,400).
-    expect(value({ give: ["105", "106"], get: ["204"] })).toBe("You give 6,500, you get 5,400");
-    // ⚠️ Ours: a player FantasyCalc doesn't value is named, not counted.
-    expect(value({ give: ["106", "108"], get: ["204"] })).toBe("You give 5,000 plus Tobias Thimble (no FantasyCalc value), you get 5,400");
-    expect(value({ give: ["108"], get: ["204"] })).toBe("You give Tobias Thimble (no FantasyCalc value), you get 5,400");
-    expect(value({ give: ["108", "104"], get: ["204"] })).toBe("You give Tobias Thimble and Noodle McSprocket (no FantasyCalc values), you get 5,400");
-    expect(value({ proposal: { partnerId: "2", give: [{ kind: "pick", season: 2027, round: 1, originalTeamId: "1" }], get: [{ kind: "player", id: "204" }] } })).toBe(
-      "You give 2027 round 1 pick (no FantasyCalc value), you get 5,400",
-    );
-    expect(value({ give: [], get: ["204"] })).toBe("You give nothing, you get 5,400");
-    // The model's package values (floored, credited) never show.
-    expect(value({ give: ["106"], get: ["204"], value: { given: 6115, received: 5400 } })).toBe("You give 5,000, you get 5,400");
-    // Without FantasyCalc's values: said, and no FantasyCalc link (kind).
-    const none = buildTradeCard(evaluation(), { snapshot }).facts.find((f) => f.label === "Trade value");
-    expect(none).toEqual({ label: "Trade value", value: VALUES_UNAVAILABLE });
-    expect(value({}, fantasyCalcLookup(null))).toBe(VALUES_UNAVAILABLE);
-    expect(value({}, fantasyCalcLookup({ ...MARKET, fallback: { kind: "curve", listDate: "2026-09-01T00:00:00.000Z" } }))).toBe(VALUES_UNAVAILABLE);
+  it("shows no trade value, but credits FantasyCalc after a sentence whenever trade values are behind the numbers (planner reply to Checkpoint 7a, 5.4; §2.9)", () => {
+    const credit = (o: Parameters<typeof evaluation>[0], fc: FantasyCalcLookup | undefined = FC) => buildTradeCard(evaluation(o), { snapshot, fantasyCalc: fc });
+    // Whatever the trade (two for one, a player FantasyCalc doesn't value, a pick, nothing given), no value fact.
+    for (const o of [{ give: ["105", "106"], get: ["204"] }, { give: ["106", "108"], get: ["204"] }, { give: [], get: ["204"] }, { give: ["106"], get: ["204"], value: { given: 6115, received: 5400 } }]) {
+      const view = credit(o);
+      expect(view.facts.map((f) => f.label)).toEqual(["Your lineup", "Their lineup"]);
+      expect(view.valuesCredit).toBe(VALUES_CREDIT_TEXT);
+    }
+    expect(VALUES_CREDIT_TEXT).toBe("These numbers weigh each player's trade value.");
+    // Our estimates fitted to an older FantasyCalc list (the curve fallback) are behind the numbers too; without the page's
+    // lookup, values are taken to be loaded; with none loaded at all, no credit.
+    expect(credit({}, fantasyCalcLookup({ ...MARKET, fallback: { kind: "curve", listDate: "2026-09-01T00:00:00.000Z" } })).valuesCredit).toBe(VALUES_CREDIT_TEXT);
+    expect(credit({}, undefined).valuesCredit).toBe(VALUES_CREDIT_TEXT);
+    expect(credit({}, fantasyCalcLookup(null)).valuesCredit).toBeNull();
   });
 
   it("reads FantasyCalc's own values from the model inputs: the perception list, a saved list with its date, never the curve fallback's estimates", () => {
@@ -416,11 +434,16 @@ describe("buildTradeCard (§13: what each card shows)", () => {
     expect(fantasyCalcLookup(undefined).available).toBe(false);
   });
 
-  it("adds long-term value in dynasty and keeper leagues (the model's, counting roster spots), or says it's unknown when values didn't load", () => {
-    expect(fact(card({ dDyn: 1234.4 }), "Long-term value")).toBe("+1,234 for your roster, counting roster spots");
-    expect(fact(card({ dDyn: -300 }), "Long-term value")).toBe("−300 for your roster, counting roster spots");
+  it("adds long-term value in dynasty and keeper leagues in words only (FantasyCalc's dynasty values: planner reply to Checkpoint 7a, 5.4), or says it's unknown when values didn't load", () => {
+    const scale = config.benefit.bFutureScale; // B_future = scale × ΔDyn / MyDynTotal
+    expect(fact(card({ dDyn: 1234.4, bFuture: 0.06 * scale, lambda: 0.5 }), "Long-term value")).toBe("Up for your roster");
+    expect(fact(card({ dDyn: -300, bFuture: -0.04 * scale, lambda: 0.5 }), "Long-term value")).toBe("Down for your roster");
+    // Under config.explain.longTermMin (1%), or rounding to 0%: about the same, as the reasons leave it out.
+    expect(fact(card({ dDyn: 40, bFuture: 0.004 * scale, lambda: 0.5 }), "Long-term value")).toBe("About the same for your roster");
+    expect(fact(card({ dDyn: 0, bFuture: 0, lambda: 0.5 }), "Long-term value")).toBe("About the same for your roster");
     expect(fact(card({ dynMissing: true }), "Long-term value")).toBe("Unknown: long-term values didn't load");
     expect(fact(c, "Long-term value")).toBeUndefined();
+    expect(fact(card({ dDyn: 1234.4, bFuture: 0.06 * scale, lambda: 0.5 }), "Long-term value")).not.toMatch(/\d/);
   });
 
   it("gives ROS points received and given (§13's 'You get 142 ROS pts, give 118')", () => {
@@ -666,9 +689,9 @@ describe("buildFinderView (§13 ranking, M13 states)", () => {
 
   it("counts what was left out on purpose (§10 guards)", () => {
     const view = buildFinderView({ result: { ...result, hidden: { byBenefit: 10, byMarket: 1 } }, sort: "overall", snapshot, partnerId: null });
-    expect(view.hidden).toBe(
-      `Left out on purpose: 10 trade ideas that wouldn't help you and 1 trade idea where, counting roster spots, you'd get over ${Math.round(-config.benefit.marketHideBelow * 100)}% less trade value than you give.`,
-    );
+    // In words: no trade value percent anywhere (planner reply to Checkpoint 7a, 5.4).
+    expect(view.hidden).toBe("Left out on purpose: 10 trade ideas that wouldn't help you and 1 trade idea where, counting roster spots, you'd give up much more trade value than you get.");
+    expect(view.hidden).not.toMatch(/\d+%/);
     // Phase 4c: the ideas below the minimum chance too.
     const withChance = buildFinderView({ result: { ...result, hidden: { byBenefit: 2, byMarket: 0, byChance: 3 } }, sort: "overall", snapshot, partnerId: null });
     expect(withChance.hidden).toBe("Left out on purpose: 2 trade ideas that wouldn't help you and 3 trade ideas below your minimum chance.");
@@ -851,7 +874,7 @@ describe("the Analyzer's draft and choices", () => {
 
   it("shows an illegal trade's reason instead of a card, with the notes", () => {
     const illegal: TradeAnalysis = { evaluation: null, illegal: "Gravel Gophers can have at most 4 RBs.", notes: ["Pick your team on the Import Report to see trade ideas."] };
-    expect(buildAnalysisView(illegal, snapshot)).toEqual({ baseline: null, baselineNote: null, helpsInfo: null, card: null, illegal: "Gravel Gophers can have at most 4 RBs.", notes: ["Pick your team on the Import Report to see trade ideas."] });
+    expect(buildAnalysisView(illegal, snapshot)).toEqual({ baseline: null, baselineNote: null, helpsInfo: null, helpsScale: null, card: null, illegal: "Gravel Gophers can have at most 4 RBs.", notes: ["Pick your team on the Import Report to see trade ideas."] });
     // My odds before any trade say nothing without a card.
     expect(buildAnalysisView({ ...illegal, baseline: { pPlayoffs: 0.62, pTitle: 0.09 } }, snapshot).baseline).toBeNull();
     const legal = buildAnalysisView({ evaluation: evaluation(), illegal: null, notes: [] }, snapshot);
@@ -1303,7 +1326,11 @@ describe("Phase 4c: the card's words that the planner's reply to Checkpoint 4b c
 
   it("says what Helps you sums up, once per page: the planner's words in redraft, long-term value in dynasty and keeper leagues, no trade-value cost without FantasyCalc (⚠️ ours), then its scale (planner reply to Checkpoint 4c, A2: the tooltip's words, for a phone)", () => {
     expect(helpsInfoText("redraft")).toBe("Helps you (0–100) sums up how much your title and playoff odds rise, minus a cost for giving away trade value or plus a credit for gaining it. 63 ≈ as good as adding 3 points a week to your lineup for the rest of the season.");
-    expect(helpsInfoText("dynasty")).toBe("Helps you (0–100) sums up how much your title and playoff odds rise, weighed against the change in your roster's long-term value. 63 ≈ as good as adding 3 points a week to your lineup for the rest of the season.");
+    // Dynasty and keeper leagues with long-term values: the scale's mix (planner reply to Checkpoint 7a, §2 question 6), its
+    // numbers once the search's or the evaluation's scale is known (below).
+    expect(helpsInfoText("dynasty")).toBe(
+      "Helps you (0–100) sums up how much your title and playoff odds rise, weighed against the change in your roster's long-term value. 63 ≈ as good as adding 3 points a week to your lineup this season together with 10% more long-term value for your roster, weighed by your Win now ↔ Future setting.",
+    );
     expect(helpsInfoText("keeper")).toBe(helpsInfoText("dynasty"));
     expect(helpsInfoText("redraft", false)).toBe("Helps you (0–100) sums up how much your title and playoff odds rise. 63 ≈ as good as adding 3 points a week to your lineup for the rest of the season.");
     // The Finder says it once, above its cards; not on an empty list.
@@ -1392,7 +1419,7 @@ describe("Phase 4c: the card's words that the planner's reply to Checkpoint 4b c
     expect(buildFinderView({ result: searchResult([], { pattern }), sort: "overall", snapshot, partnerId: null }).pattern).toBeNull();
   });
 
-  it("lists a saved FantasyCalc list's date with the notes when the cards quote it", () => {
+  it("lists a saved FantasyCalc list's date with the notes, since the cards' numbers rest on it", () => {
     const saved = fantasyCalcLookup({ ...MARKET, fallback: { kind: "saved", listDate: "2026-09-27T15:00:00.000Z" } });
     const view = buildFinderView({ result: searchResult([evaluation()], { notes: ["Kickers and D/STs are left out; turn them on in Settings."] }), sort: "overall", snapshot, partnerId: null, fantasyCalc: saved });
     expect(view.notes).toEqual(["Kickers and D/STs are left out; turn them on in Settings.", "Trade values from Sep 27: FantasyCalc didn't answer."]);
@@ -1400,9 +1427,10 @@ describe("Phase 4c: the card's words that the planner's reply to Checkpoint 4b c
     expect(analysis.notes).toEqual(["Trade values from Sep 27: FantasyCalc didn't answer."]);
   });
 
-  it("names a goal that isn't the default in the settings line ('What matters most', change 8)", () => {
-    expect(settingsSummary({ ...defaultTradeSettings(), goal: "balanced" }, "espn")).toBe("Up to 2 players a side. What matters most: Balanced.");
-    expect(settingsSummary({ ...defaultTradeSettings(), goal: "playoffs", protectValue: "high" }, "espn")).toBe("Up to 2 players a side. What matters most: Make the playoffs. Protect my trade value: High.");
+  it("names a goal that isn't the default in the settings line, as what the league rewards (change 8; planner reply to Checkpoint 7a, 5.2)", () => {
+    expect(GOAL_LABEL).toEqual({ title: "Only the champion", balanced: "Top finishers too", playoffs: "Making the playoffs" });
+    expect(settingsSummary({ ...defaultTradeSettings(), goal: "balanced" }, "espn")).toBe("Up to 2 players a side. Your league rewards: Top finishers too.");
+    expect(settingsSummary({ ...defaultTradeSettings(), goal: "playoffs", protectValue: "high" }, "espn")).toBe("Up to 2 players a side. Your league rewards: Making the playoffs. Protect my trade value: High.");
     expect(settingsSummary({ ...defaultTradeSettings(), goal: config.benefit.goalDefault }, "espn")).toBe("Up to 2 players a side.");
   });
 
@@ -1415,44 +1443,46 @@ describe("Phase 4c: the card's words that the planner's reply to Checkpoint 4b c
     expect(progressView({ stage: "rank", done: 5, total: 10 }).percent).toBe(98);
   });
 
-  it("gives the Analyzer's card 'Details': the model's own trade-value figures (change 3: 'the Analyzer can show them under Details')", () => {
-    const e = evaluation({ gMine: -0.12, gPartner: 0.14, b: 2.6, bWin: 3.4, features: { g: 0.04, n: 0, h: 0, c: 0, a: 0, hist: null, ctx: 0, hot: 0, urg: 0, z: -0.3 } });
+  it("gives the Analyzer's card 'Details': what Helps you is worth in points a week, its trade-value part as a lineup equivalent, never a trade value figure (planner reply to Checkpoint 7a, §2 question 5 and 5.4)", () => {
+    // (The engine fixture leaves marketWeekly out: set here as the engine sets it, κ × clamp(g_mkt(me)) at Medium.)
+    const e = { ...evaluation({ gMine: -0.12, gPartner: 0.14, b: 2.6, bWin: 3.4, features: { g: 0.04, n: 0, h: 0, c: 0, a: 0, hist: null, ctx: 0, hot: 0, urg: 0, z: -0.3 } }), marketWeekly: -0.24 };
     const view = buildAnalysisView({ evaluation: e, illegal: null, notes: [] }, snapshot, undefined, { fantasyCalc: FC });
     expect(view.card?.details).toEqual({
       summary: "Details",
       intro:
-        "The model's own trade-value figures, behind the chance they accept, Helps you and the Market check. Unlike the card's trade values (FantasyCalc's own), they count roster spots: every player counts at least what the best free agent no team is expected to pick up is worth, the extra player in an uneven trade adds nothing when he's worth no more than that, and the side getting fewer players is credited the roster spot it opens; your side counts the free-agent moves the card says the trade counts on too.",
+        "How Helps you adds up for this trade. Trade value is what your “Protect my trade value” setting adds for trade value you'd gain, or takes away for trade value you'd give up, counted as projected points a week.",
       items: [
-        "Your side, counting roster spots: you'd get 12% less trade value than you give.",
-        "Their side, counting roster spots: they'd get 14% more trade value than they give.",
-        "Their side as they see it (their best players count a little extra): they'd get 4% more trade value than they give.",
-        "Helps you from your odds alone: 43; counting trade value by your “Protect my trade value” setting: 35.",
+        // The planner's words: TradeEvaluation.marketWeekly, signed, one decimal.
+        "Trade value: −0.2 pts/week equivalent.",
         // Planner reply to Checkpoint 4c, A2: "≈ +X pts/week", X = 3 × B / B₃ = 3 × 2.6 / 6.
         "Helps you 35 ≈ +1.3 pts/week: as good as adding that to your lineup every week for the rest of the season.",
       ],
     });
-    // At the model's clamp, "at least"; even, "about what"; a one-sided trade, "without giving any up".
-    const clamped = detailsView({ ...e, features: { ...e.features, g: -0.5 }, gMine: 0.001, gPartner: Number.POSITIVE_INFINITY }, "redraft");
-    expect(clamped.items.slice(0, 3)).toEqual([
-      "Your side, counting roster spots: you'd get about what you give.",
-      "Their side, counting roster spots: they'd get trade value without giving any up.",
-      "Their side as they see it (their best players count a little extra): they'd get at least 50% less trade value than they give.",
-    ]);
-    // B ≤ 0 scores 0; dynasty and keeper leagues have no trade-value part.
-    expect(detailsView({ ...e, b: -0.4, bWin: 0.2 }, "redraft").items[3]).toBe("Helps you from your odds alone: 3; counting trade value by your “Protect my trade value” setting: 0.");
-    expect(detailsView(e, "dynasty").items[3]).toBe("Helps you has no trade-value part here: in dynasty and keeper leagues it counts the change in your roster's long-term value instead.");
-    // Review of track UIC (finding 2): when their long-term values didn't load, B is the odds alone.
-    expect(detailsView({ ...e, dynMissing: true }, "keeper").items[3]).toBe("Helps you has no trade-value part here, and long-term trade values aren't available, so it counts this season only.");
-    // The intro names Helps you only when its trade-value part reads these figures (a redraft B with a market term).
-    for (const leagueType of ["dynasty", "keeper"] as const) {
-      expect(detailsView(e, leagueType).intro).toMatch(/^The model's own trade-value figures, behind the chance they accept and the Market check\. Unlike/);
-    }
+    // Signed, one decimal: a gain, nothing, a credit at the clamp.
+    expect(detailsView({ ...e, marketWeekly: 0.25 }, "redraft").items[0]).toBe("Trade value: +0.3 pts/week equivalent.");
+    expect(detailsView({ ...e, marketWeekly: 0 }, "redraft").items[0]).toBe("Trade value: 0 pts/week equivalent.");
+    expect(detailsView({ ...e, marketWeekly: 1 }, "redraft").items[0]).toBe("Trade value: +1 pts/week equivalent.");
+    // No market term (marketWeekly null or absent: FantasyCalc's curve fallback or no values, whose notes say so): no line,
+    // and the intro doesn't name it.
+    const noTerm = detailsView({ ...e, marketWeekly: null }, "redraft");
+    expect(noTerm.items).toEqual(["Helps you 35 ≈ +1.3 pts/week: as good as adding that to your lineup every week for the rest of the season."]);
+    expect(noTerm.intro).toBe("How Helps you adds up for this trade.");
+    const { marketWeekly: absent, ...older } = e;
+    expect(absent).toBe(-0.24);
+    expect(detailsView(older, "redraft").items).toEqual(noTerm.items);
+    // Dynasty and keeper leagues have no trade-value part; when their long-term values didn't load, B is the odds alone.
+    expect(detailsView(e, "dynasty").items[0]).toBe("Helps you has no trade-value part here: in dynasty and keeper leagues it counts the change in your roster's long-term value instead.");
+    expect(detailsView({ ...e, dynMissing: true }, "keeper").items[0]).toBe("Helps you has no trade-value part here, and long-term trade values aren't available, so it counts this season only.");
+    // No trade value figure anywhere: no value percent, no FantasyCalc, no package words (the scale's own "10% more long-term
+    // value" in a dynasty league defines the scale, not this trade).
+    for (const d of [view.card?.details, detailsView(e, "dynasty")]) expect([d?.intro, ...(d?.items ?? [])].join(" ")).not.toMatch(/\d+% (more|less) trade value|FantasyCalc|their side|your side/i);
+    expect(view.card?.details?.items.join(" ")).not.toMatch(/\d+%/);
     // The Trade Finder's cards have none.
     expect(buildTradeCard(e, { snapshot }).details).toBeNull();
   });
 
   it("ends 'Details' with what Helps you is worth in lineup points a week, on the evaluation's own B₃ (planner reply to Checkpoint 4c, A2)", () => {
-    // B = B₃: Helps you 63 ≈ +3 pts/week, in every league (here B₃ 4.2).
+    // B = B₃: Helps you 63 ≈ +3 pts/week, in every redraft league (here B₃ 4.2).
     expect(lineupEquivalentText({ b: 4.2, b3: 4.2 })).toBe("Helps you 63 ≈ +3 pts/week: as good as adding that to your lineup every week for the rest of the season.");
     // One point: singular; one decimal at most.
     expect(lineupEquivalentText({ b: 2, b3: 6 })).toBe("Helps you 28 ≈ +1 pt/week: as good as adding that to your lineup every week for the rest of the season.");
@@ -1464,31 +1494,45 @@ describe("Phase 4c: the card's words that the planner's reply to Checkpoint 4b c
     expect(lineupEquivalentText({ b: null, b3: 6 })).toBeNull();
     expect(lineupEquivalentText({ b: 3, b3: null })).toBeNull();
     const e = evaluation({ b: 3, bWin: 3 });
-    expect(detailsView({ ...e, b3: null }, "redraft").items.some((i) => i.includes("pts/week"))).toBe(false);
-    // Every score in Details is on that B₃: the odds-alone score too.
-    expect(detailsView({ ...e, b: 3, bWin: 6, b3: 6 }, "redraft").items.slice(3)).toEqual([
-      "Helps you from your odds alone: 63; counting trade value by your “Protect my trade value” setting: 39.",
+    expect(detailsView({ ...e, b3: null }, "redraft").items.some((i) => i.includes("pts/week:"))).toBe(false);
+    expect(detailsView({ ...e, b3: 6, marketWeekly: -0.5 }, "redraft").items).toEqual([
+      "Trade value: −0.5 pts/week equivalent.",
       "Helps you 39 ≈ +1.5 pts/week: as good as adding that to your lineup every week for the rest of the season.",
     ]);
-    expect(detailsView({ ...e, b3: 3 }, "dynasty").items.at(-1)).toBe("Helps you 63 ≈ +3 pts/week: as good as adding that to your lineup every week for the rest of the season.");
+    // A dynasty league whose long-term values didn't load: B is the odds alone, plain points a week.
+    expect(detailsView({ ...e, b3: 3, dynMissing: true }, "dynasty").items.at(-1)).toBe("Helps you 63 ≈ +3 pts/week: as good as adding that to your lineup every week for the rest of the season.");
   });
 
-  it("says in 'Details' when FantasyCalc's values aren't available: our own estimates (the curve fallback), and Helps you then counts no trade value (κ = 0)", () => {
-    const e = evaluation({ gMine: -0.12, gPartner: 0.14, b: 3.4, bWin: 3.4, features: { g: 0.04, n: 0, h: 0, c: 0, a: 0, hist: null, ctx: 0, hot: 0, urg: 0, z: -0.3 } });
-    const curve = fantasyCalcLookup({ ...MARKET, fallback: { kind: "curve", listDate: "2026-07-01" } });
-    expect([curve.available, curve.estimated]).toEqual([false, true]);
-    const estimated = buildAnalysisView({ evaluation: e, illegal: null, notes: [] }, snapshot, undefined, { fantasyCalc: curve }).card?.details;
-    // B has no market term then, so the intro doesn't name Helps you (it would contradict the last line).
-    expect(estimated?.intro).toBe(
-      "The model's own trade-value figures, behind the chance they accept and the Market check. While FantasyCalc's values aren't available, they use our own estimates, and they count roster spots: every player counts at least what the best free agent no team is expected to pick up is worth, the extra player in an uneven trade adds nothing when he's worth no more than that, and the side getting fewer players is credited the roster spot it opens; your side counts the free-agent moves the card says the trade counts on too.",
+  it("follows the scale's mix in dynasty and keeper leagues with long-term values: the tooltip, the info line and Details (planner reply to Checkpoint 7a, §2 question 6)", () => {
+    const mix = "63 ≈ as good as adding 3 points a week to your lineup this season together with 10% more long-term value for your roster, weighed by your Win now ↔ Future setting";
+    // λ 0.35: +3 a week alone reads 50 and +10% long-term value alone 26 (the engine's HelpsScale fields).
+    const scale = helpsScaleFixture({ lambda: 0.35, gainReads: 50, futureReads: 26 });
+    expect(helpsScaleText(scale)).toBe(`${mix} (3 points a week alone reads 50, and 10% more long-term value alone reads 26).`);
+    // Without the scale yet: the mix without its numbers; a redraft league or one without long-term values: the redraft words.
+    expect(helpsScaleText(null, { leagueType: "dynasty", longTermOn: true })).toBe(`${mix}.`);
+    expect(helpsScaleText(null, { leagueType: "keeper", longTermOn: false })).toBe(HELPS_SCALE_TEXT);
+    expect(helpsScaleText(null, { leagueType: "redraft" })).toBe(HELPS_SCALE_TEXT);
+    expect(helpsScaleText(helpsScaleFixture({ lambda: null }))).toBe(HELPS_SCALE_TEXT);
+    // Win now ↔ Future at its ends: this season alone (λ 0), long-term value alone (λ 1).
+    expect(helpsScaleText(helpsScaleFixture({ lambda: 0, gainReads: 63, futureReads: 0 }))).toBe(HELPS_SCALE_TEXT);
+    expect(helpsScaleText(helpsScaleFixture({ lambda: 1, gainReads: 0, futureReads: 63 }))).toBe("63 ≈ as good as adding 10% more long-term value to your roster.");
+    // The card's tooltip and the pages' info line read the search's or the evaluation's scale.
+    const dynasty = { ...snapshot, settings: { ...snapshot.settings, leagueType: "dynasty" as const } };
+    const e = evaluation({ b: 3, b3: 4.65, lambda: 0.35, bFuture: 1, dDyn: 300 });
+    expect(buildTradeCard(e, { snapshot: dynasty, helpsScale: scale }).numbers.helps.title).toBe(helpsScaleText(scale));
+    const finder = buildFinderView({ result: searchResult([e], { helpsScale: scale }), sort: "overall", snapshot: dynasty, partnerId: null });
+    expect(finder.helpsInfo).toBe(`Helps you (0–100) sums up how much your title and playoff odds rise, weighed against the change in your roster's long-term value. ${helpsScaleText(scale)}`);
+    expect(finder.helpsScale).toBe(scale);
+    expect(finder.cards[0]?.numbers.helps.title).toBe(helpsScaleText(scale));
+    const analysis = buildAnalysisView({ evaluation: e, illegal: null, notes: [], helpsScale: scale }, dynasty);
+    expect(analysis.helpsInfo).toBe(finder.helpsInfo);
+    // Details: X = 3 × B / B₃ on the mix (never a long-term value percent of the trade's own).
+    expect(analysis.card?.details?.items.at(-1)).toBe(
+      "Helps you 48 ≈ +1.9 on a scale where +3 is as good as adding 3 points a week to your lineup this season together with 10% more long-term value for your roster, weighed by your Win now ↔ Future setting.",
     );
-    expect(estimated?.items[3]).toBe("Helps you counts no trade value while FantasyCalc's values aren't available: 43, from your odds alone.");
-    // No values at all; a market term that isn't 0 keeps the usual line (never claimed away), and the intro names Helps you.
-    const none = buildAnalysisView({ evaluation: { ...e, b: 2.6 }, illegal: null, notes: [] }, snapshot, undefined, { fantasyCalc: fantasyCalcLookup(null) }).card?.details;
-    expect(none?.intro).toMatch(/^The model's own trade-value figures, behind the chance they accept, Helps you and the Market check\. FantasyCalc's values aren't available right now; they count roster spots: /);
-    expect(none?.items[3]).toBe("Helps you from your odds alone: 43; counting trade value by your “Protect my trade value” setting: 35.");
-    // With FantasyCalc's values, the usual line even when the term is 0 (an even trade by the model's count).
-    expect(detailsView(e, "redraft", { available: true }).items[3]).toBe("Helps you from your odds alone: 43; counting trade value by your “Protect my trade value” setting: 43.");
+    expect(lineupEquivalentText(e, helpsScaleFixture({ lambda: 1, gainReads: 0, futureReads: 63 }))).toBe("Helps you 48 ≈ +1.9 on a scale where +3 is as good as adding 10% more long-term value to your roster.");
+    // A redraft league keeps its words whatever the scale.
+    expect(lineupEquivalentText(e, null, { leagueType: "redraft" })).toBe("Helps you 48 ≈ +1.9 pts/week: as good as adding that to your lineup every week for the rest of the season.");
   });
 
   it("uses no jargon in the new lines (odds, weekly line, details, value line)", () => {
@@ -1546,5 +1590,162 @@ describe("the Helps you scale in the feedback's version inputs (Phase 7a, track 
     const e = simulateTrade(I, x, "final", null);
     expect(helpsReasonOf(e.detail.notes)).toBe("odds");
     expect(versionChoices(e, league, "title")[0]?.inputs).toMatchObject({ b3: config.benefit.helpsFloor, helpsReason: "odds" });
+  });
+});
+
+describe("when to look, and how fresh the data is (planner reply to Checkpoint 7a, 5.3)", () => {
+  /** The fixture league: week 12 of weeks 1–17, trade deadline week 13, no trade review; Thursday of week 12. */
+  const NOW = new Date("2026-11-26T22:00:00.000Z");
+  const HOUR = 3600_000;
+  const at = (hoursAgo: number) => new Date(NOW.getTime() - hoursAgo * HOUR).toISOString();
+  const BEST = "Best time to look: Tuesday or Wednesday, after Monday night's game. Trade values and projections have caught up with the weekend,";
+
+  /** The review as a league's settings hold it: its kind, and its length when the platform reports one. */
+  const review = (tradeReview: LeagueSettings["tradeReview"], tradeReviewHours?: number): Pick<LeagueSettings, "tradeReview" | "tradeReviewHours"> =>
+    tradeReviewHours === undefined ? { tradeReview } : { tradeReview, tradeReviewHours };
+  /** BEST up to its last clause, for a review longer than a day (a sentence of its own follows). */
+  const LEAD = `${BEST.slice(0, -1)}.`;
+
+  it("words the league's review period from LeagueSettings.tradeReviewHours alone: days when whole, else hours; none only at 0 hours", () => {
+    expect(reviewPeriodWords(review("league_vote", 24))).toBe("1-day");
+    expect(reviewPeriodWords(review("commissioner", 48))).toBe("2-day");
+    expect(reviewPeriodWords(review("league_vote", 72))).toBe("3-day");
+    expect(reviewPeriodWords(review("commissioner", 36))).toBe("36-hour");
+    // No review: a period of 0 hours, the only definite one (ESPN's revisionHours 0; Sleeper with the veto vote off).
+    expect(reviewPeriodWords(review("none", 0))).toBe("none");
+    expect(reviewPeriodWords(review("league_vote", 0))).toBe("none");
+    // Not reported, or not a number of hours: unknown. tradeReview "none" without a period is only assumed (review of
+    // Phase 7b: a Sleeper league without veto_auto_poll, most with a 2-day trade_review_days; a veto code we don't know;
+    // an ESPN league that reports neither veto votes nor a period), never a definite "none".
+    expect(reviewPeriodWords(review("none"))).toBeNull();
+    expect(reviewPeriodWords(review("league_vote"))).toBeNull();
+    for (const tradeReviewHours of [Number.NaN, -24, Number.POSITIVE_INFINITY]) expect(reviewPeriodWords(review("commissioner", tradeReviewHours))).toBeNull();
+  });
+
+  it("says the best time to look, with the league's review period when it's known, and when a trade clears when the review lasts over a day", () => {
+    expect(bestTimeText(review("league_vote", 24))).toBe(`${BEST} and a trade still has time to clear your league's 1-day review before Thursday.`);
+    expect(bestTimeText(review("league_vote", 12))).toBe(`${BEST} and a trade still has time to clear your league's 12-hour review before Thursday.`);
+    expect(bestTimeText(review("commissioner"))).toBe(`${BEST} and a trade still has time to clear your league's review before Thursday.`);
+    expect(bestTimeText(review("none", 0))).toBe(`${BEST} and a trade still has time to go through before Thursday.`);
+    // An assumed "none" reads the unknown period.
+    expect(bestTimeText(review("none"))).toBe(`${BEST} and a trade still has time to clear your league's review before Thursday.`);
+    // Over a day, a trade made Wednesday can't clear "before Thursday" (review of Phase 7b): when it clears instead.
+    expect(bestTimeText(review("league_vote", 48))).toBe(`${LEAD} With your league's 2-day review, a trade made Tuesday clears on Thursday, and one made Wednesday on Friday.`);
+    expect(bestTimeText(review("commissioner", 72))).toBe(`${LEAD} With your league's 3-day review, a trade made Tuesday clears on Friday, and one made Wednesday on Saturday.`);
+    expect(bestTimeText(review("commissioner", 96))).toBe(`${LEAD} With your league's 4-day review, a trade made Tuesday clears on Saturday, and one made Wednesday on Sunday.`);
+    expect(bestTimeText(review("league_vote", 36))).toBe(`${LEAD} With your league's 36-hour review, a trade made then can clear after Thursday night's game.`);
+    expect(bestTimeText(review("league_vote", 120))).toBe(`${LEAD} With your league's 5-day review, a trade made then can clear after Thursday night's game.`);
+    for (const hours of [24, 36, 48, 72, 96, 120]) expect(bestTimeText(review("league_vote", hours)).startsWith(LEAD.slice(0, -1))).toBe(true);
+  });
+
+  it("is in season for trading while a fantasy week is left and the trade deadline hasn't passed", () => {
+    expect(snapshot.currentWeek).toBe(12);
+    expect(snapshot.settings.tradeDeadline).toEqual({ week: 13 });
+    expect(inTradingSeason(snapshot, NOW)).toBe(true);
+    // The deadline week counts; the week after it doesn't (Sleeper: its league week, when it lags the NFL week).
+    expect(inTradingSeason({ ...snapshot, currentWeek: 13 }, NOW)).toBe(true);
+    expect(inTradingSeason({ ...snapshot, currentWeek: 14 }, NOW)).toBe(false);
+    expect(inTradingSeason({ ...snapshot, currentWeek: 14, leagueWeek: 13 }, NOW)).toBe(true);
+    // A deadline date decides when the league has one.
+    const dated = (date: string) => ({ ...snapshot, settings: { ...snapshot.settings, tradeDeadline: { week: 13, date } } });
+    expect(inTradingSeason(dated("2026-11-25T17:00:00.000Z"), NOW)).toBe(false);
+    expect(inTradingSeason(dated("2026-12-02T17:00:00.000Z"), NOW)).toBe(true);
+    // No deadline: through the last playoff week.
+    const open = (currentWeek: number) => ({ ...snapshot, currentWeek, settings: { ...snapshot.settings, tradeDeadline: null } });
+    expect(inTradingSeason(open(17), NOW)).toBe(true);
+    expect(inTradingSeason(open(18), NOW)).toBe(false);
+    // A league that lists no weeks: the inputs' last week, else not known (no line).
+    const unlisted = { ...open(12), settings: { ...open(12).settings, regularSeasonWeeks: [], playoffWeeks: [] } };
+    expect(inTradingSeason(unlisted, NOW, { lastWeek: 17 })).toBe(true);
+    expect(inTradingSeason(unlisted, NOW, { lastWeek: 11 })).toBe(false);
+    expect(inTradingSeason(unlisted, NOW)).toBe(false);
+  });
+
+  it("isn't in season before the league's first game: a preseason league, or one renewed for next season, reads week 1 (review of Phase 7b)", () => {
+    const week1 = { ...snapshot, currentWeek: 1 };
+    const nfl = { kickoffs: { 1: { KC: "2026-09-11T00:20:00.000Z", BAL: "2026-09-13T17:00:00.000Z", NYJ: "not a time" } } };
+    // Before week 1's first kickoff (August, then a minute before it): not yet; from it on: in season.
+    expect(inTradingSeason(week1, new Date("2026-08-20T17:00:00.000Z"), { nfl })).toBe(false);
+    expect(inTradingSeason(week1, new Date("2026-09-11T00:19:00.000Z"), { nfl })).toBe(false);
+    expect(inTradingSeason(week1, new Date("2026-09-11T00:20:00.000Z"), { nfl })).toBe(true);
+    // Week 1 without a known kickoff (a league renewed for 2027, opened in February: no schedule yet): no line.
+    expect(inTradingSeason(week1, new Date("2027-02-15T17:00:00.000Z"), { nfl: { kickoffs: {} } })).toBe(false);
+    expect(inTradingSeason(week1, new Date("2027-02-15T17:00:00.000Z"))).toBe(false);
+    // A later week has begun without a kickoff to read (the schedule lists them from the current week on).
+    expect(inTradingSeason({ ...snapshot, currentWeek: 2 }, NOW, { nfl: { kickoffs: {} } })).toBe(true);
+    // A league whose season starts in week 3: not in week 2; in week 3 once its first game has kicked off.
+    const late = { ...snapshot, settings: { ...snapshot.settings, regularSeasonWeeks: snapshot.settings.regularSeasonWeeks.filter((w) => w >= 3) } };
+    expect(inTradingSeason({ ...late, currentWeek: 2 }, NOW)).toBe(false);
+    expect(inTradingSeason({ ...late, currentWeek: 3 }, new Date("2026-09-24T12:00:00.000Z"), { nfl: { kickoffs: { 3: { DAL: "2026-09-25T00:15:00.000Z" } } } })).toBe(false);
+    expect(inTradingSeason({ ...late, currentWeek: 3 }, new Date("2026-09-25T01:00:00.000Z"), { nfl: { kickoffs: { 3: { DAL: "2026-09-25T00:15:00.000Z" } } } })).toBe(true);
+    // A league that lists no weeks starts at NFL week 1.
+    const unlisted = { ...week1, settings: { ...week1.settings, regularSeasonWeeks: [], playoffWeeks: [] } };
+    expect(inTradingSeason(unlisted, new Date("2026-08-20T17:00:00.000Z"), { lastWeek: 17, nfl })).toBe(false);
+    expect(inTradingSeason(unlisted, new Date("2026-09-12T17:00:00.000Z"), { lastWeek: 17, nfl })).toBe(true);
+  });
+
+  it("says how long ago, in friendly words", () => {
+    const now = NOW.getTime();
+    expect(timeAgoText(now, now)).toBe("just now");
+    expect(timeAgoText(now - 59_000, now)).toBe("just now");
+    // A clock a little ahead: never "in 2 minutes".
+    expect(timeAgoText(now + 120_000, now)).toBe("just now");
+    expect(timeAgoText(now - 60_000, now)).toBe("1 minute ago");
+    expect(timeAgoText(now - 25 * 60_000, now)).toBe("25 minutes ago");
+    expect(timeAgoText(now - HOUR, now)).toBe("1 hour ago");
+    expect(timeAgoText(now - 5.5 * HOUR, now)).toBe("5 hours ago");
+    expect(timeAgoText(now - 23.99 * HOUR, now)).toBe("23 hours ago");
+    expect(timeAgoText(now - 24 * HOUR, now)).toBe("yesterday");
+    expect(timeAgoText(now - 47 * HOUR, now)).toBe("yesterday");
+    expect(timeAgoText(now - 48 * HOUR, now)).toBe("2 days ago");
+    expect(timeAgoText(now - 9 * 24 * HOUR, now)).toBe("9 days ago");
+  });
+
+  it("says when the trade values and the projections were updated, leaving out what isn't known", () => {
+    // The server's name for Sleeper's projections in ModelInputs.sources (a server module the pages can't import).
+    expect(PROJECTIONS_SOURCE).toBe(MODEL_SOURCES.sleeperProjections);
+    const market = { ...MARKET, fetchedAt: at(2) };
+    const projections = { source: PROJECTIONS_SOURCE, fetchedAt: at(5) };
+    const others = [{ source: MODEL_SOURCES.sleeperStats, fetchedAt: at(1) }, { source: MODEL_SOURCES.fantasyCalc, fetchedAt: at(30) }];
+    expect(freshnessText({ market, sources: [...others, projections] }, NOW.getTime())).toBe("Trade values updated 2 hours ago · Projections updated 5 hours ago.");
+    expect(freshnessText({ market: null, sources: [projections] }, NOW.getTime())).toBe("Projections updated 5 hours ago.");
+    expect(freshnessText({ market, sources: others }, NOW.getTime())).toBe("Trade values updated 2 hours ago.");
+    expect(freshnessText({ market: null, sources: others }, NOW.getTime())).toBeNull();
+    expect(freshnessText({ market: { ...market, fetchedAt: "not a time" }, sources: [{ ...projections, fetchedAt: "" }] }, NOW.getTime())).toBeNull();
+  });
+
+  it("gives the Trade Finder both lines in season, and only the freshness line before the first game or once the deadline has passed", () => {
+    const inputs = { market: { ...MARKET, fetchedAt: at(26) }, sources: [{ source: PROJECTIONS_SOURCE, fetchedAt: at(0.25) }], lastWeek: 17 };
+    const reviewed = tradeSnapshot({ tradeReview: "league_vote" });
+    const voted = { ...reviewed, settings: { ...reviewed.settings, tradeReviewHours: 24 } };
+    expect(finderTimingLines({ snapshot: voted, inputs, now: NOW })).toEqual({
+      bestTime: `${BEST} and a trade still has time to clear your league's 1-day review before Thursday.`,
+      freshness: "Trade values updated yesterday · Projections updated 15 minutes ago.",
+    });
+    // The fixture league's "no review" is only assumed (no period): the unknown period's words; a 0-hour period's are its own.
+    expect(finderTimingLines({ snapshot, inputs, now: NOW }).bestTime).toBe(`${BEST} and a trade still has time to clear your league's review before Thursday.`);
+    expect(finderTimingLines({ snapshot: { ...snapshot, settings: { ...snapshot.settings, tradeReviewHours: 0 } }, inputs, now: NOW }).bestTime).toBe(`${BEST} and a trade still has time to go through before Thursday.`);
+    expect(finderTimingLines({ snapshot: { ...voted, currentWeek: 14 }, inputs, now: NOW })).toEqual({
+      bestTime: null,
+      freshness: "Trade values updated yesterday · Projections updated 15 minutes ago.",
+    });
+    // Week 1 before its first kickoff (the inputs' schedule): the freshness line alone.
+    const preseason = { ...inputs, nfl: { kickoffs: { 1: { KC: "2026-12-03T01:15:00.000Z" } } } };
+    expect(finderTimingLines({ snapshot: { ...voted, currentWeek: 1 }, inputs: preseason, now: NOW })).toEqual({
+      bestTime: null,
+      freshness: "Trade values updated yesterday · Projections updated 15 minutes ago.",
+    });
+    // Both lines read the moment they're given (the page's clock): the same inputs a day later are a day older.
+    expect(finderTimingLines({ snapshot: voted, inputs, now: new Date(NOW.getTime() + 24 * HOUR) }).freshness).toBe("Trade values updated 2 days ago · Projections updated yesterday.");
+  });
+});
+
+describe("noticeWarnings: the Trade Finder's warnings box shows notices only (planner reply to Checkpoint 7a, §5.1)", () => {
+  it("keeps plain-language notices once each, and leaves technical and player-level warnings to the Import Report and the League page", () => {
+    const technical = "No projections for 12 free agents, so they aren't considered.";
+    const player = "No projections for 2 rostered players: A. Player, B. Player.";
+    const notice = "FantasyCalc's values couldn't be loaded.";
+    expect(noticeWarnings([technical, notice, player, notice])).toEqual([notice]);
+    expect(noticeWarnings([])).toEqual([]);
   });
 });

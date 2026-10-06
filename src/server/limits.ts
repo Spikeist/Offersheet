@@ -54,6 +54,12 @@ export const redisClientLimits = {
 export const healthLimits = {
   stepTimeoutMs: 2_000,
   keyTtlMs: 60_000,
+  /**
+   * An instance checks the store at most this often and answers with that check (and its age) in between (B4 security
+   * review: the route is open to anyone, and a check per request let one address spend thousands of the free plan's
+   * Upstash commands a day). At most 3 × 288 commands a day per instance, however often it's asked.
+   */
+  checkEveryMs: 5 * 60_000,
 } as const;
 
 /**
@@ -74,6 +80,15 @@ export const rateLimits = {
    * times; anything more is someone guessing at CRON_SECRET (the route answers 401 and does nothing).
    */
   cron: { limit: 10, windowS: 600 },
+  /**
+   * The route kinds counted in the shared store (Redis) on Vercel (B4 security review): the imports and League page builds,
+   * the work an address could spread over many instances. Every other kind (health, session, cron, feedback) counts in each
+   * instance's own windows: they ask nothing of any platform and their heavy parts have limits of their own (the cron's
+   * secret, the feedback copies' day in src/server/budget.ts), while a check in Redis costs 2–3 Upstash commands, so an
+   * address at their limits all day could spend the free plan's commands for everyone (about 24,000 a day from one IPv4
+   * address, about 430,000 from one IPv6 /48, against 16,700 a day).
+   */
+  sharedKinds: ["import", "model"],
   /**
    * IPv6 (review SEC-2): a /64 is one client, but a household gets a /56 and a free tunnel broker a /48 (65,536 /64s), so
    * each IPv6 request also counts against its address's /48, at this many times the /64's limit (a phone carrier's pool can
@@ -126,6 +141,15 @@ export const budgets = {
    */
   reservedForCookies: { espn: 1_000 },
   /**
+   * Each client's share of that reserve a day (B4 security review): a request "carries a visitor's ESPN cookies" as soon as
+   * someone pastes any (made-up ones pass the format check, and a throwaway ESPN account's real ones pass ESPN's), so
+   * without a share of its own 10 clients at their perClientPerDay could spend the whole day, reserve included. Counted
+   * once the open part of the day is spent; past it, BUSY as for the day. Draining the reserve now takes 20 clients (an
+   * IPv4 /24 or IPv6 /48 each) besides the open part's; a private league's import is about 12 ESPN requests, so a
+   * visitor's block keeps about 4 a day while the reserve is all that's left.
+   */
+  reservedPerClientPerDay: { espn: 50 },
+  /**
    * The day in slices (review SEC-2: "so a burst can only take one slice"): by the end of slice i of `slices` (2 hours each)
    * at most (i + 1) / slices of a day's budget may have been spent, unused budget carried on, but never less than
    * burstShare of it, so the first hours of a UTC day (the US evening) still have a quarter of the day.
@@ -142,6 +166,14 @@ export const budgets = {
   timeoutMs: 1_000,
   /** After Redis fails or times out, the process's own count is used this long before Redis is asked again. */
   redisRetryAfterMs: 60_000,
+  /**
+   * An attempt waiting for its host's turn is counted once it's next in line, so the count's round trips overlap the turn
+   * ahead (src/server/http.ts; review of the Checkpoint 7b load-test fixes, finding 1), unless its wait will be cut by its
+   * request's deadline within this long: then it's counted only if its turn comes first. Without it, a deadline that cut
+   * many waiting attempts at once counted each as it came first in line and gave the count back a moment later (the load
+   * test's scenario 2 at 200 ms an Upstash command: 432 budget commands for 21 attempts sent, against 96).
+   */
+  countAheadMinMs: 1_000,
 } as const;
 
 /**
@@ -162,6 +194,18 @@ export const budgets = {
 export const workLimits = {
   /** Request-body bytes per unit (Content-Length; a body without one costs its cap). */
   unitBytes: 75_000,
+  /**
+   * A gzip body's unpacked bytes per unit (B4 security review; src/server/budget.ts unpackedExtraUnits, charged by
+   * src/app/api/_lib/upload.ts as soon as a body is unpacked, before it's read): a body pays for its compressed bytes or its
+   * unpacked ones, whichever cost more. The server's work on an upload (the SWID pass, parsing, the checks) grows with the
+   * unpacked text, and repetitive JSON compresses without bound: a 17 KB body of 150,000 copies of one SWID unpacked to
+   * 5.9 MB and took 0.7–0.9 s of CPU for its 3 units (measured, i9: 250–300 ms a unit). At 500 KB a unit it costs 14, and
+   * the worst shapes measured end to end (that one: 65 ms a unit, 76 at most on a busy machine; 1.4 million tiny lists: 36;
+   * a signed import of 500,000 tiny objects: 36) stay under the 100 ms a unit is worth. Real uploads pay nothing more
+   * (`npm run measure:upload`: Parker's ESPN league 515 KiB gzipped, 2.1 MiB unpacked; the Sleeper test league 12.5 KiB,
+   * 125 KiB; their signed imports 24 KiB, 119 KiB): their compressed bytes still set the price.
+   */
+  unpackedUnitBytes: 500_000,
   /** What a request costs when it arrives, besides its body's bytes, by what it asks for (src/server/budget.ts admissionUnits). */
   units: {
     /** A league the browser read, to the import route. */
@@ -264,6 +308,26 @@ export const modelMemoLimits = {
 } as const;
 
 /**
+ * League page model builds at once per server instance (Checkpoint 7b load test, risk 3; src/server/buildSlots.ts, the
+ * model routes' handlers). In a cold burst every build waited on the same single-flight fetches and then worked through
+ * the data in step, holding about 25–34 MB of heap each at once: 50 cold builds on one instance kept more than 1.27 GB
+ * live and ran out of memory at heap caps of 768–1,280 MB, and Fluid compute can put many concurrent requests on one
+ * instance (a Hobby function has about 2 GB). So at most `concurrent` builds run at once on an instance (about 270 MB at
+ * that size); the others wait for a slot in the order their requests reached Offer Sheet while more than minTimeLeftMs of
+ * their deadline (deadlines.modelMs) is left, then answer BUSY ("Offer Sheet is busy right now. Try again in a minute.",
+ * Retry-After retryAfterS). A signed import already built on the instance (modelMemoLimits) needs no slot.
+ */
+export const modelBuildLimits = {
+  concurrent: 8,
+  /**
+   * The least of its deadline a waiting build may start with: a cold build first reads about 20 public lists (Sleeper's
+   * projections and stats, FantasyCalc, the NFL schedule; about 10 s at the HTTP client's pacing), then about 0.5 s of CPU.
+   */
+  minTimeLeftMs: 30_000,
+  retryAfterS: 60,
+} as const;
+
+/**
  * What a league the browser read may hold (track BF, review BF-R1; src/adapters/upload.ts uploadShapeProblem, and
  * src/app/api/_lib/upload.ts for the import it makes). The server's work on an upload grows with these counts (the
  * normalizers' grouping and trade matching, and the model build's scoring: every relevant player's projected weeks under
@@ -352,6 +416,18 @@ export const logLimits = {
   retainDays: 14,
   /** The after-response write gives up after this long (it never delays a response). */
   writeTimeoutMs: 2_000,
+  /**
+   * Lines a visitor can set off at will, at most this often per instance (B4 security review; src/server/log.ts
+   * logThrottled): forged uploads answered 502 and rate-limit refusals each wrote a line, so a few addresses could push a
+   * day's real lines out of its keepPerDay. One "rate_limited" line per refusalEveryMs (any route; the usage counters'
+   * refused_rate counts every refusal: src/server/usage.ts), at most 144 a day; and one line per repeatEveryMs of each
+   * failure that repeats ("error_response", "unexpected_*", "deadline_*" with the same route, code, platform, status and
+   * error name), which still shows when an outage began and that it went on.
+   */
+  refusalEveryMs: 10 * 60_000,
+  repeatEveryMs: 60_000,
+  /** The throttle's memory of lines it let through: at most this many (the oldest go first). */
+  throttleMaxKeys: 256,
 } as const;
 
 /**

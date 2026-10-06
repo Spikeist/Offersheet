@@ -3,9 +3,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
+import { ESPN_S2_MAX_LENGTH } from "@/lib/espnCredentials";
 import {
   SESSION_COOKIE_NAME,
   SESSION_SEAL_TTL_SECONDS,
+  SessionTooLargeError,
   SessionUnavailableError,
   devFallbackEspnCredentials,
   espnCredentialsFor,
@@ -119,6 +121,25 @@ describe("the ESPN credentials cookie", () => {
     const headers = new Headers();
     await forgetEspnCredentials(request(`${SESSION_COOKIE_NAME}=stale`), headers, { NODE_ENV: "production" });
     expect(headers.getSetCookie()[0]).toBe(`${SESSION_COOKIE_NAME}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax; Secure`);
+  });
+
+  it("the longest espn_s2 the checks accept seals into one cookie, Secure attribute and all (B4 security review)", async () => {
+    // Every character the checks allow serializes as itself in the session's JSON, so the length alone sets the seal's.
+    const longest = { espnS2: `AEB${"%".repeat(ESPN_S2_MAX_LENGTH - 3)}`, swid: CREDS.swid };
+    const prod = { SESSION_SECRET: SECRET, NODE_ENV: "production" };
+    const headers = new Headers();
+    await saveEspnCredentials(request(), headers, longest, prod);
+    const [setCookie] = headers.getSetCookie();
+    // iron-session refuses a cookie over 4,096 bytes, its attributes counted (Max-Age too, which the jar then strips).
+    expect(new TextEncoder().encode(setCookie).length).toBeLessThan(3_300);
+    expect(await readEspnCredentials(request(cookiePair(setCookie ?? "")), prod)).toEqual(longest);
+  });
+
+  it("a value too long for one cookie is refused as the user's input (SessionTooLargeError), and nothing is set", async () => {
+    const headers = new Headers();
+    const tooLong = { espnS2: "A".repeat(3_000), swid: CREDS.swid };
+    await expect(saveEspnCredentials(request(), headers, tooLong, { SESSION_SECRET: SECRET, NODE_ENV: "production" })).rejects.toBeInstanceOf(SessionTooLargeError);
+    expect(headers.getSetCookie()).toEqual([]);
   });
 
   it("needs a SESSION_SECRET of at least 32 characters", () => {

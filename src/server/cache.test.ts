@@ -605,6 +605,118 @@ describe("TieredCache (this instance's memory in front of Redis)", () => {
       log.mockRestore();
     }
   });
+
+  /** A Redis whose GETs read now and answer once open() is called (reads stay in flight meanwhile), counting them. */
+  function heldRedis() {
+    const redis = new FakeRedis();
+    let open!: () => void;
+    const gate = new Promise<void>((r) => (open = r));
+    let gets = 0;
+    const held: RedisLike = Object.assign(Object.create(redis) as RedisLike, {
+      async get(key: string) {
+        gets++;
+        const value = await redis.get(key);
+        await gate;
+        return value;
+      },
+    });
+    return { redis, held, open: () => open(), gets: () => gets };
+  }
+
+  it("concurrent reads of one key share one Redis read, and each caller applies its own maxAge (Checkpoint 7b load test, finding 4)", async () => {
+    const { redis, held, open, gets } = heldRedis();
+    const memory = new MemoryLruCache();
+    const cache = new TieredCache(memory, new RedisCache(held, { env: SHARED_ENV }));
+    // Another instance stored the entry 30 minutes ago.
+    await new RedisCache(redis, { env: SHARED_ENV }).set(KEY, httpEntry(1, "o"), DAY, T0 - 30 * MINUTE);
+    const burst = Array.from({ length: 10 }, () => cache.get(KEY, HOUR, T0));
+    const picky = cache.get(KEY, 10 * MINUTE, T0); // a caller that accepts 10 minutes at most, joining the burst's read
+    await new Promise((r) => setTimeout(r, 5));
+    open();
+    const got = await Promise.all(burst);
+    for (const g of got) expect(g).toEqual({ value: httpEntry(1, "o"), storedAt: T0 - 30 * MINUTE, expiresAt: T0 - 30 * MINUTE + DAY });
+    expect(await picky).toBeUndefined(); // 30 minutes old: a miss for it, as its own read would have been
+    // One Upstash GET for the ten that took the copy; the picky caller, which joined a read sent before it began and couldn't
+    // use its copy, read once more (review of the Checkpoint 7b load-test fixes, finding 2), and still missed.
+    expect(gets()).toBe(2);
+    // Kept in memory by the callers that accepted it: the next read is served there, without a command.
+    expect(await cache.get(KEY, HOUR, T0 + 1)).toMatchObject({ value: { text: "o" } });
+    expect(gets()).toBe(2);
+  });
+
+  it("the shared read asks Redis at any age: a picky caller that starts it doesn't make the callers who join it miss (review of the Checkpoint 7b load-test fixes, finding 4's test)", async () => {
+    const { redis, held, open, gets } = heldRedis();
+    const memory = new MemoryLruCache();
+    const cache = new TieredCache(memory, new RedisCache(held, { env: SHARED_ENV }));
+    await new RedisCache(redis, { env: SHARED_ENV }).set(KEY, httpEntry(1, "o"), DAY, T0 - 30 * MINUTE);
+    const picky = cache.get(KEY, MINUTE, T0); // a Refresh's read, first: it starts the shared read
+    await new Promise((r) => setTimeout(r, 5));
+    const lenient = Array.from({ length: 5 }, () => cache.get(KEY, HOUR, T0)); // join it while its GET is held
+    await new Promise((r) => setTimeout(r, 5));
+    open();
+    expect(await picky).toBeUndefined();
+    // Had the shared read asked with the picky caller's maxAge, every lenient caller would have missed a copy it accepts.
+    for (const g of await Promise.all(lenient)) expect(g).toEqual({ value: httpEntry(1, "o"), storedAt: T0 - 30 * MINUTE, expiresAt: T0 - 30 * MINUTE + DAY });
+    expect(gets()).toBe(1); // one GET: the joiners could use its copy, so none read once more
+    expect(await memory.get(KEY, HOUR, T0)).toMatchObject({ value: { text: "o" }, storedAt: T0 - 30 * MINUTE }); // kept for them
+  });
+
+  it("a read that begins after another instance's write has finished sees it, though it joins a read sent before that write (review of the Checkpoint 7b load-test fixes, finding 2)", async () => {
+    const { redis, held, open, gets } = heldRedis();
+    const cache = new TieredCache(new MemoryLruCache(), new RedisCache(held, { env: SHARED_ENV }));
+    const early = cache.get(KEY, HOUR, T0); // its GET reads Redis now (nothing yet) and answers later
+    await new Promise((r) => setTimeout(r, 5));
+    await new RedisCache(redis, { env: SHARED_ENV }).set(KEY, httpEntry(1, "w"), HOUR, T0); // another instance's write, finished
+    const late = cache.get(KEY, HOUR, T0); // begins after it: joins the early read
+    await new Promise((r) => setTimeout(r, 5));
+    open();
+    expect(await early).toBeUndefined(); // it began before the write
+    expect(await late).toMatchObject({ value: { text: "w" }, storedAt: T0 });
+    expect(gets()).toBe(2); // the joined read missed, so one more, sent after it settled
+  });
+
+  it("an older copy only a shared read saw isn't kept in memory for a caller that turned it down (review CA-4's spirit)", async () => {
+    const { redis, held, open } = heldRedis();
+    const memory = new MemoryLruCache();
+    const cache = new TieredCache(memory, new RedisCache(held, { env: SHARED_ENV }));
+    await new RedisCache(redis, { env: SHARED_ENV }).set(KEY, httpEntry(1, "o"), DAY, T0 - 30 * MINUTE);
+    const refresh = cache.get(KEY, MINUTE, T0); // a Refresh's read: too old for it
+    open();
+    expect(await refresh).toBeUndefined();
+    expect(memory.keys()).toEqual([]);
+  });
+
+  it("a shared read that fails is a miss for every caller that shared it; nothing is remembered, so the next read asks again", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const redis = new FakeRedis();
+      let fail = true;
+      let gets = 0;
+      const flaky: RedisLike = Object.assign(Object.create(redis) as RedisLike, {
+        async get(key: string) {
+          gets++;
+          if (fail) throw Object.assign(new Error("fetch failed"), { name: "UpstashError" });
+          return redis.get(key);
+        },
+      });
+      // No pause after a failure, so the next read asks at once (the breaker's own rule is tested above).
+      const cache = new TieredCache(new MemoryLruCache(), new RedisCache(flaky, { env: SHARED_ENV, breaker: new SharedCacheBreaker({ retryAfterMs: 0 }) }));
+      await new RedisCache(redis, { env: SHARED_ENV }).set(KEY, httpEntry(1, "o"), HOUR, T0);
+      expect(await Promise.all([cache.get(KEY, HOUR, T0), cache.get(KEY, HOUR, T0)])).toEqual([undefined, undefined]);
+      // The second caller joined the first's read; of no use to it (a miss), it read once more (finding 2), which failed too.
+      expect(gets).toBe(2);
+      fail = false;
+      expect(await cache.get(KEY, HOUR, T0)).toMatchObject({ value: { text: "o" } });
+      expect(gets).toBe(3);
+      // With the breaker's pause (as deployed), a failure leaves Redis alone a while: the joiner's read once more sends nothing.
+      fail = true;
+      const paused = new TieredCache(new MemoryLruCache(), new RedisCache(flaky, { env: SHARED_ENV, breaker: new SharedCacheBreaker() }));
+      expect(await Promise.all([paused.get(KEY, HOUR, T0), paused.get(KEY, HOUR, T0)])).toEqual([undefined, undefined]);
+      expect(gets).toBe(4);
+    } finally {
+      log.mockRestore();
+    }
+  });
 });
 
 describe("RedisCacheLock (cross-instance single-flight for league-independent entries)", () => {

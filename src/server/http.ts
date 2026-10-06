@@ -70,22 +70,34 @@
  *   or store was busy, or no time was left) so the route can say so. Outside a route (scripts, tests) there's no deadline
  *   and nothing changes.
  * - The daily budgets (track RL; src/server/budget.ts): every live attempt to a budgeted host (ESPN, Sleeper, FantasyCalc,
- *   GitHub raw) counts, retries included, before it goes out, and a league request made for an API request also counts
- *   against its client's share of the day (on Vercel). Over a budget, it doesn't go out: a retry returns the last answer;
- *   a first attempt for league-independent data (cache.public, or a staleIfError request: the public sources) is "no
- *   response" like an outage (their saved copy or their warning), marked `cut: "budget"`; any other first attempt throws
- *   BudgetExhaustedError (`by`: the day or the client's share), which the import routes answer with BUSY
- *   (src/app/api/_lib/respond.ts). A joiner of a fetch its starter's share refused asks itself. Without Redis the check is
- *   synchronous, so local timing is as before.
+ *   GitHub raw) that goes out counts, retries included, and a league request made for an API request also counts against
+ *   its client's share of the day (on Vercel). It's counted while it waits for its host's turn, from the moment it's next
+ *   in line (acquire's `next`; one its deadline is about to cut, within limits.budgets.countAheadMinMs, only if its turn
+ *   comes), so a shared count's round trips to Redis overlap the request ahead of it and the host's gap instead of
+ *   holding the turn (review of the Checkpoint 7b load-test fixes, finding 1: counted only once its turn had come, with a
+ *   store answering in 400 ms three ESPN requests went out at 400, 1,400 and 2,400 ms instead of 400, 1,000 and 1,600,
+ *   and a count that took most of an attempt's last second left its fetch a few ms, cut and put down to the platform).
+ *   An attempt that doesn't go out after all gets its count back (OutboundBudget.refund; Checkpoint 7b load test, defect
+ *   1: counted before it queued and never given back, 82 attempts were counted for 35 sent): the deadline cut its wait,
+ *   or its count came back too late to leave it deadlines.minAttemptMs (Offer Sheet's own store was busy: "busy",
+ *   "upstash"). A refusal takes the attempt out of the queue at once, and one that comes once its turn has come hands the
+ *   turn on at once (no request went out, so the host's gap doesn't start again). A limit this process already knows is
+ *   reached (OutboundBudget.refusedAlready) refuses the attempt before it queues. ⚠️ A refund is sent once its count is
+ *   known, after the attempt gave up: one an instance never sends (it stopped first) leaves the count.
+ *   Over a budget, it doesn't go out: a retry returns the last answer; a first attempt for league-independent data
+ *   (cache.public, or a staleIfError request: the public sources) is "no response" like an outage (their saved copy or
+ *   their warning), marked `cut: "budget"`; any other first attempt throws BudgetExhaustedError (`by`: the day or the
+ *   client's share), which the import routes answer with BUSY (src/app/api/_lib/respond.ts). A joiner of a fetch its
+ *   starter's share refused asks itself. Without Redis the count is answered at once, so local timing is as before.
  * - Usage (planner reply to Checkpoint 7a, §2 question 7; src/server/usage.ts, on Vercel only): every attempt to a budgeted
  *   platform that goes out is counted per UTC day (outbound_<platform>), written after the API request's answer.
  */
 import { responseOf, retryAfterMs } from "@/adapters/httpShared";
 import type { HttpClient, HttpRequestOptions, HttpResponse } from "@/adapters/types";
-import { BudgetExhaustedError, budgetPlatformOf, isBudgetExhaustedError, outboundBudget, type BudgetPlatform, type OutboundBudget } from "./budget";
+import { BudgetExhaustedError, budgetPlatformOf, isBudgetExhaustedError, outboundBudget, type BudgetLimit, type BudgetPlatform, type BudgetReceipt, type BudgetVerdict, type OutboundBudget, type TakeOptions } from "./budget";
 import type { Cache, CacheEntry, CacheLock } from "./cache";
 import { LATE, nextArrival, noteCut, requestScope, timeLeftMs, withinDeadline } from "./deadline";
-import { deadlines } from "./limits";
+import { budgets, deadlines } from "./limits";
 import { errorNameOf, logEvent } from "./log";
 import { noteUsage, type UsageCounter } from "./usage";
 
@@ -256,18 +268,69 @@ interface Waiter {
   order: number;
   grant: () => void;
   timer?: ReturnType<typeof setTimeout>;
+  /** Epoch ms its wait is cut by its request's deadline (`timer`); none outside a request. */
+  cutAt?: number;
+  /** Called once, when it's first in line and not about to be cut (acquire's `next`: its budget count starts then; tellNext). */
+  next?: () => void;
+  /** `next` has been called. */
+  told?: boolean;
 }
 
 /**
- * A host's turn (createHttpClient's acquire): its release, or why the request's deadline came first (src/server/deadline.ts
- * CutReason): "slow", another request's answer held the turn deadlines.slowAnswerMs or more (the source is slow); "busy",
- * the queue of other requests was long (Offer Sheet's own pacing); "skipped", there was no time to wait at all.
+ * A host's turn (createHttpClient's acquire): its release (`made`, true by default: a request went out, so the host's gap
+ * counts from now; false: none did, a budget refused it, and the next request may go at once), or why it never came: the
+ * request's deadline came first (src/server/deadline.ts CutReason: "slow", another request's answer held the turn
+ * deadlines.slowAnswerMs or more, the source is slow; "busy", the queue of other requests was long, Offer Sheet's own
+ * pacing; "skipped", there was no time to wait at all), or the request left the queue ("left": its budget count refused
+ * it, Waiting.leave).
  */
-type Turn = { release: () => void } | { cut: "slow" | "busy" | "skipped" };
+type Turn = { release: (made?: boolean) => void } | { cut: "slow" | "busy" | "skipped" | "left" };
+
+/** A request's place in its host's queue (createHttpClient's acquire). */
+interface Waiting {
+  /** Its turn, or why it never came (Turn). */
+  turn: Promise<Turn>;
+  /** Leaves the queue while the turn hasn't come (the turn is then { cut: "left" }); nothing once it has. */
+  leave(): void;
+}
 
 /** Whether `a` is served before `b`: the request that reached Offer Sheet first (see acquire). */
 function before(a: Waiter, b: Waiter): boolean {
   return a.time < b.time || (a.time === b.time && a.order < b.order);
+}
+
+/** `p`'s value, or LATE when `ms` pass first (no bound for Infinity); a rejection of `p` rejects. */
+function atMost<T>(p: Promise<T>, ms: number): Promise<T | typeof LATE> {
+  if (ms === Number.POSITIVE_INFINITY) return p;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<typeof LATE>((resolve) => (timer = setTimeout(() => resolve(LATE), Math.max(0, ms))));
+  return Promise.race([p, late]).finally(() => clearTimeout(timer));
+}
+
+/** An attempt's count against the daily budget (live; the header): take's verdict, and its count back when it's not sent. */
+interface Count {
+  /** take's verdict once it's known; it rejects only when a budget throws (never expected). */
+  verdict: Promise<BudgetVerdict>;
+  /** The attempt doesn't go out after all: its count goes back (OutboundBudget.refund) once it's known to have been taken. */
+  refund(): void;
+}
+
+/** Counts one attempt (Count): take's verdict as a promise, a receipt for its refund when the budget can give one. */
+function countAttempt(budget: OutboundBudget, platform: BudgetPlatform, client: string | undefined, opts: TakeOptions | undefined): Count {
+  const receipt: BudgetReceipt = {};
+  // An async function: a budget that throws (never expected) rejects the verdict, which the attempt reads (live), instead
+  // of throwing out of a callback.
+  const verdict = (async () => budget.take(platform, Date.now(), client, budget.refund ? { ...opts, receipt } : opts))();
+  verdict.catch(() => {}); // read later, or never once the attempt is gone: never an unhandled rejection
+  let refunding = false;
+  return {
+    verdict,
+    refund() {
+      if (refunding) return;
+      refunding = true;
+      void verdict.then((v) => (v === "ok" ? budget.refund?.(receipt) : undefined)).catch(() => {});
+    },
+  };
 }
 
 export function createHttpClient(options: HttpClientOptions = {}): HttpClient {
@@ -300,7 +363,27 @@ export function createHttpClient(options: HttpClientOptions = {}): HttpClient {
     if (next.timer) clearTimeout(next.timer);
     q.busy = true;
     q.heldSince = Date.now();
+    tellNext(q); // the waiter behind it is next now: its count runs while this turn does
     next.grant();
+  }
+
+  /**
+   * Tells the queue's first waiter, once, that it's next in line (Waiter.next: live starts its budget count then, so the
+   * count's round trips overlap the turn ahead of it and the host's gap; see the header). Called whenever the first waiter
+   * may have changed: a request queued, given its turn, cut or gone. Not a waiter whose wait its deadline cuts within
+   * budgets.countAheadMinMs: when one deadline cuts many waiters at once, each would come first in turn, be counted and get
+   * its count back a moment later; such a waiter is counted if its turn comes first (live).
+   */
+  function tellNext(q: { waiting: Waiter[] }): void {
+    const first = q.waiting[0];
+    if (!first || first.told) return;
+    if (first.cutAt !== undefined && first.cutAt - Date.now() < budgets.countAheadMinMs) return;
+    first.told = true;
+    try {
+      first.next?.();
+    } catch {
+      // live's callback only resolves a promise; whatever another caller's does, the queue goes on
+    }
   }
 
   /** Ends a turn (`made`: a request went out, so the gap counts from now) and passes it on. */
@@ -320,9 +403,10 @@ export function createHttpClient(options: HttpClientOptions = {}): HttpClient {
    * keep its place, so an import that started first finishes first instead of every import queueing behind every other's
    * requests), anything outside a request by when it asked (first come, first served, as before the deadline existed).
    * Inside a route (the header's deadline) the turn isn't waited for past the time an attempt needs: then the Turn says
-   * why it wasn't given (whose time it was: a slow answer holding the turn, or a long queue).
+   * why it wasn't given (whose time it was: a slow answer holding the turn, or a long queue). `next` is called once, when
+   * the request is first in line (Waiter.next), and the request may leave the queue before its turn (Waiting.leave).
    */
-  async function acquire(host: string): Promise<Turn> {
+  function acquire(host: string, next?: () => void): Waiting {
     const bucket = bucketFor(host);
     let q = queues.get(bucket);
     if (!q) {
@@ -332,24 +416,40 @@ export function createHttpClient(options: HttpClientOptions = {}): HttpClient {
     const queue = q;
     const scope = requestScope();
     const queueMs = timeLeftMs() - deadlines.minAttemptMs;
-    return new Promise<Turn>((resolve) => {
-      const grant = () => resolve({ release: () => finish(bucket, true) });
-      const me: Waiter = scope ? { time: scope.startedAt, order: scope.order, grant } : { time: Date.now(), order: nextArrival(), grant };
-      const at = queue.waiting.findIndex((w) => before(me, w));
-      queue.waiting.splice(at < 0 ? queue.waiting.length : at, 0, me);
-      if (queueMs !== Number.POSITIVE_INFINITY) {
-        me.timer = setTimeout(
-          () => {
-            const i = queue.waiting.indexOf(me);
-            if (i >= 0) queue.waiting.splice(i, 1);
-            const heldMs = queue.busy && queue.heldSince !== undefined ? Date.now() - queue.heldSince : 0;
-            resolve({ cut: queueMs <= 0 ? "skipped" : heldMs >= deadlines.slowAnswerMs ? "slow" : "busy" });
-          },
-          Math.max(0, queueMs),
-        );
-      }
-      dispatch(bucket);
-    });
+    let resolve!: (turn: Turn) => void;
+    const turn = new Promise<Turn>((r) => (resolve = r));
+    const grant = () => resolve({ release: (made = true) => finish(bucket, made) });
+    const me: Waiter = { ...(scope ? { time: scope.startedAt, order: scope.order } : { time: Date.now(), order: nextArrival() }), grant, ...(next ? { next } : {}) };
+    /** Takes this request out of the queue before its turn (false: its turn already came, or it's gone). */
+    const out = (): boolean => {
+      const i = queue.waiting.indexOf(me);
+      if (i < 0) return false;
+      queue.waiting.splice(i, 1);
+      if (me.timer) clearTimeout(me.timer);
+      tellNext(queue);
+      return true;
+    };
+    const at = queue.waiting.findIndex((w) => before(me, w));
+    queue.waiting.splice(at < 0 ? queue.waiting.length : at, 0, me);
+    if (queueMs !== Number.POSITIVE_INFINITY) {
+      me.cutAt = Date.now() + Math.max(0, queueMs);
+      me.timer = setTimeout(
+        () => {
+          if (!out()) return;
+          const heldMs = queue.busy && queue.heldSince !== undefined ? Date.now() - queue.heldSince : 0;
+          resolve({ cut: queueMs <= 0 ? "skipped" : heldMs >= deadlines.slowAnswerMs ? "slow" : "busy" });
+        },
+        Math.max(0, queueMs),
+      );
+    }
+    tellNext(queue);
+    dispatch(bucket);
+    return {
+      turn,
+      leave: () => {
+        if (out()) resolve({ cut: "left" });
+      },
+    };
   }
 
   async function live(url: string, opts: HttpRequestOptions): Promise<LiveAnswer> {
@@ -379,25 +479,75 @@ export function createHttpClient(options: HttpClientOptions = {}): HttpClient {
       noteCut(why, label);
       return { answer: noResponse(), cut: "deadline" };
     };
+    /**
+     * A daily budget refused this attempt (the header): a retry's last answer stands; league-independent data has "no
+     * response" (its saved copy or its warning); any other request throws BudgetExhaustedError (its route answers BUSY).
+     */
+    const refusedBy = (budgetPlatform: BudgetPlatform, limit: BudgetLimit): LiveAnswer => {
+      noteCut(limit === "share" ? "share" : "budget", budgetPlatform);
+      if (previous) return { answer: previous };
+      if (independent) return { answer: noResponse(), cut: "budget" };
+      throw new BudgetExhaustedError(budgetPlatform, limit);
+    };
     for (let attempt = 0; ; attempt++) {
       // The request's deadline (the header): no attempt without the time for one.
       if (timeLeftMs() < deadlines.minAttemptMs) return outOfTime("skipped");
-      // The day's budget and the client's share (the header): every attempt counts, before it goes out.
       const budget = platform ? budgetOf() : null;
-      if (budget && platform) {
-        const asked = budget.take(platform, Date.now(), client, takeOpts);
-        // A shared count (Redis) is waited for no longer than the deadline (each of its commands has its own timeout too).
-        const verdict = typeof asked === "string" ? asked : await withinDeadline(asked);
-        if (verdict === LATE) return outOfTime("busy", "upstash");
-        if (verdict !== "ok") {
-          noteCut(verdict === "share" ? "share" : "budget", platform);
-          if (previous) return { answer: previous };
-          if (independent) return { answer: noResponse(), cut: "budget" };
-          throw new BudgetExhaustedError(platform, verdict);
+      // A limit this process already knows is reached refuses the attempt before it queues (nothing counted or asked).
+      const known = budget && platform ? (budget.refusedAlready?.(platform, Date.now(), client, takeOpts) ?? null) : null;
+      if (known && platform) return refusedBy(platform, known);
+      // The day's budget and the client's share (the header): counted once the attempt is next in its host's queue, so
+      // the count's round trips overlap the turn ahead of it; a refusal takes it out of the queue at once.
+      let count: Count | undefined;
+      // (`place`, below, is read only in callbacks that run once acquire has returned it.)
+      const countNow = (): void => {
+        if (count || !budget || !platform) return;
+        const counting = countAttempt(budget, platform, client, takeOpts);
+        count = counting;
+        void counting.verdict.then(
+          (v) => {
+            if (v !== "ok") place.leave();
+          },
+          () => place.leave(),
+        );
+      };
+      // The queue says so from whichever request moved it; a promise's continuation runs in the context it was registered
+      // in, so the count runs as this request's own (its log lines are this request's: src/server/log.ts).
+      let isNext!: () => void;
+      void new Promise<void>((resolve) => (isNext = resolve)).then(countNow);
+      const place: Waiting = acquire(host, isNext);
+      const turn = await place.turn;
+      if (!("release" in turn)) {
+        if (turn.cut === "left") {
+          // Refused while it waited (or a budget threw, never expected: that rejects here): it left the queue at once.
+          const verdict = count ? await count.verdict : "ok";
+          if (verdict !== "ok" && platform) return refusedBy(platform, verdict);
+          return outOfTime("busy"); // never reached: only a refusal makes a request leave
+        }
+        // The deadline cut its wait: it never went out, so its count goes back (Checkpoint 7b load test, defect 1).
+        count?.refund();
+        return outOfTime(turn.cut);
+      }
+      countNow(); // its turn came before it was counted (its wait was close to its cut: tellNext): counted now
+      if (count && platform) {
+        let verdict: BudgetVerdict | typeof LATE;
+        try {
+          // Waited for no longer than leaves the attempt its time (the turn came with at least deadlines.minAttemptMs left).
+          verdict = await atMost(count.verdict, timeLeftMs() - deadlines.minAttemptMs);
+        } catch (err) {
+          turn.release(false); // a budget never throws; if one does anyway, the host's turn isn't lost with it
+          throw err;
+        }
+        if (verdict !== "ok" || timeLeftMs() < deadlines.minAttemptMs) {
+          // Nothing goes out: the turn passes on at once (the host's gap doesn't start again).
+          turn.release(false);
+          if (verdict !== "ok" && verdict !== LATE) return refusedBy(platform, verdict);
+          // The count took the time the attempt needed (review of the Checkpoint 7b load-test fixes, finding 1): Offer
+          // Sheet's own store was slow, not the platform. The count goes back once it's known.
+          count.refund();
+          return outOfTime("busy", "upstash");
         }
       }
-      const turn = await acquire(host);
-      if (!("release" in turn)) return outOfTime(turn.cut);
       // The attempt goes out: counted for usage:report by budgeted platform (src/server/usage.ts; on Vercel only).
       if (platform) noteUsage(OUTBOUND_COUNTER[platform]);
       const askedMs = opts.timeoutMs ?? 30_000;

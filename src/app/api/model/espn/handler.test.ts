@@ -1,3 +1,4 @@
+import { gzipSync } from "node:zlib";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
@@ -7,6 +8,8 @@ import { LeagueImportError, type EspnImportRequest } from "@/adapters/types";
 import type { ModelInputs } from "@/engine/inputs";
 import { isModelResponse, type ModelResponse } from "@/lib/api";
 import type { BuildModelInputsArgs } from "@/server/modelInputs";
+import { createBuildSlots } from "@/server/buildSlots";
+import { newRequestScope, runInRequestScope } from "@/server/deadline";
 import { importDigest, signImport, signatureProblem } from "@/server/importToken";
 import { browserFetchLimits, workLimits } from "@/server/limits";
 import { espnCredentialsFor, saveEspnCredentials } from "@/server/session";
@@ -406,6 +409,61 @@ describe("POST /api/model/espn with the import the browser saved, signed (Part B
     expect(charged).toEqual([workLimits.units.modelServer - workLimits.units.modelSigned]);
     expect(reread.reads).toHaveLength(0);
     expect(reread.built).toHaveLength(0);
+  });
+
+  it("a signed body that unpacks far past what its compressed size paid pays for the rest before it's read (B4 security review): refused, BUSY", async () => {
+    const charged: number[] = [];
+    const { handler, built, reads } = signedSetup({ chargeWork: async (units) => (charged.push(units), "group") });
+    // 3.5 MB of one letter: a few KB gzipped (1 unit on arrival), 8 units unpacked; refused before anything parses it.
+    const padded = JSON.stringify({ ...(body() as object), pad: "x".repeat(3_500_000) });
+    const packed = gzipSync(Buffer.from(padded));
+    const res = await handler(new Request(URL, { method: "POST", headers: { "content-type": "application/gzip", "content-length": String(packed.length), host: "localhost:3000" }, body: packed }));
+    expect(res.status).toBe(503);
+    expect((await errorOf(res)).code).toBe("BUSY");
+    expect(charged).toEqual([Math.ceil(Buffer.byteLength(padded) / workLimits.unpackedUnitBytes) - Math.ceil(packed.length / workLimits.unitBytes)]);
+    expect(charged[0]).toBe(7);
+    expect(built).toHaveLength(0);
+    expect(reads).toHaveLength(0);
+  });
+
+  it("at most limits.modelBuildLimits.concurrent builds at once on an instance (Checkpoint 7b load test, risk 3): one that finds no slot in time answers BUSY in words; a remembered answer needs none", async () => {
+    const signedFor = (leagueId: string) => {
+      const s = { ...snapshot, leagueId };
+      const signed = signImport("espn", { snapshot: s, modelPart: { espn: ESPN } }, issued, SIGN_ENV);
+      return JSON.parse(JSON.stringify({ v: 1, leagueId, season: 2026, import: { snapshot: s, modelPart: { espn: ESPN } }, signed })) as unknown;
+    };
+    const slots = createBuildSlots(1, 30_000);
+    let gated = false;
+    let open: (() => void) | undefined;
+    let builds = 0;
+    const { handler } = signedSetup({
+      slots,
+      buildInputs: async () => {
+        builds++;
+        if (gated) await new Promise<void>((r) => (open = r));
+        return fakeModel();
+      },
+    });
+    // A first build, answered and remembered on this instance.
+    expect((await handler(gzipRequest(URL, body()))).status).toBe(200);
+    expect(slots.running()).toBe(0); // its slot was released with the answer
+    // Another league's build holds the instance's one slot.
+    gated = true;
+    const holding = handler(gzipRequest(URL, signedFor("5151")));
+    await vi.waitFor(() => expect(builds).toBe(2));
+    expect(slots.running()).toBe(1);
+    // A third league's build whose request is 70 s into its 90 s: under 30 s left, so it doesn't wait. BUSY, in words.
+    const busy = await runInRequestScope(newRequestScope("model", Date.now() - 70_000), () => handler(gzipRequest(URL, signedFor("6161"))));
+    expect(busy.status).toBe(503);
+    expect(busy.headers.get("retry-after")).toBe("60");
+    expect(await errorOf(busy)).toEqual({ code: "BUSY", message: "Offer Sheet is busy right now. Try again in a minute." });
+    expect(builds).toBe(2);
+    // The first import posted again: its remembered answer needs no slot, so it's answered while the slot is held.
+    expect((await handler(gzipRequest(URL, body()))).status).toBe(200);
+    expect(builds).toBe(2);
+    open?.();
+    expect((await holding).status).toBe(200);
+    expect(slots.running()).toBe(0);
   });
 
   it("a build from a signed import gets getModelDeps (no crosswalk: final review F3); a league read again, the import's getDeps", async () => {

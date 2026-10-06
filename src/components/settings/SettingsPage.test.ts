@@ -130,15 +130,13 @@ describe("with a league", () => {
 
   it("shows every setting as a labeled group, with the defaults checked when nothing is saved", () => {
     const html = render({ league: "current", myTeam: "1" });
-    expect(radioChecked(html, "playoff-weight")).toEqual(["1.25"]);
     expect(radioChecked(html, "max-per-side")).toEqual(["2"]);
     expect(radioChecked(html, "protect-value")).toEqual(["medium"]);
     expect(radioChecked(html, "goal")).toEqual(["title"]);
     const legends = [...html.matchAll(/<legend[^>]*>(.*?)<\/legend>/g)].map((m) => textOf(m[1] ?? ""));
     expect(legends).toEqual([
       "Positions I stream weekly",
-      "Playoff weeks count",
-      "What matters most",
+      "What does your league reward?",
       "Protect my trade value",
       "Most players per side",
       "Also include",
@@ -157,19 +155,23 @@ describe("with a league", () => {
     expect(boxes).toContainEqual(["Include kickers and D/STs in trade ideas", false]);
     expect(textOf(html)).toContain("This league uses the defaults.");
     expect(textOf(html)).not.toContain("Reset to defaults");
+    // The playoff weight is read-only (planner reply to Checkpoint 7a, §6.1): without fresh saved inputs, the League page sets it.
+    expect(radioChecked(html, "playoff-weight")).toEqual([]);
+    expect(textOf(html)).toContain(
+      "Playoff weeks count: set automatically from your odds when the League page loads. It only affects shortlists, free-agent rankings (and so the pickups your odds count), needs and trade chips.",
+    );
     // Win now ↔ Future and draft picks are for dynasty and keeper leagues only.
     expect(textOf(html)).not.toContain("Win now");
     expect(textOf(html)).not.toContain("Include draft picks");
   });
 
   it("checks what's saved, and offers Reset to defaults", () => {
-    const settings: TradeSettings = { ...defaultTradeSettings(), streamPositions: ["DEF", "TE"], playoffWeight: 1.5, maxPerSide: 3, untouchables: ["103"], mustInclude: ["202"], avoidPositions: ["TE"], protectValue: "high" };
+    const settings: TradeSettings = { ...defaultTradeSettings(), streamPositions: ["DEF", "TE"], maxPerSide: 3, untouchables: ["103"], mustInclude: ["202"], avoidPositions: ["TE"], protectValue: "high" };
     const html = render({ league: "current", myTeam: "1", settings });
     const boxes = checkboxes(html);
     expect(boxes.slice(0, 4).map(([, c]) => c)).toEqual([false, true, false, true]);
     expect(boxes).toContainEqual(["Cal Catcher WR · SEA", true]);
     expect(boxes).toContainEqual(["Abe Runner RB · DAL", false]);
-    expect(radioChecked(html, "playoff-weight")).toEqual(["1.5"]);
     expect(radioChecked(html, "max-per-side")).toEqual(["3"]);
     expect(radioChecked(html, "protect-value")).toEqual(["high"]);
     expect(textOf(html)).toContain("Rex Rusher · RB · DET Team Two");
@@ -220,25 +222,27 @@ describe("with a league", () => {
     expect(html).toContain('<p class="mt-1 text-sm font-semibold" aria-hidden="true">Mostly this season: later seasons count 25%</p>');
   });
 
-  it("offers 'What matters most' as three labeled radios, each with its line of help linked as a description, in every league type (planner reply to Checkpoint 4b, change 8)", () => {
+  it("offers 'What does your league reward?' as three labeled radios, each with its line of help linked as a description, in every league type (planner reply to Checkpoint 4b, change 8; 7a, 5.2)", () => {
     const html = render({ league: "current", myTeam: "1" });
     // One label at a time (never across into the next one).
     const rows = [...html.matchAll(/<label class="([^"]*)"><input type="radio"([^>]*)\/>((?:(?!<label).)*?)<\/label><p id="([^"]+)"[^>]*>(.*?)<\/p>/g)]
       .filter(([, , attrs = ""]) => attrs.includes('name="goal"'))
       .map(([, cls = "", attrs = "", name = "", id = "", help = ""]) => ({ cls, described: attrs.includes(`aria-describedby="${id}"`), name: textOf(name), help: textOf(help) }));
     expect(rows.map((r) => [r.name, r.help])).toEqual([
-      ["Win the title default", "Weighs your title odds most (85%), playoff odds 15%."],
-      ["Balanced", "Weighs your title odds 65% and your playoff odds 35%."],
-      ["Make the playoffs", "Weighs your playoff odds most (70%), title odds 30%."],
+      ["Only the champion default", "Weighs your title odds most (85%), playoff odds 15%."],
+      ["Top finishers too", "Weighs your title odds 65% and your playoff odds 35%."],
+      ["Making the playoffs", "Weighs your playoff odds most (70%), title odds 30%."],
     ]);
+    // The planner's helper line with the group's help (no auto-switching by odds).
+    expect(textOf(html)).toContain("On the bubble? Keep “Only the champion.” It already counts getting into the playoffs.");
     for (const r of rows) {
       expect(r.described).toBe(true);
       expect(r.cls).toContain("min-h-11");
     }
     // A real space between the label and "default" (final review of Phase 4c, finding PAGES-4: the accessible name read
     // "Win the titledefault", the two spans side by side with only a margin between them).
-    expect(html).toMatch(/>Win the title<\/span> <span class="[^"]*">default<\/span>/);
-    expect(html).not.toContain("Win the title</span><span");
+    expect(html).toMatch(/>Only the champion<\/span> <span class="[^"]*">default<\/span>/);
+    expect(html).not.toContain("Only the champion</span><span");
     expect(textOf(html)).toContain("Scoring How trade ideas are scored");
     const dynasty = { ...stored, response: { ...stored.response, snapshot: snapshot({ leagueType: "dynasty" }) } };
     const dyn = render({ league: "current", importValue: dynasty, myTeam: "1" });
@@ -281,6 +285,25 @@ describe("with a league", () => {
     expect(withModel(model(null, now))).not.toContain(note);
     // Inputs too old for the League page to reuse don't say what the values are now: nothing either.
     expect(withModel(model({ kind: "curve", listDate: "2026-09-01T00:00:00.000Z" }, "2026-01-01T00:00:00.000Z"))).not.toContain(note);
+  });
+
+  it("works the playoff weight out from the league's fresh saved inputs, and says so while it does (planner reply to Checkpoint 7a, §6.1)", () => {
+    const id = savedLeagueId(snap);
+    const withInputs = (builtAt: string) => {
+      const m: StoredModel = {
+        version: 1,
+        savedAt: builtAt,
+        key: modelKey(snap),
+        snapshotFetchedAt: snap.fetchedAt,
+        model: { version: 1, season: 2026, currentWeek: 4, lastWeek: 17, builtAt, nfl: { byeWeek: {}, kickoffs: {} }, players: {}, espnProjections: true, market: null, sources: [], warnings: [], notes: [] },
+      };
+      env.state = leagueStoreStateOf({ imports: [stored], picks: { [id]: { teamId: "1", source: "you" as const } }, models: { [id]: m } });
+      return textOf(renderToStaticMarkup(createElement(SettingsPage)));
+    };
+    // The first render: the page's own engine worker starts after it, so the weight is still being worked out.
+    expect(withInputs(new Date().toISOString())).toContain("Playoff weeks count: set automatically from your odds. Working it out…");
+    // Inputs too old for the League page to reuse: the League page sets it when it loads.
+    expect(withInputs("2026-01-01T00:00:00.000Z")).toContain("Playoff weeks count: set automatically from your odds when the League page loads.");
   });
 
   it("links a checkbox's longer help to it as a description, not as part of its name", () => {
@@ -463,7 +486,7 @@ describe("keyboard focus when a button goes away with its change (review)", () =
     renderToStaticMarkup(createElement(SettingsForm, { view: buildSettingsView({ snapshot: snap, myTeamId: "1", settings, stored }), onEdit: () => true, onReset: () => true, status: null }));
 
   it("after Reset to defaults: the line saying the league uses the defaults can take focus (it's there with or without saved settings)", () => {
-    const savedHtml = form({ ...defaultTradeSettings(), playoffWeight: 1.5 }, true);
+    const savedHtml = form({ ...defaultTradeSettings(), maxPerSide: 3 }, true);
     expect(savedHtml).toMatch(/<p tabindex="-1" class="[^"]*">These are your settings for this league/);
     expect(savedHtml).toMatch(/<button type="button" class="[^"]*">Reset to defaults<\/button>/);
     const defaultsHtml = form(defaultTradeSettings(), false);

@@ -250,7 +250,9 @@ export const TransactionsResponseSchema = z.object({ transactions: z.array(z.unk
 export const PoolPlayerSchema = z.object({
   id: z.number(),
   onTeamId: z.number().nullish(),
+  /** FREEAGENT, WAIVERS or ONTEAM; with WAIVERS, waiverProcessDate (epoch ms) is when ESPN runs the claims (./freeAgentStatus.ts). */
   status: z.string().nullish(),
+  waiverProcessDate: z.number().nullish(),
   player: PlayerSchema,
 });
 export type EspnPoolPlayer = z.infer<typeof PoolPlayerSchema>;

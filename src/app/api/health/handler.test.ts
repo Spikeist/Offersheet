@@ -1,6 +1,7 @@
 /** /api/health (planner reply to Checkpoint 7a, §1): the store this instance runs on and a timed round trip, never a secret. */
 import { describe, expect, it, vi } from "vitest";
 import { MemoryLruCache } from "@/server/cache";
+import { healthLimits } from "@/server/limits";
 import { FakeRedis, type RedisLike } from "@/server/redis";
 import type { ServerCache } from "../_lib/deps";
 import { createHealthHandler, type HealthBody } from "./handler";
@@ -34,13 +35,39 @@ describe("app/api/health", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("cache-control")).toBe("no-store");
     const { body, text } = await answer(res);
-    expect(body).toEqual({ status: "ok", environment: "preview", region: "iad1", store: "shared", storeReason: null, storeCheck: { ok: true, setMs: 2, getMs: 2, delMs: 2 } });
+    expect(body).toEqual({ status: "ok", environment: "preview", region: "iad1", store: "shared", storeReason: null, storeCheck: { ok: true, setMs: 2, getMs: 2, delMs: 2 }, storeCheckAgeS: 0 });
     expect(redis.stats.commands).toBe(3);
     const [key, value, opts] = set.mock.calls[0] ?? [];
     expect(key).toMatch(/^os:preview:health:[0-9a-f-]{36}$/);
     expect(opts).toEqual({ px: 60_000 });
     expect(await redis.get(String(key))).toBeNull();
     for (const secret of [SECRET, URL_VALUE, TOKEN_VALUE, String(value)]) expect(text).not.toContain(secret);
+  });
+
+  it("checks the store at most once every healthLimits.checkEveryMs per instance, answering with that check and its age in between (B4 security review)", async () => {
+    expect(healthLimits.checkEveryMs).toBe(5 * 60_000);
+    const redis = new FakeRedis();
+    let now = Date.UTC(2026, 9, 5, 12, 0, 0);
+    const health = createHealthHandler({ env: SHARED_ENV, server: () => shared, redis: () => redis, clock: steppingClock(), now: () => now });
+    const first = (await answer(await health(request()))).body;
+    expect(first.storeCheck).toEqual({ ok: true, setMs: 2, getMs: 2, delMs: 2 });
+    expect(redis.stats.commands).toBe(3);
+    // Asked again and again within the window: the same check, its age, no command.
+    now += 90_000;
+    for (let i = 0; i < 20; i++) expect((await answer(await health(request()))).body).toMatchObject({ status: "ok", storeCheck: first.storeCheck, storeCheckAgeS: 90 });
+    // Requests at the same moment share one check.
+    now += healthLimits.checkEveryMs;
+    await Promise.all([health(request()), health(request()), health(request())]);
+    expect(redis.stats.commands).toBe(6);
+    expect((await answer(await health(request()))).body.storeCheckAgeS).toBe(0);
+    // A failed check stands for its window too (the next one is fresh).
+    class Failing extends FakeRedis {
+      override async set(): Promise<"OK" | null> {
+        throw Object.assign(new Error("down"), { name: "UpstashError" });
+      }
+    }
+    const failing = createHealthHandler({ env: SHARED_ENV, server: () => shared, redis: () => new Failing(), now: () => now });
+    expect((await answer(await failing(request()))).body).toMatchObject({ status: "degraded", storeCheck: { ok: false, step: "set", errorName: "UpstashError" }, storeCheckAgeS: 0 });
   });
 
   it("a store that fails: the step and the error's name, never its message (an Upstash error's message can carry the address)", async () => {
@@ -97,14 +124,14 @@ describe("app/api/health", () => {
     const redis = vi.fn((): RedisLike | null => new FakeRedis());
     const server = (): ServerCache => ({ kind: "memory", cache: memory, reason: "store_variables_missing" });
     const { body } = await answer(await createHealthHandler({ env: { VERCEL: "1", VERCEL_ENV: "production", VERCEL_REGION: "iad1" }, server, redis })(request()));
-    expect(body).toEqual({ status: "degraded", environment: "production", region: "iad1", store: "memory", storeReason: "store_variables_missing", storeCheck: null });
+    expect(body).toEqual({ status: "degraded", environment: "production", region: "iad1", store: "memory", storeReason: "store_variables_missing", storeCheck: null, storeCheckAgeS: null });
     expect(redis).not.toHaveBeenCalled();
   });
 
   it("on this computer: the file cache, ok", async () => {
     const server = (): ServerCache => ({ kind: "file", cache: memory, reason: "not_on_vercel" });
     const { body } = await answer(await createHealthHandler({ env: {}, server })(request()));
-    expect(body).toEqual({ status: "ok", environment: "local", region: null, store: "file", storeReason: "not_on_vercel", storeCheck: null });
+    expect(body).toEqual({ status: "ok", environment: "local", region: null, store: "file", storeReason: "not_on_vercel", storeCheck: null, storeCheckAgeS: null });
   });
 
   it("never echoes an odd VERCEL_ENV or VERCEL_REGION", async () => {

@@ -35,6 +35,7 @@
     "measure:stat-sd": "tsx scripts/measure-stat-sd.ts",
     "measure:cache": "tsx scripts/measure-cache.ts",
     "measure:upload": "tsx scripts/measure-upload.ts",
+    "load:test": "tsx scripts/load-test.ts",
     "beta:log": "tsx scripts/beta-log.ts",
     "usage:report": "tsx scripts/usage-report.ts",
     "preview:deploy": "tsx scripts/preview-deploy.ts",
