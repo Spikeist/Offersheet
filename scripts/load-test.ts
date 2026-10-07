@@ -238,7 +238,7 @@ function installNetworkGuard(): void {
   dns.lookup = function lookup() {
     return refuse("a DNS lookup");
   } as unknown as typeof dns.lookup;
-  for (const name of Object.keys(process.env)) if (/^(KV_|UPSTASH_)|^REDIS_URL$|^OFFERSHEET_REDIS$/.test(name)) delete process.env[name];
+  for (const name of Object.keys(process.env)) if (/^(KV_|UPSTASH_|READONLY_STORE_)|^REDIS_URL$/.test(name)) delete process.env[name];
   // The HTTP client under test refuses every live fetch while this is "off" (see the header); the guard above stands in.
   delete process.env.OFFERSHEET_NETWORK;
 }

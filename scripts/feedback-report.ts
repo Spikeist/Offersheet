@@ -8,10 +8,9 @@
  *   npm run feedback:report -- --live --env production     production's (after Parker's "go" at Checkpoint 7b)
  *   npm run feedback:report -- --live --days 30            the last 30 UTC days only
  *
- * - It talks to Upstash, so it runs only with --live (planner reply to Checkpoint 4c, A5; scripts/lib/runMode.ts). It needs
- *   the store's REST address and token in .env.local (KV_REST_API_URL and KV_REST_API_TOKEN, or UPSTASH_REDIS_REST_URL and
- *   UPSTASH_REDIS_REST_TOKEN) and SESSION_SECRET, typed in by hand as for `npm run beta:log`; it says only whether each is
- *   set, never a value.
+ * - It talks to Upstash, so it runs only with --live (planner reply to Checkpoint 4c, A5; scripts/lib/runMode.ts). It reads
+ *   with the store's read-only token (READONLY_STORE_URL and READONLY_STORE_TOKEN in .env.local, typed in by hand as for
+ *   `npm run beta:log`: scripts/lib/storeReader.ts).
  * - Read-only: one LRANGE per UTC day's list (`os:<env>:fb:<YYYY-MM-DD>`), 366 for the whole year: the store keeps each
  *   day's list a year after that UTC day began (feedbackLimits.retainDays; feedbackSink.ts feedbackDayTtlMs) and deletes it itself, so there is nothing
  *   older to read and nothing here to delete. Every entry is checked against the store's own schema
@@ -37,9 +36,10 @@ import type { StoredFeedbackEvent } from "@/lib/feedbackEvent";
 import { FEEDBACK_OUTCOMES, FEEDBACK_REASONS, FEEDBACK_VERSIONS } from "@/lib/feedbackStore";
 import { StoredFeedbackEventSchema } from "@/server/feedbackSink";
 import { feedbackLimits } from "@/server/limits";
-import { REDIS_OPT_IN_ENV, getRedis, keyPrefix, type RedisLike } from "@/server/redis";
+import { keyPrefix, type RedisLike } from "@/server/redis";
 import { calibrationBins } from "./feedback-summary";
 import { flagValue, isMainModule, requireLive } from "./lib/runMode";
+import { openStoreReader, storeFailureText } from "./lib/storeReader";
 
 export const FEEDBACK_REPORT_ENVS = ["preview", "production"] as const;
 export type FeedbackReportEnv = (typeof FEEDBACK_REPORT_ENVS)[number];
@@ -330,15 +330,13 @@ async function main(): Promise<void> {
   }
   const { ROOT, loadEnv } = await import("./lib/env");
   loadEnv();
-  process.env[REDIS_OPT_IN_ENV] = "1"; // this --live script reads the shared store on purpose (src/server/redis.ts)
-  const redis = getRedis(process.env);
-  if (!redis) {
-    const state = (names: string[]) => names.map((n) => `${n} ${process.env[n]?.trim() ? "set" : "blank"}`).join(", ");
-    console.error(
-      `No shared store configured in .env.local (${state(["KV_REST_API_URL", "KV_REST_API_TOKEN", "UPSTASH_REDIS_REST_URL", "UPSTASH_REDIS_REST_TOKEN"])}; SESSION_SECRET ${(process.env.SESSION_SECRET ?? "").length >= 32 ? "set" : "blank or too short"}). Add the store's REST URL and token to .env.local by hand (Checkpoint 7a's steps say where to find them).`,
-    );
+  // The store, read-only: the scripts' own variables and a token that can't write (scripts/lib/storeReader.ts).
+  const store = await openStoreReader(process.env);
+  if ("error" in store) {
+    console.error(store.error);
     process.exit(1);
   }
+  const redis = store.reader;
   const now = Date.now();
   const days = reportDays(now, args.days);
   const read = await readFeedbackDays(redis, keyPrefix({ VERCEL_ENV: args.env }), days);
@@ -359,8 +357,8 @@ async function main(): Promise<void> {
 
 if (isMainModule(import.meta.url)) {
   main().catch((err: unknown) => {
-    // Only the error's name: an Upstash error message could carry the store's address.
-    console.error(`feedback:report failed (${err instanceof Error ? err.name : typeof err}).`);
+    // Only the error's name: an Upstash error's message carries the command (scripts/lib/storeReader.ts).
+    console.error(storeFailureText("feedback:report", err));
     process.exit(1);
   });
 }

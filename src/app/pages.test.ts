@@ -280,8 +280,8 @@ describe("the public pages describe what's built (review PG-1)", () => {
 describe("privacy page, whichever features are on", () => {
   it.each(ALL)("%o: is dated, and gives Offer Sheet's contact address as a mail link (planner reply to Checkpoint 7a, 3)", (f) => {
     const { html, text } = privacy(f);
-    expect(PRIVACY_LAST_UPDATED).toBe("October 5, 2026");
-    expect(text).toContain("Last updated October 5, 2026");
+    expect(PRIVACY_LAST_UPDATED).toBe("October 13, 2026"); // the launch day (Parker, 2026-10-07)
+    expect(text).toContain("Last updated October 13, 2026");
     expect(CONTACT_EMAIL).toBe("offersheet.app@gmail.com");
     expect(text).toContain("Contact: offersheet.app@gmail.com");
     expect(links(html).filter((l) => l.href?.startsWith("mailto:")).map((l) => [l.href, l.text])).toEqual([["mailto:offersheet.app@gmail.com", "offersheet.app@gmail.com"]]);
@@ -670,8 +670,8 @@ describe("privacy page with anonymous feedback (track FB)", () => {
 describe("terms page (Part B, B3; Checkpoint 7b: planner reply to Checkpoint 7a, 4 'Terms')", () => {
   it.each(ALL)("%o: is dated, has its sections in order, and ends with Offer Sheet's contact address", (f) => {
     const { html, text } = terms(f);
-    expect(TERMS_LAST_UPDATED).toBe("October 5, 2026");
-    expect(text).toContain("Last updated October 5, 2026");
+    expect(TERMS_LAST_UPDATED).toBe("October 13, 2026"); // the launch day (Parker, 2026-10-07)
+    expect(text).toContain("Last updated October 13, 2026");
     const headings = [...html.matchAll(/<h2[^>]*>([^<]*)<\/h2>/g)].map((m) => m[1]);
     expect(headings).toEqual([
       "What Offer Sheet is",

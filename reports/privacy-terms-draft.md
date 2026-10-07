@@ -1,6 +1,6 @@
 # Privacy policy and terms of use: final text for Checkpoint 7b
 
-Written for the planner (who can't open the app) and Parker. Below is the full text of `/privacy`, `/terms`, `/feedback` and the footer, exactly as the app renders them today, generated from the pages themselves on 2026-10-05 (a throwaway script renders the components to text). At Checkpoint 7a this file held the first drafts; this is the shortened text the planner asked for in the reply to Checkpoint 7a (sections 3, 4 and 5.4), after a review against the code.
+Written for the planner (who can't open the app) and Parker. Below is the full text of `/privacy`, `/terms`, `/feedback` and the footer, exactly as the app renders them today, generated from the pages themselves on 2026-10-07 (a throwaway script renders the components to text). At Checkpoint 7a this file held the first drafts; this is the shortened text the planner asked for in the reply to Checkpoint 7a (sections 3, 4 and 5.4), after a review against the code.
 
 **Not legal advice.** Parker should read both before launch.
 
@@ -49,11 +49,11 @@ Written for the planner (who can't open the app) and Parker. Below is the full t
 - **FantasyCalc's condition (5.4): done.** No value number or comparison is left in the app, and the "never shown" sentences are on (`POLICY_FEATURES.fantasyCalcHidden`, since 2026-10-05; both "Last updated" dates moved that day).
 - **Upstash** is in US East (us-east-1) with backups off: done (Parker checked backups in Upstash's console on 2026-10-05; `reports/beta-infrastructure.md`).
 - **The iPhone sentence** is checked on a real iPhone if Parker has one; until then it says "may".
-- **"Last updated"** (`PRIVACY_LAST_UPDATED`, `TERMS_LAST_UPDATED`, now October 5, 2026) is set to launch day.
+- **"Last updated": done.** `PRIVACY_LAST_UPDATED` and `TERMS_LAST_UPDATED` are October 13, 2026, the launch day Parker set on 2026-10-07.
 - **"Up to 12 months": done.** Each day's feedback list now goes 365 days after that day began (`src/server/feedbackSink.ts` feedbackDayTtlMs), so no copy is kept longer than 12 months.
 - **"Up to 2 seasons" for the archive: done** (review of Phase 7b, above). Its local copies follow it only while `npm run snapshot:pull` runs now and then: each run deletes the lists of days past the store's rule.
-- **Old raw feedback downloads** (`data-local/feedback-server/`, from `feedback:pull`): there were none on this PC on 2026-10-05. `npm run feedback:report` says so if any turn up, and they should be deleted.
-- **Vercel's own cookies:** the cookie line covers Offer Sheet's own code. Vercel sets cookies of its own on protected previews (`_vercel_jwt`), and when a firewall rule challenges a visitor (`_vcrcs`). The 7b firewall rule should deny or rate-limit rather than challenge, or the line needs a qualifier.
+- **Old raw feedback downloads** (`data-local/feedback-server/`, from `feedback:pull`): there were none on this PC on 2026-10-07. `npm run feedback:report` says so if any turn up, and they should be deleted.
+- **Vercel's own cookies:** the cookie line covers Offer Sheet's own code. Vercel sets cookies of its own on protected previews (`_vercel_jwt`), and when a firewall rule challenges a visitor (`_vcrcs`). The launch's two firewall rules never challenge: a rate limit on `/api/*` that answers 429, and a deny on the image optimizer's two paths (`/_next/image`, `/_vercel/image`), so the line holds.
 - **CLAUDE.md: done.** §14 gives the pages' contact line ("Contact: offersheet.app@gmail.com"), and §11 and §16 describe `feedback:report`, which replaced `feedback:pull`.
 
 ## Where each statement comes from
@@ -66,7 +66,7 @@ The feedback page's description for search engines and link previews: "How to te
 
 Plain answers about what Offer Sheet keeps, where, and for how long.
 
-Last updated October 5, 2026
+Last updated October 13, 2026
 
 ### The short version
 
@@ -153,7 +153,7 @@ See also the terms of use.
 
 The deal, in plain words. By using Offer Sheet, you agree to these terms.
 
-Last updated October 5, 2026
+Last updated October 13, 2026
 
 ### What Offer Sheet is
 

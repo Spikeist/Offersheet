@@ -51,21 +51,34 @@ export const ENV_VARS = [
   "CRON_SECRET",
   // Not a secret (CLAUDE.md §0.5): 1 = development imports Parker's ESPN league with the .env.local cookies.
   "USE_ENV_COOKIES",
-  // Checkpoint 7a, optional: the beta's shared store (Upstash) for the --live scripts that read it (beta:log, usage:report,
-  // feedback:report, snapshot:pull). The token is a secret; the URL names the database. The local app never uses them
-  // (src/server/redis.ts).
+  // Optional (Parker, 2026-10-07): read-only access to the beta's shared store (Upstash) for the --live scripts that read it
+  // (beta:log, usage:report, feedback:report, snapshot:pull; scripts/lib/storeReader.ts): the store's REST address and
+  // Upstash's read-only token, under names the app never reads. The token is a secret; the URL names the database.
+  "READONLY_STORE_URL",
+  "READONLY_STORE_TOKEN",
+  // The store's own variables, which the app reads on Vercel only (src/server/redis.ts) and nothing local reads: the
+  // Marketplace's names, Upstash's own names, the Marketplace's read-only token, and the redis:// connection strings whose
+  // text carries the password. None of them belongs in .env.local; they're listed only so a pasted value is caught
+  // (check:leaks and every output scrubber know their values; final review SEC-7) and check-env says to delete it.
   "KV_REST_API_URL",
   "KV_REST_API_TOKEN",
-  // The same store under Upstash's own names, which src/server/redis.ts reads first and the scripts accept too (final
-  // review SEC-7: listed so check:leaks and every output scrubber know their values), the Marketplace's read-only token,
-  // and the redis:// connection strings the Marketplace also offers, whose text carries the password. Offer Sheet never
-  // needs the last three: they're listed only so a pasted value is caught.
   "UPSTASH_REDIS_REST_URL",
   "UPSTASH_REDIS_REST_TOKEN",
   "KV_REST_API_READ_ONLY_TOKEN",
   "KV_URL",
   "REDIS_URL",
 ] as const;
+
+/** The store variables nothing local reads (above): check-env says to delete one that's set. */
+export const UNUSED_STORE_ENV_VARS: readonly EnvVar[] = [
+  "KV_REST_API_URL",
+  "KV_REST_API_TOKEN",
+  "UPSTASH_REDIS_REST_URL",
+  "UPSTASH_REDIS_REST_TOKEN",
+  "KV_REST_API_READ_ONLY_TOKEN",
+  "KV_URL",
+  "REDIS_URL",
+];
 export type EnvVar = (typeof ENV_VARS)[number];
 
 /** Variables whose values must never appear in any output (secrets, private IDs, usernames). */

@@ -1,6 +1,8 @@
 # Checkpoint 7b — the planner's reply to Checkpoint 7a, and readiness (B4)
 Status: ⚠️ Done with issues. Everything in the reply is built, tested and reviewed; what Parker's league shows was checked live (check:browser, the preview), the cron only locally, as asked, and `usage:report` only on made-up counts. The go/no-go list is below. Production waits for Parker's "go". The open issues: Parker's stable copy still runs Checkpoint 7a's code (it calls FantasyCalc's `/players` and shows values until 7b is tagged), and three steps happen at the go.
 
+**After approval (2026-10-07):** Parker approved the build and `checkpoint-7b` is tagged, so `npm run stable` serves it. Launch day is Tuesday, October 13, 2026, also the pages' "Last updated". At launch a second firewall rule denies the image optimizer (`/_next/image` and `/_vercel/image`, which answers too). The store-reading scripts now use a read-only token under names the app never reads. On launch day production's secrets and both firewall rules come before the go, and the deploy after it. Production still waits for the planner's answers to questions 3–7 and Parker's go.
+
 ## What works
 - **§1 Upstash check** (this unlocked the `checkpoint-7a` tag, on c321752, after Parker's phone check):
   - **Variables:** the database's variables are on Vercel for Preview and Production (names only): `KV_REST_API_URL`, `KV_REST_API_TOKEN`, `KV_REST_API_READ_ONLY_TOKEN`, `KV_URL`, `REDIS_URL`.
@@ -47,7 +49,7 @@ Status: ⚠️ Done with issues. Everything in the reply is built, tested and re
 
 ## What doesn't / open issues
 - **Parker's stable copy:** `npm run stable` still serves `checkpoint-7a` (`git show checkpoint-7a:src/data/load.ts`), which calls FantasyCalc's `/players` about once a day and shows FantasyCalc value numbers. FantasyCalc's conditions rule both out. The options: tag 7b once approved (question 1), or don't run `npm run stable` until then.
-- **Image endpoint:** Vercel's own optimizer still answers `/_next/image` for our 5 icons despite `images.unoptimized` (other widths and other sites' images get 400). It's bounded, so I accepted it; a WAF custom rule can deny it at launch.
+- **Image endpoint:** Vercel's own optimizer still answers `/_next/image` for our 5 icons despite `images.unoptimized` (other widths and other sites' images get 400). It's bounded, so I accepted it; a WAF custom rule can deny it at launch. (Superseded 2026-10-07: only `apple-icon.png` was tried, `/_vercel/image` answers too, `w=64` included, and `icon.svg` got 400 there; Parker decided a firewall rule denies both paths at launch: `reports/security-review.md`, finding 8.)
 - **Partial imports:** an ESPN import whose free-agent or player-card reads our own queue cut at the deadline answers 200, with a plain notice of what's missing (Refresh fixes it).
 - **Sam Hartman:** without `/players`, his ESPN id correction is lost (a backup QB; Parker's league is unaffected).
 - **Build cap's cost:** in a cold burst the cap costs CPU: 50 builds took 26–30.5 s against 22.5–23.2 s uncapped. The heap's peak growth was 0.5–1.1 GB over the capped runs (366 MB live under a 768 MB limit) instead of 2 GB.
@@ -111,7 +113,7 @@ Status: ⚠️ Done with issues. Everything in the reply is built, tested and re
 |---|---|
 | No FantasyCalc value number or comparison anywhere in the UI | ✅ guard test, check:browser on the live league |
 | FantasyCalc link in the server HTML of every app page (`noopener`, `origin`) | ✅ built pages and the preview |
-| FantasyCalc: `/values/current` only, each format at most every 3 hours | ✅ app and probes · ❌ stable copy until 7b is tagged |
+| FantasyCalc: `/values/current` only, each format at most every 3 hours | ✅ app and probes · ✅ stable copy since the `checkpoint-7b` tag (2026-10-07) |
 | Sessions tracked against 10,000 a month (warning at 8,000) | ✅ `usage:report`, tested · ⚠️ not read live yet |
 | Contact email on privacy, terms, feedback | ✅ |
 | No league id, username, SWID or cookie in our URLs | ✅ security review |
@@ -119,10 +121,11 @@ Status: ⚠️ Done with issues. Everything in the reply is built, tested and re
 | No analytics or third-party scripts | ✅ dependencies, CSP, built and deployed HTML |
 | Footer and terms credit exactly ESPN, Sleeper, FantasyCalc, DynastyProcess | ✅ (nflverse isn't used) |
 | iPhone storage sentence | ✅ softened to "may" (not checked on an iPhone) |
-| "Last updated" on launch day; launch date | ⏸ Parker (question 2) |
-| Production SESSION_SECRET and CRON_SECRET | ⏸ at the go |
-| WAF rate-limit rule on `/api/*` (rate limit or deny with 429, never a challenge) | ⏸ at the go |
-| Next on the latest 16.3.x patch | ⏸ checked at the go |
+| "Last updated" on launch day; launch date | ✅ October 13, 2026 on both pages (Parker, 2026-10-07) |
+| Production SESSION_SECRET and CRON_SECRET | ⏸ launch day, before the go (2026-10-07) |
+| WAF rate-limit rule on `/api/*` (over the limit 429, never Deny or a challenge; reworded 2026-10-07) | ⏸ launch day, before the go |
+| WAF rule denying `/_next/image` and `/_vercel/image`, in the same step (added 2026-10-07) | ⏸ launch day, before the go |
+| Next on the latest 16.3.x patch | ⏸ checked on launch day, before the go (2026-10-07) |
 
 ## Questions (numbered, each answerable in one line)
 1. Parker: approve Checkpoint 7b so I tag it, which moves your stable copy off `/players` and FantasyCalc's values?
@@ -141,15 +144,15 @@ Status: ⚠️ Done with issues. Everything in the reply is built, tested and re
   npm run check:browser -- --live --team 3
   ```
 - **`usage:report`:**
-  1. In Vercel, open Storage → upstash-kv-alizarin-saddle and copy the REST URL and token into `.env.local` as `KV_REST_API_URL` and `KV_REST_API_TOKEN`, typed by hand (never `vercel env pull`).
+  1. (Changed 2026-10-07; Parker sets it up after launch.) In Vercel, open Storage → upstash-kv-alizarin-saddle and type the values of `KV_REST_API_URL` and `KV_REST_API_READ_ONLY_TOKEN` into `.env.local` as `READONLY_STORE_URL` and `READONLY_STORE_TOKEN`, by hand (never `vercel env pull`). The app never reads those names, and the script reads only after the store refuses a write made with the token; otherwise it stops and reads nothing.
   2. Run:
      ```
-     npm run usage:report -- --live --env preview
+     npm run usage:report -- --live --env production
      ```
-- **Until 7b is tagged:** don't run `npm run stable`. Use the preview or `npm run dev` (http://127.0.0.1:3001; import your league there).
-- **At the go** (after your "go"):
+- **Your stable copy:** `npm run stable` serves `checkpoint-7b` since 2026-10-07 (http://127.0.0.1:3000). Its first run moves the copy to it, reinstalling and rebuilding, so it takes a few minutes.
+- **On launch day, before your go** (reordered 2026-10-07: steps 1–3 of `reports/beta-infrastructure.md`, "Launch-day steps"):
   ```
   npm run vercel:secret -- --live --env production
   npm run vercel:secret -- --live --name CRON_SECRET
   ```
-  Then add the WAF rule (Firewall → Configure → New Rule: path starts with `/api/`, Rate Limit, fixed window 10 minutes, 80 requests, key IP, action 429). I then deploy production and check `/api/health`, the pages and the cron.
+  Then add both WAF rules in one sitting (updated 2026-10-07; click by click in `reports/beta-infrastructure.md`, "Launch-day steps"): path starts with `/api/`, Rate Limit, fixed window 10 minutes, 80 requests, key IP, over the limit Too Many Requests (429), not Deny; and path starts with `/_next/image` or `/_vercel/image`, Deny. After your go I deploy production (how is still open, since `preview:deploy` refuses it) and check `/api/health`, the pages, both rules and the cron.

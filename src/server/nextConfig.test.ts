@@ -22,7 +22,7 @@ function sources(dir: string = SRC): string[] {
 }
 
 describe("next.config.ts: the image optimizer is off (B4 security review)", () => {
-  it("unoptimized, so `next start` answers /_next/image with a 404 and a Vercel build sets no optimization up", () => {
+  it("images is { unoptimized: true }: Next's own optimizer is off (`next start` answers /_next/image with a 404; Vercel's own is denied at launch by a firewall rule)", () => {
     expect(nextConfig.images).toEqual({ unoptimized: true });
   });
 

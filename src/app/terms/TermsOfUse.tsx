@@ -4,7 +4,7 @@ import { Card } from "@/components/ui";
 import type { PolicyFeatures } from "@/lib/site";
 
 /** When these terms last changed. Update it with every change below, a feature turned on included (the go/no-go sets it to launch day). */
-export const TERMS_LAST_UPDATED = "October 5, 2026";
+export const TERMS_LAST_UPDATED = "October 13, 2026";
 
 /**
  * The terms of use (planner reply to Checkpoint 4c, B3: "New pages: /privacy … and /terms"; outline: the Part B

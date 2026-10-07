@@ -102,7 +102,9 @@ const nextConfig: NextConfig = {
    * No image optimizer (B4 security review): no page uses next/image (the icons and the sharing image are files and
    * metadata routes of their own), and /_next/image would otherwise be open to anyone, outside withRoute's rate limits
    * and work budget, every width and format of the app's own images a transformation counted against the Hobby plan.
-   * `next start` then answers /_next/image with a 404, and a Vercel build sets no image optimization up.
+   * `next start` then answers /_next/image with a 404. ⚠️ Vercel's own optimizer still answered /_next/image and
+   * /_vercel/image for a local icon on the 7b preview (2026-10-06 and -07), so the launch's firewall rule denies both
+   * paths (CLAUDE.md §19).
    */
   images: { unoptimized: true },
   /**

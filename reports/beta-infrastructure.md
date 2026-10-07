@@ -50,8 +50,15 @@ checked Upstash's console on 2026-10-05).
 - **The Vercel WAF** (production's first layer; reply §2 question 7): rate limiting is on Hobby: 1 rule, a fixed
   window of 10 s to 10 minutes, keyed by IP or JA4, 1,000,000 requests included (✅ Vercel's docs, "WAF Rate Limiting",
   updated 2026-08-28, read 2026-10-05). The plan, set at
-  launch: one rule on `/api/*` by IP, about 60–80 requests per 10 minutes (7a's figure), action rate limit or deny,
-  never challenge (a challenge sets Vercel's `_vcrcs` cookie, which the privacy page's cookie line doesn't cover).
+  launch: one rule on `/api/*` by IP, about 60–80 requests per 10 minutes (7a's figure), answering 429 over the limit:
+  never Deny (a 403, which the app shows as "Something went wrong on our side", and a browser read whose upload gets
+  it tries again through the server) and never a challenge (it sets Vercel's `_vcrcs` cookie, which the privacy page's
+  cookie line doesn't cover). In the same step (Parker, 2026-10-07), a second custom rule denies Vercel's image
+  optimizer, `/_next/image` and `/_vercel/image`: the app doesn't use it, and Vercel still answers both paths despite
+  `images.unoptimized` (the 7b preview, 2026-10-07: `?url=/apple-icon.png&w=32` gave the same 348-byte PNG on both
+  paths and `w=64` a 605-byte one on `/_vercel/image`; `w=33` on `/_next/image` and `icon.svg` on `/_vercel/image`
+  got 400).
+  Hobby allows 3 custom rules; these are 2 of them. The steps: "Launch-day steps" below.
 
 ## Health check, usage counters and the snapshot cron (7b)
 
@@ -135,11 +142,47 @@ checked Upstash's console on 2026-10-05).
   charges given back (162 units for 27 refused imports); the build cap (50 cold builds ran out of memory at a 768 MB
   heap; capped, 366 MB live at the peak); shared cache reads. Upstash commands per request now: cold server-path import
   17.0, ESPN upload 14.8, Sleeper upload 15.3, cold build 17.1, warm build 13.
-- Still open: partial imports answer 200 (free agents or player cards cut by Offer Sheet's own queue); the small live
-  test is still to do.
+- Still open: partial imports answer 200 (free agents or player cards cut by Offer Sheet's own queue). The small live
+  test ran on 2026-10-06 on the protected preview (`reports/load-test.md`, last section).
 
-## Parker's setup steps
+## Launch-day steps (Tuesday, October 13, 2026)
 
-Upstash, the protection check and the phone: Checkpoint 7a, "How Parker can try it". Before launch: SESSION_SECRET and
-CRON_SECRET for production (`npm run vercel:secret -- --live --env production`, then `--name CRON_SECRET`) and the WAF
-rule. Until launch crons don't run, so `npm run snapshot:projections` by hand still keeps the pre-game projections.
+Parker does steps 1–3 and then gives the go; no deployment reaches production before it. (Upstash, the protection check
+and the phone were Checkpoint 7a's steps.)
+
+1. **Production's secrets** (PowerShell, one per line; each makes a random value and gives it to Vercel without
+   showing it):
+   ```
+   npm run vercel:secret -- --live --env production
+   npm run vercel:secret -- --live --name CRON_SECRET
+   ```
+2. **Both firewall rules, in one sitting** (Vercel → offersheet → Firewall → Configure → New Rule, once per rule; then
+   review and publish the changes):
+   - **"API rate limit":** if *Request Path* starts with `/api/`, then *Rate Limit*: fixed window, 10 minutes, 80
+     requests, keyed by IP; over the limit, *Too Many Requests (429)*. Not *Deny* (a 403, which the app shows as
+     "Something went wrong on our side") and never *Challenge* (it sets Vercel's `_vcrcs` cookie, which the privacy
+     page's cookie line doesn't cover).
+   - **"Block image optimizer":** if *Request Path* starts with `/_next/image`, OR *Request Path* starts with
+     `/_vercel/image`, then *Deny*. The app doesn't use Vercel's image optimizer (`reports/security-review.md`,
+     finding 8).
+3. **Next:** on the latest 16.3.x patch (`npm outdated next`).
+4. **After the go** (steps 1–3 done): the production deploy, of the newest commit Parker approves (it carries the
+   pages' "Last updated October 13, 2026"; the `checkpoint-7b` tag's still say October 5), then the checks:
+   `/api/health` answers 200 with the shared store; the pages; `/_next/image?url=%2Fapple-icon.png&w=32&q=75` and the
+   same on `/_vercel/image` answer 403; the cron's first run (20:00 UTC). ⚠️ How to deploy production is still open
+   (a question for Parker): `npm run preview:deploy` refuses production, and CLAUDE.md §19 rules out `vercel --prod`.
+
+Until launch crons don't run, so `npm run snapshot:projections` by hand still keeps the pre-game projections. After
+launch, to read the store from this PC: in Vercel, open Storage → upstash-kv-alizarin-saddle and type the values of
+`KV_REST_API_URL` and `KV_REST_API_READ_ONLY_TOKEN` into `.env.local` as `READONLY_STORE_URL` and
+`READONLY_STORE_TOKEN`, by hand. Then, for production (`usage:report`, `beta:log` and `feedback:report` read the
+previews unless told otherwise; `snapshot:pull` reads production by default):
+```
+npm run usage:report -- --live --env production
+npm run beta:log -- --live --env production
+npm run feedback:report -- --live --env production
+npm run snapshot:pull -- --live
+```
+The app never reads those two names, and the scripts read only after the store refuses a write made with the token;
+otherwise they stop and read nothing (`scripts/lib/storeReader.ts`; ⚠️ the refusal's wording is assumed until the
+first such run).

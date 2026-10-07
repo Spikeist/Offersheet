@@ -10,10 +10,9 @@
  *   npm run usage:report -- --live --days 14            the last 14 days (the month to date is always read whole)
  *
  * - It talks to Upstash, so it runs only with --live (planner reply to Checkpoint 4c, A5; scripts/lib/runMode.ts).
- * - It needs the store's REST address and token in .env.local (KV_REST_API_URL and KV_REST_API_TOKEN, as Vercel's Upstash
- *   integration names them, or UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN) and SESSION_SECRET (src/server/redis.ts
- *   gives no client without it), typed in by hand, as for `npm run beta:log`. It says only whether each is set, never a
- *   value. Having them in .env.local doesn't switch the app to Upstash (src/server/redis.ts: Vercel only).
+ * - It reads with the store's read-only token (READONLY_STORE_URL and READONLY_STORE_TOKEN in .env.local, typed in by
+ *   hand, as for `npm run beta:log`: scripts/lib/storeReader.ts). The app never reads those names, and uses the store on
+ *   Vercel only (src/server/redis.ts).
  * - Read-only: one MGET of every day's counters and today's budget counters. It prints counts only: the counters hold no
  *   identifier of any league, person or address.
  *
@@ -28,10 +27,11 @@
  * other than this one (a Vercel command here could write .vercel/ or .env.local; see the deploy notes in CLAUDE.md §19).
  */
 import { budgets, usageLimits, workLimits } from "@/server/limits";
-import { REDIS_OPT_IN_ENV, getRedis, keyPrefix, type RedisLike } from "@/server/redis";
+import { keyPrefix, type RedisLike } from "@/server/redis";
 import { slicedAllowance, type BudgetPlatform } from "@/server/budget";
 import { USAGE_COUNTERS, usageDay, usageKey, type UsageCounter } from "@/server/usage";
 import { flagValue, isMainModule, requireLive } from "./lib/runMode";
+import { openStoreReader, storeFailureText } from "./lib/storeReader";
 
 export const USAGE_ENVS = ["preview", "production"] as const;
 export type UsageEnv = (typeof USAGE_ENVS)[number];
@@ -240,15 +240,13 @@ async function main(): Promise<void> {
   }
   const { loadEnv } = await import("./lib/env");
   loadEnv();
-  process.env[REDIS_OPT_IN_ENV] = "1"; // this --live script reads the shared store on purpose (src/server/redis.ts)
-  const redis = getRedis(process.env);
-  if (!redis) {
-    const state = (names: string[]) => names.map((name) => `${name} ${process.env[name]?.trim() ? "set" : "blank"}`).join(", ");
-    console.error(
-      `No shared store configured in .env.local (${state(["KV_REST_API_URL", "KV_REST_API_TOKEN", "UPSTASH_REDIS_REST_URL", "UPSTASH_REDIS_REST_TOKEN"])}; SESSION_SECRET ${(process.env.SESSION_SECRET ?? "").length >= 32 ? "set" : "blank or too short"}). Add the store's REST URL and token to .env.local by hand (Checkpoint 7a's steps say where to find them).`,
-    );
+  // The store, read-only: the scripts' own variables and a token that can't write (scripts/lib/storeReader.ts).
+  const store = await openStoreReader(process.env);
+  if ("error" in store) {
+    console.error(store.error);
     process.exit(1);
   }
+  const redis = store.reader;
   const now = Date.now();
   const read = await readUsage(redis, keyPrefix({ VERCEL_ENV: args.env }), usageDays(now, args.days), usageDay(now));
   console.log(formatUsageReport(summarizeUsage(read, args, now), args));
@@ -256,8 +254,8 @@ async function main(): Promise<void> {
 
 if (isMainModule(import.meta.url)) {
   main().catch((err: unknown) => {
-    // Only the error's name: an Upstash error message could carry the store's address.
-    console.error(`usage:report failed (${err instanceof Error ? err.name : typeof err}).`);
+    // Only the error's name: an Upstash error's message carries the command (scripts/lib/storeReader.ts).
+    console.error(storeFailureText("usage:report", err));
     process.exit(1);
   });
 }

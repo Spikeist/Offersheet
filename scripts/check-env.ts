@@ -4,7 +4,7 @@
  */
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { ENV_VARS, ROOT, env } from "./lib/env";
+import { ENV_VARS, ROOT, UNUSED_STORE_ENV_VARS, env } from "./lib/env";
 import { isMainModule } from "./lib/runMode";
 
 function main(): void {
@@ -42,12 +42,35 @@ function main(): void {
       if (name === "ESPN_SEASON") notes.push(/^\d{4}$/.test(loaded) ? `season ${loaded}` : "not a 4-digit year");
       if (/_LEAGUE_ID$/.test(name) && name !== "FANTRAX_LEAGUE_ID") notes.push(/^\d+$/.test(loaded) ? "numeric" : "NOT numeric");
       if (name === "SESSION_SECRET") notes.push(loaded.length >= 32 ? "32+ chars" : "TOO SHORT (needs 32+ chars)");
+      if (name === "READONLY_STORE_URL") {
+        notes.push(
+          /rediss?:\/\//i.test(loaded)
+            ? "a redis:// connection string, which carries the store's full password: DELETE IT and type KV_REST_API_URL's value"
+            : /^https:\/\//i.test(loaded)
+              ? "https ok"
+              : "NOT an https:// address",
+        );
+      }
+      if (name === "READONLY_STORE_TOKEN" && /:\/\//.test(loaded)) {
+        notes.push(
+          /rediss?:\/\//i.test(loaded)
+            ? "a redis:// connection string, which carries the store's full password: DELETE IT and type KV_REST_API_READ_ONLY_TOKEN's value"
+            : "an address, not a token: type KV_REST_API_READ_ONLY_TOKEN's value",
+        );
+      }
+      if (UNUSED_STORE_ENV_VARS.includes(name)) notes.push("nothing local reads it: DELETE IT (the store scripts read READONLY_STORE_URL and READONLY_STORE_TOKEN)");
     }
     if (r && r.value !== (process.env[name] ?? "").trim() && r.value.trim() !== "") notes.push("WARNING: value changes when loaded (a '$' may be expanded)");
     console.log(`${name.padEnd(22)} ${loaded ? "set" : "blank"}${notes.length ? `  (${notes.join(", ")})` : ""}`);
   }
   const extra = [...raw.keys()].filter((k) => !(ENV_VARS as readonly string[]).includes(k));
   console.log(`other keys: ${extra.length ? extra.join(", ") : "none"}; malformed lines: ${malformed}`);
+  // Vercel's system variables (what `vercel env pull` writes): with VERCEL set, `npm run dev` and the stable copy take
+  // themselves for a deployment and use the shared store (src/server/redis.ts: Vercel only).
+  const vercel = extra.filter((k) => /^VERCEL/.test(k));
+  if (vercel.length) {
+    console.log(`WARNING: ${vercel.join(", ")} in .env.local: DELETE ${vercel.length === 1 ? "IT" : "THEM"}. They make npm run dev and the stable copy act as a deployment and use the shared store.`);
+  }
 }
 
 // Only when run as a script (npm run …), never when imported: a scratch file importing this must not run it.

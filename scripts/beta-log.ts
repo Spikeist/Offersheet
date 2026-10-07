@@ -8,19 +8,19 @@
  *   npm run beta:log -- --live --days 3 --last 20   the last 3 days, the newest 20 events
  *
  * - It talks to Upstash, so it runs only with --live (planner reply to Checkpoint 4c, A5; scripts/lib/runMode.ts).
- * - It needs the store's REST address and token in .env.local (KV_REST_API_URL and KV_REST_API_TOKEN, as Vercel's Upstash
- *   integration names them, or UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN) and SESSION_SECRET (src/server/redis.ts
- *   gives no client without it). It says only whether each is set, never a value. Having them in .env.local doesn't switch
- *   the app to Upstash: off Vercel (no VERCEL variable) the server cache, the rate limits, the budgets and the error log
- *   stay local (src/app/api/_lib/deps.ts, src/server/rateLimit.ts, budget.ts, log.ts), so `npm run dev`, the stable copy
- *   and check:browser never contact it. Add them by hand: `vercel env pull` would replace .env.local, and with Vercel's
- *   system variables (VERCEL among them) the local server would take itself for a deployment.
+ * - It reads with the store's read-only token, under variable names the app never reads: READONLY_STORE_URL and
+ *   READONLY_STORE_TOKEN in .env.local, typed in by hand (scripts/lib/storeReader.ts, which says where to find them,
+ *   checks the token can't write before the first read, and says only whether each variable is set, never a value). The
+ *   app uses the store on Vercel only (src/server/redis.ts), so `npm run dev`, the stable copy and check:browser never
+ *   contact it. Never `vercel env pull`: it would replace .env.local, and with Vercel's system variables (VERCEL among
+ *   them) the local server would take itself for a deployment.
  * - Read-only: one LRANGE per day list (`os:<env>:log:<YYYY-MM-DD>`). An entry that doesn't parse as the allowlist is
  *   counted, never printed.
  */
-import { REDIS_OPT_IN_ENV, getRedis, keyPrefix, type RedisLike } from "@/server/redis";
+import { keyPrefix, type RedisLike } from "@/server/redis";
 import { LOG_ROUTES, StoredLogEventSchema, type StoredLogEvent } from "@/server/log";
 import { flagValue, isMainModule, requireLive } from "./lib/runMode";
+import { openStoreReader, storeFailureText } from "./lib/storeReader";
 
 export const BETA_LOG_ENVS = ["preview", "production"] as const;
 export type BetaLogEnv = (typeof BETA_LOG_ENVS)[number];
@@ -144,15 +144,13 @@ async function main(): Promise<void> {
   }
   const { loadEnv } = await import("./lib/env");
   loadEnv();
-  process.env[REDIS_OPT_IN_ENV] = "1"; // this --live script reads the shared store on purpose (src/server/redis.ts)
-  const redis = getRedis(process.env);
-  if (!redis) {
-    const state = (names: string[]) => names.map((n) => `${n} ${process.env[n]?.trim() ? "set" : "blank"}`).join(", ");
-    console.error(
-      `No shared store configured in .env.local (${state(["KV_REST_API_URL", "KV_REST_API_TOKEN", "UPSTASH_REDIS_REST_URL", "UPSTASH_REDIS_REST_TOKEN"])}; SESSION_SECRET ${(process.env.SESSION_SECRET ?? "").length >= 32 ? "set" : "blank or too short"}). Add the store's REST URL and token to .env.local by hand (Checkpoint 7a's steps say where to find them).`,
-    );
+  // The store, read-only: the scripts' own variables and a token that can't write (scripts/lib/storeReader.ts).
+  const store = await openStoreReader(process.env);
+  if ("error" in store) {
+    console.error(store.error);
     process.exit(1);
   }
+  const redis = store.reader;
   const days = logDays(Date.now(), args.days);
   const entries = await readLogEntries(redis, keyPrefix({ VERCEL_ENV: args.env }), days);
   console.log(formatBetaLog(summarizeLog(entries, args.last), args, days));
@@ -160,8 +158,8 @@ async function main(): Promise<void> {
 
 if (isMainModule(import.meta.url)) {
   main().catch((err: unknown) => {
-    // Only the error's name: an Upstash error message could carry the store's address.
-    console.error(`beta:log failed (${err instanceof Error ? err.name : typeof err}).`);
+    // Only the error's name: an Upstash error's message carries the command (scripts/lib/storeReader.ts).
+    console.error(storeFailureText("beta:log", err));
     process.exit(1);
   });
 }

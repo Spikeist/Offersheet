@@ -5,9 +5,14 @@
  * the snapshot cron's archive of public data (src/server/snapshots.ts; planner reply to Checkpoint 7a, §6.3).
  *
  * - Configured only on Vercel: the Marketplace integration injects KV_REST_API_URL and KV_REST_API_TOKEN (Upstash's own
- *   names, UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN, work too). Locally nothing is set, so the stable copy,
- *   `npm run dev`, the tests and every script keep their local stores and never contact Upstash. A script run without
- *   --live (OFFERSHEET_NETWORK "off", Part A's A5) never gets a client either.
+ *   names, UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN, work too). Off Vercel (no VERCEL variable) nothing else
+ *   switches it on: KV_* or UPSTASH_* values in .env.local never do, so the stable copy, `npm run dev`, the tests and every
+ *   script keep their local stores and never contact Upstash. ⚠️ A VERCEL variable in .env.local (what `vercel env pull`
+ *   writes; CLAUDE.md §19 forbids it, and `npm run check-env` warns) would make `npm run dev` and the stable copy act as a
+ *   deployment. A script run without --live (OFFERSHEET_NETWORK "off", Part A's A5) never gets a client either. The
+ *   scripts that read the store on purpose (beta:log, usage:report, feedback:report, snapshot:pull) don't use this module's
+ *   client: they read with Upstash's read-only token, under variable names this module never reads
+ *   (scripts/lib/storeReader.ts; Parker, 2026-10-07).
  * - Every key starts with keyPrefix(): `os:<VERCEL_ENV>:` (preview and production share the free plan's one database).
  * - Nothing identifying reaches a key: a cache key (which can hold a league id, a username or a credential scope) and a
  *   client's IP address go in only as hmacId(label, text), an HMAC under a key derived from SESSION_SECRET. Without
@@ -24,7 +29,8 @@
  * - Upstash's SDK sends telemetry headers by default (runtime, platform, SDK version); they are turned off.
  * ⚠️ Rotating SESSION_SECRET resets sealed sessions, import tokens, cache keys and rate-limit buckets at once (accepted:
  * the cache refills, the limits restart).
- * Server-only in spirit (node:crypto), but it doesn't import "server-only", so tsx scripts (`--live` ones) can use it.
+ * Server-only in spirit (node:crypto), but it doesn't import "server-only", so tsx scripts can use its helpers (keyPrefix,
+ * FakeRedis, the RedisLike type).
  */
 import { createHmac, hkdfSync } from "node:crypto";
 import { Redis } from "@upstash/redis";
@@ -89,25 +95,19 @@ function firstSet(env: Env, names: readonly string[]): string | undefined {
   return undefined;
 }
 
-/**
- * The variable a `--live` script that reads the shared store on purpose sets ("1": beta:log, usage:report, feedback:report,
- * snapshot:pull). Without it Redis is used on Vercel only, so KV_* values someone puts in .env.local never switch
- * `npm run dev`, the stable copy, check:browser or a test to Upstash (lead, after review RL-5: the callers check VERCEL too;
- * this is the one rule).
- */
-export const REDIS_OPT_IN_ENV = "OFFERSHEET_REDIS";
-
 /** Why this process may not use Redis (redisOffReason), by name only: never a variable's content. */
 export type RedisOffReason = "network_off" | "not_on_vercel" | "session_secret_missing" | "store_variables_missing";
 
 /**
- * Why this process may not use Redis, or null when it may: the network is on, it runs on Vercel (or opted in,
- * REDIS_OPT_IN_ENV), SESSION_SECRET is long enough, and an endpoint and token are set. /api/health reports it
- * (planner reply to Checkpoint 7a, §1).
+ * Why this process may not use Redis, or null when it may: the network is on, it runs on Vercel, SESSION_SECRET is long
+ * enough, and an endpoint and token are set. /api/health reports it (planner reply to Checkpoint 7a, §1). Vercel only is
+ * the one rule (lead, after review RL-5: the callers check VERCEL too): KV_* values someone puts in .env.local never switch
+ * `npm run dev`, the stable copy, check:browser, a script or a test to Upstash. (Until 2026-10-07 the store-reading scripts
+ * could opt in with OFFERSHEET_REDIS=1; they now have a read-only client of their own: scripts/lib/storeReader.ts.)
  */
 export function redisOffReason(env: Env = process.env): RedisOffReason | null {
   if (env.OFFERSHEET_NETWORK === "off") return "network_off";
-  if (!env.VERCEL && env[REDIS_OPT_IN_ENV] !== "1") return "not_on_vercel";
+  if (!env.VERCEL) return "not_on_vercel";
   if ((env.SESSION_SECRET ?? "").length < MIN_SECRET_CHARS) return "session_secret_missing";
   if (!(firstSet(env, URL_VARS) && firstSet(env, TOKEN_VARS))) return "store_variables_missing";
   return null;

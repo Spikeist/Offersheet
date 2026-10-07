@@ -7,7 +7,7 @@ import { DAY, HOUR, MINUTE, TTL } from "@/server/cache";
 import { browserFetchLimits, feedbackLimits, logLimits, snapshotLimits } from "@/server/limits";
 
 /** When this policy last changed. Update it with every change below, a feature turned on included (the go/no-go sets it to launch day). */
-export const PRIVACY_LAST_UPDATED = "October 5, 2026";
+export const PRIVACY_LAST_UPDATED = "October 13, 2026";
 
 /** A length of time in words: "a day", "an hour", "3 hours", "15 minutes". */
 export function durationWords(ms: number): string {

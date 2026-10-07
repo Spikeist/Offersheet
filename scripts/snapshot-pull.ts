@@ -6,11 +6,9 @@
  *   npm run snapshot:pull -- --live                    production's snapshots (Vercel runs the cron on production only)
  *   npm run snapshot:pull -- --live --env preview      a preview's (only if someone called its cron route by hand)
  *
- * - It talks to Upstash, so it runs only with --live (planner reply to Checkpoint 4c, A5; scripts/lib/runMode.ts). It needs
- *   the store's REST address and token in .env.local (KV_REST_API_URL and KV_REST_API_TOKEN, or UPSTASH_REDIS_REST_URL and
- *   UPSTASH_REDIS_REST_TOKEN) and SESSION_SECRET (src/server/redis.ts gives no client without it), typed in by hand as for
- *   `npm run beta:log`; it says only whether each is set, never a value. Having them there never switches the app itself to
- *   Upstash (Vercel only).
+ * - It talks to Upstash, so it runs only with --live (planner reply to Checkpoint 4c, A5; scripts/lib/runMode.ts). It reads
+ *   with the store's read-only token (READONLY_STORE_URL and READONLY_STORE_TOKEN in .env.local, typed in by hand as for
+ *   `npm run beta:log`: scripts/lib/storeReader.ts). The app never reads those names, and uses the store on Vercel only.
  * - Read-only in the store: for each season the store can still hold (this one and the two before: it keeps two seasons),
  *   one MGET of the 18 weeks' projection records and one SMEMBERS of each day's FantasyCalc index the store can still hold
  *   (the season's days of the last snapshotLimits.retainDays: pullDays; PULL_DAY_BATCH at a time), then one MGET for each
@@ -37,9 +35,10 @@ import { defaultSeason } from "@/lib/season";
 import { fantasyCalcArchiveRoot, fantasyCalcFormatKey, fantasyCalcSnapshotFile, readStoredFantasyCalcFile, unpackFantasyCalcSnapshot, writeFantasyCalcSnapshotFile, type FantasyCalcSnapshot } from "@/server/fantasyCalcArchive";
 import { snapshotLimits } from "@/server/limits";
 import { mergeProjectionSnapshots, projectionArchiveRoot, projectionSnapshotFile, readStoredProjectionFile, unpackProjectionSnapshot, writeProjectionSnapshotFile, type ProjectionSnapshot } from "@/server/projectionArchive";
-import { REDIS_OPT_IN_ENV, getRedis, keyPrefix, type RedisLike } from "@/server/redis";
+import { keyPrefix, type RedisLike } from "@/server/redis";
 import { DAY_PATTERN, dayExpired, daysFromTo, fantasyCalcIndexKey, fantasyCalcSnapshotKey, parseFormatKey, projectionSnapshotKey, seasonOfDay, utcDay } from "@/server/snapshots";
 import { flagValue, isMainModule, requireLive } from "./lib/runMode";
+import { openStoreReader, storeFailureText } from "./lib/storeReader";
 
 export const PULL_ENVS = ["production", "preview"] as const;
 export type PullEnv = (typeof PULL_ENVS)[number];
@@ -286,15 +285,13 @@ async function main(): Promise<void> {
   }
   const { ROOT, loadEnv } = await import("./lib/env");
   loadEnv();
-  process.env[REDIS_OPT_IN_ENV] = "1"; // this --live script reads the shared store on purpose (src/server/redis.ts)
-  const redis = getRedis(process.env);
-  if (!redis) {
-    const state = (names: string[]) => names.map((n) => `${n} ${process.env[n]?.trim() ? "set" : "blank"}`).join(", ");
-    console.error(
-      `No shared store configured in .env.local (${state(["KV_REST_API_URL", "KV_REST_API_TOKEN", "UPSTASH_REDIS_REST_URL", "UPSTASH_REDIS_REST_TOKEN"])}; SESSION_SECRET ${(process.env.SESSION_SECRET ?? "").length >= 32 ? "set" : "blank or too short"}). Add the store's REST URL and token to .env.local by hand (Checkpoint 7a's steps say where to find them).`,
-    );
+  // The store, read-only: the scripts' own variables and a token that can't write (scripts/lib/storeReader.ts).
+  const store = await openStoreReader(process.env);
+  if ("error" in store) {
+    console.error(store.error);
     process.exit(1);
   }
+  const redis = store.reader;
   // The local archives' folders, chosen as the app chooses them (the stable copy's OFFERSHEET_DATA_LOCAL included), from the
   // project folder.
   process.chdir(ROOT);
@@ -310,8 +307,8 @@ async function main(): Promise<void> {
 
 if (isMainModule(import.meta.url)) {
   main().catch((err: unknown) => {
-    // Only the error's name: an Upstash error message could carry the store's address.
-    console.error(`snapshot:pull failed (${err instanceof Error ? err.name : typeof err}).`);
+    // Only the error's name: an Upstash error's message carries the command (scripts/lib/storeReader.ts).
+    console.error(storeFailureText("snapshot:pull", err));
     process.exit(1);
   });
 }

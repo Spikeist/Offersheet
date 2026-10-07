@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { redisClientLimits } from "./limits";
-import { FakeRedis, derivedKey, getRedis, hmacId, keyPrefix, redisConfigured } from "./redis";
+import { FakeRedis, derivedKey, getRedis, hmacId, keyPrefix, redisConfigured, redisOffReason } from "./redis";
 
 const SECRET = "x".repeat(40);
 
@@ -15,13 +15,21 @@ describe("redisConfigured / getRedis", () => {
     expect(redisConfigured({ VERCEL: "1", SESSION_SECRET: SECRET, UPSTASH_REDIS_REST_URL: "https://e.upstash.io", UPSTASH_REDIS_REST_TOKEN: "t" })).toBe(true);
   });
 
-  it("is used on Vercel only, unless a --live script opts in (KV_* values in .env.local never switch the local app to Upstash)", () => {
+  it("is used on Vercel only: off Vercel no store variable switches it on (KV_* values in .env.local never move the local app or a script to Upstash)", () => {
     const { VERCEL: _vercel, ...local } = base;
     void _vercel;
     expect(redisConfigured(local)).toBe(false);
+    expect(redisOffReason(local)).toBe("not_on_vercel");
     expect(getRedis(local)).toBeNull();
-    expect(redisConfigured({ ...local, OFFERSHEET_REDIS: "1" })).toBe(true);
-    expect(redisConfigured({ ...local, OFFERSHEET_REDIS: "true" })).toBe(false);
+    // The scripts' opt-in until 2026-10-07 switches nothing on any more (they read with scripts/lib/storeReader.ts).
+    expect(redisOffReason({ ...local, OFFERSHEET_REDIS: "1" })).toBe("not_on_vercel");
+    expect(getRedis({ ...local, OFFERSHEET_REDIS: "1" })).toBeNull();
+  });
+
+  it("never takes the store-reading scripts' read-only variables, even on Vercel (scripts/lib/storeReader.ts)", () => {
+    const readOnly = { READONLY_STORE_URL: "https://example.upstash.io", READONLY_STORE_TOKEN: "made-up-read-only" };
+    expect(redisOffReason({ VERCEL: "1", SESSION_SECRET: SECRET, ...readOnly })).toBe("store_variables_missing");
+    expect(getRedis({ VERCEL: "1", SESSION_SECRET: SECRET, ...readOnly })).toBeNull();
   });
 
   it("throws the SDK's UrlError for an address it refuses (its callers catch it and log only that name: its message holds the address)", () => {

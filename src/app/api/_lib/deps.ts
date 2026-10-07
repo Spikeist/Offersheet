@@ -85,8 +85,9 @@ export interface ServerCache {
  * The server's cache for this environment (see the header). `redis` is the process's client: by default, on Vercel,
  * getRedis (null when Redis isn't configured; a client that can't be built is logged as "redis_config_invalid" by its
  * error's name only and taken as none); tests pass their own, or null for none. ⚠️ Off Vercel the file cache is used
- * whatever `redis` is: .env.local may hold the KV_* variables (`npm run feedback:report -- --live` reads them, and
- * `vercel env pull` writes them), and the stable copy and `npm run dev` must still never contact Upstash (Part B's ground
+ * whatever `redis` is: .env.local may still hold the store's KV_* variables (left over from before 2026-10-07, when the
+ * store-reading scripts read them; they read READONLY_STORE_* now, scripts/lib/storeReader.ts, and `npm run check-env`
+ * says to delete the KV_* ones), and the stable copy and `npm run dev` must still never contact Upstash (Part B's ground
  * rules).
  */
 export function selectServerCache(env: Env = process.env, redis?: RedisLike | null): ServerCache {
