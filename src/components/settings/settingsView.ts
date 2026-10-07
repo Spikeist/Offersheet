@@ -31,7 +31,10 @@
  *   get costs about 0.4 points a week" next to the Analyzer's "Trade value: −0.4 pts/week equivalent." turned that line
  *   back into the trade's value comparison (planner reply to Checkpoint 7a, 5.4: none in the Analyzer's Details). Redraft
  *   leagues only: dynasty and keeper leagues have no market term in Helps you (their long-term value counts instead,
- *   through Win now ↔ Future). The help says depth for injuries and byes is counted either way. Phase 4c (planner reply
+ *   through Win now ↔ Future; a second term would count trade value twice), and in its place they get the planner's line
+ *   after the Win now ↔ Future group (TRADE_VALUE_NOTE, SettingsView.tradeValueNote: planner reply to Checkpoint 7b, Q3:
+ *   "In dynasty and keeper leagues, the Win now ↔ Future slider covers trade value."), so the setting's absence says why.
+ *   The help says depth for injuries and byes is counted either way. Phase 4c (planner reply
  *   to Checkpoint 4b, change 12): while the league's values are our own estimates (FantasyCalc's curve fallback,
  *   `valuesEstimated`), Helps you leaves trade value out (evaluate.ts: κ = 0), so a note says the setting does nothing
  *   until FantasyCalc is back; Win now ↔ Future gets the same note in dynasty and keeper leagues, whose long-term value
@@ -136,6 +139,11 @@ export interface SettingsView {
    * while the league's values are our own estimates (FantasyCalc's curve fallback); else null.
    */
   protectValue: { choices: Choice<ProtectValue>[]; help: string; note: string | null } | null;
+  /**
+   * Where "Protect my trade value" would be, in dynasty and keeper leagues (null in redraft ones): why it isn't (planner
+   * reply to Checkpoint 7b, Q3: TRADE_VALUE_NOTE, shown after the Win now ↔ Future group).
+   */
+  tradeValueNote: string | null;
   maxPerSide: { choices: Choice<number>[]; help: string };
   players: PlayersView;
   positions: { target: Choice<Pos>[]; avoid: Choice<Pos>[]; note: string | null };
@@ -341,6 +349,13 @@ export function goalHelp(goal: Goal, weights: { readonly playoffs: number; reado
   return `Weighs your title odds ${title} and your playoff odds ${playoffs}.`;
 }
 
+/**
+ * Why dynasty and keeper leagues have no "Protect my trade value" (SettingsView.tradeValueNote): the planner's sentence
+ * (planner reply to Checkpoint 7b, Q3). Their long-term value already counts trade value, through Win now ↔ Future
+ * (benefit.ts: no market term there, whatever κ), so a second term would count it twice.
+ */
+export const TRADE_VALUE_NOTE = "In dynasty and keeper leagues, the Win now ↔ Future slider covers trade value.";
+
 /** Why "Protect my trade value" does nothing for now (SettingsView.protectValue.note): the trade values are our own estimates. */
 export const PROTECT_VALUE_ESTIMATED_NOTE =
   "For now this setting changes nothing: FantasyCalc isn't available, so this league's trade values are our own estimates, and Helps you leaves trade value out until FantasyCalc is back.";
@@ -479,6 +494,7 @@ export function buildSettingsView(input: SettingsViewInput): SettingsView {
     goal,
     lambda,
     protectValue,
+    tradeValueNote: dynastyOrKeeper ? TRADE_VALUE_NOTE : null,
     maxPerSide,
     players: playersView(snapshot, myTeamId, s),
     positions,

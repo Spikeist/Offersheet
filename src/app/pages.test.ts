@@ -779,7 +779,10 @@ describe("feedback page (Part B, B3)", () => {
     const { html, text } = feedback(f);
     expect(text).toContain("Here's how to record what happens to Offer Sheet's trade ideas, and how to reach us.");
     expect(text).toContain("It stays in this browser, notes included: Offer Sheet doesn't receive it.");
-    expect(text).toContain("“Export feedback” on the Settings page downloads everything you've saved, notes included, as a file.");
+    // The export leaves out the value ratios (planner reply to Checkpoint 7b, Q5: "Keep the feedback page's sentence about
+    // the export accurate"; feedbackStore.ts EXPORT_LEFT_OUT), so never "everything".
+    expect(text).toContain("“Export feedback” on the Settings page downloads what you've saved as a file, notes included. It leaves out the trade-value comparisons behind Offer Sheet's estimates.");
+    expect(text).not.toContain("everything you've saved");
     expect(text).toContain("The privacy policy says what's kept.");
     expect(text).not.toContain("anonymous");
     expect(links(html).map((l) => l.href)).toEqual(["/settings", "/privacy", `mailto:${CONTACT_EMAIL}`]);
@@ -791,6 +794,9 @@ describe("feedback page (Part B, B3)", () => {
     expect(text).toContain("Offer Sheet learns from what happens to its trade ideas. Here's how to tell it.");
     expect(text).toContain("A note you type with a report stays in this browser. It's never sent.");
     expect(text).toContain("To stop sending copies, turn off “Share anonymous feedback” on the Settings page");
+    // The export leaves out the value ratios the anonymous copies keep (planner reply to Checkpoint 7b, Q5).
+    expect(text).toContain("“Export feedback”, also on the Settings page, downloads what you've saved as a file, notes included. It leaves out the trade-value comparisons behind Offer Sheet's estimates.");
+    expect(text).not.toContain("everything you've saved");
     expect(text).toContain("Never your league's ID, names or usernames.");
     expect(text).toContain("an anonymous copy also goes to Offer Sheet, to help improve it:");
     // Review POL-9: not "exactly" (the policy summarizes some fields).

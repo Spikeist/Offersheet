@@ -7,6 +7,14 @@
  *   npm run check:leaks -- --verbose   also list every soft hit per file
  *   … -- --files <list>                scan exactly the files named in <list> (one project-relative path a line) instead
  *                                      of git's: npm run preview:deploy scans the exact upload with it (final review SEC-8)
+ *   … -- --files <list> --base <dir>   the same, each file read from <dir> instead of this folder: npm run prod:deploy
+ *                                      scans its clean copy of the tag with it (Checkpoint 7c). The needles still come
+ *                                      from the folder the check runs in (its .env.local, maps and watch lists), so it
+ *                                      must run in the main folder, never in the copy.
+ *
+ * A --files scan with no .env.local value to look for is refused (exit 1): it would pass whatever the files hold, which
+ * is exactly what running it from the wrong folder looks like. In a --files scan a listed file that can't be read is a
+ * hard failure too (it wasn't scanned, so it can't be vouched for).
  *
  * Sources of identities (all git-ignored):
  *   fixtures/raw/**\/redaction-map.json   raw → placeholder maps written by each probe's Redactor
@@ -204,14 +212,14 @@ function occurrences(text: string, n: Needle): number[] {
 const SWID_LIKE = /\{[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\}/g;
 const PLACEHOLDER_SWID = /^\{00000000-0000-4000-8000-[0-9A-Fa-f]{12}\}$/;
 
-function reservedNameFiles(dir: string): string[] {
+function reservedNameFiles(dir: string, root: string = ROOT): string[] {
   if (!existsSync(dir)) return [];
   const out: string[] = [];
   for (const name of readdirSync(dir)) {
     if (name === "node_modules" || name === ".git" || name === ".next") continue;
     const p = path.join(dir, name);
-    if (RESERVED_NAMES.test(name)) out.push(path.relative(ROOT, p).replace(/\\/g, "/"));
-    else if (statSync(p, { throwIfNoEntry: false })?.isDirectory()) out.push(...reservedNameFiles(p));
+    if (RESERVED_NAMES.test(name)) out.push(path.relative(root, p).replace(/\\/g, "/"));
+    else if (statSync(p, { throwIfNoEntry: false })?.isDirectory()) out.push(...reservedNameFiles(p, root));
   }
   return out;
 }
@@ -221,12 +229,33 @@ async function main() {
   const counters = { skippedPublic: 0 };
   const maps = findFiles(path.join(ROOT, "fixtures", "raw"), "redaction-map.json");
   const watchlists = [...findFiles(path.join(ROOT, "fixtures", "raw"), "watchlist.json"), ...findFiles(path.join(ROOT, "data-local"), "watchlist.json")];
-  const needles = [...needlesFromEnv(), ...needlesFromMaps(maps, names, counters), ...needlesFromWatchlists(watchlists, names, counters)];
+  const envNeedles = needlesFromEnv();
+  const needles = [...envNeedles, ...needlesFromMaps(maps, names, counters), ...needlesFromWatchlists(watchlists, names, counters)];
 
-  // --files <list>: exactly the files the list names (preview:deploy's upload); else every file git would commit.
+  // --files <list>: exactly the files the list names (preview:deploy's upload, prod:deploy's copy); else every file git
+  // would commit. --base <dir>: where the listed files are read from (default: this folder).
   const at = process.argv.indexOf("--files");
+  const baseAt = process.argv.indexOf("--base");
+  let base = ROOT;
+  if (baseAt >= 0) {
+    const dir = process.argv[baseAt + 1];
+    if (at < 0) {
+      console.log("❌ --base needs --files: it says where the listed files are read from.");
+      process.exit(1);
+    }
+    if (!dir || dir.startsWith("--") || !statSync(path.resolve(ROOT, dir), { throwIfNoEntry: false })?.isDirectory()) {
+      console.log("❌ --base: the folder couldn't be read.");
+      process.exit(1);
+    }
+    base = path.resolve(ROOT, dir);
+  }
   let listed: string[] | null = null;
   if (at >= 0) {
+    // A scan for nothing proves nothing (the header): no .env.local here, or nothing in it, means the wrong folder.
+    if (!envNeedles.length) {
+      console.log("❌ nothing to look for: this folder's .env.local has none of the values the check looks for. Run it from the main project folder, where .env.local is.");
+      process.exit(1);
+    }
     try {
       listed = readFileSync(path.resolve(ROOT, process.argv[at + 1] ?? ""), "utf8")
         .split(/\r?\n/)
@@ -240,6 +269,8 @@ async function main() {
   const files = (listed ?? execFileSync("git", ["ls-files", "-z", "--cached", "--others", "--exclude-standard"], { cwd: ROOT, encoding: "utf8" }).split("\0"))
     .filter(Boolean)
     .filter((f) => !BINARY.test(f));
+  /** --files: listed files that couldn't be read (a hard failure there: see the header). */
+  const unread: string[] = [];
 
   const hits = new Map<string, Map<string, { n: number; severity: Severity }>>();
   const note = (file: string, category: string, n: number, severity: Severity) => {
@@ -254,11 +285,17 @@ async function main() {
   for (const f of files) {
     let text: string;
     try {
-      const full = path.join(ROOT, f);
-      if (statSync(full).size > 64 * 1024 * 1024) continue;
+      // A listed path stays inside the base folder (no absolute path, no ".." step).
+      if (listed && (path.isAbsolute(f) || f.split("/").includes(".."))) throw new Error("outside");
+      const full = path.join(base, f);
+      if (statSync(full).size > 64 * 1024 * 1024) {
+        if (listed) unread.push(f);
+        continue;
+      }
       text = readFileSync(full, "utf8");
     } catch {
-      continue; // deleted between listing and reading
+      if (listed) unread.push(f);
+      continue; // git's list: deleted between listing and reading
     }
     scanned++;
     let parsed: unknown;
@@ -310,15 +347,17 @@ async function main() {
   }
   for (const [cat, s] of softByCategory) console.log(`⚠️ soft ${cat}: ×${s.n} in ${s.files} file(s)${verbose ? "" : " (--verbose lists them)"}`);
 
-  const reserved = reservedNameFiles(ROOT);
+  for (const f of unread) console.log(`❌ ${f}: listed but couldn't be read, so it wasn't scanned`);
+
+  const reserved = [...reservedNameFiles(ROOT), ...(base !== ROOT ? reservedNameFiles(base, base) : [])];
   for (const r of reserved) console.log(`❌ reserved device-name file (likely a '> NUL' redirect; delete it): ${r}`);
 
   console.log(
-    `\nscanned ${scanned} files against ${needles.length} values (${maps.length} redaction map(s), ${watchlists.length} watch list(s); ${counters.skippedPublic} public NFL/team/college names skipped): ` +
+    `\nscanned ${scanned} files${base !== ROOT ? " (read from the --base folder)" : ""} against ${needles.length} values (${envNeedles.length} from .env.local, ${maps.length} redaction map(s), ${watchlists.length} watch list(s); ${counters.skippedPublic} public NFL/team/college names skipped): ` +
       `${hard} hard, ${soft} soft hit(s)` +
       (names ? `; ${discounted} hit(s) inside NFL player names discounted` : "; Sleeper players DB not cached, so soft hits are not discounted"),
   );
-  if (hard || reserved.length) {
+  if (hard || reserved.length || unread.length) {
     console.log("Hard hits must be fixed before committing.");
     process.exit(1);
   }

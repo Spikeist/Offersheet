@@ -781,7 +781,7 @@ describe("buildLeagueView: my remaining schedule (§8: each remaining week's ris
     const f = leagueFixture();
     expect(likelyStarters(f.snapshot, f.model, "1", { afterPickups: true })).toEqual(likelyStarters(f.snapshot, f.model, "1"));
     // A pickup that drops my FLEX receiver: his backup starts there instead, and his bye counts; Oddfellow's doesn't.
-    f.model.teams = f.model.teams.map((t) => (t.id === "1" ? { ...t, faMoves: [{ add: "901", drop: "105", gainEv: 4, gainScen: 4 }] } : t));
+    f.model.teams = f.model.teams.map((t) => (t.id === "1" ? { ...t, faMoves: [{ add: "901", drop: "105", gainEv: 4, gainScen: 4, gainEvPlain: 3.5, gainScenPlain: 3.5 }] } : t));
     expect(likelyStarters(f.snapshot, f.model, "1", { afterPickups: true })).toEqual(["101", "102", "103", "104", "106", "MIN"]);
     byeIn(f, ["106"], 13);
     expect(of(f).schedule?.rows[1]?.byes).toMatchObject({ text: "W. Spoons", count: 1 });
@@ -798,7 +798,7 @@ describe("buildLeagueView: my remaining schedule (§8: each remaining week's ris
     f.snapshot = { ...f.snapshot, players: { ...f.snapshot.players, "107": { ...info, injuryReturnWeek: 14 } } };
     availability(f, "107", [0, 0, 0.75, 1, 1, 1]);
     f.model.teams = f.model.teams.map((t) =>
-      t.id === "1" ? { ...t, faMoves: [{ add: "901", drop: "105", gainEv: 4, gainScen: 4 }], players: { ...t.players, "107": { mvLoseEv: 3, mvLoseScen: 3, autoAdd: null, surplusScore: 0 } } } : t,
+      t.id === "1" ? { ...t, faMoves: [{ add: "901", drop: "105", gainEv: 4, gainScen: 4, gainEvPlain: 3.5, gainScenPlain: 3.5 }], players: { ...t.players, "107": { mvLoseEv: 3, mvLoseScen: 3, autoAdd: null, surplusScore: 0 } } } : t,
     );
     byeIn(f, ["106", "107", "MIN"], 13);
     const rule = scheduleByeRule(f.snapshot, f.model, "1", undefined);
@@ -1080,9 +1080,9 @@ describe("buildLeagueView: team table (§7 needs and trade chips)", () => {
     const f = leagueFixture();
     f.model.teams = f.model.teams.map((t) =>
       t.id === "2"
-        ? { ...t, faMoves: [{ add: "901", drop: "203", gainEv: 5, gainScen: 4 }], chips: t.chips.map((c) => (c.playerId === "203" ? { ...c, cost: 0, costPerWeek: 0, gap: c.maxOther, starter: false } : c)) }
+        ? { ...t, faMoves: [{ add: "901", drop: "203", gainEv: 5, gainScen: 4, gainEvPlain: 4.5, gainScenPlain: 3.5 }], chips: t.chips.map((c) => (c.playerId === "203" ? { ...c, cost: 0, costPerWeek: 0, gap: c.maxOther, starter: false } : c)) }
         : t.id === "1"
-          ? { ...t, faMoves: [{ add: "901", drop: "106", gainEv: 5, gainScen: 4 }] }
+          ? { ...t, faMoves: [{ add: "901", drop: "106", gainEv: 5, gainScen: 4, gainEvPlain: 4.5, gainScenPlain: 3.5 }] }
           : t,
     );
     const view = of(f);
@@ -1696,41 +1696,52 @@ describe("buildLeagueView: each team's free-agent pickups (§7 V*, TeamModel.faM
     f.model.teams = f.model.teams.map((t) => (t.id === teamId ? { ...t, faMoves } : t));
     return of(f).rosters.find((r) => r.teamId === teamId)?.pickups;
   };
-  const w = `(playoffs count ${PW}×)`;
+  /** A move whose gains read the same with ω or each week once (the cases below that are about the words, not the weighting). */
+  const move = (add: string, drop: string | null, gainEv: number, gainScen: number | null): TeamModel["faMoves"][number] => ({ add, drop, gainEv, gainScen, gainEvPlain: gainEv, gainScenPlain: gainScen });
 
-  it("lists a team's pickups in order, each with what it adds with injuries and byes simulated, the gain the optimizer picks moves by (weighted like lineup cost, and saying so), and the projected one in its title", () => {
+  it("lists a team's pickups in order, each with what it adds with injuries and byes simulated, each week counted once (Waiver upgrades' number: planner reply to Checkpoint 7b, Q6), and the projected one in its title", () => {
     // Review of Phase 4: the optimizer picks and keeps moves by their gain in scenario lineups when scenarios run, so
-    // that's the number shown (never under faMinGain, in the order made); the expected-value gain goes in the title.
+    // those are the lineups shown; the expected-value gain goes in the title. Since the planner's reply to Checkpoint 7b,
+    // Q6, both count each week once (FaMove.gainScenPlain and gainEvPlain: 3.31 and 3.71 here), not the optimizer's own
+    // gains with the playoff weeks weighted by ω (3.92 and 4.64), and nothing says "(playoffs count N×)" after them.
     expect(roster("1")?.pickups).toEqual({
       items: [
         {
           move: `add ${nameOf("901")} (RB, CAR), drop ${nameOf("108")}`,
-          gain: "+3.9 lineup pts",
-          title: `Add ${nameOf("901")} (RB, CAR), drop ${nameOf("108")}: +3.9 lineup pts with injuries and byes simulated (+4.6 on projected lineups), playoffs count ${PW}×.`,
+          gain: "+3.3 lineup pts",
+          title: `Add ${nameOf("901")} (RB, CAR), drop ${nameOf("108")}: +3.3 lineup pts with injuries and byes simulated (+3.7 on projected lineups), each week counted once.`,
         },
       ],
-      summary: "1, +3.9 lineup pts",
-      weighting: w,
-      text: `Free-agent pickups that would help: add ${nameOf("901")} (RB, CAR), drop ${nameOf("108")}: +3.9 lineup pts ${w}`,
+      summary: "1, +3.3 lineup pts",
+      text: `Free-agent pickups that would help: add ${nameOf("901")} (RB, CAR), drop ${nameOf("108")}: +3.3 lineup pts`,
     });
     expect(FREE_AGENT_PICKUPS_LABEL).toBe("Free-agent pickups that would help");
     // Two pickups (no scenarios for this team, so no simulated gain: the projected ones, saying so): into an open spot, then for a bench WR; the summary adds them up.
+    // ⚠️ The second is counted after the first (the optimizer's order), where Waiver upgrades prices each pickup alone, so
+    // its title says so (review of Q6: "one number in both places" holds for the first pickup only).
     expect(roster("3")?.pickups).toMatchObject({
       items: [
-        { move: `add ${nameOf("902")} (RB, NE) into an open spot`, gain: "+3.4 lineup pts", title: `Add ${nameOf("902")} (RB, NE) into an open spot: +3.4 lineup pts on projected lineups, playoffs count ${PW}×.` },
-        { move: `add ${nameOf("901")} (RB, CAR), drop ${nameOf("305")}`, gain: "+3.1 lineup pts" },
+        { move: `add ${nameOf("902")} (RB, NE) into an open spot`, gain: "+2.9 lineup pts", title: `Add ${nameOf("902")} (RB, NE) into an open spot: +2.9 lineup pts on projected lineups, each week counted once.` },
+        {
+          move: `add ${nameOf("901")} (RB, CAR), drop ${nameOf("305")}`,
+          gain: "+2.6 lineup pts",
+          title: `Add ${nameOf("901")} (RB, CAR), drop ${nameOf("305")}: +2.6 lineup pts on projected lineups, each week counted once, after the pickups above it.`,
+        },
       ],
-      summary: "2, +6.5 lineup pts",
+      summary: "2, +5.5 lineup pts",
     });
-    // Never "ROS pts": that's the plain total in the same header.
-    expect(v.rosters.map((r) => r.pickups?.text ?? "").join(" ")).not.toContain("ROS pts");
+    // Never "ROS pts" (that's the plain total in the same header), and never the playoff weighting lineup cost carries.
+    const words = v.rosters.flatMap((r) => (r.pickups ? [r.pickups.text, r.pickups.summary, ...r.pickups.items.flatMap((i) => [i.gain, i.title])] : [])).join(" ");
+    expect(words).not.toContain("ROS pts");
+    expect(words).not.toContain("playoffs count");
+    expect(roster("1")?.pickups).not.toHaveProperty("weighting");
   });
 
-  it("drops the weighting note when no playoff week is left to count", () => {
+  it("says nothing about how weeks count when no playoff week is left to count (lineup cost isn't weighted then either)", () => {
     const f = leagueFixture();
     f.model = { ...f.model, weeks: [12, 13, 14], regularWeeks: [12, 13, 14], playoffWeeks: [] };
-    expect(of(f).rosters[0]?.pickups).toMatchObject({ weighting: null, text: `Free-agent pickups that would help: add ${nameOf("901")} (RB, CAR), drop ${nameOf("108")}: +3.9 lineup pts` });
-    expect(of(f).rosters[0]?.pickups?.items[0]?.title).toBe(`Add ${nameOf("901")} (RB, CAR), drop ${nameOf("108")}: +3.9 lineup pts with injuries and byes simulated (+4.6 on projected lineups).`);
+    expect(of(f).rosters[0]?.pickups?.text).toBe(`Free-agent pickups that would help: add ${nameOf("901")} (RB, CAR), drop ${nameOf("108")}: +3.3 lineup pts`);
+    expect(of(f).rosters[0]?.pickups?.items[0]?.title).toBe(`Add ${nameOf("901")} (RB, CAR), drop ${nameOf("108")}: +3.3 lineup pts with injuries and byes simulated (+3.7 on projected lineups).`);
   });
 
   it("shows the projected gains when the optimizer judges moves on projected lineups: no scenarios, or starter limits that bind", () => {
@@ -1739,50 +1750,57 @@ describe("buildLeagueView: each team's free-agent pickups (§7 V*, TeamModel.faM
     const limited = leagueFixture();
     limited.snapshot = { ...limited.snapshot, settings: { ...limited.snapshot.settings, starterLimits: { QB: { min: 1, max: 1 } } } };
     expect(ev(limited)).toMatchObject({
-      items: [{ gain: "+4.6 lineup pts", title: `Add ${nameOf("901")} (RB, CAR), drop ${nameOf("108")}: +4.6 lineup pts on projected lineups (+3.9 with injuries and byes simulated), playoffs count ${PW}×.` }],
-      summary: "1, +4.6 lineup pts",
+      items: [{ gain: "+3.7 lineup pts", title: `Add ${nameOf("901")} (RB, CAR), drop ${nameOf("108")}: +3.7 lineup pts on projected lineups (+3.3 with injuries and byes simulated), each week counted once.` }],
+      summary: "1, +3.7 lineup pts",
     });
     // No scenarios.
     const none = leagueFixture();
-    none.model = { ...none.model, scenarios: 0, teams: none.model.teams.map((t) => ({ ...t, faMoves: t.faMoves.map((m) => ({ ...m, gainScen: null })) })) };
+    none.model = { ...none.model, scenarios: 0, teams: none.model.teams.map((t) => ({ ...t, faMoves: t.faMoves.map((m) => ({ ...m, gainScen: null, gainScenPlain: null })) })) };
     expect(ev(none)?.items[0]).toEqual({
       move: `add ${nameOf("901")} (RB, CAR), drop ${nameOf("108")}`,
-      gain: "+4.6 lineup pts",
-      title: `Add ${nameOf("901")} (RB, CAR), drop ${nameOf("108")}: +4.6 lineup pts on projected lineups, playoffs count ${PW}×.`,
+      gain: "+3.7 lineup pts",
+      title: `Add ${nameOf("901")} (RB, CAR), drop ${nameOf("108")}: +3.7 lineup pts on projected lineups, each week counted once.`,
     });
   });
 
   it("says one lineup point in the singular", () => {
-    expect(withMoves("1", [{ add: "901", drop: "108", gainEv: 1.02, gainScen: 3.5 }])?.items[0]?.title).toBe(
-      `Add ${nameOf("901")} (RB, CAR), drop ${nameOf("108")}: +3.5 lineup pts with injuries and byes simulated (+1 on projected lineups), playoffs count ${PW}×.`,
+    expect(withMoves("1", [{ add: "901", drop: "108", gainEv: 1.3, gainScen: 4.2, gainEvPlain: 1.02, gainScenPlain: 3.5 }])?.items[0]?.title).toBe(
+      `Add ${nameOf("901")} (RB, CAR), drop ${nameOf("108")}: +3.5 lineup pts with injuries and byes simulated (+1 on projected lineups), each week counted once.`,
     );
     const f = leagueFixture();
     f.model = { ...f.model, scenarios: 0 };
-    f.model.teams = f.model.teams.map((t) => (t.id === "1" ? { ...t, faMoves: [{ add: "901", drop: "108", gainEv: 0.96, gainScen: null }] } : t));
+    f.model.teams = f.model.teams.map((t) => (t.id === "1" ? { ...t, faMoves: [{ add: "901", drop: "108", gainEv: 1.2, gainScen: null, gainEvPlain: 0.96, gainScenPlain: null }] } : t));
     expect(of(f).rosters.find((r) => r.teamId === "1")?.pickups).toMatchObject({ items: [{ gain: "+1 lineup pt" }], summary: "1, +1 lineup pt" });
   });
 
   it("shows nothing when no pickup helps, and leaves out a move without a number", () => {
     expect(roster("2")?.pickups).toBeNull();
     expect(roster("4")?.pickups).toBeNull();
-    expect(withMoves("3", [{ add: "902", drop: null, gainEv: Number.NaN, gainScen: null }])).toBeNull();
+    expect(withMoves("3", [move("902", null, Number.NaN, null)])).toBeNull();
     // A depth pickup: it adds little, even less than nothing, to projected lineups, and more once injuries and byes are simulated.
-    expect(withMoves("3", [{ add: "902", drop: null, gainEv: Number.NaN, gainScen: null }, { add: "901", drop: "305", gainEv: -0.4, gainScen: 3.5 }])?.items).toEqual([
-      { move: `add ${nameOf("901")} (RB, CAR), drop ${nameOf("305")}`, gain: "+3.5 lineup pts", title: `Add ${nameOf("901")} (RB, CAR), drop ${nameOf("305")}: +3.5 lineup pts with injuries and byes simulated (−0.4 on projected lineups), playoffs count ${PW}×.` },
+    expect(withMoves("3", [move("902", null, Number.NaN, null), { add: "901", drop: "305", gainEv: -0.5, gainScen: 4.2, gainEvPlain: -0.4, gainScenPlain: 3.5 }])?.items).toEqual([
+      {
+        move: `add ${nameOf("901")} (RB, CAR), drop ${nameOf("305")}`,
+        gain: "+3.5 lineup pts",
+        title: `Add ${nameOf("901")} (RB, CAR), drop ${nameOf("305")}: +3.5 lineup pts with injuries and byes simulated (−0.4 on projected lineups), each week counted once.`,
+      },
     ]);
+    // ⚠️ A pickup the optimizer made for its weighted gain that counts for less than nothing with each week once (all its
+    // gain in the playoff weeks, ω above 1, and a loss before) shows that number as it is: the title says how weeks count.
+    expect(withMoves("3", [{ add: "901", drop: "305", gainEv: 3.2, gainScen: 3.6, gainEvPlain: -0.2, gainScenPlain: -0.1 }])?.items[0]?.gain).toBe("−0.1 lineup pts");
   });
 
   it("names a team defense by its name (plus DEF when the name doesn't say it), leaves out a missing NFL team, and never breaks on an unknown player", () => {
-    expect(withMoves("3", [{ add: "BAL", drop: "PHI", gainEv: 12.06, gainScen: null }])?.items[0]?.move).toBe("add Ravens D/ST, drop Eagles D/ST");
+    expect(withMoves("3", [move("BAL", "PHI", 12.06, null)])?.items[0]?.move).toBe("add Ravens D/ST, drop Eagles D/ST");
     // Sleeper names a defense after its team ("Baltimore Ravens").
     const f = leagueFixture({ platform: "sleeper" });
     const bal = f.snapshot.players.BAL;
     if (bal) f.snapshot.players.BAL = { ...bal, name: "Baltimore Ravens" };
-    f.model.teams = f.model.teams.map((t) => (t.id === "3" ? { ...t, faMoves: [{ add: "BAL", drop: "PHI", gainEv: 5, gainScen: null }] } : t));
+    f.model.teams = f.model.teams.map((t) => (t.id === "3" ? { ...t, faMoves: [move("BAL", "PHI", 5, null)] } : t));
     expect(of(f).rosters.find((r) => r.teamId === "3")?.pickups?.items[0]?.move).toBe("add Baltimore Ravens (DEF), drop Eagles D/ST");
-    expect(withMoves("1", [{ add: "903", drop: "999", gainEv: 3, gainScen: null }])?.items[0]?.move).toBe(`add ${nameOf("903")} (WR), drop Unknown player (999)`);
-    expect(withMoves("3", [{ add: "LV", drop: null, gainEv: 3, gainScen: null }])?.items[0]?.move).toBe("add Unknown player (LV) into an open spot");
-    expect(withMoves("3", [{ add: "904", drop: null, gainEv: 3, gainScen: null }])?.items[0]?.move).toBe(`add ${nameOf("904")} (K, LV) into an open spot`);
+    expect(withMoves("1", [move("903", "999", 3, null)])?.items[0]?.move).toBe(`add ${nameOf("903")} (WR), drop Unknown player (999)`);
+    expect(withMoves("3", [move("LV", null, 3, null)])?.items[0]?.move).toBe("add Unknown player (LV) into an open spot");
+    expect(withMoves("3", [move("904", null, 3, null)])?.items[0]?.move).toBe(`add ${nameOf("904")} (K, LV) into an open spot`);
   });
 });
 
@@ -2102,12 +2120,20 @@ describe("buildLeagueView: streaming positions (§7; planner reply to Checkpoint
     expect(ros(custom)).toContain(
       "with playoff weeks counted 1.5× (set automatically from how much a point in a playoff week moves your odds next to one in a regular-season week), so they don't add up exactly with ROS points.",
     );
-    expect(custom.rosters.find((r) => r.teamId === "1")?.pickups?.weighting).toBe("(playoffs count 1.5×)");
+    // The free-agent pickups' gains count each week once (planner reply to Checkpoint 7b, Q6): never labeled with the
+    // weight, and their title says so while lineup cost beside them weights the playoff weeks; the explainer names the
+    // weighting of the optimizer's own bar.
+    const pickups = (x: ReturnType<typeof of>) => x.rosters.find((r) => r.teamId === "1")?.pickups;
+    expect(pickups(custom)?.summary).toBe("1, +3.3 lineup pts");
+    expect(pickups(custom)?.items[0]?.title).toMatch(/, each week counted once\.$/);
+    expect(JSON.stringify(pickups(custom))).not.toContain("playoffs count");
+    const bar = (x: ReturnType<typeof of>) => x.explain.find((e) => e.title === "Free-agent pickups")?.text ?? "";
+    expect(bar(custom)).toContain(`as long as it adds at least ${config.freeAgentOptimizer.faMinGain} lineup points with playoff weeks counted 1.5×, up to`);
     // One decimal, as the Settings page prints it (the engine keeps two: config.lineups.playoffWeightAuto.decimals).
     expect([2, 1.63, 1.25, 0.5, Number.NaN].map(playoffWeightLabel)).toEqual(["2.0", "1.6", "1.3", "0.5", "1.0"]);
     f.model.playoffWeight = 1.63;
     f.model.playoffWeightAuto = autoWeight(1.63);
-    expect(of(f).rosters.find((r) => r.teamId === "1")?.pickups?.weighting).toBe("(playoffs count 1.6×)");
+    expect(bar(of(f))).toContain("lineup points with playoff weeks counted 1.6×, up to");
     // Below 1 (a point in a playoff week moves my odds less than one in a regular-season week): labeled the same, and
     // nothing says playoff weeks matter more.
     f.model.playoffWeight = 0.6;
@@ -2116,6 +2142,9 @@ describe("buildLeagueView: streaming positions (§7; planner reply to Checkpoint
     expect(low.lineupCostTitle).toBe("Rest-of-season lineup points his team would lose without him, with playoff weeks counted 0.6×");
     expect(ros(low)).toContain("with playoff weeks counted 0.6× (set automatically from how much a point in a playoff week moves your odds");
     expect(low.explain.map((e) => e.text).join(" ")).not.toMatch(/decide titles|count more/);
+    // ⚠️ Below 1 a gain listed is under the bar only when the pickup costs in the playoff weeks: not said then.
+    expect(bar(low)).toContain(`lineup points with playoff weeks counted 0.6×, up to ${config.freeAgentOptimizer.faMaxMoves} pickups; the gains listed count each week once, like Waiver upgrades.`);
+    expect(bar(low)).not.toContain("so one can be under");
     // The fallback: config's weight, saying it couldn't be set from my odds.
     f.model.playoffWeight = config.lineups.playoffWeight;
     f.model.playoffWeightAuto = autoWeight(config.lineups.playoffWeight, "fallback");
@@ -2128,7 +2157,12 @@ describe("buildLeagueView: streaming positions (§7; planner reply to Checkpoint
       expect(plain.teams.find((t) => t.id === "2")?.chips[0]?.title).not.toContain("playoffs count");
       expect(plain.lineupCostTitle).toBe("Rest-of-season lineup points his team would lose without him");
       expect(ros(plain)).not.toContain("playoff weeks counted");
-      expect(plain.rosters.find((r) => r.teamId === "1")?.pickups?.weighting).toBeNull();
+      // Nor do the pickups say how weeks count: lineup cost beside them counts each week once too.
+      expect(pickups(plain)?.items[0]?.title).not.toContain("each week counted once");
+      expect(bar(plain)).toContain(`as long as it adds at least ${config.freeAgentOptimizer.faMinGain}, up to`);
+      expect(bar(plain)).not.toContain("each week once");
+      // ⚠️ Whatever the weighting, each gain is counted after the pickups above it (review of Q6).
+      expect(bar(plain)).toContain(`up to ${config.freeAgentOptimizer.faMaxMoves} pickups. Each pickup's gain is counted after the pickups above it, so a later pickup of yours can show a different gain in Waiver upgrades`);
     }
   });
 });
@@ -2187,15 +2221,16 @@ describe("buildLeagueView: how these numbers work", () => {
     expect(text).toContain("RB 14%, TE 14%, WR 12%, QB 6%, K 2%");
     expect(text).toContain(`${config.lineups.scenarios} simulated runs of injuries and byes`);
     expect(text).toContain("from week 12 through week 17 (the last playoff week)");
+    // Lineup cost weights the playoff weeks; the pickups' gains count each week once (planner reply to Checkpoint 7b, Q6).
     expect(text).toContain(
-      `Lineup cost and the gains of each team's free-agent pickups (listed on its roster) are in lineup points: starting-lineup points over the rest of the season, with playoff weeks counted ${PW}×, so they don't add up exactly with ROS points.`,
+      `Lineup cost is in lineup points: starting-lineup points over the rest of the season, with playoff weeks counted ${PW}×, so they don't add up exactly with ROS points. The gains of each team's free-agent pickups (listed on its roster) are starting-lineup points with each week counted once, like Waiver upgrades.`,
     );
     expect(text).toContain("Lineup cost is how many his team would lose without him, after its free-agent pickups (it would pick up a free agent in his place when that helps); it's never negative.");
     // The free-agent optimizer (§7 V*) with config's numbers: kickers and D/STs never, the guard only in dynasty and keeper leagues.
     const o = config.freeAgentOptimizer;
     // Judged with injuries and byes simulated (scenarios ran, no starter limits): review of Phase 4.
     expect(text).toContain(
-      `Free-agent pickups: Each team is measured after the free-agent pickups that would help it, made one at a time: each time the add (dropping a player, or into an open roster spot) that adds the most lineup points with injuries and byes simulated (so a backup who'd start when a starter is hurt or on bye counts), as long as it adds at least ${o.faMinGain}, up to ${o.faMaxMoves} pickups. When the player it would drop has trade value and dropping a less valuable one instead costs at most ${config.lineups.dropNearTieWeekly} points a week, the less valuable one goes (any player worth less than the best free agent no team is expected to pick up counts as worth that much), so a pickup can add a little less. Kickers and D/STs are never picked up (they're streamed or kept), nor is a position the team streams, and a player its starting lineup needs is never dropped. Lineup cost, trade chips and partners all start from those rosters, so a trade never gets credit for a pickup a team could make anyway. Each team is measured on its own, so two teams may count on the same free agent.`,
+      `Free-agent pickups: Each team is measured after the free-agent pickups that would help it, made one at a time: each time the add (dropping a player, or into an open roster spot) that adds the most lineup points with injuries and byes simulated (so a backup who'd start when a starter is hurt or on bye counts), as long as it adds at least ${o.faMinGain} lineup points with playoff weeks counted ${PW}×, up to ${o.faMaxMoves} pickups; the gains listed count each week once, like Waiver upgrades, so one can be under ${o.faMinGain}. Each pickup's gain is counted after the pickups above it, so a later pickup of yours can show a different gain in Waiver upgrades, which counts each pickup alone, from your roster as it stands. When the player it would drop has trade value and dropping a less valuable one instead costs at most ${config.lineups.dropNearTieWeekly} points a week, the less valuable one goes (any player worth less than the best free agent no team is expected to pick up counts as worth that much), so a pickup can add a little less. Kickers and D/STs are never picked up (they're streamed or kept), nor is a position the team streams, and a player its starting lineup needs is never dropped. Lineup cost, trade chips and partners all start from those rosters, so a trade never gets credit for a pickup a team could make anyway. Each team is measured on its own, so two teams may count on the same free agent.`,
     );
     // One free agent, one team (planner reply to Checkpoint 4, change 3): with an allocation, the last sentence says how
     // free agents are shared out instead (a model built before Phase 4b, like the fixture's, keeps the old one).
@@ -2210,7 +2245,7 @@ describe("buildLeagueView: how these numbers work", () => {
     const noScen = leagueFixture();
     noScen.model = { ...noScen.model, scenarios: 0 };
     expect(of(noScen).explain.find((e) => e.title === "Free-agent pickups")?.text).toContain(
-      `each time the add (dropping a player, or into an open roster spot) that adds the most projected lineup points, as long as it adds at least ${o.faMinGain}, up to ${o.faMaxMoves} pickups.`,
+      `each time the add (dropping a player, or into an open roster spot) that adds the most projected lineup points, as long as it adds at least ${o.faMinGain} lineup points with playoff weeks counted ${PW}×, up to ${o.faMaxMoves} pickups; the gains listed count each week once, like Waiver upgrades, so one can be under ${o.faMinGain}.`,
     );
     expect(text).toContain("FantasyCalc in your league's format (8 teams · half-PPR · 1 QB · redraft).");
     // The format's substitutions are said here once (the server's notes repeating them are dropped).

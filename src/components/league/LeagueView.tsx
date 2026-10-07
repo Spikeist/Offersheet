@@ -196,18 +196,22 @@ function Rosters({ view }: ViewProps) {
 /**
  * A team's free-agent pickups (§7 V*) in its roster header, so they show while it's collapsed: how many and what they
  * add together; a highlighted box for the user's team, where they're something to act on, a quiet line for the
- * others. It wraps at 375 px: only the total itself stays on one line, and the playoff-weighting note wraps after it.
+ * others. It wraps at 375 px: only the total itself stays on one line. The gains count each week once (planner reply to
+ * Checkpoint 7b, Q6: Waiver upgrades' number), so no playoff-weighting note follows them any more.
  */
 function PickupsSummary({ pickups, mine }: { pickups: FreeAgentPickups; mine: boolean }) {
   return (
     <span title={pickups.text} className={mine ? "mt-2 block rounded-lg bg-brand-soft px-2.5 py-1.5 text-sm leading-snug break-words text-brand-strong dark:text-brand" : "mt-1 block text-xs break-words text-muted"}>
       <span className="font-bold">{FREE_AGENT_PICKUPS_LABEL}:</span> <span className={cx("whitespace-nowrap tabular-nums", mine ? "font-extrabold" : "font-semibold")}>{pickups.summary}</span>
-      {pickups.weighting ? ` ${pickups.weighting}` : null}
     </span>
   );
 }
 
-/** The pickups themselves, in the order the team would make them, at the top of the roster's body (a real list: a summary can't hold one). */
+/**
+ * The pickups themselves, in the order the team would make them, at the top of the roster's body (a real list: a summary
+ * can't hold one). Each gain's title says which lineups it's from (and, while lineup cost weights the playoff weeks, that
+ * it counts each week once; on a later pickup, that it's counted after the ones above it: review of Q6).
+ */
 function PickupsList({ pickups, teamName }: { pickups: FreeAgentPickups; teamName: string }) {
   return (
     <div className="mt-3">
@@ -222,7 +226,6 @@ function PickupsList({ pickups, teamName }: { pickups: FreeAgentPickups; teamNam
           </li>
         ))}
       </ol>
-      {pickups.weighting ? <p className="mt-1 text-xs text-muted">Lineup pts {pickups.weighting}.</p> : null}
     </div>
   );
 }

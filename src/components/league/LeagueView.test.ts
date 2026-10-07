@@ -600,27 +600,30 @@ describe("LeagueView rosters", () => {
   it("heads each roster with its free-agent pickups (how many, what they add), highlighted for mine, so they show while collapsed, and lists them in its body", () => {
     const summaries = [...html.matchAll(/<summary[^>]*>(.*?)<\/summary>/g)].map((m) => m[1] ?? "");
     const mine = summaries.find((s) => s.includes("Moonbeam Mudcats")) ?? "";
-    // The weight as the page prints it, one decimal (planner reply to Checkpoint 7a, §6.1); escaped for the pattern.
-    const w = playoffWeightLabel(config.lineups.playoffWeight);
-    const wRe = w.replace(".", "\\.");
-    expect(mine).toMatch(
-      new RegExp(
-        `<span title="Free-agent pickups that would help: add Floopy Freeman \\(RB, CAR\\), drop Tobias Thimble: \\+3\\.9 lineup pts \\(playoffs count ${wRe}×\\)" class="mt-2 block rounded-lg bg-brand-soft [^"]*break-words[^"]*"><span class="font-bold">Free-agent pickups that would help:</span> <span class="whitespace-nowrap tabular-nums font-extrabold">1, \\+3\\.9 lineup pts</span> \\(playoffs count ${wRe}×\\)</span>`,
-      ),
+    // The gains count each week once (planner reply to Checkpoint 7b, Q6: Waiver upgrades' number): no "(playoffs count
+    // N×)" after them, where lineup cost (below) keeps its weight.
+    expect(mine).toContain(
+      '<span title="Free-agent pickups that would help: add Floopy Freeman (RB, CAR), drop Tobias Thimble: +3.3 lineup pts" class="mt-2 block rounded-lg bg-brand-soft',
     );
+    expect(mine).toMatch(/<span class="font-bold">Free-agent pickups that would help:<\/span> <span class="whitespace-nowrap tabular-nums font-extrabold">1, \+3\.3 lineup pts<\/span><\/span>/);
     const theirs = summaries.find((s) => s.includes("Quasar Quokkas")) ?? "";
-    expect(theirs).toMatch(/<span title="[^"]*" class="mt-1 block text-xs break-words text-muted"><span class="font-bold">Free-agent pickups that would help:<\/span> <span[^>]*>2, \+6\.5 lineup pts<\/span>/);
-    // No pickup that helps: no line. And a weighted gain is never labeled like the plain ROS points beside it.
+    expect(theirs).toMatch(/<span title="[^"]*" class="mt-1 block text-xs break-words text-muted"><span class="font-bold">Free-agent pickups that would help:<\/span> <span[^>]*>2, \+5\.5 lineup pts<\/span><\/span>/);
+    // No pickup that helps: no line. And a gain is never labeled like the plain ROS points beside it, nor weighted.
     const lines = summaries.filter((s) => s.includes("Free-agent pickups")).map((s) => s.slice(s.indexOf("Free-agent pickups")));
     expect(lines).toHaveLength(2);
-    for (const line of lines) expect(line).not.toContain("ROS pts");
+    for (const line of lines) {
+      expect(line).not.toContain("ROS pts");
+      expect(line).not.toContain("playoffs count");
+    }
     // The body lists them in order, as a real list under a heading that names the team for screen readers.
     const body = between(html, '<span class="block font-extrabold break-words">Quasar Quokkas', "</details>");
     expect(body).toContain('<h3 class="text-sm font-extrabold">Free-agent pickups that would help<span class="sr-only"> for Quasar Quokkas</span></h3>');
     expect(body).toMatch(
-      /<ol class="mt-1 list-decimal [^"]*"><li title="Add Waverly Waiver \(RB, NE\) into an open spot: \+3\.4 lineup pts on projected lineups, playoffs count [\d.]+×\." class="break-words">add Waverly Waiver \(RB, NE\) into an open spot: <span class="whitespace-nowrap font-semibold tabular-nums">\+3\.4 lineup pts<\/span><\/li><li[^>]*>add Floopy Freeman \(RB, CAR\), drop Barnaby Tuft: <span[^>]*>\+3\.1 lineup pts<\/span><\/li><\/ol>/,
+      /<ol class="mt-1 list-decimal [^"]*"><li title="Add Waverly Waiver \(RB, NE\) into an open spot: \+2\.9 lineup pts on projected lineups, each week counted once\." class="break-words">add Waverly Waiver \(RB, NE\) into an open spot: <span class="whitespace-nowrap font-semibold tabular-nums">\+2\.9 lineup pts<\/span><\/li><li[^>]*>add Floopy Freeman \(RB, CAR\), drop Barnaby Tuft: <span[^>]*>\+2\.6 lineup pts<\/span><\/li><\/ol><\/div>/,
     );
-    expect(body).toContain(`<p class="mt-1 text-xs text-muted">Lineup pts (playoffs count ${w}×).</p>`);
+    expect(body).not.toContain("Lineup pts (playoffs count");
+    // The weight as the page prints it, one decimal (planner reply to Checkpoint 7a, §6.1): lineup cost keeps it.
+    const w = playoffWeightLabel(config.lineups.playoffWeight);
     expect(text).toContain("Lineup cost is how many his team would lose without him");
     expect(html).toContain(`<abbr title="Rest-of-season lineup points his team would lose without him, with playoff weeks counted ${w}×">Lineup cost</abbr>`);
   });

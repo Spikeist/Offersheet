@@ -83,7 +83,19 @@ describe("summarizeFeedback", () => {
     expect(help?.averages.b).toBeCloseTo(0.6, 12);
     expect(help?.averages.pAccept).toBeCloseTo(0.45, 12);
     const never = s.byReason.find((r) => r.reason === "never-accept");
-    expect(never?.averages).toMatchObject({ g: -0.2, a: -2, pAccept: 0.08, hist: null });
+    expect(never?.averages).toMatchObject({ a: -2, pAccept: 0.08 });
+    // No value ratios: an export leaves them out (planner reply to Checkpoint 7b, Q5), so there's nothing to average.
+    for (const key of ["gMine", "gPartner", "g", "hist", "z"]) expect(never?.averages, key).not.toHaveProperty(key);
+    expect(formatSummary(s)).toContain("| Reason | Reports | B | Helps you | P_accept | ΔPPW | n | h | c | a | ctx | hot | urg |");
+  });
+
+  it("summarizes the Settings page's export, which leaves out the value ratios, the same as the records it was made from (planner reply to Checkpoint 7b, Q5)", () => {
+    const records = sample();
+    const fromExport = runSummary(feedbackExportText(records, AT), { json: true, notes: false });
+    const fromRecords = runSummary(JSON.stringify(records), { json: true, notes: false });
+    expect(fromExport.ok && fromRecords.ok).toBe(true);
+    // The leagues are numbered in the export (league-1, league-2): the count is the same; every other number too.
+    expect(fromExport.ok ? JSON.parse(fromExport.output) : null).toEqual(fromRecords.ok ? JSON.parse(fromRecords.output) : undefined);
   });
 
   it("sends each report to its part of the model, and Rejected outcomes to the acceptance refit", () => {

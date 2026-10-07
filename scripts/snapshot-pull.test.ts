@@ -1,20 +1,23 @@
 /**
- * `npm run snapshot:pull -- --live` (planner reply to Checkpoint 7a, §6.3): its arguments, the seasons it reads, the records
- * it copies from the store (FakeRedis, filled by the cron's own store) into the local archives' files (a temporary folder),
- * the merge with files already there, what it refuses to write, and its report. No network.
+ * `npm run snapshot:pull -- --live` (planner reply to Checkpoint 7a, §6.3; the daily levels since Checkpoint 7c, planner
+ * reply to Checkpoint 7b, question 4): its arguments, the seasons it reads, the records it copies from the store (FakeRedis,
+ * filled by the cron's own store) into the local archives' files (a temporary folder), the merge with files already there,
+ * what it refuses to write, and its report. No network.
  */
 import { mkdtemp, readdir, rm, writeFile, mkdir } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { gzipSync } from "node:zlib";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FantasyCalcFormat } from "@/engine/inputs";
 import type { Pos } from "@/engine/model";
 import { fantasyCalcFormatKey, fantasyCalcSnapshotFile, packFantasyCalcSnapshot, readFantasyCalcSnapshot, type ArchivableRow } from "@/server/fantasyCalcArchive";
 import { projectionSnapshotFile, readProjectionSnapshot, writeProjectionSnapshotFile, type ProjectionArchiveInput } from "@/server/projectionArchive";
+import { packProjectionLevels, projectionLevelsFile, readProjectionLevels, type ProjectionLevels } from "@/server/projectionLevels";
 import { snapshotLimits } from "@/server/limits";
 import { FakeRedis } from "@/server/redis";
-import { fantasyCalcIndexKey, fantasyCalcSnapshotKey, projectionSnapshotKey, sharedSnapshotStore } from "@/server/snapshots";
-import { PULL_BATCH, PULL_DAY_BATCH, formatSnapshotPull, pruneLocalLists, pullDays, pullSeason, pullSeasons, snapshotPullArgs, type PullRoots } from "./snapshot-pull";
+import { fantasyCalcIndexKey, fantasyCalcSnapshotKey, projectionLevelsKey, projectionSnapshotKey, sharedSnapshotStore } from "@/server/snapshots";
+import { PULL_BATCH, PULL_DAY_BATCH, formatSnapshotPull, levelsRecordOf, pruneLocalLists, pullDays, pullSeason, pullSeasons, snapshotPullArgs, type PullRoots, type SeasonPull } from "./snapshot-pull";
 
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
@@ -41,11 +44,34 @@ function week(n: number, fetchedAt: number, positions: Pos[] = POS): ProjectionA
 
 const players = (n: number): ArchivableRow[] => Array.from({ length: n }, (_, i) => ({ fantasyCalcId: String(i + 1), sleeperId: String(500 + i), espnId: null, position: "WR", value: 1_000 - i, redraftValue: null }));
 
+/** A day's levels (src/server/projectionLevels.ts; fictional ids). */
+const levels = (day = "2026-10-07"): ProjectionLevels => ({
+  version: 1,
+  season: 2026,
+  day,
+  seasonType: "regular",
+  currentWeek: 5,
+  fromWeek: 5,
+  toWeek: 18,
+  weeks: { "5": { fetchedAt: "2026-10-07T19:05:00.000Z", lastModified: null }, "6": { fetchedAt: "2026-10-07T19:05:00.000Z", lastModified: null } },
+  players: { "8001": ["WR", 11.5, 12, 12.5, 0b110000], KC: ["DEF", 7, 7, 7, 0b110000] },
+});
+
+/** A season's pull with every count at 0 but those given. */
+function pulled(season: number, over: { projections?: Partial<SeasonPull["projections"]>; fantasyCalc?: Partial<SeasonPull["fantasyCalc"]>; levels?: Partial<SeasonPull["levels"]> } = {}): SeasonPull {
+  return {
+    season,
+    projections: { inStore: 0, written: [], current: 0, invalid: 0, otherVersion: 0, ...over.projections },
+    fantasyCalc: { indexed: 0, written: 0, here: 0, gone: 0, invalid: 0, otherVersion: 0, ...over.fantasyCalc },
+    levels: { inStore: 0, written: 0, here: 0, invalid: 0, otherVersion: 0, ...over.levels },
+  };
+}
+
 let dir: string;
 let roots: PullRoots;
 beforeEach(async () => {
   dir = await mkdtemp(path.join(os.tmpdir(), "offer-sheet-snapshot-pull-"));
-  roots = { projections: path.join(dir, "data-local", "projection-snapshots"), fantasyCalc: path.join(dir, "data-local", "fantasycalc-snapshots") };
+  roots = { projections: path.join(dir, "data-local", "projection-snapshots"), fantasyCalc: path.join(dir, "data-local", "fantasycalc-snapshots"), levels: path.join(dir, "data-local", "projection-levels") };
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
 afterEach(async () => {
@@ -88,32 +114,37 @@ describe("pullSeason: the store's records into the local archives' files", () =>
     expect(await store.saveWeek(week(6, WEDNESDAY - HOUR))).toMatchObject({ status: "saved" });
     expect(await store.saveList({ format: redraft10, players: players(3), fetchedAt: WEDNESDAY - 2 * HOUR })).toEqual({ status: "saved" });
     expect(await store.saveList({ format: dynasty12, players: players(4), fetchedAt: WEDNESDAY - 3 * HOUR })).toEqual({ status: "saved" });
+    expect(await store.saveLevels(levels())).toEqual({ status: "saved" });
     return redis;
   }
 
-  it("writes each week and list as the local archive's own file, readable by its readers; running it again writes nothing", async () => {
+  it("writes each week, list and day's levels as the local archive's own file, readable by its readers; running it again writes nothing", async () => {
     const redis = await filled();
     const first = await pullSeason(redis, P, 2026, roots, WEDNESDAY);
     expect(first).toEqual({
       season: 2026,
       projections: { inStore: 2, written: [5, 6], current: 0, invalid: 0, otherVersion: 0 },
       fantasyCalc: { indexed: 2, written: 2, here: 0, gone: 0, invalid: 0, otherVersion: 0 },
+      levels: { inStore: 1, written: 1, here: 0, invalid: 0, otherVersion: 0 },
     });
     const week5 = await readProjectionSnapshot(projectionSnapshotFile(roots.projections, 2026, 5));
     expect(Object.keys(week5?.groups ?? {})).toEqual(POS);
     expect(week5?.groups.QB?.fetchedAt).toBe(new Date(WEDNESDAY - HOUR).toISOString());
     const list = await readFantasyCalcSnapshot(fantasyCalcSnapshotFile(roots.fantasyCalc, { season: 2026, day: "2026-10-07", key: fantasyCalcFormatKey(redraft10) as string }));
     expect(Object.keys(list?.players ?? {})).toEqual(["1", "2", "3"]);
+    expect(await readProjectionLevels(projectionLevelsFile(roots.levels, 2026, "2026-10-07"))).toEqual(levels());
 
     const before = redis.stats.commands;
     const again = await pullSeason(redis, P, 2026, roots, WEDNESDAY);
     expect(again.projections).toEqual({ inStore: 2, written: [], current: 2, invalid: 0, otherVersion: 0 });
     expect(again.fantasyCalc).toEqual({ indexed: 2, written: 0, here: 2, gone: 0, invalid: 0, otherVersion: 0 });
-    // One MGET of the weeks and one SMEMBERS of each day's index (PULL_DAY_BATCH at a time); no list is asked for (both
-    // are on disk).
-    expect(redis.stats.commands - before).toBe(1 + pullDays(2026, WEDNESDAY).length);
+    expect(again.levels).toEqual({ inStore: 0, written: 0, here: 1, invalid: 0, otherVersion: 0 });
+    // One MGET of the weeks, one SMEMBERS of each day's index (PULL_DAY_BATCH at a time), no list (both are on disk), and
+    // one MGET for each PULL_BATCH days whose levels aren't on disk (every day but 2026-10-07's).
+    const days = pullDays(2026, WEDNESDAY).length;
+    expect(redis.stats.commands - before).toBe(1 + days + Math.ceil((days - 1) / PULL_BATCH));
     expect(PULL_DAY_BATCH).toBeGreaterThan(1);
-    expect(await pullSeason(redis, P, 2025, roots, WEDNESDAY)).toMatchObject({ projections: { inStore: 0 }, fantasyCalc: { indexed: 0 } });
+    expect(await pullSeason(redis, P, 2025, roots, WEDNESDAY)).toMatchObject({ projections: { inStore: 0 }, fantasyCalc: { indexed: 0 }, levels: { inStore: 0, written: 0 } });
   });
 
   it("merges a week with the local file: each position's later pre-kickoff fetch wins", async () => {
@@ -147,14 +178,35 @@ describe("pullSeason: the store's records into the local archives' files", () =>
     const localFile = fantasyCalcSnapshotFile(roots.fantasyCalc, { season: 2026, day: "2026-10-07", key: fantasyCalcFormatKey(dynasty12) as string });
     await mkdir(path.dirname(localFile), { recursive: true });
     await writeFile(localFile, "the day's first copy");
+    // Levels: garbage, 2026-10-07's record under 2026-10-06's key, a record of another format version, and a day whose
+    // local file is here already (not asked for); a day after today isn't read.
+    await redis.set(projectionLevelsKey(P, 2026, "2026-10-01"), "garbage");
+    await redis.set(projectionLevelsKey(P, 2026, "2026-10-06"), (await packProjectionLevels(levels())).toString("base64"));
+    await redis.set(projectionLevelsKey(P, 2026, "2026-10-05"), gzipSync(JSON.stringify({ version: 2 })).toString("base64"));
+    await redis.set(projectionLevelsKey(P, 2026, "2026-10-04"), (await packProjectionLevels(levels("2026-10-04"))).toString("base64"));
+    await redis.set(projectionLevelsKey(P, 2026, "2027-02-02"), (await packProjectionLevels(levels("2027-02-02"))).toString("base64"));
+    const localLevels = projectionLevelsFile(roots.levels, 2026, "2026-10-04");
+    await mkdir(path.dirname(localLevels), { recursive: true });
+    await writeFile(localLevels, "the day's first record");
     const out = await pullSeason(redis, P, 2026, roots, WEDNESDAY);
     expect(out.projections).toEqual({ inStore: 4, written: [5, 6], current: 0, invalid: 2, otherVersion: 0 });
     // Indexed: today's two, the wrong one, the expired one (junk and a day after today are dropped).
     expect(out.fantasyCalc).toEqual({ indexed: 4, written: 1, here: 1, gone: 1, invalid: 1, otherVersion: 0 });
     await expect(readFantasyCalcSnapshot(fantasyCalcSnapshotFile(roots.fantasyCalc, wrongAt))).resolves.toBeNull();
+    expect(out.levels).toEqual({ inStore: 4, written: 1, here: 1, invalid: 2, otherVersion: 1 });
+    expect((await readdir(path.join(roots.levels, "2026"))).sort()).toEqual(["2026-10-04.json.gz", "2026-10-07.json.gz"]);
   });
 
-  it("asks for missing lists PULL_BATCH at a time", async () => {
+  it("levelsRecordOf: the record when it unpacks and is its key's season and day; else invalid, or another version", async () => {
+    const text = (await packProjectionLevels(levels())).toString("base64");
+    expect(await levelsRecordOf(text, 2026, "2026-10-07")).toEqual(levels());
+    expect(await levelsRecordOf(text, 2025, "2026-10-07")).toBe("invalid");
+    expect(await levelsRecordOf(text, 2026, "2026-10-08")).toBe("invalid");
+    expect(await levelsRecordOf("garbage", 2026, "2026-10-07")).toBe("invalid");
+    expect(await levelsRecordOf(gzipSync(JSON.stringify({ version: 2 })).toString("base64"), 2026, "2026-10-07")).toBe("otherVersion");
+  });
+
+  it("asks for missing lists, and missing days' levels, PULL_BATCH at a time", async () => {
     const redis = new FakeRedis(() => WEDNESDAY);
     const store = sharedSnapshotStore(redis, { env: { VERCEL_ENV: "production" }, clock: () => WEDNESDAY });
     const formats: FantasyCalcFormat[] = [];
@@ -164,7 +216,11 @@ describe("pullSeason: the store's records into the local archives' files", () =>
     const mget = vi.spyOn(redis, "mget");
     const out = await pullSeason(redis, P, 2026, roots, WEDNESDAY);
     expect(out.fantasyCalc).toMatchObject({ indexed: 96, written: 96 });
-    expect(mget.mock.calls.slice(1).map((c) => c.length)).toEqual([PULL_BATCH, 96 - PULL_BATCH]);
+    const batches = (kind: string) => mget.mock.calls.filter((c) => String(c[0]).includes(kind)).map((c) => c.length);
+    expect(batches(":snap:fc:")).toEqual([PULL_BATCH, 96 - PULL_BATCH]);
+    // Every day of the season the store can still hold, none of them on disk.
+    const days = pullDays(2026, WEDNESDAY).length;
+    expect(batches(":snap:lvl:")).toEqual([...Array<number>(Math.floor(days / PULL_BATCH)).fill(PULL_BATCH), days % PULL_BATCH]);
   });
 });
 
@@ -173,19 +229,24 @@ describe("the report", () => {
     const text = formatSnapshotPull(
       "production",
       [
-        { season: 2025, projections: { inStore: 0, written: [], current: 0, invalid: 0, otherVersion: 0 }, fantasyCalc: { indexed: 0, written: 0, here: 0, gone: 0, invalid: 0, otherVersion: 0 } },
-        { season: 2026, projections: { inStore: 2, written: [5], current: 1, invalid: 0, otherVersion: 0 }, fantasyCalc: { indexed: 3, written: 2, here: 1, gone: 0, invalid: 0, otherVersion: 0 } },
+        pulled(2024, { levels: { here: 3 } }),
+        pulled(2025),
+        pulled(2026, { projections: { inStore: 2, written: [5], current: 1 }, fantasyCalc: { indexed: 3, written: 2, here: 1 }, levels: { inStore: 3, written: 2, here: 1, invalid: 1 } }),
       ],
       roots,
       dir,
     );
     expect(text).toBe(
       [
-        "Offer Sheet snapshot archive: production's store, seasons 2025, 2026.",
+        "Offer Sheet snapshot archive: production's store, seasons 2024, 2025, 2026.",
+        "  2024: projections: 0 weeks in the store, none new.",
+        "  2024: FantasyCalc: 0 lists indexed, 0 written.",
+        "  2024: daily levels: none new, 3 already here.",
         "  2025: nothing in the store.",
         "  2026: projections: 2 weeks in the store, 1 written (week 5), 1 already up to date.",
         "  2026: FantasyCalc: 3 lists indexed, 2 written, 1 already here.",
-        "Files: data-local/projection-snapshots/<season>/week-WW.json.gz and data-local/fantasycalc-snapshots/<season>/<day>/<format>.json.gz (git-ignored).",
+        "  2026: daily levels: 2 days written, 1 already here, 1 unreadable, skipped.",
+        "Files: data-local/projection-snapshots/<season>/week-WW.json.gz, data-local/fantasycalc-snapshots/<season>/<day>/<format>.json.gz and data-local/projection-levels/<season>/<day>.json.gz (git-ignored).",
       ].join("\n"),
     );
     // With local lists pruned, a last line says how many.

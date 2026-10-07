@@ -337,7 +337,9 @@ function teams(gameDay: boolean): TeamModel[] {
         MIN: tpv(5, 5.5),
       },
       // Full roster: the pickup drops a player (its gain with injuries and byes simulated is lower than on projected lineups).
-      faMoves: [{ add: "901", drop: "108", gainEv: 4.64, gainScen: 3.92 }],
+      // Each week counted once (the plain gains the page shows: planner reply to Checkpoint 7b, Q6), it's less again: the
+      // playoff weeks' part isn't weighted up.
+      faMoves: [{ add: "901", drop: "108", gainEv: 4.64, gainScen: 3.92, gainEvPlain: 3.71, gainScenPlain: 3.31 }],
       premiums: premiums("1", gameDay),
       score: score("1", scen1, 24.1, gameDay),
     },
@@ -370,8 +372,8 @@ function teams(gameDay: boolean): TeamModel[] {
       players: { "301": tpv(30, null), "302": tpv(30, null), "303": tpv(10, null), "304": tpv(40, null), "305": tpv(3, null), PHI: tpv(3, null) },
       // No scenarios for this team (no simulated gains): one pickup into an open spot, then one for a bench WR.
       faMoves: [
-        { add: "902", drop: null, gainEv: 3.44, gainScen: null },
-        { add: "901", drop: "305", gainEv: 3.06, gainScen: null },
+        { add: "902", drop: null, gainEv: 3.44, gainScen: null, gainEvPlain: 2.87, gainScenPlain: null },
+        { add: "901", drop: "305", gainEv: 3.06, gainScen: null, gainEvPlain: 2.61, gainScenPlain: null },
       ],
       premiums: premiums("3", gameDay),
       // No scenarios: the expected-value lineups.

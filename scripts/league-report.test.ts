@@ -1083,7 +1083,7 @@ describe("league report: Phase 4b (the market blend, one free agent one team, IR
     expect(s).toContain("Free agents in two or more teams' pickups: **0**.");
     expect(s).not.toContain("Each team is optimized on its own");
     // Each team counted once, most teams first.
-    const move = (add: string): FaMove => ({ add, drop: null, gainEv: 5, gainScen: 5 });
+    const move = (add: string): FaMove => ({ add, drop: null, gainEv: 5, gainScen: 5, gainEvPlain: 5, gainScenPlain: 5 });
     expect(duplicatePickups([{ id: "1", faMoves: [move("a"), move("a"), move("b")] }, { id: "2", faMoves: [move("a")] }, { id: "3", faMoves: [move("b"), move("a")] }])).toEqual([
       { playerId: "a", teamIds: ["1", "2", "3"] },
       { playerId: "b", teamIds: ["1", "3"] },

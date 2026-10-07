@@ -108,6 +108,7 @@ import {
 } from "./inPage";
 import { SECOND_LEAGUE, type CheckBrowserArgs } from "./args";
 import {
+  APP_PAGES,
   BLEND_WORDS,
   creditProblems,
   fantasyCalcLinkIssues,
@@ -2007,8 +2008,8 @@ export async function staticPagesStep(ctx: StepContext): Promise<void> {
   await fantasyCalcHtmlStep(ctx);
 }
 
-/** Every app page, whose server HTML must link back to FantasyCalc from its footer (planner reply to Checkpoint 7a, 5.4). */
-export const APP_PAGES = ["/", "/connect", "/import", "/league", "/trades", "/analyzer", "/settings", "/privacy", "/terms", "/feedback"] as const;
+/** Every app page (contracts.ts APP_PAGES since Checkpoint 7c, where npm run prod:deploy reads it too), re-exported here. */
+export { APP_PAGES };
 
 /**
  * FantasyCalc's attribution in the server's own HTML (Phase 7b; their condition 2: at least one link per page in plain

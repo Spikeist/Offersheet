@@ -19,6 +19,7 @@ import {
   LAMBDA_ESTIMATED_NOTE,
   PROTECT_VALUE_ESTIMATED_NOTE,
   PROTECT_VALUE_HELP,
+  TRADE_VALUE_NOTE,
   applySettingsEdit,
   buildSettingsView,
   goalHelp,
@@ -162,6 +163,25 @@ describe("the league's choices", () => {
     expect(view({}, { snap: snapshot({ leagueType: "keeper" }) }).protectValue).toBeNull();
     // Plain words: no Greek letters or model terms.
     expect(JSON.stringify(redraft.protectValue)).not.toMatch(/κ|kappa|g_mkt|market term/i);
+  });
+
+  it("says in dynasty and keeper leagues, where Protect my trade value isn't offered, that Win now ↔ Future covers trade value; nothing in redraft (planner reply to Checkpoint 7b, Q3)", () => {
+    // The planner's sentence, verbatim.
+    expect(TRADE_VALUE_NOTE).toBe("In dynasty and keeper leagues, the Win now ↔ Future slider covers trade value.");
+    for (const leagueType of ["dynasty", "keeper"] as const) {
+      const v = view({}, { snap: snapshot({ leagueType }) });
+      expect(v.tradeValueNote, leagueType).toBe(TRADE_VALUE_NOTE);
+      // In place of the setting, next to the slider it names.
+      expect(v.protectValue, leagueType).toBeNull();
+      expect(v.lambda, leagueType).not.toBeNull();
+      // Whatever Protect my trade value was saved as (a league that changed type keeps its settings).
+      expect(view({ protectValue: "high" }, { snap: snapshot({ leagueType }) }).tradeValueNote, leagueType).toBe(TRADE_VALUE_NOTE);
+    }
+    // While the values are our own estimates too: the slider's own note says what it leaves out then.
+    expect(view({}, { snap: snapshot({ leagueType: "dynasty" }), valuesEstimated: true }).tradeValueNote).toBe(TRADE_VALUE_NOTE);
+    // Redraft leagues offer the setting itself.
+    expect(view().tradeValueNote).toBeNull();
+    expect(view().protectValue).not.toBeNull();
   });
 
   it("offers 'What does your league reward?' (Only the champion, the default / Top finishers too / Making the playoffs) in every league type, each with its weights from config (planner reply to Checkpoint 4b, change 8; 7a, 5.2)", () => {

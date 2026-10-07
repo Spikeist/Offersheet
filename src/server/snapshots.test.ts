@@ -1,8 +1,10 @@
 /**
  * The daily snapshot cron's core (planner reply to Checkpoint 7a, §6.3; src/server/snapshots.ts): format keys, the formats
- * builds record, the shared store (FakeRedis: the lock, the merge rule's overwrite, the day's first list, the index), the
- * run (the pre-kickoff rule, the format cap, today's list from the cache before FantasyCalc, idempotence) and the local
- * archives (a temporary folder). No network: a caching fake client and committed fixtures.
+ * builds record, the shared store (FakeRedis: the lock, the merge rule's overwrite, the day's first list, the index, the
+ * day's levels), the run (the pre-kickoff rule, the format cap, today's list from the cache before FantasyCalc, the levels'
+ * weeks and their all or nothing, the time guard, idempotence, and that the levels change nothing the other parts do) and
+ * the local archives (a temporary folder). The levels' own rules: src/server/projectionLevels.test.ts. No network: a
+ * caching fake client and committed fixtures.
  */
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import os from "node:os";
@@ -21,6 +23,7 @@ import { newRequestScope, runInRequestScope } from "./deadline";
 import { fantasyCalcFormatKey, fantasyCalcSnapshotFile, readFantasyCalcSnapshot, unpackFantasyCalcSnapshot } from "./fantasyCalcArchive";
 import { snapshotLimits } from "./limits";
 import { packProjectionSnapshot, projectionSnapshotFile, readProjectionSnapshot, unpackProjectionSnapshot, type ProjectionArchiveInput } from "./projectionArchive";
+import { packProjectionLevels, projectionLevelsFile, readProjectionLevels, unpackProjectionLevels, type PlayerLevels, type ProjectionLevels } from "./projectionLevels";
 import { FakeRedis } from "./redis";
 import {
   dayExpired,
@@ -30,15 +33,18 @@ import {
   fantasyCalcSnapshotKey,
   formatsInUseKey,
   formatsToSave,
+  levelsFromWeek,
   localSnapshotStore,
   noteFormatsInUse,
   parseFormatKey,
+  projectionLevelsKey,
   projectionSnapshotKey,
   resetFormatsInUseForTests,
   resetLocalSnapshotLockForTests,
   runSnapshots,
   seasonOfDay,
   sharedSnapshotStore,
+  snapshotLevels,
   snapshotLockKey,
   snapshotStoreFor,
   snapshotWeeks,
@@ -90,6 +96,51 @@ function sleeperRows(week: number, at: number): unknown[] {
   return rows;
 }
 
+/** The offense group the levels read (src/adapters/sleeper/fetch.ts OFFENSE_POSITIONS), and its weeks' URLs. */
+const OFFENSE: Pos[] = ["QB", "RB", "WR", "TE", "K", "DEF"];
+const levelsUrl = (week: number) => sleeperUrls.projections(2026, week, OFFENSE);
+/** Weeks `from` through `to`, and the levels' requests for them, in order. */
+const levelsWeeks = (from: number, to = 18) => Array.from({ length: to - from + 1 }, (_, i) => from + i);
+const levelsUrls = (from: number, to = 18) => levelsWeeks(from, to).map(levelsUrl);
+const LEVELS_URLS = new Set(levelsUrls(1));
+const isLevelsUrl = (url: string) => LEVELS_URLS.has(url);
+
+/**
+ * One week of the offense list the levels read (fictional ids): a receiver whose three totals rise a point a week, a back on
+ * bye in week 9 (a stub that week), a team defense, and a returner whose real row carries no totals (never counted).
+ */
+function offenseRows(week: number, at: number): unknown[] {
+  const wr = { position: "WR", fantasy_positions: ["WR"] };
+  const rb = { position: "RB", fantasy_positions: ["RB"] };
+  return [
+    { player_id: "7001", stats: { gp: 1, rec: 5, pts_std: week, pts_half_ppr: week + 0.5, pts_ppr: week + 1 }, player: wr, last_modified: at },
+    week === 9 ? { player_id: "7002", stats: { adp_dd_ppr: 40 }, player: rb } : { player_id: "7002", stats: { gp: 1, rush_yd: 70, pts_std: 12, pts_half_ppr: 13, pts_ppr: 14 }, player: rb, last_modified: at },
+    { player_id: "KC", stats: { gp: 1, pts_allow: 21, pts_std: 7, pts_half_ppr: 7, pts_ppr: 7 }, player: { position: "DEF", fantasy_positions: ["DEF"] }, last_modified: at },
+    { player_id: "7003", stats: { gp: 1, kr_yd: 30 }, player: wr, last_modified: at },
+  ];
+}
+
+/** The mask of weeks `from` through `to` (bit w − 1 each), less `except`. */
+function weeksMask(from: number, to: number, except: number[] = []): number {
+  let mask = 0;
+  for (let w = from; w <= to; w++) if (!except.includes(w)) mask |= 1 << (w - 1);
+  return mask;
+}
+
+/** The levels of the Wednesday before week 5: weeks 5–18, Sleeper's own totals averaged (the receiver's 5…18: 11.5). */
+const LEVELS_WEDNESDAY: Record<string, PlayerLevels> = {
+  "7001": ["WR", 11.5, 12, 12.5, weeksMask(5, 18)],
+  "7002": ["RB", 12, 13, 14, weeksMask(5, 18, [9])],
+  KC: ["DEF", 7, 7, 7, weeksMask(5, 18)],
+};
+
+/** A day's stored levels, unpacked. */
+async function storedLevels(redis: FakeRedis, day: string): Promise<ProjectionLevels> {
+  const found = await unpackProjectionLevels(Buffer.from((await redis.get(projectionLevelsKey(P, 2026, day))) as string, "base64"));
+  if (!("levels" in found)) throw new Error("no levels stored");
+  return found.levels;
+}
+
 interface Cached {
   json: unknown;
   fetchedAt: number;
@@ -127,7 +178,10 @@ function cachingHttp(routes: Record<string, unknown>, clock: () => number, opts:
 
 const fcKey = (f: FantasyCalcFormat) => `fantasycalc:${fantasyCalcValuesUrl(f)}`;
 
-/** Every route a run reads: Sleeper's state at `week`, the schedule, weeks 5–7's projections, and the formats' lists. */
+/**
+ * Every route a run reads: Sleeper's state at `week`, the schedule, weeks 5–7's projections (all nine positions), the
+ * formats' lists, and weeks 5–18 of the offense list the levels read.
+ */
 function routes(opts: { week?: number; seasonType?: string; formats?: FantasyCalcFormat[]; at?: number } = {}): Record<string, unknown> {
   const out: Record<string, unknown> = {
     [sleeperUrls.state()]: { week: opts.week ?? 5, season: "2026", season_type: opts.seasonType ?? "regular" },
@@ -135,6 +189,7 @@ function routes(opts: { week?: number; seasonType?: string; formats?: FantasyCal
   };
   for (const w of [5, 6, 7]) out[sleeperUrls.projections(2026, w, ALL)] = sleeperRows(w, opts.at ?? WEDNESDAY - HOUR);
   for (const f of opts.formats ?? []) out[fantasyCalcValuesUrl(f)] = bodyFor(f);
+  for (let w = 5; w <= 18; w++) out[levelsUrl(w)] = offenseRows(w, opts.at ?? WEDNESDAY - HOUR);
   return out;
 }
 
@@ -165,6 +220,8 @@ describe("keys, days and format keys", () => {
     expect(fantasyCalcSnapshotKey(P, { season: 2026, day: "2026-10-05", key: "redraft-1qb-10team-ppr0.5" })).toBe("os:production:snap:fc:2026:2026-10-05:redraft-1qb-10team-ppr0.5");
     // One index set a day (review of Phase 7b: one a season kept every day's entries as long as its newest).
     expect(fantasyCalcIndexKey(P, { season: 2026, day: "2026-10-05" })).toBe("os:production:snap:fc-index:2026:2026-10-05");
+    // One record of levels a day (planner reply to Checkpoint 7b, question 4).
+    expect(projectionLevelsKey(P, 2026, "2026-10-07")).toBe("os:production:snap:lvl:2026:2026-10-07");
   });
 
   it("days: a span of UTC days, the turn order's window (this season only), and how long a day's records are kept", () => {
@@ -262,6 +319,21 @@ describe("keys, days and format keys", () => {
       [18, true],
     ]);
     expect(snapshotWeeks(18, schedule, Date.parse("2027-01-06T12:00:00Z"))).toEqual([{ week: 18, firstKickoff: null, ahead: false }]);
+  });
+
+  it("levelsFromWeek: the first week from the current one whose first kickoff is still ahead (the archive's rule); none left: null", () => {
+    const schedule = reduceNflSchedule(SCHEDULE, (a) => a);
+    expect(levelsFromWeek(5, schedule, WEDNESDAY)).toBe(5);
+    expect(levelsFromWeek(5, schedule, KICKOFF5)).toBe(6); // the kickoff itself is too late
+    expect(levelsFromWeek(5, schedule, Date.parse("2026-10-12T20:05:00Z"))).toBe(6); // the Monday after: still week 6
+    // A state that lags behind the games (still week 5 after week 6's first kickoff): the next week not yet started.
+    expect(levelsFromWeek(5, schedule, KICKOFF6 + HOUR)).toBe(7);
+    // Unknown kickoffs: only a week after the current one counts.
+    expect(levelsFromWeek(5, null, WEDNESDAY)).toBe(6);
+    expect(levelsFromWeek(17, schedule, Date.parse("2027-01-02T12:00:00Z"))).toBe(18);
+    expect(levelsFromWeek(18, schedule, Date.parse("2027-01-06T12:00:00Z"))).toBeNull();
+    // The preseason (the week about to be played is week 1).
+    expect(levelsFromWeek(1, schedule, Date.parse("2026-08-20T20:05:00Z"))).toBe(1);
   });
 });
 
@@ -458,6 +530,44 @@ describe("the shared store (sharedSnapshotStore)", () => {
     expect(dayExpired("2027-02-27", ends)).toBe(false);
   });
 
+  it("a day's levels: the base64 of the local file's bytes, the day's first record kept (SET NX), two seasons from its day; a giant isn't stored", async () => {
+    let now = WEDNESDAY;
+    const redis = new FakeRedis(() => now);
+    const store = sharedSnapshotStore(redis, { env: PROD, clock: () => now });
+    const key = projectionLevelsKey(P, 2026, "2026-10-07");
+    const record: ProjectionLevels = {
+      version: 1,
+      season: 2026,
+      day: "2026-10-07",
+      seasonType: "regular",
+      currentWeek: 5,
+      fromWeek: 5,
+      toWeek: 18,
+      weeks: { "5": { fetchedAt: new Date(WEDNESDAY - HOUR).toISOString(), lastModified: WEDNESDAY - 2 * HOUR } },
+      players: { "7001": ["WR", 5, 5.5, 6, weeksMask(5, 5)] },
+    };
+    expect(await store.saveLevels(record)).toEqual({ status: "saved" });
+    expect(await redis.get(key)).toBe((await packProjectionLevels(record)).toString("base64"));
+    expect(redis.ttlMs(key)).toBe(dayRetainMs("2026-10-07", WEDNESDAY));
+    // A later run that day: the first record stays.
+    now += HOUR;
+    expect(await store.saveLevels({ ...record, players: { "7001": ["WR", 9, 9, 9, weeksMask(5, 5)] } })).toEqual({ status: "unchanged" });
+    expect((await storedLevels(redis, "2026-10-07")).players).toEqual(record.players);
+    // Two seasons after the day began it's gone.
+    now = Date.parse("2026-10-07T00:00:00.000Z") + snapshotLimits.retainDays * DAY;
+    expect(await redis.get(key)).toBeNull();
+    // Past snapshotLimits.maxValueChars nothing is written.
+    const limits = snapshotLimits as { maxValueChars: number };
+    const cap = limits.maxValueChars;
+    limits.maxValueChars = 10;
+    try {
+      expect(await store.saveLevels({ ...record, day: "2026-10-08" })).toEqual({ status: "failed", error: "TooLarge" });
+    } finally {
+      limits.maxValueChars = cap;
+    }
+    expect(await redis.get(projectionLevelsKey(P, 2026, "2026-10-08"))).toBeNull();
+  });
+
   it("a store command that fails or hangs: that save fails, by the error's name, and the run's store sends nothing more (one log line)", async () => {
     const errors = vi.spyOn(console, "error").mockImplementation(() => {});
     const redis = new FakeRedis(() => WEDNESDAY);
@@ -467,6 +577,8 @@ describe("the shared store (sharedSnapshotStore)", () => {
     const sent = redis.stats.commands;
     expect(await store.saveWeek(input(WEDNESDAY - HOUR, { week: 6 }))).toEqual({ status: "failed", error: "TimeoutError" });
     expect(await store.saveList({ format: redraft10, players: [{ fantasyCalcId: "1", sleeperId: "2", espnId: null, position: "WR", value: 10, redraftValue: null }], fetchedAt: WEDNESDAY })).toEqual({ status: "failed", error: "TimeoutError" });
+    const levels: ProjectionLevels = { version: 1, season: 2026, day: "2026-10-07", seasonType: "regular", currentWeek: 5, fromWeek: 5, toWeek: 18, weeks: {}, players: { "7001": ["WR", 1, 1, 1, 16] } };
+    expect(await store.saveLevels(levels)).toEqual({ status: "failed", error: "TimeoutError" });
     await expect(store.formatsUsed("2026-10-07")).rejects.toMatchObject({ name: "TimeoutError" });
     expect(redis.stats.commands).toBe(sent);
     const lines = errors.mock.calls.map((c) => String(c[0]));
@@ -502,7 +614,7 @@ describe("todaysList: today's copy from the cache before FantasyCalc", () => {
 });
 
 describe("runSnapshots on the shared store", () => {
-  it("the Wednesday before week 5: weeks 5 and 6 saved, the formats used yesterday or today saved from today's lists; a second run changes nothing and asks only Sleeper's state again", async () => {
+  it("the Wednesday before week 5: weeks 5 and 6 saved, the formats used yesterday or today saved from today's lists, then the day's levels over weeks 5–18; a second run changes nothing and asks only Sleeper's state again", async () => {
     let now = WEDNESDAY;
     const redis = new FakeRedis(() => now);
     const store = sharedSnapshotStore(redis, { env: PROD, clock: () => now });
@@ -531,7 +643,8 @@ describe("runSnapshots on the shared store", () => {
       ],
       overCap: 0,
     });
-    // One request a week of projections (all nine positions in one), none for redraft10 (today's copy was cached).
+    // One request a week of projections (all nine positions in one), none for redraft10 (today's copy was cached); then,
+    // last, the levels' weeks 5–18 of the offense list (Sleeper's state and the schedule were read once, for both).
     expect(fake.live).toEqual([
       sleeperUrls.state(),
       nflScheduleUrl(2026),
@@ -539,28 +652,37 @@ describe("runSnapshots on the shared store", () => {
       sleeperUrls.projections(2026, 6, ALL),
       fantasyCalcValuesUrl(redraft12),
       fantasyCalcValuesUrl(dynasty12),
+      ...levelsUrls(5),
     ]);
+    expect(run.levels).toEqual({ day: "2026-10-07", status: "saved", season: 2026, seasonType: "regular", currentWeek: 5, fromWeek: 5, toWeek: 18, read: levelsWeeks(5), players: 3, warnings: [] });
+    const levels = await storedLevels(redis, "2026-10-07");
+    expect(levels).toMatchObject({ version: 1, season: 2026, day: "2026-10-07", seasonType: "regular", currentWeek: 5, fromWeek: 5, toWeek: 18 });
+    expect(levels.players).toEqual(LEVELS_WEDNESDAY);
+    expect(levels.weeks["5"]).toEqual({ fetchedAt: new Date(WEDNESDAY).toISOString(), lastModified: WEDNESDAY - HOUR });
+    expect(Object.keys(levels.weeks)).toEqual(levelsWeeks(5).map(String));
     expect(redis.keys().filter((k) => k.includes(":snap:")).sort()).toEqual([
       "os:production:snap:fc-index:2026:2026-10-07",
       "os:production:snap:fc:2026:2026-10-07:dynasty-2qb-12team-ppr1-teplus",
       "os:production:snap:fc:2026:2026-10-07:redraft-1qb-10team-ppr0.5",
       "os:production:snap:fc:2026:2026-10-07:redraft-1qb-12team-ppr1",
+      "os:production:snap:lvl:2026:2026-10-07",
       "os:production:snap:proj:2026:5",
       "os:production:snap:proj:2026:6",
     ]);
     expect(await redis.get(snapshotLockKey(P))).toBeNull(); // let go
 
-    // A duplicate delivery an hour later: the cached copies again (unchanged), every format saved already; only Sleeper's
-    // NFL state is asked again (cached 10 minutes, as for the imports).
+    // A duplicate delivery an hour later: the cached copies again (unchanged), every format saved already, the day's levels
+    // kept as first saved; only Sleeper's NFL state is asked again (cached 10 minutes, as for the imports), once for the run.
     now += HOUR;
     const live = fake.live.length;
     const again = done(await runSnapshots({ http: fake.http, store, now: new Date(now) }));
     expect(again.projections.weeks.map((w) => w.status)).toEqual(["unchanged", "unchanged"]);
     expect(again.fantasyCalc).toMatchObject({ inUse: 3, savedBefore: 3, lists: [], overCap: 0 });
+    expect(again.levels).toMatchObject({ status: "unchanged", read: levelsWeeks(5), players: 3 });
     expect(fake.live.slice(live)).toEqual([sleeperUrls.state()]);
   });
 
-  it("the Friday after week 5's kickoff: week 5 is left alone, week 6 saved; past week 18 or out of season, no week", async () => {
+  it("the Friday after week 5's kickoff: week 5 is left alone, week 6 saved, the levels from week 6; past week 18 or out of season, no week", async () => {
     const now = Date.parse("2026-10-09T20:10:00Z");
     const redis = new FakeRedis(() => now);
     const fake = cachingHttp(routes({ at: now - HOUR }), () => now);
@@ -571,15 +693,23 @@ describe("runSnapshots on the shared store", () => {
     ]);
     expect(fake.live).not.toContain(sleeperUrls.projections(2026, 5, ALL));
     expect(await redis.get(projectionSnapshotKey(P, 2026, 5))).toBeNull();
+    // Week 5's games are under way: its list isn't asked for, and the levels count weeks 6–18 (the receiver's 6…18: 12).
+    expect(run.levels).toMatchObject({ day: "2026-10-09", status: "saved", fromWeek: 6, toWeek: 18, read: levelsWeeks(6), players: 3 });
+    expect(fake.live.filter(isLevelsUrl)).toEqual(levelsUrls(6));
+    expect((await storedLevels(redis, "2026-10-09")).players["7001"]).toEqual(["WR", 12, 12.5, 13, weeksMask(6, 18)]);
 
     const post = cachingHttp(routes({ seasonType: "post" }), () => now);
     const off = done(await runSnapshots({ http: post.http, store: sharedSnapshotStore(new FakeRedis(() => now), { env: PROD, clock: () => now }), now: new Date(now) }));
     expect(off.projections).toEqual({ skipped: "not in season", season: 2026, seasonType: "post", weeks: [], warnings: [] });
+    expect(off.levels).toEqual({ day: "2026-10-09", status: "skipped", reason: "not in season", season: 2026, seasonType: "post", read: [], players: 0, warnings: [] });
+    // Sleeper's state asked once for the run: the levels read the calendar the projections read.
     expect(post.live).toEqual([sleeperUrls.state()]);
 
     const noState = cachingHttp({}, () => now);
     const none = done(await runSnapshots({ http: noState.http, store: sharedSnapshotStore(new FakeRedis(() => now), { env: PROD, clock: () => now }), now: new Date(now) }));
     expect(none.projections).toEqual({ skipped: "sleeper state unavailable", weeks: [], warnings: [] });
+    expect(none.levels).toEqual({ day: "2026-10-09", status: "skipped", reason: "sleeper state unavailable", read: [], players: 0, warnings: [] });
+    expect(noState.live).toEqual([sleeperUrls.state()]);
   });
 
   it("the schedule unavailable: only next week counts as ahead (the current week's start can't be told)", async () => {
@@ -593,9 +723,12 @@ describe("runSnapshots on the shared store", () => {
       [5, "not fetched", "kickoff unknown"],
       [6, "saved", undefined],
     ]);
+    expect(run.levels).toMatchObject({ status: "saved", fromWeek: 6, read: levelsWeeks(6), warnings: ["NFL_SCHEDULE_UNAVAILABLE"] });
+    // The schedule asked once for the run.
+    expect(fake.live.filter((u) => u === nflScheduleUrl(2026))).toHaveLength(1);
   });
 
-  it("Sleeper down: the weeks aren't fetched (its warning code), and the FantasyCalc part still runs", async () => {
+  it("Sleeper down: the weeks aren't fetched (its warning code), the FantasyCalc part still runs, and the levels save nothing and ask Sleeper nothing more", async () => {
     const now = WEDNESDAY;
     const redis = new FakeRedis(() => now);
     await recordFormats(redis, "2026-10-07", [redraft10]);
@@ -607,6 +740,152 @@ describe("runSnapshots on the shared store", () => {
     ]);
     expect(run.projections.warnings).toEqual(["SLEEPER_DOWN"]);
     expect(run.fantasyCalc.lists).toEqual([{ format: keyOf(redraft10), status: "saved" }]);
+    // The server instance's outage memory (src/data/sleeperProjections.ts) holds the levels' gate off Sleeper too.
+    expect(run.levels).toMatchObject({ status: "skipped", reason: "incomplete", read: [], unread: levelsWeeks(5), players: 0, warnings: ["SLEEPER_DOWN"] });
+    expect(fake.live.filter(isLevelsUrl)).toEqual([]);
+    expect(await redis.get(projectionLevelsKey(P, 2026, "2026-10-07"))).toBeNull();
+  });
+
+  it("the levels are all or nothing: a week Sleeper answers with an error status saves nothing that day, the weeks after it aren't asked for, and the next delivery tries again", async () => {
+    let now = WEDNESDAY;
+    const redis = new FakeRedis(() => now);
+    const store = sharedSnapshotStore(redis, { env: PROD, clock: () => now });
+    const all = routes();
+    const week9 = all[levelsUrl(9)];
+    delete all[levelsUrl(9)];
+    const fake = cachingHttp(all, () => now);
+    const run = done(await runSnapshots({ http: fake.http, store, now: new Date(now) }));
+    expect(run.levels).toEqual({
+      day: "2026-10-07",
+      status: "skipped",
+      reason: "incomplete",
+      season: 2026,
+      seasonType: "regular",
+      currentWeek: 5,
+      fromWeek: 5,
+      toWeek: 18,
+      read: [5, 6, 7, 8],
+      unread: levelsWeeks(9),
+      players: 0,
+      warnings: ["PROJECTIONS_WEEK_UNAVAILABLE"],
+    });
+    expect(fake.live.filter(isLevelsUrl)).toEqual(levelsUrls(5, 9));
+    expect(await redis.get(projectionLevelsKey(P, 2026, "2026-10-07"))).toBeNull();
+    // Sleeper serves week 9 again: the next delivery saves the day, weeks 5–8 from the cache.
+    all[levelsUrl(9)] = week9;
+    now += 10 * 60_000;
+    const again = done(await runSnapshots({ http: fake.http, store, now: new Date(now) }));
+    expect(again.levels).toMatchObject({ status: "saved", read: levelsWeeks(5), players: 3 });
+    expect(fake.live.filter(isLevelsUrl)).toEqual([...levelsUrls(5, 9), ...levelsUrls(9)]);
+    expect((await storedLevels(redis, "2026-10-07")).players).toEqual(LEVELS_WEDNESDAY);
+  });
+
+  it("the levels: a week Sleeper answers with no projection in it is left out of the record; rows the schema can't read are a week that can't be read", async () => {
+    const now = WEDNESDAY;
+    const all = routes();
+    all[levelsUrl(17)] = [{ player_id: "7001", stats: { adp_dd_ppr: 20 }, player: { position: "WR", fantasy_positions: ["WR"] } }];
+    all[levelsUrl(18)] = [];
+    const redis = new FakeRedis(() => now);
+    const run = done(await runSnapshots({ http: cachingHttp(all, () => now).http, store: sharedSnapshotStore(redis, { env: PROD, clock: () => now }), now: new Date(now) }));
+    expect(run.levels).toMatchObject({ status: "saved", read: levelsWeeks(5, 16), empty: [17, 18], players: 3, warnings: ["PROJECTIONS_WEEK_UNAVAILABLE"] });
+    const levels = await storedLevels(redis, "2026-10-07");
+    expect(Object.keys(levels.weeks)).toEqual(levelsWeeks(5, 16).map(String));
+    expect(levels.players["7001"]).toEqual(["WR", 10.5, 11, 11.5, weeksMask(5, 16)]);
+
+    const broken = routes();
+    broken[levelsUrl(10)] = [{ stats: { pts_std: 5 } }, "not a row"];
+    const fake = cachingHttp(broken, () => now);
+    const unread = done(await runSnapshots({ http: fake.http, store: sharedSnapshotStore(new FakeRedis(() => now), { env: PROD, clock: () => now }), now: new Date(now) }));
+    expect(unread.levels).toMatchObject({ status: "skipped", reason: "incomplete", read: levelsWeeks(5, 9), unread: levelsWeeks(10), warnings: ["PROJECTION_ROWS_UNREADABLE", "PROJECTIONS_WEEK_UNAVAILABLE"] });
+    expect(fake.live.filter(isLevelsUrl)).toEqual(levelsUrls(5, 10));
+  });
+
+  it("the levels: a row the schema can't read beside real projections is skipped as a model build skips it (its warning), and the week counts: the day is saved", async () => {
+    const now = WEDNESDAY;
+    const all = routes();
+    const ten = offenseRows(10, WEDNESDAY - HOUR);
+    ten.splice(1, 0, { stats: { pts_std: 5 } }); // no player id
+    all[levelsUrl(10)] = ten;
+    const redis = new FakeRedis(() => now);
+    const fake = cachingHttp(all, () => now);
+    const run = done(await runSnapshots({ http: fake.http, store: sharedSnapshotStore(redis, { env: PROD, clock: () => now }), now: new Date(now) }));
+    expect(run.levels).toEqual({
+      day: "2026-10-07",
+      status: "saved",
+      season: 2026,
+      seasonType: "regular",
+      currentWeek: 5,
+      fromWeek: 5,
+      toWeek: 18,
+      read: levelsWeeks(5),
+      players: 3,
+      warnings: ["PROJECTION_ROWS_UNREADABLE"],
+    });
+    expect(fake.live.filter(isLevelsUrl)).toEqual(levelsUrls(5));
+    const levels = await storedLevels(redis, "2026-10-07");
+    // Week 10's players are counted: the same levels as when every row could be read.
+    expect(levels.players).toEqual(LEVELS_WEDNESDAY);
+    expect(levels.weeks["10"]).toEqual({ fetchedAt: new Date(now).toISOString(), lastModified: WEDNESDAY - HOUR });
+  });
+
+  it("the levels change nothing the other parts do: the same answers, records and requests with the levels saved as with them out of time", async () => {
+    const runOnce = async (deadlineMs: number | null) => {
+      const redis = new FakeRedis(() => WEDNESDAY);
+      await recordFormats(redis, "2026-10-07", [redraft10, dynasty12]);
+      await recordFormats(redis, "2026-10-06", [redraft12]);
+      const fake = cachingHttp(routes({ formats: [redraft10, redraft12, dynasty12] }), () => WEDNESDAY);
+      fake.seed(fcKey(redraft10), bodyFor(redraft10), Date.parse("2026-10-07T09:00:00Z"));
+      const go = () => runSnapshots({ http: fake.http, store: sharedSnapshotStore(redis, { env: PROD, clock: () => WEDNESDAY }), now: new Date(WEDNESDAY) });
+      const run = done(deadlineMs === null ? await go() : await runInRequestScope(newRequestScope("cron", Date.now(), deadlineMs), go));
+      const records = new Map<string, unknown>();
+      for (const key of redis.keys().sort()) records.set(key, key.includes(":snap:fc-index:") || key.includes(":fc-formats:") ? (await redis.smembers(key)).sort() : await redis.get(key));
+      return { run, records, live: fake.live };
+    };
+    const withLevels = await runOnce(null);
+    // Time enough for every FantasyCalc format (snapshotLimits.listMinTimeLeftMs) but not for the levels.
+    const without = await runOnce((snapshotLimits.listMinTimeLeftMs + snapshotLimits.levelsMinTimeLeftMs) / 2);
+    expect(withLevels.run.levels?.status).toBe("saved");
+    expect(without.run.levels).toEqual({ day: "2026-10-07", status: "skipped", reason: "out of time", read: [], players: 0, warnings: [] });
+    expect(withLevels.run.projections).toEqual(without.run.projections);
+    expect(withLevels.run.fantasyCalc).toEqual(without.run.fantasyCalc);
+    const levelsKey = projectionLevelsKey(P, 2026, "2026-10-07");
+    expect([...withLevels.records.keys()].filter((k) => k !== levelsKey)).toEqual([...without.records.keys()]);
+    for (const [key, value] of without.records) expect(withLevels.records.get(key), key).toEqual(value);
+    expect(withLevels.live.filter((u) => !isLevelsUrl(u))).toEqual(without.live);
+    expect(without.live.filter(isLevelsUrl)).toEqual([]);
+  });
+
+  it("the levels on their own (snapshotLevels): a day of another NFL season than Sleeper's, no week ahead, or no projection at all saves nothing", async () => {
+    const noNetwork: HttpClient = { get: () => Promise.reject(new Error("no request expected")) };
+    const store = sharedSnapshotStore(new FakeRedis(() => WEDNESDAY), { env: PROD, clock: () => WEDNESDAY });
+    // A preseason Sleeper already calls next season's, before March: next season's placeholders aren't filed.
+    const february = new Date("2027-02-20T20:05:00.000Z");
+    expect(await snapshotLevels(noNetwork, store, february, async () => ({ season: 2027, seasonType: "pre", currentWeek: 1, schedule: null, warnings: [] }))).toEqual({
+      day: "2027-02-20",
+      status: "skipped",
+      reason: "not in season",
+      season: 2027,
+      seasonType: "pre",
+      currentWeek: 1,
+      read: [],
+      players: 0,
+      warnings: [],
+    });
+    // Week 18 under way, its kickoff unknown: no week left.
+    expect(await snapshotLevels(noNetwork, store, new Date("2027-01-06T20:05:00.000Z"), async () => ({ season: 2026, seasonType: "regular", currentWeek: 18, schedule: null, warnings: ["NFL_SCHEDULE_UNAVAILABLE"] }))).toMatchObject({
+      status: "skipped",
+      reason: "no week ahead",
+      warnings: ["NFL_SCHEDULE_UNAVAILABLE"],
+    });
+    // Every week answered without a projection: nothing to save.
+    const empty = cachingHttp(Object.fromEntries(levelsWeeks(5).map((w) => [levelsUrl(w), []])), () => WEDNESDAY);
+    const schedule = reduceNflSchedule(SCHEDULE, (a) => a);
+    expect(await snapshotLevels(empty.http, store, new Date(WEDNESDAY), async () => ({ season: 2026, seasonType: "regular", currentWeek: 5, schedule, warnings: [] }))).toMatchObject({
+      status: "skipped",
+      reason: "no projections",
+      read: [],
+      empty: levelsWeeks(5),
+    });
   });
 
   it("at most snapshotLimits.fantasyCalcFormatsPerDay formats a day, those saved by an earlier run counted: a duplicate run looks at none; past the cap the formats take turns", async () => {
@@ -673,6 +952,10 @@ describe("runSnapshots on the shared store", () => {
     const run = done(await runInRequestScope(scope, () => runSnapshots({ http: fake.http, store: sharedSnapshotStore(redis, { env: PROD, clock: () => now }), now: new Date(now) })));
     expect(run.fantasyCalc).toMatchObject({ inUse: 2, lists: [], outOfTime: 2 });
     expect(fake.live.filter((u) => u.includes("fantasycalc"))).toEqual([]);
+    // Nor are the levels started with less than snapshotLimits.levelsMinTimeLeftMs left: nothing asked, nothing saved.
+    expect(snapshotLimits.levelsMinTimeLeftMs).toBe(45_000);
+    expect(run.levels).toEqual({ day: "2026-10-07", status: "skipped", reason: "out of time", read: [], players: 0, warnings: [] });
+    expect(fake.live.filter(isLevelsUrl)).toEqual([]);
   });
 
   it("another run holds the lock: nothing is read or written", async () => {
@@ -695,9 +978,9 @@ describe("the local archives (localSnapshotStore: `next dev` with CRON_SECRET)",
     await rm(dir, { recursive: true, force: true });
   });
 
-  it("writes data-local's own files: the weeks, and today's list of each format the local archive holds for yesterday or today", async () => {
+  it("writes data-local's own files: the weeks, today's list of each format the local archive holds for yesterday or today, and the day's levels", async () => {
     const now = WEDNESDAY;
-    const roots = { projectionRoot: path.join(dir, "projection-snapshots"), fantasyCalcRoot: path.join(dir, "fantasycalc-snapshots") };
+    const roots = { projectionRoot: path.join(dir, "projection-snapshots"), fantasyCalcRoot: path.join(dir, "fantasycalc-snapshots"), levelsRoot: path.join(dir, "projection-levels") };
     const fake = cachingHttp(routes({ formats: [redraft10, redraft12] }), () => now);
     // Yesterday a local build filed redraft10's list (its day's first copy); today's folder is empty.
     const yesterday = localSnapshotStore(roots);
@@ -722,15 +1005,19 @@ describe("the local archives (localSnapshotStore: `next dev` with CRON_SECRET)",
     expect(Object.keys(list?.players ?? {})).toHaveLength(160);
     expect(await readdir(path.join(roots.fantasyCalcRoot, "2026"))).toEqual(["2026-10-06", "2026-10-07"]);
     expect(await store.savedDays("2026-10-07")).toEqual(new Map([[keyOf(redraft10), "2026-10-07"]]));
+    expect(run.levels).toMatchObject({ status: "saved", read: levelsWeeks(5), players: 3 });
+    expect(await readdir(path.join(roots.levelsRoot, "2026"))).toEqual(["2026-10-07.json.gz"]);
+    expect((await readProjectionLevels(projectionLevelsFile(roots.levelsRoot, 2026, "2026-10-07")))?.players).toEqual(LEVELS_WEDNESDAY);
 
-    // Again: nothing changes (the same copies, today's list filed).
+    // Again: nothing changes (the same copies, today's list filed, the day's levels kept as first written).
     const again = done(await runSnapshots({ http: fake.http, store, now: new Date(now) }));
     expect(again.projections.weeks.map((w) => w.status)).toEqual(["unchanged", "unchanged"]);
     expect(again.fantasyCalc).toMatchObject({ savedBefore: 1, lists: [] });
+    expect(again.levels).toMatchObject({ status: "unchanged" });
   });
 
   it("the local lock is this process's: a second run while one runs answers locked", async () => {
-    const store = localSnapshotStore({ projectionRoot: path.join(dir, "p"), fantasyCalcRoot: path.join(dir, "f") });
+    const store = localSnapshotStore({ projectionRoot: path.join(dir, "p"), fantasyCalcRoot: path.join(dir, "f"), levelsRoot: path.join(dir, "l") });
     const held = await store.lock();
     expect(held).not.toBeNull();
     expect(await runSnapshots({ http: cachingHttp({}, Date.now).http, store, now: new Date() })).toEqual({ status: "locked", store: "local" });

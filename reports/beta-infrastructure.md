@@ -147,8 +147,9 @@ checked Upstash's console on 2026-10-05).
 
 ## Launch-day steps (Tuesday, October 13, 2026)
 
-Parker does steps 1–3 and then gives the go; no deployment reaches production before it. (Upstash, the protection check
-and the phone were Checkpoint 7a's steps.)
+Parker does steps 1–4 and then gives the go; no deployment reaches production before it, and production deploys only
+through `npm run prod:deploy` (planner reply to Checkpoint 7b, §2; CLAUDE.md §16 and §19). Every command is PowerShell,
+one per line, in the project folder. (Upstash, the protection check and the phone were Checkpoint 7a's steps.)
 
 1. **Production's secrets** (PowerShell, one per line; each makes a random value and gives it to Vercel without
    showing it):
@@ -165,12 +166,61 @@ and the phone were Checkpoint 7a's steps.)
    - **"Block image optimizer":** if *Request Path* starts with `/_next/image`, OR *Request Path* starts with
      `/_vercel/image`, then *Deny*. The app doesn't use Vercel's image optimizer (`reports/security-review.md`,
      finding 8).
-3. **Next:** on the latest 16.3.x patch (`npm outdated next`).
-4. **After the go** (steps 1–3 done): the production deploy, of the newest commit Parker approves (it carries the
-   pages' "Last updated October 13, 2026"; the `checkpoint-7b` tag's still say October 5), then the checks:
-   `/api/health` answers 200 with the shared store; the pages; `/_next/image?url=%2Fapple-icon.png&w=32&q=75` and the
-   same on `/_vercel/image` answer 403; the cron's first run (20:00 UTC). ⚠️ How to deploy production is still open
-   (a question for Parker): `npm run preview:deploy` refuses production, and CLAUDE.md §19 rules out `vercel --prod`.
+3. **Next:** on the latest 16.3.x patch (`npm outdated next`). A newer patch means stop: it needs a commit and a new
+   approved tag, so launch on `checkpoint-7c` with the patch next, or wait for the new tag's approval.
+4. **The dry run** (it uploads nothing):
+   ```
+   npm run prod:deploy -- --checkpoint checkpoint-7c
+   ```
+   It checks that `checkpoint-7c` is an annotated tag and the newest checkpoint, exports it into a clean copy (every file
+   byte for byte the tag), and runs every check: the build's files and `vercel.json`; what the checks after the deploy
+   will compare production with, read from the tag itself (its own Content-Security-Policy and its app pages); Vercel's
+   own dry run in the copy (exactly the copy's files, nothing private); the leak check over the copy; Deployment
+   Protection (Standard: the line names the setting Vercel reports); Production's variables by name (`SESSION_SECRET`
+   and `CRON_SECRET` from step 1, the store's from Checkpoint 7a, none that must not be there); the production domain;
+   `/_next/image` and `/_vercel/image` answering 403 there already (step 2's rule, published); the rollback target (the
+   deployment production serves now: the landing page, `offersheet-dtgsgk03x-parker-daniels.vercel.app` on 2026-10-07)
+   and Next's newest patch. Every line must be ✅ (⚠️ lines are notes). It ends with the rollback steps.
+
+**Parker writes "go."**
+
+5. **The deploy:**
+   ```
+   npm run prod:deploy -- --live --checkpoint checkpoint-7c
+   ```
+   It repeats every check and uploads only when all pass: the copy goes up with `vercel deploy --prod` and Vercel builds
+   it (about 2–3 minutes; a build that fails never takes the domain). Then it checks https://offersheet.vercel.app:
+   `/api/health` shows production and the shared store; the 10 app pages answer 200 with the tag's own
+   Content-Security-Policy, the footer's FantasyCalc link and nothing loaded from another site; robots.txt names the
+   production sitemap; the cron route answers 401 without its secret; `/_next/image` and `/_vercel/image` answer 403
+   (step 2's rule); `.env.local` is unchanged. It ends by printing the rollback steps.
+
+   If a check after the deploy fails, or the domain takes longer than a minute to switch, ask it again without
+   deploying (no Vercel CLI, nothing uploaded):
+   ```
+   npm run prod:deploy -- --verify --checkpoint checkpoint-7c
+   ```
+   Never run `--live` a second time to check: Hobby's Instant Rollback reaches only the previous production deployment,
+   so a second deploy would leave no way back to the landing page.
+6. **The phone:** Parker opens https://offersheet.vercel.app on his phone and imports his league.
+7. **The cron's first run** (after 20:00 UTC): `npm run beta:log -- --live --env production` shows a `snapshot_run`
+   line (once the read-only store variables below are typed in).
+
+**If something's wrong, the rollback** (as the script prints it; seconds, no rebuild):
+1. Vercel → offersheet → Deployments → the deployment production served before the deploy (the landing page; the
+   script names it) → ⋯ → Instant Rollback → Confirm. Or in PowerShell, from your home folder (never the project
+   folder):
+   ```
+   cd ~
+   npx --yes vercel@62.2.0 rollback https://offersheet-dtgsgk03x-parker-daniels.vercel.app
+   ```
+   (⚠️ The CLI way hasn't been tried; the dashboard is the first way back.)
+2. Hobby rolls back only to the previous production deployment, so this works until the next production deploy.
+3. After a rollback Vercel stops giving new production deployments the domain: Undo Rollback in the dashboard before the
+   next `npm run prod:deploy` can take it. `vercel promote`, `alias` and `redeploy` stay off-limits (CLAUDE.md §19).
+
+A rollback leaves the environment variables, the firewall rules and the Upstash data as they are. The landing page has
+no cron (⚠️ assumed), so the daily snapshots stop until the app serves again.
 
 Until launch crons don't run, so `npm run snapshot:projections` by hand still keeps the pre-game projections. After
 launch, to read the store from this PC: in Vercel, open Storage → upstash-kv-alizarin-saddle and type the values of

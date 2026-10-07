@@ -160,9 +160,11 @@ describe("with a league", () => {
     expect(textOf(html)).toContain(
       "Playoff weeks count: set automatically from your odds when the League page loads. It only affects shortlists, free-agent rankings (and so the pickups your odds count), needs and trade chips.",
     );
-    // Win now ↔ Future and draft picks are for dynasty and keeper leagues only.
+    // Win now ↔ Future and draft picks are for dynasty and keeper leagues only, and so is the line saying the slider covers
+    // trade value there (planner reply to Checkpoint 7b, Q3).
     expect(textOf(html)).not.toContain("Win now");
     expect(textOf(html)).not.toContain("Include draft picks");
+    expect(textOf(html)).not.toContain("covers trade value");
   });
 
   it("checks what's saved, and offers Reset to defaults", () => {
@@ -214,9 +216,17 @@ describe("with a league", () => {
     expect(text).toContain("Win now or build for the future");
     expect(text).toContain("Mostly this season: later seasons count 25%");
     expect(text).toContain("Include draft picks");
-    // "Protect my trade value" is for redraft leagues: long-term value counts here instead.
+    // "Protect my trade value" is for redraft leagues: long-term value counts here instead, and the page says so after the
+    // slider, before the next card (planner reply to Checkpoint 7b, Q3).
     expect(text).not.toContain("Protect my trade value");
     expect(html).not.toContain('name="protect-value"');
+    const note = "In dynasty and keeper leagues, the Win now ↔ Future slider covers trade value.";
+    expect(html).toContain(`<p class="text-sm leading-relaxed text-muted">${note}</p>`);
+    expect(text.indexOf("Win now or build for the future")).toBeLessThan(text.indexOf(note));
+    expect(text.indexOf(note)).toBeLessThan(text.indexOf("Most players per side"));
+    // A keeper league too.
+    const keeper = { ...stored, response: { ...stored.response, snapshot: snapshot({ leagueType: "keeper" }) } };
+    expect(textOf(render({ league: "current", importValue: keeper, myTeam: "1" }))).toContain(note);
     // The slider is labeled and reads its value out in words; the same words show under it, hidden from screen readers.
     expect(html).toMatch(/<label for="([^"]+)" class="sr-only">How much later seasons count<\/label><input id="\1" type="range" min="0" max="1" step="0.05" aria-valuetext="Mostly this season: later seasons count 25%"[^>]*value="0.25"/);
     expect(html).toContain('<p class="mt-1 text-sm font-semibold" aria-hidden="true">Mostly this season: later seasons count 25%</p>');

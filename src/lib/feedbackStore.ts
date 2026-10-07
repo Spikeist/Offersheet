@@ -61,6 +61,13 @@
  * seconds, and the record id made from it gives it away the same way), so the export, a file meant to be
  * shared, numbers the leagues instead and makes each record id again from that number (feedbackExport). The share id
  * stays in the export (it's random, and it lets Phase 6 tell an exported record from its anonymous copy).
+ * The export also leaves out the value ratios (planner reply to Checkpoint 7b, Q5; EXPORT_LEFT_OUT, FEEDBACK_EXPORT_VERSION
+ * 2): the comparisons of trade values behind the estimates (g_mkt for both sides, the partner's perceived g, his trades'
+ * average g) and the acceptance logit z, a linear function of g. Users can open the file, and Offer Sheet never shows
+ * FantasyCalc's values or a comparison of them (planner reply to Checkpoint 7a, 5.4). ⚠️ That takes the ratios out of the
+ * file's fields, not out of reach: the numbers it keeps (the raw P_accept, B) give them back to a reader who works at it
+ * (EXPORT_LEFT_OUT says how; closing that is a planner call). The records in this browser keep them, and so do the
+ * anonymous copies made from them (internal, needed for calibration).
  * The anonymous copy (Phase 7a) is built from a record by src/lib/feedbackShare.ts, which leaves out everything above
  * that could identify a league or a person: the short hash, the record id, the partner's team id, the times and the note.
  *
@@ -600,13 +607,70 @@ export function clearFeedback(storage: StorageLike): SaveResult {
 
 export const FEEDBACK_EXPORT_KIND = "offersheet-trade-feedback";
 
-/** The exported file: the records (leagues numbered: feedbackExport) with what they are and when they were exported. */
+/**
+ * The export file's format: 2 since the planner's reply to Checkpoint 7b, Q5, whose records leave out the value ratios
+ * (EXPORT_LEFT_OUT); 1 carried them. parseFeedbackExport reads either.
+ */
+export const FEEDBACK_EXPORT_VERSION = 2;
+
+/**
+ * What the export leaves out of each record (the header; planner reply to Checkpoint 7b, Q5: "Leave them out of the export
+ * file users download, since users can open it"), the keys themselves, not nulls: the trade-value comparisons behind the
+ * estimates, all made from FantasyCalc's values (numbers.gMine and gPartner, g_mkt for me and for the partner; features.g,
+ * the partner's perceived g with the star premium; features.hist, the average g of his past trades) and features.z, the
+ * acceptance logit, a linear function of g. The same in the sent version's inputs (versionInputs.gPartner, and g, hist and
+ * z in its features).
+ * ⚠️ What stays (the lead's list: B, P_accept and P_complete, Offer Sheet's own estimates) still gives the ratios back to a
+ * reader who works at it, so this hides the fields, not the numbers (review of the change):
+ * - Inside its clamp [0.02, 0.85], P_accept is σ(z), so the raw P_accept (numbers.pAccept, and versionAccept.pAccept for the
+ *   sent version) gives z back; z less the kept features' terms (n, h, c, a, ctx, hot, urg, with the β's the bundle ships)
+ *   gives the partner's perceived g from the file alone, exactly when he has no valued past trades (hist's term 0), else
+ *   mixed with hist. Rounding P_accept to the printed 5% wouldn't close it: g still comes back within a few hundredths.
+ * - B gives g_mkt(me) back to anyone who knows κ, the user who downloads the file included: in a redraft league, B less
+ *   B_win (from ΔPO, ΔCH and the goal, all in the file) is the market term, (B₃ / 3) × κ × clamp(g_mkt(me)), and κ is one of
+ *   the three levels of "Protect my trade value". In dynasty and keeper leagues it gives λ × 40 × ΔDyn / MyDynTotal, the
+ *   long-term value change as a share of the roster's, to anyone who knows λ (the Win now ↔ Future setting).
+ * Only leaving out P_accept, P_complete and versionAccept too (or the kept features) would close it: a planner call
+ * (Checkpoint 7c). feedbackStore.test.ts works both routes back from an exported file, so closing one changes a test.
+ */
+export const EXPORT_LEFT_OUT = { numbers: ["gMine", "gPartner"], features: ["g", "hist", "z"], versionInputs: ["gPartner"] } as const;
+
+/** A record's acceptance features as the export holds them (EXPORT_LEFT_OUT.features left out). */
+export type ExportedFeedbackFeatures = Omit<FeedbackFeatures, (typeof EXPORT_LEFT_OUT.features)[number]>;
+
+/** The sent version's inputs as the export holds them (EXPORT_LEFT_OUT.versionInputs and the features' left out). */
+export type ExportedVersionInputs = Omit<VersionInputs, (typeof EXPORT_LEFT_OUT.versionInputs)[number] | "features"> & { features: ExportedFeedbackFeatures | null };
+
+/** A record as the export holds it: its league numbered, its id made again (feedbackExport), the value ratios left out. */
+export type ExportedFeedbackRecord = Omit<FeedbackRecord, "numbers" | "features" | "versionInputs"> & {
+  numbers: Omit<FeedbackNumbers, (typeof EXPORT_LEFT_OUT.numbers)[number]>;
+  features: ExportedFeedbackFeatures;
+  versionInputs?: ExportedVersionInputs;
+};
+
+/** The exported file: the records (leagues numbered, value ratios left out: feedbackExport) with what they are and when they were exported. */
 export interface FeedbackExport {
   kind: typeof FEEDBACK_EXPORT_KIND;
-  version: 1;
+  version: typeof FEEDBACK_EXPORT_VERSION;
   exportedAt: string;
   count: number;
-  records: FeedbackRecord[];
+  records: ExportedFeedbackRecord[];
+}
+
+/** `obj` without `keys` (the keys gone, not set to undefined; the others in their order). Pure: `obj` isn't changed. */
+function without<T extends object, K extends keyof T>(obj: T, keys: readonly K[]): Omit<T, K> {
+  const out: Partial<T> = { ...obj };
+  for (const k of keys) delete out[k];
+  return out as Omit<T, K>;
+}
+
+/** A record without its value ratios (EXPORT_LEFT_OUT), every other field as stored and in its place. Pure. */
+function withoutValueRatios(r: FeedbackRecord): ExportedFeedbackRecord {
+  const out: ExportedFeedbackRecord = { ...r, numbers: without(r.numbers, EXPORT_LEFT_OUT.numbers), features: without(r.features, EXPORT_LEFT_OUT.features) };
+  const v = r.versionInputs;
+  // Replaces the stored inputs in their place (the spread above copied them as stored).
+  if (v) out.versionInputs = { ...without(v, EXPORT_LEFT_OUT.versionInputs), features: v.features ? without(v.features, EXPORT_LEFT_OUT.features) : null };
+  return out;
 }
 
 /** How the export names a league: "league-1", "league-2", … (numbers that mean something only inside the file). */
@@ -616,8 +680,10 @@ export const EXPORT_LEAGUE_PREFIX = "league-";
  * The export: the records with what they are and when they were exported. Each league's key (settingsStore.ts
  * leagueKey) becomes a number that means something only inside the file ("league-1", "league-2", … in the order
  * the leagues first appear), and each record id is made again from that number, since the key, and an id made
- * from it, lead back to an ESPN league id by hashing every possible one (see the header). What the summary
- * needs survives: which records share a league, and one record per trade idea. Pure: `records` isn't changed.
+ * from it, lead back to an ESPN league id by hashing every possible one (see the header). The value ratios are left out
+ * (EXPORT_LEFT_OUT; planner reply to Checkpoint 7b, Q5). What the summary needs survives: which records share a league,
+ * and one record per trade idea. Pure: `records` isn't changed (the browser's records, and the anonymous copies made from
+ * them, keep the ratios).
  */
 export function feedbackExport(records: readonly FeedbackRecord[], exportedAt: string): FeedbackExport {
   const leagues = new Map<string, string>();
@@ -627,9 +693,9 @@ export function feedbackExport(records: readonly FeedbackRecord[], exportedAt: s
       league = `${EXPORT_LEAGUE_PREFIX}${leagues.size + 1}`;
       leagues.set(r.leagueKey, league);
     }
-    return { ...r, leagueKey: league, id: recordId(league, r.tradeKey, r.savedAt) };
+    return { ...withoutValueRatios(r), leagueKey: league, id: recordId(league, r.tradeKey, r.savedAt) };
   });
-  return { kind: FEEDBACK_EXPORT_KIND, version: 1, exportedAt, count: out.length, records: out };
+  return { kind: FEEDBACK_EXPORT_KIND, version: FEEDBACK_EXPORT_VERSION, exportedAt, count: out.length, records: out };
 }
 
 /** The export as the downloaded file's text (indented JSON). */
@@ -644,8 +710,9 @@ export function feedbackExportFileName(exportedAt: string): string {
 }
 
 /**
- * The records in an exported file (feedbackExportText's format, or a bare list of records such as the stored
- * value); null when the text isn't JSON or holds neither.
+ * The records in an exported file (feedbackExportText's format, either version, or a bare list of records such as the
+ * stored value); null when the text isn't JSON or holds neither. A record from an export of version 2 reads the value
+ * ratios it leaves out (EXPORT_LEFT_OUT) as null: unknown, like any number that wasn't finite.
  */
 export function parseFeedbackExport(text: string): FeedbackRecord[] | null {
   let data: unknown;

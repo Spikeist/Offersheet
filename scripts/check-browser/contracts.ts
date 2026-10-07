@@ -9,8 +9,10 @@
  *   or seasons); none anywhere on the League page, its player breakdowns' old market numbers included (pageValueLeaks,
  *   breakdownLeaks); the market blend said in words (BLEND_WORDS). Every page links back to fantasycalc.com from its
  *   footer in the server's own HTML, and every link to FantasyCalc has rel exactly "noopener" and referrerpolicy "origin"
- *   (fantasyCalcLinksInHtml, fantasyCalcLinkIssues); a card's numbers credit FantasyCalc with one sentence and the link
- *   (creditProblems).
+ *   (fantasyCalcLinksInHtml, fantasyCalcLinkIssues, over APP_PAGES); a card's numbers credit FantasyCalc with one sentence
+ *   and the link (creditProblems). Since Checkpoint 7c npm run prod:deploy reads the same rules on the production domain
+ *   after a deploy, with foreignResourcesInHtml (planner reply to Checkpoint 7b, §2: no third-party scripts); this file
+ *   imports nothing, so the deploy script loads none of the app.
  * - 5.1, plain-language notices: no warning code, JSON path or field name, stat ID or player-ID matching talk where users
  *   read (noticeLeaks, internalPaths), Parker's league reading as the planner expects (PARKER_QUIET_LINE, noticeCount).
  * - 5.3: the Trade Finder's freshness line (freshnessLineOk).
@@ -283,6 +285,61 @@ export function fantasyCalcLinkIssues(links: readonly FantasyCalcLink[], opts: {
     const footer = links.filter((l) => l.inFooter && /^https:\/\/fantasycalc\.com/i.test(l.href));
     if (!footer.length) out.push("no link to https://fantasycalc.com in the footer");
     else if (footer.every((l) => l.hiddenBy)) out.push(`the footer's FantasyCalc link is hidden without JavaScript (inside ${footer[0]?.hiddenBy})`);
+  }
+  return out;
+}
+
+/**
+ * Every app page, whose server HTML must link back to FantasyCalc from its footer (planner reply to Checkpoint 7a, 5.4):
+ * read by check:browser's FantasyCalc step and, on the production domain after a deploy, by npm run prod:deploy (planner
+ * reply to Checkpoint 7b, §2: "every page answers 200, with the FantasyCalc link in its HTML and no third-party scripts").
+ * Here since Checkpoint 7c (steps.ts re-exports it): steps.ts loads the app's code, which prod:deploy has no use for.
+ */
+export const APP_PAGES = ["/", "/connect", "/import", "/league", "/trades", "/analyzer", "/settings", "/privacy", "/terms", "/feedback"] as const;
+
+/** Link types that make the browser fetch what they point at (a resource of the page, not a link a reader follows). */
+const FETCHING_LINKS = new Set(["preload", "modulepreload", "prefetch", "stylesheet"]);
+
+/**
+ * What a page's server HTML loads from another site (pure; planner reply to Checkpoint 7b, §2: "no third-party scripts"):
+ * a script, a frame, an embedded object, a preloaded or prefetched file, a stylesheet, or a <base> that would send the
+ * page's own addresses elsewhere, each as "<script src> from cdn.example". Comments and inline scripts' and styles'
+ * contents are left out first (Next's inline data repeats markup as data, which loads nothing); an address is resolved
+ * against `origin`, so "/x.js" and "https://<origin>/x.js" are the site's own and "//cdn.example/x.js" isn't. Only
+ * http(s) addresses count (data: and blob: belong to the page itself; the Content-Security-Policy bounds the rest). Links a
+ * reader follows (<a href>) load nothing.
+ */
+export function foreignResourcesInHtml(html: string, origin: string): string[] {
+  const markup = html.replace(/<!--[\s\S]*?-->/g, "").replace(/<(script|style)\b([^>]*)>[\s\S]*?<\/\1\s*>/gi, "<$1$2></$1>");
+  let own: string;
+  try {
+    own = new URL(origin).origin;
+  } catch {
+    return [`the page's own address ${origin} couldn't be read`];
+  }
+  const out: string[] = [];
+  const check = (what: string, value: string | null | undefined) => {
+    if (!value) return;
+    let url: URL;
+    try {
+      url = new URL(value.trim(), own);
+    } catch {
+      return;
+    }
+    if ((url.protocol === "http:" || url.protocol === "https:") && url.origin !== own) out.push(`${what} from ${url.host}`);
+  };
+  for (const m of markup.matchAll(TAG)) {
+    if (m[1]) continue;
+    const name = (m[2] as string).toLowerCase();
+    const attrs = attributesOf(m[3] ?? "");
+    if (name === "script" || name === "iframe" || name === "frame" || name === "embed") check(`<${name} src>`, attrs.get("src"));
+    else if (name === "object") check("<object data>", attrs.get("data"));
+    else if (name === "base") check("<base href>", attrs.get("href"));
+    else if (name === "link") {
+      const rel = (attrs.get("rel") ?? "").toLowerCase().split(/\s+/);
+      const kind = rel.find((r) => FETCHING_LINKS.has(r));
+      if (kind) check(`<link rel=${kind}>`, attrs.get("href"));
+    }
   }
   return out;
 }

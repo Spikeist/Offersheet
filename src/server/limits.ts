@@ -460,7 +460,9 @@ export const usageLimits = {
  * The daily snapshot cron (planner reply to Checkpoint 7a, §6.3: "a daily Vercel cron at 0 20 * * * … checks CRON_SECRET,
  * takes a lock, and is idempotent … Upstash, compressed, kept up to 2 seasons"; src/server/snapshots.ts, the route
  * src/app/api/cron/snapshot, its rate limit rateLimits.cron and its deadline deadlines.cronMs). Public data only: Sleeper's
- * weekly projections and FantasyCalc's value lists, nothing about any league.
+ * weekly projections, FantasyCalc's value lists and, since Checkpoint 7c, each day's rest-of-season levels in Sleeper's
+ * standard, half-PPR and PPR totals (planner reply to Checkpoint 7b, question 4; src/server/projectionLevels.ts), nothing
+ * about any league.
  *
  * Storage (gzip, then base64 in a string value; measured offline on the local archives and the Phase 0 captures): a week of
  * projections for all nine positions is 37–39 KB gzip, about 52 KB stored, and one key per NFL week holds it, so at most
@@ -468,7 +470,9 @@ export const usageLimits = {
  * day at the cap is 74–139 KB. Two seasons at the cap every single day, dynasty lists only, would be about 105 MB of the
  * free plan's 256 MB (next to the feedback store's bound, about 75 MB, and the cache's few MB). ⚠️ Real use is far less: a
  * format is saved only on a day after someone's League page read it (yesterday or today), so about 12 lists a day in season
- * and a few out of it come to about 20 MB a year, about 40 MB for the two seasons kept.
+ * and a few out of it come to about 20 MB a year, about 40 MB for the two seasons kept. A day's levels (one key a UTC day
+ * with a week ahead, preseason included) are about 7–10 KB stored (measured offline on Sleeper's weeks 5–17 as cached on
+ * 2026-10-07: 524 offense players with a level, 7.9 KB), so about 1.5 MB a season and 3 MB for the two seasons kept.
  */
 export const snapshotLimits = {
   /** A run's lock (SET NX PX), longer than any run (the route's maxDuration), so an overlapping delivery finds it taken. */
@@ -501,6 +505,16 @@ export const snapshotLimits = {
    * (FantasyCalc's own timeout is longer, but the HTTP client caps it at the time left) and its save; the rest wait a day.
    */
   listMinTimeLeftMs: 15_000,
+  /**
+   * The day's levels (src/server/snapshots.ts snapshotLevels, the run's last part) start only with this much of the deadline
+   * left. They read the offense's projections from the first week still ahead through week 18, at most one request a week:
+   * 14 from week 5 on, 15 to 18 before (18 in the preseason, the days with the fewest League page builds to warm the
+   * cache); in season usually from the cache (League page builds read the same lists), else 2–3 MB a week. 45 s is room
+   * for 18 cold weeks: a cold build of a League page's inputs read 21 Sleeper lists like these in 5.0 s (Checkpoint 2; ⚠️
+   * on this computer, not measured on Vercel). A week the deadline cuts saves nothing that day (all or nothing), and the
+   * next day tries again.
+   */
+  levelsMinTimeLeftMs: 45_000,
   /** The largest value written (base64 of the gzip; a real week of projections is about 52 KB): an unexpected giant isn't stored. */
   maxValueChars: 1_000_000,
 } as const;

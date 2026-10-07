@@ -419,3 +419,70 @@ describe("the one-week lists while the current week is under way", () => {
     expect(waivers(model)).toEqual({ teamId: "1", ros: null, underWay: null, week: null });
   });
 });
+
+describe("one number in both places: the League page's pickup gain is Waiver upgrades' (planner reply to Checkpoint 7b, Q6)", () => {
+  // Injury risk on (config's), so the scenario lineups aren't the expected-value ones; sims 0, so ω is its fallback (1.25)
+  // and the optimizer's own gains weigh the playoff weeks more.
+  const cases: { name: string; spec: Spec }[] = [
+    { name: "an open roster spot", spec: { freeAgents: [p("fa1", "RB", 13)] } },
+    {
+      // Full (16): an RB out for the season (no points in any week) is both rules' drop.
+      name: "a full roster",
+      spec: { mine: [...FULL.filter((x) => x.id !== "b6"), p("bz", "RB", 8, { injury: "IR", injuryReturnWeek: 30 })], nflLastWeek: 18, freeAgents: [p("fa1", "RB", 13)] },
+    },
+  ];
+
+  /** The model with my team claiming free agents first (the waiver order: team 2, whose FLEX is empty, would gain more). */
+  const mineFirst = (spec: Spec, cfg: LeagueModelConfig): LeagueModel => {
+    const l = league(spec);
+    const snapshot = { ...l.snapshot, teams: l.snapshot.teams.map((t) => ({ ...t, waiverRank: t.id === "1" ? 1 : 2 })) };
+    return buildLeagueModel(snapshot, l.inputs, OPTS, cfg);
+  };
+
+  it.each(cases)("$name: my first pickup's plain scenario gain is the rest-of-season row for the same free agent and drop", ({ spec }) => {
+    const model = mineFirst(spec, config);
+    expect(model.faAllocation?.order[0]).toBe("1");
+    expect(model.playoffWeight).toBe(config.lineups.playoffWeight);
+    const move = model.teams.find((t) => t.id === "1")?.faMoves[0];
+    if (!move) throw new Error("expected a pickup");
+    const row = rowOf(waivers(model)?.ros, move.add);
+    // The same pickup with the same drop, from my roster as it stands …
+    expect(row?.drop).toBe(move.drop);
+    // … adds the same lineup points, each week counted once (the row is solved on its own: waivers.ts).
+    expect(move.gainScenPlain as number).toBeCloseTo(row?.gain as number, 9);
+    // The optimizer's own gain weighs the playoff weeks by ω: more, so it isn't the number either page shows.
+    expect(move.gainScen as number).toBeGreaterThan((move.gainScenPlain as number) + 1);
+    expect(move.gainEv).toBeGreaterThan(move.gainEvPlain + 1);
+  });
+
+  it("⚠️ a later pickup is counted after the ones above it (the optimizer's order), so its row, priced alone from my roster as it stands, can read differently (review of Q6)", () => {
+    // Two RBs for my open spots: each would start alone, but after the first the second competes with him.
+    const model = mineFirst({ freeAgents: [p("fa1", "RB", 13), p("fa2", "RB", 12.5)] }, config);
+    const moves = model.teams.find((t) => t.id === "1")?.faMoves ?? [];
+    expect(moves.map((m) => [m.add, m.drop])).toEqual([
+      ["fa1", null],
+      ["fa2", null],
+    ]);
+    const [first, second] = moves;
+    const w = waivers(model);
+    // The first pickup is the row's number …
+    expect(first?.gainScenPlain as number).toBeCloseTo(rowOf(w?.ros, "fa1")?.gain as number, 9);
+    // … the second adds much less after the first than his row says he adds alone, with the same open spot.
+    expect(rowOf(w?.ros, "fa2")?.drop).toBeNull();
+    expect(rowOf(w?.ros, "fa2")?.gain as number).toBeGreaterThan((second?.gainScenPlain as number) + 10);
+  });
+
+  it("with ω at 1 the plain gains are the weighted ones, to the bit", () => {
+    const plain: LeagueModelConfig = { ...config, lineups: { ...config.lineups, playoffWeight: 1 } };
+    for (const { spec } of cases) {
+      const model = mineFirst(spec, plain);
+      expect(model.playoffWeight).toBe(1);
+      const moves = model.teams.flatMap((t) => t.faMoves);
+      expect(moves.length).toBeGreaterThan(0);
+      for (const m of moves) {
+        expect(m.gainEvPlain).toBe(m.gainEv);
+        expect(m.gainScenPlain).toBe(m.gainScen);
+      }
+    }
+  });
+});

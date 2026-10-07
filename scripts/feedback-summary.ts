@@ -22,8 +22,10 @@
  *   only the sent version's estimate, not its features (a TradeStep carries only its acceptance terms and a PlanB no model
  *   inputs at all: a question for the lead).
  * - By reason: how many reports gave each Report reason, and the average numbers and acceptance features
- *   (§11's g, n, h, c, a, hist, ctx, hot, urg and the logit z) of those trade ideas as the card showed them:
- *   what the model saw when people said it was wrong.
+ *   (§11's n, h, c, a, ctx, hot and urg) of those trade ideas as the card showed them: what the model saw when people
+ *   said it was wrong. Not the value ratios (both sides' g_mkt, the perceived g, hist and the logit z): an export leaves
+ *   them out since the planner's reply to Checkpoint 7b, Q5 (feedbackStore.ts EXPORT_LEFT_OUT), so there's nothing to
+ *   average (the anonymous copies keep them, for Phase 6's refit).
  * - By model part (§11 "How the data is used"): the acceptance model (refit: "They'd never accept" reports and
  *   Rejected outcomes), benefit and projections ("Doesn't help me": review those cases), the data import
  *   (wrong player info or league settings: the adapters' bug queue), and read by hand ("Other").
@@ -56,8 +58,8 @@ import {
 } from "@/lib/feedbackStore";
 import { isMainModule } from "./lib/runMode";
 
-/** The numbers and features averaged per reason, in print order. */
-const AVERAGED = ["b", "tradeScore", "pAccept", "pComplete", "gMine", "gPartner", "dPPW", "g", "n", "h", "c", "a", "hist", "ctx", "hot", "urg", "z"] as const;
+/** The numbers and features averaged per reason, in print order (no value ratios: an export leaves them out, the file header). */
+const AVERAGED = ["b", "tradeScore", "pAccept", "pComplete", "dPPW", "n", "h", "c", "a", "ctx", "hot", "urg"] as const;
 type Averaged = (typeof AVERAGED)[number];
 
 const MODEL_PARTS: readonly ModelPart[] = ["acceptance", "benefit", "adapters", "review"];
@@ -264,25 +266,21 @@ export function formatSummary(summary: FeedbackSummary, notes?: readonly { reaso
   lines.push("## By reason", "");
   lines.push(
     ...table(
-      ["Reason", "Reports", "B", "Helps you", "P_accept", "g (mine)", "g (theirs)", "ΔPPW", "n", "h", "c", "a", "hist", "ctx", "hot", "urg", "z"],
+      ["Reason", "Reports", "B", "Helps you", "P_accept", "ΔPPW", "n", "h", "c", "a", "ctx", "hot", "urg"],
       s.byReason.map((r) => [
         r.label,
         r.count,
         num(r.averages.b),
         num(r.averages.tradeScore, 0),
         pct(r.averages.pAccept),
-        num(r.averages.gMine),
-        num(r.averages.gPartner),
         num(r.averages.dPPW, 1),
         num(r.averages.n),
         num(r.averages.h),
         num(r.averages.c),
         num(r.averages.a),
-        num(r.averages.hist),
         num(r.averages.ctx),
         num(r.averages.hot),
         num(r.averages.urg),
-        num(r.averages.z),
       ]),
     ),
     "",

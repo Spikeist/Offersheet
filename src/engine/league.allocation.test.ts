@@ -20,6 +20,8 @@ const ZERO_MISS: Record<Pos, number> = { QB: 0, RB: 0, WR: 0, TE: 0, K: 0, P: 0,
 const NO_RISK: LeagueModelConfig = { ...config, projections: { ...config.projections, injuryRisk: { ...config.projections.injuryRisk, missShare: ZERO_MISS } } };
 /** Σ ω over weeks 4–17: 11 regular-season weeks and 3 playoff weeks at playoffWeight. */
 const OMEGA = 11 + 3 * config.lineups.playoffWeight;
+/** The same weeks, each once: what a move's plain gains count (FaMove.gainEvPlain, gainScenPlain; planner reply to Checkpoint 7b, Q6). */
+const PLAIN = 11 + 3;
 /** The user's team streams nothing (the free-agent kickers stay free agents). */
 const NO_STREAMING: TradeSettings = { ...defaultTradeSettings(), streamPositions: [] };
 const OPTS: BuildLeagueModelOptions = { now: TEST_NOW, scenarios: 8, settings: NO_STREAMING };
@@ -108,7 +110,9 @@ describe("the allocation in the League model: one free agent, one team", () => {
     const league = withTeams(base([p("fa-wr", "WR", 14)]), { "1": { waiverRank: 2 }, "2": { waiverRank: 4 }, "3": { waiverRank: 1 }, "4": { waiverRank: 3 } });
     const m = buildLeagueModel(league.snapshot, league.inputs, OPTS, NO_RISK);
     expect(m.faAllocation).toEqual({ basis: "waiver", order: ["3", "1", "4", "2"] });
-    expect(teamOf(m, "3").faMoves).toEqual([{ add: "fa-wr", drop: null, gainEv: expect.closeTo(3 * OMEGA, 9), gainScen: expect.closeTo(3 * OMEGA, 9) }]);
+    expect(teamOf(m, "3").faMoves).toEqual([
+      { add: "fa-wr", drop: null, gainEv: expect.closeTo(3 * OMEGA, 9), gainScen: expect.closeTo(3 * OMEGA, 9), gainEvPlain: expect.closeTo(3 * PLAIN, 9), gainScenPlain: expect.closeTo(3 * PLAIN, 9) },
+    ]);
     for (const id of ["1", "2", "4"]) expect(teamOf(m, id).faMoves, `team ${id}`).toEqual([]);
     // A second free agent, a 13.1-point WR: after the first, team 3 gains only 0.1 a week from him (under faMinGain), while
     // he's +2.1 a week to the next team in the order, team 1 (he starts over its 13-point WR2): team 1 gets him, by a drop.

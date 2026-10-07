@@ -5,11 +5,16 @@
  * and the export file. A Map stands in for localStorage (Vitest runs in Node); every id is made up.
  */
 import { describe, expect, it } from "vitest";
+import { acceptance, betaNeed, partnerProfile } from "@/engine/acceptance";
+import { benefit, protectValueWeight } from "@/engine/benefit";
+import { config } from "@/engine/config";
 import type { AcceptanceFeatures } from "@/engine/tradeModel";
 import type { StorageLike } from "./importStore";
 import {
+  EXPORT_LEFT_OUT,
   FEEDBACK_DELETE_FAILED,
   FEEDBACK_EXPORT_KIND,
+  FEEDBACK_EXPORT_VERSION,
   FEEDBACK_MAX_RECORDS,
   FEEDBACK_NOTE_MAX,
   FEEDBACK_OUTCOMES,
@@ -100,6 +105,35 @@ function evaluation(key = "2|give:101|get:202,203", over: Partial<FeedbackEvalua
 const T1 = "2026-10-01T18:00:00.000Z";
 const T2 = "2026-10-02T09:30:00.000Z";
 const T3 = "2026-10-03T12:00:00.000Z";
+
+/** The value ratios' keys the export leaves out (planner reply to Checkpoint 7b, Q5), written out here so a test pins them. */
+const LEFT_OUT_NUMBERS = ["gMine", "gPartner"];
+const LEFT_OUT_FEATURES = ["g", "hist", "z"];
+
+/** A record as an export of version 2 reads back: its value ratios unknown (null). */
+function unknownRatios(r: FeedbackRecord): FeedbackRecord {
+  const blank = (keys: readonly string[]) => Object.fromEntries(keys.map((k) => [k, null]));
+  const v = r.versionInputs;
+  return {
+    ...r,
+    numbers: { ...r.numbers, ...blank(LEFT_OUT_NUMBERS) },
+    features: { ...r.features, ...blank(LEFT_OUT_FEATURES) },
+    ...(v ? { versionInputs: { ...v, gPartner: null, features: v.features ? { ...v.features, ...blank(LEFT_OUT_FEATURES) } : null } } : {}),
+  };
+}
+
+/** A record as the export holds it (feedbackExport, but for the league's number and the record id): the value ratios' keys gone. */
+function leftOut(r: FeedbackRecord): Record<string, unknown> {
+  const copy = JSON.parse(JSON.stringify(r)) as { numbers: Record<string, unknown>; features: Record<string, unknown>; versionInputs?: Record<string, unknown> & { features: Record<string, unknown> | null } };
+  for (const k of LEFT_OUT_NUMBERS) delete copy.numbers[k];
+  for (const k of LEFT_OUT_FEATURES) delete copy.features[k];
+  if (copy.versionInputs) {
+    delete copy.versionInputs.gPartner;
+    const f = copy.versionInputs.features;
+    if (f) for (const k of LEFT_OUT_FEATURES) delete f[k];
+  }
+  return copy;
+}
 
 describe("applyFeedback: one record per trade idea", () => {
   it("makes a record on the first press, with the card's numbers, features and trade", () => {
@@ -317,11 +351,13 @@ describe("the export file", () => {
     return list;
   })();
 
-  it("says what it is and when it was exported, and reads back to the same records, the league numbered", () => {
+  it("says what it is and when it was exported, and reads back to the same records, the league numbered and the value ratios unknown", () => {
     const text = feedbackExportText(records, T3);
     const data = JSON.parse(text) as { kind: string; version: number; exportedAt: string; count: number };
-    expect(data).toMatchObject({ kind: FEEDBACK_EXPORT_KIND, version: 1, exportedAt: T3, count: 2 });
-    expect(parseFeedbackExport(text)).toEqual(records.map((r) => ({ ...r, leagueKey: "league-1", id: expect.stringMatching(/^fb-[0-9a-f]{8}$/) })));
+    // Version 2 since the planner's reply to Checkpoint 7b, Q5: the value ratios are left out.
+    expect(FEEDBACK_EXPORT_VERSION).toBe(2);
+    expect(data).toMatchObject({ kind: FEEDBACK_EXPORT_KIND, version: 2, exportedAt: T3, count: 2 });
+    expect(parseFeedbackExport(text)).toEqual(records.map((r) => ({ ...unknownRatios(r), leagueKey: "league-1", id: expect.stringMatching(/^fb-[0-9a-f]{8}$/) })));
     // A bare list (the stored value itself) reads too; anything else doesn't.
     expect(parseFeedbackExport(JSON.stringify(records))).toEqual(records);
     expect(parseFeedbackExport("{}")).toBeNull();
@@ -351,11 +387,83 @@ describe("the export file", () => {
     expect(new Set(ids).size).toBe(ids.length);
     for (const id of ids) expect(id).toMatch(/^fb-[0-9a-f]{8}$/);
     expect(JSON.stringify(list)).toBe(before);
-    // Everything else is as stored, and it reads back the same.
-    const rest = (r: FeedbackRecord) => ({ ...r, id: "", leagueKey: "" });
-    expect(exported.records.map(rest)).toEqual(list.map(rest));
-    expect(parseFeedbackExport(text)).toEqual(exported.records);
-    expect(feedbackExport([], T3)).toEqual({ kind: FEEDBACK_EXPORT_KIND, version: 1, exportedAt: T3, count: 0, records: [] });
+    // Everything else is as stored but the value ratios (left out: planner reply to Checkpoint 7b, Q5), and it reads back
+    // the same, those as unknown.
+    const rest = (r: object) => ({ ...r, id: "", leagueKey: "" });
+    expect(exported.records.map(rest)).toEqual(list.map(leftOut).map(rest));
+    expect(parseFeedbackExport(text)).toEqual(exported.records.map((r) => unknownRatios(r as unknown as FeedbackRecord)));
+    expect(feedbackExport([], T3)).toEqual({ kind: FEEDBACK_EXPORT_KIND, version: 2, exportedAt: T3, count: 0, records: [] });
+  });
+
+  it("leaves out the value ratios, the keys themselves, in the numbers, the features and the sent version's inputs; the records in the browser keep them (planner reply to Checkpoint 7b, Q5)", () => {
+    const inputs = { features: { ...FEATURES, hist: 0.07 }, gPartner: -0.1, b: 4.2, goal: "title" as const, b3: 6, helpsReason: null };
+    let list = applyFeedback([], { leagueKey: LEAGUE, evaluation: evaluation("a", { features: { ...FEATURES, hist: 0.05 } }), change: { outcome: "sent", sent: { version: "full", key: "a", pAccept: 0.4, pComplete: 0.4, inputs } }, at: T1 });
+    list = applyFeedback(list, { leagueKey: LEAGUE, evaluation: evaluation("b"), change: { report: { reason: "never-accept" } }, at: T2 });
+    const before = JSON.stringify(list);
+    const exported = feedbackExport(list, T3);
+    // Omitted, not nulled: no key for any of them anywhere in the file.
+    expect(EXPORT_LEFT_OUT).toEqual({ numbers: ["gMine", "gPartner"], features: ["g", "hist", "z"], versionInputs: ["gPartner"] });
+    for (const r of exported.records) {
+      expect(Object.keys(r.numbers).sort()).toEqual(["b", "b3", "dCH", "dPO", "dPPW", "overall", "pAccept", "pComplete", "tradeScore"]);
+      expect(Object.keys(r.features).sort()).toEqual(["a", "c", "ctx", "h", "hot", "n", "urg"]);
+    }
+    const sent = exported.records[0]?.versionInputs;
+    expect(sent).toEqual({ features: { n: 0.42, h: 1, c: 1, a: 1, ctx: 0, hot: 0.15, urg: 0 }, b: 4.2, goal: "title", b3: 6, helpsReason: null, week: null });
+    expect(exported.records[1]).not.toHaveProperty("versionInputs");
+    const text = feedbackExportText(list, T3);
+    for (const key of ["gMine", "gPartner", "g", "hist", "z"]) expect(text, key).not.toContain(`"${key}"`);
+    // The file's distinctive numbers are gone with them (−0.03, −0.08, −0.1, −0.31, 0.05, 0.07); B, the estimates and the
+    // rest stay (Offer Sheet's own numbers).
+    for (const n of ["-0.03", "-0.08", "-0.1,", "-0.31", "0.05", "0.07"]) expect(text, n).not.toContain(n);
+    expect(exported.records[0]?.numbers).toMatchObject({ b: 4.2, tradeScore: 50, pAccept: 0.42, pComplete: 0.42, overall: 25, dPO: 0.04, dCH: 0.02, dPPW: 2.6 });
+    // A sent version without features keeps that null.
+    const [bare] = applyFeedback([], { leagueKey: LEAGUE, evaluation: evaluation("c"), change: { outcome: "sent", sent: { version: "full", key: "c", pAccept: 0.4, pComplete: 0.4, inputs: { features: null, gPartner: 0.2, b: 1, goal: "playoffs" } } }, at: T1 });
+    expect(feedbackExport([bare as FeedbackRecord], T3).records[0]?.versionInputs).toEqual({ features: null, b: 1, goal: "playoffs", b3: null, helpsReason: null, week: null });
+    // The records in the browser keep every ratio (the anonymous copies are made from them: src/lib/feedbackShare.ts).
+    expect(JSON.stringify(list)).toBe(before);
+    expect(list[0]?.numbers).toMatchObject({ gMine: -0.03, gPartner: -0.08 });
+    expect(list[0]?.features).toMatchObject({ g: -0.08, hist: 0.05, z: -0.31 });
+    expect(list[0]?.versionInputs).toMatchObject({ gPartner: -0.1, features: { g: -0.08, hist: 0.07, z: -0.31 } });
+    // A version 1 file (the ratios in it) still reads, as does a version 2 one (the ratios unknown).
+    const v1 = JSON.stringify({ kind: FEEDBACK_EXPORT_KIND, version: 1, exportedAt: T3, count: list.length, records: list });
+    expect(parseFeedbackExport(v1)).toEqual(list);
+    expect(parseFeedbackExport(text)?.[0]?.versionInputs).toEqual({ features: { g: null, n: 0.42, h: 1, c: 1, a: 1, hist: null, ctx: 0, hot: 0.15, urg: 0, z: null }, gPartner: null, b: 4.2, goal: "title", b3: 6, helpsReason: null, week: null });
+  });
+
+  it("⚠️ hides the fields, not the numbers: the estimates it keeps give the ratios back to a reader who works at it (review of Q5; the lead's list stands, closing it is a planner call)", () => {
+    // Real numbers: the acceptance model for a partner with no valued past trades (hist's term 0), and B in a redraft league.
+    const league = { leagueType: "redraft" as const, tradeReview: "league_vote" as const };
+    const partner = partnerProfile({ teamId: "2", transactions: [], week: 5, values: {}, W: 500, pPlayoffs: 0.7 });
+    const accept = acceptance(league, partner, { gPartner: -0.09, gPerceived: -0.13, deltaLineup: 3.1, h: 1, assets: 3, partnerReceives: [{ pos: "WR" }], hot: 0.15 });
+    expect(accept.pAccept).toBeGreaterThan(0.02);
+    expect(accept.pAccept).toBeLessThan(0.85);
+    const kappa = protectValueWeight("high");
+    const mine = { leagueType: "redraft" as const, dPO: 0.05, dCH: 0.021, gMine: 0.17, dynasty: null, myPPlayoffs: 0.6, kappa, b3: 4.94, goal: "title" as const };
+    const b = benefit(mine).b;
+    const ev = evaluation("r", { features: accept.features, pAccept: accept.pAccept, pComplete: accept.pComplete, b, dPO: mine.dPO, dCH: mine.dCH, gMine: mine.gMine, gPartner: -0.09, b3: mine.b3 });
+    const sent = { version: "full" as const, key: "r", pAccept: accept.pAccept, pComplete: accept.pComplete, inputs: { features: accept.features, gPartner: -0.09, b, goal: "title" as const } };
+    const list = applyFeedback([], { leagueKey: LEAGUE, evaluation: ev, change: { outcome: "sent", sent, basis: { season: 2026, week: 5, goal: "title" } }, at: T1 });
+    const r = feedbackExport(list, T3).records[0];
+    if (!r) throw new Error("the export holds the record");
+    expect(r.features).not.toHaveProperty("g");
+    const num = (x: number | null | undefined): number => x ?? Number.NaN;
+
+    // P_accept is σ(z) inside its clamp: z from the raw P_accept, less the kept features' terms with the bundle's β's, is
+    // the value term, so the partner's perceived g comes back, from the card's numbers and from the sent version's.
+    const beta = config.acceptance.beta;
+    const perceivedG = (pAccept: number | null | undefined, f: Partial<Record<keyof AcceptanceFeatures, number | null>> | null | undefined): number => {
+      const p = num(pAccept);
+      const rest = beta.b0 + betaNeed("redraft") * num(f?.n) + beta.hole * num(f?.h) - beta.complexity * num(f?.c) + beta.activity * num(f?.a) + num(f?.ctx) + num(f?.hot) + num(f?.urg);
+      const value = Math.log(p / (1 - p)) - rest;
+      return value >= 0 ? value / beta.gain : value / beta.loss;
+    };
+    expect(perceivedG(r.numbers.pAccept, r.features)).toBeCloseTo(accept.features.g, 9);
+    expect(perceivedG(r.versionAccept?.pAccept, r.versionInputs?.features)).toBeCloseTo(accept.features.g, 9);
+
+    // B less B_win (from the file's ΔPO, ΔCH and goal) is the market term, (B₃ / 3) × κ × clamp(g_mkt(me)): g_mkt(me) comes
+    // back to anyone who knows κ, the user who downloads the file included.
+    const bWin = benefit({ ...mine, dPO: r.numbers.dPO, dCH: r.numbers.dCH, kappa: 0, ...(r.basis?.goal ? { goal: r.basis.goal } : {}) }).b;
+    expect((config.benefit.helpsGain * (num(r.numbers.b) - num(bWin))) / (num(r.numbers.b3) * kappa)).toBeCloseTo(mine.gMine, 9);
   });
 
   it("is named by the export's date, with no characters Windows refuses", () => {
@@ -401,7 +509,8 @@ describe("the sent version's model inputs (planner reply to Checkpoint 4b, chang
   it("round-trips through the storage and the export; one that isn't an object, or without a version, is left out", () => {
     const [r] = applyFeedback([], { leagueKey: LEAGUE, evaluation: evaluation(), change: { outcome: "sent", sent: sent("full", INPUTS) }, at: T1 });
     expect(parseFeedback(JSON.stringify([r]))).toEqual([r]);
-    expect(parseFeedbackExport(feedbackExportText([r as FeedbackRecord], T3))?.[0]?.versionInputs).toEqual(STORED);
+    // The export leaves the value ratios out (planner reply to Checkpoint 7b, Q5): they read back as unknown.
+    expect(parseFeedbackExport(feedbackExportText([r as FeedbackRecord], T3))?.[0]?.versionInputs).toEqual({ ...STORED, gPartner: null, features: { ...FEATURES, g: null, hist: null, z: null } });
     expect(parseFeedback(JSON.stringify([{ ...r, versionInputs: "lots" }]))[0]?.versionInputs).toBeUndefined();
     const { version: _v, ...noVersion } = r as FeedbackRecord;
     void _v;

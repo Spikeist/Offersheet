@@ -117,8 +117,16 @@ describe("the checkpoint: the newest commit tagged checkpoint-*", () => {
     expect(TAG_FORMAT).toContain("%(*objectname)");
     const text = [`checkpoint-4b\tcommit\t${A}\t1791077385\t\t\t`, `checkpoint-4c\ttag\t${T}\t\tcommit\t${B}\t1791135364`, `checkpoint-tree\ttag\t${T}\t\ttree\t${C}\t`, "garbage", ""].join("\r\n");
     expect(parseTagRefs(text)).toEqual([
-      { name: "checkpoint-4b", commit: A, time: 1791077385 },
-      { name: "checkpoint-4c", commit: B, time: 1791135364 },
+      { name: "checkpoint-4b", commit: A, time: 1791077385, annotated: false },
+      { name: "checkpoint-4c", commit: B, time: 1791135364, annotated: true },
+    ]);
+  });
+
+  it("says which tags are annotated (a tag object, `git tag -a`): npm run prod:deploy deploys only those (Checkpoint 7c)", () => {
+    const text = [`checkpoint-7c\ttag\t${T}\t\tcommit\t${C}\t1791900000`, `checkpoint-7c-light\tcommit\t${C}\t1791900000\t\t\t`].join("\n");
+    expect(parseTagRefs(text).map((t) => [t.name, t.annotated])).toEqual([
+      ["checkpoint-7c", true],
+      ["checkpoint-7c-light", false],
     ]);
   });
 

@@ -79,7 +79,9 @@
  *    are judged in scenario lineups when scenarios run (review of track E, item 1: the lineups B and the lineup costs
  *    are measured in, so a depth pickup worth little in EV lineups is made, and a trade never gets credit for it), else
  *    in EV lineups. Its moves are TeamModel.faMoves, each with its EV gain and its scenario gain (the
- *    roster after the move minus the roster before it, in scenario lineups). Lineup costs:
+ *    roster after the move minus the roster before it, in scenario lineups), with ω, and the same two with each counted
+ *    week once (gainEvPlain, gainScenPlain over LeagueContext.plainWeights: what the League page shows, as Waiver upgrades
+ *    does; planner reply to Checkpoint 7b, Q6). Lineup costs:
  *    MV_lose(T, i) = ROS(V*(T)) − ROS(V*(T − i)), in EV and in scenario lineups (the same rosters priced in each
  *    mode), floored at 0, and 0 when V*(T) dropped him. V*(T − i) is the optimizer re-run from V*(T)'s roster
  *    without him (L3's shortcut; optimizer.reoptimize with one extra move). Like a run from scratch, the re-run
@@ -206,7 +208,8 @@
  *    gains, the near-tie tolerances, lineup costs, MV_add, trade chips and their cost per week, the chips that stay chips
  *    behind partner fit, the IR returners' roster spots, and in evaluate.ts the screening's ΔROS, roster legality and the
  *    get pool). Not weighted, as before: players' own ROS points (§6 step 7), PPW, strength and needs (window averages),
- *    partner fit's per-week gains, the season simulation and B.
+ *    partner fit's per-week gains, the season simulation and B; nor (planner reply to Checkpoint 7b, Q6) the free-agent
+ *    moves' gains the League page shows (FaMove.gainEvPlain, gainScenPlain; the moves are still chosen by the weighted ones).
  *    ⚠️ The thresholds in ROS lineup points keep the meaning they had at ω₀ (review of the engine track, Phase 7b;
  *    lineupThresholdScale, LeagueContext.thresholds, LeagueModel.lineupThresholds): the free-agent optimizer's faMinGain (and
  *    step 6's re-run bounds, which must read the optimizer's own), the trade chips' chipMinGap (and the chips that stay
@@ -1306,6 +1309,14 @@ export interface LeagueContext {
   optimizer: RosterOptimizer;
   /** A roster's ROS in scenario lineups (memoized by its key); only with scenarios. */
   scenRosOf: (roster: readonly string[], stream: StreamSpec) => number;
+  /**
+   * The weeks team numbers count, each once (planner reply to Checkpoint 7b, Q6: teamWeeks with ω = 1, so 1 in every
+   * regular-season and playoff week from `tw.from` on, as Waiver upgrades weighs its weeks: waivers.ts frameOf): the
+   * weights of the free-agent moves' plain gains (FaMove.gainEvPlain, gainScenPlain), the ones the League page shows.
+   */
+  plainWeights: Float64Array;
+  /** A roster's scenario ROS with each counted week once (plainWeights), from scenRosOf's memoized lineups; only with scenarios. */
+  scenPlainOf: (roster: readonly string[], stream: StreamSpec) => number;
   work: TeamWork[];
   /** The free-agent allocation (step 5): its basis and the order, as indexes into `work`; null under faAllocation "independent". */
   allocation: { basis: FaAllocation["basis"]; order: number[] } | null;
@@ -1801,17 +1812,22 @@ function prepareLeague(snapshot: LeagueSnapshot, inputs: ModelInputs, opts: Buil
   mark("EV lineups and the free-agent optimizer");
 
   // 5. Scenario lineups of T (its strength and score), of V*(T) (cell by cell: removal costs and the chip base), of
-  // each roster after a move, and of every V*(V*(T) − i): lineup costs and the moves' scenario gains.
-  const scenMemo = new Map<string, number>();
-  const scenRosOf = (roster: readonly string[], spec: StreamSpec): number => {
+  // each roster after a move, and of every V*(V*(T) − i): lineup costs and the moves' scenario gains. The memo keeps each
+  // roster's scenario mean per week, so a roster's ROS can be read with ω (scenRosOf: every weighted number, as before)
+  // and with each week once (scenPlainOf: the moves' plain gains, planner reply to Checkpoint 7b, Q6) from one solve.
+  const plainWeights = teamWeeks(weeks, inProgressWeek, { ...cfg.lineups, playoffWeight: 1 }).weights;
+  const scenMeans = new Map<string, Float64Array>();
+  const scenMeanOf = (roster: readonly string[], spec: StreamSpec): Float64Array => {
     const key = rosterKey(roster, spec);
-    let ros = scenMemo.get(key);
-    if (ros === undefined) {
-      ros = rosValue(scenarioValues(optimizer.evaluate(roster, spec).team, W, S).mean, weights);
-      scenMemo.set(key, ros);
+    let mean = scenMeans.get(key);
+    if (mean === undefined) {
+      mean = scenarioValues(optimizer.evaluate(roster, spec).team, W, S).mean;
+      scenMeans.set(key, mean);
     }
-    return ros;
+    return mean;
   };
+  const scenRosOf = (roster: readonly string[], spec: StreamSpec): number => rosValue(scenMeanOf(roster, spec), weights);
+  const scenPlainOf = (roster: readonly string[], spec: StreamSpec): number => rosValue(scenMeanOf(roster, spec), plainWeights);
   for (const t of work) {
     const steps = t.vstar.moves;
     if (S > 0 && t.scen) {
@@ -1819,7 +1835,7 @@ function prepareLeague(snapshot: LeagueSnapshot, inputs: ModelInputs, opts: Buil
       // Its scenario lineups as it stands (solved once, before step 5c), cells kept: V*(T)'s when it made no move, and the
       // displacement prices the team's final lineups from them (step 5b).
       t.scenRos = rosValue(t.scen.mean, weights);
-      scenMemo.set(rosterKey(t.ids, t.stream), t.scenRos);
+      scenMeans.set(rosterKey(t.ids, t.stream), t.scen.mean);
       if (noMove) {
         t.vstarCells = t.scen.cells;
         t.vstarScen = t.scenRos;
@@ -1827,19 +1843,35 @@ function prepareLeague(snapshot: LeagueSnapshot, inputs: ModelInputs, opts: Buil
         const v = scenarioValues(t.vstar.team, W, S, null, true);
         t.vstarCells = v.cells;
         t.vstarScen = rosValue(v.mean, weights);
-        scenMemo.set(rosterKey(t.vstar.roster, t.stream), t.vstarScen);
+        scenMeans.set(rosterKey(t.vstar.roster, t.stream), v.mean);
       }
     }
+    // Each move's gains with ω (the optimizer's) and with each counted week once (plainWeights: what the League page
+    // shows, as Waiver upgrades does; planner reply to Checkpoint 7b, Q6), from the same lineups.
     let roster: readonly string[] = t.ids;
     let evBefore = t.evRos;
     let scenBefore = t.scenRos;
+    let evPlainBefore = rosValue(t.solved.lv, plainWeights);
+    let scenPlainBefore = t.scenRos !== null && t.scen ? rosValue(t.scen.mean, plainWeights) : null;
     t.faMoves = steps.map((m) => {
       roster = applyStep(roster, m);
-      const ev = optimizer.evaluate(roster, t.stream).evRos;
+      const after = optimizer.evaluate(roster, t.stream);
+      const ev = after.evRos;
+      const evPlain = rosValue(after.solved.lv, plainWeights);
       const scen = S > 0 ? scenRosOf(roster, t.stream) : null;
-      const move: FaMove = { add: m.add, drop: m.drop, gainEv: ev - evBefore, gainScen: scen !== null && scenBefore !== null ? scen - scenBefore : null };
+      const scenPlain = S > 0 ? scenPlainOf(roster, t.stream) : null;
+      const move: FaMove = {
+        add: m.add,
+        drop: m.drop,
+        gainEv: ev - evBefore,
+        gainScen: scen !== null && scenBefore !== null ? scen - scenBefore : null,
+        gainEvPlain: evPlain - evPlainBefore,
+        gainScenPlain: scenPlain !== null && scenPlainBefore !== null ? scenPlain - scenPlainBefore : null,
+      };
       evBefore = ev;
       scenBefore = scen;
+      evPlainBefore = evPlain;
+      scenPlainBefore = scenPlain;
       return move;
     });
     const removal = S > 0 ? scenarioRemovalCosts(t.vstarCells as ScenarioCells, weights) : null;
@@ -1897,6 +1929,8 @@ function prepareLeague(snapshot: LeagueSnapshot, inputs: ModelInputs, opts: Buil
     picks,
     optimizer,
     scenRosOf,
+    plainWeights,
+    scenPlainOf,
     work,
     allocation,
     inactive,
@@ -2976,7 +3010,8 @@ export interface LeagueMarginals {
    * The free-agent optimizer from any active roster of a team (its streaming rows and streamed positions; the build's
    * optimizer and memo), with at most `maxMoves` moves (default faMaxMoves; none for an inactive team, step 5's A4), against
    * the pool minus every other team's claims (excl(T), step 5): the roster after, its moves with their EV and scenario
-   * gains, and its ROS in EV and scenario lineups. Null for an unknown team.
+   * gains (with ω and with each week once, as TeamModel.faMoves has them), and its ROS in EV and scenario lineups. Null for
+   * an unknown team.
    */
   optimize(teamId: string, roster: readonly string[], maxMoves?: number): VStarSummary | null;
   /**
@@ -3050,15 +3085,31 @@ export function leagueMarginals(snapshot: LeagueSnapshot, inputs: ModelInputs, o
       // An inactive team (A4) makes no move.
       const run = t.inactive ? ctx.optimizer.optimize(roster, t.stream, 0) : ctx.optimizer.optimize(roster, t.stream, maxMoves, t.pool);
       let at: readonly string[] = run.start;
-      let ev = ctx.optimizer.evaluate(at, t.stream).evRos;
+      const start = ctx.optimizer.evaluate(at, t.stream);
+      let ev = start.evRos;
       let sc = scen ? ctx.scenRosOf(at, t.stream) : null;
+      // The plain gains (each counted week once: planner reply to Checkpoint 7b, Q6), as step 5 gives TeamModel.faMoves.
+      let evPlain = rosValue(start.solved.lv, ctx.plainWeights);
+      let scPlain = scen ? ctx.scenPlainOf(at, t.stream) : null;
       const moves = run.moves.map((m) => {
         at = applyStep(at, m);
-        const nextEv = ctx.optimizer.evaluate(at, t.stream).evRos;
+        const next = ctx.optimizer.evaluate(at, t.stream);
+        const nextEv = next.evRos;
         const nextSc = scen ? ctx.scenRosOf(at, t.stream) : null;
-        const move: FaMove = { add: m.add, drop: m.drop, gainEv: nextEv - ev, gainScen: nextSc !== null && sc !== null ? nextSc - sc : null };
+        const nextEvPlain = rosValue(next.solved.lv, ctx.plainWeights);
+        const nextScPlain = scen ? ctx.scenPlainOf(at, t.stream) : null;
+        const move: FaMove = {
+          add: m.add,
+          drop: m.drop,
+          gainEv: nextEv - ev,
+          gainScen: nextSc !== null && sc !== null ? nextSc - sc : null,
+          gainEvPlain: nextEvPlain - evPlain,
+          gainScenPlain: nextScPlain !== null && scPlain !== null ? nextScPlain - scPlain : null,
+        };
         ev = nextEv;
         sc = nextSc;
+        evPlain = nextEvPlain;
+        scPlain = nextScPlain;
         return move;
       });
       return { roster: [...run.roster], moves, ev: run.evRos, scen: sc };

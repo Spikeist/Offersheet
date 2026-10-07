@@ -17,6 +17,8 @@ export function feedbackDescription(features: PolicyFeatures): string {
  * unless "Share anonymous feedback" is off in Settings (src/lib/feedbackShare.ts; the privacy page lists its fields), and
  * a note typed with a report never leaves the browser; without it (today) nothing is sent, and the words say so (review
  * PG-1). Nothing typed here by the public is stored on a server: anything else goes to the contact line (src/lib/site.ts).
+ * "Export feedback" downloads the saved presses without the value ratios behind the estimates, and both branches say so
+ * (planner reply to Checkpoint 7b, Q5: keep the export sentence accurate; feedbackStore.ts EXPORT_LEFT_OUT).
  */
 export function FeedbackGuide({ features }: { features: PolicyFeatures }) {
   const shared = features.anonymousFeedback;
@@ -54,7 +56,10 @@ export function FeedbackGuide({ features }: { features: PolicyFeatures }) {
                 </Link>
                 . That choice is saved in this browser.
               </li>
-              <li>&ldquo;Export feedback&rdquo;, also on the Settings page, downloads everything you&apos;ve saved, notes included, as a file.</li>
+              <li>
+                &ldquo;Export feedback&rdquo;, also on the Settings page, downloads what you&apos;ve saved as a file, notes included. It leaves out the
+                trade-value comparisons behind Offer Sheet&apos;s estimates.
+              </li>
             </>
           ) : (
             <>
@@ -64,7 +69,8 @@ export function FeedbackGuide({ features }: { features: PolicyFeatures }) {
                 <Link href="/settings" className="font-semibold underline underline-offset-2">
                   Settings page
                 </Link>{" "}
-                downloads everything you&apos;ve saved, notes included, as a file.
+                downloads what you&apos;ve saved as a file, notes included. It leaves out the trade-value comparisons behind Offer Sheet&apos;s
+                estimates.
               </li>
             </>
           )}

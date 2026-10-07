@@ -34,6 +34,7 @@ import { bestTimeText, buildAnalysisView, buildFinderView, PROJECTIONS_SOURCE } 
 import { DEFAULT_MAX_SEARCH_SECONDS, SECOND_LEAGUE, USAGE, parseArgs, resolveArgs, type CheckBrowserArgs } from "./args";
 import { chromeArgs, chromeCandidates, devtoolsUrl, exited, findChrome, killTree, waitForDevtools } from "./chrome";
 import {
+  APP_PAGES as CONTRACT_APP_PAGES,
   attributesOf,
   BLEND_WORDS,
   bareValueNumbers,
@@ -43,6 +44,7 @@ import {
   decodeEntities,
   fantasyCalcLinkIssues,
   fantasyCalcLinksInHtml,
+  foreignResourcesInHtml,
   freshnessLineOk,
   internalPaths,
   isFantasyCalcHref,
@@ -860,6 +862,62 @@ describe("Checkpoint 7b: FantasyCalc's links in the server's HTML (5.4)", () => 
     expect(["https://fantasycalc.com", "https://fantasycalc.com/", "http://www.fantasycalc.com/redraft", "https://FantasyCalc.com?x=1"].every(isFantasyCalcHref)).toBe(true);
     expect(["https://fantasycalc.com.evil.example", "https://notfantasycalc.com", "/fantasycalc", null, undefined].some(isFantasyCalcHref)).toBe(false);
     expect(APP_PAGES).toEqual(expect.arrayContaining(["/", "/league", "/trades", "/analyzer", "/settings", "/import", "/privacy", "/terms", "/feedback"]));
+  });
+
+  it("the app pages live in contracts.ts since Checkpoint 7c (npm run prod:deploy reads them there), re-exported by steps.ts unchanged", () => {
+    expect(APP_PAGES).toBe(CONTRACT_APP_PAGES);
+    expect([...APP_PAGES]).toEqual(["/", "/connect", "/import", "/league", "/trades", "/analyzer", "/settings", "/privacy", "/terms", "/feedback"]);
+  });
+});
+
+describe("Checkpoint 7c: nothing in a page's server HTML loads from another site (prod:deploy, planner reply to Checkpoint 7b, §2)", () => {
+  const origin = "https://offersheet.vercel.app";
+
+  it("the site's own scripts, styles, preloads and links pass, written relative or absolute", () => {
+    const own = [
+      '<script src="/_next/static/chunks/main.js" async=""></script>',
+      '<script src="https://offersheet.vercel.app/_next/static/chunks/b.js"></script>',
+      '<link rel="preload" as="script" href="/_next/static/chunks/a.js"/>',
+      '<link rel="stylesheet" href="/_next/static/css/app.css" data-precedence="next"/>',
+      '<link rel="icon" href="https://elsewhere.example/icon.png"/>', // an icon link isn't a fetch this rule reads (the CSP bounds it)
+      '<a href="https://fantasycalc.com" rel="noopener" referrerpolicy="origin">FantasyCalc</a>',
+      '<img src="data:image/png;base64,AAAA" alt=""/>',
+      "<script>self.__next_f.push([1,\"<script src=\\\"https://cdn.example/x.js\\\"><iframe src=\\\"https://ads.example\\\">\"])</script>",
+      '<!-- <script src="https://cdn.example/commented.js"></script> -->',
+      "<style>.x{background:url(https://cdn.example/bg.png)}</style>",
+    ].join("");
+    expect(foreignResourcesInHtml(`<html><head>${own}</head><body></body></html>`, origin)).toEqual([]);
+  });
+
+  it("names every script, frame, object, preload, prefetch, stylesheet or <base> from another site, by host", () => {
+    const foreign = [
+      '<script src="https://cdn.example/x.js"></script>',
+      '<script src="//cdn2.example/y.js"></script>',
+      '<link rel="modulepreload" href="https://cdn3.example/z.js"/>',
+      '<link rel="preload" as="script" href="https://cdn4.example/w.js"/>',
+      '<link rel="dns-prefetch prefetch" href="https://cdn5.example/v.js"/>',
+      '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=X"/>',
+      '<iframe src="https://www.youtube.com/embed/x"></iframe>',
+      '<embed src="https://flash.example/a.swf"/>',
+      '<object data="https://obj.example/o"></object>',
+      '<base href="https://evil.example/"/>',
+      '<SCRIPT SRC="https://upper.example/u.js"></SCRIPT>',
+    ].join("");
+    expect(foreignResourcesInHtml(`<html><head>${foreign}</head></html>`, origin)).toEqual([
+      "<script src> from cdn.example",
+      "<script src> from cdn2.example",
+      "<link rel=modulepreload> from cdn3.example",
+      "<link rel=preload> from cdn4.example",
+      "<link rel=prefetch> from cdn5.example",
+      "<link rel=stylesheet> from fonts.googleapis.com",
+      "<iframe src> from www.youtube.com",
+      "<embed src> from flash.example",
+      "<object data> from obj.example",
+      "<base href> from evil.example",
+      "<script src> from upper.example",
+    ]);
+    expect(foreignResourcesInHtml('<script src="http://offersheet.vercel.app/x.js"></script>', origin)).toEqual(["<script src> from offersheet.vercel.app"]); // another scheme is another origin
+    expect(foreignResourcesInHtml("<p>x</p>", "not an origin")).toEqual(["the page's own address not an origin couldn't be read"]);
   });
 });
 

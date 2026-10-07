@@ -58,26 +58,33 @@
  * Team points shown here are plain projected lineup points (Σ LV over the weeks team numbers count).
  * The engine's ROS(T) weights playoff weeks by the League model's playoff weight for trade math (LeagueModel.playoffWeight:
  * set automatically from my odds under my goal since the planner's reply to Checkpoint 7a, §6.1, else the fallback
- * config.lineups.playoffWeight); "Lineup cost" (MV_lose, §7), the free-agent pickups' gains and trade chips' gaps keep that
- * weighting, so the page calls them "lineup pts", never "ROS pts", says how playoff weeks count ("(playoffs count 2.0×)":
- * one decimal, as the Settings page prints it, playoffWeightLabel; ⚠️ not said when it prints "1.0"), and the explainer
- * spells it out with where the weight comes from (LeagueModel.playoffWeightAuto.basis), never that playoff weeks matter
- * more: ω can be below 1 (a point in a playoff week can move my odds less than one in a regular-season week).
+ * config.lineups.playoffWeight); "Lineup cost" (MV_lose, §7) and trade chips' gaps keep that weighting, so the page calls
+ * them "lineup pts", never "ROS pts", says how playoff weeks count ("(playoffs count 2.0×)": one decimal, as the Settings
+ * page prints it, playoffWeightLabel; ⚠️ not said when it prints "1.0"), and the explainer spells it out with where the
+ * weight comes from (LeagueModel.playoffWeightAuto.basis), never that playoff weeks matter more: ω can be below 1 (a point
+ * in a playoff week can move my odds less than one in a regular-season week). The free-agent pickups' gains don't (planner
+ * reply to Checkpoint 7b, Q6: "show one number, the unweighted one, in both places"): below.
  *
  * Free-agent pickups (§7 V*; planner reply to Checkpoint 3, model change 2; Phase 4 lead decision L3): each roster
  * lists the moves the free-agent optimizer makes for its team (TeamModel.faMoves, in order; never a kicker or a
- * D/ST), each with what it adds in the lineups the optimizer picks and keeps moves by, so every shown gain is at
- * least LeagueModel.lineupThresholds.faMinGain (config.freeAgentOptimizer.faMinGain × Σω ÷ Σω₀ under the automatic playoff
- * weight; ⚠️ but for a pickup that drops a less valuable player in a near-tie, which
- * can add up to config.lineups.dropNearTieWeekly a week less: optimizer.ts's header; the explainer says so) and the list
- * reads in the optimizer's order: with injuries and byes
- * simulated (FaMove.gainScen) when it judges in scenario lineups (scenarios ran and no starter limits bind:
- * optimizer.ts "Judging moves in scenario lineups"), else on projected (expected-value) lineups (gainEv). The title
- * gives the other number too when there is one (review of Phase 4: the page showed the expected-value gains, "+1
- * lineup pts" under a stated minimum of 3, and in an order the optimizer didn't pick them in, since a depth pickup
- * adds little to expected-value lineups). The roster's summary line, shown while it's collapsed, gives their count and
- * total. Lineup costs, trade chips and partners are all measured from the team after these pickups, and the
- * explainer says so, in the same lineups.
+ * D/ST), each with what it adds in the lineups the optimizer picks moves by: with injuries and byes simulated when it
+ * judges in scenario lineups (scenarios ran and no starter limits bind: optimizer.ts "Judging moves in scenario lineups"),
+ * else on projected (expected-value) lineups. Since the planner's reply to Checkpoint 7b, Q6, that gain counts each week
+ * once (FaMove.gainScenPlain, else gainEvPlain), lineup points with no "(playoffs count N×)": for a team's first pickup,
+ * the number Waiver upgrades shows for the same pickup and drop from the roster as it stands (waivers.ts), where until
+ * then the page showed the optimizer's own gain, playoff weeks weighted by ω ("+4.1" here, "+3.3" there for Parker's
+ * pickup). ⚠️ A later pickup's gain is counted after the pickups above it (the optimizer's order), where Waiver upgrades
+ * prices each pickup alone, so the two can differ (review of Q6): its title says "after the pickups above it" and the
+ * explainer says why (pickupsExplainText). The optimizer still
+ * picks and keeps moves by the weighted gain, at least LeagueModel.lineupThresholds.faMinGain (config.freeAgentOptimizer.
+ * faMinGain × Σω ÷ Σω₀; ⚠️ but for a pickup that drops a less valuable player in a near-tie, which can add up to
+ * config.lineups.dropNearTieWeekly a week less: optimizer.ts's header), so a gain shown can be under that bar, and the
+ * explainer names the bar's weighting (pickupsExplainText). The list reads in the optimizer's order. The title gives the
+ * other lineups' number too when there is one (review of Phase 4: the page showed the expected-value gains, "+1 lineup
+ * pts" under a stated minimum of 3, and in an order the optimizer didn't pick them in, since a depth pickup adds little to
+ * expected-value lineups). The roster's summary line, shown while it's collapsed, gives their count and total. Lineup
+ * costs, trade chips and partners are all measured from the team after these pickups, and the explainer says so, in the
+ * same lineups.
  *
  * Trade chips (§7; planner reply to Checkpoint 2, answer 2) replaced Phase 2's surplus chips: a chip
  * reads "C. McCaffrey: worth +33 to Team 2 · costs you 6.1 pts/wk" (his gap: what Team 2 would gain minus
@@ -440,11 +447,15 @@ export interface FreeAgentPickup {
   /** "add Floopy Freeman (RB, CAR), drop Tobias Thimble", or "add Floopy Freeman (RB, CAR) into an open spot". */
   move: string;
   /**
-   * "+4.6 lineup pts": what it adds over the rest of the season in the lineups the optimizer picks moves by (with
-   * injuries and byes simulated, or on projected lineups: the file header), weighted like lineup cost.
+   * "+4.6 lineup pts": what it adds to the starting lineup over the rest of the season in the lineups the optimizer picks
+   * moves by (with injuries and byes simulated, or on projected lineups: the file header), each week counted once (planner
+   * reply to Checkpoint 7b, Q6: Waiver upgrades' number for the same pickup), not weighted like lineup cost.
    */
   gain: string;
-  /** Hover: the move and its gain in words, saying which lineups, with the other lineups' gain too when computed. */
+  /**
+   * Hover: the move and its gain in words, saying which lineups, with the other lineups' gain too when computed, and, while
+   * lineup cost beside it weights the playoff weeks, that this one counts each week once.
+   */
   title: string;
 }
 
@@ -453,9 +464,7 @@ export interface FreeAgentPickups {
   items: FreeAgentPickup[];
   /** The roster's summary line (shown while it's collapsed): "2, +7.1 lineup pts" (how many, and what they add together). */
   summary: string;
-  /** "(playoffs count 1.25×)" while playoff weeks are counted, so the gains aren't read as plain ROS points; else null. */
-  weighting: string | null;
-  /** Everything in one line: "Free-agent pickups that would help: add …: +4.6 lineup pts; add …: +2.5 lineup pts (playoffs count 1.25×)". */
+  /** Everything in one line: "Free-agent pickups that would help: add …: +4.6 lineup pts; add …: +2.5 lineup pts". */
   text: string;
 }
 
@@ -1094,38 +1103,45 @@ function pickupsJudgedInScenarios(snapshot: LeagueSnapshot, model: LeagueModel):
 
 /**
  * A team's free-agent pickups (TeamModel.faMoves; the file header): each move in words ("add …, drop …" or "add …
- * into an open spot") and its gain in lineup points (playoff weeks weighted: `weighting` says so) in the lineups the
- * optimizer picks moves by: with injuries and byes simulated when `scenarioJudged` (FaMove.gainScen), else on projected
- * lineups (gainEv); its title names those lineups and adds the other gain when there is one. The summary adds up the
- * gains shown. Null when the team makes none. A move without a finite gain is left out (a move without a scenario
- * gain, when the optimizer judged in scenario lineups, shows its projected one, saying so).
+ * into an open spot") and its gain in lineup points, each week counted once (planner reply to Checkpoint 7b, Q6: the
+ * unweighted number, Waiver upgrades' for the same pickup and drop when it's the first), in the lineups the optimizer
+ * picks moves by: with injuries and byes simulated when `scenarioJudged` (FaMove.gainScenPlain), else on projected lineups
+ * (gainEvPlain); its title names those lineups, adds the other gain when there is one, and, while `playoffWeighted`
+ * (lineup cost and trade chips beside it count playoff weeks by ω), says this one counts each week once. ⚠️ Each gain is
+ * counted after the pickups above it (the optimizer's order), where Waiver upgrades prices each pickup alone from the
+ * roster as it stands, so a later pickup's title says "after the pickups above it" (review of Q6: a second pickup can read
+ * much less here than there). The summary adds up the gains shown. Null when the team makes none. A move without a
+ * finite gain is left out (a move without a scenario gain, when the optimizer judged in scenario lineups, shows its
+ * projected one, saying so).
  */
-function freeAgentPickups(snapshot: LeagueSnapshot, team: TeamModel | undefined, weighting: string | null, scenarioJudged: boolean): FreeAgentPickups | null {
+function freeAgentPickups(snapshot: LeagueSnapshot, team: TeamModel | undefined, scenarioJudged: boolean, playoffWeighted: boolean): FreeAgentPickups | null {
   const finite = (x: number | null): x is number => x !== null && Number.isFinite(x);
   const moves = (team?.faMoves ?? []).flatMap((m) => {
-    const scen = scenarioJudged && finite(m.gainScen);
-    const gain = scen ? m.gainScen : m.gainEv;
+    const scen = scenarioJudged && finite(m.gainScenPlain);
+    const gain = scen ? m.gainScenPlain : m.gainEvPlain;
     return finite(gain) ? [{ m, gain, scen }] : [];
   });
   if (!moves.length) return null;
-  const items = moves.map(({ m, gain, scen }) => {
+  const items = moves.map(({ m, gain, scen }, i) => {
     const addText = addedName(snapshot, m.add);
     const move = m.drop === null ? `add ${addText} into an open spot` : `add ${addText}, drop ${snapshot.players[m.drop]?.name ?? `Unknown player (${m.drop})`}`;
     const basis = scen ? "with injuries and byes simulated" : "on projected lineups";
-    const other = scen ? (finite(m.gainEv) ? ` (${fmtSigned(m.gainEv, 1)} on projected lineups)` : "") : finite(m.gainScen) ? ` (${fmtSigned(m.gainScen, 1)} with injuries and byes simulated)` : "";
+    const other = scen ? (finite(m.gainEvPlain) ? ` (${fmtSigned(m.gainEvPlain, 1)} on projected lineups)` : "") : finite(m.gainScenPlain) ? ` (${fmtSigned(m.gainScenPlain, 1)} with injuries and byes simulated)` : "";
+    // A later pickup's gain is counted after the ones listed above it (the optimizer's order: together they add what all of
+    // them add, the summary's total), where Waiver upgrades prices each pickup alone from the roster as it stands, so only
+    // the first can read the same there, with the same drop (review of Q6).
+    const after = i > 0 ? ", after the pickups above it" : "";
     return {
       move,
       gain: lineupPts(gain),
-      title: `${capitalize(move)}: ${lineupPts(gain)} ${basis}${other}${weighting ? `, ${weighting.slice(1, -1)}` : ""}.`,
+      title: `${capitalize(move)}: ${lineupPts(gain)} ${basis}${other}${playoffWeighted ? ", each week counted once" : ""}${after}.`,
     };
   });
   const total = moves.reduce((sum, x) => sum + x.gain, 0);
-  const tail = weighting ? ` ${weighting}` : "";
   return {
     items,
     summary: `${items.length}, ${lineupPts(total)}`,
-    weighting,
-    text: `${FREE_AGENT_PICKUPS_LABEL}: ${items.map((i) => `${i.move}: ${i.gain}`).join("; ")}${tail}`,
+    text: `${FREE_AGENT_PICKUPS_LABEL}: ${items.map((i) => `${i.move}: ${i.gain}`).join("; ")}`,
   };
 }
 
@@ -2331,6 +2347,11 @@ function buildExplain(c: ExplainContext): ExplainItem[] {
       : " There's no week-to-week matchup adjustment: it comes from Sleeper's weekly projections, which didn't load.";
   const why = playoffWeightWhy(c.playoffWeightBasis);
   const lineupPoints = `starting-lineup points over the rest of the season${c.playoffWeighted ? `, with playoff weeks counted ${c.playoffWeight}×${why ? ` (${why})` : ""}, so they don't add up exactly with ROS points` : ""}`;
+  // The pickups' gains count each week once (planner reply to Checkpoint 7b, Q6), so while lineup cost weights the playoff
+  // weeks the two are said apart; otherwise they're the same points.
+  const lineupUnits = c.playoffWeighted
+    ? `Lineup cost is in lineup points: ${lineupPoints}. The gains of each team's free-agent pickups (listed on its roster) are starting-lineup points with each week counted once, like Waiver upgrades.`
+    : `Lineup cost and the gains of each team's free-agent pickups (listed on its roster) are in lineup points: ${lineupPoints}.`;
   const items: ExplainItem[] = [
     {
       title: "Projected points",
@@ -2348,12 +2369,17 @@ function buildExplain(c: ExplainContext): ExplainItem[] {
         ? `Team numbers use each team's best lineup in ${model.scenarios} simulated runs of injuries and byes, so a bench player who fills in when a starter is hurt or on bye gets credit. A lineup built from average availability would miss that.`
         : "Team numbers use each team's best lineup from each week's average projections.",
     },
-    ...(seasonOver ? [] : [{ title: "Streaming", text: streamingExplainText(snapshot, !!model.faAllocation) }, { title: "Free-agent pickups", text: pickupsExplainText(snapshot, model, c.fallback?.kind === "curve") }]),
+    ...(seasonOver
+      ? []
+      : [
+          { title: "Streaming", text: streamingExplainText(snapshot, !!model.faAllocation) },
+          { title: "Free-agent pickups", text: pickupsExplainText(snapshot, model, c.fallback?.kind === "curve", c.playoffWeighted ? c.playoffWeight : null) },
+        ]),
     {
       title: "Rest-of-season (ROS) points",
       text:
         first !== undefined && last !== undefined
-          ? `ROS points count only the games left, from week ${first} through week ${last}${model.playoffWeeks.length ? " (the last playoff week), split into regular season and playoffs" : ""}. A player whose bye is done has one more game left than one whose bye is still coming. Lineup cost and the gains of each team's free-agent pickups (listed on its roster) are in lineup points: ${lineupPoints}. Lineup cost is how many his team would lose without him, after its free-agent pickups (it would pick up a free agent in his place when that helps); it's never negative.`
+          ? `ROS points count only the games left, from week ${first} through week ${last}${model.playoffWeeks.length ? " (the last playoff week), split into regular season and playoffs" : ""}. A player whose bye is done has one more game left than one whose bye is still coming. ${lineupUnits} Lineup cost is how many his team would lose without him, after its free-agent pickups (it would pick up a free agent in his place when that helps); it's never negative.`
           : "The season is over, so there are no games left to project.",
     },
   ];
@@ -2423,9 +2449,15 @@ function streamingExplainText(snapshot: LeagueSnapshot, allocated: boolean): str
  * off: review of track A2), that every team number trades are judged by starts from those rosters, the inactive teams'
  * rule where free agents are allocated (Phase 7a, A4; and, when the league's transactions can't tell, acceptance.
  * inactiveRuleBlock "missing" or "partnerUnknown", that no team is treated so this time: review of track AL, finding AL-1),
- * and the known approximation.
+ * and the known approximation. While the playoff weeks are weighted (`weighted`: ω as the page prints it, "2.0"; null when
+ * it prints "1.0" or no playoff week counts), the bar names its weighting and that the gains listed count each week once
+ * (planner reply to Checkpoint 7b, Q6), so a "+3.3" under "at least 3.5" reads right; ⚠️ "one can be under" only when ω
+ * is above 1 (ours: below 1 a listed gain is under the bar only if the pickup costs in the playoff weeks). ⚠️ And,
+ * whatever the weighting, that each gain is counted after the pickups above it, where Waiver upgrades counts each pickup
+ * alone (review of Q6: "one number in both places" holds for a team's first pickup only), when a team can make more than
+ * one.
  */
-function pickupsExplainText(snapshot: LeagueSnapshot, model: LeagueModel, curve = false): string {
+function pickupsExplainText(snapshot: LeagueSnapshot, model: LeagueModel, curve = false, weighted: string | null = null): string {
   const o = config.freeAgentOptimizer;
   const platform = snapshot.platform;
   // FantasyCalc's curve fallback (`curve`; the file header): the dynasty list is only a curve's calibration then, so the
@@ -2455,7 +2487,16 @@ function pickupsExplainText(snapshot: LeagueSnapshot, model: LeagueModel, curve 
   // where the engine applies them: without long-term values (the dynasty guard off), as roster legality does.
   const tie = config.lineups.dropNearTieWeekly;
   const nearTie = !guardOn && Number.isFinite(tie) && tie > 0 ? ` When the player it would drop has trade value and dropping a less valuable one instead costs at most ${fmtNum(tie)} points a week, the less valuable one goes (any player worth less than the best free agent no team is expected to pick up counts as worth that much), so a pickup can add a little less.` : "";
-  return `Each team is measured after the free-agent pickups that would help it, made one at a time: each time the add (dropping a player, or into an open roster spot) that adds ${most}, as long as it adds at least ${fmtNum(model.lineupThresholds?.faMinGain ?? o.faMinGain, 1)}, up to ${plural(o.faMaxMoves, "pickup")}.${nearTie} ${capitalize(positionPlural("K", platform))} and ${positionPlural("DEF", platform)} are never picked up (they're streamed or kept), nor is a position the team streams, and a player its starting lineup needs is never dropped.${dynasty} Lineup cost, trade chips and partners all start from those rosters, so a trade never gets credit for a pickup a team could make anyway.${shared}`;
+  // The bar is in the optimizer's points, playoff weeks counted by ω; the gains listed count each week once (planner reply
+  // to Checkpoint 7b, Q6).
+  const bar = fmtNum(model.lineupThresholds?.faMinGain ?? o.faMinGain, 1);
+  const barText = weighted ? `${bar} lineup points with playoff weeks counted ${weighted}×` : bar;
+  const omega = model.playoffWeight ?? config.lineups.playoffWeight;
+  const listed = weighted ? `; the gains listed count each week once, like Waiver upgrades${omega > 1 ? `, so one can be under ${bar}` : ""}` : "";
+  // Each gain is counted after the pickups above it (the optimizer's order), where Waiver upgrades prices each pickup alone
+  // from my roster as it stands, so after the first the two can differ (review of Q6).
+  const order = o.faMaxMoves > 1 ? " Each pickup's gain is counted after the pickups above it, so a later pickup of yours can show a different gain in Waiver upgrades, which counts each pickup alone, from your roster as it stands." : "";
+  return `Each team is measured after the free-agent pickups that would help it, made one at a time: each time the add (dropping a player, or into an open roster spot) that adds ${most}, as long as it adds at least ${barText}, up to ${plural(o.faMaxMoves, "pickup")}${listed}.${order}${nearTie} ${capitalize(positionPlural("K", platform))} and ${positionPlural("DEF", platform)} are never picked up (they're streamed or kept), nor is a position the team streams, and a player its starting lineup needs is never dropped.${dynasty} Lineup cost, trade chips and partners all start from those rosters, so a trade never gets credit for a pickup a team could make anyway.${shared}`;
 }
 
 /** How free agents are shared out (LeagueModel.faAllocation.basis), in words: the waiver order, FAAB, or the biggest gain first. */
@@ -2620,7 +2661,8 @@ export function buildLeagueView(input: LeagueViewInput): LeagueView {
         ? null
         : "No clear fits right now: no team has a trade chip who would start for you.";
 
-  // Rosters: mine first, then the table's order. Pickups show the gains the optimizer picked them by. An inactive team
+  // Rosters: mine first, then the table's order. Pickups show the gains the optimizer picked them by, each week counted
+  // once (planner reply to Checkpoint 7b, Q6). An inactive team
   // (A4: the engine's own rule on the same snapshot, acceptance.inactiveTeams; only where the model allocates free agents
   // and weeks are left) says it makes none.
   const scenarioJudged = pickupsJudgedInScenarios(snapshot, model);
@@ -2641,7 +2683,7 @@ export function buildLeagueView(input: LeagueViewInput): LeagueView {
       isMine: id === myTeamId,
       summary,
       streams: model.weeks.length ? streamsText(model, id, snapshot.platform) : null,
-      pickups: freeAgentPickups(snapshot, t, weighting, scenarioJudged),
+      pickups: freeAgentPickups(snapshot, t, scenarioJudged, playoffWeighted),
       inactive: inactive.has(id) ? inactiveText : null,
       players: [...active, ...ir, ...taxi],
     };

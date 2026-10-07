@@ -439,7 +439,8 @@ export interface TeamModel {
    * at most faMaxMoves of them; never a kicker or a team defense (streamed or kept), nor a position the team streams. Empty when no move qualifies. No free agent shows in two teams' moves
    * (except under league.ts faAllocation "independent", Checkpoint 4's rule for reports). Lineup costs and trade chips
    * are measured from the roster after these moves (V*), so a trade never gets credit for a pickup the team could make
-   * anyway. The League page lists them as "Free-agent pickups that would help".
+   * anyway. The League page lists them as "Free-agent pickups that would help", each with its gain counting every week once
+   * (FaMove.gainScenPlain, else gainEvPlain: planner reply to Checkpoint 7b, Q6).
    */
   faMoves: FaMove[];
   /**
@@ -507,10 +508,21 @@ export interface FaMove {
    * lineups and with scenario lineups (null without scenarios). The optimizer chooses by the scenario gain when
    * scenarios run (at least faMinGain, ⚠️ but for a near-tie's cheaper drop: optimizer.ts's header; the same lineups B is measured in, so no trade gets credit for a depth pickup
    * the team could make anyway; Phase 4 review), else by the EV gain. So with scenarios gainEv can be below
-   * faMinGain, even below 0, for a pickup that adds depth.
+   * faMinGain, even below 0, for a pickup that adds depth. Like every ROS(T), they weight the playoff weeks by ω
+   * (LeagueModel.playoffWeight).
    */
   gainEv: number;
   gainScen: number | null;
+  /**
+   * The same move's gains with each week team numbers count counted once (ω not applied: planner reply to Checkpoint 7b,
+   * Q6, "show one number, the unweighted one, in both places"; §6.1 keeps the points users see unweighted), expected-value
+   * and scenario lineups (null without scenarios): what the League page shows for the pickup, and what Waiver upgrades
+   * shows for the same pickup with the same drop from the roster as it stands (waivers.ts: each week once). The move itself
+   * is still the optimizer's, chosen by the weighted gains above, so a listed gain can be below faMinGain (or above the
+   * weighted one: a pickup that costs a little in the playoff weeks).
+   */
+  gainEvPlain: number;
+  gainScenPlain: number | null;
 }
 
 export interface SlotStrength {

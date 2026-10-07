@@ -1,6 +1,7 @@
 /**
- * GET /api/cron/snapshot: the daily pre-game snapshots (planner reply to Checkpoint 7a, §6.3; what a run does and where it
- * goes: src/server/snapshots.ts). vercel.json schedules it ("0 20 * * *", UTC: on the Hobby plan it runs once a day,
+ * GET /api/cron/snapshot: the daily pre-game snapshots (planner reply to Checkpoint 7a, §6.3), and since Checkpoint 7c the
+ * day's rest-of-season levels (planner reply to Checkpoint 7b, question 4; what a run does and where it goes:
+ * src/server/snapshots.ts). vercel.json schedules it ("0 20 * * *", UTC: on the Hobby plan it runs once a day,
  * sometime within that hour, and on production deployments only); route.ts wraps it in withRoute (another site's request
  * refused, the per-IP "cron" rate limit, the 110 s deadline, the log; never charged to the daily work budget).
  *
@@ -11,9 +12,10 @@
  *   revealed (not even whether a secret is set). A missing secret is logged once per process ("cron_secret_missing"); a
  *   wrong header isn't logged (someone guessing; the rate limit stops them).
  * - Then the store (snapshotStoreFor: Upstash on Vercel, the local archives in data-local/ elsewhere; none: 503
- *   { status: "no_store", reason }), and the run: 200 with what it did (statuses, weeks, days and format keys: public
- *   facts only), or { status: "locked" } when another run holds the lock (a duplicate delivery: 200, nothing done). A store
- *   that fails before the run starts (the lock) answers 503 { status: "failed", errorName }.
+ *   { status: "no_store", reason }), and the run: 200 with what it did (statuses, weeks, days and format keys, and the
+ *   levels' status, weeks and player count: public facts only), or { status: "locked" } when another run holds the lock (a
+ *   duplicate delivery: 200, nothing done). A store that fails before the run starts (the lock) answers 503
+ *   { status: "failed", errorName }.
  * - One log line a run ("snapshot_run", its status as the code, and its time), so `npm run beta:log -- --live --env
  *   production` shows the cron ran.
  */

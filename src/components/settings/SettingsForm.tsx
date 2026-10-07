@@ -4,8 +4,9 @@
  * positions"): lays out the view model (settingsView.ts), mobile-first (375 px): the league's card (saved or
  * defaults, Reset to defaults, and the Trade Finder's minimum chance when the saved one isn't the default), then your
  * lineup (streamed positions; the playoff weight, read-only since the planner's reply to Checkpoint 7a, §6.1), how trade
- * ideas are scored (Phase 4c: What does your league reward?, each option with its line of help; Win now ↔ Future in dynasty and keeper leagues or
- * Protect my trade value in redraft ones, with a note while the league's values are our own estimates), what a trade
+ * ideas are scored (Phase 4c: What does your league reward?, each option with its line of help; Win now ↔ Future in dynasty and keeper leagues,
+ * followed by why there's no Protect my trade value there, or Protect my trade value in redraft ones, with a note while the
+ * league's values are our own estimates), what a trade
  * idea can be (players per side, what else to include), players (untouchables, must-include) and positions (target,
  * avoid). Every word comes from the view model; each change is one SettingsEdit that the page saves at once
  * (there's no Save button).
@@ -283,7 +284,8 @@ function LineupCard({ view, onEdit }: EditProps) {
 /**
  * How trade ideas are scored for me (Phase 4c): What does your league reward? (planner reply to Checkpoint 4b, change 8; 7a, 5.2), then Win now
  * ↔ Future (dynasty and keeper leagues) or Protect my trade value (redraft), each with its note while the league's values
- * are our own estimates.
+ * are our own estimates. In dynasty and keeper leagues a line after Win now ↔ Future says why Protect my trade value isn't
+ * there (planner reply to Checkpoint 7b, Q3: SettingsView.tradeValueNote).
  */
 function ScoringCard({ view, onEdit }: EditProps) {
   return (
@@ -298,6 +300,7 @@ function ScoringCard({ view, onEdit }: EditProps) {
           </div>
         </Group>
         {view.lambda ? <LambdaGroup lambda={view.lambda} onEdit={onEdit} /> : null}
+        {view.tradeValueNote ? <p className="text-sm leading-relaxed text-muted">{view.tradeValueNote}</p> : null}
         {view.protectValue ? (
           <Group legend="Protect my trade value" help={view.protectValue.help}>
             <Segmented name="protect-value" choices={view.protectValue.choices} onChange={(value) => onEdit({ kind: "protectValue", value })} />

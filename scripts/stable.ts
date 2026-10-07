@@ -237,6 +237,11 @@ export interface TagInfo {
   commit: string;
   /** Its commit time (Unix seconds). */
   time: number;
+  /**
+   * An annotated tag (`git tag -a`: a tag object), not a lightweight one; parseTagRefs always sets it. npm run prod:deploy
+   * deploys only an annotated checkpoint tag (Checkpoint 7c); the stable copy takes either.
+   */
+  annotated?: boolean;
 }
 
 /** The for-each-ref format parseTagRefs reads: name, type, object, commit time, then the same peeled (annotated tags). */
@@ -251,7 +256,7 @@ export function parseTagRefs(text: string): TagInfo[] {
     const commit = type === "commit" ? object : peeledType === "commit" ? peeled : undefined;
     const time = Number(type === "commit" ? date : peeledDate);
     if (!name || !commit || !/^[0-9a-f]{40,64}$/.test(commit) || !Number.isFinite(time)) continue;
-    out.push({ name, commit, time });
+    out.push({ name, commit, time, annotated: type === "tag" });
   }
   return out;
 }
