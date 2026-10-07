@@ -11,9 +11,10 @@
  *   canonical or og:url set in the root layout would make every page claim the home page's address.
  * - The contact line of the privacy policy, the terms and the feedback page: CONTACT_EMAIL (planner reply to Checkpoint
  *   7a, 3: Offer Sheet's own address; the pages name no person), shown by src/components/ContactLine.tsx.
- * - POLICY_FEATURES: which features those three pages describe (Part B's browser reading and anonymous feedback, and
- *   Checkpoint 7b's FantasyCalc values never shown, public-data archive and feedback studied in totals only); each page's
- *   words follow them, so the pages say what the app does today, whichever have landed.
+ * - POLICY_FEATURES: which features those three pages describe (Part B's browser reading and anonymous feedback,
+ *   Checkpoint 7b's FantasyCalc values never shown, public-data archive and feedback studied in totals only, and Checkpoint
+ *   7c's daily rest-of-season levels, prize shares in the anonymous copy and "Helps them"); each page's words follow them,
+ *   so the pages say what the app does today, whichever have landed.
  */
 
 export const SITE_NAME = "Offer Sheet";
@@ -71,6 +72,26 @@ export interface PolicyFeatures {
    * (`npm run feedback:pull`, which saves the copies, is replaced), and the privacy policy says so.
    */
   feedbackTotalsOnly: boolean;
+  /**
+   * Checkpoint 7c (planner reply to Checkpoint 7b, question 4 and section 3: "Daily levels (question 4): extend the archive
+   * sentence to cover them"): the snapshot cron also keeps each UTC day's rest-of-season levels, from Sleeper's own
+   * projections in its standard scoring formats, never a league's (src/server/projectionLevels.ts, saved under `snap:lvl:`),
+   * and the privacy policy's archive sentence names them. Its words show only with publicArchive (the sentence they extend).
+   */
+  dailyLevels: boolean;
+  /**
+   * Checkpoint 7c (section 3: "Prizes (section 6): the anonymous copy holds the reward setting as shares only. Replace 'how
+   * you weigh the title against the playoffs' with 'how your league splits its prizes (as shares, never amounts).'"): the
+   * anonymous copy holds the league's prize split as whole-percent shares, which section 6 adds to the copy's server schema
+   * (src/server/feedbackSink.ts). Its words show only with anonymousFeedback.
+   */
+  prizeShares: boolean;
+  /**
+   * Checkpoint 7c (section 3: "Helps them (section 7): when it ships, add it to the terms' list of estimates."): the Trade
+   * Finder's "Helps both" sort, with the "Helps them" score on the cards, which section 7 adds (src/lib/tradeView.ts
+   * SORT_OPTIONS); the terms then list "Helps them" among the estimates.
+   */
+  helpsThem: boolean;
 }
 
 /**
@@ -83,6 +104,13 @@ export interface PolicyFeatures {
  * on. publicArchive and feedbackTotalsOnly went on on 2026-10-05 with the snapshot cron and `npm run feedback:report`,
  * and fantasyCalcHidden the same day, once no page showed a FantasyCalc value or compared values by them
  * (src/lib/fantasyCalcHidden.test.ts guards the words, pages.test.ts the code that showed them).
+ *
+ * Checkpoint 7c's three (planner reply to Checkpoint 7b, section 3) follow the same rule, because sections 6 and 7 may ship
+ * after launch: dailyLevels is on (the cron saves the day's levels since Checkpoint 7c's first wave); prizeShares goes on
+ * with section 6, once the anonymous copy's server schema holds the prize shares, and helpsThem with section 7, once the
+ * Trade Finder has its "Helps both" sort, each turned on by the change that builds it. The pages go public at launch
+ * (October 13, 2026, their LAST_UPDATED), so a switch turned on before then keeps that date; one turned on after launch
+ * moves its page's date to that day (prizeShares the privacy policy's, helpsThem the terms').
  */
 export const POLICY_FEATURES: Readonly<PolicyFeatures> = {
   browserReads: true,
@@ -90,6 +118,9 @@ export const POLICY_FEATURES: Readonly<PolicyFeatures> = {
   fantasyCalcHidden: true,
   publicArchive: true,
   feedbackTotalsOnly: true,
+  dailyLevels: true,
+  prizeShares: false,
+  helpsThem: false,
 };
 
 /** The address the site falls back to off Vercel: the stable copy's (Part A, `npm run stable`, port 3000). */

@@ -1,10 +1,44 @@
-# Privacy policy and terms of use: final text for Checkpoint 7b
+# Privacy policy and terms of use: final text for Checkpoint 7c
 
-Written for the planner (who can't open the app) and Parker. Below is the full text of `/privacy`, `/terms`, `/feedback` and the footer, exactly as the app renders them today, generated from the pages themselves on 2026-10-07 (a throwaway script renders the components to text). At Checkpoint 7a this file held the first drafts; this is the shortened text the planner asked for in the reply to Checkpoint 7a (sections 3, 4 and 5.4), after a review against the code.
+Written for the planner (who can't open the app) and Parker. Below is the full text of `/privacy`, `/terms`, `/feedback` and the footer, exactly as the app renders them today, generated from the pages themselves on 2026-10-07 (a throwaway script renders the components to text). The planner read the Checkpoint 7b text and approved it with small edits (reply to Checkpoint 7b, section 3); this is the text with those edits. Checkpoint 7b's own notes follow them.
 
 **Not legal advice.** Parker should read both before launch.
 
-## What changed at Checkpoint 7b
+## What changed at Checkpoint 7c
+
+The planner's edits (reply to Checkpoint 7b, section 3), each quoted as the pages render it. Three of them rest on this checkpoint's own work, so each sits behind a switch, as Checkpoint 7b's sentences did: the daily levels (question 4), and the prizes and "Helps them" (sections 6 and 7, which don't block launch: either may ship in the first update after it). Each shows only once its code is in the app, and `src/app/pages.test.ts` fails, both ways, while a switch and the code disagree. A test also turns each switch on alone and checks that it changes only its own words.
+
+- **Your rights** (privacy, "Children, changes and contact", just before the contact line; always shown): "Email us to ask what we hold about you or to have it deleted."
+- **Daily levels** (privacy, "Our server's copies"; question 4; switch `dailyLevels`, **on**: the daily snapshot cron saves them): the archive sentence now reads: "We also keep public data, Sleeper's pre-game projections, its daily rest-of-season projections in standard scoring formats, and FantasyCalc's daily lists for the league formats in use, up to 2 seasons, to measure how accurate our numbers are. It's never shown and says nothing about any league or person beyond which formats were in use each day." It said: "We also keep public data, Sleeper's pre-game projections and FantasyCalc's daily lists for the league formats in use, up to 2 seasons, to measure how accurate our numbers are. It's never shown and says nothing about any league or person beyond which formats were in use each day." The levels are Sleeper's own rest-of-season projections in its standard, half-PPR and PPR scoring, one record a day: never a league's scoring, our blended projections or FantasyCalc's values, and nothing about the formats in use. They're kept like the rest of the archive, two seasons from their day, so the second sentence holds as it was.
+- **Prizes** (privacy, "Anonymous feedback"; section 6; switch `prizeShares`, **off** until the anonymous copy holds the league's prize split): "how you weigh the title against the playoffs" becomes "how your league splits its prizes (as shares, never amounts)". With the switch on, the sentence reads: "It holds what you pressed and which version you sent; the platform, season and week; your league's format (teams, league type, main scoring settings, lineup and playoff spots) and how your league splits its prizes (as shares, never amounts); the players as ID numbers with positions; Offer Sheet's numbers for the trade and what they came from; a random code that links later changes to the same record; and the date it arrived."
+- **Helps them** (terms, "Estimates, not promises"; section 7; switch `helpsThem`, **off** until the Trade Finder has its "Helps both" sort): with the switch on, the list of estimates reads: "The numbers Offer Sheet works out are estimates: projections, playoff and title odds, “Helps you”, “Helps them”, “Chance they accept” and “Overall”." Today it says: "The numbers Offer Sheet works out are estimates: projections, playoff and title odds, “Helps you”, “Chance they accept” and “Overall”."
+- **Export** (the feedback page; question 5, which came with the export change): "“Export feedback”, also on the Settings page, downloads what you've saved as a file, notes included. It leaves out the trade-value comparisons behind Offer Sheet's estimates." It said: "“Export feedback”, also on the Settings page, downloads everything you've saved, notes included, as a file." For a browser that doesn't share copies: "“Export feedback” on the Settings page downloads what you've saved as a file, notes included. It leaves out the trade-value comparisons behind Offer Sheet's estimates."
+- **Word cap: 1,300** (section 3). The detailed part is 1,271 words as the app shows it today, and 1,273 with every switch on, the most it can be (1,249 at Checkpoint 7b). The rights line adds 14 words, the levels 8, and the prize words 2 more than the words they replace. The terms aren't capped. The short version is 288 words, as before.
+- **"Last updated"** stays October 13, 2026 on both pages: they go public at launch, so edits made before it keep the launch date. If section 6 or 7 lands after launch, turning its switch on moves its page's date to that day (the privacy policy's for the prizes, the terms' for "Helps them").
+
+Switches on today (`src/lib/site.ts` POLICY_FEATURES): `browserReads`, `anonymousFeedback`, `fantasyCalcHidden`, `publicArchive`, `feedbackTotalsOnly`, `dailyLevels`. Off until their code lands: `prizeShares`, `helpsThem`.
+
+## Choices made at Checkpoint 7c (for the planner)
+
+- **The levels' words.** "its daily rest-of-season projections in standard scoring formats": "its" is Sleeper's, and "standard scoring formats" (question 4's words) sets them apart from "the league formats in use" that FantasyCalc's lists follow. Not "each player's": a day's record holds the offense players Sleeper projects.
+- **Your rights, in practice.** We can find only what someone points us to: mail from their address, and their anonymous copies, by the random codes in a feedback file they export. Everything else is filed under codes made with the server's secret, which no one reads, held in a server's memory for minutes, or names no one, and goes on its own schedule. ⚠️ No tool deletes someone's copies yet: it would be done by hand, in Upstash's console.
+- **Switches, not edits in the features' own commits.** Sections 6 and 7 don't block launch, so their words wait for their code instead of shipping with this text. Their switches are tied to the code their words rest on, whatever names it ends up with: any prize field in the anonymous copy's server schema, at any depth (each must take whole percents, never amounts: the test checks that it accepts 44 / 36 / 20 and refuses $2,000 / $1,600 / $900), and a "Helps both" sort or "Helps them" anywhere the app's pages are worded (with the score shown).
+
+## Checks before launch
+
+- **FantasyCalc's condition (5.4): done.** No value number or comparison is left in the app, and the "never shown" sentences are on (`POLICY_FEATURES.fantasyCalcHidden`, since 2026-10-05).
+- **Upstash** is in US East (us-east-1) with backups off: done (Parker checked backups in Upstash's console on 2026-10-05; `reports/beta-infrastructure.md`).
+- **The iPhone sentence** is checked on a real iPhone if Parker has one; until then it says "may".
+- **"Last updated": done.** `PRIVACY_LAST_UPDATED` and `TERMS_LAST_UPDATED` are October 13, 2026, the launch day Parker set on 2026-10-07. Checkpoint 7c's edits come before launch, so they keep it.
+- **"Up to 12 months": done.** Each day's feedback list goes 365 days after that day began (`src/server/feedbackSink.ts` feedbackDayTtlMs), so no copy is kept longer than 12 months; `src/app/pages.test.ts` checks the rule.
+- **"Up to 2 seasons" for the archive: done**, the daily levels included: a day's levels go two seasons after that day began, like its FantasyCalc lists (`src/server/snapshots.ts` dayRetainMs). ⚠️ Local copies: `npm run snapshot:pull` deletes the FantasyCalc lists of days past the store's rule, since they show which formats were in use; the pre-game projections and the levels it copies to Parker's computer aren't deleted. They're public data about players and name no league, format or person.
+- **Old raw feedback downloads** (`data-local/feedback-server/`, from `feedback:pull`): there were none on this PC on 2026-10-07. `npm run feedback:report` says so if any turn up, and they should be deleted.
+- **Vercel's own cookies:** the cookie line covers Offer Sheet's own code. Vercel sets cookies of its own on protected previews (`_vercel_jwt`), and when a firewall rule challenges a visitor (`_vcrcs`). The launch's firewall rules never challenge (a rate limit on `/api/*` that answers 429, and rules that deny, which set no cookie), so the line holds.
+- **CLAUDE.md: done.** §14 gives the switches, the rights line and the 1,300-word cap, §16 the cap, and §19 the archive's daily levels.
+
+## Checkpoint 7b's notes (approved)
+
+### What changed at Checkpoint 7b
 
 - **Privacy, shorter.** "The short version" stays first and gains the cookie line: "Offer Sheet sets no cookies, except one encrypted cookie if you connect a private ESPN league." (Checked in the code: only the ESPN cookie session's connect and forget requests set a cookie, and nothing in the browser writes one.) Cut: the browser database's name, tabs' session codes and messages, the old storage keys and the migration paragraph, how trade-page addresses carry IDs, how the server reuses a saved league it was sent, and the rate limits' windows and counts, now "per-visitor limits, counted under codes made from your IP address with a secret key, deleted within a day". Sleeper usernames moved into "Reading your league", settings and feedback into "What stays in your browser"; the affiliation sentence is left to the footer, which every page has.
 - **Feedback:** "We keep anonymous feedback for up to 12 months, then delete it." The monthly-download promise and its mechanics are gone, and so is the tool they described: `npm run feedback:report` replaced `npm run feedback:pull`; it reads the store and saves totals only. So the page also says: "When we study it, we keep only totals and the numbers our estimates learn from it, never individual copies."
@@ -14,9 +48,9 @@ Written for the planner (who can't open the app) and Parker. Below is the full t
 - **Contact:** offersheet.app@gmail.com on the privacy, terms and feedback pages. No person's name on any page, in the metadata, the footer, the manifest or the sharing image (a test checks them).
 - **FantasyCalc links** (every one, the footer's included): `rel="noopener"` and `referrerpolicy="origin"`, no `noreferrer` or `nofollow` (React writes the attribute as `referrerPolicy`; HTML attribute names aren't case-sensitive). The footer's is a plain link in the root layout's server-rendered footer, so it's in every page's HTML.
 
-## After the review of this text
+### After the review of Checkpoint 7b's text
 
-- **Nothing the code doesn't do yet.** Three sentences rested on Checkpoint 7b work that wasn't built when they were written. Each shows only while that work is in the code, like browser reading and anonymous feedback before them, and `src/app/pages.test.ts` fails, both ways, while a sentence and the code disagree. All three are now **on**, so every sentence quoted below is on the pages:
+- **Nothing the code doesn't do yet.** Three sentences rested on Checkpoint 7b work that wasn't built when they were written. Each shows only while that work is in the code, like browser reading and anonymous feedback before them, and `src/app/pages.test.ts` fails, both ways, while a sentence and the code disagree. All three are **on**:
   - **FantasyCalc's values never shown** (5.4): **on** since 2026-10-05. No trade card, reason, pitch, Analyzer Details, League page or How to read shows a FantasyCalc value or compares values by them (`src/lib/fantasyCalcHidden.test.ts` guards the words, the pages test the code that showed them), so both "never shown" sentences (below) appear.
   - **The public-data archive** (4.4, 6.3): **on**. The snapshot cron is in `vercel.json`, with its route.
   - **Feedback studied in totals only** (4.3): **on**. `npm run feedback:pull` is gone.
@@ -24,37 +58,25 @@ Written for the planner (who can't open the app) and Parker. Below is the full t
 - **What the server holds in memory.** "It never keeps the league data your browser sends it" was false. When the League page sends a saved league, the server keeps the numbers it works out from it (ESPN's own projections included) in its memory until 15 minutes after the league was read. Now: "It never adds the league data your browser sends it to those copies." and "Our server doesn't save them, but holds the numbers it works out from them in memory for up to 15 minutes." The page again says when memory copies go: "Anything our servers hold in memory stops being used once it's due, is deleted soon after while the server keeps working, and is gone when it shuts down."
 - **ESPN cookies.** The section's four bullets are pinned by tests, with the 12 hours read from the session's own setting. The caveat for a browser that restores its session is back ("even if your browser restores its session, it stops working after 12 hours"), and the repeat of the short version's "sends them only to ESPN" is gone.
 - **Email.** The pages publish a Gmail address, so "Who handles the data" says: "Google keeps the emails you send us (your address and message) in Offer Sheet's Gmail inbox, used only to answer you. Ask, and we'll delete them."
-- **The archive's words.** It now says "We also keep public data", not "public data we fetch anyway": when no League page has fetched a week's projections or a day's list, the cron fetches it itself.
+- **The archive's words.** It says "We also keep public data", not "public data we fetch anyway": when no League page has fetched a week's projections or a day's list, the cron fetches it itself.
 
-## After the review of Phase 7b
+### After the review of Phase 7b
 
 - **Which formats were in use.** The cron saves a FantasyCalc list only for the formats League pages read that day or the day before, so the archive shows which league formats were in use each day (a rare format can point to one league). The page said the archive "isn't about any league or person" and, under "Daily totals", that formats were noted "for 3 days", while the code kept a day's entry in a season-long index whose expiry every later save set again: up to about 3 years. Now each day's lists and the day's index go two seasons after that day began (`src/server/snapshots.ts` dayRetainMs), `npm run snapshot:pull` deletes its local copies by the same rule, and the page says: "We also keep public data, Sleeper's pre-game projections and FantasyCalc's daily lists for the league formats in use, up to 2 seasons, to measure how accurate our numbers are. It's never shown and says nothing about any league or person beyond which formats were in use each day." The daily totals no longer name the formats (the builds' own 3-day note is the same fact for less time).
 - **Forget my credentials.** An import read with ESPN cookies is signed too, and the League page sends it back while it's fresh, so the model route keeps what it works out from it (ESPN's league-scored projections included) in memory until 15 minutes after the import. The line now reads: "league data our server copied or worked out with it is deleted within about 15 minutes (older weeks' transactions within 6 hours)" (it said 10 minutes).
 - **Logs.** The error log also keeps a few routine events (the snapshot cron logs every run), so: "Our own log keeps errors and a few routine events, where and when …", not "only what went wrong".
 
-## Choices made in this pass (for the planner)
+### Choices made at Checkpoint 7b
 
-- **About 1,250 words, not 1,000.** The detailed part (everything after the short version) is 1,249 words as the app shows it today, with every feature on (1,249 with every flag on, the most it can be). It was 3,042 at Checkpoint 7a and 1,286 after the first pass. The review cut the repeats of the short version (the limits sentence, the cookie sentence), the log's list of fields, the Export line and two re-read details. It added what the review found missing: what the server holds in memory and when it goes, the cookie after a restored session, and the Gmail inbox. What's left is what the reply asked to keep (what's collected, where it goes, how long, how to delete it, cookies, logs, providers, children, contact) plus the facts the reply added. The next cuts would drop facts, such as the list of what an anonymous copy holds. The review of Phase 7b's three corrections (above) fit by dropping the daily totals' formats sentence and a few words. A test holds the detailed part at 1,250 words, so making it longer needs your OK. The short version is 288 words.
-- **The anonymous copy's goal setting** is described by what it does ("how you weigh the title against the playoffs"), not by its label, since Checkpoint 7b renames the setting ("What does your league reward?"). Its scoring fields read "main scoring settings" (points per catch, per passing touchdown and the tight-end premium).
+- **About 1,250 words, not 1,000.** The detailed part (everything after the short version) was 1,249 words with every feature on. It was 3,042 at Checkpoint 7a and 1,286 after the first pass. The review cut the repeats of the short version (the limits sentence, the cookie sentence), the log's list of fields, the Export line and two re-read details. It added what the review found missing: what the server holds in memory and when it goes, the cookie after a restored session, and the Gmail inbox. What's left is what the reply asked to keep (what's collected, where it goes, how long, how to delete it, cookies, logs, providers, children, contact) plus the facts the reply added. The next cuts would drop facts, such as the list of what an anonymous copy holds. The review of Phase 7b's three corrections (above) fit by dropping the daily totals' formats sentence and a few words. A test held the detailed part at 1,250 words (1,300 since Checkpoint 7c). The short version was 288 words.
+- **The anonymous copy's goal setting** is described by what it does ("how you weigh the title against the playoffs"), not by its label, since Checkpoint 7b renames the setting ("What does your league reward?"). Its scoring fields read "main scoring settings" (points per catch, per passing touchdown and the tight-end premium). (Checkpoint 7c: "how your league splits its prizes (as shares, never amounts)" once the copy holds the prize split, above.)
 - **"About 13 months"** for the daily totals: the counters are kept 400 days after their day, a little over 13 months.
 - **"Your part"** is a list of rules ("When you use it, you agree to these rules:"), so the planner's "don't use Offer Sheet to collect information about other people" fits as written; the other "not …" items now read "don't …".
 
-## The "never shown" words (on since 2026-10-05)
+### The "never shown" words (on since 2026-10-05)
 
 - Privacy, "Other sources": "…and trade values from FantasyCalc, which Offer Sheet uses in its own numbers but never shows."
 - Terms, "Where the data comes from": "…trade values from FantasyCalc (Offer Sheet uses them in its own numbers and doesn't show them), …"
-
-## Checks before launch (Checkpoint 7b's go/no-go list)
-
-- **FantasyCalc's condition (5.4): done.** No value number or comparison is left in the app, and the "never shown" sentences are on (`POLICY_FEATURES.fantasyCalcHidden`, since 2026-10-05; both "Last updated" dates moved that day).
-- **Upstash** is in US East (us-east-1) with backups off: done (Parker checked backups in Upstash's console on 2026-10-05; `reports/beta-infrastructure.md`).
-- **The iPhone sentence** is checked on a real iPhone if Parker has one; until then it says "may".
-- **"Last updated": done.** `PRIVACY_LAST_UPDATED` and `TERMS_LAST_UPDATED` are October 13, 2026, the launch day Parker set on 2026-10-07.
-- **"Up to 12 months": done.** Each day's feedback list now goes 365 days after that day began (`src/server/feedbackSink.ts` feedbackDayTtlMs), so no copy is kept longer than 12 months.
-- **"Up to 2 seasons" for the archive: done** (review of Phase 7b, above). Its local copies follow it only while `npm run snapshot:pull` runs now and then: each run deletes the lists of days past the store's rule.
-- **Old raw feedback downloads** (`data-local/feedback-server/`, from `feedback:pull`): there were none on this PC on 2026-10-07. `npm run feedback:report` says so if any turn up, and they should be deleted.
-- **Vercel's own cookies:** the cookie line covers Offer Sheet's own code. Vercel sets cookies of its own on protected previews (`_vercel_jwt`), and when a firewall rule challenges a visitor (`_vcrcs`). The launch's two firewall rules never challenge: a rate limit on `/api/*` that answers 429, and a deny on the image optimizer's two paths (`/_next/image`, `/_vercel/image`), so the line holds.
-- **CLAUDE.md: done.** §14 gives the pages' contact line ("Contact: offersheet.app@gmail.com"), and §11 and §16 describe `feedback:report`, which replaced `feedback:pull`.
 
 ## Where each statement comes from
 
@@ -102,7 +124,7 @@ Our server keeps copies of what it reads itself, then deletes them: league data 
 
 The copies are kept at Upstash under codes made with a secret key, so league IDs and usernames never appear there, and encrypted, so Upstash can't read them. A private ESPN league's copies are also filed under a fingerprint of your cookies, so typing its ID isn't enough to see them, and ESPN member IDs (SWIDs) are replaced with one-way pseudonyms. Anything our servers hold in memory stops being used once it's due, is deleted soon after while the server keeps working, and is gone when it shuts down.
 
-We also keep public data, Sleeper's pre-game projections and FantasyCalc's daily lists for the league formats in use, up to 2 seasons, to measure how accurate our numbers are. It's never shown and says nothing about any league or person beyond which formats were in use each day.
+We also keep public data, Sleeper's pre-game projections, its daily rest-of-season projections in standard scoring formats, and FantasyCalc's daily lists for the league formats in use, up to 2 seasons, to measure how accurate our numbers are. It's never shown and says nothing about any league or person beyond which formats were in use each day.
 
 ### Daily totals
 
@@ -144,6 +166,8 @@ Safari may delete what Offer Sheet saved if you use Safari for 7 days without vi
 ### Children, changes and contact
 
 Offer Sheet isn't directed at children under 13. If this policy changes, we'll update it here and change the date above.
+
+Email us to ask what we hold about you or to have it deleted.
 
 Contact: offersheet.app@gmail.com
 
@@ -211,7 +235,7 @@ Each trade idea on the Trade Finder and the Trade Analyzer has buttons for what 
 - Unless you turn it off, an anonymous copy also goes to Offer Sheet, to help improve it: what you pressed, the players as ID numbers, your league's format and Offer Sheet's numbers for the trade. Never your league's ID, names or usernames.
 - A note you type with a report stays in this browser. It's never sent.
 - To stop sending copies, turn off “Share anonymous feedback” on the Settings page. That choice is saved in this browser.
-- “Export feedback”, also on the Settings page, downloads everything you've saved, notes included, as a file.
+- “Export feedback”, also on the Settings page, downloads what you've saved as a file, notes included. It leaves out the trade-value comparisons behind Offer Sheet's estimates.
 
 The privacy policy lists what's sent and how long it's kept.
 

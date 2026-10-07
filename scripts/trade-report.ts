@@ -86,6 +86,16 @@
  *    review of track R, R-1), the headline's jump at the week's first kickoff (League models 1 ms either side of it:
  *    kickoffJump), and the weeks where every team's pickups move my win chance most (pickupWeeks: both teams' projected
  *    points with and without their pickups, and the pickups).
+ * 9. Open roster spots (Phase 7c; planner reply to Checkpoint 7b, section 5, and its "Checkpoint 7c must include": "Parker's
+ *    trades that leave him an open roster spot, with the pickup before and after the change"; openSpotSection): Checkpoint
+ *    7b's rule (the free agent who most improves the EV lineup at any position, which V*(after) may drop: evaluate.ts
+ *    TradeContextOptions.openSpotFill "bestAny", a report switch the app never sets) on its own context and its own search;
+ *    the trades that open my roster spot on either list (its cards, this search's) and among this search's finalists (up to
+ *    OPEN_SPOT_FINALISTS more), each with my pickup and the three numbers under each rule (the Analyzer's, on the cards'
+ *    seasons); every exact trade of this search that opens my spot, grouped by what the spot takes now and my pickup under
+ *    each rule (exact evaluation on each context, no simulation); the shown cards whose partner gets a spot, with its pickup,
+ *    its lineup change and the chance it accepts under each rule (the rule is the partner's too); and every side's fills in
+ *    the exact trades, with V*(after) run again without the keep set (how many fills it would drop).
  *
  * Phase 7b (planner reply to Checkpoint 7a, §6.1): the settings line names the playoff weeks' weight ω every ROS(T) of the
  * search reads, set automatically from my odds under my goal (league.ts step 5c; league-report's playoffWeightSummary: the
@@ -111,7 +121,7 @@ import { acceptance, betaNeed, type AcceptanceLeague, type PartnerProfile, type 
 import { HELPS_AT_GAIN, goalWeights, helpsScaleNotes, marketSanity, marketWeekly, protectValueWeight, tradePackage, type HelpsScale } from "@/engine/benefit";
 import { blendRecords, type BlendRecord } from "@/engine/blend";
 import { config } from "@/engine/config";
-import { analyzeTrade, buildTradeContext, helpsScaleOf, proposalKey, tradeInternals, type Screened, type TradeContext, type TradeInternals } from "@/engine/evaluate";
+import { analyzeTrade, buildTradeContext, evaluateExact, helpsScaleOf, proposalKey, tradeInternals, tradeSides, type Screened, type TradeContext, type TradeInternals } from "@/engine/evaluate";
 import { injuryTags, tagContextOf } from "@/engine/explain";
 import type { MarketInputs, ModelInputs } from "@/engine/inputs";
 import { buildLeagueModel, firstKickoff, playoffWeightFrom } from "@/engine/league";
@@ -123,7 +133,7 @@ import { atMostWaiverCredit, buildPools, leanCompanions, partnerCandidates, runR
 import { buildSimSetup, pickupSeasonModel } from "@/engine/season";
 import { GOALS, PROTECT_VALUE_LEVELS, defaultTradeSettings, normalizeTradeSettings, type Goal, type TradeSettings } from "@/engine/settings";
 import { simNormals } from "@/engine/sim";
-import type { InjuryTag, TradeAsset, TradeDetail, TradeEvaluation, TradeProposal, TradeSearchResult } from "@/engine/tradeModel";
+import type { InjuryTag, OpenSpot, TradeAsset, TradeDetail, TradeEvaluation, TradeEvaluationCore, TradeProposal, TradeSearchResult } from "@/engine/tradeModel";
 import { waiverOrderText } from "@/lib/importReport";
 import { acceptText, injuryTagText, knownTagsOf, planBView, seasonEndOf, weeklyLine, type PlanBView } from "@/lib/tradeView";
 import { FileCache } from "@/server/cache";
@@ -1107,6 +1117,161 @@ export function pickupWeeks(model: LeagueModel, n = PICKUP_WEEKS_SHOWN): PickupW
 }
 
 // ---------------------------------------------------------------------------------------------
+// Section 9: open roster spots (planner reply to Checkpoint 7b, section 5)
+
+/** A trade on either list (or this search's finalists) that opens my roster spot, with the Analyzer's evaluation under each rule. */
+export interface OpenSpotRow {
+  key: string;
+  proposal: TradeProposal;
+  /** Its card number under Checkpoint 7b's rule (that rule's own search) and now (null: not a card there); a finalist now. */
+  card: { before: number | null; now: number | null };
+  finalist: boolean;
+  /** analyzeTrade on Checkpoint 7b's rule's context and on the report's (null: illegal there). */
+  before: TradeEvaluation | null;
+  now: TradeEvaluation | null;
+}
+
+/** Every exact trade of the search that opens my spot, grouped by what's short and my pickup under each rule. */
+export interface OpenSpotGroup {
+  /** The positions the spots fill now ("RB", "RB + WR"), "any position (no TE allowed)" for a fallback. */
+  short: string;
+  /** My fills: Checkpoint 7b's rule's and now ("Malik Washington (WR)"; "illegal" when that rule can't make the trade). */
+  before: string;
+  now: string;
+  trades: number;
+}
+
+/** A shown card whose partner gets an open spot (the planner: "Both teams"): the card now and the Analyzer's evaluation under Checkpoint 7b's rule. */
+export interface PartnerSpotRow {
+  rank: number;
+  trade: TradeEvaluation;
+  before: TradeEvaluation | null;
+  /**
+   * Its fill now is one of my own baseline pickups and it claims before me, so my V*(after) can't make that pickup: the
+   * engine's OpenSpot.yours, which the card says too (review of Phase 7c's fill, finding pickups-5: one of my pickups alone
+   * isn't enough, a partner claiming after me takes only one my V*(after) no longer wants).
+   */
+  takesMine: boolean;
+}
+
+export interface OpenSpotSection {
+  /** Checkpoint 7b's rule's own search (TradeContextOptions.openSpotFill "bestAny", its own context): its card count. */
+  beforeCards: number;
+  rows: OpenSpotRow[];
+  /** The search's exact trades, and those that open my spot. */
+  exact: number;
+  exactMine: number;
+  groups: OpenSpotGroup[];
+  partner: PartnerSpotRow[];
+  /**
+   * Every side with a fill in the search's exact trades: sides, spots, fills at a position given up and fallbacks, and the
+   * sides whose V*(after) would drop a fill without the keep set (`unkept`) and with it (`kept`: the rule, 0).
+   */
+  fills: { sides: number; spots: number; same: number; fallback: number; unkept: number; kept: number };
+}
+
+/** Section 9's finalists not on either list, listed at most (a line budget; this search's finalists in its own order). */
+export const OPEN_SPOT_FINALISTS = 6;
+
+/** "Malik Washington (WR)": a fill (or several, joined with "+"), "none" for none. */
+function spotNames(snapshot: LeagueSnapshot, spots: readonly OpenSpot[] | undefined): string {
+  return spots?.length ? spots.map((s) => `${nameOf(snapshot, s.playerId)} (${snapshot.players[s.playerId]?.pos ?? "?"})`).join(" + ") : "none";
+}
+
+/** What a fill fills: its position, or "any position" for a fallback, with the positions none could fill. */
+function spotShort(spots: readonly OpenSpot[]): string {
+  return spots.map((s) => (s.pos !== null ? s.pos : `any position${s.short?.length ? ` (no ${s.short.join(", ")} allowed)` : ""}`)).join(" + ");
+}
+
+/**
+ * Section 9 (the file header): Checkpoint 7b's rule on its own context (openSpotFill "bestAny") and its own search; the
+ * trades on either list (cards) and this search's finalists (up to OPEN_SPOT_FINALISTS more) that open my spot, each through
+ * the Analyzer under both rules (the cards' own numbers: the final block); every exact trade of this search that opens my
+ * spot, grouped (its Checkpoint 7b fill from evaluateExact on that rule's context, no simulation); the shown cards whose
+ * partner gets a spot; and every side's fills in the exact trades, with V*(after) run again without the keep set.
+ */
+export function openSpotSection(snapshot: LeagueSnapshot, inputs: ModelInputs, ctx: TradeContext, result: TradeSearchResult, settings: TradeSettings, opts: { now: Date; scenarios?: number }): OpenSpotSection {
+  const I = tradeInternals(ctx);
+  const sc = opts.scenarios !== undefined ? { scenarios: opts.scenarios } : {};
+  const before = buildTradeContext(snapshot, inputs, { now: opts.now, settings, ...sc, openSpotFill: "bestAny" });
+  const beforeResult = runTradeSearch(before, { settings });
+  const state = searchStateOf(result);
+  const opens = (e: Pick<TradeEvaluationCore, "required">) => (e.required.me.openSpots?.length ?? 0) > 0;
+  const rank = (r: TradeSearchResult, key: string) => {
+    const i = r.trades.findIndex((t) => t.key === key);
+    return i < 0 ? null : i + 1;
+  };
+  // This list's cards, Checkpoint 7b's rule's cards, then this search's finalists, each once.
+  const picked = new Map<string, TradeProposal>();
+  for (const t of result.trades) if (opens(t)) picked.set(t.key, t.proposal);
+  for (const t of beforeResult.trades) if (opens(t) && !picked.has(t.key)) picked.set(t.key, t.proposal);
+  let extra = 0;
+  for (const f of state?.finals ?? []) {
+    if (extra >= OPEN_SPOT_FINALISTS || !opens(f) || picked.has(f.key)) continue;
+    picked.set(f.key, f.proposal);
+    extra++;
+  }
+  const finals = new Set((state?.finals ?? []).map((f) => f.key));
+  const rows: OpenSpotRow[] = [...picked].map(([key, proposal]) => ({
+    key,
+    proposal,
+    card: { before: rank(beforeResult, key), now: rank(result, key) },
+    finalist: finals.has(key),
+    before: analyzeTrade(before, proposal, { settings }).evaluation,
+    now: analyzeTrade(ctx, proposal, { settings }).evaluation,
+  }));
+  // Every exact trade that opens my spot, grouped; every side's fills, with V*(after) again without the keep set.
+  const bI = tradeInternals(before);
+  const maxPerSide = Math.max(settings.maxPerSide, config.search.analyzerMaxPerSide);
+  const groups = new Map<string, OpenSpotGroup>();
+  const fills = { sides: 0, spots: 0, same: 0, fallback: 0, unkept: 0, kept: 0 };
+  const me = I.me;
+  for (const x of state?.exactByKey.values() ?? []) {
+    const now = x.evaluation.required.me.openSpots ?? [];
+    if (now.length) {
+      const b = evaluateExact(bI, x.evaluation.proposal, maxPerSide);
+      const was = "illegal" in b ? "illegal" : spotNames(snapshot, b.evaluation.required.me.openSpots);
+      const g = { short: spotShort(now), before: was, now: spotNames(snapshot, now) };
+      const k = `${g.short}\u0000${g.before}\u0000${g.now}`;
+      const at = groups.get(k);
+      if (at) at.trades++;
+      else groups.set(k, { ...g, trades: 1 });
+    }
+    if (!me) continue;
+    const give = playerIds(x.evaluation.proposal.give);
+    const get = playerIds(x.evaluation.proposal.get);
+    const after = tradeSides(I, me, x.partner, give, get, `Team ${x.partner.id}`);
+    if ("illegal" in after) continue;
+    for (const [side, legal, run, pool] of [
+      [me, after.mineLegal, after.mine, after.pools.mine],
+      [x.partner, after.theirLegal, after.theirs, after.pools.theirs],
+    ] as const) {
+      const spots = legal.change.openSpots ?? [];
+      if (!spots.length) continue;
+      fills.sides++;
+      fills.spots += spots.length;
+      fills.same += spots.filter((s) => s.pos !== null).length;
+      fills.fallback += spots.filter((s) => s.pos === null).length;
+      if (spots.some((s) => !run.roster.includes(s.playerId))) fills.kept++;
+      const unkept = side.inactive ? run : I.league.optimizer.optimize(legal.roster, legal.spec, undefined, pool);
+      if (spots.some((s) => !unkept.roster.includes(s.playerId))) fills.unkept++;
+    }
+  }
+  const partner: PartnerSpotRow[] = result.trades.flatMap((t, i) =>
+    t.required.partner.openSpots?.length ? [{ rank: i + 1, trade: t, before: analyzeTrade(before, t.proposal, { settings }).evaluation, takesMine: t.required.partner.openSpots.some((s) => s.yours === true) }] : [],
+  );
+  return {
+    beforeCards: beforeResult.trades.length,
+    rows,
+    exact: state?.exactByKey.size ?? 0,
+    exactMine: [...(state?.exactByKey.values() ?? [])].filter((x) => opens(x.evaluation)).length,
+    groups: [...groups.values()].sort((a, b) => b.trades - a.trades || (a.short < b.short ? -1 : a.short > b.short ? 1 : 0) || (a.now < b.now ? -1 : a.now > b.now ? 1 : 0)),
+    partner,
+    fills,
+  };
+}
+
+// ---------------------------------------------------------------------------------------------
 // The report
 
 export interface TradeReportOptions {
@@ -1151,6 +1316,7 @@ export interface TradeReport {
   neutral: NeutralCard[];
   kickoff: KickoffJump | null;
   pickupWeeks: PickupWeek[];
+  openSpots: OpenSpotSection;
   /** This report's own stages, ms ("total": everything buildTradeReport did). */
   timing: Record<string, number>;
 }
@@ -1198,8 +1364,11 @@ export function buildTradeReport(input: LeagueSnapshot, inputs: ModelInputs, opt
   const kickoff = kickoffJump(snapshot, inputs, { settings, ...sc });
   const weeks = pickupWeeks(league.model);
   lap("other");
+  // Section 9: Checkpoint 7b's rule for the roster spot a trade opens, on its own context and search, against this one.
+  const openSpots = openSpotSection(snapshot, inputs, ctx, result, settings, { now, ...sc });
+  lap("open spots");
   timing.total = clock() - start;
-  const report: Omit<TradeReport, "doc"> = { snapshot, pre4c, settings, ctx, result, model: league.model, league: { cold: league.cold, warm: league.warm }, runtime, beams: { result: beams.result, runtime: beams.runtime }, goals, scale, gap, filter, blend, odds, anchors, premiumAnchors, neutral, kickoff, pickupWeeks: weeks, timing };
+  const report: Omit<TradeReport, "doc"> = { snapshot, pre4c, settings, ctx, result, model: league.model, league: { cold: league.cold, warm: league.warm }, runtime, beams: { result: beams.result, runtime: beams.runtime }, goals, scale, gap, filter, blend, odds, anchors, premiumAnchors, neutral, kickoff, pickupWeeks: weeks, openSpots, timing };
   return { ...report, doc: render(snapshot, inputs, opts, report) };
 }
 
@@ -1225,6 +1394,7 @@ function render(snapshot: LeagueSnapshot, inputs: ModelInputs, opts: TradeReport
   renderBlend(L, snapshot, r);
   renderOdds(L, snapshot, r, teamName);
   renderOther(L, snapshot, r, teamName);
+  renderOpenSpots(L, snapshot, r, teamName);
   return L.join("\n");
 }
 
@@ -1620,7 +1790,55 @@ function renderOther(L: string[], snapshot: LeagueSnapshot, r: Report, teamName:
       `- **Week ${w.week} against ${teamName(w.opponentId)}**: your win chance ${pctPlain(w.asStands, 0)} as rosters stand, ${pctPlain(w.withPickups, 0)} with every team's pickups. Projected that week, as rosters stand → with pickups: you ${fmt(w.mine.stand)} → ${fmt(w.mine.pickups)} (your pickups: ${moves(w.myMoves)}), ${teamName(w.opponentId)} ${fmt(w.theirs.stand)} → ${fmt(w.theirs.pickups)} (its pickups: ${moves(w.theirMoves)}).`,
     );
   }
-  L.push("", `This report took ${ms(r.timing.total)} (the searches ${ms(r.timing.searches)}, the beams alone ${ms(r.timing.beams)}, the "${GOAL_WORDS[r.goals.goal]}" search ${ms(r.timing.goals)}, the search gap's re-screening ${ms(r.timing.gap)}).`, "");
+  L.push("", `This report took ${ms(r.timing.total)} (the searches ${ms(r.timing.searches)}, the beams alone ${ms(r.timing.beams)}, the "${GOAL_WORDS[r.goals.goal]}" search ${ms(r.timing.goals)}, the search gap's re-screening ${ms(r.timing.gap)}, section 9's Checkpoint 7b search and evaluations ${ms(r.timing["open spots"])}).`, "");
+}
+
+/** A trade's card number under each rule ("#12 → #12", "– → #3"), and "(a finalist)" when it's a finalist but not a card now. */
+function cardMove(row: OpenSpotRow): string {
+  const at = (n: number | null) => (n === null ? "–" : `#${n}`);
+  return `${at(row.card.before)} → ${at(row.card.now)}${row.card.now === null && row.finalist ? " (a finalist)" : ""}`;
+}
+
+/**
+ * Section 9 (the file header): my open roster spots on either list and among this search's finalists, every exact trade
+ * that opens my spot grouped, the partners' spots on the shown cards, and every side's fills with and without the keep set.
+ */
+function renderOpenSpots(L: string[], snapshot: LeagueSnapshot, r: Report, teamName: (id: string) => string): void {
+  const o = r.openSpots;
+  const head = (p: Pick<TradeProposal, "partnerId" | "give" | "get">) => `${teamName(p.partnerId)}: ${names(snapshot, playerIds(p.give))} → ${names(snapshot, playerIds(p.get))}`;
+  L.push("## 9. Open roster spots", "");
+  L.push(
+    `Planner reply to Checkpoint 7b, section 5: the roster spot a trade opens takes the best available free agent at a position where the team gave more players than it received (the largest gain in scenario lineups, then the most ROS points), one spot at a time; with none allowed there, the best at any position; for both teams; and the free-agent pickups after the trade never drop him (the optimizer's keep set). Against Checkpoint 7b's rule (the free agent who most improves the expected-value lineup, at any position: TradeContextOptions.openSpotFill "bestAny", for this comparison only) on the same data and settings, with its own search: ${o.beforeCards} cards there, ${r.result.trades.length} here. Your trades that open your spot, on either list and among this search's finalists (up to ${OPEN_SPOT_FINALISTS} of those), each through the Analyzer under each rule (the cards' own numbers, the same seasons):`,
+    "",
+  );
+  const nums = (e: TradeEvaluation | null) => (e ? threeNumbers(e) : "illegal");
+  if (o.rows.length) {
+    L.push("| Trade | Card: 7b → now | Your pickup: 7b → now | Helps / Chance / Overall: 7b → now |", "|---|---|---|---|");
+    for (const row of o.rows) L.push(`| ${head(row.proposal)} | ${cardMove(row)} | ${spotNames(snapshot, row.before?.required.me.openSpots)} → ${spotNames(snapshot, row.now?.required.me.openSpots)} | ${nums(row.before)} → ${nums(row.now)} |`);
+    L.push("");
+  } else L.push("No card under either rule, and no finalist, leaves you an open roster spot.", "");
+  if (o.groups.length) {
+    L.push(`Every exact trade of this search that opens your spot (${o.exactMine} of ${o.exact}), by what the spot takes now (Checkpoint 7b's pickup from exact evaluation on its rule's context):`, "");
+    L.push("| The spot now | Your pickup: 7b → now | Trades |", "|---|---|---|");
+    for (const g of o.groups) L.push(`| ${g.short} | ${g.before} → ${g.now} | ${g.trades} |`);
+    L.push("");
+  }
+  if (o.partner.length) {
+    L.push("The partners' open roster spots on the shown cards (the rule is theirs too, so their lineup and the chance they accept move):", "");
+    L.push("| Card | Their pickup: 7b → now | Their lineup a week: 7b → now | Chance they accept: 7b → now |", "|---|---|---|---|");
+    for (const p of o.partner) {
+      const t = p.trade;
+      const lineup = `${p.before ? signed(p.before.partnerDeltaLineup, 2) : "–"} → ${signed(t.partnerDeltaLineup, 2)}`;
+      const chance = `${p.before ? pctPlain(p.before.pAccept) : "–"} → ${pctPlain(t.pAccept)}`;
+      L.push(`| #${p.rank} ${head(t.proposal)} | ${spotNames(snapshot, p.before?.required.partner.openSpots)} → ${spotNames(snapshot, t.required.partner.openSpots)}${p.takesMine ? " (your own baseline pickup: it claims before you)" : ""} | ${lineup} | ${chance} |`);
+    }
+    L.push("");
+  }
+  const f = o.fills;
+  L.push(
+    `Every side with an open spot in the search's ${o.exact} exact trades: ${f.sides} sides, ${f.spots} spots, ${f.same} at a position the team gave up and ${f.fallback} at any position. The free-agent pickups after the trade keep every fill ${mark(f.kept === 0)}${f.kept ? ` (${f.kept} sides drop one)` : ""}; without the keep set they'd drop the fill on ${f.unkept} of these sides.`,
+    "",
+  );
 }
 
 // ---------------------------------------------------------------------------------------------

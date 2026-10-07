@@ -40,13 +40,23 @@
  *   (every known position on the roster counts, players without a model included). A player dropped isn't
  *   a candidate: he isn't one of the snapshot's free agents.
  * - Droppable: active-roster players with a model (one without projections isn't known to be worthless),
- *   not at K/DEF or the team's streamed positions, and not needed to fill the starting lineup: after the move
- *   every starting slot that could be filled before can still be filled. That is a structural matching that
- *   ignores points, byes and injuries (every player counts 1; lineup.ts honors starter limits), with every
- *   known player on the roster and the streaming rows (for their position). A lineup that already can't be
- *   filled only may not lose more. In dynasty and keeper leagues k is never dropped for a when v_dyn(k) −
+ *   not at K/DEF or the team's streamed positions, not in the run's keep set (below), and not needed to fill the
+ *   starting lineup: after the move every starting slot that could be filled before can still be filled. That is a
+ *   structural matching that ignores points, byes and injuries (every player counts 1; lineup.ts honors starter
+ *   limits), with every known player on the roster and the streaming rows (for their position). A lineup that already
+ *   can't be filled only may not lose more. In dynasty and keeper leagues k is never dropped for a when v_dyn(k) −
  *   v_dyn(a) > faDynGuard × the top dynasty value (the caller passes the values and that amount; no dynasty
  *   values → no guard).
+ * - The keep set (optimize's `keep`; Phase 7c, planner reply to Checkpoint 7b, section 5): players a run never drops, so
+ *   they're never droppable above (the near-ties below only ever cut droppable players, so they're covered too). The
+ *   trade evaluation passes legality's adds (evaluate.ts tradeSides: the free agents rules 3 and 4 put into a roster
+ *   after a trade), so V*(after) never drops a same-position fill, mostly to make the side's own baseline pickup again,
+ *   which would leave the card naming a pickup the evaluated roster doesn't hold (on Parker's league, Oct 4 09:24Z, on 21
+ *   of the 96 sides with a fill in a search's exact trades, 18 of them in a move making one of that side's baseline
+ *   pickups). A keep set holding none of the
+ *   roster's players is no keep set: its runs are the same runs, under the same memo key. Every other move is as without
+ *   it, and a run whose best moves never drop a kept player makes the very same moves (better() is a total order).
+ *   reoptimize() takes none.
  *
  * Exact, and fast without starter limits (teamValue.ts header, "Swapping a player"): any move gains at most
  * what adding its free agent alone to X gains, so a roster where no free agent's add bound reaches faMinGain
@@ -102,9 +112,10 @@
  * search there would solve every free agent and every drop: Phase 5's MFL).
  *
  * Memoized within one optimizer (one League model build, or one trade search) by the roster's ids (sorted),
- * the team's streamed positions, the move budget and the pool (the file header, "The pool"): V* is a function of
- * its starting roster and the free agents it may add. A memo hit returns the first call's result, roster order
- * included.
+ * the team's streamed positions, the move budget, the pool (the file header, "The pool") and, only when it holds a
+ * player of the roster, the keep set (its ids on the roster, sorted; so every run without one keeps its key): V* is a
+ * function of its starting roster, the free agents it may add and the players it may not drop. A memo hit returns the
+ * first call's result, roster order included.
  *
  * Re-running from an optimized roster (reoptimize; league.ts step 5's shortcut, lead decision L3): V*(X − i)
  * and V*(X + j − drop) start from V*(X)'s roster (minus i, or plus j minus the drop) instead of from X's, for
@@ -284,6 +295,9 @@ export interface StreamSpec {
 
 export const NO_STREAM: StreamSpec = { rows: [], positions: [] };
 
+/** No player kept (the file header, "The keep set"). */
+const NO_KEEP: ReadonlySet<string> = new Set();
+
 /**
  * The free agents a run may not add (the file header, "The pool"; §7 one free agent, one team): `excluded`, and `key`,
  * its canonical form (the ids sorted, without repeats; "" for none), which every memo key includes. Build one with
@@ -340,10 +354,11 @@ export interface GivenBack {
 export interface RosterOptimizer {
   /**
    * V*(roster) for a team that streams `stream`, with at most `maxMoves` moves (default faMaxMoves), adding only free
-   * agents `pool` doesn't exclude (default FULL_POOL: the file header, "The pool"). Memoized by roster, streamed
-   * positions, budget and pool.
+   * agents `pool` doesn't exclude (default FULL_POOL: the file header, "The pool"), never dropping a player of `keep` (the
+   * file header, "The keep set"; default none). Memoized by roster, streamed positions, budget, pool and, when it holds a
+   * player of the roster, the keep set.
    */
-  optimize(roster: readonly string[], stream?: StreamSpec, maxMoves?: number, pool?: PoolRestriction): OptimizedRoster;
+  optimize(roster: readonly string[], stream?: StreamSpec, maxMoves?: number, pool?: PoolRestriction, keep?: readonly string[]): OptimizedRoster;
   /**
    * The re-run from `start`, a roster derived from the optimized roster `from` (its players minus some, plus a
    * newcomer), with `extra` moves beyond the free ones (the file header, "Re-running from an optimized roster"), adding
@@ -547,7 +562,8 @@ export function createOptimizer(setup: OptimizerSetup, cfg: OptimizerConfig = op
    * the best move that drops a player `only` accepts, never an open-spot add (reoptimize's swaps: a pickup for another
    * free agent). A drop's best free agent is solved once for both. `within`: only these free agents (reoptimize's
    * first step from a roster that contains a base: the rest can't make a move there, so leaving them out changes
-   * nothing). `pool`: the free agents the run may not add are left out (the file header, "The pool").
+   * nothing). `pool`: the free agents the run may not add are left out (the file header, "The pool"). `keep`: players
+   * never dropped (the file header, "The keep set").
    */
   const scanMoves = (
     roster: readonly string[],
@@ -556,6 +572,7 @@ export function createOptimizer(setup: OptimizerSetup, cfg: OptimizerConfig = op
     added: ReadonlySet<string>,
     within: ReadonlySet<string> | null = null,
     pool: PoolRestriction = FULL_POOL,
+    keep: ReadonlySet<string> = NO_KEEP,
   ): { best: () => Move | null; bestDrop: (only: (id: string) => boolean) => Move | null } => {
     stats.steps++;
     const none = { best: () => null, bestDrop: () => null };
@@ -793,7 +810,7 @@ export function createOptimizer(setup: OptimizerSetup, cfg: OptimizerConfig = op
       if (!dropCands.length) return best;
       let droppable: number[] = [];
       teamRows.forEach((row, k) => {
-        if (onRoster.has(row.id) && !excluded(row.pos) && (only === null || only(row.id))) droppable.push(k);
+        if (onRoster.has(row.id) && !excluded(row.pos) && !keep.has(row.id) && (only === null || only(row.id))) droppable.push(k);
       });
       if (limited) droppable = undominatedDrops(droppable);
       if (!droppable.length) return best;
@@ -990,9 +1007,10 @@ export function createOptimizer(setup: OptimizerSetup, cfg: OptimizerConfig = op
    * gains exactly g_a − k's removal cost in T + a (teamValue.scenarioRemovalCosts: LV(T − k + a) = LV(T + a) − that
    * cost, cell by cell), so one solve prices every drop. Free agents go best bound first, and the scan stops once no
    * bound can reach the best move (a swap gains at most what adding its free agent alone gains). The candidate, drop and
-   * tie rules are scanMoves' (an open spot first, then the lower value dropped, then the smaller ids), the pool's too.
+   * tie rules are scanMoves' (an open spot first, then the lower value dropped, then the smaller ids), the pool's and the
+   * keep set's too.
    */
-  const scenScan = (roster: readonly string[], cur: { cells: ScenarioCells; ros: number; team: TeamEval }, stream: StreamSpec, added: ReadonlySet<string>, pool: PoolRestriction): Move | null => {
+  const scenScan = (roster: readonly string[], cur: { cells: ScenarioCells; ros: number; team: TeamEval }, stream: StreamSpec, added: ReadonlySet<string>, pool: PoolRestriction, keep: ReadonlySet<string> = NO_KEEP): Move | null => {
     stats.steps++;
     const streamed = new Set<Pos>(stream.positions);
     const excluded = (pos: Pos) => always.has(pos) || streamed.has(pos);
@@ -1018,7 +1036,7 @@ export function createOptimizer(setup: OptimizerSetup, cfg: OptimizerConfig = op
     const teamRows = cur.team.rows;
     const droppable: number[] = [];
     teamRows.forEach((row, k) => {
-      if (onRoster.has(row.id) && !excluded(row.pos)) droppable.push(k);
+      if (onRoster.has(row.id) && !excluded(row.pos) && !keep.has(row.id)) droppable.push(k);
     });
     // The lineup-fill rule (scanMoves'): structural fill without k, and whether a newcomer of a kind restores it.
     let fillBefore: number | null = null;
@@ -1149,17 +1167,23 @@ export function createOptimizer(setup: OptimizerSetup, cfg: OptimizerConfig = op
   };
 
   /** The best move from `roster` (null when no move qualifies or none exists): scanMoves' best. */
-  const bestMove = (roster: readonly string[], cur: { team: TeamEval; solved: SolvedWeeks; evRos: number }, stream: StreamSpec, added: ReadonlySet<string>, pool: PoolRestriction): Move | null => scanMoves(roster, cur, stream, added, null, pool).best();
+  const bestMove = (roster: readonly string[], cur: { team: TeamEval; solved: SolvedWeeks; evRos: number }, stream: StreamSpec, added: ReadonlySet<string>, pool: PoolRestriction, keep: ReadonlySet<string> = NO_KEEP): Move | null =>
+    scanMoves(roster, cur, stream, added, null, pool, keep).best();
 
-  const optimize = (start: readonly string[], stream: StreamSpec = NO_STREAM, budget: number = maxMoves, pool: PoolRestriction = FULL_POOL): OptimizedRoster => {
+  const optimize = (start: readonly string[], stream: StreamSpec = NO_STREAM, budget: number = maxMoves, pool: PoolRestriction = FULL_POOL, keep: readonly string[] = []): OptimizedRoster => {
     const limit = Number.isFinite(budget) ? Math.max(0, Math.floor(budget)) : 0;
-    const key = `${rosterKey(start, stream)}\u0002${limit}\u0005${pool.key}`;
+    // The keep set (the file header): its players on the roster, sorted; in the memo key only when there are any, so a
+    // run without one keeps its key (the League model's and the trade context's runs share one optimizer).
+    const onStart = keep.length ? new Set(start) : null;
+    const kept = onStart ? [...new Set(keep)].filter((id) => onStart.has(id)).sort() : [];
+    const key = `${rosterKey(start, stream)}\u0002${limit}\u0005${pool.key}${kept.length ? `\u0007${kept.join("\u0000")}` : ""}`;
     const hit = memo.get(key);
     if (hit) {
       stats.hits++;
       return hit;
     }
     stats.runs++;
+    const keepSet: ReadonlySet<string> = kept.length ? new Set(kept) : NO_KEEP;
     const first = [...new Set(start)];
     let roster = first;
     let cur = evaluate(roster, stream);
@@ -1167,7 +1191,7 @@ export function createOptimizer(setup: OptimizerSetup, cfg: OptimizerConfig = op
     const added = new Set<string>();
     for (let step = 0; step < limit; step++) {
       const scen = judgeScen ? scenEval(roster, stream) : null;
-      const move = scen ? scenScan(roster, scen, stream, added, pool) : bestMove(roster, cur, stream, added, pool);
+      const move = scen ? scenScan(roster, scen, stream, added, pool, keepSet) : bestMove(roster, cur, stream, added, pool, keepSet);
       if (!move) break;
       roster = applyStep(roster, move);
       added.add(move.add);

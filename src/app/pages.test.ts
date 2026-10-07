@@ -17,6 +17,13 @@
  * the public-data archive, feedback studied in totals only) follow flags of their own, tied to the code both ways like
  * Part B's; what the server holds in memory, FantasyCalc's 3 hours as the cache keeps them, the ESPN cookie section's
  * words, and the contact inbox at Google are pinned; the detailed part's length is held at the count the planner gets.
+ *
+ * Checkpoint 7c (planner reply to Checkpoint 7b, section 3: "approved, with small edits"): the line on your rights before
+ * the contact line (the privacy page only, whatever the features); three more flags, each tied to its code both ways and
+ * each changing only its own words: dailyLevels (the archive sentence names the daily rest-of-season levels the cron saves
+ * under snap:lvl:), prizeShares (the anonymous copy's prize split, once its server schema holds a prize field, under any
+ * name and at any depth) and helpsThem (“Helps them” among the terms' estimates, once the app has a “Helps both” sort or
+ * words the score anywhere its pages are worded); the detailed part at most 1,300 words.
  */
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
@@ -24,6 +31,7 @@ import { fileURLToPath } from "node:url";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 
 vi.mock("server-only", () => ({}));
 
@@ -32,10 +40,13 @@ import { FOOTER_INDEPENDENT, SiteFooter } from "@/components/SiteFooter";
 import { config } from "@/engine/config";
 import { FEEDBACK_MAX_RECORDS } from "@/lib/feedbackStore";
 import { CONTACT_EMAIL, POLICY_FEATURES, SHARE_IMAGE_ALT, SHARE_IMAGE_TAGLINE, SITE_NAME, type PolicyFeatures } from "@/lib/site";
+import { SORT_OPTIONS } from "@/lib/tradeView";
 import { createBudget, createDailyQuota, msUntilUtcMidnight } from "@/server/budget";
 import { DAY, FANTASYCALC_RETAIN_MS, HOUR, MINUTE, STALE_PUBLIC_RETAIN_MS, TTL } from "@/server/cache";
+import { FeedbackEventSchema, feedbackDayTtlMs } from "@/server/feedbackSink";
 import { browserFetchLimits, budgets, feedbackLimits, logLimits, rateLimits, snapshotLimits, usageLimits, workLimits } from "@/server/limits";
 import { StoredLogEventSchema } from "@/server/log";
+import { LEVEL_TOTALS } from "@/server/projectionLevels";
 import { FakeRedis } from "@/server/redis";
 import { SESSION_SEAL_TTL_SECONDS } from "@/server/session";
 import { dayRetainMs } from "@/server/snapshots";
@@ -72,25 +83,43 @@ function links(html: string): Array<{ href: string | undefined; text: string; at
   }));
 }
 
-/** Checkpoint 7b's three (FantasyCalc's values never shown, the public-data archive, feedback studied in totals): all off, as today, or all on. */
+/** Checkpoint 7b's three (FantasyCalc's values never shown, the public-data archive, feedback studied in totals): all off, or all on (since 2026-10-05). */
 const LATER_OFF = { fantasyCalcHidden: false, publicArchive: false, feedbackTotalsOnly: false } as const;
 const LATER_ON = { fantasyCalcHidden: true, publicArchive: true, feedbackTotalsOnly: true } as const;
-/** Every way Part B's two features can stand (neither, each alone, both: Checkpoint 7a on), each with Checkpoint 7b's three off and on. */
+/**
+ * Checkpoint 7c's three (planner reply to Checkpoint 7b, section 3: the daily levels in the archive sentence, the prize split
+ * in the anonymous copy's, “Helps them” among the terms' estimates): all off or all on; "Checkpoint 7c's switches change only
+ * their own words" turns each one alone.
+ */
+const CHECKPOINT_7C_OFF = { dailyLevels: false, prizeShares: false, helpsThem: false } as const;
+const CHECKPOINT_7C_ON = { dailyLevels: true, prizeShares: true, helpsThem: true } as const;
+/** Every way Part B's two features can stand (neither, each alone, both: Checkpoint 7a on), each with Checkpoint 7b's three off and on, and Checkpoint 7c's three off and on. */
 const ALL: PolicyFeatures[] = [
   { browserReads: false, anonymousFeedback: false },
   { browserReads: true, anonymousFeedback: false },
   { browserReads: false, anonymousFeedback: true },
   { browserReads: true, anonymousFeedback: true },
-].flatMap((partB) => [
-  { ...partB, ...LATER_OFF },
-  { ...partB, ...LATER_ON },
-]);
+].flatMap((partB) => [LATER_OFF, LATER_ON].flatMap((later) => [CHECKPOINT_7C_OFF, CHECKPOINT_7C_ON].map((c7c) => ({ ...partB, ...later, ...c7c }))));
 const WITHOUT_BROWSER = ALL.filter((f) => !f.browserReads);
 const WITH_BROWSER = ALL.filter((f) => f.browserReads);
 const WITHOUT_FEEDBACK = ALL.filter((f) => !f.anonymousFeedback);
 const WITH_FEEDBACK = ALL.filter((f) => f.anonymousFeedback);
 /** Every feature on: the longest the pages get. */
-const ALL_ON: PolicyFeatures = { browserReads: true, anonymousFeedback: true, ...LATER_ON };
+const ALL_ON: PolicyFeatures = { browserReads: true, anonymousFeedback: true, ...LATER_ON, ...CHECKPOINT_7C_ON };
+
+/** The archive sentence (with publicArchive), and with the daily rest-of-season levels (dailyLevels; planner reply to Checkpoint 7b, question 4 and section 3). */
+const ARCHIVE =
+  "We also keep public data, Sleeper's pre-game projections and FantasyCalc's daily lists for the league formats in use, up to 2 seasons, to measure how accurate our numbers are. It's never shown and says nothing about any league or person beyond which formats were in use each day.";
+const ARCHIVE_WITH_LEVELS =
+  "We also keep public data, Sleeper's pre-game projections, its daily rest-of-season projections in standard scoring formats, and FantasyCalc's daily lists for the league formats in use, up to 2 seasons, to measure how accurate our numbers are. It's never shown and says nothing about any league or person beyond which formats were in use each day.";
+/** What the anonymous copy's sentence says of the reward setting, and with the prize split (prizeShares; the planner's words, section 3). */
+const WEIGH_WORDS = "how you weigh the title against the playoffs";
+const PRIZE_WORDS = "how your league splits its prizes (as shares, never amounts)";
+/** The terms' estimates, and with “Helps them” (helpsThem; section 3: "when it ships, add it to the terms' list of estimates"). */
+const ESTIMATES = "The numbers Offer Sheet works out are estimates: projections, playoff and title odds, “Helps you”, “Chance they accept” and “Overall”.";
+const ESTIMATES_WITH_HELPS_THEM = "The numbers Offer Sheet works out are estimates: projections, playoff and title odds, “Helps you”, “Helps them”, “Chance they accept” and “Overall”.";
+/** Your rights (section 3: "on the privacy page, add this line before 'Contact'"), the planner's words. */
+const RIGHTS = "Email us to ask what we hold about you or to have it deleted.";
 
 /** A page's text with these features on. */
 function page(component: typeof PrivacyPolicy | typeof TermsOfUse | typeof FeedbackGuide, features: PolicyFeatures): { html: string; text: string } {
@@ -125,6 +154,22 @@ const wordCount = (s: string): number => s.split(/\s+/).filter((w) => /[\p{L}\p{
 
 /** Source without its comments (block and line comments; "//" after a colon or a quote, as in a URL, stays), so a pattern finds only code. */
 const codeOf = (text: string): string => text.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`\\])\/\/[^\n]*/g, "$1");
+
+/**
+ * Every field of a zod object schema at any depth, with its path ("versionInputs.features.g"): through optional and nullable
+ * fields, arrays, records and unions, so a field is found wherever it's added and under whatever name.
+ */
+function schemaFields(schema: z.ZodType, at = ""): Array<{ path: string; schema: z.ZodType }> {
+  if (schema instanceof z.ZodOptional || schema instanceof z.ZodNullable) return schemaFields(schema.unwrap() as z.ZodType, at);
+  if (schema instanceof z.ZodArray) return schemaFields(schema.element as z.ZodType, at);
+  if (schema instanceof z.ZodRecord) return schemaFields(schema.valueType as z.ZodType, at);
+  if (schema instanceof z.ZodUnion) return (schema.options as readonly z.ZodType[]).flatMap((option) => schemaFields(option, at));
+  if (!(schema instanceof z.ZodObject)) return [];
+  return Object.entries(schema.shape as Record<string, z.ZodType>).flatMap(([key, field]) => {
+    const path = at ? `${at}.${key}` : key;
+    return [{ path, schema: field }, ...schemaFields(field, path)];
+  });
+}
 
 /**
  * Where the app showed FantasyCalc's values or compared them, as Checkpoint 7b's review found it (planner reply to Checkpoint
@@ -229,11 +274,17 @@ describe("the public pages describe what's built (review PG-1)", () => {
     // "turn off “Share anonymous feedback” on the Settings page"
     expect(sourcesUnder("src/components/settings", "src/app/settings").some((s) => s.includes("Share anonymous feedback"))).toBe(true);
     // "We keep anonymous feedback for up to 12 months, then delete it." (one list per day since the final review's SEC-3,
-    // each deleted feedbackLimits.retainDays after its last copy)
+    // each deleted feedbackLimits.retainDays after its UTC day began, feedbackDayTtlMs: a day's first copy is kept 365 days,
+    // a later one less, never more)
     const sink = source("src/server/feedbackSink.ts");
     expect(sink).toMatch(/feedbackLimits\.maxPerDay/);
-    expect(sink).toMatch(/feedbackLimits\.retainDays/);
     expect(sink).toMatch(/fb:\$\{new Date\(at\)\.toISOString\(\)\.slice\(0, 10\)\}/);
+    const dayStart = Date.UTC(2026, 9, 13);
+    expect([feedbackDayTtlMs(dayStart), feedbackDayTtlMs(dayStart + 15 * HOUR), feedbackDayTtlMs(dayStart + DAY - 1)]).toEqual([
+      feedbackLimits.retainDays * DAY,
+      feedbackLimits.retainDays * DAY - 15 * HOUR,
+      (feedbackLimits.retainDays - 1) * DAY + 1,
+    ]);
   });
 
   it("FantasyCalc's values are said to be never shown (5.4) exactly when nothing known shows them or compares them", () => {
@@ -270,6 +321,79 @@ describe("the public pages describe what's built (review PG-1)", () => {
     ).toBe(!savesCopies);
   });
 
+  it("the daily rest-of-season levels (Checkpoint 7c; question 4) are in the archive sentence exactly when the snapshot cron saves them under snap:lvl:, with the code its words rest on", () => {
+    // Line ends as Unix ones (a Windows checkout with core.autocrlf has CRLF ones), so the run's body ends at "\n}\n".
+    const unix = (file: string) => codeOf(source(file).replace(/\r\n/g, "\n"));
+    const snapshots = unix("src/server/snapshots.ts");
+    const run = snapshots.slice(snapshots.indexOf("export async function runSnapshots"));
+    const built = snapshots.includes("snap:lvl:") && /\bsnapshotLevels\(/.test(run.slice(0, run.indexOf("\n}\n") + 1));
+    expect(
+      POLICY_FEATURES.dailyLevels,
+      built
+        ? "the snapshot cron saves the day's rest-of-season levels (src/server/snapshots.ts, snap:lvl:): check the privacy policy's archive sentence against them (Sleeper's own projections in its standard scoring formats, never a league's, up to 2 seasons, never shown), then turn POLICY_FEATURES.dailyLevels on (src/lib/site.ts) and, after launch day, update PRIVACY_LAST_UPDATED"
+        : "POLICY_FEATURES.dailyLevels is on, but the snapshot cron saves no levels under snap:lvl: (src/server/snapshots.ts runSnapshots): the privacy policy would describe a daily copy nothing keeps",
+    ).toBe(built);
+    if (!built) return;
+    // "in standard scoring formats": Sleeper's own standard, half-PPR and PPR totals as it serves them (src/server/
+    // projectionLevels.ts), and nothing there reads a league's scoring, the market blend or FantasyCalc.
+    expect(LEVEL_TOTALS).toEqual(["pts_std", "pts_half_ppr", "pts_ppr"]);
+    const imports = [...unix("src/server/projectionLevels.ts").matchAll(/^import [\s\S]*?;$/gm)].map((m) => m[0]);
+    expect(imports.length).toBeGreaterThan(0);
+    expect(imports.filter((i) => /scoring|blend|market|fantasyCalc|engine\/league/i.test(i))).toEqual([]);
+    // "up to 2 seasons": a day's levels go when its other records do, retainDays after the day began (dayRetainMs, pinned below).
+    expect(snapshots).toMatch(/projectionLevelsKey\([^)]*\), value, \{ nx: true, px: dayRetainMs\(record\.day\b/);
+    // "It's never shown": only the cron and `npm run snapshot:pull` read them; no page, component, worker or engine code does.
+    expect(sourceFiles("src/app", "src/components", "src/lib", "src/engine", "src/workers").filter((f) => /projectionLevels/.test(codeOf(f.text))).map((f) => f.file)).toEqual([]);
+  });
+
+  it("the anonymous copy's prize split (Checkpoint 7c; sections 3 and 6) is described exactly when the copy's server schema holds a prize field, under any name and at any depth, each as whole-percent shares and never amounts", () => {
+    // Every field of the copy (zod 4 keeps the cross-field refinements inside the object schema). The walk reaches the
+    // copy's own fields, nested ones, and those behind optional, nullable and array fields: else finding no prize field
+    // could mean finding nothing.
+    const fields = schemaFields(FeedbackEventSchema);
+    expect(fields.map((f) => f.path)).toEqual(expect.arrayContaining(["goal", "format.ppr", "trade.give.id", "versionInputs.goal", "versionInputs.features.g"]));
+    // Any field named for prizes, wherever section 6 adds it (the plan: `prizes`, at the top level and in the version
+    // inputs). Review of Checkpoint 7c's policy track: matching the one name `prizes` at the top level let a `prizeShares`
+    // field, or one in the version inputs, slip by with the switch off.
+    const prizes = fields.filter((f) => /prize/i.test(f.path.slice(f.path.lastIndexOf(".") + 1)));
+    const paths = prizes.map((f) => f.path).join(", ");
+    expect(
+      POLICY_FEATURES.prizeShares,
+      prizes.length
+        ? `the anonymous copy's server schema holds a prize field (${paths}; src/server/feedbackSink.ts): check the privacy policy's anonymous copy sentence against it (as shares, never amounts: the planner's words), then turn POLICY_FEATURES.prizeShares on (src/lib/site.ts) and, after launch day, update PRIVACY_LAST_UPDATED`
+        : "POLICY_FEATURES.prizeShares is on, but the anonymous copy's server schema (src/server/feedbackSink.ts FeedbackEventSchema) holds no prize field: the privacy policy would say the copy holds how your league splits its prizes",
+    ).toBe(prizes.length > 0);
+    for (const { path: at, schema } of prizes) {
+      // "as shares": whole percents of the prizes' total ($2,000 / $1,600 / $900 go as 44 / 36 / 20).
+      expect(schema.safeParse({ first: 44, second: 36, third: 20, weeklyHigh: 0, pointsLeader: 0 }).success, `${at}: whole-percent shares`).toBe(true);
+      // "never amounts": the amounts as typed, or shares finer than a whole percent, are refused.
+      expect(schema.safeParse({ first: 2000, second: 1600, third: 900, weeklyHigh: 0, pointsLeader: 0 }).success, `${at}: amounts`).toBe(false);
+      expect(schema.safeParse({ first: 44.4, second: 35.6, third: 20, weeklyHigh: 0, pointsLeader: 0 }).success, `${at}: fractions of a percent`).toBe(false);
+    }
+  });
+
+  it("“Helps them” (Checkpoint 7c; sections 3 and 7) is among the terms' estimates exactly when the app shows the score: a “Helps both” sort, or “Helps them” where its pages are worded", () => {
+    // Either sign counts, whatever the sort's full label and whichever file words the score (review of Checkpoint 7c's
+    // policy track: matching the one label "Helps both" let a "Helps both teams" sort with a "Helps them 24" line slip by
+    // with the switch off). Where the pages are worded: src/lib, src/components and src/app, but the policy pages (the
+    // terms name the estimate) and the API routes.
+    const sorts = SORT_OPTIONS.filter((o) => /\bhelps both\b/i.test(o.label)).map((o) => `the “${o.label}” sort (src/lib/tradeView.ts SORT_OPTIONS)`);
+    const ui = sourceFiles("src/lib", "src/components", "src/app").filter((f) => !/^src\/app\/(privacy|terms|feedback|api)\//.test(f.file));
+    // The scan reads the words the cards show today, so finding no "Helps them" means there's none.
+    expect(ui.some((f) => codeOf(f.text).includes("Helps you")), "the scan finds “Helps you”").toBe(true);
+    const shown = ui.filter((f) => codeOf(f.text).includes("Helps them")).map((f) => f.file);
+    const built = sorts.length + shown.length > 0;
+    expect(
+      POLICY_FEATURES.helpsThem,
+      built
+        ? `the app shows “Helps them” (${[...sorts, ...shown].join(", ")}): check that the cards and the Analyzer show the score, then turn POLICY_FEATURES.helpsThem on (src/lib/site.ts) so the terms list it among the estimates, and, after launch day, update TERMS_LAST_UPDATED`
+        : "POLICY_FEATURES.helpsThem is on, but the app has no “Helps both” sort and no “Helps them” where its pages are worded: the terms would list an estimate the app doesn't show",
+    ).toBe(built);
+    if (!built) return;
+    // The estimate the terms name: the score itself, where the cards and the Analyzer are worded.
+    expect(shown, "“Helps them” shown").not.toEqual([]);
+  });
+
   it("the guards read code, not comments: a display mentioned only in a comment doesn't count", () => {
     expect(codeOf('const a = `You give ${x}`; // By FantasyCalc\'s trade values\n/* <ValueText /> */ const url = "https://fantasycalc.com";')).toBe(
       'const a = `You give ${x}`; \n const url = "https://fantasycalc.com";',
@@ -278,15 +402,22 @@ describe("the public pages describe what's built (review PG-1)", () => {
 });
 
 describe("privacy page, whichever features are on", () => {
-  it.each(ALL)("%o: is dated, and gives Offer Sheet's contact address as a mail link (planner reply to Checkpoint 7a, 3)", (f) => {
+  it.each(ALL)("%o: is dated, and gives Offer Sheet's contact address as a mail link, just after the line on your rights (planner reply to Checkpoint 7a, 3; Checkpoint 7b, 3)", (f) => {
     const { html, text } = privacy(f);
-    expect(PRIVACY_LAST_UPDATED).toBe("October 13, 2026"); // the launch day (Parker, 2026-10-07)
+    // The launch day (Parker, 2026-10-07); Checkpoint 7c's edits come before launch, so they keep it.
+    expect(PRIVACY_LAST_UPDATED).toBe("October 13, 2026");
     expect(text).toContain("Last updated October 13, 2026");
     expect(CONTACT_EMAIL).toBe("offersheet.app@gmail.com");
     expect(text).toContain("Contact: offersheet.app@gmail.com");
     expect(links(html).filter((l) => l.href?.startsWith("mailto:")).map((l) => [l.href, l.text])).toEqual([["mailto:offersheet.app@gmail.com", "offersheet.app@gmail.com"]]);
     expect(text).not.toContain("to be added before launch");
-    expect(text).toContain("Offer Sheet isn't directed at children under 13. If this policy changes, we'll update it here and change the date above.");
+    // "Your rights: on the privacy page, add this line before 'Contact'", in its own paragraph, whatever the features.
+    expect(text).toContain(`Offer Sheet isn't directed at children under 13. If this policy changes, we'll update it here and change the date above. ${RIGHTS} Contact: offersheet.app@gmail.com`);
+    expect(html).toContain(`>${RIGHTS}</p>`);
+    expect(text.match(/Email us/g)).toHaveLength(1);
+    // The privacy page's only: the terms and the feedback page share the contact line, not this one.
+    expect(terms(f).text).not.toContain(RIGHTS);
+    expect(feedback(f).text).not.toContain(RIGHTS);
     expect(links(html).filter((l) => l.href === "/terms").map((l) => l.text)).toEqual(["terms of use"]);
   });
 
@@ -395,20 +526,22 @@ describe("privacy page, whichever features are on", () => {
     expect([feedbackKeptWords(365), feedbackKeptWords(180)]).toEqual(["12 months", "180 days"]);
   });
 
-  it.each(ALL)("%o: describes the public data kept to measure accuracy, up to 2 seasons and never shown, saying it shows which league formats were in use each day, only once it's kept (4.4, 6.3; review of Phase 7b)", (f) => {
+  it.each(ALL)("%o: describes the public data kept to measure accuracy, up to 2 seasons and never shown, saying it shows which league formats were in use each day, with the daily rest-of-season levels once they're kept too (4.4, 6.3; review of Phase 7b; Checkpoint 7c)", (f) => {
     // src/server/snapshots.ts: a week of projections expires snapshotLimits.retainDays after its last write; a day's
     // FantasyCalc lists, saved only for the formats League page builds read that day or the day before, and the day's index
     // naming their formats, retainDays after that day began (dayRetainMs). So the archive says which formats were in use
     // each day, for 2 seasons, and no longer: the review found one index a season kept them up to about 3 years, and the
     // page saying the archive "isn't about any league or person" while "Daily totals" said formats were noted for 3 days.
-    // Not "data we fetch anyway": a run fetches what the model builds' cache doesn't already hold.
+    // Not "data we fetch anyway": a run fetches what the model builds' cache doesn't already hold. Checkpoint 7c (planner
+    // reply to Checkpoint 7b, question 4 and section 3): a day's levels go by the same day rule, and come from Sleeper's own
+    // standard formats, never a league's, so the second sentence holds with them as it is.
     expect(snapshotLimits.retainDays).toBe(2 * 365);
     expect(dayRetainMs("2026-10-07", Date.parse("2026-10-07T00:00:00.000Z"))).toBe(snapshotLimits.retainDays * DAY);
-    const archive =
-      "We also keep public data, Sleeper's pre-game projections and FantasyCalc's daily lists for the league formats in use, up to 2 seasons, to measure how accurate our numbers are. It's never shown and says nothing about any league or person beyond which formats were in use each day.";
-    if (f.publicArchive) expect(privacy(f).text).toContain(archive);
-    else expect(privacy(f).text).not.toContain("pre-game projections");
-    expect(privacy(f).text).not.toContain("isn't about any league or person");
+    const { text } = privacy(f);
+    if (f.publicArchive) expect(text).toContain(f.dailyLevels ? ARCHIVE_WITH_LEVELS : ARCHIVE);
+    else expect(text).not.toContain("pre-game projections");
+    if (!f.publicArchive || !f.dailyLevels) expect(text).not.toContain("rest-of-season");
+    expect(text).not.toContain("isn't about any league or person");
   });
 
   it.each(ALL)("%o: says the daily totals are about nobody, kept about 13 months, and leaves the limits to the short version (4.2; 2.7; 6.3)", (f) => {
@@ -535,18 +668,19 @@ describe("privacy page, whichever features are on", () => {
     }
   });
 
-  it("the detailed part (after the short version) stays at the length the planner gets at Checkpoint 7b, every feature on (4.2)", () => {
-    // The planner asked for "about 1,000 words". Checkpoint 7b reports 1,249 with every feature on (every flag is on today:
-    // src/lib/site.ts POLICY_FEATURES): after the duplicates and the log's field list went, the review's additions (what the
-    // server holds in memory, when memory copies go, the cookie after a restored session, the contact inbox at Google) and
-    // the facts the reply added (the archive, the daily totals, FantasyCalc) are what's over. The review of Phase 7b's
-    // corrections (the archive's formats in use, Forget's 15 minutes, the log's routine events) fit by dropping the daily
-    // totals' formats sentence and a few words. The cap is 1,250: longer needs the planner.
+  it("the detailed part (after the short version) stays within the planner's 1,300 words, every feature on (4.2; planner reply to Checkpoint 7b, 3)", () => {
+    // The planner asked for "about 1,000 words". Checkpoint 7b reported 1,249 with every feature on: after the duplicates and
+    // the log's field list went, the review's additions (what the server holds in memory, when memory copies go, the cookie
+    // after a restored session, the contact inbox at Google) and the facts the reply added (the archive, the daily totals,
+    // FantasyCalc) are what's over. The review of Phase 7b's corrections (the archive's formats in use, Forget's 15
+    // minutes, the log's routine events) fit by dropping the daily totals' formats sentence and a few words. The cap was
+    // 1,250 until the planner's reply to Checkpoint 7b, section 3: "Word cap: raise the test's cap to 1,300 words to fit
+    // these" (the line on your rights, the daily levels, the prize split: 1,273 with every switch on). Longer needs the planner.
     const detail = (f: PolicyFeatures) => {
       const { text } = privacy(f);
       return text.slice(text.indexOf("Reading your league"));
     };
-    expect(wordCount(detail(ALL_ON))).toBeLessThanOrEqual(1_250);
+    expect(wordCount(detail(ALL_ON))).toBeLessThanOrEqual(1_300);
     expect(wordCount(detail(POLICY_FEATURES))).toBeLessThanOrEqual(wordCount(detail(ALL_ON)));
   });
 });
@@ -641,10 +775,13 @@ describe("privacy page with anonymous feedback (track FB)", () => {
       "When you mark what happened to a trade idea or report a problem with it, your browser also sends Offer Sheet an anonymous copy, to help improve it: never your league's ID, names, usernames or the notes you type. We keep it for up to 12 months. You can turn this off in Settings.",
     );
     // "main scoring settings": src/lib/feedbackEvent.ts FeedbackEventFormat's points per catch, per passing touchdown and
-    // tight-end premium; its slots by the positions they take; superflex is a lineup spot.
+    // tight-end premium; its slots by the positions they take; superflex is a lineup spot. The reward setting: how the title
+    // is weighed against the playoffs, and with prizeShares (Checkpoint 7c; planner reply to Checkpoint 7b, sections 3 and
+    // 6) the prize split, in the planner's words.
     expect(text).toContain(
-      "Each anonymous copy is used only to improve Offer Sheet. It holds what you pressed and which version you sent; the platform, season and week; your league's format (teams, league type, main scoring settings, lineup and playoff spots) and how you weigh the title against the playoffs; the players as ID numbers with positions; Offer Sheet's numbers for the trade and what they came from; a random code that links later changes to the same record; and the date it arrived.",
+      `Each anonymous copy is used only to improve Offer Sheet. It holds what you pressed and which version you sent; the platform, season and week; your league's format (teams, league type, main scoring settings, lineup and playoff spots) and ${f.prizeShares ? PRIZE_WORDS : WEIGH_WORDS}; the players as ID numbers with positions; Offer Sheet's numbers for the trade and what they came from; a random code that links later changes to the same record; and the date it arrived.`,
     );
+    expect(text).not.toContain(f.prizeShares ? WEIGH_WORDS : PRIZE_WORDS);
     expect(text).toContain(
       "It never holds your league's ID in any form, team IDs, team or owner names, usernames, ESPN member IDs, cookies, your IP address or your notes. Only your browser, and a file you export, can tell which copies are yours, though the players, format and week could lead someone who searched public leagues to yours. We never try to match copies to anyone.",
     );
@@ -694,9 +831,11 @@ describe("terms page (Part B, B3; Checkpoint 7b: planner reply to Checkpoint 7a,
     );
   });
 
-  it.each(ALL)("%o: says its own numbers are estimates and the decisions are yours, that FantasyCalc's values are used but never shown once nothing shows them, and names the sources (reviews PG-2, POL-21; 5.4)", (f) => {
+  it.each(ALL)("%o: says its own numbers are estimates (“Helps them” once it ships) and the decisions are yours, that FantasyCalc's values are used but never shown once nothing shows them, and names the sources (reviews PG-2, POL-21; 5.4; Checkpoint 7c)", (f) => {
     const { text } = terms(f);
-    expect(text).toContain("The numbers Offer Sheet works out are estimates: projections, playoff and title odds, “Helps you”, “Chance they accept” and “Overall”.");
+    // “Helps them” too once it ships (helpsThem; Checkpoint 7c: planner reply to Checkpoint 7b, sections 3 and 7).
+    expect(text).toContain(f.helpsThem ? ESTIMATES_WITH_HELPS_THEM : ESTIMATES);
+    if (!f.helpsThem) expect(text).not.toContain("Helps them");
     expect(text).not.toContain("the trade values it shows");
     expect(text).toContain("You decide what to offer and what to accept, and those decisions are yours.");
     expect(text).toContain(
@@ -805,6 +944,35 @@ describe("feedback page (Part B, B3)", () => {
     expect(links(html).map((l) => l.href)).toEqual(["/settings", "/privacy", `mailto:${CONTACT_EMAIL}`]);
     // Review POL-19: sharing is on unless turned off, so not "only if you want to".
     expect(feedbackDescription(f)).toBe("How to tell Offer Sheet what happened to its trade ideas, or what went wrong. The copies it gets are anonymous, and you can turn them off.");
+  });
+});
+
+describe("Checkpoint 7c's switches change only their own words (planner reply to Checkpoint 7b, section 3)", () => {
+  // Each switch, turned on alone from every way the others can stand, changes its own sentence on its own page, shown only
+  // where its sentence is (the archive with publicArchive, the anonymous copy with anonymousFeedback), and nothing else on
+  // the privacy policy, the terms or the feedback page: so sections 6 and 7 can turn theirs on whenever they ship.
+  const SWITCHES = [
+    { flag: "dailyLevels", page: "privacy", on: ARCHIVE_WITH_LEVELS, off: ARCHIVE, shown: (f: PolicyFeatures) => f.publicArchive },
+    { flag: "prizeShares", page: "privacy", on: PRIZE_WORDS, off: WEIGH_WORDS, shown: (f: PolicyFeatures) => f.anonymousFeedback },
+    { flag: "helpsThem", page: "terms", on: ESTIMATES_WITH_HELPS_THEM, off: ESTIMATES, shown: () => true },
+  ] as const;
+  const PAGES = { privacy, terms, feedback } as const;
+
+  it.each(SWITCHES.flatMap((s) => ALL.map((f) => [s.flag, f] as const)))("%s, from %o", (flag, base) => {
+    const s = SWITCHES.find((x) => x.flag === flag);
+    if (!s) throw new Error(flag);
+    const on: PolicyFeatures = { ...base, [flag]: true };
+    const off: PolicyFeatures = { ...base, [flag]: false };
+    for (const [name, render] of Object.entries(PAGES)) {
+      const [onText, offText] = [render(on).text, render(off).text];
+      if (name !== s.page) {
+        expect(onText, name).toBe(offText);
+        continue;
+      }
+      expect(onText.includes(s.on), `${name} shows ${flag}'s words`).toBe(s.shown(on));
+      expect(offText.includes(s.on), name).toBe(false);
+      expect(onText.replace(s.on, s.off), name).toBe(offText);
+    }
   });
 });
 

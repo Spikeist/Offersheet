@@ -9,21 +9,25 @@ import {
   buildTradeContext,
   evaluateExact,
   legalSide,
+  othersPool,
   proposalKey,
   screenTrade,
   simCounts,
   simulateTrade,
   tradeInternals,
   tradeRoster,
+  tradeSides,
   type ExactTrade,
+  type OpenSpotFill,
   type TeamState,
   type TradeContextOptions,
 } from "./evaluate";
 import type { TestLeagueSpec, TestPlayer } from "./testLeague";
 import { TEST_NOW } from "./testLeague";
-import { flat, handLeague, type SeasonSpec } from "./trade.testing";
+import { flat, handLeague, smallLeague, type SeasonSpec } from "./trade.testing";
+import { returnersOf } from "./optimizer";
 import { defaultTradeSettings } from "./settings";
-import { rosValue } from "./teamValue";
+import { addGainExact, rosValue, solveEvWeeks, teamEval, type TableRow } from "./teamValue";
 import type { TradeAsset, TradeProposal } from "./tradeModel";
 
 const p = (...ids: string[]): TradeAsset[] => ids.map((id) => ({ kind: "player", id }));
@@ -176,11 +180,15 @@ describe("proposals the Analyzer refuses (M2)", () => {
 });
 
 describe("roster legality after a trade (§7; M2's rules and their order)", () => {
-  it("rule 2: the side over the roster size drops its lowest keep value player; rule 4: the side with an open spot adds the free agent who helps most (none helps: the most ROS points)", () => {
+  it("rule 2: the side over the roster size drops its lowest keep value player; rule 4: the side with an open spot adds the best free agent at the position it gave up (none helps: the most ROS points there)", () => {
     const a = analyzeTrade(context(), trade("2", ["wb1", "rc1"], ["wa2"]));
-    // Team 2 receives two for one: its bench WR (never starts: costs nothing) goes. I give two for one: no free agent
-    // improves my lineup, so the one with the most ROS points (the QB) fills the spot; never a K or D/ST.
-    expect(a.evaluation?.required).toEqual({ me: { drops: [], adds: ["fq"] }, partner: { drops: ["wc2"], adds: [] } });
+    // Team 2 receives two for one: its bench WR (never starts: costs nothing) goes. I give a WR and an RB for a WR: the
+    // spot is the RB's (planner reply to Checkpoint 7b, section 5). No free-agent RB improves my lineup, so the one with the
+    // most ROS points there fills it: the 2-point RB (Checkpoint 7b's rule took the 6-point QB, the most ROS points at any
+    // position); never a K or D/ST.
+    expect(a.evaluation?.required).toEqual({ me: { drops: [], adds: ["fr"], openSpots: [{ playerId: "fr", pos: "RB" }] }, partner: { drops: ["wc2"], adds: [] } });
+    const before = analyzeTrade(context(() => undefined, {}, { openSpotFill: "bestAny" }), trade("2", ["wb1", "rc1"], ["wa2"]));
+    expect(before.evaluation?.required.me).toEqual({ drops: [], adds: ["fq"], openSpots: [{ playerId: "fq", pos: null }] });
   });
 
   it("rule 2 never drops a player just received, even the cheapest to lose", () => {
@@ -234,9 +242,10 @@ describe("roster legality after a trade (§7; M2's rules and their order)", () =
       {},
     );
     const a = analyzeTrade(ctx, trade("2", ["qx1"], ["rc2"]));
-    // Team 2 has 2 QBs (its limit) and receives one: its bench QB goes; its FLEX is then empty, and of the free agents
-    // a QB can't come in (the limit): the 2-point WR fills it best (an RB's future injury risk is higher).
-    expect(a.evaluation?.required).toEqual({ me: { drops: [], adds: [] }, partner: { drops: ["qx2"], adds: ["fw"] } });
+    // Team 2 has 2 QBs (its limit) and receives one: its bench QB goes; its FLEX is then empty. It gave its bench RB, so
+    // the spot takes the free-agent RB (planner reply to Checkpoint 7b, section 5), though the 2-point WR would fill the
+    // FLEX a hair better (an RB's future injury risk is higher: Checkpoint 7b's rule took the WR).
+    expect(a.evaluation?.required).toEqual({ me: { drops: [], adds: [] }, partner: { drops: ["qx2"], adds: ["fr"], openSpots: [{ playerId: "fr", pos: "RB" }] } });
   });
 
   it("rule 1: illegal when only received players are left at the position", () => {
@@ -262,17 +271,311 @@ describe("roster legality after a trade (§7; M2's rules and their order)", () =
     expect(analyzeTrade(none, trade("2", ["te1"], ["rb2"])).illegal).toBe("You must keep at least 1 TE, and no free agent is available to fill the spot.");
   });
 
-  it("rule 4: the free agent with the largest gain wins over more ROS points; never a K or D/ST, nor a position I stream", () => {
+  it("rule 4 (Checkpoint 7b's rule, openSpotFill bestAny): the free agent with the largest gain wins over more ROS points; never a K or D/ST, nor a position I stream", () => {
+    const old = { openSpotFill: "bestAny" } as const;
     // Giving both my RB2 and my FLEX RB leaves an RB slot empty: the 2-point free-agent RB fills it.
-    expect(analyzeTrade(context(), trade("2", ["rb1", "rc1"], ["wa2"])).evaluation?.required.me.adds).toEqual(["fr"]);
+    expect(analyzeTrade(context(() => undefined, {}, old), trade("2", ["rb1", "rc1"], ["wa2"])).evaluation?.required.me.adds).toEqual(["fr"]);
     // A 9-point free-agent kicker has the most ROS points, but kickers are never added.
     const kicker = context((spec) => {
       spec.freeAgents = (spec.freeAgents ?? []).map((x) => (x.id === "fk" ? flat("fk", "K", 9) : x));
-    });
+    }, {}, old);
     expect(analyzeTrade(kicker, trade("2", ["wb1", "rc1"], ["wa2"])).evaluation?.required.me.adds).toEqual(["fq"]);
     // Streaming QBs: the free-agent QB is out; of the 2-point RB and WR, the WR has more ROS points (less injury risk).
-    const streamQb = context(() => undefined, {}, { settings: { ...defaultTradeSettings(), streamPositions: ["K", "DEF", "QB"] } });
+    const streamQb = context(() => undefined, {}, { ...old, settings: { ...defaultTradeSettings(), streamPositions: ["K", "DEF", "QB"] } });
     expect(analyzeTrade(streamQb, trade("2", ["wb1", "rc1"], ["wa2"])).evaluation?.required.me.adds).toEqual(["fw"]);
+  });
+
+  it("rule 4 (planner reply to Checkpoint 7b, section 5): the spot takes the best free agent at the position given up, even where another position gains more", () => {
+    // An 11-point free-agent TE would start at TE (my 8-point TE moving to FLEX): my baseline's own pickup (V*(me) adds him).
+    // Giving my RB2 and my bench RB for a WR leaves an RB slot empty: the 2-point RB fills it (+2 a week), though the TE
+    // would gain more there (+3: my WR3 holds the FLEX). After the trade V*(after) makes the TE pickup again, with the
+    // baseline's drop (the planner: "Any big upgrade at another position is already in the baseline's pickups").
+    const te = (spec: TestLeagueSpec) => {
+      spec.freeAgents = [...(spec.freeAgents ?? []), flat("fte", "TE", 11)];
+    };
+    const ctx = context(te);
+    const I = tradeInternals(ctx);
+    expect((I.me as TeamState).vstar.moves.map((m) => m.add)).toEqual(["fte"]);
+    const x = exact(ctx, trade("2", ["rb1", "rc1"], ["wa2"]));
+    expect(x.evaluation.required.me).toEqual({ drops: [], adds: ["fr"], openSpots: [{ playerId: "fr", pos: "RB" }] });
+    expect(x.mine.roster).toEqual(expect.arrayContaining(["fr", "fte"]));
+    // Checkpoint 7b's rule took the TE, the largest gain at any position, and the card then also named the RB as a
+    // free-agent move the trade's numbers count on (planner: the card "read as if the trade depends on an unrelated pickup").
+    const old = exact(context(te, {}, { openSpotFill: "bestAny" }), trade("2", ["rb1", "rc1"], ["wa2"]));
+    expect(old.evaluation.required.me.adds).toEqual(["fte"]);
+    expect(old.evaluation.required.me.openSpots).toEqual([{ playerId: "fte", pos: null }]);
+    expect(old.evaluation.required.me.faMoves?.adds).toEqual(["fr"]);
+    expect(old.mine.roster).toEqual(expect.arrayContaining(["fr", "fte"]));
+    // With my RB2 and my WR2 given for a WR, the spot is the RB's whichever position gains more: a 9-point free-agent WR or
+    // the TE would gain more (my FLEX would score 3.1, my bench RB moving up to RB2), the 2-point RB nothing. (Both are my
+    // baseline pickups here, for my bench WR and my bench RB: giving either of those would open no spot of the trade's.)
+    const wr = context((spec) => {
+      te(spec);
+      spec.freeAgents = [...(spec.freeAgents ?? []), flat("fw9", "WR", 9)];
+    });
+    expect(tradeInternals(wr).me?.vstar.moves.map((m) => [m.add, m.drop])).toEqual([
+      ["fte", "wc1"],
+      ["fw9", "rc1"],
+    ]);
+    expect(exact(wr, trade("2", ["rb1", "wb1"], ["wa2"])).evaluation.required.me.openSpots).toEqual([{ playerId: "fr", pos: "RB" }]);
+  });
+
+  it("rule 4: several open spots are filled one at a time, each from the positions still short; none available there: the best at any position", () => {
+    // Two RBs and a WR for one WR: RB is short by 2, and there's one free-agent RB. The first spot takes him; RB is still
+    // short, with nobody left there, so the second spot takes the best at any position: none helps, so the most ROS
+    // points, the 6-point QB (never a K or D/ST I stream).
+    const a = analyzeTrade(context(), trade("2", ["rb1", "wb1", "rc1"], ["wa2"]));
+    expect(a.evaluation?.required.me).toEqual({ drops: [], adds: ["fr", "fq"], openSpots: [{ playerId: "fr", pos: "RB" }, { playerId: "fq", pos: null, short: ["RB"] }] });
+  });
+
+  it("rule 4 in exact evaluation with scenarios: the fallback too is the free agent whose add gains the most scenario ROS, over every one allowed (brute force), and names the position none could fill", () => {
+    // The same trade in scenario lineups, with a 3.5-point free-agent WR besides. The first spot takes the only free-agent
+    // RB; RB is still short with nobody left there, so the second spot takes the best at any position by scenario gain: the
+    // 6-point QB, who covers my QB's injuries. Expected-value lineups (screening's metric) would take the WR, who'd start at
+    // my FLEX (my bench is gone) where the QB never starts (review of Phase 7c's fill, finding pickups-6).
+    const ctx = context(
+      (spec) => {
+        spec.freeAgents = [...(spec.freeAgents ?? []), flat("fw4", "WR", 3.5)];
+      },
+      {},
+      { scenarios: 8 },
+    );
+    const I = tradeInternals(ctx);
+    const me = I.me as TeamState;
+    const pool = othersPool(I, I.byId.get("2") as TeamState);
+    const side = legalSide(I, me, me.roster, ["rb1", "wb1", "rc1"], ["wa2"], "exact", "You", "none", pool);
+    if ("illegal" in side) throw new Error(side.illegal);
+    const [first, second] = side.change.openSpots ?? [];
+    expect(first).toEqual({ playerId: "fr", pos: "RB" });
+    // Every free agent the second spot may take (not on the roster, not another team's claim, not at a position I stream),
+    // priced by his add to the roster after the first fill.
+    const pre = side.roster.filter((id) => id !== second?.playerId);
+    const streamed = new Set<string>(me.stream.positions);
+    const ros = (id: string) => I.league.lp.players[id]?.ros.total ?? 0;
+    const allowed = I.league.freeAgentIds.filter((id) => !pre.includes(id) && !pool.excluded.has(id) && !streamed.has(I.league.table.rows.get(id)?.pos ?? ""));
+    expect([...allowed].sort()).toEqual(["fq", "ft", "fw", "fw4"]);
+    const base = I.league.scenRosOf(pre, side.spec);
+    const gains = allowed.map((id) => ({ id, gain: I.league.scenRosOf([...pre, id], side.spec) - base }));
+    const top = Math.max(...gains.map((g) => g.gain));
+    const want = gains.filter((g) => g.gain >= top - 1e-6).sort((a, b) => ros(b.id) - ros(a.id) || (a.id < b.id ? -1 : 1))[0]?.id;
+    expect(top).toBeGreaterThan(1);
+    expect(want).toBe("fq");
+    expect(second).toEqual({ playerId: want, pos: null, short: ["RB"] });
+    // Expected-value lineups' pick on the same roster: the WR.
+    const ev = solveEvWeeks(teamEval([...pre.flatMap((id) => I.league.table.rows.get(id) ?? []), ...side.spec.rows, ...returnersOf(side.spec)], I.league.slots), I.W);
+    const evGain = (id: string) => {
+      const r = I.league.table.rows.get(id) as TableRow;
+      return addGainExact(ev, r, I.league.maskOf(r), I.weights).gain;
+    };
+    expect([...allowed].sort((a, b) => evGain(b) - evGain(a) || ros(b) - ros(a) || (a < b ? -1 : 1))[0]).toBe("fw4");
+  });
+
+  it("rule 4 on the partner's side too (planner: \"Both teams\"): the position it gave up", () => {
+    // Team 2 gives a WR and its bench RB for my WR: its spot is the RB's.
+    const a = analyzeTrade(context(), trade("2", ["wb1"], ["wa2", "rc2"]));
+    expect(a.evaluation?.required.partner).toEqual({ drops: [], adds: ["fr"], openSpots: [{ playerId: "fr", pos: "RB" }] });
+  });
+
+  it("rule 4: a short position at its limit, or one I stream, has no candidate: the best at any position (the card names only the first)", () => {
+    // Four RBs with a limit of 3 (held to my count before the trade): giving one leaves 3, the limit, so no RB can come in.
+    const limited = context((spec) => {
+      spec.positionLimits = { RB: 3 };
+      swapPlayer(spec, "1", "wc1", flat("rx1", "RB", 3));
+    });
+    expect(analyzeTrade(limited, trade("2", ["rb1"], [])).evaluation?.required.me).toEqual({ drops: [], adds: ["fq"], openSpots: [{ playerId: "fq", pos: null, short: ["RB"] }] });
+    // My only kicker and my bench WR for a bench WR: K is short, but I stream kickers (the default): the streaming row fills
+    // the slot every week, so the spot takes the best at any position, and the card doesn't say no kicker is available.
+    const streamed = analyzeTrade(context(), trade("2", ["k1", "wc1"], ["wc2"])).evaluation?.required.me;
+    expect(streamed).toEqual({ drops: [], adds: ["fq"], openSpots: [{ playerId: "fq", pos: null }] });
+    // No spot opened, no open spots.
+    expect(analyzeTrade(context(), trade("2", ["wb1"], ["wa2"])).evaluation?.required.me).toEqual({ drops: [], adds: [] });
+  });
+
+  it("V*(after) never drops rule 4's fill (the optimizer's keep set): it makes the side's own baseline pickup again with the baseline's drop", () => {
+    // Team 2's 2-point TE makes an 11-point free-agent TE its baseline pickup (it gains the most from him, so it claims him
+    // first), for that TE. A trade where it gives a WR and its bench RB for my WR opens an RB spot: the 2-point RB fills
+    // it. After the trade its V*(after) adds the TE again: dropping the fill or its old TE gains the same, and the fill (the
+    // smaller id, the same value) would go; kept, the old TE goes, as in the baseline.
+    const edit = (spec: TestLeagueSpec) => {
+      swapPlayer(spec, "2", "te2", flat("te2w", "TE", 2));
+      spec.freeAgents = [...(spec.freeAgents ?? []), flat("fte", "TE", 11)];
+    };
+    const ctx = context(edit);
+    const I = tradeInternals(ctx);
+    const two = I.byId.get("2") as TeamState;
+    expect(two.vstar.moves.map((m) => [m.add, m.drop])).toEqual([["fte", "te2w"]]);
+    const proposal = trade("2", ["wb1"], ["wa2", "rc2"]);
+    const x = exact(ctx, proposal);
+    expect(x.evaluation.required.partner).toEqual({ drops: [], adds: ["fr"], openSpots: [{ playerId: "fr", pos: "RB" }] });
+    expect(x.theirs.roster).toEqual(expect.arrayContaining(["fr", "fte"]));
+    expect(x.theirs.roster).not.toContain("te2w");
+    // Without the keep set the same run drops the fill: the card would name a pickup the evaluated roster doesn't hold.
+    const after = tradeSides(I, I.me as TeamState, two, ["wb1"], ["wa2", "rc2"], "Team 2");
+    if ("illegal" in after) throw new Error(after.illegal);
+    const unkept = I.league.optimizer.optimize(after.theirLegal.roster, after.theirLegal.spec, undefined, after.pools.theirs);
+    expect(unkept.moves.map((m) => [m.add, m.drop])).toEqual([["fte", "fr"]]);
+    // Checkpoint 7b's rule (openSpotFill bestAny) put the TE, its own baseline pickup, into the spot.
+    const old = exact(context(edit, {}, { openSpotFill: "bestAny" }), proposal);
+    expect(old.evaluation.required.partner.adds).toEqual(["fte"]);
+    expect(old.theirs.roster).not.toContain("fr");
+  });
+
+  it("openSpotFill bestAny (Checkpoint 7b's rule) runs V*(after) without the keep set, so it can drop the fill (smallLeague(11), scenario lineups)", () => {
+    // Facts of the synthetic data: my baseline picks up 1092 for my backup QB 1011. Giving my RB 1002 and 1011 for Team 4's
+    // 1038 opens a spot under Checkpoint 7b's rule; its fill, the QB 1075, goes again when V*(after) picks up 1092 (review of
+    // Phase 7c's fill, finding pickups-6).
+    const league = smallLeague(11, { pastWinnersOrder: ["2", "5", "1", "3", "6", "4"] });
+    const at = (openSpotFill: OpenSpotFill) => tradeInternals(buildTradeContext(league.snapshot, league.inputs, { now: TEST_NOW, scenarios: 4, openSpotFill }));
+    const proposal = trade("4", ["1011", "1002"], ["1038"]);
+    const oldI = at("bestAny");
+    expect((oldI.me as TeamState).vstar.moves.map((m) => [m.add, m.drop])).toEqual([["1092", "1011"]]);
+    const old = evaluateExact(oldI, proposal, 4);
+    if ("illegal" in old) throw new Error(old.illegal);
+    expect(old.evaluation.required.me.openSpots).toEqual([{ playerId: "1075", pos: null }]);
+    expect(old.mine.roster).not.toContain("1075");
+    expect(old.mine.roster).toContain("1092");
+    // Now 1011's spot is the baseline pickup's (the next test): nothing fills it, and V*(after) picks up 1092 into it, for
+    // the same roster.
+    const now = evaluateExact(at("samePosition"), proposal, 4);
+    if ("illegal" in now) throw new Error(now.illegal);
+    expect(now.evaluation.required.me.adds).toEqual([]);
+    expect(now.evaluation.required.me.openSpots).toBeUndefined();
+    expect([...now.mine.roster].sort()).toEqual([...old.mine.roster].sort());
+  });
+
+  it("⚠️ a given player my own baseline cuts anyway (V*(me) drops him for a pickup at another position) opens no spot: the trade reads as it does without him (review of Phase 7c's fill, finding pickups-1)", () => {
+    // An 11-point free-agent TE is my baseline pickup, for my bench WR (3.1 points, worth less than W, so no trade value
+    // moves with him either). Counted as given, my bench WR opened a spot of the trade's: the free-agent WR (or, with my RB2,
+    // the free-agent RB) filled it, kept by V*(after), which then cut another bench player of mine for the TE.
+    const ctx = context((spec) => {
+      spec.freeAgents = [...(spec.freeAgents ?? []), flat("fte", "TE", 11)];
+    });
+    const I = tradeInternals(ctx);
+    const me = I.me as TeamState;
+    expect(me.vstar.moves.map((m) => [m.add, m.drop])).toEqual([["fte", "wc1"]]);
+    expect(I.values.wc1 as number).toBeLessThan(I.credit);
+    const sorted = (ids: readonly string[]) => [...ids].sort();
+    // Given for nothing: his spot was the TE's, so nothing fills it, my roster after the trade is V*(me)'s and nothing moves.
+    const dump = exact(ctx, trade("2", ["wc1"], []));
+    expect(dump.evaluation.required.me).toEqual({ drops: [], adds: [] });
+    expect(sorted(dump.mine.roster)).toEqual(sorted(me.vstar.roster));
+    const gone = analyzeTrade(ctx, trade("2", ["wc1"], [])).evaluation;
+    for (const k of ["dPO", "dCH", "dPPW", "b", "gMine"] as const) expect(gone?.[k], k).toBe(0);
+    // With my RB2 for Team 2's WR1: the same as my RB2 alone.
+    const both = analyzeTrade(ctx, trade("2", ["wc1", "rb1"], ["wa2"])).evaluation;
+    const alone = analyzeTrade(ctx, trade("2", ["rb1"], ["wa2"])).evaluation;
+    expect(both?.required.me).toEqual({ drops: [], adds: [] });
+    expect(alone?.required.me).toEqual({ drops: [], adds: [] });
+    for (const k of ["dPO", "dCH", "dPPW", "b", "gMine"] as const) expect(both?.[k], k).toBeCloseTo(alone?.[k] as number, 12);
+    expect(both?.b as number).not.toBe(0);
+    // Screening, from V*(me), never had him on the roster: no spot there either.
+    const screened = legalSide(I, me, me.vstar.roster, ["wc1", "rb1"], ["wa2"], "ev", "You", "ros", me.pool);
+    if ("illegal" in screened) throw new Error(screened.illegal);
+    expect(screened.change).toEqual({ drops: [], adds: [] });
+  });
+
+  it("a partner that claims before me can fill its spot with my own baseline pickup: the spot says so (OpenSpot.yours; review of Phase 7c's fill, finding pickups-4)", () => {
+    // Team 2's TE (10.8 points) and WRs (12) leave an 11-point free-agent TE little to add there, so he's my baseline pickup
+    // (for my bench WR). Team 2 gives its TE and its bench RB for my WR2: its spot takes him (the largest gain at TE or RB).
+    const edit = (spec: TestLeagueSpec) => {
+      swapPlayer(spec, "2", "te2", flat("te2", "TE", 10.8));
+      swapPlayer(spec, "2", "wb2", flat("wb2", "WR", 12));
+      swapPlayer(spec, "2", "wc2", flat("wc2", "WR", 12));
+      spec.freeAgents = [...(spec.freeAgents ?? []), flat("fte", "TE", 11)];
+    };
+    const ranked = (order: string[]) => {
+      const { snapshot, inputs } = handLeague(edit);
+      return buildTradeContext({ ...snapshot, teams: snapshot.teams.map((t) => ({ ...t, waiverRank: order.indexOf(t.id) + 1 })) }, inputs, { now: TEST_NOW, scenarios: 0 });
+    };
+    const proposal = trade("2", ["wb1"], ["te2", "rc2"]);
+    // Team 2 claims first: it takes him, so my free-agent pickups after the trade can't.
+    const theyFirst = ranked(["2", "1", "3", "4"]);
+    const I = tradeInternals(theyFirst);
+    expect((I.me as TeamState).vstar.moves.map((m) => m.add)).toEqual(["fte"]);
+    expect((I.byId.get("2") as TeamState).vstar.moves).toEqual([]);
+    const a = exact(theyFirst, proposal);
+    expect(a.evaluation.required.partner).toEqual({ drops: [], adds: ["fte"], openSpots: [{ playerId: "fte", pos: "TE", yours: true }] });
+    expect(a.mine.roster).not.toContain("fte");
+    // I claim first: Team 2 can't take him (my pickups after the trade have him again), and its spot takes the next TE.
+    const meFirst = exact(ranked(["1", "2", "3", "4"]), proposal);
+    expect(meFirst.evaluation.required.partner).toEqual({ drops: [], adds: ["ft"], openSpots: [{ playerId: "ft", pos: "TE" }] });
+    expect(meFirst.mine.roster).toContain("fte");
+    // A partner claiming after me, with nobody between us, takes my pickup only when I no longer want him: not marked. My
+    // 12-point bench RB holds my FLEX, so once I get Team 2's 14-point TE the free-agent TE adds nothing for me.
+    const { snapshot, inputs } = handLeague((spec) => {
+      swapPlayer(spec, "1", "rc1", flat("rc1", "RB", 12));
+      swapPlayer(spec, "2", "te2", flat("te2", "TE", 14));
+      spec.freeAgents = [...(spec.freeAgents ?? []), flat("fte", "TE", 11)];
+    });
+    const after = buildTradeContext({ ...snapshot, teams: snapshot.teams.map((t) => ({ ...t, waiverRank: Number(t.id) })) }, inputs, { now: TEST_NOW, scenarios: 0 });
+    expect(tradeInternals(after).me?.vstar.moves.map((m) => m.add)).toEqual(["fte"]);
+    const given = exact(after, proposal);
+    expect(given.mine.roster).not.toContain("fte");
+    expect(given.evaluation.required.partner).toEqual({ drops: [], adds: ["fte"], openSpots: [{ playerId: "fte", pos: "TE" }] });
+  });
+
+  it("rule 4 in exact evaluation with scenarios: the fill is the free agent at the short position whose add gains the most scenario ROS (brute force; ties: more ROS points)", () => {
+    // Free-agent RBs of every kind: steady ones, one out this week, one doubtful; the trades leave an RB slot empty, the FLEX
+    // to an RB, or only the bench short (depth: he starts only when a starter is hurt or on bye). Never my bench RB: my
+    // baseline cuts him for the RB who's out this week, so giving him opens no spot of the trade's (finding pickups-1, below).
+    const ctx = context(
+      (spec) => {
+        spec.freeAgents = [
+          ...(spec.freeAgents ?? []),
+          flat("fr3", "RB", 3.4),
+          flat("fr5", "RB", 5.2, { injury: "OUT" }),
+          flat("fr4", "RB", 4.4, { injury: "DOUBTFUL" }),
+          flat("fw6", "WR", 6),
+        ];
+      },
+      {},
+      { scenarios: 8 },
+    );
+    const I = tradeInternals(ctx);
+    expect(I.S).toBe(8);
+    const me = I.me as TeamState;
+    const ros = (id: string) => I.league.lp.players[id]?.ros.total ?? 0;
+    const pool = othersPool(I, I.byId.get("2") as TeamState);
+    let differs = 0;
+    expect(me.vstar.moves.map((m) => [m.add, m.drop])).toEqual([["fr5", "rc1"]]);
+    for (const [give, get] of [
+      [["ra1", "rb1"], ["wa2"]],
+      [["rb1", "wb1"], ["wa2"]],
+      [["rb1", "wc1"], ["wa2"]],
+    ] as [string[], string[]][]) {
+      const side = legalSide(I, me, me.roster, give, get, "exact", "You", "none", pool);
+      if ("illegal" in side) throw new Error(side.illegal);
+      const pre = side.roster.filter((id) => !side.change.adds.includes(id));
+      const base = I.league.scenRosOf(pre, side.spec);
+      const rbs = I.league.freeAgentIds.filter((id) => I.league.table.rows.get(id)?.pos === "RB" && !pool.excluded.has(id));
+      expect(rbs.length, `${give} for ${get}`).toBeGreaterThan(2);
+      const gains = rbs.map((id) => ({ id, gain: I.league.scenRosOf([...pre, id], side.spec) - base }));
+      const top = Math.max(...gains.map((g) => g.gain));
+      const want = top > 1e-9 ? gains.filter((g) => g.gain >= top - 1e-6).sort((a, b) => ros(b.id) - ros(a.id) || (a.id < b.id ? -1 : 1))[0]?.id : gains.map((g) => g.id).sort((a, b) => ros(b) - ros(a) || (a < b ? -1 : 1))[0];
+      expect(top, `${give} for ${get}`).toBeGreaterThan(1);
+      expect(side.change.openSpots, `${give} for ${get}`).toEqual([{ playerId: want, pos: "RB" }]);
+      // The EV lineups' pick (screening's metric) on the same roster.
+      const ev = solveEvWeeks(teamEval([...pre.flatMap((id) => I.league.table.rows.get(id) ?? []), ...side.spec.rows, ...returnersOf(side.spec)], I.league.slots), I.W);
+      const evGain = (id: string) => {
+        const r = I.league.table.rows.get(id) as TableRow;
+        return addGainExact(ev, r, I.league.maskOf(r), I.weights).gain;
+      };
+      const evBest = [...rbs].sort((a, b) => evGain(b) - evGain(a) || ros(b) - ros(a) || (a < b ? -1 : 1))[0];
+      if (evBest !== want) differs++;
+    }
+    // A depth pickup can be worth more in scenario lineups than his expected-value gain says: the pick can differ.
+    expect(differs).toBeGreaterThan(0);
+  });
+
+  it("rule 4 in screening (EV lineups, from V*(T)) picks by the same rule: the position given up", () => {
+    const ctx = context();
+    const I = tradeInternals(ctx);
+    const me = I.me as TeamState;
+    const side = legalSide(I, me, me.vstar.roster, ["wb1", "rc1"], ["wa2"], "ev", "You", "ros", me.pool);
+    if ("illegal" in side) throw new Error(side.illegal);
+    expect(side.change).toEqual({ drops: [], adds: ["fr"], openSpots: [{ playerId: "fr", pos: "RB" }] });
+    // Its EV ROS is the final roster's, exactly (the add's gain tracked: legalSide's header).
+    expect(side.ros).toBeCloseTo(rosValue(tradeInternals(ctx).league.optimizer.evaluate(side.roster, me.stream).solved.lv, I.weights), 9);
   });
 
   it("received players take the given players' places in roster order", () => {

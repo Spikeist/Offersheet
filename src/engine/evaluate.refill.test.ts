@@ -51,26 +51,29 @@ describe("rule 4 at K and D/ST: only a refill of a starting slot the trade empti
     expect([...(I.me as TeamState).stream.positions].sort()).toEqual(["DEF", "K"]);
   });
 
-  it("a 2-for-1 that keeps the partner's kicker and D/ST never adds the better free-agent one: the spot takes the most ROS points elsewhere", () => {
-    // Team 2 gives its 13-point WR and its 3-point bench WR for my 11-point WR: one spot opens. The 9-point kicker would be
-    // +2 a week over its 7 (the 7-point D/ST +1); no other free agent improves its lineup, so the one with the most ROS
-    // points comes in: the 6-point QB.
+  it("a 2-for-1 that keeps the partner's kicker and D/ST never adds the better free-agent one: the spot takes the position it gave up", () => {
+    // Team 2 gives its 13-point WR and its 3-point bench WR for my 11-point WR: one spot opens, a WR's (planner reply to
+    // Checkpoint 7b, section 5). The 9-point kicker would be +2 a week over its 7 (the 7-point D/ST +1); the spot takes the
+    // best free-agent WR, the 2-point one (Checkpoint 7b's rule took the 6-point QB, the most ROS points at any position).
     const ctx = context();
-    expect(required(ctx, trade("2", ["wb1"], ["wa2", "wc2"])).partner).toEqual({ drops: [], adds: ["fq"] });
+    expect(required(ctx, trade("2", ["wb1"], ["wa2", "wc2"])).partner).toEqual({ drops: [], adds: ["fw"], openSpots: [{ playerId: "fw", pos: "WR" }] });
     // Screening (EV mode, from V*(P)) reads the same rule.
     const I = tradeInternals(ctx);
     const two = I.byId.get("2") as TeamState;
     const screened = legalSide(I, two, two.vstar.roster, ["wa2", "wc2"], ["wb1"], "ev", "Team 2", "look", two.pool);
     if ("illegal" in screened) throw new Error(screened.illegal);
-    expect(screened.change.adds).toEqual(["fq"]);
+    expect(screened.change.adds).toEqual(["fw"]);
+    // Checkpoint 7b's rule (openSpotFill bestAny, for the trade report) never added the kicker or the D/ST either.
+    expect(required(context(() => undefined, { openSpotFill: "bestAny" }), trade("2", ["wb1"], ["wa2", "wc2"])).partner.adds).toEqual(["fq"]);
   });
 
   it("trading the only kicker still refills the slot (review of track E, item 5), and a second open spot takes no second kicker", () => {
     const ctx = context();
-    expect(required(ctx, trade("2", ["wc1"], ["k2", "wc2"])).partner.adds).toEqual(["fk"]);
-    // Kicker, bench WR and bench RB for one player: the kicker slot is refilled first (the largest gain), the other spot
-    // takes the 6-point QB (most ROS points), not the free-agent D/ST, an upgrade of the one it keeps.
-    expect(required(ctx, trade("2", ["wc1"], ["k2", "wc2", "rc2"])).partner.adds).toEqual(["fk", "fq"]);
+    expect(required(ctx, trade("2", ["wc1"], ["k2", "wc2"])).partner).toEqual({ drops: [], adds: ["fk"], openSpots: [{ playerId: "fk", pos: "K" }] });
+    // Kicker, bench WR and bench RB for one player: the kicker slot is refilled first (the largest gain among the
+    // positions it gave up), the other spot takes the free-agent RB (the position still short), not the free-agent D/ST,
+    // an upgrade of the one it keeps.
+    expect(required(ctx, trade("2", ["wc1"], ["k2", "wc2", "rc2"])).partner.adds).toEqual(["fk", "fr"]);
     // The only D/ST too.
     expect(required(ctx, trade("2", ["wc1"], ["d2", "wc2"])).partner.adds).toEqual(["fd"]);
   });
@@ -78,19 +81,20 @@ describe("rule 4 at K and D/ST: only a refill of a starting slot the trade empti
   it("a team with two kickers that trades the backup: its kicker slot is still filled, so no free-agent kicker comes in", () => {
     // Team 2's bench WR is a second kicker (6 points). Giving it and its bench RB for my bench WR leaves its 7-point kicker
     // starting: the open spot doesn't take the 9-point free agent (⚠️ a refill only of a slot the trade emptied, not of a
-    // kicker it gave away).
+    // kicker it gave away), but the free-agent RB, the other position it gave up.
     const ctx = context((spec) => swapPlayer(spec, "2", "wc2", flat("k2b", "K", 6)));
-    expect(required(ctx, trade("2", ["wc1"], ["k2b", "rc2"])).partner).toEqual({ drops: [], adds: ["fq"] });
+    expect(required(ctx, trade("2", ["wc1"], ["k2b", "rc2"])).partner).toEqual({ drops: [], adds: ["fr"], openSpots: [{ playerId: "fr", pos: "RB" }] });
   });
 
   it("my side the same when I don't stream them: no kicker upgrade in the spot my 2-for-1 opens; streamed positions never come in", () => {
     const own = context(() => undefined, { settings: { ...defaultTradeSettings(), streamPositions: [] } });
     expect(tradeInternals(own).me?.stream.positions).toEqual([]);
-    expect(required(own, trade("2", ["wb1", "rc1"], ["wa2"])).me).toEqual({ drops: [], adds: ["fq"] });
+    expect(required(own, trade("2", ["wb1", "rc1"], ["wa2"])).me).toEqual({ drops: [], adds: ["fr"], openSpots: [{ playerId: "fr", pos: "RB" }] });
     // Trading my only kicker refills it, as for any team that doesn't stream him.
     expect(required(own, trade("2", ["k1", "wc1"], ["wc2"])).me.adds).toEqual(["fk"]);
-    // Streaming kickers and D/STs (the default): they're never added, refill or not (my streaming row values the slot).
+    // Streaming kickers and D/STs (the default): they're never added, refill or not (my streaming row values the slot), so
+    // the spot my kicker opens takes the best at any position (the 6-point QB, the most ROS points: nobody helps).
     const streaming = context();
-    expect(required(streaming, trade("2", ["k1", "wc1"], ["wc2"])).me.adds).toEqual(["fq"]);
+    expect(required(streaming, trade("2", ["k1", "wc1"], ["wc2"])).me).toEqual({ drops: [], adds: ["fq"], openSpots: [{ playerId: "fq", pos: null }] });
   });
 });

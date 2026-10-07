@@ -74,11 +74,18 @@ checked Upstash's console on 2026-10-05).
 - **The snapshot cron** (reply §6.3; `vercel.json`, `src/server/snapshots.ts`): `0 20 * * *` UTC, production only (on
   Hobby once a day within that hour). CRON_SECRET or a bare 401, a 10-minute lock, idempotent saves: this and next week's
   Sleeper projections while their first kickoff is ahead (the last pre-kickoff copy wins), and today's FantasyCalc list
-  of each format League pages read yesterday or today, at most 12 a day, taking turns. Kept 730 days (`npm run
-  snapshot:pull -- --live` copies them to `data-local/`). ⚠️ About a hundred commands and under 1 MB a run (our count).
-- **Snapshot storage** (`snapshotLimits`): a projection week about 52 KB, a list 6.2 KB (redraft) to 11.6 KB (dynasty).
-  Two seasons at the cap every day, dynasty lists only: about 105 MB, which fits the free 256 MB beside the feedback
-  store's bound (about 75 MB) and the cache, log and counters (a few MB). ⚠️ Expected: about 20 MB a year.
+  of each format League pages read yesterday or today, at most 12 a day, taking turns. Since Checkpoint 7c (planner
+  reply to Checkpoint 7b, question 4), last and only with 45 s of the run's deadline left, the day's rest-of-season
+  levels: every offense player's mean of Sleeper's own standard, half-PPR and PPR projections over the weeks still ahead
+  through week 18 (`src/server/projectionLevels.ts`), never a league's scoring, the blend or FantasyCalc; one record a
+  UTC day (SET NX), all or nothing, at most one Sleeper request a week, usually none (League page builds cache the same
+  lists). Kept 730 days (`npm run snapshot:pull -- --live` copies them to `data-local/`). ⚠️ About a hundred commands and
+  under 1 MB a run (our count); the levels add about 15 more (a cache read a week and the record's SET) and up to about
+  0.5 MB read on a cold instance (⚠️ our estimate: 14 weeks of about 32 KB each in the cached form).
+- **Snapshot storage** (`snapshotLimits`): a projection week about 52 KB, a list 6.2 KB (redraft) to 11.6 KB (dynasty),
+  a day's levels about 8 KB (524 players on 2026-10-07: about 1.5 MB a season, 3 MB for the two seasons kept). Two
+  seasons at the cap every day, dynasty lists only: about 108 MB with the levels, which fits the free 256 MB beside the
+  feedback store's bound (about 75 MB) and the cache, log and counters (a few MB). ⚠️ Expected: about 22 MB a year.
 
 ## Free-tier arithmetic (per session; a session = Connect import + League page)
 

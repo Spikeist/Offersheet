@@ -141,11 +141,13 @@ describe("refilterSearch: the finalists ranked again with another minimum (no ne
   });
 
   it("⚠️ a step appears or disappears with the minimum (Phase 4c lead decision: case 1's offer first prints at least it), the same as a fresh search", () => {
-    // smallLeague(58): its searches show cards with case-1 steps (evaluate.steps.test.ts), some of whose offer-first
-    // versions print under a minimum their card meets. (smallLeague(67) until the final review of Phase 4c: its cards that
-    // lose their steps now get no Plan B, their old boxes being a card plus a player worth more than W, no likelier:
-    // search.ts barredFromBoxes.)
-    const league67 = smallLeague(58);
+    // smallLeague(67): its searches show cards with case-1 steps (evaluate.steps.test.ts), some of whose offer-first
+    // versions print under a minimum their card meets. (smallLeague(58) from the final review of Phase 4c, when 67's cards
+    // that lost their steps got no Plan B, their old boxes being a card plus a player worth more than W, no likelier:
+    // search.ts barredFromBoxes; until Phase 7c, whose same-position fill of the roster spot a trade opens, planner reply to
+    // Checkpoint 7b, section 5, left 58's searches without a case-1 step and gave 67's cards that lose theirs Plan B boxes
+    // again: facts of the synthetic data.)
+    const league67 = smallLeague(67);
     const c67 = buildTradeContext(league67.snapshot, league67.inputs, { now: TEST_NOW, scenarios: 8 });
     const any = runTradeSearch(c67, { settings: at(0) });
     const results = new Map(config.ranking.minChanceOptions.map((m) => [m, m === 0 ? any : runRefilter(c67, stateOf(any), { minChance: m })]));

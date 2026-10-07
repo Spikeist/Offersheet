@@ -3,7 +3,10 @@ import { ContactLine } from "@/components/ContactLine";
 import { Card } from "@/components/ui";
 import type { PolicyFeatures } from "@/lib/site";
 
-/** When these terms last changed. Update it with every change below, a feature turned on included (the go/no-go sets it to launch day). */
+/**
+ * When these terms last changed. The go/no-go set it to launch day, when the page goes public, so changes before launch keep
+ * it; after launch, update it with every change below, a feature turned on included (helpsThem, if section 7 ships then).
+ */
 export const TERMS_LAST_UPDATED = "October 13, 2026";
 
 /**
@@ -15,7 +18,9 @@ export const TERMS_LAST_UPDATED = "October 13, 2026";
  * stay true of the app:
  *   - free, non-commercial, no accounts, no ads, read-only (CLAUDE.md §1, §19, §20);
  *   - the numbers it works out are estimates (the projections, the season simulation, "Chance they accept": CLAUDE.md
- *     §6–§11); the league's own records, points and settings are the platform's (review POL-21); FantasyCalc's values are
+ *     §6–§11; with `features.helpsThem`, "Helps them" too: planner reply to Checkpoint 7b, section 3, "Helps them (section
+ *     7): when it ships, add it to the terms' list of estimates", which pages.test.ts ties to the Trade Finder's "Helps both"
+ *     sort); the league's own records, points and settings are the platform's (review POL-21); FantasyCalc's values are
  *     used in its own numbers and never shown (FantasyCalc's condition, planner reply to Checkpoint 7a, 5.4), said only
  *     with `features.fantasyCalcHidden`, which pages.test.ts ties to the code that showed them;
  *   - the sources and their terms: ESPN's API is unofficial (CLAUDE.md §2.2, §19), Sleeper's is free for non-commercial
@@ -47,9 +52,9 @@ export function TermsOfUse({ features }: { features: PolicyFeatures }) {
       <Card>
         <h2 className="text-lg font-extrabold">Estimates, not promises</h2>
         <p className="mt-2 text-sm leading-relaxed">
-          The numbers Offer Sheet works out are estimates: projections, playoff and title odds, &ldquo;Helps you&rdquo;, &ldquo;Chance they accept&rdquo; and
-          &ldquo;Overall&rdquo;. Players get hurt, managers change their minds, and data can be late or wrong. You decide what to offer and what to accept, and those
-          decisions are yours.
+          The numbers Offer Sheet works out are estimates: projections, playoff and title odds, &ldquo;Helps you&rdquo;,{" "}
+          {features.helpsThem ? "“Helps them”, " : null}&ldquo;Chance they accept&rdquo; and &ldquo;Overall&rdquo;. Players get hurt, managers change their minds,
+          and data can be late or wrong. You decide what to offer and what to accept, and those decisions are yours.
         </p>
       </Card>
 

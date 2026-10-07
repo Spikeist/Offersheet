@@ -120,17 +120,45 @@
  *      ⚠️ Only up to the count the team had before the trade (a shortfall the trade didn't cause isn't its to fix).
  *      ⚠️ The add takes a roster spot like any other: when it leaves the roster too big, rule 2 makes room again
  *      (never dropping the player added, nor one a position's minimum needs).
- *   4. Each roster spot the trade opened (fewer active players than before it) → add the free agent who most improves
- *      its lineup (EV ROS gain; ties, including no gain at all: higher ROS points, then the smaller id), within
- *      position limits, never at a position the team streams (its streaming row values that slot), only from the side's
- *      pool (legalSide's `pool`: "One free agent, one team" above). At a config.streaming.optimizerExcluded position
- *      (K, D/ST) only to refill a starting slot the trade emptied: the roster's structural fill (optimizer.fillCount,
- *      streaming rows counting) is below `before`'s, and he raises it. So a team that doesn't stream kickers and trades
- *      its only one still gets one in the spot (review of track E, item 5), but ⚠️ an upgrade of a kicker or D/ST it
- *      keeps is never the trade's (Phase 4b review of track C: V* never picks one up, so a 2-for-1 whose open spot took a
- *      better free-agent kicker credited the trade with a pickup the team could make anyway; on Parker's league, Oct 3,
- *      7 of the 19 shown trades raised the partner's lineup by about 1.1 a week that way). ⚠️ Never for an inactive side
- *      (planner reply to Checkpoint 4c, A4: it makes no pickups, so the spot stays open; the lead's design).
+ *   4. Each roster spot the trade opened (fewer active players than before it), one at a time (Phase 7c, planner reply
+ *      to Checkpoint 7b, section 5: "fill each open spot with the best available free agent at a position where the team
+ *      gave more players than it received … Several open spots: fill them one at a time, each from the positions still
+ *      short. Fallback: only if no free agent is available at those positions, use the best at any position."; both
+ *      sides) → add the best free agent at a position still short: one where the side's active roster holds fewer
+ *      players than before the trade (rules 1–3's counts by primary position, players without a known position left out;
+ *      a received IR player rule 5 put in an IR slot isn't received there, a given IR player isn't given, and ⚠️ nor is a
+ *      player the side's own baseline cuts anyway, below), the largest
+ *      ROS gain (ω-weighted lineup points) first, in scenario lineups in exact evaluation with scenarios (pickAddScenario:
+ *      the lineups B is measured in, starter limits included; "best means the largest gain in the scenario lineups"), in
+ *      EV lineups in screening and without scenarios; ties, including no gain at all: higher ROS points, then the smaller
+ *      id. With no free agent allowed at any position still short, the same pick at any position (the fallback; also when
+ *      no position is short, as when a given player's position is unknown). Every candidate within position limits, never
+ *      at a position the team streams (its streaming row values that slot: ⚠️ a streamed position left short goes to the
+ *      fallback, the lead's call, rather than leaving the spot open for the week's streaming pickup), only from the side's
+ *      pool (legalSide's `pool`: "One free agent, one team" above; ⚠️ the side's own baseline pickups stay candidates, so
+ *      a partner earlier in the allocation order can take mine as its fill, which my V*(after) then can't re-make: the card
+ *      says so, OpenSpot.yours, rosterChangeOf). At a
+ *      config.streaming.optimizerExcluded position (K, D/ST) only to refill a starting slot the trade emptied: the roster's
+ *      structural fill (optimizer.fillCount, streaming rows counting) is below `before`'s, and he raises it. So a team that
+ *      doesn't stream kickers and trades its only one still gets one in the spot (review of track E, item 5), but ⚠️ an
+ *      upgrade of a kicker or D/ST it keeps is never the trade's (Phase 4b review of track C: V* never picks one up, so a
+ *      2-for-1 whose open spot took a better free-agent kicker credited the trade with a pickup the team could make anyway;
+ *      on Parker's league, Oct 3, 7 of the 19 shown trades raised the partner's lineup by about 1.1 a week that way).
+ *      ⚠️ Never for an inactive side (planner reply to Checkpoint 4c, A4: it makes no pickups, so the spot stays open; the
+ *      lead's design). ⚠️ Ours (review of Phase 7c's fill, finding pickups-1): a given player whom the side's own baseline
+ *      cuts anyway (V*(T) drops him for a pickup) opens no spot of the trade's and leaves no position short. His spot is
+ *      the baseline pickup's, which V*(after) makes again (and freeAgentMovesOf leaves off the card); screening, from V*(T),
+ *      never has him on the roster, so the two agree. Counted as given, he left his position short, and the fill there,
+ *      kept by V*(after), made it cut a real player for that pickup: on the trade report's synthetic league a finalist that
+ *      gave such a QB with an RB read Helps you 46 instead of 59, and a 1-for-0 dump of him cost 1.25 points of title odds
+ *      instead of 0.05 (the partner getting him); on Parker's league, Oct 4 09:24Z, one side among a search's exact trades
+ *      (a partner giving a player its baseline cuts), none of mine. Why the position given up (the planner): "Any big
+ *      upgrade at another position is already in the baseline's pickups. So the open spot only adds a small extra
+ *      there", and a fill elsewhere made the card "read as if
+ *      the trade depends on an unrelated pickup". Until Phase 7c the spot took the free agent who most improved the EV
+ *      lineup at any position (TradeContextOptions.openSpotFill "bestAny", kept for the trade report's before-and-after):
+ *      on Parker's league (Oct 4 09:24Z) every one of my RB-short spots took Malik Washington, a WR and my own League-page
+ *      pickup. LegalSide.change.openSpots names each fill with the position it fills (null for the fallback).
  *   Keep value (§7): what losing him costs the roster's lineup with nobody refilling his spot (teamValue.
  *   evRemovalCosts / scenarioRemovalCosts) in the evaluation's lineup mode (EV in screening, scenario lineups in exact
  *   evaluation); in dynasty and keeper leagues with long-term values, ⚠️ (L7's reading of "plus normalized market
@@ -143,9 +171,10 @@
  *   near-free bench player worth at most W rather than a tradable one (on Parker's league, Oct 4 09:24Z: Marvin Harrison
  *   Jr., worth 610, rather than Kyle Monangai, [value], 0.02 points a week apart), and between players worth at most W the
  *   lineup decides as before (the free-agent optimizer's cuts follow the same rule since the verification of that review,
- *   finding VF-1: optimizer.ts's header). These forced moves are TradeEvaluation.required, per side, with rule 5's IR
- *   placements, the displacements the trade brings (rosterChangeOf) and, on my side, my free-agent moves after the trade
- *   that my baseline doesn't make (RosterChange.faMoves: freeAgentMovesOf; "Exact evaluation" below).
+ *   finding VF-1: optimizer.ts's header). These forced moves are TradeEvaluation.required, per side, with rule 4's fills
+ *   and the positions they fill (RosterChange.openSpots: the card's "Open roster spot: add X, the best available RB."),
+ *   rule 5's IR placements, the displacements the trade brings (rosterChangeOf) and, on my side, my free-agent moves
+ *   after the trade that my baseline doesn't make (RosterChange.faMoves: freeAgentMovesOf; "Exact evaluation" below).
  *
  * IR players (planner reply to Checkpoint 4, change 5 and answer 11; league.ts step 5b; returners.ts). Each team's IR
  * players expected back within the season (its returners) ride with its lineup rows everywhere a lineup is solved here:
@@ -164,7 +193,9 @@
  * TradeContextOptions.irReturners false is Checkpoint 4's rule (no returner, no displacement, IR players not tradable).
  *
  * Screening (§12 step 2; M5): EV lineups, fast. My side: V*(me) − give + get with the legality above in EV mode (its adds
- * skip excl(me): "One free agent, one team" above), ⚠️ not re-optimized (for speed: the exact stage runs V*); myΔROS = EV
+ * skip excl(me): "One free agent, one team" above; rule 4's fill at the position given up, judged by EV gain: ⚠️ a bench
+ * fill's EV gain is mostly 0, so screening's is usually the most ROS points there, where exact evaluation judges it in
+ * scenario lineups), ⚠️ not re-optimized (for speed: the exact stage runs V*); myΔROS = EV
  * ROS(after) − EV ROS(V*(me)), Σ ω LV with the
  * League model's ω (league.ts step 5c, the automatic playoff weight). The partner's side the same way from V*(P): ΔLineup_P (EV) → n, h from EV instance points
  * and the EV medians, g_mkt(P) (raw, i.e. no star premium, each player floored at W like every package, its open-spot
@@ -180,9 +211,15 @@
  * same order, so the very same lineups; Phase 4 addendum, N6), and the position counts the rules read are kept as players
  * come and go.
  *
- * Exact evaluation (M3; L6, L8). Legality in scenario lineups, then V*(after) = the free-agent optimizer from scratch
- * on each side's post-legality roster, the two sides in the allocation order from their pools ("One free agent, one
- * team" above; tradeSides), memoized by roster and pool, judged in scenario lineups like the baseline, and its own
+ * Exact evaluation (M3; L6, L8). Legality in scenario lineups (keep values, and since Phase 7c rule 4's fill: rule 3's
+ * minimum adds stay EV-judged), then V*(after) = the free-agent optimizer from scratch on each side's post-legality
+ * roster, never dropping a legality add (the optimizer's keep set: Phase 7c, planner reply to Checkpoint 7b, section 5;
+ * without it, on Parker's league, Oct 4 09:24Z, V*(after) dropped the fill on 21 of the 96 sides with one in a search's
+ * exact trades, 18 of them in a move making one of the side's own baseline pickups again, so the card would have named a
+ * pickup the evaluated roster didn't hold; with it, V*(after) still makes that pickup on 19 of the 21, with another drop,
+ * on 14 the baseline's own), the two sides in
+ * the allocation order from their pools ("One free agent, one team" above; tradeSides), memoized by roster, pool and keep
+ * set, judged in scenario lineups like the baseline, and its own
  * scenario lineups reused (optimizer.scenarioValuesOf); scenario lineups of both (EV without scenarios) → weekly
  * scores, LV per week and slot-instance points. ΔPPW / ΔPPW_playoffs: my average LV change over the remaining
  * regular-season / playoff weeks team numbers count. n from the partner's V* LV before and after
@@ -308,7 +345,10 @@
  * Checkpoint 4's committed numbers and a run of the Checkpoint 4 commit instead.
  *
  * ⚠️ Known approximations (M15): screening isn't re-optimized, and its legality adds skip each side's baseline exclusion
- * whatever the trade's order; after a trade every other team keeps its baseline pickups (the planner's rule: a free agent
+ * whatever the trade's order; screening judges rule 4's same-position fill in EV lineups, exact evaluation in scenario
+ * lineups (Phase 7c), so the two can fill a spot with different players; rule 4 fills each spot greedily, one at a time
+ * (the planner's "one at a time"), and a position is short by primary position only (multi-position eligibility aside, as
+ * position limits read it); after a trade every other team keeps its baseline pickups (the planner's rule: a free agent
  * a trading team no longer claims isn't offered to a third team, nor to the other trading team when a team sits between
  * the two in the order); IR players (Phase 4b): the roster spot a returner needs counts in final evaluations only (never
  * in screening, legality or V*'s moves), and from one week, his expected return week R (the return distribution's
@@ -349,6 +389,8 @@ import {
   lowestKeepValue,
   ppw,
   rosValue,
+  scenarioAddGain,
+  scenarioAddUpperBound,
   scenarioRemovalCosts,
   scenarioValues,
   solveEvWeeks,
@@ -358,7 +400,7 @@ import {
   type TableRow,
   type WeeklyScore,
 } from "./teamValue";
-import type { RosterChange, SlotChange, TradeAsset, TradeDetail, TradeEvaluation, TradeEvaluationCore, TradeProposal, TradeStep, TradeSteps } from "./tradeModel";
+import type { OpenSpot, RosterChange, SlotChange, TradeAsset, TradeDetail, TradeEvaluation, TradeEvaluationCore, TradeProposal, TradeStep, TradeSteps } from "./tradeModel";
 
 /** Gains closer than this are ties or zero (float noise, not a tunable). */
 const EPS = 1e-9;
@@ -400,7 +442,18 @@ export interface TradeContextOptions {
    * for tests whose hand-built leagues were measured with it and reports that compare the two: the app never sets it.
    */
   playoffWeightSims?: number;
+  /**
+   * How legality's rule 4 fills a roster spot a trade opens (the file header, rule 4): "samePosition" (the default; Phase
+   * 7c, planner reply to Checkpoint 7b, section 5: the best available free agent at a position the side gave more players
+   * than it received, by scenario gain in exact evaluation; V*(after) never drops him) or "bestAny" (Checkpoint 7b's rule:
+   * the free agent who most improves the EV lineup at any position, which V*(after) may drop), for the trade report's
+   * before-and-after only: the app never sets it.
+   */
+  openSpotFill?: OpenSpotFill;
 }
+
+/** TradeContextOptions.openSpotFill. */
+export type OpenSpotFill = "samePosition" | "bestAny";
 
 export interface TradeContext {
   /** The user's team (snapshot.myTeamId when it names a team), null when none is picked: then nothing can be evaluated. */
@@ -628,6 +681,8 @@ export interface TradeInternals {
   irOwner: Map<string, string>;
   /** The statuses an IR slot accepts (returners.irEligibleStatuses: LeagueSettings.irEligible, else config's default). */
   irEligible: ReadonlySet<InjuryStatus>;
+  /** How rule 4 fills a roster spot a trade opens (TradeContextOptions.openSpotFill; "samePosition" unless a report says otherwise). */
+  openSpotFill: OpenSpotFill;
   notes: string[];
   warnings: string[];
   timings: Record<string, number>;
@@ -822,6 +877,7 @@ export function buildTradeContext(snapshot: LeagueSnapshot, inputs: ModelInputs,
     irOn: league.irReturners,
     irOwner: new Map(league.irReturners ? league.work.flatMap((t) => t.ir.map((id): [string, string] => [id, t.team.id])) : []),
     irEligible: irEligibleStatuses(snapshot.settings),
+    openSpotFill: opts.openSpotFill ?? "samePosition",
     notes: [],
     warnings: [...model.warnings],
     timings,
@@ -1115,6 +1171,7 @@ export type LineupMode = "ev" | "exact";
 export interface LegalSide {
   /** The active roster after the trade and the roster rules. */
   roster: string[];
+  /** Rules 1–4's drops and adds; rule 4's fills also in `openSpots` with the position each one fills (absent: none). */
   change: RosterChange;
   /** The final roster's EV ROS (EV mode, need "ros" or "look"), else null. */
   ros: number | null;
@@ -1259,19 +1316,22 @@ function* dropOrder(I: TradeInternals, keep: ReadonlyMap<string, number>, candid
  * Which free agents a legality add may take: not on the roster or added, not in `pool` (free agents other teams claimed:
  * the file header, "One free agent, one team"), within position limits, and either at `pos` (rule 3) or not at an
  * `excluded` position (rule 4); at a `refillOnly` position (rule 4: K and D/ST), only one `refills` accepts (he fills a
- * starting slot the trade emptied).
+ * starting slot the trade emptied). `positions` (rule 4's same-position fill: the positions still short) keeps only those
+ * positions, on top of the rest (so a streamed or refill-only one among them is still judged as above).
  */
 interface AddFilter {
   on: ReadonlySet<string>;
   counts: Int32Array;
   pool: ReadonlySet<string>;
   pos?: Pos;
+  positions?: ReadonlySet<Pos>;
   excluded?: ReadonlySet<Pos>;
   refillOnly?: ReadonlySet<Pos>;
   refills?: (row: TableRow) => boolean;
 }
 
 function addAllowed(I: TradeInternals, f: AddFilter, row: TableRow): boolean {
+  if (f.positions && !f.positions.has(row.pos)) return false;
   if (f.pos !== undefined ? row.pos !== f.pos : f.excluded?.has(row.pos) === true) return false;
   if (f.on.has(row.id) || f.pool.has(row.id) || !limitAllows(I, f.counts, row.pos)) return false;
   return f.refillOnly?.has(row.pos) !== true || f.refills?.(row) === true;
@@ -1337,6 +1397,38 @@ function pickAdd(I: TradeInternals, solved: SolvedWeeks, filter: AddFilter): { r
     if (!(gain > EPS)) continue;
     const b: { row: TableRow; gain: number } | null = best;
     if (!b || gain > b.gain + EPS || (Math.abs(gain - b.gain) <= EPS && (rosOf(next.row.id) > rosOf(b.row.id) || (rosOf(next.row.id) === rosOf(b.row.id) && next.row.id < b.row.id)))) best = { row: next.row, mask: next.mask, gain };
+  }
+  if (best) return best;
+  for (const row of I.faByRos) if (addAllowed(I, filter, row)) return { row, mask: I.league.maskOf(row), gain: 0 };
+  return null;
+}
+
+/**
+ * pickAdd in scenario lineups (rule 4 in exact evaluation with scenarios; the file header, rule 4): the allowed free agent
+ * whose add gains the most ROS points in the roster's scenario lineups (`cells`, the roster with the side's streaming
+ * rows and returners: scenarioCells), ω-weighted like every gain; ties within 1e-9 go to the higher ROS points, then the
+ * smaller id, and when none gains anything, the allowed one with the most ROS points (then the smaller id), gain 0:
+ * pickAdd's rules. Exact: each allowed free agent's scenario add bound (teamValue.scenarioAddUpperBound: per scenario and
+ * week, his points above the floor there when he plays; +Infinity under starter limits, so every one is solved there) is
+ * computed, and they're solved best bound first (ties: the smaller id) while a bound can still reach the best gain (a tie
+ * can still win on ROS points). `gain` is a scenario gain: the EV trackers can't use it (legalSide's add()).
+ */
+function pickAddScenario(I: TradeInternals, cells: ScenarioCells, filter: AddFilter): { row: TableRow; mask: number; gain: number } | null {
+  const rosOf = (id: string) => I.league.lp.players[id]?.ros.total ?? 0;
+  const list: { row: TableRow; mask: number; ub: number }[] = [];
+  for (const c of I.faByGain) {
+    if (c.mask === 0 || !addAllowed(I, filter, c.row)) continue;
+    const ub = scenarioAddUpperBound(cells, c.row, c.mask, I.weights);
+    if (ub > EPS) list.push({ row: c.row, mask: c.mask, ub });
+  }
+  list.sort((a, b) => (a.ub === b.ub ? 0 : b.ub - a.ub) || byId(a.row.id, b.row.id));
+  let best: { row: TableRow; mask: number; gain: number } | null = null;
+  for (const x of list) {
+    if (best && x.ub < best.gain - EPS) break;
+    const gain = scenarioAddGain(cells, x.row, x.mask, I.weights);
+    if (!(gain > EPS)) continue;
+    const b: { row: TableRow; gain: number } | null = best;
+    if (!b || gain > b.gain + EPS || (Math.abs(gain - b.gain) <= EPS && (rosOf(x.row.id) > rosOf(b.row.id) || (rosOf(x.row.id) === rosOf(b.row.id) && x.row.id < b.row.id)))) best = { row: x.row, mask: x.mask, gain };
   }
   if (best) return best;
   for (const row of I.faByRos) if (addAllowed(I, filter, row)) return { row, mask: I.league.maskOf(row), gain: 0 };
@@ -1451,11 +1543,39 @@ function irMoves(I: TradeInternals, side: TeamState, given: readonly string[], r
 }
 
 /**
+ * The players of `given` (active-roster moves) on `before` whom the side's own baseline cuts anyway: V*(T) drops them for
+ * its pickups (TeamState.vstar: on its start roster, not on its roster). Rule 4 leaves them out (the file header, rule 4:
+ * such a player's spot is the baseline pickup's, which V*(after) makes again; review of Phase 7c's fill, finding
+ * pickups-1). None in screening, whose `before` is V*(T) itself, nor for an inactive side (V*(T) = T).
+ */
+function baselineCutsGiven(side: Pick<TeamState, "vstar">, before: readonly string[], given: readonly string[]): string[] {
+  if (!given.length || !side.vstar.moves.length) return [];
+  const kept = new Set(side.vstar.roster);
+  const cuts = new Set(side.vstar.start.filter((id) => !kept.has(id)));
+  if (!cuts.size) return [];
+  const on = new Set(before);
+  return given.filter((id) => cuts.has(id) && on.has(id));
+}
+
+/**
+ * A team's own baseline pickups: the free agents on its V*(T)'s roster (the League page's "Free-agent pickups that would
+ * help"; not one its run picked up and swapped away again), in roster order.
+ */
+function baselinePickups(side: Pick<TeamState, "vstar">): string[] {
+  if (!side.vstar.moves.length) return [];
+  const start = new Set(side.vstar.start);
+  return side.vstar.roster.filter((id) => !start.has(id));
+}
+
+/**
  * Roster legality after a trade for one side (the file header, rules 1–5): `before` is the active roster the trade applies
  * to (the team's roster in exact evaluation, V*(T) in screening), `given` and `received` its sides (IR players included:
  * rule 5 sends them to or from the side's IR first; the rest are active-roster moves). `who` words the illegal reasons
  * ("You", or the team's name). Rules 3 and 4 add only free agents `pool` doesn't exclude (the file header, "One free
- * agent, one team": the free agents other teams claimed; default FULL_POOL). Every lineup solved here holds the side's
+ * agent, one team": the free agents other teams claimed; default FULL_POOL); rule 4 at a position still short, judged in
+ * scenario lineups in the exact mode with scenarios (pickAddScenario; LegalSide.change.openSpots names each fill), never
+ * for the spot of a given player the side's own baseline cuts anyway (baselineCutsGiven). Every lineup solved here holds
+ * the side's
  * returners after the trade (LegalSide.spec), never a displacement (legality isn't a final evaluation). In EV mode it also
  * prices the final roster as `need` asks, solving as little as it can: dropping a player who starts in no week leaves the
  * best lineups as they were (removing a bench player never changes an optimal lineup), dropping a starter lowers EV ROS by
@@ -1557,9 +1677,14 @@ export function legalSide(
     solved = null;
     look = null;
   };
-  const add = (pick: { row: TableRow; mask: number; gain: number }, base: SolvedWeeks) => {
-    look = need === "look" ? addLook(I, base, pick.row, pick.mask) : null;
-    ros = ros !== null ? ros + pick.gain : null;
+  /**
+   * Adds a free agent picked against `base`, the roster's EV lineups, with his exact EV gain; `base` null for a pick judged
+   * in scenario lineups (rule 4 in exact evaluation: pickAddScenario), whose gain the EV trackers can't use, so they're
+   * dropped and recomputed when asked for (the final look and ROS below).
+   */
+  const add = (pick: { row: TableRow; mask: number; gain: number }, base: SolvedWeeks | null) => {
+    look = need === "look" && base ? addLook(I, base, pick.row, pick.mask) : null;
+    ros = ros !== null && base ? ros + pick.gain : null;
     roster.push(pick.row.id);
     recount(pick.row.id, 1);
     adds.push(pick.row.id);
@@ -1673,26 +1798,56 @@ export function legalSide(
     if (still) return { illegal: still };
   }
 
-  // 4. Roster spots the trade opened: the free agent who most improves the lineup (never at a position the team streams),
-  // at a K or D/ST position (optimizerExcluded: V* never picks one up) only to refill a starting slot the trade emptied:
-  // the structural fill is below `before`'s and he raises it (the file header, rule 4). Fill counts are computed lazily,
-  // only for such a candidate. ⚠️ Not for an inactive side (A4: it makes no pickups; the spot stays open).
+  // 4. Roster spots the trade opened, one at a time (the file header, rule 4; planner reply to Checkpoint 7b, section 5):
+  // the best available free agent at a position still short (fewer players there than before the trade), by his gain in
+  // scenario lineups in exact evaluation with scenarios, else in EV lineups; none available there: the best at any
+  // position. Never at a position the team streams (its streaming row values that slot), and at a K or D/ST position
+  // (optimizerExcluded: V* never picks one up) only to refill a starting slot the trade emptied: the structural fill is
+  // below `before`'s and he raises it. Fill counts are computed lazily, only for such a candidate. ⚠️ Not for an inactive
+  // side (A4: it makes no pickups; the spot stays open). ⚠️ A given player the side's own baseline cuts anyway opens no
+  // spot of the trade's and leaves no position short (the file header, rule 4: his spot is the baseline pickup's, which
+  // V*(after) makes again). Under openSpotFill "bestAny" (Checkpoint 7b's rule, for the trade report) the EV pick at any
+  // position, in every spot that opened.
   const excluded = new Set<Pos>(side.stream.positions);
   const refillOnly = new Set<Pos>(I.league.cfg.streaming.optimizerExcluded.filter((p) => !excluded.has(p)));
+  const samePosition = I.openSpotFill !== "bestAny";
+  const freed = samePosition ? baselineCutsGiven(side, before, givenActive) : [];
+  /** Players per position among `freed` (POSITIONS order), whom the counts before the trade leave out here. */
+  const freedCounts = freed.length ? countsOf(I, freed) : null;
+  const countGivenUp = (pos: Pos): number => {
+    const i = POS_INDEX.get(pos);
+    return countBefore(pos) - (freedCounts && i !== undefined ? (freedCounts[i] as number) : 0);
+  };
+  const openSpots: OpenSpot[] = [];
   let fillBefore: number | null = null;
-  for (let open = side.inactive ? 0 : before.length - roster.length; open > 0; open--) {
-    const base = ev();
+  for (let open = side.inactive ? 0 : before.length - roster.length - freed.length; open > 0; open--) {
     let fillNow: number | null = null;
     const refills = (row: TableRow): boolean => {
       fillBefore ??= fillCount(entries(before), I.league.slots);
       fillNow ??= fillCount(entries(roster), I.league.slots);
       return fillNow < fillBefore && fillCount([...entries(roster), { id: row.id, pos: row.pos, eligible: row.eligible }], I.league.slots) > fillNow;
     };
-    const pick = pickAdd(I, base, { on: taken(), counts, pool: pool.excluded, excluded, refillOnly, refills });
+    const filter: AddFilter = { on: taken(), counts, pool: pool.excluded, excluded, refillOnly, refills };
+    // Exact evaluation with scenarios judges the pick in scenario lineups, the ones B is measured in (screening and S = 0
+    // in EV lineups); its gain isn't an EV one (add()).
+    const cells = samePosition && !evMode ? scenarioCells(I, roster, spec) : null;
+    const base = cells ? null : ev();
+    const pickFrom = (f: AddFilter) => (cells ? pickAddScenario(I, cells, f) : pickAdd(I, base as SolvedWeeks, f));
+    // The positions still short, where the side has fewer players than before the trade (players without a known position
+    // aside, as in rules 1–3; the baseline's own cuts given away aside, above).
+    const short = samePosition ? POSITIONS.filter((pos) => countNow(pos) < countGivenUp(pos)) : [];
+    const same = short.length ? pickFrom({ ...filter, positions: new Set(short) }) : null;
+    const pick = same ?? pickFrom(filter);
     if (!pick) break;
     add(pick, base);
+    if (same) openSpots.push({ playerId: pick.row.id, pos: pick.row.pos });
+    else {
+      // The fallback: the short positions none could fill, never one the side streams or a K or D/ST it doesn't (OpenSpot.short).
+      const none = short.filter((pos) => !excluded.has(pos) && !refillOnly.has(pos));
+      openSpots.push({ playerId: pick.row.id, pos: null, ...(none.length ? { short: none } : {}) });
+    }
   }
-  const change = { drops, adds };
+  const change: RosterChange = { drops, adds, ...(openSpots.length ? { openSpots } : {}) };
   if (need === "none") return { roster, change, ros: null, look: null, ...placed };
   if (need === "ros") return { roster, change, ros: ros ?? rosValue(ev().lv, I.weights), look: null, ...placed };
   const final = look ?? lookOf(I, solved ?? reusable ?? ev());
@@ -2128,8 +2283,11 @@ export function tradeSides(I: TradeInternals, me: TeamState, partner: TeamState,
     const l = legalSide(I, s.team, s.team.roster, s.given, s.received, "exact", s.who, "none", pool);
     if ("illegal" in l) return { illegal: l.illegal };
     // With the side's IR after the trade: a returner given away leaves its lineups, one received joins them. An inactive
-    // side (A4) makes no free-agent move after the trade either.
-    const run = s.team.inactive ? optimizer.optimize(l.roster, l.spec, 0) : optimizer.optimize(l.roster, l.spec, undefined, pool);
+    // side (A4) makes no free-agent move after the trade either. V*(after) never drops a legality add (the optimizer's keep
+    // set; planner reply to Checkpoint 7b, section 5: the card names rule 4's fill, so the evaluated roster holds him),
+    // but under openSpotFill "bestAny" (Checkpoint 7b's rule, for the trade report).
+    const keep = I.openSpotFill === "bestAny" ? [] : l.change.adds;
+    const run = s.team.inactive ? optimizer.optimize(l.roster, l.spec, 0) : optimizer.optimize(l.roster, l.spec, undefined, pool, keep);
     legal[k] = l;
     runs[k] = run;
     pools[k] = pool;
@@ -2151,15 +2309,18 @@ export function tradeSides(I: TradeInternals, me: TeamState, partner: TeamState,
 
 /**
  * A side's forced roster moves on the card (TradeEvaluation.required; tradeModel.ts RosterChange): legality's drops and
- * adds (rules 1–4); `toIR`, the received IR players rule 5 put into its open IR slots (LegalSide.toIR); and `displaced`,
- * the roster spot a returner needs from his week (returners.finalLineups) on its final evaluation after the trade
- * (SideEval.displaced after V*(after); `week` the NFL week from which the drop counts) that its baseline at V*(T) doesn't
- * have. ⚠️ Ours (final review of Phase 4b): a displacement the baseline has too (the same player from the same week for
- * the same returner) isn't the trade's move, and B doesn't count it (both sides of the comparison have it): on Parker's
- * league, Oct 3, my own IR WR displaces a bench WR from week 7 in the baseline, so every card would repeat it. `toIR` and
- * `displaced` are present only when not empty ("absent or empty: none").
+ * adds (rules 1–4), with `openSpots`, rule 4's fills of the roster spots the trade opened and the position each one fills
+ * (Phase 7c, planner reply to Checkpoint 7b, section 5); `toIR`, the received IR players rule 5 put into its open IR slots
+ * (LegalSide.toIR); and `displaced`, the roster spot a returner needs from his week (returners.finalLineups) on its final
+ * evaluation after the trade (SideEval.displaced after V*(after); `week` the NFL week from which the drop counts) that its
+ * baseline at V*(T) doesn't have. ⚠️ Ours (final review of Phase 4b): a displacement the baseline has too (the same player
+ * from the same week for the same returner) isn't the trade's move, and B doesn't count it (both sides of the comparison
+ * have it): on Parker's league, Oct 3, my own IR WR displaces a bench WR from week 7 in the baseline, so every card would
+ * repeat it. `openSpots`, `toIR` and `displaced` are present only when not empty ("absent or empty: none"). `mine`: on the
+ * partner's side when it claims before me (TradeSidesAfter.first), my own baseline pickups, so a fill that takes one is
+ * marked (OpenSpot.yours; review of Phase 7c's fill, finding pickups-4).
  */
-export function rosterChangeOf(I: TradeInternals, legal: Pick<LegalSide, "change" | "toIR">, after: Pick<SideEval, "displaced">, side: Pick<TeamState, "base">, faMoves?: RosterChange["faMoves"]): RosterChange {
+export function rosterChangeOf(I: TradeInternals, legal: Pick<LegalSide, "change" | "toIR">, after: Pick<SideEval, "displaced">, side: Pick<TeamState, "base">, faMoves?: RosterChange["faMoves"], mine: readonly string[] = []): RosterChange {
   const weeks = I.league.lp.weeks.weeks;
   const key = (d: Displacement) => `${d.id}\u0004${d.from}\u0004${d.returner}`;
   const before = new Set(side.base.displaced.map(key));
@@ -2167,9 +2328,14 @@ export function rosterChangeOf(I: TradeInternals, legal: Pick<LegalSide, "change
     const week = weeks[d.from];
     return before.has(key(d)) || week === undefined ? [] : [{ playerId: d.id, week, returner: d.returner }];
   });
+  const spots = legal.change.openSpots ?? [];
+  const yours = new Set(mine);
   return {
     drops: [...legal.change.drops],
     adds: [...legal.change.adds],
+    ...(spots.length
+      ? { openSpots: spots.map((s) => ({ playerId: s.playerId, pos: s.pos, ...(s.short?.length ? { short: [...s.short] } : {}), ...(yours.has(s.playerId) ? { yours: true as const } : {}) })) }
+      : {}),
     ...(legal.toIR.length ? { toIR: [...legal.toIR] } : {}),
     ...(displaced.length ? { displaced } : {}),
     ...(faMoves && (faMoves.adds.length || faMoves.drops.length) ? { faMoves } : {}),
@@ -2340,6 +2506,7 @@ export function evaluateExact(I: TradeInternals, proposal: TradeProposal, maxPer
   };
   const gMine = myPkg.g;
   const injured = injuredReceived(get, I.snapshot.players);
+  const faMovesShown = faShown(I, fa) ? { adds: fa.adds, drops: fa.drops, kept: fa.kept, starts: startWeeksOf(I, mine.ev, fa.adds), ...(fa.room.length ? { room: fa.room } : {}) } : undefined;
   const evaluation: TradeEvaluationCore = {
     key: proposalKey(proposal),
     proposal: { partnerId: partner.id, give: players(give), get: players(get) },
@@ -2347,8 +2514,9 @@ export function evaluateExact(I: TradeInternals, proposal: TradeProposal, maxPer
     stage: "exact",
     sims: 0,
     required: {
-      me: rosterChangeOf(I, mineLegal, mine, me, faShown(I, fa) ? { adds: fa.adds, drops: fa.drops, kept: fa.kept, starts: startWeeksOf(I, mine.ev, fa.adds), ...(fa.room.length ? { room: fa.room } : {}) } : undefined),
-      partner: rosterChangeOf(I, theirLegal, theirs, partner),
+      me: rosterChangeOf(I, mineLegal, mine, me, faMovesShown),
+      // A partner that claims before me can fill its spot with one of my own baseline pickups (OpenSpot.yours).
+      partner: rosterChangeOf(I, theirLegal, theirs, partner, undefined, after.first === "partner" ? baselinePickups(me) : []),
     },
     b: null,
     tradeScore: null,

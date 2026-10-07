@@ -45,7 +45,10 @@
  *   whenever trade values, FantasyCalc's or our estimates from them, are behind the card's numbers);
  * - the roster moves the trade forces (§7 roster legality: drops and adds for either side; Phase 4b's IR players: a
  *   received IR player who goes into an open IR slot, RosterChange.toIR, and a player dropped from the week an IR player
- *   comes back, RosterChange.displaced);
+ *   comes back, RosterChange.displaced; Phase 7c's open roster spots, one sentence each, RosterChange.openSpots: "Open
+ *   roster spot: add Tyler Allgeier, the best available RB.", planner reply to Checkpoint 7b, section 5, with the IR return
+ *   that drops a fill again and a partner's fill that takes my own League-page pickup said in the spot's sentence:
+ *   openSpotText);
  * - the reasons and the pitch message (src/engine/explain.ts wrote them; shown as they are, except explain.ts's
  *   "Depends on an injured player" caveat, which the card's flag already says: INJURED_REASON).
  *
@@ -177,6 +180,7 @@ import type { Goal, TradeSettings } from "@/engine/settings";
 import type {
   AcceptanceFeatures,
   InjuryTag,
+  OpenSpot,
   PlanB,
   PremiumFact,
   RosterChange,
@@ -513,6 +517,36 @@ function playerPhrase(id: string, snapshot: SnapshotPart): string {
   return `${info.name} (${posLabel(info.pos, snapshot.platform)}, ${info.nflTeam ?? "no NFL team"})`;
 }
 
+/** A position in a sentence: "RB", "kicker", "punter", "D/ST" on ESPN (posLabel, the platform's own word elsewhere). */
+function positionWord(pos: Pos, platform: SnapshotPart["platform"]): string {
+  return pos === "K" ? "kicker" : pos === "P" ? "punter" : posLabel(pos, platform);
+}
+
+/**
+ * One roster spot a trade opened, in a sentence (RosterChange.openSpots; Phase 7c, planner reply to Checkpoint 7b, section
+ * 5), after `lead` ("Open roster spot: add", or "Team 4's open roster spot: they'd add"): "Open roster spot: add Tyler
+ * Allgeier, the best available RB." (the planner's words: his name alone, the position following); with no free agent at
+ * a position the trade left short, the best at any position: "…, the best available free agent (no TE is available)."
+ * (OpenSpot.short, "no RB or TE is"), or without the parentheses when no such position was left (a position the side
+ * streams, say). On the partner's side, a fill that takes one of my own baseline pickups says so (OpenSpot.yours; review of
+ * Phase 7c's fill, finding pickups-4: nothing else on the card told me a rival gets him): "…, the best available WR, the
+ * pickup the League page suggests for you." And when the side drops him again from the week an IR player of its comes
+ * back (RosterChange.displaced: the spot is the returner's then), the return is part of the sentence, not a drop of its own
+ * (review of Phase 7c's fill, finding pickups-3: "they'd add Tyler Allgeier" and two lines on "would drop Tyler
+ * Allgeier" read like a mistake): "…, the best available RB, until Jonah Coleman comes back from IR in week 7." ⚠️ The
+ * fill is chosen on his value over every remaining week, though he plays only until then (the displacement counts in
+ * final evaluations only: evaluate.ts's header, "IR players").
+ */
+function openSpotText(spot: OpenSpot, lead: string, snapshot: SnapshotPart, until?: { returner: string; week: number }): string {
+  const plain = (id: string) => snapshot.players[id]?.name ?? "a player who's no longer in this league's data";
+  const short = [...new Set(spot.short ?? [])].map((p) => positionWord(p, snapshot.platform));
+  const none = short.length ? ` (no ${short.length === 1 ? short[0] : `${short.slice(0, -1).join(", ")} or ${short.at(-1)}`} is available)` : "";
+  const best = spot.pos !== null ? `the best available ${positionWord(spot.pos, snapshot.platform)}` : `the best available free agent${none}`;
+  const yours = spot.yours === true ? ", the pickup the League page suggests for you" : "";
+  const back = until ? `, until ${plain(until.returner)} comes back from IR${Number.isFinite(until.week) ? ` in week ${until.week}` : ""}` : "";
+  return `${lead} ${plain(spot.playerId)}, ${best}${yours}${back}.`;
+}
+
 // ---------------------------------------------------------------------------------------------
 // The card
 
@@ -692,7 +726,7 @@ export interface TradeCardView {
    * pts: …"; else null.
    */
   rosNote: string | null;
-  /** The roster moves the trade forces (§7; Phase 4b's IR slots and returns too), in sentences; empty when none. */
+  /** The roster moves the trade forces (§7; Phase 4b's IR slots and returns too, and Phase 7c's open roster spots), in sentences; empty when none. */
   required: string[];
   reasons: string[];
   pitch: string;
@@ -1291,7 +1325,12 @@ export function rosNoteOf(e: Pick<TradeEvaluation, "ros"> & { detail: Pick<Trade
 
 /**
  * The roster moves a trade forces on one side (§7 legality; Phase 4b's IR players), in sentences, the side's own words
- * (`who`): drops and adds as before; a received IR player who goes into an open IR slot ("Jordan Mason goes to your IR
+ * (`who`): drops as before; a free agent added for a position under its roster minimum (rule 3) as before ("You'd pick
+ * up … from free agents to fill your roster."); each roster spot the trade opened, one sentence a spot (RosterChange.
+ * openSpots; Phase 7c, planner reply to Checkpoint 7b, section 5: "Open roster spot: add X, the best available RB."), the
+ * partner's in its own words ("Team 4's open roster spot: they'd add …"), and when no free agent could come in at a
+ * position the trade left short, the best at any position, saying where none was ("…, the best available free agent (no
+ * TE is available)."; openSpotText); a received IR player who goes into an open IR slot ("Jordan Mason goes to your IR
  * slot (no roster spot until he's back)."); my free-agent moves after the trade that my baseline doesn't make (faMovesLine;
  * final review of Phase 4c, finding R1); and a player dropped from the week an IR player comes back ("From week 7,
  * when Alec Pierce comes back from IR, you'd drop Marvin Harrison Jr. (WR, ARI)."). When the one released is the returner
@@ -1299,14 +1338,30 @@ export function rosNoteOf(e: Pick<TradeEvaluation, "ros"> & { detail: Pick<Trade
  * returners.ts), it says it's a choice: "From week 7, when Alec Pierce comes back from IR, you'd release him instead of
  * dropping someone else." (review of track UIC, finding 7: "you'd drop Alec Pierce" right after "when Alec Pierce comes
  * back" read like a mistake; ⚠️ ours: no why, since the player kept instead can be one the rules keep whatever he's worth,
- * such as a streamed position's only kicker). The IR fields may be absent (RosterChange: none).
+ * such as a streamed position's only kicker). An open spot's fill dropped again at a return says so in the spot's own
+ * sentence ("…, the best available RB, until Jonah Coleman comes back from IR in week 7."; openSpotText), not in a line of
+ * its own. The IR fields may be absent (RosterChange: none), and so may `openSpots` (an evaluation from before Phase 7c:
+ * every add reads as rule 3's sentence, as it did then).
  */
-function requiredLines(change: RosterChange, who: { drop: string; dropLater: string; release: string; pickUp: string; their: string; ir: string; would: string }, snapshot: SnapshotPart): string[] {
+function requiredLines(change: RosterChange, who: { drop: string; dropLater: string; release: string; pickUp: string; their: string; ir: string; would: string; openSpot: string }, snapshot: SnapshotPart): string[] {
   const phrase = (id: string) => playerPhrase(id, snapshot);
   const plain = (id: string) => snapshot.players[id]?.name ?? "a player who's no longer in this league's data";
   const out: string[] = [];
   if (change.drops.length) out.push(`${who.drop} ${listText(change.drops.map(phrase))} to stay within ${who.their} roster limits.`);
-  if (change.adds.length) out.push(`${who.pickUp} ${listText(change.adds.map(phrase))} from free agents to fill ${who.their} roster.`);
+  const spots = (change.openSpots ?? []).filter((s) => s && typeof s.playerId === "string");
+  const filled = new Set(spots.map((s) => s.playerId));
+  const minimums = change.adds.filter((id) => !filled.has(id));
+  if (minimums.length) out.push(`${who.pickUp} ${listText(minimums.map(phrase))} from free agents to fill ${who.their} roster.`);
+  // A fill dropped again from the week an IR player comes back (the spot is the returner's then): one sentence, the spot's.
+  const displaced = (change.displaced ?? []).filter((d) => d && typeof d.playerId === "string");
+  const until = new Map<string, { returner: string; week: number }>();
+  const said = new Set<(typeof displaced)[number]>();
+  for (const d of displaced) {
+    if (!filled.has(d.playerId) || d.playerId === d.returner || until.has(d.playerId)) continue;
+    until.set(d.playerId, { returner: d.returner, week: d.week });
+    said.add(d);
+  }
+  for (const s of spots) out.push(openSpotText(s, who.openSpot, snapshot, until.get(s.playerId)));
   const toIR = [...new Set(change.toIR ?? [])];
   if (toIR.length) {
     const one = toIR.length === 1;
@@ -1316,8 +1371,8 @@ function requiredLines(change: RosterChange, who: { drop: string; dropLater: str
   // The free-agent moves after the trade (now), before the drops an IR player's return brings (later in the season).
   const moves = faMovesLine(change.faMoves, who.would, snapshot);
   if (moves) out.push(moves);
-  for (const d of change.displaced ?? []) {
-    if (!d || typeof d.playerId !== "string") continue;
+  for (const d of displaced) {
+    if (said.has(d)) continue; // said with his open spot
     const when = Number.isFinite(d.week) ? `From week ${d.week}, when ${plain(d.returner)} comes back from IR, ` : `When ${plain(d.returner)} comes back from IR, `;
     out.push(d.playerId === d.returner ? `${when}${who.release} him instead of dropping someone else.` : `${when}${who.dropLater} ${phrase(d.playerId)}.`);
   }
@@ -1417,12 +1472,21 @@ export function buildTradeCard(e: TradeEvaluation, ctx: CardContext): TradeCardV
   // The scale's wording without the search's or the Analyzer's scale: the league type, and whether long-term values loaded.
   const scaleFallback: ScaleFallback = { leagueType: snapshot.settings.leagueType, longTermOn: !e.dynMissing };
 
-  // The roster moves the trade forces, mine first (§7; Phase 4b's IR slots and returns: requiredLines).
+  // The roster moves the trade forces, mine first (§7; Phase 4b's IR slots and returns, Phase 7c's open roster spots: requiredLines).
   const required = [
-    ...requiredLines(e.required.me, { drop: "You'd drop", dropLater: "you'd drop", release: "you'd release", pickUp: "You'd pick up", their: "your", ir: "your", would: "you'd" }, snapshot),
+    ...requiredLines(e.required.me, { drop: "You'd drop", dropLater: "you'd drop", release: "you'd release", pickUp: "You'd pick up", their: "your", ir: "your", would: "you'd", openSpot: "Open roster spot: add" }, snapshot),
     ...requiredLines(
       e.required.partner,
-      { drop: `${partnerName} would drop`, dropLater: `${partnerName} would drop`, release: `${partnerName} would release`, pickUp: `${partnerName} would pick up`, their: "their", ir: possessive(partnerName), would: `${partnerName} would` },
+      {
+        drop: `${partnerName} would drop`,
+        dropLater: `${partnerName} would drop`,
+        release: `${partnerName} would release`,
+        pickUp: `${partnerName} would pick up`,
+        their: "their",
+        ir: possessive(partnerName),
+        would: `${partnerName} would`,
+        openSpot: `${possessive(partnerName)} open roster spot: they'd add`,
+      },
       snapshot,
     ),
   ];

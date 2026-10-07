@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { config } from "./config";
 import { prepareSlots, solveLineup, type PreparedSlots } from "./lineup";
 import type { Pos, SlotDef } from "./model";
-import { NO_STREAM, applyStep, createOptimizer, fillCount, optimizerConfig, rosterKey, type DynastyGuard, type OptimizerConfig, type OptimizerSetup, type StreamSpec } from "./optimizer";
+import { FULL_POOL, NO_STREAM, applyStep, createOptimizer, fillCount, optimizerConfig, rosterKey, type DynastyGuard, type OptimizerConfig, type OptimizerSetup, type StreamSpec } from "./optimizer";
 import { weeklySd } from "./projections";
 import { mulberry32 } from "./rng";
 import { positionAllows, streamRow, type TableRow } from "./teamValue";
@@ -204,6 +204,40 @@ describe("the free-agent optimizer's rules (CLAUDE.md §7 V*; lead decision L2)"
     expect(rosterKey(["b", "a", "a"])).toBe(rosterKey(["a", "b"]));
     expect(rosterKey(["a"], { rows: [], positions: ["K"] })).not.toBe(rosterKey(["a"]));
   });
+
+  it("the keep set (Phase 7c, planner reply to Checkpoint 7b, section 5): a kept player is never dropped; the memo keeps the runs apart, and a keep set with nobody on the roster is none", () => {
+    // Dropping the bench RB (he never starts) or the FLEX WR for the 10-point free-agent WR gains the same 16; the tie goes
+    // to the smaller id, the bench RB. Kept, the FLEX WR goes instead; both kept, nothing else gains enough: no move.
+    const rows = [...team(), row("rb3", "RB", 2), row("fa-wr", "WR", 10)];
+    const ids = [...TEAM_IDS, "rb3"];
+    const opt = createOptimizer(setupOf(rows, { freeAgents: ["fa-wr"] }), CFG);
+    const free = opt.optimize(ids);
+    expect(free.moves).toEqual([{ add: "fa-wr", drop: "rb3", gainEv: 16 }]);
+    const kept = opt.optimize(ids, NO_STREAM, undefined, FULL_POOL, ["rb3"]);
+    expect(kept.moves).toEqual([{ add: "fa-wr", drop: "wr2", gainEv: 16 }]);
+    expect(kept.roster).toContain("rb3");
+    expect(opt.optimize(ids, NO_STREAM, undefined, FULL_POOL, ["wr2", "rb3"]).moves).toEqual([]);
+    // Memoized apart: the same keep set in any order is one entry; an empty one, or one holding nobody on the roster, is
+    // the run without one (its very entry: the League model's runs keep their keys).
+    expect(opt.optimize([...ids].reverse(), NO_STREAM, undefined, FULL_POOL, ["rb3", "rb3"])).toBe(kept);
+    expect(opt.optimize(ids, NO_STREAM, undefined, FULL_POOL, [])).toBe(free);
+    expect(opt.optimize(ids, NO_STREAM, undefined, FULL_POOL, ["fa-wr", "nobody"])).toBe(free);
+    // A kept player the run never drops changes nothing (better() is a total order).
+    expect(opt.optimize(ids, NO_STREAM, undefined, FULL_POOL, ["qb"]).moves).toEqual(free.moves);
+  });
+
+  it("the keep set in scenario-judged runs too (the scenario scan's drops)", () => {
+    // The same league with every player playing in every scenario: scenario lineups are the EV ones, so the same tie.
+    const S = 4;
+    const scen = (r: TableRow): TableRow => ({ ...r, flags: new Uint8Array(S * r.ev.length).fill(1) });
+    const rows = [...team(), row("rb3", "RB", 2), row("fa-wr", "WR", 10)].map(scen);
+    const ids = [...TEAM_IDS, "rb3"];
+    const opt = createOptimizer({ ...setupOf(rows, { freeAgents: ["fa-wr"] }), scenarios: S }, CFG);
+    expect(opt.judgesScenarios).toBe(true);
+    expect(opt.optimize(ids).moves.map((m) => [m.add, m.drop])).toEqual([["fa-wr", "rb3"]]);
+    expect(opt.optimize(ids, NO_STREAM, undefined, FULL_POOL, ["rb3"]).moves.map((m) => [m.add, m.drop])).toEqual([["fa-wr", "wr2"]]);
+    expect(opt.optimize(ids, NO_STREAM, undefined, FULL_POOL, ["rb3", "wr2"]).moves).toEqual([]);
+  });
 });
 
 // ---------------------------------------------------------------------------------------------
@@ -331,12 +365,13 @@ function bruteBest(roster: readonly string[], added: ReadonlySet<string>, b: Bru
   return best;
 }
 
-function bruteOptimize(start: string[], b: BruteSpec): { roster: string[]; moves: BruteMove[] } {
+/** V* by brute force; `keep`: players never dropped (optimize's keep set: the drops are limited to the others). */
+function bruteOptimize(start: string[], b: BruteSpec, keep: ReadonlySet<string> = new Set()): { roster: string[]; moves: BruteMove[] } {
   let roster = [...start];
   const added = new Set<string>();
   const moves: BruteMove[] = [];
   for (let step = 0; step < b.cfg.faMaxMoves; step++) {
-    const best = bruteBest(roster, added, b, true);
+    const best = bruteBest(roster, added, b, true, keep.size ? (id) => !keep.has(id) : null);
     if (!best) break;
     roster = applyStep(roster, best);
     added.add(best.add);
@@ -497,6 +532,44 @@ describe("the free-agent optimizer against brute force (every move solved on its
     expect(movesSeen).toBeGreaterThan(150);
     expect(opens).toBeGreaterThan(10);
     expect(dropsGuarded).toBeGreaterThan(30);
+  });
+
+  it("with a keep set (Phase 7c), makes exactly the brute force's moves with drops limited to the others: 200 random small leagues, the kept player one the free run drops", { timeout: 60_000 }, () => {
+    const rand = mulberry32(7007);
+    let kept = 0;
+    let movesSeen = 0;
+    for (let trial = 0; trial < 200; trial++) {
+      const W = 4;
+      const weights = Float64Array.from([1, 1, 1.25, 1.25]);
+      const slots = trial % 2 === 0 ? STANDARD : SMALL;
+      const mk = (id: string, scale: number): TableRow => {
+        const pos = POSITIONS_RANDOM[Math.floor(rand() * POSITIONS_RANDOM.length)] as Pos;
+        return row(id, pos, Array.from({ length: W }, () => (rand() < 0.15 ? 0 : Math.round(rand() * 200 * scale) / 10)), W);
+      };
+      const roster = Array.from({ length: 5 + Math.floor(rand() * 7) }, (_, k) => mk(`r${k}`, 1));
+      const pool = Array.from({ length: 4 + Math.floor(rand() * 8) }, (_, k) => mk(`f${k}`, 0.9));
+      const ids = roster.map((r) => r.id);
+      const maxRosterSize = ids.length + (rand() < 0.3 ? 1 : 0);
+      const limits: Partial<Record<Pos, number>> | undefined = rand() < 0.3 ? { RB: 2 + Math.floor(rand() * 2), WR: 3 } : undefined;
+      const values: Record<string, number> = Object.fromEntries([...roster, ...pool].map((r) => [r.id, Math.round(rand() * 1000)]));
+      const cfg: OptimizerConfig = { faMinGain: 2 + Math.floor(rand() * 4), faMaxMoves: 1 + Math.floor(rand() * 4), optimizerExcluded: ["K", "DEF"] };
+      const rows = new Map([...roster, ...pool].map((r) => [r.id, r]));
+      const setup: OptimizerSetup = { rows, weekCount: W, slots, weights, freeAgents: pool.map((r) => r.id), info: (id) => rows.get(id), positionLimits: limits, maxRosterSize, dropValue: (id) => values[id] ?? 0 };
+      const opt = createOptimizer(setup, cfg);
+      const free = opt.optimize(ids);
+      // Keep the first player the free run drops (else a random one of the roster: the same moves, a run of its own).
+      const keep = free.moves.find((m) => m.drop !== null)?.drop ?? (ids[Math.floor(rand() * ids.length)] as string);
+      const got = opt.optimize(ids, NO_STREAM, undefined, FULL_POOL, [keep]);
+      const want = bruteOptimize(ids, { rows, slots, weights, freeAgents: pool.map((r) => r.id), maxRosterSize, ...(limits ? { limits } : {}), values, dynasty: null, stream: NO_STREAM, cfg, ghosts: {} }, new Set([keep]));
+      expect(got.moves.map((m) => [m.add, m.drop]), `trial ${trial}`).toEqual(want.moves.map((m) => [m.add, m.drop]));
+      expect(got.roster, `trial ${trial}`).toContain(keep);
+      if (!free.moves.some((m) => m.drop === keep)) expect(got.moves, `trial ${trial}`).toEqual(free.moves);
+      else kept++;
+      movesSeen += got.moves.length;
+    }
+    // The cases cover a kept player the free run would have dropped.
+    expect(kept).toBeGreaterThan(40);
+    expect(movesSeen).toBeGreaterThan(100);
   });
 
   it("fillCount matches a plain bipartite matching (no starter limits): 300 random rosters", () => {

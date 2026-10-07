@@ -476,13 +476,80 @@ describe("buildTradeCard (§13: what each card shows)", () => {
     expect(c.rosNote).toBeNull();
   });
 
-  it("says the roster moves the trade forces, for either side (§7)", () => {
+  it("says the roster moves the trade forces, for either side (§7); adds that fill no open spot (a roster minimum's, or an evaluation from before Phase 7c) as before", () => {
     const forced = card({ required: { me: { drops: ["108"], adds: [] }, partner: { drops: [], adds: ["901", "902"] } } });
     expect(forced.required).toEqual([
       "You'd drop Tobias Thimble (TE, JAX) to stay within your roster limits.",
       "Gravel Gophers would pick up Floopy Freeman (RB, CAR) and Waverly Waiver (RB, NE) from free agents to fill their roster.",
     ]);
     expect(c.required).toEqual([]);
+  });
+
+  it("says each open roster spot and who fills it, the position given up, one sentence a spot, for either side (planner reply to Checkpoint 7b, section 5)", () => {
+    const spots = card({
+      required: {
+        me: { drops: [], adds: ["901"], openSpots: [{ playerId: "901", pos: "RB" }] },
+        partner: { drops: [], adds: ["902", "904"], openSpots: [{ playerId: "902", pos: "RB" }, { playerId: "904", pos: "K" }] },
+      },
+    });
+    expect(spots.required).toEqual([
+      "Open roster spot: add Floopy Freeman, the best available RB.",
+      "Gravel Gophers' open roster spot: they'd add Waverly Waiver, the best available RB.",
+      "Gravel Gophers' open roster spot: they'd add Kip Kickington, the best available kicker.",
+    ]);
+    // D/ST on ESPN (the platform's own word elsewhere); the fallback says where nobody was available; a roster minimum's add
+    // keeps its own sentence, before the spots (rule 3 before rule 4).
+    const mixed = card({
+      required: {
+        me: { drops: [], adds: ["902", "SEA", "901"], openSpots: [{ playerId: "SEA", pos: "DEF" }, { playerId: "901", pos: null, short: ["TE"] }] },
+        partner: { drops: [], adds: ["904"], openSpots: [{ playerId: "904", pos: null, short: ["QB", "RB", "TE"] }] },
+      },
+    });
+    expect(mixed.required).toEqual([
+      "You'd pick up Waverly Waiver (RB, NE) from free agents to fill your roster.",
+      "Open roster spot: add Seahawks D/ST, the best available D/ST.",
+      "Open roster spot: add Floopy Freeman, the best available free agent (no TE is available).",
+      "Gravel Gophers' open roster spot: they'd add Kip Kickington, the best available free agent (no QB, RB or TE is available).",
+    ]);
+    const sleeper = buildTradeCard(evaluation({ required: { me: { drops: [], adds: ["SEA", "901"], openSpots: [{ playerId: "SEA", pos: "DEF" }, { playerId: "901", pos: null, short: ["RB", "TE"] }] }, partner: { drops: [], adds: [] } } }), { snapshot: { ...snapshot, platform: "sleeper" }, baseline: null });
+    expect(sleeper.required).toEqual(["Open roster spot: add Seahawks D/ST, the best available DEF.", "Open roster spot: add Floopy Freeman, the best available free agent (no RB or TE is available)."]);
+    // No short position left to name (a position the team streams): no parentheses.
+    expect(card({ required: { me: { drops: [], adds: ["901"], openSpots: [{ playerId: "901", pos: null }] }, partner: { drops: [], adds: [] } } }).required).toEqual(["Open roster spot: add Floopy Freeman, the best available free agent."]);
+  });
+
+  it("says an open spot's fill is dropped again at an IR return in the spot's own sentence, and when the partner's fill is my own League-page pickup (review of Phase 7c's fill, findings pickups-3 and pickups-4)", () => {
+    const spots = card({
+      required: {
+        me: {
+          drops: [],
+          adds: ["901", "902"],
+          openSpots: [
+            { playerId: "901", pos: "RB" },
+            { playerId: "902", pos: null, short: ["TE"] },
+          ],
+          // My fills, dropped again from my IR returners' weeks; another player too (his own line, as before).
+          displaced: [
+            { playerId: "901", week: 7, returner: "206" },
+            { playerId: "902", week: Number.NaN, returner: "107" },
+            { playerId: "108", week: 15, returner: "206" },
+          ],
+        },
+        partner: { drops: [], adds: ["904"], openSpots: [{ playerId: "904", pos: "K", yours: true }], displaced: [{ playerId: "904", week: 9, returner: "205" }] },
+      },
+    });
+    expect(spots.required).toEqual([
+      "Open roster spot: add Floopy Freeman, the best available RB, until Rupert Wimbleton comes back from IR in week 7.",
+      "Open roster spot: add Waverly Waiver, the best available free agent (no TE is available), until Humbert Fiddlesticks comes back from IR.",
+      "From week 15, when Rupert Wimbleton comes back from IR, you'd drop Tobias Thimble (TE, JAX).",
+      "Gravel Gophers' open roster spot: they'd add Kip Kickington, the best available kicker, the pickup the League page suggests for you, until Percival Plunk comes back from IR in week 9.",
+    ]);
+    // Without a return, the partner's fill that takes my pickup says so alone; a fill the returner doesn't displace reads as before.
+    const yours = card({ required: { me: { drops: [], adds: ["901"], openSpots: [{ playerId: "901", pos: "RB" }], displaced: [{ playerId: "108", week: 15, returner: "206" }] }, partner: { drops: [], adds: ["902"], openSpots: [{ playerId: "902", pos: "RB", yours: true }] } } });
+    expect(yours.required).toEqual([
+      "Open roster spot: add Floopy Freeman, the best available RB.",
+      "From week 15, when Rupert Wimbleton comes back from IR, you'd drop Tobias Thimble (TE, JAX).",
+      "Gravel Gophers' open roster spot: they'd add Waverly Waiver, the best available RB, the pickup the League page suggests for you.",
+    ]);
   });
 
   it("says where a received IR player goes and who is dropped when an IR player comes back, for either side (Phase 4b, RosterChange.toIR and .displaced)", () => {

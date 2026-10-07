@@ -43,8 +43,10 @@ describe("roster legality, rule 5: a traded IR player's place", () => {
     expect(mine.ir).toEqual(["ir2"]);
     expect(returnersOf(mine.spec).map((r) => r.id)).toEqual(["ir2"]);
     expect(mine.roster).not.toContain("ir2");
-    // I gave an active player and took no active spot: rule 4 fills the spot that opened.
-    expect(mine.change.adds).toHaveLength(1);
+    // I gave an active player and took no active spot: rule 4 fills the spot that opened, at the position I gave up (a
+    // received IR player in my IR slot isn't received onto my active roster: planner reply to Checkpoint 7b, section 5).
+    expect(mine.change.adds).toEqual(["fw"]);
+    expect(mine.change.openSpots).toEqual([{ playerId: "fw", pos: "WR" }]);
     expect(mine.change.drops).toEqual([]);
     const theirs = legalSide(I, two, two.roster, ["ir2"], ["wc1"], "exact", "Team 2");
     if ("illegal" in theirs) throw new Error(theirs.illegal);
@@ -109,7 +111,7 @@ describe("exact evaluation with IR players: the sides' specs after the trade and
     const x = evaluateExact(I, trade("2", ["wc1"], ["ir2"]), 4);
     if ("illegal" in x) throw new Error(x.illegal);
     const d = x.mine.displaced[0] as { id: string; from: number; returner: string };
-    expect(x.evaluation.required.me).toEqual({ drops: [], adds: [expect.any(String)], toIR: ["ir2"], displaced: [{ playerId: d.id, week: 7, returner: "ir2" }] });
+    expect(x.evaluation.required.me).toEqual({ drops: [], adds: ["fw"], openSpots: [{ playerId: "fw", pos: "WR" }], toIR: ["ir2"], displaced: [{ playerId: d.id, week: 7, returner: "ir2" }] });
     expect(I.league.lp.weeks.weeks[d.from]).toBe(7);
     // Team 2 gave its returner away: its baseline displacement is gone, and nothing new is forced on it.
     expect(x.evaluation.required.partner).toEqual({ drops: [expect.any(String)], adds: [] });

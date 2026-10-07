@@ -6,7 +6,10 @@ import type { PolicyFeatures } from "@/lib/site";
 import { DAY, HOUR, MINUTE, TTL } from "@/server/cache";
 import { browserFetchLimits, feedbackLimits, logLimits, snapshotLimits } from "@/server/limits";
 
-/** When this policy last changed. Update it with every change below, a feature turned on included (the go/no-go sets it to launch day). */
+/**
+ * When this policy last changed. The go/no-go set it to launch day, when the page goes public, so changes before launch keep
+ * it (Checkpoint 7c's edits did); after launch, update it with every change below, a feature turned on included.
+ */
 export const PRIVACY_LAST_UPDATED = "October 13, 2026";
 
 /** A length of time in words: "a day", "an hour", "3 hours", "15 minutes". */
@@ -35,9 +38,13 @@ const A = "font-semibold underline underline-offset-2";
  * with the cookie line; the detailed part after it from about 3,000 words to about 1,250, pages.test.ts holding it there);
  * implementation details cut (the browser database's name, tabs' session codes and messages, the old storage keys, how
  * trade-page addresses carry IDs, how the model routes reuse a signed import, the rate limits' windows and counts);
- * feedback kept up to 12 months with no download promise; the daily totals and FantasyCalc's conditions added. Its words
- * follow `features` (src/lib/site.ts POLICY_FEATURES; review PG-1): each sentence that rests on a feature shows only while
- * the feature is built, and src/app/pages.test.ts fails while a flag and the code disagree. What each part relies on:
+ * feedback kept up to 12 months with no download promise; the daily totals and FantasyCalc's conditions added. Checkpoint
+ * 7c (planner reply to Checkpoint 7b, section 3: "approved, with small edits"): "Email us to ask what we hold about you or
+ * to have it deleted." just before the contact line, the archive sentence naming the daily rest-of-season levels (with
+ * dailyLevels), the anonymous copy's prize split in place of how the title is weighed against the playoffs (with
+ * prizeShares), and the detailed part held at 1,300 words. Its words follow `features` (src/lib/site.ts POLICY_FEATURES;
+ * review PG-1): each sentence that rests on a feature shows only while the feature is built, and src/app/pages.test.ts
+ * fails while a flag and the code disagree. What each part relies on:
  *   - Cookies: src/server/session.ts is the only code that sets one (the sealed, httpOnly, session-only
  *     "offersheet_session", Path=/, SESSION_SEAL_TTL_SECONDS: a 12-hour seal, so a cookie a browser restores with its
  *     session stops working then), through src/app/api/session/espn (connect, forget); no browser code writes a cookie.
@@ -81,6 +88,13 @@ const A = "font-semibold underline underline-offset-2";
  *     noted for 3 days while one index a season kept them up to about 3 years); the builds' own 3-day record is the same
  *     fact for less time, so "Daily totals" no longer names it. Not "data we fetch anyway": a run fetches what the model
  *     builds' cache doesn't hold. `npm run snapshot:pull` deletes its local copies by the same rule (pruneLocalLists).
+ *     With dailyLevels (Checkpoint 7c; planner reply to Checkpoint 7b, question 4: "only from public projections: standard
+ *     scoring formats only, never per league, and never blended with trade values. Keep them 730 days"): the same run saves
+ *     each UTC day's rest-of-season levels (snapshots.ts snapshotLevels, key snap:lvl:<season>:<day>, until retainDays after
+ *     that day began, dayRetainMs): every offense player's mean of Sleeper's own standard, half-PPR and PPR totals over the
+ *     weeks left (src/server/projectionLevels.ts LEVEL_TOTALS), never a league's scoring, the model's blended projections or
+ *     FantasyCalc, and nothing about the formats in use, so "its daily rest-of-season projections in standard scoring
+ *     formats" adds nothing about any league or person, and the second sentence holds as it is. No page reads them.
  *   - Limits (src/server/rateLimit.ts, src/server/budget.ts): the short version's sentence, the planner's words (4.2):
  *     every count under an HMAC of the IP address (or its block) with a key derived from SESSION_SECRET; a window's count at
  *     Upstash goes one window after it starts (an hour at most), a day's count a minute after the UTC day ends, a count in
@@ -90,10 +104,21 @@ const A = "font-semibold underline underline-offset-2";
  *     identifier, each kept usageLimits.retainDays (400) after its day's last count: "about 13 months".
  *   - Anonymous feedback (with anonymousFeedback): src/lib/feedbackShare.ts builds the copy, the route's strict schema
  *     (src/server/feedbackSink.ts) refuses anything else and adds the UTC day; each day's list goes
- *     feedbackLimits.retainDays (365) after its last copy. With feedbackTotalsOnly (planner reply to Checkpoint 7a, 4.3):
- *     studying it keeps only totals and fitted numbers (`npm run feedback:report`, scripts/feedback-report.ts, reads the
- *     store and writes totals only; it replaced `npm run feedback:pull`, which saved the copies themselves). The copy's
- *     goal field is described by what it weighs, not by the setting's label, which Checkpoint 7b rewords (5.2).
+ *     feedbackLimits.retainDays (365) after its UTC day began (feedbackSink.ts feedbackDayTtlMs), so no copy is kept longer
+ *     than "12 months". With feedbackTotalsOnly (planner reply to Checkpoint 7a, 4.3): studying it keeps only totals and
+ *     fitted numbers (`npm run feedback:report`, scripts/feedback-report.ts, reads the store and writes totals only; it
+ *     replaced `npm run feedback:pull`, which saved the copies themselves). The copy's goal field is described by what it
+ *     weighs, not by the setting's label, which Checkpoint 7b rewords (5.2). With
+ *     prizeShares (Checkpoint 7c; planner reply to Checkpoint 7b, sections 3 and 6: "the anonymous copy holds the reward
+ *     setting as shares only"), the copy also holds the league's prize split as whole-percent shares, which the server's
+ *     schema (feedbackSink.ts FeedbackEventSchema) takes and no amount, so the planner's words: "how your league splits its
+ *     prizes (as shares, never amounts)".
+ *   - Your rights (planner reply to Checkpoint 7b, section 3; shown whatever the features): asked, we can find only what a
+ *     person points us to: mail from their address (the Gmail inbox), and their anonymous copies by the random codes (`rid`)
+ *     in a file they export (src/lib/feedbackStore.ts keeps each record's). Everything else is filed under codes made with
+ *     the server's secret, which no one reads (SESSION_SECRET is never shown), held in a server's memory for minutes, or
+ *     names no one, and goes on its own schedule (above). ⚠️ No tool deletes a copy by its code yet: by hand, in Upstash's
+ *     console.
  *   - FantasyCalc never shown (with fantasyCalcHidden; 5.4): no value number or value comparison anywhere in the app.
  *   - Logs: src/server/log.ts's allowlist (the time, route, event, code, platform, status, error name, duration), each
  *     day's list deleted logLimits.retainDays (14) after the day began: errors and a few routine events (review of Phase 7b:
@@ -115,7 +140,7 @@ const A = "font-semibold underline underline-offset-2";
  *   - Contact: src/lib/site.ts CONTACT_EMAIL (src/components/ContactLine.tsx).
  */
 export function PrivacyPolicy({ features }: { features: PolicyFeatures }) {
-  const { browserReads, anonymousFeedback, fantasyCalcHidden, publicArchive, feedbackTotalsOnly } = features;
+  const { browserReads, anonymousFeedback, fantasyCalcHidden, publicArchive, feedbackTotalsOnly, dailyLevels, prizeShares } = features;
   const itself = browserReads ? " itself" : "";
   const upstashKeeps = [
     "our server's copies",
@@ -247,9 +272,10 @@ export function PrivacyPolicy({ features }: { features: PolicyFeatures }) {
         </p>
         {publicArchive ? (
           <p className={P}>
-            We also keep public data, Sleeper&apos;s pre-game projections and FantasyCalc&apos;s daily lists for the league formats in use, up to{" "}
-            {snapshotLimits.retainDays / 365} seasons, to measure how accurate our numbers are. It&apos;s never shown and says nothing about any league or person
-            beyond which formats were in use each day.
+            We also keep public data, Sleeper&apos;s pre-game projections
+            {dailyLevels ? ", its daily rest-of-season projections in standard scoring formats," : null} and FantasyCalc&apos;s daily lists for the league
+            formats in use, up to {snapshotLimits.retainDays / 365} seasons, to measure how accurate our numbers are. It&apos;s never shown and says nothing about
+            any league or person beyond which formats were in use each day.
           </p>
         ) : null}
       </Card>
@@ -267,9 +293,10 @@ export function PrivacyPolicy({ features }: { features: PolicyFeatures }) {
           <h2 className="text-lg font-extrabold">Anonymous feedback</h2>
           <p className={P}>
             Each anonymous copy is used only to improve Offer Sheet. It holds what you pressed and which version you sent; the platform, season and week; your
-            league&apos;s format (teams, league type, main scoring settings, lineup and playoff spots) and how you weigh the title against the playoffs; the players
-            as ID numbers with positions; Offer Sheet&apos;s numbers for the trade and what they came from; a random code that links later changes to the same
-            record; and the date it arrived.
+            league&apos;s format (teams, league type, main scoring settings, lineup and playoff spots) and{" "}
+            {prizeShares ? "how your league splits its prizes (as shares, never amounts)" : "how you weigh the title against the playoffs"}; the players as ID
+            numbers with positions; Offer Sheet&apos;s numbers for the trade and what they came from; a random code that links later changes to the same record;
+            and the date it arrived.
           </p>
           <p className={P}>
             It never holds your league&apos;s ID in any form, team IDs, team or owner names, usernames, ESPN member IDs, cookies, your IP address or your notes.
@@ -373,6 +400,7 @@ export function PrivacyPolicy({ features }: { features: PolicyFeatures }) {
         <p className={P}>
           Offer Sheet isn&apos;t directed at children under 13. If this policy changes, we&apos;ll update it here and change the date above.
         </p>
+        <p className={P}>Email us to ask what we hold about you or to have it deleted.</p>
         <ContactLine className={P} />
         <p className={P}>
           See also the{" "}

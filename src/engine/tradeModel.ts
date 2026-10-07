@@ -9,7 +9,7 @@
  */
 import type { AcceptanceTerms, ActivitySummary, ContextTerm } from "./acceptance";
 import type { HelpsScale } from "./benefit";
-import type { InjuryStatus } from "./model";
+import type { InjuryStatus, Pos } from "./model";
 
 /** One side's asset in a trade: a player (canonical id) or a draft pick (dynasty and keeper leagues). */
 export type TradeAsset = { kind: "player"; id: string } | { kind: "pick"; season: number; round: number; originalTeamId: string };
@@ -21,12 +21,51 @@ export interface TradeProposal {
   get: TradeAsset[];
 }
 
+/**
+ * A roster spot a trade opened and the free agent legality's rule 4 put into it (RosterChange.openSpots; Phase 7c, planner
+ * reply to Checkpoint 7b, section 5: "fill each open spot with the best available free agent at a position where the team
+ * gave more players than it received"; evaluate.ts's header, rule 4).
+ */
+export interface OpenSpot {
+  playerId: string;
+  /**
+   * The position he fills: one where the team gave more players than it received, his own (the card: "the best available
+   * RB"). Null when no free agent could come in at such a position and he's the best available at any position (the
+   * fallback; and under TradeContextOptions.openSpotFill "bestAny", Checkpoint 7b's rule for the trade report, every spot).
+   */
+  pos: Pos | null;
+  /**
+   * On a fallback: the positions still short where no free agent could come in (none available, or the position at its
+   * limit), for the card's "(no TE is available)". ⚠️ Never a position the team streams (its streaming row fills that
+   * slot every week; legality never adds there) nor a K or D/ST it doesn't stream (one comes in only to refill a starting
+   * slot the trade emptied: evaluate.ts's header, rule 4), so the card never says none is available where free agents
+   * are. Absent when there are none.
+   */
+  short?: Pos[];
+  /**
+   * On the partner's side only (review of Phase 7c's fill, finding pickups-4): he's one of my own baseline pickups (on my
+   * V*(T)'s roster: the League page suggests him for me), and the partner claims before me (it goes first in the
+   * allocation order: evaluate.ts tradeSides), so my free-agent pickups after the trade can't make that pickup and my
+   * numbers count without him. The card says so ("…, the pickup the League page suggests for you."). Absent otherwise.
+   */
+  yours?: true;
+}
+
 /** Moves the roster limits force on a team after the trade (§7 roster legality), shown on the card. */
 export interface RosterChange {
   /** Players dropped because the active roster would be over maxRosterSize (lowest keep value first). */
   drops: string[];
-  /** Free agents added because it would be under it (the best available). */
+  /**
+   * Free agents added because it would be under it: rule 3's (a position under its roster minimum: the best available
+   * there) and rule 4's (each roster spot the trade opened: `openSpots`), in that order.
+   */
   adds: string[];
+  /**
+   * Phase 7c (planner reply to Checkpoint 7b, section 5): rule 4's adds, one per roster spot the trade opened, in the order
+   * they were made (each also in `adds`; the rest of `adds` are rule 3's). Absent or empty: no spot opened (or an inactive
+   * team's, left open), or an evaluation made before Phase 7c, whose card words every add as before.
+   */
+  openSpots?: OpenSpot[];
   /**
    * Phase 4b (IR players; planner reply to Checkpoint 4, change 5): received IR players who go into an open IR slot of
    * this team (legality rule 5), so they take no active roster spot until they return. Absent or empty: none.
