@@ -9,9 +9,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { z } from "zod";
 import { tradeSnapshot } from "@/components/trades/testFixtures";
 import { POSITIONS } from "@/engine/model";
+import { prizePeriods, prizeShares, rewardWith } from "@/engine/reward";
 import type { AcceptanceFeatures } from "@/engine/tradeModel";
 import type { FeedbackEvent, StoredFeedbackEvent } from "@/lib/feedbackEvent";
-import { feedbackEventOf, feedbackShareContext, newShareId } from "@/lib/feedbackShare";
+import { feedbackBasisOf, feedbackEventOf, feedbackShareContext, newShareId, sig } from "@/lib/feedbackShare";
 import { FEEDBACK_OUTCOMES, FEEDBACK_REASONS, FEEDBACK_VERSIONS, applyFeedback, type FeedbackChange, type FeedbackEvaluation, type FeedbackRecord } from "@/lib/feedbackStore";
 import { FeedbackEventSchema, StoredFeedbackEventSchema, feedbackDayKey, feedbackDayTtlMs, feedbackStoreFor, fitsFeedbackStore, refusedCopyCode, resetFeedbackSinkForTests, storeFeedback, storedFeedbackEvent, storedFeedbackText } from "./feedbackSink";
 import { feedbackLimits } from "./limits";
@@ -31,6 +32,11 @@ const T0 = Date.UTC(2026, 9, 4, 18, 30, 0);
 const PREVIEW = { VERCEL: "1", VERCEL_ENV: "preview" };
 
 const FEATURES: AcceptanceFeatures = { g: -0.08, n: 0.42, h: 1, c: 1, a: 1, hist: null, ctx: 0, hot: 0.15, urg: 0, z: -0.31 };
+
+/** "Several prizes" as Parker entered it (Checkpoint 7c): $2,000 / $1,600 / $900, nothing for the weekly high score. */
+const PARKER_AMOUNTS = { first: 2000, second: 1600, third: 900, weeklyHigh: 0, pointsLeader: null };
+/** …as a copy holds it: whole percents of the season's prizes (reward.ts prizePercents). */
+const SPLIT = { first: 44, second: 36, third: 20, weeklyHigh: 0, pointsLeader: 0 };
 
 function evaluation(key = "2|give:106|get:204", over: Partial<FeedbackEvaluation> = {}): FeedbackEvaluation {
   return {
@@ -54,17 +60,23 @@ function evaluation(key = "2|give:106|get:204", over: Partial<FeedbackEvaluation
 
 /**
  * Every kind of copy the browser builds: each outcome and version (the card's own trade, another package, a throw-in added),
- * each reason, cleared, taken back, odd numbers, with and without the numbers' basis.
+ * each reason, cleared, taken back, odd numbers, with and without the numbers' basis; Checkpoint 7c: under "Only the
+ * champion", an unknown goal and "Several prizes" (Parker's split: the record's basis, a version's inputs, the cards on
+ * screen), a version naming "Several prizes" under a basis that doesn't.
  */
 function events(): FeedbackEvent[] {
   const snapshot = tradeSnapshot();
+  const prizes = rewardWith({ goal: "prizes", prizes: PARKER_AMOUNTS }, prizePeriods(snapshot));
   const out: FeedbackEvent[] = [];
   // "SELF": the card's own trade (its key, k<i>, below), which sends no versionTrade.
   const keys = ["2|give:106,108|get:204", "2|give:105|get:205,204", "SELF"];
   const presses: FeedbackChange[][] = [
     ...FEEDBACK_OUTCOMES.flatMap((outcome, o) =>
       FEEDBACK_VERSIONS.map((version, v) => [
-        { outcome, sent: { version, key: keys[(o + v) % keys.length] as string, pAccept: 0.3, pComplete: 0.3, inputs: { features: FEATURES, gPartner: -0.1, b: 2, goal: "playoffs" as const, b3: 0.5, helpsReason: "odds" as const } } },
+        {
+          outcome,
+          sent: { version, key: keys[(o + v) % keys.length] as string, pAccept: 0.3, pComplete: 0.3, inputs: { features: FEATURES, gPartner: -0.1, b: 2, goal: (o + v) % 2 ? ("prizes" as const) : ("playoffs" as const), b3: 0.5, helpsReason: "odds" as const } },
+        },
       ]),
     ),
     ...FEEDBACK_REASONS.map((reason) => [{ report: { reason, note: "Team 4 said no" } }]),
@@ -75,14 +87,15 @@ function events(): FeedbackEvent[] {
     const rid = newShareId();
     let list: FeedbackRecord[] = [];
     const ev = evaluation(`k${i}`, i % 3 ? {} : { b: null, b3: null, tradeScore: null, overall: null, dPO: null, dCH: null, features: { ...FEATURES, hist: 0.15, z: Number.NaN } });
-    const basis = i % 2 ? { season: 2026, week: 5 + (i % 9), goal: i % 4 ? ("title" as const) : null } : undefined;
+    const week = 5 + (i % 9);
+    const basis = i % 2 ? (i % 3 ? { season: 2026, week, goal: i % 4 ? ("title" as const) : null } : feedbackBasisOf({ ...feedbackShareContext(snapshot, prizes), week })) : undefined;
     for (const press of changes) {
       const change = "sent" in press && press.sent?.key === "SELF" ? { ...press, sent: { ...press.sent, key: ev.key } } : press;
       list = applyFeedback(list, { leagueKey: "sleeper:12345678", evaluation: ev, change: { ...change, rid, ...(basis ? { basis } : {}) }, at: "2026-10-04T12:00:00.000Z" });
     }
     const record = list[0] as FeedbackRecord;
-    for (const goal of ["title", null] as const) {
-      const context = feedbackShareContext(snapshot, goal);
+    for (const reward of ["title", null, prizes] as const) {
+      const context = feedbackShareContext(snapshot, reward);
       out.push(feedbackEventOf({ record, kind: "outcome", context }) as FeedbackEvent);
       out.push(feedbackEventOf({ record, kind: "report", removed: true, context }) as FeedbackEvent);
     }
@@ -106,16 +119,71 @@ describe("FeedbackEventSchema: every copy the browser builds, and nothing else",
     }
   });
 
-  it("accepts a copy made under an older version's “Top finishers too” (“balanced”), its goal kept, at the top and in the version's inputs (Checkpoint 7c: feedbackEvent.ts FEEDBACK_GOALS); “Several prizes” too", () => {
-    const e = events().find((x) => x.versionInputs) as FeedbackEvent;
-    for (const goal of ["balanced", "prizes"] as const) {
-      const copy = { ...e, goal, versionInputs: { ...(e.versionInputs as NonNullable<FeedbackEvent["versionInputs"]>), goal } };
+  it("accepts a copy made under an older version's “Top finishers too” (“balanced”), its goal kept, at the top and in the version's inputs (Checkpoint 7c: feedbackEvent.ts FEEDBACK_GOALS); “Several prizes” with its split too", () => {
+    const e = events().find((x) => x.versionInputs && x.goal !== "prizes" && x.versionInputs.goal !== "prizes") as FeedbackEvent;
+    for (const [goal, split] of [
+      ["balanced", null],
+      ["prizes", SPLIT],
+    ] as const) {
+      const withSplit = split ? { prizes: split } : {};
+      const copy = { ...e, goal, ...withSplit, versionInputs: { ...(e.versionInputs as NonNullable<FeedbackEvent["versionInputs"]>), goal, ...withSplit } };
       const parsed = FeedbackEventSchema.safeParse(JSON.parse(JSON.stringify(copy)));
       expect(parsed.success, `${goal}: ${JSON.stringify(parsed.error?.issues)}`).toBe(true);
       expect(parsed.data?.goal).toBe(goal);
+      expect(parsed.data?.prizes).toEqual(split ?? undefined);
       // The stored form (what feedback:report reads) too.
       expect(StoredFeedbackEventSchema.safeParse({ ...copy, day: "2026-10-04" }).success, goal).toBe(true);
     }
+  });
+
+  it("Checkpoint 7c: a prize split goes exactly with “Several prizes”, at the top and in the version's inputs, as whole percents adding up to 100, never amounts; a refusal names where", () => {
+    const all = events();
+    const e = all.find((x) => x.goal === "prizes" && x.versionInputs?.goal === "prizes") as FeedbackEvent;
+    expect(e).toBeTruthy();
+    // Parker's $2,000 / $1,600 / $900, as the browser sends them (reward.ts prizePercents), at both levels.
+    expect(prizeShares(PARKER_AMOUNTS, 14)).toEqual({ first: 4 / 9, second: 16 / 45, third: 1 / 5, weeklyHigh: 0, pointsLeader: 0 });
+    expect(e.prizes).toEqual(SPLIT);
+    expect(e.versionInputs?.prizes).toEqual(SPLIT);
+    // Every copy the browser builds keeps the rule; copies under another goal (an older version's among them) have no split.
+    for (const x of all) {
+      expect("prizes" in x, `${x.goal}`).toBe(x.goal === "prizes");
+      if (x.versionInputs) expect("prizes" in x.versionInputs, `${x.versionInputs.goal}`).toBe(x.versionInputs.goal === "prizes");
+    }
+    const codeOf = (x: unknown) => {
+      const r = FeedbackEventSchema.safeParse(x);
+      return r.success ? "accepted" : refusedCopyCode(r.error);
+    };
+    const vi = e.versionInputs as NonNullable<FeedbackEvent["versionInputs"]>;
+    for (const ok of [SPLIT, { first: 100, second: 0, third: 0, weeklyHigh: 0, pointsLeader: 0 }, { first: 20, second: 20, third: 20, weeklyHigh: 20, pointsLeader: 20 }]) {
+      expect(codeOf({ ...e, prizes: ok, versionInputs: { ...vi, prizes: ok } }), JSON.stringify(ok)).toBe("accepted");
+    }
+    const { prizes: _p, ...noSplit } = e;
+    void _p;
+    const { prizes: _vp, ...viNoSplit } = vi;
+    void _vp;
+    const refused: Array<[unknown, string]> = [
+      // Amounts as typed, finer shares, a total that isn't 100, a share below 0, a field it doesn't list, one left out.
+      [{ ...e, prizes: { first: 2000, second: 1600, third: 900, weeklyHigh: 0, pointsLeader: 0 } }, "INVALID_PRIZES"],
+      [{ ...e, prizes: { ...SPLIT, first: 44.4, second: 35.6 } }, "INVALID_PRIZES"],
+      [{ ...e, prizes: { ...SPLIT, third: 19 } }, "INVALID_PRIZES"],
+      [{ ...e, prizes: { ...SPLIT, first: 64, weeklyHigh: -20 } }, "INVALID_PRIZES"],
+      [{ ...e, prizes: { ...SPLIT, amount: 4500 } }, "INVALID_PRIZES_EXTRA_FIELD"],
+      [{ ...e, prizes: { first: 44, second: 36, third: 20, weeklyHigh: 0 } }, "INVALID_PRIZES"],
+      [{ ...e, prizes: "44/36/20" }, "INVALID_PRIZES"],
+      // "Several prizes" without its split; a split with another goal (or none).
+      [noSplit, "INVALID_PRIZES"],
+      [{ ...e, goal: "title" }, "INVALID_PRIZES"],
+      [{ ...e, goal: null }, "INVALID_PRIZES"],
+      [{ ...e, goal: "balanced" }, "INVALID_PRIZES"],
+      // The same in the sent version's inputs.
+      [{ ...e, versionInputs: viNoSplit }, "INVALID_VERSIONINPUTS"],
+      [{ ...e, versionInputs: { ...vi, goal: "playoffs" } }, "INVALID_VERSIONINPUTS"],
+      [{ ...e, versionInputs: { ...vi, prizes: { ...SPLIT, first: 2000 } } }, "INVALID_VERSIONINPUTS"],
+    ];
+    for (const [copy, code] of refused) expect(codeOf(JSON.parse(JSON.stringify(copy))), JSON.stringify(copy).slice(0, 160)).toBe(code);
+    // The stored form keeps the rule (feedback:report counts such an entry unreadable).
+    expect(StoredFeedbackEventSchema.safeParse({ ...noSplit, day: "2026-10-04" }).success).toBe(false);
+    expect(StoredFeedbackEventSchema.safeParse({ ...e, day: "2026-10-04" }).success).toBe(true);
   });
 
   it("refuses a copy with any field it doesn't list, at any level: the league's key, a note, the partner's team id, a time, an address", () => {
@@ -296,14 +364,24 @@ describe("storeFeedback (Redis on Vercel; FakeRedis here)", () => {
   it("bounds the store (final review F4): every copy the browser builds fits feedbackLimits.maxStoredBytes; the biggest the schema takes doesn't", () => {
     expect(feedbackLimits.maxStoredBytes).toBe(2_048);
     // Every kind of copy feedbackShare.ts builds, and each made as big as a real trade makes it: the Analyzer's 4 players a
-    // side with ESPN ids, a version of 4 a side, a league that starts many kinds of slots, every number at its longest.
+    // side with ESPN ids, a version of 4 a side, a league that starts many kinds of slots, every number at its longest, and
+    // (Checkpoint 7c) "Several prizes" with a split of two digits each, at the top and in the version's inputs. ⚠️ "At its
+    // longest" as the browser writes it: every number of a copy goes through feedbackShare.ts sig (6 significant digits),
+    // whose longest form within the schema's bounds (±1e9) is 14 characters ("-0.00000123457"; smaller ones turn
+    // exponential, "-1.23457e-7"). Until Checkpoint 7c this test used full precision (20 characters), which no copy holds:
+    // with the split at both levels that made 2,096 bytes, against about 1,950 for the biggest copy the browser can build.
     const all = events();
-    const long = -0.12345678901234568;
+    const long = sig(-0.0000012345678912) as number;
+    expect(JSON.stringify(long)).toBe("-0.00000123457");
+    expect([sig(-0.00000012345678912), sig(-123456789.12345)].map((x) => JSON.stringify(x).length)).toEqual([11, 10]);
+    const split = { first: 20, second: 20, third: 20, weeklyHigh: 20, pointsLeader: 20 };
     const four = (n: number) => Array.from({ length: 4 }, (_, i) => ({ id: `espn:${4_000_000 + n * 10 + i}`, pos: "WR" as const }));
     const features = { g: long, n: long, h: 1, c: 6, a: -2, hist: long, ctx: -0.8, hot: -0.15, urg: 0.2, z: long };
     const big = (x: FeedbackEvent): FeedbackEvent => ({
       ...x,
       format: { ...x.format, slots: { QB: 1, RB: 2, WR: 3, TE: 1, "RB/WR/TE": 2, "QB/RB/WR/TE": 1, K: 1, DEF: 1, "DL/LB/DB": 2, DL: 1, LB: 1, DB: 1 } },
+      goal: "prizes",
+      prizes: split,
       trade: { give: four(1), get: four(2) },
       numbers: { helps: 100, chance: 85, overall: 100, b: long, b3: -long, pAccept: -long, pComplete: -long, dPO: long, dCH: long, dPPW: long, gMine: long, gPartner: long },
       features,
@@ -311,7 +389,7 @@ describe("storeFeedback (Redis on Vercel; FakeRedis here)", () => {
         ? {
             versionTrade: { give: four(3), get: four(4) },
             versionAccept: { pAccept: -long, pComplete: -long },
-            versionInputs: { features, gPartner: long, b: long, b3: -long, helpsReason: "odds" as const, goal: "playoffs" as const, week: 17 },
+            versionInputs: { features, gPartner: long, b: long, b3: -long, helpsReason: "odds" as const, goal: "prizes" as const, prizes: split, week: 17 },
           }
         : {}),
     });
@@ -322,7 +400,7 @@ describe("storeFeedback (Redis on Vercel; FakeRedis here)", () => {
       largest = Math.max(largest, Buffer.byteLength(storedFeedbackText(e, T0)));
       expect(fitsFeedbackStore(e, T0), String(Buffer.byteLength(storedFeedbackText(e, T0)))).toBe(true);
     }
-    expect(largest).toBeGreaterThan(1_500);
+    expect(largest).toBeGreaterThan(1_800);
     // The schema takes bigger ones (32 slots with long keys): those aren't stored.
     const subsets = Array.from({ length: 1 << POSITIONS.length }, (_, m) => POSITIONS.filter((_p, i) => m & (1 << i))).sort((a, b) => b.length - a.length);
     const slots = Object.fromEntries(subsets.slice(0, 32).map((s) => [s.join("/"), 30]));

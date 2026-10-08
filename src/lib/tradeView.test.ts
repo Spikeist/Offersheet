@@ -14,14 +14,14 @@ import type { TradeAnalysis } from "@/engine/evaluate";
 import type { MarketInputs } from "@/engine/inputs";
 import type { LeagueSettings, PlayerInfo } from "@/engine/model";
 import { HELPS_FLOOR_NOTE, HELPS_FLOOR_NOTE_PLAYOFFS, HELPS_FLOOR_NOTE_PRIZES, helpsScaleNotes, type HelpsScale } from "@/engine/benefit";
-import { titleDeltas } from "@/engine/reward";
+import { TITLE_ONLY, titleDeltas, type Reward } from "@/engine/reward";
 import { buildTradeContext, evaluateExact, explainContextOf, simulateTrade, tradeInternals, type SimState } from "@/engine/evaluate";
 import type { HelpsCalibration } from "@/engine/leagueModel";
 import { smallLeague } from "@/engine/trade.testing";
 import { TEST_NOW } from "@/engine/testLeague";
 import { explainTrade } from "@/engine/explain";
 import { randomLeague } from "@/engine/testLeague";
-import { FIXTURE_B3 } from "@/engine/tradeTestFixtures";
+import { FIXTURE_B3, planBFixture } from "@/engine/tradeTestFixtures";
 import type { InjuryTag, TradeEvaluation, TradeStep } from "@/engine/tradeModel";
 import { MODEL_SOURCES } from "@/server/modelInputs";
 import { GLOOP_PREMIUM, SNOOT_PREMIUM, evaluation, searchResult, step, steppedFull, steppedOffer, tradeSnapshot } from "@/components/trades/testFixtures";
@@ -72,7 +72,13 @@ import {
   marketBlendOn,
   minChanceLabel,
   minChanceNote,
+  namesPrizes,
+  cardOddsWords,
   oddsViews,
+  topChance,
+  topOddsLabel,
+  topPlacesOf,
+  weighedOddsWords,
   percentText,
   perWeek,
   planBPitch,
@@ -942,7 +948,7 @@ describe("the Analyzer's draft and choices", () => {
 
   it("shows an illegal trade's reason instead of a card, with the notes", () => {
     const illegal: TradeAnalysis = { evaluation: null, illegal: "Gravel Gophers can have at most 4 RBs.", notes: ["Pick your team on the Import Report to see trade ideas."] };
-    expect(buildAnalysisView(illegal, snapshot)).toEqual({ baseline: null, baselineNote: null, helpsInfo: null, helpsScale: null, card: null, illegal: "Gravel Gophers can have at most 4 RBs.", notes: ["Pick your team on the Import Report to see trade ideas."] });
+    expect(buildAnalysisView(illegal, snapshot)).toEqual({ baseline: null, baselineNote: null, helpsInfo: null, helpsScale: null, reward: null, card: null, illegal: "Gravel Gophers can have at most 4 RBs.", notes: ["Pick your team on the Import Report to see trade ideas."] });
     // My odds before any trade say nothing without a card.
     expect(buildAnalysisView({ ...illegal, baseline: { pPlayoffs: 0.62, pTitle: 0.09 } }, snapshot).baseline).toBeNull();
     const legal = buildAnalysisView({ evaluation: evaluation(), illegal: null, notes: [] }, snapshot);
@@ -1809,6 +1815,115 @@ describe("when to look, and how fresh the data is (planner reply to Checkpoint 7
     });
     // Both lines read the moment they're given (the page's clock): the same inputs a day later are a day older.
     expect(finderTimingLines({ snapshot: voted, inputs, now: new Date(NOW.getTime() + 24 * HOUR) }).freshness).toBe("Trade values updated 2 days ago · Projections updated yesterday.");
+  });
+});
+
+describe("Checkpoint 7c: “Top 3 odds” and the words under “Several prizes” (planner reply to Checkpoint 7b, §6)", () => {
+  /** Rewards as the engine makes them (reward.ts rewardOf): Parker's 2,000 / 1,600 / 900, 60 / 40 (no 3rd), the title alone. */
+  const shares = (o: Partial<Reward["shares"]>): Reward["shares"] => ({ first: 0, second: 0, third: 0, weeklyHigh: 0, pointsLeader: 0, ...o });
+  const PARKER: Reward = { goal: "prizes", shares: shares({ first: 4 / 9, second: 16 / 45, third: 1 / 5 }), periods: 14, empty: false };
+  const TOP2: Reward = { goal: "prizes", shares: shares({ first: 0.6, second: 0.4 }), periods: 14, empty: false };
+  const WEEKLY: Reward = { goal: "prizes", shares: shares({ first: 0.8, weeklyHigh: 0.2 }), periods: 14, empty: false };
+  const TITLE: Reward = { goal: "title", shares: TITLE_ONLY, periods: 14, empty: false };
+  const before = { pPlayoffs: 0.6, pTitle: 0.105, prizes: { first: 0.105, second: 0.09, third: 0.105, weeklyHigh: 0, pointsLeader: 0.1 } };
+  const dPrizes = { first: 0.007, second: 0.006, third: 0.007, weeklyHigh: null, pointsLeader: 0.01 };
+  /** An evaluation with my prize components' changes (the engine's TradeEvaluation.dPrizes; the fixture doesn't set them). */
+  const traded = (o: Parameters<typeof evaluation>[0] = {}): TradeEvaluation => {
+    const { dPrizes: d, ...rest } = o;
+    return { ...evaluation({ dCH: 0.007, dPO: 0.03, ...rest }), dPrizes: d === undefined ? dPrizes : d };
+  };
+
+  it("adds “Top 3 odds” between the title and playoff odds when the league's split pays 3rd place, “Top 2 odds” when it pays 2nd only, and nothing otherwise", () => {
+    // The lead's example: "Title odds 10.5% → 11.2% · Top 3 odds 30% → 32% · Playoff odds 60% → 63%".
+    expect(buildTradeCard(traded(), { snapshot, baseline: before, reward: PARKER }).odds).toEqual([
+      { label: "Title odds", value: "10.5% → 11.2%", srValue: "from 10.5% to 11.2%" },
+      { label: "Top 3 odds", value: "30% → 32%", srValue: "from 30% to 32%" },
+      { label: "Playoff odds", value: "60% → 63%", srValue: "from 60% to 63%" },
+    ]);
+    // 2nd paid, 3rd not: the top 2 (P(1st) + P(2nd)).
+    expect(oddsViews(traded(), before, TOP2).map((o) => `${o.label} ${o.value}`)).toEqual(["Title odds 10.5% → 11.2%", "Top 2 odds 20% → 21%", "Playoff odds 60% → 63%"]);
+    // "Only the champion", "Making the playoffs", a split paying neither 2nd nor 3rd, or no reward: the two lines as before.
+    for (const reward of [TITLE, { ...TITLE, goal: "playoffs" as const }, WEEKLY, null, undefined]) expect(oddsViews(traded(), before, reward).map((o) => o.label)).toEqual(["Title odds", "Playoff odds"]);
+    expect(topPlacesOf(PARKER)).toBe(3);
+    expect(topPlacesOf(TOP2)).toBe(2);
+    expect([TITLE, WEEKLY, null].map(topPlacesOf)).toEqual([null, null, null]);
+    // A split that pays 3rd but not 2nd still reads the top 3 (P(1st) + P(2nd) + P(3rd)).
+    expect(topPlacesOf({ goal: "prizes", shares: shares({ first: 0.9, third: 0.1 }) })).toBe(3);
+    expect(topOddsLabel(3)).toBe("Top 3 odds");
+  });
+
+  it("never prints a partial sum: a part unknown leaves the line out; without my odds before, it prints its change alone; kept within 0–100%", () => {
+    // A change unknown (3rd place's odds couldn't be known), or a part of the odds before.
+    expect(oddsViews(traded({ dPrizes: { ...dPrizes, third: null } }), before, PARKER).map((o) => o.label)).toEqual(["Title odds", "Playoff odds"]);
+    expect(oddsViews(traded(), { ...before, prizes: { ...before.prizes, third: null } }, PARKER).map((o) => o.label)).toEqual(["Title odds", "Playoff odds"]);
+    // An evaluation without prize changes (made before them, or a fake): no line.
+    expect(oddsViews({ dPO: 0.03, dCH: 0.007 }, before, PARKER).map((o) => o.label)).toEqual(["Title odds", "Playoff odds"]);
+    // No odds before (the Analyzer without them), or before without prizes: the change in percentage points, as the others.
+    expect(oddsViews(traded(), null, PARKER).map((o) => o.value)).toEqual(["+0.7 percentage points", "+2 percentage points", "+3 percentage points"]);
+    expect(oddsViews(traded(), { pPlayoffs: 0.6, pTitle: 0.105 }, PARKER)[1]?.value).toBe("+2 percentage points");
+    // Whole percents with the playoff odds' edges, never past 100%.
+    const edge = { ...before, prizes: { ...before.prizes, first: 0.6, second: 0.3, third: 0.099 } };
+    expect(oddsViews(traded({ dPrizes: { ...dPrizes, first: 0.01, second: 0.01, third: 0.01 } }), edge, PARKER)[1]?.value).toBe(">99% → 100%");
+    expect(topChance({ first: 0.1, second: 0.2, third: null }, 2)).toBeCloseTo(0.3, 12);
+    expect(topChance({ first: 0.1, second: 0.2, third: null }, 3)).toBeNull();
+    expect(topChance(null, 3)).toBeNull();
+  });
+
+  it("shows the same line on a Plan B box, the Trade Finder's cards and the Analyzer's card, from the search's or the evaluation's own reward", () => {
+    const planB = { ...planBFixture({ give: ["106"], get: ["202"], b: 4, pComplete: 0.45 }), dPO: 0.04, dCH: 0.013, dPrizes: { first: 0.013, second: 0.01, third: 0.007, weeklyHigh: null, pointsLeader: 0 } };
+    const box = planBView(planB, snapshot, { baseline: before, reward: PARKER });
+    expect(box?.odds.map((o) => `${o.label} ${o.value}`)).toEqual(["Title odds 10.5% → 11.8%", "Top 3 odds 30% → 33%", "Playoff odds 60% → 64%"]);
+    expect(box?.text).toContain(" · Title odds 10.5% → 11.8% · Top 3 odds 30% → 33% · Playoff odds 60% → 64%");
+    // The Finder hands every card (and its Plan B) the search's reward and baseline.
+    const result = searchResult([traded({ planB })], { baseline: { ...before, expWins: 8 }, reward: PARKER });
+    const finder = buildFinderView({ result, sort: "overall", snapshot, partnerId: null });
+    expect(finder.cards[0]?.odds.map((o) => o.label)).toEqual(["Title odds", "Top 3 odds", "Playoff odds"]);
+    expect(finder.cards[0]?.planB?.odds.map((o) => o.label)).toEqual(["Title odds", "Top 3 odds", "Playoff odds"]);
+    // Under "Only the champion" (the search's own reward) the cards keep their two lines.
+    expect(buildFinderView({ result: { ...result, reward: TITLE }, sort: "overall", snapshot, partnerId: null }).cards[0]?.odds.map((o) => o.label)).toEqual(["Title odds", "Playoff odds"]);
+    // The Analyzer: its evaluation's reward, and the baseline the worker sends with it.
+    const analysis = buildAnalysisView({ evaluation: traded(), illegal: null, notes: [], reward: PARKER, baseline: before }, snapshot);
+    expect(analysis.card?.odds.map((o) => `${o.label} ${o.value}`)).toEqual(["Title odds 10.5% → 11.2%", "Top 3 odds 30% → 32%", "Playoff odds 60% → 63%"]);
+    expect(analysis.baseline).toBe("Your odds before this trade: 60% to make the playoffs, 30% to finish in the top 3, 10.5% to win the title.");
+  });
+
+  it("says my top-N chance with my odds before any trade, between the playoffs and the title, only when every part is known (⚠️ ours)", () => {
+    expect(baselineLines(before, "finder", PARKER)?.text).toBe("Your odds before any trade: 60% to make the playoffs, 30% to finish in the top 3, 10.5% to win the title.");
+    expect(baselineLines(before, "finder", TOP2)?.text).toBe("Your odds before any trade: 60% to make the playoffs, 20% to finish in the top 2, 10.5% to win the title.");
+    for (const reward of [TITLE, WEEKLY, undefined]) expect(baselineLines(before, "finder", reward)?.text).toBe("Your odds before any trade: 60% to make the playoffs, 10.5% to win the title.");
+    expect(baselineLines({ ...before, prizes: { ...before.prizes, third: null } }, "finder", PARKER)?.text).not.toContain("top 3");
+    expect(baselineLines({ pPlayoffs: 0.6, pTitle: 0.105 }, "analyzer", PARKER)?.text).toBe("Your odds before this trade: 60% to make the playoffs, 10.5% to win the title.");
+  });
+
+  it("names the league's prizes in what Helps you sums up under “Several prizes” paying more than 1st place (the lead's words), with today's endings", () => {
+    const prizes = "Helps you (0–100) sums up how much your chances at your league's prizes and your playoff odds rise";
+    expect(helpsInfoText("redraft", true, true, null, PARKER)).toBe(`${prizes}, minus a cost for giving away trade value or plus a credit for gaining it. ${HELPS_SCALE_TEXT}`);
+    expect(helpsInfoText("redraft", false, true, null, WEEKLY)).toBe(`${prizes}. ${HELPS_SCALE_TEXT}`);
+    expect(helpsInfoText("dynasty", true, true, null, TOP2)).toBe(`${prizes}, weighed against the change in your roster's long-term value. ${helpsScaleText(null, { leagueType: "dynasty" })}`);
+    expect(helpsInfoText("keeper", true, false, null, PARKER)).toBe(`${prizes}. ${HELPS_SCALE_TEXT}`);
+    // "Only the champion", "Making the playoffs", and "Several prizes" paying 1st place alone or with nothing entered (B
+    // weighs the title then): the title's words.
+    const title = helpsInfoText("redraft");
+    for (const reward of [TITLE, { ...TITLE, goal: "playoffs" as const }, { ...PARKER, shares: TITLE_ONLY }, { ...PARKER, shares: TITLE_ONLY, empty: true }]) expect(helpsInfoText("redraft", true, true, null, reward)).toBe(title);
+    // Without a reward, the scale's own word (How to read gets the scale alone from its page).
+    expect(namesPrizes(null, { oddsNamed: "prizes" })).toBe(true);
+    expect([namesPrizes(null, { oddsNamed: "title" }), namesPrizes(null, { oddsNamed: "playoff" }), namesPrizes(null, null), namesPrizes()]).toEqual([false, false, false, false]);
+    // A reward wins over the scale.
+    expect(namesPrizes(TITLE, { oddsNamed: "prizes" })).toBe(false);
+    expect(weighedOddsWords(PARKER)).toBe("your chances at your league's prizes and your playoff odds");
+    expect(weighedOddsWords(TITLE)).toBe("your title and playoff odds");
+    // How to read's "Each card shows …" (review of the prizes UI, prizes-ui-6): the card's own lines after the prizes' words.
+    expect([PARKER, TOP2, WEEKLY, TITLE].map((r) => cardOddsWords(r))).toEqual(["your title, top-3 and playoff odds", "your title, top-2 and playoff odds", "your title and playoff odds", "those odds"]);
+    expect(cardOddsWords(null, { oddsNamed: "prizes" })).toBe("your title and playoff odds (and your top-3 odds when your league pays 3rd place, or your top-2 odds when it pays 2nd)");
+    expect([cardOddsWords(null, { oddsNamed: "playoff" }), cardOddsWords()]).toEqual(["those odds", "those odds"]);
+    // The Finder and the Analyzer read the search's or the evaluation's own reward.
+    expect(buildFinderView({ result: searchResult([traded()], { reward: PARKER }), sort: "overall", snapshot, partnerId: null }).helpsInfo?.startsWith(prizes)).toBe(true);
+    expect(buildAnalysisView({ evaluation: traded(), illegal: null, notes: [], reward: PARKER }, snapshot).helpsInfo?.startsWith(prizes)).toBe(true);
+    // The views carry the reward for How to read (HowToRead's `reward`: review of the prizes UI, prizes-ui-7), null without one.
+    expect(buildFinderView({ result: searchResult([traded()], { reward: PARKER }), sort: "overall", snapshot, partnerId: null }).reward).toBe(PARKER);
+    expect(buildAnalysisView({ evaluation: traded(), illegal: null, notes: [], reward: PARKER }, snapshot).reward).toBe(PARKER);
+    expect([buildFinderView({ result: searchResult([traded()]), sort: "overall", snapshot, partnerId: null }).reward, buildAnalysisView({ evaluation: traded(), illegal: null, notes: [] }, snapshot).reward]).toEqual([null, null]);
+    expect(buildAnalysisView({ evaluation: traded(), illegal: null, notes: [], reward: TITLE }, snapshot).helpsInfo).toBe(title);
   });
 });
 

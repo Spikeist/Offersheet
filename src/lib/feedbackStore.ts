@@ -51,10 +51,18 @@
  *     (FeedbackChange.basis); a version the press records keeps that press's week with its inputs (VersionInputs.week),
  *     since its numbers come from the card on screen then. A record made before has none (its copies read the week and
  *     goal on screen, as before).
+ * - Checkpoint 7c (planner reply to Checkpoint 7b, §6, league prizes): under "Several prizes" (goal "prizes") the basis and
+ *   the version's inputs also keep the prize split the numbers were weighed by, as whole percents of the season's prizes
+ *   (FeedbackBasis.prizes, VersionInputs.prizes: feedbackEvent.ts FeedbackPrizes, isFeedbackPrizes), never the amounts
+ *   typed. A goal and its split are one fact: "prizes" without a readable split reads as an unknown goal (null), and a
+ *   split with any other goal is dropped (recordReward). A version's split is its own when the card gives one, else (⚠️
+ *   ours) its press's, like its week: the card and the press's basis come from the same search or evaluation (the pages'
+ *   share context reads the engine's reward). An older version's "balanced" stays as recorded (FEEDBACK_GOALS).
  *
  * Privacy: a record holds no names, no league id and nothing about anyone's account: player ids (canonical:
  * Sleeper's), the platform's team id of the partner, the league's short hash, the model's numbers and features (with the
- * season, week and goal they were computed for), which version was sent (its key: the same team and player ids), the
+ * season, week and goal they were computed for, and under "Several prizes" the prize split as whole percents, never the
+ * amounts), which version was sent (its key: the same team and player ids), the
  * time of each press and its random share id. The note is the user's own words (trimmed, at most FEEDBACK_NOTE_MAX
  * characters).
  * The short hash isn't anonymous (an ESPN league id is a small number: hashing every possible id finds it in
@@ -77,7 +85,8 @@
  */
 import type { HelpsScale } from "@/engine/benefit";
 import { fmix32, hash32 } from "@/engine/rng";
-import { FEEDBACK_GOALS, type FeedbackGoal } from "./feedbackEvent";
+import { PRIZE_KEYS } from "@/engine/settings";
+import { FEEDBACK_GOALS, type FeedbackGoal, type FeedbackPrizes } from "./feedbackEvent";
 import type { AcceptanceFeatures, TradeAsset, TradeEvaluation, TradeProposal } from "@/engine/tradeModel";
 import type { SaveResult, StorageLike } from "./importStore";
 
@@ -153,12 +162,14 @@ export const HELPS_REASONS = ["odds", "lambda"] as const satisfies readonly Help
  * card shares the card's), and the scale's reason; and (review FB-R6) `week`, the NFL week of the league data its numbers
  * came from (the press that recorded the version: FeedbackChange.basis). Optional only so that code building inputs before
  * 7a still compiles: a record read back always has all three, null when unknown.
+ * Checkpoint 7c (the header): `prizes`, the prize split B was weighed by, exactly when the goal is "prizes".
  */
 export interface VersionInputs {
   features: FeedbackFeatures | null;
   gPartner: number | null;
   b: number | null;
   goal: FeedbackGoal | null;
+  prizes?: FeedbackPrizes;
   b3?: number | null;
   helpsReason?: HelpsReason | null;
   week?: number | null;
@@ -166,12 +177,44 @@ export interface VersionInputs {
 
 /**
  * What a card's numbers were computed from besides the trade (the header, review FB-R6): the league data's season and NFL
- * week, and "What matters most" as the card's numbers were computed (null when unknown).
+ * week, and "What does your league reward?" as the card's numbers were computed (null when unknown), with (Checkpoint 7c)
+ * the prize split it weighed, whole percents, exactly when that's "Several prizes" (goal "prizes").
  */
 export interface FeedbackBasis {
   season: number;
   week: number;
   goal: FeedbackGoal | null;
+  prizes?: FeedbackPrizes;
+}
+
+/**
+ * Whether a value is a prize split as a record and a copy keep it (feedbackEvent.ts FeedbackPrizes): an object with exactly
+ * settings.ts PRIZE_KEYS, each a whole percent from 0 to 100, adding up to exactly 100 (the server's schema takes the same:
+ * src/server/feedbackSink.ts). Amounts (2000), finer shares (44.4) and any other field never pass.
+ */
+export function isFeedbackPrizes(x: unknown): x is FeedbackPrizes {
+  if (!isRecordLike(x) || Object.keys(x).length !== PRIZE_KEYS.length) return false;
+  let sum = 0;
+  for (const k of PRIZE_KEYS) {
+    const v = x[k];
+    if (!Number.isInteger(v) || (v as number) < 0 || (v as number) > 100) return false;
+    sum += v as number;
+  }
+  return sum === 100;
+}
+
+/**
+ * A goal and its prize split as a record keeps them (the header): a goal of FEEDBACK_GOALS, else null; "prizes" only with a
+ * split that is one (isFeedbackPrizes; copied in PRIZE_KEYS order), else null (⚠️ ours: what it weighed is unknown); any
+ * other goal without a split.
+ */
+export function recordReward(goal: unknown, prizes: unknown): { goal: FeedbackGoal | null; prizes?: FeedbackPrizes } {
+  if (!(FEEDBACK_GOALS as readonly unknown[]).includes(goal)) return { goal: null };
+  if (goal !== "prizes") return { goal: goal as FeedbackGoal };
+  if (!isFeedbackPrizes(prizes)) return { goal: null };
+  const split = {} as Record<(typeof PRIZE_KEYS)[number], number>;
+  for (const k of PRIZE_KEYS) split[k] = prizes[k];
+  return { goal: "prizes", prizes: split };
 }
 
 /** A season a basis may name (the server's schema takes the same: src/server/feedbackSink.ts). */
@@ -182,11 +225,11 @@ export const isFeedbackWeek = (x: unknown): x is number => Number.isInteger(x) &
 
 /**
  * A basis as a record keeps it: undefined unless its season and week are ones (a goal that isn't one reads null; an older
- * version's "balanced" is kept: FEEDBACK_GOALS).
+ * version's "balanced" is kept: FEEDBACK_GOALS; Checkpoint 7c, the goal with its prize split: recordReward).
  */
 function basisOf(x: unknown): FeedbackBasis | undefined {
   if (!isRecordLike(x) || !isSeason(x.season) || !isFeedbackWeek(x.week)) return undefined;
-  return { season: x.season, week: x.week, goal: (FEEDBACK_GOALS as readonly unknown[]).includes(x.goal) ? (x.goal as FeedbackGoal) : null };
+  return { season: x.season, week: x.week, ...recordReward(x.goal, x.prizes) };
 }
 
 /** The part of Offer Sheet a report points at (§11 "How the data is used"). */
@@ -318,9 +361,9 @@ function feedbackFeatures(features: AcceptanceFeatures | Record<string, unknown>
 
 /**
  * The sent version's model inputs as a record keeps them (a press's FeedbackSent.inputs, or a stored record's): only
- * the known fields, numbers that weren't finite as null, a goal that isn't one of "What matters most" as null, B₃ that
- * isn't above 0, a scale reason that isn't one of HELPS_REASONS and a week that isn't one as null (Phase 7a; null too on
- * inputs from before it); undefined when it isn't an object at all.
+ * the known fields, numbers that weren't finite as null, a goal that isn't one of "What does your league reward?" as null
+ * (Checkpoint 7c: with its prize split, recordReward), B₃ that isn't above 0, a scale reason that isn't one of HELPS_REASONS
+ * and a week that isn't one as null (Phase 7a; null too on inputs from before it); undefined when it isn't an object at all.
  */
 function versionInputsOf(x: unknown): VersionInputs | undefined {
   if (!isRecordLike(x)) return undefined;
@@ -329,7 +372,7 @@ function versionInputsOf(x: unknown): VersionInputs | undefined {
     features: isRecordLike(x.features) ? feedbackFeatures(x.features) : null,
     gPartner: finite(x.gPartner),
     b: finite(x.b),
-    goal: (FEEDBACK_GOALS as readonly unknown[]).includes(x.goal) ? (x.goal as FeedbackGoal) : null,
+    ...recordReward(x.goal, x.prizes),
     b3: b3 !== null && b3 > 0 ? b3 : null,
     helpsReason: (HELPS_REASONS as readonly unknown[]).includes(x.helpsReason) ? (x.helpsReason as HelpsReason) : null,
     week: isFeedbackWeek(x.week) ? x.week : null,
@@ -357,6 +400,15 @@ export function cleanNote(note: string | null | undefined): string | undefined {
 /** The record for this trade idea, when there is one. */
 export function feedbackFor(records: readonly FeedbackRecord[], leagueKey: string, tradeKey: string): FeedbackRecord | undefined {
   return records.find((r) => r.leagueKey === leagueKey && r.tradeKey === tradeKey);
+}
+
+/**
+ * A version's inputs as a press passes them, with the press's prize split (its basis's) when they name "Several prizes"
+ * without a readable split of their own and the basis names it too (the header; Checkpoint 7c). Anything else as given.
+ */
+function withPressPrizes(inputs: unknown, basis: FeedbackBasis | undefined): unknown {
+  if (!isRecordLike(inputs) || inputs.goal !== "prizes" || isFeedbackPrizes(inputs.prizes)) return inputs;
+  return basis?.goal === "prizes" && basis.prizes ? { ...inputs, prizes: basis.prizes } : inputs;
 }
 
 /**
@@ -408,8 +460,10 @@ export function applyFeedback(
         else delete next.versionKey;
         next.versionAccept = { pAccept: finite(sent.pAccept), pComplete: finite(sent.pComplete) };
         // The inputs belong to the version named now: an earlier version's never stay with this one. Their week is this
-        // press's (the card on screen now), whatever week the record's own numbers are from.
-        const inputs = versionInputsOf(sent.inputs);
+        // press's (the card on screen now), whatever week the record's own numbers are from; so is their prize split
+        // (Checkpoint 7c, ⚠️ ours) when the card gives none: tradeView.ts writes the goal alone, and the press's basis comes
+        // from the same search or evaluation as the card.
+        const inputs = versionInputsOf(withPressPrizes(sent.inputs, basis));
         if (inputs) next.versionInputs = { ...inputs, week: basis?.week ?? inputs.week ?? null };
         else delete next.versionInputs;
       }

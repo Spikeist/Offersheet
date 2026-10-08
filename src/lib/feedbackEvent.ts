@@ -7,7 +7,7 @@
  */
 import { config } from "@/engine/config";
 import type { LeagueSettings, Platform, Pos } from "@/engine/model";
-import { GOALS, LEGACY_GOALS } from "@/engine/settings";
+import { GOALS, LEGACY_GOALS, type PrizeKey } from "@/engine/settings";
 import type { FeedbackFeatures, FeedbackOutcome, FeedbackReason, FeedbackVersion, HelpsReason } from "./feedbackStore";
 
 /** The event's version: bump it when a field changes meaning (readers keep the versions apart). */
@@ -21,6 +21,17 @@ export const FEEDBACK_EVENT_VERSION = 1;
  */
 export const FEEDBACK_GOALS = [...GOALS, ...LEGACY_GOALS] as const;
 export type FeedbackGoal = (typeof FEEDBACK_GOALS)[number];
+
+/**
+ * "Several prizes"' split as a record and a copy hold it (Checkpoint 7c; planner reply to Checkpoint 7b, §6: "the anonymous
+ * copy holds only the shares, rounded to whole percents, never the amounts"; §3: "how your league splits its prizes (as
+ * shares, never amounts)"): each prize's share of the season's prizes (src/engine/reward.ts PrizeShares, on settings.ts
+ * PRIZE_KEYS: 1st, 2nd and 3rd place, every regular-season week's high score together, the most points in the regular
+ * season) in whole percents adding up to exactly 100 (reward.ts prizePercents, by the largest remainder): Parker's $2,000 /
+ * $1,600 / $900 are 44 / 36 / 20 / 0 / 0. Only with goal "prizes", the split its numbers were weighed by; never the amounts
+ * typed (the Settings page keeps those in this browser only). feedbackStore.ts isFeedbackPrizes says which values are one.
+ */
+export type FeedbackPrizes = Readonly<Record<PrizeKey, number>>;
 
 /** The kind of press a copy follows: the outcome buttons (Sent, Accepted, Rejected, Countered) or Report. */
 export const FEEDBACK_EVENT_KINDS = ["outcome", "report"] as const;
@@ -84,7 +95,8 @@ export type FeedbackEventFeatures = FeedbackFeatures;
 
 /**
  * The sent version's model inputs as a copy holds them (feedbackStore.ts VersionInputs, every field present; `week`: the
- * NFL week of the league data they came from, null when unknown).
+ * NFL week of the league data they came from, null when unknown). Checkpoint 7c: `prizes`, the prize split B was weighed by,
+ * present exactly when the goal is "prizes" (a copy from an older version has none: it never names that goal).
  */
 export interface FeedbackEventVersionInputs {
   features: FeedbackEventFeatures | null;
@@ -93,6 +105,7 @@ export interface FeedbackEventVersionInputs {
   b3: number | null;
   helpsReason: HelpsReason | null;
   goal: FeedbackGoal | null;
+  prizes?: FeedbackPrizes;
   week: number | null;
 }
 
@@ -115,6 +128,8 @@ export interface FeedbackEvent {
   week: number;
   format: FeedbackEventFormat;
   goal: FeedbackGoal | null;
+  /** Checkpoint 7c: the prize split the numbers were weighed by (FeedbackPrizes), exactly when the goal is "prizes". */
+  prizes?: FeedbackPrizes;
   trade: FeedbackEventTrade;
   numbers: FeedbackEventNumbers;
   features: FeedbackEventFeatures;

@@ -2852,18 +2852,20 @@ function gainedOdds(
 
 /**
  * The "Helps you" calibration run (step 8c; planner reply to Checkpoint 4c, A2; LeagueModel.helpsCalibration): `season` with
- * my team's weekly score mean + config.benefit.helpsGain in every model week from `from` on (σ unchanged; every other team as
- * it is), simulated on `run`, which must be the seasons `base` was simulated on (common random numbers: the change is
- * the gain's alone; `run.highScores` the same as `base`'s), and my odds' changes against `base`. The League model runs it on
- * its own seasons against LeagueModel.odds; the trade context (evaluate.ts) on its final block against its baseline, the same
- * setup and seasons, so the two give the same numbers bit for bit. Null when my team isn't in `base`, the gain isn't a
- * number, or the run has no odds. ΔCH null when either title chance is unknown; every prize component's change in dPrizes
- * (the weekly high scores' null unless `run` simulated them: reward.ts runPrizeDeltas).
+ * team `teamId`'s weekly score mean + config.benefit.helpsGain in every model week from `from` on (σ unchanged; every other
+ * team as it is), simulated on `run`, which must be the seasons `base` was simulated on (common random numbers: the change is
+ * the gain's alone; `run.highScores` the same as `base`'s), and that team's odds' changes against `base`. Any team: mine for
+ * "Helps you" (the League model runs it on its own seasons against LeagueModel.odds; the trade context, evaluate.ts, on its
+ * final block against its baseline, the same setup and seasons, so the two give the same numbers bit for bit), and since
+ * Checkpoint 7c a trade partner's for "Helps them" (planner reply to Checkpoint 7b, §7; evaluate.ts partnerCalibrationOf, on
+ * the trade context's final block). Null when the team isn't in `base`, the gain isn't a number, or the run has no odds. ΔCH
+ * null when either title chance is unknown; every prize component's change in dPrizes (the weekly high scores' null unless
+ * `run` simulated them: reward.ts runPrizeDeltas).
  */
 export function helpsCalibrationOf(
   snapshot: LeagueSnapshot,
   season: SeasonModel,
-  myTeamId: string,
+  teamId: string,
   base: SeasonOdds,
   run: SeasonRun,
   from: number,
@@ -2871,7 +2873,7 @@ export function helpsCalibrationOf(
 ): HelpsCalibration | null {
   const gain = cfg.benefit.helpsGain;
   const start = Number.isFinite(from) ? Math.max(0, Math.floor(from)) : 0;
-  const d = gainedOdds(snapshot, season, myTeamId, base, run, (w) => w >= start, gain, cfg);
+  const d = gainedOdds(snapshot, season, teamId, base, run, (w) => w >= start, gain, cfg);
   return d ? { gain, from: start, dPO: d.dPO, dCH: d.dCH, dPrizes: d.dPrizes } : null;
 }
 

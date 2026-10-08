@@ -486,6 +486,13 @@ export const config = {
      * SC-1's cap on λ in B₃, helpsLambdaMax 0.75, and its note.)
      */
     helpsFutureShare: 0.1,
+    /**
+     * "Helps both" (Checkpoint 7c; planner reply to Checkpoint 7b, §7, its `config.helpsThemMin`, kept here beside the scale
+     * it reads): a trade helps both teams when its Helps you, as printed, is above 0 and its Helps them, as printed, is at
+     * least this (benefit.ts helpsBoth). 10 is about +0.3 projected points a week for them: 10 = 100 × (1 − e^(−x)) at x ≈
+     * 0.105 of the B of their +3 points a week, the planner's "A score of 10 is about +0.3 points a week for them".
+     */
+    helpsThemMin: 10,
     marketCheckBelow: -0.15,
     marketHideBelow: -0.35,
     /** §10 guard: a trade that depends on a player I'd receive with one of these statuses is flagged ("currently OUT or on IR"; PUP is a reserve list like IR). */
@@ -564,6 +571,15 @@ export const config = {
      * of 25 cards at the default 10%; Checkpoint 4c).
      */
     finalists: 60,
+    /**
+     * Checkpoint 7c (planner reply to Checkpoint 7b, §7: "so this sort has enough candidates, add to the final simulation the
+     * top 20 by Helps you among trades that help both on the screening run"): on top of the finalists, the first this many
+     * exact trades by B on the screening block that help both teams (benefit.ts helpsBoth, on the printed scores) and aren't
+     * hidden by default (B ≤ 0 or the market guard) get the final simulation too; the "Helps both" list checks each again on
+     * its final numbers (search.ts finalistsOf), and ⚠️ only that list ranks them: the Overall list stays the finalists'. ⚠️
+     * The plain top 20 (the lead's call): no diversity caps in the choice.
+     */
+    helpsBothFinalists: 20,
     resultsShown: 25,
     /**
      * An extension step (§12) adds one player to my side, one to theirs, or one to each (a 1-for-1 becomes a 2-for-1,

@@ -341,21 +341,24 @@ describe("no trade value shows in Settings or the Import Report (planner reply t
     let protectHelps = 0;
     for (const leagueType of ["redraft", "keeper", "dynasty"] as const)
       for (const protectValue of PROTECT_VALUE_LEVELS)
-        for (const valuesEstimated of [false, true]) {
-          const snapshot = { ...f.snapshot, settings: { ...f.snapshot.settings, leagueType } };
-          const view = buildSettingsView({ snapshot, myTeamId: "1", settings: { ...defaultTradeSettings(), protectValue }, stored: true, valuesEstimated });
-          const html = renderToStaticMarkup(createElement(SettingsForm, { view, onEdit: () => true, onReset: () => true, status: null }));
-          const where = `Settings (${leagueType}, ${protectValue}, ${valuesEstimated ? "our estimates" : "FantasyCalc's values"})`;
-          expectHidden(where, html);
-          for (const s of stringsOf(view)) expectHidden(`${where}'s view`, s);
-          if (view.protectValue) {
-            protectHelps++;
-            expect(view.protectValue.help, where).toContain("in projected points a week");
-            expect(view.protectValue.help, where).not.toMatch(/\d/);
+        for (const valuesEstimated of [false, true])
+          // Checkpoint 7c: under "Several prizes" too, with its group of the league's prizes and their split.
+          for (const goal of ["title", "prizes"] as const) {
+            const snapshot = { ...f.snapshot, settings: { ...f.snapshot.settings, leagueType } };
+            const view = buildSettingsView({ snapshot, myTeamId: "1", settings: { ...defaultTradeSettings(), protectValue, goal }, stored: true, valuesEstimated });
+            const html = renderToStaticMarkup(createElement(SettingsForm, { view, onEdit: () => true, onReset: () => true, status: null }));
+            const where = `Settings (${leagueType}, ${protectValue}, ${valuesEstimated ? "our estimates" : "FantasyCalc's values"}, ${goal})`;
+            expectHidden(where, html);
+            for (const s of stringsOf(view)) expectHidden(`${where}'s view`, s);
+            if (goal === "prizes") expect(html, where).toContain("Your prizes split:");
+            if (view.protectValue) {
+              protectHelps++;
+              expect(view.protectValue.help, where).toContain("in projected points a week");
+              expect(view.protectValue.help, where).not.toMatch(/\d/);
+            }
           }
-        }
     // The help was read in every redraft case.
-    expect(protectHelps).toBe(PROTECT_VALUE_LEVELS.length * 2);
+    expect(protectHelps).toBe(PROTECT_VALUE_LEVELS.length * 2 * 2);
   });
 
   it("the Import Report, with this league's FantasyCalc values in its model inputs", () => {

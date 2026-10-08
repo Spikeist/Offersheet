@@ -20,7 +20,10 @@
  * playoffs · 9.9% title", every team after its free-agent pickups, what trade ideas start from, printed as they print
  * them), with the same as rosters stand as a smaller second line and one line saying what the odds count, above the
  * table; they wrap at 375 px. The Title column prints with one decimal too ("9.9%", leagueView.ts titleCell), so my row
- * reads like the headline above it; two more characters a cell, inside the table's own scroller.
+ * reads like the headline above it; two more characters a cell, inside the table's own scroller. Checkpoint 7c (planner
+ * reply to Checkpoint 7b, §6): under "Several prizes" paying 2nd or 3rd place both lines carry my chance of a top-3 (top-2)
+ * finish between the playoffs and the title ("Your odds: 60% playoffs · 30% top 3 · 10.5% title"; leagueView.ts myOddsOf),
+ * laid out like the other parts; the table keeps its columns.
  */
 import { Fragment } from "react";
 import { AS_ROSTERS_STAND_LABEL, YOUR_ODDS_LABEL, type LeagueView, type OddsCell, type OddsPart } from "@/lib/leagueView";

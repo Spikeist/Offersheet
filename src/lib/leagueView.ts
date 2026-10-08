@@ -16,14 +16,19 @@
  * playoff teams and the Bye column byes with known odds (oddsShown); the caption and the explainer name
  * only the odds shown. A points-only league is ranked by points for, so they show on phones there (and
  * the record doesn't). When my team is certainly out in a redraft league, the page says "Your season's
- * over — no trade helps this year." (§8), and the Trade partners card offers no partners (it says why).
+ * over — no trade helps this year." (§8), and the Trade partners card offers no partners (it says why); since Checkpoint 7c
+ * only when no prize the league pays can still move (seasonOver: under "Several prizes" a weekly high score or the points
+ * title can still be won after the title race is lost; planner reply to Checkpoint 7b, §6, the lead's reading).
  *
  * One baseline everywhere (Phase 4c; planner reply to Checkpoint 4b, change 9): the odds are LeagueModel.odds, every
  * team after the free-agent pickups that would help it (V*(T), one free agent per team: TeamModel.scoreWithPickups),
  * the trade search's own baseline, so the League page and every trade idea's "before" agree. My odds lead the card
  * ("Your odds: 59% playoffs · 9.9% title", printed as the trade ideas print my odds before them: StandingsView.mine),
  * with the same as rosters stand (LeagueModel.oddsAsRostersStand: no team's pickups) as a smaller second line, and a
- * line says what the odds count (StandingsView.basis). While a week is under way they count pickups only from the next
+ * line says what the odds count (StandingsView.basis). Checkpoint 7c (planner reply to Checkpoint 7b, §6): under "Several
+ * prizes" paying 3rd place (else 2nd) both lines add my chance of a top-3 (top-2) finish, "Your odds: 60% playoffs · 30% top
+ * 3 · 10.5% title" (myOddsOf), and "Playoff odds" in "How these numbers work" says how 2nd and 3rd place are decided
+ * (placesWords). While a week is under way they count pickups only from the next
  * week: the engine plays the week under way with today's rosters (league.ts "Game days": each team's scoreWithPickups keeps
  * its score as it stands that week). That's the model's rule, not the platforms': a free agent whose game hasn't started
  * can still be picked up and started (review of track UIP), so the odds' notes, the schedule's note and the explainer say
@@ -192,13 +197,14 @@ import type {
 import { prepareLeagueSlots, solveLineup, type LineupPlayer } from "@/engine/lineup";
 import { fantasyCalcFallbackText, fantasyCalcFormat, fantasyCalcFormatLabel, noteDay } from "@/engine/market";
 import { POSITIONS, type InjuryStatus, type LeagueSettings, type LeagueSnapshot, type Platform, type PlayerInfo, type Pos, type Team } from "@/engine/model";
+import { TITLE_ONLY, prizeStillMovable, type Reward } from "@/engine/reward";
 import { DIVISION_RULE_ASSUMED, weekList, weekUnderWayNote } from "@/engine/season";
 import { fmtNum, fmtSigned, fmtWhole, formatShortDateTime, plural, recordText } from "./format";
 import { allocationBasis, inactiveWindowText, waiverOrderText } from "./importReport";
 import { INJURY_LABEL, PLATFORM_LABEL, posLabel } from "./labels";
 import type { MyTeamSource } from "./myTeam";
 import { buildDataNotices } from "./notices";
-import { HARDER_TO_GET_TAG, finderHref, harderToGetWho, premiumReasons, titleOddsText } from "./tradeView";
+import { HARDER_TO_GET_TAG, finderHref, harderToGetWho, premiumReasons, titleOddsText, topChance, topPlacesOf } from "./tradeView";
 
 /** The "Harder to get" tag's words and reasons are shared with the trade cards (src/lib/tradeView.ts). */
 export { HARDER_TO_GET_TAG, premiumReasons };
@@ -211,10 +217,40 @@ export const RISKY_WIN_CHANCE: number = config.leaguePage.riskyWinChance;
 /** …or when this many of my likely starters are on bye that week (config.leaguePage.riskyByes). */
 export const RISKY_BYES: number = config.leaguePage.riskyByes;
 
-/** CLAUDE.md §8, word for word: my team is certainly out of the title race in a redraft league. */
+/**
+ * CLAUDE.md §8, word for word: my team is certainly out of the title race in a redraft league, and (Checkpoint 7c) no prize
+ * the league pays can still move (seasonOver).
+ */
 export const SEASON_OVER_TEXT = "Your season's over — no trade helps this year.";
 /** The Trade partners card then: no trade helps, so it offers no partners either. */
 export const SEASON_OVER_PARTNERS_TEXT = "Your season's over, so no trade partner can help this year.";
+
+/**
+ * Whether my season's over for the page's messages (SEASON_OVER_TEXT, the partner cards it hides; src/lib/waiversView.ts's
+ * WAIVERS_SEASON_OVER): my team certainly out of the title race in the headline's odds (TeamOdds.eliminated, LeagueModel.odds)
+ * and no prize the League model's reward pays still within a trade's reach (reward.ts prizeStillMovable, the trade search's
+ * own stop: planner reply to Checkpoint 7b, §6 and the lead's for Checkpoint 7c: a weekly high score or the points title can
+ * still be won after the title race is lost). A model built before Checkpoint 7c has no reward: 1st place paying
+ * everything, so out of the title race is out of it all, as before. Redraft leagues only (§8: dynasty and keeper teams
+ * still trade for later seasons). False without odds or without my team in them.
+ * `weekUnderWay` (Waiver upgrades; review of the prizes UI, prizes-ui-5): a pickup, unlike a trade, can still change a
+ * regular-season week under way through its games still to play (the "This week" list), so that week counts as a prize
+ * period and a regular-season week left (SeasonOdds.regularLeft leaves it out: every trade holds it as rosters stand).
+ */
+export function seasonOver(
+  model: Pick<LeagueModel, "odds"> & { reward?: Pick<Reward, "shares"> | undefined },
+  myTeamId: string | null,
+  leagueType: LeagueSettings["leagueType"],
+  opts: { weekUnderWay?: boolean } = {},
+): boolean {
+  const odds = model.odds ?? null;
+  const mine = myTeamId && odds ? odds.teams.find((t) => t.teamId === myTeamId) : undefined;
+  if (!odds || !mine || leagueType !== "redraft") return false;
+  // Only whether any is left matters (prizeStillMovable), so the week under way's period counts once at least (a later week
+  // of a multi-week period already counts it). Odds made before Checkpoint 7c have no counts: left as they are (unknown).
+  const left = opts.weekUnderWay && odds.regularLeft ? { periods: Math.max(1, odds.regularLeft.periods), weeks: odds.regularLeft.weeks + 1 } : odds.regularLeft;
+  return !prizeStillMovable(model.reward ?? { shares: TITLE_ONLY }, { playoffTeams: odds.playoffTeams, regularLeft: left }, mine);
+}
 
 /**
  * A week in progress in my remaining schedule: its points and chances are the simulator's, which plays the
@@ -582,8 +618,9 @@ export interface OddsPart {
  * My odds above the standings table (the file header, "One baseline everywhere"; planner reply to Checkpoint 4b, change
  * 9): the headline (LeagueModel.odds: every team after its free-agent pickups, what trade ideas start from) and, smaller,
  * the same as rosters stand (LeagueModel.oddsAsRostersStand). Playoff odds only where the table shows them (2+ playoff
- * teams), then title odds, printed as trade ideas print my odds before them (oddsPart: playoffs in whole percents, the
- * title with one decimal).
+ * teams), then (Checkpoint 7c, under "Several prizes" paying 2nd or 3rd place) a top-N finish, then title odds, printed as
+ * trade ideas print my odds before them (oddsPart: playoffs and a top-N finish in whole percents, the title with one
+ * decimal).
  */
 export interface MyOdds {
   headline: OddsPart[];
@@ -1577,10 +1614,11 @@ interface OddsContext {
  * A headline part, printed as every trade idea prints my odds before it (tradeView.ts oddsViews: the planner's "Title odds
  * 12.1% → 13.4%" and "Playoff odds 65% → 69%"), so the two can be read against each other, and as the table prints them:
  * playoff odds in whole percents (oddsCell: "59% playoffs"), title odds with one decimal (titleCell: "9.9% title"); a
- * symbolic one ("<1%", "<0.1%") in words for screen readers, and unknown in words ("title unknown").
+ * symbolic one ("<1%", "<0.1%") in words for screen readers, and unknown in words ("title unknown"). Checkpoint 7c: a top-N
+ * finish in whole percents like the cards' "Top 3 odds" ("30% top 3").
  */
-function oddsPart(p: number | null, label: "playoffs" | "title"): OddsPart {
-  const cell = label === "playoffs" ? oddsCell(p) : titleCell(p);
+function oddsPart(p: number | null, label: "playoffs" | "title" | "top 2" | "top 3"): OddsPart {
+  const cell = label === "title" ? titleCell(p) : oddsCell(p);
   if (cell.srText === "unknown" || p === null) return { text: `${label} unknown`, srText: null };
   return { text: `${cell.text} ${label}`, srText: cell.srText ? `${cell.srText} ${label}` : null };
 }
@@ -1588,13 +1626,22 @@ function oddsPart(p: number | null, label: "playoffs" | "title"): OddsPart {
 /**
  * My odds, the standings card's headline (MyOdds; the file header, "One baseline everywhere"): the headline from `odds`
  * (LeagueModel.odds) and the second line from LeagueModel.oddsAsRostersStand when the model has it, each with playoff odds
- * when the table shows them, then title odds. Null without a team or when my team isn't in the odds.
+ * when the table shows them, then title odds. Null without a team or when my team isn't in the odds. Checkpoint 7c (planner
+ * reply to Checkpoint 7b, §6: "cards and the League page add “Top 3 odds” (or “Top 2 odds”)"; the lead's words): under
+ * "Several prizes" paying 3rd place (else 2nd) my chance of a top-3 (top-2) finish between them, "Your odds: 60% playoffs ·
+ * 30% top 3 · 10.5% title" (tradeView.ts topPlacesOf on LeagueModel.reward; topChance of P(title), P(2nd) and P(3rd): left
+ * out when one isn't known, never a partial sum), both lines alike.
  */
 function myOddsOf(c: OddsContext, odds: SeasonOdds, showPlayoffs: boolean): MyOdds | null {
   const me = c.myTeamId;
   const head = me ? odds.teams.find((t) => t.teamId === me) : undefined;
   if (!me || !head) return null;
-  const parts = (o: TeamOdds): OddsPart[] => [...(showPlayoffs ? [oddsPart(o.pPlayoffs, "playoffs")] : []), oddsPart(o.pTitle, "title")];
+  const places = topPlacesOf(c.model.reward);
+  const top = (o: TeamOdds): OddsPart[] => {
+    const p = places ? topChance({ first: o.pTitle, second: o.pSecond ?? null, third: o.pThird ?? null }, places) : null;
+    return places && p !== null ? [oddsPart(Math.min(1, Math.max(0, p)), places === 3 ? "top 3" : "top 2")] : [];
+  };
+  const parts = (o: TeamOdds): OddsPart[] => [...(showPlayoffs ? [oddsPart(o.pPlayoffs, "playoffs")] : []), ...top(o), oddsPart(o.pTitle, "title")];
   const line = (label: string, ps: readonly OddsPart[]) => `${label}: ${ps.map((p) => p.text).join(" · ")}`;
   const stand = c.model.oddsAsRostersStand?.teams.find((t) => t.teamId === me);
   const headline = parts(head);
@@ -2244,13 +2291,41 @@ function oddsExplainText(c: ExplainContext, odds: SeasonOdds): string {
           ? "One team makes the playoffs, so the title goes to the top of the final standings."
           : "There are no playoffs, so the title goes to the top of the final standings.";
   const shown = oddsShown(odds);
-  const chances = listText([...(shown.playoffs ? ["a playoff spot"] : []), ...(shown.bye ? ["a bye"] : []), "the title"], "or");
+  // Checkpoint 7c: my odds show a top-N finish under "Several prizes" paying 2nd or 3rd place (myOddsOf), so how those
+  // places are decided is said too (placesWords).
+  const places = topPlacesOf(c.model.reward);
+  const chances = listText([...(shown.playoffs ? ["a playoff spot"] : []), ...(shown.bye ? ["a bye"] : []), ...(places ? [`a top-${places} finish`] : []), "the title"], "or");
   const starters = `your likely starters (${likelyStartersWords(pickups)})`;
   // The positions I stream aren't counted on bye (scheduleView; evaluate.ts riskyWeeksOf).
   const streamedWords = streamedByeWords(c.model, c.model.myTeamId ?? null, c.snapshot.platform);
   const streamed = streamedWords ? `, not counting ${streamedWords}, whose byes the streaming replacement covers since you stream them` : "";
   const risk = c.schedule ? ` Your remaining schedule flags a week as risky when ${riskRule(!s.pointsOnly, "your chance to win it", starters)}${streamed}.` : "";
-  return `We play out the rest of the season ${fmtWhole(odds.sims)} times. ${draws} ${ranking} ${playoffs} A team's chance of ${chances} is the share of those seasons where it happened. Each time the odds are worked out, every team and week gets the same random draws (common random numbers), so when trade ideas compare the odds before and after a trade, the difference comes from the trade, not from the luck of the draw.${risk}`;
+  return `We play out the rest of the season ${fmtWhole(odds.sims)} times. ${draws} ${ranking} ${playoffs}${placesWords(odds, places)} A team's chance of ${chances} is the share of those seasons where it happened. Each time the odds are worked out, every team and week gets the same random draws (common random numbers), so when trade ideas compare the odds before and after a trade, the difference comes from the trade, not from the luck of the draw.${risk}`;
+}
+
+/**
+ * How 2nd and 3rd place are decided, for "Playoff odds" in "How these numbers work" when my odds show a top-N finish (the
+ * file header; Checkpoint 7c, planner reply to Checkpoint 7b, §6: "2nd place: the losing finalist", "3rd place: simulate the
+ * 3rd-place game when the league has one"), by the simulator's rules (sim.ts "Places"; SeasonOdds.thirdPlace): 2nd the
+ * final's loser; 3rd the winner of the semifinal losers' game (said assumed when the league doesn't say: the Import Report's
+ * "3rd-place game" row), or the better seed of the two when the league has none (⚠️ ours, said so); with 3 playoff teams the
+ * one semifinal's loser, with 2 the best team that misses the playoffs, and with none or one both places by the final
+ * standings. "" when no top-N finish shows (`places` null).
+ */
+function placesWords(odds: SeasonOdds, places: 2 | 3 | null): string {
+  if (!places) return "";
+  const n = odds.playoffTeams;
+  if (n <= 1) return places === 3 ? " 2nd and 3rd place go to the next teams in the final standings." : " 2nd place goes to the next team in the final standings.";
+  const second = "2nd place goes to the final's loser";
+  if (places === 2) return ` ${second}.`;
+  let third: string;
+  if (n === 2) third = "3rd to the best team that misses the playoffs";
+  else if (n === 3) third = "3rd to the loser of the only semifinal (the top seed has a bye)";
+  // The league plays no 3rd-place game (its data says so); who takes 3rd then is our assumption (review of the prizes UI,
+  // prizes-ui-2: the words read as if the missing game were assumed).
+  else if (odds.thirdPlace?.rule === "bySeed") third = "3rd to the better seed of the two semifinal losers (our assumption, since your league plays no 3rd-place game)";
+  else third = `3rd to the winner of a game between the two semifinal losers${(odds.thirdPlace?.assumed ?? true) ? " (assumed: your league doesn't say whether it plays one)" : ""}`;
+  return ` ${second}, and ${third}.`;
 }
 
 /**
@@ -2639,10 +2714,10 @@ export function buildLeagueView(input: LeagueViewInput): LeagueView {
     },
   };
 
-  // My team certainly out in a redraft league (§8). `?? null`: a model built before Phase 3 has no odds.
+  // My team certainly out in a redraft league (§8), with no prize the league pays still within a trade's reach (Checkpoint
+  // 7c: seasonOver). `?? null`: a model built before Phase 3 has no odds.
   const odds = model.odds ?? null;
-  const myOdds = myTeamId && odds ? odds.teams.find((t) => t.teamId === myTeamId) : undefined;
-  const eliminated = myOdds?.eliminated === true && snapshot.settings.leagueType === "redraft" ? SEASON_OVER_TEXT : null;
+  const eliminated = seasonOver(model, myTeamId, snapshot.settings.leagueType) ? SEASON_OVER_TEXT : null;
 
   // Best trade partners (my team only): who to aim for first, then each side's trade chips, most helpful first (the
   // engine's order). None once my redraft season is over: the page says no trade helps this year (§8), so it offers none.

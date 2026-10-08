@@ -11,6 +11,8 @@ import { titleOnlyReward } from "@/engine/benefit";
 import { config } from "@/engine/config";
 import type { BaseRateSource, PlayoffWeightAuto, SeasonOdds, TeamModel, WeekOdds } from "@/engine/leagueModel";
 import { fantasyCalcFallbackText, fantasyCalcFormat } from "@/engine/market";
+import type { LeagueSettings } from "@/engine/model";
+import { TITLE_ONLY, type Reward } from "@/engine/reward";
 import { weekUnderWayNote } from "@/engine/season";
 import { fmtNum } from "./format";
 import { waiverOrderText } from "./importReport";
@@ -49,6 +51,7 @@ import {
   playoffWeightLabel,
   rosterAfterPickups,
   scheduleByeRule,
+  seasonOver,
   shortName,
   titleCell,
   type LeagueViewInput,
@@ -563,6 +566,125 @@ describe("buildLeagueView: one baseline everywhere (planner reply to Checkpoint 
     const f = leagueFixture();
     f.model.odds = { ...oddsOf(f), notes: oddsOf(f).notes.filter((n) => n !== weekUnderWayNote(12)) };
     expect(of(f).standings?.notes.at(-1)).toBe(pickupsUnderWayNote(12, 13));
+  });
+});
+
+describe("buildLeagueView: league prizes (planner reply to Checkpoint 7b, §6; Checkpoint 7c)", () => {
+  const shares = (o: Partial<Reward["shares"]>): Reward["shares"] => ({ first: 0, second: 0, third: 0, weeklyHigh: 0, pointsLeader: 0, ...o });
+  /** Parker's split (2,000 / 1,600 / 900), one paying 2nd but not 3rd, one paying weekly high scores, one the points title. */
+  const PARKER: Reward = { goal: "prizes", shares: shares({ first: 4 / 9, second: 16 / 45, third: 1 / 5 }), periods: 14, empty: false };
+  const TOP2: Reward = { goal: "prizes", shares: shares({ first: 0.6, second: 0.4 }), periods: 14, empty: false };
+  const WEEKLY: Reward = { goal: "prizes", shares: shares({ first: 0.8, weeklyHigh: 0.2 }), periods: 14, empty: false };
+  const LEADER: Reward = { goal: "prizes", shares: shares({ first: 0.9, pointsLeader: 0.1 }), periods: 14, empty: false };
+  const TITLE: Reward = { goal: "title", shares: TITLE_ONLY, periods: 14, empty: false };
+  const withReward = (reward: Reward | undefined, edit: (f: LeagueFixture) => void = () => {}, opts: Parameters<typeof leagueFixture>[0] = {}) => {
+    const f = leagueFixture(opts);
+    if (reward) f.model.reward = reward;
+    edit(f);
+    return f;
+  };
+
+  it("adds my chance of a top-3 finish to both odds lines when the split pays 3rd place (top 2 when it pays 2nd only), between playoffs and title, as the cards print it", () => {
+    // The fixture: 2 playoff spots, so 1st and 2nd are the finalists and 3rd seed 3 (sim.ts); team 1's 43% + 43% + 13%.
+    const mine = of(withReward(PARKER)).standings?.mine;
+    expect(mine?.text).toBe(`${YOUR_ODDS_LABEL}: 86% playoffs · 99% top 3 · 43.0% title`);
+    expect(mine?.asRostersStandText).toBe(`${AS_ROSTERS_STAND_LABEL}: 82% playoffs · 98% top 3 · 40.0% title`);
+    expect(mine?.headline[1]).toEqual({ text: "99% top 3", srText: null });
+    expect(of(withReward(TOP2)).standings?.mine?.text).toBe(`${YOUR_ODDS_LABEL}: 86% playoffs · 86% top 2 · 43.0% title`);
+    // "Only the champion", a split paying neither 2nd nor 3rd, or a model built before Checkpoint 7c (no reward): as before.
+    for (const reward of [TITLE, WEEKLY, undefined]) expect(of(withReward(reward)).standings?.mine?.text).toBe(`${YOUR_ODDS_LABEL}: 86% playoffs · 43.0% title`);
+    // A part not known (3rd place's odds): left out, never a partial sum; the symbolic edges as the playoff odds print them.
+    const unknown = withReward(PARKER, (f) => (f.model.odds = { ...oddsOf(f), teams: oddsOf(f).teams.map((t) => (t.teamId === "1" ? { ...t, pThird: null } : t)) }));
+    expect(of(unknown).standings?.mine?.text).toBe(`${YOUR_ODDS_LABEL}: 86% playoffs · 43.0% title`);
+    const four = of(withReward(PARKER, () => {}, { myTeamId: "4" })).standings?.mine?.headline;
+    expect(four?.[1]).toEqual({ text: "6% top 3", srText: null });
+    const edge = withReward(PARKER, (f) => (f.model.odds = { ...oddsOf(f), teams: oddsOf(f).teams.map((t) => (t.teamId === "1" ? { ...t, pTitle: 0.6, pSecond: 0.39, pThird: 0.0099 } : t)) }));
+    expect(of(edge).standings?.mine?.headline[1]).toEqual({ text: ">99% top 3", srText: "more than 99% top 3" });
+  });
+
+  it("says how 2nd and 3rd place are decided in “How these numbers work” when my odds show a top-N finish", () => {
+    const explain = (f: LeagueFixture) => of(f).explain.find((e) => e.title === "Playoff odds")?.text ?? "";
+    // The fixture's 2 playoff spots: 3rd is the best team that misses them.
+    expect(explain(withReward(PARKER))).toContain(
+      "The top 2 make the playoffs and meet for the title. 2nd place goes to the final's loser, and 3rd to the best team that misses the playoffs. A team's chance of a playoff spot, a top-3 finish or the title is the share of those seasons where it happened.",
+    );
+    expect(explain(withReward(TOP2))).toContain("meet for the title. 2nd place goes to the final's loser. A team's chance of a playoff spot, a top-2 finish or the title");
+    const odds = (reward: Reward, edit: Partial<SeasonOdds>) => explain(withReward(reward, (f) => (f.model.odds = { ...oddsOf(f), ...edit })));
+    // 4+ playoff teams: the 3rd-place game (assumed when the league doesn't say), or the better seed when it has none.
+    expect(odds(PARKER, { playoffTeams: 6, byes: 2, thirdPlace: { rule: "game", assumed: true } })).toContain(
+      "The bracket is fixed: no re-seeding after each round. 2nd place goes to the final's loser, and 3rd to the winner of a game between the two semifinal losers (assumed: your league doesn't say whether it plays one).",
+    );
+    expect(odds(PARKER, { playoffTeams: 4, thirdPlace: { rule: "game", assumed: false } })).toContain("and 3rd to the winner of a game between the two semifinal losers. A team's chance");
+    // No game in the league's data: the better seed takes 3rd, and that (not the missing game) is our assumption (review of
+    // the prizes UI, prizes-ui-2).
+    expect(odds(PARKER, { playoffTeams: 4, thirdPlace: { rule: "bySeed", assumed: false } })).toContain("and 3rd to the better seed of the two semifinal losers (our assumption, since your league plays no 3rd-place game).");
+    expect(odds(PARKER, { playoffTeams: 3, byes: 1 })).toContain("and 3rd to the loser of the only semifinal (the top seed has a bye).");
+    expect(odds(PARKER, { playoffTeams: 1, teams: oddsOf(leagueFixture()).teams.map((t) => ({ ...t, pPlayoffs: t.pTitle ?? 0 })) })).toContain(
+      "the title goes to the top of the final standings. 2nd and 3rd place go to the next teams in the final standings.",
+    );
+    // Nothing of it otherwise.
+    for (const reward of [TITLE, WEEKLY, undefined]) expect(explain(withReward(reward))).not.toMatch(/2nd place|top-\d finish/);
+  });
+
+  it("says my season's over only when no prize the league pays can still move: a weekly high score or the points title can still be won out of the title race", () => {
+    const out = (reward: Reward | undefined, left: SeasonOdds["regularLeft"], leagueType: LeagueSettings["leagueType"] = "redraft", bestFinish = 4) =>
+      of(
+        withReward(reward, (f) => {
+          f.snapshot = { ...f.snapshot, settings: { ...f.snapshot.settings, leagueType } };
+          f.model.odds = { ...oddsOf(f), regularLeft: left, teams: oddsOf(f).teams.map((t) => (t.teamId === "1" ? { ...t, eliminated: true, bestFinish } : t)) };
+        }),
+      );
+    const weeks = { periods: 2, weeks: 2 };
+    const none = { periods: 0, weeks: 0 };
+    // Out of the title race, and only places the playoffs decide pay: over, as before.
+    for (const reward of [undefined, TITLE, PARKER, TOP2]) {
+      const v = out(reward, weeks);
+      expect(v.eliminated).toBe(SEASON_OVER_TEXT);
+      expect(v.partners).toEqual({ cards: [], empty: SEASON_OVER_PARTNERS_TEXT });
+    }
+    // With the fixture's 2 playoff spots the final standings decide 3rd place (sim.ts): a team that can still finish 3rd
+    // isn't done while a week is left (reward.ts prizeStillMovable's bestFinish).
+    expect(out(PARKER, weeks, "redraft", 3).eliminated).toBeNull();
+    expect(out(PARKER, none, "redraft", 3).eliminated).toBe(SEASON_OVER_TEXT);
+    expect(out(TOP2, weeks, "redraft", 3).eliminated).toBe(SEASON_OVER_TEXT);
+    // A weekly high score with a prize period left, or the points title with a week left: not over, the partners show.
+    for (const reward of [WEEKLY, LEADER]) {
+      const v = out(reward, weeks);
+      expect(v.eliminated).toBeNull();
+      expect(v.partners.empty).toBeNull();
+      expect(v.partners.cards.length).toBeGreaterThan(0);
+      // With none left, it's over.
+      expect(out(reward, none).eliminated).toBe(SEASON_OVER_TEXT);
+    }
+    // The weekly high score needs a prize period left, the points title a week: a week left without a period moves only the latter.
+    expect(out(WEEKLY, { periods: 0, weeks: 2 }).eliminated).toBe(SEASON_OVER_TEXT);
+    expect(out(LEADER, { periods: 0, weeks: 2 }).eliminated).toBeNull();
+    // Dynasty and keeper leagues still trade for later seasons: never.
+    for (const leagueType of ["dynasty", "keeper"] as const) expect(out(TITLE, none, leagueType).eliminated).toBeNull();
+    // The same reading as the engine's own stop and Waiver upgrades' (seasonOver).
+    const f = withReward(WEEKLY, (g) => (g.model.odds = { ...oddsOf(g), teams: oddsOf(g).teams.map((t) => (t.teamId === "1" ? { ...t, eliminated: true } : t)) }));
+    expect(seasonOver(f.model, "1", "redraft")).toBe(false);
+    expect(seasonOver({ ...f.model, reward: TITLE }, "1", "redraft")).toBe(true);
+    expect(seasonOver(f.model, "2", "redraft")).toBe(false);
+    expect(seasonOver({ ...f.model, odds: null }, "1", "redraft")).toBe(false);
+    expect(seasonOver(f.model, null, "redraft")).toBe(false);
+  });
+
+  it("for a pickup (Waiver upgrades), a regular-season week under way still counts: a trade can't change it, a pickup can (review of the prizes UI, prizes-ui-5)", () => {
+    const at = (reward: Reward, left: SeasonOdds["regularLeft"], bestFinish = 4) =>
+      withReward(reward, (f) => (f.model.odds = { ...oddsOf(f), regularLeft: left, teams: oddsOf(f).teams.map((t) => (t.teamId === "1" ? { ...t, eliminated: true, bestFinish } : t)) })).model;
+    // The last regular-season week under way (none left but it): over for trades, not for a pickup while a paid prize can move.
+    const none = { periods: 0, weeks: 0 };
+    for (const model of [at(WEEKLY, none), at(LEADER, none), at(PARKER, none, 3)]) {
+      expect(seasonOver(model, "1", "redraft")).toBe(true);
+      expect(seasonOver(model, "1", "redraft", { weekUnderWay: true })).toBe(false);
+    }
+    // Nothing a pickup can win: over either way (the title alone; a place the final standings decide out of reach).
+    for (const model of [at(TITLE, none), at(PARKER, none, 4)]) expect(seasonOver(model, "1", "redraft", { weekUnderWay: true })).toBe(true);
+    // Odds made before Checkpoint 7c (no counts): a paid prize is taken as still within reach, as for trades.
+    const weekly = at(WEEKLY, none);
+    const old = { ...weekly, odds: { ...(weekly.odds as SeasonOdds), regularLeft: undefined } as unknown as SeasonOdds };
+    expect([seasonOver(old, "1", "redraft"), seasonOver(old, "1", "redraft", { weekUnderWay: true })]).toEqual([false, false]);
   });
 });
 

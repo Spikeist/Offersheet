@@ -106,11 +106,12 @@ export interface PolicyFeatures {
  * (src/lib/fantasyCalcHidden.test.ts guards the words, pages.test.ts the code that showed them).
  *
  * Checkpoint 7c's three (planner reply to Checkpoint 7b, section 3) follow the same rule, because sections 6 and 7 may ship
- * after launch: dailyLevels is on (the cron saves the day's levels since Checkpoint 7c's first wave); prizeShares goes on
- * with section 6, once the anonymous copy's server schema holds the prize shares, and helpsThem with section 7, once the
- * Trade Finder has its "Helps both" sort, each turned on by the change that builds it. The pages go public at launch
- * (October 13, 2026, their LAST_UPDATED), so a switch turned on before then keeps that date; one turned on after launch
- * moves its page's date to that day (prizeShares the privacy policy's, helpsThem the terms').
+ * after launch: dailyLevels is on (the cron saves the day's levels since Checkpoint 7c's first wave); prizeShares is on
+ * since Checkpoint 7c's fifth wave, when the anonymous copy's server schema took the prize shares (src/server/feedbackSink.ts
+ * PrizesSchema: whole percents adding up to 100, exactly with "Several prizes", never amounts); helpsThem goes on with
+ * section 7, once the Trade Finder has its "Helps both" sort, turned on by the change that builds it. The pages go public
+ * at launch (October 13, 2026, their LAST_UPDATED), so a switch turned on before then keeps that date; one turned on after
+ * launch moves its page's date to that day (helpsThem the terms').
  */
 export const POLICY_FEATURES: Readonly<PolicyFeatures> = {
   browserReads: true,
@@ -119,7 +120,7 @@ export const POLICY_FEATURES: Readonly<PolicyFeatures> = {
   publicArchive: true,
   feedbackTotalsOnly: true,
   dailyLevels: true,
-  prizeShares: false,
+  prizeShares: true,
   helpsThem: false,
 };
 

@@ -82,7 +82,10 @@ describe("the trade search (§12; M6–M8)", { timeout: 60_000 }, () => {
     expect(c.exact).toBeLessThanOrEqual(config.search.exactEvaluationMax + companions);
     expect(companions).toBeLessThanOrEqual(config.search.exactEvaluationMax);
     expect(c.simScreen).toBe(c.exact);
-    expect(c.simFinal).toBeLessThanOrEqual(config.search.finalists);
+    // The finalists, and on top of them (Checkpoint 7c, planner reply to Checkpoint 7b, §7) the "Helps both" extras.
+    const extras = (searchStateOf(result) as SearchState).helpsBothExtras.length;
+    expect(extras).toBeLessThanOrEqual(config.search.helpsBothFinalists);
+    expect(c.simFinal).toBeLessThanOrEqual(config.search.finalists + extras);
     expect(c.simFinal).toBeGreaterThanOrEqual(result.trades.length);
     expect(Object.keys(result.timings)).toEqual(["setup", "screening", "exact", "simScreen", "simFinal", "rank", "steps", "total"]);
     // Without a clock, no timings.
@@ -100,7 +103,8 @@ describe("the trade search (§12; M6–M8)", { timeout: 60_000 }, () => {
       expect(p.done).toBeLessThanOrEqual(p.total);
     }
     expect(new Set(progress.map((p) => p.stage)).size).toBe(order.length);
-    const n = Math.max(1, result.trades.length);
+    // One unit per card of either list (Checkpoint 7c: the "Helps both" list's cards the Overall list doesn't show too).
+    const n = Math.max(1, new Set([...result.trades, ...(result.helpsBoth?.trades ?? [])].map((t) => t.key)).size);
     expect(progress.at(-1)).toEqual({ stage: "rank", done: n, total: n });
   });
 

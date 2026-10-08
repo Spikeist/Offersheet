@@ -177,6 +177,13 @@ export interface TradeEvaluation {
    * simulation; the engine sets it on every simulated evaluation, optional only so that fakes and older evaluations needn't.
    */
   dPrizes?: PrizeDeltas | null;
+  /**
+   * Checkpoint 7c (planner reply to Checkpoint 7b, §7, "Helps them": "the partner's version of Helps you, from the same
+   * simulation runs"): the partner's side of the runs dPO came from (evaluate.ts simulateTrade). Set on every simulated
+   * evaluation (the search's screened and final trades, the steps' versions and the Analyzer's; a TradeStep and a PlanB don't
+   * carry it), absent before simulation, without odds and on an evaluation made before it.
+   */
+  them?: PartnerNumbers;
   /** Changes in my average weekly starting points: remaining regular-season weeks, and playoff weeks. */
   dPPW: number;
   dPPWPlayoffs: number;
@@ -278,6 +285,47 @@ export interface TradeEvaluation {
   pitch: string;
 }
 
+/**
+ * "Helps them" (Checkpoint 7c; planner reply to Checkpoint 7b, §7; TradeEvaluation.them): the partner's numbers from the very
+ * runs behind my B (evaluate.ts simulateTrade: one simulation with both rows replaced gives every team's odds), scored the
+ * way mine are, from its side (benefit.ts partnerBenefit, partnerScale, helpsThemScore). Numbers only.
+ */
+export interface PartnerNumbers {
+  /**
+   * B_P: in redraft leagues the partner's B_win under the league's reward (the reward my B is weighed by: "What does your
+   * league reward?", its goal's weights and prize shares), with no trade-value term; in dynasty and keeper leagues (1 − λ_P) ×
+   * B_win,P + λ_P × B_future,P while long-term values loaded, else B_win,P. Null when B_win,P isn't known.
+   */
+  b: number | null;
+  bWin: number | null;
+  /**
+   * B_future,P = config.benefit.bFutureScale × ΔDyn_P ÷ the partner's roster's long-term value, ΔDyn_P from the trade's own
+   * long-term package (⚠️ none of the partner's free-agent moves, as the partner's g reads the trade alone); null in redraft
+   * leagues and without long-term values.
+   */
+  bFuture: number | null;
+  /** λ_P: §10's default for the partner's baseline P(playoffs) on the final block (keeper 0.2), never the user's Win now ↔ Future setting; null in redraft leagues. */
+  lambda: number | null;
+  /**
+   * B_ref,P, the scale Helps them is scored on (benefit.ts partnerScale): B₃,P, the B_win of the partner's +3 points a week on
+   * the same baseline and seasons, floored at config.benefit.helpsFloor; in a dynasty or keeper league with long-term values
+   * then mixed, (1 − λ_P) × B₃,P + λ_P × F₁₀ (the planner's order: floor, then mix). Null without the partner's calibration run.
+   */
+  b3: number | null;
+  /** Helps them as printed: round(100 × (1 − e^(−B_P / B_ref,P))) when B_P > 0, 0 when B_P ≤ 0; null when either is unknown. */
+  helps: number | null;
+  /** The partner's changes in P(playoffs) and P(title) (null when the league's title odds are unknown), from the same runs as mine. */
+  dPO: number;
+  dCH: number | null;
+  /** Every prize component's change for the partner (reward.ts PrizeDeltas, TradeEvaluation.dPrizes' rules), the same runs. */
+  dPrizes: PrizeDeltas;
+  /**
+   * The partner's odds before the trade on the same block of seasons (the screening block's baseline on a screened trade, the
+   * final block's on a final one: LeagueModel.odds for that team), so "after" is before + the changes above.
+   */
+  before: { pPlayoffs: number; pTitle: number | null; prizes: PrizeOdds };
+}
+
 /** An injury-tagged player in a trade (TradeEvaluation.flags.tagged). */
 export interface InjuryTag {
   playerId: string;
@@ -292,7 +340,11 @@ export interface InjuryTag {
   returnWeek?: number;
 }
 
-/** A Plan B (TradeEvaluation.planB): its proposal and its three numbers on the card's basis (the final simulation). */
+/**
+ * A Plan B (TradeEvaluation.planB): its proposal and its three numbers on the card's basis (the final simulation). ⚠️
+ * Checkpoint 7c: under a card that helps both teams (its "Helps both" tag) it helps both too (planB.ts planBPasses), though
+ * it carries no partner's numbers (the box shows no "Helps them" line).
+ */
 export interface PlanB {
   proposal: TradeProposal;
   /** proposalKey of the proposal. */
@@ -356,7 +408,9 @@ export interface TradeStep {
  *   while B stays at least config.search.steps.minBShare of the offer's. `ranked` = "offerFirst".
  * Shown only when the full version's P_complete is at least minAcceptGain above the offer-first's, which is at least
  * minOfferFirst, and the offer-first version helps me (B > 0 on the screening block; so does case 2's full version). The
- * Analyzer gives steps only to a trade the Trade Finder could show (B > 0, not hidden by the market guard).
+ * Analyzer gives steps only to a trade the Trade Finder could show (B > 0, not hidden by the market guard). ⚠️ Checkpoint 7c:
+ * on a trade that helps both teams (its "Helps both" tag) the offer-first version helps both too (evaluate.ts tradeSteps,
+ * StepOptions.helpsBoth).
  */
 export interface TradeSteps {
   offerFirst: TradeStep;
@@ -450,8 +504,12 @@ export interface TradeDetail {
   depthCover?: number;
 }
 
-/** Sort options (§13): Overall (default), Helps you (B), Chance they accept (P_complete, among B > 0). */
-export type TradeSort = "overall" | "helps" | "accept";
+/**
+ * Sort options (§13): Overall (default), Helps you (B), Chance they accept (P_complete, among B > 0), and since Checkpoint 7c
+ * (planner reply to Checkpoint 7b, §7) Helps both: the trades that help both teams (benefit.ts helpsBoth), by Helps you
+ * (TradeSearchResult.helpsBoth is that list, ranked by the engine; rank.ts sortTrades puts them first).
+ */
+export type TradeSort = "overall" | "helps" | "accept" | "helpsBoth";
 
 /** Search stages, in order (the progress bar and the per-stage timings use them). */
 export type TradeSearchStage = "setup" | "screening" | "exact" | "simScreen" | "simFinal" | "rank";
@@ -514,6 +572,37 @@ export interface TradeSearchResult {
    * that fakes needn't.
    */
   reward?: Reward;
+  /**
+   * Checkpoint 7c (planner reply to Checkpoint 7b, §7): the "Helps both" list, ranked by the engine from the same finalists
+   * (search.ts finish). The search sets it whenever it ranks (an empty list when no trade helps both teams); absent when it
+   * stopped before ranking, and on fakes.
+   */
+  helpsBoth?: HelpsBothList;
+}
+
+/**
+ * The "Helps both" list (Checkpoint 7c; planner reply to Checkpoint 7b, §7: "only trades that help both teams, sorted by Helps
+ * you, highest first … the chance filter and the diversity caps still apply"; search.ts finish): the finalists, with the
+ * helps-both finalists among them, that help both teams on their final numbers (benefit.ts helpsBoth: Helps you above 0 and
+ * Helps them at least config.benefit.helpsThemMin, both as printed), in Helps-you order (B, highest first), after the §10
+ * guards and the minimum chance, through §13's diversity rules in that order (rank.ts RankOptions order "helps", keep), and
+ * the folding of cards that show one plan. A card the Overall list shows too is the very same evaluation (one set of steps,
+ * one Plan B and one set of words per card).
+ */
+export interface HelpsBothList {
+  /** At most config.search.resultsShown trades, Helps-you order. */
+  trades: TradeEvaluation[];
+  /** The finalists that pass the guards, help both teams and meet the minimum chance, before the diversity rules (the folded cards included, as the Overall list counts them). */
+  qualifying: number;
+  /** The finalists that help both teams and pass the guards but are under the minimum chance (the hidden line's count for this list). */
+  byChance: number;
+  /**
+   * The same finalists with no minimum chance (Any, the lowest setting) would show more trades that help both than the list
+   * does, so a lower setting would add some (the page's suggestion); false at Any.
+   */
+  lowerWouldAdd: boolean;
+  /** Dropped by the diversity rules, as TradeSearchResult.dropped counts the Overall list's (the folded cards as filler). */
+  dropped: { partnerCap: number; core: number; filler: number; givenPlayer: number };
 }
 
 /**

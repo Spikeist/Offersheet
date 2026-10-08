@@ -34,7 +34,9 @@
  * given away scores nothing for me). The roster moves the trade forces include Phase 4b's IR slots and returns.
  * Planner reply to Checkpoint 4b (Phase 4c): under the three numbers (after the veto note, which stays right under
  * them), my real odds, "Title odds 12.1% → 13.4% · Playoff odds 65% → 69%" (change 9; each kept on one line, the arrow
- * said as "from … to" for screen readers), and "Win chance by week: Week 9: 68% → 64% · Week 13: 42% → 55%" when the
+ * said as "from … to" for screen readers; since Checkpoint 7c, under "Several prizes" paying 2nd or 3rd place, "Top 3
+ * odds 30% → 32%" or "Top 2 odds …" between them, planner reply to Checkpoint 7b, §6: OddsLines lays out whatever lines
+ * the view gives, a Plan B box's too), and "Win chance by week: Week 9: 68% → 64% · Week 13: 42% → 55%" when the
  * trade moves a week's chance enough, and the Trade Analyzer's card has "Details" (a closed 44 px disclosure: what Helps you
  * is worth in points a week). An estimate under 5% prints "<5%" (answer 5), said "under 5%" to screen readers.
  * The feedback buttons wait for the browser to keep a press (onFeedback returns the save's promise: change 7's

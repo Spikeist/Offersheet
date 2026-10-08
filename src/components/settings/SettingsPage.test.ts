@@ -257,7 +257,49 @@ describe("with a league", () => {
     const dynasty = { ...stored, response: { ...stored.response, snapshot: snapshot({ leagueType: "dynasty" }) } };
     const dyn = render({ league: "current", importValue: dynasty, myTeam: "1" });
     expect(radioChecked(dyn, "goal")).toEqual(["title"]);
-    expect(textOf(dyn)).toContain("For this season, Helps you scores a trade by how much it raises your title and playoff odds");
+    // The lead's words for Checkpoint 7c, the same whichever answer is chosen.
+    expect(textOf(dyn)).toContain("For this season, Helps you scores a trade by how much it raises your chances at what your league pays and of making the playoffs");
+  });
+
+  it("under “Several prizes”, shows the league's prizes as a group of their own: five labeled 44 px fields, the planner's helper line as its description, and the split (planner reply to Checkpoint 7b, §6)", () => {
+    const html = render({ league: "current", myTeam: "1", settings: { ...defaultTradeSettings(), goal: "prizes" } });
+    expect(radioChecked(html, "goal")).toEqual(["prizes"]);
+    // A sibling group right after the goal's, so the goal's group keeps its three labeled choices (check:browser counts them).
+    const legends = [...html.matchAll(/<legend[^>]*>(.*?)<\/legend>/g)].map((m) => textOf(m[1] ?? ""));
+    expect(legends.slice(1, 4)).toEqual(["What does your league reward?", "Your league's prizes", "Protect my trade value"]);
+    const goalGroup = /<fieldset[^>]*><legend[^>]*>What does your league reward\?<\/legend>([^]*?)<\/fieldset>/.exec(html)?.[1] ?? "";
+    expect(goalGroup.match(/<label[ >]/g)).toHaveLength(3);
+    // The group's help is the planner's line, linked as the fieldset's description.
+    const group = /<fieldset aria-describedby="([^"]+)"><legend[^>]*>Your league&#x27;s prizes<\/legend><p id="\1"[^>]*>([^<]*)<\/p>([^]*?)<\/fieldset>/.exec(html);
+    expect(group).not.toBeNull();
+    expect(textOf(group?.[2] ?? "")).toBe("Enter each prize in dollars or percent, the same way for all. Only the split matters. Leave blank what your league doesn't pay.");
+    // Each field: a visible label tied to its input, a decimal keyboard on phones, 44 px (inputClass), prefilled 60 / 30 / 10.
+    const fields = [...(group?.[3] ?? "").matchAll(/<label for="([^"]+)"[^>]*>([^<]*)<\/label><div[^>]*><input id="\1"([^>]*)\/>/g)].map(([, , label = "", attrs = ""]) => ({
+      label,
+      value: /value="([^"]*)"/.exec(attrs)?.[1] ?? null,
+      decimal: /inputmode="decimal"/i.test(attrs),
+      tall: /class="[^"]*min-h-11/.test(attrs),
+      invalid: /aria-invalid/.test(attrs),
+    }));
+    expect(fields).toEqual(
+      [
+        ["1st place", "60"],
+        ["2nd place", "30"],
+        ["3rd place", "10"],
+        ["High score, each regular-season week", ""],
+        ["Most points in the regular season", ""],
+      ].map(([label, value]) => ({ label, value, decimal: true, tall: true, invalid: false })),
+    );
+    // Each field's message about text it can't read goes in a polite live region that's already there, empty, so it's
+    // announced when it shows on blur, after focus has left the field (review of the prizes UI, prizes-ui-3).
+    expect((group?.[3] ?? "").match(/<div aria-live="polite"><\/div>/g)).toHaveLength(5);
+    expect(textOf(group?.[3] ?? "")).toContain("Your prizes split: 1st 60%, 2nd 30%, 3rd 10%.");
+    // Nothing entered: a warning instead of the split.
+    const empty = textOf(render({ league: "current", myTeam: "1", settings: { ...defaultTradeSettings(), goal: "prizes", prizes: { first: null, second: null, third: null, weeklyHigh: null, pointsLeader: null } } }));
+    expect(empty).toContain("Enter at least one prize. Until then, Helps you counts the title only.");
+    expect(empty).not.toContain("Your prizes split");
+    // Not under the other two answers.
+    for (const goal of ["title", "playoffs"] as const) expect(render({ league: "current", myTeam: "1", settings: { ...defaultTradeSettings(), goal } })).not.toContain("Your league&#x27;s prizes");
   });
 
   it("says Protect my trade value changes nothing while the league's latest inputs value players by our own estimates, and only then (planner reply to Checkpoint 4b, change 12)", () => {

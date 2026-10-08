@@ -34,7 +34,7 @@ import { buildLeagueModel, type BuildLeagueModelOptions } from "./league";
 import type { SeasonOdds } from "./leagueModel";
 import type { LeagueSnapshot, Matchup } from "./model";
 import type { ModelInputs } from "./inputs";
-import { rewardOf, shareChange } from "./reward";
+import { prizeOddsOf, rewardOf, shareChange } from "./reward";
 import { seasonOdds, type SeasonModel } from "./season";
 import { GOALS, defaultTradeSettings } from "./settings";
 import { simNormals } from "./sim";
@@ -134,6 +134,16 @@ describe("one baseline everywhere: the trade context's baseline odds are LeagueM
       expect(sim.base.final.pTitle).toBe(mine?.pTitle);
       expect(sim.base.final.expWins).toBe(mine?.expWins);
       expect(sim.base.final.weekly.filter((w) => w.pWin !== null)).toEqual(myWeeks(odds, me.id));
+      // Checkpoint 7c ("Helps them": planner reply to Checkpoint 7b, §7): the same run lists every team's odds, each
+      // LeagueModel.odds' for that team bit for bit (a trade partner's "before"), mine among them.
+      expect(sim.base.final.teams).toHaveLength(odds.teams.length);
+      odds.teams.forEach((t, i) => {
+        const b = sim.base.final.teams[i];
+        for (const k of ["pPlayoffs", "pTitle", "expWins"] as const) expect(Object.is(b?.[k], t[k]), `${t.teamId} ${k}`).toBe(true);
+        expect(b?.prizes, t.teamId).toEqual(prizeOddsOf(t));
+      });
+      expect(sim.base.final.teams[me.index]).toEqual({ pPlayoffs: sim.base.final.pPlayoffs, pTitle: sim.base.final.pTitle, expWins: sim.base.final.expWins, prizes: sim.base.final.prizes });
+      expect(sim.base.screen.teams).toHaveLength(odds.teams.length);
       // The odds as rosters stand: every team's TeamModel.score on the same seasons; another number when pickups matter.
       const stand = model.oddsAsRostersStand as SeasonOdds;
       const standModel: SeasonModel = { weeks: model.weeks, regularWeeks: model.regularWeeks, playoffWeeks: model.playoffWeeks, inProgressWeek: model.inProgressWeek, teams: model.teams.map((t) => ({ id: t.id, score: t.score })) };

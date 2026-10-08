@@ -34,6 +34,11 @@
  *   again), its "Things to know" banner, the Trade Finder's warnings, timing lines and cards, the links to FantasyCalc, the
  *   header's links, the waiver view, and the Settings page's goal, playoff weight (a MutationObserver installed before
  *   the page opens: WATCH_PLAYOFF_WEIGHT) and "Protect my trade value".
+ * - Checkpoint 7c (planner reply to Checkpoint 7b, §6, league prizes): the Settings page's "Your league's prizes"
+ *   (READ_SETTINGS_PRIZES), typing into one of its fields as a user would, saving it with Enter or leaving it
+ *   (typePrize: React's own input, keydown and focusout events), the saved league's settings and the schedule's weeks the
+ *   split is counted over (READ_PRIZE_LEAGUE: no names), each card's odds lines' labels (READ_CARD_ODDS) and my odds'
+ *   lines on the League page (READ_MY_ODDS).
  */
 import { VALUES_CREDIT } from "./contracts";
 
@@ -812,4 +817,103 @@ return {
   protect: protect ? { help: helpOf(protect) } : null,
   legends: [...document.querySelectorAll("main legend")].map(txt),
 };
+`;
+
+/**
+ * The Settings page's "Your league's prizes" under "Several prizes" (Checkpoint 7c; contracts.ts PrizeGroupRead), no names:
+ * its help (the fieldset's aria-describedby), each field (its label, value, height, aria-invalid, the text its
+ * aria-describedby names and whether that text sits in a live region), the split line, the warning, and the goal's own
+ * group's label count; `group` null when it isn't there.
+ */
+export const READ_SETTINGS_PRIZES = String.raw`
+const goalLegend = byText("legend", "What does your league reward?");
+const goal = goalLegend ? goalLegend.closest("fieldset") : null;
+const goalLabels = goal ? goal.querySelectorAll("label").length : 0;
+const legend = byText("legend", "Your league's prizes");
+const group = legend ? legend.closest("fieldset") : null;
+if (!group) return { group: null, goalLabels: goalLabels };
+const helpId = group.getAttribute("aria-describedby");
+const helpEl = helpId ? document.getElementById(helpId) : null;
+const fields = [...group.querySelectorAll("label[for]")].map((l) => {
+  const input = document.getElementById(l.getAttribute("for"));
+  const errorId = input ? input.getAttribute("aria-describedby") : null;
+  const error = errorId ? document.getElementById(errorId) : null;
+  return {
+    label: txt(l),
+    value: input ? input.value : "",
+    height: input ? Math.round(input.getBoundingClientRect().height * 10) / 10 : 0,
+    invalid: input ? input.getAttribute("aria-invalid") : null,
+    error: error ? txt(error) : null,
+    live: !!(error && error.closest("[aria-live]")),
+  };
+});
+const split = [...group.querySelectorAll("p")].map(txt).find((t) => t.startsWith("Your prizes split:")) || null;
+const warning = [...group.querySelectorAll("div")].map(txt).find((t) => t.startsWith("Enter at least one prize")) || null;
+return { group: { help: helpEl ? txt(helpEl) : null, fields: fields, split: split, warning: warning, goalLabels: goalLabels }, goalLabels: goalLabels };
+`;
+
+/** A "What does your league reward?" answer's label (its radio's value: "title", "prizes", "playoffs"), to tap. */
+export function goalChoice(value: string): string {
+  return `(() => { const r = [...document.querySelectorAll("input[type=radio][name=goal]")].find((x) => x.value === ${JSON.stringify(value)}); return r ? r.closest("label") : null; })()`;
+}
+
+/** The checked "What does your league reward?" answer's value, or null (an expression). */
+export const CHECKED_GOAL = `(() => { const r = document.querySelector("input[type=radio][name=goal]:checked"); return r ? r.value : null; })()`;
+
+/**
+ * Types `text` into the prize field labeled `label` as a user would (React's own events: the value through the input
+ * setter and an input event, then Enter's keydown, or the focus leaving: focusout, which React's onBlur listens to), and
+ * returns whether the field was there. A body for page.run.
+ */
+export function typePrize(label: string, text: string, how: "enter" | "blur"): string {
+  const done =
+    how === "enter"
+      ? `input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true, cancelable: true }));`
+      : `input.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));`;
+  return `const l = [...document.querySelectorAll("label[for]")].find((x) => txt(x) === ${JSON.stringify(label)});
+const input = l ? document.getElementById(l.getAttribute("for")) : null;
+if (!input) return false;
+input.focus();
+setInput(input, ${JSON.stringify(text)});
+await sleep(80);
+${done}
+await sleep(80);
+return true;`;
+}
+
+/**
+ * The tab's saved league as the prizes' split reads it (Checkpoint 7c), no names: its saved settings (raw, as stored), and
+ * its snapshot's regular-season weeks, points-only flag and each matchup's weeks (reward.ts prizePeriods), or null fields.
+ */
+export const READ_PRIZE_LEAGUE = String.raw`
+const saved = await savedImport();
+const snap = saved && saved.response && saved.response.snapshot;
+const settings = await savedSettings(tabLeague());
+return {
+  settings: settings || null,
+  snapshot: snap
+    ? {
+        settings: { regularSeasonWeeks: snap.settings.regularSeasonWeeks || [], pointsOnly: !!snap.settings.pointsOnly },
+        schedule: (snap.schedule || []).map((m) => ({ week: m.week, weeks: Array.isArray(m.weeks) ? m.weeks : undefined, isPlayoff: !!m.isPlayoff })),
+      }
+    : null,
+};
+`;
+
+/**
+ * Each card's odds lines (Checkpoint 7c; tradeView.ts oddsViews), as lists of their labels, the card's own first and then a
+ * Plan B box's: the lines whose items are "<label> <odds>" kept on one line (TradeCard.tsx OddsLines), never the weekly line.
+ */
+export const READ_CARD_ODDS = String.raw`
+const ITEM = ":scope > span.whitespace-nowrap > span.font-semibold";
+return [...document.querySelectorAll("main article")].map((a) =>
+  [...a.querySelectorAll("p")]
+    .map((p) => [...p.querySelectorAll(ITEM)].map(txt))
+    .filter((labels) => labels.length > 0 && labels.every((l) => / odds$/.test(l))),
+);
+`;
+
+/** My odds' lines on the League page (leagueView.ts myOddsOf): "Your odds: …" and "As rosters stand: …", as shown (screen-reader-only words left out). */
+export const READ_MY_ODDS = String.raw`
+return [...document.querySelectorAll("main p")].map(visibleText).filter((t) => t.startsWith("Your odds:") || t.startsWith("As rosters stand:"));
 `;

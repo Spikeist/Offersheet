@@ -71,11 +71,14 @@ afterEach(() => {
   temp = undefined;
 });
 
-describe("an older version's goal (Checkpoint 7c)", () => {
+/** Parker's split, $2,000 / $1,600 / $900, as a copy holds it: whole percents (Checkpoint 7c). */
+const PARKER = { first: 44, second: 36, third: 20, weeklyHigh: 0, pointsLeader: 0 } as const;
+
+describe("an older version's goal, and the prize splits (Checkpoint 7c)", () => {
   it("counts a copy made under “Top finishers too” (“balanced”) by its own goal, next to today's", () => {
     const title = { ...copyOf(A, [{ outcome: "sent" }]), day: "2026-10-04" } as StoredFeedbackEvent;
     const old = { ...copyOf(B, [{ outcome: "rejected" }]), goal: "balanced", day: "2026-10-04" } as StoredFeedbackEvent;
-    const prizes = { ...copyOf(C, [{ outcome: "accepted" }]), goal: "prizes", day: "2026-10-04" } as StoredFeedbackEvent;
+    const prizes = { ...copyOf(C, [{ outcome: "accepted" }]), goal: "prizes", prizes: PARKER, day: "2026-10-04" } as StoredFeedbackEvent;
     const { events, invalid } = parseFeedbackEntries([title, old, prizes].map((e) => JSON.stringify(e)));
     expect(invalid).toBe(0);
     expect(summarizeFeedback(events, invalid, new Map([["2026-10-04", 3]])).byGoal).toEqual([
@@ -83,6 +86,45 @@ describe("an older version's goal (Checkpoint 7c)", () => {
       ["prizes", 1],
       ["balanced", 1],
     ]);
+  });
+
+  it("counts how many records under “Several prizes” pay each prize, never a record's own split; a split without its goal, or that goal without one, is unreadable", () => {
+    const day = (e: FeedbackEvent): StoredFeedbackEvent => ({ ...e, day: "2026-10-04" });
+    const weekly = { first: 50, second: 25, third: 0, weeklyHigh: 17, pointsLeader: 8 };
+    const entries = [
+      day({ ...copyOf(A, [{ outcome: "sent" }]), goal: "prizes", prizes: PARKER }),
+      day({ ...copyOf(B, [{ outcome: "accepted" }]), goal: "prizes", prizes: weekly }),
+      day(copyOf(C, [{ outcome: "rejected" }])),
+      // Taken back: not a record as it stands.
+      day({ ...copyOf(D, [{ outcome: "sent" }], { removed: true }), goal: "prizes", prizes: PARKER }),
+    ].map((e) => JSON.stringify(e));
+    const bad = [
+      { ...day(copyOf(C, [{ outcome: "sent" }])), prizes: PARKER },
+      { ...day(copyOf(C, [{ outcome: "sent" }])), goal: "prizes" },
+      { ...day(copyOf(C, [{ outcome: "sent" }])), goal: "prizes", prizes: { ...PARKER, first: 2000 } },
+    ].map((e) => JSON.stringify(e));
+    const { events, invalid } = parseFeedbackEntries([...entries, ...bad]);
+    expect(invalid).toBe(3);
+    const report = summarizeFeedback(events, invalid, new Map([["2026-10-04", 7]]));
+    expect(report.prizes).toEqual({
+      records: 2,
+      paying: [
+        ["first", 2],
+        ["second", 2],
+        ["third", 1],
+        ["weeklyHigh", 1],
+        ["pointsLeader", 1],
+      ],
+    });
+    const text = formatFeedbackReport(report, { env: "preview", days: 1 }, ["2026-10-04"], "2026-10-04T18:30:00.000Z");
+    expect(text).toContain("## Prizes paid (records under “Several prizes”)");
+    expect(text).toContain("2 record(s) under “Several prizes”; how many of them pay each prize (its share above 0).");
+    expect(text).toContain("| 3rd place | 1 |");
+    expect(text).toContain("| High score, each regular-season week | 1 |");
+    // Counts only: no record's split (44 / 36 / 20, 50 / 25 / 17 / 8) in the report.
+    expect(text).not.toMatch(/\b(44|36|17|8)\b/);
+    // No record under "Several prizes": no prize block at all.
+    expect(formatFeedbackReport(summarizeFeedback(events.filter((e) => e.goal !== "prizes"), 0), { env: "preview", days: 1 }, ["2026-10-04"], "2026-10-04T18:30:00.000Z")).not.toContain("Prizes paid");
   });
 });
 

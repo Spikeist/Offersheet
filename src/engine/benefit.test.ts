@@ -15,13 +15,17 @@ import {
   defaultLambda,
   expectedGain,
   futureValuesLoaded,
+  helpsBoth,
   helpsScale,
   helpsScaleNotes,
+  helpsThemScore,
   injuredReceived,
   lineupEquivalent,
   marketSanity,
   marketWeekly,
   overallScore,
+  partnerBenefit,
+  partnerScale,
   protectValueWeight,
   resolveLambda,
   rosterValue,
@@ -873,5 +877,167 @@ describe("helpsScale: B₃, the B of +3 points a week under the same goal (plann
     expect(lineupEquivalent(null, 6)).toBeNull();
     expect(lineupEquivalent(3, null)).toBeNull();
     expect(lineupEquivalent(3, 0)).toBeNull();
+  });
+});
+
+describe("“Helps them” (Checkpoint 7c; planner reply to Checkpoint 7b, §7): B_P, B_ref,P, the score and “helps both”", () => {
+  // The partner's changes from a trade's run: +4 points of playoff odds, +1.5 of title odds.
+  const theirs = { dPO: 0.04, dCH: 0.015 };
+  const F10 = config.benefit.bFutureScale * config.benefit.helpsFutureShare;
+
+  describe("partnerBenefit: B_P, benefit() from the partner's side with no trade-value term", () => {
+    it("redraft: B_P = B_win,P under the reward (each goal's weights), no market term, no λ", () => {
+      for (const goal of GOALS) {
+        const reward = titleOnlyReward(goal);
+        const b = partnerBenefit({ leagueType: "redraft", ...theirs, dynasty: null, pPlayoffs: 0.4, reward });
+        expect(b.bWin, goal).toBe(win(theirs.dPO, theirs.dCH, config.benefit, goal).bWin);
+        expect(b, goal).toMatchObject({ b: b.bWin, market: 0, marketWeekly: null, bFuture: null, lambda: null, dynMissing: false, titleMissing: false });
+      }
+      // Whatever my settings would price: the partner's B never reads κ or a g (the planner: "with no trade-value term").
+      expect(partnerBenefit({ leagueType: "redraft", ...theirs, dynasty: null, pPlayoffs: 0.4 }).b).toBe(win(theirs.dPO, theirs.dCH).bWin);
+    });
+
+    it("“Several prizes”: B_win,P = 100 × (0.15 ΔPO + 0.85 ΔE[S]) from the partner's prize components", () => {
+      const parker = rewardWith({ goal: "prizes", prizes: { first: 2000, second: 1600, third: 900, weeklyHigh: null, pointsLeader: null } }, 14);
+      const dPrizes: PrizeDeltas = { first: 0.015, second: 0.01, third: -0.005, weeklyHigh: null, pointsLeader: 0.003 };
+      const b = partnerBenefit({ leagueType: "redraft", ...theirs, dPrizes, dynasty: null, pPlayoffs: 0.4, reward: parker });
+      expect(b.b as number).toBeCloseTo(100 * (0.15 * 0.04 + 0.85 * ((4 / 9) * 0.015 + (16 / 45) * 0.01 + 0.2 * -0.005)), 12);
+      expect(b.titleMissing).toBe(false);
+    });
+
+    it("dynasty and keeper: (1 − λ_P) × B_win,P + λ_P × B_future,P, λ_P by the partner's P(playoffs) (keeper 0.2), never a setting", () => {
+      const bWin = win(theirs.dPO, theirs.dCH).bWin as number;
+      const dynasty = { delta: 2_000, total: 40_000 }; // +5% of their roster's long-term value: B_future,P = 2
+      for (const [leagueType, pPlayoffs, lambda] of [
+        ["dynasty", 0.7, 0.35],
+        ["dynasty", 0.3, 0.5],
+        ["dynasty", 0.1, 0.75],
+        ["dynasty", null, 0.5],
+        ["keeper", 0.7, 0.2],
+        ["keeper", 0.1, 0.2],
+      ] as const) {
+        const b = partnerBenefit({ leagueType, ...theirs, dynasty, pPlayoffs });
+        expect(b, `${leagueType} ${pPlayoffs}`).toMatchObject({ lambda, bFuture: 2, bWin, market: 0, marketWeekly: null, dynMissing: false });
+        expect(b.b as number, `${leagueType} ${pPlayoffs}`).toBeCloseTo((1 - lambda) * bWin + lambda * 2, 12);
+      }
+      // Without long-term values (or a roster worth nothing): B_win,P alone, as for mine; λ_P still reported.
+      expect(partnerBenefit({ leagueType: "dynasty", ...theirs, dynasty: null, pPlayoffs: 0.7 })).toMatchObject({ b: bWin, bFuture: null, lambda: 0.35, dynMissing: true });
+      expect(partnerBenefit({ leagueType: "keeper", ...theirs, dynasty: { delta: 100, total: 0 }, pPlayoffs: 0.7 })).toMatchObject({ b: bWin, dynMissing: true });
+    });
+
+    it("the title odds unknown: the playoff term scaled up to the whole weight; nothing simulated: no B_P", () => {
+      expect(partnerBenefit({ leagueType: "redraft", dPO: 0.04, dCH: null, dynasty: null, pPlayoffs: 0.4 })).toMatchObject({ titleMissing: true });
+      expect(partnerBenefit({ leagueType: "redraft", dPO: 0.04, dCH: null, dynasty: null, pPlayoffs: 0.4 }).b as number).toBeCloseTo(4, 12);
+      expect(partnerBenefit({ leagueType: "redraft", dPO: null, dCH: null, dynasty: null, pPlayoffs: 0.4 }).b).toBeNull();
+    });
+  });
+
+  describe("partnerScale: B₃,P floored at 0.5, then mixed with F₁₀ by λ_P in dynasty and keeper leagues (the planner's order)", () => {
+    // Their calibration run: +3 a week moves their playoff odds 5 points and their title odds 2.
+    const run = { dPO: 0.05, dCH: 0.02 };
+    const odds = win(run.dPO, run.dCH).bWin as number; // 0.75 + 1.7 = 2.45
+
+    it("redraft: B_ref,P = B₃,P = B_win of their run under the reward; +3 a week for them reads 63", () => {
+      for (const goal of GOALS) {
+        const reward = titleOnlyReward(goal);
+        const s = partnerScale(run, { leagueType: "redraft", pPlayoffs: 0.4, reward, dynastyTotal: 50_000 });
+        const own = win(run.dPO, run.dCH, config.benefit, goal).bWin as number;
+        expect(s, goal).toStrictEqual({ b3: own, b3P: own, odds: own, floored: false, lambda: null });
+        expect(helpsThemScore(partnerBenefit({ leagueType: "redraft", ...run, dynasty: null, pPlayoffs: 0.4, reward }).b, s?.b3 ?? null), goal).toBe(HELPS_AT_GAIN);
+        // The same scale as Helps you's for a team whose run it is (redraft: no λ, the same floor).
+        expect(s?.b3, goal).toBe(helpsScale(run, { leagueType: "redraft", myPPlayoffs: 0.4, reward, dynastyTotal: null })?.b3);
+      }
+    });
+
+    it("floored at helpsFloor when their odds barely move (a team out of it, or locked in)", () => {
+      const flat = partnerScale({ dPO: 0.001, dCH: 0.0005 }, { leagueType: "redraft", pPlayoffs: 0.01, dynastyTotal: null });
+      expect(flat).toMatchObject({ b3: 0.5, b3P: 0.5, floored: true, lambda: null });
+      expect(flat?.odds).toBeCloseTo(100 * (0.15 * 0.001 + 0.85 * 0.0005), 12);
+      expect(partnerScale({ dPO: 0, dCH: 0 }, { leagueType: "redraft", pPlayoffs: 0, dynastyTotal: null })).toStrictEqual({ b3: 0.5, b3P: 0.5, odds: 0, floored: true, lambda: null });
+      expect(partnerScale({ dPO: -0.01, dCH: -0.01 }, { leagueType: "redraft", pPlayoffs: 0.3, dynastyTotal: null })?.b3).toBe(0.5);
+    });
+
+    it("dynasty and keeper with long-term values: (1 − λ_P) × B₃,P + λ_P × F₁₀, λ_P by their P(playoffs), keeper 0.2", () => {
+      for (const [leagueType, pPlayoffs, lambda] of [
+        ["dynasty", 0.7, 0.35],
+        ["dynasty", 0.3, 0.5],
+        ["dynasty", 0.1, 0.75],
+        ["keeper", 0.1, 0.2],
+      ] as const) {
+        const s = partnerScale(run, { leagueType, pPlayoffs, dynastyTotal: 40_000 });
+        expect(s, `${leagueType} ${pPlayoffs}`).toMatchObject({ b3P: odds, odds, floored: false, lambda });
+        expect(s?.b3 as number, `${leagueType} ${pPlayoffs}`).toBeCloseTo((1 - lambda) * odds + lambda * F10, 12);
+        // A trade worth +3 a week this season for them together with +10% of their long-term value reads 63 at their λ.
+        const b = partnerBenefit({ leagueType, ...run, dynasty: { delta: 4_000, total: 40_000 }, pPlayoffs });
+        expect(helpsThemScore(b.b, s?.b3 ?? null), `${leagueType} ${pPlayoffs}`).toBe(HELPS_AT_GAIN);
+      }
+      // Without long-term values: B_P is B_win,P, so the scale is B₃,P alone (⚠️ ours, helpsScale's rule).
+      expect(partnerScale(run, { leagueType: "dynasty", pPlayoffs: 0.1, dynastyTotal: null })).toMatchObject({ b3: odds, lambda: null });
+      expect(partnerScale(run, { leagueType: "keeper", pPlayoffs: 0.1, dynastyTotal: 0 })).toMatchObject({ b3: odds, lambda: null });
+    });
+
+    it("⚠️ floor, then mix (the lead's call): a run under the floor is floored before the mix, where Helps you's scale floors the mix", () => {
+      // B_win₃,P 0.2 at λ_P 0.35: (1 − 0.35) × 0.5 + 0.35 × 4 = 1.725; Helps you's order would read 0.65 × 0.2 + 1.4 = 1.53.
+      const low = { dPO: 0.002, dCH: 0.002 };
+      const s = partnerScale(low, { leagueType: "dynasty", pPlayoffs: 0.7, dynastyTotal: 40_000 });
+      expect(s).toMatchObject({ b3P: 0.5, floored: true, lambda: 0.35 });
+      expect(s?.odds).toBeCloseTo(0.2, 12);
+      expect(s?.b3 as number).toBeCloseTo(0.65 * 0.5 + 0.35 * 4, 12);
+      expect(helpsScale(low, { leagueType: "dynasty", myPPlayoffs: 0.7, dynastyTotal: 40_000 })?.b3 as number).toBeCloseTo(0.65 * 0.2 + 0.35 * 4, 12);
+    });
+
+    it("no run or no ΔPO: no scale; a run made without the weekly high scores can't price a reward that pays them", () => {
+      expect(partnerScale(null, { leagueType: "redraft", pPlayoffs: 0.4, dynastyTotal: null })).toBeNull();
+      expect(partnerScale(undefined, { leagueType: "redraft", pPlayoffs: 0.4, dynastyTotal: null })).toBeNull();
+      expect(partnerScale({ dPO: Number.NaN, dCH: 0.01 }, { leagueType: "redraft", pPlayoffs: 0.4, dynastyTotal: null })).toBeNull();
+      const weekly = rewardWith({ goal: "prizes", prizes: { first: 100, second: null, third: null, weeklyHigh: 10, pointsLeader: null } }, 14);
+      const without = { dPO: 0.05, dCH: 0.02, dPrizes: { first: 0.02, second: 0, third: 0, weeklyHigh: null, pointsLeader: 0 } as PrizeDeltas };
+      expect(() => partnerScale(without, { leagueType: "redraft", pPlayoffs: 0.4, reward: weekly, dynastyTotal: null })).toThrow(/weekly high scores/);
+      // With them simulated it reads them: 0.5 more high scores won among 14 periods.
+      const withThem = { ...without, dPrizes: { ...without.dPrizes, weeklyHigh: 0.5 } };
+      const total = 100 + 10 * 14;
+      expect(partnerScale(withThem, { leagueType: "redraft", pPlayoffs: 0.4, reward: weekly, dynastyTotal: null })?.odds).toBeCloseTo(100 * (0.15 * 0.05 + 0.85 * ((100 / total) * 0.02 + (140 / total / 14) * 0.5)), 12);
+    });
+  });
+
+  it("helpsThemScore: round(100 × (1 − e^(−B_P / B_ref,P))) above 0, 0 at or below 0, null unknown; 10 is about +0.3 points a week", () => {
+    expect(helpsThemScore(5, 5)).toBe(HELPS_AT_GAIN);
+    expect(helpsThemScore(2.5, 5)).toBe(tradeScore(2.5, 5));
+    expect(helpsThemScore(0, 5)).toBe(0);
+    expect(helpsThemScore(-1.2, 5)).toBe(0);
+    expect(helpsThemScore(null, 5)).toBeNull();
+    expect(helpsThemScore(1, null)).toBeNull();
+    expect(helpsThemScore(1, 0)).toBeNull();
+    expect(helpsThemScore(Number.NaN, 5)).toBeNull();
+    // The planner's "A score of 10 is about +0.3 points a week for them": B_P = 0.105 × B_ref,P (0.315 of 3 points a week).
+    expect(config.benefit.helpsThemMin).toBe(10);
+    expect(helpsThemScore(0.105 * 4, 4)).toBe(10);
+    expect(lineupEquivalent(0.105 * 4, 4) as number).toBeCloseTo(0.315, 12);
+    expect(helpsThemScore(0.09 * 4, 4)).toBe(9);
+    // A B_P too small to print a whole point reads 0, like a loss.
+    expect(helpsThemScore(0.001, 4)).toBe(0);
+  });
+
+  it("helpsBoth: Helps you above 0 and Helps them at least config.benefit.helpsThemMin, both as printed", () => {
+    const them = (helps: number | null) => ({ b: 1, bWin: 1, bFuture: null, lambda: null, b3: 4, helps, dPO: 0.01, dCH: 0.005, dPrizes: titleDeltas(0.005), before: { pPlayoffs: 0.4, pTitle: 0.05, prizes: { first: 0.05, second: null, third: null, weeklyHigh: 0, pointsLeader: 0 } } });
+    expect(helpsBoth({ tradeScore: 30, them: them(10) })).toBe(true);
+    expect(helpsBoth({ tradeScore: 1, them: them(63) })).toBe(true);
+    expect(helpsBoth({ tradeScore: 30, them: them(9) })).toBe(false);
+    // Helps you printing 0 (a B above 0 too small to round up) doesn't help "both" on screen.
+    expect(helpsBoth({ tradeScore: 0, them: them(40) })).toBe(false);
+    expect(helpsBoth({ tradeScore: null, them: them(40) })).toBe(false);
+    expect(helpsBoth({ tradeScore: 30, them: them(null) })).toBe(false);
+    // Not simulated, or an evaluation made before Helps them: no.
+    expect(helpsBoth({ tradeScore: 30 })).toBe(false);
+    expect(helpsBoth({ tradeScore: 30, them: them(0) })).toBe(false);
+    // Another bar (a report's or a test's).
+    expect(helpsBoth({ tradeScore: 30, them: them(9) }, 5)).toBe(true);
+    expect(helpsBoth({ tradeScore: 30, them: them(10) }, 20)).toBe(false);
+  });
+
+  it("TITLE_ONLY's reward reads ΔCH as 1st place's for the partner too (bit for bit with the title-only reading)", () => {
+    const dPrizes: PrizeDeltas = { first: 0.015, second: Number.NaN, third: null, weeklyHigh: null, pointsLeader: Number.NaN };
+    const reward: Reward = { goal: "title", shares: TITLE_ONLY, periods: 14, empty: false };
+    expect(Object.is(partnerBenefit({ leagueType: "redraft", ...theirs, dPrizes, dynasty: null, pPlayoffs: 0.4, reward }).b, win(theirs.dPO, theirs.dCH).bWin)).toBe(true);
   });
 });

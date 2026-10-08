@@ -12,6 +12,11 @@
  *   fits a text field. ⚠️ Defense in depth only, behind the honest browser that never puts them there: the schema can't
  *   prove an id is a player's (a short all-digit league id has a Sleeper id's form), and a hostile client could still
  *   spell data out in the bounded numbers. A copy is at most respond.ts's request cap (16 KB).
+ *   Checkpoint 7c (planner reply to Checkpoint 7b, §6, league prizes): goal "prizes" ("Several prizes") comes with its
+ *   prize split, `prizes`, at the top and in the version's inputs, and a split comes with nothing else: each prize's whole
+ *   percent of the season's prizes, adding up to 100 (PrizesSchema), never the amounts typed. Optional in the shape, so the
+ *   copies an older version sends (it never names "prizes") and the ones stored before still read; an older version's
+ *   "balanced" still reads too (FEEDBACK_GOALS).
  * - storeFeedback: the copy, plus the UTC day it arrived ("day": the date, never the time; nothing else is added: no IP
  *   address, no client id, no header), as one JSON line LPUSHed to that day's list, `prefix + "fb:" + YYYY-MM-DD` (the UTC
  *   day of arrival; src/server/redis.ts keyPrefix: preview and production apart; final review SEC-3: a month's list kept
@@ -116,6 +121,19 @@ const NumbersSchema = z.strictObject({
 /** An NFL week: 0 (before the season) to 30 (feedbackStore.ts isFeedbackWeek takes the same). */
 const week = z.number().int().min(0).max(30);
 
+/** A share of the season's prizes in whole percents (feedbackEvent.ts FeedbackPrizes). */
+const percent = z.number().int().min(0).max(100);
+
+/**
+ * "Several prizes"' split (Checkpoint 7c; planner reply to Checkpoint 7b, §6: "the anonymous copy holds only the shares,
+ * rounded to whole percents, never the amounts"; feedbackEvent.ts FeedbackPrizes): every prize's whole percent of the
+ * season's prizes, adding up to exactly 100 (feedbackStore.ts isFeedbackPrizes takes the same), so amounts as typed
+ * ($2,000 as 2000) and finer shares (44.4) never fit.
+ */
+const PrizesSchema = z
+  .strictObject({ first: percent, second: percent, third: percent, weeklyHigh: percent, pointsLeader: percent })
+  .refine((p) => p.first + p.second + p.third + p.weeklyHigh + p.pointsLeader === 100, "Prize shares add up to 100.");
+
 const VersionInputsSchema = z.strictObject({
   features: FeaturesSchema.nullable(),
   gPartner: maybeNumber,
@@ -124,6 +142,8 @@ const VersionInputsSchema = z.strictObject({
   helpsReason: z.enum(HELPS_REASONS).nullable(),
   // Today's goals and an older version's (feedbackEvent.ts FEEDBACK_GOALS: a copy made under "balanced" keeps it).
   goal: z.enum(FEEDBACK_GOALS).nullable(),
+  // Checkpoint 7c: the prize split, exactly with goal "prizes" (crossFieldRules); absent from an older version's copies.
+  prizes: PrizesSchema.optional(),
   week: week.nullable(),
 });
 
@@ -140,6 +160,8 @@ const EventShape = z.strictObject({
   week,
   format: FormatSchema,
   goal: z.enum(FEEDBACK_GOALS).nullable(),
+  // Checkpoint 7c: the prize split, exactly with goal "prizes" (crossFieldRules); absent from an older version's copies.
+  prizes: PrizesSchema.optional(),
   trade: TradeSchema,
   numbers: NumbersSchema,
   features: FeaturesSchema,
@@ -148,12 +170,23 @@ const EventShape = z.strictObject({
   versionInputs: VersionInputsSchema.optional(),
 });
 
-/** The rules between fields: a version only with an outcome, the version's players, estimate and inputs only with a version. */
-function crossFieldRules(e: { outcome?: unknown; version?: unknown; versionTrade?: unknown; versionAccept?: unknown; versionInputs?: unknown }, ctx: z.RefinementCtx): void {
+/** A goal and its prize split go together (Checkpoint 7c): a split only with "Several prizes", and that goal only with one. */
+function prizeRules(x: { goal?: unknown; prizes?: unknown }, path: readonly (string | number)[], ctx: z.RefinementCtx): void {
+  if (x.prizes !== undefined && x.goal !== "prizes") ctx.addIssue({ code: "custom", path: [...path, "prizes"], message: "A prize split goes with “Several prizes”." });
+  if (x.goal === "prizes" && x.prizes === undefined) ctx.addIssue({ code: "custom", path: [...path, "prizes"], message: "“Several prizes” goes with its prize split." });
+}
+
+/**
+ * The rules between fields: a version only with an outcome, the version's players, estimate and inputs only with a version;
+ * (Checkpoint 7c) a prize split exactly with goal "prizes", at the top and in the version's inputs (prizeRules).
+ */
+function crossFieldRules(e: { outcome?: unknown; version?: unknown; versionTrade?: unknown; versionAccept?: unknown; versionInputs?: unknown; goal?: unknown; prizes?: unknown }, ctx: z.RefinementCtx): void {
   if (e.version !== undefined && e.outcome === undefined) ctx.addIssue({ code: "custom", path: ["version"], message: "A version goes with an outcome." });
   if (e.versionTrade !== undefined && e.version === undefined) ctx.addIssue({ code: "custom", path: ["versionTrade"], message: "A version's players go with a version." });
   if (e.versionAccept !== undefined && e.version === undefined) ctx.addIssue({ code: "custom", path: ["versionAccept"], message: "A version's estimate goes with a version." });
   if (e.versionInputs !== undefined && e.version === undefined) ctx.addIssue({ code: "custom", path: ["versionInputs"], message: "Version inputs go with a version." });
+  prizeRules(e, [], ctx);
+  if (e.versionInputs !== null && typeof e.versionInputs === "object") prizeRules(e.versionInputs as { goal?: unknown; prizes?: unknown }, ["versionInputs"], ctx);
 }
 
 /** One anonymous copy as the route accepts it (the header). */

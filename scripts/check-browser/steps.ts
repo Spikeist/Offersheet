@@ -70,6 +70,19 @@
  *   worked out by the page's own engine worker without a request off the site; "Protect my trade value" without a number.
  * - The Analyzer's "Back to the Trade Finder" isn't prefetched: with a partner in the Finder's address, no request names
  *   the link's address until it's tapped (page.ts logs every request to the app).
+ *
+ * Checkpoint 7c (planner reply to Checkpoint 7b, §6, league prizes; contracts.ts decides):
+ * - Settings: "Several prizes" shows "Your league's prizes" (a group of its own, the goal's keeping its three answers): the
+ *   planner's five prizes and helper line, 44 px fields reading the saved amounts, and the app's own split line for them;
+ *   a new amount typed with Enter saves and the split follows; text a field can't read says why (aria-invalid, its
+ *   message) and isn't saved; then the odds lines under it (below), and the answer it had is chosen again
+ *   (settingsPrizeChecks).
+ * - The odds lines on every Trade Finder card (and Plan B box) and the Analyzer's card, and my odds on the League page:
+ *   "Top 3 odds" (or "Top 2 odds") exactly when the tab's saved settings pay 3rd (2nd) place under "Several prizes"
+ *   (tradeView.ts topPlacesOf on them). The League, Trade Finder and Analyzer steps run in a fresh browser, under "Only the
+ *   champion", so there they see the line absent; the Settings step, with "Several prizes" saved (its prefilled 3rd place
+ *   paid), goes back to the League page, the Trade Finder (the search the new setting starts) and the Analyzer's card for
+ *   its first idea to see it present (prizeOddsChecks; review of the prizes UI, prizes-ui-1: the line was never seen live).
  * After each step: no console errors (page or worker), CSP violations (Part B: enforced or report-only, page or worker),
  * uncaught exceptions, failed requests to the app, or requests to any other site. Screenshots, when on, go to the shots folder after the page's names are replaced with placeholders,
  * put back right after (one that can't be saved is a skip: it's a record to look at, not a check of the app).
@@ -82,26 +95,36 @@
  * opening it in a way that would create it. A saved league's id (a short hash of its league id, and its season) stays
  * in the page and in this process: it's compared, never printed or written.
  */
+import { GOAL_LABEL, PRIZE_LABEL, PRIZE_TEXT_MESSAGES, PRIZES_HELP, prizeAmountText, prizeSplitText } from "@/components/settings/settingsView";
 import type { MarketInputs } from "@/engine/inputs";
-import type { LeagueSettings } from "@/engine/model";
-import { bestTimeText, freshnessText, inTradingSeason } from "@/lib/tradeView";
+import type { LeagueSettings, LeagueSnapshot } from "@/engine/model";
+import { rewardOf, rewardWith } from "@/engine/reward";
+import { GOALS, PRIZE_KEYS, normalizeTradeSettings, type TradeSettings } from "@/engine/settings";
+import { bestTimeText, freshnessText, inTradingSeason, topPlacesOf } from "@/lib/tradeView";
 import { LEAGUE_ID_PLACEHOLDER, mergeLeagueNames, nameRules, type CheckReport, type LeagueNames } from "./report";
 import {
+  CHECKED_GOAL,
   cleanCall,
+  goalChoice,
   PLAYOFF_WEIGHT_SHOWN,
+  READ_CARD_ODDS,
   READ_CARD_TEXTS,
   READ_FANTASYCALC_LINKS,
   READ_FINDER_NOTICES,
   READ_FINDER_TIMING,
   READ_IMPORT_NOTICES,
   READ_LEAGUE_VALUES,
+  READ_MY_ODDS,
   READ_NAV_LINKS,
   READ_NOTICE_BANNERS,
+  READ_PRIZE_LEAGUE,
+  READ_SETTINGS_PRIZES,
   READ_SETTINGS_SCORING,
   READ_TRADING_LEAGUE,
   READ_WAIVERS,
   sanitizeCall,
   STOP_PLAYOFF_WEIGHT,
+  typePrize,
   WAIVER_SHOW_ALL,
   waiverToggle,
   WATCH_PLAYOFF_WEIGHT,
@@ -114,14 +137,18 @@ import {
   fantasyCalcLinkIssues,
   fantasyCalcLinksInHtml,
   freshnessLineOk,
+  headlineTopProblems,
+  invalidPrizeProblems,
   MENTIONS_MARKET,
   NAV_HREFS,
   noticeCount,
   noticeLeaks,
+  oddsLabelProblems,
   pageValueLeaks,
   PARKER_QUIET_LINE,
   PLAYOFF_WEIGHT_RANGE,
   playoffWeightRead,
+  prizeGroupProblems,
   requestNamesAddress,
   rowCount,
   valueLeaks,
@@ -129,6 +156,7 @@ import {
   waiverToggleKind,
   type CreditRead,
   type FantasyCalcLink,
+  type PrizeGroupRead,
 } from "./contracts";
 import type { AppRequest, PageEvent, PageSession } from "./page";
 
@@ -537,6 +565,99 @@ export async function cardValueChecks(ctx: StepContext, step: string, label: (i:
   );
 }
 
+/**
+ * The tab's saved league as the prizes read it (inPage.ts READ_PRIZE_LEAGUE; Checkpoint 7c): its raw saved settings (null:
+ * the defaults) and its snapshot's weeks, no names.
+ */
+export interface PrizeLeague {
+  settings: unknown;
+  snapshot: { settings: { regularSeasonWeeks: number[]; pointsOnly: boolean }; schedule: Array<{ week: number; weeks?: number[]; isPlayoff: boolean }> } | null;
+}
+
+/** Which top-N odds line saved settings call for (pure; tradeView.ts topPlacesOf on their reward, the prize periods aside). */
+export function expectedTopPlaces(settings: unknown): 2 | 3 | null {
+  return topPlacesOf(rewardWith(normalizeTradeSettings(settings), 1));
+}
+
+/**
+ * Why saved settings call for no top-N odds line, in the check lines' words (pure): the answer chosen when it isn't "Several
+ * prizes" ("“Only the champion” is chosen": a fresh browser's), else that the saved prizes pay neither 2nd nor 3rd place.
+ */
+export function noTopReason(settings: unknown): string {
+  const s = normalizeTradeSettings(settings);
+  return s.goal === "prizes" ? "the saved prizes pay no 2nd or 3rd place" : `“${GOAL_LABEL[s.goal]}” is chosen`;
+}
+
+/**
+ * The split line the Settings page shows for `settings` on the league (pure; the app's own words: reward.ts rewardOf over the
+ * league's prize periods, settingsView.ts prizeSplitText), null when the amounts add up to nothing (the warning shows then).
+ */
+export function expectedPrizeSplit(settings: TradeSettings, snapshot: PrizeLeague["snapshot"]): string | null {
+  const league = (snapshot ?? { settings: { regularSeasonWeeks: [], pointsOnly: false }, schedule: [] }) as unknown as Pick<LeagueSnapshot, "settings" | "schedule">;
+  const reward = rewardOf(settings, league);
+  return reward.empty ? null : prizeSplitText(reward.shares, reward.periods);
+}
+
+async function readPrizeLeague(ctx: StepContext): Promise<PrizeLeague | null> {
+  return ctx.page.run<PrizeLeague>(READ_PRIZE_LEAGUE).catch(() => null);
+}
+
+/**
+ * Every card's odds lines, and a Plan B box's, read "Title odds", then the top-N line the tab's saved settings call for
+ * ("Top 3 odds" or "Top 2 odds": expectedTopPlaces; none in a fresh browser, whose answer is "Only the champion"), then
+ * "Playoff odds" (Checkpoint 7c; contracts.ts oddsLabelProblems). `label` names a card in the details ("idea 3"); `under`
+ * opens each line with the setting it's read under (the Settings step's prizeOddsChecks: "under “Several prizes”").
+ */
+export async function cardOddsChecks(ctx: StepContext, step: string, label: (i: number) => string, under = ""): Promise<void> {
+  const { page, report } = ctx;
+  const lead = under ? `${under}, ` : "";
+  const cards = await page.run<string[][][]>(READ_CARD_ODDS);
+  const lines = cards.flatMap((card, i) => card.map((labels, j) => ({ labels, where: j === 0 ? label(i) : `${label(i)}'s “If they say no, try:”` })));
+  if (!lines.length) {
+    report.skip(step, `${lead}the odds lines: no card shows them`);
+    return;
+  }
+  const saved = (await readPrizeLeague(ctx))?.settings ?? null;
+  const places = expectedTopPlaces(saved);
+  const problems = oddsLabelProblems(
+    lines.map((l) => l.labels),
+    places,
+    (k) => lines[k]?.where ?? "",
+  );
+  const want = ["Title odds", ...(places ? [`Top ${places} odds`] : []), "Playoff odds"].join(" · ");
+  report.check(
+    step,
+    problems.length === 0,
+    `${lead}${pl(lines.length, "odds line")} read “${want}”${places ? "" : ` (${noTopReason(saved)})`}`,
+    `${lead}${pl(problems.length, "odds line")} read otherwise than “${want}”`,
+    problems,
+  );
+}
+
+/**
+ * My odds on the League page carry a top-N chance exactly when the tab's saved settings call for one ("Your odds: 60%
+ * playoffs · 30% top 3 · 10.5% title"; Checkpoint 7c; contracts.ts headlineTopProblems). `under` as cardOddsChecks'.
+ */
+export async function myOddsChecks(ctx: StepContext, step: string, under = ""): Promise<void> {
+  const { page, report } = ctx;
+  const lead = under ? `${under}, ` : "";
+  const lines = await page.run<string[]>(READ_MY_ODDS);
+  if (!lines.length) {
+    report.skip(step, `${lead}your odds' top-N chance: no “Your odds:” line (no team picked, or no odds)`);
+    return;
+  }
+  const saved = (await readPrizeLeague(ctx))?.settings ?? null;
+  const places = expectedTopPlaces(saved);
+  const problems = headlineTopProblems(lines, places);
+  report.check(
+    step,
+    problems.length === 0,
+    places ? `${lead}your odds carry your top-${places} chance: “${lines[0] ?? ""}”` : `${lead}your odds show no top-N chance (${noTopReason(saved)}): “${lines[0] ?? ""}”`,
+    `${lead}your odds' top-N chance isn't as the saved settings call for`,
+    problems,
+  );
+}
+
 /** Every link to FantasyCalc on the page as it stands has FantasyCalc's attributes, the footer's among them (5.4). */
 export async function fantasyCalcDomCheck(ctx: StepContext, step: string): Promise<void> {
   const links = await ctx.page.run<FantasyCalcLink[]>(READ_FANTASYCALC_LINKS);
@@ -849,6 +970,8 @@ export async function leagueStep(ctx: StepContext): Promise<void> {
   await leagueValueChecks(ctx, step);
   await leagueNoticeChecks(ctx, step, { parkers: parkersLeague(ctx.args) });
   await fantasyCalcDomCheck(ctx, step);
+  // Checkpoint 7c: my odds carry a top-N chance exactly when the saved prizes call for one.
+  await myOddsChecks(ctx, step);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1016,6 +1139,8 @@ export async function finderStep(ctx: StepContext): Promise<void> {
   // FantasyCalc, and the lines under the intro (5.3).
   const league = await readTradingLeague(ctx);
   if (cards.length) await cardValueChecks(ctx, step, (i) => `idea ${i + 1}`, league);
+  // Checkpoint 7c: the odds lines, with the top-N line exactly when the saved prizes call for one.
+  if (cards.length) await cardOddsChecks(ctx, step, (i) => `idea ${i + 1}`);
   await finderNoticeChecks(ctx, step);
   await fantasyCalcDomCheck(ctx, step);
   await finderTimingChecks(ctx, step, league);
@@ -1173,6 +1298,8 @@ export async function analyzerStep(ctx: StepContext): Promise<void> {
     }
     // Phase 7b (5.4): no FantasyCalc value on the card, its "Details" included, and its credit.
     await cardValueChecks(ctx, step, () => "the Analyzer's card", await readTradingLeague(ctx));
+    // Checkpoint 7c: its odds lines as the Trade Finder's.
+    await cardOddsChecks(ctx, step, () => "the Analyzer's card");
   }
   await fantasyCalcDomCheck(ctx, step);
   layoutChecks(ctx, step, await measurePage(ctx));
@@ -1435,6 +1562,142 @@ export async function settingsScoringChecks(ctx: StepContext, step: string): Pro
   else report.check(step, !!r.protect.help && !/\d/.test(r.protect.help), "“Protect my trade value” explains itself without a number", r.protect.help ? `“Protect my trade value”'s help has a number: “${r.protect.help}”` : "“Protect my trade value” has no help text");
 }
 
+/** The goal's answer for a radio value, as the page names it (settingsView.ts GOAL_LABEL); the value itself when unknown. */
+const goalWords = (value: string): string => ((GOALS as readonly string[]).includes(value) ? GOAL_LABEL[value as (typeof GOALS)[number]] : value);
+
+/**
+ * "Your league's prizes" (Checkpoint 7c; planner reply to Checkpoint 7b, §6; the file header): "Several prizes" chosen
+ * (when it isn't already), the group as it should read for the saved amounts (contracts.ts prizeGroupProblems: the
+ * planner's five prizes and helper line, 44 px fields with the saved amounts, the app's own split line, the goal's group
+ * still holding its three answers); a new amount in "1st place" saved with Enter, the split following; text "2nd place"
+ * can't read said (aria-invalid and its message, in a live region) and not saved; then, with "Several prizes" still saved,
+ * the odds lines on the League page, the Trade Finder and the Analyzer (prizeOddsChecks), and back on the Settings page the
+ * answer it had chosen again. Runs after the playoff weight's check (each change rebuilds the League model in the page's
+ * worker, which would move that line). False when the Settings page didn't open again after the odds lines (the rest of
+ * the step can't run).
+ */
+export async function settingsPrizeChecks(ctx: StepContext, step: string): Promise<boolean> {
+  const { page, report } = ctx;
+  const was = await page.run<string | null>(`return ${CHECKED_GOAL};`);
+  if (was !== "prizes") await page.click(goalChoice("prizes"), `“${GOAL_LABEL.prizes}”`);
+  const shown = await page.waitFor<boolean>(`${CHECKED_GOAL} === "prizes" && !!byText("legend", "Your league's prizes")`, 10_000, "the league's prizes").catch(() => false);
+  const back = async () => {
+    if (!was || was === "prizes") return;
+    await page.click(goalChoice(was), `“${goalWords(was)}”`);
+    await page.waitFor<boolean>(`${CHECKED_GOAL} === ${JSON.stringify(was)} && !byText("legend", "Your league's prizes")`, 10_000, "the answer it had").catch(() => false);
+  };
+  if (!report.check(step, shown, `“${GOAL_LABEL.prizes}” shows the league's prizes`, `choosing “${GOAL_LABEL.prizes}” didn't show “Your league's prizes”`)) {
+    await back();
+    return true;
+  }
+  // The group as it should read for the saved amounts (the store's, read as the app reads them).
+  await page.waitFor<boolean>(`((s) => !!s && s.goal === "prizes")(await savedSettings(tabLeague()))`, 10_000, "“Several prizes” to save").catch(() => false);
+  const league = await readPrizeLeague(ctx);
+  const saved = normalizeTradeSettings(league?.settings ?? null);
+  const read = await page.run<{ group: PrizeGroupRead | null; goalLabels: number }>(READ_SETTINGS_PRIZES);
+  const want = {
+    labels: PRIZE_KEYS.map((k) => PRIZE_LABEL[k]),
+    help: PRIZES_HELP,
+    values: PRIZE_KEYS.map((k) => prizeAmountText(saved.prizes[k])),
+    split: expectedPrizeSplit(saved, league?.snapshot ?? null),
+  };
+  const problems = prizeGroupProblems(read.group, want);
+  report.check(
+    step,
+    problems.length === 0,
+    `“Your league's prizes” shows the planner's five prizes and helper line, 44 px fields reading the saved amounts, and the split (“${read.group?.split ?? read.group?.warning ?? ""}”)`,
+    "“Your league's prizes” doesn't read as it should",
+    problems,
+  );
+  // Its fields at 375 px: none past the right edge, every one 44 px tall.
+  layoutChecks(ctx, step, await page.run<Measure>(`const l = byText("legend", "Your league's prizes"); return measure(l ? l.closest("fieldset") : null);`), "the league's prizes");
+
+  // Enter saves a new amount, and the split follows it.
+  const first = PRIZE_LABEL.first;
+  const amount = saved.prizes.first === 50 ? 55 : 50;
+  const typed = await page.run<boolean>(typePrize(first, String(amount), "enter"));
+  const savedFirst = typed && (await page.waitFor<boolean>(`((s) => !!s && !!s.prizes && s.prizes.first === ${amount})(await savedSettings(tabLeague()))`, 10_000, "the prize to save").catch(() => false));
+  await sleep(300);
+  const after = await page.run<{ group: PrizeGroupRead | null }>(READ_SETTINGS_PRIZES);
+  const split = expectedPrizeSplit({ ...saved, prizes: { ...saved.prizes, first: amount } }, league?.snapshot ?? null);
+  report.check(
+    step,
+    savedFirst && after.group?.split === split,
+    `typing ${amount} in “${first}” and pressing Enter saves it, and the split follows (“${after.group?.split ?? ""}”)`,
+    !typed ? `there's no “${first}” field to type in` : savedFirst ? `after the save the split reads “${after.group?.split ?? "nothing"}”, not “${split ?? "nothing"}”` : `Enter didn't save “${first}”`,
+  );
+
+  // Text a field can't read: it says why, and nothing is saved.
+  const second = PRIZE_LABEL.second;
+  await page.run<boolean>(typePrize(second, "abc", "blur"));
+  await sleep(300);
+  const bad = await page.run<{ group: PrizeGroupRead | null }>(READ_SETTINGS_PRIZES);
+  const kept = await page.run<boolean>(`return ((s) => !!s && !!s.prizes && s.prizes.second === ${JSON.stringify(saved.prizes.second)})(await savedSettings(tabLeague()));`);
+  const badProblems = [...invalidPrizeProblems(bad.group?.fields.find((f) => f.label === second), PRIZE_TEXT_MESSAGES.notNumber), ...(kept ? [] : ["the saved amount changed anyway"])];
+  report.check(
+    step,
+    badProblems.length === 0,
+    `text “${second}” can't read says why (aria-invalid, “${PRIZE_TEXT_MESSAGES.notNumber}” in a live region) and isn't saved`,
+    `“${second}” took text it can't read, or didn't say why`,
+    badProblems,
+  );
+
+  // The odds lines while "Several prizes" is saved (review of the prizes UI, prizes-ui-1), then the answer the page had.
+  if (!(await prizeOddsChecks(ctx, step))) return false;
+  await back();
+  return true;
+}
+
+/**
+ * The top-N odds line where the saved split shows it (Checkpoint 7c; review of the prizes UI, prizes-ui-1: the League,
+ * Trade Finder and Analyzer steps run in a fresh browser under "Only the champion", so they only ever saw it absent). With
+ * "Several prizes" saved (settingsPrizeChecks: the prefilled 3rd place paid), my odds on the League page (the League model
+ * built again under it), the Trade Finder's cards and Plan B boxes (the search the new setting starts) and the Analyzer's
+ * card for the first idea, each as the saved settings call for (myOddsChecks, cardOddsChecks: "Top 3 odds" there); then
+ * the Settings page again. Each page only when the run reached it before: the League page built (ctx.leagueReady), a team
+ * picked and an idea found (ctx.firstCard). True once the Settings page shows again. ⚠️ A top-N line needs every part of
+ * it known (never a partial sum), so in a league whose title odds are unknown it reads as missing.
+ */
+async function prizeOddsChecks(ctx: StepContext, step: string): Promise<boolean> {
+  const { page, report } = ctx;
+  const under = `under “${GOAL_LABEL.prizes}”`;
+  if (!ctx.leagueReady) {
+    report.skip(step, `${under}, the odds lines: the League page didn't load in this run`);
+    return true;
+  }
+  await page.click(`navLink("/league")`, "the nav's League link");
+  const league = await page.waitFor<string>(LEAGUE_READY, 180_000, "the League page", 250).catch((err: unknown) => `error: ${err instanceof Error ? err.message : "it didn't load"}`);
+  if (report.check(step, league === "ready", `${under}, the League page built again`, `${under}, the League page didn't load: ${league.replace(/^error: /, "")}`)) {
+    await myOddsChecks(ctx, step, under);
+  }
+  if (!ctx.myTeam || !ctx.firstCard) {
+    report.skip(step, `${under}, the cards' odds lines: ${ctx.myTeam ? "the Trade Finder found no idea in this run" : "no team picked"}`);
+  } else {
+    await page.click(`navLink("/trades")`, "the nav's Trades link");
+    const finder = await page.waitFor<string>(FINDER_DONE, 120_000, "the Trade Finder's search", 50).catch((err: unknown) => `error: ${err instanceof Error ? err.message : "it didn't finish"}`);
+    if (report.check(step, finder === "done", `${under}, the Trade Finder searched again`, `${under}, the Trade Finder's search didn't finish: ${finder.replace(/^error: /, "")}`)) {
+      if (!(await page.run<number>(`return document.querySelectorAll("main article").length;`))) {
+        report.skip(step, `${under}, the cards' odds lines: the search found no idea`);
+      } else {
+        await cardOddsChecks(ctx, step, (i) => `idea ${i + 1}`, under);
+        if (!(await page.run<boolean>(`return !!ownAnalyzerLink(document.querySelector("article"));`, { cards: true }))) {
+          report.skip(step, `${under}, the Analyzer's card: the first idea has no “Open in Analyzer” link`);
+        } else {
+          await page.click(`ownAnalyzerLink(document.querySelector("article"))`, "Open in Analyzer");
+          const state = await page.waitFor<string>(ANALYZER_DONE, 120_000, "the evaluation", 50).catch((err: unknown) => `error: ${err instanceof Error ? err.message : "it didn't finish"}`);
+          const why = state === "illegal" ? "the Analyzer says the first idea can't be made" : `the Analyzer's evaluation didn't finish: ${state.replace(/^error: /, "")}`;
+          if (report.check(step, state === "evaluated", `${under}, the Analyzer evaluated the first idea`, `${under}, ${why}`)) {
+            await cardOddsChecks(ctx, step, () => "the Analyzer's card", under);
+          }
+        }
+      }
+    }
+  }
+  await page.click(`navLink("/settings")`, "the nav's Settings link");
+  const again = await page.waitFor<boolean>(`location.pathname === "/settings" && !!byText("legend", ${JSON.stringify(MAX_LEGEND)})`, 60_000, "the Settings page").catch(() => false);
+  return report.check(step, again, `${under}, back on the Settings page after the odds lines`, "the Settings page didn't open again after the odds lines");
+}
+
 /**
  * The automatic playoff weight (planner reply to Checkpoint 7a, §6.1), read-only: "Playoff weeks count:" goes from "Working
  * it out…" to "N.N×, set automatically from your odds." (or the default with its reason) within about 15 s of showing,
@@ -1504,6 +1767,9 @@ export async function settingsStep(ctx: StepContext): Promise<void> {
   await screenshot(ctx, "06-settings");
   await settingsScoringChecks(ctx, step);
   await playoffWeightCheck(ctx, step, from);
+  // Checkpoint 7c: "Several prizes" and the league's prizes (after the playoff weight: each change rebuilds it), with the
+  // odds lines on the other pages while it's saved; the rest needs the Settings page back.
+  if (!(await settingsPrizeChecks(ctx, step))) return;
 
   // This league's saved settings in the league store, as a list of none or one (an expression for an async body).
   const stored = `[await savedSettings(tabLeague())].filter(Boolean)`;

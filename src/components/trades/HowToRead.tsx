@@ -42,13 +42,21 @@
  * together with 10% more long-term value, weighed by Win now ↔ Future (planner reply to Checkpoint 7a, §2 question 6: "the
  * tooltip follows the mix"); "a note on the page says so" only when the floor note shows (helpsScaleWords, from config and
  * the search's or the evaluation's scale).
+ * Checkpoint 7c (planner reply to Checkpoint 7b, §6): under "Several prizes" paying more than 1st place, Helps you "weighs your
+ * chances at your league's prizes and your playoff odds by your “What does your league reward?” setting" (⚠️ ours: the
+ * setting named, never "goal", which the tests forbid here; tradeView.ts weighedOddsWords, the info line's own words), read
+ * off the reward when the page passes it, else off the scale it already passes (HelpsScale.oddsNamed "prizes"; ⚠️ the
+ * title's words while a paid prize's odds are unknown then, where the scale names the playoff odds). The odds each card
+ * shows are named then, not "those odds" (review of the prizes UI, prizes-ui-6: a weekly high score or the points title has
+ * no odds line): "your title, top-3 and playoff odds" by the reward, else the top-N line's rule (tradeView.ts cardOddsWords).
  * A native <details>, closed at first; its summary is a 44 px target.
  */
 import type { HelpsScale } from "@/engine/benefit";
 import { config } from "@/engine/config";
 import type { LeagueSettings } from "@/engine/model";
+import type { Reward } from "@/engine/reward";
 import { fmtNum } from "@/lib/format";
-import { GOAL_LABEL, HARDER_TO_GET_TAG, harderToGetWho, minChanceLabel } from "@/lib/tradeView";
+import { GOAL_LABEL, HARDER_TO_GET_TAG, cardOddsWords, harderToGetWho, minChanceLabel, weighedOddsWords } from "@/lib/tradeView";
 
 export type HowToReadPage = "finder" | "analyzer";
 
@@ -151,6 +159,7 @@ export function HowToRead({
   longTermOn = true,
   blendOn = true,
   helpsScale = null,
+  reward = null,
 }: {
   leagueType?: LeagueSettings["leagueType"] | undefined;
   page?: HowToReadPage | undefined;
@@ -162,6 +171,11 @@ export function HowToRead({
   blendOn?: boolean | undefined;
   /** The search's or the evaluation's "Helps you" scale (helpsScaleWords); null or absent before there is one. */
   helpsScale?: HelpsScale | null | undefined;
+  /**
+   * The search's or the evaluation's reward (TradeSearchResult.reward, TradeAnalysis.reward; Checkpoint 7c): under "Several
+   * prizes" the paragraph names the prizes (weighedOddsWords). Null or absent: read off `helpsScale` (the file header).
+   */
+  reward?: Pick<Reward, "goal" | "shares"> | null | undefined;
 }) {
   const later = leagueType === "redraft" ? null : leagueType === "keeper" ? "keeper" : "dynasty";
   const analyzer = page === "analyzer";
@@ -174,9 +188,9 @@ export function HowToRead({
       <div className="space-y-2 border-t border-line px-4 py-3 text-sm leading-relaxed sm:px-5">
         <p>
           <span className="font-bold">Helps you</span> (0–100) is how much the trade raises your chances this season: Offer Sheet plays out the rest of your season
-          thousands of times with and without it, and weighs your title and playoff odds by your &ldquo;What does your league reward?&rdquo; setting in Settings
-          (&ldquo;{GOAL_LABEL[config.benefit.goalDefault]}&rdquo; unless you change it). Each card shows those odds before and after the trade, and the weeks whose
-          chance to win your game moves {weeklyLineWords()}.{helpsValueWords(later, valuesOn, longTermOn)} {helpsScaleWords({ scale: helpsScale, leagueType, longTermOn })}
+          thousands of times with and without it, and weighs {weighedOddsWords(reward, helpsScale)} by your &ldquo;What does your league reward?&rdquo; setting in Settings
+          (&ldquo;{GOAL_LABEL[config.benefit.goalDefault]}&rdquo; unless you change it). Each card shows {cardOddsWords(reward, helpsScale)} before and after the
+          trade, and the weeks whose chance to win your game moves {weeklyLineWords()}.{helpsValueWords(later, valuesOn, longTermOn)} {helpsScaleWords({ scale: helpsScale, leagueType, longTermOn })}
         </p>
         <p>
           <span className="font-bold">Chance they accept</span> is an estimate (Est.), rounded to 5% (&ldquo;&lt;{step}&rdquo; when it&apos;s lower) and never above{" "}

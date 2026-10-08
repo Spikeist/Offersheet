@@ -18,7 +18,10 @@
  * - Keeps only aggregates, in memory, on the console and in data-local/feedback-report.md (git-ignored; each run replaces
  *   it): copies, records (a record's copies share its random id: its latest copy is the record as it stands) and the ones
  *   taken back; per record as it stands, its outcome, report reason, version sent (records with an outcome), goal, platform
- *   and league type; the acceptance calibration (each record's predicted P_accept, the sent version's when it was recorded,
+ *   and league type; (Checkpoint 7c; planner reply to Checkpoint 7b, §6) of the records under "Several prizes", how many pay
+ *   each prize (1st, 2nd and 3rd place, the weekly high score, the most points: a share above 0 in the copy's split, which
+ *   holds whole percents, never amounts), counts only, never a record's own split;
+ *   the acceptance calibration (each record's predicted P_accept, the sent version's when it was recorded,
  *   else the card's, in the card's label bins: config.acceptance.labels, against what happened: decided = Accepted +
  *   Rejected, the share accepted next to the mean prediction); the refit's readiness (config.acceptance.refitMinOutcomes);
  *   and the days to check (a day at the store's daily cap, or far above a usual day: a flood of forged copies crowds out at
@@ -31,6 +34,7 @@
 import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { config } from "@/engine/config";
+import { PRIZE_KEYS, type PrizeKey } from "@/engine/settings";
 import { FEEDBACK_GOALS, type StoredFeedbackEvent } from "@/lib/feedbackEvent";
 import { FEEDBACK_OUTCOMES, FEEDBACK_REASONS, FEEDBACK_VERSIONS } from "@/lib/feedbackStore";
 import { StoredFeedbackEventSchema } from "@/server/feedbackSink";
@@ -165,6 +169,11 @@ export interface FeedbackReport {
   byReason: Array<[string, number]>;
   byVersion: Array<[string, number]>;
   byGoal: Array<[string, number]>;
+  /**
+   * Checkpoint 7c: the records as they stand under "Several prizes" (goal "prizes"), and how many of them pay each prize (its
+   * whole percent above 0), in PRIZE_KEYS order. Counts only.
+   */
+  prizes: { records: number; paying: Array<[PrizeKey, number]> };
   byPlatform: Array<[string, number]>;
   byLeagueType: Array<[string, number]>;
   calibration: ReportBin[];
@@ -204,6 +213,8 @@ export function summarizeFeedback(events: readonly StoredFeedbackEvent[], invali
   const predictedSum = new Map<ReportBin, number>();
   let takenBack = 0;
   let unpredicted = 0;
+  let prizeRecords = 0;
+  const paying = new Map<PrizeKey, number>(PRIZE_KEYS.map((k) => [k, 0]));
   for (const e of latest.values()) {
     if (!e.outcome && !e.reason) {
       takenBack++;
@@ -213,6 +224,11 @@ export function summarizeFeedback(events: readonly StoredFeedbackEvent[], invali
     bump(byReason, e.reason ?? "none");
     if (e.outcome) bump(byVersion, e.version ?? "unknown");
     bump(byGoal, e.goal ?? "unknown");
+    // The store's schema holds a split exactly with "Several prizes" (feedbackSink.ts); counted, never kept.
+    if (e.goal === "prizes" && e.prizes) {
+      prizeRecords++;
+      for (const k of PRIZE_KEYS) if (e.prizes[k] > 0) paying.set(k, (paying.get(k) ?? 0) + 1);
+    }
     bump(byPlatform, e.platform);
     bump(byLeagueType, e.format.leagueType);
     if (!e.outcome && e.reason !== "never-accept") continue;
@@ -248,6 +264,7 @@ export function summarizeFeedback(events: readonly StoredFeedbackEvent[], invali
     byVersion: counted(byVersion, FEEDBACK_VERSIONS),
     // Today's goals and an older version's ("balanced", "Top finishers too": its copies keep it; feedbackEvent.ts).
     byGoal: counted(byGoal, FEEDBACK_GOALS),
+    prizes: { records: prizeRecords, paying: PRIZE_KEYS.map((k) => [k, paying.get(k) ?? 0]) },
     byPlatform: counted(byPlatform),
     byLeagueType: counted(byLeagueType),
     calibration,
@@ -258,6 +275,15 @@ export function summarizeFeedback(events: readonly StoredFeedbackEvent[], invali
 }
 
 const pct = (x: number | null) => (x === null ? "–" : `${Math.round(x * 100)}%`);
+
+/** The prizes in the Settings page's words ("What does your league reward?", "Several prizes"). */
+export const PRIZE_WORDS: Readonly<Record<PrizeKey, string>> = {
+  first: "1st place",
+  second: "2nd place",
+  third: "3rd place",
+  weeklyHigh: "High score, each regular-season week",
+  pointsLeader: "Most points in the regular season",
+};
 
 function table(header: string[], rows: (string | number)[][]): string[] {
   return [`| ${header.join(" | ")} |`, `|${header.map(() => "---").join("|")}|`, ...rows.map((r) => `| ${r.join(" | ")} |`)];
@@ -280,6 +306,16 @@ export function formatFeedbackReport(r: FeedbackReport, args: FeedbackReportArgs
   block("By report reason", r.byReason);
   block("By version sent (records with an outcome)", r.byVersion);
   block("By goal", r.byGoal);
+  if (r.prizes.records) {
+    lines.push(
+      "## Prizes paid (records under “Several prizes”)",
+      "",
+      `${r.prizes.records} record(s) under “Several prizes”; how many of them pay each prize (its share above 0). Counts only: a copy holds its league's split as whole percents, never amounts, and no split is kept here.`,
+      "",
+      ...table(["Prize", "Records"], r.prizes.paying.map(([k, n]) => [PRIZE_WORDS[k], n])),
+      "",
+    );
+  }
   block("By platform", r.byPlatform);
   block("By league type", r.byLeagueType);
   lines.push(

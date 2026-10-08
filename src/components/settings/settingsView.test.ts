@@ -16,17 +16,31 @@ import { playoffWeightLabel } from "@/lib/leagueView";
 import { GOAL_LABEL as FINDER_GOAL_LABEL } from "@/lib/tradeView";
 import {
   FALLBACK_WORDS,
+  GOAL_BUBBLE_HINT,
+  GOAL_HELP,
+  GOAL_HELP_LONG_TERM,
   GOAL_LABEL,
   LAMBDA_ESTIMATED_NOTE,
+  PRIZE_LABEL,
+  PRIZE_ODDS_UNKNOWN_WORDS,
+  PRIZE_TEXT_MESSAGES,
+  PRIZES_EMPTY_WARNING,
+  PRIZES_HELP,
+  PRIZES_LEGEND,
   PROTECT_VALUE_ESTIMATED_NOTE,
   PROTECT_VALUE_HELP,
   TRADE_VALUE_NOTE,
   applySettingsEdit,
   buildSettingsView,
+  fallbackWords,
   goalHelp,
   lambdaStart,
   lambdaText,
+  parsePrizeText,
   playoffWeightText,
+  prizeAmountText,
+  prizeCommit,
+  prizeSplitText,
   startablePositions,
   type PlayoffWeightRead,
   type SettingsView,
@@ -105,7 +119,19 @@ describe("the league's choices", () => {
       const value = view({}, { playoffWeight: { kind: "known", omega: 1.25, auto: fallback(reason) } }).playoffWeight.value;
       expect(value).toBe(`1.3× (the default: ${FALLBACK_WORDS[reason]}).`);
       expect(value).not.toMatch(/noTeam|noOdds|undefined|null/);
+      // Under "Several prizes" only unknown odds read differently (below).
+      if (reason !== "titleUnknown") expect(fallbackWords(reason, "prizes")).toBe(FALLBACK_WORDS[reason]);
     }
+    // Under "Several prizes", the odds it couldn't read are the prize odds (the lead's words for Checkpoint 7c): the weight
+    // falls back when a paid prize's odds, 2nd or 3rd place's among them, aren't known.
+    expect(PRIZE_ODDS_UNKNOWN_WORDS).toBe("your prize odds aren't known");
+    const prizesReward = { goal: "prizes" as const, shares: { first: 0.6, second: 0.3, third: 0.1, weeklyHigh: 0, pointsLeader: 0 }, periods: 14, empty: false };
+    const prizesFallback: PlayoffWeightAuto = { ...fallback("titleUnknown"), goal: "prizes", reward: prizesReward };
+    expect(view({ goal: "prizes" }, { playoffWeight: { kind: "known", omega: 1.25, auto: prizesFallback } }).playoffWeight.value).toBe("1.3× (the default: your prize odds aren't known).");
+    expect(fallbackWords("titleUnknown", "prizes")).toBe(PRIZE_ODDS_UNKNOWN_WORDS);
+    for (const goal of ["title", "playoffs", null, undefined] as const) expect(fallbackWords("titleUnknown", goal)).toBe(FALLBACK_WORDS.titleUnknown);
+    // The goal it was measured under decides, as the weight's own words do.
+    expect(view({ goal: "prizes" }, { playoffWeight: { kind: "known", omega: 1.25, auto: fallback("titleUnknown") } }).playoffWeight.value).toBe("1.3× (the default: your title odds aren't known).");
     // Being worked out, or not known yet (no fresh saved inputs: the League page sets it).
     expect(view({}, { playoffWeight: { kind: "working" } }).playoffWeight.value).toBe("set automatically from your odds. Working it out…");
     expect(view().playoffWeight.text).toBe(`Playoff weeks count: set automatically from your odds when the League page loads. ${help}`);
@@ -206,18 +232,22 @@ describe("the league's choices", () => {
     expect(GOAL_LABEL).toEqual({ title: "Only the champion", prizes: "Several prizes", playoffs: "Making the playoffs" });
     // The numbers follow the weights given, never fixed ones.
     expect(goalHelp("playoffs", { playoffs: 0.6, prizes: 0.4 })).toBe("Weighs your playoff odds most (60%), title odds 40%.");
-    // The planner's helper line last: no auto-switching by odds (planner reply to Checkpoint 7a, 5.2).
+    // The planner's helper line last: no auto-switching by odds (planner reply to Checkpoint 7a, 5.2). The lead's words for
+    // Checkpoint 7c before it, the same whichever option is chosen.
     expect(redraft.goal.help).toBe(
-      "Helps you scores a trade by how much it raises your title and playoff odds. Pick what your league's prizes reward. On the bubble? Keep “Only the champion.” It already counts getting into the playoffs.",
+      "Helps you scores a trade by how much it raises your chances at what your league pays and of making the playoffs. Pick what your league's prizes reward. On the bubble? Keep “Only the champion.” It already counts getting into the playoffs.",
     );
+    expect(GOAL_HELP).toBe("Helps you scores a trade by how much it raises your chances at what your league pays and of making the playoffs. Pick what your league's prizes reward.");
+    for (const goal of ["prizes", "playoffs"] as const) expect(view({ goal }).goal.help).toBe(redraft.goal.help);
     expect(checked(view({ goal: "playoffs" }).goal.choices)).toEqual(["playoffs"]);
     // Dynasty and keeper leagues too: it weighs this season's part, and the help says where later seasons are set.
     for (const leagueType of ["dynasty", "keeper"] as const) {
       const v = view({ goal: "prizes" }, { snap: snapshot({ leagueType }) });
       expect(checked(v.goal.choices)).toEqual(["prizes"]);
       expect(v.goal.help).toBe(
-        "For this season, Helps you scores a trade by how much it raises your title and playoff odds (how much later seasons count is set under Win now or build for the future). Pick what your league's prizes reward. On the bubble? Keep “Only the champion.” It already counts getting into the playoffs.",
+        "For this season, Helps you scores a trade by how much it raises your chances at what your league pays and of making the playoffs (how much later seasons count is set under Win now or build for the future). Pick what your league's prizes reward. On the bubble? Keep “Only the champion.” It already counts getting into the playoffs.",
       );
+      expect(v.goal.help).toBe(`${GOAL_HELP_LONG_TERM} ${GOAL_BUBBLE_HINT}`);
     }
     // A league saved with "Top finishers too" before Checkpoint 7c shows "Several prizes" checked (settings.ts's migration).
     expect(checked(view({ goal: "balanced" } as unknown as Partial<TradeSettings>).goal.choices)).toEqual(["prizes"]);
@@ -273,6 +303,116 @@ describe("the league's choices", () => {
     const v = view({}, { stored: true });
     expect(v.league).toEqual({ name: "The Made-Up League", platformLabel: "ESPN", season: 2026, typeLabel: "Redraft", dynastyOrKeeper: false });
     expect(v.stored).toBe(true);
+  });
+});
+
+describe("“Your league's prizes” under “Several prizes” (planner reply to Checkpoint 7b, §6)", () => {
+  const amounts = (o: Partial<TradeSettings["prizes"]>): TradeSettings["prizes"] => ({ first: null, second: null, third: null, weeklyHigh: null, pointsLeader: null, ...o });
+
+  it("shows only under “Several prizes”: the planner's five prizes, prefilled 60 / 30 / 10 with the rest blank, his helper line verbatim, and the split", () => {
+    expect(view().prizes).toBeNull();
+    expect(view({ goal: "playoffs" }).prizes).toBeNull();
+    // A league saved with "Top finishers too" reads as "Several prizes" with the prefilled split (settings.ts's migration).
+    expect(view({ goal: "balanced" } as unknown as Partial<TradeSettings>).prizes?.split).toBe("Your prizes split: 1st 60%, 2nd 30%, 3rd 10%.");
+    const v = view({ goal: "prizes" });
+    expect(v.prizes).toEqual({
+      legend: "Your league's prizes",
+      help: "Enter each prize in dollars or percent, the same way for all. Only the split matters. Leave blank what your league doesn't pay.",
+      fields: [
+        { key: "first", label: "1st place", value: "60" },
+        { key: "second", label: "2nd place", value: "30" },
+        { key: "third", label: "3rd place", value: "10" },
+        { key: "weeklyHigh", label: "High score, each regular-season week", value: "" },
+        { key: "pointsLeader", label: "Most points in the regular season", value: "" },
+      ],
+      split: "Your prizes split: 1st 60%, 2nd 30%, 3rd 10%.",
+      warning: null,
+    });
+    expect(PRIZES_LEGEND).toBe("Your league's prizes");
+    expect(PRIZES_HELP).toBe("Enter each prize in dollars or percent, the same way for all. Only the split matters. Leave blank what your league doesn't pay.");
+    expect(Object.values(PRIZE_LABEL)).toEqual(v.prizes?.fields.map((f) => f.label));
+    // Every league type: in dynasty and keeper leagues the prizes are this season's.
+    for (const leagueType of ["dynasty", "keeper"] as const) expect(view({ goal: "prizes" }, { snap: snapshot({ leagueType }) }).prizes?.fields).toHaveLength(5);
+    // Plain words: no model terms.
+    expect(JSON.stringify(v.prizes)).not.toMatch(/E\[S\]|ΔE|B_win|share of/);
+  });
+
+  it("splits Parker's prizes as the engine reads them (2,000 / 1,600 / 900: 44 / 36 / 20), in whole percents adding up to 100", () => {
+    const parker = view({ goal: "prizes", prizes: amounts({ first: 2000, second: 1600, third: 900, weeklyHigh: 0 }) }).prizes;
+    expect(parker?.split).toBe("Your prizes split: 1st 44%, 2nd 36%, 3rd 20%.");
+    // A prize set to 0 pays nothing, and shows as typed.
+    expect(parker?.fields.map((f) => f.value)).toEqual(["2000", "1600", "900", "0", ""]);
+    // The weekly high score counts once a prize period (14 regular-season weeks here, none listed in the schedule), for the
+    // whole season in the split, with how many times it's paid.
+    expect(view({ goal: "prizes", prizes: amounts({ first: 100, weeklyHigh: 25 }) }).prizes?.split).toBe("Your prizes split: 1st 22%, weekly high scores 78% (paid 14 times).");
+    // An ESPN matchup of two NFL weeks is one prize period (reward.ts prizePeriods).
+    const twoWeek: LeagueSnapshot = { ...snapshot(), schedule: [1, 3, 5, 7, 9, 11, 13].map((w) => ({ week: w, weeks: [w, w + 1], teamA: "1", teamB: "2", isPlayoff: false })) };
+    expect(view({ goal: "prizes", prizes: amounts({ first: 100, weeklyHigh: 25 }) }, { snap: twoWeek }).prizes?.split).toBe("Your prizes split: 1st 36%, weekly high scores 64% (paid 7 times).");
+    // The points title, and a paid prize too small to round to a whole percent.
+    expect(view({ goal: "prizes", prizes: amounts({ first: 50, second: 30, pointsLeader: 20 }) }).prizes?.split).toBe("Your prizes split: 1st 50%, 2nd 30%, most points 20%.");
+    expect(view({ goal: "prizes", prizes: amounts({ first: 1000, second: 1, third: 1 }) }).prizes?.split).toBe("Your prizes split: 1st 100%, 2nd <1%, 3rd <1%.");
+    expect(prizeSplitText({ first: 0.5, second: 0, third: 0, weeklyHigh: 0.5, pointsLeader: 0 }, 1)).toBe("Your prizes split: 1st 50%, weekly high scores 50% (paid 1 time).");
+  });
+
+  it("warns, with no split, while the amounts add up to nothing: Helps you counts the title only until a prize is entered", () => {
+    expect(PRIZES_EMPTY_WARNING).toBe("Enter at least one prize. Until then, Helps you counts the title only.");
+    for (const prizes of [amounts({}), amounts({ first: 0, second: 0 })]) {
+      const p = view({ goal: "prizes", prizes }).prizes;
+      expect(p?.split).toBeNull();
+      expect(p?.warning).toBe(PRIZES_EMPTY_WARNING);
+    }
+    expect(view({ goal: "prizes" }).prizes?.warning).toBeNull();
+  });
+
+  it("reads what's typed leniently: dollars or percent, thousands commas, blank for not paid; and says why it can't read the rest", () => {
+    const value = (t: string) => {
+      const r = parsePrizeText(t);
+      return r.ok ? r.value : r.message;
+    };
+    expect(["", "  ", "60", "$2,000", "60%", "$60%", "1 600", "12.5", ".5", "0", "+5", "1,000,000,000", " $ 900 ", "2,000.50", "+1,600"].map(value)).toEqual([
+      null, null, 60, 2000, 60, 60, 1600, 12.5, 0.5, 0, 5, 1e9, 900, 2000.5, 1600,
+    ]);
+    expect(["-5", "−5", "$-5", "-$5"].map(value)).toEqual(Array(4).fill(PRIZE_TEXT_MESSAGES.negative));
+    // Review of the prizes UI, prizes-ui-4: a lone "$" or "%" is no number (it read as blank, so typing it erased a prize).
+    expect(["abc", "60$", "%60", "1.2.3", "five", "-", "$", "%", "$%", " $ ", "1,600,0", "1,60,0"].map(value)).toEqual(Array(12).fill(PRIZE_TEXT_MESSAGES.notNumber));
+    // A decimal comma (some phones' decimal keypads) asks for a period, never read as 125, 500 or 15.
+    expect(["12,5", "12,5%", "5,00", "1,5", ",5", "$1,5"].map(value)).toEqual(Array(6).fill(PRIZE_TEXT_MESSAGES.decimalComma));
+    expect(["2000000000", "1e12", "1e400"].map(value)).toEqual(Array(3).fill(PRIZE_TEXT_MESSAGES.tooBig));
+    expect(PRIZE_TEXT_MESSAGES).toEqual({
+      notNumber: "Enter a number, like 2000 or 60.",
+      negative: "A prize can't be negative.",
+      tooBig: "Enter a smaller number.",
+      decimalComma: "Use a period for decimals, like 12.5.",
+    });
+    // What a field shows reads back as the same amount.
+    for (const x of [0, 60, 2000, 12.5, 1e-7, 1e9]) expect(parsePrizeText(prizeAmountText(x))).toEqual({ ok: true, value: x });
+    expect(prizeAmountText(null)).toBe("");
+  });
+
+  it("on blur or Enter, a field saves what it reads, keeps text it can't read with why, and does nothing when it reads as the amount saved", () => {
+    expect(prizeCommit("$2,000", "60")).toEqual({ kind: "save", value: 2000 });
+    expect(prizeCommit("", "10")).toEqual({ kind: "save", value: null });
+    expect(prizeCommit("25", "")).toEqual({ kind: "save", value: 25 });
+    // The same amount, however it's typed: no save (no "Saved." and no League model rebuilt for nothing).
+    for (const [text, saved] of [["60%", "60"], ["$60", "60"], ["60", "60"], ["", ""], [" ", ""], ["1,600", "1600"]] as const) expect(prizeCommit(text, saved), text).toEqual({ kind: "same" });
+    expect(prizeCommit("abc", "60")).toEqual({ kind: "error", message: PRIZE_TEXT_MESSAGES.notNumber });
+    expect(prizeCommit("-5", "60")).toEqual({ kind: "error", message: PRIZE_TEXT_MESSAGES.negative });
+    // A lone sign over a saved prize keeps it, with why (it saved as blank before the review, prizes-ui-4); a decimal comma too.
+    for (const sign of ["$", "%", " $ "]) expect(prizeCommit(sign, "60"), sign).toEqual({ kind: "error", message: PRIZE_TEXT_MESSAGES.notNumber });
+    expect(prizeCommit("12,5", "60")).toEqual({ kind: "error", message: PRIZE_TEXT_MESSAGES.decimalComma });
+  });
+
+  it("saves one prize's amount, the others and the goal untouched; an amount out of range saves as blank", () => {
+    const base = { ...defaultTradeSettings(), goal: "prizes" as const };
+    const first = applySettingsEdit(base, { kind: "prize", key: "first", value: 2000 });
+    expect(first).toEqual({ settings: { ...base, prizes: { ...base.prizes, first: 2000 } }, note: null });
+    expect(applySettingsEdit(first.settings, { kind: "prize", key: "weeklyHigh", value: 25 }).settings.prizes).toEqual({ first: 2000, second: 30, third: 10, weeklyHigh: 25, pointsLeader: null });
+    expect(applySettingsEdit(base, { kind: "prize", key: "third", value: null }).settings.prizes.third).toBeNull();
+    for (const bad of [-1, Number.NaN, Number.POSITIVE_INFINITY, 2e9]) expect(applySettingsEdit(base, { kind: "prize", key: "second", value: bad }).settings.prizes.second).toBeNull();
+    // Kept whatever the goal, so switching away and back keeps them (read only under "Several prizes").
+    expect(applySettingsEdit(first.settings, { kind: "goal", value: "title" }).settings.prizes.first).toBe(2000);
+    // An unknown prize (a tampered page) changes nothing.
+    expect(applySettingsEdit(base, { kind: "prize", key: "fourth" as unknown as "first", value: 5 }).settings).toEqual(base);
   });
 });
 

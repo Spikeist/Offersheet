@@ -10,7 +10,12 @@
  *   the card's Overall number rounds;
  * - "helps": B, highest first;
  * - "accept": P_complete, highest first, among trades with B > 0; trades with B ≤ 0 or an unknown B come after them,
- *   in the same order (§13: "Chance they accept (P_complete, among trades with B > 0)").
+ *   in the same order (§13: "Chance they accept (P_complete, among trades with B > 0)");
+ * - "helpsBoth" (Checkpoint 7c; planner reply to Checkpoint 7b, §7: "only trades that help both teams, sorted by Helps you"):
+ *   the trades that help both teams (benefit.helpsBoth: Helps you above 0 and Helps them at least config.benefit.helpsThemMin,
+ *   both as printed) first, by B, then the rest by B. A sort never drops a trade: the search's own "Helps both" list
+ *   (TradeSearchResult.helpsBoth, rankTrades with order "helps" and keep, below) holds only those, and helpsBothTrades
+ *   filters a list for a result without one.
  * An unknown number (B not simulated yet, or not finite) sorts after every known one. Ties: EG (highest first), then
  * the trade's key (TradeEvaluation.key, ascending), then, for evaluations of one key, the furthest evaluated first
  * (stage final > exact > screened, then more seasons simulated), then B, P_complete and g_mkt(me), highest first.
@@ -30,9 +35,11 @@
  *    one; §11 judges the labels on the shown value the same way): a P_complete of 7.5% prints "10%"
  *    and meets 10%, one of 7.49% prints "5%" and doesn't (meetsMinChance). The options start at 10%, so a chance printed
  *    at or under 5% never meets one. minChance 0 (Any) or absent removes nothing. RankedTrades.qualifying counts the
- *    trades that pass both (what the diversity rules start from).
- * 2. The rest, in Overall order, go through the diversity rules greedily, each trade judged against the trades
- *    already kept:
+ *    trades that pass both (what the diversity rules start from). Checkpoint 7c (the "Helps both" list): between the guards
+ *    and the minimum, RankOptions.keep turns away the trades it doesn't keep (benefit.helpsBoth there), counted as
+ *    RankedTrades.notKept, so byChance and qualifying count only the trades it keeps.
+ * 2. The rest, in Overall order (Checkpoint 7c: RankOptions.order "helps", B highest first, for the "Helps both" list), go
+ *    through the diversity rules greedily, each trade judged against the trades already kept:
  *    a. filler: a kept trade with the same partner whose assets (side by side) are a proper subset of this one's, and
  *       |B − B_kept| < fillerCutoffFraction × B_kept: the extra assets barely change B (§13: "Drop variants that only
  *       add a filler player whose effect is under 0.2 × B"), or ⚠️ (final review of Phase 4c, finding R5, ours) this one
@@ -43,7 +50,17 @@
  *       → Jordan Mason (B 0.158 at 47.0%) a lean companion and then a finalist, and the 20% clause (its B is the higher
  *       one, so this clause doesn't hold). On the synthetic smallLeague(11) it drops three variants of Team 2's 1011 → 1020
  *       (B 5.83 at 29.1%) the 20% clause keeps, such as 1011 + 1002 → 1015 + 1020 (B 3.83 at 26.6%). Only the variant
- *       ranked below is dropped: a variant that ranks above its smaller trade is no filler of it;
+ *       ranked below its smaller trade in Overall order (EG, sortTrades "overall": what "ranked below" meant when every list
+ *       was in that order) is dropped: a variant that ranks above its smaller trade is no filler of it. ⚠️ So the same
+ *       pairs are filler in either order (Checkpoint 7c, ours: review of the "Helps both" engine track, finding HB-3). In
+ *       Helps-you order a bigger variant whose extra player lifts B a little comes first however much less likely it is,
+ *       and its smaller trade, arriving later, is no superset of it (on Parker's league under his prizes the "Helps both"
+ *       list led with Puka Nacua + Marvin Harrison Jr. → Drake London + Christian Watson, B 1.454 at 24.7%, then Puka
+ *       Nacua → Drake London + Christian Watson, B 1.440 at 27.2%). So after the pass the kept cards are read in Overall
+ *       order, and one that is filler of an earlier card that stays leaves (as that order's own pass would drop it); the
+ *       trades are ranked again without the cards that left, until none leaves (the freed places go to the next trades).
+ *       In Overall order the pass already drops every such card (the smaller trade comes first), so that list is ranked
+ *       once, exactly as before. A bigger variant whose smaller trade the other rules leave out stays;
  *    b. core: perCore kept trades already share its core, the highest-value asset on each side (`value`: the
  *       perception value; ties and unknown values: the smaller asset id; an empty side has no core asset);
  *    c. partner cap: while fewer than partnerCapTop (20, §13's "top 20") trades are kept, its partner already has
@@ -60,7 +77,7 @@
  * 3. It stops once resultsShown trades are kept; the trades after that are neither kept nor counted as dropped.
  */
 import { displayAcceptance } from "./acceptance";
-import { expectedGain } from "./benefit";
+import { expectedGain, helpsBoth } from "./benefit";
 import { config } from "./config";
 import type { TradeAsset, TradeEvaluation, TradeSort } from "./tradeModel";
 
@@ -93,6 +110,17 @@ export interface RankOptions {
    * players of mine, in every trade by the user's choice. Absent or empty: every player of mine counts.
    */
   readonly givenCapExempt?: readonly string[];
+  /**
+   * Checkpoint 7c (planner reply to Checkpoint 7b, §7, the "Helps both" list): the order the trades go through the diversity
+   * rules in, which is the list's order: "overall" (the default: EG, sortTrades "overall") or "helps" (B, highest first:
+   * sortTrades "helps"). The file header, step 2.
+   */
+  readonly order?: "overall" | "helps";
+  /**
+   * Checkpoint 7c: only the trades this keeps can be shown (benefit.helpsBoth for the "Helps both" list), judged after the §10
+   * guards and before the minimum chance; the others the guards keep are counted (RankedTrades.notKept). Absent: every trade.
+   */
+  readonly keep?: (trade: TradeEvaluation) => boolean;
 }
 
 const DEFAULT_RANK_CONFIG: RankConfig = {
@@ -159,14 +187,15 @@ export function sortTrades(trades: readonly TradeEvaluation[], sort: TradeSort):
   let compare: (a: TradeEvaluation, b: TradeEvaluation) => number;
   if (sort === "helps") compare = (a, b) => descending(a.b, b.b) || byGainThenKey(a, b);
   else if (sort === "accept") compare = (a, b) => Number(helpsYou(b)) - Number(helpsYou(a)) || descending(a.pComplete, b.pComplete) || byGainThenKey(a, b);
+  else if (sort === "helpsBoth") compare = (a, b) => Number(helpsBoth(b)) - Number(helpsBoth(a)) || descending(a.b, b.b) || byGainThenKey(a, b);
   else compare = byGainThenKey;
   return [...trades].sort(compare);
 }
 
 export interface RankedTrades {
   /**
-   * The top config.search.resultsShown, Overall order, after the hidden-by-default guards, the minimum chance and the
-   * diversity rules.
+   * The top config.search.resultsShown, Overall order (RankOptions.order's: Helps-you order under "helps"), after the
+   * hidden-by-default guards, RankOptions.keep, the minimum chance and the diversity rules.
    */
   trades: TradeEvaluation[];
   /**
@@ -182,6 +211,11 @@ export interface RankedTrades {
    * and over the given-player cap in the top 20 (givenPlayer; planner reply to Checkpoint 4, answer 7).
    */
   dropped: { partnerCap: number; core: number; filler: number; givenPlayer: number };
+  /**
+   * Checkpoint 7c: the trades the guards keep that RankOptions.keep turned away (a "Helps both" ranking: the ones that don't
+   * help both teams). Present only when the call passes `keep`.
+   */
+  notKept?: number;
 }
 
 /** An asset's id within its side: a player's canonical id, or a pick's season, round and original team. */
@@ -226,59 +260,30 @@ function properSubset(small: ReadonlySet<string>, big: ReadonlySet<string>): boo
 }
 
 /**
- * Whether a trade's P_complete reaches the minimum chance as the card prints it (the file header, step 1:
- * acceptance.displayAcceptance, the nearest 5%; float noise counts as at it). A minimum of 0 (Any), or none, holds for
- * every trade.
+ * Whether `c` is a filler variant of `k` (the file header, rule a): the same partner, `k`'s assets plus more, B within
+ * fillerCutoffFraction × B_k (or ⚠️ R5: no more helpful and less likely), and ranked below `k` in Overall order (⚠️ HB-3:
+ * judged in that order whatever order the list goes in, so the same pairs are filler in every list).
  */
-export function meetsMinChance(pComplete: number, minChance: number | undefined): boolean {
-  if (!isFiniteNumber(minChance) || !(minChance > 0)) return true;
-  return isFiniteNumber(pComplete) && displayAcceptance(pComplete) >= minChance - EPS;
+function fillerOf(c: Candidate, k: Candidate, cutoff: number): boolean {
+  return (
+    k.partnerId === c.partnerId &&
+    properSubset(k.assets, c.assets) &&
+    (Math.abs(c.b - k.b) < cutoff * k.b || (c.b <= k.b && c.trade.pComplete < k.trade.pComplete)) &&
+    byGainThenKey(c.trade, k.trade) > 0
+  );
 }
 
-/**
- * §13's ranking and diversity on evaluated trades (the file header). `value` gives an asset's perception value (the
- * core of a trade is its highest-value asset on each side). `cfg` defaults to config; `opts.minChance` is the user's
- * minimum chance (none by default), `opts.givenCapExempt` the players of mine the given-player cap skips (none by
- * default).
- */
-export function rankTrades(evaluations: readonly TradeEvaluation[], value: (asset: TradeAsset) => number, cfg: RankConfig = DEFAULT_RANK_CONFIG, opts: RankOptions = {}): RankedTrades {
-  const hidden = { byBenefit: 0, byMarket: 0, byChance: 0 };
+/** One greedy pass of the diversity rules (the file header, step 2) over `candidates` in the list's order. */
+function diversify(candidates: readonly Candidate[], cfg: RankConfig, givenCap: number): { kept: Candidate[]; dropped: RankedTrades["dropped"] } {
   const dropped = { partnerCap: 0, core: 0, filler: 0, givenPlayer: 0 };
-  const givenCap = cfg.perGivenPlayerInTop20 ?? config.ranking.perGivenPlayerInTop20;
-  const exempt = new Set(opts.givenCapExempt ?? []);
-  const byKey = new Map<string, TradeEvaluation>();
-  for (const e of evaluations) {
-    const kept = byKey.get(e.key);
-    if (kept === undefined || preferred(e, kept) < 0) byKey.set(e.key, e);
-  }
-  const shown: TradeEvaluation[] = [];
-  for (const e of sortTrades([...byKey.values()], "overall")) {
-    if (e.illegal !== null) continue;
-    if (!helpsYou(e)) hidden.byBenefit++;
-    else if (e.gMine < cfg.marketHideBelow) hidden.byMarket++;
-    else if (!meetsMinChance(e.pComplete, opts.minChance)) hidden.byChance++;
-    else shown.push(e);
-  }
-  const qualifying = shown.length;
-
   const kept: Candidate[] = [];
   const perCore = new Map<string, number>();
   const perPartnerTop = new Map<string, number>();
   const perGivenTop = new Map<string, number>();
   const limit = Math.max(0, Math.floor(cfg.resultsShown));
-  for (const trade of shown) {
+  for (const c of candidates) {
     if (kept.length >= limit) break;
-    const give = trade.proposal.give;
-    const get = trade.proposal.get;
-    const c: Candidate = {
-      trade,
-      partnerId: trade.proposal.partnerId,
-      assets: new Set([...give.map((a) => `give:${assetId(a)}`), ...get.map((a) => `get:${assetId(a)}`)]),
-      core: `${coreAsset(give, value)}|${coreAsset(get, value)}`,
-      given: [...new Set(give.flatMap((a) => (a.kind === "player" && !exempt.has(a.id) ? [a.id] : [])))],
-      b: trade.b as number,
-    };
-    if (kept.some((k) => k.partnerId === c.partnerId && properSubset(k.assets, c.assets) && (Math.abs(c.b - k.b) < cfg.fillerCutoffFraction * k.b || (c.b <= k.b && c.trade.pComplete < k.trade.pComplete)))) {
+    if (kept.some((k) => fillerOf(c, k, cfg.fillerCutoffFraction))) {
       dropped.filler++;
       continue;
     }
@@ -302,5 +307,89 @@ export function rankTrades(evaluations: readonly TradeEvaluation[], value: (asse
       for (const id of c.given) perGivenTop.set(id, (perGivenTop.get(id) ?? 0) + 1);
     }
   }
-  return { trades: kept.map((k) => k.trade), hidden, qualifying, dropped };
+  return { kept, dropped };
+}
+
+/**
+ * Whether a trade's P_complete reaches the minimum chance as the card prints it (the file header, step 1:
+ * acceptance.displayAcceptance, the nearest 5%; float noise counts as at it). A minimum of 0 (Any), or none, holds for
+ * every trade.
+ */
+export function meetsMinChance(pComplete: number, minChance: number | undefined): boolean {
+  if (!isFiniteNumber(minChance) || !(minChance > 0)) return true;
+  return isFiniteNumber(pComplete) && displayAcceptance(pComplete) >= minChance - EPS;
+}
+
+/**
+ * §13's ranking and diversity on evaluated trades (the file header). `value` gives an asset's perception value (the
+ * core of a trade is its highest-value asset on each side). `cfg` defaults to config; `opts.minChance` is the user's
+ * minimum chance (none by default), `opts.givenCapExempt` the players of mine the given-player cap skips (none by
+ * default).
+ */
+export function rankTrades(evaluations: readonly TradeEvaluation[], value: (asset: TradeAsset) => number, cfg: RankConfig = DEFAULT_RANK_CONFIG, opts: RankOptions = {}): RankedTrades {
+  const hidden = { byBenefit: 0, byMarket: 0, byChance: 0 };
+  const givenCap = cfg.perGivenPlayerInTop20 ?? config.ranking.perGivenPlayerInTop20;
+  const exempt = new Set(opts.givenCapExempt ?? []);
+  const byKey = new Map<string, TradeEvaluation>();
+  for (const e of evaluations) {
+    const kept = byKey.get(e.key);
+    if (kept === undefined || preferred(e, kept) < 0) byKey.set(e.key, e);
+  }
+  const shown: TradeEvaluation[] = [];
+  let notKept = 0;
+  for (const e of sortTrades([...byKey.values()], opts.order ?? "overall")) {
+    if (e.illegal !== null) continue;
+    if (!helpsYou(e)) hidden.byBenefit++;
+    else if (e.gMine < cfg.marketHideBelow) hidden.byMarket++;
+    else if (opts.keep && !opts.keep(e)) notKept++;
+    else if (!meetsMinChance(e.pComplete, opts.minChance)) hidden.byChance++;
+    else shown.push(e);
+  }
+  const qualifying = shown.length;
+
+  const candidates: Candidate[] = shown.map((trade) => {
+    const give = trade.proposal.give;
+    const get = trade.proposal.get;
+    return {
+      trade,
+      partnerId: trade.proposal.partnerId,
+      assets: new Set([...give.map((a) => `give:${assetId(a)}`), ...get.map((a) => `get:${assetId(a)}`)]),
+      core: `${coreAsset(give, value)}|${coreAsset(get, value)}`,
+      given: [...new Set(give.flatMap((a) => (a.kind === "player" && !exempt.has(a.id) ? [a.id] : [])))],
+      b: trade.b as number,
+    };
+  });
+  // The diversity rules, then (⚠️ HB-3, the file header, rule a) the kept cards in Overall order: one that is filler of an
+  // earlier card that stays leaves (judged as the Overall order's own pass judges it), and the rest are ranked again without
+  // it, until none leaves; each counted as filler. In Overall order the first pass leaves none.
+  const late = new Set<string>();
+  let pass = diversify(candidates, cfg, givenCap);
+  for (;;) {
+    const stay: Candidate[] = [];
+    let left = 0;
+    for (const c of [...pass.kept].sort((a, b) => byGainThenKey(a.trade, b.trade))) {
+      if (stay.some((k) => fillerOf(c, k, cfg.fillerCutoffFraction))) {
+        late.add(c.trade.key);
+        left++;
+      } else stay.push(c);
+    }
+    if (!left) break;
+    pass = diversify(
+      candidates.filter((c) => !late.has(c.trade.key)),
+      cfg,
+      givenCap,
+    );
+  }
+  const dropped = { ...pass.dropped, filler: pass.dropped.filler + late.size };
+  return { trades: pass.kept.map((k) => k.trade), hidden, qualifying, dropped, ...(opts.keep ? { notKept } : {}) };
+}
+
+/**
+ * The trades that help both teams (benefit.helpsBoth, on the printed scores), in Helps-you order (sortTrades "helps"): the
+ * "Helps both" sort read from a list alone, with no ranking of its own (no guards, minimum or caps beyond the list's). A
+ * page reads the engine's own list (TradeSearchResult.helpsBoth, the search's ranking) and falls back on this for a result
+ * without one. Returns a new array.
+ */
+export function helpsBothTrades(trades: readonly TradeEvaluation[]): TradeEvaluation[] {
+  return sortTrades(trades.filter((t) => helpsBoth(t)), "helps");
 }

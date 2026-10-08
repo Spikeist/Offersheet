@@ -4,10 +4,13 @@
  * "Share anonymous feedback" and the one-time note in a stand-in localStorage, and the sender's debounce with fake timers
  * and posts. The fictional league of the trade pages' fixtures (every name made up); no network.
  */
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { tradeSnapshot } from "@/components/trades/testFixtures";
 import type { LeagueSettings, LeagueSnapshot } from "@/engine/model";
-import type { Goal } from "@/engine/settings";
+import { TITLE_ONLY, prizePeriods, rewardWith } from "@/engine/reward";
 import type { AcceptanceFeatures } from "@/engine/tradeModel";
 import { FEEDBACK_EVENT_MAX_PER_SIDE, FEEDBACK_PLAYER_ID } from "./feedbackEvent";
 import {
@@ -20,6 +23,7 @@ import {
   feedbackBasisOf,
   feedbackEventOf,
   feedbackFormatOf,
+  feedbackRewardOf,
   feedbackShareContext,
   markShareNoted,
   newShareId,
@@ -31,9 +35,11 @@ import {
   shareFeedbackPress,
   shareNoteDue,
   sharingOn,
+  shownRewardOf,
   sig,
   slotKey,
   type FeedbackEvent,
+  type FeedbackRewardSource,
 } from "./feedbackShare";
 import { SHARE_ID_PATTERN, applyFeedback, isShareId, parseFeedbackRecord, type FeedbackChange, type FeedbackEvaluation, type FeedbackRecord } from "./feedbackStore";
 import type { StorageLike } from "./importStore";
@@ -104,7 +110,16 @@ function recordAfter(...changes: FeedbackChange[]): FeedbackRecord | undefined {
   return list[0];
 }
 
-const context = (goal: Goal | null = "title") => feedbackShareContext(snapshot, goal);
+/** The copy's context on screen: a goal alone, or (Checkpoint 7c) the engine's reward. */
+const context = (reward: FeedbackRewardSource = "title") => feedbackShareContext(snapshot, reward);
+
+/**
+ * "Several prizes" as the engine hands it to the pages (Checkpoint 7c: TradeSearchResult.reward), on amounts no test number
+ * shares: $2,468 / $1,357 / $975, nothing for the weekly high score, so the copy's whole percents are 52 / 28 / 20.
+ */
+const AMOUNTS = { first: 2468, second: 1357, third: 975, weeklyHigh: 0, pointsLeader: null };
+const PRIZES = rewardWith({ goal: "prizes", prizes: AMOUNTS }, prizePeriods(snapshot));
+const SPLIT = { first: 52, second: 28, third: 20, weeklyHigh: 0, pointsLeader: 0 };
 
 describe("the league's format in a copy", () => {
   it("numTeams, league type, points per catch and passing TD, TE premium, a second QB, starting slots by the positions they take, playoff teams", () => {
@@ -167,23 +182,29 @@ describe("the anonymous copy of a record", () => {
 
   it("pairs each set of numbers with the week and goal they were computed for, not the ones on screen at a later press (review FB-R6)", () => {
     // Week 12 under "Only the champion": Report. A week later, the cards searched again under "Several prizes": Sent, with the
-    // version's inputs. The record keeps week 12's numbers; the version's inputs are week 13's.
+    // version's inputs (tradeView.ts writes the goal alone: the press's basis gives them its split, Checkpoint 7c). The
+    // record keeps week 12's numbers; the version's inputs are week 13's.
     const week12 = feedbackBasisOf(context("title"));
-    const week13 = { ...week12, week: 13, goal: "prizes" as const };
+    const onScreen = { ...context(PRIZES), week: 13 };
+    const week13 = feedbackBasisOf(onScreen);
+    expect(week13).toEqual({ season: 2026, week: 13, goal: "prizes", prizes: SPLIT });
     const inputs = { features: FEATURES, gPartner: -0.08, b: 5.9, goal: "prizes" as const, b3: 7.1, helpsReason: null };
     const record = recordAfter({ report: { reason: "never-accept" }, basis: week12 }, { outcome: "sent", sent: { version: "full", key: "2|give:106|get:204", pAccept: 0.5, pComplete: 0.5, inputs }, basis: week13 }) as FeedbackRecord;
     expect(record.basis).toEqual({ season: 2026, week: 12, goal: "title" });
-    const onScreen = { ...context("prizes"), week: 13 };
+    expect(record.versionInputs).toMatchObject({ goal: "prizes", prizes: SPLIT, week: 13 });
     const first = feedbackEventOf({ record: recordAfter({ report: { reason: "never-accept" }, basis: week12 }) as FeedbackRecord, kind: "report", context: context("title") }) as FeedbackEvent;
     const latest = feedbackEventOf({ record, kind: "outcome", context: onScreen }) as FeedbackEvent;
     for (const e of [first, latest]) expect(e).toMatchObject({ season: 2026, week: 12, goal: "title", numbers: { b: 4.21235 } });
-    expect(latest.versionInputs).toMatchObject({ b: 5.9, goal: "prizes", week: 13 });
+    // The record's own goal names no split, so the copy has none at the top (never the split on screen).
+    for (const e of [first, latest]) expect(e).not.toHaveProperty("prizes");
+    expect(latest.versionInputs).toMatchObject({ b: 5.9, goal: "prizes", prizes: SPLIT, week: 13 });
     // The record reads back with its basis (the league store, an export).
     expect(parseFeedbackRecord(JSON.parse(JSON.stringify(record)))?.basis).toEqual(week12);
+    expect(parseFeedbackRecord(JSON.parse(JSON.stringify(record)))?.versionInputs).toEqual(record.versionInputs);
     expect(parseFeedbackRecord(JSON.parse(JSON.stringify({ ...record, basis: { season: 1999, week: 12, goal: "title" } })))).not.toHaveProperty("basis");
-    // A record made before (no basis): the league data and cards on screen, as before.
+    // A record made before (no basis): the league data and cards on screen, as before, the goal with its split.
     const old = recordAfter({ report: { reason: "never-accept" } }) as FeedbackRecord;
-    expect(feedbackEventOf({ record: old, kind: "report", context: onScreen })).toMatchObject({ week: 13, goal: "prizes" });
+    expect(feedbackEventOf({ record: old, kind: "report", context: onScreen })).toMatchObject({ week: 13, goal: "prizes", prizes: SPLIT });
   });
 
   it("names the sent version's own players when they aren't the card's: a first offer, a throw-in added, a Plan B (review FB-R7)", () => {
@@ -267,6 +288,67 @@ describe("the anonymous copy of a record", () => {
     expect(printedChance(null)).toBeNull();
     expect(printedChance(Number.NaN)).toBeNull();
     expect([0.123456789, 123456.789, -0.0000123456789, -0, Number.POSITIVE_INFINITY, null].map(sig)).toEqual([0.123457, 123457, -0.0000123457, 0, null, null]);
+  });
+});
+
+describe("“Several prizes” in a copy (Checkpoint 7c; planner reply to Checkpoint 7b, §6: only the shares, whole percents, never the amounts)", () => {
+  const sentUnder = (inputs: Record<string, unknown>, basis?: ReturnType<typeof feedbackBasisOf>): FeedbackRecord =>
+    recordAfter({ outcome: "sent", sent: { version: "full", key: "2|give:106|get:204", pAccept: 0.42, pComplete: 0.42, inputs: { features: FEATURES, gPartner: -0.08, b: 4.2, b3: 6, helpsReason: null, ...inputs } as never }, ...(basis ? { basis } : {}) }) as FeedbackRecord;
+
+  it("holds the split as whole percents at the top and in the sent version's inputs, from the cards' reward, never the amounts typed", () => {
+    // The press on a card weighed by the split: its basis holds the split, and the version's inputs (the goal alone, as
+    // tradeView.ts writes them) take the press's.
+    const record = sentUnder({ goal: "prizes" }, feedbackBasisOf(context(PRIZES)));
+    expect(record.basis).toEqual({ season: 2026, week: 12, goal: "prizes", prizes: SPLIT });
+    expect(record.versionInputs).toMatchObject({ goal: "prizes", prizes: SPLIT });
+    const event = feedbackEventOf({ record, kind: "outcome", context: context(PRIZES) }) as FeedbackEvent;
+    expect(event).toMatchObject({ goal: "prizes", prizes: SPLIT, versionInputs: { goal: "prizes", prizes: SPLIT } });
+    expect(Object.keys(event)).toContain("prizes");
+    // Never the amounts (nor their total), anywhere in the copy or the record.
+    for (const text of [JSON.stringify(event), JSON.stringify(record)]) for (const amount of ["2468", "1357", "975", "4800"]) expect(text, amount).not.toContain(amount);
+  });
+
+  it("takes the goal and its split from one source: the record's basis, else the sent version's, else the cards' on screen; never one's goal with another's split", () => {
+    // Parker's $2,000 / $1,600 / $900 an earlier search used, against the 52 / 28 / 20 on screen now.
+    const earlier = { first: 44, second: 36, third: 20, weeklyHigh: 0, pointsLeader: 0 };
+    // A record made before Phase 7a's basis, its version recorded under the earlier split: the version's goal and split.
+    const versionOnly = sentUnder({ goal: "prizes", prizes: earlier });
+    expect(versionOnly).not.toHaveProperty("basis");
+    expect(feedbackEventOf({ record: versionOnly, kind: "outcome", context: context(PRIZES) })).toMatchObject({ goal: "prizes", prizes: earlier, versionInputs: { prizes: earlier } });
+    // Its version names no goal: the cards on screen, goal and split together.
+    expect(feedbackEventOf({ record: sentUnder({ goal: null }), kind: "outcome", context: context(PRIZES) })).toMatchObject({ goal: "prizes", prizes: SPLIT });
+    // A basis of "Only the champion" under cards now weighed by a split: the basis's goal and no split at all.
+    const titled = sentUnder({ goal: "title" }, feedbackBasisOf(context("title")));
+    const copy = feedbackEventOf({ record: titled, kind: "outcome", context: context(PRIZES) }) as FeedbackEvent;
+    expect(copy.goal).toBe("title");
+    expect(copy).not.toHaveProperty("prizes");
+    expect(copy.versionInputs).not.toHaveProperty("prizes");
+  });
+
+  it("reads “Several prizes” without a readable split as an unknown goal (⚠️ ours), keeps no split with another goal, and an empty split as 1st place everything", () => {
+    expect(feedbackRewardOf(PRIZES)).toEqual({ goal: "prizes", prizes: SPLIT });
+    expect(feedbackRewardOf({ goal: "title", shares: TITLE_ONLY })).toEqual({ goal: "title", prizes: null });
+    // A goal alone (a result that carries no reward): its split isn't known.
+    expect(feedbackRewardOf("prizes")).toEqual({ goal: null, prizes: null });
+    expect(feedbackRewardOf("playoffs")).toEqual({ goal: "playoffs", prizes: null });
+    // "Several prizes" with nothing entered weighs 1st place as everything (reward.ts rewardOf `empty`): that's its split.
+    expect(feedbackRewardOf(rewardWith({ goal: "prizes", prizes: { first: null, second: null, third: null, weeklyHigh: null, pointsLeader: null } }, 14))).toEqual({
+      goal: "prizes",
+      prizes: { first: 100, second: 0, third: 0, weeklyHigh: 0, pointsLeader: 0 },
+    });
+    // Shares that make no split.
+    expect(feedbackRewardOf({ goal: "prizes", shares: { first: 0, second: 0, third: 0, weeklyHigh: 0, pointsLeader: 0 } })).toEqual({ goal: null, prizes: null });
+    // A press that names "Several prizes" without its split (an older build's), at the top or in the version: unknown.
+    const noSplit = sentUnder({ goal: "prizes" }, { season: 2026, week: 12, goal: "prizes" });
+    expect(noSplit.basis).toEqual({ season: 2026, week: 12, goal: null });
+    expect(noSplit.versionInputs?.goal).toBeNull();
+    const copy = feedbackEventOf({ record: noSplit, kind: "outcome", context: context(PRIZES) }) as FeedbackEvent;
+    expect(copy).toMatchObject({ goal: null, versionInputs: { goal: null } });
+    expect(copy).not.toHaveProperty("prizes");
+    // A split with another goal is dropped (the record keeps the goal).
+    const odd = sentUnder({ goal: "playoffs", prizes: SPLIT }, { season: 2026, week: 12, goal: "title", prizes: SPLIT });
+    expect(odd.basis).toEqual({ season: 2026, week: 12, goal: "title" });
+    expect(odd.versionInputs).not.toHaveProperty("prizes");
   });
 });
 
@@ -461,10 +543,39 @@ describe("shareFeedbackPress (after a press the browser kept)", () => {
     expect(shareFeedbackPress({ before, after: before, change: { outcome: "sent" }, context: context(), sender: null, sharing: () => true })).toBe(false);
   });
 
-  it("builds its context from the league data on screen and the goal its cards used", () => {
-    const ctx = feedbackShareContext(snapshot as LeagueSnapshot, "prizes");
-    expect(ctx).toMatchObject({ platform: "espn", season: 2026, week: 12, goal: "prizes", format: feedbackFormatOf(snapshot.settings) });
+  it("builds its context from the league data on screen and what its cards were weighed by: the engine's reward (Checkpoint 7c), or a goal alone", () => {
+    const ctx = feedbackShareContext(snapshot as LeagueSnapshot, PRIZES);
+    expect(ctx).toMatchObject({ platform: "espn", season: 2026, week: 12, goal: "prizes", prizes: SPLIT, format: feedbackFormatOf(snapshot.settings) });
     expect(ctx.players["106"]?.pos).toBe("WR");
+    expect(feedbackShareContext(snapshot as LeagueSnapshot, "playoffs")).toMatchObject({ goal: "playoffs", prizes: null });
+    expect(feedbackShareContext(snapshot as LeagueSnapshot, null)).toMatchObject({ goal: null, prizes: null });
+  });
+
+  it("both trade pages take the reward from the result they show, never the settings' goal (review FB-R3)", () => {
+    const shown = (result: Parameters<typeof shownRewardOf>[0], goal: Parameters<typeof shownRewardOf>[1]) => feedbackShareContext(snapshot as LeagueSnapshot, shownRewardOf(result, goal));
+    // A search (the Finder's Done) or an evaluation (the Analyzer's Evaluated) shown under "Several prizes": the engine's
+    // reward rides on the result (TradeSearchResult.reward, TradeAnalysis.reward), so the copy holds the goal and its split.
+    expect(shown({ reward: PRIZES }, "prizes")).toMatchObject({ goal: "prizes", prizes: SPLIT });
+    // The result's reward is what every B read, so it wins over the goal the page ran it under.
+    expect(shown({ reward: rewardWith({ goal: "title", prizes: AMOUNTS }, prizePeriods(snapshot)) }, "prizes")).toMatchObject({ goal: "title", prizes: null });
+    // A goal alone (a result without a reward) can't say the split: "Several prizes" reads as an unknown goal, the others as they are.
+    expect(shown({}, "prizes")).toMatchObject({ goal: null, prizes: null });
+    expect(shown({}, "playoffs")).toMatchObject({ goal: "playoffs", prizes: null });
+    // Nothing shown yet.
+    expect(shownRewardOf(null, null)).toBeNull();
+    expect(shownRewardOf(undefined, undefined)).toBeNull();
+    // Both pages build their copies' context from it, with the result they show (before, nothing failed if a page went back
+    // to the settings' goal, which loses the goal and the split of every record and copy made under "Several prizes").
+    const pages = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../components/trades");
+    for (const [file, call] of [
+      ["TradeFinderPage.tsx", "shownRewardOf(shownOutcome?.result, shownOutcome?.goal)"],
+      ["AnalyzerPage.tsx", "shownRewardOf(evaluated?.analysis, evaluated?.goal)"],
+    ] as const) {
+      const source = readFileSync(path.join(pages, file), "utf8");
+      expect(source.match(/feedbackShareContext\(/g), file).toHaveLength(1);
+      expect(source, file).toContain("feedbackShareContext(league, shownReward)");
+      expect(source, file).toContain(`const shownReward = ${call};`);
+    }
   });
 });
 

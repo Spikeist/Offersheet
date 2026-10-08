@@ -10,9 +10,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { NETWORK_ENV, NetworkOffError } from "@/server/http";
 import { writeCache } from "./cache";
 import { request } from "./http";
+import { PRIZE_KEYS, PRIZE_MAX } from "@/engine/settings";
 import {
   DUMP_FILES,
   NETWORK_ENV as RUNMODE_NETWORK_ENV,
+  PRIZES_THOUSANDS_HINT,
+  PRIZES_USAGE,
+  PRIZE_FLAG_KEYS,
+  PRIZE_FLAG_MAX,
   canonicalPath,
   commandText,
   displayPath,
@@ -23,6 +28,9 @@ import {
   liveRequiredText,
   newestDump,
   npmFlag,
+  prizesArg,
+  prizesReadLine,
+  prizesText,
   reportArgs,
   reportCommandText,
   reportSourceLine,
@@ -215,6 +223,54 @@ describe("saved dumps: the reports' default data", () => {
       "Offline: the newest saved dump, data-local/parker-league-4c (no network; --live fetches your league instead, --dump <folder> reads another dump).",
     );
     expect(reportSourceLine({ dump: null, newest: false, team: undefined, cookies: null }, root)).toBe("Live: fetching your league (the network is on: --live).");
+  });
+
+  it("--prizes (Checkpoint 7c): the league's prizes as the Settings page takes them, blank or 0 not paid, in the header's command as given; what's wrong, in words", () => {
+    // The prizes in settings.ts's order and bound (written out here: this module loads nothing of the app).
+    expect(PRIZE_FLAG_KEYS).toEqual(PRIZE_KEYS);
+    expect(PRIZE_FLAG_MAX).toBe(PRIZE_MAX);
+    // Parker's: $2,000 / $1,600 / $900, nothing for the weekly high score, the most points blank.
+    expect(prizesArg(["--prizes", "2000,1600,900,0"])).toEqual({ first: 2000, second: 1600, third: 900, weeklyHigh: 0, pointsLeader: null });
+    expect(prizesArg(["--prizes", "60,30,,5"])).toEqual({ first: 60, second: 30, third: null, weeklyHigh: 5, pointsLeader: null });
+    expect(prizesArg(["--prizes", " 50 , 25.5,24.5,0,0"])).toEqual({ first: 50, second: 25.5, third: 24.5, weeklyHigh: 0, pointsLeader: 0 });
+    expect(prizesArg(["--team", "3"])).toBeUndefined();
+    for (const bad of [["--prizes"], ["--prizes", "--team"], ["--prizes", "$2000,1600"], ["--prizes", "2,000,1,600,900"], ["--prizes", "60%,30%"], ["--prizes", "-5,10"], ["--prizes", "1e3"], ["--prizes", "2000000000"]]) {
+      expect(prizesArg(bad), bad.join(" ")).toEqual({ error: PRIZES_USAGE });
+    }
+    expect(prizesArg(["--prizes", "0,0,,0"])).toEqual({ error: `--prizes needs at least one prize above 0. ${PRIZES_USAGE}` });
+    // reportArgs carries them, and refuses ones that aren't.
+    const root = tempDir("prizes-");
+    const d = dump(root, "parker-league-4c", "2026-10-04T09:24:34.901Z");
+    const args = reportArgs(["--dump", "data-local/parker-league-4c", "--team", "3", "--prizes", "2000,1600,900,0"], root, { env: {} });
+    expect(args).toEqual({ dump: d, newest: false, team: "3", cookies: null, prizes: { first: 2000, second: 1600, third: 900, weeklyHigh: 0, pointsLeader: null } });
+    expect(reportArgs(["--prizes", "lots"], root, { env: {} })).toEqual({ error: PRIZES_USAGE });
+    expect(reportArgs([], root, { env: {} })).not.toHaveProperty("prizes");
+    // The header's command reruns it: the amounts as given, the blanks at the end left off, a list with a blank inside quoted.
+    if ("error" in args) throw new Error(args.error);
+    expect(reportCommandText("trade:report", args, root)).toBe("npm run trade:report -- --dump data-local/parker-league-4c --team 3 --prizes 2000,1600,900,0");
+    expect(prizesText({ first: 60, second: 30, third: null, weeklyHigh: 5, pointsLeader: null })).toBe('"60,30,,5"');
+    expect(prizesText({ first: 60, second: null, third: null, weeklyHigh: null, pointsLeader: null })).toBe("60");
+  });
+
+  it("--prizes says how it was read before the long run (review FB-R2): every comma starts the next prize, so amounts typed with thousands separators pass unless a group starts with 0, and get a hint", () => {
+    const read = (value: string) => {
+      const p = prizesArg(["--prizes", value]);
+      if (!p || "error" in p) throw new Error(`--prizes ${value}: ${p ? p.error : "absent"}`);
+      return prizesReadLine(p);
+    };
+    // Parker's: plain amounts, nothing to warn about.
+    expect(read("2000,1600,900,0")).toBe("--prizes read as: 1st 2000, 2nd 1600, 3rd 900, the weekly high score not paid, the most points not paid.");
+    expect(read("60,30,,5")).toBe("--prizes read as: 1st 60, 2nd 30, 3rd not paid, the weekly high score 5 a week, the most points not paid.");
+    expect(read("12.5")).toBe("--prizes read as: 1st 12.5, 2nd not paid, 3rd not paid, the weekly high score not paid, the most points not paid.");
+    // Thousands separators whose groups don't start with 0 read as more, smaller prizes: the line shows it and says so.
+    expect(read("2,500,1,500,900")).toBe(`--prizes read as: 1st 2, 2nd 500, 3rd 1, the weekly high score 500 a week, the most points 900. ${PRIZES_THOUSANDS_HINT}`);
+    expect(read("1,250,750,500")).toBe(`--prizes read as: 1st 1, 2nd 250, 3rd 750, the weekly high score 500 a week, the most points not paid. ${PRIZES_THOUSANDS_HINT}`);
+    // ⚠️ Ours: a hint, never a refusal, since three-digit prizes in a row are a fine split too.
+    expect(read("500,300,200")).toContain(PRIZES_THOUSANDS_HINT);
+    for (const plain of ["2000,1600,900", "60,30,10", "100,50,25", "1500,999", "2.5,500", "60,,300"]) expect(read(plain), plain).not.toContain(PRIZES_THOUSANDS_HINT);
+    // A group that starts with 0 can't be a prize: refused.
+    expect(prizesArg(["--prizes", "2,000,1,600,900"])).toEqual({ error: PRIZES_USAGE });
+    expect(PRIZES_USAGE).toContain("no thousands separators");
   });
 
   it("command-line helpers: flagValue, commandText, displayPath, npmFlag", () => {

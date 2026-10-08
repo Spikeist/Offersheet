@@ -21,7 +21,14 @@
  *   the before, the change in percentage points, never bare "points"), and "Win chance by week: Week 9: 68% → 64% ·
  *   Week 13: 42% → 55%" (weeklyLine: TradeDetail.winChance's weeks moving at least config.explain.weeklyLineMin, at most
  *   weeklyLineMax of them in week order, the drops first, then the largest gains; none in a points-only league, whose list
- *   is empty, or when no week moves).
+ *   is empty, or when no week moves). Checkpoint 7c (planner reply to Checkpoint 7b, §6: "when 2nd or 3rd place pays, cards
+ *   and the League page add “Top 3 odds” (or “Top 2 odds”)"): under "Several prizes" paying 3rd place (else 2nd) a line
+ *   between the two, "Title odds 10.5% → 11.2% · Top 3 odds 30% → 32% · Playoff odds 60% → 63%" (topOddsView: my P(1st) +
+ *   P(2nd) (+ P(3rd)) before any trade, TradeSearchResult.baseline.prizes, and after it, + the trade's changes in them,
+ *   TradeEvaluation.dPrizes, in whole percents like the playoff odds; left out when a part isn't known, never a partial
+ *   sum), on cards, Plan B boxes and the Analyzer's card alike (CardContext.reward: the search's or the evaluation's own);
+ *   my odds before any trade say the same chance ("30% to finish in the top 3"; baselineLines), and the info line names
+ *   the prizes ("how much your chances at your league's prizes and your playoff odds rise"; weighedOddsWords).
  *   ⚠️ Never for an offer-first step (its numbers come from the 1,000-season screening block, not the card's runs); a Plan
  *   B box prints its own, by the same rules (PlanB.dPO, dCH and winChance: Plan B's own simulation on the final block, the
  *   card's runs' block, so from the same "before"; Phase 4c's polish of change 9: the box showed its three numbers alone);
@@ -176,6 +183,7 @@ import type { MarketInputs, ModelInputs, NflScheduleInputs } from "@/engine/inpu
 import { fantasyCalcFallbackText, valuesForTerm } from "@/engine/market";
 import { POSITIONS, type InjuryStatus, type LeagueSettings, type LeagueSnapshot, type PlayerInfo, type Pos } from "@/engine/model";
 import { sortTrades } from "@/engine/rank";
+import { isTitleOnly, type PrizeDeltas, type PrizeOdds, type Reward } from "@/engine/reward";
 import type { Goal, TradeSettings } from "@/engine/settings";
 import type {
   AcceptanceFeatures,
@@ -741,8 +749,16 @@ export interface CardContext {
   /**
    * My odds before any trade, every team after its helpful free-agent pickups: the search's baseline, or the one the
    * worker sends with an Analyzer evaluation (null fields when unknown; absent: the card shows the changes alone).
+   * Checkpoint 7c: `prizes`, my prize components on the same seasons (TradeSearchResult.baseline.prizes), the "before" of
+   * the top-N odds line (topOddsView); absent or null: that line shows its change alone.
    */
-  baseline?: { pPlayoffs: number | null; pTitle: number | null } | null;
+  baseline?: { pPlayoffs: number | null; pTitle: number | null; prizes?: PrizeOdds | null } | null;
+  /**
+   * The reward the numbers were weighed by (TradeSearchResult.reward, the Analyzer's TradeAnalysis.reward; Checkpoint 7c,
+   * planner reply to Checkpoint 7b, §6): the odds lines add "Top 3 odds" (or "Top 2 odds") when it pays 2nd or 3rd place
+   * (topPlacesOf). Absent: no such line.
+   */
+  reward?: Pick<Reward, "goal" | "shares"> | null | undefined;
   /** The NFL regular season's last week (ModelInputs.nfl.lastWeek), for "Out for the season" (seasonEndOf); absent: the league's last week. */
   lastNflWeek?: number | undefined;
   /**
@@ -798,9 +814,66 @@ function oddsView(label: string, d: number | null, before: number | null | undef
   return { label, value: `${from} → ${to}`, srValue: `from ${from} to ${to}` };
 }
 
-/** My title odds (one decimal) and playoff odds (whole percents), before and after the trade (the file header). */
-export function oddsViews(e: Pick<TradeEvaluation, "dPO" | "dCH">, baseline: CardContext["baseline"]): OddsView[] {
-  return [oddsView("Title odds", e.dCH, baseline?.pTitle, titleOddsText), oddsView("Playoff odds", e.dPO, baseline?.pPlayoffs, percentText)];
+/**
+ * My title odds (one decimal) and playoff odds (whole percents), before and after the trade (the file header); between them,
+ * under "Several prizes" paying 2nd or 3rd place (`reward`: topPlacesOf), "Top 3 odds" (or "Top 2 odds": topOddsView).
+ */
+export function oddsViews(
+  e: Pick<TradeEvaluation, "dPO" | "dCH"> & { dPrizes?: Partial<PrizeDeltas> | null | undefined },
+  baseline: CardContext["baseline"],
+  reward?: CardContext["reward"],
+): OddsView[] {
+  const places = topPlacesOf(reward);
+  const top = places ? topOddsView(topOddsLabel(places), places, e.dPrizes, baseline?.prizes) : null;
+  return [oddsView("Title odds", e.dCH, baseline?.pTitle, titleOddsText), ...(top ? [top] : []), oddsView("Playoff odds", e.dPO, baseline?.pPlayoffs, percentText)];
+}
+
+/**
+ * Which top-N odds line the odds show (planner reply to Checkpoint 7b, §6: "when 2nd or 3rd place pays, cards and the League
+ * page add “Top 3 odds” (or “Top 2 odds”)"; the lead's reading for Checkpoint 7c): only under "Several prizes" (Reward.goal
+ * "prizes"), 3 when the league's split pays 3rd place, else 2 when it pays 2nd; null otherwise, and without a reward (no
+ * such line). "Only the champion" and "Making the playoffs" pay 1st place everything (reward.ts TITLE_ONLY).
+ */
+export function topPlacesOf(reward: Pick<Reward, "goal" | "shares"> | null | undefined): 2 | 3 | null {
+  if (!reward || reward.goal !== "prizes") return null;
+  if (reward.shares.third > 0) return 3;
+  return reward.shares.second > 0 ? 2 : null;
+}
+
+/** The top-N odds line's label: "Top 3 odds", "Top 2 odds". */
+export function topOddsLabel(places: 2 | 3): string {
+  return `Top ${places} odds`;
+}
+
+/**
+ * The chance of a top-N finish from a team's prize components (reward.ts PrizeOdds, or their changes, PrizeDeltas): P(1st) +
+ * P(2nd), + P(3rd) for the top 3; null when one of them isn't known, never a partial sum.
+ */
+export function topChance(p: Readonly<Partial<Record<"first" | "second" | "third", number | null>>> | null | undefined, places: 2 | 3): number | null {
+  if (!p) return null;
+  let sum = 0;
+  for (const k of places === 3 ? (["first", "second", "third"] as const) : (["first", "second"] as const)) {
+    const x = p[k];
+    if (typeof x !== "number" || !Number.isFinite(x)) return null;
+    sum += x;
+  }
+  return sum;
+}
+
+/**
+ * The top-N odds line (topPlacesOf; the lead's for Checkpoint 7c), printed as the playoff odds are (whole percents, "<1%" and
+ * ">99%" at the edges): before = my chance of a top-N finish before any trade (topChance of CardContext.baseline.prizes),
+ * after = before + the trade's change in it (topChance of TradeEvaluation.dPrizes), kept within 0–100%; the change alone in
+ * percentage points when the odds before aren't there (as the other lines do without a baseline). None (null) when the
+ * change isn't known, or the odds before are there but one of their parts isn't: never a partial sum. `label` names it
+ * (topOddsLabel; the partner's own line can reuse it).
+ */
+export function topOddsView(label: string, places: 2 | 3, d: Readonly<Partial<PrizeDeltas>> | null | undefined, before: PrizeOdds | null | undefined): OddsView | null {
+  const change = topChance(d, places);
+  if (change === null) return null;
+  if (before === null || before === undefined) return oddsView(label, change, null, percentText);
+  const from = topChance(before, places);
+  return from === null ? null : oddsView(label, change, from, percentText);
 }
 
 /**
@@ -927,6 +1000,8 @@ export interface PlanBContext {
   knownTags?: ReadonlyMap<string, InjuryTag> | undefined;
   seasonEnd?: number | undefined;
   baseline?: CardContext["baseline"];
+  /** The card's reward (CardContext.reward): the box's odds add the card's top-N line (Checkpoint 7c). */
+  reward?: CardContext["reward"];
 }
 
 /**
@@ -975,8 +1050,9 @@ export function planBView(planB: TradeEvaluation["planB"], snapshot: SnapshotPar
   const acceptNote = through ? `Counting ${REVIEW_WORDS[snapshot.settings.tradeReview]}, ${through} it goes through.` : null;
   const give = side(planB.proposal.give, "give");
   const get = side(planB.proposal.get, "get");
-  // Its odds as the card prints its own (change 9), from the card's "before": none when the Plan B carries none.
-  const odds = planB.dPO !== undefined || planB.dCH !== undefined ? oddsViews({ dPO: planB.dPO ?? null, dCH: planB.dCH ?? null }, ctx.baseline) : [];
+  // Its odds as the card prints its own (change 9; Checkpoint 7c's top-N line too), from the card's "before": none when the
+  // Plan B carries none.
+  const odds = planB.dPO !== undefined || planB.dCH !== undefined ? oddsViews({ dPO: planB.dPO ?? null, dCH: planB.dCH ?? null, dPrizes: planB.dPrizes }, ctx.baseline, ctx.reward) : [];
   const weekly = weeklyLine(planB.winChance);
   const oddsText = [...odds.map((o) => `${o.label} ${o.value}`), ...(weekly ? [weekly.text] : [])].map((t) => ` · ${t}`).join("");
   return {
@@ -1521,11 +1597,11 @@ export function buildTradeCard(e: TradeEvaluation, ctx: CardContext): TradeCardV
       acceptNote: through ? `Counting ${REVIEW_WORDS[snapshot.settings.tradeReview]}, ${through} it goes through.` : null,
       overall: scoreView(e.overall, e.b),
     },
-    odds: oddsViews(e, ctx.baseline),
+    odds: oddsViews(e, ctx.baseline, ctx.reward),
     weekly: weeklyLine(e.detail.winChance),
     details: ctx.details ? detailsView(e, snapshot.settings.leagueType, ctx.helpsScale) : null,
     steps: stepsView(e.steps, snapshot),
-    planB: planBView(e.planB, snapshot, { cardTags: tags, knownTags: ctx.knownTags, seasonEnd: end, baseline: ctx.baseline }),
+    planB: planBView(e.planB, snapshot, { cardTags: tags, knownTags: ctx.knownTags, seasonEnd: end, baseline: ctx.baseline, reward: ctx.reward }),
     injuryNote: incomingInjuryNote(tags, snapshot, flagged, blendOn),
     versions: versionChoices(e, snapshot, ctx.goal ?? null),
     flags,
@@ -1550,13 +1626,19 @@ export function buildTradeCard(e: TradeEvaluation, ctx: CardContext): TradeCardV
  * count (the file header): the League page's headline odds, every team after the free-agent pickups that would help it
  * (planner reply to Checkpoint 4b, change 9: one baseline everywhere), the title with one decimal like the cards' odds.
  * Review of Phase 4: the Finder said "Your odds now: 71%" while the League page said 76%, so a card's "(71% to 77%)" read
- * as a 1-point gain; since Phase 4c the two are the same odds. Null when the season wasn't simulated.
+ * as a 1-point gain; since Phase 4c the two are the same odds. Null when the season wasn't simulated. ⚠️ Ours (Checkpoint
+ * 7c): under "Several prizes" paying 2nd or 3rd place (`reward`: topPlacesOf), my chance of a top-N finish too, between
+ * them, the "before" of every card's top-N line ("…: 62% to make the playoffs, 30% to finish in the top 3, 9.0% to win the
+ * title."), when all its parts are known.
  */
-export function baselineLines(baseline: CardContext["baseline"], page: "finder" | "analyzer"): { text: string; note: string } | null {
+export function baselineLines(baseline: CardContext["baseline"], page: "finder" | "analyzer", reward?: CardContext["reward"]): { text: string; note: string } | null {
   if (!baseline || baseline.pPlayoffs === null || !Number.isFinite(baseline.pPlayoffs)) return null;
   const title = baseline.pTitle !== null && Number.isFinite(baseline.pTitle) ? `, ${titleOddsText(baseline.pTitle)} to win the title` : "";
+  const places = topPlacesOf(reward);
+  const topP = places ? topChance(baseline.prizes, places) : null;
+  const top = places && topP !== null ? `, ${percentText(Math.min(1, Math.max(0, topP)))} to finish in the top ${places}` : "";
   return {
-    text: `Your odds ${page === "finder" ? "before any trade" : "before this trade"}: ${percentText(baseline.pPlayoffs)} to make the playoffs${title}.`,
+    text: `Your odds ${page === "finder" ? "before any trade" : "before this trade"}: ${percentText(baseline.pPlayoffs)} to make the playoffs${top}${title}.`,
     note: `As on the League page, they count the free-agent pickups that would help each team, and ${page === "finder" ? "every trade idea's" : "the trade's"} odds start from them.`,
   };
 }
@@ -1570,15 +1652,48 @@ export function baselineLines(baseline: CardContext["baseline"], page: "finder" 
  * league whose long-term values didn't load (`longTermOn` false: TradeEvaluation.dynMissing, B = B_win; review of track
  * UIC, finding 2). Then the scale (planner reply to Checkpoint 4c, A2; helpsScaleText, the card's tooltip, ⚠️ ours here
  * too: a phone can't hover), on `scale` (the search's or the Analyzer's: the mix in a dynasty or keeper league with
- * long-term values, planner reply to Checkpoint 7a, §2 question 6).
+ * long-term values, planner reply to Checkpoint 7a, §2 question 6). Under "Several prizes" (Checkpoint 7c, the lead's words:
+ * weighedOddsWords, by `reward`, else the scale) it sums up "how much your chances at your league's prizes and your playoff
+ * odds rise", with the same endings.
  */
-export function helpsInfoText(leagueType: LeagueSnapshot["settings"]["leagueType"], valuesOn = true, longTermOn = true, scale?: HelpsScale | null): string {
-  const lead = "Helps you (0–100) sums up how much your title and playoff odds rise";
+export function helpsInfoText(leagueType: LeagueSnapshot["settings"]["leagueType"], valuesOn = true, longTermOn = true, scale?: HelpsScale | null, reward?: CardContext["reward"]): string {
+  const lead = `Helps you (0–100) sums up how much ${weighedOddsWords(reward, scale)} rise`;
   let what: string;
   if (leagueType !== "redraft") what = longTermOn ? `${lead}, weighed against the change in your roster's long-term value.` : `${lead}.`;
   else what = valuesOn ? `${lead}, minus a cost for giving away trade value or plus a credit for gaining it.` : `${lead}.`;
   // The scale (planner reply to Checkpoint 4c, A2), said in words too: the card's tooltip can't be hovered on a phone.
   return `${what} ${helpsScaleText(scale, { leagueType, longTermOn })}`;
+}
+
+/**
+ * Whether the pages name the league's prizes rather than the title in what Helps you weighs (Checkpoint 7c; planner reply to
+ * Checkpoint 7b, §6): under "Several prizes" paying more than 1st place (`reward`: goal "prizes" and not reward.ts
+ * TITLE_ONLY's split, so a split of 1st place alone, or none entered, reads as the title, which is what B weighs then).
+ * Without a reward, the scale's own word for it (HelpsScale.oddsNamed "prizes": ⚠️ "playoff" when a paid prize's odds are
+ * unknown, so the title's words then; how to read gets the scale alone from its page).
+ */
+export function namesPrizes(reward?: CardContext["reward"], scale?: Pick<HelpsScale, "oddsNamed"> | null): boolean {
+  if (reward) return reward.goal === "prizes" && !isTitleOnly(reward.shares);
+  return scale?.oddsNamed === "prizes";
+}
+
+/** What Helps you weighs, in words (namesPrizes): "your chances at your league's prizes and your playoff odds", else "your title and playoff odds". */
+export function weighedOddsWords(reward?: CardContext["reward"], scale?: Pick<HelpsScale, "oddsNamed"> | null): string {
+  return namesPrizes(reward, scale) ? "your chances at your league's prizes and your playoff odds" : "your title and playoff odds";
+}
+
+/**
+ * The odds each card shows, in words, for How to read's "Each card shows … before and after the trade" (review of the
+ * prizes UI, prizes-ui-6): after the title and playoff odds (weighedOddsWords) "those odds", but after the league's prizes
+ * the card's own lines (oddsViews), since a weekly high score or the points title has none: by the reward, "your title,
+ * top-3 and playoff odds" (topPlacesOf: 2nd or 3rd place paid), else "your title and playoff odds"; without one (the page
+ * passed the scale alone), the title and playoff odds with the top-N line's rule.
+ */
+export function cardOddsWords(reward?: CardContext["reward"], scale?: Pick<HelpsScale, "oddsNamed"> | null): string {
+  if (!namesPrizes(reward, scale)) return "those odds";
+  if (!reward) return "your title and playoff odds (and your top-3 odds when your league pays 3rd place, or your top-2 odds when it pays 2nd)";
+  const places = topPlacesOf(reward);
+  return places ? `your title, top-${places} and playoff odds` : "your title and playoff odds";
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1613,6 +1728,11 @@ export interface FinderView {
   helpsInfo: string | null;
   /** The search's "Helps you" scale (TradeSearchResult.helpsScale), for "How to read" (HowToRead.helpsScaleWords); null when unknown. */
   helpsScale: HelpsScale | null;
+  /**
+   * The reward the search weighed B by (TradeSearchResult.reward; Checkpoint 7c), for "How to read" (HowToRead's `reward`:
+   * the odds it names under "Several prizes", review of the prizes UI, prizes-ui-7); null when the result has none.
+   */
+  reward: Pick<Reward, "goal" | "shares"> | null;
   /** The pattern note above the list (TradeSearchResult.pattern's text), or null. */
   pattern: string | null;
   /** "Only 4 trade ideas to show at “at least 50%”. Try a lower setting to see more." when the minimum leaves few (fewText), or null. */
@@ -1855,10 +1975,12 @@ export function buildFinderView(args: {
   const { result, snapshot } = args;
   const baseline = result.baseline;
   const knownTags = knownTagsOf(result.trades);
-  // The search's one "Helps you" scale (its cards' tooltips and the info line; the mix with long-term values).
+  // The search's one "Helps you" scale (its cards' tooltips and the info line; the mix with long-term values), and the
+  // reward its B was weighed by (Checkpoint 7c: the cards' top-N odds line, the words naming the prizes).
   const helpsScale = result.helpsScale ?? null;
+  const reward = result.reward ?? null;
   const sorted = sortTrades(result.trades, args.sort).map((e) =>
-    buildTradeCard(e, { snapshot, baseline, lastNflWeek: args.lastNflWeek, knownTags, fantasyCalc: args.fantasyCalc, goal: args.goal, blendOn: args.blendOn, helpsScale }),
+    buildTradeCard(e, { snapshot, baseline, reward, lastNflWeek: args.lastNflWeek, knownTags, fantasyCalc: args.fantasyCalc, goal: args.goal, blendOn: args.blendOn, helpsScale }),
   );
   // A Plan B that is also a card of its own says so, with that card's place in this sort (review of track F: the same
   // trade showed twice without a word).
@@ -1868,7 +1990,7 @@ export function buildFinderView(args: {
     return c.planB && at !== undefined ? { ...c, planB: { ...c.planB, also: planBAlsoText(at) } } : c;
   });
   const sortLabel = SORT_OPTIONS.find((o) => o.value === args.sort)?.label ?? "Overall";
-  const odds = baselineLines(baseline, "finder");
+  const odds = baselineLines(baseline, "finder", reward);
   const hidden = hiddenText(result.hidden);
   let empty: FinderView["empty"] = null;
   // The search's notes, then each distinct note of the evaluations themselves (TradeDetail.notes), once, worded for the
@@ -1909,8 +2031,9 @@ export function buildFinderView(args: {
     baseline: odds?.text ?? null,
     baselineNote: odds?.note ?? null,
     // Long-term values counted unless the engine says they're missing (TradeEvaluation.dynMissing: B is B_win alone then).
-    helpsInfo: cards.length ? helpsInfoText(snapshot.settings.leagueType, args.fantasyCalc?.available ?? true, !result.trades.some((e) => e.dynMissing), helpsScale) : null,
+    helpsInfo: cards.length ? helpsInfoText(snapshot.settings.leagueType, args.fantasyCalc?.available ?? true, !result.trades.some((e) => e.dynMissing), helpsScale, reward) : null,
     helpsScale,
+    reward,
     pattern: cards.length && result.pattern?.text ? result.pattern.text : null,
     few: cards.length ? fewText(result) : null,
     cards,
@@ -2213,6 +2336,8 @@ export interface AnalysisView {
   helpsInfo: string | null;
   /** The evaluation's "Helps you" scale (TradeAnalysis.helpsScale), for "How to read" (HowToRead.helpsScaleWords); null when unknown. */
   helpsScale: HelpsScale | null;
+  /** The reward the evaluation weighed B by (TradeAnalysis.reward; Checkpoint 7c), for "How to read" as FinderView.reward; null when it has none. */
+  reward: Pick<Reward, "goal" | "shares"> | null;
   card: TradeCardView | null;
   illegal: string | null;
   notes: string[];
@@ -2238,13 +2363,15 @@ export function buildAnalysisView(
   opts: { from?: AnalyzerFrom | null | undefined; fantasyCalc?: FantasyCalcLookup | undefined; goal?: Goal | null | undefined; blendOn?: boolean | undefined } = {},
 ): AnalysisView {
   const baseline = analysis.baseline ?? null;
-  // The evaluation's "Helps you" scale (the tooltip, the info line and Details follow the mix with long-term values).
+  // The evaluation's "Helps you" scale (the tooltip, the info line and Details follow the mix with long-term values), and
+  // the reward it was scored under (Checkpoint 7c: the card's top-N odds line, the words naming the prizes).
   const helpsScale = analysis.helpsScale ?? null;
+  const reward = analysis.reward ?? null;
   const card =
     analysis.evaluation && !analysis.illegal
-      ? buildTradeCard(analysis.evaluation, { snapshot, baseline, lastNflWeek, fantasyCalc: opts.fantasyCalc, goal: opts.goal, blendOn: opts.blendOn, details: true, helpsScale })
+      ? buildTradeCard(analysis.evaluation, { snapshot, baseline, reward, lastNflWeek, fantasyCalc: opts.fantasyCalc, goal: opts.goal, blendOn: opts.blendOn, details: true, helpsScale })
       : null;
-  const odds = card ? baselineLines(baseline, "analyzer") : null;
+  const odds = card ? baselineLines(baseline, "analyzer", reward) : null;
   // A note the card's reasons already say isn't said twice.
   const said = new Set(card?.reasons ?? []);
   const notes = [...new Set(analysis.notes)].filter((n) => !said.has(n));
@@ -2254,8 +2381,9 @@ export function buildAnalysisView(
     baseline: odds?.text ?? null,
     baselineNote: odds?.note ?? null,
     // Long-term values counted unless the engine says they're missing (TradeEvaluation.dynMissing).
-    helpsInfo: card ? helpsInfoText(snapshot.settings.leagueType, opts.fantasyCalc?.available ?? true, !card.evaluation.dynMissing, helpsScale) : null,
+    helpsInfo: card ? helpsInfoText(snapshot.settings.leagueType, opts.fantasyCalc?.available ?? true, !card.evaluation.dynMissing, helpsScale, reward) : null,
     helpsScale,
+    reward,
     card,
     illegal: analysis.illegal,
     notes: card && opts.from === "planB" ? [FROM_PLAN_B_NOTE, ...notes] : notes,

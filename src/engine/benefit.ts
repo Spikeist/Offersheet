@@ -4,7 +4,8 @@
  * §2 questions 5 and 6: "Protect my trade value" priced in lineup points, and the dynasty scale following the Win now ↔
  * Future slider). Pure and deterministic: plain numbers in, plain numbers out, no I/O and no clock; every tunable number
  * comes from config.benefit (package values from config.market). Everything here is from the user's side (§10): the
- * partner's side only matters through the chance they accept (src/engine/acceptance.ts).
+ * partner's side only matters through the chance they accept (src/engine/acceptance.ts), and since Checkpoint 7c through
+ * "Helps them", a number shown beside mine that ranks nothing but the "Helps both" list (below).
  *
  * The caller (src/engine/evaluate.ts) runs the season simulation on one common-random-numbers matrix with every
  * team at its free-agent-optimized roster V* (§7), before the trade and after it (L6: my roster after the trade
@@ -133,6 +134,23 @@
  * Helps you (P_complete ≤ 0.85, config.acceptance.pAcceptClamp's top). EG = B × P_complete ranks (§13): under one B₃ Overall
  * is a monotone function of it. Don't add extra factors to Overall (§10). (Checkpoint 3 to Phase 4c: a fixed B_ref of 6 in
  * place of B₃.)
+ *
+ * Helps them (Checkpoint 7c; planner reply to Checkpoint 7b, §7: "the partner's version of Helps you, from the same simulation
+ * runs"; TradeEvaluation.them, evaluate.ts simulateTrade): the trade's own simulation gives every team's odds, so the
+ * partner's changes cost no run. B_P (partnerBenefit) is benefit() from the partner's side under the same reward as mine (the
+ * league's: "What does your league reward?"), with no trade-value term: in redraft leagues B_win,P; in dynasty and keeper
+ * leagues (1 − λ_P) × B_win,P + λ_P × B_future,P, λ_P §10's default for the partner's baseline P(playoffs) on the final block
+ * (keeper 0.2; never the user's slider), B_future,P = bFutureScale × ΔDyn_P / the partner's roster's long-term value, ΔDyn_P
+ * from the trade's own long-term package (⚠️ the partner's free-agent moves after the trade aren't in it, as the partner's g
+ * reads the trade alone), B_win,P alone without long-term values. Its scale B_ref,P (partnerScale): the B_win of the partner's
+ * +helpsGain points a week (league.ts helpsCalibrationOf with its id, on the final block against the same baseline: one run
+ * per partner, made when first needed, evaluate.ts partnerCalibrationOf), floored at helpsFloor (B₃,P), then mixed (1 − λ_P)
+ * × B₃,P + λ_P × F₁₀ with long-term values (the planner's order: floor, then mix; ⚠️ helpsScale, mine, floors the mix). Helps
+ * them = round(100 × (1 − e^(−B_P / B_ref,P))) when B_P > 0, 0 when B_P ≤ 0 (helpsThemScore), so +3 points a week for them
+ * reads 63 as for me. A trade helps both teams when its Helps you, as printed, is above 0 and its Helps them, as printed, is
+ * at least config.benefit.helpsThemMin (10, about +0.3 points a week for them: helpsBoth). Helps them weighs nothing in B, the
+ * chance they accept or Overall (§10's "Don't add extra factors to Overall"; "Helps you already counts the cost of making
+ * them stronger": my B_win reads the run in which they gain).
  *
  * Guards (§10; TradeEvaluation.flags), apart from the three numbers: "Market check" when g_mkt(me) <
  * marketCheckBelow (−0.15); hidden by default when g_mkt(me) < marketHideBelow (−0.35) or when B ≤ 0 (a B not
@@ -557,6 +575,119 @@ export function lineupEquivalent(b: number | null, b3: number | null, cfg: Pick<
 
 /** The Helps you that B = B₃ reads: round(100 × (1 − e^−1)) = 63, the "+3 points a week" of the tooltip. */
 export const HELPS_AT_GAIN = Math.round(100 * (1 - Math.exp(-1)));
+
+// ---------------------------------------------------------------------------------------------
+// "Helps them" (Checkpoint 7c; planner reply to Checkpoint 7b, §7; the file header, "Helps them")
+
+/** What B_P reads (partnerBenefit): the partner's changes from a trade's own runs, its long-term package and its odds. */
+export interface PartnerBenefitInputs {
+  leagueType: LeagueType;
+  /** The partner's changes in P(playoffs) and P(title), fractions, from the trade's simulation (the runs my B comes from); null = unknown. */
+  dPO: number | null;
+  dCH: number | null;
+  /** Every prize component's change for the partner (BenefitInputs.dPrizes' rules; absent: dCH as 1st place's). */
+  dPrizes?: PrizeDeltas | null;
+  /**
+   * Dynasty and keeper leagues with long-term values: ΔDyn_P, the partner's long-term package change from the trade itself
+   * (tradePackage on the long-term values and W, its own roster spots), and its roster's long-term value (rosterValue). Null
+   * without them; ignored in redraft leagues.
+   */
+  dynasty: { delta: number; total: number } | null;
+  /** The partner's baseline P(playoffs) (the final block: its acceptance profile's number): λ_P's default. Null = unknown. */
+  pPlayoffs: number | null;
+  /** The league's reward (reward.ts rewardOf): the one my B is weighed by. Absent: the default goal, 1st place paying everything. */
+  reward?: Reward | null;
+}
+
+/**
+ * B_P, the partner's benefit from a trade (the file header, "Helps them"): benefit() from the partner's side with no
+ * trade-value term (κ 0, no scale: Benefit.market 0) and λ_P its default by the partner's baseline P(playoffs) (keeper 0.2),
+ * never the user's Win now ↔ Future setting. Redraft: B_win,P under the reward. Dynasty and keeper: (1 − λ_P) × B_win,P + λ_P ×
+ * B_future,P, or B_win,P without long-term values (dynMissing), as for mine.
+ */
+export function partnerBenefit(x: PartnerBenefitInputs, cfg: BenefitConfig = config.benefit): Benefit {
+  return benefit(
+    { leagueType: x.leagueType, dPO: x.dPO, dCH: x.dCH, dPrizes: x.dPrizes ?? null, gMine: 0, dynasty: x.dynasty, myPPlayoffs: x.pPlayoffs, lambda: null, kappa: 0, b3: null, reward: x.reward ?? null },
+    cfg,
+  );
+}
+
+/** What B_ref,P reads besides the partner's calibration run (partnerScale). */
+export interface PartnerScaleInputs {
+  leagueType: LeagueType;
+  /** The partner's baseline P(playoffs) on the final block: λ_P's default, as for B_P. Null = unknown. */
+  pPlayoffs: number | null;
+  /** The league's reward (B_P's). Absent: the default goal, 1st place paying everything. */
+  reward?: Reward | null;
+  /**
+   * The partner's roster's long-term value when long-term values loaded (dynasty and keeper leagues: evaluate.ts
+   * TradeInternals.future.totals), so B_ref,P mixes in F₁₀ as B_P mixes in B_future,P; null without them. Ignored in redraft.
+   */
+  dynastyTotal: number | null;
+}
+
+/** "Helps them"'s scale for one partner (partnerScale; TradeEvaluation.them's b3). */
+export interface PartnerScale {
+  /** B_ref,P, what Helps them divides B_P by: b3P, or with long-term values (1 − lambda) × b3P + lambda × F₁₀. Always above 0. */
+  b3: number;
+  /** B₃,P: `odds` floored at config.benefit.helpsFloor, before any mix (the planner's order). */
+  b3P: number;
+  /** B_win₃,P: the B_win under the reward of the partner's calibration run (+helpsGain points a week for it), unfloored. */
+  odds: number;
+  /** `odds` was under the floor (or not above 0): the partner's odds barely move with lineup changes. */
+  floored: boolean;
+  /** λ_P in the mix (a dynasty or keeper league with long-term values), else null. */
+  lambda: number | null;
+}
+
+/**
+ * B_ref,P (the file header, "Helps them"; planner reply to Checkpoint 7b, §7: "B₃,P = the B of +3 points a week for that
+ * partner, on the same baseline with the same common random numbers, floored at 0.5 … B_ref,P = B₃,P in redraft, and (1 −
+ * λ_P) × B₃,P + λ_P × 4 in dynasty and keeper"): the partner's calibration run (evaluate.ts partnerCalibrationOf, league.ts
+ * helpsCalibrationOf with its id) as B_win under the reward, floored at helpsFloor, then, in a dynasty or keeper league with
+ * long-term values (⚠️ ours: as helpsScale reads "dynasty and keeper", since without them B_P is B_win,P alone), mixed with
+ * F₁₀ = bFutureScale × helpsFutureShare by λ_P (defaultLambda: never the user's setting). ⚠️ The planner's order, floor then
+ * mix (the lead's call): helpsScale, mine, floors the mix; the two differ only when B_win₃,P is under the floor with
+ * long-term values. Null without a run or when B_win₃,P isn't a number; throws as helpsScale does under a reward paying the
+ * weekly high score for a run that didn't simulate them (reward.ts assertWeeklyMeasured).
+ */
+export function partnerScale(run: (Pick<HelpsCalibration, "dPO" | "dCH"> & { readonly dPrizes?: PrizeDeltas | null }) | null | undefined, x: PartnerScaleInputs, cfg: BenefitConfig = config.benefit): PartnerScale | null {
+  if (!run) return null;
+  const reward = x.reward ?? titleOnlyReward(null, cfg);
+  assertWeeklyMeasured(reward, run, "The “Helps them” calibration run");
+  const odds = benefitWin(run.dPO, run.dPrizes ?? titleDeltas(run.dCH), cfg, reward).bWin;
+  if (!isFiniteNumber(odds)) return null;
+  const floored = !(odds >= cfg.helpsFloor) || !(odds > 0);
+  const b3P = floored ? cfg.helpsFloor : odds;
+  const future = x.leagueType !== "redraft" && isFiniteNumber(x.dynastyTotal) && x.dynastyTotal > 0;
+  // defaultLambda is null only in redraft leagues; the fallback just narrows the type.
+  const lambda = future ? (defaultLambda(x.leagueType, x.pPlayoffs, cfg) ?? cfg.lambda.bubble) : null;
+  const b3 = lambda === null ? b3P : (1 - lambda) * b3P + lambda * cfg.bFutureScale * cfg.helpsFutureShare;
+  if (!isFiniteNumber(b3) || !(b3 > 0)) return null;
+  return { b3, b3P, odds, floored, lambda };
+}
+
+/**
+ * "Helps them" as printed (planner reply to Checkpoint 7b, §7: "Helps them = 100 × (1 − e^(−B_P / B_ref,P))"): tradeScore
+ * when B_P > 0, 0 when B_P ≤ 0 (the card's "Helps them 0": a trade that costs them reads 0, never a negative score); null when
+ * B_P or B_ref,P is unknown.
+ */
+export function helpsThemScore(b: number | null, b3: number | null): number | null {
+  if (!isFiniteNumber(b) || !isFiniteNumber(b3) || !(b3 > 0)) return null;
+  return b > 0 ? (tradeScore(b, b3) as number) : 0;
+}
+
+/**
+ * Whether a trade helps both teams (planner reply to Checkpoint 7b, §7: "when Helps you > 0 and Helps them ≥ 10"), judged on
+ * the printed scores (⚠️ the lead's call, like the minimum chance's printed rule: a B above 0 that prints Helps you 0 doesn't
+ * help "both" on screen): its Helps you (tradeScore, a whole number) above 0 and its Helps them (them.helps) at least `min`
+ * (config.benefit.helpsThemMin). False without a Helps them (not simulated, or an evaluation made before it).
+ */
+export function helpsBoth(e: Pick<TradeEvaluation, "tradeScore" | "them">, min: number = config.benefit.helpsThemMin): boolean {
+  const mine = e.tradeScore;
+  const theirs = e.them?.helps;
+  return isFiniteNumber(mine) && mine > 0 && isFiniteNumber(theirs) && theirs >= min;
+}
 
 // ---------------------------------------------------------------------------------------------
 // The three numbers (§10)

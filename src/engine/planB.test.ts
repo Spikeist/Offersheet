@@ -8,12 +8,13 @@
  * the same final block). Players are public NFL names with made-up numbers; teams are placeholders.
  */
 import { describe, expect, it } from "vitest";
-import { tradeScore } from "./benefit";
+import { helpsBoth, tradeScore } from "./benefit";
 import { config } from "./config";
 import { analyzeTrade, buildTradeContext, tradeInternals } from "./evaluate";
 import { injuryTags, tagContextOf } from "./explain";
 import { addedGiven, choosePlanB, dominatedByCard, givenCapSkip, givenPlayers, planBCandidates, planBConfig, planBFor, planBPasses, type PlanBCandidate } from "./planB";
 import { meetsMinChance } from "./rank";
+import { titleDeltas } from "./reward";
 import { runTradeSearch } from "./search";
 import { TEST_NOW } from "./testLeague";
 import { flat, handLeague, smallLeague, withWaiverStash } from "./trade.testing";
@@ -152,6 +153,58 @@ describe("planBPasses: the rules", () => {
         expect(meetsMinChance(Math.min(1, card + GAIN), m), `${card} at ${m}`).toBe(true);
       }
     }
+  });
+});
+
+describe("⚠️ a card that helps both teams gets a box that helps both too (Checkpoint 7c; review of the “Helps both” engine track, finding HB-4)", () => {
+  /** `e` with the partner's Helps them as printed (TradeEvaluation.them; the rest made up: benefit.helpsBoth reads `helps`). */
+  const withThem = <T extends TradeEvaluationCore>(e: T, helps: number | null): T => ({
+    ...e,
+    them: { b: helps === null ? null : helps / 10, bWin: helps === null ? null : helps / 10, bFuture: null, lambda: null, b3: 4, helps, dPO: 0.01, dCH: 0.005, dPrizes: titleDeltas(0.005), before: { pPlayoffs: 0.4, pTitle: 0.05, prizes: { first: 0.05, second: null, third: null, weeklyHigh: 0, pointsLeader: 0 } } },
+  });
+  const MIN = config.benefit.helpsThemMin;
+  /** The card, tagged "Helps both" (Helps you 57, Helps them 20). */
+  const BOTH = withThem(CARD, 20);
+
+  it("planBPasses: against a card that helps both, a candidate must help both (Helps them at least helpsThemMin, as printed); against one that doesn't, the rules as before", () => {
+    expect(helpsBoth(BOTH)).toBe(true);
+    const helping = withThem(core({ b: 4 }), MIN);
+    const short = withThem(core({ b: 4 }), MIN - 1);
+    const unknown = withThem(core({ b: 4 }), null);
+    const none = core({ b: 4 }); // an evaluation without the partner's numbers
+    expect(planBPasses(helping, BOTH)).toBe(true);
+    for (const c of [short, unknown, none]) expect(planBPasses(c, BOTH)).toBe(false);
+    // Helps you counts too: a candidate whose Helps you is 0 doesn't help both (and fails B > 0 anyway).
+    expect(planBPasses(withThem(core({ b: 0 }), 40), BOTH)).toBe(false);
+    // A card that doesn't help both (Helps them under the bar, unknown or none at all, or Helps you 0 as printed): any
+    // candidate the other rules pass.
+    for (const card of [CARD, withThem(CARD, MIN - 1), withThem(CARD, null), withThem({ ...CARD, tradeScore: 0 }, 40)]) {
+      expect(helpsBoth(card)).toBe(false);
+      for (const c of [helping, short, unknown, none]) expect(planBPasses(c, card), `${card.tradeScore} / ${card.them?.helps}`).toBe(true);
+    }
+  });
+
+  it("planBCandidates keeps only those; choosePlanB checks the final numbers again and passes over one that no longer helps both (it counts as a try)", () => {
+    const first = withThem(core({ give: ["nix"], get: ["kelce", "x"], b: 4 }), 15); // another target, EG 2.4
+    const second = withThem(core({ give: ["nix", "y"], get: ["kelce"], b: 3.5, pComplete: 0.65 }), 12); // the same players of theirs
+    const other = core({ give: ["nix"], get: ["mcbride"], b: 4.5, pComplete: 0.62 }); // another target, EG 2.79, no Helps them
+    const pool = [first, second, other];
+    expect(planBCandidates(CARD, pool).map((c) => c.core.key)).toEqual([second.key, other.key, first.key]);
+    const candidates = planBCandidates(BOTH, pool);
+    expect(candidates.map((c) => c.core.key)).toEqual([second.key, first.key]);
+    // On the final block the same-players one reads Helps them 5: passed over; the next one helps both there too.
+    const finals: Record<string, TradeEvaluationCore> = { [second.key]: { ...withThem(second, 5), stage: "final", sims: 5000 } };
+    const asked: string[] = [];
+    const it = choosePlanB(BOTH, candidates, (x) => (asked.push(x.key), finals[x.key] ?? { ...x, stage: "final", sims: 5000 }), cfg);
+    let r = it.next();
+    while (!r.done) r = it.next();
+    expect(r.value?.key).toBe(first.key);
+    expect(asked).toEqual([second.key, first.key]);
+    // Only one try allowed: the one that no longer helps both used it, so no box.
+    const once = choosePlanB(BOTH, candidates, (x) => finals[x.key] ?? { ...x, stage: "final", sims: 5000 }, { ...cfg, tries: 1 });
+    let s = once.next();
+    while (!s.done) s = once.next();
+    expect(s.value).toBeNull();
   });
 });
 

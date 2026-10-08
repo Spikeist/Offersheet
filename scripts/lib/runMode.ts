@@ -15,7 +15,11 @@
  *   (`--offline <dir>` kept as an alias), else the newest data-local/parker-league* dump by its meta.json time
  *   (listDumps, newestDump); `--live` fetches the league instead (the two don't go together). Their header prints the
  *   command line with the dump always named (reportCommandText), so a report can be run again on the same data.
- *   `--out <file>` writes a report somewhere other than its committed reports/ file (a check run).
+ *   `--out <file>` writes a report somewhere other than its committed reports/ file (a check run). Checkpoint 7c (planner
+ *   reply to Checkpoint 7b, §6, league prizes): `--prizes <1st>,<2nd>,<3rd>,<weekly>,<leader>` gives the league's prizes
+ *   as the Settings page takes them under "Several prizes" (prizesArg: dollars or percent, one unit for all, the weekly
+ *   prize one week's; blank or 0 not paid), which the reports compare with "Only the champion"; they print how they read
+ *   it first (prizesReadLine), since every comma starts the next prize.
  * - Scripts whose job is the network (the probes, check:browser, check:sleeper-cors, measure:stat-sd) need --live:
  *   without it they say so and exit (requireLive). snapshot:projections stays as it is (its job is fetching).
  * - isMainModule: whether a module is the script node was started with, by exact resolved file paths (a scratch file
@@ -213,6 +217,90 @@ export function newestDump(dumps: readonly DumpInfo[]): DumpInfo | null {
   return best;
 }
 
+/**
+ * The prizes --prizes takes, in its order: 1st, 2nd and 3rd place, the weekly high score (one week's prize) and the most
+ * points in the regular season (src/engine/settings.ts PRIZE_KEYS, written out here so this module loads nothing of the
+ * app; runMode.test.ts checks the two match).
+ */
+export const PRIZE_FLAG_KEYS = ["first", "second", "third", "weeklyHigh", "pointsLeader"] as const;
+export type PrizeFlagKey = (typeof PRIZE_FLAG_KEYS)[number];
+
+/** The largest amount --prizes takes (settings.ts PRIZE_MAX, the largest a stored copy keeps; written out, checked the same way). */
+export const PRIZE_FLAG_MAX = 1e9;
+
+/** --prizes as given: each prize's amount, null when blank (not paid); the shape of settings.ts PrizeAmounts. */
+export type ReportPrizes = Readonly<Record<PrizeFlagKey, number | null>>;
+
+/** What --prizes says when its value isn't one (prizesArg). */
+export const PRIZES_USAGE =
+  "--prizes takes the league's prizes as <1st>,<2nd>,<3rd>,<weekly high score>,<most points>: plain numbers in dollars or percent, with no $ and no thousands separators (each comma starts the next prize), the same way for all (only the split matters), the weekly prize for one week, blank or 0 when the league doesn't pay it, for example --prizes 2000,1600,900,0 (in PowerShell, quote a list with a blank: --prizes \"60,30,,5\").";
+
+/**
+ * --prizes <1st>,<2nd>,<3rd>,<weekly>,<leader> (the header): up to five amounts, comma-separated, each a plain number from 0
+ * to PRIZE_FLAG_MAX ("2000", "12.5"; no leading zero) or blank (null: not paid; missing ones at the end are blank), at least
+ * one above 0; undefined without the flag, an error (PRIZES_USAGE) for anything else. Never a dollar sign: PowerShell reads
+ * "$2000" as a variable. ⚠️ Every comma starts the next prize, so amounts typed with thousands separators are refused only
+ * when a group after a comma starts with 0 ("2,000,1,600,900": "000"); "2,500,1,500,900" reads as five prizes, 2 / 500 / 1 /
+ * 500 / 900 (review FB-R2). The reports print how they read the flag before their long run (prizesReadLine, and
+ * league-report's prizesSplitLine once the league is loaded), so such a list shows at once.
+ */
+export function prizesArg(argv: readonly string[]): ReportPrizes | { error: string } | undefined {
+  if (!argv.includes("--prizes")) return undefined;
+  const raw = flagValue(argv, "--prizes");
+  if (raw === undefined) return { error: PRIZES_USAGE };
+  const parts = raw.split(",");
+  if (parts.length > PRIZE_FLAG_KEYS.length) return { error: PRIZES_USAGE };
+  const out = {} as Record<PrizeFlagKey, number | null>;
+  for (const [i, k] of PRIZE_FLAG_KEYS.entries()) {
+    const p = (parts[i] ?? "").trim();
+    if (p === "") {
+      out[k] = null;
+      continue;
+    }
+    // No leading zeros: refuses "2,000,1,600,900" (its "000"), which would otherwise read as five prizes; thousands
+    // separators whose groups don't start with 0 still pass (the header).
+    if (!/^(0|[1-9]\d*)(\.\d+)?$/.test(p) || !(Number(p) <= PRIZE_FLAG_MAX)) return { error: PRIZES_USAGE };
+    out[k] = Number(p);
+  }
+  if (!PRIZE_FLAG_KEYS.some((k) => (out[k] ?? 0) > 0)) return { error: `--prizes needs at least one prize above 0. ${PRIZES_USAGE}` };
+  return out;
+}
+
+/**
+ * --prizes' value as a command line gives it: the amounts in order, blank for null, the blanks at the end left off, and in
+ * quotes when a blank is left inside (PowerShell refuses "60,30,,5" bare).
+ */
+export function prizesText(prizes: ReportPrizes): string {
+  const parts = PRIZE_FLAG_KEYS.map((k) => (prizes[k] === null ? "" : String(prizes[k])));
+  while (parts.length > 0 && parts.at(-1) === "") parts.pop();
+  const list = parts.join(",");
+  return parts.includes("") ? `"${list}"` : list;
+}
+
+/** Each prize's name in prizesReadLine. */
+const PRIZE_FLAG_WORDS: Readonly<Record<PrizeFlagKey, string>> = { first: "1st", second: "2nd", third: "3rd", weeklyHigh: "the weekly high score", pointsLeader: "the most points" };
+
+/** What prizesReadLine adds when a list looks like amounts typed with thousands separators. */
+export const PRIZES_THOUSANDS_HINT = "If a comma there was a thousands separator, type the amounts without one (2500, not 2,500): each comma starts the next prize.";
+
+/**
+ * How --prizes was read, for the console right after the flag (review FB-R2): each prize as a plain number ("not paid" for
+ * blank or 0; the weekly one "a week"), so a list read otherwise than meant shows before the long run. A list can't be told
+ * from amounts typed with thousands separators ("2,500,1,500,900" is five prizes: prizesArg), so when an amount of 100 to 999
+ * follows a whole number under 1,000, the line adds PRIZES_THOUSANDS_HINT (⚠️ ours: a hint, never a refusal, since
+ * "500,300,200" is a fine split).
+ */
+export function prizesReadLine(prizes: ReportPrizes): string {
+  const parts = PRIZE_FLAG_KEYS.map((k) => {
+    const x = prizes[k];
+    return `${PRIZE_FLAG_WORDS[k]} ${x !== null && x > 0 ? `${x}${k === "weeklyHigh" ? " a week" : ""}` : "not paid"}`;
+  });
+  const values = PRIZE_FLAG_KEYS.map((k) => prizes[k]);
+  const group = (x: number | null | undefined, lo: number): boolean => x !== null && x !== undefined && Number.isInteger(x) && x >= lo && x <= 999;
+  const thousands = values.some((x, i) => i > 0 && group(values[i - 1], 1) && group(x, 100));
+  return `--prizes read as: ${parts.join(", ")}.${thousands ? ` ${PRIZES_THOUSANDS_HINT}` : ""}`;
+}
+
 /** A report's command line (reportArgs). */
 export interface ReportArgs {
   /** The saved dump it reads (an absolute folder), or null with --live (the network). */
@@ -225,12 +313,15 @@ export interface ReportArgs {
   cookies: "on" | "off" | null;
   /** --out <file>: write the report there (relative to the project root) instead of its committed reports/ file, e.g. a check run. */
   out?: string;
+  /** Checkpoint 7c: --prizes, the league's prizes under "Several prizes" (prizesArg); absent without the flag. */
+  prizes?: ReportPrizes;
 }
 
 /**
  * A report's command line (see the header): --live, or the dump (--dump <dir> or its alias --offline <dir>, a relative
  * folder from `root`; without a folder, or with neither flag, the newest dump: `dumps`, default listDumps(root)), and
- * --team, --cookies, --no-cookies. An error says what to do: --live with --dump, no dump at all, a folder that isn't one.
+ * --team, --cookies, --no-cookies, --out and (Checkpoint 7c) --prizes. An error says what to do: --live with --dump, no dump
+ * at all, a folder that isn't one, prizes that aren't.
  */
 export function reportArgs(argv: readonly string[], root: string, opts: { env?: Env; dumps?: () => readonly DumpInfo[] } = {}): ReportArgs | { error: string } {
   const env = opts.env ?? process.env;
@@ -241,17 +332,20 @@ export function reportArgs(argv: readonly string[], root: string, opts: { env?: 
   const outArg = flagValue(argv, "--out");
   const out = outArg !== undefined ? { out: path.resolve(root, outArg) } : {};
   if (argv.includes("--out") && outArg === undefined) return { error: "--out needs a file, for example --out .cache/league-report.md." };
+  const prizesGiven = prizesArg(argv);
+  if (prizesGiven && "error" in prizesGiven) return prizesGiven;
+  const extra = { ...out, ...(prizesGiven ? { prizes: prizesGiven } : {}) };
   if (live && dumpFlag) return { error: `${LIVE_FLAG} and ${dumpFlag} don't go together: ${LIVE_FLAG} fetches your league, ${dumpFlag} reads a saved dump. Pick one.` };
-  if (live) return { dump: null, newest: false, team, cookies, ...out };
+  if (live) return { dump: null, newest: false, team, cookies, ...extra };
   const named = dumpFlag ? flagValue(argv, dumpFlag) : undefined;
   if (named !== undefined) {
     const dir = path.resolve(root, named);
     if (!dumpTime(dir)) return { error: `${displayPath(root, dir)} isn't a saved dump: it needs ${DUMP_FILES.join(", ")} with a valid \`now\` in meta.json.` };
-    return { dump: dir, newest: false, team, cookies, ...out };
+    return { dump: dir, newest: false, team, cookies, ...extra };
   }
   const newest = newestDump((opts.dumps ?? (() => listDumps(root)))());
   if (!newest) return { error: `No saved dump of your league in data-local/ (a parker-league-* folder with ${DUMP_FILES.join(", ")}). Pass --dump <folder>, or ${LIVE_FLAG} to fetch the league.` };
-  return { dump: newest.dir, newest: true, team, cookies, ...out };
+  return { dump: newest.dir, newest: true, team, cookies, ...extra };
 }
 
 /** The command line a report's header prints (the dump always named, relative to `root`), so it can be run again on the same data. */
@@ -261,6 +355,7 @@ export function reportCommandText(script: string, args: ReportArgs, root: string
     args.team ? `--team ${args.team}` : null,
     args.dump === null && args.cookies === "on" ? "--cookies" : null,
     args.dump === null && args.cookies === "off" ? "--no-cookies" : null,
+    args.prizes ? `--prizes ${prizesText(args.prizes)}` : null,
   ]);
 }
 

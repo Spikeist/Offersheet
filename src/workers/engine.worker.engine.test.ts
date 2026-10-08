@@ -82,6 +82,11 @@ describe("the worker protocol with the real trade engine", () => {
     expect(done.type, done.type === "error" ? done.detail : "").toBe("trades");
     const result = (done as Extract<EngineResponse, { type: "trades" }>).result as TradeSearchResult;
     expect(structuredClone(result)).toEqual(result);
+    // Checkpoint 7c (planner reply to Checkpoint 7b, §7): the "Helps both" list and every card's partner numbers ride in the
+    // same reply, and survive the clone.
+    expect(result.helpsBoth).toBeDefined();
+    for (const t of [...result.trades, ...(result.helpsBoth?.trades ?? [])]) expect(t.them, t.key).toBeDefined();
+    expect(structuredClone(result.helpsBoth)).toEqual(result.helpsBoth);
     // Progress came in stage order, one message per slice at most.
     const stages = posted.filter((p) => p.response.type === "progress").map((p) => (p.response as Extract<EngineResponse, { type: "progress" }>).progress.stage);
     const order = stages.map((s) => STAGES.indexOf(s));
@@ -99,6 +104,9 @@ describe("the worker protocol with the real trade engine", () => {
     expect(typeof result.baseline.pPlayoffs).toBe("number");
     expect(analysis.baseline).toEqual(result.baseline);
     expect(analysis.evaluation?.dPO).toBeCloseTo(idea.dPO ?? Number.NaN, 12);
+    // The partner's side of the same trade too (Checkpoint 7c, "Helps them"): the same runs, the same partner's scale.
+    expect(analysis.evaluation?.them?.dPO).toBeCloseTo(idea.them?.dPO ?? Number.NaN, 12);
+    expect(analysis.evaluation?.them?.helps).toBe(idea.them?.helps);
     // The gaps between replies say how long the worker went without looking at its messages.
     const gaps = posted.slice(1).map((p, i) => p.at - (posted[i]?.at ?? p.at));
     const sorted = [...gaps].sort((a, b) => b - a);

@@ -177,7 +177,8 @@ describe("refilterSearch: the finalists ranked again with another minimum (no ne
     let tick = 0;
     const r = runRefilter(ctx, stateOf(search(0.1)), { minChance: 0.2, clock: () => tick++ }, (p) => progress.push(p));
     expect(new Set(progress.map((p) => p.stage))).toEqual(new Set(["rank"]));
-    const n = Math.max(1, r.trades.length);
+    // One unit per card of either list (Checkpoint 7c: the "Helps both" list's cards the Overall list doesn't show too).
+    const n = Math.max(1, new Set([...r.trades, ...(r.helpsBoth?.trades ?? [])].map((t) => t.key)).size);
     expect(progress.at(-1)).toEqual({ stage: "rank", done: n, total: n });
     expect(Object.keys(r.timings)).toEqual(["rank", "steps", "total"]);
     const it = refilterSearch(ctx, stateOf(search(0.1)), { minChance: 0.3 });

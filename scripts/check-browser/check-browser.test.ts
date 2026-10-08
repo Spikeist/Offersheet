@@ -18,19 +18,22 @@ import { PlayerDetail } from "@/components/league/PlayerTable";
 import { leagueFixture, NOW as LEAGUE_NOW } from "@/components/league/testFixtures";
 import { ValuesCredit } from "@/components/league/ValuesCredit";
 import { SiteFooter } from "@/components/SiteFooter";
+import { GOAL_LABEL, PRIZE_LABEL, PRIZE_TEXT_MESSAGES, PRIZES_HELP, PRIZES_LEGEND, buildSettingsView, prizeAmountText } from "@/components/settings/settingsView";
+import { snapshot as settingsSnapshot } from "@/components/settings/testFixtures";
 import { AnalysisResult } from "@/components/trades/AnalyzerPage";
 import { evaluation, searchResult, steppedFull, tradeFantasyCalc, tradeSnapshot } from "@/components/trades/testFixtures";
 import { TradeCard } from "@/components/trades/TradeCard";
 import { FinderFrame } from "@/components/trades/TradeFinderPage";
 import type { PlayerBlend } from "@/engine/leagueModel";
 import type { LeagueSnapshot } from "@/engine/model";
+import { PRIZE_KEYS, defaultTradeSettings, type TradeSettings } from "@/engine/settings";
 import type { TradeEvaluation } from "@/engine/tradeModel";
 import { planBFixture } from "@/engine/tradeTestFixtures";
 import type { ImportResponse } from "@/lib/api";
 import { buildImportReport } from "@/lib/importReport";
 import { buildLeagueView } from "@/lib/leagueView";
 import { NOTICE_TEXT, UNKNOWN_SETTING_NOTICE } from "@/lib/notices";
-import { bestTimeText, buildAnalysisView, buildFinderView, PROJECTIONS_SOURCE } from "@/lib/tradeView";
+import { bestTimeText, buildAnalysisView, buildFinderView, buildTradeCard, PROJECTIONS_SOURCE } from "@/lib/tradeView";
 import { DEFAULT_MAX_SEARCH_SECONDS, SECOND_LEAGUE, USAGE, parseArgs, resolveArgs, type CheckBrowserArgs } from "./args";
 import { chromeArgs, chromeCandidates, devtoolsUrl, exited, findChrome, killTree, waitForDevtools } from "./chrome";
 import {
@@ -46,43 +49,55 @@ import {
   fantasyCalcLinksInHtml,
   foreignResourcesInHtml,
   freshnessLineOk,
+  headlineTopProblems,
   internalPaths,
+  invalidPrizeProblems,
   isFantasyCalcHref,
   NAV_HREFS,
   noticeCount,
   noticeLeaks,
+  oddsLabelProblems,
   pageValueLeaks,
   PARKER_QUIET_LINE,
   playoffWeightRead,
+  prizeGroupProblems,
   requestNamesAddress,
   rowCount,
   valueLeaks,
   VALUES_CREDIT,
   waiverToggleKind,
   type CreditRead,
+  type PrizeGroupRead,
 } from "./contracts";
 import {
   CARD_HELPERS,
+  CHECKED_GOAL,
   cleanCall,
   CSP_MARK,
+  goalChoice,
   INSTRUMENT,
   NAME_REPLACER,
   PAGE_HELPERS,
   PLAYOFF_WEIGHT_SHOWN,
+  READ_CARD_ODDS,
   READ_CARD_TEXTS,
   READ_FANTASYCALC_LINKS,
   READ_FINDER_NOTICES,
   READ_FINDER_TIMING,
   READ_IMPORT_NOTICES,
   READ_LEAGUE_VALUES,
+  READ_MY_ODDS,
   READ_NAV_LINKS,
   READ_NOTICE_BANNERS,
+  READ_PRIZE_LEAGUE,
+  READ_SETTINGS_PRIZES,
   READ_SETTINGS_SCORING,
   READ_TRADING_LEAGUE,
   READ_WAIVERS,
   RESTORE_CALL,
   sanitizeCall,
   STOP_PLAYOFF_WEIGHT,
+  typePrize,
   WAIVER_SHOW_ALL,
   waiverToggle,
   WATCH_PLAYOFF_WEIGHT,
@@ -113,11 +128,14 @@ import {
   APP_PAGES,
   BACK_LINK,
   bestTimeExpectation,
+  expectedPrizeSplit,
+  expectedTopPlaces,
   freshnessExpectation,
   GOAL_CHOICES,
   isMissingPage404,
   MISSING_PAGE,
   NARROW_PHONE_WIDTH,
+  noTopReason,
   parkersLeague,
   READ_SITE_FILES,
   readPathOf,
@@ -1001,6 +1019,105 @@ describe("Checkpoint 7b: Settings, the waiver view and the header (5.2, §6.1, �
     expect(rowCount([row(60), row(60), row(60), row(60), row(60), row(60)])).toBe(1);
     expect(rowCount([])).toBe(0);
     expect(NAV_HREFS).toEqual(["/connect", "/import", "/league", "/league#waivers", "/trades", "/settings"]);
+  });
+});
+
+describe("Checkpoint 7c: league prizes on the Settings page, the cards and the League page (planner reply to Checkpoint 7b, §6)", () => {
+  const view = (settings: Partial<TradeSettings>) => buildSettingsView({ snapshot: settingsSnapshot(), myTeamId: "1", settings: { ...defaultTradeSettings(), ...settings }, stored: true });
+  /** The page's group as the reader returns it, made from the view model (what SettingsForm.tsx lays out), 44 px fields. */
+  const asRead = (prizes: NonNullable<ReturnType<typeof view>["prizes"]>): PrizeGroupRead => ({
+    help: prizes.help,
+    fields: prizes.fields.map((f) => ({ label: f.label, value: f.value, height: 44, invalid: null, error: null, live: false })),
+    split: prizes.split,
+    warning: prizes.warning,
+    goalLabels: 3,
+  });
+  const want = (settings: TradeSettings) => ({
+    labels: PRIZE_KEYS.map((k) => PRIZE_LABEL[k]),
+    help: PRIZES_HELP,
+    values: PRIZE_KEYS.map((k) => prizeAmountText(settings.prizes[k])),
+    split: expectedPrizeSplit(settings, { settings: { regularSeasonWeeks: settingsSnapshot().settings.regularSeasonWeeks, pointsOnly: false }, schedule: [] }),
+  });
+
+  it("passes the app's own group under “Several prizes”, the split as the check works it out, and catches what's wrong", () => {
+    const settings = { ...defaultTradeSettings(), goal: "prizes" as const };
+    const group = view(settings).prizes;
+    if (!group) throw new Error("no prizes group");
+    expect(prizeGroupProblems(asRead(group), want(settings))).toEqual([]);
+    expect(want(settings).split).toBe("Your prizes split: 1st 60%, 2nd 30%, 3rd 10%.");
+    // Parker's prizes; the weekly high score counted over the league's 14 weeks; nothing entered (the warning, no split).
+    const parker = { ...settings, prizes: { first: 2000, second: 1600, third: 900, weeklyHigh: 0, pointsLeader: null } };
+    expect(expectedPrizeSplit(parker, null)).toBe("Your prizes split: 1st 44%, 2nd 36%, 3rd 20%.");
+    const weekly = { ...settings, prizes: { first: 100, second: null, third: null, weeklyHigh: 25, pointsLeader: null } };
+    for (const s of [parker, weekly]) expect(prizeGroupProblems(asRead(view(s).prizes as NonNullable<ReturnType<typeof view>["prizes"]>), want(s))).toEqual([]);
+    const empty = { ...settings, prizes: { first: null, second: null, third: null, weeklyHigh: null, pointsLeader: null } };
+    expect(expectedPrizeSplit(empty, null)).toBeNull();
+    expect(prizeGroupProblems(asRead(view(empty).prizes as NonNullable<ReturnType<typeof view>["prizes"]>), want(empty))).toEqual([]);
+    // What it catches.
+    const read = asRead(group);
+    expect(prizeGroupProblems(null, want(settings))).toEqual(["no “Your league's prizes” group shows under “Several prizes”"]);
+    expect(prizeGroupProblems({ ...read, help: "Enter your prizes." }, want(settings))).toEqual(["its help reads “Enter your prizes.”, not the planner's line"]);
+    expect(prizeGroupProblems({ ...read, fields: read.fields.slice(0, 3) }, want(settings))).toHaveLength(2);
+    expect(prizeGroupProblems({ ...read, fields: read.fields.map((f, i) => (i === 3 ? { ...f, height: 40 } : f)) }, want(settings))).toEqual(["“High score, each regular-season week” is 40 px tall (44 px at least)"]);
+    expect(prizeGroupProblems({ ...read, fields: read.fields.map((f, i) => (i === 0 ? { ...f, invalid: "true" } : f)) }, want(settings))).toEqual(["“1st place” is marked invalid with nothing typed"]);
+    expect(prizeGroupProblems({ ...read, split: "Your prizes split: 1st 100%." }, want(settings))).toEqual(["the split reads “Your prizes split: 1st 100%.”, not “Your prizes split: 1st 60%, 2nd 30%, 3rd 10%.”"]);
+    expect(prizeGroupProblems({ ...read, goalLabels: 8 }, want(settings))).toEqual(["the goal's group holds 8 labels, not its three answers"]);
+    expect(prizeGroupProblems({ ...read, split: null, warning: null }, { ...want(settings), split: null })).toEqual(["nothing says the amounts add up to nothing"]);
+  });
+
+  it("knows a field that says why it can't read what's typed, in a live region (review of the prizes UI, prizes-ui-3)", () => {
+    const field = { label: "2nd place", value: "abc", height: 44, invalid: "true", error: PRIZE_TEXT_MESSAGES.notNumber, live: true };
+    expect(invalidPrizeProblems(field, PRIZE_TEXT_MESSAGES.notNumber)).toEqual([]);
+    expect(invalidPrizeProblems({ ...field, invalid: null, error: null, live: false }, PRIZE_TEXT_MESSAGES.notNumber)).toEqual(["aria-invalid is missing", `its message reads nothing, not “${PRIZE_TEXT_MESSAGES.notNumber}”`]);
+    // The message shows on blur, after focus has moved on: outside a live region nothing announces it.
+    expect(invalidPrizeProblems({ ...field, live: false }, PRIZE_TEXT_MESSAGES.notNumber)).toEqual(["its message isn't in a live region, so a screen reader doesn't announce it"]);
+    expect(invalidPrizeProblems(undefined, PRIZE_TEXT_MESSAGES.notNumber)).toEqual(["the field is gone"]);
+    // The reader asks the message's own place in the page.
+    expect(READ_SETTINGS_PRIZES).toContain('live: !!(error && error.closest("[aria-live]"))');
+  });
+
+  it("expects the top-N odds line from the saved settings, and reads the cards' and the League page's odds by it", () => {
+    expect(expectedTopPlaces(null)).toBeNull();
+    expect(expectedTopPlaces({ goal: "title" })).toBeNull();
+    // A league saved with "Top finishers too" reads as "Several prizes" on the prefilled 60 / 30 / 10: the top 3.
+    expect(expectedTopPlaces({ goal: "balanced" })).toBe(3);
+    expect(expectedTopPlaces({ goal: "prizes", prizes: { first: 60, second: 40, third: null, weeklyHigh: null, pointsLeader: null } })).toBe(2);
+    expect(expectedTopPlaces({ goal: "prizes", prizes: { first: 60, second: null, third: null, weeklyHigh: 5, pointsLeader: null } })).toBeNull();
+    // Why none, in the check lines' words: a fresh browser's answer, or a split paying neither 2nd nor 3rd.
+    expect(noTopReason(null)).toBe("“Only the champion” is chosen");
+    expect(noTopReason({ goal: "playoffs" })).toBe("“Making the playoffs” is chosen");
+    expect(noTopReason({ goal: "prizes", prizes: { first: 60, second: null, third: null, weeklyHigh: 5, pointsLeader: null } })).toBe("the saved prizes pay no 2nd or 3rd place");
+    // The cards' labels as the app makes them (tradeView.ts oddsViews) pass; anything else is caught.
+    const reward = { goal: "prizes" as const, shares: { first: 0.5, second: 0.3, third: 0.2, weeklyHigh: 0, pointsLeader: 0 } };
+    const e = { ...evaluation({ dCH: 0.01, dPO: 0.03 }), dPrizes: { first: 0.01, second: 0.01, third: 0.01, weeklyHigh: null, pointsLeader: 0 } };
+    const baseline = { pPlayoffs: 0.6, pTitle: 0.1, prizes: { first: 0.1, second: 0.1, third: 0.1, weeklyHigh: 0, pointsLeader: 0.1 } };
+    const labels = (r: typeof reward | null) => buildTradeCard(e, { snapshot: tradeSnapshot(), baseline, reward: r }).odds.map((o) => o.label);
+    expect(oddsLabelProblems([labels(reward), labels(reward)], 3)).toEqual([]);
+    expect(oddsLabelProblems([labels(null)], null)).toEqual([]);
+    expect(oddsLabelProblems([labels(null)], 3, () => "idea 1")).toEqual(["idea 1: “Title odds” · “Playoff odds”"]);
+    expect(oddsLabelProblems([labels(reward)], null)).toEqual(["odds line 1: “Title odds” · “Top 3 odds” · “Playoff odds”"]);
+    expect(oddsLabelProblems([["Playoff odds", "Title odds"]], null)).toHaveLength(1);
+    // The League page's lines (leagueView.ts myOddsOf), screen-reader words left out.
+    expect(headlineTopProblems(["Your odds: 60% playoffs · 30% top 3 · 10.5% title", "As rosters stand: 58% playoffs · 29% top 3 · 9.9% title"], 3)).toEqual([]);
+    expect(headlineTopProblems(["Your odds: 60% playoffs · 10.5% title"], null)).toEqual([]);
+    expect(headlineTopProblems(["Your odds: 60% playoffs · 10.5% title"], 3)).toEqual(["“Your odds: 60% playoffs · 10.5% title” lacks one top-3 chance"]);
+    expect(headlineTopProblems(["Your odds: 60% playoffs · 20% top 2 · 10.5% title"], null)).toEqual(["“Your odds: 60% playoffs · 20% top 2 · 10.5% title” shows a top-2 chance, though your league's prizes pay no 2nd or 3rd place"]);
+    expect(headlineTopProblems(["Your odds: 60% playoffs · 20% top 2 · 10.5% title"], 3)).toHaveLength(1);
+  });
+
+  it("compiles its in-page readers, the typing and the taps (TypeScript never checks them)", () => {
+    const body = (code: string) => `return (async () => {\n${PAGE_HELPERS}\n${CARD_HELPERS}\n${code}\n})`;
+    for (const reader of [READ_SETTINGS_PRIZES, READ_PRIZE_LEAGUE, READ_CARD_ODDS, READ_MY_ODDS, typePrize("1st place", "$2,000", "enter"), typePrize("2nd place", 'quote " and \\ slash', "blur")]) {
+      expect(() => new Function(body(reader)), reader.slice(0, 60)).not.toThrow();
+    }
+    for (const expression of [CHECKED_GOAL, goalChoice("prizes")]) expect(() => new Function(body(`return (${expression});`)), expression.slice(0, 60)).not.toThrow();
+    // A field found by its own label, saved by Enter's keydown or the focus leaving (React's onBlur listens to focusout).
+    expect(typePrize("1st place", "50", "enter")).toContain('new KeyboardEvent("keydown", { key: "Enter"');
+    expect(typePrize("1st place", "abc", "blur")).toContain('new FocusEvent("focusout", { bubbles: true })');
+    // The labels and words it looks for are the app's own.
+    expect(Object.values(PRIZE_LABEL)).toEqual(["1st place", "2nd place", "3rd place", "High score, each regular-season week", "Most points in the regular season"]);
+    expect(READ_SETTINGS_PRIZES).toContain(`byText("legend", "${PRIZES_LEGEND}")`);
+    expect(GOAL_LABEL.prizes).toBe(GOAL_CHOICES[1]);
   });
 });
 

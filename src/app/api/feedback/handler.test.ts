@@ -7,9 +7,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { tradeSnapshot } from "@/components/trades/testFixtures";
 import type { FeedbackEvent } from "@/lib/feedbackEvent";
-import { feedbackEventOf, feedbackShareContext } from "@/lib/feedbackShare";
+import { feedbackBasisOf, feedbackEventOf, feedbackShareContext, type FeedbackRewardSource } from "@/lib/feedbackShare";
 import { applyFeedback, type FeedbackRecord } from "@/lib/feedbackStore";
 import { POSITIONS } from "@/engine/model";
+import { prizePeriods, rewardWith } from "@/engine/reward";
 import { createDailyQuota } from "@/server/budget";
 import { feedbackLimits, rateLimits } from "@/server/limits";
 import { setLogStoreForTests } from "@/server/log";
@@ -22,7 +23,11 @@ const T0 = Date.UTC(2026, 9, 4, 18, 30, 0);
 const URL_ = "https://offersheet.example/api/feedback";
 const SAME_SITE = { "content-type": "application/json", origin: "https://offersheet.example", host: "offersheet.example", "sec-fetch-site": "same-origin", "x-real-ip": "203.0.113.9" };
 
-function copy(): FeedbackEvent {
+/** "Several prizes" on $2,000 / $1,600 / $900 (Checkpoint 7c), as the engine hands it to the pages. */
+const PRIZES = rewardWith({ goal: "prizes", prizes: { first: 2000, second: 1600, third: 900, weeklyHigh: 0, pointsLeader: null } }, prizePeriods(tradeSnapshot()));
+
+function copy(reward: FeedbackRewardSource = "title"): FeedbackEvent {
+  const context = feedbackShareContext(tradeSnapshot(), reward);
   const [record] = applyFeedback([], {
     leagueKey: "espn:1a2b3c4d",
     evaluation: {
@@ -41,10 +46,10 @@ function copy(): FeedbackEvent {
       gMine: 0.01,
       gPartner: 0.02,
     },
-    change: { outcome: "accepted", rid: "AbCdEfGhIjKlMnOpQrStUw" },
+    change: { outcome: "accepted", rid: "AbCdEfGhIjKlMnOpQrStUw", ...(reward === "title" ? {} : { basis: feedbackBasisOf(context) }) },
     at: "2026-10-04T12:00:00.000Z",
   });
-  return feedbackEventOf({ record: record as FeedbackRecord, kind: "outcome", context: feedbackShareContext(tradeSnapshot(), "title") }) as FeedbackEvent;
+  return feedbackEventOf({ record: record as FeedbackRecord, kind: "outcome", context }) as FeedbackEvent;
 }
 
 const post = (body: unknown, headers: Record<string, string> = SAME_SITE) => new Request(URL_, { method: "POST", headers, body: typeof body === "string" ? body : JSON.stringify(body) });
@@ -96,6 +101,30 @@ describe("the handler", () => {
       expect(body.error.message).not.toMatch(/12345678|Zorblax|short|leagueId|partnerId/);
     }
     expect(redis.keys()).toEqual([]);
+  });
+
+  it("Checkpoint 7c: stores a copy under “Several prizes” with its split as whole percents; refuses one with amounts or without its split, logged by the field", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const redis = new FakeRedis(() => T0);
+    let now = T0;
+    const handler = createFeedbackHandler({ store: () => redis, now: () => now, env: () => ({ VERCEL: "1", VERCEL_ENV: "preview" }) });
+    const prizes = copy(PRIZES);
+    expect(prizes).toMatchObject({ goal: "prizes", prizes: { first: 44, second: 36, third: 20, weeklyHigh: 0, pointsLeader: 0 } });
+    expect((await handler(post(prizes))).status).toBe(202);
+    const stored = await redis.lrange("os:preview:fb:2026-10-04", 0, -1);
+    expect(stored).toEqual([JSON.stringify({ ...prizes, day: "2026-10-04" })]);
+    for (const amount of ["2000", "1600", "4500"]) expect(stored[0]).not.toContain(amount);
+    // Amounts in place of shares, and the goal without its split: refused, each logged by the field (once per window).
+    expect((await handler(post({ ...prizes, prizes: { first: 2000, second: 1600, third: 900, weeklyHigh: 0, pointsLeader: 0 } }))).status).toBe(400);
+    now += feedbackLimits.invalidLogEveryMs;
+    const { prizes: _p, ...noSplit } = prizes;
+    void _p;
+    expect((await handler(post(noSplit))).status).toBe(400);
+    expect(await redis.lrange("os:preview:fb:2026-10-04", 0, -1)).toHaveLength(1);
+    expect(spy.mock.calls.map((c) => String(c[0]))).toEqual([
+      '{"route":"server","event":"feedback_invalid","code":"INVALID_PRIZES","status":400}',
+      '{"route":"server","event":"feedback_invalid","code":"INVALID_PRIZES","status":400}',
+    ]);
   });
 
   it("logs a refused copy by the field that failed, never its content, at most once per feedbackLimits.invalidLogEveryMs (review FB-R8)", async () => {

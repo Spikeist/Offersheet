@@ -12,7 +12,9 @@ import { config } from "@/engine/config";
 import { buildLeagueModel, type LeagueModelConfig } from "@/engine/league";
 import type { LeagueModel, SeasonOdds } from "@/engine/leagueModel";
 import type { LeagueSnapshot, Pos } from "@/engine/model";
+import { TITLE_ONLY, type Reward } from "@/engine/reward";
 import { TEST_NOW, buildTestLeague, type TestPlayer } from "@/engine/testLeague";
+import { seasonOver } from "./leagueView";
 import {
   CANT_FIT_TEXT,
   DEPTH_ONLY_TAG,
@@ -179,6 +181,50 @@ describe("buildWaiversView", () => {
     const odds = { teams: [{ teamId: "1", eliminated: true }, { teamId: "2", eliminated: false }] } as unknown as SeasonOdds;
     const over = buildWaiversView({ snapshot: s.snapshot, model: { ...s.model, odds }, inputs: s.inputs, timeZone: NY, now: TEST_NOW.toISOString() });
     expect(over).toEqual({ ros: null, underWay: null, week: null, first: "ros", intro: expect.any(String), empty: WAIVERS_SEASON_OVER, emptyLink: null });
+  });
+
+  it("under “Several prizes”, out of the title race isn't over while a prize the league pays can still move (planner reply to Checkpoint 7b, §6; the League page's own reading)", () => {
+    const shares = (o: Partial<Reward["shares"]>): Reward["shares"] => ({ first: 0, second: 0, third: 0, weeklyHigh: 0, pointsLeader: 0, ...o });
+    const odds = (left: { periods: number; weeks: number }) =>
+      ({ playoffTeams: 4, regularLeft: left, teams: [{ teamId: "1", eliminated: true, bestFinish: 5 }, { teamId: "2", eliminated: false, bestFinish: 1 }] }) as unknown as SeasonOdds;
+    const at = (reward: Reward, left: { periods: number; weeks: number }) => buildWaiversView({ snapshot: s.snapshot, model: { ...s.model, reward, odds: odds(left) }, inputs: s.inputs, timeZone: NY, now: TEST_NOW.toISOString() });
+    const weekly: Reward = { goal: "prizes", shares: shares({ first: 0.8, weeklyHigh: 0.2 }), periods: 14, empty: false };
+    // A weekly high score still to win: the lists, as for a team in the race.
+    const open = at(weekly, { periods: 3, weeks: 3 });
+    expect(open?.empty).toBeNull();
+    expect(open?.ros?.rows.length).toBeGreaterThan(0);
+    // None left, or the title alone paying: over.
+    expect(at(weekly, { periods: 0, weeks: 0 })?.empty).toBe(WAIVERS_SEASON_OVER);
+    expect(at({ goal: "title", shares: TITLE_ONLY, periods: 14, empty: false }, { periods: 3, weeks: 3 })?.empty).toBe(WAIVERS_SEASON_OVER);
+    // Dynasty and keeper leagues never read as over (their later seasons): the lists.
+    const dynasty = { ...s.snapshot, settings: { ...s.snapshot.settings, leagueType: "dynasty" as const } };
+    expect(buildWaiversView({ snapshot: dynasty, model: { ...s.model, odds: odds({ periods: 0, weeks: 0 }) }, inputs: s.inputs, timeZone: NY, now: TEST_NOW.toISOString() })?.empty).toBeNull();
+  });
+
+  it("counts a regular-season week under way while its games are still to play: a pickup can still change it, a trade can't (review of the prizes UI, prizes-ui-5)", () => {
+    const weekly: Reward = { goal: "prizes", shares: { first: 0.8, second: 0, third: 0, weeklyHigh: 0.2, pointsLeader: 0 }, periods: 14, empty: false };
+    // Out of the title race, no week left but the one under way (SeasonOdds.regularLeft leaves it out: every trade holds it).
+    const odds = { playoffTeams: 4, regularLeft: { periods: 0, weeks: 0 }, teams: [{ teamId: "1", eliminated: true, bestFinish: 5 }, { teamId: "2", eliminated: false, bestFinish: 1 }] } as unknown as SeasonOdds;
+    const under = (base: ReturnType<typeof setup>, reward: Reward) => {
+      const model: LeagueModel = { ...base.model, reward, odds };
+      return { model, view: buildWaiversView({ snapshot: base.snapshot, model, inputs: base.inputs, timeZone: NY, now: TEST_NOW.toISOString() }) };
+    };
+    // Week 4 under way, my TE's and kicker's games played, the rest still to play: its weekly high score can still be won.
+    const EAR = new Date(TEST_NOW.getTime() - 3_600_000).toISOString();
+    const LAT = new Date(TEST_NOW.getTime() + 86_400_000).toISOString();
+    const mine = MINE.map((x) => ({ ...x, nflTeam: x.id === "t1" || x.id === "k1" ? "EAR" : "LAT" }));
+    const live = setup({ mine, freeAgents: [p("fa1", "RB", 13, "Frankie Burst", { nflTeam: "LAT" }), p("ft", "TE", 9, "Tad Fill", { nflTeam: "LAT" })], kickoffs: { 4: { EAR, LAT } } });
+    const open = under(live, weekly);
+    expect(open.model.inProgressWeek).toBe(4);
+    // Over for a trade (the League page's own reading), not for a pickup: the lists, "This week" among them.
+    expect(seasonOver(open.model, "1", "redraft")).toBe(true);
+    expect(open.view?.empty).toBeNull();
+    expect(open.view?.underWay?.label).toBe("This week");
+    // Every game of it kicked off (no "This week" list), or the title alone paying: over.
+    const done = setup({ kickoffs: { 4: { AAA: new Date(TEST_NOW.getTime() - 3_600_000).toISOString() } } });
+    expect(done.model.inProgressWeek).toBe(4);
+    expect(under(done, weekly).view?.empty).toBe(WAIVERS_SEASON_OVER);
+    expect(under(live, { goal: "title", shares: TITLE_ONLY, periods: 14, empty: false }).view?.empty).toBe(WAIVERS_SEASON_OVER);
   });
 
   it("no team picked, or no week left: the section still shows, with one line (and a link to pick the team) instead of the lists (review of Phase 7b)", () => {

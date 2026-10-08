@@ -369,6 +369,9 @@ describe("the public pages describe what's built (review PG-1)", () => {
       // "never amounts": the amounts as typed, or shares finer than a whole percent, are refused.
       expect(schema.safeParse({ first: 2000, second: 1600, third: 900, weeklyHigh: 0, pointsLeader: 0 }).success, `${at}: amounts`).toBe(false);
       expect(schema.safeParse({ first: 44.4, second: 35.6, third: 20, weeklyHigh: 0, pointsLeader: 0 }).success, `${at}: fractions of a percent`).toBe(false);
+      // Shares of the whole season's prizes (Checkpoint 7c, the prize split's server rule): they add up to 100, so amounts
+      // that happen to be small (60 / 30 / 5) don't pass for shares either.
+      expect(schema.safeParse({ first: 60, second: 30, third: 5, weeklyHigh: 0, pointsLeader: 0 }).success, `${at}: shares that don't add up to 100`).toBe(false);
     }
   });
 

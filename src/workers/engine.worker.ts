@@ -14,7 +14,10 @@
  *   between them: a `cancel` for it, or a newer `trades` request, stops it there (a newer one supersedes it:
  *   one search at a time). Each slice posts its latest progress, so the page's progress bar moves without a
  *   message per unit of work. Building the evaluation context is one piece of work that can't be sliced; a
- *   slice boundary follows it, so a Stop pressed meanwhile is seen before the search starts.
+ *   slice boundary follows it, so a Stop pressed meanwhile is seen before the search starts. Checkpoint 7c (planner reply
+ *   to Checkpoint 7b, §7): the result carries the "Helps both" list too (TradeSearchResult.helpsBoth, ranked by the
+ *   engine) and every evaluation its partner's numbers (TradeEvaluation.them), plain data in the same reply: the page's
+ *   sort stays its own (no message for it), and a card on both lists is one object, which the structured clone keeps one.
  * - `refilter` (Phase 4c; planner reply to Checkpoint 4b, change 10: "Re-filter instantly from the finalists, without
  *   re-running the search"): the ideas of a finished search (`of`: its request id, or an earlier re-filter's) ranked again
  *   with the request's minimum chance (TradeSettings.minChance; search.ts refilterSearch: the same finalists, their steps,

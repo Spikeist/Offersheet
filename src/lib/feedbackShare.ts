@@ -33,8 +33,14 @@
  *                  second QB: FantasyCalc's numQbs 2, market.fantasyCalcFormat); slots (the starting slots by the positions
  *                  they take, "QB", "RB/WR/TE", "QB/RB/WR/TE", each with how many: the same key for ESPN's OP and Sleeper's
  *                  SUPER_FLEX); playoffTeams. ⚠️ The league's settings at the press (they rarely change mid-season).
- *   goal           "What matters most" the numbers were computed under (the record's basis; for a record made before, the
- *                  sent version's, else the cards' on screen)
+ *   goal           "What does your league reward?" the numbers were computed under (the record's basis; for a record made
+ *                  before, the sent version's, else the cards' on screen); an older version's "balanced" as recorded
+ *   prizes         Checkpoint 7c (planner reply to Checkpoint 7b, §6: "only the shares, rounded to whole percents, never the
+ *                  amounts"): with goal "prizes" only, the prize split those numbers were weighed by, each prize's whole
+ *                  percent of the season's prizes (feedbackEvent.ts FeedbackPrizes; reward.ts prizePercents), from the same
+ *                  source as the goal (never one's goal with another's split: feedbackEventOf). "Several prizes" whose
+ *                  split can't be read sends goal null (⚠️ ours: what it weighed is unknown), so every copy built here
+ *                  passes the server's rule (a split exactly with that goal)
  *   trade          the card's players given and received: canonical ids (feedbackEvent.ts FEEDBACK_PLAYER_ID: Sleeper's,
  *                  else "espn:<id>") with positions, at most config.search.analyzerMaxPerSide a side; never the partner's
  *                  team id
@@ -46,7 +52,8 @@
  *                  throw-in added, a Plan B; read from its key, FeedbackRecord.versionKey), with a version only
  *   versionAccept  the sent version's estimate as its line on the card showed it (pAccept, pComplete), with a version only
  *   versionInputs  the sent version's model inputs (feedbackStore.ts VersionInputs: B₃, the scale's reason and the week
- *                  of the league data they came from included), with a version only
+ *                  of the league data they came from included; Checkpoint 7c, its goal with its prize split, as `goal` and
+ *                  `prizes` above), with a version only
  *   As in the record: trade, numbers and features are the card's (the trade idea the record is for), and the version sent
  *   (the first offer, the full trade or "If they say no, try:") is told by version, versionTrade, versionAccept and
  *   versionInputs.
@@ -68,6 +75,7 @@ import { displayAcceptance } from "@/engine/acceptance";
 import { config } from "@/engine/config";
 import { fantasyCalcFormat, receptionRate } from "@/engine/market";
 import { POSITIONS, type LeagueSettings, type LeagueSnapshot, type Platform, type Pos } from "@/engine/model";
+import { prizePercents, type Reward } from "@/engine/reward";
 import { rateFor } from "@/engine/scoring";
 import type { Goal } from "@/engine/settings";
 import type { TradeAsset, TradeProposal } from "@/engine/tradeModel";
@@ -82,8 +90,9 @@ import {
   type FeedbackEventPlayer,
   type FeedbackEventTrade,
   type FeedbackEventVersionInputs,
+  type FeedbackPrizes,
 } from "./feedbackEvent";
-import { isFeedbackWeek, isShareId, type FeedbackBasis, type FeedbackChange, type FeedbackFeatures, type FeedbackRecord, type VersionInputs } from "./feedbackStore";
+import { isFeedbackPrizes, isFeedbackWeek, isShareId, recordReward, type FeedbackBasis, type FeedbackChange, type FeedbackFeatures, type FeedbackRecord, type VersionInputs } from "./feedbackStore";
 import type { SaveResult, StorageLike } from "./importStore";
 import { proposalFromKey } from "./tradeView";
 
@@ -95,7 +104,7 @@ export const FEEDBACK_ENDPOINT = "/api/feedback";
 /** A record's copy waits this long for another press on it before it's sent (the header). */
 export const FEEDBACK_SHARE_DEBOUNCE_MS = 2_000;
 
-/** What a copy reads of the league besides the record, built once per league data and goal (feedbackShareContext). */
+/** What a copy reads of the league besides the record, built once per league data and reward (feedbackShareContext). */
 export interface FeedbackShareContext {
   platform: Platform;
   season: number;
@@ -103,8 +112,47 @@ export interface FeedbackShareContext {
   format: FeedbackEventFormat;
   /** The league's players by canonical id (LeagueSnapshot.players), for positions. */
   players: Readonly<Record<string, { pos: Pos } | undefined>>;
-  /** "What matters most" as the cards on screen were computed (the Finder's search, the Analyzer's evaluation), or null. */
+  /** "What does your league reward?" as the cards on screen were computed (the Finder's search, the Analyzer's evaluation), or null. */
   goal: Goal | null;
+  /**
+   * Checkpoint 7c: the prize split those cards were weighed by, whole percents (feedbackEvent.ts FeedbackPrizes), when the
+   * goal is "prizes"; null otherwise (feedbackRewardOf).
+   */
+  prizes: FeedbackPrizes | null;
+}
+
+/**
+ * What the cards on screen were weighed by, as a page has it (feedbackShareContext): the engine's reward (Checkpoint 7c:
+ * TradeSearchResult.reward, TradeAnalysis.reward, the goal with the prize shares every B read), else a goal alone (a result
+ * that carries no reward: fakes, tests), or null (nothing shown yet).
+ */
+export type FeedbackRewardSource = Pick<Reward, "goal" | "shares"> | Goal | null;
+
+/**
+ * A page's reward as a copy reads it (FeedbackRewardSource): its goal and, under "Several prizes", its shares as whole
+ * percents (reward.ts prizePercents: Parker's 4/9, 16/45 and 1/5 read 44 / 36 / 20 / 0 / 0; "Several prizes" with nothing
+ * entered, which weighs 1st place as everything, reads 100 / 0 / 0 / 0 / 0, what its numbers were weighed by). "Several
+ * prizes" without its shares (a goal alone), or shares that don't make a split (isFeedbackPrizes), read as an unknown goal
+ * (⚠️ ours, as the record's rule: feedbackStore.ts recordReward). Never the amounts typed: they aren't in a reward.
+ */
+export function feedbackRewardOf(source: FeedbackRewardSource): { goal: Goal | null; prizes: FeedbackPrizes | null } {
+  if (source === null) return { goal: null, prizes: null };
+  if (typeof source === "string") return { goal: source === "prizes" ? null : source, prizes: null };
+  if (source.goal !== "prizes") return { goal: source.goal, prizes: null };
+  const prizes = prizePercents(source.shares);
+  return isFeedbackPrizes(prizes) ? { goal: "prizes", prizes } : { goal: null, prizes: null };
+}
+
+/**
+ * What a trade page's cards were weighed by (FeedbackRewardSource; review FB-R3): the engine's own reward on the result shown
+ * (the Trade Finder's search, TradeSearchResult.reward; the Analyzer's evaluation, TradeAnalysis.reward), else the goal the
+ * page ran it under (both rewards are optional: a result without one), else null (nothing shown yet). Both trade pages build
+ * their copies' context from it (feedbackShareContext), never from the settings' goal: under "Several prizes" a goal alone
+ * reads as an unknown goal (feedbackRewardOf), so every record and copy made under it would lose its goal and its split
+ * (feedbackShare.test.ts checks both pages call it).
+ */
+export function shownRewardOf(result: { readonly reward?: Pick<Reward, "goal" | "shares"> } | null | undefined, goal: Goal | null | undefined): FeedbackRewardSource {
+  return result?.reward ?? goal ?? null;
 }
 
 /** A number as a copy holds it: 6 significant digits, null when it isn't finite. */
@@ -143,18 +191,22 @@ export function feedbackFormatOf(settings: LeagueSettings): FeedbackEventFormat 
   };
 }
 
-/** What a copy reads of the league (FeedbackShareContext) from the league data on screen and the goal its cards used. */
-export function feedbackShareContext(snapshot: Pick<LeagueSnapshot, "platform" | "season" | "currentWeek" | "settings" | "players">, goal: Goal | null): FeedbackShareContext {
-  return { platform: snapshot.platform, season: snapshot.season, week: snapshot.currentWeek, format: feedbackFormatOf(snapshot.settings), players: snapshot.players, goal };
+/**
+ * What a copy reads of the league (FeedbackShareContext) from the league data on screen and what its cards were weighed by
+ * (feedbackRewardOf: Checkpoint 7c, the engine's reward with its prize shares; a goal alone still reads).
+ */
+export function feedbackShareContext(snapshot: Pick<LeagueSnapshot, "platform" | "season" | "currentWeek" | "settings" | "players">, reward: FeedbackRewardSource): FeedbackShareContext {
+  const { goal, prizes } = feedbackRewardOf(reward);
+  return { platform: snapshot.platform, season: snapshot.season, week: snapshot.currentWeek, format: feedbackFormatOf(snapshot.settings), players: snapshot.players, goal, prizes };
 }
 
 /**
  * What a press's numbers were computed from (feedbackStore.ts FeedbackBasis, review FB-R6): the season and week of the
- * league data on screen and the goal its cards were computed with. A press passes it (FeedbackChange.basis); a new record
- * keeps it with its numbers.
+ * league data on screen and the goal its cards were computed with, with (Checkpoint 7c) its prize split under "Several
+ * prizes". A press passes it (FeedbackChange.basis); a new record keeps it with its numbers.
  */
-export function feedbackBasisOf(context: Pick<FeedbackShareContext, "season" | "week" | "goal">): FeedbackBasis {
-  return { season: context.season, week: context.week, goal: context.goal };
+export function feedbackBasisOf(context: Pick<FeedbackShareContext, "season" | "week" | "goal"> & Partial<Pick<FeedbackShareContext, "prizes">>): FeedbackBasis {
+  return { season: context.season, week: context.week, ...recordReward(context.goal, context.prizes) };
 }
 
 /**
@@ -190,13 +242,16 @@ function featuresOf(f: FeedbackFeatures): FeedbackEventFeatures {
 }
 
 function versionInputsOf(v: VersionInputs): FeedbackEventVersionInputs {
+  // The goal with its prize split, as the record keeps them (Checkpoint 7c: "Several prizes" only with a split).
+  const { goal, prizes } = recordReward(v.goal, v.prizes);
   return {
     features: v.features ? featuresOf(v.features) : null,
     gPartner: sig(v.gPartner),
     b: sig(v.b),
     b3: sig(v.b3),
     helpsReason: v.helpsReason ?? null,
-    goal: v.goal,
+    goal,
+    ...(prizes ? { prizes } : {}),
     week: isFeedbackWeek(v.week) ? v.week : null,
   };
 }
@@ -228,6 +283,11 @@ export function feedbackEventOf(args: { record: FeedbackRecord; kind: FeedbackEv
   }
   const basis = record.basis;
   const n = record.numbers;
+  // The goal and prize split the record's numbers were weighed by, from one source, never one's goal with another's split
+  // (Checkpoint 7c): its basis; a record made before has none: the sent version's when it names a goal, else the cards' on
+  // screen. "Several prizes" without a readable split reads as an unknown goal (recordReward).
+  const weighed = basis ?? (record.versionInputs && record.versionInputs.goal !== null ? record.versionInputs : context);
+  const { goal, prizes } = recordReward(weighed.goal, weighed.prizes);
   return {
     v: FEEDBACK_EVENT_VERSION,
     rid: record.rid,
@@ -236,12 +296,13 @@ export function feedbackEventOf(args: { record: FeedbackRecord; kind: FeedbackEv
     ...(reason ? { reason } : {}),
     ...(version ? { version } : {}),
     platform: context.platform,
-    // The season, week and goal the record's numbers were computed for (its basis); a record made before has none: the
-    // league data on screen, and the sent version's goal, else the cards' on screen.
+    // The season and week the record's numbers were computed for (its basis); a record made before has none: the league
+    // data on screen.
     season: basis?.season ?? context.season,
     week: basis?.week ?? context.week,
     format: context.format,
-    goal: basis ? basis.goal : (record.versionInputs?.goal ?? context.goal),
+    goal,
+    ...(prizes ? { prizes } : {}),
     trade,
     numbers: {
       helps: sig(n.tradeScore),

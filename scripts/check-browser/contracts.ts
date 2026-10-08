@@ -21,6 +21,10 @@
  * - The Trade Analyzer's "Back to the Trade Finder" isn't prefetched (requestNamesAddress: which requests name its
  *   address, team id included).
  *
+ * Planner reply to Checkpoint 7b, §6 (league prizes; Checkpoint 7c): the Settings page's "Your league's prizes" under
+ * "Several prizes" (prizeGroupProblems, invalidPrizeProblems), and "Top 3 odds" (or "Top 2 odds") on the cards and in the
+ * League page's headline exactly when the league's split pays 3rd (2nd) place (oddsLabelProblems, headlineTopProblems).
+ *
  * Every text these rules read was cleaned of the league's names in the page first (report.ts's rules), so a team named
  * "BIG_DAWGS" or "Squad 4000" is never taken for a code or a value.
  */
@@ -401,6 +405,88 @@ export function playoffWeightRead(value: string): { state: PlayoffWeightState; w
 
 /** The weight's range (the planner's clamp, §6.1: [0.5, 4]). */
 export const PLAYOFF_WEIGHT_RANGE = [0.5, 4] as const;
+
+// ---------------------------------------------------------------------------------------------
+// League prizes (Checkpoint 7c; planner reply to Checkpoint 7b, §6)
+
+/** "Your league's prizes" as the page shows it under "Several prizes" (inPage.ts READ_SETTINGS_PRIZES). */
+export interface PrizeGroupRead {
+  /** The group's description (its fieldset's aria-describedby), or null. */
+  help: string | null;
+  /**
+   * Each field: its label, its value, its height (px), its aria-invalid, the text its aria-describedby names, and whether
+   * that text sits in a live region (aria-live), so it's announced as it shows (review of the prizes UI, prizes-ui-3).
+   */
+  fields: Array<{ label: string; value: string; height: number; invalid: string | null; error: string | null; live: boolean }>;
+  /** "Your prizes split: …", or null. */
+  split: string | null;
+  /** "Enter at least one prize. …", or null. */
+  warning: string | null;
+  /** How many labels the goal's own group ("What does your league reward?") holds: its three answers. */
+  goalLabels: number;
+}
+
+/**
+ * What's wrong with "Your league's prizes" (pure; settingsView.ts SettingsView.prizes, SettingsForm.tsx PrizesGroup), each in
+ * words: missing; its help not the planner's line (`want.help`); its fields not the five labels in order (`want.labels`),
+ * not reading the saved amounts (`want.values`), under 44 px or marked invalid; the split not the app's own for the saved
+ * amounts (`want.split`, null for none: then the warning shows instead); and the goal's group with more than its three
+ * labeled answers (the prizes are a sibling group, so the goal's reader keeps working).
+ */
+export function prizeGroupProblems(read: PrizeGroupRead | null, want: { labels: readonly string[]; help: string; values: readonly string[]; split: string | null }): string[] {
+  if (!read) return ["no “Your league's prizes” group shows under “Several prizes”"];
+  const out: string[] = [];
+  const quote = (xs: readonly string[]) => xs.map((x) => `“${x}”`).join(", ") || "none";
+  if (read.help !== want.help) out.push(`its help reads ${read.help === null ? "nothing" : `“${read.help}”`}, not the planner's line`);
+  const labels = read.fields.map((f) => f.label);
+  if (labels.length !== want.labels.length || labels.some((l, i) => l !== want.labels[i])) out.push(`its fields are ${quote(labels)}, not ${quote(want.labels)}`);
+  const values = read.fields.map((f) => f.value);
+  if (values.length !== want.values.length || values.some((v, i) => v !== want.values[i])) out.push(`its fields read ${quote(values)}, not the saved ${quote(want.values)}`);
+  for (const f of read.fields) {
+    if (!(f.height >= 43.5)) out.push(`“${f.label}” is ${f.height} px tall (44 px at least)`);
+    if (f.invalid === "true") out.push(`“${f.label}” is marked invalid with nothing typed`);
+  }
+  if (read.split !== want.split) out.push(`the split reads ${read.split === null ? "nothing" : `“${read.split}”`}, not ${want.split === null ? "nothing" : `“${want.split}”`}`);
+  if (want.split === null && read.warning === null) out.push("nothing says the amounts add up to nothing");
+  if (read.goalLabels !== 3) out.push(`the goal's group holds ${read.goalLabels} labels, not its three answers`);
+  return out;
+}
+
+/**
+ * What's wrong with a prize field after text it can't read was typed and it lost focus (pure): it must say so, aria-invalid
+ * "true" and its message (`message`, settingsView.ts PRIZE_TEXT_MESSAGES) linked by aria-describedby, in a live region (the
+ * message shows on blur, after focus has moved on: review of the prizes UI, prizes-ui-3).
+ */
+export function invalidPrizeProblems(field: PrizeGroupRead["fields"][number] | undefined, message: string): string[] {
+  if (!field) return ["the field is gone"];
+  const out: string[] = [];
+  if (field.invalid !== "true") out.push(`aria-invalid is ${field.invalid === null ? "missing" : `“${field.invalid}”`}`);
+  if (field.error !== message) out.push(`its message reads ${field.error === null ? "nothing" : `“${field.error}”`}, not “${message}”`);
+  else if (!field.live) out.push("its message isn't in a live region, so a screen reader doesn't announce it");
+  return out;
+}
+
+/**
+ * The odds lines on a card or a Plan B box (pure; src/lib/tradeView.ts oddsViews), each list of labels in its order:
+ * "Title odds", then "Top 3 odds" ("Top 2 odds") when the league's split pays 3rd (2nd) place under "Several prizes"
+ * (`places`, tradeView.ts topPlacesOf), then "Playoff odds". Each list that reads otherwise, in words (`where` names it).
+ */
+export function oddsLabelProblems(lists: ReadonlyArray<readonly string[]>, places: 2 | 3 | null, where: (i: number) => string = (i) => `odds line ${i + 1}`): string[] {
+  const want = ["Title odds", ...(places ? [`Top ${places} odds`] : []), "Playoff odds"];
+  return lists.flatMap((labels, i) => (labels.length === want.length && labels.every((l, j) => l === want[j]) ? [] : [`${where(i)}: ${labels.map((l) => `“${l}”`).join(" · ") || "no labels"}`]));
+}
+
+/**
+ * My odds' lines on the League page (pure; leagueView.ts myOddsOf: "Your odds: 60% playoffs · 30% top 3 · 10.5% title"):
+ * a top-N part exactly when `places`, the one it names, once a line; each line that reads otherwise, in words.
+ */
+export function headlineTopProblems(lines: readonly string[], places: 2 | 3 | null): string[] {
+  return lines.flatMap((line) => {
+    const tops = [...line.matchAll(/\btop (\d)\b/g)].map((m) => Number(m[1]));
+    if (places === null) return tops.length ? [`“${line}” shows a top-${tops[0]} chance, though your league's prizes pay no 2nd or 3rd place`] : [];
+    return tops.length === 1 && tops[0] === places ? [] : [`“${line}” lacks one top-${places} chance`];
+  });
+}
 
 // ---------------------------------------------------------------------------------------------
 // The waiver view and the header (§6.2)

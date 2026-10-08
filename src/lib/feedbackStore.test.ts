@@ -34,9 +34,11 @@ import {
   feedbackFor,
   feedbackRecordsFrom,
   feedbackTouchedAt,
+  isFeedbackPrizes,
   mergeFeedbackRecords,
   parseFeedback,
   parseFeedbackExport,
+  recordReward,
   saveFeedback,
   type FeedbackEvaluation,
   type FeedbackRecord,
@@ -638,5 +640,66 @@ describe("Phase 7a (track FB): the scale B₃ and the record's share id", () => 
     expect(parseFeedbackExport(feedbackExportText([r as FeedbackRecord], T3))?.[0]?.rid).toBe(RID);
     expect(parseFeedback(JSON.stringify([{ ...r, rid: "x" }]))[0]).not.toHaveProperty("rid");
     expect(parseFeedback(JSON.stringify([{ ...r, rid: 42 }]))[0]).not.toHaveProperty("rid");
+  });
+});
+
+describe("Checkpoint 7c: the prize split under “Several prizes” (planner reply to Checkpoint 7b, §6)", () => {
+  /** Parker's $2,000 / $1,600 / $900 as a record keeps them: whole percents of the season's prizes. */
+  const SPLIT = { first: 44, second: 36, third: 20, weeklyHigh: 0, pointsLeader: 0 };
+  const basis = { season: 2026, week: 5, goal: "prizes" as const, prizes: SPLIT };
+  const inputs = { features: FEATURES, gPartner: -0.1, b: 4.2, goal: "prizes" as const, b3: 6, helpsReason: null };
+
+  it("isFeedbackPrizes: exactly the five prizes, each a whole percent from 0 to 100, adding up to 100", () => {
+    for (const ok of [SPLIT, { first: 100, second: 0, third: 0, weeklyHigh: 0, pointsLeader: 0 }, { first: 20, second: 20, third: 20, weeklyHigh: 20, pointsLeader: 20 }]) expect(isFeedbackPrizes(ok), JSON.stringify(ok)).toBe(true);
+    const bad: unknown[] = [
+      null,
+      "44/36/20",
+      [44, 36, 20, 0, 0],
+      { first: 2000, second: 1600, third: 900, weeklyHigh: 0, pointsLeader: 0 },
+      { ...SPLIT, first: 44.4, second: 35.6 },
+      { ...SPLIT, third: 19 },
+      { ...SPLIT, first: 64, weeklyHigh: -20 },
+      { ...SPLIT, pointsLeader: "0" },
+      { first: 44, second: 36, third: 20, weeklyHigh: 0 },
+      { ...SPLIT, amount: 4500 },
+    ];
+    for (const x of bad) expect(isFeedbackPrizes(x), JSON.stringify(x)).toBe(false);
+  });
+
+  it("recordReward: a goal with its split, “Several prizes” without one unknown, a split with another goal dropped, an older version's “balanced” kept", () => {
+    expect(recordReward("prizes", SPLIT)).toEqual({ goal: "prizes", prizes: SPLIT });
+    expect(recordReward("prizes", undefined)).toEqual({ goal: null });
+    expect(recordReward("prizes", { ...SPLIT, first: 2000 })).toEqual({ goal: null });
+    expect(recordReward("title", SPLIT)).toEqual({ goal: "title" });
+    expect(recordReward("balanced", undefined)).toEqual({ goal: "balanced" });
+    expect(recordReward("fun", SPLIT)).toEqual({ goal: null });
+    // The split comes back in one key order, whatever order it was stored in.
+    expect(Object.keys(recordReward("prizes", { pointsLeader: 0, weeklyHigh: 0, third: 20, second: 36, first: 44 }).prizes ?? {})).toEqual(["first", "second", "third", "weeklyHigh", "pointsLeader"]);
+  });
+
+  it("keeps the split with the basis and the sent version's inputs (the press's when the card gives none), through storage and the export", () => {
+    let list = applyFeedback([], { leagueKey: LEAGUE, evaluation: evaluation(), change: { outcome: "sent", sent: { version: "full", key: "k", pAccept: 0.3, pComplete: 0.3, inputs }, basis }, at: T1 });
+    const r = list[0] as FeedbackRecord;
+    expect(r.basis).toEqual(basis);
+    expect(r.versionInputs).toEqual({ ...inputs, prizes: SPLIT, week: 5 });
+    // A version whose inputs carry their own split keeps it (an earlier search's, say), whatever the press's basis says.
+    const own = { first: 60, second: 30, third: 10, weeklyHigh: 0, pointsLeader: 0 };
+    list = applyFeedback(list, { leagueKey: LEAGUE, evaluation: evaluation(), change: { outcome: "accepted", sent: { version: "planB", key: "p", pAccept: 0.2, pComplete: 0.2, inputs: { ...inputs, prizes: own } }, basis }, at: T2 });
+    expect(list[0]?.versionInputs?.prizes).toEqual(own);
+    // Inputs naming "Several prizes" under a press whose basis doesn't: no split to give them, so their goal is unknown.
+    const [titled] = applyFeedback([], { leagueKey: LEAGUE, evaluation: evaluation(), change: { outcome: "sent", sent: { version: "full", key: "k", pAccept: 0.3, pComplete: 0.3, inputs }, basis: { season: 2026, week: 5, goal: "title" } }, at: T1 });
+    expect(titled?.versionInputs).toMatchObject({ goal: null });
+    expect(titled?.versionInputs).not.toHaveProperty("prizes");
+    // Storage reads the split back; the export keeps it (shares, never amounts: only the value ratios are left out).
+    expect(parseFeedback(JSON.stringify([r]))).toEqual([r]);
+    const exported = feedbackExport([r], T3).records[0];
+    expect(exported?.basis).toEqual(basis);
+    expect(exported?.versionInputs?.prizes).toEqual(SPLIT);
+    const back = parseFeedbackExport(feedbackExportText([r], T3))?.[0];
+    expect(back?.basis).toEqual(basis);
+    expect(back?.versionInputs?.prizes).toEqual(SPLIT);
+    // A stored split that isn't one makes the goal unknown, and a split under another goal is dropped.
+    expect(parseFeedback(JSON.stringify([{ ...r, basis: { ...basis, prizes: { ...SPLIT, first: 2000 } } }]))[0]?.basis).toEqual({ season: 2026, week: 5, goal: null });
+    expect(parseFeedback(JSON.stringify([{ ...r, basis: { ...basis, goal: "title" } }]))[0]?.basis).toEqual({ season: 2026, week: 5, goal: "title" });
   });
 });

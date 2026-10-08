@@ -13,6 +13,9 @@
  *   npm run league:report -- --live         Parker's ESPN league through the public-link path (the network)
  *   npm run league:report -- --live --cookies   use the .env.local ESPN cookies (also with USE_ENV_COOKIES=1),
  *                                           so ESPN itself says which team is his
+ *   npm run league:report -- --prizes 2000,1600,900,0   the league's prizes (1st, 2nd, 3rd, the weekly high score, the most
+ *                                           points; blank or 0 not paid): "Several prizes" on them, and the prizes section
+ *                                           (Checkpoint 7c, below); the console says how it read them first
  *
  * Offline by default (planner reply to Checkpoint 4c, A5; scripts/lib/runMode.ts): without --live the process's offline
  * guard is on, so nothing here can touch the network; the header prints the command with the dump named.
@@ -37,9 +40,9 @@
  *   config.simulation.finalSims seasons from config.simulation.seed), from the one baseline (every team after its
  *   pickups: TeamModel.scoreWithPickups, the seasons LeagueModel.odds simulates, the trade search's baseline): ΔPO, ΔCH
  *   and Δ expected wins, B = 100 × (w_PO ΔPO + w_S ΔE[S]) under each "What does your league reward?" goal (benefitWin,
- *   config.benefit.goals; Checkpoint 7c: ΔE[S] the change in my share of the prizes, src/engine/reward.ts, ΔCH under "Win
- *   the title" and "Make the playoffs", ⚠️ "Several prizes" on the prefilled split, config.benefit.prizesDefault, unless the
- *   model's own reward is one: goalRewards; no market term: only lineup points move), B₃ under each goal (the +config.benefit.helpsGain row's
+ *   config.benefit.goals; Checkpoint 7c: ΔE[S] the change in my share of the prizes, src/engine/reward.ts, ΔCH under "Only
+ *   the champion" and "Making the playoffs", "Several prizes" on the league's split from --prizes, else ⚠️ the prefilled
+ *   split, config.benefit.prizesDefault: goalRewards; no market term: only lineup points move), B₃ under each goal (the +config.benefit.helpsGain row's
  *   B through benefit.helpsScale: floored at config.benefit.helpsFloor; ⚠️ without λ, as the rows' B, so in a dynasty or
  *   keeper league with long-term values the app's scale is B_ref(λ) = (1 − λ) × this B₃ + λ × F₁₀ instead, planner reply
  *   to Checkpoint 7a, §2 question 6, and its lineup gains read lower than these rows unless λ is 0), and Helps
@@ -120,8 +123,23 @@
  *   screeningSims).
  * - Goals (change 8): B under each "What matters most" goal (config.benefit.goals through benefit.goalWeights, the
  *   default goal config.benefit.goalDefault) wherever the report computes B (benefitWin, the scale check). Checkpoint 7c
- *   (planner reply to Checkpoint 7b, §6): "Several prizes" in place of "Balanced", on the prefilled split for now
- *   (goalRewards).
+ *   (planner reply to Checkpoint 7b, §6): "Several prizes" in place of "Balanced", on the league's split from --prizes, else
+ *   the prefilled one (goalRewards); the goals named as the Settings page names them ("Only the champion", "Several prizes",
+ *   "Making the playoffs": GOAL_WORDS).
+ *
+ * Checkpoint 7c (planner reply to Checkpoint 7b, §6 and "Checkpoint 7c must include": "Prizes, using the prizes Parker gives
+ * for his league: how 3rd place is decided in his league, his odds of 1st, 2nd and 3rd, his B₃"), with --prizes
+ * (scripts/lib/runMode.ts prizesArg): a League model built under the league's split as the app builds it (settingsFor: its own
+ * ω, pickups and headline odds, and the weekly high scores simulated when the split pays them), and a "League prizes"
+ * section (prizesReport, prizesLines): the split in whole percents, how 3rd place is decided (the Import Report's
+ * "3rd-place game" row, where the league's data says it, LeagueSettings.thirdPlace, and the season simulation's rule,
+ * SeasonOdds.thirdPlace), and under "Only the champion" and under the split, each from its own model: ω, B₃, my P(1st),
+ * P(2nd), P(3rd), top 3 and P(playoffs). Every other "Several prizes" figure reads the split too: the scale check's column,
+ * the app's own B₃ (appHelpsScales, on the split's model) and the playoff-week weight's table (the split's model's own ω:
+ * playoffWeightLines). A split that pays the weekly high score is never priced from this model's runs, which didn't simulate
+ * them (reward.ts assertWeeklyMeasured): the scale check simulates them itself, the rest read the split's own model. The
+ * console says how --prizes was read before the long run (review FB-R2: runMode.ts prizesReadLine, then prizesSplitLine
+ * once the league is loaded), since every comma starts the next prize ("2,500" is two).
  * - The waiver order used (change 5; answer 2): the data line names it as the Import Report does
  *   (importReport.waiverOrderText), and so does the allocation line (waiverOrderNote). A snapshot from before the 4c
  *   adapter (no settings.waiverOrderUsed: its ranks are ESPN's live order of the import's day) is first put on the 4c
@@ -159,7 +177,7 @@ import { espnWaiverOrder } from "@/adapters/espn/waivers";
 import type { ImportDeps } from "@/adapters/types";
 import { loadPlayerIdResolver } from "@/data";
 import { goalWeights, helpsScale, marketSanity, marketWeekly, protectValueWeight, tradeScore } from "@/engine/benefit";
-import { paysWeekly, prizeOddsOf, prizePercents, prizePeriods, rewardWith, runPrizeDeltas, shareChange, type PrizeDeltas, type PrizeOdds, type Reward } from "@/engine/reward";
+import { paysWeekly, prizeOddsOf, prizePercents, prizePeriods, prizeShares, rewardWith, runPrizeDeltas, shareChange, type PrizeDeltas, type PrizeOdds, type Reward } from "@/engine/reward";
 import type { BlendPosition } from "@/engine/blend";
 import { config } from "@/engine/config";
 import type { MarketInputs, ModelInputs } from "@/engine/inputs";
@@ -172,9 +190,10 @@ import { returnersOf } from "@/engine/optimizer";
 import { finalLineups } from "@/engine/returners";
 import { buildSimSetup, pickupSeasonModel, playoffRounds, seasonOdds, type SeasonModel, type SimSetupResult } from "@/engine/season";
 import { simNormals, simulateSeason, type SimNormals, type SimResult, type SimSetup } from "@/engine/sim";
-import { GOALS, PRIZE_KEYS, PROTECT_VALUE_LEVELS, defaultTradeSettings, type Goal, type PrizeKey, type ProtectValue } from "@/engine/settings";
+import { GOALS, PRIZE_KEYS, PROTECT_VALUE_LEVELS, defaultTradeSettings, type Goal, type PrizeAmounts, type PrizeKey, type ProtectValue, type TradeSettings } from "@/engine/settings";
 import { evLineups, rosValue, scenarioLineups } from "@/engine/teamValue";
-import { waiverOrderText } from "@/lib/importReport";
+import { prizeSplitText } from "@/components/settings/settingsView";
+import { thirdPlaceText, waiverOrderText } from "@/lib/importReport";
 import { posLabel } from "@/lib/labels";
 import { RISKY_BYES, RISKY_WIN_CHANCE, SEASON_OVER_TEXT, blendIsOwnPoint, buildLeagueView, lastNflWeekOf, scheduleByeRule } from "@/lib/leagueView";
 import { FileCache } from "@/server/cache";
@@ -183,7 +202,7 @@ import { buildModelInputs } from "@/server/modelInputs";
 import { ROOT, env, loadEnv } from "./lib/env";
 import { redactorFromMap } from "./lib/minimize";
 import { installConsoleScrubber, registerScrubber, scrubEverything, scrubEverythingExcept } from "./lib/redact";
-import { commandText, isMainModule, relativePath, reportArgs, reportCommandText, reportSourceLine, setNetworkMode, wantsLive, type ReportArgs } from "./lib/runMode";
+import { commandText, isMainModule, prizesReadLine, relativePath, reportArgs, reportCommandText, reportSourceLine, setNetworkMode, wantsLive, type ReportArgs } from "./lib/runMode";
 
 // The command-line helpers moved to scripts/lib/runMode.ts (Phase 7a, A5); kept importable from here (trade-report, tests).
 export { commandText, displayPath, flagValue, relativePath } from "./lib/runMode";
@@ -354,18 +373,20 @@ export function byGoal<T>(f: (goal: Goal) => T): ByGoal<T> {
 }
 
 /**
- * The goals' names as the report words them (Phase 4c's words, planner reply to Checkpoint 4b, change 8; "Several prizes",
- * the Settings page's, since Checkpoint 7c).
+ * The goals' names as the report words them: the Settings page's "What does your league reward?" options (Checkpoint 7c;
+ * planner reply to Checkpoint 7b, §6, whose words they are: "Only the champion", "Several prizes", "Making the playoffs").
+ * Phase 4c to Checkpoint 7b's reports said "Win the title", "Balanced" and "Make the playoffs".
  */
-export const GOAL_WORDS: Readonly<Record<Goal, string>> = { title: "Win the title", prizes: "Several prizes", playoffs: "Make the playoffs" };
+export const GOAL_WORDS: Readonly<Record<Goal, string>> = { title: "Only the champion", prizes: "Several prizes", playoffs: "Making the playoffs" };
 
 /**
- * Each goal's reward on a league with `periods` prize periods (reward.ts rewardWith): "Win the title" and "Make the playoffs"
- * pay 1st place everything; "Several prizes" `own`'s split when `own` is one (the model's own reward: its user's prizes),
- * else ⚠️ the prefilled split (config.benefit.prizesDefault; Checkpoint 7c, until the reports take a league's prizes).
+ * Each goal's reward on a league with `periods` prize periods (reward.ts rewardWith): "Only the champion" and "Making the
+ * playoffs" pay 1st place everything; "Several prizes" `own`'s split when `own` is one (the model's own reward: its user's
+ * prizes), else `prizes` (Checkpoint 7c: the report's --prizes, the league's own split), else ⚠️ the prefilled split
+ * (config.benefit.prizesDefault).
  */
-export function goalRewards(periods: number, own?: Reward | null): ByGoal<Reward> {
-  return byGoal((g) => (own && own.goal === g ? own : rewardWith({ goal: g, prizes: config.benefit.prizesDefault }, periods)));
+export function goalRewards(periods: number, own?: Reward | null, prizes?: PrizeAmounts | null): ByGoal<Reward> {
+  return byGoal((g) => (own && own.goal === g ? own : rewardWith({ goal: g, prizes: prizes ?? config.benefit.prizesDefault }, periods)));
 }
 
 /**
@@ -1370,6 +1391,86 @@ export interface SeasonReport {
   noOp: NoOpCheck | null;
   simTimings: SimTiming[];
   buildTimings: BuildTiming[];
+  /** Checkpoint 7c: the league's prizes (--prizes) against "Only the champion" (prizesReport); null without --prizes, odds or a team. */
+  prizes: PrizesReport | null;
+}
+
+/** One setting's numbers for my team in the prizes section (PrizesReport.rows), from that setting's own League model. */
+export interface PrizesRow {
+  goal: Goal;
+  /** The playoff weeks' weight ω the model used (LeagueModel.playoffWeight). */
+  omega: number;
+  /** Its "Helps you" scale: benefit.helpsScale on its own calibration run (step 8c) under its own reward; null without one. */
+  b3: number | null;
+  floored: boolean;
+  /** My headline odds there (every team after its pickups: LeagueModel.odds): P(1st), P(2nd), P(3rd), P(1st, 2nd or 3rd), P(playoffs); null where unknown. */
+  pFirst: number | null;
+  pSecond: number | null;
+  pThird: number | null;
+  top3: number | null;
+  pPlayoffs: number | null;
+  /** The weekly high scores I'm expected to win of the remaining periods (ties split), when the model simulated them; else null. */
+  expHighScores: number | null;
+  /** P(the most points in the regular season). */
+  pPointsLeader: number | null;
+}
+
+/**
+ * Checkpoint 7c (planner reply to Checkpoint 7b, §6; its "Checkpoint 7c must include": "Prizes, using the prizes Parker gives
+ * for his league: how 3rd place is decided in his league, his odds of 1st, 2nd and 3rd, his B₃"): the split, how 3rd place
+ * goes, and my numbers under "Only the champion" (the report's model) and under the split (the model the app builds under
+ * it: `model`).
+ */
+export interface PrizesReport {
+  /** The amounts as --prizes gave them, and the split's reward (its shares and the league's prize periods: reward.ts rewardOf). */
+  amounts: PrizeAmounts;
+  reward: Reward;
+  /** The League model under the split. */
+  model: LeagueModel;
+  /**
+   * How 3rd place is decided: the Import Report's "3rd-place game" row (importReport.ts thirdPlaceText), what the league's
+   * data says (LeagueSettings.thirdPlace: absent when it says nothing) and the season simulation's rule (SeasonOdds.thirdPlace).
+   */
+  thirdPlace: { row: string; data: LeagueSettings["thirdPlace"] | null; sim: SeasonOdds["thirdPlace"] | null };
+  rows: PrizesRow[];
+}
+
+/** My numbers in one setting's League model (PrizesRow). */
+function prizesRowOf(snapshot: LeagueSnapshot, m: LeagueModel, goal: Goal): PrizesRow {
+  const me = m.myTeamId;
+  const mine = me ? (m.odds?.teams.find((t) => t.teamId === me) ?? null) : null;
+  const s = mine ? helpsScale(m.helpsCalibration, { leagueType: snapshot.settings.leagueType, myPPlayoffs: mine.pPlayoffs, reward: m.reward ?? goalRewards(prizePeriods(snapshot))[goal], dynastyTotal: null }) : null;
+  const p = mine ? prizeOddsOf(mine) : null;
+  const top3 = p && p.first !== null && p.second !== null && p.third !== null ? p.first + p.second + p.third : null;
+  return {
+    goal,
+    omega: m.playoffWeight,
+    b3: s?.b3 ?? null,
+    floored: s?.floored ?? false,
+    pFirst: p?.first ?? null,
+    pSecond: p?.second ?? null,
+    pThird: p?.third ?? null,
+    top3,
+    pPlayoffs: mine?.pPlayoffs ?? null,
+    expHighScores: mine && (m.odds?.highScorePeriods ?? 0) > 0 ? mine.expHighScores : null,
+    pPointsLeader: mine?.pPointsLeader ?? null,
+  };
+}
+
+/**
+ * The prizes section's numbers (PrizesReport): `model`, the report's League model ("Only the champion", the default), and
+ * `prizesModel`, the one the app builds under the league's split (`amounts`). Null without odds or my team in either.
+ */
+export function prizesReport(snapshot: LeagueSnapshot, model: LeagueModel, prizesModel: LeagueModel, amounts: PrizeAmounts): PrizesReport | null {
+  if (!model.odds || !prizesModel.odds || !model.myTeamId || !prizesModel.reward) return null;
+  const playoffsUnknown = snapshot.settings.unknownSettings?.includes("playoffs") ?? false;
+  return {
+    amounts,
+    reward: prizesModel.reward,
+    model: prizesModel,
+    thirdPlace: { row: thirdPlaceText(snapshot.settings, playoffsUnknown), data: snapshot.settings.thirdPlace ?? null, sim: prizesModel.odds.thirdPlace ?? null },
+    rows: [prizesRowOf(snapshot, model, model.reward?.goal ?? defaultTradeSettings().goal), prizesRowOf(snapshot, prizesModel, "prizes")],
+  };
 }
 
 /** One goal's B₃ as the app computes it under that goal (SeasonReport.appB3), with the ω its model used. */
@@ -1379,23 +1480,31 @@ export interface AppB3 {
   omega: number;
 }
 
+/** The settings the app builds a League model with under `goal` (the defaults; "Several prizes" on `prizes` when given, Checkpoint 7c). */
+export function settingsFor(goal: Goal, prizes?: PrizeAmounts | null): TradeSettings {
+  const defaults = defaultTradeSettings();
+  return goal === "prizes" && prizes ? { ...defaults, goal, prizes } : { ...defaults, goal };
+}
+
 /**
  * Each goal's B₃ off that goal's own League model (SeasonReport.appB3): this report's `model` for the default goal (built
  * with the default settings), a model built with the goal for each other one (its helpsCalibration; benefit.helpsScale, no
- * long-term part, as the scale check's). Null without odds or my team.
+ * long-term part, as the scale check's). Checkpoint 7c: "Several prizes" on `opts.prizes` (the report's --prizes) when given,
+ * else the prefilled split; `opts.models` stands in for a goal's model already built (the report's split model). Null
+ * without odds or my team.
  */
-export function appHelpsScales(snapshot: LeagueSnapshot, inputs: ModelInputs, model: LeagueModel, now: Date): ByGoal<AppB3> | null {
+export function appHelpsScales(snapshot: LeagueSnapshot, inputs: ModelInputs, model: LeagueModel, now: Date, opts: { prizes?: PrizeAmounts | null; models?: Partial<ByGoal<LeagueModel>> } = {}): ByGoal<AppB3> | null {
   const me = model.myTeamId;
   if (!me || !model.odds) return null;
   const defaults = defaultTradeSettings();
-  const rewards = goalRewards(prizePeriods(snapshot));
+  const rewards = goalRewards(prizePeriods(snapshot), null, opts.prizes);
   const of = (m: LeagueModel, goal: Goal): AppB3 => {
     const mine = m.odds?.teams.find((t) => t.teamId === me);
-    // That goal's own model's reward (its settings' prizes: the defaults here).
+    // That goal's own model's reward (its settings' goal and prizes).
     const s = mine ? helpsScale(m.helpsCalibration, { leagueType: snapshot.settings.leagueType, myPPlayoffs: mine.pPlayoffs, reward: m.reward ?? rewards[goal], dynastyTotal: null }) : null;
     return { b3: s?.b3 ?? null, floored: s?.floored ?? false, omega: m.playoffWeight };
   };
-  return byGoal((goal) => of(goal === defaults.goal ? model : buildLeagueModel(snapshot, inputs, { now, scenarios: model.scenarios, settings: { ...defaults, goal } }), goal));
+  return byGoal((goal) => of(goal === defaults.goal ? model : (opts.models?.[goal] ?? buildLeagueModel(snapshot, inputs, { now, scenarios: model.scenarios, settings: settingsFor(goal, opts.prizes) })), goal));
 }
 
 export interface SeasonReportOptions {
@@ -1406,6 +1515,13 @@ export interface SeasonReportOptions {
   warmups?: number;
   /** Timed buildLeagueModel runs per variant (default `runs`); 0 skips the build timings. */
   buildRuns?: number;
+  /**
+   * Checkpoint 7c (planner reply to Checkpoint 7b, §6): the league's prizes (--prizes), which "Several prizes" reads
+   * everywhere the report prices it (goalRewards, appHelpsScales, the prizes section), and the League model the app builds
+   * under them (`prizesModel`: its own ω, pickups, headline odds and, when the weekly prize pays, its high scores).
+   */
+  prizes?: PrizeAmounts | null;
+  prizesModel?: LeagueModel | null;
 }
 
 /** Every Phase 3 number in the report (the file header), from the League model buildReport built. */
@@ -1420,14 +1536,19 @@ export function seasonReport(snapshot: LeagueSnapshot, inputs: ModelInputs, mode
   const pickups = pickupSeasonModel(model);
   const built = buildSimSetup(snapshot, pickups);
   const builds = buildRuns > 0 ? buildTimings(snapshot, inputs, now, model.scenarios, clock, buildRuns, warmups) : [];
-  if (!odds || !built) return { odds, stand, built, schedule: null, scale: null, scaleStand: null, scaleMatchesModel: null, appB3: null, pickups: null, noOp: null, simTimings: [], buildTimings: builds };
+  if (!odds || !built) return { odds, stand, built, schedule: null, scale: null, scaleStand: null, scaleMatchesModel: null, appB3: null, pickups: null, noOp: null, simTimings: [], buildTimings: builds, prizes: null };
   // The League model's own seasons: both odds share the seed's first finalSims seasons (league.ts step 8b).
   const run: SharedRun = { sims: odds.sims, seed: odds.seed, normals: simNormals(odds.seed, odds.sims, built.setup.weeks.length, built.setup.teams.length) };
   const me = model.myTeamId;
   const mine = model.teams.find((t) => t.id === me);
   const from = scaleFrom(model);
-  // Each goal's reward on the league's prize periods (the model's own for its goal: goalRewards).
-  const rewards = goalRewards(prizePeriods(snapshot), model.reward);
+  // Checkpoint 7c: the league's prizes (--prizes) and the League model the app builds under them (its own ω and pickups; its
+  // runs simulate the weekly high scores when the split pays them, which this model's runs don't).
+  const prizes = opts.prizes ?? null;
+  const prizesModel = prizes ? (opts.prizesModel ?? buildLeagueModel(snapshot, inputs, { now, scenarios: model.scenarios, settings: settingsFor("prizes", prizes) })) : null;
+  // Each goal's reward on the league's prize periods (the model's own for its goal; "Several prizes" on the league's split
+  // when given: goalRewards).
+  const rewards = goalRewards(prizePeriods(snapshot), model.reward, prizes);
   const scale = me && mine ? scaleCheck(snapshot, pickups, me, mine.scoreWithPickups ?? mine.score, run, { from, rewards }) : null;
   const scaleStand = me && mine && stand ? scaleCheck(snapshot, model, me, mine.score, run, { from, rewards }) : null;
   const same = (check: ScaleCheck | null, o: TeamOdds | null): boolean | null => (check && o ? Object.is(check.base.pPlayoffs, o.pPlayoffs) && Object.is(check.base.pTitle, o.pTitle) && Object.is(check.base.expWins, o.expWins) : null);
@@ -1440,11 +1561,12 @@ export function seasonReport(snapshot: LeagueSnapshot, inputs: ModelInputs, mode
     scale,
     scaleStand,
     scaleMatchesModel: matchPickups === null ? null : { pickups: matchPickups, stand: me ? same(scaleStand, oddsOf(stand, me)) : null, calibration: calibrationMatches(scale, model.helpsCalibration) },
-    appB3: scale ? appHelpsScales(snapshot, inputs, model, now) : null,
+    appB3: scale ? appHelpsScales(snapshot, inputs, model, now, { prizes, ...(prizesModel ? { models: { prizes: prizesModel } } : {}) }) : null,
     pickups: scale && scaleStand ? pickupsEffect(scale, scaleStand, run.sims) : null,
     noOp: noOpCheck(snapshot, inputs, model, built, now),
     simTimings: [config.simulation.screeningSims, config.simulation.finalSims].map((sims) => simTiming(built.setup, odds.seed, sims, clock, runs, warmups)),
     buildTimings: builds,
+    prizes: prizes && prizesModel ? prizesReport(snapshot, model, prizesModel, prizes) : null,
   };
 }
 
@@ -1597,7 +1719,7 @@ export function tradeValuePriceWords(check: Pick<ScaleCheck, "b3">, app: ByGoal<
 }
 
 /**
- * The app's own B₃ under each goal in words (SeasonReport.appB3; review of Phase 7b): "Win the title **4.94** (ω 1.6×); …",
+ * The app's own B₃ under each goal in words (SeasonReport.appB3; review of Phase 7b): "Only the champion **4.94** (ω 1.6×); …",
  * floored ones saying so.
  */
 export function appB3Words(app: ByGoal<AppB3>): string {
@@ -1608,7 +1730,7 @@ export function appB3Words(app: ByGoal<AppB3>): string {
 }
 
 /**
- * Each goal's B₃ in words: "Win the title **5.04 ± 0.21**; …" (floored ones say so, and so do B₃s from the playoff odds alone
+ * Each goal's B₃ in words: "Only the champion **5.04 ± 0.21**; …" (floored ones say so, and so do B₃s from the playoff odds alone
  * when title odds are unknown).
  */
 export function b3Words(check: Pick<ScaleCheck, "b3">): string {
@@ -1637,7 +1759,7 @@ function renderScale(L: string[], season: SeasonReport, model: LeagueModel, leag
       : "The run is too short to split into batches, so the changes have no standard error (–).";
   const goals = GOALS.map((g) => `${GOAL_WORDS[g]} ${goalWeights(g).playoffs} / ${goalWeights(g).prizes}`).join(", ");
   L.push(
-    `CLAUDE.md §10 and the planner's reply to Checkpoint 4c (A2: "Helps you" calibrates itself per league and goal): your weekly score mean + x points in every remaining week a trade can change (weeks ${weeks[0] ?? "–"}–${weeks.at(-1) ?? "–"}: regular season and playoffs${check.from > 0 ? `; week ${model.inProgressWeek} is under way, and a trade's evaluation holds a week under way at its score as rosters stand, so the gain starts the week after` : ""}), σ unchanged, x = ${SCALE_GAINS.join(", ")}. From the one baseline: every team after its free-agent pickups (TeamModel.scoreWithPickups, the seasons LeagueModel.odds simulates, the trade search's baseline). Every row is ${sims} simulated seasons on the same common-random-numbers matrix (seed ${odds.seed}, the League model's own seasons): each season is played with and without the gain on the same random draws. That takes out the noise of comparing separate runs, but each change is still an estimate from ${sims} seasons, and another seed would give a somewhat different one. ${error} ΔPO and ΔCH are fractions; B = 100 × (w_PO ΔPO + w_S ΔE[S]) under each goal (w_PO / w_S: ${goals}; ΔE[S], the change in your share of the league's prizes, is ΔCH under Win the title and Make the playoffs, and under Several prizes ${prizesWords(check.rewards.prizes)}; no market term: only lineup points move); B₃ = B(+${config.benefit.helpsGain}) under the same goal, at least ${config.benefit.helpsFloor} (benefit.helpsScale; under the default goal the app's own B₃ is the same run, LeagueModel.helpsCalibration; under another goal it comes from that goal's own model: below the table); Helps you = round(100 × (1 − e^(−B / B₃))), so +${config.benefit.helpsGain} reads 63 by construction. The planner's toy league (12 teams, 10 weeks left, the weights before Phase 4c): B ≈ ${SCALE_GAINS.map((g) => PLANNER_TOY[g]?.B ?? "–").join(" / ")}, scores ≈ ${SCALE_GAINS.map((g) => PLANNER_TOY[g]?.score ?? "–").join(" / ")}.`,
+    `CLAUDE.md §10 and the planner's reply to Checkpoint 4c (A2: "Helps you" calibrates itself per league and goal): your weekly score mean + x points in every remaining week a trade can change (weeks ${weeks[0] ?? "–"}–${weeks.at(-1) ?? "–"}: regular season and playoffs${check.from > 0 ? `; week ${model.inProgressWeek} is under way, and a trade's evaluation holds a week under way at its score as rosters stand, so the gain starts the week after` : ""}), σ unchanged, x = ${SCALE_GAINS.join(", ")}. From the one baseline: every team after its free-agent pickups (TeamModel.scoreWithPickups, the seasons LeagueModel.odds simulates, the trade search's baseline). Every row is ${sims} simulated seasons on the same common-random-numbers matrix (seed ${odds.seed}, the League model's own seasons): each season is played with and without the gain on the same random draws. That takes out the noise of comparing separate runs, but each change is still an estimate from ${sims} seasons, and another seed would give a somewhat different one. ${error} ΔPO and ΔCH are fractions; B = 100 × (w_PO ΔPO + w_S ΔE[S]) under each goal (w_PO / w_S: ${goals}; ΔE[S], the change in your share of the league's prizes, is ΔCH under Only the champion and Making the playoffs, and under Several prizes ${prizesWords(check.rewards.prizes)}; no market term: only lineup points move); B₃ = B(+${config.benefit.helpsGain}) under the same goal, at least ${config.benefit.helpsFloor} (benefit.helpsScale; under the default goal the app's own B₃ is the same run, LeagueModel.helpsCalibration; under another goal it comes from that goal's own model: below the table); Helps you = round(100 × (1 − e^(−B / B₃))), so +${config.benefit.helpsGain} reads 63 by construction. The planner's toy league (12 teams, 10 weeks left, the weights before Phase 4c): B ≈ ${SCALE_GAINS.map((g) => PLANNER_TOY[g]?.B ?? "–").join(" / ")}, scores ≈ ${SCALE_GAINS.map((g) => PLANNER_TOY[g]?.score ?? "–").join(" / ")}.`,
     "",
   );
   const m = season.scaleMatchesModel;
@@ -1676,7 +1798,7 @@ export const PLAYOFF_WEIGHT_FALLBACK_WORDS: Readonly<Record<PlayoffWeightFallbac
 };
 
 /**
- * ω in one phrase for a settings line: "1.63× (set automatically from your odds under “Win the title”: B per projected point
+ * ω in one phrase for a settings line: "1.63× (set automatically from your odds under “Only the champion”: B per projected point
  * 0.0488 in the regular season, 0.0257 in the playoffs)", or "1.25× (the fallback: title odds are unknown)".
  */
 export function playoffWeightSummary(model: Pick<LeagueModel, "playoffWeight" | "playoffWeightAuto">): string {
@@ -1714,14 +1836,29 @@ export function thresholdsLine(model: Pick<LeagueModel, "lineupThresholds">): st
 
 /**
  * "Several prizes"' split in words for the report's lines ("the prefilled split, 1st 60%, 2nd 30%, 3rd 10%"): whole percents
- * (reward.ts prizePercents), the weekly high score's for the whole season.
+ * (reward.ts prizePercents), the weekly high score's for the whole season; every paid prize, "<1%" for one that rounds to
+ * none, as the Settings page shows it (review FB-R2: a paid 1st place that rounds to 0% was left out).
  */
 export function prizesWords(reward: Reward): string {
   const pct = prizePercents(reward.shares);
   const words: Record<PrizeKey, string> = { first: "1st", second: "2nd", third: "3rd", weeklyHigh: `weekly high scores (${reward.periods} weeks)`, pointsLeader: "most points" };
-  const paid = PRIZE_KEYS.filter((k) => pct[k] > 0).map((k) => `${words[k]} ${pct[k]}%`);
+  const paid = PRIZE_KEYS.filter((k) => reward.shares[k] > 0).map((k) => `${words[k]} ${pct[k] > 0 ? `${pct[k]}%` : "<1%"}`);
   const same = PRIZE_KEYS.every((k) => Object.is(rewardWith({ goal: "prizes", prizes: config.benefit.prizesDefault }, reward.periods).shares[k], reward.shares[k]));
   return `${same ? "the prefilled split, " : "the league's split, "}${paid.join(", ")}`;
+}
+
+/**
+ * --prizes' split in this league, for the console once the league is loaded and before the long run (review FB-R2; both
+ * reports' main, after runMode.ts prizesReadLine): the Settings page's own line for the same amounts (settingsView.ts
+ * prizeSplitText: whole percents, "<1%" for a paid prize that rounds to none, the weekly high score's for the season with
+ * how many times it's paid, `periods`: reward.ts prizePeriods), so a list read otherwise than meant, such as amounts typed
+ * with thousands separators, shows for what it is. Amounts that pay nothing here (only a weekly high score, in a league with
+ * no regular-season prize period) say so: "Several prizes" then counts the title only (reward.ts rewardWith, `empty`).
+ */
+export function prizesSplitLine(amounts: PrizeAmounts, periods: number): string {
+  const shares = prizeShares(amounts, periods);
+  if (!shares) return `--prizes pays nothing in this league${(amounts.weeklyHigh ?? 0) > 0 ? " (it has no regular-season prize period to pay a weekly high score in)" : ""}, so “Several prizes” counts the title only.`;
+  return `--prizes in this league, as the Settings page would show them: ${prizeSplitText(shares, periods)}`;
 }
 
 /** "weeks 5–14" (a run of consecutive weeks), else the list. */
@@ -1734,9 +1871,16 @@ function weekSpan(weeks: readonly number[]): string {
 /**
  * The automatic playoff-week weight (planner reply to Checkpoint 7a, §6.1; league.ts step 5c; LeagueModel.playoffWeightAuto):
  * ω and how it was set, both runs, and ω under each goal from the same runs (league.playoffWeightFrom: the runs don't depend on
- * the goal, only their B per point does). Lines of markdown; a model built before Phase 7b says it has none.
+ * the goal, only their B per point does). Lines of markdown; a model built before Phase 7b says it has none. Checkpoint 7c:
+ * "Several prizes" on `opts.prizes` (the report's --prizes) when given, and its row from the model the app builds under them
+ * (`opts.prizesModel`) when there is one: its own ω, the same as these runs priced under its split unless the split pays the
+ * weekly high score, which only its runs measured (pricing these under it throws: reward.ts assertWeeklyMeasured).
  */
-export function playoffWeightLines(model: Pick<LeagueModel, "playoffWeight" | "playoffWeightAuto" | "myTeamId" | "lineupThresholds">, teamName: (id: string) => string): string[] {
+export function playoffWeightLines(
+  model: Pick<LeagueModel, "playoffWeight" | "playoffWeightAuto" | "myTeamId" | "lineupThresholds">,
+  teamName: (id: string) => string,
+  opts: { prizes?: PrizeAmounts | null; prizesModel?: Pick<LeagueModel, "playoffWeightAuto"> | null } = {},
+): string[] {
   const a = model.playoffWeightAuto;
   if (!a) return [`Playoff weeks count ${model.playoffWeight}× (a model built before the automatic weight).`];
   const who = model.myTeamId === null ? "your team" : `${teamName(model.myTeamId)}`;
@@ -1747,8 +1891,9 @@ export function playoffWeightLines(model: Pick<LeagueModel, "playoffWeight" | "p
   const out = [head, ""];
   if (!a.runs) return out;
   const r = a.runs;
-  // Each goal's reward on the league's prize periods; the model's own when it's "Several prizes" (its user's split).
-  const rewards = goalRewards(a.reward?.periods ?? 0, a.reward);
+  // Each goal's reward on the league's prize periods; the model's own when it's "Several prizes" (its user's split), else the
+  // report's --prizes (Checkpoint 7c).
+  const rewards = goalRewards(a.reward?.periods ?? 0, a.reward, opts.prizes);
   const pts = (x: number | null) => (x === null ? "–" : signed(100 * x, 2));
   out.push(
     `Two runs on the headline's ${thousands(a.sims)} seasons (common random numbers), every team as it stands (before any free-agent pickup: the pickups depend on ω): your weekly score +${a.gain} in the regular-season ${weekSpan(r.regular.weeks)} only: ΔPO ${pts(r.regular.dPO)}, ΔCH ${pts(r.regular.dCH)} points; +${a.gain} in the playoff ${weekSpan(r.playoffs.weeks)} only: ΔPO ${pts(r.playoffs.dPO)}, ΔCH ${pts(r.playoffs.dCH)} points. B per point = 100 × (w_PO ΔPO + w_S ΔE[S]) ÷ (${a.gain} × the weeks changed), ΔE[S] the change in your share of the league's prizes (ΔCH when 1st place pays everything; under Several prizes ${prizesWords(rewards.prizes)}). It weighs every ROS(T) (the free-agent optimizer, lineup costs, trade chips, the search's shortlists), never a player's own ROS points.`,
@@ -1757,7 +1902,8 @@ export function playoffWeightLines(model: Pick<LeagueModel, "playoffWeight" | "p
     "|---|---|---|---|",
   );
   for (const g of GOALS) {
-    const w = playoffWeightFrom(r, rewards[g], a.sims);
+    const own = g === "prizes" && a.goal !== "prizes" ? opts.prizesModel?.playoffWeightAuto : undefined;
+    const w = own ?? playoffWeightFrom(r, rewards[g], a.sims);
     const omega = w.basis === "auto" ? `${w.omega}×${w.clamped ? ` (clamped ${w.clamped})` : ""}` : `${w.omega}× (fallback: ${PLAYOFF_WEIGHT_FALLBACK_WORDS[w.reason ?? "noOdds"]})`;
     out.push(`| ${GOAL_WORDS[g]}${g === a.goal ? " (yours)" : ""} | ${w.regularPerPoint === null ? "–" : fmt(w.regularPerPoint, 4)} | ${w.playoffPerPoint === null ? "–" : fmt(w.playoffPerPoint, 4)} | ${omega} |`);
   }
@@ -1765,9 +1911,64 @@ export function playoffWeightLines(model: Pick<LeagueModel, "playoffWeight" | "p
   return out;
 }
 
-function renderPlayoffWeight(L: string[], model: LeagueModel, teamName: (id: string) => string): void {
+function renderPlayoffWeight(L: string[], model: LeagueModel, season: SeasonReport, teamName: (id: string) => string): void {
   L.push("## Playoff-week weight (automatic)", "");
-  L.push(...playoffWeightLines(model, teamName));
+  const p = season.prizes;
+  L.push(...playoffWeightLines(model, teamName, p ? { prizes: p.amounts, prizesModel: p.model } : {}));
+}
+
+/** Where the league's data says how 3rd place goes (LeagueSettings.thirdPlace's basis), in words. */
+const THIRD_PLACE_BASIS_WORDS: Readonly<Record<NonNullable<LeagueSettings["thirdPlace"]>["basis"], string>> = {
+  schedule: "ESPN's playoff schedule lists the game",
+  setting: "⚠️ our reading of ESPN's consolation-ladder setting: its playoff schedule doesn't list the game yet",
+  bracket: "Sleeper's winners bracket",
+};
+
+/** How 3rd place is decided, in a sentence (PrizesReport.thirdPlace). */
+export function thirdPlaceWords(t: PrizesReport["thirdPlace"]): string {
+  const source = t.data ? ` (${THIRD_PLACE_BASIS_WORDS[t.data.basis]})` : "";
+  const sim = t.sim ? (t.sim.rule === "game" ? `The season simulation plays a 3rd-place game between the two semifinal losers${t.sim.assumed ? ", assumed: the league's data doesn't say" : ""}.` : "The season simulation gives 3rd to the better regular-season seed of the two semifinal losers (⚠️ our assumption).") : "";
+  return `The Import Report's "3rd-place game" row: ${t.row.replace(/\.$/, "")}${source}. ${sim}`.trim();
+}
+
+/** A share of my odds as the section prints it: one decimal ("<0.1%", ">99.9%" at the edges), "–" when unknown. */
+const oddsCell = (x: number | null): string => pct(x);
+
+/**
+ * The league prizes section (Checkpoint 7c; planner reply to Checkpoint 7b, §6 and "Checkpoint 7c must include": "how 3rd
+ * place is decided in his league, his odds of 1st, 2nd and 3rd, his B₃"), with --prizes only.
+ */
+export function prizesLines(p: PrizesReport): string[] {
+  const shares = PRIZE_KEYS.filter((k) => p.reward.shares[k] > 0);
+  const weekly = p.reward.shares.weeklyHigh > 0;
+  const out = [
+    `Planner reply to Checkpoint 7b, §6: the league's prizes as --prizes gave them, "Several prizes" in Settings (${prizesWords(p.reward)} of the season's prizes, whole percents; src/engine/reward.ts prizeShares: each amount ÷ the total of all prizes, the weekly high score counted once per regular-season prize period, ${p.reward.periods} in this league). B_win = 100 × (${goalWeights("prizes").playoffs} × ΔPO + ${goalWeights("prizes").prizes} × ΔE[S]), ΔE[S] the change in your share of the prizes, so "Helps you", Overall, B₃ and the playoff-week weight ω all follow the split (${shares.length} prize${shares.length === 1 ? "" : "s"} paid).`,
+    "",
+    `**How 3rd place is decided:** ${thirdPlaceWords(p.thirdPlace)}`,
+    "",
+    "| Setting | ω | B₃ | P(1st) | P(2nd) | P(3rd) | Top 3 | P(playoffs) |" + (weekly ? " Weekly high scores won |" : ""),
+    "|---|---|---|---|---|---|---|---|" + (weekly ? "---|" : ""),
+  ];
+  for (const r of p.rows) {
+    const percents = prizePercents(p.reward.shares);
+    const label = r.goal === "prizes" ? `${GOAL_WORDS.prizes} (${PRIZE_KEYS.filter((k) => p.reward.shares[k] > 0).map((k) => `${PRIZE_SHORT[k]} ${percents[k] > 0 ? `${percents[k]}%` : "<1%"}`).join(", ")})` : GOAL_WORDS[r.goal];
+    const b3 = r.b3 === null ? "–" : `${fmt(r.b3, 2)}${r.floored ? " (floored)" : ""}`;
+    out.push(`| ${label} | ${r.omega}× | ${b3} | ${oddsCell(r.pFirst)} | ${oddsCell(r.pSecond)} | ${oddsCell(r.pThird)} | ${oddsCell(r.top3)} | ${oddsCell(r.pPlayoffs)} |${weekly ? ` ${r.expHighScores === null ? "–" : fmt(r.expHighScores, 2)} |` : ""}`);
+  }
+  out.push(
+    "",
+    `Each row is the League model the app builds under that setting: its own playoff-week weight ω (so its own free-agent pickups, lineup costs and trade chips) and its headline odds (every team after its pickups, the same ${thousands(p.model.odds?.sims ?? config.simulation.finalSims)} seasons: common random numbers), and B₃, the B of +${config.benefit.helpsGain} projected points a week under that setting (its "Helps you" scale: +${config.benefit.helpsGain} a week reads 63). Top 3 = P(1st) + P(2nd) + P(3rd).${weekly ? " The weekly high scores are simulated under the split only (it pays them)." : ""}`,
+    "",
+  );
+  return out;
+}
+
+/** The prizes in a few letters, for the split's label ("1st 44%"). */
+const PRIZE_SHORT: Readonly<Record<PrizeKey, string>> = { first: "1st", second: "2nd", third: "3rd", weeklyHigh: "weekly high scores", pointsLeader: "most points" };
+
+function renderPrizes(L: string[], season: SeasonReport): void {
+  if (!season.prizes) return;
+  L.push("## League prizes (Checkpoint 7c)", "", ...prizesLines(season.prizes));
 }
 
 function renderNoOp(L: string[], season: SeasonReport): void {
@@ -2052,7 +2253,8 @@ function render(snapshot: LeagueSnapshot, inputs: ModelInputs, model: LeagueMode
   renderStandings(L, season, snapshot, model, teamName);
   renderSchedule(L, season, snapshot, model, teamName);
   renderScale(L, season, model, snapshot.settings.leagueType);
-  renderPlayoffWeight(L, model, teamName);
+  renderPlayoffWeight(L, model, season, teamName);
+  renderPrizes(L, season);
   renderNoOp(L, season);
 
   L.push("## Timings", "", "| Stage | Time |", "|---|---|");
@@ -2269,6 +2471,9 @@ export function buildReport(input: LeagueSnapshot, inputs: ModelInputs, opts: Re
     ...(opts.runs !== undefined ? { runs: opts.runs } : {}),
     ...(opts.warmups !== undefined ? { warmups: opts.warmups } : {}),
     ...(opts.buildRuns !== undefined ? { buildRuns: opts.buildRuns } : {}),
+    // Checkpoint 7c: the league's prizes (--prizes), and the model the app builds under them (seasonReport builds it).
+    ...(opts.prizes ? { prizes: opts.prizes } : {}),
+    ...(opts.prizesModel ? { prizesModel: opts.prizesModel } : {}),
   });
   const optimizer = optimizerReport(snapshot, model, leagueMarginals(snapshot, inputs, { now, scenarios }));
   const blend = blendLines(snapshot, inputs, model, context, now);
@@ -2317,6 +2522,8 @@ async function main(): Promise<void> {
     return;
   }
   console.log(reportSourceLine(args, ROOT));
+  // How --prizes was read, before anything runs (review FB-R2: every comma starts the next prize).
+  if (args.prizes) console.log(prizesReadLine(args.prizes));
   registerScrubber(await redactorFromMap("espn"));
   const timing: Record<string, number> = {};
   const clock = () => performance.now();
@@ -2329,8 +2536,10 @@ async function main(): Promise<void> {
     loaded = { ...(await loadLive(args.cookies, args.team, timing)), dataNote: "Live: Parker's league through the app's public-link import and its caches (league data 10 minutes, projections 6 hours, values 24 hours)." };
   }
   const { snapshot, inputs, now } = loaded;
+  // Their split in this league, once it's loaded and before the long run (review FB-R2).
+  if (args.prizes) console.log(prizesSplitLine(args.prizes, prizePeriods(snapshot)));
   const command = reportCommandText("league:report", args, ROOT);
-  const { doc: raw, model, season: sim, timing: timings, pre4c } = buildReport(snapshot, inputs, { now, clock, timing, mode: args.dump ? "offline" : "live", dataNote: loaded.dataNote, generatedAt, command });
+  const { doc: raw, model, season: sim, timing: timings, pre4c } = buildReport(snapshot, inputs, { now, clock, timing, mode: args.dump ? "offline" : "live", dataNote: loaded.dataNote, generatedAt, command, ...(args.prizes ? { prizes: args.prizes } : {}) });
   // Public NFL player names are kept whole: a leaguemate's first or last name can be a word of one, and a
   // scrubbed fragment next to the rest of a public name would reveal it (review PRIV-1).
   const doc = scrubEverythingExcept(raw, Object.values(snapshot.players).map((p) => p.name));
@@ -2342,9 +2551,16 @@ async function main(): Promise<void> {
   const t5000 = sim.simTimings.find((t) => t.sims === config.simulation.finalSims);
   console.log(
     scrubEverything(
-      `league report written: ${Object.keys(model.players).length} players, ${model.teams.length} teams, weeks ${model.weeks[0]}–${model.weeks.at(-1)}; Parker ${me ? `${fmt((me.scen ?? me.ev).ppw)} pts/wk${odds}` : "team unknown"}; playoff weeks × ${model.playoffWeight} (${model.playoffWeightAuto?.basis === "auto" ? "automatic" : `fallback${model.playoffWeightAuto?.reason ? `: ${model.playoffWeightAuto.reason}` : ""}`}); ${t5000 ? `${thousands(t5000.sims)} seasons ${msFine(t5000.total)}; ` : ""}timings ${Object.entries(timings).map(([k, v]) => `${k} ${ms(v)}`).join(", ")}${pre4c ? `; a dump from before the 4c adapter, put on the ${pre4c.waiverOrderUsed === "live" ? "dump's own order" : "weekly reset order"}` : ""}`,
+      `league report written: ${Object.keys(model.players).length} players, ${model.teams.length} teams, weeks ${model.weeks[0]}–${model.weeks.at(-1)}; Parker ${me ? `${fmt((me.scen ?? me.ev).ppw)} pts/wk${odds}` : "team unknown"}; playoff weeks × ${model.playoffWeight} (${model.playoffWeightAuto?.basis === "auto" ? "automatic" : `fallback${model.playoffWeightAuto?.reason ? `: ${model.playoffWeightAuto.reason}` : ""}`}); ${t5000 ? `${thousands(t5000.sims)} seasons ${msFine(t5000.total)}; ` : ""}timings ${Object.entries(timings).map(([k, v]) => `${k} ${ms(v)}`).join(", ")}${pre4c ? `; a dump from before the 4c adapter, put on the ${pre4c.waiverOrderUsed === "live" ? "dump's own order" : "weekly reset order"}` : ""}${prizesSummary(sim.prizes)}`,
     ),
   );
+}
+
+/** The console line's prizes part (Checkpoint 7c): each setting's ω, B₃ and P(1st) / P(2nd) / P(3rd) / top 3; empty without --prizes. */
+export function prizesSummary(p: PrizesReport | null): string {
+  if (!p) return "";
+  const rows = p.rows.map((r) => `${GOAL_WORDS[r.goal]}: ω ${r.omega}×, B₃ ${r.b3 === null ? "–" : fmt(r.b3, 2)}, P(1st) ${pct(r.pFirst)}, P(2nd) ${pct(r.pSecond)}, P(3rd) ${pct(r.pThird)}, top 3 ${pct(r.top3)}`);
+  return `; prizes (${prizesWords(p.reward)}): ${rows.join("; ")}; 3rd place: ${p.thirdPlace.sim ? (p.thirdPlace.sim.rule === "game" ? `a game${p.thirdPlace.sim.assumed ? " (assumed)" : ""}` : "the better seed") : "–"}`;
 }
 
 // Run only as a script (npm run league:report), never when a test or another script imports the logic above (an exact

@@ -83,5 +83,11 @@ describe("Checkpoint 4 consistency in scenario lineups", () => {
     expect(final.dCH).toBe(0);
     expect(final.dEW).toBe(0);
     expect(final.bWin).toBe(0);
+    // Checkpoint 7c ("Helps them": planner reply to Checkpoint 7b, §7): the partner's side of the same runs moves nothing
+    // either, so the trade doesn't help them.
+    expect(final.them?.dPO).toBe(0);
+    expect(final.them?.dCH).toBe(0);
+    expect(final.them?.bWin).toBe(0);
+    expect(final.them?.helps).toBe(0);
   });
 });

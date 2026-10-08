@@ -23,7 +23,21 @@
  *   playoffs ("playoffs"), each with one line saying how it weighs the prize and playoff odds in Helps you
  *   (config.benefit.goals' weights, never fixed numbers), and the planner's helper line ("On the bubble? Keep “Only the
  *   champion.” It already counts getting into the playoffs."). Every league type: in dynasty and keeper leagues it weighs
- *   this season's part (B_win), and the help says later seasons count by Win now ↔ Future.
+ *   this season's part (B_win), and the help says later seasons count by Win now ↔ Future. The group's help holds for all
+ *   three answers (the lead's words for Checkpoint 7c: "Helps you scores a trade by how much it raises your chances at what
+ *   your league pays and of making the playoffs."), and the playoff weight's fallback for unknown odds names the prize odds
+ *   under "Several prizes" (fallbackWords).
+ * - Your league's prizes (Checkpoint 7c; planner reply to Checkpoint 7b, §6; SettingsView.prizes): under "Several prizes"
+ *   only, a group of its own after the goal's (a sibling, so the goal's group keeps its three labeled choices), the five
+ *   prizes the planner lists (PRIZE_LABEL: 1st, 2nd and 3rd place, the weekly high score each regular-season week, the
+ *   most points in the regular season; TradeSettings.prizes, prefilled 60 / 30 / 10 with the rest blank:
+ *   config.benefit.prizesDefault), the planner's helper line verbatim (PRIZES_HELP), and how the amounts split the
+ *   season's prizes (prizeSplitText: whole percents adding up to 100, reward.ts prizePercents, the weekly high score's share
+ *   for the whole season with how many times it's paid, reward.ts prizePeriods, so a weekly amount or mixed units show for
+ *   what they are), or, when the amounts add up to nothing, that Helps you counts the title only until a prize is entered
+ *   (PRIZES_EMPTY_WARNING: reward.ts rewardOf's `empty`). What's typed is read leniently (parsePrizeText: "$2,000", "60%",
+ *   blank for not paid) and saved on blur or Enter, not per keystroke (SettingsForm.tsx: each saved change rebuilds the
+ *   League model for the playoff weight).
  * - Protect my trade value (planner addendum to Checkpoint 3, §3; lead decision N3): Low / Medium / High (κ =
  *   config.benefit.protectValue: how much Helps you counts the trade value given up or gained, so the user keeps value
  *   for later deals before the deadline), Medium (config.benefit.protectValueDefault) marked as the default, its help
@@ -57,7 +71,8 @@
 import { config } from "@/engine/config";
 import type { PlayoffWeightAuto, PlayoffWeightFallback } from "@/engine/leagueModel";
 import { POSITIONS, type LeagueSnapshot, type PlayerInfo, type Pos } from "@/engine/model";
-import { GOALS, PROTECT_VALUE_LEVELS, normalizeTradeSettings, type Goal, type ProtectValue, type TradeSettings } from "@/engine/settings";
+import { prizePercents, rewardOf, type PrizeShares } from "@/engine/reward";
+import { GOALS, PRIZE_KEYS, PRIZE_MAX, PROTECT_VALUE_LEVELS, normalizeTradeSettings, type Goal, type PrizeKey, type ProtectValue, type TradeSettings } from "@/engine/settings";
 import { LEAGUE_TYPE_LABEL, PLATFORM_LABEL, posLabel } from "@/lib/labels";
 
 /** One option of a choice group: its value, its words, and whether it's chosen. */
@@ -136,6 +151,14 @@ export interface SettingsView {
    */
   goal: { legend: string; choices: (Choice<Goal> & { help: string })[]; help: string };
   /**
+   * "Your league's prizes" (Checkpoint 7c; planner reply to Checkpoint 7b, §6; the file header): under "Several prizes" only
+   * (null otherwise): `fields`, the five prizes in PRIZE_KEYS order with their labels and their saved amounts as text ("" for
+   * blank: not paid); `help`, the planner's helper line; `split`, how the saved amounts split the season's prizes
+   * (prizeSplitText), null while they add up to nothing; `warning`, then, that Helps you counts the title only
+   * (PRIZES_EMPTY_WARNING), else null.
+   */
+  prizes: { legend: string; help: string; fields: PrizeFieldView[]; split: string | null; warning: string | null } | null;
+  /**
    * "Protect my trade value": Low / Medium / High; redraft leagues only (null otherwise). `note`: why it does nothing for now,
    * while the league's values are our own estimates (FantasyCalc's curve fallback); else null.
    */
@@ -154,7 +177,18 @@ export interface SettingsView {
   picks: { checked: boolean; help: string } | null;
 }
 
-type SnapshotPart = Pick<LeagueSnapshot, "platform" | "name" | "season" | "settings" | "teams" | "players">;
+/** One of "Your league's prizes"' fields (SettingsView.prizes): its prize, its label, and its saved amount as text ("" for blank). */
+export interface PrizeFieldView {
+  key: PrizeKey;
+  label: string;
+  value: string;
+}
+
+/**
+ * What the page reads of the league; `schedule` (optional so partial fixtures fit) counts the weekly high score's prize
+ * periods for the prizes' split line (reward.ts prizePeriods; without it, the regular-season weeks).
+ */
+type SnapshotPart = Pick<LeagueSnapshot, "platform" | "name" | "season" | "settings" | "teams" | "players"> & Partial<Pick<LeagueSnapshot, "schedule">>;
 
 export interface SettingsViewInput {
   snapshot: SnapshotPart;
@@ -200,6 +234,21 @@ export const FALLBACK_WORDS: Readonly<Record<PlayoffWeightFallback, string>> = {
   notFinite: "your odds couldn't be measured",
 };
 
+/**
+ * The fallback's reason "titleUnknown" under "Several prizes" (the lead's words for Checkpoint 7c): the weight falls back
+ * when the odds of a prize the league pays aren't known (league.ts measurePlayoffWeight; leagueModel.ts PlayoffWeightFallback's
+ * "titleUnknown" covers 2nd and 3rd place there too), so it names the prize odds rather than the title's.
+ */
+export const PRIZE_ODDS_UNKNOWN_WORDS = "your prize odds aren't known";
+
+/**
+ * Why the automatic playoff weight fell back to the default, in plain words, for the goal it was measured under
+ * (PlayoffWeightAuto.goal): FALLBACK_WORDS, but for unknown odds under "Several prizes" (PRIZE_ODDS_UNKNOWN_WORDS).
+ */
+export function fallbackWords(reason: PlayoffWeightFallback, goal: Goal | null | undefined): string {
+  return reason === "titleUnknown" && goal === "prizes" ? PRIZE_ODDS_UNKNOWN_WORDS : FALLBACK_WORDS[reason];
+}
+
 /** What the automatic playoff-week weight affects (the planner's words; ⚠️ ours: the pickups the odds count, so it never reads as leaving the odds alone). */
 export const PLAYOFF_WEIGHT_HELP =
   "It only affects shortlists, free-agent rankings (and so the pickups your odds count), needs and trade chips. Final scores come from playing out the season, which weighs each week by its real effect on your odds.";
@@ -210,7 +259,7 @@ export function playoffWeightView(read: PlayoffWeightRead | undefined): Settings
   let value: string;
   if (read?.kind === "known") {
     const w = `${playoffWeightText(read.omega)}×`;
-    const reason = read.auto?.basis === "fallback" && read.auto.reason ? FALLBACK_WORDS[read.auto.reason] : null;
+    const reason = read.auto?.basis === "fallback" && read.auto.reason ? fallbackWords(read.auto.reason, read.auto.goal) : null;
     value = reason ? `${w} (the default: ${reason}).` : `${w}, set automatically from your odds.`;
   } else if (read?.kind === "working") {
     value = "set automatically from your odds. Working it out…";
@@ -354,6 +403,115 @@ export function goalHelp(goal: Goal, weights: { readonly playoffs: number; reado
 }
 
 /**
+ * The goal group's help, before the planner's helper line (GOAL_BUBBLE_HINT): what Helps you scores, in words that hold for
+ * all three options (the lead's for Checkpoint 7c: "Only the champion" pays 1st place, "Several prizes" the league's split,
+ * "Making the playoffs" weighs the playoffs most), and that the choice follows the league's prizes. Dynasty and keeper
+ * leagues: for this season, with where later seasons are set (GOAL_HELP_LONG_TERM).
+ */
+export const GOAL_HELP = "Helps you scores a trade by how much it raises your chances at what your league pays and of making the playoffs. Pick what your league's prizes reward.";
+export const GOAL_HELP_LONG_TERM =
+  "For this season, Helps you scores a trade by how much it raises your chances at what your league pays and of making the playoffs (how much later seasons count is set under Win now or build for the future). Pick what your league's prizes reward.";
+
+/** "Your league's prizes" (SettingsView.prizes; the file header): the group's legend. */
+export const PRIZES_LEGEND = "Your league's prizes";
+
+/** The planner's helper line for the prizes (planner reply to Checkpoint 7b, §6), verbatim. */
+export const PRIZES_HELP = "Enter each prize in dollars or percent, the same way for all. Only the split matters. Leave blank what your league doesn't pay.";
+
+/** Each prize's label, in PRIZE_KEYS order (the planner's list: §6, "The user enters the league's prizes"). */
+export const PRIZE_LABEL: Readonly<Record<PrizeKey, string>> = {
+  first: "1st place",
+  second: "2nd place",
+  third: "3rd place",
+  weeklyHigh: "High score, each regular-season week",
+  pointsLeader: "Most points in the regular season",
+};
+
+/**
+ * When the amounts add up to nothing (reward.ts rewardOf's `empty`: "Several prizes" reads as 1st place paying everything
+ * until a prize is entered, so a blank form never stops Helps you).
+ */
+export const PRIZES_EMPTY_WARNING = "Enter at least one prize. Until then, Helps you counts the title only.";
+
+/** Each prize's name in the split line (prizeSplitText). */
+const SPLIT_WORDS: Readonly<Record<PrizeKey, string>> = { first: "1st", second: "2nd", third: "3rd", weeklyHigh: "weekly high scores", pointsLeader: "most points" };
+
+/**
+ * How the amounts split the season's prizes (SettingsView.prizes.split; the file header): "Your prizes split: 1st 44%, 2nd
+ * 36%, 3rd 20%." (Parker's 2,000 / 1,600 / 900), each paid prize's whole percent (reward.ts prizePercents: adding up to
+ * exactly 100; "<1%" for a paid prize that rounds to none), in PRIZE_KEYS order; the weekly high score's for the whole season,
+ * with how many times it's paid (`periods`, reward.ts prizePeriods): "weekly high scores 10% (paid 14 times)". That's where a
+ * weekly amount, or a "$1,600" typed next to the prefilled "30" (percent), shows for what it is.
+ */
+export function prizeSplitText(shares: PrizeShares, periods: number): string {
+  const percents = prizePercents(shares);
+  const n = Number.isFinite(periods) && periods > 0 ? Math.floor(periods) : 0;
+  const parts = PRIZE_KEYS.filter((k) => shares[k] > 0).map((k) => {
+    const pct = percents[k] > 0 ? `${percents[k]}%` : "<1%";
+    return k === "weeklyHigh" ? `${SPLIT_WORDS[k]} ${pct} (paid ${n} ${n === 1 ? "time" : "times"})` : `${SPLIT_WORDS[k]} ${pct}`;
+  });
+  return `Your prizes split: ${parts.join(", ")}.`;
+}
+
+/** A saved amount as its field shows it: "" for blank (not paid), else the number as typed would read back ("2000", "12.5"). */
+export function prizeAmountText(x: number | null): string {
+  return x === null || !Number.isFinite(x) ? "" : String(x);
+}
+
+/** parsePrizeText's answer: the amount (null: blank, not paid), or why the text isn't one. */
+export type PrizeParse = { ok: true; value: number | null } | { ok: false; message: string };
+
+/** What a prize field says about text it can't read (parsePrizeText). */
+export const PRIZE_TEXT_MESSAGES = {
+  notNumber: "Enter a number, like 2000 or 60.",
+  negative: "A prize can't be negative.",
+  tooBig: "Enter a smaller number.",
+  decimalComma: "Use a period for decimals, like 12.5.",
+} as const;
+
+/**
+ * A prize field's text read leniently (the file header): blank (nothing but spaces) is null, not paid; a dollar sign
+ * before the number, a percent sign after it and spaces are ignored, and so are commas between groups of three digits
+ * ("$2,000", "60%", "1 600", "1,000,000"); a plain or decimal number from 0 to settings.ts PRIZE_MAX is the amount.
+ * Anything else isn't saved, and says why (PRIZE_TEXT_MESSAGES): a minus sign, a number too large, a comma that isn't a
+ * thousands separator ("12,5", "5,00": a decimal comma, which the decimal keypad of some phones types, asks for a period
+ * instead of being read as 125 or 500), or no number at all, a lone "$" or "%" included (so typing one over a prize never
+ * erases it). Review of the prizes UI, prizes-ui-4: both had been saved silently.
+ */
+export function parsePrizeText(text: string): PrizeParse {
+  if (text.trim() === "") return { ok: true, value: null };
+  const t = text.replace(/\s/g, "").replace(/^\$/, "").replace(/%$/, "");
+  if (/^[-−]/.test(t) && /\d/.test(t)) return { ok: false, message: PRIZE_TEXT_MESSAGES.negative };
+  let digits = t;
+  if (t.includes(",")) {
+    // Thousands separators only: one to three digits, then groups of exactly three, then any decimals after a period.
+    if (!/^\+?\d{1,3}(?:,\d{3})+(?:\.\d*)?$/.test(t)) return { ok: false, message: /^\+?\d*,\d+$/.test(t) ? PRIZE_TEXT_MESSAGES.decimalComma : PRIZE_TEXT_MESSAGES.notNumber };
+    digits = t.replace(/,/g, "");
+  }
+  if (!/^\+?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i.test(digits)) return { ok: false, message: PRIZE_TEXT_MESSAGES.notNumber };
+  const value = Number(digits);
+  if (!Number.isFinite(value)) return { ok: false, message: PRIZE_TEXT_MESSAGES.tooBig };
+  if (value > PRIZE_MAX) return { ok: false, message: PRIZE_TEXT_MESSAGES.tooBig };
+  return { ok: true, value: value + 0 };
+}
+
+/** What a prize field does with its text on blur or Enter (prizeCommit). */
+export type PrizeCommit = { kind: "save"; value: number | null } | { kind: "error"; message: string } | { kind: "same" };
+
+/**
+ * What a prize field does with what's typed (`text`) on blur or Enter (SettingsForm.tsx PrizeField), against the amount
+ * saved (`saved`, as the field shows it: prizeAmountText): save the amount it reads ("save"), keep it with why it can't be
+ * saved ("error": parsePrizeText's message), or nothing when it reads as the saved amount ("same": "60%" over 60, so no
+ * "Saved." and no rebuild for nothing).
+ */
+export function prizeCommit(text: string, saved: string): PrizeCommit {
+  const read = parsePrizeText(text);
+  if (!read.ok) return { kind: "error", message: read.message };
+  const was = parsePrizeText(saved);
+  return was.ok && was.value === read.value ? { kind: "same" } : { kind: "save", value: read.value };
+}
+
+/**
  * Why dynasty and keeper leagues have no "Protect my trade value" (SettingsView.tradeValueNote): the planner's sentence
  * (planner reply to Checkpoint 7b, Q3). Their long-term value already counts trade value, through Win now ↔ Future
  * (benefit.ts: no market term there, whatever κ), so a second term would count it twice.
@@ -430,12 +588,22 @@ export function buildSettingsView(input: SettingsViewInput): SettingsView {
       help: goalHelp(g),
       checked: g === s.goal,
     })),
-    help: `${
-      dynastyOrKeeper
-        ? "For this season, Helps you scores a trade by how much it raises your title and playoff odds (how much later seasons count is set under Win now or build for the future). Pick what your league's prizes reward."
-        : "Helps you scores a trade by how much it raises your title and playoff odds. Pick what your league's prizes reward."
-    } ${GOAL_BUBBLE_HINT}`,
+    help: `${dynastyOrKeeper ? GOAL_HELP_LONG_TERM : GOAL_HELP} ${GOAL_BUBBLE_HINT}`,
   };
+
+  // "Your league's prizes" under "Several prizes" (Checkpoint 7c; the file header): the saved amounts, and how they split the
+  // season's prizes over the league's own prize periods (reward.ts rewardOf, as the League model and the search read them).
+  let prizes: SettingsView["prizes"] = null;
+  if (s.goal === "prizes") {
+    const reward = rewardOf(s, { settings: snapshot.settings, schedule: snapshot.schedule ?? [] });
+    prizes = {
+      legend: PRIZES_LEGEND,
+      help: PRIZES_HELP,
+      fields: PRIZE_KEYS.map((key) => ({ key, label: PRIZE_LABEL[key], value: prizeAmountText(s.prizes[key]) })),
+      split: reward.empty ? null : prizeSplitText(reward.shares, reward.periods),
+      warning: reward.empty ? PRIZES_EMPTY_WARNING : null,
+    };
+  }
 
   const protectValue =
     type === "redraft"
@@ -496,6 +664,7 @@ export function buildSettingsView(input: SettingsViewInput): SettingsView {
     stream,
     playoffWeight,
     goal,
+    prizes,
     lambda,
     protectValue,
     tradeValueNote: dynastyOrKeeper ? TRADE_VALUE_NOTE : null,
@@ -562,6 +731,8 @@ export type SettingsEdit =
   /** null = Automatic. */
   | { kind: "lambda"; value: number | null }
   | { kind: "goal"; value: Goal }
+  /** One of "Your league's prizes"' amounts (null: blank, not paid), as parsePrizeText read it (Checkpoint 7c). */
+  | { kind: "prize"; key: PrizeKey; value: number | null }
   | { kind: "protectValue"; value: ProtectValue }
   | { kind: "maxPerSide"; value: number }
   | { kind: "untouchable"; id: string; on: boolean }
@@ -594,6 +765,10 @@ export function applySettingsEdit(settings: TradeSettings, edit: SettingsEdit, n
       break;
     case "goal":
       next = { ...s, goal: edit.value };
+      break;
+    case "prize":
+      // The other prizes stay as saved; normalizeTradeSettings keeps the keys in order and an amount out of range blank.
+      next = { ...s, prizes: { ...s.prizes, [edit.key]: edit.value } };
       break;
     case "protectValue":
       next = { ...s, protectValue: edit.value };

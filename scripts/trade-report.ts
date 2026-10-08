@@ -14,6 +14,10 @@
  *   npm run trade:report -- --live                 Parker's ESPN league through the public-link path and the app's caches
  *   npm run trade:report -- --live --cookies       use the .env.local ESPN cookies (also with USE_ENV_COOKIES=1)
  *   npm run trade:report -- --out <file>           write the report there instead of reports/trade-report.md
+ *   npm run trade:report -- --prizes 2000,1600,900,0   the league's prizes (1st, 2nd, 3rd, the weekly high score, the most
+ *                                                  points; blank or 0 not paid; scripts/lib/runMode.ts prizesArg): "Several
+ *                                                  prizes" on them in sections 2 and 3 (Checkpoint 7c); the console
+ *                                                  says how it read them first (prizesReadLine, prizesSplitLine)
  *
  * Offline by default (planner reply to Checkpoint 4c, A5; scripts/lib/runMode.ts): without --live the process's offline
  * guard is on, so nothing here can touch the network; the header prints the command with the dump named.
@@ -21,14 +25,14 @@
  * The report (reports/trade-report.md) is short (the planner: "only what changed, plus the numbers asked for"); each
  * section says how its numbers were made:
  * 0. Header: the command line, the data and its timestamps, the waiver order used (importReport.waiverOrderText), the
- *    settings (the app's defaults: "Win the title", "Chance they accept: at least 10%"), the baseline odds (with pickups,
+ *    settings (the app's defaults: "Only the champion", "Chance they accept: at least 10%"; section 2's split), the baseline odds (with pickups,
  *    and as rosters stand), and the notes and warnings of the inputs, the League model, the context and the search. A dump
  *    from before the 4c adapter (league-report's waiverRanksPre4c: its ranks are ESPN's live order of the import's day) is
  *    first put on the 4c adapter's rule for a league whose order resets weekly, as Parker's does (league-report's
  *    asWeeklyResetData: the weekly reset order from the standings becomes Team.waiverRank, the dump's ranks
  *    Team.liveWaiverRank; ⚠️ assumed, the dump doesn't say), so every section runs on the order the app now uses and the
  *    search's baseline is section 7's headline (review of track R, R-4); the header says so with both orders (pre4cText).
- * 1. Your top 10 under "Win the title" (the default goal): each card's give and get with its injury tags in the card's
+ * 1. Your top 10 under "Only the champion" (the default goal): each card's give and get with its injury tags in the card's
  *    words (flags.tagged, tradeView.injuryTagText), the three numbers as printed (Helps you / Chance they accept, its
  *    chance of going through when the veto cuts it / Overall; a chance under 5% reads "<5%": chancePrinted), title and
  *    playoff odds before → after (the search's baseline, plus the trade's ΔCH and ΔPO on the same final block), the weekly
@@ -39,13 +43,15 @@
  *    TradeEvaluation.marketWeekly; planner reply to Checkpoint 7a, §2 question 5); the counts over the top 10 and every card, the Plan B
  *    boxes receiving an injury-tagged player among them (cardCounts); the pattern note (TradeSearchResult.pattern) when it
  *    shows.
- * 2. The goal setting (planner change 8): the same search on the same context under "Several prizes" (TradeSettings.goal;
- *    Checkpoint 7c, planner reply to Checkpoint 7b, §6, in place of "Balanced"; ⚠️ on the prefilled split,
- *    config.benefit.prizesDefault, until the report takes a league's prizes), the two top 10s side by side (goalCompare: each
- *    trade's place, B, Helps you and Overall under each goal; a trade the other list doesn't show gets the Analyzer's numbers
- *    under that goal, the same final block of seasons). ⚠️ Since Phase 7b the goal also sets the playoff weeks' weight ω
- *    (league.ts step 5c): the same context holds it at the default goal's, so the section isolates B's weights, and says the
- *    ω the app's own context under "Several prizes" would use (omegaUnder).
+ * 2. "What does your league reward?" (planner change 8; Checkpoint 7c, planner reply to Checkpoint 7b, §6: "how his top 5
+ *    changed from 'Only the champion'"): the search the app runs under "Several prizes" on the league's split (--prizes;
+ *    ⚠️ the prefilled split, config.benefit.prizesDefault, without it: prizesSettingsOf), on the trade context the app builds
+ *    under it (its own playoff-week weight ω, so its own pickups, baseline and shortlists, and the weekly high scores
+ *    simulated when the split pays them), against section 1's: both top 5s in a line, the two top 10s side by side
+ *    (goalCompare: each trade's place, B, Helps you, the chance it goes through and Overall under each setting; a trade the
+ *    other list doesn't show gets the Analyzer's numbers on that setting's context), each side's ω. Until Checkpoint 7c the
+ *    section ran both on the default goal's context, its ω held, and named the other's (omegaUnder, gone): a split that pays
+ *    the weekly high score can't be priced from runs that didn't simulate them (reward.ts assertWeeklyMeasured).
  * 3. B₃ under each goal (Phase 7a; planner reply to Checkpoint 4c, A2: "Helps you" calibrates itself per league and goal;
  *    helpsScaleSection): the League model's calibration run (LeagueModel.helpsCalibration: ΔPO₃ and ΔCH₃ from +3 points a
  *    week in every week a trade can change), checked against the trade context's own run (evaluate.ts SimState.calibration,
@@ -58,8 +64,8 @@
  *    TeamModel.scoreWithPickups; the default goal's ω) for +1, +3 and +6 projected points a week (league-report's
  *    scaleFrom: a week under way is left out, as every trade's evaluation leaves it): ΔPO, ΔCH, B and Helps you on the new
  *    scale under each goal, its +3 row checked to be the calibration run. Section 1's cards are scored on the default goal's
- *    B₃; section 2's "Several prizes" cards on the default goal's context (its caveat), so on that context's B₃ for Several
- *    prizes.
+ *    B₃; section 2's "Several prizes" cards on that setting's own context, so on its B₃ in this section's table (Checkpoint
+ *    7c: "Several prizes" is section 2's context, on the league's split; the scale check's column reads the split too).
  * 4. The search gap (change 1): Garrett Wilson → Chuba Hubbard + Mike Evans with their team (searchGap: its rank among
  *    that partner's screened candidates by the screening objective, the g window, the partner's keep, the exact
  *    shortlist, the finalists, the card; whether the beams alone screen it; its numbers), the screened counts per
@@ -127,15 +133,15 @@ import { config } from "@/engine/config";
 import { analyzeTrade, buildTradeContext, evaluateExact, helpsScaleOf, proposalKey, tradeInternals, tradeSides, type Screened, type TradeContext, type TradeInternals } from "@/engine/evaluate";
 import { injuryTags, tagContextOf } from "@/engine/explain";
 import type { MarketInputs, ModelInputs } from "@/engine/inputs";
-import { buildLeagueModel, firstKickoff, playoffWeightFrom } from "@/engine/league";
+import { buildLeagueModel, firstKickoff } from "@/engine/league";
 import type { BaseRateSource, FaMove, HelpsCalibration, LeagueModel, SeasonOdds, TeamOdds } from "@/engine/leagueModel";
 import { neutralThrowIns } from "@/engine/market";
 import type { InjuryStatus, LeagueSnapshot } from "@/engine/model";
 import { eliteIds, perceivedPackage, teamPremiums } from "@/engine/premium";
 import { atMostWaiverCredit, buildPools, leanCompanions, partnerCandidates, runRefilter, runTradeSearch, searchStateOf, shortlistOf } from "@/engine/search";
-import { prizePeriods } from "@/engine/reward";
+import { prizePeriods, type Reward } from "@/engine/reward";
 import { buildSimSetup, pickupSeasonModel } from "@/engine/season";
-import { GOALS, PROTECT_VALUE_LEVELS, defaultTradeSettings, normalizeTradeSettings, type Goal, type TradeSettings } from "@/engine/settings";
+import { GOALS, PROTECT_VALUE_LEVELS, defaultTradeSettings, normalizeTradeSettings, type Goal, type PrizeAmounts, type TradeSettings } from "@/engine/settings";
 import { simNormals } from "@/engine/sim";
 import type { InjuryTag, OpenSpot, TradeAsset, TradeDetail, TradeEvaluation, TradeEvaluationCore, TradeProposal, TradeSearchResult } from "@/engine/tradeModel";
 import { waiverOrderText } from "@/lib/importReport";
@@ -157,6 +163,7 @@ import {
   placeholders,
   playoffWeightSummary,
   pre4cText,
+  prizesSplitLine,
   prizesWords,
   resetWaiverOrder,
   scaleCheck,
@@ -170,7 +177,7 @@ import {
 import { ROOT, env, loadEnv } from "./lib/env";
 import { redactorFromMap } from "./lib/minimize";
 import { installConsoleScrubber, registerScrubber, scrubEverything, scrubEverythingExcept } from "./lib/redact";
-import { isMainModule, reportArgs, reportCommandText, reportSourceLine, setNetworkMode, wantsLive, type DumpInfo, type Env, type ReportArgs } from "./lib/runMode";
+import { isMainModule, prizesReadLine, reportArgs, reportCommandText, reportSourceLine, setNetworkMode, wantsLive, type DumpInfo, type Env, type ReportArgs } from "./lib/runMode";
 
 // ---------------------------------------------------------------------------------------------
 // Report choices (not model tunables: nothing the engine computes depends on them)
@@ -183,9 +190,17 @@ export const TOP_DETAIL = 10;
 /**
  * The other goal section 2 searches (the planner at Checkpoint 4c: "how the top 10 changed from Balanced to 'Win the title'";
  * since Checkpoint 7c "Several prizes", planner reply to Checkpoint 7b, §6: "how his top 5 changed from 'Only the champion'",
- * ⚠️ on the report settings' prizes, the prefilled split for now).
+ * on the league's split from --prizes, ⚠️ the prefilled split without it: prizesSettingsOf).
  */
 export const COMPARE_GOAL: Goal = "prizes";
+
+/**
+ * The settings section 2's other search and section 3's "Several prizes" context run under (Checkpoint 7c): the report's
+ * settings with COMPARE_GOAL and the league's prizes (--prizes), else the prefilled split they already hold.
+ */
+export function prizesSettingsOf(settings: TradeSettings, prizes?: PrizeAmounts | null): TradeSettings {
+  return normalizeTradeSettings({ ...settings, goal: COMPARE_GOAL, ...(prizes ? { prizes } : {}) });
+}
 /** Section 4's trade (planner reply to Checkpoint 4b, change 1; public NFL names). */
 export const GAP_TRADE = { give: ["Garrett Wilson"], get: ["Chuba Hubbard", "Mike Evans"] } as const;
 /** Section 6: how many of the most extreme blend factors are listed (the planner: "the 10 most extreme factors"). */
@@ -462,11 +477,16 @@ export function cardCounts(trades: readonly TradeEvaluation[], tagsOf: Tagger): 
 // ---------------------------------------------------------------------------------------------
 // Section 2: the goal setting
 
-/** One trade under each goal: its place among the shown cards (null: not shown), B, Helps you and Overall. */
+/**
+ * One trade under each setting: its place among the shown cards (null: not shown), B, Helps you, the chance it goes through
+ * and Overall, on that setting's own trade context.
+ */
 export interface GoalSide {
   rank: number | null;
   b: number | null;
   helps: number | null;
+  /** P_complete there: each setting's context has its own pickups and baseline, so the chance can move a little too. */
+  pComplete: number | null;
   overall: number | null;
 }
 
@@ -475,41 +495,63 @@ export interface GoalRow {
   partnerId: string;
   give: string[];
   get: string[];
-  /** Its chance of going through (the same under every goal: the goal moves B only). */
-  pComplete: number;
   title: GoalSide;
   other: GoalSide;
 }
 
+/** The trades the planner asks about in section 2 ("how his top 5 changed from 'Only the champion'"). */
+export const GOAL_TOP = 5;
+
 export interface GoalCompare {
+  /** The other setting ("Several prizes": COMPARE_GOAL), the settings its search ran under, and the reward it scored on. */
   goal: Goal;
+  settings: TradeSettings;
+  reward: Reward | null;
+  /** Each side's playoff weeks' weight ω (its context's League model). */
+  omega: { title: number; other: number };
   result: TradeSearchResult;
   /** The union of both top TOP_DETAIL lists: the default goal's order first, then the other's extras in its order. */
   rows: GoalRow[];
-  /** Trades in both top lists. */
+  /** Trades in both top lists, and in both top GOAL_TOP. */
   common: number;
+  commonTop: number;
 }
 
 /**
- * The same search on the same context under `goal` (section 2), and both top `top` lists side by side. A trade one list
- * doesn't show gets the Analyzer's numbers under that list's goal (analyzeTrade: the same final block of seasons).
+ * Section 2 (Checkpoint 7c; planner reply to Checkpoint 7b, §6): the search the app runs under the other setting, on the
+ * trade context it builds under it (`other`: its own ω, so its own pickups, baseline and shortlists, and the weekly high
+ * scores simulated when its split pays them), against the main search; both top `top` lists side by side. A trade one list
+ * doesn't show gets the Analyzer's numbers on that list's context and settings (analyzeTrade: the same final block of
+ * seasons). Until Checkpoint 7c it ran on the main context, the main setting's ω held (only B's weights moved).
  */
-export function goalCompare(ctx: TradeContext, main: TradeSearchResult, settings: TradeSettings, goal: Goal = COMPARE_GOAL, top = TOP_DETAIL): GoalCompare {
-  const result = runTradeSearch(ctx, { settings: { ...settings, goal } });
-  const sideOf = (list: TradeSearchResult, key: string, proposal: TradeProposal, g: Goal): GoalSide => {
+export function goalCompare(ctx: TradeContext, main: TradeSearchResult, settings: TradeSettings, other: { ctx: TradeContext; settings: TradeSettings }, top = TOP_DETAIL): GoalCompare {
+  const result = runTradeSearch(other.ctx, { settings: other.settings });
+  const sideOf = (list: TradeSearchResult, key: string, proposal: TradeProposal, c: TradeContext, s: TradeSettings): GoalSide => {
     const at = list.trades.findIndex((t) => t.key === key);
-    const t = at >= 0 ? list.trades[at] : analyzeTrade(ctx, proposal, { settings: { ...settings, goal: g } }).evaluation;
-    return { rank: at >= 0 ? at + 1 : null, b: t?.b ?? null, helps: t?.tradeScore ?? null, overall: t?.overall ?? null };
+    const t = at >= 0 ? list.trades[at] : analyzeTrade(c, proposal, { settings: s }).evaluation;
+    return { rank: at >= 0 ? at + 1 : null, b: t?.b ?? null, helps: t?.tradeScore ?? null, pComplete: t?.pComplete ?? null, overall: t?.overall ?? null };
   };
   const seen = new Set<string>();
   const rows: GoalRow[] = [];
   for (const t of [...main.trades.slice(0, top), ...result.trades.slice(0, top)]) {
     if (seen.has(t.key)) continue;
     seen.add(t.key);
-    rows.push({ key: t.key, partnerId: t.proposal.partnerId, give: playerIds(t.proposal.give), get: playerIds(t.proposal.get), pComplete: t.pComplete, title: sideOf(main, t.key, t.proposal, settings.goal), other: sideOf(result, t.key, t.proposal, goal) });
+    rows.push({ key: t.key, partnerId: t.proposal.partnerId, give: playerIds(t.proposal.give), get: playerIds(t.proposal.get), title: sideOf(main, t.key, t.proposal, ctx, settings), other: sideOf(result, t.key, t.proposal, other.ctx, other.settings) });
   }
-  const topKeys = new Set(result.trades.slice(0, top).map((t) => t.key));
-  return { goal, result, rows, common: main.trades.slice(0, top).filter((t) => topKeys.has(t.key)).length };
+  const inBoth = (n: number) => {
+    const keys = new Set(result.trades.slice(0, n).map((t) => t.key));
+    return main.trades.slice(0, n).filter((t) => keys.has(t.key)).length;
+  };
+  return {
+    goal: other.settings.goal,
+    settings: other.settings,
+    reward: result.reward ?? null,
+    omega: { title: tradeInternals(ctx).model.playoffWeight, other: tradeInternals(other.ctx).model.playoffWeight },
+    result,
+    rows,
+    common: inBoth(top),
+    commonTop: inBoth(Math.min(GOAL_TOP, top)),
+  };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -518,9 +560,9 @@ export function goalCompare(ctx: TradeContext, main: TradeSearchResult, settings
 /**
  * league-report's scaleCheck for my team from the one baseline (every team after its pickups: pickupSeasonModel and
  * TeamModel.scoreWithPickups), on the League model's own seasons, the gains from the first week a trade can change
- * (scaleFrom). Null without odds or a team.
+ * (scaleFrom); "Several prizes" on `prizes` (Checkpoint 7c: the report's --prizes) when given. Null without odds or a team.
  */
-export function scaleCheckOf(snapshot: LeagueSnapshot, model: LeagueModel): ScaleCheck | null {
+export function scaleCheckOf(snapshot: LeagueSnapshot, model: LeagueModel, prizes?: PrizeAmounts | null): ScaleCheck | null {
   const odds = model.odds;
   const me = model.teams.find((t) => t.id === model.myTeamId);
   if (!odds || !me) return null;
@@ -528,7 +570,7 @@ export function scaleCheckOf(snapshot: LeagueSnapshot, model: LeagueModel): Scal
   const built = buildSimSetup(snapshot, pick);
   if (!built) return null;
   const run = { sims: odds.sims, seed: odds.seed, normals: simNormals(odds.seed, odds.sims, built.setup.weeks.length, built.setup.teams.length) };
-  return scaleCheck(snapshot, pick, me.id, me.scoreWithPickups ?? me.score, run, { from: scaleFrom(model), rewards: goalRewards(prizePeriods(snapshot), model.reward) });
+  return scaleCheck(snapshot, pick, me.id, me.scoreWithPickups ?? me.score, run, { from: scaleFrom(model), rewards: goalRewards(prizePeriods(snapshot), model.reward, prizes) });
 }
 
 /** Section 3 (the file header). */
@@ -556,14 +598,17 @@ export interface HelpsScaleSection {
 /**
  * Section 3: the calibration run, B₃ under each goal as the search uses it, and the scale check on the new scale.
  * `contextFor`: the trade context the app builds under a goal (the report's own `ctx` for the settings' goal); each goal's
- * B₃ and ω are read off its own (HelpsScaleSection.b3). Without it every goal reads `ctx` (tests).
+ * B₃ and ω are read off its own (HelpsScaleSection.b3). Without it every goal reads `ctx` (tests). Checkpoint 7c: `prizes`,
+ * the league's split (--prizes), for the scale check's "Several prizes" column; the "Several prizes" context (contextFor)
+ * is built under it too (buildTradeReport: section 2's).
  */
-export function helpsScaleSection(snapshot: LeagueSnapshot, model: LeagueModel, ctx: TradeContext, settings: TradeSettings, contextFor: (goal: Goal) => TradeContext = () => ctx): HelpsScaleSection {
+export function helpsScaleSection(snapshot: LeagueSnapshot, model: LeagueModel, ctx: TradeContext, settings: TradeSettings, contextFor: (goal: Goal) => TradeContext = () => ctx, prizes?: PrizeAmounts | null): HelpsScaleSection {
   const I = tradeInternals(ctx);
   const calibration = model.helpsCalibration ?? null;
   const own = I.sim?.calibration ?? null;
   const contextMatches = calibration && own ? own.gain === calibration.gain && own.from === calibration.from && Object.is(own.dPO, calibration.dPO) && Object.is(own.dCH, calibration.dCH) : null;
-  const check = scaleCheckOf(snapshot, model);
+  // Checkpoint 7c: the scale check's "Several prizes" column on the league's split (the report's --prizes) when given.
+  const check = scaleCheckOf(snapshot, model, prizes);
   const contexts = byGoal((g) => (g === settings.goal ? I : tradeInternals(contextFor(g))));
   return {
     calibration,
@@ -1302,6 +1347,11 @@ export interface TradeReportOptions {
   command?: string;
   /** Timings of the stages before the engine (live: the crosswalk, the import, the model inputs). */
   timing?: Record<string, number>;
+  /**
+   * Checkpoint 7c: the league's prizes (--prizes; scripts/lib/runMode.ts prizesArg), which "Several prizes" reads in sections
+   * 2 and 3 (prizesSettingsOf); without them, the prefilled split.
+   */
+  prizes?: PrizeAmounts | null;
 }
 
 export interface TradeReport {
@@ -1310,6 +1360,8 @@ export interface TradeReport {
   snapshot: LeagueSnapshot;
   pre4c: Pre4cOrder | null;
   settings: TradeSettings;
+  /** Checkpoint 7c: the league's prizes the report was given (--prizes), or null (sections 2 and 3 on the prefilled split). */
+  prizes: PrizeAmounts | null;
   ctx: TradeContext;
   result: TradeSearchResult;
   model: LeagueModel;
@@ -1357,10 +1409,15 @@ export function buildTradeReport(input: LeagueSnapshot, inputs: ModelInputs, opt
   lap("searches");
   const beams = timedSearches(snapshot, inputs, { ...runOpts, warmups: 0, exhaustive: false });
   lap("beams");
-  const goals = goalCompare(ctx, result, settings);
+  // Section 2 (Checkpoint 7c): the app's search under "Several prizes" on the league's split (--prizes), on the trade context
+  // it builds under it (its own ω, pickups and baseline; the weekly high scores simulated when the split pays them).
+  const prizesSettings = prizesSettingsOf(settings, opts.prizes);
+  const prizesCtx = buildTradeContext(snapshot, inputs, { now, settings: prizesSettings, ...sc });
+  const goals = goalCompare(ctx, result, settings, { ctx: prizesCtx, settings: prizesSettings });
   lap("goals");
-  // Section 3: each goal's B₃ off the context the app builds under that goal (its own ω; helpsScaleSection).
-  const scale = helpsScaleSection(snapshot, league.model, ctx, settings, (goal) => buildTradeContext(snapshot, inputs, { now, settings: { ...settings, goal }, ...sc }));
+  // Section 3: each goal's B₃ off the context the app builds under that goal (its own ω; helpsScaleSection), "Several
+  // prizes" section 2's.
+  const scale = helpsScaleSection(snapshot, league.model, ctx, settings, (goal) => (goal === COMPARE_GOAL ? prizesCtx : buildTradeContext(snapshot, inputs, { now, settings: { ...settings, goal }, ...sc })), opts.prizes);
   lap("scale");
   const gap = searchGap(ctx, result, settings);
   lap("gap");
@@ -1379,7 +1436,7 @@ export function buildTradeReport(input: LeagueSnapshot, inputs: ModelInputs, opt
   const openSpots = openSpotSection(snapshot, inputs, ctx, result, settings, { now, ...sc });
   lap("open spots");
   timing.total = clock() - start;
-  const report: Omit<TradeReport, "doc"> = { snapshot, pre4c, settings, ctx, result, model: league.model, league: { cold: league.cold, warm: league.warm }, runtime, beams: { result: beams.result, runtime: beams.runtime }, goals, scale, gap, filter, blend, odds, anchors, premiumAnchors, neutral, kickoff, pickupWeeks: weeks, openSpots, timing };
+  const report: Omit<TradeReport, "doc"> = { snapshot, pre4c, settings, prizes: opts.prizes ?? null, ctx, result, model: league.model, league: { cold: league.cold, warm: league.warm }, runtime, beams: { result: beams.result, runtime: beams.runtime }, goals, scale, gap, filter, blend, odds, anchors, premiumAnchors, neutral, kickoff, pickupWeeks: weeks, openSpots, timing };
   return { ...report, doc: render(snapshot, inputs, opts, report) };
 }
 
@@ -1418,7 +1475,7 @@ function renderHeader(L: string[], snapshot: LeagueSnapshot, inputs: ModelInputs
   const s = r.settings;
   const model = r.model;
   const me = r.result.myTeamId;
-  L.push("# Trade search: Parker's ESPN league (Checkpoint 7b)", "");
+  L.push("# Trade search: Parker's ESPN league (Checkpoint 7c)", "");
   L.push(
     `Generated by \`${opts.command ?? commandText("trade:report", [opts.mode === "live" ? "--live" : null])}\` on ${(opts.generatedAt ?? opts.now).toISOString().slice(0, 10)} through the real engine, as the app's Web Workers run it. Team, owner and league names are placeholders (you are Team ${me ?? "–"}); NFL player names are public.`,
     "",
@@ -1430,7 +1487,7 @@ function renderHeader(L: string[], snapshot: LeagueSnapshot, inputs: ModelInputs
   L.push(`- Waiver order used: ${waiverOrderText(snapshot)}.${r.pre4c ? ` ${pre4cText(r.pre4c, me, teamNameOf(me))} Section 7 compares the two orders.` : ""}`);
   L.push("");
   L.push(
-    `**Settings** (the app's defaults): What matters most: ${GOAL_WORDS[s.goal]} (${goalWeightsText(s.goal)}); Chance they accept: ${minChanceText(s.minChance)}; Protect my trade value: ${LEVEL_WORDS[s.protectValue]} (κ ${protectValueWeight(s.protectValue)} points a week per 100% of trade value, priced on B₃: section 3); max ${s.maxPerSide} players a side; streamed ${s.streamPositions.join(", ") || "none"}; P/K/D/ST/IDP ${s.includeKDefIdp ? "included" : "left out"}; β_need ${betaNeed(snapshot.settings.leagueType)}; W (the trade value of the best free agent the allocation leaves unclaimed: §9, Checkpoint 7a) ${thousands(Math.round(I.credit))}; playoff weeks count ${playoffWeightSummary(I.model)} in every ROS(T): the search's shortlists, free-agent pickups and trade chips (planner reply to Checkpoint 7a, §6.1; the League page's model has the same, ${model.playoffWeight}×). ${thresholdsLine(I.model)}`,
+    `**Settings** (the app's defaults): What does your league reward?: ${GOAL_WORDS[s.goal]} (${goalWeightsText(s.goal)}; section 2: ${GOAL_WORDS[r.goals.goal]}, ${r.goals.reward ? prizesWords(r.goals.reward) : "–"}${opts.prizes ? ", from --prizes" : ""}); Chance they accept: ${minChanceText(s.minChance)}; Protect my trade value: ${LEVEL_WORDS[s.protectValue]} (κ ${protectValueWeight(s.protectValue)} points a week per 100% of trade value, priced on B₃: section 3); max ${s.maxPerSide} players a side; streamed ${s.streamPositions.join(", ") || "none"}; P/K/D/ST/IDP ${s.includeKDefIdp ? "included" : "left out"}; β_need ${betaNeed(snapshot.settings.leagueType)}; W (the trade value of the best free agent the allocation leaves unclaimed: §9, Checkpoint 7a) ${thousands(Math.round(I.credit))}; playoff weeks count ${playoffWeightSummary(I.model)} in every ROS(T): the search's shortlists, free-agent pickups and trade chips (planner reply to Checkpoint 7a, §6.1; the League page's model has the same, ${model.playoffWeight}×). ${thresholdsLine(I.model)}`,
     "",
   );
   const b = r.result.baseline;
@@ -1545,32 +1602,27 @@ function renderTop(L: string[], snapshot: LeagueSnapshot, inputs: ModelInputs, r
   L.push(p ? `**The pattern note** (${p.count} of the uncapped top ${p.of} give ${nameOf(snapshot, p.playerId)}; drivers: ${p.drivers.join(", ") || "none"}): "${p.text}"` : `**The pattern note** doesn't show: fewer than ${config.explain.patternMinCount} of the uncapped top ${config.explain.patternTop} give the same player of yours.`, "");
 }
 
-/**
- * ω under `goal` for the context's League model (league.ts step 5c): from its measured runs (they don't depend on the goal,
- * only their B per point does: league.playoffWeightFrom; Checkpoint 7c: they keep every prize component's change, so
- * "Several prizes" is priced from them too, on league-report's goalRewards), else its fallback, the same under every goal.
- * ⚠️ A split that pays the weekly high score is priced only from a model built under it (its runs simulated the high
- * scores): playoffWeightFrom throws on runs without them (reward.ts assertWeeklyMeasured). goalRewards never gives one
- * unless the model's own reward is it.
- */
-export function omegaUnder(model: Pick<LeagueModel, "playoffWeight" | "playoffWeightAuto">, goal: Goal): number {
-  const a = model.playoffWeightAuto;
-  return a?.runs ? playoffWeightFrom(a.runs, goalRewards(a.reward?.periods ?? 0, a.reward)[goal], a.sims).omega : model.playoffWeight;
+/** A top-GOAL_TOP list in a line: "#1 Team 4: A → B (Helps 50 · 35% · Overall 20); …" (Helps you · goes through · Overall). */
+function topLine(snapshot: LeagueSnapshot, trades: readonly TradeEvaluation[], teamName: (id: string) => string): string {
+  const top = trades.slice(0, GOAL_TOP);
+  if (!top.length) return "no cards";
+  return top.map((t, i) => `#${i + 1} ${teamName(t.proposal.partnerId)}: ${names(snapshot, playerIds(t.proposal.give))} → ${names(snapshot, playerIds(t.proposal.get))} (Helps ${t.tradeScore ?? "–"} · ${chancePrinted(t.pComplete)} · Overall ${t.overall ?? "–"})`).join("; ");
 }
 
 function renderGoals(L: string[], snapshot: LeagueSnapshot, r: Report, teamName: (id: string) => string): void {
   const g = r.goals;
   const main = GOAL_WORDS[r.settings.goal];
   const other = GOAL_WORDS[g.goal];
-  const I = tradeInternals(r.ctx);
-  L.push(`## 2. The goal setting: "${main}" against "${other}"`, "");
+  const split = g.reward ? prizesWords(g.reward) : "–";
+  L.push(`## 2. What does your league reward?: "${main}" against "${other}"`, "");
   L.push(
-    `The same search on the same context with "What matters most" set to ${other} (${goalWeightsText(g.goal)}; ${main}: ${goalWeightsText(r.settings.goal)}). Each column: the card's place (– when that list doesn't show it; its numbers are then the Analyzer's under that goal), B, Helps you and Overall. The chance they accept doesn't depend on the goal. ${g.common} of the top ${TOP_DETAIL} are in both lists; "${other}" shows ${g.result.trades.length} cards. ⚠️ Since the planner's reply to Checkpoint 7a (§6.1) the goal also sets the playoff weeks' weight in every ROS(T) (league.ts step 5c): this comparison holds it at ${main}'s ${I.model.playoffWeight}×, so it shows what B's weights alone change; the app under ${other} rebuilds its context with ${omegaUnder(I.model, g.goal)}×, which also moves every team's pickups and the search's shortlists.`,
+    `Planner reply to Checkpoint 7b, §6 ("how his top 5 changed from 'Only the champion'"): the search the app runs under "${other}" on ${split}${r.prizes ? " (from --prizes)" : " (⚠️ no --prizes given)"}, against the default "${main}" (section 1). Each runs on the trade context the app builds under its setting: B_win's weights (${main}: ${goalWeightsText(r.settings.goal)}; ${other}: ${goalWeightsText(g.goal)}, ΔE[S] the change in your share of the league's prizes) and its own playoff-week weight ω (${main} ${g.omega.title}×, ${other} ${g.omega.other}×: planner reply to Checkpoint 7a, §6.1), so its own free-agent pickups, baseline and shortlists; the "Helps you" scale is each setting's own B₃ (section 3). Each column: the card's place (– when that list doesn't show it; its numbers are then the Analyzer's on that setting's context), B, Helps you, the chance it goes through and Overall. ${g.commonTop} of the top ${GOAL_TOP} and ${g.common} of the top ${TOP_DETAIL} are in both lists; "${other}" shows ${g.result.trades.length} cards ("${main}": ${r.result.trades.length}).`,
     "",
   );
-  L.push(`| Trade | Goes through | ${main}: # · B · Helps · Overall | ${other}: # · B · Helps · Overall |`, "|---|---|---|---|");
-  const side = (x: GoalSide) => `${x.rank === null ? "–" : `#${x.rank}`} · ${fmt(x.b, 2)} · ${x.helps ?? "–"} · ${x.overall ?? "–"}`;
-  for (const row of g.rows) L.push(`| ${teamName(row.partnerId)}: ${names(snapshot, row.give)} → ${names(snapshot, row.get)} | ${chancePrinted(row.pComplete)} | ${side(row.title)} | ${side(row.other)} |`);
+  L.push(`**Top ${GOAL_TOP}, ${main}:** ${topLine(snapshot, r.result.trades, teamName)}.`, "", `**Top ${GOAL_TOP}, ${other}:** ${topLine(snapshot, g.result.trades, teamName)}.`, "");
+  L.push(`| Trade | ${main}: # · B · Helps · goes through · Overall | ${other}: # · B · Helps · goes through · Overall |`, "|---|---|---|");
+  const side = (x: GoalSide) => `${x.rank === null ? "–" : `#${x.rank}`} · ${fmt(x.b, 2)} · ${x.helps ?? "–"} · ${x.pComplete === null ? "–" : chancePrinted(x.pComplete)} · ${x.overall ?? "–"}`;
+  for (const row of g.rows) L.push(`| ${teamName(row.partnerId)}: ${names(snapshot, row.give)} → ${names(snapshot, row.get)} | ${side(row.title)} | ${side(row.other)} |`);
   const both = g.rows.filter((x) => x.title.b !== null && x.other.b !== null);
   const ratio = median(both.map((x) => (x.title.b as number) / (x.other.b as number)).filter((x) => Number.isFinite(x)));
   L.push("", `Across these ${both.length} trades the median B under "${main}" is ${fmt(ratio, 2)}× its B under "${other}".`, "");
@@ -1910,6 +1962,8 @@ async function main(): Promise<void> {
     return;
   }
   console.log(reportSourceLine(args, ROOT));
+  // How --prizes was read, before anything runs (review FB-R2: every comma starts the next prize).
+  if (args.prizes) console.log(prizesReadLine(args.prizes));
   registerScrubber(await redactorFromMap("espn"));
   const clock = () => performance.now();
   const generatedAt = new Date();
@@ -1922,7 +1976,9 @@ async function main(): Promise<void> {
     loaded = { ...l, note: "Live: Parker's league through the app's public-link import and its caches (league data 10 minutes, projections 6 hours, values 24 hours)." };
   }
   const { snapshot, inputs, now, timing, note } = loaded;
-  const report = buildTradeReport(snapshot, inputs, { now, clock, mode: args.dump ? "offline" : "live", dataNote: note, generatedAt, timing, command: reportCommand(args, ROOT) });
+  // Their split in this league, once it's loaded and before the search (review FB-R2).
+  if (args.prizes) console.log(prizesSplitLine(args.prizes, prizePeriods(snapshot)));
+  const report = buildTradeReport(snapshot, inputs, { now, clock, mode: args.dump ? "offline" : "live", dataNote: note, generatedAt, timing, command: reportCommand(args, ROOT), ...(args.prizes ? { prizes: args.prizes } : {}) });
   // Public NFL player names are kept whole: a leaguemate's first or last name can be a word of one (league-report, review PRIV-1).
   const doc = scrubEverythingExcept(report.doc, Object.values(snapshot.players).map((p) => p.name));
   writeFileSync(args.out ?? path.join(ROOT, "reports", "trade-report.md"), doc);
@@ -1931,7 +1987,7 @@ async function main(): Promise<void> {
   const anchors = [...report.anchors, ...report.premiumAnchors];
   console.log(
     scrubEverything(
-      `trade report written (${args.dump ? "offline" : "live"}) in ${ms(report.timing.total)}: ${c.shown} cards (Plan B ${c.planB}, steps ${c.steps}, injury-tagged received ${c.injuredGet}, Plan B boxes with one ${c.planBInjuredGet}); playoff weeks × ${report.model.playoffWeight} (${report.model.playoffWeightAuto?.basis ?? "?"}); search ${ms(report.runtime.search.total)} warm, ${thousands(report.result.counts.screened)} screened; top card Helps you ${top?.tradeScore ?? "–"}, Overall ${top?.overall ?? "–"}; ${GAP_TRADE.get.join(" + ")} card ${report.gap.card ?? "–"}; anchors ${anchors.filter((a) => a.pass).length}/${anchors.length}; baseline = LeagueModel.odds ${report.odds.baselineEqual ? "yes" : "NO"}${report.pre4c ? "; a dump from before the 4c adapter, put on the weekly reset order" : ""}`,
+      `trade report written (${args.dump ? "offline" : "live"}) in ${ms(report.timing.total)}: ${c.shown} cards (Plan B ${c.planB}, steps ${c.steps}, injury-tagged received ${c.injuredGet}, Plan B boxes with one ${c.planBInjuredGet}); playoff weeks × ${report.model.playoffWeight} (${report.model.playoffWeightAuto?.basis ?? "?"}); search ${ms(report.runtime.search.total)} warm, ${thousands(report.result.counts.screened)} screened; top card Helps you ${top?.tradeScore ?? "–"}, Overall ${top?.overall ?? "–"}; ${GAP_TRADE.get.join(" + ")} card ${report.gap.card ?? "–"}; anchors ${anchors.filter((a) => a.pass).length}/${anchors.length}; baseline = LeagueModel.odds ${report.odds.baselineEqual ? "yes" : "NO"}${report.pre4c ? "; a dump from before the 4c adapter, put on the weekly reset order" : ""}; ${GOAL_WORDS[report.goals.goal]} (${report.goals.reward ? prizesWords(report.goals.reward) : "–"}): ω ${report.goals.omega.other}×, B₃ ${fmt(report.scale.b3[report.goals.goal]?.b3, 2)}, ${report.goals.commonTop} of the top ${GOAL_TOP} kept`,
     ),
   );
 }

@@ -372,6 +372,21 @@ describe("TradeCard (§13: each trade card shows)", () => {
     expect(html).toMatch(/<a href="https:\/\/fantasycalc\.com" target="_blank" rel="noopener" referrerPolicy="origin" class="[^"]*">Values: FantasyCalc/);
   });
 
+  it("lays out “Top 3 odds” between my title and playoff odds under “Several prizes” paying 3rd place, each kept on one line, the arrow read as “from … to” (planner reply to Checkpoint 7b, §6)", () => {
+    const e = { ...evaluation({ dCH: 0.007, dPO: 0.03 }), dPrizes: { first: 0.007, second: 0.006, third: 0.007, weeklyHigh: null, pointsLeader: 0 } };
+    const baseline = { pPlayoffs: 0.6, pTitle: 0.105, prizes: { first: 0.105, second: 0.09, third: 0.105, weeklyHigh: 0, pointsLeader: 0.1 } };
+    const reward = { goal: "prizes" as const, shares: { first: 4 / 9, second: 16 / 45, third: 1 / 5, weeklyHigh: 0, pointsLeader: 0 } };
+    const html = renderToStaticMarkup(createElement(TradeCard, { card: buildTradeCard(e, { snapshot, baseline, reward }), rank: 1, feedback: NONE, onFeedback: saved }));
+    const item = (label: string, value: string, sr: string) =>
+      `<span class="whitespace-nowrap"><span class="font-semibold">${label}</span> <span aria-hidden="true" class="tabular-nums">${value}</span><span class="sr-only">${sr}</span></span>`;
+    const dot = `<span aria-hidden="true">${NBSP}· </span><span class="sr-only">, </span>`;
+    expect(html).toContain(`<p>${item("Title odds", "10.5% → 11.2%", "from 10.5% to 11.2%")}${dot}${item("Top 3 odds", "30% → 32%", "from 30% to 32%")}${dot}${item("Playoff odds", "60% → 63%", "from 60% to 63%")}</p>`);
+    // The lead's line, as the card reads.
+    expect(textOf(html)).toContain("Title odds 10.5% → 11.2% from 10.5% to 11.2% · , Top 3 odds 30% → 32% from 30% to 32% · , Playoff odds 60% → 63% from 60% to 63%");
+    // "Only the champion": the two lines as before.
+    expect(textOf(renderToStaticMarkup(createElement(TradeCard, { card: buildTradeCard(e, { snapshot, baseline }), rank: 1, feedback: NONE, onFeedback: saved })))).not.toContain("Top 3 odds");
+  });
+
   it("keeps the chance it goes through right under the three numbers, before the odds (`npm run check:browser` reads it as the numbers' next element)", () => {
     const vetoed = evaluation({ pAccept: 0.4, pComplete: 0.2, detail: { vetoRisk: true } });
     const card = buildTradeCard(vetoed, { snapshot: tradeSnapshot({ tradeReview: "league_vote" }), fantasyCalc: FC });
@@ -571,6 +586,39 @@ describe("HowToRead (planner addendum to Checkpoint 3)", () => {
     }
     expect(weeklyLineWords()).toBe(`by ${Math.round(config.explain.weeklyLineMin * 100)} percentage points or more (up to ${config.explain.weeklyLineMax} weeks, the drops first, then the biggest gains)`);
     expect(weeklyLineWords(0.01, 1)).toBe("by 1 percentage point or more (up to 1 week, the drops first, then the biggest gains)");
+  });
+
+  it("names the league's prizes under “Several prizes” paying more than 1st place, by the reward or else the scale the page passes, never the word “goal” (planner reply to Checkpoint 7b, §6; ⚠️ ours)", () => {
+    const prizes =
+      "Helps you (0–100) is how much the trade raises your chances this season: Offer Sheet plays out the rest of your season thousands of times with and without it, and weighs your chances at your league's prizes and your playoff odds by your “What does your league reward?” setting in Settings (“Only the champion” unless you change it).";
+    const reward = { goal: "prizes" as const, shares: { first: 4 / 9, second: 16 / 45, third: 1 / 5, weeklyHigh: 0, pointsLeader: 0 } };
+    const read = (props: Record<string, unknown>) => textOf(renderToStaticMarkup(createElement(HowToRead, props)));
+    for (const page of ["finder", "analyzer"] as const) {
+      expect(read({ page, reward })).toContain(prizes);
+      expect(read({ page, reward })).not.toMatch(/goals?/i);
+    }
+    // The pages pass the scale: "Several prizes" paying more than 1st place names its odds "prizes" (benefit.ts helpsScale).
+    const scale = { b3: 4.65, raw: 4.65, floored: false, odds: 5, oddsNamed: "prizes" as const, lambda: null, f10: null, gainReads: 63, futureReads: null, reason: null };
+    expect(read({ helpsScale: scale })).toContain(prizes);
+    // "Only the champion" (or 1st place alone under "Several prizes"): the title's words, as before.
+    expect(read({ reward: { goal: "title", shares: { first: 1, second: 0, third: 0, weeklyHigh: 0, pointsLeader: 0 } } })).toContain("and weighs your title and playoff odds by your “What does your league reward?” setting");
+    expect(read({ reward: { ...reward, shares: { first: 1, second: 0, third: 0, weeklyHigh: 0, pointsLeader: 0 } }, helpsScale: scale })).toContain("and weighs your title and playoff odds by");
+  });
+
+  it("names the odds each card shows after the league's prizes, never “those odds”: a weekly high score or the points title has no odds line (review of the prizes UI, prizes-ui-6)", () => {
+    const read = (props: Record<string, unknown>) => textOf(renderToStaticMarkup(createElement(HowToRead, props)));
+    const shows = (odds: string) => `Each card shows ${odds} before and after the trade, and the weeks whose chance to win your game moves`;
+    const shares = (o: Partial<Record<"first" | "second" | "third" | "weeklyHigh" | "pointsLeader", number>>) => ({ first: 0, second: 0, third: 0, weeklyHigh: 0, pointsLeader: 0, ...o });
+    // By the reward: the card's own lines (tradeView.ts oddsViews).
+    expect(read({ reward: { goal: "prizes", shares: shares({ first: 4 / 9, second: 16 / 45, third: 1 / 5 }) } })).toContain(shows("your title, top-3 and playoff odds"));
+    expect(read({ reward: { goal: "prizes", shares: shares({ first: 0.6, second: 0.4 }) } })).toContain(shows("your title, top-2 and playoff odds"));
+    for (const paid of [{ first: 0.8, weeklyHigh: 0.2 }, { first: 0.9, pointsLeader: 0.1 }]) expect(read({ reward: { goal: "prizes", shares: shares(paid) } })).toContain(shows("your title and playoff odds"));
+    // The scale alone (what the pages pass): the top-N line's rule in words.
+    const scale = { b3: 4.65, raw: 4.65, floored: false, odds: 5, oddsNamed: "prizes" as const, lambda: null, f10: null, gainReads: 63, futureReads: null, reason: null };
+    expect(read({ helpsScale: scale })).toContain(shows("your title and playoff odds (and your top-3 odds when your league pays 3rd place, or your top-2 odds when it pays 2nd)"));
+    // The title's words: "those odds", as before.
+    expect(read({})).toContain(shows("those odds"));
+    expect(read({ reward: { goal: "title", shares: shares({ first: 1 }) } })).toContain(shows("those odds"));
   });
 
   it("says Helps you's scale whatever the league rewards, the mix with long-term value in dynasty and keeper leagues, and that a note says so only when the floor note shows (planner reply to Checkpoint 4c, A2; 7a, §2 question 6 and 5.2)", () => {

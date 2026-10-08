@@ -29,14 +29,22 @@
  *   with the rule, 6 of 17, all likelier, 5 distinct trades).
  *   The bar is config.search.steps.minAcceptGain (5 points), the steps' own "if they say no" bar: the planner calls
  *   Plan B the cards' "try again" step (answer 2), so both "if they say no" versions must clear the same bar. null
- *   turns the rule off (a report switch: the planner's rules as first read).
+ *   turns the rule off (a report switch: the planner's rules as first read);
+ * - ⚠️ when the card helps both teams (benefit.ts helpsBoth: its "Helps both" tag, Helps you above 0 and Helps them at least
+ *   config.benefit.helpsThemMin, both as printed), it helps both too (Checkpoint 7c, ours: review of the "Helps both" engine
+ *   track, finding HB-4; planner reply to Checkpoint 7b, §7). A box shows no "Helps them" line (the lead's call), so the
+ *   "try again" under a card tagged "Helps both" must never be a trade that doesn't help them: on Parker's league under his
+ *   prizes both Team 8 cards of the "Helps both" list offered Garrett Wilson → Christian Watson + Carnell Tate, Helps them 0,
+ *   and on 42 synthetic leagues 21 of the 27 boxes on that list's cards didn't help both. A card that doesn't help both
+ *   reads the rules as before.
  * Order: a different package for the same players of theirs first ("samePlayers": the very same set of players I'd
  * get), then a different target ("otherTarget"); within each, the highest Overall (EG = B × P_complete: the planner's
  * "best"), then the key. A key counts once (its first entry in the pool).
  *
  * The choice (choosePlanB): the first candidate, in that order, that isn't passed over (`skip`, below) and whose numbers
  * on the final block of seasons (the card's basis) still pass the rules: a finalist's are its own (stage "final"); any
- * other is simulated on that block first (the caller's `finalOf`). ⚠️ Nor may another card the list shows, with the same
+ * other is simulated on that block first (the caller's `finalOf`), so a box under a card that helps both teams helps both
+ * on its final numbers too. ⚠️ Nor may another card the list shows, with the same
  * partner, match or beat it on both Helps you (as printed) and P_complete (dominatedByCard; final review of Phase 4c,
  * finding R2): that card is the better "try again", and it's on the list already. One that fails is passed over; at most
  * `tries` candidates are tried (a skipped one isn't tried: it needs no simulation). ⚠️ A candidate's place comes from
@@ -71,7 +79,7 @@
  * bar is at most half a display step under it, less than minAcceptGain), so it prints at or above the minimum too; ⚠️ not
  * under the report switch minAcceptGain null, which can pick a Plan B under it.
  */
-import { expectedGain } from "./benefit";
+import { expectedGain, helpsBoth } from "./benefit";
 import { config } from "./config";
 import type { PlanB, TradeAsset, TradeEvaluationCore, TradeProposal } from "./tradeModel";
 
@@ -104,21 +112,26 @@ const EPS = 1e-9;
 
 const isFiniteNumber = (x: number | null | undefined): x is number => typeof x === "number" && Number.isFinite(x);
 
-/** What the rules read of a trade's numbers. */
-export type PlanBNumbers = Pick<TradeEvaluationCore, "illegal" | "b" | "tradeScore" | "overall" | "flags" | "pComplete">;
+/** What the rules read of a trade's numbers (`them`, the partner's: only for a card that helps both teams). */
+export type PlanBNumbers = Pick<TradeEvaluationCore, "illegal" | "b" | "tradeScore" | "overall" | "flags" | "pComplete" | "them">;
+
+/** What the rules read of the card's numbers (`them`: whether it helps both teams, the "Helps both" rule). */
+export type PlanBCard = Pick<TradeEvaluationCore, "tradeScore" | "pComplete" | "them">;
 
 /**
  * Whether a trade's numbers pass Plan B's rules against the card (the file header): legal, B > 0 (Helps you and Overall
- * known), Helps you at least minHelpsShare × the card's, not hidden by the market guard, and (unless cfg.minAcceptGain is
- * null) a P_complete at least minAcceptGain above the card's. False when the card's Helps you isn't a number.
+ * known), Helps you at least minHelpsShare × the card's, not hidden by the market guard, (unless cfg.minAcceptGain is
+ * null) a P_complete at least minAcceptGain above the card's, and ⚠️ (Checkpoint 7c) helping both teams when the card does
+ * (benefit.helpsBoth on both). False when the card's Helps you isn't a number.
  */
-export function planBPasses(candidate: PlanBNumbers, card: Pick<TradeEvaluationCore, "tradeScore" | "pComplete">, cfg: PlanBConfig = planBConfig()): boolean {
+export function planBPasses(candidate: PlanBNumbers, card: PlanBCard, cfg: PlanBConfig = planBConfig()): boolean {
   if (candidate.illegal !== null) return false;
   if (!isFiniteNumber(candidate.b) || !(candidate.b > 0)) return false;
   if (candidate.flags.hiddenByMarket) return false;
   if (!isFiniteNumber(candidate.tradeScore) || !isFiniteNumber(candidate.overall) || !isFiniteNumber(card.tradeScore)) return false;
   const gain = cfg.minAcceptGain;
   if (gain !== null && isFiniteNumber(gain) && !(isFiniteNumber(candidate.pComplete) && isFiniteNumber(card.pComplete) && candidate.pComplete >= card.pComplete + gain - EPS)) return false;
+  if (helpsBoth(card) && !helpsBoth(candidate)) return false;
   return candidate.tradeScore >= cfg.minHelpsShare * card.tradeScore - EPS;
 }
 
@@ -238,7 +251,7 @@ export function dominatedByCard(candidate: ShownCard, cards: readonly ShownCard[
  * before each such call.
  */
 export function* choosePlanB(
-  card: Pick<TradeEvaluationCore, "tradeScore" | "pComplete">,
+  card: PlanBCard,
   candidates: readonly PlanBCandidate[],
   finalOf: (core: TradeEvaluationCore) => TradeEvaluationCore,
   cfg: PlanBConfig = planBConfig(),

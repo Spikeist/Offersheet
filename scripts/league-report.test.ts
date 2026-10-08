@@ -16,12 +16,12 @@ import type { FaMove, LeagueModel } from "@/engine/leagueModel";
 import type { LeagueSnapshot, Pos } from "@/engine/model";
 import { returnersOf } from "@/engine/optimizer";
 import { finalLineups } from "@/engine/returners";
-import { prizeDeltas, prizeOddsOf, prizePeriods, rewardWith, titleDeltas } from "@/engine/reward";
+import { prizeDeltas, prizeOddsOf, prizePercents, prizePeriods, rewardWith, titleDeltas } from "@/engine/reward";
 import { buildSimSetup, pickupSeasonModel, seasonOdds } from "@/engine/season";
 import { GOALS, defaultTradeSettings } from "@/engine/settings";
 import { simNormals } from "@/engine/sim";
 import { syntheticInputs } from "@/engine/testLeague";
-import { waiverOrderText } from "@/lib/importReport";
+import { thirdPlaceText, waiverOrderText } from "@/lib/importReport";
 import { RISKY_BYES, RISKY_WIN_CHANCE, buildLeagueView, lastNflWeekOf, likelyStarters, rosterAfterPickups } from "@/lib/leagueView";
 import { reportArgs } from "./lib/runMode";
 import {
@@ -42,6 +42,7 @@ import {
   blendLines,
   buildReport,
   byGoal,
+  prizesSplitLine,
   prizesWords,
   calibrationMatches,
   commandText,
@@ -63,13 +64,17 @@ import {
   playoffWeightLines,
   playoffWeightSummary,
   pre4cText,
+  prizesLines,
+  prizesSummary,
   remainingSchedule,
   resetWaiverOrder,
   scaleCheck,
   scaleFrom,
   seasonReport,
+  settingsFor,
   simTiming,
   statusShort,
+  thirdPlaceWords,
   thresholdText,
   thresholdsLine,
   thresholdsOf,
@@ -77,6 +82,7 @@ import {
   tradeValuePriceWords,
   waiverOrderNote,
   waiverRanksPre4c,
+  type PrizesRow,
   type SeasonReport,
   type SharedRun,
 } from "./league-report";
@@ -104,7 +110,7 @@ describe("league report: the Trade Score arithmetic (CLAUDE.md §10)", () => {
   it("B = 100 × (w_PO ΔPO + w_S ΔE[S]) under each goal's reward (config.benefit.goals; Checkpoint 7c, planner reply to Checkpoint 7b, §6)", () => {
     // 1st place paying everything: ΔE[S] is ΔCH.
     for (const g of GOALS) expect(benefitWin(0.1, titleDeltas(0.05), titleOnlyReward(g))).toBeCloseTo(100 * (config.benefit.goals[g].playoffs * 0.1 + config.benefit.goals[g].prizes * 0.05), 12);
-    // Win the title 0.15 / 0.85, Make the playoffs 0.70 / 0.30.
+    // Only the champion 0.15 / 0.85, Making the playoffs 0.70 / 0.30.
     expect([benefitWin(0.1, titleDeltas(0.05), titleOnlyReward("title")), benefitWin(0.1, titleDeltas(0.05), titleOnlyReward("playoffs"))].map((x) => Number(x.toFixed(9)))).toEqual([5.75, 8.5]);
     expect(config.benefit.goalDefault).toBe("title");
     // Several prizes on the prefilled split, 60 / 30 / 10: ΔE[S] = 0.6 ΔCH + 0.3 ΔP(2nd) + 0.1 ΔP(3rd).
@@ -117,9 +123,24 @@ describe("league report: the Trade Score arithmetic (CLAUDE.md §10)", () => {
     const own = rewardWith({ goal: "prizes", prizes: { first: 2000, second: 1600, third: 900, weeklyHigh: null, pointsLeader: null } }, 14);
     expect(goalRewards(14, own).prizes).toBe(own);
     expect(goalRewards(14, own).title).toEqual(rewardWith({ goal: "title", prizes: config.benefit.prizesDefault }, 14));
-    expect(byGoal((g) => GOAL_WORDS[g])).toEqual({ title: "Win the title", prizes: "Several prizes", playoffs: "Make the playoffs" });
+    expect(byGoal((g) => GOAL_WORDS[g])).toEqual({ title: "Only the champion", prizes: "Several prizes", playoffs: "Making the playoffs" });
     expect(prizesWords(rewards.prizes)).toBe("the prefilled split, 1st 60%, 2nd 30%, 3rd 10%");
     expect(prizesWords(own)).toBe("the league's split, 1st 44%, 2nd 36%, 3rd 20%");
+  });
+
+  it("--prizes' split in the league, on the console before the long run (review FB-R2): the Settings page's own line, so a list read otherwise than meant shows for what it is", () => {
+    const lead = "--prizes in this league, as the Settings page would show them: ";
+    // Parker's $2,000 / $1,600 / $900 on 14 prize periods.
+    expect(prizesSplitLine({ first: 2000, second: 1600, third: 900, weeklyHigh: 0, pointsLeader: null }, 14)).toBe(`${lead}Your prizes split: 1st 44%, 2nd 36%, 3rd 20%.`);
+    // The same kind of amounts typed with thousands separators, --prizes 2,500,1,500,900: five small prizes, the weekly one paid
+    // 14 times, so 1st and 3rd show as "<1%".
+    expect(prizesSplitLine({ first: 2, second: 500, third: 1, weeklyHigh: 500, pointsLeader: 900 }, 14)).toBe(`${lead}Your prizes split: 1st <1%, 2nd 6%, 3rd <1%, weekly high scores 83% (paid 14 times), most points 11%.`);
+    // The report's own words name every paid prize too (they left out a 1st place that rounds to 0%).
+    expect(prizesWords(rewardWith({ goal: "prizes", prizes: { first: 2, second: 500, third: 1, weeklyHigh: 500, pointsLeader: 900 } }, 14))).toBe(
+      "the league's split, 1st <1%, 2nd 6%, 3rd <1%, weekly high scores (14 weeks) 83%, most points 11%",
+    );
+    // Only a weekly high score in a league with no regular-season prize period: nothing paid, so the title only.
+    expect(prizesSplitLine({ first: null, second: null, third: null, weeklyHigh: 50, pointsLeader: null }, 0)).toBe("--prizes pays nothing in this league (it has no regular-season prize period to pay a weekly high score in), so “Several prizes” counts the title only.");
   });
 
   it("Helps you on the self-calibrating scale (planner reply to Checkpoint 4c, A2): B₃ reads 63, a third of it 28, twice it 86, wherever B₃ is; hidden (null) for B ≤ 0", () => {
@@ -292,7 +313,7 @@ describe("league report: Parker's league (committed sanitized fixture) with synt
       expect(app[g].omega).toBe(own.playoffWeight);
       expect(app[g].b3).toBe(helpsScale(own.helpsCalibration, { leagueType: snapshot.settings.leagueType, myPPlayoffs: mineOwn?.pPlayoffs ?? null, reward: own.reward, dynastyTotal: null })?.b3);
     }
-    expect(appB3Words(app)).toMatch(/^Win the title \*\*\d+\.\d{2}\*\* \(ω [\d.]+×\); Several prizes \*\*\d+\.\d{2}\*\* \(ω [\d.]+×\); Make the playoffs \*\*\d+\.\d{2}\*\* \(ω [\d.]+×\)$/);
+    expect(appB3Words(app)).toMatch(/^Only the champion \*\*\d+\.\d{2}\*\* \(ω [\d.]+×\); Several prizes \*\*\d+\.\d{2}\*\* \(ω [\d.]+×\); Making the playoffs \*\*\d+\.\d{2}\*\* \(ω [\d.]+×\)$/);
     // Priced on the app's own B₃ when it's given.
     const appPrice = tradeValuePriceWords(check, app);
     expect(appPrice).toContain("in B at Medium, on the app's own B₃ under each goal: ");
@@ -568,7 +589,7 @@ describe("league report: the automatic playoff-week weight (planner reply to Che
     const runs = a?.runs;
     if (!a || !runs) throw new Error("the fixture's weight wasn't measured");
     const lines = playoffWeightLines(model, teamName);
-    expect(lines[0]).toContain(`Playoff weeks count **${model.playoffWeight}×**, set automatically from Team ${PARKER.myTeamId} (you)'s odds under “Win the title” (league.ts step 5c)`);
+    expect(lines[0]).toContain(`Playoff weeks count **${model.playoffWeight}×**, set automatically from Team ${PARKER.myTeamId} (you)'s odds under “Only the champion” (league.ts step 5c)`);
     expect(lines.join("\n")).toContain(`Two runs on the headline's 5,000 seasons (common random numbers)`);
     expect(lines).toContain("| Goal | B per point, regular season | B per point, playoffs | ω |");
     for (const g of GOALS) {
@@ -577,7 +598,7 @@ describe("league report: the automatic playoff-week weight (planner reply to Che
       expect(row, g).toContain(`| ${w.omega}×`);
       if (g === "title") expect(row).toContain("(yours)");
     }
-    expect(playoffWeightSummary(model)).toMatch(new RegExp(`^${model.playoffWeight.toString().replace(".", "\\.")}× \\(set automatically from your odds under “Win the title”: B per projected point \\d\\.\\d{4} in the regular season, \\d\\.\\d{4} in the playoffs`));
+    expect(playoffWeightSummary(model)).toMatch(new RegExp(`^${model.playoffWeight.toString().replace(".", "\\.")}× \\(set automatically from your odds under “Only the champion”: B per projected point \\d\\.\\d{4} in the regular season, \\d\\.\\d{4} in the playoffs`));
     // The thresholds in ROS lineup points under this ω (review of the engine track, Phase 7b).
     expect(lines).toContain(thresholdsLine(model));
   });
@@ -610,6 +631,130 @@ describe("league report: the automatic playoff-week weight (planner reply to Che
     void _auto;
     expect(playoffWeightLines(older, teamName)).toEqual([`Playoff weeks count ${config.lineups.playoffWeight}× (a model built before the automatic weight).`]);
     expect(playoffWeightSummary(older)).toBe(`${config.lineups.playoffWeight}×`);
+  });
+});
+
+describe("league report: the league's prizes (Checkpoint 7c; planner reply to Checkpoint 7b, §6; --prizes)", () => {
+  const teamName = (id: string) => `Team ${id}${id === PARKER.myTeamId ? " (you)" : ""}`;
+  /** Parker's prizes: $2,000 / $1,600 / $900, nothing for the weekly high score, the most points blank. */
+  const PRIZES = { first: 2000, second: 1600, third: 900, weeklyHigh: 0, pointsLeader: null };
+  const model = buildLeagueModel(snapshot, inputs, { now: NOW, scenarios: 0 });
+  const season = seasonReport(snapshot, inputs, model, { now: NOW, clock, runs: 1, warmups: 0, buildRuns: 0, prizes: PRIZES });
+  const split = buildLeagueModel(snapshot, inputs, { now: NOW, scenarios: 0, settings: settingsFor("prizes", PRIZES) });
+  const me = PARKER.myTeamId;
+
+  it("builds the League model the app builds under the split, and every “Several prizes” figure reads it: the scale check's column, the app's own B₃, the playoff-week weight", () => {
+    const p = season.prizes as NonNullable<SeasonReport["prizes"]>;
+    expect(p).not.toBeNull();
+    expect(settingsFor("prizes", PRIZES)).toEqual({ ...defaultTradeSettings(), goal: "prizes", prizes: PRIZES });
+    expect(settingsFor("title", PRIZES)).toEqual({ ...defaultTradeSettings(), goal: "title" });
+    // The same model as the app builds under the split (its own ω, pickups and headline odds).
+    expect(p.model.playoffWeight).toBe(split.playoffWeight);
+    expect(p.model.odds?.teams).toEqual(split.odds?.teams);
+    expect(p.reward).toEqual(split.reward);
+    expect(prizePercents(p.reward.shares)).toEqual({ first: 44, second: 36, third: 20, weeklyHigh: 0, pointsLeader: 0 });
+    // The scale check prices "Several prizes" on the split; the app's own B₃ under it is the split model's.
+    expect(season.scale?.rewards.prizes).toEqual(split.reward);
+    expect(goalRewards(14, null, PRIZES).prizes).toEqual(rewardWith({ goal: "prizes", prizes: PRIZES }, 14));
+    expect(goalRewards(14, null, PRIZES).title).toEqual(goalRewards(14).title);
+    const app = season.appB3 as NonNullable<SeasonReport["appB3"]>;
+    const mine = split.odds?.teams.find((t) => t.teamId === me);
+    expect(app.prizes).toEqual({ b3: helpsScale(split.helpsCalibration, { leagueType: snapshot.settings.leagueType, myPPlayoffs: mine?.pPlayoffs ?? null, reward: split.reward, dynastyTotal: null })?.b3 ?? null, floored: false, omega: split.playoffWeight });
+    // The playoff-week weight's table: "Several prizes" is the split model's own ω, the same as this model's runs priced
+    // under the split (it doesn't pay the weekly high score).
+    const lines = playoffWeightLines(model, teamName, { prizes: PRIZES, prizesModel: p.model });
+    const row = lines.find((l) => l.startsWith("| Several prizes")) as string;
+    expect(row).toContain(`| ${split.playoffWeight}×`);
+    const runs = model.playoffWeightAuto?.runs;
+    if (!runs) throw new Error("the fixture's weight wasn't measured");
+    expect(playoffWeightFrom(runs, split.reward as NonNullable<typeof split.reward>, model.playoffWeightAuto?.sims ?? 0).omega).toBe(split.playoffWeight);
+    expect(lines.join("\n")).toContain("under Several prizes the league's split, 1st 44%, 2nd 36%, 3rd 20%");
+  });
+
+  it("my numbers under each setting from its own model: ω, B₃, P(1st), P(2nd), P(3rd), the top 3, P(playoffs); how 3rd place is decided", () => {
+    const p = season.prizes as NonNullable<SeasonReport["prizes"]>;
+    const rowOf = (m: LeagueModel, goal: "title" | "prizes") => {
+      const t = m.odds?.teams.find((x) => x.teamId === me) as NonNullable<LeagueModel["odds"]>["teams"][number];
+      const s = helpsScale(m.helpsCalibration, { leagueType: snapshot.settings.leagueType, myPPlayoffs: t.pPlayoffs, reward: m.reward as NonNullable<typeof m.reward>, dynastyTotal: null });
+      return {
+        goal,
+        omega: m.playoffWeight,
+        b3: s?.b3 ?? null,
+        floored: s?.floored ?? false,
+        pFirst: t.pTitle,
+        pSecond: t.pSecond,
+        pThird: t.pThird,
+        top3: (t.pTitle as number) + (t.pSecond as number) + (t.pThird as number),
+        pPlayoffs: t.pPlayoffs,
+        expHighScores: null,
+        pPointsLeader: t.pPointsLeader,
+      };
+    };
+    expect(p.rows).toEqual([rowOf(model, "title"), rowOf(split, "prizes")]);
+    for (const r of p.rows) {
+      expect(r.pFirst).toBeGreaterThan(0);
+      expect(r.top3).toBeLessThanOrEqual(1);
+    }
+    expect(p.thirdPlace).toEqual({ row: thirdPlaceText(snapshot.settings, false), data: snapshot.settings.thirdPlace ?? null, sim: split.odds?.thirdPlace ?? null });
+    expect(p.thirdPlace.sim?.rule).toBeDefined();
+    // The words: the Import Report's row, where the league's data says it, and the simulation's rule.
+    expect(thirdPlaceWords({ row: "Yes: the two semifinal losers play for 3rd.", data: { game: true, basis: "schedule" }, sim: { rule: "game", assumed: false } })).toBe(
+      `The Import Report's "3rd-place game" row: Yes: the two semifinal losers play for 3rd (ESPN's playoff schedule lists the game). The season simulation plays a 3rd-place game between the two semifinal losers.`,
+    );
+    expect(thirdPlaceWords({ row: "Yes (assumed: the league doesn't say).", data: null, sim: { rule: "game", assumed: true } })).toBe(
+      `The Import Report's "3rd-place game" row: Yes (assumed: the league doesn't say). The season simulation plays a 3rd-place game between the two semifinal losers, assumed: the league's data doesn't say.`,
+    );
+    expect(thirdPlaceWords({ row: "No: the better seed of the two semifinal losers takes 3rd (our assumption).", data: { game: false, basis: "bracket" }, sim: { rule: "bySeed", assumed: false } })).toContain(
+      "(Sleeper's winners bracket). The season simulation gives 3rd to the better regular-season seed of the two semifinal losers (⚠️ our assumption).",
+    );
+  });
+
+  it("words the section: the split in whole percents, the prize periods, how 3rd place goes, and one row per setting", () => {
+    const p = season.prizes as NonNullable<SeasonReport["prizes"]>;
+    const text = prizesLines(p).join("\n");
+    expect(text).toContain(`"Several prizes" in Settings (the league's split, 1st 44%, 2nd 36%, 3rd 20% of the season's prizes, whole percents;`);
+    expect(text).toContain(`the weekly high score counted once per regular-season prize period, ${prizePeriods(snapshot)} in this league`);
+    expect(text).toContain(`**How 3rd place is decided:** ${thirdPlaceWords(p.thirdPlace)}`);
+    expect(text).toContain("| Setting | ω | B₃ | P(1st) | P(2nd) | P(3rd) | Top 3 | P(playoffs) |");
+    const [title, prizes] = p.rows as [PrizesRow, PrizesRow];
+    expect(text).toContain(`| Only the champion | ${title.omega}× | ${(title.b3 as number).toFixed(2)} | ${pct(title.pFirst)} | ${pct(title.pSecond)} | ${pct(title.pThird)} | ${pct(title.top3)} | ${pct(title.pPlayoffs)} |`);
+    expect(text).toContain(`| Several prizes (1st 44%, 2nd 36%, 3rd 20%) | ${prizes.omega}× | ${(prizes.b3 as number).toFixed(2)} | ${pct(prizes.pFirst)} |`);
+    // No weekly column without a weekly prize; no amounts anywhere.
+    expect(text).not.toContain("Weekly high scores won");
+    for (const amount of ["2000", "2,000", "1600", "900"]) expect(text).not.toContain(amount);
+    expect(prizesSummary(p)).toContain(`; prizes (the league's split, 1st 44%, 2nd 36%, 3rd 20%): Only the champion: ω ${title.omega}×, B₃ ${(title.b3 as number).toFixed(2)}, P(1st) ${pct(title.pFirst)}`);
+    expect(prizesSummary(null)).toBe("");
+  });
+
+  it("a split that pays the weekly high score: priced only from runs that simulated the high scores (the split's own model, the scale check's own runs), never from this model's", () => {
+    const weekly = { first: 600, second: 300, third: null, weeklyHigh: 50, pointsLeader: 100 };
+    const s = seasonReport(snapshot, inputs, model, { now: NOW, clock, runs: 1, warmups: 0, buildRuns: 0, prizes: weekly });
+    const p = s.prizes as NonNullable<SeasonReport["prizes"]>;
+    expect(p.reward.shares.weeklyHigh).toBeGreaterThan(0);
+    // This model's runs didn't simulate the high scores: pricing them under the split throws (reward.ts assertWeeklyMeasured).
+    const runs = model.playoffWeightAuto?.runs;
+    if (!runs) throw new Error("the fixture's weight wasn't measured");
+    expect(() => playoffWeightFrom(runs, p.reward, model.playoffWeightAuto?.sims ?? 0)).toThrow(/weekly high scores/);
+    // The report never does: the table reads the split's own model, which simulated them.
+    expect(p.model.odds?.highScorePeriods).toBeGreaterThan(0);
+    const lines = playoffWeightLines(model, teamName, { prizes: weekly, prizesModel: p.model });
+    expect(lines.find((l) => l.startsWith("| Several prizes"))).toContain(`| ${p.model.playoffWeight}×`);
+    expect(p.rows[1]?.expHighScores).toBeGreaterThan(0);
+    expect(p.rows[0]?.expHighScores).toBeNull();
+    expect(prizesLines(p).join("\n")).toContain("| Setting | ω | B₃ | P(1st) | P(2nd) | P(3rd) | Top 3 | P(playoffs) | Weekly high scores won |");
+    // The scale check simulated them itself: its "Several prizes" B reads the weekly change.
+    expect(s.scale?.rows?.every((r) => Number.isFinite(r.dPrizes.weeklyHigh as number))).toBe(true);
+    expect(s.scale?.rows?.every((r) => Number.isFinite(r.B.prizes))).toBe(true);
+  });
+
+  it("the whole report with --prizes: the section after the playoff-week weight; none without", { timeout: 60_000 }, () => {
+    const { doc, season: s } = buildReport(snapshot, inputs, { now: NOW, clock, scenarios: 0, runs: 1, warmups: 0, buildRuns: 0, prizes: PRIZES, command: "npm run league:report -- --dump data-local/x --team 1 --prizes 2000,1600,900,0" });
+    expect(doc).toContain("Generated by `npm run league:report -- --dump data-local/x --team 1 --prizes 2000,1600,900,0`");
+    const at = doc.indexOf("## League prizes (Checkpoint 7c)");
+    expect(at).toBeGreaterThan(doc.indexOf("## Playoff-week weight (automatic)"));
+    expect(at).toBeLessThan(doc.indexOf("## No-op check"));
+    expect(doc).toContain(prizesLines(s.prizes as NonNullable<SeasonReport["prizes"]>).join("\n"));
+    expect(seasonReport(snapshot, inputs, model, { now: NOW, clock, runs: 1, warmups: 0, buildRuns: 0 }).prizes).toBeNull();
   });
 });
 
@@ -646,16 +791,16 @@ describe("league report: the whole offline report", () => {
     expect(doc).not.toContain("FAIL");
     expect(doc).toContain("Σ P(playoffs) = 6.000 (6 playoff teams) · Σ P(bye) = 2.000 (2 byes) · Σ P(title) = 1.000.");
     expect(doc).toContain("| +3 pt/wk |");
-    expect(doc).toContain("B₃, the B of +3 points a week, under each goal (± B(+3)'s Monte Carlo standard error): Win the title **");
+    expect(doc).toContain("B₃, the B of +3 points a week, under each goal (± B(+3)'s Monte Carlo standard error): Only the champion **");
     // The scale check owns up to its Monte Carlo error: no "not noise" claim, ± on every change and on B₃,
     // B and Helps you under every goal, twice (the one baseline, and as rosters stand).
     expect(doc).not.toContain("not noise");
     expect(doc).toContain(`± is its Monte Carlo standard error, by batch means: the 5,000 seasons split into ${SE_BATCHES} batches of 250`);
-    expect(doc).toContain("| Lineup gain | ΔPO | ΔCH | Δ expected wins | Win the title: B / Helps you | Several prizes: B / Helps you | Make the playoffs: B / Helps you | Toy league B / score |");
+    expect(doc).toContain("| Lineup gain | ΔPO | ΔCH | Δ expected wins | Only the champion: B / Helps you | Several prizes: B / Helps you | Making the playoffs: B / Helps you | Toy league B / score |");
     // +3 reads 63 under every goal, on both bases (each its own B₃).
     const row3 = /\| \+3 pt\/wk \| [+-]\d\.\d{4} ± \d\.\d{4} \| [+-]\d\.\d{4} ± \d\.\d{4} \| [+-]\d+\.\d{3} ± \d+\.\d{3} \| (-?\d+\.\d{2} ± \d+\.\d{2} \/ 63 \| ){3}≈ 5 \/ ≈ 63 \|/g;
     expect(doc.match(row3)).toHaveLength(2);
-    expect(doc).toMatch(/: Win the title \*\*\d+\.\d{2} ± \d+\.\d{2}\*\*; Several prizes \*\*\d+\.\d{2} ± \d+\.\d{2}\*\*; Make the playoffs \*\*\d+\.\d{2} ± \d+\.\d{2}\*\*\./);
+    expect(doc).toMatch(/: Only the champion \*\*\d+\.\d{2} ± \d+\.\d{2}\*\*; Several prizes \*\*\d+\.\d{2} ± \d+\.\d{2}\*\*; Making the playoffs \*\*\d+\.\d{2} ± \d+\.\d{2}\*\*\./);
     expect(doc).toContain("**From the one baseline (every team after its free-agent pickups)**");
     // "Protect my trade value" priced on the one baseline's B₃, once (a redraft league; planner reply to Checkpoint 7a, §2 question 5).
     expect(doc.split("“Protect my trade value” is priced on the same B₃").length - 1).toBe(1);
@@ -862,8 +1007,8 @@ describe("league report: the whole offline report", () => {
       expect(app?.raw, g).toBeCloseTo(100 * cal.dPO, 12);
       expect(check.b3[g], g).toEqual({ raw: app?.raw, value: app?.b3, floored: app?.floored, playoffOnly: true, se: null });
     }
-    expect(r.doc).toContain("by the rule every card's B follows when title odds are unknown: Win the title **");
-    expect(b3Words(check)).toContain(`Win the title **${(check.b3.title.value as number).toFixed(2)}** (playoff odds only: title odds unknown)`);
+    expect(r.doc).toContain("by the rule every card's B follows when title odds are unknown: Only the champion **");
+    expect(b3Words(check)).toContain(`Only the champion **${(check.b3.title.value as number).toFixed(2)}** (playoff odds only: title odds unknown)`);
     expect(r.doc).not.toContain("none (title odds unknown)");
   });
 

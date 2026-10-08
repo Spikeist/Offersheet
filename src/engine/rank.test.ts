@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { displayAcceptance } from "./acceptance";
+import { helpsBoth } from "./benefit";
 import { config } from "./config";
 import { mulberry32 } from "./rng";
-import { assetId, meetsMinChance, rankTrades, sortTrades, type RankConfig } from "./rank";
+import { assetId, helpsBothTrades, meetsMinChance, rankTrades, sortTrades, type RankConfig } from "./rank";
+import { titleDeltas } from "./reward";
 import { tradeEvaluation } from "./tradeTestFixtures";
 import type { TradeAsset, TradeEvaluation } from "./tradeModel";
 
@@ -455,6 +457,123 @@ describe("rankTrades: the minimum chance (planner reply to Checkpoint 4b, change
       expect(again.hidden).toEqual(first.hidden);
       expect(again.qualifying).toBe(first.qualifying);
     }
+  });
+});
+
+describe("the “Helps both” list (Checkpoint 7c; planner reply to Checkpoint 7b, §7): RankOptions.order “helps” and keep, the sort, helpsBothTrades", () => {
+  /** A trade with a Helps them as printed (TradeEvaluation.them; the other numbers made up, what helpsBoth doesn't read). */
+  const withThem = (e: TradeEvaluation, helps: number | null): TradeEvaluation => ({
+    ...e,
+    them: { b: helps === null ? null : helps / 10, bWin: helps === null ? null : helps / 10, bFuture: null, lambda: null, b3: 4, helps, dPO: 0.01, dCH: 0.005, dPrizes: titleDeltas(0.005), before: { pPlayoffs: 0.4, pTitle: 0.05, prizes: { first: 0.05, second: null, third: null, weeklyHigh: 0, pointsLeader: 0 } } },
+  });
+  const t = (key: string, b: number, pComplete: number, helps: number | null, o: Parameters<typeof tradeEvaluation>[0] = {}) =>
+    withThem(tradeEvaluation({ key, partnerId: `t-${key}`, b, pComplete, give: [`m-${key}`], get: [`g-${key}`], ...o }), helps);
+  const keep = (e: TradeEvaluation) => helpsBoth(e);
+  const trades = [
+    t("a", 5, 0.5, 30), // EG 2.5: helps both
+    t("b", 9, 0.2, 12), // EG 1.8, the most B: helps both
+    t("c", 6, 0.4, 9), // EG 2.4: Helps them under 10
+    t("d", 3, 0.3, 0), // a loss for them
+    t("e", 4, 0.05, 40), // helps both, a long shot (printed 5%)
+    t("f", 2, 0.6, null), // not simulated for them
+    t("hurts", -1, 0.5, 50), // hidden by benefit first
+    t("lopsided", 7, 0.5, 50, { gMine: config.benefit.marketHideBelow - 0.05 }), // hidden by the market guard first
+  ];
+
+  it("keep: the guards first, then the trades it turns away (notKept), then the minimum chance on what it keeps; Helps-you order", () => {
+    const r = rankTrades(trades, byNumber, rankCfg(), { order: "helps", keep, minChance: 0.1 });
+    expect(keys(r.trades)).toEqual(["b", "a"]); // B 9, 5
+    expect(r.hidden).toEqual({ byBenefit: 1, byMarket: 1, byChance: 1 });
+    expect(r.notKept).toBe(3); // c (9 for them), d (0), f (no Helps them)
+    expect(r.qualifying).toBe(2);
+    // At Any the long shot shows, in its B place.
+    expect(keys(rankTrades(trades, byNumber, rankCfg(), { order: "helps", keep }).trades)).toEqual(["b", "a", "e"]);
+    // Without keep: no notKept field, and the list as before (Overall order by default).
+    const plain = rankTrades(trades, byNumber, rankCfg(), { minChance: 0.1 });
+    expect("notKept" in plain).toBe(false);
+    expect(keys(plain.trades)).toEqual(["a", "c", "b", "f", "d"]); // EG 2.5, 2.4, 1.8, 1.2, 0.9
+    expect(keys(rankTrades(trades, byNumber, rankCfg(), { minChance: 0.1, order: "helps" }).trades)).toEqual(["b", "c", "a", "d", "f"]);
+  });
+
+  it("the diversity rules go through the trades in Helps-you order: the partner cap keeps the three that help me most", () => {
+    // One partner, five trades that help both: by EG a, b, c lead; by B e, d, c.
+    const p7 = (key: string, b: number, pComplete: number) => withThem(tradeEvaluation({ key, partnerId: "7", b, pComplete, give: [`m-${key}`], get: [`g-${key}`] }), 20);
+    const list = [p7("a", 3, 0.8), p7("b", 3.5, 0.6), p7("c", 4, 0.5), p7("d", 5, 0.3), p7("e", 6, 0.2)];
+    const byHelps = rankTrades(list, byNumber, rankCfg(), { order: "helps", keep });
+    expect(keys(byHelps.trades)).toEqual(["e", "d", "c"]);
+    expect(byHelps.dropped.partnerCap).toBe(2);
+    expect(keys(rankTrades(list, byNumber, rankCfg(), { keep }).trades)).toEqual(["a", "b", "c"]);
+  });
+
+  it("the input order never matters", () => {
+    const first = rankTrades(trades, byNumber, rankCfg(), { order: "helps", keep, minChance: 0.1 });
+    for (let s = 1; s <= 4; s++) expect(rankTrades(shuffle(trades, s), byNumber, rankCfg(), { order: "helps", keep, minChance: 0.1 })).toEqual(first);
+  });
+
+  describe("⚠️ the filler rule judges each pair as the Overall order does (review of the “Helps both” engine track, finding HB-3)", () => {
+    /** A trade with partner `partnerId` that helps both teams (Helps them 20). */
+    const hb = (key: string, partnerId: string, b: number, pComplete: number, give: string[], get: string[]) => withThem(tradeEvaluation({ key, partnerId, b, pComplete, give, get }), 20);
+    // Parker's Team 8 under his prizes: Puka Nacua + Marvin Harrison Jr. → Drake London + Christian Watson (B 1.454 at 24.7%)
+    // ahead by B of Puka Nacua → Drake London + Christian Watson (B 1.440 at 27.2%), which is ahead on EG.
+    const big = hb("big", "8", 1.454, 0.247, ["p1", "p2"], ["p20", "p21"]);
+    const small = hb("small", "8", 1.44, 0.272, ["p1"], ["p20", "p21"]);
+    const next = hb("next", "6", 0.9, 0.4, ["p3"], ["p30"]);
+
+    it("a bigger variant first by B but below its smaller trade on EG, B within 20%: filler, as in Overall order; its place goes to the next trade", () => {
+      const r = rankTrades([big, small, next], byNumber, rankCfg(), { order: "helps", keep });
+      expect(keys(r.trades)).toEqual(["small", "next"]);
+      expect(r.dropped).toEqual({ partnerCap: 0, core: 0, filler: 1, givenPlayer: 0 });
+      expect(r.qualifying).toBe(3);
+      // The same verdict in Overall order (the smaller trade first there).
+      const overall = rankTrades([big, small, next], byNumber, rankCfg(), { keep });
+      expect(keys(overall.trades)).toEqual(["small", "next"]);
+      expect(overall.dropped.filler).toBe(1);
+      // Room for two cards: the bigger variant took a place in the first pass and gives it back to the next trade.
+      expect(keys(rankTrades([big, small, next], byNumber, { ...rankCfg(), resultsShown: 2 }, { order: "helps", keep }).trades)).toEqual(["small", "next"]);
+      for (let s = 1; s <= 4; s++) expect(rankTrades(shuffle([big, small, next], s), byNumber, rankCfg(), { order: "helps", keep })).toEqual(r);
+    });
+
+    it("a bigger variant ahead on EG is no filler, in either order: both cards stay (also the likelier one with a slightly lower B)", () => {
+      const ahead = hb("ahead", "8", 1.5, 0.3, ["p1", "p2"], ["p20", "p21"]); // EG 0.45 against 0.392
+      expect(keys(rankTrades([small, ahead], byNumber, rankCfg(), { order: "helps", keep }).trades)).toEqual(["ahead", "small"]);
+      expect(keys(rankTrades([small, ahead], byNumber, rankCfg(), { keep }).trades)).toEqual(["ahead", "small"]);
+      // B 1.9 at 30% beside B 2.0 at 20%: within 20% of B but ahead on EG (0.57 against 0.4). In Helps-you order the smaller
+      // trade comes first, and before this rule the greedy pass dropped the likelier variant as filler.
+      const lean = hb("lean", "5", 2.0, 0.2, ["p4"], ["p40"]);
+      const sweetened = hb("sweetened", "5", 1.9, 0.3, ["p4", "p5"], ["p40"]);
+      expect(keys(rankTrades([lean, sweetened], byNumber, rankCfg(), { order: "helps", keep }).trades)).toEqual(["lean", "sweetened"]);
+      expect(keys(rankTrades([lean, sweetened], byNumber, rankCfg(), { keep }).trades)).toEqual(["sweetened", "lean"]);
+    });
+
+    it("R5 in Helps-you order: a bigger variant no more helpful and less likely is filler however far its B falls", () => {
+      const worse = hb("worse", "8", 0.5, 0.25, ["p1", "p2"], ["p20", "p21"]);
+      const r = rankTrades([worse, small], byNumber, rankCfg(), { order: "helps", keep });
+      expect(keys(r.trades)).toEqual(["small"]);
+      expect(r.dropped.filler).toBe(1);
+    });
+
+    it("a bigger variant whose smaller trade the other rules leave out stays (the card the list can show of the two)", () => {
+      // One partner, cap 3 in the top 20: by B, b, x, y fill the partner's places and s (b without p2, ahead on EG) is capped.
+      const b = hb("b", "7", 5.0, 0.1, ["p1", "p2"], ["p20"]);
+      const x = hb("x", "7", 4.9, 0.2, ["p3"], ["p21"]);
+      const y = hb("y", "7", 4.8, 0.2, ["p4"], ["p22"]);
+      const s = hb("s", "7", 4.6, 0.3, ["p1"], ["p20"]);
+      const r = rankTrades([s, y, x, b], byNumber, rankCfg(), { order: "helps", keep });
+      expect(keys(r.trades)).toEqual(["b", "x", "y"]);
+      expect(r.dropped).toEqual({ partnerCap: 1, core: 0, filler: 0, givenPlayer: 0 });
+    });
+  });
+
+  it("sortTrades “helpsBoth”: the trades that help both first, each group by B; helpsBothTrades keeps those alone", () => {
+    const visible = trades.filter((x) => x.key !== "hurts" && x.key !== "lopsided");
+    expect(keys(sortTrades(visible, "helpsBoth"))).toEqual(["b", "a", "e", "c", "d", "f"]);
+    expect(keys(helpsBothTrades(visible))).toEqual(["b", "a", "e"]);
+    // A trade without Helps them (an evaluation made before it) never helps both.
+    expect(helpsBothTrades([tradeEvaluation({ key: "old", b: 5 })])).toEqual([]);
+    for (let s = 1; s <= 3; s++) expect(keys(sortTrades(shuffle(visible, s), "helpsBoth"))).toEqual(["b", "a", "e", "c", "d", "f"]);
+    const input = [...visible];
+    expect(helpsBothTrades(input)).not.toBe(input);
+    expect(input).toEqual(visible);
   });
 });
 

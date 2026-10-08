@@ -15,6 +15,11 @@
  * engine orders rows by (waivers.gainSteps). The page shows the first config.waivers.rowsShown rows, then "Show all".
  * Without lists, one line instead: no team picked (with a link to pick it), my redraft season over, or no week left
  * (buildWaiversView; review of Phase 7b: the section showed nothing then, and the header's "Waivers" link led nowhere).
+ * "Season over" is the League page's own (leagueView.ts seasonOver: since Checkpoint 7c only when no prize the league pays
+ * can still move, so under "Several prizes" a team out of the title race still sees the pickups that can help it win a
+ * weekly high score or the points title; planner reply to Checkpoint 7b, §6, the lead's reading), but for a pickup a
+ * regular-season week under way with games still to play counts (its "This week" list: a pickup can still change it, a
+ * trade can't; review of the prizes UI, prizes-ui-5).
  */
 import { config } from "@/engine/config";
 import type { ModelInputs } from "@/engine/inputs";
@@ -23,7 +28,7 @@ import type { FreeAgentStatus, InjuryStatus, LeagueSnapshot, Pos } from "@/engin
 import { gainSteps } from "@/engine/waivers";
 import { fmtNum, fmtWhole, weeksText } from "./format";
 import { INJURY_LABEL, posLabel } from "./labels";
-import { shortName, type InjuryTone } from "./leagueView";
+import { seasonOver, shortName, type InjuryTone } from "./leagueView";
 
 /** The section's id: the site header's "Waivers" link goes to /league#waivers (WAIVERS_HREF; ./waiversLink.ts). */
 export { WAIVERS_HREF, WAIVERS_SECTION_ID } from "./waiversLink";
@@ -201,8 +206,11 @@ export function buildWaiversView(input: WaiversInput): WaiversView | null {
   if (!myTeamId) return emptyView(WAIVERS_NO_TEAM, WAIVERS_PICK_TEAM);
   const w = model.waiverUpgrades;
   if (!w) return null;
-  const mine = model.odds?.teams.find((t) => t.teamId === w.teamId);
-  if (mine?.eliminated && snapshot.settings.leagueType === "redraft") return emptyView(WAIVERS_SEASON_OVER);
+  // My redraft season over, the League page's own reading (seasonOver: out of the title race with no prize the league pays
+  // still within reach), the week under way counted while it's a regular-season week with games still to play (its "This
+  // week" list: a pickup can still change it).
+  const weekUnderWay = w.underWay !== null && model.inProgressWeek !== null && model.regularWeeks.includes(model.inProgressWeek);
+  if (seasonOver(model, w.teamId, snapshot.settings.leagueType, { weekUnderWay })) return emptyView(WAIVERS_SEASON_OVER);
   if (!w.ros && !w.underWay && !w.week) return emptyView(WAIVERS_NO_WEEKS);
   const labels = { underWay: w.underWay ? "This week" : null, week: w.week ? weekLabel(input, w.week) : null };
   const ros = w.ros ? listView(input, w.ros, "ros", w.teamId, labels) : null;

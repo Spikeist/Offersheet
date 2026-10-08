@@ -51,7 +51,8 @@
  * shows on its card at once (the league store applies it), and the card says what it did once the browser has kept it,
  * or in an alert on the card when it refused (FeedbackControls awaits useFeedback.ts saveFeedbackPress; Phase 4c, the
  * crossTrack of track ML: it replaced the page-wide alert). Each press saves the sent version's model inputs, with what
- * the league rewards as the search weighted B (Done.goal), and (Phase 7a, track FB), while "Share anonymous feedback" is on,
+ * the league rewards as the search weighted B (Done.goal; Checkpoint 7c: with the search's prize split, from its own
+ * reward, TradeSearchResult.reward), and (Phase 7a, track FB), while "Share anonymous feedback" is on,
  * sends an anonymous copy (src/lib/feedbackShare.ts; the card's one-time note says so the first time).
  *
  * Coming back (review of Phase 4; finderMemory.ts): the trade pages share one engine client, whose worker keeps its
@@ -78,7 +79,7 @@ import type { LeagueSettings, LeagueSnapshot } from "@/engine/model";
 import { defaultTradeSettings, type Goal, type TradeSettings } from "@/engine/settings";
 import type { TradeEvaluation, TradeSearchProgress, TradeSearchResult, TradeSort } from "@/engine/tradeModel";
 import { EngineError, type TradeSearchHandle } from "@/lib/engineClient";
-import { feedbackShareContext, type FeedbackSaveResult } from "@/lib/feedbackShare";
+import { feedbackShareContext, shownRewardOf, type FeedbackSaveResult } from "@/lib/feedbackShare";
 import type { FeedbackChange, FeedbackRecord } from "@/lib/feedbackStore";
 import type { CurrentLeagueRead } from "@/lib/leagueStore";
 import { modelRequest } from "@/lib/modelStore";
@@ -498,9 +499,11 @@ function LoadedFinder({ read, query }: { read: Extract<CurrentLeagueRead, { kind
   );
 
   // A press shows at once (the league store applies it); the card says what it did once the browser has kept it. Phase 7a
-  // (track FB): its anonymous copy reads the league's format and the goal the cards shown were computed with.
-  const shownGoal = shownOutcome?.goal ?? null;
-  const share = useMemo(() => (league ? feedbackShareContext(league, shownGoal) : null), [league, shownGoal]);
+  // (track FB): its anonymous copy reads the league's format and what the cards shown were weighed by: since Checkpoint 7c
+  // the search's own reward (TradeSearchResult.reward, the goal with its prize shares, which the copy keeps as whole
+  // percents: feedbackShare.ts feedbackRewardOf), else the goal it ran under (shownRewardOf, review FB-R3).
+  const shownReward = shownRewardOf(shownOutcome?.result, shownOutcome?.goal);
+  const share = useMemo(() => (league ? feedbackShareContext(league, shownReward) : null), [league, shownReward]);
   const onFeedback = useCallback((evaluation: TradeEvaluation, change: FeedbackChange) => saveFeedbackPress({ leagueKey, evaluation, change, share }), [leagueKey, share]);
   // "Open in Analyzer" remembers the idea and the link used, to come back to it (finderMemory.ts).
   const shownKey = shownOutcome?.key ?? null;
@@ -780,7 +783,7 @@ export function FinderFrame({ state, teamName, leagueType = "redraft", facts, ti
         onFeedback={onFeedback}
         onOpenAnalyzer={onOpenAnalyzer}
       />
-      <HowToRead leagueType={leagueType} valuesOn={facts?.valuesOn ?? true} longTermOn={longTermOn} blendOn={facts?.blendOn ?? true} helpsScale={shown?.helpsScale ?? null} />
+      <HowToRead leagueType={leagueType} valuesOn={facts?.valuesOn ?? true} longTermOn={longTermOn} blendOn={facts?.blendOn ?? true} helpsScale={shown?.helpsScale ?? null} reward={shown?.reward ?? null} />
     </div>
   );
 }

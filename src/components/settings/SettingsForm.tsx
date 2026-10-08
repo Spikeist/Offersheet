@@ -4,12 +4,23 @@
  * positions"): lays out the view model (settingsView.ts), mobile-first (375 px): the league's card (saved or
  * defaults, Reset to defaults, and the Trade Finder's minimum chance when the saved one isn't the default), then your
  * lineup (streamed positions; the playoff weight, read-only since the planner's reply to Checkpoint 7a, §6.1), how trade
- * ideas are scored (Phase 4c: What does your league reward?, each option with its line of help; Win now ↔ Future in dynasty and keeper leagues,
+ * ideas are scored (Phase 4c: What does your league reward?, each option with its line of help; under "Several prizes" the
+ * league's prizes in a group of their own, Checkpoint 7c; Win now ↔ Future in dynasty and keeper leagues,
  * followed by why there's no Protect my trade value there, or Protect my trade value in redraft ones, with a note while the
  * league's values are our own estimates), what a trade
  * idea can be (players per side, what else to include), players (untouchables, must-include) and positions (target,
  * avoid). Every word comes from the view model; each change is one SettingsEdit that the page saves at once
- * (there's no Save button).
+ * (there's no Save button), but for a prize's amount, saved when its field loses focus or on Enter (PrizesGroup).
+ *
+ * "Your league's prizes" (Checkpoint 7c; planner reply to Checkpoint 7b, §6; SettingsView.prizes): a fieldset of its own
+ * after the goal's (a sibling, so the goal's group keeps exactly its three labeled choices: check:browser counts them), the
+ * planner's helper line linked as its description, one labeled text field a prize (44 px, a decimal keyboard on phones), the
+ * split line under them, or the warning while nothing adds up. A field keeps what's typed as a draft and saves it on blur or
+ * Enter, read leniently (settingsView.ts parsePrizeText: "$2,000", "60%", blank for not paid), so typing "2000" saves once,
+ * not four times (each saved change rebuilds the League model for the playoff weight); text it can't read isn't saved, and
+ * the field says why (aria-invalid, the message linked by aria-describedby, in a polite live region that stays mounted, so
+ * it's announced although the focus has left the field on blur) until it's fixed. A saved change shows the amount as saved;
+ * a draft goes once it's saved, or when the saved amount changes under it (Reset to defaults).
  *
  * Accessibility: each group is a fieldset whose legend names it, with its help text linked by
  * aria-describedby; checkboxes and radios are native (the radios of a segmented control are visually hidden,
@@ -26,7 +37,7 @@ import { useEffect, useId, useRef, useState, type ReactNode, type Ref } from "re
 import type { Pos } from "@/engine/model";
 import { revealResult } from "../reveal";
 import { Badge, Callout, Card, CardTitle, FOCUS_TARGET, buttonClass, cx, inputClass } from "../ui";
-import type { Choice, PlayersView, SettingsEdit, SettingsView } from "./settingsView";
+import { prizeCommit, type Choice, type PlayersView, type PrizeFieldView, type SettingsEdit, type SettingsView } from "./settingsView";
 
 export interface SettingsStatus {
   tone: "ok" | "error";
@@ -282,7 +293,8 @@ function LineupCard({ view, onEdit }: EditProps) {
 }
 
 /**
- * How trade ideas are scored for me (Phase 4c): What does your league reward? (planner reply to Checkpoint 4b, change 8; 7a, 5.2), then Win now
+ * How trade ideas are scored for me (Phase 4c): What does your league reward? (planner reply to Checkpoint 4b, change 8; 7a, 5.2), then
+ * under "Several prizes" the league's prizes (Checkpoint 7c: PrizesGroup), then Win now
  * ↔ Future (dynasty and keeper leagues) or Protect my trade value (redraft), each with its note while the league's values
  * are our own estimates. In dynasty and keeper leagues a line after Win now ↔ Future says why Protect my trade value isn't
  * there (planner reply to Checkpoint 7b, Q3: SettingsView.tradeValueNote).
@@ -299,6 +311,7 @@ function ScoringCard({ view, onEdit }: EditProps) {
             ))}
           </div>
         </Group>
+        {view.prizes ? <PrizesGroup prizes={view.prizes} onEdit={onEdit} /> : null}
         {view.lambda ? <LambdaGroup lambda={view.lambda} onEdit={onEdit} /> : null}
         {view.tradeValueNote ? <p className="text-sm leading-relaxed text-muted">{view.tradeValueNote}</p> : null}
         {view.protectValue ? (
@@ -313,6 +326,91 @@ function ScoringCard({ view, onEdit }: EditProps) {
         ) : null}
       </div>
     </Card>
+  );
+}
+
+/**
+ * "Your league's prizes" (the file header; SettingsView.prizes): the planner's helper line, a field a prize, then the split
+ * line, or the warning while the amounts add up to nothing.
+ */
+function PrizesGroup({ prizes, onEdit }: { prizes: NonNullable<SettingsView["prizes"]>; onEdit: (edit: SettingsEdit) => boolean }) {
+  return (
+    <Group legend={prizes.legend} help={prizes.help}>
+      <div className="space-y-1">
+        {prizes.fields.map((f) => (
+          <PrizeField key={f.key} field={f} onEdit={onEdit} />
+        ))}
+      </div>
+      {prizes.split ? <p className="mt-3 text-sm font-semibold">{prizes.split}</p> : null}
+      {prizes.warning ? (
+        <div className="mt-3">
+          <Callout tone="warn">{prizes.warning}</Callout>
+        </div>
+      ) : null}
+    </Group>
+  );
+}
+
+/**
+ * One prize's field (the file header): what's typed stays a draft until blur or Enter (Escape drops it), read by
+ * parsePrizeText. Text it can read and that differs from the saved amount is saved (the draft goes once the save shows);
+ * text it can't stays, with why, until it's typed again. A draft belongs to the saved amount it was typed over (`over`), so
+ * when that amount changes under it (Reset to defaults) the field shows the new one: no effect needed to drop it.
+ */
+function PrizeField({ field, onEdit }: { field: PrizeFieldView; onEdit: (edit: SettingsEdit) => boolean }) {
+  const id = useId();
+  const errorId = useId();
+  const [draft, setDraft] = useState<{ text: string; over: string; error: string | null } | null>(null);
+  const live = draft && draft.over === field.value ? draft : null;
+  function commit() {
+    if (!live) return;
+    const c = prizeCommit(live.text, field.value);
+    if (c.kind === "error") {
+      setDraft({ ...live, error: c.message });
+      return;
+    }
+    // Unchanged ("60%" over 60): nothing to save. A refused save keeps the draft (the page's alert says why).
+    if (c.kind === "same" || onEdit({ kind: "prize", key: field.key, value: c.value })) setDraft(null);
+  }
+  return (
+    <div>
+      <div className="flex min-h-11 items-center justify-between gap-3 px-2">
+        <label htmlFor={id} className="min-w-0 font-semibold break-words">
+          {field.label}
+        </label>
+        <div className="w-28 shrink-0">
+          <input
+            id={id}
+            type="text"
+            inputMode="decimal"
+            autoComplete="off"
+            value={live ? live.text : field.value}
+            aria-invalid={live?.error ? true : undefined}
+            aria-describedby={live?.error ? errorId : undefined}
+            onChange={(e) => setDraft({ text: e.target.value, over: field.value, error: null })}
+            onBlur={commit}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                commit();
+              } else if (e.key === "Escape" && live) {
+                setDraft(null);
+              }
+            }}
+            className={cx(inputClass, "text-right tabular-nums")}
+          />
+        </div>
+      </div>
+      {/* Always mounted, so why the field can't read what's typed is announced as it shows: on blur that's after focus
+          has moved on, where aria-describedby alone says nothing (review of the prizes UI, prizes-ui-3). */}
+      <div aria-live="polite">
+        {live?.error ? (
+          <p id={errorId} className="px-2 text-sm font-semibold text-danger-fg">
+            {live.error}
+          </p>
+        ) : null}
+      </div>
+    </div>
   );
 }
 

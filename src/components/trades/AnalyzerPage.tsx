@@ -7,7 +7,8 @@
  * browser: src/lib/leagueStore.ts, Phase 4c) the way the League page does (useLeagueInputs.ts), sends the league's
  * settings with every evaluation, and reads and saves its feedback per league (useFeedback.ts saveFeedbackPress: the card
  * says what a press did once the browser has kept it, or why not; each press saves the sent version's model inputs, with
- * what the league rewards ("What does your league reward?", TradeSettings.goal) as the evaluation weighted B; Phase 7a,
+ * what the league rewards ("What does your league reward?", TradeSettings.goal) as the evaluation weighted B (Checkpoint 7c:
+ * with its prize split, from the evaluation's own reward, TradeAnalysis.reward); Phase 7a,
  * track FB: and, while "Share anonymous feedback" is on, sends
  * an anonymous copy, src/lib/feedbackShare.ts).
  *
@@ -63,7 +64,7 @@ import type { LeagueSettings, LeagueSnapshot } from "@/engine/model";
 import type { Goal, TradeSettings } from "@/engine/settings";
 import type { TradeEvaluation } from "@/engine/tradeModel";
 import { EngineError } from "@/lib/engineClient";
-import { feedbackShareContext, type FeedbackSaveResult } from "@/lib/feedbackShare";
+import { feedbackShareContext, shownRewardOf, type FeedbackSaveResult } from "@/lib/feedbackShare";
 import type { FeedbackChange, FeedbackRecord } from "@/lib/feedbackStore";
 import type { CurrentLeagueRead } from "@/lib/leagueStore";
 import { modelRequest } from "@/lib/modelStore";
@@ -175,9 +176,11 @@ function LoadedAnalyzer({ current, query }: { current: Extract<CurrentLeagueRead
   const latest = useRef(0);
   const [evaluated, setEvaluated] = useState<Evaluated | null>(null);
   // A press shows at once (the league store applies it); the card says what it did once the browser has kept it. Phase 7a
-  // (track FB): its anonymous copy reads the league's format and the goal the evaluation shown was computed with.
-  const shownGoal = evaluated?.goal ?? null;
-  const share = useMemo(() => (league ? feedbackShareContext(league, shownGoal) : null), [league, shownGoal]);
+  // (track FB): its anonymous copy reads the league's format and what the evaluation shown was weighed by: since Checkpoint
+  // 7c its own reward (TradeAnalysis.reward, the goal with its prize shares, which the copy keeps as whole percents:
+  // feedbackShare.ts feedbackRewardOf), else the goal it ran under (shownRewardOf, review FB-R3).
+  const shownReward = shownRewardOf(evaluated?.analysis, evaluated?.goal);
+  const share = useMemo(() => (league ? feedbackShareContext(league, shownReward) : null), [league, shownReward]);
   const onFeedback = useCallback((evaluation: TradeEvaluation, change: FeedbackChange) => saveFeedbackPress({ leagueKey, evaluation, change, share }), [leagueKey, share]);
   const [working, setWorking] = useState<string | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
@@ -556,6 +559,7 @@ export function AnalysisResult({
           longTermOn={(facts?.longTermOn ?? true) && !card.evaluation.dynMissing}
           blendOn={facts?.blendOn ?? true}
           helpsScale={view.helpsScale}
+          reward={view.reward}
         />
       ) : null}
     </section>
