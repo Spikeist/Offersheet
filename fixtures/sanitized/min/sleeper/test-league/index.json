@@ -104,5 +104,9 @@
   },
   "d01a20121da5fc006e549836fe3eb97e8390a90cd092a759932dab92e0adb464.json": {
     "label": "users"
+  },
+  "0bdfa9a8e929fd082cfd268fd6e9e90d4ea5f8ba806c10f2f9c73e0afef0ada4.json": {
+    "label": "winners_bracket",
+    "note": "each match's round, number and the place it decides (p): no rosters or results"
   }
 }

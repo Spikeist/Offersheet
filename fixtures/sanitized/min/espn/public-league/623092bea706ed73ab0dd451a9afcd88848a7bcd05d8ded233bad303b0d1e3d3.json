@@ -493,6 +493,7 @@
    "variablePlayoffMatchupPeriodLength": false,
    "playoffReseed": false,
    "playoffSeedingRule": "TOTAL_POINTS_SCORED",
+   "consolationLadderDisabled": false,
    "divisions": [
     {
      "id": 0,

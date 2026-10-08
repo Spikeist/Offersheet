@@ -127,6 +127,21 @@ describe("ReportView", () => {
     expect(render({ snapshot: snapshot({}, { tradeReview: "league_vote" }), notes: [] })).toMatch(/<dt[^>]*>Review<\/dt><dd[^>]*>League vote: managers can veto trades<\/dd>/);
   });
 
+  it("says whether the semifinal losers play for 3rd right after the seeding, with ESPN's reading line when it's read from the ladder setting (Checkpoint 7c)", () => {
+    const four = { playoffTeams: 4 };
+    // ESPN's playoff schedule lists no 3rd-place game: read from its consolation-ladder setting, with the reading line under the row.
+    const setting = render({ snapshot: snapshot({}, { ...four, thirdPlace: { game: true, basis: "setting" } }), notes: [] });
+    expect(setting).toMatch(
+      /<dt[^>]*>Seeding<\/dt><dd[^>]*>[^<]*<\/dd><\/div><div[^>]*><dt[^>]*>3rd-place game<\/dt><dd[^>]*>Yes: the two semifinal losers play for 3rd\.<span class="[^"]*text-muted[^"]*">Our reading of ESPN&#x27;s consolation-ladder setting: its playoff schedule doesn&#x27;t list a 3rd-place game yet\.<\/span><\/dd><\/div><div[^>]*><dt[^>]*>Ties in the standings<\/dt>/,
+    );
+    // Read from the schedule: no reading. Not reported: assumed. No game: our assumption who takes 3rd.
+    expect(render({ snapshot: snapshot({}, { ...four, thirdPlace: { game: true, basis: "schedule" } }), notes: [] })).toMatch(/<dt[^>]*>3rd-place game<\/dt><dd class="(?![^"]*text-warn-fg)[^"]*">Yes: the two semifinal losers play for 3rd\.<\/dd>/);
+    expect(render({ snapshot: snapshot({}, four), notes: [] })).toMatch(/<dt[^>]*>3rd-place game<\/dt><dd[^>]*>Yes \(assumed: the league doesn&#x27;t say\)\.<\/dd>/);
+    expect(render({ snapshot: snapshot({}, { ...four, thirdPlace: { game: false, basis: "setting" } }), notes: [] })).toMatch(/<dt[^>]*>3rd-place game<\/dt><dd[^>]*>No: the better seed of the two semifinal losers takes 3rd \(our assumption\)\.<span[^>]*>Our reading/);
+    // The made-up league's 2-team playoff has no semifinals.
+    expect(render({ snapshot: snapshot(), notes: [] })).toMatch(/<dt[^>]*>3rd-place game<\/dt><dd[^>]*>None \(fewer than 4 playoff teams\)<\/dd>/);
+  });
+
   it("says a schedule gap once, as a notice, not again under the Season card (a review of Phase 7b)", () => {
     // No matchups at all: no game left to play, so no odds.
     const html = render({ snapshot: snapshot(), notes: [] });

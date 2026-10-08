@@ -550,6 +550,7 @@ export class PlatformData {
     if (sub === "/rosters") return json(JSON.stringify(t.rosters.map((r) => ({ ...r, league_id: id }))));
     if (sub === "/traded_picks") return json(JSON.stringify(t.tradedPicks));
     if (sub === "/drafts") return json(JSON.stringify(t.drafts));
+    if (sub === "/winners_bracket") return json(JSON.stringify(t.winnersBracket));
     m = /^\/matchups\/(\d+)$/.exec(sub);
     if (m) return json(JSON.stringify(t.matchups[Number(m[1])] ?? []));
     m = /^\/transactions\/(\d+)$/.exec(sub);

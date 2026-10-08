@@ -327,6 +327,8 @@ function sleeperLeague(): League {
     [sleeperUrls.rosters(id), (full && fromLocal("/rosters")) || JSON.stringify(t.rosters)],
     [sleeperUrls.tradedPicks(id), (full && fromLocal("/traded_picks")) || JSON.stringify(t.tradedPicks)],
     [sleeperUrls.drafts(id), (full && fromLocal("/drafts")) || JSON.stringify(t.drafts)],
+    // Checkpoint 7c: the winners bracket (the 3rd-place game), read in the browser like the rest of the league.
+    [sleeperUrls.winnersBracket(id), (full && fromLocal("/winners_bracket")) || JSON.stringify(t.winnersBracket)],
   ]);
   for (let w = 1; w <= 14; w++) bodies.set(sleeperUrls.matchups(id, w), (full && fromLocal(`/matchups/${w}`)) || JSON.stringify(t.matchups[w] ?? []));
   for (let leg = 1; leg <= 4; leg++) bodies.set(sleeperUrls.transactions(id, leg), (full && fromLocal(`/transactions/${leg}`)) || JSON.stringify(t.transactions[leg] ?? []));

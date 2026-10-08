@@ -422,7 +422,10 @@ const WIN: Record<number, Record<string, number>> = {
 function teamOdds(teamId: string, rank: number, pPlayoffs: number, pTitle: number, seedDist: number[], record: [number, number]): TeamOdds {
   // Expected wins = today's wins + the chance to win each game left (3 games, no ties).
   const expWins = record[0] + REGULAR.reduce((s, w) => s + (WIN[w]?.[teamId] ?? 0), 0);
-  return { teamId, rank, pPlayoffs, pBye: null, pTitle, expWins, expLosses: record[0] + record[1] + REGULAR.length - expWins, expTies: 0, seedDist, eliminated: false };
+  // Places (Checkpoint 7c), by the simulator's rules for 2 playoff spots: the final's loser is 2nd, seed 3 is 3rd. No
+  // high-score periods (the weekly prize doesn't pay); the points leader stands in as seed 1's chance.
+  const places = { pSecond: pPlayoffs - pTitle, pThird: seedDist[2] ?? 0, expHighScores: 0, pPointsLeader: seedDist[0] ?? 0 };
+  return { teamId, rank, pPlayoffs, pBye: null, pTitle, expWins, expLosses: record[0] + record[1] + REGULAR.length - expWins, expTies: 0, seedDist, eliminated: false, ...places };
 }
 
 /**
@@ -438,6 +441,8 @@ function seasonOdds(gameDay: boolean, asRostersStand = false): SeasonOdds {
     byes: 0,
     tiebreaker: { rule: "pointsFor", assumed: false },
     reseed: { value: false, assumed: false },
+    thirdPlace: { rule: "game", assumed: true },
+    highScorePeriods: 0,
     playoffsKnown: true,
     teams: asRostersStand
       ? [

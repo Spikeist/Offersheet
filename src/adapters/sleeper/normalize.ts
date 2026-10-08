@@ -62,7 +62,10 @@
  *   OUT, INJURY_MAP) have flags of their own (reserve_allow_dnr, reserve_allow_cov): OUT follows reserve_allow_out alone.
  * - Matchups of weeks ≥ playoff_week_start are regular-season placeholders until the playoffs start,
  *   so the schedule holds regular-season weeks only; once the playoffs start, a warning says the
- *   playoff matchups aren't imported yet (the winners_bracket isn't read).
+ *   playoff matchups aren't imported yet (the winners_bracket is read for the 3rd-place game only).
+ * - 3rd place (Checkpoint 7c; planner reply to Checkpoint 7b, §6): LeagueSettings.thirdPlace from the winners bracket, a
+ *   match with p 3 (basis "bracket"; ✅ every bracket seen has one); an empty or unread bracket leaves it unknown
+ *   (thirdPlaceOf).
  * - Results (§4 Matchup.decided and result): a week is decided through settings.last_scored_leg, the
  *   last week Sleeper has scored (Phase 0 ✅: the last completed NFL week in 178/178 in-season leagues;
  *   in the test league, captured on a Tuesday with leg still 3, matchups have points exactly for weeks
@@ -89,6 +92,7 @@ import { POSITIONS, type DraftPick, type ImportWarning, type InjuryStatus, type 
 import { expectedPoints } from "@/engine/scoring";
 import { mapSleeperScoring, normalizeProjectionStats } from "./scoringMap";
 import {
+  BracketMatchSchema,
   DraftSchema,
   LeagueSchema,
   LeagueUserSchema,
@@ -184,6 +188,8 @@ export interface SleeperRawLeague {
   tradedPicks?: unknown;
   /** /league/{id}/drafts */
   drafts?: unknown;
+  /** /league/{id}/winners_bracket (Checkpoint 7c: read for the 3rd-place game only, thirdPlaceOf); undefined when it couldn't be read. */
+  winnersBracket?: unknown;
   /**
    * NFL week → /projections rows (any positions) for this week and the next ones; weeks that
    * couldn't be read are left out. Rank free agents and give fresh injury status and NFL team.
@@ -398,7 +404,27 @@ export function irEligibleOf(s: Record<string, unknown>): InjuryStatus[] | undef
   return ["IR", "PUP", ...RESERVE_ALLOW.filter(([key]) => num(s, key) === 1).map(([, status]) => status)];
 }
 
-function buildSettings(league: SleeperLeague, rosters: SleeperRoster[], scoring: Scoring, warn: (w: ImportWarning) => void): SettingsResult {
+/** The place a 3rd-place game decides (BracketMatchSchema p). */
+const THIRD_PLACE = 3;
+
+/**
+ * Whether a game between the two semifinal losers decides 3rd place (LeagueSettings.thirdPlace; Checkpoint 7c, planner reply
+ * to Checkpoint 7b, §6: "Check the platform data: … Sleeper's winners bracket"): the winners bracket names the place each
+ * placement match decides (p), so a match with p 3 → yes, basis "bracket" (✅ every bracket seen has one: the test league's 3
+ * captures and the 71 Phase 0 crawled, each between the two semifinal losers; Sleeper has no setting for it), and a bracket
+ * without one → no (⚠️ never seen: a league with fewer than 4 playoff teams, say). An empty bracket (not made yet) or none
+ * (the read failed, WINNERS_BRACKET_MISSING, or a browser bundle older than it sent the league) → undefined: unknown, so the
+ * season simulation assumes a game and the Import Report says so. Rows that don't fit are skipped with a warning; without a
+ * p 3 among the others, 3rd place is unknown too (a skipped row could be it).
+ */
+export function thirdPlaceOf(bracket: unknown, warn: (w: ImportWarning) => void): LeagueSettings["thirdPlace"] {
+  const { rows, bad, firstBadPath } = parseArrayLenient(BracketMatchSchema, bracket);
+  if (bad) warn({ code: "WINNERS_BRACKET_UNREADABLE", message: `${bad} row(s) of the playoff bracket didn't have the expected shape and were skipped.`, platformPath: `winners_bracket${firstBadPath ?? ""}` });
+  if (rows.some((m) => m.p === THIRD_PLACE)) return { game: true, basis: "bracket" };
+  return rows.length && !bad ? { game: false, basis: "bracket" } : undefined;
+}
+
+function buildSettings(league: SleeperLeague, rosters: SleeperRoster[], scoring: Scoring, winnersBracket: unknown, warn: (w: ImportWarning) => void): SettingsResult {
   const s = league.settings;
   const notes: string[] = [];
   const unknownSettings: UnknownSetting[] = [];
@@ -492,6 +518,8 @@ function buildSettings(league: SleeperLeague, rosters: SleeperRoster[], scoring:
 
   // Division seeding, then how ties in the standings are broken (§8: Sleeper's documented default).
   notes.push(...seedingNotes, tiebreakerNote(playoffTeams > 0));
+  // 3rd place: the winners bracket's p 3 match (thirdPlaceOf).
+  const thirdPlace = thirdPlaceOf(winnersBracket, warn);
 
   const irEligible = irEligibleOf(s);
   const settings: LeagueSettings = {
@@ -516,6 +544,7 @@ function buildSettings(league: SleeperLeague, rosters: SleeperRoster[], scoring:
     ...(divisions ? { divisions } : {}),
     ...(playoffSeeding ? { playoffSeeding } : {}),
     seedingTiebreaker: SEEDING_TIEBREAKER,
+    ...(thirdPlace ? { thirdPlace } : {}),
     tradeDeadline,
     tradeReview,
     ...(tradeReviewHours !== undefined ? { tradeReviewHours } : {}),
@@ -906,7 +935,7 @@ export function normalizeSleeperLeague(raw: SleeperRawLeague, ctx: SleeperNormal
 
   const scoringMap = mapSleeperScoring(league.scoring_settings);
   scoringMap.warnings.forEach(warn);
-  const { settings, notes, startable, playoffStart } = buildSettings(league, rosters, scoringMap.scoring, warn);
+  const { settings, notes, startable, playoffStart } = buildSettings(league, rosters, scoringMap.scoring, raw.winnersBracket, warn);
 
   const season = Number(league.season);
   if (ctx.requestedSeason !== undefined && ctx.requestedSeason !== season) warn({ code: "SEASON_MISMATCH", message: `You asked for ${ctx.requestedSeason}, but this Sleeper league is the ${season} season (Sleeper gives every season its own league ID).`, platformPath: "season" });

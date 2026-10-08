@@ -696,6 +696,15 @@ export interface SeasonOdds {
   /** Re-seeding after each round (true) or a fixed bracket, and whether it was assumed. */
   reseed: { value: boolean; assumed: boolean };
   /**
+   * Checkpoint 7c (planner reply to Checkpoint 7b, §6; season.ts "3rd place"): how 3rd place goes between the two
+   * semifinal losers: "game" (they play in the final round's weeks) or "bySeed" (the league has no such game: the
+   * better regular-season seed, ⚠️ ours); assumed = the league doesn't say, so a game is assumed. It matters only in a
+   * bracket with two semifinals (4+ playoff teams).
+   */
+  thirdPlace: { rule: "game" | "bySeed"; assumed: boolean };
+  /** Checkpoint 7c: the remaining weekly high-score periods simulated (0 unless the weekly prize pays: season.ts). */
+  highScorePeriods: number;
+  /**
    * False when a playoff round already played has no result, or when the league's own playoff schedule
    * pairs teams differently from the bracket built from the final standings: title and bye odds are then
    * unknown (null).
@@ -734,6 +743,20 @@ export interface TeamOdds {
    * tied at the playoff cut on what the platform reports isn't certainly out (season.ts).
    */
   eliminated: boolean;
+  // Checkpoint 7c (planner reply to Checkpoint 7b, §6, league prizes; sim.ts "Places, weekly high scores and the points
+  // leader"). benefit.ts weighs them by the league's prize shares.
+  /** P(2nd place: the final's loser; without playoffs, 2nd in the final standings). Null whenever pTitle is. */
+  pSecond: number | null;
+  /**
+   * P(3rd place: the 3rd-place game's winner, SeasonOdds.thirdPlace; with 3 playoff teams the lone semifinal's loser,
+   * with 2 seed 3, without playoffs 3rd in the final standings). Null whenever pTitle is, and when the 3rd-place game
+   * can't be known (its round over without a result).
+   */
+  pThird: number | null;
+  /** The expected number of weekly high scores over the remaining periods, ties split (0 when none are simulated). */
+  expHighScores: number;
+  /** P(the most points for at the end of the regular season), ties split. */
+  pPointsLeader: number;
 }
 
 export interface WeekOdds {

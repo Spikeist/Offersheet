@@ -64,6 +64,19 @@
  *   real remaining schedule"). A listed game between two teams outside our games of that round (a
  *   third-place game) says nothing either way. Byes: sim.ts always uses the bracket's own (next power of
  *   two − teams); the league's playoffByes only adds a note when it differs.
+ * - 3rd place (Checkpoint 7c; planner reply to Checkpoint 7b, §6: "simulate the 3rd-place game when the league has
+ *   one … If the data doesn't say, assume there's one"): settings.thirdPlace (the adapters read it: ESPN's schedule or
+ *   setting, Sleeper's winners bracket). game true → sim.ts "game" (the two semifinal losers play in the final round's
+ *   weeks); game false → "bySeed" (the better regular-season seed of the two, ⚠️ ours); absent → "game", assumed
+ *   (SeasonOdds.thirdPlace.assumed; the Import Report says so, not a note here). The adapters import no consolation
+ *   game (⚠️ the lead's call for 7c), so a 3rd-place game's result is never replayed: once the final round is over, 3rd
+ *   reads as unknown (only after the season).
+ * - Weekly high-score periods (only when asked: buildSimSetup's highScores, which the League model sets when the weekly
+ *   prize pays, since each period costs about 2.5% of a run): every remaining regular-season matchup period with a game
+ *   still to play, once (its NFL weeks: a matchup period of several weeks is one period, decided by its weeks still to
+ *   play, ⚠️ the points its first weeks already scored aren't read, as with its games); in a points-only league every
+ *   regular week still to score (the weeks it draws). High scores already won are left out: the same for every trade,
+ *   they never move a number we compute.
  * - Seeding: settings.playoffSeeding (re-seeding, division winners first); absent → a fixed bracket
  *   without division winners first, said to be assumed. The division rule alone is also said to be
  *   assumed when the adapter warns that it only infers it (DIVISION_RULE_ASSUMED: Sleeper's help center
@@ -78,7 +91,9 @@
  * The odds (seasonOdds): sim.ts's averages with NaN mapped to null (the page can't print NaN, and it
  * doesn't survive the worker boundary as a number); TeamOdds.rank from today's standings (sim.ts
  * standingsOrder); pBye null without byes or when the playoffs are unknown; pTitle null when they're
- * unknown or the league lists fewer playoff rounds than its bracket needs. WeekOdds: each remaining
+ * unknown or the league lists fewer playoff rounds than its bracket needs, and pSecond with it; pThird also
+ * null when the 3rd-place game can't be known (sim.ts thirdKnown); expHighScores (0 without high-score periods) and
+ * pPointsLeader always known (Checkpoint 7c: benefit.ts weighs them by the league's prizes). WeekOdds: each remaining
  * regular week with games to simulate, one entry per team with a matchup starting that week (a bye: no
  * opponent, no win chance) or a median game.
  *
@@ -154,6 +169,11 @@ export interface SimSetupResult {
    * divisionWinnersFirst is assumed (no playoff seeding at all, or the adapter's warning: DIVISION_RULE_ASSUMED).
    */
   divisionRuleAssumed: boolean;
+  /**
+   * Checkpoint 7c (the file header's "3rd place"): how the two semifinal losers' place is decided (the setup's
+   * thirdPlace), and whether that was assumed (settings.thirdPlace absent: the league doesn't say).
+   */
+  thirdPlace: { rule: "game" | "bySeed"; assumed: boolean };
   /**
    * False when a decided playoff game has no readable winner, or when the league's own playoff schedule
    * pairs teams differently from the bracket built from the final standings: bye and title odds are then
@@ -333,8 +353,9 @@ export function oddsSkippedWarning(snapshot: LeagueSnapshot, model: Pick<LeagueM
 /**
  * The season simulation's setup from a snapshot and its League model (the file header); null when nothing
  * is left to simulate, or when the rest of the regular season has no schedule (oddsSkippedWarning).
+ * `highScores` lists the weekly high-score periods (the file header; default off): it changes no other number.
  */
-export function buildSimSetup(snapshot: LeagueSnapshot, model: SeasonModel): SimSetupResult | null {
+export function buildSimSetup(snapshot: LeagueSnapshot, model: SeasonModel, opts: { highScores?: boolean } = {}): SimSetupResult | null {
   if (model.weeks.length === 0 || oddsSkippedWarning(snapshot, model) !== null) return null;
   const { settings } = snapshot;
   const pointsOnly = settings.pointsOnly;
@@ -480,6 +501,9 @@ export function buildSimSetup(snapshot: LeagueSnapshot, model: SeasonModel): Sim
   const divisionRuleAssumed = divisionList.length >= 2 && (seeding === undefined || divisionRuleWarned(snapshot));
   const tiebreaker = settings.seedingTiebreaker ?? "pointsFor";
   const tiebreakerAssumed = settings.seedingTiebreaker === undefined;
+  // 3rd place (the file header): the league's answer, else a game, assumed.
+  const thirdGame = settings.thirdPlace?.game;
+  const thirdPlace: SimSetupResult["thirdPlace"] = { rule: thirdGame === false ? "bySeed" : "game", assumed: typeof thirdGame !== "boolean" };
 
   // Drawn weeks: remaining games (their model weeks), median weeks, points-only regular weeks still to
   // score (not a week whose matchups are all decided: its points are in points for), playoff rounds still to play.
@@ -523,6 +547,19 @@ export function buildSimSetup(snapshot: LeagueSnapshot, model: SeasonModel): Sim
     if (left.length > 0 && left.length < r.weeks.length) notes.push(`The playoff round of weeks ${r.weeks[0]}–${r.weeks.at(-1)} is under way: only its weeks still to play are simulated.`);
   }
 
+  // Weekly high-score periods, when asked (the file header): each remaining matchup period with a game to play once
+  // (its weeks are drawn already, as that game's), or in a points-only league each regular week still to score.
+  let highScorePeriods: number[][] | undefined;
+  if (opts.highScores === true) {
+    const byKey = new Map<string, number[]>();
+    if (pointsOnly) {
+      for (const w of model.regularWeeks) if (drawn.has(w)) byKey.set(String(w), [w]);
+    } else {
+      for (const g of games) if (g.b !== null && !byKey.has(g.weeks.join())) byKey.set(g.weeks.join(), [...g.weeks]);
+    }
+    highScorePeriods = [...byKey.values()].sort((x, y) => (x[0] as number) - (y[0] as number));
+  }
+
   const setup: SimSetup = {
     teams,
     weeks,
@@ -539,6 +576,8 @@ export function buildSimSetup(snapshot: LeagueSnapshot, model: SeasonModel): Sim
     divisionWinnersFirst,
     tiebreaker,
     playoffResults,
+    thirdPlace: thirdPlace.rule,
+    ...(highScorePeriods ? { highScorePeriods } : {}),
   };
 
   // The league's own playoff schedule (the file header): once the standings are final, a winners'-bracket game it
@@ -594,6 +633,7 @@ export function buildSimSetup(snapshot: LeagueSnapshot, model: SeasonModel): Sim
     tiebreakerAssumed,
     reseedAssumed,
     divisionRuleAssumed,
+    thirdPlace,
     playoffsKnown: unreadablePlayoffs === 0 && bracketMatches,
     regularSeasonOver,
     resultsLeft,
@@ -679,14 +719,15 @@ function eliminatedTeams(built: SimSetupResult): boolean[] {
  * on pickupSeasonModel(model) (league.ts step 8b), the trade context's baseline on the same (evaluate.ts). The setup
  * from buildSimSetup, `sims` seasons (default config.simulation.finalSims) on the common-random-numbers matrix of
  * `seed` (default config.simulation.seed), or on `normals` when given (both League model odds share it, and so do a
- * trade's "before" and "after"). Null when nothing is left to simulate, when the rest of the regular season has no
- * schedule (oddsSkippedWarning gives the warning), or when `sims` is below 1.
+ * trade's "before" and "after"). `highScores` adds the weekly high-score periods (buildSimSetup; off by default: they
+ * cost about 2.5% of a run each and change no other number). Null when nothing is left to simulate, when the rest of the
+ * regular season has no schedule (oddsSkippedWarning gives the warning), or when `sims` is below 1.
  */
-export function seasonOdds(snapshot: LeagueSnapshot, model: SeasonModel, opts: { sims?: number; seed?: number; normals?: SimNormals } = {}, cfg: SeasonConfig = config): SeasonOdds | null {
+export function seasonOdds(snapshot: LeagueSnapshot, model: SeasonModel, opts: { sims?: number; seed?: number; normals?: SimNormals; highScores?: boolean } = {}, cfg: SeasonConfig = config): SeasonOdds | null {
   const sims = Math.floor(opts.sims ?? cfg.simulation.finalSims);
   if (!(sims >= 1)) return null;
   const seed = opts.seed ?? cfg.simulation.seed;
-  const built = buildSimSetup(snapshot, model);
+  const built = buildSimSetup(snapshot, model, { highScores: opts.highScores === true });
   if (!built) return null;
   const { setup, teamIds } = built;
   const res = simulateSeason(setup, { sims, seed, ...(opts.normals ? { normals: opts.normals } : {}) });
@@ -710,6 +751,10 @@ export function seasonOdds(snapshot: LeagueSnapshot, model: SeasonModel, opts: {
     expTies: o.expTies,
     seedDist: [...o.seedDist],
     eliminated: eliminated[t] as boolean,
+    pSecond: playoffsKnown ? known(o.pSecond) : null,
+    pThird: playoffsKnown && res.thirdKnown ? known(o.pThird) : null,
+    expHighScores: o.expHighScores,
+    pPointsLeader: o.pPointsLeader,
   }));
 
   // Each remaining week's matchups: a game's opponent in its first drawn week; a bye in its first drawn week.
@@ -753,6 +798,8 @@ export function seasonOdds(snapshot: LeagueSnapshot, model: SeasonModel, opts: {
     byes,
     tiebreaker: { rule: setup.tiebreaker, assumed: built.tiebreakerAssumed },
     reseed: { value: setup.reseed, assumed: built.reseedAssumed },
+    thirdPlace: { ...built.thirdPlace },
+    highScorePeriods: setup.highScorePeriods?.length ?? 0,
     playoffsKnown,
     teams,
     weekly,

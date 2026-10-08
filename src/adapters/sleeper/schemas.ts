@@ -132,6 +132,22 @@ export const TransactionSchema = z.object({
 });
 export type SleeperTransaction = z.infer<typeof TransactionSchema>;
 
+/**
+ * One match of /league/{id}/winners_bracket (Checkpoint 7c; planner reply to Checkpoint 7b, §6: whether the league plays for
+ * 3rd place). Sleeper's fields: r (the round), m (the match's number), t1 and t2 (the rosters, null until known), w and l
+ * (the winner and loser), t1_from and t2_from (the match whose winner or loser fills each side) and p, the place the match
+ * decides (1 the final, 3 the 3rd-place game, 5 …), absent on the other matches (✅ the test league's captures, and the 71
+ * brackets of earlier seasons Phase 0 crawled, git-ignored fixtures/raw/sleeper-codes). Only p is read (normalize.ts
+ * thirdPlaceOf), with r and m to tell a match from anything else; the rest is left out (the browser's upload doesn't carry
+ * the rosters).
+ */
+export const BracketMatchSchema = z.object({
+  r: z.number(),
+  m: z.number(),
+  p: z.number().nullish(),
+});
+export type SleeperBracketMatch = z.infer<typeof BracketMatchSchema>;
+
 export const DraftSchema = z.object({
   draft_id: id,
   season: z.union([z.string(), z.number()]).transform(String),

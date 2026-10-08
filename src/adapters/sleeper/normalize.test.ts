@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { LeagueImportError } from "@/adapters/types";
 import type { SleeperPlayerLite } from "@/data/types";
-import { POSITIONS, type LeagueSnapshot } from "@/engine/model";
+import { POSITIONS, type ImportWarning, type LeagueSnapshot } from "@/engine/model";
 import { expectedPoints } from "@/engine/scoring";
 import {
   FREE_AGENTS_PER_POSITION,
@@ -17,6 +17,7 @@ import {
   normalizeSleeperLeague,
   playoffLayout,
   sleeperPos,
+  thirdPlaceOf,
   waiverRankOf as sleeperWaiverRankOf,
   type SleeperNormalizeContext,
 } from "./normalize";
@@ -864,6 +865,57 @@ describe("normalizeSleeperLeague: the waiver order and remaining FAAB budgets (P
     expect(sleeperFaabRemainingOf(100, 120)).toBeUndefined();
     expect(sleeperFaabRemainingOf(undefined, 30)).toBeUndefined();
     expect(sleeperFaabRemainingOf(100, null)).toBeUndefined();
+  });
+});
+
+describe("the 3rd-place game from the winners bracket (Checkpoint 7c; planner reply to Checkpoint 7b, §6)", () => {
+  const warnings = () => {
+    const out: ImportWarning[] = [];
+    return { out, warn: (w: ImportWarning) => out.push(w) };
+  };
+
+  it("the test league's bracket has a match for 3rd place (p 3): the semifinal losers play for it", () => {
+    const t = loadTestLeague();
+    expect(t.winnersBracket.filter((m) => m.p !== undefined).map((m) => m.p)).toEqual([5, 1, 3]);
+    const r = run(t);
+    expect(r.snapshot.settings.thirdPlace).toEqual({ game: true, basis: "bracket" });
+    expect(codes(r)).not.toContain("WINNERS_BRACKET_UNREADABLE");
+  });
+
+  it("a bracket without a match for 3rd place → no game; an empty, missing or null bracket → unknown (the simulator assumes one)", () => {
+    const t = loadTestLeague();
+    const noThird = t.winnersBracket.filter((m) => m.p !== 3);
+    for (const [bracket, want] of [
+      [noThird, { game: false, basis: "bracket" }],
+      [[], undefined],
+      [undefined, undefined],
+      [null, undefined],
+    ] as const) {
+      const w = warnings();
+      expect(thirdPlaceOf(bracket, w.warn)).toEqual(want);
+      expect(w.out).toEqual([]);
+    }
+    // Through the normalizer: the setting is left out, never undefined-valued.
+    t.winnersBracket = noThird;
+    expect(run(t).snapshot.settings.thirdPlace).toEqual({ game: false, basis: "bracket" });
+    t.winnersBracket = [];
+    expect("thirdPlace" in run(t).snapshot.settings).toBe(false);
+  });
+
+  it("skips rows that don't fit with a technical warning: a 3rd-place match among the rest still counts; without one, 3rd place is unknown", () => {
+    const t = loadTestLeague();
+    const odd = { r: "3", m: 9 }; // a round that isn't a number
+    const withThird = warnings();
+    expect(thirdPlaceOf([...t.winnersBracket, odd], withThird.warn)).toEqual({ game: true, basis: "bracket" });
+    expect(withThird.out).toEqual([{ code: "WINNERS_BRACKET_UNREADABLE", message: "1 row(s) of the playoff bracket didn't have the expected shape and were skipped.", platformPath: "winners_bracket[7].r" }]);
+    // The skipped row could be the 3rd-place match: unknown, not "no".
+    const without = warnings();
+    expect(thirdPlaceOf([...t.winnersBracket.filter((m) => m.p !== 3), { ...odd, p: 3 }], without.warn)).toBeUndefined();
+    expect(without.out.map((x) => x.code)).toEqual(["WINNERS_BRACKET_UNREADABLE"]);
+    // A body that isn't a list at all: unknown, warned at its root.
+    const notList = warnings();
+    expect(thirdPlaceOf({ bracket: [] }, notList.warn)).toBeUndefined();
+    expect(notList.out).toEqual([expect.objectContaining({ code: "WINNERS_BRACKET_UNREADABLE", platformPath: "winners_bracket(root)" })]);
   });
 });
 

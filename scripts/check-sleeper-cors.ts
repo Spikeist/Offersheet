@@ -6,14 +6,15 @@
  * Sends ONE plain GET (a "simple request": no custom headers, so no preflight) per endpoint, with an
  * Origin header (what a browser adds to a cross-origin fetch), and records the CORS response
  * headers. Endpoints: two league-independent ones (/v1/state/nfl and the undocumented /projections
- * host path, one position) and two league endpoints a browser import needs (/v1/league/{leagueId}
- * and /v1/league/{leagueId}/rosters) for the PINNED public test league (its ID is read from the
- * git-ignored fixtures/raw/sleeper/fallback-league.json and never printed or written). That is 4
- * requests; the other league endpoints (users, matchups, transactions, traded_picks, drafts) and the
- * /user lookups share the same host and API and are NOT checked (inferred, ⚠️).
+ * host path, one position) and three league endpoints a browser import needs (/v1/league/{leagueId},
+ * /v1/league/{leagueId}/rosters and, since Checkpoint 7c, /v1/league/{leagueId}/winners_bracket) for
+ * the PINNED public test league (its ID is read from the git-ignored
+ * fixtures/raw/sleeper/fallback-league.json and never printed or written). That is 5 requests; the
+ * other league endpoints (users, matchups, transactions, traded_picks, drafts) and the /user lookups
+ * share the same host and API and are NOT checked (inferred, ⚠️).
  *
  * `--preflight` also sends an OPTIONS preflight for an endpoint whose GET allows no other origin, to
- * tell "no CORS at all" from "CORS on preflight only". Without it, the run makes exactly 4 requests.
+ * tell "no CORS at all" from "CORS on preflight only". Without it, the run makes exactly 5 requests.
  *
  * Writes reports/probe-output/sleeper-cors.md (placeholders only: the league ID appears as
  * {leagueId}; no bodies).
@@ -85,9 +86,12 @@ export function endpointsToCheck(leagueId: string | undefined): Endpoint[] {
     { purpose: "weekly projections (undocumented host path, league-independent)", shown: "https://api.sleeper.app/projections/nfl/2026/4?season_type=regular&position[]=K", url: "https://api.sleeper.app/projections/nfl/2026/4?season_type=regular&position[]=K" },
   ];
   if (leagueId) {
+    // The winners bracket since Checkpoint 7c (the 3rd-place game; planner reply to Checkpoint 7b, §6): ✅ verified live by
+    // the lead on 2026-10-07 on the pinned league (200, Access-Control-Allow-Origin *), before the browser read it.
     for (const [purpose, suffix] of [
       ["league settings and scoring", ""],
       ["rosters", "/rosters"],
+      ["playoff bracket", "/winners_bracket"],
     ] as const)
       list.push({ purpose: `${purpose} (pinned public test league)`, shown: `https://api.sleeper.app/v1/league/${LEAGUE_PLACEHOLDER}${suffix}`, url: `https://api.sleeper.app/v1/league/${leagueId}${suffix}` });
   }
@@ -170,7 +174,7 @@ async function main(): Promise<void> {
 
 // Run only as a script (an exact path: scripts/lib/runMode.ts isMainModule), and only with --live.
 if (isMainModule(import.meta.url)) {
-  requireLive({ script: "check:sleeper-cors", what: "sends 4 requests to Sleeper" });
+  requireLive({ script: "check:sleeper-cors", what: "sends 5 requests to Sleeper" });
   main().catch((err: unknown) => {
     const leagueId = (() => {
       try {

@@ -17,7 +17,7 @@
  * - Every body is parsed with bigIntsAsStrings: Sleeper sends a few 19-digit IDs as bare numbers.
  * - 404 / 400 / a literal `null` body → *_NOT_FOUND; 5xx, 429 and network failures (after the
  *   client's retries) → SOURCE_DOWN; a body that isn't JSON → BAD_RESPONSE. Optional endpoints
- *   (matchups, transactions, picks, drafts) degrade to warnings instead.
+ *   (matchups, transactions, picks, drafts, the winners bracket) degrade to warnings instead.
  *
  * Browser-safe: no node: imports and no server modules (./normalize.ts is read for its types only).
  */
@@ -54,6 +54,8 @@ export const sleeperUrls = {
   transactions: (id: string, leg: number) => `${SLEEPER_API}/league/${id}/transactions/${leg}`,
   tradedPicks: (id: string) => `${SLEEPER_API}/league/${id}/traded_picks`,
   drafts: (id: string) => `${SLEEPER_API}/league/${id}/drafts`,
+  /** The playoff bracket (Checkpoint 7c): read for its 3rd-place game only (./normalize.ts thirdPlaceOf). */
+  winnersBracket: (id: string) => `${SLEEPER_API}/league/${id}/winners_bracket`,
   /** Undocumented; repeated position[] combines positions (verified in Phase 0). */
   projections: (season: number, week: number, positions: readonly string[]) =>
     `${SLEEPER_PROJECTIONS}/${season}/${week}?season_type=regular&${positions.map((p) => `position[]=${encodeURIComponent(p)}`).join("&")}`,
@@ -320,11 +322,15 @@ export async function fetchSleeperLeagueData(req: SleeperImportRequest, http: Ht
   const currentLeg = seasonOver ? LAST_NFL_WEEK + 1 : Math.max(1, num(s, "leg") || state.week);
   const policyFor = (week: number) => (week < currentLeg - 1 ? policies.closedWeek : undefined);
 
-  const [matchupList, txList, tradedPicks, drafts] = await Promise.all([
+  // The winners bracket last (Checkpoint 7c; planner reply to Checkpoint 7b, §6): optional like the picks, so a bracket that
+  // can't be read, or an upload from a browser bundle older than it (the replay answers "no response"), leaves 3rd place
+  // unknown, never a failed import.
+  const [matchupList, txList, tradedPicks, drafts, winnersBracket] = await Promise.all([
     Promise.all(weeks.map((w) => g.optional(sleeperUrls.matchups(id, w), `matchups/${w}`, "MATCHUPS_MISSING", policyFor(w)))),
     Promise.all(legs.map((l) => g.optional(sleeperUrls.transactions(id, l), `transactions/${l}`, "TRANSACTIONS_MISSING", policyFor(l)))),
     g.optional(sleeperUrls.tradedPicks(id), "traded_picks", "TRADED_PICKS_MISSING"),
     g.optional(sleeperUrls.drafts(id), "drafts", "DRAFTS_MISSING"),
+    g.optional(sleeperUrls.winnersBracket(id), "winners_bracket", "WINNERS_BRACKET_MISSING"),
   ]);
 
   const matchups: Record<number, unknown> = {};
@@ -339,7 +345,7 @@ export async function fetchSleeperLeagueData(req: SleeperImportRequest, http: Ht
   return {
     leagueId,
     ...(userId ? { userId } : {}),
-    raw: { state: stateJson, league: leagueJson, users, rosters, matchups, transactions, tradedPicks, drafts },
+    raw: { state: stateJson, league: leagueJson, users, rosters, matchups, transactions, tradedPicks, drafts, winnersBracket },
     warnings,
     ...(g.oldestFetch() !== undefined ? { fetchedAt: g.oldestFetch() } : {}),
     state,

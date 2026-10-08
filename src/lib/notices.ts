@@ -168,6 +168,10 @@ export const WARNING_RULES: Readonly<Record<string, WarningRule>> = {
   USER_NOT_IN_LEAGUE: "team",
   WAIVER_RESET_BEFORE_GAMES: "technical",
   WAIVER_TYPE_UNKNOWN: "technical",
+  // Checkpoint 7c: the winners bracket, read for 3rd place only; when it can't be, the Import Report's "3rd-place game" row
+  // says a game is assumed.
+  WINNERS_BRACKET_MISSING: "technical",
+  WINNERS_BRACKET_UNREADABLE: "technical",
   // The player-ID crosswalk (src/data/crosswalk.ts), on every import: its gaps show as the players they leave without data.
   ID_SOURCE_PARTIAL: "technical",
   ID_SOURCE_UNAVAILABLE: "technical",

@@ -21,7 +21,7 @@
  * scoring rules, transactions), the adapters hold the league's own numbers that drive their loops to real ranges, and
  * the replay answers no more requests than an honest read could ask.
  */
-import { DraftSchema, LeagueListItemSchema, LeagueSchema as SleeperLeagueSchema, LeagueUserSchema, MatchupSchema, RosterSchema, StateSchema, TradedPickSchema, TransactionSchema as SleeperTransactionSchema, UserSchema } from "./sleeper/schemas";
+import { BracketMatchSchema, DraftSchema, LeagueListItemSchema, LeagueSchema as SleeperLeagueSchema, LeagueUserSchema, MatchupSchema, RosterSchema, StateSchema, TradedPickSchema, TransactionSchema as SleeperTransactionSchema, UserSchema } from "./sleeper/schemas";
 import { LeagueSchema as EspnLeagueSchema, PlayerCardSchema, PlayerListResponseSchema, PoolPlayerSchema, TransactionSchema as EspnTransactionSchema, TransactionsResponseSchema } from "./espn/schema";
 import { ESPN_READS_BASE, FILTER_HEADER, LEAGUE_VIEWS } from "./espn/leagueData";
 import { SLEEPER_API } from "./sleeper/leagueData";
@@ -224,6 +224,9 @@ const SLEEPER_BODIES: ReadonlyArray<[RegExp, (json: unknown) => unknown]> = [
   [/^\/v1\/league\/\d+\/transactions\/\d+$/, (j) => rows(SleeperTransactionSchema, j)],
   [/^\/v1\/league\/\d+\/traded_picks$/, (j) => rows(TradedPickSchema, j)],
   [/^\/v1\/league\/\d+\/drafts$/, (j) => rows(DraftSchema, j)],
+  // Checkpoint 7c (planner reply to Checkpoint 7b, §6): the playoff bracket, each match kept as its round, number and the
+  // place it decides (no rosters). An older bundle's upload simply lacks it: the replay reads it as no answer.
+  [/^\/v1\/league\/\d+\/winners_bracket$/, (j) => rows(BracketMatchSchema, j)],
 ];
 
 /** The ESPN views the league-data half reads (src/adapters/espn/leagueData.ts requests 1–4). */
@@ -233,8 +236,9 @@ const ESPN_LEAGUE_PATH = /^\/apis\/v3\/games\/ffl\/seasons\/\d{4}\/segments\/0\/
 /**
  * Whether an address is one of the league-data reads the browser path makes (pure): ESPN's league views (the league,
  * transactions, free agents, player cards) and Sleeper's league-data paths (the NFL state, a user and their leagues, a
- * league and its users, rosters, matchups, transactions, traded picks and drafts). Anything else on those hosts
- * (projections, stats, the players list, the NFL schedule) is the server's to read (review BF-R6: check:browser flags it).
+ * league and its users, rosters, matchups, transactions, traded picks, drafts and, since Checkpoint 7c, its winners
+ * bracket). Anything else on those hosts (projections, stats, the players list, the NFL schedule) is the server's to read
+ * (review BF-R6: check:browser flags it).
  */
 export function isLeagueDataRead(url: string): boolean {
   let u: URL;

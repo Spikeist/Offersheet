@@ -66,7 +66,7 @@ export function isPlatformRead(url: string): boolean {
  * The path words of the platform reads the app makes (src/adapters/sleeper/leagueData.ts sleeperUrls), and of Sleeper's
  * public data the server reads (so a request the browser shouldn't make says what it was); anything else is an id.
  */
-const PATH_WORDS = new Set(["v1", "league", "leagues", "user", "nfl", "state", "users", "rosters", "matchups", "transactions", "traded_picks", "drafts", "projections", "stats", "players"]);
+const PATH_WORDS = new Set(["v1", "league", "leagues", "user", "nfl", "state", "users", "rosters", "matchups", "transactions", "traded_picks", "drafts", "winners_bracket", "projections", "stats", "players"]);
 
 /**
  * A platform read in words without any id (pure): the method, the host and what was read: ESPN's views ("view=mSettings,

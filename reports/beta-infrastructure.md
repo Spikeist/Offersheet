@@ -50,7 +50,12 @@ checked Upstash's console on 2026-10-05).
 - **The Vercel WAF** (production's first layer; reply §2 question 7): rate limiting is on Hobby: 1 rule, a fixed
   window of 10 s to 10 minutes, keyed by IP or JA4, 1,000,000 requests included (✅ Vercel's docs, "WAF Rate Limiting",
   updated 2026-08-28, read 2026-10-05). The plan, set at
-  launch: one rule on `/api/*` by IP, about 60–80 requests per 10 minutes (7a's figure), answering 429 over the limit:
+  launch: one rule on `/api/*` by IP, 80 requests per 10 minutes (7a's "about 60–80", confirmed at Checkpoint 7c,
+  planner reply to Checkpoint 7b, §4: above every route's own limit, import 30, model 30, session 20, health 12, cron
+  10 per 10 minutes and feedback 60 an hour and 30 a day, so a user who overuses any one of them gets the app's own
+  answer first; a normal session makes 3–8 `/api` requests, 12 with every fallback, and a 10-league Sleeper batch
+  about 21; ⚠️ only a mix of every kind past 80, or many people behind one address, meets the firewall first, and its
+  429 then reads the same "You're going a bit fast"), answering 429 over the limit:
   never Deny (a 403, which the app shows as "Something went wrong on our side", and a browser read whose upload gets
   it tries again through the server) and never a challenge (it sets Vercel's `_vcrcs` cookie, which the privacy page's
   cookie line doesn't cover). In the same step (Parker, 2026-10-07), a second custom rule denies Vercel's image
@@ -59,6 +64,16 @@ checked Upstash's console on 2026-10-05).
   paths and `w=64` a 605-byte one on `/_vercel/image`; `w=33` on `/_next/image` and `icon.svg` on `/_vercel/image`
   got 400).
   Hobby allows 3 custom rules; these are 2 of them. The steps: "Launch-day steps" below.
+- **⚠️ The firewall counts what the app refuses** (Checkpoint 7c's review of the limit; `reports/security-review.md`,
+  finding 15): `withRoute` refuses a cross-site request before counting it (BAD_ORIGIN; `route.test.ts`: "another
+  site's `<img>` GETs can't lock a visitor out"), but the firewall counts it first, so a page on another site could
+  make a visitor's browser send 80 requests to `/api/health` and lock that visitor out of `/api` for up to 10 minutes.
+  A third custom rule above the rate limit stops them at the edge: if *Request Path* starts with `/api/` AND *Request
+  Header* `sec-fetch-site` equals `cross-site`, then *Deny* (⚠️ that a rule above it keeps them out of the rate
+  limit's count is read from Vercel's rule order, not tried). Browsers always send `Sec-Fetch-Site`; the cron, `vercel
+  curl`, `prod:deploy`'s checks and other scripts send none, so they're unaffected, and the app's own pages ask
+  `/api` same-origin. Hobby's 3 custom rules would then all be used. A planner question at Checkpoint 7c; the
+  launch-day steps carry it as optional (step 2).
 
 ## Health check, usage counters and the snapshot cron (7b)
 
@@ -164,7 +179,7 @@ one per line, in the project folder. (Upstash, the protection check and the phon
    npm run vercel:secret -- --live --env production
    npm run vercel:secret -- --live --name CRON_SECRET
    ```
-2. **Both firewall rules, in one sitting** (Vercel → offersheet → Firewall → Configure → New Rule, once per rule; then
+2. **The firewall rules, in one sitting** (Vercel → offersheet → Firewall → Configure → New Rule, once per rule; then
    review and publish the changes):
    - **"API rate limit":** if *Request Path* starts with `/api/`, then *Rate Limit*: fixed window, 10 minutes, 80
      requests, keyed by IP; over the limit, *Too Many Requests (429)*. Not *Deny* (a 403, which the app shows as
@@ -173,6 +188,9 @@ one per line, in the project folder. (Upstash, the protection check and the phon
    - **"Block image optimizer":** if *Request Path* starts with `/_next/image`, OR *Request Path* starts with
      `/_vercel/image`, then *Deny*. The app doesn't use Vercel's image optimizer (`reports/security-review.md`,
      finding 8).
+   - **Optional, only if the planner says yes at Checkpoint 7c: "Deny cross-site API requests"**, placed above "API
+     rate limit": if *Request Path* starts with `/api/` AND *Request Header* `sec-fetch-site` equals `cross-site`, then
+     *Deny* (finding 15: so another site can't use up a visitor's 80).
 3. **Next:** on the latest 16.3.x patch (`npm outdated next`). A newer patch means stop: it needs a commit and a new
    approved tag, so launch on `checkpoint-7c` with the patch next, or wait for the new tag's approval.
 4. **The dry run** (it uploads nothing):

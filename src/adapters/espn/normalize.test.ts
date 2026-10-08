@@ -6,7 +6,7 @@ import type { CrosswalkConflict, PlayerIdResolver } from "@/data/types";
 import { irEligibleStatuses } from "@/engine/irSlots";
 import type { LeagueSnapshot } from "@/engine/model";
 import { readMinFixture } from "@/test-utils/fixtures";
-import { ESPN_IR_ELIGIBLE, FREE_AGENTS_PER_POSITION, faabRemainingOf, idOverrideNote, normalizeEspnLeague, normalizeSwid, waiverRankOf, type EspnRawBundle } from "./normalize";
+import { ESPN_IR_ELIGIBLE, FREE_AGENTS_PER_POSITION, faabRemainingOf, idOverrideNote, normalizeEspnLeague, normalizeSwid, thirdPlaceOf, waiverRankOf, type EspnRawBundle } from "./normalize";
 import { FA_POSITIONS, LABELS, NOW, PARKER, PUBLIC, REFILL, expectedTransactionTypes, fakeResolver, parkerBundle, readCross, readEspn, type PublicTradeAcquisitions, type RefillFixture } from "./test-helpers";
 import { weekOfInstant, weekWindows } from "./weeks";
 
@@ -109,6 +109,13 @@ describe("normalizeEspnLeague on Parker's league (sanitized fixtures)", () => {
     expect(s.settings).toMatchObject({ playoffTeams: 6, playoffByes: 2, playoffSeeding: { reseed: false, divisionWinnersFirst: false } });
     expect(s.settings.playoffRoundWeeks).toBeUndefined();
     expect(s.settings.tradeDeadline).toEqual({ date: "2026-12-02T17:00:00.000Z", week: 13 });
+  });
+
+  it("reads 3rd place from ESPN's consolation-ladder setting while its playoff schedule isn't set (Checkpoint 7c: the ladder is on)", () => {
+    expect(readEspn<Json>(LABELS.league).settings.scheduleSettings.consolationLadderDisabled).toBe(false);
+    expect(s.schedule.some((m) => m.isPlayoff)).toBe(false); // no playoff row yet
+    expect(s.settings.thirdPlace).toEqual({ game: true, basis: "setting" });
+    expect(notes).toContain("3rd place: ESPN's playoff schedule lists no 3rd-place game yet, and its consolation ladder is on (consolationLadderDisabled false), read as the two semifinal losers playing for 3rd (our reading, seen in one league's playoff schedule).");
   });
 
   it("builds teams with placeholder names and owners, records and points", () => {
@@ -380,6 +387,11 @@ describe("normalizeEspnLeague on the public test league (minimized fixture: TQB 
     expect(s.myTeamId).toBeNull();
     expect(s.freeAgents).toEqual([]);
   });
+
+  it("keeps its consolation-ladder setting (on), read as a 3rd-place game (Checkpoint 7c)", () => {
+    expect(league.settings.scheduleSettings.consolationLadderDisabled).toBe(false);
+    expect(s.settings.thirdPlace).toEqual({ game: true, basis: "setting" });
+  });
 });
 
 describe("the waiver order and remaining FAAB budgets (Phase 4b: one free agent, one team)", () => {
@@ -633,6 +645,49 @@ describe("normalizeEspnLeague edge cases", () => {
     expect(s.schedule.filter((m) => m.week === 15)).toEqual([]);
     expect(notes.join("\n")).toMatch(/1 consolation-bracket game/);
     expect(s.warnings.find((w) => w.code === "ESPN_MULTIWEEK_MATCHUPS")?.message).toBe("Some regular-season matchups span several NFL weeks (period 14: weeks 14+15); each is listed once, with all its weeks.");
+  });
+
+  it("reads 3rd place from the final playoff period's consolation-ladder game once ESPN lists it (the row stays out of the schedule), else from the ladder setting, else unknown (Checkpoint 7c)", () => {
+    const withRows = (rows: Json[], ladderDisabled: boolean | null | undefined, playoffTeams?: number) => {
+      const league = base();
+      if (ladderDisabled === undefined) delete league.settings.scheduleSettings.consolationLadderDisabled;
+      else league.settings.scheduleSettings.consolationLadderDisabled = ladderDisabled;
+      if (playoffTeams !== undefined) league.settings.scheduleSettings.playoffTeamCount = playoffTeams;
+      league.schedule.push(...rows);
+      return run(league);
+    };
+    const thirdNotes = (notes: readonly string[]) => notes.filter((n) => n.startsWith("3rd place:"));
+    // Parker's league's final period is 17: ESPN lists the final and, in its ladder, the semifinal losers' game.
+    const final = { matchupPeriodId: 17, home: { teamId: 1 }, away: { teamId: 2 }, playoffTierType: "WINNERS_BRACKET" };
+    const third = { matchupPeriodId: 17, home: { teamId: 3 }, away: { teamId: 4 }, playoffTierType: "WINNERS_CONSOLATION_LADDER" };
+    const listed = withRows([final, third], true); // the schedule wins over the setting
+    expect(listed.snapshot.settings.thirdPlace).toEqual({ game: true, basis: "schedule" });
+    expect(listed.snapshot.schedule.filter((m) => m.week === 17)).toEqual([{ week: 17, teamA: "1", teamB: "2", isPlayoff: true }]);
+    expect(listed.notes.join("\n")).toMatch(/1 consolation-bracket game/);
+    expect(thirdNotes(listed.notes)).toEqual([]);
+    // Another period's ladder game, a ladder row with one team, the losers' ladder, or the final alone: the setting decides.
+    for (const rows of [[{ ...third, matchupPeriodId: 16 }], [{ ...third, away: undefined }], [{ ...third, playoffTierType: "LOSERS_CONSOLATION_LADDER" }], [final]]) {
+      expect(withRows(rows, true).snapshot.settings.thirdPlace).toEqual({ game: false, basis: "setting" });
+      expect(withRows(rows, false).snapshot.settings.thirdPlace).toEqual({ game: true, basis: "setting" });
+    }
+    // The ladder off: no game, our reading, said in the notes (the ladder on: Parker's league's own test above).
+    const off = withRows([], true);
+    expect(off.snapshot.settings.thirdPlace).toEqual({ game: false, basis: "setting" });
+    expect(thirdNotes(off.notes)).toEqual(["3rd place: ESPN's playoff schedule lists no 3rd-place game yet, and its consolation ladder is off (consolationLadderDisabled true), read as no 3rd-place game: the better seed of the two semifinal losers is taken as 3rd (our reading)."]);
+    // Missing or null (an upload from an older bundle comes without it): unknown, left out, a game assumed.
+    for (const missing of [undefined, null]) {
+      const r = withRows([], missing);
+      expect("thirdPlace" in r.snapshot.settings).toBe(false);
+      expect(thirdNotes(r.notes)).toEqual(["3rd place: ESPN's league data doesn't say whether the two semifinal losers play for 3rd (its playoff schedule lists no 3rd-place game yet, and its consolation-ladder setting wasn't read), so a 3rd-place game is assumed."]);
+    }
+    // Fewer than 4 playoff teams: no semifinals, so no note (the setting is still kept as read).
+    const small = withRows([], false, 2);
+    expect(small.snapshot.settings.thirdPlace).toEqual({ game: true, basis: "setting" });
+    expect(thirdNotes(small.notes)).toEqual([]);
+    // No playoff period at all: the setting decides whatever the rows say.
+    expect(thirdPlaceOf([third as never], false, undefined, [])).toEqual({ game: true, basis: "setting" });
+    expect(thirdPlaceOf([third as never], true, undefined, [])).toEqual({ game: false, basis: "setting" });
+    expect(thirdPlaceOf(undefined, undefined, 17, [])).toBeUndefined();
   });
 
   it("reads results: HOME, AWAY and TIE (ESPN's verdict, also when its tie rule broke a tie), UNDECIDED or missing → neither decided nor a result, a multi-week period's total, a bye never won", () => {

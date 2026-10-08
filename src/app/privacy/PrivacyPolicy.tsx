@@ -50,7 +50,8 @@ const A = "font-semibold underline underline-offset-2";
  *     session stops working then), through src/app/api/session/espn (connect, forget); no browser code writes a cookie.
  *   - Reading a league (with browserReads): src/lib/browserHttp.ts (credentials "omit"), src/lib/leagueFetch.ts and the
  *     upload's parts (src/app/api/_lib/upload.ts: the league's settings, members, rosters, matchups and transactions,
- *     ESPN's free agents, projections and player cards, Sleeper's traded picks and drafts and the username); the server
+ *     ESPN's free agents, projections and player cards, Sleeper's traded picks, drafts and playoff bracket (since
+ *     Checkpoint 7c, each match's round, number and place only) and the username); the server
  *     never caches browser-supplied data. The model routes keep the answer they build from a saved league the browser
  *     sends (src/app/api/model/memo.ts: per instance, in memory only) until the import's token expires,
  *     browserFetchLimits.tokenMaxAgeMs (15 minutes) after the league was read (review of Checkpoint 7b's text: "doesn't

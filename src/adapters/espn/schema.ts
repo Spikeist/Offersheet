@@ -113,7 +113,12 @@ export const MatchupSchema = z.object({
    * an enum: a value ESPN adds later mustn't fail the whole import (normalize.ts warns instead).
    */
   winner: z.string().nullish(),
-  /** Absent before the playoffs (Phase 0); WINNERS_BRACKET / consolation ladders once seeded. */
+  /**
+   * Absent before the playoffs (Phase 0); WINNERS_BRACKET / consolation ladders once seeded: ESPN's own list
+   * (settings.typeNames.playoffTierTypes of GET /seasons/{season}?view=proTeamSchedules_wl) is WINNERS_BRACKET,
+   * WINNERS_CONSOLATION_LADDER, LOSERS_CONSOLATION_LADDER and NONE. The ladders' games stay out of the schedule; a
+   * WINNERS_CONSOLATION_LADDER game in the final playoff period says the league plays for 3rd (normalize.ts thirdPlaceOf).
+   */
   playoffTierType: z.string().nullish(),
 });
 export type EspnMatchup = z.infer<typeof MatchupSchema>;
@@ -162,6 +167,13 @@ export const SettingsSchema = z.object({
      */
     playoffSeedingRule: z.string().nullish(),
     divisions: z.array(z.object({ id: z.number(), size: z.number().nullish() })).nullish(),
+    /**
+     * ESPN's consolation ladder turned off (true) or on (false): false in both test leagues' 2026 settings. Checkpoint 7c
+     * (planner reply to Checkpoint 7b, §6): before ESPN sets its playoff schedule, read as whether the two semifinal losers
+     * play for 3rd place (normalize.ts thirdPlaceOf, ⚠️ a reading). Kept here, so the browser's schema-kept upload carries
+     * it too (src/adapters/upload.ts trimEspnBody); an upload from an older bundle comes without it (3rd place unknown).
+     */
+    consolationLadderDisabled: z.boolean().nullish(),
   }),
   tradeSettings: z.object({
     /** Epoch ms. */

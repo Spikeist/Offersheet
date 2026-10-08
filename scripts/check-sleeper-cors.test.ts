@@ -31,6 +31,7 @@ describe("check-sleeper-cors (no network)", () => {
       "https://api.sleeper.app/projections/nfl/2026/4?season_type=regular&position[]=K",
       "https://api.sleeper.app/v1/league/{leagueId}",
       "https://api.sleeper.app/v1/league/{leagueId}/rosters",
+      "https://api.sleeper.app/v1/league/{leagueId}/winners_bracket",
     ]);
     expect(all.slice(2).every((e) => e.url.includes(LEAGUE) && !e.shown.includes(LEAGUE))).toBe(true);
   });

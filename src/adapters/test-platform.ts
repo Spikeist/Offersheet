@@ -69,6 +69,7 @@ export function sleeperAnswer(t: TestLeague, opts: { leagues?: unknown[]; fail?:
     [sleeperUrls.rosters(id), t.rosters],
     [sleeperUrls.tradedPicks(id), t.tradedPicks],
     [sleeperUrls.drafts(id), t.drafts],
+    [sleeperUrls.winnersBracket(id), t.winnersBracket],
     [sleeperUrls.user(SLEEPER_USERNAME), { user_id: t.meta.me.userId, username: SLEEPER_USERNAME, display_name: "Zorblax Quintavious", avatar: "abc" }],
     [sleeperUrls.userLeagues(t.meta.me.userId, 2026), opts.leagues ?? [t.league]],
   ]);

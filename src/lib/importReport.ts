@@ -14,7 +14,8 @@
  * free agent, one team; planner reply to Checkpoint 4b, change 5): the order the engine hands free
  * agents out in, read from the same snapshot (waiverOrderText). Phase 7a adds the "Inactive teams" row
  * (planner reply to Checkpoint 4c, A4: "Team 6: inactive, no pickups assumed."; inactiveTeamsView), the
- * engine's own rule on the same snapshot (acceptance.inactiveTeams).
+ * engine's own rule on the same snapshot (acceptance.inactiveTeams). Checkpoint 7c adds the "3rd-place game" row (planner
+ * reply to Checkpoint 7b, §6; thirdPlaceText): whether the two semifinal losers play for 3rd, or that a game is assumed.
  *
  * Phase 7b (planner reply to Checkpoint 7a, §5.1: plain-language data notices; src/lib/notices.ts decides): the user never
  * sees a warning code, a JSON path, a stat ID or ID-matching talk outside the technical details. "Things to know" lists the
@@ -157,6 +158,8 @@ export interface ImportReportView {
     byes: string;
     rounds?: string;
     seeding: string;
+    /** "3rd-place game" (Checkpoint 7c): whether the two semifinal losers play for 3rd (thirdPlaceText). */
+    thirdPlace: string;
     /** "Ties in the standings" (§8): the league's seeding tiebreaker, or TIEBREAKER_UNKNOWN_TEXT. */
     tiebreaker: string;
     medianGame: boolean;
@@ -575,6 +578,27 @@ function standardSeedingText(st: LeagueSettings): string {
   return `We'll assume standard seeding: a fixed bracket (no re-seeding), ${divisionsFirst ? `the division winners seeded first, then the other teams by ${by}` : `seeded by ${by}`}.`;
 }
 
+/** The "3rd-place game" row's words (Checkpoint 7c; the lead's wording for the planner's reply to Checkpoint 7b, §6). */
+export const THIRD_PLACE_TEXT = {
+  game: "Yes: the two semifinal losers play for 3rd.",
+  assumed: "Yes (assumed: the league doesn't say).",
+  none: "No: the better seed of the two semifinal losers takes 3rd (our assumption).",
+  noSemifinals: "None (fewer than 4 playoff teams)",
+} as const;
+
+/**
+ * The "3rd-place game" row (Checkpoint 7c; planner reply to Checkpoint 7b, §6: "If the data doesn't say, assume there's one,
+ * and say so in the Import Report"): LeagueSettings.thirdPlace as the adapters read it (ESPN's playoff schedule or its
+ * consolation-ladder setting, Sleeper's winners bracket); absent → assumed, as the season simulation assumes it. With fewer
+ * than 4 playoff teams there are no semifinals, so nobody plays for 3rd; playoffs the platform doesn't expose → unknown.
+ */
+export function thirdPlaceText(st: Pick<LeagueSettings, "playoffTeams" | "thirdPlace">, playoffsUnknown: boolean): string {
+  if (playoffsUnknown) return UNKNOWN_SETTING_TEXT;
+  if (st.playoffTeams < 4) return THIRD_PLACE_TEXT.noSemifinals;
+  if (!st.thirdPlace) return THIRD_PLACE_TEXT.assumed;
+  return st.thirdPlace.game ? THIRD_PLACE_TEXT.game : THIRD_PLACE_TEXT.none;
+}
+
 function buildSeason(snapshot: LeagueSnapshot, teamName: (id: string) => string, unknown: ReadonlySet<UnknownSetting>): ImportReportView["season"] {
   const st = snapshot.settings;
   const playoffsUnknown = unknown.has("playoffs");
@@ -604,6 +628,7 @@ function buildSeason(snapshot: LeagueSnapshot, teamName: (id: string) => string,
     byes,
     rounds,
     seeding,
+    thirdPlace: thirdPlaceText(st, playoffsUnknown),
     tiebreaker,
     medianGame: st.medianGame,
     pointsOnly: st.pointsOnly,
@@ -724,7 +749,7 @@ export function inactiveTeamsView(snapshot: Pick<LeagueSnapshot, "teams" | "tran
 }
 
 /** A setting read with a caveat, for the plain "our reading" line under its row (ImportReportView.readings). */
-export type ReadingKey = "leagueType" | "review" | "byes" | "pointsOnly" | "tiebreaker" | "positionLimits";
+export type ReadingKey = "leagueType" | "review" | "byes" | "pointsOnly" | "tiebreaker" | "positionLimits" | "thirdPlace";
 
 /**
  * ESPN's settings the adapter reads with a caveat (src/adapters/espn/normalize.ts settingsOf: its own notes say so, in
@@ -733,7 +758,11 @@ export type ReadingKey = "leagueType" | "review" | "byes" | "pointsOnly" | "tieb
  * dynasty flag); a commissioner's review read from a review period without veto votes (tradeReviewOf); byes worked out from
  * the bracket; a points-only league read from ESPN's scoring type; a standings tiebreaker read from its name alone (only
  * points for has been seen in a live league: SEEDING_RULES_SEEN_LIVE); the position limits, read from a field ESPN doesn't
- * document. None for a setting the card already shows as unknown.
+ * document; whether the two semifinal losers play for 3rd, read from ESPN's consolation-ladder setting while its playoff
+ * schedule lists no 3rd-place game (Checkpoint 7c: LeagueSettings.thirdPlace basis "setting", src/adapters/espn/normalize.ts
+ * thirdPlaceOf: before ESPN sets its playoff schedule, and also when the final playoff period lists games but none of its
+ * ladder, so the line says only what holds both times; not when the row says there are no semifinals). None for a setting
+ * the card already shows as unknown.
  */
 export function espnReadings(st: LeagueSettings, unknown: ReadonlySet<UnknownSetting>): Partial<Record<ReadingKey, string>> {
   const out: Partial<Record<ReadingKey, string>> = {};
@@ -743,6 +772,7 @@ export function espnReadings(st: LeagueSettings, unknown: ReadonlySet<UnknownSet
   if (st.pointsOnly) out.pointsOnly = "Our reading of ESPN's scoring type.";
   if ((st.seedingTiebreaker === "headToHead" || st.seedingTiebreaker === "divisionRecord") && !unknown.has("seedingTiebreaker")) out.tiebreaker = "Our reading of ESPN's setting: not yet checked on a league like yours.";
   if (st.positionLimits) out.positionLimits = "Our reading of a setting ESPN doesn't document.";
+  if (st.thirdPlace?.basis === "setting" && st.playoffTeams >= 4 && !unknown.has("playoffs")) out.thirdPlace = "Our reading of ESPN's consolation-ladder setting: its playoff schedule doesn't list a 3rd-place game yet.";
   return out;
 }
 

@@ -1,5 +1,22 @@
 import { describe, expect, it } from "vitest";
-import { standingsFrom, synthesizeCreated, syntheticScore } from "./sleeper";
+import { BracketMatchSchema } from "@/adapters/sleeper/schemas";
+import { minimizeBracket, standingsFrom, synthesizeCreated, syntheticScore } from "./sleeper";
+
+describe("minimizeBracket (Checkpoint 7c: the 3rd-place game; CLAUDE.md §0.6, only what the tests read)", () => {
+  it("keeps each match's round, number and place, never its rosters, results or feeds, in a shape the adapter reads", () => {
+    // A made-up 4-team bracket as Sleeper sends it.
+    const raw = [
+      { r: 1, m: 1, t1: 1, t2: 4, w: 4, l: 1 },
+      { r: 1, m: 2, t1: 2, t2: 3, w: 2, l: 3 },
+      { r: 2, m: 3, t1: 4, t2: 2, w: null, l: null, t1_from: { w: 1 }, t2_from: { w: 2 }, p: 1 },
+      { r: 2, m: 4, t1: 1, t2: 3, w: null, l: null, t1_from: { l: 1 }, t2_from: { l: 2 }, p: 3 },
+    ];
+    const min = minimizeBracket(raw);
+    expect(min).toEqual([{ r: 1, m: 1 }, { r: 1, m: 2 }, { r: 2, m: 3, p: 1 }, { r: 2, m: 4, p: 3 }]);
+    expect(JSON.stringify(min)).not.toMatch(/"t[12]"|"w"|"l"|_from/);
+    for (const row of min) expect(BracketMatchSchema.parse(row)).toEqual(row);
+  });
+});
 
 describe("synthetic scores and the standings rebuilt from them (review PRIV-3; Phase 3 matchup results)", () => {
   it("gives each roster and week a fixed score of 70.00–159.99 in whole cents, not tied to the real one", () => {

@@ -34,6 +34,8 @@ export interface TestLeague {
   transactions: Record<number, any[]>;
   tradedPicks: any[];
   drafts: any[];
+  /** The winners bracket (Checkpoint 7c): each match's round, number and place (p); a 3rd-place match among them. */
+  winnersBracket: any[];
   projections: any[];
   stats: Record<number, Array<{ player_id: string; stats: Record<string, number> }>>;
   players: SleeperPlayerLite[];
@@ -59,6 +61,7 @@ export function loadTestLeague(): TestLeague {
     transactions,
     tradedPicks: read("traded_picks"),
     drafts: read("drafts"),
+    winnersBracket: read("winners_bracket"),
     projections: read(`projections/${meta.projectionWeek}`),
     stats,
     players: read("players"),
@@ -76,6 +79,7 @@ export function rawOf(t: TestLeague): SleeperRawLeague {
     transactions: t.transactions,
     tradedPicks: t.tradedPicks,
     drafts: t.drafts,
+    winnersBracket: t.winnersBracket,
     projections: { [t.meta.projectionWeek]: t.projections },
     projectionWeek: t.meta.projectionWeek,
   };

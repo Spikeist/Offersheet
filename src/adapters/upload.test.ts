@@ -91,6 +91,26 @@ describe("ESPN: a public league the browser reads imports exactly as the server'
     expect((await readInBrowser({ platform: "espn", body: { leagueId: PARKER.leagueId, season: 2026 }, http: platform(espnAnswer(noAnswer)), clock: () => AT, espnCookies: "none" })).kind).toBe("fallback");
   });
 
+  it("carries ESPN's consolation-ladder setting, so 3rd place reads the same both ways; an older bundle's upload without it imports with 3rd place unknown (Checkpoint 7c)", async () => {
+    const { want, got, upload } = await espnBothWays();
+    expect(want.result.snapshot.settings.thirdPlace).toEqual({ game: true, basis: "setting" });
+    expect(got.result.snapshot.settings.thirdPlace).toEqual(want.result.snapshot.settings.thirdPlace);
+    const leaguePart = upload.parts.find((p) => p.url.includes("view=mSettings"));
+    expect((leaguePart?.json as { settings: { scheduleSettings: Record<string, unknown> } }).settings.scheduleSettings.consolationLadderDisabled).toBe(false);
+    // A bundle from before the field trimmed it away: the route takes the upload, and 3rd place is unknown (a game assumed).
+    const older = await espnBothWays(undefined, (u) => ({
+      ...u,
+      parts: u.parts.map((p) => {
+        if (!p.url.includes("view=mSettings")) return p;
+        const body = JSON.parse(JSON.stringify(p.json)) as { settings: { scheduleSettings: Record<string, unknown> } };
+        delete body.settings.scheduleSettings.consolationLadderDisabled;
+        return { ...p, json: body };
+      }),
+    }));
+    expect("thirdPlace" in older.got.result.snapshot.settings).toBe(false);
+    expect(older.got.result.snapshot.teams).toEqual(older.want.result.snapshot.teams);
+  });
+
   it("the schema-kept form is a fixed point: trimming a trimmed body changes nothing", () => {
     const league = readEspn(LABELS.league);
     const url = (view: string) => `https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/2026/segments/0/leagues/${PARKER.leagueId}?view=${view}`;
@@ -209,6 +229,40 @@ describe("Sleeper: a league the browser reads imports exactly as the server's ow
     const both = await sleeperBothWays({ season: 2026, leagueId: id }, { fail: (url) => (url === sleeperUrls.users(id) ? { body: rich.users } : null) });
     expect(both.got).toEqual(both.want);
     expect(JSON.stringify(both.upload)).not.toContain("mention_pn");
+  });
+
+  it("reads the winners bracket both ways, sending each match's round, number and place only (Checkpoint 7c: the 3rd-place game)", async () => {
+    const t0 = loadTestLeague();
+    const id = String(t0.league.league_id);
+    // A bracket as Sleeper sends it: rosters, results and feeds too (the fixture keeps only what the import reads).
+    const full = t0.winnersBracket.map((m: Record<string, unknown>, i: number) => ({ ...m, t1: i + 1, t2: i + 2, w: null, l: null, ...(m.p === 3 ? { t1_from: { l: 3 }, t2_from: { l: 4 } } : {}) }));
+    const both = await sleeperBothWays({ season: 2026, leagueId: id }, { fail: (url) => (url === sleeperUrls.winnersBracket(id) ? { body: full } : null) });
+    expect(both.got).toEqual(both.want);
+    expect(both.want.snapshot.settings.thirdPlace).toEqual({ game: true, basis: "bracket" });
+    const part = both.upload.parts.find((p) => p.url === sleeperUrls.winnersBracket(id));
+    expect(part?.json).toEqual(t0.winnersBracket);
+    expect(JSON.stringify(part?.json)).not.toMatch(/"t1"|"t2"|_from/);
+    // A fixed point, and a row its schema turns down comes as it was (so the normalizer turns it down too).
+    const once = trimSleeperBody(sleeperUrls.winnersBracket(id), full);
+    expect(trimSleeperBody(sleeperUrls.winnersBracket(id), JSON.parse(JSON.stringify(once)))).toEqual(once);
+    expect(trimSleeperBody(sleeperUrls.winnersBracket(id), [{ r: "x", m: 1, t1: 5 }])).toEqual([{ r: "x", m: 1, t1: 5 }]);
+  });
+
+  it("an upload from a bundle older than the bracket still imports (never BAD_UPLOAD): 3rd place unknown, as when Sleeper doesn't answer it (Checkpoint 7c)", async () => {
+    const t = loadTestLeague();
+    const id = String(t.league.league_id);
+    const upload = await browserUpload("sleeper", { season: 2026, leagueId: id }, platform(sleeperAnswer(t)));
+    const older = { ...upload, parts: upload.parts.filter((p) => !p.url.endsWith("/winners_bracket")) };
+    expect(older.parts.length).toBe(upload.parts.length - 1);
+    const read = await readLeagueUpload(gzipRequest(`http://localhost:3000/api/import/sleeper`, older), "sleeper");
+    expect(read.ok).toBe(true);
+    const publicOnly = platform((url) => (url === sleeperUrls.state() || url.includes("/projections/") ? sleeperAnswer(t)(url) : { status: 500, body: null }));
+    const got = await importSleeperUpload(await throughRoute(older), { http: publicOnly, resolver: sleeperResolver(t.players), now: NOW });
+    expect("thirdPlace" in got.snapshot.settings).toBe(false);
+    expect(got.snapshot.warnings.map((w) => w.code)).toEqual(["WINNERS_BRACKET_MISSING"]);
+    // The server's own read when Sleeper gives no answer to the bracket: the same import.
+    const want = await importSleeperLeague({ season: 2026, leagueId: id }, { http: platform(sleeperAnswer(t, { fail: (url) => (url === sleeperUrls.winnersBracket(id) ? { status: 0 } : null) })), resolver: sleeperResolver(t.players), now: NOW });
+    expect(got).toEqual(want);
   });
 
   it("keeps the same warnings when Sleeper fails a week, and the schema-kept form is a fixed point", async () => {

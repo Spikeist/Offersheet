@@ -110,7 +110,7 @@ export interface LeagueSettings {
    * place, when the platform says. game false: no such game (the simulator then gives 3rd to the better regular-season seed
    * of the two, ⚠️ ours). basis: where it was read: "schedule" (ESPN's final playoff period lists the game, tier
    * WINNERS_CONSOLATION_LADDER), "bracket" (Sleeper's winners_bracket, a match with p = 3), "setting" (ESPN's
-   * scheduleSettings.consolationLadderDisabled before its playoff schedule is set, ⚠️ a reading). Absent = unknown: the
+   * scheduleSettings.consolationLadderDisabled while its playoff schedule lists no such game, ⚠️ a reading). Absent = unknown: the
    * simulator assumes a game, and the Import Report says so.
    */
   thirdPlace?: { game: boolean; basis: "schedule" | "bracket" | "setting" };

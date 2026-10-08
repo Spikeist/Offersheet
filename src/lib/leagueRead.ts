@@ -58,7 +58,8 @@ const NO_ANSWER: HttpResponse = { status: 0, ok: false, isHtml: false, json: und
  * the read falls back as before, only sooner.
  *
  * Requests go one at a time, each checked as its turn comes: Sleeper's half asks its last batch (matchups, transactions,
- * picks, drafts) all at once, and a request already waiting in the browser's client would otherwise still go out, with
+ * picks, drafts and, since Checkpoint 7c, the winners' bracket) all at once, and a request already waiting in the
+ * browser's client would otherwise still go out, with
  * its retries. That costs nothing: a read asks one host, and the browser's client asks a host one request at a time
  * anyway (src/lib/browserHttp.ts). A page that left still rejects (the signal); a cache-only request, which the browser's
  * client answers "no answer" without asking anyone, stops nothing.

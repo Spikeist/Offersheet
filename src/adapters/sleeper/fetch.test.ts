@@ -22,6 +22,7 @@ function routesFor(t: TestLeague): Map<string, HttpResponse | (() => HttpRespons
     [sleeperUrls.rosters(id), json(t.rosters)],
     [sleeperUrls.tradedPicks(id), json(t.tradedPicks)],
     [sleeperUrls.drafts(id), json(t.drafts)],
+    [sleeperUrls.winnersBracket(id), json(t.winnersBracket)],
     [sleeperUrls.user(USERNAME), json({ user_id: t.meta.me.userId, username: USERNAME, display_name: "Zorblax Quintavious" })],
     [sleeperUrls.userLeagues(t.meta.me.userId, 2026), json([t.league])],
   ]);
@@ -60,6 +61,8 @@ describe("fetchSleeperLeague by league ID", () => {
     expect(out.raw.projectionWeek).toBe(4);
     expect(Object.keys(out.raw.projections ?? {}).map(Number)).toEqual(PROJECTION_WEEKS); // this week and the next two
     expect(out.raw.projections?.[4]).toEqual(t.projections);
+    // The winners bracket (Checkpoint 7c), league data like the rest (10 minutes).
+    expect(out.raw.winnersBracket).toEqual(t.winnersBracket);
     const byUrl = new Map(http.calls.map((c) => [c.url, c.opts]));
     expect(http.calls).toHaveLength(new Set(http.calls.map((c) => c.url)).size); // nothing fetched twice
     for (const [url, opts] of byUrl) {
@@ -108,6 +111,21 @@ describe("fetchSleeperLeague by league ID", () => {
     expect(snapshot.leagueWeek).toBe(3);
     expect(snapshot.warnings).toEqual([]);
     expect(notes.some((n) => n.includes("projections for weeks 4–6"))).toBe(true);
+    // The test league's winners bracket has a match for 3rd place (p 3): its semifinal losers play for it.
+    expect(snapshot.settings.thirdPlace).toEqual({ game: true, basis: "bracket" });
+  });
+
+  it("reads the winners bracket as optional (Checkpoint 7c): a failed read is a technical warning and leaves 3rd place unknown", async () => {
+    const t = loadTestLeague();
+    const id = String(t.league.league_id);
+    for (const failed of [json(null, 500), json(null, 404), json(null), html]) {
+      const routes = routesFor(t);
+      routes.set(sleeperUrls.winnersBracket(id), failed);
+      const { snapshot } = await importSleeperLeague({ season: 2026, leagueId: id }, { http: fakeHttp(routes), resolver: fakeResolver(t.players), now: NOW });
+      expect(snapshot.warnings).toEqual([expect.objectContaining({ code: "WINNERS_BRACKET_MISSING", platformPath: "winners_bracket" })]);
+      expect(snapshot.settings.thirdPlace).toBeUndefined();
+      expect(snapshot.teams).toHaveLength(12);
+    }
   });
 
   it("with a league ID, a username Sleeper doesn't know is a warning, not a failed import (SLP-5)", async () => {

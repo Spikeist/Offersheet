@@ -13,7 +13,7 @@ import { fantasyCalcFormat } from "@/engine/market";
 import type { LeagueSettings, LeagueSnapshot, PlayerInfo, Scoring, Team } from "@/engine/model";
 import type { ImportResponse } from "./api";
 import { browserFetchLimits } from "@/server/limits";
-import { UNKNOWN_SETTING_TEXT, WAIVER_WARNING_CODES, allocationBasis, buildImportReport, readerText, refreshOutcomeText, refreshTooSoon, ruleText } from "./importReport";
+import { THIRD_PLACE_TEXT, UNKNOWN_SETTING_TEXT, WAIVER_WARNING_CODES, allocationBasis, buildImportReport, readerText, refreshOutcomeText, refreshTooSoon, ruleText, thirdPlaceText } from "./importReport";
 import { importDataAgeMs } from "./modelStore";
 
 // A small synthetic league. Every name is made up.
@@ -559,6 +559,60 @@ describe("buildImportReport: lineup, season and trades", () => {
     expect(buildImportReport(response(snapshot({}, { positionLimits: undefined, seedingTiebreaker: "pointsFor" })), { timeZone: TZ }).readings).toEqual({});
     expect(buildImportReport(response(snapshot({}, { tradeReview: "commissioner", unknownSettings: ["tradeReview"] })), { timeZone: TZ }).readings.review).toBeUndefined();
     expect(buildImportReport(response(snapshot({ platform: "sleeper" }, { leagueType: "keeper", playoffByes: 2 })), { timeZone: TZ }).readings).toEqual({});
+  });
+
+  it("says whether the two semifinal losers play for 3rd (Checkpoint 7c): the platform's word, else assumed; none with fewer than 4 playoff teams", () => {
+    const row = (extra: Partial<LeagueSettings>) => buildImportReport(response(snapshot({}, extra)), { timeZone: TZ }).season.thirdPlace;
+    expect(row({ thirdPlace: { game: true, basis: "schedule" } })).toBe("Yes: the two semifinal losers play for 3rd.");
+    expect(row({ thirdPlace: { game: true, basis: "bracket" } })).toBe("Yes: the two semifinal losers play for 3rd.");
+    expect(row({})).toBe("Yes (assumed: the league doesn't say).");
+    expect(row({ thirdPlace: { game: false, basis: "setting" } })).toBe("No: the better seed of the two semifinal losers takes 3rd (our assumption).");
+    for (const playoffTeams of [0, 2, 3]) expect(row({ playoffTeams, thirdPlace: { game: true, basis: "setting" } })).toBe("None (fewer than 4 playoff teams)");
+    expect(row({ playoffTeams: 3 })).toBe("None (fewer than 4 playoff teams)");
+    // Playoffs the platform doesn't expose: unknown, like the rows above it.
+    expect(row({ unknownSettings: ["playoffs"] })).toBe(UNKNOWN_SETTING_TEXT);
+    expect(thirdPlaceText({ playoffTeams: 6 }, false)).toBe(THIRD_PLACE_TEXT.assumed);
+  });
+
+  it("puts ESPN's reading line under a 3rd-place game read from its consolation-ladder setting, not from its schedule, never Sleeper's (Checkpoint 7c)", () => {
+    const readings = (over: Partial<LeagueSnapshot>, extra: Partial<LeagueSettings>) => buildImportReport(response(snapshot(over, { positionLimits: undefined, ...extra })), { timeZone: TZ }).readings;
+    const line = "Our reading of ESPN's consolation-ladder setting: its playoff schedule doesn't list a 3rd-place game yet.";
+    expect(readings({}, { thirdPlace: { game: true, basis: "setting" } })).toEqual({ thirdPlace: line });
+    expect(readings({}, { thirdPlace: { game: false, basis: "setting" } })).toEqual({ thirdPlace: line });
+    expect(readings({}, { thirdPlace: { game: true, basis: "schedule" } })).toEqual({});
+    expect(readings({}, {})).toEqual({});
+    // No semifinals, or playoffs shown as unknown: the row says so, with no reading under it.
+    expect(readings({}, { playoffTeams: 2, thirdPlace: { game: true, basis: "setting" } })).toEqual({});
+    expect(readings({}, { unknownSettings: ["playoffs"], thirdPlace: { game: true, basis: "setting" } })).toEqual({});
+    expect(readings({ platform: "sleeper" }, { thirdPlace: { game: true, basis: "bracket" } })).toEqual({});
+  });
+
+  it("reads both test leagues' 3rd place through their adapters (Checkpoint 7c): Parker's from ESPN's ladder setting, Sleeper's from its bracket", () => {
+    const parker = buildImportReport(normalizeEspnLeague(parkerBundle(), { leagueId: ESPN_PARKER.leagueId, resolver: espnResolver(), now: new Date("2026-09-29T20:00:00Z"), swid: ESPN_PARKER.swid }), { timeZone: TZ });
+    expect(parker.season.thirdPlace).toBe("Yes: the two semifinal losers play for 3rd.");
+    expect(parker.readings.thirdPlace).toBe("Our reading of ESPN's consolation-ladder setting: its playoff schedule doesn't list a 3rd-place game yet.");
+    const t = loadTestLeague();
+    const sleeper = buildImportReport(normalizeSleeperLeague(rawOf(t), { now: new Date("2026-09-29T18:00:00Z"), resolver: fakeResolver(t.players) }), { timeZone: TZ });
+    expect(sleeper.season.thirdPlace).toBe("Yes: the two semifinal losers play for 3rd.");
+    expect(sleeper.readings.thirdPlace).toBeUndefined();
+    // Its bracket didn't load: a game is assumed, and the row says so.
+    const unread = buildImportReport(normalizeSleeperLeague({ ...rawOf(t), winnersBracket: undefined }, { now: new Date("2026-09-29T18:00:00Z"), resolver: fakeResolver(t.players) }), { timeZone: TZ });
+    expect(unread.season.thirdPlace).toBe("Yes (assumed: the league doesn't say).");
+  });
+
+  it("words ESPN's ladder-setting reading so it holds once the final playoff period lists games without a 3rd-place game (Checkpoint 7c, a review of the adapters)", () => {
+    // The ladder off, and ESPN's week-17 final listed with no ladder game beside it (a ladder-off league from its final week
+    // on): the setting still decides, and the line under the row mustn't say the playoff schedule isn't set.
+    const bundle = parkerBundle();
+    const league = bundle.league as { settings: { scheduleSettings: Record<string, unknown> }; schedule: unknown[] };
+    league.settings.scheduleSettings.consolationLadderDisabled = true;
+    league.schedule.push({ matchupPeriodId: 17, home: { teamId: 1 }, away: { teamId: 2 }, playoffTierType: "WINNERS_BRACKET" });
+    const imported = normalizeEspnLeague(bundle, { leagueId: ESPN_PARKER.leagueId, resolver: espnResolver(), now: new Date("2026-09-29T20:00:00Z"), swid: ESPN_PARKER.swid });
+    expect(imported.snapshot.settings.thirdPlace).toEqual({ game: false, basis: "setting" });
+    expect(imported.snapshot.schedule.filter((m) => m.isPlayoff && m.week === 17)).toHaveLength(1);
+    const view = buildImportReport(imported, { timeZone: TZ });
+    expect(view.season.thirdPlace).toBe("No: the better seed of the two semifinal losers takes 3rd (our assumption).");
+    expect(view.readings.thirdPlace).toBe("Our reading of ESPN's consolation-ladder setting: its playoff schedule doesn't list a 3rd-place game yet.");
   });
 
   it("notes best ball", () => {

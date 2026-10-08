@@ -11,7 +11,8 @@
  *     scored (settings.last_scored_leg), with every team's record and points for/against rebuilt from
  *     them (so W+L+T still counts the scored weeks and the results agree with the standings), so
  *     nothing in the fixture can be matched against the live league's activity feed, scores or
- *     standings (review PRIV-3; Phase 3 matchup results).
+ *     standings (review PRIV-3; Phase 3 matchup results). Its winners bracket (Checkpoint 7c: the
+ *     3rd-place game) keeps each match's round, number and the place it decides, never its rosters.
  *   fixtures/sanitized/min/sleeper/oracle-leagues/  the Phase 0 cross-league oracle leagues: ONLY
  *     scoring_settings (non-zero), roster_positions and per player-week {sleeperId, pos, week, stats,
  *     players_points} for a subset — no league, team, user or roster IDs, no names.
@@ -151,6 +152,14 @@ export function standingsFrom(weeks: ReadonlyArray<ReadonlyArray<{ roster_id: nu
     }
   }
   return out;
+}
+
+/**
+ * The winners bracket as the tests read it (Checkpoint 7c; the adapter's BracketMatchSchema): each match's round (r), number
+ * (m) and the place it decides (p, only on placement matches). The rosters (t1, t2), results (w, l) and feeds are left out.
+ */
+export function minimizeBracket(rows: ReadonlyArray<{ r: number; m: number; p?: number | null }>): Array<{ r: number; m: number; p?: number }> {
+  return rows.map((x) => ({ r: x.r, m: x.m, ...(typeof x.p === "number" ? { p: x.p } : {}) }));
 }
 
 const local = <T = any>(label: string): T => readLocalFixture<T>(PLATFORM, `public-test-league/${label}`);
@@ -355,6 +364,7 @@ async function minimizeTestLeague(): Promise<Set<string>> {
   const minTraded = [...traded.filter((p) => Number(p.season) === SEASON && p.roster_id !== p.owner_id).slice(0, 1), ...traded.filter((p) => Number(p.season) > SEASON).slice(0, 3)].map((p) => ({ season: p.season, round: p.round, roster_id: p.roster_id, previous_owner_id: p.previous_owner_id, owner_id: p.owner_id }));
   const drafts: any[] = local("league/{leagueId}/drafts");
   const minDrafts = drafts.map((d, i) => ({ draft_id: `8000000000000000${String(i + 1).padStart(3, "0")}`, season: d.season, status: d.status, type: d.type, settings: { rounds: d.settings?.rounds } }));
+  const minBracket = minimizeBracket(local<any[]>("league/{leagueId}/winners_bracket"));
 
   // Projections (week 4): true free agents (not on any roster of the full league) + stub rows + a
   // few rostered players (the normalizer must skip them).
@@ -409,11 +419,12 @@ async function minimizeTestLeague(): Promise<Set<string>> {
   for (const [leg, rows] of [...minTx].sort((a, b) => a[0] - b[0])) await save(`transactions/${leg}`, rows, "the transactions the tests assert; synthetic IDs; synthetic times (real order kept)");
   await save("traded_picks", minTraded, "one traded pick of this season and three future ones");
   await save("drafts", minDrafts, "synthetic draft IDs");
+  await save("winners_bracket", minBracket, "each match's round, number and the place it decides (p): no rosters or results");
   await save(`projections/${PROJECTION_WEEK}`, minProj, "public projections: free agents, ADP stubs and a few rostered players");
   for (const s of minStats) await save(`stats/${s.week}`, s.rows, "public stats of the oracle subset, scored keys only");
   await save("players", minPlayers, "public Sleeper player facts (SleeperPlayerLite) for every referenced player");
   await save("meta", { season: SEASON, currentWeek: manifest.currentWeek, lastScoredWeek: manifest.lastScoredWeek, oracleWeeks: ORACLE_WEEKS, projectionWeek: PROJECTION_WEEK, me: { userId: manifest.me.userId, rosterId: manifest.me.rosterId, via: manifest.me.via }, txLegs: [...minTx.keys()].sort((a, b) => a - b) });
-  console.log(`test league: ${minRosters.length} rosters, ${kept.size} players kept (IR ${minRosters.reduce((a, r) => a + (r.reserve?.length ?? 0), 0)}, taxi ${minRosters.reduce((a, r) => a + (r.taxi?.length ?? 0), 0)}), ${oracleIds.size} oracle players, ${chosenTx.length} transactions, ${minTraded.length} traded picks, ${minProj.length} projection rows, ${minPlayers.length} player facts, synthetic scores for ${scoredWeeks.length ? `weeks ${scoredWeeks.join(", ")}` : "no week"}`);
+  console.log(`test league: ${minRosters.length} rosters, ${kept.size} players kept (IR ${minRosters.reduce((a, r) => a + (r.reserve?.length ?? 0), 0)}, taxi ${minRosters.reduce((a, r) => a + (r.taxi?.length ?? 0), 0)}), ${oracleIds.size} oracle players, ${chosenTx.length} transactions, ${minTraded.length} traded picks, ${minBracket.length} bracket matches (${minBracket.filter((x) => x.p !== undefined).length} placement), ${minProj.length} projection rows, ${minPlayers.length} player facts, synthetic scores for ${scoredWeeks.length ? `weeks ${scoredWeeks.join(", ")}` : "no week"}`);
   return written;
 }
 

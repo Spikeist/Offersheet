@@ -362,6 +362,8 @@ function SeasonCard({ view }: ViewProps) {
           { label: "Byes", value: withReading(s.byes, view.readings.byes), tone: playoffsTone },
           ...(s.rounds ? [{ label: "Round lengths", value: s.rounds }] : []),
           { label: "Seeding", value: s.seeding, tone: toneFor(view, "playoffSeeding") },
+          // Checkpoint 7c (planner reply to Checkpoint 7b, §6): whether the semifinal losers play for 3rd, or that it's assumed.
+          { label: "3rd-place game", value: withReading(s.thirdPlace, view.readings.thirdPlace), tone: playoffsTone },
           { label: "Ties in the standings", value: withReading(s.tiebreaker, view.readings.tiebreaker), tone: toneFor(view, "seedingTiebreaker") },
           { label: "Game vs the league median", value: s.medianGame ? "Yes, an extra win or loss each week" : "No" },
           { label: "Points-only league", value: withReading(s.pointsOnly ? "Yes (no head-to-head)" : "No, head-to-head", view.readings.pointsOnly) },

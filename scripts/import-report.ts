@@ -129,6 +129,7 @@ function render(view: ImportReportView, heading: string, opts: { aggregatesOnly?
     `- Regular season: ${se.regularSeason}`,
     `- Playoffs: ${se.playoffs} · ${se.playoffTeams} teams · byes: ${se.byes}${reading("byes")}${se.rounds ? ` · rounds: ${se.rounds}` : ""}`,
     `- Seeding: ${se.seeding}`,
+    `- 3rd-place game: ${se.thirdPlace}${reading("thirdPlace")}`,
     `- Ties in the standings: ${se.tiebreaker}${reading("tiebreaker")}`,
     `- Median game: ${se.medianGame ? "yes" : "no"} · points only: ${se.pointsOnly ? "yes" : "no"}${reading("pointsOnly")} · divisions: ${se.divisions.length || "none"}`,
     "",

@@ -4,7 +4,8 @@
  * matrix below, drawn from rng.ts. It knows nothing about LeagueSnapshot: the caller builds a SimSetup
  * (records, the remaining schedule as team indexes, and each team's weekly score mean and SD) and reads
  * back playoff, bye and title odds, expected records, seed distributions and each remaining week's
- * win chance. Every tunable number arrives through SimSetup and SimOptions (config.simulation holds the
+ * win chance, and (Checkpoint 7c) the odds of 2nd and 3rd place, the expected weekly high scores and the
+ * odds of the most points for. Every tunable number arrives through SimSetup and SimOptions (config.simulation holds the
  * defaults: finalSims, screeningSims, seed; simulateSeason reads exactReseedTeams from it itself when
  * SimOptions doesn't give one).
  *
@@ -135,7 +136,8 @@
  * - Games are independent given the seeds: every draw z[n][w][t] is independent of the others, a team plays
  *   one game per round, and different rounds have different weeks. That needs the bracket rounds' drawn
  *   weeks to be pairwise disjoint and unread by the regular season (games, median weeks, points-only points
- *   for); otherwise the title is drawn as in "sampled" (⚠️ a fallback no season.ts setup triggers).
+ *   for, high-score periods); otherwise the title is drawn as in "sampled" (⚠️ a fallback no season.ts setup
+ *   triggers).
  * - Fixed bracket: dynamic programming over the slots. Before round r, P(slot i alive); it wins round r
  *   with P(alive) × Σ over the slots j of the other half of its block of P(j alive) × P(i beats j); a
  *   round-1 bye advances its team surely.
@@ -153,6 +155,42 @@
  *   ⚠️ A round over after a round still to play (no real schedule) could differ.
  * - The exact mode skips drawing the scores of the playoff weeks it doesn't sample.
  *
+ * Places, weekly high scores and the points leader (Checkpoint 7c; planner reply to Checkpoint 7b, §6, league prizes:
+ * "2nd place: the losing finalist", "3rd place: simulate the 3rd-place game when the league has one", "each remaining
+ * regular-season week's high score, with ties split", "the regular season's points leader"). benefit.ts weighs them by
+ * the league's prize shares; the simulator knows nothing of prizes. They draw and consume no random number, so every
+ * other output is the same, bit for bit, whatever the 3rd-place rule, and with or without high-score periods as long as
+ * none shares a week with a playoff round (season.ts builds them on regular-season weeks only): in the exact title mode
+ * such a period would make the bracket drawn (the "Title odds" rule above), which moves the title, 2nd and 3rd within
+ * Monte Carlo error.
+ * - 2nd: the final's loser: P(reach the final) − P(title), exact with the title (the same bracket computation; drawn in
+ *   "sampled"), and unknown whenever the title is.
+ * - 3rd (SimSetup.thirdPlace): "game", the default (the planner: assume a game when the league doesn't say): the two
+ *   semifinal losers play in the final round's weeks, like any playoff game (Φ over those weeks; replayed when
+ *   playoffResults has the pair). "bySeed", for a league whose data says there's no such game: the better regular-
+ *   season seed of the two (⚠️ ours). "split": half each (tests only). Exact given the seeds: a fixed bracket's two
+ *   semifinals are in different halves of it, and each half's games involve its own teams and their own draws only, so
+ *   the halves' losers are independent: P(x 3rd) = P(x loses its semifinal) × Σ over the other half's teams y of
+ *   P(y loses its semifinal) × P(x beats y), P(loses its semifinal) = alive at the semifinal's start − alive at the
+ *   final's. A re-seeding bracket's semifinals pair its last four best against worst (fourExact), the same given them.
+ *   A semifinal round drawn before the exact rounds (a re-seeding bracket with exactReseedTeams 2) keeps its losers,
+ *   whose game is then exact (drawn in "sampled"). Without two semifinals (⚠️ ours): 3 playoff teams (the top seed's
+ *   semifinal is a bye) → the other semifinal's loser is 3rd; 2 → seed 3 of the final standings; none (N ≤ 1) → 1st,
+ *   2nd and 3rd are the top three of the final standings.
+ * - Unknown 3rd: whenever the title is, or when the 3rd-place game is reached with positive probability and can't be
+ *   known (its round over, no result): SimResult.thirdKnown false, pThird NaN; the title and 2nd stay known. The
+ *   adapters import no consolation game (Checkpoint 7c, ⚠️ the lead's call), so once the final round is over 3rd is
+ *   unknown: after the season, when nothing reads it.
+ * - Weekly high scores (SimSetup.highScorePeriods): each period's score is the sum over its drawn weeks (like a game's);
+ *   its top score takes 1, split evenly on an exact tie (SD-0 inputs only). Every team counts, a team on a bye too:
+ *   its score is drawn all the same. Σ over the teams = the number of periods. The periods' weeks count as read by the
+ *   regular season: the exact title mode draws them, and a playoff round sharing one is drawn too (the rule above).
+ * - The points leader: the most points for at the end of the regular season (the standings' own: the platform's
+ *   points for plus the simulated games', or every regular week's score in a points-only league), split evenly on an
+ *   exact tie. ⚠️ Outside points-only leagues a bye week adds no points for, and a multi-week game under way misses its
+ *   weeks already played (the same holds for the standings). In a points-only league the leader is seed 1.
+ * - High scores and the leader are regular-season numbers: the same, bit for bit, in both title modes.
+ *
  * Outputs are averages over the sims. weekly[k].pWin[t] = team t's wins in its game starting that week
  * (a multi-week game counts in its first drawn week) / sims, NaN without a game; pMedianWin likewise for
  * median weeks, null for other weeks. A trade's "Win chance by week" (TradeDetail.winChance, Phase 4c) is my
@@ -167,7 +205,10 @@
  * either title mode (the exact bracket costs about as much as the playoff draws it replaces: within 5%
  * for a fixed 6-team bracket, about 5% more re-seeded, about 20% more for a re-seeding bracket of 8 or
  * more); the first two calls in a fresh process take about 20 ms longer while simulateOne is compiled.
- * sim.test.ts prints the timings.
+ * Checkpoint 7c, on Parker's own setup (the 2026-10-04 data's headline odds, 10 teams × 14 drawn weeks): 5,000 sims
+ * 12.1–12.4 ms before 2nd, 3rd and the points leader, 12.9–13.4 ms with them (+4–10%: the extra loops in the exact
+ * bracket and one pass over points for), 15.2–15.9 ms with 11 high-score periods too (about 2.5% a period); 1,000 sims
+ * 2.6–2.7, 2.7–2.8 and 3.2–3.6 ms. None of it allocates per sim. sim.test.ts prints the timings.
  */
 import { config } from "./config";
 import { normalCdf } from "./distributions";
@@ -238,10 +279,28 @@ export interface SimSetup {
   /**
    * Playoff games already decided (replayed). A bracket game whose round has no drawn week (its weeks are
    * all before weeks[0]) and no result here makes the playoffs unknown. Results for other pairs
-   * (consolation games) are ignored.
+   * (consolation games) are ignored, except the 3rd-place game's: the two semifinal losers never meet in the bracket,
+   * so a result for that pair can only be theirs (the file header's "Places").
    */
   playoffResults: SimPlayoffResult[];
+  /**
+   * Checkpoint 7c (planner reply to Checkpoint 7b, §6: "each remaining regular-season week's high score, with ties
+   * split"): the remaining regular-season prize periods of the weekly high score, each its NFL weeks (one week, or a
+   * matchup period of several: its score is the sum over its drawn weeks, like a game's). Checked like games: every
+   * week drawn or over, at least one drawn (a RangeError otherwise). Absent or empty: none, and expHighScores is 0.
+   * season.ts lists them only when asked (the weekly prize pays): each costs about 2.5% of a run (the file header).
+   */
+  highScorePeriods?: number[][];
+  /** How 3rd place goes between the two semifinal losers (the file header's "Places"); default "game". */
+  thirdPlace?: SimThirdPlace;
 }
+
+/**
+ * 3rd place between the two semifinal losers (the file header's "Places"): "game", a game in the final round's weeks
+ * (the planner: assume there's one when the league doesn't say); "bySeed", the better regular-season seed takes it
+ * (a league without that game, ⚠️ ours); "split", half each (tests only: no league setting maps to it).
+ */
+export type SimThirdPlace = "game" | "bySeed" | "split";
 
 /** How P(title) is estimated (the file header's "Title odds"): each sim's bracket computed exactly, or drawn. */
 export type SimTitleMode = "exact" | "sampled";
@@ -275,6 +334,15 @@ export interface SimTeamOdds {
   expTies: number;
   /** P(final seed = k + 1), over the whole final order: length teams.length. */
   seedDist: number[];
+  // Checkpoint 7c (planner reply to Checkpoint 7b, §6; the file header's "Places, weekly high scores and the points leader").
+  /** P(2nd place): the final's loser. NaN whenever pTitle is. */
+  pSecond: number;
+  /** P(3rd place). NaN when it can't be known (SimResult.thirdKnown false). */
+  pThird: number;
+  /** The expected number of weekly high scores over SimSetup.highScorePeriods, ties split: 0 without periods. */
+  expHighScores: number;
+  /** P(the most points for at the end of the regular season), ties split. */
+  pPointsLeader: number;
 }
 
 export interface SimResult {
@@ -285,6 +353,11 @@ export interface SimResult {
   weekly: { week: number; pWin: Float64Array; pMedianWin: Float64Array | null }[];
   /** False when a playoff round already played has no result (title/bye odds then unknown). */
   playoffsKnown: boolean;
+  /**
+   * Checkpoint 7c: false when 3rd place can't be known: whenever the title can't, or when the 3rd-place game is reached
+   * and can't be known (its round over without a result). It never makes the title or 2nd place unknown.
+   */
+  thirdKnown: boolean;
 }
 
 /** The rng key of the season matrix: sim n draws from streamFor(seed, SEASON_STREAM, n). */
@@ -553,6 +626,28 @@ interface SimState {
   /** [weekly entry·T + team]. */
   readonly cWeekWin: Float64Array;
   readonly cMedianWin: Float64Array;
+  // Places, weekly high scores and the points leader (the file header).
+  /** The semifinal round (R − 2; -1 without one, R < 2) and the final (R − 1). */
+  readonly semiRound: number;
+  readonly finalRound: number;
+  readonly thirdRule: SimThirdPlace;
+  /** High-score periods as draw indexes: period q is hsWeek[hsStart[q]..hsStart[q + 1]). */
+  readonly hsStart: Int32Array;
+  readonly hsWeek: Int32Array;
+  /** Working: one period's score per team. */
+  readonly hsScore: Float64Array;
+  /** Working: a drawn semifinal round's losers (semiLosers[0..semiLosers[2])) and a drawn final's loser (-1 = none). */
+  readonly semiLosers: Int32Array;
+  finalLoser: number;
+  /** Sticky over the sims: a 3rd-place game reached with positive probability couldn't be known. */
+  thirdUnknown: boolean;
+  /** Exact brackets: each slot's chance to be alive at the start of the semifinal round and of the final. */
+  readonly pSemi: Float64Array;
+  readonly pReach: Float64Array;
+  readonly cSecond: Float64Array;
+  readonly cThird: Float64Array;
+  readonly cHigh: Float64Array;
+  readonly cLeader: Float64Array;
 }
 
 /** Keys of criterion `crit` for the group arr[lo..hi), into keys row `row` (see the file header for each criterion). */
@@ -684,7 +779,8 @@ function playoffGame(st: SimState, x: number, y: number, r: number): number {
 
 /**
  * Drawn playoff round r on st.slots[0..live): its winners go to slots[0..live / 2), in fixed slots or, when the
- * league re-seeds and r > 0, best seed against worst. False when one of its games can't be known.
+ * league re-seeds and r > 0, best seed against worst. The semifinal round's losers go to st.semiLosers and the
+ * final's to st.finalLoser (a bye has none; playBracket resets both). False when one of its games can't be known.
  */
 function playRound(st: SimState, r: number, live: number): boolean {
   const { slots, seedOf } = st;
@@ -696,6 +792,11 @@ function playRound(st: SimState, r: number, live: number): boolean {
     const y = (bestVsWorst ? slots[live - 1 - i] : slots[2 * i + 1]) as number;
     const winner = x < 0 ? y : y < 0 ? x : playoffGame(st, x, y, r);
     if (winner < 0) return false;
+    if (x >= 0 && y >= 0) {
+      const loser = winner === x ? y : x;
+      if (r === st.semiRound) st.semiLosers[st.semiLosers[2]!++] = loser;
+      else if (r === st.finalRound) st.finalLoser = loser;
+    }
     slots[i] = winner;
   }
   return true;
@@ -725,19 +826,68 @@ function winChance(st: SimState, r: number, a: number, b: number): number {
 }
 
 /**
+ * P(x takes 3rd place from y), x and y the two semifinal losers, by st.thirdRule (the file header's "Places"): their game
+ * in the final round's weeks (exact: winChance, NaN when it can't be known), the better regular-season seed, or a split.
+ */
+function thirdChance(st: SimState, x: number, y: number): number {
+  if (st.thirdRule === "split") return 0.5;
+  if (st.thirdRule === "bySeed") return (st.seedOf[x] as number) < (st.seedOf[y] as number) ? 1 : 0;
+  return winChance(st, st.finalRound, x, y);
+}
+
+/**
+ * 3rd place when the semifinal round wasn't computed exactly (the file header's "Places"), weight × each team's chance
+ * added to st.cThird: a bracket of 2 slots (no semifinal) gives it to seed 3 of the final standings; one semifinal loser
+ * (the other semifinal a bye: 3 playoff teams) takes it outright; two play for it (`drawn`, the sampled mode: their game
+ * drawn like any playoff game; else thirdChance, exact). A 3rd-place game that can't be known sets st.thirdUnknown.
+ */
+function thirdFromDrawn(st: SimState, weight: number, drawn: boolean): void {
+  const { cThird, semiLosers } = st;
+  if (st.semiRound < 0) {
+    if (st.T >= 3) cThird[st.order[2] as number]! += weight;
+    return;
+  }
+  const k = semiLosers[2] as number;
+  if (k === 1) {
+    cThird[semiLosers[0] as number]! += weight;
+    return;
+  }
+  if (k !== 2) return; // unreachable: a semifinal round always has one or two games
+  const x = semiLosers[0] as number;
+  const y = semiLosers[1] as number;
+  if (drawn && st.thirdRule === "game") {
+    const w = playoffGame(st, x, y, st.finalRound);
+    if (w < 0) st.thirdUnknown = true;
+    else cThird[w]! += weight;
+    return;
+  }
+  const w = thirdChance(st, x, y);
+  if (w !== w) {
+    st.thirdUnknown = true;
+    return;
+  }
+  cThird[x]! += weight * w;
+  cThird[y]! += weight * (1 - w);
+}
+
+/**
  * The exact title chances of a fixed bracket (the file header's "Title odds"): slots[0..L) (team indexes, -1 = an
  * empty slot), L a power of two, playing rounds r0, r0 + 1, … An empty slot is always a round-1 bye: its pair partner
  * is a team (bracketOrder puts seeds N + 1..B against seeds B − N..1), which goes through. After that, every pair
  * (i, j) that can meet (i in one half of a block, j in the other) adds P(i alive) × P(j alive) × P(i beats j) to i's
- * chance to go through and the rest to j's. Adds weight × each team's chance to win it to st.cTitle. False when a
- * game reached with positive probability can't be known.
+ * chance to go through and the rest to j's. Adds weight × each team's chance to win it to st.cTitle, to be 2nd (alive
+ * at the final's start, not after it) to st.cSecond, and to be 3rd to st.cThird (the file header's "Places": the two
+ * halves' semifinal losers are independent). False when a game reached with positive probability can't be known (a
+ * 3rd-place game that can't be known only sets st.thirdUnknown).
  */
 function fixedExact(st: SimState, slots: Int32Array, L: number, r0: number, weight: number): boolean {
-  const { T, winP, seedOf } = st;
+  const { T, winP, seedOf, pSemi, pReach } = st;
   let p = st.pAlive;
   let q = st.pNext;
   for (let i = 0; i < L; i++) p[i] = (slots[i] as number) >= 0 ? 1 : 0;
   for (let h = 1, r = r0; h < L; h <<= 1, r++) {
+    if (r === st.semiRound) for (let i = 0; i < L; i++) pSemi[i] = p[i] as number;
+    if (r === st.finalRound) for (let i = 0; i < L; i++) pReach[i] = p[i] as number;
     for (let i = 0; i < L; i++) q[i] = 0;
     for (let lo = 0; lo < L; lo += 2 * h) {
       const mid = lo + h;
@@ -770,18 +920,60 @@ function fixedExact(st: SimState, slots: Int32Array, L: number, r0: number, weig
     p = q;
     q = t;
   }
-  const { cTitle } = st;
+  const { cTitle, cSecond, cThird } = st;
   for (let i = 0; i < L; i++) {
     const a = slots[i] as number;
-    if (a >= 0) cTitle[a]! += weight * (p[i] as number);
+    if (a < 0) continue;
+    cTitle[a]! += weight * (p[i] as number);
+    cSecond[a]! += weight * ((pReach[i] as number) - (p[i] as number));
   }
+  // 3rd: the semifinal drawn before r0 (a re-seeding bracket's) or no semifinal at all.
+  if (st.semiRound < r0) {
+    thirdFromDrawn(st, weight, false);
+    return true;
+  }
+  // The semifinal losers, one per half: P(slot i loses its semifinal) = alive at its start − alive at the final's.
+  const half = L >> 1;
+  // A semifinal that is a bye: only a 4-slot bracket of 3 playoff teams (the top seed's round-1 bye).
+  const leftGame = !(L === 4 && ((slots[0] as number) < 0 || (slots[1] as number) < 0));
+  const rightGame = !(L === 4 && ((slots[2] as number) < 0 || (slots[3] as number) < 0));
+  for (let i = 0; i < half; i++) {
+    const a = slots[i] as number;
+    if (a < 0) continue;
+    const li = (pSemi[i] as number) - (pReach[i] as number);
+    if (li === 0) continue;
+    if (!rightGame) {
+      cThird[a]! += weight * li; // the other semifinal is a bye: no one to play, 3rd outright
+      continue;
+    }
+    for (let j = half; j < L; j++) {
+      const b = slots[j] as number;
+      if (b < 0) continue;
+      const lj = (pSemi[j] as number) - (pReach[j] as number);
+      if (lj === 0) continue;
+      const w = thirdChance(st, a, b);
+      if (w !== w) {
+        st.thirdUnknown = true; // NaN: the 3rd-place game can't be known
+        continue;
+      }
+      const both = li * lj;
+      cThird[a]! += weight * both * w;
+      cThird[b]! += weight * both * (1 - w);
+    }
+  }
+  if (!leftGame)
+    for (let j = half; j < L; j++) {
+      const b = slots[j] as number;
+      if (b >= 0) cThird[b]! += weight * ((pSemi[j] as number) - (pReach[j] as number));
+    }
   return true;
 }
 
 /**
  * The exact title chances of a 4-team fixed bracket (fixedExact's rule, written out): s0 vs s1 and s2 vs s3 in
- * round r, the winners in round r + 1. Adds weight × the chances to st.cTitle; false when a game reached with
- * positive probability can't be known.
+ * round r, the winners in round r + 1. Adds weight × the chances to st.cTitle, and to st.cSecond and st.cThird (the
+ * semifinals' losers meet in round r + 1's weeks: r + 1 is always the final here); false when a game reached with
+ * positive probability can't be known (a 3rd-place game that can't be known only sets st.thirdUnknown).
  */
 function fourExact(st: SimState, r: number, s0: number, s1: number, s2: number, s3: number, weight: number): boolean {
   const a = winChance(st, r, s0, s1);
@@ -822,13 +1014,34 @@ function fourExact(st: SimState, r: number, s0: number, s1: number, s2: number, 
   cTitle[s1]! += weight * t1;
   cTitle[s2]! += weight * t2;
   cTitle[s3]! += weight * t3;
+  // 2nd: reached the final (s0 with chance a, s1 1 − a, s2 b, s3 1 − b) and lost it.
+  const { cSecond, cThird } = st;
+  cSecond[s0]! += weight * (a - t0);
+  cSecond[s1]! += weight * (1 - a - t1);
+  cSecond[s2]! += weight * (b - t2);
+  cSecond[s3]! += weight * (1 - b - t3);
+  // 3rd: the semifinals' losers (s1 with chance a, s0 1 − a; s3 with chance b, s2 1 − b), independent, play each other.
+  for (let k = 0; k < 4; k++) {
+    const x = k < 2 ? s1 : s0;
+    const y = (k & 1) === 0 ? s3 : s2;
+    const both = (k < 2 ? a : 1 - a) * ((k & 1) === 0 ? b : 1 - b);
+    if (both === 0) continue;
+    const w = thirdChance(st, x, y);
+    if (w !== w) {
+      st.thirdUnknown = true;
+      continue;
+    }
+    cThird[x]! += weight * both * w;
+    cThird[y]! += weight * both * (1 - w);
+  }
   return true;
 }
 
 /**
  * A re-seeding bracket's round r with 8 teams left (its games st.pairX[g] vs st.pairY[g], -1 = an empty slot: a
  * bye), exactly: each outcome of its games, then the survivors' 4-team bracket in seed order, best against worst
- * (fixed slots [1, 4, 2, 3]). Adds weight × the title chances to st.cTitle; false when a game can't be known.
+ * (fixed slots [1, 4, 2, 3]). Adds weight × the title chances to st.cTitle, and the places to st.cSecond and
+ * st.cThird (fourExact's); false when a game can't be known.
  */
 function eightExact(st: SimState, r: number, weight: number): boolean {
   const { pairX, pairY, pairW, byeTeam, quad, seedOf } = st;
@@ -864,8 +1077,9 @@ function eightExact(st: SimState, r: number, weight: number): boolean {
 }
 
 /**
- * The bracket from st.slots[0..B) (seeds in bracketOrder slots), its title chances added to st.cTitle: drawn
- * (sampled), or exact from st.exactFrom on (the file header's "Title odds"). False when the playoffs can't be known.
+ * The bracket from st.slots[0..B) (seeds in bracketOrder slots), its title chances added to st.cTitle and its places
+ * to st.cSecond and st.cThird: drawn (sampled), or exact from st.exactFrom on (the file header's "Title odds" and
+ * "Places"). False when the playoffs can't be known.
  */
 function playBracket(st: SimState): boolean {
   const { B, R, slots, cTitle } = st;
@@ -873,6 +1087,8 @@ function playBracket(st: SimState): boolean {
   if (!st.exact) {
     for (let r = 0; r < R; r++, live >>= 1) if (!playRound(st, r, live)) return false;
     cTitle[slots[0] as number]! += 1;
+    if (st.finalLoser >= 0) st.cSecond[st.finalLoser]! += 1;
+    thirdFromDrawn(st, 1, true);
     return true;
   }
   const r0 = st.exactFrom;
@@ -996,6 +1212,66 @@ function simulateOne(st: SimState, n: number): boolean {
     for (let i = 0; i < T; i++) pf[i]! += score[o + i] as number;
   }
 
+  // Weekly high scores: each period's top score (the sum over its drawn weeks), split evenly on an exact tie.
+  const { hsStart, hsWeek, hsScore, cHigh } = st;
+  const periods = hsStart.length - 1;
+  for (let q = 0; q < periods; q++) {
+    const s0 = hsStart[q] as number;
+    const s1 = hsStart[q + 1] as number;
+    let best = Number.NEGATIVE_INFINITY;
+    let at = -1;
+    let tied = 0;
+    if (s1 - s0 === 1) {
+      // One week (nearly every period): its scores as drawn.
+      const o = (hsWeek[s0] as number) * T;
+      for (let i = 0; i < T; i++) {
+        const v = score[o + i] as number;
+        hsScore[i] = v;
+        if (v > best) {
+          best = v;
+          at = i;
+          tied = 1;
+        } else if (v === best) tied++;
+      }
+    } else {
+      for (let i = 0; i < T; i++) {
+        let v = 0;
+        for (let k = s0; k < s1; k++) v += score[(hsWeek[k] as number) * T + i] as number;
+        hsScore[i] = v;
+        if (v > best) {
+          best = v;
+          at = i;
+          tied = 1;
+        } else if (v === best) tied++;
+      }
+    }
+    if (tied === 1) cHigh[at]! += 1;
+    else if (tied > 1) {
+      const share = 1 / tied;
+      for (let i = 0; i < T; i++) if (hsScore[i] === best) cHigh[i]! += share;
+    }
+  }
+  // The points leader: the most points for after the regular season, split evenly on an exact tie.
+  {
+    let best = Number.NEGATIVE_INFINITY;
+    let at = -1;
+    let tied = 0;
+    for (let i = 0; i < T; i++) {
+      const v = pf[i] as number;
+      if (v > best) {
+        best = v;
+        at = i;
+        tied = 1;
+      } else if (v === best) tied++;
+    }
+    const { cLeader } = st;
+    if (tied === 1) cLeader[at]! += 1;
+    else if (tied > 1) {
+      const share = 1 / tied;
+      for (let i = 0; i < T; i++) if (pf[i] === best) cLeader[i]! += share;
+    }
+  }
+
   // Standings.
   const { winPct, order, seedOf, sumW, sumL, sumT, cSeed } = st;
   for (let i = 0; i < T; i++) {
@@ -1017,7 +1293,10 @@ function simulateOne(st: SimState, n: number): boolean {
   for (let k = 0; k < N; k++) cPlayoffs[order[k] as number]! += 1;
   for (let k = 0; k < byes; k++) cBye[order[k] as number]! += 1;
   if (N <= 1) {
+    // No bracket: 1st, 2nd and 3rd are the top of the final standings.
     if (T > 0) cTitle[order[0] as number]! += 1;
+    if (T > 1) st.cSecond[order[1] as number]! += 1;
+    if (T > 2) st.cThird[order[2] as number]! += 1;
     return true;
   }
   if (!st.bracketPlayed) return true;
@@ -1025,6 +1304,8 @@ function simulateOne(st: SimState, n: number): boolean {
     const seed = seedSlots[i] as number;
     slots[i] = seed <= N ? (order[seed - 1] as number) : -1;
   }
+  st.semiLosers[2] = 0;
+  st.finalLoser = -1;
   return playBracket(st);
 }
 
@@ -1032,8 +1313,8 @@ function simulateOne(st: SimState, n: number): boolean {
  * Today's standings (TeamOdds.rank): team indexes, seed 1 first, by the league's rules (the file header's
  * "Standings": the same hierarchy, and division winners first when the league seeds them so) from the
  * current records and the played games alone. It is the simulator's own final-standings code on the
- * setup with nothing left to play (no games, median weeks, draws or playoffs), so head-to-head meetings
- * count the played games only, and the order can't drift from the one the simulations use.
+ * setup with nothing left to play (no games, median weeks, high-score periods, draws or playoffs), so head-to-head
+ * meetings count the played games only, and the order can't drift from the one the simulations use.
  */
 export function standingsOrder(setup: SimSetup): number[] {
   const T = setup.teams.length;
@@ -1049,6 +1330,7 @@ export function standingsOrder(setup: SimSetup): number[] {
       byes: 0,
       rounds: [],
       playoffResults: [],
+      highScorePeriods: [],
     },
     { sims: 1, seed: 0 },
   );
@@ -1204,6 +1486,23 @@ export function simulateSeason(setup: SimSetup, opts: SimOptions): SimResult {
   const playoffWeekSet = new Set(setup.rounds.flatMap((r) => r.weeks));
   const pfWeek = pointsOnly ? Int32Array.from(setup.weeks.flatMap((w, i) => (playoffWeekSet.has(w) ? [] : [i]))) : new Int32Array(0);
 
+  // Weekly high-score periods, checked like games (each week drawn or over, at least one drawn), as draw indexes.
+  const hsLists: number[][] = [];
+  for (const ws of setup.highScorePeriods ?? []) {
+    const missing = missingWeek(ws, weekIndex, firstDrawn);
+    if (missing !== undefined) throw new RangeError(`${fn}: the high-score period (weeks ${ws.join(", ")}) needs week ${missing}, which isn't in ${listedWeeks}`);
+    const drawn = drawnIndexes(ws, weekIndex);
+    if (drawn.length === 0) throw new RangeError(`${fn}: the high-score period (weeks ${ws.join(", ")}) has no week in ${listedWeeks}`);
+    hsLists.push(drawn);
+  }
+  const hsStart = new Int32Array(hsLists.length + 1);
+  hsLists.forEach((l, q) => {
+    hsStart[q + 1] = (hsStart[q] as number) + l.length;
+  });
+  const hsWeek = Int32Array.from(hsLists.flat());
+  const thirdRule = setup.thirdPlace ?? "game";
+  if (thirdRule !== "game" && thirdRule !== "bySeed" && thirdRule !== "split") throw new RangeError(`${fn}: thirdPlace must be "game", "bySeed" or "split" (got ${String(thirdRule)})`);
+
   // Playoff bracket.
   const N = Math.min(T, Math.max(0, Number.isFinite(setup.playoffTeams) ? Math.floor(setup.playoffTeams) : 0));
   let B = N >= 1 ? 1 : 0;
@@ -1235,7 +1534,7 @@ export function simulateSeason(setup: SimSetup, opts: SimOptions): SimResult {
   // independent of each other and of the regular season. A re-seeding bracket draws its rounds before the first one
   // with at most exactReseedTeams teams left.
   const regularRead = new Uint8Array(W);
-  for (const idx of [gameWeek, medianWeek, pfWeek]) for (const k of idx) regularRead[k] = 1;
+  for (const idx of [gameWeek, medianWeek, pfWeek, hsWeek]) for (const k of idx) regularRead[k] = 1;
   const roundRead = new Uint8Array(W);
   let independent = true;
   for (const rw of roundWeek)
@@ -1370,13 +1669,29 @@ export function simulateSeason(setup: SimSetup, opts: SimOptions): SimResult {
     cSeed: new Float64Array(T * T),
     cWeekWin: new Float64Array(S * T),
     cMedianWin: new Float64Array(S * T),
+    semiRound: R >= 2 ? R - 2 : -1,
+    finalRound: R - 1,
+    thirdRule,
+    hsStart,
+    hsWeek,
+    hsScore: new Float64Array(T),
+    semiLosers: new Int32Array(3),
+    finalLoser: -1,
+    thirdUnknown: false,
+    pSemi: new Float64Array(Math.max(B, 1)),
+    pReach: new Float64Array(Math.max(B, 1)),
+    cSecond: new Float64Array(T),
+    cThird: new Float64Array(T),
+    cHigh: new Float64Array(T),
+    cLeader: new Float64Array(T),
   };
   let unknownPlayoffs = false;
   for (let n = 0; n < sims; n++) if (!simulateOne(st, n)) unknownPlayoffs = true;
 
   // ---- Averages.
-  const { cPlayoffs, cBye, cTitle, sumW, sumL, sumT, cSeed, cWeekWin, cMedianWin } = st;
+  const { cPlayoffs, cBye, cTitle, sumW, sumL, sumT, cSeed, cWeekWin, cMedianWin, cSecond, cThird, cHigh, cLeader } = st;
   const titlesKnown = !unknownPlayoffs && (N <= 1 || bracketPlayed);
+  const thirdKnown = titlesKnown && !st.thirdUnknown;
   const teams: SimTeamOdds[] = setup.teams.map((_, t) => ({
     pPlayoffs: (cPlayoffs[t] as number) / sims,
     pBye: unknownPlayoffs ? Number.NaN : (cBye[t] as number) / sims,
@@ -1385,11 +1700,15 @@ export function simulateSeason(setup: SimSetup, opts: SimOptions): SimResult {
     expLosses: (sumL[t] as number) / sims,
     expTies: (sumT[t] as number) / sims,
     seedDist: Array.from({ length: T }, (_, k) => (cSeed[t * T + k] as number) / sims),
+    pSecond: titlesKnown ? (cSecond[t] as number) / sims : Number.NaN,
+    pThird: thirdKnown ? (cThird[t] as number) / sims : Number.NaN,
+    expHighScores: (cHigh[t] as number) / sims,
+    pPointsLeader: (cLeader[t] as number) / sims,
   }));
   const weekly = weeklyWeeks.map((week, s) => ({
     week,
     pWin: Float64Array.from({ length: T }, (_, t) => (hasGame[s * T + t] === 1 ? (cWeekWin[s * T + t] as number) / sims : Number.NaN)),
     pMedianWin: isMedianSlot[s] === 1 ? Float64Array.from({ length: T }, (_, t) => (cMedianWin[s * T + t] as number) / sims) : null,
   }));
-  return { sims, teams, weekly, playoffsKnown: !unknownPlayoffs };
+  return { sims, teams, weekly, playoffsKnown: !unknownPlayoffs, thirdKnown };
 }

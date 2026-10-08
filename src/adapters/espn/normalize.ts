@@ -37,7 +37,10 @@
  *   breaks still has a winner. A decided matchup we can't read stays decided without a result, warned
  *   by what that changes: a regular-season game leaves the head-to-head (and division-record)
  *   tiebreakers, a playoff game makes bye and title odds unknown; a bye changes nothing, so it isn't.
- *   Consolation-bracket games are left out.
+ *   Consolation-bracket games are left out (their rows are read only for 3rd place, below).
+ * - 3rd place (Checkpoint 7c; planner reply to Checkpoint 7b, §6): LeagueSettings.thirdPlace from the final playoff period's
+ *   consolation-ladder game once ESPN lists it (basis "schedule", ✅ test league 899513's 2025 season), else from
+ *   scheduleSettings.consolationLadderDisabled (basis "setting", ⚠️ a reading, with a note), else unknown (thirdPlaceOf).
  * - Transactions: EXECUTED rows only (proposals, declines, cancelled or failed claims and lineup
  *   moves are not roster changes), deduped by id across the per-period requests. Trades follow
  *   ./trades.ts (Phase 4): rows answering one trade (TRADE_ACCEPT, TRADE_UPHOLD; own id, proposal or
@@ -461,6 +464,40 @@ function seedingTiebreakerOf(value: string | undefined, warnings: ImportWarning[
   return undefined;
 }
 
+/** ESPN's tier of the consolation games among the winners bracket's teams (settings.typeNames.playoffTierTypes): its ladder. */
+export const ESPN_CONSOLATION_LADDER_TIER = "WINNERS_CONSOLATION_LADDER";
+
+/**
+ * Whether a game between the two semifinal losers decides 3rd place (LeagueSettings.thirdPlace; Checkpoint 7c, planner reply
+ * to Checkpoint 7b, §6: "Check the platform data: ESPN's playoff schedule … If the data doesn't say, assume there's one, and
+ * say so in the Import Report"):
+ * - Once ESPN lists the final playoff period's games: a game of its consolation ladder in that period between two teams
+ *   (tier ESPN_CONSOLATION_LADDER_TIER: a row the schedule leaves out) → yes, basis "schedule" (✅ test league 899513's 2025
+ *   season, read live by the lead on 2026-10-07: its final period's ladder game paired the two semifinal losers, and its
+ *   winner finished 3rd). ⚠️ The period's other ladder games (5th place in a big bracket) read the same: a ladder that
+ *   plays for 5th plays for 3rd too.
+ * - Before that (ESPN makes playoff matchups only once the seeds are set), scheduleSettings.consolationLadderDisabled: false
+ *   (the ladder on: both test leagues in 2026) → yes, true → no, basis "setting" (⚠️ our reading, on that one league's
+ *   evidence; the Import Report says so under its row, and the notes say which value was read).
+ * - Missing (or an upload from a browser bundle older than this field) → undefined: unknown, so the season simulation
+ *   assumes a game, and the Import Report says it's assumed.
+ * A final period that lists games but no ladder game falls back to the setting (⚠️ ours: ESPN may list the final before
+ * the 3rd-place game).
+ */
+export function thirdPlaceOf(schedule: readonly EspnMatchup[] | null | undefined, ladderDisabled: boolean | null | undefined, finalPeriod: number | undefined, notes: string[]): LeagueSettings["thirdPlace"] {
+  if (finalPeriod !== undefined && (schedule ?? []).some((m) => m.matchupPeriodId === finalPeriod && m.playoffTierType === ESPN_CONSOLATION_LADDER_TIER && m.home && m.away)) return { game: true, basis: "schedule" };
+  if (typeof ladderDisabled !== "boolean") {
+    notes.push("3rd place: ESPN's league data doesn't say whether the two semifinal losers play for 3rd (its playoff schedule lists no 3rd-place game yet, and its consolation-ladder setting wasn't read), so a 3rd-place game is assumed.");
+    return undefined;
+  }
+  notes.push(
+    ladderDisabled
+      ? "3rd place: ESPN's playoff schedule lists no 3rd-place game yet, and its consolation ladder is off (consolationLadderDisabled true), read as no 3rd-place game: the better seed of the two semifinal losers is taken as 3rd (our reading)."
+      : "3rd place: ESPN's playoff schedule lists no 3rd-place game yet, and its consolation ladder is on (consolationLadderDisabled false), read as the two semifinal losers playing for 3rd (our reading, seen in one league's playoff schedule).",
+  );
+  return { game: !ladderDisabled, basis: "setting" };
+}
+
 function settingsOf(L: EspnLeague, slots: SlotSummary, proTeams: EspnProTeam[] | undefined, warnings: ImportWarning[], notes: string[]): LeagueSettings {
   const s = L.settings;
   const sch = s.scheduleSettings;
@@ -540,6 +577,9 @@ function settingsOf(L: EspnLeague, slots: SlotSummary, proTeams: EspnProTeam[] |
     warnings.push({ code: "ESPN_SEEDING_UNKNOWN", message: "ESPN didn't say whether the playoffs re-seed after each round; we assume a fixed bracket.", platformPath: "settings.scheduleSettings.playoffReseed" });
   }
   const seedingTiebreaker = seedingTiebreakerOf(sch.playoffSeedingRule ?? undefined, warnings, notes, unknown);
+  // 3rd place (thirdPlaceOf): the final playoff period's ladder game once ESPN lists it, else ESPN's ladder setting. Its
+  // note only where there are semifinals (4+ playoff teams): with fewer, nobody plays for 3rd.
+  const thirdPlace = thirdPlaceOf(L.schedule, sch.consolationLadderDisabled, playoff.at(-1)?.mp, teams >= 4 ? notes : []);
 
   const divs = sch.divisions ?? [];
   const divisions = divs.length > 1 ? divs.map((d) => ({ id: String(d.id), teamIds: L.teams.filter((t) => t.divisionId === d.id).map((t) => String(t.id)) })) : undefined;
@@ -575,6 +615,7 @@ function settingsOf(L: EspnLeague, slots: SlotSummary, proTeams: EspnProTeam[] |
     // then a fixed bracket stands in for re-seeding (ESPN_SEEDING_UNKNOWN says it's assumed).
     ...(reseed !== undefined || divisions ? { playoffSeeding: { reseed: reseed ?? false, divisionWinnersFirst: !!divisions } } : {}),
     ...(seedingTiebreaker ? { seedingTiebreaker } : {}),
+    ...(thirdPlace ? { thirdPlace } : {}),
     tradeDeadline,
     tradeReview,
     ...(tradeReviewHours !== undefined ? { tradeReviewHours } : {}),
@@ -1022,6 +1063,7 @@ export function normalizeEspnLeague(raw: EspnRawBundle, ctx: EspnNormalizeContex
     const weeks = periodWeeks.get(m.matchupPeriodId);
     const first = weeks?.[0];
     if (!weeks || first === undefined || !m.home) continue;
+    // Consolation games stay out of the schedule (settingsOf read the final period's ladder game for 3rd place first).
     if (m.playoffTierType && m.playoffTierType !== "WINNERS_BRACKET" && m.playoffTierType !== "NONE") {
       consolation++;
       continue;

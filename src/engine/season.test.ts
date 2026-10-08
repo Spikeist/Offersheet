@@ -8,7 +8,7 @@ import { buildLeagueModel, leagueWeeks } from "./league";
 import type { LeagueSettings, LeagueSnapshot, Matchup } from "./model";
 import { mulberry32 } from "./rng";
 import { DIVISION_RULE_ASSUMED, RESEED_RULE_ASSUMED, buildSimSetup, oddsSkippedWarning, pickupSeasonModel, playoffRounds, reseedRuleAssumed, seasonOdds, weekList, weekUnderWayNote, type SeasonModel } from "./season";
-import { simNormals, standingsOrder } from "./sim";
+import { simNormals, simulateSeason, standingsOrder } from "./sim";
 import { buildTestLeague, syntheticInputs } from "./testLeague";
 
 const range = (from: number, to: number): number[] => Array.from({ length: Math.max(0, to - from + 1) }, (_, i) => from + i);
@@ -835,6 +835,111 @@ describe("seasonOdds: weekly matchups and determinism", () => {
     expect(b?.teams[3]?.pTitle).toBeLessThan(a?.teams[3]?.pTitle as number);
   });
 
+  it("Checkpoint 7c: 2nd and 3rd place, high scores and the points leader in TeamOdds; 2nd and 3rd unknown (null) with the title, whether the simulator or season.ts makes it unknown", () => {
+    const x = league({ T: 8, currentWeek: 4, schedule: roundRobin(8, range(1, 14), 4), playoffTeams: 6 });
+    const odds = oddsOf(x, 1000);
+    expect(sum(odds.teams.map((t) => t.pSecond as number))).toBeCloseTo(1, 12);
+    expect(sum(odds.teams.map((t) => t.pThird as number))).toBeCloseTo(1, 12);
+    expect(sum(odds.teams.map((t) => t.pPointsLeader))).toBeCloseTo(1, 12);
+    for (const t of odds.teams) {
+      expect(t.pSecond as number, t.teamId).toBeGreaterThanOrEqual(0);
+      expect((t.pTitle as number) + (t.pSecond as number) + (t.pThird as number), t.teamId).toBeLessThanOrEqual(t.pPlayoffs + 1e-12);
+      expect(t.expHighScores).toBe(0); // no periods unless asked
+    }
+    expect(odds.highScorePeriods).toBe(0);
+    // A round already played without a result (Sleeper-style): the title, 2nd and 3rd unknown; the regular season's numbers stand.
+    const records = range(0, 7).map((i): [number, number, number] => [13 - i, 1 + i, 0]);
+    const unknown = oddsOf(league({ T: 8, currentWeek: 16, schedule: roundRobin(8, range(1, 14), 15), playoffTeams: 6, records }));
+    expect(unknown.playoffsKnown).toBe(false);
+    expect(unknown.teams.every((t) => t.pTitle === null && t.pSecond === null && t.pThird === null)).toBe(true);
+    expect(sum(unknown.teams.map((t) => t.pPointsLeader))).toBeCloseTo(1, 12);
+    // The league's own playoff schedule pairs teams differently from our bracket (review SPEC-4's case: round 1 listed as
+    // 3 v 5 and 4 v 6, ours 4 v 5 and 3 v 6). Here season.ts makes the playoffs unknown while the simulator itself knows
+    // them, so its guard is what makes 2nd and 3rd null with the title.
+    const listed = (a: number, b: number): Matchup => ({ week: 15, teamA: String(a), teamB: String(b), isPlayoff: true });
+    const other = league({ T: 8, currentWeek: 15, schedule: [...roundRobin(8, range(1, 14), 15), listed(3, 5), listed(4, 6)], playoffTeams: 6, records });
+    const built = setupOf(other);
+    expect(built.playoffsKnown).toBe(false);
+    const own = simulateSeason(built.setup, { sims: 400, seed: 7 });
+    expect([own.playoffsKnown, own.thirdKnown]).toEqual([true, true]);
+    expect(own.teams.every((t) => Number.isFinite(t.pSecond) && Number.isFinite(t.pThird))).toBe(true);
+    const mismatch = oddsOf(other);
+    expect(mismatch.playoffsKnown).toBe(false);
+    expect(mismatch.teams.every((t) => t.pTitle === null && t.pSecond === null && t.pThird === null)).toBe(true);
+    // No playoffs: places by the final standings (3 teams: every one of the three).
+    const none = oddsOf(league({ T: 3, currentWeek: 4, schedule: [open(4, 1, 2), open(4, 3, null), open(5, 1, 3), open(5, 2, null)], regular: [4, 5], playoffs: [], playoffTeams: 0, records: [[0, 0, 0], [0, 0, 0], [0, 0, 0]] }), 1000);
+    for (const t of none.teams) expect((t.pTitle as number) + (t.pSecond as number) + (t.pThird as number), t.teamId).toBeCloseTo(1, 12);
+  });
+
+  it("Checkpoint 7c: the 3rd-place rule from settings.thirdPlace: a game, none (the better seed, ⚠️ ours), or absent (a game, assumed, and no note: the Import Report says it)", () => {
+    const x = league({ T: 8, currentWeek: 4, schedule: roundRobin(8, range(1, 14), 4), playoffTeams: 6 });
+    expect(x.snapshot.settings.thirdPlace).toBeUndefined();
+    const assumed = setupOf(x);
+    expect(assumed.thirdPlace).toEqual({ rule: "game", assumed: true });
+    expect(assumed.setup.thirdPlace).toBe("game");
+    const base = oddsOf(x, 1000);
+    expect(base.thirdPlace).toEqual({ rule: "game", assumed: true });
+    expect(base.notes.some((n) => /3rd/.test(n))).toBe(false);
+    const withThird = (thirdPlace: LeagueSettings["thirdPlace"]) => {
+      const y = league({ T: 8, currentWeek: 4, schedule: roundRobin(8, range(1, 14), 4), playoffTeams: 6, settings: { thirdPlace } });
+      return { built: setupOf(y), odds: oddsOf(y, 1000) };
+    };
+    const game = withThird({ game: true, basis: "schedule" });
+    expect(game.built.thirdPlace).toEqual({ rule: "game", assumed: false });
+    expect(game.odds.thirdPlace).toEqual({ rule: "game", assumed: false });
+    // The same seasons as the assumed game: only `assumed` differs.
+    expect({ ...game.odds, thirdPlace: base.thirdPlace }).toEqual(base);
+    const none = withThird({ game: false, basis: "bracket" });
+    expect(none.built.setup.thirdPlace).toBe("bySeed");
+    expect(none.odds.thirdPlace).toEqual({ rule: "bySeed", assumed: false });
+    // Only 3rd place moves: the title and 2nd are the same seasons' numbers.
+    expect(none.odds.teams.map((t) => [t.pTitle, t.pSecond])).toEqual(base.teams.map((t) => [t.pTitle, t.pSecond]));
+    expect(none.odds.teams.map((t) => t.pThird)).not.toEqual(base.teams.map((t) => t.pThird));
+    expect(sum(none.odds.teams.map((t) => t.pThird as number))).toBeCloseTo(1, 12);
+  });
+
+  it("Checkpoint 7c: high-score periods only when asked: each remaining matchup period with a game once, a matchup period of several weeks as one, a points-only league each regular week still to score", () => {
+    const x = league({ T: 4, currentWeek: 4, schedule: roundRobin(4, range(1, 6), 4), regular: range(1, 6), playoffs: [7, 8] });
+    const plain = setupOf(x);
+    expect(plain.setup.highScorePeriods).toBeUndefined();
+    const asked = buildSimSetup(x.snapshot, x.model, { highScores: true }) as NonNullable<ReturnType<typeof buildSimSetup>>;
+    expect(asked.setup.highScorePeriods).toEqual([[4], [5], [6]]);
+    // They add no drawn week, and change no other number: the same setup otherwise, the same odds but for the high scores.
+    expect({ ...asked.setup, highScorePeriods: undefined }).toEqual({ ...plain.setup, highScorePeriods: undefined });
+    const odds = seasonOdds(x.snapshot, x.model, { sims: 1000, seed: 7, highScores: true }) as NonNullable<ReturnType<typeof seasonOdds>>;
+    expect(odds.highScorePeriods).toBe(3);
+    expect(sum(odds.teams.map((t) => t.expHighScores))).toBeCloseTo(3, 12);
+    expect(odds.teams.every((t) => t.expHighScores > 0)).toBe(true);
+    expect({ ...odds, highScorePeriods: 0, teams: odds.teams.map((t) => ({ ...t, expHighScores: 0 })) }).toEqual(oddsOf(x, 1000));
+    // A matchup period of two weeks (ESPN), under way: one period, decided by its week still to play.
+    const pair = (week: number, weeks: number[], decided: boolean): Matchup[] =>
+      decided ? [done(week, 1, 2, "a", { weeks }), done(week, 3, 4, "a", { weeks })] : [open(week, 1, 2, { weeks }), open(week, 3, 4, { weeks })];
+    const during = league({ T: 4, currentWeek: 3, schedule: [...pair(1, [1], true), ...pair(2, [2, 3], false)], regular: range(1, 3), playoffs: [4, 5] });
+    const multi = buildSimSetup(during.snapshot, during.model, { highScores: true }) as NonNullable<ReturnType<typeof buildSimSetup>>;
+    expect(multi.setup.highScorePeriods).toEqual([[2, 3]]);
+    expect(multi.setup.weeks).toEqual([3, 4, 5]);
+    expect(sum((seasonOdds(during.snapshot, during.model, { sims: 200, seed: 7, highScores: true }) as NonNullable<ReturnType<typeof seasonOdds>>).teams.map((t) => t.expHighScores))).toBeCloseTo(1, 12);
+    // Byes don't make a period of their own, and a period counts once however many games it has (3 teams: a bye a week).
+    const odd = league({ T: 3, currentWeek: 4, schedule: [open(4, 1, 2), open(4, 3, null), open(5, 1, 3), open(5, 2, null)], regular: [4, 5], playoffs: [], playoffTeams: 0, records: [[0, 0, 0], [0, 0, 0], [0, 0, 0]] });
+    expect(buildSimSetup(odd.snapshot, odd.model, { highScores: true })?.setup.highScorePeriods).toEqual([[4], [5]]);
+    // Points-only: each regular week still to score, games or not.
+    const zeros: [number, number, number][] = [[0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0]];
+    const pointsOnly = league({ T: 4, currentWeek: 5, schedule: [], regular: range(1, 8), playoffs: [9, 10], settings: { pointsOnly: true }, records: zeros });
+    expect(buildSimSetup(pointsOnly.snapshot, pointsOnly.model, { highScores: true })?.setup.highScorePeriods).toEqual([[5], [6], [7], [8]]);
+    // …but not a week whose matchups are all decided (the current week scored, before the platform rolls over): its points
+    // are in points for already, so it isn't drawn, and a period without a drawn week would make the simulator throw.
+    const scored = league({ T: 4, currentWeek: 5, schedule: roundRobin(4, range(1, 8), 6), regular: range(1, 8), playoffs: [9, 10], settings: { pointsOnly: true }, records: zeros });
+    const s = buildSimSetup(scored.snapshot, scored.model, { highScores: true }) as NonNullable<ReturnType<typeof buildSimSetup>>;
+    expect(s.setup.weeks).toEqual([6, 7, 8, 9, 10]);
+    expect(s.setup.highScorePeriods).toEqual([[6], [7], [8]]);
+    const so = seasonOdds(scored.snapshot, scored.model, { sims: 200, seed: 7, highScores: true }) as NonNullable<ReturnType<typeof seasonOdds>>;
+    expect(so.highScorePeriods).toBe(3);
+    expect(sum(so.teams.map((t) => t.expHighScores))).toBeCloseTo(3, 12);
+    // The regular season over: none left.
+    const over = league({ T: 4, currentWeek: 15, schedule: roundRobin(4, range(1, 14), 15), records: [[11, 3, 0], [9, 5, 0], [5, 9, 0], [3, 11, 0]] });
+    expect(buildSimSetup(over.snapshot, over.model, { highScores: true })?.setup.highScorePeriods).toEqual([]);
+  });
+
   it("weekList names weeks plainly, runs of consecutive weeks as ranges", () => {
     expect(weekList([3])).toBe("week 3");
     expect(weekList([5, 3])).toBe("weeks 3 and 5");
@@ -843,7 +948,7 @@ describe("seasonOdds: weekly matchups and determinism", () => {
     expect(weekList([3, 5, 6, 7, 9, 10])).toBe("weeks 3, 5–7, 9 and 10");
   });
 
-  it("never hands the simulator a setup it refuses: 300 random league states (byes, multi-week matchups, unscored weeks, medians, points-only, playoffs under way)", () => {
+  it("never hands the simulator a setup it refuses: 300 random league states (byes, multi-week matchups, unscored weeks, the current week already scored, medians, points-only, playoffs under way)", () => {
     const rand = mulberry32(20260930);
     for (let trial = 0; trial < 300; trial++) {
       const T = 3 + Math.floor(rand() * 10);
@@ -852,7 +957,10 @@ describe("seasonOdds: weekly matchups and determinism", () => {
       const roundWeeks = rand() < 0.3 ? [1, 2] : undefined;
       const playoffs = rand() < 0.15 ? [] : range(lastRegular + 1, lastRegular + (roundWeeks ? 3 : 2 + Math.floor(rand() * 2)));
       const currentWeek = 1 + Math.floor(rand() * (lastRegular + playoffs.length + 1));
-      const decidedThrough = currentWeek - 1 - (rand() < 0.2 ? 1 : 0);
+      // A finished week not scored yet (D5) in 20% of the trials; the current week already scored, before the platform
+      // rolls over, in 10% (one draw for both, so the other trials stay as they were).
+      const lag = rand();
+      const decidedThrough = currentWeek - 1 - (lag < 0.2 ? 1 : 0) + (lag >= 0.9 ? 1 : 0);
       const multi = rand() < 0.2;
       const schedule: Matchup[] = [];
       for (let w = 1; w <= lastRegular; w++) {
@@ -879,14 +987,23 @@ describe("seasonOdds: weekly matchups and determinism", () => {
         mean: (t, w) => 80 + ((t * 7 + w * 3) % 40),
         sd: (t) => 10 + t,
       });
+      // Checkpoint 7c: high-score periods in every other trial (the simulator checks them like games).
+      const highScores = trial % 2 === 0;
       let odds: ReturnType<typeof seasonOdds> = null;
       expect(() => {
-        odds = seasonOdds(x.snapshot, x.model, { sims: 50, seed: trial });
+        odds = seasonOdds(x.snapshot, x.model, { sims: 50, seed: trial, highScores });
       }, `trial ${trial}`).not.toThrow();
       if (!odds) continue;
       const o = odds as NonNullable<ReturnType<typeof seasonOdds>>;
       expect(sum(o.teams.map((t) => t.pPlayoffs)), `trial ${trial}`).toBeCloseTo(o.playoffTeams, 9);
-      if (o.teams.every((t) => t.pTitle !== null)) expect(sum(o.teams.map((t) => t.pTitle as number)), `trial ${trial}`).toBeCloseTo(1, 9);
+      if (o.teams.every((t) => t.pTitle !== null)) {
+        expect(sum(o.teams.map((t) => t.pTitle as number)), `trial ${trial}`).toBeCloseTo(1, 9);
+        expect(sum(o.teams.map((t) => t.pSecond as number)), `trial ${trial}`).toBeCloseTo(1, 9);
+      }
+      if (o.teams.every((t) => t.pThird !== null)) expect(sum(o.teams.map((t) => t.pThird as number)), `trial ${trial}`).toBeCloseTo(1, 9); // T ≥ 3 here
+      expect(sum(o.teams.map((t) => t.expHighScores)), `trial ${trial}`).toBeCloseTo(o.highScorePeriods, 9);
+      if (!highScores) expect(o.highScorePeriods).toBe(0);
+      expect(sum(o.teams.map((t) => t.pPointsLeader)), `trial ${trial}`).toBeCloseTo(1, 9);
       expect(o.teams.map((t) => t.rank).sort((p, q) => p - q), `trial ${trial}`).toEqual(range(1, T));
     }
   });
@@ -936,6 +1053,22 @@ describe("Parker's league (committed sanitized ESPN fixture) with synthetic inpu
       expect(w.games).toHaveLength(10);
       expect(sum(w.games.map((g) => g.pWin as number))).toBeCloseTo(5, 9);
     }
+  });
+
+  it("Checkpoint 7c: Σ P(2nd) = Σ P(3rd) = Σ P(points leader) = 1, places 1–3 within the playoff teams; with the weekly high scores asked, 11 periods (weeks 4–14) and every other number the same", () => {
+    const odds = model.odds as NonNullable<typeof model.odds>;
+    expect(sum(odds.teams.map((t) => t.pSecond as number))).toBeCloseTo(1, 9);
+    expect(sum(odds.teams.map((t) => t.pThird as number))).toBeCloseTo(1, 9);
+    expect(sum(odds.teams.map((t) => t.pPointsLeader))).toBeCloseTo(1, 9);
+    for (const t of odds.teams) expect((t.pTitle as number) + (t.pSecond as number) + (t.pThird as number), t.teamId).toBeLessThanOrEqual(t.pPlayoffs + 1e-9);
+    // The rule as the adapter reads it (absent: a game, assumed).
+    const third = snapshot.settings.thirdPlace;
+    expect(odds.thirdPlace).toEqual({ rule: third?.game === false ? "bySeed" : "game", assumed: third === undefined });
+    expect([odds.highScorePeriods, ...odds.teams.map((t) => t.expHighScores)]).toEqual(new Array(11).fill(0));
+    const withHighs = seasonOdds(snapshot, pickupSeasonModel(model), { highScores: true }) as NonNullable<ReturnType<typeof seasonOdds>>;
+    expect(withHighs.highScorePeriods).toBe(11);
+    expect(sum(withHighs.teams.map((t) => t.expHighScores))).toBeCloseTo(11, 9);
+    expect({ ...withHighs, highScorePeriods: 0, teams: withHighs.teams.map((t) => ({ ...t, expHighScores: 0 })) }).toEqual(odds);
   });
 
   it("is deterministic: two builds from the same snapshot give identical odds (the no-op check)", () => {

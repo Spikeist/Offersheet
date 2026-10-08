@@ -206,7 +206,9 @@ describe("pullSeason: the store's records into the local archives' files", () =>
     expect(await levelsRecordOf(gzipSync(JSON.stringify({ version: 2 })).toString("base64"), 2026, "2026-10-07")).toBe("otherVersion");
   });
 
-  it("asks for missing lists, and missing days' levels, PULL_BATCH at a time", async () => {
+  // 96 gzipped files into the temp folder: about 0.3 s alone, but twice over 5 s under the full parallel suite on Windows
+  // (Checkpoint 7c's gates), so it gets the room the other file-heavy tests have.
+  it("asks for missing lists, and missing days' levels, PULL_BATCH at a time", { timeout: 60_000 }, async () => {
     const redis = new FakeRedis(() => WEDNESDAY);
     const store = sharedSnapshotStore(redis, { env: { VERCEL_ENV: "production" }, clock: () => WEDNESDAY });
     const formats: FantasyCalcFormat[] = [];

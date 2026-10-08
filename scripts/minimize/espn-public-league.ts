@@ -6,7 +6,8 @@
  *
  *   fixtures/sanitized/min/espn/public-league/
  *     "league: settings, scoring, roster subset"  settings (scoring, lineup slots, position limits,
- *        schedule shape, trade/draft/FAAB fields), status, and a SUBSET of each roster: its TQB
+ *        schedule shape and, since Checkpoint 7c, the consolation-ladder setting, trade/draft/FAAB
+ *        fields), status, and a SUBSET of each roster: its TQB
  *        units, its D/ST, and the TEs whose rushing stats tell the pointsOverrides key readings apart
  *        (Phase 0 K.overrideKeys). No members, owners, records, schedule or activity.
  *     "player pool: week N actual lines" (N = 2, 3)  the week-N actual line (appliedTotal, the stats
@@ -165,7 +166,9 @@ async function main(): Promise<void> {
       scoringSettings: { scoringItems: items, ...pick(s.scoringSettings as Json, ["scoringType", "scoringEnhancementType", "homeTeamBonus", "playoffHomeTeamBonus"]) },
       rosterSettings: pick(s.rosterSettings as Json, ["lineupSlotCounts", "positionLimits", "isBenchUnlimited"]),
       scheduleSettings: {
-        ...pick(s.scheduleSettings, ["matchupPeriodCount", "matchupPeriods", "playoffTeamCount", "playoffMatchupPeriodLength", "playoffMatchupPeriodLengthByRound", "variablePlayoffMatchupPeriodLength", "playoffReseed", "playoffSeedingRule"]),
+        // consolationLadderDisabled since Checkpoint 7c: before the playoff schedule is set, it says whether the two
+        // semifinal losers play for 3rd (src/adapters/espn/normalize.ts thirdPlaceOf).
+        ...pick(s.scheduleSettings, ["matchupPeriodCount", "matchupPeriods", "playoffTeamCount", "playoffMatchupPeriodLength", "playoffMatchupPeriodLengthByRound", "variablePlayoffMatchupPeriodLength", "playoffReseed", "playoffSeedingRule", "consolationLadderDisabled"]),
         divisions: (s.scheduleSettings.divisions ?? []).map((d) => ({ id: d.id, size: d.size })),
       },
       tradeSettings: pick(s.tradeSettings, ["deadlineDate", "vetoVotesRequired", "revisionHours"]),

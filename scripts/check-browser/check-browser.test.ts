@@ -1226,13 +1226,17 @@ describe("the browser's own reads of a league (Part B, track BF)", () => {
       "https://api.sleeper.app/v1/league/123456789012345678/transactions/2",
       "https://api.sleeper.app/v1/league/123456789012345678/traded_picks",
       "https://api.sleeper.app/v1/league/123456789012345678/drafts",
+      // Checkpoint 7c: the winners bracket (the 3rd-place game) is the league's own data, read in the browser too.
+      "https://api.sleeper.app/v1/league/123456789012345678/winners_bracket",
     ])
       expect(isPlatformRead(url), url).toBe(true);
+    // ...and said without its id, by its own word.
+    expect(platformReadText("https://api.sleeper.app/v1/league/123456789012345678/winners_bracket", "GET")).toBe("GET api.sleeper.app/v1/league/#/winners_bracket");
     for (const url of [
       "https://api.sleeper.app/projections/nfl/2026/5?season_type=regular&position[]=QB",
       "https://api.sleeper.app/stats/nfl/2026/3?season_type=regular&position[]=QB",
       "https://api.sleeper.app/v1/players/nfl",
-      "https://api.sleeper.app/v1/league/123456789012345678/winners_bracket",
+      "https://api.sleeper.app/v1/league/123456789012345678/losers_bracket",
       "https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/2026?view=proTeamSchedules_wl",
       "https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/2026/segments/0/leaguedefaults/3?view=kona_player_info",
       `${espnLeague}?view=mSettings&view=kona_game_state`,
