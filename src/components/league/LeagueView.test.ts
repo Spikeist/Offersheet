@@ -152,7 +152,7 @@ describe("LeagueView standings and playoff odds (§8; §17 Checkpoint 3)", () =>
 
   it("leads with my odds (every team after its pickups) and, smaller, the same as rosters stand, then says what the odds count, above the table (planner reply to Checkpoint 4b, change 9)", () => {
     expect(standings).toContain(
-      '<div class="mb-2"><p class="text-base font-extrabold tabular-nums">Your odds: 86% playoffs · 43.0% title</p><p class="text-sm text-muted tabular-nums">As rosters stand: 82% playoffs · 40.0% title</p></div>',
+      '<div class="mb-2"><p class="text-base font-extrabold tabular-nums">Your odds: <span class="whitespace-nowrap">86% playoffs</span>\u00a0· <span class="whitespace-nowrap">43.0% title</span></p><p class="text-sm text-muted tabular-nums">As rosters stand: <span class="whitespace-nowrap">82% playoffs</span>\u00a0· <span class="whitespace-nowrap">40.0% title</span></p></div>',
     );
     expect(standings).toContain(
       '<p class="mb-3 text-xs text-muted">These odds count the free-agent pickups that would help each team (listed on its roster): trade ideas start from the same odds. “As rosters stand” counts no pickups.</p>',
@@ -161,8 +161,15 @@ describe("LeagueView standings and playoff odds (§8; §17 Checkpoint 3)", () =>
     // Symbolic odds are read out in words, as in the table.
     const four = standingsOf(render({ myTeamId: "4" }));
     expect(four).toContain(
-      'Your odds: <span aria-hidden="true">&lt;1% playoffs</span><span class="sr-only">less than 1% playoffs</span> · <span aria-hidden="true">&lt;0.1% title</span><span class="sr-only">less than 0.1% title</span>',
+      'Your odds: <span class="whitespace-nowrap"><span aria-hidden="true">&lt;1% playoffs</span><span class="sr-only">less than 1% playoffs</span></span>\u00a0· <span class="whitespace-nowrap"><span aria-hidden="true">&lt;0.1% title</span><span class="sr-only">less than 0.1% title</span></span>',
     );
+    // Each part kept on one line, so the lines wrap between parts at 375 px, never inside "99% top 3" or "40.0% title" (final
+    // review of Checkpoint 7c, ui-UI-7C-2: the top-3 part made them wrap there from 320 to 390 px).
+    const prizes = leagueFixture();
+    prizes.model.reward = { goal: "prizes", shares: { first: 4 / 9, second: 16 / 45, third: 1 / 5, weeklyHigh: 0, pointsLeader: 0 }, periods: 14, empty: false };
+    const top3 = standingsOf(renderFixture(prizes));
+    expect(top3).toContain('Your odds: <span class="whitespace-nowrap">86% playoffs</span>\u00a0· <span class="whitespace-nowrap">99% top 3</span>\u00a0· <span class="whitespace-nowrap">43.0% title</span></p>');
+    expect(top3).toContain('As rosters stand: <span class="whitespace-nowrap">82% playoffs</span>\u00a0· <span class="whitespace-nowrap">98% top 3</span>\u00a0· <span class="whitespace-nowrap">40.0% title</span></p>');
     // No team: no headline, but what the odds count.
     const none = standingsOf(render({ myTeamId: null }));
     expect(none).not.toContain("Your odds:");

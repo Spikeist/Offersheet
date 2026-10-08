@@ -686,6 +686,46 @@ describe("buildLeagueView: league prizes (planner reply to Checkpoint 7b, §6; C
     const old = { ...weekly, odds: { ...(weekly.odds as SeasonOdds), regularLeft: undefined } as unknown as SeasonOdds };
     expect([seasonOver(old, "1", "redraft"), seasonOver(old, "1", "redraft", { weekUnderWay: true })]).toEqual([false, false]);
   });
+
+  it("a team that lost its semifinal still plays for a paid 3rd place: not over while the 3rd-place game is still to play (final review of Checkpoint 7c, ui-UI-7C-1)", () => {
+    // 4 playoff teams and a 3rd-place game: my team lost its semifinal (eliminated), the final round still ahead, the
+    // regular season over; its chance of 3rd, `third`.
+    const semiLoser = (reward: Reward | undefined, third: number | null, playoffWeeks = 1) =>
+      withReward(reward, (f) => {
+        f.model.odds = {
+          ...oddsOf(f),
+          playoffTeams: 4,
+          byes: 0,
+          thirdPlace: { rule: "game", assumed: false },
+          regularLeft: { periods: 0, weeks: 0 },
+          playoffLeft: { weeks: playoffWeeks },
+          teams: oddsOf(f).teams.map((t) => (t.teamId === "1" ? { ...t, pPlayoffs: 1, pTitle: 0, pSecond: 0, pThird: third, eliminated: true, bestFinish: 1 } : t)),
+        };
+      });
+    const v = of(semiLoser(PARKER, 0.56));
+    expect(v.eliminated).toBeNull();
+    expect(v.partners.empty).not.toBe(SEASON_OVER_PARTNERS_TEXT);
+    expect(v.standings?.mine?.text).toBe(`${YOUR_ODDS_LABEL}: 100% playoffs · 56% top 3 · 0.0% title`);
+    expect(seasonOver(semiLoser(PARKER, 0.56).model, "1", "redraft")).toBe(false);
+    // 3rd place settled (won, or lost to the better seed with no game), or only the champion paid: over, as before.
+    for (const f of [semiLoser(PARKER, 1), semiLoser(PARKER, 0), semiLoser(PARKER, null), semiLoser(TOP2, 0.56), semiLoser(TITLE, 0.56), semiLoser(undefined, 0.56)]) {
+      expect(of(f).eliminated).toBe(SEASON_OVER_TEXT);
+      expect(seasonOver(f.model, "1", "redraft")).toBe(true);
+    }
+    // ⚠️ The 3rd-place game's week under way: no trade can change it (SeasonOdds.playoffLeft leaves it out), so over, as a
+    // regular-season week under way reads for trades; Waiver upgrades' count of a week under way is the regular season's.
+    const live = semiLoser(PARKER, 0.56, 0);
+    expect(of(live).eliminated).toBe(SEASON_OVER_TEXT);
+    expect(seasonOver(live.model, "1", "redraft", { weekUnderWay: true })).toBe(true);
+    // Odds made before (no playoff count): a paid 3rd place still open is taken as within reach.
+    const old = semiLoser(PARKER, 0.56);
+    old.model.odds = { ...(old.model.odds as SeasonOdds), playoffLeft: undefined } as unknown as SeasonOdds;
+    expect(seasonOver(old.model, "1", "redraft")).toBe(false);
+    // A bracket of 2 (the fixture's): 3rd goes to the final standings, which no week can move now; its open chance is the
+    // week under way's, not a game a trade can change.
+    const standings = withReward(PARKER, (f) => (f.model.odds = { ...oddsOf(f), regularLeft: { periods: 0, weeks: 0 }, teams: oddsOf(f).teams.map((t) => (t.teamId === "1" ? { ...t, pThird: 0.4, eliminated: true, bestFinish: 3 } : t)) }));
+    expect(seasonOver(standings.model, "1", "redraft")).toBe(true);
+  });
 });
 
 describe("buildLeagueView: my remaining schedule (§8: each remaining week's risk)", () => {

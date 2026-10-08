@@ -264,6 +264,27 @@ describe("prizeStillMovable: whether a team's trades can still change its share 
     expect(prizeStillMovable(second, odds(1, 0, 0), out(2))).toBe(false);
   });
 
+  it("3rd place a playoff game decides (final review of Checkpoint 7c, ui-UI-7C-1): a team that lost its semifinal plays for it while its chance is open and a playoff week a trade can change is left", () => {
+    const semi = (pThird: number | null) => ({ eliminated: true, bestFinish: 1, pThird });
+    /** The regular season over; `n` playoff teams and `left` playoff weeks a trade can change. */
+    const after = (n: number, left: number) => ({ playoffTeams: n, regularLeft: { periods: 0, weeks: 0 }, playoffLeft: { weeks: left } });
+    // An open chance with the final round ahead: movable when 3rd place pays (a bracket of 3 or more), not for the title or
+    // 2nd place alone.
+    for (const n of [3, 4, 6, 8]) expect(prizeStillMovable(places, after(n, 1), semi(0.5)), `${n} playoff teams`).toBe(true);
+    expect(prizeStillMovable(title, after(4, 1), semi(0.5))).toBe(false);
+    expect(prizeStillMovable(second, after(4, 1), semi(0.5))).toBe(false);
+    // Settled (0 or 1, float noise too: a quarterfinal loser, the better seed with no game), unknown or not given: not.
+    for (const p of [0, 1, 1e-12, 1 - 1e-12, null, Number.NaN]) expect(prizeStillMovable(places, after(4, 1), semi(p)), `${p}`).toBe(false);
+    expect(prizeStillMovable(places, after(4, 1), out(1))).toBe(false);
+    // No playoff week a trade can change (the final round's week under way, or none left): not. Odds without the count (made
+    // before): taken as within reach.
+    expect(prizeStillMovable(places, after(4, 0), semi(0.5))).toBe(false);
+    expect(prizeStillMovable(places, odds(4, 0, 0), semi(0.5))).toBe(true);
+    // A bracket of 2: 3rd goes to the final standings (RW-2, above), not to a game, so an open chance needs a regular-season week.
+    expect(prizeStillMovable(places, after(2, 1), { ...semi(0.5), bestFinish: 3 })).toBe(false);
+    expect(prizeStillMovable(places, odds(2, 1, 1), { ...semi(0.5), bestFinish: 3 })).toBe(true);
+  });
+
   it("odds made before Checkpoint 7c (no regularLeft, no bestFinish): a paid prize is taken as still within reach; the title alone still stops", () => {
     const old = { playoffTeams: 2 } as Parameters<typeof prizeStillMovable>[1];
     const team = { eliminated: true } as Parameters<typeof prizeStillMovable>[2];

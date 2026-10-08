@@ -743,6 +743,12 @@ export interface SeasonOdds {
    */
   regularLeft: { periods: number; weeks: number };
   /**
+   * Checkpoint 7c (final review of Checkpoint 7c, ui-UI-7C-1; reward.ts prizeStillMovable): the same for the playoffs, the
+   * playoff weeks still to play other than the week under way. A team that lost its semifinal still plays for 3rd place
+   * (SeasonOdds.thirdPlace "game"), in the final round's weeks, while one of them is left.
+   */
+  playoffLeft: { weeks: number };
+  /**
    * False when a playoff round already played has no result, or when the league's own playoff schedule
    * pairs teams differently from the bracket built from the final standings: title and bye odds are then
    * unknown (null).

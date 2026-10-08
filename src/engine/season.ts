@@ -119,7 +119,9 @@
  * ahead, or 1 while a division title could lift the team; eliminated is a bestFinish past the playoff spots, or a lost
  * playoff game. reward.ts prizeStillMovable reads it for the places the final standings decide (3rd in a bracket of 2
  * playoff teams or fewer, 2nd too with 1 or none), with SeasonOdds.regularLeft: the high-score periods and the
- * regular-season weeks a trade can still change, the week under way left out (every trade holds it as rosters stand).
+ * regular-season weeks a trade can still change, the week under way left out (every trade holds it as rosters stand); and
+ * SeasonOdds.playoffLeft, the playoff weeks a trade can still change, the same way, for the 3rd-place game a team that lost
+ * its semifinal still plays (final review of Checkpoint 7c, ui-UI-7C-1).
  */
 import { config } from "./config";
 import type { LeagueModel, SeasonOdds, TeamModel, TeamOdds, WeekOdds } from "./leagueModel";
@@ -197,6 +199,12 @@ export interface SimSetupResult {
    * either way) with a drawn week other than it, and the regular-season weeks drawn other than it.
    */
   regularLeft: { periods: number; weeks: number };
+  /**
+   * Checkpoint 7c (SeasonOdds.playoffLeft; reward.ts prizeStillMovable; final review of Checkpoint 7c, ui-UI-7C-1): the
+   * playoff weeks drawn other than the week under way, the ones a trade can still change (after a lost semifinal, the
+   * 3rd-place game's).
+   */
+  playoffLeft: { weeks: number };
   /**
    * Per team (setup order), how many regular-season results its record still has to take in: its
    * remaining games with an opponent, its median games (median leagues), and the games of finished weeks
@@ -572,6 +580,7 @@ export function buildSimSetup(snapshot: LeagueSnapshot, model: SeasonModel, opts
   const highScorePeriods = opts.highScores === true ? periods : undefined;
   const tradeable = (w: number): boolean => drawn.has(w) && w !== live;
   const regularLeft = { periods: periods.filter((p) => p.some(tradeable)).length, weeks: model.regularWeeks.filter(tradeable).length };
+  const playoffLeft = { weeks: model.playoffWeeks.filter(tradeable).length };
 
   const setup: SimSetup = {
     teams,
@@ -650,6 +659,7 @@ export function buildSimSetup(snapshot: LeagueSnapshot, model: SeasonModel, opts
     playoffsKnown: unreadablePlayoffs === 0 && bracketMatches,
     regularSeasonOver,
     regularLeft,
+    playoffLeft,
     resultsLeft,
   };
 }
@@ -827,6 +837,7 @@ export function seasonOdds(snapshot: LeagueSnapshot, model: SeasonModel, opts: {
     thirdPlace: { ...built.thirdPlace },
     highScorePeriods: setup.highScorePeriods?.length ?? 0,
     regularLeft: { ...built.regularLeft },
+    playoffLeft: { ...built.playoffLeft },
     playoffsKnown,
     teams,
     weekly,

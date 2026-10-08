@@ -227,6 +227,26 @@ describe("buildWaiversView", () => {
     expect(under(live, { goal: "title", shares: TITLE_ONLY, periods: 14, empty: false }).view?.empty).toBe(WAIVERS_SEASON_OVER);
   });
 
+  it("a team that lost its semifinal, under a split paying 3rd place: the lists while the 3rd-place game is still to play (final review of Checkpoint 7c, ui-UI-7C-1)", () => {
+    const places: Reward = { goal: "prizes", shares: { first: 4 / 9, second: 16 / 45, third: 1 / 5, weeklyHigh: 0, pointsLeader: 0 }, periods: 14, empty: false };
+    const title: Reward = { goal: "title", shares: TITLE_ONLY, periods: 14, empty: false };
+    /** Out of the title race (the semifinal lost), the regular season over; `third` my chance of 3rd, `left` the playoff weeks a trade can change. */
+    const odds = (third: number, left: number) =>
+      ({ playoffTeams: 4, regularLeft: { periods: 0, weeks: 0 }, playoffLeft: { weeks: left }, teams: [{ teamId: "1", eliminated: true, bestFinish: 1, pThird: third }, { teamId: "2", eliminated: false, bestFinish: 1 }] }) as unknown as SeasonOdds;
+    const at = (base: ReturnType<typeof setup>, reward: Reward, o: SeasonOdds) => buildWaiversView({ snapshot: base.snapshot, model: { ...base.model, reward, odds: o }, inputs: base.inputs, timeZone: NY, now: TEST_NOW.toISOString() });
+    // The final round ahead: the lists.
+    const ahead = at(s, places, odds(0.56, 1));
+    expect(ahead?.empty).toBeNull();
+    expect(ahead?.ros?.rows.length).toBeGreaterThan(0);
+    // 3rd place settled, or the title alone paying: over.
+    expect(at(s, places, odds(0, 1))?.empty).toBe(WAIVERS_SEASON_OVER);
+    expect(at(s, places, odds(1, 1))?.empty).toBe(WAIVERS_SEASON_OVER);
+    expect(at(s, title, odds(0.56, 1))?.empty).toBe(WAIVERS_SEASON_OVER);
+    // ⚠️ No playoff week a trade can change (the 3rd-place game's own week under way): over, the League page's reading. A
+    // "This week" list for it would need a week after it (src/engine/waivers.ts), which keeps the season going anyway.
+    expect(at(s, places, odds(0.56, 0))?.empty).toBe(WAIVERS_SEASON_OVER);
+  });
+
   it("no team picked, or no week left: the section still shows, with one line (and a link to pick the team) instead of the lists (review of Phase 7b)", () => {
     // No team: the engine builds no lists (LeagueModel.waiverUpgrades null), and the header's "Waivers" link leads here.
     const l = buildTestLeague({ platform: "espn", teams: [{ id: "1", roster: MINE }, { id: "2", roster: THEM }], freeAgents: FAS, byeWeek: { AAA: 9 } });

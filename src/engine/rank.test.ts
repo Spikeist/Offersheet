@@ -562,6 +562,45 @@ describe("the “Helps both” list (Checkpoint 7c; planner reply to Checkpoint 
       expect(keys(r.trades)).toEqual(["b", "x", "y"]);
       expect(r.dropped).toEqual({ partnerCap: 1, core: 0, filler: 0, givenPlayer: 0 });
     });
+
+    it("a bigger variant that left comes back when its smaller trade then misses the list, and the smaller trade leaves instead (final review of Checkpoint 7c, engine-rank-hb3-late-filler)", () => {
+      // Partner P, 3 places in the top 20, 2 trades a core, 3 a player of mine. By B, y and c keep places that d1 (c's core,
+      // w|m) and d2 (v's third trade) then miss, and k takes P's third place. c is k plus w and v, B within 20%, below k on
+      // EG: filler of k, so c left; ranked again without it, d1 and d2 took its places and k missed P's cap, so neither c nor
+      // k showed. Now c comes back and k leaves for good (beside c it would make c filler again).
+      const value = valueOf({ w: 900, v: 800, g: 500, y1: 100, x: 100, z: 100, m: 1000, p2: 700, s1: 600, t1: 600, u1: 600 });
+      const list = [
+        hb("a1", "S", 9, 0.9, ["w"], ["s1"]),
+        hb("a2", "T", 8.8, 0.9, ["v"], ["t1"]),
+        hb("a3", "U", 8.6, 0.9, ["v"], ["u1"]),
+        hb("y", "P", 8, 0.9, ["w", "y1"], ["m"]),
+        hb("c", "P", 5.5, 0.3, ["g", "w", "v"], ["m"]),
+        hb("d1", "P", 5.4, 0.2, ["w", "x"], ["m"]),
+        hb("d2", "P", 5.3, 0.2, ["v", "z"], ["p2"]),
+        hb("k", "P", 5.0, 0.5, ["g"], ["m"]),
+      ];
+      const r = rankTrades(list, value, rankCfg(), { order: "helps", keep });
+      expect(keys(r.trades)).toEqual(["a1", "a2", "a3", "y", "c"]);
+      expect(r.dropped).toEqual({ partnerCap: 0, core: 1, filler: 1, givenPlayer: 1 }); // d1, k, d2
+      for (let s = 1; s <= 4; s++) expect(rankTrades(shuffle(list, s), value, rankCfg(), { order: "helps", keep })).toEqual(r);
+      // Overall order as before: k first, c its filler, d1 in c's place and d2 over P's cap.
+      const overall = rankTrades(list, value, rankCfg(), { keep });
+      expect(keys(overall.trades)).toEqual(["a1", "a2", "a3", "y", "k", "d1"]);
+      expect(overall.dropped).toEqual({ partnerCap: 1, core: 0, filler: 1, givenPlayer: 0 });
+      // The same with 2 players a side (the default): c is k plus w for one more player of P's.
+      const two = valueOf({ g: 900, w: 800, n: 1000, m: 600, y1: 100, x: 100, z: 100, p2: 700, t1: 600, u1: 600 });
+      const pairs = [
+        hb("a2", "T", 8.8, 0.9, ["w"], ["t1"]),
+        hb("a3", "U", 8.6, 0.9, ["w"], ["u1"]),
+        hb("y", "P", 8, 0.9, ["g", "y1"], ["n"]),
+        hb("c", "P", 5.5, 0.3, ["g", "w"], ["m", "n"]),
+        hb("d1", "P", 5.4, 0.2, ["g", "x"], ["n"]),
+        hb("d2", "P", 5.3, 0.2, ["w", "z"], ["p2"]),
+        hb("k", "P", 5.0, 0.5, ["g"], ["m"]),
+      ];
+      expect(keys(rankTrades(pairs, two, rankCfg(), { order: "helps", keep }).trades)).toEqual(["a2", "a3", "y", "c"]);
+      expect(keys(rankTrades(pairs, two, rankCfg(), { keep }).trades)).toEqual(["a2", "a3", "y", "k", "d1"]);
+    });
   });
 
   it("sortTrades “helpsBoth”: the trades that help both first, each group by B; helpsBothTrades keeps those alone", () => {

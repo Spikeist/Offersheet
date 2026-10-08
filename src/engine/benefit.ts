@@ -27,11 +27,12 @@
  *   "today's numbers don't change"). ("balanced", "Top finishers too", 0.35 / 0.65 on ΔPO and ΔCH, went then: a stored one
  *   reads as "Several prizes", settings.ts.) The scores divide B by B₃ under the same reward (the three numbers, below), so
  *   the reward changes what a trade's odds are worth, not what a lineup gain reads. ΔPO missing (not simulated yet) → B_win
- *   and B are null. ⚠️ Ours (awaiting the lead's sign-off in §10): when a prize that pays has unknown odds but the playoff
- *   odds aren't (season.ts nulls every team's P(title), P(2nd) and P(3rd) when a played playoff round has no result it can
- *   match, SeasonOdds.playoffsKnown false, or when the league lists fewer playoff rounds than its bracket needs; P(3rd)
- *   alone when the 3rd-place game's round is over), B_win = 100 × (w_PO + w_S) × ΔPO: the playoff term scaled up to the
- *   whole weight (each goal's weights sum to 1, so it is 100 × ΔPO under every goal), so B stays on the Trade Score's scale.
+ *   and B are null. ⚠️ The lead's reward engine contract ("A paid component unknown → today's titleMissing fallback"): when a
+ *   prize that pays has unknown odds but the playoff odds aren't (season.ts nulls every team's P(title), P(2nd) and P(3rd)
+ *   when a played playoff round has no result it can match, SeasonOdds.playoffsKnown false, or when the league lists fewer
+ *   playoff rounds than its bracket needs; P(3rd) alone when the 3rd-place game's round is over), B_win = 100 × (w_PO +
+ *   w_S) × ΔPO: the playoff term scaled up to the whole weight (each goal's weights sum to 1, so it is 100 × ΔPO under
+ *   every goal), so B stays on the Trade Score's scale.
  *   Under "Only the champion" and "Making the playoffs" that is title odds unknown, as before; a split paying only weekly
  *   high scores and the points title never needs it. Benefit.titleMissing marks it, tradeNumbers passes it on, and
  *   benefitNotes words it (naming the prize odds when 2nd or 3rd place pays). It holds for every trade in such a league, so
@@ -749,9 +750,10 @@ export const TITLE_MISSING_NOTE = "Title odds aren't available for this league, 
 /**
  * Checkpoint 7c: benefitNotes' words when a paid prize's odds are unknown under "Several prizes" paying 2nd or 3rd place
  * (their odds go with the title's: season.ts), so B counts the playoff odds in place of the prize odds. ⚠️ Worded like
- * TITLE_MISSING_NOTE, naming no cause (the review of the reward engine, compat-R2; awaiting the lead's sign-off): the lead's
- * "Playoff results aren't available for this league, …" was wrong when nothing is missing from the results, as when the
- * league's playoff schedule lists fewer rounds than its bracket needs, or pairs teams differently from ours (season.ts).
+ * TITLE_MISSING_NOTE, naming no cause (the review of the reward engine, compat-R2; accepted by the lead after wave 4): the
+ * lead's first words, "Playoff results aren't available for this league, …", were wrong when nothing is missing from the
+ * results, as when the league's playoff schedule lists fewer rounds than its bracket needs, or pairs teams differently from
+ * ours (season.ts).
  */
 export const PRIZES_MISSING_NOTE = "Prize odds aren't available for this league, so “Helps you” uses playoff odds in their place.";
 

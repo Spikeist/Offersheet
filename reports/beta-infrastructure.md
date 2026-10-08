@@ -191,8 +191,12 @@ one per line, in the project folder. (Upstash, the protection check and the phon
    - **Optional, only if the planner says yes at Checkpoint 7c: "Deny cross-site API requests"**, placed above "API
      rate limit": if *Request Path* starts with `/api/` AND *Request Header* `sec-fetch-site` equals `cross-site`, then
      *Deny* (finding 15: so another site can't use up a visitor's 80).
-3. **Next:** on the latest 16.3.x patch (`npm outdated next`). A newer patch means stop: it needs a commit and a new
-   approved tag, so launch on `checkpoint-7c` with the patch next, or wait for the new tag's approval.
+3. **Next:** on the latest 16.3.x patch. `npm view next@16.3 version` lists every 16.3 release; the last one must be
+   16.3.8, the version the lock file pins (step 4's "Next" line asks the same). A newer 16.3 patch means stop: it needs a
+   commit and a new approved tag, so launch on `checkpoint-7c` with the patch next, or wait for the new tag's approval. A
+   newer minor (16.4 and up) isn't a patch and doesn't stop the launch. (Not `npm outdated next`: with the exact pin its
+   "Wanted" is always 16.3.8, and its "Latest" is npm's newest release of any line, so it can't tell whether a 16.3 patch
+   exists.)
 4. **The dry run** (it uploads nothing):
    ```
    npm run prod:deploy -- --checkpoint checkpoint-7c

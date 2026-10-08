@@ -19,11 +19,12 @@
  * Phase 4c (planner reply to Checkpoint 4b, change 9, "one baseline everywhere"): my odds lead the card ("Your odds: 59%
  * playoffs · 9.9% title", every team after its free-agent pickups, what trade ideas start from, printed as they print
  * them), with the same as rosters stand as a smaller second line and one line saying what the odds count, above the
- * table; they wrap at 375 px. The Title column prints with one decimal too ("9.9%", leagueView.ts titleCell), so my row
- * reads like the headline above it; two more characters a cell, inside the table's own scroller. Checkpoint 7c (planner
- * reply to Checkpoint 7b, §6): under "Several prizes" paying 2nd or 3rd place both lines carry my chance of a top-3 (top-2)
- * finish between the playoffs and the title ("Your odds: 60% playoffs · 30% top 3 · 10.5% title"; leagueView.ts myOddsOf),
- * laid out like the other parts; the table keeps its columns.
+ * table; they wrap at 375 px, between parts only (each part kept whole: final review of Checkpoint 7c, ui-UI-7C-2, since
+ * the top-3 part broke "30% top | 3" and "12.0% | title" from 320 to 390 px). The Title column prints with one decimal
+ * too ("9.9%", leagueView.ts titleCell), so my row reads like the headline above it; two more characters a cell, inside
+ * the table's own scroller. Checkpoint 7c (planner reply to Checkpoint 7b, §6): under "Several prizes" paying 2nd or 3rd
+ * place both lines carry my chance of a top-3 (top-2) finish between the playoffs and the title ("Your odds: 60% playoffs ·
+ * 30% top 3 · 10.5% title"; leagueView.ts myOddsOf), laid out like the other parts; the table keeps its columns.
  */
 import { Fragment } from "react";
 import { AS_ROSTERS_STAND_LABEL, YOUR_ODDS_LABEL, type LeagueView, type OddsCell, type OddsPart } from "@/lib/leagueView";
@@ -45,19 +46,27 @@ export function OddsText({ cell }: { cell: OddsCell }) {
 
 const oddsCellClass = "py-2.5 pr-2 text-right align-top tabular-nums sm:pr-3";
 
-/** "59% playoffs · <1% title": my odds' parts, a symbolic one read out in words. */
+/** Between two parts: a no-break space keeps the dot with the part before it (TradeCard.tsx's SEP). */
+const SEP = `${String.fromCharCode(0xa0)}· `;
+
+/**
+ * "59% playoffs · <1% title": my odds' parts, a symbolic one read out in words, each kept on one line (the line wraps between
+ * parts, after the dot, never inside "30% top 3": final review of Checkpoint 7c, ui-UI-7C-2, as the cards' odds do).
+ */
 function OddsParts({ parts }: { parts: readonly OddsPart[] }) {
   return parts.map((p, i) => (
     <Fragment key={p.text}>
-      {i ? " · " : null}
-      {p.srText ? (
-        <>
-          <span aria-hidden>{p.text}</span>
-          <span className="sr-only">{p.srText}</span>
-        </>
-      ) : (
-        p.text
-      )}
+      {i ? SEP : null}
+      <span className="whitespace-nowrap">
+        {p.srText ? (
+          <>
+            <span aria-hidden>{p.text}</span>
+            <span className="sr-only">{p.srText}</span>
+          </>
+        ) : (
+          p.text
+        )}
+      </span>
     </Fragment>
   ));
 }

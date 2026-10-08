@@ -664,7 +664,7 @@ describe("tradeNumbers: the card's numbers from B and the acceptance result", ()
   });
 
   it("“Several prizes” paying 2nd or 3rd place: the note names the prize odds (Checkpoint 7c)", () => {
-    // ⚠️ Worded like the title's, naming no cause (the review of the reward engine, compat-R2; awaiting the lead's sign-off).
+    // ⚠️ Worded like the title's, naming no cause (the review of the reward engine, compat-R2; accepted by the lead after wave 4).
     expect(PRIZES_MISSING_NOTE).toBe("Prize odds aren't available for this league, so “Helps you” uses playoff odds in their place.");
     const places = rewardWith({ goal: "prizes", prizes: config.benefit.prizesDefault }, 14);
     const b = benefit({ leagueType: "redraft", dPO: 0.03, dCH: null, dPrizes: { first: null, second: null, third: null, weeklyHigh: 0, pointsLeader: 0 }, gMine: 0, dynasty: null, myPPlayoffs: 0.5, reward: places });

@@ -70,8 +70,9 @@
  * - Notes (TradeContext.notes): no team picked (nothing can be evaluated), no weeks left, my team certainly
  *   eliminated in a redraft league with no prize left that a trade can change (reward.ts prizeStillMovable: Checkpoint 7c,
  *   a paid weekly high score with a prize period left, or a paid points title or place the final standings decide with a
- *   regular-season week left, keeps the season going; the week under way never counts, every trade holding it as rosters
- *   stand: SeasonOdds.regularLeft), the trade deadline passed, no odds (the schedule didn't load or the simulator refused it: B can't be
+ *   regular-season week left, or a paid 3rd place still open after a lost semifinal with a playoff week left, keeps the
+ *   season going; the week under way never counts, every trade holding it as rosters stand: SeasonOdds.regularLeft and
+ *   playoffLeft), the trade deadline passed, no odds (the schedule didn't load or the simulator refused it: B can't be
  *   computed). Any of them stops the search (no trades); the Analyzer still evaluates, with the note (without B when there
  *   are no odds), except without a team.
  *
@@ -1117,8 +1118,8 @@ export function buildTradeContext(snapshot: LeagueSnapshot, inputs: ModelInputs,
     const mine = I.sim?.odds.teams[I.me.index];
     // Certainly out of the title race, and no prize the reward pays still within a trade's reach (reward.ts prizeStillMovable
     // on the baseline's odds, Checkpoint 7c: a weekly high score with a prize period left, the points title or a place the
-    // final standings decide with a regular-season week left; SeasonOdds.regularLeft leaves the week under way out, since
-    // every trade holds it as rosters stand).
+    // final standings decide with a regular-season week left, 3rd place after a lost semifinal with a playoff week left;
+    // SeasonOdds.regularLeft and playoffLeft leave the week under way out, since every trade holds it as rosters stand).
     const over = I.sim && mine ? !prizeStillMovable(league.reward, I.sim.odds, mine) : false;
     if (snapshot.settings.leagueType === "redraft" && over) I.notes.push(SEASON_OVER_NOTE);
     if (tradeDeadlinePassed(snapshot.settings.tradeDeadline, opts.now, txWeek)) I.notes.push(DEADLINE_PASSED_NOTE);

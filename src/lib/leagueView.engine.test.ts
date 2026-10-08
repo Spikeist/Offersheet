@@ -240,7 +240,11 @@ describe("Parker's league (committed ESPN fixture, synthetic inputs, the real 20
     const sums = (o: SeasonOdds) => [sum(o.teams.map((t) => t.pPlayoffs)), sum(o.teams.map((t) => t.pTitle ?? Number.NaN))];
     expect(sums(before.model.oddsAsRostersStand as SeasonOdds)[0]).toBeCloseTo(6, 9);
     expect(sums(before.model.oddsAsRostersStand as SeasonOdds)[1]).toBeCloseTo(1, 9);
-    expect(before.html).toContain(`<p class="text-base font-extrabold tabular-nums">${standings.mine?.text.replace(/</g, "&lt;")}</p>`);
+    // Rendered as the view words it, each part kept whole and the dot kept with the part before it (StandingsOdds.tsx: the
+    // line wraps between parts only; final review of Checkpoint 7c, ui-UI-7C-2).
+    const part = (p: { text: string; srText: string | null }) =>
+      `<span class="whitespace-nowrap">${p.srText ? `<span aria-hidden="true">${p.text.replace(/</g, "&lt;")}</span><span class="sr-only">${p.srText}</span>` : p.text.replace(/</g, "&lt;")}</span>`;
+    expect(before.html).toContain(`<p class="text-base font-extrabold tabular-nums">Your odds: ${(standings.mine?.headline ?? []).map(part).join(" · ")}</p>`);
   });
 
   it("counts likely starters on the roster after the free-agent pickups: rosterAfterPickups gives the engine's own V*(T) for every team", () => {

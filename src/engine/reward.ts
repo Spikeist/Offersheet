@@ -30,10 +30,12 @@
  *   still win a weekly high score while a prize period a trade can change remains, the points title while a regular-season
  *   week a trade can change remains, and (the review of the reward engine) a place the final regular-season standings decide
  *   (3rd in a bracket of 2 playoff teams or fewer, 2nd too with 1 or none: sim.ts) while such a week remains and it can still
- *   finish there (TeamOdds.bestFinish), so the season-over stops wait for those when they pay. A week under way never counts:
- *   every trade holds it at its score as rosters stand (SeasonOdds.regularLeft). ⚠️ The same holds for 3rd place after a
- *   lost semifinal (a 3rd-place game is still to play), which the lead's contract leaves out: TeamOdds.eliminated is set by a
- *   lost playoff game, by then the trade deadline has passed.
+ *   finish there (TeamOdds.bestFinish), so the season-over stops wait for those when they pay. So does 3rd place after a lost
+ *   semifinal (final review of Checkpoint 7c, ui-UI-7C-1): TeamOdds.eliminated is set by a lost playoff game, yet the
+ *   3rd-place game is still to play, while the team's chance of 3rd is open and a playoff week a trade can change remains
+ *   (SeasonOdds.playoffLeft); the trade deadline has passed by then in most leagues, but the League page's message and
+ *   Waiver upgrades still read it (a pickup can still help win that game). A week under way never counts: every trade holds
+ *   it at its score as rosters stand (SeasonOdds.regularLeft, playoffLeft).
  */
 import type { SeasonOdds, TeamOdds } from "./leagueModel";
 import type { LeagueSnapshot } from "./model";
@@ -263,26 +265,40 @@ export function paidPrizesKnown(odds: PrizeOdds, reward: Pick<Reward, "shares" |
   return PRIZE_KEYS.every((k) => !(perUnit(k, reward) > 0) || isFiniteNumber(odds[k]));
 }
 
+/** Float noise in a chance read as decided (0 or 1), not a tunable. */
+const CHANCE_EPS = 1e-9;
+
 /**
  * Whether a team's trades can still change its share of the prizes (the file header, "Your season's over"), on a season's
  * odds (`odds`) and the team's own in them (`team`). False
  * only when the team is certainly out of the title race (TeamOdds.eliminated) and no prize the reward pays is still within a
- * trade's reach (SeasonOdds.regularLeft: the week under way left out, since every trade holds it at its score as rosters
- * stand):
+ * trade's reach (SeasonOdds.regularLeft and playoffLeft: the week under way left out, since every trade holds it at its score
+ * as rosters stand):
  * - a weekly high score, while a prize period is left;
  * - the points title, while a regular-season week is left;
  * - (the review of the reward engine) a place the final regular-season standings decide (sim.ts: 3rd in a bracket of 2
  *   playoff teams or fewer, 2nd too with 1 or none), while a regular-season week is left and the team can still finish
- *   there (TeamOdds.bestFinish).
+ *   there (TeamOdds.bestFinish);
+ * - (final review of Checkpoint 7c, ui-UI-7C-1) 3rd place in a bracket of 3 playoff teams or more, which a playoff game
+ *   decides: a team that lost its semifinal plays the 3rd-place game (SeasonOdds.thirdPlace "game"), so while its chance of
+ *   3rd (TeamOdds.pThird) is neither 0 nor 1 and a playoff week is left (SeasonOdds.playoffLeft). A quarterfinal loser's is 0,
+ *   and with no such game ("bySeed") the semifinals decide it.
  * The season-over stops read it (evaluate.ts on its baseline's odds; the League page and Waiver upgrades on the headline's,
  * LeagueModel.odds, the same numbers).
  */
-export function prizeStillMovable(reward: Pick<Reward, "shares">, odds: Pick<SeasonOdds, "playoffTeams" | "regularLeft">, team: Pick<TeamOdds, "eliminated" | "bestFinish">): boolean {
+export function prizeStillMovable(
+  reward: Pick<Reward, "shares">,
+  odds: Pick<SeasonOdds, "playoffTeams" | "regularLeft"> & Partial<Pick<SeasonOdds, "playoffLeft">>,
+  team: Pick<TeamOdds, "eliminated" | "bestFinish"> & Partial<Pick<TeamOdds, "pThird">>,
+): boolean {
   if (!team.eliminated) return true;
   const { shares } = reward;
   // Not known (an odds object made before Checkpoint 7c): a paid prize is taken as still within reach.
   const periods = odds.regularLeft ? odds.regularLeft.periods : Number.POSITIVE_INFINITY;
   const weeks = odds.regularLeft ? odds.regularLeft.weeks : Number.POSITIVE_INFINITY;
+  const playoffWeeks = odds.playoffLeft ? odds.playoffLeft.weeks : Number.POSITIVE_INFINITY;
+  const third = team.pThird;
+  if (shares.third > 0 && odds.playoffTeams > 2 && playoffWeeks > 0 && isFiniteNumber(third) && third > CHANCE_EPS && third < 1 - CHANCE_EPS) return true;
   if (shares.weeklyHigh > 0 && periods > 0) return true;
   if (!(weeks > 0)) return false;
   if (shares.pointsLeader > 0) return true;

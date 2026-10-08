@@ -447,6 +447,8 @@ function seasonOdds(gameDay: boolean, asRostersStand = false): SeasonOdds {
     // What a trade can still change in the regular season: weeks 12–14, one high-score period each, week 12 left out while
     // it's under way.
     regularLeft: { periods: gameDay ? 2 : 3, weeks: gameDay ? 2 : 3 },
+    // …and in the playoffs: every playoff week (none under way).
+    playoffLeft: { weeks: PLAYOFFS.length },
     playoffsKnown: true,
     teams: asRostersStand
       ? [

@@ -2935,7 +2935,8 @@ export function playoffWeightFallback(
  * other is: that end of the clamp ("high" when only the playoffs move my odds, "low" when only the regular season does). The
  * fallback (playoffWeightFallback) when a paid prize's change is unknown in a run ("titleUnknown"), a per-point B isn't a
  * number ("notFinite"), or neither is above 0 ("noEffect"). Pure: plain numbers in and out, so the same runs can be priced
- * under another reward (the reports' omegaUnder), but under one that pays the weekly high score only when the runs simulated
+ * under another reward (league-report's playoff-week weight table calls it for each goal), but under one that pays the
+ * weekly high score only when the runs simulated
  * the high scores (their build's own reward paid them): otherwise it throws (reward.ts assertWeeklyMeasured; the review of
  * the reward engine, compat-R1: the runs' weekly change is unknown, and pricing them anyway left the weekly prize out of an
  * "auto" ω with no word).

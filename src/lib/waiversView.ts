@@ -17,9 +17,10 @@
  * (buildWaiversView; review of Phase 7b: the section showed nothing then, and the header's "Waivers" link led nowhere).
  * "Season over" is the League page's own (leagueView.ts seasonOver: since Checkpoint 7c only when no prize the league pays
  * can still move, so under "Several prizes" a team out of the title race still sees the pickups that can help it win a
- * weekly high score or the points title; planner reply to Checkpoint 7b, §6, the lead's reading), but for a pickup a
- * regular-season week under way with games still to play counts (its "This week" list: a pickup can still change it, a
- * trade can't; review of the prizes UI, prizes-ui-5).
+ * weekly high score, the points title or (final review of Checkpoint 7c, ui-UI-7C-1) the 3rd-place game after a lost
+ * semifinal; planner reply to Checkpoint 7b, §6, the lead's reading), but for a pickup a regular-season week under way with
+ * games still to play counts (its "This week" list: a pickup can still change it, a trade can't; review of the prizes UI,
+ * prizes-ui-5).
  */
 import { config } from "@/engine/config";
 import type { ModelInputs } from "@/engine/inputs";

@@ -230,12 +230,15 @@ export const SEASON_OVER_PARTNERS_TEXT = "Your season's over, so no trade partne
  * WAIVERS_SEASON_OVER): my team certainly out of the title race in the headline's odds (TeamOdds.eliminated, LeagueModel.odds)
  * and no prize the League model's reward pays still within a trade's reach (reward.ts prizeStillMovable, the trade search's
  * own stop: planner reply to Checkpoint 7b, §6 and the lead's for Checkpoint 7c: a weekly high score or the points title can
- * still be won after the title race is lost). A model built before Checkpoint 7c has no reward: 1st place paying
- * everything, so out of the title race is out of it all, as before. Redraft leagues only (§8: dynasty and keeper teams
- * still trade for later seasons). False without odds or without my team in them.
+ * still be won after the title race is lost; final review of Checkpoint 7c, ui-UI-7C-1: and so can 3rd place after a lost
+ * semifinal, in the 3rd-place game). A model built before Checkpoint 7c has no reward: 1st place paying everything, so out of
+ * the title race is out of it all, as before. Redraft leagues only (§8: dynasty and keeper teams still trade for later
+ * seasons). False without odds or without my team in them.
  * `weekUnderWay` (Waiver upgrades; review of the prizes UI, prizes-ui-5): a pickup, unlike a trade, can still change a
  * regular-season week under way through its games still to play (the "This week" list), so that week counts as a prize
- * period and a regular-season week left (SeasonOdds.regularLeft leaves it out: every trade holds it as rosters stand).
+ * period and a regular-season week left (SeasonOdds.regularLeft leaves it out: every trade holds it as rosters stand). ⚠️ The
+ * 3rd-place game's week under way counts for neither (SeasonOdds.playoffLeft leaves it out too): no trade can change it, and
+ * a "This week" list exists only while a week is left after it (src/engine/waivers.ts), which then keeps the season going.
  */
 export function seasonOver(
   model: Pick<LeagueModel, "odds"> & { reward?: Pick<Reward, "shares"> | undefined },
@@ -249,7 +252,7 @@ export function seasonOver(
   // Only whether any is left matters (prizeStillMovable), so the week under way's period counts once at least (a later week
   // of a multi-week period already counts it). Odds made before Checkpoint 7c have no counts: left as they are (unknown).
   const left = opts.weekUnderWay && odds.regularLeft ? { periods: Math.max(1, odds.regularLeft.periods), weeks: odds.regularLeft.weeks + 1 } : odds.regularLeft;
-  return !prizeStillMovable(model.reward ?? { shares: TITLE_ONLY }, { playoffTeams: odds.playoffTeams, regularLeft: left }, mine);
+  return !prizeStillMovable(model.reward ?? { shares: TITLE_ONLY }, { playoffTeams: odds.playoffTeams, regularLeft: left, playoffLeft: odds.playoffLeft }, mine);
 }
 
 /**

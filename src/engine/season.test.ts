@@ -5,7 +5,9 @@ import { normalizeSleeperLeague } from "@/adapters/sleeper/normalize";
 import { fakeResolver as sleeperResolver, loadTestLeague, rawOf } from "@/adapters/sleeper/test-helpers";
 import { config } from "./config";
 import { buildLeagueModel, leagueWeeks } from "./league";
+import type { TeamOdds } from "./leagueModel";
 import type { LeagueSettings, LeagueSnapshot, Matchup } from "./model";
+import { TITLE_ONLY, prizeStillMovable } from "./reward";
 import { mulberry32 } from "./rng";
 import { DIVISION_RULE_ASSUMED, RESEED_RULE_ASSUMED, buildSimSetup, oddsSkippedWarning, pickupSeasonModel, playoffRounds, reseedRuleAssumed, seasonOdds, weekList, weekUnderWayNote, type SeasonModel } from "./season";
 import { simNormals, simulateSeason, standingsOrder } from "./sim";
@@ -972,6 +974,30 @@ describe("seasonOdds: weekly matchups and determinism", () => {
     // The regular season over.
     const over = league({ T: 4, currentWeek: 15, schedule: roundRobin(4, range(1, 14), 15), records: [[11, 3, 0], [9, 5, 0], [5, 9, 0], [3, 11, 0]] });
     expect(left(over)).toEqual([{ periods: 0, weeks: 0 }, { periods: 0, weeks: 0 }]);
+  });
+
+  it("final review of Checkpoint 7c (ui-UI-7C-1): SeasonOdds.playoffLeft, the playoff weeks a trade can still change; a team that lost its semifinal plays for 3rd until the final round's week", () => {
+    // Weeks 4–6 to play, playoffs in weeks 7 and 8: both left.
+    const x = league({ T: 4, currentWeek: 4, schedule: roundRobin(4, range(1, 6), 4), regular: range(1, 6), playoffs: [7, 8] });
+    expect([setupOf(x).playoffLeft, oddsOf(x).playoffLeft]).toEqual([{ weeks: 2 }, { weeks: 2 }]);
+    // Seeds = team numbers after 14 weeks; semifinals in week 15 (1 v 4, 2 v 3): 4 and 2 won, so 1 and 3 play for 3rd in
+    // week 16, the final's week (a game assumed: the league doesn't say).
+    const semi = (a: number, b: number, winner: number): Matchup => ({ week: 15, teamA: String(a), teamB: String(b), isPlayoff: true, decided: true, result: { pointsA: winner === a ? 1 : 0, pointsB: winner === b ? 1 : 0, winnerId: String(winner) } });
+    const spec = { T: 4, currentWeek: 16, schedule: [...roundRobin(4, range(1, 14), 15), semi(1, 4, 4), semi(2, 3, 2)], playoffs: [15, 16], records: [[11, 3, 0], [9, 5, 0], [5, 9, 0], [3, 11, 0]] as [number, number, number][] };
+    const odds = oddsOf(league(spec));
+    expect([odds.regularLeft, odds.playoffLeft]).toEqual([{ periods: 0, weeks: 0 }, { weeks: 1 }]);
+    const [one, , three] = odds.teams as [TeamOdds, TeamOdds, TeamOdds, TeamOdds];
+    expect([one.eliminated, three.eliminated]).toEqual([true, true]);
+    expect(one.pThird).toBeGreaterThan(0.01);
+    expect(one.pThird).toBeLessThan(0.99);
+    expect((one.pThird as number) + (three.pThird as number)).toBeCloseTo(1, 12);
+    const places = { shares: { first: 0.6, second: 0.3, third: 0.1, weeklyHigh: 0, pointsLeader: 0 } };
+    expect(prizeStillMovable(places, odds, one)).toBe(true);
+    expect(prizeStillMovable({ shares: TITLE_ONLY }, odds, one)).toBe(false);
+    // The final round's week under way: simulated, but no trade can change it.
+    const live = oddsOf(league({ ...spec, inProgressWeek: 16 }));
+    expect(live.playoffLeft).toEqual({ weeks: 0 });
+    expect(prizeStillMovable(places, live, live.teams[0] as TeamOdds)).toBe(false);
   });
 
   it("weekList names weeks plainly, runs of consecutive weeks as ranges", () => {

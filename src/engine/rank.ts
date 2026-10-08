@@ -58,9 +58,15 @@
  *       list led with Puka Nacua + Marvin Harrison Jr. → Drake London + Christian Watson, B 1.454 at 24.7%, then Puka
  *       Nacua → Drake London + Christian Watson, B 1.440 at 27.2%). So after the pass the kept cards are read in Overall
  *       order, and one that is filler of an earlier card that stays leaves (as that order's own pass would drop it); the
- *       trades are ranked again without the cards that left, until none leaves (the freed places go to the next trades).
- *       In Overall order the pass already drops every such card (the smaller trade comes first), so that list is ranked
- *       once, exactly as before. A bigger variant whose smaller trade the other rules leave out stays;
+ *       trades are ranked again without the cards that left (the freed places go to the next trades). ⚠️ That can still cost
+ *       a smaller trade its place, when the trades that take the freed places fill a cap it needs (final review of
+ *       Checkpoint 7c, engine-rank-hb3-late-filler: on a made-up league with 2 players a side, the bigger variant left and
+ *       its smaller trade then hit its partner's cap, so neither showed). So, once no kept card is filler of another, a card
+ *       that left comes back when the ranking keeps none of its smaller trades, and they leave instead, for good: beside it
+ *       each would make it filler again, and none made the list without it. Rounds until nothing changes (fillerRounds); a
+ *       card leaves and comes back at most once each, so the rounds end. In Overall order the pass already drops every such
+ *       card (the smaller trade comes first), so that list is ranked once, exactly as before. A bigger variant whose smaller
+ *       trade the other rules leave out stays;
  *    b. core: perCore kept trades already share its core, the highest-value asset on each side (`value`: the
  *       perception value; ties and unknown values: the smaller asset id; an empty side has no core asset);
  *    c. partner cap: while fewer than partnerCapTop (20, §13's "top 20") trades are kept, its partner already has
@@ -359,12 +365,38 @@ export function rankTrades(evaluations: readonly TradeEvaluation[], value: (asse
       b: trade.b as number,
     };
   });
-  // The diversity rules, then (⚠️ HB-3, the file header, rule a) the kept cards in Overall order: one that is filler of an
-  // earlier card that stays leaves (judged as the Overall order's own pass judges it), and the rest are ranked again without
-  // it, until none leaves; each counted as filler. In Overall order the first pass leaves none.
+  const pass = fillerRounds(candidates, cfg, givenCap);
+  return { trades: pass.kept.map((k) => k.trade), hidden, qualifying, dropped: pass.dropped, ...(opts.keep ? { notKept } : {}) };
+}
+
+/**
+ * The diversity rules, then (⚠️ HB-3, the file header, rule a) rounds until nothing changes, each card that leaves counted as
+ * filler:
+ * 1. The kept cards in Overall order: one that is filler of an earlier one that stays leaves (`late`), judged as the Overall
+ *    order's own pass judges it.
+ * 2. When none does: the first card that left, in the list's order, none of whose smaller trades (the cards it is filler of:
+ *    fillerOf) the ranking keeps comes back, and those smaller trades leave instead, for good (`out`): beside it each would
+ *    make it filler again, and none made the list without it (final review of Checkpoint 7c, engine-rank-hb3-late-filler).
+ *    Judged only on a ranking with no filler left, so a smaller trade that a filler about to leave keeps out isn't given up.
+ * Then the trades are ranked again without the cards that left. A card leaves at most once (once it comes back its smaller
+ * trades are out, so it is filler of no card the ranking can keep) and comes back at most once, so the rounds end. In Overall
+ * order the first pass leaves none.
+ */
+function fillerRounds(candidates: readonly Candidate[], cfg: RankConfig, givenCap: number): { kept: Candidate[]; dropped: RankedTrades["dropped"] } {
   const late = new Set<string>();
+  const out = new Set<string>();
+  const parents = new Map<string, Candidate[]>();
+  const parentsOf = (c: Candidate): Candidate[] => {
+    let ps = parents.get(c.trade.key);
+    if (ps === undefined) {
+      ps = candidates.filter((k) => fillerOf(c, k, cfg.fillerCutoffFraction));
+      parents.set(c.trade.key, ps);
+    }
+    return ps;
+  };
   let pass = diversify(candidates, cfg, givenCap);
   for (;;) {
+    // 1. Every kept card that is filler of an earlier one that stays, in Overall order.
     const stay: Candidate[] = [];
     let left = 0;
     for (const c of [...pass.kept].sort((a, b) => byGainThenKey(a.trade, b.trade))) {
@@ -373,15 +405,22 @@ export function rankTrades(evaluations: readonly TradeEvaluation[], value: (asse
         left++;
       } else stay.push(c);
     }
-    if (!left) break;
+    if (!left) {
+      // 2. The first card that left, in the list's order, whose smaller trades the ranking keeps none of (not one left out itself).
+      const kept = new Set(pass.kept.map((k) => k.trade.key));
+      const back = candidates.find((c) => late.has(c.trade.key) && !out.has(c.trade.key) && !parentsOf(c).some((k) => kept.has(k.trade.key)));
+      if (!back) break;
+      late.delete(back.trade.key);
+      for (const k of parentsOf(back)) out.add(k.trade.key);
+    }
     pass = diversify(
-      candidates.filter((c) => !late.has(c.trade.key)),
+      candidates.filter((c) => !late.has(c.trade.key) && !out.has(c.trade.key)),
       cfg,
       givenCap,
     );
   }
-  const dropped = { ...pass.dropped, filler: pass.dropped.filler + late.size };
-  return { trades: pass.kept.map((k) => k.trade), hidden, qualifying, dropped, ...(opts.keep ? { notKept } : {}) };
+  const removed = new Set([...late, ...out]).size;
+  return { kept: pass.kept, dropped: { ...pass.dropped, filler: pass.dropped.filler + removed } };
 }
 
 /**
