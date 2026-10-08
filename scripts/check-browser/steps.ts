@@ -17,7 +17,7 @@
  *    the results (at most --max-search seconds, §12's 10 by default), with the engine's own per-stage timings; every
  *    card with its three numbers and both sides ("You give", "You get"); "Harder to get" never on a player I'd give;
  *    the layout. With no team picked: the page asks for one.
- * 5. Trade card (the first idea): the three sorts reorder the ideas without a new search (Chance they accept by the
+ * 5. Trade card (the first idea): the four sorts reorder the ideas without a new search (Chance they accept by the
  *    chance it goes through when the card shows one: the sort's own number, rank.ts; among the ideas that help); an
  *    outcome button (Rejected; on a card that shows two versions the first outcome asks which one, and the step picks the first) saves and clears; Report saves a reason and a
  *    note, and Undo removes it; the message's Copy puts it on the clipboard; the report form's tap targets.
@@ -77,6 +77,13 @@
  *   a new amount typed with Enter saves and the split follows; text a field can't read says why (aria-invalid, its
  *   message) and isn't saved; then the odds lines under it (below), and the answer it had is chosen again
  *   (settingsPrizeChecks).
+ * - "Helps both" (§7; contracts.ts decides): the card step's four sorts (Helps you, Chance they accept, Helps both, then
+ *   Overall, the page left in its default order) never search again; in every sort the "Helps both" tag is on exactly the
+ *   cards that help both teams as printed (Helps you above 0, Helps them at least config.benefit.helpsThemMin); the "Helps
+ *   both" sort shows only those, by Helps you, its status line saying how many ("Found 2 trade ideas that help both teams.",
+ *   "No trades help both teams right now."); every card's partner's line names their odds in the format of mine (with
+ *   cardOddsChecks, so under "Several prizes" too); the Analyzer's card shows the Trade Finder's card's "Helps them" and tag.
+ *   FINDER_DONE reads every status the Finder's done state can show, whatever sort a remembered Finder opens in.
  * - The odds lines on every Trade Finder card (and Plan B box) and the Analyzer's card, and my odds on the League page:
  *   "Top 3 odds" (or "Top 2 odds") exactly when the tab's saved settings pay 3rd (2nd) place under "Several prizes"
  *   (tradeView.ts topPlacesOf on them). The League, Trade Finder and Analyzer steps run in a fresh browser, under "Only the
@@ -96,6 +103,7 @@
  * in the page and in this process: it's compared, never printed or written.
  */
 import { GOAL_LABEL, PRIZE_LABEL, PRIZE_TEXT_MESSAGES, PRIZES_HELP, prizeAmountText, prizeSplitText } from "@/components/settings/settingsView";
+import { config } from "@/engine/config";
 import type { MarketInputs } from "@/engine/inputs";
 import type { LeagueSettings, LeagueSnapshot } from "@/engine/model";
 import { rewardOf, rewardWith } from "@/engine/reward";
@@ -138,6 +146,9 @@ import {
   fantasyCalcLinksInHtml,
   freshnessLineOk,
   headlineTopProblems,
+  helpsBothListProblems,
+  helpsBothStatusOk,
+  helpsBothTagProblems,
   invalidPrizeProblems,
   MENTIONS_MARKET,
   NAV_HREFS,
@@ -171,6 +182,12 @@ export interface CardInfo {
   /** "about N% it goes through" under the numbers when the league's review could veto it (P_complete), else null. */
   acceptThrough: string | null;
   overall: string | null;
+  /** Checkpoint 7c: Helps them as printed on the partner's line ("24", "0"), null without the line. */
+  helpsThem: string | null;
+  /** The labels of their odds on that line ("Their title odds", …), null without it. */
+  theirOdds: string[] | null;
+  /** The "Helps both" tag shows with the card's heading. */
+  helpsBothTag: boolean;
   analyzerHref: string | null;
   /** The card's Analyzer link opens the card's own trade (its key's partner and players). */
   linkIsOwnTrade: boolean;
@@ -607,6 +624,9 @@ async function readPrizeLeague(ctx: StepContext): Promise<PrizeLeague | null> {
  * ("Top 3 odds" or "Top 2 odds": expectedTopPlaces; none in a fresh browser, whose answer is "Only the champion"), then
  * "Playoff odds" (Checkpoint 7c; contracts.ts oddsLabelProblems). `label` names a card in the details ("idea 3"); `under`
  * opens each line with the setting it's read under (the Settings step's prizeOddsChecks: "under “Several prizes”").
+ * Checkpoint 7c (planner reply to Checkpoint 7b, §7: their lines "in the same format as yours"): every card's partner's line
+ * ("Helps them 24 · Their title odds …") names their odds the same way, "Their title odds", "Their top 3 odds", "Their playoff
+ * odds"; a card without the line (none simulated) is passed over.
  */
 export async function cardOddsChecks(ctx: StepContext, step: string, label: (i: number) => string, under = ""): Promise<void> {
   const { page, report } = ctx;
@@ -631,6 +651,27 @@ export async function cardOddsChecks(ctx: StepContext, step: string, label: (i: 
     `${lead}${pl(lines.length, "odds line")} read “${want}”${places ? "" : ` (${noTopReason(saved)})`}`,
     `${lead}${pl(problems.length, "odds line")} read otherwise than “${want}”`,
     problems,
+  );
+  // The partner's line on each card (Checkpoint 7c).
+  const shown = await page.run<CardInfo[]>("return allCards();", { cards: true });
+  const theirs = shown.flatMap((c, i) => (c.theirOdds ? [{ labels: c.theirOdds, where: label(i) }] : []));
+  if (!theirs.length) {
+    report.skip(step, `${lead}the partner's odds: no card shows a “Helps them” line`);
+    return;
+  }
+  const wantTheirs = ["Their title odds", ...(places ? [`Their top ${places} odds`] : []), "Their playoff odds"].join(" · ");
+  const theirProblems = oddsLabelProblems(
+    theirs.map((t) => t.labels),
+    places,
+    (k) => theirs[k]?.where ?? "",
+    "theirs",
+  );
+  report.check(
+    step,
+    theirProblems.length === 0,
+    `${lead}${pl(theirs.length, "partner's line")} read “Helps them N · ${wantTheirs}”`,
+    `${lead}${pl(theirProblems.length, "partner's line")} read otherwise than “Helps them N · ${wantTheirs}”`,
+    theirProblems,
   );
 }
 
@@ -1039,7 +1080,16 @@ export async function narrowHeaderCheck(ctx: StepContext, step: string): Promise
 // ---------------------------------------------------------------------------------------------
 // 4. Trade Finder
 
-const FINDER_DONE = `(() => { if (location.pathname !== "/trades") return null; const none = noImport(); if (none) return "error: the page says " + none; const l = statusLines(); if (l.some((t) => /^Found \\d+ trade ideas?\\./.test(t) || /^No trade ideas/.test(t))) return "done"; const a = alerts(); return a.length ? "error: " + a[0] : null; })()`;
+/**
+ * The Trade Finder's status line once its ideas show (tradeView.ts buildFinderView statusText), in every sort and every empty
+ * state: "Found 25 trade ideas.", since Checkpoint 7c's "Helps both" sort (planner reply to Checkpoint 7b, §7) also "Found 4
+ * trade ideas that help both teams." and "No trades help both teams right now.", and the "No trade ideas …" titles; never a
+ * searching, re-filtering or stopped search's. A test runs it on every status the view can show.
+ */
+export const FINDER_DONE_STATUS = /^(?:Found \d+ trade ideas?\b|No trade(?:s| ideas)\b)/;
+
+/** The Trade Finder's state for a wait (an expression for the page): "done" once its ideas show (FINDER_DONE_STATUS), "error: …", else null. */
+export const FINDER_DONE = `(() => { if (location.pathname !== "/trades") return null; const none = noImport(); if (none) return "error: the page says " + none; const l = statusLines(); if (l.some((t) => ${FINDER_DONE_STATUS.toString()}.test(t))) return "done"; const a = alerts(); return a.length ? "error: " + a[0] : null; })()`;
 
 interface EngineAnswer {
   t: number;
@@ -1057,12 +1107,14 @@ export function sidelessCards(cards: ReadonlyArray<Pick<CardInfo, "give" | "get"
 /**
  * The places a sort leaves out of order (pure; rank.ts sortTrades): each card's number for that sort, highest first.
  * Chance they accept orders by the chance it goes through (P_complete) when the card shows one, else by the big
- * number, among the ideas that help (Helps you above 0; the others follow in their own order).
+ * number, among the ideas that help (Helps you above 0; the others follow in their own order). "Helps both" (Checkpoint 7c,
+ * planner reply to Checkpoint 7b, §7: "sorted by Helps you, highest first") orders its list by Helps you; whether each of
+ * its cards helps both teams is contracts.ts helpsBothListProblems'.
  */
-export function sortInversions(label: string, cards: ReadonlyArray<Pick<CardInfo, "helps" | "accept" | "acceptThrough" | "overall">>, sort: "helps" | "accept" | "overall"): string[] {
+export function sortInversions(label: string, cards: ReadonlyArray<Pick<CardInfo, "helps" | "accept" | "acceptThrough" | "overall">>, sort: "helps" | "accept" | "overall" | "helpsBoth"): string[] {
   // "<5%" (an estimate under 5%, Phase 4c) sorts just under 5%.
   const num = (v: string | null) => (v === null || v === "—" ? -1 : v.trim().startsWith("<") ? parseFloat(v.replace(/[<%]/g, "")) - 0.1 : parseFloat(v.replace("%", "")));
-  const shown = cards.map((c, i) => ({ i, value: sort === "accept" ? (c.acceptThrough ?? c.accept) : c[sort], helps: num(c.helps) }));
+  const shown = cards.map((c, i) => ({ i, value: sort === "accept" ? (c.acceptThrough ?? c.accept) : sort === "helpsBoth" ? c.helps : c[sort], helps: num(c.helps) }));
   const ordered = sort === "accept" ? shown.filter((c) => c.helps > 0) : shown;
   const out: string[] = [];
   for (let k = 1; k < ordered.length; k++) {
@@ -1100,8 +1152,8 @@ export async function finderStep(ctx: StepContext): Promise<void> {
   const timeline = await page.run<{ firstProgress: number | null; done: number | null; engine: EngineAnswer[]; longtasks: number[]; status: string }>(`
     const ev = eventsSince(${from}).filter((e) => e.path.startsWith("/trades"));
     const pb = ev.find((e) => e.pb !== null);
-    const done = ev.find((e) => /Found \\d+ trade idea|No trade ideas/.test(e.status));
-    return { firstProgress: pb ? pb.t : null, done: done ? done.t : null, engine: engineSince(${from}), longtasks: longtasksSince(${from}), status: statusLines().find((t) => /^Found|^No trade ideas/.test(t)) || "" };
+    const done = ev.find((e) => e.status.split(" | ").some((t) => ${FINDER_DONE_STATUS.toString()}.test(t)));
+    return { firstProgress: pb ? pb.t : null, done: done ? done.t : null, engine: engineSince(${from}), longtasks: longtasksSince(${from}), status: statusLines().find((t) => ${FINDER_DONE_STATUS.toString()}.test(t)) || "" };
   `);
   const answer = timeline.engine.filter((e) => e.type === "trades").at(-1);
   const searchSeconds = timeline.firstProgress !== null && timeline.done !== null ? seconds(timeline.done - timeline.firstProgress) : null;
@@ -1149,9 +1201,14 @@ export async function finderStep(ctx: StepContext): Promise<void> {
 // ---------------------------------------------------------------------------------------------
 // 5. A trade card's buttons
 
-const SORTS = [
+/**
+ * The sorts the card step tries, in this order (Checkpoint 7c's "Helps both" among them, planner reply to Checkpoint 7b, §7),
+ * Overall last: the page is left in its default order, which the later steps' remembered Finder shows.
+ */
+export const SORTS = [
   { value: "helps", label: "Helps you" },
   { value: "accept", label: "Chance they accept" },
+  { value: "helpsBoth", label: "Helps both" },
   { value: "overall", label: "Overall" },
 ] as const;
 
@@ -1164,15 +1221,37 @@ export async function cardStep(ctx: StepContext): Promise<void> {
     return;
   }
 
-  // The sorts: each reorders the ideas from the highest down (sortInversions), and none starts a new search.
+  // The sorts: each reorders the ideas from the highest down (sortInversions), and none starts a new search. Checkpoint 7c
+  // (planner reply to Checkpoint 7b, §7): in every sort the "Helps both" tag shows on exactly the cards that help both teams
+  // as printed (Helps you above 0, Helps them at least config.benefit.helpsThemMin), and the "Helps both" sort shows only
+  // those, by Helps you, its status line saying how many.
   const from = await mark(page);
   const inversions: string[] = [];
+  const min = config.benefit.helpsThemMin;
+  const tagProblems = new Set<string>();
+  let both: { cards: CardInfo[]; status: string } | null = null;
   for (const sort of SORTS) {
-    const cards = await page.run<CardInfo[]>(`setSelect(document.getElementById("finder-sort"), ${JSON.stringify(sort.value)}); await sleep(400); return allCards();`, { cards: true });
-    inversions.push(...sortInversions(sort.label, cards, sort.value));
+    const shown = await page.run<{ cards: CardInfo[]; status: string }>(
+      `setSelect(document.getElementById("finder-sort"), ${JSON.stringify(sort.value)}); await sleep(400); return { cards: allCards(), status: statusLines().find((t) => ${FINDER_DONE_STATUS.toString()}.test(t)) || "" };`,
+      { cards: true },
+    );
+    inversions.push(...sortInversions(sort.label, shown.cards, sort.value));
+    for (const p of helpsBothTagProblems(shown.cards, min, (i) => `${sort.label}: idea ${i + 1}`)) tagProblems.add(p);
+    if (sort.value === "helpsBoth") both = shown;
   }
   const searched = await page.run<boolean>(`return eventsSince(${from}).some((e) => e.pb !== null);`);
-  report.check(step, inversions.length === 0 && !searched, "the three sorts reorder the ideas, highest first, without searching again", searched ? "changing the sort started a new search" : "a sort leaves the ideas out of order", inversions);
+  report.check(step, inversions.length === 0 && !searched, `the ${pl(SORTS.length, "sort")} reorder the ideas, highest first, without searching again`, searched ? "changing the sort started a new search" : "a sort leaves the ideas out of order", inversions);
+  if (both) {
+    const problems = [...helpsBothListProblems(both.cards, min), ...(helpsBothStatusOk(both.status, both.cards.length) ? [] : [`its status line reads “${both.status}”`]), ...tagProblems];
+    report.note(step, "helpsBoth", both.cards.length);
+    report.check(
+      step,
+      problems.length === 0,
+      `“Helps both” shows ${pl(both.cards.length, "idea")} that help both teams, each tagged with Helps them ${min} or more, and the tag is on exactly those cards in every sort`,
+      `“Helps both” or its tag reads otherwise`,
+      problems,
+    );
+  }
 
   const first = `document.querySelector("article")`;
   // This league's feedback records in the league store (an expression for an async body: inPage.ts savedFeedback).
@@ -1290,6 +1369,15 @@ export async function analyzerStep(ctx: StepContext): Promise<void> {
       `the same three numbers as the Trade Finder's card (${shown.helps} · ${shown.accept} · ${shown.overall})`,
       `its numbers differ from the Trade Finder's card`,
       [`Trade Finder: ${card.helps} · ${card.accept} · ${card.overall}`, `Analyzer: ${shown.helps} · ${shown.accept} · ${shown.overall}`],
+    );
+    // Checkpoint 7c (planner reply to Checkpoint 7b, §7: "The Analyzer shows the same"): the partner's score and the tag.
+    const them = (c: CardInfo) => `${c.helpsThem === null ? "no “Helps them” line" : `Helps them ${c.helpsThem}`}${c.helpsBothTag ? ", tagged “Helps both”" : ""}`;
+    report.check(
+      step,
+      shown.helpsThem === card.helpsThem && shown.helpsBothTag === card.helpsBothTag,
+      `the same partner's score as the Trade Finder's card (${them(shown)})`,
+      "its partner's score or tag differs from the Trade Finder's card",
+      [`Trade Finder: ${them(card)}`, `Analyzer: ${them(shown)}`],
     );
     // Both sides first (the tag check counts under "You give"), then the tags.
     const sideless = sidelessCards([shown]);

@@ -13,28 +13,41 @@ import { defaultTradeSettings } from "@/engine/settings";
 import type { TradeAnalysis } from "@/engine/evaluate";
 import type { MarketInputs } from "@/engine/inputs";
 import type { LeagueSettings, PlayerInfo } from "@/engine/model";
-import { HELPS_FLOOR_NOTE, HELPS_FLOOR_NOTE_PLAYOFFS, HELPS_FLOOR_NOTE_PRIZES, helpsScaleNotes, type HelpsScale } from "@/engine/benefit";
+import { HELPS_FLOOR_NOTE, HELPS_FLOOR_NOTE_PLAYOFFS, HELPS_FLOOR_NOTE_PRIZES, helpsBoth, helpsScaleNotes, type HelpsScale } from "@/engine/benefit";
 import { TITLE_ONLY, titleDeltas, type Reward } from "@/engine/reward";
 import { buildTradeContext, evaluateExact, explainContextOf, simulateTrade, tradeInternals, type SimState } from "@/engine/evaluate";
+import { runTradeSearch } from "@/engine/search";
 import type { HelpsCalibration } from "@/engine/leagueModel";
 import { smallLeague } from "@/engine/trade.testing";
 import { TEST_NOW } from "@/engine/testLeague";
 import { explainTrade } from "@/engine/explain";
 import { randomLeague } from "@/engine/testLeague";
 import { FIXTURE_B3, planBFixture } from "@/engine/tradeTestFixtures";
-import type { InjuryTag, TradeEvaluation, TradeStep } from "@/engine/tradeModel";
+import type { InjuryTag, PartnerNumbers, TradeEvaluation, TradeStep } from "@/engine/tradeModel";
 import { MODEL_SOURCES } from "@/server/modelInputs";
 import { GLOOP_PREMIUM, SNOOT_PREMIUM, evaluation, searchResult, step, steppedFull, steppedOffer, tradeSnapshot } from "@/components/trades/testFixtures";
 import { applyFeedback } from "./feedbackStore";
 import {
   ANALYZER_MAX_PER_SIDE,
   HARDER_TO_GET_TAG,
+  HELPS_BOTH_EMPTY_TITLE,
+  HELPS_BOTH_SORT_NOTE,
+  HELPS_BOTH_TAG,
+  HELPS_THEM_TITLE,
   IR_SLOT_TEXT,
   PLAN_B_HEADING,
   MIN_CHANCE_OPTIONS,
   PROJECTIONS_SOURCE,
+  SORT_OPTIONS,
   STAGE_LABEL,
   VALUES_CREDIT_TEXT,
+  helpsBothFewText,
+  helpsBothTagOf,
+  isTradeSort,
+  sortNote,
+  theirLongTermFact,
+  theirOddsViews,
+  themView,
   acceptSrText,
   acceptText,
   analyzerChoices,
@@ -1924,6 +1937,235 @@ describe("Checkpoint 7c: “Top 3 odds” and the words under “Several prizes�
     expect(buildAnalysisView({ evaluation: traded(), illegal: null, notes: [], reward: PARKER }, snapshot).reward).toBe(PARKER);
     expect([buildFinderView({ result: searchResult([traded()]), sort: "overall", snapshot, partnerId: null }).reward, buildAnalysisView({ evaluation: traded(), illegal: null, notes: [] }, snapshot).reward]).toEqual([null, null]);
     expect(buildAnalysisView({ evaluation: traded(), illegal: null, notes: [], reward: TITLE }, snapshot).helpsInfo).toBe(title);
+  });
+});
+
+describe("Checkpoint 7c: “Helps both” and “Helps them” (planner reply to Checkpoint 7b, §7)", () => {
+  const shares = (o: Partial<Reward["shares"]>): Reward["shares"] => ({ first: 0, second: 0, third: 0, weeklyHigh: 0, pointsLeader: 0, ...o });
+  const PARKER: Reward = { goal: "prizes", shares: shares({ first: 4 / 9, second: 16 / 45, third: 1 / 5 }), periods: 14, empty: false };
+  /**
+   * The partner's numbers (TradeEvaluation.them; the fixtures don't set them): Helps them `helps`, their title odds 6.0% → 6.9%
+   * and playoff odds 41% → 45% (the planner's example), their top 3 33% → 36%.
+   */
+  const them = (helps: number | null, over: Partial<PartnerNumbers> = {}): PartnerNumbers => ({
+    b: helps === null ? null : helps / 10,
+    bWin: helps === null ? null : helps / 10,
+    bFuture: null,
+    lambda: null,
+    b3: helps === null ? null : 4,
+    helps,
+    dPO: 0.04,
+    dCH: 0.009,
+    dPrizes: { first: 0.009, second: 0.011, third: 0.01, weeklyHigh: null, pointsLeader: 0 },
+    before: { pPlayoffs: 0.41, pTitle: 0.06, prizes: { first: 0.06, second: 0.12, third: 0.15, weeklyHigh: 0, pointsLeader: 0.05 } },
+    ...over,
+  });
+  const withThem = (e: TradeEvaluation, helps: number | null, over: Partial<PartnerNumbers> = {}): TradeEvaluation => ({ ...e, them: them(helps, over) });
+  const MIN = config.benefit.helpsThemMin;
+
+  it("offers “Helps both” as the fourth sort, with the planner's helper line under it alone", () => {
+    expect(SORT_OPTIONS.map((o) => `${o.value}:${o.label}`)).toEqual(["overall:Overall", "helps:Helps you", "accept:Chance they accept", "helpsBoth:Helps both"]);
+    expect(isTradeSort("helpsBoth")).toBe(true);
+    expect(sortNote("helpsBoth")).toBe("Trades that help them too, sorted by how much they help you.");
+    expect(HELPS_BOTH_SORT_NOTE).toBe("Trades that help them too, sorted by how much they help you.");
+    expect((["overall", "helps", "accept"] as const).map(sortNote)).toEqual([null, null, null]);
+  });
+
+  it("shows the partner's line after mine: Helps them as printed with the planner's tooltip, then their odds in the format of mine", () => {
+    const c = buildTradeCard(withThem(evaluation(), 24), { snapshot, baseline: { pPlayoffs: 0.65, pTitle: 0.121 } });
+    expect(c.them).toEqual({
+      label: "Helps them",
+      helps: { value: "24", srText: null, title: HELPS_THEM_TITLE },
+      odds: [
+        { label: "Their title odds", value: "6.0% → 6.9%", srValue: "from 6.0% to 6.9%" },
+        { label: "Their playoff odds", value: "41% → 45%", srValue: "from 41% to 45%" },
+      ],
+      text: "Helps them 24 · Their title odds 6.0% → 6.9% · Their playoff odds 41% → 45%",
+    });
+    expect(HELPS_THEM_TITLE).toBe("Helps them uses the same scale as Helps you, from their side. Both teams can gain when each fills the other's weak spot. Helps you already counts the cost of making them stronger.");
+    // "Helps them 0" when the trade costs them (B_P ≤ 0).
+    expect(buildTradeCard(withThem(evaluation(), 0), { snapshot }).them?.text).toBe("Helps them 0 · Their title odds 6.0% → 6.9% · Their playoff odds 41% → 45%");
+    // Their title odds unknown (the league's title odds unknown): said as mine are.
+    expect(buildTradeCard(withThem(evaluation(), 24, { dCH: null }), { snapshot }).them?.text).toBe("Helps them 24 · Their title odds unknown · Their playoff odds 41% → 45%");
+    // No line without the partner's numbers, or without a Helps them (their scale unknown).
+    expect(buildTradeCard(evaluation(), { snapshot }).them).toBeNull();
+    expect(buildTradeCard(withThem(evaluation(), null), { snapshot }).them).toBeNull();
+    expect(themView({ them: undefined })).toBeNull();
+  });
+
+  it("says which way their long-term value goes after “Their lineup” in a dynasty or keeper league, in words only, so a high Helps them next to falling odds explains itself (review of the “Helps both” UI, helps-both-ui-1)", () => {
+    const scale = config.benefit.bFutureScale; // B_future,P = scale × ΔDyn_P ÷ their roster's long-term value
+    const dynasty = { ...snapshot, settings: { ...snapshot.settings, leagueType: "dynasty" as const } };
+    const theirs = (bFuture: number | null, helps: number | null = 15) => buildTradeCard(withThem(evaluation(), helps, { bFuture, lambda: bFuture === null ? null : 0.5 }), { snapshot: dynasty });
+    const facts = (c: ReturnType<typeof theirs>) => c.facts.map((f) => `${f.label}: ${f.value}`);
+    // The scratch run's card (smallLeague 12, dynasty): Helps them 15 while their title and playoff odds fall, their long-term value up.
+    const up = theirs(0.06 * scale);
+    expect(up.them?.text).toBe("Helps them 15 · Their title odds 6.0% → 6.9% · Their playoff odds 41% → 45%");
+    expect(facts(up)).toEqual(["Your lineup: +2 pts a week in the regular season, +2 in the playoffs", "Their lineup: 0 pts a week", "Their long-term value: Up"]);
+    // My fact's rule (config.explain.longTermMin, a whole percent other than 0): down, and about the same under the cut.
+    expect(theirLongTermFact(withThem(evaluation(), 15, { bFuture: -0.04 * scale }))).toEqual({ label: "Their long-term value", value: "Down" });
+    for (const share of [0.004, -0.004, 0]) expect(theirLongTermFact(withThem(evaluation(), 15, { bFuture: share * scale }))?.value, String(share)).toBe("About the same");
+    // Beside mine, in the order of the lineups: mine, then theirs.
+    const both = buildTradeCard({ ...withThem(evaluation({ dDyn: -300, bFuture: -0.04 * scale, lambda: 0.5 }), 15, { bFuture: 0.06 * scale }) }, { snapshot: dynasty });
+    expect(both.facts.map((f) => f.label)).toEqual(["Your lineup", "Long-term value", "Their lineup", "Their long-term value"]);
+    expect(fact(both, "Long-term value")).toBe("Down for your roster");
+    // None in a redraft league or without long-term values (bFuture null), none without their line (no Helps them), none
+    // without the partner's numbers; never a number.
+    expect(fact(theirs(null), "Their long-term value")).toBeUndefined();
+    expect(fact(theirs(0.06 * scale, null), "Their long-term value")).toBeUndefined();
+    expect(fact(buildTradeCard(evaluation(), { snapshot: dynasty }), "Their long-term value")).toBeUndefined();
+    expect(theirLongTermFact({ them: undefined })).toBeNull();
+    expect(fact(up, "Their long-term value")).not.toMatch(/\d/);
+  });
+
+  it("adds their top-N line between their title and playoff odds when the league pays 2nd or 3rd place, as mine, never a partial sum", () => {
+    const e = { ...withThem(evaluation({ dCH: 0.007, dPO: 0.03 }), 24), dPrizes: { first: 0.007, second: 0.006, third: 0.007, weeklyHigh: null, pointsLeader: 0 } };
+    const c = buildTradeCard(e, { snapshot, baseline: { pPlayoffs: 0.6, pTitle: 0.105, prizes: { first: 0.105, second: 0.09, third: 0.105, weeklyHigh: 0, pointsLeader: 0 } }, reward: PARKER });
+    expect(c.odds.map((o) => o.label)).toEqual(["Title odds", "Top 3 odds", "Playoff odds"]);
+    expect(c.them?.text).toBe("Helps them 24 · Their title odds 6.0% → 6.9% · Their top 3 odds 33% → 36% · Their playoff odds 41% → 45%");
+    expect(theirOddsViews(them(24), { goal: "prizes", shares: shares({ first: 0.6, second: 0.4 }) }).map((o) => `${o.label} ${o.value}`)).toEqual([
+      "Their title odds 6.0% → 6.9%",
+      "Their top 2 odds 18% → 20%",
+      "Their playoff odds 41% → 45%",
+    ]);
+    // A part unknown: no line rather than a partial sum; "Only the champion": the two lines.
+    expect(theirOddsViews(them(24, { dPrizes: { first: 0.009, second: 0.011, third: null, weeklyHigh: null, pointsLeader: 0 } }), PARKER).map((o) => o.label)).toEqual(["Their title odds", "Their playoff odds"]);
+    expect(theirOddsViews(them(24), { goal: "title", shares: TITLE_ONLY }).map((o) => o.label)).toEqual(["Their title odds", "Their playoff odds"]);
+    expect(theirOddsViews(them(24)).map((o) => o.label)).toEqual(["Their title odds", "Their playoff odds"]);
+  });
+
+  it("tags a card “Helps both” exactly when it helps me (as printed) and Helps them is at least helpsThemMin, in every sort and on the Analyzer's card", () => {
+    expect(buildTradeCard(withThem(evaluation(), MIN), { snapshot }).helpsBothTag).toEqual({ text: "Helps both", title: `Helps both: this trade helps you, and it helps them too (Helps them ${MIN}).` });
+    expect(HELPS_BOTH_TAG).toBe("Helps both");
+    for (const e of [withThem(evaluation(), MIN - 1), withThem(evaluation(), 0), withThem(evaluation({ b: -0.5 }), 40), withThem(evaluation(), null), evaluation()]) expect(buildTradeCard(e, { snapshot }).helpsBothTag).toBeNull();
+    // In every sort: the Overall list's card that helps both is tagged wherever it shows.
+    const tagged = withThem(evaluation({ key: "t", b: 2 }), 30);
+    const plain = withThem(evaluation({ key: "p", b: 6, give: ["105"] }), 0);
+    const result = searchResult([tagged, plain], { helpsBoth: { trades: [tagged], qualifying: 1, byChance: 0, lowerWouldAdd: false, dropped: { partnerCap: 0, core: 0, filler: 0, givenPlayer: 0 } } });
+    for (const sort of ["overall", "helps", "accept", "helpsBoth"] as const) {
+      const tags = Object.fromEntries(buildFinderView({ result, sort, snapshot, partnerId: null }).cards.map((c) => [c.key, c.helpsBothTag?.text ?? null]));
+      expect(tags.t, sort).toBe("Helps both");
+      if (sort !== "helpsBoth") expect(tags.p, sort).toBeNull();
+    }
+    // The Analyzer's card, and its partner's line.
+    const analysis = buildAnalysisView({ evaluation: tagged, illegal: null, notes: [] }, snapshot);
+    expect(analysis.card?.helpsBothTag?.text).toBe("Helps both");
+    expect(analysis.card?.them?.text).toBe("Helps them 30 · Their title odds 6.0% → 6.9% · Their playoff odds 41% → 45%");
+    // helpsBothTagOf reads the engine's rule (benefit.ts helpsBoth).
+    expect(helpsBothTagOf({ tradeScore: 1, them: them(MIN) })?.text).toBe("Helps both");
+    expect(helpsBothTagOf({ tradeScore: 0, them: them(MIN) })).toBeNull();
+  });
+
+  it("“Helps both” shows the engine's own list as it is, never re-sorted or widened, with its count, status, few line and hidden line, and no pattern note", () => {
+    // The engine's list: two trades in its order (its caps applied); a third trade that helps both, on the Overall list only, stays off.
+    const x = withThem(evaluation({ key: "x", b: 6 }), 30);
+    const y = withThem(evaluation({ key: "y", b: 3, give: ["105"] }), 12);
+    const z = withThem(evaluation({ key: "z", b: 9, give: ["104"] }), 20);
+    const list = { trades: [x, y], qualifying: 3, byChance: 2, lowerWouldAdd: true, dropped: { partnerCap: 0, core: 1, filler: 0, givenPlayer: 0 } };
+    const pattern = { playerId: "106", count: 7, of: 10, drivers: ["byeCover" as const], text: "Most of your best ideas trade Wiggleton Spoons: his bye is in week 13, your riskiest week." };
+    const result = searchResult([z, x], { helpsBoth: list, pattern, hidden: { byBenefit: 4, byMarket: 1, byChance: 7 }, filter: { minChance: 0.3, qualifying: 2, few: false } });
+    const view = buildFinderView({ result, sort: "helpsBoth", snapshot, partnerId: null });
+    expect(view.cards.map((c) => c.key)).toEqual(["x", "y"]);
+    expect(view.countText).toBe("2 trade ideas that help both teams, sorted by Helps you.");
+    expect(view.statusText).toBe("Found 2 trade ideas that help both teams.");
+    expect(view.few).toBe("Only 2 trades help both teams right now. Try a lower minimum chance to see more.");
+    expect(view.pattern).toBeNull();
+    // The guards' counts, and the trades that help both under the minimum (not the Overall list's 7).
+    expect(view.hidden).toBe(
+      "Left out on purpose: 4 trade ideas that wouldn't help you, 1 trade idea where, counting roster spots, you'd give up much more trade value than you get and 2 trade ideas below your minimum chance.",
+    );
+    // The Overall sort is the Overall list as before, its pattern note and hidden line its own.
+    const overall = buildFinderView({ result, sort: "overall", snapshot, partnerId: null });
+    expect(overall.cards.map((c) => c.key)).toEqual(["z", "x"]);
+    expect(overall.pattern).toBe(pattern.text);
+    expect(overall.hidden).toContain("7 trade ideas below your minimum chance");
+    // Five or more: no few line; without a lower setting that adds any: the planner's line alone.
+    const five = [0, 1, 2, 3, 4].map((i) => withThem(evaluation({ key: `k${i}`, b: 5 - i, give: [`10${i + 1}`] }), 20));
+    expect(buildFinderView({ result: searchResult(five, { helpsBoth: { ...list, trades: five, lowerWouldAdd: false } }), sort: "helpsBoth", snapshot, partnerId: null }).few).toBeNull();
+    expect(buildFinderView({ result: searchResult([x], { helpsBoth: { ...list, trades: [x], lowerWouldAdd: false } }), sort: "helpsBoth", snapshot, partnerId: null }).few).toBe("Only 1 trade helps both teams right now.");
+    expect([helpsBothFewText(4, false), helpsBothFewText(1, true), helpsBothFewText(0, true), helpsBothFewText(config.ranking.minChanceFew, true)]).toEqual([
+      "Only 4 trades help both teams right now.",
+      "Only 1 trade helps both teams right now. Try a lower minimum chance to see more.",
+      null,
+      null,
+    ]);
+  });
+
+  it("falls back on the list's trades that help both when the result has no “Helps both” list (a fake), by Helps you", () => {
+    const x = withThem(evaluation({ key: "x", b: 3 }), 30);
+    const y = withThem(evaluation({ key: "y", b: 6, give: ["105"] }), 12);
+    const n = withThem(evaluation({ key: "n", b: 9, give: ["104"] }), 4);
+    const view = buildFinderView({ result: searchResult([x, n, y]), sort: "helpsBoth", snapshot, partnerId: null });
+    expect(view.cards.map((c) => c.key)).toEqual(["y", "x"]);
+    expect(view.few).toBe("Only 2 trades help both teams right now.");
+  });
+
+  it("says when no trade helps both teams: the lower minimum when it would show some, the Overall sort when it has ideas, what was left out", () => {
+    const mine = withThem(evaluation({ key: "m" }), 0);
+    const list = { trades: [], qualifying: 0, byChance: 1, lowerWouldAdd: true, dropped: { partnerCap: 0, core: 0, filler: 0, givenPlayer: 0 } };
+    const view = buildFinderView({ result: searchResult([mine], { helpsBoth: list, filter: { minChance: 0.3, qualifying: 1, few: false } }), sort: "helpsBoth", snapshot, partnerId: null });
+    expect(view.empty).toEqual({
+      title: "No trades help both teams right now",
+      text: ["Try a lower minimum chance to see more.", "Sort by Overall to see the trade ideas that help you.", "Left out on purpose: 1 trade idea below your minimum chance."],
+    });
+    expect(view.statusText).toBe("No trades help both teams right now.");
+    expect([view.hidden, view.few, view.countText, view.helpsInfo]).toEqual([null, null, "", null]);
+    // Nothing helps me either: the title alone, with what was left out.
+    const none = buildFinderView({ result: searchResult([], { helpsBoth: { ...list, byChance: 0, lowerWouldAdd: false }, hidden: { byBenefit: 3, byMarket: 0 } }), sort: "helpsBoth", snapshot, partnerId: null });
+    expect(none.empty).toEqual({ title: "No trades help both teams right now", text: ["Left out on purpose: 3 trade ideas that wouldn't help you."] });
+    // A search that stopped before screening: its notes say why, as in every sort.
+    const stopped = buildFinderView({ result: searchResult([], { notes: ["Your league's trade deadline has passed."], counts: { screened: 0, exact: 0, simScreen: 0, simFinal: 0 } }), sort: "helpsBoth", snapshot, partnerId: null });
+    expect(stopped.empty).toEqual({ title: "No trade ideas right now", text: ["Your league's trade deadline has passed."] });
+  });
+
+  it("reads the notes, a Plan B's tags and missing long-term values off both lists, so every sort says the same", () => {
+    const UNDER_WAY = "Week 4 is under way: its games are projected as if none had started.";
+    const KEEPER = "Keeper costs aren't modeled.";
+    const tag: InjuryTag = { playerId: "203", side: "get", status: "OUT", returnWeek: 6 };
+    // A card only the "Helps both" list shows carries a note and a tag the Overall list's cards don't.
+    const onlyBoth = { ...withThem(evaluation({ key: "b", detail: { notes: [KEEPER] } }), 20), flags: { marketCheck: false, hiddenByMarket: false, hiddenByBenefit: false, injured: [], tagged: [tag] } };
+    const planB = { ...planBFixture({ partnerId: "2", give: ["105"], get: ["203"] }), key: "2|give:105|get:203" };
+    const overall = withThem(evaluation({ key: "o", planB, detail: { notes: [UNDER_WAY] } }), 0);
+    const result = searchResult([overall], { helpsBoth: { trades: [onlyBoth], qualifying: 1, byChance: 0, lowerWouldAdd: false, dropped: { partnerCap: 0, core: 0, filler: 0, givenPlayer: 0 } } });
+    for (const sort of ["overall", "helpsBoth"] as const) expect(buildFinderView({ result, sort, snapshot, partnerId: null }).notes, sort).toEqual([UNDER_WAY, KEEPER]);
+    // The Overall card's Plan B names its player with the tag the other list's card carries (he's Out until week 6).
+    expect(buildFinderView({ result, sort: "overall", snapshot, partnerId: null }).cards[0]?.planB?.get).toBe("Ignatius Fumblewick (Out — expected back week 6)");
+    // A card of the other list whose long-term values are missing: Helps you counts this season only, in every sort.
+    const keeper = { ...snapshot, settings: { ...snapshot.settings, leagueType: "keeper" as const } };
+    const missing = searchResult([overall], { helpsBoth: { trades: [{ ...onlyBoth, dynMissing: true, lambda: 0.2 }], qualifying: 1, byChance: 0, lowerWouldAdd: false, dropped: { partnerCap: 0, core: 0, filler: 0, givenPlayer: 0 } } });
+    for (const sort of ["overall", "helpsBoth"] as const) expect(buildFinderView({ result: missing, sort, snapshot: keeper, partnerId: null }).helpsInfo, sort).toBe(helpsInfoText("keeper", true, false));
+  });
+
+  it("on the engine's own search (a synthetic league): the sort shows its list as ranked, every card tagged with the partner's line, Helps you never going up; on the Overall list exactly the cards that help both are tagged", { timeout: 120_000 }, () => {
+    const league = smallLeague(8);
+    const ctx = buildTradeContext(league.snapshot, league.inputs, { now: TEST_NOW, scenarios: 8 });
+    const result = runTradeSearch(ctx, { settings: defaultTradeSettings() });
+    const list = result.helpsBoth?.trades ?? [];
+    // A fact of the synthetic data (seed 8): its list isn't empty, and its Overall list has trades that help only me.
+    expect(list.length).toBeGreaterThan(0);
+    const view = buildFinderView({ result, sort: "helpsBoth", snapshot: league.snapshot, partnerId: null });
+    expect(view.cards.map((c) => c.key)).toEqual(list.map((t) => t.key));
+    for (const c of view.cards) {
+      expect(c.helpsBothTag?.text, c.key).toBe(HELPS_BOTH_TAG);
+      expect(c.them?.text, c.key).toMatch(/^Helps them \d+ · Their title odds .+ · Their playoff odds .+ → .+$/);
+      expect(Number(c.them?.helps.value), c.key).toBeGreaterThanOrEqual(MIN);
+    }
+    const helps = view.cards.map((c) => Number(c.numbers.helps.value));
+    expect(helps).toEqual([...helps].sort((a, b) => b - a));
+    const overall = buildFinderView({ result, sort: "overall", snapshot: league.snapshot, partnerId: null });
+    expect(overall.cards.some((c) => !helpsBoth(c.evaluation))).toBe(true);
+    for (const c of overall.cards) {
+      expect(c.helpsBothTag !== null, c.key).toBe(helpsBoth(c.evaluation));
+      // Every simulated card has the partner's line (Helps them 0 when it costs them).
+      expect(c.them, c.key).not.toBeNull();
+    }
+  });
+
+  it("uses no jargon in the new words", () => {
+    const c = buildTradeCard(withThem(evaluation(), 24), { snapshot, reward: PARKER });
+    const theirLongTerm = theirLongTermFact(withThem(evaluation(), 24, { bFuture: 2.4, lambda: 0.5 }));
+    const words = [c.them?.text ?? "", c.helpsBothTag?.title ?? "", HELPS_THEM_TITLE, HELPS_BOTH_SORT_NOTE, HELPS_BOTH_EMPTY_TITLE, helpsBothFewText(2, true) ?? "", `${theirLongTerm?.label}: ${theirLongTerm?.value}`].join(" ");
+    for (const jargon of [" EV ", "σ", "V*", "g_mkt", "B_P", "B₃", "NaN", "undefined", "null", "λ"]) expect(words).not.toContain(jargon);
   });
 });
 

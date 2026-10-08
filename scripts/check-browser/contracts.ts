@@ -24,6 +24,9 @@
  * Planner reply to Checkpoint 7b, §6 (league prizes; Checkpoint 7c): the Settings page's "Your league's prizes" under
  * "Several prizes" (prizeGroupProblems, invalidPrizeProblems), and "Top 3 odds" (or "Top 2 odds") on the cards and in the
  * League page's headline exactly when the league's split pays 3rd (2nd) place (oddsLabelProblems, headlineTopProblems).
+ * §7 ("Helps both"; Checkpoint 7c): the tag on exactly the cards that help both teams as printed (helpsBothTagProblems,
+ * cardHelpsBoth), the "Helps both" list holding only those (helpsBothListProblems) with its status line
+ * (helpsBothStatusOk), and the partner's line's odds in the format of mine (oddsLabelProblems with `whose` "theirs").
  *
  * Every text these rules read was cleaned of the league's names in the page first (report.ts's rules), so a team named
  * "BIG_DAWGS" or "Squad 4000" is never taken for a code or a value.
@@ -470,10 +473,75 @@ export function invalidPrizeProblems(field: PrizeGroupRead["fields"][number] | u
  * The odds lines on a card or a Plan B box (pure; src/lib/tradeView.ts oddsViews), each list of labels in its order:
  * "Title odds", then "Top 3 odds" ("Top 2 odds") when the league's split pays 3rd (2nd) place under "Several prizes"
  * (`places`, tradeView.ts topPlacesOf), then "Playoff odds". Each list that reads otherwise, in words (`where` names it).
+ * `whose` "theirs" (Checkpoint 7c, planner reply to Checkpoint 7b, §7: the partner's line, "in the same format as yours";
+ * tradeView.ts theirOddsViews): the same labels for them, "Their title odds", "Their top 3 odds", "Their playoff odds".
  */
-export function oddsLabelProblems(lists: ReadonlyArray<readonly string[]>, places: 2 | 3 | null, where: (i: number) => string = (i) => `odds line ${i + 1}`): string[] {
-  const want = ["Title odds", ...(places ? [`Top ${places} odds`] : []), "Playoff odds"];
+export function oddsLabelProblems(lists: ReadonlyArray<readonly string[]>, places: 2 | 3 | null, where: (i: number) => string = (i) => `odds line ${i + 1}`, whose: "mine" | "theirs" = "mine"): string[] {
+  const mine = ["Title odds", ...(places ? [`Top ${places} odds`] : []), "Playoff odds"];
+  const want = whose === "theirs" ? mine.map((l) => `Their ${l.charAt(0).toLowerCase()}${l.slice(1)}`) : mine;
   return lists.flatMap((labels, i) => (labels.length === want.length && labels.every((l, j) => l === want[j]) ? [] : [`${where(i)}: ${labels.map((l) => `“${l}”`).join(" · ") || "no labels"}`]));
+}
+
+// ---------------------------------------------------------------------------------------------
+// "Helps both" (Checkpoint 7c; planner reply to Checkpoint 7b, §7)
+
+/** A card's "Helps both" parts as the page shows them (inPage.ts cardData). */
+export interface HelpsBothCardRead {
+  /** Helps you as printed ("39", "0", "—"). */
+  helps: string | null;
+  /** Helps them as printed on the partner's line ("24", "0"), null without the line. */
+  helpsThem: string | null;
+  /** The "Helps both" tag shows with the card's heading. */
+  helpsBothTag: boolean;
+}
+
+/** A printed score as a number (pure): "39" → 39; "—", text or nothing → null. */
+function printedScore(v: string | null): number | null {
+  return v !== null && /^\d+$/.test(v.trim()) ? Number(v.trim()) : null;
+}
+
+/**
+ * Whether a card helps both teams on the numbers it prints (pure; benefit.ts helpsBoth, the lead's call: on the printed
+ * scores): Helps you above 0 and Helps them at least `min` (config.benefit.helpsThemMin, which the steps pass: this file
+ * imports nothing).
+ */
+export function cardHelpsBoth(card: Pick<HelpsBothCardRead, "helps" | "helpsThem">, min: number): boolean {
+  const mine = printedScore(card.helps);
+  const theirs = printedScore(card.helpsThem);
+  return mine !== null && mine > 0 && theirs !== null && theirs >= min;
+}
+
+/**
+ * The tag (pure; tradeView.ts helpsBothTagOf: "cards that help both get a small “Helps both” tag in every sort"): on exactly
+ * the cards that help both teams as printed (cardHelpsBoth). Each card that reads otherwise, in words (`where` names it).
+ */
+export function helpsBothTagProblems(cards: ReadonlyArray<HelpsBothCardRead>, min: number, where: (i: number) => string = (i) => `idea ${i + 1}`): string[] {
+  return cards.flatMap((c, i) => {
+    const both = cardHelpsBoth(c, min);
+    if (c.helpsBothTag === both) return [];
+    const numbers = `Helps you ${c.helps ?? "none"}, Helps them ${c.helpsThem ?? "none"}`;
+    return [c.helpsBothTag ? `${where(i)} shows “Helps both” at ${numbers}` : `${where(i)} has no “Helps both” tag at ${numbers}`];
+  });
+}
+
+/**
+ * The "Helps both" list (pure; the planner: "It shows only trades that help both teams"): every card helps both on its printed
+ * numbers and carries the tag. Each card that doesn't, in words.
+ */
+export function helpsBothListProblems(cards: ReadonlyArray<HelpsBothCardRead>, min: number, where: (i: number) => string = (i) => `idea ${i + 1}`): string[] {
+  return cards.flatMap((c, i) =>
+    cardHelpsBoth(c, min) && c.helpsBothTag ? [] : [`${where(i)} is on the “Helps both” list at Helps you ${c.helps ?? "none"}, Helps them ${c.helpsThem ?? "none"}${c.helpsBothTag ? "" : ", untagged"}`],
+  );
+}
+
+/**
+ * The Trade Finder's status line under "Helps both" (pure; tradeView.ts buildFinderView, the lead's words): "Found 4 trade
+ * ideas that help both teams." ("Found 1 trade idea that helps both teams.") for the cards shown, "No trades help both teams
+ * right now." with none.
+ */
+export function helpsBothStatusOk(status: string, cards: number): boolean {
+  if (cards === 0) return status === "No trades help both teams right now.";
+  return status === `Found ${cards} ${cards === 1 ? "trade idea that helps" : "trade ideas that help"} both teams.`;
 }
 
 /**

@@ -13,7 +13,11 @@
  * holds until the address names another one (a link here, the nav's Trades). A change of partner, of a setting
  * (saved here or in another tab; what the league rewards among them, since it changes B), of the league data or of "my
  * team" starts a new search, and the one under way stops; so does leaving the page. The sort (Overall by default, Helps
- * you, Chance they accept: §13) only reorders the ideas found (rank.ts sortTrades, through src/lib/tradeView.ts).
+ * you, Chance they accept: §13) only reorders the ideas found (rank.ts sortTrades, through src/lib/tradeView.ts); since
+ * Checkpoint 7c (planner reply to Checkpoint 7b, §7) "Helps both" shows the search's own second list instead
+ * (TradeSearchResult.helpsBoth: the trades that help both teams, by Helps you, the minimum chance and the variety rules as
+ * the engine applied them), so it never searches again either, with the planner's helper line under the sort, read with it
+ * (aria-describedby: "Trades that help them too, sorted by how much they help you.").
  *
  * "Chance they accept: at least" (Phase 4c; planner reply to Checkpoint 4b, change 10): Any, 10% … 50% (the default 10%,
  * saved per league with the other settings: TradeSettings.minChance, changeSavedSettings). The search ranks with the
@@ -99,6 +103,7 @@ import {
   progressView,
   readFinderPartner,
   settingsSummary,
+  sortNote,
   teamNameOf,
   valueFactsOf,
   type FinderTimingView,
@@ -591,7 +596,8 @@ function revealIdea(cardKey: string, href: string | null): boolean {
 
 /**
  * The partner filter, the sort and the minimum chance (native selects, labeled; the minimum's note, in a league that
- * reviews trades, and a save that failed, read with it), and what the settings let a trade idea be.
+ * reviews trades, and a save that failed, read with it; under "Helps both", the planner's helper line read with the sort),
+ * and what the settings let a trade idea be.
  */
 export function FinderControls({
   snapshot,
@@ -622,7 +628,10 @@ export function FinderControls({
   const others = snapshot.teams.filter((t) => t.id !== myTeamId);
   const noteId = useId();
   const errorId = useId();
+  const sortNoteId = useId();
   const described = [minChanceNote ? noteId : null, minChanceError ? errorId : null].filter(Boolean).join(" ");
+  // The planner's helper line under "Helps both" (Checkpoint 7c; tradeView.ts sortNote), read with the sort.
+  const sortHelp = sortNote(sort);
   return (
     <Card>
       <div className="grid gap-3 sm:grid-cols-3">
@@ -646,6 +655,7 @@ export function FinderControls({
           <select
             id="finder-sort"
             value={sort}
+            aria-describedby={sortHelp ? sortNoteId : undefined}
             onChange={(e) => {
               if (isTradeSort(e.target.value)) onSort(e.target.value);
             }}
@@ -657,6 +667,11 @@ export function FinderControls({
               </option>
             ))}
           </select>
+          {sortHelp ? (
+            <p id={sortNoteId} className="mt-1 text-xs text-muted">
+              {sortHelp}
+            </p>
+          ) : null}
         </div>
         <div>
           <label htmlFor="finder-min-chance" className="text-sm font-bold">

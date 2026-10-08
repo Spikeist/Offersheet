@@ -96,6 +96,10 @@ describe("the Finder's address, sort and place", () => {
     rememberSort(A, "helps");
     expect(rememberedSort(A)).toBe("helps");
     expect(rememberedSort(B)).toBeNull();
+    // Checkpoint 7c's "Helps both" (planner reply to Checkpoint 7b, §7) like any other: a return shows that list again.
+    rememberSort(B, "helpsBoth");
+    expect(rememberedSort(B)).toBe("helpsBoth");
+    expect(rememberedSort(A)).toBe("helps");
   });
 
   it("gives back the idea whose Open in Analyzer was used once, and only to its own search", () => {

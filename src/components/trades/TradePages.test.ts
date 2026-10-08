@@ -9,12 +9,14 @@ import { createElement, isValidElement, type ReactElement, type ReactNode } from
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { config } from "@/engine/config";
+import { titleDeltas } from "@/engine/reward";
 import { defaultTradeSettings } from "@/engine/settings";
+import type { PartnerNumbers, TradeEvaluation } from "@/engine/tradeModel";
 import type { CardFeedback, FinderView, TradeCardView } from "@/lib/tradeView";
-import { FROM_PLAN_B_NOTE, PROJECTIONS_SOURCE, analyzerChoices, buildAnalysisView, buildFinderView, buildTradeCard, finderTimingLines, minChanceNote, progressView, settingsSummary } from "@/lib/tradeView";
-import { AnalysisResult, AnalyzerForm, AnalyzerPage } from "./AnalyzerPage";
+import { FROM_PLAN_B_NOTE, HELPS_THEM_TITLE, PROJECTIONS_SOURCE, analyzerChoices, buildAnalysisView, buildFinderView, buildTradeCard, finderTimingLines, minChanceNote, progressView, settingsSummary } from "@/lib/tradeView";
+import { AnalysisResult, AnalyzerForm, AnalyzerPage, analysisStatus } from "./AnalyzerPage";
 import { FeedbackControls, VERSION_QUESTION, VersionChooser, chosenVersionChange, outcomeAction } from "./FeedbackControls";
-import { HowToRead, acceptCapWords, helpsScaleWords, planBGainWords, planBShareWords, weeklyLineWords } from "./HowToRead";
+import { HowToRead, acceptCapWords, helpsScaleWords, helpsThemValueWords, helpsThemWords, planBGainWords, planBShareWords, weeklyLineWords } from "./HowToRead";
 import { TradeCard } from "./TradeCard";
 import { FinderControls, FinderFrame, TradeFinderPage, finderStatus, needsRefilter, refilterProgress, runShown, searchKeyFor, type FinderState } from "./TradeFinderPage";
 import { GLOOP_PREMIUM, SNOOT_PREMIUM, TRADE_MARKET, evaluation, searchResult, step, steppedFull, steppedOffer, tradeFantasyCalc, tradeSnapshot } from "./testFixtures";
@@ -27,6 +29,27 @@ const noop = () => {};
 const NBSP = String.fromCharCode(0xa0);
 const saved = () => ({ ok: true as const });
 const NONE: CardFeedback = { outcome: null, report: null, version: null, versionKey: null, versionWords: null };
+
+/**
+ * The partner's numbers on an evaluation (Checkpoint 7c; TradeEvaluation.them, which the fixtures don't set): Helps them
+ * `helps` (null: their scale unknown), their title odds 6.0% → 6.9% and playoff odds 41% → 45% from the same runs.
+ */
+const withThem = (e: TradeEvaluation, helps: number | null, over: Partial<PartnerNumbers> = {}): TradeEvaluation => ({
+  ...e,
+  them: {
+    b: helps === null ? null : helps / 10,
+    bWin: helps === null ? null : helps / 10,
+    bFuture: null,
+    lambda: null,
+    b3: helps === null ? null : 4,
+    helps,
+    dPO: 0.04,
+    dCH: 0.009,
+    dPrizes: titleDeltas(0.009),
+    before: { pPlayoffs: 0.41, pTitle: 0.06, prizes: { first: 0.06, second: null, third: null, weeklyHigh: 0, pointsLeader: 0 } },
+    ...over,
+  },
+});
 
 /** Visible text, tags and the entities React writes removed. */
 const textOf = (html: string) =>
@@ -291,6 +314,46 @@ describe("the minimum chance and the pattern note on the Trade Finder (planner r
   });
 });
 
+describe("the “Helps both” sort on the Trade Finder (planner reply to Checkpoint 7b, §7)", () => {
+  /** Two trades with team 2 that help both teams and one with team 3 that helps only me; the engine's list holds the two. */
+  const helpsBothView = (list: TradeEvaluation[], over: Partial<NonNullable<Parameters<typeof searchResult>[1]>> = {}, both = { byChance: 0, lowerWouldAdd: false }) => {
+    const mine = withThem(evaluation({ key: "mine", b: 8, pComplete: 0.3, partnerId: "3", get: ["303"] }), 0);
+    const trades = [mine, ...list];
+    const helpsBoth = { trades: list, qualifying: list.length, byChance: both.byChance, lowerWouldAdd: both.lowerWouldAdd, dropped: { partnerCap: 0, core: 0, filler: 0, givenPlayer: 0 } };
+    return buildFinderView({ result: searchResult(trades, { helpsBoth, ...over }), sort: "helpsBoth", snapshot, partnerId: null, fantasyCalc: FC });
+  };
+  const two = [withThem(evaluation({ key: "x", b: 6 }), 30), withThem(evaluation({ key: "y", b: 3, give: ["105"] }), 12)];
+
+  it("lists the engine's “Helps both” list by Helps you, each card tagged, with the planner's few line, and no pattern note", () => {
+    const pattern = { playerId: "106", count: 7, of: 10, drivers: ["byeCover" as const], text: "Most of your best ideas trade Wiggleton Spoons: his bye is in week 13, your riskiest week." };
+    const view = helpsBothView(two, { pattern });
+    const html = renderFrame({ kind: "done", view });
+    const text = textOf(html);
+    expect(text).toContain("2 trade ideas that help both teams, sorted by Helps you. Only 2 trades help both teams right now. Trade idea 1");
+    expect([...html.matchAll(/<li data-trade-key="([^"]+)">/g)].map((m) => m[1])).toEqual(["x", "y"]);
+    expect(html.match(/>Helps both<\/span>/g)).toHaveLength(2);
+    expect(text).not.toContain(pattern.text);
+    expect(finderStatus({ kind: "done", view })).toBe("Found 2 trade ideas that help both teams.");
+    // One: singular; a lower minimum would add more: its suggestion.
+    const one = helpsBothView(two.slice(0, 1), {}, { byChance: 2, lowerWouldAdd: true });
+    expect(one.few).toBe("Only 1 trade helps both teams right now. Try a lower minimum chance to see more.");
+    expect(one.countText).toBe("1 trade idea that helps both teams, sorted by Helps you.");
+    expect(one.hidden).toBe("Left out on purpose: 2 trade ideas below your minimum chance.");
+  });
+
+  it("says when no trade helps both teams, with the ways forward, as the status line's words", () => {
+    const view = helpsBothView([], { filter: { minChance: 0.3, qualifying: 1, few: false } }, { byChance: 1, lowerWouldAdd: true });
+    expect(view.empty).toEqual({
+      title: "No trades help both teams right now",
+      text: ["Try a lower minimum chance to see more.", "Sort by Overall to see the trade ideas that help you.", "Left out on purpose: 1 trade idea below your minimum chance."],
+    });
+    expect(finderStatus({ kind: "done", view })).toBe("No trades help both teams right now.");
+    const html = renderFrame({ kind: "done", view });
+    expect(textOf(html)).toContain("No trades help both teams right now Try a lower minimum chance to see more. Sort by Overall to see the trade ideas that help you.");
+    expect(html).not.toContain("<article");
+  });
+});
+
 describe("FinderControls", () => {
   it("labels the partner filter (All teams, then the others) and the sort (Overall first), and says what the settings allow", () => {
     const props = { snapshot, myTeamId: "1", partnerId: "3", onPartner: noop, sort: "helps" as const, onSort: noop, minChance: 0.3, onMinChance: noop, summary: settingsSummary(defaultTradeSettings(), "espn") };
@@ -304,6 +367,8 @@ describe("FinderControls", () => {
       "overall:Overall",
       "helps:Helps you",
       "accept:Chance they accept",
+      // Checkpoint 7c (planner reply to Checkpoint 7b, §7): the fourth sort, last.
+      "helpsBoth:Helps both",
       "0:Any",
       "0.1:10%",
       "0.2:20%",
@@ -323,6 +388,23 @@ describe("FinderControls", () => {
     expect(textOf(noted)).toContain("Chance they accept: at least Any 10% 20% 30% 40% 50% Judged on the chance the trade goes through, which a league veto vote can cut.");
     expect(noted).toMatch(/<select id="finder-min-chance" aria-describedby="[^" ]+ [^"]+"/);
     expect(noted).toMatch(/<p id="[^"]+" role="alert" class="[^"]*">Your browser wouldn&#x27;t let Offer Sheet save your settings\.<\/p>/);
+  });
+
+  it("says under the sort what “Helps both” shows, the planner's helper line read with the sort, only while it's chosen (planner reply to Checkpoint 7b, §7)", () => {
+    const props = { snapshot, myTeamId: "1", partnerId: null, onPartner: noop, onSort: noop, minChance: 0.1, onMinChance: noop, summary: settingsSummary(defaultTradeSettings(), "espn") };
+    const html = renderToStaticMarkup(createElement(FinderControls, { ...props, sort: "helpsBoth" }));
+    expect(html).toMatch(/<option value="helpsBoth" selected="">Helps both<\/option>/);
+    const id = /<select id="finder-sort" aria-describedby="([^"]+)"/.exec(html)?.[1];
+    expect(id).toBeTruthy();
+    expect(html).toContain(`<p id="${id}" class="mt-1 text-xs text-muted">Trades that help them too, sorted by how much they help you.</p>`);
+    // Right under the sort's select, before the minimum chance.
+    expect(html.indexOf("Trades that help them too")).toBeLessThan(html.indexOf("finder-min-chance"));
+    // Not under the other sorts.
+    for (const sort of ["overall", "helps", "accept"] as const) {
+      const other = renderToStaticMarkup(createElement(FinderControls, { ...props, sort }));
+      expect(other, sort).not.toContain("Trades that help them too");
+      expect(other, sort).not.toMatch(/<select id="finder-sort" aria-describedby=/);
+    }
   });
 
   it("names the league's review under the minimum chance as the cards' veto line does (review of track UIC, finding 5)", () => {
@@ -385,6 +467,61 @@ describe("TradeCard (§13: each trade card shows)", () => {
     expect(textOf(html)).toContain("Title odds 10.5% → 11.2% from 10.5% to 11.2% · , Top 3 odds 30% → 32% from 30% to 32% · , Playoff odds 60% → 63% from 60% to 63%");
     // "Only the champion": the two lines as before.
     expect(textOf(renderToStaticMarkup(createElement(TradeCard, { card: buildTradeCard(e, { snapshot, baseline }), rank: 1, feedback: NONE, onFeedback: saved })))).not.toContain("Top 3 odds");
+  });
+
+  it("tags a card that helps both teams “Helps both” right after its heading, in words, outside it, and shows the partner's line after mine (planner reply to Checkpoint 7b, §7)", () => {
+    const baseline = { pPlayoffs: 0.65, pTitle: 0.121 };
+    const e = withThem(evaluation({ dCH: 0.013, dPO: 0.04, detail: { winChance: [{ week: 9, before: 0.68, after: 0.64 }] } }), 24);
+    const html = renderToStaticMarkup(createElement(TradeCard, { card: buildTradeCard(e, { snapshot, baseline }), rank: 1, feedback: NONE, onFeedback: saved }));
+    // The tag: a pill in words after the heading, with why on hover; the heading alone still names the card.
+    expect(html).toMatch(
+      /<div class="flex flex-wrap items-center gap-x-2 gap-y-1"><h3 id="[^"]+" class="[^"]*">Trade with Gravel Gophers<\/h3><span title="Helps both: this trade helps you, and it helps them too \(Helps them 24\)\." class="shrink-0"><span class="[^"]*bg-brand-soft[^"]*">Helps both<\/span><\/span><\/div>/,
+    );
+    expect(html).toMatch(/<article aria-labelledby="([^"]+)"[\s\S]*<h3 id="\1"/);
+    // The partner's line: after my odds and my weekly line, in the format of mine, the planner's tooltip on "Helps them".
+    const them = `<p><span class="whitespace-nowrap" title="${HELPS_THEM_TITLE.replace(/'/g, "&#x27;")}"><span class="font-semibold">Helps them</span> <span class="tabular-nums">24</span></span><span aria-hidden="true">${NBSP}· </span><span class="sr-only">, </span><span class="whitespace-nowrap"><span class="font-semibold">Their title odds</span> <span aria-hidden="true" class="tabular-nums">6.0% → 6.9%</span><span class="sr-only">from 6.0% to 6.9%</span></span><span aria-hidden="true">${NBSP}· </span><span class="sr-only">, </span><span class="whitespace-nowrap"><span class="font-semibold">Their playoff odds</span> <span aria-hidden="true" class="tabular-nums">41% → 45%</span><span class="sr-only">from 41% to 45%</span></span></p>`;
+    expect(html).toContain(them);
+    expect(html.indexOf("Win chance by week")).toBeLessThan(html.indexOf(them));
+    expect(html.indexOf("Playoff odds</span>")).toBeLessThan(html.indexOf("Win chance by week"));
+    expect(textOf(html)).toContain("Win chance by week: Week 9: 68% → 64% week 9 from 68% to 64% Helps them 24 · , Their title odds 6.0% → 6.9% from 6.0% to 6.9% · , Their playoff odds 41% → 45% from 41% to 45%");
+    // No weekly line for them.
+    expect(textOf(html).match(/Win chance by week/g)).toHaveLength(1);
+  });
+
+  it("keeps the tag to the cards that help both, says “Helps them 0” when the trade costs them, and shows no line without the partner's numbers", () => {
+    const render = (e: ReturnType<typeof evaluation>) => renderToStaticMarkup(createElement(TradeCard, { card: buildTradeCard(e, { snapshot }), rank: 1, feedback: NONE, onFeedback: saved }));
+    // Helps them under 10, or 0, or a trade that doesn't help me: their line, no tag.
+    for (const [e, helps] of [
+      [withThem(evaluation(), config.benefit.helpsThemMin - 1), String(config.benefit.helpsThemMin - 1)],
+      [withThem(evaluation(), 0), "0"],
+      [withThem(evaluation({ b: -1 }), 30), "30"],
+    ] as const) {
+      const html = render(e);
+      expect(html).not.toContain(">Helps both<");
+      expect(textOf(html)).toContain(`Helps them ${helps} · ,`);
+      expect(html).toMatch(/<h3 id="[^"]+" class="[^"]*">Trade with Gravel Gophers<\/h3><div class="mt-3 grid/);
+    }
+    // The veto note stays right under the three numbers (`npm run check:browser` reads it as the <dl>'s next element).
+    const vetoed = withThem(evaluation({ pAccept: 0.4, pComplete: 0.2, detail: { vetoRisk: true } }), 24);
+    const card = buildTradeCard(vetoed, { snapshot: tradeSnapshot({ tradeReview: "league_vote" }) });
+    expect(renderToStaticMarkup(createElement(TradeCard, { card, rank: 1, feedback: NONE, onFeedback: saved }))).toMatch(
+      /<\/dl><p class="mt-2 text-sm text-muted">Counting a league veto vote, about 20% it goes through\.<\/p><div class="mt-2 space-y-0\.5 text-sm">/,
+    );
+    // At exactly 10 the tag shows.
+    expect(render(withThem(evaluation(), config.benefit.helpsThemMin))).toContain(">Helps both<");
+    // Without the partner's numbers, or without a Helps them: neither.
+    for (const e of [evaluation(), withThem(evaluation(), null)]) {
+      const html = render(e);
+      expect(html).not.toContain("Helps them");
+      expect(html).not.toContain(">Helps both<");
+    }
+    // A Plan B box shows neither, whatever its card.
+    const planB = { proposal: { partnerId: "2", give: [{ kind: "player" as const, id: "105" }], get: [{ kind: "player" as const, id: "203" }] }, key: "2|give:105|get:203", b: 2, tradeScore: 28, pAccept: 0.4, pComplete: 0.4, acceptLabel: "Decent", overall: 13, kind: "otherTarget" as const, dPO: 0.02, dCH: 0.01 };
+    const boxed = render(withThem(evaluation({ planB }), 24));
+    const box = boxed.slice(boxed.indexOf("If they say no, try:"));
+    expect(box).toContain("Title odds");
+    expect(box).not.toContain("Helps them");
+    expect(box).not.toContain("Helps both");
   });
 
   it("keeps the chance it goes through right under the three numbers, before the odds (`npm run check:browser` reads it as the numbers' next element)", () => {
@@ -716,6 +853,57 @@ describe("HowToRead (planner addendum to Checkpoint 3)", () => {
     expect(acceptCapWords(0.9)).toBe("90%");
   });
 
+  it("explains Helps them and the “Helps both” sort in plain words on both pages, after Overall: the planner's tooltip, for a phone (planner reply to Checkpoint 7b, §7)", () => {
+    const tooltip = "uses the same scale as Helps you, from their side. Both teams can gain when each fills the other's weak spot. Helps you already counts the cost of making them stronger.";
+    expect(HELPS_THEM_TITLE).toBe(`Helps them ${tooltip}`);
+    expect(how()).toContain(
+      `Helps them (0–100) ${tooltip} Each card shows it with their odds before and after the trade. It doesn't count trade value: the chance they accept does. A trade that helps you and scores at least 10 on Helps them is tagged “Helps both”, and the “Helps both” sort shows only those, sorted by how much they help you.`,
+    );
+    expect(how(undefined, "analyzer")).toContain(
+      `Helps them (0–100) ${tooltip} The card shows it with their odds before and after the trade. It doesn't count trade value: the chance they accept does. A trade that helps you and scores at least 10 on Helps them is tagged “Helps both”, and the Trade Finder's “Helps both” sort shows such trades, sorted by how much they help you.`,
+    );
+    // After Overall, before Harder to get; in every league type; its bar from config.
+    for (const leagueType of ["redraft", "keeper", "dynasty"] as const) {
+      const text = how(leagueType);
+      expect(text.indexOf("Helps them (0–100)"), leagueType).toBeGreaterThan(text.indexOf("Overall combines the two"));
+      expect(text.indexOf("Helps them (0–100)"), leagueType).toBeLessThan(text.indexOf("Harder to get marks"));
+    }
+    expect(helpsThemWords("finder", { min: 15 })).toContain("scores at least 15 on Helps them");
+    expect(helpsThemWords("finder")).toContain(`scores at least ${config.benefit.helpsThemMin} on Helps them`);
+  });
+
+  it("says what Helps them counts in each league type: no trade value in redraft, their long-term value by their own odds in dynasty and keeper, never my Win now ↔ Future setting (review of the “Helps both” UI, helps-both-ui-1)", () => {
+    const read = (props: { leagueType?: "redraft" | "keeper" | "dynasty"; page?: "finder" | "analyzer"; longTermOn?: boolean; valuesOn?: boolean }) => textOf(renderToStaticMarkup(createElement(HowToRead, props)));
+    const paragraph = (text: string) => text.slice(text.indexOf("Helps them (0–100)"), text.indexOf("Harder to get marks"));
+    const shows = "with their odds before and after the trade.";
+    const tagged = "A trade that helps you and scores at least 10 on Helps them is tagged";
+    // The sentence sits between where the card shows it and the tag, on both pages.
+    const counts = (props: Parameters<typeof read>[0], sentence: string) => {
+      for (const page of ["finder", "analyzer"] as const) expect(paragraph(read({ ...props, page })), `${JSON.stringify(props)} ${page}`).toContain(`${shows} ${sentence} ${tagged}`);
+    };
+    // Redraft: B_P has no trade-value term (benefit.ts partnerBenefit), whether or not FantasyCalc's values loaded.
+    const redraft = "It doesn't count trade value: the chance they accept does.";
+    for (const valuesOn of [true, false]) counts({ valuesOn }, redraft);
+    counts({ leagueType: "redraft", longTermOn: false }, redraft);
+    // Dynasty and keeper with long-term values: B_future,P by λ_P, their own odds (keeper: config.benefit.lambda.keeper).
+    counts({ leagueType: "dynasty" }, "In a dynasty league it also counts the change in their roster's long-term value, weighed more the less likely they are to make the playoffs, not by your Win now ↔ Future setting.");
+    counts({ leagueType: "keeper" }, `In a keeper league it also counts the change in their roster's long-term value, weighed at a fixed ${Math.round(config.benefit.lambda.keeper * 100)}%, not by your Win now ↔ Future setting.`);
+    expect(config.benefit.lambda.keeper).toBe(0.2);
+    // Without long-term values: this season only, as Helps you.
+    for (const leagueType of ["dynasty", "keeper"] as const) counts({ leagueType, longTermOn: false }, "Like Helps you, it counts this season only while long-term trade values aren't available.");
+    // Each league type says its own sentence alone (redraft's never in dynasty and keeper, no long-term value in redraft's); no "goal" anywhere.
+    for (const leagueType of ["dynasty", "keeper"] as const) expect(paragraph(read({ leagueType }))).not.toContain(redraft);
+    expect(paragraph(read({}))).not.toContain("long-term");
+    for (const leagueType of ["redraft", "keeper", "dynasty"] as const) {
+      for (const longTermOn of [true, false]) {
+        const text = paragraph(read({ leagueType, longTermOn }));
+        expect(text).not.toMatch(/goals?/i);
+        for (const jargon of ["λ", "lambda", "B_P", "B₃", "NaN", "undefined"]) expect(text, `${leagueType} ${String(longTermOn)}`).not.toContain(jargon);
+      }
+    }
+    expect(helpsThemValueWords()).toBe(redraft);
+  });
+
   it("explains Harder to get and How to offer it", () => {
     expect(how()).toContain(HARDER);
     expect(how()).toContain("How to offer it shows on some ideas: offer the first version, and if they say no, add the player named, one you can spare (losing him costs your lineup little), which raises the chance they accept. The message to send them proposes the first version.");
@@ -909,6 +1097,25 @@ describe("the Trade Analyzer", () => {
     // Not otherwise, and not without a card.
     expect(buildAnalysisView({ evaluation: evaluation(), illegal: null, notes: [] }, snapshot).notes).toEqual([]);
     expect(buildAnalysisView({ evaluation: null, illegal: "You can't trade a player twice.", notes: [] }, snapshot, undefined, { from: "planB" }).notes).toEqual([]);
+  });
+
+  it("shows the same tag and partner's line as the Trade Finder's card, and announces the partner's score (planner reply to Checkpoint 7b, §7: “The Analyzer shows the same”)", () => {
+    const props = { stale: false, records: [], leagueKey: "espn:0000abcd", onFeedback: saved };
+    const e = withThem(evaluation({ dCH: 0.013, dPO: 0.04 }), 24);
+    const baseline = { pPlayoffs: 0.65, pTitle: 0.121 };
+    const view = buildAnalysisView({ evaluation: e, illegal: null, notes: [], baseline }, snapshot);
+    const finder = buildFinderView({ result: searchResult([e], { baseline: { ...baseline, expWins: 8 } }), sort: "overall", snapshot, partnerId: null });
+    expect(view.card?.them).toEqual(finder.cards[0]?.them);
+    expect(view.card?.helpsBothTag).toEqual(finder.cards[0]?.helpsBothTag);
+    const html = renderToStaticMarkup(createElement(AnalysisResult, { view, ...props }));
+    expect(html).toMatch(/<h3 id="[^"]+" class="[^"]*">Trade with Gravel Gophers<\/h3><span title="Helps both: [^"]*" class="shrink-0"><span class="[^"]*">Helps both<\/span><\/span>/);
+    expect(textOf(html)).toContain("Helps them 24 · , Their title odds 6.0% → 6.9% from 6.0% to 6.9% · , Their playoff odds 41% → 45% from 41% to 45%");
+    expect(textOf(html)).toContain("is tagged “Helps both”, and the Trade Finder's “Helps both” sort shows such trades");
+    // The status line: the three numbers, then the partner's score, and that it helps both teams.
+    expect(analysisStatus(view)).toBe("Evaluated: Helps you 39, chance they accept 40%, Overall 18, Helps them 24. It helps both teams.");
+    expect(analysisStatus(buildAnalysisView({ evaluation: withThem(evaluation(), 4), illegal: null, notes: [] }, snapshot))).toBe("Evaluated: Helps you 39, chance they accept 40%, Overall 18, Helps them 4.");
+    expect(analysisStatus(buildAnalysisView({ evaluation: evaluation(), illegal: null, notes: [] }, snapshot))).toBe("Evaluated: Helps you 39, chance they accept 40%, Overall 18.");
+    expect(analysisStatus(buildAnalysisView({ evaluation: null, illegal: "You can't trade a player twice.", notes: [] }, snapshot))).toBe("This trade can't be made: You can't trade a player twice.");
   });
 
   it("shows the analyzed trade's steps on its card too (useful for counteroffers)", () => {

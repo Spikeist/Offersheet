@@ -21,7 +21,8 @@
  *   settings and feedback, and whether a heading shows a league's own name (showsName: compared in the page, so the
  *   name itself never comes back to Node).
  * - CARD_HELPERS: a trade card as data (its give and get lists with their tags, the three numbers, the chance it goes
- *   through when the league's review cuts it, links, buttons).
+ *   through when the league's review cuts it, links, buttons; since Checkpoint 7c its "Helps both" tag and the partner's
+ *   line: Helps them as printed and the labels of their odds).
  * - sanitizeCall(rules): replaces team, owner and league names and the league id in the page's text and attributes
  *   with placeholders before a screenshot, by report.ts's rules (NAME_REPLACER is report.ts replaceNames, for the page;
  *   a test runs both on the same texts), and keeps what it changed: RESTORE_CALL puts it back right after the capture,
@@ -389,9 +390,28 @@ function ownAnalyzerLink(a) {
   const links = [...a.querySelectorAll("a[href^='/analyzer']")];
   return links.find((l) => isOwnTrade(a, l)) || links[0] || null;
 }
+// Checkpoint 7c ("Helps both"): the card's tag, a leaf with those words outside any screen-reader-only part, and the
+// partner's line, the odds line whose first item is "Helps them": its score (the item's number) and the labels of their
+// odds after it; null without the line. A Plan B box has neither.
+const HELPS_BOTH_TEXT = "Helps both";
+const LINE_ITEM = ":scope > span.whitespace-nowrap > span.font-semibold";
+function hasHelpsBothTag(a) {
+  return [...a.querySelectorAll("span")].some((e) => e.children.length === 0 && e.textContent.trim() === HELPS_BOTH_TEXT && !e.closest(".sr-only"));
+}
+function partnerLine(a) {
+  for (const p of a.querySelectorAll("p")) {
+    const labels = [...p.querySelectorAll(LINE_ITEM)];
+    if (labels.length && txt(labels[0]) === "Helps them") {
+      const n = labels[0].nextElementSibling;
+      return { helps: n ? txt(n) : null, labels: labels.slice(1).map(txt) };
+    }
+  }
+  return null;
+}
 function cardData(a) {
   const link = ownAnalyzerLink(a);
   const pitch = [...a.querySelectorAll("details")].find((d) => txt(d.querySelector("summary")).startsWith("Message to send them"));
+  const them = partnerLine(a);
   return {
     heading: txt(a.querySelector("h2, h3")),
     give: assets(a, "You give"),
@@ -401,6 +421,9 @@ function cardData(a) {
     accept: scoreOf(a, "Chance they accept"),
     acceptThrough: acceptThrough(a),
     overall: scoreOf(a, "Overall"),
+    helpsThem: them ? them.helps : null,
+    theirOdds: them ? them.labels : null,
+    helpsBothTag: hasHelpsBothTag(a),
     analyzerHref: link ? link.getAttribute("href") : null,
     linkIsOwnTrade: isOwnTrade(a, link),
     hasPitch: !!pitch,
@@ -902,14 +925,15 @@ return {
 
 /**
  * Each card's odds lines (Checkpoint 7c; tradeView.ts oddsViews), as lists of their labels, the card's own first and then a
- * Plan B box's: the lines whose items are "<label> <odds>" kept on one line (TradeCard.tsx OddsLines), never the weekly line.
+ * Plan B box's: the lines whose items are "<label> <odds>" kept on one line (TradeCard.tsx OddsLines), never the weekly line,
+ * nor the partner's line ("Helps them 24 · Their title odds …": cardData's theirOdds reads it).
  */
 export const READ_CARD_ODDS = String.raw`
 const ITEM = ":scope > span.whitespace-nowrap > span.font-semibold";
 return [...document.querySelectorAll("main article")].map((a) =>
   [...a.querySelectorAll("p")]
     .map((p) => [...p.querySelectorAll(ITEM)].map(txt))
-    .filter((labels) => labels.length > 0 && labels.every((l) => / odds$/.test(l))),
+    .filter((labels) => labels.length > 0 && labels[0] !== "Helps them" && labels.every((l) => / odds$/.test(l) && !/^Their /.test(l))),
 );
 `;
 

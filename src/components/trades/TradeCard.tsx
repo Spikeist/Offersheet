@@ -44,17 +44,22 @@
  * Planner reply to Checkpoint 4c (Phase 7a, A2): "Helps you" has a tooltip saying what its scale means ("63 ≈ as good as
  * adding 3 points a week to your lineup for the rest of the season."; the page's info line says it in words too, for a
  * phone), and the Analyzer's Details ends with what the trade is worth in lineup points a week ("≈ +1.8 pts/week").
+ * Checkpoint 7c (planner reply to Checkpoint 7b, §7): a card that helps both teams carries a "Helps both" pill in words right
+ * after its heading (in every sort, and on the Analyzer's card; why on hover), outside the heading, so the card is still
+ * named by "Trade with …" alone; and after my odds and my weekly line, the partner's line in the format of mine ("Helps
+ * them 24 · Their title odds 6.0% → 6.9% · Their playoff odds 41% → 45%", each item kept on one line, the arrow read as
+ * "from … to", the planner's tooltip on "Helps them"; OddsLines). A Plan B box shows neither.
  * It's an <article> named by its heading; the heading level is the page's to choose.
  */
 import Link from "next/link";
 import { Fragment, useId } from "react";
 import type { FeedbackSaveResult } from "@/lib/feedbackShare";
 import type { FeedbackChange } from "@/lib/feedbackStore";
-import type { AssetView, CardFeedback, DetailsView, InjuryTone, NumberView, OddsView, PlanBView, StepsView, TradeCardView, WeeklyLineView } from "@/lib/tradeView";
+import type { AssetView, CardFeedback, DetailsView, HelpsBothTagView, InjuryTone, NumberView, OddsView, PlanBView, StepsView, ThemView, TradeCardView, WeeklyLineView } from "@/lib/tradeView";
 import { CopyButton } from "../CopyButton";
 import { HarderToGetBadge } from "../league/HarderToGetBadge";
 import { ValuesCredit } from "../league/ValuesCredit";
-import { buttonClass, cx } from "../ui";
+import { Badge, buttonClass, cx } from "../ui";
 import { FeedbackControls } from "./FeedbackControls";
 
 /**
@@ -114,33 +119,41 @@ function Score({ label, number, sub }: { label: string; number: NumberView; sub?
   );
 }
 
+/** One odds on a line, kept on one line, the arrow said as "from … to" to screen readers; after the line's separator when it isn't first. */
+function OddsItem({ odds, first }: { odds: OddsView; first: boolean }) {
+  return (
+    <>
+      {first ? null : <span aria-hidden>{SEP}</span>}
+      {first ? null : <span className="sr-only">, </span>}
+      <span className="whitespace-nowrap">
+        <span className="font-semibold">{odds.label}</span>{" "}
+        {odds.srValue === odds.value ? (
+          <span className="tabular-nums">{odds.value}</span>
+        ) : (
+          <>
+            <span aria-hidden className="tabular-nums">
+              {odds.value}
+            </span>
+            <span className="sr-only">{odds.srValue}</span>
+          </>
+        )}
+      </span>
+    </>
+  );
+}
+
 /**
  * My odds before and after the trade, next to the three numbers: each odds kept on one line (it wraps between them on a
- * 320 px phone), the arrow said as "from … to" to screen readers; then the weeks whose win chance moves, each kept whole.
+ * 320 px phone), the arrow said as "from … to" to screen readers; then the weeks whose win chance moves, each kept whole;
+ * then (Checkpoint 7c) the partner's line, "Helps them 24" with the planner's tooltip, then their odds as mine.
  */
-function OddsLines({ odds, weekly }: { odds: OddsView[]; weekly: WeeklyLineView | null }) {
+function OddsLines({ odds, weekly, them = null }: { odds: OddsView[]; weekly: WeeklyLineView | null; them?: ThemView | null }) {
   return (
     <div className="mt-2 space-y-0.5 text-sm">
       {odds.length ? (
         <p>
           {odds.map((o, i) => (
-            <Fragment key={o.label}>
-              {i > 0 ? <span aria-hidden>{SEP}</span> : null}
-              {i > 0 ? <span className="sr-only">, </span> : null}
-              <span className="whitespace-nowrap">
-                <span className="font-semibold">{o.label}</span>{" "}
-                {o.srValue === o.value ? (
-                  <span className="tabular-nums">{o.value}</span>
-                ) : (
-                  <>
-                    <span aria-hidden className="tabular-nums">
-                      {o.value}
-                    </span>
-                    <span className="sr-only">{o.srValue}</span>
-                  </>
-                )}
-              </span>
-            </Fragment>
+            <OddsItem key={o.label} odds={o} first={i === 0} />
           ))}
         </p>
       ) : null}
@@ -159,7 +172,31 @@ function OddsLines({ odds, weekly }: { odds: OddsView[]; weekly: WeeklyLineView 
           ))}
         </p>
       ) : null}
+      {them ? (
+        <p>
+          <span className="whitespace-nowrap" title={them.helps.title}>
+            <span className="font-semibold">{them.label}</span> <span className="tabular-nums">{them.helps.value}</span>
+          </span>
+          {them.odds.map((o) => (
+            <OddsItem key={o.label} odds={o} first={false} />
+          ))}
+        </p>
+      ) : null}
     </div>
+  );
+}
+
+/**
+ * "Helps both" (Checkpoint 7c): a pill in words (never color alone) right after the card's heading, why on hover. Its two
+ * words say it to screen readers too; How to read says what it means.
+ */
+function HelpsBothBadge({ tag }: { tag: HelpsBothTagView }) {
+  return (
+    <span title={tag.title} className="shrink-0">
+      <Badge tone="brand" className="align-middle">
+        {tag.text}
+      </Badge>
+    </span>
   );
 }
 
@@ -310,12 +347,23 @@ export function TradeCard({ card, rank, headingLevel = "h3", feedback, onFeedbac
   const n = card.numbers;
   // Several ideas can be with the same team: buttons name their card by its place too.
   const name = rank ? `trade idea ${rank}, ${card.heading}` : card.heading;
+  const heading = (
+    <Heading id={headingId} className="text-lg leading-tight font-extrabold tracking-tight wrap-anywhere">
+      {card.heading}
+    </Heading>
+  );
   return (
     <article aria-labelledby={headingId} className="rounded-2xl border border-line bg-surface p-4 shadow-sm sm:p-5">
       {rank ? <p className="text-xs font-bold tracking-wider text-brand uppercase">Trade idea {rank}</p> : null}
-      <Heading id={headingId} className="text-lg leading-tight font-extrabold tracking-tight wrap-anywhere">
-        {card.heading}
-      </Heading>
+      {/* "Helps both" next to the heading, wrapping under it on a narrow phone (Checkpoint 7c); the heading alone names the card. */}
+      {card.helpsBothTag ? (
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          {heading}
+          <HelpsBothBadge tag={card.helpsBothTag} />
+        </div>
+      ) : (
+        heading
+      )}
 
       <div className="mt-3 grid grid-cols-2 gap-3">
         <AssetList title="You give" assets={card.give} />
@@ -330,7 +378,7 @@ export function TradeCard({ card, rank, headingLevel = "h3", feedback, onFeedbac
       </dl>
       {/* The veto note right under the numbers it qualifies (`npm run check:browser` reads it as the <dl>'s next element). */}
       {n.acceptNote ? <p className="mt-2 text-sm text-muted">{n.acceptNote}</p> : null}
-      <OddsLines odds={card.odds} weekly={card.weekly} />
+      <OddsLines odds={card.odds} weekly={card.weekly} them={card.them} />
       {card.steps ? <Steps steps={card.steps} /> : null}
 
       {card.flags.length ? (

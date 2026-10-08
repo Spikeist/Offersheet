@@ -9,9 +9,9 @@
 import path from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
-import { overallScore, tradeScore } from "@/engine/benefit";
+import { helpsBoth, overallScore, tradeScore } from "@/engine/benefit";
 import { config } from "@/engine/config";
-import { analyzeTrade, buildTradeContext, helpsScaleOf, tradeInternals } from "@/engine/evaluate";
+import { analyzeTrade, buildTradeContext, helpsScaleOf, partnerCalibrationOf, partnerScaleOf, tradeInternals } from "@/engine/evaluate";
 import type { ModelInputs } from "@/engine/inputs";
 import { buildLeagueModel } from "@/engine/league";
 import { neutralThrowIns } from "@/engine/market";
@@ -21,9 +21,9 @@ import { runTradeSearch, searchStateOf } from "@/engine/search";
 import { GOALS, defaultTradeSettings } from "@/engine/settings";
 import { TEST_NOW } from "@/engine/testLeague";
 import { smallLeague } from "@/engine/trade.testing";
-import type { TradeEvaluation } from "@/engine/tradeModel";
+import type { TradeEvaluation, TradeEvaluationCore, TradeSearchResult } from "@/engine/tradeModel";
 import { tradeEvaluation } from "@/engine/tradeTestFixtures";
-import { acceptText, injuryTagText, knownTagsOf, planBView, seasonEndOf } from "@/lib/tradeView";
+import { acceptText, injuryTagText, knownTagsOf, planBView, seasonEndOf, topChance, topPlacesOf } from "@/lib/tradeView";
 import { GOAL_WORDS, asWeeklyResetData, benefitWin, placeholders, pre4cText, prizesWords, resetWaiverOrder, scaleCheck, thresholdsLine, type Pre4cOrder } from "./league-report";
 import {
   ANCHORS,
@@ -32,10 +32,12 @@ import {
   FEW_GAMES,
   GAP_TRADE,
   GOAL_TOP,
+  HELPS_BOTH_SHOWN,
   NEAR_POINTS,
   OPEN_SPOT_FINALISTS,
   PREMIUM_ANCHORS,
   TOP_DETAIL,
+  UNTOUCHED_STAGES,
   anchorRows,
   blendReason,
   buildTradeReport,
@@ -43,10 +45,17 @@ import {
   chancePrinted,
   dataOrderOf,
   expectedGain,
+  finalRunsText,
   fmt,
   goalCompare,
+  helpsBothCost,
+  helpsBothCounts,
+  helpsBothParts,
+  helpsBothSummary,
   helpsScaleSection,
+  helpsThemScaleWords,
   kickoffJump,
+  measuredRunsText,
   oddsByOrder,
   parseArgs,
   prizesSettingsOf,
@@ -56,8 +65,10 @@ import {
   playoffMove,
   premiumAnchorRows,
   pts,
+  rankedFinals,
   reportCommand,
   scaleCheckOf,
+  scaleText,
   signed,
   taggerOf,
   threeNumbers,
@@ -65,7 +76,13 @@ import {
   tradeValueText,
   weeklyLines,
   weeklyText,
+  withoutHelpsThem,
+  type HelpsBothCost,
+  type HelpsBothCounts,
+  type Runtime,
+  type RuntimeRun,
   type Tagger,
+  type Tick,
 } from "./trade-report";
 
 /** Names the report must never print (stand-ins for leaguemates' team and owner names and the league's id). */
@@ -265,13 +282,158 @@ describe("trade report: the acceptance anchors (the planner's two tables)", () =
   });
 });
 
+describe("trade report: what Helps both costs a search (section 10)", () => {
+  /** A made-up run: its search's stages (TradeSearchResult.timings) and its parts. */
+  const run = (search: Record<string, number>, parts: RuntimeRun["parts"] = null): RuntimeRun => ({ context: { total: 400 }, search, total: 400 + (search.total ?? 0), signature: "s", parts });
+  const runtime = (cold: RuntimeRun, runs: RuntimeRun[]): Runtime => ({ cold, runs, warmups: 1, context: {}, search: {}, total: 0, sameEveryRun: true });
+
+  it("reads a search's calibration runs and its extras' final runs off its own yields; an extra in the first final run counts the median of the others", () => {
+    const ticks: Tick[] = [
+      { t: 10, stage: "exact", done: 1 },
+      { t: 20, stage: "exact", done: 2 },
+      { t: 32, stage: "simScreen", done: 0 }, // a partner's calibration run: 12 ms
+      { t: 45, stage: "simScreen", done: 0 }, // another: 13 ms
+      { t: 60, stage: "simScreen", done: 2 }, // the screening simulations
+      { t: 90, stage: "simFinal", done: 1 }, // the first final run, with the choice of the finalists: 30 ms
+      { t: 103, stage: "simFinal", done: 2 }, // 13 ms
+      { t: 114, stage: "simFinal", done: 3 }, // 11 ms
+      { t: 130, stage: "rank", done: 0 },
+    ];
+    const finals = [{ key: "a" }, { key: "b" }, { key: "c" }] as TradeEvaluationCore[];
+    // "a" is the first final run: the median of the others (13 and 11), 12.
+    expect(helpsBothParts(ticks, 0, { finals, helpsBothExtras: ["a", "c"] })).toEqual({ calibrations: { count: 2, ms: 25 }, extras: { count: 2, ms: 12 + 11 } });
+    expect(helpsBothParts(ticks, 0, { finals, helpsBothExtras: ["b"] })).toEqual({ calibrations: { count: 2, ms: 25 }, extras: { count: 1, ms: 13 } });
+    expect(helpsBothParts(ticks, 0, { finals, helpsBothExtras: [] })?.extras).toEqual({ count: 0, ms: 0 });
+    // A search stopped before ranking has no state, so no parts.
+    expect(helpsBothParts(ticks, 0, null)).toBeNull();
+  });
+
+  it("prices Helps both by its three parts, cold and warm (the second list from the ranking stage against the same search without it), the totals without it derived, and the runs without it as measured", () => {
+    const parts = (cal: number, ex: number) => ({ calibrations: { count: 9, ms: cal }, extras: { count: 5, ms: ex } });
+    // The stages Helps them doesn't touch (setup, screening, exact) sum to 4,102 / 4,072 / 4,147 with it, 3,962 / 4,022 / 3,922 without.
+    const main = runtime(run({ setup: 2, screening: 2450, exact: 1700, rank: 1, steps: 230, total: 6000 }, parts(120, 66)), [
+      run({ setup: 2, screening: 2400, exact: 1700, rank: 0.5, steps: 200, total: 5750 }, parts(115, 64)),
+      run({ setup: 2, screening: 2380, exact: 1690, rank: 0.5, steps: 210, total: 5700 }, parts(113, 63)),
+      run({ setup: 2, screening: 2440, exact: 1705, rank: 0.6, steps: 190, total: 5800 }, parts(117, 65)),
+    ]);
+    const without = runtime(run({ setup: 2, screening: 2300, exact: 1660, rank: 0.5, steps: 120, total: 5450 }), [
+      run({ setup: 2, screening: 2300, exact: 1660, rank: 0.5, steps: 120, total: 5450 }),
+      run({ setup: 2, screening: 2330, exact: 1690, rank: 0.4, steps: 115, total: 5500 }),
+      run({ setup: 2, screening: 2280, exact: 1640, rank: 0.5, steps: 125, total: 5380 }),
+    ]);
+    const c = helpsBothCost(main, without);
+    expect(c.calibrations).toEqual({ count: 9, cold: 120, warm: 115 });
+    expect(c.extras).toEqual({ count: 5, cold: 66, warm: 64 });
+    // The ranking stage (rank + steps): with 200.5 / 210.5 / 190.6 (median 200.5), without 120.5 / 115.4 / 125.5 (median 120.5).
+    expect(c.secondList).toBeCloseTo(80, 9);
+    // The extra: the three parts; cold, the cold run's own calibration and extra runs and the warm second list.
+    expect(c.extra.warm).toBeCloseTo(115 + 64 + 80, 9);
+    expect(c.extra.cold).toBeCloseTo(120 + 66 + 80, 9);
+    expect(c.with).toEqual({ cold: 6000, warm: 5750 });
+    // Without: with less the extra, cold and warm.
+    expect(c.without.warm).toBeCloseTo(5750 - 259, 9);
+    expect(c.without.cold).toBeCloseTo(6000 - 266, 9);
+    // As measured: the median of the runs without, and the largest spread within either set, of the totals (with 5700–5800,
+    // without 5380–5500) and of the stages Helps them doesn't touch (with 4072–4147, without 3922–4022).
+    expect(UNTOUCHED_STAGES).toEqual(["setup", "screening", "exact"]);
+    expect(c.measured).toEqual({ without: 5450, spread: 120, untouched: 100 });
+    // Runs without parts (searches that stopped): no extra, nothing derived; one timed run a set: no spread (review HBR-1: it read 0).
+    const bare = runtime(run({ total: 10 }), [run({ total: 10 })]);
+    expect(helpsBothCost(bare, bare)).toMatchObject({ calibrations: { count: 0, cold: null, warm: null }, extras: { count: 0, cold: null, warm: null }, extra: { cold: null, warm: null }, without: { cold: null, warm: null }, measured: { without: 10, spread: null, untouched: null } });
+    // Runs without the stage timings: the totals' spread only.
+    const plain = (total: number) => run({ total });
+    expect(helpsBothCost(runtime(plain(9), [plain(10), plain(14)]), runtime(plain(9), [plain(8), plain(9)])).measured).toEqual({ without: 8.5, spread: 4, untouched: null });
+  });
+
+  it("words the runs without Helps them against section 4's with their own sign, and the spread only from 2 timed runs a set (review of the report track, HBR-1)", () => {
+    const tail = ", so the totals without are section 4's less the three parts.";
+    // Faster without (Parker's at Checkpoint 7c: 5.71 s against 5.81 s): "under", never a "+" from section 4's.
+    expect(measuredRunsText({ with: { cold: 5890, warm: 5806 }, measured: { without: 5715, spread: 246, untouched: 210 } })).toBe(
+      `The runs without it measured 5.71 s (median), 91 ms under section 4's 5.81 s, but each set's search totals spread over up to 246 ms from run to run, setup, screening and exact evaluation alone (which Helps them doesn't touch) over up to 210 ms${tail}`,
+    );
+    // Slower without, and the same: their own words.
+    expect(measuredRunsText({ with: { cold: 1100, warm: 1000 }, measured: { without: 1012, spread: 40, untouched: null } })).toBe(
+      `The runs without it measured 1.01 s (median), 12 ms over section 4's 1.00 s, but each set's search totals spread over up to 40 ms from run to run${tail}`,
+    );
+    expect(measuredRunsText({ with: { cold: 1100, warm: 1000 }, measured: { without: 1000, spread: 40, untouched: 30 } })).toContain("measured 1.00 s (median), the same as section 4's 1.00 s, but");
+    // One timed run a set: no spread from run to run, so none is printed (it read "up to 0.0 ms").
+    expect(measuredRunsText({ with: { cold: 1100, warm: 1060 }, measured: { without: 937, spread: null, untouched: null } })).toBe(
+      `The runs without it measured 937 ms (median), 123 ms under section 4's 1.06 s, from one timed run a set (no spread from run to run)${tail}`,
+    );
+    // Nothing measured: no sentence.
+    expect(measuredRunsText({ with: { cold: 1100, warm: 1060 }, measured: { without: null, spread: null, untouched: null } })).toBe("");
+  });
+
+  it("words the final runs (counts.simFinal holds the extras since Checkpoint 7c), keeps the ranking's finalists apart, and words a partner's scale", () => {
+    // A result no search returned has no state, so no extra is known: its final runs read as finalists (the search's own: section 4's test).
+    const fake = { counts: { screened: 0, exact: 0, simScreen: 0, simFinal: 60 } } as TradeSearchResult;
+    expect(finalRunsText(fake)).toBe("60 finalists");
+    const finals = [{ key: "a" }, { key: "b" }, { key: "c" }] as TradeEvaluationCore[];
+    expect(rankedFinals({ finals, helpsBothExtras: ["b"] }).map((f) => f.key)).toEqual(["a", "c"]);
+    expect(rankedFinals({ finals, helpsBothExtras: [] })).toEqual(finals);
+    expect(rankedFinals(null)).toEqual([]);
+    expect(scaleText(null)).toBe("–");
+    expect(scaleText({ b3: 4.374, b3P: 4.374, odds: 4.374, floored: false, lambda: null })).toBe("4.37");
+    expect(scaleText({ b3: 0.5, b3P: 0.5, odds: 0.213, floored: true, lambda: null })).toBe("0.50 (floored: 0.21)");
+    // With long-term values: B₃,P with its own floor first, then the mix B_ref,P (review HBR-2: "1.70 (floored: 0.30)" read as B₃,P floored from the run).
+    expect(scaleText({ b3: 1.7, b3P: 0.5, odds: 0.3, floored: true, lambda: 0.35 })).toBe("B₃,P 0.50 (floored: 0.30) → B_ref,P 1.70 (λ_P 0.35)");
+    expect(scaleText({ b3: 3.48, b3P: 3.2, odds: 3.2, floored: false, lambda: 0.35 })).toBe("B₃,P 3.20 → B_ref,P 3.48 (λ_P 0.35)");
+  });
+
+  it("words B_P and its scale by league type: the mix with long-term values outside redraft leagues (review of the report track, HBR-2)", () => {
+    const redraft = helpsThemScaleWords("redraft");
+    expect(redraft).toBe(`B_P, its B_win under the league's reward with no trade-value term, on its own scale B₃,P: the B of +${config.benefit.helpsGain} points a week for it on the same seasons, floored at ${config.benefit.helpsFloor}`);
+    expect(redraft).not.toContain("B_ref,P");
+    for (const type of ["dynasty", "keeper"] as const) {
+      const words = helpsThemScaleWords(type);
+      expect(words.startsWith(`${redraft}; with long-term values, `)).toBe(true);
+      // F₁₀ = 40 × 10% = 4; λ_P the partner's own default (keeper 0.2), never the user's setting.
+      expect(words).toContain("the scale is B_ref,P = (1 − λ_P) × B₃,P + λ_P × 4, both by λ_P, its default by its playoff odds (keeper 0.2), never the Win now ↔ Future setting");
+    }
+  });
+
+  it("the console summary's Helps both part: the split's counts, and the extra under the setting it was measured under (review of the report track, HBR-3)", () => {
+    const counts = (both: number, total: number, cards: number, fromExtras: number) =>
+      ({ exact: { total, helpsYou: 0, theirB: 0, helpsThem: 0, both, shown: both }, list: { trades: Array.from({ length: cards }, () => ({})) }, fromExtras }) as unknown as HelpsBothCounts;
+    const cost = (warm: number | null) => ({ extra: { cold: null, warm } }) as HelpsBothCost;
+    // Parker's at Checkpoint 7c: under the split 5 of 201 helped both and the list showed 2, 1 of them an extra; the cost measured under "Only the champion".
+    expect(helpsBothSummary({ counts: { title: null, other: counts(5, 201, 2, 1) }, cost: cost(202.4) }, "title")).toBe(
+      "5 of 201 exact trades help both on the screening run, the list shows 2 (1 from the extras); Helps both costs +202 ms a search warm (Only the champion, section 4's runs)",
+    );
+    // The list is judged on the final run, so it can show more than the screening run counted.
+    expect(helpsBothSummary({ counts: { title: null, other: counts(1, 40, 3, 0) }, cost: cost(null) }, "title")).toBe(
+      "1 of 40 exact trades helps both on the screening run, the list shows 3 (0 from the extras); Helps both costs – a search warm (Only the champion, section 4's runs)",
+    );
+    expect(helpsBothSummary({ counts: { title: null, other: null }, cost: cost(10) }, "title")).toContain("no trade counted as helping both");
+  });
+
+  it("the search without Helps them (withoutHelpsThem): every partner's calibration run is none, so no partner's scale is known", () => {
+    const ctx = buildTradeContext(snapshot, inputs, { now: TEST_NOW, settings, scenarios: 0 });
+    const I = tradeInternals(ctx);
+    // Before: a partner's run is made when first asked for (on a context of its own, so the one below starts empty).
+    expect(I.sim).not.toBeNull();
+    expect(I.sim?.partners.size).toBe(0);
+    expect(withoutHelpsThem(ctx)).toBe(ctx);
+    expect(I.sim?.partners.size).toBe(I.teams.length);
+    for (const t of I.teams) {
+      expect(I.sim?.partners.get(t.id)).toBeNull();
+      expect(partnerCalibrationOf(I, t.id)).toBeNull();
+      expect(partnerScaleOf(I, t)).toBeNull();
+    }
+    // The same league's context as built: its partners' runs are there.
+    const fresh = tradeInternals(buildTradeContext(snapshot, inputs, { now: TEST_NOW, settings, scenarios: 0 }));
+    const partner = fresh.teams.find((t) => t.id !== fresh.me?.id) as (typeof fresh.teams)[number];
+    expect(partnerCalibrationOf(fresh, partner.id)).not.toBeNull();
+  });
+});
+
 describe("trade report: the whole offline report on a synthetic league", () => {
   const I = tradeInternals(report.ctx);
 
   it("runs the real search and renders every section in order, the header with the data, the settings and the baseline", () => {
     expect(trades.length).toBeGreaterThan(0);
     expect(report.result.myTeamId).toBe("1");
-    expect([...doc.matchAll(/^## (\d+)\./gm)].map((m) => Number(m[1]))).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    expect([...doc.matchAll(/^## (\d+)\./gm)].map((m) => Number(m[1]))).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
     expect(doc).toContain("# Trade search: Parker's ESPN league (Checkpoint 7c)");
     expect(doc).toContain("Generated by `npm run trade:report -- --offline data-local/synthetic --team 1 --prizes 2000,1600,900,0` on ");
     expect(doc).toContain("- Synthetic test league.");
@@ -378,6 +540,11 @@ describe("trade report: the whole offline report on a synthetic league", () => {
     expect(cardsOf(again.result.trades)).toEqual(cardsOf(g.result.trades));
     expect(again.rows).toEqual(g.rows);
     expect(g.result).not.toBe(report.result);
+    // Timed on the report's clock, the search reads its "Helps both" parts off its own progress (section 10); untimed, none.
+    expect(again.parts).toBeNull();
+    const gState = searchStateOf(g.result) as NonNullable<ReturnType<typeof searchStateOf>>;
+    expect(g.parts?.extras.count).toBe(gState.helpsBothExtras.length);
+    expect(g.parts?.calibrations.count).toBe(new Set([...gState.exactByKey.values()].map((x) => x.partner.id)).size);
     const topTitle = trades.slice(0, TOP_DETAIL).map((t) => t.key);
     const topOther = g.result.trades.slice(0, TOP_DETAIL).map((t) => t.key);
     expect(g.rows.map((r) => r.key)).toEqual([...new Set([...topTitle, ...topOther])]);
@@ -523,13 +690,17 @@ describe("trade report: the whole offline report on a synthetic league", () => {
     expect(g.perPartner.reduce((n, p) => n + p.cards, 0)).toBe(trades.length);
     const state = searchStateOf(report.result) as NonNullable<ReturnType<typeof searchStateOf>>;
     expect(g.perPartner.reduce((n, p) => n + p.exact, 0)).toBe(state.exactByKey.size);
-    expect(g.perPartner.reduce((n, p) => n + p.finalists, 0)).toBe(state.finals.length);
+    // Final runs: the finalists and (Checkpoint 7c) the "Helps both" extras, counts.simFinal.
+    expect(g.perPartner.reduce((n, p) => n + p.finalRuns, 0)).toBe(state.finals.length);
+    expect(report.result.counts.simFinal).toBe(state.finals.length);
     // Each stage follows from the one before (a card is a finalist, which was evaluated exactly, shortlisted, kept, screened).
     expect(g.exact).toBe(state.exactByKey.has(trade.key));
-    expect(g.finalist).toBe(state.finals.some((f) => f.key === trade.key));
+    expect(g.finalist).toBe(state.finals.some((f) => f.key === trade.key) && !state.helpsBothExtras.includes(trade.key));
+    expect(g.extra).toBe(state.helpsBothExtras.includes(trade.key));
+    expect(g.finalist && g.extra).toBe(false);
     expect(g.card).toBe(trades.findIndex((t) => t.key === trade.key) + 1 || null);
     if (g.card) expect(g.finalist).toBe(true);
-    if (g.finalist) expect(g.exact).toBe(true);
+    if (g.finalist || g.extra) expect(g.exact).toBe(true);
     if (g.exact) expect(g.shortlisted).toBe(true);
     if (g.shortlisted) expect(g.kept).not.toBeNull();
     if (g.kept) expect(g.inWindow).toBe(true);
@@ -537,6 +708,12 @@ describe("trade report: the whole offline report on a synthetic league", () => {
     expect(g.evaluation?.key).toBe(trade.key);
     expect(g.onlyExhaustive.exact).toBeLessThanOrEqual(state.exactByKey.size);
     const s = section(4);
+    // The final runs in words: the finalists and the extras apart (a fact of the synthetic data: it has extras).
+    expect(state.helpsBothExtras.length).toBeGreaterThan(0);
+    expect(s).toContain(`; ${report.result.counts.exact} exact, ${finalRunsText(report.result)}, ${trades.length} cards (the beams alone: `);
+    expect(finalRunsText(report.result)).toBe(`${state.finals.length} final runs (${state.finals.length - state.helpsBothExtras.length} finalists and ${state.helpsBothExtras.length} "Helps both" extra${state.helpsBothExtras.length === 1 ? "" : "s"}: section 10)`);
+    expect(s).toContain(`of the ${state.finals.length} final runs, `);
+    expect(s).toContain("| Partner | Screened | Beams alone | Exact | Final runs | Cards |");
     expect(s).toContain("**Garrett Wilson → Chuba Hubbard + Mike Evans** (Team 2): ");
     expect(s).toContain(`they add up to the search's ${report.result.counts.screened.toLocaleString("en-US")} ✅, and every trade it evaluated exactly is in the rebuilt shortlist or among its lean companions ✅.`);
     expect(s).toContain("| Stage | Cold | Warm (median of 1) | Beams alone (median of 1) |");
@@ -709,6 +886,12 @@ describe("trade report: the whole offline report on a synthetic league", () => {
       for (const s of row.now?.required.me.openSpots ?? []) if (s.pos !== null) expect(snapshot.players[s.playerId]?.pos).toBe(s.pos);
     }
     expect(o.rows.filter((x) => x.card.now === null && x.card.before === null).length).toBeLessThanOrEqual(OPEN_SPOT_FINALISTS);
+    // "This search's finalists" are the ranking's: never a "Helps both" extra, which only the second list ranks (Checkpoint 7c).
+    const ranked = new Set(rankedFinals(state).map((f) => f.key));
+    for (const row of o.rows) {
+      expect(row.finalist).toBe(ranked.has(row.key));
+      if (row.card.now === null && row.card.before === null) expect(state?.helpsBothExtras).not.toContain(row.key);
+    }
     // The groups count every exact trade that opens my spot once.
     expect(o.groups.reduce((s, g) => s + g.trades, 0)).toBe(o.exactMine);
     // The partners' spots: every shown card with one. One that takes my own baseline pickup is flagged only when the partner
@@ -729,6 +912,138 @@ describe("trade report: the whole offline report on a synthetic league", () => {
     expect(s.split("\n").filter((l) => /^\| #\d+ Team \d+: /.test(l))).toHaveLength(o.partner.length);
     expect(s).toContain(`Every side with an open spot in the search's ${o.exact} exact trades: ${o.fills.sides} sides, ${o.fills.spots} spots`);
     expect(s).toContain(`without the keep set they'd drop the fill on ${o.fills.unkept} of these sides.`);
+  });
+
+  it("section 10: the trades that help both at each stage under each setting, from each search's state (planner reply to Checkpoint 7b, §7)", () => {
+    const h = report.helpsBoth;
+    expect(h.counts.title).toEqual(helpsBothCounts(report.result));
+    expect(h.counts.other).toEqual(helpsBothCounts(report.goals.result));
+    for (const [r, c] of [
+      [report.result, h.counts.title],
+      [report.goals.result, h.counts.other],
+    ] as const) {
+      const st = searchStateOf(r) as NonNullable<ReturnType<typeof searchStateOf>>;
+      const n = c as NonNullable<typeof c>;
+      // The exact trades on their screening numbers, the run the extras are chosen on.
+      const screen = [...st.exactByKey.keys()].map((k) => st.versions.get(k)?.screen as TradeEvaluationCore);
+      expect(n.exact.total).toBe(st.exactByKey.size);
+      expect(n.exact.helpsYou).toBe(screen.filter((x) => (x.tradeScore ?? 0) > 0).length);
+      expect(n.exact.both).toBe(screen.filter((x) => helpsBoth(x)).length);
+      expect(n.exact.shown).toBe(screen.filter((x) => helpsBoth(x) && !x.flags.hiddenByMarket).length);
+      // The extras: the pool's first helpsBothFinalists that the ranking hadn't picked, checked again on the final run.
+      expect(n.pool).toBe(Math.min(n.exact.shown, config.search.helpsBothFinalists));
+      expect(n.extras).toBe(st.helpsBothExtras.length);
+      expect(n.picked + n.extras).toBe(n.pool);
+      expect(n.stillBoth).toBe(st.finals.filter((f) => st.helpsBothExtras.includes(f.key) && helpsBoth(f)).length);
+      expect(n.finalists.total + n.extras).toBe(st.finals.length);
+      expect(n.cards).toEqual({ total: r.trades.length, both: r.trades.filter((t) => helpsBoth(t)).length });
+      // The list is the search's own; every card on it helps both on its final numbers.
+      expect(n.list).toBe(r.helpsBoth);
+      for (const t of n.list.trades) expect(helpsBoth(t)).toBe(true);
+      expect(n.onOverall).toBe(n.list.trades.filter((t) => r.trades.some((x) => x.key === t.key)).length);
+      expect(n.fromExtras).toBe(n.list.trades.filter((t) => st.helpsBothExtras.includes(t.key)).length);
+    }
+    // Facts of the synthetic data, so the checks aren't empty: trades help both under each setting, extras among them.
+    expect(h.counts.title?.list.trades.length).toBeGreaterThan(0);
+    expect(h.counts.other?.list.trades.length).toBeGreaterThan(0);
+    expect(h.counts.other?.extras).toBeGreaterThan(0);
+    const s = section(10);
+    // The intro's words for B_P and its scale follow the league type (a redraft league here: no mix; review HBR-2).
+    expect(s).toContain(`"Helps them" is the partner's Helps you from the same runs (${helpsThemScaleWords(report.snapshot.settings.leagueType)}), and a trade helps both`);
+    expect(report.snapshot.settings.leagueType).toBe("redraft");
+    expect(s).toContain("| Trades that help both | Only the champion | Several prizes (the split) |");
+    expect(s.split("\n").filter((l) => /^\| (Exact trades, screening run|The extras: the first|Finalists the ranking|Overall cards \(|\*\*The "Helps both" list|… qualifying)/.test(l))).toHaveLength(6);
+    const t = h.counts.title as HelpsBothCounts;
+    expect(s).toContain(`| ${t.exact.helpsYou} · ${t.exact.theirB} · ${t.exact.helpsThem} · ${t.exact.both} (${t.exact.shown}) of ${t.exact.total} |`);
+  });
+
+  it("section 10: the split's list with the partner's odds before → after and each partner's scale", () => {
+    const h = report.helpsBoth;
+    const s = section(10);
+    const list = report.goals.result.helpsBoth?.trades ?? [];
+    // The split pays 2nd and 3rd place, so the partner's top-3 odds show as yours do (tradeView.topPlacesOf).
+    expect(h.places).toBe(topPlacesOf(report.goals.reward));
+    expect(h.places).toBe(3);
+    const splitState = searchStateOf(report.goals.result) as NonNullable<ReturnType<typeof searchStateOf>>;
+    const rows = s.split("\n").filter((l) => /^\| \d+ \| Team \d+ \| /.test(l));
+    expect(rows).toHaveLength(Math.min(HELPS_BOTH_SHOWN, list.length));
+    rows.forEach((row, i) => {
+      const card = list[i] as TradeEvaluation;
+      const th = card.them as NonNullable<TradeEvaluation["them"]>;
+      expect(row.startsWith(`| ${i + 1} | Team ${card.proposal.partnerId} | `)).toBe(true);
+      expect(row).toContain(`| ${card.tradeScore} | ${th.helps} | ${chancePrinted(card.pAccept)} ${card.acceptLabel}`);
+      // Their odds from the same runs as mine: before (the block's baseline) and before + the change.
+      expect(row).toContain(`| ${titleMove(th.before.pTitle, th.dCH)} | ${playoffMove(topChance(th.before.prizes, 3), topChance(th.dPrizes, 3))} | ${playoffMove(th.before.pPlayoffs, th.dPO)} |`);
+      const at = report.goals.result.trades.findIndex((x) => x.key === card.key);
+      expect(row.endsWith(at >= 0 ? `| card #${at + 1} |` : splitState.helpsBothExtras.includes(card.key) ? "| no: an extra |" : "| no: a finalist it leaves out |")).toBe(true);
+    });
+    // Each partner's scale under the split (evaluate.partnerScaleOf on section 2's context), each card's Helps them on it.
+    const others = splitState.I.teams.filter((x) => x.id !== splitState.I.me?.id);
+    expect(h.scales.map((x) => x.teamId)).toEqual(others.map((x) => x.id));
+    // The list is labeled as the scale Helps them divides by, B_ref,P (B₃,P here: review HBR-2).
+    expect(s).toContain(`Each partner's "Helps them" scale under it, B_ref,P (B₃,P unless it mixes in long-term value): `);
+    for (const x of h.scales) {
+      expect(x.scale).toEqual(partnerScaleOf(splitState.I, others.find((o) => o.id === x.teamId) as (typeof others)[number], report.goals.reward));
+      expect(s).toContain(`Team ${x.teamId} ${scaleText(x.scale)}`);
+      // A redraft league mixes nothing in: B_ref,P is B₃,P.
+      expect(x.scale?.lambda ?? null).toBeNull();
+      if (x.scale) expect(x.scale.b3).toBe(x.scale.b3P);
+    }
+    for (const card of list) expect(card.them?.b3).toBe(h.scales.find((x) => x.teamId === card.proposal.partnerId)?.scale?.b3);
+  });
+
+  it("section 10: the extra runtime, each run's parts read off its own progress, against the same search without Helps them run after each of section 4's", () => {
+    const h = report.helpsBoth;
+    const st = searchStateOf(report.result) as NonNullable<ReturnType<typeof searchStateOf>>;
+    const partners = new Set([...st.exactByKey.values()].map((x) => x.partner.id)).size;
+    // Every run of section 4, the cold one too: one calibration run per partner of the exact trades, the extras' final runs.
+    for (const r of [report.runtime.cold, ...report.runtime.runs]) {
+      expect(r.parts?.calibrations.count).toBe(partners);
+      expect(r.parts?.calibrations.ms).toBeGreaterThan(0);
+      expect(r.parts?.extras.count).toBe(st.helpsBothExtras.length);
+    }
+    // Without Helps them, one run after each timed one: no calibration run made, no extra, an empty second list, and the
+    // Overall list the same, card by card (the engine's own test pins it).
+    const w = h.without;
+    expect(w.runtime.runs).toHaveLength(report.runtime.runs.length);
+    expect(w).toMatchObject({ calibrated: 0, extras: 0, list: 0 });
+    for (const r of w.runtime.runs) {
+      expect(r.parts?.extras).toEqual({ count: 0, ms: 0 });
+      // The yields still come, one a partner, each a memo hit.
+      expect(r.parts?.calibrations.count).toBe(partners);
+    }
+    expect(w.runtime.sameEveryRun).toBe(true);
+    expect(h.differs).toEqual([]);
+    expect(h.cost).toEqual(helpsBothCost(report.runtime, w.runtime));
+    expect(h.cost.with).toEqual({ cold: report.runtime.cold.search.total, warm: report.runtime.search.total });
+    const s = section(10);
+    expect(s).toContain(`without it the Overall list is the same ${trades.length} cards with the same numbers, steps, boxes and words ✅`);
+    expect(s).toContain(`| | Cold | Warm (median of ${report.runtime.runs.length}) |`);
+    for (const label of [`| The partner calibration runs (${partners}, one per partner of the exact trades) |`, `| The extras' final runs (${st.helpsBothExtras.length}) |`, "| The second list: its ranking, steps, Plan B and words | – |", "| **The extra: the three parts** |", `| Search total with "Helps them" (the app: section 4's) |`, "| Search total without (with, less the extra: ⚠️ derived) |"]) expect(s).toContain(label);
+    // The runs without it as measured, against section 4's with their own sign (review HBR-1); the suite times one run a set,
+    // so no spread from run to run is printed (it read "up to 0.0 ms") and no cause it doesn't compute.
+    const m = h.cost.measured;
+    expect(m.spread).toBeNull();
+    expect(m.untouched).toBeNull();
+    const diff = (m.without as number) - (h.cost.with.warm as number);
+    expect(s).toContain(` ${measuredRunsText(h.cost)}`);
+    expect(s).toContain(diff < 0 ? " under section 4's " : diff > 0 ? " over section 4's " : " the same as section 4's ");
+    expect(s).toContain("from one timed run a set (no spread from run to run), so the totals without are section 4's less the three parts.");
+    expect(s).not.toContain("from section 4's");
+    expect(s).not.toContain("mostly in screening");
+    // The split's one search (section 2's), its parts read the same way.
+    const gs = searchStateOf(report.goals.result) as NonNullable<ReturnType<typeof searchStateOf>>;
+    expect(report.goals.parts?.extras.count).toBe(gs.helpsBothExtras.length);
+    expect(s).toContain(`Under "Several prizes", section 2's one search (warm, `);
+    const gp = report.goals.parts as NonNullable<typeof report.goals.parts>;
+    expect(s).toContain(`its ${gp.calibrations.count} calibration run${gp.calibrations.count === 1 ? "" : "s"} `);
+    expect(s).toContain(`its ${gp.extras.count} ${gp.extras.count === 1 ? "extra's final run" : "extras' final runs"} `);
+    // The console summary's part (review HBR-3): the split's counts, the extra as measured under section 1's setting.
+    const o = h.counts.other as HelpsBothCounts;
+    const summary = helpsBothSummary(h, report.settings.goal);
+    expect(summary.startsWith(`${o.exact.both} of ${o.exact.total} exact trades help`)).toBe(true);
+    expect(summary).toContain(` both on the screening run, the list shows ${o.list.trades.length} (${o.fromExtras} from the extras); Helps both costs `);
+    expect(summary.endsWith(" a search warm (Only the champion, section 4's runs)")).toBe(true);
   });
 
   it("prints placeholders only: no team, owner or league name or league id from the league", () => {

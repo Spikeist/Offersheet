@@ -55,6 +55,12 @@
  * where the Finder shows the ideas it found again (src/components/trades/finderMemory.ts, per saved league); the two
  * pages share the league's engine client, so the Analyzer reuses the evaluation context a search built.
  *
+ * Checkpoint 7c (planner reply to Checkpoint 7b, §7: "The Analyzer shows the same"): the card is the Trade Finder's, so a
+ * trade that helps both teams carries the "Helps both" tag with its heading and every evaluated trade the partner's line
+ * after mine ("Helps them 24 · Their title odds 6.0% → 6.9% · Their playoff odds 41% → 45%"); the status line says the
+ * partner's score too (analysisStatus), and "How to read the evaluation" says what it is and that the Trade Finder's
+ * "Helps both" sort shows such trades.
+ *
  * Accessibility: the partner is a labeled native select; each side's players are a fieldset of native checkboxes
  * (44 px rows; position, NFL team and injury in words); one status line (role="status") announces each evaluation.
  */
@@ -141,6 +147,22 @@ interface Evaluated {
   from: AnalyzerFrom | null;
   /** What the league rewards (TradeSettings.goal) as the evaluation weighted B (the feedback's version inputs). */
   goal: Goal;
+}
+
+/**
+ * The status line once an evaluation is in (announced: the line is a live region): why the trade can't be made, or its three
+ * numbers as the card prints them ("Evaluated: Helps you 39, chance they accept 40%, Overall 18."), and since Checkpoint 7c
+ * (planner reply to Checkpoint 7b, §7: "The Analyzer shows the same") the partner's score when the card shows it (", Helps
+ * them 24", and "It helps both teams." under the tag).
+ */
+export function analysisStatus(view: Pick<AnalysisView, "illegal" | "card">): string {
+  if (view.illegal) return `This trade can't be made: ${view.illegal}`;
+  const card = view.card;
+  if (!card) return "Evaluated.";
+  const n = card.numbers;
+  const them = card.them ? `, ${card.them.label} ${card.them.helps.value}` : "";
+  const both = card.helpsBothTag ? " It helps both teams." : "";
+  return `Evaluated: Helps you ${n.helps.value}, chance they accept ${n.accept.srText ?? n.accept.value}, Overall ${n.overall.value}${them}.${both}`;
 }
 
 /** Focus is on nothing in particular (the page, or an element that's gone): the user isn't busy somewhere on the page. */
@@ -266,18 +288,7 @@ function LoadedAnalyzer({ current, query }: { current: Extract<CurrentLeagueRead
   const stale = evaluated !== null && (evaluated.draft !== evalKey(draft) || evaluated.context !== contextTag);
   const busy = working !== null;
 
-  const accept = resultView?.card?.numbers.accept;
-  const status = busy
-    ? "Evaluating the trade…"
-    : failure
-      ? ""
-      : resultView
-        ? resultView.illegal
-          ? `This trade can't be made: ${resultView.illegal}`
-          : resultView.card && accept
-            ? `Evaluated: Helps you ${resultView.card.numbers.helps.value}, chance they accept ${accept.srText ?? accept.value}, Overall ${resultView.card.numbers.overall.value}.`
-            : "Evaluated."
-        : "";
+  const status = busy ? "Evaluating the trade…" : failure ? "" : resultView ? analysisStatus(resultView) : "";
 
   return (
     <div className="space-y-6">

@@ -49,6 +49,12 @@
  * title's words while a paid prize's odds are unknown then, where the scale names the playoff odds). The odds each card
  * shows are named then, not "those odds" (review of the prizes UI, prizes-ui-6: a weekly high score or the points title has
  * no odds line): "your title, top-3 and playoff odds" by the reward, else the top-N line's rule (tradeView.ts cardOddsWords).
+ * Checkpoint 7c (planner reply to Checkpoint 7b, §7: "How to read explains Helps them and the sort in plain words"): after
+ * Overall, "Helps them" in the planner's tooltip's words (a phone can't hover), where the card shows it, what it counts by
+ * league type (review of the "Helps both" UI, helps-both-ui-1: no trade value in a redraft league; their roster's long-term
+ * value in a dynasty or keeper league, weighed by their own playoff odds, never by the user's Win now ↔ Future setting), when
+ * a card is tagged "Helps both" (config.benefit.helpsThemMin) and what the "Helps both" sort shows (helpsThemWords), on both
+ * pages.
  * A native <details>, closed at first; its summary is a 44 px target.
  */
 import type { HelpsScale } from "@/engine/benefit";
@@ -56,7 +62,7 @@ import { config } from "@/engine/config";
 import type { LeagueSettings } from "@/engine/model";
 import type { Reward } from "@/engine/reward";
 import { fmtNum } from "@/lib/format";
-import { GOAL_LABEL, HARDER_TO_GET_TAG, cardOddsWords, harderToGetWho, minChanceLabel, weighedOddsWords } from "@/lib/tradeView";
+import { GOAL_LABEL, HARDER_TO_GET_TAG, HELPS_BOTH_TAG, HELPS_THEM_LABEL, cardOddsWords, harderToGetWho, minChanceLabel, weighedOddsWords } from "@/lib/tradeView";
 
 export type HowToReadPage = "finder" | "analyzer";
 
@@ -135,6 +141,49 @@ export function helpsScaleWords(opts: HelpsScaleWordsOptions = {}): string {
   return `Whatever your league rewards, ${at(gain)} is about as good as adding ${fmtNum(gain, 1)} points a week to your lineup for the rest of the season (${at(low)} for ${fmtNum(low, 1)} ${fmtNum(low, 1) === "1" ? "point" : "points"} a week, ${at(high)} for ${fmtNum(high, 1)}).${note}`;
 }
 
+/** What helpsThemWords reads besides the page (each optional: a redraft league's words and the bar from config when absent). */
+export interface HelpsThemWordsOptions {
+  leagueType?: LeagueSettings["leagueType"] | undefined;
+  /** Dynasty and keeper leagues: long-term values loaded (ValueFacts.longTermOn), so Helps them counts their roster's long-term value too. */
+  longTermOn?: boolean | undefined;
+  /** The least Helps them of a card tagged "Helps both" (config.benefit.helpsThemMin). */
+  min?: number | undefined;
+}
+
+/**
+ * What Helps them counts besides their odds, by league type and what loaded, as one sentence (review of the "Helps both" UI,
+ * helps-both-ui-1: the paragraph said only "the same scale as Helps you, from their side", so a dynasty card whose Helps them
+ * read 15 while all their odds fell read like a bug). B_P (benefit.ts partnerBenefit): in a redraft league no trade-value term
+ * (the chance they accept weighs the trade value they see); in a dynasty or keeper league with long-term values their
+ * roster's long-term value change (B_future,P) weighed by λ_P, config.benefit.lambda by their own playoff odds (more the
+ * less likely they are to make the playoffs) or lambda.keeper, never the user's Win now ↔ Future setting; without long-term
+ * values this season only, as Helps you. The card names which way their long-term value goes (tradeView.ts theirLongTermFact).
+ */
+export function helpsThemValueWords(leagueType: LeagueSettings["leagueType"] = "redraft", longTermOn = true): string {
+  if (leagueType === "redraft") return "It doesn't count trade value: the chance they accept does.";
+  if (!longTermOn) return "Like Helps you, it counts this season only while long-term trade values aren't available.";
+  const weighed = leagueType === "keeper" ? `weighed at a fixed ${Math.round(config.benefit.lambda.keeper * 100)}%` : "weighed more the less likely they are to make the playoffs";
+  return `In a ${leagueType} league it also counts the change in their roster's long-term value, ${weighed}, not by your Win now ↔ Future setting.`;
+}
+
+/**
+ * "Helps them" and "Helps both" in words, after the paragraph's bold "Helps them" (Checkpoint 7c; planner reply to Checkpoint
+ * 7b, §7: "How to read explains Helps them and the sort in plain words"): the planner's tooltip (src/lib/tradeView.ts
+ * HELPS_THEM_TITLE, said here for a phone, which can't hover), where the card shows it, what it counts by league type
+ * (helpsThemValueWords), when a card is tagged "Helps both" (config.benefit.helpsThemMin) and what the "Helps both" sort shows
+ * (the Trade Finder's; the Analyzer names it).
+ */
+export function helpsThemWords(page: HowToReadPage, opts: HelpsThemWordsOptions = {}): string {
+  const min = opts.min ?? config.benefit.helpsThemMin;
+  const where = page === "analyzer" ? "The card shows it" : "Each card shows it";
+  const sort = page === "analyzer" ? `the Trade Finder's “${HELPS_BOTH_TAG}” sort shows such trades` : `the “${HELPS_BOTH_TAG}” sort shows only those`;
+  return (
+    "(0–100) uses the same scale as Helps you, from their side. Both teams can gain when each fills the other's weak spot. Helps you already counts the cost of making them stronger. " +
+    `${where} with their odds before and after the trade. ${helpsThemValueWords(opts.leagueType, opts.longTermOn !== false)} ` +
+    `A trade that helps you and scores at least ${min} on ${HELPS_THEM_LABEL} is tagged “${HELPS_BOTH_TAG}”, and ${sort}, sorted by how much they help you.`
+  );
+}
+
 export const HOW_TO_READ_TITLE: Record<HowToReadPage, string> = {
   finder: "How to read a trade idea",
   analyzer: "How to read the evaluation",
@@ -203,6 +252,9 @@ export function HowToRead({
         <p>
           <span className="font-bold">Overall</span> combines the two: how much it helps, discounted by the chance it happens.{" "}
           {analyzer ? "The Trade Finder ranks its trade ideas by it." : "Ideas are sorted by it unless you choose otherwise."}
+        </p>
+        <p>
+          <span className="font-bold">{HELPS_THEM_LABEL}</span> {helpsThemWords(page, { leagueType, longTermOn })}
         </p>
         <p>
           <span className="font-bold">{HARDER_TO_GET_TAG}</span> marks a player you&apos;d get who is {harderToGetWho("their")}: managers want a little extra for

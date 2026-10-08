@@ -88,8 +88,8 @@ export interface PolicyFeatures {
   prizeShares: boolean;
   /**
    * Checkpoint 7c (section 3: "Helps them (section 7): when it ships, add it to the terms' list of estimates."): the Trade
-   * Finder's "Helps both" sort, with the "Helps them" score on the cards, which section 7 adds (src/lib/tradeView.ts
-   * SORT_OPTIONS); the terms then list "Helps them" among the estimates.
+   * Finder's "Helps both" sort, with the "Helps them" score on the cards and the Analyzer's, which section 7 adds
+   * (src/lib/tradeView.ts SORT_OPTIONS, themView); the terms then list "Helps them" among the estimates.
    */
   helpsThem: boolean;
 }
@@ -108,10 +108,11 @@ export interface PolicyFeatures {
  * Checkpoint 7c's three (planner reply to Checkpoint 7b, section 3) follow the same rule, because sections 6 and 7 may ship
  * after launch: dailyLevels is on (the cron saves the day's levels since Checkpoint 7c's first wave); prizeShares is on
  * since Checkpoint 7c's fifth wave, when the anonymous copy's server schema took the prize shares (src/server/feedbackSink.ts
- * PrizesSchema: whole percents adding up to 100, exactly with "Several prizes", never amounts); helpsThem goes on with
- * section 7, once the Trade Finder has its "Helps both" sort, turned on by the change that builds it. The pages go public
- * at launch (October 13, 2026, their LAST_UPDATED), so a switch turned on before then keeps that date; one turned on after
- * launch moves its page's date to that day (helpsThem the terms').
+ * PrizesSchema: whole percents adding up to 100, exactly with "Several prizes", never amounts); helpsThem is on since
+ * Checkpoint 7c's sixth wave, when the Trade Finder got its "Helps both" sort and the cards and the Analyzer the "Helps
+ * them" score (src/lib/tradeView.ts SORT_OPTIONS, themView). The pages go public at launch (October 13, 2026, their
+ * LAST_UPDATED), so a switch turned on before then keeps that date; one turned on after launch moves its page's date to
+ * that day. All eight are on.
  */
 export const POLICY_FEATURES: Readonly<PolicyFeatures> = {
   browserReads: true,
@@ -121,7 +122,7 @@ export const POLICY_FEATURES: Readonly<PolicyFeatures> = {
   feedbackTotalsOnly: true,
   dailyLevels: true,
   prizeShares: true,
-  helpsThem: false,
+  helpsThem: true,
 };
 
 /** The address the site falls back to off Vercel: the stable copy's (Part A, `npm run stable`, port 3000). */

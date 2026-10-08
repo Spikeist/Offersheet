@@ -15,7 +15,10 @@
  * FantasyCalc's own comparison. The view models' strings are checked too, since a collapsed breakdown isn't in the first
  * render. ⚠️ The Analyzer's "Trade value: −0.4 pts/week equivalent." (planner reply to Checkpoint 7a, §2 question 5) is
  * allowed while no page prints an exchange rate between trade value and points, which would turn it back into the trade's
- * value comparison (review of Phase 7b): Settings is read for one. Every name is made up.
+ * value comparison (review of Phase 7b): Settings is read for one. Checkpoint 7c (planner reply to Checkpoint 7b, §7: "No
+ * FantasyCalc numbers anywhere in it"): the "Helps both" sort, its helper line, the tag and the partner's line on the Finder's
+ * cards and the Analyzer's, a dynasty card's "Their long-term value" in words, and How to read's paragraph on them in every
+ * league type (review of the "Helps both" UI, helps-both-ui-1). Every name is made up.
  */
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -29,16 +32,17 @@ import { buildSettingsView } from "@/components/settings/settingsView";
 import { AnalysisResult } from "@/components/trades/AnalyzerPage";
 import { HowToRead } from "@/components/trades/HowToRead";
 import { TradeCard } from "@/components/trades/TradeCard";
-import { FinderFrame } from "@/components/trades/TradeFinderPage";
+import { FinderControls, FinderFrame } from "@/components/trades/TradeFinderPage";
 import { GLOOP_PREMIUM, evaluation, searchResult, steppedFull, tradeSnapshot } from "@/components/trades/testFixtures";
-import type { HelpsScale } from "@/engine/benefit";
+import { helpsBoth, type HelpsScale } from "@/engine/benefit";
+import { titleDeltas } from "@/engine/reward";
 import { explainTrade, type ExplainContext } from "@/engine/explain";
 import type { MarketInputs } from "@/engine/inputs";
 import type { PlayerBlend } from "@/engine/leagueModel";
 import type { LeagueSnapshot } from "@/engine/model";
 import { PROTECT_VALUE_LEVELS, defaultTradeSettings } from "@/engine/settings";
 import { acceptanceTerms, planBFixture, type EvaluationFixture } from "@/engine/tradeTestFixtures";
-import type { TradeEvaluation } from "@/engine/tradeModel";
+import type { PartnerNumbers, TradeEvaluation } from "@/engine/tradeModel";
 import { buildImportReport } from "./importReport";
 import { buildLeagueView } from "./leagueView";
 import type { CardFeedback } from "./tradeView";
@@ -265,9 +269,63 @@ describe("no trade value shows on the trade pages (planner reply to Checkpoint 7
       expectHidden(`the ${leagueType} Finder`, html);
       for (const s of stringsOf(view)) expectHidden(`the ${leagueType} Finder's view`, s);
     }
+    // Every league type's words (Checkpoint 7c: what Helps them counts in each, with long-term values and without them).
     for (const leagueType of ["redraft", "keeper", "dynasty"] as const)
       for (const page of ["finder", "analyzer"] as const)
-        for (const valuesOn of [true, false]) expectHidden(`How to read (${leagueType}, ${page})`, renderToStaticMarkup(createElement(HowToRead, { leagueType, page, valuesOn, helpsScale: leagueType === "redraft" ? null : MIX })));
+        for (const valuesOn of [true, false])
+          for (const longTermOn of [true, false])
+            expectHidden(`How to read (${leagueType}, ${page})`, renderToStaticMarkup(createElement(HowToRead, { leagueType, page, valuesOn, longTermOn, helpsScale: leagueType === "redraft" || !longTermOn ? null : MIX })));
+  });
+
+  it("shows none under the “Helps both” sort, on the tag or in the partner's line, the Analyzer's card included (Checkpoint 7c; planner reply to Checkpoint 7b, §7: “No FantasyCalc numbers anywhere in it”)", () => {
+    // The partner's numbers (TradeEvaluation.them): Helps them 24 on every other trade, 0 on the rest; their odds before and
+    // after; in the dynasty league their long-term value up on the first, down on the next (the card's "Their long-term value").
+    const partner = (helps: number, bFuture: number | null): PartnerNumbers => ({
+      b: helps / 10,
+      bWin: helps / 10,
+      bFuture,
+      lambda: bFuture === null ? null : 0.5,
+      b3: 4,
+      helps,
+      dPO: 0.04,
+      dCH: 0.009,
+      dPrizes: titleDeltas(0.009),
+      before: { pPlayoffs: 0.41, pTitle: 0.06, prizes: { first: 0.06, second: null, third: null, weeklyHigh: 0, pointsLeader: 0 } },
+    });
+    for (const [trades, snap, leagueType, scale] of [
+      [redraft, snapshot, "redraft", null],
+      [dynastyTrades, dynasty, "dynasty", MIX],
+    ] as const) {
+      const withThem: TradeEvaluation[] = trades.map((e, i) => ({ ...e, them: partner(i % 2 ? 0 : 24, leagueType === "dynasty" ? (i % 2 ? -1.6 : 2.4) : null) }));
+      const both = withThem.filter((e) => helpsBoth(e));
+      expect(both.length, leagueType).toBeGreaterThan(0);
+      const result = searchResult(withThem, {
+        helpsScale: scale,
+        hidden: { byBenefit: 1, byMarket: 2 },
+        helpsBoth: { trades: both, qualifying: both.length, byChance: 1, lowerWouldAdd: true, dropped: { partnerCap: 0, core: 0, filler: 0, givenPlayer: 0 } },
+      });
+      for (const sort of ["overall", "helpsBoth"] as const) {
+        const view = buildFinderView({ result, sort, snapshot: snap, partnerId: null, fantasyCalc: FC });
+        const controls = createElement(FinderControls, { snapshot: snap, myTeamId: "1", partnerId: null, onPartner: noop, sort, onSort: noop, minChance: 0.1, onMinChance: noop, summary: "Up to 2 players a side." });
+        const html = renderToStaticMarkup(
+          createElement(FinderFrame, { state: { kind: "done", view }, teamName: "Moonbeam Mudcats", leagueType, controls, records: [], leagueKey: "espn:0000abcd", onFeedback: saved }),
+        );
+        expectHidden(`the ${leagueType} Finder sorted by ${sort}`, html);
+        for (const s of stringsOf(view)) expectHidden(`the ${leagueType} Finder's view sorted by ${sort}`, s);
+        // The new words are there: the tag, the partner's line, and under "Helps both" the planner's helper line; in the
+        // dynasty league which way their long-term value goes (review of the "Helps both" UI, helps-both-ui-1).
+        expect(html).toContain(">Helps both<");
+        expect(html).toContain(">Helps them<");
+        if (sort === "helpsBoth") expect(html).toContain("Trades that help them too, sorted by how much they help you.");
+        expect(html.includes(">Their long-term value<"), `${leagueType} ${sort}`).toBe(leagueType === "dynasty");
+      }
+      const tagged = both[0] as TradeEvaluation;
+      const view = buildAnalysisView({ evaluation: tagged, illegal: null, notes: [], helpsScale: scale, baseline: { pPlayoffs: 0.62, pTitle: 0.09 } }, snap, undefined, { fantasyCalc: FC });
+      const html = renderToStaticMarkup(createElement(AnalysisResult, { view, stale: false, records: [], leagueKey: "espn:0000abcd", leagueType, onFeedback: saved }));
+      expectHidden(`the ${leagueType} Analyzer's card that helps both`, html);
+      expect(html).toContain(">Helps them<");
+      expect(html.includes(">Their long-term value<"), leagueType).toBe(leagueType === "dynasty");
+    }
   });
 
   it("shows none in the Trade Analyzer's result, Details included", () => {

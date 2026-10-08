@@ -23,7 +23,8 @@
  * each changing only its own words: dailyLevels (the archive sentence names the daily rest-of-season levels the cron saves
  * under snap:lvl:), prizeShares (the anonymous copy's prize split, once its server schema holds a prize field, under any
  * name and at any depth) and helpsThem (“Helps them” among the terms' estimates, once the app has a “Helps both” sort or
- * words the score anywhere its pages are worded); the detailed part at most 1,300 words.
+ * words the score anywhere its pages are worded); the detailed part at most 1,300 words. All three are on since Checkpoint 7c's
+ * sixth wave (the "Helps both" sort and the "Helps them" score turned the last one on).
  */
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
@@ -393,8 +394,11 @@ describe("the public pages describe what's built (review PG-1)", () => {
         : "POLICY_FEATURES.helpsThem is on, but the app has no “Helps both” sort and no “Helps them” where its pages are worded: the terms would list an estimate the app doesn't show",
     ).toBe(built);
     if (!built) return;
-    // The estimate the terms name: the score itself, where the cards and the Analyzer are worded.
+    // The estimate the terms name: the score itself, where the cards and the Analyzer are worded (since Checkpoint 7c's sixth
+    // wave, the card's view: src/lib/tradeView.ts themView), and the live terms page lists it.
     expect(shown, "“Helps them” shown").not.toEqual([]);
+    expect(shown).toContain("src/lib/tradeView.ts");
+    expect(textOf(renderToStaticMarkup(createElement(TermsPage)))).toContain(ESTIMATES_WITH_HELPS_THEM);
   });
 
   it("the guards read code, not comments: a display mentioned only in a comment doesn't count", () => {

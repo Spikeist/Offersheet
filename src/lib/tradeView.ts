@@ -42,7 +42,8 @@
  *   roster spot that costs you, …" (marketCheckText; final review of Phase 4c, finding PAGES-6);
  * - the numbers behind the score in words (§10 "always show"): my lineup's change per week (regular season and
  *   playoffs), long-term value in dynasty and keeper leagues in words only (the model's ΔDyn: "Up for your roster",
- *   longTermFact), the partner's weekly lineup change, and "You get 142 ROS pts, give 118" (§13), with a
+ *   longTermFact), the partner's weekly lineup change (and, since Checkpoint 7c, which way their long-term value goes:
+ *   theirLongTermFact, below), and "You get 142 ROS pts, give 118" (§13), with a
  *   line when my starting lineup moves the other way (review of Phase 4b: "You get 96 ROS pts, give 295" read like a
  *   lopsided loss on a trade that gives a backup QB who never starts): "Your starting lineup still gains 25 ROS pts: …"
  *   (rosNoteOf, from TradeDetail.weekly). No trade value number: planner reply to Checkpoint 7a, 5.4 (FantasyCalc's
@@ -164,17 +165,41 @@
  * night's game. …", bestTimeText, with the league's review period: reviewPeriodWords) and how fresh the data is ("Trade
  * values updated 2 hours ago · Projections updated 5 hours ago.", freshnessText), both read at the current time.
  *
+ * "Helps both" and "Helps them" (Checkpoint 7c; planner reply to Checkpoint 7b, §7; the lead's words for the rest):
+ * - The fourth sort, "Helps both" (SORT_OPTIONS, last), shows the engine's own list (TradeSearchResult.helpsBoth: the trades
+ *   that help both teams, by Helps you, with the minimum chance and §13's caps as the engine applied them), so picking it
+ *   never searches again; a result without that list (a fake) shows its trades that help both (rank.ts helpsBothTrades). Under
+ *   it: the planner's helper line under the sort (HELPS_BOTH_SORT_NOTE, sortNote), "4 trade ideas that help both teams, sorted
+ *   by Helps you.", with fewer than 5 "Only 2 trades help both teams right now." (singular "Only 1 trade helps both teams
+ *   right now."), then "Try a lower minimum chance to see more." when a lower minimum would show more
+ *   (HelpsBothList.lowerWouldAdd; helpsBothFewText); with none, "No trades help both teams right now" with that suggestion,
+ *   ⚠️ ours: a pointer to the Overall sort when it has ideas, and what was left out (the guards' counts, the trades that help
+ *   both under the minimum: HelpsBothList.byChance); no pattern note (it describes the Overall list's best ideas).
+ * - Every card that helps both teams as printed (benefit.ts helpsBoth: Helps you above 0, Helps them at least
+ *   config.benefit.helpsThemMin) carries the tag "Helps both" with its heading, in every sort and on the Analyzer's card
+ *   (helpsBothTagOf), in words.
+ * - After my odds and my weekly line, the partner's line, in the format of mine (themView): "Helps them 24 · Their title odds
+ *   6.0% → 6.9% · Their playoff odds 41% → 45%", their top-N line between them when the league pays 2nd or 3rd place (as mine),
+ *   "Helps them 0" when the trade costs them, the planner's tooltip on "Helps them" (HELPS_THEM_TITLE); before = their odds on
+ *   the block the trade was simulated on (TradeEvaluation.them.before: on a card, the League page's headline odds for that
+ *   team), after = before + their changes from the very runs mine came from. No weekly line for them, no line on a Plan B box
+ *   or a step (they carry no partner's numbers), none without a Helps them. No FantasyCalc number anywhere in it.
+ * - In a dynasty or keeper league with long-term values, after "Their lineup", which way their roster's long-term value goes,
+ *   in words ("Their long-term value: Up"; theirLongTermFact; review of the "Helps both" UI, helps-both-ui-1): Helps them counts
+ *   it, weighed by their own playoff odds, so a card whose Helps them is high while their odds fall says why. How to read
+ *   says what Helps them counts in each league type (HowToRead.tsx helpsThemValueWords).
+ *
  * Numbers print like the League page's (src/lib/format.ts): one decimal for points per week, whole percents, a real minus
  * sign. No trade value is ever printed (the card's facts above). No jargon ("EV", "σ", "V*", "g_mkt" never appear).
  *
- * Also here: the Finder's list (buildFinderView: the cards in the chosen sort through rank.ts sortTrades, the hidden
+ * Also here: the Finder's list (buildFinderView: the cards in the chosen sort through rank.ts sortTrades, or the "Helps both" list, the hidden
  * counts, notes and warnings, the empty states), the search's progress in words (progressView; a re-filter's shows the
  * ranking alone), the Analyzer's choices (analyzerChoices) and the links between the pages (finderHref, analyzerHref and
  * what they carry back: a team id and player ids only, never league ids or names; ⚠️ a URL query, as M13 says, so the
  * server that serves the page sees those ids like any address: the privacy page says so).
  */
 import { displayAcceptance, tradeDeadlinePassed } from "@/engine/acceptance";
-import { HELPS_AT_GAIN, HELPS_FLOOR_NOTE, HELPS_FLOOR_NOTE_PLAYOFFS, HELPS_FLOOR_NOTE_PRIZES, futureValuesLoaded, lineupEquivalent, tradeScore, type HelpsScale } from "@/engine/benefit";
+import { HELPS_AT_GAIN, HELPS_FLOOR_NOTE, HELPS_FLOOR_NOTE_PLAYOFFS, HELPS_FLOOR_NOTE_PRIZES, futureValuesLoaded, helpsBoth, lineupEquivalent, tradeScore, type HelpsScale } from "@/engine/benefit";
 import { blendValues } from "@/engine/blend";
 import { config } from "@/engine/config";
 import type { TradeAnalysis } from "@/engine/evaluate";
@@ -182,13 +207,14 @@ import { fantasyCalcComparison, injuryTags, myFantasyCalcGain } from "@/engine/e
 import type { MarketInputs, ModelInputs, NflScheduleInputs } from "@/engine/inputs";
 import { fantasyCalcFallbackText, valuesForTerm } from "@/engine/market";
 import { POSITIONS, type InjuryStatus, type LeagueSettings, type LeagueSnapshot, type PlayerInfo, type Pos } from "@/engine/model";
-import { sortTrades } from "@/engine/rank";
+import { helpsBothTrades, sortTrades } from "@/engine/rank";
 import { isTitleOnly, type PrizeDeltas, type PrizeOdds, type Reward } from "@/engine/reward";
 import type { Goal, TradeSettings } from "@/engine/settings";
 import type {
   AcceptanceFeatures,
   InjuryTag,
   OpenSpot,
+  PartnerNumbers,
   PlanB,
   PremiumFact,
   RosterChange,
@@ -213,15 +239,78 @@ export type SnapshotPart = Pick<LeagueSnapshot, "platform" | "teams" | "players"
 export const FINDER_PATH = "/trades";
 export const ANALYZER_PATH = "/analyzer";
 
-/** The sort options (§13), Overall first (the default). */
+/**
+ * The sort options (§13), Overall first (the default); since Checkpoint 7c (planner reply to Checkpoint 7b, §7) "Helps both"
+ * last, the trades that help both teams by Helps you (the engine's own list, TradeSearchResult.helpsBoth: buildFinderView).
+ */
 export const SORT_OPTIONS: readonly { value: TradeSort; label: string }[] = [
   { value: "overall", label: "Overall" },
   { value: "helps", label: "Helps you" },
   { value: "accept", label: "Chance they accept" },
+  { value: "helpsBoth", label: "Helps both" },
 ];
 
 export function isTradeSort(x: unknown): x is TradeSort {
   return SORT_OPTIONS.some((o) => o.value === x);
+}
+
+// ---------------------------------------------------------------------------------------------
+// "Helps both" and "Helps them" (Checkpoint 7c; planner reply to Checkpoint 7b, §7)
+
+/** The card's tag (lead decision: in words, with the card heading, in every sort and on the Analyzer's card). */
+export const HELPS_BOTH_TAG = "Helps both";
+
+/** The partner's score's name on its line ("Helps them 24 · Their title odds …"). */
+export const HELPS_THEM_LABEL = "Helps them";
+
+/** The tooltip on "Helps them", the planner's words. */
+export const HELPS_THEM_TITLE =
+  "Helps them uses the same scale as Helps you, from their side. Both teams can gain when each fills the other's weak spot. Helps you already counts the cost of making them stronger.";
+
+/** The helper line under the Trade Finder's sort while it's "Helps both", the planner's words. */
+export const HELPS_BOTH_SORT_NOTE = "Trades that help them too, sorted by how much they help you.";
+
+/** What the "Helps both" list says when it's empty (the lead's words; its status line adds the period). */
+export const HELPS_BOTH_EMPTY_TITLE = "No trades help both teams right now";
+
+/** The helper line under the sort for the sort chosen (FinderControls): HELPS_BOTH_SORT_NOTE under "Helps both"; null otherwise. */
+export function sortNote(sort: TradeSort): string | null {
+  return sort === "helpsBoth" ? HELPS_BOTH_SORT_NOTE : null;
+}
+
+/** "Try a lower minimum chance to see more." (the hidden line's "your minimum chance" is the same control's). */
+const LOWER_MINIMUM_TEXT = "Try a lower minimum chance to see more.";
+
+/** The "Helps both" list's ideas counted in words, for its count and status lines: "4 trade ideas that help both teams", "1 trade idea that helps both teams". */
+function bothWords(n: number): string {
+  return `${plural(n, "trade idea")} that ${n === 1 ? "helps" : "help"} both teams`;
+}
+
+/**
+ * The "Helps both" list's few line (planner reply to Checkpoint 7b, §7: "Fewer than 5: say “Only N trades help both teams right
+ * now.” If a lower chance filter would add more, suggest it."): with 1 to config.ranking.minChanceFew − 1 trades, "Only 4 trades
+ * help both teams right now." ("Only 1 trade helps both teams right now."), then the suggestion when a lower minimum chance
+ * would show more (HelpsBothList.lowerWouldAdd: never at Any); null with none (the empty card says so) or enough.
+ */
+export function helpsBothFewText(n: number, lowerWouldAdd: boolean): string | null {
+  if (!(n > 0) || n >= config.ranking.minChanceFew) return null;
+  return `Only ${plural(n, "trade")} ${n === 1 ? "helps" : "help"} both teams right now.${lowerWouldAdd ? ` ${LOWER_MINIMUM_TEXT}` : ""}`;
+}
+
+/** The card's tag (TradeCardView.helpsBothTag), with why on hover: "Helps both: this trade helps you, and it helps them too (Helps them 24)." */
+export interface HelpsBothTagView {
+  text: string;
+  title: string;
+}
+
+/**
+ * The card's "Helps both" tag (planner reply to Checkpoint 7b, §7: "cards that help both get a small “Helps both” tag in every
+ * sort"): on an evaluation that helps both teams as printed (benefit.ts helpsBoth: Helps you above 0, Helps them at least
+ * config.benefit.helpsThemMin); null otherwise, and without the partner's numbers.
+ */
+export function helpsBothTagOf(e: Pick<TradeEvaluation, "tradeScore" | "them">): HelpsBothTagView | null {
+  if (!helpsBoth(e) || !e.them || e.them.helps === null) return null;
+  return { text: HELPS_BOTH_TAG, title: `${HELPS_BOTH_TAG}: this trade helps you, and it helps them too (${HELPS_THEM_LABEL} ${e.them.helps}).` };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -706,6 +795,13 @@ export interface TradeCardView {
   odds: OddsView[];
   /** The weeks whose win chance the trade moves (weeklyLine), or null. */
   weekly: WeeklyLineView | null;
+  /**
+   * Checkpoint 7c (planner reply to Checkpoint 7b, §7): the partner's line after mine, "Helps them 24 · Their title odds 6.0% →
+   * 6.9% · Their playoff odds 41% → 45%" (themView); null without the partner's numbers. No weekly line for them.
+   */
+  them: ThemView | null;
+  /** The "Helps both" tag with the card's heading (helpsBothTagOf), in every sort and on the Analyzer's card; null when it doesn't help both. */
+  helpsBothTag: HelpsBothTagView | null;
   /** The Trade Analyzer's "Details" (what Helps you is worth in points a week: detailsView); null on the Trade Finder's cards. */
   details: DetailsView | null;
   /** "How to offer it" (offer first, then what to add if they say no), or null when the trade has no steps. */
@@ -874,6 +970,53 @@ export function topOddsView(label: string, places: 2 | 3, d: Readonly<Partial<Pr
   if (before === null || before === undefined) return oddsView(label, change, null, percentText);
   const from = topChance(before, places);
   return from === null ? null : oddsView(label, change, from, percentText);
+}
+
+/**
+ * The partner's line on a card (TradeCardView.them; Checkpoint 7c, planner reply to Checkpoint 7b, §7: "The odds section adds
+ * their lines next to yours: “Helps them 24 · Their title odds 6.0% → 6.9%,” plus their other odds lines in the same format
+ * as yours").
+ */
+export interface ThemView {
+  /** "Helps them". */
+  label: string;
+  /** Helps them as printed ("24"; "0" when the trade costs them), the planner's tooltip on it (HELPS_THEM_TITLE). */
+  helps: NumberView;
+  /** Their title odds, their top-N odds when the league pays 2nd or 3rd place, their playoff odds, before and after (theirOddsViews). */
+  odds: OddsView[];
+  /** The whole line: "Helps them 24 · Their title odds 6.0% → 6.9% · Their playoff odds 41% → 45%". */
+  text: string;
+}
+
+/**
+ * The partner's odds before and after the trade, in the format of mine (oddsViews: one decimal for the title, whole percents
+ * for the rest, the change alone in percentage points without a "before", "unknown" without the change), each named for them
+ * ("Their title odds", "Their top 3 odds", "Their playoff odds"): before = their odds on the block the trade was simulated on
+ * (PartnerNumbers.before), after = before + their changes from the same runs as mine. The top-N line follows mine (topPlacesOf
+ * on the card's reward; left out when a part isn't known).
+ */
+export function theirOddsViews(them: Pick<PartnerNumbers, "dPO" | "dCH" | "dPrizes" | "before">, reward?: CardContext["reward"]): OddsView[] {
+  const places = topPlacesOf(reward);
+  const top = places ? topOddsView(`Their ${topOddsLabel(places).toLowerCase()}`, places, them.dPrizes, them.before.prizes) : null;
+  return [
+    oddsView("Their title odds", them.dCH, them.before.pTitle, titleOddsText),
+    ...(top ? [top] : []),
+    oddsView("Their playoff odds", them.dPO, them.before.pPlayoffs, percentText),
+  ];
+}
+
+/**
+ * The partner's line (ThemView; the lead: "“Helps them 24 · Their title odds 6.0% → 6.9% · Their playoff odds 41% → 45%” …
+ * “Helps them 0” when B_P ≤ 0; no line without numbers"): Helps them as printed (PartnerNumbers.helps) with the planner's
+ * tooltip, then their odds (theirOddsViews). Null without the partner's numbers (an evaluation not simulated, made before
+ * them, a step's or a Plan B's) or without a Helps them (their scale unknown). No weekly line for them.
+ */
+export function themView(e: Pick<TradeEvaluation, "them">, reward?: CardContext["reward"]): ThemView | null {
+  const them = e.them;
+  if (!them || typeof them.helps !== "number" || !Number.isFinite(them.helps)) return null;
+  const helps: NumberView = { value: String(them.helps), srText: null, title: HELPS_THEM_TITLE };
+  const odds = theirOddsViews(them, reward);
+  return { label: HELPS_THEM_LABEL, helps, odds, text: [`${HELPS_THEM_LABEL} ${helps.value}`, ...odds.map((o) => `${o.label} ${o.value}`)].join(" · ") };
 }
 
 /**
@@ -1228,22 +1371,45 @@ function valuesBehind(fc: FantasyCalcLookup | undefined): boolean {
 }
 
 /**
+ * Which way a long-term value change goes, from its share of the roster's long-term value (B_future / bFutureScale = ΔDyn ÷
+ * the roster's long-term value): "Up" or "Down" when it's at least config.explain.longTermMin and rounds to a whole percent
+ * other than 0 (explain.ts's long-term reasons' cut), else "About the same". Words only: the share itself is never shown.
+ */
+function longTermWay(share: number): "Up" | "Down" | "About the same" {
+  const min = config.explain.longTermMin;
+  if (Math.round(share * 100) === 0) return "About the same";
+  return share >= min - 1e-9 ? "Up" : share <= -min + 1e-9 ? "Down" : "About the same";
+}
+
+/**
  * The card's "Long-term value" fact in dynasty and keeper leagues, in words only (the file header: the model's ΔDyn rests on
- * FantasyCalc's dynasty values): which way my roster's long-term value moves, B_future / bFutureScale = ΔDyn / MyDynTotal
- * against config.explain.longTermMin (explain.ts's long-term reasons' cut), "Up for your roster", "Down for your roster" or
- * "About the same for your roster"; when long-term values didn't load, that they didn't; null in a redraft league or when
- * the evaluation has no ΔDyn.
+ * FantasyCalc's dynasty values): which way my roster's long-term value moves (longTermWay), "Up for your roster", "Down for
+ * your roster" or "About the same for your roster"; when long-term values didn't load, that they didn't; null in a redraft
+ * league or when the evaluation has no ΔDyn.
  */
 function longTermFact(e: Pick<TradeEvaluation, "dDyn" | "bFuture" | "dynMissing">): FactView | null {
   if (e.dDyn !== null && Number.isFinite(e.dDyn)) {
     const scale = config.benefit.bFutureScale;
     const share = e.bFuture !== null && Number.isFinite(e.bFuture) && scale > 0 ? e.bFuture / scale : e.dDyn > 0 ? 1 : e.dDyn < 0 ? -1 : 0;
-    const min = config.explain.longTermMin;
-    const value = share >= min - 1e-9 && Math.round(share * 100) !== 0 ? "Up for your roster" : share <= -min + 1e-9 && Math.round(share * 100) !== 0 ? "Down for your roster" : "About the same for your roster";
-    return { label: "Long-term value", value };
+    return { label: "Long-term value", value: `${longTermWay(share)} for your roster` };
   }
   if (e.dynMissing) return { label: "Long-term value", value: "Unknown: long-term values didn't load" };
   return null;
+}
+
+/**
+ * The partner's "Their long-term value" fact, after "Their lineup" (Checkpoint 7c; review of the "Helps both" UI,
+ * helps-both-ui-1): in a dynasty or keeper league with long-term values, Helps them counts their roster's long-term value too
+ * (PartnerNumbers.bFuture, B_future,P = bFutureScale × ΔDyn_P ÷ their roster's long-term value, weighed by λ_P from their own
+ * playoff odds), so a card whose Helps them is high while all their odds fall says why, in words only: "Up", "Down" or
+ * "About the same" (longTermWay, my fact's rule). Only beside their line (themView: a Helps them to read it with); null in a
+ * redraft league and without long-term values (bFuture null: my own fact says they didn't load).
+ */
+export function theirLongTermFact(e: Pick<TradeEvaluation, "them">): FactView | null {
+  const them = e.them;
+  const scale = config.benefit.bFutureScale;
+  if (!themView(e) || !them || them.bFuture === null || !Number.isFinite(them.bFuture) || !(scale > 0)) return null;
+  return { label: "Their long-term value", value: longTermWay(them.bFuture / scale) };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1546,6 +1712,9 @@ export function buildTradeCard(e: TradeEvaluation, ctx: CardContext): TradeCardV
   const longTerm = longTermFact(e);
   if (longTerm) facts.push(longTerm);
   facts.push({ label: "Their lineup", value: perWeek(e.partnerDeltaLineup) });
+  // What Helps them counts besides their odds in a dynasty or keeper league (Checkpoint 7c; theirLongTermFact).
+  const theirLongTerm = theirLongTermFact(e);
+  if (theirLongTerm) facts.push(theirLongTerm);
   // The scale's wording without the search's or the Analyzer's scale: the league type, and whether long-term values loaded.
   const scaleFallback: ScaleFallback = { leagueType: snapshot.settings.leagueType, longTermOn: !e.dynMissing };
 
@@ -1599,6 +1768,9 @@ export function buildTradeCard(e: TradeEvaluation, ctx: CardContext): TradeCardV
     },
     odds: oddsViews(e, ctx.baseline, ctx.reward),
     weekly: weeklyLine(e.detail.winChance),
+    // The partner's line and the "Helps both" tag (Checkpoint 7c, planner reply to Checkpoint 7b, §7), from the same runs as mine.
+    them: themView(e, ctx.reward),
+    helpsBothTag: helpsBothTagOf(e),
     details: ctx.details ? detailsView(e, snapshot.settings.leagueType, ctx.helpsScale) : null,
     steps: stepsView(e.steps, snapshot),
     planB: planBView(e.planB, snapshot, { cardTags: tags, knownTags: ctx.knownTags, seasonEnd: end, baseline: ctx.baseline, reward: ctx.reward }),
@@ -1733,14 +1905,17 @@ export interface FinderView {
    * the odds it names under "Several prizes", review of the prizes UI, prizes-ui-7); null when the result has none.
    */
   reward: Pick<Reward, "goal" | "shares"> | null;
-  /** The pattern note above the list (TradeSearchResult.pattern's text), or null. */
+  /** The pattern note above the list (TradeSearchResult.pattern's text), or null; never under "Helps both" (the Overall list's note). */
   pattern: string | null;
-  /** "Only 4 trade ideas to show at “at least 50%”. Try a lower setting to see more." when the minimum leaves few (fewText), or null. */
+  /**
+   * "Only 4 trade ideas to show at “at least 50%”. Try a lower setting to see more." when the minimum leaves few (fewText), or
+   * null; under "Helps both", "Only 2 trades help both teams right now." with fewer than 5 (helpsBothFewText).
+   */
   few: string | null;
   cards: TradeCardView[];
-  /** "25 trade ideas, sorted by Overall." ("" when none). */
+  /** "25 trade ideas, sorted by Overall." ("4 trade ideas that help both teams, sorted by Helps you." under "Helps both"; "" when none). */
   countText: string;
-  /** The status line once the search is done: "Found 25 trade ideas." or the empty state's title. */
+  /** The status line once the search is done: "Found 25 trade ideas." ("Found 4 trade ideas that help both teams.") or the empty state's title. */
   statusText: string;
   /** "Left out: 10 that wouldn't help you, and 2 …" (null when none). */
   hidden: string | null;
@@ -1974,12 +2149,21 @@ export function buildFinderView(args: {
 }): FinderView {
   const { result, snapshot } = args;
   const baseline = result.baseline;
-  const knownTags = knownTagsOf(result.trades);
+  // "Helps both" (Checkpoint 7c; planner reply to Checkpoint 7b, §7): the engine's own list (TradeSearchResult.helpsBoth, ranked
+  // from the same finalists with its guards, minimum chance and caps: a re-sort, never a new search), else, for a result
+  // without one (a fake), the list's trades that help both (rank.ts helpsBothTrades). The other sorts reorder the Overall list.
+  const both = args.sort === "helpsBoth";
+  const bothList = result.helpsBoth ?? null;
+  const listed = both ? (bothList ? bothList.trades : helpsBothTrades(result.trades)) : sortTrades(result.trades, args.sort);
+  // Every evaluation the search made a card of, on either list (a card on both is one evaluation): a Plan B's tags, the notes
+  // and whether long-term values are missing read them all, so they're the same in every sort.
+  const every = [...new Map([...result.trades, ...(bothList?.trades ?? [])].map((e) => [e.key, e])).values()];
+  const knownTags = knownTagsOf(every);
   // The search's one "Helps you" scale (its cards' tooltips and the info line; the mix with long-term values), and the
   // reward its B was weighed by (Checkpoint 7c: the cards' top-N odds line, the words naming the prizes).
   const helpsScale = result.helpsScale ?? null;
   const reward = result.reward ?? null;
-  const sorted = sortTrades(result.trades, args.sort).map((e) =>
+  const sorted = listed.map((e) =>
     buildTradeCard(e, { snapshot, baseline, reward, lastNflWeek: args.lastNflWeek, knownTags, fantasyCalc: args.fantasyCalc, goal: args.goal, blendOn: args.blendOn, helpsScale }),
   );
   // A Plan B that is also a card of its own says so, with that card's place in this sort (review of track F: the same
@@ -1991,12 +2175,16 @@ export function buildFinderView(args: {
   });
   const sortLabel = SORT_OPTIONS.find((o) => o.value === args.sort)?.label ?? "Overall";
   const odds = baselineLines(baseline, "finder", reward);
-  const hidden = hiddenText(result.hidden);
+  // What was left out on purpose: the §10 guards' counts, and under "Helps both" the trades that help both teams but are under
+  // the minimum chance (HelpsBothList.byChance) in place of the Overall list's.
+  const hidden = hiddenText(both ? { ...result.hidden, byChance: bothList?.byChance ?? 0 } : result.hidden);
+  // A lower minimum chance would show more trades that help both (the engine's word; never at Any, nor for a fake's list).
+  const lowerWouldAdd = both && bothList?.lowerWouldAdd === true;
   let empty: FinderView["empty"] = null;
   // The search's notes, then each distinct note of the evaluations themselves (TradeDetail.notes), once, worded for the
   // list, then a saved FantasyCalc list standing in (the cards' numbers rest on its values).
   let notes = [...result.notes];
-  for (const e of result.trades) {
+  for (const e of every) {
     for (const n of e.detail.notes) {
       const note = listNote(n);
       if (!notes.includes(note)) notes.push(note);
@@ -2011,6 +2199,13 @@ export function buildFinderView(args: {
     if (result.counts.screened === 0 && notes.length) {
       empty = { title: "No trade ideas right now", text: notes };
       notes = [];
+    } else if (both) {
+      // No trade helps both teams (the lead's words): a lower minimum chance when it would show some, the Overall list when it
+      // has ideas that help me, and what was left out.
+      empty = {
+        title: HELPS_BOTH_EMPTY_TITLE,
+        text: [...(lowerWouldAdd ? [LOWER_MINIMUM_TEXT] : []), ...(result.trades.length ? ["Sort by Overall to see the trade ideas that help you."] : []), ...(hidden ? [hidden] : [])],
+      };
     } else if (minChance > 0 && (result.filter?.few || (result.hidden.byChance ?? 0) > 0)) {
       // Every idea the guards keep falls below the minimum chance (rank.ts applies it after them; a lower setting shows them).
       empty = {
@@ -2031,14 +2226,15 @@ export function buildFinderView(args: {
     baseline: odds?.text ?? null,
     baselineNote: odds?.note ?? null,
     // Long-term values counted unless the engine says they're missing (TradeEvaluation.dynMissing: B is B_win alone then).
-    helpsInfo: cards.length ? helpsInfoText(snapshot.settings.leagueType, args.fantasyCalc?.available ?? true, !result.trades.some((e) => e.dynMissing), helpsScale, reward) : null,
+    helpsInfo: cards.length ? helpsInfoText(snapshot.settings.leagueType, args.fantasyCalc?.available ?? true, !every.some((e) => e.dynMissing), helpsScale, reward) : null,
     helpsScale,
     reward,
-    pattern: cards.length && result.pattern?.text ? result.pattern.text : null,
-    few: cards.length ? fewText(result) : null,
+    // The pattern note is the Overall list's (search.ts: it names the player its best ideas give), so not under "Helps both".
+    pattern: !both && cards.length && result.pattern?.text ? result.pattern.text : null,
+    few: !cards.length ? null : both ? helpsBothFewText(cards.length, lowerWouldAdd) : fewText(result),
     cards,
-    countText: cards.length ? `${plural(cards.length, "trade idea")}, sorted by ${sortLabel}.` : "",
-    statusText: cards.length ? `Found ${plural(cards.length, "trade idea")}.` : `${empty?.title ?? "No trade ideas right now"}.`,
+    countText: !cards.length ? "" : both ? `${bothWords(cards.length)}, sorted by ${SORT_OPTIONS.find((o) => o.value === "helps")?.label ?? "Helps you"}.` : `${plural(cards.length, "trade idea")}, sorted by ${sortLabel}.`,
+    statusText: !cards.length ? `${empty?.title ?? "No trade ideas right now"}.` : both ? `Found ${bothWords(cards.length)}.` : `Found ${plural(cards.length, "trade idea")}.`,
     // Said once: in the empty state when that's where it is.
     hidden: hidden !== null && empty?.text.includes(hidden) ? null : hidden,
     searched: searchedText(result),

@@ -24,16 +24,18 @@ import { AnalysisResult } from "@/components/trades/AnalyzerPage";
 import { evaluation, searchResult, steppedFull, tradeFantasyCalc, tradeSnapshot } from "@/components/trades/testFixtures";
 import { TradeCard } from "@/components/trades/TradeCard";
 import { FinderFrame } from "@/components/trades/TradeFinderPage";
+import { config } from "@/engine/config";
 import type { PlayerBlend } from "@/engine/leagueModel";
 import type { LeagueSnapshot } from "@/engine/model";
+import { titleDeltas } from "@/engine/reward";
 import { PRIZE_KEYS, defaultTradeSettings, type TradeSettings } from "@/engine/settings";
-import type { TradeEvaluation } from "@/engine/tradeModel";
+import type { PartnerNumbers, TradeEvaluation } from "@/engine/tradeModel";
 import { planBFixture } from "@/engine/tradeTestFixtures";
 import type { ImportResponse } from "@/lib/api";
 import { buildImportReport } from "@/lib/importReport";
 import { buildLeagueView } from "@/lib/leagueView";
 import { NOTICE_TEXT, UNKNOWN_SETTING_NOTICE } from "@/lib/notices";
-import { bestTimeText, buildAnalysisView, buildFinderView, buildTradeCard, PROJECTIONS_SOURCE } from "@/lib/tradeView";
+import { bestTimeText, buildAnalysisView, buildFinderView, buildTradeCard, PROJECTIONS_SOURCE, SORT_OPTIONS } from "@/lib/tradeView";
 import { DEFAULT_MAX_SEARCH_SECONDS, SECOND_LEAGUE, USAGE, parseArgs, resolveArgs, type CheckBrowserArgs } from "./args";
 import { chromeArgs, chromeCandidates, devtoolsUrl, exited, findChrome, killTree, waitForDevtools } from "./chrome";
 import {
@@ -42,6 +44,7 @@ import {
   BLEND_WORDS,
   bareValueNumbers,
   breakdownLeaks,
+  cardHelpsBoth,
   codeTokens,
   creditProblems,
   decodeEntities,
@@ -50,6 +53,9 @@ import {
   foreignResourcesInHtml,
   freshnessLineOk,
   headlineTopProblems,
+  helpsBothListProblems,
+  helpsBothStatusOk,
+  helpsBothTagProblems,
   internalPaths,
   invalidPrizeProblems,
   isFantasyCalcHref,
@@ -130,6 +136,8 @@ import {
   bestTimeExpectation,
   expectedPrizeSplit,
   expectedTopPlaces,
+  FINDER_DONE,
+  FINDER_DONE_STATUS,
   freshnessExpectation,
   GOAL_CHOICES,
   isMissingPage404,
@@ -144,6 +152,7 @@ import {
   sidelessCards,
   skipReason,
   sortInversions,
+  SORTS,
   STATIC_PAGES,
   STEPS,
   TECHNICAL_DETAILS,
@@ -1118,6 +1127,129 @@ describe("Checkpoint 7c: league prizes on the Settings page, the cards and the L
     expect(Object.values(PRIZE_LABEL)).toEqual(["1st place", "2nd place", "3rd place", "High score, each regular-season week", "Most points in the regular season"]);
     expect(READ_SETTINGS_PRIZES).toContain(`byText("legend", "${PRIZES_LEGEND}")`);
     expect(GOAL_LABEL.prizes).toBe(GOAL_CHOICES[1]);
+  });
+});
+
+describe("Checkpoint 7c: “Helps both” (planner reply to Checkpoint 7b, §7)", () => {
+  const MIN = config.benefit.helpsThemMin;
+  const read = (helps: string | null, helpsThem: string | null, helpsBothTag: boolean) => ({ helps, helpsThem, helpsBothTag });
+  /** The partner's numbers (TradeEvaluation.them): Helps them `helps`, their odds before and after. */
+  const them = (helps: number | null): PartnerNumbers => ({
+    b: helps === null ? null : helps / 10,
+    bWin: helps === null ? null : helps / 10,
+    bFuture: null,
+    lambda: null,
+    b3: helps === null ? null : 4,
+    helps,
+    dPO: 0.04,
+    dCH: 0.009,
+    dPrizes: titleDeltas(0.009),
+    before: { pPlayoffs: 0.41, pTitle: 0.06, prizes: { first: 0.06, second: null, third: null, weeklyHigh: 0, pointsLeader: 0 } },
+  });
+  const withThem = (e: TradeEvaluation, helps: number | null): TradeEvaluation => ({ ...e, them: them(helps) });
+  const saved = () => ({ ok: true as const });
+  const noFeedback = { outcome: null, report: null, version: null, versionKey: null, versionWords: null };
+
+  it("the card step tries every sort the Finder offers, Overall last, and orders “Helps both” by Helps you", () => {
+    expect(SORTS.map((s) => s.value).sort()).toEqual(SORT_OPTIONS.map((o) => o.value).sort());
+    expect(SORTS.map((s) => s.label).sort()).toEqual(SORT_OPTIONS.map((o) => o.label).sort());
+    expect(SORTS.at(-1)?.value).toBe("overall");
+    const card = (helps: string | null) => ({ helps, accept: "40%", acceptThrough: null, overall: "10" });
+    expect(sortInversions("Helps both", [card("50"), card("29"), card("29"), card("9")], "helpsBoth")).toEqual([]);
+    expect(sortInversions("Helps both", [card("29"), card("50")], "helpsBoth")).toEqual(["Helps both: idea 1 shows 29, idea 2 shows 50"]);
+  });
+
+  it("the tag on exactly the cards that help both as printed: Helps you above 0, Helps them at least helpsThemMin", () => {
+    expect(cardHelpsBoth(read("39", String(MIN), true), MIN)).toBe(true);
+    for (const [helps, helpsThem] of [
+      ["39", String(MIN - 1)],
+      ["0", "40"],
+      ["—", "40"],
+      ["39", null],
+      [null, "40"],
+    ] as const)
+      expect(cardHelpsBoth(read(helps, helpsThem, false), MIN), `${helps} / ${helpsThem}`).toBe(false);
+    const cards = [read("39", "24", true), read("39", "4", false), read("0", "24", false), read("39", null, false)];
+    expect(helpsBothTagProblems(cards, MIN)).toEqual([]);
+    expect(helpsBothTagProblems([read("39", "4", true), read("39", "24", false)], MIN)).toEqual([
+      "idea 1 shows “Helps both” at Helps you 39, Helps them 4",
+      "idea 2 has no “Helps both” tag at Helps you 39, Helps them 24",
+    ]);
+    // The list: every card helps both and carries the tag.
+    expect(helpsBothListProblems([read("50", "14", true), read("28", "44", true)], MIN)).toEqual([]);
+    expect(helpsBothListProblems([read("50", "4", true), read("28", "44", false)], MIN, (i) => `card ${i + 1}`)).toEqual([
+      "card 1 is on the “Helps both” list at Helps you 50, Helps them 4",
+      "card 2 is on the “Helps both” list at Helps you 28, Helps them 44, untagged",
+    ]);
+  });
+
+  it("the rules pass the app's own cards and words: the tag, the partner's line as the reader reads it, the list's status line", () => {
+    const snapshot = tradeSnapshot();
+    const tagged = withThem(evaluation({ key: "t", b: 6 }), 30);
+    const short = withThem(evaluation({ key: "s", b: 3, give: ["105"] }), MIN - 1);
+    const result = searchResult([tagged, short], { helpsBoth: { trades: [tagged], qualifying: 1, byChance: 0, lowerWouldAdd: false, dropped: { partnerCap: 0, core: 0, filler: 0, givenPlayer: 0 } } });
+    for (const sort of SORT_OPTIONS.map((o) => o.value)) {
+      const view = buildFinderView({ result, sort, snapshot, partnerId: null });
+      const reads = view.cards.map((c) => read(c.numbers.helps.value, c.them?.helps.value ?? null, c.helpsBothTag !== null));
+      expect(helpsBothTagProblems(reads, MIN), sort).toEqual([]);
+      if (sort === "helpsBoth") {
+        expect(helpsBothListProblems(reads, MIN)).toEqual([]);
+        expect(helpsBothStatusOk(view.statusText, view.cards.length)).toBe(true);
+      }
+      // The partner's line names their odds as the rule wants, "in the same format as yours".
+      expect(oddsLabelProblems(view.cards.flatMap((c) => (c.them ? [c.them.odds.map((o) => o.label)] : [])), null, undefined, "theirs"), sort).toEqual([]);
+    }
+    // The status line with one card, and with none.
+    const one = buildFinderView({ result: { ...result, helpsBoth: { ...result.helpsBoth!, trades: [tagged] } }, sort: "helpsBoth", snapshot, partnerId: null });
+    expect([one.statusText, helpsBothStatusOk(one.statusText, 1)]).toEqual(["Found 1 trade idea that helps both teams.", true]);
+    const none = buildFinderView({ result: { ...result, helpsBoth: { ...result.helpsBoth!, trades: [] } }, sort: "helpsBoth", snapshot, partnerId: null });
+    expect([none.statusText, helpsBothStatusOk(none.statusText, 0)]).toEqual(["No trades help both teams right now.", true]);
+    expect(helpsBothStatusOk("Found 2 trade ideas.", 2)).toBe(false);
+    // What inPage.ts's reader reads: the tag a leaf with its words; the partner's line's first item "Helps them" (a
+    // one-line item's bold label), its number the next element; never read as one of my odds lines.
+    const html = renderToStaticMarkup(createElement(TradeCard, { card: buildTradeCard(tagged, { snapshot }), rank: 1, feedback: noFeedback, onFeedback: saved }));
+    expect(html).toMatch(/<span class="[^"]*">Helps both<\/span>/);
+    expect(html).toMatch(/<p><span class="whitespace-nowrap" title="[^"]*"><span class="font-semibold">Helps them<\/span> <span class="tabular-nums">30<\/span><\/span><span aria-hidden="true">[^<]*<\/span><span class="sr-only">, <\/span><span class="whitespace-nowrap"><span class="font-semibold">Their title odds<\/span>/);
+    expect(CARD_HELPERS).toContain('txt(labels[0]) === "Helps them"');
+    expect(READ_CARD_ODDS).toContain('labels[0] !== "Helps them"');
+    // The partner's labels against a top-3 league, and a list that reads otherwise.
+    expect(oddsLabelProblems([["Their title odds", "Their top 3 odds", "Their playoff odds"]], 3, undefined, "theirs")).toEqual([]);
+    expect(oddsLabelProblems([["Title odds", "Playoff odds"]], null, (i) => `idea ${i + 1}`, "theirs")).toEqual(["idea 1: “Title odds” · “Playoff odds”"]);
+  });
+
+  it("FINDER_DONE reads every status line the Finder's done state can show, in every sort, and none of a search under way", () => {
+    const snapshot = tradeSnapshot();
+    const e = withThem(evaluation({ key: "t" }), 30);
+    const withList = searchResult([e], { helpsBoth: { trades: [e], qualifying: 1, byChance: 0, lowerWouldAdd: false, dropped: { partnerCap: 0, core: 0, filler: 0, givenPlayer: 0 } } });
+    const statuses = new Set<string>();
+    for (const sort of SORT_OPTIONS.map((o) => o.value)) {
+      for (const result of [
+        withList,
+        searchResult([e]),
+        searchResult([]),
+        searchResult([], { hidden: { byBenefit: 2, byMarket: 0 } }),
+        searchResult([], { filter: { minChance: 0.5, qualifying: 0, few: true }, hidden: { byBenefit: 0, byMarket: 0, byChance: 3 } }),
+        searchResult([], { notes: ["Your league's trade deadline has passed."], counts: { screened: 0, exact: 0, simScreen: 0, simFinal: 0 } }),
+      ])
+        statuses.add(buildFinderView({ result, sort, snapshot, partnerId: null }).statusText);
+    }
+    expect([...statuses].sort()).toEqual(
+      [
+        "Found 1 trade idea.",
+        "Found 1 trade idea that helps both teams.",
+        "No trade ideas at this minimum chance.",
+        "No trade ideas found.",
+        "No trade ideas right now.",
+        "No trade ideas that help you.",
+        "No trades help both teams right now.",
+      ].sort(),
+    );
+    for (const s of statuses) expect(FINDER_DONE_STATUS.test(s), s).toBe(true);
+    for (const s of ["Searching for trade ideas: screening trade ideas…", "Showing the trade ideas at your minimum chance…", "Search stopped.", "Loading projections…", "Loading your settings…"])
+      expect(FINDER_DONE_STATUS.test(s), s).toBe(false);
+    // The page's own copy of the rule (an expression TypeScript never checks) compiles, its pattern written in whole.
+    expect(FINDER_DONE).toContain(FINDER_DONE_STATUS.toString());
+    expect(() => new Function(`return (async () => {\n${PAGE_HELPERS}\nreturn (${FINDER_DONE});\n})`)).not.toThrow();
   });
 });
 

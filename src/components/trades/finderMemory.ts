@@ -20,7 +20,8 @@
  *   searching again would find the very same ideas. Phase 4c: ideas ranked at another minimum chance are re-filtered by
  *   the worker (TradeFinderPage.tsx), and the re-filtered ones replace them under the same key.
  * - Each league's Finder address (its partner filter: rememberFinderAddress) for the Analyzer's "Back to the Trade
- *   Finder", and each league's Finder sort, so a return shows the ideas in the order left.
+ *   Finder", and each league's Finder sort, so a return shows the ideas in the order left (Checkpoint 7c's "Helps both"
+ *   too: its list is the remembered search's own, TradeSearchResult.helpsBoth, so it shows again without a search).
  * - Where to come back to: the idea whose "Open in Analyzer" was used, and which of its links (the card's own or its
  *   "If they say no, try:" one: Phase 4b) (rememberReturn). The Finder's next search start takes it (takeReturnTarget,
  *   once): when it shows that search's ideas again, it brings that link back into view with focus on it.
