@@ -13,7 +13,8 @@ import { defaultTradeSettings } from "@/engine/settings";
 import type { TradeAnalysis } from "@/engine/evaluate";
 import type { MarketInputs } from "@/engine/inputs";
 import type { LeagueSettings, PlayerInfo } from "@/engine/model";
-import { HELPS_FLOOR_NOTE, HELPS_FLOOR_NOTE_PLAYOFFS, helpsScaleNotes, type HelpsScale } from "@/engine/benefit";
+import { HELPS_FLOOR_NOTE, HELPS_FLOOR_NOTE_PLAYOFFS, HELPS_FLOOR_NOTE_PRIZES, helpsScaleNotes, type HelpsScale } from "@/engine/benefit";
+import { titleDeltas } from "@/engine/reward";
 import { buildTradeContext, evaluateExact, explainContextOf, simulateTrade, tradeInternals, type SimState } from "@/engine/evaluate";
 import type { HelpsCalibration } from "@/engine/leagueModel";
 import { smallLeague } from "@/engine/trade.testing";
@@ -1269,7 +1270,7 @@ describe("feedback versions (which version was sent; planner reply to Checkpoint
    * B₃ (the fixtures' FIXTURE_B3) and its scale's reason (none: the fixtures' notes are empty) since Phase 7a.
    */
   const SCALE = { b3: FIXTURE_B3, helpsReason: null };
-  const inputsOf = (x: { features?: TradeEvaluation["features"] | undefined; gPartner?: number | undefined; b: number | null }, goal: "title" | "balanced" | "playoffs" | null = null) => ({
+  const inputsOf = (x: { features?: TradeEvaluation["features"] | undefined; gPartner?: number | undefined; b: number | null }, goal: "title" | "prizes" | "playoffs" | null = null) => ({
     features: x.features ? { ...x.features } : null,
     gPartner: x.gPartner ?? null,
     b: x.b,
@@ -1288,10 +1289,10 @@ describe("feedback versions (which version was sent; planner reply to Checkpoint
     const e = steppedFull();
     const offer = e.steps?.offerFirst as TradeStep;
     const withFeatures = { ...e, steps: e.steps && { ...e.steps, offerFirst: { ...offer, features: { ...e.features, g: 0.07, z: -0.4 } } } };
-    expect(versionChoices(withFeatures, snapshot, "balanced")).toEqual([
-      { version: "offerFirst", key: offer.key, pAccept: 0.35, pComplete: 0.35, inputs: { features: { ...e.features, g: 0.07, z: -0.4 }, gPartner: offer.gPartner, b: offer.b, goal: "balanced", ...SCALE }, label: "The first offer" },
+    expect(versionChoices(withFeatures, snapshot, "prizes")).toEqual([
+      { version: "offerFirst", key: offer.key, pAccept: 0.35, pComplete: 0.35, inputs: { features: { ...e.features, g: 0.07, z: -0.4 }, gPartner: offer.gPartner, b: offer.b, goal: "prizes", ...SCALE }, label: "The first offer" },
       // The full version is the card's trade (TradeSteps.ranked "full"): its final numbers.
-      { version: "full", key: e.steps?.ifNo.full.key, pAccept: 0.55, pComplete: 0.55, inputs: inputsOf(e, "balanced"), label: "With Tobias Thimble added" },
+      { version: "full", key: e.steps?.ifNo.full.key, pAccept: 0.55, pComplete: 0.55, inputs: inputsOf(e, "prizes"), label: "With Tobias Thimble added" },
     ]);
     // A step without features (older engines): none, the rest kept.
     expect(versionChoices(e, snapshot)[0]?.inputs).toEqual({ features: null, gPartner: offer.gPartner, b: offer.b, goal: null, ...SCALE });
@@ -1495,8 +1496,8 @@ describe("Phase 4c: the card's words that the planner's reply to Checkpoint 4b c
   });
 
   it("names a goal that isn't the default in the settings line, as what the league rewards (change 8; planner reply to Checkpoint 7a, 5.2)", () => {
-    expect(GOAL_LABEL).toEqual({ title: "Only the champion", balanced: "Top finishers too", playoffs: "Making the playoffs" });
-    expect(settingsSummary({ ...defaultTradeSettings(), goal: "balanced" }, "espn")).toBe("Up to 2 players a side. Your league rewards: Top finishers too.");
+    expect(GOAL_LABEL).toEqual({ title: "Only the champion", prizes: "Several prizes", playoffs: "Making the playoffs" });
+    expect(settingsSummary({ ...defaultTradeSettings(), goal: "prizes" }, "espn")).toBe("Up to 2 players a side. Your league rewards: Several prizes.");
     expect(settingsSummary({ ...defaultTradeSettings(), goal: "playoffs", protectValue: "high" }, "espn")).toBe("Up to 2 players a side. Your league rewards: Making the playoffs. Protect my trade value: High.");
     expect(settingsSummary({ ...defaultTradeSettings(), goal: config.benefit.goalDefault }, "espn")).toBe("Up to 2 players a side.");
   });
@@ -1618,12 +1619,15 @@ describe("the Helps you scale in the feedback's version inputs (Phase 7a, track 
       { reason: "odds", oddsNamed: "playoff" },
       { reason: null, oddsNamed: "title" },
       { reason: null, oddsNamed: "playoff" },
+      // "Several prizes" (Checkpoint 7c): its floor note is an odds note too.
+      { reason: "odds", oddsNamed: "prizes" },
+      { reason: null, oddsNamed: "prizes" },
     ];
     for (const scale of scales) {
       const notes = ["Kickers and D/STs are left out; turn them on in Settings.", ...helpsScaleNotes(scale)];
       expect(helpsReasonOf(notes), JSON.stringify(scale)).toBe(scale.reason);
     }
-    expect([HELPS_FLOOR_NOTE, HELPS_FLOOR_NOTE_PLAYOFFS].map((n) => helpsReasonOf([n]))).toEqual(["odds", "odds"]);
+    expect([HELPS_FLOOR_NOTE, HELPS_FLOOR_NOTE_PLAYOFFS, HELPS_FLOOR_NOTE_PRIZES].map((n) => helpsReasonOf([n]))).toEqual(["odds", "odds", "odds"]);
     expect(helpsReasonOf(undefined)).toBeNull();
     expect(helpsReasonOf([])).toBeNull();
   });
@@ -1649,7 +1653,8 @@ describe("the Helps you scale in the feedback's version inputs (Phase 7a, track 
     const ctx = buildTradeContext(league, inputs, { now: TEST_NOW, scenarios: 0 });
     const I = tradeInternals(ctx);
     const sim = I.sim as SimState;
-    sim.calibration = { ...(sim.calibration as HelpsCalibration), dPO: 0.0004, dCH: 0.0002 };
+    // Every prize component the calibration run keeps (Checkpoint 7c): here 1st place's alone moves, barely.
+    sim.calibration = { ...(sim.calibration as HelpsCalibration), dPO: 0.0004, dCH: 0.0002, dPrizes: titleDeltas(0.0002) };
     const me = I.me as NonNullable<typeof I.me>;
     const partner = I.byId.get("2") as NonNullable<ReturnType<typeof I.byId.get>>;
     const x = evaluateExact(I, { partnerId: "2", give: [{ kind: "player", id: me.roster[0] as string }], get: [{ kind: "player", id: partner.roster[0] as string }] }, 4);

@@ -18,8 +18,9 @@
  *   at the bubble default (balanced) in a dynasty one. Keeper costs aren't modeled, and the page says so.
  * - What does your league reward? (Phase 4c's "What matters most", planner reply to Checkpoint 4b, change 8; framed by
  *   the league's prizes since the planner's reply to Checkpoint 7a, 5.2, with no auto-switching; TradeSettings.goal): Only
- *   the champion (the default, config.benefit.goalDefault: "title") / Top finishers too ("balanced") / Making the
- *   playoffs ("playoffs"), each with one line saying how it weighs the title and playoff odds in Helps you
+ *   the champion (the default, config.benefit.goalDefault: "title") / Several prizes ("prizes"; Checkpoint 7c, planner
+ *   reply to Checkpoint 7b, §6, in place of "Top finishers too": a stored "balanced" reads as it, settings.ts) / Making the
+ *   playoffs ("playoffs"), each with one line saying how it weighs the prize and playoff odds in Helps you
  *   (config.benefit.goals' weights, never fixed numbers), and the planner's helper line ("On the bubble? Keep “Only the
  *   champion.” It already counts getting into the playoffs."). Every league type: in dynasty and keeper leagues it weighs
  *   this season's part (B_win), and the help says later seasons count by Win now ↔ Future.
@@ -129,7 +130,7 @@ export interface SettingsView {
     estimatedNote: string | null;
   } | null;
   /**
-   * "What does your league reward?" (TradeSettings.goal): Only the champion / Top finishers too / Making the playoffs, each
+   * "What does your league reward?" (TradeSettings.goal): Only the champion / Several prizes / Making the playoffs, each
    * with its line of help; `help` what it sets and the planner's helper line (planner reply to Checkpoint 7a, 5.2); every
    * league type.
    */
@@ -315,10 +316,11 @@ export const PROTECT_VALUE_LABEL: Record<ProtectValue, string> = { low: "Low", m
 
 /**
  * "What does your league reward?" in words (TradeSettings.goal; planner reply to Checkpoint 4b, change 8, reframed by the
- * planner's reply to Checkpoint 7a, 5.2): the same labels as the Trade Finder's (src/lib/tradeView.ts GOAL_LABEL, kept apart
- * so this page doesn't load the trade pages' words; settingsView.test.ts checks the two agree).
+ * planner's reply to Checkpoint 7a, 5.2; "Several prizes" since Checkpoint 7c, planner reply to Checkpoint 7b, §6, in place
+ * of "Top finishers too"): the same labels as the Trade Finder's (src/lib/tradeView.ts GOAL_LABEL, kept apart so this page
+ * doesn't load the trade pages' words; settingsView.test.ts checks the two agree).
  */
-export const GOAL_LABEL: Record<Goal, string> = { title: "Only the champion", balanced: "Top finishers too", playoffs: "Making the playoffs" };
+export const GOAL_LABEL: Record<Goal, string> = { title: "Only the champion", prizes: "Several prizes", playoffs: "Making the playoffs" };
 
 /** The goal's question (SettingsView.goal.legend; planner reply to Checkpoint 7a, 5.2). */
 export const GOAL_LEGEND = "What does your league reward?";
@@ -338,15 +340,17 @@ export const PROTECT_VALUE_HELP =
   "High protects your value the most; Low goes for the biggest lineup gain now. Your bench's worth as cover for injuries and byes counts either way.";
 
 /**
- * A goal's line of help: how it weighs the title and playoff odds in Helps you, with config.benefit.goals' weights
- * ("Weighs your title odds most (85%), playoff odds 15%.").
+ * A goal's line of help: how it weighs the prize and playoff odds in Helps you, with config.benefit.goals' weights
+ * ("Weighs your title odds most (85%), playoff odds 15%."; "Several prizes": "Weighs your share of the league's prizes most
+ * (85%), playoff odds 15%.", the lead's words for Checkpoint 7c). `weights.prizes` weighs the change in my share of the
+ * prizes, which is my title odds' when 1st place pays everything ("Only the champion", "Making the playoffs").
  */
-export function goalHelp(goal: Goal, weights: { readonly playoffs: number; readonly title: number } = config.benefit.goals[goal]): string {
-  const title = pct(weights.title);
+export function goalHelp(goal: Goal, weights: { readonly playoffs: number; readonly prizes: number } = config.benefit.goals[goal]): string {
+  const prizes = pct(weights.prizes);
   const playoffs = pct(weights.playoffs);
-  if (goal === "title") return `Weighs your title odds most (${title}), playoff odds ${playoffs}.`;
-  if (goal === "playoffs") return `Weighs your playoff odds most (${playoffs}), title odds ${title}.`;
-  return `Weighs your title odds ${title} and your playoff odds ${playoffs}.`;
+  if (goal === "title") return `Weighs your title odds most (${prizes}), playoff odds ${playoffs}.`;
+  if (goal === "playoffs") return `Weighs your playoff odds most (${playoffs}), title odds ${prizes}.`;
+  return `Weighs your share of the league's prizes most (${prizes}), playoff odds ${playoffs}.`;
 }
 
 /**

@@ -11,11 +11,12 @@ import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import { overallScore, tradeScore } from "@/engine/benefit";
 import { config } from "@/engine/config";
-import { analyzeTrade, buildTradeContext, helpsScaleOf, tradeInternals } from "@/engine/evaluate";
+import { analyzeTrade, buildTradeContext, helpsScaleOf, rewardFor, tradeInternals } from "@/engine/evaluate";
 import type { ModelInputs } from "@/engine/inputs";
 import { buildLeagueModel, playoffWeightFrom } from "@/engine/league";
 import { neutralThrowIns } from "@/engine/market";
 import type { LeagueSnapshot, Pos } from "@/engine/model";
+import { prizeOddsOf, prizePeriods, type PrizeDeltas } from "@/engine/reward";
 import { runTradeSearch, searchStateOf } from "@/engine/search";
 import { GOALS, defaultTradeSettings } from "@/engine/settings";
 import { TEST_NOW } from "@/engine/testLeague";
@@ -23,7 +24,7 @@ import { smallLeague } from "@/engine/trade.testing";
 import type { TradeEvaluation } from "@/engine/tradeModel";
 import { tradeEvaluation } from "@/engine/tradeTestFixtures";
 import { acceptText, injuryTagText, knownTagsOf, planBView, seasonEndOf } from "@/lib/tradeView";
-import { GOAL_WORDS, asWeeklyResetData, benefitWin, placeholders, pre4cText, resetWaiverOrder, scaleCheck, thresholdsLine, type Pre4cOrder } from "./league-report";
+import { GOAL_WORDS, asWeeklyResetData, benefitWin, goalRewards, placeholders, pre4cText, resetWaiverOrder, scaleCheck, thresholdsLine, type Pre4cOrder } from "./league-report";
 import {
   ANCHORS,
   BLEND_EXTREMES,
@@ -262,7 +263,8 @@ describe("trade report: the whole offline report on a synthetic league", () => {
     expect(doc).toContain(thresholdsLine(I.model));
     // The baseline is the search's: every team after its pickups, the same numbers as the League model's headline odds.
     const mine = report.model.odds?.teams.find((t) => t.teamId === "1");
-    expect(report.result.baseline).toEqual({ pPlayoffs: mine?.pPlayoffs, pTitle: mine?.pTitle, expWins: mine?.expWins });
+    // …and every prize component (Checkpoint 7c), the headline's too.
+    expect(report.result.baseline).toEqual({ pPlayoffs: mine?.pPlayoffs, pTitle: mine?.pTitle, expWins: mine?.expWins, prizes: prizeOddsOf(mine as NonNullable<typeof mine>) });
     expect(doc).toContain(`**Your baseline** (the trade search's: every team after its free-agent pickups in the waiver order above, seasons 1–5,000; it equals the League page's headline, section 7): playoffs ${pctPlain(mine?.pPlayoffs)}, title ${pctPlain(mine?.pTitle)}`);
     expect(doc.split("\n").length).toBeLessThan(300);
   });
@@ -338,9 +340,9 @@ describe("trade report: the whole offline report on a synthetic league", () => {
     expect(tagsOf(w)).toEqual([expect.objectContaining({ playerId: ids.wilson, side: "give", status: "QUESTIONABLE" })]);
   });
 
-  it("section 2: the same search under Balanced; both top 10s side by side, numbers from each list or the Analyzer under that goal", () => {
+  it("section 2: the same search under Several prizes (the prefilled split for now); both top 10s side by side, numbers from each list or the Analyzer under that goal", () => {
     const g = report.goals;
-    expect(g.goal).toBe("balanced");
+    expect(g.goal).toBe("prizes");
     expect(g.result).not.toBe(report.result);
     const topTitle = trades.slice(0, TOP_DETAIL).map((t) => t.key);
     const topOther = g.result.trades.slice(0, TOP_DETAIL).map((t) => t.key);
@@ -349,7 +351,7 @@ describe("trade report: the whole offline report on a synthetic league", () => {
     for (const row of g.rows) {
       for (const [side, list, goal] of [
         [row.title, trades, "title"],
-        [row.other, g.result.trades, "balanced"],
+        [row.other, g.result.trades, "prizes"],
       ] as const) {
         const at = list.findIndex((t) => t.key === row.key);
         if (at >= 0) expect(side).toEqual({ rank: at + 1, b: list[at]?.b, helps: list[at]?.tradeScore, overall: list[at]?.overall });
@@ -359,27 +361,33 @@ describe("trade report: the whole offline report on a synthetic league", () => {
           expect(side).toEqual({ rank: null, b: e?.b ?? null, helps: e?.tradeScore ?? null, overall: e?.overall ?? null });
         }
       }
-      // B moves with the goal by exactly the B_win weights and its market term's scale (planner reply to Checkpoint 7a, §2
-      // question 5: (B₃ / 3) × κ × clamp(g_mkt(me)), on each goal's B₃); the chance they accept doesn't depend on it.
+      // B moves with the goal by exactly B_win's weights and prizes and its market term's scale (planner reply to Checkpoint 7a,
+      // §2 question 5: (B₃ / 3) × κ × clamp(g_mkt(me)), on each goal's B₃); the chance they accept doesn't depend on it.
       const t = trades.find((x) => x.key === row.key);
       if (t && t.dPO !== null && t.dCH !== null && row.other.b !== null && row.title.b !== null) {
+        const rewards = goalRewards(prizePeriods(snapshot));
         const term = (b3: number | null | undefined) => ((b3 as number) / config.benefit.helpsGain) * config.benefit.protectValue.medium * Math.min(0.5, Math.max(-0.5, t.gMine));
-        const dWin = benefitWin(t.dPO, t.dCH, "balanced") - benefitWin(t.dPO, t.dCH, "title");
-        // Section 2 holds the default goal's context, so its Balanced cards read that context's B₃ under Balanced.
-        const onContext = (goal: "title" | "balanced") => helpsScaleOf(tradeInternals(report.ctx), report.settings.lambda, goal)?.b3;
-        expect(row.other.b - row.title.b).toBeCloseTo(dWin + term(onContext("balanced")) - term(onContext("title")), 9);
+        const dWin = benefitWin(t.dPO, t.dPrizes as PrizeDeltas, rewards.prizes) - benefitWin(t.dPO, t.dPrizes as PrizeDeltas, rewards.title);
+        // Section 2 holds the default goal's context, so its Several prizes cards read that context's B₃ under that reward.
+        const I = tradeInternals(report.ctx);
+        const onContext = (goal: "title" | "prizes") => helpsScaleOf(I, report.settings.lambda, rewardFor(I, { ...report.settings, goal }))?.b3;
+        expect(row.other.b - row.title.b).toBeCloseTo(dWin + term(onContext("prizes")) - term(onContext("title")), 9);
       }
     }
     expect(section(2)).toContain(`${g.common} of the top ${TOP_DETAIL} are in both lists`);
     // The playoff weeks' weight (planner reply to Checkpoint 7a, §6.1): the comparison holds the context's ω, and names the
-    // one the app's own context under Balanced would use (from the same runs: the runs don't depend on the goal).
+    // one the app's own context under Several prizes would use (from the same runs: they keep every prize component).
     const model = tradeInternals(report.ctx).model;
-    const runs = model.playoffWeightAuto?.runs;
+    const auto = model.playoffWeightAuto;
+    const runs = auto?.runs;
     expect(omegaUnder(model, "title")).toBe(model.playoffWeight);
-    expect(omegaUnder(model, "balanced")).toBe(runs ? playoffWeightFrom(runs, "balanced", model.playoffWeightAuto?.sims ?? 0).omega : model.playoffWeight);
+    expect(omegaUnder(model, "prizes")).toBe(runs && auto ? playoffWeightFrom(runs, goalRewards(auto.reward.periods, auto.reward).prizes, auto.sims).omega : model.playoffWeight);
+    // …which is the ω of a context built under that goal.
+    const prizesContext = buildTradeContext(report.snapshot, inputs, { now: TEST_NOW, settings: { ...report.settings, goal: "prizes" }, scenarios: 4 });
+    expect(omegaUnder(model, "prizes")).toBe(tradeInternals(prizesContext).model.playoffWeight);
     expect(omegaUnder({ playoffWeight: 1.25 }, "playoffs")).toBe(1.25);
     expect(section(2)).toContain(`this comparison holds it at Win the title's ${model.playoffWeight}×`);
-    expect(section(2)).toContain(`the app under Balanced rebuilds its context with ${omegaUnder(model, "balanced")}×`);
+    expect(section(2)).toContain(`the app under Several prizes rebuilds its context with ${omegaUnder(model, "prizes")}×`);
   });
 
   it("section 3: B₃ under each goal (planner reply to Checkpoint 4c, A2): the calibration run, the search's scale and the scale check on it", () => {
@@ -389,7 +397,7 @@ describe("trade report: the whole offline report on a synthetic league", () => {
     expect(sc).toEqual(helpsScaleSection(snapshot, report.model, report.ctx, report.settings, contextFor));
     for (const g of GOALS) {
       const own = g === report.settings.goal ? tradeInternals(report.ctx) : tradeInternals(contextFor(g));
-      expect(sc.b3[g]).toEqual(helpsScaleOf(own, report.settings.lambda, g));
+      expect(sc.b3[g]).toEqual(helpsScaleOf(own, report.settings.lambda));
       expect(sc.omega[g]).toBe(own.model.playoffWeight);
       expect(sc.calibrations[g]).toEqual(own.sim?.calibration ?? null);
     }
@@ -411,16 +419,16 @@ describe("trade report: the whole offline report on a synthetic league", () => {
     expect(c.from).toBe(0); // no week under way in the synthetic league
     for (const row of c.rows ?? [])
       for (const g of GOALS) {
-        expect(row.B[g]).toBeCloseTo(benefitWin(row.dPO, row.dCH, g), 12);
+        expect(row.B[g]).toBeCloseTo(benefitWin(row.dPO, row.dPrizes, c.rewards[g]), 12);
         // On the default goal's baseline: its B₃ under each goal is that context's (a redraft league: no λ), the app's own
         // for the default goal.
-        expect(c.b3[g].value).toBe(helpsScaleOf(tradeInternals(report.ctx), report.settings.lambda, g)?.b3);
+        expect(c.b3[g].value).toBe(helpsScaleOf(tradeInternals(report.ctx), report.settings.lambda, c.rewards[g])?.b3);
         expect(row.score[g]).toBe(tradeScore(row.B[g], c.b3[g].value));
       }
     expect(c.b3[report.settings.goal].value).toBe(sc.b3[report.settings.goal]?.b3);
     // The baseline is the headline's: the model's own odds with pickups.
     const mine = report.model.odds?.teams.find((t) => t.teamId === "1");
-    expect(c.base).toEqual({ pPlayoffs: mine?.pPlayoffs, pTitle: mine?.pTitle, expWins: mine?.expWins });
+    expect(c.base).toEqual({ pPlayoffs: mine?.pPlayoffs, pTitle: mine?.pTitle, expWins: mine?.expWins, prizes: prizeOddsOf(mine as NonNullable<typeof mine>) });
     expect(scaleCheck).toBeTypeOf("function");
     const s = section(3);
     expect(s).toContain("| Goal | Weights | ω | ΔPO₃ / ΔCH₃ | B₃ | Floored | +1 / +3 / +6 pts a week read | Giving 25% more value at Medium: B (pts a week) |");
@@ -431,7 +439,7 @@ describe("trade report: the whole offline report on a synthetic league", () => {
       const b3g = sc.b3[g]?.b3 as number;
       expect(s).toContain(`| ${fmt(-(b3g / 3) * 0.4, 2)} (−0.4) |`);
     }
-    expect(s).toContain("| Gain | ΔPO | ΔCH | Win the title: B / Helps | Balanced: B / Helps | Make the playoffs: B / Helps | Checkpoint 3's B (0.35 / 0.65) |");
+    expect(s).toContain("| Gain | ΔPO | ΔCH | Win the title: B / Helps | Several prizes: B / Helps | Make the playoffs: B / Helps | Checkpoint 3's B (0.35 / 0.65) |");
     expect(s.split("\n").filter((l) => l.startsWith("| +"))).toHaveLength(3);
     expect(s).toContain("The trade context's own run (its final block) is the same run, bit for bit.");
     expect(s).toContain("Its +3 row is the same run, bit for bit.");

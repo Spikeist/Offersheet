@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import { acceptance, betaNeed, partnerProfile } from "@/engine/acceptance";
 import { benefit, protectValueWeight } from "@/engine/benefit";
 import { config } from "@/engine/config";
+import { GOALS, type Goal } from "@/engine/settings";
 import type { AcceptanceFeatures } from "@/engine/tradeModel";
 import type { StorageLike } from "./importStore";
 import {
@@ -462,7 +463,8 @@ describe("the export file", () => {
 
     // B less B_win (from the file's ΔPO, ΔCH and goal) is the market term, (B₃ / 3) × κ × clamp(g_mkt(me)): g_mkt(me) comes
     // back to anyone who knows κ, the user who downloads the file included.
-    const bWin = benefit({ ...mine, dPO: r.numbers.dPO, dCH: r.numbers.dCH, kappa: 0, ...(r.basis?.goal ? { goal: r.basis.goal } : {}) }).b;
+    const goal = r.basis?.goal;
+    const bWin = benefit({ ...mine, dPO: r.numbers.dPO, dCH: r.numbers.dCH, kappa: 0, ...(goal && (GOALS as readonly string[]).includes(goal) ? { goal: goal as Goal } : {}) }).b;
     expect((config.benefit.helpsGain * (num(r.numbers.b) - num(bWin))) / (num(r.numbers.b3) * kappa)).toBeCloseTo(mine.gMine, 9);
   });
 

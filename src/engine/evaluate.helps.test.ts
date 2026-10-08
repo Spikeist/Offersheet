@@ -16,9 +16,10 @@ import type { ModelInputs } from "./inputs";
 import { buildLeagueModel, helpsCalibrationOf, type BuildLeagueModelOptions } from "./league";
 import type { HelpsCalibration, LeagueModel, SeasonOdds } from "./leagueModel";
 import type { LeagueSnapshot } from "./model";
+import { prizeDeltas, prizeOddsOf, rewardOf, titleDeltas, type Reward } from "./reward";
 import { runTradeSearch, searchStateOf, type SearchState } from "./search";
 import { pickupSeasonModel, seasonOdds, type SeasonModel } from "./season";
-import { GOALS, defaultTradeSettings } from "./settings";
+import { GOALS, defaultTradeSettings, type Goal } from "./settings";
 import { simNormals } from "./sim";
 import { TEST_NOW, randomLeague } from "./testLeague";
 import { handLeague, smallLeague, withSeason } from "./trade.testing";
@@ -47,6 +48,9 @@ function plusMine(season: SeasonModel, me: string, gain: number, from: number): 
 }
 
 const mineOf = (odds: SeasonOdds | null | undefined, me: string) => odds?.teams.find((t) => t.teamId === me);
+
+/** A goal's reward on a context's league with the default settings' prizes (the prefilled split under "Several prizes"). */
+const rewardIn = (I: { snapshot: LeagueSnapshot }, goal: Goal): Reward => rewardOf({ ...defaultTradeSettings(), goal }, I.snapshot);
 
 /** clamp(g_mkt(me)) as B's market term reads it (config.benefit.marketSanityClamp). */
 const clampG = (g: number) => Math.min(config.benefit.marketSanityClamp[1], Math.max(config.benefit.marketSanityClamp[0], g));
@@ -115,7 +119,8 @@ describe("the League model's calibration run (step 8c): my score + 3 a week from
     const run = { sims: 400, seed: 7, normals: simNormals(7, 400, model.weeks.length, model.teams.length) };
     const base = seasonOdds(snapshot, pick, run) as SeasonOdds;
     const zero = helpsCalibrationOf(snapshot, pick, "1", base, run, 0, { ...config, benefit: { helpsGain: 0 } });
-    expect(zero).toEqual({ gain: 0, from: 0, dPO: 0, dCH: 0 });
+    // No high scores simulated (the default goal doesn't pay them): their change is unknown, not 0 (reward.ts runPrizeDeltas).
+    expect(zero).toEqual({ gain: 0, from: 0, dPO: 0, dCH: 0, dPrizes: { first: 0, second: 0, third: 0, weeklyHigh: null, pointsLeader: 0 } });
     expect(helpsCalibrationOf(snapshot, pick, "no such team", odds, run, 0)).toBeNull();
     expect(helpsCalibrationOf(snapshot, pick, "1", base, run, 0, { ...config, benefit: { helpsGain: Number.NaN } })).toBeNull();
     // A gain from past the last week moves nothing either.
@@ -128,7 +133,7 @@ describe("the League model's calibration run (step 8c): my score + 3 a week from
     expect(buildLeagueModel(snapshot, inputs, { now: TEST_NOW, scenarios: 0, sims: 0 }).helpsCalibration).toBeNull();
     const none = tradeInternals(buildTradeContext({ ...snapshot, myTeamId: null }, inputs, { now: TEST_NOW, scenarios: 0 }));
     expect(none.sim?.calibration ?? null).toBeNull();
-    expect(helpsScaleOf(none, null, "title")).toBeNull();
+    expect(helpsScaleOf(none, null)).toBeNull();
   });
 });
 
@@ -141,8 +146,8 @@ describe("B₃ (evaluate.helpsScaleOf): the B of the calibration run under the c
   it("redraft: B_win of the run under each goal's weights; so the same run is scaled per goal", () => {
     const seen = new Set<number>();
     for (const goal of GOALS) {
-      const s = helpsScaleOf(I, null, goal);
-      expect(s?.raw, goal).toBe(benefitWin(cal.dPO, cal.dCH, config.benefit, goal).bWin);
+      const s = helpsScaleOf(I, null, rewardIn(I, goal));
+      expect(s?.raw, goal).toBe(benefitWin(cal.dPO, cal.dPrizes, config.benefit, rewardIn(I, goal)).bWin);
       expect(s?.floored, goal).toBe(false);
       seen.add(s?.b3 as number);
     }
@@ -161,9 +166,13 @@ describe("B₃ (evaluate.helpsScaleOf): the B of the calibration run under the c
     const after = mineOf(seasonOdds(I.snapshot, plusMine(season, me.id, 3, I.from), { sims: sim.blocks.final.sims, seed: sim.seed, normals: sim.blocks.final }), me.id);
     const dPO = (after?.pPlayoffs as number) - sim.base.final.pPlayoffs;
     const dCH = (after?.pTitle as number) - (sim.base.final.pTitle as number);
+    // Every prize component's change on the same run (Checkpoint 7c: "Several prizes" weighs 2nd and 3rd place too).
+    const dPrizes = prizeDeltas(sim.base.final.prizes, prizeOddsOf(after as NonNullable<typeof after>));
+    expect(dPrizes.first).toBe(dCH);
     for (const goal of GOALS) {
-      const b = benefit({ leagueType: "redraft", dPO, dCH, gMine: 0, dynasty: null, myPPlayoffs: sim.base.final.pPlayoffs, goal }).b;
-      expect(tradeScore(b, helpsScaleOf(I, null, goal)?.b3 ?? null), goal).toBe(63);
+      const reward = rewardIn(I, goal);
+      const b = benefit({ leagueType: "redraft", dPO, dCH, dPrizes, gMine: 0, dynasty: null, myPPlayoffs: sim.base.final.pPlayoffs, reward }).b;
+      expect(tradeScore(b, helpsScaleOf(I, null, reward)?.b3 ?? null), goal).toBe(63);
     }
   });
 
@@ -171,10 +180,10 @@ describe("B₃ (evaluate.helpsScaleOf): the B of the calibration run under the c
     const x = exact(ctx, trade("2", [(I.me as TeamState).roster[0] as string], [(I.byId.get("2") as TeamState).roster[0] as string]));
     const kappa = protectValueWeight(config.benefit.protectValueDefault);
     for (const goal of GOALS) {
-      const scale = helpsScaleOf(I, null, goal);
+      const scale = helpsScaleOf(I, null, rewardIn(I, goal));
       const b3 = scale?.b3 as number;
       for (const stage of ["final", "screen"] as const) {
-        const e = simulateTrade(I, x, stage, null, undefined, goal);
+        const e = simulateTrade(I, x, stage, null, undefined, rewardIn(I, goal));
         expect(e.b3, `${goal} ${stage}`).toBe(b3);
         expect(e.tradeScore, `${goal} ${stage}`).toBe(tradeScore(e.b, b3));
         expect(e.overall, `${goal} ${stage}`).toBe(overallScore(e.b, e.pComplete, b3));
@@ -207,7 +216,7 @@ describe("B₃ (evaluate.helpsScaleOf): the B of the calibration run under the c
     const before = simulateTrade(I, x, "final", null);
     const saved = sim.calibration;
     try {
-      sim.calibration = { ...cal, dPO: cal.dPO * 2, dCH: (cal.dCH as number) * 2 };
+      sim.calibration = { ...cal, dPO: cal.dPO * 2, dCH: (cal.dCH as number) * 2, dPrizes: titleDeltas((cal.dCH as number) * 2) };
       const after = simulateTrade(I, x, "final", null);
       expect(after.b3 as number).toBeCloseTo(2 * (before.b3 as number), 9);
       expect(after.bWin).toBe(before.bWin); // the trade's own simulation doesn't depend on the scale
@@ -225,19 +234,19 @@ describe("B₃ (evaluate.helpsScaleOf): the B of the calibration run under the c
     const Id = tradeInternals(buildTradeContext(snapshot, inputs, { now: TEST_NOW, scenarios: 0 }));
     expect(Id.future).not.toBeNull();
     const run = (Id.sim as SimState).calibration as HelpsCalibration;
-    const bWin = benefitWin(run.dPO, run.dCH).bWin as number;
+    const bWin = benefitWin(run.dPO, run.dPrizes).bWin as number;
     const F10 = config.benefit.bFutureScale * config.benefit.helpsFutureShare;
     // Review SC-1's λ cap is gone: λ 0.8 and 1 mix as any other.
     for (const lambda of [0, 0.35, 0.75, 0.8, 1]) {
-      const s = helpsScaleOf(Id, lambda, "title");
+      const s = helpsScaleOf(Id, lambda);
       expect(s?.raw, `λ ${lambda}`).toBeCloseTo((1 - lambda) * bWin + lambda * F10, 12);
       expect(s, `λ ${lambda}`).toMatchObject({ lambda, f10: F10, odds: bWin });
     }
     const byDefault = helpsScale(run, { leagueType: "dynasty", myPPlayoffs: (Id.sim as SimState).base.final.pPlayoffs, dynastyTotal: Id.future?.myTotal ?? null });
-    expect(helpsScaleOf(Id, null, "title")).toEqual(byDefault);
+    expect(helpsScaleOf(Id, null)).toEqual(byDefault);
     const total = Id.future?.myTotal as number;
     const b = benefit({ leagueType: "dynasty", dPO: run.dPO, dCH: run.dCH, gMine: 0, dynasty: { delta: 0.1 * total, total }, myPPlayoffs: (Id.sim as SimState).base.final.pPlayoffs }).b;
-    expect(tradeScore(b, helpsScaleOf(Id, null, "title")?.b3 ?? null)).toBe(63);
+    expect(tradeScore(b, helpsScaleOf(Id, null)?.b3 ?? null)).toBe(63);
     // No market term in a dynasty league: no lineup equivalent for it.
     const p = analyzeTrade(buildTradeContext(snapshot, inputs, { now: TEST_NOW, scenarios: 0 }), trade("3", ["wa1"], ["wa3"]));
     expect(p.evaluation?.marketWeekly).toBeNull();
@@ -253,8 +262,8 @@ describe("the floor: when +3 a week barely moves my odds, B₃ is config.benefit
     const normal = runTradeSearch(ctx);
     expect(normal.notes).not.toContain(HELPS_FLOOR_NOTE);
     // My odds barely move with +3 a week (a team certainly out or locked in reads like this).
-    sim.calibration = { ...(sim.calibration as HelpsCalibration), dPO: 0.0004, dCH: 0.0002 };
-    const s = helpsScaleOf(I, null, "title");
+    sim.calibration = { ...(sim.calibration as HelpsCalibration), dPO: 0.0004, dCH: 0.0002, dPrizes: titleDeltas(0.0002) };
+    const s = helpsScaleOf(I, null);
     expect(s).toMatchObject({ b3: config.benefit.helpsFloor, floored: true });
     const x = exact(ctx, trade("2", [(I.me as TeamState).roster[0] as string], [(I.byId.get("2") as TeamState).roster[0] as string]));
     const e = simulateTrade(I, x, "final", null);
@@ -286,14 +295,14 @@ describe("dynasty, the scale follows the Win now ↔ Future slider (planner repl
   const ctx = buildTradeContext(snapshot, inputs, { now: TEST_NOW, scenarios: 0 });
   const I = tradeInternals(ctx);
   const run = (I.sim as SimState).calibration as HelpsCalibration;
-  const odds = benefitWin(run.dPO, run.dCH).bWin as number;
+  const odds = benefitWin(run.dPO, run.dPrizes).bWin as number;
   const F10 = config.benefit.bFutureScale * config.benefit.helpsFutureShare;
 
   it("the search and the Analyzer at λ 0.95 and 1 (past review SC-1's cap) and by default: every card on B_ref(λ), its B the trade's own mix, no note", () => {
     expect(I.future).not.toBeNull();
     expect(odds).toBeGreaterThan(4 * config.benefit.helpsFloor);
     for (const lambda of [0.95, 1, null]) {
-      const scale = helpsScaleOf(I, lambda, "title");
+      const scale = helpsScaleOf(I, lambda);
       const lam = scale?.lambda as number;
       expect(scale, `λ ${lambda}`).toMatchObject({ floored: false, reason: null, f10: F10 });
       expect(scale?.b3, `λ ${lambda}`).toBeCloseTo((1 - lam) * odds + lam * F10, 12);
@@ -316,7 +325,7 @@ describe("dynasty, the scale follows the Win now ↔ Future slider (planner repl
       expect(a.evaluation?.detail.notes, `λ ${lambda}`).not.toContain(HELPS_FLOOR_NOTE);
     }
     // λ 1: the scale is F₁₀ alone, so +10% long-term value reads 63 and lineup gains this season read 0.
-    expect(helpsScaleOf(I, 1, "title")).toMatchObject({ b3: F10, gainReads: 0, futureReads: 63 });
+    expect(helpsScaleOf(I, 1)).toMatchObject({ b3: F10, gainReads: 0, futureReads: 63 });
   });
 });
 
@@ -327,7 +336,7 @@ describe("the search: one B₃ for every card, its steps and its Plan B", { time
     let steps = 0;
     let planBs = 0;
     for (const goal of GOALS) {
-      const b3 = helpsScaleOf(I, null, goal)?.b3 as number;
+      const b3 = helpsScaleOf(I, null, rewardIn(I, goal))?.b3 as number;
       const result = runTradeSearch(ctx, { settings: { ...defaultTradeSettings(), goal, minChance: 0 } });
       expect(result.trades.length, goal).toBeGreaterThan(0);
       expect(result.helpsScale?.b3, goal).toBe(b3);

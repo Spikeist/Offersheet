@@ -17,7 +17,7 @@ describe("playoffWeightTag", () => {
 
   it("changes with what the League model reads: the goal, the streamed positions, my team, the inputs' build and the league data", () => {
     expect(tag).not.toBeNull();
-    expect(LEAGUE_MODEL_SETTINGS).toEqual(["streamPositions", "goal"]);
+    expect(LEAGUE_MODEL_SETTINGS).toEqual(["streamPositions", "goal", "prizes"]);
     expect(playoffWeightTag({ ...base, settings: { ...base.settings, goal: "playoffs" } })).not.toBe(tag);
     expect(playoffWeightTag({ ...base, settings: { ...base.settings, streamPositions: ["K"] } })).not.toBe(tag);
     expect(playoffWeightTag({ ...base, myTeamId: "2" })).not.toBe(tag);

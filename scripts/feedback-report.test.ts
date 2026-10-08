@@ -71,6 +71,21 @@ afterEach(() => {
   temp = undefined;
 });
 
+describe("an older version's goal (Checkpoint 7c)", () => {
+  it("counts a copy made under “Top finishers too” (“balanced”) by its own goal, next to today's", () => {
+    const title = { ...copyOf(A, [{ outcome: "sent" }]), day: "2026-10-04" } as StoredFeedbackEvent;
+    const old = { ...copyOf(B, [{ outcome: "rejected" }]), goal: "balanced", day: "2026-10-04" } as StoredFeedbackEvent;
+    const prizes = { ...copyOf(C, [{ outcome: "accepted" }]), goal: "prizes", day: "2026-10-04" } as StoredFeedbackEvent;
+    const { events, invalid } = parseFeedbackEntries([title, old, prizes].map((e) => JSON.stringify(e)));
+    expect(invalid).toBe(0);
+    expect(summarizeFeedback(events, invalid, new Map([["2026-10-04", 3]])).byGoal).toEqual([
+      ["title", 1],
+      ["prizes", 1],
+      ["balanced", 1],
+    ]);
+  });
+});
+
 describe("feedbackReportArgs and the days", () => {
   it("previews and the store's whole year by default; --env production; --days 1–366; anything else in words", () => {
     expect(MAX_DAYS).toBe(feedbackLimits.retainDays + 1);

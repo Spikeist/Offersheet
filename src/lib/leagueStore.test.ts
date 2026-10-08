@@ -938,6 +938,26 @@ describe("settings and feedback", () => {
     expect(await client.updateSettings("espn:4242", () => mine)).toEqual({ ok: false, message: SETTINGS_SAVE_FAILED });
   });
 
+  it("reads a league saved with “Top finishers too” as “Several prizes” on the prefilled split, and stores it so on the next change (Checkpoint 7c, planner reply to Checkpoint 7b, §6, “Migration”)", async () => {
+    const b = newBrowser();
+    const key = leagueKey(A);
+    // The row an older version wrote: goal "balanced", no prizes.
+    const backend = await openIndexedDbBackend(b.factory as IDBFactory);
+    try {
+      await backend.run("readwrite", (tx) => tx.put("settings", { leagueKey: key, settings: { ...defaultTradeSettings(), goal: "balanced", prizes: undefined } }));
+    } finally {
+      backend.close();
+    }
+    const { client } = b.tab();
+    await client.start();
+    const read = { ...defaultTradeSettings(), goal: "prizes" as const, prizes: { first: 60, second: 30, third: 10, weeklyHigh: null, pointsLeader: null } };
+    expect(savedSettingsRead(client.getState(), key)).toEqual({ settings: read, stored: true });
+    // The row keeps "balanced" until a change saves it normalized.
+    expect(((await rowsOf(b.factory as IDBFactory, "settings"))[0] as { settings: { goal: string } }).settings.goal).toBe("balanced");
+    expect(await client.updateSettings(key, (s) => ({ ...s, lambda: 0.4 }))).toEqual({ ok: true });
+    expect(await rowsOf(b.factory as IDBFactory, "settings")).toEqual([{ leagueKey: key, settings: { ...read, lambda: 0.4 } }]);
+  });
+
   it("never lets quick changes in a row, or in two tabs at once, undo each other", async () => {
     const b = newBrowser();
     const one = b.tab();

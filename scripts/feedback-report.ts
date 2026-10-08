@@ -31,8 +31,7 @@
 import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { config } from "@/engine/config";
-import { GOALS } from "@/engine/settings";
-import type { StoredFeedbackEvent } from "@/lib/feedbackEvent";
+import { FEEDBACK_GOALS, type StoredFeedbackEvent } from "@/lib/feedbackEvent";
 import { FEEDBACK_OUTCOMES, FEEDBACK_REASONS, FEEDBACK_VERSIONS } from "@/lib/feedbackStore";
 import { StoredFeedbackEventSchema } from "@/server/feedbackSink";
 import { feedbackLimits } from "@/server/limits";
@@ -247,7 +246,8 @@ export function summarizeFeedback(events: readonly StoredFeedbackEvent[], invali
     byOutcome: counted(byOutcome, FEEDBACK_OUTCOMES),
     byReason: counted(byReason, FEEDBACK_REASONS),
     byVersion: counted(byVersion, FEEDBACK_VERSIONS),
-    byGoal: counted(byGoal, GOALS),
+    // Today's goals and an older version's ("balanced", "Top finishers too": its copies keep it; feedbackEvent.ts).
+    byGoal: counted(byGoal, FEEDBACK_GOALS),
     byPlatform: counted(byPlatform),
     byLeagueType: counted(byLeagueType),
     calibration,

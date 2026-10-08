@@ -150,7 +150,7 @@ describe("saveFeedbackPress: saved here first, then its anonymous copy", () => {
     expect(s.record()?.basis).toEqual({ season: 2026, week: 12, goal: "title" });
     s.advance(FEEDBACK_SHARE_DEBOUNCE_MS);
     // A week later, under another goal: the record's numbers are still week 12's.
-    await s.press({ outcome: "sent" }, { ...share, week: 13, goal: "balanced" });
+    await s.press({ outcome: "sent" }, { ...share, week: 13, goal: "prizes" });
     s.advance(FEEDBACK_SHARE_DEBOUNCE_MS);
     expect(s.record()?.basis).toEqual({ season: 2026, week: 12, goal: "title" });
     expect(s.posted.map((e) => [e.week, e.goal])).toEqual([

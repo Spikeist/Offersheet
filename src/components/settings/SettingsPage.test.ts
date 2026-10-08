@@ -240,7 +240,7 @@ describe("with a league", () => {
       .map(([, cls = "", attrs = "", name = "", id = "", help = ""]) => ({ cls, described: attrs.includes(`aria-describedby="${id}"`), name: textOf(name), help: textOf(help) }));
     expect(rows.map((r) => [r.name, r.help])).toEqual([
       ["Only the champion default", "Weighs your title odds most (85%), playoff odds 15%."],
-      ["Top finishers too", "Weighs your title odds 65% and your playoff odds 35%."],
+      ["Several prizes", "Weighs your share of the league's prizes most (85%), playoff odds 15%."],
       ["Making the playoffs", "Weighs your playoff odds most (70%), title odds 30%."],
     ]);
     // The planner's helper line with the group's help (no auto-switching by odds).

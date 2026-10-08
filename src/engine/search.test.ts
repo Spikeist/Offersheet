@@ -119,7 +119,7 @@ describe("the trade search (§12; M6–M8)", { timeout: 60_000 }, () => {
     expect(r.trades).toEqual([]);
     expect(r.notes).toEqual([NO_TEAM_NOTE]);
     expect(r.counts).toEqual({ screened: 0, exact: 0, simScreen: 0, simFinal: 0 });
-    expect(r.baseline).toEqual({ pPlayoffs: null, pTitle: null, expWins: null });
+    expect(r.baseline).toEqual({ pPlayoffs: null, pTitle: null, expWins: null, prizes: null });
     expect(progress).toEqual([{ stage: "setup", done: 0, total: 1 }]);
   });
 

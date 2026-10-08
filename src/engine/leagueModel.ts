@@ -5,6 +5,7 @@
  */
 import type { FantasyCalcFormat } from "./inputs";
 import type { Pos } from "./model";
+import type { PrizeDeltas, Reward } from "./reward";
 import type { Goal } from "./settings";
 
 export type BaseRateSource = "espn+sleeper" | "sleeper" | "espn" | "season" | "actual" | "none";
@@ -32,6 +33,14 @@ export interface LeagueModel {
    * before Phase 7b.
    */
   playoffWeightAuto?: PlayoffWeightAuto;
+  /**
+   * Checkpoint 7c (planner reply to Checkpoint 7b, §6, league prizes): what "What does your league reward?" pays for in this
+   * build (src/engine/reward.ts rewardOf from the settings and the snapshot): the goal's weights, the prize shares and the
+   * league's prize periods. ω (step 5c) and the "Helps you" calibration (step 8c) read it, and the weekly high scores were
+   * simulated only when its weekly share pays (SeasonOdds.highScorePeriods). The League page reads it to decide the "Top 3
+   * odds" line and whether the season's over for my team (reward.ts prizeStillMovable). Absent in a model built before.
+   */
+  reward?: Reward;
   /**
    * The thresholds in ROS lineup points this model's team numbers were judged by (league.ts step 5c; LineupThresholds):
    * config's × Σω ÷ Σω₀, so under ω they mean what they did at ω₀. A page that quotes one (the trade chips' least gap) reads
@@ -119,6 +128,14 @@ export interface HelpsCalibration {
   dPO: number;
   /** My P(title) change; null when the league's title odds are unknown (B₃ then counts the playoff odds alone, as every trade's B). */
   dCH: number | null;
+  /**
+   * Checkpoint 7c (planner reply to Checkpoint 7b, §6): every prize component's change on the same run (reward.ts PrizeDeltas:
+   * 1st = dCH, 2nd, 3rd, the weekly high scores won, the points title), so B₃ is the B of +3 a week under any split
+   * (benefit.helpsScale reads the ones the reward pays). The weekly high scores' change is null (unknown) unless the build
+   * simulated them (its reward pays them: LeagueModel.reward; reward.ts runPrizeDeltas), so a reward that pays them can't
+   * read a run made without them: benefit.helpsScale refuses it (reward.ts assertWeeklyMeasured).
+   */
+  dPrizes: PrizeDeltas;
 }
 
 /**
@@ -215,8 +232,9 @@ export interface WaiverRow {
  * - "noPlayoffWeeks": no playoff week left that they count (none listed, or the season's over);
  * - "noOdds": the season wasn't simulated (sims 0), or can't be (the rest of the schedule didn't load, nothing left to
  *   simulate, the simulator refused the setup);
- * - "titleUnknown": my title odds are unknown (a played playoff round without a result we can match, fewer listed playoff
- *   rounds than the bracket needs), so a playoff week's points can't be priced;
+ * - "titleUnknown": my odds of a prize the reward pays are unknown (Checkpoint 7c: the title's, or 2nd or 3rd place's under
+ *   "Several prizes"; a played playoff round without a result we can match, fewer listed playoff rounds than the bracket
+ *   needs), so a playoff week's points can't be priced;
  * - "noEffect": neither run moves my odds under my goal (both per-point B's at or below 0: a team certainly out, say);
  * - "notFinite": a per-point B isn't a number.
  */
@@ -229,6 +247,14 @@ export interface PlayoffWeightRun {
   /** My P(playoffs) and P(title) changes, fractions; dCH null when title odds are unknown. */
   dPO: number;
   dCH: number | null;
+  /**
+   * Checkpoint 7c: every prize component's change on the run (reward.ts PrizeDeltas; dCH is its 1st place), whatever the
+   * reward pays, so a report can price the same runs under another split without running them again (league.ts
+   * playoffWeightFrom), as long as that split doesn't pay the weekly high score: its change is null (unknown) unless the
+   * build simulated the high scores (its own reward pays them; reward.ts runPrizeDeltas), and playoffWeightFrom refuses
+   * runs without it under a split that pays it (reward.ts assertWeeklyMeasured).
+   */
+  dPrizes: PrizeDeltas;
 }
 
 /**
@@ -243,15 +269,18 @@ export interface PlayoffWeightAuto {
   basis: "auto" | "fallback";
   /** Why the fallback; null when measured. */
   reason: PlayoffWeightFallback | null;
-  /** The goal ("What matters most", TradeSettings.goal) both runs' B_win weigh my odds by. */
+  /** The goal ("What does your league reward?", TradeSettings.goal) both runs' B_win weigh my odds by: reward.goal. */
   goal: Goal;
+  /** Checkpoint 7c (planner reply to Checkpoint 7b, §6): the reward both runs' B_win read (its goal's weights and prize shares). */
+  reward: Reward;
   /** Points a week added in each run (config.lineups.playoffWeightAuto.gain). */
   gain: number;
   /** Seasons simulated (each run on the same ones: common random numbers); 0 when nothing was simulated. */
   sims: number;
   /**
-   * B per projected point a week: B_win(ΔPO, ΔCH) under the goal ÷ (gain × the weeks changed), in the regular-season run and
-   * in the playoff run; null when that run wasn't made or its ΔCH is unknown.
+   * B per projected point a week: B_win(ΔPO, ΔE[S]) under the reward ÷ (gain × the weeks changed), in the regular-season run
+   * and in the playoff run; null when that run wasn't made or a paid prize's change is unknown (its ΔCH under "Only the
+   * champion" and "Making the playoffs").
    */
   regularPerPoint: number | null;
   playoffPerPoint: number | null;
@@ -705,6 +734,15 @@ export interface SeasonOdds {
   /** Checkpoint 7c: the remaining weekly high-score periods simulated (0 unless the weekly prize pays: season.ts). */
   highScorePeriods: number;
   /**
+   * Checkpoint 7c (the review of the reward engine; reward.ts prizeStillMovable, the season-over stops): what a trade can
+   * still change in the regular season. Every trade holds the week under way at its score as rosters stand (evaluate.ts), so
+   * both leave it out: `periods`, the remaining weekly high-score periods with a week to play other than the week under way
+   * (counted whether or not they were simulated; highScorePeriods counts the simulated ones, the week under way's too), and
+   * `weeks`, the regular-season weeks still to play other than the week under way. With no week left, the final standings
+   * can't move: nor the points title, nor a place they decide (sim.ts).
+   */
+  regularLeft: { periods: number; weeks: number };
+  /**
    * False when a playoff round already played has no result, or when the league's own playoff schedule
    * pairs teams differently from the bracket built from the final standings: title and bye odds are then
    * unknown (null).
@@ -743,6 +781,15 @@ export interface TeamOdds {
    * tied at the playoff cut on what the platform reports isn't certainly out (season.ts).
    */
   eliminated: boolean;
+  /**
+   * Checkpoint 7c (the review of the reward engine; reward.ts prizeStillMovable): the best place this team can still finish
+   * in the final regular-season standings, by `eliminated`'s rules: 1 + the teams certainly ahead of it, or 1 while that
+   * can't be bounded (a division it can still win; a points-only league, or results still to come that aren't known for
+   * sure, before the regular season ends). A bound for the season-over stops, not a place to show: in a bracket of 2
+   * playoff teams or fewer the final standings decide 3rd place, and with 1 or none 2nd too (sim.ts), so a team out of the
+   * title race can still win one. Out of the title race before any playoff game: above the playoff spots.
+   */
+  bestFinish: number;
   // Checkpoint 7c (planner reply to Checkpoint 7b, §6, league prizes; sim.ts "Places, weekly high scores and the points
   // leader"). benefit.ts weighs them by the league's prize shares.
   /** P(2nd place: the final's loser; without playoffs, 2nd in the final standings). Null whenever pTitle is. */

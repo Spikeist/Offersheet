@@ -238,7 +238,8 @@ describe("the minimum chance and the pattern note on the Trade Finder (planner r
     const d = defaultTradeSettings();
     expect(key({ ...d, minChance: 0.5 })).toBe(key(d));
     expect(key({ ...d, minChance: 0 })).toBe(key(d));
-    expect(key({ ...d, goal: "balanced" })).not.toBe(key(d));
+    expect(key({ ...d, goal: "prizes" })).not.toBe(key(d));
+    expect(key({ ...d, prizes: { ...d.prizes, first: 50 } })).not.toBe(key(d));
     expect(key({ ...d, maxPerSide: 3 })).not.toBe(key(d));
     // Ideas ranked at another minimum need ranking again; a search that stopped before ranking holds for any.
     const ranked = { filter: { minChance: 0.1, qualifying: 12, few: false } };

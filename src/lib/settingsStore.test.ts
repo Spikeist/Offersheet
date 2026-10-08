@@ -10,7 +10,7 @@ import { describe, expect, it } from "vitest";
 import { config } from "@/engine/config";
 import { buildLeagueModel } from "@/engine/league";
 import type { Matchup } from "@/engine/model";
-import { defaultTradeSettings, type TradeSettings } from "@/engine/settings";
+import { PRIZE_MAX, defaultTradeSettings, normalizeTradeSettings, type TradeSettings } from "@/engine/settings";
 import { TEST_NOW, randomLeague } from "@/engine/testLeague";
 import type { StorageLike } from "./importStore";
 import {
@@ -62,7 +62,7 @@ class FullStorage extends MemoryStorage {
 
 const ESPN = { platform: "espn" as const, leagueId: "4242" };
 const SLEEPER = { platform: "sleeper" as const, leagueId: "1048576000123456789" };
-const mine: TradeSettings = { ...defaultTradeSettings(), streamPositions: ["K", "DEF", "TE"], goal: "balanced", untouchables: ["4046"], maxPerSide: 3 };
+const mine: TradeSettings = { ...defaultTradeSettings(), streamPositions: ["K", "DEF", "TE"], goal: "prizes", prizes: { first: 2000, second: 1600, third: 900, weeklyHigh: null, pointsLeader: null }, untouchables: ["4046"], maxPerSide: 3 };
 
 describe("leagueKey", () => {
   it("is the platform and 8 hex digits, the same every time, and never the raw league id", () => {
@@ -194,6 +194,8 @@ describe("settingsFingerprint", () => {
     const changes: Partial<TradeSettings>[] = [
       { streamPositions: ["K"] },
       { goal: "playoffs" },
+      { goal: "prizes" },
+      { prizes: { first: 50, second: 30, third: 10, weeklyHigh: null, pointsLeader: null } },
       { lambda: 0.4 },
       { maxPerSide: 3 },
       { untouchables: ["1"] },
@@ -212,15 +214,41 @@ describe("settingsFingerprint", () => {
     expect(settingsFingerprint({ ...defaultTradeSettings(), goal: "x" as TradeSettings["goal"] }, LEAGUE_MODEL_SETTINGS)).toBe(settingsFingerprint(defaultTradeSettings(), LEAGUE_MODEL_SETTINGS));
   });
 
+  it("reads a league saved with “Top finishers too” as “Several prizes” on the prefilled split, fingerprinted as its re-saved copy (planner reply to Checkpoint 7b, §6, “Migration”)", () => {
+    const stored = { ...defaultTradeSettings(), goal: "balanced", prizes: { first: 1, second: 2, third: 3, weeklyHigh: 4, pointsLeader: 5 } } as unknown as TradeSettings;
+    const read = normalizeTradeSettings(stored);
+    expect(read).toEqual({ ...defaultTradeSettings(), goal: "prizes", prizes: { first: 60, second: 30, third: 10, weeklyHigh: null, pointsLeader: null } });
+    for (const fields of [undefined, LEAGUE_MODEL_SETTINGS]) expect(settingsFingerprint(stored, fields)).toBe(settingsFingerprint(read, fields));
+    // Stored, read back: the same, and saved again normalized.
+    const storage = new MemoryStorage();
+    storage.values.set(SETTINGS_STORAGE_KEY, JSON.stringify({ [leagueKey(ESPN)]: stored }));
+    expect(loadLeagueSettings(storage, leagueKey(ESPN))).toEqual({ settings: read, stored: true });
+    // The prizes' keys in one order, whatever order they were stored in (the fingerprint is JSON).
+    const shuffled = normalizeTradeSettings({ ...defaultTradeSettings(), goal: "prizes", prizes: { pointsLeader: 5, third: 10, first: 60, weeklyHigh: null, second: 30 } });
+    expect(Object.keys(shuffled.prizes)).toEqual(["first", "second", "third", "weeklyHigh", "pointsLeader"]);
+    expect(settingsFingerprint(shuffled)).toBe(settingsFingerprint({ ...defaultTradeSettings(), goal: "prizes", prizes: { first: 60, second: 30, third: 10, weeklyHigh: null, pointsLeader: 5 } }));
+  });
+
+  it("keeps a prize amount only as a finite number from 0 to PRIZE_MAX, else blank (not paid), key by key (the review of the reward engine, RW-5)", () => {
+    const read = (prizes: unknown) => normalizeTradeSettings({ ...defaultTradeSettings(), goal: "prizes", prizes }).prizes;
+    expect(read({ first: -5, second: 30, third: 0, weeklyHigh: 2.5, pointsLeader: -0 })).toEqual({ first: null, second: 30, third: 0, weeklyHigh: 2.5, pointsLeader: 0 });
+    expect(Object.is(read({ first: 1, second: null, third: null, weeklyHigh: null, pointsLeader: -0 }).pointsLeader, 0)).toBe(true);
+    expect(read({ first: Number.NaN, second: Number.POSITIVE_INFINITY, third: "900", weeklyHigh: PRIZE_MAX + 1, pointsLeader: PRIZE_MAX })).toEqual({ first: null, second: null, third: null, weeklyHigh: null, pointsLeader: PRIZE_MAX });
+    // Not an object: the prefilled split.
+    for (const junk of [null, 7, "60/30/10", [60, 30, 10]]) expect(read(junk)).toEqual(defaultTradeSettings().prizes);
+  });
+
   it("with fields, counts only those settings, in any order (the League page's tag passes LEAGUE_MODEL_SETTINGS)", () => {
     const base = settingsFingerprint(defaultTradeSettings(), LEAGUE_MODEL_SETTINGS);
     expect(settingsFingerprint({ ...defaultTradeSettings(), streamPositions: ["K"] }, LEAGUE_MODEL_SETTINGS)).not.toBe(base);
     expect(settingsFingerprint({ ...defaultTradeSettings(), goal: "playoffs" }, LEAGUE_MODEL_SETTINGS)).not.toBe(base);
+    // "Several prizes"' amounts (Checkpoint 7c): the split moves ω.
+    expect(settingsFingerprint({ ...defaultTradeSettings(), prizes: { first: 2000, second: 1600, third: 900, weeklyHigh: null, pointsLeader: null } }, LEAGUE_MODEL_SETTINGS)).not.toBe(base);
     // The manual playoff weight is gone (planner reply to Checkpoint 7a, §6.1: ω is set automatically).
     const other = { ...defaultTradeSettings(), lambda: 0.4, maxPerSide: 3, untouchables: ["1"], mustInclude: ["2"], targetPositions: ["RB"], avoidPositions: ["TE"], includeKDefIdp: true, includePicks: true } satisfies TradeSettings;
     expect(settingsFingerprint(other, LEAGUE_MODEL_SETTINGS)).toBe(base);
     // The fields' order and repeats don't matter; the lists' order doesn't either.
-    expect(settingsFingerprint(mine, ["goal", "streamPositions", "goal"])).toBe(settingsFingerprint({ ...mine, streamPositions: ["TE", "DEF", "K"] }, LEAGUE_MODEL_SETTINGS));
+    expect(settingsFingerprint(mine, ["goal", "prizes", "streamPositions", "goal"])).toBe(settingsFingerprint({ ...mine, streamPositions: ["TE", "DEF", "K"] }, LEAGUE_MODEL_SETTINGS));
   });
 });
 
@@ -279,5 +307,11 @@ describe("LEAGUE_MODEL_SETTINGS: every setting the League model reads, and only 
     expect(goal.playoffWeightAuto?.playoffPerPoint).not.toBe(defaults.playoffWeightAuto?.playoffPerPoint);
     expect(build({ streamPositions: ["K", "DEF", "QB", "TE"] })).not.toEqual(defaults);
     expect(build({ streamPositions: [] })).not.toEqual(defaults);
+    // "Several prizes"' amounts (Checkpoint 7c, planner reply to Checkpoint 7b, §6): under that goal the split weighs my odds.
+    const split = build({ goal: "prizes" });
+    const parker = build({ goal: "prizes", prizes: { first: 2000, second: 1600, third: 900, weeklyHigh: null, pointsLeader: null } });
+    expect(parker).not.toEqual(split);
+    expect(parker.reward?.shares).toMatchObject({ first: 4 / 9, second: 16 / 45, third: 1 / 5 });
+    expect(parker.playoffWeightAuto?.playoffPerPoint).not.toBe(split.playoffWeightAuto?.playoffPerPoint);
   });
 });

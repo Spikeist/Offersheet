@@ -115,6 +115,11 @@
  * season is all in the schedule and the records add up; win percentage comes first in every standings
  * order). Points-only leagues wait for the regular season to end: points for can't be bounded. With no
  * playoffs the title goes to the top of the standings, so every team certainly behind another is out.
+ * TeamOdds.bestFinish (Checkpoint 7c; the review of the reward engine) is that bound as a place: 1 + the teams certainly
+ * ahead, or 1 while a division title could lift the team; eliminated is a bestFinish past the playoff spots, or a lost
+ * playoff game. reward.ts prizeStillMovable reads it for the places the final standings decide (3rd in a bracket of 2
+ * playoff teams or fewer, 2nd too with 1 or none), with SeasonOdds.regularLeft: the high-score periods and the
+ * regular-season weeks a trade can still change, the week under way left out (every trade holds it as rosters stand).
  */
 import { config } from "./config";
 import type { LeagueModel, SeasonOdds, TeamModel, TeamOdds, WeekOdds } from "./leagueModel";
@@ -185,6 +190,13 @@ export interface SimSetupResult {
    * records are final (true too when no regular-season week is left).
    */
   regularSeasonOver: boolean;
+  /**
+   * Checkpoint 7c (SeasonOdds.regularLeft; reward.ts prizeStillMovable): what a trade can still change in the regular
+   * season, the week under way (model.inProgressWeek) left out, since every trade holds it at its score as rosters stand
+   * (evaluate.ts): the remaining high-score periods (the file header's, listed in the setup only when asked, counted here
+   * either way) with a drawn week other than it, and the regular-season weeks drawn other than it.
+   */
+  regularLeft: { periods: number; weeks: number };
   /**
    * Per team (setup order), how many regular-season results its record still has to take in: its
    * remaining games with an opponent, its median games (median leagues), and the games of finished weeks
@@ -547,18 +559,19 @@ export function buildSimSetup(snapshot: LeagueSnapshot, model: SeasonModel, opts
     if (left.length > 0 && left.length < r.weeks.length) notes.push(`The playoff round of weeks ${r.weeks[0]}–${r.weeks.at(-1)} is under way: only its weeks still to play are simulated.`);
   }
 
-  // Weekly high-score periods, when asked (the file header): each remaining matchup period with a game to play once
-  // (its weeks are drawn already, as that game's), or in a points-only league each regular week still to score.
-  let highScorePeriods: number[][] | undefined;
-  if (opts.highScores === true) {
-    const byKey = new Map<string, number[]>();
-    if (pointsOnly) {
-      for (const w of model.regularWeeks) if (drawn.has(w)) byKey.set(String(w), [w]);
-    } else {
-      for (const g of games) if (g.b !== null && !byKey.has(g.weeks.join())) byKey.set(g.weeks.join(), [...g.weeks]);
-    }
-    highScorePeriods = [...byKey.values()].sort((x, y) => (x[0] as number) - (y[0] as number));
+  // Weekly high-score periods (the file header): each remaining matchup period with a game to play once (its weeks are
+  // drawn already, as that game's), or in a points-only league each regular week still to score; the setup lists them only
+  // when asked. What a trade can still change in the regular season (SimSetupResult.regularLeft) leaves the week under way out.
+  const periodsByKey = new Map<string, number[]>();
+  if (pointsOnly) {
+    for (const w of model.regularWeeks) if (drawn.has(w)) periodsByKey.set(String(w), [w]);
+  } else {
+    for (const g of games) if (g.b !== null && !periodsByKey.has(g.weeks.join())) periodsByKey.set(g.weeks.join(), [...g.weeks]);
   }
+  const periods = [...periodsByKey.values()].sort((x, y) => (x[0] as number) - (y[0] as number));
+  const highScorePeriods = opts.highScores === true ? periods : undefined;
+  const tradeable = (w: number): boolean => drawn.has(w) && w !== live;
+  const regularLeft = { periods: periods.filter((p) => p.some(tradeable)).length, weeks: model.regularWeeks.filter(tradeable).length };
 
   const setup: SimSetup = {
     teams,
@@ -636,6 +649,7 @@ export function buildSimSetup(snapshot: LeagueSnapshot, model: SeasonModel, opts
     thirdPlace,
     playoffsKnown: unreadablePlayoffs === 0 && bracketMatches,
     regularSeasonOver,
+    regularLeft,
     resultsLeft,
   };
 }
@@ -653,24 +667,22 @@ export function weekUnderWayNote(week: number): string {
 const known = (x: number): number | null => (Number.isFinite(x) ? x : null);
 
 /**
- * TeamOdds.eliminated (the file header): certainly out of the title race. A team is out when at least as
- * many teams as there are playoff spots are certainly ahead of it at the end of the regular season and no
- * division title can lift it: with 2+ divisions, a division rival must be among them (seeding division
- * winners first then keeps it below every team ahead of it, and without that rule those teams are ahead
- * anyway). Once the regular season is over, "certainly ahead" reads the final records (and a team that
- * lost a playoff game is out too). Before that, only the records can decide it: u is certainly ahead of t
- * when u's win percentage if it loses every result still to come beats t's if it wins every one
- * (SimSetupResult.resultsLeft: remaining games, median games and finished games not scored yet), which
- * no tiebreaker can undo. Points-only leagues, and seasons whose remaining results aren't known for sure
- * (resultsLeft null), wait for the regular season to end.
+ * TeamOdds.bestFinish (the file header, "TeamOdds.eliminated"): the best place each team can still finish in the final
+ * regular-season standings, 1 + the teams certainly ahead of it at the end of the regular season, or 1 when a division
+ * title could still lift it: with 2+ divisions, unless a division rival is among those teams (seeding division winners
+ * first then keeps it below every team ahead of it, and without that rule those teams are ahead anyway). Once the regular
+ * season is over, "certainly ahead" reads the final records. Before that, only the records can decide it: u is certainly
+ * ahead of t when u's win percentage if it loses every result still to come beats t's if it wins every one
+ * (SimSetupResult.resultsLeft: remaining games, median games and finished games not scored yet), which no tiebreaker can
+ * undo. Points-only leagues, and seasons whose remaining results aren't known for sure (resultsLeft null), wait for the
+ * regular season to end (1 for every team until then). A lower bound, never a place the team is sure of.
  */
-function eliminatedTeams(built: SimSetupResult): boolean[] {
+function bestFinishes(built: SimSetupResult): number[] {
   const { setup } = built;
   const T = setup.teams.length;
-  const out = new Array<boolean>(T).fill(false);
+  const best = new Array<number>(T).fill(1);
   const left = built.resultsLeft;
-  if (!built.regularSeasonOver && (setup.pointsOnly || left === null)) return out;
-  const spots = Math.max(1, Math.min(T, Math.max(0, setup.playoffTeams))); // no playoffs: the title goes to the top of the standings
+  if (!built.regularSeasonOver && (setup.pointsOnly || left === null)) return best;
   const divisions = new Set(setup.teams.flatMap((t) => (t.division === null ? [] : [t.division]))).size;
   /** Win percentage with `wins` more wins and `losses` more losses than the record. */
   const winPct = (tm: SimTeam, wins: number, losses: number): number => {
@@ -679,7 +691,6 @@ function eliminatedTeams(built: SimSetupResult): boolean[] {
   };
   let ahead: (u: number, t: number) => boolean;
   if (built.regularSeasonOver) {
-    for (const r of setup.playoffResults) out[r.winner === r.a ? r.b : r.a] = true;
     // "Certainly ahead" reads only what the platform reports (the file header): win percentage, then points
     // for when that is the league's own tiebreaker; points for alone in a points-only league. Never
     // head-to-head or division records, never an assumed tiebreaker.
@@ -709,8 +720,21 @@ function eliminatedTeams(built: SimSetupResult): boolean[] {
       if (division !== null && (setup.teams[u] as SimTeam).division === division) rivalAhead = true;
     }
     const canWinDivision = divisions >= 2 && division !== null && !rivalAhead;
-    if (count >= spots && !canWinDivision) out[t] = true;
+    best[t] = canWinDivision ? 1 : 1 + count;
   }
+  return best;
+}
+
+/**
+ * TeamOdds.eliminated (the file header): certainly out of the title race. A team is out when it can't finish within the
+ * playoff spots (`best`, bestFinishes: at least as many teams as there are spots certainly ahead of it, and no division
+ * title to lift it), or, once the regular season is over, when it lost a playoff game.
+ */
+function eliminatedTeams(built: SimSetupResult, best: readonly number[]): boolean[] {
+  const { setup } = built;
+  const spots = Math.max(1, Math.min(setup.teams.length, Math.max(0, setup.playoffTeams))); // no playoffs: the title goes to the top of the standings
+  const out = best.map((b) => b > spots);
+  if (built.regularSeasonOver) for (const r of setup.playoffResults) out[r.winner === r.a ? r.b : r.a] = true;
   return out;
 }
 
@@ -739,7 +763,8 @@ export function seasonOdds(snapshot: LeagueSnapshot, model: SeasonModel, opts: {
   const playoffsKnown = res.playoffsKnown && built.playoffsKnown;
   const N = Math.min(teamIds.length, setup.playoffTeams);
   const byes = N >= 2 ? nextPowerOfTwo(N) - N : 0;
-  const eliminated = eliminatedTeams(built);
+  const best = bestFinishes(built);
+  const eliminated = eliminatedTeams(built, best);
   const teams: TeamOdds[] = res.teams.map((o, t) => ({
     teamId: teamIds[t] as string,
     rank: rank[t] as number,
@@ -751,6 +776,7 @@ export function seasonOdds(snapshot: LeagueSnapshot, model: SeasonModel, opts: {
     expTies: o.expTies,
     seedDist: [...o.seedDist],
     eliminated: eliminated[t] as boolean,
+    bestFinish: best[t] as number,
     pSecond: playoffsKnown ? known(o.pSecond) : null,
     pThird: playoffsKnown && res.thirdKnown ? known(o.pThird) : null,
     expHighScores: o.expHighScores,
@@ -800,6 +826,7 @@ export function seasonOdds(snapshot: LeagueSnapshot, model: SeasonModel, opts: {
     reseed: { value: setup.reseed, assumed: built.reseedAssumed },
     thirdPlace: { ...built.thirdPlace },
     highScorePeriods: setup.highScorePeriods?.length ?? 0,
+    regularLeft: { ...built.regularLeft },
     playoffsKnown,
     teams,
     weekly,

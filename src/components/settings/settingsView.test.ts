@@ -7,6 +7,7 @@
  * A small made-up league; every name is invented.
  */
 import { describe, expect, it } from "vitest";
+import { titleOnlyReward } from "@/engine/benefit";
 import { config } from "@/engine/config";
 import type { LeagueSnapshot, Pos, SlotDef } from "@/engine/model";
 import { defaultTradeSettings, type TradeSettings } from "@/engine/settings";
@@ -87,8 +88,9 @@ describe("the league's choices", () => {
   it("shows the playoff weight read-only, set automatically from my odds, one decimal, with what it affects (planner reply to Checkpoint 7a, §6.1)", () => {
     const help =
       "It only affects shortlists, free-agent rankings (and so the pickups your odds count), needs and trade chips. Final scores come from playing out the season, which weighs each week by its real effect on your odds.";
-    const auto = (omega: number): PlayoffWeightAuto => ({ omega, basis: "auto", reason: null, goal: "title", gain: 3, sims: 5000, regularPerPoint: 0.5, playoffPerPoint: omega * 0.5, ratio: omega, clamped: null, runs: null });
-    const fallback = (reason: PlayoffWeightAuto["reason"]): PlayoffWeightAuto => ({ omega: config.lineups.playoffWeight, basis: "fallback", reason, goal: "title", gain: 3, sims: 0, regularPerPoint: null, playoffPerPoint: null, ratio: null, clamped: null, runs: null });
+    const reward = titleOnlyReward("title");
+    const auto = (omega: number): PlayoffWeightAuto => ({ omega, basis: "auto", reason: null, goal: "title", reward, gain: 3, sims: 5000, regularPerPoint: 0.5, playoffPerPoint: omega * 0.5, ratio: omega, clamped: null, runs: null });
+    const fallback = (reason: PlayoffWeightAuto["reason"]): PlayoffWeightAuto => ({ omega: config.lineups.playoffWeight, basis: "fallback", reason, goal: "title", reward, gain: 3, sims: 0, regularPerPoint: null, playoffPerPoint: null, ratio: null, clamped: null, runs: null });
     // Known: the League model's weight, one decimal as the League page labels it.
     expect(view({}, { playoffWeight: { kind: "known", omega: 2, auto: auto(2) } }).playoffWeight).toEqual({
       label: "Playoff weeks count",
@@ -184,24 +186,26 @@ describe("the league's choices", () => {
     expect(view().protectValue).not.toBeNull();
   });
 
-  it("offers 'What does your league reward?' (Only the champion, the default / Top finishers too / Making the playoffs) in every league type, each with its weights from config (planner reply to Checkpoint 4b, change 8; 7a, 5.2)", () => {
+  it("offers 'What does your league reward?' (Only the champion, the default / Several prizes / Making the playoffs) in every league type, each with its weights from config (planner reply to Checkpoint 4b, change 8; 7a, 5.2; 7b, §6)", () => {
     const pct = (x: number) => `${Math.round(x * 100)}%`;
     const g = config.benefit.goals;
     const redraft = view();
     expect(redraft.goal.legend).toBe("What does your league reward?");
     expect(redraft.goal.choices).toEqual([
-      { value: "title", label: "Only the champion", detail: "default", help: `Weighs your title odds most (${pct(g.title.title)}), playoff odds ${pct(g.title.playoffs)}.`, checked: true },
-      { value: "balanced", label: "Top finishers too", help: `Weighs your title odds ${pct(g.balanced.title)} and your playoff odds ${pct(g.balanced.playoffs)}.`, checked: false },
-      { value: "playoffs", label: "Making the playoffs", help: `Weighs your playoff odds most (${pct(g.playoffs.playoffs)}), title odds ${pct(g.playoffs.title)}.`, checked: false },
+      { value: "title", label: "Only the champion", detail: "default", help: `Weighs your title odds most (${pct(g.title.prizes)}), playoff odds ${pct(g.title.playoffs)}.`, checked: true },
+      { value: "prizes", label: "Several prizes", help: `Weighs your share of the league's prizes most (${pct(g.prizes.prizes)}), playoff odds ${pct(g.prizes.playoffs)}.`, checked: false },
+      { value: "playoffs", label: "Making the playoffs", help: `Weighs your playoff odds most (${pct(g.playoffs.playoffs)}), title odds ${pct(g.playoffs.prizes)}.`, checked: false },
     ]);
+    // The lead's words for "Several prizes" (Checkpoint 7c).
+    expect(goalHelp("prizes")).toBe("Weighs your share of the league's prizes most (85%), playoff odds 15%.");
     // The same labels as the Trade Finder's settings line (src/lib/tradeView.ts, kept apart for this page's bundle).
     expect(GOAL_LABEL).toEqual(FINDER_GOAL_LABEL);
     // The planner's words for the default, with today's config.
     expect(goalHelp("title")).toBe("Weighs your title odds most (85%), playoff odds 15%.");
     expect(config.benefit.goalDefault).toBe("title");
-    expect(GOAL_LABEL).toEqual({ title: "Only the champion", balanced: "Top finishers too", playoffs: "Making the playoffs" });
+    expect(GOAL_LABEL).toEqual({ title: "Only the champion", prizes: "Several prizes", playoffs: "Making the playoffs" });
     // The numbers follow the weights given, never fixed ones.
-    expect(goalHelp("playoffs", { playoffs: 0.6, title: 0.4 })).toBe("Weighs your playoff odds most (60%), title odds 40%.");
+    expect(goalHelp("playoffs", { playoffs: 0.6, prizes: 0.4 })).toBe("Weighs your playoff odds most (60%), title odds 40%.");
     // The planner's helper line last: no auto-switching by odds (planner reply to Checkpoint 7a, 5.2).
     expect(redraft.goal.help).toBe(
       "Helps you scores a trade by how much it raises your title and playoff odds. Pick what your league's prizes reward. On the bubble? Keep “Only the champion.” It already counts getting into the playoffs.",
@@ -209,14 +213,16 @@ describe("the league's choices", () => {
     expect(checked(view({ goal: "playoffs" }).goal.choices)).toEqual(["playoffs"]);
     // Dynasty and keeper leagues too: it weighs this season's part, and the help says where later seasons are set.
     for (const leagueType of ["dynasty", "keeper"] as const) {
-      const v = view({ goal: "balanced" }, { snap: snapshot({ leagueType }) });
-      expect(checked(v.goal.choices)).toEqual(["balanced"]);
+      const v = view({ goal: "prizes" }, { snap: snapshot({ leagueType }) });
+      expect(checked(v.goal.choices)).toEqual(["prizes"]);
       expect(v.goal.help).toBe(
         "For this season, Helps you scores a trade by how much it raises your title and playoff odds (how much later seasons count is set under Win now or build for the future). Pick what your league's prizes reward. On the bubble? Keep “Only the champion.” It already counts getting into the playoffs.",
       );
     }
+    // A league saved with "Top finishers too" before Checkpoint 7c shows "Several prizes" checked (settings.ts's migration).
+    expect(checked(view({ goal: "balanced" } as unknown as Partial<TradeSettings>).goal.choices)).toEqual(["prizes"]);
     // Plain words: no Greek letters or model terms.
-    expect(JSON.stringify(redraft.goal)).not.toMatch(/ΔPO|ΔCH|B_win|weight/i);
+    expect(JSON.stringify(redraft.goal)).not.toMatch(/ΔPO|ΔCH|ΔE|B_win|weight/i);
   });
 
   it("says Protect my trade value (redraft) and Win now ↔ Future (dynasty, keeper) change nothing while the league's values are our own estimates (FantasyCalc's curve fallback)", () => {

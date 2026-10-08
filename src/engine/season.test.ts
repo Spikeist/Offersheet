@@ -669,6 +669,10 @@ describe("TeamOdds.eliminated: certainly out, never read off simulation counts",
     expect(odds.teams.map((t) => t.eliminated)).toEqual([false, false, false, false, false, false, false, true]);
     expect(odds.teams[7]?.pPlayoffs).toBe(0);
     expect(odds.teams[6]?.pPlayoffs).toBeGreaterThan(0);
+    // Checkpoint 7c (the review of the reward engine): the same bound as a place, TeamOdds.bestFinish, 1 + the teams certain
+    // to finish ahead (two more wins than its best): eliminated is a best finish past the 6 spots.
+    expect(odds.teams.map((t) => t.bestFinish)).toEqual([1, 1, 2, 3, 4, 5, 6, 7]);
+    expect(odds.teams.map((t) => t.eliminated)).toEqual(odds.teams.map((t) => t.bestFinish > 6));
   });
 
   it("before the regular season ends: only on records certain to hold, never on an incomplete schedule, and a division title can still lift a team", () => {
@@ -676,6 +680,9 @@ describe("TeamOdds.eliminated: certainly out, never read off simulation counts",
     const at = (spec: Partial<Spec>) => oddsOf(league({ T: 8, currentWeek: 14, schedule: roundRobin(8, range(1, 14), 14), playoffTeams: 6, records, ...spec })).teams.map((t) => t.eliminated);
     // Two divisions, team 8 alone in its own: it could win it (division winners first), so it isn't certainly out.
     expect(at({ settings: { divisions: [{ id: "a", teamIds: ["1", "2", "3", "4", "5", "6", "7"] }, { id: "b", teamIds: ["8"] }] } })).toEqual(new Array(8).fill(false));
+    // …and its best finish isn't bounded (Checkpoint 7c: TeamOdds.bestFinish 1, a division winner may be seeded first).
+    const alone = oddsOf(league({ T: 8, currentWeek: 14, schedule: roundRobin(8, range(1, 14), 14), playoffTeams: 6, records, settings: { divisions: [{ id: "a", teamIds: ["1", "2", "3", "4", "5", "6", "7"] }, { id: "b", teamIds: ["8"] }] } }));
+    expect(alone.teams[7]?.bestFinish).toBe(1);
     // …but with a division rival certain to finish ahead of it, it is.
     expect(at({ settings: { divisions: [{ id: "a", teamIds: ["1", "2", "3", "4"] }, { id: "b", teamIds: ["5", "6", "7", "8"] }] } })).toEqual([false, false, false, false, false, false, false, true]);
     // Two weeks left (13 and 14): team 8 (5–7 after 12) can reach 7–7, team 6 (7–5) can fall to 7–7: not certain.
@@ -706,6 +713,7 @@ describe("TeamOdds.eliminated: certainly out, never read off simulation counts",
     const pointsOnly = league({ T: 8, currentWeek: 14, schedule: roundRobin(8, range(1, 14), 14), playoffTeams: 6, settings: { pointsOnly: true }, records: range(0, 7).map((): [number, number, number] => [0, 0, 0]), pointsFor: range(0, 7).map((i) => 2000 - 200 * i) });
     expect(setupOf(pointsOnly).resultsLeft).toBeNull();
     expect(oddsOf(pointsOnly).teams.every((t) => !t.eliminated)).toBe(true);
+    expect(oddsOf(pointsOnly).teams.every((t) => t.bestFinish === 1)).toBe(true);
   });
 
   it("with the league's own rules known, the final standings decide (a tie on record broken by points for)", () => {
@@ -938,6 +946,32 @@ describe("seasonOdds: weekly matchups and determinism", () => {
     // The regular season over: none left.
     const over = league({ T: 4, currentWeek: 15, schedule: roundRobin(4, range(1, 14), 15), records: [[11, 3, 0], [9, 5, 0], [5, 9, 0], [3, 11, 0]] });
     expect(buildSimSetup(over.snapshot, over.model, { highScores: true })?.setup.highScorePeriods).toEqual([]);
+  });
+
+  it("Checkpoint 7c (the review of the reward engine): SeasonOdds.regularLeft, the high-score periods and regular-season weeks a trade can still change, the week under way left out, simulated high scores or not", () => {
+    const left = (x: { snapshot: LeagueSnapshot; model: SeasonModel }) => [setupOf(x).regularLeft, (seasonOdds(x.snapshot, x.model, { sims: 100, seed: 7, highScores: true }) as NonNullable<ReturnType<typeof seasonOdds>>).regularLeft];
+    // Weeks 4–6 to play: three periods, three weeks, whether or not the high scores are simulated.
+    const x = league({ T: 4, currentWeek: 4, schedule: roundRobin(4, range(1, 6), 4), regular: range(1, 6), playoffs: [7, 8] });
+    expect(left(x)).toEqual([{ periods: 3, weeks: 3 }, { periods: 3, weeks: 3 }]);
+    expect(oddsOf(x).regularLeft).toEqual({ periods: 3, weeks: 3 });
+    // Week 4 under way: simulated, but no trade can change it.
+    const live = league({ T: 4, currentWeek: 4, schedule: roundRobin(4, range(1, 6), 4), regular: range(1, 6), playoffs: [7, 8], inProgressWeek: 4 });
+    expect(left(live)).toEqual([{ periods: 2, weeks: 2 }, { periods: 2, weeks: 2 }]);
+    expect(setupOf(live).setup.weeks).toContain(4);
+    // The last regular-season week under way: nothing in the regular season a trade can change.
+    const last = league({ T: 4, currentWeek: 6, schedule: roundRobin(4, range(1, 6), 6), regular: range(1, 6), playoffs: [7, 8], inProgressWeek: 6 });
+    expect(left(last)).toEqual([{ periods: 0, weeks: 0 }, { periods: 0, weeks: 0 }]);
+    // A matchup period of two weeks whose first is under way: its second week can still be changed, so the period counts.
+    const pair = (week: number, weeks: number[]): Matchup[] => [open(week, 1, 2, { weeks }), open(week, 3, 4, { weeks })];
+    const twoWeeks = league({ T: 4, currentWeek: 2, schedule: [...pair(2, [2, 3]), ...pair(4, [4])], regular: range(1, 4), playoffs: [5, 6], inProgressWeek: 2 });
+    expect(left(twoWeeks)).toEqual([{ periods: 2, weeks: 2 }, { periods: 2, weeks: 2 }]);
+    // Points-only: each regular week still to score.
+    const zeros: [number, number, number][] = [[0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0]];
+    const pointsOnly = league({ T: 4, currentWeek: 5, schedule: [], regular: range(1, 8), playoffs: [9, 10], settings: { pointsOnly: true }, records: zeros, inProgressWeek: 5 });
+    expect(left(pointsOnly)).toEqual([{ periods: 3, weeks: 3 }, { periods: 3, weeks: 3 }]);
+    // The regular season over.
+    const over = league({ T: 4, currentWeek: 15, schedule: roundRobin(4, range(1, 14), 15), records: [[11, 3, 0], [9, 5, 0], [5, 9, 0], [3, 11, 0]] });
+    expect(left(over)).toEqual([{ periods: 0, weeks: 0 }, { periods: 0, weeks: 0 }]);
   });
 
   it("weekList names weeks plainly, runs of consecutive weeks as ranges", () => {

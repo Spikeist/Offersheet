@@ -425,7 +425,8 @@ function teamOdds(teamId: string, rank: number, pPlayoffs: number, pTitle: numbe
   // Places (Checkpoint 7c), by the simulator's rules for 2 playoff spots: the final's loser is 2nd, seed 3 is 3rd. No
   // high-score periods (the weekly prize doesn't pay); the points leader stands in as seed 1's chance.
   const places = { pSecond: pPlayoffs - pTitle, pThird: seedDist[2] ?? 0, expHighScores: 0, pPointsLeader: seedDist[0] ?? 0 };
-  return { teamId, rank, pPlayoffs, pBye: null, pTitle, expWins, expLosses: record[0] + record[1] + REGULAR.length - expWins, expTies: 0, seedDist, eliminated: false, ...places };
+  // Nobody is out of the title race, and no team's best finish is bounded (bestFinish 1, the engine's "can't tell").
+  return { teamId, rank, pPlayoffs, pBye: null, pTitle, expWins, expLosses: record[0] + record[1] + REGULAR.length - expWins, expTies: 0, seedDist, eliminated: false, bestFinish: 1, ...places };
 }
 
 /**
@@ -443,6 +444,9 @@ function seasonOdds(gameDay: boolean, asRostersStand = false): SeasonOdds {
     reseed: { value: false, assumed: false },
     thirdPlace: { rule: "game", assumed: true },
     highScorePeriods: 0,
+    // What a trade can still change in the regular season: weeks 12–14, one high-score period each, week 12 left out while
+    // it's under way.
+    regularLeft: { periods: gameDay ? 2 : 3, weeks: gameDay ? 2 : 3 },
     playoffsKnown: true,
     teams: asRostersStand
       ? [

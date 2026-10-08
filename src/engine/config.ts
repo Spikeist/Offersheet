@@ -430,18 +430,28 @@ export const config = {
   /** §10 Benefit, Trade Score and Overall. */
   benefit: {
     /**
-     * Phase 4c (planner reply to Checkpoint 4b, change 8): B's weights by the per-league setting "What matters most"
-     * (TradeSettings.goal). B_win = 100 × (playoffs × ΔPO + title × ΔCH). Checkpoint 4c measured that a uniform +3 points a
-     * week moves ΔPO about twice as much as ΔCH in Parker's league, so under a fixed B_ref "Win the title" read about a fifth
-     * lower than Balanced; since Phase 7a "Helps you" is scaled by B₃ under the same goal (helpsGain below), so the same
-     * lineup gain reads the same under every goal.
+     * B_win's weights by the per-league setting "What does your league reward?" (TradeSettings.goal; Phase 4c, planner reply to
+     * Checkpoint 4b, change 8; since Checkpoint 7c, planner reply to Checkpoint 7b, §6, league prizes): B_win = 100 ×
+     * (playoffs × ΔPO + prizes × ΔE[S]), E[S] my expected share of the league's prizes (src/engine/reward.ts: "title" and
+     * "playoffs" pay 1st place everything, so ΔE[S] is ΔCH there and their numbers didn't move; "prizes" reads the league's
+     * split, TradeSettings.prizes). "Top finishers too" ("balanced": 0.35 / 0.65 on ΔPO and ΔCH) went then; a stored one reads
+     * as "prizes" (settings.ts). Checkpoint 4c measured that a uniform +3 points a week moves ΔPO about twice as much as ΔCH in
+     * Parker's league, so under a fixed B_ref "Win the title" read about a fifth lower than Balanced; since Phase 7a "Helps
+     * you" is scaled by B₃ under the same goal and prizes (helpsGain below), so the same lineup gain reads the same under
+     * every goal.
      */
     goals: {
-      title: { playoffs: 0.15, title: 0.85 },
-      balanced: { playoffs: 0.35, title: 0.65 },
-      playoffs: { playoffs: 0.7, title: 0.3 },
+      title: { playoffs: 0.15, prizes: 0.85 },
+      prizes: { playoffs: 0.15, prizes: 0.85 },
+      playoffs: { playoffs: 0.7, prizes: 0.3 },
     },
-    goalDefault: "title" as "title" | "balanced" | "playoffs",
+    goalDefault: "title" as "title" | "prizes" | "playoffs",
+    /**
+     * "Several prizes"' prefilled amounts (planner reply to Checkpoint 7b, §6: "Prefilled: 60 / 30 / 10, with the rest blank"):
+     * 1st, 2nd and 3rd place, the weekly high score and the most points in the regular season (TradeSettings.prizes; null =
+     * not paid). Also the split a stored "Top finishers too" becomes (settings.ts, the planner's "Migration").
+     */
+    prizesDefault: { first: 60, second: 30, third: 10, weeklyHigh: null, pointsLeader: null } as { readonly first: number | null; readonly second: number | null; readonly third: number | null; readonly weeklyHigh: number | null; readonly pointsLeader: number | null },
     /**
      * "Protect my trade value" (planner addendum to Checkpoint 3, §3; priced in lineup points since the planner's reply to
      * Checkpoint 7a, §2 question 5): κ_pts by the user's setting (TradeSettings.protectValue), in projected points a week per

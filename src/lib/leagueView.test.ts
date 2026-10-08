@@ -7,6 +7,7 @@
 import { describe, expect, it } from "vitest";
 import { BEFORE_KICKOFF, NOW, PICKUP_GAIN, PRE_KICKOFF, leagueFixture, nameOf, type LeagueFixture } from "@/components/league/testFixtures";
 import { inactiveTeams } from "@/engine/acceptance";
+import { titleOnlyReward } from "@/engine/benefit";
 import { config } from "@/engine/config";
 import type { BaseRateSource, PlayoffWeightAuto, SeasonOdds, TeamModel, WeekOdds } from "@/engine/leagueModel";
 import { fantasyCalcFallbackText, fantasyCalcFormat } from "@/engine/market";
@@ -80,6 +81,7 @@ function autoWeight(omega: number, basis: PlayoffWeightAuto["basis"] = "auto"): 
     basis,
     reason: measured ? null : "noOdds",
     goal: "title",
+    reward: titleOnlyReward("title"),
     gain: 3,
     sims: measured ? 1000 : 0,
     regularPerPoint: measured ? 0.4 : null,

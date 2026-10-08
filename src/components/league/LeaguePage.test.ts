@@ -112,7 +112,7 @@ describe("computeTagFor: what a League model computation is for (Phase 4 L12: th
 
   it("changes with a setting the League model reads, so changing it computes the model again", () => {
     // The goal since the planner's reply to Checkpoint 7a (§6.1): the automatic playoff weight weighs my odds by it.
-    expect(LEAGUE_MODEL_SETTINGS).toEqual(["streamPositions", "goal"]);
+    expect(LEAGUE_MODEL_SETTINGS).toEqual(["streamPositions", "goal", "prizes"]);
     expect(computeTagFor({ ...base, settings: { ...base.settings, streamPositions: ["K", "DEF", "QB"] } })).not.toBe(tag);
     expect(computeTagFor({ ...base, settings: { ...base.settings, streamPositions: [] } })).not.toBe(tag);
     expect(computeTagFor({ ...base, settings: { ...base.settings, goal: "playoffs" } })).not.toBe(tag);

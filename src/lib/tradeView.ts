@@ -167,7 +167,7 @@
  * server that serves the page sees those ids like any address: the privacy page says so).
  */
 import { displayAcceptance, tradeDeadlinePassed } from "@/engine/acceptance";
-import { HELPS_AT_GAIN, HELPS_FLOOR_NOTE, HELPS_FLOOR_NOTE_PLAYOFFS, futureValuesLoaded, lineupEquivalent, tradeScore, type HelpsScale } from "@/engine/benefit";
+import { HELPS_AT_GAIN, HELPS_FLOOR_NOTE, HELPS_FLOOR_NOTE_PLAYOFFS, HELPS_FLOOR_NOTE_PRIZES, futureValuesLoaded, lineupEquivalent, tradeScore, type HelpsScale } from "@/engine/benefit";
 import { blendValues } from "@/engine/blend";
 import { config } from "@/engine/config";
 import type { TradeAnalysis } from "@/engine/evaluate";
@@ -1012,14 +1012,15 @@ interface ScaleInputs {
  * Why a card's "Helps you" scale departs from "+3 points a week reads 63" (benefit.ts HelpsScale.reason; Phase 7a, the
  * feedback's version inputs: track SC's crossTrack for FB), read off the evaluation's notes, which carry
  * benefit.helpsScaleNotes for its scale (evaluate.ts simulateTrade, on every simulated evaluation: the Finder's cards and
- * the Analyzer's): "odds" for the floor note (title or playoff odds barely move), else null. (Checkpoint 7a's "lambda", the
+ * the Analyzer's): "odds" for the floor note (title, playoff or, since Checkpoint 7c, prize odds barely move), else null.
+ * (Checkpoint 7a's "lambda", the
  * Win now ↔ Future note, went with its λ cap: planner reply to Checkpoint 7a, §2 question 6.) The engine keeps HelpsScale out
  * of TradeEvaluation, so the words are its record here; tradeView.test.ts checks this reads back every reason
  * helpsScaleNotes writes.
  */
 export function helpsReasonOf(notes: readonly string[] | undefined): HelpsReason | null {
   if (!notes) return null;
-  if (notes.some((n) => n === HELPS_FLOOR_NOTE || n === HELPS_FLOOR_NOTE_PLAYOFFS)) return "odds";
+  if (notes.some((n) => n === HELPS_FLOOR_NOTE || n === HELPS_FLOOR_NOTE_PLAYOFFS || n === HELPS_FLOOR_NOTE_PRIZES)) return "odds";
   return null;
 }
 
@@ -1940,15 +1941,16 @@ export function noticeWarnings(warnings: readonly string[]): string[] {
 
 /**
  * "What does your league reward?" (TradeSettings.goal; planner reply to Checkpoint 7a, 5.2: framed by what the league rewards,
- * "What matters most" before) as the Settings page names its options: "Only the champion" (the default, "title"), "Top
- * finishers too" ("balanced"), "Making the playoffs" ("playoffs").
+ * "What matters most" before) as the Settings page names its options: "Only the champion" (the default, "title"), "Several
+ * prizes" ("prizes"; Checkpoint 7c, planner reply to Checkpoint 7b, §6, in place of "Top finishers too"), "Making the
+ * playoffs" ("playoffs").
  */
-export const GOAL_LABEL: Readonly<Record<Goal, string>> = { title: "Only the champion", balanced: "Top finishers too", playoffs: "Making the playoffs" };
+export const GOAL_LABEL: Readonly<Record<Goal, string>> = { title: "Only the champion", prizes: "Several prizes", playoffs: "Making the playoffs" };
 
 /**
  * What the search's settings let a trade idea be, in one line ("Up to 2 players a side and 1 untouchable."), and the
  * settings that change how ideas are scored when they aren't the default: what the league rewards ("Your league rewards:
- * Top finishers too."; Phase 4c's goal) and, in a redraft league, "Protect my trade value".
+ * Several prizes."; Phase 4c's goal; the split isn't repeated) and, in a redraft league, "Protect my trade value".
  */
 export function settingsSummary(settings: TradeSettings, platform: LeagueSnapshot["platform"], leagueType: LeagueSnapshot["settings"]["leagueType"] = "redraft"): string {
   const pos = (ps: readonly Pos[]) => listText(ps.map((p) => posLabel(p, platform)));

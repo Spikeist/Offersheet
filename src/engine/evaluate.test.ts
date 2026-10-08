@@ -26,7 +26,7 @@ import type { TestLeagueSpec, TestPlayer } from "./testLeague";
 import { TEST_NOW } from "./testLeague";
 import { flat, handLeague, smallLeague, type SeasonSpec } from "./trade.testing";
 import { returnersOf } from "./optimizer";
-import { defaultTradeSettings } from "./settings";
+import { defaultTradeSettings, type TradeSettings } from "./settings";
 import { addGainExact, rosValue, solveEvWeeks, teamEval, type TableRow } from "./teamValue";
 import type { TradeAsset, TradeProposal } from "./tradeModel";
 
@@ -120,6 +120,79 @@ describe("the evaluation context (M1)", () => {
       spec.leagueType = "keeper";
     }, season);
     expect(keeper.notes).not.toContain(SEASON_OVER_NOTE);
+  });
+
+  it("“Several prizes” paying a weekly high score or the points title: no season-over stop while one can still be won (Checkpoint 7c; reward.ts prizeStillMovable)", () => {
+    const late = (spec: TestLeagueSpec) => {
+      spec.currentWeek = 8;
+    };
+    const season: SeasonSpec = { pastWinnersOrder: ["2", "3", "4", "1"] };
+    const prizes = (a: Partial<TradeSettings["prizes"]>): TradeSettings => ({ ...defaultTradeSettings(), goal: "prizes", prizes: { first: 60, second: 30, third: 10, weeklyHigh: null, pointsLeader: null, ...a } });
+    // Week 8, the last regular-season week, still to play: its high score can be won.
+    const weekly = context(late, season, { settings: prizes({ weeklyHigh: 5 }) });
+    const I = tradeInternals(weekly);
+    expect(I.sim?.odds.teams[0]?.eliminated).toBe(true);
+    expect(I.sim?.highScores).toBe(true);
+    expect(I.sim?.odds.highScorePeriods).toBe(1);
+    expect(weekly.notes).not.toContain(SEASON_OVER_NOTE);
+    expect(I.blocked).toBe(false);
+    // The regular season isn't over: the points title can still be won.
+    expect(context(late, season, { settings: prizes({ pointsLeader: 20 }) }).notes).not.toContain(SEASON_OVER_NOTE);
+    // The prefilled split pays the places only. With 2 playoff teams 3rd is seed 3 of the final standings (sim.ts), but my
+    // 0-7 team is certainly 4th (its best finish), so the stop, as under "Only the champion".
+    const places = context(late, season, { settings: prizes({}) });
+    expect(tradeInternals(places).sim?.odds.teams[0]?.bestFinish).toBe(4);
+    expect(places.notes).toContain(SEASON_OVER_NOTE);
+  });
+
+  it("a place the final standings decide (the review of the reward engine, RW-2): with 2 playoff teams 3rd is seed 3, so a team out of the title race that can still finish 3rd gets no stop while 3rd pays", () => {
+    // Week 7: my team is 0-6 with 2 games left, team 4 is 2-4: certainly out of the top 2, but not of the top 3.
+    const week7 = (spec: TestLeagueSpec) => {
+      spec.currentWeek = 7;
+    };
+    const season: SeasonSpec = { pastWinnersOrder: ["3", "2", "4", "1"] };
+    const title = context(week7, season);
+    const I = tradeInternals(title);
+    const mine = I.sim?.odds.teams[0];
+    expect(I.sim?.odds.playoffTeams).toBe(2);
+    expect(mine).toMatchObject({ eliminated: true, bestFinish: 3, pTitle: 0, pSecond: 0 });
+    expect(mine?.pThird as number).toBeGreaterThan(0);
+    expect(title.notes).toContain(SEASON_OVER_NOTE);
+    // "Several prizes" on the prefilled split pays 3rd: no stop, and a trade can move my 3rd-place odds.
+    const settings: TradeSettings = { ...defaultTradeSettings(), goal: "prizes" };
+    const ctx = context(week7, season, { settings });
+    expect(ctx.notes).not.toContain(SEASON_OVER_NOTE);
+    expect(tradeInternals(ctx).blocked).toBe(false);
+    const a = analyzeTrade(ctx, trade("4", ["rc1"], ["ra4"]), { settings });
+    expect(a.evaluation?.dPrizes?.third as number).toBeGreaterThan(0);
+    expect(a.evaluation?.bWin as number).toBeGreaterThan(0);
+    // 2nd alone paid (the final's loser in a bracket of 2): out of the race is out of 2nd, so the stop.
+    expect(context(week7, season, { settings: { ...settings, prizes: { first: 70, second: 30, third: null, weeklyHigh: null, pointsLeader: null } } }).notes).toContain(SEASON_OVER_NOTE);
+  });
+
+  it("the last regular-season week under way (the review of the reward engine, RW-3): a trade can't change it, so neither its high score nor the points title keeps the season going", () => {
+    const season: SeasonSpec = { pastWinnersOrder: ["2", "3", "4", "1"] };
+    const prizes = (a: Partial<TradeSettings["prizes"]>): TradeSettings => ({ ...defaultTradeSettings(), goal: "prizes", prizes: { first: 60, second: 30, third: 10, weeklyHigh: null, pointsLeader: null, ...a } });
+    const underWay = (spec: TestLeagueSpec) => {
+      spec.currentWeek = 8;
+      spec.kickoffs = { 8: { AAA: "2026-09-29T17:00:00.000Z" } };
+    };
+    for (const settings of [prizes({ weeklyHigh: 5 }), prizes({ pointsLeader: 20 }), prizes({ weeklyHigh: 5, pointsLeader: 20 })]) {
+      const ctx = context(underWay, season, { settings });
+      const I = tradeInternals(ctx);
+      expect(I.model.inProgressWeek).toBe(8);
+      // The week under way is simulated (its high score too, when the weekly prize pays), but no trade can change it.
+      expect(I.sim?.odds.highScorePeriods).toBe(settings.prizes.weeklyHigh ? 1 : 0);
+      expect(I.sim?.odds.regularLeft).toEqual({ periods: 0, weeks: 0 });
+      expect(I.sim?.odds.teams[0]?.eliminated).toBe(true);
+      expect(ctx.notes).toContain(SEASON_OVER_NOTE);
+    }
+    // Before its first kickoff, the same week can still be changed: its high score and the points title keep the season going.
+    const notYet = context((spec) => {
+      spec.currentWeek = 8;
+    }, season, { settings: prizes({ weeklyHigh: 5 }) });
+    expect(tradeInternals(notYet).sim?.odds.regularLeft).toEqual({ periods: 1, weeks: 1 });
+    expect(notYet.notes).not.toContain(SEASON_OVER_NOTE);
   });
 
   it("no weeks left: a note", () => {

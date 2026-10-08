@@ -106,6 +106,18 @@ describe("FeedbackEventSchema: every copy the browser builds, and nothing else",
     }
   });
 
+  it("accepts a copy made under an older version's “Top finishers too” (“balanced”), its goal kept, at the top and in the version's inputs (Checkpoint 7c: feedbackEvent.ts FEEDBACK_GOALS); “Several prizes” too", () => {
+    const e = events().find((x) => x.versionInputs) as FeedbackEvent;
+    for (const goal of ["balanced", "prizes"] as const) {
+      const copy = { ...e, goal, versionInputs: { ...(e.versionInputs as NonNullable<FeedbackEvent["versionInputs"]>), goal } };
+      const parsed = FeedbackEventSchema.safeParse(JSON.parse(JSON.stringify(copy)));
+      expect(parsed.success, `${goal}: ${JSON.stringify(parsed.error?.issues)}`).toBe(true);
+      expect(parsed.data?.goal).toBe(goal);
+      // The stored form (what feedback:report reads) too.
+      expect(StoredFeedbackEventSchema.safeParse({ ...copy, day: "2026-10-04" }).success, goal).toBe(true);
+    }
+  });
+
   it("refuses a copy with any field it doesn't list, at any level: the league's key, a note, the partner's team id, a time, an address", () => {
     const e = events()[0] as FeedbackEvent;
     const extras: Array<(x: Record<string, unknown>) => void> = [

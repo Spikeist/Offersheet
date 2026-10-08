@@ -251,9 +251,20 @@ describe("choosePlanB: the final simulation and the retry", () => {
     // A points-only league's empty list stays empty (no weekly line).
     expect(choose([screened], { scr: { ...final, detail: { ...final.detail, winChance: [] } } }).planB?.winChance).toEqual([]);
     // Numbers that aren't the final block's (a test's finalOf handing back the screening numbers): no odds at all.
-    const notFinal = planBFor(CARD, [CARD, core({ key: "x", give: ["nacua"], get: ["kelce"], b: 4, dPO: 0.05, dCH: 0.02 })], (c) => c);
+    const notFinal = planBFor(CARD, [CARD, { ...core({ key: "x", give: ["nacua"], get: ["kelce"], b: 4, dPO: 0.05, dCH: 0.02 }), dPrizes: { first: 0.02, second: 0.01, third: 0, weeklyHigh: null, pointsLeader: 0 } }], (c) => c);
     expect(notFinal).toMatchObject({ key: "x" });
-    expect(notFinal && ["dPO", "dCH", "winChance"].filter((k) => k in notFinal)).toEqual([]);
+    expect(notFinal && ["dPO", "dCH", "dPrizes", "winChance"].filter((k) => k in notFinal)).toEqual([]);
+  });
+
+  it("Checkpoint 7c: carries every prize component's change from its final-block simulation (the box's “Top 3 odds” line), a copy (the review of the reward engine, RW-5)", () => {
+    const screened = cand("scr", { b: 4 });
+    const dPrizes = { first: 0.012, second: -0.004, third: 0.003, weeklyHigh: null, pointsLeader: 0.001 };
+    const final = { ...screened.core, stage: "final" as const, sims: 5000, b: 3.2, tradeScore: tradeScore(3.2, FIXTURE_B3), dPO: 0.031, dCH: 0.012, dPrizes };
+    const { planB } = choose([screened], { scr: final });
+    expect(planB?.dPrizes).toEqual(dPrizes);
+    expect(planB?.dPrizes).not.toBe(dPrizes);
+    // Unknown (not simulated): null, as the card's.
+    expect(choose([screened], { scr: { ...final, dPrizes: null } }).planB?.dPrizes).toBeNull();
   });
 
   it("simulates a candidate that wasn't a finalist on the final block first (yielding before), and shows those numbers", () => {

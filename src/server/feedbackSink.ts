@@ -36,8 +36,7 @@
  */
 import { z } from "zod";
 import { POSITIONS, type Platform } from "@/engine/model";
-import { GOALS } from "@/engine/settings";
-import { FEEDBACK_EVENT_KINDS, FEEDBACK_EVENT_MAX_PER_SIDE, FEEDBACK_EVENT_VERSION, FEEDBACK_PLAYER_ID, type FeedbackEvent, type StoredFeedbackEvent } from "@/lib/feedbackEvent";
+import { FEEDBACK_EVENT_KINDS, FEEDBACK_EVENT_MAX_PER_SIDE, FEEDBACK_EVENT_VERSION, FEEDBACK_GOALS, FEEDBACK_PLAYER_ID, type FeedbackEvent, type StoredFeedbackEvent } from "@/lib/feedbackEvent";
 import { FEEDBACK_OUTCOMES, FEEDBACK_REASONS, FEEDBACK_VERSIONS, HELPS_REASONS, SHARE_ID_PATTERN } from "@/lib/feedbackStore";
 import { feedbackLimits } from "./limits";
 import { errorNameOf, logEvent, withTimeout } from "./log";
@@ -123,7 +122,8 @@ const VersionInputsSchema = z.strictObject({
   b: maybeNumber,
   b3: z.number().gt(0).max(1e9).nullable(),
   helpsReason: z.enum(HELPS_REASONS).nullable(),
-  goal: z.enum(GOALS).nullable(),
+  // Today's goals and an older version's (feedbackEvent.ts FEEDBACK_GOALS: a copy made under "balanced" keeps it).
+  goal: z.enum(FEEDBACK_GOALS).nullable(),
   week: week.nullable(),
 });
 
@@ -139,7 +139,7 @@ const EventShape = z.strictObject({
   season: z.number().int().min(2000).max(2100),
   week,
   format: FormatSchema,
-  goal: z.enum(GOALS).nullable(),
+  goal: z.enum(FEEDBACK_GOALS).nullable(),
   trade: TradeSchema,
   numbers: NumbersSchema,
   features: FeaturesSchema,

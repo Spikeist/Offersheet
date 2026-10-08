@@ -1407,9 +1407,12 @@ export async function waiversStep(ctx: StepContext): Promise<void> {
 
 const MAX_LEGEND = "Most players per side";
 
-/** "What does your league reward?" and its three answers (planner reply to Checkpoint 7a, 5.2). */
+/**
+ * "What does your league reward?" and its three answers (planner reply to Checkpoint 7a, 5.2; "Several prizes" in place of
+ * "Top finishers too" since Checkpoint 7c, planner reply to Checkpoint 7b, §6).
+ */
 export const GOAL_LEGEND = "What does your league reward?";
-export const GOAL_CHOICES = ["Only the champion", "Top finishers too", "Making the playoffs"] as const;
+export const GOAL_CHOICES = ["Only the champion", "Several prizes", "Making the playoffs"] as const;
 
 /**
  * The Settings page's scoring questions: "What does your league reward?" with the planner's three answers and the bubble

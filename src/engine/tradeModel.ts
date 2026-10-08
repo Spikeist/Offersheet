@@ -10,6 +10,7 @@
 import type { AcceptanceTerms, ActivitySummary, ContextTerm } from "./acceptance";
 import type { HelpsScale } from "./benefit";
 import type { InjuryStatus, Pos } from "./model";
+import type { PrizeDeltas, PrizeOdds, Reward } from "./reward";
 
 /** One side's asset in a trade: a player (canonical id) or a draft pick (dynasty and keeper leagues). */
 export type TradeAsset = { kind: "player"; id: string } | { kind: "pick"; season: number; round: number; originalTeamId: string };
@@ -168,6 +169,14 @@ export interface TradeEvaluation {
   dPO: number | null;
   dCH: number | null;
   dEW: number | null;
+  /**
+   * Checkpoint 7c (planner reply to Checkpoint 7b, §6, league prizes): every prize component's change on the same runs as dPO
+   * (reward.ts PrizeDeltas: 1st = dCH, P(2nd), P(3rd), the weekly high scores won, the points title; null where unknown, the
+   * weekly high scores' whenever the context didn't simulate them: reward.ts runPrizeDeltas), what
+   * B's ΔE[S] read under the search's reward (TradeSearchResult.reward) and the "Top 3 odds" line reads. Null before
+   * simulation; the engine sets it on every simulated evaluation, optional only so that fakes and older evaluations needn't.
+   */
+  dPrizes?: PrizeDeltas | null;
   /** Changes in my average weekly starting points: remaining regular-season weeks, and playoff weeks. */
   dPPW: number;
   dPPWPlayoffs: number;
@@ -310,6 +319,8 @@ export interface PlanB {
    */
   dPO?: number | null;
   dCH?: number | null;
+  /** Checkpoint 7c: every prize component's change from the same simulation (TradeEvaluation.dPrizes'); absent with dPO. */
+  dPrizes?: PrizeDeltas | null;
   winChance?: TradeDetail["winChance"];
 }
 
@@ -455,9 +466,13 @@ export interface TradeSearchProgress {
 export interface TradeSearchResult {
   /** The top config.search.resultsShown trades after ranking and diversity (§13), Overall order. */
   trades: TradeEvaluation[];
-  /** My team, and its baseline odds (every team at V*, config.simulation.finalSims seasons); null fields when not simulated. */
+  /**
+   * My team, and its baseline odds (every team at V*, config.simulation.finalSims seasons); null fields when not simulated.
+   * Checkpoint 7c: `prizes`, my prize components on the same seasons (reward.ts PrizeOdds), null when not simulated; optional
+   * only so that fakes needn't.
+   */
   myTeamId: string | null;
-  baseline: { pPlayoffs: number | null; pTitle: number | null; expWins: number | null };
+  baseline: { pPlayoffs: number | null; pTitle: number | null; expWins: number | null; prizes?: PrizeOdds | null };
   /** Trades the ranking kept out by default (§10 guards: B ≤ 0, or g_mkt(me) below marketHideBelow), counted. */
   hidden: { byBenefit: number; byMarket: number; /** Phase 4c: finalists under the minimum chance (TradeSettings.minChance). */ byChance?: number };
   /**
@@ -492,6 +507,13 @@ export interface TradeSearchResult {
    * alone). Null without odds or a team. The search always sets it; optional only so that fakes needn't.
    */
   helpsScale?: HelpsScale | null;
+  /**
+   * Checkpoint 7c (planner reply to Checkpoint 7b, §6): the reward every B of the search was weighed by (evaluate.ts rewardFor
+   * on its settings: the goal's weights, the prize shares, the league's prize periods), so a page reads the prize shares (the
+   * "Top 3 odds" line, the feedback copy's shares) without making them again. The search always sets it; optional only so
+   * that fakes needn't.
+   */
+  reward?: Reward;
 }
 
 /**

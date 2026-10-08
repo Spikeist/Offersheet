@@ -981,7 +981,7 @@ describe("Checkpoint 7b: Settings, the waiver view and the header (5.2, ยง6.1, ย
   });
 
   it("knows the goal's three answers", () => {
-    expect(GOAL_CHOICES).toEqual(["Only the champion", "Top finishers too", "Making the playoffs"]);
+    expect(GOAL_CHOICES).toEqual(["Only the champion", "Several prizes", "Making the playoffs"]);
   });
 
   it("accepts the waiver view's toggle with two lists, or three while a week is under way, and nothing else", () => {

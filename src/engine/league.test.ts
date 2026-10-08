@@ -33,6 +33,7 @@ import type { LeagueSnapshot, Pos, SlotDef, Transaction } from "./model";
 import { surplusScores } from "./needs";
 import { FULL_POOL, applyStep, createOptimizer, poolRestriction, type PoolRestriction, type StreamSpec } from "./optimizer";
 import { gameTimeBaseRate, priorHealthyBaseRate, weeklySd } from "./projections";
+import { rewardOf } from "./reward";
 import { defaultTradeSettings, type TradeSettings } from "./settings";
 import {
   evLineups,
@@ -2169,7 +2170,10 @@ describe("streaming positions (§7; planner reply to Checkpoint 3, model change 
     const dflt = buildLeagueModel(league.snapshot, league.inputs, OPTS, NO_RISK);
     expect(dflt.playoffWeight).toBe(config.lineups.playoffWeight);
     // sims 0: no odds to measure ω on (planner reply to Checkpoint 7a, §6.1), so the fallback.
-    expect(dflt.playoffWeightAuto).toEqual({ omega: config.lineups.playoffWeight, basis: "fallback", reason: "noOdds", goal: "title", gain: config.lineups.playoffWeightAuto.gain, sims: 0, regularPerPoint: null, playoffPerPoint: null, ratio: null, clamped: null, runs: null });
+    expect(dflt.playoffWeightAuto).toEqual({ omega: config.lineups.playoffWeight, basis: "fallback", reason: "noOdds", goal: "title", reward: rewardOf(defaultTradeSettings(), league.snapshot), gain: config.lineups.playoffWeightAuto.gain, sims: 0, regularPerPoint: null, playoffPerPoint: null, ratio: null, clamped: null, runs: null });
+    // The model's reward (Checkpoint 7c): the default settings', 1st place paying everything.
+    expect(dflt.reward).toEqual(rewardOf(defaultTradeSettings(), league.snapshot));
+    expect(dflt.reward?.shares.first).toBe(1);
     expect(dflt.streaming.byTeam["1"]).toMatchObject({ positions: ["K", "DEF"], source: "setting" });
     expect(modelSettings(undefined)).toEqual(defaultTradeSettings());
     // A stored copy from before Phase 7b with a playoff weight of 1.5 (ignored now) and K + QB (listed in position order).

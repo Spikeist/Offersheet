@@ -62,8 +62,9 @@
  *
  * The chosen Plan B carries its numbers on the final block and (Phase 4c, planner reply to Checkpoint 4b, change 7) the
  * same evaluation's acceptance features and raw g_mkt(P) (PlanB.features, gPartner), which feedback stores when it's the
- * version sent, and (change 9, "real odds on every card") its odds from that same final-block simulation (PlanB.dPO, dCH
- * and winChance: the box prints "Title odds a → b · Playoff odds a → b" and the weekly line as the card prints its own,
+ * version sent, and (change 9, "real odds on every card") its odds from that same final-block simulation (PlanB.dPO, dCH,
+ * since Checkpoint 7c every prize component's change, dPrizes, and winChance: the box prints "Title odds a → b · Playoff
+ * odds a → b" and the weekly line as the card prints its own,
  * from the same "before"; a re-filter reuses the simulation, search.ts finalByKey, so its odds equal a fresh search's).
  * The minimum chance (Phase 4c, change 10) needs no rule here: a Plan B is at least minAcceptGain likelier
  * to go through than its card, which the minimum let through (on the chance as printed, rank.ts: a card printing at the
@@ -199,7 +200,7 @@ function toPlanB(c: TradeEvaluationCore, kind: PlanB["kind"]): PlanB {
     kind,
     features: { ...c.features },
     gPartner: c.gPartner,
-    ...(final ? { dPO: c.dPO, dCH: c.dCH } : {}),
+    ...(final ? { dPO: c.dPO, dCH: c.dCH, ...(c.dPrizes !== undefined ? { dPrizes: c.dPrizes && { ...c.dPrizes } } : {}) } : {}),
     ...(final && c.detail.winChance ? { winChance: c.detail.winChance.map((w) => ({ ...w })) } : {}),
   };
 }

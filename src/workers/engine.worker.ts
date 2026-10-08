@@ -254,7 +254,7 @@ export function contextBaseline(ctx: TradeContext): BaselineOdds | null {
     return null;
   }
   const base = I.sim && I.me ? I.sim.base.final : null;
-  return base ? { pPlayoffs: base.pPlayoffs, pTitle: base.pTitle, expWins: base.expWins } : null;
+  return base ? { pPlayoffs: base.pPlayoffs, pTitle: base.pTitle, expWins: base.expWins, prizes: { ...base.prizes } } : null;
 }
 
 /** An evaluation's reasons and pitch made again in its context (evaluate.ts withWords: explain.ts's words, the injury tags). */

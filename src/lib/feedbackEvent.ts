@@ -3,15 +3,24 @@
  * the browser that builds it (src/lib/feedbackShare.ts: what each field holds, and what never goes in) and the server that
  * checks and stores it (src/server/feedbackSink.ts FeedbackEventSchema, which src/server/feedbackSink.test.ts holds to
  * these types). Types and constants only: no zod here, so nothing of it reaches the pages' bundles (the production
- * Content-Security-Policy has no 'unsafe-eval'), and nothing of the engine but types and its config.
+ * Content-Security-Policy has no 'unsafe-eval'), and nothing of the engine but types, its config and settings.ts's goal lists.
  */
 import { config } from "@/engine/config";
 import type { LeagueSettings, Platform, Pos } from "@/engine/model";
-import type { Goal } from "@/engine/settings";
+import { GOALS, LEGACY_GOALS } from "@/engine/settings";
 import type { FeedbackFeatures, FeedbackOutcome, FeedbackReason, FeedbackVersion, HelpsReason } from "./feedbackStore";
 
 /** The event's version: bump it when a field changes meaning (readers keep the versions apart). */
 export const FEEDBACK_EVENT_VERSION = 1;
+
+/**
+ * The goals a feedback record or copy may name (Checkpoint 7c): today's (settings.ts GOALS) and the ones an older version
+ * recorded (LEGACY_GOALS: "balanced", "Top finishers too", whose numbers were weighed 0.35 / 0.65 on ΔPO and ΔCH). A record or
+ * copy keeps the goal its numbers were computed under, so an old "balanced" one stays "balanced" (never migrated: its numbers
+ * don't change), and the store, the server's schema and feedback:report all accept it.
+ */
+export const FEEDBACK_GOALS = [...GOALS, ...LEGACY_GOALS] as const;
+export type FeedbackGoal = (typeof FEEDBACK_GOALS)[number];
 
 /** The kind of press a copy follows: the outcome buttons (Sent, Accepted, Rejected, Countered) or Report. */
 export const FEEDBACK_EVENT_KINDS = ["outcome", "report"] as const;
@@ -83,7 +92,7 @@ export interface FeedbackEventVersionInputs {
   b: number | null;
   b3: number | null;
   helpsReason: HelpsReason | null;
-  goal: Goal | null;
+  goal: FeedbackGoal | null;
   week: number | null;
 }
 
@@ -105,7 +114,7 @@ export interface FeedbackEvent {
   season: number;
   week: number;
   format: FeedbackEventFormat;
-  goal: Goal | null;
+  goal: FeedbackGoal | null;
   trade: FeedbackEventTrade;
   numbers: FeedbackEventNumbers;
   features: FeedbackEventFeatures;

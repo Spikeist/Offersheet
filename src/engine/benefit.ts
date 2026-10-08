@@ -12,19 +12,29 @@
  * changes in. Because both runs optimize free agents, no B comes from a pickup I could make anyway.
  *
  * B (§10):
- * - B_win = 100 × (w_PO × ΔPO + w_CH × ΔCH) in percentage points, ΔPO and ΔCH as fractions. The weights are the
- *   user's "What matters most" (planner reply to Checkpoint 4b, change 8; TradeSettings.goal, BenefitInputs.goal;
- *   goalWeights): config.benefit.goals "title" 0.15 / 0.85 (the default, config.benefit.goalDefault: Parker's main goal
- *   is the title), "balanced" 0.35 / 0.65 (the weights before Phase 4c), "playoffs" 0.70 / 0.30. The scores divide B by
- *   B₃ under the same goal (the three numbers, below), so the goal changes what a trade's odds are worth, not what a lineup
- *   gain reads. ΔPO missing (not simulated yet) → B_win and B are null. ⚠️ Ours (awaiting the lead's
- *   sign-off in §10): when the title odds are unknown but the playoff odds aren't (season.ts nulls every team's
- *   P(title) when a played playoff round has no result it can match, SeasonOdds.playoffsKnown false, or when the
- *   league lists fewer playoff rounds than its bracket needs), B_win = 100 × (w_PO + w_CH) × ΔPO: the playoff
- *   term scaled up to the whole weight (each goal's weights sum to 1, so it is 100 × ΔPO under every goal), so B stays
- *   on the Trade Score's scale. Benefit.titleMissing marks it,
- *   tradeNumbers passes it on, and benefitNotes words it. It holds for every trade in such a league, so a
- *   search says it once (TradeSearchResult.notes); TradeEvaluation has no field for it.
+ * - B_win = 100 × (w_PO × ΔPO + w_S × ΔE[S]) in percentage points, ΔPO and ΔE[S] as fractions (Checkpoint 7c; planner reply
+ *   to Checkpoint 7b, §6, league prizes): E[S] is my expected share of the league's prizes this season, ΔE[S] its change
+ *   (src/engine/reward.ts shareChange: Σ over the prizes that pay of share × the change in my odds of winning it, from the
+ *   simulation's components, BenefitInputs.dPrizes; a prize that pays nothing is never read). The weights and the prizes are
+ *   the user's "What does your league reward?" (planner reply to Checkpoint 4b, change 8, "What matters most" then; reworded
+ *   by the planner's reply to Checkpoint 7a, 5.2; TradeSettings.goal and prizes, reward.ts rewardOf, BenefitInputs.reward;
+ *   goalWeights): config.benefit.goals "title", "Only the champion", 0.15 / 0.85 with 1st place paying everything (the
+ *   default, config.benefit.goalDefault: Parker's main goal is the title); "prizes", "Several prizes", 0.15 / 0.85 with the
+ *   league's own split of 1st, 2nd and 3rd place, the weekly high scores and the points title; "playoffs", "Making the
+ *   playoffs", 0.70 / 0.30 with 1st place paying everything. When 1st place pays everything ΔE[S] = 1 × ΔCH, exactly ΔCH, so
+ *   "Only the champion" and "Making the playoffs" give the numbers they gave before Checkpoint 7c bit for bit (the planner:
+ *   "today's numbers don't change"). ("balanced", "Top finishers too", 0.35 / 0.65 on ΔPO and ΔCH, went then: a stored one
+ *   reads as "Several prizes", settings.ts.) The scores divide B by B₃ under the same reward (the three numbers, below), so
+ *   the reward changes what a trade's odds are worth, not what a lineup gain reads. ΔPO missing (not simulated yet) → B_win
+ *   and B are null. ⚠️ Ours (awaiting the lead's sign-off in §10): when a prize that pays has unknown odds but the playoff
+ *   odds aren't (season.ts nulls every team's P(title), P(2nd) and P(3rd) when a played playoff round has no result it can
+ *   match, SeasonOdds.playoffsKnown false, or when the league lists fewer playoff rounds than its bracket needs; P(3rd)
+ *   alone when the 3rd-place game's round is over), B_win = 100 × (w_PO + w_S) × ΔPO: the playoff term scaled up to the
+ *   whole weight (each goal's weights sum to 1, so it is 100 × ΔPO under every goal), so B stays on the Trade Score's scale.
+ *   Under "Only the champion" and "Making the playoffs" that is title odds unknown, as before; a split paying only weekly
+ *   high scores and the points title never needs it. Benefit.titleMissing marks it, tradeNumbers passes it on, and
+ *   benefitNotes words it (naming the prize odds when 2nd or 3rd place pays). It holds for every trade in such a league, so
+ *   a search says it once (TradeSearchResult.notes); TradeEvaluation has no field for it.
  * - Redraft: B = B_win + (B₃ / helpsGain) × κ × clamp(g_mkt(me), marketSanityClamp), the market term (g_mkt(me) from
  *   perception values; +∞, a side that gives nothing of value, clamps to +0.5; NaN counts 0). κ is the user's "Protect my
  *   trade value" setting (planner addendum to Checkpoint 3, §3; TradeSettings.protectValue, lead decision N3) as a lineup
@@ -92,9 +102,11 @@
  * the same thing everywhere): Helps you (the Trade Score) = round(100 × (1 − e^(−B / B₃))) and Overall = round(100 × (1 −
  * e^(−B × P_complete / B₃))) when B > 0, null otherwise (B ≤ 0 is hidden by default). B₃ (helpsScale; TradeEvaluation.b3)
  * is built on the B of a uniform +config.benefit.helpsGain (3) projected points a week for my team in every week a trade can
- * change: the League model's calibration run (league.ts helpsCalibrationOf, LeagueModel.helpsCalibration: ΔPO₃ and ΔCH₃, my
- * odds' changes on the same baseline, every team after its pickups, on the same seasons as every trade's final run) as
- * B_win₃ under the goal (benefitWin, no market term: g_mkt(me) 0; HelpsScale.odds).
+ * change: the League model's calibration run (league.ts helpsCalibrationOf, LeagueModel.helpsCalibration: ΔPO₃ and every
+ * prize component's change, my odds' changes on the same baseline, every team after its pickups, on the same seasons as
+ * every trade's final run) as B_win₃ under the reward (benefitWin, no market term: g_mkt(me) 0; HelpsScale.odds). Since
+ * Checkpoint 7c (planner reply to Checkpoint 7b, §6: "Everything follows E[S] … so +3 points a week still reads 63") the
+ * reward is the league's prizes, so under "Several prizes" B₃ is the B of +3 a week in ΔE[S] too.
  * - Redraft, and dynasty and keeper leagues without long-term values (every trade's B is then B_win): B₃ = B_win₃. It
  *   follows the goal ("What matters most") like every trade's B, so a trade worth +1, +3 or +6 points a week of lineup reads
  *   about 28, 63 or 86 in every league under every goal (63 = 100 × (1 − e^−1): B = B₃).
@@ -131,11 +143,12 @@
  * values, W) gives TradeEvaluation.value (received = recv, given = give) and g_mkt(me), which the market term reads;
  * the partner's (swapped) tradePackage gives g_mkt(P) for acceptance.ts. Dynasty and keeper leagues with
  * futureValuesLoaded: ΔDyn = recv − give of tradePackage(get, give, future values, the future term's W) and
- * MyDynTotal = rosterValue(my players, future values, my picks' values). After the simulation: B₃ for the call's goal and λ
- * (evaluate.ts helpsScaleOf), then benefit({ ΔPO, ΔCH, g_mkt(me), dynasty, my baseline P(playoffs), settings.lambda, κ =
- * protectValueWeight(settings.protectValue), b3 = that B₃, goal = settings.goal }), tradeNumbers(benefit, acceptance
- * result, the same B₃) and tradeFlags({ g_mkt(me), B, injuredReceived(get, snapshot.players) }); benefitNotes(benefit) and
- * helpsScaleNotes(B₃'s scale) for the search's notes (the Analyzer's notes).
+ * MyDynTotal = rosterValue(my players, future values, my picks' values). After the simulation: B₃ for the call's reward and λ
+ * (evaluate.ts helpsScaleOf), then benefit({ ΔPO, ΔCH, every prize component's change, g_mkt(me), dynasty, my baseline
+ * P(playoffs), settings.lambda, κ = protectValueWeight(settings.protectValue), b3 = that B₃, reward = rewardOf(settings) }),
+ * tradeNumbers(benefit, acceptance result, the same B₃) and tradeFlags({ g_mkt(me), B, injuredReceived(get,
+ * snapshot.players) }); benefitNotes(benefit, reward) and helpsScaleNotes(B₃'s scale) for the search's notes (the Analyzer's
+ * notes).
  */
 import type { AcceptanceResult } from "./acceptance";
 import { config } from "./config";
@@ -143,18 +156,22 @@ import type { MarketInputs } from "./inputs";
 import type { HelpsCalibration } from "./leagueModel";
 import { packageValues, type ActiveSpots, type MarketConfig, type ValueLookup } from "./market";
 import type { InjuryStatus, LeagueSettings, PlayerInfo } from "./model";
+import { TITLE_ONLY, assertWeeklyMeasured, isTitleOnly, shareChange, titleDeltas, type PrizeDeltas, type Reward } from "./reward";
 import type { Goal, ProtectValue } from "./settings";
 import type { TradeEvaluation } from "./tradeModel";
 
-/** B_win's weights on ΔPO (playoffs) and ΔCH (title). */
+/**
+ * B_win's weights on ΔPO (playoffs) and ΔE[S] (prizes: the change in my share of the league's prizes, reward.ts; ΔCH when 1st
+ * place pays everything). Checkpoint 7c renamed the second from `title` (planner reply to Checkpoint 7b, §6).
+ */
 export interface GoalWeights {
   readonly playoffs: number;
-  readonly title: number;
+  readonly prizes: number;
 }
 
 /** The config.benefit keys this module reads, widened so calibration and tests can pass other numbers. */
 export interface BenefitConfig {
-  /** B_win's weights by "What matters most" (TradeSettings.goal; Phase 4c), and the default goal. */
+  /** B_win's weights by "What does your league reward?" (TradeSettings.goal; Phase 4c, Checkpoint 7c), and the default goal. */
   readonly goals: Readonly<Record<Goal, GoalWeights>>;
   readonly goalDefault: Goal;
   /** κ by "Protect my trade value" level (projected points a week per 100% of trade value), and the default level. */
@@ -214,8 +231,9 @@ export function resolveLambda(leagueType: LeagueType, setting: number | null | u
 // B (§10)
 
 /**
- * B_win's weights for a "What matters most" goal (the file header; TradeSettings.goal): config.benefit.goals[goal]. An
- * unknown goal (absent, or not one of the three) gets the default goal's (config.benefit.goalDefault: "title").
+ * B_win's weights for a "What does your league reward?" goal (the file header; TradeSettings.goal): config.benefit.goals[goal].
+ * An unknown goal (absent, or not one of the three: an older version's "balanced" among them) gets the default goal's
+ * (config.benefit.goalDefault: "title").
  */
 export function goalWeights(goal: Goal | null | undefined, cfg: Pick<BenefitConfig, "goals" | "goalDefault"> = config.benefit): GoalWeights {
   const own = goal && Object.hasOwn(cfg.goals, goal) ? cfg.goals[goal] : undefined;
@@ -223,15 +241,28 @@ export function goalWeights(goal: Goal | null | undefined, cfg: Pick<BenefitConf
 }
 
 /**
- * B_win in percentage points from ΔPO and ΔCH (fractions), with `goal`'s weights (goalWeights; absent: the default goal's).
- * Null when ΔPO is missing (titleMissing false: nothing was simulated); ΔCH missing → the playoff term scaled up to the
- * whole weight (the file header), titleMissing true.
+ * A reward that pays 1st place everything under `goal`'s weights (reward.ts TITLE_ONLY): what "Only the champion" and
+ * "Making the playoffs" give (reward.ts rewardOf), for callers that have a goal but no league to count prize periods in
+ * (BenefitInputs.goal, the tests, the reports' title-only rows). `goal` absent: config.benefit.goalDefault.
  */
-export function benefitWin(dPO: number | null, dCH: number | null, cfg: BenefitConfig = config.benefit, goal?: Goal | null): { bWin: number | null; titleMissing: boolean } {
-  const w = goalWeights(goal, cfg);
+export function titleOnlyReward(goal?: Goal | null, cfg: Pick<BenefitConfig, "goalDefault"> = config.benefit): Reward {
+  return { goal: goal ?? cfg.goalDefault, shares: TITLE_ONLY, periods: 0, empty: false };
+}
+
+/**
+ * B_win in percentage points (the file header): 100 × (w_PO × ΔPO + w_S × ΔE[S]), ΔPO a fraction and ΔE[S] reward.ts
+ * shareChange(dPrizes, reward) (each prize component's change, a fraction; only the prizes that pay are read), with `reward`'s
+ * goal's weights (goalWeights). `reward` absent: the default goal, 1st place paying everything (so ΔE[S] = ΔCH, dPrizes.first).
+ * Null when ΔPO is missing (titleMissing false: nothing was simulated); a paid prize's change missing → the playoff term
+ * scaled up to the whole weight (the file header), titleMissing true.
+ */
+export function benefitWin(dPO: number | null, dPrizes: Partial<PrizeDeltas> | null, cfg: Pick<BenefitConfig, "goals" | "goalDefault"> = config.benefit, reward?: Reward | null): { bWin: number | null; titleMissing: boolean } {
+  const r = reward ?? titleOnlyReward(null, cfg);
+  const w = goalWeights(r.goal, cfg);
   if (!isFiniteNumber(dPO)) return { bWin: null, titleMissing: false };
-  if (isFiniteNumber(dCH)) return { bWin: 100 * (w.playoffs * dPO + w.title * dCH), titleMissing: false };
-  return { bWin: w.playoffs > 0 ? 100 * (w.playoffs + w.title) * dPO : null, titleMissing: true };
+  const dES = shareChange(dPrizes, r);
+  if (isFiniteNumber(dES)) return { bWin: 100 * (w.playoffs * dPO + w.prizes * dES), titleMissing: false };
+  return { bWin: w.playoffs > 0 ? 100 * (w.playoffs + w.prizes) * dPO : null, titleMissing: true };
 }
 
 /** B_future = bFutureScale × ΔDyn / MyDynTotal; null when either is missing or MyDynTotal ≤ 0. */
@@ -274,6 +305,12 @@ export interface BenefitInputs {
   /** Changes in my P(playoffs) and P(title), fractions, from the common-random-numbers simulation; null = unknown. */
   dPO: number | null;
   dCH: number | null;
+  /**
+   * Checkpoint 7c (planner reply to Checkpoint 7b, §6): every prize component's change (reward.ts PrizeDeltas: 1st = ΔCH, 2nd,
+   * 3rd, weekly high scores won, the points title), the same runs as dPO; ΔE[S] reads the ones `reward` pays. Absent: dCH as
+   * 1st place's (reward.ts titleDeltas), the title-only reading.
+   */
+  dPrizes?: PrizeDeltas | null;
   /** g_mkt(me) on perception values (§9; each player at max(v, W): the file header): the redraft market term reads it. */
   gMine: number;
   /**
@@ -300,10 +337,16 @@ export interface BenefitInputs {
    */
   b3?: number | null;
   /**
-   * Phase 4c (planner reply to Checkpoint 4b, change 8): TradeSettings.goal, "What matters most". B_win's ΔPO / ΔCH
-   * weights are config.benefit.goals[goal]; absent = config.benefit.goalDefault ("title": 0.15 / 0.85).
+   * Phase 4c (planner reply to Checkpoint 4b, change 8): TradeSettings.goal, "What does your league reward?". B_win's ΔPO /
+   * ΔE[S] weights are config.benefit.goals[goal]; absent = config.benefit.goalDefault ("title": 0.15 / 0.85). Read with 1st
+   * place paying everything (titleOnlyReward), only when `reward` is absent.
    */
   goal?: Goal;
+  /**
+   * Checkpoint 7c: the league's reward (reward.ts rewardOf: the goal's weights and the prize shares ΔE[S] reads), which wins
+   * over `goal`. The engine always passes it (evaluate.ts simulateTrade, search.ts).
+   */
+  reward?: Reward | null;
 }
 
 export interface Benefit {
@@ -329,13 +372,16 @@ export interface Benefit {
   dDyn: number | null;
   /** A dynasty or keeper league whose long-term values are missing: B = B_win, and the card says so. */
   dynMissing: boolean;
-  /** ΔCH unknown while ΔPO is known: B_win counts the playoff odds alone, scaled (the file header). False when B wasn't simulated. */
+  /**
+   * A paid prize's change unknown while ΔPO is known (ΔCH under "Only the champion" and "Making the playoffs"): B_win counts
+   * the playoff odds alone, scaled (the file header). False when B wasn't simulated.
+   */
   titleMissing: boolean;
 }
 
 /** B and its parts (§10; L6). See the file header for every rule. */
 export function benefit(x: BenefitInputs, cfg: BenefitConfig = config.benefit): Benefit {
-  const { bWin, titleMissing } = benefitWin(x.dPO, x.dCH, cfg, x.goal);
+  const { bWin, titleMissing } = benefitWin(x.dPO, x.dPrizes ?? titleDeltas(x.dCH), cfg, x.reward ?? titleOnlyReward(x.goal, cfg));
   if (x.leagueType === "redraft") {
     // The market term, priced on the evaluation's own scale (planner reply to Checkpoint 7a, §2 question 5): none at κ 0 or
     // without a scale.
@@ -375,8 +421,10 @@ export interface HelpsScaleInputs {
   myPPlayoffs: number | null;
   /** TradeSettings.lambda: null or absent = the default by P(playoffs). */
   lambda?: number | null;
-  /** TradeSettings.goal ("What matters most"); absent = config.benefit.goalDefault. */
+  /** TradeSettings.goal ("What does your league reward?"), read with 1st place paying everything; absent = config.benefit.goalDefault. */
   goal?: Goal;
+  /** Checkpoint 7c: the league's reward (reward.ts rewardOf), which wins over `goal` (BenefitInputs.reward's rule). */
+  reward?: Reward | null;
   /**
    * MyDynTotal when long-term values loaded (dynasty and keeper leagues: evaluate.ts TradeInternals.future), so B₃ is
    * B_ref(λ) (the file header; every trade's B weighs B_win by 1 − λ and B_future by λ); null without them (B₃ = B_win₃, as
@@ -404,8 +452,12 @@ export interface HelpsScale {
   floored: boolean;
   /** B_win₃: the calibration run's B_win under the goal, without λ, the odds' own response to +helpsGain a week. */
   odds: number;
-  /** The odds the floor note names: those B₃ weighs most (title odds, unless the goal weighs playoff odds more or title odds are unknown). */
-  oddsNamed: "title" | "playoff";
+  /**
+   * The odds the floor note names: those B₃ weighs most. "playoff" when a paid prize's odds are unknown (B₃ counts the playoff
+   * odds in their place) or the goal weighs playoff odds more; "prizes" under "Several prizes" paying more than 1st place
+   * (Checkpoint 7c: my chances at the league's prizes); else "title".
+   */
+  oddsNamed: "title" | "playoff" | "prizes";
   /** λ of every trade's B (resolveLambda: the slider, else the default) in a dynasty or keeper league with long-term values; null elsewhere (no λ in B₃). */
   lambda: number | null;
   /**
@@ -433,15 +485,21 @@ export interface HelpsScale {
 }
 
 /**
- * B₃ (the file header): the calibration run's ΔPO₃ and ΔCH₃ (LeagueModel.helpsCalibration, evaluate.ts SimState.
- * calibration) as B_win under `x`'s goal (`odds`, benefitWin: title odds unknown → the playoff term scaled up, as every
- * trade's B); in a dynasty or keeper league with long-term values (benefit()'s rule: MyDynTotal above 0) B_ref(λ) = (1 − λ)
- * × odds + λ × F₁₀ (planner reply to Checkpoint 7a, §2 question 6), λ the trade's (resolveLambda); floored at helpsFloor.
- * Null without a run (no odds or no team) or when B₃ isn't a number (no ΔPO): then no B is either, and the scores are null.
+ * B₃ (the file header): the calibration run's ΔPO₃ and prize components' changes (LeagueModel.helpsCalibration, evaluate.ts
+ * SimState.calibration; dPrizes absent: ΔCH₃ as 1st place's) as B_win under `x`'s reward (`odds`, benefitWin: a paid prize's
+ * odds unknown → the playoff term scaled up, as every trade's B); in a dynasty or keeper league with long-term values
+ * (benefit()'s rule: MyDynTotal above 0) B_ref(λ) = (1 − λ) × odds + λ × F₁₀ (planner reply to Checkpoint 7a, §2 question 6),
+ * λ the trade's (resolveLambda); floored at helpsFloor. Null without a run (no odds or no team) or when B₃ isn't a number (no
+ * ΔPO): then no B is either, and the scores are null. Throws under a reward that pays the weekly high score when the run
+ * didn't simulate the high scores (its weekly change unknown: reward.ts assertWeeklyMeasured; the review of the reward
+ * engine, compat-R1): a B₃ that silently left the weekly prize out otherwise. The engine's runs simulate them whenever their
+ * own build's reward pays them, and evaluate.ts rewardOn refuses a call's reward its context can't price.
  */
-export function helpsScale(run: Pick<HelpsCalibration, "dPO" | "dCH"> | null | undefined, x: HelpsScaleInputs, cfg: BenefitConfig = config.benefit): HelpsScale | null {
+export function helpsScale(run: (Pick<HelpsCalibration, "dPO" | "dCH"> & { readonly dPrizes?: PrizeDeltas | null }) | null | undefined, x: HelpsScaleInputs, cfg: BenefitConfig = config.benefit): HelpsScale | null {
   if (!run) return null;
-  const { bWin: odds, titleMissing } = benefitWin(run.dPO, run.dCH, cfg, x.goal);
+  const reward = x.reward ?? titleOnlyReward(x.goal, cfg);
+  assertWeeklyMeasured(reward, run, "The “Helps you” calibration run");
+  const { bWin: odds, titleMissing } = benefitWin(run.dPO, run.dPrizes ?? titleDeltas(run.dCH), cfg, reward);
   if (!isFiniteNumber(odds)) return null;
   // Long-term values loaded: every trade's B mixes B_win and B_future by λ (benefit(): B_future null, so B = B_win, without them).
   const future = x.leagueType !== "redraft" && isFiniteNumber(x.dynastyTotal) && x.dynastyTotal > 0;
@@ -454,12 +512,20 @@ export function helpsScale(run: Pick<HelpsCalibration, "dPO" | "dCH"> | null | u
   if (!isFiniteNumber(b3) || !(b3 > 0)) return null;
   const gainReads = tradeScore(lambda === null ? odds : (1 - lambda) * odds, b3) ?? 0;
   const futureReads = lambda === null || f10 === null ? null : (tradeScore(lambda * f10, b3) ?? 0);
-  const w = goalWeights(x.goal, cfg);
-  return { b3, raw, floored, odds, oddsNamed: titleMissing || w.playoffs > w.title ? "playoff" : "title", lambda, f10, gainReads, futureReads, reason: floored ? "odds" : null };
+  const w = goalWeights(reward.goal, cfg);
+  const oddsNamed = titleMissing ? "playoff" : reward.goal === "prizes" && !isTitleOnly(reward.shares) ? "prizes" : w.playoffs > w.prizes ? "playoff" : "title";
+  return { b3, raw, floored, odds, oddsNamed, lambda, f10, gainReads, futureReads, reason: floored ? "odds" : null };
 }
 
 /** The note when B₃ is floored because my odds barely move (planner reply to Checkpoint 4c, A2: "When it's floored, note it"). */
 export const HELPS_FLOOR_NOTE = "Your title odds barely move with lineup changes right now.";
+
+/**
+ * Checkpoint 7c (the lead's words for "Several prizes", planner reply to Checkpoint 7b, §6): the floor note when B₃ weighs my
+ * share of the league's prizes (HelpsScale.oddsNamed "prizes"). src/lib/tradeView.ts helpsReasonOf reads it back as an odds
+ * note.
+ */
+export const HELPS_FLOOR_NOTE_PRIZES = "Your chances at your league's prizes barely move with lineup changes right now.";
 
 /**
  * ⚠️ Ours (review of track SC, finding SC-2): the floor note naming the playoff odds when B₃ weighs them most (HelpsScale.
@@ -470,12 +536,12 @@ export const HELPS_FLOOR_NOTE_PLAYOFFS = "Your playoff odds barely move with lin
 
 /**
  * The floor note, once per search (search.ts) and with each evaluation (the Analyzer's notes), when the scale is floored
- * (HelpsScale.reason "odds"): HELPS_FLOOR_NOTE, or HELPS_FLOOR_NOTE_PLAYOFFS by HelpsScale.oddsNamed; else none. (The Win now
- * ↔ Future note of review SC-1 went with its λ cap: planner reply to Checkpoint 7a, §2 question 6.)
+ * (HelpsScale.reason "odds"): HELPS_FLOOR_NOTE, HELPS_FLOOR_NOTE_PLAYOFFS or HELPS_FLOOR_NOTE_PRIZES by HelpsScale.oddsNamed;
+ * else none. (The Win now ↔ Future note of review SC-1 went with its λ cap: planner reply to Checkpoint 7a, §2 question 6.)
  */
 export function helpsScaleNotes(scale: Pick<HelpsScale, "reason" | "oddsNamed"> | null | undefined): string[] {
   if (scale?.reason !== "odds") return [];
-  return [scale.oddsNamed === "playoff" ? HELPS_FLOOR_NOTE_PLAYOFFS : HELPS_FLOOR_NOTE];
+  return [scale.oddsNamed === "playoff" ? HELPS_FLOOR_NOTE_PLAYOFFS : scale.oddsNamed === "prizes" ? HELPS_FLOOR_NOTE_PRIZES : HELPS_FLOOR_NOTE];
 }
 
 /**
@@ -546,14 +612,28 @@ export function tradeNumbers(b: Benefit, accept: Pick<AcceptanceResult, "pAccept
   };
 }
 
+/** benefitNotes' words when the title odds are unknown (Benefit.titleMissing under a reward where only 1st place's odds can be). */
+export const TITLE_MISSING_NOTE = "Title odds aren't available for this league, so “Helps you” uses playoff odds in their place.";
+
 /**
- * Plain-English notes on what B leaves out: title odds unknown (B_win counts the playoff odds alone) and long-term
- * values missing (dynasty and keeper leagues: B = B_win, this season only). Both hold for every trade in a league,
- * so a search adds them once to TradeSearchResult.notes; the Analyzer can list them with a card's reasons.
+ * Checkpoint 7c: benefitNotes' words when a paid prize's odds are unknown under "Several prizes" paying 2nd or 3rd place
+ * (their odds go with the title's: season.ts), so B counts the playoff odds in place of the prize odds. ⚠️ Worded like
+ * TITLE_MISSING_NOTE, naming no cause (the review of the reward engine, compat-R2; awaiting the lead's sign-off): the lead's
+ * "Playoff results aren't available for this league, …" was wrong when nothing is missing from the results, as when the
+ * league's playoff schedule lists fewer rounds than its bracket needs, or pairs teams differently from ours (season.ts).
  */
-export function benefitNotes(b: Pick<Benefit, "titleMissing" | "dynMissing">): string[] {
+export const PRIZES_MISSING_NOTE = "Prize odds aren't available for this league, so “Helps you” uses playoff odds in their place.";
+
+/**
+ * Plain-English notes on what B leaves out: a paid prize's odds unknown (B_win counts the playoff odds alone:
+ * TITLE_MISSING_NOTE, or PRIZES_MISSING_NOTE when `reward` pays 2nd or 3rd place) and long-term values missing (dynasty and
+ * keeper leagues: B = B_win, this season only). Both hold for every trade in a league, so a search adds them once to
+ * TradeSearchResult.notes; the Analyzer can list them with a card's reasons.
+ */
+export function benefitNotes(b: Pick<Benefit, "titleMissing" | "dynMissing">, reward?: Pick<Reward, "goal" | "shares"> | null): string[] {
   const notes: string[] = [];
-  if (b.titleMissing) notes.push("Title odds aren't available for this league, so “Helps you” uses playoff odds in their place.");
+  const places = reward?.goal === "prizes" && (reward.shares.second > 0 || reward.shares.third > 0);
+  if (b.titleMissing) notes.push(places ? PRIZES_MISSING_NOTE : TITLE_MISSING_NOTE);
   if (b.dynMissing) notes.push("Long-term trade values aren't available, so “Helps you” counts this season only.");
   return notes;
 }

@@ -778,11 +778,13 @@ describe("contextStillValid and contextKey", () => {
 
   it("keys on the league, its data, the inputs, my team and only the settings the context reads", () => {
     const key = contextKey({ snapshot, model, myTeamId: "3" }, settings);
-    expect(key).toBe(`espn|4242|2026|2026-10-01T15:00:00.000Z|2026-10-01T15:01:00.000Z|3|{"goal":"title","streamPositions":["DEF","K","QB"]}`);
+    expect(key).toBe(`espn|4242|2026|2026-10-01T15:00:00.000Z|2026-10-01T15:01:00.000Z|3|{"goal":"title","prizes":{"first":60,"second":30,"third":10,"weeklyHigh":null,"pointsLeader":null},"streamPositions":["DEF","K","QB"]}`);
     // The manual playoff weight isn't one of them any more (ω is set automatically; an older version's stored one counts for
     // nothing); the goal is.
     expect(contextKey({ snapshot, model, myTeamId: "3" }, { ...settings, playoffWeight: 1.25 } as TradeSettings)).toBe(key);
-    expect(contextKey({ snapshot, model, myTeamId: "3" }, { ...settings, goal: "balanced" })).not.toBe(key);
+    expect(contextKey({ snapshot, model, myTeamId: "3" }, { ...settings, goal: "prizes" })).not.toBe(key);
+    // "Several prizes"' amounts too (Checkpoint 7c: the split moves ω and whether the weekly high scores are simulated).
+    expect(contextKey({ snapshot, model, myTeamId: "3" }, { ...settings, prizes: { ...settings.prizes, weeklyHigh: 5 } })).not.toBe(key);
     expect(contextKey({ snapshot, model, myTeamId: null }, { ...settings, lambda: 0.9 })).toBe(key.replace("|3|", "|-|"));
   });
 });

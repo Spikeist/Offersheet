@@ -38,6 +38,7 @@ import {
   offerFirstBar,
   preScreenOrder,
   proposalKey,
+  rewardFor,
   screenTrade,
   simulateTrade,
   stepConfig,
@@ -700,7 +701,7 @@ describe("determinism, the Analyzer and the search", () => {
     expect(ba).toBe(cached);
     const keyOrder = evaluateExact(I1, trade("3", ["qx1", "wb1"], ["wa3"]), 2);
     if ("illegal" in keyOrder) throw new Error(keyOrder.illegal);
-    expect(ab.screen.b).toBe(simulateTrade(I1, keyOrder, "screen", SETTINGS.lambda, SETTINGS.protectValue, SETTINGS.goal).b);
+    expect(ab.screen.b).toBe(simulateTrade(I1, keyOrder, "screen", SETTINGS.lambda, SETTINGS.protectValue, rewardFor(I1, SETTINGS)).b);
   });
 
   it("the Analyzer gives the analyzed trade its steps; the pitch names the offer-first version, never the throw-in held back", () => {

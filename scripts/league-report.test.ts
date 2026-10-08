@@ -8,7 +8,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { normalizeEspnLeague } from "@/adapters/espn/normalize";
 import { NOW, PARKER, fakeResolver, parkerBundle } from "@/adapters/espn/test-helpers";
-import { helpsScale, tradeScore } from "@/engine/benefit";
+import { helpsScale, titleOnlyReward, tradeScore } from "@/engine/benefit";
 import { config } from "@/engine/config";
 import type { ModelInputs } from "@/engine/inputs";
 import { buildLeagueModel, leagueMarginals, nearTieRos, playoffWeightFrom, teamWeeks } from "@/engine/league";
@@ -16,6 +16,7 @@ import type { FaMove, LeagueModel } from "@/engine/leagueModel";
 import type { LeagueSnapshot, Pos } from "@/engine/model";
 import { returnersOf } from "@/engine/optimizer";
 import { finalLineups } from "@/engine/returners";
+import { prizeDeltas, prizeOddsOf, prizePeriods, rewardWith, titleDeltas } from "@/engine/reward";
 import { buildSimSetup, pickupSeasonModel, seasonOdds } from "@/engine/season";
 import { GOALS, defaultTradeSettings } from "@/engine/settings";
 import { simNormals } from "@/engine/sim";
@@ -37,9 +38,11 @@ import {
   batchRuns,
   batchSe,
   benefitWin,
+  goalRewards,
   blendLines,
   buildReport,
   byGoal,
+  prizesWords,
   calibrationMatches,
   commandText,
   displayPath,
@@ -98,13 +101,25 @@ function inProgressInputs(): ModelInputs {
 }
 
 describe("league report: the Trade Score arithmetic (CLAUDE.md §10)", () => {
-  it("B = 100 × (w_PO ΔPO + w_CH ΔCH) under each goal's weights (config.benefit.goals; the default goal's without one)", () => {
-    for (const g of GOALS) expect(benefitWin(0.1, 0.05, g)).toBeCloseTo(100 * (config.benefit.goals[g].playoffs * 0.1 + config.benefit.goals[g].title * 0.05), 12);
-    // Win the title 0.15 / 0.85, Balanced 0.35 / 0.65 (the weights before Phase 4c), Make the playoffs 0.70 / 0.30.
-    expect([benefitWin(0.1, 0.05, "title"), benefitWin(0.1, 0.05, "balanced"), benefitWin(0.1, 0.05, "playoffs")].map((x) => Number(x.toFixed(9)))).toEqual([5.75, 6.75, 8.5]);
+  it("B = 100 × (w_PO ΔPO + w_S ΔE[S]) under each goal's reward (config.benefit.goals; Checkpoint 7c, planner reply to Checkpoint 7b, §6)", () => {
+    // 1st place paying everything: ΔE[S] is ΔCH.
+    for (const g of GOALS) expect(benefitWin(0.1, titleDeltas(0.05), titleOnlyReward(g))).toBeCloseTo(100 * (config.benefit.goals[g].playoffs * 0.1 + config.benefit.goals[g].prizes * 0.05), 12);
+    // Win the title 0.15 / 0.85, Make the playoffs 0.70 / 0.30.
+    expect([benefitWin(0.1, titleDeltas(0.05), titleOnlyReward("title")), benefitWin(0.1, titleDeltas(0.05), titleOnlyReward("playoffs"))].map((x) => Number(x.toFixed(9)))).toEqual([5.75, 8.5]);
     expect(config.benefit.goalDefault).toBe("title");
-    expect(benefitWin(0.1, 0.05)).toBe(benefitWin(0.1, 0.05, "title"));
-    expect(byGoal((g) => GOAL_WORDS[g])).toEqual({ title: "Win the title", balanced: "Balanced", playoffs: "Make the playoffs" });
+    // Several prizes on the prefilled split, 60 / 30 / 10: ΔE[S] = 0.6 ΔCH + 0.3 ΔP(2nd) + 0.1 ΔP(3rd).
+    const rewards = goalRewards(14);
+    expect(rewards.prizes.shares).toEqual({ first: 0.6, second: 0.3, third: 0.1, weeklyHigh: 0, pointsLeader: 0 });
+    expect(benefitWin(0.1, { first: 0.05, second: 0.02, third: -0.01, weeklyHigh: null, pointsLeader: null }, rewards.prizes)).toBeCloseTo(100 * (0.15 * 0.1 + 0.85 * (0.6 * 0.05 + 0.3 * 0.02 - 0.1 * 0.01)), 12);
+    // A paid prize unknown: NaN, as the rows read title odds unknown.
+    expect(benefitWin(0.1, titleDeltas(0.05), rewards.prizes)).toBeNaN();
+    // The model's own reward stands for its goal (its user's split).
+    const own = rewardWith({ goal: "prizes", prizes: { first: 2000, second: 1600, third: 900, weeklyHigh: null, pointsLeader: null } }, 14);
+    expect(goalRewards(14, own).prizes).toBe(own);
+    expect(goalRewards(14, own).title).toEqual(rewardWith({ goal: "title", prizes: config.benefit.prizesDefault }, 14));
+    expect(byGoal((g) => GOAL_WORDS[g])).toEqual({ title: "Win the title", prizes: "Several prizes", playoffs: "Make the playoffs" });
+    expect(prizesWords(rewards.prizes)).toBe("the prefilled split, 1st 60%, 2nd 30%, 3rd 10%");
+    expect(prizesWords(own)).toBe("the league's split, 1st 44%, 2nd 36%, 3rd 20%");
   });
 
   it("Helps you on the self-calibrating scale (planner reply to Checkpoint 4c, A2): B₃ reads 63, a third of it 28, twice it 86, wherever B₃ is; hidden (null) for B ≤ 0", () => {
@@ -243,7 +258,7 @@ describe("league report: Parker's league (committed sanitized fixture) with synt
       expect(r.dEW).toBeGreaterThan(last.dEW);
       for (const g of GOALS) {
         expect(r.B[g]).toBeGreaterThan(last.B[g]);
-        expect(r.B[g]).toBeCloseTo(benefitWin(r.dPO, r.dCH, g), 12);
+        expect(r.B[g]).toBeCloseTo(benefitWin(r.dPO, r.dPrizes, check.rewards[g]), 12);
         expect(r.score[g]).toBe(tradeScore(r.B[g], check.b3[g].value));
         // Every change carries its Monte Carlo standard error (batch means), which a real gain makes positive.
         expect(r.se.B[g]).toBeGreaterThan(0);
@@ -275,9 +290,9 @@ describe("league report: Parker's league (committed sanitized fixture) with synt
       const own = buildLeagueModel(snapshot, inputs, { now: NOW, scenarios: S, settings: { ...defaultTradeSettings(), goal: g } });
       const mineOwn = own.odds?.teams.find((t) => t.teamId === me);
       expect(app[g].omega).toBe(own.playoffWeight);
-      expect(app[g].b3).toBe(helpsScale(own.helpsCalibration, { leagueType: snapshot.settings.leagueType, myPPlayoffs: mineOwn?.pPlayoffs ?? null, goal: g, dynastyTotal: null })?.b3);
+      expect(app[g].b3).toBe(helpsScale(own.helpsCalibration, { leagueType: snapshot.settings.leagueType, myPPlayoffs: mineOwn?.pPlayoffs ?? null, reward: own.reward, dynastyTotal: null })?.b3);
     }
-    expect(appB3Words(app)).toMatch(/^Win the title \*\*\d+\.\d{2}\*\* \(ω [\d.]+×\); Balanced \*\*\d+\.\d{2}\*\* \(ω [\d.]+×\); Make the playoffs \*\*\d+\.\d{2}\*\* \(ω [\d.]+×\)$/);
+    expect(appB3Words(app)).toMatch(/^Win the title \*\*\d+\.\d{2}\*\* \(ω [\d.]+×\); Several prizes \*\*\d+\.\d{2}\*\* \(ω [\d.]+×\); Make the playoffs \*\*\d+\.\d{2}\*\* \(ω [\d.]+×\)$/);
     // Priced on the app's own B₃ when it's given.
     const appPrice = tradeValuePriceWords(check, app);
     expect(appPrice).toContain("in B at Medium, on the app's own B₃ under each goal: ");
@@ -334,10 +349,11 @@ describe("league report: Parker's league (committed sanitized fixture) with synt
       expect(mean(before.map((o) => o.pTitle as number))).toBeCloseTo(full.pTitle as number, 12);
       expect(mean(before.map((o) => o.expWins))).toBeCloseTo(full.expWins, 12);
       const row = row3(run);
+      const rewards = goalRewards(prizePeriods(snapshot));
       for (const g of GOALS) {
         const Bs = parts.map((_, j) => {
           const [b, a] = [before[j], after[j]] as [typeof full, typeof full];
-          return benefitWin(a.pPlayoffs - b.pPlayoffs, (a.pTitle as number) - (b.pTitle as number), g);
+          return benefitWin(a.pPlayoffs - b.pPlayoffs, prizeDeltas(prizeOddsOf(b), prizeOddsOf(a)), rewards[g]);
         });
         expect(row.B[g]).toBeCloseTo(mean(Bs), 10);
         expect(row.se.B[g]).toBeCloseTo(sd(Bs) / Math.sqrt(SE_BATCHES), 12);
@@ -358,7 +374,7 @@ describe("league report: Parker's league (committed sanitized fixture) with synt
     const pickups = season.scale as NonNullable<SeasonReport["scale"]>;
     const stand = season.scaleStand as NonNullable<SeasonReport["scaleStand"]>;
     const mineStand = season.stand?.teams.find((t) => t.teamId === me);
-    expect(stand.base).toEqual({ pPlayoffs: mineStand?.pPlayoffs, pTitle: mineStand?.pTitle, expWins: mineStand?.expWins });
+    expect(stand.base).toEqual({ pPlayoffs: mineStand?.pPlayoffs, pTitle: mineStand?.pTitle, expWins: mineStand?.expWins, prizes: prizeOddsOf(mineStand as NonNullable<typeof mineStand>) });
     expect(stand.rows?.map((r) => r.gain)).toEqual([...SCALE_GAINS]);
     // Every team's pickups move my odds (a fact of the fixture: some team picks someone up), and their effect is the
     // difference of the two baselines, with a standard error from the same batches paired.
@@ -556,7 +572,7 @@ describe("league report: the automatic playoff-week weight (planner reply to Che
     expect(lines.join("\n")).toContain(`Two runs on the headline's 5,000 seasons (common random numbers)`);
     expect(lines).toContain("| Goal | B per point, regular season | B per point, playoffs | ω |");
     for (const g of GOALS) {
-      const w = playoffWeightFrom(runs, g, a.sims);
+      const w = playoffWeightFrom(runs, goalRewards(a.reward.periods, a.reward)[g], a.sims);
       const row = lines.find((l) => l.startsWith(`| ${GOAL_WORDS[g]}`));
       expect(row, g).toContain(`| ${w.omega}×`);
       if (g === "title") expect(row).toContain("(yours)");
@@ -635,11 +651,11 @@ describe("league report: the whole offline report", () => {
     // B and Helps you under every goal, twice (the one baseline, and as rosters stand).
     expect(doc).not.toContain("not noise");
     expect(doc).toContain(`± is its Monte Carlo standard error, by batch means: the 5,000 seasons split into ${SE_BATCHES} batches of 250`);
-    expect(doc).toContain("| Lineup gain | ΔPO | ΔCH | Δ expected wins | Win the title: B / Helps you | Balanced: B / Helps you | Make the playoffs: B / Helps you | Toy league B / score |");
+    expect(doc).toContain("| Lineup gain | ΔPO | ΔCH | Δ expected wins | Win the title: B / Helps you | Several prizes: B / Helps you | Make the playoffs: B / Helps you | Toy league B / score |");
     // +3 reads 63 under every goal, on both bases (each its own B₃).
     const row3 = /\| \+3 pt\/wk \| [+-]\d\.\d{4} ± \d\.\d{4} \| [+-]\d\.\d{4} ± \d\.\d{4} \| [+-]\d+\.\d{3} ± \d+\.\d{3} \| (-?\d+\.\d{2} ± \d+\.\d{2} \/ 63 \| ){3}≈ 5 \/ ≈ 63 \|/g;
     expect(doc.match(row3)).toHaveLength(2);
-    expect(doc).toMatch(/: Win the title \*\*\d+\.\d{2} ± \d+\.\d{2}\*\*; Balanced \*\*\d+\.\d{2} ± \d+\.\d{2}\*\*; Make the playoffs \*\*\d+\.\d{2} ± \d+\.\d{2}\*\*\./);
+    expect(doc).toMatch(/: Win the title \*\*\d+\.\d{2} ± \d+\.\d{2}\*\*; Several prizes \*\*\d+\.\d{2} ± \d+\.\d{2}\*\*; Make the playoffs \*\*\d+\.\d{2} ± \d+\.\d{2}\*\*\./);
     expect(doc).toContain("**From the one baseline (every team after its free-agent pickups)**");
     // "Protect my trade value" priced on the one baseline's B₃, once (a redraft league; planner reply to Checkpoint 7a, §2 question 5).
     expect(doc.split("“Protect my trade value” is priced on the same B₃").length - 1).toBe(1);

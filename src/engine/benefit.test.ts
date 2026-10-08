@@ -4,6 +4,9 @@ import {
   HELPS_AT_GAIN,
   HELPS_FLOOR_NOTE,
   HELPS_FLOOR_NOTE_PLAYOFFS,
+  HELPS_FLOOR_NOTE_PRIZES,
+  PRIZES_MISSING_NOTE,
+  TITLE_MISSING_NOTE,
   benefit,
   benefitFuture,
   goalWeights,
@@ -26,13 +29,18 @@ import {
   tradeNumbers,
   tradePackage,
   tradeScore,
+  titleOnlyReward,
   type BenefitConfig,
 } from "./benefit";
 import { config } from "./config";
 import type { MarketInputs } from "./inputs";
 import { marketGain, packageValues, type MarketConfig } from "./market";
+import { TITLE_ONLY, rewardWith, titleDeltas, type PrizeDeltas, type Reward } from "./reward";
 import { mulberry32 } from "./rng";
 import { GOALS, type Goal, type ProtectValue } from "./settings";
+
+/** B_win from ΔPO and ΔCH alone under a goal, 1st place paying everything (the reading every goal had before Checkpoint 7c). */
+const win = (dPO: number | null, dCH: number | null, cfg: BenefitConfig = config.benefit, goal?: Goal) => benefitWin(dPO, titleDeltas(dCH), cfg, titleOnlyReward(goal, cfg));
 
 const market = (over: Partial<MarketInputs> & Pick<MarketInputs, "values">): MarketInputs => ({
   format: { isDynasty: true, numQbs: 1, numTeams: 10, ppr: 0.5, substitutions: [] },
@@ -124,60 +132,107 @@ describe("Trade Score and Overall on the self-calibrating scale B₃ (§10; plan
 const BWIN = 2.3;
 
 describe("B (§10)", () => {
-  it("B_win = 100 × (w_PO ΔPO + w_CH ΔCH) in percentage points, the weights by “What matters most” (planner reply to Checkpoint 4b, change 8)", () => {
-    expect(config.benefit.goals).toStrictEqual({ title: { playoffs: 0.15, title: 0.85 }, balanced: { playoffs: 0.35, title: 0.65 }, playoffs: { playoffs: 0.7, title: 0.3 } });
+  it("B_win = 100 × (w_PO ΔPO + w_S ΔE[S]) in percentage points, the weights by “What does your league reward?” (planner reply to Checkpoint 4b, change 8; Checkpoint 7c, planner reply to Checkpoint 7b, §6)", () => {
+    expect(config.benefit.goals).toStrictEqual({ title: { playoffs: 0.15, prizes: 0.85 }, prizes: { playoffs: 0.15, prizes: 0.85 }, playoffs: { playoffs: 0.7, prizes: 0.3 } });
     expect(config.benefit.goalDefault).toBe("title");
-    // The default goal, "Win the title".
-    expect(benefitWin(0.04, 0.02).bWin).toBeCloseTo(100 * (0.15 * 0.04 + 0.85 * 0.02), 12);
-    expect(benefitWin(0.04, 0.02).bWin).toBeCloseTo(BWIN, 12);
-    expect(benefitWin(0.04, 0.02, config.benefit, "title")).toStrictEqual(benefitWin(0.04, 0.02));
-    // "Balanced" (the weights before Phase 4c) and "Make the playoffs".
-    expect(benefitWin(0.04, 0.02, config.benefit, "balanced").bWin).toBeCloseTo(100 * (0.35 * 0.04 + 0.65 * 0.02), 12);
-    expect(benefitWin(0.04, 0.02, config.benefit, "playoffs").bWin).toBeCloseTo(100 * (0.7 * 0.04 + 0.3 * 0.02), 12);
-    expect(benefitWin(0, 0)).toStrictEqual({ bWin: 0, titleMissing: false });
+    expect(config.benefit.prizesDefault).toStrictEqual({ first: 60, second: 30, third: 10, weeklyHigh: null, pointsLeader: null });
+    // The default goal, "Only the champion": 1st place pays everything, so ΔE[S] is ΔCH.
+    expect(win(0.04, 0.02).bWin).toBeCloseTo(100 * (0.15 * 0.04 + 0.85 * 0.02), 12);
+    expect(win(0.04, 0.02).bWin).toBeCloseTo(BWIN, 12);
+    expect(win(0.04, 0.02, config.benefit, "title")).toStrictEqual(win(0.04, 0.02));
+    // No reward given: the default goal's, 1st place paying everything.
+    expect(benefitWin(0.04, { first: 0.02 })).toStrictEqual(win(0.04, 0.02));
+    // "Making the playoffs".
+    expect(win(0.04, 0.02, config.benefit, "playoffs").bWin).toBeCloseTo(100 * (0.7 * 0.04 + 0.3 * 0.02), 12);
+    expect(win(0, 0)).toStrictEqual({ bWin: 0, titleMissing: false });
     // Not simulated yet: no B, and nothing about title odds to say.
-    expect(benefitWin(null, null)).toStrictEqual({ bWin: null, titleMissing: false });
-    expect(benefitWin(null, 0.02)).toStrictEqual({ bWin: null, titleMissing: false });
+    expect(win(null, null)).toStrictEqual({ bWin: null, titleMissing: false });
+    expect(win(null, 0.02)).toStrictEqual({ bWin: null, titleMissing: false });
   });
 
-  it("goalWeights: each goal's weights, and the default goal's for an unknown one", () => {
-    expect(goalWeights("title")).toStrictEqual({ playoffs: 0.15, title: 0.85 });
-    expect(goalWeights("balanced")).toStrictEqual({ playoffs: 0.35, title: 0.65 });
-    expect(goalWeights("playoffs")).toStrictEqual({ playoffs: 0.7, title: 0.3 });
-    for (const odd of [undefined, null, "glory" as Goal, "toString" as Goal]) expect(goalWeights(odd)).toStrictEqual({ playoffs: 0.15, title: 0.85 });
+  it("“Only the champion” and “Making the playoffs”: B_win is the formula before Checkpoint 7c bit for bit (1 × ΔCH, never a 2nd or 3rd place nobody pays)", () => {
+    // HEAD 7a1ac38's B_win: 100 × (w_PO × ΔPO + w_title × ΔCH), with the weights it had.
+    const before: Record<"title" | "playoffs", { playoffs: number; title: number }> = { title: { playoffs: 0.15, title: 0.85 }, playoffs: { playoffs: 0.7, title: 0.3 } };
+    const rand = mulberry32(20261007);
+    for (let i = 0; i < 2000; i++) {
+      const dPO = (rand() - 0.5) * 0.4;
+      const dCH = (rand() - 0.5) * 0.2;
+      // The other components unknown, or wild: a prize that pays nothing is never read.
+      const junk: PrizeDeltas = { first: dCH, second: i % 2 ? null : Number.NaN, third: (rand() - 0.5) * 9, weeklyHigh: null, pointsLeader: Number.POSITIVE_INFINITY };
+      for (const goal of ["title", "playoffs"] as const) {
+        const w = before[goal];
+        const old = 100 * (w.playoffs * dPO + w.title * dCH);
+        expect(benefitWin(dPO, junk, config.benefit, rewardWith({ goal, prizes: config.benefit.prizesDefault }, 14)).bWin).toBe(old);
+        expect(benefitWin(dPO, titleDeltas(dCH), config.benefit, titleOnlyReward(goal)).bWin).toBe(old);
+      }
+    }
+  });
+
+  it("“Several prizes”: ΔE[S] is the dot product of the prize shares with each prize's change, the weekly high score per prize period", () => {
+    // Parker's prizes, 2000 / 1600 / 900: 4/9, 16/45, 1/5.
+    const parker = rewardWith({ goal: "prizes", prizes: { first: 2000, second: 1600, third: 900, weeklyHigh: null, pointsLeader: null } }, 14);
+    const d: PrizeDeltas = { first: 0.01, second: 0.02, third: -0.005, weeklyHigh: null, pointsLeader: null };
+    const dES = (4 / 9) * 0.01 + (16 / 45) * 0.02 + (1 / 5) * -0.005;
+    expect(benefitWin(0.03, d, config.benefit, parker).bWin).toBeCloseTo(100 * (0.15 * 0.03 + 0.85 * dES), 12);
+    // A weekly prize of 50 over 10 periods and 500 for the points leader, 1000 / 0 / 0 for the places: the total is 2,000;
+    // one high score more is worth 50 / 2,000 of the prizes.
+    const weekly = rewardWith({ goal: "prizes", prizes: { first: 1000, second: null, third: null, weeklyHigh: 50, pointsLeader: 500 } }, 10);
+    const w2: PrizeDeltas = { first: 0.01, second: null, third: null, weeklyHigh: 0.4, pointsLeader: 0.05 };
+    expect(benefitWin(0, w2, config.benefit, weekly).bWin).toBeCloseTo(100 * 0.85 * (0.5 * 0.01 + (0.25 / 10) * 0.4 + 0.25 * 0.05), 12);
+    // A split paying only weekly high scores and the points title reads while the bracket is unknown.
+    const noBracket = rewardWith({ goal: "prizes", prizes: { first: null, second: null, third: null, weeklyHigh: 10, pointsLeader: 60 } }, 14);
+    expect(benefitWin(0.02, { first: null, second: null, third: null, weeklyHigh: 0.3, pointsLeader: 0.01 }, config.benefit, noBracket)).toStrictEqual({ bWin: expect.closeTo(100 * (0.15 * 0.02 + 0.85 * ((10 / 200) * 0.3 + (60 / 200) * 0.01)), 12), titleMissing: false });
+    // A paid prize's change unknown: the playoff term scaled up, as with title odds unknown.
+    expect(benefitWin(0.04, { ...d, third: null }, config.benefit, parker)).toStrictEqual({ bWin: expect.closeTo(4, 12), titleMissing: true });
+    // Nothing entered: 1st place pays everything ("empty"), so it reads as "Only the champion".
+    const empty = rewardWith({ goal: "prizes", prizes: { first: null, second: null, third: null, weeklyHigh: null, pointsLeader: null } }, 14);
+    expect(empty).toMatchObject({ goal: "prizes", shares: TITLE_ONLY, empty: true });
+    expect(benefitWin(0.04, d, config.benefit, empty)).toStrictEqual(win(0.04, 0.01));
+  });
+
+  it("goalWeights: each goal's weights, and the default goal's for an unknown one (an older version's “balanced” among them)", () => {
+    expect(goalWeights("title")).toStrictEqual({ playoffs: 0.15, prizes: 0.85 });
+    expect(goalWeights("prizes")).toStrictEqual({ playoffs: 0.15, prizes: 0.85 });
+    expect(goalWeights("playoffs")).toStrictEqual({ playoffs: 0.7, prizes: 0.3 });
+    for (const odd of [undefined, null, "glory" as Goal, "toString" as Goal, "balanced" as Goal]) expect(goalWeights(odd)).toStrictEqual({ playoffs: 0.15, prizes: 0.85 });
     // Each goal's weights sum to 1, so the title-missing rule is 100 × ΔPO under every goal.
-    for (const g of GOALS) expect(goalWeights(g).playoffs + goalWeights(g).title).toBeCloseTo(1, 12);
+    for (const g of GOALS) expect(goalWeights(g).playoffs + goalWeights(g).prizes).toBeCloseTo(1, 12);
   });
 
-  it("B under each goal: the same odds, different weights; benefit() reads BenefitInputs.goal (absent: the default)", () => {
+  it("B under each goal: the same odds, different weights; benefit() reads BenefitInputs.reward, else its goal 1st place paying everything (absent: the default)", () => {
     const at = (goal?: Goal) => benefit({ leagueType: "redraft", dPO: 0.04, dCH: 0.02, gMine: 0, dynasty: null, myPPlayoffs: 0.6, ...(goal ? { goal } : {}) });
     expect(at().b).toBeCloseTo(BWIN, 12);
     expect(at("title").b).toBeCloseTo(BWIN, 12);
-    expect(at("balanced").b).toBeCloseTo(2.7, 12);
+    // "Several prizes" read by its goal alone: 1st place pays everything, the weights are the title's.
+    expect(at("prizes").b).toBe(at("title").b);
     expect(at("playoffs").b).toBeCloseTo(3.4, 12);
-    // A trade that only buys title odds (ΔPO 0, ΔCH +2 points) is worth most to "Win the title"; one that only buys playoff odds, to "Make the playoffs".
+    // A trade that only buys title odds (ΔPO 0, ΔCH +2 points) is worth most to "Only the champion"; one that only buys playoff odds, to "Making the playoffs".
     const titleOnly = (goal: Goal) => benefit({ leagueType: "redraft", dPO: 0, dCH: 0.02, gMine: 0, dynasty: null, myPPlayoffs: 0.6, goal }).b as number;
     const playoffsOnly = (goal: Goal) => benefit({ leagueType: "redraft", dPO: 0.02, dCH: 0, gMine: 0, dynasty: null, myPPlayoffs: 0.6, goal }).b as number;
-    expect(titleOnly("title")).toBeGreaterThan(titleOnly("balanced"));
-    expect(titleOnly("balanced")).toBeGreaterThan(titleOnly("playoffs"));
-    expect(playoffsOnly("playoffs")).toBeGreaterThan(playoffsOnly("balanced"));
-    expect(playoffsOnly("balanced")).toBeGreaterThan(playoffsOnly("title"));
+    expect(titleOnly("title")).toBeGreaterThan(titleOnly("playoffs"));
+    expect(playoffsOnly("playoffs")).toBeGreaterThan(playoffsOnly("title"));
+    // The reward wins over the goal, and reads the prize components (dPrizes wins over dCH).
+    const parker: Reward = rewardWith({ goal: "prizes", prizes: { first: 2000, second: 1600, third: 900, weeklyHigh: null, pointsLeader: null } }, 14);
+    const dPrizes: PrizeDeltas = { first: 0.02, second: 0.01, third: 0, weeklyHigh: 0, pointsLeader: 0 };
+    const withReward = benefit({ leagueType: "redraft", dPO: 0.04, dCH: 0.02, dPrizes, gMine: 0, dynasty: null, myPPlayoffs: 0.6, goal: "playoffs", reward: parker });
+    expect(withReward.bWin).toBe(benefitWin(0.04, dPrizes, config.benefit, parker).bWin);
+    expect(withReward.b).toBeCloseTo(100 * (0.15 * 0.04 + 0.85 * ((4 / 9) * 0.02 + (16 / 45) * 0.01)), 12);
     // Dynasty and keeper leagues weigh B_win by the goal too.
     expect(benefit({ leagueType: "dynasty", dPO: 0.04, dCH: 0.02, gMine: 0, dynasty: { delta: 1000, total: 40_000 }, myPPlayoffs: 0.6, goal: "playoffs" }).bWin).toBeCloseTo(3.4, 12);
   });
 
   it("title odds unknown: the playoff term scaled up to the whole weight, flagged, under every goal", () => {
-    const r = benefitWin(0.04, null);
+    const r = win(0.04, null);
     expect(r.bWin).toBeCloseTo(4, 12);
     expect(r.titleMissing).toBe(true);
-    // B_win = 100 × (w_PO + w_CH) × ΔPO: 4 under every goal (each goal's weights sum to 1).
-    for (const g of GOALS) expect(benefitWin(0.04, null, config.benefit, g)).toStrictEqual({ bWin: expect.closeTo(4, 12), titleMissing: true });
+    // B_win = 100 × (w_PO + w_S) × ΔPO: 4 under every goal (each goal's weights sum to 1).
+    for (const g of GOALS) expect(win(0.04, null, config.benefit, g)).toStrictEqual({ bWin: expect.closeTo(4, 12), titleMissing: true });
     // A widened config whose weights don't sum to 1 shows the formula: 100 × (0.2 + 0.3) × ΔPO.
-    const odd: BenefitConfig = { ...config.benefit, goals: { ...config.benefit.goals, title: { playoffs: 0.2, title: 0.3 } } };
-    expect(benefitWin(0.04, null, odd, "title").bWin).toBeCloseTo(2, 12);
+    const odd: BenefitConfig = { ...config.benefit, goals: { ...config.benefit.goals, title: { playoffs: 0.2, prizes: 0.3 } } };
+    expect(win(0.04, null, odd, "title").bWin).toBeCloseTo(2, 12);
     // A goal with no playoff weight can't stand in for missing title odds.
-    const titleOnly: BenefitConfig = { ...config.benefit, goals: { ...config.benefit.goals, title: { playoffs: 0, title: 1 } } };
-    expect(benefitWin(0.04, null, titleOnly, "title")).toStrictEqual({ bWin: null, titleMissing: true });
+    const titleOnly: BenefitConfig = { ...config.benefit, goals: { ...config.benefit.goals, title: { playoffs: 0, prizes: 1 } } };
+    expect(win(0.04, null, titleOnly, "title")).toStrictEqual({ bWin: null, titleMissing: true });
   });
 
   it("the market term's lineup price: κ × clamp(g_mkt(me), ±0.5) points a week, κ by default the medium level's (2) (planner reply to Checkpoint 7a, §2 question 5)", () => {
@@ -364,10 +419,10 @@ describe("B (§10)", () => {
   });
 
   it("accepts a widened config", () => {
-    const cfg: BenefitConfig = { ...config.benefit, goals: { ...config.benefit.goals, title: { playoffs: 1, title: 0 } } };
+    const cfg: BenefitConfig = { ...config.benefit, goals: { ...config.benefit.goals, title: { playoffs: 1, prizes: 0 } } };
     expect(benefit({ leagueType: "redraft", dPO: 0.03, dCH: 0.5, gMine: 0, dynasty: null, myPPlayoffs: 0.5 }, cfg).b).toBeCloseTo(3, 12);
-    const balancedDefault: BenefitConfig = { ...config.benefit, goalDefault: "balanced" };
-    expect(benefit({ leagueType: "redraft", dPO: 0.04, dCH: 0.02, gMine: 0, dynasty: null, myPPlayoffs: 0.5 }, balancedDefault).b).toBeCloseTo(2.7, 12);
+    const playoffsDefault: BenefitConfig = { ...config.benefit, goalDefault: "playoffs" };
+    expect(benefit({ leagueType: "redraft", dPO: 0.04, dCH: 0.02, gMine: 0, dynasty: null, myPPlayoffs: 0.5 }, playoffsDefault).b).toBeCloseTo(3.4, 12);
   });
 });
 
@@ -597,10 +652,24 @@ describe("tradeNumbers: the card's numbers from B and the acceptance result", ()
   it("title odds unknown: the flag reaches the card's numbers and a note says so (review finding)", () => {
     // season.ts nulls every team's P(title) when the league lists fewer playoff rounds than its bracket needs.
     const b = benefit({ leagueType: "redraft", dPO: 0.03, dCH: null, gMine: 0, dynasty: null, myPPlayoffs: 0.5 });
-    expect(b.b).toBeCloseTo(3, 12); // 100 × (0.35 + 0.65) × 0.03
+    expect(b.b).toBeCloseTo(3, 12); // 100 × (0.15 + 0.85) × 0.03
     const n = tradeNumbers(b, acc, 6);
     expect(n.titleMissing).toBe(true);
     expect(benefitNotes(n)).toStrictEqual(["Title odds aren't available for this league, so “Helps you” uses playoff odds in their place."]);
+    expect(TITLE_MISSING_NOTE).toBe("Title odds aren't available for this league, so “Helps you” uses playoff odds in their place.");
+  });
+
+  it("“Several prizes” paying 2nd or 3rd place: the note names the prize odds (Checkpoint 7c)", () => {
+    // ⚠️ Worded like the title's, naming no cause (the review of the reward engine, compat-R2; awaiting the lead's sign-off).
+    expect(PRIZES_MISSING_NOTE).toBe("Prize odds aren't available for this league, so “Helps you” uses playoff odds in their place.");
+    const places = rewardWith({ goal: "prizes", prizes: config.benefit.prizesDefault }, 14);
+    const b = benefit({ leagueType: "redraft", dPO: 0.03, dCH: null, dPrizes: { first: null, second: null, third: null, weeklyHigh: 0, pointsLeader: 0 }, gMine: 0, dynasty: null, myPPlayoffs: 0.5, reward: places });
+    expect(b).toMatchObject({ titleMissing: true, b: expect.closeTo(3, 12) });
+    expect(benefitNotes(b, places)).toStrictEqual([PRIZES_MISSING_NOTE]);
+    // A split paying 1st and the weekly high score, 1st unknown: the title's words; the title-only goals keep theirs.
+    const weekly = rewardWith({ goal: "prizes", prizes: { first: 100, second: null, third: null, weeklyHigh: 5, pointsLeader: null } }, 14);
+    expect(benefitNotes({ titleMissing: true, dynMissing: false }, weekly)).toStrictEqual([TITLE_MISSING_NOTE]);
+    for (const goal of ["title", "playoffs"] as const) expect(benefitNotes({ titleMissing: true, dynMissing: false }, titleOnlyReward(goal))).toStrictEqual([TITLE_MISSING_NOTE]);
   });
 
   it("notes for missing long-term values, and both together", () => {
@@ -624,12 +693,12 @@ describe("helpsScale: B₃, the B of +3 points a week under the same goal (plann
     for (const goal of GOALS) {
       const w = goalWeights(goal);
       const s = helpsScale(run, { leagueType: "redraft", myPPlayoffs: 0.6, goal, dynastyTotal: null });
-      expect(s?.raw, goal).toBeCloseTo(100 * (w.playoffs * run.dPO + w.title * run.dCH), 12);
+      expect(s?.raw, goal).toBeCloseTo(100 * (w.playoffs * run.dPO + w.prizes * run.dCH), 12);
       // No λ in redraft: the odds' own response is B₃, +3 a week reads 63, nothing to note.
       expect(s).toMatchObject({ b3: s?.raw, odds: s?.raw, floored: false, lambda: null, f10: null, gainReads: 63, futureReads: null, reason: null });
       expect(helpsScaleNotes(s)).toStrictEqual([]);
       // A trade worth exactly the run's B reads 63 under its own goal.
-      expect(tradeScore(benefitWin(run.dPO, run.dCH, config.benefit, goal).bWin, s?.b3 ?? null), goal).toBe(63);
+      expect(tradeScore(win(run.dPO, run.dCH, config.benefit, goal).bWin, s?.b3 ?? null), goal).toBe(63);
     }
     // The default goal ("Win the title") when none is given.
     expect(helpsScale(run, { leagueType: "redraft", myPPlayoffs: 0.6, dynastyTotal: null })).toStrictEqual(helpsScale(run, { leagueType: "redraft", myPPlayoffs: 0.6, goal: "title", dynastyTotal: null }));
@@ -644,7 +713,7 @@ describe("helpsScale: B₃, the B of +3 points a week under the same goal (plann
   });
 
   describe("dynasty and keeper leagues with long-term values: B_ref(λ) = (1 − λ) × B_win₃ + λ × F₁₀, F₁₀ = 4", () => {
-    const bWin = benefitWin(run.dPO, run.dCH).bWin as number; // 3.395: +3 a week moves the odds normally
+    const bWin = win(run.dPO, run.dCH).bWin as number; // 3.395: +3 a week moves the odds normally
     const at = (lambda: number, leagueType: "dynasty" | "keeper" = "dynasty") => helpsScale(run, { leagueType, myPPlayoffs: 0.9, lambda, dynastyTotal: 40_000 });
 
     it("at λ 0, 0.35, 0.75 and 1: B_win₃ at λ 0, F₁₀ alone at λ 1, never floored while the odds move", () => {
@@ -757,13 +826,38 @@ describe("helpsScale: B₃, the B of +3 points a week under the same goal (plann
     const locked = { dPO: 0, dCH: 0.015 };
     expect(helpsScale(locked, { leagueType: "redraft", myPPlayoffs: 1, goal: "playoffs", dynastyTotal: null })).toMatchObject({ floored: true, reason: "odds", oddsNamed: "playoff" });
     expect(helpsScaleNotes(helpsScale(locked, { leagueType: "redraft", myPPlayoffs: 1, goal: "playoffs", dynastyTotal: null }))).toStrictEqual([HELPS_FLOOR_NOTE_PLAYOFFS]);
-    // Under "Win the title" and "Balanced" the title odds weigh most: the planner's words (and the same odds don't floor there).
+    // Under "Only the champion", and "Several prizes" read by its goal alone (1st place paying everything), the title odds
+    // weigh most: the planner's words (and the same odds don't floor there).
     const flat = { dPO: 0.002, dCH: 0.002 };
-    for (const goal of ["title", "balanced"] as const) {
+    for (const goal of ["title", "prizes"] as const) {
       expect(helpsScale(flat, { leagueType: "redraft", myPPlayoffs: 0.5, goal, dynastyTotal: null }), goal).toMatchObject({ reason: "odds", oddsNamed: "title" });
       expect(helpsScaleNotes(helpsScale(flat, { leagueType: "redraft", myPPlayoffs: 0.5, goal, dynastyTotal: null })), goal).toStrictEqual([HELPS_FLOOR_NOTE]);
     }
     expect(helpsScale(locked, { leagueType: "redraft", myPPlayoffs: 1, goal: "title", dynastyTotal: null })).toMatchObject({ floored: false, reason: null });
+  });
+
+  it("“Several prizes” paying more than 1st place: B₃ from every prize component of the run, +3 a week reads 63, and the floor note names the prizes (Checkpoint 7c)", () => {
+    const parker = rewardWith({ goal: "prizes", prizes: { first: 2000, second: 1600, third: 900, weeklyHigh: null, pointsLeader: null } }, 14);
+    const cal = { dPO: 0.06, dCH: 0.03, dPrizes: { first: 0.03, second: 0.025, third: 0.01, weeklyHigh: 0, pointsLeader: 0.002 } as PrizeDeltas };
+    const s = helpsScale(cal, { leagueType: "redraft", myPPlayoffs: 0.6, reward: parker, dynastyTotal: null });
+    expect(s?.raw).toBeCloseTo(100 * (0.15 * 0.06 + 0.85 * ((4 / 9) * 0.03 + (16 / 45) * 0.025 + 0.2 * 0.01)), 12);
+    expect(s).toMatchObject({ oddsNamed: "prizes", gainReads: 63, floored: false, reason: null });
+    // A trade worth exactly the run's B under the same reward reads 63.
+    expect(tradeScore(benefitWin(cal.dPO, cal.dPrizes, config.benefit, parker).bWin, s?.b3 ?? null)).toBe(63);
+    // Floored: the prizes' note, which src/lib/tradeView.ts reads back as an odds note.
+    const flat = { dPO: 0.001, dCH: 0.001, dPrizes: { first: 0.001, second: 0.001, third: 0, weeklyHigh: 0, pointsLeader: 0 } as PrizeDeltas };
+    const low = helpsScale(flat, { leagueType: "redraft", myPPlayoffs: 0.6, reward: parker, dynastyTotal: null });
+    expect(low).toMatchObject({ floored: true, reason: "odds", oddsNamed: "prizes" });
+    expect(helpsScaleNotes(low)).toStrictEqual([HELPS_FLOOR_NOTE_PRIZES]);
+    expect(HELPS_FLOOR_NOTE_PRIZES).toBe("Your chances at your league's prizes barely move with lineup changes right now.");
+    // A paid prize unknown: the playoff odds stand in, and the note names them.
+    const unknown = helpsScale({ dPO: 0, dCH: null, dPrizes: { first: null, second: null, third: null, weeklyHigh: 0, pointsLeader: 0 } }, { leagueType: "redraft", myPPlayoffs: 1, reward: parker, dynastyTotal: null });
+    expect(unknown).toMatchObject({ oddsNamed: "playoff", floored: true });
+    // Nothing entered (1st place pays everything): the title's words.
+    const empty = rewardWith({ goal: "prizes", prizes: { first: null, second: null, third: null, weeklyHigh: null, pointsLeader: null } }, 14);
+    expect(helpsScale(flat, { leagueType: "redraft", myPPlayoffs: 0.6, reward: empty, dynastyTotal: null })).toMatchObject({ oddsNamed: "title" });
+    // A run made before Checkpoint 7c (no dPrizes): ΔCH as 1st place's.
+    expect(helpsScale({ dPO: 0.06, dCH: 0.03 }, { leagueType: "redraft", myPPlayoffs: 0.6, reward: titleOnlyReward("title"), dynastyTotal: null })?.raw).toBeCloseTo(100 * (0.15 * 0.06 + 0.85 * 0.03), 12);
   });
 
   it("no run, or a run without ΔPO: no scale (and so no scores)", () => {

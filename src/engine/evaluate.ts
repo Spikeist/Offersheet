@@ -10,10 +10,11 @@
  *   scenarios, values, streaming, every team's lineups, its free-agent-optimized roster V*(T) (from scratch) and
  *   lineup costs, trade chips, surplus scores and MV_add's bases, and every team's V*(T) priced finally (step 8a:
  *   LeagueModelBuild.pickups, the lineups behind TeamModel.scoreWithPickups; the baseline below). It reads only the
- *   settings the League model reads (streamPositions, and the goal its automatic playoff weight ω reads: league.ts step 5c,
- *   planner reply to Checkpoint 7a, §6.1); the search and the Analyzer take the rest per call. The model is built without a
- *   simulation of its own, but with ω measured on this context's final block (BuildLeagueModelOptions.playoffWeightSims and
- *   the seed), the seasons the League page's model measures it on, so the two have one ω and so one baseline.
+ *   settings the League model reads (streamPositions, and the goal and prizes its automatic playoff weight ω reads: league.ts
+ *   step 5c, planner reply to Checkpoint 7a, §6.1; its reward, LeagueContext.reward); the search and the Analyzer take the
+ *   rest per call. The model is built without a simulation of its own, but with ω measured on this context's final block
+ *   (BuildLeagueModelOptions.playoffWeightSims and the seed), the seasons the League page's model measures it on, so the two
+ *   have one ω and so one baseline.
  * - The baseline (L6): every team at V*(T), whose moves are judged in scenario lineups when scenarios run, the lineups
  *   B is measured in (optimizer.ts; review of track E, item 1: an EV-judged V* skipped depth pickups, so a trade
  *   bringing the same depth got credit for them). Each team's weekly score for the simulator comes from V*(T)'s lineups the
@@ -44,8 +45,13 @@
  *   neither side's V* moves nothing. With my team, one more run on the final block: the "Helps you" calibration (Phase 7a,
  *   planner reply to Checkpoint 4c, A2; league.ts helpsCalibrationOf, the League model's step 8c on the same seasons and
  *   setup, so SimState.calibration is LeagueModel.helpsCalibration exactly): my score + 3 points a week in every week a
- *   trade can change, whose B_win under a call's goal is B₃, the scale of Helps you and Overall and the price of B's market
+ *   trade can change, whose B_win under a call's reward is B₃, the scale of Helps you and Overall and the price of B's market
  *   term (helpsScaleOf; in dynasty and keeper leagues with long-term values B_ref(λ), mixed with +10% long-term value).
+ *   Checkpoint 7c (planner reply to Checkpoint 7b, §6): the setup lists the weekly high scores when the context's reward
+ *   pays them (reward.ts paysWeekly; SimState.highScores), as the League model's runs do, so its baseline, calibration and
+ *   every trade's prize components are the League page's; a call whose reward pays them on a context that didn't simulate
+ *   them is refused (rewardOn: build the context with that reward's settings; the app's never differ, since the engine
+ *   worker keys its contexts by the goal and prizes).
  * - Once: partner profiles (acceptance.partnerProfile, P(playoffs) from the finalSims baseline), hot players, the
  *   deadline urgency, perception values and the waiver credit W (the League model's), long-term values and MyDynTotal
  *   when they loaded (benefit.futureValuesLoaded), the league median of every slot instance over the hole weeks (the
@@ -59,9 +65,12 @@
  *   baseline for the dynasty rebuilding rule), which also tags "Harder to get" players (§2; N2: the search's get pool
  *   reads it).
  * - Notes (TradeContext.notes): no team picked (nothing can be evaluated), no weeks left, my team certainly
- *   eliminated in a redraft league, the trade deadline passed, no odds (the schedule didn't load or the simulator
- *   refused it: B can't be computed). Any of them stops the search (no trades); the Analyzer still evaluates, with
- *   the note (without B when there are no odds), except without a team.
+ *   eliminated in a redraft league with no prize left that a trade can change (reward.ts prizeStillMovable: Checkpoint 7c,
+ *   a paid weekly high score with a prize period left, or a paid points title or place the final standings decide with a
+ *   regular-season week left, keeps the season going; the week under way never counts, every trade holding it as rosters
+ *   stand: SeasonOdds.regularLeft), the trade deadline passed, no odds (the schedule didn't load or the simulator refused it: B can't be
+ *   computed). Any of them stops the search (no trades); the Analyzer still evaluates, with the note (without B when there
+ *   are no odds), except without a team.
  *
  * One free agent, one team (CLAUDE.md §7; planner reply to Checkpoint 4, change 3; league.ts step 5). The League model
  * builds every V*(T) in the allocation order, each team claiming every free agent its run adds (TeamState.claimed), so
@@ -259,25 +268,27 @@
  *
  * The simulation (M4): the baseline SimSetup with my team's and the partner's mean and SD rows replaced by their
  * after-V* scores (every other team, and the week in progress, unchanged), simulateSeason on the screening block
- * or the final block; ΔPO, ΔCH (null when title odds are unknown: benefit's titleMissing rule), ΔEW against the
- * baseline on the same block. TradeDetail.winChance (Phase 4c; planner reply to Checkpoint 4b, change 9, "Win chance by
- * week"): from the same two runs, my head-to-head win chance before and after in each week sim.ts lists (a game's first
+ * or the final block; ΔPO, ΔCH (null when title odds are unknown: benefit's titleMissing rule), ΔEW and (Checkpoint 7c)
+ * every prize component's change (TradeEvaluation.dPrizes, reward.ts runPrizeDeltas: P(2nd), P(3rd), the weekly high scores
+ * won, unknown unless the context simulated them, the points title) against the baseline on the same block.
+ * TradeDetail.winChance (Phase 4c; planner reply to
+ * Checkpoint 4b, change 9, "Win chance by week"): from the same two runs, my head-to-head win chance before and after in each week sim.ts lists (a game's first
  * drawn week: a multi-week game at its first week still to play), a week without a game with an opponent left out
  * (winChanceOf); the final block's on a final trade and in the Analyzer, the screening block's on a screened one or a
  * step. ⚠️ None in a points-only league (review of track EV; an empty list): its scheduled games don't change the
  * standings (sim.ts plays them only for points against; the League page says so), so a weekly line there would show
  * moves in games that count for nothing, and riskyWeeks counts byes only there (TradeDetail.weekly keeps my projected
- * points by week). Then B₃ for the call's goal and λ (helpsScaleOf: one scale for every stage, so a step's or Plan B's Helps
+ * points by week). Then B₃ for the call's reward and λ (helpsScaleOf: one scale for every stage, so a step's or Plan B's Helps
  * you compares with its card's; Phase 7a; in dynasty and keeper leagues with long-term values B_ref(λ), planner reply to
  * Checkpoint 7a, §2 question 6), benefit() (λ = settings.lambda ?? the default by my finalSims baseline P(playoffs); κ = the
  * "Protect my trade value" level's, redraft leagues only: planner addendum to Checkpoint 3, §3, N3, in points a week per
  * 100% of trade value since the planner's reply to Checkpoint 7a, §2 question 5, the market term priced on that same B₃:
  * (B₃ / 3) × κ × clamp(g_mkt(me)), worth κ × clamp(g_mkt(me)) points a week, TradeEvaluation.marketWeekly; the term reads
- * g_mkt(me), each player at max(v, W) on both sides: benefit.ts's header; B_win's ΔPO / ΔCH weights by the per-call "What
- * matters most" goal, TradeSettings.goal: Phase 4c, change 8), tradeNumbers on the same B₃, tradeFlags (on the same
- * g_mkt(me)), and benefitNotes and helpsScaleNotes (my odds barely move: the floor) into the detail's notes. The search, the
- * Analyzer, the steps' versions and Plan B's final simulations pass the call's goal and protectValue (a cached context may
- * hold older settings).
+ * g_mkt(me), each player at max(v, W) on both sides: benefit.ts's header; B_win's ΔPO / ΔE[S] weights and prize shares by the
+ * per-call reward, TradeSettings.goal and prizes: Phase 4c, change 8, and Checkpoint 7c, reward.ts rewardOf), tradeNumbers
+ * on the same B₃, tradeFlags (on the same g_mkt(me)), and benefitNotes and helpsScaleNotes (my odds barely move: the floor)
+ * into the detail's notes. The search, the Analyzer, the steps' versions and Plan B's final simulations pass the call's
+ * reward and protectValue (a cached context may hold older settings: rewardFor).
  * ⚠️ κ = 0 when the trade values are our own estimates (Phase 4c lead decision; valuesEstimated: FantasyCalc's curve
  * fallback, MarketInputs.fallback kind "curve"): g_mkt(me) is then computed from values the model derives from its own
  * ROS points, so the market term would count lineup points a second time on top of B_win (the long-term term is already
@@ -376,7 +387,8 @@ import { leaguePremiums, perceivedPackage, premiumFacts } from "./premium";
 import { meetsMinChance } from "./rank";
 import { activeSpots, irAfterTrade, irEligibleStatuses, type Displacement, type FinalLineups } from "./returners";
 import { buildSimSetup, oddsSkippedWarning, pickupSeasonModel, seasonOdds, type SeasonModel, type SimSetupResult } from "./season";
-import { defaultTradeSettings, normalizeTradeSettings, type Goal, type ProtectValue, type TradeSettings } from "./settings";
+import { paysWeekly, prizeStillMovable, rewardOf, runPrizeDeltas, type PrizeOdds, type Reward } from "./reward";
+import { PRIZE_KEYS, defaultTradeSettings, normalizeTradeSettings, type ProtectValue, type TradeSettings } from "./settings";
 import { simNormals, simulateSeason, type SimNormals } from "./sim";
 import {
   addGainExact,
@@ -411,10 +423,10 @@ export interface TradeContextOptions {
   /** The moment the numbers are for (a game that kicked off before it no longer counts; urgency). */
   now: Date;
   /**
-   * The user's settings. The context reads only what the League model reads (streamPositions, and the goal its automatic
-   * playoff weight weighs my odds by: src/lib/settingsStore.ts LEAGUE_MODEL_SETTINGS); the search and the Analyzer take the
-   * rest per call (the goal too: a cached context is rebuilt when it changes, since its key holds it). Default:
-   * defaultTradeSettings().
+   * The user's settings. The context reads only what the League model reads (streamPositions, and the goal and prizes its
+   * automatic playoff weight weighs my odds by, which also decide whether its simulation lists the weekly high scores:
+   * src/lib/settingsStore.ts LEAGUE_MODEL_SETTINGS); the search and the Analyzer take the rest per call (the goal and prizes
+   * too: a cached context is rebuilt when they change, since its key holds them). Default: defaultTradeSettings().
    */
   settings?: TradeSettings;
   /** Availability scenarios (default config.lineups.scenarios), their seed, and the season simulation's seed. */
@@ -582,6 +594,11 @@ export interface MyOdds {
   pTitle: number | null;
   expWins: number;
   /**
+   * Checkpoint 7c (planner reply to Checkpoint 7b, §6): my prize components (reward.ts PrizeOdds: P(1st) = pTitle, P(2nd),
+   * P(3rd), the remaining periods' high scores I'm expected to win, P(points title)), season.ts's rules for unknown ones.
+   */
+  prizes: PrizeOdds;
+  /**
    * My head-to-head win chance in each week sim.ts lists (SimResult.weekly: a game's first drawn week, and median weeks),
    * in its order; null in a week I have no game with an opponent (a bye, a median game alone). Empty in a points-only
    * league (⚠️ its games don't change the standings: the file header, "The simulation").
@@ -594,6 +611,12 @@ export type SimStage = "screen" | "final";
 
 export interface SimState {
   built: SimSetupResult;
+  /**
+   * Checkpoint 7c: the setup lists the remaining weekly high-score periods (the context's reward pays them: reward.ts
+   * paysWeekly), so the runs' expected high scores mean something; a call's reward that pays them needs it (rewardOn), and
+   * runSim refuses a setup without them. Without them every trade's weekly change is unknown (reward.ts runPrizeDeltas).
+   */
+  highScores: boolean;
   /** The two blocks of one common-random-numbers matrix: the first finalSims seasons (the final block), then the next screeningSims. */
   blocks: Record<SimStage, SimNormals>;
   seed: number;
@@ -947,7 +970,9 @@ export function buildTradeContext(snapshot: LeagueSnapshot, inputs: ModelInputs,
     simWarning = oddsSkippedWarning(snapshot, seasonModel);
     if (simWarning === null) {
       try {
-        const setup = buildSimSetup(snapshot, seasonModel);
+        // The weekly high scores when the context's reward pays them, as the League model's runs (league.ts step 8).
+        const highScores = paysWeekly(league.reward);
+        const setup = buildSimSetup(snapshot, seasonModel, { highScores });
         if (setup) {
           const { screen: screenSims, final: finalSims } = simCounts();
           const Wk = setup.setup.weeks.length;
@@ -969,16 +994,16 @@ export function buildTradeContext(snapshot: LeagueSnapshot, inputs: ModelInputs,
               screen: { sims: screenSims, weeks: Wk, teams: T, z: all.z.subarray(finalSims * per, (finalSims + screenSims) * per) },
             };
           }
-          const odds = seasonOdds(snapshot, seasonModel, { sims: finalSims, seed: simSeed, normals: blocks.final });
+          const odds = seasonOdds(snapshot, seasonModel, { sims: finalSims, seed: simSeed, normals: blocks.final, highScores });
           if (odds) {
-            const unknown: MyOdds = { pPlayoffs: 0, pTitle: null, expWins: 0, weekly: [] };
-            const sim: SimState = { built: setup, blocks, seed: simSeed, odds, base: { screen: unknown, final: unknown }, calibration: null };
+            const unknown: MyOdds = { pPlayoffs: 0, pTitle: null, expWins: 0, prizes: { first: null, second: null, third: null, weeklyHigh: 0, pointsLeader: 0 }, weekly: [] };
+            const sim: SimState = { built: setup, highScores, blocks, seed: simSeed, odds, base: { screen: unknown, final: unknown }, calibration: null };
             I.sim = sim;
             if (I.me) {
               sim.base.screen = runSim(I, null, null, "screen");
               sim.base.final = runSim(I, null, null, "final");
               // The "Helps you" calibration (B₃'s run): the League model's step 8c on the same block and setup.
-              sim.calibration = helpsCalibrationOf(snapshot, seasonModel, I.me.id, odds, { sims: finalSims, seed: simSeed, normals: blocks.final }, tw.from);
+              sim.calibration = helpsCalibrationOf(snapshot, seasonModel, I.me.id, odds, { sims: finalSims, seed: simSeed, normals: blocks.final, highScores }, tw.from);
             }
           }
         }
@@ -1024,7 +1049,12 @@ export function buildTradeContext(snapshot: LeagueSnapshot, inputs: ModelInputs,
     if (W === 0) I.notes.push(NO_WEEKS_NOTE);
     else if (!I.sim) I.notes.push(NO_ODDS_NOTE);
     const mine = I.sim?.odds.teams[I.me.index];
-    if (snapshot.settings.leagueType === "redraft" && mine?.eliminated) I.notes.push(SEASON_OVER_NOTE);
+    // Certainly out of the title race, and no prize the reward pays still within a trade's reach (reward.ts prizeStillMovable
+    // on the baseline's odds, Checkpoint 7c: a weekly high score with a prize period left, the points title or a place the
+    // final standings decide with a regular-season week left; SeasonOdds.regularLeft leaves the week under way out, since
+    // every trade holds it as rosters stand).
+    const over = I.sim && mine ? !prizeStillMovable(league.reward, I.sim.odds, mine) : false;
+    if (snapshot.settings.leagueType === "redraft" && over) I.notes.push(SEASON_OVER_NOTE);
     if (tradeDeadlinePassed(snapshot.settings.tradeDeadline, opts.now, txWeek)) I.notes.push(DEADLINE_PASSED_NOTE);
   }
   I.blocked = I.notes.length > 0;
@@ -2553,12 +2583,16 @@ export function evaluateExact(I: TradeInternals, proposal: TradeProposal, maxPer
 
 /**
  * My odds with my team's and `partner`'s score rows replaced (null rows: the baseline's), `sims` seasons on the shared
- * matrix. P(title) is null when the league's title odds are unknown (season.ts's rules).
+ * matrix. P(title) is null when the league's title odds are unknown (season.ts's rules), and P(2nd) with it; P(3rd) also
+ * when the 3rd-place game can't be known (season.ts seasonOdds' rules, Checkpoint 7c).
  */
 function runSim(I: TradeInternals, mine: SideEval | null, theirs: { partner: TeamState; side: SideEval } | null, stage: SimStage): MyOdds {
   const sim = I.sim as SimState;
   const me = I.me as TeamState;
   const { setup, simWeekToModelWeek } = sim.built;
+  // The high scores the context's reward pays must be in the setup (SimState.highScores), or every team reads 0 of them and B
+  // leaves the weekly prize out with no word (the review of the reward engine, RW-1).
+  if (sim.highScores && setup.highScorePeriods === undefined) throw new Error("This trade context's simulation doesn't list the weekly high scores its reward pays.");
   const rowsOf = (score: WeeklyScore) => ({ mean: Float64Array.from(simWeekToModelWeek, (k) => score.mean[k] as number), sd: Float64Array.from(simWeekToModelWeek, (k) => score.sd[k] as number) });
   const mean = [...setup.mean];
   const sd = [...setup.sd];
@@ -2575,7 +2609,16 @@ function runSim(I: TradeInternals, mine: SideEval | null, theirs: { partner: Tea
   const normals = sim.blocks[stage];
   const res = simulateSeason({ ...setup, mean, sd }, { sims: normals.sims, seed: sim.seed, normals });
   const o = res.teams[me.index];
-  const titleKnown = sim.built.playoffsKnown && res.playoffsKnown && o !== undefined && Number.isFinite(o.pTitle);
+  const playoffsKnown = sim.built.playoffsKnown && res.playoffsKnown;
+  const titleKnown = playoffsKnown && o !== undefined && Number.isFinite(o.pTitle);
+  const known = (x: number | undefined, ok: boolean): number | null => (ok && x !== undefined && Number.isFinite(x) ? x : null);
+  const prizes: PrizeOdds = {
+    first: titleKnown ? (o as { pTitle: number }).pTitle : null,
+    second: known(o?.pSecond, playoffsKnown),
+    third: known(o?.pThird, playoffsKnown && res.thirdKnown),
+    weeklyHigh: o?.expHighScores ?? 0,
+    pointsLeader: o?.pPointsLeader ?? 0,
+  };
   // My head-to-head win chance per listed week (sim.ts: NaN without a game that week, here null). None in a points-only
   // league: sim.ts still plays its scheduled games (points against), but they don't change the standings (the file header).
   const weekly = setup.pointsOnly
@@ -2584,7 +2627,7 @@ function runSim(I: TradeInternals, mine: SideEval | null, theirs: { partner: Tea
         const p = wk.pWin[me.index];
         return { week: wk.week, pWin: p !== undefined && Number.isFinite(p) ? p : null };
       });
-  return { pPlayoffs: o?.pPlayoffs ?? 0, pTitle: titleKnown ? (o as { pTitle: number }).pTitle : null, expWins: o?.expWins ?? 0, weekly };
+  return { pPlayoffs: o?.pPlayoffs ?? 0, pTitle: titleKnown ? (o as { pTitle: number }).pTitle : null, expWins: o?.expWins ?? 0, prizes, weekly };
 }
 
 /**
@@ -2609,42 +2652,67 @@ export function simCounts(): { screen: number; final: number } {
 }
 
 /**
- * B₃ for a call's goal and λ (planner reply to Checkpoint 4c, A2; benefit.ts's header, the three numbers): the context's
+ * The reward a call's settings give (reward.ts rewardOf; Checkpoint 7c): the context's own (LeagueContext.reward, its League
+ * model's) when their goal and prizes are the context's, else made from them on this league.
+ */
+export function rewardFor(I: Pick<TradeInternals, "league" | "snapshot">, s: Pick<TradeSettings, "goal" | "prizes">): Reward {
+  const own = I.league.settings;
+  if (s.goal === own.goal && PRIZE_KEYS.every((k) => Object.is(s.prizes[k], own.prizes[k]))) return I.league.reward;
+  return rewardOf(s, I.snapshot);
+}
+
+/**
+ * The reward a call is scored under: `reward`, else the context's (LeagueContext.reward). ⚠️ One that pays the weekly high
+ * score on a context whose simulation doesn't list them (SimState.highScores: the context's own reward doesn't pay them) is
+ * refused with an Error: its prize components would read 0 high scores for everyone, a silent wrong B. Build the context
+ * with that reward's settings (its ω is that reward's too); the app's contexts and calls always share theirs.
+ */
+function rewardOn(I: Pick<TradeInternals, "sim" | "league">, reward?: Reward | null): Reward {
+  const r = reward ?? I.league.reward;
+  if (paysWeekly(r) && I.sim && !I.sim.highScores) throw new Error("This trade context didn't simulate the weekly high scores its reward pays: build it with that reward's settings.");
+  return r;
+}
+
+/**
+ * B₃ for a call's reward and λ (planner reply to Checkpoint 4c, A2; benefit.ts's header, the three numbers): the context's
  * calibration run (SimState.calibration, the League model's step 8c on the final block) through benefit.helpsScale with my
  * baseline P(playoffs) (the default λ, as for every trade) and, in dynasty and keeper leagues whose long-term values loaded,
  * MyDynTotal (B₃ = B_ref(λ) = (1 − λ) × B_win₃ + λ × F₁₀: planner reply to Checkpoint 7a, §2 question 6). The same for every
  * stage (screening, final, steps, Plan B, the Analyzer): one scale per search, which B's redraft market term is priced on too
- * (simulateTrade). Null without odds or my team.
+ * (simulateTrade). `reward` absent: the context's (rewardOn). Null without odds or my team.
  */
-export function helpsScaleOf(I: Pick<TradeInternals, "sim" | "me" | "snapshot" | "future">, lambda: number | null, goal: Goal): HelpsScale | null {
+export function helpsScaleOf(I: Pick<TradeInternals, "sim" | "me" | "snapshot" | "future" | "league">, lambda: number | null, reward?: Reward | null): HelpsScale | null {
   if (!I.sim || !I.me) return null;
   const leagueType = I.snapshot.settings.leagueType;
   const dynastyTotal = I.future && leagueType !== "redraft" ? I.future.myTotal : null;
-  return helpsScale(I.sim.calibration, { leagueType, myPPlayoffs: I.sim.base.final.pPlayoffs, lambda, goal, dynastyTotal });
+  return helpsScale(I.sim.calibration, { leagueType, myPPlayoffs: I.sim.base.final.pPlayoffs, lambda, reward: rewardOn(I, reward), dynastyTotal });
 }
 
 /**
  * The trade's season simulation (M4) on the `stage` block of seasons (screening or final), and every number that follows
- * from it: ΔPO, ΔCH, ΔEW, my win chance by week before and after (TradeDetail.winChance, winChanceOf: the baseline and the
- * trade's run on that block; empty in a points-only league), B₃ for the goal and λ (helpsScaleOf; TradeEvaluation.b3), B and
+ * from it: ΔPO, ΔCH, ΔEW, every prize component's change (TradeEvaluation.dPrizes; Checkpoint 7c), my win chance by week
+ * before and after (TradeDetail.winChance, winChanceOf: the baseline and the trade's run on that block; empty in a points-only
+ * league), B₃ for the reward and λ (helpsScaleOf; TradeEvaluation.b3), B and
  * its parts (benefit, with λ = the setting or the default by my finalSims baseline P(playoffs), κ = the "Protect my trade
  * value" level's: benefit.protectValueWeight, points a week per 100% of trade value, or 0 when the values are our own
  * estimates (valuesEstimated) or missing (valuesMissing), the market term priced on that B₃: planner reply to Checkpoint 7a,
- * §2 question 5, TradeEvaluation.marketWeekly; and B_win's weights by the "What matters most" goal), the Trade Score and
- * Overall on the same B₃, the flags, and benefitNotes (and helpsScaleNotes, estimatedValuesNotes, missingValuesNotes) in the
- * detail's notes. The one place a B is made (the search's screening and final simulations, the steps' versions, Plan B's
- * candidates, the Analyzer), so every B reads the B₃ its scores read.
- * Without odds (the context's note), B stays null and winChance absent. `protectValue` and `goal` are the user's per-call
- * settings (TradeSettings.protectValue, TradeSettings.goal); absent, the context's settings' (the search and the Analyzer
- * always pass theirs: a cached context may hold older settings, and neither setting rebuilds it).
+ * §2 question 5, TradeEvaluation.marketWeekly; and B_win's weights and prize shares by the reward: the goal and prizes), the
+ * Trade Score and Overall on the same B₃, the flags, and benefitNotes (and helpsScaleNotes, estimatedValuesNotes,
+ * missingValuesNotes) in the detail's notes. The one place a B is made (the search's screening and final simulations, the
+ * steps' versions, Plan B's candidates, the Analyzer), so every B reads the B₃ its scores read.
+ * Without odds (the context's note), B stays null and winChance absent. `protectValue` and `reward` are the user's per-call
+ * settings (TradeSettings.protectValue; the goal and prizes' reward, rewardFor); absent, the context's (the search and the
+ * Analyzer always pass theirs: a cached context may hold older settings, and protectValue doesn't rebuild it).
  */
-export function simulateTrade(I: TradeInternals, x: ExactTrade, stage: SimStage, lambda: number | null, protectValue?: ProtectValue, goal?: Goal): TradeEvaluationCore {
+export function simulateTrade(I: TradeInternals, x: ExactTrade, stage: SimStage, lambda: number | null, protectValue?: ProtectValue, reward?: Reward | null): TradeEvaluationCore {
   const ev = x.evaluation;
   const final = stage === "final";
   const sims = simCounts()[stage];
+  const rw = rewardOn(I, reward);
   let dPO: number | null = null;
   let dCH: number | null = null;
   let dEW: number | null = null;
+  let dPrizes: TradeEvaluationCore["dPrizes"] = null;
   let winChance: TradeDetail["winChance"];
   if (I.sim && I.me) {
     const base = I.sim.base[stage];
@@ -2652,22 +2720,23 @@ export function simulateTrade(I: TradeInternals, x: ExactTrade, stage: SimStage,
     dPO = after.pPlayoffs - base.pPlayoffs;
     dCH = after.pTitle !== null && base.pTitle !== null ? after.pTitle - base.pTitle : null;
     dEW = after.expWins - base.expWins;
+    // The weekly high scores' change only when this context simulated them (reward.ts runPrizeDeltas: unknown otherwise).
+    dPrizes = runPrizeDeltas(base.prizes, after.prizes, I.sim.highScores);
     winChance = winChanceOf(base, after);
   }
   // κ: the "Protect my trade value" level's, but 0 when the trade values are our own estimates (valuesEstimated: the market
   // term would count lineup points twice; the file header, "The simulation"), with ESTIMATED_VALUES_NOTE, and ⚠️ when there
   // are none at all (valuesMissing: every g is 0, so the term is 0 either way; κ 0 says there is none: marketWeekly null).
   const kappa = valuesEstimated(I) || valuesMissing(I) ? 0 : protectValueWeight(protectValue ?? I.settings.protectValue);
-  const g = goal ?? I.settings.goal;
-  // The scores' scale, B₃, under the same goal and λ (planner reply to Checkpoint 4c, A2), which also prices B's market term
+  // The scores' scale, B₃, under the same reward and λ (planner reply to Checkpoint 4c, A2), which also prices B's market term
   // (planner reply to Checkpoint 7a, §2 question 5): one B₃ for the B and the scores.
-  const scale = helpsScaleOf(I, lambda, g);
+  const scale = helpsScaleOf(I, lambda, rw);
   const b3 = scale?.b3 ?? null;
-  const b = benefit({ leagueType: I.snapshot.settings.leagueType, dPO, dCH, gMine: ev.gMine, dynasty: x.dynasty, myPPlayoffs: I.sim ? I.sim.base.final.pPlayoffs : null, lambda, kappa, b3, goal: g });
+  const b = benefit({ leagueType: I.snapshot.settings.leagueType, dPO, dCH, dPrizes, gMine: ev.gMine, dynasty: x.dynasty, myPPlayoffs: I.sim ? I.sim.base.final.pPlayoffs : null, lambda, kappa, b3, reward: rw });
   const numbers = tradeNumbers(b, { pAccept: ev.pAccept, pComplete: ev.pComplete, label: ev.acceptLabel }, b3);
   const { titleMissing: _titleMissing, ...cardNumbers } = numbers;
   void _titleMissing;
-  const notes = [...ev.detail.notes, ...benefitNotes(b), ...helpsScaleNotes(scale), ...estimatedValuesNotes(I), ...missingValuesNotes(I)];
+  const notes = [...ev.detail.notes, ...benefitNotes(b, rw), ...helpsScaleNotes(scale), ...estimatedValuesNotes(I), ...missingValuesNotes(I)];
   return {
     ...ev,
     ...cardNumbers,
@@ -2676,6 +2745,7 @@ export function simulateTrade(I: TradeInternals, x: ExactTrade, stage: SimStage,
     dPO,
     dCH,
     dEW,
+    dPrizes,
     flags: tradeFlags({ gMine: ev.gMine, b: b.b, injured: ev.flags.injured }),
     detail: { ...ev.detail, notes, ...(winChance ? { winChance } : {}) },
   };
@@ -2739,8 +2809,8 @@ export function throwIns(I: TradeInternals, settings: Pick<TradeSettings, "inclu
     .sort((a, b) => value(a) - value(b) || byId(a, b));
 }
 
-/** The settings the steps read: the search's (or the Analyzer's) per-call settings. */
-export type StepSettings = Pick<TradeSettings, "lambda" | "protectValue" | "goal" | "minChance" | "includeKDefIdp" | "untouchables" | "mustInclude">;
+/** The settings the steps read: the search's (or the Analyzer's) per-call settings (the goal and prizes: their reward, rewardFor). */
+export type StepSettings = Pick<TradeSettings, "lambda" | "protectValue" | "goal" | "prizes" | "minChance" | "includeKDefIdp" | "untouchables" | "mustInclude">;
 
 export interface StepOptions {
   settings: StepSettings;
@@ -2771,7 +2841,7 @@ export function tradeVersion(I: TradeInternals, proposal: TradeProposal, opts: P
   if (!version) {
     const x = evaluateExact(I, inKeyOrder(proposal), opts.maxPerSide);
     if ("illegal" in x) return null;
-    version = { x, screen: simulateTrade(I, x, "screen", opts.settings.lambda, opts.settings.protectValue, opts.settings.goal) };
+    version = { x, screen: simulateTrade(I, x, "screen", opts.settings.lambda, opts.settings.protectValue, rewardFor(I, opts.settings)) };
     opts.versions?.set(key, version);
   }
   return inProposalOrder(version, proposal);
@@ -2944,7 +3014,7 @@ export function assetValue(I: TradeInternals): (asset: TradeAsset) => number {
 // The Trade Analyzer
 
 export interface AnalyzeOptions {
-  /** The settings the evaluation reads per call (lambda, protectValue and goal; the rest is the context's). Default: defaultTradeSettings(). */
+  /** The settings the evaluation reads per call (lambda, protectValue, goal and prizes; the rest is the context's). Default: defaultTradeSettings(). */
   settings?: TradeSettings;
   clock?: () => number;
 }
@@ -2957,11 +3027,17 @@ export interface TradeAnalysis {
   /** Plain-English notes (the context's notes that apply, and this trade's). */
   notes: string[];
   /**
-   * The call's "Helps you" scale (helpsScaleOf for its goal and λ: the evaluation's b3, with what the tooltip words, planner
+   * The call's "Helps you" scale (helpsScaleOf for its reward and λ: the evaluation's b3, with what the tooltip words, planner
    * reply to Checkpoint 7a, §2 question 6: benefit.ts HelpsScale), with every evaluation analyzeTrade makes; null when it has
    * no odds. Absent without an evaluation (no team picked, or an illegal trade: nothing is scored).
    */
   helpsScale?: HelpsScale | null;
+  /**
+   * Checkpoint 7c (planner reply to Checkpoint 7b, §6): the reward the evaluation was scored under (rewardFor: the call's goal
+   * and prizes), so a page reads its prize shares (the "Top 3 odds" line, the feedback's) without making it again. Absent
+   * without an evaluation.
+   */
+  reward?: Reward;
 }
 
 /** The Trade Analyzer (§13): any proposal, evaluated exactly as the search's finalists are. */
@@ -2973,9 +3049,10 @@ export function analyzeTrade(ctx: TradeContext, proposal: TradeProposal, opts: A
   const maxPerSide = Math.max(1, Math.floor(config.search.analyzerMaxPerSide));
   const exact = evaluateExact(I, proposal, maxPerSide);
   if ("illegal" in exact) return { evaluation: null, illegal: exact.illegal, notes };
-  // The scale the evaluation is scored on (simulateTrade's B₃ for the same goal and λ), for the tooltip.
-  const helpsScale = helpsScaleOf(I, settings.lambda, settings.goal);
-  const core = simulateTrade(I, exact, "final", settings.lambda, settings.protectValue, settings.goal);
+  // The scale the evaluation is scored on (simulateTrade's B₃ for the same reward and λ), for the tooltip.
+  const reward = rewardFor(I, settings);
+  const helpsScale = helpsScaleOf(I, settings.lambda, reward);
+  const core = simulateTrade(I, exact, "final", settings.lambda, settings.protectValue, reward);
   for (const n of core.detail.notes) if (!notes.includes(n)) notes.push(n);
   // "Offer first / if they say no" for the analyzed trade too (N4: useful for counteroffers), from its numbers on the
   // screening block, its versions within the Analyzer's per-side maximum. ⚠️ Only for a trade the Trade Finder could show
@@ -2983,6 +3060,6 @@ export function analyzeTrade(ctx: TradeContext, proposal: TradeProposal, opts: A
   // trade doesn't help never says how to land it; and none when a context note stops the search (the deadline passed,
   // the season's over, no odds, …): the Analyzer still evaluates, but there's nothing to offer.
   const shown = core.b !== null && core.b > 0 && !core.flags.hiddenByMarket; // B > 0: not hidden by benefit either
-  const steps = I.blocked || !shown ? null : tradeSteps(I, { x: exact, screen: simulateTrade(I, exact, "screen", settings.lambda, settings.protectValue, settings.goal) }, { settings, maxPerSide });
-  return { evaluation: withWords(I, steps ? { ...core, steps } : core), illegal: null, notes, helpsScale };
+  const steps = I.blocked || !shown ? null : tradeSteps(I, { x: exact, screen: simulateTrade(I, exact, "screen", settings.lambda, settings.protectValue, reward) }, { settings, maxPerSide });
+  return { evaluation: withWords(I, steps ? { ...core, steps } : core), illegal: null, notes, helpsScale, reward };
 }

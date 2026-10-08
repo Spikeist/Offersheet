@@ -106,8 +106,9 @@
  * out is one I'd receive, whose lineup value the full trade has).
  *
  * Final stages (M8). Every exact trade gets the screening simulation (the screening block of seasons, screeningSims) → B
- * (λ, κ and the goal from the call's settings: lambda, "Protect my trade value" protectValue and "What matters most" goal;
- * evaluate.simulateTrade; Helps you and Overall on B₃ for that goal and λ, Phase 7a). Finalists: ⚠️ the first
+ * (λ, κ and the reward from the call's settings: lambda, "Protect my trade value" protectValue and "What does your league
+ * reward?", the goal and since Checkpoint 7c its prizes, evaluate.rewardFor; evaluate.simulateTrade; Helps you and Overall on
+ * B₃ for that reward and λ, Phase 7a). Finalists: ⚠️ the first
  * config.search.finalists (60 since Phase 4c, planner reply to Checkpoint 4b, change 1: the minimum chance and the caps
  * apply after them, so more trades that qualify remain for the list; no
  * promise of a full one, config.ts) trades rankTrades keeps from those numbers with its caps relaxed by one (perCore + 1
@@ -205,7 +206,7 @@
  * Notes: the context's (no team, no weeks, season over, deadline passed, no odds: then no trades), B's own
  * (benefit.benefitNotes, once; and Phase 4c's evaluate.estimatedValuesNotes, once: no market term in B while the trade
  * values are our own estimates), the "Helps you" scale's (Phase 7a, planner reply to Checkpoint 4c, A2: benefit.
- * helpsScaleNotes once when B₃ for the search's goal and λ is floored: my odds barely move; every trade, step and Plan B of
+ * helpsScaleNotes once when B₃ for the search's reward and λ is floored: my odds barely move; every trade, step and Plan B of
  * the search is scored on that one B₃, evaluate.helpsScaleOf, TradeSearchResult.helpsScale, and its B's market term priced
  * on it: planner reply to Checkpoint 7a, §2 question 5), evaluate.missingValuesNotes once (no trade values at all: the
  * chance they accept reads every trade as even on value), positions left out by settings, must-include problems, emptied
@@ -227,6 +228,7 @@ import {
   missingValuesNotes,
   harderToGetFor,
   proposalKey,
+  rewardFor,
   screenTrade,
   simulateTrade,
   tradeInternals,
@@ -243,6 +245,7 @@ import { addValueOf, baseFor, startablePositions } from "./league";
 import { neutralThrowIns } from "./market";
 import type { Pos } from "./model";
 import { patternNote, type PatternInputs } from "./pattern";
+import { prizeDeltas } from "./reward";
 import { addGainExact } from "./teamValue";
 import { addedGiven, choosePlanB, givenCapSkip, planBCandidates, planBConfig, type PlanBConfig } from "./planB";
 import { rankTrades, type RankConfig, type RankedTrades } from "./rank";
@@ -252,7 +255,7 @@ import type { PatternNote, PlanB, TradeAsset, TradeEvaluation, TradeEvaluationCo
 export interface TradeSearchOptions {
   /**
    * The user's settings (maxPerSide, untouchables, mustInclude, target/avoid positions, includeKDefIdp, includePicks,
-   * lambda, protectValue, goal, minChance). Default: defaultTradeSettings().
+   * lambda, protectValue, goal, prizes, minChance). Default: defaultTradeSettings().
    */
   settings?: TradeSettings;
   /** Only trades with this partner (null or absent = every other team). */
@@ -429,20 +432,24 @@ function searchNotes(I: TradeInternals, settings: TradeSettings): string[] {
   }
   if (settings.includePicks && I.snapshot.settings.leagueType !== "redraft") notes.push("Draft picks aren't part of trade ideas yet.");
   if (I.sim && I.me) {
-    // The same rules benefit() applies to every trade: title odds unknown, long-term values missing.
+    // The same rules benefit() applies to every trade: a paid prize's odds unknown, long-term values missing. Each prize
+    // component's change is 0 where the baseline knows it and unknown where it doesn't (reward.ts prizeDeltas).
+    const base = I.sim.base.final;
+    const reward = rewardFor(I, settings);
     const b = benefit({
       leagueType: I.snapshot.settings.leagueType,
       dPO: 0,
-      dCH: I.sim.base.final.pTitle === null ? null : 0,
+      dCH: base.pTitle === null ? null : 0,
+      dPrizes: prizeDeltas(base.prizes, base.prizes),
       gMine: 0,
       dynasty: I.future && I.future.myTotal > 0 ? { delta: 0, total: I.future.myTotal } : null,
-      myPPlayoffs: I.sim.base.final.pPlayoffs,
+      myPPlayoffs: base.pPlayoffs,
       lambda: settings.lambda,
-      goal: settings.goal,
+      reward,
     });
-    notes.push(...benefitNotes(b));
+    notes.push(...benefitNotes(b, reward));
     // B₃ is floored (planner reply to Checkpoint 4c, A2: "When it's floored, note it"): my odds barely move.
-    notes.push(...helpsScaleNotes(helpsScaleOf(I, settings.lambda, settings.goal)));
+    notes.push(...helpsScaleNotes(helpsScaleOf(I, settings.lambda, reward)));
     // B without its market term while the trade values are our own estimates (evaluate.simulateTrade: κ = 0).
     notes.push(...estimatedValuesNotes(I));
   }
@@ -1003,7 +1010,7 @@ function* finish(state: SearchState, settings: TradeSettings, mark: (stage: Trad
     if (known) return known;
     const x = exactByKey.get(core.key);
     if (!x) return core;
-    const sim = simulateTrade(I, x, "final", settings.lambda, settings.protectValue, settings.goal);
+    const sim = simulateTrade(I, x, "final", settings.lambda, settings.protectValue, rewardFor(I, settings));
     finalByKey.set(core.key, sim);
     return sim;
   };
@@ -1076,10 +1083,11 @@ function resultOf(state: SearchState, done: Finished, timings: Record<string, nu
   const { I, settings } = state;
   const base = I.sim && I.me ? I.sim.base.final : null;
   const { ranked } = done;
+  const reward = rewardFor(I, settings);
   const result: TradeSearchResult = {
     trades: done.shown,
     myTeamId: I.me?.id ?? null,
-    baseline: { pPlayoffs: base?.pPlayoffs ?? null, pTitle: base?.pTitle ?? null, expWins: base?.expWins ?? null },
+    baseline: { pPlayoffs: base?.pPlayoffs ?? null, pTitle: base?.pTitle ?? null, expWins: base?.expWins ?? null, prizes: base ? { ...base.prizes } : null },
     hidden: { byBenefit: ranked.hidden.byBenefit + state.hiddenElsewhere.byBenefit, byMarket: ranked.hidden.byMarket + state.hiddenElsewhere.byMarket, byChance: ranked.hidden.byChance },
     dropped: { ...ranked.dropped },
     counts: { ...state.counts },
@@ -1088,8 +1096,9 @@ function resultOf(state: SearchState, done: Finished, timings: Record<string, nu
     warnings: [...I.warnings],
     filter: { minChance: settings.minChance, qualifying: ranked.qualifying, few: done.few },
     ...(done.pattern ? { pattern: done.pattern } : {}),
-    // The one scale every card, step and Plan B was scored on (and its B's market term priced on).
-    helpsScale: helpsScaleOf(I, settings.lambda, settings.goal),
+    // The one scale every card, step and Plan B was scored on (and its B's market term priced on), and the reward behind it.
+    helpsScale: helpsScaleOf(I, settings.lambda, reward),
+    reward,
   };
   states.set(result, state);
   return result;
@@ -1104,6 +1113,8 @@ export function* tradeSearch(ctx: TradeContext, opts: TradeSearchOptions = {}): 
   const timer = stageTimer(opts.clock);
   const { timings, mark } = timer;
   const settings = normalizeTradeSettings(opts.settings ?? defaultTradeSettings());
+  // The reward every B of the search is weighed by (Checkpoint 7c: the goal and prizes; the context's own when they match).
+  const reward = rewardFor(I, settings);
   const counts = { screened: 0, exact: 0, simScreen: 0, simFinal: 0 };
   // A search stopped before ranking: no trades, nothing filtered (no `filter`), nothing dropped.
   const stopped = (notes: string[]): TradeSearchResult => {
@@ -1112,14 +1123,15 @@ export function* tradeSearch(ctx: TradeContext, opts: TradeSearchOptions = {}): 
     return {
       trades: [],
       myTeamId: I.me?.id ?? null,
-      baseline: { pPlayoffs: base?.pPlayoffs ?? null, pTitle: base?.pTitle ?? null, expWins: base?.expWins ?? null },
+      baseline: { pPlayoffs: base?.pPlayoffs ?? null, pTitle: base?.pTitle ?? null, expWins: base?.expWins ?? null, prizes: base ? { ...base.prizes } : null },
       hidden: { byBenefit: 0, byMarket: 0, byChance: 0 },
       dropped: { partnerCap: 0, core: 0, filler: 0, givenPlayer: 0 },
       counts,
       timings,
       notes: [...new Set(notes)],
       warnings: [...I.warnings],
-      helpsScale: helpsScaleOf(I, settings.lambda, settings.goal),
+      helpsScale: helpsScaleOf(I, settings.lambda, reward),
+      reward,
     };
   };
 
@@ -1180,7 +1192,7 @@ export function* tradeSearch(ctx: TradeContext, opts: TradeSearchOptions = {}): 
   const screened: { x: ExactTrade; core: TradeEvaluationCore }[] = [];
   for (let i = 0; i < exact.length; i++) {
     const x = exact[i] as ExactTrade;
-    screened.push({ x, core: simulateTrade(I, x, "screen", settings.lambda, settings.protectValue, settings.goal) });
+    screened.push({ x, core: simulateTrade(I, x, "screen", settings.lambda, settings.protectValue, reward) });
     if ((i + 1) % SIM_BATCH === 0 || i + 1 === exact.length) yield { stage: "simScreen", done: i + 1, total: exact.length };
   }
   counts.simScreen = screened.length;
@@ -1203,7 +1215,7 @@ export function* tradeSearch(ctx: TradeContext, opts: TradeSearchOptions = {}): 
   const finals: TradeEvaluationCore[] = [];
   for (let i = 0; i < finalists.length; i++) {
     const s = finalists[i] as { x: ExactTrade; core: TradeEvaluationCore };
-    finals.push(simulateTrade(I, s.x, "final", settings.lambda, settings.protectValue, settings.goal));
+    finals.push(simulateTrade(I, s.x, "final", settings.lambda, settings.protectValue, reward));
     yield { stage: "simFinal", done: i + 1, total: finalists.length };
   }
   counts.simFinal = finals.length;

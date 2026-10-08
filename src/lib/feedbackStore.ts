@@ -77,7 +77,7 @@
  */
 import type { HelpsScale } from "@/engine/benefit";
 import { fmix32, hash32 } from "@/engine/rng";
-import { GOALS, type Goal } from "@/engine/settings";
+import { FEEDBACK_GOALS, type FeedbackGoal } from "./feedbackEvent";
 import type { AcceptanceFeatures, TradeAsset, TradeEvaluation, TradeProposal } from "@/engine/tradeModel";
 import type { SaveResult, StorageLike } from "./importStore";
 
@@ -158,7 +158,7 @@ export interface VersionInputs {
   features: FeedbackFeatures | null;
   gPartner: number | null;
   b: number | null;
-  goal: Goal | null;
+  goal: FeedbackGoal | null;
   b3?: number | null;
   helpsReason?: HelpsReason | null;
   week?: number | null;
@@ -171,7 +171,7 @@ export interface VersionInputs {
 export interface FeedbackBasis {
   season: number;
   week: number;
-  goal: Goal | null;
+  goal: FeedbackGoal | null;
 }
 
 /** A season a basis may name (the server's schema takes the same: src/server/feedbackSink.ts). */
@@ -180,10 +180,13 @@ const isSeason = (x: unknown): x is number => Number.isInteger(x) && (x as numbe
 /** An NFL week a basis may name: 0 (before the season) to 30 (the server's schema takes the same). */
 export const isFeedbackWeek = (x: unknown): x is number => Number.isInteger(x) && (x as number) >= 0 && (x as number) <= 30;
 
-/** A basis as a record keeps it: undefined unless its season and week are ones (a goal that isn't one reads null). */
+/**
+ * A basis as a record keeps it: undefined unless its season and week are ones (a goal that isn't one reads null; an older
+ * version's "balanced" is kept: FEEDBACK_GOALS).
+ */
 function basisOf(x: unknown): FeedbackBasis | undefined {
   if (!isRecordLike(x) || !isSeason(x.season) || !isFeedbackWeek(x.week)) return undefined;
-  return { season: x.season, week: x.week, goal: (GOALS as readonly unknown[]).includes(x.goal) ? (x.goal as Goal) : null };
+  return { season: x.season, week: x.week, goal: (FEEDBACK_GOALS as readonly unknown[]).includes(x.goal) ? (x.goal as FeedbackGoal) : null };
 }
 
 /** The part of Offer Sheet a report points at (§11 "How the data is used"). */
@@ -326,7 +329,7 @@ function versionInputsOf(x: unknown): VersionInputs | undefined {
     features: isRecordLike(x.features) ? feedbackFeatures(x.features) : null,
     gPartner: finite(x.gPartner),
     b: finite(x.b),
-    goal: (GOALS as readonly unknown[]).includes(x.goal) ? (x.goal as Goal) : null,
+    goal: (FEEDBACK_GOALS as readonly unknown[]).includes(x.goal) ? (x.goal as FeedbackGoal) : null,
     b3: b3 !== null && b3 > 0 ? b3 : null,
     helpsReason: (HELPS_REASONS as readonly unknown[]).includes(x.helpsReason) ? (x.helpsReason as HelpsReason) : null,
     week: isFeedbackWeek(x.week) ? x.week : null,

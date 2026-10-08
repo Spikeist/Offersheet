@@ -36,8 +36,10 @@
  *   as-stands score before and after a trade), σ unchanged, on one common-random-numbers matrix (the League model's own:
  *   config.simulation.finalSims seasons from config.simulation.seed), from the one baseline (every team after its
  *   pickups: TeamModel.scoreWithPickups, the seasons LeagueModel.odds simulates, the trade search's baseline): ΔPO, ΔCH
- *   and Δ expected wins, B = 100 × (w_PO ΔPO + w_CH ΔCH) under each "What matters most" goal (benefit.goalWeights,
- *   config.benefit.goals; no market term: only lineup points move), B₃ under each goal (the +config.benefit.helpsGain row's
+ *   and Δ expected wins, B = 100 × (w_PO ΔPO + w_S ΔE[S]) under each "What does your league reward?" goal (benefitWin,
+ *   config.benefit.goals; Checkpoint 7c: ΔE[S] the change in my share of the prizes, src/engine/reward.ts, ΔCH under "Win
+ *   the title" and "Make the playoffs", ⚠️ "Several prizes" on the prefilled split, config.benefit.prizesDefault, unless the
+ *   model's own reward is one: goalRewards; no market term: only lineup points move), B₃ under each goal (the +config.benefit.helpsGain row's
  *   B through benefit.helpsScale: floored at config.benefit.helpsFloor; ⚠️ without λ, as the rows' B, so in a dynasty or
  *   keeper league with long-term values the app's scale is B_ref(λ) = (1 − λ) × this B₃ + λ × F₁₀ instead, planner reply
  *   to Checkpoint 7a, §2 question 6, and its lineup gains read lower than these rows unless λ is 0), and Helps
@@ -117,7 +119,9 @@
  *   finalSims of the seed's matrix, which are also the trade search's final block (its screening block is the next
  *   screeningSims).
  * - Goals (change 8): B under each "What matters most" goal (config.benefit.goals through benefit.goalWeights, the
- *   default goal config.benefit.goalDefault) wherever the report computes B (benefitWin, the scale check).
+ *   default goal config.benefit.goalDefault) wherever the report computes B (benefitWin, the scale check). Checkpoint 7c
+ *   (planner reply to Checkpoint 7b, §6): "Several prizes" in place of "Balanced", on the prefilled split for now
+ *   (goalRewards).
  * - The waiver order used (change 5; answer 2): the data line names it as the Import Report does
  *   (importReport.waiverOrderText), and so does the allocation line (waiverOrderNote). A snapshot from before the 4c
  *   adapter (no settings.waiverOrderUsed: its ranks are ESPN's live order of the import's day) is first put on the 4c
@@ -155,6 +159,7 @@ import { espnWaiverOrder } from "@/adapters/espn/waivers";
 import type { ImportDeps } from "@/adapters/types";
 import { loadPlayerIdResolver } from "@/data";
 import { goalWeights, helpsScale, marketSanity, marketWeekly, protectValueWeight, tradeScore } from "@/engine/benefit";
+import { paysWeekly, prizeOddsOf, prizePercents, prizePeriods, rewardWith, runPrizeDeltas, shareChange, type PrizeDeltas, type PrizeOdds, type Reward } from "@/engine/reward";
 import type { BlendPosition } from "@/engine/blend";
 import { config } from "@/engine/config";
 import type { MarketInputs, ModelInputs } from "@/engine/inputs";
@@ -167,7 +172,7 @@ import { returnersOf } from "@/engine/optimizer";
 import { finalLineups } from "@/engine/returners";
 import { buildSimSetup, pickupSeasonModel, playoffRounds, seasonOdds, type SeasonModel, type SimSetupResult } from "@/engine/season";
 import { simNormals, simulateSeason, type SimNormals, type SimResult, type SimSetup } from "@/engine/sim";
-import { GOALS, PROTECT_VALUE_LEVELS, defaultTradeSettings, type Goal, type ProtectValue } from "@/engine/settings";
+import { GOALS, PRIZE_KEYS, PROTECT_VALUE_LEVELS, defaultTradeSettings, type Goal, type PrizeKey, type ProtectValue } from "@/engine/settings";
 import { evLineups, rosValue, scenarioLineups } from "@/engine/teamValue";
 import { waiverOrderText } from "@/lib/importReport";
 import { posLabel } from "@/lib/labels";
@@ -348,16 +353,30 @@ export function byGoal<T>(f: (goal: Goal) => T): ByGoal<T> {
   return Object.fromEntries(GOALS.map((g) => [g, f(g)])) as ByGoal<T>;
 }
 
-/** The goals' names as the Settings page words them (planner reply to Checkpoint 4b, change 8). */
-export const GOAL_WORDS: Readonly<Record<Goal, string>> = { title: "Win the title", balanced: "Balanced", playoffs: "Make the playoffs" };
+/**
+ * The goals' names as the report words them (Phase 4c's words, planner reply to Checkpoint 4b, change 8; "Several prizes",
+ * the Settings page's, since Checkpoint 7c).
+ */
+export const GOAL_WORDS: Readonly<Record<Goal, string>> = { title: "Win the title", prizes: "Several prizes", playoffs: "Make the playoffs" };
 
 /**
- * §10's B_win in percentage points under a goal's weights: 100 × (w_PO ΔPO + w_CH ΔCH), ΔPO and ΔCH as fractions
- * (benefit.goalWeights: config.benefit.goals; absent goal: the default, config.benefit.goalDefault).
+ * Each goal's reward on a league with `periods` prize periods (reward.ts rewardWith): "Win the title" and "Make the playoffs"
+ * pay 1st place everything; "Several prizes" `own`'s split when `own` is one (the model's own reward: its user's prizes),
+ * else ⚠️ the prefilled split (config.benefit.prizesDefault; Checkpoint 7c, until the reports take a league's prizes).
  */
-export function benefitWin(dPO: number, dCH: number, goal?: Goal): number {
-  const w = goalWeights(goal);
-  return 100 * (w.playoffs * dPO + w.title * dCH);
+export function goalRewards(periods: number, own?: Reward | null): ByGoal<Reward> {
+  return byGoal((g) => (own && own.goal === g ? own : rewardWith({ goal: g, prizes: config.benefit.prizesDefault }, periods)));
+}
+
+/**
+ * §10's B_win in percentage points under a reward: 100 × (w_PO ΔPO + w_S ΔE[S]), ΔPO and the prize components' changes as
+ * fractions (benefit.goalWeights: config.benefit.goals; reward.ts shareChange: only the prizes that pay are read, so ΔE[S] is
+ * ΔCH when 1st place pays everything). NaN when a paid prize's change is unknown (the rows' "title odds unknown").
+ */
+export function benefitWin(dPO: number, dPrizes: Partial<PrizeDeltas>, reward: Reward): number {
+  const w = goalWeights(reward.goal);
+  const dES = shareChange(dPrizes, reward);
+  return dES === null ? Number.NaN : 100 * (w.playoffs * dPO + w.prizes * dES);
 }
 
 /** A team's weekly score distribution per model week (TeamModel.score, scoreWithPickups). */
@@ -430,29 +449,47 @@ export function batchSe(values: readonly number[], batchSims: number, sims: numb
   return Math.sqrt((variance * batchSims) / sims);
 }
 
-/** The team's odds in one simulated run: P(playoffs), P(title) (null = unknown) and expected wins. */
-export type MyOdds = Pick<TeamOdds, "pPlayoffs" | "pTitle" | "expWins">;
+/**
+ * The team's odds in one simulated run: P(playoffs), P(title) (null = unknown) and expected wins, and (Checkpoint 7c) its
+ * prize components (reward.ts PrizeOdds).
+ */
+export type MyOdds = Pick<TeamOdds, "pPlayoffs" | "pTitle" | "expWins"> & { prizes: PrizeOdds };
 
-/** §10's changes from one run's odds to another's: ΔPO and ΔCH as fractions, Δ expected wins, and B under each goal. */
+/**
+ * §10's changes from one run's odds to another's: ΔPO and ΔCH as fractions, Δ expected wins, every prize component's change
+ * (Checkpoint 7c) and B under each goal.
+ */
 export interface Deltas {
   dPO: number;
   dCH: number;
   dEW: number;
-  /** B (benefitWin; no market term: only lineup points move) under each "What matters most" goal; NaN when ΔCH is unknown. */
+  /** Every prize component's change (reward.ts runPrizeDeltas; null where unknown, the weekly high scores' unless simulated). */
+  dPrizes: PrizeDeltas;
+  /** B (benefitWin; no market term: only lineup points move) under each goal's reward; NaN when a paid prize's change is unknown. */
   B: ByGoal<number>;
 }
 
-const UNKNOWN_ODDS: MyOdds = { pPlayoffs: Number.NaN, pTitle: null, expWins: Number.NaN };
+/** A Deltas' standard errors (deltasSe): the prize components have none. */
+export type DeltasSe = Omit<Deltas, "dPrizes">;
 
-/** The changes from `from` to `to`: ΔCH (and so B) is NaN when either title chance is unknown. */
-function deltas(from: MyOdds, to: MyOdds): Deltas {
+const UNKNOWN_ODDS: MyOdds = { pPlayoffs: Number.NaN, pTitle: null, expWins: Number.NaN, prizes: { first: null, second: null, third: null, weeklyHigh: Number.NaN, pointsLeader: Number.NaN } };
+
+/** A team's odds in a run as the report reads them (MyOdds), from its TeamOdds. */
+function myOddsOf(o: TeamOdds): MyOdds {
+  return { pPlayoffs: o.pPlayoffs, pTitle: o.pTitle, expWins: o.expWins, prizes: prizeOddsOf(o) };
+}
+
+/** The changes from `from` to `to` (B under each goal's reward, `rewards`): ΔCH is NaN when either title chance is unknown. */
+function deltas(from: MyOdds, to: MyOdds, rewards: ByGoal<Reward>): Deltas {
   const dPO = to.pPlayoffs - from.pPlayoffs;
   const dCH = to.pTitle !== null && from.pTitle !== null ? to.pTitle - from.pTitle : Number.NaN;
-  return { dPO, dCH, dEW: to.expWins - from.expWins, B: byGoal((g) => benefitWin(dPO, dCH, g)) };
+  // The weekly high scores were simulated when a goal's reward pays them (scaleCheck's rule), else their change is unknown.
+  const dPrizes = runPrizeDeltas(from.prizes, to.prizes, GOALS.some((g) => paysWeekly(rewards[g])));
+  return { dPO, dCH, dEW: to.expWins - from.expWins, dPrizes, B: byGoal((g) => benefitWin(dPO, dPrizes, rewards[g])) };
 }
 
 /** Each change's Monte Carlo standard error from its values in the batches (batchSe). */
-function deltasSe(parts: readonly Deltas[], batchSims: number, sims: number): Deltas {
+function deltasSe(parts: readonly Deltas[], batchSims: number, sims: number): DeltasSe {
   const se = (f: (d: Deltas) => number) => batchSe(parts.map(f), batchSims, sims);
   return { dPO: se((d) => d.dPO), dCH: se((d) => d.dCH), dEW: se((d) => d.dEW), B: byGoal((g) => se((d) => d.B[g])) };
 }
@@ -463,7 +500,7 @@ export interface ScaleRow extends Deltas {
   /** Helps you under each goal on that goal's B₃ (ScaleCheck.b3; benefit.tradeScore). */
   score: ByGoal<number | null>;
   /** Each change's Monte Carlo standard error (batch means: batchRuns, batchSe); NaN when it can't be estimated. */
-  se: Deltas;
+  se: DeltasSe;
 }
 
 /** One goal's B₃ in a scale check (ScaleCheck.b3). */
@@ -477,7 +514,7 @@ export interface ScaleB3 {
   /** raw floored at config.benefit.helpsFloor: the scale Helps you is scored on; null with raw. */
   value: number | null;
   floored: boolean;
-  /** Title odds are unknown: B₃ counts the playoff odds alone (benefit.benefitWin's rule for every trade's B). */
+  /** A paid prize's odds are unknown (title odds, under the title-only goals): B₃ counts the playoff odds alone (benefit.benefitWin's rule for every trade's B). */
   playoffOnly: boolean;
   /**
    * B(+helpsGain)'s Monte Carlo standard error (the row's); null when the row wasn't among the check's gains, when title odds
@@ -489,6 +526,8 @@ export interface ScaleB3 {
 export interface ScaleCheck {
   /** The baseline's odds for the team. */
   base: MyOdds;
+  /** Checkpoint 7c: each goal's reward the rows' B and B₃ read (goalRewards: the league's prize periods). */
+  rewards: ByGoal<Reward>;
   /**
    * The baseline in each batch of the run (batchRuns). Another baseline on the same run takes the standard
    * error of its change from these (pickupsEffect). Empty when title odds are unknown: no row needs them.
@@ -532,18 +571,22 @@ function roundsNeeded(teams: number): number {
  * Null when title odds are known, or when neither case holds. The report then points to the notes under the
  * standings (SeasonOdds.notes), which say why.
  */
-export function titleUnknownReason(snapshot: LeagueSnapshot, odds: SeasonOdds, mine: MyOdds): string | null {
+export function titleUnknownReason(snapshot: LeagueSnapshot, odds: SeasonOdds, mine: Pick<MyOdds, "pTitle">): string | null {
   if (mine.pTitle !== null) return null;
   if (!odds.playoffsKnown) return "a playoff game already played has no result we can read or match to the bracket";
   const N = odds.playoffTeams;
   return N >= 2 && playoffRounds(snapshot.settings).length < roundsNeeded(N) ? `the league's playoff schedule has fewer rounds than a bracket of ${N} teams needs` : null;
 }
 
-/** scaleCheck's options: the gains (default SCALE_GAINS), the first model week they're added from (default 0) and the batches (default SE_BATCHES). */
+/**
+ * scaleCheck's options: the gains (default SCALE_GAINS), the first model week they're added from (default 0), the batches
+ * (default SE_BATCHES) and each goal's reward (default goalRewards on the league's prize periods).
+ */
 export interface ScaleOptions {
   gains?: readonly number[];
   from?: number;
   batches?: number;
+  rewards?: ByGoal<Reward>;
 }
 
 /**
@@ -558,10 +601,13 @@ export interface ScaleOptions {
 export function scaleCheck(snapshot: LeagueSnapshot, model: SeasonModel, teamId: string, base: WeeklyScores, run: SharedRun, opts: ScaleOptions = {}): ScaleCheck | null {
   const gains = opts.gains ?? SCALE_GAINS;
   const from = Math.max(0, Math.floor(opts.from ?? 0));
-  const simulate = (score: WeeklyScores, r: SharedRun) => seasonOdds(snapshot, withScore(model, teamId, score), { sims: r.sims, seed: r.seed, normals: r.normals });
+  const rewards = opts.rewards ?? goalRewards(prizePeriods(snapshot));
+  // The weekly high scores when a goal's reward pays them (reward.ts paysWeekly; ⚠️ never with the prefilled split).
+  const highScores = GOALS.some((g) => paysWeekly(rewards[g]));
+  const simulate = (score: WeeklyScores, r: SharedRun) => seasonOdds(snapshot, withScore(model, teamId, score), { sims: r.sims, seed: r.seed, normals: r.normals, highScores });
   const mine = (odds: SeasonOdds | null): MyOdds | null => {
     const o = oddsOf(odds, teamId);
-    return o ? { pPlayoffs: o.pPlayoffs, pTitle: o.pTitle, expWins: o.expWins } : null;
+    return o ? myOddsOf(o) : null;
   };
   const baseOdds = simulate(base, run);
   const b = mine(baseOdds);
@@ -575,10 +621,10 @@ export function scaleCheck(snapshot: LeagueSnapshot, model: SeasonModel, teamId:
     ? null
     : gains.map((gain) => {
         const score = plus(base, gain, from);
-        const d = deltas(b, mine(simulate(score, run)) ?? UNKNOWN_ODDS);
+        const d = deltas(b, mine(simulate(score, run)) ?? UNKNOWN_ODDS, rewards);
         // The same change in each batch, against the baseline's same seasons: the standard error.
         const se = deltasSe(
-          inBatches(score).map((o, j) => deltas(baseBatches[j] as MyOdds, o)),
+          inBatches(score).map((o, j) => deltas(baseBatches[j] as MyOdds, o, rewards)),
           batchSims,
           run.sims,
         );
@@ -587,15 +633,16 @@ export function scaleCheck(snapshot: LeagueSnapshot, model: SeasonModel, teamId:
   // B₃ under each goal (planner reply to Checkpoint 4c, A2): the +helpsGain row, simulated alone when the gains leave it out
   // or title odds are unknown (review of track SC, SC-3: then ΔPO alone, the app's own B₃ by benefit.benefitWin's rule).
   const gainB3 = config.benefit.helpsGain;
-  const at: Deltas & { se: Deltas | null } = measured?.find((r) => r.gain === gainB3) ?? { ...deltas(b, mine(simulate(plus(base, gainB3, from), run)) ?? UNKNOWN_ODDS), se: null };
+  const at: Deltas & { se: DeltasSe | null } = measured?.find((r) => r.gain === gainB3) ?? { ...deltas(b, mine(simulate(plus(base, gainB3, from), run)) ?? UNKNOWN_ODDS, rewards), se: null };
   const dCH3 = Number.isNaN(at.dCH) ? null : at.dCH;
   const b3 = byGoal((g): ScaleB3 => {
-    const s = helpsScale({ dPO: at.dPO, dCH: dCH3 }, { leagueType: snapshot.settings.leagueType, myPPlayoffs: b.pPlayoffs, goal: g, dynastyTotal: null });
-    return { raw: s?.raw ?? null, value: s?.b3 ?? null, floored: s?.floored ?? false, playoffOnly: s !== null && dCH3 === null, se: s && at.se ? at.se.B[g] : null };
+    const s = helpsScale({ dPO: at.dPO, dCH: dCH3, dPrizes: at.dPrizes }, { leagueType: snapshot.settings.leagueType, myPPlayoffs: b.pPlayoffs, reward: rewards[g], dynastyTotal: null });
+    return { raw: s?.raw ?? null, value: s?.b3 ?? null, floored: s?.floored ?? false, playoffOnly: s !== null && shareChange(at.dPrizes, rewards[g]) === null, se: s && at.se ? at.se.B[g] : null };
   });
   const rows: ScaleRow[] | null = measured?.map((r) => ({ ...r, score: byGoal((g) => tradeScore(r.B[g], b3[g].value)) })) ?? null;
   return {
     base: b,
+    rewards,
     baseBatches,
     batches: parts.length,
     batchSims,
@@ -620,7 +667,7 @@ export function calibrationMatches(check: Pick<ScaleCheck, "calibration"> | null
 /** Every team's free-agent pickups' own effect on my odds (the one baseline against as rosters stand; pickupsEffect). */
 export interface PickupsEffect extends Deltas {
   /** Paired on the same batches of the same run (NaN when the two checks' batches don't pair up). */
-  se: Deltas;
+  se: DeltasSe;
 }
 
 /**
@@ -630,9 +677,9 @@ export interface PickupsEffect extends Deltas {
  */
 export function pickupsEffect(withPickups: ScaleCheck, asStands: ScaleCheck, sims: number): PickupsEffect | null {
   if (withPickups.base.pTitle === null || asStands.base.pTitle === null) return null;
-  const d = deltas(asStands.base, withPickups.base);
+  const d = deltas(asStands.base, withPickups.base, withPickups.rewards);
   const paired = withPickups.batchSims === asStands.batchSims && withPickups.baseBatches.length === asStands.baseBatches.length;
-  const parts = paired ? withPickups.baseBatches.map((o, j) => deltas(asStands.baseBatches[j] as MyOdds, o)) : [];
+  const parts = paired ? withPickups.baseBatches.map((o, j) => deltas(asStands.baseBatches[j] as MyOdds, o, withPickups.rewards)) : [];
   return { ...d, se: deltasSe(parts, withPickups.batchSims, sims) };
 }
 
@@ -1341,9 +1388,11 @@ export function appHelpsScales(snapshot: LeagueSnapshot, inputs: ModelInputs, mo
   const me = model.myTeamId;
   if (!me || !model.odds) return null;
   const defaults = defaultTradeSettings();
+  const rewards = goalRewards(prizePeriods(snapshot));
   const of = (m: LeagueModel, goal: Goal): AppB3 => {
     const mine = m.odds?.teams.find((t) => t.teamId === me);
-    const s = mine ? helpsScale(m.helpsCalibration, { leagueType: snapshot.settings.leagueType, myPPlayoffs: mine.pPlayoffs, goal, dynastyTotal: null }) : null;
+    // That goal's own model's reward (its settings' prizes: the defaults here).
+    const s = mine ? helpsScale(m.helpsCalibration, { leagueType: snapshot.settings.leagueType, myPPlayoffs: mine.pPlayoffs, reward: m.reward ?? rewards[goal], dynastyTotal: null }) : null;
     return { b3: s?.b3 ?? null, floored: s?.floored ?? false, omega: m.playoffWeight };
   };
   return byGoal((goal) => of(goal === defaults.goal ? model : buildLeagueModel(snapshot, inputs, { now, scenarios: model.scenarios, settings: { ...defaults, goal } }), goal));
@@ -1377,8 +1426,10 @@ export function seasonReport(snapshot: LeagueSnapshot, inputs: ModelInputs, mode
   const me = model.myTeamId;
   const mine = model.teams.find((t) => t.id === me);
   const from = scaleFrom(model);
-  const scale = me && mine ? scaleCheck(snapshot, pickups, me, mine.scoreWithPickups ?? mine.score, run, { from }) : null;
-  const scaleStand = me && mine && stand ? scaleCheck(snapshot, model, me, mine.score, run, { from }) : null;
+  // Each goal's reward on the league's prize periods (the model's own for its goal: goalRewards).
+  const rewards = goalRewards(prizePeriods(snapshot), model.reward);
+  const scale = me && mine ? scaleCheck(snapshot, pickups, me, mine.scoreWithPickups ?? mine.score, run, { from, rewards }) : null;
+  const scaleStand = me && mine && stand ? scaleCheck(snapshot, model, me, mine.score, run, { from, rewards }) : null;
   const same = (check: ScaleCheck | null, o: TeamOdds | null): boolean | null => (check && o ? Object.is(check.base.pPlayoffs, o.pPlayoffs) && Object.is(check.base.pTitle, o.pTitle) && Object.is(check.base.expWins, o.expWins) : null);
   const matchPickups = me ? same(scale, oddsOf(odds, me)) : null;
   return {
@@ -1584,9 +1635,9 @@ function renderScale(L: string[], season: SeasonReport, model: LeagueModel, leag
     check.batches >= 2
       ? `± is its Monte Carlo standard error, by batch means: the ${sims} seasons split into ${check.batches} batches of ${thousands(check.batchSims)}, the change computed in each batch alone, SE = the batches' SD × √(${thousands(check.batchSims)} / ${sims}).`
       : "The run is too short to split into batches, so the changes have no standard error (–).";
-  const goals = GOALS.map((g) => `${GOAL_WORDS[g]} ${goalWeights(g).playoffs} / ${goalWeights(g).title}`).join(", ");
+  const goals = GOALS.map((g) => `${GOAL_WORDS[g]} ${goalWeights(g).playoffs} / ${goalWeights(g).prizes}`).join(", ");
   L.push(
-    `CLAUDE.md §10 and the planner's reply to Checkpoint 4c (A2: "Helps you" calibrates itself per league and goal): your weekly score mean + x points in every remaining week a trade can change (weeks ${weeks[0] ?? "–"}–${weeks.at(-1) ?? "–"}: regular season and playoffs${check.from > 0 ? `; week ${model.inProgressWeek} is under way, and a trade's evaluation holds a week under way at its score as rosters stand, so the gain starts the week after` : ""}), σ unchanged, x = ${SCALE_GAINS.join(", ")}. From the one baseline: every team after its free-agent pickups (TeamModel.scoreWithPickups, the seasons LeagueModel.odds simulates, the trade search's baseline). Every row is ${sims} simulated seasons on the same common-random-numbers matrix (seed ${odds.seed}, the League model's own seasons): each season is played with and without the gain on the same random draws. That takes out the noise of comparing separate runs, but each change is still an estimate from ${sims} seasons, and another seed would give a somewhat different one. ${error} ΔPO and ΔCH are fractions; B = 100 × (w_PO ΔPO + w_CH ΔCH) under each "What matters most" goal (w_PO / w_CH: ${goals}; no market term: only lineup points move); B₃ = B(+${config.benefit.helpsGain}) under the same goal, at least ${config.benefit.helpsFloor} (benefit.helpsScale; under the default goal the app's own B₃ is the same run, LeagueModel.helpsCalibration; under another goal it comes from that goal's own model: below the table); Helps you = round(100 × (1 − e^(−B / B₃))), so +${config.benefit.helpsGain} reads 63 by construction. The planner's toy league (12 teams, 10 weeks left, the weights before Phase 4c): B ≈ ${SCALE_GAINS.map((g) => PLANNER_TOY[g]?.B ?? "–").join(" / ")}, scores ≈ ${SCALE_GAINS.map((g) => PLANNER_TOY[g]?.score ?? "–").join(" / ")}.`,
+    `CLAUDE.md §10 and the planner's reply to Checkpoint 4c (A2: "Helps you" calibrates itself per league and goal): your weekly score mean + x points in every remaining week a trade can change (weeks ${weeks[0] ?? "–"}–${weeks.at(-1) ?? "–"}: regular season and playoffs${check.from > 0 ? `; week ${model.inProgressWeek} is under way, and a trade's evaluation holds a week under way at its score as rosters stand, so the gain starts the week after` : ""}), σ unchanged, x = ${SCALE_GAINS.join(", ")}. From the one baseline: every team after its free-agent pickups (TeamModel.scoreWithPickups, the seasons LeagueModel.odds simulates, the trade search's baseline). Every row is ${sims} simulated seasons on the same common-random-numbers matrix (seed ${odds.seed}, the League model's own seasons): each season is played with and without the gain on the same random draws. That takes out the noise of comparing separate runs, but each change is still an estimate from ${sims} seasons, and another seed would give a somewhat different one. ${error} ΔPO and ΔCH are fractions; B = 100 × (w_PO ΔPO + w_S ΔE[S]) under each goal (w_PO / w_S: ${goals}; ΔE[S], the change in your share of the league's prizes, is ΔCH under Win the title and Make the playoffs, and under Several prizes ${prizesWords(check.rewards.prizes)}; no market term: only lineup points move); B₃ = B(+${config.benefit.helpsGain}) under the same goal, at least ${config.benefit.helpsFloor} (benefit.helpsScale; under the default goal the app's own B₃ is the same run, LeagueModel.helpsCalibration; under another goal it comes from that goal's own model: below the table); Helps you = round(100 × (1 − e^(−B / B₃))), so +${config.benefit.helpsGain} reads 63 by construction. The planner's toy league (12 teams, 10 weeks left, the weights before Phase 4c): B ≈ ${SCALE_GAINS.map((g) => PLANNER_TOY[g]?.B ?? "–").join(" / ")}, scores ≈ ${SCALE_GAINS.map((g) => PLANNER_TOY[g]?.score ?? "–").join(" / ")}.`,
     "",
   );
   const m = season.scaleMatchesModel;
@@ -1661,6 +1712,18 @@ export function thresholdsLine(model: Pick<LeagueModel, "lineupThresholds">): st
   return `The thresholds in ROS lineup points keep the meaning they had at ω₀ = ${config.lineups.playoffWeight}: each is config's × Σω ÷ Σω₀ = ${fmt(t.scale, 3)} over the weeks team numbers count, so a free-agent pickup must gain at least ${fmt(t.faMinGain, 2)} (${config.freeAgentOptimizer.faMinGain} at ω₀), a trade chip's gap must be at least ${fmt(t.chipMinGap, 2)} (${config.needs.chipMinGap}), and a throw-in may cost at most ${fmt(throwIn * t.scale, 2)} (${throwIn}).`;
 }
 
+/**
+ * "Several prizes"' split in words for the report's lines ("the prefilled split, 1st 60%, 2nd 30%, 3rd 10%"): whole percents
+ * (reward.ts prizePercents), the weekly high score's for the whole season.
+ */
+export function prizesWords(reward: Reward): string {
+  const pct = prizePercents(reward.shares);
+  const words: Record<PrizeKey, string> = { first: "1st", second: "2nd", third: "3rd", weeklyHigh: `weekly high scores (${reward.periods} weeks)`, pointsLeader: "most points" };
+  const paid = PRIZE_KEYS.filter((k) => pct[k] > 0).map((k) => `${words[k]} ${pct[k]}%`);
+  const same = PRIZE_KEYS.every((k) => Object.is(rewardWith({ goal: "prizes", prizes: config.benefit.prizesDefault }, reward.periods).shares[k], reward.shares[k]));
+  return `${same ? "the prefilled split, " : "the league's split, "}${paid.join(", ")}`;
+}
+
 /** "weeks 5–14" (a run of consecutive weeks), else the list. */
 function weekSpan(weeks: readonly number[]): string {
   if (!weeks.length) return "no weeks";
@@ -1684,15 +1747,17 @@ export function playoffWeightLines(model: Pick<LeagueModel, "playoffWeight" | "p
   const out = [head, ""];
   if (!a.runs) return out;
   const r = a.runs;
+  // Each goal's reward on the league's prize periods; the model's own when it's "Several prizes" (its user's split).
+  const rewards = goalRewards(a.reward?.periods ?? 0, a.reward);
   const pts = (x: number | null) => (x === null ? "–" : signed(100 * x, 2));
   out.push(
-    `Two runs on the headline's ${thousands(a.sims)} seasons (common random numbers), every team as it stands (before any free-agent pickup: the pickups depend on ω): your weekly score +${a.gain} in the regular-season ${weekSpan(r.regular.weeks)} only: ΔPO ${pts(r.regular.dPO)}, ΔCH ${pts(r.regular.dCH)} points; +${a.gain} in the playoff ${weekSpan(r.playoffs.weeks)} only: ΔPO ${pts(r.playoffs.dPO)}, ΔCH ${pts(r.playoffs.dCH)} points. B per point = 100 × (w_PO ΔPO + w_CH ΔCH) ÷ (${a.gain} × the weeks changed). It weighs every ROS(T) (the free-agent optimizer, lineup costs, trade chips, the search's shortlists), never a player's own ROS points.`,
+    `Two runs on the headline's ${thousands(a.sims)} seasons (common random numbers), every team as it stands (before any free-agent pickup: the pickups depend on ω): your weekly score +${a.gain} in the regular-season ${weekSpan(r.regular.weeks)} only: ΔPO ${pts(r.regular.dPO)}, ΔCH ${pts(r.regular.dCH)} points; +${a.gain} in the playoff ${weekSpan(r.playoffs.weeks)} only: ΔPO ${pts(r.playoffs.dPO)}, ΔCH ${pts(r.playoffs.dCH)} points. B per point = 100 × (w_PO ΔPO + w_S ΔE[S]) ÷ (${a.gain} × the weeks changed), ΔE[S] the change in your share of the league's prizes (ΔCH when 1st place pays everything; under Several prizes ${prizesWords(rewards.prizes)}). It weighs every ROS(T) (the free-agent optimizer, lineup costs, trade chips, the search's shortlists), never a player's own ROS points.`,
     "",
     "| Goal | B per point, regular season | B per point, playoffs | ω |",
     "|---|---|---|---|",
   );
   for (const g of GOALS) {
-    const w = playoffWeightFrom(r, g, a.sims);
+    const w = playoffWeightFrom(r, rewards[g], a.sims);
     const omega = w.basis === "auto" ? `${w.omega}×${w.clamped ? ` (clamped ${w.clamped})` : ""}` : `${w.omega}× (fallback: ${PLAYOFF_WEIGHT_FALLBACK_WORDS[w.reason ?? "noOdds"]})`;
     out.push(`| ${GOAL_WORDS[g]}${g === a.goal ? " (yours)" : ""} | ${w.regularPerPoint === null ? "–" : fmt(w.regularPerPoint, 4)} | ${w.playoffPerPoint === null ? "–" : fmt(w.playoffPerPoint, 4)} | ${omega} |`);
   }

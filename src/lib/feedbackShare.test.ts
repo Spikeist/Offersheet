@@ -7,6 +7,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { tradeSnapshot } from "@/components/trades/testFixtures";
 import type { LeagueSettings, LeagueSnapshot } from "@/engine/model";
+import type { Goal } from "@/engine/settings";
 import type { AcceptanceFeatures } from "@/engine/tradeModel";
 import { FEEDBACK_EVENT_MAX_PER_SIDE, FEEDBACK_PLAYER_ID } from "./feedbackEvent";
 import {
@@ -103,7 +104,7 @@ function recordAfter(...changes: FeedbackChange[]): FeedbackRecord | undefined {
   return list[0];
 }
 
-const context = (goal: "title" | "balanced" | "playoffs" | null = "title") => feedbackShareContext(snapshot, goal);
+const context = (goal: Goal | null = "title") => feedbackShareContext(snapshot, goal);
 
 describe("the league's format in a copy", () => {
   it("numTeams, league type, points per catch and passing TD, TE premium, a second QB, starting slots by the positions they take, playoff teams", () => {
@@ -140,6 +141,7 @@ describe("the league's format in a copy", () => {
 
 describe("the anonymous copy of a record", () => {
   it("holds exactly the privacy page's fields, rounded to 6 significant digits", () => {
+    // A version recorded under "Top finishers too" before Checkpoint 7c keeps its goal (feedbackEvent.ts FEEDBACK_GOALS).
     const record = recordAfter({ outcome: "sent", sent: { version: "full", key: "2|give:106|get:204", pAccept: 0.42, pComplete: 0.42, inputs: { features: FEATURES, gPartner: -0.08, b: 4.212345678, goal: "balanced", b3: 6, helpsReason: null } } });
     const event = feedbackEventOf({ record: record as FeedbackRecord, kind: "outcome", context: context("title") });
     expect(event).toEqual({
@@ -164,24 +166,24 @@ describe("the anonymous copy of a record", () => {
   });
 
   it("pairs each set of numbers with the week and goal they were computed for, not the ones on screen at a later press (review FB-R6)", () => {
-    // Week 12 under "Win the title": Report. A week later, the cards searched again under "Balanced": Sent, with the version's
-    // inputs. The record keeps week 12's numbers; the version's inputs are week 13's.
+    // Week 12 under "Only the champion": Report. A week later, the cards searched again under "Several prizes": Sent, with the
+    // version's inputs. The record keeps week 12's numbers; the version's inputs are week 13's.
     const week12 = feedbackBasisOf(context("title"));
-    const week13 = { ...week12, week: 13, goal: "balanced" as const };
-    const inputs = { features: FEATURES, gPartner: -0.08, b: 5.9, goal: "balanced" as const, b3: 7.1, helpsReason: null };
+    const week13 = { ...week12, week: 13, goal: "prizes" as const };
+    const inputs = { features: FEATURES, gPartner: -0.08, b: 5.9, goal: "prizes" as const, b3: 7.1, helpsReason: null };
     const record = recordAfter({ report: { reason: "never-accept" }, basis: week12 }, { outcome: "sent", sent: { version: "full", key: "2|give:106|get:204", pAccept: 0.5, pComplete: 0.5, inputs }, basis: week13 }) as FeedbackRecord;
     expect(record.basis).toEqual({ season: 2026, week: 12, goal: "title" });
-    const onScreen = { ...context("balanced"), week: 13 };
+    const onScreen = { ...context("prizes"), week: 13 };
     const first = feedbackEventOf({ record: recordAfter({ report: { reason: "never-accept" }, basis: week12 }) as FeedbackRecord, kind: "report", context: context("title") }) as FeedbackEvent;
     const latest = feedbackEventOf({ record, kind: "outcome", context: onScreen }) as FeedbackEvent;
     for (const e of [first, latest]) expect(e).toMatchObject({ season: 2026, week: 12, goal: "title", numbers: { b: 4.21235 } });
-    expect(latest.versionInputs).toMatchObject({ b: 5.9, goal: "balanced", week: 13 });
+    expect(latest.versionInputs).toMatchObject({ b: 5.9, goal: "prizes", week: 13 });
     // The record reads back with its basis (the league store, an export).
     expect(parseFeedbackRecord(JSON.parse(JSON.stringify(record)))?.basis).toEqual(week12);
     expect(parseFeedbackRecord(JSON.parse(JSON.stringify({ ...record, basis: { season: 1999, week: 12, goal: "title" } })))).not.toHaveProperty("basis");
     // A record made before (no basis): the league data and cards on screen, as before.
     const old = recordAfter({ report: { reason: "never-accept" } }) as FeedbackRecord;
-    expect(feedbackEventOf({ record: old, kind: "report", context: onScreen })).toMatchObject({ week: 13, goal: "balanced" });
+    expect(feedbackEventOf({ record: old, kind: "report", context: onScreen })).toMatchObject({ week: 13, goal: "prizes" });
   });
 
   it("names the sent version's own players when they aren't the card's: a first offer, a throw-in added, a Plan B (review FB-R7)", () => {
@@ -460,8 +462,8 @@ describe("shareFeedbackPress (after a press the browser kept)", () => {
   });
 
   it("builds its context from the league data on screen and the goal its cards used", () => {
-    const ctx = feedbackShareContext(snapshot as LeagueSnapshot, "balanced");
-    expect(ctx).toMatchObject({ platform: "espn", season: 2026, week: 12, goal: "balanced", format: feedbackFormatOf(snapshot.settings) });
+    const ctx = feedbackShareContext(snapshot as LeagueSnapshot, "prizes");
+    expect(ctx).toMatchObject({ platform: "espn", season: 2026, week: 12, goal: "prizes", format: feedbackFormatOf(snapshot.settings) });
     expect(ctx.players["106"]?.pos).toBe("WR");
   });
 });

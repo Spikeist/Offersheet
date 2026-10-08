@@ -16,6 +16,7 @@ import {
   analyzeTrade,
   buildTradeContext,
   evaluateExact,
+  rewardFor,
   simCounts,
   simulateTrade,
   spotsOf,
@@ -33,6 +34,7 @@ import { buildLeagueModel, type BuildLeagueModelOptions } from "./league";
 import type { SeasonOdds } from "./leagueModel";
 import type { LeagueSnapshot, Matchup } from "./model";
 import type { ModelInputs } from "./inputs";
+import { rewardOf, shareChange } from "./reward";
 import { seasonOdds, type SeasonModel } from "./season";
 import { GOALS, defaultTradeSettings } from "./settings";
 import { simNormals } from "./sim";
@@ -340,34 +342,52 @@ describe("the depth cover (TradeDetail.depthCover): my ΔPPW in scenario lineups
   });
 });
 
-describe("the goal reaches benefit() (\"What matters most\", planner reply to Checkpoint 4b, change 8)", () => {
+describe("the goal and prizes reach benefit() (\"What does your league reward?\", planner reply to Checkpoint 4b, change 8; Checkpoint 7c)", () => {
   const ctx = hand(() => undefined, {}, { scenarios: 8 });
   const I = tradeInternals(ctx);
   const sim = I.sim as SimState;
   const proposal = trade("2", ["wc1"], ["ra2"]);
   const x = exact(ctx, proposal);
 
-  it("B is benefit() with the call's goal; the context's settings' goal when the call passes none", () => {
+  it("B is benefit() with the call's reward (its goal's weights, ΔE[S] from every prize component); the context's when the call passes none", () => {
     const bs = GOALS.map((goal) => {
-      const s = simulateTrade(I, x, "final", null, undefined, goal);
-      const b = benefit({ leagueType: "redraft", dPO: s.dPO, dCH: s.dCH, gMine: s.gMine, dynasty: null, myPPlayoffs: sim.base.final.pPlayoffs, lambda: null, kappa: protectValueWeight(I.settings.protectValue), b3: s.b3, goal });
+      const reward = rewardOf({ ...defaultTradeSettings(), goal }, I.snapshot);
+      const s = simulateTrade(I, x, "final", null, undefined, reward);
+      const b = benefit({ leagueType: "redraft", dPO: s.dPO, dCH: s.dCH, dPrizes: s.dPrizes, gMine: s.gMine, dynasty: null, myPPlayoffs: sim.base.final.pPlayoffs, lambda: null, kappa: protectValueWeight(I.settings.protectValue), b3: s.b3, reward });
       expect(s.b, goal).toBe(b.b);
       expect(s.bWin, goal).toBe(b.bWin);
       const w = config.benefit.goals[goal];
-      expect(s.bWin as number, goal).toBeCloseTo(100 * (w.playoffs * (s.dPO as number) + w.title * (s.dCH as number)), 9);
+      expect(s.bWin as number, goal).toBeCloseTo(100 * (w.playoffs * (s.dPO as number) + w.prizes * (shareChange(s.dPrizes, reward) as number)), 9);
+      // ΔE[S] is ΔCH where 1st place pays everything.
+      if (goal !== "prizes") expect(shareChange(s.dPrizes, reward), goal).toBe(s.dCH);
+      expect(s.dPrizes?.first, goal).toBe(s.dCH);
       return s.b as number;
     });
-    // The goals weigh ΔPO and ΔCH differently, and this trade moves them by different amounts.
+    // The goals weigh the odds differently, and this trade moves them by different amounts.
     expect(new Set(bs).size).toBe(GOALS.length);
-    expect(simulateTrade(I, x, "final", null).b).toBe(simulateTrade(I, x, "final", null, undefined, I.settings.goal).b);
+    expect(simulateTrade(I, x, "final", null).b).toBe(simulateTrade(I, x, "final", null, undefined, I.league.reward).b);
   });
 
-  it("the Analyzer and the steps' versions use the settings' goal", () => {
+  it("the Analyzer and the steps' versions use the settings' goal and prizes", () => {
     for (const goal of GOALS) {
       const settings = { ...defaultTradeSettings(), goal };
-      expect(analyzeTrade(ctx, proposal, { settings }).evaluation?.b, goal).toBe(simulateTrade(I, x, "final", settings.lambda, settings.protectValue, goal).b);
-      expect(tradeVersion(I, proposal, { settings, maxPerSide: 2 })?.screen.b, goal).toBe(simulateTrade(I, x, "screen", settings.lambda, settings.protectValue, goal).b);
+      const reward = rewardFor(I, settings);
+      const analysis = analyzeTrade(ctx, proposal, { settings });
+      expect(analysis.evaluation?.b, goal).toBe(simulateTrade(I, x, "final", settings.lambda, settings.protectValue, reward).b);
+      expect(analysis.reward, goal).toEqual(reward);
+      expect(tradeVersion(I, proposal, { settings, maxPerSide: 2 })?.screen.b, goal).toBe(simulateTrade(I, x, "screen", settings.lambda, settings.protectValue, reward).b);
     }
+  });
+
+  it("a no-op trade moves no prize component (common random numbers)", () => {
+    // Two teams' rows replaced by their baseline rows: every prize component's change is exactly 0.
+    const me = I.me as TeamState;
+    const noop = { ...x, mine: me.base, theirs: (I.byId.get("2") as TeamState).base, partner: I.byId.get("2") as TeamState };
+    const s = simulateTrade(I, noop, "final", null, undefined, rewardOf({ ...defaultTradeSettings(), goal: "prizes" }, I.snapshot));
+    // The weekly high scores weren't simulated (this context's reward doesn't pay them): their change is unknown, never 0.
+    expect(s.dPrizes).toEqual({ first: 0, second: 0, third: 0, weeklyHigh: null, pointsLeader: 0 });
+    expect(s.dPO).toBe(0);
+    expect(s.bWin).toBe(0);
   });
 });
 
