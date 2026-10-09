@@ -679,15 +679,16 @@ export function helpsThemScore(b: number | null, b3: number | null): number | nu
 }
 
 /**
- * Whether a trade helps both teams (planner reply to Checkpoint 7b, §7: "when Helps you > 0 and Helps them ≥ 10"), judged on
- * the printed scores (⚠️ the lead's call, like the minimum chance's printed rule: a B above 0 that prints Helps you 0 doesn't
- * help "both" on screen): its Helps you (tradeScore, a whole number) above 0 and its Helps them (them.helps) at least `min`
- * (config.benefit.helpsThemMin). False without a Helps them (not simulated, or an evaluation made before it).
+ * Whether a trade helps both teams, judged on the printed scores (⚠️ the lead's call, like the minimum chance's printed rule):
+ * its Helps you (tradeScore, a whole number) and its Helps them (them.helps) each at least `min` (config.benefit.helpsThemMin,
+ * 10). Planner reply to Checkpoint 7c, answer 5: "“Helps both” needs Helps you ≥ 10 too, the same bar as Helps them, so trades
+ * that barely help Parker stay out" (Checkpoint 7c read the planner's "Helps you > 0", so a card reading Helps you 2 qualified).
+ * False without a Helps them (not simulated, or an evaluation made before it).
  */
 export function helpsBoth(e: Pick<TradeEvaluation, "tradeScore" | "them">, min: number = config.benefit.helpsThemMin): boolean {
   const mine = e.tradeScore;
   const theirs = e.them?.helps;
-  return isFiniteNumber(mine) && mine > 0 && isFiniteNumber(theirs) && theirs >= min;
+  return isFiniteNumber(mine) && mine >= min && isFiniteNumber(theirs) && theirs >= min;
 }
 
 // ---------------------------------------------------------------------------------------------

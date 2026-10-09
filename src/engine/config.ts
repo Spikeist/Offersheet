@@ -488,9 +488,10 @@ export const config = {
     helpsFutureShare: 0.1,
     /**
      * "Helps both" (Checkpoint 7c; planner reply to Checkpoint 7b, §7, its `config.helpsThemMin`, kept here beside the scale
-     * it reads): a trade helps both teams when its Helps you, as printed, is above 0 and its Helps them, as printed, is at
-     * least this (benefit.ts helpsBoth). 10 is about +0.3 projected points a week for them: 10 = 100 × (1 − e^(−x)) at x ≈
-     * 0.105 of the B of their +3 points a week, the planner's "A score of 10 is about +0.3 points a week for them".
+     * it reads): a trade helps both teams when its Helps you and its Helps them, each as printed, are at least this
+     * (benefit.ts helpsBoth; Helps you since Checkpoint 7d, planner reply to Checkpoint 7c, answer 5: "the same bar as Helps
+     * them"; above 0 before). 10 is about +0.3 projected points a week: 10 = 100 × (1 − e^(−x)) at x ≈ 0.105 of the B of
+     * +3 points a week, the planner's "A score of 10 is about +0.3 points a week for them".
      */
     helpsThemMin: 10,
     marketCheckBelow: -0.15,

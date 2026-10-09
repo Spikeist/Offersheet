@@ -1018,10 +1018,13 @@ describe("“Helps them” (Checkpoint 7c; planner reply to Checkpoint 7b, §7):
     expect(helpsThemScore(0.001, 4)).toBe(0);
   });
 
-  it("helpsBoth: Helps you above 0 and Helps them at least config.benefit.helpsThemMin, both as printed", () => {
+  it("helpsBoth: Helps you and Helps them each at least config.benefit.helpsThemMin, as printed (Checkpoint 7d: Helps you too)", () => {
     const them = (helps: number | null) => ({ b: 1, bWin: 1, bFuture: null, lambda: null, b3: 4, helps, dPO: 0.01, dCH: 0.005, dPrizes: titleDeltas(0.005), before: { pPlayoffs: 0.4, pTitle: 0.05, prizes: { first: 0.05, second: null, third: null, weeklyHigh: 0, pointsLeader: 0 } } });
     expect(helpsBoth({ tradeScore: 30, them: them(10) })).toBe(true);
-    expect(helpsBoth({ tradeScore: 1, them: them(63) })).toBe(true);
+    expect(helpsBoth({ tradeScore: 10, them: them(63) })).toBe(true);
+    // Planner reply to Checkpoint 7c, answer 5: Helps you needs the same bar, so a trade that barely helps me stays out.
+    expect(helpsBoth({ tradeScore: 9, them: them(63) })).toBe(false);
+    expect(helpsBoth({ tradeScore: 1, them: them(63) })).toBe(false);
     expect(helpsBoth({ tradeScore: 30, them: them(9) })).toBe(false);
     // Helps you printing 0 (a B above 0 too small to round up) doesn't help "both" on screen.
     expect(helpsBoth({ tradeScore: 0, them: them(40) })).toBe(false);

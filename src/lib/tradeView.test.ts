@@ -2052,7 +2052,9 @@ describe("Checkpoint 7c: “Helps both” and “Helps them” (planner reply to
     expect(analysis.card?.helpsBothTag?.text).toBe("Helps both");
     expect(analysis.card?.them?.text).toBe("Helps them 30 · Their title odds 6.0% → 6.9% · Their playoff odds 41% → 45%");
     // helpsBothTagOf reads the engine's rule (benefit.ts helpsBoth).
-    expect(helpsBothTagOf({ tradeScore: 1, them: them(MIN) })?.text).toBe("Helps both");
+    expect(helpsBothTagOf({ tradeScore: MIN, them: them(MIN) })?.text).toBe("Helps both");
+    // Checkpoint 7d (planner reply to Checkpoint 7c, answer 5): Helps you needs the same bar as Helps them.
+    expect(helpsBothTagOf({ tradeScore: MIN - 1, them: them(MIN) })).toBeNull();
     expect(helpsBothTagOf({ tradeScore: 0, them: them(MIN) })).toBeNull();
   });
 

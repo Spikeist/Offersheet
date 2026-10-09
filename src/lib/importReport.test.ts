@@ -486,7 +486,9 @@ describe("buildImportReport: lineup, season and trades", () => {
     expect([...WAIVER_WARNING_CODES.beforeGames]).toEqual([ESPN_WAIVER_CODES.beforeGames, SLEEPER_WAIVER_RESET_BEFORE_GAMES]);
   });
 
-  it("the row for leagues as their adapters read them: Parker's ESPN league (weekly reset), the Sleeper test league (rolling; reverse standings)", () => {
+  // Both test leagues through their real adapters: about 0.7 s alone, but over 5 s once under the full parallel suite
+  // (Checkpoint 7d), so it gets the room the other adapter-heavy tests have.
+  it("the row for leagues as their adapters read them: Parker's ESPN league (weekly reset), the Sleeper test league (rolling; reverse standings)", { timeout: 60_000 }, () => {
     type EspnJson = { teams: { record: { overall: Record<string, number> } }[]; settings: { acquisitionSettings: Record<string, unknown> }; status: Record<string, unknown> };
     const espn = (edit: (league: EspnJson) => void = () => {}) => {
       const bundle = parkerBundle();

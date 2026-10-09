@@ -546,7 +546,8 @@ describe("the “Helps both” list (Checkpoint 7c; planner reply to Checkpoint 
     });
 
     it("R5 in Helps-you order: a bigger variant no more helpful and less likely is filler however far its B falls", () => {
-      const worse = hb("worse", "8", 0.5, 0.25, ["p1", "p2"], ["p20", "p21"]);
+      // B 0.8 still prints Helps you 10 or more (it helps both under Checkpoint 7d's bar), far outside 20% of small's 1.44.
+      const worse = hb("worse", "8", 0.8, 0.25, ["p1", "p2"], ["p20", "p21"]);
       const r = rankTrades([worse, small], byNumber, rankCfg(), { order: "helps", keep });
       expect(keys(r.trades)).toEqual(["small"]);
       expect(r.dropped.filler).toBe(1);

@@ -135,8 +135,9 @@ describe("the “Helps both” list (TradeSearchResult.helpsBoth)", { timeout: 1
     expect(extras).toBeGreaterThan(0); // a fact of the synthetic data
   });
 
-  it("re-checked on the final run: an extra that doesn't help both on its final numbers stays off the list (smallLeague(77))", () => {
-    const r = search(77, 0.1);
+  it("re-checked on the final run: an extra that doesn't help both on its final numbers stays off the list (smallLeague(13))", () => {
+    // smallLeague(13) since Checkpoint 7d's bar (Helps you at least 10 too): 6 of its 12 extras don't help both on the final run.
+    const r = search(13, 0.1);
     const st = stateOf(r);
     const out = st.finals.filter((c) => st.helpsBothExtras.includes(c.key) && !helpsBoth(c));
     expect(out.length).toBeGreaterThan(0); // a fact of the synthetic data
